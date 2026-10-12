@@ -463,6 +463,7 @@ async def test_job_outcome_names_each_letter_with_its_difference_and_attempts(
             "zones": ["ask"],
             "queued": True,
             "reason": None,
+            "followups": [],
         },
         {
             "lead_id": olga.id,
@@ -473,6 +474,7 @@ async def test_job_outcome_names_each_letter_with_its_difference_and_attempts(
             "zones": ["ask"],
             "queued": True,
             "reason": None,
+            "followups": [],
         },
     ]
     assert (shown["report"]["prepared"], shown["report"]["tokens_spent"]) == (2, 3 * 37)

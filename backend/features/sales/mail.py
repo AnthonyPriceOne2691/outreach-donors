@@ -23,8 +23,10 @@
 - `answer` — ответ лиду в переписке до заведения письма: продажи подключены, у переписки
   есть лид, ему можно писать; текст — с подписью и адресом из «Отправителя» в конце, и
   метрик Ahrefs в нём нет;
-- `followup` — текст добивки: шаг цепочки того же набора и языка, что у первого письма,
-  подстановки лида, подпись и адрес. Тему даёт первое письмо — у шаблона добивки её нет;
+- `followup` — текст добивки: собранный при сборке первого письма (`followup_texts.py`,
+  у переписки лида), если цепочка набора с тех пор не менялась, иначе — шаг цепочки того же
+  набора и языка, что у первого письма, с подстановками лида; подпись и адрес — из
+  «Отправителя». Модели здесь нет. Тему даёт первое письмо — у шаблона добивки её нет;
 - `policy` — политика почты продаж (`policy.sales_policy`): окно получателя, мягкие
   сигналы ящика, сторож;
 - `threads_to` — переписки лидов с этим адресом: по ним стоп-лист снимает письма продаж
@@ -46,7 +48,7 @@ import logging
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import Stage
@@ -59,11 +61,11 @@ from backend.features.core.stages import (
     SalesFollowup,
     SalesNotConnectedError,
 )
-from backend.features.letters import compose, guards
+from backend.features.letters import guards
 from backend.features.letters.chain import ANSWER_STEP, FIRST_STEP
 from backend.features.letters.sending import NotReadyError, SendError, SuppressedError
 from backend.features.letters.uniqueness import corridor_verdict
-from backend.features.sales import chain, connection, handoff, letter, sender
+from backend.features.sales import chain, connection, followup_texts, handoff, letter, sender
 from backend.features.sales.cleaning import ASKED_NOT_TO_WRITE
 from backend.features.sales.intake import host_key
 from backend.features.sales.models import (
@@ -95,12 +97,22 @@ async def linked(session: AsyncSession, thread_id: int | None) -> Linked | None:
     """Лид диалога по явной связи. `None` — диалог начат не сборкой продаж."""
     if thread_id is None:
         return None
+    return await _dialog(session, SalesThreadModel.thread_id == thread_id)
+
+
+async def lead_dialog(session: AsyncSession, lead_id: int) -> Linked | None:
+    """Диалог лида по той же связи — экрану очереди (`followup_texts.ahead`); `None` — лиду
+    ещё не писали."""
+    return await _dialog(session, SalesThreadModel.lead_id == lead_id)
+
+
+async def _dialog(session: AsyncSession, where: ColumnElement[bool]) -> Linked | None:
     found = (
         await session.execute(
             select(SalesThreadModel, SalesLeadModel, DomainModel.host)
             .join(SalesLeadModel, SalesLeadModel.id == SalesThreadModel.lead_id)
             .join(DomainModel, DomainModel.id == SalesLeadModel.domain_id)
-            .where(SalesThreadModel.thread_id == thread_id)
+            .where(where)
         )
     ).first()
     return None if found is None else Linked(*found._tuple())
@@ -254,18 +266,20 @@ async def connected(session: AsyncSession) -> bool:
 
 
 async def followup(session: AsyncSession, thread_id: int | None, step: int) -> SalesFollowup:
-    """Текст добивки шага `step` (шаг письма, с нуля) в переписке продаж `thread_id`."""
+    """Текст добивки шага `step` (шаг письма, с нуля) в переписке продаж `thread_id`: собранный
+    с первым письмом той же версией цепочки или шаблон шага (`followup_texts.text_of`)."""
     what = f"Добивка шага {step} в переписке №{thread_id}"
     found = await connection.check(session, what)
     dialog = await linked(session, thread_id)
     if dialog is None:
         raise SalesNotConnectedError(what, "у переписки нет лида продаж — её начала не сборка")
     number = letter.template_step(step)
-    template = (await _ready_chain(session, dialog.link, what)).steps.get(number)
-    if template is None:  # полная цепочка — три шага; четвёртого письма не бывает
+    ready = await _ready_chain(session, dialog.link, what)
+    if number not in ready.steps:  # полная цепочка — три шага; четвёртого письма не бывает
         raise SalesNotConnectedError(what, f"шага {number} у цепочки нет")
     values = letter.values_of(dialog.lead, dialog.host)
-    body = letter.signed(compose.assemble(compose.render(template.letter, values), {}).body, found)
+    text = followup_texts.text_of(dialog.link.followups, ready, number, values)
+    body = letter.signed(text, found)
     problem = letter.problem(body, found)
     if problem is not None:  # письма ещё нет — «пока нельзя», а не поломка модуля
         raise SalesNotConnectedError(what, problem, words="не собрана")

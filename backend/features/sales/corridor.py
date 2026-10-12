@@ -36,12 +36,17 @@
 **Шаблон, а не модель, — сборка встаёт** (решение владельца 11.10): `STREAK` лидов подряд вне
 коридора после всех попыток — следующие лиды потратили бы модель так же впустую. Серию
 прерывает лид, чьё письмо встало в очередь; лиды, ждущие по другим причинам (нет цепочки,
-подстановки, стоп-лист), её не трогают — они не про шаблон (`queue._tally`).
+подстановки, стоп-лист), её не трогают — они не про шаблон (`QueueReport.tally`).
 
-Журнал — строка на попытку: номер лида, попытка, отличие письма, принятые зоны, вердикт и
-заметки — почему зона осталась шаблонной. Адреса лида в нём нет. В итог письма идут заметки
+Журнал — строка на попытку: номер лида, шаг, попытка, отличие письма, принятые зоны, вердикт
+и заметки — почему зона осталась шаблонной. Адреса лида в нём нет. В итог письма идут заметки
 одной попытки — той, что встала в очередь, а не легло — последней: заметка первой попытки
 «зона X осталась шаблонной» врала бы о письме, где X переписана второй.
+
+**Добивки (шаги 2–3) — тем же циклом** (`followup_texts.py`): свой коридор против своего
+шаблона, зерно — номер лида и шаг (`seed`), расход — в ту же строку письма лида; первый
+вызов у них общий на все добивки лида, и его ответ приходит готовым (`first`). Не легла —
+добивка уходит текстом шаблона, а первое письмо встаёт в очередь (`FollowupLine.reason`).
 """
 
 from __future__ import annotations
@@ -56,13 +61,14 @@ from backend.config import outreach as outreach_cfg
 from backend.features.core import usage
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.letters import compose, guards, selection
-from backend.features.letters.rewrite import Personalization, RewriteClient
+from backend.features.letters.rewrite import Personalization, RewriteClient, RewriteResult
 from backend.features.letters.uniqueness import (
     below_corridor,
     corridor_verdict,
     difference,
     percent_text,
 )
+from backend.features.sales.chain_text import FIRST_STEP
 from backend.features.sales.usage_cap import LETTER_REWRITE
 
 logger = logging.getLogger(__name__)
@@ -97,11 +103,44 @@ class Tried:
 
 
 @dataclass(frozen=True, slots=True)
+class FollowupLine:
+    """Добивка письма строкой отчёта: шаг шаблона (2 или 3), вызовов, отличие — или шаблоном.
+
+    `difference` — отличие принятого текста; `None` — добивка уйдёт текстом шаблона: ни одна
+    попытка не легла в коридор (`differences` — отличие каждой по порядку)."""
+
+    step: int
+    attempts: int
+    difference: float | None
+    #: Принятые переписанные зоны, по порядку шаблона; остальные — текст шаблона.
+    zones: tuple[str, ...] = ()
+    differences: tuple[float, ...] = ()
+
+    @property
+    def reason(self) -> str | None:
+        """Почему добивка уйдёт шаблоном — с отличием каждой попытки; `None` — переписана."""
+        return None if self.difference is not None else template_reason(self.differences)
+
+    def as_dict(self) -> dict[str, object]:
+        """Добивка строкой экрана: отличие долей и словами — или почему шаблоном."""
+        shown = None if self.difference is None else percent_text(self.difference)
+        return {
+            "step": self.step,
+            "attempts": self.attempts,
+            "difference": self.difference,
+            "difference_text": shown,
+            "zones": list(self.zones),
+            "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class LetterLine:
-    """Письмо сборки строкой отчёта (`queue.QueueReport.letters`): чьё, с каким отличием, какие
+    """Письмо сборки строкой отчёта (`QueueReport.letters`): чьё, с каким отличием, какие
     зоны переписаны, за сколько вызовов модели и встало ли в очередь. Не встало — лид ждёт, и
     `reason` называет почему по этому письму: вне коридора — с отличием каждой попытки; в
-    сводке причин отчёта (`waiting`) ключ — без чисел, одной строкой на все такие письма."""
+    сводке причин отчёта (`waiting`) ключ — без чисел, одной строкой на все такие письма.
+    `followups` — добивки с зонами `rewrite`, собранные с письмом: отличие или «шаблоном»."""
 
     lead_id: int
     #: Имя лида; нет — экран и консоль называют номер.
@@ -115,6 +154,8 @@ class LetterLine:
     queued: bool
     #: Почему письмо не встало в очередь — словами, по этому письму; `None` — встало.
     reason: str | None = None
+    #: Добивки письма по порядку шагов; шаг без зон `rewrite` модели не стоит — его здесь нет.
+    followups: tuple[FollowupLine, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         """Строка экрана: отличие и долей, и словами — тем же правилом у края коридора, что
@@ -128,15 +169,32 @@ class LetterLine:
             "zones": list(self.zones),
             "queued": self.queued,
             "reason": self.reason,
+            "followups": [later.as_dict() for later in self.followups],
         }
 
 
-def line(lead_id: int, name: str | None, tried: Tried, *, reason: str | None) -> LetterLine:
+def line(
+    lead_id: int,
+    name: str | None,
+    tried: Tried,
+    *,
+    reason: str | None,
+    followups: tuple[FollowupLine, ...] = (),
+) -> LetterLine:
     """Строка отчёта о письме лида: вызовов столько, сколько сделано; отличие и зоны —
     последней попытки; `reason` — почему не встало в очередь, `None` — встало."""
     attempts = len(tried.differences)
     queued = reason is None
-    return LetterLine(lead_id, name, attempts, tried.difference, tried.zones, queued, reason)
+    return LetterLine(
+        lead_id, name, attempts, tried.difference, tried.zones, queued, reason, followups
+    )
+
+
+def seed(lead_id: int, step: int) -> int:
+    """Зерно подбора зон письма шага `step` (шаг шаблона, 1–3) у лида. Первое письмо — номер
+    лида, как было; добивка — номер лида и шаг: у разных лидов наборы добивки расходятся, и у
+    одного лида две добивки не повторяют друг друга набором."""
+    return lead_id if step == FIRST_STEP else lead_id * 10 + step
 
 
 def _target() -> str:
@@ -171,6 +229,13 @@ def _attempts(count: int) -> str:
     return f"{count} {word}"
 
 
+def template_reason(differences: Sequence[float]) -> str:
+    """Почему добивка уйдёт текстом шаблона — с отличием каждой попытки по порядку."""
+    numbers = ", ".join(percent_text(value) for value in differences)
+    tried = _attempts(len(differences))
+    return f"не легла в коридор отличия после {tried}: {numbers} — уйдёт текстом шаблона"
+
+
 def waiting_reason(differences: Sequence[float]) -> str:
     """Почему лид ждёт — по его письму, с отличием каждой попытки по порядку. В сводке причин
     отчёта ключ — без чисел (`queue.OFF_CORRIDOR`): сто таких лидов — одна строка."""
@@ -201,10 +266,11 @@ def _dropped(chosen: selection.Selection | None) -> list[str]:
     return [f"зона «{name}» оставлена шаблонной подбором под коридор отличия" for name in names]
 
 
-class _Spend:
+class Spend:
     """Расход письма одной строкой журнала расхода: первая трата заводит строку, следующие
     дописывают в неё. Сессия сбрасывает строку в базу до запроса потолка (autoflush), и
-    потолок перед следующим вызовом видит и трату этого письма."""
+    потолок перед следующим вызовом видит и трату этого письма. Письмо — лида целиком: первое
+    и его добивки (`followup_texts.py`) пишут в одну строку."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -223,6 +289,7 @@ class _Spend:
 
 def _journal(
     lead_id: int,
+    step: int,
     attempt: int,
     attempts: int,
     value: float,
@@ -230,10 +297,11 @@ def _journal(
     verdict: str | None,
     notes: list[str],
 ) -> None:
-    """Строка журнала на попытку: лид — номером, без адреса; отличие письма, принятые зоны,
-    вердикт и заметки — почему зона осталась шаблонной."""
+    """Строка журнала на попытку: лид — номером, без адреса; шаг, отличие письма, принятые
+    зоны, вердикт и заметки — почему зона осталась шаблонной."""
     fields: dict[str, object] = {
         "lead_id": lead_id,
+        "step": step,
         "attempt": attempt,
         "attempts": attempts,
         "difference": round(value, 4),
@@ -245,43 +313,66 @@ def _journal(
     logger.info("продажи: попытка письма", extra=fields)
 
 
-async def write(
-    session: AsyncSession,
-    rewriter: RewriteClient,
-    rendered: compose.Rendered,
-    about: Personalization,
-    *,
-    lead_id: int,
-    attempts: int,
-    within_cap: Callable[[], Awaitable[bool]],
-) -> Tried:
-    """Письмо лида в коридоре отличия: вызов модели и подбор зон (`selection.select`, зерно —
-    номер лида); ни один набор не лёг — новый вызов с подсказкой, до `attempts` вызовов,
-    каждый из шаблона. Не лёг — письмо со всеми переписанными зонами: его отличие — в причину
-    и в подсказку.
+@dataclass(frozen=True, slots=True)
+class Writer:
+    """Модель над письмами одного лида: клиент, о ком пишем, номер лида, сколько вызовов на
+    письмо, потолок модели до каждого следующего вызова и расход одной строкой (`Spend`).
+    Первое письмо и его добивки (`followup_texts.py`) пишутся одним писателем: строка расхода
+    у них общая, и потолок перед каждым вызовом видит всё, что лид уже стоил."""
 
-    `within_cap` — потолок модели до каждого следующего вызова: первый проверила сборка."""
-    differences: list[float] = []
-    said: list[str] = []
-    spend = _Spend(session)
-    told: str | None = None
-    zones: tuple[str, ...] = ()
-    for attempt in range(1, attempts + 1):
-        if attempt > 1 and not await within_cap():
-            break
-        rewritten = await rewriter.rewrite(rendered, about, hint=told)
-        spend.add(rewritten.tokens_spent)
-        chosen = selection.select(rendered, rewritten.zones, seed=lead_id)
-        taken = chosen.zones if chosen is not None else rewritten.zones
-        letter = compose.assemble(rendered, taken)
-        guards.assert_no_metrics(f"{letter.subject}\n{letter.body}")
-        value = difference(letter.plain_body, letter.body)
-        differences.append(value)
-        zones = tuple(zone.name for zone in rendered.rewritable() if zone.name in taken)
-        verdict = corridor_verdict(value)
-        said = [*rewritten.notes, *_dropped(chosen)]
-        _journal(lead_id, attempt, attempts, value, zones, verdict, said)
-        if verdict is None:
-            return Tried(letter, tuple(differences), spend.tokens, zones, tuple(said))
-        told = hint(value)
-    return Tried(None, tuple(differences), spend.tokens, zones, tuple(said))
+    rewriter: RewriteClient
+    about: Personalization
+    lead_id: int
+    attempts: int
+    within_cap: Callable[[], Awaitable[bool]]
+    spend: Spend
+
+    async def write(
+        self,
+        rendered: compose.Rendered,
+        *,
+        step: int = FIRST_STEP,
+        first: RewriteResult | None = None,
+    ) -> Tried:
+        """Письмо шага `step` (шаг шаблона) в коридоре отличия: вызов модели и подбор зон
+        (`selection.select`, зерно — номер лида и шаг, `seed`); ни один набор не лёг — новый
+        вызов с подсказкой, до `attempts` вызовов, каждый из шаблона. Не лёг — письмо со всеми
+        переписанными зонами: его отличие — в причину и в подсказку.
+
+        `within_cap` — потолок модели до каждого следующего вызова: первый проверила сборка.
+        `first` — ответ модели, уже оплаченный в `spend`, на месте первого вызова: общий запрос
+        добивок лида (`followup_texts.py`)."""
+        differences: list[float] = []
+        said: list[str] = []
+        before = self.spend.tokens
+        told: str | None = None
+        zones: tuple[str, ...] = ()
+        for attempt in range(1, self.attempts + 1):
+            if attempt > 1 and not await self.within_cap():
+                break
+            rewritten = await self._rewritten(rendered, told, first if attempt == 1 else None)
+            chosen = selection.select(rendered, rewritten.zones, seed=seed(self.lead_id, step))
+            taken = chosen.zones if chosen is not None else rewritten.zones
+            letter = compose.assemble(rendered, taken)
+            guards.assert_no_metrics(f"{letter.subject}\n{letter.body}")
+            value = difference(letter.plain_body, letter.body)
+            differences.append(value)
+            zones = tuple(zone.name for zone in rendered.rewritable() if zone.name in taken)
+            verdict = corridor_verdict(value)
+            said = [*rewritten.notes, *_dropped(chosen)]
+            _journal(self.lead_id, step, attempt, self.attempts, value, zones, verdict, said)
+            if verdict is None:
+                spent = self.spend.tokens - before
+                return Tried(letter, tuple(differences), spent, zones, tuple(said))
+            told = hint(value)
+        return Tried(None, tuple(differences), self.spend.tokens - before, zones, tuple(said))
+
+    async def _rewritten(
+        self, rendered: compose.Rendered, told: str | None, first: RewriteResult | None
+    ) -> RewriteResult:
+        """Ответ модели на попытку: готовый `first` — или новый вызов, его трата — в строку."""
+        if first is not None:
+            return first
+        rewritten = await self.rewriter.rewrite(rendered, self.about, hint=told)
+        self.spend.add(rewritten.tokens_spent)
+        return rewritten

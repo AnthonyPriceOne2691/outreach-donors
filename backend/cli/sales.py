@@ -292,7 +292,7 @@ async def _chain_templates(session: AsyncSession, path: Path) -> list[StepTempla
 
 
 def _print_chain_warnings(templates: list[StepTemplate]) -> None:
-    """Шаг 1 с трудно достижимым коридором отличия — строкой отчёта: шаблон загружается, но
+    """Шаг с трудно достижимым коридором отличия — строкой отчёта: шаблон загружается, но
     сборка будет переписывать письмо по нескольку попыток (`chain_text.corridor_warning`)."""
     for new in templates:
         if new.warning is not None:

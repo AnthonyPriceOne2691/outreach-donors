@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest';
 import { AppRoutes } from '../App';
 import type {
   HypothesesView,
+  SalesLeadFollowupsView,
   SalesQueueLetter,
   SalesQueueReport,
   SalesQueueView,
@@ -110,6 +111,7 @@ const TOTALS = {
   refreshed: 1,
   tokens_spent: 259,
   off_corridor: 1,
+  followups_template: 0,
   waiting: { 'стоп-лист': 1, [OFF_CORRIDOR]: 1 },
   stopped: null,
 };
@@ -126,6 +128,7 @@ const LETTER: SalesQueueLetter = {
   zones: ['intro'],
   queued: true,
   reason: null,
+  followups: [],
 };
 
 /** Итог сборки с письмами по одному — по порядку сборки; ждущий лид без имени. */
@@ -398,6 +401,147 @@ describe('очередь писем продаж', () => {
     expect(
       await screen.findByText(
         'Гипотез пока нет. Очередь собирается из лидов гипотезы — загрузите базу.',
+        {},
+        SCREEN_WAIT,
+      ),
+    ).toBeInTheDocument();
+  });
+});
+
+/** Добивки письма, переписанные при сборке: первая — в коридоре, вторая — шаблоном. */
+const LATER: SalesQueueLetter['followups'] = [
+  {
+    step: 2,
+    attempts: 1,
+    difference: 0.19,
+    difference_text: '19%',
+    zones: ['nudge'],
+    reason: null,
+  },
+  {
+    step: 3,
+    attempts: 3,
+    difference: null,
+    difference_text: null,
+    zones: [],
+    reason: 'не легла в коридор отличия после 3 попыток: 10%, 10%, 10% — уйдёт текстом шаблона',
+  },
+];
+
+/** Добивки лида, какими уйдут, — ответ сервера на раскрытие строки. */
+const AHEAD: SalesLeadFollowupsView = {
+  lead_id: 7,
+  followups: [
+    {
+      step: 2,
+      body: 'Hi Jane, a made-up nudge rewritten for the test.',
+      words: 'переписана при сборке — отличие 19%',
+      difference: 0.19,
+      difference_text: '19%',
+      zones: ['nudge'],
+    },
+    {
+      step: 3,
+      body: 'A made-up last reminder.',
+      words: LATER[1]?.reason ?? '',
+      difference: null,
+      difference_text: null,
+      zones: [],
+    },
+  ],
+};
+
+describe('добивки письма сборки', () => {
+  const WITH_LATER = {
+    ...BUILT,
+    followups_template: 1,
+    letters: [{ ...LETTER, followups: LATER }],
+  };
+
+  it('строка письма называет добивки, итог — сколько уйдёт шаблоном', () => {
+    expect(letterLine({ ...LETTER, followups: LATER })).toBe(
+      'Jane Example — отличие 21,3% (переписаны intro), 2 попытки — в очереди; ' +
+        'добивки: первая — отличие 19%, вторая — шаблоном',
+    );
+    expect(queueLine(WITH_LATER)).toMatch(/ Добивок шаблоном: 1\.$/);
+    expect(queueLine(TOTALS)).not.toMatch(/Добивок/);
+    // Итог прежней версии сервера — без добивок: строка о них молчит.
+    const old: Partial<SalesQueueLetter> = { ...LETTER };
+    delete old.followups;
+    expect(letterLine(old as SalesQueueLetter)).toBe(
+      'Jane Example — отличие 21,3% (переписаны intro), 2 попытки — в очереди',
+    );
+  });
+
+  it('тексты добивок — по раскрытию, словами сервера; закрытое не спрашивается', async () => {
+    const recorded = await openQueue({
+      [`POST ${QUEUE}`]: { body: { job_id: 'job-b' } },
+      'GET /api/jobs/job-b': { body: job('job-b', WITH_LATER) },
+      'GET /api/sales/leads/7/followups': { body: AHEAD },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
+    const toggle = await screen.findByRole('button', { name: 'Тексты добивок' }, SCREEN_WAIT);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(calls(recorded, 'GET', '/api/sales/leads/7/followups')).toHaveLength(0);
+
+    await user.click(toggle);
+
+    const texts = await screen.findByLabelText('Добивки письма', {}, SCREEN_WAIT);
+    expect(
+      await within(texts).findByText('Hi Jane, a made-up nudge rewritten for the test.'),
+    ).toBeInTheDocument();
+    expect(
+      within(texts).getByText(
+        'Первая добивка — переписана при сборке — отличие 19% (переписаны nudge)',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(texts).getByText(`Вторая добивка — ${AHEAD.followups[1]?.words}`),
+    ).toBeInTheDocument();
+    expect(within(texts).getByText('A made-up last reminder.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Скрыть тексты добивок' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+
+  it('письмо без переписанных добивок и ждущее — без раскрытия', async () => {
+    await openQueue({
+      [`POST ${QUEUE}`]: { body: { job_id: 'job-b' } },
+      'GET /api/jobs/job-b': {
+        body: job('job-b', {
+          ...BUILT,
+          letters: [
+            LETTER,
+            { ...LETTER, lead_id: 45, queued: false, reason: OFF_LETTER, followups: LATER },
+          ],
+        }),
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
+
+    await screen.findByRole('list', { name: 'Письма сборки' }, SCREEN_WAIT);
+    expect(screen.queryByRole('button', { name: 'Тексты добивок' })).not.toBeInTheDocument();
+  });
+
+  it('добивок впереди нет — сказано словами', async () => {
+    await openQueue({
+      [`POST ${QUEUE}`]: { body: { job_id: 'job-b' } },
+      'GET /api/jobs/job-b': { body: job('job-b', WITH_LATER) },
+      'GET /api/sales/leads/7/followups': { body: { lead_id: 7, followups: [] } },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
+    await user.click(await screen.findByRole('button', { name: 'Тексты добивок' }, SCREEN_WAIT));
+
+    expect(
+      await screen.findByText(
+        'Добивок впереди нет: цепочка кончилась или ушла целиком.',
         {},
         SCREEN_WAIT,
       ),

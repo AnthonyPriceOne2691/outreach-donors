@@ -35,6 +35,7 @@ import type {
   SalesCleanBody,
   SalesCleanView,
   SalesFunnelView,
+  SalesLeadFollowupsView,
   SalesQueueBody,
   SalesQueueView,
   SenderBody,
@@ -159,6 +160,11 @@ export function previewChainStep(body: ChainPreviewBody): Promise<ChainPreviewVi
 /** Очередь писем продаж гипотезы: подключены ли продажи, цепочки, сколько ждёт. */
 export function readSalesQueue(hypothesis: number): Promise<SalesQueueView> {
   return request<SalesQueueView>(`/sales/queue?hypothesis=${hypothesis}`);
+}
+
+/** Добивки лида, которые ещё уйдут, — какими они уйдут: экран очереди под строкой письма. */
+export function readLeadFollowups(lead: number): Promise<SalesLeadFollowupsView> {
+  return request<SalesLeadFollowupsView>(`/sales/leads/${lead}/followups`);
 }
 
 /** Поставить сборку очереди в очередь задач. Ничего не отправляет. */

@@ -7,14 +7,19 @@
  *
  * **Отличие каждого письма — из итога сборки** (`letters` отчёта): лид, отличие словами
  * сервера, принятые зоны (остальные в этом письме — текстом шаблона), попыток, в очереди или
- * ждёт. Число — сервера (`difference_text`): правило числа у края коридора одно, экран его не
- * пересчитывает.
+ * ждёт; добивки с зонами rewrite — отличие или «шаблоном». Число — сервера
+ * (`difference_text`): правило числа у края коридора одно, экран его не пересчитывает.
+ *
+ * **Тексты добивок письма — с сервера** (`useLeadFollowups`): какими их отправит проход
+ * добивок, тем же правилом, что у отправки, — а не из итога сборки: цепочку могли править
+ * после неё.
  */
 
 import { useQuery } from '@tanstack/react-query';
 
-import { readSalesQueue } from '../api/sales';
-import type { SalesQueueLetter } from '../api/salesTypes';
+import { readLeadFollowups, readSalesQueue } from '../api/sales';
+import { FOLLOWUP_ORDINALS } from '../api/salesLabels';
+import type { SalesQueueFollowup, SalesQueueLetter } from '../api/salesTypes';
 import { formatNumber, plural } from '../format';
 
 export const QUEUE_QUERY_KEY = ['sales', 'queue'] as const;
@@ -23,6 +28,14 @@ export function useSalesQueue(hypothesis: number) {
   return useQuery({
     queryKey: [...QUEUE_QUERY_KEY, hypothesis],
     queryFn: () => readSalesQueue(hypothesis),
+  });
+}
+
+/** Добивки лида, которые ещё уйдут, — по раскрытию строки письма сборки. */
+export function useLeadFollowups(lead: number) {
+  return useQuery({
+    queryKey: ['sales', 'lead-followups', lead],
+    queryFn: () => readLeadFollowups(lead),
   });
 }
 
@@ -41,6 +54,8 @@ export function queueLine(report: Record<string, unknown>): string {
   ];
   const reasons = Object.entries(waiting).map(([why, count]) => `${why}: ${formatNumber(count)}`);
   if (reasons.length > 0) parts.push(`Ждут — ${reasons.join('; ')}.`);
+  const template = Number(report.followups_template ?? 0);
+  if (template > 0) parts.push(`Добивок шаблоном: ${formatNumber(template)}.`);
   if (typeof report.stopped === 'string') parts.push(`Остановлено: ${report.stopped}`);
   return parts.join(' ');
 }
@@ -53,9 +68,28 @@ export function buildLetters(report: Record<string, unknown> | null): SalesQueue
   return [...(letters as SalesQueueLetter[])].sort((a, b) => Number(a.queued) - Number(b.queued));
 }
 
+/** Добивки письма с зонами rewrite: те, что собраны с ним. В итоге прежней версии сервера их
+ *  нет — пусто. */
+export function followupsOf(letter: SalesQueueLetter): SalesQueueFollowup[] {
+  return Array.isArray(letter.followups) ? letter.followups : [];
+}
+
+/** Добивки письма одной частью строки: «добивки: первая — отличие 19%, вторая — шаблоном».
+ *  Почему шаблоном — с числами каждой попытки — в раскрытии, словами сервера. */
+function followupsText(letter: SalesQueueLetter): string {
+  const parts = followupsOf(letter).map((later) => {
+    const which = FOLLOWUP_ORDINALS[later.step] ?? `шаг ${later.step}`;
+    return later.difference_text === null
+      ? `${which} — шаблоном`
+      : `${which} — отличие ${later.difference_text}`;
+  });
+  return parts.length > 0 ? `; добивки: ${parts.join(', ')}` : '';
+}
+
 /** Письмо одной строкой: лид (имя или номер) и — в очереди — отличие, принятые зоны,
- *  попыток; ждёт — почему, словами сервера по этому письму (вне коридора — с отличием каждой
- *  попытки). Зон и причины в итоге прежней версии сервера нет — о них строка молчит. */
+ *  попыток и добивки; ждёт — почему, словами сервера по этому письму (вне коридора — с
+ *  отличием каждой попытки). Зон, причины и добивок в итоге прежней версии сервера нет — о
+ *  них строка молчит. */
 export function letterLine(letter: SalesQueueLetter): string {
   const who = letter.name ?? `лид №${letter.lead_id}`;
   if (typeof letter.reason === 'string') return `${who} — ${letter.reason}`;
@@ -64,5 +98,5 @@ export function letterLine(letter: SalesQueueLetter): string {
     : '';
   const tries = `${formatNumber(letter.attempts)} ${plural(letter.attempts, 'попытка', 'попытки', 'попыток')}`;
   const state = letter.queued ? 'в очереди' : 'ждёт';
-  return `${who} — отличие ${letter.difference_text}${zones}, ${tries} — ${state}`;
+  return `${who} — отличие ${letter.difference_text}${zones}, ${tries} — ${state}${followupsText(letter)}`;
 }

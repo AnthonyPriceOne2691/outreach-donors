@@ -12,11 +12,15 @@
 **Правила записи — здесь, одни для экрана, консоли и предпросмотра:**
 - первое письмо (шаг 1) — с темой, без «Re:» и «Fwd:» (конституция: поддельная
   переписка — обман адресата); переписываемая часть дотягивает до коридора отличия;
-  коридор достижим, но трудно (`corridor_warning`) — шаг записывается с предупреждением
-  словами, а не отказом;
-- добивки (шаги 2 и 3) — без темы: они идут в той же переписке; зоны только `fixed` —
-  модель в добивках не участвует, как у доноров;
-- подстановки — только из `PLACEHOLDERS`; незнакомая или одиночная скобка — отказ;
+- добивки (шаги 2 и 3) — без темы: они идут в той же переписке. Зоны `rewrite` — как у
+  шага 1 (ТЗ: формулировки ротируются, двух одинаковых писем не уходит): тексты добивок
+  переписывает сборка первого письма, каждый в своём коридоре (`followup_texts.py`); у
+  добивки с ними переписываемая часть тоже дотягивает до коридора. Добивка только из
+  `fixed` записывается, как раньше: она уходит текстом шаблона;
+- коридор достижим, но трудно (`corridor_warning`), — шаг записывается с предупреждением
+  словами, а не отказом: у каждого шага своё, по его числам;
+- подстановки — только из `PLACEHOLDERS`; незнакомая или одиночная скобка — отказ. У имени —
+  ещё форма с запасным текстом: `{{name|there}}` — лиду без имени запасной текст (`spare`);
 - метрик Ahrefs нет (`guards.assert_no_metrics`);
 - подписи и адреса нет ни зоной, ни подстановкой, ни текстом из настроек (`unsigned`).
 
@@ -55,6 +59,14 @@ STEP_WORDS = {1: "первого письма", 2: "первой добивки"
 LANGUAGES = ("ru", "en")
 #: Подстановки шаблона: имя адресата, компания, сайт компании — значения у лида.
 PLACEHOLDERS = ("name", "company", "site")
+#: Подстановка с запасным текстом — только у имени: `{{name|there}}` — лиду с именем имя, без
+#: имени — запасной текст. Лид без имени (назван в ответе «пишите другому», загружен из файла
+#: без имени) при голом `{{name}}` ждал бы вечно: «у лида нет значения» (`letter.lacking`).
+SPARE_OF = "name"
+#: Запасной текст — обращение, а не абзац: до 30 знаков, одной строкой, без скобок.
+SPARE_LENGTH = 30
+#: Подсказка формы словами — экрану и отказам.
+SPARE_HINT = "лиду без имени — {{name|there}}"
 #: Подстановки, которых у шаблона продаж нет: подпись, имя отправителя, адрес и отписку
 #: дописывает сборка из настроек отправителя, а не шаблон.
 SIGNED = frozenset(
@@ -81,14 +93,28 @@ HARD_CHANGE = 1 / 3
 #: Переписываемая зона короче — даже самая малая просьба модели (`CHANGE_MIN`, пятая часть
 #: слов) в ней меньше слова: «Hi {{name}},» модель не трогает или переписывает целиком.
 SHORT_ZONE = round(1 / CHANGE_MIN)
-#: Совет словами: модели — вступление, остальное уходит как есть.
-ADVICE = "rewrite — только вступление, около 30–50% письма, остальное — fixed"
+#: Одна зона `rewrite` больше этой доли письма — подбору зон выбирать нечего («всё или
+#: ничего»), а модель переписывает такую зону почти целиком. Живые прогоны 12.10.2026 (по 20
+#: писем): одна зона на 41% письма — в коридоре 20 из 20 с первого вызова; одна зона на 55–87%
+#: добивки — с первого вызова 0–3 из 20, после повторов шаблоном уходили 3–19 из 20; та же
+#: добивка двумя зонами по предложению — 20 из 20 с первого вызова.
+SINGLE_ZONE_MAX = 0.45
+#: Совет словами: модели — вступление, по предложению, остальное уходит как есть.
+ADVICE = (
+    "rewrite — только вступление, около 30–50% письма, 2–3 зонами по предложению, остальное — fixed"
+)
+#: Тот же совет добивке: вступления у неё нет, доля и деление — те же.
+FOLLOWUP_ADVICE = "rewrite — около 30–50% добивки, 2–3 зонами по предложению, остальное — fixed"
 
 #: Тема, выдающая себя за ответ или пересылку: «Re:», «Fwd:», «Отв:» — с номером и без.
 _REPLY = re.compile(r"(re|fwd?|отв|ответ)\s*(\[\d+\]|\(\d+\))?\s*:", re.IGNORECASE)
 #: Строка, похожая на заголовок зоны, но не заголовок: `[Offer] fixed`, ` [offer] fixed`.
 _LOOSE_HEADER = re.compile(r"\s*\[[^\]]*\]\s*\S*\s*")
 _BRACE = re.compile(r"[{}]")
+#: Всё, что похоже на подстановку с запасным текстом, — и кривое тоже: отказ словами.
+_PIPED = re.compile(r"\{\{([^{}|]*)\|([^{}]*)\}\}")
+#: Годная подстановка с запасным текстом — её заменяет сборка (`spare`).
+_SPARE = re.compile(r"\{\{name\|([^{}|\n]+)\}\}")
 
 
 class ChainError(TemplateError):
@@ -245,9 +271,38 @@ def zones_of(text: str) -> tuple[Zone, ...]:
     return (*zones, current.closed())
 
 
+def _spare_problem(text: str) -> str | None:
+    """Что не так с запасным текстом — словами; `None` — годен."""
+    shown = text.strip()
+    if "|" in text:
+        return "черта в подстановке одна: имя, черта, запасной текст"
+    if "\n" in text:
+        return "запасной текст — одной строкой"
+    if not shown:
+        return "запасной текст пуст — лиду без имени в письме осталась бы дыра"
+    if len(shown) > SPARE_LENGTH:
+        return f"запасной текст длиннее {SPARE_LENGTH} знаков ({len(shown)}) — нужно обращение"
+    return None
+
+
+def _spares(text: str) -> str:
+    """Подстановки с запасным текстом — годные, иначе отказ словами; текст — без них."""
+    for found in _PIPED.finditer(text):
+        whole = found.group(0)[:60]
+        if found.group(1) != SPARE_OF:
+            raise ChainError(
+                f"«{whole}»: запасной текст — только у имени, строчными и без пробелов у "
+                f"скобок: {SPARE_HINT}"
+            )
+        if (why := _spare_problem(found.group(2))) is not None:
+            raise ChainError(f"«{whole}»: {why} — {SPARE_HINT}")
+    return _PIPED.sub("", text)
+
+
 def _placeholders(text: str) -> None:
     allowed = ", ".join(f"{{{{{name}}}}}" for name in PLACEHOLDERS)
-    for name in sorted(set(PLACEHOLDER_RE.findall(text))):
+    rest = _spares(text)
+    for name in sorted(set(PLACEHOLDER_RE.findall(rest))):
         if name in SIGNED:
             raise ChainError(
                 f"подстановки {{{{{name}}}}} у шаблона продаж нет — подпись, имя отправителя, "
@@ -255,12 +310,28 @@ def _placeholders(text: str) -> None:
             )
         if name not in PLACEHOLDERS:
             raise ChainError(f"подстановки {{{{{name}}}}} нет; есть только {allowed}")
-    rest = PLACEHOLDER_RE.sub("", text)
+    rest = PLACEHOLDER_RE.sub("", rest)
     if (brace := _BRACE.search(rest)) is not None:
         near = " ".join(rest[max(brace.start() - 20, 0) : brace.end() + 20].split())
         raise ChainError(
-            f"скобка вне подстановки: «{near}» — подстановка пишется двумя скобками: {allowed}"
+            f"скобка вне подстановки: «{near}» — подстановка пишется двумя скобками: {allowed}; "
+            f"{SPARE_HINT}"
         )
+
+
+def spare(text: str, name: str) -> str:
+    """`{{name|запасное}}` у лида с именем — `{{name}}` (имя подставит сборка), без имени —
+    запасной текст. Подстановки — до переписки: модель видит уже текст, а не скобки."""
+    named = bool(name.strip())
+    return _SPARE.sub(lambda found: "{{name}}" if named else found.group(1).strip(), text)
+
+
+def filled(letter: Template, name: str) -> Template:
+    """Шаблон письма, где `{{name|…}}` — уже имя или запасной текст (`spare`)."""
+    return Template(
+        subject=spare(letter.subject, name),
+        zones=tuple(Zone(zone.name, zone.kind, spare(zone.text, name)) for zone in letter.zones),
+    )
 
 
 def _corridor(letter: Template) -> None:
@@ -288,6 +359,18 @@ def _fine_ask(letter: Template) -> list[str]:
     ]
 
 
+def _single_zone(letter: Template) -> list[str]:
+    """Одна зона `rewrite` на большую долю письма: подбору выбирать нечего (`SINGLE_ZONE_MAX`)."""
+    zones = letter.of_kind(ZoneKind.REWRITE)
+    if len(zones) != 1 or letter.rewritable_share <= SINGLE_ZONE_MAX:
+        return []
+    share = round(letter.rewritable_share * 100)
+    return [
+        f"одна зона rewrite «{zones[0].name}» — {share}% письма: модель перепишет её почти "
+        "целиком, а подбору зон выбрать нечего — разбейте её на 2–3 зоны по предложению"
+    ]
+
+
 def _short_zones(letter: Template) -> list[str]:
     """Переписываемые зоны в несколько слов: приветствие, подпись строкой."""
     short = [
@@ -305,32 +388,23 @@ def _short_zones(letter: Template) -> list[str]:
 
 
 def corridor_warning(step: int, zones: Iterable[Zone]) -> str | None:
-    """Коридор отличия достижим, но трудно: предупреждение шагу 1 словами, `None` — годен.
+    """Коридор отличия достижим, но трудно: предупреждение шагу словами, `None` — годен.
 
-    Отказ — только у недостижимого нижнего края (`_corridor`). Трудный шаблон записывается,
-    а в коридор письма кладёт подбор зон: часть переписанного остаётся текстом шаблона; не
-    легло — новый вызов модели (`sales/corridor.py`). Число в совете — доля переписываемого."""
-    if step != FIRST_STEP:
-        return None
+    У каждого шага — по его числам: доля переписываемого и короткие зоны своего письма.
+    Добивке только из `fixed` предупреждать не о чем: модель её не видит. Отказ — только у
+    недостижимого нижнего края (`_corridor`). Трудный шаблон записывается, а в коридор письма
+    кладёт подбор зон: часть переписанного остаётся текстом шаблона; не легло — новый вызов
+    модели (`sales/corridor.py`). Число в совете — доля переписываемого."""
     letter = Template(subject="", zones=tuple(zones))
-    found = _fine_ask(letter) + _short_zones(letter)
+    found = _fine_ask(letter) + _single_zone(letter) + _short_zones(letter)
     if not found:
         return None
     share = round(letter.rewritable_share * 100)
+    advice = ADVICE if step == FIRST_STEP else FOLLOWUP_ADVICE
     return (
-        f"Коридор отличия трудно достижим: {'; '.join(found)}. Совет: {ADVICE} "
+        f"Коридор отличия трудно достижим: {'; '.join(found)}. Совет: {advice} "
         f"(сейчас переписывается {share}%)."
     )
-
-
-def _checked_zones(step: int, text: str) -> tuple[Zone, ...]:
-    zones = zones_of(text)
-    if step != FIRST_STEP and any(zone.kind is ZoneKind.REWRITE for zone in zones):
-        raise ChainError(
-            "добивку модель не переписывает — она короткая и идёт в той же переписке; "
-            "зоны добивки — только fixed"
-        )
-    return zones
 
 
 def _canonical(zones: Iterable[Zone]) -> str:
@@ -344,11 +418,12 @@ def step_template(
     number = _step(step)
     code = language_code(language)
     title = _subject(number, subject)
-    zones = _checked_zones(number, _text(body))
+    zones = zones_of(_text(body))
     letter = Template(subject=title or "", zones=zones)
     _placeholders(f"{letter.subject}\n{letter.body}")
     guards.assert_no_metrics(f"{letter.subject}\n{letter.body}")
-    if number == FIRST_STEP:
+    # Добивка только из `fixed` уходит текстом шаблона — коридора у неё нет.
+    if number == FIRST_STEP or letter.of_kind(ZoneKind.REWRITE):
         _corridor(letter)
     return StepTemplate(number, code, title, _canonical(zones), zones, bool(active))
 
@@ -387,5 +462,5 @@ class Preview:
 def preview(new: StepTemplate, found: Sender) -> Preview:
     """Подставить выдуманные значения. Подписи и адреса в шаблоне нет — они из настроек."""
     values = SAMPLE[new.language]
-    rendered = compose.render(new.letter, values)
+    rendered = compose.render(filled(new.letter, values["name"]), values)
     return Preview(rendered.subject or None, rendered.zones, values, found, new.warning)

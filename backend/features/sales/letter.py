@@ -20,6 +20,10 @@
 
 **Ключ идемпотентности продаж — с контактом**: `{этап}:{домен}:{адрес}:{шаг}`. Два лида
 одной компании — два письма; повтор сборки или задачи тому же человеку — тот же ключ.
+
+**Лид без имени** получает письмо, если цепочка зовёт его `{{name|запасное}}`: на месте
+подстановки — запасной текст (`rendered`, правило записи — `chain_text`). Голый `{{name}}`
+держит такого лида, как раньше (`lacking`).
 """
 
 from __future__ import annotations
@@ -28,8 +32,9 @@ import re
 from collections.abc import Iterable, Mapping
 
 from backend.features.core.domain import Stage
+from backend.features.letters import compose
 from backend.features.letters.chain import FIRST_STEP
-from backend.features.sales.chain_text import StepTemplate, squashed
+from backend.features.sales.chain_text import StepTemplate, filled, squashed
 from backend.features.sales.models import SalesLeadModel
 from backend.features.sales.sender import WHERE, Sender
 
@@ -60,11 +65,20 @@ def lacking(steps: Iterable[StepTemplate], values: Mapping[str, str]) -> list[st
     """Подстановки шагов цепочки, для которых у лида нет значения, — `{{имя}}` по порядку.
 
     Смотрятся все шаги, а не только первое письмо: добивка с подстановкой без значения
-    застряла бы в переписке, которую уже начали."""
+    застряла бы в переписке, которую уже начали. `{{name|запасное}}` лида не держит: без
+    имени на его месте встанет запасной текст (`rendered`) — `placeholders` такую форму
+    не называет."""
     used: set[str] = set()
     for step in steps:
         used |= step.letter.placeholders()
     return [f"{{{{{name}}}}}" for name in sorted(used) if not values.get(name, "").strip()]
+
+
+def rendered(template: StepTemplate, values: Mapping[str, str]) -> compose.Rendered:
+    """Шаблон шага с подстановками лида — для сборки и для текста добивки. `{{name|запасное}}`
+    — имя, а у лида без имени — запасной текст; модель подстановок не видит: они до
+    переписки, и запасной текст она переписывает вместе с зоной."""
+    return compose.render(filled(template.letter, values.get("name", "")), dict(values))
 
 
 def block(found: Sender) -> str:

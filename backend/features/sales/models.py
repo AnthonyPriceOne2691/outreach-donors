@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -34,7 +35,7 @@ from sqlalchemy import (
     false,
 )
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.features.core.models._mixins import TimestampedMixin
@@ -349,6 +350,11 @@ class SalesThreadModel(TimestampedMixin, Base):
     language: Mapped[str] = mapped_column(String(LANGUAGE_LENGTH), nullable=False)
     #: Версия цепочки, которой написано первое письмо: по ней калибровка узнаёт текст.
     chain_version: Mapped[str] = mapped_column(String(VERSION_LENGTH), nullable=False)
+    #: Тексты добивок, собранные с первым письмом (`followup_texts.py`), с версией цепочки.
+    #: Пусто — не собирались: добивка уходит шаблоном шага, как раньше.
+    followups: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
 
     __table_args__ = (
         UniqueConstraint("lead_id", name="uq_sales_threads_lead"),

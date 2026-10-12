@@ -315,6 +315,34 @@ describe('цепочка писем: окно шага', () => {
     });
   });
 
+  it('у текста добивки — rewrite переписывает сборка, лиду без имени — {{name|there}}', async () => {
+    await openChain();
+    const user = userEvent.setup();
+
+    await user.click(within(stepOf('Английский', '2. Первая добивка')).getByRole('button'));
+    const dialog = within(await screen.findByRole('dialog', {}, SCREEN_WAIT));
+    const hint = dialog.getByText(/^Зоны: «\[имя\] rewrite» — модель перепишет при сборке/);
+
+    expect(hint.textContent).toContain('у каждого лида по-своему');
+    expect(hint.textContent).toContain('лиду без имени — {{name|there}}');
+    expect(
+      dialog.getByText(/зоны rewrite модель переписывает при сборке первого письма/),
+    ).toBeInTheDocument();
+  });
+
+  it('у первого письма подсказка о запасном тексте имени — тоже', async () => {
+    await openChain();
+    const user = userEvent.setup();
+
+    await user.click(within(stepOf('Английский', '1. Первое письмо')).getByRole('button'));
+    const dialog = within(await screen.findByRole('dialog', {}, SCREEN_WAIT));
+
+    expect(
+      dialog.getByText(/^Зоны: «\[имя\] rewrite» — модель может переписать под адресата/)
+        .textContent,
+    ).toContain('лиду без имени — {{name|there}}');
+  });
+
   it('отказ сервера при записи — словами над формой, введённое остаётся', async () => {
     const refusal = 'тема «Re: test» начинается с «Re:» — переписки ещё нет';
     await openChain({ 'POST /api/sales/chain': { status: 400, body: { detail: refusal } } });
@@ -428,7 +456,7 @@ describe('цепочка писем: коридор отличия трудно 
     'мелко она не правит — переписывает зоны почти целиком, и в коридор письмо ложится, только ' +
     'если часть зон останется текстом шаблона; зона rewrite «greeting» короче 5 слов — модель ' +
     'её не трогает или переписывает целиком. Совет: rewrite — только вступление, около 30–50% ' +
-    'письма, остальное — fixed (сейчас переписывается 100%).';
+    'письма, 2–3 зонами по предложению, остальное — fixed (сейчас переписывается 100%).';
   const WARNED: ChainView = {
     ...FILLED,
     rows: [{ ...FIRST_EN, warning: HARD }, SECOND_EN, THIRD_EN],
@@ -440,6 +468,21 @@ describe('цепочка писем: коридор отличия трудно 
     const line = within(stepOf('Английский', '1. Первое письмо')).getByText(HARD);
     expect(line.closest('.mantine-Alert-root')?.className).toMatch(/chainWarning/);
     expect(within(stepOf('Английский', '2. Первая добивка')).queryByText(HARD)).toBeNull();
+  });
+
+  it('у добивки — своё предупреждение, словами сервера', async () => {
+    const followup =
+      'Коридор отличия трудно достижим: модель просят менять около 20% слов каждой зоны. ' +
+      'Совет: rewrite — около 30–50% добивки, 2–3 зонами по предложению, остальное — fixed (сейчас переписывается 100%).';
+    await openChain(
+      {},
+      { ...FILLED, rows: [FIRST_EN, { ...SECOND_EN, warning: followup }, THIRD_EN] },
+    );
+
+    expect(
+      within(stepOf('Английский', '2. Первая добивка')).getByText(followup),
+    ).toBeInTheDocument();
+    expect(within(stepOf('Английский', '1. Первое письмо')).queryByText(followup)).toBeNull();
   });
 
   it('без предупреждения строки нет', async () => {

@@ -63,7 +63,7 @@ class ChainStepCard(BaseModel):
     subject: str | None
     body: str
     zones: list[ZoneCard]
-    #: Коридор отличия у шага 1 трудно достижим — словами и с советом (`corridor_warning`):
+    #: Коридор отличия у шага трудно достижим — словами и с советом (`corridor_warning`):
     #: шаг записан, экран показывает жёлтую строку у шага. `null` — предупреждения нет.
     warning: str | None
     active: bool
@@ -157,7 +157,7 @@ class PreviewView(BaseModel):
     #: Чего не хватает для отправки продаж — теми же словами, какими откажет отправка
     #: (`connection.blockers`: выключенный модуль первым).
     missing: list[str]
-    #: Коридор отличия у шага 1 трудно достижим — тем же правилом, что у записи шага.
+    #: Коридор отличия у шага трудно достижим — тем же правилом, что у записи шага.
     warning: str | None
 
     @classmethod
