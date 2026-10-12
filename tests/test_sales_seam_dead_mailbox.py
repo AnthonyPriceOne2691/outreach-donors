@@ -178,6 +178,7 @@ async def test_an_address_elsewhere_is_left_to_a_human_in_words(
     [
         (
             f"Delivery to the following recipient failed permanently: {JANE}. "
+            "The account jane.smith@acme.example.test does not exist either. "
             "Contact postmaster@acme.example.test for help.",
             "mailer-daemon@acme.example.test",
             "Delivery Status Notification (Failure)",
@@ -193,8 +194,9 @@ async def test_a_bounce_without_a_named_colleague_makes_no_lead(
     sender: str,
     subject: str,
 ) -> None:
-    """Отказ почтовой службы называет адреса (кому не доставлено, postmaster) — лида из него нет;
-    мёртвый ящик без адреса — тоже."""
+    """Отказ почтовой службы называет адреса (кому не доставлено, другой ящик компании,
+    postmaster) — лида из него нет: фразы мёртвого ящика в нём нет; мёртвый ящик без адреса —
+    тоже."""
     first = await _sent(session, monkeypatch)
     _, reply = await _accepted(session, first, text, sender=sender, subject=subject)
     assert reply.kind is ReplyKind.BOUNCE
