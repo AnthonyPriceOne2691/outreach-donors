@@ -1,7 +1,7 @@
 """продажи: о каком ответе телемаркетолог получил сообщение — ключ «Лид написал снова»
 
 Revision ID: 1045a2d42013
-Revises: 5b1e7c9a3d20
+Revises: ac052c21d38b
 Create Date: 2026-10-12 01:30:00.000000
 
 Новое письмо лида, уже переданного телемаркетологу, уходит той же передачей: примечанием к той
@@ -21,7 +21,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "1045a2d42013"
-down_revision: Union[str, Sequence[str], None] = "5b1e7c9a3d20"
+down_revision: Union[str, Sequence[str], None] = "ac052c21d38b"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
