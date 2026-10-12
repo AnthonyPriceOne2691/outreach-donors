@@ -33,16 +33,46 @@ export interface PromoteResult {
 /** Что человек смотрит списком: спорных — решить, «куплено» — проверить до письма. */
 export type ReviewedVerdict = 'pending' | 'bought';
 
+/** Кандидаты одного вердикта скоринга и решения человека по ним. */
+export interface VerdictDecisions {
+  total: number;
+  decided: number;
+  /** «Пишем». */
+  write: number;
+  /** «Не пишем». */
+  skip: number;
+}
+
+/** Скоринг против человека (`crawl/accuracy.py`): доля ложных среди решённых «куплено»
+ *  случайной выборки и допуск ТЗ — от сервера, а не копией числа в экране. `false_share`
+ *  пусто — решённых в выборке нет; `within_limit` пусто — решений меньше `min_decisions`
+ *  и вывода нет. Какие строки очереди в выборке, сервер не говорит. */
+export interface ScoringCheck {
+  bought: VerdictDecisions;
+  pending: VerdictDecisions;
+  sample: VerdictDecisions;
+  false_share: number | null;
+  false_limit: number;
+  within_limit: boolean | null;
+  /** С какой выборки доле верят — та же, что у точности судьи Этапа 1. */
+  min_decisions: number;
+}
+
+/** Очередь проверки с долей ложных (сверка ТЗ 11.10.2026). Нет поля — сервер старше экрана. */
+export interface ReviewQueue extends CandidatesView {
+  scoring?: ScoringCheck;
+}
+
 /** Кандидаты с вердиктом. С `includeDecided` — и те, по которым решили. */
 export function fetchCandidates(
   includeDecided = false,
   verdict: ReviewedVerdict = 'pending',
-): Promise<CandidatesView> {
+): Promise<ReviewQueue> {
   const params = new URLSearchParams();
   if (includeDecided) params.set('include_decided', 'true');
   if (verdict !== 'pending') params.set('verdict', verdict);
   const query = params.size > 0 ? `?${params.toString()}` : '';
-  return request<CandidatesView>(`/advertisers${query}`);
+  return request<ReviewQueue>(`/advertisers${query}`);
 }
 
 /**

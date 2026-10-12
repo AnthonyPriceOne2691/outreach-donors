@@ -207,3 +207,81 @@ async def test_nothing_to_crawl_says_what_to_do_first(client: AsyncClient, opera
 
     assert body["donors"] == []
     assert any("сначала прогон Этапа 1" in note for note in body["notes"])
+
+
+async def test_a_crawl_line_says_how_many_pages_were_closed_to_us(
+    client: AsyncClient, operator: str, donors: None, session: AsyncSession
+) -> None:
+    """Сверка ТЗ 11.10.2026: доля закрытых страниц лежала в записи обхода, а на панели
+    «Обход доноров» её не было — «обойдён: 400 страниц» не отличал донора, отдавшего
+    всё, от закрывшего от нас треть запросов. Доля — от всех запросов обхода, с их
+    числом; у идущего обхода чисел ещё нет — пусто, а не ноль."""
+    session.add(
+        CrawlRunModel(
+            host=FRESH,
+            status=CrawlStatus.DONE,
+            pages_opened=400,
+            articles=380,
+            stats={
+                "requests": 480,
+                "opened": 400,
+                "blocked": 60,
+                "errors": 20,
+                "failure_share": 0.042,
+            },
+        )
+    )
+    session.add(CrawlRunModel(host=STALE, status=CrawlStatus.RUNNING, pages_opened=12))
+    await session.commit()
+
+    targets = (await client.get("/api/crawls/targets", headers=bearer(operator))).json()
+    listed = (await client.get("/api/crawls", headers=bearer(operator))).json()
+
+    crawl = targets["donors"][0]["crawl"]
+    assert (crawl["blocked_share"], crawl["requests"]) == (0.125, 480)
+    # Мера здоровья ТЗ — доля 403/429/5xx/таймаут в окне: запросов меньше окна —
+    # окно и есть все запросы.
+    assert (crawl["failure_share"], crawl["window"]) == (0.042, 480)
+    assert (targets["health_window"], targets["slow_down_share"], targets["stop_share"]) == (
+        500,
+        0.1,
+        0.3,
+    )
+    by_host = {row["host"]: (row["blocked_share"], row["requests"]) for row in listed["rows"]}
+    assert by_host == {FRESH: (0.125, 480), STALE: (None, None)}
+
+
+async def test_the_health_window_is_the_last_500_requests(
+    client: AsyncClient, operator: str, donors: None, session: AsyncSession
+) -> None:
+    """ТЗ: «доля 403/429/5xx/timeout за последние 500 запросов» — у длинного обхода окно
+    500, а не все его запросы."""
+    session.add(
+        CrawlRunModel(
+            host=FRESH,
+            status=CrawlStatus.DONE,
+            stats={"requests": 1200, "blocked": 12, "failure_share": 0.31},
+        )
+    )
+    await session.commit()
+
+    [row] = (await client.get("/api/crawls", headers=bearer(operator))).json()["rows"]
+
+    assert (row["failure_share"], row["window"], row["requests"]) == (0.31, 500, 1200)
+
+
+async def test_a_crawl_without_requests_has_no_share(
+    client: AsyncClient, operator: str, donors: None, session: AsyncSession
+) -> None:
+    """Обход, не сделавший ни одного запроса (главная не открылась до счёта), и обход,
+    записанный до замера здоровья, долю не выдумывают: «закрыто 0%» было бы неправдой."""
+    session.add(CrawlRunModel(host=FRESH, status=CrawlStatus.DONE, stats={"requests": 0}))
+    session.add(CrawlRunModel(host=STALE, status=CrawlStatus.DONE, stats={"links_found": 3}))
+    await session.commit()
+
+    listed = (await client.get("/api/crawls", headers=bearer(operator))).json()
+
+    assert [(row["blocked_share"], row["requests"]) for row in listed["rows"]] == [
+        (None, None),
+        (None, None),
+    ]

@@ -56,6 +56,8 @@ class WaitingCard(BaseModel):
     advertisers: int
     #: Из них — бизнесов ниши.
     niche: int
+    #: Из ждущих рук на «Формах» (`forms`) — рекламодателей.
+    advertiser_forms: int = 0
 
     @classmethod
     def of(cls, waiting: Waiting) -> WaitingCard:
@@ -67,6 +69,7 @@ class WaitingCard(BaseModel):
             forms=waiting.forms,
             advertisers=waiting.advertisers,
             niche=waiting.niche,
+            advertiser_forms=waiting.advertiser_forms,
         )
 
 

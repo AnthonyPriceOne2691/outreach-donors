@@ -7,7 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from backend.api.jobs.routes import JobCard
-from backend.features.contacts.forms import FormRow
+from backend.features.contacts.forms import AdvertiserFormRow, FormRow
 
 
 class ContactsState(BaseModel):
@@ -85,6 +85,55 @@ class FormsView(BaseModel):
     #: 30 дней остаться в ориентире (`forms.monthly_left`). Очередь он не закрывает.
     monthly_left: int
     monthly_cap: int
+    #: Сколько ждёт рук во вкладке рекламодателей (сверка ТЗ 11.10.2026): число на
+    #: вкладке — без второго запроса.
+    advertisers_waiting: int = 0
+    #: Через сколько дней после прошлого поиска адрес закрытому «Не вышло» поищут
+    #: снова (`CONTACT_TTL_DAYS`): подтверждение говорит, что сделает код.
+    retry_days: int = 0
+
+
+class AdvertiserFormCard(BaseModel):
+    """Рекламодатель из ручной очереди (сверка ТЗ 11.10.2026): форма есть, адреса нет.
+    Вместо DR и трафика — откуда он и балл: метрик у рекламодателя нет."""
+
+    advertiser_id: int
+    domain_id: int
+    host: str
+    source: str
+    donor_host: str | None
+    run_id: int | None
+    points: int
+    attempted_at: datetime | None
+
+    @classmethod
+    def of(cls, row: AdvertiserFormRow) -> AdvertiserFormCard:
+        return cls(
+            advertiser_id=row.advertiser_id,
+            domain_id=row.domain_id,
+            host=row.host,
+            source=row.source,
+            donor_host=row.donor_host,
+            run_id=row.run_id,
+            points=row.points,
+            attempted_at=row.attempted_at,
+        )
+
+
+class AdvertiserFormsView(BaseModel):
+    """Страница очереди рекламодателей — тем же видом, что у доноров (`FormsView`):
+    ориентир темпа один на обе очереди (`forms.monthly_left`)."""
+
+    rows: list[AdvertiserFormCard]
+    total: int
+    page: int
+    limit: int
+    monthly_left: int
+    monthly_cap: int
+    #: Сколько ждёт рук во вкладке доноров — число на вкладке.
+    donors_waiting: int
+    #: Через сколько дней после прошлого поиска адрес поищут снова (`CONTACT_TTL_DAYS`).
+    retry_days: int
 
 
 class FilledBody(BaseModel):

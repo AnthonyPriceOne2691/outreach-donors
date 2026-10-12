@@ -5,14 +5,22 @@
  * в каждой таблице, и копии расходились: ширину добавляли в одну, заголовок —
  * в другую. Колонка-флажок слева (`lead`) и колонка действий справа (`tail`)
  * идут без заголовка: их смысл виден по содержимому.
+ *
+ * Заголовок с «i» (`hint`) — слово и значок одной группой по центру колонки.
+ * Заголовок, который не слово, — флажок «все на этой странице» — подставляет сама
+ * таблица (`heads`). Строки под заголовками — фильтры, каждый под своей колонкой
+ * (`children`).
  */
 
-import { Table } from '@mantine/core';
+import { Group, Table } from '@mantine/core';
+import type { ReactNode } from 'react';
 
 export interface Column {
   title: string;
   /** Ширина фиксированной раскладки; без неё колонка берёт остаток. */
   width?: string;
+  /** «i» у заголовка: что значит колонка, когда по ней самой этого не видно. */
+  hint?: ReactNode;
 }
 
 interface Props {
@@ -21,9 +29,23 @@ interface Props {
   lead?: string | null;
   /** Ширина безымянной колонки справа (кнопки действий). */
   tail?: string | null;
+  /** Заголовок вместо слова — по названию колонки. */
+  heads?: Partial<Record<string, ReactNode>>;
+  /** Строки шапки под заголовками — фильтры под своими колонками. */
+  children?: ReactNode;
 }
 
-export function ColumnsHead({ columns, lead = null, tail = null }: Props) {
+function Title({ column }: { column: Column }) {
+  if (column.hint === undefined) return <>{column.title}</>;
+  return (
+    <Group gap={2} justify="center" wrap="nowrap">
+      {column.title}
+      {column.hint}
+    </Group>
+  );
+}
+
+export function ColumnsHead({ columns, lead = null, tail = null, heads, children }: Props) {
   return (
     <>
       <colgroup>
@@ -37,10 +59,13 @@ export function ColumnsHead({ columns, lead = null, tail = null }: Props) {
         <Table.Tr>
           {lead ? <Table.Th /> : null}
           {columns.map((column) => (
-            <Table.Th key={column.title}>{column.title}</Table.Th>
+            <Table.Th key={column.title}>
+              {heads?.[column.title] ?? <Title column={column} />}
+            </Table.Th>
           ))}
           {tail ? <Table.Th /> : null}
         </Table.Tr>
+        {children}
       </Table.Thead>
     </>
   );

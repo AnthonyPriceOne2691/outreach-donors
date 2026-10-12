@@ -16,15 +16,30 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/api/advertisers/forms.py": {
+      "lines": 102,
+      "complexity": 2,
+      "worst": "form_queue:36"
+    },
+    "backend/api/advertisers/report_schemas.py": {
+      "lines": 183,
+      "complexity": 1,
+      "worst": "filters:47"
+    },
+    "backend/api/advertisers/reports.py": {
+      "lines": 131,
+      "complexity": 4,
+      "worst": "accepted:104"
+    },
     "backend/api/advertisers/routes.py": {
-      "lines": 329,
+      "lines": 341,
       "complexity": 5,
-      "worst": "decide:109"
+      "worst": "decide:114"
     },
     "backend/api/advertisers/schemas.py": {
-      "lines": 168,
+      "lines": 220,
       "complexity": 3,
-      "worst": "of:42"
+      "worst": "of:43"
     },
     "backend/api/agent/__init__.py": {
       "lines": 1,
@@ -67,12 +82,12 @@
       "worst": "—"
     },
     "backend/api/contacts/routes.py": {
-      "lines": 275,
+      "lines": 277,
       "complexity": 3,
       "worst": "_donor:145"
     },
     "backend/api/contacts/schemas.py": {
-      "lines": 114,
+      "lines": 163,
       "complexity": 1,
       "worst": "of:62"
     },
@@ -87,14 +102,14 @@
       "worst": "—"
     },
     "backend/api/crawls/routes.py": {
-      "lines": 143,
+      "lines": 146,
       "complexity": 9,
-      "worst": "_why_not:95"
+      "worst": "_why_not:98"
     },
     "backend/api/crawls/schemas.py": {
-      "lines": 127,
+      "lines": 143,
       "complexity": 3,
-      "worst": "of:71"
+      "worst": "of:82"
     },
     "backend/api/deps.py": {
       "lines": 125,
@@ -217,9 +232,9 @@
       "worst": "summary:34"
     },
     "backend/api/overview/schemas.py": {
-      "lines": 134,
+      "lines": 137,
       "complexity": 3,
-      "worst": "of:107"
+      "worst": "of:110"
     },
     "backend/api/replies/__init__.py": {
       "lines": 1,
@@ -812,9 +827,9 @@
       "worst": "_handle_columns:194"
     },
     "backend/features/contacts/forms.py": {
-      "lines": 227,
+      "lines": 373,
       "complexity": 3,
-      "worst": "monthly_left:133"
+      "worst": "monthly_left:147"
     },
     "backend/features/contacts/known_addresses.py": {
       "lines": 67,
@@ -827,9 +842,9 @@
       "worst": "_step_pages:218"
     },
     "backend/features/contacts/manual.py": {
-      "lines": 202,
+      "lines": 208,
       "complexity": 6,
-      "worst": "removal_refusals:130"
+      "worst": "removal_refusals:136"
     },
     "backend/features/contacts/messengers.py": {
       "lines": 457,
@@ -1006,6 +1021,31 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/crawl/acceptance.py": {
+      "lines": 186,
+      "complexity": 4,
+      "worst": "acceptance:149"
+    },
+    "backend/features/crawl/accuracy.py": {
+      "lines": 123,
+      "complexity": 5,
+      "worst": "scoring_check:98"
+    },
+    "backend/features/crawl/advertiser_export.py": {
+      "lines": 100,
+      "complexity": 5,
+      "worst": "address_words:54"
+    },
+    "backend/features/crawl/advertiser_list.py": {
+      "lines": 296,
+      "complexity": 9,
+      "worst": "_row:237"
+    },
+    "backend/features/crawl/advertiser_rules.py": {
+      "lines": 45,
+      "complexity": 1,
+      "worst": "writes_to:29"
+    },
     "backend/features/crawl/affiliate.py": {
       "lines": 170,
       "complexity": 10,
@@ -1027,9 +1067,9 @@
       "worst": "apply_ratings:79"
     },
     "backend/features/crawl/board.py": {
-      "lines": 171,
+      "lines": 215,
       "complexity": 5,
-      "worst": "eligible:93"
+      "worst": "eligible:137"
     },
     "backend/features/crawl/contacts.py": {
       "lines": 121,
@@ -1086,6 +1126,11 @@
       "complexity": 7,
       "worst": "collect:68"
     },
+    "backend/features/crawl/offer_state.py": {
+      "lines": 181,
+      "complexity": 1,
+      "worst": "_any:83"
+    },
     "backend/features/crawl/offer_stop.py": {
       "lines": 140,
       "complexity": 6,
@@ -1135,6 +1180,11 @@
       "lines": 279,
       "complexity": 10,
       "worst": "_collect_groups:199"
+    },
+    "backend/features/crawl/sample.py": {
+      "lines": 95,
+      "complexity": 7,
+      "worst": "mixed:57"
     },
     "backend/features/crawl/scoring.py": {
       "lines": 435,
@@ -1542,9 +1592,9 @@
       "worst": "_of_stage:99"
     },
     "backend/features/ops/overview.py": {
-      "lines": 342,
+      "lines": 348,
       "complexity": 5,
-      "worst": "_letters:309"
+      "worst": "_letters:315"
     },
     "backend/features/ops/silence.py": {
       "lines": 336,
@@ -2487,7 +2537,7 @@
       "worst": "main:127"
     },
     "scripts/ui_screens.py": {
-      "lines": 472,
+      "lines": 474,
       "complexity": 2,
       "worst": "open_reason:25"
     },
@@ -2530,6 +2580,11 @@
       "lines": 66,
       "complexity": 1,
       "worst": "queue_screens:24"
+    },
+    "scripts/ui_screens_stage2.py": {
+      "lines": 70,
+      "complexity": 1,
+      "worst": "stage2_screens:22"
     }
   }
 }

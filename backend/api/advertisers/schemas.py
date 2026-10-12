@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
+from backend.features.crawl.accuracy import FALSE_LIMIT, MIN_DECISIONS, Decisions, ScoringCheck
 from backend.features.crawl.niche import NicheRow
 
 
@@ -58,16 +59,67 @@ class CandidateCard(BaseModel):
         )
 
 
+class VerdictDecisions(BaseModel):
+    """Кандидаты одного вердикта и решения человека по ним: «пишем» и «не пишем»."""
+
+    total: int
+    decided: int
+    write: int
+    skip: int
+
+    @classmethod
+    def of(cls, decisions: Decisions) -> VerdictDecisions:
+        return cls(
+            total=decisions.total,
+            decided=decisions.decided,
+            write=decisions.write,
+            skip=decisions.skip,
+        )
+
+
+class ScoringCheckView(BaseModel):
+    """Скоринг против человека (`crawl/accuracy.py`): доля ложных среди решённых
+    «куплено» случайной выборки (`sample`) и допуск требования рядом — экран сравнивает
+    их, а не держит свою копию десяти процентов. `false_share` пусто — решённых в
+    выборке нет, мерить нечем. Какие кандидаты в выборке, ответ не говорит: человек
+    их не отличает."""
+
+    bought: VerdictDecisions
+    pending: VerdictDecisions
+    sample: VerdictDecisions
+    false_share: float | None
+    false_limit: float
+    #: В допуске ли доля; пусто — решений меньше `min_decisions` и вывода нет.
+    within_limit: bool | None
+    #: С какой выборки доле верят — та же, что у точности судьи Этапа 1.
+    min_decisions: int
+
+    @classmethod
+    def of(cls, check: ScoringCheck) -> ScoringCheckView:
+        return cls(
+            bought=VerdictDecisions.of(check.of(Verdict.BOUGHT)),
+            pending=VerdictDecisions.of(check.of(Verdict.PENDING)),
+            sample=VerdictDecisions.of(check.sample),
+            false_share=check.false_share,
+            false_limit=FALSE_LIMIT,
+            within_limit=check.within_limit,
+            min_decisions=MIN_DECISIONS,
+        )
+
+
 class CandidatesView(BaseModel):
     """Очередь ручной проверки и что вокруг неё.
 
     Счётчики по всем вердиктам, а не только по спорным: по отсеянным
-    видно, что список «кому не пишем» работает, а не молчит.
+    видно, что список «кому не пишем» работает, а не молчит. Рядом — доля
+    ложных среди «куплено» (сверка ТЗ 11.10.2026): решения человека, по которым
+    она считается, принимаются в этой же очереди.
     """
 
     rows: list[CandidateCard]
     waiting: int
     counts: dict[str, int] = Field(default_factory=dict)
+    scoring: ScoringCheckView | None = None
 
 
 class DecisionBody(BaseModel):

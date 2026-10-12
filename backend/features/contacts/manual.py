@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.contacts.quality import NOT_AN_ADDRESS, rejection_reason
 from backend.features.core.domain import ContactSource, ContactStatus
 from backend.features.core.models._mixins import ContactAttemptMixin
+from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import MessageModel, ThreadModel
@@ -103,27 +104,32 @@ def _checked(email: str) -> str:
     return value
 
 
-async def add(session: AsyncSession, donor: DonorModel, email: str) -> ContactModel:
-    """Записать адрес донору. Дальше он — адрес для писем (если донора примут)."""
+async def add(
+    session: AsyncSession, role: DonorModel | AdvertiserModel, email: str
+) -> ContactModel:
+    """Записать адрес донору или рекламодателю. Дальше он — адрес для писем: донору —
+    если его примут, рекламодателю — оффером (`letters/recipients.py` берёт адреса
+    домена). Рекламодатель — с «Форм» (`forms.advertiser_filled`, сверка ТЗ 11.10.2026)."""
     value = _checked(email)
     taken = await session.scalar(
         select(ContactModel.id)
-        .where(ContactModel.domain_id == donor.domain_id)
+        .where(ContactModel.domain_id == role.domain_id)
         .where(ContactModel.email == value)
     )
+    whose = "у донора" if isinstance(role, DonorModel) else "у рекламодателя"
     if taken is not None:
-        raise AddressConflictError(f"Адрес {value} у донора уже есть.")
+        raise AddressConflictError(f"Адрес {value} {whose} уже есть.")
     contact = ContactModel(
-        domain_id=donor.domain_id,
+        domain_id=role.domain_id,
         email=value,
         source=ContactSource.MANUAL,
         verification_status=BY_HAND,
         verification_score=MANUAL_SCORE,
     )
     session.add(contact)
-    donor.contact_status = ContactStatus.FOUND
+    role.contact_status = ContactStatus.FOUND
     await session.flush()
-    logger.info("адреса: донору №%s вписан адрес руками", donor.id)
+    logger.info("адреса: %s №%s вписан адрес руками", whose, role.id)
     return contact
 
 

@@ -30,8 +30,7 @@
 
 import { Button, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { exportCounts, exportDonors, exportPicked, saveFile } from '../api/donors';
@@ -39,6 +38,7 @@ import { listDonors } from '../api/runs';
 import type { DonorRowCard } from '../api/types';
 import { sameNumber } from '../components/numberText';
 import { PageSwitch } from '../components/PageSwitch';
+import { useLastPage, useUrlFilters } from '../components/useUrlFilters';
 import { formatNumber } from '../format';
 import { DonorsTable } from './DonorsTable';
 import { placeOf } from './place';
@@ -56,7 +56,6 @@ import {
   TRAFFIC_MAX,
   writeFilters,
 } from './donorFilters';
-import type { DonorFilters } from './donorFilters';
 import { exportOutcome, exportPlan } from './exporting';
 import { usePendingContacts } from './PendingContacts';
 import { usePicks } from './picks';
@@ -80,24 +79,11 @@ function onlyValid(max: number, commit: (value: number | null) => void) {
 export function DonorsPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [params, setParams] = useSearchParams();
-  const filters = useMemo(() => readFilters(params), [params]);
-  const contacts = usePendingContacts();
-  const picks = usePicks();
-
   // Смена фильтра — замена записи в истории, а не новая: «назад» ведёт
   // туда, откуда пришли, а не по буквам поиска. Страница — новая запись.
-  const apply = useCallback(
-    (patch: Partial<DonorFilters>) =>
-      setParams((current) => writeFilters({ ...readFilters(current), ...patch, page: 1 }), {
-        replace: true,
-      }),
-    [setParams],
-  );
-  const turn = useCallback(
-    (page: number) => setParams((current) => writeFilters({ ...readFilters(current), page })),
-    [setParams],
-  );
+  const { filters, apply, turn, reset } = useUrlFilters(readFilters, writeFilters);
+  const contacts = usePendingContacts();
+  const picks = usePicks();
 
   // Поиск и пороги печатают — в адрес они уходят после паузы в наборе.
   // Пороги — строкой, как набраны: «05» и «5» — один фильтр, и набранное
@@ -137,13 +123,7 @@ export function DonorsPage() {
 
   // Страница из старой ссылки может оказаться за концом: вместо пустоты
   // с «ничего не нашлось» — последняя настоящая страница.
-  useEffect(() => {
-    if (settled && data.rows.length === 0 && data.total > 0 && filters.page > pages) {
-      setParams((current) => writeFilters({ ...readFilters(current), page: pages }), {
-        replace: true,
-      });
-    }
-  }, [settled, data, filters.page, pages, setParams]);
+  useLastPage(filters.page, settled ? data : undefined, pages, turn);
 
   const plan =
     data === undefined
@@ -256,7 +236,7 @@ export function DonorsPage() {
           onFilter={apply}
           onOpen={open}
           onReset={() => {
-            setParams(writeFilters(NO_FILTERS), { replace: true });
+            reset(NO_FILTERS);
             // Порог с отказом в адрес не попал — сброс адреса его не сотрёт.
             setMinDr('');
             setMinTraffic('');

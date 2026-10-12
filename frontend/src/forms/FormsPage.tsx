@@ -1,5 +1,5 @@
 /**
- * Ручная очередь: доноры, у которых форма вместо адреса.
+ * Ручная очередь: доноры и рекламодатели, у которых форма вместо адреса.
  *
  * Ступень лестницы, которую нельзя пройти кодом. До этого экрана
  * очередь существовала только значком «только форма» в общей таблице:
@@ -27,305 +27,43 @@
  * остаток ширины — 698 px из 1 286 на широком экране, — и колонки справа
  * жались к краю. Теперь у колонок доли (`COLUMNS`), страница — на сервере
  * и в адресе (`?page=2`), размер страницы называет сервер.
+ *
+ * **Рекламодатели — вкладкой** (сверка ТЗ 11.10.2026): строка ТЗ «только форма,
+ * нет email — заполняем вручную» общая на оба этапа, а очередь была только у
+ * доноров, и рекламодатель с одной формой оффера не получал. Вкладка — в адресе
+ * (`?queue=advertisers`), смена вкладки — первая страница; число соседней вкладки
+ * приходит в ответе своей, без второго запроса. Ориентир темпа один на обе
+ * очереди: он про руки, а руки одни. Таблица, окно адреса и «Не вышло» —
+ * общие (`FormsQueue`), чья очередь — говорит её описание (`formQueues.tsx`).
  */
 
-import {
-  Alert,
-  Anchor,
-  Badge,
-  Button,
-  Card,
-  Group,
-  Loader,
-  Modal,
-  Stack,
-  Table,
-  Text,
-  TextInput,
-} from '@mantine/core';
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
-import { refusalOf } from '../api/client';
-import { fetchForms, formFilled, formGaveUp } from '../api/contacts';
-import type { FormCard } from '../api/types';
-import { useSession } from '../auth/AuthProvider';
-import { ConfirmPopover } from '../components/ConfirmPopover';
-import { PageHead } from '../components/PageHead';
-import { PageSwitch, usePageParam } from '../components/PageSwitch';
-import { Seams } from '../components/Seams';
-import { formatCompact, formatDate, formatNumber, plural } from '../format';
-import { notify } from '../notices';
+import { ADVERTISER_FORMS, DONOR_FORMS } from './formQueues';
+import type { FormsTab } from './formQueues';
+import { FormsQueue } from './FormsQueue';
 
-const FORMS_QUERY_KEY = ['forms'] as const;
-
-/** Колонки слева направо и их доли. Доли — чтобы расстояние между
- *  содержимым соседних колонок было одним и тем же: у каждой колонки
- *  ширина — её обычное содержимое плюс общий запас (донор ~130 px, значок
- *  DR — 44, «12,3 млрд», дата, две кнопки — 221 px). Уже `TABLE_MIN_WIDTH`
- *  таблица не сжимается: на нём каждая колонка вмещает самое длинное, что
- *  в ней бывает, — кнопки «Вписать адрес» и «Не вышло» с зазором и полями
- *  ячейки (260 px; на глаз вышло 196, и кнопки обрезались до «Вписать
- *  адре»), дата и число — по своим 128 и 120. Длинный домен переносится. */
-const COLUMNS: { title: string; share: number }[] = [
-  { title: 'Донор', share: 22 },
-  { title: 'DR', share: 15 },
-  { title: 'Трафик', share: 17 },
-  { title: 'Искали', share: 17 },
-];
-const ACTIONS = { title: 'Действия', share: 29 };
-
-/** Уже этого таблица уезжает в прокрутку: с кнопками — 29% не меньше их
- *  260 px, без кнопок — донору его двести. */
-const TABLE_MIN_WIDTH = { withActions: 900, readOnly: 650 } as const;
+/** Вкладка — из адреса; незнакомая или пустая — доноры: адрес из меню тот же, что был. */
+function useFormsTab(): [FormsTab, (tab: FormsTab) => void] {
+  const [params, setParams] = useSearchParams();
+  const tab: FormsTab = params.get('queue') === 'advertisers' ? 'advertisers' : 'donors';
+  const go = useCallback(
+    (next: FormsTab) => {
+      if (next === tab) return;
+      setParams(next === 'donors' ? new URLSearchParams() : new URLSearchParams({ queue: next }));
+    },
+    [tab, setParams],
+  );
+  return [tab, go];
+}
 
 export function FormsPage() {
-  const { can } = useSession();
-  const queryClient = useQueryClient();
-  const [filling, setFilling] = useState<FormCard | null>(null);
-  const [email, setEmail] = useState('');
-
-  const [page, goToPage] = usePageParam();
-
-  const { data, isLoading, error, isPlaceholderData } = useQuery({
-    queryKey: [...FORMS_QUERY_KEY, page],
-    queryFn: () => fetchForms(page),
-    // Пока едет следующая страница, стоит прежняя: пустая таблица на долю
-    // секунды читалась бы как «очередь пуста».
-    placeholderData: keepPreviousData,
-  });
-  const pages = data === undefined ? 1 : Math.max(1, Math.ceil(data.total / data.limit));
-  const settled = data !== undefined && !isPlaceholderData;
-
-  // Страница за концом — ссылка, открытая после разбора очереди, или
-  // последний донор последней страницы, закрытый только что. Сервер отдаёт
-  // её пустой и говорит, сколько всего; экран уходит на последнюю, заменяя
-  // адрес, а не добавляя.
-  useEffect(() => {
-    if (settled && page > pages) goToPage(pages, true);
-  }, [settled, page, pages, goToPage]);
-
-  const done = async (message: string) => {
-    await queryClient.invalidateQueries({ queryKey: FORMS_QUERY_KEY });
-    setFilling(null);
-    setEmail('');
-    notify({ message, color: 'green' });
-  };
-
-  const fill = useMutation({
-    mutationFn: (row: FormCard) => formFilled(row.donor_id, email.trim()),
-    onSuccess: (row) => done(`${row.host}: адрес записан, донор пойдёт в очередь писем`),
-    onError: (failure) =>
-      notify({ title: 'Не записали', message: refusalOf(failure), color: 'red' }),
-  });
-
-  const giveUp = useMutation({
-    mutationFn: (row: FormCard) => formGaveUp(row.donor_id, null),
-    onSuccess: (row) => done(`${row.host} закрыт без адреса`),
-    onError: (failure) =>
-      notify({ title: 'Не закрыли', message: refusalOf(failure), color: 'red' }),
-  });
-
-  if (isLoading) return <Loader aria-label="Загружаем очередь форм" m="md" />;
-  if (error) {
-    return (
-      <Alert color="red" title="Очередь не загрузилась" m="md">
-        {refusalOf(error)}
-      </Alert>
-    );
-  }
-
-  const rows = data?.rows ?? [];
-  // Пуста очередь, а не страница: страница за концом — переход на последнюю,
-  // а не «очередь пуста» на мгновение перед ним.
-  const empty = (data?.total ?? 0) === 0;
-  const pace = data?.monthly_cap ?? 0;
-  const paceLeft = data?.monthly_left ?? 0;
-  const mayWork = can('run');
-  const columns = mayWork ? [...COLUMNS, ACTIONS] : COLUMNS;
-  const shares = columns.reduce((sum, column) => sum + column.share, 0);
-
-  return (
-    <Stack gap="lg">
-      <Card className="glassPanel" p="xl">
-        <Stack gap="sm">
-          <PageHead
-            title="Формы"
-            hint="У этих доноров есть контактная форма и нет почты. Лестница дошла до них и остановилась: дальше нужны руки. Заполнили и получили адрес — впишите его, и донор пойдёт в очередь писем обычным порядком."
-          />
-          <Text size="sm">
-            В очереди <b>{formatNumber(data?.total ?? 0)}</b>. Ориентир темпа — {formatNumber(pace)}{' '}
-            {plural(pace, 'адрес', 'адреса', 'адресов')} руками за последние 30 дней, осталось{' '}
-            <b>{formatNumber(paceLeft)}</b>.
-          </Text>
-          {paceLeft === 0 && (
-            <Alert color="yellow" title="Ориентир темпа достигнут">
-              Это ориентир, а не запрет: очередь не закрыта, новые формы в неё попадают, вписывать
-              адреса можно и дальше.
-            </Alert>
-          )}
-        </Stack>
-      </Card>
-
-      {/* Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что у
-          панели сверху: иначе текст соседних карточек начинается с разных
-          мест (аудит 25.09.2026). */}
-      <Card className="glassPanel" p={empty ? 'xl' : 'md'}>
-        {empty ? (
-          <Text size="sm" c="dimmed">
-            Очередь пуста. Сюда попадают доноры, у которых лестница нашла форму, но не нашла адреса.
-          </Text>
-        ) : (
-          <Stack gap="sm">
-            <Table.ScrollContainer
-              minWidth={mayWork ? TABLE_MIN_WIDTH.withActions : TABLE_MIN_WIDTH.readOnly}
-              type="native"
-              className="scrollSlim phoneCards phoneCardsRow"
-            >
-              <Table
-                className="dataTable fixedTable allCentered"
-                layout="fixed"
-                tabularNums
-                verticalSpacing="sm"
-                horizontalSpacing="md"
-              >
-                <colgroup>
-                  {columns.map((column) => (
-                    <col
-                      key={column.title}
-                      style={{ width: `${(column.share / shares) * 100}%` }}
-                    />
-                  ))}
-                </colgroup>
-                <Table.Thead>
-                  <Table.Tr>
-                    {columns.map((column) => (
-                      <Table.Th key={column.title}>{column.title}</Table.Th>
-                    ))}
-                  </Table.Tr>
-                </Table.Thead>
-                {/* Строки прежней страницы, пока едет новая, приглушены, и
-                    кнопки в них заперты: решать по ним нельзя — они не той
-                    страницы. */}
-                <Table.Tbody
-                  className="staleRows"
-                  data-stale={isPlaceholderData || undefined}
-                  aria-busy={isPlaceholderData || undefined}
-                >
-                  {rows.map((row) => (
-                    <Table.Tr key={row.donor_id}>
-                      <Table.Td>
-                        {/* Имя — чернилами, как у доноров и диалогов: бирюзовая
-                            ссылка в верхних строках стоит на бирюзовом углу
-                            полотна, и замер дал 4,30 : 1 при норме 4,5
-                            (25.09.2026). Что это ссылка, говорит подчёркивание
-                            под курсором. Длинный домен переносится по швам
-                            (`Seams`), как в колонке «Донор» других таблиц:
-                            «где угодно» рвало его посреди слова. */}
-                        <Anchor
-                          href={`https://${row.host}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          c="var(--ink)"
-                          fw={500}
-                          underline="hover"
-                          className="cellName"
-                        >
-                          <Seams text={row.host} />
-                        </Anchor>
-                      </Table.Td>
-                      <Table.Td data-label="DR">
-                        <Badge variant="light">{row.dr ?? '—'}</Badge>
-                      </Table.Td>
-                      <Table.Td data-label="Трафик">{formatCompact(row.org_traffic)}</Table.Td>
-                      <Table.Td data-label="Искали">{formatDate(row.attempted_at)}</Table.Td>
-                      {mayWork ? (
-                        <Table.Td className="cellDecide">
-                          <Group gap="xs" justify="center" wrap="nowrap">
-                            <Button
-                              size="compact-sm"
-                              className="press"
-                              disabled={isPlaceholderData}
-                              onClick={() => {
-                                setFilling(row);
-                                setEmail('');
-                              }}
-                            >
-                              Вписать адрес
-                            </Button>
-                            {/* Закрывает строку насовсем — с подтверждением у кнопки: стоит
-                                вплотную к «Вписать адрес», и промах стоил донора (аудит
-                                экранов 09.10.2026). */}
-                            <ConfirmPopover
-                              message={`Закрыть ${row.host} без адреса? Донор уйдёт из очереди форм, письма ему не будет.`}
-                              confirm="Закрыть"
-                              onConfirm={() => giveUp.mutate(row)}
-                            >
-                              {(ask) => (
-                                <Button
-                                  size="compact-sm"
-                                  variant="subtle"
-                                  color="gray"
-                                  className="press"
-                                  disabled={isPlaceholderData}
-                                  loading={
-                                    giveUp.isPending && giveUp.variables?.donor_id === row.donor_id
-                                  }
-                                  onClick={ask}
-                                >
-                                  Не вышло
-                                </Button>
-                              )}
-                            </ConfirmPopover>
-                          </Group>
-                        </Table.Td>
-                      ) : null}
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-            <PageSwitch
-              label="Страницы очереди форм"
-              page={page}
-              pages={pages}
-              onChange={goToPage}
-              pt="xs"
-            />
-          </Stack>
-        )}
-      </Card>
-
-      <Modal
-        opened={filling !== null}
-        onClose={() => setFilling(null)}
-        title={`Адрес донора ${filling?.host ?? ''}`}
-      >
-        <Stack gap="sm">
-          <Text size="sm">
-            Адрес, который донор дал в ответ на форму. Он попадёт в базу как введённый руками — в
-            журнале останется, кто его внёс.
-          </Text>
-          <TextInput
-            label="Адрес почты"
-            placeholder="editor@site.com"
-            value={email}
-            onChange={(event) => setEmail(event.currentTarget.value)}
-          />
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setFilling(null)}>
-              Отмена
-            </Button>
-            <Button
-              loading={fill.isPending}
-              disabled={!email.includes('@')}
-              onClick={() => filling && fill.mutate(filling)}
-            >
-              Записать
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
-    </Stack>
+  const [tab, setTab] = useFormsTab();
+  // Ключ — вкладка: окно адреса и строка «закрываем» одной очереди не переезжают в другую.
+  return tab === 'advertisers' ? (
+    <FormsQueue key={tab} queue={ADVERTISER_FORMS} onTab={setTab} />
+  ) : (
+    <FormsQueue key={tab} queue={DONOR_FORMS} onTab={setTab} />
   );
 }

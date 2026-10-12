@@ -34,8 +34,7 @@
 import { Alert, Badge, Card, Group, Loader, SegmentedControl, Stack, Text } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { JUDGE_DECIDERS, SELECTION_TABS } from '../api/labels';
@@ -44,6 +43,7 @@ import type { JudgeDecider, SelectionView } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { PageHead } from '../components/PageHead';
 import { PageSwitch } from '../components/PageSwitch';
+import { useLastPage, useUrlFilters } from '../components/useUrlFilters';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
 import {
@@ -54,7 +54,6 @@ import {
   SELECTION_TAB_KEYS,
   writeSelectionFilters,
 } from './selectionFilters';
-import type { SelectionFilters } from './selectionFilters';
 import { SelectionTable } from './SelectionTable';
 import { SELECTION_KEY, useDecisions } from './useDecisions';
 
@@ -124,28 +123,16 @@ function Summary({ data }: { data: SelectionView }) {
 
 export function SelectionPage() {
   const { can } = useSession();
-  const [params, setParams] = useSearchParams();
-  const filters = useMemo(() => readSelectionFilters(params), [params]);
-  // На узком окне три вкладки в ряд резали «Отклонены — 727» до «О».
-  const narrow = useMediaQuery('(max-width: 36em)');
-
   // Смена вкладки или фильтра — замена записи в истории и первая страница:
   // «назад» ведёт туда, откуда пришли, а не по буквам поиска, а двадцатая
   // страница старого вопроса ничего не говорит о новом. Страница — новая
   // запись.
-  const apply = useCallback(
-    (patch: Partial<SelectionFilters>) =>
-      setParams(
-        (current) => writeSelectionFilters({ ...readSelectionFilters(current), ...patch, page: 1 }),
-        { replace: true },
-      ),
-    [setParams],
+  const { filters, apply, turn, reset } = useUrlFilters(
+    readSelectionFilters,
+    writeSelectionFilters,
   );
-  const turn = useCallback(
-    (page: number) =>
-      setParams((current) => writeSelectionFilters({ ...readSelectionFilters(current), page })),
-    [setParams],
-  );
+  // На узком окне три вкладки в ряд резали «Отклонены — 727» до «О».
+  const narrow = useMediaQuery('(max-width: 36em)');
 
   // Поиск печатают: в адрес и на сервер он уходит после паузы в наборе.
   const [search, setSearch] = useTyped(
@@ -192,18 +179,9 @@ export function SelectionPage() {
     query.data === undefined ? 1 : Math.max(1, Math.ceil(query.data.total / query.data.limit));
 
   // Страница из старой ссылки может оказаться за концом: вместо пустоты
-  // с «ничего не нашлось» — последняя настоящая страница.
-  useEffect(() => {
-    if (answer !== undefined && answer.rows.length === 0 && answer.total > 0) {
-      const last = Math.max(1, Math.ceil(answer.total / answer.limit));
-      if (filters.page > last) {
-        setParams(
-          (current) => writeSelectionFilters({ ...readSelectionFilters(current), page: last }),
-          { replace: true },
-        );
-      }
-    }
-  }, [answer, filters.page, setParams]);
+  // с «ничего не нашлось» — последняя настоящая страница. Пока ответ на этот
+  // вопрос не пришёл, `pages` — по прежнему, а `answer` пуст: не в счёт.
+  useLastPage(filters.page, answer, pages, turn);
 
   if (data === undefined) {
     // Первого ответа ещё нет — или не будет: крутилка только до первого
@@ -266,9 +244,7 @@ export function SelectionPage() {
             onUndo={decisions.undo}
             onReset={() => {
               setSearch('');
-              setParams(writeSelectionFilters({ ...NO_SELECTION_FILTERS, tab: filters.tab }), {
-                replace: true,
-              });
+              reset({ ...NO_SELECTION_FILTERS, tab: filters.tab });
             }}
           />
 

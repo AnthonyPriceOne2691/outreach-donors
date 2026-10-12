@@ -32,6 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.api.advertisers import forms, reports
 from backend.api.advertisers.schemas import (
     CandidateCard,
     CandidatesView,
@@ -42,6 +43,7 @@ from backend.api.advertisers.schemas import (
     NicheView,
     PromoteResult,
     PromotionView,
+    ScoringCheckView,
 )
 from backend.api.contacts.schemas import ContactsQueued, ContactsState, SearchBody
 from backend.api.contacts.search_state import search_state
@@ -49,7 +51,7 @@ from backend.api.deps import db_session, needs
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage, Verdict
 from backend.features.core.models.access import UserModel
-from backend.features.crawl import niche, promote, review
+from backend.features.crawl import accuracy, niche, promote, review, sample
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.shared.queue import (
     ADVERTISER_CONTACTS_JOB_KEY,
@@ -94,7 +96,9 @@ async def queue(
             "Списком смотрят спорных (pending) и «куплено» (bought): «мимо» и «кому не пишем» "
             "видны числами в шапке",
         )
-    rows = await review.queue(
+    # «Куплено» — со случайной выборкой вперемешку (`crawl/sample.py`): по ней одной
+    # считается доля ложных, и решать её нужно не после сильных, а среди них.
+    rows = await sample.queue(
         session, limit=limit, include_decided=include_decided, verdict=verdict
     )
     dates = await review.article_dates(session, rows)
@@ -102,6 +106,7 @@ async def queue(
         rows=[CandidateCard.of(row, published=dates.get(row.id)) for row in rows],
         waiting=await review.waiting(session),
         counts=await review.counts(session),
+        scoring=ScoringCheckView.of(await accuracy.scoring_check(session)),
     )
 
 
@@ -326,3 +331,10 @@ async def niche_collect(
     report = await niche.collect(session, run_id)
     await session.commit()
     return NicheCollected(run_id=report.run_id, found=report.found, added=report.added)
+
+
+# --- список рекламодателей, отчёты (`reports.py`) и ручная очередь форм
+# (`forms.py`) — тем же префиксом ---
+
+router.include_router(reports.router)
+router.include_router(forms.router)

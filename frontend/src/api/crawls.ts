@@ -28,6 +28,14 @@ export interface CrawlRow {
   finished_at: string | null;
   /** Почему обход стоит, продолжен или остановлен — словами человека. */
   reason: string | null;
+  /** Доля закрытых страниц от всех запросов обхода, 0…1. Пусто — не мерили: обход
+   *  идёт или записан до замера. Нет поля — сервер старше экрана. */
+  blocked_share?: number | null;
+  /** Сколько запросов за долей. */
+  requests?: number | null;
+  /** Доля 403/429/5xx/таймаут за последние `window` запросов — мера здоровья ТЗ. */
+  failure_share?: number | null;
+  window?: number | null;
 }
 
 /** Донор, которого можно обойти: цена — основание, обход — что о нём знаем. */
@@ -52,6 +60,10 @@ export interface CrawlTargets {
   max_pages: number;
   /** Сколько обходчиков слушает очередь; `null` — не спросили, 0 — некому взять. */
   workers: number | null;
+  /** Мера здоровья ТЗ: окно и пороги «темп вдвое ниже» и «пауза». Нет — сервер старше. */
+  health_window?: number | null;
+  slow_down_share?: number | null;
+  stop_share?: number | null;
 }
 
 export interface CrawlsView {

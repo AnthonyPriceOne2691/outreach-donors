@@ -25,20 +25,8 @@
  * домену доставалось 312 px, а полю поиска — 286.
  */
 
-import {
-  Alert,
-  Button,
-  Combobox,
-  CheckIcon,
-  Group,
-  Select,
-  Stack,
-  Table,
-  Text,
-  TextInput,
-} from '@mantine/core';
+import { Combobox, CheckIcon, Group, Select, Table, Text, TextInput } from '@mantine/core';
 import type { ComboboxItem, SelectProps } from '@mantine/core';
-import type { ReactNode } from 'react';
 
 import {
   SELECTION_ANSWERS,
@@ -47,6 +35,9 @@ import {
   SELECTION_THRESHOLDS,
 } from '../api/labels';
 import type { HumanIntent, SelectionCard } from '../api/types';
+import { ColumnsHead } from '../components/ColumnsHead';
+import type { Column } from '../components/ColumnsHead';
+import { NoRows } from '../components/WholeRow';
 import { dropdownBelow } from '../theme';
 import { SelectionRow } from './SelectionRow';
 import { answersOn, HUMAN_KEYS, JUDGE_KEYS, thresholdsOn } from './selectionFilters';
@@ -71,12 +62,6 @@ const FIELD = {
   answer: '9.375rem',
   human: '10.625rem',
 } as const;
-
-interface Column {
-  title: string;
-  /** Не задана — колонке достаётся остаток ширины таблицы. */
-  width?: string;
-}
 
 /** Колонки слева направо — так, чтобы таблица вставала целиком в самое узкое
  *  место, где её смотрят: панель 948 px на окне 1280 с раскрытым меню (на 1440 —
@@ -284,16 +269,6 @@ function FilterRow({ filters, search, onSearch, onFilter }: FilterRowProps) {
   );
 }
 
-/** Одна строка на всю ширину: пусто или отказ. Фильтры над ней остаются —
- *  поправить условие можно тут же, не возвращаясь. */
-function WholeRow({ children, span }: { children: ReactNode; span: number }) {
-  return (
-    <Table.Tr className="wholeRow">
-      <Table.Td colSpan={span}>{children}</Table.Td>
-    </Table.Tr>
-  );
-}
-
 interface Props extends FilterRowProps {
   rows: SelectionCard[];
   /** Строки прежней вкладки или фильтра — ждут замены: решать по ним нельзя. */
@@ -338,51 +313,24 @@ export function SelectionTable({
         verticalSpacing="sm"
         horizontalSpacing="xs"
       >
-        <colgroup>
-          {columns.map((column) => (
-            <col
-              key={column.title}
-              style={column.width === undefined ? undefined : { width: column.width }}
-            />
-          ))}
-        </colgroup>
-        <Table.Thead>
-          <Table.Tr>
-            {columns.map((column) => (
-              <Table.Th key={column.title}>{column.title}</Table.Th>
-            ))}
-          </Table.Tr>
+        <ColumnsHead columns={columns}>
           <FilterRow {...filters} />
-        </Table.Thead>
+        </ColumnsHead>
         <Table.Tbody
           className="staleRows"
           data-stale={stale || undefined}
           aria-busy={stale || undefined}
         >
-          {refusal !== null && (
-            <WholeRow span={columns.length}>
-              <Alert color="red" title="Отбор не загрузился">
-                {refusal}
-              </Alert>
-            </WholeRow>
-          )}
-          {refusal === null && empty !== null && (
-            <WholeRow span={columns.length}>
-              <Stack gap={6} align="flex-start" py="sm">
-                <Text size="sm" fw={500}>
-                  {empty.title}
-                </Text>
-                <Text size="sm" c="dimmed">
-                  {empty.detail}
-                </Text>
-                {empty.resettable && (
-                  <Button variant="subtle" size="compact-sm" className="press" onClick={onReset}>
-                    Сбросить фильтры
-                  </Button>
-                )}
-              </Stack>
-            </WholeRow>
-          )}
+          {/* Пусто или отказ — строкой на всю ширину: фильтры над ней остаются,
+              поправить условие можно тут же, не возвращаясь. */}
+          <NoRows
+            span={columns.length}
+            refusal={refusal}
+            failTitle="Отбор не загрузился"
+            empty={empty}
+            onReset={onReset}
+            wide
+          />
           {refusal === null &&
             rows.map((row) => (
               <SelectionRow

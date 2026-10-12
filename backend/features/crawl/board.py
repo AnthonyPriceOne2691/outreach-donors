@@ -4,6 +4,12 @@
 известная и свежая цена, не поставщик) — у кнопки и команды разные правила
 разошлись бы молча. Здесь только сборка того, что видит человек: цена донора
 рядом с его последним обходом и ход идущих обходов.
+
+**Доля закрытых страниц — у строки обхода** (сверка ТЗ 11.10.2026). Числа
+здоровья обход пишет в свою запись с самого начала (`crawl/health.py`), а экран
+их не показывал: «обойдён: 1 000 страниц» не отличал донора, отдавшего всё,
+от донора, закрывшего от нас треть запросов, — а от этой доли считается смета
+Этапа 2 (`okf/crawl-access.md`).
 """
 
 from __future__ import annotations
@@ -16,6 +22,7 @@ from typing import Any
 from sqlalchemy import Row, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import crawl as cfg
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, StopReason
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.domain import DomainModel
@@ -45,11 +52,25 @@ class CrawlLine:
     created_at: datetime
     finished_at: datetime | None
     reason: str | None
+    #: Доля закрытых страниц: ответов «закрылся от нас» от всех запросов обхода
+    #: (`CrawlHealth.blocked_share`). Пусто — обход не кончился (числа пишет конец
+    #: обхода), не сделал ни одного запроса или записан до замера здоровья.
+    blocked_share: float | None = None
+    #: Сколько запросов за долей: «закрыто 100%» на трёх запросах и на тысяче — разное.
+    requests: int | None = None
+    #: Доля 403/429/5xx/таймаут в окне последних запросов (`CrawlHealth.failure_share`) —
+    #: мера здоровья ТЗ («за последние 500 запросов: > 10% — темп вдвое ниже, > 30% —
+    #: пауза»), на конец обхода. `window` — сколько запросов в окне: меньше 500, если
+    #: столько не набралось.
+    failure_share: float | None = None
+    window: int | None = None
 
     @classmethod
     def of(cls, run: CrawlRunModel) -> CrawlLine:
         stats: dict[str, Any] = run.stats or {}
         links = stats.get("links_found")
+        share, asked = _closed(stats)
+        failures, window = _window(stats, asked)
         return cls(
             id=run.id,
             host=run.host,
@@ -64,7 +85,30 @@ class CrawlLine:
             created_at=run.created_at,
             finished_at=run.finished_at,
             reason=readable(stats.get(REASON_KEY)),
+            blocked_share=share,
+            requests=asked,
+            failure_share=failures,
+            window=window,
         )
+
+
+def _window(stats: dict[str, Any], requests: int | None) -> tuple[float | None, int | None]:
+    """Доля отказов в окне здоровья и сколько запросов в окне: меньше окна, если
+    столько не набралось. Запросов нет — доли нет."""
+    failures = stats.get("failure_share")
+    if requests is None or not isinstance(failures, int | float):
+        return None, None
+    return float(failures), min(requests, cfg.HEALTH_WINDOW)
+
+
+def _closed(stats: dict[str, Any]) -> tuple[float | None, int | None]:
+    """Доля закрытых страниц и запросов за ней — из чисел здоровья обхода
+    (`CrawlHealth.report`). Запросов нет или чисел нет — `(None, None)`: доля
+    от нуля запросов не доля."""
+    requests, blocked = stats.get("requests"), stats.get("blocked")
+    if not isinstance(requests, int) or not isinstance(blocked, int) or requests <= 0:
+        return None, None
+    return blocked / requests, requests
 
 
 @dataclass(frozen=True, slots=True)
