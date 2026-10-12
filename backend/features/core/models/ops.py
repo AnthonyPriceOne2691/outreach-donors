@@ -39,6 +39,10 @@ class UsageRecordModel(TimestampedMixin, Base):
     operation: Mapped[str] = mapped_column(String(64), nullable=False)
     units: Mapped[int | None] = mapped_column(Integer, nullable=True)
     amount_usd: Mapped[Decimal | None] = mapped_column(DECIMAL(10, 4), nullable=True)
+    #: На какой этап ушла трата — расход Этапа 2 считается отдельно от Этапа 1 (требование
+    #: к расходу Этапа 2). Пусто — общая на все этапы (отправка письма) или этап не назван:
+    #: операцию делят этапы, а вызов его не сказал, либо строка старше 12.10.2026.
+    stage: Mapped[Stage | None] = mapped_column(_enum(Stage), nullable=True)
 
     __table_args__ = (
         # Основной запрос — «сколько потрачено за месяц по провайдеру».

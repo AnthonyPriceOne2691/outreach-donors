@@ -1,10 +1,20 @@
 """Каскад антибота: три уровня, и каждый следующий дороже предыдущего.
 
 Уровень 1 — обычный запрос, доли секунды и копейки трафика. Уровень 2 —
-настоящий браузер, секунды на страницу. Уровень 3 — резидентный прокси,
-деньги за каждый мегабайт. Включать верхние уровни на всё значит сжечь
-бюджет Этапа 2 за дни: рендеринг в 5–75 раз дороже сырого HTML. Поэтому
-каждый уровень живёт за своим флагом и по умолчанию выключен.
+настоящий браузер, секунды на страницу. Уровень 3 — резидентные прокси,
+деньги за каждый мегабайт, списком и со сменой на следующий (`proxies.py`).
+Включать верхние уровни на всё значит сжечь бюджет Этапа 2 за дни: рендеринг
+в разы дороже сырого HTML. Поэтому каждый уровень живёт за своим флагом
+и по умолчанию выключен.
+
+**Пустую страницу — сервису рендеринга** (`render.py`), и только её: страница,
+отданная первым уровнем без текста, — скелет, который рисует скрипт. Это не
+ступень каскада отказов, а свой путь: закрытую страницу он не открывает.
+
+**Платный уровень — только с журналом и под своим потолком Этапа 2**
+(`spend.py`): прокси и сервис спрашивают потолок до вызова и пишут трату после.
+Журнала нет (консольный замер) — платный уровень не зовётся, и это пометка
+в записи обхода, а не тихая трата мимо счёта.
 
 **Отказ в теле — это отказ.** Страница с кодом 200 и словами «Just
 a moment…» — не страница, а заставка защиты. Считать её успехом значит
@@ -32,7 +42,9 @@ import httpx
 from backend.config import crawl as cfg
 from backend.features.contacts.browser import PageRenderer
 from backend.features.contacts.pages import HEADERS
-from backend.shared.net.url_guard import GuardedTransport
+from backend.features.crawl.proxies import ProxyPool, ProxyUnusableError
+from backend.features.crawl.render import RenderService, looks_empty
+from backend.features.crawl.spend import PROXY_OPERATION, RENDER_OPERATION, CrawlSpending
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +109,7 @@ class CascadeLevel(StrEnum):
     HTTP = "http"
     BROWSER = "browser"
     PROXY = "proxy"
+    RENDER = "render"  # сервис рендеринга: пустая страница первого уровня
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,12 +167,16 @@ def classify(response: httpx.Response, html: str | None) -> tuple[FetchOutcome, 
     return FetchOutcome.OK, None
 
 
+#: Столько отказов сервиса рендеринга подряд — и он до конца обхода не зовётся.
+RENDER_FAILURES_IN_ROW = 3
+
+
 class PageCascade:
-    """Три уровня доступа к странице, от дешёвого к дорогому.
+    """Три уровня доступа к странице, от дешёвого к дорогому, и сервис для пустых.
 
     Уровни выше первого зовутся только после `BLOCKED` или `ERROR`:
     страница, отданная обычным запросом, браузеру не нужна, а прокси
-    не нужен и подавно.
+    не нужен и подавно. Сервис рендеринга — только после `OK` без текста.
     """
 
     def __init__(
@@ -169,7 +186,9 @@ class PageCascade:
         renderer: PageRenderer | None = None,
         browser_enabled: bool | None = None,
         identify: bool | None = None,
-        proxy_url: str | None = None,
+        proxies: ProxyPool | None = None,
+        render: RenderService | None = None,
+        spending: CrawlSpending | None = None,
         max_page_bytes: int | None = None,
     ) -> None:
         self._client = client
@@ -178,16 +197,22 @@ class PageCascade:
             browser_enabled if browser_enabled is not None else cfg.BROWSER_ENABLED
         )
         self._headers = headers_for(identify if identify is not None else cfg.IDENTIFY)
-        self._proxy_url = proxy_url if proxy_url is not None else cfg.PROXY_URL
+        # Прокси — из настройки (`CRAWL_PROXY_URLS`); пусто — уровня нет, как до списка.
+        self._proxies = proxies if proxies is not None else ProxyPool()
+        self._render = render
+        self._render_failures = 0
+        self._render_off = False
+        self._spending = spending
         self._limit = max_page_bytes if max_page_bytes is not None else cfg.MAX_PAGE_BYTES
-        self._proxy_client: httpx.AsyncClient | None = None
         self.degradation = Degradation()
         self.by_level: dict[CascadeLevel, int] = dict.fromkeys(CascadeLevel, 0)
 
     async def get(self, url: str) -> FetchResult:
         """Страница первым уровнем, который её отдал."""
         result = await self._http(url)
-        if result.outcome is FetchOutcome.OK or result.outcome is FetchOutcome.MISSING:
+        if result.outcome is FetchOutcome.OK:
+            return self._counted(await self._filled(result))
+        if result.outcome is FetchOutcome.MISSING:
             return self._counted(result)
 
         rendered = await self._browser(url)
@@ -201,6 +226,10 @@ class PageCascade:
         # Возвращается исход первого уровня: он назвал причину, по которой
         # мы пошли выше, и она же объясняет, почему выше не помогло.
         return self._counted(result)
+
+    def rotate_proxy(self, why: str) -> None:
+        """Сменить прокси на следующий — ответ на просевшее здоровье обхода."""
+        self._proxies.rotate(why)
 
     def _counted(self, result: FetchResult) -> FetchResult:
         if result.outcome is FetchOutcome.OK and result.level is not None:
@@ -265,42 +294,143 @@ class PageCascade:
             html=html[: self._limit],
         )
 
+    async def _allowed(self, level: CascadeLevel, operation: str) -> CrawlSpending | None:
+        """Журнал расхода, если платный уровень сейчас можно звать; иначе `None` —
+        и причина в записи обхода: нет журнала, выбран потолок, не задана цена."""
+        if self._spending is None:
+            self.degradation.note(
+                level,
+                "платный уровень без журнала расхода не зовётся — "
+                "обход из очереди пишет расход сам",
+            )
+            return None
+        refusal = await self._spending.refusal(operation)
+        if refusal is not None:
+            self.degradation.note(level, refusal)
+            return None
+        return self._spending
+
     async def _proxy(self, url: str) -> FetchResult | None:
-        """Уровень 3. Прокси платный: без адреса уровня просто нет."""
-        if not self._proxy_url:
+        """Уровень 3. Прокси платный: без адресов уровня просто нет."""
+        if not self._proxies:
             return None
         self.degradation.asked.add(CascadeLevel.PROXY)
-        client = self._proxy_or_note()
-        if client is None:
+        spending = await self._allowed(CascadeLevel.PROXY, PROXY_OPERATION)
+        if spending is None:
+            return None
+        try:
+            client = await self._proxies.client()
+        except ProxyUnusableError as exc:
+            # Предупреждение — один раз, запиской в отчёт (`Degradation.note`); здесь — след.
+            logger.debug("обход: %s — следующий прокси", exc, extra={"proxy": self._proxies.name})
+            self.degradation.note(CascadeLevel.PROXY, str(exc))
+            self._proxies.rotate(str(exc))
             return None
 
+        try:
+            result = await self._through(client, url)
+        finally:
+            # Трафик — и у неудавшегося вызова: обрыв посреди тела провайдер оплатил,
+            # и свой потолок обязан это видеть (`proxies.TrafficMeter`).
+            traffic = self._proxies.meter.take()
+            if traffic:
+                await spending.spent(PROXY_OPERATION, traffic)
+        if result.outcome is FetchOutcome.BLOCKED or result.outcome is FetchOutcome.ERROR:
+            self._proxy_failed(result.reason or "отказ")
+        else:
+            self._proxies.succeeded()
+        return result
+
+    async def _through(self, client: httpx.AsyncClient, url: str) -> FetchResult:
+        """Страница через текущий прокси; отказ — исходом, а не исключением.
+
+        Текст исключения может нести адрес прокси с паролем: у сетевого — чистится
+        по разобранному адресу (`ProxyPool.scrub`), у любого другого наружу идёт вид.
+        """
         try:
             response = await client.get(url, headers=self._headers, follow_redirects=True)
         except httpx.HTTPError as exc:
-            logger.debug("обход: %s не открылся и через прокси (%r)", url, exc)
-            return FetchResult(
-                url=url,
-                outcome=FetchOutcome.ERROR,
-                level=CascadeLevel.PROXY,
-                reason=f"{type(exc).__name__}: {exc}",
-            )
-        return self._from_response(response, CascadeLevel.PROXY)
-
-    def _proxy_or_note(self) -> httpx.AsyncClient | None:
-        if self._proxy_client is not None:
-            return self._proxy_client
-        try:
-            inner = httpx.AsyncHTTPTransport(proxy=self._proxy_url, verify=False)
-        except (ValueError, httpx.ProxyError) as exc:
-            logger.debug("обход: транспорт прокси не собрался (%r)", exc)
-            self.degradation.note(CascadeLevel.PROXY, f"адрес прокси не принят: {exc}")
-            return None
-        self._proxy_client = httpx.AsyncClient(
-            transport=GuardedTransport(inner), timeout=cfg.PAGE_TIMEOUT_SEC
+            reason = self._proxies.scrub(f"{type(exc).__name__}: {exc}")
+            logger.debug("обход: %s не открылся и через прокси (%s)", url, reason)
+        except Exception as exc:  # noqa: BLE001 — текст любого может нести пароль прокси
+            reason = type(exc).__name__
+            logger.warning("обход: %s через прокси — необычный отказ (%s)", url, reason)
+        else:
+            return self._from_response(response, CascadeLevel.PROXY)
+        return FetchResult(
+            url=url, outcome=FetchOutcome.ERROR, level=CascadeLevel.PROXY, reason=reason
         )
-        return self._proxy_client
+
+    def _proxy_failed(self, reason: str) -> None:
+        """Отказ через прокси — смена на следующий; отказали подряд все — пометка."""
+        where = self._proxies.name
+        if self._proxies.failed(f"отказ через прокси: {reason}"):
+            self.degradation.note(
+                CascadeLevel.PROXY,
+                f"отказали подряд все прокси ({len(self._proxies)}): последний {where} — {reason}",
+            )
+
+    async def _filled(self, result: FetchResult) -> FetchResult:
+        """Пустая страница первого уровня — через сервис рендеринга, если он есть."""
+        allowed = await self._render_allowed(result)
+        if allowed is None:
+            return result
+        rendered = await self._rendered(result, *allowed)
+        return rendered if rendered is not None else result
+
+    async def _render_allowed(
+        self, result: FetchResult
+    ) -> tuple[RenderService, CrawlSpending] | None:
+        """Звать ли сервис: он есть и не выключен отказами, страница пустая, шаблон годен,
+        потолок пускает. Нельзя по шаблону или потолку — причина в записи обхода."""
+        render = self._render
+        if render is None or self._render_off or result.html is None:
+            return None
+        if not looks_empty(result.html):
+            return None
+        self.degradation.asked.add(CascadeLevel.RENDER)
+        problem = render.problem
+        if problem is not None:
+            self.degradation.note(CascadeLevel.RENDER, problem)
+            return None
+        spending = await self._allowed(CascadeLevel.RENDER, RENDER_OPERATION)
+        return None if spending is None else (render, spending)
+
+    async def _rendered(
+        self, result: FetchResult, render: RenderService, spending: CrawlSpending
+    ) -> FetchResult | None:
+        """Страница от сервиса; `None` — не помог: отказал, или и у него пусто."""
+        html, reason = await render.render(result.url)
+        # Вызов оплачен и тогда, когда не помог: сервис берёт за попытку.
+        await spending.spent(RENDER_OPERATION, 1)
+        if html is None:
+            self._render_failed(reason or "отказ")
+            return None
+        self._render_failures = 0
+        if looks_like_antibot(html) or looks_empty(html):
+            return None
+        return FetchResult(
+            url=result.url,
+            outcome=FetchOutcome.OK,
+            level=CascadeLevel.RENDER,
+            status=result.status,
+            html=html[: self._limit],
+        )
+
+    def _render_failed(self, reason: str) -> None:
+        """Отказ сервиса — в запись обхода; `RENDER_FAILURES_IN_ROW` подряд — сервис до конца
+        обхода не зовётся: каждая пустая страница ждала бы его до минуты, а ответ был бы тот же."""
+        self._render_failures += 1
+        if self._render_failures < RENDER_FAILURES_IN_ROW:
+            self.degradation.note(CascadeLevel.RENDER, f"сервис рендеринга отказал: {reason}")
+            return
+        self._render_off = True
+        said = (
+            f"сервис рендеринга отказал {self._render_failures} раза подряд — до конца обхода "
+            f"не зовётся; последний отказ: {reason}"
+        )
+        logger.warning("обход: %s", said, extra={"render_failures": self._render_failures})
+        self.degradation.note(CascadeLevel.RENDER, said)
 
     async def aclose(self) -> None:
-        if self._proxy_client is not None:
-            await self._proxy_client.aclose()
-            self._proxy_client = None
+        await self._proxies.aclose()

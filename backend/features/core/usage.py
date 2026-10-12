@@ -22,7 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import llm as llm_cfg
-from backend.features.core.domain import UsageProvider
+from backend.features.core.domain import Stage, UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
 
 logger = logging.getLogger(__name__)
@@ -72,6 +72,11 @@ OPERATION_PROVIDERS = {
     # Поиск адреса доноров и рекламодателей, платная ступень лестницы:
     # единица — запрос, который провайдер принял.
     "contacts_search": UsageProvider.HUNTER,
+    # Обход Этапа 2, платные уровни каскада (`crawl/spend.py`): трафик через резидентный
+    # прокси — единица байт, и вызов сервиса рендеринга пустой страницы — единица запрос.
+    # Деньги — по цене из настроек; не задана — строка без денег, но с единицами.
+    "crawl_proxy": UsageProvider.PROXY,
+    "crawl_render": UsageProvider.RENDER,
 }
 
 
@@ -80,6 +85,23 @@ OPERATION_PROVIDERS = {
 #: итогах (решение Anthony 10.10.2026, П2б; `runs/spending.py`). Отправка письма
 #: (`letter_send`) — общая на все этапы и в продажи не входит.
 SALES_OPERATIONS = frozenset(name for name in OPERATION_PROVIDERS if name.startswith("sales_"))
+
+#: Платный обход Этапа 2 — то, что держит свой потолок Этапа 2 (`CRAWL_MONTH_CAP_USD`).
+CRAWL_OPERATIONS = frozenset({"crawl_proxy", "crawl_render"})
+
+#: Операции, у которых этап один, — его называет сама операция, вызову говорить незачем.
+#: Остальные делят этапы (метрики Ahrefs — прогон Этапа 1 и DR кандидатов Этапа 2, поиск
+#: адресов, письма), и этап называет вызов; не назвал — строка без этапа, а не «доноры»:
+#: догадка разошлась бы со счётом молча. Отправка письма — общая на все этапы нарочно (П2б).
+OPERATION_STAGES: dict[str, Stage] = {
+    "by_country": Stage.DONORS,
+    "serp": Stage.DONORS,
+    "serp_search": Stage.DONORS,
+    "keywords": Stage.DONORS,
+    "site_judge": Stage.DONORS,
+    **dict.fromkeys(CRAWL_OPERATIONS, Stage.ADVERTISERS),
+    **dict.fromkeys(SALES_OPERATIONS, Stage.SALES),
+}
 
 
 class UnknownOperationError(ValueError):
@@ -94,6 +116,7 @@ def record(
     units: int | None = None,
     amount_usd: Decimal | float | None = None,
     run_id: int | None = None,
+    stage: Stage | None = None,
 ) -> UsageRecordModel:
     """Записать строку расхода.
 
@@ -106,6 +129,9 @@ def record(
     токены. Поэтому оба поля необязательны и заполняется то, в чём
     провайдер выставляет счёт; пустое поле означает «в этой валюте
     не платили», а не ноль.
+
+    `stage` — этап траты. Не назван — этап операции (`OPERATION_STAGES`), если он у неё
+    один; иначе строка без этапа.
     """
     provider = OPERATION_PROVIDERS.get(operation)
     if provider is None:
@@ -121,6 +147,7 @@ def record(
         operation=operation,
         units=units,
         amount_usd=None if amount_usd is None else Decimal(str(amount_usd)),
+        stage=stage if stage is not None else OPERATION_STAGES.get(operation),
     )
     session.add(entry)
     return entry

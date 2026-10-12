@@ -17,19 +17,24 @@
  * **Без права «Продажи» — расход без продаж** (решение Anthony 10.10.2026, П2б):
  * статьи, плитки и итог считает сервер без операций продаж, и сходятся они между
  * собой. Что это не весь счёт, экран говорит строкой под плитками.
+ *
+ * **Этап — у каждой статьи, разбивка — отдельной панелью** (`UsageStages.tsx`):
+ * DR кандидатов Этапа 2 и метрики прогона — одна операция, но две статьи; платный
+ * обход Этапа 2 — строкой против своего потолка.
  */
 
 import { Alert, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
-import { USAGE_PROVIDERS } from '../api/labels';
 import { Meter } from '../components/Meter';
 import { Metric } from '../components/Metric';
 import { PageHead } from '../components/PageHead';
 import { SpendTable, tileOf } from '../components/SpendTable';
 import { fetchUsage } from '../api/settings';
 import { formatDate, formatNumber, formatUsd } from '../format';
+import { CrawlCap, StageBreakdown } from './UsageStages';
+import { shownWithoutSpend, SPEND_PROVIDERS } from './usageLabels';
 
 /** Без права «Продажи» сервер считает расход без продаж (П2б): числа сходятся между собой,
  *  но это не весь счёт — и экран так и говорит. */
@@ -113,16 +118,19 @@ export function UsagePage() {
             </Text>
           </Group>
 
+          {/* Платный обход Этапа 2 — третий счёт, в деньгах и со своим потолком:
+              отдельно от юнитов Ahrefs, как того требует ТЗ. */}
+          <CrawlCap crawl={data.crawl} />
+
           {/* Плитки — внутри шапки, как на «Отборе» и «Продажах»: на полотне они
               стояли отдельным рядом и в тёмной теме читались провалами (аудит
               экранов 09.10.2026). */}
           <SimpleGrid cols={{ base: 2, sm: 3, lg: 5 }} spacing="sm">
-            {Object.entries(USAGE_PROVIDERS).map(([key, provider]) => {
-              const tile = tileOf(
-                key,
-                data.units_by_provider[key] ?? 0,
-                Number(data.amount_by_provider[key] ?? '0'),
-              );
+            {Object.entries(SPEND_PROVIDERS).map(([key, provider]) => {
+              const units = data.units_by_provider[key] ?? 0;
+              const amount = Number(data.amount_by_provider[key] ?? '0');
+              if (!shownWithoutSpend(key) && units === 0 && amount === 0) return null;
+              const tile = tileOf(key, units, amount);
               return (
                 <Metric key={key} title={provider.title} value={tile.value} hint={tile.hint} />
               );
@@ -131,6 +139,8 @@ export function UsagePage() {
           <SalesHidden hidden={data.sales_hidden} />
         </Stack>
       </Card>
+
+      <StageBreakdown stages={data.stages} />
 
       {/* Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что
           у панели сверху: текст соседних карточек начинается с одного места. */}
@@ -141,7 +151,7 @@ export function UsagePage() {
             что и сам запрос к провайдеру.
           </Text>
         ) : (
-          <SpendTable articles={data.articles} />
+          <SpendTable articles={data.articles} stages />
         )}
       </Card>
     </Stack>

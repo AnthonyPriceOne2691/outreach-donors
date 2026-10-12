@@ -98,6 +98,15 @@ class _FakeAhrefs:
         rows = [{"url": f"https://{h}/", "domain_rating": known[h]} for h in hosts if h in known]
         return Response(rows=rows, cost=cost)
 
+    async def limits_and_usage(self) -> dict[str, Any]:
+        """Остаток квоты — с запасом: DR кандидатов спрашивается под месячным капом."""
+        return {
+            "units_limit_workspace": 1_000_000,
+            "units_usage_workspace": 0,
+            "units_limit_api_key": 1_000_000,
+            "units_usage_api_key": 0,
+        }
+
     async def aclose(self) -> None:
         return None
 

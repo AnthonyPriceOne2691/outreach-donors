@@ -373,15 +373,18 @@ class RunRepository:
         return int(await self._session.scalar(statement) or 0)
 
     async def record_usage(
-        self, *, run_id: int | None, operation: str, cost: UnitsCost
+        self, *, run_id: int | None, operation: str, cost: UnitsCost, stage: Stage | None = None
     ) -> UsageRecordModel:
         """Строка журнала расхода.
 
         Пишется даже при неизвестном расходе — с нулём и пометкой в операции:
         сам факт запроса важнее его цены, а пропуск строки скрыл бы, что
-        запрос вообще был.
+        запрос вообще был. `stage` — этап прогона: метрики доменов делят этапы
+        (`core/usage.OPERATION_STAGES`), и без него строка осталась бы без этапа.
         """
-        return usage.record(self._session, operation=operation, units=cost.billable, run_id=run_id)
+        return usage.record(
+            self._session, operation=operation, units=cost.billable, run_id=run_id, stage=stage
+        )
 
     async def record_tokens(
         self, *, run_id: int | None, operation: str, tokens: int

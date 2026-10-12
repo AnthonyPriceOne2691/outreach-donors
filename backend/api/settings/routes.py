@@ -23,6 +23,7 @@ from backend.api.settings.schemas import (
     RULE_LIMITS,
     AdvertiserSettingsView,
     ConsequencesView,
+    CrawlSpendCard,
     SpendingView,
     ThresholdsBody,
     ThresholdsVersion,
@@ -30,6 +31,7 @@ from backend.api.settings.schemas import (
     share_percent,
 )
 from backend.config import ahrefs as ahrefs_cfg
+from backend.config import crawl as crawl_cfg
 from backend.features.access.permissions import visible_stages
 from backend.features.access.repository import AccessRepository
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
@@ -38,7 +40,7 @@ from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import selection_settings
 from backend.features.donors.geo import assert_settings_allow_limited_fetch
-from backend.features.runs.spending import SpendingRepository
+from backend.features.runs.spending import SpendingRepository, crawl_spent_this_month
 from backend.features.runs.thresholds import (
     ThresholdsRepository,
     consequences,
@@ -186,9 +188,13 @@ async def usage(
 
     Без права «Продажи» — расход без операций продаж, весь: статьи, суммы и итог
     сходятся, а `sales_hidden` говорит экрану, что итог — без продаж (П2б).
+
+    Платный обход Этапа 2 — своей строкой против своего потолка: потрачено тем же
+    числом, с которым потолок сравнивает сам обход.
     """
     stages = visible_stages(actor(user))
     spending = await SpendingRepository(session).since_month_start(stages=stages)
+    crawl_spent = await crawl_spent_this_month(session, stages=stages)
     serp_left, serp_error = await _serp_balance()
 
     # Спрашивается сырой остаток провайдера, а не бюджет прогона: бюджет —
@@ -217,7 +223,16 @@ async def usage(
         serp_left_usd=serp_left,
         serp_left_error=serp_error,
         sales_hidden=Stage.SALES not in stages,
+        crawl=CrawlSpendCard(
+            cap_usd=None if crawl_cfg.MONTH_CAP_USD is None else _usd(crawl_cfg.MONTH_CAP_USD),
+            spent_usd=crawl_spent,
+        ),
     )
+
+
+def _usd(value: float) -> Decimal:
+    """Деньги настройки — до цента, как их пишет журнал: `float` в ответе дал бы 0.1 + 0.2."""
+    return Decimal(str(value)).quantize(Decimal("0.01"))
 
 
 async def _serp_balance() -> tuple[Decimal | None, str | None]:

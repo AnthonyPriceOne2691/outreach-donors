@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import { operationTitle } from '../api/labels';
+import { spendOperation } from './usageLabels';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -25,6 +26,7 @@ const SPENDING = {
       units: 6416,
       amount_usd: '0',
       calls: 12,
+      stage: 'donors',
     },
     {
       provider: 'serp',
@@ -32,8 +34,18 @@ const SPENDING = {
       units: 0,
       amount_usd: '0.3600',
       calls: 4,
+      stage: 'donors',
     },
   ],
+  stages: [
+    {
+      stage: 'donors',
+      units_by_provider: { ahrefs: 6416 },
+      amount_usd: '0.3600',
+      calls: 16,
+    },
+  ],
+  crawl: { cap_usd: null, spent_usd: '0' },
   units_by_provider: { ahrefs: 6416, llm: 1361 },
   amount_by_provider: { serp: '0.3600' },
   total_units: 7777,
@@ -206,5 +218,120 @@ describe('провайдеры', () => {
       .getByText('адреса Hunter', { selector: 'p' })
       .closest('.mantine-Card-root') as HTMLElement;
     expect(within(tile).getByText('запросов')).toBeInTheDocument();
+  });
+});
+
+describe('расход по этапам', () => {
+  const STAGED = {
+    ...SPENDING,
+    articles: [
+      ...SPENDING.articles,
+      {
+        provider: 'ahrefs',
+        operation: 'batch_metrics',
+        units: 50,
+        amount_usd: '0',
+        calls: 1,
+        stage: 'advertisers',
+      },
+      {
+        provider: 'proxy',
+        operation: 'crawl_proxy',
+        units: 2_000_000,
+        amount_usd: '0.0100',
+        calls: 9,
+        stage: 'advertisers',
+      },
+      {
+        provider: 'email',
+        operation: 'letter_send',
+        units: 4,
+        amount_usd: '0',
+        calls: 4,
+        stage: null,
+      },
+    ],
+    units_by_provider: { ahrefs: 6466, proxy: 2_000_000, email: 4 },
+    amount_by_provider: { serp: '0.3600', proxy: '0.0100' },
+    stages: [
+      ...SPENDING.stages,
+      {
+        stage: 'advertisers',
+        units_by_provider: { ahrefs: 50, proxy: 2_000_000 },
+        amount_usd: '0.0100',
+        calls: 10,
+      },
+      { stage: null, units_by_provider: { email: 4 }, amount_usd: '0', calls: 4 },
+    ],
+    crawl: { cap_usd: '120.00', spent_usd: '0.0100' },
+  };
+
+  it('одна операция у двух этапов — две статьи, и у каждой свой этап', async () => {
+    // DR кандидатов Этапа 2 и метрики прогона — обе «метрики доменов»: до этапа у строки
+    // расхода они были одной строкой, и Этап 2 не считался отдельно.
+    await openUsage(STAGED);
+
+    const rows = screen.getAllByText('метрики доменов').map((cell) => cell.closest('tr'));
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0] as HTMLElement).getByText('Этап 1')).toBeInTheDocument();
+    expect(within(rows[1] as HTMLElement).getByText('Этап 2')).toBeInTheDocument();
+    expect(screen.getByText('без этапа')).toBeInTheDocument();
+  });
+
+  it('разбивка по этапам — каждый провайдер в своей валюте, деньги отдельно', async () => {
+    await openUsage(STAGED);
+
+    const panel = screen.getByText('По этапам').closest('.mantine-Card-root') as HTMLElement;
+    const second = within(panel).getByText('Этап 2 · рекламодатели').parentElement as HTMLElement;
+    expect(
+      within(second).getByText(/метрики Ahrefs: 50 юн\. · прокси обхода: 1,9 МБ · 0,01 \$/),
+    ).toBeInTheDocument();
+    expect(within(panel).getByText('Без этапа')).toBeInTheDocument();
+  });
+
+  it('трафик прокси — размером, и плитка прокси есть, только когда по нему тратили', async () => {
+    await openUsage(STAGED);
+
+    const tile = screen
+      .getByText('прокси обхода', { selector: 'p' })
+      .closest('.mantine-Card-root') as HTMLElement;
+    expect(within(tile).getByText('1,9 МБ')).toBeInTheDocument();
+    expect(screen.queryByText('рендеринг страниц', { selector: 'p' })).not.toBeInTheDocument();
+  });
+
+  it('прокси и рендеринг — против своего потолка Этапа 2, отдельно от юнитов', async () => {
+    await openUsage(STAGED);
+
+    expect(screen.getByText(/Этап 2 — прокси и рендеринг с начала месяца/).textContent).toMatch(
+      /0,01 \$ из 120,00 \$ по своему потолку/,
+    );
+    expect(
+      screen.getByRole('progressbar', { name: 'Прокси и рендеринг Этапа 2 с начала месяца' }),
+    ).toBeInTheDocument();
+  });
+
+  it('потолка нет — так и сказано, а не «0 из 0»: без него платные уровни не зовутся', async () => {
+    await openUsage();
+
+    expect(
+      screen.getByText(
+        'своего потолка у Этапа 2 нет — прокси и рендеринг не зовутся, пока его не зададут',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('progressbar', { name: 'Прокси и рендеринг Этапа 2 с начала месяца' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('потолок выбран — сказано, что платные уровни стоят до следующего месяца', async () => {
+    await openUsage({ ...STAGED, crawl: { cap_usd: '10.00', spent_usd: '10.0000' } });
+
+    expect(screen.getByText(/потолок выбран/)).toBeInTheDocument();
+  });
+
+  it('статьи обхода названы словами', () => {
+    expect(spendOperation('crawl_proxy')).toBe('трафик прокси обхода');
+    expect(spendOperation('crawl_render')).toBe('рендеринг пустых страниц');
+    expect(spendOperation('site_judge')).toBe('судья площадок');
   });
 });

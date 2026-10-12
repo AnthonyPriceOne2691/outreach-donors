@@ -73,7 +73,7 @@ async def compose(
     for attempt in range(max(stage.max_rewrites, 0) + 1):
         await usage.ensure_llm_within_cap(session, own=cap)
         written = await writer.write(current)
-        tokens += _spent(session, stage.usage_operation, written.tokens)
+        tokens += _spent(session, stage.usage_operation, written.tokens, request.stage)
         held = written.needs_human or not written.body.strip()
         if held or stage.guard is None:
             return Composed(written.body, held, written.reason, tokens, attempts)
@@ -86,7 +86,8 @@ async def compose(
             attempt=attempt,
         )
         verdict = await judged(stage, check)
-        tokens += _spent(session, stage.guard_operation or stage.usage_operation, verdict.tokens)
+        operation = stage.guard_operation or stage.usage_operation
+        tokens += _spent(session, operation, verdict.tokens, request.stage)
         attempts.append(
             {"attempt": attempt, "verdict": verdict.kind.value, "reasons": list(verdict.reasons)}
         )
@@ -234,7 +235,8 @@ def _said(verdict: Verdict) -> str:
     return "судья: " + "; ".join(verdict.reasons or ("без причины",))
 
 
-def _spent(session: AsyncSession, operation: str, tokens: int) -> int:
+def _spent(session: AsyncSession, operation: str, tokens: int, stage: Stage) -> int:
+    """Токены вызова — в журнал этапом переписки: черновик рекламодателю — расход Этапа 2."""
     if tokens:
-        usage.record(session, operation=operation, units=tokens)
+        usage.record(session, operation=operation, units=tokens, stage=stage)
     return tokens

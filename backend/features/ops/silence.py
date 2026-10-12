@@ -29,6 +29,7 @@ import time
 from collections.abc import Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,7 +49,7 @@ from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.core.models.run import RunModel
 from backend.features.ops import mail_watch
 from backend.features.ops.alarms import Alarm
-from backend.features.runs.spending import ahrefs_spent_this_month
+from backend.features.runs.spending import ahrefs_spent_this_month, crawl_spent_this_month
 from backend.features.serp.dataforseo import SerpError
 from backend.features.serp.factory import UnknownProviderError, build_provider
 
@@ -91,6 +92,7 @@ async def alarms(
         await _followups_stuck(session, moment),
         await _runs_stuck(session, moment),
         await _cap_reached(session),
+        await _crawl_cap_reached(session),
         await _crawl_blocked(session),
     ]
     # Почта этапов со сторожем в политике — видимых этапов (П2б).
@@ -300,7 +302,7 @@ async def _crawl_blocked(session: AsyncSession) -> Alarm | None:
             f"Из последних {len(rows)} обходов {len(blocked)} закрылись целиком"
             + (f", {len(stopped)} остановлены по доле отказов" if stopped else "")
             + ". Дальше это лечится не повтором, а следующим уровнем каскада: "
-            "браузером (CRAWL_BROWSER_ENABLED) или резидентным прокси (CRAWL_PROXY_URL)"
+            "браузером (CRAWL_BROWSER_ENABLED) или резидентными прокси (CRAWL_PROXY_URLS)"
         ),
     )
 
@@ -317,6 +319,54 @@ async def _cap_reached(session: AsyncSession) -> Alarm | None:
             f"Потрачено {spent} юнитов при капе {ahrefs_cfg.UNITS_CAP}. "
             "Новые прогоны не запустятся до первого числа или до поднятия капа — "
             "это не поломка, но выглядит одинаково"
+        ),
+    )
+
+
+def _setting_names(exc: ValueError) -> str:
+    """Имена настроек из отказа pydantic — без значений; не pydantic — «CRAWL_*»."""
+    errors = getattr(exc, "errors", None)
+    found = (
+        sorted({str(error["loc"][0]) for error in errors() if error.get("loc")})
+        if callable(errors)
+        else []
+    )
+    return ", ".join(found) or "CRAWL_*"
+
+
+async def _crawl_cap_reached(session: AsyncSession) -> Alarm | None:
+    """Свой потолок Этапа 2 выбран: прокси и рендеринг не зовутся до первого числа, и обходы
+    за защитой закрываются — не потому, что сломались (`crawl/spend.py`).
+
+    Конфиг обхода грузится здесь, а не при импорте: в процессе сторожа идёт и повтор
+    передачи лидов продаж, и опечатка в `CRAWL_*` роняла бы его целиком. Битый конфиг —
+    своя тревога с именами настроек, без значений: в значении бывает пароль прокси."""
+    try:
+        from backend.config import crawl as crawl_cfg  # noqa: PLC0415 — см. выше
+    except ValueError as exc:
+        names = _setting_names(exc)
+        logger.warning("сторож тишины: настройки обхода не читаются (%s)", names)
+        return Alarm(
+            code="crawl-config-broken",
+            title="Настройки обхода не читаются",
+            detail=(
+                f"В .env ошибка в настройках обхода ({names}): обходчик не стартует, "
+                "и свой потолок Этапа 2 не проверяется. Значение поправить и пересоздать контейнеры"
+            ),
+        )
+    cap = crawl_cfg.MONTH_CAP_USD
+    if cap is None:
+        return None
+    spent = await crawl_spent_this_month(session)
+    if spent < Decimal(str(cap)):
+        return None
+    return Alarm(
+        code="crawl-cap-reached",
+        title="Потолок Этапа 2 на обход выбран",
+        detail=(
+            f"Прокси и рендеринг обошлись в {spent:.2f} $ при своём потолке {cap:.2f} $. "
+            "До первого числа или до поднятия потолка платные уровни обхода не зовутся, "
+            "и закрытые сайты остаются необойдёнными — это не поломка, но выглядит одинаково"
         ),
     )
 

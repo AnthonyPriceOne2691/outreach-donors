@@ -1,5 +1,6 @@
 import type {
   AlarmCard,
+  ArticleCard,
   SpendingView,
   ThresholdRange,
   ThresholdsBody,
@@ -10,13 +11,40 @@ import type {
 import { request } from './client';
 import type { Stage } from './stages';
 
+/** Статья расхода с этапом: одна операция у двух этапов — две статьи (DR кандидатов
+ *  Этапа 2 и метрики прогона — обе «метрики доменов»). `null` — трата общая на все
+ *  этапы или этап не назван. Провайдер — строкой: сервер заводит новых (прокси,
+ *  рендеринг), и экран о них знает из `settings/usageLabels.ts`. */
+export interface StagedArticle extends Omit<ArticleCard, 'provider'> {
+  provider: string;
+  stage: Stage | null;
+}
+
+/** Расход этапа: единицы по провайдерам — каждый в своей валюте — и деньги. */
+export interface StageSpending {
+  stage: Stage | null;
+  units_by_provider: Record<string, number>;
+  amount_usd: string;
+  calls: number;
+}
+
+/** Платный обход Этапа 2 — прокси и рендеринг — против своего потолка; `cap_usd`
+ *  `null` — своего потолка нет. Потрачено — тем же числом, что сравнивает сам обход. */
+export interface CrawlSpend {
+  cap_usd: string | null;
+  spent_usd: string;
+}
+
 /**
  * Расход учётки. Без права «Продажи» статьи, плитки и итоги — без расхода продаж и сходятся
  * между собой (решение Anthony 10.10.2026, П2б); экран говорит это словами. Расширением,
  * а не в `types.ts`: тот у потолка длины.
  */
-export interface UsageView extends SpendingView {
+export interface UsageView extends Omit<SpendingView, 'articles'> {
+  articles: StagedArticle[];
   sales_hidden: boolean;
+  stages: StageSpending[];
+  crawl: CrawlSpend;
 }
 
 /** Тревога сторожа с этапом, о почте которого она: `null` — общая тревога (П2б). */

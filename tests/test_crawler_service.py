@@ -66,6 +66,7 @@ def test_main_listens_to_the_crawl_queue_without_a_scheduler(
 
     monkeypatch.setattr(crawler, "CrawlWorker", _Worker)
     monkeypatch.setattr(crawler, "check_storage", lambda: None)
+    monkeypatch.setattr(crawler, "check_crawl", lambda: None)
 
     crawler.main()
 

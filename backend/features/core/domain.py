@@ -256,6 +256,8 @@ class UsageProvider(StrEnum):
     LLM = "llm"
     EMAIL = "email"
     HUNTER = "hunter"  # поиск и проверка адресов; ключ общий с соседней системой
+    PROXY = "proxy"  # резидентные прокси обхода Этапа 2: единица — байт трафика
+    RENDER = "render"  # сервис рендеринга пустых страниц обхода: единица — запрос
 
 
 class CrawlOutcome(StrEnum):

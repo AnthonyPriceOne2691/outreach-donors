@@ -40,7 +40,13 @@ from backend.features.contacts import attempts
 from backend.features.contacts.ladder import LadderResult
 from backend.features.contacts.manual import removal_refusals
 from backend.features.contacts.repository import ContactRepository
-from backend.features.core.domain import GONE_STATUSES, ContactSource, ContactStatus, MessageStatus
+from backend.features.core.domain import (
+    GONE_STATUSES,
+    ContactSource,
+    ContactStatus,
+    MessageStatus,
+    Stage,
+)
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
@@ -93,6 +99,9 @@ class NamedDomains:
 
     `write=False` — показ: исходы собираются, в базу не пишется ничего.
     """
+
+    #: Названные домены бывают и донорами, и рекламодателями — этап у расхода не один.
+    stage: Stage | None = None
 
     def __init__(self, session: AsyncSession, hosts: Sequence[str], *, write: bool) -> None:
         self._session = session
