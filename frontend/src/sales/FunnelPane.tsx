@@ -38,7 +38,7 @@ import type { FunnelCounts, FunnelRow, SalesFunnelView } from '../api/salesFunne
 import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
 import { formatNumber } from '../format';
-import { FixedTable } from './FixedTable';
+import { FixedTable, NameCell } from './FixedTable';
 import type { Column } from './FixedTable';
 import {
   funnelQuery,
@@ -182,11 +182,7 @@ function Cell({ counts, step }: { counts: FunnelCounts; step: keyof FunnelCounts
 function ByHypothesis({ view, stale }: { view: SalesFunnelView; stale: boolean }) {
   const line = (key: string, name: string, counts: FunnelCounts, total = false) => (
     <Table.Tr key={key}>
-      <Table.Td className="cellName wrapCell">
-        <Text size="sm" fw={total ? 600 : 500}>
-          {name}
-        </Text>
-      </Table.Td>
+      <NameCell name={name} total={total} />
       {STEPS.map((step) => (
         <Cell key={step.key} counts={counts} step={step.key} />
       ))}

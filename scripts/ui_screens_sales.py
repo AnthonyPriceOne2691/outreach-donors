@@ -19,7 +19,8 @@
 выключенной кнопки меряется серое на сером. Записи — в базе стенда.
 
 Очередь писем (срез 4.6b) — своим модулем `ui_screens_sales_queue.py`, воронка (срез 5.4) —
-`ui_screens_sales_funnel.py`, стоп-лист продаж и окно правки лида — `ui_screens_sales_stoplist.py`.
+`ui_screens_sales_funnel.py`, стоп-лист продаж и окно правки лида — `ui_screens_sales_stoplist.py`,
+недельный отчёт (срез 6.3) — `ui_screens_sales_weekly.py`.
 
 Цепочка писем (срез 4.6) — вкладка с карточками языков и окно шага с письмом глазами
 адресата. Шаблоны и отправитель — в базе стенда: у английской цепочки заданы все шаги
@@ -39,6 +40,7 @@ from ui_screens_sales_quality import quality_screens
 from ui_screens_sales_queue import queue_screens
 from ui_screens_sales_segment import segment_prepare, segment_screens
 from ui_screens_sales_stoplist import stoplist_prepare, stoplist_screens
+from ui_screens_sales_weekly import weekly_screens
 
 #: Узкое окно — телефон: вместо вкладок список «Раздел», таблицы уезжают в прокрутку.
 PHONE = {"width": 390, "height": 844}
@@ -254,6 +256,7 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         **quality_screens(norm, big),
         **stoplist_screens(norm, big),
         **segment_screens(norm, big),
+        **weekly_screens(norm, big),
     }
 
 

@@ -23,7 +23,9 @@ Kommo (`due`), и повтор сообщения, где ждёт только 
 выключены (`SALES_ENABLED`) — не ставит ни одной, а обе задачи никуда не ходят. Тем же
 кругом, после них, — повтор сообщения о черновике агента продаж (`agent/notify_retry.py`).
 Сторож бота продаж — тем же кругом, после постановки повторов: сводная тревога «без токена»
-в общую ленту (`agent/notify.watch_token`); его сбой повторов не держит.
+в общую ленту (`agent/notify.watch_token`); его сбой повторов не держит. Последним — недельный
+отчёт продаж в группу (`weekly_jobs.due`, срез 6.3): пришло его время или ждёт повтор — задача
+в очередь продаж; его сбой не держит ни повторов, ни сторожа.
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import storage
 from backend.config.startup_checks import ConfigError, check_storage
 from backend.features.runs.failures import described, is_permanent
+from backend.features.sales import weekly_jobs
 from backend.features.sales.agent import notify_retry
 from backend.features.sales.agent.notify import queue_resend, watch_token
 from backend.features.sales.handoff import (
@@ -73,6 +76,7 @@ logger = logging.getLogger(__name__)
 _REFUSED_HANDOFF = "продажи: повтор передачи лида не поставлен — очередь недоступна"
 _REFUSED_MESSAGE = "продажи: повтор сообщения о лиде не поставлен — очередь недоступна"
 _REFUSED_NOTICE = "продажи: повтор сообщения о черновике не поставлен — очередь недоступна"
+_REFUSED_WEEKLY = "продажи: недельный отчёт не поставлен — очередь недоступна"
 
 
 def _http() -> httpx.AsyncClient:
@@ -167,19 +171,24 @@ async def retry_pass() -> None:
     в Telegram — его повтор; затем повторы сообщений о черновиках агента продаж. Очередь не
     ответила — строка в журнал: срок уже сдвинут, передачу возьмёт следующий круг через срок.
     Kommo и Telegram зовёт задача очереди, а не разбор: их сбой — повтор позже, а не мёртвый
-    сервис. Сторож бота продаж — после очереди: его сбой повторов не держит.
+    сервис. Сторож бота продаж — после очереди: его сбой повторов не держит. Недельный отчёт —
+    последним, своей сессией: пришло его время или ждёт повтор — задача в очередь продаж.
     """
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
+    now = datetime.now(UTC)
     try:
         async with factory() as session:
-            now = datetime.now(UTC)
             ids = await due(session, now=now)
             messages = await message_due(session, now=now)
             notices = await notify_retry.due(session, now=now)
         _queue_again(ids, messages, notices)
         async with factory() as session:
             await watch_token(session)
+        async with factory() as session:
+            reports = await weekly_jobs.due(session, now=now)
+        for report in reports:
+            _put(weekly_jobs.queue_send, report, _REFUSED_WEEKLY, "report")
     finally:
         await engine.dispose()
 

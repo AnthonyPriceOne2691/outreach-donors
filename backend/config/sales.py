@@ -71,6 +71,11 @@
 вслепую. В наблюдении вердикт пишется, а «отказ» модели отдаёт сайт человеку с пометкой
 «отрезал бы»; `enforce` режет; `off` — модель не зовётся, каждый сайт решает человек.
 Набор eval судьи сегмента — вне репозитория, каталог `SALES_SEGMENT_GOLDEN_DIR`.
+
+**Недельный отчёт в группу продаж по умолчанию не уходит** (`SALES_WEEKLY_REPORT_AT`, срез 6.3):
+всё, что продажи шлют наружу без человека, по умолчанию выключено. Включает человек — днём и
+временем по Москве, рекомендуемое «MON 09:00»; разбор при старте — опечатка не ждёт понедельника.
+Экран отчёта и выгрузка работают и без него.
 """
 
 from __future__ import annotations
@@ -169,6 +174,9 @@ class _Sales(DomainSettings):
     telegram_group_copy: bool = Field(default=True, validation_alias="SALES_TELEGRAM_GROUP_COPY")
     # Адрес сервиса для ссылки на диалог: `https://…` без косой черты в конце.
     app_url: str = Field(default="", validation_alias="SALES_APP_URL")
+    # Когда недельный отчёт уходит в группу продаж: день и время по Москве, рекомендуемое
+    # «MON 09:00». Пусто (по умолчанию) — не уходит: наружу без человека — только по решению.
+    weekly_report_at: str = Field(default="", validation_alias="SALES_WEEKLY_REPORT_AT")
 
     # Судья черновика агента продаж: режим (`enforce` — режет, `shadow` — замер) и
     # каталоги наборов его eval вне репозитория.
@@ -225,6 +233,25 @@ def _hours(text: str) -> tuple[time, time]:
     if opens >= closes:
         raise ValueError(f"SALES_SEND_HOURS «{text}»: окно закрывается раньше, чем открывается")
     return opens, closes
+
+
+#: Дни недели в `SALES_WEEKLY_REPORT_AT` — с понедельника, как `date.weekday()`.
+WEEKDAYS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+
+
+def _weekly_at(text: str) -> tuple[int, time] | None:
+    """«MON 09:00» → день недели с нуля (0 — понедельник) и время по Москве; пусто — `None`."""
+    if not text.strip():
+        return None
+    refusal = f"SALES_WEEKLY_REPORT_AT «{text}»: день и время по Москве, например «MON 09:00»"
+    day, _, clock = text.strip().partition(" ")
+    try:
+        at = time.fromisoformat(clock.strip())
+    except ValueError as exc:
+        raise ValueError(refusal) from exc
+    if day.upper() not in WEEKDAYS or at.tzinfo is not None:
+        raise ValueError(refusal)
+    return WEEKDAYS.index(day.upper()), at
 
 
 _s = _Sales()
@@ -296,6 +323,9 @@ TELEGRAM_CHAT_ID: str = _s.telegram_chat_id.strip()
 TELEGRAM_GROUP_CHAT_ID: str = _s.telegram_group_chat_id.strip()
 TELEGRAM_GROUP_COPY: bool = _s.telegram_group_copy
 APP_URL: str = _s.app_url.strip().rstrip("/")
+#: Когда недельный отчёт уходит в группу продаж: день недели (0 — понедельник) и время по
+#: Москве (`features/sales/weekly_jobs.py`). `None` — в Telegram не уходит; так по умолчанию.
+WEEKLY_REPORT_AT: tuple[int, time] | None = _weekly_at(_s.weekly_report_at)
 
 #: Сколько ждать Telegram на одну попытку. Попыток три (`features/sales/telegram`).
 TELEGRAM_TIMEOUT_SEC = 10.0

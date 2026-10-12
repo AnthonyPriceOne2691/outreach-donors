@@ -57,6 +57,7 @@ import { QueuePane } from './QueuePane';
 import { SegmentPane } from './SegmentPane';
 import { SenderPane } from './SenderPane';
 import { StoplistPane } from './StoplistPane';
+import { WeeklyPane } from './WeeklyPane';
 
 /** Набранный поиск совпадает с адресом без пробелов по краям. */
 const sameSearch = (draft: string, committed: string) => draft.trim() === committed;
@@ -103,15 +104,15 @@ function tabLabel(key: SalesTab, count: number | undefined): string {
  *  семь вкладок столбиком ставили таблицу на 204 px ниже (аудит экранов 09.10.2026), а на
  *  800–1024 px вкладки в ряд срезались краем панели — «Воронка» и настройки были
  *  недосягаемы. Девяти вкладкам в ряд нужно было 1 008–1 012 px при малых числах и 1 066–1 069 px
- *  при «12 345» лидов (замеры стенда 12.10.2026: со «Сбором базы» и «Агент: качество» — и с
- *  «Агент: качество» и «Стоп-листом»). Десяти — со всеми тремя — по сумме тех замеров около
- *  1 115 px и 1 175 px; строка панели уже окна на 332 px, вкладкам хватает места с окна около
- *  1 450 px, с числами побольше — около 1 510. Список — до 95em (1 520 px): на 1 440 px ряд
- *  десяти вкладок срезался бы краем. Порог предварительный (оценка без снимков): точный — со
- *  снимками, а когда «Продажи» разойдутся на пункты меню, список здесь не понадобится. В списке
- *  рабочие вкладки, черта и настройки — порядок тот же, что у вкладок. */
+ *  при «12 345» лидов (замеры стенда 12.10.2026), «Отчёт» — ещё около 61 px (замер среза 6.3:
+ *  восьми вкладкам — 852 px). Одиннадцати — по сумме тех замеров около 1 180 px и 1 240 px;
+ *  строка панели уже окна на 332 px, вкладкам хватает места с окна около 1 510 px, с числами
+ *  побольше — около 1 570. Список — до 100em (1 600 px): на 1 440 и 1 536 px ряд срезался бы
+ *  краем. Порог предварительный (оценка без снимков): точный — со снимками, а когда «Продажи»
+ *  разойдутся на пункты меню, список здесь не понадобится. В списке рабочие вкладки, черта и
+ *  настройки — порядок тот же, что у вкладок. */
 function SalesTabs({ tab, counts, onTab }: TabsProps) {
-  const narrow = useMediaQuery('(max-width: 95em)');
+  const narrow = useMediaQuery('(max-width: 100em)');
   const pick = (value: string | null) => {
     const next = SALES_TAB_KEYS.find((key) => key === value);
     if (next !== undefined && next !== tab) onTab(next);
@@ -129,12 +130,12 @@ function SalesTabs({ tab, counts, onTab }: TabsProps) {
           ...SALES_TAB_KEYS.filter((key) => !SETTINGS_TABS.has(key)).map(item),
           { group: 'Настройки', items: settings.map(item) },
         ]}
-        // Все десять пунктов без прокрутки списка: девять на 390 px занимали 334 px (замер
-        // 12.10.2026), десятый — ещё строка около 34 px, поэтому предел списка — 400 px, а не 360.
+        // Все одиннадцать пунктов без прокрутки списка: девять на 390 px занимали 334 px (замер
+        // 12.10.2026), ещё два — около 68 px, поэтому предел списка — 440 px, а не 360.
         // На телефоне рядом в ряд встаёт «Загрузить базу», и поле уже пункта «База знаний — 3» —
         // список по содержимому, левым краем по полю; на окне пошире поле — по значению, не шире
         // 16rem, а не на весь ряд.
-        maxDropdownHeight={400}
+        maxDropdownHeight={440}
         comboboxProps={{ ...dropdownBelow, width: 'max-content' }}
         maw="16rem"
         style={{ flex: '1 1 8rem' }}
@@ -241,6 +242,7 @@ export function SalesPage() {
     agent: () => (
       <AgentQualityPane cohort={filters.cohort} onCohort={(cohort) => apply({ cohort })} />
     ),
+    report: () => <WeeklyPane week={filters.week} onWeek={(week) => apply({ week })} />,
   };
 
   return (

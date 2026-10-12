@@ -15,7 +15,7 @@
  * условие поправляют тут же.
  */
 
-import { Box, Table } from '@mantine/core';
+import { Box, Table, Text } from '@mantine/core';
 import type { ReactNode } from 'react';
 
 export interface Column {
@@ -104,5 +104,17 @@ export function FixedTable({
       {/* Поле — как у ячеек: текст встаёт на кромку первой колонки. */}
       {filler !== undefined && <Box px={horizontalSpacing}>{filler}</Box>}
     </>
+  );
+}
+
+/** Ячейка имени строки по гипотезам — одна у воронки и недельного отчёта: имя переносится,
+ *  строка итога — жирнее. */
+export function NameCell({ name, total = false }: { name: string; total?: boolean }) {
+  return (
+    <Table.Td className="cellName wrapCell">
+      <Text size="sm" fw={total ? 600 : 500}>
+        {name}
+      </Text>
+    </Table.Td>
   );
 }

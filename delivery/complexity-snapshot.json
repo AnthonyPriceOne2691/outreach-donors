@@ -367,9 +367,9 @@
       "worst": "build_queue:147"
     },
     "backend/api/sales/routes.py": {
-      "lines": 226,
+      "lines": 228,
       "complexity": 6,
-      "worst": "_found:85"
+      "worst": "_found:86"
     },
     "backend/api/sales/schemas.py": {
       "lines": 202,
@@ -390,6 +390,11 @@
       "lines": 202,
       "complexity": 7,
       "worst": "_entries:146"
+    },
+    "backend/api/sales/weekly.py": {
+      "lines": 234,
+      "complexity": 5,
+      "worst": "delivery:159"
     },
     "backend/api/selection/__init__.py": {
       "lines": 1,
@@ -732,9 +737,9 @@
       "worst": "_own_account:214"
     },
     "backend/config/sales.py": {
-      "lines": 311,
+      "lines": 341,
       "complexity": 6,
-      "worst": "_days:203"
+      "worst": "_days:211"
     },
     "backend/config/serp.py": {
       "lines": 56,
@@ -997,7 +1002,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 80,
+      "lines": 82,
       "complexity": 0,
       "worst": "—"
     },
@@ -2177,9 +2182,9 @@
       "worst": "_alarm:102"
     },
     "backend/features/sales/browse.py": {
-      "lines": 209,
+      "lines": 214,
       "complexity": 6,
-      "worst": "_conditions:103"
+      "worst": "_conditions:104"
     },
     "backend/features/sales/chain.py": {
       "lines": 224,
@@ -2232,9 +2237,9 @@
       "worst": "build:131"
     },
     "backend/features/sales/funnel.py": {
-      "lines": 248,
+      "lines": 273,
       "complexity": 5,
-      "worst": "counts:187"
+      "worst": "counts:193"
     },
     "backend/features/sales/geo.py": {
       "lines": 396,
@@ -2257,9 +2262,9 @@
       "worst": "close:180"
     },
     "backend/features/sales/handoff_jobs.py": {
-      "lines": 212,
+      "lines": 221,
       "complexity": 5,
-      "worst": "_queue_again:187"
+      "worst": "_queue_again:196"
     },
     "backend/features/sales/handoff_kommo.py": {
       "lines": 195,
@@ -2520,6 +2525,31 @@
       "lines": 286,
       "complexity": 9,
       "worst": "verify:149"
+    },
+    "backend/features/sales/weekly.py": {
+      "lines": 304,
+      "complexity": 8,
+      "worst": "build:224"
+    },
+    "backend/features/sales/weekly_counts.py": {
+      "lines": 316,
+      "complexity": 9,
+      "worst": "dialogs:130"
+    },
+    "backend/features/sales/weekly_jobs.py": {
+      "lines": 233,
+      "complexity": 7,
+      "worst": "due:93"
+    },
+    "backend/features/sales/weekly_models.py": {
+      "lines": 56,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/sales/weekly_text.py": {
+      "lines": 294,
+      "complexity": 5,
+      "worst": "runway_line:151"
     },
     "backend/features/serp/__init__.py": {
       "lines": 1,
@@ -2807,9 +2837,9 @@
       "worst": "report_screens:15"
     },
     "scripts/ui_screens_sales.py": {
-      "lines": 497,
+      "lines": 500,
       "complexity": 1,
-      "worst": "pick_hypothesis:64"
+      "worst": "pick_hypothesis:66"
     },
     "scripts/ui_screens_sales_funnel.py": {
       "lines": 91,
@@ -2840,6 +2870,11 @@
       "lines": 90,
       "complexity": 1,
       "worst": "open_add:22"
+    },
+    "scripts/ui_screens_sales_weekly.py": {
+      "lines": 52,
+      "complexity": 1,
+      "worst": "weekly_screens:21"
     },
     "scripts/ui_screens_stage2.py": {
       "lines": 70,

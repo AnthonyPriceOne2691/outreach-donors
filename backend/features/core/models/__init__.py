@@ -36,6 +36,7 @@ from backend.features.sales.segment_models import (
     SalesSegmentRunModel,
     SalesSegmentVerdictModel,
 )
+from backend.features.sales.weekly_models import SalesWeeklyReportModel
 
 __all__ = [
     "AdvertiserModel",
@@ -68,6 +69,7 @@ __all__ = [
     "SalesSettingsModel",
     "SalesStoplistModel",
     "SalesThreadModel",
+    "SalesWeeklyReportModel",
     "SenderHealthModel",
     "SenderModel",
     "SendingDomainModel",

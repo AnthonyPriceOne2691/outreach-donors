@@ -21,8 +21,9 @@
  * и воронка смотрят на одну `?hypothesis=`, и смена вкладки её не теряет — до того
  * у цепочки, очереди и воронки она жила в состоянии вкладки и пропадала при уходе
  * с неё. Остальные фильтры — своей вкладки: у лидов — состояние, причина, поиск
- * и страница, у воронки — период и свои даты (`?period=custom&from=…&to=…`), у качества
- * агента — версия агента (`?cohort=…`, номер сервера; пусто — текущая).
+ * и страница, у воронки — период и свои даты (`?period=custom&from=…&to=…`), у отчёта —
+ * неделя (`?tab=report&week=…`, её понедельник), у качества агента — версия агента
+ * (`?cohort=…`, номер сервера; пусто — текущая).
  */
 
 import type { LeadsQuery } from '../api/sales';
@@ -43,14 +44,15 @@ export type SalesTab =
   | 'chain'
   | 'queue'
   | 'funnel'
+  | 'report'
   | 'agent';
 
 /** Вкладки раздела: сначала рабочие — по пути лида: кто (лиды, гипотезы, сбор новой базы
  *  по ключам — 6.1), что ему уходит (цепочка писем, срез 4.6), сборка и отправка пачкой
- *  (очередь, 4.6b), что вышло (воронка, 5.4), как люди обходятся с черновиками агента
- *  (качество агента, 6.4); затем настройки — из чего и от чьего имени пишет агент (база
- *  знаний и отправитель, 3.1) и кому продажи не пишут (стоп-лист). Порядок один у вкладок
- *  и у списка «Раздел» на телефоне. */
+ *  (очередь, 4.6b), что вышло (воронка, 5.4, и недельный отчёт, 6.3), как люди обходятся
+ *  с черновиками агента (качество агента, 6.4); затем настройки — из чего и от чьего имени
+ *  пишет агент (база знаний и отправитель, 3.1) и кому продажи не пишут (стоп-лист). Порядок
+ *  один у вкладок и у списка «Раздел» на телефоне. */
 export const SALES_TABS: Record<SalesTab, string> = {
   leads: 'Лиды',
   hypotheses: 'Гипотезы',
@@ -58,6 +60,7 @@ export const SALES_TABS: Record<SalesTab, string> = {
   chain: 'Цепочка писем',
   queue: 'Очередь писем',
   funnel: 'Воронка',
+  report: 'Отчёт',
   agent: 'Агент: качество',
   kb: 'База знаний',
   sender: 'Отправитель',
@@ -86,6 +89,8 @@ export interface LeadFilters {
   to: string;
   /** Версия агента на вкладке качества — номер сервера; пусто — текущая. */
   cohort: string;
+  /** Неделя отчёта — её понедельник (`YYYY-MM-DD`); пусто — прошлая неделя. */
+  week: string;
 }
 
 export const NO_LEAD_FILTERS: LeadFilters = {
@@ -99,6 +104,7 @@ export const NO_LEAD_FILTERS: LeadFilters = {
   from: '',
   to: '',
   cohort: '',
+  week: '',
 };
 
 /** Форма кода причины — как пишет очистка (`duplicate`, `no_mail`). */
@@ -146,6 +152,7 @@ export function readLeadFilters(params: URLSearchParams): LeadFilters {
     from: dayOf(params.get('from')),
     to: dayOf(params.get('to')),
     cohort: cohortOf(params.get('cohort')),
+    week: dayOf(params.get('week')),
   });
 }
 
@@ -183,9 +190,11 @@ export function writeLeadFilters(filters: LeadFilters): URLSearchParams {
   return params;
 }
 
-/** Свои фильтры вкладки в адресе: у воронки — период и свои даты, у качества агента — версия. */
+/** Свои фильтры вкладки в адресе: у воронки — период и свои даты, у отчёта — неделя, у качества
+ *  агента — версия. Умолчания (всё время, прошлая неделя, текущая версия) не пишутся. */
 function tabParams(filters: LeadFilters): [string, string][] {
   if (filters.tab === 'funnel') return funnelParams(filters);
+  if (filters.tab === 'report') return filters.week === '' ? [] : [['week', filters.week]];
   return filters.tab === 'agent' && filters.cohort !== '' ? [['cohort', filters.cohort]] : [];
 }
 
