@@ -32,7 +32,6 @@ from typing import Any, assert_never
 
 from sqlalchemy import ColumnElement, Select, case, or_, true
 
-from backend.config import filters as filters_cfg
 from backend.features.contacts.repository import has_address
 from backend.features.core.domain import DonorStatus
 from backend.features.core.models.domain import DomainModel
@@ -55,14 +54,16 @@ class Freshness(StrEnum):
     NEVER = "never"
 
 
-def _freshness_is(state: Freshness, now: datetime) -> ColumnElement[bool]:
+def _freshness_is(state: Freshness, now: datetime, ttl_days: int) -> ColumnElement[bool]:
     """Условие одного состояния. Три условия не пересекаются и покрывают всё.
 
     Граница — та же, что у прогона, решающего, платить ли за метрики снова
-    (`DonorRepository.fresh_hosts`): строго позже, чем срок назад.
+    (`DonorRepository.fresh_hosts`): строго позже, чем срок назад. Срок — действующей
+    версии настроек (`runs/thresholds.rules_in_force`), как у прогона: с окружением
+    таблица называла бы «устарели» то, за что прогон платить снова не станет.
     """
     refreshed = DonorModel.metrics_refreshed_at
-    border = now - timedelta(days=filters_cfg.METRICS_TTL_DAYS)
+    border = now - timedelta(days=ttl_days)
     if state is Freshness.NEVER:
         return refreshed.is_(None)
     if state is Freshness.FRESH:
@@ -70,10 +71,10 @@ def _freshness_is(state: Freshness, now: datetime) -> ColumnElement[bool]:
     return refreshed <= border
 
 
-def freshness(now: datetime) -> ColumnElement[str]:
+def freshness(now: datetime, ttl_days: int) -> ColumnElement[str]:
     """Состояние метрик строкой — теми же условиями, что у фильтра."""
     return case(
-        *((_freshness_is(state, now), state.value) for state in Freshness),
+        *((_freshness_is(state, now, ttl_days), state.value) for state in Freshness),
     )
 
 
@@ -161,7 +162,9 @@ class DonorFilters:
     offset: int = 0
 
 
-def _by_metrics(statement: Select[Any], filters: DonorFilters, now: datetime) -> Select[Any]:
+def _by_metrics(
+    statement: Select[Any], filters: DonorFilters, now: datetime, ttl_days: int
+) -> Select[Any]:
     """Фильтры колонок с числами Ahrefs: вердикт, DR, трафик, гео, данные."""
     if filters.status is not None:
         statement = statement.where(DonorModel.status == filters.status)
@@ -172,15 +175,17 @@ def _by_metrics(statement: Select[Any], filters: DonorFilters, now: datetime) ->
     if filters.geo:
         statement = statement.where(DonorModel.geo == filters.geo.strip().lower())
     if filters.freshness is not None:
-        statement = statement.where(_freshness_is(filters.freshness, now))
+        statement = statement.where(_freshness_is(filters.freshness, now, ttl_days))
     return statement
 
 
-def narrowed(statement: Select[Any], filters: DonorFilters, now: datetime) -> Select[Any]:
-    """Фильтры колонок поверх основы экрана (`browse._screen`)."""
+def narrowed(
+    statement: Select[Any], filters: DonorFilters, now: datetime, *, metrics_ttl_days: int
+) -> Select[Any]:
+    """Фильтры колонок поверх основы экрана (`browse._screen`); срок метрик — версии."""
     if filters.ids:
         statement = statement.where(DonorModel.id.in_(filters.ids))
-    statement = _by_metrics(statement, filters, now)
+    statement = _by_metrics(statement, filters, now, metrics_ttl_days)
     if filters.price is not None:
         statement = statement.where(price_is(filters.price, now))
     if filters.search:

@@ -32,6 +32,7 @@ from backend.features.core.usage import LlmCapExceededError
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.crawl.niche import collect as collect_niche
 from backend.features.donors.doors import door_check
+from backend.features.donors.geo import assert_settings_allow_limited_fetch
 from backend.features.donors.repository import DonorRepository
 from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
@@ -47,7 +48,7 @@ from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.reasons import explained
 from backend.features.runs.repository import FAILURE_KEY, REASON_KEY, RunRepository
 from backend.features.runs.stopped import tell_stopped
-from backend.features.runs.thresholds import thresholds_of
+from backend.features.runs.thresholds import rules_of
 from backend.features.serp.factory import build_provider
 from backend.shared.logs import setup_logging
 from backend.shared.queue import (
@@ -109,6 +110,12 @@ async def _run(run_id: int) -> dict[str, Any]:
             runs = RunRepository(session)
             run = await runs.get(run_id)
             settings = await runs.settings_of(run)
+            # Пороги, правило региона и срок метрик — своей строки настроек, а не
+            # окружения (сверка ТЗ 11.10.2026): вердикт объясним по `settings_id`.
+            rules = rules_of(settings)
+            # Несогласованное правило региона — отказ словами до первой траты: прогон
+            # остановлен с причиной, а не судит молча неверно (`geo.py`).
+            assert_settings_allow_limited_fetch(rules.geo.top_n, rules.geo.min_share)
             # Потолок — на старте, а не с нажатия: остаток месяца к этой минуте мог уйти
             # прогонам, поставленным раньше (аудит 10.10.2026, `budget.ceiling_at_start`).
             cap = await ceiling_at_start(session, run_id=run.id, promised=settings.units_cap)
@@ -132,9 +139,9 @@ async def _run(run_id: int) -> dict[str, Any]:
                         RunRequest(
                             keywords=list(run.keywords),
                             country=run.country,
-                            # Пороги — своей строки настроек, а не умолчания конфига
-                            # (аудит 10.10.2026): вердикт объясним по `settings_id`.
-                            thresholds=thresholds_of(settings),
+                            thresholds=rules.thresholds,
+                            geo=rules.geo,
+                            metrics_ttl_days=rules.metrics_ttl_days,
                             settings_id=run.settings_id,
                             cap=cap,
                             depth_pages=run.depth_pages,

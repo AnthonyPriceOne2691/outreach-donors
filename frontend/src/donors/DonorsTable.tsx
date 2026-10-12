@@ -60,6 +60,7 @@ import type { Picks } from './picks';
 import { DONOR_REVIEWS } from './priceWords';
 import { placeOf } from './place';
 import type { DonorPlace } from './place';
+import { reasonText } from './reasonText';
 
 /** Колонки слева направо. Ширина донора — остаток: в ней домен, и ей
  *  отдаётся всё, что не нужно остальным. Остальные — по самому длинному,
@@ -112,7 +113,7 @@ function VerdictHint() {
   return (
     <InfoHint name="Что значит «не проверен»" width={280}>
       «Не проверен» — не «не подходит»: у домена не было данных, и его надо добрать позже, а не
-      закрыть. Причина отсева — под доменом.
+      закрыть. Причина отсева или почему не проверен — под доменом.
     </InfoHint>
   );
 }
@@ -223,7 +224,7 @@ function DonorRow({ donor, place, picked, onPick, onOpen }: RowProps) {
         </Anchor>
         {donor.reject_reason !== null && (
           <Text size="xs" c="dimmed">
-            {donor.reject_reason}
+            {reasonText(donor.status, donor.reject_reason)}
           </Text>
         )}
         <NotADonor donor={donor} />

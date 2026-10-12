@@ -1,6 +1,7 @@
 import type {
   AlarmCard,
   SpendingView,
+  ThresholdRange,
   ThresholdsBody,
   ThresholdsVersion,
   ThresholdsView,
@@ -52,16 +53,41 @@ export interface ConsequencesView {
   suitable: number;
 }
 
-export function fetchThresholds(): Promise<ThresholdsView> {
-  return request<ThresholdsView>('/settings/thresholds');
+/** Правило региона и срок метрик версии — правятся на «Порогах» вместе с порогами
+ *  (сверка ТЗ 11.10.2026: «все пороги — в настройках прогона»). Доля — процентами,
+ *  как в поле. Типы здесь, а не в `types.ts`: тот за пределом длины файла. */
+export interface RunRules {
+  /** Страна подходит, если она в этом топе стран по органическому трафику… */
+  geo_top_n: number;
+  /** …или даёт не меньше этой доли трафика, процентами. */
+  geo_min_share_percent: number;
+  /** Сколько дней метрики Ahrefs годны: до срока прогон их не покупает заново. */
+  metrics_ttl_days: number;
+}
+
+/** Версия целиком: пороги, правило региона и срок метрик. */
+export type VersionBody = ThresholdsBody & RunRules;
+
+export interface RulesVersion extends ThresholdsVersion, RunRules {}
+
+/** Пороги и история версий — с правилом региона и сроком; их границы — отдельно. */
+export interface RulesView extends Omit<ThresholdsView, 'current' | 'defaults' | 'history'> {
+  current: RulesVersion | null;
+  defaults: VersionBody;
+  history: RulesVersion[];
+  rule_limits: Record<keyof RunRules, ThresholdRange>;
+}
+
+export function fetchThresholds(): Promise<RulesView> {
+  return request<RulesView>('/settings/thresholds');
 }
 
 export function previewThresholds(body: ThresholdsBody): Promise<ConsequencesView> {
   return request<ConsequencesView>('/settings/preview', { method: 'POST', body });
 }
 
-export function saveThresholds(body: ThresholdsBody): Promise<ThresholdsVersion> {
-  return request<ThresholdsVersion>('/settings/thresholds', { method: 'POST', body });
+export function saveThresholds(body: VersionBody): Promise<RulesVersion> {
+  return request<RulesVersion>('/settings/thresholds', { method: 'POST', body });
 }
 
 export function fetchUsage(): Promise<UsageView> {

@@ -33,7 +33,6 @@ from typing import Any
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import filters as filters_cfg
 from backend.features.contacts.manual import removal_refusals
 from backend.features.contacts.preference import preferred_first
 from backend.features.contacts.repository import search_refusal
@@ -57,6 +56,7 @@ from backend.features.donors.table_filters import (
 from backend.features.letters.recipients import LetterAddress, Recipients
 from backend.features.replies.extract import WITHOUT_PRICE
 from backend.features.replies.quoting import written_by_hand
+from backend.features.runs.thresholds import rules_in_force
 from backend.shared.database.ids import storable
 
 #: Сколько текста ответа показывает карточка рядом с ценой: прайс в письме укладывается,
@@ -192,10 +192,10 @@ class DonorCard:
         return fresh_until(self.donor)
 
 
-def _expires_at(donor: DonorModel) -> datetime | None:
+def _expires_at(donor: DonorModel, ttl_days: int) -> datetime | None:
     if donor.metrics_refreshed_at is None:
         return None
-    return donor.metrics_refreshed_at + timedelta(days=filters_cfg.METRICS_TTL_DAYS)
+    return donor.metrics_refreshed_at + timedelta(days=ttl_days)
 
 
 def _screen(review: Review, *columns: Any) -> Select[Any]:
@@ -216,24 +216,34 @@ class DonorBrowser:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def _metrics_ttl(self) -> int:
+        """Срок метрик — действующей версии настроек, как у прогона (`rules_in_force`)."""
+        return (await rules_in_force(self._session)).metrics_ttl_days
+
     async def page(self, filters: DonorFilters, *, now: datetime | None = None) -> DonorPage:
         moment = now or datetime.now(UTC)
+        ttl = await self._metrics_ttl()
         columns = (
             DonorModel,
             DomainModel.host,
             DomainModel.seller_answer,
-            freshness(moment).label("freshness"),
+            freshness(moment, ttl).label("freshness"),
             price_is(PriceState.STALE, moment).label("price_stale"),
         )
         rows = await self._session.execute(
-            narrowed(_screen(filters.review, *columns), filters, moment)
+            narrowed(_screen(filters.review, *columns), filters, moment, metrics_ttl_days=ttl)
             .order_by(*ordered(filters.sort))
             .limit(filters.limit)
             .offset(filters.offset)
         )
         found = rows.all()
         total = await self._session.scalar(
-            narrowed(_screen(filters.review, func.count(DonorModel.id)), filters, moment)
+            narrowed(
+                _screen(filters.review, func.count(DonorModel.id)),
+                filters,
+                moment,
+                metrics_ttl_days=ttl,
+            )
         )
         contacts = await self._contact_counts([donor.domain_id for donor, *_ in found])
         return DonorPage(
@@ -302,7 +312,8 @@ class DonorBrowser:
         # Через подзапрос, а не `group_by(выражение)`: граница срока едет
         # параметром, и выражение в списке колонок и в группировке вышло бы
         # с разными номерами параметров — базе они разные.
-        states = _screen(review, freshness(moment).label("state")).subquery()
+        ttl = await self._metrics_ttl()
+        states = _screen(review, freshness(moment, ttl).label("state")).subquery()
         by_state = await self._session.execute(
             select(states.c.state, func.count()).group_by(states.c.state)
         )
@@ -340,12 +351,13 @@ class DonorBrowser:
         if not storable(donor_id):
             raise UnknownDonorError(f"Донора №{donor_id} нет")
         moment = datetime.now(UTC)
+        ttl = await self._metrics_ttl()
         rows = await self._session.execute(
             select(
                 DonorModel,
                 DomainModel.host,
                 DomainModel.seller_answer,
-                freshness(moment).label("freshness"),
+                freshness(moment, ttl).label("freshness"),
                 price_is(PriceState.STALE, moment).label("price_stale"),
             )
             .join(DomainModel, DomainModel.id == DonorModel.domain_id)
@@ -373,7 +385,7 @@ class DonorBrowser:
             seller_answer=answer,
             contacts=contacts,
             freshness=Freshness(state),
-            expires_at=_expires_at(donor),
+            expires_at=_expires_at(donor, ttl),
             contact_refusal=await search_refusal(self._session, donor),
             price_refusal=await price_refusal(self._session, host, donor),
             review_run=await decided_in(self._session, donor.domain_id, donor.review),

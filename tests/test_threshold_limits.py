@@ -13,9 +13,11 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 import pytest
-from backend.api.settings.schemas import LIMITS, ThresholdsBody
+from backend.api.settings.schemas import LIMITS, RULE_LIMITS, ThresholdsBody
 from backend.features.core.domain import UserRole
 from backend.features.core.models.access import UserModel
+from backend.features.donors.geo import GeoRule
+from backend.features.runs.thresholds import Rules, defaults
 from httpx import AsyncClient
 from tests.conftest import bearer
 
@@ -24,6 +26,8 @@ SignIn = Callable[..., Awaitable[str]]
 
 #: Пороги, которые заведомо в границах: от них двигают по одному полю.
 INSIDE = {"min_dr": 20, "min_org_traffic": 500, "min_refdomains": 100, "min_keywords": 300}
+#: Все поля версии с границами: пороги и правило региона со сроком метрик (11.10.2026).
+EVERY = {**LIMITS, **RULE_LIMITS}
 
 
 @pytest.fixture
@@ -36,7 +40,7 @@ class TestLimitsAreOnePlace:
     def test_every_threshold_has_limits(self) -> None:
         """Поле без границ экран проверить не сможет, а граница без поля —
         опечатка в имени."""
-        assert set(LIMITS) == set(ThresholdsBody.model_fields)
+        assert set(EVERY) == set(ThresholdsBody.model_fields)
 
     async def test_screen_gets_the_limits(self, client: AsyncClient, token: str) -> None:
         response = await client.get("/api/settings/thresholds", headers=bearer(token))
@@ -45,25 +49,28 @@ class TestLimitsAreOnePlace:
         assert response.json()["limits"] == {
             name: {"min": low, "max": high} for name, (low, high) in LIMITS.items()
         }
+        assert response.json()["rule_limits"] == {
+            name: {"min": low, "max": high} for name, (low, high) in RULE_LIMITS.items()
+        }
 
 
 class TestSchemaRefusesByTheSameNumbers:
-    @pytest.mark.parametrize("name", sorted(LIMITS))
+    @pytest.mark.parametrize("name", sorted(EVERY))
     async def test_the_edges_themselves_pass(
         self, client: AsyncClient, token: str, name: str
     ) -> None:
-        low, high = LIMITS[name]
+        low, high = EVERY[name]
         for value in (low, high):
             response = await client.post(
                 "/api/settings/preview", json={**INSIDE, name: value}, headers=bearer(token)
             )
             assert response.status_code == 200, (name, value, response.text)
 
-    @pytest.mark.parametrize("name", sorted(LIMITS))
+    @pytest.mark.parametrize("name", sorted(EVERY))
     async def test_one_step_outside_is_refused(
         self, client: AsyncClient, token: str, name: str
     ) -> None:
-        low, high = LIMITS[name]
+        low, high = EVERY[name]
         for value in (low - 1, high + 1):
             response = await client.post(
                 "/api/settings/preview", json={**INSIDE, name: value}, headers=bearer(token)
@@ -77,3 +84,19 @@ class TestSchemaRefusesByTheSameNumbers:
         )
 
         assert response.status_code == 422
+
+
+class TestDefaultsOutOfBounds:
+    async def test_screen_opens_with_the_nearest_allowed(
+        self, client: AsyncClient, token: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Топ 7 и доля 0,4% в окружении — экран открывается ближайшими допустимыми,
+        а не падает пятисоткой: схема ответа отказала бы умолчаниям за границами."""
+        odd = Rules(thresholds=defaults(), geo=GeoRule(top_n=7, min_share=0.004))
+        monkeypatch.setattr("backend.api.settings.routes.default_rules", lambda: odd)
+
+        view = await client.get("/api/settings/thresholds", headers=bearer(token))
+
+        assert view.status_code == 200, view.text
+        shown = view.json()["defaults"]
+        assert (shown["geo_top_n"], shown["geo_min_share_percent"]) == (5, 1)

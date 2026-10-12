@@ -307,7 +307,7 @@
       "worst": "—"
     },
     "backend/api/runs/routes.py": {
-      "lines": 253,
+      "lines": 256,
       "complexity": 2,
       "worst": "effective_cap:55"
     },
@@ -417,14 +417,14 @@
       "worst": "—"
     },
     "backend/api/settings/routes.py": {
-      "lines": 217,
+      "lines": 251,
       "complexity": 5,
-      "worst": "_serp_balance:188"
+      "worst": "_serp_balance:222"
     },
     "backend/api/settings/schemas.py": {
-      "lines": 277,
+      "lines": 330,
       "complexity": 4,
-      "worst": "of:207"
+      "worst": "with_rules_of:72"
     },
     "backend/api/stage_access.py": {
       "lines": 139,
@@ -592,9 +592,9 @@
       "worst": "_report:190"
     },
     "backend/cli/main.py": {
-      "lines": 499,
+      "lines": 471,
       "complexity": 9,
-      "worst": "_print_report:258"
+      "worst": "_print_report:259"
     },
     "backend/cli/probe_advertiser.py": {
       "lines": 93,
@@ -615,6 +615,11 @@
       "lines": 56,
       "complexity": 6,
       "worst": "cmd_review_queue:31"
+    },
+    "backend/cli/run_judge.py": {
+      "lines": 39,
+      "complexity": 9,
+      "worst": "print_judge:16"
     },
     "backend/cli/sales.py": {
       "lines": 500,
@@ -1027,7 +1032,7 @@
       "worst": "—"
     },
     "backend/features/core/models/donor.py": {
-      "lines": 179,
+      "lines": 181,
       "complexity": 2,
       "worst": "_enum:34"
     },
@@ -1292,14 +1297,14 @@
       "worst": "backfill:203"
     },
     "backend/features/donors/browse.py": {
-      "lines": 423,
+      "lines": 435,
       "complexity": 7,
-      "worst": "picked:254"
+      "worst": "picked:264"
     },
     "backend/features/donors/collect.py": {
-      "lines": 302,
-      "complexity": 5,
-      "worst": "_screen_batch:123"
+      "lines": 386,
+      "complexity": 7,
+      "worst": "collect:354"
     },
     "backend/features/donors/doors.py": {
       "lines": 179,
@@ -1307,14 +1312,14 @@
       "worst": "__call__:93"
     },
     "backend/features/donors/export.py": {
-      "lines": 167,
+      "lines": 183,
       "complexity": 5,
-      "worst": "_cell:154"
+      "worst": "_cell:170"
     },
     "backend/features/donors/geo.py": {
-      "lines": 190,
+      "lines": 222,
       "complexity": 7,
-      "worst": "_country_traffic:103"
+      "worst": "_country_traffic:126"
     },
     "backend/features/donors/geo_recount.py": {
       "lines": 137,
@@ -1372,9 +1377,9 @@
       "worst": "—"
     },
     "backend/features/donors/repository.py": {
-      "lines": 338,
-      "complexity": 8,
-      "worst": "_donor_values:317"
+      "lines": 408,
+      "complexity": 9,
+      "worst": "_donor_values:382"
     },
     "backend/features/donors/selection.py": {
       "lines": 412,
@@ -1392,9 +1397,9 @@
       "worst": "waiting:69"
     },
     "backend/features/donors/table_filters.py": {
-      "lines": 201,
+      "lines": 206,
       "complexity": 6,
-      "worst": "decided:92"
+      "worst": "decided:93"
     },
     "backend/features/donors/verdict.py": {
       "lines": 101,
@@ -1952,14 +1957,14 @@
       "worst": "outcome:174"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 429,
+      "lines": 448,
       "complexity": 8,
-      "worst": "_judge_candidates:200"
+      "worst": "_judge_candidates:209"
     },
     "backend/features/runs/planning.py": {
-      "lines": 356,
+      "lines": 368,
       "complexity": 7,
-      "worst": "gather_candidates:236"
+      "worst": "gather_candidates:240"
     },
     "backend/features/runs/prune.py": {
       "lines": 487,
@@ -1972,9 +1977,9 @@
       "worst": "explained_line:81"
     },
     "backend/features/runs/report.py": {
-      "lines": 203,
+      "lines": 219,
       "complexity": 11,
-      "worst": "run_stats:125"
+      "worst": "run_stats:139"
     },
     "backend/features/runs/repository.py": {
       "lines": 448,
@@ -1992,9 +1997,9 @@
       "worst": "tell_stopped:30"
     },
     "backend/features/runs/thresholds.py": {
-      "lines": 216,
-      "complexity": 7,
-      "worst": "save:156"
+      "lines": 271,
+      "complexity": 6,
+      "worst": "count:109"
     },
     "backend/features/sales/__init__.py": {
       "lines": 33,
@@ -2587,9 +2592,9 @@
       "worst": "worker_problems:75"
     },
     "backend/workers/jobs.py": {
-      "lines": 486,
+      "lines": 493,
       "complexity": 6,
-      "worst": "_search_contacts:301"
+      "worst": "_search_contacts:308"
     },
     "backend/workers/main.py": {
       "lines": 49,

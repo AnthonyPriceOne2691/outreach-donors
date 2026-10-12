@@ -27,7 +27,6 @@ from backend.api.runs.schemas import (
     RunsView,
 )
 from backend.config import ahrefs as ahrefs_cfg
-from backend.config import filters
 from backend.config.startup_checks import check_collect
 from backend.features.access.permissions import visible_stages
 from backend.features.access.repository import AccessRepository
@@ -35,6 +34,7 @@ from backend.features.ahrefs.client import AhrefsClient
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.donors import standing
+from backend.features.donors.geo import assert_settings_allow_limited_fetch
 from backend.features.runs.browse import MAX_PAGE_SIZE, PAGE_SIZE, RunBrowser
 from backend.features.runs.budget import units_left
 from backend.features.runs.duplicates import refuse_duplicate
@@ -42,7 +42,7 @@ from backend.features.runs.estimate import UNIQUE_SHARE, forecast
 from backend.features.runs.outcome import outcome
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.spending import ahrefs_spent_this_month, cap_left
-from backend.features.runs.thresholds import in_force
+from backend.features.runs.thresholds import rules_in_force
 from backend.features.serp.dataforseo import COUNTRY_CODES
 from backend.shared.queue import RUN_JOB, runs_queue, workers_alive
 
@@ -123,6 +123,11 @@ async def start_run(
     случился». Отказ на нажатии он видит сразу и с текстом.
     """
     check_collect()
+    # Версия настроек, которой прогон будет судить, — действующая: пороги, правило
+    # региона и срок метрик, а не окружение (сверка ТЗ 11.10.2026). Несогласованное
+    # правило региона — отказ словами здесь, а не остановка из очереди (`geo.py`).
+    rules = await rules_in_force(session)
+    assert_settings_allow_limited_fetch(rules.geo.top_n, rules.geo.min_share)
     # Такой же прогон, пока первый в очереди или идёт, — отказ: двойной щелчок покупал
     # выдачу дважды (аудит 10.10.2026). Под замком до фиксации (`runs/duplicates.py`).
     await refuse_duplicate(
@@ -142,12 +147,10 @@ async def start_run(
     # (`budget.ceiling_at_start`, аудит 10.10.2026).
     settings = await runs.create_settings(
         # Пороги — действующие, с экрана «Пороги»: умолчания конфига здесь
-        # молча отменяли сохранённую версию (аудит 10.10.2026).
-        await in_force(session),
-        geo_top_n=filters.GEO_TOP_N,
-        geo_min_share=filters.GEO_MIN_SHARE,
-        metrics_ttl_days=filters.METRICS_TTL_DAYS,
-        price_ttl_days=filters.PRICE_TTL_DAYS,
+        # молча отменяли сохранённую версию (аудит 10.10.2026). Правило региона
+        # и сроки — той же версии: окружение их тоже молча отменяло.
+        rules.thresholds,
+        **rules.columns(),
         units_cap=await effective_cap(session, asked=body.cap),
     )
     run = await runs.create_run(

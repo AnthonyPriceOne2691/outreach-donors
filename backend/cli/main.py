@@ -54,6 +54,7 @@ from backend.cli.prune import add_parser as add_prune_parser
 from backend.cli.prune import cmd_prune
 from backend.cli.review_queue import add_parser as add_review_queue_parser
 from backend.cli.review_queue import cmd_review_queue
+from backend.cli.run_judge import print_judge as _print_judge
 from backend.cli.sales_commands import COMMANDS as SALES_COMMANDS
 from backend.cli.sales_commands import FAILURES as SALES_FAILURES
 from backend.cli.sales_commands import KEPT_ON_INTERRUPT as SALES_KEPT
@@ -63,8 +64,7 @@ from backend.cli.senders_admin import cmd_sender_add, cmd_senders
 from backend.cli.sending_domains import add_parser as add_domains_parser
 from backend.cli.sending_domains import cmd_sending_domain
 from backend.config import ahrefs as ahrefs_cfg
-from backend.config import filters, storage
-from backend.config import judge as judge_cfg
+from backend.config import storage
 from backend.config.startup_checks import ConfigError, check_collect, check_storage
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
@@ -84,7 +84,7 @@ from backend.features.runs.planning import RunPlan, gather_candidates, plan_run
 from backend.features.runs.report import RunReport
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.spending import cap_left
-from backend.features.runs.thresholds import in_force
+from backend.features.runs.thresholds import rules_in_force
 from backend.features.serp.factory import UnknownProviderError, build_provider
 from backend.shared.logs import setup_logging
 
@@ -160,18 +160,21 @@ async def cmd_run(args: argparse.Namespace) -> int:
     """Прогон: смета, подтверждение, сбор."""
     check_storage()
     check_collect()
-    # Настройки должны позволять запрашивать страны с лимитом — иначе
-    # фильтр начнёт молча отсеивать подходящие домены.
-    assert_settings_allow_limited_fetch()
 
     keywords = _read_keywords(Path(args.keywords))
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    client = AhrefsClient()
-    provider = build_provider(client)
+    client: AhrefsClient | None = None
 
     try:
         async with factory() as session:
+            # Версия настроек — действующая, как у кнопки: пороги, правило региона
+            # и срок метрик (сверка ТЗ 11.10.2026). Несогласованное правило региона —
+            # отказ до первого запроса: фильтр иначе молча отсеивал бы годных (`geo.py`).
+            rules = await rules_in_force(session)
+            assert_settings_allow_limited_fetch(rules.geo.top_n, rules.geo.min_share)
+            client = AhrefsClient()
+            provider = build_provider(client)
             donors = DonorRepository(session)
             runs = RunRepository(session)
 
@@ -190,6 +193,7 @@ async def cmd_run(args: argparse.Namespace) -> int:
                 units_left=budget,
                 exclusions=Exclusions(session),
                 country_share=await runs.country_call_share(args.country),
+                metrics_ttl_days=rules.metrics_ttl_days,
             )
             _print_plan(plan, budget)
 
@@ -202,14 +206,8 @@ async def cmd_run(args: argparse.Namespace) -> int:
                 return EXIT_CANCELLED
 
             # Пороги — действующие, с экрана «Пороги», как у кнопки (аудит 10.10.2026).
-            thresholds = await in_force(session)
             settings = await runs.create_settings(
-                thresholds,
-                geo_top_n=filters.GEO_TOP_N,
-                geo_min_share=filters.GEO_MIN_SHARE,
-                metrics_ttl_days=filters.METRICS_TTL_DAYS,
-                price_ttl_days=filters.PRICE_TTL_DAYS,
-                units_cap=allowed,
+                rules.thresholds, **rules.columns(), units_cap=allowed
             )
             async with door_check() as doors:
                 deps = RunDeps(
@@ -226,7 +224,9 @@ async def cmd_run(args: argparse.Namespace) -> int:
                     RunRequest(
                         keywords=keywords,
                         country=args.country,
-                        thresholds=thresholds,
+                        thresholds=rules.thresholds,
+                        geo=rules.geo,
+                        metrics_ttl_days=rules.metrics_ttl_days,
                         settings_id=settings.id,
                         cap=allowed,
                         depth_pages=args.depth,
@@ -239,7 +239,8 @@ async def cmd_run(args: argparse.Namespace) -> int:
             await session.commit()
             _print_report(report)
     finally:
-        await client.aclose()
+        if client is not None:
+            await client.aclose()
         await engine.dispose()
 
     return EXIT_OK
@@ -299,35 +300,6 @@ def _print_review(report: RunReport) -> None:
     for decision, count in review.carried.items():
         print(f"  решено раньше ({decision}): {count}")
     print("  Решить — экран прогона: контакты и письма получат только принятые.")
-
-
-#: Кто решил — словами оператора, а не кодами модели.
-DECIDERS = {"rule": "правилом", "model": "моделью по выдаче", "arbiter": "арбитром"}
-
-
-def _print_judge(report: RunReport) -> None:
-    """Ветка судьи. Нет её вовсе при выключенном судье: ноль читался бы
-    как «судил и никого не нашёл», а это другая новость."""
-    judge = report.judge
-    if judge is None:
-        return
-    shadow = judge_cfg.MODE is judge_cfg.JudgeMode.SHADOW
-    mode = "наблюдение, не режет" if shadow else "режет"
-    cut = "отрезал бы" if shadow else "отрезал"
-    print(f"\nСудья площадки ({mode}):")
-    tokens = f"{judge.tokens:,}".replace(",", " ")
-    print(f"  судил {judge.judged}, из кэша {judge.from_cache}, токенов {tokens}")
-    print(f"  {cut} {judge.would_cut}, к человеку {judge.to_review}")
-    for who, count in sorted(judge.by_decider.items(), key=lambda kv: -kv[1]):
-        print(f"    решено {DECIDERS.get(who, who):<18} {count}")
-    if judge.from_index:
-        print(f"  главная закрыта, судил по индексу поиска: {judge.from_index}")
-    if judge.home_unreached:
-        print(f"  главная не открылась и в индексе нет: {judge.home_unreached} — решала выдача")
-    if judge.units_saved:
-        saved = "сэкономил бы" if shadow else "сэкономил"
-        units = f"{judge.units_saved:,}".replace(",", " ")
-        print(f"  юнитов {saved}: {units} (нижняя граница)")
 
 
 def build_parser() -> argparse.ArgumentParser:

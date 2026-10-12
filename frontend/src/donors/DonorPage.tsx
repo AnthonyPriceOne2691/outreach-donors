@@ -64,6 +64,7 @@ import { DonorAddresses } from './DonorAddresses';
 import { DonorPrice } from './DonorPrice';
 import { PriceRecheck } from './PriceRecheck';
 import { neighboursOf } from './place';
+import { reasonLabel } from './reasonText';
 
 const when = formatDate;
 
@@ -276,7 +277,7 @@ export function DonorPage() {
           <Standing donor={data} />
           {data.reject_reason !== null && (
             <Text size="sm" c="dimmed">
-              Причина отсева: {data.reject_reason}
+              {reasonLabel(data.status)}: {data.reject_reason}
             </Text>
           )}
           {/* Плитки — в шапке, а не отдельным рядом на полотне: в тёмной теме они

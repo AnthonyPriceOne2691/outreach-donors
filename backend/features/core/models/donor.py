@@ -47,7 +47,9 @@ class DonorModel(TimestampedMixin, ContactAttemptMixin, Base):
     status: Mapped[DonorStatus] = mapped_column(
         _enum(DonorStatus), nullable=False, default=DonorStatus.UNCHECKED
     )
-    # По какому именно порогу отсеян — требование отчёта прогона.
+    # По какому именно порогу отсеян — требование отчёта прогона; у «не проверен» —
+    # почему (с 11.10.2026): «страны не получены» добирает следующий прогон,
+    # «Ahrefs не знает домен» — нет. У подходящего — пусто.
     reject_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # --- Метрики Ahrefs ---

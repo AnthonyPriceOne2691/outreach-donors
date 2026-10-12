@@ -44,13 +44,14 @@ from backend.config.startup_checks import ConfigError
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import RunEstimate, estimate_run
 from backend.features.core.domain import DonorStatus
-from backend.features.donors.geo import assert_settings_allow_limited_fetch
+from backend.features.donors.geo import GeoRule
 from backend.features.donors.judging import JudgeSummary
 from backend.features.review.candidates import QueueReport
 from backend.features.runs.budget import CapExceededError, QuotaUnavailableError
 from backend.features.runs.exclusions import ExclusionReason
 from backend.features.runs.planning import Candidates, RunPlan
 from backend.features.runs.report import RunReport
+from backend.features.runs.thresholds import Rules, defaults
 from backend.features.serp.factory import UnknownProviderError
 from backend.features.serp.protocol import SerpResult
 from tests.conftest import TEST_DSN
@@ -903,14 +904,15 @@ class TestRunSettings:
     ) -> None:
         """Топ-5 при пороге доли 10%: страна с достаточной долей может не попасть
         в ответ с limit=5. Это ошибка настроек — «Не хватает настроек» и код 2
-        до первого запроса, а не трассировка."""
+        до первого запроса, а не трассировка.
 
-        # Умолчания проверки связаны с настройками при импорте, поэтому
-        # несогласованные значения передаются ей явно.
-        def inconsistent() -> None:
-            assert_settings_allow_limited_fetch(top_n=5, min_share=0.10)
+        Правило — действующей версии настроек, как у кнопки (сверка ТЗ 11.10.2026),
+        а не окружения: версия подменена, проверка — настоящая."""
 
-        monkeypatch.setattr("backend.cli.main.assert_settings_allow_limited_fetch", inconsistent)
+        async def inconsistent(_session: object) -> Rules:
+            return Rules(thresholds=defaults(), geo=GeoRule(top_n=5, min_share=0.10))
+
+        monkeypatch.setattr("backend.cli.main.rules_in_force", inconsistent)
 
         assert main(budget_run.argv) == 2
 

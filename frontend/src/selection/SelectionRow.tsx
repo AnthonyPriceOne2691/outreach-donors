@@ -27,6 +27,7 @@ import {
 } from '../api/labels';
 import type { HumanIntent, SelectionCard } from '../api/types';
 import { JudgeVerdict, SellerAnswer } from '../components/JudgeVerdict';
+import { reasonText } from '../donors/reasonText';
 import type { GoneRow } from './useDecisions';
 
 interface Props {
@@ -58,7 +59,7 @@ function Thresholds({ row }: { row: SelectionCard }) {
       </Badge>
       {row.reject_reason !== null && (
         <Text size="xs" c="dimmed" ta="center">
-          {row.reject_reason}
+          {reasonText(row.status, row.reject_reason)}
         </Text>
       )}
     </Stack>

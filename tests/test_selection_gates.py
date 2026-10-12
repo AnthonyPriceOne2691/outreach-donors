@@ -294,7 +294,7 @@ class _Freshness:
         self._fresh = fresh
         self.asked: list[str] = []
 
-    async def fresh_hosts(self, hosts: Sequence[str]) -> set[str]:
+    async def fresh_hosts(self, hosts: Sequence[str], *, ttl_days: int) -> set[str]:
         self.asked = list(hosts)
         return {h for h in hosts if h in self._fresh}
 

@@ -11,9 +11,10 @@ from pydantic import BaseModel, Field
 from backend.features.core.domain import UsageProvider
 from backend.features.core.models.run import RunSettingsModel
 from backend.features.crawl.selection_settings import InForce, Number
+from backend.features.donors.geo import COUNTRY_ROWS, GeoRule
 from backend.features.donors.verdict import Thresholds
 from backend.features.runs.spending import Article, Spending
-from backend.features.runs.thresholds import Consequences
+from backend.features.runs.thresholds import Consequences, Rules
 
 #: Допустимые пороги — целые от и до, включительно. Одно место на схему и
 #: экран: схема ниже отказывает по этим числам, а экран узнаёт их из ответа
@@ -38,13 +39,48 @@ def _within(name: str) -> Any:
     return Field(ge=low, le=high)
 
 
+#: Правило региона и срок метрик версии — целые от и до, как пороги (сверка ТЗ
+#: 11.10.2026: «все пороги — в настройках прогона»). Топ — не шире пяти стран, что
+#: спрашиваем у Ahrefs (`geo.COUNTRY_ROWS`); доля — процентами; срок — днями, до года.
+RULE_LIMITS: dict[str, tuple[int, int]] = {
+    "geo_top_n": (1, COUNTRY_ROWS),
+    "geo_min_share_percent": (1, 100),
+    "metrics_ttl_days": (1, 365),
+}
+
+
+def _rule(name: str) -> Any:
+    low, high = RULE_LIMITS[name]
+    return Field(default=None, ge=low, le=high)
+
+
 class ThresholdsBody(BaseModel):
-    """Пороги отбора — в границах `LIMITS`."""
+    """Пороги отбора — в границах `LIMITS`; правило региона и срок метрик — в `RULE_LIMITS`.
+
+    Правило и срок необязательны: пусто — как у действующей версии. Их согласованность
+    (`топ × доля ≥ 1`) проверяет сохранение — вместе с тем, что берётся из действующей.
+    """
 
     min_dr: int = _within("min_dr")
     min_org_traffic: int = _within("min_org_traffic")
     min_refdomains: int = _within("min_refdomains")
     min_keywords: int = _within("min_keywords")
+    geo_top_n: int | None = _rule("geo_top_n")
+    geo_min_share_percent: int | None = _rule("geo_min_share_percent")
+    metrics_ttl_days: int | None = _rule("metrics_ttl_days")
+
+    def with_rules_of(self, in_force: Rules) -> Rules:
+        """Версия целиком: эти пороги, правило и срок — присланные, иначе действующие."""
+        share, term = self.geo_min_share_percent, self.metrics_ttl_days
+        return Rules(
+            thresholds=self.to_thresholds(),
+            geo=GeoRule(
+                top_n=in_force.geo.top_n if self.geo_top_n is None else self.geo_top_n,
+                min_share=in_force.geo.min_share if share is None else share / 100,
+            ),
+            metrics_ttl_days=in_force.metrics_ttl_days if term is None else term,
+            price_ttl_days=in_force.price_ttl_days,
+        )
 
     def to_thresholds(self) -> Thresholds:
         return Thresholds(
@@ -55,8 +91,13 @@ class ThresholdsBody(BaseModel):
         )
 
 
+def share_percent(share: float) -> int:
+    """Доля версии процентами, как её правит экран: 0.2 → 20."""
+    return round(share * 100)
+
+
 class ThresholdsVersion(BaseModel):
-    """Версия порогов: что стояло, кто поставил и когда."""
+    """Версия порогов: что стояло, кто поставил и когда — с правилом региона и сроком."""
 
     version: int
     created_by: str | None
@@ -65,6 +106,9 @@ class ThresholdsVersion(BaseModel):
     min_org_traffic: int
     min_refdomains: int
     min_keywords: int
+    geo_top_n: int
+    geo_min_share_percent: int
+    metrics_ttl_days: int
 
     @classmethod
     def of(cls, settings: RunSettingsModel) -> ThresholdsVersion:
@@ -76,6 +120,9 @@ class ThresholdsVersion(BaseModel):
             min_org_traffic=settings.min_org_traffic,
             min_refdomains=settings.min_refdomains,
             min_keywords=settings.min_keywords,
+            geo_top_n=settings.geo_top_n,
+            geo_min_share_percent=share_percent(settings.geo_min_share),
+            metrics_ttl_days=settings.metrics_ttl_days,
         )
 
 
@@ -88,6 +135,10 @@ class Range(BaseModel):
 
 def _limits() -> dict[str, Range]:
     return {name: Range(min=low, max=high) for name, (low, high) in LIMITS.items()}
+
+
+def _rule_limits() -> dict[str, Range]:
+    return {name: Range(min=low, max=high) for name, (low, high) in RULE_LIMITS.items()}
 
 
 class ThresholdsView(BaseModel):
@@ -103,6 +154,8 @@ class ThresholdsView(BaseModel):
     defaults: ThresholdsBody
     history: list[ThresholdsVersion]
     limits: dict[str, Range] = Field(default_factory=_limits)
+    #: Границы правила региона и срока метрик — экран проверяет поля ими.
+    rule_limits: dict[str, Range] = Field(default_factory=_rule_limits)
 
 
 class ConsequencesView(BaseModel):

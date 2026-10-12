@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
+from backend.config import filters as filters_cfg
 from backend.features.ahrefs.units import COUNTRY_CALL_SHARE, RunEstimate, estimate_run
 from backend.features.core.domain import Stage
 from backend.features.donors.host import normalize_host
@@ -35,8 +36,11 @@ from backend.features.serp.protocol import SerpProvider, keyword_key
 class FreshnessSource(Protocol):
     """Кто знает, по каким доменам данные ещё годны."""
 
-    async def fresh_hosts(self, hosts: Sequence[str]) -> set[str]:
-        """Домены с непросроченными метриками — за них уже заплачено."""
+    async def fresh_hosts(self, hosts: Sequence[str], *, ttl_days: int) -> set[str]:
+        """Домены с непросроченными метриками — за них уже заплачено.
+
+        Срок — версии настроек прогона (`RunRequest.metrics_ttl_days`).
+        """
         ...
 
 
@@ -313,6 +317,7 @@ async def plan_run(
     exclusions: ExclusionSource | None = None,
     stage: Stage = Stage.DONORS,
     country_share: float = COUNTRY_CALL_SHARE,
+    metrics_ttl_days: int = filters_cfg.METRICS_TTL_DAYS,
 ) -> RunPlan:
     """Смета и проверка капа. Бросает `CapExceededError`, если не помещаемся.
 
@@ -325,6 +330,13 @@ async def plan_run(
     окончателен: спрашивать свежесть у домена, которому мы всё равно
     не напишем, незачем.
 
+    «Не проверен» без стран (`repository.countries_missing`) — в новых,
+    и смета считает его целиком, хотя прогон доберёт ему только страны:
+    смета — верхняя граница.
+
+    Срок годности метрик — версии настроек прогона: оба боевых вызова его
+    передают, умолчание конфига — уступка тестам.
+
     Источник исключений необязателен: без него остаётся прежнее
     поведение. Умолчание здесь — уступка вызывающим из тестов,
     а не режим работы; оба боевых вызова передают его всегда.
@@ -334,7 +346,7 @@ async def plan_run(
         excluded = await exclusions.excluded_hosts(candidates.hosts, stage=stage)
 
     wanted = [h for h in candidates.hosts if h not in excluded]
-    fresh = await freshness.fresh_hosts(wanted)
+    fresh = await freshness.fresh_hosts(wanted, ttl_days=metrics_ttl_days)
     new = [h for h in wanted if h not in fresh]
     estimate = estimate_run(len(new), country_share=country_share)
 

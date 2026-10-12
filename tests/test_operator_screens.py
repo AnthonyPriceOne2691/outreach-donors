@@ -435,7 +435,10 @@ class TestExport:
     def test_header_is_the_screen_order(self) -> None:
         body = to_csv([]).decode("utf-8-sig")
 
-        assert body.splitlines()[0].split(";")[:4] == ["домен", "вердикт", "причина отсева", "DR"]
+        header = body.splitlines()[0].split(";")
+        assert header[:4] == ["домен", "вердикт", "причина отсева", "DR"]
+        # Новая колонка — сразу за прежними: они не сдвигаются.
+        assert header[header.index("метрики от") + 1] == "почему не проверен"
 
     def test_excel_gets_what_it_needs(self) -> None:
         """Точка с запятой и метка порядка байтов — уступки Excel:

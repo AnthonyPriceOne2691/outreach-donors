@@ -24,12 +24,18 @@
 стороны, и «отсекут 340» без «пропустят 12» — половина ответа. Отдельной
 строкой — сколько среди отсечённых тех, у кого цена уже получена: за них
 заплачено не только юнитами, но и письмом.
+
+**Версия — это не только четыре порога** (сверка ТЗ 11.10.2026). Правило региона
+и срок годности метрик лежат в той же строке (`Rules`), и прогон судит ими, а не
+переменными окружения: до правки топ-N, доля и срок брались из конфига, а поле
+`metrics_ttl_days` версии только записывалось. Новая версия переносит их из
+действующей; конфиг — умолчания первой.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import select
@@ -39,6 +45,7 @@ from backend.config import filters as filters_cfg
 from backend.features.core.domain import DonorStatus
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.run import RunSettingsModel
+from backend.features.donors.geo import GeoRule
 from backend.features.donors.verdict import Metrics, Thresholds, check_metrics
 
 
@@ -153,15 +160,19 @@ class ThresholdsRepository:
         rows = await self._session.execute(select(DonorModel))
         return rows.scalars().all()
 
-    async def save(self, candidate: Thresholds, *, author: str) -> RunSettingsModel:
+    async def save(
+        self, candidate: Thresholds, *, author: str, rules: Rules | None = None
+    ) -> RunSettingsModel:
         """Завести новую версию порогов.
 
         Остальные настройки переносятся из текущей версии, а не берутся
         из конфига: конфиг — это умолчания для первой версии, и подмешать
-        их в десятую значило бы молча откатить чужую правку.
+        их в десятую значило бы молча откатить чужую правку. `rules` — правило
+        региона и сроки этой версии, если их правили на экране.
         """
         previous = await self.current()
         version = 1 if previous is None else previous.version + 1
+        carried = rules or (default_rules() if previous is None else rules_of(previous))
 
         settings = RunSettingsModel(
             version=version,
@@ -170,12 +181,7 @@ class ThresholdsRepository:
             min_org_traffic=candidate.min_org_traffic,
             min_refdomains=candidate.min_refdomains,
             min_keywords=candidate.min_keywords,
-            geo_top_n=previous.geo_top_n if previous else filters_cfg.GEO_TOP_N,
-            geo_min_share=previous.geo_min_share if previous else filters_cfg.GEO_MIN_SHARE,
-            metrics_ttl_days=(
-                previous.metrics_ttl_days if previous else filters_cfg.METRICS_TTL_DAYS
-            ),
-            price_ttl_days=previous.price_ttl_days if previous else filters_cfg.PRICE_TTL_DAYS,
+            **carried.columns(),
             units_cap=previous.units_cap if previous else 0,
         )
         self._session.add(settings)
@@ -204,6 +210,56 @@ def thresholds_of(settings: RunSettingsModel) -> Thresholds:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class Rules:
+    """Чем прогон судит домены — версия настроек целиком, кроме капа.
+
+    Пороги, правило региона и срок годности метрик — из одной строки `run_settings`:
+    прогон, поставленный с версией, судит ею, и по его `settings_id` вердикт
+    объясним целиком, а не только порогами. Срок цены едет рядом — его переносит
+    каждая новая версия.
+    """
+
+    thresholds: Thresholds
+    geo: GeoRule = field(default_factory=GeoRule)
+    metrics_ttl_days: int = filters_cfg.METRICS_TTL_DAYS
+    price_ttl_days: int = filters_cfg.PRICE_TTL_DAYS
+
+    def columns(self) -> dict[str, int | float]:
+        """Поля строки настроек, кроме порогов и капа, — для новой версии."""
+        return {
+            "geo_top_n": self.geo.top_n,
+            "geo_min_share": self.geo.min_share,
+            "metrics_ttl_days": self.metrics_ttl_days,
+            "price_ttl_days": self.price_ttl_days,
+        }
+
+
+def default_rules() -> Rules:
+    """Умолчания конфига — первая версия, пока настроек не заводили."""
+    return Rules(thresholds=defaults())
+
+
+def rules_of(settings: RunSettingsModel) -> Rules:
+    """Версия настроек целиком — та, с которой прогон поставлен."""
+    return Rules(
+        thresholds=thresholds_of(settings),
+        geo=GeoRule(top_n=settings.geo_top_n, min_share=settings.geo_min_share),
+        metrics_ttl_days=settings.metrics_ttl_days,
+        price_ttl_days=settings.price_ttl_days,
+    )
+
+
+async def rules_in_force(session: AsyncSession) -> Rules:
+    """Версия, действующая сейчас: последняя, а пока её нет — умолчания конфига.
+
+    Ею заводится прогон — с кнопки и из консоли: новая строка настроек прогона
+    переносит её целиком, а не берёт правило региона и срок из окружения.
+    """
+    current = await ThresholdsRepository(session).current()
+    return default_rules() if current is None else rules_of(current)
+
+
 async def in_force(session: AsyncSession) -> Thresholds:
     """Пороги, действующие сейчас: последняя версия, а пока её нет — умолчания конфига.
 
@@ -211,5 +267,4 @@ async def in_force(session: AsyncSession) -> Thresholds:
     «Пороги» до сбора не доходила; а строка настроек прогона — тоже версия, последняя, —
     после каждого запуска показывала на экране умолчания вместо сохранённого.
     """
-    current = await ThresholdsRepository(session).current()
-    return defaults() if current is None else thresholds_of(current)
+    return (await rules_in_force(session)).thresholds
