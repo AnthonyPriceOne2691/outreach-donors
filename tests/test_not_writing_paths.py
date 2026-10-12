@@ -22,6 +22,7 @@ from backend.features.core.models.outreach import MessageModel
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.crawl import targets
 from backend.features.crawl.denylist import MAJOR_MEDIA
+from backend.features.crawl.niche import NICHE
 from backend.features.donors.standing import waiting
 from backend.features.donors.verdict import Thresholds, big_site_reason, check_dr
 from backend.features.letters import batch
@@ -30,7 +31,7 @@ from backend.features.letters.followups import send_due
 from backend.features.letters.niche_recipients import NicheRecipients
 from backend.features.letters.recipients import Recipients
 from backend.features.letters.repository import LetterRepository
-from backend.features.letters.sending import NotWritingError, Sending, StalePriceError
+from backend.features.letters.sending import NotWritingError, Sending
 from backend.features.letters.transport import NullTransport
 from backend.features.review.candidates import Decision, RunReview
 from backend.features.runs.exclusions import (
@@ -56,8 +57,9 @@ from tests.test_letters_advertisers import (
     sent_offer,
 )
 from tests.test_letters_queue import _build
+from tests.test_niche_letters import BOOKIE, _queued_niche_offer
+from tests.test_niche_letters import DONOR as NICHE_EXAMPLE
 from tests.test_niche_letters import _donor as niche_donor
-from tests.test_niche_letters import _queued_niche_offer
 
 NOW = datetime(2026, 10, 12, 12, 0, tzinfo=UTC)
 T = Thresholds(min_dr=20, min_org_traffic=500, min_refdomains=100, min_keywords=300)
@@ -305,18 +307,39 @@ class TestNicheExample:
 
         assert examples == ["blog.example.test"]
 
-    async def test_a_letter_built_before_the_rule_does_not_go(
+    async def test_a_letter_built_before_the_rule_is_stopped_with_its_reason(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
+        """Письмо, собранное до правила с таким примером, не уходит и в очереди не ждёт:
+        ни перезапрос цены, ни решение человека пример в предложение не вернут. Как
+        площадка оффера по ссылке. До 12.10.2026 отказ говорил про цену, и письмо стояло
+        в очереди, советуя её перезапросить."""
         letter = await _queued_niche_offer(session)
         (await niche_donor(session)).dr = 88
         await session.flush()
 
-        with pytest.raises(StalePriceError, match="письмо не называет"):
+        with pytest.raises(NotWritingError) as refused:
             await Sending(session, NullTransport()).send(letter.id)
 
         await session.refresh(letter)
-        assert letter.status is MessageStatus.QUEUED
+        assert (letter.status, letter.failure_reason) == (MessageStatus.STOPPED, str(refused.value))
+        assert str(refused.value) == (
+            f"Письмо №{letter.id} остановлено: пример площадки {NICHE_EXAMPLE} — из «кому не "
+            f"пишем» ({big_site_reason(80)}). Бизнесу ниши {BOOKIE} её не предлагаем"
+        )
+
+    async def test_the_batch_names_it_and_the_queue_lets_it_go(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        await _queued_niche_offer(session)
+        (await niche_donor(session)).dr = 88
+        await session.flush()
+
+        report = await batch.send_queue(
+            session, NullTransport(), stage=Stage.ADVERTISERS, audience=NICHE
+        )
+
+        assert (report.sent, report.refused, report.left) == (0, {"кому не пишем": 1}, 0)
 
 
 class TestTheQueueCounter:

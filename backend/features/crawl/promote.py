@@ -44,18 +44,17 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy import ColumnElement, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
-from sqlalchemy.orm.util import AliasedClass
 
-from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
+from backend.features.crawl.advertiser_rules import writes_to
 from backend.features.crawl.niche import NICHE
 from backend.features.crawl.offer_stop import stop_offers
 from backend.features.crawl.suppliers import supplier_hosts
@@ -108,23 +107,6 @@ class Standing:
     with_address: int
 
 
-def eligible() -> ColumnElement[bool]:
-    """Кого переводим: «куплено» или «пишем» человека — и не «не пишем».
-
-    Решение человека сильнее вердикта скоринга: отклонённый не идёт
-    дальше, сколько бы баллов ему ни насчитали.
-    """
-    return eligible_of(CandidateModel)
-
-
-def eligible_of(
-    candidate: type[CandidateModel] | AliasedClass[CandidateModel],
-) -> ColumnElement[bool]:
-    """То же условие у псевдонима — для подзапроса «у домена есть подходящий»."""
-    chosen = (candidate.verdict == Verdict.BOUGHT) | candidate.confirmed.is_(True)
-    return chosen & candidate.confirmed.is_not(False)
-
-
 async def standing(session: AsyncSession) -> Standing:
     """Числа для экрана — тем же условием, что и сам перевод."""
     known = (
@@ -134,8 +116,8 @@ async def standing(session: AsyncSession) -> Standing:
         .exists()
     )
     roots = func.count(func.distinct(CandidateModel.target_root))
-    ready = await session.scalar(select(roots).where(eligible()))
-    fresh = await session.scalar(select(roots).where(eligible(), ~known))
+    ready = await session.scalar(select(roots).where(writes_to()))
+    fresh = await session.scalar(select(roots).where(writes_to(), ~known))
     addressed = select(ContactModel.id).where(ContactModel.domain_id == AdvertiserModel.domain_id)
     total = await session.scalar(select(func.count(AdvertiserModel.id)))
     with_address = await session.scalar(
@@ -201,7 +183,7 @@ async def promote(session: AsyncSession) -> PromotionReport:
     """Перевести подходящих кандидатов в рекламодателей."""
     report = PromotionReport()
     report.removed += await apply_rejections(session)
-    rows = list((await session.execute(select(CandidateModel).where(eligible()))).scalars().all())
+    rows = list((await session.execute(select(CandidateModel).where(writes_to()))).scalars().all())
     report.considered = len({row.target_root for row in rows})
     if not rows:
         return report
@@ -325,7 +307,7 @@ async def withdraw(session: AsyncSession, rejected: CandidateModel) -> Withdrawn
         for row in (
             await session.scalars(
                 select(CandidateModel).where(
-                    CandidateModel.target_root == rejected.target_root, eligible()
+                    CandidateModel.target_root == rejected.target_root, writes_to()
                 )
             )
         ).all()
@@ -381,7 +363,7 @@ async def apply_rejections(session: AsyncSession) -> int:
     other = aliased(CandidateModel)
     still_chosen = (
         select(other.id)
-        .where(other.target_root == CandidateModel.target_root, eligible_of(other))
+        .where(other.target_root == CandidateModel.target_root, writes_to(other))
         .exists()
     )
     pending = await session.scalars(

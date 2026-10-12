@@ -19,8 +19,11 @@
 «ушло» — платформа приняла хоть одно письмо Этапа 2 (`OfferFlags.gone`); доля — от
 тех, что с адресом.
 
-**Донор-поставщик — помечен и в сумму не идёт.** Его рекламодателей не трогаем
-(`SupplierDonorModel`): перевод их отсеивает, и порог ему не задача.
+**Донор-поставщик — помечен и в сумму не идёт.** Его рекламодателей не трогаем:
+перевод их отсеивает, и порог ему не задача. Поставщик — правилом перевода
+(`crawl/suppliers.supplier_hosts`): запись стоп-листа с причиной «поставщик» или прежний
+список консоли. До 12.10.2026 приёмка читала только прежний список, и поставщик,
+внесённый экраном «Стоп-лист» или `suppliers-import`, в ней шёл обычным донором.
 
 **Все доноры вместе — справочно, по разным доменам.** Критерий ТЗ — по донору; сумма
 отвечает на оговорку самого ТЗ («Арифметика», п. 6: сто рекламодателей с одного
@@ -31,7 +34,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import ColumnElement, Select, Subquery, and_, func, select
@@ -40,11 +42,12 @@ from sqlalchemy.orm import aliased
 
 from backend.features.contacts.repository import has_address
 from backend.features.core.models.advertiser import CandidateModel
-from backend.features.core.models.advertisers import AdvertiserModel, SupplierDonorModel
+from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.crawl.advertiser_rules import in_work, writes_to
 from backend.features.crawl.offer_state import OfferFlags
+from backend.features.crawl.suppliers import supplier_hosts
 
 #: Порог ТЗ: рекламодателей с контактами у донора.
 TARGET_WITH_ADDRESS = 100
@@ -136,16 +139,6 @@ def _tally(numbers: Sequence[Any]) -> Tally:
     return Tally(found=found, promoted=promoted, with_address=with_address, sent=sent)
 
 
-async def _suppliers(session: AsyncSession) -> set[str]:
-    """Доноры-поставщики, чья запись ещё держит, — именами в нижнем регистре."""
-    hosts = await session.scalars(
-        select(func.lower(SupplierDonorModel.host)).where(
-            SupplierDonorModel.in_force(datetime.now(UTC))
-        )
-    )
-    return set(hosts.all())
-
-
 async def acceptance(session: AsyncSession, *, limit: int) -> Acceptance:
     """Приёмка по каждому обойдённому донору (не больше `limit`) и всех вместе.
 
@@ -160,7 +153,7 @@ async def acceptance(session: AsyncSession, *, limit: int) -> Acceptance:
         ).group_by(rows.c.donor)
     )
     by_host = {str(line[0]): _tally(line[1:]) for line in per_donor.all()}
-    suppliers = await _suppliers(session)
+    suppliers = await supplier_hosts(session)
     crawled = (await session.scalars(select(CrawlRunModel.host).distinct())).all()
     hosts = sorted(
         set(crawled) | set(by_host),

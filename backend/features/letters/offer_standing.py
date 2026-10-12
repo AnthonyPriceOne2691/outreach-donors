@@ -62,9 +62,10 @@
 (`advertiser_niche.txt`): принятого донора прогона, где бизнес нашёлся, со свежей ценой
 и не из «кому не пишем» — правилом сборки (`NicheRecipients.fresh_examples`). Своего
 примера письмо не помнит, и годится любой такой донор, названный в тексте: появился
-донор сильнее — письмо со своим примером уходит, а пример, потерявший цену, решение
-«принят» или попавший в «кому не пишем», письмо держит. Решение человека о самом
-бизнесе держит `niche.decide`.
+донор сильнее — письмо со своим примером уходит, а пример, потерявший цену или решение
+«принят», письмо держит. Пример из «кому не пишем» письмо останавливает с причиной, как
+площадку оффера по ссылке: ждать ему нечего. Решение человека о самом бизнесе держит
+`niche.decide`.
 """
 
 from __future__ import annotations
@@ -85,12 +86,12 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.models.run import RunModel
+from backend.features.crawl.advertiser_rules import writes_to
 from backend.features.crawl.niche import NICHE
 from backend.features.crawl.offer_stop import out_of_queue
-from backend.features.crawl.promote import eligible_of
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.donor_standing import stop_for_good
-from backend.features.letters.niche_recipients import NicheRecipients
+from backend.features.letters.niche_recipients import NicheRecipients, run_hosts
 from backend.features.runs.exclusions import not_writing_reason
 
 
@@ -152,7 +153,7 @@ async def offer_refusal(
         select(CampaignModel.audience).where(CampaignModel.id == message.campaign_id)
     )
     if audience == NICHE:
-        return await _niche_price(session, message, host=host, now=now)
+        return await _niche_example(session, message, host=host, now=now)
     return await _link_offer(
         session,
         message,
@@ -209,11 +210,16 @@ async def _link_offer(
     )
 
 
-async def _niche_price(
+async def _niche_example(
     session: AsyncSession, message: MessageModel, *, host: str, now: datetime
 ) -> OfferRefusal | None:
     """Пример площадки в первом письме бизнесу ниши — ещё принятый донор со свежей ценой
-    и не из «кому не пишем» (`NicheRecipients.fresh_examples`)."""
+    и не из «кому не пишем» (`NicheRecipients.fresh_examples`).
+
+    Пример из «кому не пишем» — своя причина, и письмо останавливается, как оффер по
+    ссылке на такой площадке: ни перезапрос цены, ни решение человека пример в
+    предложение не вернут. До 12.10.2026 отказ говорил про цену, и письмо стояло
+    в очереди, советуя перезапросить цену."""
     if message.step != FIRST_STEP:
         return None
     run = await session.scalar(
@@ -221,9 +227,18 @@ async def _niche_price(
         .join(AdvertiserModel, AdvertiserModel.found_run_id == RunModel.id)
         .where(AdvertiserModel.domain_id == message.domain_id)
     )
+    body = message.body or ""
     examples = [] if run is None else await NicheRecipients(session).fresh_examples(run, now)
-    if any(_named(example, message.body or "") for example in examples):
+    if any(_named(example, body) for example in examples):
         return None
+    for example in [] if run is None else run_hosts(run):
+        off = await _not_writing(session, example) if _named(example, body) else None
+        if off is not None:
+            return OfferRefusal(
+                f"Письмо №{message.id} остановлено: пример площадки {example} — из «кому не "
+                f"пишем» ({off}). Бизнесу ниши {host} её не предлагаем",
+                OfferRefused.NOT_WRITING,
+            )
     return OfferRefusal(
         f"Цена примера площадки в письме №{message.id} бизнесу ниши {host} устарела или "
         "снята: принятого донора его прогона со свежей ценой письмо не называет. Письмо "
@@ -263,7 +278,7 @@ async def _only_rejected(session: AsyncSession, host: str) -> bool:
         return False
     other = aliased(CandidateModel)
     chosen = await session.scalar(
-        select(other.id).where(other.target_root == host, eligible_of(other)).limit(1)
+        select(other.id).where(other.target_root == host, writes_to(other)).limit(1)
     )
     return chosen is None
 
