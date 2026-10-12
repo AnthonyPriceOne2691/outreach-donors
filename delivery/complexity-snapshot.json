@@ -642,9 +642,9 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 266,
+      "lines": 269,
       "complexity": 4,
-      "worst": "_own_account:203"
+      "worst": "_own_account:206"
     },
     "backend/config/sales.py": {
       "lines": 230,
@@ -967,7 +967,7 @@
       "worst": "—"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 391,
+      "lines": 392,
       "complexity": 2,
       "worst": "_enum:42"
     },
@@ -1307,9 +1307,9 @@
       "worst": "next_address_note:100"
     },
     "backend/features/letters/batch.py": {
-      "lines": 179,
+      "lines": 182,
       "complexity": 4,
-      "worst": "why:109"
+      "worst": "why:112"
     },
     "backend/features/letters/building.py": {
       "lines": 474,
@@ -1376,6 +1376,11 @@
       "complexity": 1,
       "worst": "advertiser_addresses:20"
     },
+    "backend/features/letters/offer_standing.py": {
+      "lines": 110,
+      "complexity": 7,
+      "worst": "offer_refusal:61"
+    },
     "backend/features/letters/optout.py": {
       "lines": 88,
       "complexity": 3,
@@ -1432,9 +1437,9 @@
       "worst": "_post:168"
     },
     "backend/features/letters/sending.py": {
-      "lines": 500,
+      "lines": 496,
       "complexity": 5,
-      "worst": "_check_review:319"
+      "worst": "_check_review:323"
     },
     "backend/features/letters/settle.py": {
       "lines": 154,

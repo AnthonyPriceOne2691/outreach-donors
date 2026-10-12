@@ -48,7 +48,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core import stages, window
 from backend.features.core.domain import MessageStatus, Stage
-from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
@@ -56,6 +55,7 @@ from backend.features.core.models.outreach import CampaignModel, MessageModel, S
 from backend.features.donors.standing import decided_in
 from backend.features.letters import compose, identity, mailbox, reply_to, settle, unsubscribe
 from backend.features.letters.chain import ANSWER_STEP
+from backend.features.letters.offer_standing import offer_refusal
 from backend.features.letters.outgoing_store import Files, OutgoingFiles
 from backend.features.letters.transport import Mail, Outgoing, Transport, TransportError, of_stage
 
@@ -82,6 +82,10 @@ class RejectedDonorError(SuppressedError):
 class RemovedAdvertiserError(SuppressedError):
     """Рекламодателя сняли после сборки письма: стоп-лист поставщиков или
     общий отсеял его задним числом. Для цепочки — как стоп-лист."""
+
+
+class StalePriceError(SendError):
+    """Цена донора, под чью ссылку написан оффер, устарела или снята после сборки."""
 
 
 class UndecidedDonorError(SendError):
@@ -351,21 +355,13 @@ class Sending:
         )
 
     async def _check_advertiser(self, target: _Target) -> None:
-        """Рекламодатель ещё рекламодатель.
-
-        Перевод кандидатов снимает тех, кого стоп-лист поставщиков или общий
-        отсеял задним числом: донор стал партнёром — и его рекламодатели
-        теперь чужие клиенты. Письмо, собранное до этого, уйти не должно,
-        а добивка — тем более: для цепочки это как стоп-лист.
-        """
-        still = await self._session.scalar(
-            select(AdvertiserModel.id).where(AdvertiserModel.domain_id == target.message.domain_id)
+        """Рекламодатель не снят, а у оффера свежая цена донора (`offer_standing.py`)."""
+        refused = await offer_refusal(
+            self._session, target.message, host=target.host, now=self._moment()
         )
-        if still is None:
-            raise RemovedAdvertiserError(
-                f"Рекламодателя {target.host} сняли после сборки письма №{target.message.id}: "
-                "его отсеял стоп-лист поставщиков или общий. Письмо стоит убрать из очереди"
-            )
+        if refused is not None:
+            kind = RemovedAdvertiserError if refused.removed else StalePriceError
+            raise kind(refused.words)
 
     async def _check_window(self, target: _Target) -> None:
         """Окно получателя — если его задаёт политика этапа (`core/window.py`). Ответ

@@ -37,7 +37,8 @@ from backend.features.core.models.outreach import (
     SenderModel,
     ThreadModel,
 )
-from backend.features.letters import reply_to
+from backend.features.donors.price import put_answer
+from backend.features.letters import batch, reply_to
 from backend.features.letters.building import BuildRequest, LetterScopeError, QueueBuilder
 from backend.features.letters.followups import send_due
 from backend.features.letters.repository import LetterRepository
@@ -46,10 +47,11 @@ from backend.features.letters.sending import (
     NoSenderError,
     RemovedAdvertiserError,
     Sending,
+    StalePriceError,
 )
 from backend.features.letters.template import TemplateError
 from backend.features.letters.transport import NullTransport
-from backend.features.replies.extract import Extracted
+from backend.features.replies.extract import PLACEMENT_DECLINES, Extracted
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.outcome import ADVERTISER_LEAD
 from backend.features.replies.pipeline import Inbox, Parser
@@ -355,15 +357,23 @@ class TestSendingAnOffer:
             await Sending(session, NullTransport(), now=NOW).send(letter.id)
 
 
-async def sent_offer(
+async def queued_offer(
     session: AsyncSession, *, followup_days: list[int] | None = None
 ) -> MessageModel:
-    """Оффер, ушедший по-настоящему: с ящиком Этапа 2, тредом и сроком добивки."""
+    """Оффер в очереди под ссылку донора со свежей ценой; ящик Этапа 2 есть."""
     await priced_donor(session)
     await make_advertiser(session, "brand.example.test")
     await build_offers(session, followup_days=tuple(followup_days or ()))
     (letter,) = await offers(session)
     await stage_two_sender(session)
+    return letter
+
+
+async def sent_offer(
+    session: AsyncSession, *, followup_days: list[int] | None = None
+) -> MessageModel:
+    """Оффер, ушедший по-настоящему: с ящиком Этапа 2, тредом и сроком добивки."""
+    letter = await queued_offer(session, followup_days=followup_days)
     await Sending(session, NullTransport(), now=NOW).send(letter.id)
     await session.refresh(letter)
     return letter
@@ -405,6 +415,113 @@ class TestTheOfferChain:
 
         assert report.stopped == 1
         assert report.sent == 0
+
+    async def test_reminder_does_not_wait_for_the_price(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Цена проверяется у самого оффера: добивка цену заново не обещает и донора
+        не называет, а отказ ей оборвал бы цепочку (сверка ТЗ 12.10.2026)."""
+        await sent_offer(session, followup_days=[1, 2])
+        donor = await donor_of_the_link(session)
+        donor.last_price, donor.last_price_at = None, None
+        await session.flush()
+
+        report = await send_due(
+            session, transport=NullTransport(), limit=5, now=NOW + timedelta(days=2)
+        )
+
+        assert report.sent == 1
+
+
+async def donor_of_the_link(session: AsyncSession) -> DonorModel:
+    """Донор, под чью ссылку написан оффер."""
+    donor = await session.scalar(
+        select(DonorModel)
+        .join(DomainModel, DomainModel.id == DonorModel.domain_id)
+        .where(DomainModel.host == DONOR)
+    )
+    assert donor is not None
+    return donor
+
+
+class TestTheOfferNeedsAFreshPrice:
+    """Сверка ТЗ 12.10.2026: оффер «мы дешевле» держится на свежей цене донора — не старше
+    150 дней. Сборка берёт только свежую, отправка перепроверяет: пока письмо ждало
+    в очереди, донор мог ответить «не продаём», а цена — устареть."""
+
+    async def test_donor_who_stopped_selling_holds_the_offer(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """«Не продаём» снимает цену (решение 11.10.2026) — и оффер под ссылку этого донора
+        не уходит: ждёт в очереди, а отказ говорит, что с ним делать."""
+        letter = await queued_offer(session)
+        donor = await donor_of_the_link(session)
+        domain = await session.get(DomainModel, donor.domain_id)
+        assert domain is not None
+        put_answer(domain, donor, answer=PLACEMENT_DECLINES, reply_id=None, at=datetime.now(UTC))
+        await session.flush()
+
+        with pytest.raises(
+            StalePriceError, match="устарела или снята — цены у донора нет"
+        ) as refused:
+            await Sending(session, NullTransport(), now=NOW).send(letter.id)
+
+        assert DONOR in str(refused.value)
+        assert "убрать или перезапросить цену" in str(refused.value)
+        await session.refresh(letter)
+        assert letter.status is MessageStatus.QUEUED
+
+    async def test_stale_price_holds_the_offer_until_it_is_asked_again(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        letter = await queued_offer(session)
+        donor = await donor_of_the_link(session)
+        donor.last_price_at = NOW - timedelta(days=151)
+        await session.flush()
+        postman = Sending(session, NullTransport(), now=NOW)
+
+        with pytest.raises(StalePriceError, match=r"названа 23\.04\.2026"):
+            await postman.send(letter.id)
+
+        donor.last_price_at = NOW - timedelta(days=1)  # перезапросили цену
+        await session.flush()
+        assert (await postman.send(letter.id)).sender_email == "max@offers.test"
+
+    @pytest.mark.parametrize(
+        ("age", "goes"),
+        [(timedelta(days=150), True), (timedelta(days=150, seconds=1), False)],
+    )
+    async def test_the_border_is_the_selections(
+        self, session: AsyncSession, filled_legal: None, age: timedelta, goes: bool
+    ) -> None:
+        """Срок тот же, что у сборки (`Recipients._fresh_price`): цена ровно 150-дневной
+        давности ещё свежая — письмо, которое сборка собрала бы, отправка не держит."""
+        letter = await queued_offer(session)
+        (await donor_of_the_link(session)).last_price_at = NOW - age
+        await session.flush()
+        postman = Sending(session, NullTransport(), now=NOW)
+
+        if goes:
+            await postman.send(letter.id)
+        else:
+            with pytest.raises(StalePriceError):
+                await postman.send(letter.id)
+
+    async def test_the_batch_names_it_and_goes_on(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Пачка на таком письме не встаёт: отказ считается словами, письмо ждёт в очереди."""
+        await queued_offer(session)
+        (await donor_of_the_link(session)).last_price_at = datetime.now(UTC) - timedelta(days=200)
+        await session.flush()
+
+        report = await batch.send_queue(session, NullTransport(), stage=Stage.ADVERTISERS)
+
+        assert (report.sent, report.refused, report.left) == (
+            0,
+            {"цена донора устарела или снята": 1},
+            1,
+        )
 
 
 class FakeExtractor:

@@ -59,8 +59,11 @@ class _Outreach(DomainSettings):
     followup_per_sender_per_hour: int = Field(
         default=10, validation_alias="OUTREACH_FOLLOWUP_PER_SENDER_PER_HOUR"
     )
-    # Добивки: дни от первого письма. Стоп при любом ответе или отписке.
-    followup_days: str = Field(default="7,14", validation_alias="OUTREACH_FOLLOWUP_DAYS")
+    # Добивки: дни от ПРЕДЫДУЩЕГО письма, по шагу (`letters/chain.py`). «7,7» — на 7-й
+    # и 14-й день от первого письма, как в ТЗ. Прежнее «7,14» стояло с подписью
+    # «дни от первого письма», а счёт шёл от предыдущего: вторая добивка уходила на 21-й
+    # день (сверка ТЗ 12.10.2026). Стоп при любом ответе или отписке.
+    followup_days: str = Field(default="7,7", validation_alias="OUTREACH_FOLLOWUP_DAYS")
     # Доля отказов, после которой отправитель уходит на паузу, и минимум
     # отправок, до которого доля не считается (иначе 2 отказа из 3 роняют домен).
     bounce_pause_threshold: float = Field(

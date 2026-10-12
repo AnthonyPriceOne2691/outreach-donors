@@ -1,5 +1,6 @@
-# Первая добивка бизнесу ниши (аудитория `niche`). ТЕКСТ ВЫДУМАН — боевой
-# приходит со стороны задачи. Про «ваше размещение» здесь ни слова: его мы
+# Первая добивка бизнесу ниши (аудитория `niche`). Боевой текст: предложен
+# по ТЗ, утверждён Anthony 12.10.2026; тон и длина — как у напоминания
+# донору (followup_1.txt). Про «ваше размещение» здесь ни слова: его мы
 # не видели (см. advertiser_niche.txt).
 
 subject: Following up on sponsored articles
@@ -8,7 +9,7 @@ subject: Following up on sponsored articles
 Hi again,
 
 [reminder] fixed
-Just following up on my note from last week about sponsored articles on sites in your field. If promoting your products that way is of interest, a one-line reply with what you would like to promote is enough for me to come back with suitable sites and prices.
+Just following up on my note from last week about sponsored articles on sites in your field. If promoting your products that way is of interest, a one-line reply with what you'd like to promote is enough for me to come back with suitable sites and what a placement on each would cost — usually less than booking it directly.
 
 [signature] fixed
 Best regards,

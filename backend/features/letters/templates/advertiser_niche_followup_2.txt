@@ -1,5 +1,7 @@
-# Последняя добивка бизнесу ниши (аудитория `niche`). ТЕКСТ ВЫДУМАН —
-# боевой приходит со стороны задачи.
+# Последняя добивка бизнесу ниши (аудитория `niche`). Боевой текст: предложен
+# по ТЗ, утверждён Anthony 12.10.2026; тон и длина — как у последнего
+# напоминания донору (followup_2.txt). Письмо прямо говорит, что оно
+# последнее: бизнес нас не звал, и обещание замолчать бережёт домены.
 
 subject: Last note on sponsored articles
 
@@ -7,7 +9,7 @@ subject: Last note on sponsored articles
 Hi,
 
 [reminder] fixed
-This is my last note on sponsored articles in your field, so I will not keep filling your inbox. If it becomes relevant later, just reply to this thread and I will pick it up from here.
+This is my last note on sponsored articles in your field — I won't write again after this one. If it becomes relevant later, just reply to this thread and I'll pick it up from there. If not, no reply is needed, and thank you for your time.
 
 [signature] fixed
 Best regards,

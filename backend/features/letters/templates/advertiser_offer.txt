@@ -1,9 +1,14 @@
 # Оффер рекламодателю. Этап 2. Язык английский — по той же причине,
 # что и в письме донору: язык берётся от ГЕО прогона, не от языка сайта.
 #
-# ТЕКСТ ВЫДУМАН. Боевой приходит со стороны задачи — как и текст письма
-# донору. Здесь важен не текст, а набор зон и границы: что переписывает
-# модель, чего она не видит и чего в письме быть не должно.
+# Боевой текст: предложен по ТЗ, утверждён Anthony 12.10.2026. Смысл из ТЗ:
+# «разместиться можно дешевле, приходите к нам», письмо — под найденную
+# ссылку. Тон и длина — как у письма донору (price_request.txt, боевой
+# текст 23.09.2026): от первого лица, коротко, один вопрос в конце.
+#
+# Это умолчание: при создании рассылки текст правится на экране, и
+# рассылка хранит свой вариант. Правка там проходит тот же разбор, что
+# и этот файл, — набор зон, подпись, ссылка дословно, достижимость коридора.
 #
 # ЧЕГО В ЭТОМ ПИСЬМЕ БЫТЬ НЕ ДОЛЖНО — и это не стиль, а требование:
 #
@@ -14,9 +19,13 @@
 #    ответить.
 # 2. **Метрики Ahrefs не упоминаются.** Правило самого Ahrefs; нарушение
 #    бьёт не по письму, а по ключу, на котором держится весь сбор базы.
+#    Слов про посещаемость и ссылочный профиль нет вовсе — их ловят
+#    тесты шаблона.
 # 3. **Про донора говорим только то, что видели сами:** страницу и анкор,
 #    найденные обходом. Всё остальное про площадку — догадка, а догадка
-#    в письме читается как враньё.
+#    в письме читается как враньё. Поэтому «мы дешевле» обосновано тем,
+#    как покупаем мы (агентские цены), а не тем, сколько заплатил адресат:
+#    этого мы не знаем.
 #
 # Зона `rewrite` уходит в модель, зона `fixed` в модель не уходит вовсе:
 # просьбу «не трогай» модель исполняет почти всегда, и «почти» означает
@@ -50,19 +59,19 @@
 subject: Your placement on {{donor_host}}
 
 [greeting] rewrite
-Hello there,
+Hi,
 
 [opening] rewrite
-I arrange sponsored articles on publisher sites for a living, so a good part of my week goes into looking at who places links where. Your company came up while I was going through one of the sites I work with.
+I arrange sponsored articles on publisher sites for a living, so a good part of my week goes into seeing which brands advertise where. Your company came up while I was going through recent articles on sites in your field, and one of your placements caught my eye.
 
 [offer] fixed
-It was your link on {{donor_host}}, anchored "{{anchor}}", on this page: {{page_url}}. {{donor_audience}}I buy placements on sites like that one at agency rates, below what a publisher quotes to a direct advertiser, so I can most likely get you the same spot for less.
+It was your link on {{donor_host}}, anchored "{{anchor}}", on this page: {{page_url}}. {{donor_audience}}I buy placements on sites like this one at agency rates, below what publishers usually quote brands directly, so your next placement there or on a similar site would most likely cost you less through us.
 
 [ask] rewrite
-Would it make sense to compare notes? If you let me know roughly how often you place articles and on which sites, I will come back with what the same placements would cost through us, and you can judge for yourself whether switching is worth it.
+Would a quick comparison be useful? If you tell me roughly how often you place articles like this one and on which sites, I'll come back with what the same placements would cost through us, and you can judge for yourself whether switching is worth it.
 
 [terms] fixed
-No commitment and no retainer: you approve each placement before it is bought, you get the live URL, and you pay per article. If we cannot beat your current price, I will tell you so.
+No commitment and no retainer: you approve every site and article before anything is booked, get the live URL once it's published, and pay per article. If we can't beat what you pay now, I'll tell you so.
 
 [signature] fixed
 Best regards,
