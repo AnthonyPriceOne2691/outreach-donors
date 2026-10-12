@@ -39,12 +39,13 @@ from dataclasses import dataclass, fields
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import ColumnElement, Subquery, and_, exists, func, select
+from sqlalchemy import ColumnElement, SQLColumnExpression, Subquery, and_, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import GONE_STATUSES, MessageStatus
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.letters.attempts import ANSWERS
+from backend.features.letters.chain import MAX_STEPS
 from backend.features.sales.handoff import handed_off_rule
 from backend.features.sales.models import (
     SalesHypothesisModel,
@@ -75,8 +76,8 @@ class Period:
     since: datetime | None = None
     until: datetime | None = None
 
-    def holds(self, moment: ColumnElement[datetime]) -> ColumnElement[bool]:
-        """Момент есть и лежит в периоде."""
+    def holds(self, moment: SQLColumnExpression[datetime]) -> ColumnElement[bool]:
+        """Момент есть и лежит в периоде: колонка пути лида или колонка таблицы."""
         conditions: list[ColumnElement[bool]] = [moment.is_not(None)]
         if self.since is not None:
             conditions.append(moment >= self.since)
@@ -105,25 +106,30 @@ class Funnel:
         )
 
 
-def journey() -> Subquery:
-    """Путь лида одной строкой: диалог, гипотеза лида, когда ушло первое письмо цепочки,
-    когда письмо встало в очередь, дошло ли и вернулось ли хоть одно.
-
-    Время ухода — `sent_at`, а без него — время записи: ушедшее письмо без отметки времени
-    не должно выпадать из периода молча."""
-    letter = and_(
+def _letter() -> ColumnElement[bool]:
+    """Письмо цепочки диалога продаж: первое и добивки, без наших ответов в переписке."""
+    return and_(
         MessageModel.thread_id == SalesThreadModel.thread_id,
         MessageModel.answers_reply_id.is_(None),
     )
+
+
+def _gone_at() -> ColumnElement[datetime]:
+    """Время ухода письма — `sent_at`, а без него — время записи: ушедшее письмо без отметки
+    времени не должно выпадать из периода молча."""
+    return func.coalesce(MessageModel.sent_at, MessageModel.created_at)
+
+
+def journey() -> Subquery:
+    """Путь лида одной строкой: диалог, гипотеза лида, когда ушло первое письмо цепочки
+    (`_gone_at`), когда письмо встало в очередь, дошло ли и вернулось ли хоть одно."""
     gone = MessageModel.status.in_(GONE)
     return (
         select(
             SalesThreadModel.lead_id.label("lead_id"),
             SalesThreadModel.thread_id.label("thread_id"),
             SalesLeadModel.hypothesis_id.label("hypothesis_id"),
-            func.min(func.coalesce(MessageModel.sent_at, MessageModel.created_at))
-            .filter(gone)
-            .label("gone_at"),
+            func.min(_gone_at()).filter(gone).label("gone_at"),
             func.min(MessageModel.created_at)
             .filter(MessageModel.status == MessageStatus.QUEUED)
             .label("queued_at"),
@@ -131,7 +137,7 @@ def journey() -> Subquery:
             func.bool_or(MessageModel.status == MessageStatus.BOUNCED).label("bounced"),
         )
         .join(SalesLeadModel, SalesLeadModel.id == SalesThreadModel.lead_id)
-        .join(MessageModel, letter)
+        .join(MessageModel, _letter())
         .group_by(
             SalesThreadModel.lead_id, SalesThreadModel.thread_id, SalesLeadModel.hypothesis_id
         )
@@ -212,6 +218,25 @@ async def leads(
     if hypothesis_id is not None:
         query = query.where(path.c.hypothesis_id == hypothesis_id)
     return [int(lead) for lead in (await session.scalars(query)).all()]
+
+
+async def letters(session: AsyncSession, period: Period) -> dict[int, list[int]]:
+    """Писем цепочки, ушедших в период, по шагам — по гипотезам: шаг с нуля, первое письмо —
+    нулевой. Письмо, «ушло» и время ухода — те же, что у пути лида (`journey`): недельный отчёт
+    считает письма тем же правилом, что воронка лидов. Гипотезы без писем здесь нет."""
+    query = (
+        select(SalesLeadModel.hypothesis_id, MessageModel.step, func.count())
+        .join(SalesThreadModel, SalesThreadModel.lead_id == SalesLeadModel.id)
+        .join(MessageModel, _letter())
+        .where(MessageModel.status.in_(GONE), period.holds(_gone_at()))
+        .group_by(SalesLeadModel.hypothesis_id, MessageModel.step)
+    )
+    found: dict[int, list[int]] = {}
+    for hypothesis, step, n in (await session.execute(query)).tuples():
+        steps = found.setdefault(int(hypothesis), [0] * MAX_STEPS)
+        steps.extend([0] * (step + 1 - len(steps)))
+        steps[step] += int(n)
+    return found
 
 
 @dataclass(frozen=True, slots=True)

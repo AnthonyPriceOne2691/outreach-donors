@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.models.domain import DomainModel
 from backend.features.sales import verifier
+from backend.features.sales.funnel import Period
 from backend.features.sales.models import (
     LeadStatus,
     RejectionReason,
@@ -174,14 +175,18 @@ async def lead(session: AsyncSession, lead_id: int) -> LeadRow | None:
     return None if found is None else LeadRow(*found._tuple())
 
 
-async def hypotheses(session: AsyncSession) -> list[HypothesisRow]:
-    """Все гипотезы, старшие первыми, и сколько у каждой лидов в каждом состоянии."""
+async def hypotheses(session: AsyncSession, loaded: Period | None = None) -> list[HypothesisRow]:
+    """Все гипотезы, старшие первыми, и сколько у каждой лидов в каждом состоянии.
+
+    `loaded` — только лиды, заведённые в период: так «контакты» недельного отчёта
+    (`weekly.py`) считает та же функция, что числа экрана гипотез, а не своя копия."""
     found = await session.scalars(select(SalesHypothesisModel).order_by(SalesHypothesisModel.id))
-    counted = await session.execute(
-        select(SalesLeadModel.hypothesis_id, SalesLeadModel.status, func.count()).group_by(
-            SalesLeadModel.hypothesis_id, SalesLeadModel.status
-        )
+    query = select(SalesLeadModel.hypothesis_id, SalesLeadModel.status, func.count()).group_by(
+        SalesLeadModel.hypothesis_id, SalesLeadModel.status
     )
+    if loaded is not None:
+        query = query.where(loaded.holds(SalesLeadModel.created_at))
+    counted = await session.execute(query)
     by_hypothesis: dict[int, dict[str, int]] = {}
     for hypothesis_id, status, n in counted.all():
         by_hypothesis.setdefault(int(hypothesis_id), {})[LeadStatus(status).value] = int(n)
