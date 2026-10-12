@@ -25,7 +25,7 @@ import type { MantineSpacing } from '@mantine/core';
 
 import { refusalOf } from '../api/client';
 import { PERMISSION_TITLES } from '../api/labels';
-import type { SalesCleanView } from '../api/salesTypes';
+import type { SalesCleanView } from '../api/salesCleanTypes';
 import { useSession } from '../auth/AuthProvider';
 import { formatNumber, plural } from '../format';
 import { JobLine } from '../jobs/JobLine';

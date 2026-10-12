@@ -32,15 +32,14 @@ import type {
   LeadField,
   LeadState,
   LeadsView,
-  SalesCleanBody,
-  SalesCleanView,
-  SalesFunnelView,
   SalesLeadFollowupsView,
   SalesQueueBody,
   SalesQueueView,
   SenderBody,
   SenderView,
 } from './salesTypes';
+import type { SalesCleanBody, SalesCleanView } from './salesCleanTypes';
+import type { SalesFunnelView } from './salesFunnelTypes';
 import type { BuildQueued } from './types';
 
 /** Фильтры под колонками и страница. Размера страницы здесь нет: его называет

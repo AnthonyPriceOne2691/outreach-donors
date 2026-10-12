@@ -177,6 +177,8 @@ READS = [
     Route("GET", SENDER),
     Route("GET", QUEUE + "?hypothesis={hypothesis_id}"),
     Route("GET", LEADS),
+    #: Лиду мира ещё не писали — добивок нет, ответ 404 словами, а не 403: права пустили.
+    Route("GET", LEADS + "/{lead_id}/followups", ok=404),
     Route("GET", STOPLIST),
 ]
 
@@ -295,7 +297,7 @@ async def test_reading_and_preview_need_only_the_sales_right_and_write_nothing(
 
     response = await _call(client, route, ground, headers)
 
-    assert response.status_code == 200, response.text
+    assert response.status_code == route.ok, response.text
     assert await _journal(session, user) == []
 
 

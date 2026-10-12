@@ -1,6 +1,7 @@
 /**
- * Что отдаёт сервер разделу «Продажи»: гипотезы, лиды, загрузка базы. Стоп-лист — своим
- * файлом (`salesStoplist.ts`): этот стоит у предела длины.
+ * Что отдаёт сервер разделу «Продажи»: гипотезы, лиды, загрузка базы. Стоп-лист, очистка
+ * и воронка — своими файлами (`salesStoplist.ts`, `salesCleanTypes.ts`, `salesFunnelTypes.ts`):
+ * этот стоит у предела длины.
  *
  * Своим файлом, а не в `types.ts`: тот стоит в тающем baseline длины (988 строк
  * при пределе 500, запас — на точечные правки до сплита), и гейт длины новый
@@ -458,70 +459,4 @@ export interface SalesFollowupCard {
   difference: number | null;
   difference_text: string | null;
   zones: string[];
-}
-
-/** Перед очисткой лидов гипотезы (`GET /sales/clean`): сколько их ждёт и платная ли проверка. */
-export interface SalesCleanView {
-  hypothesis_id: number;
-  /** Лидов «новый» — их возьмёт очистка; это и потолок платных проверок адреса. */
-  waiting: number;
-  /** Проверка адресов живая (Hunter): перед запуском — окно подтверждения расхода. */
-  paid: boolean;
-}
-
-/** Очистить лидов гипотезы, которые ждут очистки. */
-export interface SalesCleanBody {
-  hypothesis_id: number;
-}
-
-/** Итог очистки — отчёт задачи (`clean_jobs.report_of` сервера). */
-export interface SalesCleanReport {
-  checked: number;
-  ready: number;
-  /** Код причины отказа → сколько лидов; слова — те же, что у фильтра лидов. */
-  rejected: Record<string, number>;
-  /** Остались «новыми»: проверка адреса не выполнена, следующая очистка повторит. */
-  unverified: number;
-  /** Доменов, по которым DNS не ответил: адреса прошли дальше непроверенными. */
-  mx_unknown: number;
-  verified: number;
-  /** Сколько проверок адреса стоили денег. */
-  paid_units: number;
-  verifier: string;
-  /** Платная часть остановлена (квота, закрытая учётка) — причина словами. */
-  stopped: string | null;
-}
-
-/** Лидов на каждом шаге воронки (`GET /sales/funnel`): имена — шаги, в порядке пути лида. */
-export interface FunnelCounts {
-  /** Письмо цепочки ждёт отправки, ни одно ещё не ушло. */
-  queued: number;
-  /** Первое письмо ушло в период — лидов, а не писем. */
-  sent: number;
-  /** Письмо дошло, и ни одно не вернулось. */
-  delivered: number;
-  /** Вернулось хоть одно письмо цепочки — отказ сильнее доставки. */
-  bounced: number;
-  /** Ответил человек или попросил не писать; автоответ — не ответ. */
-  answered: number;
-  /** Передача телемаркетологу заведена. */
-  handed_off: number;
-}
-
-/** Воронка одной гипотезы. */
-export interface FunnelRow {
-  hypothesis_id: number;
-  name: string;
-  counts: FunnelCounts;
-}
-
-/** Экран воронки: строки по гипотезам, старшие первыми, и итог по ним. */
-export interface SalesFunnelView {
-  /** Гипотеза фильтра; `null` — все. */
-  hypothesis_id: number | null;
-  /** Период — как спросили: моменты ISO с поясом, `until` не включая. */
-  since: string | null;
-  until: string | null;
-  rows: FunnelRow[];
-  total: FunnelCounts;
 }
