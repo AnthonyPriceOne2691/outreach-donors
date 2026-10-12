@@ -87,7 +87,9 @@ finish() {
   local code=$?
   rm -rf "$PARTIAL" "$ERRS"
   if [ "$code" -ne 0 ]; then
-    "$ROOT/scripts/alert.sh" "бэкап НЕ снят или не уехал с машины — шаг «${STEP}»: ${WHY:-код выхода $code}. Вывод скрипта — в журнале крона (на сервере /var/log/outreach-backup.log)." || true
+    "$ROOT/scripts/alert.sh" "бэкап НЕ снят или не уехал с машины
+Шаг «${STEP}»: ${WHY:-код выхода $code}.
+Вывод скрипта — в журнале крона: \`/var/log/outreach-backup.log\`." || true
   fi
 }
 trap finish EXIT
@@ -207,5 +209,6 @@ else
   echo "⚠ Выгрузка не настроена — копия осталась на этой же машине." >&2
   echo "  Диск, на котором лежит база, защищает от чего угодно, кроме себя." >&2
   echo "  Хранилище — BACKUP_S3_* в .env.ops, шаги — deploy/README.md." >&2
-  "$ROOT/scripts/alert.sh" "бэкап снят, но остался на этой же машине: хранилище не настроено (BACKUP_S3_* в .env.ops, шаги — deploy/README.md)." || true
+  "$ROOT/scripts/alert.sh" --warn "бэкап снят, но остался на этой же машине
+Хранилище не настроено: BACKUP_S3_* в .env.ops, шаги — deploy/README.md." || true
 fi

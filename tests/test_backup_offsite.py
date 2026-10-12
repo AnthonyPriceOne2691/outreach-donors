@@ -115,8 +115,8 @@ class TestUpload:
         assert done.returncode != 0
         assert len(_copies(host)) == 1, "локальная копия остаётся — ей откатываются"
         [alert] = host.alerts()
-        assert alert.startswith("outreach-donors: бэкап НЕ снят или не уехал с машины")
-        assert "шаг «выгрузка»" in alert
+        assert alert.startswith("🔴 <b>outreach-donors · бэкап НЕ снят или не уехал с машины</b>")
+        assert "Шаг «выгрузка»" in alert
         assert "file not found" in alert, "причина из вывода rclone — в тревоге"
         assert _leaks(host, done, SECRET, TOKEN) == []
 
@@ -150,7 +150,9 @@ class TestUpload:
         assert _rclone(host) == []
         assert "Выгрузка не настроена — копия осталась на этой же машине" in done.stderr
         [alert] = host.alerts()
-        assert "остался на этой же машине" in alert
+        assert alert.startswith(
+            "🟡 <b>outreach-donors · бэкап снят, но остался на этой же машине</b>"
+        )
 
     def test_empty_upload_in_the_environment_switches_it_off_once(self, host: Host) -> None:
         host.env["BACKUP_UPLOAD"] = ""
@@ -200,7 +202,7 @@ class TestFailuresBeforeUpload:
         assert _copies(host) == [], "ни копии, ни недоснятого каталога"
         assert _rclone(host) == [], "выгружать нечего"
         [alert] = host.alerts()
-        assert "шаг «дамп базы»" in alert
+        assert "Шаг «дамп базы»" in alert
         assert "the database system is starting up" in alert
 
     def test_text_instead_of_an_archive_is_not_a_backup(self, host: Host) -> None:

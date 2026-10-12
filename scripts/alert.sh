@@ -2,6 +2,15 @@
 # Тревога в Telegram из шелла:
 #
 #   scripts/alert.sh "бэкап не снят: …"
+#   scripts/alert.sh --ok "сторож здоровья
+#   Восстановилось: worker"
+#
+# **Вид.** Цвета у текста в Telegram нет — уровень значком в начале: 🔴
+# поломка (по умолчанию), 🟡 `--warn` — не беда, но сказать, 🟢 `--ok` —
+# восстановилось. Первая строка — тема, жирным: «🔴 outreach-donors · сторож
+# здоровья». Текст в обратных кавычках — моноширинно: команду копируют
+# нажатием. Разметка — HTML Bot API; не принял её Telegram — тот же текст
+# уходит простым, и тревога не теряется из-за своей же разметки.
 #
 # Её шлют кроны хоста — бэкап (scripts/backup.sh) и сторож контейнеров
 # (scripts/healthwatch.sh). Сервис шлёт свои тревоги сам
@@ -26,20 +35,36 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/ops_env.sh"
 ops_env_load "$ROOT"
 
+LEVEL="🔴"
+case "${1:-}" in
+  --ok) LEVEL="🟢" && shift ;;
+  --warn) LEVEL="🟡" && shift ;;
+esac
 if [ -z "${1:-}" ]; then
-  echo "alert.sh: нужен текст тревоги — scripts/alert.sh \"что случилось\"" >&2
+  echo "alert.sh: нужен текст тревоги — scripts/alert.sh [--ok|--warn] \"что случилось\"" >&2
   exit 2
 fi
-# Имя сервиса первым словом: бот и чат бывают общими у нескольких
-# сервисов машины. Потолок Bot API — 4096 знаков: длиннее Telegram
-# отказывает целиком, и тревога не ушла бы из-за своей же подробности.
-# Режется байтами, а `iconv -c` убирает разрезанную букву: у крона локаль
-# обычно C, и `${…:0:N}` резал бы кириллицу посреди символа — такой текст
-# Telegram не примет вовсе.
-MESSAGE="outreach-donors: $1"
-if [ "$(printf '%s' "$MESSAGE" | wc -c)" -gt 3500 ]; then
-  MESSAGE="$(printf '%s' "$MESSAGE" | head -c 3500 | iconv -c -f UTF-8 -t UTF-8)…"
+# Имя сервиса — в теме: бот и чат бывают общими у нескольких сервисов
+# машины. Потолок Bot API — 4096 знаков: длиннее Telegram отказывает
+# целиком, и тревога не ушла бы из-за своей же подробности. Режется
+# байтами и до разметки (иначе срез пришёлся бы посреди `&lt;`), а
+# `iconv -c` убирает разрезанную букву: у крона локаль обычно C, и
+# `${…:0:N}` резал бы кириллицу посреди символа — такой текст Telegram
+# не примет вовсе.
+TEXT="$1"
+if [ "$(printf '%s' "$TEXT" | wc -c)" -gt 3500 ]; then
+  TEXT="$(printf '%s' "$TEXT" | head -c 3500 | iconv -c -f UTF-8 -t UTF-8)…"
 fi
+TOPIC="${TEXT%%$'\n'*}"
+BODY="${TEXT#"$TOPIC"}"
+MESSAGE="$LEVEL outreach-donors · $TEXT"
+
+# html ТЕКСТ — экранирование для разметки Bot API; `…` — моноширинно.
+html() {
+  printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' \
+    -e 's/`\([^`]*\)`/<code>\1<\/code>/g'
+}
+MARKED="$LEVEL <b>outreach-donors · $(html "$TOPIC")</b>$(html "$BODY")"
 TOKEN="${ALERT_TELEGRAM_BOT_TOKEN:-}"
 CHAT="${ALERT_TELEGRAM_CHAT_ID:-}"
 
@@ -51,11 +76,24 @@ fi
 
 # Адрес Bot API меняется только для проверки подставным сервером.
 API="${ALERT_TELEGRAM_API:-https://api.telegram.org}"
-ANSWER="$(printf 'url = "%s/bot%s/sendMessage"\n' "${API%/}" "$TOKEN" |
-  curl -sS --max-time 20 -K - \
-    --data-urlencode "chat_id=$CHAT" \
-    --data-urlencode "text=$MESSAGE" 2>&1)"
+# send РАЗМЕТКА ТЕКСТ — один запрос; разметка — HTML или пусто (простой текст).
+send() {
+  if [ -n "$1" ]; then
+    set -- --data-urlencode "parse_mode=$1" --data-urlencode "text=$2"
+  else
+    set -- --data-urlencode "text=$2"
+  fi
+  printf 'url = "%s/bot%s/sendMessage"\n' "${API%/}" "$TOKEN" |
+    curl -sS --max-time 20 -K - --data-urlencode "chat_id=$CHAT" "$@" 2>&1
+}
+ANSWER="$(send HTML "$MARKED")"
 CODE=$?
+case "$ANSWER" in
+  *"can't parse entities"*)
+    ANSWER="$(send "" "$MESSAGE")"
+    CODE=$?
+    ;;
+esac
 ANSWER="${ANSWER//"$TOKEN"/<токен>}"
 
 # Верится полю ok, а не коду выхода: прокси перед Telegram отвечает 200
