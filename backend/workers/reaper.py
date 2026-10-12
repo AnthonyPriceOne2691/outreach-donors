@@ -49,8 +49,10 @@ POLL_INTERVAL_SEC = 60.0
 #: пороги измеряются часами, и спрашивать базу каждую минуту незачем.
 WATCHDOG_INTERVAL_SEC = 600.0
 
-#: Что сторож уже сказал человеку в Telegram — по смене состояния (`ops/alarm_feed.py`).
-FEED = Feed()
+#: Что сторож уже сказал человеку в Telegram — по смене состояния (`ops/alarm_feed.py`). Своё
+#: имя — своё сказанное: в этом же процессе говорит лента бота продаж (`notify.BOT_FEED`, без
+#: имени).
+FEED = Feed("watchdog")
 
 
 def _enqueue(run_id: int) -> str | None:
