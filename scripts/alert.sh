@@ -59,12 +59,16 @@ TOPIC="${TEXT%%$'\n'*}"
 BODY="${TEXT#"$TOPIC"}"
 MESSAGE="$LEVEL outreach-donors · $TEXT"
 
-# html ТЕКСТ — экранирование для разметки Bot API; `…` — моноширинно.
-html() {
-  printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' \
-    -e 's/`\([^`]*\)`/<code>\1<\/code>/g'
+# escape ТЕКСТ — экранирование для разметки Bot API.
+escape() {
+  printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
 }
-MARKED="$LEVEL <b>outreach-donors · $(html "$TOPIC")</b>$(html "$BODY")"
+# html ТЕКСТ — то же, и `…` — моноширинно. Тема — без этого: моноширинное
+# внутри жирного Bot API не принимает.
+html() {
+  escape "$1" | sed -e 's/`\([^`]*\)`/<code>\1<\/code>/g'
+}
+MARKED="$LEVEL <b>outreach-donors · $(escape "$TOPIC")</b>$(html "$BODY")"
 TOKEN="${ALERT_TELEGRAM_BOT_TOKEN:-}"
 CHAT="${ALERT_TELEGRAM_CHAT_ID:-}"
 
