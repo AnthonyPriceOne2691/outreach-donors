@@ -276,6 +276,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/api/sales/calibration.py": {
+      "lines": 240,
+      "complexity": 5,
+      "worst": "of:141"
+    },
     "backend/api/sales/chain.py": {
       "lines": 78,
       "complexity": 2,
@@ -312,9 +317,9 @@
       "worst": "_build_once:60"
     },
     "backend/api/sales/routes.py": {
-      "lines": 207,
+      "lines": 210,
       "complexity": 6,
-      "worst": "_found:76"
+      "worst": "_found:78"
     },
     "backend/api/sales/schemas.py": {
       "lines": 168,
@@ -647,9 +652,9 @@
       "worst": "_own_account:203"
     },
     "backend/config/sales.py": {
-      "lines": 230,
+      "lines": 239,
       "complexity": 6,
-      "worst": "_days:143"
+      "worst": "_days:151"
     },
     "backend/config/serp.py": {
       "lines": 56,
@@ -1816,6 +1821,16 @@
       "complexity": 8,
       "worst": "brief:141"
     },
+    "backend/features/sales/agent/calibration.py": {
+      "lines": 457,
+      "complexity": 9,
+      "worst": "gate:316"
+    },
+    "backend/features/sales/agent/calibration_board.py": {
+      "lines": 267,
+      "complexity": 8,
+      "worst": "chosen:168"
+    },
     "backend/features/sales/agent/calling.py": {
       "lines": 106,
       "complexity": 3,
@@ -1872,19 +1887,24 @@
       "worst": "language_of:89"
     },
     "backend/features/sales/agent/replay.py": {
-      "lines": 408,
-      "complexity": 7,
-      "worst": "run:273"
+      "lines": 431,
+      "complexity": 8,
+      "worst": "from_folder:227"
     },
     "backend/features/sales/agent/replay_drafts.py": {
-      "lines": 137,
+      "lines": 143,
       "complexity": 10,
-      "worst": "decided:81"
+      "worst": "decided:87"
     },
     "backend/features/sales/agent/replay_gate.py": {
-      "lines": 289,
+      "lines": 303,
       "complexity": 8,
       "worst": "worse_cases:241"
+    },
+    "backend/features/sales/agent/replay_kb.py": {
+      "lines": 85,
+      "complexity": 6,
+      "worst": "facts_of:47"
     },
     "backend/features/sales/agent/replay_sets.py": {
       "lines": 244,
@@ -2377,9 +2397,9 @@
       "worst": "load:89"
     },
     "scripts/sales_replay.py": {
-      "lines": 238,
-      "complexity": 11,
-      "worst": "execute:113"
+      "lines": 359,
+      "complexity": 9,
+      "worst": "execute:153"
     },
     "scripts/sample_keywords.py": {
       "lines": 145,
@@ -2412,9 +2432,9 @@
       "worst": "unbound_probes:32"
     },
     "scripts/ui_screens_sales.py": {
-      "lines": 489,
+      "lines": 491,
       "complexity": 1,
-      "worst": "pick_hypothesis:61"
+      "worst": "pick_hypothesis:62"
     },
     "scripts/ui_screens_sales_funnel.py": {
       "lines": 91,
@@ -2425,6 +2445,11 @@
       "lines": 69,
       "complexity": 1,
       "worst": "open_hint:19"
+    },
+    "scripts/ui_screens_sales_quality.py": {
+      "lines": 57,
+      "complexity": 1,
+      "worst": "quality_screens:21"
     },
     "scripts/ui_screens_sales_queue.py": {
       "lines": 66,

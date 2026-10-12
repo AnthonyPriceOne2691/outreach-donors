@@ -7,6 +7,17 @@
     python scripts/sales_replay.py run --set crm --prompts НОВАЯ --against ПРЕЖНЯЯ
     python scripts/sales_replay.py run --set crm --limit 15 --out пилот.json   # пилот
     python scripts/sales_replay.py compare прежний.json новый.json [--strict]
+    python scripts/sales_replay.py cycle --version НОВАЯ [--out КАТАЛОГ] [--strict]
+    python scripts/sales_replay.py kb-export НОВАЯ/kb.json
+
+**Цикл докрутки одной командой** (`cycle`): живые черновики продаж с решением человека →
+прежняя версия (промпты пакета и база знаний из таблицы — то, чем пишет агент сейчас) и
+новая (каталог `--version`) на тех же случаях → ворота: «НЕ ХУЖЕ» (exit 0) или «ХУЖЕ»
+(exit 1) с числами; прогон неполный (модель отказала, потолок расхода) — «НЕ СРАВНИТЬ»
+(exit 1). `--out` — каталог вне репозитория для обоих прогонов (`old.json`, `new.json`):
+их можно сравнить ещё раз командой `compare`. Каталог версии — любые из `situation.md`,
+`reply.md`, `judge.md`, `moves.toml` и `kb.json` (база знаний списком записей, как у
+`sales-kb-load`); `kb-export` выгружает в него базу из таблицы — править.
 
 **Набор** — вне репозитория: каталог `SALES_REPLAY_DIR` или `--dir`; что в нём лежит и
 сколько в нём случаев не меньше — манифест `scripts/data/sales_replay/manifest.toml`.
@@ -14,8 +25,9 @@
 набору дал бы «0 расхождений». `--drafts` — живые продажи: черновики агента этапа продаж с
 решением человека (`agent_drafts`).
 
-**Версия** — промпты ситуации, черновика и судьи и таблица ходов из пакета; `--prompts
-КАТАЛОГ` — файлы каталога вместо них (чего нет — из пакета). Правила судьи — код дерева.
+**Версия** — промпты ситуации, черновика и судьи и таблица ходов из пакета, база знаний — из
+таблицы; `--prompts КАТАЛОГ` — файлы каталога вместо них (чего нет — из пакета, `kb.json` —
+вместо таблицы базы). Правила судьи — код дерева.
 
 **Ворота** (`--against` или `compare`): прежняя версия — файл прежнего прогона или каталог
 прежних промптов (тогда она гонится здесь же, на тех же случаях). На общих случаях у новой
@@ -35,8 +47,9 @@ import asyncio
 import json
 import sys
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 
 from backend.config import sales as sales_cfg
@@ -44,6 +57,7 @@ from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.agent.guarding import Writer
 from backend.features.agent.writer import AgentWriter
+from backend.features.sales import kb, outside
 from backend.features.sales.agent import replay, replay_drafts, replay_gate, replay_sets
 from backend.features.sales.agent.replay import Case, Prompts, Run
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -53,6 +67,9 @@ MANIFEST = Path(__file__).parent / "data" / "sales_replay" / "manifest.toml"
 REPOSITORY = Path(__file__).resolve().parent.parent
 #: Набор по умолчанию — из резервной копии CRM, вне репозитория.
 DEFAULT_SET = "crm"
+#: Файлы двух прогонов цикла в каталоге `--out`: прежняя версия и новая.
+CYCLE_OLD, CYCLE_NEW = "old.json", "new.json"
+EMPTY = "НАБОР ПУСТ: у черновиков продаж ещё нет решений людей — сравнивать не с чем"
 
 
 def load_set(name: str, folder: Path | None) -> tuple[list[Case], str]:
@@ -102,6 +119,29 @@ def out_checked(raw: str | None) -> None:
         )
 
 
+def out_dir_checked(raw: str | None) -> None:
+    """Каталог двух прогонов цикла — до первого вызова модели: есть и вне репозитория."""
+    if raw is not None:
+        for name in (CYCLE_OLD, CYCLE_NEW):
+            out_checked(str(Path(raw) / name))
+
+
+def export_checked(path: Path) -> None:
+    """Куда выгрузить базу знаний — до базы: каталог есть, файла ещё нет, он вне репозитория.
+
+    Готовый файл не переписывается: в нём могли быть правки новой версии.
+    """
+    where = path.resolve()
+    if not where.parent.is_dir():
+        raise replay.SetError(f"каталога для файла базы нет: {where.parent}")
+    if (root := outside.repository_of(where)) is not None:
+        raise replay.SetError(
+            f"файл базы — вне репозитория ({root}): факты компании уехали бы в публичную историю"
+        )
+    if where.exists():
+        raise replay.SetError(f"файл {where} уже есть — выгрузка его не перепишет: возьмите другой")
+
+
 def _against(raw: str | None) -> Run | Prompts | None:
     """Прежняя версия: файл прогона, каталог промптов или ничего."""
     if raw is None:
@@ -121,11 +161,9 @@ async def execute(
     if cases is None:
         cases, source = await _drafts(session, args)
         if not cases:
-            print("НАБОР ПУСТ: у черновиков продаж ещё нет решений людей — сравнивать не с чем")
+            print(EMPTY)
             return 1
-    if args.limit is not None and args.limit < len(cases):
-        print(f"Пилот: первые {args.limit} из {len(cases)} случаев — ворота судят только их")
-        cases, source = cases[: args.limit], f"{source}, первые {args.limit} из {len(cases)}"
+    cases, source = _piloted(cases, source, args.limit)
     against = _against(args.against)
     prompts = replay.from_folder(Path(args.prompts)) if args.prompts else replay.PACKAGED
     old = against if isinstance(against, Run) else None
@@ -140,6 +178,60 @@ async def execute(
     if old is None:
         return 0 if new.complete else 1
     return _gated(old, new, strict=args.strict)
+
+
+def _piloted(cases: Sequence[Case], source: str, limit: int | None) -> tuple[list[Case], str]:
+    """Пилот — первые `limit` случаев, и это сказано: ворота судят только их."""
+    if limit is None or limit >= len(cases):
+        return list(cases), source
+    print(f"Пилот: первые {limit} из {len(cases)} случаев — ворота судят только их")
+    return list(cases[:limit]), f"{source}, первые {limit} из {len(cases)}"
+
+
+async def cycle(session: AsyncSession, writer: Writer, args: argparse.Namespace) -> int:
+    """Цикл докрутки: живые черновики → прежняя версия (пакет и таблица базы) и новая
+    (каталог `--version`) на тех же случаях → ворота «не хуже». Код выхода — итог ворот."""
+    cases, source = await _drafts(session, args)
+    if not cases:
+        print(EMPTY)
+        return 1
+    cases, source = _piloted(cases, source, args.limit)
+    old = await replay.run(session, writer, cases, source=source, prompts=replay.PACKAGED)
+    await session.commit()  # расход прежней версии — тоже настоящий
+    version = replay.from_folder(Path(args.version))
+    new = await replay.run(session, writer, cases, source=source, prompts=version)
+    await session.commit()
+    print("\n".join(replay_gate.summary(new)))
+    if args.out:
+        _save(Path(args.out) / CYCLE_OLD, old)
+        _save(Path(args.out) / CYCLE_NEW, new)
+    return _gated(old, new, strict=args.strict)
+
+
+async def export_kb(session: AsyncSession, path: Path) -> int:
+    """База знаний из таблицы — файлом записей, как у загрузки: каталог версии под правку."""
+    rows = await kb.entries(session)
+    if not rows:
+        print("БАЗА ЗНАНИЙ ПУСТА: выгружать нечего")
+        return 1
+    found: list[dict[str, object]] = [
+        {
+            "kind": row.kind.value,
+            "language": row.language,
+            "title": row.title,
+            "text": row.text,
+            "tags": list(row.tags),
+            "active": row.active,
+        }
+        for row in rows
+    ]
+    _write_kb(path, found, await kb.version(session))
+    return 0
+
+
+def _write_kb(path: Path, found: list[dict[str, object]], version: str) -> None:
+    path.write_text(json.dumps(found, ensure_ascii=False, indent=1), "utf-8")
+    print(f"База знаний выгружена: {path} — записей {len(found)}, версия {version}")
 
 
 def _save(path: Path, run: Run) -> None:
@@ -163,18 +255,22 @@ def _gated(old: Run, new: Run, *, strict: bool) -> int:
     print("\n" + "\n".join(gate.lines))
     if gate.passed:
         print("\nВОРОТА ОТКРЫТЫ: новая версия не хуже прежней")
+        print("НЕ ХУЖЕ: " + replay_gate.verdict(old, new))
         return 0
     print("\nВОРОТА ЗАКРЫТЫ: " + "; ".join(gate.problems))
+    # Неполный прогон или ни одного общего случая — не «хуже», а сравнить не вышло.
+    unjudged = any(map(replay_gate.incomplete, (old, new))) or not replay_gate.paired(old, new)[0]
+    print(("НЕ СРАВНИТЬ: " if unjudged else "ХУЖЕ: ") + replay_gate.verdict(old, new))
     return 1
 
 
-async def _live(args: argparse.Namespace, cases: list[Case] | None, source: str) -> int:
+async def _live(work: Callable[[AsyncSession, Writer], Awaitable[int]]) -> int:
     check_storage()
     engine = create_async_engine(storage.DSN)
     writer = AgentWriter()
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
-            return await execute(session, writer, args, cases, source)
+            return await work(session, writer)
     finally:
         await writer.aclose()
         await engine.dispose()
@@ -211,6 +307,18 @@ def parser() -> argparse.ArgumentParser:
     compare.add_argument("old", type=Path)
     compare.add_argument("new", type=Path)
     compare.add_argument("--strict", action="store_true", help="нарушений строго меньше")
+    turn = commands.add_parser(
+        "cycle", help="цикл докрутки: живые черновики, прежняя и новая версия, ворота"
+    )
+    turn.add_argument("--version", required=True, help="каталог файлов новой версии")
+    turn.add_argument("--settle-days", type=int, default=replay_drafts.SETTLE.days)
+    turn.add_argument("--out", default=None, help="каталог вне репозитория для двух прогонов")
+    turn.add_argument("--strict", action="store_true", help="нарушений строго меньше")
+    turn.add_argument(
+        "--limit", type=_positive, default=None, help="пилот: прогнать только первые N случаев"
+    )
+    export = commands.add_parser("kb-export", help="база знаний из таблицы — файлом для версии")
+    export.add_argument("file", type=Path, help="куда записать (вне репозитория)")
     return found
 
 
@@ -219,18 +327,31 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "compare":
             return _gated(read_run(args.old), read_run(args.new), strict=args.strict)
-        cases, source = (None, "") if args.drafts else load_set(args.set, args.dir)
-        _against(args.against)  # прежняя версия проверяется до первого вызова модели
-        out_checked(args.out)
-        if args.prompts:
-            replay.from_folder(Path(args.prompts))
-        return asyncio.run(_live(args, cases, source))
+        return asyncio.run(_live(prepared(args)))
     except replay.SetNotFoundError as exc:
         print(f"НАБОР НЕ НАЙДЕН: {exc}")
         return 1
     except replay.SetError as exc:
         print(f"НЕ ГОДИТСЯ: {exc}")
         return 1
+
+
+def prepared(args: argparse.Namespace) -> Callable[[AsyncSession, Writer], Awaitable[int]]:
+    """Работа команды с базой и моделью — после всего, что проверяется без них: набор,
+    версии, куда писать. Отказ здесь не тратит ни запроса к базе, ни токена."""
+    if args.command == "kb-export":
+        export_checked(args.file)
+        return lambda session, _writer: export_kb(session, args.file)
+    if args.command == "cycle":
+        replay.from_folder(Path(args.version))  # новая версия — до первого вызова модели
+        out_dir_checked(args.out)
+        return partial(cycle, args=args)
+    cases, source = (None, "") if args.drafts else load_set(args.set, args.dir)
+    _against(args.against)  # прежняя версия проверяется до первого вызова модели
+    out_checked(args.out)
+    if args.prompts:
+        replay.from_folder(Path(args.prompts))
+    return partial(execute, args=args, cases=cases, source=source)
 
 
 if __name__ == "__main__":

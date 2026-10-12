@@ -21,7 +21,8 @@
  * и воронка смотрят на одну `?hypothesis=`, и смена вкладки её не теряет — до того
  * у цепочки, очереди и воронки она жила в состоянии вкладки и пропадала при уходе
  * с неё. Остальные фильтры — своей вкладки: у лидов — состояние, причина, поиск
- * и страница, у воронки — период и свои даты (`?period=custom&from=…&to=…`).
+ * и страница, у воронки — период и свои даты (`?period=custom&from=…&to=…`), у качества
+ * агента — версия агента (`?cohort=…`, номер сервера; пусто — текущая).
  */
 
 import type { LeadsQuery } from '../api/sales';
@@ -30,19 +31,30 @@ import type { LeadState } from '../api/salesTypes';
 import { formatNumber } from '../format';
 import { PERIOD_KEYS } from './funnelData';
 import type { PeriodKey } from './funnelData';
+import { COHORT_ID } from './qualityData';
 
-export type SalesTab = 'leads' | 'hypotheses' | 'kb' | 'sender' | 'chain' | 'queue' | 'funnel';
+export type SalesTab =
+  | 'leads'
+  | 'hypotheses'
+  | 'kb'
+  | 'sender'
+  | 'chain'
+  | 'queue'
+  | 'funnel'
+  | 'agent';
 
 /** Вкладки раздела: сначала рабочие — по пути лида: кто (лиды, гипотезы), что ему уходит
  *  (цепочка писем, срез 4.6), сборка и отправка пачкой (очередь, 4.6b), что вышло (воронка,
- *  5.4); затем настройки — из чего и от чьего имени пишет агент (база знаний и
- *  отправитель, 3.1). Порядок один у вкладок и у списка «Раздел» на телефоне. */
+ *  5.4), как люди обходятся с черновиками агента (качество агента, 6.4); затем настройки — из
+ *  чего и от чьего имени пишет агент (база знаний и отправитель, 3.1). Порядок один у вкладок
+ *  и у списка «Раздел» на телефоне. */
 export const SALES_TABS: Record<SalesTab, string> = {
   leads: 'Лиды',
   hypotheses: 'Гипотезы',
   chain: 'Цепочка писем',
   queue: 'Очередь писем',
   funnel: 'Воронка',
+  agent: 'Агент: качество',
   kb: 'База знаний',
   sender: 'Отправитель',
 };
@@ -67,6 +79,8 @@ export interface LeadFilters {
   period: PeriodKey;
   from: string;
   to: string;
+  /** Версия агента на вкладке качества — номер сервера; пусто — текущая. */
+  cohort: string;
 }
 
 export const NO_LEAD_FILTERS: LeadFilters = {
@@ -79,6 +93,7 @@ export const NO_LEAD_FILTERS: LeadFilters = {
   period: 'all',
   from: '',
   to: '',
+  cohort: '',
 };
 
 /** Форма кода причины — как пишет очистка (`duplicate`, `no_mail`). */
@@ -125,7 +140,13 @@ export function readLeadFilters(params: URLSearchParams): LeadFilters {
     period: known(PERIOD_KEYS, params.get('period')) ?? 'all',
     from: dayOf(params.get('from')),
     to: dayOf(params.get('to')),
+    cohort: cohortOf(params.get('cohort')),
   });
+}
+
+/** Номер версии агента из адреса — только той формы, что пишет сервер; иначе «текущая». */
+function cohortOf(raw: string | null): string {
+  return raw !== null && COHORT_ID.test(raw) ? raw : '';
 }
 
 /** Фильтры → запрос к серверу. Имена те же, что у адреса экрана. */
@@ -153,12 +174,23 @@ export function writeLeadFilters(filters: LeadFilters): URLSearchParams {
   }
   params.set('tab', filters.tab);
   if (filters.hypothesis !== null) params.set('hypothesis', String(filters.hypothesis));
-  if (filters.tab === 'funnel' && filters.period !== 'all') {
-    params.set('period', filters.period);
-    if (filters.period === 'custom' && filters.from !== '') params.set('from', filters.from);
-    if (filters.period === 'custom' && filters.to !== '') params.set('to', filters.to);
-  }
+  for (const [key, value] of tabParams(filters)) params.set(key, value);
   return params;
+}
+
+/** Свои фильтры вкладки в адресе: у воронки — период и свои даты, у качества агента — версия. */
+function tabParams(filters: LeadFilters): [string, string][] {
+  if (filters.tab === 'funnel') return funnelParams(filters);
+  return filters.tab === 'agent' && filters.cohort !== '' ? [['cohort', filters.cohort]] : [];
+}
+
+/** Период воронки: всё время в адрес не пишется, свои даты — только заданные. */
+function funnelParams(filters: LeadFilters): [string, string][] {
+  if (filters.period === 'all') return [];
+  const found: [string, string][] = [['period', filters.period]];
+  if (filters.period === 'custom' && filters.from !== '') found.push(['from', filters.from]);
+  if (filters.period === 'custom' && filters.to !== '') found.push(['to', filters.to]);
+  return found;
 }
 
 /** Лиды под фильтром — адресом экрана лидов, тем же, что пишет он сам. По нему ведут

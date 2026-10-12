@@ -417,7 +417,7 @@ def test_the_command_starts_in_a_clean_process() -> None:
         check=False,
     )
     assert done.returncode == 0, done.stderr
-    assert "{run,compare}" in done.stdout
+    assert "{run,compare,cycle,kb-export}" in done.stdout
 
 
 # --- набор и манифест --------------------------------------------------------------------------
