@@ -207,8 +207,8 @@ async def test_refusals_come_in_words_and_nothing_is_written(
 
 #: Вступление переписывает модель, остальное уходит как есть: переписывается 53% письма.
 CLEAN_BODY = (
-    "[intro] rewrite\nHello {{name}}, I came across {{company}} and its made-up test pages, "
-    "and wanted to ask one short test question about {{site}} today.\n\n"
+    "[intro] rewrite\nHello {{name}}, I came across {{company}} and its made-up test pages,\n\n"
+    "[ask] rewrite\nand wanted to ask one short test question about {{site}} today.\n\n"
     "[offer] fixed\nMade-up test offer: we write test articles for test sites, and nothing real "
     "is sold here at all, ever."
 )
@@ -246,9 +246,11 @@ async def test_followup_with_rewrite_zones_is_saved_with_its_own_warning(
     preview = await client.post(PREVIEW, json=whole, headers=headers)
     view = await _chain(client, headers)
 
-    assert [zone["kind"] for zone in card["zones"]] == ["rewrite", "rewrite"]
+    assert [zone["kind"] for zone in card["zones"]] == ["rewrite", "rewrite", "rewrite"]
     assert card["warning"] is not None
-    assert card["warning"].endswith("добивки, остальное — fixed (сейчас переписывается 100%).")
+    assert card["warning"].endswith(
+        "добивки, 2–3 зонами по предложению, остальное — fixed (сейчас переписывается 100%)."
+    )
     assert preview.json()["warning"] == card["warning"]
     assert {row["step"]: row["warning"] for row in view["rows"]} == {2: card["warning"]}
 

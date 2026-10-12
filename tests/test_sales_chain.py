@@ -238,7 +238,10 @@ OFFER = (
 GREETING = "[greeting] rewrite\nHi {{name}},"
 #: Как шаблон пилота 11.10: модели отдано всё письмо, приветствие — тоже.
 WHOLE = f"{GREETING}\n\n{INTRO}\n\n{OFFER.replace('[offer] fixed', '[offer] rewrite')}"
-ADVICE = "Совет: rewrite — только вступление, около 30–50% письма, остальное — fixed"
+ADVICE = (
+    "Совет: rewrite — только вступление, около 30–50% письма, 2–3 зонами по предложению, "
+    "остальное — fixed"
+)
 
 
 def _zones(*zones: tuple[ZoneKind, int]) -> tuple[Zone, ...]:
@@ -262,11 +265,42 @@ def test_whole_letter_given_to_the_model_is_saved_with_a_warning_in_words() -> N
     )
 
 
-def test_intro_rewritten_and_the_rest_fixed_has_no_warning() -> None:
+#: То же вступление двумя зонами по предложению — подбору есть из чего выбирать.
+INTRO_SPLIT = (
+    "[intro] rewrite\nHello {{name}}, I came across {{company}} and its made-up test pages,\n\n"
+    "[ask] rewrite\nand wanted to ask one short test question about {{site}} today."
+)
+
+
+def test_one_rewrite_zone_over_the_limit_is_warned_to_split() -> None:
+    """Живые прогоны 12.10: одна зона на большую долю письма — подбору выбирать нечего, модель
+    переписывает её почти целиком; совет — разбить по предложению."""
     made = first(body=f"{INTRO}\n\n{OFFER}")
 
     assert made.letter.rewritable_share == pytest.approx(23 / 43)
+    assert made.warning is not None
+    assert (
+        "одна зона rewrite «intro» — 53% письма: модель перепишет её почти целиком, а подбору "
+        "зон выбрать нечего — разбейте её на 2–3 зоны по предложению"
+    ) in made.warning
+    assert made.warning.endswith(f"{ADVICE} (сейчас переписывается 53%).")
+
+
+def test_intro_in_sentence_zones_and_the_rest_fixed_has_no_warning() -> None:
+    made = first(body=f"{INTRO_SPLIT}\n\n{OFFER}")
+
+    assert len(made.letter.of_kind(ZoneKind.REWRITE)) == 2
     assert made.warning is None
+
+
+@pytest.mark.parametrize(("rewrite", "fixed", "warned"), [(45, 55, False), (46, 54, True)])
+def test_one_zone_limit_is_45_percent_of_the_letter(rewrite: int, fixed: int, warned: bool) -> None:
+    """Одна зона на 41% письма в живом прогоне ложилась с первого вызова, на 55% — нет."""
+    warning = chain_text.corridor_warning(
+        1, _zones((ZoneKind.REWRITE, rewrite), (ZoneKind.FIXED, fixed))
+    )
+
+    assert (warning is not None and "одна зона rewrite «zone0»" in warning) is warned
 
 
 def test_short_rewrite_zone_is_warned_about_even_when_the_share_is_fine() -> None:
@@ -289,15 +323,20 @@ def test_too_large_a_rewritable_share_is_warned_about_without_short_zones() -> N
 
 @pytest.mark.parametrize(
     ("rewrite", "fixed", "warned"),
-    [(6, 4, False), (7, 4, True), (60, 40, False), (61, 39, True)],
+    [(12, 8, False), (14, 8, True), (60, 40, False), (62, 38, True)],
 )
 def test_share_threshold_is_a_third_of_the_zone_asked_of_the_model(
     rewrite: int, fixed: int, warned: bool
 ) -> None:
     """Порог — у `change_share`: при середине коридора 20% просьба мельче трети зоны
-    начинается с переписываемого больше 60% письма."""
+    начинается с переписываемого больше 60% письма. Переписываемое — двумя зонами: у одной
+    зоны свой порог (`SINGLE_ZONE_MAX`), он здесь не мешает."""
+    half = rewrite // 2
     warning = chain_text.corridor_warning(
-        1, _zones((ZoneKind.REWRITE, rewrite), (ZoneKind.FIXED, fixed))
+        1,
+        _zones(
+            (ZoneKind.REWRITE, half), (ZoneKind.REWRITE, rewrite - half), (ZoneKind.FIXED, fixed)
+        ),
     )
 
     assert (warning is not None) is warned
@@ -333,7 +372,8 @@ def test_followup_is_warned_by_its_own_numbers() -> None:
         "Коридор отличия трудно достижим: модель просят менять около 20% слов каждой зоны, а "
         "так мелко она не правит — переписывает зоны почти целиком, и в коридор письмо "
         "ложится, только если часть зон останется текстом шаблона. Совет: rewrite — около "
-        "30–50% добивки, остальное — fixed (сейчас переписывается 100%)."
+        "30–50% добивки, 2–3 зонами по предложению, остальное — fixed (сейчас переписывается "
+        "100%)."
     )
     short = chain_text.corridor_warning(2, _zones((ZoneKind.REWRITE, 3), (ZoneKind.REWRITE, 9)))
     assert short is not None
@@ -346,7 +386,9 @@ def test_preview_carries_the_warning_of_the_step() -> None:
     made = first(body=WHOLE)
 
     assert chain_text.preview(made, sender.Sender()).warning == made.warning
-    assert chain_text.preview(first(body=f"{INTRO}\n\n{OFFER}"), sender.Sender()).warning is None
+    assert (
+        chain_text.preview(first(body=f"{INTRO_SPLIT}\n\n{OFFER}"), sender.Sender()).warning is None
+    )
 
 
 # --- подстановки, метрики, подпись ------------------------------------------------------

@@ -282,8 +282,8 @@ async def test_dry_run_reports_and_writes_nothing(
 
 #: Вступление переписывает модель, остальное уходит как есть: переписывается 53% письма.
 CLEAN_BODY = (
-    "[intro] rewrite\nHello {{name}}, I came across {{company}} and its made-up test pages, "
-    "and wanted to ask one short test question about {{site}} today.\n\n"
+    "[intro] rewrite\nHello {{name}}, I came across {{company}} and its made-up test pages,\n\n"
+    "[ask] rewrite\nand wanted to ask one short test question about {{site}} today.\n\n"
     "[offer] fixed\nMade-up test offer: we write test articles for test sites, and nothing real "
     "is sold here at all, ever."
 )
@@ -324,7 +324,9 @@ async def test_followup_with_rewrite_zones_is_loaded_and_warned_by_its_own_numbe
     out = capsys.readouterr().out
     hard = step_template(**records[1]).warning
     assert hard is not None
-    assert "добивки, остальное — fixed (сейчас переписывается 100%)" in hard
+    assert (
+        "добивки, 2–3 зонами по предложению, остальное — fixed (сейчас переписывается 100%)" in hard
+    )
     assert f"  предупреждение — первая добивка, en: {hard}\n" in out
     assert out.count("предупреждение") == 1
 
