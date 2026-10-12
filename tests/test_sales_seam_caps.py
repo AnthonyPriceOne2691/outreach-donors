@@ -96,9 +96,10 @@ async def test_spent_sales_cap_leaves_the_lead_without_a_draft_in_words(
 
 @pytest.mark.usefixtures("sales_on", "caps")
 async def test_below_the_sales_cap_the_draft_is_written(session: AsyncSession, llm: Plug) -> None:
-    """Граница правила: на токен ниже потолка продаж черновик пишется как всегда."""
+    """Граница правила: ниже потолка продаж — с запасом на ситуацию, писателя и судью —
+    черновик пишется как всегда."""
     reply_id = await lead_replied(session)
-    usage.record(session, operation=parts.DRAFT_OPERATION, units=SALES_CAP - 1)
+    usage.record(session, operation=parts.DRAFT_OPERATION, units=SALES_CAP // 2)
     llm(situation=[INFORM], judge=[ALLOW])
 
     outcome = await drafting.draft_answer(session, Writer(GOOD), reply_id)
