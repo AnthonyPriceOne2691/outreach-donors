@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -25,10 +26,10 @@ from backend.features.crawl.denylist import MAJOR_MEDIA
 from backend.features.crawl.niche import NICHE
 from backend.features.donors.standing import waiting
 from backend.features.donors.verdict import Thresholds, big_site_reason, check_dr
-from backend.features.letters import batch
+from backend.features.letters import attempts, batch
 from backend.features.letters.building import run_scope
 from backend.features.letters.followups import send_due
-from backend.features.letters.niche_recipients import NicheRecipients
+from backend.features.letters.niche_recipients import NicheRecipients, run_hosts
 from backend.features.letters.recipients import Recipients
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import NotWritingError, Sending
@@ -50,8 +51,10 @@ from tests.test_followups import NOW as CHAIN_NOW
 from tests.test_followups import _chain_start
 from tests.test_letters_advertisers import NOW as OFFER_NOW
 from tests.test_letters_advertisers import (
+    build_offers,
     donor_of_the_link,
     make_advertiser,
+    offers,
     priced_donor,
     queued_offer,
     sent_offer,
@@ -307,13 +310,13 @@ class TestNicheExample:
 
         assert examples == ["blog.example.test"]
 
-    async def test_a_letter_built_before_the_rule_is_stopped_with_its_reason(
+    async def test_a_letter_built_before_the_rule_is_taken_off_the_queue(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
         """Письмо, собранное до правила с таким примером, не уходит и в очереди не ждёт:
-        ни перезапрос цены, ни решение человека пример в предложение не вернут. Как
-        площадка оффера по ссылке. До 12.10.2026 отказ говорил про цену, и письмо стояло
-        в очереди, советуя её перезапросить."""
+        ни перезапрос цены, ни решение человека пример в предложение не вернут. До
+        12.10.2026 отказ говорил про цену, и письмо стояло в очереди, советуя её
+        перезапросить. Письмо не уходило — снято своей причиной, как под снятую ссылку."""
         letter = await _queued_niche_offer(session)
         (await niche_donor(session)).dr = 88
         await session.flush()
@@ -322,11 +325,55 @@ class TestNicheExample:
             await Sending(session, NullTransport()).send(letter.id)
 
         await session.refresh(letter)
-        assert (letter.status, letter.failure_reason) == (MessageStatus.STOPPED, str(refused.value))
-        assert str(refused.value) == (
-            f"Письмо №{letter.id} остановлено: пример площадки {NICHE_EXAMPLE} — из «кому не "
-            f"пишем» ({big_site_reason(80)}). Бизнесу ниши {BOOKIE} её не предлагаем"
+        assert (letter.status, letter.failure_reason) == (
+            MessageStatus.STOPPED,
+            attempts.EXAMPLE_WITHDRAWN,
         )
+        assert str(refused.value) == (
+            f"Письмо №{letter.id} снято: пример площадки {NICHE_EXAMPLE} — из «кому не пишем» "
+            f"({big_site_reason(80)}). Бизнесу ниши {BOOKIE} её не предлагаем — следующая "
+            "сборка напишет с примером оттуда, где пишем"
+        )
+
+    async def test_the_next_build_writes_with_another_example(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Бизнес не пропадает молча (ревью продаж): снятое письмо — не «писали», и
+        следующая сборка пишет ему заново с примером оттуда, где пишем."""
+        letter = await _queued_niche_offer(session)
+        (await niche_donor(session)).dr = 88
+        await priced_donor(session, "small.example.test")
+        (await niche_donor(session, "small.example.test")).dr = 40
+        run = await session.scalar(select(RunModel))
+        assert run is not None
+        run.candidates = {"hosts": [*run_hosts(run), "small.example.test"]}
+        await session.flush()
+        with pytest.raises(NotWritingError):
+            await Sending(session, NullTransport()).send(letter.id)
+
+        await build_offers(session, audience=NICHE, campaign_name="Ниша снова")
+
+        again = [message for message in await offers(session) if message.id != letter.id]
+        assert [message.status for message in again] == [MessageStatus.QUEUED]
+        assert "small.example.test" in (again[0].body or "")
+        assert NICHE_EXAMPLE not in (again[0].body or "")
+
+    async def test_a_second_example_from_the_list_stops_it_too(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Запрет не зависит от того, что ещё названо: человек дописал второй пример —
+        из «кому не пишем», — и свежий первый письмо не пропускает (ревью продаж)."""
+        letter = await _queued_niche_offer(session)
+        await priced_donor(session, "big.example.test")
+        (await niche_donor(session, "big.example.test")).dr = 88
+        run = await session.scalar(select(RunModel))
+        assert run is not None
+        run.candidates = {"hosts": [*run_hosts(run), "big.example.test"]}
+        letter.body = f"{letter.body}\nИ ещё, например, big.example.test."
+        await session.flush()
+
+        with pytest.raises(NotWritingError, match=re.escape("пример площадки big.example.test")):
+            await Sending(session, NullTransport()).send(letter.id)
 
     async def test_the_batch_names_it_and_the_queue_lets_it_go(
         self, session: AsyncSession, filled_legal: None

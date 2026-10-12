@@ -6,9 +6,9 @@
 рекламодателей, и их ссылки, и цена донора. `offer_refusal` говорит только, почему
 письмо не уходит, — причиной (`OfferRefused`) и словами для экрана; класс отказа по
 причине выбирает отправка (`sending.Sending._check_advertiser`). Письмо, которому ждать
-в очереди нечего, — под снятую ссылку или на площадке из «кому не пишем», — `check_offer`
-останавливает своей фиксацией: иначе оно стояло бы в очереди готовым, и пачка
-спотыкалась бы о него каждый раз.
+в очереди нечего, — под снятую ссылку, на площадке из «кому не пишем» или бизнесу ниши
+с примером оттуда, — `check_offer` останавливает своей фиксацией: иначе оно стояло бы
+в очереди готовым, и пачка спотыкалась бы о него каждый раз.
 
 Порядок — от главного: снят рекламодатель → площадка из «кому не пишем» → снята или
 сменилась ссылка → цена донора.
@@ -63,9 +63,9 @@
 и не из «кому не пишем» — правилом сборки (`NicheRecipients.fresh_examples`). Своего
 примера письмо не помнит, и годится любой такой донор, названный в тексте: появился
 донор сильнее — письмо со своим примером уходит, а пример, потерявший цену или решение
-«принят», письмо держит. Пример из «кому не пишем» письмо останавливает с причиной, как
-площадку оффера по ссылке: ждать ему нечего. Решение человека о самом бизнесе держит
-`niche.decide`.
+«принят», письмо держит. Письмо с примером из «кому не пишем» снимается, как под снятую
+ссылку (`attempts.EXAMPLE_WITHDRAWN`): оно не уходило, и следующая сборка напишет бизнесу
+с примером оттуда, где пишем. Решение человека о самом бизнесе держит `niche.decide`.
 """
 
 from __future__ import annotations
@@ -89,6 +89,7 @@ from backend.features.core.models.run import RunModel
 from backend.features.crawl.advertiser_rules import writes_to
 from backend.features.crawl.niche import NICHE
 from backend.features.crawl.offer_stop import out_of_queue
+from backend.features.letters import attempts
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.donor_standing import stop_for_good
 from backend.features.letters.niche_recipients import NicheRecipients, run_hosts
@@ -106,9 +107,19 @@ class OfferRefused(StrEnum):
     #: Письмо собрано под ссылку, которой у рекламодателя больше нет: оно останавливается
     #: со своей причиной, и следующее соберётся под действующую.
     WITHDRAWN = "withdrawn"
+    #: Пример площадки в письме бизнесу ниши — из «кому не пишем»: письмо снимается со своей
+    #: причиной, как под снятую ссылку, и следующая сборка напишет с другим примером.
+    EXAMPLE = "example"
     #: Цена донора или примера площадки устарела или снята: письмо ждёт в очереди
     #: перезапроса цены.
     STALE_PRICE = "stale_price"
+
+
+#: Письма, которые снимаются как не уходившие (`attempts.WITHDRAWN_REASONS`), — их причиной.
+_NOT_SENT = {
+    OfferRefused.WITHDRAWN: attempts.LINK_WITHDRAWN,
+    OfferRefused.EXAMPLE: attempts.EXAMPLE_WITHDRAWN,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,8 +139,8 @@ async def check_offer(
     refused = await offer_refusal(session, message, host=host, now=now)
     if refused is None:
         return None
-    if refused.reason is OfferRefused.WITHDRAWN:
-        await out_of_queue(session, message)
+    if refused.reason in _NOT_SENT:
+        await out_of_queue(session, message, reason=_NOT_SENT[refused.reason])
         await session.commit()
     elif refused.reason is OfferRefused.NOT_WRITING:
         await stop_for_good(session, message, refused.words)
@@ -216,9 +227,11 @@ async def _niche_example(
     """Пример площадки в первом письме бизнесу ниши — ещё принятый донор со свежей ценой
     и не из «кому не пишем» (`NicheRecipients.fresh_examples`).
 
-    Пример из «кому не пишем» — своя причина, и письмо останавливается, как оффер по
-    ссылке на такой площадке: ни перезапрос цены, ни решение человека пример в
-    предложение не вернут. До 12.10.2026 отказ говорил про цену, и письмо стояло
+    Пример из «кому не пишем» — своя причина, и проверяется первым: запрет не зависит
+    от того, что ещё названо в тексте (человек мог дописать второй пример). Такое письмо
+    не уходило — оно снимается, как под снятую ссылку, и следующая сборка напишет бизнесу
+    с примером оттуда, где пишем: ни перезапрос цены, ни решение человека этот пример
+    в предложение не вернут. До 12.10.2026 отказ говорил про цену, и письмо стояло
     в очереди, советуя перезапросить цену."""
     if message.step != FIRST_STEP:
         return None
@@ -227,18 +240,26 @@ async def _niche_example(
         .join(AdvertiserModel, AdvertiserModel.found_run_id == RunModel.id)
         .where(AdvertiserModel.domain_id == message.domain_id)
     )
+    if run is None:
+        return _stale_example(message, host)
     body = message.body or ""
-    examples = [] if run is None else await NicheRecipients(session).fresh_examples(run, now)
-    if any(_named(example, body) for example in examples):
-        return None
-    for example in [] if run is None else run_hosts(run):
+    for example in run_hosts(run):
         off = await _not_writing(session, example) if _named(example, body) else None
         if off is not None:
             return OfferRefusal(
-                f"Письмо №{message.id} остановлено: пример площадки {example} — из «кому не "
-                f"пишем» ({off}). Бизнесу ниши {host} её не предлагаем",
-                OfferRefused.NOT_WRITING,
+                f"Письмо №{message.id} снято: пример площадки {example} — из «кому не пишем» "
+                f"({off}). Бизнесу ниши {host} её не предлагаем — следующая сборка напишет "
+                "с примером оттуда, где пишем",
+                OfferRefused.EXAMPLE,
             )
+    examples = await NicheRecipients(session).fresh_examples(run, now)
+    if any(_named(example, body) for example in examples):
+        return None
+    return _stale_example(message, host)
+
+
+def _stale_example(message: MessageModel, host: str) -> OfferRefusal:
+    """Пример в письме уже не пример: цена устарела, снята или решение «принят» ушло."""
     return OfferRefusal(
         f"Цена примера площадки в письме №{message.id} бизнесу ниши {host} устарела или "
         "снята: принятого донора его прогона со свежей ценой письмо не называет. Письмо "

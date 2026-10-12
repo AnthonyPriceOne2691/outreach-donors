@@ -86,22 +86,25 @@ def _off_page(letter: MessageModel, page: str) -> bool:
     )
 
 
-async def out_of_queue(session: AsyncSession, letter: MessageModel) -> int:
+async def out_of_queue(
+    session: AsyncSession, letter: MessageModel, *, reason: str = attempts.LINK_WITHDRAWN
+) -> int:
     """Письмо из очереди — в «остановлено», если его не взяла отправка. 1 — снято.
 
-    Своя причина (`attempts.LINK_WITHDRAWN`) и освобождённый диалог — только у письма,
-    которое точно не уходило: у возвращённого после неизвестного исхода есть наш
-    `Message-ID` прежней попытки, и оно остаётся «писали».
+    Своя причина (`attempts.WITHDRAWN_REASONS`: снята ссылка или пример площадки) и
+    освобождённый диалог — только у письма, которое точно не уходило: у возвращённого
+    после неизвестного исхода есть наш `Message-ID` прежней попытки, и оно остаётся
+    «писали».
     """
     gone = letter.internet_message_id is not None
-    reason = {} if gone else {"failure_reason": attempts.LINK_WITHDRAWN}
+    said = {} if gone else {"failure_reason": reason}
     left = await settle.leave(
         session,
         letter,
         was=MessageStatus.QUEUED,
         status=MessageStatus.STOPPED,
         next_action_at=None,
-        **reason,
+        **said,
     )
     if left and not gone and letter.step == FIRST_STEP:
         await _free_thread(session, letter)

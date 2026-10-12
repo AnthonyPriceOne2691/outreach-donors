@@ -90,6 +90,14 @@ ANSWERS = (ReplyKind.HUMAN, ReplyKind.UNSUBSCRIBE)
 #: почему. По ней такое письмо и узнаётся (`withdrawn`) — текст не менять.
 LINK_WITHDRAWN = "ссылку письма сняли: «не пишем» по ней — пишем под действующую"
 
+#: То же у первого письма бизнесу ниши, чей пример площадки попал в «кому не пишем»
+#: (`letters/offer_standing.py`): письмо не уходило, и следующая сборка напишет бизнесу
+#: заново — с примером оттуда, где пишем. Текст не менять.
+EXAMPLE_WITHDRAWN = "пример площадки письма — из «кому не пишем»: пишем с другим примером"
+
+#: Причины снятого письма, которое не уходило (`withdrawn`).
+WITHDRAWN_REASONS = (LINK_WITHDRAWN, EXAMPLE_WITHDRAWN)
+
 #: Те же ответы, отмеченные на самом диалоге (отписка кнопкой — `optout`).
 ANSWERED_THREADS = (ThreadStatus.REPLIED, ThreadStatus.UNSUBSCRIBED)
 
@@ -119,15 +127,16 @@ def next_address_note(earlier: int) -> str:
 
 
 def withdrawn(letter: _Letter) -> ColumnElement[bool]:
-    """Письмо остановлено снятием своей ссылки: не уходило, и в отборе его нет.
+    """Письмо остановлено снятием своей ссылки или примера площадки: не уходило,
+    и в отборе его нет.
 
-    `IS NOT DISTINCT FROM`, а не `==`: у остановленного человеком причины нет
-    (`NULL`), сравнение дало бы `NULL`, и под `NOT` в отборе такое письмо
+    Причина — через `coalesce`, а не прямым сравнением: у остановленного человеком
+    причины нет (`NULL`), сравнение дало бы `NULL`, и под `NOT` в отборе такое письмо
     выпадало бы из «писали» — сборка воскрешала бы остановленное человеком.
     """
     return and_(
         letter.status == MessageStatus.STOPPED,
-        letter.failure_reason.is_not_distinct_from(LINK_WITHDRAWN),
+        func.coalesce(letter.failure_reason, "").in_(WITHDRAWN_REASONS),
     )
 
 

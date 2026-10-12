@@ -1202,7 +1202,7 @@
       "worst": "_any:83"
     },
     "backend/features/crawl/offer_stop.py": {
-      "lines": 140,
+      "lines": 143,
       "complexity": 6,
       "worst": "stop_offers:46"
     },
@@ -1487,9 +1487,9 @@
       "worst": "subject_for:91"
     },
     "backend/features/letters/attempts.py": {
-      "lines": 254,
+      "lines": 263,
       "complexity": 2,
-      "worst": "next_address_note:114"
+      "worst": "next_address_note:122"
     },
     "backend/features/letters/batch.py": {
       "lines": 188,
@@ -1567,9 +1567,9 @@
       "worst": "advertiser_addresses:20"
     },
     "backend/features/letters/offer_standing.py": {
-      "lines": 319,
+      "lines": 340,
       "complexity": 12,
-      "worst": "_link_offer:167"
+      "worst": "_link_offer:178"
     },
     "backend/features/letters/optout.py": {
       "lines": 88,
@@ -1652,9 +1652,9 @@
       "worst": "_post:172"
     },
     "backend/features/letters/sending.py": {
-      "lines": 497,
+      "lines": 498,
       "complexity": 5,
-      "worst": "_hand_over:421"
+      "worst": "_hand_over:422"
     },
     "backend/features/letters/settle.py": {
       "lines": 171,
