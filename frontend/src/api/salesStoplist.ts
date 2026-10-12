@@ -31,7 +31,8 @@ export interface SalesHeldRow {
 export interface SalesStoplistView {
   rows: SalesStopRow[];
   total: number;
-  /** Общие строки — новые первыми, не все: сколько всего — `general_total`. */
+  /** Общие строки — новые первыми, не все: сколько всего — `general_total`. Без права `view`
+   *  сервер их не присылает: пусто и ноль. */
   general: SalesHeldRow[];
   general_total: number;
   /** Предел причины, знаков. */

@@ -87,7 +87,8 @@ class HeldRow(BaseModel):
 class SalesStoplistView(BaseModel):
     rows: list[StopRow]
     total: int
-    #: Общий стоп-лист, который держит продажи: новые первыми, не больше `GENERAL_SHOWN`.
+    #: Общий стоп-лист, который держит продажи: новые первыми, не больше `GENERAL_SHOWN`; без
+    #: права `view` — пусто и ноль (`_general`).
     general: list[HeldRow]
     general_total: int
     #: Предел причины — экран проверяет им поле до нажатия.
