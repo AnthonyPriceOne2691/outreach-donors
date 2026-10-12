@@ -361,10 +361,10 @@ def test_a_short_common_word_inside_an_edit_does_not_cut_it() -> None:
 
 def test_a_word_with_other_spaces_after_it_is_still_the_same_word() -> None:
     """Подпись в конце черновика и та же подпись перед дописанной строкой — одно слово."""
-    found = word_diff("Спасибо.\n\nАнна", "Спасибо.\n\nАнна\n\nПоправлено.")
+    found = word_diff("Спасибо.\n\nКоманда", "Спасибо.\n\nКоманда\n\nПоправлено.")
 
     assert found == (
-        calibration_board.Part(Piece.SAME, "Спасибо.\n\nАнна"),
+        calibration_board.Part(Piece.SAME, "Спасибо.\n\nКоманда"),
         calibration_board.Part(Piece.ADDED, "\n\nПоправлено."),
     )
 

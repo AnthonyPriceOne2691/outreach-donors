@@ -217,7 +217,7 @@ class Tally:
 
     @property
     def decisions(self) -> int:
-        """Решений оператора по готовым черновикам — основа долей «как есть», «правка», «отклонено»."""
+        """Решений оператора по готовым черновикам — основа «как есть», «правки» и «отклонено»."""
         return self[Bucket.AS_IS] + self[Bucket.EDITED] + self[Bucket.REJECTED]
 
     @property
