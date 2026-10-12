@@ -28,9 +28,9 @@ import { Link, useLocation } from 'react-router-dom';
 import { countryTitle, RUN_STATUSES } from '../api/labels';
 import type { RunsPage } from '../api/runs';
 import type { RunCard, RunsView, RunStatus } from '../api/types';
+import { ColumnsHead } from '../components/ColumnsHead';
+import type { Column } from '../components/ColumnsHead';
 import { PageSwitch } from '../components/PageSwitch';
-import { TableColumns } from '../components/TableColumns';
-import type { TableColumn } from '../components/TableColumns';
 import { formatDateTime, formatNumber, plural } from '../format';
 import { ReviewLink } from './ReviewLink';
 import { RunReason } from './RunReason';
@@ -46,7 +46,7 @@ export const ACTIVE = new Set<RunStatus>(['queued', 'estimating', 'running']);
  *  Уже `MIN_WIDTH` таблица не ужимается, а уезжает в прокрутку: значок
  *  «закончен» сжимался до «законч…», а «человек не смотрел» вставал
  *  по слову в строку. */
-const COLUMNS: TableColumn[] = [
+const COLUMNS: Column[] = [
   { title: 'Прогон', width: '12.2%' },
   { title: 'Состояние', width: '14.4%' },
   { title: 'Ключей', width: '7%' },
@@ -315,7 +315,7 @@ export function RunHistory({ view, page, onPage }: Props) {
           verticalSpacing="sm"
           horizontalSpacing="xs"
         >
-          <TableColumns columns={COLUMNS} />
+          <ColumnsHead columns={COLUMNS} />
           <Table.Tbody>
             {rows.map((run) => (
               <HistoryRow key={run.id} run={run} from={search} />

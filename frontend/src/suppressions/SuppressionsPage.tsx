@@ -68,10 +68,10 @@ import { addSuppression, listSuppressions, removeSuppression } from '../api/outr
 import { SUPPRESSION_REASON_TITLES } from '../api/labels';
 import type { StopEntry, StopListView, SuppressionReason } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { ColumnsHead } from '../components/ColumnsHead';
+import type { Column } from '../components/ColumnsHead';
 import { PageHead } from '../components/PageHead';
 import { Seams } from '../components/Seams';
-import { TableColumns } from '../components/TableColumns';
-import type { TableColumn } from '../components/TableColumns';
 import { formatDate } from '../format';
 import { notify } from '../notices';
 import { AddStopModal, addedNotice } from './AddStopModal';
@@ -107,7 +107,7 @@ function nothingFound(search: string, reason: ShownReason): string {
  *  значок «пожаловался» — 102 px, дата — 75, значок «истёк 25.09.2026» —
  *  128, кнопка «Снять» — 60. Автор записи — адрес учётки, он переносится по
  *  швам адреса (`Seams`). Плюс 32 px полей ячейки и запас. */
-const COLUMNS: TableColumn[] = [
+const COLUMNS: Column[] = [
   { title: 'Кому не пишем' },
   { title: 'Причина', width: '9rem' },
   { title: 'Кто завёл', width: '12rem' },
@@ -115,7 +115,7 @@ const COLUMNS: TableColumn[] = [
   { title: 'Срок', width: '10.5rem' },
 ];
 /** Колонка кнопки «Снять» — только у того, кто может снимать; заголовка у неё нет. */
-const ACTIONS: TableColumn = { title: '', width: '6rem' };
+const ACTIONS_WIDTH = '6rem';
 const TABLE_MIN_WIDTH = 920;
 
 interface TableProps {
@@ -136,7 +136,7 @@ function StopTable({ rows, mayChange, onRemove }: TableProps) {
         verticalSpacing="sm"
         horizontalSpacing="md"
       >
-        <TableColumns columns={mayChange ? [...COLUMNS, ACTIONS] : COLUMNS} />
+        <ColumnsHead columns={COLUMNS} tail={mayChange ? ACTIONS_WIDTH : null} />
         <Table.Tbody>
           {rows.map((row) => (
             <Table.Tr key={row.id}>

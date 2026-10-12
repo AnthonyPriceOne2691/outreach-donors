@@ -267,6 +267,34 @@ describe('рассмотрение прогона', () => {
   });
 });
 
+describe('шапка очереди', () => {
+  /** Заголовки колонок по порядку; у колонки отметки слова нет — в ней флажок. */
+  const heads = () => screen.getAllByRole('columnheader').map((head) => head.textContent);
+
+  it('у того, кто решает, первым — флажок «все на экране», ярус — на все колонки', async () => {
+    await openReview();
+    const user = userEvent.setup();
+
+    expect(heads()).toEqual(['', 'Домен', 'Нашёлся по ключам', 'Судья', 'Решение']);
+    const all = screen.getByRole('checkbox', { name: 'Выбрать все на экране' });
+    expect(screen.getAllByRole('columnheader')[0]).toContainElement(all);
+    const tiers = Array.from(document.querySelectorAll<HTMLTableCellElement>('.tierRow td'));
+    expect(tiers.map((cell) => cell.colSpan)).toEqual([5, 5]);
+
+    await user.click(all);
+
+    expect(screen.getByText('Выбрано: 2')).toBeInTheDocument();
+  });
+
+  it('без права решать — ни флажка, ни его колонки', async () => {
+    const viewer = { ...ADMIN, permissions: ['view'] };
+    await openReview({}, viewer as typeof ADMIN);
+
+    expect(heads()).toEqual(['Домен', 'Нашёлся по ключам', 'Судья', 'Решение']);
+    expect(screen.queryByRole('checkbox', { name: 'Выбрать все на экране' })).toBeNull();
+  });
+});
+
 describe('передумать', () => {
   const decided = (status: 'accepted' | 'rejected') => ({
     ...VIEW,

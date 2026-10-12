@@ -50,6 +50,8 @@ import type { AccuracyView, AgreementView } from '../api/review';
 import { KeywordYieldCard } from './KeywordYieldCard';
 import type { ReviewDecision, ReviewView } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { ColumnsHead } from '../components/ColumnsHead';
+import type { Column } from '../components/ColumnsHead';
 import { Metric } from '../components/Metric';
 import { missingRun, NoSuchRun, RunHead, useRunAddress } from '../runs/runAddress';
 import { CandidateRow } from './CandidateRow';
@@ -90,6 +92,28 @@ const MIN_WIDTH = { withKeywords: 1188, withoutKeywords: 998 } as const;
 
 /** «Донор ответил» в пикселях — на столько уже таблица без этой колонки. */
 const SELLER_PX = 160;
+
+/** Колонки очереди слева направо. Отметка — у того, кто решает, и заголовок у неё —
+ *  флажок «все на экране» (`heads`), а не слово. Число колонок для строки яруса —
+ *  отсюда же: отдельный счёт рядом со списком разошёлся бы с шапкой на первой правке. */
+function columnsOf({
+  mayDecide,
+  withKeywords,
+  withAnswers,
+}: {
+  mayDecide: boolean;
+  withKeywords: boolean;
+  withAnswers: boolean;
+}): Column[] {
+  return [
+    ...(mayDecide ? [{ title: 'Отметка', width: WIDTH.pick }] : []),
+    { title: 'Домен' },
+    ...(withKeywords ? [{ title: 'Нашёлся по ключам', width: WIDTH.keywords }] : []),
+    { title: 'Судья', width: WIDTH.judge },
+    ...(withAnswers ? [{ title: 'Донор ответил', width: WIDTH.seller }] : []),
+    { title: 'Решение', width: WIDTH.decision },
+  ];
+}
 
 /** Ответ вместе с тем, о чём спрашивали: пока идёт новая вкладка, видна
  *  прежняя, и пустой экран должен говорить про ту вкладку, строки которой
@@ -247,7 +271,7 @@ export function RunReviewPage() {
   // Колонки «Донор ответил» нет, пока никто из очереди не ответил: столбец «не отвечал»
   // в каждой строке держал 160 px (правило: колонка, которой нечего показать, не рисуется).
   const withAnswers = view.rows.some((row) => row.seller.answer !== null);
-  const columns = (mayDecide ? 1 : 0) + 2 + (withKeywords ? 1 : 0) + (withAnswers ? 1 : 0) + 1;
+  const columns = columnsOf({ mayDecide, withKeywords, withAnswers });
   // Сколько строк в каждом ярусе — для разделителей групп: ярус стоит над группой
   // один раз, а не значком в каждой строке.
   const perTier = new Map<string, number>();
@@ -351,39 +375,25 @@ export function RunReviewPage() {
               verticalSpacing="sm"
               horizontalSpacing="md"
             >
-              <colgroup>
-                {mayDecide && <col style={{ width: WIDTH.pick }} />}
-                <col />
-                {withKeywords && <col style={{ width: WIDTH.keywords }} />}
-                <col style={{ width: WIDTH.judge }} />
-                {withAnswers && <col style={{ width: WIDTH.seller }} />}
-                <col style={{ width: WIDTH.decision }} />
-              </colgroup>
-              <Table.Thead>
-                <Table.Tr>
-                  {mayDecide && (
-                    <Table.Th>
-                      <Checkbox
-                        aria-label="Выбрать все на экране"
-                        checked={allPicked}
-                        disabled={busy}
-                        onChange={(event) =>
-                          setPicked(
-                            event.currentTarget.checked
-                              ? new Set(rows.map((row) => row.candidate_id))
-                              : new Set(),
-                          )
-                        }
-                      />
-                    </Table.Th>
-                  )}
-                  <Table.Th>Домен</Table.Th>
-                  {withKeywords && <Table.Th>Нашёлся по ключам</Table.Th>}
-                  <Table.Th>Судья</Table.Th>
-                  {withAnswers && <Table.Th>Донор ответил</Table.Th>}
-                  <Table.Th>Решение</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
+              <ColumnsHead
+                columns={columns}
+                heads={{
+                  Отметка: (
+                    <Checkbox
+                      aria-label="Выбрать все на экране"
+                      checked={allPicked}
+                      disabled={busy}
+                      onChange={(event) =>
+                        setPicked(
+                          event.currentTarget.checked
+                            ? new Set(rows.map((row) => row.candidate_id))
+                            : new Set(),
+                        )
+                      }
+                    />
+                  ),
+                }}
+              />
               <Table.Tbody>
                 {rows.map((row, at) => (
                   <Fragment key={row.candidate_id}>
@@ -391,7 +401,11 @@ export function RunReviewPage() {
                         по ярусам, и значок «посмотреть» в каждой строке повторял
                         совет судьи рядом (аудит экранов 09.10.2026). */}
                     {rows[at - 1]?.tier !== row.tier && (
-                      <TierRow tier={row.tier} count={perTier.get(row.tier) ?? 0} span={columns} />
+                      <TierRow
+                        tier={row.tier}
+                        count={perTier.get(row.tier) ?? 0}
+                        span={columns.length}
+                      />
                     )}
                     <CandidateRow
                       row={row}

@@ -27,10 +27,9 @@ const COUNT_CAP = 999;
 
 const capped = (count: number) => (count > COUNT_CAP ? `${COUNT_CAP}+` : formatNumber(count));
 
-/** Число у пункта: работы нет — значка нет, ноль не рисуется. Точное число
- *  сверх потолка — на «Обзоре» и на экране раздела. */
-function WorkCount({ count }: { count: number | undefined }) {
-  if (count === undefined || count === 0) return null;
+/** Число у пункта — только когда работа ждёт (`NavItem`), ноль не рисуется. Точное
+ *  число сверх потолка — на «Обзоре» и на экране раздела. */
+function WorkCount({ count }: { count: number }) {
   return (
     <Badge size="sm" variant="light" color="yellow">
       {capped(count)}
@@ -64,7 +63,11 @@ function NavItem({ section, count, to, active, folded }: ItemProps) {
           icon
         )
       }
-      rightSection={folded ? null : <WorkCount count={count} />}
+      // Правая часть — только под число: пустая всё равно держит свой зазор и отнимает
+      // его у подписи, а `navWidth.ts` держит место лишь у пунктов, где число бывает, —
+      // у «Продаж» при одном праве «Продажи» подпись резалась многоточием. `undefined`,
+      // а не `null`: Mantine рисует часть при любом значении, кроме `undefined`.
+      rightSection={!folded && waiting ? <WorkCount count={count} /> : undefined}
       className="glassSlot"
       active={active}
       variant="light"
