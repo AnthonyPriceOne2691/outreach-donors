@@ -31,7 +31,6 @@ import csv
 import dataclasses
 import logging
 import re
-import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,7 +47,7 @@ from backend.features.contacts.sweep_input import host_from_cell, read_records
 from backend.features.core.domain import AuditAction
 from backend.features.donors.host import normalize_host
 from backend.features.donors.repository import DonorRepository
-from backend.features.sales import geo, lead_values, sheet
+from backend.features.sales import geo, lead_values, sheet, upload
 from backend.features.sales.columns import LeadField, Mapping, guess
 from backend.features.sales.lead_values import NO_DEFAULTS, Defaults
 from backend.features.sales.models import (
@@ -79,7 +78,6 @@ LANGUAGE_CODE = re.compile(r"[a-z]{2,3}(-[a-z0-9]{2,8})?")
 NO_LANGUAGE = f"язык не записан: {lead_values.LANGUAGE_HINT}"
 NO_COUNTRY = "страна не распознана: ждём код или название — de, Germany, Германия"
 NO_ZONE = "часовой пояс не распознан: ждём имя из базы поясов — Europe/Berlin"
-_UNSAFE_NAME = re.compile(r"[^\w.\- ]")
 
 
 class IntakeError(ValueError):
@@ -176,13 +174,10 @@ def read_file(path: Path, *, delimiter: str | None = None) -> Table:
 
 def read_bytes(data: bytes, name: str, *, delimiter: str | None = None) -> Table:
     """Присланное с экрана или скачанное по ссылке — через временный файл: общий
-    читатель берёт путь. Имя файла сохраняется — его называют отказы."""
+    читатель берёт путь. Имя файла — правилом `upload.file_name`: его называют отказы."""
     if len(data) > MAX_BYTES:
         raise IntakeError(f"файл {name} больше {MAX_BYTES / 2**20:g} МБ — разделите базу")
-    clean = _UNSAFE_NAME.sub("_", Path(name).name).lstrip(".")[:100] or "база.csv"
-    with tempfile.TemporaryDirectory(prefix="sales-intake-") as folder:
-        path = Path(folder) / clean
-        path.write_bytes(data)
+    with upload.saved(data, name, fallback="база.csv") as path:
         return read_file(path, delimiter=delimiter)
 
 

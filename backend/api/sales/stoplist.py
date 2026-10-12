@@ -166,7 +166,7 @@ async def add_to_stoplist(
 ) -> StoplistAdded:
     try:
         entries = await _entries(file, text)
-        why = (note or "").strip() or (file.filename if file is not None else None)
+        why = (note or "").strip() or _file_note(file)
         loaded = await stoplist.add(
             session, entries, author=author.email, note=why, author_id=author.id
         )
@@ -177,6 +177,12 @@ async def add_to_stoplist(
     return StoplistAdded(
         added=loaded.added, known=loaded.known, closed=loaded.closed, remarks=remarks
     )
+
+
+def _file_note(file: UploadFile | None) -> str | None:
+    """Без причины — имя файла, как у консоли; длиннее колонки причины — обрезанным: имя выбрал
+    не человек у поля причины, отказывать ему за длину — не за что."""
+    return file.filename[: stoplist.NOTE_LENGTH] if file is not None and file.filename else None
 
 
 @router.post("/stoplist/{entry_id}/remove", response_model=StoplistRemoved, summary="Снять запись")

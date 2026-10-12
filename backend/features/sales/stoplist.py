@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import csv
 import logging
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,7 +37,7 @@ from backend.features.contacts.extract import EMAIL_RE
 from backend.features.contacts.known_addresses import FREE_MAILBOX_DOMAINS
 from backend.features.contacts.sweep_input import read_records
 from backend.features.core.domain import AuditAction
-from backend.features.sales import stoplist_leads
+from backend.features.sales import stoplist_leads, upload
 from backend.features.sales.intake import EMAIL_LENGTH, MAX_BYTES, host_key
 from backend.features.sales.models import SalesStoplistModel
 
@@ -113,16 +112,15 @@ def read_text(text: str) -> Entries:
 
 def read_upload(data: bytes, name: str) -> Entries:
     """Файл с экрана — как файл консоли (`read_entries`): первая непонятая строка — заголовок."""
-    return _read_bytes(data, Path(name).name or "стоп-лист.csv", header=True)
+    return _read_bytes(data, name, header=True)
 
 
 def _read_bytes(data: bytes, name: str, *, header: bool) -> Entries:
-    """Через временный файл: общий читатель берёт путь. Имя — то, что назовут отказы."""
+    """Через временный файл: общий читатель берёт путь. Имя — одним правилом с загрузкой базы
+    (`upload.file_name`): `..` и имя длиннее предела диска не роняют запрос."""
     if len(data) > MAX_BYTES:
         raise StoplistError(f"список больше {MAX_BYTES / 2**20:g} МБ — разделите его")
-    with tempfile.TemporaryDirectory(prefix="sales-stoplist-") as folder:
-        path = Path(folder) / "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in name)
-        path.write_bytes(data)
+    with upload.saved(data, name, fallback="стоп-лист.csv") as path:
         return read_entries(path, header=header)
 
 
