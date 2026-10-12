@@ -2102,24 +2102,24 @@
       "worst": "beyond:88"
     },
     "backend/features/sales/auto_lines.py": {
-      "lines": 165,
+      "lines": 171,
       "complexity": 7,
-      "worst": "_collected:141"
+      "worst": "_collected:147"
     },
     "backend/features/sales/autobuild.py": {
-      "lines": 259,
+      "lines": 260,
       "complexity": 8,
       "worst": "_choose:166"
     },
     "backend/features/sales/autosend.py": {
-      "lines": 324,
+      "lines": 338,
       "complexity": 8,
-      "worst": "stop:138"
+      "worst": "stop:161"
     },
     "backend/features/sales/autosend_jobs.py": {
-      "lines": 151,
+      "lines": 167,
       "complexity": 8,
-      "worst": "_alarm:91"
+      "worst": "_alarm:102"
     },
     "backend/features/sales/browse.py": {
       "lines": 209,
@@ -2572,9 +2572,9 @@
       "worst": "main:34"
     },
     "backend/workers/reaper.py": {
-      "lines": 243,
+      "lines": 250,
       "complexity": 4,
-      "worst": "_told:168"
+      "worst": "_told:170"
     },
     "backend/workers/sales_jobs.py": {
       "lines": 150,

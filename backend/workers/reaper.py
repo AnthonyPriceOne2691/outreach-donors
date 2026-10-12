@@ -19,8 +19,10 @@
 
 Четвёртый и пятый — автоотправка первых писем продаж и автосборка их очереди
 (`features/sales/autosend_jobs.tick`, `features/sales/autobuild.tick`) — так же: модуль
-продаж — при первом проходе, тумблеры (`SALES_AUTOSEND`, `SALES_AUTOBUILD`) смотрит сам
-проход, выключенный не открывает и сессии.
+продаж — при первом проходе, а тумблеры (`SALES_ENABLED` и `SALES_AUTOSEND`, `SALES_AUTOBUILD`)
+цикл смотрит до импорта. Выключенный проход не грузит в разбор ни отправку и почту, ни сборку
+с моделью: процесс живёт в тесном пределе памяти, и сломанный импорт выключенного прохода ронял
+бы каждый его цикл.
 """
 
 from __future__ import annotations
@@ -206,8 +208,11 @@ async def retry_handoffs() -> None:
 
 
 async def autosend() -> None:
-    """Проход автоотправки первых писем продаж. Импорт модуля продаж — здесь, как у повтора
-    передачи: упадёт он — упадёт этот цикл, а не весь разбор."""
+    """Проход автоотправки первых писем продаж. Тумблеры — до импорта: выключенный проход модуль
+    продаж не грузит. Импорт — здесь, как у повтора передачи: упадёт он — упадёт этот цикл, а не
+    весь разбор."""
+    if not (sales_cfg.ENABLED and sales_cfg.AUTOSEND):
+        return
     from backend.features.sales.autosend_jobs import tick  # noqa: PLC0415 — лениво
 
     await tick()
@@ -215,6 +220,8 @@ async def autosend() -> None:
 
 async def autobuild() -> None:
     """Проход автосборки очереди продаж — тем же порядком, что автоотправка."""
+    if not (sales_cfg.ENABLED and sales_cfg.AUTOBUILD):
+        return
     from backend.features.sales.autobuild import tick  # noqa: PLC0415 — лениво
 
     await tick()

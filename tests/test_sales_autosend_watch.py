@@ -374,6 +374,9 @@ async def test_reaper_loops_are_the_sales_passes(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(autosend_jobs, "tick", sending)
     monkeypatch.setattr(autobuild, "tick", building)
+    monkeypatch.setattr(sales_cfg, "ENABLED", True)
+    monkeypatch.setattr(sales_cfg, "AUTOSEND", True)
+    monkeypatch.setattr(sales_cfg, "AUTOBUILD", True)
 
     await reaper.autosend()
     await reaper.autobuild()
@@ -387,6 +390,30 @@ def test_reaper_does_not_load_the_sales_passes_at_start() -> None:
         "import sys, backend.workers.reaper; "
         "print([name for name in ('backend.features.sales.autosend_jobs', "
         "'backend.features.sales.autobuild') if name in sys.modules])"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True, cwd=ROOT
+    )
+    assert done.stdout.strip() == "[]", done.stderr
+
+
+def test_switched_off_sales_passes_load_no_sales_module_into_the_reaper() -> None:
+    """Тумблеры выключены — циклы автоотправки и автосборки не грузят в процесс разбора ни модуль
+    продаж, ни отправку с почтой, ни сборку с моделью: процесс живёт в тесном пределе памяти, а
+    сломанный импорт выключенного прохода ронял бы каждый его цикл. Тумблеры — до импорта, у
+    каждого прохода свой: включённый соседний его не включает."""
+    code = (
+        "import asyncio, sys\n"
+        "from backend.config import sales\n"
+        "from backend.workers import reaper\n"
+        "before = set(sys.modules)\n"
+        "switches = ((False, False, False), (False, True, True), (True, False, True))\n"
+        "for enabled, own, other in switches:\n"
+        "    sales.ENABLED, sales.AUTOSEND, sales.AUTOBUILD = enabled, own, other\n"
+        "    asyncio.run(reaper.autosend())\n"
+        "    sales.ENABLED, sales.AUTOSEND, sales.AUTOBUILD = enabled, other, own\n"
+        "    asyncio.run(reaper.autobuild())\n"
+        "print(sorted(name for name in set(sys.modules) - before if name.startswith('backend.')))\n"
     )
     done = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True, cwd=ROOT
