@@ -21,9 +21,10 @@
 открытыми. Прогон меряет вердикт, а не режим. Промпт — явно: умолчание `judge.verdict`
 вычислено при импорте, и подмена постоянной модуля до него не дошла бы.
 
-**Версия в файлах** (`Prompts`) — промпты ситуации, черновика и судьи и таблица ходов.
-Прежнюю версию можно прогнать рядом с новой из каталога файлов (`using`): на время прогона
-агент берёт их вместо файлов пакета. Правила судьи кодом — те, что в дереве.
+**Версия в файлах** (`Prompts`) — промпты ситуации, черновика и судьи, таблица ходов и база
+знаний. Прежнюю версию можно прогнать рядом с новой из каталога файлов (`using`): на время
+прогона агент берёт их вместо файлов пакета, а базу знаний — из `kb.json` каталога (список
+записей, как у загрузки `sales-kb-load`) вместо таблицы. Правила судьи кодом — те, что в дереве.
 """
 
 from __future__ import annotations
@@ -58,7 +59,7 @@ from backend.features.agent.writer import DraftUnavailableError, Request, Turn
 from backend.features.core.domain import Stage
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.sales import kb
-from backend.features.sales.agent import judge, moves, parts, situation
+from backend.features.sales.agent import judge, moves, parts, replay_kb, situation
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,8 @@ FILES = {
     "judge": "judge.md",
     "moves": "moves.toml",
 }
+#: База знаний версии — файлом в каталоге вместо таблицы.
+KB_FILE = "kb.json"
 #: Метки ситуации, какими их знает агент.
 LABELS = frozenset(label.value for label in situation.Label)
 
@@ -191,20 +194,23 @@ class Run:
 
 @dataclass(frozen=True, slots=True)
 class Prompts:
-    """Версия агента в файлах: промпты ситуации, черновика и судьи, таблица ходов."""
+    """Версия агента в файлах: промпты ситуации, черновика и судьи, таблица ходов — и база
+    знаний файлом (`kb`; `None` — таблица базы, как у живого агента)."""
 
     situation: Path
     reply: Path
     judge: Path
     moves: Path
+    kb: Path | None = None
 
     def files(self) -> dict[str, Path]:
-        return {
+        found = {
             "situation": self.situation,
             "reply": self.reply,
             "judge": self.judge,
             "moves": self.moves,
         }
+        return found if self.kb is None else found | {"kb": self.kb}
 
     def fingerprint(self) -> dict[str, str]:
         """Отпечатки файлов: по ним видно, та же версия или другая."""
@@ -219,7 +225,8 @@ PACKAGED = Prompts(situation.PROMPT, parts.PROMPT, judge.PROMPT, moves.TABLE)
 
 
 def from_folder(folder: Path) -> Prompts:
-    """Версия из каталога: его файлы вместо файлов пакета, чего в нём нет — из пакета."""
+    """Версия из каталога: его файлы вместо файлов пакета, чего в нём нет — из пакета;
+    `kb.json` — база знаний вместо таблицы. Негодная база — отказ словами сразу."""
     if not folder.is_dir():
         raise SetError(f"каталога версии нет: {folder}")
     packaged = PACKAGED.files()
@@ -227,9 +234,21 @@ def from_folder(folder: Path) -> Prompts:
         name: folder / file if (folder / file).is_file() else packaged[name]
         for name, file in FILES.items()
     }
-    if chosen == packaged:
-        raise SetError(f"в каталоге версии {folder} нет ни одного из {', '.join(FILES.values())}")
-    return Prompts(**chosen)
+    base = folder / KB_FILE if (folder / KB_FILE).is_file() else None
+    if chosen == packaged and base is None:
+        names = ", ".join([*FILES.values(), KB_FILE])
+        raise SetError(f"в каталоге версии {folder} нет ни одного из {names}")
+    if base is not None:
+        kb_facts(base)
+    return Prompts(**chosen, kb=base)
+
+
+def kb_facts(path: Path) -> tuple[kb.Fact, ...]:
+    """База знаний версии из файла (`replay_kb.facts_of`); не годится — `SetError` словами."""
+    try:
+        return replay_kb.facts_of(path)
+    except replay_kb.KbVersionError as exc:
+        raise SetError(str(exc)) from exc
 
 
 @contextmanager
@@ -238,14 +257,18 @@ def using(prompts: Prompts) -> Iterator[None]:
 
     Промпт ситуации и таблица ходов — постоянные модулей агента: на время прогона они
     подменяются и возвращаются в любом случае. Промпт черновика уходит писателю в запросе
-    (`Request.prompt`), промпт судьи — судье прогона явно (`judged`). Таблица проверяется
-    сразу: негодная — отказ словами до первого вызова модели.
+    (`Request.prompt`), промпт судьи — судье прогона явно (`judged`). База знаний файлом
+    подменяет выборку базы (`kb.facts`, `replay_kb.py`): её берут бриф и версия прогона.
+    Таблица и база проверяются сразу: негодные — отказ словами до первого вызова модели.
 
     Подмена видна всему процессу: прогон — только отдельной командой
     (`scripts/sales_replay.py`), не из API и не из воркера, где пишет живой агент.
     """
-    saved = situation.PROMPT, moves.TABLE
+    base = None if prompts.kb is None else replay_kb.substitute(kb_facts(prompts.kb))
+    saved = situation.PROMPT, moves.TABLE, kb.facts
     situation.PROMPT, moves.TABLE = prompts.situation, prompts.moves
+    if base is not None:
+        kb.facts = base
     moves.table.cache_clear()
     try:
         try:
@@ -254,7 +277,7 @@ def using(prompts: Prompts) -> Iterator[None]:
             raise SetError(f"таблица ходов версии ({prompts.moves}) не годится: {exc}") from exc
         yield
     finally:
-        situation.PROMPT, moves.TABLE = saved
+        situation.PROMPT, moves.TABLE, kb.facts = saved
         moves.table.cache_clear()
 
 

@@ -254,6 +254,20 @@ def worse_cases(before: Sequence[Result], after: Sequence[Result]) -> list[str]:
     return found
 
 
+def verdict(old: Run, new: Run) -> str:
+    """Итог сравнения одной строкой с числами — для вывода «не хуже / хуже» цикла докрутки."""
+    before, after, _ = paired(old, new)
+    o, n = tally(before), tally(after)
+    moved = ", ".join(
+        f"{title} {o.outcomes[outcome]} → {n.outcomes[outcome]}"
+        for outcome, title in OUTCOMES.items()
+    )
+    return (
+        f"общих случаев {len(before)}: ложное молчание {o.false_silence} → {n.false_silence}, "
+        f"черновиков с нарушениями {o.violations} → {n.violations}; {moved}"
+    )
+
+
 def compare(old: Run, new: Run, *, strict: bool = False) -> Gate:
     """Ворота: новая версия против прежней на общих случаях."""
     before, after, note = paired(old, new)
