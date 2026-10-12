@@ -25,10 +25,15 @@
 дольше `STUCK_AFTER` (`unknown_outcome.py`): ушло ли оно, неизвестно, и слать дальше вслепую
 нельзя — как и пачке. Письмо моложе может быть ещё в пути: его прямо сейчас передаёт почте другая
 отправка — добивка, ответ, кнопка, пачка (худшая передача — две с половиной минуты). Стоять на нём
-значило бы стоять на каждой чужой отправке. Отказ по одному письму (стоп-лист, письмо не готово)
-проход не останавливает: письмо ждёт в очереди с причиной, проход идёт к следующему. Писать
-некому (кап, разгон, лимиты домена, паузы ящиков) — проход кончается: следующему письму ответ
-был бы тем же.
+значило бы стоять на каждой чужой отправке. Отказ по одному письму (стоп-лист, письмо не готово,
+почта отказала этому адресату или содержимому) проход не останавливает: письмо ждёт в очереди с
+причиной, проход идёт к следующему. Писать некому (кап, разгон, лимиты домена, паузы ящиков) —
+проход кончается: следующему письму ответ был бы тем же.
+
+**Платформа отказывает любому письму — проход стоит** (`PlatformRefusalError`: ключ не принят,
+учётке отказано, частота или сбой после повторов, недоступна). Письмо, на котором это выяснилось,
+вернулось в очередь, а следующие проход не берёт: иначе раз в минуту он захватывал бы и возвращал
+каждое письмо окна. Это остановка не по делу — тревога через 15 минут, как у неизвестного исхода.
 
 **Предохранитель почты не снят — автоотправка не включается** (`guard`). Пока список разрешённых
 адресатов почты продаж не пуст, письма уходят только на свои адреса, а отказ предохранителя почта
@@ -60,7 +65,7 @@ from backend.features.core.stages import SalesNotConnectedError
 from backend.features.letters import batch, mailbox, unknown_outcome
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.sending import NoSenderError, SendError, Sending
-from backend.features.letters.transport import Mail
+from backend.features.letters.transport import Mail, PlatformRefusalError
 from backend.features.sales import connection
 from backend.features.sales.models import SalesLeadModel, SalesThreadModel
 from backend.features.sales.policy import sales_policy, zones_of
@@ -77,6 +82,7 @@ class Stop(StrEnum):
     NOT_CONNECTED = "продажи не подключены"
     GUARDED = "предохранитель почты не снят"
     UNKNOWN = "исход неизвестен"
+    REFUSED = "платформа отказывает"
     EMPTY = "очередь пуста"
     OUTSIDE = "вне окна получателя"
     CAP = "писать некому"
@@ -84,7 +90,7 @@ class Stop(StrEnum):
 
 
 #: Стоит не по делу — о таком тревога (`autosend_jobs.py`); остальное — проход по делу ждёт.
-STALLS = frozenset({Stop.UNKNOWN})
+STALLS = frozenset({Stop.UNKNOWN, Stop.REFUSED})
 
 
 def guard() -> str | None:
@@ -284,9 +290,9 @@ async def run(session: AsyncSession, transports: Mail, *, now: datetime) -> Pass
     sending = Sending(session, transports, now=now)
     for letter_id in seen.waiting.ids:
         with mailbox.resting(resting.keys() | used.keys()):
-            refusal = await _one(sending, letter_id, found)
-        if refusal is not None:
-            found.stop, found.stopped = _why_stopped(refusal, resting, used, now)
+            halt = await _one(sending, letter_id, found)
+        if halt is not None:
+            found.stop, found.stopped = _why_stopped(halt, resting, used, now)
             return found
         box = await _box_of(session, letter_id) if letter_id in found.sent else None
         if box is not None:
@@ -294,16 +300,21 @@ async def run(session: AsyncSession, transports: Mail, *, now: datetime) -> Pass
     return found
 
 
-async def _one(sending: Sending, letter_id: int, found: Pass) -> str | None:
-    """Одно письмо прохода. Ушло или отказ по письму — `None`; писать некому — слова отказа:
-    дальше проход не идёт. Остальное (обрыв связи, база) — исключением: проход упал, и письмо,
-    оставшееся «отправляется», следующий проход увидит исходом неизвестным."""
+async def _one(sending: Sending, letter_id: int, found: Pass) -> tuple[Stop, str] | None:
+    """Одно письмо прохода. Ушло или отказ по письму — `None`; дальше проход не идёт — вид и
+    слова: писать некому (паузы ящиков судит `_why_stopped`) или платформа отказывает любому
+    письму. Остальное (обрыв связи, база) — исключением: проход упал, и письмо, оставшееся
+    «отправляется», с `STUCK_AFTER` встанет в блок «Исход неизвестен»."""
     try:
         outcome = await sending.send(letter_id)
     except (NoSenderError, SalesNotConnectedError) as exc:
         logger.debug("продажи: автоотправка — на письме №%s писать некому: %s", letter_id, exc)
-        return str(exc)
+        return Stop.CAP, str(exc)
     except SendError as exc:
+        # Отказ транспорта `Sending._hand_over` отдаёт причиной исключения: отказ не по письму
+        # узнаётся по ней, а письмо уже вернулось в очередь.
+        if isinstance(exc.__cause__, PlatformRefusalError):
+            return Stop.REFUSED, _refused(letter_id, exc.__cause__)
         # Строка журнала об отказе — по смене причины у письма (`autosend_jobs.py`): письмо
         # со стоп-листом ждёт в очереди днями, а проход заглядывает в него каждую минуту.
         found.refused[letter_id] = batch.why(exc)
@@ -325,12 +336,22 @@ async def _box_of(session: AsyncSession, letter_id: int) -> int | None:
     return None if letter is None else letter.sender_id
 
 
+def _refused(letter_id: int, refusal: PlatformRefusalError) -> str:
+    """Платформа отказывает любому письму — словами без ключа и адреса: тревога и журнал."""
+    return (
+        f"платформа отказывает: {refusal.reason} — письмо №{letter_id} вернулось в очередь, "
+        "следующие письма проход не берёт: ответ был бы тем же"
+    )
+
+
 def _why_stopped(
-    refusal: str, resting: dict[int, datetime], used: dict[int, datetime], now: datetime
+    halt: tuple[Stop, str], resting: dict[int, datetime], used: dict[int, datetime], now: datetime
 ) -> tuple[Stop, str]:
-    """Почему проход кончился раньше писем в окне: писать некому — из-за пауз или по капу."""
-    if mailbox.RESTING not in refusal:
-        return Stop.CAP, refusal
+    """Почему проход кончился раньше писем в окне: платформа отказывает — как есть; писать
+    некому — из-за пауз ящиков (до какой минуты) или по капу."""
+    stop, words = halt
+    if stop is not Stop.CAP or mailbox.RESTING not in words:
+        return halt
     until = min([*resting.values(), *used.values()], default=now)
     return Stop.RESTING, (
         f"ящики на паузе между письмами — ближайший освободится в {until:%H:%M} UTC"

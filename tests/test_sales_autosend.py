@@ -9,9 +9,11 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+import httpx
 import pytest
 from backend.config import sales as sales_cfg
 from backend.features.core.domain import ContactSource, MessageStatus, Stage
@@ -21,6 +23,7 @@ from backend.features.core.models.outreach import MessageModel, SendingDomainMod
 from backend.features.letters import mailbox
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.repository import LetterRepository
+from backend.features.letters.sendgrid import SendGridTransport
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport import Outgoing, TransportError
 from backend.features.letters.unknown_outcome import STUCK_AFTER
@@ -291,6 +294,56 @@ async def test_stoplist_and_allowlist_refuse_a_letter_and_the_pass_goes_on(
     assert [outgoing.to for outgoing in guarded.seen] == [IVAN]
     assert await _status(session, letters[0]) is MessageStatus.QUEUED
     assert await _status(session, letters[1]) is MessageStatus.QUEUED
+
+
+def _sendgrid(status: int) -> tuple[_ByStage, list[str]]:
+    """Боевой транспорт продаж на подставном HTTP: платформа отвечает `status` на каждое письмо.
+    Второй — адресаты писем, которые проход отдал платформе."""
+    asked: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        asked.append(json.loads(request.content)["personalizations"][0]["to"][0]["email"])
+        return httpx.Response(status, text='{"errors":[{"message":"made-up refusal"}]}')
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(answer))
+    sales = SendGridTransport(api_key="SG.made-up-sales-key", allowlist=(), http=http)
+    return _ByStage(sales=sales, donors=Recording(), advertisers=Recording()), asked
+
+
+async def test_platform_refusing_every_letter_stops_the_pass_on_the_first_one(
+    session: AsyncSession, world: w.World
+) -> None:
+    """Ключ не принят (401): ответ был бы тем же любому письму. Проход взял одно письмо — оно
+    вернулось в очередь, — а следующие не берёт: иначе каждую минуту захватывал бы и возвращал
+    всё окно. Слова — без ключа и адреса."""
+    letters = await _letters(session, world, JANE, OLGA, IVAN)
+    await w.mailbox(session, SECOND_BOX)
+    source, asked = _sendgrid(401)
+
+    found = await autosend.run(session, source, now=NOW)
+
+    assert asked == [JANE]
+    assert (found.sent, found.refused, found.stop, found.due) == ({}, {}, Stop.REFUSED, True)
+    assert found.stopped == (
+        f"платформа отказывает: ключ платформы не принят (401) — письмо №{letters[0].id} "
+        "вернулось в очередь, следующие письма проход не берёт: ответ был бы тем же"
+    )
+    assert [await _status(session, letter) for letter in letters] == [MessageStatus.QUEUED] * 3
+
+
+async def test_a_refusal_of_this_letter_lets_the_pass_take_the_next_ones(
+    session: AsyncSession, world: w.World
+) -> None:
+    """Отказ о письме (400 — адресат, содержимое) — как прежде: письмо ждёт с причиной, проход
+    берёт следующие."""
+    letters = await _letters(session, world, JANE, OLGA, IVAN)
+    source, asked = _sendgrid(400)
+
+    found = await autosend.run(session, source, now=NOW)
+
+    assert asked == [JANE, OLGA, IVAN]
+    assert found.refused == {letter.id: "почта отказала" for letter in letters}
+    assert (found.sent, found.stop) == ({}, None)
 
 
 # --- тумблеры и чужие письма -------------------------------------------------------------------

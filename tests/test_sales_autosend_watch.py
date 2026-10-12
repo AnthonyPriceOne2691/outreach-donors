@@ -29,7 +29,7 @@ from backend.features.sales.autosend_jobs import ALARM, RESUMED, Watch
 from backend.workers import reaper
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
-from tests.test_sales_autosend import IVAN, JANE, OLGA, _letters
+from tests.test_sales_autosend import IVAN, JANE, OLGA, _letters, _sendgrid
 from tests.test_sales_send import _transports
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -197,6 +197,46 @@ async def test_unknown_outcome_over_15_minutes_alarms_once_and_going_again_alarm
     assert told[1:] == [f"{RESUMED} (стояла: {alarm.removeprefix(ALARM + '. ')})"]
     await session.refresh(letters[1])
     assert letters[1].status is MessageStatus.SENT
+
+
+async def test_platform_refusing_every_letter_alarms_after_15_minutes_and_then_resumes(
+    session: AsyncSession,
+    world: w.World,
+    monkeypatch: pytest.MonkeyPatch,
+    switched_on: None,
+    told: list[str],
+) -> None:
+    """Ключ не принят (401) на каждом проходе: проход берёт одно письмо и стоит не по делу.
+    Через 15 минут — тревога словами «платформа отказывает: …», без ключа и адреса; ключ
+    починили — письмо ушло, «прошло» одной строкой."""
+    letters = await _letters(session, world, JANE, OLGA)
+    refusing, asked = _sendgrid(401)
+    mail = {"now": refusing}
+
+    async def on_test_base(now: datetime) -> Pass:
+        return await autosend.run(session, mail["now"], now=now)
+
+    _passes(monkeypatch, on_test_base)
+    watch = Watch()
+
+    for minutes in (0, 5, 10, 14):
+        await autosend_jobs.tick(now=NOW + MINUTE * minutes, watch=watch)
+    quiet = list(told)
+    await autosend_jobs.tick(now=NOW + MINUTE * 15, watch=watch)
+    alarmed = list(told)
+    mail["now"] = _transports()
+    await autosend_jobs.tick(now=NOW + MINUTE * 16, watch=watch)
+
+    assert quiet == []
+    # По одному письму на проход — не всё окно.
+    assert asked == [JANE] * 5
+    [alarm] = alarmed
+    assert alarm.startswith(f"{ALARM}. платформа отказывает: ключ платформы не принят (401)")
+    assert JANE not in alarm
+    assert "made-up-sales-key" not in alarm
+    assert told[1:] == [f"{RESUMED} (стояла: {alarm.removeprefix(ALARM + '. ')})"]
+    await session.refresh(letters[0])
+    assert letters[0].status is MessageStatus.SENT
 
 
 async def test_no_alarm_while_nothing_is_due_even_if_the_outcome_is_unknown(
