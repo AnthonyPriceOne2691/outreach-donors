@@ -9,6 +9,9 @@
  *
  * Пусто — первое письмо ещё не уходило: ящик выберется в момент отправки.
  *
+ * **Ящик не пишет — плашка красная** (слово владельца 12.10.2026): переписка стоит, пока
+ * ящик не вернут, — смены ящика нет, и без человека она не сдвинется.
+ *
  * **Две части — строка и плашка** (`ThreadPage`): строка «Пишет …» стоит в строке
  * домена, плашка — одной строкой под шапкой, заголовок — в начале абзаца, а не
  * отдельной строкой. До 09.10.2026 шапка с плашкой занимала 250 px из 792 и
@@ -46,9 +49,9 @@ export function ThreadMailLine({ mail }: { mail: ThreadMail | null | undefined }
 export function ThreadMailWaiting({ mail }: { mail: ThreadMail | null | undefined }) {
   if (!mail || mail.waiting === null) return null;
   return (
-    <Alert color="yellow" py={6} px="sm">
+    <Alert color="red" py={6} px="sm">
       <Text span size="sm" fw={600}>
-        Письма переписки ждут свой ящик
+        Ящик переписки недоступен
       </Text>{' '}
       —{' '}
       <Text span size="sm">

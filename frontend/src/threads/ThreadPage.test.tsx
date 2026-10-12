@@ -725,7 +725,7 @@ describe('ящик переписки', () => {
     expect(
       screen.getByText(/^Пишет outreach@mail-one\.example\.test · добивка 1 — 10\.10\.2026/),
     ).toBeInTheDocument();
-    expect(screen.queryByText('Письма переписки ждут свой ящик')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ящик переписки недоступен')).not.toBeInTheDocument();
   });
 
   it('ящик не пишет — почему ждут, видно до клика, словами сервера', async () => {
@@ -735,7 +735,9 @@ describe('ящик переписки', () => {
       'Ящик outreach@mail-one.example.test сейчас не пишет (на паузе: доля отказов 7%)';
     await openThread({ mail: { ...MAIL, waiting } });
 
-    expect(screen.getByText('Письма переписки ждут свой ящик')).toBeInTheDocument();
+    // Красной — слово владельца 12.10.2026: смены ящика нет, переписка стоит, пока его не вернут.
+    const plate = screen.getByText('Ящик переписки недоступен').closest('[role="alert"]');
+    expect(plate).toHaveStyle({ '--alert-bg': 'var(--mantine-color-red-light)' });
     expect(screen.getByText(waiting)).toBeInTheDocument();
   });
 

@@ -32,6 +32,7 @@ import { listHypotheses } from '../api/sales';
 import { PageHead } from '../components/PageHead';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
+import { Watchdog } from '../layout/Watchdog';
 import { dropdownBelow } from '../theme';
 import { AgentQualityPane } from './AgentQualityPane';
 import { ChainPane } from './ChainPane';
@@ -250,6 +251,7 @@ export function SalesPage() {
       <Stack gap="sm">
         <SalesTitle />
         <ModuleOff view={hypotheses.data} />
+        <Watchdog stage="sales" />
         <Group align="center" gap="sm" wrap="wrap" className="salesTabs">
           <SalesTabs
             tab={filters.tab}

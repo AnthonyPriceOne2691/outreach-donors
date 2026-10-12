@@ -205,6 +205,47 @@ describe('продажи: право', () => {
   });
 });
 
+describe('продажи: ящик переписки выбыл — красная полоса над вкладками', () => {
+  it('тревога сторожа о почте продаж — в разделе; общая и чужого этапа — на главной', async () => {
+    // Слово владельца 12.10.2026: вместо смены ящика переписки — красная тревога там, где
+    // работает человек продаж. Прежде она стояла только на главной.
+    await openScreen({
+      'GET /api/watchdog': {
+        body: {
+          alarms: [
+            {
+              code: 'retired-box:sales@mail.example.test',
+              title: 'Ящик sales@mail.example.test выбыл',
+              detail: 'Писем переписки ждут его: 2 — добивок 1, ответов 1.',
+              stage: 'sales',
+            },
+            {
+              code: 'delivery-silence',
+              title: 'Платформа молчит о доставке',
+              detail: '…',
+              stage: null,
+            },
+            {
+              code: 'all-paused:donors',
+              title: 'Все ящики доноров на паузе',
+              detail: '…',
+              stage: 'donors',
+            },
+          ],
+        },
+      },
+    });
+
+    const alarm = (await screen.findByText('Ящик sales@mail.example.test выбыл')).closest(
+      '[role="alert"]',
+    );
+    expect(alarm).toHaveStyle({ '--alert-bg': 'var(--mantine-color-red-light)' });
+    expect(screen.getByText(/Писем переписки ждут его: 2/)).toBeInTheDocument();
+    expect(screen.queryByText('Платформа молчит о доставке')).not.toBeInTheDocument();
+    expect(screen.queryByText('Все ящики доноров на паузе')).not.toBeInTheDocument();
+  });
+});
+
 describe('продажи: лиды', () => {
   it('строка называет лида, компанию, гипотезу, состояние и причину словами', async () => {
     await openScreen();
