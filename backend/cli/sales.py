@@ -8,11 +8,10 @@
     outreach sales-kb-load --file база.json [--update] [--dry-run]
     outreach sales-chain-load --file цепочка.json [--hypothesis "…"] [--update] [--dry-run]
 
-Стартовые гипотезы заводятся здесь, данными в базе, а не миграцией:
-описание гипотезы — коммерческий текст, а репозиторий публичный. Логика
-заведения — `features/sales/hypotheses.py`, загрузки — `features/sales/intake.py`,
-стоп-листа — `features/sales/stoplist.py`, очистки — `features/sales/cleaning.py`,
-базы знаний — `features/sales/kb_load.py`, цепочки писем —
+Стартовые гипотезы заводятся здесь, данными в базе, а не миграцией: описание гипотезы —
+коммерческий текст, а репозиторий публичный. Логика заведения — `features/sales/hypotheses.py`,
+загрузки — `features/sales/intake.py`, стоп-листа — `features/sales/stoplist.py`, очистки —
+`features/sales/cleaning.py`, базы знаний — `features/sales/kb_load.py`, цепочки писем —
 `features/sales/chain_load.py`; здесь только разбор и печать.
 
 Очистка собирает проверяльщик адресов до первого лида: `live` без ключа —
