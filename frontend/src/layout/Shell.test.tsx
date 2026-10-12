@@ -94,6 +94,26 @@ describe('числа ждущей работы у пунктов меню', () =
     expect(item('Доноры')).not.toHaveTextContent('ждут человека');
   });
 
+  it('правая часть пункта — только под число: пустая держит зазор и режет подпись', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: OPERATOR },
+      'GET /api/overview/work': { body: WORK },
+      ...HOME_ROUTES,
+    });
+    renderWith(<AppRoutes />, '/');
+    await waitFor(() => expect(item('Прогон')).toHaveTextContent('3 ждут человека'));
+    const right = (link: HTMLElement) => link.querySelector('[data-position="right"]');
+
+    expect(right(item('Прогон'))).toHaveTextContent('3 ждут человека');
+    // Ноль и пункты, где числа не бывает, — без правой части: у «Продаж» с пустой резалась
+    // подпись. «Продажи» — ссылкой: так же зовётся и группа меню.
+    expect(right(item('Формы'))).toBeNull();
+    expect(right(item('Доноры'))).toBeNull();
+    const menu = within(screen.getByRole('navigation'));
+    expect(right(menu.getByRole('link', { name: 'Продажи' }))).toBeNull();
+  });
+
   it('без права смотреть базу чисел не спрашивает', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     const recorded = serve({

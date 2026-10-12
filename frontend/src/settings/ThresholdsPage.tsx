@@ -38,6 +38,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { refusalOf } from '../api/client';
 import { fetchThresholds, previewThresholds, saveThresholds } from '../api/settings';
 import type { RunRules, ThresholdsFields, VersionBody } from '../api/settings';
+import { ColumnsHead } from '../components/ColumnsHead';
+import type { Column } from '../components/ColumnsHead';
 import { PageHead } from '../components/PageHead';
 import { SaveVersionButton } from '../components/SaveVersionButton';
 import { useSession } from '../auth/AuthProvider';
@@ -80,7 +82,7 @@ const FIELDS: Record<ThresholdKey, { label: string; hint: string }> = {
  *  **Ширина задана у всех**, и запас панели делится между ними пропорционально: до
  *  09.10.2026 «Кто и когда» была остатком и забирала ~570 px, числа жались к левой
  *  половине, а между «Ключи» и датой зиял провал (аудит экранов 09.10.2026). */
-const COLUMNS: { title: string; width?: string }[] = [
+const COLUMNS: Column[] = [
   { title: 'Версия', width: '11rem' },
   { title: 'DR', width: '5rem' },
   { title: 'Трафик', width: '7.5rem' },
@@ -262,21 +264,7 @@ export function ThresholdsPage() {
             verticalSpacing="sm"
             horizontalSpacing="md"
           >
-            <colgroup>
-              {COLUMNS.map((column) => (
-                <col
-                  key={column.title}
-                  style={column.width ? { width: column.width } : undefined}
-                />
-              ))}
-            </colgroup>
-            <Table.Thead>
-              <Table.Tr>
-                {COLUMNS.map((column) => (
-                  <Table.Th key={column.title}>{column.title}</Table.Th>
-                ))}
-              </Table.Tr>
-            </Table.Thead>
+            <ColumnsHead columns={COLUMNS} />
             <Table.Tbody>
               {data.history.map((version) => (
                 <Table.Tr key={version.version}>

@@ -17,11 +17,11 @@ import { Link } from 'react-router-dom';
 
 import { actionTitle, detailLines, targetParts } from '../api/auditLabels';
 import type { JournalEntry } from '../api/journal';
-import { TableColumns } from '../components/TableColumns';
-import type { TableColumn } from '../components/TableColumns';
+import { ColumnsHead } from '../components/ColumnsHead';
+import type { Column } from '../components/ColumnsHead';
 import { formatDateTime } from '../format';
 
-const COLUMNS: TableColumn[] = [
+const COLUMNS: Column[] = [
   { title: 'Когда', width: '10.5rem' },
   { title: 'Кто', width: '15rem' },
   { title: 'Что', width: '15rem' },
@@ -131,7 +131,7 @@ export function JournalTable({ entries, emails, stale }: Props) {
         verticalSpacing="sm"
         horizontalSpacing="md"
       >
-        <TableColumns columns={COLUMNS} />
+        <ColumnsHead columns={COLUMNS} />
         <Table.Tbody className="staleRows" data-stale={stale || undefined}>
           {entries.map((entry) => (
             <Row key={entry.id} entry={entry} emails={emails} />

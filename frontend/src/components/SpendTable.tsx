@@ -19,8 +19,8 @@ import type { Stage } from '../api/stages';
 import type { ArticleCard } from '../api/types';
 import { formatBytes, formatNumber, formatUsd, plural } from '../format';
 import { spendOperation, spendProvider, stageShort, unitsText } from '../settings/usageLabels';
-import { TableColumns } from './TableColumns';
-import type { TableColumn } from './TableColumns';
+import { ColumnsHead } from './ColumnsHead';
+import type { Column } from './ColumnsHead';
 
 /** Статья таблицы: провайдер — строкой (сервер заводит новых: прокси, рендеринг), этап —
  *  у статей экрана «Расход» (`api/settings.StagedArticle`). */
@@ -70,8 +70,8 @@ export function tileOf(
  *  Плюс 32 px полей ячейки. **Ширина задана у всех**, и запас панели делится между
  *  колонками пропорционально: до 09.10.2026 «Статья» была остатком и забирала ~650 px
  *  под названия в 150–210 px, а колонки чисел жались к правому краю (аудит экранов). */
-const STAGE: TableColumn = { title: 'Этап', width: '7.5rem' };
-const COLUMNS: TableColumn[] = [
+const STAGE: Column = { title: 'Этап', width: '7.5rem' };
+const COLUMNS: Column[] = [
   { title: 'Статья', width: '15rem' },
   { title: 'Провайдер', width: '9.5rem' },
   { title: 'Запросов', width: '7rem' },
@@ -105,7 +105,7 @@ export function SpendTable({
         verticalSpacing="sm"
         horizontalSpacing="md"
       >
-        <TableColumns columns={columns} />
+        <ColumnsHead columns={columns} />
         <Table.Tbody>
           {articles.map((article) => (
             <Table.Tr key={`${article.provider}-${article.operation}-${article.stage ?? 'none'}`}>

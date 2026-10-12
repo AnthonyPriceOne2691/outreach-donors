@@ -14,7 +14,12 @@ import { Card, Stack, Table, Text, Title } from '@mantine/core';
 
 import { countryTitle } from '../api/labels';
 import type { RejectionCard, RunThresholds } from '../api/runReport';
+import { ColumnsHead } from '../components/ColumnsHead';
+import type { Column } from '../components/ColumnsHead';
 import { formatNumber, formatShare } from '../format';
+
+/** Порогу — остаток: порог словами, а с регионом и долей трафика — длинной строкой. */
+const COLUMNS: Column[] = [{ title: 'Порог' }, { title: 'Отсеяно доменов', width: '9rem' }];
 
 /** Порог словами — подписями экрана «Пороги» — и значением этого прогона. */
 export function thresholdWords(
@@ -59,16 +64,7 @@ export function RejectionsCard({ rejected, thresholds, country }: Props) {
         </Text>
       </Stack>
       <Table className="dataTable" layout="fixed" verticalSpacing="sm" horizontalSpacing="md">
-        <colgroup>
-          <col />
-          <col style={{ width: '9rem' }} />
-        </colgroup>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Порог</Table.Th>
-            <Table.Th>Отсеяно доменов</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
+        <ColumnsHead columns={COLUMNS} />
         <Table.Tbody>
           {rejected.map((rejection) => (
             <Table.Tr key={`${rejection.threshold}-${rejection.said ?? ''}`}>
