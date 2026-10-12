@@ -377,9 +377,9 @@
       "worst": "of:26"
     },
     "backend/api/sales/stoplist.py": {
-      "lines": 183,
+      "lines": 202,
       "complexity": 7,
-      "worst": "_entries:133"
+      "worst": "_entries:146"
     },
     "backend/api/selection/__init__.py": {
       "lines": 1,
@@ -2197,9 +2197,9 @@
       "worst": "add:50"
     },
     "backend/features/sales/intake.py": {
-      "lines": 465,
+      "lines": 460,
       "complexity": 8,
-      "worst": "preview:204"
+      "worst": "preview:199"
     },
     "backend/features/sales/kb.py": {
       "lines": 365,
@@ -2332,9 +2332,9 @@
       "worst": "export_url:44"
     },
     "backend/features/sales/stoplist.py": {
-      "lines": 254,
-      "complexity": 8,
-      "worst": "add:171"
+      "lines": 258,
+      "complexity": 7,
+      "worst": "_sorted:141"
     },
     "backend/features/sales/stoplist_leads.py": {
       "lines": 112,
@@ -2365,6 +2365,11 @@
       "lines": 98,
       "complexity": 6,
       "worst": "close_address:61"
+    },
+    "backend/features/sales/upload.py": {
+      "lines": 43,
+      "complexity": 2,
+      "worst": "file_name:28"
     },
     "backend/features/sales/usage_cap.py": {
       "lines": 31,
