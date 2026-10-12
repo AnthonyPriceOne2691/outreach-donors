@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 
 from backend.config import filters as filters_cfg
 from backend.features.contacts.preference import preferred_first
@@ -128,23 +128,33 @@ class NicheRecipients(Recipients):
         offers = await self._offers([_Found(row.found_run_id, row.host)], now or datetime.now(UTC))
         return offers.get((row.found_run_id, row.host))
 
+    async def fresh_examples(self, run: RunModel, moment: datetime) -> list[str]:
+        """Площадки, которые письмо бизнесу ниши из прогона `run` может назвать примером
+        сейчас. Отправка сверяет по ним пример в письме (`offer_standing.py`)."""
+        return [str(host) for host in await self._session.scalars(_examples(run, moment))]
+
     async def _example_host(self, run: RunModel, moment: datetime) -> str | None:
-        """Принятый донор прогона со свежей ценой — сильнейший по DR."""
-        hosts = [str(host).lower() for host in (run.candidates or {}).get("hosts", [])]
-        border = moment - timedelta(days=filters_cfg.PRICE_TTL_DAYS)
-        host = await self._session.scalar(
-            select(DomainModel.host)
-            .join(DonorModel, DonorModel.domain_id == DomainModel.id)
-            .where(
-                DomainModel.host.in_(hosts),
-                DonorModel.review == _ACCEPTED,
-                DonorModel.last_price.is_not(None),
-                DonorModel.last_price_at >= border,
-            )
-            .order_by(DonorModel.dr.desc().nullslast(), DomainModel.id)
-            .limit(1)
-        )
+        """Пример площадки для нового письма — сильнейший по DR."""
+        host = await self._session.scalar(_examples(run, moment).limit(1))
         return None if host is None else str(host)
+
+
+def _examples(run: RunModel, moment: datetime) -> Select[tuple[str]]:
+    """Принятые доноры прогона со свежей ценой, сильнейшие по DR первыми. Правило одно
+    у сборки и у отправки: оффер «дешевле» держится на цене примера площадки."""
+    hosts = [str(host).lower() for host in (run.candidates or {}).get("hosts", [])]
+    border = moment - timedelta(days=filters_cfg.PRICE_TTL_DAYS)
+    return (
+        select(DomainModel.host)
+        .join(DonorModel, DonorModel.domain_id == DomainModel.id)
+        .where(
+            DomainModel.host.in_(hosts),
+            DonorModel.review == _ACCEPTED,
+            DonorModel.last_price.is_not(None),
+            DonorModel.last_price_at >= border,
+        )
+        .order_by(DonorModel.dr.desc().nullslast(), DomainModel.id)
+    )
 
 
 def _offers_of(

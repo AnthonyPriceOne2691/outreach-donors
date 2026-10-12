@@ -217,11 +217,17 @@ async def test_suppliers_import(tmp_path: Path, capsys: pytest.CaptureFixture[st
 
     async with committed_sessions():
         missing = await advertisers.cmd_suppliers_import(
-            argparse.Namespace(path=tmp_path / "нет.txt", by="op@t.test")
+            argparse.Namespace(path=tmp_path / "нет.txt", by="op@t.test", forever=False)
         )
-        blank = await advertisers.cmd_suppliers_import(argparse.Namespace(path=empty, by="op"))
-        first = await advertisers.cmd_suppliers_import(argparse.Namespace(path=listing, by="op"))
-        again = await advertisers.cmd_suppliers_import(argparse.Namespace(path=listing, by="op"))
+        blank = await advertisers.cmd_suppliers_import(
+            argparse.Namespace(path=empty, by="op", forever=False)
+        )
+        first = await advertisers.cmd_suppliers_import(
+            argparse.Namespace(path=listing, by="op", forever=False)
+        )
+        again = await advertisers.cmd_suppliers_import(
+            argparse.Namespace(path=listing, by="op", forever=False)
+        )
 
     out = capsys.readouterr().out
     assert (missing, blank, first, again) == (
@@ -230,5 +236,6 @@ async def test_suppliers_import(tmp_path: Path, capsys: pytest.CaptureFixture[st
         0,
         0,
     )
-    assert "Добавлено: 2, уже было: 0. Всего в списке: 2." in out
-    assert "Добавлено: 0, уже было: 2." in out
+    assert "добавлено 2, продлено 0, уже было 0. Срок: на 12 мес. — размещались." in out
+    assert "добавлено 0, продлено 0, уже было 2." in out
+    assert "Поставщиков действует: 2." in out

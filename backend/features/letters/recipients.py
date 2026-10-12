@@ -300,9 +300,11 @@ class Recipients:
             return LetterAddress(
                 blocked=f"письмо не соберётся: адрес для него не проходит проверку ({bad})"
             )
-        earlier = await self._session.scalar(
+        earlier = await self._session.scalar(  # снятое ссылкой не уходило (`attempts.withdrawn`)
             select(func.count(MessageModel.id)).where(
-                MessageModel.domain_id == domain_id, MessageModel.step == FIRST_STEP
+                MessageModel.domain_id == domain_id,
+                MessageModel.step == FIRST_STEP,
+                ~attempts.withdrawn(MessageModel),
             )
         )
         return LetterAddress(

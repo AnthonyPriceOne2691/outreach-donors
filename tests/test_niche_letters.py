@@ -32,12 +32,15 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.models.run import RunModel
 from backend.features.crawl import niche
+from backend.features.donors.price import put_answer
 from backend.features.donors.verdict import Thresholds
 from backend.features.letters import batch, compose, template, unknown_outcome
 from backend.features.letters.draft import LetterConflictError
 from backend.features.letters.niche_recipients import NicheRecipients
 from backend.features.letters.repository import LetterRepository
+from backend.features.letters.sending import Sending, StalePriceError
 from backend.features.letters.transport import NullTransport
+from backend.features.replies.extract import PLACEMENT_DECLINES
 from backend.features.runs.repository import RunRepository
 from backend.shared.queue import SEND_QUEUE_JOB
 from backend.workers import send_jobs
@@ -394,6 +397,94 @@ class TestNotWritingAfterTheBuild:
 
         assert decided.stopped == 0
         assert await _statuses(session, to_niche) == [MessageStatus.QUEUED]
+
+
+async def _queued_niche_offer(session: AsyncSession) -> MessageModel:
+    """Оффер бизнесу ниши в очереди, пример площадки — донор прогона со свежей ценой."""
+    await priced_donor(session, DONOR)
+    await _business(session)
+    await build_offers(session, audience=niche.NICHE, campaign_name="Ниша")
+    await stage_two_sender(session)
+    [letter] = await offers(session)
+    assert DONOR in (letter.body or "")
+    return letter
+
+
+async def _donor(session: AsyncSession, host: str = DONOR) -> DonorModel:
+    donor = await session.scalar(
+        select(DonorModel)
+        .join(DomainModel, DomainModel.id == DonorModel.domain_id)
+        .where(DomainModel.host == host)
+    )
+    assert donor is not None
+    return donor
+
+
+async def _stronger_site_in_the_run(session: AsyncSession, host: str) -> None:
+    """В прогоне бизнеса — ещё один принятый донор со свежей ценой, сильнее примера письма."""
+    await priced_donor(session, host)
+    (await _donor(session, host)).dr = 90
+    run = await session.scalar(select(RunModel))
+    assert run is not None
+    run.candidates = {**(run.candidates or {}), "hosts": [BOOKIE, DONOR, host]}
+    await session.flush()
+
+
+class TestTheExampleNeedsAFreshPrice:
+    """Оффер бизнесу ниши обещает «дешевле» на примере нашей площадки
+    (`advertiser_niche.txt`), и отправка сверяет его цену правилом сборки
+    (`offer_standing.py`): пример, названный в письме, — принятый донор прогона
+    со свежей ценой."""
+
+    async def test_an_example_that_stopped_selling_holds_the_offer(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        letter = await _queued_niche_offer(session)
+        donor = await _donor(session)
+        domain = await session.get(DomainModel, donor.domain_id)
+        assert domain is not None
+        put_answer(domain, donor, answer=PLACEMENT_DECLINES, reply_id=None, at=datetime.now(UTC))
+        await session.flush()
+
+        with pytest.raises(StalePriceError, match="устарела или снята") as refused:
+            await Sending(session, NullTransport()).send(letter.id)
+
+        assert f"бизнесу ниши {BOOKIE}" in str(refused.value)
+        await session.refresh(letter)
+        assert letter.status is MessageStatus.QUEUED
+
+    @pytest.mark.parametrize(
+        "other",
+        [
+            pytest.param("site.example.test", id="another-site"),
+            pytest.param("nor.example.test", id="a-site-inside-the-named-one"),
+        ],
+    )
+    async def test_another_fresh_site_does_not_cover_the_named_one(
+        self, session: AsyncSession, filled_legal: None, other: str
+    ) -> None:
+        """Письмо называет свой пример — его цена и держит оффер, хоть в прогоне есть
+        донор со свежей ценой: о нём письмо не говорит, даже если его имя — кусок имени
+        примера."""
+        letter = await _queued_niche_offer(session)
+        await _stronger_site_in_the_run(session, other)
+        (await _donor(session)).last_price_at = datetime.now(UTC) - timedelta(days=200)
+        await session.flush()
+
+        with pytest.raises(StalePriceError):
+            await Sending(session, NullTransport()).send(letter.id)
+
+    async def test_a_stronger_site_does_not_hold_a_fresh_example(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Появился донор сильнее — его возьмёт новая сборка, а письмо со своим примером
+        и свежей ценой уходит."""
+        letter = await _queued_niche_offer(session)
+        await _stronger_site_in_the_run(session, "site.example.test")
+
+        sent = await Sending(session, NullTransport()).send(letter.id)
+
+        assert sent.message_id == letter.id
 
 
 async def _both_queued(session: AsyncSession) -> tuple[MessageModel, MessageModel]:

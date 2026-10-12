@@ -30,9 +30,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import filters as cfg
 from backend.features.core.domain import DonorStatus
-from backend.features.core.models.advertisers import SupplierDonorModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
+from backend.features.crawl.suppliers import supplier_hosts
 from backend.features.donors.standing import is_donor
 
 logger = logging.getLogger(__name__)
@@ -77,10 +77,9 @@ async def choose(
     border = moment - timedelta(days=ttl_days)
     targets = Targets()
 
-    suppliers = {
-        host.lower()
-        for host in (await session.execute(select(SupplierDonorModel.host))).scalars().all()
-    }
+    # Поставщики — общим правилом с переводом: обе таблицы и только действующие записи.
+    # До сверки ТЗ 11.10.2026 здесь читалась одна `supplier_donors`, и целиком — с истёкшими.
+    suppliers = await supplier_hosts(session, now=moment)
 
     rows = (
         await session.execute(

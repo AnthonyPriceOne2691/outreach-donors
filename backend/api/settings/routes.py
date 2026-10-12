@@ -2,7 +2,8 @@
 
 Пороги правит оператор — это работа с базой, а не с деньгами; но правка
 заводит **новую версию**, а не переписывает старую: вердикты прошлых
-прогонов должны оставаться объяснимыми.
+прогонов должны оставаться объяснимыми. Веса и пороги Этапа 2 здесь только
+показываются (`/settings/advertisers`): они — настройки окружения.
 
 Расход смотрят все: это то же содержимое базы, что и доноры. Расход продаж —
 только с правом «Продажи» (решение Anthony 10.10.2026, П2б, `runs/spending.py`).
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import actor, db_session, needs
 from backend.api.settings.schemas import (
+    AdvertiserSettingsView,
     ConsequencesView,
     SpendingView,
     ThresholdsBody,
@@ -31,6 +33,7 @@ from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
+from backend.features.crawl import selection_settings
 from backend.features.runs.spending import SpendingRepository
 from backend.features.runs.thresholds import (
     ThresholdsRepository,
@@ -121,6 +124,18 @@ async def save_thresholds(
     )
     await session.commit()
     return ThresholdsVersion.of(settings)
+
+
+@router.get(
+    "/settings/advertisers",
+    response_model=AdvertiserSettingsView,
+    summary="Веса, пороги и «кому не пишем» Этапа 2 — что действует",
+)
+async def advertiser_settings(_: UserModel = _viewer) -> AdvertiserSettingsView:
+    """Чем обход судит ссылки сейчас. Только чтение: значения Этапа 2 — настройками
+    окружения (`config/advertisers.py`), а не версиями, как пороги Этапа 1: пересчёт
+    кандидатов обязан переписать вердикт новыми весами, а не сохранить прежний."""
+    return AdvertiserSettingsView.of(selection_settings.in_force())
 
 
 @router.get("/usage", response_model=SpendingView, summary="Расход по статьям")

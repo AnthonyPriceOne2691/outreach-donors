@@ -65,6 +65,23 @@ NOISE_MARKERS: tuple[str, ...] = (
     "pagination", "tags", "author-box", "meta",
 )  # fmt: skip
 
+#: Подвал СТРАНИЦЫ, свёрстанный не тегом `<footer>`, а блоком: `div.footer`,
+#: `#footer`, `.footer-widgets` (начало токена `footer`, как у `NOISE_MARKERS`) —
+#: и имена, где подвал назван по месту на странице. В подвале живут «партнёры
+#: из футера» — строка требования «кому не пишем»; до сверки ТЗ 11.10.2026 его
+#: снимал только тег, и `<div class="site-footer">` отдавал партнёров в кандидаты.
+#:
+#: **Только подвал страницы.** `card-footer`, `entry-footer`, `modal-footer` —
+#: подвал карточки или статьи: в витрине офферов он держит кнопку рекламодателя,
+#: и выбросить его значит потерять размещение. Поэтому `-footer` в конце токена
+#: не правило, а список мест страницы — растёт по находкам, а не угадывается.
+PAGE_FOOTER_NAMES: frozenset[str] = frozenset(
+    {"site-footer", "page-footer", "main-footer", "global-footer", "colophon"}
+)
+
+#: ARIA-роль подвала страницы: так его размечают, когда тега `<footer>` нет.
+FOOTER_ROLE = "contentinfo"
+
 #: Разметка, которой сайт сам говорит «здесь статья».
 SEMANTIC_SELECTORS: tuple[str, ...] = (
     "article",
@@ -130,25 +147,50 @@ def _marks_noise(name: str) -> bool:
     )
 
 
+def _names(node: Node) -> list[str]:
+    """Токены `class` и `id` блока в нижнем регистре."""
+    attrs = node.attributes
+    return f"{attrs.get('class') or ''} {attrs.get('id') or ''}".lower().split()
+
+
+def is_page_footer(node: Node) -> bool:
+    """Подвал страницы, каким бы его ни сверстали: тег `<footer>`, роль
+    `contentinfo` или имя подвала в `class`/`id` (`PAGE_FOOTER_NAMES`)."""
+    if node.tag == "footer":
+        return True
+    if (node.attributes.get("role") or "").strip().lower() == FOOTER_ROLE:
+        return True
+    return any(
+        name == "footer" or name.startswith(("footer-", "footer_")) or name in PAGE_FOOTER_NAMES
+        for name in _names(node)
+    )
+
+
 def _is_noise(node: Node) -> bool:
     """Блок, который статьёй не бывает, — по тегу или по имени класса."""
-    if node.tag in NOISE_TAGS:
+    if node.tag in NOISE_TAGS or is_page_footer(node):
         return True
-    attrs = node.attributes
-    names = f"{attrs.get('class') or ''} {attrs.get('id') or ''}".lower()
-    return any(_marks_noise(token) for token in names.split())
+    return any(_marks_noise(token) for token in _names(node))
 
 
 def strip_structural_noise(tree: HTMLParser) -> None:
     """Выбросить только то, что не бывает содержимым ни у кого.
 
-    Отличается от `strip_noise` тем, что не смотрит на имена классов.
-    Нужна для второго прохода — когда ссылки собираются со всей страницы
-    и помечаются «в теле / вне тела»: там выбрасывать блок по имени
-    класса значит решить за скоринг, что витрина офферов не считается.
+    Отличается от `strip_noise` тем, что не смотрит на имена классов —
+    кроме имени подвала страницы (`is_page_footer`). Нужна для второго
+    прохода — когда ссылки собираются со всей страницы и помечаются
+    «в теле / вне тела»: там выбрасывать блок по имени класса значит
+    решить за скоринг, что витрина офферов не считается. Подвал — другое
+    дело: «партнёры из футера» — строка требования «кому не пишем», и
+    `<div class="footer">` отдавал их в кандидаты наравне с витриной.
+    Блок с почти всем текстом страницы не выбрасывается и здесь (`MAX_NOISE_SHARE`).
     """
     for node in tree.css("*"):
         if node.tag and node.tag in NOISE_TAGS:
+            node.decompose()
+    total = len(_text_of(tree.body)) if tree.body else 0
+    for node in tree.css("*"):
+        if node.tag and is_page_footer(node) and not _holds_the_page(node, total):
             node.decompose()
 
 

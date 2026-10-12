@@ -817,6 +817,8 @@ export interface CandidateCard {
   confirmed: boolean | null;
   decided_by: string | null;
   decided_at: string | null;
+  /** Ответ на решение: что сказать рядом — «рекламодатель уже ответил». */
+  warning?: string | null;
 }
 
 export interface CandidatesView {

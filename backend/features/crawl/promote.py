@@ -13,7 +13,9 @@
 если только человек не сказал «пишем» сам.
 
 **Кого отсеиваем до того, как искать контакт.** Доноров из стоп-листа
-поставщиков — их рекламодатели это чужие клиенты и свои же размещения.
+поставщиков — их рекламодатели это чужие клиенты и свои же размещения;
+поставщик — общим правилом с обходом, хоть с экрана, хоть консолью
+(`suppliers.py`).
 И адресатов из общего стоп-листа: он один на оба этапа, потому что
 один и тот же адресат не должен получить письмо и как донор,
 и как рекламодатель.
@@ -24,6 +26,16 @@
 **Пересчёт обновляет, а не задваивает.** Скоринг будет меняться; строка
 рекламодателя переписывается на месте, потому что письмо ему одно
 и адресат один.
+
+**«Не пишем» человека снимает рекламодателя** (`withdraw`, сверка ТЗ 11.10.2026). До этого
+решение ставило кандидату `confirmed=False`, и только: заведённый переводом
+рекламодатель оставался, а сборка и отправка смотрят на него, а не на кандидата, —
+оффер ложному рекламодателю собрался бы и ушёл. Решение по кандидату — про его
+ссылку: на тот же домен бывает ссылается второй наш донор, и его «куплено» первая
+ссылка не отменяет. Поэтому домен снимается, только когда подходящих кандидатов
+у него не осталось — тем же условием, что у перевода; остались — лучшая ссылка
+пересобирается из них. Вместе с рекламодателем снимаются его письма по найденной
+ссылке (`offer_stop.py`), а письмо, собранное под снятую ссылку, не уходит.
 """
 
 from __future__ import annotations
@@ -32,16 +44,21 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy import ColumnElement, func, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
+from sqlalchemy.orm.util import AliasedClass
 
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
-from backend.features.core.models.advertisers import AdvertiserModel, SupplierDonorModel
+from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
+from backend.features.crawl.niche import NICHE
+from backend.features.crawl.offer_stop import stop_offers
+from backend.features.crawl.suppliers import supplier_hosts
 
 logger = logging.getLogger(__name__)
 
@@ -91,14 +108,21 @@ class Standing:
     with_address: int
 
 
-def _eligible() -> ColumnElement[bool]:
+def eligible() -> ColumnElement[bool]:
     """Кого переводим: «куплено» или «пишем» человека — и не «не пишем».
 
     Решение человека сильнее вердикта скоринга: отклонённый не идёт
     дальше, сколько бы баллов ему ни насчитали.
     """
-    chosen = (CandidateModel.verdict == Verdict.BOUGHT) | CandidateModel.confirmed.is_(True)
-    return chosen & CandidateModel.confirmed.is_not(False)
+    return eligible_of(CandidateModel)
+
+
+def eligible_of(
+    candidate: type[CandidateModel] | AliasedClass[CandidateModel],
+) -> ColumnElement[bool]:
+    """То же условие у псевдонима — для подзапроса «у домена есть подходящий»."""
+    chosen = (candidate.verdict == Verdict.BOUGHT) | candidate.confirmed.is_(True)
+    return chosen & candidate.confirmed.is_not(False)
 
 
 async def standing(session: AsyncSession) -> Standing:
@@ -110,8 +134,8 @@ async def standing(session: AsyncSession) -> Standing:
         .exists()
     )
     roots = func.count(func.distinct(CandidateModel.target_root))
-    ready = await session.scalar(select(roots).where(_eligible()))
-    fresh = await session.scalar(select(roots).where(_eligible(), ~known))
+    ready = await session.scalar(select(roots).where(eligible()))
+    fresh = await session.scalar(select(roots).where(eligible(), ~known))
     addressed = select(ContactModel.id).where(ContactModel.domain_id == AdvertiserModel.domain_id)
     total = await session.scalar(select(func.count(AdvertiserModel.id)))
     with_address = await session.scalar(
@@ -135,13 +159,6 @@ def _wins(candidate: CandidateModel, current: CandidateModel) -> bool:
     if candidate.points != current.points:
         return candidate.points > current.points
     return candidate.pages > current.pages
-
-
-async def _suppliers(session: AsyncSession) -> set[str]:
-    rows = await session.execute(
-        select(SupplierDonorModel.host).where(SupplierDonorModel.in_force(datetime.now(UTC)))
-    )
-    return {host.lower() for host in rows.scalars().all()}
 
 
 async def _suppressed(session: AsyncSession) -> set[str]:
@@ -183,12 +200,13 @@ def _pick(candidates: list[CandidateModel]) -> dict[str, CandidateModel]:
 async def promote(session: AsyncSession) -> PromotionReport:
     """Перевести подходящих кандидатов в рекламодателей."""
     report = PromotionReport()
-    rows = list((await session.execute(select(CandidateModel).where(_eligible()))).scalars().all())
+    report.removed += await apply_rejections(session)
+    rows = list((await session.execute(select(CandidateModel).where(eligible()))).scalars().all())
     report.considered = len({row.target_root for row in rows})
     if not rows:
         return report
 
-    suppliers, suppressed = await _suppliers(session), await _suppressed(session)
+    suppliers, suppressed = await supplier_hosts(session), await _suppressed(session)
 
     # Доноры-поставщики отсеиваются ДО выбора лучшего кандидата, а не
     # после. Иначе рекламодатель терялся, когда лучшая ссылка на него
@@ -263,6 +281,128 @@ async def _drop(session: AsyncSession, roots: list[str], report: PromotionReport
     await session.flush()
 
 
+@dataclass(frozen=True, slots=True)
+class Withdrawn:
+    """Что «не пишем» человека сделало с рекламодателем домена."""
+
+    #: Рекламодатель по найденной ссылке снят: подходящих кандидатов у домена не осталось.
+    removed: bool = False
+    #: Писем по найденной ссылке снято — из очереди и со сроков добивок (`offer_stop.py`).
+    stopped: int = 0
+
+    def as_details(self) -> dict[str, object]:
+        """Для журнала: что сняло решение. Пусто — рекламодателя оно не тронуло."""
+        details: dict[str, object] = {}
+        if self.removed:
+            details["рекламодатель снят"] = True
+        if self.stopped:
+            details["снято писем"] = self.stopped
+        return details
+
+
+async def withdraw(session: AsyncSession, rejected: CandidateModel) -> Withdrawn:
+    """«Не пишем» человека по кандидату — что стало с рекламодателем его домена.
+
+    Подходящих кандидатов у домена не осталось (тем же условием, что у перевода,
+    со стоп-листом поставщиков) — рекламодатель снимается вместе с письмами по
+    найденной ссылке. Остались — рекламодатель пересобирается из них, а письма
+    в очереди не под его новую лучшую ссылку останавливаются: их текст — про
+    страницу, о которой человек сказал «не пишем», или про ту, что сменил повторный
+    обход. Остановленное так письмо следующую сборку не держит — она пишет под
+    действующую ссылку (`offer_stop.py`).
+    """
+    await session.flush()
+    advertiser = await session.scalar(
+        select(AdvertiserModel)
+        .join(DomainModel, DomainModel.id == AdvertiserModel.domain_id)
+        .where(DomainModel.host == rejected.target_root)
+    )
+    if advertiser is None:
+        return Withdrawn()
+    suppliers = await supplier_hosts(session)
+    rest = [
+        row
+        for row in (
+            await session.scalars(
+                select(CandidateModel).where(
+                    CandidateModel.target_root == rejected.target_root, eligible()
+                )
+            )
+        ).all()
+        if row.donor_host.lower() not in suppliers
+    ]
+    if not rest:
+        stopped = await stop_offers(session, advertiser.domain_id)
+        removed = await _take_off(session, advertiser)
+        if removed or stopped:
+            logger.info(
+                "рекламодатели: %s снят решением «не пишем», писем снято %s",
+                rejected.target_root,
+                stopped,
+            )
+        return Withdrawn(removed=removed, stopped=stopped)
+
+    ids = {rejected.target_root: advertiser.domain_id}
+    await _write(session, _pick(rest), ids, _donors_per_root(rest), PromotionReport())
+    keep = advertiser.best_page_url or ""
+    return Withdrawn(stopped=await stop_offers(session, advertiser.domain_id, keep=keep))
+
+
+async def _take_off(session: AsyncSession, advertiser: AdvertiserModel) -> bool:
+    """Снять рекламодателя по найденной ссылке. Ложь — снимать было нечего.
+
+    Бизнес ниши (`niche.py`) остаётся: его строка — решение человека о нём самом,
+    и снимается только ссылка, под которую писал бы оффер по найденной ссылке.
+    """
+    if advertiser.source != NICHE:
+        await session.delete(advertiser)
+        await session.flush()
+        return True
+    had_link = bool(advertiser.best_page_url or advertiser.best_anchor)
+    advertiser.best_page_url = None
+    advertiser.best_anchor = None
+    return had_link
+
+
+async def apply_rejections(session: AsyncSession) -> int:
+    """«Не пишем», которое ещё не дошло до рекламодателя, — довести, как свежее решение.
+
+    Решения до 11.10.2026 рекламодателя не снимали, а два одновременных решения
+    по ссылкам одного домена могут оставить ему снятую ссылку: каждое пересобирало
+    рекламодателя, не видя другого. Довести — значит сделать то же, что решение
+    (`withdraw`): снять рекламодателя, если подходящих кандидатов не осталось, или
+    пересобрать его ссылку. Зовут перевод и сборка писем Этапа 2 — без ручного шага.
+    Число — снятых рекламодателей.
+
+    Берутся только те, кому довести есть что: рекламодатель со ссылкой, и ссылка
+    снята либо подходящих кандидатов у домена нет. Домен, о котором сейчас ничего
+    не считали, остаётся (`_drop`): снимают по явному решению, а не по отсутствию.
+    """
+    other = aliased(CandidateModel)
+    still_chosen = (
+        select(other.id)
+        .where(other.target_root == CandidateModel.target_root, eligible_of(other))
+        .exists()
+    )
+    pending = await session.scalars(
+        select(CandidateModel)
+        .join(DomainModel, DomainModel.host == CandidateModel.target_root)
+        .join(AdvertiserModel, AdvertiserModel.domain_id == DomainModel.id)
+        .where(
+            CandidateModel.confirmed.is_(False),
+            AdvertiserModel.best_page_url.is_not(None),
+            or_(AdvertiserModel.best_page_url == CandidateModel.best_page_url, ~still_chosen),
+        )
+        .order_by(CandidateModel.id)
+    )
+    removed = 0
+    for candidate in pending.all():
+        removed += int((await withdraw(session, candidate)).removed)
+    if removed:
+        logger.info("рекламодатели: снято прежним «не пишем» %s", removed)
+    return removed
+
+
 def _donors_per_root(rows: list[CandidateModel]) -> dict[str, int]:
     """Сколько разных наших доноров ссылается на домен."""
     seen: dict[str, set[str]] = {}
@@ -307,8 +447,12 @@ async def _write(
         row.best_donor_host = candidate.donor_host
         row.best_page_url = candidate.best_page_url
         row.best_anchor = candidate.best_anchor
-        row.confirmed_by_human = candidate.confirmed is True
-        if row.confirmed_by_human:
-            report.by_human += 1
+        human = candidate.confirmed is True
+        # У бизнеса ниши это поле — решение человека о нём самом (`niche.decide`):
+        # перевод по ссылке его не переписывает. Иначе «пишем» бизнесу ниши молча
+        # становилось «не пишем», стоило его ссылке набрать «куплено», и наоборот.
+        if row.source != NICHE:
+            row.confirmed_by_human = human
+        report.by_human += int(human)
 
     await session.flush()

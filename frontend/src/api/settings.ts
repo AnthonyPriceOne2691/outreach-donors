@@ -72,3 +72,29 @@ export function fetchUsage(): Promise<UsageView> {
 export function fetchWatchdog(): Promise<StagedWatchdog> {
   return request<StagedWatchdog>('/watchdog');
 }
+
+/** Вес или порог Этапа 2: что значит, сколько и какой настройкой окружения меняется. */
+export interface SettingNumber {
+  label: string;
+  value: number;
+  setting: string;
+}
+
+/** Список «кому не пишем» Этапа 2 и настройка, которой он меняется. */
+export interface SettingList {
+  label: string;
+  values: string[];
+  setting: string;
+}
+
+/** Чем Этап 2 судит ссылки сейчас — только чтение (сверка ТЗ 11.10.2026): значения —
+ *  настройки окружения, а не версии, как пороги отбора доноров. */
+export interface AdvertiserSettingsView {
+  points: SettingNumber[];
+  thresholds: SettingNumber[];
+  lists: SettingList[];
+}
+
+export function fetchAdvertiserSettings(): Promise<AdvertiserSettingsView> {
+  return request<AdvertiserSettingsView>('/settings/advertisers');
+}
