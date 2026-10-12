@@ -116,9 +116,11 @@ async def decide(
 
     Балл скоринга при этом не меняется: по расхождению между ним
     и решением человека и считается, как часто скоринг ошибается.
+    «Не пишем» снимает рекламодателя и его письма, если других подходящих
+    кандидатов у домена нет (`promote.withdraw`), — это уходит в журнал.
     """
     try:
-        row = await review.decide(
+        decided = await review.decide(
             session, candidate_id, confirmed=body.confirmed, by=author.email, force=body.force
         )
     except review.UnknownCandidateError as exc:
@@ -126,6 +128,7 @@ async def decide(
     except review.AlreadyDecidedError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
+    row = decided.candidate
     await AccessRepository(session).record(
         AuditAction.ADVERTISER_REVIEWED,
         author_id=author.id,
@@ -135,10 +138,12 @@ async def decide(
             "рекламодатель": row.target_root,
             "решение": "пишем" if row.confirmed else "не пишем",
             "балл скоринга": row.points,
+            **decided.withdrawn.as_details(),
+            **({"переписка идёт": True} if decided.answered else {}),
         },
     )
     await session.commit()
-    return CandidateCard.of(row)
+    return CandidateCard.of(row).model_copy(update={"warning": decided.warning})
 
 
 @router.get("/promotion", response_model=PromotionView, summary="Сколько переводить")

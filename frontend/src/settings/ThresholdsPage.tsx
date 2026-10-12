@@ -43,6 +43,7 @@ import { formatDateTime, formatNumber } from '../format';
 import { bodyOf, draftOf, fieldRefusal, firstRefused, THRESHOLD_KEYS } from './thresholdDraft';
 import type { ThresholdDraft, ThresholdKey } from './thresholdDraft';
 import { ThresholdsComparison } from './ThresholdsComparison';
+import { AdvertiserScoring } from './AdvertiserScoring';
 import { notify } from '../notices';
 
 const THRESHOLDS_KEY = ['thresholds'] as const;
@@ -303,6 +304,8 @@ export function ThresholdsPage() {
           </Text>
         )}
       </Card>
+
+      <AdvertiserScoring />
     </Stack>
   );
 }

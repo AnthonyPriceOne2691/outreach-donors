@@ -18,6 +18,14 @@
 похоронили (`preference.DEAD`). Письмо в очереди и в пути живое при
 любом адресе: пока исход неизвестен, второго не собираем.
 
+**Письмо, остановленное снятием своей ссылки, — как будто его не было**
+(`withdrawn`, сверка ТЗ 11.10.2026). Оффер рекламодателю пишется под найденную
+ссылку; человек сказал «не пишем» про ссылку, под которую письмо собрано, а на
+домен ссылается другой наш донор (`crawl/promote.withdraw`). Письмо не уходило
+и адрес не занимало: «писали» оно не считается, потолок адресов не тратит, и
+следующее собирается на тот же адрес под действующую ссылку. Только такие —
+письмо, остановленное человеком или стоп-листом, держит донора по-прежнему.
+
 **Донор снова открыт для первого письма**, когда мёртвые все его письма —
 на обоих этапах, по тому же правилу «одно письмо на сайт», — никто
 у донора не ответил и не отписался, а потолок попыток не выбран.
@@ -40,7 +48,8 @@
 **Номер попытки едет в ключ письма** (`building.idempotency_key`):
 первая попытка — прежний ключ, следующие — с `:a<номер>`. Номер —
 сколько первых писем этапа у домена уже было, плюс один: к моменту
-сборки все они мёртвые, иначе донора нет в отборе. Два сборщика,
+сборки все они мёртвые, иначе донора нет в отборе. Снятые ссылкой
+считаются тоже: ключ письма не повторяется. Два сборщика,
 одновременно увидевшие донора открытым, считают один номер — и вторая
 вставка падает на уникальности ключа, а не отправляет второе письмо.
 
@@ -76,6 +85,11 @@ PENDING = (MessageStatus.QUEUED, MessageStatus.SENDING)
 #: Ответы, после которых донору больше не пишут ни на какой адрес.
 ANSWERS = (ReplyKind.HUMAN, ReplyKind.UNSUBSCRIBE)
 
+#: Своя причина у письма, остановленного снятием его ссылки (`crawl/offer_stop.py`), —
+#: в поле причины недоставки: письмо не ушло, и человек, читающий судьбу домена, видит
+#: почему. По ней такое письмо и узнаётся (`withdrawn`) — текст не менять.
+LINK_WITHDRAWN = "ссылку письма сняли: «не пишем» по ней — пишем под действующую"
+
 #: Те же ответы, отмеченные на самом диалоге (отписка кнопкой — `optout`).
 ANSWERED_THREADS = (ThreadStatus.REPLIED, ThreadStatus.UNSUBSCRIBED)
 
@@ -104,8 +118,21 @@ def next_address_note(earlier: int) -> str:
     return "прошлые адреса не дошли — письмо уйдёт на следующий"
 
 
+def withdrawn(letter: _Letter) -> ColumnElement[bool]:
+    """Письмо остановлено снятием своей ссылки: не уходило, и в отборе его нет.
+
+    `IS NOT DISTINCT FROM`, а не `==`: у остановленного человеком причины нет
+    (`NULL`), сравнение дало бы `NULL`, и под `NOT` в отборе такое письмо
+    выпадало бы из «писали» — сборка воскрешала бы остановленное человеком.
+    """
+    return and_(
+        letter.status == MessageStatus.STOPPED,
+        letter.failure_reason.is_not_distinct_from(LINK_WITHDRAWN),
+    )
+
+
 def dead(letter: _Letter) -> ColumnElement[bool]:
-    """Письмо не дошло и не дойдёт ни до кого.
+    """Письмо не дошло и не дойдёт ни до кого — или остановлено снятием ссылки.
 
     Адрес письма смотрится через свой псевдоним: в запросе отбора адреса
     уже стоят во внешнем `FROM`, и без псевдонима подзапрос проверил бы
@@ -120,6 +147,7 @@ def dead(letter: _Letter) -> ColumnElement[bool]:
     return or_(
         letter.status == MessageStatus.BOUNCED,
         and_(letter.status.not_in(PENDING), buried),
+        withdrawn(letter),
     )
 
 
@@ -138,9 +166,10 @@ def pending_letter(domain_id: _DomainId) -> ColumnElement[bool]:
 
 
 def written_before(domain_id: _DomainId) -> ColumnElement[bool]:
-    """Домену уже уходило хоть одно письмо — в любом состоянии, на любом этапе."""
+    """Домену уже уходило хоть одно письмо — в любом состоянии, на любом этапе.
+    Снятое ссылкой не в счёт: оно не уходило (`withdrawn`)."""
     letter = aliased(MessageModel)
-    return select(letter.id).where(letter.domain_id == domain_id).exists()
+    return select(letter.id).where(letter.domain_id == domain_id, ~withdrawn(letter)).exists()
 
 
 def answered(domain_id: _DomainId) -> ColumnElement[bool]:
@@ -175,11 +204,12 @@ def answered(domain_id: _DomainId) -> ColumnElement[bool]:
 
 
 def first_letters(domain_id: _DomainId) -> ScalarSelect[int]:
-    """Сколько первых писем уже было у домена — на обоих этапах."""
+    """Сколько первых писем уже было у домена — на обоих этапах. Снятое ссылкой
+    адреса не пробовало и потолок не тратит."""
     letter = aliased(MessageModel)
     return (
         select(func.count(letter.id))
-        .where(letter.domain_id == domain_id, letter.step == FIRST_STEP)
+        .where(letter.domain_id == domain_id, letter.step == FIRST_STEP, ~withdrawn(letter))
         .scalar_subquery()
     )
 
@@ -207,13 +237,13 @@ def attempt_number(domain_id: _DomainId, stage: Stage) -> ScalarSelect[int]:
 
 
 def fresh(contact: _Contact) -> ColumnElement[bool]:
-    """Адрес жив и писем на него ещё не уходило.
+    """Адрес жив и писем на него ещё не уходило. Снятое ссылкой — не уходило.
 
     `IS DISTINCT FROM`, а не `!=`: у адреса без отметки `NULL`, и `!=`
     выбросил бы его вместе с мёртвыми — то есть все найденные лестницей.
     """
     letter = aliased(MessageModel)
-    untried = ~select(letter.id).where(letter.contact_id == contact.id).exists()
+    untried = ~select(letter.id).where(letter.contact_id == contact.id, ~withdrawn(letter)).exists()
     return and_(contact.verification_status.is_distinct_from(DEAD), untried)
 
 

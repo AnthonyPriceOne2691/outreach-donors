@@ -61,6 +61,7 @@ from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.models.run import RunModel
 from backend.features.core.stages import mail_stage
 from backend.features.crawl.niche import LINKS
+from backend.features.crawl.promote import apply_rejections
 from backend.features.letters import compose, guards, selection
 from backend.features.letters.recipients import Candidate
 from backend.features.letters.repository import LetterRepository
@@ -314,6 +315,10 @@ class QueueBuilder:
         # на него токенов, а повтор продолжает с того же места: написанным
         # письмо уже считается (`_not_written`).
         await self._session.commit()
+        if request.stage is Stage.ADVERTISERS:
+            # «Не пишем», ещё не дошедшее до рекламодателя, — до отбора (ревью 12.10.2026).
+            await apply_rejections(self._session)
+            await self._session.commit()
         report = BuildReport(campaign_id=campaign.id)
         report.funnel = await self._repo.funnel_report(
             request.stage, run_ids=request.run_ids, audience=request.audience

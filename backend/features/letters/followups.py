@@ -330,13 +330,13 @@ class Chain:
         return campaign.stage, campaign.audience
 
     async def _first_subject(self, thread_id: int | None) -> str | None:
-        """Тема первого письма переписки — та, с которой оно ушло."""
+        """Тема первого письма переписки — того, что ушло (с нашим `Message-ID`), а не снятого."""
         if thread_id is None:
             return None
         subject = await self._session.scalar(
             select(MessageModel.subject)
             .where(MessageModel.thread_id == thread_id, MessageModel.step == FIRST_STEP)
-            .order_by(MessageModel.id)
+            .order_by(MessageModel.internet_message_id.is_(None), MessageModel.id)
             .limit(1)
         )
         return subject.strip() if subject and subject.strip() else None

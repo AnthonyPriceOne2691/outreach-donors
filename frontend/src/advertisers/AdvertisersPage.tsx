@@ -174,6 +174,9 @@ export function AdvertisersPage() {
         message: row.confirmed ? `${row.target_root}: пишем ему` : `${row.target_root}: не пишем`,
         color: 'green',
       });
+      // Рекламодатель уже ответил: «не пишем» сняло оффер и добивки, а переписку — нет.
+      // Жёлтым и не гаснет: это просьба посмотреть «Диалоги», а не отчёт.
+      if (row.warning) notify({ message: row.warning, color: 'yellow', autoClose: false });
     },
     onError: (failure) =>
       notify({ title: 'Не записали', message: refusalOf(failure), color: 'red' }),

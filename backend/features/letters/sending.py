@@ -55,7 +55,7 @@ from backend.features.core.models.outreach import CampaignModel, MessageModel, S
 from backend.features.donors.standing import decided_in
 from backend.features.letters import compose, identity, mailbox, reply_to, settle, unsubscribe
 from backend.features.letters.chain import ANSWER_STEP
-from backend.features.letters.offer_standing import offer_refusal
+from backend.features.letters.offer_standing import check_offer
 from backend.features.letters.outgoing_store import Files, OutgoingFiles
 from backend.features.letters.transport import Mail, Outgoing, Transport, TransportError, of_stage
 
@@ -80,8 +80,11 @@ class RejectedDonorError(SuppressedError):
 
 
 class RemovedAdvertiserError(SuppressedError):
-    """Рекламодателя сняли после сборки письма: стоп-лист поставщиков или
-    общий отсеял его задним числом. Для цепочки — как стоп-лист."""
+    """Рекламодателя сняли после сборки письма. Для цепочки — как стоп-лист."""
+
+
+class WithdrawnLinkError(SuppressedError):
+    """Оффер собран под ссылку, которой у рекламодателя больше нет: письмо остановлено."""
 
 
 class StalePriceError(SendError):
@@ -355,13 +358,14 @@ class Sending:
         )
 
     async def _check_advertiser(self, target: _Target) -> None:
-        """Рекламодатель не снят, а у оффера свежая цена донора (`offer_standing.py`)."""
-        refused = await offer_refusal(
+        """Рекламодатель не снят, ссылка письма действующая, у оффера свежая цена донора
+        (`offer_standing.py`). Письмо под снятую ссылку там же и останавливается."""
+        refused = await check_offer(
             self._session, target.message, host=target.host, now=self._moment()
         )
         if refused is not None:
             kind = RemovedAdvertiserError if refused.removed else StalePriceError
-            raise kind(refused.words)
+            raise (WithdrawnLinkError if refused.withdrawn else kind)(refused.words)
 
     async def _check_window(self, target: _Target) -> None:
         """Окно получателя — если его задаёт политика этапа (`core/window.py`). Ответ

@@ -57,6 +57,7 @@ from backend.features.letters.sending import (
     SuppressedError,
     UndecidedDonorError,
     UnknownZoneError,
+    WithdrawnLinkError,
 )
 from backend.features.letters.transport import Mail
 from backend.features.letters.unknown_outcome import STUCK_MINUTES
@@ -74,6 +75,7 @@ BATCH_MAX = 200
 _WHY: tuple[tuple[type[SendError], str], ...] = (
     (RejectedDonorError, "донор отклонён после сборки"),
     (RemovedAdvertiserError, "рекламодатель снят после сборки"),
+    (WithdrawnLinkError, "ссылку письма сняли"),
     # Оффер «мы дешевле» без свежей цены донора — обещание, которого не сдержать.
     (StalePriceError, "цена донора устарела или снята"),
     (SuppressedError, "стоп-лист"),

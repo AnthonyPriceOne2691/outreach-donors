@@ -14,19 +14,27 @@
 Балл остаётся как был: по расхождению между ним и решением и считается,
 как часто скоринг ошибается. Перезаписав балл, мы получили бы базу,
 по которой он всегда прав.
+
+**«Не пишем» доходит до рекламодателя** (`promote.withdraw`, сверка ТЗ 11.10.2026): сборка
+и отправка смотрят на строку рекламодателя, а не на кандидата, и решение,
+записанное одному кандидату, оффер ложному рекламодателю не останавливало.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 
 from sqlalchemy import func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.domain import Verdict
+from backend.features.core.domain import ReplyKind, Stage, Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.crawl import OutLinkModel
+from backend.features.core.models.domain import DomainModel
+from backend.features.core.models.outreach import CampaignModel, ReplyModel, ThreadModel
+from backend.features.crawl.promote import Withdrawn, withdraw
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +134,27 @@ async def counts(session: AsyncSession) -> dict[str, int]:
     return {verdict.value: number for verdict, number in rows}
 
 
+@dataclass(frozen=True, slots=True)
+class Decided:
+    """Решение по кандидату и что оно сделало с рекламодателем его домена."""
+
+    candidate: CandidateModel
+    withdrawn: Withdrawn = field(default_factory=Withdrawn)
+    #: «Не пишем», а рекламодатель уже ответил: переписку решение не останавливает —
+    #: снимает оффер и добивки, а разговор ведут в «Диалогах». Экран говорит это вслух.
+    answered: bool = False
+
+    @property
+    def warning(self) -> str | None:
+        """Что сказать человеку рядом с решением. Пусто — нечего."""
+        if not self.answered:
+            return None
+        return (
+            f"{self.candidate.target_root} уже ответил — переписка идёт в «Диалогах», "
+            "и «не пишем» её не останавливает: сняты только оффер и добивки"
+        )
+
+
 async def decide(
     session: AsyncSession,
     candidate_id: int,
@@ -133,12 +162,13 @@ async def decide(
     confirmed: bool,
     by: str,
     force: bool = False,
-) -> CandidateModel:
-    """Записать решение человека по кандидату.
+) -> Decided:
+    """Записать решение человека по кандидату. Экран и консоль — этим путём.
 
     `force` нужен, чтобы передумать: без него повторное решение —
     отказ, потому что два человека в одной очереди затрут друг друга
-    и не заметят.
+    и не заметят. «Не пишем» снимает рекламодателя домена, если других
+    подходящих кандидатов у него нет, и его письма (`promote.withdraw`).
     """
     row = await session.get(CandidateModel, candidate_id)
     if row is None:
@@ -152,12 +182,32 @@ async def decide(
     row.confirmed = confirmed
     row.decided_by = by
     row.decided_at = datetime.now(UTC)
+    withdrawn = Withdrawn() if confirmed else await withdraw(session, row)
+    answered = not confirmed and await _answered(session, row.target_root)
     logger.info(
-        "кандидат %s (%s): %s, решил %s; балл скоринга %s остался прежним",
+        "кандидат %s (%s): %s, решил %s; балл скоринга %s остался прежним; %s",
         row.target_root,
         row.donor_host,
         "подтверждён" if confirmed else "отклонён",
         by,
         row.points,
+        withdrawn.as_details() or "рекламодателя не тронуло",
     )
-    return row
+    return Decided(row, withdrawn, answered)
+
+
+async def _answered(session: AsyncSession, root: str) -> bool:
+    """Рекламодатель ответил человеком в переписке Этапа 2 — разговор идёт."""
+    found = await session.scalar(
+        select(ReplyModel.id)
+        .join(ThreadModel, ThreadModel.id == ReplyModel.thread_id)
+        .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
+        .join(DomainModel, DomainModel.id == ThreadModel.domain_id)
+        .where(
+            DomainModel.host == root,
+            CampaignModel.stage == Stage.ADVERTISERS,
+            ReplyModel.kind == ReplyKind.HUMAN,
+        )
+        .limit(1)
+    )
+    return found is not None

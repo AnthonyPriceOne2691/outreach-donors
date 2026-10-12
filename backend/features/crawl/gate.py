@@ -40,6 +40,8 @@ from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
 from backend.features.crawl.big_sites import Ratings, apply_ratings, needs_rating
 from backend.features.crawl.links import OutLink
 from backend.features.crawl.scoring import Candidate, boost_across_donors, score_candidates
+from backend.features.crawl.selection_settings import snapshot
+from backend.features.crawl.topic import donor_topic
 
 logger = logging.getLogger(__name__)
 
@@ -189,13 +191,20 @@ async def judge_run(
         .scalars()
         .all()
     )
-    candidates = score_candidates([_to_link(row) for row in rows], donor_root=run.host)
+    candidates = score_candidates(
+        [_to_link(row) for row in rows],
+        donor_root=run.host,
+        topic=await donor_topic(session, run.host),
+    )
     seen = await donors_per_root(session, [c.target_root for c in candidates])
     boost_across_donors(candidates, seen)
 
     previous = await _previous(session, run.host)
     await _rate(candidates, previous, ratings)
     await _replace_candidates(session, run, candidates, previous)
+    # Каким порогом судили: веса меняются окружением, а пересчёт переписывает вердикт.
+    run.stats = {**(run.stats or {}), "scored_with": snapshot()}
+    await session.flush()
     logger.info(
         "обход %s (%s): кандидатов %s, из них куплено %s, спорных %s",
         run.host,

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from backend.features.core.domain import UsageProvider
 from backend.features.core.models.run import RunSettingsModel
+from backend.features.crawl.selection_settings import InForce, Number
 from backend.features.donors.verdict import Thresholds
 from backend.features.runs.spending import Article, Spending
 from backend.features.runs.thresholds import Consequences
@@ -233,4 +234,43 @@ class SpendingView(BaseModel):
             serp_spent_by_us=spending.amount_by_provider.get(UsageProvider.SERP, Decimal(0)),
             serp_left_error=serp_left_error,
             sales_hidden=sales_hidden,
+        )
+
+
+class SettingNumber(BaseModel):
+    """Вес или порог Этапа 2: что значит, сколько и какой настройкой меняется."""
+
+    label: str
+    value: int
+    setting: str
+
+
+class SettingList(BaseModel):
+    """Список «кому не пишем» Этапа 2 и настройка, которой он меняется."""
+
+    label: str
+    values: list[str]
+    setting: str
+
+
+class AdvertiserSettingsView(BaseModel):
+    """Чем Этап 2 судит ссылки сейчас — только чтение: значения живут в окружении
+    (`config/advertisers.py`), и правка — это настройка, а не версия, как у порогов."""
+
+    points: list[SettingNumber]
+    thresholds: list[SettingNumber]
+    lists: list[SettingList]
+
+    @classmethod
+    def of(cls, found: InForce) -> AdvertiserSettingsView:
+        def number(item: Number) -> SettingNumber:
+            return SettingNumber(label=item.label, value=item.value, setting=item.setting)
+
+        return cls(
+            points=[number(item) for item in found.points],
+            thresholds=[number(item) for item in found.thresholds],
+            lists=[
+                SettingList(label=item.label, values=list(item.values), setting=item.setting)
+                for item in found.lists
+            ],
         )

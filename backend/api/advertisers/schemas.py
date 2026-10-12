@@ -35,6 +35,8 @@ class CandidateCard(BaseModel):
     confirmed: bool | None = None
     decided_by: str | None = None
     decided_at: datetime | None = None
+    #: Ответ на решение: что сказать человеку рядом с ним — «рекламодатель уже ответил».
+    warning: str | None = None
 
     @classmethod
     def of(cls, row: CandidateModel, *, published: date | None = None) -> CandidateCard:

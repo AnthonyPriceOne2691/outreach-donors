@@ -29,6 +29,7 @@ import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
+from backend.config import advertisers as advertisers_cfg
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.ahrefs.units import MAX_BATCH_TARGETS
 from backend.features.core.domain import Verdict
@@ -38,8 +39,8 @@ from backend.features.donors.collect import parse_domain_rating
 
 logger = logging.getLogger(__name__)
 
-#: Порог требования: «Кому не пишем … домены DR > 80».
-MAX_DR = 80
+#: Порог требования: «Кому не пишем … домены DR > 80» — настройкой (`config/advertisers.py`).
+MAX_DR = advertisers_cfg.MAX_DR
 
 #: Кому нужен DR: тем, кому собрались писать или кого покажут человеку.
 ASKED_VERDICTS = frozenset({Verdict.BOUGHT, Verdict.PENDING})

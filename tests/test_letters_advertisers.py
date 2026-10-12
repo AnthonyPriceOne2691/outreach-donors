@@ -507,6 +507,31 @@ class TestTheOfferNeedsAFreshPrice:
             with pytest.raises(StalePriceError):
                 await postman.send(letter.id)
 
+    @pytest.mark.parametrize(
+        ("spoil", "words"),
+        [
+            pytest.param(
+                "best_donor_host", "площадка ссылки рекламодателя не записана", id="no-donor"
+            ),
+            pytest.param("last_price_at", "у цены нет даты", id="undated-price"),
+        ],
+    )
+    async def test_the_refusal_names_what_is_missing(
+        self, session: AsyncSession, filled_legal: None, spoil: str, words: str
+    ) -> None:
+        """Свежесть не проверить — оффер не уходит, а отказ называет, чего нет: площадки
+        ссылки в строке рекламодателя или даты у цены донора."""
+        letter = await queued_offer(session)
+        advertiser = await session.scalar(
+            select(AdvertiserModel).where(AdvertiserModel.domain_id == letter.domain_id)
+        )
+        spoiled = advertiser if spoil == "best_donor_host" else await donor_of_the_link(session)
+        setattr(spoiled, spoil, None)
+        await session.flush()
+
+        with pytest.raises(StalePriceError, match=words):
+            await Sending(session, NullTransport(), now=NOW).send(letter.id)
+
     async def test_the_batch_names_it_and_goes_on(
         self, session: AsyncSession, filled_legal: None
     ) -> None:

@@ -2,7 +2,8 @@
 
 Список задан требованием — «wikipedia / gov / edu / крупные СМИ /
 соцсети, исследования и PDF, домены DR > 80, партнёры из футера» — и
-дополнен тем, что нашлось в находках обхода. Дополнения не догадки:
+дополнен тем, что нашлось в находках обхода. Гос. и учебные зоны — общим
+правилом с Этапом 1 (`donors/publisher_judge.is_public_zone`). Дополнения не догадки:
 в верхушке исходящих ссылок боевой ниши стояли **регистратор домена
 и счётчик посещаемости**, а среди частых получателей — соцсети
 и сокращатели ссылок. Письмо любому из них ушло бы в пустоту, а доля
@@ -28,59 +29,43 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-#: Суффиксы зон, которым не пишут: государство и образование.
-BLOCKED_SUFFIXES: tuple[str, ...] = (
-    ".gov", ".gov.uk", ".gov.za", ".mil", ".edu", ".ac.uk", ".ac.za", ".edu.au",
-)  # fmt: skip
+from backend.config import advertisers as cfg
+
+# Модулем, а не именами: правило зовётся при проверке, и обратный импорт списков
+# отсюда в судью площадки не упрётся в наполовину загруженный модуль.
+from backend.features.donors import publisher_judge
+
+#: Суффиксы зон, которым не пишут: государство и образование. Общее правило —
+#: `is_public_zone` Этапа 1 (`donors/publisher_judge.py`): `gov.au`, `gov.in`, `gc.ca`,
+#: `ac.jp`, `gouv.fr` и любая страна. До сверки ТЗ 11.10.2026 Этап 2 знал только эти
+#: восемь, и `example.gov.au` выходил «куплено». Список остаётся тем, чего правило
+#: по устройству не видит: корня, который сам — зона (`gov.uk` без имени перед ним).
+#:
+#: Списки ниже — настройками (`config/advertisers.py`, сверка ТЗ 11.10.2026); имена
+#: и типы прежние — их читают и вне обхода.
+BLOCKED_SUFFIXES: tuple[str, ...] = cfg.DENY_ZONES
 
 #: Справочники и энциклопедии: ссылка на них редакционная всегда.
-REFERENCE_DOMAINS: frozenset[str] = frozenset(
-    {
-        "wikipedia.org", "wikimedia.org", "wiktionary.org", "britannica.com",
-        "archive.org", "doi.org", "arxiv.org", "researchgate.net", "scholar.google.com",
-    }
-)  # fmt: skip
+REFERENCE_DOMAINS: frozenset[str] = cfg.DENY_REFERENCE
 
 #: Соцсети и видео: ссылка на профиль — не размещение.
-SOCIAL_DOMAINS: frozenset[str] = frozenset(
-    {
-        "facebook.com", "twitter.com", "x.com", "instagram.com", "linkedin.com",
-        "youtube.com", "youtu.be", "tiktok.com", "pinterest.com", "reddit.com",
-        "t.me", "telegram.me", "whatsapp.com", "threads.net", "vk.com",
-    }
-)  # fmt: skip
+SOCIAL_DOMAINS: frozenset[str] = cfg.DENY_SOCIAL
 
 #: Инфраструктура сайта: она стояла в верхушке исходящих ссылок
 #: у донора боевой ниши — регистратор с тремя сотнями ссылок и счётчик
 #: с двумя. Ни тот, ни другой ничего у донора не покупал.
-INFRASTRUCTURE_DOMAINS: frozenset[str] = frozenset(
-    {
-        "statcounter.com", "regery.com", "google-analytics.com", "googletagmanager.com",
-        "cloudflare.com", "gravatar.com", "wordpress.org", "wordpress.com", "wp.com",
-        "jquery.com", "w3.org", "schema.org", "gstatic.com", "googleapis.com",
-        "monsterinsights.com", "yoast.com", "elementor.com", "cookiebot.com",
-    }
-)  # fmt: skip
+INFRASTRUCTURE_DOMAINS: frozenset[str] = cfg.DENY_INFRASTRUCTURE
 
 #: Сокращатели: за ссылкой прячется кто угодно, и домен не говорит ничего.
 #: В находках они шли пачкой по двенадцать ссылок и все dofollow.
-SHORTENER_DOMAINS: frozenset[str] = frozenset(
-    {"bit.ly", "goo.gl", "tinyurl.com", "ow.ly", "buff.ly", "cutt.ly", "t.co", "rb.gy"}
-)
+SHORTENER_DOMAINS: frozenset[str] = cfg.DENY_SHORTENERS
 
 #: Крупные СМИ: ссылка на них — цитата источника, а не размещение.
 #: Список короткий намеренно: он растёт по мере находок, а не угадывается.
-MAJOR_MEDIA: frozenset[str] = frozenset(
-    {
-        "bbc.com", "bbc.co.uk", "cnn.com", "reuters.com", "theguardian.com",
-        "nytimes.com", "forbes.com", "bloomberg.com", "espn.com", "skysports.com",
-        "independent.co.uk", "dailymail.co.uk", "news24.com", "iol.co.za",
-        "hbr.org", "mybroadband.co.za",
-    }
-)  # fmt: skip
+MAJOR_MEDIA: frozenset[str] = cfg.DENY_MEDIA
 
 #: Расширения, за которыми документ, а не сайт с владельцем.
-DOCUMENT_SUFFIXES: tuple[str, ...] = (".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx")
+DOCUMENT_SUFFIXES: tuple[str, ...] = cfg.DENY_DOCUMENTS
 
 
 class DenyReason(StrEnum):
@@ -138,23 +123,46 @@ def is_own_brand(target_root: str, donor_root: str) -> bool:
     return _label(target_root) == _label(donor_root)
 
 
+def _public_zone(root: str) -> str | None:
+    """Гос., учебная или военная зона домена — для причины отказа. `None` — не она.
+
+    Правило — Этапа 1 (`is_public_zone`): у донора и у рекламодателя оно одно.
+    Причина называет зону: «zone (.gov.au)» читается без справочника.
+    """
+    for suffix in BLOCKED_SUFFIXES:
+        if root == suffix.lstrip(".") or root.endswith(suffix):
+            return suffix
+    if not publisher_judge.is_public_zone(root):
+        return None
+    labels = publisher_judge.dns_labels(root)
+    tail = labels[-1:] if labels[-1] in publisher_judge.PUBLIC_ZONE_TLDS else labels[-2:]
+    return "." + ".".join(tail)
+
+
+def is_document(url: str) -> bool:
+    """Ссылка ведёт на документ — PDF, таблицу, презентацию, — а не на страницу сайта.
+    Параметры и якорь — не часть имени файла: `report.pdf?dl=1`, `report.pdf#page=2`."""
+    return url.lower().split("#")[0].split("?")[0].endswith(DOCUMENT_SUFFIXES)
+
+
 def denial_for(target_root: str, url: str = "") -> Denial | None:
     """Почему домену не пишут. `None` — кандидат, проверяем дальше.
 
     Сравнение по корневому домену, а не по хосту: `en.wikipedia.org`
     и `wikipedia.org` — одно и то же, и держать в списке оба значит
-    однажды забыть третий.
+    однажды забыть третий. `url` — одна ссылка: документ за ней — отказ.
+    Ссылок на домен бывает много, и скоринг сверяет каждую (`is_document`).
     """
     root = target_root.strip().lower()
     if not root:
         return None
 
-    if url.lower().split("?")[0].endswith(DOCUMENT_SUFFIXES):
+    if is_document(url):
         return Denial(DenyReason.DOCUMENT, url)
 
-    for suffix in BLOCKED_SUFFIXES:
-        if root == suffix.lstrip(".") or root.endswith(suffix):
-            return Denial(DenyReason.ZONE, suffix)
+    zone = _public_zone(root)
+    if zone is not None:
+        return Denial(DenyReason.ZONE, zone)
 
     for reason, domains in _BY_DOMAIN:
         if root in domains:

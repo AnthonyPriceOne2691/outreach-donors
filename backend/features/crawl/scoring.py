@@ -48,43 +48,58 @@ sponsored/advertorial/partner/guest post +4; dofollow на внешний
 статья со ссылкой на домен старше `CRAWL_STALE_YEARS` (3 года), он идёт
 «мимо» с причиной. Без даты правило молчит: незнание — не давность.
 
-**Чего в скоринге нет.** «Тематика не совпадает» (+1): тематики донора
-в базе нет — есть домен, страна и ключи прогона. Строка требования
-осталась невыполненной, и это сказано здесь, а не спрятано нулём.
+**«Тематика не совпадает» (+1)** — с сверки ТЗ 11.10.2026 (`topic.py`): тема
+донора — ключи прогона, по которым он нашёлся, тема ссылок — анкор и путь.
+Признак слабый: сам он «куплено» не даёт — без сильного признака кандидат,
+которому до порога не хватало этого балла, остаётся «спорно».
 """
 
 from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 
+from backend.config import advertisers as advertisers_cfg
 from backend.config import crawl as cfg
 from backend.features.core.domain import Verdict
 from backend.features.crawl.affiliate import NETWORK_ROOTS, affiliation
 from backend.features.crawl.anchors import AnchorKind, anchor_kind
-from backend.features.crawl.denylist import Denial, DenyReason, denial_for, is_own_brand
+from backend.features.crawl.denylist import (
+    Denial,
+    DenyReason,
+    denial_for,
+    is_document,
+    is_own_brand,
+)
 from backend.features.crawl.links import OutLink
 from backend.features.crawl.markers import marker_reason
 from backend.features.crawl.paid_pages import paid_pages
+from backend.features.crawl.topic import off_topic
 
 logger = logging.getLogger(__name__)
 
+# Веса и пороги — настройками (`config/advertisers.py`, сверка ТЗ 11.10.2026:
+# «все пороги заданы цифрами и вынесены в настройки»). Здесь — что они значат.
+
 # --- Веса требования ---
-POINTS_REL_SPONSORED = 5
-POINTS_MARKER = 4
-POINTS_DOFOLLOW_IN_BODY = 2
-POINTS_COMMERCIAL_ANCHOR = 1
+POINTS_REL_SPONSORED = advertisers_cfg.POINTS_REL_SPONSORED
+POINTS_MARKER = advertisers_cfg.POINTS_MARKER
+POINTS_DOFOLLOW_IN_BODY = advertisers_cfg.POINTS_DOFOLLOW_IN_BODY
+POINTS_COMMERCIAL_ANCHOR = advertisers_cfg.POINTS_COMMERCIAL_ANCHOR
+#: «Тематика не совпадает» (`topic.py`): слабый признак — см. `_candidate`.
+POINTS_OFF_TOPIC = advertisers_cfg.POINTS_OFF_TOPIC
 
 #: Партнёрская метка в адресе ссылки (`affiliate.py`): платные отношения
 #: рекламодателя с донором, одинаковые в любой нише.
-POINTS_AFFILIATE = 2
-POINTS_PAID_SOURCE = 2
+POINTS_AFFILIATE = advertisers_cfg.POINTS_AFFILIATE
+POINTS_PAID_SOURCE = advertisers_cfg.POINTS_PAID_SOURCE
 #: Зона некоммерческих организаций: фонды, сообщества, ассоциации. Платную
 #: статью о себе они заказывают редко, и «куплено» им без человека не дают —
 #: ethereum.org, cardano.org, bitcoin.org стояли источниками в чужих статьях.
-NONPROFIT_SUFFIXES: tuple[str, ...] = (".org",)
+NONPROFIT_SUFFIXES: tuple[str, ...] = advertisers_cfg.NONPROFIT_ZONES
 
 # --- Веса, полученные замером ---
 #: Донор ссылается на домен с нескольких страниц. Порог — три страницы:
@@ -96,15 +111,18 @@ NONPROFIT_SUFFIXES: tuple[str, ...] = (".org",)
 #: хватило на четыре балла. Повторяемость отвечает на вопрос «насколько
 #: это похоже на схему», а не «реклама ли это вообще» — поэтому
 #: она умножает уже найденный коммерческий признак, а не заменяет его.
-POINTS_REPEATED = 3
-REPEAT_PAGES = 3
+POINTS_REPEATED = advertisers_cfg.POINTS_REPEATED
+REPEAT_PAGES = advertisers_cfg.REPEAT_PAGES
+#: Усилитель требования: столько разных наших доноров ссылается на домен — и он
+#: «почти наверняка покупает ссылки». Добавляет `POINTS_REPEATED` поверх сильного признака.
+BOOST_DONORS = advertisers_cfg.BOOST_DONORS
 #: Призыв к действию или партнёрская ссылка, закрытые `nofollow`: донор сам
 #: пометил ссылку как рекламу. Требование награждает обратное — dofollow.
-POINTS_PAID_LOOKING = 2
+POINTS_PAID_LOOKING = advertisers_cfg.POINTS_PAID_LOOKING
 
 #: Порог «куплена» и нижняя граница ручной проверки — из требования.
-BOUGHT_AT = 4
-REVIEW_AT = 2
+BOUGHT_AT = advertisers_cfg.BOUGHT_AT
+REVIEW_AT = advertisers_cfg.REVIEW_AT
 
 
 _KIND_WORDS = {
@@ -213,7 +231,11 @@ def _verdict_for(points: int) -> Verdict:
 
 
 def score_candidates(
-    links: list[OutLink], donor_root: str = "", *, today: date | None = None
+    links: list[OutLink],
+    donor_root: str = "",
+    *,
+    today: date | None = None,
+    topic: Sequence[str] = (),
 ) -> list[Candidate]:
     """Кандидаты по домену-получателю: балл, вердикт и причины.
 
@@ -227,7 +249,8 @@ def score_candidates(
 
     `donor_root` нужен для одного случая, найденного на живых данных:
     донор ссылается на свой же бренд в другой зоне. Корни разные,
-    владелец один.
+    владелец один. `topic` — ключи прогона, по которым донор нашёлся
+    (`topic.donor_topic`): пусто — «тематика не совпадает» молчит.
     """
     moment = today or datetime.now(UTC).date()
     resolved = [_advertiser_of(link) for link in links]
@@ -236,7 +259,9 @@ def score_candidates(
     for link in resolved:
         by_root[link.target_root].append(link)
 
-    out = [_candidate(root, group, donor_root, moment, pages) for root, group in by_root.items()]
+    out = [
+        _candidate(root, group, donor_root, moment, pages, topic) for root, group in by_root.items()
+    ]
     out.sort(key=lambda c: (-c.points, c.target_root))
     return out
 
@@ -249,8 +274,23 @@ def _advertiser_of(link: OutLink) -> OutLink:
     return replace(link, target_host=found.target_host, target_root=found.target_root)
 
 
+def _documents_only(group: list[OutLink]) -> tuple[list[OutLink], int]:
+    """Ссылки на сайт домена — без ссылок на его документы — и сколько документов снято.
+
+    Требование «кому не пишем: исследования и PDF» — про ссылку, а не про домен:
+    отчёт компании в PDF рядом с её рекламой не делает рекламу исследованием. До
+    сверки ТЗ 11.10.2026 документ сверялся по первой ссылке группы: PDF первым
+    снимал домен целиком, PDF вторым считался размещением и мог стать ссылкой
+    письма. Одни документы — домен «кому не пишем» (`_denial`).
+    """
+    sites = [link for link in group if not is_document(link.url)]
+    return (sites or group), len(group) - len(sites)
+
+
 def _denial(root: str, group: list[OutLink], donor_root: str) -> Denial | None:
-    denial = denial_for(root, group[0].url)
+    denial = denial_for(root)
+    if denial is None and all(is_document(link.url) for link in group):
+        denial = Denial(DenyReason.DOCUMENT, group[0].url)
     if denial is None and is_own_brand(root, donor_root):
         denial = Denial(DenyReason.OWN_BRAND, donor_root)
     if denial is None and root in NETWORK_ROOTS:
@@ -266,8 +306,10 @@ def _candidate(
     donor_root: str,
     today: date,
     paid: dict[str, frozenset[str]],
+    topic: Sequence[str] = (),
 ) -> Candidate:
     denial = _denial(root, group, donor_root)
+    group, documents = _documents_only(group)
     pages = len({link.page_url for link in group})
     scored = [(link, score_link(link, source=_is_source(link, paid))) for link in group]
     best, score = max(scored, key=lambda pair: pair[1].points)
@@ -275,6 +317,8 @@ def _candidate(
 
     points = score.points
     reasons = list(score.reasons)
+    if documents and denial is None:
+        reasons.append(f"ссылки на документы (PDF и т. п.) не в счёт: {documents}")
     if pages >= REPEAT_PAGES and strong:
         points += POINTS_REPEATED
         reasons.append(f"ссылки с {pages} страниц донора +{POINTS_REPEATED}")
@@ -287,6 +331,11 @@ def _candidate(
             "автор, блогролл или навигация"
         )
 
+    off = off_topic(group, topic, donor_root)
+    if off is not None:
+        points += POINTS_OFF_TOPIC
+        reasons.append(f"{off} +{POINTS_OFF_TOPIC}")
+
     stale = _stale(group, today)
     if denial is not None:
         verdict = Verdict.BLOCKED
@@ -296,9 +345,12 @@ def _candidate(
         reasons.append(stale)
     else:
         verdict = _verdict_for(points)
-    if verdict is Verdict.BOUGHT and root.endswith(NONPROFIT_SUFFIXES):
+    if off is not None and not strong and verdict is Verdict.BOUGHT:
+        verdict = _weak_topic_cap(points, reasons)
+    zone = next((zone for zone in NONPROFIT_SUFFIXES if root.endswith(zone)), None)
+    if verdict is Verdict.BOUGHT and zone is not None:
         verdict = Verdict.PENDING
-        reasons.append("зона .org — чаще фонд или сообщество, чем рекламодатель: решает человек")
+        reasons.append(f"зона {zone} — чаще фонд или сообщество, чем рекламодатель: решает человек")
 
     return Candidate(
         target_root=root,
@@ -312,6 +364,19 @@ def _candidate(
         strong=strong,
         stale=stale is not None,
     )
+
+
+def _weak_topic_cap(points: int, reasons: list[str]) -> Verdict:
+    """«Куплено» только благодаря тематике — без сильного признака это «спорно».
+
+    Из слабых признаков «куплено» не набирается (`okf/link-scoring.md`): тематика
+    сравнивается словами и ошибается, и балл, которого не хватало до порога, не
+    должен решать за человека. Набрано и без неё — вердикт прежний.
+    """
+    if _verdict_for(points - POINTS_OFF_TOPIC) is Verdict.BOUGHT:
+        return Verdict.BOUGHT
+    reasons.append("«куплено» дала бы одна тематика, сильных признаков нет — решает человек")
+    return Verdict.PENDING
 
 
 def _is_source(link: OutLink, paid: dict[str, frozenset[str]]) -> bool:
@@ -344,14 +409,17 @@ def _years_before(today: date, years: int) -> date:
 
 
 def boost_across_donors(candidates: list[Candidate], seen_on: dict[str, int]) -> None:
-    """Усилитель требования: домен встречается на ≥ 2 наших донорах.
+    """Усилитель требования: домен встречается на ≥ `BOOST_DONORS` (2) наших донорах.
 
     Считается снаружи — по всей базе, а не по одному обходу: в одном
     обходе донор всегда один, и признак «встречается у двоих» внутри
     него не вычисляется никак. Поднять вердикт он может, опустить — нет.
     """
     for candidate in candidates:
-        if seen_on.get(candidate.target_root, 0) < 2 or candidate.verdict is Verdict.BLOCKED:
+        if (
+            seen_on.get(candidate.target_root, 0) < BOOST_DONORS
+            or candidate.verdict is Verdict.BLOCKED
+        ):
             continue
         if not candidate.strong or candidate.stale:
             # Тот же случай, что у повторяемости: на регулятора ссылаются
