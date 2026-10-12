@@ -28,3 +28,4 @@ Just following up on my note from last week about the sponsored placement of you
 [signature] fixed
 Best regards,
 {{sender_name}}
+{{postal_address}}

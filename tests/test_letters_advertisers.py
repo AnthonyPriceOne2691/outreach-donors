@@ -278,7 +278,7 @@ class TestWhoGetsAnOffer:
             "[offer] fixed\nWe publish sponsored articles.\n\n"
             "[ask] rewrite\nWhat is your price per article with one link, and is it dofollow?\n\n"
             "[terms] fixed\nWe pay on time.\n\n"
-            "[signature] fixed\nBest regards,\n{{sender_name}}\n"
+            "[signature] fixed\nBest regards,\n{{sender_name}}\n{{postal_address}}\n"
         )
 
         with pytest.raises(TemplateError, match="donor_host"):

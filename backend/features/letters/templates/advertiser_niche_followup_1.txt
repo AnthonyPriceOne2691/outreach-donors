@@ -13,3 +13,4 @@ Just following up on my note from last week about sponsored articles on sites in
 [signature] fixed
 Best regards,
 {{sender_name}}
+{{postal_address}}

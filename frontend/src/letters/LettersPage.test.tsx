@@ -502,7 +502,7 @@ describe('текст первого письма', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Текст первого письма' });
 
     // Пометкой в строке подписи, а что она значит — один раз наверху окна (аудит 09.10.2026).
-    expect(within(dialog).getAllByText('модель переписывает')).toHaveLength(2);
+    expect(within(dialog).getAllByText('может переписать модель')).toHaveLength(2);
     expect(within(dialog).getAllByText('как есть')).toHaveLength(2);
     expect(within(dialog).getByText(/пишет заново под каждого донора/)).toBeInTheDocument();
     // Пометка — описание поля: её слышит и экранный диктор.
