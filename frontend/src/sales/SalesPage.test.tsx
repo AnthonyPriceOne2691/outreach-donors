@@ -196,8 +196,10 @@ describe('продажи: право', () => {
   it('оператор видит раздел: право в роли', async () => {
     await openScreen({}, { who: OPERATOR });
 
-    // Дважды: пункт меню и заголовок экрана.
-    expect(screen.getAllByText('Продажи')).toHaveLength(2);
+    // Пункт меню — ссылкой в навигации, заголовок — заголовком: подпись группы меню
+    // «Продажи» не пункт и в счёт не идёт.
+    const nav = within(screen.getByRole('navigation'));
+    expect(nav.getByRole('link', { name: 'Продажи' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Продажи' })).toBeInTheDocument();
   });
 });
