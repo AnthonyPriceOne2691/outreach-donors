@@ -1,18 +1,22 @@
-"""Проход судьи сегмента по кандидатам прогона на настоящей базе: кэш вердиктов, выключенный
-судья, партии со строкой расхода, сбой одного сайта.
+"""Проход судьи сегмента по кандидатам прогона на настоящей базе: стоп-лист до судьи, кэш
+вердиктов, выключенный судья, партии со строкой расхода, сбой одного сайта.
 
 Подделки выдачи, модели и сайтов — те же, что у прогона целиком (`test_sales_segment_run.py`).
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from typing import Any
+
 import httpx
 import pytest
 from backend.config.judge import JudgeMode
-from backend.features.core.domain import UsageProvider
+from backend.features.core.domain import Stage, SuppressionReason, UsageProvider
 from backend.features.core.models.domain import DomainModel
-from backend.features.core.models.ops import UsageRecordModel
+from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
 from backend.features.sales import segment_judging
+from backend.features.sales.models import SalesStoplistModel
 from backend.features.sales.segment_judge import (
     JUDGE_OFF,
     PROMPT_VERSION,
@@ -32,6 +36,7 @@ from tests.test_sales_segment_judge import MODEL_KEY
 from tests.test_sales_segment_run import (
     ANSWERS,
     NEWS,
+    PARTS,
     PLATFORM,
     SEGMENT,
     SHOP,
@@ -280,3 +285,108 @@ async def test_a_human_decision_on_an_unanswered_site_is_not_judged_over(
 
     assert model.asked == []
     assert shop.lane == Lane.REJECT
+
+
+# --- стоп-лист до судьи -------------------------------------------------------------------------
+
+
+async def _stoplisted(session: AsyncSession, host: str, **row: Any) -> None:
+    """Строка общего стоп-листа на домен кандидата; по умолчанию — человека, без этапа."""
+    domain_id = await session.scalar(select(DomainModel.id).where(DomainModel.host == host))
+    session.add(
+        SuppressionModel(domain_id=domain_id, **{"reason": SuppressionReason.MANUAL, **row})
+    )
+    await session.commit()
+
+
+async def test_a_stoplisted_domain_is_cut_before_the_judge_and_costs_nothing(
+    session: AsyncSession,
+) -> None:
+    """Ревью #340: домен из стоп-листа оплачивал модель и платную ступень поиска адреса и
+    отсеивался только очисткой лидов. Теперь — правилом до кэша, главной и модели, а
+    остальных партия судит как раньше."""
+    owner = await hypothesis(session)
+    run = await make_run(session, owner)
+    own, shared, judged = await candidates(session, run.id, owner.id, SHOP, NEWS, PARTS)
+    session.add(SalesStoplistModel(host=SHOP))
+    await _stoplisted(session, NEWS)
+    model = Model(ANSWERS)
+
+    tally = await judge_run(
+        session,
+        run_id=run.id,
+        segment=SEGMENT,
+        mode=JudgeMode.ENFORCE,
+        client=judge(model),
+        home=None,
+    )
+
+    assert model.asked == [PARTS]
+    assert (own.lane, own.decided_by, own.verdict, own.reason) == (
+        Lane.REJECT,
+        Decider.RULE,
+        None,
+        segment_judging.STOPLIST_OWN,
+    )
+    assert (shared.lane, shared.decided_by, shared.reason) == (
+        Lane.REJECT,
+        Decider.RULE,
+        segment_judging.STOPLIST_SHARED,
+    )
+    assert judged.lane == Lane.ACCEPT
+    assert tally.by_rule == 2
+    remembered = set(await session.scalars(select(SalesSegmentVerdictModel.domain_id)))
+    assert remembered == {judged.domain_id}, "строку стоп-листа снимают — вердиктом она не ложится"
+
+
+async def test_a_switched_off_judge_still_cuts_the_stoplist(session: AsyncSession) -> None:
+    """Выключенный судья отдаёт человеку всех — кроме стоп-листа: его человеку решать нечего."""
+    owner = await hypothesis(session)
+    run = await make_run(session, owner, mode=JudgeMode.OFF)
+    shop, news = await candidates(session, run.id, owner.id, SHOP, NEWS)
+    await _stoplisted(session, SHOP, stage=Stage.SALES)
+
+    await judge_run(
+        session, run_id=run.id, segment=SEGMENT, mode=JudgeMode.OFF, client=None, home=None
+    )
+
+    assert (shop.lane, shop.decided_by, shop.reason) == (
+        Lane.REJECT,
+        Decider.RULE,
+        segment_judging.STOPLIST_SHARED,
+    )
+    assert (news.lane, news.reason) == (Lane.REVIEW, JUDGE_OFF)
+
+
+@pytest.mark.parametrize(
+    ("row", "cut"),
+    [
+        ({}, True),
+        ({"stage": Stage.DONORS, "reason": SuppressionReason.UNSUBSCRIBED}, True),
+        ({"stage": Stage.DONORS}, False),
+        ({"expires_at": datetime(2020, 1, 1, tzinfo=UTC)}, False),
+    ],
+    ids=["without-stage", "asked-not-to-write-elsewhere", "other-stage-decision", "expired"],
+)
+async def test_a_shared_row_cuts_only_when_it_holds_sales(
+    session: AsyncSession, row: dict[str, Any], cut: bool
+) -> None:
+    """Общий стоп-лист — тем же правилом, что у очистки и отправки (`suppressions.holds_sales`):
+    чужой этап держит продажи, только если человек сам просил не писать; истёкшая — никого."""
+    owner = await hypothesis(session)
+    run = await make_run(session, owner)
+    [shop] = await candidates(session, run.id, owner.id, SHOP)
+    await _stoplisted(session, SHOP, **row)
+    model = Model(ANSWERS)
+
+    await judge_run(
+        session,
+        run_id=run.id,
+        segment=SEGMENT,
+        mode=JudgeMode.ENFORCE,
+        client=judge(model),
+        home=None,
+    )
+
+    assert (shop.reason == segment_judging.STOPLIST_SHARED) is cut
+    assert model.asked == ([] if cut else [SHOP])

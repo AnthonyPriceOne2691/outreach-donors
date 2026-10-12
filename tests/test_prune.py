@@ -58,9 +58,12 @@ from backend.features.sales.models import (
     SalesHypothesisModel,
     SalesLeadModel,
 )
+from backend.features.sales.segment_models import Lane, SalesSegmentCandidateModel
 from sqlalchemy import Connection, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor
+from tests.test_sales_segment_run import hypothesis as segment_hypothesis
+from tests.test_sales_segment_run import make_run
 
 ROOT = Path(__file__).resolve().parent.parent
 JOURNAL = ROOT / "backend/migrations/versions/e4b1c27a9d53_data_pruned_audit_action.py"
@@ -338,6 +341,24 @@ async def _sales_lead(session: AsyncSession, domain: DomainModel) -> None:
     )
 
 
+async def _collected(session: AsyncSession, domain: DomainModel, lane: Lane = Lane.PENDING) -> None:
+    """Кандидат сбора продаж на домене. Ссылка — каскадом: база удалить даст, и чистка
+    донорского прогона с тем же хостом молча унесла бы кандидата и найденный адрес."""
+    owner = await segment_hypothesis(session)
+    run = await make_run(session, owner)
+    session.add(
+        SalesSegmentCandidateModel(
+            run_id=run.id, hypothesis_id=owner.id, domain_id=domain.id, lane=lane
+        )
+    )
+
+
+async def _segment_candidate(session: AsyncSession, domain: DomainModel) -> None:
+    """Ревью #340: кандидат ещё не судим — вердикта нет (полоса `pending`), — и держит домен
+    так же, как принятый: держит полоса, а не вердикт."""
+    await _collected(session, domain)
+
+
 Holder = Callable[[AsyncSession, DomainModel], Awaitable[None]]
 
 
@@ -354,6 +375,7 @@ Holder = Callable[[AsyncSession, DomainModel], Awaitable[None]]
         (_advertiser, KEPT_HISTORY),
         (_crawled, KEPT_HISTORY),
         (_sales_lead, KEPT_SALES),
+        (_segment_candidate, KEPT_SALES),
     ],
     ids=lambda value: getattr(value, "__name__", value),
 )
@@ -376,6 +398,23 @@ async def test_a_domain_held_by_anything_but_the_run_stays_and_says_why(
     await session.flush()
 
     assert await _hosts(session) == {"kept.example.test"}
+
+
+async def test_a_cut_collection_candidate_does_not_hold_its_domain(session: AsyncSession) -> None:
+    """Отсечённому кандидату домен больше не нужен: чистка его удаляет, кандидат уходит
+    каскадом. Держит живой — не отсечённый и без лида (`sales/domain_hold.collecting`)."""
+    gone = await _donor(session, "gone.example.test")
+    await _collected(session, gone, Lane.REJECT)
+    await session.flush()
+    run = await _run(session, ["gone.example.test"], queued=["gone.example.test"])
+
+    plan = await plan_prune(session, run_ids=[run.id])
+    assert plan.kept == {}
+    await apply_prune(session, plan, author="тест")
+    await session.flush()
+
+    assert await _hosts(session) == set()
+    assert await _count(session, SalesSegmentCandidateModel) == 0
 
 
 async def test_what_changed_between_the_plan_and_the_delete_is_checked_again(
