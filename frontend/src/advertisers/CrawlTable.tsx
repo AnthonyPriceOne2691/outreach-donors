@@ -79,6 +79,22 @@ export function healthLines(crawl: CrawlRow): string[] {
   return [closedShare(crawl), failureShare(crawl)].filter((line) => line !== null);
 }
 
+/** Уровни обхода словами — для записки «чего не хватило». */
+const LEVELS: Partial<Record<string, string>> = {
+  browser: 'браузер',
+  proxy: 'прокси',
+  render: 'сервис рендеринга',
+};
+
+/** Чего каскаду не хватило — по строке на уровень: «Не хватило: прокси — …». Без этого
+ *  «все прокси отказали» и выбранный потолок Этапа 2 жили только в базе и журнале. */
+export function degradationText(degradation: Record<string, string> | undefined): string | null {
+  const lines = Object.entries(degradation ?? {}).map(
+    ([level, said]) => `${LEVELS[level] ?? level} — ${said}`,
+  );
+  return lines.length === 0 ? null : ['Не хватило:', ...lines].join('\n');
+}
+
 /** Состояние обхода значком; `share` — доля закрытых страниц второй строкой под ним (в
  *  таблице доноров). Строка последних обходов называет долю сама, в строке с датой. */
 export function CrawlState({ crawl, share = true }: { crawl: CrawlRow | null; share?: boolean }) {
@@ -91,14 +107,17 @@ export function CrawlState({ crawl, share = true }: { crawl: CrawlRow | null; sh
   }
   const state = crawlState(crawl);
   const lines = share ? healthLines(crawl) : [];
+  // Причина и «не хватило» — одной запиской за одним значком: два «!» в ячейке читались бы
+  // как две разные беды.
+  const note = [crawl.reason, degradationText(crawl.degradation)].filter(Boolean).join('\n');
   const line = (
     <Group gap={6} justify="center" wrap="nowrap">
       <Badge variant="light" color={state.color}>
         {state.label}
       </Badge>
-      {crawl.reason ? (
+      {note ? (
         <RunReason
-          reason={crawl.reason}
+          reason={note}
           status={crawl.status === 'stopped' ? 'stopped' : 'running'}
           subject="обходов"
         />

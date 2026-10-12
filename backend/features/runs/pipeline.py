@@ -365,7 +365,9 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
         async def flush_usage() -> None:
             for operation, cost in usage.drain():
                 report.add_usage(operation, cost)
-                await deps.runs.record_usage(run_id=run.id, operation=operation, cost=cost)
+                await deps.runs.record_usage(
+                    run_id=run.id, operation=operation, cost=cost, stage=run.stage
+                )
 
         try:
             judged = await _judge_candidates(deps, run, plan, candidates)

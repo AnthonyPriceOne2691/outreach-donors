@@ -83,6 +83,11 @@ class TestApplyRatings:
         assert candidate.reasons == ["rel=sponsored +5"]
 
 
+async def _plenty() -> int:
+    """Кап с запасом: эти тесты — об отсеве, а не о капе (`test_crawl_dr_cap.py`)."""
+    return 1_000_000
+
+
 class _FakeAhrefs:
     """Пакетный запрос: помнит, о чём спросили, отвечает DR из словаря."""
 
@@ -107,7 +112,7 @@ class TestAhrefsRatings:
         known: dict[str, object] = {"site0.com": 91.0, "site120.com": {"domain_rating": 12.4}}
         client = _FakeAhrefs(known)
 
-        found = await ahrefs_ratings(client, roots)  # type: ignore[arg-type]
+        found = await ahrefs_ratings(client, roots, allowance=_plenty)  # type: ignore[arg-type]
 
         assert [len(batch) for batch in client.asked] == [100, 50]
         assert found["site0.com"] == 91
@@ -246,7 +251,8 @@ class TestJudgeRun:
         )
         client = AhrefsClient(api_key="k", http=http)
 
-        await judge_run(session, run_id, ratings=functools.partial(ahrefs_ratings, client))
+        ratings = functools.partial(ahrefs_ratings, client, allowance=_plenty)
+        await judge_run(session, run_id, ratings=ratings)
         await session.commit()
         await client.aclose()
 

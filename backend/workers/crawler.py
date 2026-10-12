@@ -27,7 +27,7 @@ import signal
 
 from rq import Worker
 
-from backend.config.startup_checks import check_storage
+from backend.config.startup_checks import check_crawl, check_storage
 from backend.shared.logs import setup_logging
 from backend.shared.queue import connection, crawl_queue
 from backend.workers import crawl_jobs
@@ -59,6 +59,8 @@ class CrawlWorker(Worker):
 def main() -> None:
     setup_logging()
     check_storage()
+    # Битый адрес прокси или шаблон сервиса — отказ на старте словами, без секретов.
+    check_crawl()
     CrawlWorker([crawl_queue()], connection=connection()).work(with_scheduler=False)
 
 

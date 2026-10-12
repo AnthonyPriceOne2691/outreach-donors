@@ -33,7 +33,6 @@ import httpx
 from selectolax.parser import HTMLParser
 
 from backend.config import crawl as cfg
-from backend.features.contacts.browser import PageRenderer
 from backend.features.contacts.pages import home_variants
 from backend.features.core.domain import CrawlOutcome, StopReason
 from backend.features.crawl import robots as robots_rules
@@ -109,18 +108,16 @@ class DonorCrawler:
         client: httpx.AsyncClient,
         *,
         limiter: DomainLimiter | None = None,
-        renderer: PageRenderer | None = None,
-        use_browser: bool | None = None,
-        identify: bool | None = None,
+        cascade: PageCascade | None = None,
         max_pages: int | None = None,
         max_attempts: int | None = None,
         max_seconds: float | None = None,
     ) -> None:
         self._client = client
         self._limiter = limiter or DomainLimiter()
-        self._cascade = PageCascade(
-            client, renderer=renderer, browser_enabled=use_browser, identify=identify
-        )
+        # Каскад собирает тот, кто ведёт обход: задача очереди — с платными уровнями
+        # и журналом расхода, консольный замер — со своим браузером, без них.
+        self._cascade = cascade or PageCascade(client)
         self._health = CrawlHealth()
         self._max_pages = max_pages if max_pages is not None else cfg.MAX_PAGES_PER_DONOR
         self._max_attempts = (
@@ -425,6 +422,7 @@ class DonorCrawler:
         if self._slowed or self._health.verdict is not HealthVerdict.SLOW_DOWN:
             return
         delay = self._limiter.slow_down(host)
+        self._cascade.rotate_proxy(f"отказов {self._health.failure_share:.0%} в окне здоровья")
         self._slowed = True
         logger.warning(
             "обход %s: отказов %.0f%% за последние запросы — пауза увеличена до %.1f с",

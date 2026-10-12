@@ -42,6 +42,7 @@ from backend.features.contacts.repository import ContactQueue, ContactRepository
 from backend.features.contacts.step_counters import StepCounters
 from backend.features.contacts.sweep_trace import TracedRenderer, current_silence, traced, watch
 from backend.features.core import usage
+from backend.features.core.domain import Stage
 from backend.shared.net.url_guard import guarded_client
 
 logger = logging.getLogger(__name__)
@@ -167,15 +168,16 @@ def _paid_calls(counters: StepCounters) -> int:
     return counters.provider_entered - counters.provider_refused
 
 
-def _record_paid(session: AsyncSession, calls: int) -> None:
+def _record_paid(session: AsyncSession, calls: int, stage: Stage | None) -> None:
     """Запросы к провайдеру — в журнал расхода, в одной записи с найденным.
 
     До 04.10.2026 поиск адресов платил Hunter, а журнал этого не видел:
     на вопрос «сколько запросов ушло на поиск» отвечала только квота в
-    кабинете провайдера — без разбивки по проходам.
+    кабинете провайдера — без разбивки по проходам. Этап — чья очередь:
+    поиск адресов рекламодателей — расход Этапа 2.
     """
     if calls > 0:
-        usage.record(session, operation=CONTACTS_OPERATION, units=calls)
+        usage.record(session, operation=CONTACTS_OPERATION, units=calls, stage=stage)
 
 
 async def search_contacts(
@@ -200,9 +202,14 @@ async def search_contacts(
     тот же проход, а не второй: правило «кому искать» проверяется заново
     уже здесь, в задаче, — между нажатием и исполнением общий поиск мог
     успеть найти адрес, и тогда проходить нечего.
+
+    Расход платной ступени пишется на этап очереди (`ContactQueue.stage`):
+    поиск адресов рекламодателей — трата Этапа 2.
     """
     report = SearchReport()
     repository = queue if queue is not None else ContactRepository(session, donor_id=donor_id)
+    # Этап — до обхода: очередь без него падает здесь, а не после оплаченной пачки.
+    stage = repository.stage
     hosts = await repository.pending_hosts(limit=limit)
     report.pending = len(hosts)
     if not hosts:
@@ -231,7 +238,7 @@ async def search_contacts(
             paid_before = _paid_calls(ladder.counters)
             results = await _walk(ladder, batch, await repository.last_tries(batch))
             report.saved += await repository.save(results)
-            _record_paid(session, _paid_calls(ladder.counters) - paid_before)
+            _record_paid(session, _paid_calls(ladder.counters) - paid_before, stage)
             await session.commit()
             report.walked = start + len(batch)
             if on_batch is not None:

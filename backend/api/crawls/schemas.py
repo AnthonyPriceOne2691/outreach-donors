@@ -42,6 +42,8 @@ class CrawlRow(BaseModel):
     #: Доля 403/429/5xx/таймаут за последние `window` запросов — мера здоровья ТЗ.
     failure_share: float | None = None
     window: int | None = None
+    #: Чего каскаду не хватило — уровень обхода → словами (`fetch.Degradation`).
+    degradation: dict[str, str] = Field(default_factory=dict)
 
     @classmethod
     def of(cls, line: CrawlLine, *, max_pages: int) -> CrawlRow:
@@ -64,6 +66,7 @@ class CrawlRow(BaseModel):
             requests=line.requests,
             failure_share=line.failure_share,
             window=line.window,
+            degradation=line.degradation,
         )
 
 

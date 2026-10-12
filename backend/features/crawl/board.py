@@ -52,6 +52,9 @@ class CrawlLine:
     created_at: datetime
     finished_at: datetime | None
     reason: str | None
+    #: Чего каскаду не хватило: уровень → словами (`fetch.Degradation`) — прокси отказали
+    #: подряд все, сервис рендеринга отключился, потолок Этапа 2 выбран, браузер не поднялся.
+    degradation: dict[str, str]
     #: Доля закрытых страниц: ответов «закрылся от нас» от всех запросов обхода
     #: (`CrawlHealth.blocked_share`). Пусто — обход не кончился (числа пишет конец
     #: обхода), не сделал ни одного запроса или записан до замера здоровья.
@@ -89,6 +92,7 @@ class CrawlLine:
             requests=asked,
             failure_share=failures,
             window=window,
+            degradation={str(k): str(v) for k, v in (run.degradation or {}).items()},
         )
 
 

@@ -26,6 +26,7 @@ from backend.config import contacts as cfg
 from backend.features.contacts import attempts
 from backend.features.contacts.ladder import LadderResult
 from backend.features.contacts.repository import domain_ids, save_addresses
+from backend.features.core.domain import Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
@@ -36,6 +37,9 @@ logger = logging.getLogger(__name__)
 
 class AdvertiserContactRepository:
     """Кому из рекламодателей пора искать адрес и куда писать исход."""
+
+    #: Поиск адресов рекламодателей — расход Этапа 2.
+    stage: Stage | None = Stage.ADVERTISERS
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session

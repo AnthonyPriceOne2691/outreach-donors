@@ -8,12 +8,12 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from backend.features.core.domain import UsageProvider
+from backend.features.core.domain import Stage, UsageProvider
 from backend.features.core.models.run import RunSettingsModel
 from backend.features.crawl.selection_settings import InForce, Number
 from backend.features.donors.geo import COUNTRY_ROWS, GeoRule
 from backend.features.donors.verdict import Thresholds
-from backend.features.runs.spending import Article, Spending
+from backend.features.runs.spending import Article, Spending, StageSpending
 from backend.features.runs.thresholds import Consequences, Rules
 
 #: Допустимые пороги — целые от и до, включительно. Одно место на схему и
@@ -211,13 +211,14 @@ class ConsequencesView(BaseModel):
 
 
 class ArticleCard(BaseModel):
-    """Статья расхода."""
+    """Статья расхода. `stage` пусто — трата общая на все этапы или этап не назван."""
 
     provider: UsageProvider
     operation: str
     units: int
     amount_usd: Decimal
     calls: int
+    stage: Stage | None = None
 
     @classmethod
     def of(cls, article: Article) -> ArticleCard:
@@ -227,7 +228,40 @@ class ArticleCard(BaseModel):
             units=article.units,
             amount_usd=article.amount_usd,
             calls=article.calls,
+            stage=article.stage,
         )
+
+
+class StageCard(BaseModel):
+    """Расход этапа: единицы по провайдерам — каждый в своей валюте — и деньги."""
+
+    stage: Stage | None
+    units_by_provider: dict[str, int]
+    amount_usd: Decimal
+    calls: int
+
+    @classmethod
+    def of(cls, spent: StageSpending) -> StageCard:
+        return cls(
+            stage=spent.stage,
+            units_by_provider={
+                provider.value: units for provider, units in spent.units_by_provider.items()
+            },
+            amount_usd=spent.amount_usd,
+            calls=spent.calls,
+        )
+
+
+class CrawlSpendCard(BaseModel):
+    """Платный обход Этапа 2 — прокси и рендеринг — против своего потолка.
+
+    `cap_usd` — потолок за месяц, `None` — своего потолка нет (настройка пуста).
+    `spent_usd` — то же число, с которым потолок сравнивает сам обход
+    (`runs/spending.crawl_spent_this_month`).
+    """
+
+    cap_usd: Decimal | None = None
+    spent_usd: Decimal = Decimal(0)
 
 
 class SpendingView(BaseModel):
@@ -263,6 +297,9 @@ class SpendingView(BaseModel):
     #: П2б): статьи, суммы по провайдерам и итог — без него и сходятся между собой. Экран
     #: говорит это словами: итог без продаж — не весь счёт.
     sales_hidden: bool = False
+    #: Разбивка по этапам (требование ТЗ): этапы с тратами, трата без этапа — последней.
+    stages: list[StageCard] = Field(default_factory=list)
+    crawl: CrawlSpendCard = Field(default_factory=CrawlSpendCard)
 
     @classmethod
     def of(
@@ -275,10 +312,13 @@ class SpendingView(BaseModel):
         serp_left_usd: Decimal | None = None,
         serp_left_error: str | None = None,
         sales_hidden: bool = False,
+        crawl: CrawlSpendCard | None = None,
     ) -> SpendingView:
         return cls(
             since=spending.since,
             articles=[ArticleCard.of(article) for article in spending.articles],
+            stages=[StageCard.of(spent) for spent in spending.by_stage],
+            crawl=crawl or CrawlSpendCard(),
             units_by_provider={
                 provider.value: units for provider, units in spending.units_by_provider.items()
             },

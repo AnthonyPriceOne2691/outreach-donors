@@ -137,3 +137,29 @@ def check_access() -> None:
             )
         ],
     )
+
+
+def check_crawl() -> None:
+    """Платные уровни обхода, если они заданы, — годны: адреса прокси и шаблон сервиса.
+
+    Проверяется на старте обходчика, а не на первой закрытой странице: битый адрес
+    прокси выдаёт куски пароля в отказе транспорта и в журнале, а шаблон без хоста —
+    ключ сервиса целиком (`config/crawl.proxy_problem`, `render_template_problem`).
+    В отказе — номер адреса и что с ним, но не сам адрес.
+
+    Конфиг обхода грузится здесь, а не при импорте модуля: проверки старта зовут все
+    процессы, и опечатка в числе `CRAWL_*` не должна ронять воркеры писем и продаж.
+    """
+    from backend.config import crawl  # noqa: PLC0415 — нужен только обходчику, см. выше
+
+    lines = [
+        f"  CRAWL_PROXY_URLS: адрес №{number} — {problem}"
+        for number, url in enumerate(crawl.PROXY_URLS, start=1)
+        if (problem := crawl.proxy_problem(url)) is not None
+    ]
+    if crawl.RENDER_API_KEY:
+        problem = crawl.render_template_problem(crawl.RENDER_API_URL)
+        if problem is not None:
+            lines.append(f"  CRAWL_RENDER_API_URL: {problem}")
+    if lines:
+        raise ConfigError("Платные уровни обхода настроены с ошибкой:\n" + "\n".join(lines))

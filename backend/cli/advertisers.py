@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import argparse
-import functools
 import logging
 from pathlib import Path
 
@@ -29,12 +28,11 @@ from backend.config.startup_checks import check_storage
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.ahrefs.units import UsageCollector
 from backend.features.contacts.search import search_contacts
-from backend.features.core import usage
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.crawl import review, supplier_import, suppliers
-from backend.features.crawl.big_sites import Ratings, ahrefs_ratings
+from backend.features.crawl.big_sites import Ratings, capped_ratings, journal
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.crawl.gate import judge_run, latest_crawls
 from backend.features.crawl.promote import promote as promote_candidates
@@ -139,7 +137,6 @@ async def cmd_advertisers(args: argparse.Namespace) -> int:
     factory = async_sessionmaker(engine, expire_on_commit=False)
     spent = UsageCollector()
     client = _ahrefs(args, spent)
-    ratings: Ratings | None = functools.partial(ahrefs_ratings, client) if client else None
     try:
         async with factory() as session:
             runs = await _runs(session, args.run)
@@ -147,12 +144,14 @@ async def cmd_advertisers(args: argparse.Namespace) -> int:
                 print("Обходов в базе нет — сначала `outreach crawl <домен> --save`.")
                 return EXIT_NOT_FOUND
 
+            # DR — под месячным капом, тем же правилом, что у прогона (`capped_ratings`).
+            ratings: Ratings | None = capped_ratings(client, session) if client else None
             for run in runs:
                 await judge_run(session, run.id, ratings=ratings)
-            # Расход — в журнал той же транзакцией, что и вердикты: DR,
-            # за который заплачено, без строки расхода не остаётся.
-            for operation, cost in spent.drain():
-                usage.record(session, operation=operation, units=cost.billable)
+                # Расход — в журнал той же транзакцией, что и вердикты, и после каждого
+                # обхода: кап следующего пакета считается по журналу и видит купленное.
+                journal(session, spent)
+                await session.flush()
             await session.commit()
 
             rows = await _candidates(session, [r.id for r in runs], args.verdict)

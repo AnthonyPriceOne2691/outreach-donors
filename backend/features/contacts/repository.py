@@ -36,7 +36,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 from backend.config import contacts as cfg
 from backend.features.contacts import attempts
 from backend.features.contacts.ladder import LadderResult
-from backend.features.core.domain import ContactSource, ContactStatus, DonorStatus
+from backend.features.core.domain import ContactSource, ContactStatus, DonorStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.donors.standing import donor_now, is_donor
@@ -188,6 +188,12 @@ class ContactQueue(Protocol):
     а не два, разъезжающихся на первой правке.
     """
 
+    @property
+    def stage(self) -> Stage | None:
+        """Этап, на чей счёт пишется платная ступень. `None` — очередь
+        общая на этапы (перепоиск названных доменов): строка расхода без этапа."""
+        ...
+
     async def pending_hosts(self, *, limit: int = 100) -> list[str]:
         """Кому пора искать контакт."""
         ...
@@ -243,6 +249,9 @@ class ContactRepository:
     узкая очередь — не второй отбор, а тот же, и второй экземпляр правила
     разошёлся бы с первым на первой правке.
     """
+
+    #: Поиск адресов доноров — расход Этапа 1.
+    stage: Stage | None = Stage.DONORS
 
     def __init__(self, session: AsyncSession, *, donor_id: int | None = None) -> None:
         self._session = session

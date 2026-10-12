@@ -366,7 +366,13 @@ class Parser:
         incoming = await parse_input(self._session, reply, now=self._now)
         found = await self._extractor.extract(incoming)
         if found.tokens_spent:
-            usage.record(self._session, operation="reply_parse", units=found.tokens_spent)
+            # Модель разбирает только ответы доноров (`_not_for_model`): этап — Этап 1 или пусто.
+            usage.record(
+                self._session,
+                operation="reply_parse",
+                units=found.tokens_spent,
+                stage=await self._repo.stage_of(reply),
+            )
         _write_back(reply, found)
 
         consequences = outcome.decide(reply.kind, found)

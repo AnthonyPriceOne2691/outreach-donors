@@ -476,6 +476,7 @@ class QueueBuilder:
                 operation="letter_rewrite",
                 units=rewritten.tokens_spent,
                 run_id=request.run_id,
+                stage=request.stage,
             )
 
         report.prepared += 1

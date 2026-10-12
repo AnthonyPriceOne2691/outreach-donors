@@ -5,39 +5,36 @@
  * на двух экранах по-разному.
  *
  * **Единица у каждого провайдера — своя**: Ahrefs берёт юнитами, модель — токенами,
- * отправка считает письма, выдача платится деньгами. «Юн.» у всех подряд называло
- * токены модели юнитами Ahrefs.
+ * отправка считает письма, выдача платится деньгами, прокси — трафиком. «Юн.» у всех
+ * подряд называло токены модели юнитами Ahrefs. Подписи статей, провайдеров и единиц
+ * в ячейке — `settings/usageLabels.ts` (с платными уровнями обхода Этапа 2).
+ *
+ * **Этап — колонкой только на «Расходе»** (`stages`): одна операция у двух этапов —
+ * две статьи. В отчёте прогона этап один, и колонка повторяла бы его в каждой строке.
  */
 
 import { Badge, Table, Text } from '@mantine/core';
 
-import { operationTitle, usageProvider } from '../api/labels';
+import type { Stage } from '../api/stages';
 import type { ArticleCard } from '../api/types';
-import { formatNumber, formatUsd, plural } from '../format';
+import { formatBytes, formatNumber, formatUsd, plural } from '../format';
+import { spendOperation, spendProvider, stageShort, unitsText } from '../settings/usageLabels';
 import { TableColumns } from './TableColumns';
 import type { TableColumn } from './TableColumns';
 
-/** Единица в ячейке таблицы — сокращением. */
-const UNIT_TITLES: Record<string, string> = {
-  ahrefs: 'юн.',
-  llm: 'ток.',
-  hunter: 'запр.',
-};
+/** Статья таблицы: провайдер — строкой (сервер заводит новых: прокси, рендеринг), этап —
+ *  у статей экрана «Расход» (`api/settings.StagedArticle`). */
+export type SpendRow = Omit<ArticleCard, 'provider'> & { provider: string; stage?: Stage | null };
 
-/** Та же единица словом — для плитки, где под числом есть место. */
+/** Единица словом — для плитки, где под числом есть место. */
 const UNITS: [string, string, string] = ['юнит', 'юнита', 'юнитов'];
 const UNIT_WORDS: Record<string, [string, string, string]> = {
   ahrefs: UNITS,
   llm: ['токен', 'токена', 'токенов'],
   email: ['письмо', 'письма', 'писем'],
   hunter: ['запрос', 'запроса', 'запросов'],
+  render: ['запрос', 'запроса', 'запросов'],
 };
-
-/** «1 письмо, 4 письма, 5 писем» — у сокращений склонять нечего. */
-function unitOf(provider: string, count: number): string {
-  if (provider !== 'email') return UNIT_TITLES[provider] ?? 'юн.';
-  return plural(count, 'письмо', 'письма', 'писем');
-}
 
 /** Единица словом, согласованная с числом: «6 416 юнитов», «4 письма». */
 export function unitWord(provider: string, count: number): string {
@@ -52,9 +49,10 @@ export function tileOf(
   amount: number,
 ): { value: string; hint: string | undefined } {
   if (units > 0) {
-    const unit = unitWord(provider, units);
+    // Прокси считает байты: число — размером, подпись — что это трафик.
+    const unit = provider === 'proxy' ? 'трафика' : unitWord(provider, units);
     return {
-      value: formatNumber(units),
+      value: provider === 'proxy' ? formatBytes(units) : formatNumber(units),
       hint: amount > 0 ? `${unit} и ${formatUsd(amount)}` : unit,
     };
   }
@@ -72,6 +70,7 @@ export function tileOf(
  *  Плюс 32 px полей ячейки. **Ширина задана у всех**, и запас панели делится между
  *  колонками пропорционально: до 09.10.2026 «Статья» была остатком и забирала ~650 px
  *  под названия в 150–210 px, а колонки чисел жались к правому краю (аудит экранов). */
+const STAGE: TableColumn = { title: 'Этап', width: '7.5rem' };
 const COLUMNS: TableColumn[] = [
   { title: 'Статья', width: '15rem' },
   { title: 'Провайдер', width: '9.5rem' },
@@ -79,12 +78,26 @@ const COLUMNS: TableColumn[] = [
   { title: 'Единиц', width: '9rem' },
   { title: 'Денег', width: '7rem' },
 ];
+/** Сумма ширин колонок: 720 px, с этапом — 840. */
 const TABLE_MIN_WIDTH = 720;
+const STAGE_WIDTH = 120;
 
-/** Статьи расхода: что, у кого, сколько запросов, единиц и денег. */
-export function SpendTable({ articles }: { articles: ArticleCard[] }) {
+/** Статьи расхода: что, у кого, сколько запросов, единиц и денег; `stages` — и этап. */
+export function SpendTable({
+  articles,
+  stages = false,
+}: {
+  articles: SpendRow[];
+  stages?: boolean;
+}) {
+  const [name, ...rest] = COLUMNS;
+  const columns = stages && name !== undefined ? [name, STAGE, ...rest] : COLUMNS;
   return (
-    <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
+    <Table.ScrollContainer
+      minWidth={TABLE_MIN_WIDTH + (stages ? STAGE_WIDTH : 0)}
+      type="native"
+      className="scrollSlim"
+    >
       <Table
         className="dataTable fixedTable"
         layout="fixed"
@@ -92,25 +105,24 @@ export function SpendTable({ articles }: { articles: ArticleCard[] }) {
         verticalSpacing="sm"
         horizontalSpacing="md"
       >
-        <TableColumns columns={COLUMNS} />
+        <TableColumns columns={columns} />
         <Table.Tbody>
           {articles.map((article) => (
-            <Table.Tr key={`${article.provider}-${article.operation}`}>
+            <Table.Tr key={`${article.provider}-${article.operation}-${article.stage ?? 'none'}`}>
               <Table.Td>
                 <Text fw={500} className="cellName">
-                  {operationTitle(article.operation)}
+                  {spendOperation(article.operation)}
                 </Text>
               </Table.Td>
+              {stages && <Table.Td>{stageShort(article.stage ?? null)}</Table.Td>}
               <Table.Td>
-                <Badge variant="light" color={usageProvider(article.provider).color}>
-                  {usageProvider(article.provider).title}
+                <Badge variant="light" color={spendProvider(article.provider).color}>
+                  {spendProvider(article.provider).title}
                 </Badge>
               </Table.Td>
               <Table.Td>{formatNumber(article.calls)}</Table.Td>
               <Table.Td>
-                {article.units > 0
-                  ? `${formatNumber(article.units)} ${unitOf(article.provider, article.units)}`
-                  : '—'}
+                {article.units > 0 ? unitsText(article.provider, article.units) : '—'}
               </Table.Td>
               <Table.Td>
                 {Number(article.amount_usd) > 0 ? formatUsd(article.amount_usd) : '—'}

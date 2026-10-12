@@ -32,6 +32,7 @@ from backend.config.startup_checks import check_storage
 from backend.features.contacts.browser import PlaywrightRenderer
 from backend.features.core.domain import CrawlOutcome, StopReason
 from backend.features.crawl import targets
+from backend.features.crawl.fetch import PageCascade
 from backend.features.crawl.launch import launch
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.report import CrawlReport
@@ -218,12 +219,18 @@ async def _crawl_one(
     и делить между донорами тут нечего."""
     limiter = DomainLimiter()
     async with guarded_client(timeout=cfg.PAGE_TIMEOUT_SEC) as client:
+        # Без журнала расхода: платные уровни прибор не зовёт, и это видно в отчёте
+        # (`fetch.PageCascade._allowed`). Замер с ними — обходом из очереди (`--queue`).
+        cascade = PageCascade(
+            client,
+            renderer=renderer,  # type: ignore[arg-type]
+            browser_enabled=renderer is not None,
+            identify=identify,
+        )
         crawler = DonorCrawler(
             client,
             limiter=limiter,
-            renderer=renderer,  # type: ignore[arg-type]
-            use_browser=renderer is not None,
-            identify=identify,
+            cascade=cascade,
             max_pages=args.pages,
             max_seconds=args.seconds,
         )

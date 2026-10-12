@@ -118,3 +118,20 @@ async def ceiling_at_start(session: AsyncSession, *, run_id: int, promised: int)
             },
         )
     return ceiling
+
+
+async def units_free(session: AsyncSession, client: AhrefsClient) -> int:
+    """Сколько юнитов можно потратить вне прогона прямо сейчас — правилом прогона.
+
+    Зовётся до пакета DR кандидатов Этапа 2 (`crawl/big_sites.py`). До 12.10.2026 этот
+    пакет капа не спрашивал вовсе: DR шёл той же операцией, что метрики Этапа 1, и мимо
+    месячного капа — после выбранного месяца пересчёт кандидатов тратил дальше.
+
+    Правило то же, что у прогона, и в тех же двух местах: остаток месячного капа по своей
+    таблице (`ceiling_at_start`) и остаток у провайдера (`units_left`) — оба за вычетом
+    обещанного идущими прогонами: их смета не потрачена, и таблица её не видит. Остаток
+    у провайдера неизвестен — `QuotaUnavailableError`, тратить вслепую нельзя.
+    """
+    claimed = await RunRepository(session).claimed_units()
+    month = await cap_left(session, cap=ahrefs_cfg.UNITS_CAP)
+    return await units_left(client, cap=max(0, month - claimed), claimed=claimed)

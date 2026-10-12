@@ -37,7 +37,12 @@ from backend.features.ahrefs.client import AhrefsError
 from backend.features.core.domain import CrawlOutcome, CrawlStatus
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
-from backend.features.crawl.big_sites import Ratings, apply_ratings, needs_rating
+from backend.features.crawl.big_sites import (
+    Ratings,
+    RatingsRefusedError,
+    apply_ratings,
+    needs_rating,
+)
 from backend.features.crawl.links import OutLink
 from backend.features.crawl.scoring import Candidate, boost_across_donors, score_candidates
 from backend.features.crawl.selection_settings import snapshot
@@ -149,19 +154,24 @@ async def _rate(candidates: list[Candidate], previous: _Previous, ratings: Ratin
 
     Отказ провайдера не роняет пересчёт: вердикты остаются, а в причинах —
     «DR не проверен». Повтор — следующим пересчётом, юниты за уже
-    спрошенное не тратятся.
+    спрошенное не тратятся. Отказ капа (`RatingsRefusedError`) — так же,
+    но с причиной в словах кандидата: кап — не поломка провайдера.
     """
     asked = sorted({c.target_root for c in candidates if needs_rating(c)} - set(previous.ratings))
+    refused: str | None = None
     if asked and ratings is not None:
         try:
             fresh = await ratings(asked)
+        except RatingsRefusedError as exc:
+            logger.warning("DR кандидатов не спрошен (%s доменов): %s", len(asked), exc)
+            refused = str(exc)
         except AhrefsError as exc:
             logger.warning("DR кандидатов не получен (%s доменов): %s", len(asked), exc)
         else:
             now = datetime.now(UTC)
             previous.ratings.update(fresh)
             previous.rated_at.update(dict.fromkeys(fresh, now))
-    blocked = apply_ratings(candidates, previous.ratings)
+    blocked = apply_ratings(candidates, previous.ratings, refused=refused)
     if blocked:
         logger.info("кандидаты: крупных сайтов (DR > 80) отсеяно %s", blocked)
 

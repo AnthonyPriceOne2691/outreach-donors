@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import functools
 import logging
 import threading
 from collections import Counter
@@ -37,19 +36,21 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.config import ahrefs as ahrefs_cfg
 from backend.config import crawl as cfg
 from backend.config import storage
-from backend.config.startup_checks import check_storage
+from backend.config.startup_checks import check_crawl, check_storage
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.ahrefs.units import UsageCollector
 from backend.features.contacts.browser import PlaywrightRenderer
-from backend.features.core import usage
 from backend.features.core.domain import CrawlStatus
 from backend.features.core.models.crawl import CrawlRunModel
-from backend.features.crawl.big_sites import ahrefs_ratings
+from backend.features.crawl.big_sites import capped_ratings, journal
+from backend.features.crawl.fetch import PageCascade
 from backend.features.crawl.gate import judge_run
 from backend.features.crawl.lifecycle import FAILURE_KEY, REASON_KEY, heartbeat, noted
 from backend.features.crawl.progress import Batch, Checkpoint, CrawlInterruptedError, Progress
+from backend.features.crawl.render import RenderService
 from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.repository import finish_crawl, save_batch
+from backend.features.crawl.spend import JournalSpending
 from backend.features.crawl.walk import DonorCrawler
 from backend.features.runs.failures import described
 from backend.features.runs.reasons import explained
@@ -90,6 +91,7 @@ def crawl_donor(crawl_run_id: int) -> dict[str, Any]:
     """
     setup_logging()
     check_storage()
+    check_crawl()
     return asyncio.run(_crawl(crawl_run_id))
 
 
@@ -180,9 +182,17 @@ async def _walk(
                 else None
             )
             client = await stack.enter_async_context(guarded_client(timeout=cfg.PAGE_TIMEOUT_SEC))
-            crawler = DonorCrawler(
-                client, renderer=renderer, use_browser=renderer is not None, identify=cfg.IDENTIFY
+            # Платные уровни — прокси из настройки и сервис рендеринга пустых страниц —
+            # с журналом расхода и своим потолком Этапа 2 (`crawl/spend.py`).
+            cascade = PageCascade(
+                client,
+                renderer=renderer,
+                browser_enabled=renderer is not None,
+                identify=cfg.IDENTIFY,
+                render=RenderService.from_settings(client),
+                spending=JournalSpending(factory),
             )
+            crawler = DonorCrawler(client, cascade=cascade)
             try:
                 return await crawler.crawl(host, progress)
             finally:
@@ -241,8 +251,9 @@ async def _finish(
 def judge_crawl(crawl_run_id: int) -> dict[str, Any]:
     """Посчитать кандидатов законченного обхода — сразу после него, без кнопки.
 
-    DR для «DR > 80 — не пишем» спрашивается, если есть ключ; расход —
-    в журнал той же транзакцией, что и вердикты.
+    DR для «DR > 80 — не пишем» спрашивается, если есть ключ и пускает месячный кап
+    (`big_sites.capped_ratings`); расход — в журнал той же транзакцией, что и вердикты,
+    расходом Этапа 2.
     """
     setup_logging()
     check_storage()
@@ -254,12 +265,11 @@ async def _judge(run_id: int) -> dict[str, Any]:
     factory = async_sessionmaker(engine, expire_on_commit=False)
     spent = UsageCollector()
     client = AhrefsClient(on_usage=spent) if ahrefs_cfg.API_KEY else None
-    ratings = functools.partial(ahrefs_ratings, client) if client is not None else None
     try:
         async with factory() as session:
+            ratings = capped_ratings(client, session) if client is not None else None
             candidates = await judge_run(session, run_id, ratings=ratings)
-            for operation, cost in spent.drain():
-                usage.record(session, operation=operation, units=cost.billable)
+            journal(session, spent)
             await session.commit()
     finally:
         if client is not None:
