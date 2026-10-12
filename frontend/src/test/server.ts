@@ -53,11 +53,16 @@ export const misses: string[] = [];
  * каждая страница. Тест экрана о них не думает — ответ «ничего не ждёт» записан
  * за него и в `calls` не попадает: проверки «что ушло на сервер» считают запросы
  * экрана. Тест рамы записывает свой ответ — и видит его в `calls`.
+ *
+ * Тревоги сторожа (`layout/Watchdog.tsx`) — так же: их спрашивают главная и раздел
+ * «Продажи» (полоса над вкладками), и ответ «тихо» записан за тест экрана. Тест
+ * тревог записывает свой.
  */
 const FRAME_ROUTES: Record<string, Route> = {
   'GET /api/overview/work': {
     body: { run: 0, threads: 0, forms: 0, advertisers: 0, sales_threads: 0 },
   },
+  'GET /api/watchdog': { body: { alarms: [] } },
 };
 
 export function serve(routes: Record<string, Route>): Recorded {

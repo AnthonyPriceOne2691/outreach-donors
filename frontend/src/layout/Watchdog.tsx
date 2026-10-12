@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { fetchWatchdog } from '../api/settings';
 import { stageShown } from '../api/stages';
+import type { Stage } from '../api/stages';
 import { useSession } from '../auth/AuthProvider';
 
 /**
@@ -16,8 +17,13 @@ import { useSession } from '../auth/AuthProvider';
  * полосой над сводкой — появление полосы и есть сигнал.
  *
  * Своим файлом с 10.10.2026: «Обзор» упёрся в предел длины файла.
+ *
+ * **Раздел этапа — тревоги о почте своего этапа** (`stage`): раздел «Продажи» ставит их над
+ * вкладками. Ящик переписки выбыл, а её письма ждут именно его (`ops/mail_watch.py`) — человек
+ * продаж видит это красной полосой там, где работает, а не только на главной (слово владельца
+ * 12.10.2026: вместо смены ящика переписки — красная тревога). Общие тревоги — на главной.
  */
-export function Watchdog() {
+export function Watchdog({ stage }: { stage?: Stage }) {
   const { can } = useSession();
   const { data } = useQuery({
     queryKey: ['watchdog'],
@@ -30,7 +36,9 @@ export function Watchdog() {
   // Тревога о почте продаж — только с правом «Продажи» (П2б), даже пришедшая раньше,
   // чем право сняли; общая тревога (`stage: null`) — всем.
   const alarms = (data?.alarms ?? []).filter(
-    (alarm) => alarm.stage === null || stageShown(alarm.stage, can('sales')),
+    (alarm) =>
+      (alarm.stage === null || stageShown(alarm.stage, can('sales'))) &&
+      (stage === undefined || alarm.stage === stage),
   );
   if (!can('view') || alarms.length === 0) return null;
 
