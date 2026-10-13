@@ -15,6 +15,12 @@
 **Убирается и итог прежней.** rq хранит его отдельно от задачи, и `Job.delete()` его
 не трогает: новая задача под тем же номером ещё в очереди, а её последним итогом
 числился бы отчёт прежней (проверено на rq 2.12).
+
+**Прежняя ищется и в чужой очереди.** Номер един на весь Redis (`unique=True` смотрит ключ
+задачи), а `Queue.fetch_job` отдаёт только задачи своей очереди. Пачка продаж до 12.10.2026
+ставилась в общую очередь, затем — в очередь продаж, с 13.10.2026 — в очередь их долгих задач
+(`api/letters/routes._jobs_of`): её кончившийся след в прежней очереди иначе неделю отвечал бы
+«пачка уже отправляется».
 """
 
 from __future__ import annotations
@@ -22,7 +28,7 @@ from __future__ import annotations
 import logging
 
 from rq import Queue
-from rq.exceptions import DuplicateJobError
+from rq.exceptions import DuplicateJobError, NoSuchJobError
 from rq.job import Job, JobStatus
 from rq.results import Result
 
@@ -66,7 +72,7 @@ def enqueue_once(
         return jobs.enqueue(path, *args, job_id=job_id, unique=True, **options)
     except DuplicateJobError:
         logger.info("письма: номер задачи занят — смотрим, кончилась ли", extra={"job_id": job_id})
-        previous = jobs.fetch_job(job_id)
+        previous = _previous(jobs, job_id)
     if previous is not None:
         if previous.get_status() in RUNNING:
             return None
@@ -79,4 +85,17 @@ def enqueue_once(
         logger.info(
             "письма: задачу поставило второе нажатие — эта не ставится", extra={"job_id": job_id}
         )
+        return None
+
+
+def _previous(jobs: Queue, job_id: str) -> Job | None:
+    """Задача, которая держит номер: своей очереди — или чужой (номер един на весь Redis).
+    `None` — задачи уже нет: её след истёк между постановкой и вопросом."""
+    found = jobs.fetch_job(job_id)
+    if found is not None:
+        return found
+    try:
+        return Job.fetch(job_id, connection=jobs.connection, serializer=jobs.serializer)
+    except NoSuchJobError:
+        logger.info("письма: задачи с этим номером уже нет — ставим", extra={"job_id": job_id})
         return None

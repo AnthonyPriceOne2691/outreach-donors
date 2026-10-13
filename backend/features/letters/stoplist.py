@@ -31,6 +31,11 @@
 **Запись этапа продаж — только с правом «Продажи»** (решение Anthony 10.10.2026, П2б):
 без права её нет в списке и в числах над ним (`rows(stages=…)`), а снять или завести
 такую запись маршрут не даст. Запись без этапа держит все этапы — её видят все, как было.
+
+**Запись с этапом снимает письма только своего этапа** (ревью стыков 12.10.2026). Проверка
+перед отправкой держит такую запись только у писем её этапа (`holding`), а снятие с очереди
+снимало письма всех этапов: запись продаж на домен останавливала и переписку доноров с торгом
+о цене. Теперь снятие говорит то же, что проверка (`stop_pending(stage=…)`).
 """
 
 from __future__ import annotations
@@ -40,7 +45,7 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import ColumnElement, or_, select
+from sqlalchemy import ColumnElement, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core import stages
@@ -52,7 +57,7 @@ from backend.features.core.domain import (
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
-from backend.features.core.models.outreach import MessageModel
+from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.donors.host import normalize_host
 from backend.shared.net.url_parts import split_url
 
@@ -270,7 +275,11 @@ async def remove(session: AsyncSession, row_id: int, *, reason: str | None) -> S
 
 
 async def stop_pending(
-    session: AsyncSession, *, domain_id: int | None = None, email: str | None = None
+    session: AsyncSession,
+    *,
+    domain_id: int | None = None,
+    email: str | None = None,
+    stage: Stage | None = None,
 ) -> int:
     """Снять с очереди и со сроков всё, что этому адресату предстояло.
 
@@ -283,10 +292,13 @@ async def stop_pending(
     Адресат по адресу — строка `contacts` у доноров и рекламодателей; у писем
     продаж её нет, адрес живёт у лида. Их переписки называет модуль продаж
     через мост (`stages.sales_threads_to`): почта продажи не импортирует.
+
+    `stage` — этап записи: снимаются только письма рассылок этого этапа, тем же
+    правилом, что у проверки перед отправкой (`holding`). Без этапа — все этапы.
     """
     if domain_id is not None:
-        return await _stop(session, MessageModel.domain_id == domain_id)
-    return await _stop(session, (await _addressee(session, email)).letters())
+        return await _stop(session, MessageModel.domain_id == domain_id, stage)
+    return await _stop(session, (await _addressee(session, email)).letters(), stage)
 
 
 async def holding(
@@ -350,8 +362,20 @@ async def _addressee(session: AsyncSession, email: str | None) -> _Addressee:
     return _Addressee(contacts=tuple(contacts), sales_threads=tuple(sales))
 
 
-async def _stop(session: AsyncSession, addressed: ColumnElement[bool]) -> int:
-    """Снять письма адресату: из очереди — в «снято», у ушедших — срок добивки."""
+def _of_stage(stage: Stage | None) -> ColumnElement[bool]:
+    """Письма рассылок этапа `stage`; без этапа — письма любого этапа."""
+    if stage is None:
+        return true()
+    return MessageModel.campaign_id.in_(
+        select(CampaignModel.id).where(CampaignModel.stage == stage)
+    )
+
+
+async def _stop(
+    session: AsyncSession, addressed: ColumnElement[bool], stage: Stage | None = None
+) -> int:
+    """Снять письма адресату: из очереди — в «снято», у ушедших — срок добивки. Запись
+    с этапом — только письма этого этапа (`stop_pending`)."""
     found = await session.execute(
         select(MessageModel).where(
             or_(
@@ -359,6 +383,7 @@ async def _stop(session: AsyncSession, addressed: ColumnElement[bool]) -> int:
                 MessageModel.next_action_at.is_not(None),
             ),
             addressed,
+            _of_stage(stage),
         )
     )
     stopped = 0
@@ -397,7 +422,7 @@ async def _add_host(
     )
     session.add(row)
     await session.flush()
-    stopped = await stop_pending(session, domain_id=domain.id)
+    stopped = await stop_pending(session, domain_id=domain.id, stage=stage)
     return AddedRow(
         id=row.id,
         host=host,
@@ -431,7 +456,7 @@ async def _add_email(
     await session.flush()
     # Знаком ли адрес и что ему снять — одним ответом: модуль продаж спрошен один раз.
     addressee = await _addressee(session, email)
-    stopped = await _stop(session, addressee.letters())
+    stopped = await _stop(session, addressee.letters(), stage)
     return AddedRow(
         id=row.id,
         host=None,

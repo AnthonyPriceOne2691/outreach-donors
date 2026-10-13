@@ -13,18 +13,26 @@
 появится потом, говорят о ней одинаково: второй экземпляр слов разошёлся бы
 с первым на первой же правке. Код причины лежит у ответа (`unbound_reason`),
 номер письма из метки — в адресах, на которые он пришёл.
+
+**Ответ на ящик продаж — только с правом «Продажи»** (решение Anthony 10.10.2026,
+П2; ревью стыков 12.10.2026). Этап у такого ответа — по нашему адресу, на который
+он пришёл (`recipient_stage.py`): страница, число вкладки и число в «Обзоре»
+считают ответы этапов, которые видит спрашивающий (`stages`). Нашего адреса нет —
+этапа нет, и ответ виден всем, как был.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 from sqlalchemy import ColumnElement, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.letters import reply_to
 from backend.features.letters.probe import PROBE_MESSAGE_ID
+from backend.features.replies import recipient_stage
 from backend.features.replies.binding import Unbound
 from backend.features.replies.inbound import MAX_TEXT_CHARS
 from backend.features.replies.quoting import written_by_hand
@@ -49,26 +57,56 @@ def is_unbound() -> ColumnElement[bool]:
     return and_(ReplyModel.thread_id.is_(None), ReplyModel.message_id.is_(None))
 
 
-async def page(session: AsyncSession, *, page: int = 1, size: int = PAGE_SIZE) -> list[ReplyModel]:
-    """Страница непривязанных, новые первыми. Номер страницы — с единицы.
+async def page(
+    session: AsyncSession, *, stages: Collection[Stage], page: int = 1, size: int = PAGE_SIZE
+) -> list[ReplyModel]:
+    """Страница непривязанных, которые видит спрашивающий (`stages`), новые первыми.
+    Номер страницы — с единицы.
 
     Порядок — по номеру ответа, и он полный: номер уникален, и ответ со стыка
     страниц не покажется на обеих. Страница за концом — пустая, а не отказ:
     число страниц экран считает по `total`.
     """
+    shown = (await _shown(session, stages))[(page - 1) * size : page * size]
+    if not shown:
+        return []
     rows = await session.execute(
-        select(ReplyModel)
-        .where(is_unbound())
-        .order_by(ReplyModel.id.desc())
-        .limit(size)
-        .offset((page - 1) * size)
+        select(ReplyModel).where(ReplyModel.id.in_(shown)).order_by(ReplyModel.id.desc())
     )
     return list(rows.scalars().all())
 
 
-async def total(session: AsyncSession) -> int:
-    """Сколько непривязанных всего — то же условие, что у страницы."""
-    return int(await session.scalar(select(func.count(ReplyModel.id)).where(is_unbound())) or 0)
+async def total(session: AsyncSession, *, stages: Collection[Stage]) -> int:
+    """Сколько непривязанных видит спрашивающий — то же условие, что у страницы."""
+    if not frozenset(Stage) - frozenset(stages):
+        return int(await session.scalar(select(func.count(ReplyModel.id)).where(is_unbound())) or 0)
+    return len(await _shown(session, stages))
+
+
+async def _shown(session: AsyncSession, stages: Collection[Stage]) -> list[int]:
+    """Номера непривязанных ответов этапов `stages` и без этапа — новые первыми. Текстов
+    не берёт: текст до двухсот тысяч знаков (`inbound.MAX_BODY_CHARS`). Адреса — только когда
+    спрашивающий видит не все этапы: этап по нашему адресу нужен, чтобы скрыть чужой, а число
+    меню у того, кто видит всё, адресов не берёт (`test_threads_lean`)."""
+    hidden = frozenset(Stage) - frozenset(stages)
+    if not hidden:
+        found = await session.scalars(
+            select(ReplyModel.id).where(is_unbound()).order_by(ReplyModel.id.desc())
+        )
+        return list(found)
+    rows = (
+        await session.execute(
+            select(ReplyModel.id, ReplyModel.to_addresses)
+            .where(is_unbound())
+            .order_by(ReplyModel.id.desc())
+        )
+    ).all()
+    domains = await recipient_stage.known_domains(session)
+    return [
+        number
+        for number, addresses in rows
+        if recipient_stage.stage_of(addresses, domains) not in hidden
+    ]
 
 
 def preview(text: str) -> str:

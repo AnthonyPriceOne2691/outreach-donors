@@ -28,9 +28,9 @@
 И один ответ разбирается один раз: разобранный или решённый человеком
 модели второй раз не уходит.
 
-**Мёртвый ящик сам называет следующий адрес** («пишите на editor@…»):
-на домене донора он сразу ложится в контакты, на чужом — ждёт человека
-(`redirect`).
+**Мёртвый ящик сам называет следующий адрес** («пишите на editor@…»): на домене
+донора он сразу ложится в контакты, на чужом — ждёт человека (`redirect`). У письма
+продаж — нет: автоответ уходит в очередь продаж, нового лида они заводят сами.
 
 **Непривязанное сохраняется — вместе с причиной.** Ответ, который не удалось
 соотнести, — это не мусор, а потерянный донор. Молча отброшенный, он выглядит
@@ -153,12 +153,12 @@ class Inbox:
 
     async def accept(self, incoming: Incoming) -> Accepted:
         """Принять одно входящее письмо. Модель здесь не зовётся."""
+        verdict = classify.classify(incoming)
         taken = await self._repo.taken(incoming.message_id)
         if taken is not None:
-            return await self._repeated(incoming, taken)
+            return await self._repeated(incoming, taken, verdict.rule)
 
         bound, addressee = await self._bind(incoming)
-        verdict = classify.classify(incoming)
 
         reply = self._repo.add(
             incoming,
@@ -192,7 +192,7 @@ class Inbox:
 
         return await self._settle(reply, verdict, bound, incoming, addressee)
 
-    async def _repeated(self, incoming: Incoming, taken: ReplyModel) -> Accepted:
+    async def _repeated(self, incoming: Incoming, taken: ReplyModel, rule: str | None) -> Accepted:
         """Повтор вебхука: второго ответа не заводим.
 
         Но если разбор цены у принятого ответа так и не шёл, повтор отдаёт
@@ -205,7 +205,7 @@ class Inbox:
         # Тот же случай у ответа продаж: снимка разбора вида нет, человек не решал.
         unsorted = taken.model_parse is None and taken.reviewed_at is None
         stage = await self._repo.stage_of(taken) if unsorted else None
-        sales_again = taken.id if outcome.to_sales_queue(taken.kind, stage) else None
+        sales_again = taken.id if outcome.to_sales_queue(taken.kind, stage, rule) else None
         logger.info(
             "приём: письмо %s уже принято ответом №%s — повтор вебхука%s",
             incoming.message_id,
@@ -258,15 +258,15 @@ class Inbox:
             review_reason=consequences.review_reason or found.review_reason,
             parse_pending=verdict.kind is ReplyKind.HUMAN
             and outcome.priced_by_model(addressee.stage),
-            sales_pending=outcome.to_sales_queue(verdict.kind, addressee.stage),
+            sales_pending=outcome.to_sales_queue(verdict.kind, addressee.stage, verdict.rule),
             forwarding=found,
         )
 
     async def _redirect(
         self, verdict: classify.Verdict, incoming: Incoming, addressee: Addressee
     ) -> redirect.Redirect:
-        """Мёртвый ящик сам назвал, куда писать, — взять адрес (`redirect`)."""
-        if verdict.rule != classify.DEAD_MAILBOX:
+        """Мёртвый ящик сам назвал, куда писать, — взять адрес (`redirect`); не у продаж."""
+        if verdict.rule != classify.DEAD_MAILBOX or addressee.stage is Stage.SALES:
             return redirect.Redirect()
         return await redirect.follow(
             self._session, incoming, domain_id=addressee.domain_id, host=addressee.host
@@ -308,7 +308,7 @@ class Inbox:
         steps: tuple[tuple[bool, Callable[[], Awaitable[None]]], ...] = (
             (consequences.stop_chain, lambda: self._stop_chain(addressee)),
             (consequences.suppress_email, lambda: self._suppress(incoming)),
-            (consequences.mark_contact_dead, lambda: self._mark_dead(addressee)),
+            (consequences.mark_contact_dead, lambda: self._mark_dead(incoming, addressee)),
             (
                 consequences.remember_answering_address,
                 lambda: self._remember(incoming, addressee, moment),
@@ -326,8 +326,8 @@ class Inbox:
     async def _suppress(self, incoming: Incoming) -> None:
         await self._repo.suppress(incoming.from_email)
 
-    async def _mark_dead(self, addressee: Addressee) -> None:
-        await self._repo.mark_contact_dead(addressee.message.contact_id)
+    async def _mark_dead(self, incoming: Incoming, addressee: Addressee) -> None:
+        await self._repo.mark_dead(incoming, addressee)
         await self._repo.mark_bounced(addressee.message)
 
     async def _remember(self, incoming: Incoming, addressee: Addressee, moment: datetime) -> None:

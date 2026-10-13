@@ -79,6 +79,21 @@ _WORDS: dict[str, dict[str, str]] = {
     },
 }
 
+#: Слова письма продаж поверх `_WORDS`: оно ушло человеку, а не сайту, и отписка закрывает его
+#: адрес (решение владельца 12.10.2026, `letters/optout.py`) — «все адреса сайта» не обещаем.
+_PERSON: dict[str, dict[str, str]] = {
+    "en": {
+        "question": "Stop sending you emails?",
+        "scope": "This covers your address, including messages already scheduled.",
+        "done_line": "We will not email you again.",
+    },
+    "ru": {
+        "question": "Больше не присылать вам письма?",
+        "scope": "Отписка касается вашего адреса и уже запланированных писем.",
+        "done_line": "Мы больше не будем вам писать.",
+    },
+}
+
 
 @dataclass(frozen=True, slots=True)
 class Voice:
@@ -89,11 +104,19 @@ class Voice:
     address: str | None
     #: Язык письма (`ru`, `en`): у языка без своих слов страница по-английски.
     language: str = "en"
+    #: Письмо продаж: отписка закрывает адрес человека, а не сайт, — слова о нём (`_PERSON`).
+    person: bool = False
 
     @property
     def lang(self) -> str:
         """Язык страницы — тот, слова которого есть."""
         return self.language if self.language in _WORDS else "en"
+
+    @property
+    def words(self) -> dict[str, str]:
+        """Слова страницы на её языке — о человеке у письма продаж, о сайте у остальных."""
+        found = _WORDS[self.lang]
+        return {**found, **_PERSON[self.lang]} if self.person else found
 
 
 def donors() -> Voice:
@@ -139,7 +162,7 @@ def confirm(host: str, *, action: str, voice: Voice | None = None) -> str:
     сработала бы за донора, который её не нажимал.
     """
     said = voice or donors()
-    words = _WORDS[said.lang]
+    words = said.words
     site = f'<span class="host">{escape(host)}</span>'
     return _shell(
         words["ask"],
@@ -157,7 +180,7 @@ def confirm(host: str, *, action: str, voice: Voice | None = None) -> str:
 def done(host: str, voice: Voice | None = None) -> str:
     """Готово. Тот же текст и на повторное нажатие: для донора разницы нет."""
     said = voice or donors()
-    words = _WORDS[said.lang]
+    words = said.words
     site = f'<span class="host">{escape(host)}</span>'
     return _shell(
         words["done"],

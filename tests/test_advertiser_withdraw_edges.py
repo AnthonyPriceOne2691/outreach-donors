@@ -32,8 +32,8 @@ from backend.features.core.models.outreach import (
 from backend.features.crawl import review
 from backend.features.crawl.niche import NICHE
 from backend.features.crawl.promote import apply_rejections, promote
+from backend.features.letters import thread_first
 from backend.features.letters.attempts import LINK_WITHDRAWN
-from backend.features.letters.followups import Chain
 from backend.features.letters.recipients import Recipients
 from backend.features.letters.sending import Sending, StalePriceError, WithdrawnLinkError
 from backend.features.letters.transport import NullTransport
@@ -152,7 +152,7 @@ class TestTheThread:
     ) -> None:
         """В диалоге снятого письма есть ещё что-то (здесь — автоответ): диалог не
         удаляется, и новое письмо ложится в него. Тема добивки — у ушедшего письма,
-        а не у снятого (`followups.Chain._first_subject`)."""
+        а не у снятого (`thread_first.subject`)."""
         strong, _, letter = await _two_donors(session)
         thread = letter.thread_id
         session.add(
@@ -174,7 +174,7 @@ class TestTheThread:
         assert letter.thread_id == thread
         assert fresh.thread_id == thread
         assert letter.subject != fresh.subject
-        subject = await Chain(session, now=NOW)._first_subject(thread)
+        subject = await thread_first.subject(session, thread)
         assert subject == fresh.subject
 
 

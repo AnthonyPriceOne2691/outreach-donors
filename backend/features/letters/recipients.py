@@ -46,7 +46,7 @@ from backend.features.core.models.outreach import MessageModel
 from backend.features.core.models.run import RunCandidateModel
 from backend.features.crawl.suppliers import supplier_hosts
 from backend.features.donors.price_freshness import PriceState, price_is
-from backend.features.letters import attempts
+from backend.features.letters import attempts, other_role
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.compose import FoundLink, NicheOffer
 from backend.features.letters.funnel import AdvertiserFunnel, Funnel
@@ -283,7 +283,7 @@ class Recipients:
         inner = self._not_suppressed(inner, Stage.DONORS)
         return self._not_written(inner)
 
-    async def letter_address(self, domain_id: int) -> LetterAddress:
+    async def letter_address(self, domain_id: int, *, sales_visible: bool = False) -> LetterAddress:
         """На какой адрес ушло бы первое письмо донору, если собрать очередь
         сейчас, — или почему не ушло бы никакое.
 
@@ -292,13 +292,13 @@ class Recipients:
         (`building._bad_address`): не прошедший её адрес сборка пропускает
         вместе с донором, а не переходит к следующему. Причина отказа нужна
         экрану, только когда адреса нет: называется первое невыполненное
-        условие сборки.
+        условие сборки (письмо продаж в нём — подробно при `sales_visible`).
         """
         picked = (
             await self._session.execute(self._donor_picks().where(DomainModel.id == domain_id))
         ).first()
         if picked is None:
-            return LetterAddress(blocked=await self._why_not(domain_id))
+            return LetterAddress(blocked=await self._why_not(domain_id, sales_visible))
         bad = rejection_reason(picked.email)
         if bad is not None:
             return LetterAddress(
@@ -316,16 +316,19 @@ class Recipients:
             note=attempts.next_address_note(int(earlier)) if earlier else None,
         )
 
-    async def _why_not(self, domain_id: int) -> str | None:
+    async def _why_not(self, domain_id: int, sales_visible: bool) -> str | None:
         """Первое условие сборки, которое донор не прошёл. `None` — адресов нет.
 
         Условия — списком в порядке сборки: первое невыполненное и есть
         ответ. Письма и ответы идут раньше адресов: «донор ответил» важнее,
-        чем то, что его адреса к тому же кончились.
+        чем то, что его адреса к тому же кончились. Письмо сайту в другой роли —
+        раньше всего: «донору уже писали» о письме продаж — неправда (`other_role`).
         """
         one = select(DomainModel.id).where(DomainModel.id == domain_id)
         if not await self._exists(self._has_contact(one)):
             return None
+        if (other := await other_role.letter_to(self._session, domain_id)) is not None:
+            return other_role.words(other, sales_visible=sales_visible)
         donor = one.join(DonorModel, DonorModel.domain_id == DomainModel.id)
         domain = DomainModel.id
         off = await not_writing_reason(self._session, domain_id)
@@ -395,11 +398,8 @@ class Recipients:
 
     @staticmethod
     def _with_link(statement: _Query) -> _Query:
-        """Есть под что писать: площадка, страница и анкор найденной ссылки.
-
-        Письмо рекламодателю пишется «под конкретную найденную ссылку»,
-        и без любой из трёх частей его текст — про ничто.
-        """
+        """Есть под что писать: площадка, страница и анкор найденной ссылки. Письмо
+        рекламодателю пишется под конкретную ссылку, и без любой из трёх частей — про ничто."""
         return statement.where(
             _filled(AdvertiserModel.best_donor_host),
             _filled(AdvertiserModel.best_page_url),

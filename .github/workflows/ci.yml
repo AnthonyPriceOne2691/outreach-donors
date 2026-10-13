@@ -11,13 +11,15 @@ jobs:
 
     # Тесты репозитория идут на настоящей базе: проверять запрос к базе
     # на подделке значит проверять подделку.
-    # Официальный образ Docker — с его зеркала в ECR Public, а не с Docker Hub:
+    # Официальный образ Docker — с зеркала Google (`mirror.gcr.io`), а не с Docker Hub:
     # анонимные скачивания с Hub делят лимит по IP со всеми машинами GitHub, и
     # 09.10.2026 ~23:56 МСК «toomanyrequests» уронил сборку образа трижды подряд.
+    # ECR Public, куда ушли тогда, 13.10.2026 трижды за день отказал тем же
+    # «toomanyrequests: Data limit exceeded» — у анонимных скачиваний и там свой лимит.
     # Образ тот же — Docker сам выкладывает официальные образы в `docker/library`.
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine
+        image: mirror.gcr.io/library/postgres:16-alpine
         env:
           POSTGRES_USER: outreach
           POSTGRES_PASSWORD: outreach
@@ -179,7 +181,7 @@ jobs:
     # Образ — с зеркала, как у `check`.
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine
+        image: mirror.gcr.io/library/postgres:16-alpine
         env:
           POSTGRES_USER: outreach
           POSTGRES_PASSWORD: outreach
@@ -353,7 +355,7 @@ jobs:
     # пойдут на сервере. Тесты её не используют: у них своя работа.
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine  # с зеркала, как у `check`
+        image: mirror.gcr.io/library/postgres:16-alpine  # с зеркала, как у `check`
         env:
           POSTGRES_USER: outreach
           POSTGRES_PASSWORD: outreach

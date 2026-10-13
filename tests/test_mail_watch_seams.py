@@ -191,7 +191,7 @@ async def test_a_broken_stage_keeps_the_donor_alarms(
 
     codes = {alarm.code for alarm in await silence.alarms(session, stages=EVERY_STAGE, now=NOW)}
 
-    assert {"delivery-silence", "watch-failed:sales"} <= codes
+    assert {"delivery-silence:donors", "watch-failed:sales"} <= codes
 
 
 async def test_the_watchdog_screen_survives_a_base_error_of_the_mail_watch(

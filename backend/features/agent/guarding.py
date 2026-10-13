@@ -15,6 +15,10 @@
 
 Писатель сам сомневается или не вернул текста — судья не зовётся: ответ уже
 у человека. Судьи у этапа нет — черновик писателя как есть, как до шва.
+
+**Потолки — перед каждым вызовом писателя**, а не раз на черновик: общий, свой
+потолок черновиков и свой потолок этапа, если он у этапа есть (`AgentStage.own_cap`).
+Правка — тоже вызов модели, и потолок, выбранный на первой правке, вторую не пускает.
 """
 
 from __future__ import annotations
@@ -71,7 +75,7 @@ async def compose(
     current = request
     cap = drafts_cap()
     for attempt in range(max(stage.max_rewrites, 0) + 1):
-        await usage.ensure_llm_within_cap(session, own=cap)
+        await _within_caps(session, stage, cap)
         written = await writer.write(current)
         tokens += _spent(session, stage.usage_operation, written.tokens, request.stage)
         held = written.needs_human or not written.body.strip()
@@ -98,6 +102,14 @@ async def compose(
         current = replace(request, corrections=verdict.reasons, previous=written.body)
     why = f"судья не пропустил черновик и после {stage.max_rewrites} правок: {_said(verdict)}"
     return Composed(written.body, True, why, tokens, attempts)
+
+
+async def _within_caps(session: AsyncSession, stage: AgentStage, drafts: usage.OwnCap) -> None:
+    """Потолки до вызова писателя: общий с потолком черновиков, затем свой потолок этапа.
+    Выбран любой — `LlmCapExceededError` словами того потолка, и писатель не зовётся."""
+    await usage.ensure_llm_within_cap(session, own=drafts)
+    if stage.own_cap is not None:
+        await usage.ensure_llm_within_cap(session, own=stage.own_cap())
 
 
 def drafts_cap() -> usage.OwnCap:
@@ -150,7 +162,12 @@ class _Part:
 
 def _parts() -> tuple[_Part, ...]:
     """Черновики агента (`drafts_cap`) и вызовы модели продаж (`sales/usage_cap.sales_cap`):
-    одно правило доли (`usage.share_cap`) — одна строка при старте."""
+    одно правило доли (`usage.share_cap`) — одна строка при старте. Часть с непрочитанной
+    настройкой потолка не тратит вовсе (`llm_cfg.UNREAD_CAPS`): о ней сказал конфиг."""
+    return tuple(part for part in _all_parts() if part.setting not in llm_cfg.UNREAD_CAPS)
+
+
+def _all_parts() -> tuple[_Part, ...]:
     return (
         _Part(
             "черновики агента",

@@ -22,6 +22,8 @@
 
 **Потолок расхода на модель** проверяется до вызова, как у разбора ответа,
 и расход пишется в журнал операцией этапа.
+
+**Модель черновик не написала** — человеку черновик без текста с причиной (`unwritten`).
 """
 
 from __future__ import annotations
@@ -82,6 +84,10 @@ DECIDED = (DraftStatus.SENT, DraftStatus.REJECTED)
 #: О каких черновиках говорит крючок уведомления: по ним ждут человека.
 _ANNOUNCED = (DraftStatus.DRAFTED, DraftStatus.ESCALATED)
 _EPOCH = datetime.min.replace(tzinfo=UTC)
+#: Начало причины черновика, который модель не написала (`unwritten`).
+UNWRITTEN = "черновик не написан"
+#: Ответ, которому черновик положен: его переписка, части этапа и настройки этапа.
+type _Ready = tuple[_Target, AgentStage, AgentSettingsModel]
 
 
 class UnknownDraftReplyError(LookupError):
@@ -150,14 +156,10 @@ async def draft_answer(
     очереди не платит модели второй раз. `force` — «всё же написать»: пропуск
     брифа не останавливает модель, а ложится в `meta`.
     """
-    target = await _target(session, reply_id)
-    if target is None:
-        return DraftOutcome(reply_id=reply_id, skipped="ответ не привязан к переписке")
-    stage = AGENT_STAGES.get(target.stage)
-    settings = await AgentSettingsRepository(session).current(target.stage)
-    why = _refusal(target, stage, settings) or await _done(session, reply_id, again=again)
-    if why is not None or stage is None or settings is None:
-        return DraftOutcome(reply_id=reply_id, skipped=why or "агент на этом этапе не работает")
+    ready = await _ready(session, reply_id, again=again)
+    if isinstance(ready, str):
+        return DraftOutcome(reply_id=reply_id, skipped=ready)
+    target, stage, settings = ready
 
     turns, cleaned = await _turns(session, target)
     conversation = Conversation(
@@ -173,16 +175,47 @@ async def draft_answer(
         draft = _skipped(brief)
     else:
         draft = await _written(session, stage, writer, conversation, target.reply, brief)
-    draft_id = await _store(session, reply_id, settings.id, draft, stage)
+    return await _recorded(session, ready, draft)
+
+
+async def unwritten(session: AsyncSession, reply_id: int, why: str) -> DraftOutcome:
+    """Модель не написала черновик, и повтора не будет: черновик `escalated` без текста
+    с причиной «черновик не написан: …»; фиксация и крючок этапа — у вызывающего. Ответ,
+    которому черновик уже не положен (ответили, решили, написан кнопкой), не трогается."""
+    ready = await _ready(session, reply_id, again=False)
+    if isinstance(ready, str):
+        return DraftOutcome(reply_id=reply_id, skipped=ready)
+    reason = f"{UNWRITTEN}: {why}"
+    draft = _Draft(status=DraftStatus.ESCALATED, body="", reason=reason, meta={}, tokens=0)
+    return await _recorded(session, ready, draft)
+
+
+async def _ready(session: AsyncSession, reply_id: int, *, again: bool) -> _Ready | str:
+    """Положен ли ответу черновик: его переписка, этап и настройки — или почему нет, словами."""
+    target = await _target(session, reply_id)
+    if target is None:
+        return "ответ не привязан к переписке"
+    stage = AGENT_STAGES.get(target.stage)
+    settings = await AgentSettingsRepository(session).current(target.stage)
+    why = _refusal(target, stage, settings) or await _done(session, reply_id, again=again)
+    if why is not None or stage is None or settings is None:
+        return why or "агент на этом этапе не работает"
+    return target, stage, settings
+
+
+async def _recorded(session: AsyncSession, ready: _Ready, draft: _Draft) -> DraftOutcome:
+    """Черновик — в строку ответа; итог — с тем, что о нём узнает крючок этапа."""
+    target, stage, settings = ready
+    draft_id = await _store(session, target.reply.id, settings.id, draft, stage)
     notice = DraftNotice(
         draft_id=draft_id,
-        reply_id=reply_id,
+        reply_id=target.reply.id,
         thread_id=target.thread.id,
         stage=target.stage,
         status=draft.status,
         reason=draft.reason,
     )
-    return DraftOutcome(reply_id=reply_id, notice=notice, tokens=draft.tokens)
+    return DraftOutcome(reply_id=target.reply.id, notice=notice, tokens=draft.tokens)
 
 
 async def announce(outcome: DraftOutcome) -> None:

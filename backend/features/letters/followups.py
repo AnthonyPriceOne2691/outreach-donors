@@ -39,6 +39,11 @@
 и продажи, когда они подключены (текст их добивки — ответ модуля продаж через
 мост `core/stages.py`); подошедшие добивки остальных проход называет вслух и
 не трогает — срок цел и дождётся подключения этапа.
+
+**Запрещённое в тексте добивки кончает её цепочку, а не проход** (ревью стыков 12.10.2026).
+Метрика Ahrefs в собранном тексте (`guards`; у продаж — в подписи «Отправителя») роняла
+весь проход, и погашенная захватом добивка пропадала молча. Теперь цепочка этого письма
+кончается с причиной словами (`Chain.stop`), журнал говорит громко, проход идёт дальше.
 """
 
 from __future__ import annotations
@@ -56,9 +61,9 @@ from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.stages import SALES_NOT_CONNECTED, SalesNotConnectedError
-from backend.features.letters import compose, guards, template
+from backend.features.letters import compose, guards, template, thread_first
 from backend.features.letters.building import attempt_of, followup_key, idempotency_key
-from backend.features.letters.chain import CHAINABLE, FIRST_STEP, MAX_STEPS
+from backend.features.letters.chain import CHAINABLE, MAX_STEPS
 from backend.features.letters.sending import (
     NoSenderError,
     NotQueuedError,
@@ -171,7 +176,7 @@ class Chain:
             return None
 
         host = await self._host(row[3])
-        anchor = await self._anchor(row[1]) or row[7]
+        anchor = await thread_first.anchor(self._session, row[1]) or row[7]
         if anchor is None:
             # Не отказ: напоминание без ветки лучше потерянного. Но и не
             # молча — у донора оно ляжет отдельным письмом.
@@ -215,6 +220,26 @@ class Chain:
         )
         await self._session.flush()
 
+    async def stop(self, claimed: Claimed, words: str) -> None:
+        """Цепочка кончилась с причиной `words`: срок погашен захватом; причина — у письма, после
+        которого он пришёл, и у добивки шага, если её завела прошлая попытка («остановлено»)."""
+        said = words[:256]
+        await self._session.execute(
+            update(MessageModel)
+            .where(MessageModel.id == claimed.previous_id)
+            .values(failure_reason=said)
+        )
+        if claimed.thread_id is not None:  # `== None` стал бы `IS NULL` — чужие письма
+            await self._session.execute(
+                update(MessageModel)
+                .where(
+                    MessageModel.thread_id == claimed.thread_id,
+                    MessageModel.step == claimed.step,
+                    MessageModel.status == MessageStatus.QUEUED,
+                )
+                .values(status=MessageStatus.STOPPED, failure_reason=said)
+            )
+
     async def compose_letter(self, claimed: Claimed) -> compose.Letter:
         """Текст добивки: шаблон шага этапа рассылки с подстановками адресата.
 
@@ -243,7 +268,7 @@ class Chain:
             )
             letter = compose.assemble(rendered, {})
         guards.assert_no_metrics(letter.body)
-        first = await self._first_subject(claimed.thread_id)
+        first = await thread_first.subject(self._session, claimed.thread_id)
         return replace(letter, subject=first) if first else letter
 
     async def materialize(self, claimed: Claimed, letter: compose.Letter) -> MessageModel:
@@ -327,41 +352,6 @@ class Chain:
             raise FollowupError(f"Рассылки №{campaign_id} нет — добивка осиротела")
         return campaign.stage, campaign.audience
 
-    async def _first_subject(self, thread_id: int | None) -> str | None:
-        """Тема первого письма переписки — того, что ушло (с нашим `Message-ID`), а не снятого."""
-        if thread_id is None:
-            return None
-        subject = await self._session.scalar(
-            select(MessageModel.subject)
-            .where(MessageModel.thread_id == thread_id, MessageModel.step == FIRST_STEP)
-            .order_by(MessageModel.internet_message_id.is_(None), MessageModel.id)
-            .limit(1)
-        )
-        return subject.strip() if subject and subject.strip() else None
-
-    async def _anchor(self, thread_id: int | None) -> str | None:
-        """Наш `Message-ID` первого письма переписки.
-
-        Берётся именно первое, а не предыдущее: у почтового клиента
-        донора вся цепочка должна лежать одной веткой, и якорь у неё
-        один. Предыдущее письмо дало бы лесенку из вложенных ответов.
-
-        Именно наш идентификатор, а не номер письма у платформы: номер
-        получатель не видит, и `In-Reply-To` с ним не кладёт добивку никуда.
-        """
-        if thread_id is None:
-            return None
-        return await self._session.scalar(
-            select(MessageModel.internet_message_id)
-            .where(
-                MessageModel.thread_id == thread_id,
-                MessageModel.step == FIRST_STEP,
-                MessageModel.internet_message_id.is_not(None),
-            )
-            .order_by(MessageModel.id)
-            .limit(1)
-        )
-
 
 @dataclass
 class PassReport:
@@ -371,7 +361,7 @@ class PassReport:
     postponed: int = 0
     """Отложено: ящик стоит или почта отказала временно. Цепочка жива."""
     stopped: int = 0
-    """Остановлено: донор в стоп-листе. Больше ему не пишем."""
+    """Остановлено: донор в стоп-листе или в тексте добивки запрещённое. Больше ему не пишем."""
     unknown: int = 0
     """Почта не ответила после отправки: ушла ли добивка — неизвестно. Не
     повторяется: срок погашен, письмо «отправляется» до события платформы."""
@@ -439,24 +429,8 @@ async def _deliver(
     report: PassReport,
 ) -> None:
     """Одна добивка: проверить ящик и лейн, собрать текст, отдать почте."""
-    if claimed.sender_id is None:
-        # Письма теряют номер ящика, когда ящик удаляют. С другого ящика
-        # добивка не уходит (`mailbox.py`): она ждёт, и проход говорит почему.
-        await chain.restore(claimed, delay=POSTPONE)
-        await session.commit()
-        report.postponed += 1
-        logger.warning(
-            "добивки: %s — ящик переписки неизвестен (удалён): добивка ждёт, "
-            "с другого ящика она не уйдёт",
-            claimed.host,
-        )
+    if await _waits(session, chain, claimed, report):
         return
-    if await chain.sent_this_hour(claimed.sender_id) >= cfg.FOLLOWUP_PER_SENDER_PER_HOUR:
-        await chain.restore(claimed, delay=POSTPONE)
-        await session.commit()
-        report.postponed += 1
-        return
-
     try:
         # Текст продаж собирается внутри: не подключены или цепочка неполна — срок вернётся.
         message = await chain.materialize(claimed, await chain.compose_letter(claimed))
@@ -469,6 +443,14 @@ async def _deliver(
         await session.commit()
         report.stopped += 1
         logger.info("добивки: %s — цепочка остановлена (%s)", claimed.host, exc)
+        return
+    except guards.ForbiddenContentError as exc:
+        # Метрика в тексте добивки — у продаж в подписи «Отправителя»: письма нет, срок погашен
+        # захватом. Цепочка кончается с причиной словами, проход идёт дальше, а не падает.
+        await chain.stop(claimed, f"добивка шага {claimed.step} не ушла: {exc}")
+        await session.commit()
+        report.stopped += 1
+        logger.warning("добивки: %s — цепочка остановлена: %s", claimed.host, exc)
         return
     except MaybeSentError as exc:
         # Могла уйти — повтор через час был бы вторым письмом тому же человеку.
@@ -495,3 +477,22 @@ async def _deliver(
     await session.commit()
     report.sent += 1
     logger.info("добивки: %s — ушёл шаг %s", claimed.host, claimed.step)
+
+
+async def _waits(session: AsyncSession, chain: Chain, claimed: Claimed, report: PassReport) -> bool:
+    """Добивке сейчас не уйти — ящик переписки удалён или выбрал часовой запас: срок
+    возвращается, и `True`. Ящик удалён — проход ещё и говорит почему."""
+    if claimed.sender_id is None:
+        # Письма теряют номер ящика, когда ящик удаляют. С другого ящика
+        # добивка не уходит (`mailbox.py`): она ждёт, и проход говорит почему.
+        logger.warning(
+            "добивки: %s — ящик переписки неизвестен (удалён): добивка ждёт, "
+            "с другого ящика она не уйдёт",
+            claimed.host,
+        )
+    elif await chain.sent_this_hour(claimed.sender_id) < cfg.FOLLOWUP_PER_SENDER_PER_HOUR:
+        return False
+    await chain.restore(claimed, delay=POSTPONE)
+    await session.commit()
+    report.postponed += 1
+    return True

@@ -532,13 +532,15 @@ def nobody_down(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_watchdog_shows_sales_mail_alarms_only_with_the_right(
     client: AsyncClient, watched: list[Stage], outsider: dict[str, str], seller: dict[str, str]
 ) -> None:
-    """Общая тревога — всем, без этапа; тревога о почте продаж — с правом, со своим этапом."""
+    """Тишина доставки доноров — всем, со своим этапом; тревога о почте продаж — с правом."""
     hidden = (await client.get("/api/watchdog", headers=outsider)).json()["alarms"]
     shown = (await client.get("/api/watchdog", headers=seller)).json()["alarms"]
 
-    assert [(one["code"], one["stage"]) for one in hidden] == [("delivery-silence", None)]
+    assert [(one["code"], one["stage"]) for one in hidden] == [
+        ("delivery-silence:donors", "donors")
+    ]
     assert {(one["code"], one["stage"]) for one in shown} == {
-        ("delivery-silence", None),
+        ("delivery-silence:donors", "donors"),
         ("all-paused:sales", "sales"),
     }
 
@@ -550,4 +552,4 @@ async def test_without_the_right_the_sales_module_is_not_asked_about_its_mail(
     found = await silence.alarms(session, stages=NO_SALES, now=datetime.now(UTC))
 
     assert watched == [Stage.DONORS, Stage.ADVERTISERS]
-    assert {alarm.code for alarm in found} == {"delivery-silence"}
+    assert {alarm.code for alarm in found} == {"delivery-silence:donors"}

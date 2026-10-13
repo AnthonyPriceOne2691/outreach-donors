@@ -94,14 +94,19 @@ def _off_page(letter: MessageModel, page: str) -> bool:
 
 
 async def out_of_queue(
-    session: AsyncSession, letter: MessageModel, *, reason: str = attempts.LINK_WITHDRAWN
+    session: AsyncSession,
+    letter: MessageModel,
+    *,
+    reason: str = attempts.LINK_WITHDRAWN,
+    keep_thread: bool = False,
 ) -> int:
     """Письмо из очереди — в «остановлено», если его не взяла отправка. 1 — снято.
 
     Своя причина (`attempts.WITHDRAWN_REASONS`: снята ссылка, пример площадки, площадка
-    поставщика) и освобождённый диалог — только у письма, которое точно не уходило:
-    у возвращённого после неизвестного исхода есть наш `Message-ID` прежней попытки,
-    и оно остаётся «писали».
+    поставщика, сайт в работе у другого направления) и освобождённый диалог — только
+    у письма, которое точно не уходило: у возвращённого после неизвестного исхода есть наш
+    `Message-ID` прежней попытки, и оно остаётся «писали». `keep_thread` — диалог остаётся
+    и у такого: к диалогу продаж привязан лид (`letters/site_role.py`).
     """
     gone = letter.internet_message_id is not None
     said = {} if gone else {"failure_reason": reason}
@@ -113,7 +118,7 @@ async def out_of_queue(
         next_action_at=None,
         **said,
     )
-    if left and not gone and letter.step == FIRST_STEP:
+    if left and not gone and letter.step == FIRST_STEP and not keep_thread:
         await _free_thread(session, letter)
     return int(left)
 

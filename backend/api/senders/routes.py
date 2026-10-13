@@ -68,6 +68,7 @@ async def all_senders(
                 stage=stage,
                 daily_limit=cfg.direction_limit(stage.value),
                 sent_today=sum(first.get(s.id, 0) for s in found if s.stage is stage),
+                unread=cfg.direction_unread(stage.value),
             )
             for stage in Stage
             if stage in stages

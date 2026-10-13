@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from pydantic import Field, field_validator
 
-from backend.config._base import DomainSettings
+from backend.config._base import DomainSettings, Fallback, spared
 
 
 class _Llm(DomainSettings):
@@ -88,7 +88,19 @@ class _Llm(DomainSettings):
         return None if value == "" else value
 
 
-_s = _Llm()
+#: Потолок продаж с опечаткой (`-5`, `10k`, `abc`) не роняет импорт: конфиг модели грузят все
+#: процессы, и вебхуки доноров, воркер, сторож и добивки падали бы по кругу (ревью стыков
+#: 12.10.2026). Продажам тогда — ноль токенов (`UNREAD_CAPS`), остальное — как задано.
+_s, _unread = spared(
+    _Llm,
+    {
+        "SALES_DAILY_TOKEN_CAP": Fallback(
+            None,
+            wants="целое число не меньше нуля или пусто",
+            means="ноль токенов продажам — вызовы модели продаж отказывают, пока её не поправят",
+        )
+    },
+)
 
 API_KEY: str = _s.api_key.strip()  # хвостовой пробел из .env ломает заголовок
 KEYGEN_MODEL: str = _s.keygen_model
@@ -113,6 +125,9 @@ AGENT_DAILY_TOKEN_CAP: int | None = _s.agent_daily_token_cap
 #: кнопки «написать заново».
 AGENT_CAP_SHARE = 0.3
 SALES_DAILY_TOKEN_CAP: int | None = _s.sales_daily_token_cap
+#: Свои потолки, чья настройка не прочиталась (имя переменной): потолок такой части — ноль, её
+#: вызовы модели отказывают (`usage.ensure_llm_within_cap`). Само значение тогда — «не задан».
+UNREAD_CAPS: frozenset[str] = frozenset(_unread)
 #: Доля общего дневного потолка у вызовов модели продаж вне агента, когда свой не
 #: задан. Ответы лидов и сборка писем на сотни лидов выбрали бы день целиком, и разбор
 #: цен доноров встал бы до завтра (решение Anthony 08.10.2026). Вместе с долей

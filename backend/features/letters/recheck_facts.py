@@ -41,7 +41,7 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.crawl.suppliers import supplier_hosts
-from backend.features.letters import attempts, stoplist
+from backend.features.letters import attempts, other_role, stoplist
 from backend.features.letters.chain import CHAINABLE, FIRST_STEP, RECHECK_CAMPAIGN, RECHECK_STEP
 from backend.features.outreach import health, limits
 from backend.features.outreach.repository import OutreachRepository, in_hourly_lane
@@ -327,13 +327,13 @@ async def _asked(session: AsyncSession, domain_ids: Sequence[int]) -> dict[int, 
 
 
 async def _elsewhere(session: AsyncSession, domain_ids: Sequence[int]) -> dict[int, Waiting]:
-    """Живое письмо сайту в другой роли — не донору: рекламодателю или лиду продаж."""
+    """Живое письмо сайту в другой роли — не донору: рекламодателю или лиду продаж. Условие —
+    одно с карточкой донора и с отправкой (`other_role.elsewhere`)."""
     found: dict[int, Waiting] = {}
     for domain_id, letter in await _letters(
         session,
         MessageModel.domain_id.in_(domain_ids),
-        CampaignModel.stage != Stage.DONORS,
-        ~attempts.dead(MessageModel),
+        other_role.elsewhere(),
         newest_first=True,
     ):
         found.setdefault(domain_id, letter)

@@ -67,10 +67,27 @@ function groupByDomain(senders: StagedSender[], limits: DomainLimit[]): DomainGr
   });
 }
 
-/** Лимит направления словами; `null` — своего лимита у направления нет. */
-function directionLine(direction: DirectionLimit | undefined): string | null {
+/** Лимит направления строкой; своего лимита у направления нет — строки нет. Настройка лимита
+ *  не прочиталась — строка называет её, по смыслу как отказ отправки (`outreach/limits.py`):
+ *  лимит тогда ноль, и «0 из 0» читался бы как выбранный лимит, а не как опечатка в .env. */
+function DirectionLine({ direction }: { direction: DirectionLimit | undefined }) {
+  if (direction?.unread != null) {
+    return (
+      <Text size="sm">
+        Лимит направления: настройка{' '}
+        <Text span size="xs" ff="monospace">
+          {direction.unread}
+        </Text>{' '}
+        не прочитана — первых писем ноль, пока её не поправят в .env
+      </Text>
+    );
+  }
   if (direction?.daily_limit == null) return null;
-  return `Лимит направления: ${formatNumber(direction.sent_today)} из ${formatNumber(direction.daily_limit)} первых писем сегодня`;
+  return (
+    <Text size="sm">
+      {`Лимит направления: ${formatNumber(direction.sent_today)} из ${formatNumber(direction.daily_limit)} первых писем сегодня`}
+    </Text>
+  );
 }
 
 /** Сколько доменов может писать — или почему ни один: все выключены, закрыты строкой
@@ -154,7 +171,7 @@ export function SendersPage() {
   const sections = STAGES.map((stage) => ({
     stage,
     groups: groups.filter((group) => group.stage === stage),
-    limit: directionLine(data?.directions?.find((direction) => direction.stage === stage)),
+    direction: data?.directions?.find((direction) => direction.stage === stage),
   })).filter((section) => section.groups.length > 0);
 
   return (
@@ -172,7 +189,7 @@ export function SendersPage() {
       {sections.map((section) => (
         <Stack gap="sm" key={section.stage}>
           {sections.length > 1 && <Title order={4}>{STAGE_TITLES[section.stage]}</Title>}
-          {section.limit !== null && <Text size="sm">{section.limit}</Text>}
+          <DirectionLine direction={section.direction} />
           {section.groups.map((group) => (
             <DomainCard
               key={group.domain}

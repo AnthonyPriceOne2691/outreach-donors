@@ -2,8 +2,9 @@
 
 Механизм один на все этапы: кому черновик положен, запись, петля правки,
 решения человека, автопилот. Этап даёт свои части — с чего начать настройки,
-на чьей он стороне цены, промпт, модель и операцию расхода, бриф до письма,
-судью, крючок уведомления, предел правок и причины отклонения черновика.
+на чьей он стороне цены, промпт, модель и операцию расхода, свой потолок
+расхода, бриф до письма, судью, крючок уведомления, предел правок и причины
+отклонения черновика.
 Новый этап — строка реестра `AGENT_STAGES`, а не ветка `if stage is …`
 в механизме.
 
@@ -38,6 +39,7 @@ from backend.config import sales as sales_cfg
 from backend.features.agent.settings import AgentSettings, UnknownAgentStageError, defaults
 from backend.features.agent.writer import PROMPT_PATH, PROMPT_VERSION, Turn
 from backend.features.core.domain import DraftStatus, Stage
+from backend.features.core.usage import OwnCap
 from backend.features.sales.agent import parts as sales
 
 
@@ -183,6 +185,11 @@ class AgentStage:
     #: продаж): её, как черновик и судью, считает свой потолок черновиков.
     #: Бриф проверяет потолок до вызова сам — шов проверяет его перед писателем.
     brief_operation: str | None = None
+    #: Свой дневной потолок этапа поверх общего и потолка черновиков (`guarding.drafts_cap`):
+    #: петля правки проверяет его перед каждым вызовом писателя — выбран, и модель не
+    #: зовётся. Функцией, а не значением: потолок читает настройки при каждой проверке, как
+    #: `drafts_cap`. Нет — этап держат общий потолок и потолок черновиков, как до поля.
+    own_cap: Callable[[], OwnCap] | None = None
     #: Сколько секунд ждать судью: дольше — `escalate`, как при его ошибке.
     guard_timeout_s: float = 60.0
     on_draft: OnDraft | None = None

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import re
 import secrets
+from dataclasses import dataclass
 from typing import TypeGuard
 
 #: Байт случайности в идентификаторе: 128 бит — ни перебрать, ни совпасть.
@@ -45,6 +46,17 @@ _MESSAGE_ID_RE = re.compile(r"^<[^<>@\s]+@[^<>@\s]+>$")
 
 class SenderAddressError(ValueError):
     """У адреса отправителя нет домена — ставить идентификатор не на чем."""
+
+
+@dataclass(frozen=True, slots=True)
+class OwnHeaders:
+    """Что письмо получает от нас, а не от шаблона. Оба — на домене отправителя
+    (`sending.own_headers`)."""
+
+    #: Наш `Message-ID`: якорь цепочки и запасной путь привязки ответа.
+    message_id: str
+    #: Адрес «куда отвечать» с меткой. Пусто — только у нулевого транспорта.
+    reply_to: str | None
 
 
 def sender_domain(email: str) -> str:

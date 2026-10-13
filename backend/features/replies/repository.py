@@ -17,7 +17,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.contacts.preference import DEAD
+from backend.features.contacts.dead import bury, bury_address
+from backend.features.core import stages
 from backend.features.core.domain import (
     ContactSource,
     MessageStatus,
@@ -39,7 +40,7 @@ from backend.features.replies import outcome, robots, stage_rules
 from backend.features.replies.binding import Unbound
 from backend.features.replies.donor_card import DonorCardWrites
 from backend.features.replies.extract import Extracted
-from backend.features.replies.inbound import Incoming, masked_for_log
+from backend.features.replies.inbound import Incoming, addresses_in, masked_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -248,21 +249,39 @@ class ReplyRepository(DonorCardWrites):
             )
         )
 
-    async def mark_contact_dead(self, contact_id: int | None) -> None:
-        """Пометить адрес мёртвым (`preference.DEAD`, оценка 0).
+    async def mark_dead(self, incoming: Incoming, addressee: Addressee) -> None:
+        """Похоронить адрес, который отказал (`contacts/dead.py`): у доноров и рекламодателей —
+        контакт письма, у письма продаж — адрес, названный самим отказом (`_refused`).
 
-        Одной отметки мало, и до 28.09.2026 её одной и не хватало: мёртвый
-        адрес с оценкой 0 оставался лучшим, а не дошедшее письмо — «уже
-        писали». Следующий адрес открывает сборка писем: мёртвый адрес она
-        не берёт, а донора, у которого все письма не дошли и никто
-        не ответил, снова собирает — на следующий адрес (`letters/attempts.py`).
+        Контакт письма продаж — тот, кто ответил (секретарь, второй ящик), а письмо уходит
+        лиду: похоронить контакт значило бы закрыть живой адрес, а адрес лида оставить
+        первым у доноров (ревью стыков 12.10.2026). Адреса не узнать — не хороним ничего.
         """
-        if contact_id is None:
+        if addressee.stage is not Stage.SALES:
+            await bury(self._session, addressee.message.contact_id)
             return
-        contact = await self._session.get(ContactModel, contact_id)
-        if contact is not None:
-            contact.verification_status = DEAD
-            contact.verification_score = 0
+        for email in await self._refused(incoming, addressee):
+            await bury_address(self._session, email)
+
+    async def _refused(self, incoming: Incoming, addressee: Addressee) -> tuple[str, ...]:
+        """Какой адрес отказал письму продаж: названный отчётом почты о недоставке
+        (`X-Failed-Recipients`) — или сам ящик автоответа «больше не читается», если это
+        лид переписки письма (модуль продаж — мостом почты, `stages.sales_lead_threads`).
+        Отчёт без этого заголовка и чужой ящик — адреса не узнать: в тексте отчёта адрес
+        пишет каждая почта по-своему, а ящик, ответивший за лида, — не адрес лида."""
+        failed = addresses_in(incoming.header("X-Failed-Recipients"))
+        if failed:
+            return failed
+        sender = incoming.from_email.strip().lower()
+        threads = await stages.sales_lead_threads(self._session, sender) if sender else None
+        if threads and addressee.message.thread_id in threads:
+            return (sender,)
+        logger.info(
+            "приём: отказ на письмо продаж №%s — адреса, который отказал, не узнать: "
+            "не хороним ничего",
+            addressee.message.id,
+        )
+        return ()
 
     async def remember_answering_address(
         self, *, domain_id: int, email: str, now: datetime | None = None

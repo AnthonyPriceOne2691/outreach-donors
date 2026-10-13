@@ -17,9 +17,14 @@ Anthony выбрал пачку — «вся очередь» (06.10.2026): пи
 ждёт завтра в очереди. Связь с почтой оборвалась — ушло ли письмо,
 неизвестно, и слать дальше вслепую нельзя: письмо остаётся «отправляется»
 (`Sending._hand_over`), и его исход решает событие платформы или человек
-в блоке «Исход неизвестен» (`unknown_outcome.py`). Отказ по одному письму
-(стоп-лист, предохранитель, донор отклонён после сборки) пачку
-не останавливает: он считается и называется в итоге.
+в блоке «Исход неизвестен» (`unknown_outcome.py`). Почта отказала не письму,
+а любому (`PlatformRefusalError`: ключ не принят, учётке отказано, частота или
+сбой после повторов, платформа недоступна) — следующему ответ был бы тем же:
+пачка встаёт, остальное ждёт в очереди. До 13.10.2026 пачка перебирала письма
+дальше — по минуте с повторами на каждое, и пачка из двухсот висела до часа
+(решение Anthony, ревью стыков с продажами). Отказ по одному письму
+(стоп-лист, предохранитель, донор отклонён после сборки, сайт в работе у другого
+направления) пачку не останавливает: он считается и называется в итоге.
 
 **Две пачки разом не отправят письмо дважды**: захват письма в `Sending`
 отдаёт второй отказ «уже не в очереди», и он попадает в итог словами.
@@ -49,6 +54,7 @@ from backend.features.letters.sending import (
     NotQueuedError,
     NotReadyError,
     NotWritingError,
+    OtherRoleError,
     OutsideWindowError,
     RejectedDonorError,
     RemovedAdvertiserError,
@@ -60,7 +66,7 @@ from backend.features.letters.sending import (
     UnknownZoneError,
     WithdrawnLinkError,
 )
-from backend.features.letters.transport import Mail
+from backend.features.letters.transport import Mail, PlatformRefusalError
 from backend.features.letters.unknown_outcome import STUCK_MINUTES
 
 logger = logging.getLogger(__name__)
@@ -82,6 +88,8 @@ _WHY: tuple[tuple[type[SendError], str], ...] = (
     # Донор или площадка оффера — «кому не пишем» ТЗ (`runs.exclusions`): письмо
     # остановлено с причиной (`donor_standing.stop_for_good`).
     (NotWritingError, "кому не пишем"),
+    # Сайту уже пишет другое направление: первое письмо снято (`site_role.py`) — одна роль на сайт.
+    (OtherRoleError, "сайт в работе у другого направления"),
     (SuppressedError, "стоп-лист"),
     (UndecidedDonorError, "донор не принят человеком"),
     (NotReadyError, "письмо не готово к отправке"),
@@ -174,6 +182,8 @@ async def _send_one(
     except SendError as exc:
         logger.info("письма: письмо №%s пачки не ушло — %s", letter_id, exc)
         report.refused[why(exc)] += 1
+        if isinstance(exc.__cause__, PlatformRefusalError):
+            return _refused_all(letter_id, exc.__cause__)
         return None
     except Exception:
         logger.exception("письма: пачка остановлена на письме №%s — связь с почтой", letter_id)
@@ -185,3 +195,13 @@ async def _send_one(
         )
     report.sent += 1
     return None
+
+
+def _refused_all(letter_id: int, refusal: PlatformRefusalError) -> str:
+    """Почта отказала любому письму: причина остановки пачки словами, без ключа и адреса."""
+    logger.warning("письма: пачка встала на письме №%s — %s", letter_id, refusal.reason)
+    return (
+        f"почта отказала любому письму — {refusal.reason}: письмо №{letter_id} и остальные "
+        "остались в очереди. Следующему письму ответ был бы тем же; пачку — заново, когда "
+        "причина уйдёт"
+    )

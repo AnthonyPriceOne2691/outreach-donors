@@ -146,25 +146,33 @@ class TestSalesPage:
         assert OURS_ADDRESS not in page
         assert OURS_NAME not in page
         assert '<html lang="ru">' in page
-        assert "Больше не присылать письма на адреса" in page
+        # Письмо продаж ушло человеку: страница говорит о его адресе, а не о сайте
+        # (решение владельца 12.10.2026) — «все адреса сайта» она не обещает.
+        assert "Больше не присылать вам письма?" in page
+        assert "вашего адреса" in page
+        assert "адреса этого сайта" not in page
         assert '<button type="submit">Отписаться</button>' in page
         assert "Unsubscribe" not in page
         # Чужого письма метка не раскрывает: адреса получателя на странице нет.
         assert lead not in page
 
-    async def test_pressing_unsubscribes_the_site_and_answers_in_russian(
+    async def test_pressing_unsubscribes_the_person_and_answers_in_russian(
         self, client: AsyncClient, session: AsyncSession
     ) -> None:
-        letter, _ = await _sales_letter(session)
+        """Нажатие на письме продаж закрывает адрес лида без этапа, а не сайт (решение
+        владельца 12.10.2026): продажи не подключены, и адрес называет модуль продаж по
+        адресам сайта (`optout._person`)."""
+        letter, lead = await _sales_letter(session)
 
         response = await client.post(_link(letter.domain_id, letter.id))
 
         assert response.status_code == 200
         assert "Вы отписаны" in response.text
+        assert "Мы больше не будем вам писать." in response.text
         assert SALES_FOOTER in response.text
         rows = (await session.execute(select(SuppressionModel))).scalars().all()
-        assert [(row.domain_id, row.stage, row.created_by) for row in rows] == [
-            (letter.domain_id, None, unsubscribe_routes.SOURCE)
+        assert [(row.domain_id, row.email, row.stage, row.created_by) for row in rows] == [
+            (None, lead, None, unsubscribe_routes.SOURCE)
         ]
 
     async def test_an_english_lead_reads_english_signed_by_the_sales_sender(
@@ -267,8 +275,9 @@ class TestBrokenSalesModule:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Запрос модуля продаж упал в базе — страница без подписи, по-английски, а нажатие
-        пишет стоп-лист: модуль спрошен в своей точке сохранения, транзакция отписки цела."""
-        letter, _ = await _sales_letter(session)
+        пишет стоп-лист: модуль спрошен в своей точке сохранения, транзакция отписки цела.
+        Адрес лида называет переписка (`stages.sales_lead_threads`) — «Отправитель» ей не нужен."""
+        letter, lead = await _sales_letter(session)
 
         async def broken(session: AsyncSession) -> object:
             await session.execute(text("SELECT 1 FROM made_up_table_of_the_sales_sender"))
@@ -284,8 +293,8 @@ class TestBrokenSalesModule:
         assert '<button type="submit">Unsubscribe</button>' in shown.text
         assert "<footer>" not in shown.text
         assert OURS_ADDRESS not in shown.text
-        rows = (await session.execute(select(SuppressionModel.domain_id))).scalars().all()
-        assert rows == [letter.domain_id]
+        rows = (await session.execute(select(SuppressionModel.email))).scalars().all()
+        assert rows == [lead]
         assert "модуль продаж не ответил" in caplog.text
 
 

@@ -10,6 +10,12 @@
 Очередь черновика — та, чей воркер разобрал ответ: разбор цены доноров и
 рекламодателей ставит его в общую (`runs`), разбор ответа лида продаж — в свою
 (`sales`, `worker-sales`, `workers/sales_jobs.py`).
+
+**Модель черновик не написала, и повтора не будет** — ключ или права модели, потолок
+расхода, временный отказ на последней попытке очереди: черновик человеку без текста
+с причиной словами (`drafting.unwritten`), фиксация, затем крючок этапа
+(`drafting.announce`). До 13.10.2026 такая задача кончалась итогом и строкой журнала:
+черновика нет, группа продаж не узнаёт, а ответ ждёт агента, которого не будет.
 """
 
 from __future__ import annotations
@@ -21,7 +27,7 @@ from dataclasses import replace
 from typing import Any
 
 from redis.exceptions import RedisError
-from rq import Queue
+from rq import Queue, get_current_job
 from rq.exceptions import DuplicateJobError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -113,7 +119,7 @@ async def _draft_answer(reply_id: int) -> dict[str, Any]:
     agent = AgentWriter()
     try:
         async with factory() as session:
-            outcome = await drafting.draft_answer(session, agent, reply_id)
+            outcome = await _drafted(session, agent, reply_id)
             await session.commit()
             flown = await _autopilot(session, outcome)
             if flown.sent_message_id is None:
@@ -130,6 +136,42 @@ async def _draft_answer(reply_id: int) -> dict[str, Any]:
     finally:
         await agent.aclose()
         await engine.dispose()
+
+
+async def _drafted(session: AsyncSession, agent: AgentWriter, reply_id: int) -> DraftOutcome:
+    """Черновик ответа. Модель его не написала, и повтора не будет, — черновик человеку
+    с причиной (`_unwritten`), а исключение — дальше: итог задачи — отказ модели."""
+    try:
+        return await drafting.draft_answer(session, agent, reply_id)
+    except (DraftUnavailableError, LlmCapExceededError) as exc:
+        if _retried(exc) and not _last_try():
+            raise
+        await _unwritten(session, reply_id, exc)
+        raise
+
+
+def _retried(exc: Exception) -> bool:
+    """Повторяет ли такой отказ очередь: временный отказ модели — да; ключ, права
+    и потолок — нет (`draft_answer`)."""
+    return isinstance(exc, DraftUnavailableError) and not exc.permanent
+
+
+def _last_try() -> bool:
+    """Последняя ли попытка: повторов не осталось (rq: `retries_left` ноль или пусто) или
+    задача запущена не из очереди (консоль, тест) — повторять некому."""
+    job = get_current_job()
+    return job is None or not job.retries_left
+
+
+async def _unwritten(session: AsyncSession, reply_id: int, exc: Exception) -> None:
+    """Черновик не написан, и повтора не будет — черновик человеку без текста с причиной,
+    фиксация, затем крючок этапа (его сбой черновик не теряет — `drafting.announce`).
+    Сбой записи — исключением, как сбой базы у задачи: очередь её повторит, а причина
+    модели остаётся в цепочке исключения."""
+    why = f"{exc} — повторы задачи кончились" if _retried(exc) else str(exc)
+    outcome = await drafting.unwritten(session, reply_id, why)
+    await session.commit()
+    await drafting.announce(outcome)
 
 
 async def _autopilot(session: AsyncSession, outcome: DraftOutcome) -> AutopilotOutcome:
@@ -158,14 +200,15 @@ def draft_answer(reply_id: int) -> dict[str, Any]:
     Потолок расхода на модель и отказ модели «чинить» (ключ, права) — итог
     задачи с причиной, а не повтор: повтор через минуты не исправит ни того,
     ни другого, а черновик человек попросит кнопкой, когда причина уйдёт.
-    Сеть и «можно повторить» — падение, его повторит очередь.
+    Сеть и «можно повторить» — падение, его повторит очередь. В обоих случаях,
+    когда повтора не будет, ответ получает черновик человеку с причиной (`_unwritten`).
     """
     setup_logging()
     check_storage()
     try:
         return asyncio.run(_draft_answer(reply_id))
     except (DraftUnavailableError, LlmCapExceededError) as exc:
-        if isinstance(exc, DraftUnavailableError) and not exc.permanent:
+        if _retried(exc):
             raise
         logger.warning(
             "черновик ответа №%s не написан: %s",

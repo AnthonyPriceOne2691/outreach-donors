@@ -22,11 +22,13 @@ export interface DomainLimit {
   pause_reason: string | null;
 }
 
-/** `daily_limit: null` — своего лимита у направления нет. */
+/** `daily_limit: null` — своего лимита у направления нет. `unread` — имя настройки лимита,
+ *  если она не прочиталась (опечатка в .env): лимит тогда ноль, пока её не поправят. */
 export interface DirectionLimit {
   stage: Stage;
   daily_limit: number | null;
   sent_today: number;
+  unread: string | null;
 }
 
 export interface SendersByStage extends SendersView {

@@ -174,8 +174,8 @@ def visible_stages(actor: Actor) -> frozenset[Stage]:
 def require_stage(actor: Actor, stage: Stage | None, what: str) -> None:
     """Пропустить к строке этапа или отказать словами: `what` — что закрыто, «Письма продаж».
 
-    `None` — у строки этапа нет (ответ без письма) или строки нет вовсе: «не найдено»
-    скажет тот, кто её ищет, как и без этой проверки.
+    `None` — у строки этапа нет (ответ без письма не на наш адрес) или строки нет вовсе:
+    «не найдено» скажет тот, кто её ищет, как и без этой проверки.
     """
     if stage is not None and not sees_stage(actor, stage):
         raise AccessDeniedError(f"{what} — только с правом «{PERMISSION_TITLES[Permission.SALES]}»")

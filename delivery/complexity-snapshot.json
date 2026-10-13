@@ -122,9 +122,9 @@
       "worst": "—"
     },
     "backend/api/donors/routes.py": {
-      "lines": 169,
+      "lines": 181,
       "complexity": 2,
-      "worst": "_file:113"
+      "worst": "_file:118"
     },
     "backend/api/donors/schemas.py": {
       "lines": 457,
@@ -217,14 +217,14 @@
       "worst": "—"
     },
     "backend/api/letters/once.py": {
-      "lines": 83,
+      "lines": 102,
       "complexity": 5,
-      "worst": "enqueue_once:56"
+      "worst": "enqueue_once:62"
     },
     "backend/api/letters/routes.py": {
-      "lines": 415,
+      "lines": 438,
       "complexity": 5,
-      "worst": "build:142"
+      "worst": "build:163"
     },
     "backend/api/letters/schemas.py": {
       "lines": 430,
@@ -277,9 +277,9 @@
       "worst": "_ascii_name:28"
     },
     "backend/api/replies/routes.py": {
-      "lines": 379,
+      "lines": 385,
       "complexity": 7,
-      "worst": "review:288"
+      "worst": "review:294"
     },
     "backend/api/replies/schemas.py": {
       "lines": 166,
@@ -417,12 +417,12 @@
       "worst": "—"
     },
     "backend/api/senders/routes.py": {
-      "lines": 135,
+      "lines": 136,
       "complexity": 6,
       "worst": "all_senders:47"
     },
     "backend/api/senders/schemas.py": {
-      "lines": 103,
+      "lines": 106,
       "complexity": 2,
       "worst": "of:43"
     },
@@ -487,19 +487,19 @@
       "worst": "—"
     },
     "backend/api/unsubscribe/page.py": {
-      "lines": 198,
+      "lines": 221,
       "complexity": 4,
-      "worst": "_signature:122"
+      "worst": "_signature:145"
     },
     "backend/api/unsubscribe/routes.py": {
-      "lines": 134,
+      "lines": 136,
       "complexity": 5,
-      "worst": "apply:97"
+      "worst": "apply:99"
     },
     "backend/api/unsubscribe/signer.py": {
-      "lines": 83,
+      "lines": 76,
       "complexity": 5,
-      "worst": "voice_of:38"
+      "worst": "voice_of:42"
     },
     "backend/api/users/__init__.py": {
       "lines": 1,
@@ -567,7 +567,7 @@
       "worst": "reply_text:91"
     },
     "backend/cli/demo_data.py": {
-      "lines": 471,
+      "lines": 473,
       "complexity": 6,
       "worst": "_seed_senders:129"
     },
@@ -667,9 +667,9 @@
       "worst": "_verify_with:67"
     },
     "backend/cli/senders_admin.py": {
-      "lines": 134,
+      "lines": 136,
       "complexity": 6,
-      "worst": "cmd_sender_add:42"
+      "worst": "cmd_sender_add:44"
     },
     "backend/cli/sending_domains.py": {
       "lines": 150,
@@ -682,9 +682,9 @@
       "worst": "—"
     },
     "backend/config/_base.py": {
-      "lines": 22,
-      "complexity": 0,
-      "worst": "—"
+      "lines": 87,
+      "complexity": 6,
+      "worst": "spared:50"
     },
     "backend/config/access.py": {
       "lines": 34,
@@ -727,7 +727,7 @@
       "worst": "—"
     },
     "backend/config/llm.py": {
-      "lines": 121,
+      "lines": 136,
       "complexity": 2,
       "worst": "_unset_if_empty:86"
     },
@@ -737,7 +737,7 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 277,
+      "lines": 303,
       "complexity": 4,
       "worst": "_own_account:214"
     },
@@ -827,9 +827,9 @@
       "worst": "clean:57"
     },
     "backend/features/agent/drafting.py": {
-      "lines": 463,
+      "lines": 496,
       "complexity": 9,
-      "worst": "draft_answer:138"
+      "worst": "conversation:417"
     },
     "backend/features/agent/drafts.py": {
       "lines": 350,
@@ -837,9 +837,9 @@
       "worst": "reject_draft:253"
     },
     "backend/features/agent/guarding.py": {
-      "lines": 243,
+      "lines": 260,
       "complexity": 8,
-      "worst": "compose:60"
+      "worst": "compose:64"
     },
     "backend/features/agent/settings.py": {
       "lines": 189,
@@ -847,9 +847,9 @@
       "worst": "save:154"
     },
     "backend/features/agent/stages.py": {
-      "lines": 276,
+      "lines": 283,
       "complexity": 4,
-      "worst": "agent_operations:259"
+      "worst": "agent_operations:266"
     },
     "backend/features/agent/writer.py": {
       "lines": 274,
@@ -890,6 +890,11 @@
       "lines": 93,
       "complexity": 10,
       "worst": "add:69"
+    },
+    "backend/features/contacts/dead.py": {
+      "lines": 58,
+      "complexity": 4,
+      "worst": "bury_address:45"
     },
     "backend/features/contacts/extract.py": {
       "lines": 312,
@@ -1067,7 +1072,7 @@
       "worst": "—"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 404,
+      "lines": 412,
       "complexity": 2,
       "worst": "_enum:42"
     },
@@ -1082,7 +1087,7 @@
       "worst": "check_connected:118"
     },
     "backend/features/core/usage.py": {
-      "lines": 283,
+      "lines": 298,
       "complexity": 10,
       "worst": "ensure_llm_within_cap:214"
     },
@@ -1207,7 +1212,7 @@
       "worst": "_any:83"
     },
     "backend/features/crawl/offer_stop.py": {
-      "lines": 150,
+      "lines": 155,
       "complexity": 6,
       "worst": "stop_offers:46"
     },
@@ -1332,7 +1337,7 @@
       "worst": "backfill:203"
     },
     "backend/features/donors/browse.py": {
-      "lines": 435,
+      "lines": 439,
       "complexity": 7,
       "worst": "picked:264"
     },
@@ -1492,14 +1497,14 @@
       "worst": "subject_for:91"
     },
     "backend/features/letters/attempts.py": {
-      "lines": 271,
+      "lines": 327,
       "complexity": 2,
-      "worst": "next_address_note:130"
+      "worst": "next_address_note:159"
     },
     "backend/features/letters/batch.py": {
-      "lines": 188,
-      "complexity": 4,
-      "worst": "why:118"
+      "lines": 208,
+      "complexity": 5,
+      "worst": "_send_one:170"
     },
     "backend/features/letters/building.py": {
       "lines": 486,
@@ -1527,14 +1532,14 @@
       "worst": "to_text:92"
     },
     "backend/features/letters/events.py": {
-      "lines": 404,
+      "lines": 416,
       "complexity": 10,
-      "worst": "apply_events:159"
+      "worst": "apply_events:164"
     },
     "backend/features/letters/followups.py": {
-      "lines": 498,
+      "lines": 499,
       "complexity": 7,
-      "worst": "_deliver:434"
+      "worst": "_deliver:424"
     },
     "backend/features/letters/funnel.py": {
       "lines": 102,
@@ -1547,14 +1552,14 @@
       "worst": "metrics_leak:41"
     },
     "backend/features/letters/identity.py": {
-      "lines": 80,
+      "lines": 92,
       "complexity": 4,
-      "worst": "sender_domain:50"
+      "worst": "sender_domain:62"
     },
     "backend/features/letters/mailbox.py": {
-      "lines": 299,
+      "lines": 307,
       "complexity": 7,
-      "worst": "silence_words:183"
+      "worst": "silence_words:191"
     },
     "backend/features/letters/masking.py": {
       "lines": 260,
@@ -1577,9 +1582,14 @@
       "worst": "_niche_example:295"
     },
     "backend/features/letters/optout.py": {
-      "lines": 88,
-      "complexity": 3,
-      "worst": "unsubscribe_domain:43"
+      "lines": 247,
+      "complexity": 6,
+      "worst": "_person:163"
+    },
+    "backend/features/letters/other_role.py": {
+      "lines": 86,
+      "complexity": 5,
+      "worst": "_role:76"
     },
     "backend/features/letters/outgoing_files.py": {
       "lines": 312,
@@ -1617,13 +1627,13 @@
       "worst": "refusal:42"
     },
     "backend/features/letters/recheck_target.py": {
-      "lines": 326,
+      "lines": 322,
       "complexity": 11,
-      "worst": "in_thread:156"
+      "worst": "in_thread:155"
     },
     "backend/features/letters/recipients.py": {
       "lines": 499,
-      "complexity": 5,
+      "complexity": 6,
       "worst": "_why_not:319"
     },
     "backend/features/letters/reply_to.py": {
@@ -1657,24 +1667,34 @@
       "worst": "_post:172"
     },
     "backend/features/letters/sending.py": {
-      "lines": 500,
+      "lines": 496,
       "complexity": 5,
-      "worst": "_hand_over:424"
+      "worst": "_hand_over:420"
     },
     "backend/features/letters/settle.py": {
-      "lines": 171,
+      "lines": 175,
       "complexity": 6,
-      "worst": "record_sent:77"
+      "worst": "record_sent:79"
+    },
+    "backend/features/letters/site_role.py": {
+      "lines": 80,
+      "complexity": 4,
+      "worst": "check:48"
     },
     "backend/features/letters/stoplist.py": {
-      "lines": 470,
+      "lines": 495,
       "complexity": 7,
-      "worst": "add:164"
+      "worst": "add:169"
     },
     "backend/features/letters/template.py": {
       "lines": 493,
       "complexity": 9,
       "worst": "_check_zones:257"
+    },
+    "backend/features/letters/thread_first.py": {
+      "lines": 51,
+      "complexity": 4,
+      "worst": "subject:16"
     },
     "backend/features/letters/transport.py": {
       "lines": 205,
@@ -1717,9 +1737,9 @@
       "worst": "—"
     },
     "backend/features/ops/job_outcome.py": {
-      "lines": 227,
+      "lines": 229,
       "complexity": 10,
-      "worst": "_outcome:161"
+      "worst": "_outcome:163"
     },
     "backend/features/ops/mail_watch.py": {
       "lines": 281,
@@ -1732,9 +1752,14 @@
       "worst": "_letters:325"
     },
     "backend/features/ops/silence.py": {
-      "lines": 424,
+      "lines": 335,
       "complexity": 7,
-      "worst": "_crawl_blocked:266"
+      "worst": "_crawl_blocked:177"
+    },
+    "backend/features/ops/stage_silence.py": {
+      "lines": 209,
+      "complexity": 4,
+      "worst": "alarms:63"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,
@@ -1752,9 +1777,9 @@
       "worst": "listen:86"
     },
     "backend/features/outreach/limits.py": {
-      "lines": 113,
+      "lines": 127,
       "complexity": 13,
-      "worst": "screen:45"
+      "worst": "screen:48"
     },
     "backend/features/outreach/own_inboxes.py": {
       "lines": 472,
@@ -1767,14 +1792,14 @@
       "worst": "sent_today:196"
     },
     "backend/features/outreach/senders.py": {
-      "lines": 160,
+      "lines": 215,
       "complexity": 4,
-      "worst": "_spot:112"
+      "worst": "warmup_state:66"
     },
     "backend/features/outreach/stage_of.py": {
-      "lines": 102,
+      "lines": 110,
       "complexity": 5,
-      "worst": "of_reply:50"
+      "worst": "of_reply:52"
     },
     "backend/features/outreach/threads.py": {
       "lines": 459,
@@ -1872,9 +1897,9 @@
       "worst": "_offer:104"
     },
     "backend/features/replies/outcome.py": {
-      "lines": 315,
+      "lines": 321,
       "complexity": 7,
-      "worst": "_answer_without_price:254"
+      "worst": "_answer_without_price:260"
     },
     "backend/features/replies/parse_input.py": {
       "lines": 41,
@@ -1901,15 +1926,20 @@
       "complexity": 6,
       "worst": "_leaves:73"
     },
+    "backend/features/replies/recipient_stage.py": {
+      "lines": 73,
+      "complexity": 4,
+      "worst": "stage_of:44"
+    },
     "backend/features/replies/redirect.py": {
-      "lines": 227,
+      "lines": 232,
       "complexity": 8,
-      "worst": "sort_out:149"
+      "worst": "sort_out:154"
     },
     "backend/features/replies/repository.py": {
-      "lines": 465,
+      "lines": 484,
       "complexity": 5,
-      "worst": "domain_of:199"
+      "worst": "domain_of:200"
     },
     "backend/features/replies/robots.py": {
       "lines": 61,
@@ -1922,9 +1952,9 @@
       "worst": "price_confirmable:29"
     },
     "backend/features/replies/unbound.py": {
-      "lines": 143,
+      "lines": 181,
       "complexity": 6,
-      "worst": "explain:132"
+      "worst": "explain:170"
     },
     "backend/features/review/__init__.py": {
       "lines": 2,
@@ -2672,9 +2702,9 @@
       "worst": "split_url:25"
     },
     "backend/shared/queue.py": {
-      "lines": 325,
+      "lines": 337,
       "complexity": 7,
-      "worst": "job_alive:245"
+      "worst": "job_alive:257"
     },
     "backend/shared/sliding_window.py": {
       "lines": 75,
@@ -2697,9 +2727,9 @@
       "worst": "—"
     },
     "backend/workers/agent_jobs.py": {
-      "lines": 177,
+      "lines": 220,
       "complexity": 4,
-      "worst": "queue_draft:52"
+      "worst": "queue_draft:58"
     },
     "backend/workers/crawl_jobs.py": {
       "lines": 280,
@@ -2717,9 +2747,9 @@
       "worst": "sweep:51"
     },
     "backend/workers/health.py": {
-      "lines": 118,
+      "lines": 130,
       "complexity": 9,
-      "worst": "worker_problems:75"
+      "worst": "worker_problems:81"
     },
     "backend/workers/jobs.py": {
       "lines": 493,
@@ -2727,9 +2757,9 @@
       "worst": "_search_contacts:308"
     },
     "backend/workers/main.py": {
-      "lines": 49,
+      "lines": 52,
       "complexity": 2,
-      "worst": "main:34"
+      "worst": "main:37"
     },
     "backend/workers/reaper.py": {
       "lines": 250,

@@ -172,6 +172,21 @@ describe('домены по этапу (4.5a)', () => {
     expect(screen.getByText('Лимит направления: 4 из 50 первых писем сегодня')).toBeInTheDocument();
   });
 
+  it('настройка лимита направления не прочитана — строка называет её, а не «0 из 0»', async () => {
+    // Опечатка в .env: продажам ноль первых писем, и «0 из 0 первых писем сегодня» читалось
+    // бы как выбранный лимит (ревью продаж 13.10.2026). Слова — по смыслу отказа отправки.
+    const directions = [
+      { stage: 'donors', daily_limit: null, sent_today: 6, unread: null },
+      { stage: 'sales', daily_limit: 0, sent_today: 0, unread: 'OUTREACH_SALES_DAILY_LIMIT' },
+    ];
+    await openSenders({ 'GET /api/senders': { body: { ...BY_STAGE, directions } } });
+
+    expect(screen.getByText(/^Лимит направления: настройка/)).toHaveTextContent(
+      'Лимит направления: настройка OUTREACH_SALES_DAILY_LIMIT не прочитана — первых писем ноль, пока её не поправят в .env',
+    );
+    expect(screen.queryByText(/Лимит направления: 0 из 0/)).not.toBeInTheDocument();
+  });
+
   it.each([
     ['без права «Продажи» ящиков продаж нет — даже присланных сервером', false],
     ['с правом «Продажи» раздел продаж на месте', true],

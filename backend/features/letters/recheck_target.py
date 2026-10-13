@@ -36,7 +36,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import assert_never
 
 from backend.config import outreach as cfg
 from backend.features.contacts.preference import DEAD
@@ -44,9 +43,9 @@ from backend.features.contacts.quality import rejection_reason
 from backend.features.core.domain import Stage
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import ReplyModel, SenderModel
-from backend.features.letters import attempts
+from backend.features.letters import attempts, other_role
 from backend.features.letters.answers import subject_for
-from backend.features.letters.mailbox import silence_words
+from backend.features.letters.mailbox import SILENT, silence_words
 from backend.features.letters.recheck_facts import Boxes, Facts, Talk, Waiting
 from backend.features.letters.sending import SendError
 from backend.features.outreach import limits
@@ -277,39 +276,36 @@ def _free_box(facts: Facts) -> None:
         direction_limit=cfg.direction_limit(Stage.DONORS.value),
         now=moment,
         cuts=boxes.cuts,
+        direction_unread=cfg.direction_unread(Stage.DONORS.value),
     )
     spot = sender_rules.pick(
         screened.fit, sent_today=boxes.sent_today, stage=Stage.DONORS, now=moment
     )
     if spot is None:
-        why = screened.why() or "все ящики выключены или выбрали дневной лимит"
-        raise RecheckRefusedError(
-            f"Сегодня писать некому: {why}. Перезапрос новым письмом уйдёт, когда у ящиков "
-            "откроется лимит."
+        raise RecheckRefusedError(_nobody(screened))
+
+
+def _nobody(screened: limits.Screened) -> str:
+    """Почему перезапросу сегодня писать некому — правилом отказа отправки (`mailbox._nobody`):
+    у этапа без единого включённого ящика «откроется лимит» не обещается — выключенный ящик
+    сам не включится."""
+    if not screened.fit and not screened.why():
+        return (
+            f"Сегодня писать некому: {SILENT}. Перезапрос новым письмом уйдёт, когда ящик "
+            "включат — экран «Домены рассылки»."
         )
+    why = screened.why() or "все ящики выбрали дневной лимит"
+    return (
+        f"Сегодня писать некому: {why}. Перезапрос новым письмом уйдёт, когда у ящиков "
+        "откроется лимит."
+    )
 
 
 def _elsewhere_words(host: str, other: Waiting, *, sales_visible: bool) -> str:
     """Сайту писали в другой роли — отказ: одному адресату не пишут и как донору, и как
-    рекламодателю (`recipients._not_written`). Продажи — подробно только с их правом."""
-    if other.stage is Stage.SALES and not sales_visible:
-        return f"{host} уже писали в другой роли: одному адресату письмо в другой роли не уходит."
-    return (
-        f"{host} уже писали как {_role(other.stage)} (письмо №{other.id}): одному адресату "
-        "письмо в другой роли не уходит."
-    )
-
-
-def _role(stage: Stage) -> str:
-    match stage:
-        case Stage.DONORS:
-            return "донору"
-        case Stage.ADVERTISERS:
-            return "рекламодателю"
-        case Stage.SALES:
-            return "лиду продаж"
-        case _:
-            assert_never(stage)
+    рекламодателю (`recipients._not_written`). Слова — те же, что у карточки донора
+    (`other_role`), с именем сайта; продажи — подробно только с их правом."""
+    return f"{host} {other_role.words(other, sales_visible=sales_visible)}"
 
 
 def _no_address(host: str, *, known: bool) -> str:
