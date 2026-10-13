@@ -15,6 +15,12 @@
  *
  * **Фильтр — в адресе переписки** (`/threads/42?state=…`): «К списку» и соседний
  * диалог берут его оттуда же. Порядок — сначала ждущие человека (`useThreadList`).
+ *
+ * **Донор или рекламодатель — видно в строке** (слово владельца 14.10.2026): строка
+ * рекламодателя помечена тем же словом, что шапка переписки (`THREAD_STAGE_NOTES`), а
+ * переключатель «Все · Доноры · Рекламодатели» над поиском сужает список (`?role=`). До
+ * этого письмо рекламодателю в списке не отличалось от письма донору. У «Диалогов
+ * продаж» переключателя и пометки нет: там одна сторона.
  */
 
 import {
@@ -35,12 +41,13 @@ import { Link, useLocation, useMatch, useNavigate } from 'react-router-dom';
 
 import { rowIdOf } from '../api/ids';
 import { threadState } from '../api/labels';
+import { THREAD_STAGE_NOTES } from '../api/stages';
 import type { ThreadCard } from '../api/types';
 import { Seams } from '../components/Seams';
 import { formatMoney, formatNumber } from '../format';
 import { LeadsExport } from './LeadsExport';
 import { ThreadsTitle } from './ThreadsTitle';
-import { isThreadFiltered } from './threadFilters';
+import { isThreadFiltered, THREAD_ROLES } from './threadFilters';
 import { THREAD_TAB_KEYS, THREAD_TABS, useUnboundPage, writeThreadTab } from './threadTabs';
 import { useThreadList } from './useThreadList';
 import type { ThreadListState } from './useThreadList';
@@ -72,9 +79,18 @@ function priceLine(thread: ThreadCard): string | null {
   return parts.length === 0 ? null : parts.join(' · ');
 }
 
+/** Переключатель «Кому писали»: «Все» — без сужения, в адрес не пишется. */
+const ROLE_OPTIONS = [
+  { value: 'all', label: 'Все' },
+  { value: 'donors', label: THREAD_ROLES.donors },
+  { value: 'advertisers', label: THREAD_ROLES.advertisers },
+];
+
 function Row({ thread, to, active }: { thread: ThreadCard; to: string; active: boolean }) {
   const state = threadState(thread.state);
   const price = priceLine(thread);
+  // Пометка — у рекламодателя: доноры — основной поток, а у продаж своя часть списка.
+  const note = thread.stage === 'sales' ? '' : THREAD_STAGE_NOTES[thread.stage];
   return (
     <Card
       component={Link}
@@ -94,9 +110,17 @@ function Row({ thread, to, active }: { thread: ThreadCard; to: string; active: b
           </Text>
         </Group>
         <Group justify="space-between" wrap="nowrap" gap="sm">
-          <Text size="xs" c="dimmed" truncate>
-            {thread.contact_email ?? 'адрес не определён'}
-          </Text>
+          {/* Адрес обрезается, пометка — нет: длинный адрес не прячет, кому писали. */}
+          <Group gap={4} wrap="nowrap" miw={0}>
+            <Text size="xs" c="dimmed" truncate>
+              {thread.contact_email ?? 'адрес не определён'}
+            </Text>
+            {note !== '' && (
+              <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+                · {note}
+              </Text>
+            )}
+          </Group>
           <Badge variant="light" color={state.color} className="threadRowState">
             {state.title}
           </Badge>
@@ -115,6 +139,21 @@ interface RowsProps {
   list: ThreadListState;
   /** Колонкой рядом с перепиской: строка выбирается, а не открывает страницу. */
   split: boolean;
+}
+
+/** «Кому писали» над поиском — только в «Диалогах»: у «Диалогов продаж» одна сторона. */
+function RoleSwitch({ list }: { list: ThreadListState }) {
+  if (list.filters.part !== null) return null;
+  return (
+    <SegmentedControl
+      aria-label="Кому писали"
+      fullWidth
+      size="xs"
+      value={list.filters.role ?? 'all'}
+      onChange={list.pickRole}
+      data={ROLE_OPTIONS}
+    />
+  );
 }
 
 /** Поиск, фильтр состояния и строки — общее у обеих раскладок. */
@@ -166,6 +205,7 @@ export function ThreadRows({ list, split }: RowsProps) {
 
   return (
     <>
+      <RoleSwitch list={list} />
       <Group gap="xs" wrap="nowrap" className="threadFilters">
         {/* Подсказка — одним словом, что ищется — в имени поля: рядом с перепиской на
             1280 колонка списка — 20rem, и поиску за фильтром состояния остаётся ~80 px

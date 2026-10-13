@@ -18,6 +18,7 @@ import {
   inPart,
   NO_THREAD_FILTERS,
   readThreadFilters,
+  roleOf,
   threadEmptiness,
   threadMatches,
   THREAD_STATE_KEYS,
@@ -131,6 +132,8 @@ export function useThreadList() {
   ];
   const pickState = (value: string | null) =>
     apply({ state: THREAD_STATE_KEYS.find((state) => state === value) ?? null });
+  // «Все» — без сужения: в адрес не пишется.
+  const pickRole = (value: string) => apply({ role: roleOf(value) });
   // Сброс — фильтров, а не части: «Диалоги продаж» остаются диалогами продаж.
   const reset = () => {
     setSearch('');
@@ -152,6 +155,7 @@ export function useThreadList() {
     empty,
     stateOptions,
     pickState,
+    pickRole,
     reset,
   };
 }
