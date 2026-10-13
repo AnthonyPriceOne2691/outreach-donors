@@ -134,10 +134,14 @@ def bulk(monkeypatch: pytest.MonkeyPatch, redis: _Redis) -> _Queue:
 
 
 class _Connected:
-    """Модуль продаж в том, о чём спрашивает пачка: продажи подключены."""
+    """Модуль продаж в том, о чём спрашивает пачка: продажи подключены, и пачкой можно —
+    автоотправка выключена (`core/stages.check_batch`)."""
 
     async def connected(self, _session: AsyncSession) -> bool:
         return True
+
+    async def batch(self, _what: str) -> None:
+        return None
 
 
 @pytest.fixture
