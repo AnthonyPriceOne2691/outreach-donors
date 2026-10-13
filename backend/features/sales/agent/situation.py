@@ -154,7 +154,8 @@ def _confidence(raw: object) -> float | None:
     except ValueError:
         # Не число на месте уверенности: это «не поставила себе оценку», а не ноль
         # от модели — разбор отметит причину в `notes`.
-        logger.info("%s: уверенность не число — %r", TOPIC, str(raw)[:40])
+        shown = str(raw)[:40]
+        logger.info("%s: уверенность не число — %r", TOPIC, shown, extra={"confidence": shown})
         return None
     return min(1.0, max(0.0, value))
 
@@ -201,14 +202,17 @@ def parse(
     try:
         raw = json.loads(content)
     except ValueError:
-        logger.warning("%s: ответ модели не JSON: %r", TOPIC, content[:200])
+        logger.warning(
+            "%s: ответ модели не JSON: %r", TOPIC, content[:200], extra={"content": content[:200]}
+        )
         return failed("ответ модели не JSON", tokens)
     if not isinstance(raw, dict):
-        logger.warning("%s: модель вернула %s вместо формы", TOPIC, type(raw).__name__)
-        return failed(f"ответ модели — {type(raw).__name__}, а не форма", tokens)
+        shape = type(raw).__name__
+        logger.warning("%s: модель вернула %s вместо формы", TOPIC, shape, extra={"type": shape})
+        return failed(f"ответ модели — {shape}, а не форма", tokens)
     code = str(raw.get("situation") or "").strip().lower()
     if code not in {label.value for label in Label} or code == Label.PARSE_FAILED:
-        logger.warning("%s: незнакомая метка %r", TOPIC, code[:40])
+        logger.warning("%s: незнакомая метка %r", TOPIC, code[:40], extra={"label": code[:40]})
         return failed(f"метка ситуации «{code[:40]}» незнакома", tokens)
     confidence = _confidence(raw.get("confidence"))
     found = Situation(

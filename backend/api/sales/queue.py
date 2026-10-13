@@ -38,7 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps import db_session, needs
 from backend.api.sales.chain_schemas import ChainState
 from backend.features.access.repository import AccessRepository
-from backend.features.core.domain import AuditAction, Permission
+from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.letters import batch
 from backend.features.letters.uniqueness import percent_text
@@ -167,6 +167,8 @@ async def build_queue(
             "гипотеза": hypothesis.name if hypothesis else body.hypothesis_id,
             "писем": body.limit,
         },
+        # Этап — в записи, а не в словах «действия» (`access/journal.sales_entry`).
+        stage=Stage.SALES,
     )
     await session.commit()
     return SalesQueueQueued(job_id=str(job.id))

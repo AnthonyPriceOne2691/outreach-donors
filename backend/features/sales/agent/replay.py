@@ -326,13 +326,22 @@ async def run(
                     )
                 )
             except DraftUnavailableError as exc:
-                logger.warning("прогон агента продаж: случай %s не прогнан — %s", case.id, exc)
+                logger.warning(
+                    "прогон агента продаж: случай %s не прогнан — %s",
+                    case.id,
+                    exc,
+                    extra={"case": case.id, "why": str(exc)},
+                )
                 errors.append((case.id, str(exc)))
                 if exc.permanent:
                     stopped = f"модель отказала насовсем: {exc}"
                     break
             except LlmCapExceededError as exc:
-                logger.warning("прогон агента продаж остановлен потолком расхода — %s", exc)
+                logger.warning(
+                    "прогон агента продаж остановлен потолком расхода — %s",
+                    exc,
+                    extra={"why": str(exc)},
+                )
                 stopped = f"потолок расхода на модель: {exc}"
                 break
     return Run(source, version, tuple(results), tuple(errors), stopped)

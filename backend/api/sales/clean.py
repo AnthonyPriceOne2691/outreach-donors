@@ -36,7 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps import db_session, needs
 from backend.config.startup_checks import ConfigError
 from backend.features.access.repository import AccessRepository
-from backend.features.core.domain import AuditAction, Permission
+from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.sales import clean_jobs, verifier, verify_cap
 from backend.shared.queue import sales_queue, with_retries
@@ -165,6 +165,8 @@ async def start_clean(
             "лидов": found.count,
             "проверка адресов": "платная" if paid else "выдуманная",
         },
+        # Этап — в записи, а не в словах «действия» (`access/journal.sales_entry`).
+        stage=Stage.SALES,
     )
     await session.commit()
     return SalesCleanQueued(job_id=str(job.id))

@@ -78,9 +78,14 @@ async def _in_state(session: AsyncSession, name: str, kommo: HandoffKommo) -> Sa
 
 
 async def _journal(session: AsyncSession, handoff_id: int) -> list[AuditLogModel]:
+    """Решения консоли о передаче — правкой; «лид передан» при заведении передачи — своё
+    действие (`handoff._journaled`), его здесь не считаем."""
     rows = await session.scalars(
         select(AuditLogModel)
-        .where(AuditLogModel.target == f"sales_handoff:{handoff_id}")
+        .where(
+            AuditLogModel.target == f"sales_handoff:{handoff_id}",
+            AuditLogModel.action == AuditAction.USER_UPDATED,
+        )
         .order_by(AuditLogModel.id)
     )
     return list(rows)

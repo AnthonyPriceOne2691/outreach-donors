@@ -88,6 +88,13 @@ class LeadStoppedError(SuppressedError):
     Для цепочки — как стоп-лист: проход добивок её останавливает."""
 
 
+class LeadMissingError(NotReadyError):
+    """У письма продаж нет лида: его собрала не сборка очереди продаж, или связь с лидом
+    пропала. Письмо не уйдёт, пока его не уберут из очереди. Наследник «не готово», а не
+    просто отказ: итог пачки называет его «письмо не готово к отправке» (`letters/batch.why`),
+    а не «почта отказала» — почта тут ни при чём (ревью стыков, хвост R1 5.3)."""
+
+
 @dataclass(frozen=True, slots=True)
 class Linked:
     """Диалог продаж вместе с его лидом и сайтом компании."""
@@ -143,7 +150,7 @@ async def recipient(session: AsyncSession, message: MessageModel, what: str) -> 
     found = await connection.check(session, what)
     dialog = await linked(session, message.thread_id)
     if dialog is None:
-        raise SendError(
+        raise LeadMissingError(
             f"{what}: у письма продаж нет лида — его собрала не сборка очереди продаж. "
             "Письмо стоит убрать из очереди"
         )
@@ -229,7 +236,7 @@ async def check(session: AsyncSession, message: MessageModel) -> None:
     what = f"Письмо №{message.id}"
     dialog = await linked(session, message.thread_id)
     if dialog is None:
-        raise SendError(f"{what}: у письма продаж нет лида — письмо стоит убрать из очереди")
+        raise LeadMissingError(f"{what}: у письма продаж нет лида — письмо стоит убрать из очереди")
     await _writable(session, dialog, what)
     if message.step == FIRST_STEP and (why := _first_problem(dialog, message)) is not None:
         raise NotReadyError(f"{what} не уходит: {why}")

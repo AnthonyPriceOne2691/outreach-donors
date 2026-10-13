@@ -93,6 +93,7 @@ async def test_short_of_a_day_one_build_with_the_shortage_as_its_limit(
     [record] = list(await _auto_builds(session))
     assert (record.user_id, record.target) == (None, f"job:{build_job_id(world.hypothesis_id)}")
     assert record.details == {
+        "этап": "sales",
         "действие": autobuild.AUTO,
         "гипотеза": "Выдуманная гипотеза",
         "писем": 20,

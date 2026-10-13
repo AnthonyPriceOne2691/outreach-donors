@@ -203,7 +203,7 @@ def _shaped(raw: object) -> tuple[list[Any], list[Any], Mapping[str, Any]] | Non
     """Форма ответа: три ключа, каждый своего вида. Иначе — не разобрано."""
     problem = _misshaped(raw)
     if problem is not None or not isinstance(raw, dict):
-        logger.warning("%s: ответ модели не той формы — %s", TOPIC, problem)
+        logger.warning("%s: ответ модели не той формы — %s", TOPIC, problem, extra={"why": problem})
         return None
     return raw["claims"], raw["promises"], raw["tone"]
 
@@ -222,7 +222,9 @@ def parse(
     try:
         raw = json.loads(content)
     except ValueError:
-        logger.warning("%s: ответ модели не JSON: %r", TOPIC, content[:200])
+        logger.warning(
+            "%s: ответ модели не JSON: %r", TOPIC, content[:200], extra={"content": content[:200]}
+        )
         return None
     shaped = _shaped(raw)
     if shaped is None:
@@ -266,7 +268,13 @@ async def _model(check: GuardInput, context: Context, prompt: Path) -> Verdict:
         if found is not None:
             kind = VerdictKind.BLOCK if found else VerdictKind.ALLOW
             return Verdict(kind, tuple(found), tokens=tokens)
-        logger.warning("%s: ответ не разобран, попытка %s из %s", TOPIC, attempt, ATTEMPTS)
+        logger.warning(
+            "%s: ответ не разобран, попытка %s из %s",
+            TOPIC,
+            attempt,
+            ATTEMPTS,
+            extra={"attempt": attempt},
+        )
     why = f"судья-модель {ATTEMPTS} раза ответила не по форме — черновик не проверен"
     return Verdict(VerdictKind.ESCALATE, (why,), tokens=tokens)
 
@@ -293,7 +301,9 @@ def shadowed(found: Verdict) -> Verdict:
     if found.kind is not VerdictKind.BLOCK:
         return found
     said = "; ".join(found.reasons)
-    logger.info("%s: режим shadow — вернул бы черновик на правку: %s", TOPIC, said)
+    logger.info(
+        "%s: режим shadow — вернул бы черновик на правку: %s", TOPIC, said, extra={"why": said}
+    )
     reasons = tuple(f"{SHADOW} {found.kind.value}: {reason}" for reason in found.reasons)
     return Verdict(VerdictKind.ALLOW, reasons, tokens=found.tokens)
 
