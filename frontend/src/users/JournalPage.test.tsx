@@ -4,6 +4,9 @@
  * уходит на сервер; без права «Продажи» — без действий продаж и со словами об этом.
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
@@ -14,6 +17,7 @@ import type { Me } from '../api/types';
 import { ADMIN, OPERATOR, TOKEN_KEY, card } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
+import { JOURNAL_MIN_WIDTH } from './JournalTable';
 
 const PAGE: JournalView = {
   entries: [
@@ -135,6 +139,45 @@ describe('журнал действий', () => {
     expect(within(review).getByText('Правка')).toBeInTheDocument();
     expect(within(review).getByText(/принят/)).toBeInTheDocument();
     expect(within(review).queryByText(/accepted/)).not.toBeInTheDocument();
+  });
+
+  it('подробности — последней колонкой, по центру, и отделены от «Над чем» двойным зазором', async () => {
+    // Просьба Anthony 12.10.2026: «посерединке… чуть-чуть расстояние добавить». Раскладку
+    // jsdom не считает — проверяется договор с правилами `glass.css`: общее «всё, кроме
+    // первой, — по центру» у `dataTable` и поле последней колонки у `journalTable`
+    // (замер в браузере — в описании правила).
+    openJournal();
+
+    const table = await screen.findByRole('table');
+    expect(table).toHaveClass('dataTable', 'journalTable');
+    expect(within(table).getAllByRole('columnheader').at(-1)).toHaveTextContent('Подробности');
+    const glass = readFileSync(resolve(process.cwd(), 'src/styles/glass.css'), 'utf8');
+    expect(glass).toMatch(
+      /\.dataTable th:not\(:first-child\),\s*\.dataTable td:not\(:first-child\) \{\s*text-align: center;/,
+    );
+    const last = /\.journalTable th:last-child,\s*\.journalTable td:last-child \{([^}]*)\}/.exec(
+      glass,
+    );
+    expect(last?.[1]).toMatch(/padding-inline-start: calc\(2 \* var\(--table-horizontal-spacing/);
+    expect(last?.[1]).not.toMatch(/text-align/);
+  });
+
+  it('влезает рядом с развёрнутым меню на 1440: подробностям остаётся не меньше 208 px', async () => {
+    // Просьба Anthony 12.10.2026: на 1440 × 900 с развёрнутым меню под таблицу 1 078 px
+    // (замер в браузере), а при 1 180 она уезжала в прокрутку, и подробности по центру
+    // уходили за край. Запас — полоса прокрутки страницы, где она занимает место (до 17 px).
+    openJournal();
+
+    const table = await screen.findByRole('table');
+    const widths = [...table.querySelectorAll('col')].map((col) => col.style.width);
+    // Ширина задана у всех, кроме подробностей: им — остаток.
+    expect(widths.at(-1)).toBe('');
+    const fixed = widths.reduce(
+      (sum, width) => sum + (width === '' ? 0 : parseFloat(width) * 16),
+      0,
+    );
+    expect(JOURNAL_MIN_WIDTH - fixed).toBeGreaterThanOrEqual(208);
+    expect(JOURNAL_MIN_WIDTH).toBeLessThanOrEqual(1078 - 17);
   });
 
   it('незнакомое действие не роняет экран, кто без учётки — из подробностей, было → стало', async () => {

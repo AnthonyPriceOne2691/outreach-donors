@@ -6,6 +6,9 @@
  * ждущей работы; кто вошёл, роль и права — в меню у почты в шапке.
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -214,6 +217,41 @@ describe('меню сворачивается до значков (замеча�
     await user.click(screen.getByRole('button', { name: 'Развернуть меню' }));
     expect(menu.getByText('Учётки')).not.toHaveClass('mantine-VisuallyHidden-root');
     expect(localStorage.getItem('outreach.nav.folded')).toBeNull();
+  });
+
+  it('свёрнутое меню — тех же строк, что развёрнутое: значки не двигаются по высоте', async () => {
+    // Замечание Anthony 12.10.2026 «меню подпрыгивает»: пока колонка разворачивалась,
+    // «Доноры и рекламодатели» вставали в две строки, а свёрнутые пункты и подписи групп
+    // были ниже развёрнутых — значки разъезжались на 17–107 px. Раскладку jsdom не считает:
+    // проверяется разметка, на которую опираются правила `glass.css`, и сами правила
+    // (замер по кадрам в браузере — в их описании).
+    windowWhere('(min-width: 48em)');
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'GET /api/overview/work': { body: WORK },
+      ...HOME_ROUTES,
+    });
+    renderWith(<AppRoutes />, '/');
+    await waitFor(() => expect(item('Прогон')).toHaveTextContent('3 ждут человека'));
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Свернуть меню' }));
+
+    const menu = within(screen.getByRole('navigation', { name: 'Разделы' }));
+    // Точка ждущей работы — на значке, и значок — прямой ребёнок `Indicator`: до него
+    // достаёт правило «значок блоком» (строчный добавлял строке 7 px).
+    const run = menu.getByRole('link', { name: 'Прогон · 3 ждут человека' });
+    expect(run.querySelector('.mantine-Indicator-root > svg')).not.toBeNull();
+    // Подпись группы свёрнута в линию, но остаётся в своей строке.
+    expect(menu.getByRole('group', { name: 'Настройки' }).firstElementChild).toHaveClass(
+      'navGroupTitle',
+    );
+    const glass = readFileSync(resolve(process.cwd(), 'src/styles/glass.css'), 'utf8');
+    expect(glass).toMatch(/\.navGroupTitle \{[^}]*min-height: 1lh;[^}]*white-space: nowrap;/);
+    expect(glass).toMatch(
+      /\.navFrame\[data-folded\] \.mantine-NavLink-body \{[^}]*min-height: 1lh;/,
+    );
+    expect(glass).toMatch(/\.navFrame \.mantine-Indicator-root > svg \{\s*display: block;/);
   });
 
   it('на телефоне меню всегда с подписями, даже если на компьютере его свернули', async () => {
