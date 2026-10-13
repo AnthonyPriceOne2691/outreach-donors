@@ -36,6 +36,7 @@
 
 Отказ по одному письму (стоп-лист, письмо не готово, почта отказала этому адресату или
 содержимому) проход не останавливает: письмо ждёт в очереди с причиной, проход идёт к следующему.
+Платформа отказала самому письму в третий раз — оно снимается с очереди (`autosend_refusals.py`).
 **Отказ получило каждое письмо окна, а не ушло ни одно** — письма очереди собраны с прежними
 подписью и адресом «Отправителя», лидов снял стоп-лист, — проход стоит не по делу (`REFUSED_ALL`):
 тревога через 15 минут, как у неизвестного исхода. Иначе он перебирал бы окно каждую минуту, а
@@ -81,8 +82,13 @@ from backend.features.core.stages import SalesNotConnectedError
 from backend.features.letters import batch, mailbox, unknown_outcome
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.sending import NoSenderError, SendError, Sending
-from backend.features.letters.transport import Mail, MaybeSentError, PlatformRefusalError
-from backend.features.sales import connection
+from backend.features.letters.transport import (
+    LetterRefusalError,
+    Mail,
+    MaybeSentError,
+    PlatformRefusalError,
+)
+from backend.features.sales import autosend_refusals, connection
 from backend.features.sales.models import SalesLeadModel, SalesThreadModel
 from backend.features.sales.policy import sales_policy, zones_of
 
@@ -345,6 +351,10 @@ class Pass:
     details: dict[int, str] = field(default_factory=dict)
     #: Письмо, исход которого проход оставил неизвестным: почта не ответила (`unsure`).
     unsure: int | None = None
+    #: Письма, которым отказала сама платформа (`LetterRefusalError`): номер → сколько отказов
+    #: с этим, если проход их считал (`autosend_refusals.py`); снятые с очереди — слова.
+    bounced: dict[int, int] = field(default_factory=dict)
+    dropped: dict[int, str] = field(default_factory=dict)
     #: Почему проход не шлёт или кончился раньше писем в окне — видом и словами.
     stop: Stop | None = None
     stopped: str | None = None
@@ -366,11 +376,17 @@ async def run(session: AsyncSession, transports: Mail, *, now: datetime) -> Pass
             halt = await _one(sending, letter_id, found, now)
         if halt is not None:
             found.stop, found.stopped = _why_stopped(halt, resting, used, now)
-            return found
+            break
         box = await _box_of(session, letter_id) if letter_id in found.sent else None
         if box is not None:
             used[box] = now + pause_of(box, letter_id)
-    return _to_the_end(found)
+    else:
+        _to_the_end(found)
+    went = bool(found.sent) and found.stop not in STALLS
+    found.bounced, found.dropped = await autosend_refusals.counted(
+        session, found.bounced, found.details, went=went
+    )
+    return found
 
 
 def _to_the_end(found: Pass) -> Pass:
@@ -403,6 +419,8 @@ async def _one(
         # со стоп-листом ждёт в очереди днями, а проход заглядывает в него каждую минуту.
         found.refused[letter_id] = batch.why(exc)
         found.details[letter_id] = str(exc)
+        if isinstance(exc.__cause__, LetterRefusalError):  # счёт — `autosend_refusals.py`
+            found.bounced[letter_id] = 0
         logger.debug("продажи: автоотправка — письмо №%s не ушло: %s", letter_id, batch.why(exc))
         return None
     except MaybeSentError as exc:

@@ -35,6 +35,8 @@
 вида, а не на каждом проходе: ночью проход стоит «вне окна» часами. Пауза ящиков — обычный
 ход, а не остановка: строки о ней нет. Отказ по письму — строкой при смене причины у письма,
 с отказом отправки целиком: «письмо не готово к отправке» без него не сказало бы, что чинить.
+Письмо, снятое с очереди после отказов платформы (`autosend_refusals.py`), — громкой строкой
+с причиной; счёт этих отказов — тоже память процесса (`Watch.bounced`).
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ from backend.config import storage
 from backend.features.letters.transport_factory import Transports, in_use
 from backend.features.letters.unknown_outcome import STUCK_AFTER
 from backend.features.runs.reasons import explained
-from backend.features.sales import autosend
+from backend.features.sales import autosend, autosend_refusals
 from backend.features.sales.autosend import STALLS, Pass, Stop
 from backend.shared.alerts import send_alert
 
@@ -90,12 +92,15 @@ class Watch:
     refused: dict[int, str] = field(default_factory=dict)
     #: Письма, исход которых проход сам оставил неизвестным, — номер → минута (`autosend.unsure`).
     unsure: dict[int, datetime] = field(default_factory=dict)
+    #: Отказы платформы письму, сосчитанные проходами, — номер → сколько (`autosend_refusals.py`).
+    bounced: dict[int, int] = field(default_factory=dict)
 
     async def see(self, found: Pass, now: datetime) -> None:
         """Удачный проход: журнал по смене, счёт остановки, тревога или отбой."""
         self._journal(found)
         if found.unsure is not None:
             self.unsure[found.unsure] = now
+        self._bounced(found)
         self.due = found.due or found.stop in ALWAYS
         stall = found.stopped if found.stop in STALLS | ALWAYS else None
         self._count(stalled=stall is not None, now=now)
@@ -126,11 +131,11 @@ class Watch:
         в окне (или без них — `ALWAYS`); отбой — один раз, когда перестал. Telegram не принял —
         скажет следующий проход."""
         if stall is None:
-            if self.told is not None and await _said(f"{RESUMED} (стояла: {self.told})"):
+            if self.told is not None and await say(f"{RESUMED} (стояла: {self.told})"):
                 self.told = None
             return
         late = self.stalled_since is not None and now - self.stalled_since >= ALARM_AFTER
-        if late and self.told is None and await _said(f"{head}. {stall}"):
+        if late and self.told is None and await say(f"{head}. {stall}"):
             self.told = stall
 
     def _journal(self, found: Pass) -> None:
@@ -148,15 +153,26 @@ class Watch:
                 logger.info("продажи: автоотправка — письмо №%s не ушло: %s", letter_id, said)
                 self.refused[letter_id] = why
 
+    def _bounced(self, found: Pass) -> None:
+        """Отказы платформы письмам — в счёт (`autosend_refusals.py`); письмо, снятое с очереди
+        после них, — громкой строкой; ушедшее или снятое из счёта выходит."""
+        self.bounced.update(found.bounced)
+        for letter_id, words in found.dropped.items():
+            logger.warning("продажи: автоотправка — письмо №%s: %s", letter_id, words)
+        for letter_id in (*found.sent, *found.dropped):
+            self.bounced.pop(letter_id, None)
+            self.refused.pop(letter_id, None)
+
 
 def _detailed(why: str, detail: str | None) -> str:
     """Отказ по письму для журнала: слова пачки и отказ отправки целиком, если он есть."""
     return f"{why} — {detail}" if detail else why
 
 
-async def _said(text: str) -> bool:
+async def say(text: str) -> bool:
     """Ушло ли слово: в Telegram — или громкой строкой журнала, если бот тревог не задан
-    (`send_alert` пишет её сам), как у ленты сторожа (`ops/alarm_feed.py`)."""
+    (`send_alert` пишет её сам), как у ленты сторожа (`ops/alarm_feed.py`). Тем же путём
+    говорит и тревога автосборки (`autobuild_alarm.py`)."""
     sent = await send_alert(text)
     return sent or not (alerts_cfg.TELEGRAM_BOT_TOKEN and alerts_cfg.TELEGRAM_CHAT_ID)
 
@@ -177,7 +193,10 @@ async def tick(now: datetime | None = None, watch: Watch | None = None) -> None:
         await memory.see(Pass(stop=Stop.GUARDED, stopped=guarded), moment)
         return
     try:
-        with autosend.unsure(memory.remembered(moment)):
+        with (
+            autosend.unsure(memory.remembered(moment)),
+            autosend_refusals.before(memory.bounced),
+        ):
             found = await _pass(moment)
     except Exception as exc:
         await memory.failed(exc, moment)

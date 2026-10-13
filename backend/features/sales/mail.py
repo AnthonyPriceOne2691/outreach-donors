@@ -15,11 +15,12 @@
 - `check` — ветка продаж проверки перед отправкой (вместо отказа 1.1b в
   `sending._check_review`): лид не снят, не передан телемаркетологу
   (`handoff.handed_off` — переданному цепочка не идёт), не в стоп-листе (`unwritable` —
-  то же правило решает, писать ли агенту черновик ответа лида); первое письмо —
+  то же правило решает, писать ли агенту черновик ответа лида); письмо цепочки — лиду не из
+  «кому не пишем» (`not_writing.py`, решение владельца 13.10); первое письмо —
   в коридоре отличия, собрано после последней правки лида (`lead_edit.edited`), а адрес не
   проверен выдуманным проверяльщиком при живом (`verifier.unproven`); подпись и адрес на
   месте, подстановок без значения нет (`letter.problem`, у ответа в переписке —
-  `letter.answer_problem`);
+  `letter.answer_problem`); добивку, которую так не собрать, проверка останавливает;
 - `connected` — подключены ли продажи: проход добивок берёт их сроки только тогда, иначе
   срок цел и проход называет его вслух;
 - `answer` — ответ лиду в переписке до заведения письма: продажи подключены, у переписки
@@ -27,18 +28,20 @@
   метрик Ahrefs в нём нет;
 - `followup` — текст добивки: собранный при сборке первого письма (`followup_texts.py`,
   у переписки лида), если цепочка набора с тех пор не менялась, иначе — шаг цепочки того же
-  набора и языка, что у первого письма, с подстановками лида; подпись и адрес — из
-  «Отправителя». Модели здесь нет. Тему даёт первое письмо — у шаблона добивки её нет;
+  набора и языка, что у первого письма, с подстановками лида; его не собрать — текст,
+  сохранённый при сборке прежней версией цепочки; подпись и адрес — из «Отправителя». Модели
+  здесь нет. Тему даёт первое письмо — у шаблона добивки её нет;
 - `policy` — политика почты продаж (`policy.sales_policy`): окно получателя, мягкие
   сигналы ящика, сторож;
 - `threads_to` — переписки лидов с этим адресом: по ним стоп-лист снимает письма продаж
   адресу (`letters/stoplist.stop_pending`) — строки `contacts` у них нет.
 
 **Отказ — только словами почты** (договор моста): «писать больше нельзя» (лид снят,
-передан, в стоп-листе) — `LeadStoppedError`, наследник стоп-листа: цепочка кончается;
-«письмо не то» — `NotReadyError`: письмо стоит в очереди с причиной, пачка идёт дальше (и
-первое письмо, чья цепочка набора неполна: письма других наборов уходят); «пока нельзя»
-(продажи не подключены, цепочка добивки неполна, добивка не собирается) —
+передан, в стоп-листе) — `LeadStoppedError`, наследник стоп-листа: цепочка кончается; лид в
+«кому не пишем» — `NotWritingError` и добивку не собрать — `FollowupStoppedError`, тоже
+наследники стоп-листа; «письмо не то» — `NotReadyError`: письмо стоит в очереди с причиной,
+пачка идёт дальше (и первое письмо, чья цепочка набора неполна: письма других наборов
+уходят); «пока нельзя» (продажи не подключены, цепочка добивки неполна) —
 `SalesNotConnectedError`: пачка встаёт, срок добивки возвращается. Другое исключение мост
 считает поломкой модуля. Ответы читают базу и ничего не сохраняют: мост спрашивает модуль в
 своей точке сохранения.
@@ -65,7 +68,12 @@ from backend.features.core.stages import (
 )
 from backend.features.letters import guards
 from backend.features.letters.chain import ANSWER_STEP, FIRST_STEP
-from backend.features.letters.sending import NotReadyError, SendError, SuppressedError
+from backend.features.letters.sending import (
+    NotReadyError,
+    NotWritingError,
+    SendError,
+    SuppressedError,
+)
 from backend.features.letters.uniqueness import corridor_verdict
 from backend.features.sales import (
     autosend,
@@ -84,6 +92,7 @@ from backend.features.sales.models import (
     SalesStoplistModel,
     SalesThreadModel,
 )
+from backend.features.sales.not_writing import excluded
 from backend.features.sales.policy import sales_policy, zones_of
 from backend.features.sales.suppressions import holds_sales
 from backend.features.sales.verifier import unproven
@@ -238,20 +247,51 @@ def _first_problem(dialog: Linked, message: MessageModel) -> str | None:
     return EDITED if edited(dialog.lead, message) else unproven(dialog.lead)
 
 
+class FollowupStoppedError(SuppressedError):
+    """Добивку не собрать ни нынешней цепочкой, ни сохранённым прежним текстом (решение владельца
+    13.10): для цепочки — как стоп-лист, проход добивок её останавливает с этой причиной."""
+
+
 async def check(session: AsyncSession, message: MessageModel) -> None:
     """Проверка письма продаж перед отправкой — ветка продаж `sending._check_review`. Ответ
-    лиду в переписке (`ANSWER_STEP`) — не шаг цепочки: подпись в его тексте не отказ."""
+    лиду в переписке (`ANSWER_STEP`) — не шаг цепочки: подпись в его тексте не отказ, и
+    «кому не пишем» его не держит — лид написал сам."""
     what = f"Письмо №{message.id}"
     dialog = await linked(session, message.thread_id)
     if dialog is None:
         raise LeadMissingError(f"{what}: у письма продаж нет лида — письмо стоит убрать из очереди")
     await _writable(session, dialog, what)
-    if message.step == FIRST_STEP and (why := _first_problem(dialog, message)) is not None:
-        raise NotReadyError(f"{what} не уходит: {why}")
+    if (refused := _chain_refused(dialog, message, what)) is not None:
+        raise refused
     rule = letter.answer_problem if message.step >= ANSWER_STEP else letter.problem
     problem = rule(message.body or "", await sender.read(session))
     if problem is not None:
-        raise NotReadyError(f"{what} не уходит: {problem}")
+        raise _text_refused(message, what, problem)
+
+
+def _chain_refused(dialog: Linked, message: MessageModel, what: str) -> SendError | None:
+    """Почему письмо цепочки не уходит — отказом; `None` — уходит. Лид в «кому не пишем»
+    (`not_writing.py`, решение владельца 13.10) — как стоп-лист: цепочка кончается; первое
+    письмо не в коридоре, собрано до правки лида или проверено выдуманным при живом — «не
+    готово». Ответ в переписке — не письмо цепочки."""
+    if message.step >= ANSWER_STEP:
+        return None
+    off = excluded(dialog.lead.email, dialog.host)
+    if off is not None:
+        return NotWritingError(f"{what}: {off} — письма продаж этому лиду не уходят")
+    why = _first_problem(dialog, message) if message.step == FIRST_STEP else None
+    return None if why is None else NotReadyError(f"{what} не уходит: {why}")
+
+
+def _text_refused(message: MessageModel, what: str, problem: str) -> SendError:
+    """Текст письма не уходит: у добивки — её не собрать ни нынешней цепочкой, ни прежним
+    текстом (текст собран здесь же, `followup`), и цепочка останавливается; у остальных —
+    «не готово», письмо ждёт в очереди."""
+    if FIRST_STEP < message.step < ANSWER_STEP:
+        return FollowupStoppedError(
+            f"{what}: добивку {followup_texts.NOT_BUILT} — {problem}; цепочка остановлена"
+        )
+    return NotReadyError(f"{what} не уходит: {problem}")
 
 
 async def answer(session: AsyncSession, thread_id: int, body: str, what: str) -> str:
@@ -293,7 +333,10 @@ async def batch(what: str) -> None:
 
 async def followup(session: AsyncSession, thread_id: int | None, step: int) -> SalesFollowup:
     """Текст добивки шага `step` (шаг письма, с нуля) в переписке продаж `thread_id`: собранный
-    с первым письмом той же версией цепочки или шаблон шага (`followup_texts.text_of`)."""
+    с первым письмом той же версией цепочки или шаблон шага; его не собрать — сохранённый при
+    сборке прежний (`followup_texts.choose`). Нет и его — текст как есть: проверка отправки
+    (`check`) его не пустит, и проход добивок кончит цепочку с причиной словами (решение
+    владельца 13.10). До решения такая добивка была «пока нельзя» — срок плюс час, без конца."""
     what = f"Добивка шага {step} в переписке №{thread_id}"
     found = await connection.check(session, what)
     dialog = await linked(session, thread_id)
@@ -304,12 +347,15 @@ async def followup(session: AsyncSession, thread_id: int | None, step: int) -> S
     if number not in ready.steps:  # полная цепочка — три шага; четвёртого письма не бывает
         raise SalesNotConnectedError(what, f"шага {number} у цепочки нет")
     values = letter.values_of(dialog.lead, dialog.host)
-    text = followup_texts.text_of(dialog.link.followups, ready, number, values)
-    body = letter.signed(text, found)
-    problem = letter.problem(body, found)
-    if problem is not None:  # письма ещё нет — «пока нельзя», а не поломка модуля
-        raise SalesNotConnectedError(what, problem, words="не собрана")
-    return SalesFollowup(body=body)
+    check_text = followup_texts.unbuilt(found)
+    chosen = followup_texts.choose(dialog.link.followups, ready, number, values, check_text)
+    if chosen.earlier:
+        logger.info(
+            "продажи: %s уходит сохранённым прежним текстом — нынешней цепочкой не собрать: %s",
+            what,
+            chosen.problem,
+        )
+    return SalesFollowup(body=letter.signed(chosen.body, found))
 
 
 async def threads_to(session: AsyncSession, email: str) -> list[int]:

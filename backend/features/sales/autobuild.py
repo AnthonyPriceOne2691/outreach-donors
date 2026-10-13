@@ -30,10 +30,19 @@
 следующий проход посчитает недостачу заново и отдаст следующей. «Поровну» требовало бы нескольких
 сборок разом или счёта долей между проходами, «по доле ready» отдавало бы всё большой базе, и
 малая гипотеза не получала бы писем вовсе.
+
+**«Кому не пишем» — и здесь** (`not_writing.py`, решение владельца 13.10): письмо лида из списка
+не в счёт очереди — отправка его не пустит, — а гипотеза, у которой без письма остались только
+такие лиды, не кандидат: сборка их не возьмёт, и проход ставил бы её каждые десять минут впустую.
+
+**Очередь пуста, а собрать нельзя — тревога** (F7, решение владельца 13.10): потолок модели,
+серия вне коридора (`Plan.stuck`) или упавшая сборка при включённой автоотправке — одна тревога
+при переходе и «прошло» при выходе; память и слова — `autobuild_alarm.py`, проход — `step`.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -50,10 +59,21 @@ from backend.features.access.repository import AccessRepository
 from backend.features.core import usage
 from backend.features.core.domain import AuditAction, MessageStatus, Stage
 from backend.features.core.models.access import AuditLogModel
+from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import MessageModel, SenderModel
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.outreach.senders import warmup_state
-from backend.features.sales import chain, chain_text, connection, corridor, letter, sender
+from backend.features.sales import (
+    autobuild_alarm,
+    autosend,
+    chain,
+    chain_text,
+    connection,
+    corridor,
+    letter,
+    sender,
+)
+from backend.features.sales.autobuild_alarm import Outcome, Watch
 from backend.features.sales.lead_edit import edited
 from backend.features.sales.models import (
     LeadStatus,
@@ -61,6 +81,7 @@ from backend.features.sales.models import (
     SalesLeadModel,
     SalesThreadModel,
 )
+from backend.features.sales.not_writing import excluded
 from backend.features.sales.queue_start import LIMIT_MAX, RUNNING, build_job_id, start
 from backend.features.sales.usage_cap import sales_cap
 from backend.features.sales.verifier import unproven
@@ -72,7 +93,19 @@ logger = logging.getLogger(__name__)
 AUTO = "автосборка очереди продаж"
 NO_CANDIDATES = "нет гипотезы с полной цепочкой и лидами, готовыми к письму"
 QUEUE_SILENT = "очередь задач не отвечает — идёт ли сборка, сейчас не узнать"
-STREAK = (
+#: Лидов без письма читать за раз, ища того, кому пишем (`_writable`).
+CHUNK = 500
+
+
+class Stuck(str):
+    """Почему не собирается — словами, и автосборка сама не соберёт: потолок модели продаж или
+    серия писем вне коридора (F7). Строка как строка: план и экран читают слова как прежде, а
+    тревога узнаёт причину по типу."""
+
+    __slots__ = ()
+
+
+STREAK = Stuck(
     "прошлые сборки гипотез встали: шаблон первого письма не даёт писем в коридоре отличия — "
     "поправьте цепочку и соберите очередь кнопкой, дальше автосборка подхватит"
 )
@@ -89,6 +122,11 @@ class Plan:
     hypothesis_id: int | None = None
     name: str = ""
     why: str | None = None
+
+    @property
+    def stuck(self) -> bool:
+        """Автосборка сама не соберёт: потолок модели продаж или серия вне коридора (`Stuck`)."""
+        return isinstance(self.why, Stuck)
 
     @property
     def short(self) -> int:
@@ -129,18 +167,20 @@ class Queued:
 async def queued(session: AsyncSession) -> Queued:
     """Первые письма продаж в очереди: уйдут как есть — в счёт; собраны с прежними подписью и
     адресом или до правки лида (`letter.problem`, `lead_edit.edited` — отказ отправки) — гипотеза
-    к сборке; лид снят или проверен выдуманным проверяльщиком при живом — ни то ни другое."""
+    к сборке; лид снят, проверен выдуманным проверяльщиком при живом или в «кому не пишем»
+    (`not_writing.py`) — ни то ни другое."""
     found = await sender.read(session)
     rows = await session.execute(
-        select(MessageModel, SalesLeadModel)
+        select(MessageModel, SalesLeadModel, DomainModel.host)
         .join(SalesThreadModel, SalesThreadModel.thread_id == MessageModel.thread_id)
         .join(SalesLeadModel, SalesLeadModel.id == SalesThreadModel.lead_id)
+        .join(DomainModel, DomainModel.id == SalesLeadModel.domain_id)
         .where(MessageModel.status == MessageStatus.QUEUED, MessageModel.step == FIRST_STEP)
     )
     ready: set[int] = set()
     redo: dict[int, int] = {}
-    for message, lead in rows.tuples().all():
-        if lead.status is not LeadStatus.READY or unproven(lead) is not None:
+    for message, lead, host in rows.tuples().all():
+        if _closed(lead, host):
             continue
         if letter.problem(message.body or "", found) is not None or edited(lead, message):
             redo[message.id] = lead.hypothesis_id
@@ -149,11 +189,19 @@ async def queued(session: AsyncSession) -> Queued:
     return Queued(frozenset(ready), frozenset(redo), frozenset(redo.values()))
 
 
+def _closed(lead: SalesLeadModel, host: str) -> bool:
+    """Письмо лида не уйдёт вовсе: лид снят, адрес проверен выдуманным проверяльщиком при
+    живом или лид в «кому не пишем» — сборка его не тронет."""
+    if lead.status is not LeadStatus.READY or unproven(lead) is not None:
+        return True
+    return excluded(lead.email, host) is not None
+
+
 async def candidates(
     session: AsyncSession, stale: frozenset[int] = frozenset()
 ) -> list[tuple[int, str]]:
-    """Гипотезы с полной цепочкой хоть на одном языке и лидами `ready` без письма — или с
-    письмами в очереди, которые сборка соберёт заново (`stale`), — по номеру."""
+    """Гипотезы с полной цепочкой хоть на одном языке и лидами `ready` без письма не из «кому
+    не пишем» — или с письмами в очереди, которые сборка соберёт заново (`stale`), — по номеру."""
     unwritten = (
         select(SalesLeadModel.hypothesis_id)
         .outerjoin(SalesThreadModel, SalesThreadModel.lead_id == SalesLeadModel.id)
@@ -169,7 +217,38 @@ async def candidates(
         )
         .order_by(SalesHypothesisModel.id)
     )
-    return [item for item in rows.tuples().all() if await _has_chain(session, item[0])]
+    return [
+        item
+        for item in rows.tuples().all()
+        if (item[0] in stale or await _writable(session, item[0]))
+        and await _has_chain(session, item[0])
+    ]
+
+
+async def _writable(session: AsyncSession, hypothesis_id: int) -> bool:
+    """Есть ли у гипотезы лид `ready` без письма не из «кому не пишем» (`not_writing.py`): лиды —
+    пачками по номеру, до первого такого."""
+    after = 0
+    while True:
+        rows = await session.execute(
+            select(SalesLeadModel.id, SalesLeadModel.email, DomainModel.host)
+            .join(DomainModel, DomainModel.id == SalesLeadModel.domain_id)
+            .outerjoin(SalesThreadModel, SalesThreadModel.lead_id == SalesLeadModel.id)
+            .where(
+                SalesLeadModel.hypothesis_id == hypothesis_id,
+                SalesLeadModel.status == LeadStatus.READY,
+                SalesThreadModel.thread_id.is_(None),
+                SalesLeadModel.id > after,
+            )
+            .order_by(SalesLeadModel.id)
+            .limit(CHUNK)
+        )
+        leads = rows.tuples().all()
+        if not leads:
+            return False
+        if any(excluded(email, host) is None for _, email, host in leads):
+            return True
+        after = leads[-1][0]
 
 
 async def _has_chain(session: AsyncSession, hypothesis_id: int) -> bool:
@@ -258,7 +337,7 @@ async def _blocked(session: AsyncSession, now: datetime) -> str | None:
     except usage.LlmCapExceededError as exc:
         # План спрашивает и экран: строку на смене причины пишет проход (`Said`), а не каждый взгляд.
         logger.debug("продажи: автосборка ждёт — потолок модели", extra={"why": str(exc)})
-        return str(exc)
+        return Stuck(exc)
     return None
 
 
@@ -313,6 +392,49 @@ class Said:
 SAID = Said()
 
 
+async def last_started(session: AsyncSession) -> AuditLogModel | None:
+    """Запись журнала о последней сборке, поставленной автосборкой: когда, гипотеза, задача."""
+    found = await session.execute(
+        select(AuditLogModel)
+        .where(
+            AuditLogModel.action == AuditAction.RUN_STARTED,
+            AuditLogModel.details["действие"].astext == AUTO,
+        )
+        .order_by(AuditLogModel.id.desc())
+        .limit(1)
+    )
+    return found.scalar_one_or_none()
+
+
+async def _last(session: AsyncSession, jobs: Queue) -> tuple[Outcome | None, str]:
+    """Исход последней сборки, поставленной автосборкой, и имя её гипотезы."""
+    row = await last_started(session)
+    if row is None or row.target is None:
+        return None, ""
+    job_id = row.target.removeprefix("job:")
+    try:
+        found = await asyncio.to_thread(autobuild_alarm.outcome_of, jobs, job_id)
+    except RedisError as exc:
+        logger.warning("продажи: итог автосборки не прочитан", extra={"error": str(exc)})
+        return None, ""
+    return found, str((row.details or {}).get("гипотеза", ""))
+
+
+async def step(
+    session: AsyncSession, jobs: Queue, *, now: datetime, watch: Watch | None = None
+) -> Plan:
+    """Проход с памятью: исход прошлой автосборки — до новой (новая сборка той же гипотезы
+    займёт номер задачи прежней), проход, строка журнала по смене и — при включённой
+    автоотправке — тревога F7 (`autobuild_alarm.py`)."""
+    memory = watch or autobuild_alarm.WATCH
+    memory.saw(*await _last(session, jobs))
+    found = await run(session, jobs, now=now)
+    SAID.tell(found)
+    if autosend.switched_on():
+        await memory.see(await autobuild_alarm.stalled(session, found, memory.failed, now))
+    return found
+
+
 async def tick() -> None:
     """Проход по расписанию (`workers/reaper.py`): тумблеры, своя сессия, очередь продаж."""
     if not (sales_cfg.ENABLED and sales_cfg.AUTOBUILD):
@@ -321,6 +443,6 @@ async def tick() -> None:
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
-            SAID.tell(await run(session, sales_queue(), now=datetime.now(UTC)))
+            await step(session, sales_queue(), now=datetime.now(UTC))
     finally:
         await engine.dispose()

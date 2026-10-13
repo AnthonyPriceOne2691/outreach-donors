@@ -2,9 +2,11 @@
 
 Мост спрашивает модуль в своей точке сохранения и пропускает от него только отказ словами
 почты (`MailRefusalError`); всё другое — поломка модуля: «не подключены» и трасса в журнале.
-Поэтому модуль (`sales/mail.py`) ничего не сохраняет внутри ответа, а добивку, которую не
-собрать, называет «пока нельзя» (`SalesNotConnectedError`), — срок возвращается без записи
-о поломке. Подставной модуль и сама точка сохранения — `test_sales_stage_bridge.py`.
+Поэтому модуль (`sales/mail.py`) ничего не сохраняет внутри ответа. Добивку, которую не
+собрать (решение владельца 13.10), модуль не называет «пока нельзя»: текст отдаёт как есть, а
+проверка отправки останавливает цепочку отказом словами (`FollowupStoppedError`, наследник
+стоп-листа) — без записи о поломке. Подставной модуль и сама точка сохранения —
+`test_sales_stage_bridge.py`.
 """
 
 from __future__ import annotations
@@ -101,11 +103,13 @@ async def test_module_answers_write_nothing_to_the_base(
     assert any(sql.lstrip().upper().startswith("SELECT") for sql in sent)
 
 
-async def test_followup_that_cannot_be_built_waits_and_is_not_a_module_failure(
+async def test_followup_that_cannot_be_built_stops_the_chain_and_is_not_a_module_failure(
     session: AsyncSession, world: w.World, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Имя лида стёрли после первого письма: добивку не собрать — срок вернулся, а журнал
-    говорит почему, без «ошибки модуля продаж» с трассой (её мост пишет о поломке)."""
+    """Решение владельца 13.10 (F8): имя лида стёрли после первого письма, а сохранённого текста
+    у шага нет — добивку не собрать. Раньше срок возвращался на час, каждый час и молча; теперь
+    цепочка останавливается, журнал говорит почему — без «ошибки модуля продаж» с трассой (её
+    мост пишет о поломке)."""
     source, [first] = await _first_sent(session, world)
     lead = await _lead_of(session, first)
     lead.name = None
@@ -114,9 +118,9 @@ async def test_followup_that_cannot_be_built_waits_and_is_not_a_module_failure(
     with caplog.at_level(logging.INFO):
         report = await followups.send_due(session, transport=source, limit=5, now=FIRST_DUE)
 
-    assert (report.sent, report.postponed) == (0, 1)
+    assert (report.sent, report.postponed, report.stopped) == (0, 0, 1)
     await session.refresh(first)
-    assert first.next_action_at == FIRST_DUE + followups.POSTPONE
-    assert f"Добивка шага 1 в переписке №{first.thread_id}: не собрана — " in caplog.text
+    assert first.next_action_at is None
+    assert "добивку не собрать ни нынешней цепочкой, ни сохранённым прежним текстом" in caplog.text
     assert "подстановка без значения" in caplog.text
     assert "ошибка модуля продаж" not in caplog.text

@@ -74,6 +74,7 @@ from backend.features.sales.models import (
     SalesLeadModel,
     SalesThreadModel,
 )
+from backend.features.sales.not_writing import excluded
 from backend.features.sales.queue_report import QueueReport
 from backend.features.sales.sender import Sender
 from backend.features.sales.usage_cap import sales_cap
@@ -210,12 +211,13 @@ async def _within_cap(session: AsyncSession, report: QueueReport) -> bool:
 
 
 async def _blocked(session: AsyncSession, row: _Lead) -> str | None:
-    """Почему этому лиду писать нельзя совсем: передан или в стоп-листе."""
+    """Почему этому лиду писать нельзя совсем: передан, в стоп-листе или в «кому не пишем»."""
     if await handoff.handed_off(session, row.lead.id):
         return HANDED_OFF
     if await stopped_by(session, row.lead, row.host) is not None:
         return STOPLIST
-    return None
+    off = excluded(row.lead.email, row.host)
+    return None if off is None else off.waiting
 
 
 async def _plan(session: AsyncSession, row: _Lead, hypothesis_id: int) -> _Plan | str:

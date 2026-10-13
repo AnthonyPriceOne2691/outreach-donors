@@ -21,16 +21,13 @@ from datetime import datetime
 
 from redis.exceptions import RedisError
 from rq import Queue
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import sales as sales_cfg
-from backend.features.core.domain import AuditAction, Stage
-from backend.features.core.models.access import AuditLogModel
+from backend.features.core.domain import Stage
 from backend.features.letters import mailbox
-from backend.features.sales import autobuild, autosend
+from backend.features.sales import autobuild, autobuild_alarm, autosend
 from backend.features.sales.autosend import SPREAD, Stop
-from backend.features.sales.queue_start import AUTO, RUNNING
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +56,8 @@ STALE = (
 BY_AUTOBUILD = "их пересоберёт ближайший проход автосборки"
 BY_BUTTON = "соберите очередь заново кнопкой «Собрать очередь»"
 CLOSED = (
-    "ни одно письмо в окне получателя не уйдёт — их лидов сняли (стоп-лист продаж, отказ) или "
-    "адрес лида надо проверить заново; причина каждого — в журнале разбора"
+    "ни одно письмо в окне получателя не уйдёт — их лидов сняли (стоп-лист продаж, отказ), лиды "
+    "в «кому не пишем» или адрес лида надо проверить заново; причина каждого — в журнале разбора"
 )
 
 
@@ -173,17 +170,7 @@ async def autobuild_line(session: AsyncSession, jobs: Queue, now: datetime) -> A
 
 async def _last(session: AsyncSession, jobs: Queue) -> str | None:
     """Последняя автосборка: когда, какая гипотеза, до скольких писем и сколько собрано."""
-    row = (
-        await session.execute(
-            select(AuditLogModel)
-            .where(
-                AuditLogModel.action == AuditAction.RUN_STARTED,
-                AuditLogModel.details["действие"].astext == autobuild.AUTO,
-            )
-            .order_by(AuditLogModel.id.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    row = await autobuild.last_started(session)
     if row is None or row.details is None or row.target is None:
         return None
     said = (
@@ -196,16 +183,13 @@ async def _last(session: AsyncSession, jobs: Queue) -> str | None:
 def _collected(jobs: Queue, job_id: str) -> str:
     """Сколько собрала сборка, поставленная автосборкой, — пока её итог не сменила кнопка."""
     try:
-        job = jobs.fetch_job(job_id)
-        if job is None or not (job.meta or {}).get(AUTO):
-            return ""
-        if job.get_status() in RUNNING:
-            return ": идёт"
-        result = job.latest_result()
+        found = autobuild_alarm.outcome_of(jobs, job_id)
     except RedisError as exc:
         logger.warning("продажи: итог автосборки не прочитан", extra={"error": str(exc)})
         return ""
-    return _outcome(result.return_value if result is not None else None)
+    if found is None:
+        return ""
+    return ": идёт" if found.running else _outcome(found.report)
 
 
 def _outcome(report: object) -> str:
