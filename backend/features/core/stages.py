@@ -146,14 +146,15 @@ async def check_connected(session: AsyncSession, stage: Stage, what: str) -> Non
 def _answers_missing() -> bool:
     """Отвечает ли модуль продаж, чего не хватает (`SalesLacking`). Модуль до PR продаж с
     этим ответом спрашивается по-старому (`sales_connected`), и отказ ему — прежний, без перечня.
-    Модуль не грузится — тоже по-старому: `sales_connected` спросит его снова, скажет «нет» и
-    запишет причину в журнал."""
+    Модуль не грузится — тоже по-старому, со строкой журнала: `sales_connected` спросит его
+    снова и скажет «нет»."""
     load = _SALES.load
     if load is None:
         return False
     try:
         return callable(getattr(load(), "missing", None))
-    except Exception:  # noqa: BLE001  # silent-ok: причину пишет sales_connected, спросив модуль снова
+    except Exception as exc:  # noqa: BLE001 — модуль не грузится: вопрос по-старому, см. выше
+        logger.warning("мост продаж: модуль продаж не грузится — %s", exc, extra={"why": str(exc)})
         return False
 
 
