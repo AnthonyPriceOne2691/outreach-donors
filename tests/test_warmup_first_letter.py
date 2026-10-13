@@ -7,16 +7,24 @@
 письма) условным `UPDATE`: один раз за разгон и только письмом, ушедшим не раньше старта.
 «Включить заново» отметку снимает. Ревизия заполняет отметку по уже ушедшим письмам.
 
+Консоль ящиков (`cli/senders_admin.py`) заводит ящик со стартом разгона с этой минуты и
+показывает ступень: заведённый ящик до первого письма — на первой. Команды консоли открывают
+свою базу, поэтому у них настоящие фиксации и чистка после (`committed_sessions`).
+
 База настоящая, почта — нулевой транспорт.
 """
 
 from __future__ import annotations
 
+import argparse
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
+from backend.cli import senders_admin
+from backend.config import outreach as cfg
+from backend.config import storage
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
@@ -26,9 +34,10 @@ from backend.features.outreach import senders
 from sqlalchemy import func, select, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
-from tests.conftest import make_donor, make_sender
+from tests.conftest import TEST_DSN, make_donor, make_sender
 from tests.migration_helpers import load_migration
 from tests.test_letters_queue import _build
+from tests.test_send_race import committed_sessions
 
 #: Ступени разгона — выдуманные: тест не зависит от настроек окружения.
 STEPS = (3, 7, 11, 20)
@@ -202,3 +211,112 @@ async def test_the_revision_marks_each_box_by_its_letters_and_goes_down_and_up(
         None,
         None,
     ]
+
+
+# --- Консоль ящиков: заведение и список ---
+
+
+@pytest.fixture
+def cli_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Команды консоли открывают базу по настройке хранилища — тестовую."""
+    monkeypatch.setattr(storage, "DSN", TEST_DSN)
+
+
+def _add(email: str) -> argparse.Namespace:
+    return argparse.Namespace(
+        email=email, domain=None, daily_cap=cfg.DAILY_CAP_PER_SENDER, stage="donors"
+    )
+
+
+def test_console_commands_and_their_arguments() -> None:
+    parser = argparse.ArgumentParser()
+    senders_admin.add_parser(parser.add_subparsers(dest="command"))
+
+    add = parser.parse_args(["sender-add", "--email", "a@mail-a.example.test"])
+    staged = parser.parse_args(
+        ["sender-add", "--email", "b@mail-b.example.test", "--daily-cap", "30", "--stage", "sales"]
+    )
+
+    assert (add.domain, add.daily_cap, add.stage) == (None, cfg.DAILY_CAP_PER_SENDER, "donors")
+    assert (staged.daily_cap, staged.stage) == (30, "sales")
+    assert parser.parse_args(["senders"]).command == "senders"
+
+
+@pytest.mark.usefixtures("cli_base")
+async def test_a_box_added_from_the_console_waits_on_the_first_step(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async with committed_sessions() as factory:
+        done = await senders_admin.cmd_sender_add(_add(" Outreach@Mail-A.example.test "))
+
+        async with factory() as session:
+            [box] = (await session.execute(select(SenderModel))).scalars().all()
+        said = capsys.readouterr().out
+
+    assert done == senders_admin.EXIT_OK
+    assert (box.email, box.domain, box.enabled) == (
+        "outreach@mail-a.example.test",
+        "mail-a.example.test",
+        True,
+    )
+    assert (box.warmup_started_at is not None, box.warmup_first_sent_at) == (True, None)
+    assert "Заведён outreach@mail-a.example.test (домен mail-a.example.test, этап donors)" in said
+    assert f"сегодня по разгону — {STEPS[0]}" in said
+
+
+@pytest.mark.usefixtures("cli_base")
+async def test_the_same_box_twice_is_refused_in_words(capsys: pytest.CaptureFixture[str]) -> None:
+    async with committed_sessions():
+        first = await senders_admin.cmd_sender_add(_add("outreach@mail-a.example.test"))
+        second = await senders_admin.cmd_sender_add(_add("OUTREACH@mail-a.example.test"))
+
+    assert (first, second) == (senders_admin.EXIT_OK, senders_admin.EXIT_TAKEN)
+    assert "Ящик outreach@mail-a.example.test уже заведён" in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("cli_base")
+@pytest.mark.parametrize("email", ["mail-a.example.test", "@mail-a.example.test", "outreach@"])
+async def test_not_an_address_is_refused_before_the_base(
+    email: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    done = await senders_admin.cmd_sender_add(_add(email))
+
+    assert done == senders_admin.EXIT_BAD_ADDRESS
+    assert f"«{email}» не похоже на адрес почты" in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("cli_base")
+async def test_no_boxes_is_said_with_the_way_to_add_one(capsys: pytest.CaptureFixture[str]) -> None:
+    async with committed_sessions():
+        done = await senders_admin.cmd_senders(argparse.Namespace())
+
+    assert done == senders_admin.EXIT_OK
+    assert "Ящиков нет. Завести: outreach sender-add" in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("cli_base")
+async def test_boxes_are_listed_with_their_step_and_state(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async with committed_sessions() as factory:
+        async with factory() as session:
+            waiting = await make_sender(session, "waiting@mail-a.example.test")
+            paused = await make_sender(session, "paused@mail-b.example.test")
+            off = await make_sender(session, "off@mail-c.example.test")
+            waiting.warmup_started_at = START
+            paused.pause_reason = "отказ платформы"
+            off.enabled = False
+            await session.commit()
+
+        done = await senders_admin.cmd_senders(argparse.Namespace())
+
+    lines = capsys.readouterr().out.splitlines()
+    assert done == senders_admin.EXIT_OK
+    [first] = [line for line in lines if line.startswith("waiting@")]
+    [held] = [line for line in lines if line.startswith("paused@")]
+    [disabled] = [line for line in lines if line.startswith("off@")]
+    # Разгон начат, писем нет — первая ступень, сколько бы дней ни прошло со старта.
+    assert first.split()[1:4] == ["donors", "20", str(STEPS[0])]
+    assert held.endswith("(отказ платформы)")
+    assert disabled.endswith("выключен")
+    assert f"Транспорт: {cfg.TRANSPORT}" in lines
