@@ -234,7 +234,7 @@ async def test_a_sales_dialog_without_a_lead_leaves_the_named_address_to_a_human
 
 
 @pytest.mark.xfail(
-    strict=True,
+    strict=False,  # общий PR его закрывает — метку снять после слияния
     reason=(
         "общий код (replies/pipeline._settle и _redirect): автоответ мёртвого ящика в треде "
         "продаж — вид «отказ доставки», и очереди продаж его не отдают (outcome.to_sales_queue): "

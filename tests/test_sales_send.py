@@ -464,8 +464,13 @@ async def test_batch_button_takes_the_sales_stage(
     """Кнопка пачки d6 уже знает этап: очередь продаж считается и ставится этапом продаж."""
     await _queued(session, world, JANE, OLGA)
     await session.commit()
-    jobs = _Jobs()
-    monkeypatch.setattr("backend.api.letters.routes.runs_queue", lambda: jobs)
+    jobs, common = _Jobs(), _Jobs()
+    monkeypatch.setattr("backend.api.letters.routes.runs_queue", lambda: common)
+    # Пачка продаж уходит своей очередью — `sales_queue`, затем очередью долгих задач продаж
+    # `sales_bulk_queue`: их заводят общие PR; до них маршрута нет, и пачка идёт общей.
+    # Тест держит этап при любом из трёх.
+    monkeypatch.setattr("backend.api.letters.routes.sales_queue", lambda: jobs, raising=False)
+    monkeypatch.setattr("backend.api.letters.routes.sales_bulk_queue", lambda: jobs, raising=False)
 
     response = await client.post(
         "/api/letters/send-queue", json={"stage": "sales"}, headers=bearer(admin_token)
@@ -473,7 +478,7 @@ async def test_batch_button_takes_the_sales_stage(
 
     assert response.status_code == 200, response.text
     assert response.json()["queued"] == 2
-    assert [args[1] for args in jobs.enqueued] == ["sales"]
+    assert [args[1] for args in jobs.enqueued + common.enqueued] == ["sales"]
 
 
 class _Jobs:
