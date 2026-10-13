@@ -92,8 +92,10 @@ const HINT = /Текст закрепляется за рассылкой/;
 
 describe('окно «Текст первого письма» — одна прокрутка', () => {
   const before = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+  // Не своё свойство окна — подмену удалить, иначе «экран от md» дожил бы до конца файла.
   afterEach(() => {
     if (before !== undefined) Object.defineProperty(window, 'matchMedia', before);
+    else Reflect.deleteProperty(window, 'matchMedia');
   });
 
   it.each(TARGETS)(
