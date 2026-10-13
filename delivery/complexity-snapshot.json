@@ -567,7 +567,7 @@
       "worst": "reply_text:91"
     },
     "backend/cli/demo_data.py": {
-      "lines": 471,
+      "lines": 473,
       "complexity": 6,
       "worst": "_seed_senders:129"
     },
@@ -662,9 +662,9 @@
       "worst": "cmd_sales_telegram_chat_id:34"
     },
     "backend/cli/senders_admin.py": {
-      "lines": 134,
+      "lines": 136,
       "complexity": 6,
-      "worst": "cmd_sender_add:42"
+      "worst": "cmd_sender_add:44"
     },
     "backend/cli/sending_domains.py": {
       "lines": 150,
@@ -822,9 +822,9 @@
       "worst": "clean:57"
     },
     "backend/features/agent/drafting.py": {
-      "lines": 463,
+      "lines": 496,
       "complexity": 9,
-      "worst": "draft_answer:138"
+      "worst": "conversation:417"
     },
     "backend/features/agent/drafts.py": {
       "lines": 350,
@@ -832,9 +832,9 @@
       "worst": "reject_draft:253"
     },
     "backend/features/agent/guarding.py": {
-      "lines": 248,
+      "lines": 260,
       "complexity": 8,
-      "worst": "compose:60"
+      "worst": "compose:64"
     },
     "backend/features/agent/settings.py": {
       "lines": 189,
@@ -842,9 +842,9 @@
       "worst": "save:154"
     },
     "backend/features/agent/stages.py": {
-      "lines": 276,
+      "lines": 283,
       "complexity": 4,
-      "worst": "agent_operations:259"
+      "worst": "agent_operations:266"
     },
     "backend/features/agent/writer.py": {
       "lines": 274,
@@ -1067,7 +1067,7 @@
       "worst": "—"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 406,
+      "lines": 412,
       "complexity": 2,
       "worst": "_enum:42"
     },
@@ -1552,9 +1552,9 @@
       "worst": "sender_domain:62"
     },
     "backend/features/letters/mailbox.py": {
-      "lines": 300,
+      "lines": 307,
       "complexity": 7,
-      "worst": "silence_words:184"
+      "worst": "silence_words:191"
     },
     "backend/features/letters/masking.py": {
       "lines": 260,
@@ -1622,7 +1622,7 @@
       "worst": "refusal:42"
     },
     "backend/features/letters/recheck_target.py": {
-      "lines": 310,
+      "lines": 322,
       "complexity": 11,
       "worst": "in_thread:155"
     },
@@ -1667,9 +1667,9 @@
       "worst": "_hand_over:420"
     },
     "backend/features/letters/settle.py": {
-      "lines": 171,
+      "lines": 175,
       "complexity": 6,
-      "worst": "record_sent:77"
+      "worst": "record_sent:79"
     },
     "backend/features/letters/site_role.py": {
       "lines": 76,
@@ -1787,9 +1787,9 @@
       "worst": "sent_today:196"
     },
     "backend/features/outreach/senders.py": {
-      "lines": 160,
+      "lines": 215,
       "complexity": 4,
-      "worst": "_spot:112"
+      "worst": "warmup_state:66"
     },
     "backend/features/outreach/stage_of.py": {
       "lines": 110,
@@ -2717,9 +2717,9 @@
       "worst": "—"
     },
     "backend/workers/agent_jobs.py": {
-      "lines": 177,
+      "lines": 220,
       "complexity": 4,
-      "worst": "queue_draft:52"
+      "worst": "queue_draft:58"
     },
     "backend/workers/crawl_jobs.py": {
       "lines": 280,

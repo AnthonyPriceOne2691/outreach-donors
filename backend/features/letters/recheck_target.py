@@ -45,7 +45,7 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import ReplyModel, SenderModel
 from backend.features.letters import attempts, other_role
 from backend.features.letters.answers import subject_for
-from backend.features.letters.mailbox import silence_words
+from backend.features.letters.mailbox import SILENT, silence_words
 from backend.features.letters.recheck_facts import Boxes, Facts, Talk, Waiting
 from backend.features.letters.sending import SendError
 from backend.features.outreach import limits
@@ -282,11 +282,23 @@ def _free_box(facts: Facts) -> None:
         screened.fit, sent_today=boxes.sent_today, stage=Stage.DONORS, now=moment
     )
     if spot is None:
-        why = screened.why() or "все ящики выключены или выбрали дневной лимит"
-        raise RecheckRefusedError(
-            f"Сегодня писать некому: {why}. Перезапрос новым письмом уйдёт, когда у ящиков "
-            "откроется лимит."
+        raise RecheckRefusedError(_nobody(screened))
+
+
+def _nobody(screened: limits.Screened) -> str:
+    """Почему перезапросу сегодня писать некому — правилом отказа отправки (`mailbox._nobody`):
+    у этапа без единого включённого ящика «откроется лимит» не обещается — выключенный ящик
+    сам не включится."""
+    if not screened.fit and not screened.why():
+        return (
+            f"Сегодня писать некому: {SILENT}. Перезапрос новым письмом уйдёт, когда ящик "
+            "включат — экран «Домены рассылки»."
         )
+    why = screened.why() or "все ящики выбрали дневной лимит"
+    return (
+        f"Сегодня писать некому: {why}. Перезапрос новым письмом уйдёт, когда у ящиков "
+        "откроется лимит."
+    )
 
 
 def _elsewhere_words(host: str, other: Waiting, *, sales_visible: bool) -> str:
