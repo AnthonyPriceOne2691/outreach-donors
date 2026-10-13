@@ -27,9 +27,14 @@ from backend.features.core.domain import MessageStatus, Stage, UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
-from backend.shared.queue import QUEUE_NAME, SALES_QUEUE_NAME, SEND_QUEUE_JOB
+from backend.shared.queue import (
+    QUEUE_NAME,
+    SALES_BULK_QUEUE_NAME,
+    SALES_QUEUE_NAME,
+    SEND_QUEUE_JOB,
+)
+from backend.workers import health, send_jobs
 from backend.workers import main as worker_main
-from backend.workers import send_jobs
 from httpx import AsyncClient, Response
 from rq.exceptions import DuplicateJobError, NoSuchJobError
 from rq.job import JobStatus
@@ -121,9 +126,10 @@ def runs(monkeypatch: pytest.MonkeyPatch, redis: _Redis) -> _Queue:
 
 
 @pytest.fixture
-def sales(monkeypatch: pytest.MonkeyPatch, redis: _Redis) -> _Queue:
-    found = _Queue(redis, SALES_QUEUE_NAME)
-    monkeypatch.setattr("backend.api.letters.routes.sales_queue", lambda: found)
+def bulk(monkeypatch: pytest.MonkeyPatch, redis: _Redis) -> _Queue:
+    """Очередь долгих задач продаж (`worker-sales-bulk`): пачка продаж — в неё."""
+    found = _Queue(redis, SALES_BULK_QUEUE_NAME)
+    monkeypatch.setattr("backend.api.letters.routes.sales_bulk_queue", lambda: found)
     return found
 
 
@@ -167,62 +173,81 @@ async def _send(client: AsyncClient, headers: dict[str, str]) -> Response:
     return await client.post("/api/letters/send-queue", json={"stage": "sales"}, headers=headers)
 
 
-async def test_the_sales_batch_goes_to_the_sales_queue(
-    client: AsyncClient, seller: dict[str, str], runs: _Queue, sales: _Queue
+async def test_the_sales_batch_goes_to_the_sales_bulk_queue(
+    client: AsyncClient, seller: dict[str, str], runs: _Queue, bulk: _Queue
 ) -> None:
+    """Пачка продаж — в очередь долгих задач продаж: ни общий воркер, ни разбор ответов лидов
+    за ней не ждут (решение Anthony 13.10.2026)."""
     response = await _send(client, seller)
 
     assert response.status_code == 200, response.text
     assert runs.enqueued == []
-    [(args, kwargs)] = sales.enqueued
+    [(args, kwargs)] = bulk.enqueued
     assert (args[0], kwargs["job_id"]) == (SEND_QUEUE_JOB, SALES_BATCH)
-    # Ту же задачу выполняет воркер продаж: доводы — те, что она принимает.
+    # Ту же задачу выполняет воркер долгих задач продаж: доводы — те, что она принимает.
     bound = inspect.signature(send_jobs.send_letter_queue).bind(*args[1:])
     assert bound.arguments["stage"] == "sales"
 
 
 async def test_a_repeated_sales_batch_is_refused_in_words(
-    client: AsyncClient, seller: dict[str, str], runs: _Queue, sales: _Queue
+    client: AsyncClient, seller: dict[str, str], runs: _Queue, bulk: _Queue
 ) -> None:
     first = await _send(client, seller)
     second = await _send(client, seller)
 
     assert first.status_code == 200, first.text
     assert (second.status_code, second.json()["detail"]) == (409, once.SEND_RUNNING)
-    assert len(sales.enqueued) == 1
+    assert len(bulk.enqueued) == 1
 
 
+#: Где стояла пачка продаж прежних версий: в общей очереди (до 12.10.2026) и в очереди ответов
+#: продаж (12.10–13.10.2026).
+BEFORE = pytest.mark.parametrize("before", [QUEUE_NAME, SALES_QUEUE_NAME], ids=["общая", "ответов"])
+
+
+@BEFORE
 async def test_a_finished_batch_from_before_the_rollout_holds_nothing(
-    client: AsyncClient, seller: dict[str, str], runs: _Queue, sales: _Queue, redis: _Redis
+    client: AsyncClient,
+    seller: dict[str, str],
+    runs: _Queue,
+    bulk: _Queue,
+    redis: _Redis,
+    before: str,
 ) -> None:
-    """Пачка продаж прежней версии стояла в общей очереди и кончилась: её след держит номер, но
-    новую пачку в очереди продаж не держит — убирается вместе с итогом, как своя."""
-    runs.enqueue(SEND_QUEUE_JOB, "sales", job_id=SALES_BATCH, unique=True)
+    """Пачка продаж прежней версии стояла в прежней очереди и кончилась: её след держит номер,
+    но новую пачку в очереди долгих задач не держит — убирается вместе с итогом, как своя."""
+    _Queue(redis, before).enqueue(SEND_QUEUE_JOB, "sales", job_id=SALES_BATCH, unique=True)
     redis.known[SALES_BATCH].status = JobStatus.FINISHED
 
     response = await _send(client, seller)
 
     assert response.status_code == 200, response.text
-    assert redis.known[SALES_BATCH].origin == SALES_QUEUE_NAME
+    assert redis.known[SALES_BATCH].origin == SALES_BULK_QUEUE_NAME
     assert redis.deleted == [Result.get_key(SALES_BATCH)]
 
 
+@BEFORE
 async def test_a_batch_from_before_the_rollout_still_sending_holds(
-    client: AsyncClient, seller: dict[str, str], runs: _Queue, sales: _Queue, redis: _Redis
+    client: AsyncClient,
+    seller: dict[str, str],
+    runs: _Queue,
+    bulk: _Queue,
+    redis: _Redis,
+    before: str,
 ) -> None:
-    runs.enqueue(SEND_QUEUE_JOB, "sales", job_id=SALES_BATCH, unique=True)
+    _Queue(redis, before).enqueue(SEND_QUEUE_JOB, "sales", job_id=SALES_BATCH, unique=True)
     redis.known[SALES_BATCH].status = JobStatus.STARTED
 
     response = await _send(client, seller)
 
     assert (response.status_code, response.json()["detail"]) == (409, once.SEND_RUNNING)
-    assert sales.enqueued == []
+    assert bulk.enqueued == []
 
 
 async def test_donor_letters_stay_in_the_shared_queue(
     client: AsyncClient,
     runs: _Queue,
-    sales: _Queue,
+    bulk: _Queue,
     make_user: MakeUser,
     sign_in: SignIn,
 ) -> None:
@@ -233,13 +258,29 @@ async def test_donor_letters_stay_in_the_shared_queue(
 
     assert response.status_code == 200, response.text
     assert [kwargs["job_id"] for _, kwargs in runs.enqueued] == ["letters-build-donors-links"]
-    assert sales.enqueued == []
+    assert bulk.enqueued == []
 
 
-def test_the_sales_worker_listens_to_the_sales_queue() -> None:
-    """Задача, поставленная в очередь продаж, — тому, кто её слушает: `worker-sales`."""
+@pytest.mark.parametrize(
+    ("service", "queue"),
+    [("worker-sales", SALES_QUEUE_NAME), ("worker-sales-bulk", SALES_BULK_QUEUE_NAME)],
+)
+def test_each_sales_queue_has_its_listener(service: str, queue: str) -> None:
+    """Задача, поставленная в очередь продаж, — тому, кто её слушает: ответы — `worker-sales`,
+    долгие задачи — `worker-sales-bulk`; здоровье сервиса смотрит ту же очередь, у прода у
+    сервиса свои лимиты, а восстановление базы его останавливает."""
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
-    command = compose["services"]["worker-sales"]["command"].split()
+    prod = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    restore = (ROOT / "scripts" / "restore.sh").read_text(encoding="utf-8")
+    command = compose["services"][service]["command"].split()
+    probe = compose["services"][service]["healthcheck"]["test"]
 
     assert command[:3] == ["python", "-m", "backend.workers.main"]
-    assert worker_main.queue_of(command[3:]) == SALES_QUEUE_NAME
+    assert worker_main.queue_of(command[3:]) == queue
+    assert probe[-3:-1] == ["-m", "backend.workers.health"]
+    assert health.WORKER_QUEUES[probe[-1]] == queue
+    # Боевой файл с тегами компоуза (`!override`) — YAML без них не читается.
+    limits = prod.split(f"\n  {service}:\n", 1)[1].split("\n\n", 1)[0]
+    assert "mem_limit: 1536m" in limits
+    writers = next(line for line in restore.splitlines() if line.startswith("WRITERS="))
+    assert f" {service} " in writers

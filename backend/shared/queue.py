@@ -44,6 +44,12 @@ CRAWL_QUEUE_NAME = "crawl"
 #: очереди ответ лида ждал бы часовой прогон доноров.
 SALES_QUEUE_NAME = "sales"
 
+#: Долгие задачи продаж — своя очередь у своего процесса (`worker-sales-bulk`, решение
+#: Anthony 13.10.2026): пачка писем, сборка очереди и автосборка, сбор базы, очистка. В очереди
+#: ответов они держали бы разбор ответа лида и черновик агента за собой — сбор базы идёт
+#: до получаса. Вторая копия `worker-sales` не помогла бы: две долгие задачи заняли бы обе.
+SALES_BULK_QUEUE_NAME = "sales-bulk"
+
 #: Пути задач строкой в одном месте. Раньше каждый маршрут держал свой:
 #: пока путь знает только тот, кто ставит задачу, его некому свериться
 #: с тем, кто ставит её заново — а разбор мёртвых прогонов ставит ту же
@@ -174,6 +180,12 @@ def crawl_queue(redis: Redis | None = None) -> Queue:
 
 def sales_queue(redis: Redis | None = None) -> Queue:
     return Queue(SALES_QUEUE_NAME, connection=redis or connection(), default_timeout=JOB_TIMEOUT)
+
+
+def sales_bulk_queue(redis: Redis | None = None) -> Queue:
+    return Queue(
+        SALES_BULK_QUEUE_NAME, connection=redis or connection(), default_timeout=JOB_TIMEOUT
+    )
 
 
 #: Ключ живого воркера в Redis. Он держится heartbeat'ом самого rq

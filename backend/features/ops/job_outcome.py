@@ -46,6 +46,7 @@ from backend.shared.queue import (
     CONTACTS_JOB,
     PARSE_JOB,
     RUN_JOB,
+    SALES_BULK_QUEUE_NAME,
     SALES_QUEUE_NAME,
     SALES_REPLY_JOB,
     SEND_QUEUE_JOB,
@@ -85,12 +86,13 @@ SALES_IDS = ("letters-build-sales-", "letters-send-sales-")
 def sales_job(job_id: str, path: str | None, queue: str | None) -> bool:
     """Задача ли это продаж — по тому, что она такое (П2б): путь функции продаж
     (`SALES_PATHS`), номер общей задачи писем этапа продаж (`SALES_IDS`) или очередь
-    продаж (`worker-sales`). Очередь — ради черновика агента к ответу лида: путь у него
-    общий с донорами (`workers/agent_jobs.py`), а встаёт он в очередь продаж."""
+    продаж — ответов (`worker-sales`) и долгих задач (`worker-sales-bulk`). Очередь — ради
+    черновика агента к ответу лида: путь у него общий с донорами (`workers/agent_jobs.py`),
+    а встаёт он в очередь продаж."""
     return (
         (path or "").startswith(SALES_PATHS)
         or job_id.startswith(SALES_IDS)
-        or queue == SALES_QUEUE_NAME
+        or queue in (SALES_QUEUE_NAME, SALES_BULK_QUEUE_NAME)
     )
 
 

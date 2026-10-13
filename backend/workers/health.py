@@ -33,7 +33,13 @@ from redis.exceptions import RedisError
 from rq import Queue, Worker
 from rq.defaults import DEFAULT_WORKER_TTL
 
-from backend.shared.queue import CRAWL_QUEUE_NAME, QUEUE_NAME, SALES_QUEUE_NAME, connection
+from backend.shared.queue import (
+    CRAWL_QUEUE_NAME,
+    QUEUE_NAME,
+    SALES_BULK_QUEUE_NAME,
+    SALES_QUEUE_NAME,
+    connection,
+)
 from backend.workers.ticker import BEATS_DIR
 
 logger = logging.getLogger(__name__)
@@ -96,18 +102,24 @@ def worker_problems(
     return []
 
 
+#: Довод проверки → очередь, чей воркер проверяется: общий (`worker`), обходчик, ответы
+#: продаж и долгие задачи продаж — у каждого сервиса своя очередь (`workers/main.py`).
+WORKER_QUEUES = {
+    "worker": QUEUE_NAME,
+    "crawler": CRAWL_QUEUE_NAME,
+    "sales": SALES_QUEUE_NAME,
+    "sales-bulk": SALES_BULK_QUEUE_NAME,
+}
+
+
 def main(argv: list[str]) -> int:
     kind = argv[0] if argv else ""
     if kind == "beats":
         problems = beat_problems()
-    elif kind == "worker":
-        problems = worker_problems(connection(), QUEUE_NAME)
-    elif kind == "crawler":
-        problems = worker_problems(connection(), CRAWL_QUEUE_NAME)
-    elif kind == "sales":
-        problems = worker_problems(connection(), SALES_QUEUE_NAME)
+    elif kind in WORKER_QUEUES:
+        problems = worker_problems(connection(), WORKER_QUEUES[kind])
     else:
-        print("Что проверять: beats (циклы), worker (воркер очереди), crawler (обходчик) или sales")
+        print(f"Что проверять: beats (циклы) или воркер очереди — {', '.join(WORKER_QUEUES)}")
         return 2
     print("; ".join(problems) if problems else "здоров")
     return 1 if problems else 0

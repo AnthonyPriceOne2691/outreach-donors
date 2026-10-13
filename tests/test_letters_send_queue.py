@@ -22,7 +22,12 @@ from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.letters import batch
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import SendError, SuppressedError
-from backend.features.letters.transport import NullTransport, Outgoing, TransportError
+from backend.features.letters.transport import (
+    NullTransport,
+    Outgoing,
+    PlatformRefusalError,
+    TransportError,
+)
 from backend.shared.queue import SEND_QUEUE_JOB
 from backend.workers import send_jobs
 from httpx import AsyncClient
@@ -54,6 +59,22 @@ class Refusing:
     async def send(self, outgoing: Outgoing) -> str:
         raise TransportError(
             f"Адрес {outgoing.to} не в списке разрешённых получателей (OUTREACH_ALLOWED_RECIPIENTS)"
+        )
+
+
+class RefusingAll:
+    """Почта отказала не письму, а любому: ключ платформы не принят."""
+
+    name = "refusing-all"
+    real = True
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def send(self, outgoing: Outgoing) -> str:
+        self.calls += 1
+        raise PlatformRefusalError(
+            "Платформа отказала (401): unauthorized", reason="ключ платформы не принят (401)"
         )
 
 
@@ -159,6 +180,24 @@ class TestBatch:
         assert report.sent == 0
         assert report.refused == {"предохранитель: адрес не из своих": 2}
         assert report.left == 2
+
+    async def test_a_platform_refusal_stops_the_batch_and_the_rest_waits(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Почта отказала любому письму: следующему ответ был бы тем же — пачка не перебирает
+        остальные по минуте с повторами, а встаёт; письма ждут в очереди (решение 13.10)."""
+        letters = await _queue(session, 3)
+        mail = RefusingAll()
+
+        report = await batch.send_queue(session, mail, stage=Stage.DONORS)
+
+        assert mail.calls == 1
+        assert report.sent == 0
+        assert report.refused == {"почта отказала": 1}
+        assert report.stopped is not None
+        assert "ключ платформы не принят (401)" in report.stopped
+        assert f"№{letters[0].id}" in report.stopped
+        assert report.left == 3
 
     async def test_a_broken_connection_stops_the_batch(
         self, session: AsyncSession, filled_legal: None
