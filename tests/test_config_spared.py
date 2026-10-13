@@ -20,7 +20,9 @@ from pathlib import Path
 
 import pytest
 from backend.config import llm as llm_cfg
+from backend.config._base import DomainSettings, Fallback, spared
 from backend.features.core import usage
+from pydantic import Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -138,3 +140,62 @@ async def test_only_the_part_with_an_unread_setting_is_refused(
     with pytest.raises(usage.LlmCapExceededError, match="не прочитан из настроек"):
         await usage.ensure_llm_within_cap(session, own=sales)
     await usage.ensure_llm_within_cap(session, own=drafts)
+
+
+class _Probe(DomainSettings):
+    """Модуль настроек в том, что видит `spared`: одна настройка щадится, другая — нет."""
+
+    SPARED_PROBE_CAP: int = Field(default=7, ge=0)
+    SPARED_PROBE_SHARED: int = 1
+
+
+#: Страховка только для потолка — как у продаж в `config/llm.py`.
+PROBE_FALLBACKS = {
+    "SPARED_PROBE_CAP": Fallback(0, "целое число не меньше нуля", "ноль — потолок закрыт")
+}
+
+
+def test_a_readable_setting_is_taken_as_is(monkeypatch: pytest.MonkeyPatch) -> None:
+    """В этом процессе, без подпроцесса: тот же разбор, что при импорте конфига."""
+    monkeypatch.setenv("SPARED_PROBE_CAP", "3")
+
+    found, unread = spared(_Probe, PROBE_FALLBACKS)
+
+    assert (found.SPARED_PROBE_CAP, unread) == (3, {})
+
+
+@pytest.mark.parametrize("raw", ["-5", "10k"])
+def test_an_unreadable_spared_setting_takes_its_safe_value_and_says_so(
+    raw: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("SPARED_PROBE_CAP", raw)
+
+    with caplog.at_level("ERROR", logger="backend.config._base"):
+        found, unread = spared(_Probe, PROBE_FALLBACKS)
+
+    assert (found.SPARED_PROBE_CAP, found.SPARED_PROBE_SHARED) == (0, 1)
+    assert unread == {"SPARED_PROBE_CAP": raw}
+    [said] = caplog.records
+    assert said.levelname == "ERROR"
+    assert all(
+        part in said.getMessage()
+        for part in ("SPARED_PROBE_CAP", f"«{raw}»", "не меньше нуля", "потолок закрыт")
+    )
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"SPARED_PROBE_SHARED": "abc"},
+        {"SPARED_PROBE_SHARED": "abc", "SPARED_PROBE_CAP": "-5"},
+    ],
+    ids=["общая", "общая-и-щадимая"],
+)
+def test_an_unreadable_unspared_setting_is_refused(
+    settings: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name, raw in settings.items():
+        monkeypatch.setenv(name, raw)
+
+    with pytest.raises(ValidationError):
+        spared(_Probe, PROBE_FALLBACKS)
