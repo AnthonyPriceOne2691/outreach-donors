@@ -260,3 +260,16 @@ describe('слова при числах', () => {
     expect(await screen.findByText('1 ссылка с 1 страницы')).toBeInTheDocument();
   });
 });
+
+describe('порядок блоков — порядок работы (слово владельца 13.10.2026)', () => {
+  it('бизнесы ниши — под очередью спорных, «К письму» — последним', async () => {
+    await openScreen();
+
+    const queue = screen.getByRole('heading', { name: 'Рекламодатели: спорные' });
+    const niche = await screen.findByRole('heading', { name: 'Бизнесы ниши из выдачи' });
+    const letter = await screen.findByRole('heading', { name: 'К письму' });
+    // Перевод и поиск адресов — после всех решений выше: и по спорным, и по бизнесам ниши.
+    expect(queue.compareDocumentPosition(niche) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(niche.compareDocumentPosition(letter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
