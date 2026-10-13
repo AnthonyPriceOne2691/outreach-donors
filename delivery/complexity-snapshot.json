@@ -1672,8 +1672,8 @@
       "worst": "record_sent:79"
     },
     "backend/features/letters/site_role.py": {
-      "lines": 76,
-      "complexity": 3,
+      "lines": 80,
+      "complexity": 4,
       "worst": "check:48"
     },
     "backend/features/letters/stoplist.py": {

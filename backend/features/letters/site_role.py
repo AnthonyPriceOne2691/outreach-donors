@@ -49,12 +49,16 @@ async def check(
     session: AsyncSession, message: MessageModel, stage: Stage, refusal: type[MailRefusalError]
 ) -> None:
     """Первое письмо `message` этапа `stage` сайту, который в работе у другого направления, —
-    снять своей фиксацией и отказать `refusal` словами для экрана. Иначе — ничего."""
+    снять своей фиксацией и отказать `refusal` словами для экрана. Иначе — ничего.
+
+    Письмо успели взять в отправку между чтением и снятием — оно не снято, и «снято» было бы
+    неправдой: проверка молчит, а дальше решает захват отправки («уже не в очереди»)."""
     other = await _elsewhere(session, message, stage)
     if other is None:
         return
     reason = attempts.elsewhere_reason(other)
-    await out_of_queue(session, message, reason=reason, keep_thread=stage is Stage.SALES)
+    if not await out_of_queue(session, message, reason=reason, keep_thread=stage is Stage.SALES):
+        return
     await session.commit()
     domain = await session.get(DomainModel, message.domain_id)
     site = f" ({domain.host})" if domain is not None else ""

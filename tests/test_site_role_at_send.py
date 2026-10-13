@@ -18,11 +18,11 @@ from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, ThreadModel
-from backend.features.letters import answers, attempts, batch
+from backend.features.letters import answers, attempts, batch, site_role
 from backend.features.letters.followups import send_due
 from backend.features.letters.sending import OtherRoleError, Sending
 from backend.features.letters.transport import NullTransport
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor, make_sender
 from tests.test_sales_stage_bridge import FakeSalesMail, _seen, _transports
@@ -96,6 +96,32 @@ async def test_a_donor_first_letter_is_withdrawn_while_the_site_is_in_work_elsew
         select(ContactModel.id).where(ContactModel.id == contact_id, attempts.fresh(ContactModel))
     )
     assert fresh == contact_id
+
+
+async def test_a_letter_taken_by_a_sender_meanwhile_is_not_called_withdrawn(
+    session: AsyncSession, filled_legal: None
+) -> None:
+    """Письмо взяла отправка между чтением и снятием: оно не снято, и отказ «снято» был бы
+    неправдой — проверка молчит, дальше решает захват отправки (ревью продаж 13.10)."""
+    letter = await first_letter(session, host=HOST)
+    await _live(session, letter.domain_id, Stage.SALES)
+    await session.execute(
+        update(MessageModel)
+        .where(MessageModel.id == letter.id)
+        .values(status=MessageStatus.SENDING)
+        .execution_options(synchronize_session=False)
+    )
+
+    await site_role.check(session, letter, Stage.DONORS, OtherRoleError)
+
+    status, reason = (
+        await session.execute(
+            select(MessageModel.status, MessageModel.failure_reason).where(
+                MessageModel.id == letter.id
+            )
+        )
+    ).one()
+    assert (status, reason) == (MessageStatus.SENDING, None)
 
 
 async def test_the_batch_names_it_and_sends_the_rest(
