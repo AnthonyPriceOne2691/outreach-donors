@@ -35,6 +35,7 @@ from pathlib import Path
 import pytest
 from backend.api import deps
 from backend.api.app import create_app
+from backend.api.watchdog import routes as watchdog_routes
 from backend.config import outreach as outreach_cfg
 from backend.features.access.attempts import LoginAttempts
 from backend.features.access.repository import AccessRepository
@@ -372,6 +373,14 @@ def _no_real_redis(monkeypatch: pytest.MonkeyPatch) -> None:
     прогонов зависело бы от того, что на машине запущено. Закрытый порт — отказ сразу;
     объекты очереди `rq` собираются без сети, как и были. Тесты очереди подставляют свою."""
     monkeypatch.setattr("backend.config.storage.REDIS_URL", "redis://127.0.0.1:1/0")
+
+
+@pytest.fixture(autouse=True)
+def _no_providers_answer_from_another_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ответ провайдеров экрану сторожа живёт минуту в памяти процесса (`watchdog_routes.PROBES`):
+    у каждого теста он свой, пустой. Иначе тест получил бы ответ, оставленный соседним, и его
+    подмена `probe_providers` молча не сработала бы."""
+    monkeypatch.setattr(watchdog_routes, "PROBES", watchdog_routes.Probes())
 
 
 @pytest.fixture

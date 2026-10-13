@@ -522,9 +522,9 @@
       "worst": "—"
     },
     "backend/api/watchdog/routes.py": {
-      "lines": 60,
-      "complexity": 3,
-      "worst": "silence:49"
+      "lines": 112,
+      "complexity": 4,
+      "worst": "silence:88"
     },
     "backend/cli/__init__.py": {
       "lines": 1,
@@ -1082,9 +1082,9 @@
       "worst": "_enum:27"
     },
     "backend/features/core/stages.py": {
-      "lines": 418,
-      "complexity": 5,
-      "worst": "check_connected:118"
+      "lines": 428,
+      "complexity": 6,
+      "worst": "_asked:258"
     },
     "backend/features/core/usage.py": {
       "lines": 298,
@@ -1732,9 +1732,9 @@
       "worst": "_gone:148"
     },
     "backend/features/ops/alarms.py": {
-      "lines": 21,
-      "complexity": 0,
-      "worst": "—"
+      "lines": 38,
+      "complexity": 1,
+      "worst": "direction:23"
     },
     "backend/features/ops/job_outcome.py": {
       "lines": 229,
@@ -1742,9 +1742,9 @@
       "worst": "_outcome:163"
     },
     "backend/features/ops/mail_watch.py": {
-      "lines": 281,
+      "lines": 286,
       "complexity": 8,
-      "worst": "_of_stage:112"
+      "worst": "_of_stage:117"
     },
     "backend/features/ops/overview.py": {
       "lines": 358,
@@ -1757,7 +1757,7 @@
       "worst": "_crawl_blocked:177"
     },
     "backend/features/ops/stage_silence.py": {
-      "lines": 209,
+      "lines": 204,
       "complexity": 4,
       "worst": "alarms:63"
     },

@@ -32,6 +32,18 @@ describe('цель записи', () => {
     expect(targetParts('sales_kb', EMAILS)).toEqual([{ text: 'база знаний продаж' }]);
     expect(targetParts(null, EMAILS)).toEqual([]);
   });
+
+  it('цели модуля продаж — словами: лид, запись стоп-листа с номером, сайт сбора', () => {
+    // Ревью стыков R7, 7.3: модуль продаж пишет их в журнал, а экран показывал код.
+    expect(targetParts('sales_lead:5', EMAILS)).toEqual([{ text: 'лид продаж №5' }]);
+    expect(targetParts('sales_stoplist:8', EMAILS)).toEqual([
+      { text: 'запись стоп-листа продаж №8' },
+    ]);
+    expect(targetParts('sales_stoplist', EMAILS)).toEqual([{ text: 'стоп-лист продаж' }]);
+    expect(targetParts('sales_segment_candidate:9', EMAILS)).toEqual([
+      { text: 'сайт сбора продаж №9' },
+    ]);
+  });
 });
 
 describe('действие записи', () => {
@@ -41,6 +53,18 @@ describe('действие записи', () => {
     expect(actionTitle('run_started', 'run:27')).toBe('Прогон запущен');
     expect(actionTitle('run_started', 'crawl:2')).toBe('Обход донора запущен');
     expect(actionTitle('new_thing', null)).toBe('Другое действие (new_thing)');
+  });
+
+  it('действия продаж уточняются целью: правка лида, сайт сбора, передача лида', () => {
+    // Правка лида пишется действием загрузки базы: у лида одна история данных.
+    expect(actionTitle('sales_leads_imported', 'sales_lead:5')).toBe('Лид продаж поправлен');
+    expect(actionTitle('sales_leads_imported', null)).toBe('База лидов загружена');
+    expect(actionTitle('site_reviewed', 'sales_segment_candidate:9')).toBe(
+      'Решение по сайту сбора',
+    );
+    expect(actionTitle('site_reviewed', 'domain:4')).toBe('Тип сайта назван');
+    expect(actionTitle('lead_taken', 'sales_handoff:7')).toBe('Лид передан телемаркетологу');
+    expect(actionTitle('lead_taken', 'reply:3')).toBe('Лид взят в работу');
   });
 });
 

@@ -24,7 +24,7 @@ from backend.features.core.models.outreach import (
     SendingDomainModel,
 )
 from backend.features.core.stages import MailPolicy
-from backend.features.ops import alarm_feed, mail_watch, silence
+from backend.features.ops import alarm_feed, alarms, mail_watch, silence
 from backend.features.ops.alarms import Alarm
 from backend.features.outreach.repository import EVERY_STAGE
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -110,6 +110,24 @@ async def test_a4_queue_and_nobody_to_send_while_all_boxes_are_paused(
     assert paused_domain == ["nobody-to-send:sales"]
 
 
+async def test_the_titles_name_the_direction_in_words_and_the_codes_keep_the_stage(
+    session: AsyncSession,
+) -> None:
+    """Заголовок тревоги читает человек — полосой над вкладками «Продаж», на «Обзоре», в
+    Telegram: этап в нём словом, код этапа — только в коде тревоги (ревью стыков R7, 7.1)."""
+    box = await sender(session, "hello@mail-sales.example.test", Stage.SALES)
+    box.status = SenderStatus.PAUSED
+    await _letter(session, Stage.SALES, None, status=MessageStatus.QUEUED)
+
+    found = await mail_watch.alarms(session, NOW, stages=EVERY_STAGE)
+
+    assert [(alarm.code, alarm.title) for alarm in found] == [
+        ("all-paused:sales", "Все ящики продаж на паузе"),
+        ("nobody-to-send:sales", "Очередь продаж есть — отправить некому"),
+    ]
+    assert set(alarms.STAGE_GENITIVE) == set(Stage), "этап без слова — заголовок его тревоги упадёт"
+
+
 async def test_donors_get_no_new_alarms(session: AsyncSession) -> None:
     box = await sender(session, "anna@mail-donors.example.test", Stage.DONORS)
     box.enabled = False
@@ -125,7 +143,7 @@ async def test_a_module_without_a_policy_is_an_alarm_and_the_watch_goes_on(
 
     [alarm] = await mail_watch.alarms(session, NOW, stages=EVERY_STAGE)
 
-    assert (alarm.code, alarm.title) == ("no-policy:sales", "Политика почты «sales» не получена")
+    assert (alarm.code, alarm.title) == ("no-policy:sales", "Политика почты продаж не получена")
     assert alarm.detail.endswith("не подключены — выдуманная поломка модуля: policy")
 
 

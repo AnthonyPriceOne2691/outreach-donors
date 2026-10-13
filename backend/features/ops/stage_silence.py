@@ -40,7 +40,7 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     ThreadModel,
 )
-from backend.features.ops.alarms import Alarm
+from backend.features.ops.alarms import Alarm, direction
 from backend.features.replies import recipient_stage
 from backend.features.replies.unbound import is_unbound
 
@@ -89,11 +89,6 @@ def _of_stage(stage: Stage) -> ColumnElement[bool]:
     )
 
 
-def _named(stage: Stage) -> str:
-    """Направление словами заголовка: те же «…», что у сторожа почты этапов."""
-    return f"направление «{stage.value}»"
-
-
 async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Alarm | None:
     """Письма этапа ушли, а платформа не сказала о них ни слова."""
     edge = moment - timedelta(hours=DELIVERY_SILENCE_HOURS)
@@ -112,7 +107,7 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
         return None
     return Alarm(
         code=f"delivery-silence:{stage.value}",
-        title=f"Платформа молчит о доставке — {_named(stage)}",
+        title=f"Платформа молчит о доставке — {direction(stage)}",
         detail=(
             f"{stale} писем направления отправлены больше {DELIVERY_SILENCE_HOURS} часов назад, "
             "и ни по одному не пришло события: ни доставки, ни отказа. "
@@ -141,7 +136,7 @@ async def _replies(session: AsyncSession, moment: datetime, stage: Stage) -> Ala
         return None
     return Alarm(
         code=f"reply-silence:{stage.value}",
-        title=f"Ответов нет ни одного — {_named(stage)}",
+        title=f"Ответов нет ни одного — {direction(stage)}",
         detail=(
             f"За {REPLY_SILENCE_DAYS} дня доставлено писем направления: {delivered}, а его "
             "входящих за то же время нет. Отвечают единицами процентов, но полный ноль на такой "
@@ -199,7 +194,7 @@ async def _followups(session: AsyncSession, moment: datetime, stage: Stage) -> A
         return None
     return Alarm(
         code=f"followups-stuck:{stage.value}",
-        title=f"Добивки стоят — {_named(stage)}",
+        title=f"Добивки стоят — {direction(stage)}",
         detail=(
             f"{late} писем направления ждут следующего шага дольше часа. Цепочка не рвётся — "
             "она просто не идёт: процесс добивок не запущен или падает"

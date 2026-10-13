@@ -143,7 +143,7 @@ async def test_a_disabled_box_and_a_deleted_one_are_retired_too(session: AsyncSe
     assert list(found) == [f"retired-box:{BOX}", "retired-box:deleted:sales"]
     assert "(выключен)" in found[f"retired-box:{BOX}"].detail
     deleted = found["retired-box:deleted:sales"]
-    assert deleted.title == "Ящик переписки удалён — направление «sales»"
+    assert deleted.title == "Ящик переписки удалён — направление продаж"
     assert deleted.detail == (
         "Писем переписки ждут его: 1 — добивок 1 (срок уже наступил у 1), ответов 0. Ящика "
         "первого письма нет: им начата переписка, а его удалили. С другого ящика письмо "
