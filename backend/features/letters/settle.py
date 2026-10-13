@@ -3,7 +3,8 @@
 Ушедшим письмо становится тремя путями: платформа ответила на отправку
 (`sending.Sending`), её событие пришло по письму с неизвестным исходом, человек
 нашёл письмо в её журнале (`unknown_outcome.py`). Запись одна на все три
-(07.10.2026): время ухода, срок добивки, «писали» у адреса, расход и журнал.
+(07.10.2026): время ухода, срок добивки, «писали» у адреса, первое письмо разгона
+ящика (`senders.mark_first_letter`), расход и журнал.
 Две копии разошлись бы на первой правке — письмо, отмеченное человеком,
 осталось бы без добивки или мимо дневного лимита ящика, и разница всплыла бы
 через неделю молчащей цепочкой.
@@ -37,6 +38,7 @@ from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.letters import chain
 from backend.features.letters.outgoing_store import OutgoingFiles
+from backend.features.outreach import senders
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +115,8 @@ async def record_sent(
         contact = await session.get(ContactModel, message.contact_id)
         if contact is not None:
             contact.last_contacted_at = moment
+    # Ступень разгона считается от первого письма ящика после старта, а не от старта.
+    await senders.mark_first_letter(session, message.sender_id, moment=moment)
 
     # Расход пишется и у нулевого транспорта: иначе по журналу
     # не отличить «не отправляли» от «отправили даром».

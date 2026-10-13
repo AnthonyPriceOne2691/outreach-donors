@@ -10,6 +10,10 @@
 
 Воркер и API при старте говорят словами, на каких этапах агент ведёт переписку,
 включён ли агент продаж и какой потолок черновиков не держит (`guarding.said_at_start`).
+
+Свой потолок этапа (`AgentStage.own_cap`) — поверх общего и потолка черновиков: петля
+правки проверяет его перед каждым вызовом писателя, и выбранный потолок останавливает
+черновик до модели — и до первой правки, и между правками.
 """
 
 from __future__ import annotations
@@ -21,16 +25,17 @@ import pytest
 from backend.api import app as app_module
 from backend.config import llm as llm_cfg
 from backend.features.agent import drafting, guarding
-from backend.features.agent.stages import AGENT_STAGES, SALES_STAGE
+from backend.features.agent.stages import AGENT_STAGES, SALES_STAGE, Verdict, VerdictKind
 from backend.features.core import usage
-from backend.features.core.domain import Stage
+from backend.features.core.domain import DraftStatus, Stage
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.replies.pipeline import Parser
 from backend.workers import main as worker_main
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
-from tests.test_agent_drafting import FakeWriter, agent_on, reply
+from tests.test_agent_drafting import FakeWriter, agent_on, donors_with, reply
+from tests.test_agent_guarding import Rewriting, judge
 from tests.test_parse_requeue import CountingExtractor
 from tests.test_replies_inbox import NOW, sent
 
@@ -124,6 +129,88 @@ def test_empty_sales_cap_in_env_is_unset_not_a_parse_error(
     monkeypatch.setenv("SALES_DAILY_TOKEN_CAP", raw)
 
     assert llm_cfg._Llm().sales_daily_token_cap == parsed
+
+
+# --- свой потолок этапа ------------------------------------------------------------------------
+
+#: Писатель петли правки тратит 40 токенов на черновик (`Rewriting`).
+WRITE = 40
+BLOCK = Verdict(VerdictKind.BLOCK, ("длинно",))
+
+
+def _stage_cap(tokens: int) -> usage.OwnCap:
+    """Свой потолок этапа-заглушки — по операции черновика доноров."""
+    return usage.OwnCap("этапа-заглушки", frozenset({"agent_draft"}), tokens, "STUB_TOKEN_CAP")
+
+
+def _refused(spent: int, cap: int) -> str:
+    return (
+        f"дневной потолок этапа-заглушки выбран: {spent} из {cap} токенов — продолжение "
+        "завтра; поднять потолок может администратор"
+    )
+
+
+@pytest.fixture
+def only_the_stage_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Общего потолка и потолка черновиков нет: держит только свой потолок этапа."""
+    monkeypatch.setattr(llm_cfg, "DAILY_TOKEN_CAP", 0)
+    monkeypatch.setattr(llm_cfg, "AGENT_DAILY_TOKEN_CAP", None)
+
+
+@pytest.mark.usefixtures("only_the_stage_cap")
+async def test_a_spent_stage_cap_refuses_the_draft_before_the_model(
+    session: AsyncSession, reply: ReplyModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    donors_with(monkeypatch, own_cap=lambda: _stage_cap(WRITE))
+    await agent_on(session)
+    usage.record(session, operation="agent_draft", units=WRITE)
+    agent = Rewriting()
+
+    with pytest.raises(LlmCapExceededError) as refused:
+        await drafting.draft_answer(session, agent, reply.id)
+
+    assert agent.seen == []
+    assert str(refused.value) == _refused(WRITE, WRITE)
+
+
+@pytest.mark.usefixtures("only_the_stage_cap")
+async def test_the_rewrite_loop_holds_the_stage_cap_before_every_writer_call(
+    session: AsyncSession, reply: ReplyModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Судья вернул черновик на правку, а первый черновик выбрал свой потолок этапа: вторым
+    вызовом писатель не зовётся. Потолок спрошен перед каждым вызовом — функцией этапа."""
+    asked: list[str] = []
+
+    def cap() -> usage.OwnCap:
+        asked.append("own_cap")
+        return _stage_cap(WRITE)
+
+    guard, _ = judge(BLOCK)
+    donors_with(monkeypatch, guard=guard, own_cap=cap)
+    await agent_on(session)
+    agent = Rewriting()
+
+    with pytest.raises(LlmCapExceededError) as refused:
+        await drafting.draft_answer(session, agent, reply.id)
+
+    assert [request.previous for request in agent.seen] == [""]
+    assert asked == ["own_cap", "own_cap"]
+    assert str(refused.value) == _refused(WRITE, WRITE)
+
+
+@pytest.mark.usefixtures("only_the_stage_cap")
+async def test_below_the_stage_cap_the_rewrite_goes_on(
+    session: AsyncSession, reply: ReplyModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Граница: потолок проверяется до вызова — ниже него правка идёт, черновик готов."""
+    guard, _ = judge(BLOCK, Verdict(VerdictKind.ALLOW))
+    donors_with(monkeypatch, guard=guard, own_cap=lambda: _stage_cap(WRITE + 1))
+    await agent_on(session)
+    agent = Rewriting()
+
+    outcome = await drafting.draft_answer(session, agent, reply.id)
+
+    assert (outcome.status, len(agent.seen)) == (DraftStatus.DRAFTED, 2)
 
 
 # --- строка при старте -------------------------------------------------------------------------

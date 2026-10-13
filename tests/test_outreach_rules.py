@@ -68,6 +68,12 @@ def _reply(
     return reply
 
 
+def _writing_since(days: int) -> SenderModel:
+    """Ящик, который начал разгон и с тем же днём писать `days` дней назад."""
+    since = NOW - timedelta(days=days)
+    return _sender(warmup_started_at=since, warmup_first_sent_at=since)
+
+
 class TestWarmup:
     def test_first_day_is_small(self) -> None:
         sender = _sender(warmup_started_at=NOW)
@@ -79,17 +85,44 @@ class TestWarmup:
         assert not state.finished
 
     def test_allowance_grows_with_days(self) -> None:
-        sender = _sender(warmup_started_at=NOW - timedelta(days=2))
-
-        assert warmup_state(sender, now=NOW).allowance > WARMUP_FIRST_DAY
+        assert warmup_state(_writing_since(2), now=NOW).allowance > WARMUP_FIRST_DAY
 
     def test_allowance_never_exceeds_daily_cap(self) -> None:
-        sender = _sender(warmup_started_at=NOW - timedelta(days=100))
+        sender = _writing_since(100)
 
         state = warmup_state(sender, now=NOW)
 
         assert state.allowance == sender.daily_cap
         assert state.finished
+
+    def test_a_box_that_has_not_written_since_the_start_is_on_the_first_step(self) -> None:
+        """Ревью стыков с продажами: ящик заведён за неделю до первого письма. От старта
+        он начинал бы сразу с верхней ступени — для почты новый ящик с полным капом."""
+        sender = _sender(warmup_started_at=NOW - timedelta(days=7))
+
+        state = warmup_state(sender, now=NOW)
+
+        assert (state.day, state.allowance, state.finished) == (1, WARMUP_FIRST_DAY, False)
+
+    def test_steps_count_from_the_first_letter_not_from_the_start(self) -> None:
+        """Заведён 10 дней назад, пишет третий день: ступень — третьего дня, не одиннадцатого."""
+        sender = _sender(
+            warmup_started_at=NOW - timedelta(days=10),
+            warmup_first_sent_at=NOW - timedelta(days=2, hours=3),
+        )
+
+        assert warmup_state(sender, now=NOW) == warmup_state(_writing_since(2), now=NOW)
+        assert warmup_state(sender, now=NOW).day == 3
+
+    def test_a_first_letter_of_the_previous_warmup_does_not_carry_over(self) -> None:
+        """Старт поставлен заново мимо «Включить заново»: прежняя отметка раньше старта
+        нового разгона не продолжает — первая ступень до первого письма после старта."""
+        sender = _sender(
+            warmup_started_at=NOW - timedelta(days=1),
+            warmup_first_sent_at=NOW - timedelta(days=30),
+        )
+
+        assert warmup_state(sender, now=NOW).allowance == WARMUP_FIRST_DAY
 
     def test_no_warmup_means_full_cap(self) -> None:
         """Домен, который никогда не разгоняли, — это домен из прошлой
@@ -109,14 +142,17 @@ class TestSwitching:
             enabled=False,
             status=SenderStatus.PAUSED,
             warmup_started_at=NOW - timedelta(days=30),
+            warmup_first_sent_at=NOW - timedelta(days=29),
             pause_reason="доля отказов",
         )
 
         enable(sender, now=NOW)
 
         assert sender.enabled
-        assert sender.warmup_started_at == NOW
+        assert (sender.warmup_started_at, sender.warmup_first_sent_at) == (NOW, None)
         assert warmup_state(sender, now=NOW).allowance == WARMUP_FIRST_DAY
+        # Первая ступень — и назавтра, пока со включённого ящика не ушло письмо.
+        assert warmup_state(sender, now=NOW + timedelta(days=3)).allowance == WARMUP_FIRST_DAY
         assert sender.pause_reason is None
 
     def test_disabling_keeps_the_reason(self) -> None:

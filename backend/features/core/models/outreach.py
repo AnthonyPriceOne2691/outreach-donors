@@ -75,6 +75,12 @@ class SenderModel(TimestampedMixin, Base):
     warmup_started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: Первое письмо ящика после старта разгона: от него, а не от старта, считается ступень
+    #: (`outreach/senders.warmup_state`). Ставит запись «ушло» (`letters/settle.py`), снимает
+    #: «Включить заново». Пусто — после старта ящик ещё не писал.
+    warmup_first_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     pause_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
 

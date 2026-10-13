@@ -140,6 +140,8 @@ async def _seed_senders(session: AsyncSession, now: datetime) -> list[SenderMode
                 status=SenderStatus.FREE if enabled else SenderStatus.PAUSED,
                 enabled=enabled,
                 warmup_started_at=started,
+                # День разгона на экране — от первого письма: ящик «на N-м дне» писал с него.
+                warmup_first_sent_at=started,
                 paused_at=None if enabled else now - timedelta(days=2),
                 pause_reason=reason,
             )
