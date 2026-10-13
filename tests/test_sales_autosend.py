@@ -209,7 +209,7 @@ async def test_daily_cap_reached_stops_the_pass_in_words(
     assert list(first.sent) == [letters[0].id]
     assert (after.sent, after.stop) == ({}, Stop.CAP)
     assert after.stopped is not None
-    assert after.stopped.startswith("кап набран — Сегодня писать некому")
+    assert after.stopped.startswith("Сегодня писать некому")
     assert await _status(session, letters[1]) is MessageStatus.QUEUED
 
 
@@ -335,7 +335,8 @@ async def test_a_refusal_of_this_letter_lets_the_pass_take_the_next_ones(
     session: AsyncSession, world: w.World
 ) -> None:
     """Отказ о письме (400 — адресат, содержимое) — как прежде: письмо ждёт с причиной, проход
-    берёт следующие."""
+    берёт следующие. Отказ получило каждое письмо окна, а не ушло ни одно — проход стоит не по
+    делу словами (`REFUSED_ALL`, тревога через 15 минут — `test_sales_seam_send_stalls.py`)."""
     letters = await _letters(session, world, JANE, OLGA, IVAN)
     source, asked = _sendgrid(400)
 
@@ -343,7 +344,11 @@ async def test_a_refusal_of_this_letter_lets_the_pass_take_the_next_ones(
 
     assert asked == [JANE, OLGA, IVAN]
     assert found.refused == {letter.id: "почта отказала" for letter in letters}
-    assert (found.sent, found.stop) == ({}, None)
+    assert (found.sent, found.stop) == ({}, Stop.REFUSED_ALL)
+    assert found.stopped == (
+        "ни одно письмо в окне получателя не ушло — почта отказала: 3; причина каждого — в "
+        "журнале разбора"
+    )
 
 
 # --- тумблеры и чужие письма -------------------------------------------------------------------

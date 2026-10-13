@@ -40,6 +40,9 @@
 упавший запрос модуля не ломает транзакцию почты, а сбой своих несохранённых изменений
 почты — её ошибка, а не модуля.
 
+**Пачка продаж** (`check_batch`) спрашивает модуль ещё и о том, можно ли пачкой: пока включена
+автоотправка, первые письма продаж уходят проходом по одному с ящика, и пачка — отказ словами.
+
 **Политика этапа** (`mail_policy`, Ф4) — что почта делает с письмами этапа сверх
 общих правил: окно получателя (4.3). У доноров и рекламодателей — нынешнее
 поведение (`CURRENT`), у продаж — ответ модуля продаж тем же мостом
@@ -128,6 +131,21 @@ async def check_connected(session: AsyncSession, stage: Stage, what: str) -> Non
             assert_never(stage)
 
 
+async def check_batch(session: AsyncSession, stage: Stage, what: str) -> None:
+    """Мост пачки (спрашивает отправка очереди пачкой): этап подключён (`check_connected`), и
+    пачкой его сейчас можно. Доноры и рекламодатели — как было; продажи — ответ модуля
+    (`SalesMail.batch`): пока включена автоотправка, пачки нет — отказ словами (решение
+    владельца 13.10), и прямой вызов маршрута его не обходит."""
+    await check_connected(session, stage, what)
+    match stage:
+        case Stage.DONORS | Stage.ADVERTISERS:
+            return
+        case Stage.SALES:
+            await _asked(session, what, lambda mail: mail.batch(what))
+        case _:
+            assert_never(stage)
+
+
 def donor_path(stage: Literal[Stage.DONORS]) -> None:
     """Пометка в ветке по этапу: остальные этапы разобраны выше, дальше — путь доноров.
 
@@ -193,6 +211,10 @@ class SalesMail(Protocol):
 
     async def connected(self, session: AsyncSession) -> bool:
         """Подключены ли продажи: проход добивок берёт их сроки только тогда."""
+
+    async def batch(self, what: str) -> None:
+        """Пачкой можно — или отказ словами (`MailRefusalError`): пока включена автоотправка,
+        первые письма продаж уходят проходом по одному с ящика, а не пачкой."""
 
     async def answer(self, session: AsyncSession, thread_id: int, body: str, what: str) -> str:
         """Ответ лиду в переписке `thread_id` до заведения письма: текст, каким его увидит

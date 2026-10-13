@@ -18,7 +18,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.letters.sending import Sending
 from backend.features.letters.unknown_outcome import STUCK_AFTER
 from backend.features.sales import autobuild, autosend
-from backend.features.sales.auto_lines import BUILD_OFF, SEND_OFF, pace
+from backend.features.sales.auto_lines import BUILD_OFF, SEND_OFF, SEND_ON, pace
 from backend.features.sales.queue_start import build_job_id
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,7 +91,7 @@ async def test_unknown_outcome_is_said_on_the_screen_with_the_letters_in_the_win
 
     line = str(lines["autosend"]["line"])
     assert lines["autosend"]["enabled"] is True
-    assert line.startswith(f"Автоотправка включена: {pace()}. В окне получателя сейчас 1 письмо.")
+    assert line.startswith(f"{SEND_ON}: {pace()}. В окне получателя сейчас 1 письмо.")
     assert f"Стоит: исход письма №{letters[0].id} неизвестен" in line
 
 
@@ -163,7 +163,7 @@ async def test_autobuild_line_says_the_shortage_whom_it_builds_and_what_it_built
 
     head = (
         "Автосборка включена: очередь — на сутки вперёд, дневные капы ящиков продаж с разгоном — "
-        "20 писем, в очереди 0 писем"
+        "20 писем, в очереди готовых к отправке — 0 писем"
     )
     assert before["autobuild"] == {
         "enabled": True,
