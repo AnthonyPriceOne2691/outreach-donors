@@ -11,15 +11,20 @@
  *
  * Описание читают только экраны: в тексты писем оно не идёт. Хранится в базе, а не в
  * репозитории — это коммерческий текст.
+ *
+ * **В окне одна прокрутка** (`OneScrollForm`): описание с потолком в 8 строк прокручивалось
+ * внутри окна, а на низком экране (844 × 390) окно прокручивалось и само, и «Завести» уезжала
+ * под край. Теперь описание растёт по тексту, а прокручивается середина окна.
  */
 
-import { Alert, Button, Group, Modal, Stack, Textarea, TextInput } from '@mantine/core';
+import { Alert, Button, Group, Modal, Textarea, TextInput } from '@mantine/core';
 import { useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import type { HypothesisCard } from '../api/salesTypes';
 import { ACTIONS_GAP, FIELD_GAP } from '../components/formRhythm';
 import { useAddHypothesis } from './hypothesisData';
+import { OneScrollForm } from './OneScrollForm';
 
 const NO_NAME = 'Впишите имя — по нему гипотезу выбирают при загрузке базы';
 
@@ -41,41 +46,23 @@ export function HypothesisModal({ onClose, onAdded }: ModalProps) {
   };
 
   return (
-    <Modal opened onClose={close} title="Новая гипотеза">
-      <form
+    <Modal opened onClose={close} title="Новая гипотеза" classNames={{ content: 'oneScroll' }}>
+      <OneScrollForm
+        gap={FIELD_GAP}
         onSubmit={(event) => {
           event.preventDefault();
           setTouched(true);
           if (blank) return;
           add.mutate({ name, description: description.trim() === '' ? null : description });
         }}
-      >
-        <Stack gap={FIELD_GAP}>
-          {add.error !== null ? (
+        top={
+          add.error !== null && (
             <Alert color="red" title="Гипотеза не заведена">
               {refusalOf(add.error)}
             </Alert>
-          ) : null}
-          <TextInput
-            label="Имя"
-            description="Коротко: по нему гипотезу выбирают при загрузке базы и в отчётах"
-            value={name}
-            error={touched && blank ? NO_NAME : undefined}
-            data-autofocus
-            onChange={(event) => {
-              setName(event.currentTarget.value);
-              setTouched(true);
-            }}
-          />
-          <Textarea
-            label="Описание"
-            description="Кому и зачем пишем: в письма не идёт, по нему судья сбора базы проверяет сайты"
-            autosize
-            minRows={3}
-            maxRows={8}
-            value={description}
-            onChange={(event) => setDescription(event.currentTarget.value)}
-          />
+          )
+        }
+        footer={
           <Group justify="flex-end" mt={ACTIONS_GAP}>
             <Button variant="subtle" className="press" disabled={add.isPending} onClick={close}>
               Отмена
@@ -84,8 +71,29 @@ export function HypothesisModal({ onClose, onAdded }: ModalProps) {
               Завести
             </Button>
           </Group>
-        </Stack>
-      </form>
+        }
+      >
+        <TextInput
+          label="Имя"
+          description="Коротко: по нему гипотезу выбирают при загрузке базы и в отчётах"
+          value={name}
+          error={touched && blank ? NO_NAME : undefined}
+          data-autofocus
+          onChange={(event) => {
+            setName(event.currentTarget.value);
+            setTouched(true);
+          }}
+        />
+        <Textarea
+          label="Описание"
+          description="Кому и зачем пишем: в письма не идёт, по нему судья сбора базы проверяет сайты"
+          // Без `maxRows`: поле длиннее потолка прокручивалось само — вторая прокрутка в окне.
+          autosize
+          minRows={3}
+          value={description}
+          onChange={(event) => setDescription(event.currentTarget.value)}
+        />
+      </OneScrollForm>
     </Modal>
   );
 }
