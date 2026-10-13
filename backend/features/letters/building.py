@@ -62,7 +62,7 @@ from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.models.run import RunModel
 from backend.features.core.stages import mail_stage
 from backend.features.crawl.niche import LINKS
-from backend.features.crawl.promote import apply_rejections
+from backend.features.crawl.promote import apply_rejections, apply_suppliers
 from backend.features.letters import compose, guards, selection
 from backend.features.letters.recipients import Candidate
 from backend.features.letters.repository import LetterRepository
@@ -306,10 +306,10 @@ class QueueBuilder:
             letter_template=request.letter_template,
         )
         letter_template = self._letter_template(campaign)
-        # Метрики Ahrefs в письме запрещены правилами Ahrefs. Неизменяемые
-        # зоны одинаковы во всех письмах, поэтому шаблон проверяется один
-        # раз — до того, как на него потратят двести вызовов модели.
-        guards.assert_no_metrics(letter_template.body)
+        # Метрики Ahrefs в письме запрещены правилами Ahrefs — и в теме тоже.
+        # Неизменяемые зоны одинаковы во всех письмах, поэтому шаблон проверяется
+        # один раз — до того, как на него потратят двести вызовов модели.
+        guards.assert_letter_clean(letter_template.subject, letter_template.body)
 
         # Чекпоинт: рассылка заведена. Дальше каждое письмо фиксируется
         # отдельно — упавшая сборка не теряет подготовленного и потраченных
@@ -317,8 +317,10 @@ class QueueBuilder:
         # письмо уже считается (`_not_written`).
         await self._session.commit()
         if request.stage is Stage.ADVERTISERS:
-            # «Не пишем», ещё не дошедшее до рекламодателя, — до отбора (ревью 12.10.2026).
+            # «Не пишем» и поставщик, ещё не дошедшие до рекламодателя, — до отбора: ссылку
+            # пересобирает из оставшихся, письма под снятую снимает (ревью 12.10.2026).
             await apply_rejections(self._session)
+            await apply_suppliers(self._session)
             await self._session.commit()
         report = BuildReport(campaign_id=campaign.id)
         report.funnel = await self._repo.funnel_report(
@@ -437,10 +439,10 @@ class QueueBuilder:
         for note in rewritten.notes:
             report.notes[note] = report.notes.get(note, 0) + 1
 
-        # Проверки — по собранному тексту выбранного набора: метрики и отличие.
+        # Проверки — по собранному письму выбранного набора: метрики в теме и тексте, отличие.
         accepted = _accepted(rendered, rewritten.zones, seed=candidate.domain_id, report=report)
         letter = compose.assemble(rendered, accepted)
-        guards.assert_no_metrics(letter.body)
+        guards.assert_letter_clean(letter.subject, letter.body)
 
         uniqueness = difference(letter.plain_body, letter.body)
         if corridor_verdict(uniqueness) is not None:

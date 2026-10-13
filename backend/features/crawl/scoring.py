@@ -43,6 +43,8 @@ sponsored/advertorial/partner/guest post +4; dofollow на внешний
 
 Повторяемость и «встречается у двух доноров» умножают только сильный
 признак: ссылка со многих страниц без него — автор, блогролл, навигация.
+Ограничений зоны некоммерческих и слабой тематики они не снимают: баллы растут,
+а вердикт по ним проходит те же ограничения (`_capped`, сверка ТЗ 12.10.2026).
 
 **Давнее размещение — не «существующий рекламодатель».** Если самая свежая
 статья со ссылкой на домен старше `CRAWL_STALE_YEARS` (3 года), он идёт
@@ -166,6 +168,9 @@ class Candidate:
     #: Все статьи со ссылкой на домен старше `CRAWL_STALE_YEARS`: усилитель
     #: не возвращает давнего в «куплено».
     stale: bool = False
+    #: Балл «тематика не совпадает» в сумме: потолок слабой тематики (`_capped`)
+    #: смотрит на него и после усилителя.
+    off_topic: bool = False
 
 
 def score_link(link: OutLink, *, source: bool = False) -> LinkScore:
@@ -345,12 +350,7 @@ def _candidate(
         reasons.append(stale)
     else:
         verdict = _verdict_for(points)
-    if off is not None and not strong and verdict is Verdict.BOUGHT:
-        verdict = _weak_topic_cap(points, reasons)
-    zone = next((zone for zone in NONPROFIT_SUFFIXES if root.endswith(zone)), None)
-    if verdict is Verdict.BOUGHT and zone is not None:
-        verdict = Verdict.PENDING
-        reasons.append(f"зона {zone} — чаще фонд или сообщество, чем рекламодатель: решает человек")
+    verdict = _capped(root, verdict, points, reasons, strong=strong, off_topic=off is not None)
 
     return Candidate(
         target_root=root,
@@ -363,7 +363,36 @@ def _candidate(
         best_link=best,
         strong=strong,
         stale=stale is not None,
+        off_topic=off is not None,
     )
+
+
+def _capped(
+    root: str,
+    verdict: Verdict,
+    points: int,
+    reasons: list[str],
+    *,
+    strong: bool,
+    off_topic: bool,
+) -> Verdict:
+    """Вердикт по баллам — с ограничениями, которых баллы не снимают: «куплено» одной
+    тематикой без сильного признака — «спорно» (`_weak_topic_cap`), зона некоммерческих
+    (`NONPROFIT_SUFFIXES`) — «куплено» только человеком.
+
+    Одно место для скоринга и усилителя «у двух доноров» (`boost_across_donors`): до
+    сверки ТЗ 12.10.2026 усилитель пересчитывал вердикт по баллам сам и возвращал
+    «куплено» домену .org, которому зона сказала «решает человек».
+    """
+    if off_topic and not strong and verdict is Verdict.BOUGHT:
+        verdict = _weak_topic_cap(points, reasons)
+    zone = next((zone for zone in NONPROFIT_SUFFIXES if root.endswith(zone)), None)
+    if verdict is Verdict.BOUGHT and zone is not None:
+        verdict = Verdict.PENDING
+        said = f"зона {zone} — чаще фонд или сообщество, чем рекламодатель: решает человек"
+        if said not in reasons:
+            reasons.append(said)
+    return verdict
 
 
 def _weak_topic_cap(points: int, reasons: list[str]) -> Verdict:
@@ -413,7 +442,9 @@ def boost_across_donors(candidates: list[Candidate], seen_on: dict[str, int]) ->
 
     Считается снаружи — по всей базе, а не по одному обходу: в одном
     обходе донор всегда один, и признак «встречается у двоих» внутри
-    него не вычисляется никак. Поднять вердикт он может, опустить — нет.
+    него не вычисляется никак. Поднять вердикт он может, опустить — нет,
+    и ограничений зоны и слабой тематики не снимает (`_capped`): поднимает баллы,
+    а вердикт по ним проходит те же ограничения, что у скоринга.
     """
     for candidate in candidates:
         if (
@@ -431,4 +462,11 @@ def boost_across_donors(candidates: list[Candidate], seen_on: dict[str, int]) ->
         candidate.reasons.append(
             f"встречается у {seen_on[candidate.target_root]} наших доноров +{POINTS_REPEATED}"
         )
-        candidate.verdict = _verdict_for(candidate.points)
+        candidate.verdict = _capped(
+            candidate.target_root,
+            _verdict_for(candidate.points),
+            candidate.points,
+            candidate.reasons,
+            strong=candidate.strong,
+            off_topic=candidate.off_topic,
+        )

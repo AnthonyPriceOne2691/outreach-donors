@@ -519,6 +519,8 @@ def ladder(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> FakeProvid
         return httpx.Response(404, text="нет такой страницы")
 
     monkeypatch.setattr("backend.features.contacts.search._paid_step", paid)
+    # Платная ступень доноров — только флагом (решение 12.10.2026), здесь она включена.
+    monkeypatch.setattr("backend.config.contacts.PAID_SEARCH_ENABLED", True)
     monkeypatch.setattr("backend.features.contacts.search.PlaywrightRenderer", _NoBrowser)
     monkeypatch.setattr(
         "backend.features.contacts.search.guarded_client",

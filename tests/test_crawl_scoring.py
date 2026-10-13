@@ -309,6 +309,40 @@ class TestCrossDonorBoost:
         assert candidates[0].verdict is Verdict.BLOCKED
 
 
+class TestTheBoostKeepsTheCaps:
+    """Сверка с постановкой 12.10.2026: усилитель «у двух доноров» пересчитывал вердикт по
+    одним баллам и возвращал «куплено» домену зоны некоммерческих, которому зона сказала
+    «решает человек». Усилитель поднимает баллы, а ограничений не снимает."""
+
+    ZONE_REASON = "зона .org — чаще фонд или сообщество, чем рекламодатель: решает человек"
+
+    def test_a_nonprofit_zone_stays_with_a_human_after_the_boost(self) -> None:
+        candidates = score_candidates([_link(root="fund.example.org", sponsored=True)])
+        assert candidates[0].verdict is Verdict.PENDING
+        before = candidates[0].points
+
+        boost_across_donors(candidates, {"fund.example.org": 2})
+
+        assert candidates[0].points > before, "баллы усилитель поднимает"
+        assert candidates[0].verdict is Verdict.PENDING
+        assert candidates[0].reasons.count(self.ZONE_REASON) == 1
+
+    def test_a_borderline_nonprofit_lifted_to_bought_is_capped_with_the_reason(self) -> None:
+        """«Спорно» по баллам — без причины зоны: зона ограничивает только «куплено». Поднятый
+        усилителем до «куплено» домен зоны остаётся человеку, и причина называется."""
+        candidates = score_candidates(
+            [_link(root="fund.example.org", anchor="Play now", nofollow=True)]
+        )
+        assert candidates[0].verdict is Verdict.PENDING
+        assert self.ZONE_REASON not in candidates[0].reasons
+
+        boost_across_donors(candidates, {"fund.example.org": 2})
+
+        assert candidates[0].points >= BOUGHT_AT
+        assert candidates[0].verdict is Verdict.PENDING
+        assert self.ZONE_REASON in candidates[0].reasons
+
+
 class TestRepetitionNeedsACommercialSignal:
     """Найдено первым же прогоном по настоящим данным.
 

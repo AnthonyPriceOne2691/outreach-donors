@@ -230,8 +230,8 @@ def _checklist(probe: Probe) -> list[str]:
         "List-Unsubscribe на месте. Ссылка ведёт на страницу «This link no longer works»: "
         "у пробного письма нет донора, отписывать некого"
         if out.unsubscribe_url
-        else f"List-Unsubscribe нет: не задан {probe.missing_unsubscribe} — у доноров его "
-        "тоже не будет"
+        else f"List-Unsubscribe нет: не задан {probe.missing_unsubscribe} — письма доноров "
+        "и рекламодателей без него отправка не пропустит"
     )
     return [
         f"DKIM=pass, подпись с d={domain} — домен отправителя, а не домен платформы",

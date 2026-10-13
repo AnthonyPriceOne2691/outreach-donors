@@ -179,8 +179,10 @@ class _ByStage:
 
 class TestSending:
     async def test_letter_goes_through_the_transport_of_its_stage(
-        self, session: AsyncSession
+        self, session: AsyncSession, filled_legal: None
     ) -> None:
+        """Настройки письма заполнены: без ссылки отписки письмо донору не уходит вовсе
+        (сверка ТЗ 12.10.2026), а проверяется здесь путь по этапу."""
         message = await _queued(session)
         donors, advertisers = Recording(), Recording()
         source = _ByStage(donors=donors, advertisers=advertisers)
@@ -243,7 +245,7 @@ def _platform_account() -> cfg.MailAccount:
 
 class TestMaybeSent:
     async def test_no_answer_after_the_platform_got_it_keeps_the_letter_sending(
-        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch, filled_legal: None
     ) -> None:
         """Находка «Продаж» 05.10.2026: таймаут ответа возвращал письмо в очередь
         как «точно не ушло» — и кнопка или добивка отправляли его второй раз."""

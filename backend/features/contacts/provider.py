@@ -11,6 +11,14 @@
 Исходы отказа различаются намеренно. «Квота кончилась» и «адреса нет» —
 разные вещи: слив первое во второе, мы навсегда похоронили бы домены,
 по которым просто не дошли руки заплатить.
+
+**Частоту сервис отпускает сам — повтор короткий** (сверка ТЗ 12.10.2026). Запрос идёт
+общей обёрткой повторов (`shared/net/retry.with_retries`), как у остальных провайдеров:
+две попытки сверх первой, пауза по `Retry-After` провайдера, не дольше общего потолка.
+До сверки первый же 429 делал домен «недоспрошенным», и следующие домены прохода били
+в тот же лимит. Повторяется только частота и перегрузка — маркер решает раньше кода
+(`transient`): закрытая учётка и квота приезжают тем же 429, и повтор их не лечит.
+Не отпустило — `ProviderRateLimitError`, и проход встаёт (`ladder.py`, `search.py`).
 """
 
 from __future__ import annotations
@@ -24,11 +32,17 @@ import httpx
 from backend.config import contacts as cfg
 from backend.features.contacts.quality import Candidate
 from backend.features.core.domain import ContactSource
-from backend.shared.net.retry import reason_of, unsent
+from backend.shared.net.retry import RETRY_STATUSES, reason_of, unsent, with_retries
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.hunter.io/v2"
+
+#: Попыток на запрос: первая и два коротких повтора частоты или перегрузки.
+ATTEMPTS = 3
+
+#: Маркер частоты — единственный отказ с маркером, который повтор лечит.
+_RATE_MARKER = "too_many_requests"
 
 
 class ProviderError(RuntimeError):
@@ -90,7 +104,7 @@ _MARKERS: dict[str, tuple[type[ProviderError], str]] = {
         "зайти в кабинет и разобраться",
     ),
     "usage_exceeded": (ProviderQuotaError, "квота исчерпана: {details}"),
-    "too_many_requests": (ProviderRateLimitError, "частота превышена: {details}"),
+    _RATE_MARKER: (ProviderRateLimitError, "частота превышена: {details}"),
 }
 
 
@@ -101,6 +115,37 @@ def _error_id(body: dict[str, Any]) -> tuple[str, str]:
     if not isinstance(first, dict):
         return "", str(first)
     return str(first.get("id") or "").strip(), str(first.get("details") or "")
+
+
+#: Маркеры отказа, которые повтор не лечит: закрытая учётка и кончившаяся квота.
+PERMANENT_MARKERS = frozenset({"restricted_account", "usage_exceeded"})
+
+
+def transient(response: httpx.Response) -> bool:
+    """Повторять ли ответ Hunter: частота и перегрузка проходят сами, прочее — нет.
+
+    Маркер раньше кода, как у разбора отказа (`_raise_refusal`): закрытая учётка и кончившаяся
+    квота повтором не лечатся, частота — лечится, незнакомый маркер на 429 частотой не
+    считается. Остальное судит код, как у других провайдеров (`RETRY_STATUSES`): 5xx с любым
+    иным маркером — перегрузка (ревью продаж #358). Публичная — проверка адресов продаж
+    повторяет тем же правилом (`with_retries(retry_when=transient)`)."""
+    if response.status_code < 400:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        # Не JSON (заглушка прокси) — маркера нет, судит код; разбор ниже назовёт формат.
+        logger.info("платный сервис: ответ %s не JSON — повтор решает код", response.status_code)
+        return response.status_code in RETRY_STATUSES
+    marker = _error_id(body)[0] if isinstance(body, dict) else ""
+    if marker in PERMANENT_MARKERS:
+        return False
+    if marker == _RATE_MARKER:
+        return True
+    # Незнакомый маркер на 429 за частоту не выдаём: так пряталась закрытая учётка (22.09.2026).
+    if marker and response.status_code == 429:
+        return False
+    return response.status_code in RETRY_STATUSES
 
 
 def _raise_refusal(body: dict[str, Any], status: int) -> None:
@@ -145,12 +190,18 @@ class HunterProvider:
         try:
             # Ключ идёт ЗАГОЛОВКОМ, а не параметром адреса. В адресе он утекал бы
             # трижды: в журналы прокси, в историю запросов и в текст ошибки —
-            # сообщение провайдера об отказе содержит полный адрес запроса.
-            response = await self._client.get(
-                f"{BASE_URL}{path}",
-                params=params,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                timeout=cfg.HUNTER_TIMEOUT_SEC,
+            # сообщение провайдера об отказе содержит полный адрес запроса. Журнал
+            # повторов называет код ответа и ошибку связи, а не запрос.
+            response = await with_retries(
+                lambda: self._client.get(
+                    f"{BASE_URL}{path}",
+                    params=params,
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    timeout=cfg.HUNTER_TIMEOUT_SEC,
+                ),
+                attempts=ATTEMPTS,
+                topic="платный сервис адресов",
+                retry_when=transient,
             )
         except httpx.HTTPError as exc:
             # Без цепочки у несобранного запроса: в тексте исключения ключ.

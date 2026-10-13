@@ -43,15 +43,22 @@ from backend.features.letters import attempts, settle
 from backend.features.letters.chain import FIRST_STEP
 
 
-async def stop_offers(session: AsyncSession, domain_id: int, *, keep: str | None = None) -> int:
+async def stop_offers(
+    session: AsyncSession,
+    domain_id: int,
+    *,
+    keep: str | None = None,
+    reason: str = attempts.LINK_WITHDRAWN,
+) -> int:
     """Снять письма рекламодателю `domain_id` в рассылках по найденной ссылке. Число снятых.
 
     `keep` — действующая страница рекламодателя: он остался (на него ссылается другой
     наш донор), и первые письма в очереди под эту страницу остаются, а остальные собраны
-    под ссылку, которой у него больше нет, — снятую человеком или сменённую повторным
-    обходом, — и снимаются. Страница стоит в неизменяемой зоне оффера
-    (`template.ADVERTISER`), и её текст в письме — тот, что был при сборке. Добивки
+    под ссылку, которой у него больше нет, — снятую человеком, сменённую повторным
+    обходом или на площадке поставщика, — и снимаются. Страница стоит в неизменяемой зоне
+    оффера (`template.ADVERTISER`), и её текст в письме — тот, что был при сборке. Добивки
     и их сроки тогда не трогаются: переписка с настоящим рекламодателем уже идёт.
+    `reason` — почему снято письмо в очереди (`attempts.WITHDRAWN_REASONS`).
     """
     letters = await session.scalars(
         select(MessageModel)
@@ -73,7 +80,7 @@ async def stop_offers(session: AsyncSession, domain_id: int, *, keep: str | None
             letter.next_action_at = None
             taken += 1
         elif keep is None or _off_page(letter, keep):
-            taken += await out_of_queue(session, letter)
+            taken += await out_of_queue(session, letter, reason=reason)
     return taken
 
 
@@ -91,10 +98,10 @@ async def out_of_queue(
 ) -> int:
     """Письмо из очереди — в «остановлено», если его не взяла отправка. 1 — снято.
 
-    Своя причина (`attempts.WITHDRAWN_REASONS`: снята ссылка или пример площадки) и
-    освобождённый диалог — только у письма, которое точно не уходило: у возвращённого
-    после неизвестного исхода есть наш `Message-ID` прежней попытки, и оно остаётся
-    «писали».
+    Своя причина (`attempts.WITHDRAWN_REASONS`: снята ссылка, пример площадки, площадка
+    поставщика) и освобождённый диалог — только у письма, которое точно не уходило:
+    у возвращённого после неизвестного исхода есть наш `Message-ID` прежней попытки,
+    и оно остаётся «писали».
     """
     gone = letter.internet_message_id is not None
     said = {} if gone else {"failure_reason": reason}

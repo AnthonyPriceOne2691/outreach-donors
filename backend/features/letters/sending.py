@@ -119,6 +119,7 @@ _OFFER_REFUSED: dict[OfferRefused, type[SendError]] = {
     OfferRefused.REMOVED: RemovedAdvertiserError,
     OfferRefused.NOT_WRITING: NotWritingError,
     OfferRefused.WITHDRAWN: WithdrawnLinkError,
+    OfferRefused.SUPPLIER: WithdrawnLinkError,
     OfferRefused.EXAMPLE: NotWritingError,
     OfferRefused.STALE_PRICE: StalePriceError,
 }
@@ -257,8 +258,9 @@ class Sending:
         await self._check_suppression(target)
         await self._check_review(target)
         check_ready(target.message.body or "", what=f"Письмо №{target.message.id}")
+        if (no_link := unsubscribe.refusal(target.message, target.to.stage)) is not None:
+            raise NotReadyError(no_link)  # без ссылки отписки — как без адреса в подписи
         await self._check_window(target)
-
         sender = await self._sender(target, from_sender_id)
         own = own_headers(target.message.id, sender_email=sender.email, real=transport.real)
 

@@ -134,6 +134,10 @@ class ContactLadder:
         # с повтором по сроку (`attempts.py`). Без крючка лестница как прежде.
         self._silence = silence
         self.counters = StepCounters()
+        #: Почему проходу пора встать: платный сервис ограничил частоту и после повторов
+        #: не отпустил (`provider.py`). Пусто — идём дальше. Следующий домен упёрся бы
+        #: в тот же лимит: платная ступень больше не зовётся, домен — «недоспрошен».
+        self.halt = ""
 
     def _sequence(self) -> list[_Step]:
         """Порядок ступеней после MX.
@@ -358,10 +362,22 @@ class ContactLadder:
         if self._provider is None or why:
             logger.debug("контакты: платная ступень по %s не зовётся — %s", host, why)
             return None
+        if self.halt:
+            # Частота не отпустила на другом домене прохода: этот упёрся бы в тот же лимит.
+            return ContactStatus.RATE_LIMITED
 
+        found = await self._paid(self._provider, host)
+        if isinstance(found, ContactStatus):
+            return found
+        for candidate in found:
+            collected.add(candidate)
+        return None
+
+    async def _paid(self, provider: ContactProvider, host: str) -> list[Candidate] | ContactStatus:
+        """Запрос к платному сервису: адреса — или исход отказа своим именем."""
         self.counters.provider_entered += 1
         try:
-            candidates = await self._provider.find_emails(host)
+            return await provider.find_emails(host)
         except ProviderBlockedError as exc:
             self._note_refusal(str(exc))
             # Раньше этот случай приезжал сюда как «частота» и лестница
@@ -374,17 +390,15 @@ class ContactLadder:
             logger.warning("контакты: квота платного сервиса исчерпана на %s — %s", host, exc)
             return ContactStatus.NO_QUOTA
         except ProviderRateLimitError as exc:
+            # Повторы с паузой уже были (`provider.py`): лимит не снялся, и проход встаёт.
             self._note_refusal(str(exc))
+            self.halt = f"платный сервис ограничил частоту и после повторов не отпустил ({exc})"
             logger.warning("контакты: платный сервис ограничил частоту на %s — %s", host, exc)
             return ContactStatus.RATE_LIMITED
         except ProviderError as exc:
             self._note_refusal(str(exc))
             logger.exception("контакты: платный сервис не ответил по %s — %s", host, exc)
             return ContactStatus.ERROR
-
-        for candidate in candidates:
-            collected.add(candidate)
-        return None
 
     # --- исходы ---
 

@@ -23,7 +23,9 @@
 (`verdict.check_dr`). А на выходах — одно условие `not_writing()`: очередь
 рассмотрения, сборка писем, очередь «Форм», платный поиск адреса и проверка
 при отправке письма и добивки не берут крупный сайт и домен из списков,
-даже принятые до правила. Почему — словами (`not_writing_reason`).
+даже принятые до правила. Почему — словами (`not_writing_reason`). Бизнесу ниши
+из выдачи — то же правило на самом сайте, без строки донора (`site_not_writing`,
+сверка ТЗ 12.10.2026): до неё его сверяли только с примером площадки в письме.
 """
 
 from __future__ import annotations
@@ -245,6 +247,24 @@ async def not_writing_of(session: AsyncSession, domain_ids: Sequence[int]) -> di
 async def not_writing_reason(session: AsyncSession, domain_id: int) -> str | None:
     """Почему донору этого домена не пишем — словами; `None` — пишем."""
     return next(iter((await not_writing_of(session, [domain_id])).values()), None)
+
+
+def site_not_writing(domain_id: Any, host: Any) -> ColumnElement[bool]:
+    """Сайт — в «кому не пишем», есть у него строка донора или нет: по имени — сам хост,
+    по DR — замер его донора, если прогон его мерил. Для адресата не из доноров — бизнеса
+    ниши из выдачи (`letters/niche_recipients.py`): судья мог отрезать его до Ahrefs,
+    и строки донора тогда нет. Правило то же, что у доноров, — без своей копии."""
+    return or_(_by_name_sql(host), domain_not_writing(domain_id))
+
+
+async def site_not_writing_reason(session: AsyncSession, domain_id: int) -> str | None:
+    """Почему этому сайту не пишем — словами, как `site_not_writing`; `None` — пишем."""
+    off = await not_writing_reason(session, domain_id)
+    if off is not None:
+        return off
+    host = await session.scalar(select(DomainModel.host).where(DomainModel.id == domain_id))
+    reason = None if host is None else by_name([host.lower()]).get(host.lower())
+    return None if reason is None else NOT_WRITING_WORDS[reason]
 
 
 class NotWritingAcceptError(ValueError):

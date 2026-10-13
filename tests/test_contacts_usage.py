@@ -39,6 +39,8 @@ async def _search(
 
     site = Site({"/": NOTHING})
     monkeypatch.setattr("backend.features.contacts.search._paid_step", paid_step)
+    # Платная ступень доноров — только флагом (решение 12.10.2026), здесь она включена.
+    monkeypatch.setattr("backend.config.contacts.PAID_SEARCH_ENABLED", True)
     monkeypatch.setattr(
         "backend.features.contacts.search.guarded_client",
         lambda **_kw: httpx.AsyncClient(transport=httpx.MockTransport(site)),

@@ -97,7 +97,7 @@ async def edit(
     ни о чём.
     """
     _editable(message)
-    text = _checked(body)
+    text = _checked(subject, body)
     plain = compose.render(
         template or default(),
         compose.values_for(host=host, domain_id=message.domain_id, link=link, niche=niche),
@@ -121,7 +121,7 @@ async def retext(
     """Правка письма без уникализации — перезапроса цены новым письмом (`price_recheck.py`):
     запреты те же, а отличие от шаблона первого письма не меряется — число ни о чём."""
     _editable(message)
-    text = _checked(body)
+    text = _checked(subject, body)
     await _while_queued(
         session,
         message,
@@ -133,13 +133,14 @@ async def retext(
     return Reviewed(uniqueness=None, verdict=None)
 
 
-def _checked(body: str) -> str:
+def _checked(subject: str, body: str) -> str:
     """Текст правки — без пустоты и метрик. Те же два запрета, что при сборке: метрики
-    стоят ключа Ahrefs, незаполненная подстановка — письма, подписанного никем."""
+    стоят ключа Ahrefs, незаполненная подстановка — письма, подписанного никем. Метрики
+    ищутся и в теме: она уходит адресату так же, как текст (сверка ТЗ 12.10.2026)."""
     text = body.strip()
     if not text:
         raise NotEditableError("Пустое письмо отправить нельзя")
-    guards.assert_no_metrics(text)
+    guards.assert_letter_clean(subject.strip(), text)
     return text
 
 
