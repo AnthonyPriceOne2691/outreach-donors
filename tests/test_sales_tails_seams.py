@@ -214,7 +214,7 @@ def test_every_log_line_of_the_sales_agent_carries_its_values_as_fields() -> Non
 
 
 @pytest.mark.xfail(
-    strict=True,
+    strict=False,  # общий PR его закрывает — метку снять после слияния
     reason=(
         "общий код backend/api/watchdog/routes.py: GET /api/watchdog опрашивает провайдеров "
         "(Ahrefs, выдача; таймауты 30 и 60 с) при открытой транзакции запроса — соединение "
