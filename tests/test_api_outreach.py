@@ -67,7 +67,9 @@ async def sender(session: AsyncSession) -> SenderModel:
         daily_cap=20,
         status=SenderStatus.FREE,
         enabled=True,
+        # Разгон начат и пройден: ступень — от первого письма после старта.
         warmup_started_at=NOW - timedelta(days=30),
+        warmup_first_sent_at=NOW - timedelta(days=30),
     )
     session.add(model)
     await session.commit()

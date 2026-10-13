@@ -19,7 +19,7 @@ from backend.features.core.models.outreach import MessageModel, SenderModel, Sen
 from backend.features.letters import batch, followups, mailbox
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.transport import NullTransport
-from backend.features.outreach import limits
+from backend.features.outreach import limits, senders
 from httpx import AsyncClient
 from sqlalchemy import Connection, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -168,6 +168,24 @@ class TestBatch:
         assert report.stopped == (
             "Сегодня писать некому: все ящики либо выключены, либо выбрали дневной лимит. "
             "Письмо остаётся в очереди — завтра лимит откроется заново"
+        )
+
+    async def test_no_writing_box_at_all_promises_no_tomorrow(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Ни одного включённого ящика у этапа: выключенный ящик завтра сам не включится —
+        «завтра лимит откроется» было бы неправдой (ревью стыков с продажами)."""
+        await _queue(session, 2, ["a@mail.example.test", "b@mail-b.example.test"])
+        for box in await session.scalars(select(SenderModel)):
+            senders.disable(box, "проверка", now=NOW)
+        await session.commit()
+
+        report = await batch.send_queue(session, NullTransport(), stage=Stage.DONORS)
+
+        assert (report.sent, report.left) == (0, 2)
+        assert report.stopped == (
+            "Сегодня писать некому: ящиков, которые пишут, нет: все выключены или на паузе. "
+            "Письмо остаётся в очереди"
         )
 
 

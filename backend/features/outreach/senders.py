@@ -17,6 +17,12 @@
 на третьем дне может десять писем, а не двадцать. И считается он
 по отправленным письмам — хранимого счётчика тут нет намеренно, его
 некому было бы обнулять.
+
+Четвёртое: **ступень разгона считается от первого письма ящика после старта,
+а не от самого старта** (ревью стыков с продажами, 13.10.2026). Старт ставят
+заведение ящика и «Включить заново», а писать ящик начинает, когда до него
+дойдёт очередь, — бывает, через неделю. От старта такой ящик начинал бы сразу
+с верхней ступени: для почты это новый ящик, с первого дня пишущий полным капом.
 """
 
 from __future__ import annotations
@@ -24,6 +30,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+
+from sqlalchemy import or_, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import outreach as cfg
 from backend.features.core.domain import SenderStatus, Stage
@@ -57,18 +66,62 @@ class Warmup:
 def warmup_state(sender: SenderModel, *, now: datetime | None = None) -> Warmup:
     """День разгона и сегодняшний потолок.
 
-    Разгон не хранится числом в базе, а считается от даты старта: иначе
+    Разгон не хранится числом в базе, а считается от даты: иначе
     его надо было бы двигать ежедневной задачей, и пропущенный день
     означал бы, что домен навсегда застрял на пятом письме.
+
+    Дата — первого письма после старта (`first_letter`). Пока его нет, ящик
+    на первом дне: сколько бы он ни стоял заведённым, писать он начнёт
+    с первой ступени.
     """
     if sender.warmup_started_at is None:
         return Warmup(day=0, allowance=sender.daily_cap, finished=True)
 
+    first = first_letter(sender)
     moment = now or datetime.now(UTC)
-    day = max(1, (moment.date() - sender.warmup_started_at.date()).days + 1)
+    day = 1 if first is None else max(1, (moment.date() - first.date()).days + 1)
     step = min((day - 1) // WARMUP_STEP_DAYS, len(WARMUP_STEPS) - 1)
     allowance = min(sender.daily_cap, WARMUP_STEPS[step])
     return Warmup(day=day, allowance=allowance, finished=allowance >= sender.daily_cap)
+
+
+def first_letter(sender: SenderModel) -> datetime | None:
+    """Когда с ящика ушло первое письмо этого разгона; `None` — после старта ещё не писал.
+
+    Отметка, оставшаяся от прежнего разгона (она раньше старта), нового не продолжает:
+    «Включить заново» её снимает (`enable`), а это правило держит то же и там, где старт
+    поставили мимо `enable`."""
+    first, started = sender.warmup_first_sent_at, sender.warmup_started_at
+    return first if first is not None and started is not None and first >= started else None
+
+
+async def mark_first_letter(
+    session: AsyncSession, sender_id: int | None, *, moment: datetime
+) -> None:
+    """Письмо ушло с ящика `sender_id` в `moment` — первое после старта разгона становится
+    его отметкой (`warmup_first_sent_at`). Зовёт запись «ушло» (`letters/settle.py`), одна
+    на все пути письма; фиксация — её.
+
+    Условный `UPDATE`, как захват письма: отметка ставится, пока её нет или она от
+    прежнего разгона, и только письмом, ушедшим не раньше старта, — письмо, отданное почте
+    до «Включить заново» и записанное ушедшим позже (исход неизвестен), нового разгона не
+    начинает. Строку ящика с отметкой следующие письма не трогают и замка на неё не берут.
+    """
+    if sender_id is None:
+        return
+    await session.execute(
+        update(SenderModel)
+        .where(
+            SenderModel.id == sender_id,
+            SenderModel.warmup_started_at <= moment,
+            or_(
+                SenderModel.warmup_first_sent_at.is_(None),
+                SenderModel.warmup_first_sent_at < SenderModel.warmup_started_at,
+            ),
+        )
+        .values(warmup_first_sent_at=moment)
+        .execution_options(synchronize_session="fetch")
+    )
 
 
 def enable(sender: SenderModel, *, now: datetime | None = None) -> None:
@@ -77,12 +130,14 @@ def enable(sender: SenderModel, *, now: datetime | None = None) -> None:
     Отметка старта ставится заново всегда, даже если домен выключили
     десять минут назад: отличить «выключили по ошибке» от «выключили
     из-за жалобы» здесь нечем, а цена ошибки в одну сторону — потерянный
-    день разгона, в другую — сожжённая репутация домена.
+    день разгона, в другую — сожжённая репутация домена. Отметка первого
+    письма снимается: первая ступень — со следующего письма.
     """
     moment = now or datetime.now(UTC)
     sender.enabled = True
     sender.status = SenderStatus.FREE
     sender.warmup_started_at = moment
+    sender.warmup_first_sent_at = None
     sender.paused_at = None
     sender.pause_reason = None
 

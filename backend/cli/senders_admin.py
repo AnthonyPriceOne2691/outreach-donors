@@ -7,8 +7,10 @@
 и первые письма ушли бы с домена без подписи, то есть прямо в спам,
 сжигая репутацию, ради которой всё и затевалось.
 
-Разгон начинается с момента заведения: дневной потолок поднимается
-ступенями от даты старта, а не хранится числом (`features/outreach/senders.py`).
+Старт разгона — минута заведения, а ступени дневного потолка считаются
+от первого письма ящика после неё, а не хранятся числом
+(`features/outreach/senders.py`): ящик, заведённый за неделю до первого
+письма, начинает с первой ступени.
 
     outreach sender-add --email outreach@mail-a.example
     outreach sender-add --email a@mail-b.example --daily-cap 30 --stage advertisers
@@ -65,8 +67,8 @@ async def cmd_sender_add(args: argparse.Namespace) -> int:
                 daily_cap=args.daily_cap,
                 status=SenderStatus.FREE,
                 enabled=True,
-                # Разгон с этой минуты: домен, заведённый сегодня, сегодня
-                # же и начинает с первой ступени, а не с полного капа.
+                # Старт разгона — эта минута; ступень — от первого письма после
+                # неё: до него ящик на первой ступени, а не на полном капе.
                 warmup_started_at=datetime.now(UTC),
             )
             session.add(sender)

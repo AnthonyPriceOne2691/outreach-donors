@@ -75,6 +75,9 @@ _WENT = (MessageStatus.SENDING, MessageStatus.SENT, MessageStatus.DELIVERED, Mes
 _RESTING: ContextVar[frozenset[int]] = ContextVar("mailbox_resting", default=frozenset())
 #: Почему писать некому, когда годные ящики есть, но все — на паузе автоотправки.
 RESTING = "свободные ящики на паузе между письмами автоотправки"
+#: Почему писать некому, когда у этапа нет ни одного включённого ящика: выключенный ящик
+#: завтра сам не включится, и обещать, что лимит откроется, нечем.
+SILENT = "ящиков, которые пишут, нет: все выключены или на паузе"
 
 
 @contextmanager
@@ -140,17 +143,21 @@ async def _free_box(session: AsyncSession, stage: Stage, now: datetime) -> Choic
     if spot is None:
         if rest and sender_rules.pick(screened.fit, sent_today=sent, stage=stage, now=now):
             return Choice(sender=None, refusal=f"Сейчас писать некому: {RESTING}")
-        why = screened.why()
-        return Choice(
-            sender=None,
-            refusal=(
-                f"Сегодня писать некому: {why}. Письмо остаётся в очереди"
-                if why
-                else "Сегодня писать некому: все ящики либо выключены, либо выбрали дневной "
-                "лимит. Письмо остаётся в очереди — завтра лимит откроется заново"
-            ),
-        )
+        return Choice(sender=None, refusal=_nobody(screened))
     return Choice(sender=spot.sender)
+
+
+def _nobody(screened: limits.Screened) -> str:
+    """Почему сегодня писать некому — словами отказа. «Завтра лимит откроется» — только
+    когда включённые ящики есть и выбрали дневной лимит: у этапа без единого включённого
+    ящика (ни годного, ни отсеянного лимитами) обещание было бы неправдой."""
+    why = screened.why() or (None if screened.fit else SILENT)
+    if why:
+        return f"Сегодня писать некому: {why}. Письмо остаётся в очереди"
+    return (
+        "Сегодня писать некому: все ящики либо выключены, либо выбрали дневной "
+        "лимит. Письмо остаётся в очереди — завтра лимит откроется заново"
+    )
 
 
 async def _thread_box(session: AsyncSession, sender_id: int) -> Choice:
