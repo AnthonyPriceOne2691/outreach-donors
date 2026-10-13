@@ -34,12 +34,14 @@ from backend.features.core.models.ops import UsageRecordModel
 from backend.features.sales import verifier
 from backend.features.sales.verifier import (
     DELIVERABLE_BY_STATUS,
+    TOO_OFTEN,
     UNDELIVERABLE_WORDS,
     FixtureVerifier,
     HunterVerifier,
     Verdict,
     build_verifier,
 )
+from backend.shared.net import retry
 from sqlalchemy import Connection, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,6 +74,35 @@ def _unsendable(_request: httpx.Request) -> httpx.Response:
 async def _verify(handler: Handler, email: str = EMAIL) -> Verdict:
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         return await HunterVerifier(http, api_key=KEY).verify(email)
+
+
+@pytest.fixture(autouse=True)
+def pauses(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Паузы повторов (`net/retry`) — записью, без сна: тест не ждёт по-настоящему."""
+    taken: list[float] = []
+
+    async def pause(seconds: float) -> None:
+        taken.append(seconds)
+
+    monkeypatch.setattr(retry, "_sleep", pause)
+    return taken
+
+
+def _script(*answers: httpx.Response | Exception) -> tuple[Handler, list[httpx.Request]]:
+    """Ответы по очереди — последний повторяется; запросы — в список."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        answer = answers[min(len(seen), len(answers)) - 1]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    return handler, seen
+
+
+VALID = httpx.Response(200, json={"data": {"status": "valid", "score": 97}})
 
 
 # --- Hunter: вердикты ---------------------------------------------------------------
@@ -113,7 +144,7 @@ def test_every_known_status_has_a_deliverability_and_only_dead_ones_have_words()
 @pytest.mark.parametrize(
     ("handler", "kind", "words"),
     [
-        (_reply(429), ProviderError, "провайдер не ответил (HTTP 429) — повторим следующей очисткой"),
+        (_reply(429), ProviderRateLimitError, "частота превышена (HTTP 429) и после 3 попыток с паузой — проверка адресов встала до следующей очистки"),
         (_reply(503, text="<html>упал</html>"), ProviderError, "провайдер не ответил (HTTP 503) — повторим следующей очисткой"),
         (_reply(202, {"data": {"status": "pending"}}), ProviderError, "провайдер ещё проверяет адрес — повторим следующей очисткой"),
         (_reply(200, text="не json"), ProviderError, "ответ не разобран как JSON (HTTP 200): 'не json'"),
@@ -158,6 +189,130 @@ async def test_hunter_asks_by_address_with_the_key_in_a_header_not_in_the_url() 
     )
     assert request.headers["Authorization"] == f"Bearer {KEY}"
     assert KEY not in str(request.url)
+
+
+# --- Hunter: повторы и частота ------------------------------------------------------------
+
+
+async def test_429_with_retry_after_waits_as_told_and_the_next_answer_is_the_verdict(
+    pauses: list[float],
+) -> None:
+    """Пауза — по `Retry-After` провайдера (с разбросом до полсекунды), и вердикт после неё —
+    обычный, с одной платной единицей."""
+    handler, seen = _script(httpx.Response(429, headers={"Retry-After": "7"}), VALID)
+
+    assert await _verify(handler) == Verdict("valid", 97, units=1)
+    assert len(seen) == 2
+    (pause,) = pauses
+    assert 7.0 <= pause <= 7.5
+
+
+async def test_429_without_retry_after_waits_one_then_two_seconds_and_a_long_one_is_cut(
+    pauses: list[float],
+) -> None:
+    handler, _ = _script(httpx.Response(429), httpx.Response(429), VALID)
+    assert await _verify(handler) == Verdict("valid", 97, units=1)
+    assert [round(pause) for pause in pauses] == [1, 2]
+
+    pauses.clear()
+    handler, _ = _script(httpx.Response(429, headers={"Retry-After": "600"}), VALID)
+    assert await _verify(handler) == Verdict("valid", 97, units=1)
+    (pause,) = pauses
+    assert 30.0 <= pause <= 30.5  # потолок общего `net/retry`: проход не спит минутами
+
+
+@pytest.mark.parametrize(
+    ("answer", "kind", "words"),
+    [
+        (httpx.Response(429), ProviderRateLimitError, TOO_OFTEN),
+        (httpx.Response(429, headers={"Retry-After": "3"}), ProviderRateLimitError, TOO_OFTEN),
+        (
+            httpx.Response(429, json={"errors": [{"id": "too_many_requests", "details": "slow"}]}),
+            ProviderRateLimitError,
+            "частота превышена: slow",
+        ),
+        (
+            httpx.Response(429, json={"errors": [{"id": "usage_exceeded", "details": "monthly"}]}),
+            ProviderQuotaError,
+            "квота исчерпана: monthly",
+        ),
+        (
+            httpx.Response(503),
+            ProviderError,
+            "провайдер не ответил (HTTP 503) — повторим следующей очисткой",
+        ),
+        (
+            httpx.ConnectError("сети нет"),
+            ProviderError,
+            "сеть до провайдера не дошла: ConnectError('сети нет')",
+        ),
+    ],
+)
+async def test_temporary_refusal_through_every_attempt_is_named_after_three_tries(
+    pauses: list[float], answer: httpx.Response | Exception, kind: type[ProviderError], words: str
+) -> None:
+    """Три попытки, две паузы — и отказ своим именем: 429 после повторов — частота, на ней
+    очистка остановит платную часть (`verifier.STOPS`); 5xx и сеть — отказ одному адресу."""
+    handler, seen = _script(answer)
+
+    with pytest.raises(ProviderError) as refused:
+        await _verify(handler)
+
+    assert (type(refused.value), str(refused.value)) == (kind, words)
+    assert (len(seen), len(pauses)) == (3, 2)
+
+
+@pytest.mark.parametrize(
+    "first", [httpx.Response(503, text="<html>упал</html>"), httpx.ReadTimeout("долго")]
+)
+async def test_one_temporary_failure_is_retried_and_the_verdict_comes(
+    pauses: list[float], first: httpx.Response | Exception
+) -> None:
+    handler, seen = _script(first, VALID)
+
+    assert await _verify(handler) == Verdict("valid", 97, units=1)
+    assert (len(seen), len(pauses)) == (2, 1)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        httpx.Response(401, json={"errors": [{"id": "authentication_failed", "details": "no"}]}),
+        httpx.Response(202, json={"data": {"status": "pending"}}),
+        httpx.Response(403, json={"errors": [{"details": "no id"}]}),
+    ],
+)
+async def test_key_refusal_and_pending_check_are_asked_once(
+    pauses: list[float], answer: httpx.Response
+) -> None:
+    """401 повтором не лечится (`okf/provider-refusals.md`); 202 — проверка у провайдера идёт,
+    его повторит следующая очистка, как и было."""
+    handler, seen = _script(answer)
+
+    with pytest.raises(ProviderError):
+        await _verify(handler)
+
+    assert (len(seen), pauses) == (1, [])
+
+
+async def test_every_request_of_the_pass_goes_through_its_rate_limiter() -> None:
+    """Ограничитель частоты — на каждый запрос, и на повтор тоже: без него быстрые ответы
+    по известным адресам упирали бы проход в 429."""
+    taken: list[str] = []
+
+    class Counting(retry.RateLimiter):
+        async def acquire(self) -> None:
+            taken.append("взят")
+
+    handler, _ = _script(httpx.Response(503), VALID)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        hunter = HunterVerifier(http, api_key=KEY)
+        assert hunter._limiter.per_minute == verifier.RATE_PER_MINUTE
+        hunter._limiter = Counting(per_minute=1)
+        await hunter.verify(EMAIL)
+        await hunter.verify("olga@beta.example.test")
+
+    assert taken == ["взят"] * 3  # 503 и повтор первого адреса, второй адрес
 
 
 # --- fixture ------------------------------------------------------------------------------

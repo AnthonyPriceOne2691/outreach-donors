@@ -37,7 +37,7 @@ from backend.features.ahrefs.client import AhrefsClient
 from backend.features.core import usage
 from backend.features.keywords import dedup, hygiene
 from backend.features.runs.estimate import RESULTS_PER_PAGE, UNIQUE_SHARE
-from backend.features.sales import chain_text, usage_cap, verifier
+from backend.features.sales import chain_text, usage_cap, verifier, verify_cap
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.serp import markets
@@ -106,6 +106,8 @@ class Estimate:
     tokens_left: int | None = None
     hunter_searches: int = 0
     hunter_checks: int = 0
+    #: Проверки адреса этого месяца под своим потолком — у живой проверки (`verify_cap`).
+    month: verify_cap.Month | None = None
     lines: list[str] = field(default_factory=list)
     refusal: str | None = None
 
@@ -121,6 +123,7 @@ class Estimate:
             "tokens_left": self.tokens_left,
             "hunter_searches": self.hunter_searches,
             "hunter_checks": self.hunter_checks,
+            "month": None if self.month is None else self.month.words,
             "lines": list(self.lines),
         }
 
@@ -247,8 +250,9 @@ def _lines(found: Estimate) -> list[str]:
         if found.hunter_searches
         else "платный поиск адреса у сбора выключен или не настроен — только бесплатные ступени"
     )
+    month = "" if found.month is None else f", {found.month.words}"
     checks = (
-        f"проверок адреса до {_number(found.hunter_checks)}"
+        f"проверок адреса до {_number(found.hunter_checks)}{month}"
         if found.hunter_checks
         else "проверка адреса выдуманная"
     )
@@ -294,6 +298,8 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
         logger.warning("сбор продаж: проверка адресов не настроена", extra={"error": str(exc)})
         found.refusal = VERIFIER_NOT_SET
         return found
+    if found.hunter_checks:
+        found.month = await verify_cap.month(session, now=now)
     found.lines = _lines(found)
     found.refusal = await _money_refusal(found)
     return found
@@ -306,6 +312,8 @@ async def _money_refusal(found: Estimate) -> str | None:
         return SALES_OFF
     if found.mode != JudgeMode.OFF and not llm_cfg.API_KEY:
         return MODEL_NOT_SET
+    if found.month is not None and isinstance(found.month.cap, str):
+        return found.month.cap  # потолок проверок не задан: проверка адресов встала бы
     if found.tokens_left is not None and found.tokens > found.tokens_left:
         return (
             f"смета модели выше остатка дневного потолка: ≈ {_number(found.tokens)} токенов при "

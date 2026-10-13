@@ -26,11 +26,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import judge as judge_cfg
 from backend.config import llm as llm_cfg
 from backend.config import sales as sales_cfg
+from backend.config import serp as serp_cfg
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.runs.failures import described, is_permanent
-from backend.features.sales.segment_estimate import SALES_OFF, SERP_AHREFS
+from backend.features.sales.segment_estimate import SALES_OFF, SANDBOX, SERP_AHREFS
 from backend.features.sales.segment_judge import SegmentClient
 from backend.features.sales.segment_models import SalesSegmentRunModel, Stage
 from backend.features.sales.segment_run import RunDeps, execute
@@ -74,8 +75,11 @@ async def _stop(factory: async_sessionmaker[Any], run_id: int, words: str) -> No
 
 
 def _serp(ahrefs: AhrefsClient) -> SerpProvider:
-    """Источник выдачи прогона. Не собирается по настройке или это Ahrefs (настройку сменили
-    после сметы: его юниты ушли бы мимо журнала, `SERP_AHREFS`) — постоянный отказ словами."""
+    """Источник выдачи прогона. Не собирается по настройке, это Ahrefs или песочница (настройку
+    сменили после сметы: юниты Ahrefs ушли бы мимо журнала, `SERP_AHREFS`; сайты песочницы
+    выдуманы, а судья и адреса по ним — траты, `SANDBOX`) — постоянный отказ словами."""
+    if serp_cfg.SANDBOX:
+        raise SerpNotSetError(SANDBOX)
     try:
         serp = build_provider(ahrefs)
     except UnknownProviderError as exc:

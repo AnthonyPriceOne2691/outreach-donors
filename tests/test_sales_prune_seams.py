@@ -32,7 +32,7 @@ from backend.features.core.models.outreach import (
 from backend.features.donors.probe import make_probe
 from backend.features.letters.sending import Sending
 from backend.features.outreach.own_inboxes import OwnInboxes
-from backend.features.runs.prune import apply_prune, plan_prune
+from backend.features.runs.prune import PruneRefusedError, apply_prune, plan_prune
 from backend.features.sales import queue
 from backend.features.sales.domain_hold import kept_words
 from backend.features.sales.models import SalesHandoffModel, SalesLeadModel, SalesThreadModel
@@ -417,3 +417,34 @@ def test_words_name_the_collection_runs_that_hold_the_domain() -> None:
         "домен держит лид продаж №3 — его убирает `prune --test-traces`; держит кандидат сбора "
         "продаж (прогон сбора №4) — отпустит сам сбор, когда кандидата отсекут или из него выйдет лид"
     )
+
+
+async def test_cleared_safety_net_hides_the_pilot_trial_and_one_process_env_brings_it_back(
+    session: AsyncSession, world: w.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Пробу продаж чистка узнаёт по предохранителю отправки (`own_inboxes`), а его для боя сняли
+    (`OUTREACH_SALES_ALLOWED_RECIPIENTS` пуст). Пусты все списки — `--test-traces` отказывает
+    словами целиком. Остался список доноров — пилотный лид на ящик, бывший только в списке
+    продаж, уже не проба: `--test-traces` его не берёт, `--probes` зовёт «лидом с чужим адресом»,
+    и он остаётся в воронке и недельном отчёте. Вернуть пробу чистке, не включая предохранитель
+    работающим сервисам, — переменной окружения одного процесса чистки (`docker compose exec -e`)."""
+    trial = await _trial(session, world, MINE, host=FAKE)
+    monkeypatch.setattr(outreach_cfg, "ALLOWED_RECIPIENTS", ())
+    monkeypatch.delenv("OUTREACH_SALES_ALLOWED_RECIPIENTS", raising=False)
+
+    with pytest.raises(PruneRefusedError, match="Тестовых ящиков нет: предохранитель"):
+        await plan_prune(session, run_ids=[], test_traces=True)
+
+    monkeypatch.setattr(outreach_cfg, "ALLOWED_RECIPIENTS", ("donor-checker@ours.example.test",))
+    hidden = await plan_prune(session, run_ids=[], test_traces=True)
+    probes = await plan_prune(session, run_ids=[], probes=True)
+
+    assert hidden.sales_trials is None or hidden.sales_trials.leads == []
+    assert probes.probes is not None
+    assert probes.probes.kept == {FAKE: _foreign(trial.lead_id)}
+
+    monkeypatch.setenv("OUTREACH_SALES_ALLOWED_RECIPIENTS", MINE)
+    seen = await plan_prune(session, run_ids=[], test_traces=True)
+
+    assert seen.sales_trials is not None
+    assert [lead.lead_id for lead in seen.sales_trials.leads] == [trial.lead_id]

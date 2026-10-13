@@ -14,7 +14,7 @@ import argparse
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from backend.cli import sales, sales_handoffs, sales_queue, sales_telegram
+from backend.cli import sales, sales_handoffs, sales_queue, sales_telegram, sales_verify
 from backend.features.core.stages import SalesNotConnectedError
 
 #: Этап продаж там, где почта его не ведёт или продажи не подключены (`core/stages.py`).
@@ -33,6 +33,7 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] = 
     "sales-import": sales.cmd_sales_import,
     "sales-stoplist-add": sales.cmd_sales_stoplist_add,
     "sales-clean": sales.cmd_sales_clean,
+    "sales-verify-email": sales_verify.cmd_sales_verify_email,
     "sales-kb-load": sales.cmd_sales_kb_load,
     "sales-chain-load": sales.cmd_sales_chain_load,
     "sales-queue": sales_queue.cmd_sales_queue,
@@ -47,6 +48,7 @@ KEPT_ON_INTERRUPT: dict[str, str] = {
     "sales-import": "Загрузка одной транзакцией: в базе ничего не осталось.",
     "sales-stoplist-add": "Стоп-лист пишется одной транзакцией: в базе ничего не осталось.",
     "sales-clean": "Записанные партии остались в базе; повторный проход продолжит с лидов `new`.",
+    "sales-verify-email": "Лиды не тронуты; строка расхода пишется только с вердиктом.",
     "sales-kb-load": "База знаний пишется одной транзакцией: в базе ничего не осталось.",
     "sales-chain-load": "Цепочка писем пишется одной транзакцией: в базе ничего не осталось.",
     "sales-queue": "Письма, собранные до прерывания, остались в очереди; повтор продолжит с остальных.",
@@ -63,3 +65,4 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-a
     sales_queue.add_parser(sub)
     sales_telegram.add_parser(sub)
     sales_handoffs.add_parser(sub)
+    sales_verify.add_parser(sub)

@@ -337,9 +337,9 @@
       "worst": "of:128"
     },
     "backend/api/sales/clean.py": {
-      "lines": 167,
+      "lines": 171,
       "complexity": 4,
-      "worst": "start_clean:139"
+      "worst": "start_clean:143"
     },
     "backend/api/sales/funnel.py": {
       "lines": 99,
@@ -642,9 +642,9 @@
       "worst": "_mapping:375"
     },
     "backend/cli/sales_commands.py": {
-      "lines": 66,
+      "lines": 69,
       "complexity": 1,
-      "worst": "add_parsers:60"
+      "worst": "add_parsers:62"
     },
     "backend/cli/sales_handoffs.py": {
       "lines": 166,
@@ -660,6 +660,11 @@
       "lines": 69,
       "complexity": 5,
       "worst": "cmd_sales_telegram_chat_id:34"
+    },
+    "backend/cli/sales_verify.py": {
+      "lines": 107,
+      "complexity": 7,
+      "worst": "_verify_with:67"
     },
     "backend/cli/senders_admin.py": {
       "lines": 134,
@@ -737,9 +742,9 @@
       "worst": "_own_account:214"
     },
     "backend/config/sales.py": {
-      "lines": 341,
+      "lines": 348,
       "complexity": 6,
-      "worst": "_days:211"
+      "worst": "_days:216"
     },
     "backend/config/serp.py": {
       "lines": 56,
@@ -2207,9 +2212,9 @@
       "worst": "clean_sales_leads:115"
     },
     "backend/features/sales/cleaning.py": {
-      "lines": 493,
+      "lines": 498,
       "complexity": 8,
-      "worst": "_clean_batch:375"
+      "worst": "_clean_batch:374"
     },
     "backend/features/sales/columns.py": {
       "lines": 80,
@@ -2427,24 +2432,24 @@
       "worst": "decide:87"
     },
     "backend/features/sales/segment_estimate.py": {
-      "lines": 316,
-      "complexity": 9,
-      "worst": "estimate:259"
+      "lines": 324,
+      "complexity": 10,
+      "worst": "estimate:263"
     },
     "backend/features/sales/segment_jobs.py": {
-      "lines": 152,
+      "lines": 156,
       "complexity": 4,
-      "worst": "run_once:120"
+      "worst": "_serp:77"
     },
     "backend/features/sales/segment_judge.py": {
       "lines": 332,
       "complexity": 8,
-      "worst": "site_text:122"
+      "worst": "site_text:123"
     },
     "backend/features/sales/segment_judging.py": {
-      "lines": 409,
+      "lines": 410,
       "complexity": 10,
-      "worst": "_batch:313"
+      "worst": "_batch:314"
     },
     "backend/features/sales/segment_leads.py": {
       "lines": 123,
@@ -2472,9 +2477,9 @@
       "worst": "execute:89"
     },
     "backend/features/sales/segment_serp.py": {
-      "lines": 108,
+      "lines": 130,
       "complexity": 8,
-      "worst": "_rows:41"
+      "worst": "_rows:46"
     },
     "backend/features/sales/sender.py": {
       "lines": 182,
@@ -2532,9 +2537,14 @@
       "worst": "sales_cap:36"
     },
     "backend/features/sales/verifier.py": {
-      "lines": 286,
-      "complexity": 9,
-      "worst": "verify:149"
+      "lines": 330,
+      "complexity": 8,
+      "worst": "verify:182"
+    },
+    "backend/features/sales/verify_cap.py": {
+      "lines": 126,
+      "complexity": 4,
+      "worst": "verify:99"
     },
     "backend/features/sales/weekly.py": {
       "lines": 304,

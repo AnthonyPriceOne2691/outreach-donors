@@ -38,7 +38,7 @@ from backend.config.startup_checks import ConfigError
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
-from backend.features.sales import clean_jobs, verifier
+from backend.features.sales import clean_jobs, verifier, verify_cap
 from backend.shared.queue import sales_queue, with_retries
 
 logger = logging.getLogger(__name__)
@@ -104,6 +104,8 @@ class SalesCleanView(BaseModel):
     waiting: int
     #: Проверка адресов живая (Hunter общим ключом) — перед запуском окно подтверждения.
     paid: bool
+    #: У живой — проверок адреса в этом месяце под своим потолком, или почему потолка нет.
+    month: str | None = None
 
 
 class SalesCleanBody(BaseModel):
@@ -127,7 +129,9 @@ async def read_clean(
     session: AsyncSession = Depends(db_session),
 ) -> SalesCleanView:
     found = await clean_jobs.waiting(session, hypothesis)
-    return SalesCleanView(hypothesis_id=hypothesis, waiting=found.count, paid=_paid())
+    paid = _paid()
+    month = (await verify_cap.month(session)).sentence if paid else None
+    return SalesCleanView(hypothesis_id=hypothesis, waiting=found.count, paid=paid, month=month)
 
 
 @router.post(

@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -24,11 +25,12 @@ from backend.features.contacts.provider import (
     ProviderBlockedError,
     ProviderError,
     ProviderQuotaError,
+    ProviderRateLimitError,
 )
 from backend.features.core.domain import Stage, SuppressionReason, ThreadStatus, UsageProvider
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
-from backend.features.core.models.outreach import CampaignModel, ThreadModel
+from backend.features.core.models.outreach import CampaignModel, MessageModel, ThreadModel
 from backend.features.replies.repository import ReplyRepository
 from backend.features.sales import cleaning
 from backend.features.sales.cleaning import CleaningReport
@@ -40,7 +42,8 @@ from backend.features.sales.models import (
     SalesLeadModel,
     SalesStoplistModel,
 )
-from backend.features.sales.verifier import FixtureVerifier, HunterVerifier, Verdict
+from backend.features.sales.verifier import TOO_OFTEN, FixtureVerifier, HunterVerifier, Verdict
+from backend.shared.net import retry
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -171,6 +174,24 @@ def _mail_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cleaning, "mail_route", route)
 
 
+@pytest.fixture(autouse=True)
+def _month_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Месячный потолок проверок у живого проверяльщика задан с запасом: здесь не о нём
+    (`tests/test_sales_verify_cap.py`)."""
+    monkeypatch.setattr("backend.config.sales.VERIFIER_MONTH_CAP", "100000")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_pauses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Повторы Hunter (`net/retry`) не спят по-настоящему, но, как настоящая пауза, отдают
+    ход соседним проверкам прохода."""
+
+    async def pause(_seconds: float) -> None:
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(retry, "_sleep", pause)
+
+
 @pytest.fixture
 async def world(session: AsyncSession) -> World:
     hypothesis = SalesHypothesisModel(name="сайты EN")
@@ -256,6 +277,40 @@ async def test_a2_domain_in_a_running_dialog_of_another_direction_is_busy(
     assert (report.ready, report.rejected) == (
         (0, Counter({"other_direction": 1})) if busy else (1, Counter())
     )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "после PR соседней сессии «одна роль на сайт»: в main нет общей функции «живое письмо "
+        "другого этапа»; `_busy` видит только идущие диалоги других направлений, а письмо им в "
+        "очереди без переписки — нет: отправка такое письмо продаж откажет, очистка пропустит"
+    ),
+)
+@pytest.mark.parametrize("stage", [Stage.DONORS, Stage.ADVERTISERS])
+async def test_letter_of_another_direction_waiting_without_a_dialog_makes_the_domain_busy(
+    world: World, stage: Stage
+) -> None:
+    """Письмо донору или рекламодателю собрано и ждёт в очереди — переписки ещё нет. «Одна роль
+    на сайт»: лида продаж на этом домене очистка отклоняет уже сейчас, тем же условием, что у
+    отправки, а не пропускает до отказа первого письма в очереди."""
+    campaign = CampaignModel(stage=stage, name="Проверка", status="running")
+    world.session.add(campaign)
+    await world.session.flush()
+    domain = await world.domain(ACME)
+    world.session.add(
+        MessageModel(
+            campaign_id=campaign.id, domain_id=domain.id, step=0, idempotency_key=f"wait-{stage}"
+        )
+    )
+    await world.session.flush()
+    await world.lead(IVAN)
+
+    await world.clean()
+
+    assert await world.rows() == [
+        rejected(RejectionReason.OTHER_DIRECTION, f"домен в работе у другого направления: {ACME}")
+    ]
 
 
 # --- A3: отписки и общий стоп-лист -------------------------------------------------
@@ -627,6 +682,7 @@ async def test_a6_service_failure_leaves_the_lead_new_with_the_reason_and_the_ne
     [
         ProviderQuotaError("квота исчерпана: monthly"),
         ProviderBlockedError("учётка закрыта провайдером: x — квота тут ни при чём"),
+        ProviderRateLimitError(TOO_OFTEN),
     ],
 )
 async def test_a6_quota_or_closed_account_stops_the_paid_part_and_the_rest_wait_new(
@@ -675,7 +731,7 @@ async def test_hunter_verdicts_are_written_with_their_source_and_paid_once_per_b
     answers = {
         IVAN: {"data": {"status": "valid", "score": 97}},
         "dead@acme.example.test": {"data": {"status": "invalid", "score": 3}},
-        "slow@acme.example.test": None,  # 429 без тела
+        "slow@acme.example.test": None,  # 429 без тела — и на каждом повторе
         "olga@beta.example.test": {"data": {"status": "accept_all", "score": 64}},
     }
 
@@ -694,7 +750,7 @@ async def test_hunter_verdicts_are_written_with_their_source_and_paid_once_per_b
     assert await world.rows() == [
         PAID_READY,
         Row(LeadStatus.REJECTED, "undeliverable", "адрес не существует: dead@acme.example.test", "hunter:invalid", 3, NOW),
-        Row(LeadStatus.NEW, note="проверка не выполнена: провайдер не ответил (HTTP 429) — повторим следующей очисткой"),
+        Row(LeadStatus.NEW, note=f"проверка не выполнена: {TOO_OFTEN}"),
         Row(LeadStatus.READY, verification="hunter:accept_all", score=64, verified_at=NOW),
         rejected(RejectionReason.DUPLICATE, f"дубль: адрес уже у лида №{first.id}"),
     ]  # fmt: skip
@@ -706,9 +762,65 @@ async def test_hunter_verdicts_are_written_with_their_source_and_paid_once_per_b
         verified=3,
         paid_units=3,
         verifier="hunter",
+        stopped=TOO_OFTEN,  # Ольгу спросили вместе со «slow» — до остановки
     )
     paid = ("sales_verify", UsageProvider.HUNTER)
     assert await _usage(world.session) == [
         (*paid, 2, "outreach-donors"),
         (*paid, 1, "outreach-donors"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("refusal", "words"),
+    [
+        (httpx.Response(429), TOO_OFTEN),
+        (httpx.Response(429, headers={"Retry-After": "5"}), TOO_OFTEN),
+        (
+            httpx.Response(429, json={"errors": [{"id": "too_many_requests", "details": "slow"}]}),
+            "частота превышена: slow",
+        ),
+    ],
+)
+async def test_429_through_every_retry_stops_the_paid_part_and_loses_neither_leads_nor_units(
+    world: World, monkeypatch: pytest.MonkeyPatch, refusal: httpx.Response, words: str
+) -> None:
+    """Серия 429 посреди очистки: адрес повторён с паузой, частота не прошла — следующие адреса
+    бились бы в тот же предел, и платная часть встаёт. Проверенные до неё — готовы и оплачены
+    строкой расхода; остальные — `new` с причиной словами, и следующая очистка их возьмёт."""
+    monkeypatch.setattr(cleaning, "VERIFY_CONCURRENCY", 1)
+    monkeypatch.setattr(cleaning, "BATCH", 2)
+    asked: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        email = request.url.params["email"]
+        asked.append(email)
+        if email == IVAN:
+            return httpx.Response(200, json={"data": {"status": "valid", "score": 97}})
+        return refusal
+
+    await world.lead(IVAN)
+    await world.lead("slow@acme.example.test")
+    await world.lead("maria@acme.example.test")  # та же партия, после остановки
+    await world.lead("olga@beta.example.test")  # следующая партия
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        report = await cleaning.clean(world.session, HunterVerifier(http, api_key="k"), now=NOW)
+
+    assert asked == [IVAN, *["slow@acme.example.test"] * 3]
+    waiting = Row(LeadStatus.NEW, note=f"проверка не выполнена: {words}")
+    assert await world.rows() == [PAID_READY, waiting, waiting, waiting]
+    assert report == CleaningReport(
+        checked=4, ready=1, unverified=3, verified=1, paid_units=1, verifier="hunter", stopped=words
+    )
+    assert await _usage(world.session) == [
+        ("sales_verify", UsageProvider.HUNTER, 1, "outreach-donors")
+    ]
+
+    healed = Scripted()
+    again = await cleaning.clean(world.session, healed, now=NOW)
+
+    assert sorted(healed.asked) == sorted(
+        ["slow@acme.example.test", "maria@acme.example.test", "olga@beta.example.test"]
+    )
+    assert again.ready == 3

@@ -29,6 +29,7 @@ from backend.config import storage
 from backend.config.startup_checks import ConfigError
 from backend.features.access.permissions import no_right
 from backend.features.contacts.mx import MailRoute
+from backend.features.core import usage
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.domain import DomainModel
@@ -66,6 +67,13 @@ TYPES = "\n".join(
 )
 #: Ответ Hunter «адрес есть» — по нему считается платная единица.
 VALID = {"data": {"status": "valid", "score": 91}}
+
+
+@pytest.fixture(autouse=True)
+def _month_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Месячный потолок проверок у живого проверяльщика задан с запасом: здесь не о нём
+    (`tests/test_sales_verify_cap.py`)."""
+    monkeypatch.setattr("backend.config.sales.VERIFIER_MONTH_CAP", "100000")
 
 
 @pytest.fixture(autouse=True)
@@ -230,7 +238,10 @@ async def _start(client: AsyncClient, headers: dict[str, str], hypothesis_id: in
 # --- перед запуском: сколько ждёт и платно ли -------------------------------------------------
 
 
-@pytest.mark.parametrize(("provider", "paid"), [("fixture", False), (" Live ", True)])
+@pytest.mark.parametrize(
+    ("provider", "paid", "month"),
+    [("fixture", False, None), (" Live ", True, "Проверок адреса в этом месяце 7 из 100000")],
+)
 async def test_screen_learns_how_many_wait_and_whether_the_check_is_paid(
     session: AsyncSession,
     client: AsyncClient,
@@ -239,18 +250,48 @@ async def test_screen_learns_how_many_wait_and_whether_the_check_is_paid(
     monkeypatch: pytest.MonkeyPatch,
     provider: str,
     paid: bool,
+    month: str | None,
 ) -> None:
+    """Живая проверка — и сколько проверок уже ушло в этом месяце под своим потолком: окно
+    расхода называет остаток до решения."""
     monkeypatch.setattr(sales_cfg, "VERIFIER_PROVIDER", provider)
     monkeypatch.setattr(contacts_cfg, "HUNTER_API_KEY", "k-test")
     other = await _hypothesis(session, "сайты DE")
     await _leads(session, other, "hans@delta.example.test")
+    usage.record(session, operation="sales_verify", units=7)
     await session.commit()
 
     response = await client.get(f"{CLEAN}?hypothesis={waiting.id}", headers=headers)
 
     assert response.status_code == 200, response.text
     # Ждут — только `new` этой гипотезы: готовый лид и чужая гипотеза не в счёт.
-    assert response.json() == {"hypothesis_id": waiting.id, "waiting": 2, "paid": paid}
+    assert response.json() == {
+        "hypothesis_id": waiting.id,
+        "waiting": 2,
+        "paid": paid,
+        "month": month,
+    }
+
+
+async def test_live_check_without_a_month_cap_says_so_in_the_window(
+    session: AsyncSession,
+    client: AsyncClient,
+    headers: dict[str, str],
+    waiting: SalesHypothesisModel,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Потолок не задан — окно расхода говорит это словами до запуска: очистка пройдёт
+    бесплатные правила, а платная часть встанет (`verify_cap`)."""
+    monkeypatch.setattr(sales_cfg, "VERIFIER_PROVIDER", "live")
+    monkeypatch.setattr(contacts_cfg, "HUNTER_API_KEY", "k-test")
+    monkeypatch.setattr(sales_cfg, "VERIFIER_MONTH_CAP", "")
+
+    response = await client.get(f"{CLEAN}?hypothesis={waiting.id}", headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["month"] == (
+        "Потолок проверки адресов на месяц не задан — задайте SALES_VERIFIER_MONTH_CAP"
+    )
 
 
 async def test_waiting_is_exactly_what_the_pass_takes(

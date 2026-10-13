@@ -55,6 +55,7 @@ function ConfirmPaid({ view, busy, error, onCancel, onStart }: ConfirmProps) {
         <Text size="sm">
           Проверка адресов платная: до {formatNumber(view.waiting)} {requests} Hunter.
         </Text>
+        {view.month !== null ? <Text size="sm">{view.month}.</Text> : null}
         <Text size="sm" c="dimmed">
           Каждый лид — не больше одной проверки. Дубли, стоп-листы и домены без почты отсеиваются
           раньше и бесплатно, поэтому запросов обычно меньше. Ключ Hunter общий с поиском адресов.

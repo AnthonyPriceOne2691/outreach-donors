@@ -58,7 +58,7 @@ EXIT_TAKEN = 3
 EXIT_BAD_NAME = 4
 EXIT_NO_HYPOTHESIS = 5
 #: Платная часть очистки остановлена квотой или закрытой учёткой: повтор без
-#: человека не поможет, непроверенные лиды остались `new`.
+#: человека не поможет, непроверенные лиды остались в прежнем статусе.
 EXIT_VERIFIER_STOPPED = 7
 #: Google не ответил: повтор поможет — как отсутствие сети у `contacts-file`.
 EXIT_UNAVAILABLE = 8
@@ -156,11 +156,11 @@ def _print_cleaning(report: CleaningReport) -> None:
 def _print_unverified(report: CleaningReport) -> None:
     if report.stopped:
         print(
-            f"\nПлатная часть остановлена: {report.stopped}. Непроверенные лиды остались new — "
-            "повторите очистку, когда причина снята."
+            f"\nПлатная часть остановлена: {report.stopped}. Непроверенные лиды остались "
+            "в прежнем статусе — повторите очистку, когда причина снята."
         )
     elif report.unverified:
-        print("\nНе проверенные лиды остались new: следующая очистка повторит их.")
+        print("\nНепроверенные лиды остались в прежнем статусе: следующая очистка повторит их.")
 
 
 async def run_stoplist_add(session: AsyncSession, args: argparse.Namespace) -> int:

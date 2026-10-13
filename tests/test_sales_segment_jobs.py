@@ -14,7 +14,7 @@ from backend.config import llm as llm_cfg
 from backend.config import storage
 from backend.config.startup_checks import ConfigError
 from backend.features.sales import segment_jobs
-from backend.features.sales.segment_estimate import SALES_OFF, SERP_AHREFS
+from backend.features.sales.segment_estimate import SALES_OFF, SANDBOX, SERP_AHREFS
 from backend.features.sales.segment_judge import SegmentClient
 from backend.features.sales.segment_models import Stage
 from backend.features.sales.segment_run import RunDeps
@@ -161,6 +161,33 @@ async def test_serp_switched_to_ahrefs_after_the_estimate_stops_the_run(
 
     assert ran == []
     assert stopped == [(7, f"SerpNotSetError: {SERP_AHREFS}")]
+
+
+async def test_serp_sandbox_switched_on_after_the_estimate_stops_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Песочницу выдачи включили после сметы — продолжение прогона смету не пересчитывает. Сайты
+    в песочнице выдуманы, а судья и поиск адресов по ним — настоящие траты: прогон встаёт
+    словами сметы, до прохода (как `check_collect` у прогона доноров)."""
+    stopped: list[tuple[int, str]] = []
+    ran: list[int] = []
+
+    async def stop(_factory: object, run_id: int, words: str) -> None:
+        stopped.append((run_id, words))
+
+    async def execute(_session: AsyncSession, run_id: int, _deps: RunDeps) -> dict[str, Any]:
+        ran.append(run_id)
+        return {}
+
+    monkeypatch.setattr("backend.config.serp.SANDBOX", True)
+    monkeypatch.setattr(segment_jobs, "_stop", stop)
+    monkeypatch.setattr(segment_jobs, "execute", execute)
+
+    with pytest.raises(segment_jobs.SerpNotSetError):
+        await segment_jobs.run_once(7)
+
+    assert ran == []
+    assert stopped == [(7, f"SerpNotSetError: {SANDBOX}")]
 
 
 async def test_sales_switched_off_after_the_start_stop_the_run_in_words(

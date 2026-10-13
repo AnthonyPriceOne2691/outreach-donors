@@ -7,7 +7,9 @@
 
 **Платная часть — один раз.** Цена выдачи пишется строкой расхода `sales_serp` в той же
 транзакции, что кандидаты, и этап отмечается сделанным: повтор задачи после сбоя выдачу
-заново не покупает (вызывающий коммитит сразу).
+заново не покупает (вызывающий коммитит сразу). Выдача упала, успев потратить (задачи
+поставлены и списаны, забрать не вышло), — потраченное пишется и коммитится сразу, до
+повтора задачи: откат унёс бы строку, а повтор купит выдачу снова и запишет свою.
 
 **Домен, уже собранный гипотезой, второй раз не заводится**: его не судят и не ищут ему
 адрес снова — отчёт называет его «уже в сборе гипотезы».
@@ -15,6 +17,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from typing import Any
 
@@ -31,6 +34,8 @@ from backend.features.sales.segment_models import (
     Stage,
 )
 from backend.features.serp.protocol import SerpProvider
+
+logger = logging.getLogger(__name__)
 
 #: Операция журнала расхода: выдача сбора продаж, единица — доллар.
 SERP_OPERATION = "sales_serp"
@@ -81,9 +86,14 @@ async def collect(
 ) -> dict[str, Any]:
     """Купить выдачу по ключам прогона и завести кандидатов. Коммит — за вызывающим,
     сразу: строка расхода и кандидаты — одна транзакция."""
-    found = await gather_candidates(
-        provider, run.keywords, run.country, depth_pages=run.depth_pages
-    )
+    before = getattr(provider, "spent", 0.0)
+    try:
+        found = await gather_candidates(
+            provider, run.keywords, run.country, depth_pages=run.depth_pages
+        )
+    except Exception:
+        await _paid_anyway(session, max(0.0, getattr(provider, "spent", 0.0) - before))
+        raise
     if found.cost_usd:
         usage.record(session, operation=SERP_OPERATION, amount_usd=found.cost_usd)
     domains = DonorRepository(session)
@@ -105,3 +115,15 @@ async def collect(
     run.report = {**run.report, "serp": tally}
     run.stage = Stage.SERP
     return tally
+
+
+async def _paid_anyway(session: AsyncSession, spent: float) -> None:
+    """Выдача упала после оплаты: потраченное — строкой расхода с коммитом, до повтора задачи."""
+    if not spent:
+        return
+    usage.record(session, operation=SERP_OPERATION, amount_usd=spent)
+    await session.commit()
+    logger.warning(
+        "сбор продаж: выдача упала после оплаты — расход записан, повтор купит её снова",
+        extra={"amount_usd": round(spent, 4)},
+    )
