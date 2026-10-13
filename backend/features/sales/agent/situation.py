@@ -36,6 +36,7 @@ from backend.features.agent import guarding
 from backend.features.agent.stages import Conversation
 from backend.features.agent.writer import DraftUnavailableError, Turn
 from backend.features.core import usage
+from backend.features.sales import usage_cap
 from backend.features.sales.agent import calling, parts
 from backend.features.sales.models import KbKind
 from backend.shared.llm import Refusal
@@ -229,10 +230,13 @@ async def classify(
 
     Отказ модели — `DraftUnavailableError`, как у писателя: задача черновика
     повторит сбой сети и остановится с причиной на ключе; потолки расхода —
-    общий и свой потолок черновиков агента (`guarding.drafts_cap`, ситуация — его
-    операция брифа) — проверяются до вызова (`usage.ensure_llm_within_cap`).
+    общий, свой потолок черновиков агента (`guarding.drafts_cap`, ситуация — его
+    операция брифа) и свой потолок продаж (`usage_cap.sales_cap`: агент продаж в нём) —
+    проверяются до вызова (`usage.ensure_llm_within_cap`). Ситуация — первый вызов модели
+    черновика: выбран потолок продаж — черновика нет, ни писателя, ни судьи.
     """
     await usage.ensure_llm_within_cap(session, own=guarding.drafts_cap())
+    await usage.ensure_llm_within_cap(session, own=usage_cap.sales_cap())
     answer = await calling.ask(
         prompt=PROMPT,
         user=user_message(conversation.turns, tags=tags),

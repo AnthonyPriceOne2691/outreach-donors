@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 from collections.abc import Awaitable, Callable
@@ -447,10 +448,15 @@ async def test_retry_pass_queues_notice_retries_after_handoff_retries(
 
 
 async def test_bot_watch_goes_after_the_retries_and_does_not_hold_them(
-    session: AsyncSession, llm: Plug, wired: list[float], monkeypatch: pytest.MonkeyPatch
+    session: AsyncSession,
+    llm: Plug,
+    wired: list[float],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Сторож бота продаж (сводная тревога «без токена») идёт тем же кругом после постановки
-    повторов: его сбой не держит ни повтор передачи, ни повторы сообщений."""
+    повторов: его сбой не держит ни повтор передачи, ни повторы сообщений, а сам он — строка в
+    журнал, а не сбой круга (недельный отчёт за ним — `test_sales_seam_group.py`)."""
     order, expected = await _three_due(session, llm, monkeypatch)
 
     async def broken(_session: AsyncSession) -> None:
@@ -458,10 +464,11 @@ async def test_bot_watch_goes_after_the_retries_and_does_not_hold_them(
 
     monkeypatch.setattr(handoff_jobs, "watch_token", broken)
 
-    with pytest.raises(RuntimeError, match="лента тревог не ответила"):
+    with caplog.at_level(logging.ERROR, logger=handoff_jobs.__name__):
         await handoff_jobs.retry_pass()
 
     assert order == expected
+    assert "лента тревог не ответила" in caplog.text
 
 
 # --- продажи выключены: сообщения о черновике нет ------------------------------------------------

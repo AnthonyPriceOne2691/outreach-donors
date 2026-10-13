@@ -95,6 +95,7 @@ async def card_of(session: AsyncSession, row: SalesHandoffModel) -> Card:
         first_sent_at=first,
         project=project,
         services=services,
+        reply_from=(reply.from_email or "") if reply else "",
     )
 
 

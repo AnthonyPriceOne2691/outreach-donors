@@ -23,7 +23,8 @@ Kommo (`due`), и повтор сообщения, где ждёт только 
 выключены (`SALES_ENABLED`) — не ставит ни одной, а обе задачи никуда не ходят. Тем же
 кругом, после них, — повтор сообщения о черновике агента продаж (`agent/notify_retry.py`).
 Сторож бота продаж — тем же кругом, после постановки повторов: сводная тревога «без токена»
-в общую ленту (`agent/notify.watch_token`); его сбой повторов не держит. Последним — недельный
+в общую ленту (`agent/notify.watch_token`); его сбой — строка в журнал: он не держит ни
+повторов, ни недельного отчёта. Последним — недельный
 отчёт продаж в группу (`weekly_jobs.due`, срез 6.3): пришло его время или ждёт повтор — задача
 в очередь продаж; его сбой не держит ни повторов, ни сторожа.
 """
@@ -39,7 +40,7 @@ from typing import Any
 import httpx
 from redis.exceptions import RedisError
 from rq import get_current_job
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import storage
 from backend.config.startup_checks import ConfigError, check_storage
@@ -77,6 +78,7 @@ _REFUSED_HANDOFF = "продажи: повтор передачи лида не 
 _REFUSED_MESSAGE = "продажи: повтор сообщения о лиде не поставлен — очередь недоступна"
 _REFUSED_NOTICE = "продажи: повтор сообщения о черновике не поставлен — очередь недоступна"
 _REFUSED_WEEKLY = "продажи: недельный отчёт не поставлен — очередь недоступна"
+_WATCH_FAILED = "продажи: сторож бота продаж не прошёл — недельный отчёт идёт своим кругом"
 
 
 def _http() -> httpx.AsyncClient:
@@ -183,14 +185,23 @@ async def retry_pass() -> None:
             messages = await message_due(session, now=now)
             notices = await notify_retry.due(session, now=now)
         _queue_again(ids, messages, notices)
-        async with factory() as session:
-            await watch_token(session)
+        await _watch(factory)
         async with factory() as session:
             reports = await weekly_jobs.due(session, now=now)
         for report in reports:
             _put(weekly_jobs.queue_send, report, _REFUSED_WEEKLY, "report")
     finally:
         await engine.dispose()
+
+
+async def _watch(factory: async_sessionmaker[AsyncSession]) -> None:
+    """Сторож бота продаж своей сессией. Его сбой (база на его запросе) — строка в журнал, а не
+    сбой круга: иначе недельный отчёт за ним ждал бы, пока сторож не перестанет падать."""
+    try:
+        async with factory() as session:
+            await watch_token(session)
+    except Exception:
+        logger.exception(_WATCH_FAILED)
 
 
 def _queue_again(ids: list[int], messages: list[int], notices: list[tuple[int, int]]) -> None:

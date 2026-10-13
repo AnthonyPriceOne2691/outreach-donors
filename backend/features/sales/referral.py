@@ -19,6 +19,8 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import assert_never
@@ -26,9 +28,10 @@ from typing import assert_never
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config.startup_checks import ConfigError
 from backend.features.core.domain import ThreadStatus
 from backend.features.core.models.donor import ContactModel
-from backend.features.core.models.outreach import ThreadModel
+from backend.features.core.models.outreach import ReplyModel, ThreadModel
 from backend.features.sales.cleaning import clean_leads
 from backend.features.sales.models import (
     LeadSource,
@@ -37,6 +40,8 @@ from backend.features.sales.models import (
     SalesThreadModel,
 )
 from backend.features.sales.verifier import EmailVerifier
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +132,32 @@ async def refer(
     await clean_leads(session, [lead], verifier, now=now)
     await session.refresh(lead)
     return _referred(lead)
+
+
+async def from_answer(
+    session: AsyncSession,
+    reply: ReplyModel,
+    contact: str | None,
+    verifier: Callable[[], EmailVerifier] | None,
+    *,
+    now: datetime,
+    name: str | None = None,
+) -> Referred:
+    """Лид из ответа задачи продаж: «пишите другому» или адрес, названный мёртвым ящиком лида.
+    Неверная настройка проверки адресов всплывает здесь, уже после вызова модели, — поэтому не
+    роняет задачу: откат стёр бы расход, а повтор очереди позвал бы модель снова. Лида заводит
+    человек."""
+    if verifier is None:
+        return Referred(None, "проверка адресов задаче не дана — завести лида руками")
+    try:
+        built = verifier()
+    except ConfigError:
+        logger.exception(
+            "продажи: проверка адресов не настроена — лида из ответа заведёт человек",
+            extra={"reply": reply.id},
+        )
+        return Referred(None, "проверка адресов не настроена — завести лида руками")
+    return await refer(session, reply.thread_id, contact, built, now=now, name=name)
 
 
 def _person(name: str | None) -> str | None:
