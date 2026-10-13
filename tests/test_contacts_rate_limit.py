@@ -21,6 +21,7 @@ from backend.features.contacts.provider import (
     ProviderBlockedError,
     ProviderError,
     ProviderRateLimitError,
+    transient,
 )
 from backend.features.contacts.search import search_contacts
 from backend.features.core.domain import ContactStatus
@@ -149,7 +150,7 @@ class TestThePass:
         assert limited.calls == ["one.example.test"]
         assert ladder.halt.startswith("платный сервис ограничил частоту и после повторов")
 
-    async def test_the_search_stops_in_words(
+    async def test_the_search_stops_paying_and_walks_the_rest_free(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         limited = Limited()
@@ -169,9 +170,32 @@ class TestThePass:
 
         report = await search_contacts(session, limit=10)
 
-        assert (report.pending, report.walked, len(limited.calls)) == (3, 1, 1)
-        assert (
-            "Проход остановлен на 1 из 3 доменов: платный сервис ограничил частоту и после "
-            "повторов не отпустил (частота превышена: slow down). Остальные — следующим "
-            "проходом"
-        ) in report.notes
+        # Платный сервис спрошен один раз, а бесплатные ступени прошли все три домена:
+        # обрыв прохода оставил бы остальные и без них (ревью продаж #358).
+        assert (report.pending, report.walked, len(limited.calls)) == (3, 3, 1)
+        said = (
+            "Платная ступень остановлена: платный сервис ограничил частоту и после повторов "
+            "не отпустил (частота превышена: slow down). Домены после неё прошли бесплатные "
+            "ступени, платная — следующим проходом"
+        )
+        assert report.notes.count(said) == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "marker", "repeat"),
+    [
+        (429, "too_many_requests", True),
+        (429, "restricted_account", False),
+        (429, "usage_exceeded", False),
+        (429, "some_new_marker", False),
+        (503, "some_new_marker", True),
+        (503, "", True),
+        (500, "usage_exceeded", False),
+        (400, "wrong_params", False),
+    ],
+)
+def test_what_is_repeated(status: int, marker: str, repeat: bool) -> None:
+    """Повтор — частоте и перегрузке; закрытой учётке, квоте и незнакомому маркеру на 429 —
+    нет (так пряталась закрытая учётка); 5xx с иным маркером — перегрузка (ревью продаж #358)."""
+    body: dict[str, Any] = {"errors": [{"id": marker, "details": "x"}]} if marker else {}
+    assert transient(httpx.Response(status, json=body)) is repeat

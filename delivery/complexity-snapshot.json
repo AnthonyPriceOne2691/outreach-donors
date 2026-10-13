@@ -702,7 +702,7 @@
       "worst": "—"
     },
     "backend/config/contacts.py": {
-      "lines": 118,
+      "lines": 119,
       "complexity": 0,
       "worst": "—"
     },
@@ -937,9 +937,9 @@
       "worst": "preferred_first:47"
     },
     "backend/features/contacts/provider.py": {
-      "lines": 262,
+      "lines": 275,
       "complexity": 8,
-      "worst": "_call:171"
+      "worst": "transient:124"
     },
     "backend/features/contacts/quality.py": {
       "lines": 417,

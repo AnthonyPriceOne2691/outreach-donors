@@ -17,7 +17,7 @@
 две попытки сверх первой, пауза по `Retry-After` провайдера, не дольше общего потолка.
 До сверки первый же 429 делал домен «недоспрошенным», и следующие домены прохода били
 в тот же лимит. Повторяется только частота и перегрузка — маркер решает раньше кода
-(`_transient`): закрытая учётка и квота приезжают тем же 429, и повтор их не лечит.
+(`transient`): закрытая учётка и квота приезжают тем же 429, и повтор их не лечит.
 Не отпустило — `ProviderRateLimitError`, и проход встаёт (`ladder.py`, `search.py`).
 """
 
@@ -117,12 +117,18 @@ def _error_id(body: dict[str, Any]) -> tuple[str, str]:
     return str(first.get("id") or "").strip(), str(first.get("details") or "")
 
 
-def _transient(response: httpx.Response) -> bool:
-    """Повторять ли ответ: частота и перегрузка проходят сами, прочее — нет.
+#: Маркеры отказа, которые повтор не лечит: закрытая учётка и кончившаяся квота.
+PERMANENT_MARKERS = frozenset({"restricted_account", "usage_exceeded"})
 
-    Маркер раньше кода, как у разбора отказа (`_raise_refusal`): 429 с маркером закрытой
-    учётки или кончившейся квоты повтором не лечится, а без маркера код судит, как
-    у остальных провайдеров (`RETRY_STATUSES`)."""
+
+def transient(response: httpx.Response) -> bool:
+    """Повторять ли ответ Hunter: частота и перегрузка проходят сами, прочее — нет.
+
+    Маркер раньше кода, как у разбора отказа (`_raise_refusal`): закрытая учётка и кончившаяся
+    квота повтором не лечатся, частота — лечится, незнакомый маркер на 429 частотой не
+    считается. Остальное судит код, как у других провайдеров (`RETRY_STATUSES`): 5xx с любым
+    иным маркером — перегрузка (ревью продаж #358). Публичная — проверка адресов продаж
+    повторяет тем же правилом (`with_retries(retry_when=transient)`)."""
     if response.status_code < 400:
         return False
     try:
@@ -132,7 +138,14 @@ def _transient(response: httpx.Response) -> bool:
         logger.info("платный сервис: ответ %s не JSON — повтор решает код", response.status_code)
         return response.status_code in RETRY_STATUSES
     marker = _error_id(body)[0] if isinstance(body, dict) else ""
-    return marker == _RATE_MARKER if marker else response.status_code in RETRY_STATUSES
+    if marker in PERMANENT_MARKERS:
+        return False
+    if marker == _RATE_MARKER:
+        return True
+    # Незнакомый маркер на 429 за частоту не выдаём: так пряталась закрытая учётка (22.09.2026).
+    if marker and response.status_code == 429:
+        return False
+    return response.status_code in RETRY_STATUSES
 
 
 def _raise_refusal(body: dict[str, Any], status: int) -> None:
@@ -188,7 +201,7 @@ class HunterProvider:
                 ),
                 attempts=ATTEMPTS,
                 topic="платный сервис адресов",
-                retry_when=_transient,
+                retry_when=transient,
             )
         except httpx.HTTPError as exc:
             # Без цепочки у несобранного запроса: в тексте исключения ключ.

@@ -124,3 +124,17 @@ async def test_the_sales_collection_keeps_its_own_flag(
 
     assert net.paid == ["/v2/account", "/v2/domain-search"]
     assert report.saved == 1
+
+
+async def test_the_sales_collection_without_its_flag_pays_nothing_even_with_ours(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, net: Net
+) -> None:
+    """Обратный случай (ревью продаж #358): флаг доноров включён, а сбор базы продаж без
+    своего (`no_paid=True`) — ни запроса к платному сервису."""
+    monkeypatch.setattr(contacts_cfg, "PAID_SEARCH_ENABLED", True)
+
+    report = await search_contacts(session, limit=10, queue=Queue(Stage.SALES), no_paid=True)
+
+    assert net.paid == [], "ни запроса остатка, ни поиска"
+    assert net.site, "бесплатные ступени прошли домен как раньше"
+    assert report.saved == 0

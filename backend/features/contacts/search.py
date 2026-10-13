@@ -275,15 +275,15 @@ async def search_contacts(
             report.walked = start + len(batch)
             if on_batch is not None:
                 on_batch(report.walked, len(hosts))
-            if ladder.halt:
-                # Частота не отпустила и после повторов: следующие домены упёрлись бы в тот
-                # же лимит, и проход перебрал бы их вхолостую. Непройденные ждут следующего.
-                report.notes.append(
-                    f"Проход остановлен на {report.walked} из {len(hosts)} доменов: "
-                    f"{ladder.halt}. Остальные — следующим проходом"
-                )
-                break
 
+        if ladder.halt:
+            # Частота не отпустила и после повторов: платная ступень дальше не звалась
+            # (`ladder.py`), а бесплатные прошли все домены — обрыв прохода оставил бы
+            # остальные и без них (ревью продаж #358). Платная — следующим проходом.
+            report.notes.append(
+                f"Платная ступень остановлена: {ladder.halt}. Домены после неё прошли "
+                "бесплатные ступени, платная — следующим проходом"
+            )
         report.counters = ladder.counters.as_report()
         report.manual_queue_left = ladder.manual_queue_left
         _note_provider_refusal(report, ladder.counters)
