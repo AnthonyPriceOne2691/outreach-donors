@@ -23,6 +23,13 @@ from backend.features.core.stages import MailPolicy
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.outreach.health import SoftSignals
 from backend.features.outreach.threads import review_of
+from backend.features.sales import handoff
+from backend.features.sales.models import (
+    LeadSource,
+    LeadStatus,
+    SalesHypothesisModel,
+    SalesLeadModel,
+)
 from backend.features.sales.replies import SalesReplies
 from backend.features.sales.reply_kind import Unanswered
 from backend.shared import queue
@@ -37,6 +44,7 @@ from tests.test_sales_ooo_unsubscribe import _answer
 from tests.test_sales_reply_kind import _job_body_on_test_base, _sales_reply
 from tests.test_sales_reply_routing import (
     AUTH,
+    HOST,
     NOW,
     URL,
     FakeClassifier,
@@ -239,3 +247,44 @@ async def test_out_of_office_job_that_runs_again_later_keeps_the_step_where_it_w
         await session.flush()
         await session.refresh(letter)
         assert letter.next_action_at == expected, f"задача через {late} сдвинула срок"
+
+
+@pytest.mark.parametrize("zone", ["Pacific/Auckland", "Pacific/Honolulu"], ids=["восток", "запад"])
+async def test_the_return_date_is_the_start_of_its_utc_day_whatever_the_zone_of_the_lead(
+    session: AsyncSession, zone: str
+) -> None:
+    """Решение владельца 13.10 (хвост B6): «вернусь 14.10» — шаг не раньше 14.10 00:00 по UTC, а
+    не по поясу лида; в часы лида письмо ставит окно отправки при самой отправке. Лиду в Окленде
+    (UTC+13) это 14.10 13:00 по его часам, в Гонолулу (UTC−10) — 13.10 14:00, накануне. Полночь
+    по поясу лида дала бы 13.10 11:00 и 14.10 10:00 UTC — тест это и ловит: пояс лида модулю
+    виден, а срок от него не зависит."""
+    letter = await sales_letter(session)
+    hypothesis = SalesHypothesisModel(name="Автоответ и пояс лида")
+    session.add(hypothesis)
+    await session.flush()
+    session.add(
+        SalesLeadModel(
+            hypothesis_id=hypothesis.id,
+            domain_id=letter.domain_id,
+            contact_id=letter.contact_id,
+            email=f"ceo@{HOST}",
+            timezone=zone,
+            source=LeadSource.IMPORT,
+            status=LeadStatus.READY,
+        )
+    )
+    letter.next_action_at = NOW + timedelta(days=2)
+    await session.commit()
+    assert (await handoff.lead_of(session, letter.thread_id)).timezone == zone
+    reply = await _answer(
+        session,
+        letter,
+        "Я в отпуске, вернусь 14.10 и сразу отвечу.",
+        headers={"Auto-Submitted": "auto-replied"},
+    )
+
+    await SalesReplies(session, FakeClassifier(), now=NOW).handle(reply.id)
+
+    await session.flush()
+    await session.refresh(letter)
+    assert letter.next_action_at == datetime(2026, 10, 14, tzinfo=UTC)

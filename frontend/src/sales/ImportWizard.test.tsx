@@ -486,14 +486,14 @@ describe('отказ сервера на форму — как у остальн
     expect(failure).toHaveProperty('status', 422);
   });
 
-  it('без текста отказа — код ответа, а не пустота', async () => {
+  it('без текста отказа — код ответа, а не пустота; шлюз прокси — словами', async () => {
     expect(await refusalOn({ status: 422, body: { detail: [] } })).toHaveProperty(
       'message',
       'Сервер ответил 422',
     );
     expect(await refusalOn({ status: 502, raw: '<html>шлюз</html>' })).toHaveProperty(
       'message',
-      'Сервер ответил 502',
+      'Сервер недоступен (ответ 502) — идёт выкатка или он перезапускается, повторите через минуту',
     );
   });
 

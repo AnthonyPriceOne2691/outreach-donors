@@ -12,6 +12,10 @@
   «Отборе»: кто, какой сайт, что решил и что говорил судья сегмента; без права — не видно.
 - **Передача лида телемаркетологу** — в журнале один раз на диалог, без автора (её начинает
   разбор ответа), с этапом продаж: по журналу видно, когда лид ушёл в Kommo и Telegram.
+- **Заведение гипотезы и правка описания сегмента** (решение владельца 13.10) — в журнале: кто,
+  гипотеза, а у правки — было и стало. Описание — вопрос судье сбора базы, по нему решается, каким
+  сайтам продажи напишут. Своего действия журнала нет (новое значение перечисления — миграция):
+  общая «правка» со словами «действия», цель — гипотеза, этап — в записи; без права не видно.
 """
 
 from __future__ import annotations
@@ -21,10 +25,11 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import pytest
+from backend.cli.sales import EXIT_OK, run_hypothesis_add
 from backend.features.access.journal import SALES_ACTIONS, JournalQuery, read_journal
 from backend.features.core.domain import AuditAction, Stage
 from backend.features.core.models.access import AuditLogModel, UserModel
-from backend.features.sales import handoff
+from backend.features.sales import handoff, hypotheses
 from backend.features.sales.segment_report import LANE_WORDS
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -215,3 +220,127 @@ async def test_a_handoff_is_journaled_once_per_dialog_with_the_sales_stage(
         session, JournalQuery(action=AuditAction.LEAD_TAKEN, with_sales=False)
     )
     assert hidden.total == 0
+
+
+# --- гипотеза и описание сегмента (решение владельца 13.10) -------------------------------------
+
+HYPOTHESES = "/api/sales/hypotheses"
+SEGMENT = "описание сегмента"
+
+
+async def _of_hypotheses(session: AsyncSession) -> list[AuditLogModel]:
+    """Записи о гипотезах, кроме загрузки базы в гипотезу (у неё своё действие)."""
+    found = await session.scalars(
+        select(AuditLogModel)
+        .where(
+            AuditLogModel.action == AuditAction.USER_UPDATED,
+            AuditLogModel.target.like("sales\\_hypothesis:%", escape="\\"),
+        )
+        .order_by(AuditLogModel.id)
+    )
+    return list(found)
+
+
+async def test_a_new_hypothesis_is_journaled_with_its_author_and_the_sales_stage(
+    session: AsyncSession, client: AsyncClient, make_user: MakeUser, sign_in: SignIn
+) -> None:
+    seller = await make_user(SELLER)
+    headers = bearer(await sign_in(SELLER))
+
+    made = await client.post(
+        HYPOTHESES,
+        json={"name": " сайты  EN ", "description": " редакции и блоги "},
+        headers=headers,
+    )
+    taken = await client.post(HYPOTHESES, json={"name": "сайты EN"}, headers=headers)
+    nameless = await client.post(HYPOTHESES, json={"name": "   "}, headers=headers)
+
+    assert (made.status_code, taken.status_code, nameless.status_code) == (201, 409, 422)
+    [entry] = await _of_hypotheses(session)  # отказ заводить в журнал не пишет
+    assert (entry.user_id, entry.target) == (seller.id, f"sales_hypothesis:{made.json()['id']}")
+    assert entry.details == {
+        "этап": Stage.SALES.value,
+        "действие": hypotheses.MADE,
+        "имя": "сайты EN",
+        "описание сегмента": "редакции и блоги",
+    }
+
+
+async def test_a_hypothesis_from_the_console_is_journaled_without_an_author(
+    session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """У заведения два пути — окно экрана и консоль (урок L63): журнал пишут оба."""
+    assert await run_hypothesis_add(session, "сайты DE", None) == EXIT_OK
+    capsys.readouterr()
+
+    [entry] = await _of_hypotheses(session)
+    assert entry.user_id is None
+    assert entry.details == {
+        "этап": Stage.SALES.value,
+        "действие": hypotheses.MADE,
+        "имя": "сайты DE",
+        "описание сегмента": None,
+    }
+
+
+async def test_a_segment_edit_is_journaled_with_who_the_hypothesis_what_was_and_what_became(
+    session: AsyncSession, client: AsyncClient, make_user: MakeUser, sign_in: SignIn
+) -> None:
+    """«Было» и «стало» — своими строками; пустое экран журнала не выводит, поэтому «действие»
+    говорит само: описание задано, поправлено или снято. То же описание (с пробелами по краям) —
+    не правка: записи нет. Гипотезы нет — 404, записи тоже нет."""
+    seller = await make_user(SELLER)
+    headers = bearer(await sign_in(SELLER))
+    made = (await client.post(HYPOTHESES, json={"name": "сайты EN"}, headers=headers)).json()
+    url = f"{HYPOTHESES}/{made['id']}"
+
+    said = [
+        (await client.patch(url, json={"description": text}, headers=headers)).status_code
+        for text in ("  Магазины самокатов. ", " Магазины самокатов.  ", "Прокат самокатов.", " ")
+    ]
+    unknown = await client.patch(
+        f"{HYPOTHESES}/987654", json={"description": "Прокат."}, headers=headers
+    )
+
+    assert (said, unknown.status_code) == ([200] * 4, 404)
+    edits = [
+        entry
+        for entry in await _of_hypotheses(session)
+        if str((entry.details or {}).get("действие")).startswith(SEGMENT)
+    ]
+    assert [(entry.user_id, entry.target) for entry in edits] == [
+        (seller.id, f"sales_hypothesis:{made['id']}")
+    ] * 3
+    assert [entry.details for entry in edits] == [
+        {
+            "этап": Stage.SALES.value,
+            "действие": f"{SEGMENT} {what}",
+            "гипотеза": "сайты EN",
+            "было": was,
+            "стало": became,
+        }
+        for what, was, became in (
+            ("задано", None, "Магазины самокатов."),
+            ("поправлено", "Магазины самокатов.", "Прокат самокатов."),
+            ("снято", "Прокат самокатов.", None),
+        )
+    ]
+
+
+async def test_without_the_right_the_hypothesis_and_its_segment_are_not_in_the_journal(
+    session: AsyncSession, client: AsyncClient, make_user: MakeUser, sign_in: SignIn
+) -> None:
+    await make_user(SELLER)
+    headers = bearer(await sign_in(SELLER))
+    made = (await client.post(HYPOTHESES, json={"name": "сайты EN"}, headers=headers)).json()
+    url = f"{HYPOTHESES}/{made['id']}"
+    assert (await client.patch(url, json={"description": "Прокат."}, headers=headers)).is_success
+
+    hidden = await read_journal(
+        session, JournalQuery(action=AuditAction.USER_UPDATED, with_sales=False)
+    )
+    shown = await read_journal(session, JournalQuery(action=AuditAction.USER_UPDATED))
+
+    target = f"sales_hypothesis:{made['id']}"
+    assert [entry.target for entry in hidden.entries if entry.target == target] == []
+    assert [entry.target for entry in shown.entries if entry.target == target] == [target] * 2

@@ -3,7 +3,7 @@
 `GET /sales/segment?hypothesis=N` — вкладка сбора: описание сегмента, режим судьи, рынки
 выдачи, языки писем, границы формы и прогоны гипотезы. `PATCH /sales/hypotheses/{N}` —
 описание сегмента: его читает судья сегмента (правка — новый вопрос модели, прежние вердикты
-по нему не годятся).
+по нему не годятся); правка — в журнале действий: кто, было и стало.
 
 `POST /sales/segment/estimate` — смета без записи: выдача, модель, Hunter строкой и отказ
 словами. `POST /sales/segment/runs` — запуск: смета считается заново на сервере, отказ — 409
@@ -120,14 +120,51 @@ async def read_segment(
 async def write_segment(
     hypothesis_id: int,
     body: SegmentBody,
-    _: UserModel = _seller,
+    author: UserModel = _seller,
     session: AsyncSession = Depends(db_session),
 ) -> SegmentCard:
-    """Описание сегмента — данными в базе: репозиторий публичный. Пусто — описания нет."""
+    """Описание сегмента — данными в базе: репозиторий публичный. Пусто — описания нет.
+    Правка — в журнал той же транзакцией; то же описание — не правка, записи нет."""
     found = await _hypothesis(session, hypothesis_id)
+    was = found.description
     found.description = body.description.strip() or None
+    if found.description != was:
+        await _journal_segment(session, author.id, found, was)
     await session.commit()
     return SegmentCard(hypothesis_id=hypothesis_id, description=found.description)
+
+
+def _segment_change(was: str | None, now: str | None) -> str:
+    """Что стало с описанием — словами «действия». Пустое «было» или «стало» экран журнала
+    строкой подробностей не выводит: «задано» и «снято» говорят это сами."""
+    if was is None:
+        return "описание сегмента задано"
+    if now is None:
+        return "описание сегмента снято"
+    return "описание сегмента поправлено"
+
+
+async def _journal_segment(
+    session: AsyncSession, author_id: int, hypothesis: SalesHypothesisModel, was: str | None
+) -> None:
+    """Правка описания — новый вопрос судье сегмента: по нему решается, каким сайтам продажи
+    напишут (решение владельца 13.10). В журнале — кто, гипотеза, было и стало: «было» и «стало» —
+    своими строками, как у правки лида (`lead_edit`), — экран журнала режет каждую строку
+    подробностей на трёх, и «стало» за длинным «было» не пропадает. Своего действия журнала нет
+    (новое значение перечисления — миграция): общая «правка» со словами «действия», как у
+    заведения гипотезы (`hypotheses.add`); этап — в записи."""
+    await AccessRepository(session).record(
+        AuditAction.USER_UPDATED,
+        author_id=author_id,
+        target=f"sales_hypothesis:{hypothesis.id}",
+        details={
+            "действие": _segment_change(was, hypothesis.description),
+            "гипотеза": hypothesis.name,
+            "было": was,
+            "стало": hypothesis.description,
+        },
+        stage=domain.Stage.SALES,  # этап воронки, а не стадия прогона (`Stage` выше)
+    )
 
 
 @router.post("/segment/estimate", response_model=EstimateView, summary="Смета прогона: без записи")
