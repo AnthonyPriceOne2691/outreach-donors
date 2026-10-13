@@ -354,6 +354,7 @@ async def test_clean_goes_to_the_job_queue_and_into_the_journal(
     )
     assert journal is not None
     assert journal.details == {
+        "этап": "sales",
         "действие": "очистка лидов продаж",
         "гипотеза": "сайты EN",
         "лидов": 2,

@@ -275,15 +275,32 @@ async def test_a_sales_letter_without_its_lead_is_refused_alone_and_the_batch_go
     session: AsyncSession, world: w.World
 ) -> None:
     """Письмо продаж, у которого нет лида, — отказ этому письму словами: пачка его считает и
-    отправляет остальные."""
+    отправляет остальные. В итоге пачки — «не готово к отправке», а не «почта отказала»: почта
+    тут ни при чём (ревью стыков, хвост R1 5.3)."""
     jane, _ = await _queued(session, world, JANE, OLGA)
     await _unlink(session, jane)
     source = _transports()
 
     report = await send_queue(session, source, stage=Stage.SALES)
 
-    assert (report.sent, sum(report.refused.values()), report.stopped) == (1, 1, None)
+    assert (report.sent, dict(report.refused), report.stopped) == (
+        1,
+        {"письмо не готово к отправке": 1},
+        None,
+    )
     assert [outgoing.to for outgoing in _seen(source)] == [OLGA]
+
+
+async def test_the_send_check_of_a_sales_letter_without_its_lead_says_it_is_not_ready(
+    session: AsyncSession, world: w.World
+) -> None:
+    """Проверка перед отправкой (`SalesMail.check`) говорит то же, что адрес письма
+    (`recipient`): связь с лидом пропала между ними — письмо «не готово», а не отказ почты."""
+    jane, _ = await _queued(session, world, JANE, OLGA)
+    await _unlink(session, jane)
+
+    with pytest.raises(NotReadyError, match="у письма продаж нет лида"):
+        await sales_mail.check(session, jane)
 
 
 async def test_a_followup_in_a_thread_without_a_sales_lead_waits_and_is_no_module_failure(

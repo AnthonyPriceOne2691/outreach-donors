@@ -222,6 +222,9 @@ async def run(session: AsyncSession, jobs: Queue, *, now: datetime) -> Plan:
             "писем": found.limit,
             "не хватало": found.short,
         },
+        # Этап — в записи: журнал прячет её от учётки без права «Продажи» не по словам
+        # «действия», которые правят (`access/journal.sales_entry`).
+        stage=Stage.SALES,
     )
     await session.commit()
     logger.info(

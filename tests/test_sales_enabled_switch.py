@@ -21,7 +21,7 @@ from backend.cli import sales_handoffs as console_cli
 from backend.cli.main import main
 from backend.config import sales as sales_cfg
 from backend.config import storage
-from backend.features.core.domain import ReplyKind
+from backend.features.core.domain import AuditAction, ReplyKind
 from backend.features.core.models.access import AuditLogModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import ReplyModel
@@ -343,8 +343,12 @@ async def _failed(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> Sal
 
 
 async def _journal(session: AsyncSession, handoff_id: int) -> list[AuditLogModel]:
+    """Решения консоли о передаче — правкой; «лид передан» при её заведении — не они."""
     rows = await session.scalars(
-        select(AuditLogModel).where(AuditLogModel.target == f"sales_handoff:{handoff_id}")
+        select(AuditLogModel).where(
+            AuditLogModel.target == f"sales_handoff:{handoff_id}",
+            AuditLogModel.action == AuditAction.USER_UPDATED,
+        )
     )
     return list(rows)
 

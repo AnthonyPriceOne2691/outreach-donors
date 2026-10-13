@@ -65,6 +65,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from backend.config import sales as cfg
+from backend.features.access.repository import AccessRepository
+from backend.features.core.domain import AuditAction, Stage
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import ThreadModel
 from backend.features.runs.failures import described
@@ -162,8 +164,10 @@ async def start(
     if not cfg.ENABLED:
         raise HandoffError(f"передача диалога №{thread_id} не начата: {SWITCHED_OFF}")
     lead = await lead_of(session, thread_id)
-    row = await _handoff_of(session, thread_id, lead.id)
+    row, made = await _handoff_of(session, thread_id, lead.id)
     latest = await latest_reply(session, thread_id)
+    if made:
+        await _journaled(session, row, latest.id if latest else None)
     if not _reopen(row, latest.id if latest else None):
         return row
     row.due_at = now() + timedelta(seconds=cfg.HANDOFF_RETRY_SEC)
@@ -243,9 +247,12 @@ async def handed_off(session: AsyncSession, lead_id: int) -> bool:
     return bool(await session.scalar(select(handed_off_rule(lead_id))))
 
 
-async def _handoff_of(session: AsyncSession, thread_id: int, lead_id: int) -> SalesHandoffModel:
-    """Передача диалога: заводится один раз, гонку двух вызовов держит ключ базы."""
-    await session.execute(
+async def _handoff_of(
+    session: AsyncSession, thread_id: int, lead_id: int
+) -> tuple[SalesHandoffModel, bool]:
+    """Передача диалога и заведена ли она этим вызовом: заводится один раз, гонку двух
+    вызовов держит ключ базы (номер возвращает только вставка, которая прошла)."""
+    made = await session.scalar(
         insert(SalesHandoffModel)
         .values(
             thread_id=thread_id,
@@ -255,6 +262,7 @@ async def _handoff_of(session: AsyncSession, thread_id: int, lead_id: int) -> Sa
             attempts=0,
         )
         .on_conflict_do_nothing(constraint="uq_sales_handoffs_thread")
+        .returning(SalesHandoffModel.id)
     )
     row: SalesHandoffModel = (
         await session.scalars(
@@ -264,7 +272,24 @@ async def _handoff_of(session: AsyncSession, thread_id: int, lead_id: int) -> Sa
             .execution_options(populate_existing=True)
         )
     ).one()
-    return row
+    return row, made is not None
+
+
+async def _journaled(session: AsyncSession, row: SalesHandoffModel, reply_id: int | None) -> None:
+    """Передача — в журнал действий один раз на диалог, когда заведена: её начинают три пути и
+    повторяет каждый новый ответ, а лид уходит телемаркетологу один раз. Без автора — её
+    начинает разбор ответа; этап — в записи: без права «Продажи» её не видно."""
+    await AccessRepository(session).record(
+        AuditAction.LEAD_TAKEN,
+        target=f"sales_handoff:{row.id}",
+        details={
+            "действие": "лид передан телемаркетологу — сделка в Kommo и сообщение в Telegram",
+            "лид": row.lead_id,
+            "диалог": row.thread_id,
+            "ответ": reply_id,
+        },
+        stage=Stage.SALES,
+    )
 
 
 def _reopen(row: SalesHandoffModel, latest_reply_id: int | None) -> bool:

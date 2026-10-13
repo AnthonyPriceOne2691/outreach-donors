@@ -234,6 +234,7 @@ async def test_build_goes_to_the_job_queue_and_into_the_journal(
     )
     assert journal is not None
     assert journal.details == {
+        "этап": "sales",
         "действие": "сборка очереди продаж",
         "гипотеза": "Выдуманная гипотеза",
         "писем": 17,

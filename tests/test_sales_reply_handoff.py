@@ -52,14 +52,14 @@ class Start:
 
     def __init__(self, events: list[str]) -> None:
         self.events = events
-        #: (диалог, транзакция задачи закрыта коммитом, вид в снимке ответа).
-        self.calls: list[tuple[int, bool, object]] = []
+        #: (диалог, вид в снимке ответа, ждёт ли ответ человека — итог, который передача
+        #: коммитит вместе со своей строкой).
+        self.calls: list[tuple[int, object, object]] = []
 
     async def __call__(self, session: AsyncSession, thread_id: int) -> None:
-        committed = not session.in_transaction()
         reply = await session.scalar(select(ReplyModel).where(ReplyModel.thread_id == thread_id))
-        kind = (reply.model_parse or {}).get("kind") if reply is not None else None
-        self.calls.append((thread_id, committed, kind))
+        snap = (reply.model_parse or {}) if reply is not None else {}
+        self.calls.append((thread_id, snap.get("kind"), snap.get("waits")))
         self.events.append("start")
 
 
@@ -123,7 +123,9 @@ async def test_wants_to_talk_is_handed_over_after_the_answer_is_committed(
 
     assert (report["kind"], report["route"]) == ("wants_to_talk", "handoff")
     assert events == ["commit", "start", "commit"], "передача — только после коммита снимка ответа"
-    assert start.calls == [(dialog.thread.id, True, "wants_to_talk")]
+    # Вид ответа закоммичен до передачи (первый коммит), а итог «передан» ложится в снимок до
+    # неё и уходит её коммитом — вместе со строкой передачи (ревью стыков, хвост R2 7.1).
+    assert start.calls == [(dialog.thread.id, "wants_to_talk", False)]
     assert "лид передан телемаркетологу" in caplog.text
     assert (report["waits"], report["reason"]) == (False, HANDED)
 
