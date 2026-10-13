@@ -71,7 +71,7 @@ async def test_the_sales_alarms_of_a_paused_direction_are_raised(session: AsyncS
 
 
 @pytest.mark.xfail(
-    strict=True,
+    strict=False,  # общий PR его закрывает — метку снять после слияния
     reason=(
         "общий код ops/mail_watch.py: заголовки тревог сторожа называют направление кодом "
         "этапа («sales») — так они стоят красной полосой над вкладками продаж (#355) и уходят "

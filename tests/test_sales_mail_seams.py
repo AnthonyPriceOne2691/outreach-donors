@@ -84,7 +84,7 @@ async def test_a_module_answer_that_breaks_the_base_leaves_the_mail_transaction_
 
 
 @pytest.mark.xfail(
-    strict=True,
+    strict=False,  # общий PR его закрывает — метку снять после слияния
     reason=(
         "общий код core/stages._asked: точка сохранения ставится внутри try — сбой самой "
         "транзакции почты (прерванной раньше или упавшей базы) выдаётся за «ошибку модуля "
