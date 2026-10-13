@@ -12,6 +12,8 @@
   закрыт, письмо — сборкой для него одного. Адрес на чужом домене — человеку словами (частный ящик
   бывшего сотрудника — не адрес компании); отказ доставки почтовой службы (адреса в нём — кому не
   доставлено, postmaster) и автоответ без адреса лида не заводят.
+- **Решение владельца 13.10:** бесплатная почта — не домен компании, даже если на ней сам лид:
+  адрес на ней из автоответа такого лида — человеку словами, лида и письма нет.
 - **Общий код (`xfail(strict=True)`):** приём не отдаёт такой ответ очереди продаж — вид «отказ
   доставки» туда не ходит (`outcome.to_sales_queue`). Правка — в разделе «Для PR «общее»» отчёта
   ревью: продажам — `sales_pending` по правилу «мёртвый ящик» вместо `follow`.
@@ -29,8 +31,11 @@ from backend.config import outreach as outreach_cfg
 from backend.features.core.domain import ReplyKind, ThreadStatus
 from backend.features.core.models.outreach import MessageModel, ReplyModel, ThreadModel
 from backend.features.letters import reply_to
+from backend.features.letters.sending import Sending
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.pipeline import Accepted, Inbox
+from backend.features.sales import mail, queue
+from backend.features.sales.dead_mailbox import DEAD
 from backend.features.sales.models import LeadSource, SalesLeadModel, SalesThreadModel
 from backend.features.sales.replies import SalesReplies
 from backend.features.sales.verifier import FixtureVerifier
@@ -39,7 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
 from tests.test_sales_referral import mail_is_accepted
 from tests.test_sales_reply_routing import FakeClassifier
-from tests.test_sales_send import JANE, _first_sent
+from tests.test_sales_send import JANE, _first_sent, _transports
 
 __all__ = ["mail_is_accepted"]  # домен адреса принимает почту — фикстура очистки
 
@@ -171,6 +176,60 @@ async def test_an_address_elsewhere_is_left_to_a_human_in_words(
     assert (handled.route, handled.waits) == ("manual", True)
     assert handled.reason is not None
     assert "jane.doe@gmail.com" in handled.reason
+
+
+#: Выдуманная бесплатная почта: настоящей тестовый транспорт не пишет, а правило то же —
+#: домен из списка бесплатной почты (`known_addresses.FREE_MAILBOX_DOMAINS`).
+FREE_MAIL = "freemail.example.test"
+#: Лид на бесплатной почте — сайт компании у него свой (решение владельца 13.10).
+FREE_LEAD = f"jane.acme@{FREE_MAIL}"
+
+
+async def _sent_from_free_mail(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> MessageModel:
+    """Первое письмо ушло лиду, чей адрес — на бесплатной почте, а сайт компании — свой."""
+    monkeypatch.setattr(mail, "FREE_MAILBOX_DOMAINS", mail.FREE_MAILBOX_DOMAINS | {FREE_MAIL})
+    world = await w.world(session, monkeypatch)
+    await w.lead(session, world.hypothesis_id, FREE_LEAD, host="acme.example.test", name="Jane")
+    await queue.build(session, w.CorridorRewriter(), hypothesis_id=world.hypothesis_id, limit=10)
+    first = await session.scalar(select(MessageModel).order_by(MessageModel.id))
+    assert first is not None
+    await Sending(session, _transports(), now=w.NOW).send(first.id)
+    return first
+
+
+@pytest.mark.parametrize(
+    ("named", "becomes_a_lead"),
+    [(f"bob.acme@{FREE_MAIL}", False), ("bob@acme.example.test", True)],
+    ids=["same-free-mail", "company-site"],
+)
+async def test_free_mail_of_the_lead_is_not_the_company_domain(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, named: str, becomes_a_lead: bool
+) -> None:
+    """Решение владельца 13.10: бесплатная почта — не домен компании, даже если на ней сам лид
+    (`mail.of_company`, то же правило, что у ответа коллеге). Автоответ лида с бесплатной почты
+    называет другой адрес на ней же — это частный ящик, а не коллега: лида и письма нет, адрес —
+    человеку словами. Адрес на сайте компании тот же автоответ по-прежнему делает лидом."""
+    first = await _sent_from_free_mail(session, monkeypatch)
+    text = f"Jane has left the company. Please contact {named} for all matters."
+    _, reply = await _accepted(session, first, text, sender=FREE_LEAD)
+    sales, model, built = _sales(session)
+
+    handled = await sales.handle(reply.id)
+    await sales.write_to_referred(handled)
+
+    leads = [lead.email for lead in await _leads(session)]
+    assert model.calls == 0
+    if becomes_a_lead:
+        assert leads == [FREE_LEAD, named]
+        assert (handled.route, len(built)) == ("referral", 1)
+        return
+    assert (leads, built) == ([FREE_LEAD], [])
+    assert (handled.route, handled.waits) == ("manual", True)
+    assert handled.reason == (
+        f"{DEAD} — автоответ называет адрес на чужом домене {named}: лида заводит человек"
+    )
 
 
 @pytest.mark.parametrize(

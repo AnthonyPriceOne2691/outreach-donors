@@ -2272,9 +2272,9 @@
       "worst": "write:330"
     },
     "backend/features/sales/dead_mailbox.py": {
-      "lines": 106,
+      "lines": 97,
       "complexity": 6,
-      "worst": "colleague:65"
+      "worst": "colleague:56"
     },
     "backend/features/sales/domain_hold.py": {
       "lines": 123,
@@ -2297,9 +2297,9 @@
       "worst": "_by_name:351"
     },
     "backend/features/sales/handoff.py": {
-      "lines": 475,
+      "lines": 478,
       "complexity": 9,
-      "worst": "lead_of:185"
+      "worst": "lead_of:188"
     },
     "backend/features/sales/handoff_card.py": {
       "lines": 118,
@@ -2317,19 +2317,19 @@
       "worst": "_queue_again:207"
     },
     "backend/features/sales/handoff_kommo.py": {
-      "lines": 195,
+      "lines": 196,
       "complexity": 9,
-      "worst": "write:59"
+      "worst": "write:60"
     },
     "backend/features/sales/handoff_telegram.py": {
-      "lines": 180,
+      "lines": 233,
       "complexity": 8,
-      "worst": "step:64"
+      "worst": "step:83"
     },
     "backend/features/sales/handoff_text.py": {
-      "lines": 141,
+      "lines": 169,
       "complexity": 8,
-      "worst": "note:106"
+      "worst": "note:134"
     },
     "backend/features/sales/hypotheses.py": {
       "lines": 98,
@@ -2362,9 +2362,9 @@
       "worst": "lead_fields:341"
     },
     "backend/features/sales/kommo_gateway.py": {
-      "lines": 264,
+      "lines": 265,
       "complexity": 7,
-      "worst": "_created:208"
+      "worst": "_created:209"
     },
     "backend/features/sales/kommo_live.py": {
       "lines": 349,
@@ -2397,9 +2397,9 @@
       "worst": "problem:95"
     },
     "backend/features/sales/mail.py": {
-      "lines": 381,
-      "complexity": 6,
-      "worst": "check:255"
+      "lines": 470,
+      "complexity": 7,
+      "worst": "colleague_of:173"
     },
     "backend/features/sales/models.py": {
       "lines": 500,

@@ -3,8 +3,10 @@
 Сообщение телемаркетологу или копия в группу, не ушедшие из-за сети, 5xx или 429, повторяет
 проход: пауза растёт вдвое (5, 10, 20, 40 мин), у 429 — не меньше паузы, названной Telegram;
 попыток — пять, после последней — тревога словами; постоянный отказ (чат не найден, нет
-токена, непечатный знак в токене) — без повтора и с тревогой сразу. Повтор только сообщения —
-своя задача: запись в Kommo она не открывает.
+токена, непечатный знак в токене) — без повтора и с тревогой сразу. Итог сказан — и копия в
+группу с пометкой «не доставлено» (решение владельца 13.10, `test_sales_seam_handoff_people.py`);
+сбой внутри серии группе не виден. Повтор только сообщения — своя задача: запись в Kommo она
+не открывает.
 
 Оснастка — `test_sales_handoff.py`: Kommo — подставной, Telegram — `SalesBot` поверх
 `httpx.MockTransport`, тревоги — список. Номера, токен и тексты — выдуманные.
@@ -140,12 +142,16 @@ async def test_last_try_is_an_alert_in_words_and_the_retries_end(
         assert at is not None
         row = await resend(session, row.id, http, alerts, at)
 
-    assert len(api.seen) == telegram_series.MESSAGE_TRIES * 3
+    chats = [chat for chat, _ in sent(api)]
+    tries = telegram_series.MESSAGE_TRIES * 3
+    # Итог сказан — копия в группу с пометкой (решение владельца 13.10): Telegram лежит и для неё.
+    assert chats == [PERSONAL] * tries + [GROUP] * 3
     assert (row.telegram, row.telegram_due_at) == (HandoffTelegram.UNDELIVERED, None)
     [alert] = alerts
     assert "сообщение телемаркетологу не доставлено за 5 попыток" in alert
     assert "повторов больше нет" in alert
     assert "HTTP 503" in alert
+    assert "копия в группу тоже не ушла — группа о лиде не знает" in alert
     assert f"диалог №{row.thread_id}" in alert
     assert "ivan@" not in alert, "адрес лида не уходит в чат эксплуатации"
     assert row.last_error is not None
@@ -261,9 +267,12 @@ async def test_permanent_refusal_is_not_retried_and_is_told_at_once(
         0,
         None,
     )
-    assert len(api.seen) <= 1, "постоянный отказ бот не повторяет"
+    chats = [chat for chat, _ in sent(api)]
+    assert chats.count(PERSONAL) <= 1, "постоянный отказ бот не повторяет"
+    assert chats.count(GROUP) <= 1, "копия с пометкой «не доставлено» — одна"
     [alert] = alerts
     assert "не доставлено" in alert
+    assert "группа о лиде не знает" in alert, "отказ бота — и копия в группу не ушла"
     assert await handoff.message_due(session, now=NOW + timedelta(days=3)) == []
 
 

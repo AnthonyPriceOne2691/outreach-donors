@@ -9,10 +9,12 @@
 для одного лида. Модель не зовётся.
 
 **Какой адрес годится — правило приёма** (`redirect.sort_out`): не отправитель (мёртвый ящик),
-не робот, не наш, не уже известный (лиды той же компании), годный по форме. Адрес компании лида
-(`of_company`: сайт компании или домен адреса лида) — новый лид, первый из названных: «пишите на
-X» называет одного. Адрес на чужом домене — человеку словами: частный ящик бывшего сотрудника —
-не адрес компании, и писать туда без человека нельзя (то же правило у доноров).
+не робот, не наш, не уже известный (лиды той же компании), годный по форме. Адрес компании
+лида (`mail.of_company`: сайт компании или домен адреса лида) — новый лид, первый из названных:
+«пишите на X» называет одного. Адрес на чужом домене — человеку словами: частный ящик бывшего
+сотрудника — не адрес компании, и писать туда без человека нельзя (то же правило у доноров).
+Бесплатная почта — тоже не домен компании, даже если на ней сам лид (решение владельца 13.10):
+лид с gmail называет другой адрес на gmail — частный ящик, его заводит человек.
 
 **Без фразы мёртвого ящика — ничего.** Отказ доставки почтовой службы тоже несёт адреса (кому не
 доставлено, postmaster): лида из него не заводим. Фраза — та же, по которой приём узнаёт мёртвый
@@ -30,7 +32,7 @@ from backend.features.contacts.extract import EMAIL_RE
 from backend.features.core.models.outreach import ReplyModel, SenderModel
 from backend.features.replies import phrases, redirect
 from backend.features.replies.quoting import written_by_hand
-from backend.features.sales.mail import Linked, linked
+from backend.features.sales.mail import Linked, linked, of_company
 from backend.features.sales.models import SalesLeadModel
 from backend.features.sales.referral import Referred
 from backend.features.sales.reply_routes import Decision, Route
@@ -49,17 +51,6 @@ Refer = Callable[[str | None, str | None], Awaitable[Referred]]
 def _dead(body: str) -> bool:
     """«Больше не работает», «ящик не читается» — фраза мёртвого ящика в написанном рукой."""
     return bool(phrases.NO_LONGER_RE.search(body) or phrases.NOT_READ_RE.search(body))
-
-
-def of_company(address: str, dialog: Linked) -> bool:
-    """Адрес компании лида: его домен — сайт компании или домен адреса лида, они сами или их
-    поддомены; по зарегистрированному имени (`redirect.same_site`: `mail.acme.com` — тот же
-    сайт), а где его нет (выдуманные зоны) — по самому имени."""
-    domain = address.rpartition("@")[2]
-    for own in {dialog.host.lower(), dialog.lead.email.rpartition("@")[2].lower()} - {""}:
-        if domain == own or domain.endswith(f".{own}") or redirect.same_site(address, own):
-            return True
-    return False
 
 
 async def colleague(
