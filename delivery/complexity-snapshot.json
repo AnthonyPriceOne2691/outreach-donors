@@ -647,7 +647,7 @@
       "worst": "add_parsers:60"
     },
     "backend/cli/sales_handoffs.py": {
-      "lines": 165,
+      "lines": 166,
       "complexity": 4,
       "worst": "_line:64"
     },
@@ -2152,9 +2152,9 @@
       "worst": "mixed_words:220"
     },
     "backend/features/sales/agent/situation.py": {
-      "lines": 255,
+      "lines": 259,
       "complexity": 10,
-      "worst": "parse:191"
+      "worst": "parse:192"
     },
     "backend/features/sales/agent_turns.py": {
       "lines": 105,
@@ -2226,6 +2226,11 @@
       "complexity": 8,
       "worst": "write:330"
     },
+    "backend/features/sales/dead_mailbox.py": {
+      "lines": 106,
+      "complexity": 6,
+      "worst": "colleague:65"
+    },
     "backend/features/sales/domain_hold.py": {
       "lines": 123,
       "complexity": 7,
@@ -2252,19 +2257,19 @@
       "worst": "lead_of:181"
     },
     "backend/features/sales/handoff_card.py": {
-      "lines": 117,
-      "complexity": 11,
+      "lines": 118,
+      "complexity": 13,
       "worst": "card_of:49"
     },
     "backend/features/sales/handoff_console.py": {
-      "lines": 271,
-      "complexity": 8,
-      "worst": "close:180"
+      "lines": 278,
+      "complexity": 10,
+      "worst": "close:184"
     },
     "backend/features/sales/handoff_jobs.py": {
-      "lines": 221,
+      "lines": 232,
       "complexity": 5,
-      "worst": "_queue_again:196"
+      "worst": "_queue_again:207"
     },
     "backend/features/sales/handoff_kommo.py": {
       "lines": 195,
@@ -2277,9 +2282,9 @@
       "worst": "step:64"
     },
     "backend/features/sales/handoff_text.py": {
-      "lines": 127,
+      "lines": 141,
       "complexity": 8,
-      "worst": "note:100"
+      "worst": "note:106"
     },
     "backend/features/sales/hypotheses.py": {
       "lines": 72,
@@ -2356,6 +2361,11 @@
       "complexity": 2,
       "worst": "_enum:79"
     },
+    "backend/features/sales/no_draft.py": {
+      "lines": 55,
+      "complexity": 7,
+      "worst": "absent:43"
+    },
     "backend/features/sales/ooo.py": {
       "lines": 149,
       "complexity": 8,
@@ -2392,14 +2402,14 @@
       "worst": "start:41"
     },
     "backend/features/sales/referral.py": {
-      "lines": 154,
+      "lines": 185,
       "complexity": 6,
-      "worst": "refer:91"
+      "worst": "refer:96"
     },
     "backend/features/sales/replies.py": {
-      "lines": 491,
+      "lines": 492,
       "complexity": 8,
-      "worst": "handle:196"
+      "worst": "handle:197"
     },
     "backend/features/sales/reply_handoff.py": {
       "lines": 159,
@@ -2492,9 +2502,9 @@
       "worst": "holding:53"
     },
     "backend/features/sales/telegram.py": {
-      "lines": 250,
+      "lines": 263,
       "complexity": 13,
-      "worst": "_chat_of:239"
+      "worst": "_chat_of:252"
     },
     "backend/features/sales/telegram_series.py": {
       "lines": 71,
@@ -2517,9 +2527,9 @@
       "worst": "file_name:28"
     },
     "backend/features/sales/usage_cap.py": {
-      "lines": 32,
+      "lines": 40,
       "complexity": 1,
-      "worst": "sales_cap:28"
+      "worst": "sales_cap:36"
     },
     "backend/features/sales/verifier.py": {
       "lines": 286,
