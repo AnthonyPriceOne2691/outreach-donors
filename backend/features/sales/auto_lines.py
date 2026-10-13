@@ -9,6 +9,8 @@
 Выключено — так и сказано, с именем настройки: включает её администратор (решение владельца).
 Тумблер включён, а предохранитель почты продаж не снят — автоотправка не включается
 (`autosend.guard`): строка говорит это тем же правилом, что у прохода, значок — «выключена».
+Включена — значит, список разрешённых адресатов пуст, и строка говорит это прямо: письма уходят
+всем лидам очереди, а не только своим адресам.
 """
 
 from __future__ import annotations
@@ -32,13 +34,33 @@ from backend.features.sales.queue_start import AUTO, RUNNING
 
 logger = logging.getLogger(__name__)
 
+#: Включена — предохранитель снят: так и сказано, кому уходят письма.
+SEND_ON = (
+    "Автоотправка включена, список разрешённых адресатов почты продаж пуст — письма уходят всем "
+    "лидам очереди"
+)
 SEND_OFF = (
     "Автоотправка выключена — первые письма уходят кнопкой «Отправить очередь» или по одному; "
     "включается настройкой SALES_AUTOSEND."
 )
+#: Включена, а продажи к почте не подключены: окно не считано, а предохранитель мог и не
+#: сниматься (строку удалили вместо пустой) — «список пуст» и «в окне 0 писем» тут врали бы.
+SEND_STOPPED = "Автоотправка включена, а не шлёт ничего"
 BUILD_OFF = (
     "Автосборка выключена — очередь собирают кнопкой «Собрать очередь»; включается настройкой "
     "SALES_AUTOBUILD."
+)
+#: Письма в окне есть и ящик свободен, а как есть не уйдёт ни одно — проход стоит, отказывая
+#: каждому (`autosend.Stop.REFUSED_ALL`). Правило — счёт очереди автосборки (`autobuild.queued`).
+STALE = (
+    "ни одно письмо в окне получателя не уйдёт как есть — они собраны с прежними подписью и "
+    "адресом «Отправителя» или до правки лида"
+)
+BY_AUTOBUILD = "их пересоберёт ближайший проход автосборки"
+BY_BUTTON = "соберите очередь заново кнопкой «Собрать очередь»"
+CLOSED = (
+    "ни одно письмо в окне получателя не уйдёт — их лидов сняли (стоп-лист продаж, отказ) или "
+    "адрес лида надо проверить заново; причина каждого — в журнале разбора"
 )
 
 
@@ -76,11 +98,29 @@ async def autosend_line(session: AsyncSession, now: datetime) -> AutoLine:
     if guarded is not None:
         return AutoLine(enabled=False, line=f"Автоотправка не включается: {guarded}.")
     seen = await autosend.facts(session, now)
-    head = f"Автоотправка включена: {pace()}. В окне получателя сейчас {letters(len(seen.waiting.ids))}"
     stop = seen.stop()
+    if stop is not None and stop[0] is Stop.NOT_CONNECTED:
+        return AutoLine(enabled=True, line=f"{SEND_STOPPED}: {stop[1]}.")
+    head = f"{SEND_ON}: {pace()}. В окне получателя сейчас {letters(len(seen.waiting.ids))}"
     if stop is not None:
         return AutoLine(enabled=True, line=f"{head}. Стоит: {stop[1]}.")
+    stands = await _none_goes(session, seen)
+    if stands is not None:
+        return AutoLine(enabled=True, line=f"{head}. Стоит: {stands}.")
     return AutoLine(enabled=True, line=f"{head}. {await _going(session, seen, now)}.")
+
+
+async def _none_goes(session: AsyncSession, seen: autosend.Facts) -> str | None:
+    """Ни одно письмо в окне получателя не уйдёт как есть — почему и что делать; `None` — хоть
+    одно уйдёт. Без этого строка писала «Письма уходят», пока проход отказывал каждому письму
+    окна (подпись «Отправителя» поправили — замер стенда, ревью стыков отправки)."""
+    found = await autobuild.queued(session)
+    window = set(seen.waiting.ids)
+    if window & found.ready:
+        return None
+    if window & found.redo:
+        return f"{STALE}: {BY_AUTOBUILD if sales_cfg.AUTOBUILD else BY_BUTTON}"
+    return CLOSED
 
 
 async def _going(session: AsyncSession, seen: autosend.Facts, now: datetime) -> str:
@@ -105,7 +145,7 @@ async def autobuild_line(session: AsyncSession, jobs: Queue, now: datetime) -> A
     found = await autobuild.plan(session, jobs, now=now)
     parts = [
         f"Автосборка включена: очередь — на сутки вперёд, дневные капы ящиков продаж с разгоном — "
-        f"{letters(found.need)}, в очереди {letters(found.have)}"
+        f"{letters(found.need)}, в очереди готовых к отправке — {letters(found.have)}"
     ]
     if not found.short:
         parts.append("хватает")

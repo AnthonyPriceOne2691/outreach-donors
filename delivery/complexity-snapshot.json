@@ -2167,24 +2167,24 @@
       "worst": "beyond:88"
     },
     "backend/features/sales/auto_lines.py": {
-      "lines": 171,
+      "lines": 211,
       "complexity": 7,
-      "worst": "_collected:147"
+      "worst": "autosend_line:93"
     },
     "backend/features/sales/autobuild.py": {
-      "lines": 263,
+      "lines": 327,
       "complexity": 8,
-      "worst": "_choose:166"
+      "worst": "_choose:228"
     },
     "backend/features/sales/autosend.py": {
-      "lines": 359,
+      "lines": 441,
       "complexity": 8,
-      "worst": "stop:167"
+      "worst": "stop:199"
     },
     "backend/features/sales/autosend_jobs.py": {
-      "lines": 167,
+      "lines": 197,
       "complexity": 8,
-      "worst": "_alarm:102"
+      "worst": "_alarm:124"
     },
     "backend/features/sales/browse.py": {
       "lines": 214,
