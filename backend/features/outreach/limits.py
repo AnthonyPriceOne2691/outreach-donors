@@ -23,6 +23,9 @@ from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import SenderModel, SendingDomainModel
 
 DIRECTION_SPENT = "у направления кончился дневной лимит"
+#: Настройка лимита направления не прочиталась (`config/outreach.direction_unread`): лимит — ноль,
+#: и «кончился дневной лимит (0 из 0)» спрятал бы опечатку — отказ называет настройку.
+DIRECTION_UNREAD = "настройка лимита направления не прочитана"
 DOMAIN_SPENT = "домен исчерпан на сегодня"
 DOMAIN_PAUSED = "домен на паузе"
 DOMAIN_YOUNG = "домен на выдержке"
@@ -51,12 +54,15 @@ def screen(
     direction_limit: int | None,
     now: datetime,
     cuts: Mapping[int, int] | None = None,
+    direction_unread: str | None = None,
 ) -> Screened:
-    """Кто из включённых ящиков этапа сегодня проходит лимиты домена и направления."""
+    """Кто из включённых ящиков этапа сегодня проходит лимиты домена и направления.
+    `direction_unread` — имя настройки лимита направления, если она не прочиталась
+    (`config/outreach.direction_unread`): отказ тогда называет её."""
     own = [sender for sender in senders if sender.enabled and sender.stage is stage]
     spent = sum(sent_today.get(sender.id, 0) for sender in senders if sender.stage is stage)
     if direction_limit is not None and spent >= direction_limit:
-        why = f"{DIRECTION_SPENT} ({spent} из {direction_limit} первых писем)"
+        why = _direction_refusal(spent, direction_limit, direction_unread)
         return Screened(fit=(), refused=dict.fromkeys((sender.id for sender in own), why))
 
     by_domain: Counter[str] = Counter()
@@ -76,6 +82,14 @@ def screen(
         else:
             refused[sender.id] = verdict
     return Screened(fit=tuple(fit), refused=refused)
+
+
+def _direction_refusal(spent: int, limit: int, unread: str | None) -> str:
+    """Почему направление сегодня не пишет: выбрало лимит — или его настройка не прочиталась,
+    и лимит тогда ноль до правки `.env`."""
+    if unread is not None:
+        return f"{DIRECTION_UNREAD}: {unread} — первых писем ноль, пока её не поправят в .env"
+    return f"{DIRECTION_SPENT} ({spent} из {limit} первых писем)"
 
 
 def domain_shut(row: SendingDomainModel, stage: Stage, now: datetime) -> str | None:

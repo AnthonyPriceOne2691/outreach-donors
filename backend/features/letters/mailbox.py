@@ -132,6 +132,7 @@ async def _free_box(session: AsyncSession, stage: Stage, now: datetime) -> Choic
         direction_limit=cfg.direction_limit(stage.value),
         now=now,
         cuts=await health.cuts(session, stage, now),
+        direction_unread=cfg.direction_unread(stage.value),
     )
     rest = _RESTING.get()
     awake = [box for box in screened.fit if box.id not in rest]

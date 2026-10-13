@@ -276,6 +276,7 @@ def _free_box(facts: Facts) -> None:
         direction_limit=cfg.direction_limit(Stage.DONORS.value),
         now=moment,
         cuts=boxes.cuts,
+        direction_unread=cfg.direction_unread(Stage.DONORS.value),
     )
     spot = sender_rules.pick(
         screened.fit, sent_today=boxes.sent_today, stage=Stage.DONORS, now=moment

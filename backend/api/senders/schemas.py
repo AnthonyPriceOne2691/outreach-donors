@@ -89,6 +89,9 @@ class DirectionLimit(BaseModel):
     stage: Stage
     daily_limit: int | None
     sent_today: int
+    #: Имя настройки лимита, если она не прочиталась (`config/outreach.direction_unread`):
+    #: лимит тогда ноль, и экран называет настройку, а не «0 из 0». Пусто — прочиталась.
+    unread: str | None = None
 
 
 class SendersView(BaseModel):

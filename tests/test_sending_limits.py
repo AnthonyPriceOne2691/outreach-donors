@@ -16,7 +16,8 @@ from backend.config import outreach as cfg
 from backend.config import storage
 from backend.features.core.domain import MessageStatus, Stage, UserRole
 from backend.features.core.models.outreach import MessageModel, SenderModel, SendingDomainModel
-from backend.features.letters import batch, followups
+from backend.features.letters import batch, followups, mailbox
+from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.transport import NullTransport
 from backend.features.outreach import limits
 from httpx import AsyncClient
@@ -170,6 +171,40 @@ class TestBatch:
         )
 
 
+async def test_an_unread_direction_limit_is_named_and_a_read_zero_keeps_the_old_words(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Опечатка в `OUTREACH_SALES_DAILY_LIMIT` — продажам ноль первых писем (`config/_base.spared`),
+    и отказ первого письма называет настройку: «кончился дневной лимит (0 из 0)» опечатку не
+    выдавал (ревью продаж 13.10.2026). Прочитанный ноль — прежние слова: лимит выбран, а не сломан."""
+    box = await make_sender(session, "hi@mail-sales.example.test")
+    box.stage = Stage.SALES
+    await session.flush()
+    monkeypatch.setitem(cfg.DIRECTION_LIMITS, "sales", 0)
+    first = MessageModel(step=FIRST_STEP)
+
+    async def refusal() -> str:
+        choice = await mailbox.choose(
+            session, first, stage=Stage.SALES, thread_sender_id=None, now=NOW
+        )
+        assert choice.sender is None
+        return choice.refusal
+
+    read = await refusal()
+    monkeypatch.setattr(cfg, "UNREAD_LIMITS", frozenset({"OUTREACH_SALES_DAILY_LIMIT"}))
+    unread = await refusal()
+
+    assert read == (
+        "Сегодня писать некому: у направления кончился дневной лимит (0 из 0 первых писем). "
+        "Письмо остаётся в очереди"
+    )
+    assert unread == (
+        "Сегодня писать некому: настройка лимита направления не прочитана: "
+        "OUTREACH_SALES_DAILY_LIMIT — первых писем ноль, пока её не поправят в .env. "
+        "Письмо остаётся в очереди"
+    )
+
+
 async def test_a_followup_waits_for_its_own_box_even_when_another_is_free(
     session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -209,6 +244,27 @@ class TestScreen:
         assert [(d["stage"], d["daily_limit"]) for d in view["directions"]] == [
             (stage.value, None) for stage in Stage
         ]
+
+    async def test_an_unread_direction_setting_is_named_to_the_screen(
+        self,
+        client: AsyncClient,
+        make_user: object,
+        sign_in: object,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Опечатка в лимите продаж: направление отдаёт ноль и имя настройки — экран говорит
+        «не прочитана», а не «0 из 0». У прочитанных имени нет."""
+        monkeypatch.setitem(cfg.DIRECTION_LIMITS, "sales", 0)
+        monkeypatch.setattr(cfg, "UNREAD_LIMITS", frozenset({"OUTREACH_SALES_DAILY_LIMIT"}))
+        await make_user("админ@site.com", role=UserRole.ADMIN)  # type: ignore[operator]
+        token = await sign_in("админ@site.com")  # type: ignore[operator]
+
+        response = await client.get("/api/senders", headers=bearer(token))
+
+        shown = {d["stage"]: (d["daily_limit"], d["unread"]) for d in response.json()["directions"]}
+        assert shown == {stage.value: (None, None) for stage in Stage} | {
+            Stage.SALES.value: (0, "OUTREACH_SALES_DAILY_LIMIT")
+        }
 
 
 def _args(domain: str = "Mail-B.example.test", **given: object) -> argparse.Namespace:

@@ -417,12 +417,12 @@
       "worst": "—"
     },
     "backend/api/senders/routes.py": {
-      "lines": 135,
+      "lines": 136,
       "complexity": 6,
       "worst": "all_senders:47"
     },
     "backend/api/senders/schemas.py": {
-      "lines": 103,
+      "lines": 106,
       "complexity": 2,
       "worst": "of:43"
     },
@@ -732,7 +732,7 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 289,
+      "lines": 303,
       "complexity": 4,
       "worst": "_own_account:214"
     },
@@ -1552,9 +1552,9 @@
       "worst": "sender_domain:62"
     },
     "backend/features/letters/mailbox.py": {
-      "lines": 299,
+      "lines": 300,
       "complexity": 7,
-      "worst": "silence_words:183"
+      "worst": "silence_words:184"
     },
     "backend/features/letters/masking.py": {
       "lines": 260,
@@ -1622,7 +1622,7 @@
       "worst": "refusal:42"
     },
     "backend/features/letters/recheck_target.py": {
-      "lines": 309,
+      "lines": 310,
       "complexity": 11,
       "worst": "in_thread:155"
     },
@@ -1772,9 +1772,9 @@
       "worst": "listen:86"
     },
     "backend/features/outreach/limits.py": {
-      "lines": 113,
+      "lines": 127,
       "complexity": 13,
-      "worst": "screen:45"
+      "worst": "screen:48"
     },
     "backend/features/outreach/own_inboxes.py": {
       "lines": 472,

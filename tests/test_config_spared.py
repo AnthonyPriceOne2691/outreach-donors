@@ -45,7 +45,9 @@ class NothingSpent:
 
 
 print(llm.SALES_DAILY_TOKEN_CAP, sorted(llm.UNREAD_CAPS), llm.DAILY_TOKEN_CAP)
-print(outreach.direction_limit("sales"), outreach.direction_limit("donors"))
+print(outreach.direction_limit("sales"), outreach.direction_limit("donors"),
+      outreach.direction_unread("sales"), outreach.direction_unread("donors"),
+      sorted(outreach.UNREAD_LIMITS))
 try:
     asyncio.run(usage.ensure_llm_within_cap(NothingSpent(), own=sales_cap()))
     print("sales model: allowed")
@@ -77,7 +79,9 @@ def test_a_typo_in_a_sales_setting_starts_the_processes_with_zero_for_sales(typo
     assert done.returncode == 0, done.stderr
     caps, limits, model = done.stdout.strip().splitlines()[-3:]
     assert caps == "None ['SALES_DAILY_TOKEN_CAP'] 900"
-    assert limits == "0 7"
+    # Ноль продажам — и имя непрочитанной настройки: по нему отказ отправки и экран «Домены
+    # рассылки» говорят «не прочитана», а не «0 из 0» (ревью продаж 13.10.2026).
+    assert limits == "0 7 OUTREACH_SALES_DAILY_LIMIT None ['OUTREACH_SALES_DAILY_LIMIT']"
     assert model == "sales model: refused"
     for name in ("SALES_DAILY_TOKEN_CAP", "OUTREACH_SALES_DAILY_LIMIT"):
         assert f"НАСТРОЙКА НЕ ПРОЧИТАНА — {name}: в ней «{typo}»" in done.stderr
@@ -88,9 +92,9 @@ def test_a_typo_in_a_sales_setting_starts_the_processes_with_zero_for_sales(typo
 @pytest.mark.parametrize(
     ("cap", "limit", "caps", "limits"),
     [
-        ("1200", "40", "1200 [] 900", "40 7"),
-        ("0", "0", "0 [] 900", "0 7"),
-        ("", "", "None [] 900", "None 7"),
+        ("1200", "40", "1200 [] 900", "40 7 None None []"),
+        ("0", "0", "0 [] 900", "0 7 None None []"),
+        ("", "", "None [] 900", "None 7 None None []"),
     ],
     ids=["числа", "нули", "пусто"],
 )

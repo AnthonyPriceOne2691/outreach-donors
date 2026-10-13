@@ -261,7 +261,7 @@ class _Directions(DomainSettings):
 #: (`-5`, `10k`, `abc`) не роняет импорт — продажам ноль первых писем и громкая строка журнала
 #: (`_base.spared`): конфиг почты грузят все процессы (ревью стыков 12.10.2026). Доноры и
 #: рекламодатели — как были: их опечатка по-прежнему останавливает старт.
-DIRECTION_LIMITS: dict[str, int | None] = spared(
+_directions, _unread = spared(
     _Directions,
     {
         "OUTREACH_SALES_DAILY_LIMIT": Fallback(
@@ -270,12 +270,26 @@ DIRECTION_LIMITS: dict[str, int | None] = spared(
             means="0 — первых писем продаж в сутки ноль, пока её не поправят",
         )
     },
-)[0].model_dump()
+)
+DIRECTION_LIMITS: dict[str, int | None] = _directions.model_dump()
+#: Лимиты направлений, чья настройка не прочиталась (имя переменной): лимит такого направления —
+#: ноль, и отказ отправки с экраном «Домены рассылки» называют настройку (`direction_unread`).
+#: «0 из 0 первых писем» опечатку не выдаёт: читается как выбранный лимит (ревью продаж 13.10.2026).
+UNREAD_LIMITS: frozenset[str] = frozenset(_unread)
 
 
 def direction_limit(stage: str) -> int | None:
     """Дневной лимит направления `stage`. `None` — своего лимита нет."""
     return DIRECTION_LIMITS.get(stage)
+
+
+def direction_unread(stage: str) -> str | None:
+    """Имя переменной лимита направления `stage`, если она не прочиталась (`UNREAD_LIMITS`);
+    `None` — прочиталась или такого направления нет. Имя — у поля `_Directions`: второй список
+    имён разошёлся бы с ним при первой правке."""
+    field = _Directions.model_fields.get(stage)
+    name = None if field is None else field.validation_alias
+    return name if isinstance(name, str) and name in UNREAD_LIMITS else None
 
 
 def events_public_keys(stages: Iterable[str]) -> tuple[str, ...]:
