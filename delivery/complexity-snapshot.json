@@ -1737,7 +1737,7 @@
       "worst": "_crawl_blocked:177"
     },
     "backend/features/ops/stage_silence.py": {
-      "lines": 202,
+      "lines": 209,
       "complexity": 4,
       "worst": "alarms:63"
     },

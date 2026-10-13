@@ -30,12 +30,15 @@ from backend.features.core.models.run import RunModel
 from backend.features.donors.verdict import Thresholds
 from backend.features.ops import silence as silence_module
 from backend.features.ops.silence import alarms
+from backend.features.ops.stage_silence import REPLY_SILENCE_DAYS
 from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.repository import RunRepository
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor
 
 NOW = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
+#: Доставлено сутки назад — внутри окна тишины ответов (`stage_silence.REPLY_SILENCE_DAYS`).
+_DAY_AGO = NOW - timedelta(days=1)
 HOST = "donor.example.test"
 T = Thresholds(min_dr=20, min_org_traffic=500, min_refdomains=100, min_keywords=300)
 
@@ -117,14 +120,27 @@ class TestSilenceThatMeansBroken:
 
     async def test_no_replies_at_all_on_a_delivered_batch(self, session: AsyncSession) -> None:
         for number in range(20):
-            await _letter(session, status=MessageStatus.DELIVERED, number=number)
+            await _letter(session, status=MessageStatus.DELIVERED, number=number, sent_at=_DAY_AGO)
 
         assert "reply-silence:donors" in _codes(await alarms(session, stages=EVERY_STAGE, now=NOW))
+
+    async def test_a_pause_in_sending_is_not_a_silence_of_replies(
+        self, session: AsyncSession
+    ) -> None:
+        """Доставленные — за то же окно, что и ответы: пачка старше окна и пауза рассылки после
+        неё тревоги не зажигают — раньше она горела бы до первого ответа (ревью продаж 13.10)."""
+        before = NOW - timedelta(days=REPLY_SILENCE_DAYS, hours=1)
+        for number in range(20):
+            await _letter(session, status=MessageStatus.DELIVERED, number=number, sent_at=before)
+
+        assert "reply-silence:donors" not in _codes(
+            await alarms(session, stages=EVERY_STAGE, now=NOW)
+        )
 
     async def test_one_recent_reply_is_enough_to_keep_quiet(self, session: AsyncSession) -> None:
         """Ответ на письмо доноров — их приём жив (ответ считается своим этапом рассылки)."""
         letters = [
-            await _letter(session, status=MessageStatus.DELIVERED, number=number)
+            await _letter(session, status=MessageStatus.DELIVERED, number=number, sent_at=_DAY_AGO)
             for number in range(20)
         ]
         session.add(

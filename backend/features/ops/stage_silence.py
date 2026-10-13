@@ -123,23 +123,30 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
 
 
 async def _replies(session: AsyncSession, moment: datetime, stage: Stage) -> Alarm | None:
-    """Писем этапа доставлено достаточно, а ответов этапа нет совсем."""
+    """Писем этапа за окно доставлено достаточно, а ответов этапа за то же окно нет совсем.
+
+    Окно одно у писем и у ответов: доставленные за всё время после паузы рассылки длиной
+    в окно зажигали тревогу, и она горела до первого ответа (ревью продаж 13.10.2026)."""
+    since = moment - timedelta(days=REPLY_SILENCE_DAYS)
     delivered = await session.scalar(
         select(func.count(MessageModel.id)).where(
-            _of_stage(stage), MessageModel.status == MessageStatus.DELIVERED
+            _of_stage(stage),
+            MessageModel.status == MessageStatus.DELIVERED,
+            MessageModel.sent_at >= since,
         )
     )
     if not delivered or delivered < REPLY_SILENCE_MIN_DELIVERED:
         return None
-    if await _heard(session, stage, moment - timedelta(days=REPLY_SILENCE_DAYS)):
+    if await _heard(session, stage, since):
         return None
     return Alarm(
         code=f"reply-silence:{stage.value}",
         title=f"Ответов нет ни одного — {_named(stage)}",
         detail=(
-            f"Доставлено писем направления: {delivered}, а его входящих за {REPLY_SILENCE_DAYS} "
-            "дня нет. Отвечают единицами процентов, но полный ноль на такой пачке чаще означает, "
-            "что отвалился приём ответов на домены направления, а не что все промолчали"
+            f"За {REPLY_SILENCE_DAYS} дня доставлено писем направления: {delivered}, а его "
+            "входящих за то же время нет. Отвечают единицами процентов, но полный ноль на такой "
+            "пачке чаще означает, что отвалился приём ответов на домены направления, а не что "
+            "все промолчали"
         ),
         stage=stage,
     )

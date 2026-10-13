@@ -184,7 +184,7 @@ async def _delivered_donor_letters(session: AsyncSession) -> list[MessageModel]:
     """Пачка доставленных писем доноров — достаточно, чтобы ждать ответа."""
     return await _letters(
         session, Stage.DONORS, REPLY_SILENCE_MIN_DELIVERED,
-        status=MessageStatus.DELIVERED,
+        status=MessageStatus.DELIVERED, sent_at=_late(24),
     )  # fmt: skip
 
 
@@ -192,7 +192,7 @@ async def test_a_lead_reply_does_not_hide_the_donor_silence(
     session: AsyncSession, connected: _Sales
 ) -> None:
     await _delivered_donor_letters(session)
-    [lead] = await _letters(session, Stage.SALES, status=MessageStatus.DELIVERED)
+    [lead] = await _letters(session, Stage.SALES, status=MessageStatus.DELIVERED, sent_at=_late(24))
     thread = ThreadModel(domain_id=lead.domain_id, campaign_id=lead.campaign_id)
     session.add(thread)
     await session.flush()
