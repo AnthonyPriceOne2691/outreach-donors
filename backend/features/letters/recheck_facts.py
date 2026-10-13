@@ -328,12 +328,12 @@ async def _asked(session: AsyncSession, domain_ids: Sequence[int]) -> dict[int, 
 
 async def _elsewhere(session: AsyncSession, domain_ids: Sequence[int]) -> dict[int, Waiting]:
     """Живое письмо сайту в другой роли — не донору: рекламодателю или лиду продаж. Условие —
-    одно с карточкой донора (`other_role.elsewhere`)."""
+    одно с карточкой донора и с отправкой (`other_role.elsewhere`)."""
     found: dict[int, Waiting] = {}
     for domain_id, letter in await _letters(
         session,
         MessageModel.domain_id.in_(domain_ids),
-        *other_role.elsewhere(),
+        other_role.elsewhere(),
         newest_first=True,
     ):
         found.setdefault(domain_id, letter)

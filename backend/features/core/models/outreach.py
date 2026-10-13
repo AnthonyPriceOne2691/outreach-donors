@@ -274,9 +274,11 @@ class MessageModel(TimestampedMixin, Base):
     # разделяют минуты, а иногда и целый отказ.
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Почему не дошло — словами платформы. Хранится, потому что читать
-    # его будет человек, решающий судьбу домена. Своих причин три: письмо
-    # остановлено снятием его ссылки, примера площадки или площадки-поставщика
-    # (`letters/attempts.WITHDRAWN_REASONS`) — по ним отбор такое письмо не считает.
+    # его будет человек, решающий судьбу домена. Свои причины снятого письма —
+    # снята его ссылка, пример площадки или площадка-поставщик, сайт в работе
+    # у другого направления (`letters/attempts.WITHDRAWN_REASONS`) — по ним отбор
+    # такое письмо не считает.
+    # У ушедшего письма — и почему кончилась его цепочка: жалоба, добивка не собралась.
     failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
     next_action_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Номер письма у платформы (`X-Message-Id`) — для её журнала Activity

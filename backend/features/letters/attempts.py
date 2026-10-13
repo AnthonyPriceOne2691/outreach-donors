@@ -25,8 +25,12 @@
 и адрес не занимало: «писали» оно не считается, потолок адресов не тратит, и
 следующее собирается на тот же адрес под действующую ссылку. Так же — письмо под
 ссылку на площадке поставщика, внесённого в стоп-лист после сборки (12.10.2026).
-Только такие — письмо, остановленное человеком или стоп-листом, держит донора
-по-прежнему.
+
+**Письмо, снятое при отправке, потому что сайту пишет другое направление**, — тоже
+(ревью стыков 12.10.2026, `letters/site_role.py`): первое письмо этапа не уходит, пока у домена
+живое письмо другого этапа (`live_elsewhere`), и снимается со своей причиной, называющей
+направление. Оно не уходило: когда письмо другой роли не дойдёт, сборка напишет сайту заново.
+Только снятые так — письмо, остановленное человеком или стоп-листом, держит донора по-прежнему.
 
 **Донор снова открыт для первого письма**, когда мёртвые все его письма —
 на обоих этапах, по тому же правилу «одно письмо на сайт», — никто
@@ -63,7 +67,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import ColumnElement, ScalarSelect, and_, func, or_, select
+from sqlalchemy import ColumnElement, ScalarSelect, Select, and_, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, aliased
 from sqlalchemy.orm.util import AliasedClass
 
@@ -103,8 +107,32 @@ EXAMPLE_WITHDRAWN = "пример площадки письма — из «ко�
 #: если она есть. Текст не менять.
 SUPPLIER_WITHDRAWN = "площадка ссылки письма — поставщик агентства: пишем под ссылку другого донора"
 
-#: Причины снятого письма, которое не уходило (`withdrawn`).
-WITHDRAWN_REASONS = (LINK_WITHDRAWN, EXAMPLE_WITHDRAWN, SUPPLIER_WITHDRAWN)
+#: Первое письмо, снятое при отправке: у сайта живое письмо другого этапа (`live_elsewhere`,
+#: `letters/site_role.py`). Причина — это начало и направление того письма словами
+#: (`elsewhere_reason`): «сайт в работе у другого направления: продажи». Текст не менять.
+IN_WORK_ELSEWHERE = "сайт в работе у другого направления"
+
+#: Направление словами — по этапу живого письма в другой роли.
+DIRECTIONS: dict[Stage, str] = {
+    Stage.DONORS: "доноры",
+    Stage.ADVERTISERS: "рекламодатели",
+    Stage.SALES: "продажи",
+}
+
+
+def elsewhere_reason(stage: Stage) -> str:
+    """Причина снятого письма: сайт в работе у направления этапа `stage`."""
+    return f"{IN_WORK_ELSEWHERE}: {DIRECTIONS[stage]}"
+
+
+#: Причины снятого письма, которое не уходило (`withdrawn`). Этап без направления в
+#: `DIRECTIONS` роняет загрузку модуля, а не теряет письмо из «не уходило».
+WITHDRAWN_REASONS = (
+    LINK_WITHDRAWN,
+    EXAMPLE_WITHDRAWN,
+    SUPPLIER_WITHDRAWN,
+    *(elsewhere_reason(stage) for stage in Stage),
+)
 
 #: Те же ответы, отмеченные на самом диалоге (отписка кнопкой — `optout`).
 ANSWERED_THREADS = (ThreadStatus.REPLIED, ThreadStatus.UNSUBSCRIBED)
@@ -120,11 +148,12 @@ CAPPED = (
 )
 EXHAUSTED = "адреса кончились — все прежние не дошли"
 
-#: Письмо или адрес — или их псевдоним в подзапросе.
+#: Письмо, адрес или рассылка — или их псевдоним в подзапросе.
 _Letter = type[MessageModel] | AliasedClass[MessageModel]
 _Contact = type[ContactModel] | AliasedClass[ContactModel]
-#: Номер домена из внешнего запроса, к которому привязан подзапрос.
-_DomainId = InstrumentedAttribute[int] | ColumnElement[int]
+_Campaign = type[CampaignModel] | AliasedClass[CampaignModel]
+#: Номер домена из внешнего запроса, к которому привязан подзапрос, — или сам номер.
+_DomainId = InstrumentedAttribute[int] | ColumnElement[int] | int
 
 
 def next_address_note(earlier: int) -> str:
@@ -135,8 +164,9 @@ def next_address_note(earlier: int) -> str:
 
 
 def withdrawn(letter: _Letter) -> ColumnElement[bool]:
-    """Письмо остановлено снятием своей ссылки, примера площадки или площадки-поставщика:
-    не уходило, и в отборе его нет.
+    """Письмо остановлено снятием своей ссылки, примера площадки или площадки-поставщика
+    или снято при отправке, потому что сайт в работе у другого направления: не уходило,
+    и в отборе его нет.
 
     Причина — через `coalesce`, а не прямым сравнением: у остановленного человеком
     причины нет (`NULL`), сравнение дало бы `NULL`, и под `NOT` в отборе такое письмо
@@ -172,6 +202,32 @@ def live_letter(domain_id: _DomainId) -> ColumnElement[bool]:
     """У домена есть письмо, которое дошло, в пути или остановлено человеком."""
     letter = aliased(MessageModel)
     return select(letter.id).where(letter.domain_id == domain_id, ~dead(letter)).exists()
+
+
+def in_other_role(letter: _Letter, campaign: _Campaign, stage: Stage) -> ColumnElement[bool]:
+    """Письмо `letter` рассылки `campaign` живое и в другой роли, чем этап `stage`: живое —
+    то же, что у отбора (`dead`): в очереди, в пути, дошедшее, остановленное человеком.
+    Одно условие на отправку (`site_role.py`), перезапрос цены и карточку донора
+    (`other_role.elsewhere`)."""
+    return and_(campaign.stage != stage, ~dead(letter))
+
+
+def roles_elsewhere(domain_id: _DomainId, stage: Stage) -> Select[tuple[Stage]]:
+    """Этапы живых писем домена в других ролях, чем `stage` (`in_other_role`), — по одной
+    строке на письмо: какое направление назвать, решает спрашивающий."""
+    letter, campaign = aliased(MessageModel), aliased(CampaignModel)
+    return (
+        select(campaign.stage)
+        .join(letter, letter.campaign_id == campaign.id)
+        .where(letter.domain_id == domain_id, in_other_role(letter, campaign, stage))
+    )
+
+
+def live_elsewhere(domain_id: _DomainId, stage: Stage) -> ColumnElement[bool]:
+    """У домена есть живое письмо другого этапа, чем `stage`: сайт в работе у другого
+    направления, и первое письмо этапа `stage` ему не уходит (одна роль на сайт —
+    `letters/site_role.py`; правило то же, что у перезапроса цены и карточки донора)."""
+    return roles_elsewhere(domain_id, stage).exists()
 
 
 def pending_letter(domain_id: _DomainId) -> ColumnElement[bool]:

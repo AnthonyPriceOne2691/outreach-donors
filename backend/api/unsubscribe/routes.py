@@ -23,8 +23,10 @@
 
 **Чьим именем подписана страница и на каком языке она говорит — по письму
 метки** (`signer.py`): у письма продаж — «Отправитель» продаж на языке письма,
-у остальных — подпись доноров по-английски, как было. Пишет нажатие одинаково
-для всех: сайт метки — в стоп-лист целиком.
+у остальных — подпись доноров по-английски, как было. Что пишет нажатие — тоже
+по письму метки (`letters/optout.unsubscribe_label`): письмо продаж ушло человеку,
+и в стоп-лист встаёт его адрес (решение владельца 12.10.2026); остальные — сайт
+метки целиком, как было.
 """
 
 from __future__ import annotations
@@ -40,7 +42,7 @@ from backend.api.unsubscribe import page
 from backend.api.unsubscribe.signer import voice_of
 from backend.features.core.models.domain import DomainModel
 from backend.features.letters import unsubscribe
-from backend.features.letters.optout import unsubscribe_domain
+from backend.features.letters.optout import unsubscribe_label
 from backend.shared.sliding_window import SlidingWindow
 
 logger = logging.getLogger(__name__)
@@ -111,7 +113,7 @@ async def apply(
     # Подпись страницы — до записи: модуль продаж отвечает в своей точке сохранения,
     # и его поломка не задевает отписку (`signer.py`).
     voice = await voice_of(session, mark)
-    outcome = await unsubscribe_domain(session, mark.domain_id, source=SOURCE)
+    outcome = await unsubscribe_label(session, mark, source=SOURCE)
     if outcome is None:
         return HTMLResponse(page.gone(), status_code=status.HTTP_404_NOT_FOUND)
     await session.commit()

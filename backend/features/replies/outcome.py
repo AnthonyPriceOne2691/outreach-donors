@@ -50,6 +50,7 @@ from typing import Any, assert_never
 
 from backend.config import outreach as cfg
 from backend.features.core.domain import ReplyKind, Stage
+from backend.features.replies.classify import DEAD_MAILBOX
 from backend.features.replies.extract import Extracted
 from backend.features.replies.inbound import MAX_TEXT_CHARS
 from backend.features.replies.money import amounts_in
@@ -180,11 +181,16 @@ def priced_by_model(stage: Stage | None) -> bool:
 TO_SALES = frozenset({ReplyKind.HUMAN, ReplyKind.AUTO_REPLY, ReplyKind.UNSUBSCRIBE})
 
 
-def to_sales_queue(kind: ReplyKind, stage: Stage | None) -> bool:
+def to_sales_queue(kind: ReplyKind, stage: Stage | None, rule: str | None = None) -> bool:
     """Уходит ли ответ очереди продаж (`queue.SALES_REPLY_JOB`) — одно правило
     для приёма и повтора вебхука. Вид ответа (человек, автоответ, отписка)
-    решили правила приёма; модель зовётся только для ответа человека."""
-    return stage is Stage.SALES and kind in TO_SALES
+    решили правила приёма; модель зовётся только для ответа человека.
+
+    Автоответ «мёртвый ящик» (`rule` — имя сработавшего правила вида, `classify`) по виду —
+    отказ доставки, но продажам он нужен (просьба продаж, 12.10.2026): «я ушёл, пишите
+    jane@» — новый лид, и заводит его модуль продаж из текста ответа. Адрес из такого
+    автоответа в общие контакты домена не ложится (`pipeline.Inbox._redirect`)."""
+    return stage is Stage.SALES and (kind in TO_SALES or rule == DEAD_MAILBOX)
 
 
 def sales_review(snapshot: Mapping[str, Any] | None) -> tuple[bool, str]:

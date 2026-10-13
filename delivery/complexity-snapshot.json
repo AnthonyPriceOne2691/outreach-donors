@@ -487,19 +487,19 @@
       "worst": "—"
     },
     "backend/api/unsubscribe/page.py": {
-      "lines": 198,
+      "lines": 221,
       "complexity": 4,
-      "worst": "_signature:122"
+      "worst": "_signature:145"
     },
     "backend/api/unsubscribe/routes.py": {
-      "lines": 134,
+      "lines": 136,
       "complexity": 5,
-      "worst": "apply:97"
+      "worst": "apply:99"
     },
     "backend/api/unsubscribe/signer.py": {
-      "lines": 83,
+      "lines": 76,
       "complexity": 5,
-      "worst": "voice_of:38"
+      "worst": "voice_of:42"
     },
     "backend/api/users/__init__.py": {
       "lines": 1,
@@ -886,6 +886,11 @@
       "complexity": 10,
       "worst": "add:69"
     },
+    "backend/features/contacts/dead.py": {
+      "lines": 58,
+      "complexity": 4,
+      "worst": "bury_address:45"
+    },
     "backend/features/contacts/extract.py": {
       "lines": 312,
       "complexity": 9,
@@ -1062,7 +1067,7 @@
       "worst": "—"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 404,
+      "lines": 406,
       "complexity": 2,
       "worst": "_enum:42"
     },
@@ -1202,7 +1207,7 @@
       "worst": "_any:83"
     },
     "backend/features/crawl/offer_stop.py": {
-      "lines": 150,
+      "lines": 155,
       "complexity": 6,
       "worst": "stop_offers:46"
     },
@@ -1487,14 +1492,14 @@
       "worst": "subject_for:91"
     },
     "backend/features/letters/attempts.py": {
-      "lines": 271,
+      "lines": 327,
       "complexity": 2,
-      "worst": "next_address_note:130"
+      "worst": "next_address_note:159"
     },
     "backend/features/letters/batch.py": {
-      "lines": 188,
+      "lines": 191,
       "complexity": 4,
-      "worst": "why:118"
+      "worst": "why:121"
     },
     "backend/features/letters/building.py": {
       "lines": 486,
@@ -1522,14 +1527,14 @@
       "worst": "to_text:92"
     },
     "backend/features/letters/events.py": {
-      "lines": 404,
+      "lines": 416,
       "complexity": 10,
-      "worst": "apply_events:159"
+      "worst": "apply_events:164"
     },
     "backend/features/letters/followups.py": {
-      "lines": 498,
+      "lines": 499,
       "complexity": 7,
-      "worst": "_deliver:434"
+      "worst": "_deliver:424"
     },
     "backend/features/letters/funnel.py": {
       "lines": 102,
@@ -1542,9 +1547,9 @@
       "worst": "metrics_leak:41"
     },
     "backend/features/letters/identity.py": {
-      "lines": 80,
+      "lines": 92,
       "complexity": 4,
-      "worst": "sender_domain:50"
+      "worst": "sender_domain:62"
     },
     "backend/features/letters/mailbox.py": {
       "lines": 299,
@@ -1572,14 +1577,14 @@
       "worst": "_niche_example:295"
     },
     "backend/features/letters/optout.py": {
-      "lines": 88,
-      "complexity": 3,
-      "worst": "unsubscribe_domain:43"
+      "lines": 247,
+      "complexity": 6,
+      "worst": "_person:163"
     },
     "backend/features/letters/other_role.py": {
-      "lines": 85,
+      "lines": 86,
       "complexity": 5,
-      "worst": "_role:75"
+      "worst": "_role:76"
     },
     "backend/features/letters/outgoing_files.py": {
       "lines": 312,
@@ -1657,24 +1662,34 @@
       "worst": "_post:172"
     },
     "backend/features/letters/sending.py": {
-      "lines": 500,
+      "lines": 496,
       "complexity": 5,
-      "worst": "_hand_over:424"
+      "worst": "_hand_over:420"
     },
     "backend/features/letters/settle.py": {
       "lines": 171,
       "complexity": 6,
       "worst": "record_sent:77"
     },
+    "backend/features/letters/site_role.py": {
+      "lines": 76,
+      "complexity": 3,
+      "worst": "check:48"
+    },
     "backend/features/letters/stoplist.py": {
-      "lines": 470,
+      "lines": 495,
       "complexity": 7,
-      "worst": "add:164"
+      "worst": "add:169"
     },
     "backend/features/letters/template.py": {
       "lines": 493,
       "complexity": 9,
       "worst": "_check_zones:257"
+    },
+    "backend/features/letters/thread_first.py": {
+      "lines": 51,
+      "complexity": 4,
+      "worst": "subject:16"
     },
     "backend/features/letters/transport.py": {
       "lines": 205,
@@ -1877,9 +1892,9 @@
       "worst": "_offer:104"
     },
     "backend/features/replies/outcome.py": {
-      "lines": 315,
+      "lines": 321,
       "complexity": 7,
-      "worst": "_answer_without_price:254"
+      "worst": "_answer_without_price:260"
     },
     "backend/features/replies/parse_input.py": {
       "lines": 41,
@@ -1912,14 +1927,14 @@
       "worst": "stage_of:44"
     },
     "backend/features/replies/redirect.py": {
-      "lines": 227,
+      "lines": 232,
       "complexity": 8,
-      "worst": "sort_out:149"
+      "worst": "sort_out:154"
     },
     "backend/features/replies/repository.py": {
-      "lines": 465,
+      "lines": 484,
       "complexity": 5,
-      "worst": "domain_of:199"
+      "worst": "domain_of:200"
     },
     "backend/features/replies/robots.py": {
       "lines": 61,

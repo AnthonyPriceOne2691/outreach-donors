@@ -57,6 +57,7 @@ from backend.features.letters import (
     mailbox,
     reply_to,
     settle,
+    site_role,
     stoplist,
     unsubscribe,
 )
@@ -105,6 +106,10 @@ class UndecidedDonorError(SendError):
 
 class NotWritingError(SuppressedError):
     """Донор или площадка оффера — в «кому не пишем» ТЗ (`runs.exclusions`): как стоп-лист."""
+
+
+class OtherRoleError(SuppressedError):
+    """Сайт в работе у другого направления: первое письмо снято (`site_role.py`)."""
 
 
 #: Отказ при отправке (`donor_standing.py`, `offer_standing.py`) — классом: на отклонении,
@@ -157,17 +162,7 @@ class SendOutcome:
     real: bool
 
 
-@dataclass(frozen=True, slots=True)
-class OwnHeaders:
-    """Что письмо получает от нас, а не от шаблона. Оба — на домене отправителя."""
-
-    #: Наш `Message-ID`: якорь цепочки и запасной путь привязки ответа.
-    message_id: str
-    #: Адрес «куда отвечать» с меткой. Пусто — только у нулевого транспорта.
-    reply_to: str | None
-
-
-def own_headers(message_id: int, *, sender_email: str, real: bool) -> OwnHeaders:
+def own_headers(message_id: int, *, sender_email: str, real: bool) -> identity.OwnHeaders:
     """Свой `Message-ID` и адрес ответа для письма `message_id` с ящика `sender_email`.
 
     Адрес ответа настоящей отправке обязателен: без метки ответ с чужого
@@ -189,7 +184,7 @@ def own_headers(message_id: int, *, sender_email: str, real: bool) -> OwnHeaders
             raise SendError(str(exc)) from exc
         logger.warning("письма: письмо №%s уходит без адреса ответа (%s)", message_id, exc)
         address = None
-    return OwnHeaders(message_id=own_id, reply_to=address)
+    return identity.OwnHeaders(message_id=own_id, reply_to=address)
 
 
 def check_ready(body: str, *, what: str) -> None:
@@ -256,6 +251,7 @@ class Sending:
         except TransportError as exc:
             raise SendError(f"Почта этапа «{target.to.stage.value}» не собрана: {exc}") from exc
         await self._check_suppression(target)
+        await site_role.check(self._session, target.message, target.to.stage, OtherRoleError)
         await self._check_review(target)
         check_ready(target.message.body or "", what=f"Письмо №{target.message.id}")
         if (no_link := unsubscribe.refusal(target.message, target.to.stage)) is not None:
@@ -312,7 +308,7 @@ class Sending:
             files=await OutgoingFiles(self._session).outgoing(message_id),
         )
 
-    async def _claim(self, target: _Target, sender: SenderModel, own: OwnHeaders) -> None:
+    async def _claim(self, target: _Target, sender: SenderModel, own: identity.OwnHeaders) -> None:
         """Перевести письмо в «отправляется» — только если оно всё ещё в очереди.
 
         Статус из `_target` мог устареть: между чтением и записью успевает
@@ -425,7 +421,7 @@ class Sending:
         self,
         target: _Target,
         sender: SenderModel,
-        own: OwnHeaders,
+        own: identity.OwnHeaders,
         transport: Transport,
         *,
         in_reply_to: str | None = None,

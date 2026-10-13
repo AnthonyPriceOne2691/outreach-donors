@@ -42,10 +42,11 @@ class Written:
     stage: Stage
 
 
-def elsewhere() -> tuple[ColumnElement[bool], ...]:
-    """Письмо сайту в другой роли — не донору — и живое: дошло, в пути, остановлено человеком или
-    на него ответили (`attempts.dead`). Условия — к письмам, соединённым со своей рассылкой."""
-    return CampaignModel.stage != Stage.DONORS, ~attempts.dead(MessageModel)
+def elsewhere() -> ColumnElement[bool]:
+    """Письмо сайту в другой роли — не донору — и живое: в очереди, в пути, дошло, остановлено
+    человеком или на него ответили (`attempts.dead`). Условие — к письмам, соединённым со своей
+    рассылкой; оно же держит первое письмо при отправке (`attempts.in_other_role`, `site_role`)."""
+    return attempts.in_other_role(MessageModel, CampaignModel, Stage.DONORS)
 
 
 async def letter_to(session: AsyncSession, domain_id: int) -> Written | None:
@@ -54,7 +55,7 @@ async def letter_to(session: AsyncSession, domain_id: int) -> Written | None:
         await session.execute(
             select(MessageModel.id, CampaignModel.stage)
             .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
-            .where(MessageModel.domain_id == domain_id, *elsewhere())
+            .where(MessageModel.domain_id == domain_id, elsewhere())
             .order_by(MessageModel.id.desc())
             .limit(1)
         )

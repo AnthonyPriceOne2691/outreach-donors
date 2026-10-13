@@ -48,6 +48,11 @@
 целиком, потому что писать ему второй раз — это следующая жалоба
 и выгоревший домен.
 
+**Письмо продаж ушло человеку, а не сайту** (ревью стыков и решение владельца 12.10.2026).
+Отказ хоронит адрес события, а не контакт письма (`contacts/dead.py`); жалоба закрывает
+адрес жалобщика для всех направлений и компанию — для продаж (`optout.complained`), а доноров
+и рекламодателей того же сайта не трогает.
+
 **Домен паркуется по доле отказов, а не по их числу.** Один отказ
 из двух писем — это пятьдесят процентов и ничего не значит; поэтому
 доля считается только после того, как с домена ушло хоть сколько-то
@@ -66,13 +71,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import outreach as cfg
-from backend.features.contacts.preference import DEAD
+from backend.features.contacts.dead import bury, bury_address
 from backend.features.core import stages
 from backend.features.core.domain import MessageStatus, Stage, SuppressionReason
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
-from backend.features.letters import unknown_outcome
+from backend.features.letters import optout, unknown_outcome
 from backend.features.outreach import health
 from backend.features.outreach.autopause import LIFETIME_ADVICE, AutoPause, pause_once
 
@@ -304,7 +309,7 @@ async def _apply_one(
         return
 
     if event.kind == "spamreport":
-        await _complained(session, message, report)
+        await _complained(session, message, event, report)
 
 
 async def _bounced(
@@ -318,25 +323,32 @@ async def _bounced(
     # Добивку слать некуда: следующий шаг цепочки гасится вместе с адресом.
     message.next_action_at = None
 
-    if event.soft or message.contact_id is None:
+    if event.soft:
         return
     if await _stage_of(session, message) is Stage.SALES:
         # Письмо продаж ушло лиду переписки (`stages.recipient`), а контакт письма — тот,
         # кто ответил, например секретарь: отказ адреса лида его адрес не хоронит. Иначе
         # закрылся бы и чужой адрес, а с ним — этапы 1–2 домену, если он ещё и донор
-        # (кросс-ревью продаж, 10.10.2026). Шаг цепочки погашен выше.
+        # (кросс-ревью продаж, 10.10.2026). Хоронится адрес события — он и отказал: строка
+        # `contacts` с ним общая с донорами, и они иначе брали бы мёртвый адрес первым
+        # (ревью стыков 12.10.2026, `contacts/dead.py`). Шаг цепочки погашен выше.
+        await bury_address(session, event.email)
         return
-    contact = await session.get(ContactModel, message.contact_id)
-    if contact is not None:
-        contact.verification_status = DEAD
-        contact.verification_score = 0
+    await bury(session, message.contact_id)
 
 
-async def _complained(session: AsyncSession, message: MessageModel, report: EventReport) -> None:
-    """Жалоба на спам. Донор уходит целиком: второе письмо — вторая жалоба."""
-    message.failure_reason = "жалоба на спам"
+async def _complained(
+    session: AsyncSession, message: MessageModel, event: DeliveryEvent, report: EventReport
+) -> None:
+    """Жалоба на спам. Донор уходит целиком: второе письмо — вторая жалоба. Письмо продаж —
+    человеку, а не сайту (решение владельца 12.10.2026): его адрес — в стоп-лист без этапа,
+    компания — для продаж, а доноров и рекламодателей сайта жалоба не трогает (`optout`)."""
+    message.failure_reason = optout.COMPLAINT
     message.next_action_at = None
     report.complained += 1
+    if await _stage_of(session, message) is Stage.SALES:
+        await optout.complained(session, message, event.email)
+        return
 
     found = await session.execute(
         select(SuppressionModel.id).where(SuppressionModel.domain_id == message.domain_id)
@@ -347,7 +359,7 @@ async def _complained(session: AsyncSession, message: MessageModel, report: Even
         SuppressionModel(
             domain_id=message.domain_id,
             reason=SuppressionReason.COMPLAINED,
-            created_by="жалоба на спам",
+            created_by=optout.COMPLAINT,
         )
     )
 

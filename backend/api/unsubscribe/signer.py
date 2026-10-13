@@ -8,7 +8,9 @@
 **Письмо продаж — подпись «Отправителя» продаж:** имя и физический адрес из базы
 (`sales/sender.py`), язык — язык диалога, которым написаны его письма
 (`sales_threads.language`, `sales/mail.linked`). Адрес доноров сюда не подставляется: у
-продаж свой отправитель, и чужой адрес выглядел бы заданным (`sales/sender.py`).
+продаж свой отправитель, и чужой адрес выглядел бы заданным (`sales/sender.py`). И слова —
+о человеке, а не о сайте: отписка с письма продаж закрывает адрес того, кому оно ушло
+(решение владельца 12.10.2026, `letters/optout.py`), и «все адреса сайта» страница не обещает.
 
 **Поломка модуля продаж страницу не роняет.** Модуль спрашивается в своей точке
 сохранения; упал — подпись без имени и адреса, по-английски, и строка журнала. Отписка —
@@ -22,13 +24,15 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import assert_never
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.unsubscribe import page
 from backend.features.core.domain import Stage
-from backend.features.core.models.outreach import CampaignModel, MessageModel
+from backend.features.letters.optout import label_letter
+from backend.features.letters.settle import stage_of
 from backend.features.letters.unsubscribe import Label
 from backend.features.sales import mail, sender
 
@@ -36,31 +40,20 @@ logger = logging.getLogger(__name__)
 
 
 async def voice_of(session: AsyncSession, label: Label) -> page.Voice:
-    """Подпись и язык страницы для письма метки."""
-    letter = await _letter(session, label)
+    """Подпись и язык страницы для письма метки — тем же письмом и этапом, что у нажатия
+    (`letters/optout.unsubscribe_label`). Письмо продаж ушло человеку: страница говорит о его
+    адресе, а не о сайте (`page.Voice.person`)."""
+    letter = await label_letter(session, label)
     if letter is None:
         return page.donors()
-    stage = await _stage(session, letter)
+    stage = await stage_of(session, letter)
     match stage:
         case None | Stage.DONORS | Stage.ADVERTISERS:
             return page.donors()
         case Stage.SALES:
-            return await _sales(session, letter.thread_id)
+            return replace(await _sales(session, letter.thread_id), person=True)
         case _:
             assert_never(stage)
-
-
-async def _letter(session: AsyncSession, label: Label) -> MessageModel | None:
-    """Письмо метки — если метка его называет и письмо того же сайта, что метка."""
-    if label.letter_id is None:
-        return None
-    letter = await session.get(MessageModel, label.letter_id)
-    return letter if letter is not None and letter.domain_id == label.domain_id else None
-
-
-async def _stage(session: AsyncSession, letter: MessageModel) -> Stage | None:
-    campaign = await session.get(CampaignModel, letter.campaign_id)
-    return None if campaign is None else campaign.stage
 
 
 async def _sales(session: AsyncSession, thread_id: int | None) -> page.Voice:
