@@ -17,8 +17,9 @@
 параметров — те же, что в адресе. Логика чтения — `features/sales/browse.py`.
 
 **Гипотеза заводится и здесь** (`POST /sales/hypotheses`) — тем же правилом, что команда
-консоли (`features/sales/hypotheses.add`): негодное имя — 422 словами, занятое — 409 словами.
-Право — `sales`: описание гипотезы в тексты писем не идёт, его читают только экраны.
+консоли (`features/sales/hypotheses.add`): негодное имя — 422 словами, занятое — 409 словами;
+заведённая — в журнале действий с автором. Право — `sales`: описание гипотезы в тексты писем
+не идёт, его читают экраны и судья сбора базы.
 
 **База знаний и отправитель** (срез 3.1) — своим модулем `kb.py`, **цепочка писем**
 (срез 4.6) — модулем `chain.py`, **очередь писем** (срез 4.6b) — модулем `queue.py`,
@@ -190,11 +191,12 @@ async def list_hypotheses(
     summary="Завести гипотезу",
 )
 async def add_hypothesis(
-    body: HypothesisBody, _: UserModel = _seller, session: AsyncSession = Depends(db_session)
+    body: HypothesisBody, author: UserModel = _seller, session: AsyncSession = Depends(db_session)
 ) -> HypothesisCard:
-    """Окно «Новая гипотеза»: правило и слова отказа — те же, что у команды консоли."""
+    """Окно «Новая гипотеза»: правило и слова отказа — те же, что у команды консоли; заведение —
+    в журнале действий с автором (`hypotheses.add`)."""
     try:
-        made = await hypotheses.add(session, body.name, body.description)
+        made = await hypotheses.add(session, body.name, body.description, author_id=author.id)
     except hypotheses.BadNameError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     except hypotheses.NameTakenError as exc:

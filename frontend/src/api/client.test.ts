@@ -174,6 +174,53 @@ describe('запрос к серверу', () => {
     expect((failure as TooManyAttemptsError).retryAfterSeconds).toBe(59);
   });
 
+  it('отказ без текста сервера: 5xx — что делать словами, код — в скобках; прочее — кодом', async () => {
+    // Ревью стыков 13.10.2026: «Сервер ответил 500» на падении сервера и «502» на шлюзе прокси
+    // при выкатке — код вместо того, что делать.
+    const failed = (status: number) =>
+      `Сервер не справился с запросом (ответ ${status}) — повторите позже; повторится — сообщите администратору`;
+    const away = (status: number) =>
+      `Сервер недоступен (ответ ${status}) — идёт выкатка или он перезапускается, повторите через минуту`;
+    const said: Record<number, string> = {
+      413: 'Сервер ответил 413',
+      499: 'Сервер ответил 499',
+      500: failed(500),
+      501: failed(501),
+      502: away(502),
+      503: away(503),
+      504: away(504),
+      505: failed(505),
+    };
+    serve(
+      Object.fromEntries(
+        Object.keys(said).map((status) => [
+          `GET /api/answer/${status}`,
+          { status: Number(status), raw: '<html>не наш обработчик</html>' },
+        ]),
+      ),
+    );
+
+    for (const [status, words] of Object.entries(said)) {
+      const failure = await request(`/answer/${status}`).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(ApiError);
+      expect(failure).toHaveProperty('status', Number(status));
+      expect(failure).toHaveProperty('message', words);
+    }
+  });
+
+  it('5xx с текстом сервера — текст целиком, слова клиента его не заменяют', async () => {
+    serve({
+      'GET /api/sales/queue': {
+        status: 503,
+        body: { detail: 'Очередь задач недоступна — повторите позже' },
+      },
+    });
+
+    await expect(request('/sales/queue')).rejects.toThrow(
+      /^Очередь задач недоступна — повторите позже$/,
+    );
+  });
+
   it('разбор тела запроса показывается первой причиной, а не схемой целиком', async () => {
     serve({
       'PATCH /api/users/1': {
