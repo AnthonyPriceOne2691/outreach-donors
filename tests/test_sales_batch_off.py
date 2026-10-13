@@ -62,6 +62,10 @@ def jobs(monkeypatch: pytest.MonkeyPatch) -> _Jobs:
     """Очередь задач пачки — подставная: видно, поставлена ли задача."""
     found = _Jobs()
     monkeypatch.setattr("backend.api.letters.routes.runs_queue", lambda: found)
+    # Пачка продаж уходит своей очередью — `sales_queue`, затем очередью долгих задач продаж
+    # `sales_bulk_queue`: их заводят общие PR; до них маршрута нет, и пачка идёт общей.
+    for queue in ("sales_queue", "sales_bulk_queue"):
+        monkeypatch.setattr(f"backend.api.letters.routes.{queue}", lambda: found, raising=False)
     return found
 
 
