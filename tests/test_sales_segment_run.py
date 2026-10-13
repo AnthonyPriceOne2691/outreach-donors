@@ -42,6 +42,7 @@ from backend.features.sales.segment_models import (
 from backend.features.sales.segment_models import Stage as RunStage
 from backend.features.sales.segment_run import RunDeps, execute
 from backend.features.sales.verifier import FixtureVerifier
+from backend.features.serp.dataforseo import SerpError
 from backend.features.serp.protocol import SerpResult
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -292,7 +293,7 @@ async def test_the_whole_way_from_keywords_to_a_clean_lead(
     }
     assert sorted(view.rejected) == [
         ("пишет о чужих, сам не продаёт", 1),
-        ("платформа из денилиста: это площадка, а не сайт компании", 1),
+        ("платформам и соцсетям не пишем", 1),
     ]
     assert report["leads"]["created"] == 1
     assert run.stage == RunStage.DONE
@@ -700,3 +701,48 @@ def test_the_collection_keeps_no_copy_of_the_ladder() -> None:
             if name in source
         ]
         assert copies == [], module.name
+
+
+@dataclass
+class PaidThenBroken(Serp):
+    """Выдача, которая поставила задачи (и провайдер их списал), а забрать не смогла."""
+
+    async def search(
+        self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
+    ) -> dict[str, list[SerpResult]]:
+        self.calls.append(tuple(keywords))
+        self.spent += self.price * len(keywords) * depth_pages
+        raise SerpError("Провайдер выдачи ответил 503: перегружен")
+
+
+async def test_serp_paid_and_then_failed_is_in_the_journal_before_the_job_retries(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Задачи выдачи поставлены — деньги списаны, — а забор упал: строка расхода `sales_serp`
+    пишется и коммитится сразу, до повтора задачи очередью; иначе её унёс бы откат, а повтор
+    купил бы выдачу снова — дважды оплаченное, ни разу не записанное. Этап — прежний: повтор
+    купит выдачу заново и запишет свою строку."""
+    run = await make_run(session, await hypothesis(session))
+    at_commit: list[list[Decimal | None]] = []
+    commit = session.commit
+
+    async def watched() -> None:
+        rows = await session.scalars(
+            select(UsageRecordModel.amount_usd).where(UsageRecordModel.operation == "sales_serp")
+        )
+        at_commit.append(list(rows))
+        await commit()
+
+    monkeypatch.setattr(session, "commit", watched)
+
+    with pytest.raises(SerpError, match="ответил 503"):
+        await go(session, run, PaidThenBroken({}, spent=0.5), Model(ANSWERS))  # 0,5 — прежние
+
+    assert at_commit == [[Decimal("0.0037")]]
+    await session.refresh(run)
+    assert run.stage == RunStage.QUEUED
+    usage_row = await session.scalar(
+        select(UsageRecordModel).where(UsageRecordModel.operation == "sales_serp")
+    )
+    assert usage_row is not None
+    assert (usage_row.provider, usage_row.stage) == (UsageProvider.SERP, Stage.SALES)

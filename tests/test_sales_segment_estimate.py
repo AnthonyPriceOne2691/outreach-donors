@@ -12,6 +12,7 @@ from backend.config import llm as llm_cfg
 from backend.config import sales as sales_cfg
 from backend.config import serp as serp_cfg
 from backend.config.judge import JudgeMode
+from backend.features.core import usage
 from backend.features.core.domain import UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.sales import segment_estimate as se
@@ -89,14 +90,35 @@ async def test_a_paid_address_search_and_check_are_named_as_upper_bounds(
     monkeypatch.setattr(contacts_cfg, "HUNTER_API_KEY", MODEL_KEY)
     monkeypatch.setattr(sales_cfg, "SEGMENT_PAID_CONTACTS", True)
     monkeypatch.setattr(sales_cfg, "VERIFIER_PROVIDER", "live")
+    monkeypatch.setattr(sales_cfg, "VERIFIER_MONTH_CAP", "1500")
     owner = await hypothesis(session)
+    usage.record(session, operation="sales_verify", units=120)  # уже в этом месяце
+    await session.flush()
 
     found = await estimate(session, ask(owner.id, depth_pages=2))
 
     assert (found.hunter_searches, found.hunter_checks) == (51, 51)
     assert found.lines[-1] == (
         "Hunter: поисков адреса до 51 — только тем, кому бесплатные ступени адреса не нашли; "
-        "проверок адреса до 51."
+        "проверок адреса до 51, в этом месяце 120 из 1500."
+    )
+    assert (found.refusal, found.as_dict()["month"]) == (None, "в этом месяце 120 из 1500")
+
+
+async def test_a_live_check_without_a_month_cap_refuses_the_run(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Живая проверка без месячного потолка: лиды сбора встали бы на очистке — прогон не
+    запускается, отказ называет настройку (`verify_cap`)."""
+    monkeypatch.setattr(contacts_cfg, "HUNTER_API_KEY", MODEL_KEY)
+    monkeypatch.setattr(sales_cfg, "VERIFIER_PROVIDER", "live")
+    monkeypatch.setattr(sales_cfg, "VERIFIER_MONTH_CAP", "")
+    owner = await hypothesis(session)
+
+    found = await estimate(session, ask(owner.id))
+
+    assert found.refusal == (
+        "потолок проверки адресов на месяц не задан — задайте SALES_VERIFIER_MONTH_CAP"
     )
 
 

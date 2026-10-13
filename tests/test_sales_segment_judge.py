@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 from backend.config.judge import JudgeMode
 from backend.features.donors.home_signals import HomeSignals
+from backend.features.runs import exclusions
 from backend.features.sales import segment_judge as sj
 from backend.features.sales.segment_judge import SegmentClient, SegmentVerdict, SiteText
 from backend.features.sales.segment_models import Decider, Lane
@@ -124,8 +126,11 @@ async def test_empty_answer_is_unanswered_but_its_tokens_are_counted() -> None:
 @pytest.mark.parametrize(
     ("host", "site", "lane", "words"),
     [
-        ("youtube.com", text(), Lane.REJECT, "платформа из денилиста"),
-        ("bureau.gov.zz", text(), Lane.REJECT, "государственная или учебная зона"),
+        ("youtube.com", text(), Lane.REJECT, "платформам и соцсетям не пишем"),
+        ("bureau.gov.zz", text(), Lane.REJECT, "гос. и учебным сайтам не пишем"),
+        ("vk.com", text(), Lane.REJECT, "платформам и соцсетям не пишем"),
+        ("forbes.com", text(), Lane.REJECT, "крупным СМИ не пишем"),
+        ("britannica.com", text(), Lane.REJECT, "справочникам и исследованиям не пишем"),
         (SHOP, SiteText(()), Lane.REVIEW, "не дали текста"),
         (
             SHOP,
@@ -134,7 +139,7 @@ async def test_empty_answer_is_unanswered_but_its_tokens_are_counted() -> None:
             "отказ доступа",
         ),
     ],
-    ids=["platform", "public-zone", "empty", "denied"],
+    ids=["platform", "public-zone", "social", "major-media", "reference", "empty", "denied"],
 )
 async def test_rules_decide_before_the_model_and_cost_nothing(
     host: str, site: SiteText, lane: Lane, words: str
@@ -146,6 +151,20 @@ async def test_rules_decide_before_the_model_and_cost_nothing(
     assert (verdict.lane, verdict.decided_by, verdict.tokens) == (lane, Decider.RULE, 0)
     assert words in verdict.reason
     assert seen == []
+
+
+def test_the_name_rule_is_the_shared_whom_we_do_not_write_rule() -> None:
+    """«Кому не пишем» по имени домена — одно правило с прогоном доноров
+    (`runs/exclusions.by_name`) и его слова (`NOT_WRITING_WORDS`): своей копии классов
+    (платформа, зона, списки обхода) у сбора нет. DR > 80 — не здесь: метрик у кандидата нет."""
+    hosts = ["youtube.com", "bureau.gov.zz", "vk.com", "forbes.com", "britannica.com", SHOP]
+    shared = exclusions.by_name(hosts)
+
+    ruled = {host: verdict.reason for host in hosts if (verdict := sj.by_host(host)) is not None}
+
+    assert ruled == {host: exclusions.NOT_WRITING_WORDS[why] for host, why in shared.items()}
+    source = Path(sj.__file__).read_text(encoding="utf-8")
+    assert [name for name in ("is_platform", "is_public_zone") if name in source] == []
 
 
 # --- строгая форма ---------------------------------------------------------------------------

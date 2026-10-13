@@ -49,6 +49,13 @@ SUMMARY = """Проверяльщик адресов: fixture — вердикт
 
 
 @pytest.fixture(autouse=True)
+def _month_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Месячный потолок проверок у живого проверяльщика задан с запасом: здесь не о нём
+    (`tests/test_sales_verify_cap.py`)."""
+    monkeypatch.setattr("backend.config.sales.VERIFIER_MONTH_CAP", "100000")
+
+
+@pytest.fixture(autouse=True)
 def _dns_by_table(monkeypatch: pytest.MonkeyPatch) -> None:
     async def route(host: str, **_kwargs: object) -> MailRoute:
         return ROUTES.get(host, MailRoute.MX)
@@ -169,9 +176,28 @@ async def test_stopped_paid_part_has_its_own_code_and_says_what_to_do(
         "Проверяльщик адресов: hunter\n"
         "Очистка продаж: проверено 1; готово 0; отклонено 0; не проверено 1.\n"
         "\nПлатная часть остановлена: квота исчерпана: monthly. Непроверенные лиды "
-        "остались new — повторите очистку, когда причина снята.\n"
+        "остались в прежнем статусе — повторите очистку, когда причина снята.\n"
     )
     assert await _statuses(session) == [LeadStatus.NEW]
+
+
+async def test_rate_limit_through_every_retry_stops_the_paid_part_with_its_code_and_words(
+    session: AsyncSession,
+    hypothesis: SalesHypothesisModel,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _leads(session, hypothesis, "ivan@acme.example.test", "olga@beta.example.test")
+
+    async with _live(monkeypatch, 429, None) as http:
+        assert await _run(session, http=http) == EXIT_VERIFIER_STOPPED
+
+    assert capsys.readouterr().out.endswith(
+        "\nПлатная часть остановлена: частота превышена (HTTP 429) и после 3 попыток с паузой — "
+        "проверка адресов встала до следующей очистки. Непроверенные лиды остались "
+        "в прежнем статусе — повторите очистку, когда причина снята.\n"
+    )
+    assert await _statuses(session) == [LeadStatus.NEW, LeadStatus.NEW]
 
 
 async def test_a_passing_failure_is_exit_zero_and_promises_a_retry(
@@ -187,9 +213,34 @@ async def test_a_passing_failure_is_exit_zero_and_promises_a_retry(
         assert await _run(session, http=http) == EXIT_OK
 
     assert capsys.readouterr().out.endswith(
-        "\nНе проверенные лиды остались new: следующая очистка повторит их.\n"
+        "\nНепроверенные лиды остались в прежнем статусе: следующая очистка повторит их.\n"
     )
     assert await _statuses(session) == [LeadStatus.NEW]
+
+
+async def test_a_failed_recheck_keeps_the_ready_lead_and_the_summary_does_not_call_it_new(
+    session: AsyncSession,
+    hypothesis: SalesHypothesisModel,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Живой проверяльщик берёт снова лида `ready` с выдуманным вердиктом (`verifier.recheck`).
+    Отказ сервиса оставляет его `ready` — итог не обещает, что он стал «new»."""
+    await _leads(session, hypothesis, "ivan@acme.example.test")
+    lead = await session.scalar(select(SalesLeadModel))
+    assert lead is not None
+    lead.status, lead.verification_status = LeadStatus.READY, "fixture:valid"
+    await session.flush()
+
+    async with _live(monkeypatch, 503, {"errors": [{"details": "down"}]}) as http:
+        assert await _run(session, http=http) == EXIT_OK
+
+    assert capsys.readouterr().out == (
+        "Проверяльщик адресов: hunter\n"
+        "Очистка продаж: проверено 1; готово 0; отклонено 0; не проверено 1.\n"
+        "\nНепроверенные лиды остались в прежнем статусе: следующая очистка повторит их.\n"
+    )
+    assert await _statuses(session) == [LeadStatus.READY]
 
 
 async def test_a7_live_without_a_key_refuses_before_touching_a_lead(

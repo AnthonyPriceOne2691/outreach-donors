@@ -113,11 +113,11 @@ export function cleanLine(report: Record<string, unknown>): string {
   if (paid > 0) parts.push(`Платных проверок адреса: ${formatNumber(paid)}.`);
   if (typeof found.stopped === 'string') {
     parts.push(
-      `Платная часть остановлена: ${found.stopped} — непроверенные остались новыми, ` +
-        'повторите очистку, когда причина снята.',
+      `Платная часть остановлена: ${found.stopped} — непроверенные остались в прежнем ` +
+        'статусе, повторите очистку, когда причина снята.',
     );
   } else if (unverified > 0) {
-    parts.push('Непроверенные остались новыми — следующая очистка повторит их.');
+    parts.push('Непроверенные остались в прежнем статусе — следующая очистка повторит их.');
   }
   return parts.join(' ');
 }

@@ -9,7 +9,8 @@
 по правилам из самого адреса: без сети, без денег, одинаково сегодня и
 завтра — на нём живут разработка и проверка проводки. `live` — Hunter Email
 Verifier. Умолчание — `fixture`; на `live` переключает человек: ключ общий
-с соседней системой, квота одна на обе. `live` без ключа — отказ на старте,
+с соседней системой, счётчик проверок у Hunter — свой, отдельный от её поисков
+(свой месячный потолок — `verify_cap.py`). `live` без ключа — отказ на старте,
 до первого лида, а не на первом платном вызове.
 
 **Выдуманный вердикт при живом проверяльщике не годен** (`unproven`): лид, чей адрес
@@ -20,10 +21,17 @@ Verifier. Умолчание — `fixture`; на `live` переключает �
 
 **Вердикт и отказ сервиса — разные вещи** (`okf/provider-refusals.md`).
 Вердикт — в том числе `unknown`, «провайдер не знает», — возвращается
-и записывается лиду. Отказ — сеть, 429, 5xx, непонятный ответ —
-исключение: лид остаётся `new` с причиной, следующая очистка повторит
-проверку. Квота и закрытая учётка — свои исключения, их повторять нельзя,
-и очистка на них останавливает платную часть прохода.
+и записывается лиду. Отказ — сеть, 5xx, непонятный ответ — исключение:
+лид остаётся в прежнем статусе с причиной, следующая очистка повторит проверку.
+Квота, закрытая учётка и частота (`STOPS`) — свои исключения: очистка на
+них останавливает платную часть прохода, остальные лиды ждут её с причиной.
+
+**Повторы и частота — общим `net/retry`, как у выдачи и модели.** 429, 5xx и обрыв
+связи адрес повторяет до `ATTEMPTS` раз с паузой по `Retry-After` (не дольше 30 с) или
+1 и 2 с; запросы прохода идут не чаще `RATE_PER_MINUTE`. 429 и после повторов —
+частота не прошла: следующие адреса прохода бились бы в тот же предел, и проход
+встаёт словами. Отказы 429 единиц не списывали (замер 22.09.2026,
+`okf/provider-refusals.md`): повторы платят только за вердикт.
 
 Исключения и разбор маркеров отказа — общие с поиском адресов
 (`contacts/provider.py`): сервис тот же, маркеры те же, вторую копию
@@ -46,10 +54,12 @@ from backend.features.contacts.provider import (
     BASE_URL,
     ProviderBlockedError,
     ProviderError,
+    ProviderQuotaError,
+    ProviderRateLimitError,
     _raise_refusal,
 )
 from backend.features.sales.models import LeadStatus, SalesLeadModel
-from backend.shared.net.retry import reason_of, unsent
+from backend.shared.net.retry import RateLimiter, reason_of, unsent, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +68,27 @@ LIVE = "live"
 KNOWN = (FIXTURE, LIVE)
 #: Почему лид, проверенный выдуманным проверяльщиком, не годен при живом — словами отчёта.
 MADE_UP = "адрес проверен тестовым проверяльщиком — очистите базу заново"
+#: Операция журнала расхода: платная проверка адреса, единица — проверка.
+OPERATION = "sales_verify"
+
+#: Попыток на адрес: 429, 5xx и обрыв связи бывают временными (`net/retry.with_retries`).
+ATTEMPTS = 3
+#: Запросов к Hunter в минуту на проход — с запасом ниже его предела частоты: проход идёт
+#: в несколько потоков (`cleaning.VERIFY_CONCURRENCY`), а быстрый ответ по известному
+#: адресу без ограничителя упирал бы проход в 429 на каждом следующем адресе.
+RATE_PER_MINUTE = 150
+#: 429 и после повторов с паузой — словами очистки и итога прохода.
+TOO_OFTEN = (
+    f"частота превышена (HTTP 429) и после {ATTEMPTS} попыток с паузой — "
+    "проверка адресов встала до следующей очистки"
+)
+#: Отказы, после которых платная часть прохода встаёт: повтор следующим адресом ответа не
+#: изменит. Прочие `ProviderError` — отказ одному адресу, проход идёт дальше.
+STOPS: tuple[type[ProviderError], ...] = (
+    ProviderQuotaError,
+    ProviderBlockedError,
+    ProviderRateLimitError,
+)
 
 #: Слово провайдера → доставляем ли. `None` — провайдер не знает: это вердикт,
 #: а не отказ; лид идёт дальше, слово остаётся в `verification_status`.
@@ -145,28 +176,20 @@ class HunterVerifier:
     def __init__(self, http: httpx.AsyncClient, *, api_key: str) -> None:
         self._http = http
         self._api_key = api_key
+        # Свой на проход: проверяльщик собирается на каждую очистку (`build_verifier`).
+        self._limiter = RateLimiter(per_minute=RATE_PER_MINUTE)
 
     async def verify(self, email: str) -> Verdict:
         response = await self._get(email)
         body = _json(response)
         code = response.status_code
         if code == httpx.codes.UNAUTHORIZED:
-            # Ключ не принят. Код однозначен при любом маркере, а повторять
-            # бессмысленно: каждый следующий лид получил бы тот же отказ. Причина уходит
-            # в слова очистки лида и итог задачи на экране — без имени настройки; имя —
-            # строкой журнала: ключ меняет администратор.
-            said = f", {details}" if (details := _details(body)) else ""
-            logger.warning(
-                "продажи: ключ проверки адресов не принят — проверить CONTACTS_HUNTER_API_KEY",
-                extra={"status": code, "details": details},
-            )
-            raise ProviderBlockedError(
-                f"ключ проверки адресов не принят провайдером (HTTP 401{said}) — "
-                "ключ меняет администратор"
-            )
+            raise _unauthorized(body, code)
         if body is not None and body.get("errors"):
             _raise_refusal(body, code)  # маркер раньше кода: 429 бывает закрытой учёткой
-        if code == httpx.codes.TOO_MANY_REQUESTS or code >= httpx.codes.INTERNAL_SERVER_ERROR:
+        if code == httpx.codes.TOO_MANY_REQUESTS:
+            raise ProviderRateLimitError(TOO_OFTEN)  # повторы с паузой уже позади (`_get`)
+        if code >= httpx.codes.INTERNAL_SERVER_ERROR:
             raise ProviderError(f"провайдер не ответил (HTTP {code}) — повторим следующей очисткой")
         if code == httpx.codes.ACCEPTED:
             raise ProviderError("провайдер ещё проверяет адрес — повторим следующей очисткой")
@@ -177,20 +200,41 @@ class HunterVerifier:
         return _verdict(body, code)
 
     async def _get(self, email: str) -> httpx.Response:
+        """Ответ Hunter — с повторами временных отказов общим `with_retries`: последний ответ
+        приходит как есть, его разбирает `verify`. 401 и прочие коды не повторяются."""
         try:
             # Ключ идёт ЗАГОЛОВКОМ, а не параметром адреса: в адресе он утекал
             # бы в журналы прокси и в текст ошибки провайдера.
-            return await self._http.get(
-                f"{BASE_URL}/email-verifier",
-                params={"email": email},
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                timeout=contacts_cfg.HUNTER_TIMEOUT_SEC,
+            return await with_retries(
+                lambda: self._http.get(
+                    f"{BASE_URL}/email-verifier",
+                    params={"email": email},
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    timeout=contacts_cfg.HUNTER_TIMEOUT_SEC,
+                ),
+                attempts=ATTEMPTS,
+                topic="продажи: проверка адреса",
+                limiter=self._limiter,
             )
         except httpx.HTTPError as exc:
             # Несобранный запрос — без цепочки причин: текст такого исключения
             # несёт заголовок целиком, а в нём ключ (`net.retry.reason_of`).
             error = ProviderError(f"сеть до провайдера не дошла: {reason_of(exc)}")
             raise error from None if unsent(exc) else exc
+
+
+def _unauthorized(body: dict[str, Any] | None, code: int) -> ProviderBlockedError:
+    """Ключ не принят. Код однозначен при любом маркере, а повторять бессмысленно: каждый
+    следующий лид получил бы тот же отказ. Причина уходит в слова очистки лида и итог задачи
+    на экране — без имени настройки; имя — строкой журнала: ключ меняет администратор."""
+    said = f", {details}" if (details := _details(body)) else ""
+    logger.warning(
+        "продажи: ключ проверки адресов не принят — проверить CONTACTS_HUNTER_API_KEY",
+        extra={"status": code, "details": details},
+    )
+    return ProviderBlockedError(
+        f"ключ проверки адресов не принят провайдером (HTTP 401{said}) — ключ меняет администратор"
+    )
 
 
 def _json(response: httpx.Response) -> dict[str, Any] | None:
