@@ -110,6 +110,15 @@ async def autosend_line(session: AsyncSession, now: datetime) -> AutoLine:
     return AutoLine(enabled=True, line=f"{head}. {await _going(session, seen, now)}.")
 
 
+def batch_line() -> str | None:
+    """Строка вместо кнопки пачки, пока включена автоотправка (`autosend.switched_on`, решение
+    владельца 13.10): письма уходят сами, а отправить вручную — выключить её. `None` — кнопка
+    есть. Тем же правилом пачке откажет сервер (`mail.batch`)."""
+    if not autosend.switched_on():
+        return None
+    return f"{autosend.BATCH_OFF.capitalize()}: {autosend.BY_ITSELF}."
+
+
 async def _none_goes(session: AsyncSession, seen: autosend.Facts) -> str | None:
     """Ни одно письмо в окне получателя не уйдёт как есть — почему и что делать; `None` — хоть
     одно уйдёт. Без этого строка писала «Письма уходят», пока проход отказывал каждому письму

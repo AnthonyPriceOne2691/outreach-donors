@@ -12,7 +12,10 @@
  * Пачка — общая кнопка почты (`letters/SendQueue`) с этапом продаж, своей у продаж нет:
  * она берёт письма всех гипотез, кнопка называет их число, а вкладка говорит это словами
  * до нажатия. Кнопка пачки — только у кого есть право отправки; сборка без него закрыта
- * строкой почему (`WriteRight`): она пишет письма адресатам и тратит модель.
+ * строкой почему (`WriteRight`): она пишет письма адресатам и тратит модель. Пока включена
+ * автоотправка, кнопки пачки нет (решение владельца 13.10): пачка выбрала бы дневной лимит
+ * ящиков за секунды, мимо паузы между письмами ящика, — вместо неё строка сервера, что письма
+ * уходят сами и как отправить вручную.
  *
  * **«Писем за раз» держит набранное** (`components/NumberField`, правило `numberText`):
  * `NumberInput` подменял стёртое поле и «05» умолчанием посреди набора. Число — целое в
@@ -327,19 +330,28 @@ function HypothesisQueue({ hypothesis }: { hypothesis: number }) {
       <AutoLines view={view} />
       <BuildQueue key={hypothesis} view={view} />
       {/* Без своей карточки: на телефоне её поля съедали ширину, и кнопка пачки
-          резала своё число (снимок 390 px, 07.10.2026). */}
+          резала своё число (снимок 390 px, 07.10.2026). Пока включена автоотправка, кнопки
+          нет — строка сервера вместо неё (`batch_off`): тем же правилом откажет и маршрут. */}
       {can('send') ? (
         <Stack gap={6} px="md">
-          <Text size="sm" c="dimmed">
-            Пачка берёт очередь продаж целиком — письма всех гипотез, не только выбранной.
-          </Text>
-          <SendQueue
-            stage="sales"
-            count={view.stage_queued}
-            batchMax={view.batch_max}
-            blocked={!view.connected}
-            onFinished={() => void client.invalidateQueries({ queryKey: QUEUE_QUERY_KEY })}
-          />
+          {view.batch_off !== null ? (
+            <Text size="sm" c="dimmed" className="queueBatchOff">
+              {view.batch_off}
+            </Text>
+          ) : (
+            <>
+              <Text size="sm" c="dimmed">
+                Пачка берёт очередь продаж целиком — письма всех гипотез, не только выбранной.
+              </Text>
+              <SendQueue
+                stage="sales"
+                count={view.stage_queued}
+                batchMax={view.batch_max}
+                blocked={!view.connected}
+                onFinished={() => void client.invalidateQueries({ queryKey: QUEUE_QUERY_KEY })}
+              />
+            </>
+          )}
         </Stack>
       ) : null}
     </Stack>

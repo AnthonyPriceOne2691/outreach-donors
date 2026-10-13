@@ -69,6 +69,8 @@ class FakeSalesMail:
     zones: tuple[str | None, ...] = ()
     #: Переписки продаж адресата стоп-листа (`threads_to`), которые назовёт модуль.
     threads: tuple[int, ...] = ()
+    #: Пачкой нельзя (`batch`): у настоящего модуля — пока включена автоотправка.
+    batch_off: bool = False
 
     async def _maybe_break(self, session: AsyncSession, answer: str) -> None:
         if answer != self.broken:
@@ -97,6 +99,13 @@ class FakeSalesMail:
     async def connected(self, session: AsyncSession) -> bool:
         await self._maybe_break(session, "connected")
         return self.connected_now
+
+    async def batch(self, what: str) -> None:
+        self.asked.append("batch")
+        if self.broken == "batch":
+            raise RuntimeError("выдуманная поломка модуля: batch")
+        if self.batch_off:
+            raise SalesNotConnectedError(what, "выдуманная причина", words="выдуманный отказ пачки")
 
     async def answer(self, session: AsyncSession, thread_id: int, body: str, _what: str) -> str:
         self.asked.append(f"answer {thread_id}")
@@ -210,6 +219,42 @@ async def test_queue_send_without_the_module_is_refused_as_before(
 ) -> None:
     with pytest.raises(SalesNotConnectedError, match=SALES_NOT_CONNECTED):
         await stages.check_connected(session, Stage.SALES, "Очередь писем не отправлена")
+
+
+@pytest.mark.parametrize("stage", [Stage.SALES, Stage.DONORS, Stage.ADVERTISERS])
+async def test_the_batch_asks_the_sales_module_whether_a_batch_may_go_only_for_sales(
+    session: AsyncSession, fake: FakeSalesMail, stage: Stage
+) -> None:
+    """Пачка спрашивает тот же мост ещё и «можно ли пачкой» (у продаж — нет, пока включена
+    автоотправка): отказ модуля словами — как есть, до задачи. Доноров и рекламодателей модуль
+    продаж не касается: их пачка его не спрашивает."""
+    fake.batch_off = True
+    what = "Очередь писем не отправлена"
+
+    if stage is Stage.SALES:
+        with pytest.raises(
+            SalesNotConnectedError, match=f"^{what}: выдуманный отказ пачки — выдуманная причина$"
+        ):
+            await stages.check_batch(session, stage, what)
+    else:
+        await stages.check_batch(session, stage, what)
+
+    assert fake.asked == (["batch"] if stage is Stage.SALES else [])
+
+
+async def test_the_batch_with_a_broken_module_answer_is_refused_in_words(
+    session: AsyncSession, fake: FakeSalesMail
+) -> None:
+    """Модуль сломался на вопросе «можно ли пачкой» — пачка встаёт словами «не подключены» с
+    причиной, а не ошибкой сервера."""
+    fake.broken = "batch"
+    what = "Очередь писем не отправлена"
+
+    with pytest.raises(
+        SalesNotConnectedError,
+        match=f"^{what}: {SALES_NOT_CONNECTED} — выдуманная поломка модуля: batch$",
+    ):
+        await stages.check_batch(session, Stage.SALES, what)
 
 
 # --- модуль подключён: письмо идёт его ответами --------------------------------------------

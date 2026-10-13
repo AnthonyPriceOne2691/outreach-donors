@@ -67,7 +67,15 @@ from backend.features.letters import guards
 from backend.features.letters.chain import ANSWER_STEP, FIRST_STEP
 from backend.features.letters.sending import NotReadyError, SendError, SuppressedError
 from backend.features.letters.uniqueness import corridor_verdict
-from backend.features.sales import chain, connection, followup_texts, handoff, letter, sender
+from backend.features.sales import (
+    autosend,
+    chain,
+    connection,
+    followup_texts,
+    handoff,
+    letter,
+    sender,
+)
 from backend.features.sales.intake import host_key
 from backend.features.sales.lead_edit import EDITED, edited
 from backend.features.sales.models import (
@@ -274,6 +282,13 @@ async def answer(session: AsyncSession, thread_id: int, body: str, what: str) ->
 async def connected(session: AsyncSession) -> bool:
     """Подключены ли продажи — на уровне направления, без цепочки отдельного лида."""
     return not await connection.missing(session)
+
+
+async def batch(what: str) -> None:
+    """Пачка продаж (`core/stages.check_batch`): пока включена автоотправка — отказ словами,
+    письма уходят проходом по одному с ящика (`autosend.py`); выключена — пачка как была."""
+    if autosend.switched_on():
+        raise SalesNotConnectedError(what, autosend.BY_ITSELF, words=autosend.BATCH_OFF)
 
 
 async def followup(session: AsyncSession, thread_id: int | None, step: int) -> SalesFollowup:

@@ -102,6 +102,9 @@ class SalesQueueView(BaseModel):
     autosend: AutoLineView
     #: Автосборка очереди: хватает ли на сутки, кого соберёт или почему нет, последняя сама.
     autobuild: AutoLineView
+    #: Почему кнопки пачки нет — строкой вместо неё: включена автоотправка, письма уходят сами
+    #: (решение владельца 13.10). `null` — кнопка есть.
+    batch_off: str | None = None
 
 
 class SalesQueueBody(BaseModel):
@@ -140,6 +143,7 @@ async def read_queue(
         batch_max=batch.BATCH_MAX,
         autosend=AutoLineView.of(await auto_lines.autosend_line(session, now)),
         autobuild=AutoLineView.of(await auto_lines.autobuild_line(session, sales_queue(), now)),
+        batch_off=auto_lines.batch_line(),
     )
 
 

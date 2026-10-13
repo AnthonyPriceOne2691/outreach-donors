@@ -222,7 +222,7 @@
       "worst": "enqueue_once:56"
     },
     "backend/api/letters/routes.py": {
-      "lines": 414,
+      "lines": 415,
       "complexity": 5,
       "worst": "build:142"
     },
@@ -362,9 +362,9 @@
       "worst": "change_lead:57"
     },
     "backend/api/sales/queue.py": {
-      "lines": 231,
+      "lines": 235,
       "complexity": 3,
-      "worst": "build_queue:147"
+      "worst": "build_queue:151"
     },
     "backend/api/sales/routes.py": {
       "lines": 228,
@@ -1077,9 +1077,9 @@
       "worst": "_enum:27"
     },
     "backend/features/core/stages.py": {
-      "lines": 396,
+      "lines": 418,
       "complexity": 5,
-      "worst": "check_connected:115"
+      "worst": "check_connected:118"
     },
     "backend/features/core/usage.py": {
       "lines": 283,
@@ -2167,7 +2167,7 @@
       "worst": "beyond:88"
     },
     "backend/features/sales/auto_lines.py": {
-      "lines": 211,
+      "lines": 220,
       "complexity": 7,
       "worst": "autosend_line:93"
     },
@@ -2177,9 +2177,9 @@
       "worst": "_choose:228"
     },
     "backend/features/sales/autosend.py": {
-      "lines": 441,
+      "lines": 458,
       "complexity": 8,
-      "worst": "stop:199"
+      "worst": "stop:216"
     },
     "backend/features/sales/autosend_jobs.py": {
       "lines": 197,
@@ -2357,9 +2357,9 @@
       "worst": "problem:95"
     },
     "backend/features/sales/mail.py": {
-      "lines": 320,
+      "lines": 335,
       "complexity": 7,
-      "worst": "check:233"
+      "worst": "check:241"
     },
     "backend/features/sales/models.py": {
       "lines": 500,
