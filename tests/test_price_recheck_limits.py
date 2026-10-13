@@ -138,6 +138,9 @@ class TestMailboxLimits:
 
         assert found.refusal is not None
         assert found.refusal.startswith("Сегодня писать некому:")
+        # Ни одного включённого ящика: «откроется лимит» не обещается — ящик сам не включится.
+        assert "выключены или на паузе" in found.refusal
+        assert "откроется лимит" not in found.refusal
 
 
 class TestSpeed:

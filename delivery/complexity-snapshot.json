@@ -1617,7 +1617,7 @@
       "worst": "refusal:42"
     },
     "backend/features/letters/recheck_target.py": {
-      "lines": 326,
+      "lines": 338,
       "complexity": 11,
       "worst": "in_thread:156"
     },
