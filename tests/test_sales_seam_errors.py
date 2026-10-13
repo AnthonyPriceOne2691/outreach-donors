@@ -130,7 +130,7 @@ async def test_g1_sales_queue_build_with_the_job_queue_down_is_503_in_words(
     headers: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("backend.api.sales.queue.sales_queue", _Down)
+    monkeypatch.setattr("backend.api.sales.queue.sales_bulk_queue", _Down)
     await session.commit()
 
     response = await client.post(

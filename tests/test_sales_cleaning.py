@@ -2,7 +2,7 @@
 проверяльщик и расход (A1–A7 на уровне прохода).
 
 Лиды и компании выдуманы, домены — `*.example.test`. База настоящая: правила
-читают общие `suppressions`, `threads`, `domains` и свои `sales_leads`,
+читают общие `suppressions`, `messages`, `domains` и свои `sales_leads`,
 `sales_stoplist`, а исходы и расход пишутся в `sales_leads` и `usage_records`.
 Сети нет: домен адреса принимает почту заглушкой `mail_route`, проверяльщик —
 `fixture`, сценарный или Hunter за `httpx.MockTransport`.
@@ -16,24 +16,33 @@ from __future__ import annotations
 import asyncio
 from collections import Counter
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 import pytest
 from backend.features.contacts.mx import MailRoute
+from backend.features.contacts.preference import DEAD as BURIED
 from backend.features.contacts.provider import (
     ProviderBlockedError,
     ProviderError,
     ProviderQuotaError,
     ProviderRateLimitError,
 )
-from backend.features.core.domain import Stage, SuppressionReason, ThreadStatus, UsageProvider
+from backend.features.core.domain import (
+    ContactSource,
+    MessageStatus,
+    Stage,
+    SuppressionReason,
+    UsageProvider,
+)
 from backend.features.core.models.domain import DomainModel
+from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
-from backend.features.core.models.outreach import CampaignModel, MessageModel, ThreadModel
+from backend.features.core.models.outreach import CampaignModel, MessageModel
+from backend.features.letters import attempts
 from backend.features.replies.repository import ReplyRepository
-from backend.features.sales import cleaning
-from backend.features.sales.cleaning import CleaningReport
+from backend.features.sales import clean_report, cleaning
+from backend.features.sales.clean_report import CleaningReport
 from backend.features.sales.models import (
     LeadSource,
     LeadStatus,
@@ -116,13 +125,42 @@ class World:
         await self.session.flush()
         return other
 
-    async def thread(self, host: str, status: ThreadStatus, stage: Stage) -> None:
-        """Диалог другого направления на домене: доноров или рекламодателей."""
+    async def letter(
+        self,
+        host: str,
+        stage: Stage,
+        status: MessageStatus = MessageStatus.QUEUED,
+        *,
+        reason: str | None = None,
+        buried: bool = False,
+    ) -> None:
+        """Первое письмо сайту в роли этапа `stage` — переписки у него может и не быть. `buried` —
+        письмо ушло на адрес, который потом похоронили (`preference.DEAD`)."""
         campaign = CampaignModel(stage=stage, name="Проверка", status="running")
+        domain = await self.domain(host)
         self.session.add(campaign)
         await self.session.flush()
-        domain = await self.domain(host)
-        self.session.add(ThreadModel(domain_id=domain.id, campaign_id=campaign.id, status=status))
+        contact = None
+        if buried:
+            contact = ContactModel(
+                domain_id=domain.id,
+                email=f"gone{campaign.id}@{host}",
+                source=ContactSource.PAGE,
+                verification_status=BURIED,
+            )
+            self.session.add(contact)
+            await self.session.flush()
+        self.session.add(
+            MessageModel(
+                campaign_id=campaign.id,
+                domain_id=domain.id,
+                contact_id=None if contact is None else contact.id,
+                step=0,
+                status=status,
+                failure_reason=reason,
+                idempotency_key=f"{stage.value}:{host}:{campaign.id}",
+            )
+        )
         await self.session.flush()
 
     async def suppression(
@@ -201,8 +239,9 @@ async def world(session: AsyncSession) -> World:
 
 
 def test_every_reason_has_its_words_for_the_report() -> None:
-    assert set(cleaning.REASON_LABELS) == set(RejectionReason)
-    assert cleaning.REASON_LABELS[RejectionReason.UNDELIVERABLE] == "адрес не существует"
+    assert set(clean_report.REASON_LABELS) == set(RejectionReason)
+    assert clean_report.REASON_LABELS[RejectionReason.UNDELIVERABLE] == "адрес не существует"
+    assert clean_report.REASON_LABELS[RejectionReason.UNCONFIRMED] == "адрес не подтверждён дважды"
 
 
 # --- A1: дубли -------------------------------------------------------------------
@@ -250,67 +289,74 @@ async def test_a1_address_of_an_earlier_lead_is_a_duplicate_whatever_its_hypothe
     ]
 
 
-# --- A2: домен в работе у другого направления -------------------------------------
+# --- A2: сайт в работе у другого направления — живое письмо, как у отправки -------------------
+
+
+def busy_with(stage: Stage) -> Row:
+    """Лид отклонён: сайт в работе у направления `stage` — словами отправки, с доменом."""
+    note = f"{attempts.elsewhere_reason(stage)} ({ACME})"
+    return rejected(RejectionReason.OTHER_DIRECTION, note)
 
 
 @pytest.mark.parametrize(
-    ("status", "stage", "busy"),
+    ("stage", "status", "reason"),
     [
-        (ThreadStatus.OPEN, Stage.DONORS, True),
-        (ThreadStatus.REPLIED, Stage.ADVERTISERS, True),
-        (ThreadStatus.CLOSED, Stage.DONORS, False),
-        (ThreadStatus.UNSUBSCRIBED, Stage.ADVERTISERS, False),
+        (Stage.DONORS, MessageStatus.QUEUED, None),  # собрано и ждёт — переписки ещё нет
+        (Stage.ADVERTISERS, MessageStatus.SENDING, None),
+        (Stage.DONORS, MessageStatus.SENT, None),
+        (Stage.ADVERTISERS, MessageStatus.DELIVERED, None),  # дошло — цепочка могла кончиться
+        (Stage.DONORS, MessageStatus.STOPPED, None),  # остановлено человеком: решение по сайту
     ],
 )
-async def test_a2_domain_in_a_running_dialog_of_another_direction_is_busy(
-    world: World, status: ThreadStatus, stage: Stage, busy: bool
+async def test_a2_a_live_letter_of_another_direction_makes_the_site_busy(
+    world: World, stage: Stage, status: MessageStatus, reason: str | None
 ) -> None:  # A2
     # A2 — пример спеки
-    await world.thread(ACME, status, stage)
+    """«Одна роль на сайт»: письмо донору или рекламодателю живое — в очереди (и без переписки),
+    в пути, ушло, дошло, остановлено человеком: лида продаж очистка отклоняет тем же условием, что
+    у отправки (`attempts.in_other_role`), а не пропускает до снятия его письма при отправке."""
+    await world.letter(ACME, stage, status, reason=reason)
     await world.lead(IVAN)
 
     report = await world.clean()
 
-    note = f"домен в работе у другого направления: {ACME}"
-    expected = rejected(RejectionReason.OTHER_DIRECTION, note) if busy else READY
-    assert await world.rows() == [expected]
-    assert (report.ready, report.rejected) == (
-        (0, Counter({"other_direction": 1})) if busy else (1, Counter())
-    )
+    assert await world.rows() == [busy_with(stage)]
+    assert (report.ready, report.rejected) == (0, Counter({"other_direction": 1}))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "после PR соседней сессии «одна роль на сайт»: в main нет общей функции «живое письмо "
-        "другого этапа»; `_busy` видит только идущие диалоги других направлений, а письмо им в "
-        "очереди без переписки — нет: отправка такое письмо продаж откажет, очистка пропустит"
-    ),
+@pytest.mark.parametrize(
+    ("stage", "status", "reason", "buried"),
+    [
+        (Stage.DONORS, MessageStatus.BOUNCED, None, False),  # отказ доставки — не дошло
+        (Stage.DONORS, MessageStatus.SENT, None, True),  # ушло на похороненный адрес
+        (Stage.ADVERTISERS, MessageStatus.STOPPED, attempts.LINK_WITHDRAWN, False),  # не уходило
+        (Stage.DONORS, MessageStatus.STOPPED, attempts.elsewhere_reason(Stage.SALES), False),
+        (Stage.SALES, MessageStatus.SENT, None, False),  # письмо продаж — своё направление
+    ],
 )
-@pytest.mark.parametrize("stage", [Stage.DONORS, Stage.ADVERTISERS])
-async def test_letter_of_another_direction_waiting_without_a_dialog_makes_the_domain_busy(
-    world: World, stage: Stage
-) -> None:
-    """Письмо донору или рекламодателю собрано и ждёт в очереди — переписки ещё нет. «Одна роль
-    на сайт»: лида продаж на этом домене очистка отклоняет уже сейчас, тем же условием, что у
-    отправки, а не пропускает до отказа первого письма в очереди."""
-    campaign = CampaignModel(stage=stage, name="Проверка", status="running")
-    world.session.add(campaign)
-    await world.session.flush()
-    domain = await world.domain(ACME)
-    world.session.add(
-        MessageModel(
-            campaign_id=campaign.id, domain_id=domain.id, step=0, idempotency_key=f"wait-{stage}"
-        )
-    )
-    await world.session.flush()
+async def test_a2_a_dead_or_own_letter_does_not_hold_the_site(
+    world: World, stage: Stage, status: MessageStatus, reason: str | None, buried: bool
+) -> None:  # A2
+    """Мёртвое письмо — не дошло и не дойдёт или снято, не уходив, — сайт не держит; письмо
+    продаж — тоже: у компании бывает несколько лидов."""
+    await world.letter(ACME, stage, status, reason=reason, buried=buried)
     await world.lead(IVAN)
 
     await world.clean()
 
-    assert await world.rows() == [
-        rejected(RejectionReason.OTHER_DIRECTION, f"домен в работе у другого направления: {ACME}")
-    ]
+    assert await world.rows() == [READY]
+
+
+async def test_a2_two_other_directions_are_named_in_the_order_of_stages(world: World) -> None:
+    """У сайта живые письма и рекламодателей, и доноров — названо первое направление по порядку
+    этапов, как у отправки, а не случайное."""
+    await world.letter(ACME, Stage.ADVERTISERS, MessageStatus.SENT)
+    await world.letter(ACME, Stage.DONORS, MessageStatus.QUEUED)
+    await world.lead(IVAN)
+
+    await world.clean()
+
+    assert await world.rows() == [busy_with(Stage.DONORS)]
 
 
 # --- A3: отписки и общий стоп-лист -------------------------------------------------
@@ -460,13 +506,13 @@ async def test_unusable_addresses_are_named_by_the_shared_rules_and_the_free_mai
 
 
 async def test_rules_go_from_the_cheapest_and_the_first_one_names_the_lead(world: World) -> None:
-    """Дубль → стоп-лист → отписка → чужой диалог → годность: лид, попавший под
+    """Дубль → стоп-лист → отписка → чужое направление → годность: лид, попавший под
     два правила, назван первым из них."""
     await world.stoplist(host=ACME)
     await world.suppression(email="privacy@acme.example.test")
     await world.suppression(email="legal@beta.example.test")
-    await world.thread("beta.example.test", ThreadStatus.OPEN, Stage.DONORS)
-    await world.thread("gamma.example.test", ThreadStatus.OPEN, Stage.DONORS)
+    await world.letter("beta.example.test", Stage.DONORS, MessageStatus.SENT)
+    await world.letter("gamma.example.test", Stage.DONORS, MessageStatus.SENT)
     first = await world.lead("privacy@acme.example.test")  # стоп-лист и отписка и годность
     await world.lead("privacy@acme.example.test")  # и ещё дубль
     await world.lead("legal@beta.example.test")  # отписка и чужой диалог и годность
@@ -478,7 +524,7 @@ async def test_rules_go_from_the_cheapest_and_the_first_one_names_the_lead(world
         ("stoplist", f"стоп-лист продаж: домен {ACME}"),
         ("duplicate", f"дубль: адрес уже у лида №{first.id}"),
         ("unsubscribed", "отписка: legal@beta.example.test просил не писать"),
-        ("other_direction", "домен в работе у другого направления: gamma.example.test"),
+        ("other_direction", "сайт в работе у другого направления: доноры (gamma.example.test)"),
     ]
 
 
@@ -634,15 +680,26 @@ async def test_a5_fixture_verdicts_reach_the_lead_and_cost_nothing(world: World)
     report = await world.clean()
 
     dead = LeadStatus.REJECTED, "undeliverable"
+    unknown = (
+        "адрес не подтверждён: почтовый сервер не дал проверке ответа (unknown) — к письмам не "
+        "идёт; очистка проверит снова не раньше 11.10.2026"
+    )
     assert await world.rows() == [
         Row(*dead, "адрес не существует: bounce@acme.example.test", "fixture:invalid", 7, NOW),
         Row(*dead, "одноразовый ящик: disposable@acme.example.test", "fixture:disposable", 11, NOW),
-        # «Провайдер не знает» — вердикт, лид готов; порог по нему решает отправка.
-        Row(LeadStatus.READY, verification="fixture:unknown", score=48, verified_at=NOW),
+        # Решение владельца 13.10: «провайдер не знает» — вердикт, но к письмам лид не идёт
+        # (`unconfirmed.py`); «сервер принимает всё» — идёт, как раньше.
+        Row(LeadStatus.NEW, None, unknown, "fixture:unknown", 48, NOW),
         Row(LeadStatus.READY, verification="fixture:accept_all", score=61, verified_at=NOW),
     ]
     assert report == CleaningReport(
-        checked=4, ready=2, rejected=Counter({"undeliverable": 2}), verified=4, verifier="fixture"
+        checked=4,
+        ready=1,
+        rejected=Counter({"undeliverable": 2}),
+        unconfirmed=1,
+        recheck_on=date(2026, 10, 11),
+        verified=4,
+        verifier="fixture",
     )
     assert await _usage(world.session) == []
 

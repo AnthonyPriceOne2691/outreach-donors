@@ -34,6 +34,7 @@ from backend.features.sales import (
     chain,
     chain_load,
     chain_text,
+    clean_report,
     cleaning,
     hypotheses,
     intake,
@@ -43,9 +44,7 @@ from backend.features.sales import (
     stoplist,
 )
 from backend.features.sales.chain_text import StepTemplate
-from backend.features.sales.cleaning import CleaningReport
 from backend.features.sales.columns import LeadField, Mapping
-from backend.features.sales.models import RejectionReason
 from backend.features.sales.verifier import FIXTURE, build_verifier
 
 #: Кто внёс строку из консоли: у команды нет пользователя, есть место.
@@ -128,39 +127,9 @@ async def _clean_with(
     made_up = " — вердикты выдуманные, для писем включите live" if verifier.name == FIXTURE else ""
     print(f"Проверяльщик адресов: {verifier.name}{made_up}")
     report = await cleaning.clean(session, verifier, hypothesis_id=hypothesis_id)
-    _print_cleaning(report)
+    for line in clean_report.lines(report):  # сводка словами — `clean_report.lines`
+        print(line)
     return EXIT_VERIFIER_STOPPED if report.stopped else EXIT_OK
-
-
-def _print_cleaning(report: CleaningReport) -> None:
-    """Сводка прохода: каждый исход — числом, отказы — по причинам словами."""
-    if not report.checked:
-        print("Очистка продаж: лидов new нет — проверять нечего.")
-        return
-    print(
-        f"Очистка продаж: проверено {report.checked}; готово {report.ready}; "
-        f"отклонено {report.rejected_total}; не проверено {report.unverified}."
-    )
-    for reason in RejectionReason:
-        if count := report.rejected.get(reason.value):
-            print(f"  {cleaning.REASON_LABELS[reason]}: {count}")
-    if report.mx_unknown:
-        print(
-            f"  DNS не ответил по доменам: {report.mx_unknown} — адреса прошли дальше непроверенными"
-        )
-    if report.verified:
-        print(f"  вердиктов проверяльщика: {report.verified}, платных: {report.paid_units}")
-    _print_unverified(report)
-
-
-def _print_unverified(report: CleaningReport) -> None:
-    if report.stopped:
-        print(
-            f"\nПлатная часть остановлена: {report.stopped}. Непроверенные лиды остались "
-            "в прежнем статусе — повторите очистку, когда причина снята."
-        )
-    elif report.unverified:
-        print("\nНепроверенные лиды остались в прежнем статусе: следующая очистка повторит их.")
 
 
 async def run_stoplist_add(session: AsyncSession, args: argparse.Namespace) -> int:

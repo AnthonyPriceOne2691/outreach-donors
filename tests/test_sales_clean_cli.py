@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime, tzinfo
 from typing import Any
 
 import httpx
@@ -38,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 ROUTES = {"none.example.test": MailRoute.NONE, "silent.example.test": MailRoute.UNKNOWN}
 SUMMARY = """Проверяльщик адресов: fixture — вердикты выдуманные, для писем включите live
-Очистка продаж: проверено 6; готово 2; отклонено 4; не проверено 0.
+Очистка продаж: проверено 6; готово 2; отклонено 4; не подтверждено 0; не проверено 0.
   дубль: 1
   негодный адрес: 1
   домен не принимает почту: 1
@@ -134,7 +135,9 @@ async def test_summary_names_every_outcome_in_words_and_a_second_pass_finds_noth
     assert capsys.readouterr().out == SUMMARY
 
     assert await _run(session) == EXIT_OK
-    assert capsys.readouterr().out.endswith("Очистка продаж: лидов new нет — проверять нечего.\n")
+    assert capsys.readouterr().out.endswith(
+        "Очистка продаж: лидов, ждущих очистки, нет — проверять нечего.\n"
+    )
 
 
 async def test_hypothesis_narrows_the_pass_and_an_unknown_one_is_refused(
@@ -153,8 +156,9 @@ async def test_hypothesis_narrows_the_pass_and_an_unknown_one_is_refused(
     assert await _statuses(session) == [LeadStatus.NEW, LeadStatus.NEW]
 
     assert await _run(session, "--hypothesis", "сайты  EN") == EXIT_OK
-    assert "Очистка продаж: проверено 1; готово 1; отклонено 0; не проверено 0.\n" in (
-        capsys.readouterr().out
+    assert (
+        "Очистка продаж: проверено 1; готово 1; отклонено 0; не подтверждено 0; не проверено 0.\n"
+        in (capsys.readouterr().out)
     )
     assert await _statuses(session) == [LeadStatus.READY, LeadStatus.NEW]
 
@@ -174,7 +178,7 @@ async def test_stopped_paid_part_has_its_own_code_and_says_what_to_do(
 
     assert capsys.readouterr().out == (
         "Проверяльщик адресов: hunter\n"
-        "Очистка продаж: проверено 1; готово 0; отклонено 0; не проверено 1.\n"
+        "Очистка продаж: проверено 1; готово 0; отклонено 0; не подтверждено 0; не проверено 1.\n"
         "\nПлатная часть остановлена: квота исчерпана: monthly. Непроверенные лиды "
         "остались в прежнем статусе — повторите очистку, когда причина снята.\n"
     )
@@ -218,6 +222,38 @@ async def test_a_passing_failure_is_exit_zero_and_promises_a_retry(
     assert await _statuses(session) == [LeadStatus.NEW]
 
 
+class _Frozen(datetime):
+    """Часы очистки на выдуманном моменте: день перепроверки в словах не плывёт."""
+
+    @classmethod
+    def now(cls, tz: tzinfo | None = None) -> datetime:  # type: ignore[override]
+        return datetime(2026, 10, 4, 9, 30, tzinfo=tz or UTC)
+
+
+async def test_an_unconfirmed_address_is_its_own_number_and_its_recheck_day_is_said(
+    session: AsyncSession,
+    hypothesis: SalesHypothesisModel,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Решение владельца 13.10: адрес `unknown` к письмам не идёт. Итог консоли называет его
+    своим числом и день, не раньше которого очистка проверит адрес снова; лид — `new`."""
+    monkeypatch.setattr(cleaning, "datetime", _Frozen)
+    await _leads(session, hypothesis, "ivan@acme.example.test")
+
+    async with _live(monkeypatch, 200, {"data": {"status": "unknown", "score": 23}}) as http:
+        assert await _run(session, http=http) == EXIT_OK
+
+    assert capsys.readouterr().out == (
+        "Проверяльщик адресов: hunter\n"
+        "Очистка продаж: проверено 1; готово 0; отклонено 0; не подтверждено 1; не проверено 0.\n"
+        "  вердиктов проверяльщика: 1, платных: 1\n"
+        "\nАдрес не подтверждён (unknown) — к письмам такие лиды не идут: очистка проверит их "
+        "снова не раньше 11.10.2026, второй такой ответ отклонит лида.\n"
+    )
+    assert await _statuses(session) == [LeadStatus.NEW]
+
+
 async def test_a_failed_recheck_keeps_the_ready_lead_and_the_summary_does_not_call_it_new(
     session: AsyncSession,
     hypothesis: SalesHypothesisModel,
@@ -237,7 +273,7 @@ async def test_a_failed_recheck_keeps_the_ready_lead_and_the_summary_does_not_ca
 
     assert capsys.readouterr().out == (
         "Проверяльщик адресов: hunter\n"
-        "Очистка продаж: проверено 1; готово 0; отклонено 0; не проверено 1.\n"
+        "Очистка продаж: проверено 1; готово 0; отклонено 0; не подтверждено 0; не проверено 1.\n"
         "\nНепроверенные лиды остались в прежнем статусе: следующая очистка повторит их.\n"
     )
     assert await _statuses(session) == [LeadStatus.READY]

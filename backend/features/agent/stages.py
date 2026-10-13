@@ -232,6 +232,7 @@ SALES_STAGE = AgentStage(
     guard=sales.guard,
     guard_operation=sales.JUDGE_OPERATION,
     brief_operation=sales.SITUATION_OPERATION,
+    own_cap=sales.cap,
     on_draft=sales.on_draft,
     on_skip=sales.on_skip,
     max_rewrites=sales.MAX_REWRITES,

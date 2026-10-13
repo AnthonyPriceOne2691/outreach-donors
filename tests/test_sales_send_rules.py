@@ -18,7 +18,7 @@ from backend.config import outreach as outreach_cfg
 from backend.config import sales as sales_cfg
 from backend.features.contacts.mx import MailRoute
 from backend.features.core import stages
-from backend.features.core.domain import Stage, SuppressionReason, ThreadStatus
+from backend.features.core.domain import MessageStatus, Stage, SuppressionReason, ThreadStatus
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, ThreadModel
 from backend.features.sales import cleaning, connection, hypotheses, letter, mail, sender
@@ -321,16 +321,26 @@ async def test_second_lead_of_a_company_in_a_sales_dialog_is_not_busy(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch, stage: Stage, status: LeadStatus
 ) -> None:
     """Первому лиду компании ушло письмо — диалог продаж открыт. Второй лид той же
-    компании, загруженный позже, получает своё письмо, а не «домен в работе у другого
-    направления»; диалог доноров на домене по-прежнему держит."""
+    компании, загруженный позже, получает своё письмо, а не «сайт в работе у другого
+    направления»; письмо доноров на домене по-прежнему держит (правило отправки)."""
     monkeypatch.setattr(cleaning, "mail_route", _mx)
     hypothesis = await hypotheses.add(session, "Очистка после письма", None)
     company = await w.domain(session, "acme.example.test")
     campaign = CampaignModel(stage=stage, name="Идущая рассылка", status="running")
     session.add(campaign)
     await session.flush()
+    talk = ThreadModel(domain_id=company.id, campaign_id=campaign.id, status=ThreadStatus.OPEN)
+    session.add(talk)
+    await session.flush()
     session.add(
-        ThreadModel(domain_id=company.id, campaign_id=campaign.id, status=ThreadStatus.OPEN)
+        MessageModel(
+            campaign_id=campaign.id,
+            thread_id=talk.id,
+            domain_id=company.id,
+            step=0,
+            status=MessageStatus.SENT,
+            idempotency_key=f"{stage.value}:acme.example.test:first",
+        )
     )
     second = await w.lead(session, hypothesis.id, "olga@acme.example.test", status=LeadStatus.NEW)
 

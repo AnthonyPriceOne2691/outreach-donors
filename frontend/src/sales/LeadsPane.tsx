@@ -19,7 +19,8 @@
  *
  * **Очистка — здесь же, по гипотезе** (`CleanLeads`): выбрана гипотеза и у неё есть
  * новые лиды — строка «N лидов ждут очистки» и кнопка между плитками и таблицей. Число —
- * то же, что у плитки «Новые»: один список гипотез на оба места. Очистка идёт по одной
+ * сервера, из того же списка гипотез (`cleanData.waitingOf`): бывает меньше плитки «Новые» —
+ * новый лид с первым ответом `unknown` ждёт дня перепроверки. Очистка идёт по одной
  * гипотезе, поэтому без выбранной гипотезы строки нет.
  *
  * **Правка лида — окном из строки** (`LeadEditModal`): сохранили — уведомление, и если письмо
@@ -42,6 +43,7 @@ import { formatNumber } from '../format';
 import { notify } from '../notices';
 import { emptinessOf, LEAD_STATE_KEYS, leadsLink, queryOf } from './leadFilters';
 import type { LeadFilters } from './leadFilters';
+import { waitingOf } from './cleanData';
 import { CleanLeads } from './CleanLeads';
 import { LeadEditModal } from './LeadEditModal';
 import { LeadsEmpty, LeadsRefused, LeadsTable } from './LeadsTable';
@@ -173,7 +175,7 @@ export function LeadsPane({ leads, total, onTurn, onReset, ...filterRow }: Props
         <CleanLeads
           key={chosen.id}
           hypothesis={chosen.id}
-          waiting={chosen.leads.new + (chosen.recheck ?? 0)}
+          waiting={waitingOf(chosen)}
           recheck={chosen.recheck ?? 0}
           px="md"
         />

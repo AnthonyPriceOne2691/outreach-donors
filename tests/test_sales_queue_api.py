@@ -32,7 +32,7 @@ from backend.features.ops import job_outcome
 from backend.features.sales import chain, connection, corridor, queue, queue_jobs, sender
 from backend.features.sales.handoff import lead_of
 from backend.features.sales.models import SalesThreadModel
-from backend.shared.queue import QUEUE_NAME, SALES_QUEUE_NAME
+from backend.shared.queue import QUEUE_NAME, SALES_BULK_QUEUE_NAME, SALES_QUEUE_NAME
 from fastapi import FastAPI
 from httpx import AsyncClient, Response
 from rq.job import JobStatus
@@ -68,7 +68,7 @@ def jobs(monkeypatch: pytest.MonkeyPatch) -> _Jobs:
     """Подставная очередь очистки (`test_sales_clean_api.py`): правила rq 2.12 — номер, `unique`,
     след задачи и итог отдельно от задачи; одна подделка на сборку и очистку."""
     found = _Jobs()
-    monkeypatch.setattr("backend.api.sales.queue.sales_queue", lambda: found)
+    monkeypatch.setattr("backend.api.sales.queue.sales_bulk_queue", lambda: found)
     return found
 
 
@@ -241,11 +241,13 @@ async def test_build_goes_to_the_job_queue_and_into_the_journal(
     }
 
 
-def test_build_goes_to_the_sales_queue_not_the_common_one() -> None:
-    """Сборка — в очередь продаж (`worker-sales`): модель на каждое письмо — минуты, и они не
-    держат воркер доноров, а сборка не ждёт за прогоном. Очередь — настоящая `rq.Queue`,
-    Redis не трогается: соединение открывается только командой."""
-    assert sales_queue_api.sales_queue().name == SALES_QUEUE_NAME != QUEUE_NAME
+def test_build_goes_to_the_sales_bulk_queue_not_the_common_one() -> None:
+    """Сборка — в очередь долгих задач продаж (`worker-sales-bulk`): модель на каждое письмо —
+    минуты, и они не держат ни воркер доноров, ни разбор ответа лида, а сборка не ждёт за
+    прогоном. Очередь — настоящая `rq.Queue`, Redis не трогается: соединение открывается только
+    командой."""
+    assert sales_queue_api.sales_bulk_queue().name == SALES_BULK_QUEUE_NAME
+    assert SALES_BULK_QUEUE_NAME not in (QUEUE_NAME, SALES_QUEUE_NAME)
 
 
 async def _build(client: AsyncClient, headers: dict[str, str], hypothesis_id: int) -> Response:

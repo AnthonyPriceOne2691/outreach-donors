@@ -13,7 +13,9 @@
  * значок состояния: у контурного красный текст на светлом стекле намерился
  * 4,23 : 1 при норме 4,5 (мастер, 04.10.2026). Лид, оставшийся новым из-за
  * несработавшей проверки, несёт «!» с теми же словами: «проверка не выполнена: …» —
- * иначе он неотличим от ещё не очищенного.
+ * иначе он неотличим от ещё не очищенного. Лид «готов», чей сайт в работе у другого
+ * направления, — янтарный значок «сайт занят» и «!» со словами сервера (`elsewhere`):
+ * письмо ему не соберётся, пока сайт не освободится.
  *
  * **Ширины колонок — по самому длинному, что в них бывает**; узкому окну —
  * прокрутка (`FixedTable`). Строка не переносится, кроме колонок с текстом без
@@ -192,22 +194,34 @@ function StateBadge({ state }: { state: LeadState }) {
   );
 }
 
-/** Адрес проверял выдуманный проверяльщик, а задан живой: значок и «!» со словами сервера —
- *  письма лиду не идут, пока очистка не проверит адрес по-настоящему. */
-function Unproven({ note }: { note: string }) {
+/** Письма лиду «готов» пока не идут: янтарный значок и «!» со словами сервера. Адрес проверял
+ *  выдуманный проверяльщик, а задан живой, — до очистки по-настоящему; сайт в работе у другого
+ *  направления — пока он не освободится (одна роль на сайт). */
+function Waits({
+  label,
+  note,
+  title,
+}: {
+  label: string;
+  note: string;
+  title?: string | undefined;
+}) {
   return (
     <Group gap={2} justify="center" wrap="nowrap">
       <Badge variant="light" color="yellow" style={{ flexShrink: 0 }}>
-        проверить заново
+        {label}
       </Badge>
-      <LeadNote note={note} rejected={false} />
+      <LeadNote note={note} rejected={false} title={title} />
     </Group>
   );
 }
 
 /** Что очистка сказала о лиде: причина значком и «!» со словами, или вердикт проверки. */
 function Outcome({ row }: { row: LeadCard }) {
-  if (row.unproven) return <Unproven note={row.unproven} />;
+  if (row.unproven) return <Waits label="проверить заново" note={row.unproven} />;
+  if (row.elsewhere) {
+    return <Waits label="сайт занят" note={row.elsewhere} title="Почему лид ждёт" />;
+  }
   const rejected = row.rejection_reason !== null;
   const note =
     row.cleaning_note !== null ? <LeadNote note={row.cleaning_note} rejected={rejected} /> : null;

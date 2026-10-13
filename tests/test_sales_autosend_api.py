@@ -48,7 +48,7 @@ async def world(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> w.Wor
 @pytest.fixture
 def jobs(monkeypatch: pytest.MonkeyPatch) -> _AutoJobs:
     found = _AutoJobs()
-    monkeypatch.setattr("backend.api.sales.queue.sales_queue", lambda: found)
+    monkeypatch.setattr("backend.api.sales.queue.sales_bulk_queue", lambda: found)
     return found
 
 

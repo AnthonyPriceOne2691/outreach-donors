@@ -21,11 +21,14 @@
   адрес не в стоп-листе (`stopped_by` с его адресом); письмо цепочки — лиду не из
   «кому не пишем» (`not_writing.py`, решение владельца 13.10); первое письмо —
   в коридоре отличия, собрано после последней правки лида (`lead_edit.edited`), а адрес не
-  проверен выдуманным проверяльщиком при живом (`verifier.unproven`); подпись и адрес на
-  месте, подстановок без значения нет (`letter.problem`, у ответа в переписке —
-  `letter.answer_problem`); добивку, которую так не собрать, проверка останавливает;
+  проверен выдуманным проверяльщиком при живом (`verifier.unproven`) и не «не подтверждён»
+  (`unconfirmed.first_letter`); подпись и адрес на месте, подстановок без значения нет
+  (`letter.problem`, у ответа в переписке — `letter.answer_problem`); добивку, которую так
+  не собрать, проверка останавливает;
 - `connected` — подключены ли продажи: проход добивок берёт их сроки только тогда, иначе
   срок цел и проход называет его вслух;
+- `missing` — чего не хватает продажам, словами (`connection.missing`): отказ пачке называет
+  причину, как отказ одному письму (`core/stages.check_connected`);
 - `answer` — ответ лиду в переписке до заведения письма: продажи подключены, у переписки
   есть лид, ему можно писать; текст — с подписью и адресом из «Отправителя» в конце, и
   метрик Ahrefs в нём нет;
@@ -102,7 +105,7 @@ from backend.features.sales.models import (
 from backend.features.sales.not_writing import excluded
 from backend.features.sales.policy import sales_policy, zones_of
 from backend.features.sales.suppressions import holds_sales
-from backend.features.sales.verifier import unproven
+from backend.features.sales.unconfirmed import first_letter
 
 logger = logging.getLogger(__name__)
 
@@ -312,13 +315,16 @@ async def _colleague_writable(
 
 
 def _first_problem(dialog: Linked, message: MessageModel) -> str | None:
-    """Почему первое письмо не уходит — словами; `None` — уходит: оно в коридоре отличия,
-    собрано после последней правки лида (`lead_edit.edited`), а адрес не проверен выдуманным
-    проверяльщиком при живом (`verifier.unproven`)."""
+    """Почему первое письмо не уходит — словами; `None` — уходит: адрес проверен не выдуманным
+    проверяльщиком при живом и подтверждён (`unconfirmed.first_letter`), письмо в коридоре
+    отличия и собрано после последней правки лида (`lead_edit.edited`). Адрес — первым:
+    пересборка его не исправит, и «соберите очередь заново» увело бы человека не туда."""
+    if (held := first_letter(dialog.lead)) is not None:
+        return held
     verdict = corridor_verdict(message.uniqueness_pct or 0.0)
     if verdict is not None:
         return f"{verdict} — письмо продаж уходит только в коридоре, соберите очередь заново"
-    return EDITED if edited(dialog.lead, message) else unproven(dialog.lead)
+    return EDITED if edited(dialog.lead, message) else None
 
 
 class FollowupStoppedError(SuppressedError):
@@ -397,7 +403,14 @@ async def answer(session: AsyncSession, thread_id: int, body: str, what: str) ->
 
 async def connected(session: AsyncSession) -> bool:
     """Подключены ли продажи — на уровне направления, без цепочки отдельного лида."""
-    return not await connection.missing(session)
+    return not await missing(session)
+
+
+async def missing(session: AsyncSession) -> list[str]:
+    """Чего не хватает продажам, словами человека (`core/stages.SalesLacking`); пусто — подключены.
+    Мост спрашивает это вместо `connected`, и отказ пачке называет причину, как отказ одному
+    письму. Правило одно у отправки, сборки и экрана — `connection.missing`."""
+    return await connection.missing(session)
 
 
 async def batch(what: str) -> None:

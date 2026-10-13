@@ -1,7 +1,8 @@
 """Поставить сборку очереди продаж — кнопкой экрана и автосборкой, одну на гипотезу за раз.
 
-Сборка зовёт модель на каждое письмо — минуты, поэтому она задача очереди продаж
-(`queue_jobs.build_sales_queue`). Номер задачи — от гипотезы (`build_job_id`): вторая сборка
+Сборка зовёт модель на каждое письмо — минуты, поэтому она задача очереди долгих задач продаж
+(`sales-bulk`; `queue_jobs.build_sales_queue`). Прежняя сборка ищется по номеру в любой очереди
+(`job_holder.holder`): до выкатки сборки стояли в очереди ответов продаж. Номер задачи — от гипотезы (`build_job_id`): вторая сборка
 той же гипотезы, пока первая идёт или ждёт повтора, — отказ (`DuplicateJobError`): она собрала
 бы те же письма и потратила модель дважды. Правило одно у кнопки (`api/sales/queue.py`) и у
 автосборки (`autobuild.py`): до автосборки оно жило в маршруте, а процесс разбора маршрутов
@@ -18,6 +19,7 @@ from rq.exceptions import DuplicateJobError
 from rq.job import Job, JobStatus
 from rq.results import Result
 
+from backend.features.sales.job_holder import holder
 from backend.features.sales.queue_jobs import QUEUE_JOB
 from backend.shared.queue import with_retries
 
@@ -46,7 +48,7 @@ def start(jobs: Queue, hypothesis_id: int, limit: int, *, auto: bool = False) ->
     и ставим заново. `unique=True` остаётся на гонку двух постановок между проверкой и постановкой.
     """
     job_id = build_job_id(hypothesis_id)
-    previous = jobs.fetch_job(job_id)
+    previous = holder(jobs, job_id)
     if previous is not None:
         if previous.get_status() in RUNNING:
             raise DuplicateJobError(job_id)

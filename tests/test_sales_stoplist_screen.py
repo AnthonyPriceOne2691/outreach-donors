@@ -16,13 +16,18 @@ import pytest
 from backend.cli.main import build_parser
 from backend.cli.sales import EXIT_OK, run_stoplist_add
 from backend.features.access.permissions import no_right
-from backend.features.core.domain import AuditAction, Permission, Stage, SuppressionReason
+from backend.features.core.domain import (
+    AuditAction,
+    MessageStatus,
+    Permission,
+    Stage,
+    SuppressionReason,
+)
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import MessageModel
-from backend.features.letters.sending import Sending
-from backend.features.sales import hypotheses, queue, stoplist, stoplist_leads
-from backend.features.sales.mail import LeadStoppedError
+from backend.features.letters.sending import NotQueuedError, Sending
+from backend.features.sales import hypotheses, off_queue, queue, stoplist, stoplist_leads
 from backend.features.sales.models import (
     LeadStatus,
     SalesLeadModel,
@@ -264,16 +269,23 @@ async def test_lead_closed_by_two_entries_stays_closed_after_one_is_removed(
 async def test_queued_letter_of_a_closed_lead_does_not_go(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Пополнение стоп-листа снимает лида — и его первое письмо из очереди тут же, словами
+    стоп-листа (`off_queue.of_leads`): оно не висит с отказом «стоп-лист» на каждом проходе."""
     world = await w.world(session, monkeypatch)
     await w.lead(session, world.hypothesis_id, "jane@acme.example.test")
     await queue.build(session, w.CorridorRewriter(), hypothesis_id=world.hypothesis_id, limit=5)
-    queued = await session.scalar(select(MessageModel.id))
+    queued = await session.scalar(select(MessageModel))
     assert queued is not None
 
     await stoplist.add(session, stoplist.read_text("acme.example.test"), author="тест", note=None)
 
-    with pytest.raises(LeadStoppedError, match="сняли"):
-        await Sending(session, _transports(), now=w.NOW).send(queued)
+    await session.refresh(queued)
+    assert (queued.status, queued.failure_reason) == (
+        MessageStatus.STOPPED,
+        f"{off_queue.LEAD_CLOSED}: стоп-лист продаж: домен acme.example.test",
+    )
+    with pytest.raises(NotQueuedError, match="«stopped», а не в очереди"):
+        await Sending(session, _transports(), now=w.NOW).send(queued.id)
 
 
 # --- список и права ---------------------------------------------------------------------------

@@ -310,7 +310,8 @@ class TestSendQueue:
         letters: int,
     ) -> None:
         """Почта этап не ведёт — 409 этими словами, а не «писем нет», и задачи нет,
-        даже когда письмо продаж в очереди есть."""
+        даже когда письмо продаж в очереди есть. Модуль продаж подключён к мосту: отказ
+        называет, чего не хватает (`sales/mail.missing`), как отказ одному письму."""
         if letters:
             await sales_world(session)
             await session.commit()
@@ -322,7 +323,8 @@ class TestSendQueue:
         )
 
         assert response.status_code == 409
-        assert response.json()["detail"] == f"Очередь писем не отправлена: {SALES_NOT_CONNECTED}"
+        detail = response.json()["detail"]
+        assert detail.startswith(f"Очередь писем не отправлена: {SALES_NOT_CONNECTED} — ")
         assert jobs_queue.enqueued == []
 
 

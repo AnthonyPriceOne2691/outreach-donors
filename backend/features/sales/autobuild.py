@@ -7,10 +7,13 @@
 **В очереди — только письма, которые уйдут** (`queued`, ревью стыков отправки). Письмо, собранное
 с прежними подписью и адресом «Отправителя» или до правки лида, отправка не пустит («соберите
 очередь заново»), а письмо лида, которого сняли (стоп-лист продаж, отклонён) или чей адрес проверен
-выдуманным проверяльщиком при живом, не уйдёт вовсе. Считай проход их очередью — после правки
-подписи или пополнения стоп-листа он ждал бы писем, которые не уйдут никогда, и поток стоял бы
-молча. Письма первого рода — повод собрать их гипотезу: сборка пересобирает их на том же месте,
-как кнопкой; второго — сборка не трогает, и в счёт они не идут.
+выдуманным проверяльщиком при живом или не подтверждён (`unknown`), не уйдёт вовсе. Считай проход
+их очередью — после правки подписи или пополнения стоп-листа он ждал бы писем, которые не уйдут
+никогда, и поток стоял бы молча. Письма первого рода — повод собрать их гипотезу: сборка
+пересобирает их на том же месте, как кнопкой; второго — сборка не трогает, и в счёт они не идут.
+Адрес судят раньше правки лида — тем же правилом, что сборка и отправка
+(`unconfirmed.first_letter`): письмо лида с неподтверждённым адресом пересборка не выпустит, и
+гипотеза из-за него к сборке не встаёт — иначе проход каждые десять минут ставил бы пустую сборку.
 
 **Та же сборка, что у кнопки** (`queue_start.start`, задача `queue_jobs.build_sales_queue`):
 одна сборка гипотезы за раз, потолок модели продаж — до каждого письма, остановка после трёх
@@ -23,7 +26,9 @@
 
 **Какие гипотезы.** Признака «активна» у гипотезы нет — собираются те, у кого есть полная
 цепочка хоть на одном языке и лиды `ready` без письма или письма в очереди, которые сборка
-соберёт заново.
+соберёт заново. Без письма — и лид, чьё первое письмо снято до отправки (`off_queue.again`): лида
+снимали, а он снова «готов», или сайт был в работе у другого направления. Лид, чей сайт в работе
+у другого направления сейчас, ждёт (`elsewhere.writable`): письмо ему отправка сняла бы.
 
 **Недостача — по очереди.** Проход отдаёт всю недостачу одной гипотезе: той, чья сборка (кнопкой
 или сама) начиналась давнее всех по журналу; ни разу не собранная — первой. Не хватило её лидов —
@@ -70,10 +75,12 @@ from backend.features.sales import (
     chain_text,
     connection,
     corridor,
+    elsewhere,
     letter,
     sender,
 )
 from backend.features.sales.autobuild_alarm import Outcome, Watch
+from backend.features.sales.job_holder import holder
 from backend.features.sales.lead_edit import edited
 from backend.features.sales.models import (
     LeadStatus,
@@ -83,9 +90,9 @@ from backend.features.sales.models import (
 )
 from backend.features.sales.not_writing import excluded
 from backend.features.sales.queue_start import LIMIT_MAX, RUNNING, build_job_id, start
+from backend.features.sales.unconfirmed import first_letter, holds
 from backend.features.sales.usage_cap import sales_cap
-from backend.features.sales.verifier import unproven
-from backend.shared.queue import sales_queue
+from backend.shared.queue import sales_bulk_queue
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +165,9 @@ class Queued:
     redo: frozenset[int] = frozenset()
     #: Гипотезы этих писем.
     stale: frozenset[int] = frozenset()
+    #: Письма лидов, чей адрес не проверен по-настоящему или не подтверждён: не уйдут, и
+    #: пересборка не поможет — лида решит очистка (`unconfirmed.first_letter`).
+    held: frozenset[int] = frozenset()
 
     @property
     def going(self) -> int:
@@ -167,8 +177,9 @@ class Queued:
 async def queued(session: AsyncSession) -> Queued:
     """Первые письма продаж в очереди: уйдут как есть — в счёт; собраны с прежними подписью и
     адресом или до правки лида (`letter.problem`, `lead_edit.edited` — отказ отправки) — гипотеза
-    к сборке; лид снят, проверен выдуманным проверяльщиком при живом или в «кому не пишем»
-    (`not_writing.py`) — ни то ни другое."""
+    к сборке; адрес лида не проверен по-настоящему или не подтверждён — отдельно, без сборки; лид
+    снят или в «кому не пишем» (`not_writing.py`) — ни то ни другое. Адрес — раньше правки, как у
+    отправки (`mail._first_problem`)."""
     found = await sender.read(session)
     rows = await session.execute(
         select(MessageModel, SalesLeadModel, DomainModel.host)
@@ -179,33 +190,36 @@ async def queued(session: AsyncSession) -> Queued:
     )
     ready: set[int] = set()
     redo: dict[int, int] = {}
+    held: set[int] = set()
     for message, lead, host in rows.tuples().all():
         if _closed(lead, host):
             continue
-        if letter.problem(message.body or "", found) is not None or edited(lead, message):
+        if first_letter(lead) is not None:
+            held.add(message.id)
+        elif letter.problem(message.body or "", found) is not None or edited(lead, message):
             redo[message.id] = lead.hypothesis_id
         else:
             ready.add(message.id)
-    return Queued(frozenset(ready), frozenset(redo), frozenset(redo.values()))
+    return Queued(frozenset(ready), frozenset(redo), frozenset(redo.values()), frozenset(held))
 
 
 def _closed(lead: SalesLeadModel, host: str) -> bool:
-    """Письмо лида не уйдёт вовсе: лид снят, адрес проверен выдуманным проверяльщиком при
-    живом или лид в «кому не пишем» — сборка его не тронет."""
-    if lead.status is not LeadStatus.READY or unproven(lead) is not None:
-        return True
-    return excluded(lead.email, host) is not None
+    """Письмо лида не уйдёт вовсе: лид снят или в «кому не пишем» — сборка его не тронет. Адрес
+    не подтверждён — не здесь: такое письмо ждёт очистки (`Queued.held`)."""
+    return lead.status is not LeadStatus.READY or excluded(lead.email, host) is not None
 
 
 async def candidates(
     session: AsyncSession, stale: frozenset[int] = frozenset()
 ) -> list[tuple[int, str]]:
-    """Гипотезы с полной цепочкой хоть на одном языке и лидами `ready` без письма не из «кому
-    не пишем» — или с письмами в очереди, которые сборка соберёт заново (`stale`), — по номеру."""
+    """Гипотезы с полной цепочкой хоть на одном языке и лидами `ready`, которым сборка напишет
+    первое письмо (`elsewhere.writable`), не из «кому не пишем», чей адрес письму не мешает
+    (`unconfirmed.holds`), — или с письмами в очереди, которые сборка соберёт заново (`stale`), —
+    по номеру."""
     unwritten = (
         select(SalesLeadModel.hypothesis_id)
         .outerjoin(SalesThreadModel, SalesThreadModel.lead_id == SalesLeadModel.id)
-        .where(SalesLeadModel.status == LeadStatus.READY, SalesThreadModel.thread_id.is_(None))
+        .where(elsewhere.writable(), ~holds())
     )
     rows = await session.execute(
         select(SalesHypothesisModel.id, SalesHypothesisModel.name)
@@ -226,7 +240,8 @@ async def candidates(
 
 
 async def _writable(session: AsyncSession, hypothesis_id: int) -> bool:
-    """Есть ли у гипотезы лид `ready` без письма не из «кому не пишем» (`not_writing.py`): лиды —
+    """Есть ли у гипотезы лид, которому сборка напишет первое письмо (`elsewhere.writable`), не из
+    «кому не пишем» (`not_writing.py`), чей адрес письму не мешает (`unconfirmed.holds`): лиды —
     пачками по номеру, до первого такого."""
     after = 0
     while True:
@@ -236,8 +251,8 @@ async def _writable(session: AsyncSession, hypothesis_id: int) -> bool:
             .outerjoin(SalesThreadModel, SalesThreadModel.lead_id == SalesLeadModel.id)
             .where(
                 SalesLeadModel.hypothesis_id == hypothesis_id,
-                SalesLeadModel.status == LeadStatus.READY,
-                SalesThreadModel.thread_id.is_(None),
+                elsewhere.writable(),
+                ~holds(),
                 SalesLeadModel.id > after,
             )
             .order_by(SalesLeadModel.id)
@@ -278,7 +293,7 @@ async def in_turn(session: AsyncSession, found: list[tuple[int, str]]) -> list[t
 def _busy(jobs: Queue, hypotheses: list[tuple[int, str]]) -> str | None:
     """Имя гипотезы, чья сборка идёт или ждёт повтора; `None` — ни одной."""
     for hypothesis_id, name in hypotheses:
-        job = jobs.fetch_job(build_job_id(hypothesis_id))
+        job = holder(jobs, build_job_id(hypothesis_id))
         if job is not None and job.get_status() in RUNNING:
             return name
     return None
@@ -286,7 +301,7 @@ def _busy(jobs: Queue, hypotheses: list[tuple[int, str]]) -> str | None:
 
 def _streak_stopped(jobs: Queue, hypothesis_id: int) -> bool:
     """Прошлая сборка гипотезы встала на серии писем вне коридора — и человек её ещё не пересобрал."""
-    job = jobs.fetch_job(build_job_id(hypothesis_id))
+    job = holder(jobs, build_job_id(hypothesis_id))
     result = job.latest_result() if job is not None else None
     report = result.return_value if result is not None else None
     return isinstance(report, dict) and report.get("stopped") == corridor.streak_stop()
@@ -316,8 +331,8 @@ async def _choose(
         return NO_CANDIDATES
     every = await session.execute(select(SalesHypothesisModel.id, SalesHypothesisModel.name))
     try:
-        busy = _busy(jobs, list(every.tuples().all()))
-        stuck = {hypothesis for hypothesis, _ in found if _streak_stopped(jobs, hypothesis)}
+        busy = await asyncio.to_thread(_busy, jobs, list(every.tuples().all()))
+        stuck = {h for h, _ in found if await asyncio.to_thread(_streak_stopped, jobs, h)}
     except RedisError as exc:
         logger.warning("продажи: автосборка — очередь задач не ответила", extra={"error": str(exc)})
         return QUEUE_SILENT
@@ -348,7 +363,7 @@ async def run(session: AsyncSession, jobs: Queue, *, now: datetime) -> Plan:
     if found.hypothesis_id is None:
         return found
     try:
-        job = start(jobs, found.hypothesis_id, found.limit, auto=True)
+        job = await asyncio.to_thread(start, jobs, found.hypothesis_id, found.limit, auto=True)
     except DuplicateJobError:
         logger.info("продажи: автосборка — сборку гипотезы поставили секундой раньше")
         return replace(found, hypothesis_id=None, why=f"сборка «{found.name}» уже идёт")
@@ -436,13 +451,14 @@ async def step(
 
 
 async def tick() -> None:
-    """Проход по расписанию (`workers/reaper.py`): тумблеры, своя сессия, очередь продаж."""
+    """Проход по расписанию (`workers/reaper.py`): тумблеры, своя сессия, очередь долгих задач
+    продаж (`sales-bulk`) — та же, что у кнопки сборки."""
     if not (sales_cfg.ENABLED and sales_cfg.AUTOBUILD):
         return
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
-            await step(session, sales_queue(), now=datetime.now(UTC))
+            await step(session, sales_bulk_queue(), now=datetime.now(UTC))
     finally:
         await engine.dispose()

@@ -28,17 +28,27 @@
 Обязательные поля сделки — `SALES_KOMMO_LEAD_FIELDS`, постоянными значениями: форма
 проверяется при сборке клиента `live`; шлюзу их не передать — в его запросе таких полей нет.
 
-**Предел ходов агента и поля сделки — без разбора при импорте.** Этот модуль импортирует
-и общий код — реестр этапов агента (`agent/stages.py`) и процесс разбора мёртвых
-(`workers/reaper.py`): опечатка, найденная при импорте, уронила бы на старте API, общий
-воркер и reaper, а не только `worker-sales`. Здесь обе настройки — текстом как есть, а
-разбирает их тот, кто читает: предел — задача ответа (`features/sales/agent_turns.max_turns`:
-негодный — черновика нет, причина словами у ответа), поля — сборка клиента `live`
-(`features/sales/kommo`: негодные — `ConfigError` словами на первой передаче, как у прочих
-настроек `live`).
+**Негодное значение выключает продажи, а не роняет процесс.** Этот модуль импортирует и общий
+код — реестр этапов агента (`agent/stages.py`), задачи общего воркера и процесс разбора мёртвых
+(`workers/reaper.py`): отказ при импорте ронял бы на старте API, общий воркер и reaper — приём
+ответов и события доноров, а не только продажи. Поэтому чтение не падает: число вне
+границ, не «true/false», чужой режим судьи, окно отправки или время отчёта не по образцу — поле
+берёт умолчание, а модуль продаж выключен целиком (`BROKEN` не пуст): `ENABLED`, агент продаж,
+автоотправка и автосборка. Громко — строкой журнала уровня ERROR при импорте, с именем, значением
+и тем, что годится, в каждом процессе, который читает настройки продаж: она раньше настройки его
+журнала, и печатает её запасной обработчик `logging` (stderr контейнера). Экран и отказы продаж
+говорят словами без имён настроек (`features/sales/connection.gaps`). Общий старт идёт.
+
+**Предел ходов агента и поля сделки — без разбора при импорте.** Опечатка в них, найденная
+при импорте, выключила бы весь модуль продаж, а не один черновик или одну передачу. Здесь обе
+настройки — текстом как есть, а разбирает их тот, кто читает: предел — задача ответа
+(`features/sales/agent_turns.max_turns`: негодный — черновика нет, причина словами у ответа),
+поля — сборка клиента `live` (`features/sales/kommo`: негодные — `ConfigError` словами на первой
+передаче, как у прочих настроек `live`).
 
 **Окно отправки — рабочие часы получателя по его часам** (Ф4, 4.3): дни «1-5» или «1,3,5»
-(1 — понедельник), часы «09:00-17:00»; разбор при старте — опечатка не ждёт первого письма.
+(1 — понедельник), часы «09:00-17:00» (час одной цифрой — «9:00-17:00» — тот же); разбор при
+старте — опечатка не ждёт первого письма.
 **Телемаркетологу пишет свой бот продаж, а не бот тревог.** Сообщение о лиде —
 бизнес-событие для сотрудника, тревога — сигнал владельцу о поломке. Отозванный
 или заблокированный бот продаж не должен глушить тревогу о том, что лид не
@@ -75,19 +85,26 @@
 
 **Недельный отчёт в группу продаж по умолчанию не уходит** (`SALES_WEEKLY_REPORT_AT`, срез 6.3):
 всё, что продажи шлют наружу без человека, по умолчанию выключено. Включает человек — днём и
-временем по Москве, рекомендуемое «MON 09:00»; разбор при старте — опечатка не ждёт понедельника.
-Экран отчёта и выгрузка работают и без него.
+временем по Москве, рекомендуемое «MON 09:00» («MON 9:00» — то же время: час одной цифрой прочесть
+иначе нельзя); разбор при старте — опечатка не ждёт понедельника. Экран отчёта и выгрузка работают
+и без него.
 """
 
 from __future__ import annotations
 
+import logging
+import re
+from collections.abc import Callable
 from datetime import time
-from enum import StrEnum
+from enum import Enum, StrEnum
 
 from pydantic import Field
+from pydantic.fields import FieldInfo
 
-from backend.config._base import DomainSettings
+from backend.config._base import DomainSettings, Fallback, spared
 from backend.config.judge import JudgeMode
+
+logger = logging.getLogger(__name__)
 
 
 class SalesJudgeMode(StrEnum):
@@ -137,11 +154,20 @@ class _Sales(DomainSettings):
     kommo_lead_fields: str = Field(default="", validation_alias="SALES_KOMMO_LEAD_FIELDS")
     send_days: str = Field(default="1-5", validation_alias="SALES_SEND_DAYS")
     send_hours: str = Field(default="09:00-17:00", validation_alias="SALES_SEND_HOURS")
-    # На сколько минут от открытия окна расходятся письма, ждавшие его.
-    send_spread_min: int = Field(default=30, validation_alias="SALES_SEND_SPREAD_MIN")
+    # На сколько минут от открытия окна расходятся письма, ждавшие его. 0 — все в минуту
+    # открытия; разброс шире окна обрезает само окно (`core/window.defer_until`): «на весь день»
+    # (300–480) годится. Больше суток — опечатка (ревью стыков 13.10).
+    send_spread_min: int = Field(
+        default=30, ge=0, le=1440, validation_alias="SALES_SEND_SPREAD_MIN"
+    )
     # Доля жалоб в окне последних писем ящика, с которой он встаёт на паузу (Ф4, 4.5b), —
-    # задолго до 0,3% почтовых сервисов: на 50 письмах одна жалоба. Решение владельца.
-    complaint_pause: float = Field(default=0.001, validation_alias="SALES_COMPLAINT_PAUSE")
+    # задолго до 0,3% почтовых сервисов: на 50 письмах одна жалоба. Решение владельца. Порог —
+    # `ceil(доля · 50)` жалоб (`outreach/health`): любая доля до 0.02 — та же одна жалоба, что у
+    # 0.001. Долей, а не процентом: «0.1» или «0.3», задуманные как проценты, ослабили бы паузу
+    # молча — больше 0.02 выключает продажи громко (ревью стыков 13.10).
+    complaint_pause: float = Field(
+        default=0.001, gt=0, le=0.02, validation_alias="SALES_COMPLAINT_PAUSE"
+    )
 
     # Уверенность вида ответа, ниже которой ответ ждёт человека (ручная очередь
     # продаж). Предложение до замера на наборе владельца — как у разбора цены.
@@ -228,11 +254,21 @@ def _days(text: str) -> frozenset[int]:
     return frozenset(found)
 
 
+#: Час одной цифрой: «9:00» — то же, что «09:00» (`_clock`).
+_ONE_DIGIT_HOUR = re.compile(r"\d:\d\d")
+
+
+def _clock(text: str) -> time:
+    """«09:00» → время; час одной цифрой («9:00») — тот же час: прочесть его иначе нельзя."""
+    text = text.strip()
+    return time.fromisoformat(f"0{text}" if _ONE_DIGIT_HOUR.fullmatch(text) else text)
+
+
 def _hours(text: str) -> tuple[time, time]:
     """«09:00-17:00» → открытие и закрытие окна; закрытие позже открытия."""
     start, _, end = text.partition("-")
     try:
-        opens, closes = time.fromisoformat(start.strip()), time.fromisoformat(end.strip())
+        opens, closes = _clock(start), _clock(end)
     except ValueError as exc:
         raise ValueError(f"SALES_SEND_HOURS «{text}»: часы — «09:00-17:00»") from exc
     if opens >= closes:
@@ -251,7 +287,7 @@ def _weekly_at(text: str) -> tuple[int, time] | None:
     refusal = f"SALES_WEEKLY_REPORT_AT «{text}»: день и время по Москве, например «MON 09:00»"
     day, _, clock = text.strip().partition(" ")
     try:
-        at = time.fromisoformat(clock.strip())
+        at = _clock(clock)
     except ValueError as exc:
         raise ValueError(refusal) from exc
     if day.upper() not in WEEKDAYS or at.tzinfo is not None:
@@ -259,11 +295,80 @@ def _weekly_at(text: str) -> tuple[int, time] | None:
     return WEEKDAYS.index(day.upper()), at
 
 
-_s = _Sales()
+#: Начало строки журнала о негодных настройках продаж — её ищут в журнале процесса.
+BROKEN_SAID = (
+    "ПРОДАЖИ ВЫКЛЮЧЕНЫ — настройка продаж с ошибкой: модуль продаж не работает до исправления, "
+    "общий старт идёт"
+)
 
-ENABLED: bool = _s.enabled
+
+#: Границы числа словами: `ge=1, le=240` — «от 1 до 240», `gt=0` — «больше 0».
+_BOUNDS = (("gt", "больше"), ("ge", "от"), ("lt", "меньше"), ("le", "до"))
+
+
+def _expected(field: FieldInfo) -> str:
+    """Что годится полю — словами: «true или false», «одно из: shadow, enforce», «целое от 1 до
+    240», «число больше 0 до 0.01»."""
+    kind: object = field.annotation
+    if kind is bool:
+        return "true или false"
+    if isinstance(kind, type) and issubclass(kind, Enum):
+        return "одно из: " + ", ".join(str(item.value) for item in kind)
+    if kind not in (int, float):
+        return "значение по образцу `.env.example`"
+    bounds = [
+        f"{word} {getattr(rule, key):g}"
+        for key, word in _BOUNDS
+        for rule in field.metadata
+        if hasattr(rule, key)
+    ]
+    return " ".join(["целое" if kind is int else "число", *bounds])
+
+
+#: Негодная настройка продаж берёт умолчание своего поля — и выключает модуль целиком (`BROKEN`).
+_FALLBACKS = {
+    str(field.validation_alias): Fallback(
+        field.default, _expected(field), "умолчание поля, модуль продаж выключен"
+    )
+    for field in _Sales.model_fields.values()
+}
+
+
+def _parsed[T](parse: Callable[[str], T], name: str) -> T:
+    """Текстовая настройка, разобранная при старте; негодная — умолчание поля и отказ разбора
+    словами в `BROKEN`."""
+    field = _Sales.model_fields[name]
+    try:
+        return parse(getattr(_s, name))
+    except ValueError as exc:
+        BROKEN[str(field.validation_alias)] = str(exc)
+        # Строкой общего разбора без падения (`config/_base.spared`); трассировка тут — лишняя.
+        logger.error(  # noqa: TRY400
+            "НАСТРОЙКА НЕ ПРОЧИТАНА — %s; взято: умолчание поля, модуль продаж выключен",
+            exc,
+            extra={"setting": str(field.validation_alias)},
+        )
+        return parse(field.default)
+
+
+# Окружение и `.env` — как у прочих доменов (`DomainSettings`); негодное не роняет импорт.
+_s, _unread = spared(_Sales, _FALLBACKS)
+#: Негодные настройки продаж: имя → что с ней словами. Не пусто — модуль продаж выключен целиком
+#: (тумблеры ниже), строка журнала — при импорте (`BROKEN_SAID`); общий старт идёт.
+BROKEN: dict[str, str] = {
+    name: f"{name}=«{raw[:40]}» — нужно {_FALLBACKS[name].wants}" for name, raw in _unread.items()
+}
+SEND_DAYS: frozenset[int] = _parsed(_days, "send_days")
+SEND_OPENS, SEND_CLOSES = _parsed(_hours, "send_hours")
+#: Когда недельный отчёт уходит в группу продаж: день недели (0 — понедельник) и время по
+#: Москве (`features/sales/weekly_jobs.py`). `None` — в Telegram не уходит; так по умолчанию.
+WEEKLY_REPORT_AT: tuple[int, time] | None = _parsed(_weekly_at, "weekly_report_at")
+#: Тумблеры продаж — только при разобранных настройках.
+_FINE = not BROKEN
+
+ENABLED: bool = _s.enabled and _FINE
 #: Строка продаж в реестре этапов агента переписки (`agent/stages.SALES_STAGE`).
-AGENT_ENABLED: bool = _s.agent_enabled
+AGENT_ENABLED: bool = _s.agent_enabled and _FINE
 #: Ответов лида в диалоге, на которые агент пишет черновик, — текстом как есть: разбирает
 #: задача ответа (`features/sales/agent_turns.max_turns`).
 AGENT_MAX_TURNS: str = _s.agent_max_turns.strip()
@@ -286,8 +391,6 @@ KOMMO_TAG: str = _s.kommo_tag.strip()
 #: (`features/sales/kommo.lead_fields`), в тело сделки API v4 их кладёт `kommo_live.py`.
 KOMMO_LEAD_FIELDS: str = _s.kommo_lead_fields.strip()
 
-SEND_DAYS: frozenset[int] = _days(_s.send_days)
-SEND_OPENS, SEND_CLOSES = _hours(_s.send_hours)
 SEND_SPREAD_MIN: int = _s.send_spread_min
 COMPLAINT_PAUSE: float = _s.complaint_pause
 #: Порог уверенности вида ответа лида (`features/sales/replies.py`).
@@ -299,12 +402,12 @@ OOO_DELAY_DAYS: int = _s.ooo_delay_days
 #: Вызовов модели на письмо очереди продаж в одной сборке (`features/sales/corridor.py`).
 REWRITE_ATTEMPTS: int = _s.rewrite_attempts
 #: Автоотправка первых писем продаж по расписанию (`features/sales/autosend.py`).
-AUTOSEND: bool = _s.autosend
+AUTOSEND: bool = _s.autosend and _FINE
 AUTOSEND_PASS_SEC: int = _s.autosend_pass_sec
 #: Пауза между первыми письмами одного ящика, минут, — до разброса ±50%.
 AUTOSEND_GAP_MIN: int = _s.autosend_gap_min
 #: Автосборка очереди продаж (`features/sales/autobuild.py`).
-AUTOBUILD: bool = _s.autobuild
+AUTOBUILD: bool = _s.autobuild and _FINE
 #: Как часто автосборка смотрит, хватает ли очереди: сборка — минуты модели, очередь — на сутки.
 AUTOBUILD_PASS_SEC = 10 * 60
 JUDGE_MODE: SalesJudgeMode = _s.judge_mode
@@ -330,9 +433,6 @@ TELEGRAM_CHAT_ID: str = _s.telegram_chat_id.strip()
 TELEGRAM_GROUP_CHAT_ID: str = _s.telegram_group_chat_id.strip()
 TELEGRAM_GROUP_COPY: bool = _s.telegram_group_copy
 APP_URL: str = _s.app_url.strip().rstrip("/")
-#: Когда недельный отчёт уходит в группу продаж: день недели (0 — понедельник) и время по
-#: Москве (`features/sales/weekly_jobs.py`). `None` — в Telegram не уходит; так по умолчанию.
-WEEKLY_REPORT_AT: tuple[int, time] | None = _weekly_at(_s.weekly_report_at)
 
 #: Сколько ждать Telegram на одну попытку. Попыток три (`features/sales/telegram`).
 TELEGRAM_TIMEOUT_SEC = 10.0
@@ -345,3 +445,8 @@ HANDOFF_PASS_SEC = 5 * 60
 #: Сколько задача держит передачу. Дольше — задача умерла, передачу берёт следующая:
 #: три попытки Kommo и три Telegram укладываются в минуты.
 HANDOFF_CLAIM_SEC = 15 * 60
+
+if BROKEN:
+    # При импорте — в каждом процессе, который читает настройки продаж, и раньше настройки его
+    # журнала: строку печатает запасной обработчик `logging` (stderr контейнера).
+    logger.error("%s: %s", BROKEN_SAID, "; ".join(BROKEN.values()), extra={"settings": [*BROKEN]})

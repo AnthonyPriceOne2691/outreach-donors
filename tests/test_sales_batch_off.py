@@ -73,7 +73,7 @@ def jobs(monkeypatch: pytest.MonkeyPatch) -> _Jobs:
 def screen_jobs(monkeypatch: pytest.MonkeyPatch) -> _AutoJobs:
     """Очередь задач экрана «Очередь писем» (строка автосборки) — подставная."""
     found = _AutoJobs()
-    monkeypatch.setattr("backend.api.sales.queue.sales_queue", lambda: found)
+    monkeypatch.setattr("backend.api.sales.queue.sales_bulk_queue", lambda: found)
     return found
 
 

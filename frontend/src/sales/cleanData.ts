@@ -16,13 +16,22 @@ import { useState } from 'react';
 import { cleanSalesLeads, readSalesClean } from '../api/sales';
 import { leadReasonTitle } from '../api/salesLabels';
 import type { SalesCleanReport, SalesCleanView } from '../api/salesCleanTypes';
+import type { HypothesisCard } from '../api/salesTypes';
 import { formatNumber } from '../format';
 import { jobRestarted } from '../jobs/JobLine';
 import { notify } from '../notices';
 import { forget, remember, remembered } from '../storage';
+import { dayWords } from './weeklyData';
 
 /** Ключ всего раздела: после очистки устаревают и лиды, и счётчики гипотез. */
 const SALES_QUERIES = ['sales'] as const;
+
+/** Сколько лидов гипотезы возьмёт очистка — числом сервера (`waiting`, условие прохода): новый
+ *  лид с первым ответом `unknown` ждёт дня перепроверки и в это число не входит. Записанные
+ *  ответы тестов числа не несут — тогда «новые» и «готовые» на перепроверку. */
+export function waitingOf(card: HypothesisCard): number {
+  return card.waiting ?? card.leads.new + (card.recheck ?? 0);
+}
 
 /** Где экран помнит номер очистки гипотезы. */
 export function cleanJobKey(hypothesis: number): string {
@@ -95,6 +104,27 @@ function reasonsOf(rejected: Record<string, number>): string {
   return named.length > 0 ? ` (${named.join(', ')})` : '';
 }
 
+/** Кто ждёт и почему — после чисел: день перепроверки неподтверждённых, остановка платной
+ *  части или повтор непроверенных следующей очисткой. */
+function waitingWords(found: Partial<SalesCleanReport>): string[] {
+  const said: string[] = [];
+  if ((found.unconfirmed ?? 0) > 0 && typeof found.recheck_on === 'string') {
+    said.push(
+      'Адрес не подтверждён (unknown) — к письмам такие лиды не идут: очистка проверит их ' +
+        `снова не раньше ${dayWords(found.recheck_on)}, второй такой ответ отклонит лида.`,
+    );
+  }
+  if (typeof found.stopped === 'string') {
+    said.push(
+      `Платная часть остановлена: ${found.stopped} — непроверенные остались в прежнем ` +
+        'статусе, повторите очистку, когда причина снята.',
+    );
+  } else if ((found.unverified ?? 0) > 0) {
+    said.push('Непроверенные остались в прежнем статусе — следующая очистка повторит их.');
+  }
+  return said;
+}
+
 /** Итог очистки одной строкой — из отчёта задачи: сколько проверено и куда ушло, сколько
  *  проверок стоили денег и почему платная часть остановилась, если остановилась. */
 export function cleanLine(report: Record<string, unknown>): string {
@@ -103,21 +133,13 @@ export function cleanLine(report: Record<string, unknown>): string {
   if (checked === 0) return 'Лидов, ждущих очистки, не было — проверять нечего.';
   const rejected = found.rejected ?? {};
   const total = Object.values(rejected).reduce((sum, count) => sum + count, 0);
-  const unverified = found.unverified ?? 0;
   const parts = [
     `Проверено ${formatNumber(checked)}: готово ${formatNumber(found.ready ?? 0)}, ` +
       `отклонено ${formatNumber(total)}${reasonsOf(rejected)}, ` +
-      `не проверено ${formatNumber(unverified)}.`,
+      `не подтверждено ${formatNumber(found.unconfirmed ?? 0)}, ` +
+      `не проверено ${formatNumber(found.unverified ?? 0)}.`,
   ];
   const paid = found.paid_units ?? 0;
   if (paid > 0) parts.push(`Платных проверок адреса: ${formatNumber(paid)}.`);
-  if (typeof found.stopped === 'string') {
-    parts.push(
-      `Платная часть остановлена: ${found.stopped} — непроверенные остались в прежнем ` +
-        'статусе, повторите очистку, когда причина снята.',
-    );
-  } else if (unverified > 0) {
-    parts.push('Непроверенные остались в прежнем статусе — следующая очистка повторит их.');
-  }
-  return parts.join(' ');
+  return [...parts, ...waitingWords(found)].join(' ');
 }

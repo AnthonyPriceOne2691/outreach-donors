@@ -22,7 +22,14 @@ const TITLE = 'Что сказала очистка';
 /** Место под «!» в строке без слов: соседние значки иначе встают лесенкой. */
 export const NOTE_SLOT = 28;
 
-export function LeadNote({ note, rejected }: { note: string; rejected: boolean }) {
+interface LeadNoteProps {
+  note: string;
+  rejected: boolean;
+  /** Чьи слова за «!»: по умолчанию — очистки; у лида, который ждёт, — почему ждёт. */
+  title?: string | undefined;
+}
+
+export function LeadNote({ note, rejected, title = TITLE }: LeadNoteProps) {
   const [opened, setOpened] = useState(false);
   return (
     <Popover
@@ -45,7 +52,7 @@ export function LeadNote({ note, rejected }: { note: string; rejected: boolean }
           variant="subtle"
           color={rejected ? 'red' : 'yellow'}
           radius="xl"
-          aria-label={TITLE}
+          aria-label={title}
           style={{ flexShrink: 0 }}
           onClick={() => setOpened((was) => !was)}
         >
@@ -55,7 +62,7 @@ export function LeadNote({ note, rejected }: { note: string; rejected: boolean }
       {/* Не шире окна за вычетом полей: на узком телефоне текст переносится. */}
       <Popover.Dropdown className="glassSolid" maw="calc(100vw - 32px)">
         <Text size="sm" fw={600} mb={4}>
-          {TITLE}
+          {title}
         </Text>
         <Text size="sm" className="leadNote" style={{ overflowWrap: 'break-word' }}>
           {note}

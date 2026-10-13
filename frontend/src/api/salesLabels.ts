@@ -38,6 +38,7 @@ export const LEAD_REJECTION_REASONS: Record<string, string> = {
   unusable: 'негодный адрес',
   no_mail: 'домен не принимает почту',
   undeliverable: 'адрес не существует',
+  unconfirmed: 'адрес не подтверждён дважды',
 };
 
 export function leadReasonTitle(code: string): string {

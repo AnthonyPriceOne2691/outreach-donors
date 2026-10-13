@@ -22,12 +22,14 @@ import { useSession } from '../auth/AuthProvider';
  * вкладками. Ящик переписки выбыл, а её письма ждут именно его (`ops/mail_watch.py`) — человек
  * продаж видит это красной полосой там, где работает, а не только на главной (слово владельца
  * 12.10.2026: вместо смены ящика переписки — красная тревога). Общие тревоги — на главной.
+ * Раздел спрашивает сервер своим этапом (`?stage=`): тревоги этапа без опроса провайдеров —
+ * тот идёт десятки секунд, а полоса спрашивает при открытии раздела и каждые пять минут.
  */
 export function Watchdog({ stage }: { stage?: Stage }) {
   const { can } = useSession();
   const { data } = useQuery({
-    queryKey: ['watchdog'],
-    queryFn: fetchWatchdog,
+    queryKey: ['watchdog', stage ?? null],
+    queryFn: () => fetchWatchdog(stage),
     enabled: can('view'),
     // Тревоги меняются часами, а не секундами: спрашивать чаще незачем.
     refetchInterval: 5 * 60 * 1000,

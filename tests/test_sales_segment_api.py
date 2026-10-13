@@ -25,7 +25,7 @@ from backend.features.sales.segment_models import (
     SalesSegmentCandidateModel,
     SalesSegmentRunModel,
 )
-from backend.shared.queue import SALES_QUEUE_NAME
+from backend.shared.queue import SALES_BULK_QUEUE_NAME
 from fastapi import FastAPI
 from httpx import AsyncClient, Response
 from redis.exceptions import RedisError
@@ -55,7 +55,7 @@ async def headers(make_user: MakeUser, sign_in: SignIn) -> dict[str, str]:
 @pytest.fixture
 def jobs(monkeypatch: pytest.MonkeyPatch) -> _Jobs:
     found = _Jobs()
-    monkeypatch.setattr("backend.api.sales.segment.sales_queue", lambda: found)
+    monkeypatch.setattr("backend.api.sales.segment.sales_bulk_queue", lambda: found)
     return found
 
 
@@ -247,9 +247,10 @@ async def test_estimate_and_review_need_only_the_sales_right(
     assert response.status_code == 200
 
 
-def test_the_run_goes_to_the_sales_queue_and_the_screen_names_its_job() -> None:
-    """Прогон — в очередь продаж (`worker-sales`); строка задачи называет его словами."""
-    assert segment_api.sales_queue().name == SALES_QUEUE_NAME
+def test_the_run_goes_to_the_sales_bulk_queue_and_the_screen_names_its_job() -> None:
+    """Прогон — в очередь долгих задач продаж (`worker-sales-bulk`): сбор идёт до получаса и не
+    держит разбор ответа лида; строка задачи называет его словами."""
+    assert segment_api.sales_bulk_queue().name == SALES_BULK_QUEUE_NAME
     assert job_outcome.KINDS[SEGMENT_JOB] == "сбор базы продаж"
     assert job_outcome.sales_job("x", SEGMENT_JOB, None)
 

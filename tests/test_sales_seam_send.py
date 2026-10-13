@@ -11,8 +11,9 @@ HTTP), часы у теста:
   проход не шлёт вслепую дальше;
 - предохранитель — строкой `.env`: пустая — пишем всем, и экран и журнал говорят это словами;
   с адресами — только им; строки нет — продажи не подключены;
-- отписка со страницы письма продаж снимает письма компании — первое в очереди, добивку, — и ни
-  проход автоотправки, ни проход добивок им больше не пишут.
+- отписка со страницы письма продаж закрывает человека, а не компанию (решение владельца 12.10):
+  его адрес — в стоп-листе без этапа, его добивка погашена, а письмо коллеги той же компании
+  уходит.
 
 Тексты и адреса выдуманы; живых писем нет.
 """
@@ -32,6 +33,7 @@ from backend.api.unsubscribe import routes as unsubscribe_routes
 from backend.config import outreach as outreach_cfg
 from backend.config import sales as sales_cfg
 from backend.features.core.domain import MessageStatus, Stage
+from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.letters import batch, followups, unsubscribe
 from backend.features.letters.chain import FIRST_STEP
@@ -97,9 +99,8 @@ async def _five_new_boxes(session: AsyncSession, world: w.World, started: dateti
     boxes = [world.sales_box, *[await w.mailbox(session, email) for email in MORE_BOXES]]
     for box in boxes:
         box.warmup_started_at = started
-        # Первое письмо ящика — в день старта: «день N» разгона. Отметку первого письма
-        # (`warmup_first_sent_at`) заводит общий PR разгона; до него это просто атрибут объекта.
-        setattr(box, "warmup_first_sent_at", started)  # noqa: B010
+        # Первое письмо ящика — в день старта: «день N» разгона идёт от него (`warmup_first_sent_at`).
+        box.warmup_first_sent_at = started
     await session.flush()
     return [box.email for box in boxes]
 
@@ -148,21 +149,13 @@ async def test_five_new_boxes_send_evenly_one_per_pass_with_the_pause_up_to_the_
         assert outgoing.body.endswith(f"\n\n{w.ADDRESS}")
 
 
-@pytest.mark.xfail(
-    strict=False,  # общий PR его закрывает — метку снять после слияния
-    reason=(
-        "общий код outreach/senders.warmup_state: разгон считается от заведения ящика "
-        "(warmup_started_at, `sender-add`), а не от его первого письма — ящик, заведённый "
-        "заранее и ещё не писавший, в первый день боя пишет ступень по возрасту записи, а не "
-        "первую; правка — PR «общее» или решение владельца (ревью стыков R4)"
-    ),
-)
 async def test_a_box_set_up_a_week_ahead_starts_its_first_day_on_the_first_step(
     session: AsyncSession, world: w.World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Домены продаж заводят до боя: DNS, подпись у платформы, ящик — `sender-add`. Ящик не
-    отправил ни одного письма, а разгон с минуты заведения уже прошёл ступени: в первый день
-    боя он пишет полный кап, а не первую ступень (ТЗ: «с постепенным разгоном новых ящиков»)."""
+    отправил ни одного письма — разгон идёт от его первого письма, а не от минуты заведения
+    (`senders.warmup_state`, #363): в первый день боя он пишет первую ступень, а не полный кап
+    (ТЗ: «с постепенным разгоном новых ящиков»)."""
     world.sales_box.warmup_started_at = NOW - timedelta(days=7)
     monkeypatch.setattr(sales_cfg, "AUTOSEND_GAP_MIN", 1)
     emails = [f"lead{number}@company{number}.example.test" for number in range(25)]
@@ -415,21 +408,15 @@ async def test_the_sales_trial_is_cleaned_only_while_the_allowlist_names_its_inb
 # --- отписка со страницы письма продаж ---------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=False,  # общий PR его закрывает — тест переписать после слияния
-    reason=(
-        "решение владельца 12.10: отписка из письма продаж закрывает адрес человека во всех "
-        "направлениях, а не компанию — его вводит общий PR стыков отправки; после слияния тест "
-        "переписать: письмо коллеги уходит, добивка лида погашена, его адрес — в стоп-листе без этапа"
-    ),
-)
-async def test_unsubscribing_from_a_sales_letter_stops_every_letter_to_that_company(
+async def test_unsubscribing_from_a_sales_letter_closes_the_person_not_the_company(
     session: AsyncSession, world: w.World, client: AsyncClient
 ) -> None:
-    """Лиду ушло первое письмо, коллеге той же компании письмо ждёт в очереди. Нажатие на
-    странице отписки письма продаж закрывает сайт: письмо коллеги — «снято», срок добивки
-    лида погашен, и ни автоотправка, ни проход добивок им больше не пишут (ТЗ: «отписавшимся
-    больше не пишем ни с одного домена»)."""
+    """Решение владельца 12.10: отписка со страницы письма продаж закрывает человека во всех
+    направлениях, а не компанию. Лиду ушло первое письмо, коллеге той же компании письмо ждёт в
+    очереди. Нажатие на странице отписки письма лида: его адрес — в стоп-листе без этапа, домена
+    там нет, срок добивки лида погашен, и проход добивок ему не пишет; письмо коллеги уходит
+    проходом автоотправки, её добивка — в свой срок (ТЗ: «отписавшимся больше не пишем ни с
+    одного домена» — о человеке)."""
     first, colleague = await _queued(session, world, JANE, OLGA)
     source = _transports()
     went = await autosend.run(session, source, now=NOW)
@@ -443,13 +430,15 @@ async def test_unsubscribing_from_a_sales_letter_stops_every_letter_to_that_comp
     due = await followups.send_due(session, transport=source, limit=5, now=NOW + timedelta(days=4))
 
     assert pressed.status_code == 200
+    closed = await session.execute(
+        select(SuppressionModel.domain_id, SuppressionModel.email, SuppressionModel.stage)
+    )
+    assert closed.tuples().all() == [(None, JANE, None)]
     await session.refresh(first)
-    await session.refresh(colleague)
-    assert colleague.status is MessageStatus.STOPPED
     assert first.next_action_at is None
-    assert (later.sent, later.stop) == ({}, Stop.EMPTY)
-    assert (due.sent, due.postponed) == (0, 0)
-    assert [outgoing.to for outgoing in _seen(source)] == [JANE]
+    assert (later.sent, later.stop) == ({colleague.id: w.SALES_BOX}, None)
+    assert (due.sent, due.postponed) == (1, 0)
+    assert [outgoing.to for outgoing in _seen(source)] == [JANE, OLGA, OLGA]
 
 
 # --- все ящики на паузе ------------------------------------------------------------------------
@@ -477,19 +466,11 @@ async def test_all_boxes_paused_stop_the_pass_in_the_words_of_the_box_choice(
     assert "кап набран" not in found.stopped
 
 
-@pytest.mark.xfail(
-    strict=False,  # общий PR его закрывает — метку снять после слияния
-    reason=(
-        "общий код letters/mailbox._free_box: у этапа нет ни одного пишущего ящика (все на "
-        "паузе или выключены), а отказ обещает «завтра лимит откроется заново» — завтра ящик на "
-        "паузе тоже не напишет; правка — PR «общее»: при пустом списке включённых ящиков этапа — "
-        "«ящиков, которые пишут, нет: все выключены или на паузе — экран «Домены рассылки»» "
-        "(ревью стыков R4)"
-    ),
-)
 async def test_all_boxes_paused_is_not_promised_to_reopen_tomorrow(
     session: AsyncSession, world: w.World
 ) -> None:
+    """У этапа нет ни одного пишущего ящика — отказ не обещает «завтра лимит откроется»: завтра
+    ящик на паузе тоже не напишет (`letters/mailbox._nobody`, #363)."""
     found = await _all_paused(session, world)
 
     assert found.stopped is not None

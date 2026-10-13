@@ -7,8 +7,9 @@
 
 `POST /sales/segment/estimate` — смета без записи: выдача, модель, Hunter строкой и отказ
 словами. `POST /sales/segment/runs` — запуск: смета считается заново на сервере, отказ — 409
-словами до очереди задач; иначе прогон заводится и встаёт задачей очереди продаж
-(`sales/segment_jobs.py`). `POST /sales/segment/runs/{N}/resume` — продолжить прогон: после
+словами до очереди задач; иначе прогон заводится и встаёт задачей очереди долгих задач продаж
+(`sales-bulk`, `worker-sales-bulk`; `sales/segment_jobs.py`): сбор идёт до получаса и не держит
+разбор ответа лида. `POST /sales/segment/runs/{N}/resume` — продолжить прогон: после
 потолка модели, сбоя или решений человека по «на проверку».
 
 `GET /sales/segment/runs/{N}` — прогон и его отчёт; `POST /sales/segment/candidates/{N}/decision`
@@ -21,6 +22,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -60,7 +62,7 @@ from backend.features.sales.segment_models import (
     Stage,
 )
 from backend.features.serp import markets
-from backend.shared.queue import sales_queue, with_retries
+from backend.shared.queue import sales_bulk_queue, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -209,8 +211,13 @@ async def start_run(
     # задачи, который «стоит в очереди», нет.
     await session.commit()
     try:
-        job = enqueue_once(
-            sales_queue(), segment_job_id(run.id), SEGMENT_JOB, run.id, **with_retries()
+        job = await asyncio.to_thread(
+            enqueue_once,
+            sales_bulk_queue(),
+            segment_job_id(run.id),
+            SEGMENT_JOB,
+            run.id,
+            **with_retries(),
         )
     except RedisError:
         await session.delete(run)
@@ -252,7 +259,14 @@ async def resume_run(
     run = await session.get(SalesSegmentRunModel, run_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, UNKNOWN_RUN.format(run_id=run_id))
-    job = enqueue_once(sales_queue(), segment_job_id(run.id), SEGMENT_JOB, run.id, **with_retries())
+    job = await asyncio.to_thread(
+        enqueue_once,
+        sales_bulk_queue(),
+        segment_job_id(run.id),
+        SEGMENT_JOB,
+        run.id,
+        **with_retries(),
+    )
     if job is None:
         raise HTTPException(status.HTTP_409_CONFLICT, RUN_GOING)
     run.job_id = str(job.id)

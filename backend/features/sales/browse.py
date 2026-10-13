@@ -18,19 +18,24 @@
 **Страница — номером, размер называет сервер** (`PAGE_SIZE`): второй экземпляр
 числа на фронте разошёлся бы при первой правке. Порядок — новые первыми, до
 номера записи: на стыке страниц строка не показывается дважды.
+
+**Лид «готов», который ждёт, назван словами** (`elsewhere.waiting_of`): сайт в работе у
+другого направления, и письмо ему не собирается, пока сайт не освободится. Без слов он
+неотличим от лида, которому письмо просто ещё не собрали.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.models.domain import DomainModel
-from backend.features.sales import verifier
+from backend.features.sales import elsewhere, verifier
 from backend.features.sales.funnel import Period
 from backend.features.sales.models import (
     LeadStatus,
@@ -66,6 +71,8 @@ class LeadRow:
     #: Домен компании и имя гипотезы — словами, а не номерами: их читают в строке.
     host: str
     hypothesis: str
+    #: Почему лид «готов» ждёт письма: сайт в работе у другого направления (`elsewhere.py`).
+    elsewhere: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +92,9 @@ class HypothesisRow:
     #: Лидов «готов», которых очистка возьмёт снова: адрес проверял выдуманный проверяльщик, а
     #: задан живой (`verifier.recheck`). При выдуманном — ноль.
     recheck: int = 0
+    #: Лидов, которых возьмёт очистка, — тем же условием, что у прохода (`verifier.due`). Не
+    #: «новые» плюс `recheck`: новый лид с первым `unknown` ждёт дня перепроверки.
+    waiting: int = 0
 
     @property
     def total(self) -> int:
@@ -161,8 +171,10 @@ async def leads(session: AsyncSession, filters: LeadFilters) -> LeadsPage:
         .offset((filters.page - 1) * filters.size)
     )
     total = await session.scalar(select(func.count()).select_from(narrowed.subquery()))
+    found = rows.tuples().all()
+    waits = await elsewhere.waiting_of(session, [lead for lead, _, _ in found])
     return LeadsPage(
-        rows=[LeadRow(lead, host, name) for lead, host, name in rows.all()],
+        rows=[LeadRow(lead, host, name, waits.get(lead.id)) for lead, host, name in found],
         total=int(total or 0),
         states=await _states(session),
         reasons=await _reasons(session),
@@ -172,10 +184,16 @@ async def leads(session: AsyncSession, filters: LeadFilters) -> LeadsPage:
 async def lead(session: AsyncSession, lead_id: int) -> LeadRow | None:
     """Лид строкой экрана — тем же чтением, что страница: после правки строка та же."""
     found = (await session.execute(_base().where(SalesLeadModel.id == lead_id))).first()
-    return None if found is None else LeadRow(*found._tuple())
+    if found is None:
+        return None
+    lead, host, hypothesis = found._tuple()
+    waits = await elsewhere.waiting_of(session, [lead])
+    return LeadRow(lead, host, hypothesis, waits.get(lead.id))
 
 
-async def hypotheses(session: AsyncSession, loaded: Period | None = None) -> list[HypothesisRow]:
+async def hypotheses(
+    session: AsyncSession, loaded: Period | None = None, *, now: datetime | None = None
+) -> list[HypothesisRow]:
     """Все гипотезы, старшие первыми, и сколько у каждой лидов в каждом состоянии.
 
     `loaded` — только лиды, заведённые в период: так «контакты» недельного отчёта
@@ -191,14 +209,26 @@ async def hypotheses(session: AsyncSession, loaded: Period | None = None) -> lis
     for hypothesis_id, status, n in counted.all():
         by_hypothesis.setdefault(int(hypothesis_id), {})[LeadStatus(status).value] = int(n)
     again = await _recheck(session)
+    waiting = await _waiting(session, now or datetime.now(UTC))
     return [
         HypothesisRow(
             hypothesis,
             _complete(by_hypothesis.get(hypothesis.id, {}), (s.value for s in LeadStatus)),
             again.get(hypothesis.id, 0),
+            waiting.get(hypothesis.id, 0),
         )
         for hypothesis in found.all()
     ]
+
+
+async def _waiting(session: AsyncSession, now: datetime) -> dict[int, int]:
+    """Гипотеза → сколько её лидов возьмёт очистка (`verifier.due`) — число у кнопки «Очистить»."""
+    rows = await session.execute(
+        select(SalesLeadModel.hypothesis_id, func.count())
+        .where(verifier.due(verifier.live(), now))
+        .group_by(SalesLeadModel.hypothesis_id)
+    )
+    return {int(hypothesis_id): int(n) for hypothesis_id, n in rows.all()}
 
 
 async def _recheck(session: AsyncSession) -> dict[int, int]:

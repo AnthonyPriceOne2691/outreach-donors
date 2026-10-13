@@ -12,7 +12,8 @@
   Проверка — обходом исходников агента продаж: новая запись проверяется сама.
 - **R1 §3.6 — экран сторожа и сеть.** `GET /api/watchdog` опрашивает провайдеров при открытой
   транзакции запроса, а с #355 его спрашивает полоса тревог над вкладками продаж — при открытии
-  раздела и каждые 5 минут. Общий код: `xfail(strict)`, правка — PR «общее».
+  раздела и каждые 5 минут. Общий код: правку дал общий PR — «Обзор» спрашивает провайдеров
+  после фиксации тревог базы, а полоса продаж (`?stage=sales`) их не спрашивает вовсе.
 
 Письмо продаж без лида словами (R1 5.3) — в `test_sales_mail_seams.py`, рядом с пачкой.
 
@@ -213,15 +214,10 @@ def test_every_log_line_of_the_sales_agent_carries_its_values_as_fields() -> Non
 # --- R1 §3.6: экран сторожа спрашивает провайдеров вне транзакции запроса -------------------
 
 
-@pytest.mark.xfail(
-    strict=False,  # общий PR его закрывает — метку снять после слияния
-    reason=(
-        "общий код backend/api/watchdog/routes.py: GET /api/watchdog опрашивает провайдеров "
-        "(Ahrefs, выдача; таймауты 30 и 60 с) при открытой транзакции запроса — соединение "
-        "«idle in transaction» на время опроса; с #355 маршрут спрашивает полоса тревог продаж "
-        "при открытии раздела и каждые 5 минут; правка — опрос после закрытия сессии, PR «общее» "
-        "(хвост R1 §3.6, ревью стыков R7)"
-    ),
+@pytest.mark.parametrize(
+    ("path", "asked"),
+    [("/api/watchdog", [False]), ("/api/watchdog?stage=sales", [])],
+    ids=["overview", "sales-strip"],
 )
 async def test_the_alarm_strip_asks_the_providers_outside_the_request_transaction(
     monkeypatch: pytest.MonkeyPatch,
@@ -229,7 +225,11 @@ async def test_the_alarm_strip_asks_the_providers_outside_the_request_transactio
     client: AsyncClient,
     make_user: MakeUser,
     sign_in: SignIn,
+    path: str,
+    asked: list[bool],
 ) -> None:
+    """«Обзор» спрашивает провайдеров после фиксации тревог базы; полоса над вкладками продаж
+    (`?stage=sales`, так её спрашивает экран) — не спрашивает вовсе."""
     await make_user("seller@ours.example.test")
     headers = bearer(await sign_in("seller@ours.example.test"))
     seen: list[bool] = []
@@ -241,7 +241,7 @@ async def test_the_alarm_strip_asks_the_providers_outside_the_request_transactio
     monkeypatch.setattr("backend.api.watchdog.routes.probe_providers", probe)
     await session.commit()  # оснастка теста сброшена: транзакцию открывает только запрос
 
-    response = await client.get("/api/watchdog", headers=headers)
+    response = await client.get(path, headers=headers)
 
     assert response.status_code == 200, response.text
-    assert seen == [False], "провайдеров спрашивали при открытой транзакции запроса"
+    assert seen == asked, "провайдеров спрашивали при открытой транзакции запроса или полосой"

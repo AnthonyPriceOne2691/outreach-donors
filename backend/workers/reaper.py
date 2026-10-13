@@ -15,7 +15,7 @@
 передачи, которые Kommo не принял, и задачи, потерянные очередью. Своего
 контейнера ему не заводим — ему, как и сторожу, нужна сессия раз в несколько минут.
 Модуль продаж цикл импортирует сам, при первом проходе: сбой его импорта — сбой
-этого цикла (его ловит `every`), а разбор прогонов и сторож идут своим чередом.
+этого цикла (его ловит `sales/loops.own`), а разбор прогонов и сторож идут своим чередом.
 
 Четвёртый и пятый — автоотправка первых писем продаж и автосборка их очереди
 (`features/sales/autosend_jobs.tick`, `features/sales/autobuild.tick`) — так же: модуль
@@ -23,6 +23,11 @@
 цикл смотрит до импорта. Выключенный проход не грузит в разбор ни отправку и почту, ни сборку
 с моделью: процесс живёт в тесном пределе памяти, и сломанный импорт выключенного прохода ронял
 бы каждый его цикл.
+
+Неудачи трёх проходов продаж — тревога продаж, а не здоровье процесса (`features/sales/loops.own`):
+иначе сломанная автосборка делала бы «нездоровым» процесс, где живёт сторож тишины. Зависший
+проход продаж по-прежнему виден по отметке своего цикла. Память циклов продаж — тоже модуль
+продаж и тоже лениво, первым проходом: сломан её импорт — падают циклы продаж, а не процесс.
 """
 
 from __future__ import annotations
@@ -48,7 +53,7 @@ from backend.features.runs.lifecycle import Recovery, recover
 from backend.features.runs.repository import RunRepository
 from backend.shared.logs import setup_logging
 from backend.shared.queue import RUN_JOB, enqueue_crawl, job_alive, job_failure, runs_queue
-from backend.workers.ticker import every
+from backend.workers.ticker import Pass, every
 
 logger = logging.getLogger(__name__)
 
@@ -227,15 +232,32 @@ async def autobuild() -> None:
     await tick()
 
 
+async def _sales_loop(interval: float, work: Pass, name: str) -> None:
+    """Цикл продаж: неудачи прохода — тревога продаж, а не здоровье процесса (`sales/loops.own`).
+    Память цикла — модуль продаж, лениво, первым проходом и одна на цикл: сломан его импорт —
+    неудача этого цикла (её ловит `every`). Импорт до `every` вылетел бы из `gather` и уронил бы
+    процесс целиком."""
+    owned: list[Pass] = []
+
+    async def owned_pass() -> None:
+        if not owned:
+            from backend.features.sales.loops import own  # noqa: PLC0415 — лениво
+
+            owned.append(own(work, name))
+        await owned[0]()
+
+    await every(interval, owned_pass, name=name)
+
+
 async def _loops() -> None:
     """Проходы с разными интервалами в одном процессе. Падение
     одного не должно останавливать другие — этим занимается `every`."""
     await asyncio.gather(
         every(POLL_INTERVAL_SEC, sweep, name="Разбор мёртвых прогонов"),
         every(WATCHDOG_INTERVAL_SEC, watch, name="Сторож тишины"),
-        every(sales_cfg.HANDOFF_PASS_SEC, retry_handoffs, name="Повтор передачи лидов продаж"),
-        every(sales_cfg.AUTOSEND_PASS_SEC, autosend, name="Автоотправка писем продаж"),
-        every(sales_cfg.AUTOBUILD_PASS_SEC, autobuild, name="Автосборка очереди продаж"),
+        _sales_loop(sales_cfg.HANDOFF_PASS_SEC, retry_handoffs, "Повтор передачи лидов продаж"),
+        _sales_loop(sales_cfg.AUTOSEND_PASS_SEC, autosend, "Автоотправка писем продаж"),
+        _sales_loop(sales_cfg.AUTOBUILD_PASS_SEC, autobuild, "Автосборка очереди продаж"),
     )
 
 

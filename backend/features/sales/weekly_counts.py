@@ -275,6 +275,10 @@ class Runway:
 
     boxes: int
     days: list[Day]
+    #: Лимит первых писем направления продаж не прочитан из настроек
+    #: (`outreach_cfg.direction_unread`): писем ноль, пока его не поправят, — «0 писем» по дням
+    #: опечатку не выдаёт. Имя переменной — для администратора; `None` — прочитан.
+    unread: str | None = None
 
 
 async def runway(session: AsyncSession, days: Sequence[date]) -> Runway:
@@ -284,7 +288,11 @@ async def runway(session: AsyncSession, days: Sequence[date]) -> Runway:
     boxes = [box for box in await OutreachRepository(session).senders(stages=SALES) if box.enabled]
     domains = await limits.sending_domains(session)
     cap = outreach_cfg.direction_limit(Stage.SALES.value)
-    return Runway(len(boxes), [Day(day, _capacity(boxes, domains, cap, day)) for day in days])
+    return Runway(
+        len(boxes),
+        [Day(day, _capacity(boxes, domains, cap, day)) for day in days],
+        outreach_cfg.direction_unread(Stage.SALES.value),
+    )
 
 
 def _capacity(

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -41,7 +42,9 @@ SEND_OFF = (
     "включается настройкой SALES_AUTOSEND."
 )
 #: Включена, а продажи к почте не подключены: окно не считано, а предохранитель мог и не
-#: сниматься (строку удалили вместо пустой) — «список пуст» и «в окне 0 писем» тут врали бы.
+#: сниматься (строку удалили вместо пустой) — «список пуст» и «в окне 0 писем» тут врали бы. Так
+#: же — лимит первых писем продаж не прочитан: «письма уходят всем лидам» врало бы, и строка
+#: говорит, какую настройку и как исправить (`autosend.Facts.broken`).
 SEND_STOPPED = "Автоотправка включена, а не шлёт ничего"
 BUILD_OFF = (
     "Автосборка выключена — очередь собирают кнопкой «Собрать очередь»; включается настройкой "
@@ -56,8 +59,8 @@ STALE = (
 BY_AUTOBUILD = "их пересоберёт ближайший проход автосборки"
 BY_BUTTON = "соберите очередь заново кнопкой «Собрать очередь»"
 CLOSED = (
-    "ни одно письмо в окне получателя не уйдёт — их лидов сняли (стоп-лист продаж, отказ), лиды "
-    "в «кому не пишем» или адрес лида надо проверить заново; причина каждого — в журнале разбора"
+    "ни одно письмо в окне получателя не уйдёт — их лидов сняли (стоп-лист продаж, отказ) или "
+    "лиды в «кому не пишем»; причина каждого — в журнале разбора"
 )
 
 
@@ -95,9 +98,10 @@ async def autosend_line(session: AsyncSession, now: datetime) -> AutoLine:
     if guarded is not None:
         return AutoLine(enabled=False, line=f"Автоотправка не включается: {guarded}.")
     seen = await autosend.facts(session, now)
+    broken = seen.broken()
+    if broken is not None:
+        return AutoLine(enabled=True, line=f"{SEND_STOPPED}: {broken[1]}.")
     stop = seen.stop()
-    if stop is not None and stop[0] is Stop.NOT_CONNECTED:
-        return AutoLine(enabled=True, line=f"{SEND_STOPPED}: {stop[1]}.")
     head = f"{SEND_ON}: {pace()}. В окне получателя сейчас {letters(len(seen.waiting.ids))}"
     if stop is not None:
         return AutoLine(enabled=True, line=f"{head}. Стоит: {stop[1]}.")
@@ -126,6 +130,8 @@ async def _none_goes(session: AsyncSession, seen: autosend.Facts) -> str | None:
         return None
     if window & found.redo:
         return f"{STALE}: {BY_AUTOBUILD if sales_cfg.AUTOBUILD else BY_BUTTON}"
+    # Письма, которые держит адрес лида, в окно не идут (`autosend_window.py`): очередь из одних
+    # них проход называет сам (`Stop.HELD`), тем же правилом, что `Queued.held`.
     return CLOSED
 
 
@@ -177,7 +183,7 @@ async def _last(session: AsyncSession, jobs: Queue) -> str | None:
         f"последняя автосборка — {row.created_at:%d.%m %H:%M} UTC, гипотеза "
         f"«{row.details.get('гипотеза')}», до {letters(int(row.details.get('писем', 0)))}"
     )
-    return said + _collected(jobs, row.target.removeprefix("job:"))
+    return said + await asyncio.to_thread(_collected, jobs, row.target.removeprefix("job:"))
 
 
 def _collected(jobs: Queue, job_id: str) -> str:

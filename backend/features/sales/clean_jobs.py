@@ -9,9 +9,10 @@
 задачи словами (`ops/job_outcome.KINDS`).
 
 **Сколько ждёт** (`waiting`) — тем же условием, каким лиды берёт проход (`verifier.due`):
-`new` у гипотезы и при живом проверяльщике `ready` с выдуманным вердиктом. Это число называет
-окно подтверждения расхода — каждый лид стоит не больше одной платной проверки, а дубли,
-стоп-листы и домены без почты отсеиваются до неё.
+`new` у гипотезы, кроме ждущих дня перепроверки `unknown`, и перепроверка — при живом
+проверяльщике `ready` с выдуманным вердиктом, а `ready` с `unknown` — в свой день. Это число
+называет окно подтверждения расхода — каждый лид стоит не больше одной платной проверки за
+проход, а дубли, стоп-листы и домены без почты отсеиваются до неё.
 
 **Отказы.** Негодная настройка проверяльщика (`live` без ключа, незнакомое имя) — итог
 «не выполнена» словами человека, а не три повтора: повтор её не исправит; имена настроек —
@@ -26,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -37,7 +39,7 @@ from backend.config import storage
 from backend.config.startup_checks import ConfigError, check_storage
 from backend.features.runs.failures import described, is_permanent
 from backend.features.sales import cleaning
-from backend.features.sales.cleaning import CleaningReport
+from backend.features.sales.clean_report import CleaningReport
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import SalesHypothesisModel, SalesLeadModel
 from backend.features.sales.verifier import build_verifier, due, live
@@ -62,16 +64,15 @@ class Waiting:
 
 
 async def waiting(session: AsyncSession, hypothesis_id: int) -> Waiting:
-    """Лиды гипотезы, которых возьмёт очистка, — тем же условием, что у прохода (`verifier.due`):
-    `new` и при живом проверяльщике `ready` с выдуманным вердиктом. Гипотезы нет — отказ
-    словами (404)."""
+    """Лиды гипотезы, которых возьмёт очистка, — тем же условием, что у прохода (`verifier.due`).
+    Гипотезы нет — отказ словами (404)."""
     hypothesis = await session.get(SalesHypothesisModel, hypothesis_id)
     if hypothesis is None:
         raise UnknownHypothesisError(f"гипотезы №{hypothesis_id} нет — обновите список гипотез")
     count = await session.scalar(
         select(func.count())
         .select_from(SalesLeadModel)
-        .where(SalesLeadModel.hypothesis_id == hypothesis_id, due(live()))
+        .where(SalesLeadModel.hypothesis_id == hypothesis_id, due(live(), datetime.now(UTC)))
     )
     return Waiting(hypothesis.name, int(count or 0))
 
@@ -92,6 +93,8 @@ def report_of(found: CleaningReport) -> dict[str, Any]:
         "checked": found.checked,
         "ready": found.ready,
         "rejected": dict(found.rejected),
+        "unconfirmed": found.unconfirmed,
+        "recheck_on": None if found.recheck_on is None else found.recheck_on.isoformat(),
         "unverified": found.unverified,
         "mx_unknown": found.mx_unknown,
         "verified": found.verified,

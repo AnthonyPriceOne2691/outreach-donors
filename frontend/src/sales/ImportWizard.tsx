@@ -50,6 +50,7 @@ import { listHypotheses, loadImport, previewImport } from '../api/sales';
 import type { ImportDefaults, ImportOptions, ImportSource } from '../api/sales';
 import type { HypothesesView, HypothesisCard, IntakeView, LeadField } from '../api/salesTypes';
 import { BackLink } from '../components/BackLink';
+import { waitingOf } from './cleanData';
 import { ImportColumns } from './ImportColumns';
 import { DefaultsFields } from './ImportDefaults';
 import { withField } from './importMapping';
@@ -192,10 +193,10 @@ function SourceStep(props: SourceStepProps) {
   );
 }
 
-/** Сколько лидов гипотезы возьмёт очистка: новые и «готовые» с выдуманным вердиктом. */
-function waitingOf(known: HypothesisCard[], id: number): number {
+/** Сколько лидов гипотезы возьмёт очистка — числом сервера (`cleanData.waitingOf`). */
+function waitingIn(known: HypothesisCard[], id: number): number {
   const found = known.find((row) => row.id === id);
-  return found === undefined ? 0 : found.leads.new + (found.recheck ?? 0);
+  return found === undefined ? 0 : waitingOf(found);
 }
 
 /** Имя гипотезы по номеру — для слов «лиды лягут в гипотезу …». */
@@ -419,7 +420,7 @@ export function ImportWizard() {
             outcome={outcome}
             hypothesisId={hypothesisId}
             hypothesisName={nameOf(known, hypothesisId)}
-            waiting={waitingOf(known, hypothesisId)}
+            waiting={waitingIn(known, hypothesisId)}
             onAgain={wizard.again}
           />
         ) : (

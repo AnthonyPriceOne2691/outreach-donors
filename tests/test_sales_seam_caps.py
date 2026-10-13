@@ -12,19 +12,22 @@
 - выбран потолок продаж — черновика нет, модель не звали, отказ словами;
 - расход самого агента продаж — в счёте потолка продаж;
 - черновики доноров потолок продаж не трогает;
-- **общий код:** петля правки (`guarding.compose`) перед каждым вызовом писателя проверяет только
-  `drafts_cap` — потолок этапа продаж между правками не держится: `xfail(strict=True)`, правка —
-  в разделе «Для PR «общее»» отчёта ревью.
+- **свой потолок этапа у шва** («общее-3», #363): петля правки (`guarding.compose`) перед каждым
+  вызовом писателя проверяет и потолок этапа (`AgentStage.own_cap`); у продаж это тот же потолок
+  продаж (`SALES_STAGE.own_cap` — `agent/parts.cap`), второго счёта нет: пусто — доля общего, 0
+  (или пусто при общем 0) — потолка нет, как у `usage.share_cap`.
 
 База настоящая; модель ситуации и судьи — подставной HTTP, писатель — подставной.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from backend.config import llm as llm_cfg
 from backend.features.agent import drafting, guarding
-from backend.features.agent.stages import SALES_STAGE
+from backend.features.agent.stages import SALES_STAGE, GuardInput, Verdict, VerdictKind
 from backend.features.agent.writer import Request
 from backend.features.core import usage
 from backend.features.core.domain import DraftStatus, Stage
@@ -128,36 +131,101 @@ async def test_donor_drafts_do_not_feel_the_sales_cap(
     assert outcome.status is DraftStatus.DRAFTED
 
 
-# --- общий код: потолок этапа продаж между правками ---------------------------------------------
+# --- свой потолок этапа у шва: петля правки держит потолок продаж -------------------------------
+
+#: Запрос писателю продаж — без брифа: петля правки шва зовётся с ним напрямую.
+ASKED = Request(
+    stage=Stage.SALES,
+    settings=SETTINGS,
+    turns=(),
+    sign_as="Отдел продаж",
+    parsed={},
+    prompt=SALES_STAGE.prompt,
+    model=SALES_STAGE.model,
+)
+
+
+async def _blocks(_check: GuardInput) -> Verdict:
+    """Судья, который всегда возвращает черновик на правку: петля идёт на следующий вызов."""
+    return Verdict(VerdictKind.BLOCK, ("выдуманное замечание судьи",))
+
+
+def test_the_sales_row_holds_its_own_cap_by_the_sales_cap_rule() -> None:
+    """Свой потолок этапа у строки продаж — функция модуля продаж, и это тот же потолок продаж,
+    что у вида ответа, сборки писем и судьи сегмента: та же настройка, те же операции."""
+    assert SALES_STAGE.own_cap is parts.cap
+    assert parts.cap() == usage_cap.sales_cap()
 
 
 @pytest.mark.usefixtures("sales_on", "caps")
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "общий код (agent/guarding.compose): перед каждым вызовом писателя проверяется только "
-        "drafts_cap — свой потолок этапа продаж (sales/usage_cap.sales_cap) между правками не "
-        "держится, а после шага 2 (продажи вне drafts_cap) писатель продаж в петле правки не "
-        "держал бы ничей потолок. Правка: потолок этапа (AgentStage.cap; у продаж — sales_cap) "
-        "проверяется перед каждым вызовом писателя вместе с drafts_cap"
-    ),
-)
 async def test_the_rewrite_loop_holds_the_sales_cap_before_every_writer_call(
     session: AsyncSession,
 ) -> None:
+    """Потолок продаж выбран до петли — писатель не зовётся ни разу, отказ словами потолка."""
     usage.record(session, operation=parts.DRAFT_OPERATION, units=SALES_CAP)
     writer = Writer(GOOD)
-    request = Request(
-        stage=Stage.SALES,
-        settings=SETTINGS,
-        turns=(),
-        sign_as="Отдел продаж",
-        parsed={},
-        prompt=SALES_STAGE.prompt,
-        model=SALES_STAGE.model,
+
+    with pytest.raises(LlmCapExceededError) as refused:
+        await guarding.compose(session, SALES_STAGE, writer, ASKED, incoming="Сколько стоит?")
+
+    assert str(refused.value) == REFUSED
+    assert writer.seen == []
+
+
+@pytest.mark.usefixtures("sales_on", "caps")
+async def test_the_sales_cap_spent_by_the_first_draft_stops_the_rewrite(
+    session: AsyncSession,
+) -> None:
+    """Первый черновик добрал потолок продаж, судья вернул его на правку — второго вызова
+    писателя нет: потолок проверяется перед каждым вызовом, а не раз на черновик."""
+    usage.record(session, operation=parts.DRAFT_OPERATION, units=SALES_CAP - 1)
+    writer = Writer(GOOD)
+    judged = replace(SALES_STAGE, guard=_blocks)
+
+    with pytest.raises(LlmCapExceededError, match="дневной потолок вызовов модели продаж выбран"):
+        await guarding.compose(session, judged, writer, ASKED, incoming="Сколько стоит?")
+
+    assert len(writer.seen) == 1
+
+
+@pytest.mark.usefixtures("sales_on")
+@pytest.mark.parametrize("own", [0, None])
+async def test_no_sales_cap_set_and_no_general_cap_hold_the_loop_by_nothing_of_their_own(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, own: int | None
+) -> None:
+    """`SALES_DAILY_TOKEN_CAP=0` или пусто при общем 0 — своего потолка у этапа нет, как у
+    `usage.share_cap`: сколько бы ни потратили продажи, писатель пишет."""
+    monkeypatch.setattr(llm_cfg, "DAILY_TOKEN_CAP", 0)
+    monkeypatch.setattr(llm_cfg, "SALES_DAILY_TOKEN_CAP", own)
+    monkeypatch.setattr(llm_cfg, "AGENT_DAILY_TOKEN_CAP", DRAFTS_CAP)
+    usage.record(session, operation=parts.DRAFT_OPERATION, units=DRAFTS_CAP - 1)
+    writer = Writer(GOOD)
+
+    composed = await guarding.compose(
+        session, replace(SALES_STAGE, guard=None), writer, ASKED, incoming="Сколько стоит?"
     )
 
-    with pytest.raises(LlmCapExceededError):
-        await guarding.compose(session, SALES_STAGE, writer, request, incoming="Сколько стоит?")
+    assert (composed.held, len(writer.seen)) == (False, 1)
 
+
+@pytest.mark.usefixtures("sales_on")
+async def test_an_empty_sales_cap_is_its_share_of_the_general_cap_in_the_loop(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`SALES_DAILY_TOKEN_CAP` пусто при общем потолке — у этапа доля общего (`SALES_CAP_SHARE`):
+    выбрана — писатель не зовётся, хотя общий и потолок черновиков ещё не выбраны."""
+    general = 10_000
+    share = int(general * llm_cfg.SALES_CAP_SHARE)
+    monkeypatch.setattr(llm_cfg, "DAILY_TOKEN_CAP", general)
+    monkeypatch.setattr(llm_cfg, "SALES_DAILY_TOKEN_CAP", None)
+    monkeypatch.setattr(llm_cfg, "AGENT_DAILY_TOKEN_CAP", DRAFTS_CAP)
+    usage.record(session, operation=parts.DRAFT_OPERATION, units=share)
+    writer = Writer(GOOD)
+
+    with pytest.raises(LlmCapExceededError) as refused:
+        await guarding.compose(session, SALES_STAGE, writer, ASKED, incoming="Сколько стоит?")
+
+    assert str(refused.value).startswith(
+        f"дневной потолок вызовов модели продаж выбран: {share} из {share} токенов"
+    )
     assert writer.seen == []

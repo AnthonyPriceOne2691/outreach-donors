@@ -26,7 +26,7 @@ export function useSalesWeekly(week: string) {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** `YYYY-MM-DD` → «01.03.2027»; сдвиг — в сутках, без пояса браузера. */
-function dayWords(iso: string, plus = 0): string {
+export function dayWords(iso: string, plus = 0): string {
   const [year, month, day] = iso.split('-').map(Number);
   const moment = new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1) + plus * DAY_MS);
   const dd = String(moment.getUTCDate()).padStart(2, '0');

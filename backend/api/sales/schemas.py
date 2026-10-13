@@ -104,6 +104,9 @@ class HypothesisCard(BaseModel):
     #: Лидов «готов», которых очистка проверит заново: адрес проверял выдуманный проверяльщик,
     #: а задан живой. Их тоже ждёт кнопка «Очистить».
     recheck: int
+    #: Сколько лидов возьмёт очистка — число у кнопки «Очистить», тем же условием, что у
+    #: прохода: новый лид с первым ответом `unknown` ждёт дня перепроверки.
+    waiting: int
 
     @classmethod
     def of(cls, row: HypothesisRow) -> HypothesisCard:
@@ -116,6 +119,7 @@ class HypothesisCard(BaseModel):
             leads=row.states,
             total=row.total,
             recheck=row.recheck,
+            waiting=row.waiting,
         )
 
 
@@ -151,6 +155,9 @@ class LeadCard(BaseModel):
     #: Почему адрес не проверен по-настоящему — словами: выдуманный вердикт при живом
     #: проверяльщике (`verifier.unproven`). Такой лид ждёт очистки, письма ему не идут.
     unproven: str | None
+    #: Почему лид «готов» ждёт письма — словами: сайт в работе у другого направления
+    #: (`elsewhere.waiting_of`); письмо соберётся, когда сайт освободится.
+    elsewhere: str | None = None
     created_at: datetime
 
     @classmethod
@@ -174,6 +181,7 @@ class LeadCard(BaseModel):
             cleaning_note=lead.cleaning_note,
             verification_status=lead.verification_status,
             unproven=unproven(lead),
+            elsewhere=row.elsewhere,
             created_at=lead.created_at,
         )
 
