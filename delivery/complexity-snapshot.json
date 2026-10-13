@@ -1082,9 +1082,9 @@
       "worst": "_enum:27"
     },
     "backend/features/core/stages.py": {
-      "lines": 428,
-      "complexity": 6,
-      "worst": "_asked:258"
+      "lines": 463,
+      "complexity": 7,
+      "worst": "check_connected:119"
     },
     "backend/features/core/usage.py": {
       "lines": 298,

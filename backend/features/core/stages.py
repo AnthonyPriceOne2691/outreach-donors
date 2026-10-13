@@ -59,7 +59,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol, assert_never
+from typing import TYPE_CHECKING, Literal, Protocol, assert_never, cast
 
 from backend.features.core.domain import Stage
 
@@ -119,17 +119,42 @@ def mail_stage(stage: Stage, what: str) -> MailStage:
 async def check_connected(session: AsyncSession, stage: Stage, what: str) -> None:
     """Мост подключения этапа (спрашивает отправка очереди пачкой): почта ведёт
     этап сейчас — или отказ словами. У продаж — ответ модуля продаж
-    (`SalesMail.connected`, читает базу): модуль не подключён к мосту или говорит
-    «нет» — отказ; спрашивающие не меняются. Не `mail_stage`: тот отказывает
-    продажам там, где их не будет и подключённых (очередь из доноров, шаблоны)."""
+    (`SalesLacking.missing`, читает базу): модуль не подключён к мосту — прежний отказ; чего-то
+    не хватает — отказ называет, чего, как отказ одному письму (ревью стыков R1, A4).
+    Не `mail_stage`: тот отказывает продажам там, где их не будет и подключённых (очередь
+    из доноров, шаблоны)."""
     match stage:
         case Stage.DONORS | Stage.ADVERTISERS:
             return
         case Stage.SALES:
-            if not await sales_connected(session):
-                raise SalesNotConnectedError(what)
+            if not _answers_missing():
+                if not await sales_connected(session):
+                    raise SalesNotConnectedError(what)
+                return
+            lacking = await _asked(
+                session,
+                what,
+                lambda mail: cast("SalesLacking", mail).missing(session),
+                SalesNotConnectedError,
+            )
+            if lacking:
+                raise SalesNotConnectedError(what, "; ".join(lacking))
         case _:
             assert_never(stage)
+
+
+def _answers_missing() -> bool:
+    """Отвечает ли модуль продаж, чего не хватает (`SalesLacking`). Модуль до PR продаж с
+    этим ответом спрашивается по-старому (`sales_connected`), и отказ ему — прежний, без перечня.
+    Модуль не грузится — тоже по-старому: `sales_connected` спросит его снова, скажет «нет» и
+    запишет причину в журнал."""
+    load = _SALES.load
+    if load is None:
+        return False
+    try:
+        return callable(getattr(load(), "missing", None))
+    except Exception:  # noqa: BLE001  # silent-ok: причину пишет sales_connected, спросив модуль снова
+        return False
 
 
 async def check_batch(session: AsyncSession, stage: Stage, what: str) -> None:
@@ -233,6 +258,16 @@ class SalesMail(Protocol):
 
     async def threads_to(self, session: AsyncSession, email: str) -> Sequence[int]:
         """Переписки продаж, чьи письма уходят на этот адрес: лид с ним (`sales_threads_to`)."""
+
+
+class SalesLacking(Protocol):
+    """Ответ модуля продаж «чего не хватает» (ревью стыков R1, A4): отказ пачке называет причину
+    (`check_connected`), как отказ одному письму. Отдельно от `SalesMail`, пока модуль продаж так
+    не отвечает (их PR): мост спрашивает его, только если ответ есть (`_answers_missing`); потом
+    войдёт в `SalesMail`."""
+
+    async def missing(self, session: AsyncSession) -> Sequence[str]:
+        """Чего не хватает продажам, словами; пусто — подключены."""
 
 
 @dataclass(slots=True)
