@@ -31,10 +31,10 @@ from backend.features.core.models.outreach import MessageModel, ReplyModel, Thre
 from backend.features.letters import reply_to
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.pipeline import Accepted, Inbox
-from backend.features.sales.models import LeadSource, SalesLeadModel
+from backend.features.sales.models import LeadSource, SalesLeadModel, SalesThreadModel
 from backend.features.sales.replies import SalesReplies
 from backend.features.sales.verifier import FixtureVerifier
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
 from tests.test_sales_referral import mail_is_accepted
@@ -207,6 +207,27 @@ async def test_a_bounce_without_a_named_colleague_makes_no_lead(
     assert [lead.email for lead in await _leads(session)] == [JANE]
     assert built == []
     assert handled.route == "manual"
+
+
+async def test_a_sales_dialog_without_a_lead_leaves_the_named_address_to_a_human(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Диалог этапа продаж начат не сборкой (связи с лидом нет): компании не узнать, лида не
+    заводим, ответ ждёт человека словами."""
+    first = await _sent(session, monkeypatch)
+    await session.execute(
+        delete(SalesThreadModel).where(SalesThreadModel.thread_id == first.thread_id)
+    )
+    _, reply = await _accepted(session, first, LEFT)
+    sales, model, built = _sales(session)
+
+    handled = await sales.handle(reply.id)
+
+    assert [lead.email for lead in await _leads(session)] == [JANE]
+    assert (built, model.calls) == ([], 0)
+    assert (handled.route, handled.waits) == ("manual", True)
+    assert handled.reason is not None
+    assert "у диалога нет лида продаж" in handled.reason
 
 
 # --- общий код: приём не отдаёт такой ответ продажам ---------------------------------------------
