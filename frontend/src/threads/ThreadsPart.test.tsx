@@ -2,10 +2,12 @@
  * «Диалоги» и «Диалоги продаж» — один экран двумя частями (`?stage=sales`, просьба
  * Anthony 11.10.2026). Проверяется: каждая часть — только свои переписки и свои числа;
  * сброс фильтров и вкладки части не теряют; открытая переписка ведёт часть за собой;
- * без права «Продажи» часть продаж из адреса не сужает.
+ * без права «Продажи» часть продаж из адреса не сужает. Переключатель «Кому писали»
+ * (`?role=`, слово владельца 14.10.2026) — только в «Диалогах»: доноры и рекламодатели
+ * различимы в строке и сужаются переключателем.
  */
 
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
@@ -141,5 +143,47 @@ describe('открытая переписка ведёт часть за соб�
     await open('/threads/3?stage=sales&state=needs_review');
 
     await waitFor(() => expect(where()).toHaveTextContent(/^\/threads\/3\?state=needs_review$/));
+  });
+});
+
+describe('кому писали: доноры и рекламодатели', () => {
+  it('строка рекламодателя помечена, строка донора — нет', async () => {
+    await open('/threads');
+
+    const brand = (await screen.findByText('brand.example.test')).closest('a')!;
+    expect(within(brand).getByText('· рекламодатель')).toBeInTheDocument();
+    const donor = screen.getByText('donor.example.test').closest('a')!;
+    expect(within(donor).queryByText(/рекламодатель/)).not.toBeInTheDocument();
+  });
+
+  it('переключатель сужает список и пишет себя в адрес; «Все» — снова все', async () => {
+    const user = userEvent.setup();
+    await open('/threads');
+    await screen.findByText('brand.example.test');
+
+    await user.click(screen.getByRole('radio', { name: 'Рекламодатели' }));
+    await waitFor(() => expect(where()).toHaveTextContent(/^\/threads\?role=advertisers$/));
+    expect(screen.queryByText('donor.example.test')).not.toBeInTheDocument();
+    expect(screen.getByText('brand.example.test')).toBeInTheDocument();
+    expect(screen.getByText('найдено 1 из 2')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: 'Все' }));
+    await waitFor(() => expect(where()).toHaveTextContent(/^\/threads$/));
+    expect(await screen.findByText('donor.example.test')).toBeInTheDocument();
+  });
+
+  it('из адреса — только доноры, переключатель стоит на «Доноры»', async () => {
+    await open('/threads?role=donors');
+
+    expect(await screen.findByText('donor.example.test')).toBeInTheDocument();
+    expect(screen.queryByText('brand.example.test')).not.toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Доноры' })).toBeChecked();
+  });
+
+  it('в «Диалогах продаж» переключателя нет, и role из адреса не сужает', async () => {
+    await open('/threads?stage=sales&role=donors');
+
+    expect(await screen.findByText('lead.example.test')).toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: 'Кому писали' })).not.toBeInTheDocument();
   });
 });
