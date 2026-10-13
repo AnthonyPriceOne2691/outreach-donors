@@ -11,17 +11,18 @@
   получал только со следующим письмом лида — а лид, который ждёт звонка, может больше не писать.
   Правило передачи — «ссылка на сделку после ссылки на диалог — тоже» (`handoff.py`): теперь её
   везёт проход повторов сообщения (`handoff_console.close` ставит срок сообщения).
-- **Решение владельца:** личное сообщение телемаркетологу не ушло (чат не задан, бот
-  заблокирован) — копии в группу нет вовсе: группа узнаёт о лиде только из чата эксплуатации
-  владельца. `xfail(strict=True)` ниже — вариант «группа получает лида и тогда».
-- **Решение владельца:** через шлюз агентства новое письмо уже переданного лида не ложится в
-  Kommo (примечаний у шлюза нет), а сообщение «Лид написал снова» несёт ссылку на сделку, где
-  этого письма нет: текст письма — только в переписке сервиса, и ссылки на неё у телемаркетолога
-  нет. `xfail(strict=True)` ниже — вариант «в сообщении и ссылка на диалог, где письмо».
-- **Решение владельца:** ответ в переписке (и черновик агента) уходит на адрес лида, даже если
-  написал его коллега со своего адреса (`sales/mail.recipient`: «адрес — лида»): агент пишет
-  «Здравствуйте, Ольга», а письмо получает общий ящик компании. `xfail(strict=True)` ниже —
-  вариант «ответ — тому, кто написал, если адрес на домене компании лида».
+- **Решение владельца 13.10: личное не дошло — группа всё равно узнаёт о лиде.** Когда итог
+  сказан — отказ постоянный (чат не задан, бот заблокирован) или попытки кончились, — копия в
+  группу уходит и без личного, тем же текстом со строкой «Личное сообщение телемаркетологу не
+  доставлено: <причина>» (`handoff_telegram._heads_up`). Сбой внутри серии повторов группе не
+  виден. Копия выключена (`SALES_TELEGRAM_GROUP_COPY`) — в группу не пишем: это было бы новое
+  сообщение наружу; тревога владельцу говорит словами, что группа о лиде не знает.
+- **Решение владельца 13.10: письмо переданного лида через шлюз — где его читать.** Через шлюз
+  агентства новое письмо уже переданного лида не ложится в Kommo (примечаний у шлюза нет):
+  «Лид написал снова» несёт к ссылке на сделку и ссылку на диалог, где письмо. Отдельного
+  сообщения нет; копия в группу — тот же текст.
+- **Решение владельца 13.10: ответ — тому, кто написал** (коллеге лида с домена компании) —
+  `test_sales_seam_answer_colleague.py`.
 
 База настоящая; Kommo — подставной; Telegram — `httpx.MockTransport`; очередь — список.
 """
@@ -32,12 +33,16 @@ from datetime import timedelta
 
 import httpx
 import pytest
-from backend.features.sales import handoff
+from backend.config import sales as cfg
+from backend.features.sales import handoff, handoff_telegram, telegram, telegram_series
+from backend.features.sales import handoff_text as wording
 from backend.features.sales.handoff_console import close
 from backend.features.sales.kommo import KommoAuthError, KommoFixture, KommoGateway
 from backend.features.sales.models import HandoffKommo, HandoffTelegram
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_handoff import (
+    AGAIN,
+    APP,
     DEAL,
     HEAD,
     NOW,
@@ -53,18 +58,21 @@ from tests.test_sales_handoff import (
     sent,
 )
 from tests.test_sales_handoff_gateway import gateway, work
-from tests.test_sales_handoff_rows import answer, sales_dialog
+from tests.test_sales_handoff_message_retry import DOWN, resend
+from tests.test_sales_handoff_rows import Dialog, answer, sales_dialog
 from tests.test_sales_kommo import Script
+from tests.test_sales_kommo_gateway import DEAL as GATEWAY_DEAL
 from tests.test_sales_kommo_gateway import _made
-from tests.test_sales_send import _seen
 from tests.test_sales_switch import sales_switched_on
-from tests.test_sales_telegram import GROUP, PERSONAL, Recorder, refused
-from tests.test_sales_thread_answer import Answered, answered
+from tests.test_sales_telegram import GROUP, PERSONAL, Recorder, ok, refused
 
-__all__ = ["alerts", "answered", "api", "gateway", "http", "sales_switched_on"]
+__all__ = ["alerts", "api", "gateway", "http", "sales_switched_on"]
 
 LEAD = "ivan@acme.example.test"
 COLLEAGUE = "olga@acme.example.test"
+#: Как Telegram отвечает, когда телемаркетолог заблокировал бота и когда бота убрали из группы.
+BLOCKED = "Forbidden: bot was blocked by the user"
+KICKED = "Forbidden: bot was kicked from the group chat"
 
 
 # --- ответил не лид: «От:» — тот, кто написал ---------------------------------------------------
@@ -186,51 +194,136 @@ async def test_closing_with_the_deal_the_telemarketer_already_has_sends_nothing(
     assert len(api.seen) == seen
 
 
-# --- решение владельца: личное не ушло — группа всё равно узнаёт о лиде ------------------------
+# --- решение владельца 13.10: личное не дошло — группа узнаёт о лиде с пометкой ------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "решение владельца: личное сообщение телемаркетологу не ушло (чат не задан, бот "
-        "заблокирован, Telegram лежит) — копия в группу не уходит вовсе, и о лиде знает только "
-        "чат эксплуатации владельца. Вариант: группа получает сообщение о лиде и тогда — с "
-        "пометкой, что телемаркетологу не доставлено (handoff_telegram.step)"
-    ),
-)
 async def test_group_hears_of_the_lead_when_the_personal_message_did_not_go(
     session: AsyncSession,
     http: httpx.AsyncClient,
     api: Recorder,
     alerts: Alerts,
 ) -> None:
-    api.answers = [refused(403, "Forbidden: bot was blocked by the user"), *([api.answers[0]] * 3)]
+    """Бот заблокирован телемаркетологом — отказ постоянный, итог сказан сразу: группа получает то
+    же сообщение о лиде со строкой, кому не доставлено и почему; тревога владельцу говорит, что
+    группа знает. Телемаркетолог сообщения не получил — ссылка отправленной не отмечена."""
+    api.answers = [refused(403, BLOCKED), *([api.answers[0]] * 3)]
     dialog = await sales_dialog(session)
 
-    await hand_off(session, dialog, deps(http, alerts, KommoFixture()))
+    row = await hand_off(session, dialog, deps(http, alerts, KommoFixture()))
 
-    assert GROUP in [chat for chat, _ in sent(api)]
+    message = f"{HEAD}Ссылка на сделку в коммо: {DEAL}"
+    [personal, (chat, told)] = sent(api)
+    assert personal == (PERSONAL, message)
+    assert chat == GROUP
+    assert told.startswith(
+        f"{message}\n{wording.UNDELIVERED}Telegram отказал (HTTP 403: {BLOCKED})"
+    )
+    assert told.count("\n") == 3, "то же сообщение и одна строка пометки"
+    assert (row.telegram, row.telegram_due_at, row.notified_link) == (
+        HandoffTelegram.UNDELIVERED,
+        None,
+        None,
+    )
+    [alert] = alerts
+    assert "сообщение телемаркетологу не доставлено — Telegram отказал (HTTP 403" in alert
+    assert alert.endswith(f"; {handoff_telegram.GROUP_TOLD}")
 
 
-# --- решение владельца: письмо переданного лида через шлюз — куда его читать -------------------
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "решение владельца: через шлюз новое письмо переданного лида в Kommo не ложится "
-        "(примечаний у шлюза нет), а «Лид написал снова» несёт только ссылку на сделку, где "
-        "этого письма нет. Вариант: в сообщении и ссылка на диалог в сервисе, где письмо "
-        "(handoff_text.message, again и клиент без add_notes)"
-    ),
-)
-async def test_a_new_letter_through_the_gateway_tells_where_to_read_it(
+async def test_group_hears_once_when_the_retries_end_and_not_on_each_failure(
     session: AsyncSession,
     http: httpx.AsyncClient,
     api: Recorder,
     alerts: Alerts,
-    gateway: tuple[Script, KommoGateway],
 ) -> None:
+    """Telegram лежит для личного: сбой внутри серии повторов группе не виден — мигнувшую сеть
+    лечит повтор через 5 минут; попытки кончились — одна копия с пометкой, сколько их было."""
+    tries = telegram_series.MESSAGE_TRIES * telegram.ATTEMPTS
+    api.answers = [*([DOWN] * tries), api.answers[0]]
+    dialog = await sales_dialog(session)
+    row = await hand_off(session, dialog, deps(http, alerts, KommoFixture()))
+    while row.telegram_tries:
+        assert [chat for chat, _ in sent(api)].count(GROUP) == 0, "сбой в серии — не итог"
+        at = row.telegram_due_at
+        assert at is not None
+        row = await resend(session, row.id, http, alerts, at)
+
+    assert [chat for chat, _ in sent(api)] == [PERSONAL] * tries + [GROUP]
+    told = sent(api)[-1][1]
+    assert f"\n{wording.UNDELIVERED}не доставлено за {telegram.ATTEMPTS} попытки" in told
+    assert told.endswith(f"попыток — {telegram_series.MESSAGE_TRIES}, повторов больше нет")
+    [alert] = alerts
+    assert f"не доставлено за {telegram_series.MESSAGE_TRIES} попыток" in alert
+    assert alert.endswith(f"; {handoff_telegram.GROUP_TOLD}")
+
+
+@pytest.mark.parametrize(
+    ("copy", "chat", "said"),
+    [(False, GROUP, handoff_telegram.GROUP_OFF), (True, "", handoff_telegram.GROUP_UNSET)],
+    ids=["group-copy-switched-off", "group-chat-not-set"],
+)
+async def test_without_the_group_copy_the_owner_hears_that_the_group_does_not_know(
+    session: AsyncSession,
+    http: httpx.AsyncClient,
+    api: Recorder,
+    alerts: Alerts,
+    monkeypatch: pytest.MonkeyPatch,
+    copy: bool,
+    chat: str,
+    said: str,
+) -> None:
+    """Копия в группу выключена — в группу не пишем и тогда: это было бы новое сообщение наружу.
+    Тревога владельцу говорит словами, что группа о лиде не знает; чат группы не задан — так же."""
+    monkeypatch.setattr(cfg, "TELEGRAM_GROUP_COPY", copy)
+    monkeypatch.setattr(cfg, "TELEGRAM_GROUP_CHAT_ID", chat)
+    api.answers = [refused(403, BLOCKED), *([api.answers[0]] * 3)]
+    dialog = await sales_dialog(session)
+
+    await hand_off(session, dialog, deps(http, alerts, KommoFixture()))
+
+    assert [to for to, _ in sent(api)] == [PERSONAL]
+    [alert] = alerts
+    assert "сообщение телемаркетологу не доставлено — Telegram отказал (HTTP 403" in alert
+    assert alert.endswith(f"; {said}")
+
+
+async def test_a_group_copy_that_did_not_go_either_is_told_and_leaves_the_series_alone(
+    session: AsyncSession,
+    http: httpx.AsyncClient,
+    api: Recorder,
+    alerts: Alerts,
+) -> None:
+    """Не ушла и копия с пометкой — тревога говорит, что группа о лиде не знает и почему; строка
+    передачи — итог личного: повторов нет, ошибка — его, копия свою серию не заводит."""
+    api.answers = [refused(403, BLOCKED), refused(403, KICKED)]
+    dialog = await sales_dialog(session)
+
+    row = await hand_off(session, dialog, deps(http, alerts, KommoFixture()))
+
+    assert [to for to, _ in sent(api)] == [PERSONAL, GROUP]
+    [alert] = alerts
+    assert (
+        f"копия в группу тоже не ушла — группа о лиде не знает: Telegram отказал (HTTP 403: {KICKED})"
+        in alert
+    )
+    assert (row.telegram, row.telegram_tries, row.telegram_due_at) == (
+        HandoffTelegram.UNDELIVERED,
+        0,
+        None,
+    )
+    assert row.last_error is not None
+    assert row.last_error.startswith(f"Telegram: Telegram отказал (HTTP 403: {BLOCKED})")
+
+
+# --- решение владельца 13.10: письмо переданного лида через шлюз — где его читать ----------------
+
+
+async def _again_through_the_gateway(
+    session: AsyncSession,
+    http: httpx.AsyncClient,
+    alerts: Alerts,
+    gateway: tuple[Script, KommoGateway],
+) -> tuple[Dialog, KommoGateway]:
+    """Лид передан через шлюз (сделка 9341), затем написал снова."""
     script, client = gateway
     script.replies = [_made(9341)]
     dialog = await sales_dialog(session)
@@ -242,33 +335,48 @@ async def test_a_new_letter_through_the_gateway_tells_where_to_read_it(
         "Перезвоните, пожалуйста, завтра после 15:00 по номеру из подписи.",
         at=NOW + timedelta(hours=3),
     )
+    return dialog, client
+
+
+def _again(dialog: Dialog) -> str:
+    """«Лид написал снова» через шлюз: ссылка на сделку и ссылка на диалог, где письмо."""
+    where = f"{wording.LETTER_IN_SERVICE}{APP}/threads/{dialog.thread.id}"
+    return f"{AGAIN}Ссылка на сделку в коммо: {GATEWAY_DEAL}\n{where}"
+
+
+async def test_a_new_letter_through_the_gateway_tells_where_to_read_it(
+    session: AsyncSession,
+    http: httpx.AsyncClient,
+    api: Recorder,
+    alerts: Alerts,
+    gateway: tuple[Script, KommoGateway],
+) -> None:
+    """В сделку письмо не легло (примечаний у шлюза нет) — «Лид написал снова» несёт и ссылку на
+    диалог, где письмо; копия в группу — тот же текст. Отдельного сообщения нет."""
+    dialog, client = await _again_through_the_gateway(session, http, alerts, gateway)
 
     await hand_off(session, dialog, work(http, alerts, client))
 
-    [(_, told), _] = sent(api)[2:]
-    assert told.startswith("Лид написал снова")
-    assert f"/threads/{dialog.thread.id}" in told, "письма нет ни в Kommo, ни по ссылке"
+    assert sent(api)[2:] == [(PERSONAL, _again(dialog)), (GROUP, _again(dialog))]
 
 
-# --- решение владельца: ответ — тому, кто написал ------------------------------------------------
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "решение владельца: коллега лида ответил со своего адреса на домене компании — ответ "
-        "в переписке (и черновик агента) уходит на адрес лида (sales/mail.recipient: «адрес — "
-        "лида»), а не тому, кто написал. Вариант: адрес ответившего, если он на домене компании "
-        "лида; чужой домен — адрес лида, как сейчас"
-    ),
-)
-async def test_the_answer_goes_to_the_colleague_who_wrote(
-    session: AsyncSession, answered: Answered
+async def test_the_group_copy_repeated_by_the_pass_keeps_the_link_to_the_letter(
+    session: AsyncSession,
+    http: httpx.AsyncClient,
+    api: Recorder,
+    alerts: Alerts,
+    gateway: tuple[Script, KommoGateway],
 ) -> None:
-    answered.reply.from_email = "olga@acme.example.test"
-    await session.flush()
+    """Копия в группу о письме через шлюз не ушла сразу (Telegram 503) — проход повторяет её тем
+    же текстом, что получил телемаркетолог: со ссылкой на диалог."""
+    dialog, client = await _again_through_the_gateway(session, http, alerts, gateway)
+    api.answers = [ok(), DOWN]
+    row = await hand_off(session, dialog, work(http, alerts, client))
+    at = row.telegram_due_at
+    assert at is not None, "копия ждёт повтора"
+    api.answers = [ok()]
 
-    await answered.answer(session)
+    await handoff.process(session, row.id, work(http, alerts, client, at=at), kommo=False)
 
-    [_, out] = _seen(answered.source)
-    assert out.to == "olga@acme.example.test"
+    assert sent(api)[2] == (PERSONAL, _again(dialog))
+    assert sent(api)[-1] == (GROUP, _again(dialog))

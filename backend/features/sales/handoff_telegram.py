@@ -26,6 +26,20 @@
 лида), пробует сообщение ещё раз, но при отказе тревоги не повторяет и новой серии повторов
 не заводит (`telegram_series.after_failure`, `told`).
 
+**Личное не дошло — группа всё равно узнаёт** (решение владельца 13.10, `_heads_up`): когда
+итог сказан — отказ постоянный (чат не задан, бот заблокирован) или попытки кончились, — копия
+в группу уходит и без личного, тем же текстом со строкой «Личное сообщение телемаркетологу не
+доставлено: <причина>». Тёплый лид не ждёт, пока прочтут чат эксплуатации. Мигнувшую сеть, которую
+лечит повтор через 5 минут, группа не видит: на сбой внутри серии копии нет. Одна копия на итог,
+серию повторов личного она не трогает; не ушла и она — тревога говорит это словами. Копия в
+группу выключена (`SALES_TELEGRAM_GROUP_COPY`) — в группу не пишем: это было бы новое сообщение
+наружу; тревога владельцу говорит, что группа о лиде не знает. Личное дошло позже (новая задача
+после итога) — копия уходит, как всегда после личного.
+
+**Письмо переданного лида через шлюз Kommo** в сделку не ложится (`KommoClient.can.add_notes`):
+«Лид написал снова» несёт и ссылку на диалог, где письмо (`handoff_text.message`, `unnoted`),
+и копия в группу, которую повторяет проход, — тот же текст.
+
 **Двойная отправка возможна в одном окне:** Telegram принял сообщение, а строка передачи
 не записалась (задача умерла до коммита) — повтор пошлёт его ещё раз. Дубль сообщения
 безвреднее потерянного лида.
@@ -42,7 +56,7 @@ from backend.features.sales.handoff_kommo import headline
 from backend.features.sales.handoff_text import Card
 from backend.features.sales.models import HandoffTelegram, SalesHandoffModel
 from backend.features.sales.telegram import TelegramError
-from backend.features.sales.telegram_series import MESSAGE_TRIES, after_failure
+from backend.features.sales.telegram_series import MESSAGE_TRIES, Failed, after_failure
 
 if TYPE_CHECKING:
     from backend.features.sales.handoff import Deps
@@ -52,6 +66,11 @@ logger = logging.getLogger(__name__)
 #: Что не ушло — словами тревоги.
 PERSONAL = "сообщение телемаркетологу не доставлено"
 GROUP = "копия в группу продаж не доставлена"
+
+#: Что с группой, когда личное не дошло, — хвост тревоги владельцу (`_heads_up`).
+GROUP_TOLD = "группа продаж получила сообщение о лиде с пометкой «не доставлено»"
+GROUP_OFF = "копия в группу выключена (SALES_TELEGRAM_GROUP_COPY) — группа о лиде не знает"
+GROUP_UNSET = "копия в группу не ушла — SALES_TELEGRAM_GROUP_CHAT_ID пуст, группа о лиде не знает"
 
 
 def news(row: SalesHandoffModel, reply_id: int | None) -> bool:
@@ -72,12 +91,11 @@ async def step(row: SalesHandoffModel, card: Card, deps: Deps) -> None:
     link = deal or wording.dialog_link(card.thread_id)
     again = news(row, card.reply_id)
     if row.notified_link != link or again:
-        words = wording.message(deal, card.thread_id, row.kommo, again=again)
+        words = _words(row, card, deps, deal, again=again)
         if await _personal(row, link, words, deps, told=(card.reply_id, again)):
             await _group_copy(row, words, deps)
     elif row.telegram_due_at is not None:
-        words = wording.message(deal, card.thread_id, row.kommo, again=row.told_again)
-        await _group_copy(row, words, deps)
+        await _group_copy(row, _words(row, card, deps, deal, again=row.told_again), deps)
 
 
 def _deal_url(row: SalesHandoffModel, deps: Deps) -> str | None:
@@ -85,6 +103,13 @@ def _deal_url(row: SalesHandoffModel, deps: Deps) -> str | None:
     if deps.kommo is None or row.kommo_lead_id is None:
         return None
     return deps.kommo.lead_url(row.kommo_lead_id)
+
+
+def _words(row: SalesHandoffModel, card: Card, deps: Deps, deal: str | None, *, again: bool) -> str:
+    """Текст сообщения. Новое письмо переданного лида через шлюз Kommo в сделку не легло —
+    клиент примечаний не пишет (`can.add_notes`): к ссылке на сделку — ссылка на диалог."""
+    unnoted = again and deps.kommo is not None and not deps.kommo.can.add_notes
+    return wording.message(deal, card.thread_id, row.kommo, again=again, unnoted=unnoted)
 
 
 async def _personal(
@@ -96,7 +121,8 @@ async def _personal(
     told: tuple[int | None, bool],
 ) -> bool:
     """Личное сообщение. Ушло — `sent` со ссылкой и ключом (`told`: о каком ответе и было ли
-    оно «Лид написал снова»); нет — «не доставлено» и повтор или тревога."""
+    оно «Лид написал снова»); нет — «не доставлено» и повтор или тревога, а когда итог сказан —
+    и копия в группу с пометкой (`_heads_up`)."""
     said = row.telegram is HandoffTelegram.UNDELIVERED and row.telegram_due_at is None
     if row.telegram is not HandoffTelegram.UNDELIVERED:
         _settled(row)  # новое личное сообщение — своя серия, даже если копия ждала повтора
@@ -104,7 +130,11 @@ async def _personal(
         await deps.bot.send(cfg.TELEGRAM_CHAT_ID, words)
     except TelegramError as exc:
         row.telegram = HandoffTelegram.UNDELIVERED
-        then = await _not_delivered(row, exc, deps, PERSONAL, prefix="Telegram", told=said)
+        failed = after_failure(row.telegram_tries, exc, deps.now(), told=said)
+        group = await _heads_up(words, failed.error(exc), deps) if failed.alarm else None
+        then = await _not_delivered(
+            row, exc, failed, deps, PERSONAL, prefix="Telegram", group=group
+        )
         logger.warning(
             "продажи: сообщение телемаркетологу не доставлено",
             extra={"handoff_id": row.id, "error": str(exc), "then": then},
@@ -133,8 +163,9 @@ async def _group_copy(row: SalesHandoffModel, words: str, deps: Deps) -> None:
     try:
         await deps.bot.send(cfg.TELEGRAM_GROUP_CHAT_ID, words)
     except TelegramError as exc:
+        failed = after_failure(row.telegram_tries, exc, deps.now(), told=False)
         then = await _not_delivered(
-            row, exc, deps, GROUP, prefix="Telegram, копия в группу", told=False
+            row, exc, failed, deps, GROUP, prefix="Telegram, копия в группу"
         )
         logger.warning(
             "продажи: копия в группу не доставлена",
@@ -144,33 +175,55 @@ async def _group_copy(row: SalesHandoffModel, words: str, deps: Deps) -> None:
     _settled(row)
 
 
+async def _heads_up(words: str, why: str, deps: Deps) -> str:
+    """Личное сообщение не дошло, итог сказан — группа продаж узнаёт о лиде тем же текстом с
+    пометкой, почему не доставлено (решение владельца 13.10). Копия выключена или чат группы не
+    задан — в группу не пишем. Строку передачи не трогает: серия повторов — у личного. Возвращает,
+    что с группой, — словами для тревоги владельцу."""
+    if not cfg.TELEGRAM_GROUP_COPY:
+        return GROUP_OFF
+    if not cfg.TELEGRAM_GROUP_CHAT_ID:
+        return GROUP_UNSET
+    try:
+        await deps.bot.send(cfg.TELEGRAM_GROUP_CHAT_ID, wording.undelivered(words, why))
+    except TelegramError as exc:
+        logger.warning(
+            "продажи: копия в группу о недоставленном личном сообщении не ушла",
+            extra={"error": str(exc)},
+        )
+        return f"копия в группу тоже не ушла — группа о лиде не знает: {exc}"
+    return GROUP_TOLD
+
+
 async def _not_delivered(
     row: SalesHandoffModel,
     exc: TelegramError,
+    failed: Failed,
     deps: Deps,
     what: str,
     *,
     prefix: str,
-    told: bool,
+    group: str | None = None,
 ) -> str:
     """Не ушло — серия повторов (`telegram_series.after_failure`): временный отказ — повтор
-    проходом, а после последней попытки — тревога; постоянный — тревога сразу и без повтора.
-    `told` — итог об этом сообщении уже сказан: молча и без новой серии повторов. Возвращает,
-    что решено, — для строки журнала."""
-    failed = after_failure(row.telegram_tries, exc, deps.now(), told=told)
+    проходом, а после последней попытки — тревога; постоянный — тревога сразу и без повтора;
+    итог об этом сообщении уже сказан — молча и без новой серии повторов. `group` — что с
+    группой, когда личное не дошло (`_heads_up`), — в конце тревоги. Возвращает, что решено, —
+    для строки журнала."""
     row.telegram_tries, row.telegram_due_at = failed.tries, failed.due_at
     row.last_error = f"{prefix}: {failed.error(exc)}"
+    tail = "" if group is None else f"; {group}"
     if failed.due_at is not None:
         then = failed.due_at.isoformat()
         return f"повтор не раньше {then}, попытка {failed.tries} из {MESSAGE_TRIES}"
     if failed.spent is not None:
         await deps.alert(
             f"{headline(row)}: {what} за {failed.spent} попыток — повторов больше нет, передать "
-            f"лида телемаркетологу руками: {exc}"
+            f"лида телемаркетологу руками: {exc}{tail}"
         )
         return f"попытки кончились ({failed.spent})"
     if failed.alarm:
-        await deps.alert(f"{headline(row)}: {what} — {exc}")
+        await deps.alert(f"{headline(row)}: {what} — {exc}{tail}")
     return "без повтора"
 
 

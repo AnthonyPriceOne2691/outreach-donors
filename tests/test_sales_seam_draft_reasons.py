@@ -13,8 +13,9 @@
 будет. Теперь причина — словами у ответа (`no_draft.absent`), а решает по-прежнему шов: задачи
 черновика нет ни до правки, ни после.
 
-**Решение владельца** — вернуть ли агенту лида, который после «не сейчас» пишет снова с вопросом
-(ТЗ, «Ответы»: «вопрос или интерес — отвечает ИИ-агент»): `xfail(strict=True)` ниже.
+**Решение владельца 13.10** — лиду, который после «не сейчас» или «не интересно» пишет снова с
+вопросом, отвечает человек, как сейчас: диалог остаётся закрытым, агенту его не возвращают,
+черновика нет, ответ ждёт человека со словами, почему. Тест ниже держит это поведение.
 
 **Общий код** — задача черновика, которую модель не смогла написать (ключ или права модели,
 потолок расхода, повторы кончились), кончается итогом задачи и строкой журнала: черновика нет,
@@ -184,32 +185,27 @@ async def test_reasons_do_not_reach_for_the_settings_when_the_switch_is_off(
     assert await no_draft.absent(session, reply) is None
 
 
-# --- решение владельца: лид после «не сейчас» снова спрашивает --------------------------------
+# --- решение владельца 13.10: лид после «не сейчас» снова спрашивает — отвечает человек --------
 
 
 @pytest.mark.usefixtures("sales_on")
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "решение владельца: лид после «не сейчас» или «не интересно» пишет снова с вопросом — "
-        "открыть диалог снова (REPLIED) и дать агенту черновик (ТЗ, «Ответы»: вопрос — отвечает "
-        "агент) или оставить человеку, как сейчас. Правка — в replies._follow: путь AGENT и "
-        "HANDOFF открывают закрытый модулем диалог"
-    ),
-)
-async def test_lead_who_said_not_now_and_asks_again_gets_the_agent_back(
-    session: AsyncSession, queues: Queues, replied: Replied
+@pytest.mark.parametrize("before", [NOT_NOW, NOT_INTERESTED], ids=["not-now", "not-interested"])
+async def test_lead_who_said_not_now_and_asks_again_is_answered_by_a_human(
+    session: AsyncSession, queues: Queues, replied: Replied, before: KindFound
 ) -> None:
-    reply_id, report = await replied(NOT_NOW, QUESTION)
+    """Решение владельца 13.10: как сейчас — диалог, закрытый «не сейчас» или «не интересно»,
+    вопрос лида не открывает (агенту его не возвращают), черновика нет, а ответ ждёт человека
+    словами, почему агент молчит. Мутант «вопрос открывает закрытый диалог» — тест красный."""
+    reply_id, report = await replied(before, QUESTION)
 
     reply = await session.get(ReplyModel, reply_id)
     assert reply is not None
     thread = await session.get(ThreadModel, reply.thread_id)
     assert thread is not None
     await session.refresh(thread)
-    assert thread.status is ThreadStatus.REPLIED
-    assert report["reason"] == AS_BEFORE
-    assert queues.drafts() == {"runs": [], "sales": [reply_id]}
+    assert thread.status is ThreadStatus.CLOSED
+    assert (report["waits"], report["reason"]) == (True, f"задал вопрос: {no_draft.CLOSED}")
+    assert queues.drafts() == {"runs": [], "sales": []}
 
 
 # --- общий код: модель не смогла написать черновик — группа не узнаёт ------------------------

@@ -4,7 +4,8 @@
 поверх `httpx.MockTransport`, тревоги — список. Kommo — настоящий клиент шлюза
 (`KommoGateway`) поверх своего подставного транспорта: видно каждый запрос шлюза.
 Следующий ответ «хочет говорить» — без второй сделки: метода примечаний у шлюза нет,
-телемаркетолог получает сообщение со ссылкой на ту же сделку, в журнале — слова.
+телемаркетолог получает сообщение со ссылкой на ту же сделку и на диалог, где письмо (решение
+владельца 13.10), в журнале — слова.
 """
 
 from __future__ import annotations
@@ -179,7 +180,9 @@ async def test_the_next_answer_makes_no_second_deal_and_tells_the_telemarketer(
 
     assert queued == [row.id]
     assert len(script.requests) == 1, "вторая сделка или запрос примечания мимо шлюза"
-    again = MESSAGE.replace("Новый лид", "Лид написал снова")
+    # Письма в сделке нет — четвёртая строка, где его читать (решение владельца 13.10).
+    where = f"{wording.LETTER_IN_SERVICE}{APP}/threads/{dialog.thread.id}"
+    again = f"{MESSAGE.replace('Новый лид', 'Лид написал снова')}\n{where}"
     assert sent(api) == [(PERSONAL, MESSAGE), (GROUP, MESSAGE), (PERSONAL, again), (GROUP, again)]
     assert (row.kommo, row.telegram, row.kommo_lead_id) == (
         HandoffKommo.DONE,

@@ -11,11 +11,14 @@
   (`connection.py`), адрес лида по явной связи диалога (`sales_threads`), имя в From
   из «Отправителя», готова ли цепочка набора, которым написано первое письмо (ответу в
   переписке — нет: он не шаг цепочки); пояса получателя для окна (`policy.zones_of`:
-  лида, его страны);
+  лида, его страны). Ответ в переписке уходит тому, кто написал, если это коллега лида со
+  своего адреса на домене компании (`colleague_of`, решение владельца 13.10), — и ручной,
+  и черновик агента: оба уходят этой отправкой; иначе — лиду, как прежде;
 - `check` — ветка продаж проверки перед отправкой (вместо отказа 1.1b в
   `sending._check_review`): лид не снят, не передан телемаркетологу
   (`handoff.handed_off` — переданному цепочка не идёт), не в стоп-листе (`unwritable` —
-  то же правило решает, писать ли агенту черновик ответа лида); письмо цепочки — лиду не из
+  то же правило решает, писать ли агенту черновик ответа лида), а ответ коллеге — и его
+  адрес не в стоп-листе (`stopped_by` с его адресом); письмо цепочки — лиду не из
   «кому не пишем» (`not_writing.py`, решение владельца 13.10); первое письмо —
   в коридоре отличия, собрано после последней правки лида (`lead_edit.edited`), а адрес не
   проверен выдуманным проверяльщиком при живом (`verifier.unproven`); подпись и адрес на
@@ -33,8 +36,10 @@
   здесь нет. Тему даёт первое письмо — у шаблона добивки её нет;
 - `policy` — политика почты продаж (`policy.sales_policy`): окно получателя, мягкие
   сигналы ящика, сторож;
-- `threads_to` — переписки лидов с этим адресом: по ним стоп-лист снимает письма продаж
-  адресу (`letters/stoplist.stop_pending`) — строки `contacts` у них нет.
+- `threads_to` — переписки, чьи письма уходят на этот адрес: лида с ним и те, где ответ ушёл
+  коллеге лида с ним. По ним стоп-лист снимает письма продаж адресу
+  (`letters/stoplist.stop_pending`) — строки `contacts` у них нет, — а сверка событий доставки
+  узнаёт своё письмо (`letters/events`).
 
 **Отказ — только словами почты** (договор моста): «писать больше нельзя» (лид снят,
 передан, в стоп-листе) — `LeadStoppedError`, наследник стоп-листа: цепочка кончается; лид в
@@ -56,10 +61,11 @@ from datetime import UTC, datetime
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.contacts.known_addresses import FREE_MAILBOX_DOMAINS
 from backend.features.core.domain import Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import SuppressionModel
-from backend.features.core.models.outreach import MessageModel
+from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.core.stages import (
     MailPolicy,
     Recipient,
@@ -75,6 +81,7 @@ from backend.features.letters.sending import (
     SuppressedError,
 )
 from backend.features.letters.uniqueness import corridor_verdict
+from backend.features.replies import redirect, robots
 from backend.features.sales import (
     autosend,
     chain,
@@ -146,6 +153,53 @@ async def _dialog(session: AsyncSession, where: ColumnElement[bool]) -> Linked |
     return None if found is None else Linked(*found._tuple())
 
 
+def of_company(address: str, dialog: Linked) -> bool:
+    """Адрес компании лида: его домен — сайт компании или домен адреса лида, они сами или их
+    поддомены; по зарегистрированному имени (`redirect.same_site`: `mail.acme.com` — тот же
+    сайт), а где его нет (выдуманные зоны) — по самому имени. Одно правило у ответа коллеге
+    (`colleague_of`) и у автоответа мёртвого ящика (`dead_mailbox.py`).
+
+    Бесплатная почта — не домен компании, даже если на ней сам лид (решение владельца 13.10):
+    у лида `jane@gmail.com` адрес `bob@gmail.com` — частный ящик, а не коллега, и ни ответ ему,
+    ни лид из автоответа без человека не заводятся. Доменом компании тогда остаётся сайт."""
+    domain = address.rpartition("@")[2]
+    owns = {dialog.host.lower(), dialog.lead.email.rpartition("@")[2].lower()} - {""}
+    for own in owns - FREE_MAILBOX_DOMAINS:
+        if domain == own or domain.endswith(f".{own}") or redirect.same_site(address, own):
+            return True
+    return False
+
+
+def colleague_of(sender: str | None, dialog: Linked) -> str | None:
+    """Коллега лида, ответивший со своего адреса на домене компании, — ответ в переписке уходит
+    ему (решение владельца 13.10): агент пишет «Здравствуйте, <коллега>», и письмо доходит до
+    того, кто спросил, а не до ящика лида. `None` — ответ лиду, как прежде: написал сам лид (в
+    любом регистре) или адреса нет; адрес не на домене компании (`of_company`: бесплатная почта
+    им не бывает, даже если на ней сам лид); робот (noreply, почтовая служба) — человека за
+    адресом нет."""
+    address = (sender or "").strip().lower()
+    local, _, domain = address.rpartition("@")
+    if not (local and domain) or address == dialog.lead.email.strip().lower():
+        return None
+    if robots.robot(address):
+        return None
+    return address if of_company(address, dialog) else None
+
+
+async def _answered_colleague(
+    session: AsyncSession, message: MessageModel, dialog: Linked
+) -> str | None:
+    """Коллега лида, которому уходит это письмо (`colleague_of`): только ответ в переписке (у
+    него одного есть ответ, на который он, — `answers_reply_id`) и только на письмо коллеги.
+    `None` — письмо лиду: цепочка пишет лиду всегда."""
+    if message.answers_reply_id is None:
+        return None
+    sender = await session.scalar(
+        select(ReplyModel.from_email).where(ReplyModel.id == message.answers_reply_id)
+    )
+    return colleague_of(sender, dialog)
+
+
 async def _ready_chain(session: AsyncSession, link: SalesThreadModel, what: str) -> chain.Chain:
     """Цепочка набора первого письма для добивки — полная; неполная — «пока нельзя» с её
     словами: срок добивки возвращается."""
@@ -158,7 +212,8 @@ async def _ready_chain(session: AsyncSession, link: SalesThreadModel, what: str)
 
 
 async def recipient(session: AsyncSession, message: MessageModel, what: str) -> Recipient:
-    """Адрес лида и имя отправителя — если продажи подключены и цепочка письма полна.
+    """Адрес лида и имя отправителя — если продажи подключены и цепочка письма полна; ответ в
+    переписке на письмо коллеги лида с домена компании — его адрес (`colleague_of`).
 
     Неполная цепочка — отказ этому письму, а не этапу (`NotReadyError`): цепочка своя у набора
     письма (гипотеза и язык), и письма других наборов уходят — пачка считает это письмо и идёт
@@ -177,27 +232,33 @@ async def recipient(session: AsyncSession, message: MessageModel, what: str) -> 
             (await chain.of_set(session, link.chain_hypothesis_id, link.language)).check_ready()
         except chain.ChainNotReadyError as exc:
             raise NotReadyError(f"{what} не уходит: {exc}") from exc
-    return Recipient(
-        Stage.SALES, dialog.lead.email, found.values["sender_name"], zones=zones_of(dialog.lead)
-    )
+    to = await _answered_colleague(session, message, dialog) or dialog.lead.email
+    return Recipient(Stage.SALES, to, found.values["sender_name"], zones=zones_of(dialog.lead))
 
 
 async def stopped_by(
-    session: AsyncSession, lead: SalesLeadModel, host: str, *, now: datetime | None = None
+    session: AsyncSession,
+    lead: SalesLeadModel,
+    host: str,
+    *,
+    now: datetime | None = None,
+    address: str | None = None,
 ) -> str | None:
-    """Почему этому лиду писать нельзя — стоп-лист продаж или общий; `None` — можно.
+    """Почему этому лиду — или адресу `address` его компании (коллеге, которому уходит ответ) —
+    писать нельзя: стоп-лист продаж или общий; `None` — можно.
 
     Те же правила, что у очистки (`cleaning.py`): стоп-лист продаж держит адрес, домен
     компании и домен адреса; общий — строки без этапа, этапа продаж и те, где человек
     сам просил не писать (`suppressions.holds_sales` — одно условие на очистку и отправку)."""
-    mailbox = lead.email.rpartition("@")[2]
+    email = address or lead.email
+    mailbox = email.rpartition("@")[2]
     hosts = sorted({host, mailbox, host_key(mailbox)} - {""})
     manual = await session.scalar(
         select(func.count())
         .select_from(SalesStoplistModel)
         .where(
             or_(
-                SalesStoplistModel.email == lead.email.lower(),
+                SalesStoplistModel.email == email.lower(),
                 SalesStoplistModel.host.in_(hosts),
             )
         )
@@ -207,7 +268,7 @@ async def stopped_by(
     reason = await session.scalar(
         select(SuppressionModel.reason)
         .where(
-            or_(SuppressionModel.domain_id == lead.domain_id, SuppressionModel.email == lead.email),
+            or_(SuppressionModel.domain_id == lead.domain_id, SuppressionModel.email == email),
             holds_sales(now or datetime.now(UTC)),
         )
         .limit(1)
@@ -237,6 +298,19 @@ async def _writable(session: AsyncSession, dialog: Linked, what: str) -> None:
         raise LeadStoppedError(f"{what}: {why}")
 
 
+async def _colleague_writable(
+    session: AsyncSession, message: MessageModel, dialog: Linked, what: str
+) -> None:
+    """Ответ уходит коллеге лида (`colleague_of`) — и его адресу можно писать: стоп-лист продаж
+    и общий по правилу продаж (`stopped_by` с его адресом); иначе отказ, как стоп-лист."""
+    colleague = await _answered_colleague(session, message, dialog)
+    if colleague is None:
+        return
+    why = await stopped_by(session, dialog.lead, dialog.host, address=colleague)
+    if why is not None:
+        raise LeadStoppedError(f"{what}: коллеге лида {colleague} писать нельзя: {why}")
+
+
 def _first_problem(dialog: Linked, message: MessageModel) -> str | None:
     """Почему первое письмо не уходит — словами; `None` — уходит: оно в коридоре отличия,
     собрано после последней правки лида (`lead_edit.edited`), а адрес не проверен выдуманным
@@ -255,12 +329,14 @@ class FollowupStoppedError(SuppressedError):
 async def check(session: AsyncSession, message: MessageModel) -> None:
     """Проверка письма продаж перед отправкой — ветка продаж `sending._check_review`. Ответ
     лиду в переписке (`ANSWER_STEP`) — не шаг цепочки: подпись в его тексте не отказ, и
-    «кому не пишем» его не держит — лид написал сам."""
+    «кому не пишем» его не держит — лид написал сам. Ответ коллеге лида уходит на его
+    адрес — стоп-лист судит и этот адрес (`_colleague_writable`)."""
     what = f"Письмо №{message.id}"
     dialog = await linked(session, message.thread_id)
     if dialog is None:
         raise LeadMissingError(f"{what}: у письма продаж нет лида — письмо стоит убрать из очереди")
     await _writable(session, dialog, what)
+    await _colleague_writable(session, message, dialog, what)
     if (refused := _chain_refused(dialog, message, what)) is not None:
         raise refused
     rule = letter.answer_problem if message.step >= ANSWER_STEP else letter.problem
@@ -359,15 +435,28 @@ async def followup(session: AsyncSession, thread_id: int | None, step: int) -> S
 
 
 async def threads_to(session: AsyncSession, email: str) -> list[int]:
-    """Переписки продаж, чей лид — этот адрес (`core/stages.sales_threads_to`): письма в них
-    уходят адресу лида (`recipient`), и стоп-лист снимает их по этим перепискам."""
-    found = await session.scalars(
+    """Переписки продаж, чьи письма уходят на этот адрес (`core/stages.sales_threads_to`): лида с
+    ним — письма уходят адресу лида (`recipient`), — и те, где ответ ушёл коллеге лида с этим
+    адресом (`colleague_of`). Стоп-лист снимает по ним письма адресу, а сверка событий доставки
+    узнаёт письмо (`letters/events`): без переписок коллеги отказ и жалоба на ответ ему были бы
+    «событием о чужом письме»."""
+    address = email.strip().lower()
+    leads = await session.scalars(
         select(SalesThreadModel.thread_id)
         .join(SalesLeadModel, SalesLeadModel.id == SalesThreadModel.lead_id)
-        .where(func.lower(SalesLeadModel.email) == email.strip().lower())
-        .order_by(SalesThreadModel.thread_id)
+        .where(func.lower(SalesLeadModel.email) == address)
     )
-    return list(found)
+    answered = await session.execute(
+        select(SalesThreadModel, SalesLeadModel, DomainModel.host)
+        .join(SalesLeadModel, SalesLeadModel.id == SalesThreadModel.lead_id)
+        .join(DomainModel, DomainModel.id == SalesLeadModel.domain_id)
+        .join(MessageModel, MessageModel.thread_id == SalesThreadModel.thread_id)
+        .join(ReplyModel, ReplyModel.id == MessageModel.answers_reply_id)
+        .where(func.lower(ReplyModel.from_email) == address)
+    )
+    dialogs = (Linked(*row) for row in answered.tuples())
+    colleague = {dialog.link.thread_id for dialog in dialogs if colleague_of(address, dialog)}
+    return sorted({*leads, *colleague})
 
 
 async def policy(session: AsyncSession) -> MailPolicy:
