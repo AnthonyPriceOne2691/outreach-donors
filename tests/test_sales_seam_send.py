@@ -146,7 +146,7 @@ async def test_five_new_boxes_send_evenly_one_per_pass_with_the_pause_up_to_the_
 
 
 @pytest.mark.xfail(
-    strict=True,
+    strict=False,  # общий PR его закрывает — метку снять после слияния
     reason=(
         "общий код outreach/senders.warmup_state: разгон считается от заведения ящика "
         "(warmup_started_at, `sender-add`), а не от его первого письма — ящик, заведённый "
@@ -467,7 +467,7 @@ async def test_all_boxes_paused_stop_the_pass_in_the_words_of_the_box_choice(
 
 
 @pytest.mark.xfail(
-    strict=True,
+    strict=False,  # общий PR его закрывает — метку снять после слияния
     reason=(
         "общий код letters/mailbox._free_box: у этапа нет ни одного пишущего ящика (все на "
         "паузе или выключены), а отказ обещает «завтра лимит откроется заново» — завтра ящик на "
