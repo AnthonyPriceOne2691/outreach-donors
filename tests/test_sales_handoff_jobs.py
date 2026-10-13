@@ -318,9 +318,11 @@ async def test_falling_handoff_pass_does_not_stop_the_other_reaper_loops(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Проход повторов передачи падает на каждом круге — разбор прогонов и сторож тишины
-    идут своим чередом, исключение из `_loops` не выходит, а падение видно только
-    в отметке своего цикла."""
+    идут своим чередом, исключение из `_loops` не выходит, а падение видно журналом и
+    тревогой продаж на третьем подряд (`sales/loops.own`), а не отметкой своего цикла:
+    здоровье процесса разбора оно не задевает (`tests/test_sales_reaper_loops.py`)."""
     calls = {"sweep": 0, "watch": 0, "handoffs": 0}
+    told: list[str] = []
 
     def counting(name: str) -> Callable[[], Awaitable[None]]:
         async def work() -> None:
@@ -332,6 +334,11 @@ async def test_falling_handoff_pass_does_not_stop_the_other_reaper_loops(
         calls["handoffs"] += 1
         raise RuntimeError("проход повторов передачи упал")
 
+    async def alarm(text: str) -> bool:
+        told.append(text)
+        return True
+
+    monkeypatch.setattr("backend.features.sales.loops.send_alert", alarm)
     monkeypatch.setattr(ticker, "BEATS_DIR", tmp_path)
     monkeypatch.setattr(reaper, "sweep", counting("sweep"))
     monkeypatch.setattr(reaper, "watch", counting("watch"))
@@ -341,19 +348,21 @@ async def test_falling_handoff_pass_does_not_stop_the_other_reaper_loops(
     monkeypatch.setattr(cfg, "HANDOFF_PASS_SEC", 0.01)
 
     loops = asyncio.create_task(reaper._loops())
-    await _until(lambda: min(calls.values()) >= 2 or loops.done())
+    await _until(lambda: min(calls.values()) >= 4 or loops.done())
 
     assert not loops.done(), "исключение прохода передачи вышло из циклов разбора"
     loops.cancel()
     with pytest.raises(asyncio.CancelledError):
         await loops
-    assert calls["sweep"] >= 2
-    assert calls["watch"] >= 2
-    assert calls["handoffs"] >= 2
+    assert calls["sweep"] >= 4
+    assert calls["watch"] >= 4
+    assert calls["handoffs"] >= 4
     beats = _beats(tmp_path)
     assert beats["Разбор мёртвых прогонов"]["failures"] == 0
     assert beats["Сторож тишины"]["failures"] == 0
-    assert beats[HANDOFF_LOOP]["failures"] >= 2
+    assert beats[HANDOFF_LOOP]["failures"] == 0
+    assert health.beat_problems(tmp_path) == []
+    assert [HANDOFF_LOOP in text for text in told] == [True]
 
 
 async def _due_handoffs(session: AsyncSession, count: int) -> list[int]:

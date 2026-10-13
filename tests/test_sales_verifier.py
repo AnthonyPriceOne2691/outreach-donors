@@ -232,11 +232,6 @@ async def test_429_without_retry_after_waits_one_then_two_seconds_and_a_long_one
             "частота превышена: slow",
         ),
         (
-            httpx.Response(429, json={"errors": [{"id": "usage_exceeded", "details": "monthly"}]}),
-            ProviderQuotaError,
-            "квота исчерпана: monthly",
-        ),
-        (
             httpx.Response(503),
             ProviderError,
             "провайдер не ответил (HTTP 503) — повторим следующей очисткой",
@@ -260,6 +255,36 @@ async def test_temporary_refusal_through_every_attempt_is_named_after_three_trie
 
     assert (type(refused.value), str(refused.value)) == (kind, words)
     assert (len(seen), len(pauses)) == (3, 2)
+
+
+@pytest.mark.parametrize(
+    ("marker", "kind", "words"),
+    [
+        ("usage_exceeded", ProviderQuotaError, "квота исчерпана: monthly"),
+        (
+            "restricted_account",
+            ProviderBlockedError,
+            "учётка закрыта провайдером: monthly — квота тут ни при чём, зайти в кабинет и разобраться",
+        ),
+        ("brand_new_marker", ProviderError, "провайдер отказал (429, brand_new_marker): monthly"),
+    ],
+)
+async def test_429_with_a_quota_or_closed_account_marker_is_asked_once(
+    pauses: list[float], marker: str, kind: type[ProviderError], words: str
+) -> None:
+    """Хвост ревью R6: что повторять, решает правило поиска адресов (`provider.transient`) —
+    маркер раньше кода. Квота и закрытая учётка приезжают тем же 429, что частота, а повтор их
+    не лечит: три запроса и две паузы на адрес ушли бы впустую. Незнакомый маркер на 429 за
+    частоту не выдаётся — так пряталась закрытая учётка (замер 22.09.2026)."""
+    handler, seen = _script(
+        httpx.Response(429, json={"errors": [{"id": marker, "details": "monthly"}]})
+    )
+
+    with pytest.raises(ProviderError) as refused:
+        await _verify(handler)
+
+    assert (type(refused.value), str(refused.value)) == (kind, words)
+    assert (len(seen), pauses) == (1, [])
 
 
 @pytest.mark.parametrize(

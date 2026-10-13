@@ -1,6 +1,7 @@
 """Тревога автосборки (F7, решение владельца 13.10): очередь пуста, а собрать её некому.
 
-Автоотправка включена, её проход стоит «очередь пуста» (`autosend.Facts.stop`, `Stop.EMPTY`), а
+Автоотправка включена, её проход стоит «очередь пуста» (`autosend.Facts.stop`, `Stop.EMPTY`; или в
+ней только письма, которые держат адрес лида и ждут очистки, — `Stop.HELD`), а
 автосборка сама не соберёт: потолок модели продаж набран или сборки гипотез встали на серии писем
 вне коридора (`autobuild.Plan.stuck`), или последняя сборка, поставленная самой, упала. До решения
 поток стоял молча: автоотправка ждала по делу, строка экрана говорила причину, а тревоги не было.
@@ -32,7 +33,7 @@ from rq import Queue
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.sales import autosend, autosend_jobs, queue_start
-from backend.features.sales.autosend import Stop
+from backend.features.sales.job_holder import holder
 
 if TYPE_CHECKING:
     from backend.features.sales.autobuild import Plan
@@ -55,8 +56,9 @@ class Outcome:
 
 def outcome_of(jobs: Queue, job_id: str) -> Outcome | None:
     """Сборка `job_id`, поставленная автосборкой; `None` — задачи нет, или её итог сменила
-    кнопка (мета без пометки автосборки). Очередь не ответила — исключение вызывающему."""
-    job = jobs.fetch_job(job_id)
+    кнопка (мета без пометки автосборки). Очередь не ответила — исключение вызывающему. Сборка —
+    в любой очереди (`job_holder.holder`): до выкатки сборки стояли в очереди ответов продаж."""
+    job = holder(jobs, job_id)
     if job is None or not (job.meta or {}).get(queue_start.AUTO):
         return None
     if job.get_status() in queue_start.RUNNING:
@@ -105,6 +107,6 @@ async def stalled(
     автосборка сама не соберёт (`Plan.stuck`) или её последняя сборка упала (`failed`); `None` —
     не встал."""
     stop = (await autosend.facts(session, now)).stop()
-    if stop is None or stop[0] is not Stop.EMPTY:
+    if stop is None or stop[0] not in autosend.NOTHING:
         return None
     return found.why if found.stuck else failed

@@ -24,7 +24,15 @@ from backend.cli.prune import in_session
 from backend.cli.sales import EXIT_BAD_INPUT, EXIT_OK, EXIT_UNAVAILABLE, EXIT_VERIFIER_STOPPED
 from backend.features.contacts.provider import ProviderError
 from backend.features.core import usage
-from backend.features.sales.verifier import FIXTURE, OPERATION, STOPS, Verdict, build_verifier
+from backend.features.sales.verifier import (
+    FIXTURE,
+    OPERATION,
+    RECHECK_DAYS,
+    STOPS,
+    UNKNOWN,
+    Verdict,
+    build_verifier,
+)
 from backend.features.sales.verify_cap import MonthCapError, MonthCapped, capped
 
 #: Слово Hunter → что оно значит словами.
@@ -90,12 +98,19 @@ async def _verify_with(session: AsyncSession, http: httpx.AsyncClient, email: st
 
 def _verdict_line(email: str, verdict: Verdict) -> str:
     score = "не названа" if verdict.score is None else str(verdict.score)
-    fate = (
-        "очистка отсеет такого лида"
-        if verdict.deliverable is False
-        else "очистка пустит такого лида к письмам"
-    )
-    return f"{email}: {verdict.status}, уверенность {score} — {SAID[verdict.status]}; {fate}."
+    return f"{email}: {verdict.status}, уверенность {score} — {SAID[verdict.status]}; {_fate(verdict)}."
+
+
+def _fate(verdict: Verdict) -> str:
+    """Что очистка сделает с лидом на таком адресе — тем же правилом (`unconfirmed.py`)."""
+    if verdict.deliverable is False:
+        return "очистка отсеет такого лида"
+    if verdict.status == UNKNOWN:
+        return (
+            "к письмам такой лид не пойдёт: очистка проверит его снова не раньше чем через "
+            f"{RECHECK_DAYS} дней, второй такой ответ отклонит лида"
+        )
+    return "очистка пустит такого лида к письмам"
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]

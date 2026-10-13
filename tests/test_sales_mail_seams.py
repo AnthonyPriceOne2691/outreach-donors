@@ -12,7 +12,8 @@
 - сверх списка: «осталось в очереди» после пачки — без потолка пачки;
 - обработка ошибок модуля: «пока нельзя» у добивки и «нет лида» — словами, без поломки.
 
-Правки общего кода здесь не делаются: их тесты помечены `xfail(strict=True)` с причиной.
+Правки общего кода здесь не делаются. A1 о прерванной транзакции почты и A4 закрыл общий PR
+моста: точка сохранения ставится до вопроса модулю, модуль отвечает `missing` (`mail.missing`).
 """
 
 from __future__ import annotations
@@ -83,14 +84,6 @@ async def test_a_module_answer_that_breaks_the_base_leaves_the_mail_transaction_
     assert status is MessageStatus.QUEUED
 
 
-@pytest.mark.xfail(
-    strict=False,  # общий PR его закрывает — метку снять после слияния
-    reason=(
-        "общий код core/stages._asked: точка сохранения ставится внутри try — сбой самой "
-        "транзакции почты (прерванной раньше или упавшей базы) выдаётся за «ошибку модуля "
-        "продаж»; правка — PR «общее» (ревью стыков R1, A1)"
-    ),
-)
 async def test_an_aborted_mail_transaction_is_the_mail_failure_not_the_module_one(
     session: AsyncSession, fake: FakeSalesMail, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -186,13 +179,6 @@ async def test_a_letter_of_an_incomplete_chain_is_refused_in_words_and_waits(
 # --- A4: отказ пачке называет, чего не хватает --------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "общий код core/stages.check_connected: у моста есть только «подключены ли» (да/нет), "
-        "и отказ пачке — без перечня, чего не хватает; правка — PR «общее» (ревью стыков R1, A4)"
-    ),
-)
 async def test_the_batch_refusal_names_what_sales_lack(
     session: AsyncSession,
     world: w.World,
@@ -215,6 +201,18 @@ async def test_the_batch_refusal_names_what_sales_lack(
         f"Очередь писем не отправлена: {SALES_NOT_CONNECTED} — "
         "модуль продаж выключен — включает администратор"
     )
+
+
+async def test_the_module_names_what_sales_lack_in_words_and_nothing_when_connected(
+    session: AsyncSession, world: w.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ответ модуля мосту (`mail.missing`): подключены — пусто, пачка идёт; выключены — словами
+    человека, без имён настроек (их пишет журнал отказа отправки)."""
+    assert await sales_mail.missing(session) == []
+
+    monkeypatch.setattr(sales_cfg, "ENABLED", False)
+
+    assert await sales_mail.missing(session) == ["модуль продаж выключен — включает администратор"]
 
 
 @pytest.fixture

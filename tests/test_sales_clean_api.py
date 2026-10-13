@@ -44,7 +44,7 @@ from backend.features.sales.models import (
     SalesLeadModel,
 )
 from backend.features.sales.verifier import FixtureVerifier, HunterVerifier
-from backend.shared.queue import QUEUE_NAME, SALES_QUEUE_NAME
+from backend.shared.queue import QUEUE_NAME, SALES_BULK_QUEUE_NAME, SALES_QUEUE_NAME
 from fastapi import FastAPI
 from httpx import AsyncClient, Response
 from rq.exceptions import DuplicateJobError
@@ -142,6 +142,11 @@ class _Redis:
         for key in keys:
             self.results.pop(key, None)
 
+    def hgetall(self, _key: str) -> dict[bytes, bytes]:
+        """Задача по ключу мимо очереди (`rq.job.Job.fetch`, `sales/job_holder.holder`): в этом
+        Redis задачи есть только у своей очереди."""
+        return {}
+
 
 class _Job:
     """Задача rq, какой её видят постановка и строка задачи: статус, удаление следа и итог —
@@ -177,8 +182,12 @@ class _Jobs:
     """Очередь задач с правилами rq 2.12, что нужны постановке: задача по номеру; при
     `unique=True` занятый номер — `DuplicateJobError`, пока след задачи не удалён."""
 
+    #: Как у `rq.Queue`: задачу мимо очереди ищут её соединением (`sales/job_holder.holder`).
+    serializer = None
+
     def __init__(self) -> None:
         self.redis = _Redis()
+        self.connection = self.redis
         self.enqueued: list[tuple[tuple[object, ...], dict[str, object]]] = []
         self.known: dict[str, _Job] = {}
 
@@ -199,7 +208,7 @@ class _Jobs:
 @pytest.fixture
 def jobs(monkeypatch: pytest.MonkeyPatch) -> _Jobs:
     found = _Jobs()
-    monkeypatch.setattr("backend.api.sales.clean.sales_queue", lambda: found)
+    monkeypatch.setattr("backend.api.sales.clean.sales_bulk_queue", lambda: found)
     return found
 
 
@@ -362,10 +371,12 @@ async def test_clean_goes_to_the_job_queue_and_into_the_journal(
     }
 
 
-def test_clean_goes_to_the_sales_queue_not_the_common_one() -> None:
-    """Очистка — в очередь продаж (`worker-sales`): проверка адресов идёт минутами и не держит
-    воркер доноров. Очередь — настоящая `rq.Queue`, Redis не трогается."""
-    assert clean_api.sales_queue().name == SALES_QUEUE_NAME != QUEUE_NAME
+def test_clean_goes_to_the_sales_bulk_queue_not_the_common_one() -> None:
+    """Очистка — в очередь долгих задач продаж (`worker-sales-bulk`): проверка адресов идёт
+    минутами и не держит ни воркер доноров, ни разбор ответа лида. Очередь — настоящая
+    `rq.Queue`, Redis не трогается."""
+    assert clean_api.sales_bulk_queue().name == SALES_BULK_QUEUE_NAME
+    assert SALES_BULK_QUEUE_NAME not in (QUEUE_NAME, SALES_QUEUE_NAME)
 
 
 async def test_second_clean_while_the_first_runs_is_refused_in_words(

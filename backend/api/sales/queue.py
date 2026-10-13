@@ -5,7 +5,8 @@
 ещё без письма и сколько писем ждёт отправки — у гипотезы и у продаж целиком (пачка берёт
 очередь этапа, а не гипотезы). `POST /sales/queue` — поставить сборку в
 очередь задач (`sales/queue_jobs.py`): модель на каждое письмо — минуты, а не запрос. Очередь —
-продаж (`worker-sales`), а не общая: минуты модели не держат воркер доноров, а сборка не ждёт за прогоном.
+долгих задач продаж (`sales-bulk`, `worker-sales-bulk`), а не общая и не очередь ответов продаж:
+минуты модели не держат ни воркер доноров, ни разбор ответа лида, а сборка не ждёт за прогоном.
 Отказ подключения — до очереди задач, 409 словами: человек видит его у кнопки, а не в итоге
 задачи через минуты. Сборка гипотезы — одна за раз: второе «Собрать», пока первая идёт или ждёт
 повтора, — 409 словами (вторая собрала бы те же письма и потратила модель дважды).
@@ -28,6 +29,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -53,7 +55,7 @@ from backend.features.sales import (
 )
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.queue_start import BUILD_RUNNING, LIMIT_MAX
-from backend.shared.queue import sales_queue
+from backend.shared.queue import sales_bulk_queue
 
 #: Номер задачи сборки гипотезы — тот же, что у постановки: его читают реестр задач и тесты.
 build_job_id = queue_start.build_job_id
@@ -142,7 +144,9 @@ async def read_queue(
         limit_max=LIMIT_MAX,
         batch_max=batch.BATCH_MAX,
         autosend=AutoLineView.of(await auto_lines.autosend_line(session, now)),
-        autobuild=AutoLineView.of(await auto_lines.autobuild_line(session, sales_queue(), now)),
+        autobuild=AutoLineView.of(
+            await auto_lines.autobuild_line(session, sales_bulk_queue(), now)
+        ),
         batch_off=auto_lines.batch_line(),
     )
 
@@ -158,7 +162,9 @@ async def build_queue(
     await chain.known(session, body.hypothesis_id)
     await connection.check(session, queue.WHAT)
     try:
-        job = queue_start.start(sales_queue(), body.hypothesis_id, body.limit)
+        job = await asyncio.to_thread(
+            queue_start.start, sales_bulk_queue(), body.hypothesis_id, body.limit
+        )
     except DuplicateJobError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, BUILD_RUNNING) from exc
     hypothesis = await session.get(SalesHypothesisModel, body.hypothesis_id)

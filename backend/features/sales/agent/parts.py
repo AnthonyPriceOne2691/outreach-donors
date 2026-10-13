@@ -1,9 +1,9 @@
 """Части агента продаж для строки `Stage.SALES` реестра этапов шва.
 
 Строку собирает шов (`agent/stages.SALES_STAGE`) из того, что здесь: умолчания
-настроек, промпт черновика и его версия, операции расхода, бриф, судья, сообщение о
-черновике в группу продаж, передача лида по пропуску «хочет говорить», причины отклонения
-и имя этапа на экране настроек агента. В реестр этапов строка встаёт только по тумблеру `SALES_AGENT_ENABLED`
+настроек, промпт черновика и его версия, операции расхода, свой потолок этапа, бриф, судья,
+сообщение о черновике в группу продаж, передача лида по пропуску «хочет говорить», причины
+отклонения и имя этапа на экране настроек агента. В реестр этапов строка встаёт только по тумблеру `SALES_AGENT_ENABLED`
 (по умолчанию выключен).
 
 **Круг импорта разорван здесь.** Бриф и судья продаж стоят на типах шва
@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
         GuardInput,
         Verdict,
     )
+    from backend.features.core.usage import OwnCap
 
 #: Промпт черновика ответа лиду — файлом в package-data.
 PROMPT = Path(__file__).with_name("prompts") / "reply.md"
@@ -88,6 +90,17 @@ DEFAULTS = AgentSettings(
 )
 
 
+def cap() -> OwnCap:
+    """Свой потолок этапа продаж у шва (`AgentStage.own_cap`, «общее-3») — свой дневной потолок
+    вызовов модели продаж (`usage_cap.sales_cap`): то же правило и тот же счёт по журналу, второго
+    нет. `SALES_DAILY_TOKEN_CAP` пусто — доля общего, а при общем 0 и сама настройка 0 — потолка
+    нет (`usage.share_cap`). Петля правки шва проверяет его перед каждым вызовом писателя
+    (`agent/guarding.compose`), ситуация письма — до первого вызова модели черновика."""
+    from backend.features.sales import usage_cap  # noqa: PLC0415 — круг импорта
+
+    return usage_cap.sales_cap()
+
+
 async def brief(session: AsyncSession, conversation: Conversation) -> Brief:
     """Бриф продаж до письма (`brief.brief`)."""
     from backend.features.sales.agent import brief as briefing  # noqa: PLC0415 — круг импорта
@@ -106,7 +119,7 @@ async def on_draft(notice: DraftNotice) -> None:
     """Черновик ждёт человека — сообщение в группу продаж задачей очереди (`notify`)."""
     from backend.features.sales.agent import notify  # noqa: PLC0415 — круг импорта
 
-    notify.queue_notice(notice.draft_id)
+    await asyncio.to_thread(notify.queue_notice, notice.draft_id)
 
 
 async def on_skip(notice: DraftNotice) -> None:
@@ -114,4 +127,4 @@ async def on_skip(notice: DraftNotice) -> None:
     другие пропуски («спасибо», автоответ) — ничего."""
     from backend.features.sales.agent import handover  # noqa: PLC0415 — круг импорта
 
-    handover.queue_hand_over(notice)
+    await asyncio.to_thread(handover.queue_hand_over, notice)

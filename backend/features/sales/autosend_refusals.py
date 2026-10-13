@@ -5,7 +5,9 @@
 содержимое, размер) возвращает его в очередь, как любой отказ, и проход автоотправки брал его
 снова: старшее письмо окна — на каждом проходе, раз в минуту, с запросом к платформе на каждый.
 Теперь проход считает такие отказы письму и на `REFUSALS`-м снимает его с очереди: «остановлено»
-с причиной словами (`failure_reason`) и строкой журнала разбора (`autosend_jobs.Watch`).
+с причиной словами (`failure_reason`) и строкой журнала разбора (`autosend_jobs.Watch`). Снимает
+то же место, что снимает письмо отклонённого лида (`off_queue.take_off`); такое письмо сборка не
+пересобирает — его сняла платформа, а не лид.
 
 **Считается отказ в проходе, где ушли другие письма.** Отказ, который получает каждое письмо
 окна, — не о письме, а о платформе, ящике или сборке письма: о нём тревога через 15 минут
@@ -26,14 +28,11 @@ from types import MappingProxyType
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.domain import MessageStatus
 from backend.features.core.models.outreach import MessageModel
-from backend.features.letters import settle
+from backend.features.sales.off_queue import take_off
 
 #: Сколько отказов платформы письму проход терпит: на этом письмо снимается с очереди.
 REFUSALS = 3
-#: Длина причины у письма (`messages.failure_reason`).
-REASON_LENGTH = 256
 
 #: Отказы платформы письмам до этого прохода: номер → сколько (`autosend_jobs.Watch.bounced`).
 _BEFORE: ContextVar[Mapping[int, int]] = ContextVar(
@@ -79,16 +78,7 @@ async def counted(
 
 
 async def _drop(session: AsyncSession, letter_id: int, said: str) -> bool:
-    """Письмо — из очереди в «остановлено» с причиной: условием (`settle.leave`), письмо, которое
+    """Письмо — из очереди в «остановлено» с причиной (`off_queue.take_off`): письмо, которое
     секундой раньше взяла другая отправка, не трогается."""
     letter = await session.get(MessageModel, letter_id)
-    if letter is None:
-        return False
-    return await settle.leave(
-        session,
-        letter,
-        was=MessageStatus.QUEUED,
-        status=MessageStatus.STOPPED,
-        next_action_at=None,
-        failure_reason=said[:REASON_LENGTH],
-    )
+    return False if letter is None else await take_off(session, letter, said)

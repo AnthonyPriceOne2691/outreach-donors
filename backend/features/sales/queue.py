@@ -34,11 +34,17 @@
 **Повтор сборки не задваивает**: у лида один диалог, у письма — ключ с контактом. Письмо в
 очереди, написанное не нынешней цепочкой, с прежними подписью и адресом или до правки лида,
 собирается заново на том же месте вместе с добивками: сверка на отправке такое не пустила
-бы, а второе письмо тому же лиду не дал бы ключ.
+бы, а второе письмо тому же лиду не дал бы ключ. Так же — на том же месте — пишется заново
+первое письмо, снятое до отправки (`off_queue.again`): лида снимали, а он снова «готов», или
+сайт был в работе у другого направления, а теперь свободен.
+
+**Сайт в работе у другого направления — лид ждёт** (одна роль на сайт, `elsewhere.py`): письмо
+ему отправка сняла бы, и модель его не пишет; причина — в отчёте.
 
 **Лид, которому писать нельзя, вызова модели не стоит**: передан телемаркетологу, в
-стоп-листе, адрес проверен выдуманным проверяльщиком при живом (`verifier.unproven`), нет
-значения подстановки, нет цепочки на его языке — причина в отчёте.
+стоп-листе, адрес проверен выдуманным проверяльщиком при живом (`verifier.unproven`) или не
+подтверждён (`unconfirmed.first_letter`), нет значения подстановки, нет цепочки на его языке —
+причина в отчёте.
 Лиды `referral` (коллега, которого назвали в ответе) получают тот же первый шаг: своего
 письма для них пока нет — открытый вопрос владельцу.
 """
@@ -61,7 +67,16 @@ from backend.features.letters import compose
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.rewrite import Personalization, RewriteClient
-from backend.features.sales import chain, chain_text, connection, corridor, handoff, letter
+from backend.features.sales import (
+    chain,
+    chain_text,
+    connection,
+    corridor,
+    elsewhere,
+    handoff,
+    letter,
+    off_queue,
+)
 from backend.features.sales.followup_texts import CAPPED, Built
 from backend.features.sales.followup_texts import build as build_followups
 from backend.features.sales.intake import UnknownHypothesisError
@@ -77,8 +92,8 @@ from backend.features.sales.models import (
 from backend.features.sales.not_writing import excluded
 from backend.features.sales.queue_report import QueueReport
 from backend.features.sales.sender import Sender
+from backend.features.sales.unconfirmed import first_letter
 from backend.features.sales.usage_cap import sales_cap
-from backend.features.sales.verifier import unproven
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +122,8 @@ def campaign_name(hypothesis: SalesHypothesisModel) -> str:
 
 @dataclass(frozen=True, slots=True)
 class _Lead:
-    """Лид и то, что о нём уже есть: сайт компании, диалог и письмо в очереди."""
+    """Лид и то, что о нём уже есть: сайт компании, диалог и первое письмо — в очереди или
+    снятое до отправки (`off_queue.again`)."""
 
     lead: SalesLeadModel
     host: str
@@ -164,7 +180,8 @@ async def build(
 async def _leads(
     session: AsyncSession, hypothesis_id: int, after: int, only: tuple[int, ...] = ()
 ) -> list[_Lead]:
-    """Лиды `ready` гипотезы, которым ещё не писали: без диалога или с письмом в очереди."""
+    """Лиды `ready` гипотезы, которым ещё не писали: без диалога, с письмом в очереди или с
+    первым письмом, снятым до отправки (`off_queue.again`) — его сборка пишет заново."""
     first = (MessageModel.thread_id == SalesThreadModel.thread_id) & (
         MessageModel.step == FIRST_STEP
     )
@@ -181,6 +198,7 @@ async def _leads(
             or_(
                 SalesThreadModel.thread_id.is_(None),
                 MessageModel.status == MessageStatus.QUEUED,
+                off_queue.again(MessageModel),
             ),
         )
         .order_by(SalesLeadModel.id)
@@ -211,18 +229,22 @@ async def _within_cap(session: AsyncSession, report: QueueReport) -> bool:
 
 
 async def _blocked(session: AsyncSession, row: _Lead) -> str | None:
-    """Почему этому лиду писать нельзя совсем: передан, в стоп-листе или в «кому не пишем»."""
+    """Почему этому лиду писать нельзя: передан, в стоп-листе, в «кому не пишем» — или ждёт,
+    пока сайт в работе у другого направления (`elsewhere.py`)."""
     if await handoff.handed_off(session, row.lead.id):
         return HANDED_OFF
     if await stopped_by(session, row.lead, row.host) is not None:
         return STOPLIST
     off = excluded(row.lead.email, row.host)
-    return None if off is None else off.waiting
+    if off is not None:
+        return off.waiting
+    busy = await elsewhere.roles(session, [row.lead.domain_id])
+    return elsewhere.waiting(busy[row.lead.domain_id]) if busy else None
 
 
 async def _plan(session: AsyncSession, row: _Lead, hypothesis_id: int) -> _Plan | str:
     """Что писать лиду — или почему он ждёт (строкой отчёта). Без вызова модели."""
-    if (why := await _blocked(session, row) or unproven(row.lead)) is not None:
+    if (why := await _blocked(session, row) or first_letter(row.lead)) is not None:
         return why
     # Язык без цепочки — причина в отчёте, не ошибка; язык — основой кода: `ru-RU` → `ru`.
     language = language_base(row.lead.language)
@@ -241,8 +263,8 @@ async def _plan(session: AsyncSession, row: _Lead, hypothesis_id: int) -> _Plan 
 
 def _current(row: _Lead, plan: _Plan, found: Sender) -> bool:
     """Письмо в очереди написано нынешней цепочкой, подписано нынешними настройками и после
-    последней правки лида (`lead_edit.edited`)."""
-    if row.queued is None or row.link is None:
+    последней правки лида (`lead_edit.edited`). Снятое до отправки — не в очереди."""
+    if row.queued is None or row.link is None or row.queued.status is not MessageStatus.QUEUED:
         return False
     same = (row.link.chain_hypothesis_id, row.link.chain_version) == (
         plan.chain.hypothesis_id,
@@ -339,14 +361,22 @@ async def _write(
     """Письмо в очередь: новый диалог со связью — или то же место, собранное заново; тексты
     добивок — у связи (`texts`, пусто — добивки уйдут шаблоном шага).
 
-    Место переписывается, только если письмо в базе всё ещё в очереди: пачка — другая задача,
+    Место переписывается, только если письмо в базе всё ещё в очереди — или снято до отправки
+    (`off_queue.again`): тогда оно снова в очереди, без прежней причины. Пачка — другая задача,
     и письмо, прочитанное сборкой, могло уйти, пока модель его переписывала. Ушедшее остаётся
     тем, что ушло (по его теме, версии цепочки и текстам добивок идут добивки): `False`."""
     if row.queued is not None and row.link is not None:
+        place = or_(MessageModel.status == MessageStatus.QUEUED, off_queue.again(MessageModel))
         refreshed = await session.execute(
             update(MessageModel)
-            .where(MessageModel.id == row.queued.id, MessageModel.status == MessageStatus.QUEUED)
-            .values(subject=written.subject, body=written.body, uniqueness_pct=uniqueness)
+            .where(MessageModel.id == row.queued.id, place)
+            .values(
+                subject=written.subject,
+                body=written.body,
+                uniqueness_pct=uniqueness,
+                status=MessageStatus.QUEUED,
+                failure_reason=None,
+            )
             .returning(MessageModel.id)
             .execution_options(synchronize_session="fetch")
         )
@@ -396,7 +426,8 @@ class QueueState:
     missing: list[str]
     #: Цепочка гипотезы на каждом языке: своя или общая, полна ли.
     chains: list[chain.Chain]
-    #: Лидов `ready` без диалога — им ещё не собрано письмо.
+    #: Лидов `ready`, которым сборка напишет первое письмо сейчас (`elsewhere.writable`): письма
+    #: нет или оно снято до отправки, сайт не в работе у другого направления.
     unwritten: int
     #: Первых писем гипотезы в очереди — ждут отправки (их же пересобирает сборка).
     queued: int
@@ -416,11 +447,7 @@ async def state(session: AsyncSession, hypothesis_id: int) -> QueueState:
         select(func.count())
         .select_from(SalesLeadModel)
         .outerjoin(SalesThreadModel, SalesThreadModel.lead_id == SalesLeadModel.id)
-        .where(
-            SalesLeadModel.hypothesis_id == hypothesis_id,
-            SalesLeadModel.status == LeadStatus.READY,
-            SalesThreadModel.thread_id.is_(None),
-        )
+        .where(SalesLeadModel.hypothesis_id == hypothesis_id, elsewhere.writable())
     )
     queued = await session.scalar(
         select(func.count())

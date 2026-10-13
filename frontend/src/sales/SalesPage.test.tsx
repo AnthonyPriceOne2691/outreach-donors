@@ -206,11 +206,42 @@ describe('продажи: право', () => {
 });
 
 describe('продажи: ящик переписки выбыл — красная полоса над вкладками', () => {
+  it('полоса спрашивает тревоги своего этапа — без опроса провайдеров «Обзора»', async () => {
+    // Ревью стыков R7, 7.4: «Обзор» ждёт ответа провайдеров десятки секунд, а полоса спрашивает
+    // при открытии раздела и каждые пять минут — ей нужны тревоги продаж, а не опрос.
+    const recorded = await openScreen({
+      'GET /api/watchdog': { body: { alarms: [] } },
+      'GET /api/watchdog?stage=sales': { body: { alarms: [] } },
+    });
+
+    await waitFor(() => {
+      const asked = recorded.calls
+        .map((call: Call) => call.path)
+        .filter((path) => path.startsWith('/api/watchdog'));
+      expect([...new Set(asked)]).toEqual(['/api/watchdog?stage=sales']);
+    }, SCREEN_WAIT);
+  });
+
+  it('«Обзор» спрашивает сторожа без этапа — общие тревоги и провайдеры у него', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    const recorded = serve({ 'GET /api/auth/me': { body: OPERATOR }, ...HOME_ROUTES });
+    renderWith(<AppRoutes />, '/');
+    await screen.findByText(/Вошли как/, {}, SCREEN_WAIT);
+
+    await waitFor(() => {
+      const asked = recorded.calls
+        .map((call: Call) => call.path)
+        .filter((path) => path.startsWith('/api/watchdog'));
+      expect([...new Set(asked)]).toEqual(['/api/watchdog']);
+    }, SCREEN_WAIT);
+  });
+
   it('тревога сторожа о почте продаж — в разделе; общая и чужого этапа — на главной', async () => {
     // Слово владельца 12.10.2026: вместо смены ящика переписки — красная тревога там, где
-    // работает человек продаж. Прежде она стояла только на главной.
+    // работает человек продаж. Прежде она стояла только на главной. Сервер с `?stage=sales`
+    // отдаёт тревоги продаж; не знающий параметра отдал бы все — полоса всё равно свои.
     await openScreen({
-      'GET /api/watchdog': {
+      'GET /api/watchdog?stage=sales': {
         body: {
           alarms: [
             {

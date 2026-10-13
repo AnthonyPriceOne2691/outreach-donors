@@ -33,6 +33,7 @@ ASKS: dict[str, Ask] = {
     ),
     "check": stages.check_sales,
     "connected": lambda session, _letter: stages.sales_connected(session),
+    "missing": lambda session, _letter: stages.check_connected(session, Stage.SALES, "Пачка"),
     "followup": lambda session, letter: stages.sales_followup(session, letter.thread_id, 1),
     "policy": lambda session, letter: stages.mail_policy(session, Stage.SALES, "Письмо"),
     "answer": lambda session, letter: stages.answer_text(

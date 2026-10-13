@@ -134,9 +134,10 @@ export function fetchUsage(): Promise<UsageView> {
   return request<UsageView>('/usage');
 }
 
-/** Сторож тишины: поломки, которые выглядят как «ничего не происходит». */
-export function fetchWatchdog(): Promise<StagedWatchdog> {
-  return request<StagedWatchdog>('/watchdog');
+/** Сторож тишины: поломки, которые выглядят как «ничего не происходит». С этапом — полоса
+ *  раздела этапа: тревоги этого этапа, без опроса провайдеров (его место — «Обзор»). */
+export function fetchWatchdog(stage?: Stage): Promise<StagedWatchdog> {
+  return request<StagedWatchdog>(stage === undefined ? '/watchdog' : `/watchdog?stage=${stage}`);
 }
 
 /** Вес или порог Этапа 2: что значит, сколько и какой настройкой окружения меняется. */

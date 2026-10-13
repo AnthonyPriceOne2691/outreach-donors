@@ -67,6 +67,12 @@ SERP_AHREFS = (
     "выдачи меняет администратор"
 )
 MODEL_NOT_SET = "ключ модели не задан: судья сегмента не ответит — настраивает администратор"
+#: Свой потолок модели продаж не прочитан из настроек (`llm_cfg.UNREAD_CAPS`): токенов у продаж
+#: ноль, вызовы модели продаж отказывают (`usage.ensure_llm_within_cap`) — судья не ответит.
+CAP_UNREAD = (
+    "дневной потолок модели продаж не прочитан из настроек — токенов ноль, судья сегмента не "
+    "ответит, пока его не поправит администратор"
+)
 VERIFIER_NOT_SET = "проверка адресов не настроена — настраивает администратор"
 SALES_OFF = (
     "модуль продаж выключен — сбор не запускается: выдача, модель и поиск адресов стоят денег; "
@@ -150,7 +156,11 @@ def clean_keywords(text: str) -> tuple[list[str], dict[str, str]]:
 
 async def tokens_left(session: AsyncSession, now: datetime | None = None) -> int | None:
     """Остаток дневного потолка модели для судьи сегмента: меньший из общего и своего
-    потолка продаж (`usage_cap.sales_cap`). `None` — ни того, ни другого нет."""
+    потолка продаж (`usage_cap.sales_cap`). `None` — ни того, ни другого нет. Свой потолок не
+    прочитан из настроек — ноль (`CAP_UNREAD`), а не доля общего: вызовы модели продаж тогда
+    отказывают все."""
+    if _cap_unread():
+        return 0
     moment = now or datetime.now(UTC)
     since = datetime.combine(moment.date(), time.min, tzinfo=UTC)
     limits: list[int] = []
@@ -161,6 +171,10 @@ async def tokens_left(session: AsyncSession, now: datetime | None = None) -> int
         spent = await usage.llm_tokens_spent(session, since=since, operations=own.operations)
         limits.append(own.tokens - spent)
     return max(0, min(limits)) if limits else None
+
+
+def _cap_unread() -> bool:
+    return usage_cap.sales_cap().setting in llm_cfg.UNREAD_CAPS
 
 
 async def serp_refusal() -> str | None:
@@ -236,6 +250,8 @@ def _lines(found: Estimate) -> list[str]:
         left = (
             ""
             if found.tokens_left is None
+            else ", дневной потолок модели продаж не прочитан из настроек — токенов ноль"
+            if _cap_unread()
             else f", остаток дневного потолка — {_number(found.tokens_left)}"
         )
         lines.append(
@@ -314,6 +330,8 @@ async def _money_refusal(found: Estimate) -> str | None:
         return MODEL_NOT_SET
     if found.month is not None and isinstance(found.month.cap, str):
         return found.month.cap  # потолок проверок не задан: проверка адресов встала бы
+    if found.tokens and _cap_unread():
+        return CAP_UNREAD
     if found.tokens_left is not None and found.tokens > found.tokens_left:
         return (
             f"смета модели выше остатка дневного потолка: ≈ {_number(found.tokens)} токенов при "

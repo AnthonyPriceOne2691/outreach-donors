@@ -148,9 +148,19 @@ def _problems(problems: list[Problem], shown: int | None) -> list[str]:
     return [f"проблем — {len(problems)}", *_list(lines, shown)]
 
 
+#: Лимит направления продаж не прочитан из настроек (`weekly_counts.Runway.unread`) — словами, без
+#: имени настройки: отчёт читает группа продаж, а настройку правит администратор.
+RUNWAY_UNREAD = (
+    "лимит первых писем продаж не прочитан из настроек — первых писем ноль, пока его не "
+    "поправит администратор"
+)
+
+
 def runway_line(plan: Plan) -> str:
     """Разгон на неделю плана: ящики и потолок первых писем по дням отправки."""
     head, runway = f"разгон на {plan.week.words()}", plan.runway
+    if runway.unread is not None:
+        return f"{head}: {RUNWAY_UNREAD}"
     if not runway.boxes:
         return f"{head}: включённых ящиков продаж — 0, писать нечем"
     days = _pairs(*((WEEKDAYS[day.day.weekday()], day.letters) for day in runway.days))
@@ -263,6 +273,8 @@ def _lines(report: WeeklyReport) -> Iterator[Line]:
         ("проблемы", "", problem_title(problem), problem.detail) for problem in report.problems
     )
     runway = report.plan.runway
+    if runway.unread is not None:
+        yield ("план", "Всего", RUNWAY_UNREAD, 0)
     yield ("план", "Всего", "включённых ящиков продаж", runway.boxes)
     yield from (
         (

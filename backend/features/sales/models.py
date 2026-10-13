@@ -51,9 +51,8 @@ class LeadStatus(StrEnum):
 
 
 class RejectionReason(StrEnum):
-    """Почему лид отсеян — перечисление данными, а не тип базы: по коду фильтрует
-    экран (`?state=rejected&reason=duplicate`), новая причина — строка здесь, а не
-    миграция. Словами причину называет `cleaning_note`."""
+    """Почему лид отсеян — перечисление данными, а не тип базы: новая причина — строка здесь,
+    а не миграция; по коду фильтрует экран, словами причину называет `cleaning_note`."""
 
     DUPLICATE = "duplicate"  # адрес уже у лида продаж — в этом же файле или раньше
     STOPLIST = "stoplist"  # ручной стоп-лист продаж: клиенты и партнёры
@@ -62,6 +61,7 @@ class RejectionReason(StrEnum):
     UNUSABLE = "unusable"  # адрес негодный по форме или назначению: чужой отдел, заглушка
     NO_MAIL = "no_mail"  # домен адреса не принимает почту: нет MX и A или нулевой MX
     UNDELIVERABLE = "undeliverable"  # проверяльщик: адреса не существует
+    UNCONFIRMED = "unconfirmed"  # проверяльщик дважды ответил `unknown` — адрес не подтверждён
 
 
 class LeadSource(StrEnum):

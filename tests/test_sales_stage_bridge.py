@@ -48,6 +48,8 @@ SENDER_NAME = "Made-up Sales Sender"
 SALES_BOX = "sales@mail-sales.example.test"
 #: Что подставной модуль дописывает к ответу лиду в переписке (у настоящего — подпись и адрес).
 ANSWER_TAIL = "\n\nMade-up sales signature block"
+#: Чего не хватает продажам, когда подставной модуль не подключён (`missing`).
+LACKING = "выдуманная причина: ящика продаж нет"
 
 
 @dataclass
@@ -99,6 +101,11 @@ class FakeSalesMail:
     async def connected(self, session: AsyncSession) -> bool:
         await self._maybe_break(session, "connected")
         return self.connected_now
+
+    async def missing(self, session: AsyncSession) -> list[str]:
+        """Чего не хватает (`stages.SalesLacking`): отказ пачке называет причину."""
+        await self._maybe_break(session, "missing")
+        return [] if self.connected_now else [LACKING]
 
     async def batch(self, what: str) -> None:
         self.asked.append("batch")
@@ -202,13 +209,16 @@ async def test_bridge_gives_donors_and_advertisers_their_contact_untouched(
 async def test_queue_send_asks_the_module_whether_sales_are_connected(
     session: AsyncSession, fake: FakeSalesMail, connected: bool, refused: bool
 ) -> None:
-    """Отправка очереди пачкой спрашивает тот же мост: модуль говорит «нет» — отказ
-    словами до задачи; «да» — пачка этапа продаж ставится."""
+    """Отправка очереди пачкой спрашивает тот же мост: модуль называет, чего не хватает, —
+    отказ словами до задачи и с причиной, как отказ одному письму; не хватает ничего — пачка
+    этапа продаж ставится."""
     fake.connected_now = connected
     what = "Очередь писем не отправлена"
 
     if refused:
-        with pytest.raises(SalesNotConnectedError, match=f"^{what}: {SALES_NOT_CONNECTED}$"):
+        with pytest.raises(
+            SalesNotConnectedError, match=f"^{what}: {SALES_NOT_CONNECTED} — {LACKING}$"
+        ):
             await stages.check_connected(session, Stage.SALES, what)
     else:
         await stages.check_connected(session, Stage.SALES, what)
@@ -491,11 +501,15 @@ async def test_a_broken_sales_module_does_not_stop_the_stop_list(
 async def test_queue_send_with_a_broken_module_is_refused_in_words(
     session: AsyncSession, fake: FakeSalesMail
 ) -> None:
-    fake.broken = "connected"
+    """Модуль сломался на вопросе «чего не хватает» — пачка встаёт словами моста, а не ошибкой
+    сервера и не текстом исключения: тот — в журнал (`stages.MISSING_BROKEN`)."""
+    fake.broken = "missing"
     what = "Очередь писем не отправлена"
 
-    with pytest.raises(SalesNotConnectedError, match=f"^{what}: {SALES_NOT_CONNECTED}$"):
+    with pytest.raises(SalesNotConnectedError) as refused:
         await stages.check_connected(session, Stage.SALES, what)
+
+    assert str(refused.value) == f"{what}: {SALES_NOT_CONNECTED} — {stages.MISSING_BROKEN}"
 
 
 # Граница договора: модуль ответил на «кому писать» отказом почты не по смыслу. `NoSenderError` —

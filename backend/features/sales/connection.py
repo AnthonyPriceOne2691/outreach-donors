@@ -10,8 +10,9 @@
   подтверждены в их учётке, а без своего ключа общий механизм отдал бы общую учётку —
   письмо продаж ушло бы ключом доноров. Свой список разрешённых — как требует механизм;
 - ссылка отписки для `List-Unsubscribe`: холодное письмо без рабочей отписки нарушает
-  правила почтовых платформ и закон о рассылках. У доноров её отсутствие письмо не
-  останавливает (юридический блок снят 23.09.2026), у продаж — останавливает;
+  правила почтовых платформ и закон о рассылках. Без неё письмо не уходит ни у кого: у
+  доноров и рекламодателей отказывает общая отправка (`letters/unsubscribe.refusal`, сверка
+  ТЗ 12.10.2026), у продаж — этот пункт, вместе с остальными недостающими;
 - отправитель: физический адрес, подпись и имя (`sender.REQUIRED`).
 
 Цепочка писем — своя у каждого лида (гипотеза и язык): её готовность проверяют сборка
@@ -50,6 +51,12 @@ _PROBE_DOMAIN_ID = 0
 #: Модуль выключен (`SALES_ENABLED`) — словами человека: так начинаются и пункт готовности,
 #: и причины разбора ответа и передачи лида, и строка под шапкой раздела на экране.
 MODULE_OFF = "модуль продаж выключен"
+#: Модуль выключила негодная настройка продаж (`config/sales.BROKEN`): на экране — без имени и
+#: значения, их называет строка журнала при старте процесса и строка отказа (`check`).
+MODULE_BROKEN = (
+    f"{MODULE_OFF}: настройка продаж с ошибкой — исправляет администратор, что именно — "
+    "в журнале сервиса"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,14 +96,21 @@ def _unsubscribe_gap() -> Gap | None:
     return Gap(words, unsubscribe.missing_setting())
 
 
+def _module_gap() -> Gap | None:
+    """Выключен ли модуль: выключателем — или негодной настройкой продаж (`config/sales.BROKEN`),
+    тогда в журнал — имена негодных настроек, а не выключателя."""
+    if sales_cfg.ENABLED:
+        return None
+    if sales_cfg.BROKEN:
+        return Gap(MODULE_BROKEN, ", ".join(sales_cfg.BROKEN))
+    return Gap(f"{MODULE_OFF} — включает администратор", "SALES_ENABLED")
+
+
 def gaps(found: Sender) -> list[Gap]:
     """Чего не хватает продажам, в порядке важности: выключатель модуля — первым."""
-    found_gaps = (
-        []
-        if sales_cfg.ENABLED
-        else [Gap(f"{MODULE_OFF} — включает администратор", "SALES_ENABLED")]
-    )
-    found_gaps += [gap for gap in (_account_gap(), _unsubscribe_gap()) if gap is not None]
+    found_gaps = [
+        gap for gap in (_module_gap(), _account_gap(), _unsubscribe_gap()) if gap is not None
+    ]
     if found.missing:
         found_gaps.append(Gap(f"{'; '.join(found.missing)} — {sender.WHERE}"))
     return found_gaps

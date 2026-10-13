@@ -10,7 +10,9 @@
 правило, что у отправки: окно — из политики продаж, пояса — лида (`policy.py`). Порядок —
 старшее в очереди первым (номер письма — порядок сборки), как у пачки и экрана писем: почта судит
 о рассылке по темпу ящика, а не по тому, кому письмо, — случайный порядок доставляемости не
-добавляет, а предсказуемость у человека и у тестов отнимает.
+добавляет, а предсказуемость у человека и у тестов отнимает. Письмо, которое держит адрес лида
+(не подтверждён или проверен тестовым проверяльщиком), не в окне, а ждёт очистки — тем же
+правилом, что у счёта автосборки (`autosend_window.py`): очередь из одних таких — `Stop.HELD`.
 
 **Разнесение по окну.** За проход — не больше одного первого письма с ящика: ящик, отдавший
 письмо, до конца прохода на паузе. Между первыми письмами ящика — пауза `SALES_AUTOSEND_GAP_MIN`
@@ -37,11 +39,17 @@
 Отказ по одному письму (стоп-лист, письмо не готово, почта отказала этому адресату или
 содержимому) проход не останавливает: письмо ждёт в очереди с причиной, проход идёт к следующему.
 Платформа отказала самому письму в третий раз — оно снимается с очереди (`autosend_refusals.py`).
+**Снятое при отправке — не отказ** (`OtherRoleError`): сайт в работе у другого направления, и
+общая отправка сняла первое письмо с причиной, называющей направление (`letters/site_role.py`).
+В очереди его больше нет — проход идёт к следующему письму окна, журнал говорит о нём одной
+строкой снятия (`autosend_jobs.Watch`), а лид ждёт, пока сайт не освободится (`elsewhere.py`).
 **Отказ получило каждое письмо окна, а не ушло ни одно** — письма очереди собраны с прежними
-подписью и адресом «Отправителя», лидов снял стоп-лист, — проход стоит не по делу (`REFUSED_ALL`):
+подписью и адресом «Отправителя», лиды в «кому не пишем», — проход стоит не по делу (`REFUSED_ALL`):
 тревога через 15 минут, как у неизвестного исхода. Иначе он перебирал бы окно каждую минуту, а
 поток стоял бы молча. Писать некому (кап, разгон, лимиты домена, паузы ящиков) — проход
-кончается: следующему письму ответ был бы тем же.
+кончается: следующему письму ответ был бы тем же. **Лимит первых писем продаж не прочитан из
+настроек** (опечатка в `OUTREACH_SALES_DAILY_LIMIT`: лимит ноль до правки `.env`) — не «писать
+некому», а остановка не по делу (`UNREAD`): ноль писем в день сам не пройдёт.
 
 **Платформа отказывает любому письму — проход стоит** (`PlatformRefusalError`: ключ не принят,
 учётке отказано, частота или сбой после повторов, недоступна). Письмо, на котором это выяснилось,
@@ -75,13 +83,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import outreach as outreach_cfg
 from backend.config import sales as sales_cfg
-from backend.features.core import window
 from backend.features.core.domain import MessageStatus, Stage
-from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
+from backend.features.core.models.outreach import MessageModel, SenderModel
 from backend.features.core.stages import SalesNotConnectedError
 from backend.features.letters import batch, mailbox, unknown_outcome
 from backend.features.letters.chain import FIRST_STEP
-from backend.features.letters.sending import NoSenderError, SendError, Sending
+from backend.features.letters.sending import NoSenderError, OtherRoleError, SendError, Sending
 from backend.features.letters.transport import (
     LetterRefusalError,
     Mail,
@@ -89,8 +96,8 @@ from backend.features.letters.transport import (
     PlatformRefusalError,
 )
 from backend.features.sales import autosend_refusals, connection
-from backend.features.sales.models import SalesLeadModel, SalesThreadModel
-from backend.features.sales.policy import sales_policy, zones_of
+from backend.features.sales.autosend_window import Waiting, held, in_window, outside
+from backend.features.sales.policy import unread_limit
 
 logger = logging.getLogger(__name__)
 
@@ -110,10 +117,15 @@ class Stop(StrEnum):
     OUTSIDE = "вне окна получателя"
     CAP = "писать некому"
     RESTING = "ящики на паузе"
+    UNREAD = "лимит первых писем не прочитан"
+    HELD = "письма ждут проверки адреса"
 
 
 #: Стоит не по делу — о таком тревога (`autosend_jobs.py`); остальное — проход по делу ждёт.
 STALLS = frozenset({Stop.UNKNOWN, Stop.REFUSED, Stop.REFUSED_ALL})
+#: Взять нечего: очередь пуста или в ней только письма, которые держит адрес лида (`HELD`), —
+#: так её видит и тревога автосборки (`autobuild_alarm.stalled`).
+NOTHING = frozenset({Stop.EMPTY, Stop.HELD})
 
 #: Письма, исход которых проход по расписанию сам оставил неизвестным (`unsure`): на них он стоит
 #: сразу, а не с блока «Исход неизвестен». Вне `unsure` множество пусто.
@@ -176,19 +188,6 @@ def pause_of(box_id: int, letter_id: int) -> timedelta:
 
 
 @dataclass(frozen=True, slots=True)
-class Waiting:
-    """Первые письма продаж в очереди: сколько всего и какие в окне получателя сейчас."""
-
-    queued: int
-    #: Письма в окне получателя — по порядку очереди.
-    ids: tuple[int, ...]
-    #: Первое из них — им спрашивается выбор ящика (`facts`).
-    first: MessageModel | None = None
-    #: Без пояса получателя — окна не посчитать, письмо ждёт (`window.NO_ZONE`).
-    zoneless: int = 0
-
-
-@dataclass(frozen=True, slots=True)
 class Unsettled:
     """Письмо продаж в блоке «Исход неизвестен»: «отправляется» дольше `STUCK_AFTER`."""
 
@@ -213,6 +212,8 @@ class Facts:
     #: Ответ выбора ящика без пауз автоотправки; `None` — писем в окне нет, не спрашивали.
     free: mailbox.Choice | None = None
     unsettled: Unsettled | None = None
+    #: Лимит первых писем продаж не прочитан — что исправить (`policy.unread_limit`).
+    unread: str | None = field(default_factory=unread_limit)
 
     @property
     def due(self) -> bool:
@@ -221,28 +222,33 @@ class Facts:
 
     def stop(self) -> tuple[Stop, str] | None:
         """Почему проход не шлёт ни одного письма — видом и словами; `None` — слать есть что."""
-        if self.missing:
-            return Stop.NOT_CONNECTED, f"продажи к почте не подключены — {'; '.join(self.missing)}"
+        if (broken := self.broken()) is not None:
+            return broken
         if self.unsettled is not None:
             return Stop.UNKNOWN, self.unsettled.words
         if not self.waiting.queued:
-            return Stop.EMPTY, "в очереди продаж писем нет — их собирает сборка очереди"
+            return _empty(self.waiting)
         if not self.waiting.ids:
-            return Stop.OUTSIDE, _outside(self.waiting)
+            return Stop.OUTSIDE, outside(self.waiting)
         if self.free is None or self.free.sender is None:
             # Слова выбора ящика как есть: «кап набран» врал бы, когда ящики на паузе или домен
             # на выдержке, — отказ выбора называет причину сам.
             return Stop.CAP, self.free.refusal if self.free is not None else Stop.CAP.value
         return None
 
+    def broken(self) -> tuple[Stop, str] | None:
+        """Стоит, сколько бы писем ни было: продажи не подключены или лимит не прочитан."""
+        if self.missing:
+            return Stop.NOT_CONNECTED, f"продажи к почте не подключены — {'; '.join(self.missing)}"
+        return None if self.unread is None else (Stop.UNREAD, self.unread)
 
-def _outside(waiting: Waiting) -> str:
-    zoneless = (
-        f", у {waiting.zoneless} из них пояс получателя неизвестен — окна не посчитать"
-        if waiting.zoneless
-        else ""
-    )
-    return f"вне окна получателя у всех писем очереди ({waiting.queued}){zoneless}"
+
+def _empty(waiting: Waiting) -> tuple[Stop, str]:
+    """Взять нечего: в очереди только письма, которые держит адрес лида, — они ждут очистки, —
+    или писем нет вовсе."""
+    if waiting.held:
+        return Stop.HELD, held(waiting)
+    return Stop.EMPTY, "в очереди продаж писем нет — их собирает сборка очереди"
 
 
 async def facts(session: AsyncSession, now: datetime) -> Facts:
@@ -257,35 +263,6 @@ async def facts(session: AsyncSession, now: datetime) -> Facts:
             session, waiting.first, stage=Stage.SALES, thread_sender_id=None, now=now
         )
     return Facts(missing, waiting, free, await unsettled(session, now))
-
-
-async def in_window(session: AsyncSession, now: datetime) -> Waiting:
-    """Первые письма продаж в очереди и те из них, у чьих получателей сейчас окно, — тем же
-    правилом, что у отправки: окно политики продаж, пояса лида."""
-    rows = await session.execute(
-        select(MessageModel, SalesLeadModel)
-        .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
-        .join(SalesThreadModel, SalesThreadModel.thread_id == MessageModel.thread_id)
-        .join(SalesLeadModel, SalesLeadModel.id == SalesThreadModel.lead_id)
-        .where(
-            CampaignModel.stage == Stage.SALES,
-            MessageModel.status == MessageStatus.QUEUED,
-            MessageModel.step == FIRST_STEP,
-        )
-        .order_by(MessageModel.id)
-    )
-    frame = sales_policy().window
-    found: list[MessageModel] = []
-    queued = zoneless = 0
-    for letter, lead in rows.tuples().all():
-        queued += 1
-        late = window.check(frame, zones_of(lead), now)
-        if late is None:
-            found.append(letter)
-        elif late.delay is None:
-            zoneless += 1
-    first = found[0] if found else None
-    return Waiting(queued, tuple(letter.id for letter in found), first, zoneless)
 
 
 async def unsettled(session: AsyncSession, now: datetime) -> Unsettled | None:
@@ -355,6 +332,9 @@ class Pass:
     #: с этим, если проход их считал (`autosend_refusals.py`); снятые с очереди — слова.
     bounced: dict[int, int] = field(default_factory=dict)
     dropped: dict[int, str] = field(default_factory=dict)
+    #: Письма, снятые при отправке, — сайт в работе у другого направления (`OtherRoleError`):
+    #: номер → слова снятия. Не отказ: в очереди их больше нет.
+    withdrawn: dict[int, str] = field(default_factory=dict)
     #: Почему проход не шлёт или кончился раньше писем в окне — видом и словами.
     stop: Stop | None = None
     stopped: str | None = None
@@ -410,6 +390,10 @@ async def _one(
     except (NoSenderError, SalesNotConnectedError) as exc:
         logger.debug("продажи: автоотправка — на письме №%s писать некому: %s", letter_id, exc)
         return Stop.CAP, str(exc)
+    except OtherRoleError as exc:  # снято, а не отказ: письмо ушло из очереди, идём дальше
+        logger.debug("продажи: автоотправка — письмо №%s снято при отправке: %s", letter_id, exc)
+        found.withdrawn[letter_id] = str(exc)
+        return None
     except SendError as exc:
         # Отказ транспорта `Sending._hand_over` отдаёт причиной исключения: отказ не по письму
         # узнаётся по ней, а письмо уже вернулось в очередь.

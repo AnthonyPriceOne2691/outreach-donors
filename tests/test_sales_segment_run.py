@@ -19,11 +19,17 @@ import httpx
 import pytest
 from backend.config.judge import JudgeMode
 from backend.features.contacts import mx
-from backend.features.core.domain import ContactStatus, Stage, ThreadStatus, UsageProvider
+from backend.features.core.domain import (
+    ContactStatus,
+    MessageStatus,
+    Stage,
+    ThreadStatus,
+    UsageProvider,
+)
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import UsageRecordModel
-from backend.features.core.models.outreach import CampaignModel, ThreadModel
+from backend.features.core.models.outreach import CampaignModel, MessageModel, ThreadModel
 from backend.features.sales import cleaning, segment_report
 from backend.features.sales.models import (
     LeadSource,
@@ -395,7 +401,20 @@ async def test_a_domain_in_work_of_another_direction_is_rejected_by_the_cleaning
     campaign = CampaignModel(stage=Stage.DONORS, name="доноры")
     session.add_all([domain, campaign])
     await session.flush()
-    session.add(ThreadModel(domain_id=domain.id, campaign_id=campaign.id, status=ThreadStatus.OPEN))
+    talk = ThreadModel(domain_id=domain.id, campaign_id=campaign.id, status=ThreadStatus.OPEN)
+    session.add(talk)
+    await session.flush()
+    # В работе — живое письмо доноров, правилом отправки (одна роль на сайт, `elsewhere.py`).
+    session.add(
+        MessageModel(
+            campaign_id=campaign.id,
+            thread_id=talk.id,
+            domain_id=domain.id,
+            step=0,
+            status=MessageStatus.SENT,
+            idempotency_key=f"donors:{SHOP}:0",
+        )
+    )
     run = await make_run(session, owner)
 
     await go(session, run, serp(SHOP), Model(ANSWERS))

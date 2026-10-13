@@ -8,8 +8,10 @@
 
 `POST /sales/clean {hypothesis_id}` — поставить очистку задачей (`sales/clean_jobs.py`):
 тот же путь, что `outreach sales-clean --hypothesis` — проверяльщик по настройке, проход
-партиями с коммитом каждой и строкой расхода за платные проверки. Очередь — продаж
-(`worker-sales`), как у сборки очереди писем (`queue.py`).
+партиями с коммитом каждой и строкой расхода за платные проверки. Очередь — долгих задач продаж
+(`sales-bulk`, `worker-sales-bulk`), как у сборки очереди писем (`queue.py`): проверка адресов
+идёт минутами и не держит разбор ответа лида за собой. Прежняя очистка гипотезы ищется по номеру
+в любой очереди (`sales/job_holder.holder`): до выкатки очистки стояли в очереди ответов продаж.
 
 **Право — `sales` и `run`.** Живой проверяльщик — платный Hunter общим ключом, а платный
 поиск адресов в ядре — под `run` (`api/contacts/routes.py`).
@@ -23,6 +25,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -39,7 +42,8 @@ from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.sales import clean_jobs, verifier, verify_cap
-from backend.shared.queue import sales_queue, with_retries
+from backend.features.sales.job_holder import holder
+from backend.shared.queue import sales_bulk_queue, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +73,7 @@ def _clean_once(jobs: Queue, hypothesis_id: int) -> Job:
     он убирается — вместе с итогом; `unique=True` остаётся на гонку двух нажатий между
     проверкой и постановкой."""
     job_id = clean_job_id(hypothesis_id)
-    if (earlier := jobs.fetch_job(job_id)) is not None:
+    if (earlier := holder(jobs, job_id)) is not None:
         if earlier.get_status() in _LIVE:
             raise DuplicateJobError(job_id)
         # Итог прежней rq 2.12 хранит отдельно от задачи, и `Job.delete()` его не трогает:
@@ -100,7 +104,7 @@ class SalesCleanView(BaseModel):
     """Перед очисткой: сколько лидов гипотезы её ждут и платная ли проверка адресов."""
 
     hypothesis_id: int
-    #: Лидов `new` — их возьмёт очистка; это и потолок платных проверок.
+    #: Лидов, которых возьмёт очистка (`verifier.due`), — это и потолок платных проверок.
     waiting: int
     #: Проверка адресов живая (Hunter общим ключом) — перед запуском окно подтверждения.
     paid: bool
@@ -152,7 +156,7 @@ async def start_clean(
         raise HTTPException(status.HTTP_409_CONFLICT, NOTHING_WAITS)
     paid = _paid()
     try:
-        job = _clean_once(sales_queue(), body.hypothesis_id)
+        job = await asyncio.to_thread(_clean_once, sales_bulk_queue(), body.hypothesis_id)
     except DuplicateJobError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, CLEAN_RUNNING) from exc
     await AccessRepository(session).record(

@@ -13,7 +13,7 @@ from alembic.operations import Operations
 from backend.config import contacts as contacts_cfg
 from backend.config import sales as sales_cfg
 from backend.features.contacts.mx import MailRoute
-from backend.features.core.domain import Stage, SuppressionReason, ThreadStatus
+from backend.features.core.domain import MessageStatus, Stage, SuppressionReason, ThreadStatus
 from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
 from backend.features.core.models.outreach import (
     CampaignModel,
@@ -254,8 +254,9 @@ async def test_a2_referral_to_an_unsubscribed_address_is_rejected(session: Async
 async def test_a2_an_open_sales_thread_of_the_company_is_not_another_direction(
     session: AsyncSession,
 ) -> None:
-    """Очистка не считает диалог продаж «другим направлением»: у компании бывает
-    несколько лидов. Идущий диалог доноров на домене — другое направление."""
+    """Очистка не считает письмо продаж «другим направлением»: у компании бывает
+    несколько лидов. Живое письмо доноров на домене — другое направление (правило отправки,
+    `attempts.in_other_role`)."""
     letter = await sales_letter(session)
     origin = await _origin(session, letter)
     colleague = SalesLeadModel(
@@ -275,7 +276,15 @@ async def test_a2_an_open_sales_thread_of_the_company_is_not_another_direction(
     donors = CampaignModel(stage=Stage.DONORS, name="Доноры", status="running")
     session.add(donors)
     await session.flush()
-    session.add(ThreadModel(domain_id=letter.domain_id, campaign_id=donors.id, contact_id=None))
+    session.add(
+        MessageModel(
+            campaign_id=donors.id,
+            domain_id=letter.domain_id,
+            step=0,
+            status=MessageStatus.SENT,
+            idempotency_key="donors:referral-site:0",
+        )
+    )
     colleague.status = LeadStatus.NEW
     await session.flush()
     await cleaning.clean_leads(session, [colleague], FixtureVerifier(), now=NOW)

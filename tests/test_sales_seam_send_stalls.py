@@ -34,6 +34,7 @@ from backend.features.sales import (
     autobuild,
     autosend,
     autosend_jobs,
+    off_queue,
     queue,
     stoplist_leads,
     verifier,
@@ -306,12 +307,13 @@ async def test_the_screen_says_the_flow_stands_when_every_letter_of_the_window_h
     assert again.line == going.line
 
 
-async def test_the_screen_says_the_flow_stands_when_the_leads_of_every_letter_of_the_window_are_closed(
+async def test_letters_of_leads_closed_by_the_sales_stoplist_leave_the_queue_without_an_alarm(
     session: AsyncSession, world: w.World, switched_on: None
 ) -> None:
-    """Список клиентов пополнили — оба лида с письмами в окне сняты, проход отказывает каждому.
-    Пересборка тут не поможет: строка говорит, что письма не уйдут и где причина. Одно письмо
-    окна уйдёт — строка прежняя: проход идёт, отказ одному письму — не остановка."""
+    """Список клиентов пополнили — оба лида с письмами в окне сняты, и их письма уходят из очереди
+    в момент снятия, словами стоп-листа (`off_queue.of_leads`). До этого проход отказывал каждому
+    письму окна и через 15 минут поднимал тревогу «отказ каждому письму окна» о письмах, которые
+    не уйдут никогда; теперь очередь пуста — её пополнит сборка. Одно письмо осталось — оно уходит."""
     letters = await _queued(session, world, JANE, OLGA)
     session.add(SalesStoplistModel(email=JANE))
     await session.flush()
@@ -321,13 +323,21 @@ async def test_the_screen_says_the_flow_stands_when_the_leads_of_every_letter_of
     await session.flush()
     await stoplist_leads.close(session, now=NOW)
 
-    none_goes = await auto_lines.autosend_line(session, NOW)
+    none_left = await auto_lines.autosend_line(session, NOW)
     found = await autosend.run(session, _transports(), now=NOW)
 
-    assert one_goes.line.endswith("Письма уходят.")
-    assert none_goes.line.endswith(f"Стоит: {auto_lines.CLOSED}.")
-    assert found.stop is Stop.REFUSED_ALL
-    assert set(found.refused) == {letter.id for letter in letters}
+    assert one_goes.line.endswith("В окне получателя сейчас 1 письмо. Письма уходят.")
+    assert none_left.line.endswith(
+        "В окне получателя сейчас 0 писем. Стоит: в очереди продаж писем нет — их собирает "
+        "сборка очереди."
+    )
+    assert (found.stop, found.refused) == (Stop.EMPTY, {})
+    for letter, email in zip(letters, (JANE, OLGA), strict=True):
+        await session.refresh(letter)
+        assert (letter.status, letter.failure_reason) == (
+            MessageStatus.STOPPED,
+            f"{off_queue.LEAD_CLOSED}: стоп-лист продаж: адрес {email}",
+        )
 
 
 async def test_the_screen_judges_the_letters_of_the_window_not_the_whole_queue(

@@ -6,7 +6,8 @@
 отправить некому» (замер стенда 12.10.2026: так и стоит над вкладками и уходит в Telegram).
 Код — не слово: на экранах этапы — «продажи», «доноры», «рекламодатели».
 
-Сторож почты — общий код (`ops/mail_watch.py`): правка — PR «общее», тест — `xfail(strict)`.
+Сторож почты — общий код (`ops/mail_watch.py`): этап в заголовке словом дал общий PR
+(`ops/alarms.STAGE_GENITIVE`), тест держит его со стороны продаж.
 Модуль продаж — подставной: сторож у продаж включён политикой (`MailPolicy(watch=True)`).
 """
 
@@ -70,14 +71,6 @@ async def test_the_sales_alarms_of_a_paused_direction_are_raised(session: AsyncS
     assert codes == ["all-paused:sales", "nobody-to-send:sales"]
 
 
-@pytest.mark.xfail(
-    strict=False,  # общий PR его закрывает — метку снять после слияния
-    reason=(
-        "общий код ops/mail_watch.py: заголовки тревог сторожа называют направление кодом "
-        "этапа («sales») — так они стоят красной полосой над вкладками продаж (#355) и уходят "
-        "в Telegram; правка — слова направления, PR «общее» (ревью стыков R7)"
-    ),
-)
 async def test_the_alarms_over_the_sales_tabs_name_the_direction_in_words(
     session: AsyncSession,
 ) -> None:

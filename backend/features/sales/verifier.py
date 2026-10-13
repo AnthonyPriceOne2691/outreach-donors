@@ -21,17 +21,20 @@ Verifier. Умолчание — `fixture`; на `live` переключает �
 
 **Вердикт и отказ сервиса — разные вещи** (`okf/provider-refusals.md`).
 Вердикт — в том числе `unknown`, «провайдер не знает», — возвращается
-и записывается лиду. Отказ — сеть, 5xx, непонятный ответ — исключение:
-лид остаётся в прежнем статусе с причиной, следующая очистка повторит проверку.
-Квота, закрытая учётка и частота (`STOPS`) — свои исключения: очистка на
-них останавливает платную часть прохода, остальные лиды ждут её с причиной.
+и записывается лиду; к письмам лид с `unknown` не идёт, очистка спросит снова через
+`RECHECK_DAYS` дней (`unconfirmed.py`, решение владельца 13.10). Отказ — сеть, 5xx,
+непонятный ответ — исключение: лид остаётся в прежнем статусе с причиной, следующая
+очистка повторит проверку. Квота, закрытая учётка и частота (`STOPS`) — свои исключения:
+очистка на них останавливает платную часть прохода, остальные лиды ждут её с причиной.
 
 **Повторы и частота — общим `net/retry`, как у выдачи и модели.** 429, 5xx и обрыв
 связи адрес повторяет до `ATTEMPTS` раз с паузой по `Retry-After` (не дольше 30 с) или
-1 и 2 с; запросы прохода идут не чаще `RATE_PER_MINUTE`. 429 и после повторов —
-частота не прошла: следующие адреса прохода бились бы в тот же предел, и проход
-встаёт словами. Отказы 429 единиц не списывали (замер 22.09.2026,
-`okf/provider-refusals.md`): повторы платят только за вердикт.
+1 и 2 с; запросы прохода идут не чаще `RATE_PER_MINUTE`. Что повторять, решает правило
+поиска адресов (`provider.transient`): маркер раньше кода — квота и закрытая учётка
+приезжают тем же 429, что частота, и не повторяются. 429 и после повторов — частота не
+прошла: следующие адреса прохода бились бы в тот же предел, и проход встаёт словами.
+Отказы 429 единиц не списывали (замер 22.09.2026, `okf/provider-refusals.md`): повторы
+платят только за вердикт.
 
 Исключения и разбор маркеров отказа — общие с поиском адресов
 (`contacts/provider.py`): сервис тот же, маркеры те же, вторую копию
@@ -42,10 +45,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any, Protocol, runtime_checkable
 
 import httpx
-from sqlalchemy import ColumnElement, false, or_
+from sqlalchemy import ColumnElement, false, or_, select
 
 from backend.config import contacts as contacts_cfg
 from backend.config import sales as cfg
@@ -57,8 +61,12 @@ from backend.features.contacts.provider import (
     ProviderQuotaError,
     ProviderRateLimitError,
     _raise_refusal,
+    transient,
 )
-from backend.features.sales.models import LeadStatus, SalesLeadModel
+from backend.features.core.domain import GONE_STATUSES, MessageStatus
+from backend.features.core.models.outreach import MessageModel
+from backend.features.letters.chain import FIRST_STEP
+from backend.features.sales.models import LeadStatus, SalesLeadModel, SalesThreadModel
 from backend.shared.net.retry import RateLimiter, reason_of, unsent, with_retries
 
 logger = logging.getLogger(__name__)
@@ -90,13 +98,21 @@ STOPS: tuple[type[ProviderError], ...] = (
     ProviderRateLimitError,
 )
 
+#: Слово провайдера «не знаю»: адрес не подтверждён — к письмам не идёт (`unconfirmed.py`).
+UNKNOWN = "unknown"
+#: Через сколько дней очистка спросит снова про адрес с первым `unknown`. Hunter отвечает так и
+#: временно (сервер лежал, отложил ответ) — такие заминки проходят за дни, неделя берёт их с
+#: запасом; а база гипотезы при разгоне доменов уходит в письма неделями, и перепроверенный
+#: лид успевает в свою очередь. Слова «через N дней» в консоли согласованы с семью.
+RECHECK_DAYS = 7
+
 #: Слово провайдера → доставляем ли. `None` — провайдер не знает: это вердикт,
-#: а не отказ; лид идёт дальше, слово остаётся в `verification_status`.
+#: а не отказ; слово остаётся в `verification_status`, к письмам лид не идёт.
 DELIVERABLE_BY_STATUS: dict[str, bool | None] = {
     "valid": True,
     "accept_all": True,  # сервер принимает всё: ящик не подтверждён, но и не отвергнут
     "webmail": True,
-    "unknown": None,
+    UNKNOWN: None,
     "invalid": False,
     "disposable": False,
 }
@@ -200,8 +216,9 @@ class HunterVerifier:
         return _verdict(body, code)
 
     async def _get(self, email: str) -> httpx.Response:
-        """Ответ Hunter — с повторами временных отказов общим `with_retries`: последний ответ
-        приходит как есть, его разбирает `verify`. 401 и прочие коды не повторяются."""
+        """Ответ Hunter — с повторами временных отказов общим `with_retries` по правилу поиска
+        адресов (`provider.transient`): 429 с маркером квоты или закрытой учётки, 401 и прочие
+        коды не повторяются. Последний ответ приходит как есть, его разбирает `verify`."""
         try:
             # Ключ идёт ЗАГОЛОВКОМ, а не параметром адреса: в адресе он утекал
             # бы в журналы прокси и в текст ошибки провайдера.
@@ -215,6 +232,7 @@ class HunterVerifier:
                 attempts=ATTEMPTS,
                 topic="продажи: проверка адреса",
                 limiter=self._limiter,
+                retry_when=transient,
             )
         except httpx.HTTPError as exc:
             # Несобранный запрос — без цепочки причин: текст такого исключения
@@ -314,12 +332,56 @@ def recheck(real: bool) -> ColumnElement[bool]:
     ) & SalesLeadModel.verification_status.startswith(f"{FIXTURE}:")
 
 
-def due(real: bool) -> ColumnElement[bool]:
-    """Кого берёт очистка: лидов `new` — и при живом проверяльщике (`real`) `ready` с
-    выдуманным вердиктом: кнопка очистки проверит их адрес по-настоящему. Одно условие у
-    прохода и у числа «ждут очистки» на экране."""
-    fresh = SalesLeadModel.status == LeadStatus.NEW
-    return or_(fresh, recheck(real)) if real else fresh
+#: Первое письмо ушло из очереди: ушло, уходит или вернулось отказом доставки.
+WENT = (*GONE_STATUSES, MessageStatus.SENDING)
+
+
+def _unknown(real: bool) -> ColumnElement[bool]:
+    """Последний вердикт лида — `unknown` проверяльщика того же рода, что у прохода (`real` —
+    живой: не выдуманный). Пустой вердикт сюда не входит, а не даёт NULL: `NOT` над ним потерял
+    бы из очистки лидов без вердикта."""
+    status = SalesLeadModel.verification_status
+    made_up = status.startswith(f"{FIXTURE}:")
+    return (
+        status.is_not(None)
+        & SalesLeadModel.verified_at.is_not(None)
+        & status.endswith(f":{UNKNOWN}")
+        & (~made_up if real else made_up)
+    )
+
+
+def waits(real: bool, now: datetime) -> ColumnElement[bool]:
+    """Лиды с первым `unknown`, чей день перепроверки не настал: очистка их пока не берёт."""
+    return _unknown(real) & (SalesLeadModel.verified_at > now - timedelta(days=RECHECK_DAYS))
+
+
+def again(real: bool, now: datetime) -> ColumnElement[bool]:
+    """Лиды `ready` с `unknown`, чей день перепроверки настал, — если первое письмо им не ушло:
+    такой лид не пишется (`unconfirmed.first_letter`), и очистка решит его. Ушло — цепочка идёт,
+    перепроверки нет: второй `unknown` снял бы лида посреди цепочки."""
+    went = select(SalesThreadModel.lead_id).join(
+        MessageModel, MessageModel.thread_id == SalesThreadModel.thread_id
+    )
+    went = went.where(
+        SalesThreadModel.lead_id == SalesLeadModel.id,
+        MessageModel.step == FIRST_STEP,
+        MessageModel.status.in_(WENT),
+    )
+    return (
+        (SalesLeadModel.status == LeadStatus.READY)
+        & _unknown(real)
+        & (SalesLeadModel.verified_at <= now - timedelta(days=RECHECK_DAYS))
+        & ~went.exists()
+    )
+
+
+def due(real: bool, now: datetime) -> ColumnElement[bool]:
+    """Кого берёт очистка: лидов `new`, кроме ждущих дня перепроверки `unknown` (`waits`), — и
+    перепроверку: при живом проверяльщике (`real`) `ready` с выдуманным вердиктом, а `ready` с
+    `unknown`, которым не писали, — в свой день (`again`). Одно условие у прохода и у числа
+    «ждут очистки» на экране."""
+    fresh = (SalesLeadModel.status == LeadStatus.NEW) & ~waits(real, now)
+    return or_(fresh, recheck(real), again(real, now))
 
 
 def unproven(lead: SalesLeadModel) -> str | None:
