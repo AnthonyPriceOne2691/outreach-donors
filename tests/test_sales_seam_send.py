@@ -97,6 +97,9 @@ async def _five_new_boxes(session: AsyncSession, world: w.World, started: dateti
     boxes = [world.sales_box, *[await w.mailbox(session, email) for email in MORE_BOXES]]
     for box in boxes:
         box.warmup_started_at = started
+        # Первое письмо ящика — в день старта: «день N» разгона. Отметку первого письма
+        # (`warmup_first_sent_at`) заводит общий PR разгона; до него это просто атрибут объекта.
+        setattr(box, "warmup_first_sent_at", started)  # noqa: B010
     await session.flush()
     return [box.email for box in boxes]
 
