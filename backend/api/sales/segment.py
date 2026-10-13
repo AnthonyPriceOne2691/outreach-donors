@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -167,8 +168,13 @@ async def start_run(
     # задачи, который «стоит в очереди», нет.
     await session.commit()
     try:
-        job = enqueue_once(
-            sales_queue(), segment_job_id(run.id), SEGMENT_JOB, run.id, **with_retries()
+        job = await asyncio.to_thread(
+            enqueue_once,
+            sales_queue(),
+            segment_job_id(run.id),
+            SEGMENT_JOB,
+            run.id,
+            **with_retries(),
         )
     except RedisError:
         await session.delete(run)
@@ -210,7 +216,9 @@ async def resume_run(
     run = await session.get(SalesSegmentRunModel, run_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, UNKNOWN_RUN.format(run_id=run_id))
-    job = enqueue_once(sales_queue(), segment_job_id(run.id), SEGMENT_JOB, run.id, **with_retries())
+    job = await asyncio.to_thread(
+        enqueue_once, sales_queue(), segment_job_id(run.id), SEGMENT_JOB, run.id, **with_retries()
+    )
     if job is None:
         raise HTTPException(status.HTTP_409_CONFLICT, RUN_GOING)
     run.job_id = str(job.id)

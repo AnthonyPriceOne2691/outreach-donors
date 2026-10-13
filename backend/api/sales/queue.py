@@ -28,6 +28,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -154,7 +155,9 @@ async def build_queue(
     await chain.known(session, body.hypothesis_id)
     await connection.check(session, queue.WHAT)
     try:
-        job = queue_start.start(sales_queue(), body.hypothesis_id, body.limit)
+        job = await asyncio.to_thread(
+            queue_start.start, sales_queue(), body.hypothesis_id, body.limit
+        )
     except DuplicateJobError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, BUILD_RUNNING) from exc
     hypothesis = await session.get(SalesHypothesisModel, body.hypothesis_id)

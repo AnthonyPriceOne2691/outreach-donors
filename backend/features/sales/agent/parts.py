@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -106,7 +107,7 @@ async def on_draft(notice: DraftNotice) -> None:
     """Черновик ждёт человека — сообщение в группу продаж задачей очереди (`notify`)."""
     from backend.features.sales.agent import notify  # noqa: PLC0415 — круг импорта
 
-    notify.queue_notice(notice.draft_id)
+    await asyncio.to_thread(notify.queue_notice, notice.draft_id)
 
 
 async def on_skip(notice: DraftNotice) -> None:
@@ -114,4 +115,4 @@ async def on_skip(notice: DraftNotice) -> None:
     другие пропуски («спасибо», автоответ) — ничего."""
     from backend.features.sales.agent import handover  # noqa: PLC0415 — круг импорта
 
-    handover.queue_hand_over(notice)
+    await asyncio.to_thread(handover.queue_hand_over, notice)

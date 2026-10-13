@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -148,7 +149,7 @@ async def start_clean(
         raise HTTPException(status.HTTP_409_CONFLICT, NOTHING_WAITS)
     paid = _paid()
     try:
-        job = _clean_once(sales_queue(), body.hypothesis_id)
+        job = await asyncio.to_thread(_clean_once, sales_queue(), body.hypothesis_id)
     except DuplicateJobError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, CLEAN_RUNNING) from exc
     await AccessRepository(session).record(

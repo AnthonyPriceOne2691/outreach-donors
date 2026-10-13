@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -173,8 +174,8 @@ async def _choose(session: AsyncSession, jobs: Queue, now: datetime) -> tuple[in
         return NO_CANDIDATES
     every = await session.execute(select(SalesHypothesisModel.id, SalesHypothesisModel.name))
     try:
-        busy = _busy(jobs, list(every.tuples().all()))
-        stuck = {hypothesis for hypothesis, _ in found if _streak_stopped(jobs, hypothesis)}
+        busy = await asyncio.to_thread(_busy, jobs, list(every.tuples().all()))
+        stuck = {h for h, _ in found if await asyncio.to_thread(_streak_stopped, jobs, h)}
     except RedisError as exc:
         logger.warning("продажи: автосборка — очередь задач не ответила", extra={"error": str(exc)})
         return QUEUE_SILENT
@@ -205,7 +206,7 @@ async def run(session: AsyncSession, jobs: Queue, *, now: datetime) -> Plan:
     if found.hypothesis_id is None:
         return found
     try:
-        job = start(jobs, found.hypothesis_id, found.limit, auto=True)
+        job = await asyncio.to_thread(start, jobs, found.hypothesis_id, found.limit, auto=True)
     except DuplicateJobError:
         logger.info("продажи: автосборка — сборку гипотезы поставили секундой раньше")
         return replace(found, hypothesis_id=None, why=f"сборка «{found.name}» уже идёт")

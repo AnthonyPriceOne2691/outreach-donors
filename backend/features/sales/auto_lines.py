@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -141,7 +142,7 @@ async def _last(session: AsyncSession, jobs: Queue) -> str | None:
         f"последняя автосборка — {row.created_at:%d.%m %H:%M} UTC, гипотеза "
         f"«{row.details.get('гипотеза')}», до {letters(int(row.details.get('писем', 0)))}"
     )
-    return said + _collected(jobs, row.target.removeprefix("job:"))
+    return said + await asyncio.to_thread(_collected, jobs, row.target.removeprefix("job:"))
 
 
 def _collected(jobs: Queue, job_id: str) -> str:

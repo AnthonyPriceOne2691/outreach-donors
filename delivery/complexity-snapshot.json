@@ -337,9 +337,9 @@
       "worst": "of:128"
     },
     "backend/api/sales/clean.py": {
-      "lines": 167,
+      "lines": 168,
       "complexity": 4,
-      "worst": "start_clean:139"
+      "worst": "start_clean:140"
     },
     "backend/api/sales/funnel.py": {
       "lines": 99,
@@ -362,9 +362,9 @@
       "worst": "change_lead:57"
     },
     "backend/api/sales/queue.py": {
-      "lines": 229,
+      "lines": 232,
       "complexity": 3,
-      "worst": "build_queue:147"
+      "worst": "build_queue:148"
     },
     "backend/api/sales/routes.py": {
       "lines": 228,
@@ -377,9 +377,9 @@
       "worst": "of:26"
     },
     "backend/api/sales/segment.py": {
-      "lines": 262,
+      "lines": 270,
       "complexity": 4,
-      "worst": "start_run:141"
+      "worst": "start_run:142"
     },
     "backend/api/sales/segment_schemas.py": {
       "lines": 227,
@@ -737,9 +737,9 @@
       "worst": "_own_account:214"
     },
     "backend/config/sales.py": {
-      "lines": 341,
-      "complexity": 6,
-      "worst": "_days:211"
+      "lines": 472,
+      "complexity": 9,
+      "worst": "_expected:330"
     },
     "backend/config/serp.py": {
       "lines": 56,
@@ -2112,9 +2112,9 @@
       "worst": "due:72"
     },
     "backend/features/sales/agent/parts.py": {
-      "lines": 118,
+      "lines": 119,
       "complexity": 1,
-      "worst": "brief:91"
+      "worst": "brief:92"
     },
     "backend/features/sales/agent/reading.py": {
       "lines": 131,
@@ -2162,14 +2162,14 @@
       "worst": "beyond:88"
     },
     "backend/features/sales/auto_lines.py": {
-      "lines": 171,
+      "lines": 172,
       "complexity": 7,
-      "worst": "_collected:147"
+      "worst": "_collected:148"
     },
     "backend/features/sales/autobuild.py": {
-      "lines": 260,
+      "lines": 261,
       "complexity": 8,
-      "worst": "_choose:166"
+      "worst": "_choose:167"
     },
     "backend/features/sales/autosend.py": {
       "lines": 359,
@@ -2217,9 +2217,9 @@
       "worst": "guess:72"
     },
     "backend/features/sales/connection.py": {
-      "lines": 134,
+      "lines": 147,
       "complexity": 4,
-      "worst": "_account_gap:64"
+      "worst": "_account_gap:70"
     },
     "backend/features/sales/corridor.py": {
       "lines": 379,
@@ -2345,6 +2345,11 @@
       "lines": 142,
       "complexity": 7,
       "worst": "problem:95"
+    },
+    "backend/features/sales/loops.py": {
+      "lines": 94,
+      "complexity": 6,
+      "worst": "__call__:65"
     },
     "backend/features/sales/mail.py": {
       "lines": 313,
@@ -2712,9 +2717,9 @@
       "worst": "main:34"
     },
     "backend/workers/reaper.py": {
-      "lines": 250,
+      "lines": 260,
       "complexity": 4,
-      "worst": "_told:170"
+      "worst": "_told:175"
     },
     "backend/workers/sales_jobs.py": {
       "lines": 150,
