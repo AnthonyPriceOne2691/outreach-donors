@@ -12,16 +12,18 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
 import { useSession } from '../auth/AuthProvider';
 import { formatNumber } from '../format';
-import { inPart, readThreadFilters } from './threadFilters';
+import { onSide, readThreadFilters } from './threadFilters';
 import { useSortedThreads, waitsForPerson } from './useThreadList';
 
 export function ThreadsIntro() {
   const location = useLocation();
   const [params] = useSearchParams();
-  // Ждущие — той части, что и список рядом: в «Диалогах продаж» — переписки продаж.
-  const { part } = readThreadFilters(params, useSession().can('sales'));
+  // Ждущие — той стороны, что и список рядом: в «Диалогах продаж» — переписки продаж,
+  // при «Кому писали: рекламодатели» — рекламодатели (`onSide`). Состояние и поиск —
+  // нет: кнопка ведёт к работе, а не к фильтру.
+  const side = readThreadFilters(params, useSession().can('sales'));
   const { threads } = useSortedThreads();
-  const waiting = threads.filter((thread) => inPart(thread, part) && waitsForPerson(thread.state));
+  const waiting = threads.filter((thread) => onSide(thread, side) && waitsForPerson(thread.state));
   const first = waiting[0];
   return (
     <Card className="glassPanel threadsIntro" p="xl">

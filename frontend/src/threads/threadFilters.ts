@@ -94,10 +94,16 @@ export function inPart(thread: ThreadCard, part: Part | null): boolean {
   return (thread.stage === 'sales') === (part === 'sales');
 }
 
+/** Диалог — той стороны, что выбрана: часть списка и «Кому писали». Одно правило у
+ *  списка и у «Ждут человека — открыть первый» (`ThreadsIntro`): кнопка рядом со списком
+ *  рекламодателей не ведёт к донору. Состояние и поиск сюда не входят — это фильтры. */
+export function onSide(thread: ThreadCard, side: Pick<ThreadFilters, 'part' | 'role'>): boolean {
+  return inPart(thread, side.part) && (side.role === null || thread.stage === side.role);
+}
+
 /** Подходит ли диалог. Поиск — по донору и по адресу, без учёта регистра. */
 export function threadMatches(thread: ThreadCard, filters: ThreadFilters): boolean {
-  if (!inPart(thread, filters.part)) return false;
-  if (filters.role !== null && thread.stage !== filters.role) return false;
+  if (!onSide(thread, filters)) return false;
   if (filters.state !== null && thread.state !== filters.state) return false;
   const needle = filters.search.trim().toLowerCase();
   if (needle === '') return true;

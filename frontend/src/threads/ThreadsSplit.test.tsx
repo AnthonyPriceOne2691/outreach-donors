@@ -160,6 +160,25 @@ describe('диалоги на широком окне: список и пере�
     ).toBeInTheDocument();
   });
 
+  it('«Ждут человека» — той стороны, что выбрана: при «Рекламодатели» кнопка не ведёт к донору', async () => {
+    // Замечание ревью продаж к #380: число и «открыть первый» считали обе стороны.
+    const brand = {
+      ...thread(4, 'brand.example.test', 'lead', '2026-09-20T10:00:00+00:00'),
+      stage: 'advertisers',
+    };
+    await openWide('/threads', [...THREADS, brand]);
+    expect(
+      await screen.findByRole('link', { name: /Ждут человека: 2 — открыть первый/ }),
+    ).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('radio', { name: 'Рекламодатели' }));
+
+    expect(
+      await screen.findByRole('link', { name: /Ждут человека: 1 — открыть первый/ }),
+    ).toHaveAttribute('href', '/threads/4?role=advertisers');
+  });
+
   it('выбор строки держит фильтр в адресе диалога', async () => {
     const user = userEvent.setup();
     const list = await openWide('/threads?state=needs_review');
