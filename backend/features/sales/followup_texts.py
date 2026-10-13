@@ -35,6 +35,12 @@
 шага нынешней цепочки, как раньше (`text_of`). Пересборка письма в очереди собирает и добивки
 заново; после ухода первого письма сборка лида не трогает — тексты добивок не меняются.
 
+**Нынешней цепочкой не собрать — сохранённым прежним текстом** (`choose`, решение владельца
+13.10): цепочку поправили после сборки, в шаге голый `{{name}}`, а у лида имени нет. Добивка
+уходит текстом, сохранённым при сборке письма прежней версией цепочки; нет и его — проверка
+отправки её не пускает (`mail.check`), и проход добивок кончает цепочку с причиной словами.
+До решения такая добивка откладывалась на час — каждый час, без конца и без тревоги.
+
 **Видно там, где смотрят очередь перед отправкой** — на экране «Очередь писем», под строкой
 письма сборки (`ahead`): добивки, которые ещё уйдут, — тем же правилом, что у отправки, и
 словами, почему такой текст (`planned`).
@@ -58,7 +64,7 @@ from backend.features.letters.compose import Rendered
 from backend.features.letters.rewrite import RewriteResult
 from backend.features.letters.template import Zone, ZoneKind
 from backend.features.letters.uniqueness import percent_text
-from backend.features.sales import chain, corridor, letter
+from backend.features.sales import chain, corridor, letter, sender
 from backend.features.sales.chain_text import FIRST_STEP, STEP_TITLES, STEPS, StepTemplate
 from backend.features.sales.models import SalesLeadModel, SalesThreadModel
 
@@ -246,6 +252,58 @@ def text_of(
     return item.body if item is not None else _template_text(found.steps[step], values)
 
 
+#: Почему текст добивки с подписью и адресом «Отправителя» не уйдёт — словами; `None` — уйдёт.
+Check = Callable[[str], str | None]
+#: Добивка, которую не собрать: так её называют проверка отправки и экран очереди.
+NOT_BUILT = "не собрать ни нынешней цепочкой, ни сохранённым прежним текстом"
+
+
+def unbuilt(found: sender.Sender) -> Check:
+    """Проверка текста добивки тем же правилом, что у отправки (`letter.problem` над текстом с
+    подписью и адресом). «Отправитель» не заполнен — не вопрос текста: добивка ждёт подключения
+    продаж (`connection.check`), и текст тогда не судится."""
+    if found.missing:
+        return lambda _text: None
+    return lambda text: letter.problem(letter.signed(text, found), found)
+
+
+@dataclass(frozen=True, slots=True)
+class Chosen:
+    """Текст добивки на отправку — без подписи и адреса — и откуда он. `problem` — почему
+    нынешней цепочкой не собрать (`None` — собрать); тогда текст — сохранённый прежний
+    (`earlier`), а нет и его — нынешний как есть: проверка отправки его не пустит."""
+
+    body: str
+    problem: str | None = None
+    earlier: bool = False
+
+
+def choose(
+    stored: Mapping[str, Any] | None,
+    found: chain.Chain,
+    step: int,
+    values: Mapping[str, str],
+    check: Check,
+) -> Chosen:
+    """Текст добивки шага `step` (шаг шаблона): `text_of`, а его не собрать — сохранённый при
+    сборке письма прежней версией цепочки, если он уходит (решение владельца 13.10)."""
+    body = text_of(stored, found, step, values)
+    problem = check(body)
+    if problem is None:
+        return Chosen(body)
+    earlier = _earlier(stored, step)
+    if earlier is not None and earlier != body and check(earlier) is None:
+        return Chosen(earlier, problem, earlier=True)
+    return Chosen(body, problem)
+
+
+def _earlier(stored: Mapping[str, Any] | None, step: int) -> str | None:
+    """Сохранённый текст шага, какой версией цепочки ни собран; `None` — не хранится: шаг без
+    зон `rewrite` или письмо собрано до переписки добивок."""
+    item = dict((stored or {}).get("steps", {})).get(str(step))
+    return None if not item else str(item["body"])
+
+
 @dataclass(frozen=True, slots=True)
 class Planned:
     """Добивка, какой она уйдёт: шаг шаблона, текст без подписи и адреса (`None` — шага в
@@ -259,13 +317,24 @@ class Planned:
 
 
 def planned(
-    stored: Mapping[str, Any] | None, found: chain.Chain, step: int, values: Mapping[str, str]
+    stored: Mapping[str, Any] | None,
+    found: chain.Chain,
+    step: int,
+    values: Mapping[str, str],
+    check: Check,
 ) -> Planned:
-    """Добивка шага `step` — тем же правилом, что у отправки (`text_of`), и словами — почему
-    такой текст: переписана при сборке или текст шаблона и почему."""
+    """Добивка шага `step` — тем же правилом, что у отправки (`choose`), и словами — почему
+    такой текст: переписана при сборке, текст шаблона и почему, прежний текст — или не уйдёт."""
     template = found.steps.get(step)
     if template is None:
         return Planned(step, None, "шага нет в цепочке — добивка ждёт, пока цепочку дополнят")
+    chosen = choose(stored, found, step, values, check)
+    if chosen.earlier:
+        words = f"сохранённым прежним текстом — нынешней цепочкой не собрать: {chosen.problem}"
+        return Planned(step, chosen.body, words)
+    if chosen.problem is not None:
+        words = f"не уйдёт — {NOT_BUILT}: {chosen.problem}; проход добивок остановит цепочку"
+        return Planned(step, None, words)
     item = kept(stored, found.version).get(step)
     if item is not None and item.difference is not None:
         words = f"переписана при сборке — отличие {percent_text(item.difference)}"
@@ -301,6 +370,6 @@ async def ahead(
     if last is None or (last.status is not MessageStatus.QUEUED and last.next_action_at is None):
         return []
     current = await chain.of_set(session, link.chain_hypothesis_id, link.language)
-    values = letter.values_of(lead, host)
+    values, check = letter.values_of(lead, host), unbuilt(await sender.read(session))
     after = letter.template_step(last.step)
-    return [planned(link.followups, current, step, values) for step in STEPS if step > after]
+    return [planned(link.followups, current, step, values, check) for step in STEPS if step > after]

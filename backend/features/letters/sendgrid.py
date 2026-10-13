@@ -29,6 +29,7 @@
 Отказ не по письму — ключ, учётка, частота и сбой после повторов,
 недоступность — его подкласс `PlatformRefusalError`: следующему письму
 ответ был бы тем же, и тот, кто шлёт подряд, на нём останавливается.
+Остальные 4xx — отказ этому письму, подкласс `LetterRefusalError`.
 
 **А 2xx без номера письма — не отказ** (07.10.2026). Платформа письмо
 приняла и уже отправляет; до этого дня такой ответ поднимал
@@ -56,6 +57,7 @@ import httpx
 from backend.config import outreach as cfg
 from backend.features.letters import identity
 from backend.features.letters.transport import (
+    LetterRefusalError,
     MaybeSentError,
     Outgoing,
     OutgoingFile,
@@ -254,12 +256,12 @@ _sleep = asyncio.sleep
 
 
 def _refusal(response: httpx.Response) -> TransportError:
-    """Отказ платформы: этому письму — `TransportError`, любому — `PlatformRefusalError`."""
+    """Отказ платформы: этому письму — `LetterRefusalError`, любому — `PlatformRefusalError`."""
     status = response.status_code
     message = f"Платформа отказала ({status}): {response.text[:300]}"
     words = EVERY_LETTER.get(status, "сбой платформы" if status >= 500 else None)
     if words is None:
-        return TransportError(message)
+        return LetterRefusalError(message)
     return PlatformRefusalError(message, reason=f"{words} ({status})")
 
 
