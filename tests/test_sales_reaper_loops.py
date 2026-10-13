@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import subprocess
 import sys
 from collections import Counter
 from collections.abc import Awaitable, Callable
@@ -31,6 +32,7 @@ SALES_LOOPS = {
     "autobuild": "Автосборка очереди продаж",
 }
 SWEEP = "Разбор мёртвых прогонов"
+ROOT = Path(__file__).resolve().parents[1]
 NAME = "Автосборка очереди продаж"
 
 
@@ -253,20 +255,107 @@ async def test_three_sales_failures_leave_the_reaper_healthy_and_donors_still_co
     assert sorted(text.split("«")[1].split("»")[0] for text in told) == sorted(SALES_LOOPS.values())
 
 
-def test_reaper_wraps_exactly_the_three_sales_loops(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Под своей памятью — три прохода продаж; разбор прогонов и сторож тишины — как были."""
-    started: dict[str, object] = {}
+async def test_reaper_wraps_exactly_the_three_sales_loops_with_one_memory_each(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Под своей памятью — три прохода продаж; память — одна на цикл, первым проходом (иначе счёт
+    неудач начинался бы заново на каждом); разбор прогонов и сторож тишины — как были."""
+    started: dict[str, Callable[[], Awaitable[None]]] = {}
+    made: list[tuple[object, str]] = []
+    ran: Counter[str] = Counter()
 
     async def every(_interval: float, work: Callable[[], Awaitable[None]], *, name: str) -> None:
         started[name] = work
 
+    def own(work: loops.Pass, name: str) -> loops.Pass:
+        made.append((work, name))
+
+        async def owned() -> None:
+            ran[name] += 1
+
+        return owned
+
     monkeypatch.setattr(reaper, "every", every)
-    monkeypatch.setattr(reaper, "check_storage", lambda: None)
+    monkeypatch.setattr(loops, "own", own)
 
-    reaper.main()
+    await reaper._loops()
+    for name in SALES_LOOPS.values():
+        await started[name]()
+        await started[name]()
 
-    owned = {name: work for name, work in started.items() if isinstance(work, loops.Own)}
-    assert {name: work.work for name, work in owned.items()} == {
-        name: getattr(reaper, attr) for attr, name in SALES_LOOPS.items()
-    }
+    assert made == [(getattr(reaper, attr), name) for attr, name in SALES_LOOPS.items()]
+    assert ran == Counter(dict.fromkeys(SALES_LOOPS.values(), 2))
     assert (started[SWEEP], started["Сторож тишины"]) == (reaper.sweep, reaper.watch)
+
+
+# --- память циклов продаж — лениво: сломан её модуль — падают циклы продаж, а не процесс --------
+
+
+def test_reaper_start_does_not_load_the_sales_loop_memory() -> None:
+    """Память циклов продаж (`sales/loops.py`) грузит первый проход цикла продаж, а не импорт
+    процесса разбора — как модули самих проходов (шапка `workers/reaper.py`)."""
+    code = (
+        "import sys, backend.workers.reaper; print('backend.features.sales.loops' in sys.modules)"
+    )
+
+    done = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True, cwd=ROOT
+    )
+
+    assert done.stdout.strip() == "False", done.stderr
+
+
+async def test_a_broken_sales_loop_memory_fails_the_sales_loops_and_the_reaper_lives(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Импорт памяти циклов продаж сломан: каждый проход цикла продаж — неудача своего цикла
+    (её ловит `every`, отметка цикла считает), разбор прогонов и сторож тишины идут, процесс
+    разбора жив. Импорт до `every` вылетел бы из `gather` и уронил бы reaper целиком."""
+    calls: Counter[str] = Counter()
+
+    def counting(name: str) -> loops.Pass:
+        async def work() -> None:
+            calls[name] += 1
+
+        return work
+
+    def failed(name: str) -> int:
+        """Неудачи цикла — строками журнала цикла (`ticker.every`): файлы отметок пишутся на
+        ходу, читать их до остановки циклов нельзя."""
+        return sum(
+            1
+            for record in caplog.records
+            if record.name == ticker.logger.name and record.args and record.args[0] == name
+        )
+
+    monkeypatch.setitem(sys.modules, "backend.features.sales.loops", None)
+    monkeypatch.setattr(ticker, "BEATS_DIR", tmp_path)
+    monkeypatch.setattr(reaper, "sweep", counting("sweep"))
+    monkeypatch.setattr(reaper, "watch", counting("watch"))
+    for attr in SALES_LOOPS:
+        monkeypatch.setattr(reaper, attr, counting(attr))
+    monkeypatch.setattr(reaper, "POLL_INTERVAL_SEC", 0.01)
+    monkeypatch.setattr(reaper, "WATCHDOG_INTERVAL_SEC", 0.01)
+    for setting in ("HANDOFF_PASS_SEC", "AUTOSEND_PASS_SEC", "AUTOBUILD_PASS_SEC"):
+        monkeypatch.setattr(sales_cfg, setting, 0.01)
+
+    running = asyncio.create_task(reaper._loops())
+    await _until(
+        lambda: (
+            (
+                min(calls["sweep"], calls["watch"]) >= 3
+                and min(failed(name) for name in SALES_LOOPS.values()) >= 3
+            )
+            or running.done()
+        )
+    )
+
+    assert not running.done(), "сбой импорта памяти циклов продаж вышел из циклов разбора"
+    running.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await running
+    beats = _beats(tmp_path)
+    assert all(beats[name]["failures"] >= 3 for name in SALES_LOOPS.values())
+    assert (beats[SWEEP]["failures"], beats["Сторож тишины"]["failures"]) == (0, 0)
+    # Без памяти цикла проход продаж не идёт: его неудача — сбой импорта, а не работы.
+    assert [calls[attr] for attr in SALES_LOOPS] == [0, 0, 0]

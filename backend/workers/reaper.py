@@ -26,7 +26,8 @@
 
 Неудачи трёх проходов продаж — тревога продаж, а не здоровье процесса (`features/sales/loops.own`):
 иначе сломанная автосборка делала бы «нездоровым» процесс, где живёт сторож тишины. Зависший
-проход продаж по-прежнему виден по отметке своего цикла.
+проход продаж по-прежнему виден по отметке своего цикла. Память циклов продаж — тоже модуль
+продаж и тоже лениво, первым проходом: сломан её импорт — падают циклы продаж, а не процесс.
 """
 
 from __future__ import annotations
@@ -50,7 +51,6 @@ from backend.features.ops.silence import probe_providers
 from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.lifecycle import Recovery, recover
 from backend.features.runs.repository import RunRepository
-from backend.features.sales.loops import own
 from backend.shared.logs import setup_logging
 from backend.shared.queue import RUN_JOB, enqueue_crawl, job_alive, job_failure, runs_queue
 from backend.workers.ticker import Pass, every
@@ -233,8 +233,20 @@ async def autobuild() -> None:
 
 
 async def _sales_loop(interval: float, work: Pass, name: str) -> None:
-    """Цикл продаж: неудачи прохода — тревога продаж, а не здоровье процесса (`sales/loops.own`)."""
-    await every(interval, own(work, name), name=name)
+    """Цикл продаж: неудачи прохода — тревога продаж, а не здоровье процесса (`sales/loops.own`).
+    Память цикла — модуль продаж, лениво, первым проходом и одна на цикл: сломан его импорт —
+    неудача этого цикла (её ловит `every`). Импорт до `every` вылетел бы из `gather` и уронил бы
+    процесс целиком."""
+    owned: list[Pass] = []
+
+    async def owned_pass() -> None:
+        if not owned:
+            from backend.features.sales.loops import own  # noqa: PLC0415 — лениво
+
+            owned.append(own(work, name))
+        await owned[0]()
+
+    await every(interval, owned_pass, name=name)
 
 
 async def _loops() -> None:
