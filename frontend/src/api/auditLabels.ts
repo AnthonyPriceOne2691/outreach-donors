@@ -69,14 +69,22 @@ export function actionFilterTitle(action: AuditAction): string {
   return FILTER_TITLES[action] ?? AUDIT_ACTIONS[action];
 }
 
+/** Общее действие, уточнённое видом цели: «действие вид» → слова. Правка лида продаж
+ *  пишется действием загрузки базы — у лида одна история данных (`sales/lead_edit.py`). */
+const BY_TARGET: Partial<Record<string, string>> = {
+  'user_updated user': 'Доступ учётки изменён',
+  'run_started run': 'Прогон запущен',
+  'run_started crawl': 'Обход донора запущен',
+  'sales_leads_imported sales_lead': 'Лид продаж поправлен',
+  'site_reviewed sales_segment_candidate': 'Решение по сайту сбора',
+  'lead_taken sales_handoff': 'Лид передан телемаркетологу',
+};
+
 /** Действие записи словами — с уточнением по цели там, где действие общее. */
 export function actionTitle(action: string, target: string | null): string {
   const kind = target?.split(':', 1)[0];
-  if (action === 'user_updated' && kind === 'user') return 'Доступ учётки изменён';
-  if (action === 'run_started' && kind === 'run') return 'Прогон запущен';
-  if (action === 'run_started' && kind === 'crawl') return 'Обход донора запущен';
   const known: Partial<Record<string, string>> = AUDIT_ACTIONS;
-  return known[action] ?? `Другое действие (${action})`;
+  return BY_TARGET[`${action} ${kind}`] ?? known[action] ?? `Другое действие (${action})`;
 }
 
 /** Цель записи — по виду: «run» → «прогон №27». Ссылка — у тех, у кого есть экран.
@@ -102,6 +110,10 @@ const TARGETS: Record<string, { noun: string; path?: (id: string) => string; bar
   sales_handoff: { noun: 'передача лида продаж' },
   sales_chain_template: { noun: 'шаблон цепочки продаж' },
   sales_kb_entry: { noun: 'запись базы знаний продаж' },
+  sales_lead: { noun: 'лид продаж' },
+  // Без номера — весь стоп-лист продаж (`WHOLE_TARGETS`), с номером — снятая запись.
+  sales_stoplist: { noun: 'запись стоп-листа продаж' },
+  sales_segment_candidate: { noun: 'сайт сбора продаж' },
 };
 
 /** Цели без номера — целиком. */

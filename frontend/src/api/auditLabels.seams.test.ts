@@ -6,7 +6,7 @@
  * (`sales_segment_candidate:N`). Незнакомое не пропадает — показывается как записано, кодом.
  * Правка лида пишется действием загрузки базы (у лида одна история данных — `sales/lead_edit.py`),
  * и экран называет её «База лидов загружена». Словарь — общий код (`api/auditLabels.ts`): правка —
- * PR «общее», до неё тесты помечены `it.fails`.
+ * PR «общее» (ревью стыков R7, 7.3).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -27,14 +27,14 @@ describe('журнал: записи продаж словами', () => {
     expect(words('sales_handoff:7')).toBe('передача лида продаж №7');
   });
 
-  it.fails('правка лида, снятая запись стоп-листа и сайт сбора — словами, а не кодом', () => {
+  it('правка лида, снятая запись стоп-листа и сайт сбора — словами, а не кодом', () => {
     for (const target of ['sales_lead:5', 'sales_stoplist:8', 'sales_segment_candidate:9']) {
       expect(words(target)).not.toMatch(/^sales_/);
       expect(words(target)).toMatch(/№\d+$/);
     }
   });
 
-  it.fails('правка лида — не «База лидов загружена»', () => {
+  it('правка лида — не «База лидов загружена»', () => {
     expect(actionTitle('sales_leads_imported', 'sales_lead:5')).not.toBe('База лидов загружена');
   });
 });

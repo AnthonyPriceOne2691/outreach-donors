@@ -27,6 +27,10 @@
 **Этапы — те, что видит спрашивающий** (`stages`, решение Anthony 10.10.2026, П2б): тревог
 о почте продаж без права «Продажи» на экране нет, и модуль продаж о политике тогда не
 спрашивается. Тревога несёт свой этап (`Alarm.stage`). Фоновый проход — все этапы.
+
+**Этап в заголовке — словом** («Очередь продаж есть — отправить некому», `alarms.STAGE_GENITIVE`),
+код этапа — только в коде тревоги: заголовок стоит полосой над вкладками «Продаж» и уходит в
+Telegram (ревью стыков R7, 7.1).
 """
 
 from __future__ import annotations
@@ -50,7 +54,7 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.letters import mailbox
 from backend.features.letters.chain import ANSWER_STEP, CHAINABLE, FIRST_STEP, MAX_STEPS
-from backend.features.ops.alarms import Alarm
+from backend.features.ops.alarms import STAGE_GENITIVE, Alarm, direction
 from backend.features.outreach import limits
 
 logger = logging.getLogger(__name__)
@@ -69,11 +73,12 @@ async def alarms(session: AsyncSession, now: datetime, *, stages: Collection[Sta
     await session.flush()
     found: list[Alarm] = []
     for stage in (one for one in Stage if one in stages):
+        whose = STAGE_GENITIVE[stage]
         try:
-            policy = await mail_bridge.mail_policy(session, stage, f"Сторож почты «{stage.value}»")
+            policy = await mail_bridge.mail_policy(session, stage, f"Сторож почты {whose}")
         except mail_bridge.SalesNotConnectedError as exc:
             logger.info("сторож почты: %s", exc)
-            title = f"Политика почты «{stage.value}» не получена"
+            title = f"Политика почты {whose} не получена"
             code = f"no-policy:{stage.value}"
             found.append(Alarm(code=code, title=title, detail=str(exc), stage=stage))
             continue
@@ -100,7 +105,7 @@ def _not_counted(stage: Stage, exc: SQLAlchemyError) -> Alarm:
     reason = lines[0] if lines else type(exc).__name__
     return Alarm(
         code=f"watch-failed:{stage.value}",
-        title=f"Сторож почты «{stage.value}» не досчитал",
+        title=f"Сторож почты {STAGE_GENITIVE[stage]} не досчитал",
         detail=(
             f"Запрос сторожа упал в базе: {reason}. Остальные этапы и правила сторож проверил; "
             "трасса — в журнале"
@@ -122,7 +127,7 @@ async def _of_stage(session: AsyncSession, stage: Stage, now: datetime) -> list[
         found.append(
             Alarm(
                 code=f"all-paused:{stage.value}",
-                title=f"Все ящики направления «{stage.value}» на паузе",
+                title=f"Все ящики {STAGE_GENITIVE[stage]} на паузе",
                 detail=f"Ящиков {len(boxes)}, пишущих нет: письма направления стоят",
                 stage=stage,
             )
@@ -140,7 +145,7 @@ async def _of_stage(session: AsyncSession, stage: Stage, now: datetime) -> list[
         found.append(
             Alarm(
                 code=f"nobody-to-send:{stage.value}",
-                title=f"Очередь «{stage.value}» есть — отправить некому",
+                title=f"Очередь {STAGE_GENITIVE[stage]} есть — отправить некому",
                 detail=(
                     f"В очереди {queued} первых писем, а пишущего ящика на открытом домене нет: "
                     "ящики выключены или домен на паузе, на выдержке, записан за другим "
@@ -193,7 +198,7 @@ async def _retired(
         return None
     if box is None:
         code = f"retired-box:deleted:{stage.value}"
-        title = f"Ящик переписки удалён — направление «{stage.value}»"
+        title = f"Ящик переписки удалён — {direction(stage)}"
     else:
         code, title = f"retired-box:{box.email}", f"Ящик {box.email} выбыл"
     return Alarm(

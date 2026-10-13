@@ -38,7 +38,8 @@
 добивки возвращается, пачка встаёт словами, кнопка получает 409; «подключены ли» с
 ошибкой — «нет», и проход идёт без продаж. Модуль отвечает в своей точке сохранения:
 упавший запрос модуля не ломает транзакцию почты, а сбой своих несохранённых изменений
-почты — её ошибка, а не модуля.
+почты — её ошибка, а не модуля, как и точка, которая не встала: транзакция почты прервана
+своим запросом или база недоступна.
 
 **Пачка продаж** (`check_batch`) спрашивает модуль ещё и о том, можно ли пачкой: пока включена
 автоотправка, первые письма продаж уходят проходом по одному с ящика, и пачка — отказ словами.
@@ -58,7 +59,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol, assert_never
+from typing import TYPE_CHECKING, Literal, Protocol, assert_never, cast
 
 from backend.features.core.domain import Stage
 
@@ -115,20 +116,54 @@ def mail_stage(stage: Stage, what: str) -> MailStage:
             assert_never(stage)
 
 
+#: Отказ пачке, когда модуль продаж не ответил, чего не хватает: текст его исключения — с SQL и
+#: путями кода — уходит в журнал, оператору — слова.
+MISSING_BROKEN = (
+    "модуль продаж не ответил, чего не хватает, — поломка модуля, подробности в журнале сервера"
+)
+
+
 async def check_connected(session: AsyncSession, stage: Stage, what: str) -> None:
     """Мост подключения этапа (спрашивает отправка очереди пачкой): почта ведёт
     этап сейчас — или отказ словами. У продаж — ответ модуля продаж
-    (`SalesMail.connected`, читает базу): модуль не подключён к мосту или говорит
-    «нет» — отказ; спрашивающие не меняются. Не `mail_stage`: тот отказывает
-    продажам там, где их не будет и подключённых (очередь из доноров, шаблоны)."""
+    (`SalesLacking.missing`, читает базу): модуль не подключён к мосту — прежний отказ; чего-то
+    не хватает — отказ называет, чего, как отказ одному письму (ревью стыков R1, A4).
+    Не `mail_stage`: тот отказывает продажам там, где их не будет и подключённых (очередь
+    из доноров, шаблоны)."""
     match stage:
         case Stage.DONORS | Stage.ADVERTISERS:
             return
         case Stage.SALES:
-            if not await sales_connected(session):
-                raise SalesNotConnectedError(what)
+            if not _answers_missing():
+                if not await sales_connected(session):
+                    raise SalesNotConnectedError(what)
+                return
+            lacking = await _asked(
+                session,
+                what,
+                lambda mail: cast("SalesLacking", mail).missing(session),
+                SalesNotConnectedError,
+                told=MISSING_BROKEN,
+            )
+            if lacking:
+                raise SalesNotConnectedError(what, "; ".join(lacking))
         case _:
             assert_never(stage)
+
+
+def _answers_missing() -> bool:
+    """Отвечает ли модуль продаж, чего не хватает (`SalesLacking`). Модуль до PR продаж с
+    этим ответом спрашивается по-старому (`sales_connected`), и отказ ему — прежний, без перечня.
+    Модуль не грузится — тоже по-старому, со строкой журнала: `sales_connected` спросит его
+    снова и скажет «нет»."""
+    load = _SALES.load
+    if load is None:
+        return False
+    try:
+        return callable(getattr(load(), "missing", None))
+    except Exception as exc:  # noqa: BLE001 — модуль не грузится: вопрос по-старому, см. выше
+        logger.warning("мост продаж: модуль продаж не грузится — %s", exc, extra={"why": str(exc)})
+        return False
 
 
 async def check_batch(session: AsyncSession, stage: Stage, what: str) -> None:
@@ -234,6 +269,16 @@ class SalesMail(Protocol):
         """Переписки продаж, чьи письма уходят на этот адрес: лид с ним (`sales_threads_to`)."""
 
 
+class SalesLacking(Protocol):
+    """Ответ модуля продаж «чего не хватает» (ревью стыков R1, A4): отказ пачке называет причину
+    (`check_connected`), как отказ одному письму. Отдельно от `SalesMail`, пока модуль продаж так
+    не отвечает (их PR): мост спрашивает его, только если ответ есть (`_answers_missing`); потом
+    войдёт в `SalesMail`."""
+
+    async def missing(self, session: AsyncSession) -> Sequence[str]:
+        """Чего не хватает продажам, словами; пусто — подключены."""
+
+
 @dataclass(slots=True)
 class _Registry:
     """Загрузчик модуля продаж. `None` — продажи к почте не подключены."""
@@ -259,24 +304,36 @@ async def _asked[T](
     what: str,
     ask: Callable[[SalesMail], Awaitable[T]],
     passes: type[MailRefusalError] = MailRefusalError,
+    *,
+    told: str | None = None,
 ) -> T:
     """Ответ модуля продаж — или отказ: модуль не подключён — 1.1b словами; отказ модуля
     словами (`passes`) — как есть; любая другая ошибка модуля — «не подключены» с причиной
     и записью в журнал. Модуль отвечает в своей точке сохранения (`begin_nested`).
 
-    Точка сохранения сначала сбрасывает в базу несохранённое вызывающего — поэтому мост
-    сбрасывает его сам до вопроса: сбой своих изменений почты всплывает как есть, а не
-    как ошибка модуля продаж, и модуль тогда не спрошен."""
+    Сбой самой почты всплывает как есть, а не как ошибка модуля продаж, и модуль тогда не
+    спрошен. Точка сохранения сначала сбрасывает в базу несохранённое вызывающего — поэтому мост
+    сбрасывает его сам до вопроса. И саму точку мост ставит до вопроса (`session.connection()`):
+    SQLAlchemy ставит её лениво, первым запросом внутри, — и точка, которая не встала (транзакция
+    почты прервана своим запросом, база недоступна), выдавалась за ошибку модуля (ревью стыков
+    R7, 7.6). Дальше всё — ответ модуля, и выход из точки тоже: модуль проглотил упавший запрос —
+    точка не снимается, это его поломка. `told` — слова отказа вместо текста исключения, где отказ
+    видит оператор (кнопка пачки): SQL и трасса — в журнал (`exc_info`), не на экран."""
     load = _SALES.load
     if load is None:
         raise SalesNotConnectedError(what)
     await session.flush()
+    placed = False  # точка встала — дальше любой сбой уже модуля
     try:
         async with session.begin_nested():
+            await session.connection()  # SAVEPOINT — сейчас, а не первым запросом модуля
+            placed = True
             return await ask(load())
     except passes:
         raise
     except Exception as exc:
+        if not placed:
+            raise
         why = str(exc) or type(exc).__name__
         logger.warning(
             "мост продаж: %s — ошибка модуля продаж: %s",
@@ -285,7 +342,7 @@ async def _asked[T](
             exc_info=True,
             extra={"why": why},
         )
-        raise SalesNotConnectedError(what, why) from exc
+        raise SalesNotConnectedError(what, told or why) from exc
 
 
 async def recipient(
@@ -329,7 +386,7 @@ async def sales_connected(session: AsyncSession) -> bool:
     """Подключены ли продажи: проход добивок берёт их сроки только тогда. Не бросает на
     ошибках модуля: ошибка модуля — «нет» с причиной в журнале (`_asked`), проход идёт без
     продаж, доноры уходят, пачка продаж встаёт словами. Ошибка собственных несохранённых
-    изменений вызывающего всплывает как своя."""
+    изменений вызывающего и его прерванной транзакции всплывает как своя."""
     if _SALES.load is None:
         return False
     try:

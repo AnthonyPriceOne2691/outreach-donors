@@ -172,8 +172,8 @@ async def test_the_donor_stall_after_the_sales_one_is_told_anew(
     await feed.tell(await silence.alarms(session, stages=EVERY_STAGE))
 
     assert [text.split(".")[0] for text in said] == [
-        "тревога: Добивки стоят — направление «sales»",
-        "тревога: Добивки стоят — направление «donors»",
+        "тревога: Добивки стоят — направление продаж",
+        "тревога: Добивки стоят — направление доноров",
     ]
 
 
@@ -358,7 +358,7 @@ async def test_codes_without_a_stage_pass_after_the_rollout(
         await feed.tell(await silence.alarms(session, stages=EVERY_STAGE))
 
     assert [text.split(".")[0] for text in said] == [
-        "тревога: Добивки стоят — направление «donors»",
+        "тревога: Добивки стоят — направление доноров",
         "прошло: Добивки стоят",
         "прошло: Платформа молчит о доставке",
     ]
