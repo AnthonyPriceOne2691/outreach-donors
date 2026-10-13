@@ -12,7 +12,9 @@
 
 **Повторяется не всё.** Отказ «неверный ключ» повтором не лечится,
 и повторять его — значит втрое дольше идти к тому же ответу. Повторяем
-то, что бывает временным: перегрузку, обрыв, частоту.
+то, что бывает временным: перегрузку, обрыв, частоту. Сервис, у которого один
+код значит разное, решает сам, временный ли ответ (`retry_when`): у Hunter 429 —
+и частота, и закрытая учётка, и вторую повторять незачем.
 """
 
 from __future__ import annotations
@@ -82,6 +84,11 @@ def delay_for(attempt: int, response: httpx.Response | None = None) -> float:
     return base + random.uniform(0, 0.5)  # noqa: S311 — разброс, а не криптография
 
 
+def temporary(response: httpx.Response) -> bool:
+    """Ответ проходит сам — по коду (`RETRY_STATUSES`): умолчание `with_retries`."""
+    return response.status_code in RETRY_STATUSES
+
+
 def unsent(exc: httpx.HTTPError) -> bool:
     """Запрос не собран у нас — до сети он не дошёл, и повтор соберёт его так же."""
     return isinstance(exc, httpx.LocalProtocolError)
@@ -116,11 +123,13 @@ async def with_retries(
     attempts: int,
     topic: str,
     limiter: RateLimiter | None = None,
+    retry_when: Callable[[httpx.Response], bool] = temporary,
 ) -> httpx.Response:
     """Позвать с повторами. Последний ответ отдаётся как есть.
 
     Разбирать ответ — дело вызывающего: здесь знают только про то,
-    что бывает временным, и ничего про смысл ответа.
+    что бывает временным, и ничего про смысл ответа. `retry_when` — временный
+    ли ответ; умолчание — по коду, свой — у сервиса, чей код многозначен.
     """
     last: httpx.Response | None = None
     for attempt in range(attempts):
@@ -143,7 +152,7 @@ async def with_retries(
             await _sleep(pause)
             continue
 
-        if last.status_code not in RETRY_STATUSES or attempt == attempts - 1:
+        if not retry_when(last) or attempt == attempts - 1:
             return last
 
         pause = delay_for(attempt, last)

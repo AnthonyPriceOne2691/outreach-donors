@@ -55,6 +55,14 @@ class _Contacts(DomainSettings):
     rdap_enabled: bool = Field(default=False, validation_alias="CONTACTS_RDAP_ENABLED")
 
     # --- Ступень 3: платный сервис ---
+    # Платный поиск адресов доноров и рекламодателей — только явным флагом, не ключом
+    # (решение Anthony 12.10.2026). Ключ общий с проверкой адресов продаж
+    # (`SALES_VERIFIER_PROVIDER=live`), и одно его появление включало ступень и здесь:
+    # автопоиск после каждого «принять» тратил бы общую квоту сам. Сбор базы продаж
+    # платит по своему флагу (`SALES_SEGMENT_PAID_CONTACTS`), этот его не держит.
+    paid_search_enabled: bool = Field(
+        default=False, validation_alias="CONTACTS_PAID_SEARCH_ENABLED"
+    )
     hunter_api_key: str = Field(default="", validation_alias="CONTACTS_HUNTER_API_KEY")
     hunter_timeout_sec: float = Field(default=20.0, validation_alias="CONTACTS_HUNTER_TIMEOUT_SEC")
     # Ниже этой уверенности адрес платного сервиса не берём: дешевле не писать,
@@ -98,6 +106,7 @@ BROWSER_TIMEOUT_SEC: float = _s.browser_timeout_sec
 BROWSER_SETTLE_SEC: float = _s.browser_settle_sec
 RDAP_TIMEOUT_SEC: float = _s.rdap_timeout_sec
 RDAP_ENABLED: bool = _s.rdap_enabled
+PAID_SEARCH_ENABLED: bool = _s.paid_search_enabled
 HUNTER_API_KEY: str = _s.hunter_api_key.strip()  # хвостовой пробел из .env
 HUNTER_TIMEOUT_SEC: float = _s.hunter_timeout_sec
 HUNTER_MIN_CONFIDENCE: int = _s.hunter_min_confidence

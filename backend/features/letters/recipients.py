@@ -24,7 +24,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, TypeVar
@@ -44,6 +44,7 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.core.models.run import RunCandidateModel
+from backend.features.crawl.suppliers import supplier_hosts
 from backend.features.donors.price_freshness import PriceState, price_is
 from backend.features.letters import attempts
 from backend.features.letters.chain import FIRST_STEP
@@ -406,12 +407,14 @@ class Recipients:
         )
 
     @staticmethod
-    def _fresh_price(statement: _Query, moment: datetime) -> _Query:
+    def _fresh_price(statement: _Query, moment: datetime, suppliers: Collection[str]) -> _Query:
         """Цена донора, на чьей площадке нашли ссылку, не старше срока.
 
         Оффер «мы дешевле» держится на этой цене, хотя и не называет её:
         протухшая превращает его в обещание, которого не сдержать.
         Требование: свежесть цены 150 дней, старше — сначала перезапрос.
+        Площадку поставщика (`suppliers` — `crawl/suppliers.supplier_hosts`) не предлагаем
+        тоже: её рекламодатели — чужие клиенты (сверка ТЗ 12.10.2026).
         """
         donor_domain = aliased(DomainModel)
         fresh = (
@@ -421,6 +424,7 @@ class Recipients:
             # Свежесть — одним правилом с таблицей доноров и обходом (12.10.2026).
             .where(price_is(PriceState.FRESH, moment))
             .where(~not_writing())  # площадку из «кому не пишем» рекламодателю не предлагаем
+            .where(donor_domain.host.not_in(sorted(suppliers)))
             .exists()
         )
         return statement.where(fresh)
@@ -429,7 +433,7 @@ class Recipients:
         moment = now or datetime.now(UTC)
         base = self._advertisers()
         with_link = self._with_link(base)
-        fresh_price = self._fresh_price(with_link, moment)
+        fresh_price = self._fresh_price(with_link, moment, await supplier_hosts(self._session))
         with_contact = self._has_contact(fresh_price)
         not_suppressed = self._reachable(with_contact, Stage.ADVERTISERS)
 
@@ -464,7 +468,8 @@ class Recipients:
             .order_by(DomainModel.id, *preferred_first())
         )
         inner = self._with_link(inner)
-        inner = self._fresh_price(inner, now or datetime.now(UTC))
+        suppliers = await supplier_hosts(self._session)
+        inner = self._fresh_price(inner, now or datetime.now(UTC), suppliers)
         inner = self._not_suppressed(inner, Stage.ADVERTISERS)
         inner = self._not_written(inner)
 

@@ -23,14 +23,16 @@ from backend.features.core.models.outreach import (
     MessageModel,
     ThreadModel,
 )
-from backend.features.letters import compose, unsubscribe
+from backend.features.letters import compose, template, unsubscribe
 from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.optout import unsubscribe_domain
-from backend.features.letters.sending import Sending, SuppressedError
+from backend.features.letters.sending import NotReadyError, Sending, SuppressedError
 from backend.features.letters.transport import NullTransport, Outgoing
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor, make_sender
+from tests.test_letters_advertisers import NOW as OFFER_NOW
+from tests.test_letters_advertisers import queued_offer
 from tests.test_letters_queue import FakeRewriter
 
 SECRET = "u" * 32
@@ -79,8 +81,9 @@ class TestNoWorkingLink:
     """Ссылка, которая никого не отписывает, хуже отсутствующей: кнопка
     отписки в почтовом клиенте есть, а не работает ни для кого.
 
-    Отправку отсутствие ссылки больше не держит: в тексте письма её нет
-    (юридический блок снят 23.09.2026), а заголовок просто не ставится."""
+    Нечем подписать — ссылки нет, и письмо не уходит (сверка ТЗ 12.10.2026): в тексте
+    её нет (юридический блок снят 23.09.2026), а заголовок без неё не ставился, и письмо
+    уходило молча. Недостающее экран называет до нажатия (`missing_settings`)."""
 
     def test_no_secret_means_no_link(
         self, filled_legal: None, monkeypatch: pytest.MonkeyPatch
@@ -89,7 +92,7 @@ class TestNoWorkingLink:
 
         assert unsubscribe.url_for(417) == ""
         assert unsubscribe.missing_setting() == "OUTREACH_INBOUND_SECRET"
-        assert compose.missing_settings() == []
+        assert compose.missing_settings() == ["OUTREACH_INBOUND_SECRET"]
 
     def test_no_page_means_no_link(
         self, filled_legal: None, monkeypatch: pytest.MonkeyPatch
@@ -98,13 +101,16 @@ class TestNoWorkingLink:
 
         assert unsubscribe.url_for(417) == ""
         assert unsubscribe.missing_setting() == "OUTREACH_UNSUBSCRIBE_URL"
-        assert compose.missing_settings() == []
+        assert compose.missing_settings() == ["OUTREACH_UNSUBSCRIBE_URL"]
 
     def test_letter_without_donor_has_no_link(self, filled_legal: None) -> None:
-        """Предпросмотр шаблона — не письмо: ссылки у него нет."""
+        """Предпросмотр шаблона — не письмо: ссылки у него нет, и собирается он как раньше —
+        без громких меток, хотя ссылка теперь обязательна для отправки."""
         values = compose.values_for(host="donor.example.test")
+        preview = compose.assemble(compose.render(template.default(), values), {})
 
         assert values["unsubscribe_url"] == ""
+        assert compose.unset_in(f"{preview.subject}\n{preview.body}") == []
 
     def test_letter_of_a_donor_has_one(self, filled_legal: None) -> None:
         values = compose.values_for(host="donor.example.test", domain_id=417)
@@ -277,3 +283,74 @@ class TestInTheLetter:
 
         with pytest.raises(SuppressedError):
             await Sending(session, NullTransport(), now=NOW).send(letter.id)
+
+
+class TestNoLinkNoLetter:
+    """Письмо доноров и рекламодателей без ссылки отписки не уходит — отказ словами, как
+    при пустом адресе в подписи (сверка ТЗ 12.10.2026). Письмо ждёт в очереди: ссылка
+    ставится заголовком при отправке, и очередь собирать заново не нужно."""
+
+    class Recording(NullTransport):
+        def __init__(self) -> None:
+            self.seen: list[Outgoing] = []
+
+        async def send(self, outgoing: Outgoing) -> str:
+            self.seen.append(outgoing)
+            return await super().send(outgoing)
+
+    @pytest.mark.parametrize(
+        ("setting", "named"),
+        [
+            ("UNSUBSCRIBE_URL", "OUTREACH_UNSUBSCRIBE_URL"),
+            ("INBOUND_SECRET", "OUTREACH_INBOUND_SECRET"),
+        ],
+    )
+    async def test_a_donor_letter_waits_for_the_link(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        monkeypatch: pytest.MonkeyPatch,
+        setting: str,
+        named: str,
+    ) -> None:
+        await make_donor(session, "one.example.test", email="info@one.example.test")
+        await make_sender(session, "outreach1@mail.example.test")
+        await QueueBuilder(session, FakeRewriter()).build(  # type: ignore[arg-type]
+            BuildRequest(campaign_name="Проверка")
+        )
+        await session.flush()
+        letter = (await session.execute(select(MessageModel))).scalars().one()
+        filled = getattr(outreach_cfg, setting)
+        monkeypatch.setattr(outreach_cfg, setting, "")
+        transport = self.Recording()
+
+        with pytest.raises(NotReadyError) as refused:
+            await Sending(session, transport, now=NOW).send(letter.id)
+
+        assert str(refused.value) == (
+            f"Письмо №{letter.id} пока не отправить: {named} не задан — ссылку отписки "
+            "собрать нечем, и письмо ушло бы без кнопки отписки в почте получателя "
+            "(List-Unsubscribe). Задаётся при подключении почты; очередь собирать заново "
+            "не нужно"
+        )
+        assert transport.seen == []
+        await session.refresh(letter)
+        assert letter.status is MessageStatus.QUEUED
+
+        monkeypatch.setattr(outreach_cfg, setting, filled)  # задали — уходит то же письмо
+        await Sending(session, transport, now=NOW).send(letter.id)
+        assert [out.unsubscribe_url for out in transport.seen] == [
+            unsubscribe.url_for(letter.domain_id)
+        ]
+
+    async def test_an_advertiser_offer_waits_for_the_link_too(
+        self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        letter = await queued_offer(session)
+        monkeypatch.setattr(outreach_cfg, "UNSUBSCRIBE_URL", "")
+
+        with pytest.raises(NotReadyError, match="OUTREACH_UNSUBSCRIBE_URL не задан"):
+            await Sending(session, NullTransport(), now=OFFER_NOW).send(letter.id)
+
+        await session.refresh(letter)
+        assert letter.status is MessageStatus.QUEUED

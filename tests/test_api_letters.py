@@ -202,18 +202,22 @@ class TestQueue:
     async def test_queue_says_what_blocks_sending(
         self, client: AsyncClient, admin_token: str
     ) -> None:
-        """Имя отправителя и его адрес не заданы — отправить нельзя ни одно
-        письмо, и узнать об этом надо до нажатия, а не после.
+        """Имя отправителя, его адрес и ссылка отписки не заданы — отправить нельзя
+        ни одно письмо, и узнать об этом надо до нажатия, а не после.
 
         Настройки здесь не подменяются нарочно: это незаполненный сервис,
-        и экран обязан его показывать. Отписка отправку не держит —
-        юридический блок снят 23.09.2026; адрес снова держит — он строка
-        подписи с 11.10.2026.
+        и экран обязан его показывать. Адрес держит отправку — он строка подписи
+        с 11.10.2026; ссылка отписки снова держит — без неё письмо ушло бы без
+        кнопки отписки (сверка ТЗ 12.10.2026).
         """
         response = await client.get("/api/letters", headers=bearer(admin_token))
 
         blocked = response.json()["blocked_by"]
-        assert blocked == ["OUTREACH_SENDER_NAME", "OUTREACH_POSTAL_ADDRESS"]
+        assert blocked == [
+            "OUTREACH_SENDER_NAME",
+            "OUTREACH_POSTAL_ADDRESS",
+            "OUTREACH_UNSUBSCRIBE_URL",
+        ]
 
     async def test_filled_settings_block_nothing(
         self, client: AsyncClient, admin_token: str, letter: MessageModel
@@ -317,6 +321,20 @@ class TestEditing:
 
         assert response.status_code == 400
         assert "Ahrefs" in response.json()["detail"]
+
+    async def test_edit_refuses_metrics_in_the_subject(
+        self, client: AsyncClient, admin_token: str, letter: MessageModel
+    ) -> None:
+        """Тема уходит адресату так же, как текст, и видит он её первой (сверка ТЗ
+        12.10.2026): правка проверяла на метрики только тело."""
+        response = await client.patch(
+            f"/api/letters/{letter.id}",
+            json={"subject": "Your DR 46 site", "body": letter.body or "Hi"},
+            headers=bearer(admin_token),
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"].startswith("В теме письма метрики Ahrefs")
 
     async def test_empty_letter_is_refused(
         self, client: AsyncClient, admin_token: str, letter: MessageModel

@@ -37,6 +37,10 @@ cp .env.example .env && $EDITOR .env
 #    ACCESS_JWT_SECRET (openssl rand -hex 32), BACKEND_IMAGE и WEB_IMAGE
 #    (раскомментировать — иначе компоуз соберёт образ на машине),
 #    ключи Ahrefs, выдачи и модели. Почту — не сейчас, см. ниже.
+#    Ключ Hunter (CONTACTS_HUNTER_API_KEY) платный поиск адресов доноров и
+#    рекламодателей не включает: его включает только CONTACTS_PAID_SEARCH_ENABLED=true,
+#    по умолчанию выключен (решение 12.10.2026) — квота Hunter общая с проверкой
+#    адресов продаж.
 
 # 2. Образы из реестра, а не сборка на машине
 docker compose -f docker-compose.yml -f docker-compose.prod.yml pull

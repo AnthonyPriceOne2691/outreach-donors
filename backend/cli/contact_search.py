@@ -21,6 +21,18 @@ from backend.features.contacts.search import SearchReport, search_contacts
 logger = logging.getLogger(__name__)
 
 
+def _paid_line(counters: dict[str, int]) -> str:
+    """Строка платной ступени. Выключена флагом — так и сказано, а не «вошло 0»: ключ
+    ступень не включает (решение Anthony 12.10.2026, `okf/contact-ladder.md`)."""
+    if not cfg.PAID_SEARCH_ENABLED:
+        return "  3. платный сервис    выключен настройкой (CONTACTS_PAID_SEARCH_ENABLED)"
+    refused = counters.get("provider_refused", 0)
+    return (
+        f"  3. платный сервис    вошло {counters.get('provider_entered', 0)}, "
+        f"нашли {counters.get('provider_found', 0)}" + (f", ОТКАЗАЛ {refused}" if refused else "")
+    )
+
+
 def _print_report(report: SearchReport) -> None:
     counters = report.counters
     print(f"\nДоменов пройдено:      {report.walked}")
@@ -44,11 +56,7 @@ def _print_report(report: SearchReport) -> None:
         )
     else:
         print("  2. RDAP              выключена настройкой (CONTACTS_RDAP_ENABLED)")
-    refused = counters.get("provider_refused", 0)
-    print(
-        f"  3. платный сервис    вошло {counters.get('provider_entered', 0)}, "
-        f"нашли {counters.get('provider_found', 0)}" + (f", ОТКАЗАЛ {refused}" if refused else "")
-    )
+    print(_paid_line(counters))
     # Без «поставлено»: потолок «Форм» — ориентир темпа, а не запрет (решение Anthony
     # 11.10.2026), и «форм 5, поставлено 3» говорило бы, что две в очередь не попали.
     print(f"  4. ручная очередь    форм {counters.get('form_only', 0)}")

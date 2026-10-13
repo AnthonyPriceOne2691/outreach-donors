@@ -15,7 +15,8 @@
 **Кого отсеиваем до того, как искать контакт.** Доноров из стоп-листа
 поставщиков — их рекламодатели это чужие клиенты и свои же размещения;
 поставщик — общим правилом с обходом, хоть с экрана, хоть консолью
-(`suppliers.py`).
+(`suppliers.py`). Поставщик, внесённый после перевода, снимает свои ссылки и у
+заведённых рекламодателей: их доводит сборка писем (`apply_suppliers`).
 И адресатов из общего стоп-листа: он один на оба этапа, потому что
 один и тот же адресат не должен получить письмо и как донор,
 и как рекламодатель.
@@ -58,6 +59,7 @@ from backend.features.crawl.advertiser_rules import writes_to
 from backend.features.crawl.niche import NICHE
 from backend.features.crawl.offer_stop import stop_offers
 from backend.features.crawl.suppliers import supplier_hosts
+from backend.features.letters import attempts
 
 logger = logging.getLogger(__name__)
 
@@ -301,33 +303,42 @@ async def withdraw(session: AsyncSession, rejected: CandidateModel) -> Withdrawn
     )
     if advertiser is None:
         return Withdrawn()
-    suppliers = await supplier_hosts(session)
+    return await _rebuild(session, advertiser, rejected.target_root, await supplier_hosts(session))
+
+
+async def _rebuild(
+    session: AsyncSession,
+    advertiser: AdvertiserModel,
+    host: str,
+    suppliers: set[str],
+    *,
+    reason: str = attempts.LINK_WITHDRAWN,
+) -> Withdrawn:
+    """Рекламодатель `host` — заново из подходящих кандидатов, кроме ссылок с площадок
+    поставщиков (условие перевода). Не осталось их — снят вместе с письмами по найденной
+    ссылке; остались — лучшая ссылка пересобирается, а первые письма в очереди не под неё
+    снимаются причиной `reason` (`offer_stop.py`)."""
     rest = [
         row
         for row in (
             await session.scalars(
-                select(CandidateModel).where(
-                    CandidateModel.target_root == rejected.target_root, writes_to()
-                )
+                select(CandidateModel).where(CandidateModel.target_root == host, writes_to())
             )
         ).all()
         if row.donor_host.lower() not in suppliers
     ]
     if not rest:
-        stopped = await stop_offers(session, advertiser.domain_id)
+        stopped = await stop_offers(session, advertiser.domain_id, reason=reason)
         removed = await _take_off(session, advertiser)
         if removed or stopped:
-            logger.info(
-                "рекламодатели: %s снят решением «не пишем», писем снято %s",
-                rejected.target_root,
-                stopped,
-            )
+            logger.info("рекламодатели: %s снят — %s; писем снято %s", host, reason, stopped)
         return Withdrawn(removed=removed, stopped=stopped)
 
-    ids = {rejected.target_root: advertiser.domain_id}
+    ids = {host: advertiser.domain_id}
     await _write(session, _pick(rest), ids, _donors_per_root(rest), PromotionReport())
     keep = advertiser.best_page_url or ""
-    return Withdrawn(stopped=await stop_offers(session, advertiser.domain_id, keep=keep))
+    stopped = await stop_offers(session, advertiser.domain_id, keep=keep, reason=reason)
+    return Withdrawn(stopped=stopped)
 
 
 async def _take_off(session: AsyncSession, advertiser: AdvertiserModel) -> bool:
@@ -382,6 +393,39 @@ async def apply_rejections(session: AsyncSession) -> int:
         removed += int((await withdraw(session, candidate)).removed)
     if removed:
         logger.info("рекламодатели: снято прежним «не пишем» %s", removed)
+    return removed
+
+
+async def apply_suppliers(session: AsyncSession) -> int:
+    """Поставщик, внесённый после перевода, — довести до рекламодателей, чья лучшая ссылка
+    на его площадке (сверка ТЗ 12.10.2026). Число — снятых рекламодателей.
+
+    Стоп-лист поставщиков пополняют задним числом, а запись держала только обход и перевод:
+    сборка и отправка смотрят на строку рекламодателя, и оффер под ссылку на площадке
+    поставщика собирался и уходил его рекламодателю — чужому клиенту. Довести — как
+    «не пишем» (`withdraw`): ссылка пересобирается из подходящих кандидатов других доноров,
+    а нет их — рекламодатель снимается. Первые письма в очереди под ссылку поставщика
+    снимаются своей причиной (`attempts.SUPPLIER_WITHDRAWN`): они не уходили, и сборка
+    пишет тому же адресату под действующую ссылку. Поставщик — одним правилом с обходом
+    и переводом (`suppliers.supplier_hosts`). Зовёт сборка писем Этапа 2 до отбора.
+    """
+    suppliers = await supplier_hosts(session)
+    if not suppliers:
+        return 0
+    rows = await session.execute(
+        select(AdvertiserModel, DomainModel.host)
+        .join(DomainModel, DomainModel.id == AdvertiserModel.domain_id)
+        .where(func.lower(func.trim(AdvertiserModel.best_donor_host)).in_(sorted(suppliers)))
+        .order_by(AdvertiserModel.id)
+    )
+    removed = 0
+    for advertiser, host in rows.tuples().all():
+        rebuilt = await _rebuild(
+            session, advertiser, host, suppliers, reason=attempts.SUPPLIER_WITHDRAWN
+        )
+        removed += int(rebuilt.removed)
+    if removed:
+        logger.info("рекламодатели: снято поставщиком, внесённым после перевода, %s", removed)
     return removed
 
 

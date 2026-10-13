@@ -59,9 +59,24 @@ class TestTheReport:
         contact_search._print_report(_report(rdap_entered=4, rdap_found=1, rdap_failed=2))
         assert "2. RDAP              вошло 4, нашли 1, не ответил 2" in capsys.readouterr().out
 
-    def test_paid_refusals_are_loud(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_paid_refusals_are_loud(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(contact_search.cfg, "PAID_SEARCH_ENABLED", True)
         contact_search._print_report(_report(provider_refused=2))
         assert "ОТКАЗАЛ 2" in capsys.readouterr().out
+
+    def test_disabled_paid_step_names_itself(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ключ ступень не включает (решение 12.10.2026): выключенная называет флаг,
+        а не «вошло 0» — и не «нет ключа»."""
+        monkeypatch.setattr(contact_search.cfg, "PAID_SEARCH_ENABLED", False)
+        monkeypatch.setattr(contact_search.cfg, "HUNTER_API_KEY", "k-test")
+        contact_search._print_report(_report(provider_entered=0))
+        said = capsys.readouterr().out
+        assert "3. платный сервис    выключен настройкой (CONTACTS_PAID_SEARCH_ENABLED)" in said
+        assert "вошло 0, нашли" not in said
 
     def test_forms_are_not_split_into_queued_and_left_out(
         self, capsys: pytest.CaptureFixture[str]

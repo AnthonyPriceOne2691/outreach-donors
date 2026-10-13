@@ -192,6 +192,7 @@ class TestTheWholePass:
 
         site = Site(default=DOWN)
         monkeypatch.setattr("backend.features.contacts.search._paid_step", paid_step)
+        monkeypatch.setattr("backend.config.contacts.PAID_SEARCH_ENABLED", True)  # флаг ступени
         monkeypatch.setattr(
             "backend.features.contacts.search.guarded_client",
             lambda **_kw: httpx.AsyncClient(transport=httpx.MockTransport(site)),

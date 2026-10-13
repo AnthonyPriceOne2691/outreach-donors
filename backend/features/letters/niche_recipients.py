@@ -4,6 +4,14 @@
 когда человек сказал «пишем»; дальше — те же правила, что у любого адресата
 Этапа 2 (`recipients.Recipients`): свежий адрес, не в стоп-листе, не писали.
 
+**Сам бизнес — не из «кому не пишем»** (сверка ТЗ 12.10.2026: список действует на всех
+путях). Правило — общее с донорами, на самом сайте (`runs.exclusions.site_not_writing`):
+зона, платформа, соцсеть, крупное СМИ, справочник — по имени, крупный сайт — по DR его
+замера в прогоне. Список рекламодателей обхода (`crawl/denylist.py`, `crawl/big_sites.py`)
+здесь не годится: он про ссылку на странице донора — документ, подвал, счётчик,
+сокращатель, свой бренд донора, — а DR берёт пакетом у Ahrefs для кандидатов обхода;
+бизнес ниши — домен из выдачи, его DR уже куплен прогоном.
+
 **О чём письмо.** Ссылки, которую «мы видели», у бизнеса ниши нет, и оффер
 строится на другом (`compose.NicheOffer`): пример нашей площадки — принятый
 донор того же прогона со свежей ценой, тема — ключи, по которым бизнес
@@ -32,7 +40,7 @@ from backend.features.donors.price_freshness import PriceState, price_is
 from backend.features.letters.compose import NicheOffer
 from backend.features.letters.offer_addresses import advertiser_addresses
 from backend.features.letters.recipients import Candidate, Recipients
-from backend.features.runs.exclusions import not_writing
+from backend.features.runs.exclusions import not_writing, site_not_writing
 
 #: Решение по донору, после которого он — наша площадка.
 _ACCEPTED = "accepted"
@@ -62,6 +70,7 @@ class NicheRecipients(Recipients):
                 AdvertiserModel.source == NICHE,
                 AdvertiserModel.confirmed_by_human.is_(True),
                 AdvertiserModel.found_run_id.is_not(None),
+                ~site_not_writing(DomainModel.id, DomainModel.host),
             )
             .distinct(DomainModel.id)
             .order_by(DomainModel.id, *preferred_first())
@@ -93,9 +102,10 @@ class NicheRecipients(Recipients):
         """Воронка бизнесов ниши, последняя ступень — кому можно писать сейчас.
 
         «Ещё не писали» здесь — ровно те, кого возьмёт сборка: с решением
-        «пишем», свежим адресом, вне стоп-листа и с примером площадки. Ноль
-        при ненулевом «с адресом» — либо написаны все, либо у их прогонов нет
-        принятого донора со свежей ценой.
+        «пишем», вне «кому не пишем», со свежим адресом, вне стоп-листа и с примером
+        площадки. Ноль при ненулевом «с адресом» — либо написаны все, либо у их
+        прогонов нет принятого донора со свежей ценой, либо сами они — из «кому
+        не пишем».
         """
         ready = await self.niche_candidates(limit=_EVERYONE)
         return {**await niche_funnel(self._session), "ещё не писали": len(ready)}
