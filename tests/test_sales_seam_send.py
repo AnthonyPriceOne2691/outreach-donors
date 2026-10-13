@@ -97,6 +97,9 @@ async def _five_new_boxes(session: AsyncSession, world: w.World, started: dateti
     boxes = [world.sales_box, *[await w.mailbox(session, email) for email in MORE_BOXES]]
     for box in boxes:
         box.warmup_started_at = started
+        # Первое письмо ящика — в день старта: «день N» разгона. Отметку первого письма
+        # (`warmup_first_sent_at`) заводит общий PR разгона; до него это просто атрибут объекта.
+        setattr(box, "warmup_first_sent_at", started)  # noqa: B010
     await session.flush()
     return [box.email for box in boxes]
 
@@ -412,6 +415,14 @@ async def test_the_sales_trial_is_cleaned_only_while_the_allowlist_names_its_inb
 # --- отписка со страницы письма продаж ---------------------------------------------------------
 
 
+@pytest.mark.xfail(
+    strict=False,  # общий PR его закрывает — тест переписать после слияния
+    reason=(
+        "решение владельца 12.10: отписка из письма продаж закрывает адрес человека во всех "
+        "направлениях, а не компанию — его вводит общий PR стыков отправки; после слияния тест "
+        "переписать: письмо коллеги уходит, добивка лида погашена, его адрес — в стоп-листе без этапа"
+    ),
+)
 async def test_unsubscribing_from_a_sales_letter_stops_every_letter_to_that_company(
     session: AsyncSession, world: w.World, client: AsyncClient
 ) -> None:
