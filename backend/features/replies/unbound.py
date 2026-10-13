@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 
-from sqlalchemy import ColumnElement, and_, select
+from sqlalchemy import ColumnElement, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import Stage
@@ -78,12 +78,22 @@ async def page(
 
 async def total(session: AsyncSession, *, stages: Collection[Stage]) -> int:
     """Сколько непривязанных видит спрашивающий — то же условие, что у страницы."""
+    if not frozenset(Stage) - frozenset(stages):
+        return int(await session.scalar(select(func.count(ReplyModel.id)).where(is_unbound())) or 0)
     return len(await _shown(session, stages))
 
 
 async def _shown(session: AsyncSession, stages: Collection[Stage]) -> list[int]:
-    """Номера непривязанных ответов этапов `stages` и без этапа — новые первыми. Из базы —
-    номера и адреса, без текстов: текст до двухсот тысяч знаков (`inbound.MAX_BODY_CHARS`)."""
+    """Номера непривязанных ответов этапов `stages` и без этапа — новые первыми. Текстов
+    не берёт: текст до двухсот тысяч знаков (`inbound.MAX_BODY_CHARS`). Адреса — только когда
+    спрашивающий видит не все этапы: этап по нашему адресу нужен, чтобы скрыть чужой, а число
+    меню у того, кто видит всё, адресов не берёт (`test_threads_lean`)."""
+    hidden = frozenset(Stage) - frozenset(stages)
+    if not hidden:
+        found = await session.scalars(
+            select(ReplyModel.id).where(is_unbound()).order_by(ReplyModel.id.desc())
+        )
+        return list(found)
     rows = (
         await session.execute(
             select(ReplyModel.id, ReplyModel.to_addresses)
@@ -91,9 +101,6 @@ async def _shown(session: AsyncSession, stages: Collection[Stage]) -> list[int]:
             .order_by(ReplyModel.id.desc())
         )
     ).all()
-    hidden = frozenset(Stage) - frozenset(stages)
-    if not hidden:
-        return [number for number, _ in rows]
     domains = await recipient_stage.known_domains(session)
     return [
         number
