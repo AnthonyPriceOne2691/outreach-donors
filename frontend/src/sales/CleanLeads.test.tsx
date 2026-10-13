@@ -90,9 +90,15 @@ const KB = {
   limits: { title: 255, text: 20000, tag: 64, tags: 20 },
 };
 
-const FIXTURE: SalesCleanView = { hypothesis_id: 1, waiting: 2, paid: false };
-/** Живая проверка: сервер называет свежее число — не то, что в списке гипотез (2). */
-const LIVE: SalesCleanView = { hypothesis_id: 1, waiting: 7, paid: true };
+const FIXTURE: SalesCleanView = { hypothesis_id: 1, waiting: 2, paid: false, month: null };
+/** Живая проверка: сервер называет свежее число — не то, что в списке гипотез (2), — и сколько
+ *  проверок ушло в этом месяце под своим потолком. */
+const LIVE: SalesCleanView = {
+  hypothesis_id: 1,
+  waiting: 7,
+  paid: true,
+  month: 'Проверок адреса в этом месяце 120 из 1500',
+};
 
 function job(id: string, state: string, report: Record<string, unknown> | null = null) {
   return {
@@ -239,6 +245,9 @@ describe('очистка на вкладке лидов', () => {
     const dialog = await screen.findByRole('dialog', {}, SCREEN_WAIT);
     expect(
       within(dialog).getByText('Проверка адресов платная: до 7 запросов Hunter.'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('Проверок адреса в этом месяце 120 из 1500.'),
     ).toBeInTheDocument();
     // Фокус — на «Отмене»: Enter по привычке денег не тратит.
     const cancel = within(dialog).getByRole('button', { name: 'Отмена' });
@@ -408,15 +417,15 @@ describe('итог очистки словами', () => {
     ).toBe(
       'Проверено 5: готово 1, отклонено 3 (домен не принимает почту — 2, дубль — 1), ' +
         'не проверено 1. Платных проверок адреса: 1. Платная часть остановлена: квота ' +
-        'исчерпана: monthly — непроверенные остались новыми, повторите очистку, когда ' +
-        'причина снята.',
+        'исчерпана: monthly — непроверенные остались в прежнем статусе, повторите очистку, ' +
+        'когда причина снята.',
     );
   });
 
   it('непроверенные без остановки — повторит следующая; пустой проход — так и сказано', () => {
     expect(cleanLine({ ...REPORT, ready: 0, rejected: {}, unverified: 2 })).toBe(
       'Проверено 2: готово 0, отклонено 0, не проверено 2. ' +
-        'Непроверенные остались новыми — следующая очистка повторит их.',
+        'Непроверенные остались в прежнем статусе — следующая очистка повторит их.',
     );
     expect(cleanLine({ ...REPORT, checked: 0 })).toBe(
       'Лидов, ждущих очистки, не было — проверять нечего.',

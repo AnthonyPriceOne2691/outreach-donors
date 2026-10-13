@@ -4,10 +4,11 @@
 размещение»; сбору продаж нужен другой вопрос — «подходит ли сайт под сегмент», и сегмент
 у каждой гипотезы свой: описание гипотезы в базе (репозиторий публичный). Форма — та же:
 
-1. **Правила до модели** — бесплатные и точные: платформа из денилиста и госзона
-   отсекаются, пустой текст и страница-отказ идут человеку (правила — судьи площадки,
-   без копии). Правило режет в любом режиме: это знание, а не мнение модели, мерить
-   его нечего.
+1. **Правила до модели** — бесплатные и точные: «кому не пишем» по имени домена —
+   общее правило прогона доноров (`runs/exclusions.by_name`: зона, платформа, соцсети,
+   крупные СМИ, справочники) его словами — отсекается, пустой текст и страница-отказ идут
+   человеку (правила текста — судьи площадки, без копии). Правило режет в любом режиме:
+   это знание, а не мнение модели, мерить его нечего.
 2. **Модель — строгая форма JSON `{fit, quote, why}`**: «да», «нет», «не понять».
 3. **Цитата — дословно из текста сайта**, внутри одной строки, не короче двух слов;
    иначе «на проверку»: цитата, которой нет в тексте, — признак того, что модель
@@ -34,8 +35,8 @@ from typing import Any
 from backend.config import llm as llm_cfg
 from backend.config.judge import JudgeMode
 from backend.features.donors.home_signals import HomeSignals, looks_denied
-from backend.features.donors.publisher_judge import is_platform, is_public_zone
 from backend.features.keywords.hygiene import normalize
+from backend.features.runs.exclusions import NOT_WRITING_WORDS, by_name
 from backend.features.sales.segment_models import Decider, Lane
 from backend.shared.llm import ModelClient, Refusal, content_of, is_reasoning, post_chat, tokens_of
 
@@ -170,13 +171,12 @@ def _ruled(lane: Lane, reason: str) -> SegmentVerdict:
 
 
 def by_host(host: str) -> SegmentVerdict | None:
-    """Правила по одному имени домена — до главной: платформа и госзона режутся сразу,
-    сайт такому домену не открываем вовсе."""
-    if is_platform(host):
-        return _ruled(Lane.REJECT, "платформа из денилиста: это площадка, а не сайт компании")
-    if is_public_zone(host):
-        return _ruled(Lane.REJECT, "государственная или учебная зона: не компания сегмента")
-    return None
+    """«Кому не пишем» по одному имени домена — общим правилом прогона доноров
+    (`runs/exclusions.by_name`: зона, платформа, соцсети, крупные СМИ, справочники) и его
+    словами, до главной: сайт такому домену не открываем вовсе. DR > 80 — не здесь: метрик у
+    кандидата нет, а замер платный."""
+    why = by_name([host]).get(host)
+    return None if why is None else _ruled(Lane.REJECT, NOT_WRITING_WORDS[why])
 
 
 def by_text(text: SiteText) -> SegmentVerdict | None:
@@ -191,7 +191,7 @@ def by_text(text: SiteText) -> SegmentVerdict | None:
 
 def before_model(host: str, text: SiteText) -> SegmentVerdict | None:
     """Всё, что решается без модели и не стоит ни одного токена. Порядок — от
-    окончательного к осторожному: платформа и госзона режутся, пустое и отказ — человеку."""
+    окончательного к осторожному: «кому не пишем» по имени режется, пустое и отказ — человеку."""
     return by_host(host) or by_text(text)
 
 

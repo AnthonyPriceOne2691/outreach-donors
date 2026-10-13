@@ -17,12 +17,18 @@ import httpx
 import pytest
 from backend.config import sales as sales_cfg
 from backend.features.contacts.mx import MailRoute
+from backend.features.contacts.provider import (
+    ProviderBlockedError,
+    ProviderError,
+    ProviderRateLimitError,
+)
+from backend.features.core.domain import MessageStatus
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.letters.sending import NotReadyError, Sending
-from backend.features.sales import clean_jobs, cleaning, queue, verifier
+from backend.features.sales import clean_jobs, cleaning, mail, queue, verifier
 from backend.features.sales.models import LeadStatus, SalesLeadModel
-from backend.features.sales.verifier import Verdict
+from backend.features.sales.verifier import TOO_OFTEN, Verdict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
@@ -47,6 +53,13 @@ class LiveVerifier:
     async def verify(self, email: str) -> Verdict:
         self.asked.append(email)
         return Verdict("valid", 88, units=1)
+
+
+@pytest.fixture(autouse=True)
+def _month_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Месячный потолок проверок у живого проверяльщика задан с запасом: здесь не о нём
+    (`tests/test_sales_verify_cap.py`)."""
+    monkeypatch.setattr("backend.config.sales.VERIFIER_MONTH_CAP", "100000")
 
 
 @pytest.fixture(autouse=True)
@@ -134,6 +147,66 @@ async def test_cleaning_with_the_live_verifier_checks_the_fixture_lead_again(
     assert verifier.unproven(made_up) is None
     again = await _build(session, world, w.CorridorRewriter())
     assert again.prepared == 2
+
+
+class Refusing:
+    """Живой проверяльщик, который отказывает: сеть, ключ, частота."""
+
+    name = "hunter"
+
+    def __init__(self, refusal: ProviderError) -> None:
+        self.refusal = refusal
+        self.asked: list[str] = []
+
+    async def verify(self, email: str) -> Verdict:
+        self.asked.append(email)
+        raise self.refusal
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        ProviderError("провайдер не ответил (HTTP 503) — повторим следующей очисткой"),
+        ProviderBlockedError("ключ проверки адресов не принят провайдером (HTTP 401)"),
+        ProviderRateLimitError(TOO_OFTEN),
+    ],
+)
+async def test_failed_recheck_keeps_a_written_lead_ready_in_its_dialog_and_still_unproven(
+    session: AsyncSession, world: w.World, monkeypatch: pytest.MonkeyPatch, refusal: ProviderError
+) -> None:
+    """Пилотным лидам с выдуманным вердиктом уже писали; включили живой, а Hunter отказал (ключ,
+    сеть, частота). Лид остаётся `ready` с прежним вердиктом и причиной: `new` снял бы его с
+    цепочки — проход добивок закрыл бы её навсегда (`LeadStoppedError`), а черновик ответа ему
+    не писался бы. Первое письмо по-прежнему держит `unproven`, следующая очистка возьмёт снова.
+    Второй лид — тот, кого проход не спросил после остановки платной части."""
+    monkeypatch.setattr(cleaning, "VERIFY_CONCURRENCY", 1)
+    _provider(monkeypatch, "fixture")
+    jane = await w.lead(session, world.hypothesis_id, JANE, verification_status="fixture:valid")
+    olga = await w.lead(session, world.hypothesis_id, OLGA, verification_status="fixture:valid")
+    await _build(session, world, w.CorridorRewriter())
+    for letter in await session.scalars(select(MessageModel)):
+        letter.status = MessageStatus.SENT  # первые письма ушли на пилоте
+    await session.flush()
+    _provider(monkeypatch, "live")
+
+    report = await cleaning.clean(session, Refusing(refusal), hypothesis_id=world.hypothesis_id)
+
+    halted = isinstance(refusal, verifier.STOPS)
+    assert (report.checked, report.ready, report.unverified, report.verified) == (2, 0, 2, 0)
+    for lead in (jane, olga):
+        await session.refresh(lead)
+        assert (lead.status, lead.verification_status, lead.verification_score) == (
+            LeadStatus.READY,
+            "fixture:valid",
+            None,
+        )
+        assert lead.cleaning_note == f"проверка не выполнена: {refusal}"
+        dialog = await mail.lead_dialog(session, lead.id)
+        assert dialog is not None
+        assert await mail.unwritable(session, dialog) is None  # добивки и ответы идут
+        assert verifier.unproven(lead) == verifier.MADE_UP
+    assert report.stopped == (str(refusal) if halted else None)
+    assert (await clean_jobs.waiting(session, world.hypothesis_id)).count == 2
 
 
 async def test_cleaning_with_the_fixture_verifier_does_not_take_ready_leads(

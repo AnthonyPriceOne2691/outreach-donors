@@ -67,7 +67,15 @@ from backend.features.letters import guards
 from backend.features.letters.chain import ANSWER_STEP, FIRST_STEP
 from backend.features.letters.sending import NotReadyError, SendError, SuppressedError
 from backend.features.letters.uniqueness import corridor_verdict
-from backend.features.sales import chain, connection, followup_texts, handoff, letter, sender
+from backend.features.sales import (
+    autosend,
+    chain,
+    connection,
+    followup_texts,
+    handoff,
+    letter,
+    sender,
+)
 from backend.features.sales.intake import host_key
 from backend.features.sales.lead_edit import EDITED, edited
 from backend.features.sales.models import (
@@ -86,6 +94,13 @@ logger = logging.getLogger(__name__)
 class LeadStoppedError(SuppressedError):
     """Этому лиду писать больше нельзя: снят, передан телемаркетологу, в стоп-листе.
     Для цепочки — как стоп-лист: проход добивок её останавливает."""
+
+
+class LeadMissingError(NotReadyError):
+    """У письма продаж нет лида: его собрала не сборка очереди продаж, или связь с лидом
+    пропала. Письмо не уйдёт, пока его не уберут из очереди. Наследник «не готово», а не
+    просто отказ: итог пачки называет его «письмо не готово к отправке» (`letters/batch.why`),
+    а не «почта отказала» — почта тут ни при чём (ревью стыков, хвост R1 5.3)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,7 +158,7 @@ async def recipient(session: AsyncSession, message: MessageModel, what: str) -> 
     found = await connection.check(session, what)
     dialog = await linked(session, message.thread_id)
     if dialog is None:
-        raise SendError(
+        raise LeadMissingError(
             f"{what}: у письма продаж нет лида — его собрала не сборка очереди продаж. "
             "Письмо стоит убрать из очереди"
         )
@@ -229,7 +244,7 @@ async def check(session: AsyncSession, message: MessageModel) -> None:
     what = f"Письмо №{message.id}"
     dialog = await linked(session, message.thread_id)
     if dialog is None:
-        raise SendError(f"{what}: у письма продаж нет лида — письмо стоит убрать из очереди")
+        raise LeadMissingError(f"{what}: у письма продаж нет лида — письмо стоит убрать из очереди")
     await _writable(session, dialog, what)
     if message.step == FIRST_STEP and (why := _first_problem(dialog, message)) is not None:
         raise NotReadyError(f"{what} не уходит: {why}")
@@ -267,6 +282,13 @@ async def answer(session: AsyncSession, thread_id: int, body: str, what: str) ->
 async def connected(session: AsyncSession) -> bool:
     """Подключены ли продажи — на уровне направления, без цепочки отдельного лида."""
     return not await connection.missing(session)
+
+
+async def batch(what: str) -> None:
+    """Пачка продаж (`core/stages.check_batch`): пока включена автоотправка — отказ словами,
+    письма уходят проходом по одному с ящика (`autosend.py`); выключена — пачка как была."""
+    if autosend.switched_on():
+        raise SalesNotConnectedError(what, autosend.BY_ITSELF, words=autosend.BATCH_OFF)
 
 
 async def followup(session: AsyncSession, thread_id: int | None, step: int) -> SalesFollowup:

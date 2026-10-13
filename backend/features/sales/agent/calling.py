@@ -85,7 +85,11 @@ async def ask(
     """
     hidden = masking.mask(user)
     if masking.leaked(hidden.text) is not None:
-        logger.error("%s: адрес остался после маскирования — запрос не отправлен", topic)
+        logger.error(
+            "%s: адрес остался после маскирования — запрос не отправлен",
+            topic,
+            extra={"topic": topic},
+        )
         return Refusal(
             RefusalKind.LOCAL,
             "маскирование не сработало — адрес ушёл бы в модель, запрос не отправлен",

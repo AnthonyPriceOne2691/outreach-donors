@@ -4,6 +4,14 @@
 (`senders.warmup_state`): столько первых писем ящики отправят за день. В очереди меньше — не
 хватает разницы; столько и собирается, но не больше предела сборки (`LIMIT_MAX`).
 
+**В очереди — только письма, которые уйдут** (`queued`, ревью стыков отправки). Письмо, собранное
+с прежними подписью и адресом «Отправителя» или до правки лида, отправка не пустит («соберите
+очередь заново»), а письмо лида, которого сняли (стоп-лист продаж, отклонён) или чей адрес проверен
+выдуманным проверяльщиком при живом, не уйдёт вовсе. Считай проход их очередью — после правки
+подписи или пополнения стоп-листа он ждал бы писем, которые не уйдут никогда, и поток стоял бы
+молча. Письма первого рода — повод собрать их гипотезу: сборка пересобирает их на том же месте,
+как кнопкой; второго — сборка не трогает, и в счёт они не идут.
+
 **Та же сборка, что у кнопки** (`queue_start.start`, задача `queue_jobs.build_sales_queue`):
 одна сборка гипотезы за раз, потолок модели продаж — до каждого письма, остановка после трёх
 лидов подряд вне коридора — внутри сборки. Проход сверх того:
@@ -14,7 +22,8 @@
   соберёт её кнопкой, поправив цепочку: иначе каждый проход тратил бы модель на те же лиды впустую.
 
 **Какие гипотезы.** Признака «активна» у гипотезы нет — собираются те, у кого есть полная
-цепочка хоть на одном языке и лиды `ready` без письма.
+цепочка хоть на одном языке и лиды `ready` без письма или письма в очереди, которые сборка
+соберёт заново.
 
 **Недостача — по очереди.** Проход отдаёт всю недостачу одной гипотезе: той, чья сборка (кнопкой
 или сама) начиналась давнее всех по журналу; ни разу не собранная — первой. Не хватило её лидов —
@@ -32,19 +41,20 @@ from datetime import UTC, datetime
 from redis.exceptions import RedisError
 from rq import Queue
 from rq.exceptions import DuplicateJobError
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import sales as sales_cfg
 from backend.config import storage
 from backend.features.access.repository import AccessRepository
 from backend.features.core import usage
-from backend.features.core.domain import AuditAction, Stage
+from backend.features.core.domain import AuditAction, MessageStatus, Stage
 from backend.features.core.models.access import AuditLogModel
-from backend.features.core.models.outreach import SenderModel
-from backend.features.letters.repository import LetterRepository
+from backend.features.core.models.outreach import MessageModel, SenderModel
+from backend.features.letters.chain import FIRST_STEP
 from backend.features.outreach.senders import warmup_state
-from backend.features.sales import chain, chain_text, connection, corridor
+from backend.features.sales import chain, chain_text, connection, corridor, letter, sender
+from backend.features.sales.lead_edit import edited
 from backend.features.sales.models import (
     LeadStatus,
     SalesHypothesisModel,
@@ -53,6 +63,7 @@ from backend.features.sales.models import (
 )
 from backend.features.sales.queue_start import LIMIT_MAX, RUNNING, build_job_id, start
 from backend.features.sales.usage_cap import sales_cap
+from backend.features.sales.verifier import unproven
 from backend.shared.queue import sales_queue
 
 logger = logging.getLogger(__name__)
@@ -73,7 +84,7 @@ class Plan:
 
     #: Сумма дневных капов ящиков продаж с разгоном.
     need: int
-    #: Первых писем продаж в очереди.
+    #: Первых писем продаж в очереди, которые уйдут как есть (`queued`).
     have: int
     hypothesis_id: int | None = None
     name: str = ""
@@ -97,14 +108,65 @@ async def needed(session: AsyncSession, now: datetime) -> int:
     return sum(warmup_state(box, now=now).allowance for box in boxes)
 
 
-async def candidates(session: AsyncSession) -> list[tuple[int, str]]:
-    """Гипотезы с лидами `ready` без письма и полной цепочкой хоть на одном языке — по номеру."""
+@dataclass(frozen=True, slots=True)
+class Queued:
+    """Первые письма продаж в очереди глазами отправки: какие уйдут как есть и какие сборка
+    соберёт заново. Тем же счётом строка автоотправки узнаёт, что не уйдёт ни одно письмо окна
+    (`auto_lines.autosend_line`)."""
+
+    #: Письма, которые уйдут как есть.
+    ready: frozenset[int] = frozenset()
+    #: Письма, собранные с прежними подписью и адресом или до правки лида: их соберёт сборка.
+    redo: frozenset[int] = frozenset()
+    #: Гипотезы этих писем.
+    stale: frozenset[int] = frozenset()
+
+    @property
+    def going(self) -> int:
+        return len(self.ready)
+
+
+async def queued(session: AsyncSession) -> Queued:
+    """Первые письма продаж в очереди: уйдут как есть — в счёт; собраны с прежними подписью и
+    адресом или до правки лида (`letter.problem`, `lead_edit.edited` — отказ отправки) — гипотеза
+    к сборке; лид снят или проверен выдуманным проверяльщиком при живом — ни то ни другое."""
+    found = await sender.read(session)
     rows = await session.execute(
-        select(SalesHypothesisModel.id, SalesHypothesisModel.name)
-        .join(SalesLeadModel, SalesLeadModel.hypothesis_id == SalesHypothesisModel.id)
+        select(MessageModel, SalesLeadModel)
+        .join(SalesThreadModel, SalesThreadModel.thread_id == MessageModel.thread_id)
+        .join(SalesLeadModel, SalesLeadModel.id == SalesThreadModel.lead_id)
+        .where(MessageModel.status == MessageStatus.QUEUED, MessageModel.step == FIRST_STEP)
+    )
+    ready: set[int] = set()
+    redo: dict[int, int] = {}
+    for message, lead in rows.tuples().all():
+        if lead.status is not LeadStatus.READY or unproven(lead) is not None:
+            continue
+        if letter.problem(message.body or "", found) is not None or edited(lead, message):
+            redo[message.id] = lead.hypothesis_id
+        else:
+            ready.add(message.id)
+    return Queued(frozenset(ready), frozenset(redo), frozenset(redo.values()))
+
+
+async def candidates(
+    session: AsyncSession, stale: frozenset[int] = frozenset()
+) -> list[tuple[int, str]]:
+    """Гипотезы с полной цепочкой хоть на одном языке и лидами `ready` без письма — или с
+    письмами в очереди, которые сборка соберёт заново (`stale`), — по номеру."""
+    unwritten = (
+        select(SalesLeadModel.hypothesis_id)
         .outerjoin(SalesThreadModel, SalesThreadModel.lead_id == SalesLeadModel.id)
         .where(SalesLeadModel.status == LeadStatus.READY, SalesThreadModel.thread_id.is_(None))
-        .group_by(SalesHypothesisModel.id, SalesHypothesisModel.name)
+    )
+    rows = await session.execute(
+        select(SalesHypothesisModel.id, SalesHypothesisModel.name)
+        .where(
+            or_(
+                SalesHypothesisModel.id.in_(unwritten),
+                SalesHypothesisModel.id.in_(sorted(stale)),
+            )
+        )
         .order_by(SalesHypothesisModel.id)
     )
     return [item for item in rows.tuples().all() if await _has_chain(session, item[0])]
@@ -153,22 +215,24 @@ def _streak_stopped(jobs: Queue, hypothesis_id: int) -> bool:
 
 async def plan(session: AsyncSession, jobs: Queue, *, now: datetime) -> Plan:
     """Хватает ли очереди и кого собрать — без записи и без постановки."""
-    have = await LetterRepository(session).queued_count(stage=Stage.SALES)
-    base = Plan(await needed(session, now), have)
+    queue = await queued(session)
+    base = Plan(await needed(session, now), queue.going)
     if not base.short:
         return base
-    found = await _choose(session, jobs, now)
+    found = await _choose(session, jobs, now, queue.stale)
     if isinstance(found, str):
         return replace(base, why=found)
     return replace(base, hypothesis_id=found[0], name=found[1])
 
 
-async def _choose(session: AsyncSession, jobs: Queue, now: datetime) -> tuple[int, str] | str:
+async def _choose(
+    session: AsyncSession, jobs: Queue, now: datetime, stale: frozenset[int]
+) -> tuple[int, str] | str:
     """Чью сборку поставить — или почему ничью, словами."""
     why = await _blocked(session, now)
     if why is not None:
         return why
-    found = await candidates(session)
+    found = await candidates(session, stale)
     if not found:
         return NO_CANDIDATES
     every = await session.execute(select(SalesHypothesisModel.id, SalesHypothesisModel.name))
@@ -222,6 +286,9 @@ async def run(session: AsyncSession, jobs: Queue, *, now: datetime) -> Plan:
             "писем": found.limit,
             "не хватало": found.short,
         },
+        # Этап — в записи: журнал прячет её от учётки без права «Продажи» не по словам
+        # «действия», которые правят (`access/journal.sales_entry`).
+        stage=Stage.SALES,
     )
     await session.commit()
     logger.info(

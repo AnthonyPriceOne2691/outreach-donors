@@ -90,8 +90,17 @@ async def handed(session: AsyncSession, thread_id: int | None) -> bool:
 
 async def pass_on(session: AsyncSession, ask: Ask, start: HandOver) -> Said | None:
     """Передать лида и записать итог в снимок ответа. `None` — снимок не записать: причина
-    только в журнале, а вызывающий оставляет свой итог как был."""
+    только в журнале, а вызывающий оставляет свой итог как был.
+
+    Итог «передан» ложится в снимок до передачи и уходит в базу её коммитом — вместе со строкой
+    передачи (`handoff.start` коммитит сам). Вторым коммитом он пропадал бы при сбое базы между
+    ними: лид у телемаркетолога, а ответ ждёт человека, и повтор задачи его уже не берёт — «уже
+    разобран» (ревью стыков, хвост R2 7.1). Отказ передачи итог перезаписывает (`_refused`)."""
     try:
+        said = await _settled(session, ask)
+        reply = await session.get(ReplyModel, ask.reply_id)
+        if reply is not None:
+            reply.model_parse = _noted(reply, said)
         await start(session, ask.thread_id)
     except Exception as exc:
         logger.exception(
@@ -99,11 +108,7 @@ async def pass_on(session: AsyncSession, ask: Ask, start: HandOver) -> Said | No
             extra={"reply": ask.reply_id, "thread_id": ask.thread_id},
         )
         return await _refused(session, ask, exc)
-    said = await _settled(session, ask)
-    reply = await session.get(ReplyModel, ask.reply_id)
-    if reply is not None:
-        reply.model_parse = _noted(reply, said)
-        await session.commit()
+    await session.commit()  # передача без новой работы (`handoff._reopen`) сама не коммитит
     return said
 
 

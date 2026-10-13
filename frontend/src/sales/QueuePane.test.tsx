@@ -51,6 +51,12 @@ const HYPOTHESES: HypothesesView = {
   module_enabled: true,
 };
 
+/** Строка сервера вместо кнопки пачки, пока включена автоотправка (`auto_lines.batch_line`). */
+const BATCH_OFF =
+  'Пачкой письма продаж не уходят, пока включена автоотправка: письма уходят сами, по одному с ' +
+  'ящика за проход и с паузой между письмами ящика; отправить очередь вручную — выключить ' +
+  'автоотправку (SALES_AUTOSEND).';
+
 const READY: SalesQueueView = {
   hypothesis_id: 5,
   connected: true,
@@ -72,6 +78,7 @@ const READY: SalesQueueView = {
     enabled: false,
     line: 'Автосборка выключена — очередь собирают кнопкой «Собрать очередь»; включается настройкой SALES_AUTOBUILD.',
   },
+  batch_off: null,
 };
 
 const OFF: SalesQueueView = {
@@ -269,6 +276,7 @@ describe('очередь писем продаж', () => {
         ...READY,
         autosend: { enabled: true, line: sending },
         autobuild: { enabled: true, line: building },
+        batch_off: BATCH_OFF,
       },
     );
 
@@ -276,8 +284,28 @@ describe('очередь писем продаж', () => {
     expect(screen.getByText(building)).toBeInTheDocument();
     expect(screen.getByTitle('автоотправка включена')).toBeInTheDocument();
     expect(screen.getByTitle('автосборка включена')).toBeInTheDocument();
-    // Кнопки остаются: автоотправка — поверх них, а не вместо.
+    // Сборка остаётся: очередь пополняют и руками.
+    expect(screen.getByRole('button', { name: 'Собрать очередь' })).toBeEnabled();
+  });
+
+  it('автоотправка включена — кнопки пачки нет, вместо неё строка сервера (решение владельца 13.10)', async () => {
+    await openQueue(
+      {},
+      { ...READY, autosend: { enabled: true, line: 'идёт' }, batch_off: BATCH_OFF },
+    );
+
+    expect(screen.queryByRole('button', { name: /Отправить очередь/ })).not.toBeInTheDocument();
+    expect(screen.getByText(BATCH_OFF)).toBeInTheDocument();
+    // Слова о пачке «берёт очередь целиком» — о кнопке, которой нет: их тоже нет.
+    expect(screen.queryByText(/Пачка берёт очередь продаж целиком/)).not.toBeInTheDocument();
+  });
+
+  it('автоотправка выключена — кнопка пачки как была, строки вместо неё нет', async () => {
+    await openQueue();
+
     expect(screen.getByRole('button', { name: 'Отправить очередь · 7' })).toBeEnabled();
+    expect(screen.getByText(/Пачка берёт очередь продаж целиком/)).toBeInTheDocument();
+    expect(screen.queryByText(BATCH_OFF)).not.toBeInTheDocument();
   });
 
   it('не подключены: всё, чего не хватает, названо, кнопки закрыты', async () => {

@@ -38,7 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps import db_session, needs
 from backend.api.sales.chain_schemas import ChainState
 from backend.features.access.repository import AccessRepository
-from backend.features.core.domain import AuditAction, Permission
+from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.letters import batch
 from backend.features.letters.uniqueness import percent_text
@@ -102,6 +102,9 @@ class SalesQueueView(BaseModel):
     autosend: AutoLineView
     #: Автосборка очереди: хватает ли на сутки, кого соберёт или почему нет, последняя сама.
     autobuild: AutoLineView
+    #: Почему кнопки пачки нет — строкой вместо неё: включена автоотправка, письма уходят сами
+    #: (решение владельца 13.10). `null` — кнопка есть.
+    batch_off: str | None = None
 
 
 class SalesQueueBody(BaseModel):
@@ -140,6 +143,7 @@ async def read_queue(
         batch_max=batch.BATCH_MAX,
         autosend=AutoLineView.of(await auto_lines.autosend_line(session, now)),
         autobuild=AutoLineView.of(await auto_lines.autobuild_line(session, sales_queue(), now)),
+        batch_off=auto_lines.batch_line(),
     )
 
 
@@ -167,6 +171,8 @@ async def build_queue(
             "гипотеза": hypothesis.name if hypothesis else body.hypothesis_id,
             "писем": body.limit,
         },
+        # Этап — в записи, а не в словах «действия» (`access/journal.sales_entry`).
+        stage=Stage.SALES,
     )
     await session.commit()
     return SalesQueueQueued(job_id=str(job.id))

@@ -68,7 +68,7 @@ from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import CampaignModel
-from backend.features.core.stages import check_connected
+from backend.features.core.stages import check_batch
 from backend.features.crawl.niche import LINKS, NICHE, WHOM
 from backend.features.letters import batch, compose, draft, review, unknown_outcome
 from backend.features.letters.building import run_scope
@@ -367,10 +367,11 @@ async def send_queue(
     отправляет только их письма, на «Рекламодателям» — только письма по найденной
     ссылке. Без аудитории — по ссылке, как до бизнесов ниши.
     """
-    # Пачка продаж — с правом «Продажи» (П2); не подключённые к почте продажи (ответ моста
-    # `core/stages`) — отказ словами (409). Оба — до счёта и до задачи.
+    # Пачка продаж — с правом «Продажи» (П2); не подключённые к почте продажи и включённая
+    # автоотправка продаж (ответ моста `core/stages`) — отказ словами (409). Всё — до счёта и
+    # до задачи.
     require_stage(actor(author), body.stage, LETTERS)
-    await check_connected(session, body.stage, "Очередь писем не отправлена")
+    await check_batch(session, body.stage, "Очередь писем не отправлена")
     waiting = await LetterRepository(session).queued_count(stage=body.stage, audience=body.audience)
     if waiting == 0:
         raise HTTPException(

@@ -53,7 +53,12 @@ from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.segment_estimate import Ask, estimate
 from backend.features.sales.segment_jobs import SEGMENT_JOB, segment_job_id
-from backend.features.sales.segment_models import SalesSegmentRunModel, Stage
+from backend.features.sales.segment_models import (
+    Lane,
+    SalesSegmentCandidateModel,
+    SalesSegmentRunModel,
+    Stage,
+)
 from backend.features.serp import markets
 from backend.shared.queue import sales_queue, with_retries
 
@@ -257,5 +262,28 @@ async def decide(
     host = await session.scalar(
         select(DomainModel.host).where(DomainModel.id == candidate.domain_id)
     )
+    await _journal_decision(session, author.id, candidate, str(host))
     await session.commit()
     return CandidateRow.of(candidate, str(host))
+
+
+async def _journal_decision(
+    session: AsyncSession, author_id: int, candidate: SalesSegmentCandidateModel, host: str
+) -> None:
+    """Решение — в журнал, как решение по сайту на «Отборе»: оно меняет, кому уйдёт письмо, и
+    по нему считают, как ошибается судья сегмента. Этап — в записи (без права «Продажи» её не
+    видно); «действие» отличает её от решения по донору."""
+    verdict = candidate.verdict or ""
+    await AccessRepository(session).record(
+        AuditAction.SITE_REVIEWED,
+        author_id=author_id,
+        target=f"sales_segment_candidate:{candidate.id}",
+        details={
+            "действие": "решение по сайту сбора базы",
+            "домен": host,
+            "решение": "accepted" if candidate.lane == Lane.ACCEPT else "rejected",
+            "судья сегмента": segment_report.LANE_WORDS.get(verdict, verdict),
+            "прогон": candidate.run_id,
+        },
+        stage=domain.Stage.SALES,  # этап воронки, а не стадия прогона (`Stage` выше)
+    )

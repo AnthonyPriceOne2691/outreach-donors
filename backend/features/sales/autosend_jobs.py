@@ -9,25 +9,32 @@
 `SALES_AUTOSEND`): иначе проход не открывает даже сессии. Предохранитель почты продаж не снят —
 не включается и при тумблере (`autosend.guard`): сессии не открывает, журнал говорит почему.
 Продажи не подключены (нет учётки, отписки, «Отправителя») — проход стоит словами
-(`autosend.Facts.stop`).
+(`autosend.Facts.stop`), и стоит не по делу: владелец включил продажи и автоотправку, а строку
+предохранителя удалили или поле «Отправителя» стёрли. Сторож почты продаж в это время молчит (он
+только у подключённых продаж), письма не уходят и не собираются — поэтому тревога через 15 минут
+(`OFFLINE`) и без писем в окне: молчать о таком было бы некому.
 
 **Тревога — ТЗ «через 15 минут».** Есть письма в окне получателя и свободный кап, а проход стоит
-не по делу дольше `ALARM_AFTER`: исход письма неизвестен, платформа отказывает любому письму или
-проход падает. Тогда — одна тревога в общий канал (`shared/alerts.send_alert`), «снова идёт» —
-второй, и только по смене состояния: проход раз в минуту не повторяет сказанного. Стоит по делу
-(кап набран, вне окна у всех, ящики на паузе) — не тревога: так проход и должен ждать. **Счёт 15
-минут — от первого прохода, который стоит не по делу,** а не от последнего ушедшего письма: любой
-другой проход счёт обнуляет. Иначе пауза ящика дольше 15 минут копила бы минуты, и первая же
-чужая отправка, застигнутая проходом, или один упавший проход давали бы тревогу, а минутой
-позже — «прошло». Упавший проход не знает, есть ли письма в окне, — судит по последнему удачному.
+не по делу дольше `ALARM_AFTER`: исход письма неизвестен, платформа отказывает любому письму,
+каждое письмо окна получило отказ или проход падает. Тогда — одна тревога в общий канал
+(`shared/alerts.send_alert`), «снова идёт» — второй, и только по смене состояния: проход раз в
+минуту не повторяет сказанного. Стоит по делу (кап набран, вне окна у всех, ящики на паузе) — не
+тревога: так проход и должен ждать. **Счёт 15 минут — от первого прохода, который стоит не по
+делу,** а не от последнего ушедшего письма: любой другой проход счёт обнуляет. Иначе пауза
+ящика дольше 15 минут копила бы минуты, и первая же чужая отправка, застигнутая проходом, или один
+упавший проход давали бы тревогу, а минутой позже — «прошло». Упавший проход не знает, есть ли
+письма в окне, — судит по последнему удачному.
 
 **Память — процесса**, как у ленты сторожа до её зеркала в Redis: перезапуск разбора (выкатка)
 начинает счёт 15 минут заново, тревога о том, что ещё стоит, приходит после него ещё раз, а
-«снова идёт», случившееся между процессами, не приходит.
+«снова идёт», случившееся между процессами, не приходит. Свои неизвестные исходы (почта не
+ответила на письмо прохода) — тоже в памяти, до `STUCK_AFTER` (`autosend.unsure`): после
+перезапуска их держит блок «Исход неизвестен», с `STUCK_AFTER`.
 
 **Журнал.** Строка на каждое письмо (`autosend.run`) и на остановку прохода — при смене её
 вида, а не на каждом проходе: ночью проход стоит «вне окна» часами. Пауза ящиков — обычный
-ход, а не остановка: строки о ней нет. Отказ по письму — строкой при смене причины у письма.
+ход, а не остановка: строки о ней нет. Отказ по письму — строкой при смене причины у письма,
+с отказом отправки целиком: «письмо не готово к отправке» без него не сказало бы, что чинить.
 """
 
 from __future__ import annotations
@@ -42,6 +49,7 @@ from backend.config import alerts as alerts_cfg
 from backend.config import sales as sales_cfg
 from backend.config import storage
 from backend.features.letters.transport_factory import Transports, in_use
+from backend.features.letters.unknown_outcome import STUCK_AFTER
 from backend.features.runs.reasons import explained
 from backend.features.sales import autosend
 from backend.features.sales.autosend import STALLS, Pass, Stop
@@ -57,8 +65,12 @@ ALARM = (
     "получателя и свободном капе"
 )
 RESUMED = "прошло: автоотправка писем продаж снова идёт"
+#: Тревога, когда продажи не подключены: писем в окне при этом может и не быть.
+OFFLINE = "тревога: автоотправка писем продаж включена, а не шлёт дольше 15 минут"
+#: Стоит не по делу и без писем в окне: включённой автоотправке продажи нужны подключёнными.
+ALWAYS = frozenset({Stop.NOT_CONNECTED})
 #: Громкой строкой журнала: стоит не по делу — или включена, а не идёт (`autosend.guard`).
-LOUD = STALLS | {Stop.GUARDED}
+LOUD = STALLS | ALWAYS | {Stop.GUARDED}
 
 
 @dataclass
@@ -76,14 +88,24 @@ class Watch:
     said: Stop | None = None
     #: Письмо → причина отказа, сказанная журналом.
     refused: dict[int, str] = field(default_factory=dict)
+    #: Письма, исход которых проход сам оставил неизвестным, — номер → минута (`autosend.unsure`).
+    unsure: dict[int, datetime] = field(default_factory=dict)
 
     async def see(self, found: Pass, now: datetime) -> None:
         """Удачный проход: журнал по смене, счёт остановки, тревога или отбой."""
         self._journal(found)
-        self.due = found.due
-        stall = found.stopped if found.stop in STALLS else None
+        if found.unsure is not None:
+            self.unsure[found.unsure] = now
+        self.due = found.due or found.stop in ALWAYS
+        stall = found.stopped if found.stop in STALLS | ALWAYS else None
         self._count(stalled=stall is not None, now=now)
-        await self._alarm(stall, now)
+        await self._alarm(stall, now, OFFLINE if found.stop in ALWAYS else ALARM)
+
+    def remembered(self, now: datetime) -> frozenset[int]:
+        """Свои неизвестные исходы моложе `STUCK_AFTER`; старше — их держит блок «Исход
+        неизвестен»."""
+        self.unsure = {letter: at for letter, at in self.unsure.items() if now - at < STUCK_AFTER}
+        return frozenset(self.unsure)
 
     async def failed(self, exc: BaseException, now: datetime) -> None:
         """Проход упал — стоит не по делу при последнем известном «обязан слать». Трассировку
@@ -99,15 +121,16 @@ class Watch:
         elif self.stalled_since is None:
             self.stalled_since = now
 
-    async def _alarm(self, stall: str | None, now: datetime) -> None:
+    async def _alarm(self, stall: str | None, now: datetime, head: str = ALARM) -> None:
         """Тревога — один раз, когда проход стоит не по делу дольше `ALARM_AFTER` при письмах
-        в окне; отбой — один раз, когда перестал. Telegram не принял — скажет следующий проход."""
+        в окне (или без них — `ALWAYS`); отбой — один раз, когда перестал. Telegram не принял —
+        скажет следующий проход."""
         if stall is None:
             if self.told is not None and await _said(f"{RESUMED} (стояла: {self.told})"):
                 self.told = None
             return
         late = self.stalled_since is not None and now - self.stalled_since >= ALARM_AFTER
-        if late and self.told is None and await _said(f"{ALARM}. {stall}"):
+        if late and self.told is None and await _said(f"{head}. {stall}"):
             self.told = stall
 
     def _journal(self, found: Pass) -> None:
@@ -121,8 +144,14 @@ class Watch:
             self.refused.pop(letter_id, None)
         for letter_id, why in found.refused.items():
             if self.refused.get(letter_id) != why:
-                logger.info("продажи: автоотправка — письмо №%s не ушло: %s", letter_id, why)
+                said = _detailed(why, found.details.get(letter_id))
+                logger.info("продажи: автоотправка — письмо №%s не ушло: %s", letter_id, said)
                 self.refused[letter_id] = why
+
+
+def _detailed(why: str, detail: str | None) -> str:
+    """Отказ по письму для журнала: слова пачки и отказ отправки целиком, если он есть."""
+    return f"{why} — {detail}" if detail else why
 
 
 async def _said(text: str) -> bool:
@@ -148,7 +177,8 @@ async def tick(now: datetime | None = None, watch: Watch | None = None) -> None:
         await memory.see(Pass(stop=Stop.GUARDED, stopped=guarded), moment)
         return
     try:
-        found = await _pass(moment)
+        with autosend.unsure(memory.remembered(moment)):
+            found = await _pass(moment)
     except Exception as exc:
         await memory.failed(exc, moment)
         raise

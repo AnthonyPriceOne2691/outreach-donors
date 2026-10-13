@@ -16,7 +16,8 @@
 **Проверяльщик адресов по умолчанию выдуманный (`fixture`).** Живой стоит
 денег с ключа, общего с соседней системой, и на него переключает человек:
 `SALES_VERIFIER_PROVIDER=live`. Ключ — тот же `CONTACTS_HUNTER_API_KEY`,
-что у поиска адресов: сервис один, второй переменной для него не заводим.
+что у поиска адресов: сервис один, второй переменной для него не заводим. У живого —
+обязательный месячный потолок проверок `SALES_VERIFIER_MONTH_CAP` (счётчик проверок свой).
 
 **Kommo по умолчанию тоже выдуманный (`fixture`).** Живой пишет сделки
 в чужую CRM, и отозвать записанное нельзя: на `live` переключает человек,
@@ -109,6 +110,10 @@ class _Sales(DomainSettings):
     # `fixture` — вердикты по правилам из адреса, без сети и денег;
     # `live` — Hunter Email Verifier тем же ключом, что ступень 3 поиска.
     verifier_provider: str = Field(default="fixture", validation_alias="SALES_VERIFIER_PROVIDER")
+    # Месячный потолок проверок адреса у `live` — в пределах проверок тарифа Hunter. Числом без
+    # умолчания: не задан — платная часть очистки встаёт словами. Строкой: разбор — при чтении
+    # (`features/sales/verify_cap.month_cap`), опечатка не роняет общий старт.
+    verifier_month_cap: str = Field(default="", validation_alias="SALES_VERIFIER_MONTH_CAP")
     # `fixture` — сделки с выдуманными номерами, без сети; `live` — закрытая
     # интеграция аккаунта Kommo долгоживущим ключом (секрет: в `.env`).
     kommo_provider: str = Field(default="fixture", validation_alias="SALES_KOMMO_PROVIDER")
@@ -263,6 +268,8 @@ AGENT_ENABLED: bool = _s.agent_enabled
 #: задача ответа (`features/sales/agent_turns.max_turns`).
 AGENT_MAX_TURNS: str = _s.agent_max_turns.strip()
 VERIFIER_PROVIDER: str = _s.verifier_provider
+#: Месячный потолок проверок адреса — текстом как есть: разбирает `sales/verify_cap.month_cap`.
+VERIFIER_MONTH_CAP: str = _s.verifier_month_cap.strip()
 
 KOMMO_PROVIDER: str = _s.kommo_provider
 KOMMO_SUBDOMAIN: str = _s.kommo_subdomain.strip().lower()
