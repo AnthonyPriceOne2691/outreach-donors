@@ -122,9 +122,9 @@
       "worst": "—"
     },
     "backend/api/donors/routes.py": {
-      "lines": 169,
+      "lines": 181,
       "complexity": 2,
-      "worst": "_file:113"
+      "worst": "_file:118"
     },
     "backend/api/donors/schemas.py": {
       "lines": 457,
@@ -217,14 +217,14 @@
       "worst": "—"
     },
     "backend/api/letters/once.py": {
-      "lines": 83,
+      "lines": 101,
       "complexity": 5,
-      "worst": "enqueue_once:56"
+      "worst": "enqueue_once:61"
     },
     "backend/api/letters/routes.py": {
-      "lines": 414,
+      "lines": 436,
       "complexity": 5,
-      "worst": "build:142"
+      "worst": "build:162"
     },
     "backend/api/letters/schemas.py": {
       "lines": 430,
@@ -277,9 +277,9 @@
       "worst": "_ascii_name:28"
     },
     "backend/api/replies/routes.py": {
-      "lines": 379,
+      "lines": 385,
       "complexity": 7,
-      "worst": "review:288"
+      "worst": "review:294"
     },
     "backend/api/replies/schemas.py": {
       "lines": 166,
@@ -677,9 +677,9 @@
       "worst": "—"
     },
     "backend/config/_base.py": {
-      "lines": 22,
-      "complexity": 0,
-      "worst": "—"
+      "lines": 87,
+      "complexity": 6,
+      "worst": "spared:50"
     },
     "backend/config/access.py": {
       "lines": 34,
@@ -722,7 +722,7 @@
       "worst": "—"
     },
     "backend/config/llm.py": {
-      "lines": 121,
+      "lines": 136,
       "complexity": 2,
       "worst": "_unset_if_empty:86"
     },
@@ -732,7 +732,7 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 277,
+      "lines": 289,
       "complexity": 4,
       "worst": "_own_account:214"
     },
@@ -832,7 +832,7 @@
       "worst": "reject_draft:253"
     },
     "backend/features/agent/guarding.py": {
-      "lines": 243,
+      "lines": 248,
       "complexity": 8,
       "worst": "compose:60"
     },
@@ -1077,7 +1077,7 @@
       "worst": "check_connected:115"
     },
     "backend/features/core/usage.py": {
-      "lines": 283,
+      "lines": 298,
       "complexity": 10,
       "worst": "ensure_llm_within_cap:214"
     },
@@ -1327,7 +1327,7 @@
       "worst": "backfill:203"
     },
     "backend/features/donors/browse.py": {
-      "lines": 435,
+      "lines": 439,
       "complexity": 7,
       "worst": "picked:264"
     },
@@ -1576,6 +1576,11 @@
       "complexity": 3,
       "worst": "unsubscribe_domain:43"
     },
+    "backend/features/letters/other_role.py": {
+      "lines": 85,
+      "complexity": 5,
+      "worst": "_role:75"
+    },
     "backend/features/letters/outgoing_files.py": {
       "lines": 312,
       "complexity": 7,
@@ -1612,13 +1617,13 @@
       "worst": "refusal:42"
     },
     "backend/features/letters/recheck_target.py": {
-      "lines": 326,
+      "lines": 309,
       "complexity": 11,
-      "worst": "in_thread:156"
+      "worst": "in_thread:155"
     },
     "backend/features/letters/recipients.py": {
       "lines": 499,
-      "complexity": 5,
+      "complexity": 6,
       "worst": "_why_not:319"
     },
     "backend/features/letters/reply_to.py": {
@@ -1727,9 +1732,14 @@
       "worst": "_letters:325"
     },
     "backend/features/ops/silence.py": {
-      "lines": 424,
+      "lines": 335,
       "complexity": 7,
-      "worst": "_crawl_blocked:266"
+      "worst": "_crawl_blocked:177"
+    },
+    "backend/features/ops/stage_silence.py": {
+      "lines": 202,
+      "complexity": 4,
+      "worst": "alarms:63"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,
@@ -1767,9 +1777,9 @@
       "worst": "_spot:112"
     },
     "backend/features/outreach/stage_of.py": {
-      "lines": 102,
+      "lines": 110,
       "complexity": 5,
-      "worst": "of_reply:50"
+      "worst": "of_reply:52"
     },
     "backend/features/outreach/threads.py": {
       "lines": 459,
@@ -1896,6 +1906,11 @@
       "complexity": 6,
       "worst": "_leaves:73"
     },
+    "backend/features/replies/recipient_stage.py": {
+      "lines": 73,
+      "complexity": 4,
+      "worst": "stage_of:44"
+    },
     "backend/features/replies/redirect.py": {
       "lines": 227,
       "complexity": 8,
@@ -1917,9 +1932,9 @@
       "worst": "price_confirmable:29"
     },
     "backend/features/replies/unbound.py": {
-      "lines": 143,
+      "lines": 174,
       "complexity": 6,
-      "worst": "explain:132"
+      "worst": "explain:163"
     },
     "backend/features/review/__init__.py": {
       "lines": 2,

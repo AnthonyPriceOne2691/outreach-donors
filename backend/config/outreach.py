@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from pydantic import Field, field_validator
 
-from backend.config._base import DomainSettings
+from backend.config._base import DomainSettings, Fallback, spared
 
 
 class _Outreach(DomainSettings):
@@ -249,7 +249,7 @@ class _Directions(DomainSettings):
     advertisers: int | None = Field(
         default=None, validation_alias="OUTREACH_ADVERTISERS_DAILY_LIMIT"
     )
-    sales: int | None = Field(default=None, validation_alias="OUTREACH_SALES_DAILY_LIMIT")
+    sales: int | None = Field(default=None, ge=0, validation_alias="OUTREACH_SALES_DAILY_LIMIT")
 
     @field_validator("*", mode="before")
     @classmethod
@@ -257,8 +257,20 @@ class _Directions(DomainSettings):
         return None if isinstance(value, str) and not value.strip() else value
 
 
-#: Лимит направления по этапу (`stage.value`); разбирается при старте.
-DIRECTION_LIMITS: dict[str, int | None] = _Directions().model_dump()
+#: Лимит направления по этапу (`stage.value`); разбирается при старте. Лимит продаж с опечаткой
+#: (`-5`, `10k`, `abc`) не роняет импорт — продажам ноль первых писем и громкая строка журнала
+#: (`_base.spared`): конфиг почты грузят все процессы (ревью стыков 12.10.2026). Доноры и
+#: рекламодатели — как были: их опечатка по-прежнему останавливает старт.
+DIRECTION_LIMITS: dict[str, int | None] = spared(
+    _Directions,
+    {
+        "OUTREACH_SALES_DAILY_LIMIT": Fallback(
+            0,
+            wants="целое число не меньше нуля или пусто",
+            means="0 — первых писем продаж в сутки ноль, пока её не поправят",
+        )
+    },
+)[0].model_dump()
 
 
 def direction_limit(stage: str) -> int | None:

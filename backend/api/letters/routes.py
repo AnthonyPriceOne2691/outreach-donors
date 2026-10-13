@@ -16,6 +16,10 @@
 **Сборка и пачка — по одной на этап и аудиторию за раз** (`once.py`): второе
 нажатие, пока первая задача не кончилась, — 409 словами, а не вторая задача.
 
+**Задачи писем продаж — в очередь продаж** (`worker-sales`, ревью стыков 12.10.2026): пачка
+продаж — до двухсот писем с повторами отправки — держала бы единственный общий воркер, и
+прогоны доноров, разбор ответов и сборка писем ждали бы её.
+
 **Очередь смотрится по этапу.** Вопрос донору о цене и оффер рекламодателю
 читаются разными глазами и уходят с разных доменов; у каждого этапа своя
 воронка и свой текст по умолчанию.
@@ -32,6 +36,7 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from rq import Queue
 from rq.job import Job
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,7 +78,14 @@ from backend.features.letters.repository import LetterRepository, QueuedLetter
 from backend.features.letters.sending import Sending
 from backend.features.letters.template import Template, of_campaign
 from backend.features.letters.transport_factory import Transports, in_use
-from backend.shared.queue import BUILD_JOB, RESULT_TTL, SEND_QUEUE_JOB, runs_queue, with_retries
+from backend.shared.queue import (
+    BUILD_JOB,
+    RESULT_TTL,
+    SEND_QUEUE_JOB,
+    runs_queue,
+    sales_queue,
+    with_retries,
+)
 
 router = APIRouter(prefix="/letters", tags=["письма"])
 
@@ -124,15 +136,23 @@ def _audience_of(audience: str) -> dict[str, str]:
     return {} if audience == LINKS else {"audience": audience}
 
 
+def _jobs_of(stage: Stage) -> Queue:
+    """Очередь задач писем этапа: продажи — своя (`worker-sales` её слушает и выполняет те же
+    задачи писем), остальные этапы — общая."""
+    return sales_queue() if stage is Stage.SALES else runs_queue()
+
+
 async def _enqueue_once(
-    job_id: str, refusal: str, path: str, /, *args: object, **options: object
+    stage: Stage, job_id: str, refusal: str, path: str, /, *args: object, **options: object
 ) -> Job:
-    """Поставить задачу этапа и аудитории, если та же не идёт; идёт — 409 словами.
+    """Поставить задачу этапа и аудитории в очередь этапа, если та же не идёт; идёт — 409
+    словами.
 
     Клиент Redis синхронный: постановка — в потоке, а не в цикле событий, иначе
     задумавшийся Redis держал бы все запросы сервиса, а не только этот.
     """
-    job = await asyncio.to_thread(once.enqueue_once, runs_queue(), job_id, path, *args, **options)
+    jobs = _jobs_of(stage)
+    job = await asyncio.to_thread(once.enqueue_once, jobs, job_id, path, *args, **options)
     if job is None:
         raise HTTPException(status.HTTP_409_CONFLICT, refusal)
     return job
@@ -157,6 +177,7 @@ async def build(
     # человек должен увидеть у формы, а не в отчёте задачи через минуты.
     scope = await run_scope(LetterRepository(session), body.run_ids, stage=body.stage)
     job = await _enqueue_once(
+        body.stage,
         once.build_job_id(body.stage, body.audience),
         once.BUILD_RUNNING,
         BUILD_JOB,
@@ -358,6 +379,7 @@ async def send_queue(
     # минут строка пачки через десять минут отвечала «задачи нет», и причина остановки
     # пачки пропадала с экрана (аудит 10.10.2026).
     job = await _enqueue_once(
+        body.stage,
         once.send_job_id(body.stage, body.audience),
         once.SEND_RUNNING,
         SEND_QUEUE_JOB,

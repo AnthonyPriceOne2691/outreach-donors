@@ -12,6 +12,10 @@
 ценой, а агентство знает цены многих сайтов само. Правило одно с консолью
 (`donors/manual_price.py`), право то же, что у адреса руками, — `run`, в
 журнале — кто, сколько и откуда цена.
+
+**Письмо продаж в карточке — подробно только с правом «Продажи»** (П2): причина, почему
+письмо донору не уходит, называет письмо сайту в другой роли словами перезапроса цены
+(`letters/other_role.py`), а без права — без номера и роли.
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.deps import db_session, needs
+from backend.api.deps import actor, db_session, needs
 from backend.api.donors.schemas import (
     DonorFullCard,
     DonorPageQuery,
@@ -33,7 +37,8 @@ from backend.api.donors.schemas import (
     PickedBody,
     PriceBody,
 )
-from backend.features.core.domain import Permission
+from backend.features.access.permissions import sees_stage
+from backend.features.core.domain import Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.donors.browse import DonorBrowser, DonorRow
 from backend.features.donors.export import EXPORT_LIMIT, checked_picks, to_csv
@@ -126,10 +131,15 @@ def _file(rows: list[DonorRow], counts: dict[str, int]) -> Response:
 @router.get("/{donor_id}", response_model=DonorFullCard, summary="Карточка донора")
 async def one_donor(
     donor_id: int,
-    _: UserModel = _viewer,
+    user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> DonorFullCard:
-    return DonorFullCard.of(await DonorBrowser(session).card(donor_id))
+    return DonorFullCard.of(await DonorBrowser(session).card(donor_id, sales_visible=_sales(user)))
+
+
+def _sales(user: UserModel) -> bool:
+    """Видит ли смотрящий продажи — письмо продаж в карточке подробно (П2)."""
+    return sees_stage(actor(user), Stage.SALES)
 
 
 @router.post("", response_model=EnteredDonor, summary="Завести донора вручную, с ценой")
@@ -165,4 +175,6 @@ async def set_price(
     price = body.checked(by=author.email)
     await price_donor(session, donor_id, price, author_id=author.id)
     await session.commit()
-    return DonorFullCard.of(await DonorBrowser(session).card(donor_id))
+    return DonorFullCard.of(
+        await DonorBrowser(session).card(donor_id, sales_visible=_sales(author))
+    )

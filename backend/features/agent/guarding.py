@@ -150,7 +150,12 @@ class _Part:
 
 def _parts() -> tuple[_Part, ...]:
     """Черновики агента (`drafts_cap`) и вызовы модели продаж (`sales/usage_cap.sales_cap`):
-    одно правило доли (`usage.share_cap`) — одна строка при старте."""
+    одно правило доли (`usage.share_cap`) — одна строка при старте. Часть с непрочитанной
+    настройкой потолка не тратит вовсе (`llm_cfg.UNREAD_CAPS`): о ней сказал конфиг."""
+    return tuple(part for part in _all_parts() if part.setting not in llm_cfg.UNREAD_CAPS)
+
+
+def _all_parts() -> tuple[_Part, ...]:
     return (
         _Part(
             "черновики агента",

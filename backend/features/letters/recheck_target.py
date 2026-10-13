@@ -36,7 +36,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import assert_never
 
 from backend.config import outreach as cfg
 from backend.features.contacts.preference import DEAD
@@ -44,7 +43,7 @@ from backend.features.contacts.quality import rejection_reason
 from backend.features.core.domain import Stage
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import ReplyModel, SenderModel
-from backend.features.letters import attempts
+from backend.features.letters import attempts, other_role
 from backend.features.letters.answers import subject_for
 from backend.features.letters.mailbox import silence_words
 from backend.features.letters.recheck_facts import Boxes, Facts, Talk, Waiting
@@ -291,25 +290,9 @@ def _free_box(facts: Facts) -> None:
 
 def _elsewhere_words(host: str, other: Waiting, *, sales_visible: bool) -> str:
     """Сайту писали в другой роли — отказ: одному адресату не пишут и как донору, и как
-    рекламодателю (`recipients._not_written`). Продажи — подробно только с их правом."""
-    if other.stage is Stage.SALES and not sales_visible:
-        return f"{host} уже писали в другой роли: одному адресату письмо в другой роли не уходит."
-    return (
-        f"{host} уже писали как {_role(other.stage)} (письмо №{other.id}): одному адресату "
-        "письмо в другой роли не уходит."
-    )
-
-
-def _role(stage: Stage) -> str:
-    match stage:
-        case Stage.DONORS:
-            return "донору"
-        case Stage.ADVERTISERS:
-            return "рекламодателю"
-        case Stage.SALES:
-            return "лиду продаж"
-        case _:
-            assert_never(stage)
+    рекламодателю (`recipients._not_written`). Слова — те же, что у карточки донора
+    (`other_role`), с именем сайта; продажи — подробно только с их правом."""
+    return f"{host} {other_role.words(other, sales_visible=sales_visible)}"
 
 
 def _no_address(host: str, *, known: bool) -> str:

@@ -17,9 +17,10 @@
 она понадобится, будет выключена.
 
 **Тревоги о почте продаж — только с правом «Продажи»** (решение Anthony 10.10.2026,
-П2б): сторож почты этапов считает этапы, которые видит спрашивающий (`stages`).
-Общие тревоги — о платформе, приёме ответов, добивках — этапа не имеют и видны всем:
-поломка приёма ответов касается каждого, кто ждёт ответов.
+П2б): почта считается по этапам, которые видит спрашивающий (`stages`). Доставка, ответы
+и добивки — у каждого этапа свои, с кодом и этапом тревоги (`stage_silence.py`, ревью
+стыков 12.10.2026): тишина одного направления больше не прячет поломку другого. Общие
+тревоги — о прогонах, капах и обходе — этапа не имеют и видны всем.
 """
 
 from __future__ import annotations
@@ -39,36 +40,19 @@ from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.core.domain import (
     CrawlOutcome,
     CrawlStatus,
-    MessageStatus,
     RunStatus,
     Stage,
     StopReason,
 )
 from backend.features.core.models.crawl import CrawlRunModel
-from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.core.models.run import RunModel
-from backend.features.ops import mail_watch
+from backend.features.ops import mail_watch, stage_silence
 from backend.features.ops.alarms import Alarm
 from backend.features.runs.spending import ahrefs_spent_this_month, crawl_spent_this_month
 from backend.features.serp.dataforseo import SerpError
 from backend.features.serp.factory import UnknownProviderError, build_provider
 
 logger = logging.getLogger(__name__)
-
-#: Сколько письмо может висеть «отправлено» без единого события
-#: доставки. Платформа присылает их минутами; шесть часов — это уже
-#: не задержка, а обрыв.
-DELIVERY_SILENCE_HOURS = 6
-
-#: Сколько дней можно не получать ни одного ответа при живой рассылке.
-#: Доноры отвечают единицами процентов, поэтому порог считается
-#: не по одному письму, а по доставленной пачке.
-REPLY_SILENCE_DAYS = 3
-REPLY_SILENCE_MIN_DELIVERED = 20
-
-#: Насколько может опоздать добивка. Проход идёт раз в минуту;
-#: час опоздания означает, что процесс не идёт вовсе.
-FOLLOWUP_LATE_MINUTES = 60
 
 #: Сколько прогон может «идти» без единой отметки о жизни.
 RUN_SILENCE_MINUTES = 30
@@ -86,10 +70,9 @@ async def alarms(
     """Всё, что сейчас молчит не по делу; почта этапов — тех, что видит спрашивающий
     (`stages`). Умолчания у этапов нет (ревью продаж к #304): фоновый проход передаёт все."""
     moment = now or datetime.now(UTC)
-    found = [
-        await _delivery_silence(session, moment),
-        await _reply_silence(session, moment),
-        await _followups_stuck(session, moment),
+    # Доставка, ответы и добивки — у каждого видимого этапа свои (П2б, ревью стыков 12.10).
+    found: list[Alarm | None] = [*await stage_silence.alarms(session, moment, stages=stages)]
+    found += [
         await _runs_stuck(session, moment),
         await _cap_reached(session),
         await _crawl_cap_reached(session),
@@ -164,78 +147,6 @@ async def _serp_silent() -> str | None:
         if aclose is not None:
             await aclose()
     return None
-
-
-async def _delivery_silence(session: AsyncSession, moment: datetime) -> Alarm | None:
-    """Письма ушли, а платформа не сказала о них ни слова."""
-    edge = moment - timedelta(hours=DELIVERY_SILENCE_HOURS)
-    stale = await session.scalar(
-        select(func.count(MessageModel.id)).where(
-            MessageModel.status == MessageStatus.SENT,
-            MessageModel.sent_at.is_not(None),
-            MessageModel.sent_at < edge,
-            # Нулевой транспорт событий не порождает — молчание при нём
-            # не поломка, а его устройство.
-            MessageModel.provider_message_id.not_like("null-%"),
-        )
-    )
-    if not stale:
-        return None
-    return Alarm(
-        code="delivery-silence",
-        title="Платформа молчит о доставке",
-        detail=(
-            f"{stale} писем отправлены больше {DELIVERY_SILENCE_HOURS} часов назад, "
-            "и ни по одному не пришло события: ни доставки, ни отказа. "
-            "Проверить адрес вебхука событий в кабинете платформы и его подпись"
-        ),
-    )
-
-
-async def _reply_silence(session: AsyncSession, moment: datetime) -> Alarm | None:
-    """Доставлено достаточно, а ответов нет совсем."""
-    delivered = await session.scalar(
-        select(func.count(MessageModel.id)).where(
-            MessageModel.status == MessageStatus.DELIVERED,
-        )
-    )
-    if not delivered or delivered < REPLY_SILENCE_MIN_DELIVERED:
-        return None
-
-    edge = moment - timedelta(days=REPLY_SILENCE_DAYS)
-    last = await session.scalar(select(func.max(ReplyModel.created_at)))
-    if last is not None and last >= edge:
-        return None
-    return Alarm(
-        code="reply-silence",
-        title="Ответов нет ни одного",
-        detail=(
-            f"Доставлено писем: {delivered}, а входящих за {REPLY_SILENCE_DAYS} дня нет. "
-            "Доноры отвечают единицами процентов, но полный ноль на такой пачке "
-            "чаще означает, что отвалился приём ответов, а не что все промолчали"
-        ),
-    )
-
-
-async def _followups_stuck(session: AsyncSession, moment: datetime) -> Alarm | None:
-    """Срок добивки прошёл, а её никто не забрал."""
-    edge = moment - timedelta(minutes=FOLLOWUP_LATE_MINUTES)
-    late = await session.scalar(
-        select(func.count(MessageModel.id)).where(
-            MessageModel.next_action_at.is_not(None),
-            MessageModel.next_action_at < edge,
-        )
-    )
-    if not late:
-        return None
-    return Alarm(
-        code="followups-stuck",
-        title="Добивки стоят",
-        detail=(
-            f"{late} писем ждут следующего шага дольше часа. Цепочка не рвётся — "
-            "она просто не идёт: процесс добивок не запущен или падает"
-        ),
-    )
 
 
 async def _runs_stuck(session: AsyncSession, moment: datetime) -> Alarm | None:

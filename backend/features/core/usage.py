@@ -229,7 +229,10 @@ async def ensure_llm_within_cap(
 
     `own` — ещё и свой дневной потолок части операций (черновики агента): тот же
     день и тот же журнал, только по своим операциям; общий проверяется всё равно.
+    Настройка своего потолка не прочиталась (`llm_cfg.UNREAD_CAPS`) — потолок части ноль:
+    отказ сразу, до счёта.
     """
+    _readable(own)
     moment = now or datetime.now(UTC)
     day_start = datetime.combine(moment.date(), time.min, tzinfo=UTC)
     if llm_cfg.DAILY_TOKEN_CAP:
@@ -260,6 +263,18 @@ async def ensure_llm_within_cap(
                 setting="LLM_RUN_TOKEN_CAP",
                 tomorrow=False,
             )
+
+
+def _readable(own: OwnCap | None) -> None:
+    """Своя настройка потолка части с опечаткой (`config/_base.spared`) — потолок ноль, пока её
+    не поправят: отказ. Человеку — слова, журналу — имя настройки, как у `_refused`."""
+    if own is None or own.setting not in llm_cfg.UNREAD_CAPS:
+        return
+    logger.warning("потолок модели не прочитан: %s", own.setting, extra={"setting": own.setting})
+    raise LlmCapExceededError(
+        f"дневной потолок {own.what} не прочитан из настроек — вызовов нет, пока его не "
+        "поправит администратор"
+    )
 
 
 def _refused(

@@ -29,7 +29,10 @@
 
 **Ответ в переписке продаж — ещё и с правом «Продажи»** (решение Anthony
 10.10.2026, П2): его вложения, разбор и лид без него — 403 словами
-(`api/stage_access.py`). У ответа без письма этапа нет — он виден, как был.
+(`api/stage_access.py`). У ответа без письма этап — по нашему адресу, на который
+он пришёл (`replies/recipient_stage.py`, ревью стыков 12.10.2026): ответ на ящик
+продаж без права не виден в списке «Не привязаны» и не открывается по номеру;
+нашего адреса среди его адресов нет — этапа нет, и он виден, как был.
 """
 
 from __future__ import annotations
@@ -40,7 +43,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.deps import db_session, needs
+from backend.api.deps import actor, db_session, needs
 from backend.api.replies.download import download_headers
 from backend.api.replies.schemas import (
     AttachmentText,
@@ -55,6 +58,7 @@ from backend.api.replies.schemas import (
 )
 from backend.api.stage_access import on_reply
 from backend.config import outreach as outreach_cfg
+from backend.features.access.permissions import visible_stages
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
@@ -148,7 +152,7 @@ async def calibration(
 
 @router.get("/unbound", response_model=UnboundView, summary="Ответы без письма, по странице")
 async def unbound_replies(
-    _: UserModel = _viewer,
+    user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
     page: int = Query(default=1, ge=1, le=1_000_000, description="страница, с единицы"),
     limit: int = Query(
@@ -159,14 +163,16 @@ async def unbound_replies(
 
     У каждого — почему не привязан, словами, и вложения сведениями: сам
     файл скачивается тем же маршрутом, что у ответа в переписке. Страница —
-    номером, размер называет сервер, как у очереди форм.
+    номером, размер называет сервер, как у очереди форм. Ответы на ящики продаж —
+    только с правом «Продажи» (П2): страница и число — видимых этапов.
     """
-    rows = await unbound.page(session, page=page, size=limit)
+    stages = visible_stages(actor(user))
+    rows = await unbound.page(session, stages=stages, page=page, size=limit)
     # Вложения — одним запросом на страницу и без самих файлов.
     files = await ReplyFiles(session).listed(reply.id for reply in rows)
     return UnboundView(
         rows=[UnboundCard.of(reply, files.get(reply.id, ())) for reply in rows],
-        total=await unbound.total(session),
+        total=await unbound.total(session, stages=stages),
         page=page,
         limit=limit,
     )

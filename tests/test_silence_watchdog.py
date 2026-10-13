@@ -87,7 +87,9 @@ class TestQuietIsNotAlwaysBroken:
         """Событие доставки идёт минутами — час ожидания не поломка."""
         await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=1))
 
-        assert "delivery-silence" not in _codes(await alarms(session, stages=EVERY_STAGE, now=NOW))
+        assert "delivery-silence:donors" not in _codes(
+            await alarms(session, stages=EVERY_STAGE, now=NOW)
+        )
 
     async def test_null_transport_does_not_raise_the_alarm(self, session: AsyncSession) -> None:
         """Нулевой транспорт событий не порождает: молчание при нём —
@@ -99,7 +101,9 @@ class TestQuietIsNotAlwaysBroken:
             provider_message_id="null-7",
         )
 
-        assert "delivery-silence" not in _codes(await alarms(session, stages=EVERY_STAGE, now=NOW))
+        assert "delivery-silence:donors" not in _codes(
+            await alarms(session, stages=EVERY_STAGE, now=NOW)
+        )
 
 
 class TestSilenceThatMeansBroken:
@@ -108,22 +112,31 @@ class TestSilenceThatMeansBroken:
 
         found = await alarms(session, stages=EVERY_STAGE, now=NOW)
 
-        assert "delivery-silence" in _codes(found)
-        assert "вебхук" in next(a.detail for a in found if a.code == "delivery-silence")
+        assert "delivery-silence:donors" in _codes(found)
+        assert "вебхук" in next(a.detail for a in found if a.code == "delivery-silence:donors")
 
     async def test_no_replies_at_all_on_a_delivered_batch(self, session: AsyncSession) -> None:
         for number in range(20):
             await _letter(session, status=MessageStatus.DELIVERED, number=number)
 
-        assert "reply-silence" in _codes(await alarms(session, stages=EVERY_STAGE, now=NOW))
+        assert "reply-silence:donors" in _codes(await alarms(session, stages=EVERY_STAGE, now=NOW))
 
     async def test_one_recent_reply_is_enough_to_keep_quiet(self, session: AsyncSession) -> None:
-        for number in range(20):
+        """Ответ на письмо доноров — их приём жив (ответ считается своим этапом рассылки)."""
+        letters = [
             await _letter(session, status=MessageStatus.DELIVERED, number=number)
-        session.add(ReplyModel(kind=ReplyKind.HUMAN, from_email="a@b.c", raw_body="Hi"))
+            for number in range(20)
+        ]
+        session.add(
+            ReplyModel(
+                kind=ReplyKind.HUMAN, from_email="a@b.c", raw_body="Hi", message_id=letters[0].id
+            )
+        )
         await session.flush()
 
-        assert "reply-silence" not in _codes(await alarms(session, stages=EVERY_STAGE, now=NOW))
+        assert "reply-silence:donors" not in _codes(
+            await alarms(session, stages=EVERY_STAGE, now=NOW)
+        )
 
     async def test_followups_are_standing_still(self, session: AsyncSession) -> None:
         await _letter(
@@ -133,7 +146,9 @@ class TestSilenceThatMeansBroken:
             next_action_at=NOW - timedelta(hours=3),
         )
 
-        assert "followups-stuck" in _codes(await alarms(session, stages=EVERY_STAGE, now=NOW))
+        assert "followups-stuck:donors" in _codes(
+            await alarms(session, stages=EVERY_STAGE, now=NOW)
+        )
 
     async def test_run_is_running_but_silent(self, session: AsyncSession) -> None:
         settings = await RunRepository(session).create_settings(
@@ -315,7 +330,7 @@ class TestProviderAnswersWithAPage:
             await alarms(session, stages=EVERY_STAGE, now=NOW)
         )
 
-        assert {"provider-unreachable", "delivery-silence"} <= _codes(found)
+        assert {"provider-unreachable", "delivery-silence:donors"} <= _codes(found)
 
 
 async def test_a_quiet_pass_says_so_in_the_journal(

@@ -6,7 +6,8 @@
 маршрут, как до этой проверки; номер больше столбца — тоже `None`, а не отказ базы
 (`shared/database/ids.py`).
 
-Из базы — только этап, одним коротким запросом: тексты писем и ответов проверке не нужны.
+Из базы — только этап, коротким запросом: тексты писем и ответов проверке не нужны. У ответа
+без письма — его адреса и наши домены рассылки (`replies/recipient_stage.py`).
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from backend.features.core.models.outreach import (
     SenderModel,
     ThreadModel,
 )
+from backend.features.replies import recipient_stage
 from backend.shared.database.ids import storable
 
 
@@ -50,20 +52,26 @@ async def of_thread(session: AsyncSession, thread_id: int) -> Stage | None:
 async def of_reply(session: AsyncSession, reply_id: int) -> Stage | None:
     """Этап ответа — по переписке, а без неё по письму, на которое ответили: порядок тот же,
     что у `ReplyRepository.stage_of`, — переписка переживает удаление письма. Ответ без
-    письма и переписки (`replies/unbound.py`) — без этапа."""
+    письма и переписки (`replies/unbound.py`) — по нашему адресу, на который он пришёл
+    (`replies/recipient_stage.py`): ответ на ящик продаж открывается только с правом «Продажи»,
+    как в списке «Не привязаны»; нашего адреса нет — этапа нет."""
     if not storable(reply_id):
         return None
     row = (
         await session.execute(
-            select(ReplyModel.thread_id, ReplyModel.message_id).where(ReplyModel.id == reply_id)
+            select(ReplyModel.thread_id, ReplyModel.message_id, ReplyModel.to_addresses).where(
+                ReplyModel.id == reply_id
+            )
         )
     ).first()
     if row is None:
         return None
-    thread_id, message_id = row
+    thread_id, message_id, addresses = row
     if thread_id is not None:
         return await of_thread(session, thread_id)
-    return None if message_id is None else await of_message(session, message_id)
+    if message_id is not None:
+        return await of_message(session, message_id)
+    return await recipient_stage.of_addresses(session, addresses)
 
 
 async def of_draft(session: AsyncSession, draft_id: int) -> Stage | None:
