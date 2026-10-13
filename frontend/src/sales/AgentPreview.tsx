@@ -5,6 +5,10 @@
  * фильтр на экране («включённые из списка») показал бы не то, что агент
  * получит, если правила выборки разойдутся. Версия — та, что запишет черновик.
  * Окно спрашивает сервер при открытии: после правки и переключения — заново.
+ *
+ * **Прокручивается середина, а не окно** (`oneScroll`, правило «В окне одна прокрутка»):
+ * записи длиннее экрана, и окно прокручивалось само — текст записей проезжал под прозрачной
+ * шапкой и ложился на заголовок «Что увидит агент» (снимок стенда 13.10.2026, 1440 × 900).
  */
 
 import { Alert, Loader, Modal, Stack, Text, Title } from '@mantine/core';
@@ -77,8 +81,14 @@ export function AgentPreview({ onClose }: { onClose: () => void }) {
     );
   } else body = <Loader aria-label="Спрашиваем, что видит агент" />;
   return (
-    <Modal opened onClose={onClose} size="xl" title="Что увидит агент">
-      {body}
+    <Modal
+      opened
+      onClose={onClose}
+      size="xl"
+      title="Что увидит агент"
+      classNames={{ content: 'oneScroll' }}
+    >
+      <div className="oneScrollArea scrollSlim">{body}</div>
     </Modal>
   );
 }

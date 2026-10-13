@@ -16,19 +16,14 @@
  *
  * **Без права отправки писем окно — смотреть** (`WriteRight`): поля и «Сохранить»
  * закрыты, «Показать письмо» — как было.
+ *
+ * **В окне одна прокрутка** (`OneScrollForm`): поле текста с потолком в 18 строк прокручивалось
+ * внутри окна, которое прокручивалось само, — кнопки уезжали под край экрана уже на 1280 × 720.
+ * Теперь поле растёт по тексту; пояснение шага — первым абзацем той же прокрутки, письмо
+ * глазами адресата — в её конце: после «Показать письмо» оно подъезжает на виду (`useReveal`).
  */
 
-import {
-  Alert,
-  Button,
-  Group,
-  Modal,
-  Stack,
-  Switch,
-  Text,
-  TextInput,
-  Textarea,
-} from '@mantine/core';
+import { Alert, Button, Group, Modal, Switch, Text, TextInput, Textarea } from '@mantine/core';
 import { useState } from 'react';
 
 import { refusalOf } from '../api/client';
@@ -38,11 +33,12 @@ import {
   chainPlaceholderTitle,
   chainStepTitle,
 } from '../api/salesLabels';
-import type { ChainStepCard, ChainView } from '../api/salesTypes';
+import type { ChainPreviewView, ChainStepCard, ChainView } from '../api/salesTypes';
 import { ChainLetter } from './ChainLetter';
 import { changed, draftOf, FIRST_STEP, previewBodyOf, refusalsOf, stepBodyOf } from './chainDraft';
 import type { ChainDraft, StepPlace } from './chainDraft';
 import { usePreview, useSaveStep } from './chainData';
+import { OneScrollForm, useReveal } from './OneScrollForm';
 import { SaveRefusal } from './SaveRefusal';
 import { WriteRight } from './WriteRight';
 
@@ -100,9 +96,9 @@ function StepFields({ place, draft, refusals, placeholders, disabled, onChange }
         label="Текст письма"
         description={bodyHint(place.step, placeholders)}
         placeholder={'[greeting] rewrite\n…\n\n[offer] fixed\n…'}
+        // Без `maxRows`: поле длиннее потолка прокручивалось само — вторая прокрутка в окне.
         autosize
         minRows={8}
-        maxRows={18}
         classNames={{ input: 'chainBody' }}
         value={draft.body}
         error={refusals.body}
@@ -116,6 +112,23 @@ function StepFields({ place, draft, refusals, placeholders, disabled, onChange }
         onChange={(event) => onChange({ active: event.currentTarget.checked })}
       />
     </>
+  );
+}
+
+/** Что показала «Показать письмо» — письмо глазами адресата или отказ сборки. Встаёт в конце
+ *  прокрутки, а кнопка — внизу окна: середина подъезжает к показанному (`useReveal`). */
+function Shown({ letter, error }: { letter: ChainPreviewView | undefined; error: Error | null }) {
+  const ref = useReveal(letter ?? error);
+  if (letter === undefined && error === null) return null;
+  return (
+    <div ref={ref}>
+      {error !== null && (
+        <Alert color="red" title="Письмо не собралось">
+          {refusalOf(error)}
+        </Alert>
+      )}
+      {letter !== undefined && <ChainLetter letter={letter} />}
+    </div>
   );
 }
 
@@ -134,58 +147,60 @@ export function ChainStepModal({ place, setTitle, row, view, mayWrite, onClose }
   const title = `${chainStepTitle(place.step)} · ${chainLanguageTitle(place.language)} — ${setTitle}`;
 
   return (
-    <Modal opened onClose={onClose} size="xl" title={title}>
-      <form
+    <Modal opened onClose={onClose} size="xl" title={title} classNames={{ content: 'oneScroll' }}>
+      <OneScrollForm
         onSubmit={(event) => {
           event.preventDefault();
           if (savable) save.mutate(stepBodyOf(draft, place));
         }}
-      >
-        <Stack gap="sm">
-          <SaveRefusal error={save.error} />
-          <Text size="sm" c="dimmed" className="chainHint">
-            {CHAIN_STEPS[place.step]?.hint}
-          </Text>
-          <StepFields
-            place={place}
-            draft={draft}
-            refusals={shown}
-            placeholders={view.placeholders}
-            disabled={!mayWrite}
-            onChange={(patch) => {
-              setDraft((current) => ({ ...current, ...patch }));
-              setTouched((current) => new Set([...current, ...Object.keys(patch)]));
-              preview.reset();
-            }}
-          />
-          <Group justify="space-between" mt="sm" gap="xs">
-            <Button
-              variant="default"
-              className="press"
-              disabled={!clean}
-              loading={preview.isPending}
-              onClick={() => preview.mutate(previewBodyOf(draft, place))}
-            >
-              Показать письмо
-            </Button>
-            <Group gap="xs">
-              <Button variant="subtle" className="press" onClick={onClose}>
-                Отмена
+        top={save.error !== null && <SaveRefusal error={save.error} />}
+        footer={
+          <>
+            <Group justify="space-between" mt="sm" gap="xs">
+              <Button
+                variant="default"
+                className="press"
+                disabled={!clean}
+                loading={preview.isPending}
+                onClick={() => preview.mutate(previewBodyOf(draft, place))}
+              >
+                Показать письмо
               </Button>
-              <Button type="submit" className="press" disabled={!savable} loading={save.isPending}>
-                Сохранить
-              </Button>
+              <Group gap="xs">
+                <Button variant="subtle" className="press" onClick={onClose}>
+                  Отмена
+                </Button>
+                <Button
+                  type="submit"
+                  className="press"
+                  disabled={!savable}
+                  loading={save.isPending}
+                >
+                  Сохранить
+                </Button>
+              </Group>
             </Group>
-          </Group>
-          {!mayWrite && <WriteRight what="Правит цепочку" />}
-          {preview.error !== null && (
-            <Alert color="red" title="Письмо не собралось">
-              {refusalOf(preview.error)}
-            </Alert>
-          )}
-          {preview.data !== undefined && <ChainLetter letter={preview.data} />}
-        </Stack>
-      </form>
+            {!mayWrite && <WriteRight what="Правит цепочку" />}
+          </>
+        }
+      >
+        <Text size="sm" c="dimmed" className="chainHint">
+          {CHAIN_STEPS[place.step]?.hint}
+        </Text>
+        <StepFields
+          place={place}
+          draft={draft}
+          refusals={shown}
+          placeholders={view.placeholders}
+          disabled={!mayWrite}
+          onChange={(patch) => {
+            setDraft((current) => ({ ...current, ...patch }));
+            setTouched((current) => new Set([...current, ...Object.keys(patch)]));
+            preview.reset();
+          }}
+        />
+        <Shown letter={preview.data} error={preview.error} />
+      </OneScrollForm>
     </Modal>
   );
 }

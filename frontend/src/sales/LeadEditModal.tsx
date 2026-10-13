@@ -13,9 +13,13 @@
  * (`rebuild`), уведомление говорит словами; до пересборки отправка его не пустит.
  *
  * **Без права отправки окно — смотреть** (`WriteRight`): имя и компания уходят в письмо.
+ *
+ * **В окне одна прокрутка** (`OneScrollForm`): шесть полей с пояснениями выше окна на низком
+ * экране — на 375 × 667 и 844 × 390 окно прокручивалось само, и «Сохранить» стояла под краем.
+ * Теперь заголовок и кнопки стоят, прокручиваются поля.
  */
 
-import { Modal, Select, SimpleGrid, Stack, TextInput } from '@mantine/core';
+import { Modal, Select, SimpleGrid, TextInput } from '@mantine/core';
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -24,6 +28,7 @@ import { CHAIN_LANGUAGES } from '../api/salesLabels';
 import type { LeadChanged, LeadPatchBody } from '../api/salesLeads';
 import type { ChainLanguage, LeadCard } from '../api/salesTypes';
 import { dropdownBelow } from '../theme';
+import { OneScrollForm } from './OneScrollForm';
 import { SaveActions } from './SaveActions';
 import { SaveRefusal } from './SaveRefusal';
 import { WriteRight } from './WriteRight';
@@ -105,74 +110,82 @@ export function LeadEditModal({ lead, mayWrite, onClose, onSaved }: Props) {
   const disabled = !mayWrite;
 
   return (
-    <Modal opened onClose={onClose} size="lg" title={`Лид ${lead.email}`}>
-      <form
+    <Modal
+      opened
+      onClose={onClose}
+      size="lg"
+      title={`Лид ${lead.email}`}
+      classNames={{ content: 'oneScroll' }}
+    >
+      <OneScrollForm
         onSubmit={(event) => {
           event.preventDefault();
           if (ready) save.mutate(bodyOf(draft));
         }}
+        top={save.error !== null && <SaveRefusal error={save.error} />}
+        footer={
+          <>
+            <SaveActions ready={ready} busy={save.isPending} onCancel={onClose} />
+            {disabled && <WriteRight what="Правит лида" />}
+          </>
+        }
       >
-        <Stack gap="sm">
-          <SaveRefusal error={save.error} />
-          <SimpleGrid
-            cols={{ base: 1, sm: 2 }}
-            spacing="md"
-            verticalSpacing="sm"
-            className="fieldRow"
-          >
-            <TextInput
-              label="Имя"
-              description="Встаёт в письмо на место {{name}}."
-              value={draft.name}
-              disabled={disabled}
-              onChange={(event) => edit({ name: event.currentTarget.value })}
-            />
-            <TextInput
-              label="Должность"
-              description="Видна в строке лида рядом с именем."
-              value={draft.position}
-              disabled={disabled}
-              onChange={(event) => edit({ position: event.currentTarget.value })}
-            />
-            <TextInput
-              label="Компания"
-              description="Встаёт в письмо на место {{company}}."
-              value={draft.company}
-              disabled={disabled}
-              onChange={(event) => edit({ company: event.currentTarget.value })}
-            />
-            <Select
-              label="Язык письма"
-              description="Без языка письмо не уйдёт."
-              data={languageChoices(lead.language)}
-              value={draft.language ?? NONE}
-              allowDeselect={false}
-              disabled={disabled}
-              comboboxProps={dropdownBelow}
-              onChange={(picked) =>
-                edit({ language: picked === null || picked === NONE ? null : picked })
-              }
-            />
-            <TextInput
-              label="Страна"
-              description="Код или название: de, Germany, Германия."
-              value={draft.country}
-              disabled={disabled}
-              onChange={(event) => edit({ country: event.currentTarget.value })}
-            />
-            <TextInput
-              label="Часовой пояс"
-              description="Из базы поясов: Europe/Berlin. Пусто — пояс страны."
-              placeholder="по стране"
-              value={draft.timezone}
-              disabled={disabled}
-              onChange={(event) => edit({ timezone: event.currentTarget.value })}
-            />
-          </SimpleGrid>
-          <SaveActions ready={ready} busy={save.isPending} onCancel={onClose} />
-          {disabled && <WriteRight what="Правит лида" />}
-        </Stack>
-      </form>
+        <SimpleGrid
+          cols={{ base: 1, sm: 2 }}
+          spacing="md"
+          verticalSpacing="sm"
+          className="fieldRow"
+        >
+          <TextInput
+            label="Имя"
+            description="Встаёт в письмо на место {{name}}."
+            value={draft.name}
+            disabled={disabled}
+            onChange={(event) => edit({ name: event.currentTarget.value })}
+          />
+          <TextInput
+            label="Должность"
+            description="Видна в строке лида рядом с именем."
+            value={draft.position}
+            disabled={disabled}
+            onChange={(event) => edit({ position: event.currentTarget.value })}
+          />
+          <TextInput
+            label="Компания"
+            description="Встаёт в письмо на место {{company}}."
+            value={draft.company}
+            disabled={disabled}
+            onChange={(event) => edit({ company: event.currentTarget.value })}
+          />
+          <Select
+            label="Язык письма"
+            description="Без языка письмо не уйдёт."
+            data={languageChoices(lead.language)}
+            value={draft.language ?? NONE}
+            allowDeselect={false}
+            disabled={disabled}
+            comboboxProps={dropdownBelow}
+            onChange={(picked) =>
+              edit({ language: picked === null || picked === NONE ? null : picked })
+            }
+          />
+          <TextInput
+            label="Страна"
+            description="Код или название: de, Germany, Германия."
+            value={draft.country}
+            disabled={disabled}
+            onChange={(event) => edit({ country: event.currentTarget.value })}
+          />
+          <TextInput
+            label="Часовой пояс"
+            description="Из базы поясов: Europe/Berlin. Пусто — пояс страны."
+            placeholder="по стране"
+            value={draft.timezone}
+            disabled={disabled}
+            onChange={(event) => edit({ timezone: event.currentTarget.value })}
+          />
+        </SimpleGrid>
+      </OneScrollForm>
     </Modal>
   );
 }

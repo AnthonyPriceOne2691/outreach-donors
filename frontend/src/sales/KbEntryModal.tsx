@@ -10,9 +10,14 @@
  * так её готовят, не показывая агенту. В таблице включают переключателем строки.
  *
  * **Без права отправки писем окно — смотреть** (`WriteRight`): поля и «Сохранить» закрыты.
+ *
+ * **В окне одна прокрутка** (`OneScrollForm`): текст записи — до 20 000 знаков, и поле с потолком
+ * в 14 строк прокручивалось внутри окна, которое прокручивалось само; кнопки уезжали под край
+ * экрана на всех замеренных экранах от 1440 × 900. Теперь поле растёт по тексту, а
+ * прокручивается середина окна.
  */
 
-import { Modal, Select, Stack, Switch, TagsInput, Textarea, TextInput } from '@mantine/core';
+import { Modal, Select, Switch, TagsInput, Textarea, TextInput } from '@mantine/core';
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -22,6 +27,7 @@ import type { KbEntryCard, KbKind, KbLimits } from '../api/salesTypes';
 import { formatNumber } from '../format';
 import { changed, draftOf, refusalsOf } from './kbDraft';
 import type { KbDraft } from './kbDraft';
+import { OneScrollForm } from './OneScrollForm';
 import { SaveActions } from './SaveActions';
 import { SaveRefusal } from './SaveRefusal';
 import { WriteRight } from './WriteRight';
@@ -90,9 +96,9 @@ function KbFields({
       <Textarea
         label="Текст"
         description={`то, что прочтёт агент; до ${formatNumber(limits.text)} знаков`}
+        // Без `maxRows`: поле длиннее потолка прокручивалось само — вторая прокрутка в окне.
         autosize
         minRows={4}
-        maxRows={14}
         value={draft.text}
         error={refusals.text}
         disabled={disabled}
@@ -139,35 +145,38 @@ export function KbEntryModal({ entry, kinds, limits, mayWrite, onClose, onSaved 
       onClose={onClose}
       size="lg"
       title={entry === null ? 'Новая запись базы знаний' : `Запись №${entry.id}`}
+      classNames={{ content: 'oneScroll' }}
     >
-      <form
+      <OneScrollForm
         onSubmit={(event) => {
           event.preventDefault();
           if (ready) save.mutate(draft);
         }}
+        top={save.error !== null && <SaveRefusal error={save.error} />}
+        footer={
+          <>
+            <SaveActions
+              ready={ready}
+              busy={save.isPending}
+              onCancel={onClose}
+              label={entry === null ? 'Завести' : 'Сохранить'}
+            />
+            {!mayWrite && <WriteRight what="Правит базу знаний" />}
+          </>
+        }
       >
-        <Stack gap="sm">
-          <SaveRefusal error={save.error} />
-          <KbFields
-            draft={draft}
-            kinds={kinds}
-            limits={limits}
-            refusals={shown}
-            disabled={!mayWrite}
-            onChange={(patch) => {
-              setDraft((current) => ({ ...current, ...patch }));
-              setTouched((current) => new Set([...current, ...Object.keys(patch)]));
-            }}
-          />
-          <SaveActions
-            ready={ready}
-            busy={save.isPending}
-            onCancel={onClose}
-            label={entry === null ? 'Завести' : 'Сохранить'}
-          />
-          {!mayWrite && <WriteRight what="Правит базу знаний" />}
-        </Stack>
-      </form>
+        <KbFields
+          draft={draft}
+          kinds={kinds}
+          limits={limits}
+          refusals={shown}
+          disabled={!mayWrite}
+          onChange={(patch) => {
+            setDraft((current) => ({ ...current, ...patch }));
+            setTouched((current) => new Set([...current, ...Object.keys(patch)]));
+          }}
+        />
+      </OneScrollForm>
     </Modal>
   );
 }
