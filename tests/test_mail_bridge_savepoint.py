@@ -134,17 +134,20 @@ async def test_nothing_lacking_lets_the_batch_go(
     assert found.asked == ["missing"]
 
 
-async def test_a_broken_answer_of_what_is_lacking_is_named(
-    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+async def test_a_broken_answer_of_what_is_lacking_is_said_in_words_and_logged(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """Отказ видит оператор на кнопке пачки: текст исключения модуля (SQL, пути кода) — в журнал."""
     _plugged(monkeypatch, _Lacking([], broken=True))
 
-    with pytest.raises(SalesNotConnectedError) as refused:
+    with (
+        caplog.at_level(logging.WARNING, logger=stages.__name__),
+        pytest.raises(SalesNotConnectedError) as refused,
+    ):
         await stages.check_connected(session, Stage.SALES, BATCH)
 
-    assert str(refused.value) == (
-        f"{BATCH}: {SALES_NOT_CONNECTED} — выдуманная поломка модуля: missing"
-    )
+    assert str(refused.value) == f"{BATCH}: {SALES_NOT_CONNECTED} — {stages.MISSING_BROKEN}"
+    assert "выдуманная поломка модуля: missing" in caplog.text
 
 
 @pytest.mark.parametrize(("connected", "refused"), [(True, False), (False, True)])

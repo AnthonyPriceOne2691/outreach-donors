@@ -116,6 +116,13 @@ def mail_stage(stage: Stage, what: str) -> MailStage:
             assert_never(stage)
 
 
+#: Отказ пачке, когда модуль продаж не ответил, чего не хватает: текст его исключения — с SQL и
+#: путями кода — уходит в журнал, оператору — слова.
+MISSING_BROKEN = (
+    "модуль продаж не ответил, чего не хватает, — поломка модуля, подробности в журнале сервера"
+)
+
+
 async def check_connected(session: AsyncSession, stage: Stage, what: str) -> None:
     """Мост подключения этапа (спрашивает отправка очереди пачкой): почта ведёт
     этап сейчас — или отказ словами. У продаж — ответ модуля продаж
@@ -136,6 +143,7 @@ async def check_connected(session: AsyncSession, stage: Stage, what: str) -> Non
                 what,
                 lambda mail: cast("SalesLacking", mail).missing(session),
                 SalesNotConnectedError,
+                told=MISSING_BROKEN,
             )
             if lacking:
                 raise SalesNotConnectedError(what, "; ".join(lacking))
@@ -296,6 +304,8 @@ async def _asked[T](
     what: str,
     ask: Callable[[SalesMail], Awaitable[T]],
     passes: type[MailRefusalError] = MailRefusalError,
+    *,
+    told: str | None = None,
 ) -> T:
     """Ответ модуля продаж — или отказ: модуль не подключён — 1.1b словами; отказ модуля
     словами (`passes`) — как есть; любая другая ошибка модуля — «не подключены» с причиной
@@ -307,7 +317,8 @@ async def _asked[T](
     SQLAlchemy ставит её лениво, первым запросом внутри, — и точка, которая не встала (транзакция
     почты прервана своим запросом, база недоступна), выдавалась за ошибку модуля (ревью стыков
     R7, 7.6). Дальше всё — ответ модуля, и выход из точки тоже: модуль проглотил упавший запрос —
-    точка не снимается, это его поломка."""
+    точка не снимается, это его поломка. `told` — слова отказа вместо текста исключения, где отказ
+    видит оператор (кнопка пачки): SQL и трасса — в журнал (`exc_info`), не на экран."""
     load = _SALES.load
     if load is None:
         raise SalesNotConnectedError(what)
@@ -331,7 +342,7 @@ async def _asked[T](
             exc_info=True,
             extra={"why": why},
         )
-        raise SalesNotConnectedError(what, why) from exc
+        raise SalesNotConnectedError(what, told or why) from exc
 
 
 async def recipient(
