@@ -2922,9 +2922,9 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 302,
+      "lines": 305,
       "complexity": 9,
-      "worst": "main:246"
+      "worst": "main:247"
     },
     "scripts/ui_hover.py": {
       "lines": 178,
