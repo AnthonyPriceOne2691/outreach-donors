@@ -16,6 +16,13 @@ from backend.features.runs.estimate import RESULTS_PER_PAGE, RunForecast
 from backend.features.runs.outcome import Domains, Rejection, RunOutcome, Threshold
 from backend.features.runs.reasons import readable
 from backend.features.runs.repository import REASON_KEY
+from backend.features.serp.modes import (
+    EXPECTED_WAIT_S,
+    SerpMode,
+    UnknownModeError,
+    mode_of,
+    serp_cost_usd,
+)
 from backend.features.serp.protocol import distinct_keywords
 
 #: Свой потолок юнитов на прогон — не больше этого. Миллион — месячный лимит всего
@@ -48,6 +55,20 @@ class RunRequestBody(BaseModel):
     #: Нужен, чтобы попробовать нишу дёшево: без него единственный способ
     #: ограничить трату — сократить список ключей, а это другой вопрос.
     cap: int | None = Field(default=None, ge=1)
+    #: Режим покупки выдачи (`serp/modes.py`). Пусто — умолчание сервиса,
+    #: быстрый: слово владельца 14.10.2026 — «в первую очередь скорость».
+    serp_mode: SerpMode | None = None
+
+    @field_validator("serp_mode", mode="before")
+    @classmethod
+    def _known_mode(cls, value: object) -> object:
+        """Незнакомый режим — отказ по-русски с перечнем известных, как у прочих полей."""
+        if value is None or isinstance(value, SerpMode):
+            return value
+        try:
+            return mode_of(str(value))
+        except UnknownModeError as exc:
+            raise PydanticCustomError("serp_mode", str(exc)) from None
 
     @field_validator("keywords")
     @classmethod
@@ -143,12 +164,15 @@ class Forecast(BaseModel):
     #: Ожидаемая стоимость самой выдачи, в долларах. Кнопку не блокирует:
     #: без выдачи прогона нет вовсе. Но названа быть должна.
     serp_cost_usd: float
+    #: Режим выдачи, по которому посчитана цена, и сколько её ждать, секунд.
+    serp_mode: SerpMode
+    serp_wait_s: int
     #: Доля уникальных доменов среди результатов, с которой посчитано
     #: `expected_domains`: экран называет по ней долю дублей, а не своим числом.
     unique_share: float
 
     @classmethod
-    def of(cls, forecast: RunForecast) -> Forecast:
+    def of(cls, forecast: RunForecast, *, serp_mode: SerpMode) -> Forecast:
         return cls(
             keywords=forecast.keywords,
             depth_pages=forecast.depth_pages,
@@ -166,7 +190,9 @@ class Forecast(BaseModel):
             budget=forecast.budget,
             affordable=forecast.affordable,
             shortfall=forecast.shortfall,
-            serp_cost_usd=forecast.serp_cost_usd,
+            serp_cost_usd=serp_cost_usd(forecast.keywords, forecast.depth_pages, serp_mode),
+            serp_mode=serp_mode,
+            serp_wait_s=EXPECTED_WAIT_S[serp_mode],
             unique_share=forecast.unique_share,
         )
 

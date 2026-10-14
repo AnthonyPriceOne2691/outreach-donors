@@ -44,6 +44,7 @@ from backend.features.runs.repository import RunRepository
 from backend.features.runs.spending import ahrefs_spent_this_month, cap_left
 from backend.features.runs.thresholds import rules_in_force
 from backend.features.serp.dataforseo import COUNTRY_CODES
+from backend.features.serp.modes import mode_of
 from backend.shared.queue import RUN_JOB, RUN_JOB_TIMEOUT, runs_queue, workers_alive
 
 router = APIRouter(prefix="/runs", tags=["прогоны"])
@@ -106,7 +107,8 @@ async def estimate(
             run_ceiling=body.cap,
             country_share=await RunRepository(session).country_call_share(body.country),
             unique_share=await RunRepository(session).unique_share(UNIQUE_SHARE),
-        )
+        ),
+        serp_mode=body.serp_mode or mode_of(None),
     )
 
 
@@ -159,6 +161,8 @@ async def start_run(
         keywords=body.keywords,
         country=body.country,
         depth_pages=body.depth_pages,
+        # Режим — какой человек видел в смете, а не умолчание на момент старта задачи.
+        serp_mode=body.serp_mode or mode_of(None),
     )
     # Клиент очереди синхронный: в пуле потоков, а не в цикле событий единственного
     # процесса API — зависший Redis иначе держал бы всех (аудит 10.10.2026).

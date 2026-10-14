@@ -62,3 +62,9 @@ def page_price_usd(mode: SerpMode) -> float:
         SerpMode.LIVE: cfg.PRICE_LIVE_USD,
     }
     return prices[mode]
+
+
+def serp_cost_usd(keywords: int, depth_pages: int, mode: SerpMode) -> float:
+    """Во что обойдётся выдача в режиме — для сметы до траты: ключи × страницы ×
+    цена страницы. Одно правило у сметы прогона доноров и сбора продаж."""
+    return round(max(0, keywords) * max(1, depth_pages) * page_price_usd(mode), 4)

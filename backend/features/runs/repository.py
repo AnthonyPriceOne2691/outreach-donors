@@ -172,6 +172,7 @@ class RunRepository:
         depth_pages: int = 1,
         estimated_units: int | None = None,
         status: RunStatus = RunStatus.QUEUED,
+        serp_mode: str | None = None,
     ) -> RunModel:
         """Заводит прогон. По умолчанию — «в очереди»: строка создаётся
         нажатием, а не первой тратой, иначе до первого платного запроса
@@ -188,6 +189,7 @@ class RunRepository:
             country=country,
             depth_pages=depth_pages,
             estimated_units=estimated_units,
+            serp_mode=serp_mode,
         )
         self._session.add(run)
         await self._session.flush()

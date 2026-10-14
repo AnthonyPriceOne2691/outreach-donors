@@ -50,6 +50,7 @@ from backend.features.runs.repository import FAILURE_KEY, REASON_KEY, RunReposit
 from backend.features.runs.stopped import tell_stopped
 from backend.features.runs.thresholds import rules_of
 from backend.features.serp.factory import build_provider
+from backend.features.serp.modes import mode_of
 from backend.shared.logs import setup_logging
 from backend.shared.queue import (
     PARSE_JOB,
@@ -104,11 +105,12 @@ async def _run(run_id: int) -> dict[str, Any]:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     client = AhrefsClient()
-    provider = build_provider(client)
     try:
         async with factory() as session:
             runs = RunRepository(session)
             run = await runs.get(run_id)
+            # Режим выдачи — из строки прогона: тот, что человек выбрал в смете.
+            provider = build_provider(client, mode=mode_of(run.serp_mode))
             settings = await runs.settings_of(run)
             # Пороги, правило региона и срок метрик — своей строки настроек, а не
             # окружения (сверка ТЗ 11.10.2026): вердикт объясним по `settings_id`.

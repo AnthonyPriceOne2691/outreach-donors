@@ -294,12 +294,17 @@ export interface KeywordPool {
   model: string;
 }
 
+/** Режим покупки выдачи (`backend/features/serp/modes.py`): цена против ожидания. */
+export type SerpMode = 'standard' | 'priority' | 'live';
+
 export interface RunRequest {
   keywords: string[];
   country: string;
   depth_pages: number;
   /** Потолок юнитов на этот прогон. Пусто — весь остаток по капу. */
   cap?: number;
+  /** Режим выдачи. Пусто — умолчание сервиса, быстрый. */
+  serp_mode?: SerpMode;
 }
 
 export interface Forecast {
@@ -325,6 +330,9 @@ export interface Forecast {
   run_ceiling: number | null;
   /** Ожидаемая стоимость выдачи в долларах. Другой счёт, не юниты. */
   serp_cost_usd: number;
+  /** Режим, по которому посчитана цена выдачи, и сколько её ждать, секунд. */
+  serp_mode: SerpMode;
+  serp_wait_s: number;
   /** Доля уникальных, которой посчитаны домены сметы: по ней экран называет дубли. */
   unique_share: number;
 }

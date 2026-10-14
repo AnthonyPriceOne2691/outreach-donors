@@ -98,7 +98,7 @@ def provider(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> dict[str
         return wiring["ahrefs"]()
 
     monkeypatch.setattr(jobs, "AhrefsClient", ahrefs)
-    monkeypatch.setattr(jobs, "build_provider", lambda _client: FakeSerp(["https://good.com"]))
+    monkeypatch.setattr(jobs, "build_provider", lambda _client, **_: FakeSerp(["https://good.com"]))
     monkeypatch.setattr(jobs, "create_async_engine", lambda _dsn: _Closable())
     monkeypatch.setattr(
         jobs,
