@@ -747,7 +747,7 @@
       "worst": "_expected:309"
     },
     "backend/config/serp.py": {
-      "lines": 56,
+      "lines": 68,
       "complexity": 0,
       "worst": "—"
     },
@@ -2002,7 +2002,7 @@
       "worst": "refuse_duplicate:45"
     },
     "backend/features/runs/estimate.py": {
-      "lines": 137,
+      "lines": 138,
       "complexity": 2,
       "worst": "budget:78"
     },
@@ -2032,8 +2032,8 @@
       "worst": "_judge_candidates:209"
     },
     "backend/features/runs/planning.py": {
-      "lines": 368,
-      "complexity": 7,
+      "lines": 374,
+      "complexity": 8,
       "worst": "gather_candidates:240"
     },
     "backend/features/runs/prune.py": {
@@ -2662,29 +2662,39 @@
       "worst": "—"
     },
     "backend/features/serp/ahrefs_serp.py": {
-      "lines": 80,
+      "lines": 89,
       "complexity": 5,
-      "worst": "_take_organic:64"
+      "worst": "_take_organic:73"
     },
     "backend/features/serp/dataforseo.py": {
-      "lines": 396,
+      "lines": 452,
+      "complexity": 9,
+      "worst": "_post:243"
+    },
+    "backend/features/serp/dataforseo_answers.py": {
+      "lines": 181,
       "complexity": 11,
-      "worst": "_organic:132"
+      "worst": "organic_results:39"
     },
     "backend/features/serp/factory.py": {
-      "lines": 64,
+      "lines": 66,
       "complexity": 7,
-      "worst": "build_provider:34"
+      "worst": "build_provider:35"
     },
     "backend/features/serp/markets.py": {
       "lines": 100,
       "complexity": 2,
       "worst": "serp_language:78"
     },
+    "backend/features/serp/modes.py": {
+      "lines": 65,
+      "complexity": 5,
+      "worst": "mode_of:46"
+    },
     "backend/features/serp/protocol.py": {
-      "lines": 105,
-      "complexity": 3,
-      "worst": "distinct_keywords:40"
+      "lines": 187,
+      "complexity": 4,
+      "worst": "posted:133"
     },
     "backend/shared/__init__.py": {
       "lines": 1,
