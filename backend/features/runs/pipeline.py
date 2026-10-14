@@ -47,8 +47,9 @@ from backend.features.crawl.niche import NicheReport
 from backend.features.donors.collect import collect
 from backend.features.donors.doors import DoorCheck
 from backend.features.donors.geo import GeoRule
-from backend.features.donors.judging import JudgePass, judge_candidates
-from backend.features.donors.repository import DonorRepository
+from backend.features.donors.home_signals import home_timeout
+from backend.features.donors.judging import JudgePass, JudgeSummary, judge_candidates
+from backend.features.donors.repository import DonorRepository, JudgeRecord
 from backend.features.donors.verdict import Thresholds
 from backend.features.review.candidates import RunReview
 from backend.features.runs.budget import units_left
@@ -206,6 +207,14 @@ async def _check_doors(
         report.doors_failure = described(exc)[:300]
 
 
+#: Судья сохраняет вердикты пачками по столько доменов. Прогон, убитый посреди суда
+#: (выкатка, смерть воркера, потолок задачи), продолжает с места: вердикты прошлых
+#: пачек уже в базе, и `fresh_judged` отдаёт их из кэша, а не судит снова. До
+#: 14.10.2026 вердикты писались одним разом после всего прохода — полчаса токенов
+#: на прогоне в пятьсот доменов терялись целиком.
+JUDGE_CHUNK = 50
+
+
 async def _judge_candidates(
     deps: RunDeps, run: RunModel, plan: RunPlan, candidates: Candidates
 ) -> JudgePass | None:
@@ -224,37 +233,63 @@ async def _judge_candidates(
         return None
 
     fresh = await deps.donors.fresh_judged(hosts)
-    # Потолок модели — до вызова: прогон останавливается причиной, как при
-    # нехватке юнитов Ahrefs, а не тратит сверх (`runs/failures.REFUSALS`).
-    await deps.runs.ensure_llm_within_cap(run_id=run.id)
+    passes: list[JudgePass] = []
     async with (
         httpx.AsyncClient(timeout=llm_cfg.TIMEOUT_S) as http,
-        guarded_client(timeout=judge_cfg.HOME_TIMEOUT_SEC) as home,
+        guarded_client(timeout=home_timeout()) as home,
     ):
-        outcome = await judge_candidates(
-            http,
-            hosts,
-            candidates.texts,
-            already_judged=fresh,
-            paid=plan.new,
-            home_client=home if judge_cfg.HOME_CHECK else None,
-            # Закрытую главную смотрим глазами индекса: `site:` у того же
-            # источника выдачи, что и сам прогон.
-            index=deps.provider if judge_cfg.HOME_CHECK else None,
-        )
+        for start in range(0, len(hosts), JUDGE_CHUNK):
+            # Потолок модели — до каждой пачки: прогон останавливается причиной, как при
+            # нехватке юнитов Ahrefs, а не тратит сверх (`runs/failures.REFUSALS`).
+            await deps.runs.ensure_llm_within_cap(run_id=run.id)
+            part = await judge_candidates(
+                http,
+                hosts[start : start + JUDGE_CHUNK],
+                candidates.texts,
+                already_judged=fresh,
+                paid=plan.new,
+                home_client=home if judge_cfg.HOME_CHECK else None,
+                # Закрытую главную смотрим глазами индекса: `site:` у того же
+                # источника выдачи, что и сам прогон.
+                index=deps.provider if judge_cfg.HOME_CHECK else None,
+            )
+            await _save_judged(deps, run, part)
+            passes.append(part)
 
-    # Вердикты сохраняются СРАЗУ, до метрик: прогон, упавший на Ahrefs,
-    # не должен стоить уже оплаченных токенов. Токены — в журнал рядом.
-    await deps.donors.save_judgements(outcome.verdicts)
-    if outcome.summary.tokens:
+    outcome = _joined(passes)
+    _log_judged(run, outcome)
+    return outcome
+
+
+async def _save_judged(deps: RunDeps, run: RunModel, part: JudgePass) -> None:
+    """Вердикты пачки — СРАЗУ, до метрик и до следующей пачки: прогон, упавший на
+    Ahrefs или посреди суда, не должен стоить уже оплаченных токенов. Токены и
+    деньги `site:` — в журнал рядом."""
+    await deps.donors.save_judgements(part.verdicts)
+    if part.summary.tokens:
         await deps.runs.record_tokens(
-            run_id=run.id, operation=JUDGE_OPERATION, tokens=outcome.summary.tokens
+            run_id=run.id, operation=JUDGE_OPERATION, tokens=part.summary.tokens
         )
-    if outcome.summary.index_usd:
+    if part.summary.index_usd:
         await deps.runs.record_money(
-            run_id=run.id, operation=SERP_OPERATION, amount_usd=outcome.summary.index_usd
+            run_id=run.id, operation=SERP_OPERATION, amount_usd=part.summary.index_usd
         )
     await deps.runs.session_commit()
+
+
+def _joined(passes: list[JudgePass]) -> JudgePass:
+    """Пачки суда — одним итогом для отчёта и для отбора к Ahrefs."""
+    summary = JudgeSummary()
+    verdicts: dict[str, JudgeRecord] = {}
+    rejected: set[str] = set()
+    for part in passes:
+        summary.merge(part.summary)
+        verdicts.update(part.verdicts)
+        rejected |= part.rejected
+    return JudgePass(verdicts, summary, rejected)
+
+
+def _log_judged(run: RunModel, outcome: JudgePass) -> None:
     logger.info(
         "Судья площадки (%s): судили %s, из кэша %s, отрезал бы %s (сэкономил бы %s юнитов), "
         "к человеку %s, токенов %s",
@@ -275,7 +310,6 @@ async def _judge_candidates(
             outcome.summary.unanswered,
             outcome.summary.unanswered_reason,
         )
-    return outcome
 
 
 async def _hand_over(
@@ -331,6 +365,10 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
         )
     else:
         await deps.runs.mark_running(run)
+        # Сразу в базу. До фиксации «идёт» видно только этой транзакции, а она держит
+        # строку прогона всю выдачу: пульс из своей сессии ждал её блокировку, и экран
+        # минутами показывал прогон «в очереди» с замершим пульсом (разбор 14.10.2026).
+        await deps.runs.session_commit()
 
     candidates = await _candidates_for(deps, request, run)
     await _record_search_cost(deps, run, candidates)
@@ -349,6 +387,8 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
         metrics_ttl_days=request.metrics_ttl_days,
     )
     await deps.runs.set_estimate(run, plan.estimate.total)
+    # То же для сметы: дальше суд — до десятков минут, и строку прогона он держать не должен.
+    await deps.runs.session_commit()
     # Дальше каждая запись несёт идентификатор прогона, включая чужие логгеры:
     # прогоны идут параллельно, и без метки их строки не разделить.
     with run_context(run.id):

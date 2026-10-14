@@ -46,7 +46,9 @@ class _Judge(DomainSettings):
     ttl_days: int = Field(default=180, validation_alias="JUDGE_TTL_DAYS")
     # Сколько доменов судим одновременно. Провайдер отвечает секундами,
     # а доменов в прогоне сотни: по одному это часы ожидания на ровном месте.
-    concurrency: int = Field(default=8, validation_alias="JUDGE_CONCURRENCY")
+    # 16 с 14.10.2026: на 8 прогон в 385 доменов судился полчаса (≈4,7 с на домен);
+    # отказ частоты у модели повторяется с паузой (`shared/llm.py`).
+    concurrency: int = Field(default=16, validation_alias="JUDGE_CONCURRENCY")
     # Усилие рассуждения. `low`, а не `minimal`: замер 23.09 на 98 доменах —
     # на `minimal` модель судит только по тексту и не вспоминает, чей домен.
     # MediaMarkt, dm и четыре госоргана проходили изданиями. На `low` их
@@ -57,6 +59,11 @@ class _Judge(DomainSettings):
     # выключенной главной «продаёт своё» решает модель, а не правило.
     home_check: bool = Field(default=True, validation_alias="JUDGE_HOME_CHECK")
     home_timeout_sec: float = Field(default=12.0, validation_alias="JUDGE_HOME_TIMEOUT_SEC")
+    # Соединение с главной — короче чтения: мёртвый сайт молчит именно на соединении,
+    # и четыре варианта адреса по двенадцать секунд стоили домену почти минуту.
+    home_connect_timeout_sec: float = Field(
+        default=4.0, validation_alias="JUDGE_HOME_CONNECT_TIMEOUT_SEC"
+    )
 
 
 _s = _Judge()
@@ -68,6 +75,7 @@ CONCURRENCY: int = _s.concurrency
 REASONING_EFFORT: str = _s.reasoning_effort
 HOME_CHECK: bool = _s.home_check
 HOME_TIMEOUT_SEC: float = _s.home_timeout_sec
+HOME_CONNECT_TIMEOUT_SEC: float = _s.home_connect_timeout_sec
 
 #: Платформы, которые по букве правила проходят: они правда отсылают наружу.
 #: Размещать на них нельзя, и судью этим вопросом грузить незачем — денилист

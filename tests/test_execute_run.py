@@ -13,11 +13,12 @@ import httpx
 import pytest
 from backend.config.judge import JudgeMode
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
-from backend.features.core.domain import DonorStatus, RunStatus, SuppressionReason
+from backend.features.core.domain import DonorStatus, RunStatus, Stage, SuppressionReason
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
 from backend.features.core.models.run import RunCandidateModel, RunModel
+from backend.features.core.usage import LlmCapExceededError
 from backend.features.donors.publisher_judge import Intent, Judgement, Recommendation
 from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
@@ -710,3 +711,86 @@ class TestTransientFailureIsRetriedNotBuried:
         await session.refresh(run)
 
         assert run.status is RunStatus.DONE, run.stats
+
+
+class TestPulseAndJudgeChunks:
+    """Разбор скорости 14.10.2026: «идёт» — в базе до выдачи, вердикты — пачками.
+
+    До него транзакция прогона держала строку прогона всю выдачу и весь суд: пульс
+    из своей сессии ждал её блокировку, экран видел прогон «в очереди» с замершим
+    пульсом, а вердикты писались одним разом — прогон, убитый посреди суда, терял
+    оплаченные токены и судил заново.
+    """
+
+    async def test_running_is_committed_before_the_search(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        commits: list[int] = []
+        original = RunRepository.session_commit
+
+        async def counted(self: RunRepository) -> None:
+            commits.append(1)
+            await original(self)
+
+        monkeypatch.setattr(RunRepository, "session_commit", counted)
+        seen: list[int] = []
+
+        class Watching(FakeSerp):
+            async def search(
+                self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
+            ) -> dict[str, list[SerpResult]]:
+                seen.append(len(commits))
+                return await super().search(keywords, country, depth_pages=depth_pages)
+
+        settings_id = await _settings_id(session)
+        run = await RunRepository(session).create_run(
+            stage=Stage.DONORS, settings_id=settings_id, keywords=["k"], country="us"
+        )
+        before = len(commits)
+
+        await execute_run(
+            await _deps(session, Watching(["https://good.com/a"]), _ahrefs({"good.com": GOOD})),
+            RunRequest(
+                keywords=["k"], country="us", thresholds=T, settings_id=settings_id, run=run
+            ),
+        )
+
+        assert seen == [before + 1], "«идёт» фиксируется до покупки выдачи"
+
+    async def test_judged_chunks_survive_a_stop_mid_pass(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Потолок модели на второй пачке останавливает прогон — вердикт первой
+        уже в базе, и продолжение возьмёт его из кэша, а не засудит снова."""
+        monkeypatch.setattr("backend.config.judge.MODE", JudgeMode.SHADOW)
+        TestTheJudgeStandsBeforeTheBill._judge(monkeypatch, rejects=set())
+        monkeypatch.setattr("backend.features.runs.pipeline.JUDGE_CHUNK", 1)
+        checks = {"n": 0}
+
+        async def cap(self: RunRepository, *, run_id: int | None) -> None:
+            checks["n"] += 1
+            if checks["n"] == 2:
+                raise LlmCapExceededError("потолок модели на сегодня исчерпан")
+
+        monkeypatch.setattr(RunRepository, "ensure_llm_within_cap", cap)
+        serp = TestTheJudgeStandsBeforeTheBill.Titled(["https://a.com/x", "https://b.com/x"])
+
+        with pytest.raises(LlmCapExceededError):
+            await execute_run(
+                await _deps(session, serp, _ahrefs({"a.com": GOOD, "b.com": GOOD})),
+                RunRequest(
+                    keywords=["k"],
+                    country="us",
+                    thresholds=T,
+                    settings_id=await _settings_id(session),
+                ),
+            )
+
+        judged = await DonorRepository(session).fresh_judged(["a.com", "b.com"])
+        assert set(judged) == {"a.com"}, "первая пачка сохранена до остановки"
+        spent = (
+            await session.execute(
+                select(UsageRecordModel).where(UsageRecordModel.operation == "site_judge")
+            )
+        ).scalar_one()
+        assert spent.units == 400, "и её токены — в журнале"

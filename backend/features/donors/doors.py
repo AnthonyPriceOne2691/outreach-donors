@@ -36,7 +36,7 @@ from types import MappingProxyType
 
 from backend.config import judge as judge_cfg
 from backend.features.donors.author_door import author_door
-from backend.features.donors.home_signals import HomeSignals, check_home
+from backend.features.donors.home_signals import HomeSignals, check_home, home_timeout
 from backend.features.donors.repository import DonorRepository
 from backend.features.runs.planning import SerpText
 from backend.shared.net.url_guard import guarded_client
@@ -170,7 +170,7 @@ async def door_check() -> AsyncIterator[DoorCheck | None]:
     if not judge_cfg.HOME_CHECK:
         yield None
         return
-    async with guarded_client(timeout=judge_cfg.HOME_TIMEOUT_SEC) as client:
+    async with guarded_client(timeout=home_timeout()) as client:
 
         async def fetch(host: str) -> HomeSignals:
             return await check_home(client, host)

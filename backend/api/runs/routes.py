@@ -44,7 +44,7 @@ from backend.features.runs.repository import RunRepository
 from backend.features.runs.spending import ahrefs_spent_this_month, cap_left
 from backend.features.runs.thresholds import rules_in_force
 from backend.features.serp.dataforseo import COUNTRY_CODES
-from backend.shared.queue import RUN_JOB, runs_queue, workers_alive
+from backend.shared.queue import RUN_JOB, RUN_JOB_TIMEOUT, runs_queue, workers_alive
 
 router = APIRouter(prefix="/runs", tags=["прогоны"])
 
@@ -162,7 +162,9 @@ async def start_run(
     )
     # Клиент очереди синхронный: в пуле потоков, а не в цикле событий единственного
     # процесса API — зависший Redis иначе держал бы всех (аудит 10.10.2026).
-    job = await asyncio.to_thread(runs_queue().enqueue, RUN_JOB, run.id)
+    job = await asyncio.to_thread(
+        runs_queue().enqueue, RUN_JOB, run.id, job_timeout=RUN_JOB_TIMEOUT
+    )
     await runs.bind_job(run, str(job.id))
     await AccessRepository(session).record(
         AuditAction.RUN_STARTED,
