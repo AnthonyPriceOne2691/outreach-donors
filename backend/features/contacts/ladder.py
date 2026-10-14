@@ -48,6 +48,7 @@ from backend.features.contacts.pages import (
 from backend.features.contacts.provider import (
     ContactProvider,
     ProviderBlockedError,
+    ProviderDomainRefusedError,
     ProviderError,
     ProviderQuotaError,
     ProviderRateLimitError,
@@ -389,6 +390,12 @@ class ContactLadder:
             self._note_refusal(str(exc))
             logger.warning("контакты: квота платного сервиса исчерпана на %s — %s", host, exc)
             return ContactStatus.NO_QUOTA
+        except ProviderDomainRefusedError as exc:
+            # Ответ про домен, а не отказ сервиса: адресов у платной ступени нет, и
+            # повтор по сроку спросил бы то же самое. В отказы ступени не идёт —
+            # учётка жива, а «провайдер отказал» звало бы человека в его кабинет.
+            logger.info("контакты: платный сервис не ищет по %s — %s", host, exc)
+            return []
         except ProviderRateLimitError as exc:
             # Повторы с паузой уже были (`provider.py`): лимит не снялся, и проход встаёт.
             self._note_refusal(str(exc))
