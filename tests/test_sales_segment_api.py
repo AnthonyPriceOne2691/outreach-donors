@@ -134,7 +134,10 @@ async def test_estimate_writes_nothing_and_answers_in_words(
     assert response.status_code == 200, response.text
     found = response.json()
     assert (found["sites"], found["refusal"]) == (26, None)
-    assert found["lines"][0] == "Выдача: ключей 3 × страниц 1 — результатов до 30, ≈ $0,0021."
+    assert found["lines"][0] == (
+        "Выдача — стандарт: ключей 3 × страниц 1 — результатов до 30, по $0,0007 за страницу "
+        "≈ $0,0021; ждать ≈ 5 мин."
+    )
     assert await session.scalar(select(func.count()).select_from(SalesSegmentRunModel)) == 0
     assert jobs.enqueued == []
 
@@ -186,7 +189,7 @@ async def test_a_run_above_the_model_cap_is_refused_before_the_queue(
 
     assert response.status_code == 409
     assert response.json()["detail"].startswith(
-        "Прогон не запущен: смета модели выше остатка дневного потолка: ≈ 39 000 токенов"
+        "Прогон не запущен: смета модели выше остатка дневного потолка: ≈ 28 600 токенов"
     )
     assert await session.scalar(select(func.count()).select_from(SalesSegmentRunModel)) == 0
     assert jobs.enqueued == []

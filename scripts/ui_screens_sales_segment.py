@@ -5,8 +5,9 @@
 
 Экран мерится со сметой: подготовка вписывает ключи и считает смету (`collect_prepare`), иначе
 строк сметы и открытой кнопки «Запустить прогон» на экране нет. Отчёт — последнего прогона
-гипотезы стенда: плитки, причины словами, строки «на проверку» с кнопками решения. Какой
-прогон на стенде, решает его база (в нём должны быть сайты всех полос).
+гипотезы стенда: плитки, причины словами, строки «на проверку» с кнопками решения, ключи прогона
+и расход рядом со сметой (приглушённая колонка сметы и пометка о Hunter — мелким текстом). Какой
+прогон на стенде, решает его база (в нём должны быть сайты всех полос и итог этапов в отчёте).
 """
 
 from typing import Any
@@ -55,6 +56,7 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("кнопка «Принять»", ".segmentReview button:has-text('Принять')", big),
         ("кнопка «Отказ»", ".segmentReview button:has-text('Отказ')", big),
         hint_probe("как идёт прогон", "Как идёт прогон", norm),
+        *_spend_probes(norm),
     ]
     return {
         "sales-collect": {"path": path, "ready": ready, "probes": probes},
@@ -62,9 +64,25 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "path": path,
             "ready": ready,
             "viewport": PHONE,
-            "probes": probes[1:13],
+            "probes": [*probes[1:13], *_spend_probes(norm)],
         },
     }
+
+
+def _spend_probes(norm: float) -> list[tuple[str, str, float]]:
+    """Режим выдачи, ключи сметы и прогона, расход рядом со сметой (проверка прода 14.10): смета в таблице
+    расхода и пометка о Hunter — приглушённым текстом, и он тоже меряется."""
+    form, runs = "section[aria-label='Новый прогон']", "section[aria-label='Прогоны гипотезы']"
+    return [
+        ("подпись поля «Выдача»", ".mantine-InputWrapper-label:text-is('Выдача')", norm),
+        ("взятый ключ сметы", f"{form} ul[aria-label^='Взято ключей'] li", norm),
+        ("отсеянный ключ сметы", f"{form} ul[aria-label^='Отсеяно ключей'] li", norm),
+        ("ключ прогона", f"{runs} ul[aria-label^='Взято ключей'] li", norm),
+        ("статья расхода", ".segmentSpend tbody td:nth-child(1) p", norm),
+        ("факт расхода", ".segmentSpend tbody td:nth-child(2) p", norm),
+        ("смета в расходе", ".segmentSpend tbody td:nth-child(3) p", norm),
+        ("пометка о Hunter", "section[aria-label='Расход прогона'] > p:last-child", norm),
+    ]
 
 
 def segment_prepare() -> dict[str, Any]:

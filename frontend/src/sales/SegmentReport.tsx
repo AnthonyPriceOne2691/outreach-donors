@@ -50,6 +50,8 @@ import {
   useRun,
   VERDICT_WORDS,
 } from './segmentData';
+import { SegmentKeywords } from './SegmentKeywords';
+import { SegmentSpend } from './SegmentSpend';
 
 const COLUMNS: Column[] = [
   { title: 'Сайт', width: '15rem' },
@@ -288,6 +290,8 @@ function Report({ detail }: { detail: SegmentRunDetail }) {
       <Resume detail={detail} />
       <Counts title="Отсечены — почему" rows={detail.rejected} />
       <Counts title="Без адреса — почему" rows={detail.no_address} />
+      <SegmentKeywords detail={detail} />
+      <SegmentSpend detail={detail} />
       {detail.estimate_lines.length > 0 && (
         <Stack gap={2}>
           <Text size="sm" fw={500}>

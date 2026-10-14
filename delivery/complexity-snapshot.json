@@ -377,14 +377,14 @@
       "worst": "of:26"
     },
     "backend/api/sales/segment.py": {
-      "lines": 341,
+      "lines": 342,
       "complexity": 4,
-      "worst": "start_run:185"
+      "worst": "start_run:186"
     },
     "backend/api/sales/segment_schemas.py": {
-      "lines": 227,
+      "lines": 307,
       "complexity": 6,
-      "worst": "of:194"
+      "worst": "of:273"
     },
     "backend/api/sales/stoplist.py": {
       "lines": 202,
@@ -742,9 +742,9 @@
       "worst": "_own_account:219"
     },
     "backend/config/sales.py": {
-      "lines": 453,
+      "lines": 465,
       "complexity": 9,
-      "worst": "_expected:309"
+      "worst": "_expected:318"
     },
     "backend/config/serp.py": {
       "lines": 68,
@@ -2517,9 +2517,14 @@
       "worst": "decide:87"
     },
     "backend/features/sales/segment_estimate.py": {
-      "lines": 342,
+      "lines": 466,
       "complexity": 10,
-      "worst": "estimate:279"
+      "worst": "estimate:391"
+    },
+    "backend/features/sales/segment_history.py": {
+      "lines": 78,
+      "complexity": 7,
+      "worst": "sites_per_result:25"
     },
     "backend/features/sales/segment_jobs.py": {
       "lines": 156,
@@ -2535,6 +2540,11 @@
       "lines": 410,
       "complexity": 10,
       "worst": "_batch:314"
+    },
+    "backend/features/sales/segment_keywords.py": {
+      "lines": 113,
+      "complexity": 5,
+      "worst": "clean_keywords:46"
     },
     "backend/features/sales/segment_leads.py": {
       "lines": 123,
@@ -2565,6 +2575,11 @@
       "lines": 130,
       "complexity": 8,
       "worst": "_rows:46"
+    },
+    "backend/features/sales/segment_spend.py": {
+      "lines": 206,
+      "complexity": 9,
+      "worst": "_search:139"
     },
     "backend/features/sales/sender.py": {
       "lines": 182,
@@ -2982,9 +2997,9 @@
       "worst": "queue_screens:24"
     },
     "scripts/ui_screens_sales_segment.py": {
-      "lines": 73,
+      "lines": 91,
       "complexity": 1,
-      "worst": "collect_prepare:24"
+      "worst": "collect_prepare:25"
     },
     "scripts/ui_screens_sales_stoplist.py": {
       "lines": 90,

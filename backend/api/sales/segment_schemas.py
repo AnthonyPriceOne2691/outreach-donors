@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.config import serp as serp_cfg
 from backend.features.sales.segment_estimate import Estimate
+from backend.features.sales.segment_keywords import run_keywords
 from backend.features.sales.segment_models import SalesSegmentCandidateModel, SalesSegmentRunModel
 from backend.features.sales.segment_report import RunView, summary
+from backend.features.sales.segment_spend import spend_rows
 
 #: Длина набора ключей в теле: сто ключей по восьми словам — с большим запасом.
 KEYWORDS_LENGTH = 20_000
@@ -18,7 +21,8 @@ SEGMENT_LENGTH = 4000
 
 
 class SegmentAsk(BaseModel):
-    """Запрос сметы и запуска: гипотеза, ключи строками, рынок, язык писем, глубина."""
+    """Запрос сметы и запуска: гипотеза, ключи строками, рынок, язык писем, глубина и режим
+    покупки выдачи."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -29,6 +33,12 @@ class SegmentAsk(BaseModel):
         default=None, max_length=16, description="язык писем: ru или en; пусто — язык рынка"
     )
     depth_pages: int = Field(default=1, ge=1, le=100, description="страниц выдачи по 10")
+    serp_mode: str | None = Field(
+        default=None,
+        max_length=16,
+        description="режим покупки выдачи: live — быстрый, standard — дешевле и дольше; "
+        "пусто — умолчание сервиса",
+    )
 
 
 class SegmentBody(BaseModel):
@@ -45,18 +55,30 @@ class SegmentCard(BaseModel):
 
 
 class EstimateView(BaseModel):
-    """Смета словами и числами; `refusal` — запускать нельзя, и почему."""
+    """Смета словами и числами; `refusal` — запускать нельзя, и почему. Ключи — взятые (за них
+    заплатит выдача), отсеянные с причиной и пометки взятых; сайтов — в выдаче (`hosts`), из
+    них уже в сборе гипотезы (`known`) и новых (`sites`) — по доле `share` из истории сбора
+    (`share_runs` прогонов; 0 — запасная доля)."""
 
     keywords: list[str]
     rejected: dict[str, str]
+    notes: dict[str, str]
     country: str
     language: str
     depth_pages: int
     mode: str
+    serp_mode: str
+    serp_page_usd: float
+    serp_wait_s: int
     results: int
+    share: float
+    share_runs: int
+    hosts: int
+    known: int
     sites: int
     serp_usd: float
     tokens: int
+    tokens_usd: float
     tokens_left: int | None
     hunter_searches: int
     hunter_checks: int
@@ -68,19 +90,74 @@ class EstimateView(BaseModel):
         return cls(
             keywords=found.keywords,
             rejected=found.rejected,
+            notes=found.notes,
             country=found.country,
             language=found.language,
             depth_pages=found.depth_pages,
             mode=found.mode,
+            serp_mode=found.serp_mode,
+            serp_page_usd=found.serp_page_usd,
+            serp_wait_s=found.serp_wait_s,
             results=found.results,
+            share=found.share,
+            share_runs=found.share_runs,
+            hosts=found.hosts,
+            known=found.known,
             sites=found.sites,
             serp_usd=found.serp_usd,
             tokens=found.tokens,
+            tokens_usd=found.tokens_usd,
             tokens_left=found.tokens_left,
             hunter_searches=found.hunter_searches,
             hunter_checks=found.hunter_checks,
             lines=found.lines,
             refusal=found.refusal,
+        )
+
+
+class SpendRow(BaseModel):
+    """Статья расхода прогона: факт и смета на запуске — словами и числами (`segment_spend`).
+    Пустое число — в этой единице не платили или этапа ещё не было: слова говорят, что именно."""
+
+    item: str
+    title: str
+    fact: str
+    promised: str
+    fact_units: int | None
+    fact_usd: float | None
+    promised_units: int | None
+    promised_usd: float | None
+
+
+class RunKeywordsView(BaseModel):
+    """Ключи прогона: взятые с пометками и отсеянные с причиной — как на запуске; пропавшие
+    (заплачено — не пришло) и пустые — что вышло с покупкой выдачи."""
+
+    taken: list[str]
+    notes: dict[str, str]
+    rejected: dict[str, str]
+    lost: list[str]
+    empty: list[str]
+
+
+class RunSpend(BaseModel):
+    """Что купил прогон и во что обошёлся — рядом со сметой на запуске: ключи и расход статьями."""
+
+    keywords: RunKeywordsView
+    rows: list[SpendRow]
+
+    @classmethod
+    def of(cls, run: SalesSegmentRunModel) -> RunSpend:
+        found = run_keywords(run)
+        return cls(
+            keywords=RunKeywordsView(
+                taken=found.taken,
+                notes=found.notes,
+                rejected=found.rejected,
+                lost=found.lost,
+                empty=found.empty,
+            ),
+            rows=[SpendRow(**asdict(row)) for row in spend_rows(run)],
         )
 
 
@@ -177,6 +254,8 @@ class RunDetail(BaseModel):
     hypothesis: str
     keywords: list[str]
     estimate_lines: list[str]
+    #: Ключи и расход прогона рядом со сметой на запуске (`segment_spend`).
+    spend: RunSpend
     #: Главные числа: сайтов, принято, на проверку, отсечено, без адреса, лидов.
     summary: dict[str, int]
     lanes: dict[str, int]
@@ -198,6 +277,7 @@ class RunDetail(BaseModel):
             hypothesis=view.hypothesis,
             keywords=list(run.keywords),
             estimate_lines=list((run.estimate or {}).get("lines", [])),
+            spend=RunSpend.of(run),
             summary=summary(view),
             lanes=view.lanes,
             rejected=[Count(words=words, count=count) for words, count in view.rejected],

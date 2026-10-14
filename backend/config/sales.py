@@ -232,6 +232,15 @@ class _Sales(DomainSettings):
         default=JudgeMode.SHADOW, validation_alias="SALES_SEGMENT_JUDGE_MODE"
     )
     segment_golden_dir: str = Field(default="", validation_alias="SALES_SEGMENT_GOLDEN_DIR")
+    # Цена токена модели судьи сегмента (`LLM_SALES_SEGMENT_MODEL`), $ за миллион, — по ней смета и
+    # отчёт прогона называют деньги рядом с токенами. Публичный прайс OpenAI (openai.com/api/pricing):
+    # GPT-5 mini — $0,25 за миллион входа и $2,00 за миллион вывода. Сменили модель — смените и цены.
+    segment_input_usd_per_1m_tokens: float = Field(
+        default=0.25, gt=0, le=1000, validation_alias="SALES_SEGMENT_INPUT_USD_PER_1M_TOKENS"
+    )
+    segment_output_usd_per_1m_tokens: float = Field(
+        default=2.0, gt=0, le=1000, validation_alias="SALES_SEGMENT_OUTPUT_USD_PER_1M_TOKENS"
+    )
     # Платная ступень поиска адреса у сбора (Hunter, ключ общий с донорами). Выключена: ключ,
     # включённый для доноров, иначе молча включил бы её и сбору — до тысяч поисков на прогон.
     segment_paid_contacts: bool = Field(
@@ -418,6 +427,9 @@ AUTOREPLY_MIN_N: int = _s.autoreply_min_n
 #: Режим судьи сегмента сбора базы (`features/sales/segment_judge.py`).
 SEGMENT_JUDGE_MODE: JudgeMode = _s.segment_judge_mode
 SEGMENT_GOLDEN_DIR: str = _s.segment_golden_dir.strip()
+#: Цена токена судьи сегмента, $ за миллион входа и вывода (`segment_estimate.usd_per_million`).
+SEGMENT_INPUT_USD_PER_1M_TOKENS: float = _s.segment_input_usd_per_1m_tokens
+SEGMENT_OUTPUT_USD_PER_1M_TOKENS: float = _s.segment_output_usd_per_1m_tokens
 #: Платная ступень поиска адреса у сбора (`segment_run._contacts`): выключена — только бесплатные.
 SEGMENT_PAID_CONTACTS: bool = _s.segment_paid_contacts
 

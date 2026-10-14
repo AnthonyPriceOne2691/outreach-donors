@@ -113,14 +113,23 @@ const DETAIL: SegmentRunDetail = {
 const ESTIMATE: SegmentEstimate = {
   keywords: ['купить горный велосипед', 'велосипед для города'],
   rejected: { 'site:example.com велосипед': 'поисковый оператор: так пользователи не ищут' },
+  notes: {},
   country: 'us',
   language: 'en',
   depth_pages: 1,
   mode: 'shadow',
+  serp_mode: 'live',
+  serp_page_usd: 0.002,
+  serp_wait_s: 10,
   results: 20,
+  share: 0.85,
+  share_runs: 0,
+  hosts: 17,
+  known: 0,
   sites: 17,
   serp_usd: 0.0014,
   tokens: 25500,
+  tokens_usd: 0.0153,
   tokens_left: null,
   hunter_searches: 0,
   hunter_checks: 0,
@@ -230,6 +239,7 @@ describe('сбор базы: прогон гипотезы', () => {
       country: 'us',
       language: null,
       depth_pages: 1,
+      serp_mode: 'live',
     });
     expect(
       screen.getByText(
