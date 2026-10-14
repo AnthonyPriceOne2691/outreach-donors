@@ -917,9 +917,9 @@
       "worst": "—"
     },
     "backend/features/contacts/ladder.py": {
-      "lines": 484,
+      "lines": 491,
       "complexity": 10,
-      "worst": "_step_pages:222"
+      "worst": "_step_pages:223"
     },
     "backend/features/contacts/manual.py": {
       "lines": 208,
@@ -947,9 +947,9 @@
       "worst": "preferred_first:47"
     },
     "backend/features/contacts/provider.py": {
-      "lines": 275,
+      "lines": 289,
       "complexity": 8,
-      "worst": "transient:124"
+      "worst": "transient:138"
     },
     "backend/features/contacts/quality.py": {
       "lines": 417,
