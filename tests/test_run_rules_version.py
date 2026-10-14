@@ -198,7 +198,7 @@ def pipeline(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> dict[str
     monkeypatch.setattr(jobs, "heartbeat", _no_heartbeat)
     monkeypatch.setattr(jobs, "check_collect", lambda: None)
     monkeypatch.setattr(jobs, "AhrefsClient", _Closable)
-    monkeypatch.setattr(jobs, "build_provider", lambda client: object())
+    monkeypatch.setattr(jobs, "build_provider", lambda client, **_: object())
     monkeypatch.setattr(jobs, "create_async_engine", lambda dsn: _Closable())
     monkeypatch.setattr(
         jobs,

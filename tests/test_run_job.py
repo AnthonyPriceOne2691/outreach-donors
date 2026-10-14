@@ -27,6 +27,7 @@ from backend.features.runs.budget import CapExceededError
 from backend.features.runs.pipeline import RunDeps, RunRequest
 from backend.features.runs.repository import RunRepository, unique_share_from
 from backend.features.runs.thresholds import defaults
+from backend.features.serp.modes import SerpMode
 from backend.workers import jobs
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -59,7 +60,12 @@ def pipeline(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> dict[str
     monkeypatch.setattr(jobs, "execute_run", execute)
     monkeypatch.setattr(jobs, "heartbeat", _no_heartbeat)
     monkeypatch.setattr(jobs, "AhrefsClient", _Closable)
-    monkeypatch.setattr(jobs, "build_provider", lambda client: object())
+
+    def provider(_client: object, **kwargs: object) -> object:
+        seen["provider"] = kwargs
+        return object()
+
+    monkeypatch.setattr(jobs, "build_provider", provider)
     monkeypatch.setattr(jobs, "create_async_engine", lambda dsn: _Closable())
     monkeypatch.setattr(
         jobs,
@@ -98,6 +104,33 @@ async def test_queued_run_reaches_the_pipeline_with_its_own_cap(
     assert request.keywords == ["home improvement write for us", "best cordless drill"]
     assert request.country == "us"
     assert result["run"] == run.id
+
+
+@pytest.mark.parametrize(
+    ("stored", "bought"), [("standard", SerpMode.STANDARD), (None, SerpMode.LIVE)]
+)
+async def test_serp_is_bought_in_the_mode_the_run_was_queued_with(
+    session: AsyncSession, pipeline: dict[str, Any], stored: str | None, bought: SerpMode
+) -> None:
+    """Режим — из строки прогона, тот, что человек видел в смете; пусто (прогон до
+    14.10.2026) — умолчание сервиса, быстрый."""
+    runs = RunRepository(session)
+    settings = await runs.create_settings(
+        defaults(),
+        geo_top_n=filters.GEO_TOP_N,
+        geo_min_share=filters.GEO_MIN_SHARE,
+        metrics_ttl_days=filters.METRICS_TTL_DAYS,
+        price_ttl_days=filters.PRICE_TTL_DAYS,
+        units_cap=1234,
+    )
+    run = await runs.create_run(
+        stage=Stage.DONORS, settings_id=settings.id, keywords=["k"], country="us", serp_mode=stored
+    )
+    await session.commit()
+
+    await jobs._run(run.id)
+
+    assert pipeline["provider"] == {"mode": bought}
 
 
 class TestCeilingAtStart:
