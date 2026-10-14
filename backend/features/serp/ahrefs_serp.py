@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from backend.features.ahrefs.client import AhrefsClient
-from backend.features.serp.protocol import SerpResult, distinct_keywords
+from backend.features.serp.protocol import SerpProgress, SerpResult, SerpWatch, distinct_keywords
 
 RESULTS_PER_PAGE = 10
 
@@ -42,7 +42,12 @@ class AhrefsSerpProvider:
         self._client = client
 
     async def search(
-        self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
+        self,
+        keywords: Sequence[str],
+        country: str,
+        *,
+        depth_pages: int = 1,
+        watch: SerpWatch | None = None,
     ) -> dict[str, list[SerpResult]]:
         if depth_pages < 1:
             raise ValueError("Глубина выдачи считается страницами по десять; минимум одна")
@@ -55,9 +60,13 @@ class AhrefsSerpProvider:
         # в клиенте не даёт превысить лимит Ahrefs. Повтор ключа — один
         # вызов: каждый стоит юнитов (правило — `protocol.distinct_keywords`).
         out: dict[str, list[SerpResult]] = {}
-        for keyword in distinct_keywords(keywords):
+        unique = distinct_keywords(keywords)
+        watch = watch or SerpWatch()
+        await watch.progress(SerpProgress(done=0, total=len(unique)))
+        for done, keyword in enumerate(unique, start=1):
             response = await self._client.serp_overview(keyword, country, date)
             out[keyword] = _take_organic(response.rows, wanted)
+            await watch.progress(SerpProgress(done=done, total=len(unique), keyword=keyword))
         return out
 
 

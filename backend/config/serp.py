@@ -31,6 +31,15 @@ class _Serp(DomainSettings):
     price_per_keyword_usd: float = Field(
         default=0.0006, validation_alias="SERP_PRICE_PER_KEYWORD_USD"
     )
+    # Режим покупки по умолчанию (`features/serp/modes.py`) — синхронный: выдача за
+    # секунды, а не за минуты ожидания в очереди (слово владельца 14.10.2026: «в первую
+    # очередь скорость, по умолчанию быстрый»). Медленный и дешёвый выбирают на запуске.
+    mode: str = Field(default="live", validation_alias="SERP_MODE")
+    # Цена страницы в двух быстрых режимах — для сметы, как и цена выше. Прайс
+    # провайдера (14.10.2026): приоритетная очередь вдвое дороже отложенной,
+    # синхронный запрос — $0,002 за страницу.
+    price_priority_usd: float = Field(default=0.0012, validation_alias="SERP_PRICE_PRIORITY_USD")
+    price_live_usd: float = Field(default=0.002, validation_alias="SERP_PRICE_LIVE_USD")
     # Отложенный режим: задача ставится, результат забирается опросом.
     # Пауза и число попыток дают потолок ожидания на пачку. Попытки — на
     # каждую страницу глубины: сто результатов провайдер собирает десятью
@@ -51,5 +60,8 @@ MAX_DEPTH_PAGES: int = _s.max_depth_pages
 MAX_KEYWORDS_PER_RUN: int = _s.max_keywords_per_run
 SANDBOX: bool = _s.sandbox
 PRICE_PER_KEYWORD_USD: float = _s.price_per_keyword_usd
+MODE: str = _s.mode
+PRICE_PRIORITY_USD: float = _s.price_priority_usd
+PRICE_LIVE_USD: float = _s.price_live_usd
 POLL_INTERVAL_S: float = _s.poll_interval_s
 POLL_ATTEMPTS: int = _s.poll_attempts

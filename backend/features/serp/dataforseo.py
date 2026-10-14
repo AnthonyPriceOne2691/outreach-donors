@@ -3,10 +3,19 @@
 Дешевле запасного примерно в двадцать раз, и в этом весь смысл: выдача —
 самая дорогая ступень прогона, а доноры из неё те же самые.
 
-Режим отложенный, двухфазный: задачи ставятся пачкой, результат
-забирается опросом. Это не наше усложнение, а устройство провайдера:
-синхронного режима у него для нашего объёма нет, и один запрос на ключ
-занимал бы минуты.
+Основной режим отложенный, двухфазный: задачи ставятся пачкой, результат
+забирается опросом. Это не наше усложнение, а устройство провайдера: так
+дешевле всего, но ответ идёт минутами. Режимов три (`modes.py`), выбирает
+человек на запуске: отложенная очередь, она же с приоритетом (около минуты,
+вдвое дороже) и синхронный запрос на каждый ключ (секунды, втрое с лишним
+дороже). Проверка на проде 14.10.2026: шесть минут из одиннадцати прогон сбора
+ждал выдачу в отложенной очереди.
+
+**Номера задач — наружу до опроса** (`protocol.SerpWatch`): сохранённые
+вызывающим, они не дают повтору задачи после сбоя опроса купить ту же
+выдачу второй раз. Цена и число собранных страниц — в журнале по каждой
+задаче: прогон №1 сбора продаж стоил $0,0168 при смете $0,009, и сверить
+было не с чем.
 
 **Песочница — обязательный режим для тестов.** Провайдер отдаёт в ней
 выдуманные ответы бесплатно и по той же схеме. Так проводка проверяется
@@ -29,16 +38,45 @@ import httpx
 
 from backend.config import serp as cfg
 from backend.features.serp import markets
-from backend.features.serp.protocol import SerpResult, distinct_keywords
+from backend.features.serp.dataforseo_answers import (
+    TASK_IN_QUEUE,
+    TASK_OK,
+    SerpError,
+    Ticker,
+    live_items,
+    log_task,
+    organic_results,
+    report_refused,
+    sort_posted,
+    task_items,
+)
+from backend.features.serp.modes import SerpMode, mode_of
+from backend.features.serp.protocol import SerpResult, SerpWatch, distinct_keywords
 from backend.shared.net.retry import RateLimiter, reason_of, unsent, with_retries
+
+#: Что адаптер отдаёт наружу. `SerpError` живёт в разборе ответов
+#: (`dataforseo_answers.py`), но его ловят по имени адаптера — список держит
+#: это имя явным.
+__all__ = [
+    "COUNTRY_CODES",
+    "DataForSeoProvider",
+    "SerpError",
+    "UnknownCountryError",
+    "language_code",
+    "location_code",
+]
 
 logger = logging.getLogger(__name__)
 
-LIVE_URL = "https://api.dataforseo.com"
+#: Боевой адрес провайдера — в отличие от песочницы. Не путать с синхронным
+#: режимом (`SerpMode.LIVE`): тот — путь, а не адрес.
+PROD_URL = "https://api.dataforseo.com"
 SANDBOX_URL = "https://sandbox.dataforseo.com"
 
 POST_PATH = "/v3/serp/google/organic/task_post"
 GET_PATH = "/v3/serp/google/organic/task_get/regular"
+#: Синхронный режим: одна задача на запрос, ответ в том же запросе.
+LIVE_PATH = "/v3/serp/google/organic/live/regular"
 #: Остаток на счету. Запрос бесплатный — им и спрашиваем перед прогоном.
 BALANCE_PATH = "/v3/appendix/user_data"
 
@@ -46,20 +84,23 @@ BALANCE_PATH = "/v3/appendix/user_data"
 #: чаще временные, чем окончательные.
 ATTEMPTS = 3
 
-#: Запросов в минуту. У провайдера предел 2000, наш потолок скромнее:
-#: пачка задач ставится разом, а забирается опросом, и упереться
-#: в чужой предел значит получить 429 на весь прогон.
-RATE_PER_MINUTE = 120
+#: Запросов в минуту. У провайдера предел 2000 на учётку, наш потолок
+#: скромнее: упереться в чужой предел значит получить 429 на весь прогон, а
+#: на той же учётке бывают соседние прогоны. 120 (до 14.10.2026) было мало
+#: синхронному режиму — запрос на каждый ключ, и сотня ключей стояла бы
+#: минуту в очереди одного ограничителя.
+RATE_PER_MINUTE = 600
+
+#: Одновременных синхронных запросов: сотня ключей покупается за десяток
+#: секунд, и соединения не забиты.
+LIVE_CONCURRENCY = 10
+
+#: Приоритет задачи в очереди провайдера: 2 — высокий, около минуты вместо
+#: пяти, вдвое дороже (`SerpMode.PRIORITY`).
+PRIORITY_HIGH = 2
 
 #: Больше задач за один запрос провайдер не принимает.
 MAX_TASKS_PER_POST = 100
-
-#: Код задачи «принята» и код «готово». Всё остальное — отказ, и его
-#: надо называть, а не считать пустой выдачей.
-TASK_CREATED = 20100
-TASK_OK = 20000
-#: Задача ещё в работе — законное состояние, ждём дальше.
-TASK_IN_QUEUE = (40601, 40602)
 
 #: Код страны у провайдера — это числовой ISO плюс две тысячи. Карта
 #: задана явно, а не вычисляется: правило верно для проверенных стран,
@@ -85,17 +126,6 @@ COUNTRY_CODES: dict[str, int] = {
 # а две копии разошлись бы молча.
 
 RESULTS_PER_PAGE = 10
-
-
-class SerpError(RuntimeError):
-    """Провайдер выдачи отказал или ответил непонятным. `permanent` — повтор
-    не поможет (ключ, права, страна); без признака — временный сбой."""
-
-    permanent: bool = False
-
-    def __init__(self, message: str, *, permanent: bool = False) -> None:
-        super().__init__(message)
-        self.permanent = permanent or type(self).permanent
 
 
 class UnknownCountryError(SerpError):
@@ -129,64 +159,8 @@ def _basic_auth(login: str, password: str) -> str:
     return base64.b64encode(f"{login}:{password}".encode()).decode()
 
 
-def _organic(items: Sequence[Any], wanted: int) -> list[SerpResult]:
-    """Органические позиции из ответа.
-
-    Выдача содержит и карты, и «люди также спрашивают», и рекламу.
-    Доноры — только органика; всё остальное пропускается, но пропуск
-    не считается ошибкой, это устройство выдачи.
-    """
-    out: list[SerpResult] = []
-    for item in items:
-        if not isinstance(item, dict) or item.get("type") != "organic":
-            continue
-        url, position = item.get("url"), item.get("rank_absolute")
-        if not isinstance(url, str) or not isinstance(position, int):
-            continue
-        # Заголовок и описание берём здесь же: провайдер отдаёт их в каждой
-        # органической позиции, отдельного запроса они не стоят, а без них
-        # судья площадки не по чему судить (`donors/publisher_judge.py`).
-        title = item.get("title")
-        description = item.get("description")
-        out.append(
-            SerpResult(
-                position=position,
-                url=url,
-                title=title if isinstance(title, str) and title.strip() else None,
-                description=(
-                    description if isinstance(description, str) and description.strip() else None
-                ),
-            )
-        )
-        if len(out) >= wanted:
-            break
-    return out
-
-
-def _sort_tasks(tasks: Sequence[Any]) -> tuple[dict[str, str], list[str]]:
-    """Разложить ответ постановки на принятые и отклонённые.
-
-    Вынесено из постановки задач: там собиралась и просьба, и разбор
-    ответа, и решение об отказе — три темы в одной функции.
-    """
-    created: dict[str, str] = {}
-    refused: list[str] = []
-
-    for task in tasks:
-        if not isinstance(task, dict):
-            refused.append(f"строка ответа не разобрана: {task!r:.60}")
-            continue
-        keyword = str((task.get("data") or {}).get("tag") or "")
-        if task.get("status_code") == TASK_CREATED and task.get("id"):
-            created[keyword] = str(task["id"])
-        else:
-            refused.append(f"{keyword}: {task.get('status_code')} {task.get('status_message')}")
-
-    return created, refused
-
-
 class DataForSeoProvider:
-    """Источник выдачи поверх отложенного режима провайдера."""
+    """Источник выдачи DataForSEO в выбранном режиме (`modes.SerpMode`)."""
 
     name = "dataforseo"
 
@@ -197,9 +171,11 @@ class DataForSeoProvider:
         sandbox: bool | None = None,
         login: str | None = None,
         password: str | None = None,
+        mode: SerpMode | None = None,
     ) -> None:
+        self.mode = mode if mode is not None else mode_of(None)
         self._sandbox = cfg.SANDBOX if sandbox is None else sandbox
-        self._base = SANDBOX_URL if self._sandbox else LIVE_URL
+        self._base = SANDBOX_URL if self._sandbox else PROD_URL
         auth = _basic_auth(login or cfg.LOGIN, password or cfg.PASSWORD)
         self._own_client = client is None
         self._http = client or httpx.AsyncClient(
@@ -217,7 +193,12 @@ class DataForSeoProvider:
             await self._http.aclose()
 
     async def search(
-        self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
+        self,
+        keywords: Sequence[str],
+        country: str,
+        *,
+        depth_pages: int = 1,
+        watch: SerpWatch | None = None,
     ) -> dict[str, list[SerpResult]]:
         """Выдача по пачке ключей. Ключ без результатов — с пустым списком.
 
@@ -231,43 +212,120 @@ class DataForSeoProvider:
         if not unique:
             return out
 
+        # Страна — до траты и до первого события: промахнуться рынком хуже, чем не начать.
+        location_code(country)
+        ticker = Ticker(watch or SerpWatch(), total=len(unique))
         wanted = depth_pages * RESULTS_PER_PAGE
+        if self.mode is SerpMode.LIVE:
+            await self._live(unique, country, wanted, out, ticker)
+            return out
         for start in range(0, len(unique), MAX_TASKS_PER_POST):
             batch = unique[start : start + MAX_TASKS_PER_POST]
-            tasks = await self._post(batch, country, wanted)
-            await self._collect(tasks, out, wanted)
+            tasks, costs = await self._post(batch, country, wanted, ticker)
+            await self._collect(tasks, out, wanted, ticker, costs)
         return out
 
-    async def _post(self, keywords: Sequence[str], country: str, depth: int) -> dict[str, str]:
-        """Поставить задачи. Возвращает соответствие «ключ → номер задачи»."""
-        payload = [
-            {
-                "keyword": keyword,
-                "location_code": location_code(country),
-                "language_code": language_code(country),
-                "depth": depth,
-                # Метка возвращается провайдером как есть — по ней задача
-                # сопоставляется с ключом надёжнее, чем по порядку в ответе.
-                "tag": keyword,
-            }
-            for keyword in keywords
-        ]
+    def _payload(self, keyword: str, country: str, depth: int) -> dict[str, Any]:
+        """Задача на ключ — одна и та же в отложенном и синхронном режиме."""
+        task: dict[str, Any] = {
+            "keyword": keyword,
+            "location_code": location_code(country),
+            "language_code": language_code(country),
+            "depth": depth,
+            # Метка возвращается провайдером как есть — по ней задача
+            # сопоставляется с ключом надёжнее, чем по порядку в ответе.
+            "tag": keyword,
+        }
+        if self.mode is SerpMode.PRIORITY:
+            task["priority"] = PRIORITY_HIGH
+        return task
 
+    async def _post(
+        self, keywords: Sequence[str], country: str, depth: int, ticker: Ticker
+    ) -> tuple[dict[str, str], dict[str, float]]:
+        """Поставить задачи. Возвращает «ключ → номер задачи» и цены задач.
+
+        Ключ с номером из `watch.tasks` снова не ставится: его купила прошлая
+        попытка, и результат забирается по номеру."""
+        known = {k: ticker.watch.tasks[k] for k in keywords if k in ticker.watch.tasks}
+        fresh = [k for k in keywords if k not in known]
+        if not fresh:
+            await ticker.start()
+            return known, {}
+
+        payload = [self._payload(keyword, country, depth) for keyword in fresh]
         body = await self._call("POST", POST_PATH, json=payload)
         self.spent += float(body.get("cost") or 0)
 
-        created, refused = _sort_tasks(body.get("tasks") or [])
-
+        created, refused, costs = sort_posted(body.get("tasks") or [])
+        # Номера — наружу до опроса: сбой опроса после этой строки не купит их снова.
+        await ticker.watch.posted(created)
+        await ticker.start()
         if refused:
-            # Отказ провайдера — не пустая выдача. Промолчав, мы получили бы
-            # прогон, где половина ключей «ничего не нашла».
-            logger.error("выдача: провайдер отклонил задачи (%d): %s", len(refused), refused[:5])
-        if not created and refused:
-            raise SerpError(f"Провайдер отклонил все задачи пачки: {refused[0]}")
-        return created
+            await report_refused(refused, costs, ticker, none_taken=not created and not known)
+        return {**known, **created}, costs
+
+    async def _live(
+        self,
+        keywords: Sequence[str],
+        country: str,
+        wanted: int,
+        out: dict[str, list[SerpResult]],
+        ticker: Ticker,
+    ) -> None:
+        """Синхронный режим: запрос на ключ, параллельно, ответ — в том же запросе.
+
+        Номеров задач нет, и запрос не идемпотентен: повтор после обрыва провайдер
+        считает новой покупкой. Зато окно такого повтора — секунды, а не минуты.
+
+        Отказ насовсем (ключ, деньги, права) останавливает покупку: новые запросы
+        не уходят. Временный сбой после повторов — ключ потерян, как недождавшийся
+        в отложенном режиме: в ответе его нет, и прогон называет его потерянным.
+        """
+        gate = asyncio.Semaphore(LIVE_CONCURRENCY)
+        stop: list[SerpError] = []
+        await ticker.start()
+
+        async def one(keyword: str) -> None:
+            async with gate:
+                if stop:
+                    out.pop(keyword, None)
+                    return
+                try:
+                    body = await self._call(
+                        "POST", LIVE_PATH, json=[self._payload(keyword, country, wanted)]
+                    )
+                    cost = float(body.get("cost") or 0)
+                    self.spent += cost
+                    items, pages = live_items(body, keyword)
+                except SerpError as error:
+                    out.pop(keyword, None)
+                    if error.permanent:
+                        stop.append(error)
+                    # Предупреждение, а не ошибка: отказ насовсем поднимается дальше
+                    # (`raise stop[0]`), и его пишет вызывающий; временный — потеря ключа.
+                    logger.warning(
+                        "выдача: ключ «%s» не куплен — %s: %s",
+                        keyword,
+                        "покупка остановлена" if error.permanent else "остался без выдачи",
+                        error,
+                    )
+                    return
+            out[keyword] = organic_results(items, wanted)
+            log_task(keyword, cost, pages)
+            await ticker.answered(keyword, cost=cost, pages=pages)
+
+        await asyncio.gather(*(one(keyword) for keyword in keywords))
+        if stop:
+            raise stop[0]
 
     async def _collect(
-        self, tasks: dict[str, str], out: dict[str, list[SerpResult]], wanted: int
+        self,
+        tasks: dict[str, str],
+        out: dict[str, list[SerpResult]],
+        wanted: int,
+        ticker: Ticker,
+        costs: dict[str, float],
     ) -> None:
         """Забрать готовое. Не дождались — это видно, а не тихий ноль.
 
@@ -288,11 +346,14 @@ class DataForSeoProvider:
             if not pending:
                 return
             for keyword, task_id in list(pending.items()):
-                items = await self._fetch(task_id)
-                if items is None:
+                answer = await self._fetch(task_id)
+                if answer is None:
                     continue
-                out[keyword] = _organic(items, wanted)
+                items, pages = answer
+                out[keyword] = organic_results(items, wanted)
                 pending.pop(keyword, None)
+                log_task(keyword, costs.get(keyword), pages)
+                await ticker.answered(keyword, cost=costs.get(keyword), pages=pages)
 
             if pending and attempt < deadline - 1:
                 await asyncio.sleep(cfg.POLL_INTERVAL_S)
@@ -307,8 +368,8 @@ class DataForSeoProvider:
             for keyword in pending:
                 out.pop(keyword, None)
 
-    async def _fetch(self, task_id: str) -> list[Any] | None:
-        """Результат задачи. `None` — ещё не готово."""
+    async def _fetch(self, task_id: str) -> tuple[list[Any], int | None] | None:
+        """Позиции задачи и сколько страниц собрал провайдер. `None` — ещё не готово."""
         body = await self._call("GET", f"{GET_PATH}/{task_id}")
         self.spent += float(body.get("cost") or 0)
 
@@ -324,13 +385,8 @@ class DataForSeoProvider:
             logger.error(
                 "выдача: задача %s отклонена (%s %s)", task_id, status, task.get("status_message")
             )
-            return []
-
-        result = task.get("result")
-        if not result:
-            # Провайдер отработал и ничего не нашёл — законный исход.
-            return []
-        return list((result[0] or {}).get("items") or [])
+            return [], None
+        return task_items(task)
 
     async def balance(self) -> float:
         """Остаток денег на счету провайдера. Запрос бесплатный.

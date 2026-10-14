@@ -16,12 +16,12 @@ from typing import Any
 
 import httpx
 import pytest
-from backend.config import serp as serp_cfg
 from backend.features.core.domain import RunStatus, Stage, UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
 from backend.features.serp.dataforseo import DataForSeoProvider
+from backend.features.serp.modes import SerpMode, mode_of, page_price_usd
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
@@ -95,7 +95,7 @@ class TestDepthOnTheBoundary:
 
         assert deep["serp_cost_usd"] == pytest.approx(10 * shallow["serp_cost_usd"])
         assert deep["serp_cost_usd"] == pytest.approx(
-            len(KEYWORDS) * 10 * serp_cfg.PRICE_PER_KEYWORD_USD
+            len(KEYWORDS) * 10 * page_price_usd(mode_of(None))
         )
         assert deep["expected_domains"] > shallow["expected_domains"]
         assert deep["units_total"] > shallow["units_total"]
@@ -147,25 +147,30 @@ class TestDepthOnTheBoundary:
 
 
 class TestProviderAtAHundred:
-    async def test_dataforseo_is_asked_for_a_hundred_and_gives_a_hundred(self) -> None:
+    @pytest.mark.parametrize("mode", [SerpMode.STANDARD, SerpMode.LIVE])
+    async def test_dataforseo_is_asked_for_a_hundred_and_gives_a_hundred(
+        self, mode: SerpMode
+    ) -> None:
         """Свой потолок у провайдера — 700 результатов, а платит он за каждые
-        десять: глубина 100 уходит ему как есть, а не обрезается."""
+        десять: глубина 100 уходит ему как есть, а не обрезается — в очереди
+        и в синхронном запросе одинаково."""
         posted: list[int] = []
+        items = [
+            {"type": "organic", "rank_absolute": n, "url": f"https://site{n}.test/"}
+            for n in range(1, 131)
+        ]
+        result = {"status_code": 20000, "result": [{"items": items}]}
 
         def handler(request: httpx.Request) -> httpx.Response:
-            if request.url.path.endswith("task_post"):
+            if request.url.path.endswith(("task_post", "live/regular")):
                 posted.extend(row["depth"] for row in json.loads(request.content))
+            if request.url.path.endswith("task_post"):
                 task = {"id": "t-1", "status_code": 20100, "data": {"tag": "к"}}
                 return httpx.Response(200, json={"status_code": 20000, "tasks": [task]})
-            items = [
-                {"type": "organic", "rank_absolute": n, "url": f"https://site{n}.test/"}
-                for n in range(1, 131)
-            ]
-            result = {"status_code": 20000, "result": [{"items": items}]}
             return httpx.Response(200, json={"status_code": 20000, "tasks": [result]})
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://dfs")
-        provider = DataForSeoProvider(client, sandbox=True, login="l", password="p")
+        provider = DataForSeoProvider(client, sandbox=True, login="l", password="p", mode=mode)
 
         found = await provider.search(["к"], "us", depth_pages=10)
 

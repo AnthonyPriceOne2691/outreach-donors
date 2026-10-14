@@ -5,7 +5,15 @@
 двухфазный: задачи ставятся `task_post`, результат забирается опросом, и одна
 задача выполняется минутами. По ключу за раз сотня ключей заняла бы часы;
 пачкой — одно ожидание на всех. В референсе это решено так же: постановка
-чанком, затем опрос раз в две секунды с потолком ожидания.
+чанком, затем опрос раз в две секунды с потолком ожидания. Синхронный режим
+у провайдера тоже есть — секунды на ключ втрое с лишним дороже; какой брать,
+решает человек на запуске (`modes.py`), и пачка остаётся пачкой.
+
+**Ход покупки виден снаружи** (`SerpWatch`): событие «покупка началась» и по
+событию на каждый ключ с ответом. Проверка на проде 14.10.2026: шесть минут
+ожидания выдачи экран показывал «в очереди задач» и нули — прогон выглядел
+зависшим. Там же — номера задач отложенного режима: сохранённые до опроса, они
+не дают повтору задачи после сбоя купить ту же выдачу второй раз.
 
 Провайдеров за интерфейсом двое не ради абстракции. Отладка не должна упираться
 в чужой баланс, падение провайдера не должно останавливать прогон, а смена
@@ -26,9 +34,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+import logging
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
+
+logger = logging.getLogger(__name__)
 
 
 def keyword_key(keyword: str) -> str:
@@ -73,6 +84,71 @@ class SerpResult:
     description: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class SerpProgress:
+    """Ход покупки выдачи — для экрана «идёт или зависло».
+
+    Первое событие — «покупка началась»: задачи поставлены или первый запрос
+    ушёл, `keyword` пуст. Дальше — по событию на каждый ключ с ответом; ответ —
+    это и пришедшая выдача, и пустая, и отклонённая провайдером задача.
+    Не дождались ключа — события по нему нет: его видно в ответе (ключа там нет).
+    """
+
+    #: Ключей с ответом.
+    done: int
+    #: Ключей в покупке — после сведения повторов (`distinct_keywords`).
+    total: int
+    #: Чей ответ пришёл; пусто — событие «покупка началась».
+    keyword: str | None = None
+    #: Цена задачи этого ключа, как её назвал провайдер; пусто — не назвал.
+    cost_usd: float | None = None
+    #: Сколько страниц выдачи провайдер собрал по ключу (`pages_count`).
+    pages: int | None = None
+
+
+#: Слушатель хода покупки.
+ProgressHook = Callable[[SerpProgress], Awaitable[None]]
+#: Слушатель постановки: номера только что поставленных задач, «ключ → номер».
+PostedHook = Callable[[Mapping[str, str]], Awaitable[None]]
+
+
+@dataclass(slots=True)
+class SerpWatch:
+    """Что вызывающий хочет знать о покупке и что о ней уже знает.
+
+    `tasks` — номера задач отложенного режима, «ключ → номер». Ключ, у которого
+    номер уже есть, снова не ставится: его результат забирается по номеру. Новые
+    номера источник дописывает сюда сразу после постановки и зовёт `on_posted` —
+    ДО опроса: вызывающий сохраняет их у себя, и повтор задачи после сбоя опроса
+    не покупает ту же выдачу второй раз. У синхронного режима номеров нет.
+
+    Сбой слушателя покупку не роняет: выдача уже оплачена, и потерять её из-за
+    записи хода было бы дороже, чем не показать ход. Он пишется в журнал.
+    """
+
+    tasks: dict[str, str] = field(default_factory=dict)
+    on_posted: PostedHook | None = None
+    on_progress: ProgressHook | None = None
+
+    async def posted(self, created: Mapping[str, str]) -> None:
+        """Запомнить новые номера и сказать о них вызывающему."""
+        self.tasks.update(created)
+        if created and self.on_posted is not None:
+            try:
+                await self.on_posted(dict(created))
+            except Exception:
+                logger.exception("выдача: номера задач не сохранены — повтор купит их снова")
+
+    async def progress(self, event: SerpProgress) -> None:
+        """Сказать о ходе покупки."""
+        if self.on_progress is None:
+            return
+        try:
+            await self.on_progress(event)
+        except Exception:
+            logger.exception("выдача: ход покупки не записан (%s из %s)", event.done, event.total)
+
+
 @runtime_checkable
 class SerpProvider(Protocol):
     """Источник выдачи Google."""
@@ -92,7 +168,12 @@ class SerpProvider(Protocol):
     """
 
     async def search(
-        self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
+        self,
+        keywords: Sequence[str],
+        country: str,
+        *,
+        depth_pages: int = 1,
+        watch: SerpWatch | None = None,
     ) -> dict[str, list[SerpResult]]:
         """Выдача по пачке ключей. Ключ без результатов присутствует в ответе
         с пустым списком — так вызывающий видит разницу между «ничего не нашлось»
@@ -100,5 +181,6 @@ class SerpProvider(Protocol):
 
         `depth_pages` — страницы по десять результатов: единица тарификации
         у провайдеров и есть страница, а не позиция. По  нужен топ-10.
+        `watch` — ход покупки и номера уже поставленных задач (`SerpWatch`).
         """
         ...
