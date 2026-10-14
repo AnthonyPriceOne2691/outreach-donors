@@ -1467,9 +1467,9 @@
       "worst": "ask:124"
     },
     "backend/features/keywords/dedup.py": {
-      "lines": 94,
+      "lines": 126,
       "complexity": 6,
-      "worst": "interleave:57"
+      "worst": "interleave:89"
     },
     "backend/features/keywords/footprints.py": {
       "lines": 131,
