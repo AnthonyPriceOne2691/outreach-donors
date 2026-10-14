@@ -31,6 +31,30 @@ def _similarity(first: frozenset[str], second: frozenset[str]) -> float:
     return len(first & second) / len(first | second)
 
 
+def _words(phrase: str) -> frozenset[str]:
+    return frozenset(phrase.lower().split())
+
+
+def _sift(phrases: Sequence[str], threshold: float) -> list[tuple[str, str | None]]:
+    """Каждая непустая фраза — и чьим почти повтором она вышла (`None` — оставлена).
+
+    Один проход на оба ответа: «что оставить» и «почему отброшено» не должны
+    разойтись. Сравнение — с уже оставленными; первая совпавшая — та, чьим
+    повтором фраза названа.
+    """
+    kept: list[tuple[str, frozenset[str]]] = []
+    out: list[tuple[str, str | None]] = []
+    for phrase in phrases:
+        words = _words(phrase)
+        if not words:
+            continue
+        twin = next((other for other, seen in kept if _similarity(words, seen) >= threshold), None)
+        if twin is None:
+            kept.append((phrase, words))
+        out.append((phrase, twin))
+    return out
+
+
 def drop_near_duplicates(
     phrases: Sequence[str], *, threshold: float = NEAR_DUPLICATE_THRESHOLD
 ) -> list[str]:
@@ -39,19 +63,27 @@ def drop_near_duplicates(
     Порядок сохраняется: первой идёт та, что пришла раньше, — а раньше
     приходят фразы более дорогих углов.
     """
-    kept: list[str] = []
-    kept_words: list[frozenset[str]] = []
+    return [phrase for phrase, twin in _sift(phrases, threshold) if twin is None]
 
-    for phrase in phrases:
-        words = frozenset(phrase.lower().split())
-        if not words:
-            continue
-        if any(_similarity(words, other) >= threshold for other in kept_words):
-            continue
-        kept.append(phrase)
-        kept_words.append(words)
 
-    return kept
+def near_duplicate_of(
+    phrases: Sequence[str], *, threshold: float = NEAR_DUPLICATE_THRESHOLD
+) -> dict[str, str]:
+    """Тот же отсев с ответом «почему»: отброшенная фраза → оставленная, чьим
+    почти повтором она вышла.
+
+    Проверка на проде 14.10.2026: причина «почти повтор другого ключа» не называла,
+    какого, и человек не понимал, что отсеялось и почему. Точный повтор назван
+    сам собой («ключ» → «ключ»): ответ — по фразе, а не по месту в списке.
+    """
+    return {phrase: twin for phrase, twin in _sift(phrases, threshold) if twin is not None}
+
+
+def overlap(first: str, second: str) -> tuple[int, int]:
+    """Сколько слов у двух фраз общих и сколько разных всего — числа причины
+    «2 общих слова из 3», тем же счётом, каким режет отсев (`_similarity`)."""
+    a, b = _words(first), _words(second)
+    return len(a & b), len(a | b)
 
 
 def interleave(pools: Sequence[Sequence[str]], cap: int) -> list[str]:
