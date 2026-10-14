@@ -437,7 +437,7 @@ class FakeQueue:
 @pytest.fixture
 def queue(monkeypatch: pytest.MonkeyPatch) -> FakeQueue:
     fake = FakeQueue()
-    monkeypatch.setattr("backend.api.review.routes.runs_queue", lambda: fake)
+    monkeypatch.setattr("backend.api.review.routes.contacts_queue", lambda: fake)
     monkeypatch.setattr("backend.api.review.routes.remember_contacts_job", lambda _: None)
     return fake
 

@@ -206,7 +206,7 @@ class TestParseJobAfterCap:
                 scheduled.append((when, job, args, kwargs))
 
         monkeypatch.setattr(jobs, "_parse_reply", capped)
-        monkeypatch.setattr(jobs, "runs_queue", Queue)
+        monkeypatch.setattr(jobs, "quick_queue", Queue)
         monkeypatch.setattr(jobs, "check_storage", lambda: None)
         monkeypatch.setattr(jobs, "setup_logging", lambda: None)
 

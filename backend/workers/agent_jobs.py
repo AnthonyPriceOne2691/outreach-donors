@@ -42,7 +42,7 @@ from backend.features.core.usage import LlmCapExceededError
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport_factory import Transports, in_use
 from backend.shared.logs import setup_logging
-from backend.shared.queue import runs_queue, with_retries
+from backend.shared.queue import quick_queue, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ def queue_draft(reply_id: int, *, queue: Callable[[], Queue] | None = None) -> N
     сделанным. Есть ли агенту что писать, решает сама задача
     (`drafting.draft_answer`): ставить её дёшево, а пропуск она называет.
     """
-    put = runs_queue if queue is None else queue  # общая — по имени модуля на момент вызова
+    put = quick_queue if queue is None else queue  # общая — по имени модуля на момент вызова
     try:
         put().enqueue(
             DRAFT_JOB,

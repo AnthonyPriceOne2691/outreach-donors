@@ -99,7 +99,7 @@ def test_draft_job_not_queued_names_the_reply(
     trouble: Exception,
     said: dict[str, Any],
 ) -> None:
-    monkeypatch.setattr(agent_jobs, "runs_queue", lambda: _Refused(trouble))
+    monkeypatch.setattr(agent_jobs, "quick_queue", lambda: _Refused(trouble))
 
     with caplog.at_level(logging.INFO, logger=agent_jobs.__name__):
         agent_jobs.queue_draft(42)

@@ -60,7 +60,7 @@ from backend.shared.queue import (
     JUDGE_CRAWL_JOB,
     crawl_job_id,
     enqueue_crawl,
-    runs_queue,
+    quick_queue,
     with_retries,
 )
 
@@ -130,7 +130,7 @@ def _judge_later(run_id: int) -> str | None:
     """Пересчёт кандидатов — в общую очередь. Обход уже записан «done», и падать
     из-за молчащей очереди здесь незачем: кандидатов досчитает `outreach advertisers`."""
     try:
-        return str(runs_queue().enqueue(JUDGE_CRAWL_JOB, run_id, **with_retries()).id)
+        return str(quick_queue().enqueue(JUDGE_CRAWL_JOB, run_id, **with_retries()).id)
     except Exception:
         logger.exception(
             "обход №%s закончен, но пересчёт кандидатов не поставлен — "

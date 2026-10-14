@@ -324,7 +324,7 @@ async def test_webhook_reports_it_in_words(
     monkeypatch.setattr(inbound_routes, "_throttle", SlidingWindow())
     # Отказ доставки разбора не ставит; тронь приём очередь — тест упадёт,
     # а не уйдёт в живой Redis.
-    monkeypatch.setattr(inbound_routes, "runs_queue", _no_queue)
+    monkeypatch.setattr(inbound_routes, "quick_queue", _no_queue)
     label = reply_to.address_for(sent.id, sender_email=f"anna@{OURS}", secret=SECRET)
 
     response = await client.post(

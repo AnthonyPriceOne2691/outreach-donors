@@ -65,10 +65,10 @@ async def admin_token(make_user: MakeUser, sign_in: SignIn) -> str:
 @pytest.fixture
 def queue(monkeypatch: pytest.MonkeyPatch) -> FakeQueue:
     fake = FakeQueue()
-    monkeypatch.setattr("backend.api.contacts.routes.runs_queue", lambda: fake)
+    monkeypatch.setattr("backend.api.contacts.routes.contacts_queue", lambda: fake)
     monkeypatch.setattr("backend.api.contacts.routes.remember_contacts_job", lambda _: None)
     monkeypatch.setattr("backend.api.contacts.routes.contacts_job_id", lambda: None)
-    monkeypatch.setattr("backend.api.contacts.routes.workers_alive", lambda: 1)
+    monkeypatch.setattr("backend.api.contacts.routes.workers_alive", lambda **_: 1)
     return fake
 
 

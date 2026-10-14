@@ -62,10 +62,10 @@ class FakeQueue:
 def queue(monkeypatch: pytest.MonkeyPatch) -> FakeQueue:
     fake = FakeQueue()
     routes = "backend.api.advertisers.routes"
-    monkeypatch.setattr(f"{routes}.runs_queue", lambda: fake)
+    monkeypatch.setattr(f"{routes}.contacts_queue", lambda: fake)
     monkeypatch.setattr(f"{routes}.remember_contacts_job", fake.remember)
     monkeypatch.setattr(f"{routes}.contacts_job_id", lambda **_k: None)
-    monkeypatch.setattr(f"{routes}.workers_alive", lambda: 1)
+    monkeypatch.setattr(f"{routes}.workers_alive", lambda **_: 1)
     return fake
 
 
@@ -287,7 +287,7 @@ class TestPromote:
                 raise RedisConnectionError("очередь не отвечает")
 
         routes = "backend.api.advertisers.routes"
-        monkeypatch.setattr(f"{routes}.runs_queue", DownQueue)
+        monkeypatch.setattr(f"{routes}.contacts_queue", DownQueue)
         monkeypatch.setattr(f"{routes}.contacts_job_id", lambda **_k: None)
 
         response = await client.post("/api/advertisers/promote", headers=bearer(operator_token))

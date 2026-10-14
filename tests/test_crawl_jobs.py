@@ -56,7 +56,7 @@ def _wiring(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 @pytest.fixture
 def runs(monkeypatch: pytest.MonkeyPatch) -> _Queue:
     queue = _Queue()
-    monkeypatch.setattr(crawl_jobs, "runs_queue", lambda: queue)
+    monkeypatch.setattr(crawl_jobs, "quick_queue", lambda: queue)
     return queue
 
 
@@ -175,7 +175,7 @@ async def test_silent_queue_after_the_crawl_does_not_undo_it(
         def enqueue(self, *_: Any, **__: Any) -> Any:
             raise ConnectionError("Redis недоступен")
 
-    monkeypatch.setattr(crawl_jobs, "runs_queue", _Silent)
+    monkeypatch.setattr(crawl_jobs, "quick_queue", _Silent)
     async with committed_sessions() as factory:
         run_id = await _queued(factory)
 

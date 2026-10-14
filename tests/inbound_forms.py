@@ -52,7 +52,7 @@ def setup_inbound(monkeypatch: pytest.MonkeyPatch) -> NoQueue:
     """Секрет, очередь-заглушка и чистое окно частоты."""
     monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", SECRET)
     queue = NoQueue()
-    monkeypatch.setattr(inbound_routes, "runs_queue", lambda: queue)
+    monkeypatch.setattr(inbound_routes, "quick_queue", lambda: queue)
     monkeypatch.setattr(inbound_routes, "_throttle", SlidingWindow())
     return queue
 
