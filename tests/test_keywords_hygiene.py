@@ -14,6 +14,8 @@ import pytest
 from backend.features.keywords.dedup import (
     drop_near_duplicates,
     interleave,
+    near_duplicate_of,
+    overlap,
     split_over_angles,
 )
 from backend.features.keywords.hygiene import clean, normalize, parse_phrases, rejection_reason
@@ -161,3 +163,43 @@ class TestInterleave:
 
     def test_cap_respected(self) -> None:
         assert len(interleave([[f"ф{i}" for i in range(10)]], cap=3)) == 3
+
+
+class TestWhyDropped:
+    """«Почти повтор другого ключа» без имени ключа — не причина (проверка на проде
+    14.10.2026: «не понимаю, какие ключи отсеялись и почему»)."""
+
+    def test_dropped_phrase_names_its_twin(self) -> None:
+        phrases = [
+            "логистическая компания",
+            "логистическая компания алматы",
+            "логистическая компания астана",
+            "логистическая компания в алматы",
+            "логистическая компания в казахстане",
+        ]
+        twins = near_duplicate_of(phrases)
+
+        assert twins == {
+            "логистическая компания алматы": "логистическая компания",
+            "логистическая компания астана": "логистическая компания",
+            "логистическая компания в казахстане": "логистическая компания в алматы",
+        }
+        assert drop_near_duplicates(phrases) == [
+            "логистическая компания",
+            "логистическая компания в алматы",
+        ]
+
+    def test_both_answers_come_from_one_pass(self) -> None:
+        """Что оставлено и что отброшено не расходятся: вместе — все непустые фразы."""
+        phrases = ["новости манилы", "последние новости манилы", "", "утренние новости"]
+        kept = drop_near_duplicates(phrases)
+        twins = near_duplicate_of(phrases)
+        assert sorted(kept + list(twins)) == sorted(p for p in phrases if p)
+
+    def test_exact_repeat_is_its_own_twin_and_first_stays(self) -> None:
+        assert near_duplicate_of(["ключ", "ключ"]) == {"ключ": "ключ"}
+        assert drop_near_duplicates(["ключ", "ключ"]) == ["ключ"]
+
+    def test_overlap_counts_like_the_cut(self) -> None:
+        assert overlap("логистическая компания алматы", "логистическая компания") == (2, 3)
+        assert overlap("логистическая компания алматы", "логистическая компания астана") == (2, 4)
