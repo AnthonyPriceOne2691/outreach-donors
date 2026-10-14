@@ -27,8 +27,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.config import serp as serp_cfg
 from backend.features.ahrefs.units import COUNTRY_CALL_SHARE, RunEstimate, estimate_run
+from backend.features.serp.modes import mode_of, page_price_usd
 
 #: Результатов на страницу выдачи. Совпадает у обоих источников.
 RESULTS_PER_PAGE = 10
@@ -110,7 +110,8 @@ def forecast(
     country_share: float = COUNTRY_CALL_SHARE,
     unique_share: float = UNIQUE_SHARE,
 ) -> RunForecast:
-    """Смета по числу ключей — до единого обращения к провайдерам."""
+    """Смета по числу ключей — до единого обращения к провайдерам. Цена выдачи —
+    по режиму покупки сервиса (`serp/modes.py`, `SERP_MODE`)."""
     results = max(0, keywords) * max(1, depth_pages) * RESULTS_PER_PAGE
     domains = round(results * unique_share)
     return RunForecast(
@@ -130,7 +131,7 @@ def forecast(
         # нет вовсе. Но названа она должна быть: до этого числа расход
         # на выдачу не показывался нигде.
         serp_cost_usd=round(
-            max(0, keywords) * max(1, depth_pages) * serp_cfg.PRICE_PER_KEYWORD_USD, 4
+            max(0, keywords) * max(1, depth_pages) * page_price_usd(mode_of(None)), 4
         ),
         unique_share=unique_share,
     )

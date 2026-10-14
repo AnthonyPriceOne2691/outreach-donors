@@ -17,6 +17,7 @@ from backend.config import serp as cfg
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.serp.ahrefs_serp import AhrefsSerpProvider
 from backend.features.serp.dataforseo import DataForSeoProvider
+from backend.features.serp.modes import SerpMode
 from backend.features.serp.protocol import SerpProvider
 
 logger = logging.getLogger(__name__)
@@ -31,12 +32,13 @@ class UnknownProviderError(RuntimeError):
     они отличаются ценой в двадцать раз."""
 
 
-def build_provider(ahrefs_client: AhrefsClient) -> SerpProvider:
+def build_provider(ahrefs_client: AhrefsClient, *, mode: SerpMode | None = None) -> SerpProvider:
     """Источник выдачи по настройке `SERP_PROVIDER`.
 
     Клиент Ahrefs передаётся всегда: он нужен запасному источнику, а
     заводить его внутри значит создавать второе подключение к тому же
-    провайдеру.
+    провайдеру. `mode` — режим покупки у DataForSEO (`modes.py`); не назван —
+    умолчание сервиса. Запасной источник синхронный и режимов не знает.
     """
     name = (cfg.PROVIDER or "").strip().lower()
 
@@ -52,7 +54,7 @@ def build_provider(ahrefs_client: AhrefsClient) -> SerpProvider:
                 "выдача: включена ПЕСОЧНИЦА провайдера — ответы выдуманные, "
                 "доноры из них не годятся ни для чего, кроме проверки проводки"
             )
-        return DataForSeoProvider()
+        return DataForSeoProvider(mode=mode)
 
     if name == AHREFS:
         logger.info("выдача: запасной источник, дороже основного примерно в двадцать раз")

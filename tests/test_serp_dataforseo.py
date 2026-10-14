@@ -20,8 +20,14 @@ from backend.features.serp.dataforseo import (
     language_code,
     location_code,
 )
+from backend.features.serp.modes import SerpMode
+from backend.features.serp.protocol import SerpProgress, SerpWatch
 
 pytestmark = pytest.mark.asyncio
+
+
+#: Цена одной задачи в ответе постановки — у провайдера она есть у каждой задачи.
+TASK_COST = 0.003
 
 
 def _task(task_id: str, keyword: str, *, status: int = 20100) -> dict[str, Any]:
@@ -29,14 +35,20 @@ def _task(task_id: str, keyword: str, *, status: int = 20100) -> dict[str, Any]:
         "id": task_id,
         "status_code": status,
         "status_message": "Task Created." if status == 20100 else "Отказ",
+        "cost": TASK_COST if status == 20100 else 0,
         "data": {"tag": keyword},
     }
 
 
-def _result(items: list[dict[str, Any]], *, status: int = 20000) -> dict[str, Any]:
+def _result(
+    items: list[dict[str, Any]], *, status: int = 20000, pages: int | None = None
+) -> dict[str, Any]:
+    first: dict[str, Any] = {"items": items}
+    if pages is not None:
+        first["pages_count"] = pages
     return {
         "status_code": 20000,
-        "tasks": [{"status_code": status, "status_message": "Ok.", "result": [{"items": items}]}],
+        "tasks": [{"status_code": status, "status_message": "Ok.", "result": [first]}],
     }
 
 
@@ -54,8 +66,12 @@ class Provider:
         refuse: set[str] | None = None,
         queue_rounds: int = 0,
         ready: set[str] | None = None,
+        pages: dict[str, int] | None = None,
     ) -> None:
         self.results = results or {}
+        self.pages = pages or {}
+        #: Строки задач, как их поставил адаптер, — по ним видно поля задачи.
+        self.payloads: list[dict[str, Any]] = []
         self.refuse = refuse or set()
         self.queue_rounds = queue_rounds
         #: Ключи, задачи по которым готовы сразу, сколько бы ни ждали остальные.
@@ -67,7 +83,9 @@ class Provider:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("task_post"):
             self.posts += 1
-            keywords = [row["keyword"] for row in json.loads(request.content)]
+            rows = json.loads(request.content)
+            self.payloads.extend(rows)
+            keywords = [row["keyword"] for row in rows]
             tasks = []
             for number, keyword in enumerate(keywords):
                 if keyword in self.refuse:
@@ -88,12 +106,16 @@ class Provider:
                 200,
                 json={"status_code": 20000, "tasks": [{"status_code": 40602, "result": None}]},
             )
-        return httpx.Response(200, json=_result(self.results.get(keyword, [])))
+        return httpx.Response(
+            200, json=_result(self.results.get(keyword, []), pages=self.pages.get(keyword))
+        )
 
 
-def _provider(handler: Any) -> DataForSeoProvider:
+def _provider(handler: Any, *, mode: SerpMode = SerpMode.STANDARD) -> DataForSeoProvider:
+    """Отложенный режим — явно: умолчание сервиса синхронное (`SERP_MODE`), а проводка
+    очереди проверяется здесь вся."""
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://dfs")
-    return DataForSeoProvider(client, sandbox=True, login="l", password="p")
+    return DataForSeoProvider(client, sandbox=True, login="l", password="p", mode=mode)
 
 
 class TestWiring:
@@ -334,3 +356,202 @@ class TestWhichRefusalIsRetried:
         with pytest.raises(SerpError) as caught:
             await _provider(lambda _r: httpx.Response(200)).search(["к"], "zz")
         assert caught.value.permanent
+
+
+class Live:
+    """Синхронный путь провайдера: одна задача на запрос, ответ в том же запросе."""
+
+    def __init__(
+        self,
+        *,
+        results: dict[str, list[dict[str, Any]]] | None = None,
+        fail: dict[str, int] | None = None,
+        refuse: set[str] | None = None,
+    ) -> None:
+        self.results = results or {}
+        self.fail = fail or {}
+        self.refuse = refuse or set()
+        self.asked: list[str] = []
+        self.paths: list[str] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.paths.append(request.url.path)
+        rows = json.loads(request.content)
+        assert len(rows) == 1, "синхронный путь берёт одну задачу на запрос"
+        keyword = rows[0]["keyword"]
+        self.asked.append(keyword)
+        if keyword in self.fail:
+            return httpx.Response(self.fail[keyword], text="нельзя")
+        task = {
+            "status_code": 40501 if keyword in self.refuse else 20000,
+            "status_message": "Ok.",
+            "cost": 0.01,
+            "result": [{"pages_count": 5, "items": self.results.get(keyword, [])}],
+        }
+        return httpx.Response(200, json={"status_code": 20000, "cost": 0.01, "tasks": [task]})
+
+
+def _listener() -> tuple[list[SerpProgress], Any]:
+    events: list[SerpProgress] = []
+
+    async def hear(event: SerpProgress) -> None:
+        events.append(event)
+
+    return events, hear
+
+
+class TestModes:
+    """Режим покупки — цена против ожидания (`serp/modes.py`, проверка на проде 14.10.2026)."""
+
+    async def test_standard_task_asks_no_priority(self) -> None:
+        site = Provider(results={"к": []})
+        await _provider(site).search(["к"], "us")
+        assert "priority" not in site.payloads[0]
+
+    async def test_priority_is_a_field_of_the_same_queue(self) -> None:
+        """Приоритетная очередь — то же поле задачи, а не другой путь: около минуты
+        вместо пяти, тот же опрос."""
+        site = Provider(results={"к": [_organic(1, "https://a.com/")]})
+        out = await _provider(site, mode=SerpMode.PRIORITY).search(["к"], "us")
+
+        assert site.payloads[0]["priority"] == 2
+        assert [r.url for r in out["к"]] == ["https://a.com/"]
+
+    async def test_live_is_one_request_per_keyword_without_polling(self) -> None:
+        site = Live(
+            results={"а": [_organic(1, "https://a.com/")], "б": [_organic(1, "https://b.com/")]}
+        )
+        provider = _provider(site, mode=SerpMode.LIVE)
+
+        out = await provider.search(["а", "б", "А"], "us")
+
+        assert sorted(site.asked) == ["а", "б"]  # повтор ключа — один запрос
+        assert all(path.endswith("/live/regular") for path in site.paths)
+        assert [r.url for r in out["а"]] == ["https://a.com/"]
+        assert [r.url for r in out["б"]] == ["https://b.com/"]
+        assert provider.spent == pytest.approx(0.02)
+
+    async def test_live_refused_keyword_stays_in_the_answer_empty(self) -> None:
+        out = await _provider(Live(refuse={"битый"}), mode=SerpMode.LIVE).search(["битый"], "us")
+        assert out == {"битый": []}
+
+    async def test_live_passing_trouble_loses_only_that_keyword(self) -> None:
+        """Временный сбой после повторов — ключ потерян, как недождавшийся в отложенном
+        режиме: в ответе его нет, остальные куплены."""
+        site = Live(results={"живой": [_organic(1, "https://a.com/")]}, fail={"битый": 503})
+
+        out = await _provider(site, mode=SerpMode.LIVE).search(["битый", "живой"], "us")
+
+        assert "битый" not in out
+        assert [r.url for r in out["живой"]] == ["https://a.com/"]
+
+    async def test_live_refusal_for_good_stops_buying(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Деньги, ключ, права — повтором не лечатся: следующие ключи не покупаются."""
+        monkeypatch.setattr("backend.features.serp.dataforseo.LIVE_CONCURRENCY", 1)
+        site = Live(fail=dict.fromkeys(("а", "б", "в"), 402))
+
+        with pytest.raises(SerpError) as caught:
+            await _provider(site, mode=SerpMode.LIVE).search(["а", "б", "в"], "us")
+
+        assert caught.value.permanent
+        assert site.asked == ["а"]
+
+    async def test_live_unknown_country_refuses_before_spending(self) -> None:
+        site = Live()
+        with pytest.raises(UnknownCountryError):
+            await _provider(site, mode=SerpMode.LIVE).search(["к"], "зз")
+        assert site.asked == []
+
+
+class TestProgress:
+    """Ход покупки — экрану «идёт или зависло»: шесть минут ожидания выдачи экран
+    показывал «в очереди задач» и нули (проверка на проде 14.10.2026)."""
+
+    async def test_queue_reports_start_then_each_keyword(self) -> None:
+        events, hear = _listener()
+        site = Provider(results={"а": [], "б": []}, pages={"а": 5})
+
+        await _provider(site).search(["а", "б"], "us", watch=SerpWatch(on_progress=hear))
+
+        assert events[0] == SerpProgress(done=0, total=2)
+        assert [event.done for event in events] == [0, 1, 2]
+        first = next(event for event in events if event.keyword == "а")
+        assert first.cost_usd == pytest.approx(TASK_COST)
+        assert first.pages == 5
+
+    async def test_refused_task_is_an_answer(self) -> None:
+        """Отклонённая задача — ответ: ключ в выдаче пуст, и ждать по нему нечего."""
+        events, hear = _listener()
+        site = Provider(results={"живой": []}, refuse={"битый"})
+
+        await _provider(site).search(["битый", "живой"], "us", watch=SerpWatch(on_progress=hear))
+
+        assert [event.done for event in events] == [0, 1, 2]
+        assert events[1].keyword == "битый"
+
+    async def test_live_reports_each_keyword_with_its_price(self) -> None:
+        events, hear = _listener()
+        site = Live(results={"а": [], "б": []})
+
+        await _provider(site, mode=SerpMode.LIVE).search(
+            ["а", "б"], "us", watch=SerpWatch(on_progress=hear)
+        )
+
+        assert events[0] == SerpProgress(done=0, total=2)
+        assert sorted(event.keyword for event in events[1:]) == ["а", "б"]
+        assert all(
+            event.cost_usd == pytest.approx(0.01) and event.pages == 5 for event in events[1:]
+        )
+
+    async def test_broken_listener_does_not_lose_the_paid_serp(self) -> None:
+        """Выдача уже оплачена: сбой записи хода — в журнал, а не в пустой прогон."""
+
+        async def broken(_event: object) -> None:
+            raise RuntimeError("база легла")
+
+        site = Provider(results={"к": [_organic(1, "https://a.com/")]})
+        watch = SerpWatch(on_progress=broken, on_posted=broken)
+
+        out = await _provider(site).search(["к"], "us", watch=watch)
+
+        assert [r.url for r in out["к"]] == ["https://a.com/"]
+
+
+class TestTaskNumbers:
+    """Номера задач — наружу до опроса: повтор задачи после сбоя опроса забирает
+    купленное по номеру, а не покупает выдачу второй раз."""
+
+    async def test_numbers_are_handed_out_before_the_first_poll(self) -> None:
+        site = Provider(results={"к": []})
+        seen: list[tuple[dict[str, str], int]] = []
+
+        async def keep(tasks: Any) -> None:
+            seen.append((dict(tasks), len(site.gets)))
+
+        watch = SerpWatch(on_posted=keep)
+        await _provider(site).search(["к"], "us", watch=watch)
+
+        assert seen == [({"к": "task-0-к"}, 0)]  # ни одного опроса до сохранения
+        assert watch.tasks == {"к": "task-0-к"}
+
+    async def test_known_number_is_polled_not_bought(self) -> None:
+        site = Provider(results={"к": [_organic(1, "https://a.com/")]})
+        site._ids["task-old"] = "к"  # задача, купленная прошлой попыткой
+
+        out = await _provider(site).search(["к"], "us", watch=SerpWatch(tasks={"к": "task-old"}))
+
+        assert site.posts == 0
+        assert site.gets == ["task-old"]
+        assert [r.url for r in out["к"]] == ["https://a.com/"]
+
+    async def test_only_new_keywords_are_posted(self) -> None:
+        site = Provider(results={"старый": [], "новый": []})
+        site._ids["task-old"] = "старый"
+        watch = SerpWatch(tasks={"старый": "task-old"})
+
+        await _provider(site).search(["старый", "новый"], "us", watch=watch)
+
+        assert [row["keyword"] for row in site.payloads] == ["новый"]
+        assert set(watch.tasks) == {"старый", "новый"}

@@ -30,7 +30,7 @@ from backend.features.core.domain import Stage
 from backend.features.donors.host import normalize_host
 from backend.features.runs.budget import CapExceededError
 from backend.features.runs.exclusions import ExclusionReason, counts
-from backend.features.serp.protocol import SerpProvider, keyword_key
+from backend.features.serp.protocol import SerpProvider, SerpWatch, keyword_key
 
 
 class FreshnessSource(Protocol):
@@ -243,14 +243,20 @@ async def gather_candidates(
     country: str,
     *,
     depth_pages: int = 1,
+    watch: SerpWatch | None = None,
 ) -> Candidates:
     """Выдача по ключам → уникальные корневые домены.
 
     Порядок сохраняется: первым идёт домен, встреченный выше в выдаче.
-    На отладке это удобнее случайного порядка множества.
+    На отладке это удобнее случайного порядка множества. `watch` — ход покупки
+    и номера задач (`serp.protocol.SerpWatch`); источник получает его, только
+    когда он назван: заглушки выдачи в тестах знают прежнюю подпись.
     """
     before = getattr(provider, "spent", 0.0)
-    answer = await provider.search(keywords, country, depth_pages=depth_pages)
+    if watch is None:
+        answer = await provider.search(keywords, country, depth_pages=depth_pages)
+    else:
+        answer = await provider.search(keywords, country, depth_pages=depth_pages, watch=watch)
     # Цена берётся разницей, а не полем: один адаптер живёт дольше одного
     # прогона, и его накопленный расход — это расход всех прогонов сразу.
     cost = max(0.0, getattr(provider, "spent", 0.0) - before)
