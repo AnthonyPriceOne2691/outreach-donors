@@ -32,9 +32,18 @@ from typing import Any
 import httpx
 from selectolax.parser import HTMLParser
 
+from backend.config import judge as judge_cfg
 from backend.features.contacts.pages import PageFetcher
 
 logger = logging.getLogger(__name__)
+
+
+def home_timeout() -> httpx.Timeout:
+    """Таймаут похода за главной: чтение — `JUDGE_HOME_TIMEOUT_SEC`, соединение — короче
+    (`JUDGE_HOME_CONNECT_TIMEOUT_SEC`). Мёртвый сайт молчит на соединении, и четыре
+    варианта адреса по двенадцать секунд стоили домену почти минуту (разбор 14.10.2026)."""
+    return httpx.Timeout(judge_cfg.HOME_TIMEOUT_SEC, connect=judge_cfg.HOME_CONNECT_TIMEOUT_SEC)
+
 
 #: Признаки того, что нам отдали не страницу сайта, а отказ. Сравнение по
 #: нижнему регистру, вхождением: формулировки у защит разные, а слова общие.

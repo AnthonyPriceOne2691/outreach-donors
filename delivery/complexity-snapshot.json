@@ -307,7 +307,7 @@
       "worst": "—"
     },
     "backend/api/runs/routes.py": {
-      "lines": 256,
+      "lines": 258,
       "complexity": 2,
       "worst": "effective_cap:55"
     },
@@ -722,7 +722,7 @@
       "worst": "—"
     },
     "backend/config/judge.py": {
-      "lines": 133,
+      "lines": 141,
       "complexity": 0,
       "worst": "—"
     },
@@ -1367,9 +1367,9 @@
       "worst": "_recounted:91"
     },
     "backend/features/donors/home_signals.py": {
-      "lines": 310,
+      "lines": 319,
       "complexity": 12,
-      "worst": "_shop_marks:220"
+      "worst": "_shop_marks:229"
     },
     "backend/features/donors/host.py": {
       "lines": 73,
@@ -2027,9 +2027,9 @@
       "worst": "outcome:174"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 450,
+      "lines": 490,
       "complexity": 8,
-      "worst": "_judge_candidates:209"
+      "worst": "execute_run:345"
     },
     "backend/features/runs/planning.py": {
       "lines": 374,
@@ -2767,9 +2767,9 @@
       "worst": "split_url:25"
     },
     "backend/shared/queue.py": {
-      "lines": 337,
+      "lines": 344,
       "complexity": 7,
-      "worst": "job_alive:257"
+      "worst": "job_alive:264"
     },
     "backend/shared/sliding_window.py": {
       "lines": 75,
@@ -2827,9 +2827,9 @@
       "worst": "main:37"
     },
     "backend/workers/reaper.py": {
-      "lines": 272,
+      "lines": 279,
       "complexity": 4,
-      "worst": "_told:175"
+      "worst": "_told:182"
     },
     "backend/workers/sales_jobs.py": {
       "lines": 150,

@@ -52,7 +52,14 @@ from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.lifecycle import Recovery, recover
 from backend.features.runs.repository import RunRepository
 from backend.shared.logs import setup_logging
-from backend.shared.queue import RUN_JOB, enqueue_crawl, job_alive, job_failure, runs_queue
+from backend.shared.queue import (
+    RUN_JOB,
+    RUN_JOB_TIMEOUT,
+    enqueue_crawl,
+    job_alive,
+    job_failure,
+    runs_queue,
+)
 from backend.workers.ticker import Pass, every
 
 logger = logging.getLogger(__name__)
@@ -132,7 +139,7 @@ def _enqueue(run_id: int) -> str | None:
     его закрытым.
     """
     try:
-        return str(runs_queue().enqueue(RUN_JOB, run_id).id)
+        return str(runs_queue().enqueue(RUN_JOB, run_id, job_timeout=RUN_JOB_TIMEOUT).id)
     except Exception:
         logger.exception("Разбор: прогон %s продолжить не удалось — очередь не ответила", run_id)
         return None
