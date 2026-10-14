@@ -737,9 +737,9 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 303,
+      "lines": 308,
       "complexity": 4,
-      "worst": "_own_account:214"
+      "worst": "_own_account:219"
     },
     "backend/config/sales.py": {
       "lines": 453,
@@ -1507,9 +1507,9 @@
       "worst": "_send_one:170"
     },
     "backend/features/letters/building.py": {
-      "lines": 486,
+      "lines": 471,
       "complexity": 8,
-      "worst": "build:293"
+      "worst": "build:251"
     },
     "backend/features/letters/chain.py": {
       "lines": 120,
@@ -1655,6 +1655,11 @@
       "lines": 359,
       "complexity": 7,
       "worst": "parse_zones:191"
+    },
+    "backend/features/letters/scope.py": {
+      "lines": 93,
+      "complexity": 6,
+      "worst": "_found_by:85"
     },
     "backend/features/letters/selection.py": {
       "lines": 128,
