@@ -707,7 +707,7 @@
       "worst": "—"
     },
     "backend/config/contacts.py": {
-      "lines": 119,
+      "lines": 125,
       "complexity": 0,
       "worst": "—"
     },
@@ -972,9 +972,9 @@
       "worst": "refusal_of:134"
     },
     "backend/features/contacts/search.py": {
-      "lines": 293,
+      "lines": 297,
       "complexity": 8,
-      "worst": "search_contacts:214"
+      "worst": "search_contacts:218"
     },
     "backend/features/contacts/slugs.py": {
       "lines": 330,
