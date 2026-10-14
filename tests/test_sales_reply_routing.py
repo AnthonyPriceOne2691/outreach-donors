@@ -69,12 +69,17 @@ def secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", SECRET)
 
 
+#: Очередь разбора ответа донора: до #388 — общая (`runs`), после — короткая (`quick`).
+DONOR = "donor-parse"
+
+
 @pytest.fixture
 def queues(monkeypatch: pytest.MonkeyPatch) -> dict[str, UniqueQueue]:
-    """Обе очереди вебхука — подставные: общая (`runs`) и продаж (`sales`)."""
+    """Обе очереди вебхука — подставные: разбора ответа донора и продаж (`sales`)."""
     monkeypatch.setattr(inbound_routes, "_throttle", SlidingWindow())
-    fakes = {queue.QUEUE_NAME: UniqueQueue(), queue.SALES_QUEUE_NAME: UniqueQueue()}
-    monkeypatch.setattr(inbound_routes, "runs_queue", lambda: fakes[queue.QUEUE_NAME])
+    fakes = {DONOR: UniqueQueue(), queue.SALES_QUEUE_NAME: UniqueQueue()}
+    for name in ("runs_queue", "quick_queue"):
+        monkeypatch.setattr(inbound_routes, name, lambda: fakes[DONOR], raising=False)
     monkeypatch.setattr(inbound_routes, "sales_queue", lambda: fakes[queue.SALES_QUEUE_NAME])
     return fakes
 
@@ -173,7 +178,7 @@ async def test_a1_human_answer_goes_to_the_sales_queue_not_to_price_or_lead(
     assert response.status_code == 200, response.text
     reply = await _reply(session)
     assert reply.kind is ReplyKind.HUMAN
-    assert queues[queue.QUEUE_NAME].jobs == [], "разбора цены нет"
+    assert queues[DONOR].jobs == [], "разбора цены нет"
     [(job, args, options)] = queues[queue.SALES_QUEUE_NAME].jobs
     assert (job, args) == (queue.SALES_REPLY_JOB, (reply.id,))
     assert options["job_id"] == queue.sales_job_id(reply.id, MESSAGE_ID)
@@ -232,7 +237,7 @@ async def test_donor_answer_still_goes_to_the_price_parse(
     response = await client.post(URL, data=_form(letter, "Our rate is 150 USD."), headers=AUTH)
 
     assert response.status_code == 200, response.text
-    assert [job for job, _, _ in queues[queue.QUEUE_NAME].jobs] == [queue.PARSE_JOB]
+    assert [job for job, _, _ in queues[DONOR].jobs] == [queue.PARSE_JOB]
     assert queues[queue.SALES_QUEUE_NAME].jobs == []
 
 
@@ -394,7 +399,7 @@ async def test_a3_queue_down_means_503_and_the_retry_queues_the_sales_job(
     assert (again.status_code, third.status_code) == (200, 200)
     assert again.json()["duplicate"] is True
     assert [(job, args) for job, args, _ in sales.jobs] == [(queue.SALES_REPLY_JOB, (reply.id,))]
-    assert queues[queue.QUEUE_NAME].jobs == []
+    assert queues[DONOR].jobs == []
 
 
 async def test_a3_retry_after_the_answer_was_sorted_queues_nothing(
@@ -437,7 +442,7 @@ async def test_a4_auto_reply_in_a_sales_thread_is_decided_by_the_rules(
     reply = await _reply(session)
     assert reply.kind is ReplyKind.AUTO_REPLY
     assert [args for _, args, _ in queues[queue.SALES_QUEUE_NAME].jobs] == [(reply.id,)]
-    assert queues[queue.QUEUE_NAME].jobs == []
+    assert queues[DONOR].jobs == []
     model = FakeClassifier()
     await SalesReplies(session, model).handle(reply.id)
     assert model.calls == 0
