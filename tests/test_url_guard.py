@@ -9,6 +9,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
+
 import httpx
 import pytest
 from backend.shared.net.url_guard import (
@@ -133,3 +136,43 @@ class TestClientFactory:
     async def test_factory_returns_a_guarded_client(self) -> None:
         async with guarded_client(timeout=5.0) as client:
             assert isinstance(client._transport, GuardedTransport)
+
+
+class TestNameLookupOffTheLoop:
+    """`getaddrinfo` блокирует. До 14.10.2026 он шёл прямо в транспорте, и пока
+    система искала имя одного сайта, стояли все параллельные запросы процесса."""
+
+    async def test_loop_keeps_running_while_a_name_is_looked_up(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        released = threading.Event()
+
+        def slow_lookup(host: str, *_args: object, **_kwargs: object) -> list[object]:
+            # Событие ставит корутина того же цикла: цикл стоит — она не успеет.
+            assert released.wait(timeout=2), "цикл событий стоял, пока искалось имя"
+            return [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+        monkeypatch.setattr("backend.shared.net.url_guard.socket.getaddrinfo", slow_lookup)
+
+        async def release() -> None:
+            await asyncio.sleep(0)
+            released.set()
+
+        transport = GuardedTransport(httpx.MockTransport(lambda _r: httpx.Response(200)))
+        async with httpx.AsyncClient(transport=transport) as client:
+            response, _ = await asyncio.gather(client.get("https://example.com/"), release())
+
+        assert response.status_code == 200
+
+    async def test_internal_name_found_off_the_loop_is_still_refused(self) -> None:
+        """Проверка та же: имя, которое ведёт внутрь, отказ и из потока."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "example.com":
+                return httpx.Response(302, headers={"location": "http://db.internal.test/"})
+            return httpx.Response(200, text="внутренняя база")
+
+        transport = GuardedTransport(httpx.MockTransport(handler))
+        async with httpx.AsyncClient(transport=transport, follow_redirects=True) as client:
+            with pytest.raises(UnsafeUrlError, match="внутренний адрес"):
+                await client.get("https://example.com/")

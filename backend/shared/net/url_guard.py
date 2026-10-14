@@ -14,6 +14,12 @@
 **Размер ответа тоже ограничен.** Чужой сайт может отдавать гигабайты;
 без потолка это память сервера, а не наша страница с контактами.
 
+**Имя распознаётся в потоке, а не в цикле событий.** `getaddrinfo` блокирует:
+до 14.10.2026 он шёл прямо в транспорте, и пока система искала имя одного сайта,
+стояли все параллельные запросы процесса — судья главных, поиск адресов, обход.
+Проверка та же и на том же месте, перед каждым шагом цепочки; ждёт DNS только
+свой запрос.
+
 **Отказ распознавания имени считается безопасным.** Имя не разрешилось —
 пропускаем: иначе временный сбой DNS остановил бы сбор по живым донорам.
 Настоящую атаку это не пропускает: в ней имя обязано разрешиться
@@ -22,6 +28,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 import socket
@@ -143,7 +150,7 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         self._limit = max_response_bytes
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        assert_safe_url(request.url)
+        await asyncio.to_thread(assert_safe_url, request.url)
         response = await self._inner.handle_async_request(request)
         return httpx.Response(
             status_code=response.status_code,
