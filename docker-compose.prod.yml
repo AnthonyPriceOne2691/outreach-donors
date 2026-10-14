@@ -27,9 +27,13 @@ services:
     # Буферы против умолчания в 128 МБ: база доноров с метриками —
     # главный актив, и её чтение идёт постоянно. Верхняя граница мала
     # намеренно: 32 ГБ делятся с соседом и с воркерами.
+    # Соединений 100: у восьми обходчиков до трёх у каждого (`crawl_jobs.POOL_SIZE`),
+    # у API пул до 15, у воркеров очередей, reaper и followups — по своей задаче;
+    # прежние 60 при восьми обходчиках — впритык. Соединение — свой процесс
+    # Postgres, сотня укладывается в `mem_limit` с запасом.
     command: >-
       postgres -c shared_buffers=1GB -c effective_cache_size=3GB
-      -c max_connections=60 -c work_mem=16MB
+      -c max_connections=100 -c work_mem=16MB
     mem_limit: 4g
     cpus: 2.0
     logging: &logs
