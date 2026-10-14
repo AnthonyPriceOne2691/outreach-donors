@@ -34,6 +34,8 @@ export const FITS = {
   affordable: true,
   shortfall: 0,
   serp_cost_usd: 0.0012,
+  serp_mode: 'live',
+  serp_wait_s: 10,
   // Три домена на двадцать результатов — доля, которой посчитана смета.
   unique_share: 0.15,
 };

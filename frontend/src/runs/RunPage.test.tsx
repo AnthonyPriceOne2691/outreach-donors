@@ -362,6 +362,7 @@ describe('прогон', () => {
       keywords: ['ремонт', 'дизайн'],
       country: 'us',
       depth_pages: 1,
+      serp_mode: 'live',
     });
   });
 
@@ -724,8 +725,36 @@ describe('глубина выдачи', () => {
     );
     const sent = recorded.calls.filter((call) => call.method === 'POST').map((call) => call.body);
     expect(sent).toEqual([
-      { keywords: ['ремонт', 'дизайн'], country: 'us', depth_pages: 10 },
-      { keywords: ['ремонт', 'дизайн'], country: 'us', depth_pages: 10 },
+      { keywords: ['ремонт', 'дизайн'], country: 'us', depth_pages: 10, serp_mode: 'live' },
+      { keywords: ['ремонт', 'дизайн'], country: 'us', depth_pages: 10, serp_mode: 'live' },
+    ]);
+  });
+
+  it('режим выдачи: по умолчанию быстрый, дешёвый уходит и в смету, и в запуск', async () => {
+    // Слово владельца 14.10.2026: «в первую очередь скорость, по умолчанию быстрый».
+    const slow = { ...FITS, serp_mode: 'standard', serp_wait_s: 300 };
+    const recorded = await openRun({
+      'POST /api/runs/estimate': { body: slow },
+      'POST /api/runs': { body: { run_id: 7, job_id: 'abc', note: 'Прогон встал в очередь.' } },
+    });
+    const user = userEvent.setup();
+
+    const field = screen.getByRole('textbox', { name: 'Режим выдачи' });
+    expect(field).toHaveValue('Быстро — секунды');
+    await user.click(field);
+    await user.click(await screen.findByRole('option', { name: 'Дешевле — около 5 минут' }));
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    expect(await screen.findByText(/Выдача придёт около 5 минут/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Запустить/ }));
+    await waitFor(() =>
+      expect(recorded.calls.filter((call) => call.method === 'POST')).toHaveLength(2),
+    );
+    const sent = recorded.calls.filter((call) => call.method === 'POST').map((call) => call.body);
+    expect(sent.map((body) => (body as { serp_mode?: string }).serp_mode)).toEqual([
+      'standard',
+      'standard',
     ]);
   });
 

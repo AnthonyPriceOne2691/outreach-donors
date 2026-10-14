@@ -346,6 +346,26 @@ class TestTheCeilings:
         cap = await _cap_of_run(session, started.json()["run_id"])
         assert cap == 5_000
 
+    @pytest.mark.parametrize(("asked", "stored"), [(None, "live"), ("standard", "standard")])
+    async def test_serp_mode_reaches_the_run(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        queue: FakeQueue,
+        session: AsyncSession,
+        asked: str | None,
+        stored: str,
+    ) -> None:
+        """Режим выдачи — какой человек видел в смете; пусто — быстрый по умолчанию.
+        Задача покупает тем, что записано в строке прогона, а не умолчанием на старте."""
+        body = {**RUN_BODY, **({"serp_mode": asked} if asked else {})}
+        started = await client.post("/api/runs", json=body, headers=bearer(operator_token))
+
+        assert started.status_code == 200, started.text
+        run = await session.get(RunModel, started.json()["run_id"])
+        assert run is not None
+        assert run.serp_mode == stored
+
     @pytest.mark.parametrize("path", ["/api/runs/estimate", "/api/runs"])
     async def test_ceiling_without_a_top_is_refused_in_words(
         self, client: AsyncClient, operator_token: str, offline: FakeQueue, path: str

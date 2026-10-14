@@ -28,7 +28,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.features.ahrefs.units import COUNTRY_CALL_SHARE, RunEstimate, estimate_run
-from backend.features.serp.modes import mode_of, page_price_usd
 
 #: Результатов на страницу выдачи. Совпадает у обоих источников.
 RESULTS_PER_PAGE = 10
@@ -60,9 +59,6 @@ class RunForecast:
     units_spent_this_month: int = 0
     #: Потолок, названный человеком для этого прогона. Пусто — не назвал.
     run_ceiling: int | None = None
-    #: Во что обойдётся сама выдача. Юниты и доллары не складываются:
-    #: это два разных счёта у двух разных провайдеров.
-    serp_cost_usd: float = 0.0
     #: Доля уникальных доменов, по которой посчитаны домены сметы. Экран
     #: называет по ней долю дублей: подсказка «83% схлопывается в дубли»
     #: стояла от константы 0,17, убранной 24.09, — рядом с «≈ 31 из 40»
@@ -110,8 +106,8 @@ def forecast(
     country_share: float = COUNTRY_CALL_SHARE,
     unique_share: float = UNIQUE_SHARE,
 ) -> RunForecast:
-    """Смета по числу ключей — до единого обращения к провайдерам. Цена выдачи —
-    по режиму покупки сервиса (`serp/modes.py`, `SERP_MODE`)."""
+    """Смета по числу ключей — до единого обращения к провайдерам. Цену самой выдачи
+    считает ответ сметы по выбранному режиму (`serp/modes.serp_cost_usd`)."""
     results = max(0, keywords) * max(1, depth_pages) * RESULTS_PER_PAGE
     domains = round(results * unique_share)
     return RunForecast(
@@ -126,12 +122,5 @@ def forecast(
         units_cap=units_cap,
         units_spent_this_month=units_spent_this_month,
         run_ceiling=run_ceiling,
-        # Выдача платится деньгами, и кнопку она не блокирует: к моменту,
-        # когда смета показана, эта трата неизбежна — без выдачи прогона
-        # нет вовсе. Но названа она должна быть: до этого числа расход
-        # на выдачу не показывался нигде.
-        serp_cost_usd=round(
-            max(0, keywords) * max(1, depth_pages) * page_price_usd(mode_of(None)), 4
-        ),
         unique_share=unique_share,
     )

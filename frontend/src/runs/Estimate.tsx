@@ -13,6 +13,7 @@ import type { Forecast } from '../api/types';
 import { Metric } from '../components/Metric';
 import { belowCent, formatNumber, formatShare, formatUsd, plural } from '../format';
 import { depthTitle, keywordsTitle, RESULTS_PER_PAGE } from './depth';
+import { waitTitle } from './serpMode';
 
 /** Ключи сметы — те, что купит выдача: сервер сводит повторы без учёта регистра
  *  и лишних пробелов (проверка прода 10.10.2026: два одинаковых ключа и вариант
@@ -73,7 +74,8 @@ export function Estimate({ forecast, lines }: Props) {
           Доли цента — «меньше 0,01 $», а не «примерно 0,00 $» (проверка прода
           10.10.2026): «примерно» при «меньше» лишнее. */}
       <Text size="sm" c="dimmed">
-        Выдача будет стоить {belowCent(forecast.serp_cost_usd) ? '' : 'примерно '}
+        Выдача придёт {waitTitle(forecast.serp_wait_s)} и будет стоить{' '}
+        {belowCent(forecast.serp_cost_usd) ? '' : 'примерно '}
         <b>{formatUsd(forecast.serp_cost_usd)}</b> — это другой счёт, не юниты Ahrefs. Потрачено
         нами юнитов с начала месяца: <b>{formatNumber(forecast.units_spent_this_month)}</b>.
       </Text>

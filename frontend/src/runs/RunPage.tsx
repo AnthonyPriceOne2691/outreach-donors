@@ -57,6 +57,8 @@ import { useSession } from '../auth/AuthProvider';
 import { DEFAULT_DEPTH, DEPTHS, depthTitle, keywordsTitle, pagesOf as depthPages } from './depth';
 import type { Depth } from './depth';
 import { isCountry, isDepth, useLastChoice } from './lastChoice';
+import { DEFAULT_SERP_MODE, SERP_MODES, SERP_MODE_TITLES, isSerpMode } from './serpMode';
+import type { OfferedSerpMode } from './serpMode';
 import { Estimate } from './Estimate';
 import { Unfold } from './Unfold';
 import { notify, refuse, settle } from '../notices';
@@ -80,6 +82,7 @@ const POOL_CAP: NumberRule = { decimals: 0, min: 1, max: 100 };
 const WIDTH = {
   country: 200,
   depth: 176,
+  serpMode: 220,
   cap: 190,
   preset: 206,
   topics: 260,
@@ -98,6 +101,11 @@ export function RunPage() {
   const [keywords, setKeywords] = useState('');
   const [country, setCountry] = useLastChoice('country', 'us', isCountry);
   const [depth, setDepth] = useLastChoice<Depth>('depth', DEFAULT_DEPTH, isDepth);
+  const [serpMode, setSerpMode] = useLastChoice<OfferedSerpMode>(
+    'serpMode',
+    DEFAULT_SERP_MODE,
+    isSerpMode,
+  );
   const [cap, setCap] = useState('');
   const [forecast, setForecast] = useState<Forecast | null>(null);
   // О чём спрашивали смету: ключи, страна, глубина и потолок одной строкой.
@@ -169,6 +177,7 @@ export function RunPage() {
     keywords: list,
     country,
     depth_pages: depthPages(depth),
+    serp_mode: serpMode,
     ...(capValue !== null ? { cap: capValue } : {}),
   };
 
@@ -380,6 +389,20 @@ export function RunPage() {
               onChange={(value) => {
                 const chosen = DEPTHS.find((results) => String(results) === value);
                 if (chosen !== undefined) setDepth(chosen);
+              }}
+              comboboxProps={{ width: 'target', position: 'bottom-start' }}
+            />
+            {/* Слово владельца 14.10.2026: по умолчанию быстрый — выдача за секунды;
+                дешёвый ждёт в очереди провайдера минутами. Цена — в смете. */}
+            <Select
+              label="Режим выдачи"
+              description="Быстрый втрое дороже"
+              w={{ base: '100%', xs: WIDTH.serpMode }}
+              value={serpMode}
+              allowDeselect={false}
+              data={SERP_MODES.map((mode) => ({ value: mode, label: SERP_MODE_TITLES[mode] }))}
+              onChange={(value) => {
+                if (isSerpMode(value)) setSerpMode(value);
               }}
               comboboxProps={{ width: 'target', position: 'bottom-start' }}
             />

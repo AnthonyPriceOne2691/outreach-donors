@@ -21,7 +21,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
 from backend.features.serp.dataforseo import DataForSeoProvider
-from backend.features.serp.modes import SerpMode, mode_of, page_price_usd
+from backend.features.serp.modes import EXPECTED_WAIT_S, SerpMode, mode_of, page_price_usd
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
@@ -272,3 +272,45 @@ class TestNumbersBeyondTheColumn:
 
         assert response.status_code == 200, response.text
         assert response.json()["decided"] == 0
+
+
+class TestSerpModeInTheEstimate:
+    """Режим выдачи — цена и ожидание в смете. Слово владельца 14.10.2026: «в первую
+    очередь скорость, по умолчанию быстрый», медленный и дешёвый — на выбор."""
+
+    async def test_default_is_fast_and_priced_as_fast(
+        self, client: AsyncClient, token: str, offline: None
+    ) -> None:
+        body = (await _estimate(client, token, 1)).json()
+
+        assert body["serp_mode"] == "live"
+        assert body["serp_wait_s"] == EXPECTED_WAIT_S[SerpMode.LIVE]
+        assert body["serp_cost_usd"] == pytest.approx(len(KEYWORDS) * page_price_usd(SerpMode.LIVE))
+
+    async def test_slow_mode_is_cheaper_and_says_how_long(
+        self, client: AsyncClient, token: str, offline: None
+    ) -> None:
+        response = await client.post(
+            "/api/runs/estimate",
+            json={"keywords": KEYWORDS, "country": "us", "depth_pages": 1, "serp_mode": "standard"},
+            headers=bearer(token),
+        )
+        body = response.json()
+
+        assert body["serp_mode"] == "standard"
+        assert body["serp_cost_usd"] == pytest.approx(
+            len(KEYWORDS) * page_price_usd(SerpMode.STANDARD)
+        )
+        assert body["serp_wait_s"] > EXPECTED_WAIT_S[SerpMode.LIVE]
+
+    async def test_unknown_mode_is_refused_in_words(
+        self, client: AsyncClient, token: str, offline: None
+    ) -> None:
+        response = await client.post(
+            "/api/runs/estimate",
+            json={"keywords": KEYWORDS, "country": "us", "serp_mode": "turbo"},
+            headers=bearer(token),
+        )
+
+        assert response.status_code == 422
+        assert "известные: standard, priority, live" in response.text

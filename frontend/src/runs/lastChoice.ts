@@ -1,5 +1,5 @@
 /**
- * Последний выбор формы прогона — страна и глубина выдачи — в этом браузере
+ * Последний выбор формы прогона — страна, глубина и режим выдачи — в этом браузере
  * (аудит экранов 09.10.2026, второй круг, «меньше действий»).
  *
  * Их меняют редко, а выбирали заново на каждом прогоне: форма открывалась на США
@@ -18,7 +18,7 @@ import type { Depth } from './depth';
 
 const KEY = 'outreach.run.last-choice';
 
-type Choice = Partial<Record<'country' | 'depth', unknown>>;
+type Choice = Partial<Record<'country' | 'depth' | 'serpMode', unknown>>;
 
 function read(): Choice {
   try {

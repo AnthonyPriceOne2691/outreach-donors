@@ -67,7 +67,9 @@ describe('смета', () => {
     // вторая статья после Ahrefs.
     expect(await screen.findByText(/Потрачено нами юнитов с начала месяца/)).toBeInTheDocument();
     expect(screen.getByText(/0,72\s\$/)).toBeInTheDocument();
-    expect(screen.getByText(/Выдача будет стоить примерно/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Выдача придёт за секунды и будет стоить примерно/),
+    ).toBeInTheDocument();
   });
 
   it('выдача в доли цента — «меньше 0,01 $», а не «примерно 0,00 $»', async () => {
@@ -78,8 +80,8 @@ describe('смета', () => {
     await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
     await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
 
-    const line = (await screen.findByText(/Выдача будет стоить/)).closest('p') as HTMLElement;
-    expect(line).toHaveTextContent(/Выдача будет стоить меньше 0,01\s\$/);
+    const line = (await screen.findByText(/Выдача придёт/)).closest('p') as HTMLElement;
+    expect(line).toHaveTextContent(/будет стоить меньше 0,01\s\$/);
     expect(line).not.toHaveTextContent(/0,00/);
     expect(line).not.toHaveTextContent(/примерно/);
   });
