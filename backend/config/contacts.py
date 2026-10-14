@@ -23,6 +23,11 @@ class _Contacts(DomainSettings):
 
     # --- Ступень 1: страницы сайта ---
     page_timeout_sec: float = Field(default=10.0, validation_alias="CONTACTS_PAGE_TIMEOUT_SEC")
+    # Соединение — короче чтения: мёртвый сайт молчит именно на соединении, и до
+    # 14.10.2026 четыре варианта адреса главной по десять секунд стоили домену 40 с.
+    page_connect_timeout_sec: float = Field(
+        default=5.0, validation_alias="CONTACTS_PAGE_CONNECT_TIMEOUT_SEC"
+    )
     # Сколько страниц максимум качаем на домен. Без потолка домен с бесконечной
     # навигацией съедает прогон.
     max_pages_per_domain: int = Field(default=8, validation_alias="CONTACTS_MAX_PAGES")
@@ -99,6 +104,7 @@ _s = _Contacts()
 MX_TIMEOUT_SEC: float = _s.mx_timeout_sec
 DNS_FALLBACK: str = _s.dns_fallback
 PAGE_TIMEOUT_SEC: float = _s.page_timeout_sec
+PAGE_CONNECT_TIMEOUT_SEC: float = _s.page_connect_timeout_sec
 MAX_PAGES_PER_DOMAIN: int = _s.max_pages_per_domain
 MAX_ATTEMPTS_PER_DOMAIN: int = _s.max_attempts_per_domain
 MAX_PAGE_BYTES: int = _s.max_page_bytes

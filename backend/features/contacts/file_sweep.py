@@ -300,7 +300,7 @@ async def sweep(
 
     keeper = Checkpoint(checkpoint)
     limiter = asyncio.Semaphore(max(1, concurrency))
-    timeout = httpx.Timeout(cfg.PAGE_TIMEOUT_SEC, connect=cfg.PAGE_TIMEOUT_SEC)
+    timeout = httpx.Timeout(cfg.PAGE_TIMEOUT_SEC, connect=cfg.PAGE_CONNECT_TIMEOUT_SEC)
 
     async with AsyncExitStack() as stack:
         http = await stack.enter_async_context(guarded_client(timeout=timeout))
