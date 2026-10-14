@@ -2747,9 +2747,9 @@
       "worst": "with_retries:120"
     },
     "backend/shared/net/url_guard.py": {
-      "lines": 168,
+      "lines": 175,
       "complexity": 10,
-      "worst": "assert_safe_url:88"
+      "worst": "assert_safe_url:95"
     },
     "backend/shared/net/url_parts.py": {
       "lines": 50,
