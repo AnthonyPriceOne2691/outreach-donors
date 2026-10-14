@@ -64,7 +64,6 @@ from backend.features.donors.export import PickRefusedError
 from backend.features.donors.manual_price import DonorRefusedError, ManualPriceError
 from backend.features.donors.standing import UnknownDonorError
 from backend.features.letters.answers import UnknownAnswerTargetError
-from backend.features.letters.building import LetterScopeError
 from backend.features.letters.compose import ComposeError
 from backend.features.letters.draft import LetterConflictError
 from backend.features.letters.guards import ForbiddenContentError
@@ -72,6 +71,7 @@ from backend.features.letters.outgoing_files import OutgoingFileError
 from backend.features.letters.outgoing_store import OutgoingFileTakenError, UnknownOutgoingFileError
 from backend.features.letters.repository import UnknownLetterError
 from backend.features.letters.review import NotEditableError
+from backend.features.letters.scope import LetterScopeError
 from backend.features.letters.sending import SendError
 from backend.features.letters.stoplist import StopListError
 from backend.features.letters.template import TemplateError
