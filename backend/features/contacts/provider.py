@@ -63,6 +63,13 @@ class ProviderBlockedError(ProviderError):
     запросы» и «нас закрыли» ведут человека к разным действиям."""
 
 
+class ProviderDomainRefusedError(ProviderError):
+    """Провайдер не работает с этим доменом: владелец домена попросил его не
+    обрабатывать адреса (`blacklisted_domain`). Это ответ про домен, а не сбой
+    сервиса: повтор через день и через неделю спросил бы то же самое. Для поиска
+    адреса — «у платной ступени адресов нет», и учётка тут ни при чём."""
+
+
 @dataclass(frozen=True, slots=True)
 class Quota:
     """Остаток платных запросов по данным самого провайдера."""
@@ -105,6 +112,12 @@ _MARKERS: dict[str, tuple[type[ProviderError], str]] = {
     ),
     "usage_exceeded": (ProviderQuotaError, "квота исчерпана: {details}"),
     _RATE_MARKER: (ProviderRateLimitError, "частота превышена: {details}"),
+    # Живой отказ 14.10.2026 (400, проверка адреса у сбора продаж): до этой строки
+    # маркер был незнакомым, исход — «сбой», и домен повторялся каждым проходом.
+    "blacklisted_domain": (
+        ProviderDomainRefusedError,
+        "провайдер не работает с доменом: {details} — владелец домена запретил обработку адресов",
+    ),
 }
 
 
@@ -117,8 +130,9 @@ def _error_id(body: dict[str, Any]) -> tuple[str, str]:
     return str(first.get("id") or "").strip(), str(first.get("details") or "")
 
 
-#: Маркеры отказа, которые повтор не лечит: закрытая учётка и кончившаяся квота.
-PERMANENT_MARKERS = frozenset({"restricted_account", "usage_exceeded"})
+#: Маркеры отказа, которые повтор не лечит: закрытая учётка, кончившаяся квота
+#: и домен, с которым провайдер не работает.
+PERMANENT_MARKERS = frozenset({"restricted_account", "usage_exceeded", "blacklisted_domain"})
 
 
 def transient(response: httpx.Response) -> bool:

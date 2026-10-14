@@ -22,6 +22,7 @@ from backend.features.contacts.mx import MailRoute, mail_route
 from backend.features.contacts.provider import (
     HunterProvider,
     ProviderBlockedError,
+    ProviderDomainRefusedError,
     ProviderError,
     ProviderQuotaError,
     ProviderRateLimitError,
@@ -103,6 +104,24 @@ class TestPaidProvider:
 
         async with _http(_reply(payload, 429)) as client:
             with pytest.raises(ProviderBlockedError, match="зайти в кабинет"):
+                await HunterProvider(client, api_key="k").find_emails("site.com")
+
+    async def test_blacklisted_domain_is_an_answer_about_the_domain(self) -> None:
+        """Живой отказ 14.10.2026: владелец домена запретил провайдеру обработку
+        адресов. Это ответ про домен, а не сбой: повтор спросил бы то же самое."""
+        payload = {
+            "errors": [
+                {
+                    "id": "blacklisted_domain",
+                    "code": 400,
+                    "details": "The owner of the domain behind this email address has asked us "
+                    "directly or indirectly to stop the processing of email addresses on this domain.",
+                }
+            ]
+        }
+
+        async with _http(_reply(payload, 400)) as client:
+            with pytest.raises(ProviderDomainRefusedError, match="не работает с доменом"):
                 await HunterProvider(client, api_key="k").find_emails("site.com")
 
     async def test_unknown_marker_is_not_guessed_as_transient(self) -> None:

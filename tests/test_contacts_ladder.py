@@ -16,6 +16,7 @@ from backend.features.contacts.ladder import ContactLadder
 from backend.features.contacts.provider import (
     Candidate,
     ProviderBlockedError,
+    ProviderDomainRefusedError,
     ProviderQuotaError,
     ProviderRateLimitError,
     Quota,
@@ -571,6 +572,21 @@ class TestOutcomes:
 
         assert result.status is status
         assert result.status is not ContactStatus.NOT_FOUND
+
+    async def test_domain_the_provider_refuses_is_settled_not_retried(self) -> None:
+        """Провайдер не работает с доменом (владелец запретил): адресов у платной ступени
+        нет — исход «не нашли», а не «сбой», который повторялся бы через день и неделю.
+        И это не отказ сервиса: учётка жива, в её кабинет идти незачем."""
+        site = Site({"/": EMPTY_PAGE})
+        provider = FakeProvider(error=ProviderDomainRefusedError("не работает с доменом"))
+
+        async with _client(site) as http:
+            ladder = ContactLadder(http, provider=provider)
+            result = await ladder.find("site.com")
+
+        assert result.status is ContactStatus.NOT_FOUND
+        assert provider.calls == ["site.com"]
+        assert ladder.counters.provider_refused == 0
 
     async def test_refusal_is_counted_apart_from_not_finding(self) -> None:
         """«Ступень отказала» и «ступень не нашла» — разные числа.

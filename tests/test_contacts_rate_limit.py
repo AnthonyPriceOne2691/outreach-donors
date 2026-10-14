@@ -192,6 +192,8 @@ class TestThePass:
         (503, "", True),
         (500, "usage_exceeded", False),
         (400, "wrong_params", False),
+        (400, "blacklisted_domain", False),
+        (503, "blacklisted_domain", False),
     ],
 )
 def test_what_is_repeated(status: int, marker: str, repeat: bool) -> None:
