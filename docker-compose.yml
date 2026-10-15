@@ -231,7 +231,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 90s
     deploy:
-      replicas: ${CRAWL_WORKERS:-4}
+      replicas: ${CRAWL_WORKERS:-8}
     healthcheck:
       test: ["CMD", "python", "-m", "backend.workers.health", "crawler"]
       interval: 60s
