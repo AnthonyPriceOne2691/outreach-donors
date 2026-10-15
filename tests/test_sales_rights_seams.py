@@ -66,6 +66,7 @@ TELEMARKETER_WRITES: dict[tuple[str, str], Permission | None] = {
     ("POST", "/api/sales/clean"): Permission.RUN,
     ("POST", "/api/sales/segment/runs"): Permission.RUN,
     ("POST", "/api/sales/segment/runs/{}/resume"): Permission.RUN,
+    ("POST", "/api/sales/segment/runs/{}/rejudge"): Permission.RUN,
     ("POST", "/api/sales/chain"): Permission.SEND,
     ("POST", "/api/sales/kb"): Permission.SEND,
     ("PATCH", "/api/sales/kb/{}"): Permission.SEND,

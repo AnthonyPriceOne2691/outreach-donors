@@ -39,6 +39,7 @@ import { writeSegment } from './segmentApi';
 import type { SegmentHome, SegmentRunRow } from './segmentApi';
 import { runTitle, SEGMENT_QUERY_KEY, useSegment } from './segmentData';
 import { SegmentForm } from './SegmentForm';
+import { SegmentHint } from './SegmentHint';
 import { SegmentReport } from './SegmentReport';
 import { runState } from './segmentStage';
 
@@ -85,6 +86,7 @@ function Segment({ home }: { home: SegmentHome }) {
             value={draft}
             onChange={(event) => setDraft(event.currentTarget.value)}
           />
+          <SegmentHint draft={draft} onDraft={setDraft} />
           <Group gap="sm">
             <Button className="press" loading={save.isPending} onClick={() => save.mutate(draft)}>
               Сохранить

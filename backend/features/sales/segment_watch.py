@@ -123,14 +123,19 @@ def watch_runs(asked: Sequence[tuple[int, str]]) -> dict[int, Watch]:
 
 def drop_dead(jobs: Queue, run_id: int) -> bool:
     """Убрать задачу прогона, чей воркер умер посреди прохода, — когда продолжению ответили
-    «номер занят».
+    «номер занят» (`drop_dead_job`). `True` — убрали, и номер свободен."""
+    return drop_dead_job(jobs, segment_job_id(run_id))
 
-    rq держит такую задачу «идёт» до своего таймаута (час), и постановка продолжения
-    (`api/letters/once.enqueue_once`) отвечала бы «прогон уже идёт» на прогон, который не
-    идёт. Убирается только «идёт» с умершим воркером (`queue.job_alive` — `False`): живая,
-    ждущая повтора и неизвестная (`None` — очередь не ответила) остаются как есть.
-    `True` — убрали, и номер свободен."""
-    job_id = segment_job_id(run_id)
+
+def drop_dead_job(jobs: Queue, job_id: str) -> bool:
+    """Убрать задачу `job_id`, чей воркер умер посреди работы: прохода прогона (`drop_dead`) или
+    пересуда прогона (`api/sales/segment_sites.start_rejudge`).
+
+    rq держит такую задачу «идёт» до своего таймаута (час), и новая постановка под тем же номером
+    (`api/letters/once.enqueue_once`) отвечала бы «уже идёт» на то, что не идёт; а обслуживание rq
+    повторило бы брошенную задачу само. Убирается только «идёт» с умершим воркером
+    (`queue.job_alive` — `False`): живая, ждущая повтора и неизвестная (`None` — очередь не
+    ответила) остаются как есть. `True` — убрали, и номер свободен."""
     found = holder(jobs, job_id)
     if found is None or found.get_status(refresh=True) != JobStatus.STARTED:
         return False
@@ -139,7 +144,7 @@ def drop_dead(jobs: Queue, run_id: int) -> bool:
     Result.delete_all(found)
     found.delete()
     logger.warning(
-        "сбор продаж: задача прогона «идёт», а её воркер умер — убрана перед продолжением",
-        extra={"run": run_id, "job_id": job_id},
+        "продажи: задача «идёт», а её воркер умер — убрана перед новой постановкой",
+        extra={"job_id": job_id},
     )
     return True

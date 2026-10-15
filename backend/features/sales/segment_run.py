@@ -47,13 +47,14 @@ from backend.features.sales.segment_models import SalesSegmentRunModel, Stage
 from backend.features.sales.segment_progress import advanced, enter, judge_waiting
 from backend.features.sales.segment_queue import SegmentContactQueue
 from backend.features.sales.segment_serp import bought, collect, provider_mode
+from backend.features.sales.segment_window import SPLIT_TOKENS
 from backend.features.sales.verifier import EmailVerifier
 from backend.features.serp.protocol import SerpProvider
 
 logger = logging.getLogger(__name__)
 
 #: Числа судьи, которые копятся от прохода к проходу: каждый судил своих.
-_SUMMED = ("judged", "from_cache", "by_rule", "would_cut", "tokens")
+_SUMMED = ("judged", "from_cache", "by_rule", "would_cut", "tokens", *SPLIT_TOKENS)
 #: Числа поиска адреса, которые копятся; остальное (`pending`, заметки) — последнего прохода.
 _CONTACTS_SUMMED = ("walked", "saved")
 #: Числа очистки лидов, которые копятся: каждый проход чистит своих новых лидов.

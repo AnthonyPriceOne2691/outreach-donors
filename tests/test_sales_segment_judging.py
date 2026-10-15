@@ -6,21 +6,24 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 import pytest
+from backend.config import sales as sales_cfg
 from backend.config.judge import JudgeMode
 from backend.features.core.domain import Stage, SuppressionReason, UsageProvider
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
-from backend.features.sales import segment_judging
+from backend.features.sales import segment_judging, segment_window
 from backend.features.sales.models import SalesStoplistModel
 from backend.features.sales.segment_judge import (
     JUDGE_OFF,
     PROMPT_VERSION,
     SegmentClient,
+    SegmentVerdict,
     segment_digest,
 )
 from backend.features.sales.segment_judging import judge_run
@@ -30,6 +33,7 @@ from backend.features.sales.segment_models import (
     SalesSegmentCandidateModel,
     SalesSegmentVerdictModel,
 )
+from backend.features.sales.segment_window import Ask, Judged, Site
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_segment_judge import MODEL_KEY
@@ -207,7 +211,7 @@ async def test_a_switched_off_judge_does_not_let_a_cached_verdict_decide(
 async def test_each_batch_writes_its_own_spending_line(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(segment_judging, "BATCH", 2)
+    monkeypatch.setattr(segment_window, "BATCH", 2)
     owner = await hypothesis(session)
     run = await make_run(session, owner)
     hosts = [f"velo-{n}-sample.com" for n in ("one", "two", "three")]
@@ -243,14 +247,14 @@ async def test_one_site_failing_does_not_stop_the_others(
     owner = await hypothesis(session)
     run = await make_run(session, owner)
     shop, news = await candidates(session, run.id, owner.id, SHOP, NEWS)
-    real = segment_judging._one
+    real = segment_window._one
 
-    async def broken(candidate: Candidate, host: str, **kwargs: object) -> object:
-        if host == NEWS:
+    async def broken(site: Site, ask: Ask, known: SegmentVerdict | None) -> Judged:
+        if site.host == NEWS:
             raise RuntimeError("ошибка кода")
-        return await real(candidate, host, **kwargs)  # type: ignore[arg-type]
+        return await real(site, ask, known)
 
-    monkeypatch.setattr(segment_judging, "_one", broken)
+    monkeypatch.setattr(segment_window, "_one", broken)
 
     tally = await judge_run(
         session,
@@ -390,3 +394,146 @@ async def test_a_shared_row_cuts_only_when_it_holds_sales(
 
     assert (shop.reason == segment_judging.STOPLIST_SHARED) is cut
     assert model.asked == ([] if cut else [SHOP])
+
+
+# --- скользящее окно ------------------------------------------------------------------------------
+
+
+def test_the_window_is_a_sales_setting_of_its_own_sixteen_by_default() -> None:
+    """Своя настройка продаж: общий `JUDGE_CONCURRENCY` — у судьи доноров, и правка его там не
+    должна менять сбор продаж."""
+    field = sales_cfg._Sales.model_fields["segment_judge_concurrency"]
+
+    assert field.default == 16
+    assert field.validation_alias == "SALES_SEGMENT_JUDGE_CONCURRENCY"
+
+
+async def test_the_window_holds_at_most_n_sites_at_once(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sales_cfg, "SEGMENT_JUDGE_CONCURRENCY", 3)
+    owner = await hypothesis(session)
+    run = await make_run(session, owner)
+    hosts = [f"velo-{n}-sample.com" for n in range(10)]
+    await candidates(session, run.id, owner.id, *hosts)
+    real = segment_window._one
+    inside = {"now": 0, "peak": 0}
+
+    async def counted(site: Site, ask: Ask, known: SegmentVerdict | None) -> Judged:
+        inside["now"] += 1
+        inside["peak"] = max(inside["peak"], inside["now"])
+        await asyncio.sleep(0.01)
+        try:
+            return await real(site, ask, known)
+        finally:
+            inside["now"] -= 1
+
+    monkeypatch.setattr(segment_window, "_one", counted)
+    model = Model(dict.fromkeys(hosts, ANSWERS[NEWS]))
+
+    await judge_run(
+        session,
+        run_id=run.id,
+        segment=SEGMENT,
+        mode=JudgeMode.ENFORCE,
+        client=judge(model),
+        home=None,
+    )
+
+    assert inside["peak"] == 3
+    assert sorted(model.asked) == sorted(hosts)
+
+
+async def test_a_slow_site_does_not_hold_the_others(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Партия ждала самый медленный сайт; окно — нет: пока один висит, остальные судятся и
+    ложатся чекпоинтами."""
+    monkeypatch.setattr(sales_cfg, "SEGMENT_JUDGE_CONCURRENCY", 2)
+    monkeypatch.setattr(segment_window, "BATCH", 2)
+    owner = await hypothesis(session)
+    run = await make_run(session, owner)
+    slow, *others = [f"velo-{name}-sample.com" for name in ("slow", "a", "b", "c", "d", "e")]
+    await candidates(session, run.id, owner.id, slow, *others)
+    real = segment_window._one
+    done: list[str] = []
+    others_done = asyncio.Event()
+    landed_meanwhile: list[int] = []
+
+    async def stuck(site: Site, ask: Ask, known: SegmentVerdict | None) -> Judged:
+        if site.host == slow:
+            await asyncio.wait_for(others_done.wait(), timeout=5)
+            landed_meanwhile.append(
+                int(
+                    await session.scalar(
+                        select(func.count()).where(
+                            Candidate.run_id == run.id, Candidate.lane != Lane.PENDING
+                        )
+                    )
+                    or 0
+                )
+            )
+        judged = await real(site, ask, known)
+        done.append(site.host)
+        if len(done) == len(others):
+            others_done.set()
+        return judged
+
+    monkeypatch.setattr(segment_window, "_one", stuck)
+    model = Model(dict.fromkeys([slow, *others], ANSWERS[NEWS]))
+
+    tally = await asyncio.wait_for(
+        judge_run(
+            session,
+            run_id=run.id,
+            segment=SEGMENT,
+            mode=JudgeMode.ENFORCE,
+            client=judge(model),
+            home=None,
+        ),
+        timeout=10,
+    )
+
+    assert done == [*others, slow]
+    assert landed_meanwhile[0] >= 4, "чекпоинты шли, пока медленный сайт висел"
+    assert (tally.judged, tally.failed) == (6, 0)
+
+
+async def test_a_human_decision_in_the_middle_of_the_pass_is_not_overwritten(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Человек решил сайт «на проверку» (модель прошлого прохода не ответила), пока проход его
+    судит: полоса ложится условием «ещё ждёт судью», и решение человека остаётся."""
+    owner = await hypothesis(session)
+    run = await make_run(session, owner)
+    [shop] = await candidates(session, run.id, owner.id, SHOP)
+    shop.lane, shop.unanswered, shop.reason = Lane.REVIEW, True, "модель не ответила: 503"
+    await session.commit()
+    real = segment_window._one
+
+    async def meanwhile(site: Site, ask: Ask, known: SegmentVerdict | None) -> Judged:
+        shop.lane, shop.decided_by, shop.reason = Lane.ACCEPT, Decider.HUMAN, "принял человек"
+        await session.flush()
+        return await real(site, ask, known)
+
+    monkeypatch.setattr(segment_window, "_one", meanwhile)
+    model = Model({SHOP: {"fit": "no", "quote": "интернет-магазин Велошоп", "why": "не тот"}})
+
+    await judge_run(
+        session,
+        run_id=run.id,
+        segment=SEGMENT,
+        mode=JudgeMode.ENFORCE,
+        client=judge(model),
+        home=None,
+    )
+
+    assert model.asked == [SHOP]
+    stored = await session.scalar(
+        select(Candidate.lane)
+        .where(Candidate.id == shop.id)
+        .execution_options(populate_existing=True)
+    )
+    assert stored == Lane.ACCEPT
+    # Вердикт модели — знание о сайте: он записан, по нему потом меряют судью против человека.
+    assert await session.scalar(select(SalesSegmentVerdictModel.verdict)) == Lane.REJECT

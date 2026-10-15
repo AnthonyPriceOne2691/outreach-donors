@@ -15,7 +15,8 @@
   которые гипотеза уже собрала теми же ключами на том же рынке, вычитаются (`known_sites`):
   их не судят и адрес им не ищут;
 - **модель** — новые сайты на токены судьи за сайт (`TOKENS_PER_SITE`, замер) и деньгами по
-  цене токена модели (`segment_spend.usd_per_million`); выше остатка дневного потолка модели
+  ценам ввода и вывода модели, смешанным долей вывода из истории прогонов с раздельным счётом
+  (`segment_history.output_share`; без истории — запасная, словами); выше остатка дневного потолка модели
   (общего и своего у продаж — как у остальных вызовов модели продаж) — **прогон не
   запускается**, отказ словами;
 - **Hunter** — не больше поиска адреса на новый сайт (платная ступень — только тем, кому
@@ -46,9 +47,10 @@ from backend.features.runs.estimate import RESULTS_PER_PAGE, UNIQUE_SHARE
 from backend.features.sales import chain_text, usage_cap, verifier, verify_cap
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import SalesHypothesisModel
-from backend.features.sales.segment_history import known_sites, sites_per_result
+from backend.features.sales.segment_estimate_words import lines_of
+from backend.features.sales.segment_history import known_sites, output_share, sites_per_result
 from backend.features.sales.segment_keywords import clean_keywords
-from backend.features.sales.segment_spend import money, number, tokens_usd, usd_per_million
+from backend.features.sales.segment_spend import number, tokens_usd, usd_per_million
 from backend.features.serp import markets
 from backend.features.serp.factory import AHREFS, UnknownProviderError, build_provider
 from backend.features.serp.modes import (
@@ -90,12 +92,6 @@ CAP_UNREAD = (
     "ответит, пока его не поправит администратор"
 )
 VERIFIER_NOT_SET = "проверка адресов не настроена — настраивает администратор"
-#: Режим покупки выдачи словами — как в форме: быстрый — секунды, стандарт — дешевле и дольше.
-SERP_MODE_WORDS = {
-    SerpMode.LIVE: "быстрая (Live)",
-    SerpMode.PRIORITY: "приоритетная",
-    SerpMode.STANDARD: "стандарт",
-}
 SALES_OFF = (
     "модуль продаж выключен — сбор не запускается: выдача, модель и поиск адресов стоят денег; "
     "включает администратор"
@@ -151,6 +147,12 @@ class Estimate:
     #: Токены судьи деньгами — по цене миллиона токенов модели на запуске.
     tokens_usd: float = 0.0
     usd_per_1m_tokens: float = 0.0
+    #: Цены ввода и вывода на запуске — по ним отчёт прогона считает факт (`segment_spend`).
+    usd_per_1m_input: float = 0.0
+    usd_per_1m_output: float = 0.0
+    #: Доля вывода в токенах — по истории прогонов с раздельным счётом; 0 прогонов — запасная.
+    output_share: float = 0.0
+    output_share_runs: int = 0
     #: Остаток дневного потолка модели; `None` — потолка нет.
     tokens_left: int | None = None
     hunter_searches: int = 0
@@ -180,6 +182,10 @@ class Estimate:
             "tokens": self.tokens,
             "tokens_usd": self.tokens_usd,
             "usd_per_1m_tokens": self.usd_per_1m_tokens,
+            "usd_per_1m_input": self.usd_per_1m_input,
+            "usd_per_1m_output": self.usd_per_1m_output,
+            "output_share": self.output_share,
+            "output_share_runs": self.output_share_runs,
             "tokens_left": self.tokens_left,
             "hunter_searches": self.hunter_searches,
             "hunter_checks": self.hunter_checks,
@@ -283,96 +289,6 @@ def _first_refusal(
     return next((words for failed, words in checks if failed), None)
 
 
-def _wait(seconds: int) -> str:
-    """Сколько ждать выдачу — словами: секунды или минуты."""
-    return f"{seconds} с" if seconds < 60 else f"{round(seconds / 60)} мин"
-
-
-def _serp_line(found: Estimate) -> str:
-    mode = SERP_MODE_WORDS[SerpMode(found.serp_mode)]
-    return (
-        f"Выдача — {mode}: ключей {number(len(found.keywords))} × страниц {found.depth_pages} — "
-        f"результатов до {number(found.results)}, по {money(found.serp_page_usd)} за страницу "
-        f"≈ {money(found.serp_usd)}; ждать ≈ {_wait(found.serp_wait_s)}."
-    )
-
-
-def _sites_line(found: Estimate) -> str:
-    """Сколько сайтов даст выдача и откуда доля; сколько из них уже в сборе гипотезы."""
-    share = f"{number(found.hosts)} — {round(found.share * 100)}% результатов"
-    line = (
-        f"Сайтов ≈ {share}, как в прошлых прогонах сбора (с выдачей — {found.share_runs}): "
-        "выдача отдаёт не все результаты и повторяет сайты."
-        if found.share_runs
-        else f"Сайтов ≈ {share}: прогонов сбора с выдачей ещё нет, доля — худшая из замеренных у "
-        "выдачи, смета скорее завышена."
-    )
-    if not found.known:
-        return line
-    return (
-        f"{line} Уже в сборе гипотезы ≈ {number(found.known)} — их не судят и адрес им не ищут: "
-        f"новых ≈ {number(found.sites)}."
-    )
-
-
-def _judge_line(found: Estimate) -> str:
-    if found.mode == JudgeMode.OFF:
-        return (
-            f"Судья сегмента выключен: модель не зовётся, сайтов ≈ {number(found.sites)} — "
-            "решает человек."
-        )
-    left = (
-        ""
-        if found.tokens_left is None
-        else ", дневной потолок модели продаж не прочитан из настроек — токенов ноль"
-        if _cap_unread()
-        else f", остаток дневного потолка — {number(found.tokens_left)}"
-    )
-    return (
-        f"Судья сегмента: сайтов ≈ {number(found.sites)}, токенов модели ≈ {number(found.tokens)} "
-        f"(по {number(TOKENS_PER_SITE)} на сайт) — ≈ {money(found.tokens_usd)}{left}."
-    )
-
-
-def _hunter_line(found: Estimate) -> str:
-    searches = (
-        f"поисков адреса до {number(found.hunter_searches)} — только тем, кому бесплатные "
-        "ступени адреса не нашли"
-        if found.hunter_searches
-        else "платный поиск адреса у сбора выключен или не настроен — только бесплатные ступени"
-    )
-    month = "" if found.month is None else f", {found.month.words}"
-    checks = (
-        f"проверок адреса до {number(found.hunter_checks)}{month}"
-        if found.hunter_checks
-        else "проверка адреса выдуманная"
-    )
-    return f"Hunter: {searches}; {checks}."
-
-
-def _money_line(found: Estimate) -> str:
-    """Деньги вместе — выдача и модель. Hunter — запросами тарифа: в сумму не входит."""
-    what = "выдача" if found.mode == JudgeMode.OFF else "выдача и модель"
-    hunter = (
-        "Hunter платится запросами своего тарифа и в сумму не входит"
-        if found.hunter_searches or found.hunter_checks
-        else "Hunter не тратится"
-    )
-    return f"Деньгами: ≈ {money(found.serp_usd + found.tokens_usd)} — {what}; {hunter}."
-
-
-def _lines(found: Estimate) -> list[str]:
-    """Смета словами — строкой на статью."""
-    lines = [
-        _serp_line(found),
-        _sites_line(found),
-        _judge_line(found),
-    ]
-    if found.mode == JudgeMode.SHADOW:
-        lines.append("Судья в наблюдении: его «отказ» не отсекает сайт, а отдаёт человеку.")
-    return [*lines, _hunter_line(found), _money_line(found)]
-
-
 async def _sites(session: AsyncSession, found: Estimate, hypothesis_id: int) -> None:
     """Сайтов в выдаче — по истории сбора; новых — за вычетом уже собранных гипотезой."""
     found.share, found.share_runs = await sites_per_result(session)
@@ -428,7 +344,10 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
         len(found.keywords), found.depth_pages, SerpMode(found.serp_mode)
     )
     found.tokens = 0 if found.mode == JudgeMode.OFF else found.sites * TOKENS_PER_SITE
-    found.usd_per_1m_tokens = usd_per_million()
+    found.output_share, found.output_share_runs = await output_share(session)
+    found.usd_per_1m_input = sales_cfg.SEGMENT_INPUT_USD_PER_1M_TOKENS
+    found.usd_per_1m_output = sales_cfg.SEGMENT_OUTPUT_USD_PER_1M_TOKENS
+    found.usd_per_1m_tokens = usd_per_million(found.output_share)
     found.tokens_usd = tokens_usd(found.tokens, found.usd_per_1m_tokens)
     found.tokens_left = await tokens_left(session, now)
     found.hunter_searches = found.sites if _paid_search_on() else 0
@@ -440,7 +359,7 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
         return found
     if found.hunter_checks:
         found.month = await verify_cap.month(session, now=now)
-    found.lines = _lines(found)
+    found.lines = lines_of(found, per_site=TOKENS_PER_SITE, cap_unread=_cap_unread())
     found.refusal = await _money_refusal(found)
     return found
 

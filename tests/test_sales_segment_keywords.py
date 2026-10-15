@@ -82,25 +82,40 @@ def test_the_note_counts_the_shared_words_like_the_shared_rule() -> None:
 @pytest.mark.parametrize(
     ("text", "taken", "repeat"),
     [
-        ("Plumber London\nplumber   london", ["plumber london"], "plumber london"),
+        ("Plumber London\nplumber   london", ["plumber london"], "plumber   london"),
         (
             "пиццерия — доставка\nпиццерия – доставка",
             ["пиццерия - доставка"],
-            "пиццерия - доставка",
+            "пиццерия – доставка",
         ),
-        ("straße kaufen\nSTRASSE kaufen", ["straße kaufen"], "strasse kaufen"),
-        ("café paris\ncafé  PARIS", ["café paris"], "café paris"),
+        ("straße kaufen\nSTRASSE kaufen", ["straße kaufen"], "STRASSE kaufen"),
+        ("café paris\ncafé  PARIS", ["café paris"], "café  PARIS"),
     ],
     ids=["case-and-spaces", "dashes", "casefold-of-the-serp", "diacritics-kept"],
 )
 def test_an_exact_repeat_is_cut_with_its_reason(text: str, taken: list[str], repeat: str) -> None:
     """Точный повтор — тот же ключ после общей нормализации и для выдачи: регистр, пробелы,
-    виды тире; `ß` и `ss` выдача считает одним запросом — платить за второй не за что."""
+    виды тире; `ß` и `ss` выдача считает одним запросом — платить за второй не за что. В
+    отсеянных — фраза, как её вписал человек, и строка взятой."""
     found = clean_keywords(text)
 
     assert found.taken == taken
-    assert found.rejected == {repeat: REPEAT}
+    assert found.rejected == {repeat: REPEAT.format(line=1)}
     assert found.notes == {}
+
+
+def test_a_repeat_names_the_line_of_the_taken_phrase_as_the_human_wrote_it() -> None:
+    """Повтор под нормализованным ключом стоял бы на экране и во «взятых», и в «отсеянных — повтор»:
+    в отсеянных — фраза, как вписана, и номер строки взятой (пустые строки — тоже строки поля)."""
+    found = clean_keywords(
+        "купить велосипед\n\nремонт велосипедов\nКупить  Велосипед\nремонт велосипедов"
+    )
+
+    assert found.taken == ["купить велосипед", "ремонт велосипедов"]
+    assert found.rejected == {
+        "Купить  Велосипед": REPEAT.format(line=1),
+        "ремонт велосипедов": REPEAT.format(line=3),
+    }
 
 
 def test_garbage_keeps_the_hygiene_reason_even_when_repeated() -> None:
@@ -121,7 +136,10 @@ def test_blank_lines_are_not_keywords() -> None:
 def test_the_run_report_names_taken_rejected_lost_and_empty_keywords() -> None:
     run = run_of(
         estimate={
-            "rejected": {"plumber london": REPEAT, "site:x.example.test": "поисковый оператор"},
+            "rejected": {
+                "Plumber  London": REPEAT.format(line=1),
+                "site:x.example.test": "поисковый оператор",
+            },
             "notes": {"emergency plumber london": "похож на «plumber london»"},
         },
         report={
@@ -136,7 +154,10 @@ def test_the_run_report_names_taken_rejected_lost_and_empty_keywords() -> None:
     found = run_keywords(run)
 
     assert found.taken == ["plumber london", "emergency plumber london"]
-    assert found.rejected == {"plumber london": REPEAT, "site:x.example.test": "поисковый оператор"}
+    assert found.rejected == {
+        "Plumber  London": REPEAT.format(line=1),
+        "site:x.example.test": "поисковый оператор",
+    }
     assert found.notes == {"emergency plumber london": "похож на «plumber london»"}
     assert (found.lost, found.empty) == (["emergency plumber london"], ["plumber london"])
 

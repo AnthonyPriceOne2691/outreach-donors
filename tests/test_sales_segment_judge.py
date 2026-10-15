@@ -177,13 +177,13 @@ def test_the_name_rule_is_the_shared_whom_we_do_not_write_rule() -> None:
         (["yes"], "ответ модели не объект"),
         ({"fit": "maybe", "quote": "Велосипеды и запчасти"}, "ответ модели не из списка: 'maybe'"),
         ({"fit": "yes", "why": "магазин"}, "модель не дала цитаты"),
-        ({"fit": "yes", "quote": "Велосипеды", "why": "x"}, "цитата короче двух слов"),
+        ({"fit": "yes", "quote": "Велосипеды и", "why": "x"}, "цитата короче трёх слов"),
         # Подпись — наши слова, не сайта: цитата с ней не найдётся в строке сайта.
         ({"fit": "yes", "quote": f"{sj.PAGE_TITLE}: Велосипеды и"}, "цитаты нет в тексте"),
         # Слова из двух строк, склеенные в одну, — не цитата.
         ({"fit": "yes", "quote": "интернет-магазин Велодом Продаём горные"}, "цитаты нет в тексте"),
     ],
-    ids=["not-json", "not-object", "out-of-list", "no-quote", "one-word", "label", "two-lines"],
+    ids=["not-json", "not-object", "out-of-list", "no-quote", "two-words", "label", "two-lines"],
 )
 async def test_anything_but_a_proven_answer_goes_to_review(body: Any, reason: str) -> None:
     verdict, _ = await judged(body)
@@ -197,7 +197,9 @@ async def test_anything_but_a_proven_answer_goes_to_review(body: Any, reason: st
     ("fit", "lane"), [("yes", Lane.ACCEPT), ("no", Lane.REJECT), ("unsure", Lane.REVIEW)]
 )
 async def test_three_lanes(fit: str, lane: Lane) -> None:
-    verdict, _ = await judged({"fit": fit, "quote": "городские велосипеды", "why": "по тексту"})
+    verdict, _ = await judged(
+        {"fit": fit, "quote": "горные и городские велосипеды", "why": "по тексту"}
+    )
 
     assert verdict.lane is lane
 

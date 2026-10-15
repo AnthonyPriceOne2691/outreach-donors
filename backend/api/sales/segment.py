@@ -58,6 +58,7 @@ from backend.api.sales.segment_schemas import (
     SegmentHome,
     default_serp_mode,
 )
+from backend.api.sales.segment_sites import refuse_while_rejudging
 from backend.config import sales as sales_cfg
 from backend.features.access.repository import AccessRepository
 from backend.features.core import domain
@@ -306,10 +307,12 @@ async def resume_run(
     __: UserModel = _runner,
     session: AsyncSession = Depends(db_session),
 ) -> RunQueued:
-    """Тот же прогон с места, где он стоит: выдачу второй раз не покупает."""
+    """Тот же прогон с места, где он стоит: выдачу второй раз не покупает. Пока идёт пересуд
+    прогона — отказ словами (`segment_sites.refuse_while_rejudging`)."""
     run = await session.get(SalesSegmentRunModel, run_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, UNKNOWN_RUN.format(run_id=run_id))
+    await refuse_while_rejudging(run.id, sales_bulk_queue())
     job = await _queued(run.id)
     if job is None:
         raise HTTPException(status.HTTP_409_CONFLICT, RUN_GOING)

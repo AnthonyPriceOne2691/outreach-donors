@@ -201,7 +201,7 @@ export type SerpMode = 'live' | 'standard' | 'priority';
 /** Статья расхода прогона: факт и смета на запуске — словами сервера. Число пусто — в этой
  *  единице не платили или этапа ещё не было. */
 export interface SegmentSpendRow {
-  item: 'serp' | 'judge' | 'search' | 'check' | 'money';
+  item: 'serp' | 'judge' | 'rejudge' | 'search' | 'check' | 'money';
   title: string;
   fact: string;
   promised: string;

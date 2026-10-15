@@ -399,4 +399,8 @@ async def test_segment_routes_are_these(api_app: FastAPI) -> None:
         ("POST", "/api/sales/segment/runs/{run_id}/resume"),
         ("GET", "/api/sales/segment/runs/{run_id}"),
         ("POST", "/api/sales/segment/candidates/{candidate_id}/decision"),
+        # Все сайты прогона и пересуд — `api/sales/segment_sites.py`.
+        ("GET", "/api/sales/segment/runs/{run_id}/sites"),
+        ("GET", "/api/sales/segment/runs/{run_id}/rejudge"),
+        ("POST", "/api/sales/segment/runs/{run_id}/rejudge"),
     }
