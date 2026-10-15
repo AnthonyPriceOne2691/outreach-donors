@@ -1372,9 +1372,9 @@
       "worst": "_recounted:91"
     },
     "backend/features/donors/home_signals.py": {
-      "lines": 319,
+      "lines": 364,
       "complexity": 12,
-      "worst": "_shop_marks:229"
+      "worst": "_shop_marks:274"
     },
     "backend/features/donors/host.py": {
       "lines": 73,
