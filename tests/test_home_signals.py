@@ -142,6 +142,12 @@ def test_login_and_signup_are_not_service_marks(href: str) -> None:
         "Un momento...",
         "403",
         "Ошибка 403",
+        "DDoS protection by Cloudflare",
+        "Überprüfung, ob Sie ein Mensch sind",
+        "Vérification que vous êtes un humain",
+        "Carregando...",
+        "请稍候…",
+        "Зачекайте...",
     ],
 )
 async def test_protection_stub_is_a_closed_home(
@@ -203,16 +209,26 @@ def test_cart_word_inside_a_sentence_is_not_a_mark() -> None:
     "text",
     [
         "Заголовок главной: BotBlocker security plugin",
-        "Заголовок в выдаче: Международная логистика\nЗаголовок главной: Checking…",
-        "Заголовок главной: Checking your connection",
-        "Заголовок главной: Подождите...",
-        "Заголовок главной: 403",
+        "Заголовок в выдаче: Международная логистика\nЗаголовок главной: Checking your connection",
+        "Заголовок главной: Проверка, человек ли вы",
         "Доступ запрещён",
+        "Checking…",
+        "Подождите...",
+        "403",
+        "请稍候…",
+        "DDoS protection by Cloudflare",
     ],
 )
-def test_a_stub_line_in_the_judge_text_is_a_denial(text: str) -> None:
-    """Текст судьи сегмента — строки с подписями: заглушка в одной из них — не текст сайта."""
+def test_a_protection_stub_is_a_denial(text: str) -> None:
+    """Фраза защиты — вхождением, в любой строке; слово ожидания — строкой целиком."""
     assert looks_denied(text)
+
+
+def test_line_labels_are_the_callers_business() -> None:
+    """Подписи строк функция не знает (ревью #399): иначе «Сервис: Проверка» в заголовке
+    выдачи стал бы заглушкой. Текст с подписями вызывающий проверяет по строкам — словами."""
+    assert looks_denied("Checking…")
+    assert not looks_denied("Заголовок главной: Checking…")
 
 
 @pytest.mark.parametrize(
@@ -225,9 +241,16 @@ def test_a_stub_line_in_the_judge_text_is_a_denial(text: str) -> None:
         "Заголовок главной: Проверка контрагентов по БИН",
         "Заголовок главной: Loading docks and warehouse rental",
         "Меню главной: Главная · Загрузка · Контакты",
+        "Заголовок в выдаче: Cloud hosting with DDoS protection",
+        "Описание главной: Хостинг с защитой DDoS-Guard",
+        "Anti-DDoS protection for game servers",
+        "DDoS protection by our engineers for every server plan",
+        "Der Laden am Markt",
+        "Сервис: Проверка",
     ],
 )
 def test_a_real_site_text_with_stub_words_is_not_a_denial(text: str) -> None:
     """Слово ожидания или «403» внутри текста — не заглушка: до 15.10.2026 голое «403»
-    отдавало человеку сайт с таким адресом, телефоном или ценой мимо судьи."""
+    отдавало человеку сайт с таким адресом, телефоном или ценой мимо судьи. «DDoS protection»
+    и «DDoS-Guard» в описании — вся ниша хостинга (ревью #399), не заглушка."""
     assert not looks_denied(text)

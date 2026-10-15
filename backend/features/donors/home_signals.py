@@ -76,33 +76,44 @@ DENIAL_MARKERS: tuple[str, ...] = (
     "site temporarily unavailable",
     # Заглушки защит, пойманные 23.09 на закрытых главных: браузер и простой
     # запрос получали их вместо сайта, и без маркера это был бы «текст».
-    "ddos-guard",
     "human verification",
     # Заглушки, пойманные 15.10.2026 на главных сбора продаж: судья сегмента читал их как сам
     # сайт, и экспедитор с главной «BotBlocker security plugin» получил «не подходит». Фразы
-    # целиком, а не слова: «checking» есть и у банка («Checking account»).
+    # целиком, а не слова: «checking» есть и у банка («Checking account»). Проверка «человек
+    # ли вы» — на языке браузера, поэтому на нескольких языках.
     "botblocker",
     "checking your connection",
     "checking your browser",
     "checking if the site connection is secure",
     "verifying you are human",
-    "ddos protection",
+    "ob sie ein mensch sind",
+    "que vous êtes un humain",
+    "que usted es un ser humano",
+    "que você é humano",
+    "che sei un essere umano",
     "доступ запрещ",
     "проверка браузера",
     "проверяем ваш браузер",
+    "человек ли вы",
+    "подтвердите, что вы человек",
     "подтвердите, что вы не робот",
 )
 
 #: Строка из одного слова ожидания или ошибки — заглушка, а не текст сайта: «Checking…»,
-#: «Loading…», «Подождите…», «Einen Moment…», «403». Сравнивается вся строка, а не вхождение:
-#: «загрузка» бывает у склада, «проверка» — у сервиса проверки контрагентов. Подпись строки
-#: («Заголовок главной: » у текста судьи сегмента) — не в счёт.
+#: «Loading…», «Подождите…», «Einen Moment…», «请稍候…», «403». Сравнивается вся строка, а не
+#: вхождение: «загрузка» бывает у склада, «проверка» — у сервиса проверки контрагентов, а «DDoS
+#: protection» и «DDoS-Guard» — в описании любого хостинга (ревью #399): заглушка — только строка
+#: из них одних или с именем защиты («DDoS protection by Cloudflare»). Подписи строк функция не знает: текст с
+#: подписями («Заголовок главной: …») вызывающий проверяет по строкам — словами без подписи.
 STUB_LINE = re.compile(
-    r"^(?:[^:\n]{1,40}:\s+)?[\W_]*(?:"
+    r"^[\W_]*(?:"
     r"checking|loading|please wait|one moment|redirecting"
-    r"|подождите|загрузка|проверка|перенаправление"
-    r"|einen moment|bitte warten|un momento|cargando|veuillez patienter|chargement"
-    r"|ładowanie|proszę czekać|lütfen bekleyin|yükleniyor|күте тұрыңыз"
+    r"|подождите|загрузка|проверка|перенаправление|один момент|секундочку"
+    r"|einen moment|bitte warten|un momento|cargando|veuillez patienter|chargement|un instant"
+    r"|carregando|aguarde|um momento|caricamento|attendere|un attimo|even geduld|een moment"
+    r"|ładowanie|proszę czekać|chwileczkę|lütfen bekleyin|yükleniyor|күте тұрыңыз"
+    r"|завантаження|зачекайте|加载中|请稍候|読み込み中|しばらくお待ちください"
+    r"|ddos-guard|ddos protection(?: by (?:cloudflare|ddos-guard|qrator|stormwall|variti|imperva|sucuri))?"
     r"|(?:error |ошибка |http )?403(?: error| forbidden| ошибка)?"
     r")[\W_]*$",
     re.IGNORECASE,
