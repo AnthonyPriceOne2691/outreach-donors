@@ -1,18 +1,24 @@
 /**
- * Новый прогон гипотезы: ключи, рынок выдачи, язык писем и глубина — смета до запуска.
+ * Новый прогон гипотезы: ключи, рынок выдачи, язык писем, глубина и режим выдачи — смета до
+ * запуска.
  *
  * **Смета — до кнопки «Запустить», и считает её сервер** (`POST /sales/segment/estimate`):
- * выдача, модель и Hunter строкой, отсеянные ключи с причиной и отказ словами — выше
- * остатка дневного потолка модели, нет описания сегмента, песочница выдачи. Запуск
- * открыт только по смете тех же значений формы: правка поля снимает смету, и запустить
- * то, чего не видел, нельзя. Сервер на запуске считает её заново (`POST /sales/segment/runs`)
- * и отказывает теми же словами.
+ * выдача с ценой страницы и ожиданием по режиму, сайты, модель в токенах и деньгах, Hunter и
+ * деньги вместе — строкой; взятые ключи с пометками и отсеянные с причиной; отказ словами —
+ * выше остатка дневного потолка модели, нет описания сегмента, песочница выдачи. Запуск
+ * открыт только по смете тех же значений формы **и того же описания сегмента**: правка поля
+ * или описания снимает смету — судья судит по описанию, и запустить то, чего не видел,
+ * нельзя. Сервер на запуске считает её заново (`POST /sales/segment/runs`) и отказывает теми
+ * же словами.
+ *
+ * **Режим выдачи по умолчанию — быстрый** (Live, слово владельца 14.10): секунды вместо минут
+ * очереди. «Стандарт» — дешевле и дольше, на выбор; приоритетный форма не предлагает.
  *
  * **Право — «run»**: выдача, модель и платный поиск адресов — траты, как прогон доноров и
  * очистка лидов. Без права смету видно, а у кнопки — кто запускает.
  */
 
-import { Alert, Button, Group, List, Select, Stack, Text, Textarea, Title } from '@mantine/core';
+import { Alert, Button, Group, Select, Stack, Text, Textarea, Title } from '@mantine/core';
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -23,19 +29,28 @@ import { formatNumber } from '../format';
 import { notify } from '../notices';
 import { dropdownBelow } from '../theme';
 import { estimateRun, startRun } from './segmentApi';
-import type { SegmentAsk, SegmentEstimate, SegmentHome } from './segmentApi';
+import type { SegmentAsk, SegmentEstimate, SegmentHome, SerpMode } from './segmentApi';
 import { DEPTHS, depthTitle, LANGUAGE_TITLES } from './segmentData';
+import { KeywordLists } from './SegmentKeywords';
 
 /** Рынок, пока человек не выбрал: англоязычная выдача — гипотеза 2. */
 const DEFAULT_COUNTRY = 'us';
 /** Язык писем по рынку — пустым значением: его называет сервер в смете. */
 const BY_MARKET = '';
+/** Режим выдачи, пока человек не выбрал: быстрый (слово владельца 14.10). */
+const DEFAULT_SERP_MODE: SerpMode = 'live';
+/** Режимы формы: цену страницы и ожидание называет смета, а не подпись. */
+const SERP_MODES: { value: SerpMode; label: string }[] = [
+  { value: 'live', label: 'Быстрая (Live)' },
+  { value: 'standard', label: 'Стандарт — дешевле, дольше' },
+];
 
 interface Draft {
   keywords: string;
   country: string;
   language: string;
   depth: number;
+  serpMode: SerpMode;
 }
 
 function askOf(hypothesis: number, draft: Draft): SegmentAsk {
@@ -45,24 +60,15 @@ function askOf(hypothesis: number, draft: Draft): SegmentAsk {
     country: draft.country,
     language: draft.language === BY_MARKET ? null : draft.language,
     depth_pages: draft.depth,
+    serp_mode: draft.serpMode,
   };
 }
 
-function Rejected({ rejected }: { rejected: Record<string, string> }) {
-  const rows = Object.entries(rejected);
-  if (rows.length === 0) return null;
-  return (
-    <Stack gap={2}>
-      <Text size="sm">Отсеяно ключей: {formatNumber(rows.length)}</Text>
-      <List size="sm" spacing={2} aria-label="Отсеянные ключи">
-        {rows.map(([phrase, why]) => (
-          <List.Item key={phrase}>
-            «{phrase}» — {why}
-          </List.Item>
-        ))}
-      </List>
-    </Stack>
-  );
+/** Что считали: значения формы и описание сегмента — смета годна, пока не изменилось ни то,
+ *  ни другое. */
+interface Counted {
+  ask: SegmentAsk;
+  segment: string | null;
 }
 
 /** Смета словами сервера и отказ, если запускать нельзя. */
@@ -78,7 +84,7 @@ function EstimateBlock({ found }: { found: SegmentEstimate }) {
           ))}
         </Stack>
       )}
-      <Rejected rejected={found.rejected} />
+      <KeywordLists taken={found.keywords} notes={found.notes} rejected={found.rejected} />
       {found.refusal !== null && (
         <Alert color="red" title="Прогон не запустится">
           {found.refusal}
@@ -101,7 +107,7 @@ function Fields({
     <>
       <Textarea
         label="Ключи"
-        description={`По ключу на строку, не больше ${formatNumber(home.max_keywords)}: гигиена и почти-повторы отсеиваются до выдачи.`}
+        description={`По ключу на строку, не больше ${formatNumber(home.max_keywords)}: мусор и точные повторы отсеиваются до выдачи, почти повтор остаётся с пометкой.`}
         autosize
         minRows={4}
         maxRows={12}
@@ -146,6 +152,17 @@ function Fields({
           comboboxProps={dropdownBelow}
           w={{ base: '100%', xs: 240 }}
         />
+        <Select
+          label="Выдача"
+          allowDeselect={false}
+          data={SERP_MODES}
+          value={draft.serpMode}
+          onChange={(value) =>
+            onDraft({ serpMode: (value as SerpMode | null) ?? DEFAULT_SERP_MODE })
+          }
+          comboboxProps={dropdownBelow}
+          w={{ base: '100%', xs: 250 }}
+        />
       </Group>
     </>
   );
@@ -163,14 +180,16 @@ export function SegmentForm({ home, onStarted }: Props) {
     country: DEFAULT_COUNTRY,
     language: BY_MARKET,
     depth: 1,
+    serpMode: DEFAULT_SERP_MODE,
   });
   const ask = askOf(home.hypothesis_id, draft);
-  const asked = JSON.stringify(ask);
-  // Смета — для тех значений формы, по которым её считали: правка поля её снимает.
+  const asked = JSON.stringify({ ask, segment: home.segment } satisfies Counted);
+  // Смета — для тех значений формы и того описания сегмента, по которым её считали: правка
+  // поля или описания её снимает.
   const [counted, setCounted] = useState<{ key: string; found: SegmentEstimate } | null>(null);
   const found = counted !== null && counted.key === asked ? counted.found : null;
   const count = useMutation({
-    mutationFn: (sent: SegmentAsk) => estimateRun(sent),
+    mutationFn: (sent: Counted) => estimateRun(sent.ask),
     onSuccess: (estimate, sent) => setCounted({ key: JSON.stringify(sent), found: estimate }),
   });
   const start = useMutation({
@@ -199,7 +218,7 @@ export function SegmentForm({ home, onStarted }: Props) {
           className="press"
           loading={count.isPending}
           disabled={draft.keywords.trim() === ''}
-          onClick={() => count.mutate(ask)}
+          onClick={() => count.mutate({ ask, segment: home.segment })}
         >
           Посчитать смету
         </Button>

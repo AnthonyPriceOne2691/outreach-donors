@@ -86,6 +86,7 @@ def _ask(body: SegmentAsk) -> Ask:
         country=body.country,
         language=body.language,
         depth_pages=body.depth_pages,
+        serp_mode=body.serp_mode,
     )
 
 

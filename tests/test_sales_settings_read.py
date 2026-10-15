@@ -45,6 +45,18 @@ BAD: dict[str, tuple[str, str, str, object]] = {
     "SALES_AUTOBUILD": ("2", "нужно true или false", "AUTOBUILD", False),
     "SALES_TELEGRAM_GROUP_COPY": ("yes!", "нужно true или false", "TELEGRAM_GROUP_COPY", True),
     "SALES_SEGMENT_PAID_CONTACTS": ("нет", "нужно true или false", "SEGMENT_PAID_CONTACTS", False),
+    "SALES_SEGMENT_INPUT_USD_PER_1M_TOKENS": (
+        "0",
+        "нужно число больше 0 до 1000",
+        "SEGMENT_INPUT_USD_PER_1M_TOKENS",
+        0.25,
+    ),
+    "SALES_SEGMENT_OUTPUT_USD_PER_1M_TOKENS": (
+        "$2",
+        "нужно число больше 0 до 1000",
+        "SEGMENT_OUTPUT_USD_PER_1M_TOKENS",
+        2.0,
+    ),
     "SALES_SEND_SPREAD_MIN": ("-5", "нужно целое от 0 до 1440", "SEND_SPREAD_MIN", 30),
     "SALES_OOO_DELAY_DAYS": ("0", "нужно целое от 1 до 60", "OOO_DELAY_DAYS", 7),
     "SALES_REWRITE_ATTEMPTS": ("11", "нужно целое от 1 до 10", "REWRITE_ATTEMPTS", 3),

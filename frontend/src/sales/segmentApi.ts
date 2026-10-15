@@ -45,31 +45,46 @@ export interface SegmentHome {
   runs: SegmentRunRow[];
 }
 
-/** Что просят посчитать и запустить. Язык пуст — язык рынка выдачи. */
+/** Что просят посчитать и запустить. Язык пуст — язык рынка выдачи; режим выдачи пуст —
+ *  умолчание сервиса. */
 export interface SegmentAsk {
   hypothesis_id: number;
   keywords: string;
   country: string;
   language: string | null;
   depth_pages: number;
+  serp_mode: SerpMode | null;
 }
 
 export interface SegmentEstimate {
+  /** Взятые ключи — за них заплатит выдача, в том порядке, как вписаны. */
   keywords: string[];
   /** Отсеянный ключ → почему, словами. */
   rejected: Record<string, string>;
+  /** Взятый ключ → пометка словами: почти повтор, решает человек. */
+  notes: Record<string, string>;
   country: string;
   language: string;
   depth_pages: number;
   mode: SegmentMode;
+  serp_mode: SerpMode;
+  serp_page_usd: number;
+  serp_wait_s: number;
   results: number;
+  /** Сайтов на запрошенный результат: из истории сбора (`share_runs` прогонов) или запасная. */
+  share: number;
+  share_runs: number;
+  /** Сайтов в выдаче, из них уже в сборе гипотезы и новых — их судит судья. */
+  hosts: number;
+  known: number;
   sites: number;
   serp_usd: number;
   tokens: number;
+  tokens_usd: number;
   tokens_left: number | null;
   hunter_searches: number;
   hunter_checks: number;
-  /** Смета словами — строкой на статью: выдача, судья, Hunter. */
+  /** Смета словами — строкой на статью: выдача, сайты, судья, Hunter, деньги. */
   lines: string[];
   /** Запускать нельзя — почему, словами сервера. */
   refusal: string | null;
@@ -121,6 +136,9 @@ export interface SegmentRunDetail {
   unanswered: number;
   report: Record<string, unknown>;
   review: SegmentCandidate[];
+  /** Ключи и расход прогона рядом со сметой на запуске. В записанных ответах старых тестов
+   *  его нет — тогда панели ключей и расхода молчат. */
+  spend?: SegmentRunSpend;
 }
 
 export interface SegmentQueued {
@@ -161,4 +179,36 @@ export function decideSite(candidate: number, accept: boolean): Promise<SegmentC
     method: 'POST',
     body: { accept },
   });
+}
+
+/** Режим покупки выдачи: быстрый — секунды, стандарт — дешевле и дольше (приоритетный форма
+ *  не предлагает). Цену страницы и ожидание называет смета. */
+export type SerpMode = 'live' | 'standard' | 'priority';
+
+/** Статья расхода прогона: факт и смета на запуске — словами сервера. Число пусто — в этой
+ *  единице не платили или этапа ещё не было. */
+export interface SegmentSpendRow {
+  item: 'serp' | 'judge' | 'search' | 'check' | 'money';
+  title: string;
+  fact: string;
+  promised: string;
+  fact_units: number | null;
+  fact_usd: number | null;
+  promised_units: number | null;
+  promised_usd: number | null;
+}
+
+/** Ключи прогона: взятые с пометками и отсеянные — как на запуске; пропавшие (заплачено —
+ *  не пришло) и пустые — что вышло с покупкой выдачи. */
+export interface SegmentRunKeywords {
+  taken: string[];
+  notes: Record<string, string>;
+  rejected: Record<string, string>;
+  lost: string[];
+  empty: string[];
+}
+
+export interface SegmentRunSpend {
+  keywords: SegmentRunKeywords;
+  rows: SegmentSpendRow[];
 }
