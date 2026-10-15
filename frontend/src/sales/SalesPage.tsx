@@ -227,7 +227,16 @@ export function SalesPage() {
       />
     ),
     hypotheses: () => <HypothesesTable rows={known} />,
-    collect: () => <SegmentPane hypotheses={known} hypothesis={chosen} onHypothesis={pick} />,
+    collect: () => (
+      <SegmentPane
+        hypotheses={known}
+        hypothesis={chosen}
+        // Прогон — гипотезы: другая гипотеза открывает свой последний прогон.
+        onHypothesis={(hypothesis) => apply({ hypothesis, run: null })}
+        run={filters.run}
+        onRun={(run) => apply({ run })}
+      />
+    ),
     kb: () => <KbPane />,
     sender: () => <SenderPane />,
     stoplist: () => <StoplistPane />,

@@ -353,9 +353,12 @@ async def test_a_segment_run_from_before_the_rollout_holds_its_resume(
     headers: dict[str, str],
     bulk: _Queue,
     answers: _Queue,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run = await make_run(session, await hypothesis(session))
     _before(answers, segment_job_id(run.id), SEGMENT_JOB, status=JobStatus.STARTED)
+    # Воркер прежней задачи жив: она идёт, и продолжение её не убирает (`segment_watch.drop_dead`).
+    monkeypatch.setattr("backend.features.sales.segment_watch.job_alive", lambda *_a, **_k: True)
 
     response = await client.post(f"/api/sales/segment/runs/{run.id}/resume", headers=headers)
 

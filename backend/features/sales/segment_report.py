@@ -8,7 +8,12 @@
 
 **Человек решает только «на проверку»**: принять — сайт идёт к поиску адреса продолжением
 прогона; отказать — отсечён. Решение ложится на кандидата с именем и временем, а вердикт
-судьи остаётся рядом — по их расхождению меряется судья.
+судьи остаётся рядом — по их расхождению меряется судья. То же решение второй раз (двойной
+клик, повтор запроса) — не отказ и не вторая запись журнала: сайт уже там, куда его
+просят (`Decision.repeated`); противоположное по решённому — по-прежнему отказ словами.
+
+**Ход прогона** — запись прохода и живое «сделано» судьи и адресов из кандидатов
+(`segment_progress.live`); плитки сходятся и во время судьи: «ещё не судили» — своим числом.
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import ContactStatus
 from backend.features.core.models.domain import DomainModel
+from backend.features.sales import segment_progress
 from backend.features.sales.models import LeadStatus, SalesHypothesisModel, SalesLeadModel
 from backend.features.sales.segment_models import (
     Decider,
@@ -57,6 +63,15 @@ class UnknownCandidateError(LookupError):
     """Кандидата нет."""
 
 
+@dataclass(frozen=True, slots=True)
+class Decision:
+    """Решение человека: кандидат после него и было ли оно повтором уже записанного."""
+
+    candidate: SalesSegmentCandidateModel
+    #: Сайт уже решён человеком так же — запись не менялась, журналу писать нечего.
+    repeated: bool = False
+
+
 @dataclass(slots=True)
 class RunView:
     """Прогон глазами экрана."""
@@ -77,6 +92,8 @@ class RunView:
     #: Модель не ответила — сейчас, по кандидатам.
     unanswered: int = 0
     review: list[tuple[Candidate, str]] = field(default_factory=list)
+    #: Ход прохода (`segment_progress.live`); пусто — записи хода нет.
+    progress: dict[str, Any] | None = None
 
 
 async def _lanes(session: AsyncSession, run_id: int) -> dict[str, int]:
@@ -172,6 +189,7 @@ async def run_view(session: AsyncSession, run_id: int) -> RunView | None:
         or 0
     )
     view.review = await _review(session, run_id)
+    view.progress = await segment_progress.live(session, run)
     return view
 
 
@@ -188,6 +206,16 @@ async def runs_of(
     return list(rows.all())
 
 
+def _settled(candidate: Candidate, lane: Lane) -> Decision:
+    """Сайт уже не ждёт человека: тот же ответ человека — повтор, иначе — отказ словами."""
+    if candidate.lane == lane and candidate.decided_by == Decider.HUMAN:
+        return Decision(candidate, repeated=True)
+    raise DecisionRefusedError(
+        f"сайт не ждёт решения: он уже «{LANE_WORDS.get(candidate.lane, candidate.lane)}» — "
+        "обновите отчёт прогона"
+    )
+
+
 async def decide(
     session: AsyncSession,
     candidate_id: int,
@@ -195,22 +223,24 @@ async def decide(
     accept: bool,
     author: str,
     now: datetime | None = None,
-) -> Candidate:
-    """Решение человека по «на проверку». Коммит — за вызывающим."""
+) -> Decision:
+    """Решение человека по «на проверку». Коммит — за вызывающим.
+
+    Тот же ответ по сайту, уже решённому человеком так же, — повтор (`repeated`): двойной
+    клик по «Принять» отвечал 409, хотя сайт и так принят. Противоположный — отказ словами:
+    решение человека второе нажатие не переворачивает."""
     candidate = await session.get(Candidate, candidate_id, with_for_update=True)
     if candidate is None:
         raise UnknownCandidateError(f"сайта сбора №{candidate_id} нет — обновите отчёт прогона")
+    lane = Lane.ACCEPT if accept else Lane.REJECT
     if candidate.lane != Lane.REVIEW:
-        raise DecisionRefusedError(
-            f"сайт не ждёт решения: он уже «{LANE_WORDS.get(candidate.lane, candidate.lane)}» — "
-            "обновите отчёт прогона"
-        )
-    candidate.lane = Lane.ACCEPT if accept else Lane.REJECT
+        return _settled(candidate, lane)
+    candidate.lane = lane
     candidate.reason = "принял человек" if accept else "отказал человек"
     candidate.decided_by = Decider.HUMAN
     candidate.decided_at = now or datetime.now(UTC)
     candidate.decided_by_user = author
-    return candidate
+    return Decision(candidate)
 
 
 #: Полоса словами — для отказов и экрана.
@@ -223,13 +253,16 @@ LANE_WORDS: dict[str, str] = {
 
 
 def summary(view: RunView) -> dict[str, Any]:
-    """Главные числа одной строкой отчёта — для журнала и итога задачи."""
+    """Главные числа одной строкой отчёта — для журнала и итога задачи. Сайтов — сумма
+    полос: принято, на проверку, отсечено и «ещё не судили» (`pending`) — без последней
+    плитки во время судьи не сходились."""
     lanes = view.lanes
     return {
         "hosts": sum(lanes.values()),
         "accepted": lanes.get(Lane.ACCEPT, 0),
         "review": lanes.get(Lane.REVIEW, 0),
         "rejected": lanes.get(Lane.REJECT, 0),
+        "pending": lanes.get(Lane.PENDING, 0),
         "no_address": sum(count for _, count in view.no_address),
         "leads": sum(view.leads.values()),
     }

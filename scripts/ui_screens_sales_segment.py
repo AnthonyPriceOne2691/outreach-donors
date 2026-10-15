@@ -58,6 +58,14 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         hint_probe("как идёт прогон", "Как идёт прогон", norm),
         *_spend_probes(norm),
     ]
+    going = [
+        ("значок «в очереди задач»", ".mantine-Badge-label:text-is('в очереди задач')", norm),
+        ("шапка прогона", "p:has-text('Язык писем')", norm),
+        ("ход прогона", "[aria-label='Ход прогона']", norm),
+        ("пульс прогона", "[aria-label='Ход прогона'] span", norm),
+        ("плашка «некому взять»", ".mantine-Alert-message:has-text('служба долгих')", norm),
+        ("подпись «Ещё не судили»", ".metricTile p:text-is('Ещё не судили')", norm),
+    ]
     return {
         "sales-collect": {"path": path, "ready": ready, "probes": probes},
         "sales-collect-phone": {
@@ -65,6 +73,15 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "ready": ready,
             "viewport": PHONE,
             "probes": [*probes[1:13], *_spend_probes(norm)],
+        },
+        # Ход прогона (волна 14): последний прогон стенда стоит в очереди, воркеров нет —
+        # «в очереди задач · поставлен …» и плашка «Задачу некому взять».
+        "sales-collect-going": {"path": path, "ready": ready, "probes": going},
+        "sales-collect-going-phone": {
+            "path": path,
+            "ready": ready,
+            "viewport": PHONE,
+            "probes": going,
         },
     }
 

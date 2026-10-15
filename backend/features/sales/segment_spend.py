@@ -14,7 +14,10 @@
 Деньги вместе — только выдача и модель: Hunter платится запросами тарифа и в доллары не
 переводится. **Этап, до которого прогон не дошёл, — «ещё не было», а не ноль:** ноль сказал бы
 «обошлось бесплатно». Не записанная цена — «не записана», а не ноль (`CONSTITUTION.md`,
-«Неизвестный расход не равен нулевому»). Продолжение прогона тратит снова — отчёт копит
+«Неизвестный расход не равен нулевому»). **Выдача, которую покупают или чья покупка прервана**
+(`segment_serp.buying`: номера задач в отчёте до опроса, итога нет), — «покупка не закончена»:
+«цена не записана» стояло бы все минуты очереди провайдера, а задачи уже оплачены, и «трат
+ещё не было» в деньгах вместе — тоже неправда. Продолжение прогона тратит снова — отчёт копит
 расход по проходам (`segment_run`), панель читает итог.
 
 **Цена токена — смешанная.** Журнал и отчёт хранят токены суммой, а вход и вывод модели стоят
@@ -29,6 +32,7 @@ from typing import Any
 from backend.config import sales as sales_cfg
 from backend.config.judge import JudgeMode
 from backend.features.sales.segment_models import SalesSegmentRunModel
+from backend.features.sales.segment_serp import buying
 from backend.features.sales.verifier import FIXTURE
 
 #: Доля вывода в токенах судьи сегмента — для цены токена. Вход — промпт, описание сегмента и
@@ -45,6 +49,10 @@ NOT_YET = {
     "search": "адреса ещё не искали",
     "check": "адреса ещё не проверяли",
 }
+#: Выдачу покупают или покупка прервана: цены в отчёте ещё нет, её назовёт итог покупки.
+BUYING = "покупка не закончена — цену назовёт её итог"
+#: Деньги вместе, пока выдача не куплена: задачи отложенного режима уже оплачены у провайдера.
+AFTER_SERP = "сумма — после покупки выдачи"
 
 
 def number(value: int) -> str:
@@ -101,9 +109,11 @@ def _serp(report: dict[str, Any], estimate: dict[str, Any]) -> SpendRow:
     promised = "смета не записала" if promised_usd is None else f"≈ {money(promised_usd)}"
     row = SpendRow("serp", "Выдача", NOT_YET["serp"], promised, promised_usd=promised_usd)
     serp = _section(report, "serp")
+    usd = None if serp is None else _float(serp.get("cost_usd"))
+    if usd is None and buying(report):
+        return SpendRow("serp", row.title, BUYING, promised, promised_usd=promised_usd)
     if serp is None:
         return row
-    usd = _float(serp.get("cost_usd"))
     if usd is None:
         return SpendRow("serp", row.title, "цена не записана", promised, promised_usd=promised_usd)
     usd = round(usd, 4)
@@ -175,6 +185,14 @@ def _check(report: dict[str, Any], estimate: dict[str, Any]) -> SpendRow:
     return SpendRow("check", title, fact, promised, units, None, promised_units)
 
 
+def _paid_words(fact_usd: float | None, paid: list[SpendRow]) -> str:
+    """Деньги вместе словами: сумма; без суммы — «после покупки», пока выдачу покупают (задачи
+    уже оплачены у провайдера), иначе трат ещё не было."""
+    if fact_usd is not None:
+        return money(fact_usd)
+    return AFTER_SERP if any(row.fact == BUYING for row in paid) else "трат ещё не было"
+
+
 def _total(rows: list[SpendRow]) -> SpendRow:
     """Деньгами — выдача и модель, факт и смета. Hunter в сумму не входит: он не в долларах."""
     paid = [row for row in rows if row.item in ("serp", "judge")]
@@ -185,7 +203,7 @@ def _total(rows: list[SpendRow]) -> SpendRow:
     return SpendRow(
         "money",
         "Деньгами: выдача и модель",
-        "трат ещё не было" if fact_usd is None else money(fact_usd),
+        _paid_words(fact_usd, paid),
         "смета не записала" if promised_usd is None else f"≈ {money(promised_usd)}",
         fact_usd=fact_usd,
         promised_usd=promised_usd,

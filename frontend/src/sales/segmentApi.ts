@@ -15,8 +15,8 @@ export type SegmentMode = 'shadow' | 'enforce' | 'off';
 /** Полоса сайта: ещё не судили, принят, на проверке, отсечён. */
 export type SegmentLane = 'pending' | 'accept' | 'review' | 'reject';
 
-/** Где прогон: что сделано последним. */
-export type SegmentStage = 'queued' | 'serp' | 'judge' | 'contacts' | 'done' | 'stopped';
+/** Где прогон: этап, в который он вошёл (с начала его работы), или чем кончился. */
+export type SegmentStage = 'queued' | 'serp' | 'judge' | 'contacts' | 'leads' | 'done' | 'stopped';
 
 export interface SegmentRunRow {
   id: number;
@@ -31,6 +31,14 @@ export interface SegmentRunRow {
   stage: SegmentStage;
   error: string | null;
   job_id: string | null;
+  /** Гипотеза прогона. Необязательные поля ниже — у сервера старше хода их нет. */
+  hypothesis_id?: number;
+  /** Пульс: когда строка прогона менялась последний раз — идущий проход отмечается сам. */
+  alive_at?: string;
+  /** Прогон идёт — решает сервер по очереди задач; экран опрашивает, пока это так. */
+  active?: boolean;
+  progress?: SegmentProgress | null;
+  watch?: SegmentWatch | null;
 }
 
 export interface SegmentHome {
@@ -42,6 +50,9 @@ export interface SegmentHome {
   languages: string[];
   max_keywords: number;
   max_depth: number;
+  /** Режим покупки выдачи по умолчанию — настройкой сервиса: `standard`, `priority`, `live`;
+   *  пусто — не прочитан. У сервера старше режимов поля нет. */
+  serp_mode?: SerpMode | null;
   runs: SegmentRunRow[];
 }
 
@@ -115,6 +126,8 @@ export interface SegmentSummary {
   accepted: number;
   review: number;
   rejected: number;
+  /** Ещё не судили: без этой плитки во время судьи числа не сходились. */
+  pending?: number;
   no_address: number;
   leads: number;
 }
@@ -211,4 +224,33 @@ export interface SegmentRunKeywords {
 export interface SegmentRunSpend {
   keywords: SegmentRunKeywords;
   rows: SegmentSpendRow[];
+}
+
+/** Ход прохода (`report.progress`): этап, сделано из всего, когда начат этап и проход. «Сделано»
+ *  судьи и адресов сервер считает по сайтам прогона — оно живое. */
+export interface SegmentProgress {
+  stage: string;
+  done: number | null;
+  total: number | null;
+  started_at: string | null;
+  updated_at: string | null;
+  pass_started_at: string | null;
+  /** Режим покупки выдачи: `standard`, `priority`, `live`. */
+  mode?: string | null;
+  /** Что знать о сбое этапа до следующего прохода — словами сервера. */
+  note?: string | null;
+}
+
+/** Что с задачей прогона в очереди — у идущего прогона и у поставленного продолжения. */
+export interface SegmentWatch {
+  /** Задача жива: в очереди, идёт или ждёт повтора. */
+  going: boolean;
+  /** Строка «идёт», а задачи нет — почему, словами: прогон остановлен, его продолжают. */
+  stalled: string | null;
+  /** Живых воркеров долгих задач продаж; ноль — задачу некому взять; пусто — не спросили. */
+  workers: number | null;
+  /** Очередь не ответила: жив ли прогон, сейчас не узнать. */
+  silent: boolean;
+  /** Состояние живой задачи: `queued`, `deferred`, `scheduled` (ждёт повтора), `started`. */
+  job?: string | null;
 }

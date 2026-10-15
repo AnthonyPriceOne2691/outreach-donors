@@ -1,7 +1,7 @@
 """Прогон гипотезы с экрана: смета до запуска, запуск задачей, отчёт и решение человека.
 
 `GET /sales/segment?hypothesis=N` — вкладка сбора: описание сегмента, режим судьи, рынки
-выдачи, языки писем, границы формы и прогоны гипотезы. `PATCH /sales/hypotheses/{N}` —
+выдачи, языки писем, границы формы, режим покупки выдачи по умолчанию и прогоны гипотезы. `PATCH /sales/hypotheses/{N}` —
 описание сегмента: его читает судья сегмента (правка — новый вопрос модели, прежние вердикты
 по нему не годятся); правка — в журнале действий: кто, было и стало.
 
@@ -10,10 +10,20 @@
 словами до очереди задач; иначе прогон заводится и встаёт задачей очереди долгих задач продаж
 (`sales-bulk`, `worker-sales-bulk`; `sales/segment_jobs.py`): сбор идёт до получаса и не держит
 разбор ответа лида. `POST /sales/segment/runs/{N}/resume` — продолжить прогон: после
-потолка модели, сбоя или решений человека по «на проверку».
+потолка модели, сбоя или решений человека по «на проверку». Стадию продолжение не трогает
+(«в очереди» значило бы для прохода «купить выдачу»): проход поставлен — пуст `finished_at`,
+и экран, спросив очередь, видит прогон идущим. Задачу умершего воркера, которую rq держит
+«идёт» до таймаута, продолжение убирает (`segment_watch.drop_dead`), а не отвечает 409.
 
 `GET /sales/segment/runs/{N}` — прогон и его отчёт; `POST /sales/segment/candidates/{N}/decision`
-— решение человека по сайту «на проверку».
+— решение человека по сайту «на проверку»: то же решение второй раз — 200 без второй записи
+журнала, противоположное по решённому — 409 словами.
+
+**Ход и живость — при чтении.** Строка прогона несёт стадию и запись хода; «сделано» судьи
+и адресов — живое, из кандидатов (`segment_progress.live`), а жив ли прогон — ответ очереди
+задач (`segment_watch.py`): задачи нет или умер её воркер — «остановлен» словами и
+«Продолжить», воркеров нет — «Задачу некому взять». Очередь спрашивается только о прогонах,
+которые идут или поставлены продолжением; клиент Redis синхронный — в пуле потоков.
 
 **Права.** Смотреть, считать смету и решать «на проверку» — `sales`. Запуск и продолжение —
 `sales` и `run`: выдача, модель и платный поиск адресов — траты, как у прогона доноров и
@@ -24,9 +34,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from redis.exceptions import RedisError
+from rq import Queue
+from rq.job import Job
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +56,7 @@ from backend.api.sales.segment_schemas import (
     SegmentBody,
     SegmentCard,
     SegmentHome,
+    default_serp_mode,
 )
 from backend.config import sales as sales_cfg
 from backend.features.access.repository import AccessRepository
@@ -50,7 +64,7 @@ from backend.features.core import domain
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
-from backend.features.sales import chain_text, segment_report
+from backend.features.sales import chain_text, segment_progress, segment_report, segment_watch
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.segment_estimate import Ask, estimate
@@ -105,14 +119,32 @@ async def read_segment(
 ) -> SegmentHome:
     found = await _hypothesis(session, hypothesis)
     runs = await segment_report.runs_of(session, hypothesis)
+    watched = await _watched(runs)
     return SegmentHome(
         hypothesis_id=hypothesis,
         segment=found.description,
         mode=sales_cfg.SEGMENT_JUDGE_MODE.value,
         countries=sorted(markets.SERP_LANGUAGE),
         languages=list(chain_text.LANGUAGES),
-        runs=[RunRow.of(run) for run in runs],
+        serp_mode=default_serp_mode(),
+        runs=[
+            RunRow.of(
+                run,
+                progress=await segment_progress.live(session, run) if run.id in watched else None,
+                watch=watched.get(run.id),
+            )
+            for run in runs
+        ],
     )
+
+
+async def _watched(runs: Sequence[SalesSegmentRunModel]) -> dict[int, segment_watch.Watch]:
+    """Ответ очереди о прогонах, которые идут или поставлены продолжением. Клиент Redis
+    синхронный — в пуле потоков: зависший Redis не держит процесс API (аудит 10.10.2026)."""
+    asked = [(run.id, run.stage) for run in runs if segment_watch.unfinished(run)]
+    if not asked:
+        return {}
+    return await asyncio.to_thread(segment_watch.watch_runs, asked)
 
 
 @router.patch(
@@ -244,6 +276,24 @@ async def start_run(
     return RunQueued(run_id=run.id, job_id=str(job.id))
 
 
+async def _enqueue(jobs: Queue, run_id: int) -> Job | None:
+    """Проход прогона — в очередь долгих задач продаж; `None` — номер занят (`enqueue_once`)."""
+    return await asyncio.to_thread(
+        enqueue_once, jobs, segment_job_id(run_id), SEGMENT_JOB, run_id, **with_retries()
+    )
+
+
+async def _queued(run_id: int) -> Job | None:
+    """Поставить проход продолжения. Номер занят — «идёт» или задача умершего воркера, которую
+    rq держит «идёт» до таймаута: такая убирается (`segment_watch.drop_dead`), и проход
+    ставится снова. `None` — прогон и правда идёт."""
+    jobs = sales_bulk_queue()
+    job = await _enqueue(jobs, run_id)
+    if job is None and await asyncio.to_thread(segment_watch.drop_dead, jobs, run_id):
+        job = await _enqueue(jobs, run_id)
+    return job
+
+
 @router.post(
     "/segment/runs/{run_id}/resume",
     response_model=RunQueued,
@@ -260,17 +310,12 @@ async def resume_run(
     run = await session.get(SalesSegmentRunModel, run_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, UNKNOWN_RUN.format(run_id=run_id))
-    job = await asyncio.to_thread(
-        enqueue_once,
-        sales_bulk_queue(),
-        segment_job_id(run.id),
-        SEGMENT_JOB,
-        run.id,
-        **with_retries(),
-    )
+    job = await _queued(run.id)
     if job is None:
         raise HTTPException(status.HTTP_409_CONFLICT, RUN_GOING)
-    run.job_id = str(job.id)
+    # Проход поставлен: прогон идёт, пока проход не кончится. Стадия — прежняя: «в очереди»
+    # значило бы для прохода «купить выдачу», а куплена ли она — отметка в отчёте.
+    run.job_id, run.finished_at = str(job.id), None
     await AccessRepository(session).record(
         AuditAction.RUN_STARTED,
         author_id=author.id,
@@ -289,7 +334,8 @@ async def read_run(
     view = await segment_report.run_view(session, run_id)
     if view is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, UNKNOWN_RUN.format(run_id=run_id))
-    return RunDetail.of(view)
+    watched = await _watched([view.run])
+    return RunDetail.of(view, watch=watched.get(run_id))
 
 
 @router.post(
@@ -303,18 +349,22 @@ async def decide(
     author: UserModel = _seller,
     session: AsyncSession = Depends(db_session),
 ) -> CandidateRow:
+    """То же решение второй раз (двойной клик) — 200 без второй записи журнала: сайт уже там,
+    куда его просят. Противоположное по решённому — 409 словами."""
     try:
-        candidate = await segment_report.decide(
+        decision = await segment_report.decide(
             session, candidate_id, accept=body.accept, author=author.email
         )
     except segment_report.UnknownCandidateError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except segment_report.DecisionRefusedError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    candidate = decision.candidate
     host = await session.scalar(
         select(DomainModel.host).where(DomainModel.id == candidate.domain_id)
     )
-    await _journal_decision(session, author.id, candidate, str(host))
+    if not decision.repeated:
+        await _journal_decision(session, author.id, candidate, str(host))
     await session.commit()
     return CandidateRow.of(candidate, str(host))
 

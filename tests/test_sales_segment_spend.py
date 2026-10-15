@@ -3,20 +3,32 @@
 а не нулём; продолжение прогона тратит снова — расход за все проходы.
 
 Отчёт и смета прогона — словари, как их пишет прогон; два прохода — настоящим прогоном на базе
-с подделками выдачи, модели и сайтов (`test_sales_segment_run`). Числа выдуманы.
+с подделками выдачи, модели и сайтов (`test_sales_segment_run`). Выдача, которую ещё покупают, —
+«покупка не закончена», а не «цена не записана»: снимок панели посреди настоящей покупки
+отложенного режима (номера задач уже в отчёте, итога нет). Числа выдуманы.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
 from backend.config import sales as sales_cfg
 from backend.features.sales.segment_models import SalesSegmentRunModel
-from backend.features.sales.segment_spend import SpendRow, spend_rows, usd_per_million
+from backend.features.sales.segment_spend import (
+    AFTER_SERP,
+    BUYING,
+    SpendRow,
+    spend_rows,
+    usd_per_million,
+)
+from backend.features.serp.protocol import SerpResult, SerpWatch
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_segment_api import headers
+from tests.test_sales_segment_progress import Queued
 from tests.test_sales_segment_run import (
     ANSWERS,
     NEWS,
@@ -185,6 +197,81 @@ def test_an_unrecorded_price_is_not_a_zero() -> None:
 
     assert (found["serp"].fact, found["serp"].fact_usd) == ("цена не записана", None)
     assert found["money"].fact_usd == found["judge"].fact_usd
+
+
+#: След покупки отложенного режима: номер задачи ключа — в отчёте до опроса.
+TASKS = {"купить горный велосипед": "task-0"}
+
+
+@pytest.mark.parametrize(
+    "report",
+    [
+        {"serp": {"tasks": TASKS}, "progress": {"stage": "serp", "done": 0, "total": 1}},
+        {"progress": {"stage": "serp", "done": 0, "total": 3, "mode": "live"}},
+        {"serp": {"tasks": TASKS}},
+    ],
+    ids=["standard-polled", "live-buying", "trail-without-progress"],
+)
+def test_a_serp_being_bought_is_not_an_unrecorded_price(report: dict[str, Any]) -> None:
+    """Покупка выдачи начата, итога нет — «покупка не закончена»: не «цена не записана» все
+    минуты очереди провайдера и не «ещё не покупали» посреди быстрой покупки. В деньгах вместе —
+    «после покупки», а не «трат ещё не было»: задачи отложенного режима уже оплачены."""
+    found = rows_of(run_of(report=report))
+
+    assert (found["serp"].fact, found["serp"].fact_usd) == (BUYING, None)
+    assert (found["money"].fact, found["money"].fact_usd) == (AFTER_SERP, None)
+
+
+def test_a_serp_paid_before_a_failure_is_money_while_it_is_bought_again() -> None:
+    """Сбой после оплаты, повтор ещё покупает: оплаченное — деньгами, как в журнале."""
+    paid = {"tasks": TASKS, "paid_usd": 0.0045, "cost_usd": 0.0045}
+    found = rows_of(run_of(report={"serp": paid, "progress": {"stage": "serp"}}))
+
+    assert (found["serp"].fact, found["serp"].fact_usd) == ("$0,0045", 0.0045)
+    assert (found["money"].fact, found["money"].fact_usd) == ("$0,0045", 0.0045)
+
+
+@dataclass
+class Polled(Queued):
+    """Выдача отложенного режима: снимок панели расхода — сразу после того, как номера задач
+    легли в отчёт прогона, до опроса и итога покупки."""
+
+    during: dict[str, SpendRow] = field(default_factory=dict)
+
+    async def search(
+        self,
+        keywords: Sequence[str],
+        country: str,
+        *,
+        depth_pages: int = 1,
+        watch: SerpWatch | None = None,
+    ) -> dict[str, list[SerpResult]]:
+        assert watch is not None
+        assert watch.on_posted is not None
+        assert self.run is not None
+        trail, run = watch.on_posted, self.run
+
+        async def posted(created: Mapping[str, str]) -> None:
+            await trail(dict(created))
+            self.during = rows_of(run)
+
+        polled = SerpWatch(tasks=watch.tasks, on_posted=posted, on_progress=watch.on_progress)
+        return await super().search(keywords, country, depth_pages=depth_pages, watch=polled)
+
+
+async def test_the_panel_says_the_serp_is_being_bought_while_its_tasks_are_polled(
+    session: AsyncSession, web: Sites
+) -> None:
+    """Стык хода прогона и панели: номера задач в отчёте, итога нет — «покупка не закончена»;
+    выдача куплена — цена, как в журнале."""
+    run = await make_run(session, await hypothesis(session))
+    found = Polled({}, price=0.0045, run=run)
+
+    await go(session, run, found, Model(ANSWERS))
+
+    assert (found.during["serp"].fact, found.during["money"].fact) == (BUYING, AFTER_SERP)
+    after = rows_of(run)
+    assert (after["serp"].fact, after["money"].fact_usd) == ("$0,0045", 0.0045)
 
 
 def test_a_switched_off_judge_costs_no_model_and_money_is_the_serp() -> None:

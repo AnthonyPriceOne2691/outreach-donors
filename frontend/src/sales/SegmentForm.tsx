@@ -11,8 +11,11 @@
  * нельзя. Сервер на запуске считает её заново (`POST /sales/segment/runs`) и отказывает теми
  * же словами.
  *
- * **Режим выдачи по умолчанию — быстрый** (Live, слово владельца 14.10): секунды вместо минут
- * очереди. «Стандарт» — дешевле и дольше, на выбор; приоритетный форма не предлагает.
+ * **Режим выдачи по умолчанию — настройкой сервиса** (`SegmentHome.serp_mode`, `SERP_MODE`): форма
+ * не держит своё умолчание поверх настройки администратора. Сервер её не назвал (старше режимов
+ * или настройка не прочитана) — быстрый (Live, слово владельца 14.10): секунды вместо минут
+ * очереди. «Стандарт» — дешевле и дольше, на выбор; приоритетный форма предлагает, только когда
+ * он умолчание сервиса: иначе поле стояло бы пустым.
  *
  * **Право — «run»**: выдача, модель и платный поиск адресов — траты, как прогон доноров и
  * очистка лидов. Без права смету видно, а у кнопки — кто запускает.
@@ -37,13 +40,28 @@ import { KeywordLists } from './SegmentKeywords';
 const DEFAULT_COUNTRY = 'us';
 /** Язык писем по рынку — пустым значением: его называет сервер в смете. */
 const BY_MARKET = '';
-/** Режим выдачи, пока человек не выбрал: быстрый (слово владельца 14.10). */
-const DEFAULT_SERP_MODE: SerpMode = 'live';
-/** Режимы формы: цену страницы и ожидание называет смета, а не подпись. */
-const SERP_MODES: { value: SerpMode; label: string }[] = [
-  { value: 'live', label: 'Быстрая (Live)' },
-  { value: 'standard', label: 'Стандарт — дешевле, дольше' },
-];
+/** Режим выдачи, если сервер не назвал своего: быстрый (слово владельца 14.10). */
+const FALLBACK_SERP_MODE: SerpMode = 'live';
+/** Режимы словами: цену страницы и ожидание называет смета, а не подпись. */
+const SERP_MODE_TITLES: Record<SerpMode, string> = {
+  live: 'Быстрая (Live)',
+  standard: 'Стандарт — дешевле, дольше',
+  priority: 'Приоритет — быстрее, дороже',
+};
+/** Режимы, которые форма предлагает всегда. */
+const OFFERED: SerpMode[] = ['live', 'standard'];
+
+/** Режим выдачи, пока человек не выбрал: умолчание сервиса. */
+function serpDefault(home: SegmentHome): SerpMode {
+  return home.serp_mode ?? FALLBACK_SERP_MODE;
+}
+
+/** Режимы поля: быстрый и стандарт, и умолчание сервиса, если оно другое (приоритетный). */
+function serpModes(home: SegmentHome): { value: SerpMode; label: string }[] {
+  const fallback = serpDefault(home);
+  const modes = OFFERED.includes(fallback) ? OFFERED : [...OFFERED, fallback];
+  return modes.map((value) => ({ value, label: SERP_MODE_TITLES[value] }));
+}
 
 interface Draft {
   keywords: string;
@@ -155,10 +173,10 @@ function Fields({
         <Select
           label="Выдача"
           allowDeselect={false}
-          data={SERP_MODES}
+          data={serpModes(home)}
           value={draft.serpMode}
           onChange={(value) =>
-            onDraft({ serpMode: (value as SerpMode | null) ?? DEFAULT_SERP_MODE })
+            onDraft({ serpMode: (value as SerpMode | null) ?? serpDefault(home) })
           }
           comboboxProps={dropdownBelow}
           w={{ base: '100%', xs: 250 }}
@@ -175,13 +193,13 @@ interface Props {
 
 export function SegmentForm({ home, onStarted }: Props) {
   const { can } = useSession();
-  const [draft, setDraft] = useState<Draft>({
+  const [draft, setDraft] = useState<Draft>(() => ({
     keywords: '',
     country: DEFAULT_COUNTRY,
     language: BY_MARKET,
     depth: 1,
-    serpMode: DEFAULT_SERP_MODE,
-  });
+    serpMode: serpDefault(home),
+  }));
   const ask = askOf(home.hypothesis_id, draft);
   const asked = JSON.stringify({ ask, segment: home.segment } satisfies Counted);
   // Смета — для тех значений формы и того описания сегмента, по которым её считали: правка

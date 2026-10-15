@@ -23,7 +23,8 @@
  * с неё. Остальные фильтры — своей вкладки: у лидов — состояние, причина, поиск
  * и страница, у воронки — период и свои даты (`?period=custom&from=…&to=…`), у отчёта —
  * неделя (`?tab=report&week=…`, её понедельник), у качества агента — версия агента
- * (`?cohort=…`, номер сервера; пусто — текущая).
+ * (`?cohort=…`, номер сервера; пусто — текущая), у сбора базы — выбранный прогон
+ * (`?tab=collect&run=N`: «назад» и ссылка открывают тот же прогон, тест прогона 14.10).
  */
 
 import type { LeadsQuery } from '../api/sales';
@@ -93,6 +94,8 @@ export interface LeadFilters {
   cohort: string;
   /** Неделя отчёта — её понедельник (`YYYY-MM-DD`); пусто — прошлая неделя. */
   week: string;
+  /** Прогон сбора базы; пусто — последний прогон гипотезы. */
+  run: number | null;
 }
 
 export const NO_LEAD_FILTERS: LeadFilters = {
@@ -107,6 +110,7 @@ export const NO_LEAD_FILTERS: LeadFilters = {
   to: '',
   cohort: '',
   week: '',
+  run: null,
 };
 
 /** Форма кода причины — как пишет очистка (`duplicate`, `no_mail`). */
@@ -155,6 +159,7 @@ export function readLeadFilters(params: URLSearchParams): LeadFilters {
     to: dayOf(params.get('to')),
     cohort: cohortOf(params.get('cohort')),
     week: dayOf(params.get('week')),
+    run: numberOf(params.get('run'), 9_999_999),
   });
 }
 
@@ -193,10 +198,12 @@ export function writeLeadFilters(filters: LeadFilters): URLSearchParams {
 }
 
 /** Свои фильтры вкладки в адресе: у воронки — период и свои даты, у отчёта — неделя, у качества
- *  агента — версия. Умолчания (всё время, прошлая неделя, текущая версия) не пишутся. */
+ *  агента — версия, у сбора базы — прогон. Умолчания (всё время, прошлая неделя, текущая
+ *  версия, последний прогон) не пишутся. */
 function tabParams(filters: LeadFilters): [string, string][] {
   if (filters.tab === 'funnel') return funnelParams(filters);
   if (filters.tab === 'report') return filters.week === '' ? [] : [['week', filters.week]];
+  if (filters.tab === 'collect') return filters.run === null ? [] : [['run', String(filters.run)]];
   return filters.tab === 'agent' && filters.cohort !== '' ? [['cohort', filters.cohort]] : [];
 }
 

@@ -4,7 +4,12 @@
 встал: упавшая задача повторяется очередью, остановленный потолком модели — продолжается
 кнопкой, решения человека по «на проверку» — тем же продолжением.
 
-1. **Выдача** (`segment_serp.collect`) — один раз: этап отмечен, повтор её не покупает.
+**Стадия — при входе в этап**, своим коммитом до его работы (`segment_progress.enter`):
+человек видит «покупаем выдачу», «судья: X из Y», «адреса: X из Y», «лиды и очистка», а не
+«в очереди» шесть минут выдачи (тест прогона 14.10). Ход — в `report.progress`.
+
+1. **Выдача** (`segment_serp.collect`) — один раз: куплена — её итог в отчёте
+   (`segment_serp.bought`), и ни повтор задачи, ни продолжение её не покупают.
 2. **Судья** (`segment_judging.judge_run`) — кандидаты, ждущие судью; потолок модели
    выбран — прогон останавливается словами, неосуждённые ждут продолжения.
 3. **Адрес** — общий вход лестницы `search_contacts(queue=…)` со своей очередью
@@ -12,13 +17,17 @@
 4. **Лиды и очистка** (`segment_leads.make_leads`) — принятым с адресом; очистка — та же,
    что у загрузки базы.
 
-Числа этапов копятся в отчёте прогона (`report`): расход каждого прохода — свой, а
-сколько сайтов в какой полосе, отчёт читает из кандидатов (`segment_report.py`).
+**Числа проходов складываются** (`report.judge`, `report.contacts`, `report.leads`): расход
+прогона — токены судьи, запросы Hunter, проверки адресов — за все проходы, а не за
+последний (тест прогона 14.10: «Найти адреса принятым» затирало счёт первого прохода).
+Ключи прежние — их читает панель расхода. Сколько сайтов в какой полосе, отчёт читает из
+кандидатов (`segment_report.py`).
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -35,8 +44,9 @@ from backend.features.sales.segment_judge import SegmentClient
 from backend.features.sales.segment_judging import JudgeTally, judge_run
 from backend.features.sales.segment_leads import make_leads
 from backend.features.sales.segment_models import SalesSegmentRunModel, Stage
+from backend.features.sales.segment_progress import advanced, enter, judge_waiting
 from backend.features.sales.segment_queue import SegmentContactQueue
-from backend.features.sales.segment_serp import collect
+from backend.features.sales.segment_serp import bought, collect, provider_mode
 from backend.features.sales.verifier import EmailVerifier
 from backend.features.serp.protocol import SerpProvider
 
@@ -44,6 +54,18 @@ logger = logging.getLogger(__name__)
 
 #: Числа судьи, которые копятся от прохода к проходу: каждый судил своих.
 _SUMMED = ("judged", "from_cache", "by_rule", "would_cut", "tokens")
+#: Числа поиска адреса, которые копятся; остальное (`pending`, заметки) — последнего прохода.
+_CONTACTS_SUMMED = ("walked", "saved")
+#: Числа очистки лидов, которые копятся: каждый проход чистит своих новых лидов.
+_CLEANING_SUMMED = (
+    "checked",
+    "ready",
+    "unconfirmed",
+    "unverified",
+    "mx_unknown",
+    "verified",
+    "paid_units",
+)
 
 
 class UnknownRunError(LookupError):
@@ -64,6 +86,21 @@ class RunDeps:
     verifier: EmailVerifier
 
 
+def _number(value: object) -> int:
+    """Число из отчёта; не число (поле правили руками, его нет) — ноль, а не отказ."""
+    return int(value) if isinstance(value, int | float) else 0
+
+
+def _counts(*passes: object) -> dict[str, int]:
+    """Счётчики проходов по ключам — суммой: ключ одного прохода — как есть."""
+    found: dict[str, int] = {}
+    for counted in passes:
+        if isinstance(counted, Mapping):
+            for key, value in counted.items():
+                found[str(key)] = found.get(str(key), 0) + _number(value)
+    return found
+
+
 def _judge_report(before: dict[str, Any] | None, tally: JudgeTally) -> dict[str, Any]:
     """Итог судьи за все проходы: расход и счёт — суммой, остановка и сбой — последнего."""
     now = tally.as_dict()
@@ -71,19 +108,138 @@ def _judge_report(before: dict[str, Any] | None, tally: JudgeTally) -> dict[str,
     return {**now, **{key: int(earlier.get(key, 0)) + int(now[key]) for key in _SUMMED}}
 
 
-async def _contacts(session: AsyncSession, run: SalesSegmentRunModel) -> dict[str, Any]:
+def contacts_report(before: Mapping[str, Any] | None, now: Mapping[str, Any]) -> dict[str, Any]:
+    """Итог поиска адреса за все проходы: пройдено, найдено и ступени (`counters` — в них
+    запросы платного сервиса) — суммой; ждали и заметки — последнего прохода."""
+    earlier = dict(before or {})
+    return {
+        **earlier,
+        **now,
+        **{key: _number(earlier.get(key)) + _number(now.get(key)) for key in _CONTACTS_SUMMED},
+        "counters": _counts(earlier.get("counters"), now.get("counters")),
+    }
+
+
+def _cleaning(before: object, now: object) -> dict[str, Any]:
+    earlier = dict(before) if isinstance(before, Mapping) else {}
+    latest = dict(now) if isinstance(now, Mapping) else {}
+    return {
+        **earlier,
+        **latest,
+        **{key: _number(earlier.get(key)) + _number(latest.get(key)) for key in _CLEANING_SUMMED},
+        "rejected": _counts(earlier.get("rejected"), latest.get("rejected")),
+    }
+
+
+def leads_report(before: Mapping[str, Any] | None, now: Mapping[str, Any]) -> dict[str, Any]:
+    """Итог лидов за все проходы: заведено и счёт очистки (`cleaning.paid_units` — проверки
+    адресов) — суммой; остановка проверки и срок перепроверки — последнего прохода."""
+    earlier = dict(before or {})
+    found = {
+        **earlier,
+        **now,
+        "created": _number(earlier.get("created")) + _number(now.get("created")),
+    }
+    if "cleaning" in earlier or "cleaning" in now:
+        found["cleaning"] = _cleaning(earlier.get("cleaning"), now.get("cleaning"))
+    return found
+
+
+async def _stop(
+    session: AsyncSession, run: SalesSegmentRunModel, words: str, now: datetime | None
+) -> dict[str, Any]:
+    """Прогон встал словами: стадия, причина и конец прохода — одной записью."""
+    run.stage, run.error, run.finished_at = Stage.STOPPED, words, now or datetime.now(UTC)
+    await session.commit()
+    logger.warning("сбор продаж: прогон остановлен", extra={"run": run.id, "error": words})
+    return dict(run.report)
+
+
+async def _contacts(
+    session: AsyncSession, run: SalesSegmentRunModel, queue: SegmentContactQueue, waiting: int
+) -> dict[str, Any]:
     """Поиск адреса принятым — общим входом лестницы, своей очередью кандидатов.
 
     Платная ступень — только когда она включена у сбора (`SALES_SEGMENT_PAID_CONTACTS`) и
     была в смете, которую человек подтвердил запуском: ключ Hunter общий с донорами, и его
     включение для доноров не должно молча включать платное сбору."""
-    queue = SegmentContactQueue(session, run.id)
-    waiting = await queue.pending_count()
     if waiting == 0:
         return {"pending": 0, "walked": 0, "saved": 0}
     paid = sales_cfg.SEGMENT_PAID_CONTACTS and int(run.estimate.get("hunter_searches", 0)) > 0
     found = await search_contacts(session, limit=waiting, queue=queue, no_paid=not paid)
     return found.as_dict()
+
+
+async def _serp(
+    session: AsyncSession, run: SalesSegmentRunModel, deps: RunDeps, started: datetime
+) -> None:
+    """Этап выдачи: «покупаем выдачу» — до покупки, «готово X из Y ключей» — по ходу
+    (`segment_serp.SerpTrail`), итог и «куплена» — одним коммитом."""
+    await enter(
+        session,
+        run,
+        Stage.SERP,
+        total=len(run.keywords),
+        pass_started=started,
+        mode=provider_mode(deps.serp),
+    )
+    found = await collect(session, run, deps.serp)
+    run.report = advanced(run, done=_number(found["keywords"]), total=_number(found["keywords"]))
+    await session.commit()
+
+
+async def _judge(
+    session: AsyncSession,
+    run: SalesSegmentRunModel,
+    deps: RunDeps,
+    *,
+    segment: str,
+    started: datetime,
+    now: datetime | None,
+) -> JudgeTally:
+    """Этап судьи: «судья: X из Y» — Y ждали судью на входе, X — сколько из них уже нет."""
+    total = await judge_waiting(session, run.id)
+    await enter(session, run, Stage.JUDGE, total=total, pass_started=started)
+    tally = await judge_run(
+        session,
+        run_id=run.id,
+        segment=segment,
+        mode=JudgeMode(run.mode),
+        client=deps.judge,
+        home=deps.home,
+        now=now,
+    )
+    left = await judge_waiting(session, run.id)
+    run.report = {
+        **advanced(run, done=max(0, total - left)),
+        "judge": _judge_report(run.report.get("judge"), tally),
+    }
+    return tally
+
+
+async def _addresses(session: AsyncSession, run: SalesSegmentRunModel, started: datetime) -> None:
+    """Этап адресов: «адреса: X из Y» — Y принятых ждали поиска на входе."""
+    queue = SegmentContactQueue(session, run.id)
+    waiting = await queue.pending_count()
+    await enter(session, run, Stage.CONTACTS, total=waiting, pass_started=started)
+    found = await _contacts(session, run, queue, waiting)
+    run.report = {
+        **advanced(run, done=_number(found.get("walked"))),
+        "contacts": contacts_report(run.report.get("contacts"), found),
+    }
+
+
+async def _leads(
+    session: AsyncSession, run: SalesSegmentRunModel, deps: RunDeps, started: datetime
+) -> None:
+    """Этап лидов: заведение и очистка; сколько лидов выйдет, заранее не известно."""
+    await enter(session, run, Stage.LEADS, total=None, pass_started=started)
+    made = await make_leads(session, run, deps.verifier)
+    created = _number(made.get("created"))
+    run.report = {
+        **advanced(run, done=created, total=created),
+        "leads": leads_report(run.report.get("leads"), made),
+    }
 
 
 async def execute(
@@ -95,36 +251,19 @@ async def execute(
         raise UnknownRunError(f"прогона сбора №{run_id} нет")
     hypothesis = await session.get(SalesHypothesisModel, run.hypothesis_id)
     segment = (hypothesis.description or "").strip() if hypothesis is not None else ""
-    run.error = None
-    if run.stage == Stage.QUEUED:
-        await collect(session, run, deps.serp)
-        await session.commit()
+    started = datetime.now(UTC)
+    # Проход идёт: причины прежней остановки и конца прежнего прохода у него нет.
+    run.error, run.finished_at = None, None
+    if not bought(run):
+        await _serp(session, run, deps, started)
     if not segment and JudgeMode(run.mode) is not JudgeMode.OFF:
         # Описание стёрли после запуска: судить не с чем, а угадывать сегмент модель не должна.
-        run.stage, run.error = Stage.STOPPED, f"прогон остановлен: {NO_SEGMENT}"
-        await session.commit()
-        return dict(run.report)
-    tally = await judge_run(
-        session,
-        run_id=run.id,
-        segment=segment,
-        mode=JudgeMode(run.mode),
-        client=deps.judge,
-        home=deps.home,
-        now=now,
-    )
-    run.report = {**run.report, "judge": _judge_report(run.report.get("judge"), tally)}
+        return await _stop(session, run, f"прогон остановлен: {NO_SEGMENT}", now)
+    tally = await _judge(session, run, deps, segment=segment, started=started, now=now)
     if tally.stopped is not None:
-        run.stage, run.error = Stage.STOPPED, f"судья остановлен: {tally.stopped}"
-        await session.commit()
-        logger.warning("сбор продаж: прогон остановлен", extra={"run": run.id})
-        return dict(run.report)
-    run.stage = Stage.JUDGE
-    await session.commit()
-    run.report = {**run.report, "contacts": await _contacts(session, run)}
-    run.stage = Stage.CONTACTS
-    await session.commit()
-    run.report = {**run.report, "leads": await make_leads(session, run, deps.verifier)}
+        return await _stop(session, run, f"судья остановлен: {tally.stopped}", now)
+    await _addresses(session, run, started)
+    await _leads(session, run, deps, started)
     run.stage, run.finished_at = Stage.DONE, now or datetime.now(UTC)
     await session.commit()
     logger.info("сбор продаж: прогон прошёл", extra={"run": run.id})
