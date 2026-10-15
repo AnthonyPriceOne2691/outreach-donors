@@ -4,14 +4,17 @@
  *
  * **Числа — из сайтов прогона, а не из итога задачи** (`GET /sales/segment/runs/{N}`):
  * решение человека и продолжение меняют их после задачи, и отчёт показывает, что есть
- * сейчас. Пока прогон идёт, отчёт опрашивается сам (`useRun`), ход задачи — строкой
- * `JobLine`.
+ * сейчас. Пока прогон идёт (решает сервер по очереди задач), отчёт опрашивается сам
+ * (`useRun`), ход — строкой `SegmentProgress`, исход задачи — строкой `JobLine`. Плитки
+ * сходятся и во время судьи: «ещё не судили» — своим числом.
  *
  * **Человек решает только «на проверку»**: «Принять» — сайт пойдёт к поиску адреса
  * продолжением прогона, «Отказ» — отсечён. Вердикт судьи остаётся рядом: в наблюдении
  * «не подходит» судьи лежит здесь же, а решает человек — по их расхождению меряют судью.
+ * Решённая строка стоит на месте с пометкой, пока открыт отчёт: двойной клик не уходит
+ * вторым решением, а нижние строки не поднимаются под курсор (правило «Отбора»).
  * Продолжение — кнопкой: поиск адреса стоит денег (Hunter), и запускает его человек
- * с правом «run».
+ * с правом «run»; пока прогон идёт, кнопки нет — принятым адреса ищет он сам.
  */
 
 import {
@@ -29,11 +32,13 @@ import {
   Title,
 } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { PERMISSION_TITLES } from '../api/labels';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
+import { Seams } from '../components/Seams';
 import { formatNumber } from '../format';
 import { JobLine, jobRestarted } from '../jobs/JobLine';
 import { notify } from '../notices';
@@ -42,16 +47,20 @@ import type { Column } from './FixedTable';
 import { decideSite, resumeRun } from './segmentApi';
 import type { SegmentCandidate, SegmentCount, SegmentRunDetail } from './segmentApi';
 import {
+  knownSites,
   leadsLine,
   MODE_WORDS,
+  runFacts,
   runJobLine,
   SEGMENT_QUERY_KEY,
-  STAGE_WORDS,
   useRun,
+  useRunSettled,
   VERDICT_WORDS,
 } from './segmentData';
 import { SegmentKeywords } from './SegmentKeywords';
+import { SegmentProgress } from './SegmentProgress';
 import { SegmentSpend } from './SegmentSpend';
+import { isActive, stageBadge } from './segmentStage';
 
 const COLUMNS: Column[] = [
   { title: 'Сайт', width: '15rem' },
@@ -82,8 +91,9 @@ function Counts({ title, rows }: { title: string; rows: SegmentCount[] }) {
 
 function Tiles({ detail }: { detail: SegmentRunDetail }) {
   const { summary } = detail;
+  const pending = summary.pending ?? detail.lanes.pending ?? 0;
   return (
-    <SimpleGrid cols={{ base: 2, xs: 3, md: 6 }} spacing="sm">
+    <SimpleGrid cols={{ base: 2, xs: 4, md: 7 }} spacing="sm">
       <Metric title="Сайтов из выдачи" value={formatNumber(summary.hosts)} />
       <Metric title="Принято" value={formatNumber(summary.accepted)} />
       <Metric
@@ -92,12 +102,28 @@ function Tiles({ detail }: { detail: SegmentRunDetail }) {
         color={summary.review > 0 ? 'yellow' : undefined}
       />
       <Metric title="Отсечено" value={formatNumber(summary.rejected)} />
+      <Metric title="Ещё не судили" value={formatNumber(pending)} />
       <Metric title="Без адреса" value={formatNumber(summary.no_address)} />
       <Metric title="Лидов создано" value={formatNumber(summary.leads)} />
     </SimpleGrid>
   );
 }
 
+/** Сайты, которые гипотеза уже собирала: их не судят и не ищут снова. */
+function Known({ detail }: { detail: SegmentRunDetail }) {
+  const known = knownSites(detail);
+  if (known === 0) return null;
+  return (
+    <Text size="sm" c="dimmed">
+      Уже в сборе гипотезы: {formatNumber(known)} — эти сайты нашли её прошлые прогоны, их не судим
+      и не ищем снова.
+    </Text>
+  );
+}
+
+/** Почему сайт на проверке: причина — целиком, переносом в своей колонке (ячейка `wrapCell`);
+ *  цитата сайта — двумя строками, целиком — в подсказке, как цитата судьи доноров
+ *  (`components/JudgeVerdict`): в 30 слов она растягивала бы строку на пять. */
 function Why({ site }: { site: SegmentCandidate }) {
   return (
     <Stack gap={2}>
@@ -105,7 +131,7 @@ function Why({ site }: { site: SegmentCandidate }) {
         {site.reason ?? 'причина не записана'}
       </Text>
       {site.quote !== null && (
-        <Text size="xs" c="dimmed">
+        <Text size="xs" c="dimmed" lineClamp={2} title={`«${site.quote}»`}>
           «{site.quote}»
         </Text>
       )}
@@ -113,18 +139,36 @@ function Why({ site }: { site: SegmentCandidate }) {
   );
 }
 
+/** Решение этого экрана по сайту: чем решён и записан ли уже сервером. */
+interface Held {
+  site: SegmentCandidate;
+  accept: boolean;
+  written: boolean;
+}
+
+function Decided({ held }: { held: Held }) {
+  const words = held.accept ? 'принят' : 'отсечён';
+  return (
+    <Text size="sm" ta="center" c="dimmed">
+      {held.written ? words : `${words} — записываем…`}
+    </Text>
+  );
+}
+
 function ReviewRow({
   site,
+  held,
   onDecide,
-  busy,
 }: {
   site: SegmentCandidate;
+  held: Held | undefined;
   onDecide: (accept: boolean) => void;
-  busy: boolean;
 }) {
   return (
     <Table.Tr>
-      <Table.Td>
+      {/* Домен — по швам (`components/Seams`), а не под соседнюю колонку; ключ — одной
+          строкой, целиком — в подсказке. */}
+      <Table.Td className="cellName">
         <Stack gap={0}>
           {site.page_url !== null ? (
             <Anchor
@@ -136,13 +180,15 @@ function ReviewRow({
               underline="always"
               className="inkLink"
             >
-              {site.host}
+              <Seams text={site.host} />
             </Anchor>
           ) : (
-            <Text size="sm">{site.host}</Text>
+            <Text size="sm">
+              <Seams text={site.host} />
+            </Text>
           )}
           {site.keyword !== null && (
-            <Text size="xs" c="dimmed" truncate>
+            <Text size="xs" c="dimmed" truncate title={`по ключу «${site.keyword}»`}>
               по ключу «{site.keyword}»
             </Text>
           )}
@@ -153,47 +199,75 @@ function ReviewRow({
           {site.unanswered ? 'не ответил' : VERDICT_WORDS[site.verdict ?? 'pending']}
         </Text>
       </Table.Td>
-      <Table.Td ta="left">
+      {/* Причина переносится в своей колонке: в строке без переноса длинная уезжала под
+          кнопки «Решения» (находка стенда 14.10.2026). */}
+      <Table.Td className="wrapCell" ta="left">
         <Why site={site} />
       </Table.Td>
       <Table.Td>
-        <Group gap="xs" justify="center" wrap="nowrap">
-          <Button
-            size="compact-sm"
-            className="press"
-            disabled={busy}
-            onClick={() => onDecide(true)}
-          >
-            Принять
-          </Button>
-          <Button
-            size="compact-sm"
-            variant="default"
-            className="press"
-            disabled={busy}
-            onClick={() => onDecide(false)}
-          >
-            Отказ
-          </Button>
-        </Group>
+        {held !== undefined ? (
+          <Decided held={held} />
+        ) : (
+          <Group gap="xs" justify="center" wrap="nowrap">
+            <Button size="compact-sm" className="press" onClick={() => onDecide(true)}>
+              Принять
+            </Button>
+            <Button
+              size="compact-sm"
+              variant="default"
+              className="press"
+              onClick={() => onDecide(false)}
+            >
+              Отказ
+            </Button>
+          </Group>
+        )}
       </Table.Td>
     </Table.Tr>
   );
 }
 
+/** Строки «на проверку»: сайты сервера и решённые здесь — на своих местах, по порядку. */
+function reviewRows(detail: SegmentRunDetail, held: Record<number, Held>): SegmentCandidate[] {
+  const shown = new Map(detail.review.map((site) => [site.id, site]));
+  for (const { site } of Object.values(held)) if (!shown.has(site.id)) shown.set(site.id, site);
+  return [...shown.values()].sort((a, b) => a.id - b.id);
+}
+
 function Review({ detail }: { detail: SegmentRunDetail }) {
   const client = useQueryClient();
+  const [held, setHeld] = useState<Record<number, Held>>({});
   const decide = useMutation({
-    mutationFn: ({ site, accept }: { site: number; accept: boolean }) => decideSite(site, accept),
-    onSuccess: () => void client.invalidateQueries({ queryKey: SEGMENT_QUERY_KEY }),
+    mutationFn: ({ site, accept }: { site: SegmentCandidate; accept: boolean }) =>
+      decideSite(site.id, accept),
+    onMutate: ({ site, accept }) =>
+      setHeld((known) => ({ ...known, [site.id]: { site, accept, written: false } })),
+    onSuccess: (_written, { site, accept }) => {
+      setHeld((known) => ({ ...known, [site.id]: { site, accept, written: true } }));
+      void client.invalidateQueries({ queryKey: SEGMENT_QUERY_KEY });
+    },
+    onError: (_failure, { site }) =>
+      setHeld((known) => {
+        const rest = { ...known };
+        delete rest[site.id];
+        return rest;
+      }),
   });
-  if (detail.review.length === 0) return null;
+  const rows = reviewRows(detail, held);
+  if (rows.length === 0) return null;
+  const total = detail.summary.review;
   return (
     <Stack gap="xs">
       <Title order={5}>На проверку — решает человек</Title>
       <Text size="sm" c="dimmed">
         «Принять» — сайт пойдёт к поиску адреса, когда прогон продолжат; «Отказ» — отсечён.
       </Text>
+      {detail.review.length < total && (
+        <Text size="sm" c="dimmed">
+          Показаны первые {formatNumber(detail.review.length)} из {formatNumber(total)} — следующие
+          встанут сюда, когда решите эти.
+        </Text>
+      )}
       {decide.error !== null && (
         <Alert color="red" title="Решение не записано">
           {refusalOf(decide.error)}
@@ -204,12 +278,12 @@ function Review({ detail }: { detail: SegmentRunDetail }) {
         minWidth={REVIEW_MIN_WIDTH}
         className="segmentReview"
         label="Сайты на проверку"
-        rows={detail.review.map((site) => (
+        rows={rows.map((site) => (
           <ReviewRow
             key={site.id}
             site={site}
-            busy={decide.isPending}
-            onDecide={(accept) => decide.mutate({ site: site.id, accept })}
+            held={held[site.id]}
+            onDecide={(accept) => decide.mutate({ site, accept })}
           />
         ))}
       />
@@ -217,19 +291,22 @@ function Review({ detail }: { detail: SegmentRunDetail }) {
   );
 }
 
-/** Продолжить прогон: после остановки и для принятых, кому ещё не искали адрес. */
+/** Продолжить прогон: после остановки (и когда задачи прогона нет) и для принятых, кому ещё
+ *  не искали адрес. Пока прогон идёт, кнопки нет: принятым адреса найдёт он сам, а сервер
+ *  ответил бы «уже идёт». Кнопка ждёт, пока отчёт перечитан: прогон уже «идёт» — её нет. */
 function Resume({ detail }: { detail: SegmentRunDetail }) {
   const client = useQueryClient();
   const { can } = useSession();
   const resume = useMutation({
     mutationFn: () => resumeRun(detail.run.id),
-    onSuccess: (queued) => {
-      void jobRestarted(client, queued.job_id);
-      void client.invalidateQueries({ queryKey: SEGMENT_QUERY_KEY });
+    onSuccess: async (queued) => {
       notify({ message: `Прогон №${queued.run_id} продолжается`, color: 'green' });
+      await jobRestarted(client, queued.job_id);
+      await client.invalidateQueries({ queryKey: SEGMENT_QUERY_KEY });
     },
   });
-  const stopped = detail.run.stage === 'stopped';
+  if (isActive(detail.run)) return null;
+  const stopped = detail.run.stage === 'stopped' || Boolean(detail.run.watch?.stalled);
   if (!stopped && detail.waiting_address === 0) return null;
   const label = stopped
     ? 'Продолжить прогон'
@@ -256,29 +333,42 @@ function Resume({ detail }: { detail: SegmentRunDetail }) {
   );
 }
 
+/** Строка задачи — там, где она говорит то, чего не говорит ход: когда следующая попытка
+ *  задачи, ждущей повтора, и сколько их осталось. «В очереди» и «идёт» ход уже сказал. У
+ *  сервера старше хода — как раньше: у всякого не готового прогона. */
+function jobLineShown(run: SegmentRunDetail['run']): boolean {
+  if (run.watch === undefined) return run.stage !== 'done';
+  return run.watch?.job === 'scheduled';
+}
+
+/** Значок стадии: идёт — где сейчас; остановлен без задачи — «остановлен», как и словами. */
+function StageBadge({ detail }: { detail: SegmentRunDetail }) {
+  const { title, color } = stageBadge(detail.run);
+  return (
+    <Badge variant="light" color={color}>
+      {title}
+    </Badge>
+  );
+}
+
 function Report({ detail }: { detail: SegmentRunDetail }) {
   const client = useQueryClient();
   const { run } = detail;
+  useRunSettled(detail);
   return (
     <Stack gap="sm">
       <Group gap="xs" wrap="wrap">
         <Title order={5}>Прогон №{run.id}</Title>
-        <Badge
-          variant="light"
-          color={run.stage === 'stopped' ? 'yellow' : run.stage === 'done' ? 'green' : 'gray'}
-        >
-          {STAGE_WORDS[run.stage]}
-        </Badge>
+        <StageBadge detail={detail} />
       </Group>
+      <Text size="sm" c="dimmed">
+        {runFacts(run)}
+      </Text>
       <Text size="sm" c="dimmed">
         {MODE_WORDS[run.mode]}.
       </Text>
-      {run.error !== null && (
-        <Alert color="yellow" title="Прогон остановлен">
-          {run.error}
-        </Alert>
-      )}
-      {run.job_id !== null && run.stage !== 'done' && (
+      <SegmentProgress run={run} />
+      {run.job_id !== null && jobLineShown(run) && (
         <JobLine
           jobId={run.job_id}
           describe={runJobLine}
@@ -286,6 +376,7 @@ function Report({ detail }: { detail: SegmentRunDetail }) {
         />
       )}
       <Tiles detail={detail} />
+      <Known detail={detail} />
       <Text size="sm">{leadsLine(detail)}</Text>
       <Resume detail={detail} />
       <Counts title="Отсечены — почему" rows={detail.rejected} />
@@ -304,7 +395,7 @@ function Report({ detail }: { detail: SegmentRunDetail }) {
           ))}
         </Stack>
       )}
-      <Review detail={detail} />
+      <Review key={run.id} detail={detail} />
     </Stack>
   );
 }

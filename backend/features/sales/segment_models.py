@@ -71,12 +71,15 @@ class Decider(StrEnum):
 
 
 class Stage(StrEnum):
-    """Где прогон: что сделано последним. Строкой — новый этап не требует миграции."""
+    """Где прогон сейчас: этап, в который он вошёл, — с начала работы этапа, а не после
+    (тест прогона 14.10: выдача шла шесть минут, а экран стоял «в очереди»). Ход этапа —
+    в `report.progress` (`segment_progress.py`). Строкой — новый этап не требует миграции."""
 
     QUEUED = "queued"  # поставлен, задача ещё не бралась
-    SERP = "serp"  # выдача куплена, кандидаты заведены
-    JUDGE = "judge"  # судья прошёл всех, кого мог
-    CONTACTS = "contacts"  # поиск адреса принятым прошёл
+    SERP = "serp"  # покупаем выдачу (куплена ли — `report.serp`, `segment_serp.bought`)
+    JUDGE = "judge"  # судит судья сегмента
+    CONTACTS = "contacts"  # ищем адреса принятым
+    LEADS = "leads"  # заводим лидов и чистим их
     DONE = "done"  # лиды заведены и очищены
     STOPPED = "stopped"  # остановлен с причиной (`error`): потолок модели, отказ провайдера
 
@@ -110,9 +113,15 @@ class SalesSegmentRunModel(TimestampedMixin, Base):
     #: Почему прогон остановлен — словами человека. Пусто — не останавливался.
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(AUTHOR_LENGTH), nullable=True)
+    #: Когда кончился последний проход — готово или остановлен. Пусто — проход идёт или
+    #: поставлен продолжением (`api/sales/segment.resume_run`).
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (Index("idx_sales_segment_runs_hypothesis", "hypothesis_id"),)
+    # `updated_at` — пульс прогона, его читает экран (`RunRow.alive_at`): значение базы
+    # приходит в той же записи (RETURNING), а не просроченным полем, которое асинхронная
+    # сессия догрузить на чтении не может.
+    __mapper_args__ = {"eager_defaults": True}  # noqa: RUF012 — так SQLAlchemy читает его
 
 
 class SalesSegmentCandidateModel(TimestampedMixin, ContactAttemptMixin, Base):

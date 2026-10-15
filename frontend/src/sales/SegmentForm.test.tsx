@@ -1,9 +1,10 @@
 /**
- * Форма нового прогона сбора (`SegmentForm`): режим выдачи — быстрый по умолчанию, «Стандарт» на
- * выбор, приоритетного нет — уходит в смету и запуск; смета называет взятые ключи с пометками и
- * отсеянные с причиной; правка описания сегмента снимает посчитанную смету — судья судит по
- * описанию, и запустить посчитанное по прежнему нельзя. Ответы сервера — записанные (`serve()`),
- * незаписанный запрос роняет тест; ключи и домены выдуманы.
+ * Форма нового прогона сбора (`SegmentForm`): режим выдачи — умолчание сервиса (сервер не назвал —
+ * быстрый), «Стандарт» на выбор, приоритетный — только когда он умолчание сервиса — уходит в смету
+ * и запуск; смета называет взятые ключи с пометками и отсеянные с причиной; правка описания
+ * сегмента снимает посчитанную смету — судья судит по описанию, и запустить посчитанное по
+ * прежнему нельзя. Ответы сервера — записанные (`serve()`), незаписанный запрос роняет тест;
+ * ключи и домены выдуманы.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -140,6 +141,43 @@ describe('сбор базы: форма прогона и смета', () => {
     expect(screen.getByRole('button', { name: 'Запустить прогон' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
     await waitFor(() => expect(asked(recorded)).toEqual(['live', 'standard']), SCREEN_WAIT);
+  });
+
+  it('режим по умолчанию — настройкой сервиса: «Стандарт» у сервиса — «Стандарт» в смете', async () => {
+    const recorded = await openTab({
+      'GET /api/sales/segment?hypothesis=7': { body: { ...HOME, serp_mode: 'standard' } },
+    });
+    const user = userEvent.setup();
+
+    const mode = screen.getByRole('textbox', { name: 'Выдача' });
+    expect(mode).toHaveValue('Стандарт — дешевле, дольше');
+    await countEstimate(user, 'доставка грузов');
+    await waitFor(() => expect(asked(recorded)).toEqual(['standard']), SCREEN_WAIT);
+    await user.click(mode);
+    const options = await screen.findAllByRole('option', {}, SCREEN_WAIT);
+    expect(options.map((option) => option.textContent)).toEqual([
+      'Быстрая (Live)',
+      'Стандарт — дешевле, дольше',
+    ]);
+  });
+
+  it('приоритетный — в поле, только когда он умолчание сервиса: иначе поле стояло бы пустым', async () => {
+    const recorded = await openTab({
+      'GET /api/sales/segment?hypothesis=7': { body: { ...HOME, serp_mode: 'priority' } },
+    });
+    const user = userEvent.setup();
+
+    const mode = screen.getByRole('textbox', { name: 'Выдача' });
+    expect(mode).toHaveValue('Приоритет — быстрее, дороже');
+    await countEstimate(user, 'доставка грузов');
+    await waitFor(() => expect(asked(recorded)).toEqual(['priority']), SCREEN_WAIT);
+    await user.click(mode);
+    const options = await screen.findAllByRole('option', {}, SCREEN_WAIT);
+    expect(options.map((option) => option.textContent)).toEqual([
+      'Быстрая (Live)',
+      'Стандарт — дешевле, дольше',
+      'Приоритет — быстрее, дороже',
+    ]);
   });
 
   it('смета называет взятые ключи с пометкой и отсеянные с причиной', async () => {

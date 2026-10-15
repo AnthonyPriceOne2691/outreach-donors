@@ -377,14 +377,14 @@
       "worst": "of:26"
     },
     "backend/api/sales/segment.py": {
-      "lines": 342,
+      "lines": 392,
       "complexity": 4,
-      "worst": "start_run:186"
+      "worst": "start_run:218"
     },
     "backend/api/sales/segment_schemas.py": {
-      "lines": 307,
+      "lines": 419,
       "complexity": 6,
-      "worst": "of:273"
+      "worst": "of:385"
     },
     "backend/api/sales/stoplist.py": {
       "lines": 202,
@@ -2527,9 +2527,9 @@
       "worst": "sites_per_result:25"
     },
     "backend/features/sales/segment_jobs.py": {
-      "lines": 156,
+      "lines": 249,
       "complexity": 4,
-      "worst": "_serp:77"
+      "worst": "_serp:163"
     },
     "backend/features/sales/segment_judge.py": {
       "lines": 332,
@@ -2552,9 +2552,14 @@
       "worst": "make_leads:93"
     },
     "backend/features/sales/segment_models.py": {
-      "lines": 212,
+      "lines": 221,
       "complexity": 0,
       "worst": "—"
+    },
+    "backend/features/sales/segment_progress.py": {
+      "lines": 198,
+      "complexity": 7,
+      "worst": "live:160"
     },
     "backend/features/sales/segment_queue.py": {
       "lines": 98,
@@ -2562,24 +2567,29 @@
       "worst": "save:83"
     },
     "backend/features/sales/segment_report.py": {
-      "lines": 236,
+      "lines": 269,
       "complexity": 6,
-      "worst": "decide:191"
+      "worst": "decide:219"
     },
     "backend/features/sales/segment_run.py": {
-      "lines": 132,
+      "lines": 271,
       "complexity": 9,
-      "worst": "execute:89"
+      "worst": "execute:245"
     },
     "backend/features/sales/segment_serp.py": {
-      "lines": 130,
+      "lines": 288,
       "complexity": 8,
-      "worst": "_rows:46"
+      "worst": "_rows:154"
     },
     "backend/features/sales/segment_spend.py": {
-      "lines": 206,
+      "lines": 224,
       "complexity": 9,
-      "worst": "_search:139"
+      "worst": "_search:149"
+    },
+    "backend/features/sales/segment_watch.py": {
+      "lines": 146,
+      "complexity": 5,
+      "worst": "watch:98"
     },
     "backend/features/sales/sender.py": {
       "lines": 182,
@@ -2997,7 +3007,7 @@
       "worst": "queue_screens:24"
     },
     "scripts/ui_screens_sales_segment.py": {
-      "lines": 91,
+      "lines": 108,
       "complexity": 1,
       "worst": "collect_prepare:25"
     },

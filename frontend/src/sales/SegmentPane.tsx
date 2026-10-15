@@ -7,10 +7,12 @@
  * - **описание сегмента гипотезы** — его читает судья; правка — новый вопрос модели, прежние
  *   вердикты по нему не годятся. Без описания прогон не запускается (судье не с чем сравнивать);
  * - **новый прогон** — смета до запуска словами сервера (`SegmentForm`);
- * - **прогоны гипотезы** — последний сразу, прежние — списком; отчёт и решение человека по
+ * - **прогоны гипотезы** — последний сразу, прежние — списком со стадией каждого; список
+ *   опрашивается, пока есть идущий прогон (`useSegment`); отчёт и решение человека по
  *   «на проверку» (`SegmentReport`).
  *
- * Гипотеза — та же, что у остальных вкладок раздела (`?hypothesis=`).
+ * Гипотеза — та же, что у остальных вкладок раздела (`?hypothesis=`); выбранный прогон — в
+ * адресе (`?run=N`): «назад» и присланная ссылка открывают тот же прогон.
  */
 
 import {
@@ -34,10 +36,11 @@ import { InfoHint } from '../components/InfoHint';
 import { dropdownBelow } from '../theme';
 import { HYPOTHESES_QUERY_KEY } from './hypothesisData';
 import { writeSegment } from './segmentApi';
-import type { SegmentHome } from './segmentApi';
+import type { SegmentHome, SegmentRunRow } from './segmentApi';
 import { runTitle, SEGMENT_QUERY_KEY, useSegment } from './segmentData';
 import { SegmentForm } from './SegmentForm';
 import { SegmentReport } from './SegmentReport';
+import { runState } from './segmentStage';
 
 /** Описание сегмента: как есть — или правка. Пустое — предупреждение, а не тишина. */
 function Segment({ home }: { home: SegmentHome }) {
@@ -115,6 +118,20 @@ function Segment({ home }: { home: SegmentHome }) {
   );
 }
 
+/** Прогон в списке: номер, когда, ключи, рынок — и под ним где он сейчас. */
+function RunOption({ label, row }: { label: string; row: SegmentRunRow | undefined }) {
+  return (
+    <Stack gap={0}>
+      <Text size="sm">{label}</Text>
+      {row !== undefined && (
+        <Text size="xs" c="dimmed">
+          {runState(row)}
+        </Text>
+      )}
+    </Stack>
+  );
+}
+
 function Runs({
   home,
   chosen,
@@ -132,16 +149,23 @@ function Runs({
     );
   }
   const run = chosen ?? home.runs[0]?.id ?? null;
+  const rows = new Map(home.runs.map((row) => [String(row.id), row]));
+  const data = home.runs.map((row) => ({ value: String(row.id), label: runTitle(row) }));
+  // Прогон по ссылке — не из последних двадцати: его отчёт открывается всё равно.
+  if (run !== null && !rows.has(String(run))) data.push({ value: String(run), label: `№${run}` });
   return (
     <Stack gap="sm">
       <Select
         label="Прогон"
         allowDeselect={false}
-        data={home.runs.map((row) => ({ value: String(row.id), label: runTitle(row) }))}
+        data={data}
         value={run === null ? null : String(run)}
         onChange={(value) => {
           if (value !== null) onChoose(Number(value));
         }}
+        renderOption={({ option }) => (
+          <RunOption label={option.label} row={rows.get(option.value)} />
+        )}
         comboboxProps={dropdownBelow}
         w={{ base: '100%', xs: 420 }}
       />
@@ -150,9 +174,16 @@ function Runs({
   );
 }
 
-function HypothesisSegment({ hypothesis }: { hypothesis: number }) {
+function HypothesisSegment({
+  hypothesis,
+  run,
+  onRun,
+}: {
+  hypothesis: number;
+  run: number | null;
+  onRun: (run: number) => void;
+}) {
   const client = useQueryClient();
-  const [chosen, setChosen] = useState<number | null>(null);
   const home = useSegment(hypothesis);
   if (home.data === undefined) {
     if (!home.error) return <Loader aria-label="Загружаем сбор базы" m="md" />;
@@ -170,14 +201,14 @@ function HypothesisSegment({ hypothesis }: { hypothesis: number }) {
       <Card component="section" className="glassQuiet" p="md" aria-label="Новый прогон">
         <SegmentForm
           home={home.data}
-          onStarted={(run) => {
-            setChosen(run);
+          onStarted={(started) => {
+            onRun(started);
             void client.invalidateQueries({ queryKey: SEGMENT_QUERY_KEY });
           }}
         />
       </Card>
       <Card component="section" className="glassQuiet" p="md" aria-label="Прогоны гипотезы">
-        <Runs home={home.data} chosen={chosen} onChoose={setChosen} />
+        <Runs home={home.data} chosen={run} onChoose={onRun} />
       </Card>
     </Stack>
   );
@@ -188,6 +219,9 @@ interface Props {
   /** Гипотеза раздела из адреса; не выбрана — первая: прогон идёт по одной гипотезе. */
   hypothesis: number | null;
   onHypothesis: (hypothesis: number) => void;
+  /** Прогон из адреса (`?run=N`); не выбран — последний прогон гипотезы. */
+  run: number | null;
+  onRun: (run: number) => void;
 }
 
 /** Выбор гипотезы вкладки — та же `?hypothesis=`, что у остальных вкладок раздела. */
@@ -229,7 +263,7 @@ function Intro() {
   );
 }
 
-export function SegmentPane({ hypotheses, hypothesis, onHypothesis }: Props) {
+export function SegmentPane({ hypotheses, hypothesis, onHypothesis, run, onRun }: Props) {
   const first = hypotheses.at(0);
   const chosen = hypothesis ?? (first === undefined ? null : first.id);
   return chosen === null ? (
@@ -242,7 +276,7 @@ export function SegmentPane({ hypotheses, hypothesis, onHypothesis }: Props) {
         <Intro />
         <Pick rows={hypotheses} chosen={chosen} onPick={onHypothesis} />
       </Group>
-      <HypothesisSegment key={chosen} hypothesis={chosen} />
+      <HypothesisSegment key={chosen} hypothesis={chosen} run={run} onRun={onRun} />
     </Stack>
   );
 }

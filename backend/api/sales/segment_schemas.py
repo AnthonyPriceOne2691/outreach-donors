@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Mapping
 from dataclasses import asdict
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from backend.config import serp as serp_cfg
+from backend.features.sales import segment_progress
 from backend.features.sales.segment_estimate import Estimate
 from backend.features.sales.segment_keywords import run_keywords
 from backend.features.sales.segment_models import SalesSegmentCandidateModel, SalesSegmentRunModel
 from backend.features.sales.segment_report import RunView, summary
 from backend.features.sales.segment_spend import spend_rows
+from backend.features.sales.segment_watch import GOING, Watch
+from backend.features.serp.modes import UnknownModeError, mode_of
+
+logger = logging.getLogger(__name__)
 
 #: Длина набора ключей в теле: сто ключей по восьми словам — с большим запасом.
 KEYWORDS_LENGTH = 20_000
@@ -161,10 +169,76 @@ class RunSpend(BaseModel):
         )
 
 
+class RunProgress(BaseModel):
+    """Ход прохода (`report.progress`, форма — `segment_progress.py`): этап, сделано из
+    всего, когда начат этап и проход, когда менялась запись хода. «Сделано» судьи и адресов
+    — живое, из кандидатов (`segment_progress.live`)."""
+
+    stage: str
+    done: int | None = None
+    total: int | None = None
+    started_at: datetime | None = None
+    updated_at: datetime | None = None
+    pass_started_at: datetime | None = None
+    #: Режим покупки выдачи (`SerpMode`) — у этапа выдачи.
+    mode: str | None = None
+    #: Что знать о сбое этапа до следующего прохода: «следующий проход купит её заново».
+    note: str | None = None
+
+    @classmethod
+    def of(cls, raw: object) -> RunProgress | None:
+        """Запись хода из отчёта; её нет (прогон старше хода) или она не разобрана — пусто:
+        отчёт читает экран, и чужое поле не должно ронять его целиком."""
+        if not isinstance(raw, Mapping) or not isinstance(raw.get("stage"), str):
+            return None
+        try:
+            return cls.model_validate(dict(raw))
+        except ValidationError as exc:
+            logger.warning("сбор продаж: запись хода не разобрана", extra={"error": str(exc)})
+            return None
+
+
+class RunWatch(BaseModel):
+    """Что с задачей прогона в очереди (`segment_watch.py`) — у идущего прогона и у прохода,
+    поставленного продолжением."""
+
+    #: Задача жива: в очереди, идёт или ждёт повтора.
+    going: bool
+    #: Строка «идёт», а задачи нет — словами; экран: «остановлен» и «Продолжить».
+    stalled: str | None
+    #: Живых воркеров долгих задач продаж; ноль — «Задачу некому взять»; пусто — не спросили.
+    workers: int | None
+    #: Очередь не ответила: жив ли прогон, сейчас не узнать.
+    silent: bool
+    #: Состояние живой задачи: `queued`, `deferred`, `scheduled` (ждёт повтора), `started`.
+    job: str | None
+
+    @classmethod
+    def of(cls, found: Watch) -> RunWatch:
+        return cls(
+            going=found.going,
+            stalled=found.stalled,
+            workers=found.workers,
+            silent=found.silent,
+            job=found.job,
+        )
+
+
+def _active(run: SalesSegmentRunModel, watch: Watch | None) -> bool:
+    """Идёт ли прогон: по очереди задач, а без неё — по стадии. Задачи нет — не идёт, сколько
+    бы стадия ни говорила «судья»; очередь не ответила — идёт, пока не скажет обратного."""
+    if watch is None:
+        return run.stage in GOING
+    if watch.stalled is not None:
+        return False
+    return watch.silent or watch.going
+
+
 class RunRow(BaseModel):
-    """Строка списка прогонов гипотезы."""
+    """Строка списка прогонов гипотезы: что задано, где прогон, его ход и жив ли он."""
 
     id: int
+    hypothesis_id: int
     created_at: datetime
     finished_at: datetime | None
     created_by: str | None
@@ -176,11 +250,26 @@ class RunRow(BaseModel):
     stage: str
     error: str | None
     job_id: str | None
+    #: Пульс: когда строка прогона менялась последний раз (идущий проход отмечается сам).
+    alive_at: datetime
+    #: Прогон идёт — экран опрашивает его и список, пока это так.
+    active: bool
+    progress: RunProgress | None
+    watch: RunWatch | None
 
     @classmethod
-    def of(cls, run: SalesSegmentRunModel) -> RunRow:
+    def of(
+        cls,
+        run: SalesSegmentRunModel,
+        *,
+        progress: Mapping[str, Any] | None = None,
+        watch: Watch | None = None,
+    ) -> RunRow:
+        """`progress` — живой ход (`segment_progress.live`); не дан — запись прохода как есть.
+        `watch` — ответ очереди; не дан — прогон о ней не спрашивали (он кончился)."""
         return cls(
             id=run.id,
+            hypothesis_id=run.hypothesis_id,
             created_at=run.created_at,
             finished_at=run.finished_at,
             created_by=run.created_by,
@@ -192,11 +281,31 @@ class RunRow(BaseModel):
             stage=run.stage,
             error=run.error,
             job_id=run.job_id,
+            alive_at=run.updated_at,
+            active=_active(run, watch),
+            progress=RunProgress.of(
+                progress if progress is not None else run.report.get(segment_progress.KEY)
+            ),
+            watch=None if watch is None else RunWatch.of(watch),
         )
 
 
+def default_serp_mode() -> str | None:
+    """Режим покупки выдачи по умолчанию — настройкой сервиса (`SERP_MODE`, `serp/modes.py`):
+    форма сбора ставит его сама, а не своё «быстрый». Настройка негодная — пусто, а не отказ
+    всей вкладки: запуск её всё равно не пустит, и скажет почему (`segment_jobs._mode`)."""
+    try:
+        return mode_of(None).value
+    except UnknownModeError as exc:
+        logger.warning(
+            "сбор продаж: режим выдачи по умолчанию не прочитан", extra={"error": str(exc)}
+        )
+        return None
+
+
 class SegmentHome(BaseModel):
-    """Вкладка сбора по гипотезе: описание сегмента, границы формы и прогоны."""
+    """Вкладка сбора по гипотезе: описание сегмента, границы формы, режим выдачи по
+    умолчанию и прогоны."""
 
     hypothesis_id: int
     segment: str | None
@@ -205,6 +314,9 @@ class SegmentHome(BaseModel):
     languages: list[str]
     max_keywords: int = serp_cfg.MAX_KEYWORDS_PER_RUN
     max_depth: int = serp_cfg.MAX_DEPTH_PAGES
+    #: Режим покупки выдачи по умолчанию (`SerpMode`: standard, priority, live); пусто — не
+    #: прочитан из настроек.
+    serp_mode: str | None = None
     runs: list[RunRow]
 
 
@@ -256,7 +368,7 @@ class RunDetail(BaseModel):
     estimate_lines: list[str]
     #: Ключи и расход прогона рядом со сметой на запуске (`segment_spend`).
     spend: RunSpend
-    #: Главные числа: сайтов, принято, на проверку, отсечено, без адреса, лидов.
+    #: Главные числа: сайтов, принято, на проверку, отсечено, ещё не судили, без адреса, лидов.
     summary: dict[str, int]
     lanes: dict[str, int]
     rejected: list[Count]
@@ -270,10 +382,10 @@ class RunDetail(BaseModel):
     review: list[CandidateRow]
 
     @classmethod
-    def of(cls, view: RunView) -> RunDetail:
+    def of(cls, view: RunView, *, watch: Watch | None = None) -> RunDetail:
         run = view.run
         return cls(
-            run=RunRow.of(run),
+            run=RunRow.of(run, progress=view.progress, watch=watch),
             hypothesis=view.hypothesis,
             keywords=list(run.keywords),
             estimate_lines=list((run.estimate or {}).get("lines", [])),

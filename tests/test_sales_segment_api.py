@@ -337,7 +337,8 @@ async def test_the_report_names_the_lanes_and_lists_the_sites_waiting_for_a_huma
     assert response.status_code == 200, response.text
     found = response.json()
     assert found["summary"] == {
-        "hosts": 1, "accepted": 0, "review": 1, "rejected": 0, "no_address": 0, "leads": 0,
+        "hosts": 1, "accepted": 0, "review": 1, "rejected": 0, "pending": 0, "no_address": 0,
+        "leads": 0,
     }  # fmt: skip
     assert found["estimate_lines"] == ["смета"]
     [row] = found["review"]

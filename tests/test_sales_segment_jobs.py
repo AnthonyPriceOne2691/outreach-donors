@@ -14,7 +14,7 @@ from backend.config import llm as llm_cfg
 from backend.config import storage
 from backend.config.startup_checks import ConfigError
 from backend.features.sales import segment_jobs
-from backend.features.sales.segment_estimate import SALES_OFF, SANDBOX, SERP_AHREFS
+from backend.features.sales.segment_estimate import SALES_OFF, SANDBOX, SERP_AHREFS, SERP_NOT_SET
 from backend.features.sales.segment_judge import SegmentClient
 from backend.features.sales.segment_models import Stage
 from backend.features.sales.segment_run import RunDeps
@@ -45,8 +45,9 @@ def test_a_permanent_refusal_is_the_outcome_not_three_retries(
 
     monkeypatch.setattr(segment_jobs, "run_once", refused)
 
+    # Имя класса и имя настройки — в журнал, на экран — что делать.
     assert segment_jobs.run_segment(5) == {
-        "error": "ConfigError: SALES_VERIFIER_PROVIDER=live, а ключа нет",
+        "error": segment_jobs.SETTINGS_WORDS,
         "permanent": True,
     }
 
@@ -121,7 +122,7 @@ async def test_home_check_off_judges_by_the_serp_only(monkeypatch: pytest.Monkey
 async def test_an_unbuildable_serp_stops_the_run_in_words(monkeypatch: pytest.MonkeyPatch) -> None:
     stopped: list[tuple[int, str]] = []
 
-    def unbuildable(_client: object) -> object:
+    def unbuildable(_client: object, **_kw: object) -> object:
         raise UnknownProviderError("SERP_PROVIDER=«нет такого» — такого источника нет")
 
     async def stop(_factory: object, run_id: int, words: str) -> None:
@@ -133,9 +134,8 @@ async def test_an_unbuildable_serp_stops_the_run_in_words(monkeypatch: pytest.Mo
     with pytest.raises(segment_jobs.SerpNotSetError):
         await segment_jobs.run_once(7)
 
-    assert stopped == [
-        (7, "SerpNotSetError: SERP_PROVIDER=«нет такого» — такого источника нет"),
-    ]
+    # Слова сметы, без имени класса и имени настройки (тест прогона 14.10).
+    assert stopped == [(7, SERP_NOT_SET)]
 
 
 async def test_serp_switched_to_ahrefs_after_the_estimate_stops_the_run(
@@ -160,7 +160,7 @@ async def test_serp_switched_to_ahrefs_after_the_estimate_stops_the_run(
         await segment_jobs.run_once(7)
 
     assert ran == []
-    assert stopped == [(7, f"SerpNotSetError: {SERP_AHREFS}")]
+    assert stopped == [(7, SERP_AHREFS)]
 
 
 async def test_serp_sandbox_switched_on_after_the_estimate_stops_the_run(
@@ -187,7 +187,7 @@ async def test_serp_sandbox_switched_on_after_the_estimate_stops_the_run(
         await segment_jobs.run_once(7)
 
     assert ran == []
-    assert stopped == [(7, f"SerpNotSetError: {SANDBOX}")]
+    assert stopped == [(7, SANDBOX)]
 
 
 async def test_sales_switched_off_after_the_start_stop_the_run_in_words(
@@ -212,7 +212,7 @@ async def test_sales_switched_off_after_the_start_stop_the_run_in_words(
         await segment_jobs.run_once(7)
 
     assert ran == []
-    assert stopped == [(7, f"SalesOffError: {SALES_OFF}")]
+    assert stopped == [(7, SALES_OFF)]
 
 
 async def test_the_stop_words_land_on_the_run_row(session: AsyncSession) -> None:
@@ -220,8 +220,10 @@ async def test_the_stop_words_land_on_the_run_row(session: AsyncSession) -> None
     run = await make_run(session, await hypothesis(session))
     factory = async_sessionmaker(bind=await session.connection(), expire_on_commit=False)
 
-    await segment_jobs._stop(factory, run.id, "SerpNotSetError: источника нет")
+    await segment_jobs._stop(factory, run.id, "источник выдачи не настроен")
     await segment_jobs._stop(factory, 987654, "прогона нет — и молча")
 
     await session.refresh(run)
-    assert (run.stage, run.error) == (Stage.STOPPED, "SerpNotSetError: источника нет")
+    assert (run.stage, run.error) == (Stage.STOPPED, "источник выдачи не настроен")
+    # Проход кончился — и у остановленного, как у готового.
+    assert run.finished_at is not None

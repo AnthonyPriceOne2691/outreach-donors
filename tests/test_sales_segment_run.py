@@ -30,7 +30,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, ThreadModel
-from backend.features.sales import cleaning, segment_report
+from backend.features.sales import cleaning, segment_report, segment_serp
 from backend.features.sales.models import (
     LeadSource,
     LeadStatus,
@@ -49,7 +49,7 @@ from backend.features.sales.segment_models import Stage as RunStage
 from backend.features.sales.segment_run import RunDeps, execute
 from backend.features.sales.verifier import FixtureVerifier
 from backend.features.serp.dataforseo import SerpError
-from backend.features.serp.protocol import SerpResult
+from backend.features.serp.protocol import SerpResult, SerpWatch
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_segment_judge import MODEL_KEY
@@ -98,7 +98,12 @@ class Serp:
     calls: list[tuple[str, ...]] = field(default_factory=list)
 
     async def search(
-        self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
+        self,
+        keywords: Sequence[str],
+        country: str,
+        *,
+        depth_pages: int = 1,
+        watch: SerpWatch | None = None,
     ) -> dict[str, list[SerpResult]]:
         self.calls.append(tuple(keywords))
         self.spent += self.price * len(keywords) * depth_pages
@@ -294,6 +299,7 @@ async def test_the_whole_way_from_keywords_to_a_clean_lead(
         "accepted": 2,
         "review": 1,
         "rejected": 2,
+        "pending": 0,
         "no_address": 1,
         "leads": 1,
     }
@@ -727,7 +733,12 @@ class PaidThenBroken(Serp):
     """Выдача, которая поставила задачи (и провайдер их списал), а забрать не смогла."""
 
     async def search(
-        self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
+        self,
+        keywords: Sequence[str],
+        country: str,
+        *,
+        depth_pages: int = 1,
+        watch: SerpWatch | None = None,
     ) -> dict[str, list[SerpResult]]:
         self.calls.append(tuple(keywords))
         self.spent += self.price * len(keywords) * depth_pages
@@ -739,8 +750,9 @@ async def test_serp_paid_and_then_failed_is_in_the_journal_before_the_job_retrie
 ) -> None:
     """Задачи выдачи поставлены — деньги списаны, — а забор упал: строка расхода `sales_serp`
     пишется и коммитится сразу, до повтора задачи очередью; иначе её унёс бы откат, а повтор
-    купил бы выдачу снова — дважды оплаченное, ни разу не записанное. Этап — прежний: повтор
-    купит выдачу заново и запишет свою строку."""
+    купил бы выдачу снова — дважды оплаченное, ни разу не записанное. Выдача не куплена:
+    повтор купит её заново и запишет свою строку — и прогон говорит это словами до повтора
+    (номеров задач у этой выдачи нет)."""
     run = await make_run(session, await hypothesis(session))
     at_commit: list[list[Decimal | None]] = []
     commit = session.commit
@@ -757,9 +769,17 @@ async def test_serp_paid_and_then_failed_is_in_the_journal_before_the_job_retrie
     with pytest.raises(SerpError, match="ответил 503"):
         await go(session, run, PaidThenBroken({}, spent=0.5), Model(ANSWERS))  # 0,5 — прежние
 
-    assert at_commit == [[Decimal("0.0037")]]
+    # Вход в этап выдачи коммитится до покупки — строки расхода тогда ещё нет.
+    assert at_commit == [[], [Decimal("0.0037")]]
     await session.refresh(run)
-    assert run.stage == RunStage.QUEUED
+    assert run.stage == RunStage.SERP
+    assert not segment_serp.bought(run)
+    # Расход в отчёте — как в журнале уже до повтора: панель расхода читает `cost_usd`.
+    assert run.report["serp"] == {"paid_usd": 0.0037, "cost_usd": 0.0037}
+    assert run.report["progress"]["note"] == (
+        "выдача упала после оплаты ($0,0037): номера задач не сохранились — следующий проход "
+        "купит её заново"
+    )
     usage_row = await session.scalar(
         select(UsageRecordModel).where(UsageRecordModel.operation == "sales_serp")
     )
