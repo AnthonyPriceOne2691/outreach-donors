@@ -82,10 +82,18 @@ WATCHDOG_INTERVAL_SEC = 120.0
 #: раз в десять минут, между опросами — прежний ответ. Чаще незачем: ключ Ahrefs общий.
 PROVIDERS_INTERVAL_SEC = 600.0
 
+#: Как часто — пока провайдер молчит, а тревоги ещё нет (`silence.ProviderWatch.doubtful`):
+#: раз в четыре минуты. Сбой на секунды снимает следующий же опрос, долгое молчание за
+#: `silence.PROVIDER_DOWN_MINUTES` подтверждают несколько. Не чаще прохода через один:
+#: медленный опрос по-прежнему попадает в окно тревоги не больше одного раза. Запросы
+#: бесплатные, и общему ключу Ahrefs запрос раз в четыре минуты не помеха.
+CONFIRM_INTERVAL_SEC = 240.0
+
 #: Сколько тревоги сторожа не должно быть, прежде чем сказать «прошло»: 20 минут с прохода, где
 #: её видели, — как при проходе раз в десять минут и двух проходах без неё. Временем, а не числом
 #: проходов (ревью #337): проход стал чаще, а мигание короче 20 минут пары «тревога / прошло» не
-#: даёт. Срок тревоги это не задевает: «тревога» — сразу.
+#: даёт. Срок тревоги это не задевает: «тревога» — сразу (у «провайдер не отвечает» сама тревога
+#: — после подтверждения, `silence.ProviderWatch`).
 QUIET_SEC = 1200.0
 
 #: Как часто строка журнала о каждой действующей тревоге — как до частого прохода: раз в десять
@@ -103,8 +111,9 @@ JOURNAL = silence.Journal(every=JOURNAL_INTERVAL_SEC)
 
 @dataclass
 class Providers:
-    """Ответ провайдеров между опросами: спрашивать не чаще `PROVIDERS_INTERVAL_SEC`, первый
-    проход процесса — всегда. Часы монотонные: перевод системных часов счёт не сбивает."""
+    """Ответ провайдеров между опросами: спрашивать не чаще `PROVIDERS_INTERVAL_SEC` (молчание
+    без тревоги — `CONFIRM_INTERVAL_SEC`), первый проход процесса — всегда. Часы монотонные:
+    перевод системных часов счёт не сбивает."""
 
     clock: Callable[[], float] = time.monotonic
     asked_at: float | None = None
@@ -115,7 +124,8 @@ class Providers:
     async def probe(self) -> Alarm | None:
         """Тревога «провайдер не отвечает» — свежая или прежняя, если срок опроса не пришёл."""
         moment = self.clock()
-        self.stale = self.asked_at is not None and moment - self.asked_at < PROVIDERS_INTERVAL_SEC
+        every = CONFIRM_INTERVAL_SEC if silence.WATCH.doubtful else PROVIDERS_INTERVAL_SEC
+        self.stale = self.asked_at is not None and moment - self.asked_at < every
         if not self.stale:
             self.answer, self.asked_at = await probe_providers(), moment
         return self.answer

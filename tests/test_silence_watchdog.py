@@ -286,8 +286,10 @@ class TestProvidersNotConfigured:
         monkeypatch.setattr(serp_cfg, "PROVIDER", "dataforseo")
         monkeypatch.setattr(serp_cfg, "LOGIN", "")
 
+        first = await silence_module.probe_providers()
         alarm = await silence_module.probe_providers()
 
+        assert first is None, "отказ, который сам не пройдёт, — тревога, когда повторился"
         assert alarm is not None
         assert "не настроен" in alarm.detail
 
@@ -332,21 +334,43 @@ class TestProviderAnswersWithAPage:
         monkeypatch.setattr(silence_module, "AhrefsClient", ahrefs)
         monkeypatch.setattr(silence_module, "_serp_silent", serp_answers)
 
-    async def test_probe_names_the_provider_instead_of_crashing(self) -> None:
+    async def test_probe_names_the_provider_instead_of_crashing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Страница вместо данных — сбой, который пройдёт сам: тревога — когда держится."""
+        clock = [0.0]
+        watch = silence_module.ProviderWatch(clock=lambda: clock[0])
+        monkeypatch.setattr(silence_module, "WATCH", watch)
+
+        [miss] = await silence_module.ask_providers()
+        first = await silence_module.probe_providers()
+        clock[0] = silence_module.PROVIDER_DOWN_MINUTES * 60
         alarm = await silence_module.probe_providers()
 
+        assert (miss.name, miss.permanent) == ("Ahrefs", False)
+        assert "не разобран как JSON" in miss.reason
+        assert first is None
         assert alarm is not None
         assert (alarm.code, alarm.title) == ("provider-unreachable", "Провайдер не отвечает")
-        assert alarm.detail.startswith("Не отвечает: Ahrefs.")
+        assert alarm.detail.startswith("Не отвечает: Ahrefs — 15 мин подряд (")
 
-    async def test_the_pass_keeps_the_other_alarms(self, session: AsyncSession) -> None:
+    async def test_the_pass_keeps_the_other_alarms(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8))
-
-        found = await silence_module.with_providers(
-            await alarms(session, stages=EVERY_STAGE, now=NOW)
+        clock = [0.0]
+        monkeypatch.setattr(
+            silence_module, "WATCH", silence_module.ProviderWatch(clock=lambda: clock[0])
         )
+        found = await alarms(session, stages=EVERY_STAGE, now=NOW)
 
-        assert {"provider-unreachable", "delivery-silence:donors"} <= _codes(found)
+        first = await silence_module.with_providers(found)
+        clock[0] = silence_module.PROVIDER_DOWN_MINUTES * 60
+        held = await silence_module.with_providers(found)
+
+        assert _codes(first) >= {"delivery-silence:donors"}
+        assert "provider-unreachable" not in _codes(first)
+        assert {"provider-unreachable", "delivery-silence:donors"} <= _codes(held)
 
 
 async def test_a_quiet_pass_says_so_in_the_journal(
