@@ -10,10 +10,14 @@
 в очередь; отправляет человек с правом на отправку, глядя на предпросмотр.
 Это и есть смысл экрана писем: спорное решение видит человек.
 
-**Письма готовятся по очереди, а не разом.** Каждое стоит вызова модели,
-и параллельный набор из двухсот вызовов упёрся бы в лимит скорости
-провайдера — а это отказы, которые выглядят как «зоны остались
-шаблонными». Сборка идёт в фоне, торопиться ей некуда.
+**Письма готовятся пачками: не все разом и не по одному.** Каждое стоит вызова
+модели. Двести вызовов разом упёрлись бы в лимит скорости провайдера — а это
+отказы, которые выглядят как «зоны остались шаблонными»; по одному те же двести
+писем — двести вызовов подряд по нескольку секунд каждый. Пачка — столько
+вызовов разом, сколько задаёт `OUTREACH_BUILD_CONCURRENCY` (8; 1 — прежний порядок
+по одному), а отказ по частоте провайдер повторяет с паузой (`net/retry.py`).
+В очередь письма пачки ложатся по одному, в порядке отбора, каждое своей фиксацией;
+потолок расхода на модель проверяется перед пачкой.
 
 **Низкий процент отличия не отменяет письмо.** Оно встаёт в очередь
 с честным числом и вердиктом рядом, и человек решает сам: отправить,
@@ -48,6 +52,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
@@ -59,16 +64,29 @@ from backend.features.contacts.quality import rejection_reason
 from backend.features.core import usage
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.outreach import CampaignModel, MessageModel
-from backend.features.core.models.run import RunModel
-from backend.features.core.stages import mail_stage
 from backend.features.crawl.niche import LINKS
 from backend.features.crawl.promote import apply_rejections, apply_suppliers
 from backend.features.letters import compose, guards, selection
 from backend.features.letters.recipients import Candidate
 from backend.features.letters.repository import LetterRepository
-from backend.features.letters.rewrite import Personalization, RewriteClient
+from backend.features.letters.rewrite import Personalization, RewriteClient, RewriteResult
+from backend.features.letters.scope import LetterScopeError, RunScope, run_scope
 from backend.features.letters.template import Template, for_stage, of_campaign
 from backend.features.letters.uniqueness import corridor_verdict, difference
+
+#: Проверка прогонов рассылки живёт в `scope.py`; её имена — и отсюда, как до переезда.
+__all__ = [
+    "FIRST_STEP",
+    "BuildReport",
+    "BuildRequest",
+    "LetterScopeError",
+    "QueueBuilder",
+    "RunScope",
+    "attempt_of",
+    "followup_key",
+    "idempotency_key",
+    "run_scope",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -145,81 +163,6 @@ class BuildRequest:
     audience: str = LINKS
 
 
-class LetterScopeError(ValueError):
-    """Из этих прогонов рассылку не собрать. Сообщение говорит, что сделать."""
-
-    #: Повтор задачи это не исправит (`runs/failures.py`).
-    permanent = True
-
-
-@dataclass(frozen=True, slots=True)
-class RunScope:
-    """Что прогоны рассылки задают письму: страну и нишу каждого донора."""
-
-    country: str | None = None
-    #: Домен → ключи, по которым он нашёлся. Это ниша для переписывания
-    #: вступления — точнее, чем ключи всей рассылки через запятую.
-    found_by: dict[str, list[str]] = field(default_factory=dict)
-
-
-async def run_scope(
-    repo: LetterRepository, run_ids: Sequence[int], *, stage: Stage = Stage.DONORS
-) -> RunScope:
-    """Проверить прогоны рассылки и достать из них страну и нишу.
-
-    Отказ — до постановки сборки: рассылка по прогонам разных стран ушла
-    бы одним языком, а по прогону с неоконченным поиском контактов — части
-    принятых, и остальные молча выпали бы (так же сборку держит соседняя
-    система, пока контакты собираются).
-
-    У рекламодателей прогонов нет: их находит обход доноров, а не выдача.
-    Прогоны, названные для Этапа 2, — ошибка формы, и молча их не взять:
-    человек решил бы, что рассылка сужена до них.
-
-    Продажам — отказ до всего остального: сборка с этапом продаж шла бы
-    путём доноров и заводила бы рассылку продаж из принятых доноров.
-    """
-    if mail_stage(stage, "Очередь писем не собрана") is Stage.ADVERTISERS and run_ids:
-        raise LetterScopeError(
-            "Рекламодатели собираются не по прогонам: их находит обход доноров, "
-            "а не выдача. Прогоны для рассылки рекламодателям не выбирать"
-        )
-    if not run_ids:
-        return RunScope()
-    runs = await repo.runs(run_ids)
-    country = _one_country(runs, run_ids)
-    pending = await repo.contacts_pending(run_ids)
-    if pending:
-        raise LetterScopeError(
-            f"Контакты ещё не искали у {pending} принятых доноров этих прогонов. "
-            "Дождаться поиска контактов — иначе они выпадут из рассылки"
-        )
-    return RunScope(country=country, found_by=_found_by(runs))
-
-
-def _one_country(runs: Sequence[RunModel], run_ids: Sequence[int]) -> str:
-    missing = sorted(set(run_ids) - {run.id for run in runs})
-    if missing:
-        raise LetterScopeError(f"Прогонов {', '.join(map(str, missing))} нет")
-    countries = sorted({run.country.lower() for run in runs})
-    if len(countries) > 1:
-        raise LetterScopeError(
-            f"Прогоны из разных стран ({', '.join(countries)}): язык письма берётся от страны. "
-            "Собрать по рассылке на страну"
-        )
-    return countries[0]
-
-
-def _found_by(runs: Sequence[RunModel]) -> dict[str, list[str]]:
-    """Ключи, по которым нашёлся каждый домен, — из всех прогонов рассылки."""
-    merged: dict[str, list[str]] = {}
-    for run in runs:
-        for host, keys in ((run.candidates or {}).get("found_by") or {}).items():
-            known = merged.setdefault(host, [])
-            known.extend(key for key in keys if key not in known)
-    return merged
-
-
 @dataclass
 class BuildReport:
     """Что получилось. Числа здесь — отчёт человеку, а не служебные счётчики."""
@@ -272,6 +215,21 @@ def _accepted(
         report.selected_letters += 1
         report.dropped_zones += len(chosen.dropped)
     return chosen.zones
+
+
+def _about(
+    candidate: Candidate, request: BuildRequest, found_by: dict[str, list[str]]
+) -> Personalization:
+    """Что модель знает об адресате: ниша — ключи, по которым нашёлся он сам."""
+    return Personalization(
+        host=candidate.host,
+        country=request.country,
+        niche=tuple(found_by.get(candidate.host, ())) or request.niche,
+        about=candidate.about,
+        # Наше имя отправителя модель не видит (имена — метками): его ставят в зону,
+        # когда правят шаблон.
+        names=(outreach_cfg.SENDER_NAME,),
+    )
 
 
 class QueueBuilder:
@@ -336,20 +294,19 @@ class QueueBuilder:
         candidates = await self._repo.candidates(
             request.stage, limit=request.limit, run_ids=request.run_ids, audience=request.audience
         )
-        for candidate in candidates:
-            if self._bad_address(candidate, report):
-                continue
+        writable = [c for c in candidates if not self._bad_address(c, report)]
+        size = max(1, outreach_cfg.BUILD_CONCURRENCY)
+        for start in range(0, len(writable), size):
             if not await self._within_cap(request, report):
                 break
             await self._prepare(
-                candidate,
+                writable[start : start + size],
                 letter_template,
                 campaign_id=campaign.id,
                 request=request,
                 report=report,
                 found_by=scope.found_by,
             )
-            await self._session.commit()
 
         logger.info(
             "письма: подготовлено %s из %s, токенов %s, вне коридора %s, "
@@ -375,7 +332,8 @@ class QueueBuilder:
         return self._template or for_stage(campaign.stage, campaign.audience)
 
     async def _within_cap(self, request: BuildRequest, report: BuildReport) -> bool:
-        """Потолок расхода на модель — до каждого письма. Достигнут — сборка
+        """Потолок расхода на модель — до каждой пачки: вызовы пачки уходят разом,
+        и проверка между ними ничего бы не остановила. Достигнут — сборка
         останавливается с причиной в отчёте; подготовленное остаётся в очереди."""
         try:
             await usage.ensure_llm_within_cap(self._session, run_id=request.run_id)
@@ -406,7 +364,7 @@ class QueueBuilder:
 
     async def _prepare(
         self,
-        candidate: Candidate,
+        pack: Sequence[Candidate],
         letter_template: Template,
         *,
         campaign_id: int,
@@ -414,28 +372,55 @@ class QueueBuilder:
         report: BuildReport,
         found_by: dict[str, list[str]],
     ) -> None:
-        """Одно письмо: текст, подбор зон, проверки, запись в очередь."""
-        rendered = compose.render(
-            letter_template,
-            compose.values_for(
-                host=candidate.host,
-                domain_id=candidate.domain_id,
-                link=candidate.link,
-                niche=candidate.niche,
+        """Пачка писем: вызовы модели разом, запись в очередь — по одному и по порядку.
+
+        Письмо, чей вызов вернулся, ложится в очередь своей фиксацией и тогда, когда
+        соседний вызов упал: его токены уже потрачены. Падение поднимается после записи
+        остальных — повтор задачи продолжит с упавшего (`_not_written`).
+        """
+        drafts = [
+            compose.render(
+                letter_template,
+                compose.values_for(host=c.host, domain_id=c.domain_id, link=c.link, niche=c.niche),
+            )
+            for c in pack
+        ]
+        outcomes = await asyncio.gather(
+            *(
+                self._rewriter.rewrite(rendered, _about(c, request, found_by))
+                for c, rendered in zip(pack, drafts, strict=True)
             ),
+            return_exceptions=True,
         )
-        rewritten = await self._rewriter.rewrite(
-            rendered,
-            Personalization(
-                host=candidate.host,
-                country=request.country,
-                niche=tuple(found_by.get(candidate.host, ())) or request.niche,
-                about=candidate.about,
-                # Наше имя отправителя модель не видит (имена — метками): его ставят в зону,
-                # когда правят шаблон.
-                names=(outreach_cfg.SENDER_NAME,),
-            ),
-        )
+        failures: list[BaseException] = []
+        for candidate, rendered, outcome in zip(pack, drafts, outcomes, strict=True):
+            if isinstance(outcome, BaseException):
+                logger.error("письма: переписывание для %s упало — %r", candidate.host, outcome)
+                failures.append(outcome)
+                continue
+            await self._queue(
+                candidate,
+                rendered,
+                outcome,
+                campaign_id=campaign_id,
+                request=request,
+                report=report,
+            )
+            await self._session.commit()
+        if failures:
+            raise failures[0]
+
+    async def _queue(
+        self,
+        candidate: Candidate,
+        rendered: compose.Rendered,
+        rewritten: RewriteResult,
+        *,
+        campaign_id: int,
+        request: BuildRequest,
+        report: BuildReport,
+    ) -> None:
+        """Одно письмо: подбор зон, проверки, запись в очередь."""
         for note in rewritten.notes:
             report.notes[note] = report.notes.get(note, 0) + 1
 

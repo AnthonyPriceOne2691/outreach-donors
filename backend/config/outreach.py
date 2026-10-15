@@ -97,6 +97,10 @@ class _Outreach(DomainSettings):
     price_recheck_days: int = Field(
         default=14, ge=1, validation_alias="OUTREACH_PRICE_RECHECK_DAYS"
     )
+    # Сколько писем сборка готовит разом: вызовы модели пачки уходят вместе, в очередь
+    # письма ложатся по одному (`letters/building.py`). 1 — прежний порядок по одному;
+    # больше — ближе к лимиту частоты провайдера модели, отказ по частоте повторяется.
+    build_concurrency: int = Field(default=8, ge=1, validation_alias="OUTREACH_BUILD_CONCURRENCY")
 
 
 _s = _Outreach()
@@ -128,6 +132,7 @@ PRICE_CONFIDENCE_THRESHOLD: float = _s.price_confidence_threshold
 SILENCE_DAYS: int = _s.silence_days
 DECLINE_DAYS: int = _s.decline_days
 PRICE_RECHECK_DAYS: int = _s.price_recheck_days
+BUILD_CONCURRENCY: int = _s.build_concurrency
 
 
 class _OwnAccount(DomainSettings):

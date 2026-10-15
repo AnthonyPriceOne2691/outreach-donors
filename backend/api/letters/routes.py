@@ -71,11 +71,11 @@ from backend.features.core.models.outreach import CampaignModel
 from backend.features.core.stages import check_batch
 from backend.features.crawl.niche import LINKS, NICHE, WHOM
 from backend.features.letters import batch, compose, draft, review, unknown_outcome
-from backend.features.letters.building import run_scope
 from backend.features.letters.chain import RECHECK_CAMPAIGN
 from backend.features.letters.compose import NicheOffer
 from backend.features.letters.niche_recipients import NicheRecipients
 from backend.features.letters.repository import LetterRepository, QueuedLetter
+from backend.features.letters.scope import run_scope
 from backend.features.letters.sending import Sending
 from backend.features.letters.template import Template, of_campaign
 from backend.features.letters.transport_factory import Transports, in_use

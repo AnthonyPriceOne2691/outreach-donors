@@ -103,7 +103,7 @@ class LetterRepository:
         audience: str = LINKS,
     ) -> list[Candidate]:
         """Кому писать, по одному адресу на адресата этапа (и аудитории Этапа 2). У
-        рекламодателей прогонов нет: их находит обход (`building.run_scope`); бизнесы
+        рекламодателей прогонов нет: их находит обход (`scope.run_scope`); бизнесы
         ниши — свой отбор (`niche_recipients`): решение человека и пример площадки."""
         recipients = Recipients(self._session)
         match stage:
