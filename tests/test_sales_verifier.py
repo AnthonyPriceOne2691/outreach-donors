@@ -146,7 +146,7 @@ def test_every_known_status_has_a_deliverability_and_only_dead_ones_have_words()
     [
         (_reply(429), ProviderRateLimitError, "частота превышена (HTTP 429) и после 3 попыток с паузой — проверка адресов встала до следующей очистки"),
         (_reply(503, text="<html>упал</html>"), ProviderError, "провайдер не ответил (HTTP 503) — повторим следующей очисткой"),
-        (_reply(202, {"data": {"status": "pending"}}), ProviderError, "провайдер ещё проверяет адрес — повторим следующей очисткой"),
+        (_reply(202, {"data": {"status": "pending"}}), ProviderError, "провайдер ещё проверяет адрес и после 2 переспросов — повторим следующей очисткой"),
         (_reply(200, text="не json"), ProviderError, "ответ не разобран как JSON (HTTP 200): 'не json'"),
         (_reply(200, []), ProviderError, "ответ не разобран как JSON (HTTP 200): '[]'"),
         (_reply(200, {"meta": {}}), ProviderError, "в ответе нет объекта data (HTTP 200): \"{'meta': {}}\""),
@@ -303,15 +303,14 @@ async def test_one_temporary_failure_is_retried_and_the_verdict_comes(
     "answer",
     [
         httpx.Response(401, json={"errors": [{"id": "authentication_failed", "details": "no"}]}),
-        httpx.Response(202, json={"data": {"status": "pending"}}),
         httpx.Response(403, json={"errors": [{"details": "no id"}]}),
     ],
 )
-async def test_key_refusal_and_pending_check_are_asked_once(
+async def test_key_refusal_and_quota_are_asked_once(
     pauses: list[float], answer: httpx.Response
 ) -> None:
-    """401 повтором не лечится (`okf/provider-refusals.md`); 202 — проверка у провайдера идёт,
-    его повторит следующая очистка, как и было."""
+    """401 и квота повтором не лечатся (`okf/provider-refusals.md`). 202 — переспрашивается в
+    том же проходе: `tests/test_sales_verifier_hunter_codes.py`."""
     handler, seen = _script(answer)
 
     with pytest.raises(ProviderError):

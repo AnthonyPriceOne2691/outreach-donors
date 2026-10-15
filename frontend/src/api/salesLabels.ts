@@ -29,7 +29,10 @@ export const LEAD_STATES: Record<LeadState, { title: string; color: string }> = 
 /** Причина отказа лида словами. Коды пишет очистка (`RejectionReason`
  *  сервера; сверку держит `tests/test_api_sales_screen.py`). Список причин для
  *  фильтра экран берёт из ответа сервера — здесь только слова, и незнакомый
- *  код виден общими словами с кодом в скобках, а не пропадает. */
+ *  код виден общими словами с кодом в скобках, а не пропадает. Что именно
+ *  нашлось, говорят слова очистки рядом: «дубль» — и адрес, и компания в работе
+ *  другой гипотезы; «не подтверждён» — второй `unknown` и домен, с которым
+ *  проверка не работает. */
 export const LEAD_REJECTION_REASONS: Record<string, string> = {
   duplicate: 'дубль',
   stoplist: 'стоп-лист продаж',
@@ -38,7 +41,7 @@ export const LEAD_REJECTION_REASONS: Record<string, string> = {
   unusable: 'негодный адрес',
   no_mail: 'домен не принимает почту',
   undeliverable: 'адрес не существует',
-  unconfirmed: 'адрес не подтверждён дважды',
+  unconfirmed: 'адрес не подтверждён',
 };
 
 export function leadReasonTitle(code: string): string {

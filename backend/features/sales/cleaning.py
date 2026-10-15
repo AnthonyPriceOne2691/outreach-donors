@@ -15,12 +15,21 @@
 4. сайт в работе у другого направления — живое письмо доноров или рекламодателей: в очереди,
    в пути, дошедшее, остановленное человеком, — тем же правилом, что у отправки (одна роль на
    сайт, `elsewhere.roles`: письмо такому лиду отправка сняла бы). Письмо продаж — не другое
-   направление: у компании бывает несколько лидов;
+   направление: у компании бывает несколько лидов одной гипотезы (чужую — правило 7);
 5. годность адреса — общий `contacts/quality.rejection_reason` целиком
    и ролевой ящик на бесплатной почте;
 6. почта домена самого адреса — `contacts/mx.mail_route`: один запрос DNS
    на уникальный домен, параллельно, повтор на таймауте внутри;
-7. платный проверяльщик — только для тех, кто дошёл.
+7. компания другой гипотезы: держит «готовый» — отказ, непроверенный — ждать (`company_hold`);
+8. платный проверяльщик — только для тех, кто дошёл; домен, с которым он не работает, —
+   отказ сразу (`hunter_codes.refused`).
+
+**Проход идёт кругами** (`_pass`): решённые кругом лиды будят ждущих на своих доменах, а на
+доменах отклонённых освободившаяся компания возвращает раннего отклонённого из-за держателя
+(`company_hold.after`) — следующий круг чистит их тем же порядком, пока круг решает лидов.
+Свободные компании `clean` ищет и в начале прохода, по всей базе (`company_hold.freed`). Платит
+проход только за свою область — гипотезу очистки (`company_hold.mine`): лидам чужих гипотез —
+бесплатные исходы, их проверит очистка их гипотезы.
 
 **Каждый отказ назван дважды**: кодом (`RejectionReason`, по нему
 фильтрует экран) и словами (`cleaning_note`, их читает человек).
@@ -47,40 +56,36 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.contacts.known_addresses import FREE_MAILBOX_DOMAINS, ROLE_LOCAL_PARTS
 from backend.features.contacts.mx import DELIVERABLE, MailRoute, mail_route
-from backend.features.contacts.provider import ProviderError
+from backend.features.contacts.provider import ProviderDomainRefusedError, ProviderError
 from backend.features.contacts.quality import rejection_reason
 from backend.features.core import usage
-from backend.features.core.domain import Stage
-from backend.features.core.models.domain import DomainModel
-from backend.features.core.models.ops import SuppressionModel
 from backend.features.letters import attempts
-from backend.features.sales import clean_write, elsewhere, off_queue, unconfirmed
-from backend.features.sales.clean_report import CleaningReport
+from backend.features.sales import clean_write, company_hold, off_queue, unconfirmed
+from backend.features.sales.clean_known import Known, load_known
+from backend.features.sales.clean_report import CleaningReport, Outcome, tally
+from backend.features.sales.hunter_codes import refused
 from backend.features.sales.intake import host_key
 from backend.features.sales.models import (
     LeadStatus,
     RejectionReason,
     SalesLeadModel,
-    SalesStoplistModel,
 )
-from backend.features.sales.suppressions import holds_sales
 from backend.features.sales.verifier import (
     FIXTURE,
     OPERATION,
     STOPS,
     UNKNOWN,
     EmailVerifier,
-    Verdict,
     due,
 )
 from backend.features.sales.verify_cap import capped
@@ -93,45 +98,31 @@ BATCH = 200
 MX_CONCURRENCY = 8
 #: Обращений к платному сервису одновременно; частоту держит проверяльщик (`verifier.py`).
 VERIFY_CONCURRENCY = 4
-#: Значений в одном `IN`: параметров у Postgres не больше 32 767 на запрос.
-CHUNK = 1000
 NOT_VERIFIED = "проверка не выполнена"
-
-
-@dataclass(frozen=True, slots=True)
-class Outcome:
-    """Итог очистки одного лида: куда он ушёл и почему."""
-
-    lead_id: int
-    status: LeadStatus
-    reason: RejectionReason | None = None
-    note: str | None = None
-    verdict: Verdict | None = None
-    verifier: str = ""
-    #: Проверка не выполнена у лида с вердиктом: прежний вердикт остаётся (`_unverified`).
-    kept: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class _Known:
-    """Что база знает о партии лидов — одним чтением на партию, а не на лида."""
-
-    #: Адрес → наименьший id лида с ним: он и есть оригинал.
-    first_lead: dict[str, int]
-    hosts: dict[int, str]
-    stop_hosts: frozenset[str]
-    stop_emails: frozenset[str]
-    unsub_emails: frozenset[str]
-    unsub_domains: frozenset[int]
-    #: Домен → направление, у которого сайт в работе (`elsewhere.roles`).
-    busy_domains: dict[int, Stage]
+#: Кругов в проходе — не больше. Круги сходятся сами: каждый решает лидов, а решённый лид кругом не
+#: возвращается (`company_hold.after`); предел — страховка от зацикливания, если правило однажды
+#: ошибётся. Столько ждущих у одной компании не бывает, а лиды последнего круга остаются как есть —
+#: их решит следующий проход.
+ROUNDS = 50
+#: Круги не сошлись за предел — словами журнала; домены последнего круга — полем записи.
+UNSETTLED = (
+    "продажи: круги очистки не сошлись за предел — проход остановлен, "
+    "лиды последнего круга решит следующий проход"
+)
 
 
 @dataclass
-class _Halt:
-    """Первая неисправимая причина — остальным лидам партии и прохода она же."""
+class _Run:
+    """Проход очистки: проверяльщик, момент, сводка и своя область — за проверку лидов вне её
+    проход не платит (`company_hold.mine`)."""
 
-    reason: str | None = None
+    verifier: EmailVerifier
+    moment: datetime
+    report: CleaningReport
+    scope: company_hold.Scope = None
+    mx_concurrency: int = MX_CONCURRENCY
+    #: Первая неисправимая причина — остальным лидам партии и прохода она же.
+    halt: str | None = None
 
 
 def _mailbox(email: str) -> str:
@@ -142,12 +133,12 @@ def _mailbox(email: str) -> str:
 # --- правила отказа: бесплатные, без сети ------------------------------------
 
 
-def _duplicate(lead: SalesLeadModel, known: _Known) -> str | None:
+def _duplicate(lead: SalesLeadModel, known: Known) -> str | None:
     first = known.first_lead.get(lead.email, lead.id)
     return f"дубль: адрес уже у лида №{first}" if first < lead.id else None
 
 
-def _stoplisted(lead: SalesLeadModel, known: _Known) -> str | None:
+def _stoplisted(lead: SalesLeadModel, known: Known) -> str | None:
     if lead.email in known.stop_emails:
         return f"стоп-лист продаж: адрес {lead.email}"
     for host in sorted(_hosts_of(lead, known)):
@@ -156,7 +147,7 @@ def _stoplisted(lead: SalesLeadModel, known: _Known) -> str | None:
     return None
 
 
-def _unsubscribed(lead: SalesLeadModel, known: _Known) -> str | None:
+def _unsubscribed(lead: SalesLeadModel, known: Known) -> str | None:
     if lead.email in known.unsub_emails:
         return f"отписка: {lead.email} просил не писать"
     if lead.domain_id in known.unsub_domains:
@@ -164,14 +155,14 @@ def _unsubscribed(lead: SalesLeadModel, known: _Known) -> str | None:
     return None
 
 
-def _busy(lead: SalesLeadModel, known: _Known) -> str | None:
+def _busy(lead: SalesLeadModel, known: Known) -> str | None:
     stage = known.busy_domains.get(lead.domain_id)
     if stage is None:
         return None
     return f"{attempts.elsewhere_reason(stage)} ({known.hosts[lead.domain_id]})"
 
 
-def _unusable(lead: SalesLeadModel, _known: _Known) -> str | None:
+def _unusable(lead: SalesLeadModel, _known: Known) -> str | None:
     """Общие правила годности целиком — и ролевой ящик на бесплатной почте:
     `info@gmail.com` — чужой личный ящик, а не роль компании."""
     if reason := rejection_reason(lead.email):
@@ -182,7 +173,7 @@ def _unusable(lead: SalesLeadModel, _known: _Known) -> str | None:
     return None
 
 
-def _hosts_of(lead: SalesLeadModel, known: _Known) -> set[str]:
+def _hosts_of(lead: SalesLeadModel, known: Known) -> set[str]:
     """Домены, по которым лида закрывает стоп-лист: компания, домен адреса и его
     корень — тем же ключом, каким стоп-лист записан (`host_key`)."""
     mailbox = _mailbox(lead.email)
@@ -191,7 +182,7 @@ def _hosts_of(lead: SalesLeadModel, known: _Known) -> set[str]:
 
 #: Порядок — от самого дешёвого и самого говорящего: дубль называет оригинал,
 #: у которого своя причина; правило, добавленное сюда, само попадает в сводку.
-_RULES: tuple[tuple[Callable[[SalesLeadModel, _Known], str | None], RejectionReason], ...] = (
+_RULES: tuple[tuple[Callable[[SalesLeadModel, Known], str | None], RejectionReason], ...] = (
     (_duplicate, RejectionReason.DUPLICATE),
     (_stoplisted, RejectionReason.STOPLIST),
     (_unsubscribed, RejectionReason.UNSUBSCRIBED),
@@ -200,7 +191,7 @@ _RULES: tuple[tuple[Callable[[SalesLeadModel, _Known], str | None], RejectionRea
 )
 
 
-def _by_rules(lead: SalesLeadModel, known: _Known) -> Outcome | None:
+def _by_rules(lead: SalesLeadModel, known: Known) -> Outcome | None:
     for rule, reason in _RULES:
         if note := rule(lead, known):
             return Outcome(lead.id, LeadStatus.REJECTED, reason, note)
@@ -213,63 +204,21 @@ def _no_mail(lead: SalesLeadModel, route: MailRoute) -> Outcome:
     return Outcome(lead.id, LeadStatus.REJECTED, RejectionReason.NO_MAIL, note)
 
 
+def _held(found: company_hold.Split) -> list[Outcome]:
+    """Компанию держит лид другой гипотезы: «готовый» — отказ кодом дубля, непроверенный — лид ждёт
+    держателя в прежнем статусе с прежним вердиктом (`company_hold.split`). Лид чужой гипотезы со
+    свободной компанией — тоже в прежнем статусе: его проверит очистка его гипотезы."""
+    held = [Outcome(i, LeadStatus.REJECTED, RejectionReason.DUPLICATE, w) for i, w in found.held]
+    waits = [Outcome(i, status, note=w, kept=True, waits=True) for i, status, w in found.waiting]
+    return held + waits + [Outcome(i, status, note=w, kept=True) for i, status, w in found.handed]
+
+
 def _unverified(lead: SalesLeadModel, why: str) -> Outcome:
     """Проверка не выполнена — статус прежний, лид ждёт следующей очистки с причиной, и прежний
     вердикт цел: `ready` на перепроверке `new` снял бы с цепочки, а первый `unknown` без вердикта
     при следующем ответе `unknown` сошёл бы снова за первый (`unconfirmed.judged`)."""
     kept = lead.verification_status is not None
     return Outcome(lead.id, lead.status, note=f"{NOT_VERIFIED}: {why}", kept=kept)
-
-
-# --- что знает база ------------------------------------------------------------
-
-
-def _chunks(values: Sequence[Any]) -> Iterator[Sequence[Any]]:
-    for start in range(0, len(values), CHUNK):
-        yield values[start : start + CHUNK]
-
-
-def _unsub(column: Any, chunk: Sequence[Any], moment: datetime) -> Any:
-    """Строки общего стоп-листа, которые держат продажи (`suppressions.holds_sales`)."""
-    return select(column).where(holds_sales(moment), column.in_(chunk))
-
-
-async def _load_known(
-    session: AsyncSession, leads: Sequence[SalesLeadModel], moment: datetime
-) -> _Known:
-    emails = sorted({lead.email for lead in leads})
-    domain_ids = sorted({lead.domain_id for lead in leads})
-    first: dict[str, int] = {}
-    hosts: dict[int, str] = {}
-    unsub_emails: set[str] = set()
-    unsub_domains: set[int] = set()
-    busy: dict[int, Stage] = {}
-    for chunk in _chunks(emails):
-        same = select(SalesLeadModel.email, func.min(SalesLeadModel.id))
-        rows = await session.execute(
-            same.where(SalesLeadModel.email.in_(chunk)).group_by(SalesLeadModel.email)
-        )
-        first.update(dict(rows.all()))  # type: ignore[arg-type]
-        unsub_emails.update(
-            (await session.scalars(_unsub(SuppressionModel.email, chunk, moment))).all()
-        )
-    for chunk in _chunks(domain_ids):
-        named = select(DomainModel.id, DomainModel.host).where(DomainModel.id.in_(chunk))
-        hosts.update(dict((await session.execute(named)).all()))  # type: ignore[arg-type]
-        unsub_domains.update(
-            (await session.scalars(_unsub(SuppressionModel.domain_id, chunk, moment))).all()
-        )
-        busy.update(await elsewhere.roles(session, chunk))
-    stop = (await session.execute(select(SalesStoplistModel.host, SalesStoplistModel.email))).all()
-    return _Known(
-        first_lead=first,
-        hosts=hosts,
-        stop_hosts=frozenset(host for host, _ in stop if host),
-        stop_emails=frozenset(email for _, email in stop if email),
-        unsub_emails=frozenset(unsub_emails),
-        unsub_domains=frozenset(unsub_domains),
-        busy_domains=busy,
-    )
 
 
 # --- сеть: DNS и платный проверяльщик ----------------------------------------
@@ -292,15 +241,19 @@ async def mail_routes(
     return dict(await asyncio.gather(*(one(domain) for domain in sorted(set(domains)))))
 
 
-async def _verify_one(
-    lead: SalesLeadModel, verifier: EmailVerifier, halt: _Halt, moment: datetime
-) -> Outcome:
+async def _verify_one(lead: SalesLeadModel, run: _Run) -> Outcome:
+    verifier = run.verifier
     try:
         verdict = await verifier.verify(lead.email)
     except STOPS as exc:
-        halt.reason = str(exc)
+        run.halt = str(exc)
         logger.exception("продажи: проверка адресов остановлена", extra={"reason": str(exc)})
         return _unverified(lead, str(exc))
+    except ProviderDomainRefusedError as exc:  # не проверить никогда: отказ сразу, без повторов
+        logger.info("продажи: адрес не проверить", extra={"lead_id": lead.id, "reason": str(exc)})
+        return Outcome(
+            lead.id, LeadStatus.REJECTED, RejectionReason.UNCONFIRMED, refused(lead.email)
+        )
     except ProviderError as exc:
         logger.warning(
             "продажи: адрес не проверен, повторим", extra={"lead_id": lead.id, "reason": str(exc)}
@@ -317,21 +270,19 @@ async def _verify_one(
             verifier.name,
         )
     if verdict.status == UNKNOWN:  # адрес не подтверждён — к письмам не идёт
-        status, reason, note = unconfirmed.judged(lead, verifier.name, moment)
+        status, reason, note = unconfirmed.judged(lead, verifier.name, run.moment)
         return Outcome(lead.id, status, reason, note, verdict, verifier.name)
     return Outcome(lead.id, LeadStatus.READY, verdict=verdict, verifier=verifier.name)
 
 
-async def _verify_all(
-    leads: Sequence[SalesLeadModel], verifier: EmailVerifier, halt: _Halt, moment: datetime
-) -> list[Outcome]:
+async def _verify_all(leads: Sequence[SalesLeadModel], run: _Run) -> list[Outcome]:
     limiter = asyncio.Semaphore(VERIFY_CONCURRENCY)
 
     async def one(lead: SalesLeadModel) -> Outcome:
         async with limiter:
-            if halt.reason is not None:
-                return _unverified(lead, halt.reason)
-            return await _verify_one(lead, verifier, halt, moment)
+            if run.halt is not None:
+                return _unverified(lead, run.halt)
+            return await _verify_one(lead, run)
 
     return list(await asyncio.gather(*(one(lead) for lead in leads)))
 
@@ -349,20 +300,15 @@ async def _due_leads(
 
 
 async def _clean_batch(
-    session: AsyncSession,
-    leads: Sequence[SalesLeadModel],
-    verifier: EmailVerifier,
-    moment: datetime,
-    halt: _Halt,
-    report: CleaningReport,
-    mx_concurrency: int,
+    session: AsyncSession, leads: Sequence[SalesLeadModel], run: _Run
 ) -> list[Outcome]:
-    known = await _load_known(session, leads, moment)
+    known = await load_known(session, leads, run.moment)
     outcomes = [outcome for lead in leads if (outcome := _by_rules(lead, known))]
     decided = {outcome.lead_id for outcome in outcomes}
     alive = [lead for lead in leads if lead.id not in decided]
-    routes = await mail_routes({_mailbox(lead.email) for lead in alive}, concurrency=mx_concurrency)
-    report.mx_unknown += sum(1 for route in routes.values() if route is MailRoute.UNKNOWN)
+    hosts = {_mailbox(lead.email) for lead in alive}
+    routes = await mail_routes(hosts, concurrency=run.mx_concurrency)
+    run.report.mx_unknown += sum(1 for route in routes.values() if route is MailRoute.UNKNOWN)
     reachable: list[SalesLeadModel] = []
     for lead in alive:
         route = routes[_mailbox(lead.email)]
@@ -370,7 +316,8 @@ async def _clean_batch(
             reachable.append(lead)
         else:
             outcomes.append(_no_mail(lead, route))
-    return outcomes + await _verify_all(reachable, verifier, halt, moment)
+    found = await company_hold.split(session, leads, reachable, run.scope)  # до платной проверки
+    return outcomes + _held(found) + await _verify_all(found.rest, run)
 
 
 def _row(outcome: Outcome, moment: datetime) -> dict[str, Any]:
@@ -403,20 +350,56 @@ async def _write(session: AsyncSession, outcomes: Sequence[Outcome], moment: dat
         usage.record(session, operation=OPERATION, units=units)
 
 
-def _tally(report: CleaningReport, outcomes: Sequence[Outcome], moment: datetime) -> None:
-    for outcome in outcomes:
-        if outcome.reason is not None:
-            report.rejected[outcome.reason.value] += 1
-        elif outcome.verdict is not None and outcome.verdict.status == UNKNOWN:
-            report.unconfirmed += 1
-            report.recheck_on = unconfirmed.recheck_on(moment)
-        elif outcome.status is LeadStatus.READY and not outcome.kept:
-            report.ready += 1
-        else:
-            report.unverified += 1
-        if outcome.verdict is not None:
-            report.verified += 1
-            report.paid_units += outcome.verdict.units
+async def _round(
+    session: AsyncSession, todo: Sequence[SalesLeadModel], run: _Run, *, commit: bool
+) -> list[Outcome]:
+    """Круг прохода — партиями: исходы, запись и, если `commit`, коммит каждой партии."""
+    outcomes: list[Outcome] = []
+    for start in range(0, len(todo), BATCH):
+        found = await _clean_batch(session, todo[start : start + BATCH], run)
+        await _write(session, found, run.moment)
+        if commit:
+            await session.commit()
+        outcomes += found
+    return outcomes
+
+
+async def _pass(
+    session: AsyncSession, leads: Sequence[SalesLeadModel], run: _Run, *, commit: bool
+) -> CleaningReport:
+    """Лиды — партиями по порядку заведения, затем кругами: кого круг разбудил или вернул
+    (`company_hold.after`), — не больше `ROUNDS` кругов. Остановка платной части — на весь
+    проход; сводка — по последнему исходу лида своей области: лиды чужих гипотез проход только
+    отдаёт их очистке."""
+    final: dict[int, Outcome] = {}
+    todo = sorted(leads, key=lambda lead: lead.id)
+    for _ in range(ROUNDS):
+        outcomes = await _round(session, todo, run, commit=commit)
+        todo = await _after(session, todo, outcomes, run, final)
+        if not todo:
+            break
+    else:
+        logger.error(UNSETTLED, extra={"domains": sorted({lead.domain_id for lead in todo})})
+    run.report.checked = len(final)
+    tally(run.report, final.values(), run.moment)
+    run.report.stopped = run.halt
+    return run.report
+
+
+async def _after(
+    session: AsyncSession,
+    todo: Sequence[SalesLeadModel],
+    outcomes: Sequence[Outcome],
+    run: _Run,
+    final: dict[int, Outcome],
+) -> list[SalesLeadModel]:
+    """Исходы круга своей области — в `final`; кого круг разбудил или вернул — следующему кругу."""
+    domains = {lead.id: lead.domain_id for lead in todo}
+    own = {lead.id for lead in company_hold.only(todo, run.scope)}
+    final.update((outcome.lead_id, outcome) for outcome in outcomes if outcome.lead_id in own)
+    decided = {domains[outcome.lead_id] for outcome in outcomes if outcome.decided}
+    rejected = {domains[o.lead_id] for o in outcomes if o.status is LeadStatus.REJECTED}
+    return await company_hold.after(session, decided, rejected, run.scope)
 
 
 async def clean_leads(
@@ -426,17 +409,14 @@ async def clean_leads(
     *,
     now: datetime | None = None,
 ) -> CleaningReport:
-    """Очистить названных лидов тем же порядком, что проход. Коммит — за вызывающим:
-    лид из ответа «пишите другому» чистится в транзакции задачи ответа."""
+    """Очистить названных лидов тем же проходом, что `clean`, — с кругами; своя область — их
+    гипотезы. Коммит — за вызывающим: лид из ответа «пишите другому» чистится в транзакции задачи
+    ответа."""
     moment = now or datetime.now(UTC)
     verifier = await capped(session, verifier, now=moment)  # месячный потолок у живого
-    report = CleaningReport(checked=len(leads), verifier=verifier.name)
-    halt = _Halt()
-    outcomes = await _clean_batch(session, leads, verifier, moment, halt, report, MX_CONCURRENCY)
-    await _write(session, outcomes, moment)
-    _tally(report, outcomes, moment)
-    report.stopped = halt.reason
-    return report
+    report = CleaningReport(verifier=verifier.name)
+    run = _Run(verifier, moment, report, {lead.hypothesis_id for lead in leads})
+    return await _pass(session, leads, run, commit=False)
 
 
 async def clean(
@@ -452,22 +432,17 @@ async def clean(
     Лид `ready` второй раз не проверяется: платить дважды незачем, — кроме проверенного
     выдуманным, когда проверяльщик живой, и `unknown`, которому не писали, в его день
     (`verifier.due`). Лид, оставшийся `new` из-за отказа сервиса, следующим проходом пройдёт
-    заново; с первым `unknown` — в день перепроверки (`unconfirmed.py`).
+    заново; с первым `unknown` — в день перепроверки (`unconfirmed.py`). Свободные компании
+    (держателя отклонили и не очисткой) проход ищет по всей базе: вернувшихся своей области
+    проверяет тем же проходом, чужих отдаёт очистке их гипотезы.
     """
     moment = now or datetime.now(UTC)
     verifier = await capped(session, verifier, now=moment)  # месячный потолок у живого
+    scope = None if hypothesis_id is None else {hypothesis_id}
     leads = await _due_leads(session, hypothesis_id, verifier.name != FIXTURE, moment)
-    report = CleaningReport(checked=len(leads), verifier=verifier.name)
-    halt = _Halt()
-    for start in range(0, len(leads), BATCH):
-        batch = leads[start : start + BATCH]
-        outcomes = await _clean_batch(
-            session, batch, verifier, moment, halt, report, mx_concurrency
-        )
-        await _write(session, outcomes, moment)
-        await session.commit()
-        _tally(report, outcomes, moment)
-    report.stopped = halt.reason
+    leads += company_hold.only(await company_hold.freed(session), scope)  # были отклонены
+    run = _Run(verifier, moment, CleaningReport(verifier=verifier.name), scope, mx_concurrency)
+    report = await _pass(session, leads, run, commit=True)
     logger.info(
         "продажи: очистка прошла",
         extra={
@@ -476,6 +451,7 @@ async def clean(
             "rejected": report.rejected_total,
             "unconfirmed": report.unconfirmed,
             "unverified": report.unverified,
+            "awaiting_holder": report.awaiting_holder,
             "verifier": verifier.name,
         },
     )

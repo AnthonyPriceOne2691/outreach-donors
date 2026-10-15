@@ -14,6 +14,12 @@
 что у загрузки, без копии: адрес уже у лида продаж — «дубль», домен в работе у доноров или
 рекламодателей — «домен в работе у другого направления». Журнал — запись загрузки базы:
 по нему ищут, откуда взялся лид.
+
+**Сайт, у домена которого уже есть живой лид продаж любой гипотезы, лида не даёт**
+(решение владельца 14.10, «компания — в одной гипотезе»), даже если готовый адрес домена
+лежит в `contacts`: у компании лид уже есть, а заведённый оплатил бы проверку адреса — и
+своей гипотезе, где очистка его пропустила бы. Условие то же, что у очереди поиска адреса
+(`company_hold.held`); итог такого сайта в отчёте — «компания уже в работе гипотезы …».
 """
 
 from __future__ import annotations
@@ -29,7 +35,7 @@ from backend.features.access.repository import AccessRepository
 from backend.features.contacts.preference import DEAD, preferred_first
 from backend.features.core.domain import AuditAction, Stage
 from backend.features.core.models.donor import ContactModel
-from backend.features.sales import clean_jobs, cleaning, geo
+from backend.features.sales import clean_jobs, cleaning, company_hold, geo
 from backend.features.sales.models import LeadSource, LeadStatus, SalesLeadModel
 from backend.features.sales.segment_models import (
     Lane,
@@ -53,7 +59,8 @@ def living_address(domain_id: ColumnElement[int] | InstrumentedAttribute[int]) -
 
 
 async def _ready(session: AsyncSession, run_id: int) -> list[tuple[Candidate, int, str]]:
-    """Принятые кандидаты прогона без лида — и лучший живой адрес их домена."""
+    """Принятые кандидаты прогона без лида — и лучший живой адрес их домена; домен с живым
+    лидом продаж лида не даёт (`company_hold.held`)."""
     best = (
         select(ContactModel.domain_id, ContactModel.id, ContactModel.email)
         .distinct(ContactModel.domain_id)
@@ -68,6 +75,7 @@ async def _ready(session: AsyncSession, run_id: int) -> list[tuple[Candidate, in
             Candidate.run_id == run_id,
             Candidate.lane == Lane.ACCEPT,
             Candidate.lead_id.is_(None),
+            ~company_hold.held(Candidate.domain_id),
         )
         .order_by(Candidate.id)
     )

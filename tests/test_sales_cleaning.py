@@ -241,7 +241,7 @@ async def world(session: AsyncSession) -> World:
 def test_every_reason_has_its_words_for_the_report() -> None:
     assert set(clean_report.REASON_LABELS) == set(RejectionReason)
     assert clean_report.REASON_LABELS[RejectionReason.UNDELIVERABLE] == "адрес не существует"
-    assert clean_report.REASON_LABELS[RejectionReason.UNCONFIRMED] == "адрес не подтверждён дважды"
+    assert clean_report.REASON_LABELS[RejectionReason.UNCONFIRMED] == "адрес не подтверждён"
 
 
 # --- A1: дубли -------------------------------------------------------------------

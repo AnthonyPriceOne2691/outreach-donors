@@ -36,6 +36,11 @@ Verifier. Умолчание — `fixture`; на `live` переключает �
 Отказы 429 единиц не списывали (замер 22.09.2026, `okf/provider-refusals.md`): повторы
 платят только за вердикт.
 
+**202 и отказ домену** (`hunter_codes.py`, тест прогона сбора 14.10): «ещё проверяет» проход
+переспрашивает тут же, бесплатно; 400 `blacklisted_domain` общий разбор называет
+`ProviderDomainRefusedError` — отказ постоянный, и очистка отклоняет лида сразу, без повторов и
+единиц.
+
 Исключения и разбор маркеров отказа — общие с поиском адресов
 (`contacts/provider.py`): сервис тот же, маркеры те же, вторую копию
 их таблицы заводить нельзя.
@@ -66,6 +71,7 @@ from backend.features.contacts.provider import (
 from backend.features.core.domain import GONE_STATUSES, MessageStatus
 from backend.features.core.models.outreach import MessageModel
 from backend.features.letters.chain import FIRST_STEP
+from backend.features.sales import hunter_codes
 from backend.features.sales.models import LeadStatus, SalesLeadModel, SalesThreadModel
 from backend.shared.net.retry import RateLimiter, reason_of, unsent, with_retries
 
@@ -196,7 +202,7 @@ class HunterVerifier:
         self._limiter = RateLimiter(per_minute=RATE_PER_MINUTE)
 
     async def verify(self, email: str) -> Verdict:
-        response = await self._get(email)
+        response = await hunter_codes.asked(lambda: self._get(email))  # 202 — переспросить тут же
         body = _json(response)
         code = response.status_code
         if code == httpx.codes.UNAUTHORIZED:
@@ -208,7 +214,7 @@ class HunterVerifier:
         if code >= httpx.codes.INTERNAL_SERVER_ERROR:
             raise ProviderError(f"провайдер не ответил (HTTP {code}) — повторим следующей очисткой")
         if code == httpx.codes.ACCEPTED:
-            raise ProviderError("провайдер ещё проверяет адрес — повторим следующей очисткой")
+            raise ProviderError(hunter_codes.STILL_CHECKING)  # переспросы позади (`asked`)
         if body is None:
             raise ProviderError(
                 f"ответ не разобран как JSON (HTTP {code}): {response.text[:120]!r}"

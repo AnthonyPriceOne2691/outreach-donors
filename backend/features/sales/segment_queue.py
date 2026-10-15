@@ -15,6 +15,12 @@
 заведётся из готового адреса (`segment_leads.py`). Живой — без отметки отказа доставки:
 домен с одним мёртвым адресом лида не даст, и без поиска кандидат ждал бы вечно. Условие
 одно у очереди и у заведения лидов (`segment_leads.living_address`).
+
+**Живой лид продаж на домене есть — тоже не искать** (решение владельца 14.10, «компания — в
+одной гипотезе»): ни одной ступенью, и Hunter за такой домен не платится — лида другой
+гипотезы очистка всё равно отклонит, а своей у компании уже есть. Лид из файла строки
+`contacts` не заводит, поэтому прежнее условие такой домен не видело. Условие одно у очереди и
+у итога кандидата в отчёте прогона (`company_hold.held`, `held_in_run`).
 """
 
 from __future__ import annotations
@@ -32,6 +38,7 @@ from backend.features.contacts.ladder import LadderResult
 from backend.features.contacts.repository import domain_ids, save_addresses
 from backend.features.core.domain import Stage
 from backend.features.core.models.domain import DomainModel
+from backend.features.sales import company_hold
 from backend.features.sales.segment_leads import living_address
 from backend.features.sales.segment_models import Lane, SalesSegmentCandidateModel
 
@@ -59,6 +66,7 @@ class SegmentContactQueue:
             Candidate.lane == Lane.ACCEPT,
             Candidate.lead_id.is_(None),
             ~living_address(Candidate.domain_id),
+            ~company_hold.held(Candidate.domain_id),
             attempts.waiting(Candidate, now=datetime.now(UTC), ttl_days=CONTACT_TTL_DAYS),
         )
 
