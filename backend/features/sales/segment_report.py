@@ -26,7 +26,6 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.domain import ContactStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.sales import segment_progress
 from backend.features.sales.models import LeadStatus, SalesHypothesisModel, SalesLeadModel
@@ -36,23 +35,13 @@ from backend.features.sales.segment_models import (
     SalesSegmentCandidateModel,
     SalesSegmentRunModel,
 )
+from backend.features.sales.segment_sites import address_words
 
 Candidate = SalesSegmentCandidateModel
 #: Строк «на проверку» в ответе: решают по одной, сверху; остальные — после.
 REVIEW_ROWS = 100
 #: Причин отсева в отчёте — частые первыми.
 TOP_REASONS = 12
-
-#: Исход поиска адреса → почему у принятого нет лида, словами.
-NO_ADDRESS_WORDS = {
-    ContactStatus.NOT_FOUND: "адреса на сайте нет",
-    ContactStatus.FORM_ONLY: "только форма на сайте",
-    ContactStatus.NO_ANSWER: "сайт не ответил — повтор по сроку",
-    ContactStatus.BLOCKED: "сайт закрылся от нас",
-    ContactStatus.NO_QUOTA: "квота платного поиска — повтор следующим проходом",
-    ContactStatus.RATE_LIMITED: "платный поиск просил подождать — повтор следующим проходом",
-    ContactStatus.ERROR: "сбой поиска — повтор следующим проходом",
-}
 
 
 class DecisionRefusedError(ValueError):
@@ -132,11 +121,9 @@ async def _addresses(session: AsyncSession, run_id: int) -> tuple[list[tuple[str
     for status, count in rows.tuples().all():
         if status is None:
             waiting += count
-        elif status is ContactStatus.FOUND:
-            # Адрес найден, а лида нет: он на домене мёртвый или ждёт заведения лидов.
-            words["адрес на домене не живой или лид ещё не заведён"] += count
         else:
-            words[NO_ADDRESS_WORDS.get(status, str(status))] += count
+            # Слова — одним правилом с итогом сайта в списке сайтов прогона.
+            words[address_words(status)] += count
     return words.most_common(), waiting
 
 

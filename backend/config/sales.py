@@ -246,6 +246,11 @@ class _Sales(DomainSettings):
     segment_paid_contacts: bool = Field(
         default=False, validation_alias="SALES_SEGMENT_PAID_CONTACTS"
     )
+    # Сколько сайтов судья сегмента судит разом — скользящим окном. Своя настройка: общий
+    # `JUDGE_CONCURRENCY` — у судьи доноров. Больше 64 — опечатка.
+    segment_judge_concurrency: int = Field(
+        default=16, ge=1, le=64, validation_alias="SALES_SEGMENT_JUDGE_CONCURRENCY"
+    )
 
 
 def _days(text: str) -> frozenset[int]:
@@ -432,6 +437,8 @@ SEGMENT_INPUT_USD_PER_1M_TOKENS: float = _s.segment_input_usd_per_1m_tokens
 SEGMENT_OUTPUT_USD_PER_1M_TOKENS: float = _s.segment_output_usd_per_1m_tokens
 #: Платная ступень поиска адреса у сбора (`segment_run._contacts`): выключена — только бесплатные.
 SEGMENT_PAID_CONTACTS: bool = _s.segment_paid_contacts
+#: Сколько сайтов судья сегмента судит разом (`segment_judging`, окно, а не партии).
+SEGMENT_JUDGE_CONCURRENCY: int = _s.segment_judge_concurrency
 
 #: Не больше стольких запросов в секунду. Предел Kommo из его документации —
 #: семь в секунду с одного IP для любой интеграции; чаще — 429, а частые 429

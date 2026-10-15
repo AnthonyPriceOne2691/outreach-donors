@@ -6,6 +6,7 @@
     python scripts/eval_sales_segment.py --golden             # внешний набор: $SALES_SEGMENT_GOLDEN_DIR
     python scripts/eval_sales_segment.py --spoil              # порча: снято правило дословной цитаты
     python scripts/eval_sales_segment.py --spoil no           # порча: снято определение «no»
+    python scripts/eval_sales_segment.py --effort minimal     # другое усилие рассуждения — замер
     python scripts/eval_sales_segment.py --out run.json       # итог ещё и файлом
     python scripts/eval_sales_segment.py --export-run 12 --out set.jsonl   # сайты прогона — в разметку
 
@@ -31,6 +32,11 @@
 покраснеть. По умолчанию — дословная цитата: без неё цитаты пересказаны и всё уходит человеку.
 Обратный прогон пишется файлом (`--out`) и ложится в verify-report среза.
 
+**Усилие рассуждения** (`--effort`) — вместо продуктового (`segment_judge.REASONING_EFFORT`) на
+время eval: замер до правки продукта — тот же набор при `low` и `minimal`, ворота и токены рядом.
+Токены — всего и раздельно (ввод, вывод, сколько из вывода — рассуждение, «раздельно
+неизвестно»): рассуждение идёт в счёт вывода, а у вывода своя цена.
+
 Модель зовётся по-настоящему — нужен `LLM_API_KEY`; запускает координатор по слову владельца.
 Механика ворот — `tests/test_sales_segment_eval.py` на подставной модели.
 """
@@ -39,11 +45,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import hashlib
 import json
 import sys
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -53,9 +61,10 @@ from backend.config import storage
 from backend.features.core.models.domain import DomainModel
 from backend.features.sales import segment_judge as sj
 from backend.features.sales.models import SalesHypothesisModel as H
-from backend.features.sales.segment_judge import SegmentClient, SiteText
+from backend.features.sales.segment_judge import SegmentClient, SegmentVerdict, SiteText
 from backend.features.sales.segment_models import Lane
 from backend.features.sales.segment_models import SalesSegmentCandidateModel as C
+from backend.features.sales.segment_window import SPLIT_TOKENS, JudgeTally
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -67,6 +76,8 @@ WANTED = {"yes": Lane.ACCEPT, "no": Lane.REJECT, "unsure": Lane.REVIEW}
 #: Правила, которые снимает порча, — якорь строки в промпте: строка с ним одна.
 RULES = {"quote": '"quote" must be copied verbatim', "no": '- "no": '}
 RULE_WORDS = {"quote": "дословная цитата", "no": "определение «не подходит»"}
+#: Усилия рассуждения, которые eval берёт вместо продуктового (`--effort`).
+EFFORTS = ("minimal", "low", "medium", "high")
 
 
 class SetError(RuntimeError):
@@ -92,6 +103,9 @@ class Result:
     decided_by: str
     unanswered: bool
     tokens: int
+    #: Те же токены раздельно (`segment_window.SPLIT_TOKENS`): ввод, вывод, «раздельно
+    #: неизвестно», сколько из вывода — рассуждение.
+    split: dict[str, int] = dataclasses.field(default_factory=dict)
 
     @property
     def false_accept(self) -> bool:
@@ -154,6 +168,25 @@ def without_rule(prompt: str, rule: str) -> str:
 # --- прогон ------------------------------------------------------------------------------------
 
 
+def split_of(verdict: SegmentVerdict) -> dict[str, int]:
+    """Токены вердикта раздельно — тем же счётом, что у прохода судьи (`JudgeTally.spend`)."""
+    tally = JudgeTally()
+    tally.spend(verdict)
+    return {key: getattr(tally, key) for key in SPLIT_TOKENS}
+
+
+@contextmanager
+def effort(chosen: str | None) -> Iterator[str]:
+    """Усилие рассуждения на время eval: выбранное — или продуктовое; после eval (и при сбое)
+    продуктовое возвращается: замер не меняет судью прогона."""
+    product = sj.REASONING_EFFORT
+    sj.REASONING_EFFORT = chosen or product
+    try:
+        yield sj.REASONING_EFFORT
+    finally:
+        sj.REASONING_EFFORT = product
+
+
 async def run(
     cases: Iterable[dict[str, Any]], client: SegmentClient, *, system: str | None = None
 ) -> list[Result]:
@@ -177,6 +210,7 @@ async def run(
                 verdict.decided_by.value,
                 verdict.unanswered,
                 verdict.tokens,
+                split_of(verdict),
             )
         )
     return results
@@ -201,6 +235,7 @@ def metrics(results: list[Result]) -> dict[str, Any]:
         "to_human": _share(lanes[Lane.REVIEW], len(results)),
         "unanswered": sum(r.unanswered for r in results),
         "tokens": sum(r.tokens for r in results),
+        **{key: sum(r.split.get(key, 0) for r in results) for key in SPLIT_TOKENS},
     }
 
 
@@ -289,6 +324,9 @@ def _args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--golden", action="store_true", help="внешний набор по манифесту")
     parser.add_argument("--spoil", nargs="?", const="quote", choices=sorted(RULES), default=None)
     parser.add_argument("--model", default=None, help="модель вместо пина LLM_SALES_SEGMENT_MODEL")
+    parser.add_argument(
+        "--effort", choices=EFFORTS, default=None, help="усилие рассуждения вместо продуктового"
+    )
     parser.add_argument("--out", type=Path, default=None, help="итог файлом JSON / выгрузка JSONL")
     parser.add_argument("--export-run", type=int, default=None, help="сайты прогона — в разметку")
     return parser.parse_args(argv)
@@ -321,6 +359,7 @@ def _written(args: argparse.Namespace, results: list[Result], failed: list[str])
     spoiled = f"+spoiled-{args.spoil}" if args.spoil else ""
     payload = {
         "prompt_version": sj.PROMPT_VERSION + spoiled,
+        "reasoning_effort": args.effort or sj.REASONING_EFFORT,
         "metrics": metrics(results),
         "failed": failed,
         "results": [asdict(r) for r in results],
@@ -342,7 +381,10 @@ def main(argv: list[str], *, golden_dir: str | None = None) -> int:
         return 1
     if system is not None:
         print(f"ПОРЧА ПРОМПТА: снято правило «{RULE_WORDS[args.spoil]}» — ворота обязаны закрыться")
-    results = asyncio.run(_evaluate(cases, args, system))
+    product = sj.REASONING_EFFORT
+    with effort(args.effort) as chosen:
+        print(f"Усилие рассуждения: {chosen} (у судьи прогона — {product})")
+        results = asyncio.run(_evaluate(cases, args, system))
     failed = report(results, Gates())
     _written(args, results, failed)
     if failed:

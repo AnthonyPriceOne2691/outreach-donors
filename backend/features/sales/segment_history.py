@@ -1,9 +1,11 @@
-"""История сбора для сметы прогона: сколько сайтов давала выдача и что гипотеза уже собрала.
+"""История сбора для сметы прогона: сколько сайтов давала выдача, что гипотеза уже собрала и
+какую долю токенов судьи занимает вывод.
 
 Смета до выдачи не знает, сколько сайтов найдётся, — но знает, сколько их давали прошлые прогоны
 сбора и какие сайты гипотеза уже собрала. Проверка прода 14.10: общая доля 0,85 (замер выдачи
 доноров) пообещала заметно больше сайтов и токенов, чем вышло. Числа — из истории своих прогонов,
-под любую нишу и рынок, а не константой из одного замера.
+под любую нишу и рынок, а не константой из одного замера. Так же и доля вывода: вывод модели
+дороже ввода, и рассуждение идёт в счёт вывода, — смета берёт её из прогонов с раздельным счётом.
 """
 
 from __future__ import annotations
@@ -15,11 +17,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.runs.estimate import RESULTS_PER_PAGE, UNIQUE_SHARE
 from backend.features.sales.segment_models import SalesSegmentCandidateModel, SalesSegmentRunModel
+from backend.features.sales.segment_spend import OUTPUT_SHARE
 
 #: Сколько последних прогонов сбора с выдачей смотрит доля сайтов.
 HISTORY_RUNS = 20
 #: Меньше запрошенных результатов в истории — доля из горсти: смета берёт запасную.
 MIN_HISTORY_RESULTS = 20
+#: Меньше токенов с разбивкой в истории — доля вывода из горсти сайтов (около десятка):
+#: смета берёт запасную.
+MIN_SPLIT_TOKENS = 10_000
 
 
 async def sites_per_result(session: AsyncSession) -> tuple[float, int]:
@@ -75,3 +81,32 @@ async def known_sites(
         .group_by(SalesSegmentCandidateModel.keyword)
     )
     return round(sum(min(count, per_keyword) for count in rows.all()))
+
+
+async def output_share(session: AsyncSession) -> tuple[float, int]:
+    """Доля вывода в токенах судьи сегмента по последним прогонам с раздельным счётом — и по
+    скольким. Без такой истории — запасная доля (`segment_spend.OUTPUT_SHARE`) и ноль прогонов.
+
+    Суммой по прогонам (`report.judge`: ввод и вывод — `segment_window.SPLIT_TOKENS`), а не
+    средним долей: прогон в десять сайтов не весит столько же, сколько прогон в сотню. Токены без
+    разбивки в долю не идут — их делить не на что."""
+    judge = SalesSegmentRunModel.report["judge"]
+    rows = await session.scalars(
+        select(judge)
+        .where(judge.has_key("completion_tokens"))
+        .order_by(SalesSegmentRunModel.id.desc())
+        .limit(HISTORY_RUNS)
+    )
+    entered = produced = runs = 0
+    for found in rows.all():
+        if not isinstance(found, dict):
+            continue
+        prompt, completion = (
+            int(found.get("prompt_tokens") or 0),
+            int(found.get("completion_tokens") or 0),
+        )
+        if prompt + completion > 0:
+            entered, produced, runs = entered + prompt, produced + completion, runs + 1
+    if entered + produced < MIN_SPLIT_TOKENS:
+        return OUTPUT_SHARE, 0
+    return produced / (entered + produced), runs

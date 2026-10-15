@@ -14,6 +14,7 @@ from typing import Any
 
 from playwright.sync_api import expect
 from ui_screens_sales_hints import hint_probe
+from ui_screens_sales_sites import sites_screens
 
 #: Узкое окно — телефон: плитки в две колонки, таблица «на проверку» — прокруткой.
 PHONE = {"width": 390, "height": 844}
@@ -83,6 +84,7 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "viewport": PHONE,
             "probes": going,
         },
+        **sites_screens(norm, big),
     }
 
 

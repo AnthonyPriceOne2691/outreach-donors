@@ -10,9 +10,12 @@
    человеку (правила текста — судьи площадки, без копии). Правило режет в любом режиме:
    это знание, а не мнение модели, мерить его нечего.
 2. **Модель — строгая форма JSON `{fit, quote, why}`**: «да», «нет», «не понять».
-3. **Цитата — дословно из текста сайта**, внутри одной строки, не короче двух слов;
-   иначе «на проверку»: цитата, которой нет в тексте, — признак того, что модель
-   сочинила, а не прочла. Такая цитата не хранится.
+3. **Цитата — дословно из текста сайта**, внутри одной строки, не короче трёх слов (как
+   просит промпт); иначе «на проверку»: цитата, которой нет в тексте, — признак того, что
+   модель сочинила, а не прочла. Такая цитата не хранится. Типографика не в счёт
+   (`quote_holds`): кавычки, многоточие-пропуск, знаки по краям, невидимые знаки, ё/е,
+   регистр — модель ставит их иначе, чем сайт, и честная цитата иначе уходила бы человеку
+   с «модель сочинила».
 4. **Три полосы**: принять, на проверку, отказ.
 5. **Отказ модели не кэшируется**: сбой, пустой ответ — «на проверку» с `unanswered`,
    вердикта нет, и следующий проход судит домен снова.
@@ -27,6 +30,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
+import unicodedata
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
@@ -57,8 +63,12 @@ TOKENS_PLAIN = 300
 #: Сколько знаков текста сайта видит модель: сниппет и шапка главной короткие, потолок —
 #: против аномалии страницы, а не ради экономии.
 MAX_TEXT_CHARS = 2000
-#: Цитата короче — не доказательство: одно слово найдётся в любом меню.
-MIN_QUOTE_WORDS = 2
+#: Цитата короче — не доказательство: одно-два слова найдутся в любом меню. Столько же просит
+#: промпт («3 to 30 words»). Слова отказа — вместе с числом (`SHORT_QUOTE`).
+MIN_QUOTE_WORDS = 3
+SHORT_QUOTE = "цитата короче трёх слов — не доказательство"
+NO_QUOTE = "модель не дала цитаты"
+MADE_UP = "цитаты нет в тексте сайта — модель не прочла, а сочинила"
 #: Ответ модели → полоса.
 FITS = {"yes": Lane.ACCEPT, "no": Lane.REJECT, "unsure": Lane.REVIEW}
 
@@ -88,6 +98,84 @@ def segment_digest(description: str) -> str:
     return hashlib.sha256(" ".join(description.split()).encode("utf-8")).hexdigest()[:12]
 
 
+# --- сверка цитаты ------------------------------------------------------------------------------
+
+#: Двойные кавычки всех видов, одинарные ёлочки и уголки японского письма: сайт пишет «ёлочки»,
+#: модель — прямые, а то и никаких.
+_QUOTES = str.maketrans("", "", '"«»“”„‟″〝〞‹›「」『』')
+#: Многоточие внутри цитаты — пропуск: модель выкинула кусок строки. После NFKC «…» — три точки.
+_GAP = re.compile(r"\.{3,}")
+#: Знаки по краям куска цитаты: хвостовая точка, запятая, скобка модели.
+_EDGES = re.compile(r"^\W+|\W+$")
+_WORD = re.compile(r"\w+")
+#: Письменности без пробелов между словами: слово в них — около двух знаков.
+_UNSPACED = ("CJK", "HIRAGANA", "KATAKANA", "IDEOGRAPHIC", "THAI", "LAO", "KHMER", "MYANMAR")
+
+
+def _plain(text: str) -> str:
+    """Строка для сверки цитаты — поверх общего `normalize` (NFKC, тире и апострофы одним
+    знаком, пробелы свёрнуты, нижний регистр): без невидимых знаков (мягкий перенос, нулевой
+    ширины — категория Cf) и кавычек, `casefold`, ё = е."""
+    visible = "".join(char for char in text if unicodedata.category(char) != "Cf")
+    bare = normalize(visible).translate(_QUOTES)
+    return " ".join(bare.split()).casefold().replace("ё", "е")
+
+
+def _pieces(quote: str) -> list[str]:
+    """Цитата → куски между многоточиями-пропусками, без знаков по краям; пустые — вон."""
+    return [piece for part in _GAP.split(_plain(quote)) if (piece := _EDGES.sub("", part))]
+
+
+def _spaced(text: str) -> str:
+    """Слова через пробел и пробелы по краям: так кусок ищется целыми словами, а знаки между
+    словами — запятая, тире, кавычка, пробел у скобки — не в счёт."""
+    return f" {' '.join(_WORD.findall(text))} "
+
+
+def _in_order(pieces: Sequence[str], line: str) -> bool:
+    """Куски — в строке по порядку, каждый после предыдущего (у слов — общий пробел на стыке)."""
+    start = 0
+    for piece in pieces:
+        found = line.find(piece, start)
+        if found < 0:
+            return False
+        start = found + len(piece) - piece.endswith(" ")
+    return True
+
+
+def quote_holds(quote: str, line: str) -> bool:
+    """Цитата — в одной строке сайта дословно, с точностью до типографики: строкой (иероглифы,
+    часть слова) или целыми словами (знаки между словами не в счёт). Многоточие — пропуск:
+    куски по обе его стороны — в той же строке и по порядку."""
+    pieces = _pieces(quote)
+    if not pieces:
+        return False
+    plain = _plain(line)
+    return _in_order(pieces, plain) or _in_order([_spaced(p) for p in pieces], _spaced(plain))
+
+
+def _size(word: str) -> int:
+    if any(unicodedata.name(char, "").startswith(_UNSPACED) for char in word):
+        return max(1, len(word) // 2)
+    return 1
+
+
+def quote_words(quote: str) -> int:
+    """Сколько слов в цитате; знаки и многоточие — не слова. Слово письменности без пробелов
+    (иероглифы, тайский) — около двух знаков: иначе японская цитата всегда была бы «одним
+    словом» и уходила бы человеку."""
+    return sum(_size(word) for word in _WORD.findall(_plain(quote)))
+
+
+def proven_again(decided_by: str, quote: str | None) -> bool:
+    """Годится ли вердикт кэша по нынешнему правилу цитаты, без вызова модели: правило — да;
+    ответ модели — с цитатой не короче `MIN_QUOTE_WORDS`. «На проверку» без цитаты (модель её
+    не дала, сочинила или проверка её не нашла) — не вердикт: модель спросят снова."""
+    if decided_by == Decider.RULE:
+        return True
+    return quote is not None and quote_words(quote) >= MIN_QUOTE_WORDS
+
+
 @dataclass(frozen=True, slots=True)
 class SiteText:
     """Текст сайта для судьи — по строке на кусок: (подпись, слова сайта)."""
@@ -103,11 +191,10 @@ class SiteText:
         return "\n".join(f"{label}: {words}" for label, words in self.lines)
 
     def holds(self, quote: str) -> bool:
-        """Цитата — дословно внутри одной строки сайта. Сравнение без регистра, пробелы
-        свёрнуты, тире и кавычки — одним знаком: модель переносит строки и ставит
-        типографские знаки иначе, чем сайт, и честная цитата иначе не прошла бы."""
-        wanted = normalize(quote)
-        return bool(wanted) and any(wanted in normalize(words) for _, words in self.lines)
+        """Цитата — дословно внутри одной строки сайта, с точностью до типографики
+        (`quote_holds`): модель переносит строки и ставит знаки иначе, чем сайт, и честная
+        цитата иначе не прошла бы."""
+        return any(quote_holds(quote, words) for _, words in self.lines)
 
     @classmethod
     def parse(cls, stored: str) -> SiteText:
@@ -148,6 +235,37 @@ def site_text(
 
 
 @dataclass(frozen=True, slots=True)
+class Spent:
+    """Токены вызова раздельно: ввод и вывод — у вывода своя цена, и рассуждение модели идёт в
+    счёт вывода (`completion_tokens` его включает); `reasoning` — сколько из вывода рассуждение.
+    Провайдер не назвал ввод или вывод — раздельно неизвестно, а не ноль (`spent_of`)."""
+
+    prompt: int
+    completion: int
+    reasoning: int = 0
+
+
+def _count(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def spent_of(body: dict[str, Any]) -> Spent | None:
+    """Ввод, вывод и рассуждение из `usage` ответа; `None` — провайдер не назвал ввод или вывод
+    или они не сходятся с его итогом (`tokens_of`: по итогу пишется расход): такие токены —
+    «раздельно неизвестно», а не ноль ни там, ни там. Так ввод, вывод и «раздельно неизвестно»
+    прохода в сумме всегда дают его токены."""
+    usage = body.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    prompt, completion = _count(usage.get("prompt_tokens")), _count(usage.get("completion_tokens"))
+    if prompt is None or completion is None or prompt + completion != tokens_of(body):
+        return None
+    details = usage.get("completion_tokens_details")
+    reasoning = _count(details.get("reasoning_tokens")) if isinstance(details, dict) else None
+    return Spent(prompt, completion, reasoning or 0)
+
+
+@dataclass(frozen=True, slots=True)
 class SegmentVerdict:
     """Вердикт судьи и то, чем он подтверждён."""
 
@@ -159,11 +277,20 @@ class SegmentVerdict:
     decided_by: Decider = Decider.MODEL
     #: Модель не ответила: вердикта нет, на домен не ложится, кэшем не становится.
     unanswered: bool = False
+    #: Токены раздельно, как их назвал провайдер (`Spent`): ввод и вывод стоят по-разному.
+    spent: Spent | None = None
 
     @property
     def would_cut(self) -> bool:
         """Отрезал бы в `enforce`: в наблюдении считается именно это."""
         return self.lane is Lane.REJECT
+
+    @property
+    def proven(self) -> bool:
+        """Вердикт, которому можно верить снова, — в кэш: правило или ответ модели с цитатой из
+        текста. «На проверку» без цитаты — не дала, сочинила, ответ не разобран, не ответила —
+        это не вердикт модели, а несработавшая проверка: следующий суд спросит снова."""
+        return self.decided_by is Decider.RULE or self.quote is not None
 
 
 def _ruled(lane: Lane, reason: str) -> SegmentVerdict:
@@ -245,11 +372,11 @@ def _form(content: str) -> dict[str, Any] | str:
 def _unproven(quote: str | None, text: SiteText) -> str | None:
     """Почему цитата не доказывает вердикт — словами; `None` — доказывает."""
     if quote is None:
-        return "модель не дала цитаты"
-    if len(quote.split()) < MIN_QUOTE_WORDS:
-        return "цитата короче двух слов — не доказательство"
+        return NO_QUOTE
+    if quote_words(quote) < MIN_QUOTE_WORDS:
+        return SHORT_QUOTE
     if not text.holds(quote):
-        return "цитаты нет в тексте сайта — модель не прочла, а сочинила"
+        return MADE_UP
     return None
 
 
@@ -288,7 +415,7 @@ class SegmentClient(ModelClient):
         if isinstance(body, Refusal):
             logger.warning("%s: %s", TOPIC, body, extra={"host": host})
             return SegmentVerdict(Lane.REVIEW, f"модель не ответила: {body}", unanswered=True)
-        tokens = tokens_of(body)
+        tokens, spent = tokens_of(body), spent_of(body)
         content = content_of(body, topic=TOPIC)
         if not content:
             # Оплачен: рассуждение съело потолок и до ответа не дошло.
@@ -298,8 +425,9 @@ class SegmentClient(ModelClient):
                 model=self._model,
                 tokens=tokens,
                 unanswered=True,
+                spent=spent,
             )
-        return replace(parse(content, text), model=self._model, tokens=tokens)
+        return replace(parse(content, text), model=self._model, tokens=tokens, spent=spent)
 
 
 async def decide(

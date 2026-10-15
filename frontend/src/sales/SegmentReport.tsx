@@ -46,6 +46,7 @@ import { FixedTable } from './FixedTable';
 import type { Column } from './FixedTable';
 import { decideSite, resumeRun } from './segmentApi';
 import type { SegmentCandidate, SegmentCount, SegmentRunDetail } from './segmentApi';
+import { SegmentSites } from './SegmentSites';
 import {
   knownSites,
   leadsLine,
@@ -395,6 +396,7 @@ function Report({ detail }: { detail: SegmentRunDetail }) {
           ))}
         </Stack>
       )}
+      <SegmentSites detail={detail} />
       <Review key={run.id} detail={detail} />
     </Stack>
   );

@@ -76,7 +76,11 @@ TITLES = {
 ANSWERS: dict[str, Any] = {
     SHOP: {"fit": "yes", "quote": "интернет-магазин Велошоп", "why": "магазин велосипедов"},
     PARTS: {"fit": "yes", "quote": "Запчасти для велосипедов", "why": "магазин запчастей"},
-    NEWS: {"fit": "no", "quote": "Новости велоспорта", "why": "пишет о чужих, сам не продаёт"},
+    NEWS: {
+        "fit": "no",
+        "quote": "Новости велоспорта и обзоры",
+        "why": "пишет о чужих, сам не продаёт",
+    },
     MAYBE: {"fit": "unsure", "quote": "Велосипеды на главной", "why": "мало текста"},
 }
 HOME = "<html><head><title>{title}</title></head><body>{body}</body></html>"

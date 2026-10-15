@@ -22,6 +22,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.sales import segment_judge as sj
 from backend.features.sales.segment_judge import SegmentClient, SiteText
 from backend.features.sales.segment_models import Lane, SalesSegmentCandidateModel
+from backend.features.sales.segment_window import SPLIT_TOKENS
 from scripts import eval_sales_segment as ev
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_segment_judge import MODEL_KEY
@@ -34,15 +35,26 @@ SYNTHETIC = ev.load(ev.SYNTHETIC)
 class Oracle:
     """Подставная модель: решение человека — тем, что разрешает промпт."""
 
-    def __init__(self, cases: Iterable[dict[str, Any]], wrong: dict[str, str] | None = None):
+    def __init__(
+        self,
+        cases: Iterable[dict[str, Any]],
+        wrong: dict[str, str] | None = None,
+        usage: dict[str, Any] | None = None,
+    ):
         self.cases = {case["host"]: case for case in cases}
         self.wrong = wrong or {}
+        #: `usage` ответа — как назвал бы провайдер; по умолчанию только итог.
+        self.usage = usage or {"total_tokens": 211}
         self.asked: list[str] = []
+        #: Усилие рассуждения каждого запроса.
+        self.efforts: list[str | None] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
-        system, user = (m["content"] for m in json.loads(request.content)["messages"])
+        payload = json.loads(request.content)
+        system, user = (m["content"] for m in payload["messages"])
         host = user.split("\n", 1)[0].removeprefix("Domain: ")
         self.asked.append(host)
+        self.efforts.append(payload.get("reasoning_effort"))
         case = self.cases[host]
         fit = self.wrong.get(host, case["expect"])
         if f'- "{fit}": ' not in system:
@@ -51,10 +63,7 @@ class Oracle:
         if ev.RULES["quote"] not in system:
             quote = " ".join(reversed(quote.split()))  # без правила — пересказ, а не цитата
         body = {"fit": fit, "quote": quote, "why": "по тексту сайта"}
-        answer = {
-            "choices": [{"message": {"content": json.dumps(body)}}],
-            "usage": {"total_tokens": 211},
-        }
+        answer = {"choices": [{"message": {"content": json.dumps(body)}}], "usage": self.usage}
         return httpx.Response(200, json=answer, request=request)
 
 
@@ -90,6 +99,8 @@ def test_evidence_is_verbatim_in_one_line_of_the_site_text() -> None:
     for case in SYNTHETIC:
         if case["evidence"]:
             assert SiteText.parse(case["text"]).holds(case["evidence"]), case["id"]
+            # Короче — «на проверку» по правилу цитаты, и оракул учил бы судью не тому.
+            assert sj.quote_words(case["evidence"]) >= sj.MIN_QUOTE_WORDS, case["id"]
         for host in (case["host"],):
             assert host.endswith(("-sample.com", "-sample.net", "-sample.org", "-sample.ru",
                                   "-sample.kz", "-sample.by", ".zz", "youtube.com")), case["id"]  # fmt: skip
@@ -163,6 +174,82 @@ def test_the_run_is_written_to_a_file(oracle: Oracle, tmp_path: Path, capsys: Ca
     assert written["metrics"]["false_accept"] == 0
     assert len(written["results"]) == len(SYNTHETIC)
     assert "Итог записан" in capsys.readouterr().out
+
+
+# --- замер до правки продукта: усилие рассуждения и токены раздельно ----------------------------
+
+
+def test_the_eval_asks_with_the_effort_named_and_the_product_keeps_its_own(
+    oracle: Oracle, tmp_path: Path, capsys: Capture
+) -> None:
+    """`--effort minimal` — тот же набор при другом усилии: модель спрошена с ним, итог называет
+    его, а судья прогона после eval — с прежним."""
+    product = sj.REASONING_EFFORT
+    out = tmp_path / "run.json"
+
+    assert ev.main(["--effort", "minimal", "--out", str(out)]) == 0
+
+    assert set(oracle.efforts) == {"minimal"}
+    assert json.loads(out.read_text(encoding="utf-8"))["reasoning_effort"] == "minimal"
+    assert f"Усилие рассуждения: minimal (у судьи прогона — {product})" in capsys.readouterr().out
+    assert product == sj.REASONING_EFFORT
+
+
+def test_without_the_flag_the_eval_asks_with_the_products_effort(oracle: Oracle) -> None:
+    assert ev.main([]) == 0
+
+    assert set(oracle.efforts) == {sj.REASONING_EFFORT}
+
+
+def test_the_products_effort_comes_back_when_the_eval_breaks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    product = sj.REASONING_EFFORT
+
+    def broken(*_args: object) -> None:
+        raise RuntimeError("сеть оборвалась")
+
+    monkeypatch.setattr(ev, "_evaluate", broken)
+
+    with pytest.raises(RuntimeError, match="сеть оборвалась"):
+        ev.main(["--effort", "minimal"])
+    assert product == sj.REASONING_EFFORT
+
+
+@pytest.mark.parametrize(
+    ("usage", "split"),
+    [
+        (
+            {
+                "prompt_tokens": 180,
+                "completion_tokens": 31,
+                "total_tokens": 211,
+                "completion_tokens_details": {"reasoning_tokens": 24},
+            },
+            (180, 31, 0, 24),
+        ),
+        ({"total_tokens": 211}, (0, 0, 211, 0)),
+    ],
+    ids=["split", "total-only"],
+)
+def test_the_eval_counts_the_tokens_in_total_and_split(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    usage: dict[str, Any],
+    split: tuple[int, int, int, int],
+) -> None:
+    """Ввод, вывод, «раздельно неизвестно», рассуждение — суммой по набору: сравнить усилия
+    можно не только воротами, но и тем, сколько вывода ушло на рассуждение."""
+    oracle = Oracle(SYNTHETIC, usage=usage)
+    use(monkeypatch, oracle)
+    out = tmp_path / "run.json"
+
+    assert ev.main(["--out", str(out)]) == 0
+
+    found = json.loads(out.read_text(encoding="utf-8"))["metrics"]
+    calls = len(oracle.asked)
+    assert found["tokens"] == 211 * calls
+    assert tuple(found[key] for key in SPLIT_TOKENS) == tuple(part * calls for part in split)
 
 
 # --- внешний набор: вне репозитория, сверка с манифестом ---------------------------------------

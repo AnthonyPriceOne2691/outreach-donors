@@ -57,6 +57,12 @@ BAD: dict[str, tuple[str, str, str, object]] = {
         "SEGMENT_OUTPUT_USD_PER_1M_TOKENS",
         2.0,
     ),
+    "SALES_SEGMENT_JUDGE_CONCURRENCY": (
+        "65",
+        "нужно целое от 1 до 64",
+        "SEGMENT_JUDGE_CONCURRENCY",
+        16,
+    ),
     "SALES_SEND_SPREAD_MIN": ("-5", "нужно целое от 0 до 1440", "SEND_SPREAD_MIN", 30),
     "SALES_OOO_DELAY_DAYS": ("0", "нужно целое от 1 до 60", "OOO_DELAY_DAYS", 7),
     "SALES_REWRITE_ATTEMPTS": ("11", "нужно целое от 1 до 10", "REWRITE_ATTEMPTS", 3),
