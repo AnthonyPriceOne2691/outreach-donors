@@ -38,6 +38,7 @@
 Все три закрыты чернилами и заливкой рамы, а не увеличением шрифта.
 """
 
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -271,7 +272,9 @@ def main(argv: list[str]) -> int:
         page.get_by_label("Почта").fill(email)
         page.get_by_label("Пароль").fill(password)
         page.get_by_role("button", name="Войти").click()
-        expect(page.get_by_text("Вошли как")).to_be_visible()
+        # Вход — по кнопке почты в шапке: её название «Вошли как …» есть на любой ширине,
+        # а надпись — только на широком окне; на 390 px остаётся значок (`AccountMenu`).
+        expect(page.get_by_role("button", name=re.compile(r"^Вошли как"))).to_be_visible()
         page.goto(f"{base}{target['path']}")
         role, name = target["ready"]
         expect(page.get_by_role(role, name=name).first).to_be_visible()
