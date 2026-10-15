@@ -63,6 +63,19 @@ CRAWL_RUNS_WATCHED = 10
 #: Код тревоги «провайдер не отвечает» — единственной, которую проход узнаёт из сети.
 PROVIDERS_ALARM = "provider-unreachable"
 
+#: Сколько минут подряд провайдер молчит, прежде чем это тревога (слово Anthony 15.10.2026:
+#: тревога о неответе, который прошёл сам, — ложная). Таймаут, обрыв, 429 или 5xx проходят
+#: за секунды; 15 минут и не один опрос — уже поломка.
+PROVIDER_DOWN_MINUTES = 15
+
+#: Провайдер с тревогой снова замолчал раньше этого срока — тот же сбой, тревога сразу. Дольше
+#: «прошло» ленты сторожа и её опроса (`workers/reaper`: 20 и 10 минут, держит тест): иначе
+#: мигающий провайдер давал бы «прошло» посреди нового молчания.
+PROVIDER_RELAPSE_MINUTES = 30
+
+#: Имя источника выдачи в тревоге.
+SERP = "источник выдачи"
+
 
 async def alarms(
     session: AsyncSession, *, stages: Collection[Stage], now: datetime | None = None
@@ -83,8 +96,104 @@ async def alarms(
     return [alarm for alarm in found if alarm is not None]
 
 
+@dataclass(frozen=True, slots=True)
+class Miss:
+    """Провайдер не ответил на бесплатный вопрос: кто, почему и пройдёт ли это само."""
+
+    name: str
+    reason: str
+    #: Повтор не поможет: ключ, права, адрес API, источник не настроен.
+    permanent: bool = False
+
+
+@dataclass(slots=True)
+class _Silence:
+    """Провайдер молчит: с какого опроса, сколько опросов подряд, что сказал последний и вышла ли
+    по нему тревога."""
+
+    since: float
+    misses: int
+    last: Miss
+    down: bool = False
+
+
+@dataclass
+class ProviderWatch:
+    """Когда молчание провайдера — тревога, а не случайность (слово Anthony 15.10.2026).
+
+    15.10.2026 рано утром сторож прислал «Провайдер не отвечает: Ahrefs», а следом «прошло»:
+    Ahrefs снова ответил сам, прогонов не было — тревога ни к чему не звала. Правило теперь:
+
+    - отказ, который сам не пройдёт (ключ отозван, нет прав, сменился адрес API, источник
+      выдачи не настроен), — когда повторился на следующем опросе: один такой ответ бывает и у
+      посредника перед API;
+    - временный сбой — когда провайдер молчит `PROVIDER_DOWN_MINUTES` минут подряд и не один
+      опрос; ответил — счёт сначала;
+    - снова замолчал раньше `PROVIDER_RELAPSE_MINUTES` после своей тревоги — тот же сбой,
+      тревога сразу.
+
+    Свой на процесс (`WATCH`): сторож в процессе разбора и экран в процессе сервера видят каждый
+    свои опросы. Часы монотонные: перевод системных часов срок не сбивает.
+    """
+
+    clock: Callable[[], float] = time.monotonic
+    silent: dict[str, _Silence] = field(default_factory=dict)
+    #: Когда провайдер последний раз был в тревоге — по нему узнаётся «тот же сбой».
+    alarmed: dict[str, float] = field(default_factory=dict)
+
+    def judge(self, misses: Sequence[Miss]) -> Alarm | None:
+        """Тревога по ответам опроса — или `None`: все ответили или молчание пока случайно."""
+        moment = self.clock()
+        named = {miss.name: miss for miss in misses}
+        for name in [name for name in self.silent if name not in named]:
+            del self.silent[name]
+        down: list[str] = []
+        for name, miss in named.items():
+            found = self.silent.setdefault(name, _Silence(since=moment, misses=0, last=miss))
+            found.misses, found.last = found.misses + 1, miss
+            words = self._words(found, moment)
+            found.down = words is not None
+            if words is not None:
+                self.alarmed[name] = moment
+                down.append(f"{name} — {words}")
+        if not down:
+            return None
+        return Alarm(
+            code=PROVIDERS_ALARM,
+            title="Провайдер не отвечает",
+            detail=(
+                f"Не отвечает: {'; '.join(down)}. Прогон при недоступном остатке "
+                "не запускается вовсе — узнать об этом лучше здесь, чем отказом "
+                "посреди оплаченной работы"
+            ),
+        )
+
+    @property
+    def doubtful(self) -> bool:
+        """Провайдер молчит, а тревоги по последнему опросу нет: опросить раньше обычного
+        (`workers/reaper`). По опросу, а не по часам: срок вышел, а подтвердит его только опрос."""
+        return any(not found.down for found in self.silent.values())
+
+    def _words(self, found: _Silence, moment: float) -> str | None:
+        """Почему молчание — тревога, словами; `None` — пока случайность."""
+        reason = found.last.reason
+        if found.misses >= 2 and found.last.permanent:
+            return f"отказ, который сам не пройдёт ({reason})"
+        minutes = int((moment - found.since) // 60)
+        if found.misses >= 2 and minutes >= PROVIDER_DOWN_MINUTES:
+            return f"{minutes} мин подряд ({reason})"
+        alarmed = self.alarmed.get(found.last.name)
+        if alarmed is not None and moment - alarmed < PROVIDER_RELAPSE_MINUTES * 60:
+            return f"снова, вскоре после тревоги ({reason})"
+        return None
+
+
+#: Правило тревоги провайдеров этого процесса; тесты начинают с пустого (`tests/conftest.py`).
+WATCH = ProviderWatch()
+
+
 async def probe_providers() -> Alarm | None:
-    """Провайдеры не отвечают на бесплатный вопрос.
+    """Провайдеры не отвечают на бесплатный вопрос — тревога по правилу `WATCH`.
 
     Отдельно от остальных правил намеренно: это единственная проверка,
     которая ходит в сеть. Смешав её с чтением базы, мы получили бы
@@ -95,58 +204,64 @@ async def probe_providers() -> Alarm | None:
     узнать об этом отказом посреди платной работы — значит узнать
     поздно. Оба запроса бесплатные: остаток юнитов и остаток на счету.
     """
-    dead: list[str] = []
+    return WATCH.judge(await ask_providers())
 
+
+async def ask_providers() -> list[Miss]:
+    """Один опрос: кто из провайдеров не ответил, почему и пройдёт ли это само. Причина — в
+    тревогу: строка журнала пропадает вместе с контейнером на выкатке (так было 15.10.2026)."""
+    found: list[Miss] = []
     client = AhrefsClient()
     try:
         await client.limits_and_usage()
-    except (AhrefsError, OSError) as exc:
+    except AhrefsError as exc:
         logger.warning("сторож тишины: Ahrefs не ответил (%s)", exc)
-        dead.append("Ahrefs")
+        found.append(Miss("Ahrefs", _reason(exc), permanent=exc.permanent))
+    except OSError as exc:
+        logger.warning("сторож тишины: Ahrefs не ответил (%s)", exc)
+        found.append(Miss("Ahrefs", _reason(exc)))
     finally:
         await client.aclose()
 
     serp = await _serp_silent()
     if serp is not None:
-        dead.append(serp)
-
-    if not dead:
-        return None
-    return Alarm(
-        code=PROVIDERS_ALARM,
-        title="Провайдер не отвечает",
-        detail=(
-            f"Не отвечает: {', '.join(dead)}. Прогон при недоступном остатке "
-            "не запускается вовсе — узнать об этом лучше здесь, чем отказом "
-            "посреди оплаченной работы"
-        ),
-    )
+        found.append(serp)
+    return found
 
 
-async def _serp_silent() -> str | None:
+async def _serp_silent() -> Miss | None:
     """Молчит ли источник выдачи. `None` — ответил или счёта у него нет."""
     ahrefs = AhrefsClient()
     try:
         provider = build_provider(ahrefs)
     except UnknownProviderError as exc:
         # Настройка, а не авария: строка в журнале без трассировки, а не
-        # ERROR с полным стеком каждые десять минут.
+        # ERROR с полным стеком каждые десять минут. Сама не пройдёт — тревога сразу.
         await ahrefs.aclose()
         logger.warning("сторож тишины: источник выдачи не настроен (%s)", exc)
-        return "источник выдачи (не настроен)"
+        return Miss(SERP, f"не настроен: {_reason(exc)}", permanent=True)
     balance = getattr(provider, "balance", None)
     try:
         if balance is not None:
             await balance()
-    except (SerpError, OSError) as exc:
+    except SerpError as exc:
         logger.warning("сторож тишины: источник выдачи не ответил (%s)", exc)
-        return "источник выдачи"
+        return Miss(SERP, _reason(exc), permanent=exc.permanent)
+    except OSError as exc:
+        logger.warning("сторож тишины: источник выдачи не ответил (%s)", exc)
+        return Miss(SERP, _reason(exc))
     finally:
         await ahrefs.aclose()
         aclose = getattr(provider, "aclose", None)
         if aclose is not None:
             await aclose()
     return None
+
+
+def _reason(exc: BaseException) -> str:
+    """Причина неответа одной строкой и коротко — для тревоги в Telegram и на «Обзоре»."""
+    words = " ".join(str(exc).split())
+    return (words or type(exc).__name__)[:160]
 
 
 async def _runs_stuck(session: AsyncSession, moment: datetime) -> Alarm | None:

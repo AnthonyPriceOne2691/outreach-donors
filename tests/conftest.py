@@ -51,6 +51,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import SenderModel
+from backend.features.ops import silence
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from redis.exceptions import RedisError
@@ -379,8 +380,10 @@ def _no_real_redis(monkeypatch: pytest.MonkeyPatch) -> None:
 def _no_providers_answer_from_another_test(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ответ провайдеров экрану сторожа живёт минуту в памяти процесса (`watchdog_routes.PROBES`):
     у каждого теста он свой, пустой. Иначе тест получил бы ответ, оставленный соседним, и его
-    подмена `probe_providers` молча не сработала бы."""
+    подмена `probe_providers` молча не сработала бы. Так же и правило тревоги провайдеров
+    (`silence.WATCH`): молчание, начатое соседним тестом, не в счёт этого."""
     monkeypatch.setattr(watchdog_routes, "PROBES", watchdog_routes.Probes())
+    monkeypatch.setattr(silence, "WATCH", silence.ProviderWatch())
 
 
 @pytest.fixture

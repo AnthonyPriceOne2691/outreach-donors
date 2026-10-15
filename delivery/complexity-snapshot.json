@@ -527,9 +527,9 @@
       "worst": "—"
     },
     "backend/api/watchdog/routes.py": {
-      "lines": 112,
+      "lines": 114,
       "complexity": 4,
-      "worst": "silence:88"
+      "worst": "silence:90"
     },
     "backend/cli/__init__.py": {
       "lines": 1,
@@ -1762,9 +1762,9 @@
       "worst": "_letters:325"
     },
     "backend/features/ops/silence.py": {
-      "lines": 335,
+      "lines": 450,
       "complexity": 7,
-      "worst": "_crawl_blocked:177"
+      "worst": "_crawl_blocked:292"
     },
     "backend/features/ops/stage_silence.py": {
       "lines": 204,
@@ -2892,9 +2892,9 @@
       "worst": "main:52"
     },
     "backend/workers/reaper.py": {
-      "lines": 279,
+      "lines": 289,
       "complexity": 4,
-      "worst": "_told:182"
+      "worst": "_told:192"
     },
     "backend/workers/sales_jobs.py": {
       "lines": 150,
