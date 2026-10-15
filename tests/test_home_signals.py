@@ -13,7 +13,7 @@ import asyncio
 import pytest
 from backend.features.contacts.pages import FetchedPage, PageFetcher
 from backend.features.core.domain import PageKind
-from backend.features.donors.home_signals import check_home, read_home
+from backend.features.donors.home_signals import check_home, looks_denied, read_home
 from backend.features.donors.site_index import index_homes
 from backend.features.serp.protocol import SerpResult
 
@@ -126,12 +126,30 @@ def test_login_and_signup_are_not_service_marks(href: str) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("title", ["Just a moment...", "DDoS-Guard", "Human Verification"])
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Just a moment...",
+        "DDoS-Guard",
+        "Human Verification",
+        # 15.10.2026 — главные сбора продаж: судья сегмента читал их как сам сайт.
+        "BotBlocker security plugin",
+        "Checking your connection",
+        "Checking…",
+        "Проверка браузера",
+        "Подождите...",
+        "Einen Moment …",
+        "Un momento...",
+        "403",
+        "Ошибка 403",
+    ],
+)
 async def test_protection_stub_is_a_closed_home(
     monkeypatch: pytest.MonkeyPatch, title: str
 ) -> None:
     """Заглушка защиты с кодом 200 — это закрытая главная, а не её текст:
-    23.09 kingston.com и bitpapa.com отдали такие вместо сайта."""
+    23.09 kingston.com и bitpapa.com отдали такие вместо сайта, 15.10 — главные сбора продаж
+    («BotBlocker security plugin», «Checking your connection», «Checking…»)."""
 
     async def stub(self: PageFetcher, host: str) -> FetchedPage:
         return FetchedPage(
@@ -179,3 +197,37 @@ def test_cart_word_inside_a_sentence_is_not_a_mark() -> None:
     """«Корзина потребителя подорожала» — статья, а не магазин."""
     html = page('<a href="/news/1">Корзина потребителя подорожала на 5%</a>')
     assert read_home(html).shop == ()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Заголовок главной: BotBlocker security plugin",
+        "Заголовок в выдаче: Международная логистика\nЗаголовок главной: Checking…",
+        "Заголовок главной: Checking your connection",
+        "Заголовок главной: Подождите...",
+        "Заголовок главной: 403",
+        "Доступ запрещён",
+    ],
+)
+def test_a_stub_line_in_the_judge_text_is_a_denial(text: str) -> None:
+    """Текст судьи сегмента — строки с подписями: заглушка в одной из них — не текст сайта."""
+    assert looks_denied(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Заголовок главной: Checking account for small business",
+        "Описание в выдаче: Склад, загрузка и выгрузка фур в Алматы, ул. Абая 403",
+        "Описание главной: Звоните +7 (727) 403-12-12",
+        "Заголовок в выдаче: Грузоперевозки от 403 тг/кг",
+        "Заголовок главной: Проверка контрагентов по БИН",
+        "Заголовок главной: Loading docks and warehouse rental",
+        "Меню главной: Главная · Загрузка · Контакты",
+    ],
+)
+def test_a_real_site_text_with_stub_words_is_not_a_denial(text: str) -> None:
+    """Слово ожидания или «403» внутри текста — не заглушка: до 15.10.2026 голое «403»
+    отдавало человеку сайт с таким адресом, телефоном или ценой мимо судьи."""
+    assert not looks_denied(text)

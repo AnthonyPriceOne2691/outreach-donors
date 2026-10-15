@@ -55,10 +55,13 @@ def home_timeout() -> httpx.Timeout:
 #: прогоне 23.09: `edmunds.com` со страницей 403 получил «площадка» (угадал),
 #: `trivago.com` с той же страницей — «не площадка» (промахнулся). Ни то,
 #: ни другое не знание.
+#:
+#: Голого «403» здесь нет (15.10.2026): вхождением оно ловило адрес, телефон и цену («ул. Абая
+#: 403», «от 403 тг») — и сайт уходил человеку мимо судьи. Ошибку 403 ловят «access denied»,
+#: «forbidden» и строка из одного «403» (`STUB_LINE`).
 DENIAL_MARKERS: tuple[str, ...] = (
     "access denied",
     "access to this page",
-    "403",
     "forbidden",
     "attention required",
     "just a moment",
@@ -75,13 +78,44 @@ DENIAL_MARKERS: tuple[str, ...] = (
     # запрос получали их вместо сайта, и без маркера это был бы «текст».
     "ddos-guard",
     "human verification",
+    # Заглушки, пойманные 15.10.2026 на главных сбора продаж: судья сегмента читал их как сам
+    # сайт, и экспедитор с главной «BotBlocker security plugin» получил «не подходит». Фразы
+    # целиком, а не слова: «checking» есть и у банка («Checking account»).
+    "botblocker",
+    "checking your connection",
+    "checking your browser",
+    "checking if the site connection is secure",
+    "verifying you are human",
+    "ddos protection",
+    "доступ запрещ",
+    "проверка браузера",
+    "проверяем ваш браузер",
+    "подтвердите, что вы не робот",
+)
+
+#: Строка из одного слова ожидания или ошибки — заглушка, а не текст сайта: «Checking…»,
+#: «Loading…», «Подождите…», «Einen Moment…», «403». Сравнивается вся строка, а не вхождение:
+#: «загрузка» бывает у склада, «проверка» — у сервиса проверки контрагентов. Подпись строки
+#: («Заголовок главной: » у текста судьи сегмента) — не в счёт.
+STUB_LINE = re.compile(
+    r"^(?:[^:\n]{1,40}:\s+)?[\W_]*(?:"
+    r"checking|loading|please wait|one moment|redirecting"
+    r"|подождите|загрузка|проверка|перенаправление"
+    r"|einen moment|bitte warten|un momento|cargando|veuillez patienter|chargement"
+    r"|ładowanie|proszę czekać|lütfen bekleyin|yükleniyor|күте тұрыңыз"
+    r"|(?:error |ошибка |http )?403(?: error| forbidden| ошибка)?"
+    r")[\W_]*$",
+    re.IGNORECASE,
 )
 
 
 def looks_denied(text: str) -> bool:
-    """Текст похож на отказ доступа, а не на страницу сайта."""
+    """Текст похож на отказ доступа или заглушку защиты, а не на страницу сайта: маркер
+    вхождением (`DENIAL_MARKERS`) — или строка целиком из слова ожидания (`STUB_LINE`)."""
     lowered = text.lower()
-    return any(marker in lowered for marker in DENIAL_MARKERS)
+    if any(marker in lowered for marker in DENIAL_MARKERS):
+        return True
+    return any(STUB_LINE.match(line.strip()) for line in (text, *text.splitlines()))
 
 
 #: Типы schema.org, которые ставит только тот, кто продаёт у себя.
