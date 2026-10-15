@@ -60,10 +60,10 @@ class _Queue:
 def quiet_queue(monkeypatch: pytest.MonkeyPatch) -> None:
     """Права проверяются без Redis: очередь и её память подменены."""
     routes = "backend.api.advertisers.routes"
-    monkeypatch.setattr(f"{routes}.runs_queue", _Queue)
+    monkeypatch.setattr(f"{routes}.contacts_queue", _Queue)
     monkeypatch.setattr(f"{routes}.remember_contacts_job", lambda *_a, **_k: None)
     monkeypatch.setattr(f"{routes}.contacts_job_id", lambda **_k: None)
-    monkeypatch.setattr(f"{routes}.workers_alive", lambda: 1)
+    monkeypatch.setattr(f"{routes}.workers_alive", lambda **_: 1)
 
 
 @pytest.fixture

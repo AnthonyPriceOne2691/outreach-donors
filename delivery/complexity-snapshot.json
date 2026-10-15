@@ -32,9 +32,9 @@
       "worst": "accepted:104"
     },
     "backend/api/advertisers/routes.py": {
-      "lines": 341,
+      "lines": 346,
       "complexity": 5,
-      "worst": "decide:114"
+      "worst": "decide:115"
     },
     "backend/api/advertisers/schemas.py": {
       "lines": 220,
@@ -82,9 +82,9 @@
       "worst": "—"
     },
     "backend/api/contacts/routes.py": {
-      "lines": 277,
+      "lines": 278,
       "complexity": 3,
-      "worst": "_donor:145"
+      "worst": "_donor:146"
     },
     "backend/api/contacts/schemas.py": {
       "lines": 163,
@@ -292,9 +292,9 @@
       "worst": "—"
     },
     "backend/api/review/routes.py": {
-      "lines": 104,
+      "lines": 109,
       "complexity": 2,
-      "worst": "decide:55"
+      "worst": "decide:60"
     },
     "backend/api/review/schemas.py": {
       "lines": 210,
@@ -2772,9 +2772,9 @@
       "worst": "split_url:25"
     },
     "backend/shared/queue.py": {
-      "lines": 344,
+      "lines": 364,
       "complexity": 7,
-      "worst": "job_alive:264"
+      "worst": "job_alive:284"
     },
     "backend/shared/sliding_window.py": {
       "lines": 75,
@@ -2817,9 +2817,9 @@
       "worst": "sweep:51"
     },
     "backend/workers/health.py": {
-      "lines": 130,
+      "lines": 135,
       "complexity": 9,
-      "worst": "worker_problems:81"
+      "worst": "worker_problems:83"
     },
     "backend/workers/jobs.py": {
       "lines": 495,
@@ -2827,9 +2827,9 @@
       "worst": "_search_contacts:310"
     },
     "backend/workers/main.py": {
-      "lines": 52,
+      "lines": 67,
       "complexity": 2,
-      "worst": "main:37"
+      "worst": "main:52"
     },
     "backend/workers/reaper.py": {
       "lines": 279,

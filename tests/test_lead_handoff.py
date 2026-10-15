@@ -52,7 +52,7 @@ def hook(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def queue(monkeypatch: pytest.MonkeyPatch) -> FakeQueue:
     fake = FakeQueue()
-    monkeypatch.setattr("backend.api.replies.routes.runs_queue", lambda: fake)
+    monkeypatch.setattr("backend.api.replies.routes.quick_queue", lambda: fake)
     return fake
 
 

@@ -153,10 +153,10 @@ class TestQueue:
                     raise self.error
                 put.append((job, args, kwargs))
 
-        monkeypatch.setattr(agent_jobs, "runs_queue", Queue)
+        monkeypatch.setattr(agent_jobs, "quick_queue", Queue)
         agent_jobs.queue_draft(42)
         for trouble in (DuplicateJobError("есть"), RedisError("нет связи")):
-            monkeypatch.setattr(agent_jobs, "runs_queue", lambda t=trouble: Queue(t))
+            monkeypatch.setattr(agent_jobs, "quick_queue", lambda t=trouble: Queue(t))
             agent_jobs.queue_draft(42)  # не бросает: черновик попросят кнопкой
 
         [(job, args, kwargs)] = put

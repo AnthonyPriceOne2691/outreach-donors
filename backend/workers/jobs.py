@@ -55,8 +55,8 @@ from backend.shared.logs import setup_logging
 from backend.shared.queue import (
     PARSE_JOB,
     parse_job_id,
+    quick_queue,
     remember_job_error,
-    runs_queue,
     with_retries,
 )
 from backend.workers.agent_jobs import after_parse
@@ -455,7 +455,7 @@ def _parse_or_postpone(reply_id: int) -> dict[str, Any]:
     except LlmCapExceededError as exc:
         when = next_utc_day(datetime.now(UTC))
         job_id = f"{parse_job_id(reply_id)}-after-cap-{when:%Y%m%d}"
-        runs_queue().enqueue_at(when, PARSE_JOB, reply_id, job_id=job_id, **with_retries())
+        quick_queue().enqueue_at(when, PARSE_JOB, reply_id, job_id=job_id, **with_retries())
         logger.warning("разбор ответа №%s отложен до %s: %s", reply_id, when.isoformat(), exc)
         return {"reply": reply_id, "postponed_until": when.isoformat(), "reason": str(exc)}
 

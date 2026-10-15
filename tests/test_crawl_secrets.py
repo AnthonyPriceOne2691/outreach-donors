@@ -110,7 +110,7 @@ async def test_a_broken_template_leaves_the_key_nowhere(
     monkeypatch.setattr(crawl_cfg, "DELAY_SEC", 0.0)
     monkeypatch.setattr(crawl_cfg, "BROWSER_ENABLED", False)
     monkeypatch.setattr(crawl_cfg, "RENDER_API_URL", BROKEN_TEMPLATE)
-    monkeypatch.setattr(crawl_jobs, "runs_queue", _NoQueue)
+    monkeypatch.setattr(crawl_jobs, "quick_queue", _NoQueue)
     crawl_jobs._STOP.clear()
     site = _site(monkeypatch)
     site.pages["/p1"] = SHELL

@@ -75,7 +75,7 @@ from backend.features.replies.confirmation import (
 from backend.features.replies.donor_card import reply_details
 from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_SELLS, WITHOUT_PRICE
 from backend.features.replies.repository import ReplyRepository
-from backend.shared.queue import LEAD_JOB, runs_queue, with_retries
+from backend.shared.queue import LEAD_JOB, quick_queue, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +285,7 @@ async def send_lead(
 
 
 def _enqueue_lead(reply_id: int, *, event_id: str) -> str:
-    job = runs_queue().enqueue(LEAD_JOB, reply_id, event_id, job_id=event_id, **with_retries())
+    job = quick_queue().enqueue(LEAD_JOB, reply_id, event_id, job_id=event_id, **with_retries())
     logger.info("лиды: передача лида №%s поставлена (%s)", reply_id, event_id)
     return str(job.id)
 

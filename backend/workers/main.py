@@ -21,7 +21,14 @@ from rq import Worker
 from backend.config.startup_checks import check_storage
 from backend.features.agent.guarding import said_at_start
 from backend.shared.logs import setup_logging
-from backend.shared.queue import QUEUE_NAME, SALES_BULK_QUEUE_NAME, SALES_QUEUE_NAME, connection
+from backend.shared.queue import (
+    CONTACTS_QUEUE_NAME,
+    QUEUE_NAME,
+    QUICK_QUEUE_NAME,
+    SALES_BULK_QUEUE_NAME,
+    SALES_QUEUE_NAME,
+    connection,
+)
 
 
 def queue_of(argv: list[str]) -> str:
@@ -29,7 +36,15 @@ def queue_of(argv: list[str]) -> str:
     на очереди, в которую никто не ставит, молчал бы вечно."""
     parser = argparse.ArgumentParser(prog="python -m backend.workers.main")
     parser.add_argument(
-        "--queue", choices=(QUEUE_NAME, SALES_QUEUE_NAME, SALES_BULK_QUEUE_NAME), default=QUEUE_NAME
+        "--queue",
+        choices=(
+            QUEUE_NAME,
+            SALES_QUEUE_NAME,
+            SALES_BULK_QUEUE_NAME,
+            QUICK_QUEUE_NAME,
+            CONTACTS_QUEUE_NAME,
+        ),
+        default=QUEUE_NAME,
     )
     return str(parser.parse_args(argv).queue)
 

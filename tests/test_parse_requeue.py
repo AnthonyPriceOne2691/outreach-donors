@@ -81,7 +81,7 @@ class UniqueQueue:
 def queue(monkeypatch: pytest.MonkeyPatch) -> UniqueQueue:
     monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", SECRET)
     fake = UniqueQueue()
-    monkeypatch.setattr(inbound_routes, "runs_queue", lambda: fake)
+    monkeypatch.setattr(inbound_routes, "quick_queue", lambda: fake)
     monkeypatch.setattr(inbound_routes, "_throttle", SlidingWindow())
     return fake
 

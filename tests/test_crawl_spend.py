@@ -177,7 +177,7 @@ def crawl_wiring(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(crawl_cfg, "PROXY_URLS", (GATE,))
     monkeypatch.setattr(crawl_cfg, "PROXY_USD_PER_GB", 5.0)
     monkeypatch.setattr(crawl_cfg, "RENDER_API_KEY", "")
-    monkeypatch.setattr(crawl_jobs, "runs_queue", _NoQueue)
+    monkeypatch.setattr(crawl_jobs, "quick_queue", _NoQueue)
     crawl_jobs._STOP.clear()
 
 

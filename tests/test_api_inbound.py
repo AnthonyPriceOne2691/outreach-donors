@@ -62,7 +62,7 @@ class NoQueue:
 def inbound_setup(monkeypatch: pytest.MonkeyPatch) -> NoQueue:
     monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", SECRET)
     queue = NoQueue()
-    monkeypatch.setattr(inbound_routes, "runs_queue", lambda: queue)
+    monkeypatch.setattr(inbound_routes, "quick_queue", lambda: queue)
     # Счётчик частоты живёт в памяти процесса и общий на все тесты:
     # без свежего окна десятый тест ловил бы отказ от девятого. Чистить
     # по ключу нельзя: адрес клиента зависит от транспорта тестов

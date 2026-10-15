@@ -34,8 +34,10 @@ from rq import Queue, Worker
 from rq.defaults import DEFAULT_WORKER_TTL
 
 from backend.shared.queue import (
+    CONTACTS_QUEUE_NAME,
     CRAWL_QUEUE_NAME,
     QUEUE_NAME,
+    QUICK_QUEUE_NAME,
     SALES_BULK_QUEUE_NAME,
     SALES_QUEUE_NAME,
     connection,
@@ -103,12 +105,15 @@ def worker_problems(
 
 
 #: Довод проверки → очередь, чей воркер проверяется: общий (`worker`), обходчик, ответы
-#: продаж и долгие задачи продаж — у каждого сервиса своя очередь (`workers/main.py`).
+#: продаж, долгие задачи продаж, короткие задачи и поиск адресов — у каждого сервиса своя
+#: очередь (`workers/main.py`).
 WORKER_QUEUES = {
     "worker": QUEUE_NAME,
     "crawler": CRAWL_QUEUE_NAME,
     "sales": SALES_QUEUE_NAME,
     "sales-bulk": SALES_BULK_QUEUE_NAME,
+    "quick": QUICK_QUEUE_NAME,
+    "contacts": CONTACTS_QUEUE_NAME,
 }
 
 

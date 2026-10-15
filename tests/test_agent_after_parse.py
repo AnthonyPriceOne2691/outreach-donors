@@ -52,7 +52,7 @@ def queued(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> Drafts:
         "async_sessionmaker",
         lambda _engine, **_kw: async_sessionmaker(bind=session.bind, expire_on_commit=False),
     )
-    monkeypatch.setattr(agent_jobs, "runs_queue", lambda: runs)
+    monkeypatch.setattr(agent_jobs, "quick_queue", lambda: runs)
     return runs
 
 

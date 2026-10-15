@@ -69,7 +69,7 @@ from backend.shared.queue import (
     PARSE_JOB,
     SALES_REPLY_JOB,
     parse_job_id,
-    runs_queue,
+    quick_queue,
     sales_job_id,
     sales_queue,
     with_retries,
@@ -184,7 +184,7 @@ async def _queue_parse(reply_id: int | None, message_id: str, response: Response
     if reply_id is None:
         return None
     job_id = parse_job_id(reply_id, message_id)
-    return await _queue(runs_queue, PARSE_JOB, reply_id, job_id, response, what="разбор цены")
+    return await _queue(quick_queue, PARSE_JOB, reply_id, job_id, response, what="разбор цены")
 
 
 async def _queue_sales(reply_id: int | None, message_id: str, response: Response) -> str | None:

@@ -25,7 +25,12 @@ from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
 from backend.features.review.candidates import Decision, RunReview
 from backend.features.review.keyword_yield import run_yield
-from backend.shared.queue import CONTACTS_JOB, remember_contacts_job, runs_queue, with_retries
+from backend.shared.queue import (
+    CONTACTS_JOB,
+    contacts_queue,
+    remember_contacts_job,
+    with_retries,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +94,7 @@ async def decide(
 
 def _queue_search(limit: int) -> str:
     """Поставить поиск контактов принятым и запомнить его номер."""
-    job = runs_queue().enqueue(CONTACTS_JOB, limit, False, False, **with_retries())
+    job = contacts_queue().enqueue(CONTACTS_JOB, limit, False, False, **with_retries())
     remember_contacts_job(str(job.id))
     return str(job.id)
 

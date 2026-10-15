@@ -50,6 +50,18 @@ SALES_QUEUE_NAME = "sales"
 #: до получаса. Вторая копия `worker-sales` не помогла бы: две долгие задачи заняли бы обе.
 SALES_BULK_QUEUE_NAME = "sales-bulk"
 
+#: Короткие задачи, которых ждёт человек, — своя очередь у своего процесса
+#: (`worker-quick`): разбор ответа донора, черновик агента, передача лида, пересчёт
+#: кандидатов после обхода. В общей очереди они стояли за прогоном доноров и поиском
+#: адресов до часа: цена из ответа появлялась, когда прогон кончался (разбор 14.10.2026).
+QUICK_QUEUE_NAME = "quick"
+
+#: Поиск адресов — своя очередь у своего процесса (`worker-contacts`): поиск по тысяче
+#: доменов рекламодателей держал бы прогоны и письма за собой. Процесс один: строки
+#: очереди адресов ничем не заняты (`contacts/attempts.py`), и два потребителя прошли
+#: бы одни и те же домены дважды — платной ступени тоже.
+CONTACTS_QUEUE_NAME = "contacts"
+
 #: Пути задач строкой в одном месте. Раньше каждый маршрут держал свой:
 #: пока путь знает только тот, кто ставит задачу, его некому свериться
 #: с тем, кто ставит её заново — а разбор мёртвых прогонов ставит ту же
@@ -193,6 +205,14 @@ def sales_bulk_queue(redis: Redis | None = None) -> Queue:
     return Queue(
         SALES_BULK_QUEUE_NAME, connection=redis or connection(), default_timeout=JOB_TIMEOUT
     )
+
+
+def quick_queue(redis: Redis | None = None) -> Queue:
+    return Queue(QUICK_QUEUE_NAME, connection=redis or connection(), default_timeout=JOB_TIMEOUT)
+
+
+def contacts_queue(redis: Redis | None = None) -> Queue:
+    return Queue(CONTACTS_QUEUE_NAME, connection=redis or connection(), default_timeout=JOB_TIMEOUT)
 
 
 #: Ключ живого воркера в Redis. Он держится heartbeat'ом самого rq

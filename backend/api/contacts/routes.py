@@ -60,9 +60,10 @@ from backend.features.donors.standing import UnknownDonorError
 from backend.shared.database.ids import storable
 from backend.shared.queue import (
     CONTACTS_JOB,
+    CONTACTS_QUEUE_NAME,
     contacts_job_id,
+    contacts_queue,
     remember_contacts_job,
-    runs_queue,
     with_retries,
     workers_alive,
 )
@@ -88,7 +89,7 @@ async def state(
 def _queue_state(pending: int) -> ContactsState:
     """Что говорит очередь. Клиент Redis синхронный — зовётся в пуле потоков, а не в цикле
     событий: зависший Redis иначе держал бы весь процесс API (аудит 10.10.2026)."""
-    return search_state(pending, contacts_job_id(), workers_alive())
+    return search_state(pending, contacts_job_id(), workers_alive(queue=CONTACTS_QUEUE_NAME))
 
 
 @router.post("", response_model=ContactsQueued, summary="Найти контакты")
@@ -106,7 +107,7 @@ async def search(
 
 def _queue_search(limit: int, use_browser: bool) -> str:
     """Поставить общий поиск и запомнить его номер — в пуле потоков (`_queue_state`)."""
-    job = runs_queue().enqueue(CONTACTS_JOB, limit, use_browser, False, **with_retries())
+    job = contacts_queue().enqueue(CONTACTS_JOB, limit, use_browser, False, **with_retries())
     remember_contacts_job(str(job.id))
     return str(job.id)
 
@@ -138,7 +139,7 @@ async def search_one(
 
 def _queue_one(donor_id: int) -> str:
     """Поставить поиск адреса одному донору — в пуле потоков (`_queue_state`)."""
-    job = runs_queue().enqueue(CONTACTS_JOB, 1, False, False, donor_id, **with_retries())
+    job = contacts_queue().enqueue(CONTACTS_JOB, 1, False, False, donor_id, **with_retries())
     return str(job.id)
 
 

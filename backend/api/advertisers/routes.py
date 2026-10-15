@@ -56,10 +56,11 @@ from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.shared.queue import (
     ADVERTISER_CONTACTS_JOB_KEY,
     CONTACTS_JOB,
+    CONTACTS_QUEUE_NAME,
     contacts_job_id,
+    contacts_queue,
     job_alive,
     remember_contacts_job,
-    runs_queue,
     with_retries,
     workers_alive,
 )
@@ -206,7 +207,11 @@ async def contacts_state(
 
 def _queue_state(pending: int) -> ContactsState:
     """Что говорит очередь — в пуле потоков, как постановка поиска."""
-    return search_state(pending, contacts_job_id(key=ADVERTISER_CONTACTS_JOB_KEY), workers_alive())
+    return search_state(
+        pending,
+        contacts_job_id(key=ADVERTISER_CONTACTS_JOB_KEY),
+        workers_alive(queue=CONTACTS_QUEUE_NAME),
+    )
 
 
 @router.post("/contacts", response_model=ContactsQueued, summary="Найти адреса рекламодателям")
@@ -246,7 +251,7 @@ def _search(limit: int) -> str:
     if running is not None and job_alive(running) is True:
         logger.info("рекламодатели: поиск адресов уже идёт (%s) — второй не ставим", running)
         return running
-    job = runs_queue().enqueue(
+    job = contacts_queue().enqueue(
         CONTACTS_JOB,
         min(limit, SEARCH_MAX),
         False,  # браузер: секунды на страницу, у рекламодателей не нужен
