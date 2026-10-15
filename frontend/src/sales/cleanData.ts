@@ -104,10 +104,17 @@ function reasonsOf(rejected: Record<string, number>): string {
   return named.length > 0 ? ` (${named.join(', ')})` : '';
 }
 
-/** Кто ждёт и почему — после чисел: день перепроверки неподтверждённых, остановка платной
- *  части или повтор непроверенных следующей очисткой. */
+/** Кто ждёт и почему — после чисел: держателя компании, день перепроверки неподтверждённых,
+ *  остановка платной части или повтор непроверенных следующей очисткой. */
 function waitingWords(found: Partial<SalesCleanReport>): string[] {
   const said: string[] = [];
+  const held = found.awaiting_holder ?? 0;
+  if (held > 0) {
+    said.push(
+      `Ждут: компанию держит непроверенный лид другой гипотезы — ${formatNumber(held)}. ` +
+        'Hunter за них не платился, их решит очистка гипотезы держателя — она названа у лида.',
+    );
+  }
   if ((found.unconfirmed ?? 0) > 0 && typeof found.recheck_on === 'string') {
     said.push(
       'Адрес не подтверждён (unknown) — к письмам такие лиды не идут: очистка проверит их ' +

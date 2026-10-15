@@ -10,9 +10,11 @@
 
 **Сколько ждёт** (`waiting`) — тем же условием, каким лиды берёт проход (`verifier.due`):
 `new` у гипотезы, кроме ждущих дня перепроверки `unknown`, и перепроверка — при живом
-проверяльщике `ready` с выдуманным вердиктом, а `ready` с `unknown` — в свой день. Это число
-называет окно подтверждения расхода — каждый лид стоит не больше одной платной проверки за
-проход, а дубли, стоп-листы и домены без почты отсеиваются до неё.
+проверяльщике `ready` с выдуманным вердиктом, а `ready` с `unknown` — в свой день, — и лиды
+гипотезы, которых вернёт поиск свободных компаний в начале прохода (`company_hold.returnable`, тот
+же помощник, что у прохода). Это число называет окно подтверждения расхода — честная верхняя
+граница: проход платит только за лидов своей гипотезы, каждый — не больше одной проверки, а дубли,
+стоп-листы и домены без почты отсеиваются до неё.
 
 **Отказы.** Негодная настройка проверяльщика (`live` без ключа, незнакомое имя) — итог
 «не выполнена» словами человека, а не три повтора: повтор её не исправит; имена настроек —
@@ -38,7 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.config import storage
 from backend.config.startup_checks import ConfigError, check_storage
 from backend.features.runs.failures import described, is_permanent
-from backend.features.sales import cleaning
+from backend.features.sales import cleaning, company_hold
 from backend.features.sales.clean_report import CleaningReport
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import SalesHypothesisModel, SalesLeadModel
@@ -64,8 +66,9 @@ class Waiting:
 
 
 async def waiting(session: AsyncSession, hypothesis_id: int) -> Waiting:
-    """Лиды гипотезы, которых возьмёт очистка, — тем же условием, что у прохода (`verifier.due`).
-    Гипотезы нет — отказ словами (404)."""
+    """Лиды гипотезы, которых возьмёт очистка, — тем же условием, что у прохода (`verifier.due`),
+    и её лиды, которых вернёт поиск свободных компаний в начале прохода (`company_hold`). Гипотезы
+    нет — отказ словами (404)."""
     hypothesis = await session.get(SalesHypothesisModel, hypothesis_id)
     if hypothesis is None:
         raise UnknownHypothesisError(f"гипотезы №{hypothesis_id} нет — обновите список гипотез")
@@ -74,7 +77,8 @@ async def waiting(session: AsyncSession, hypothesis_id: int) -> Waiting:
         .select_from(SalesLeadModel)
         .where(SalesLeadModel.hypothesis_id == hypothesis_id, due(live(), datetime.now(UTC)))
     )
-    return Waiting(hypothesis.name, int(count or 0))
+    back = await company_hold.returnable(session, hypothesis_id)
+    return Waiting(hypothesis.name, int(count or 0) + back)
 
 
 async def clean_hypothesis(
@@ -96,6 +100,7 @@ def report_of(found: CleaningReport) -> dict[str, Any]:
         "unconfirmed": found.unconfirmed,
         "recheck_on": None if found.recheck_on is None else found.recheck_on.isoformat(),
         "unverified": found.unverified,
+        "awaiting_holder": found.awaiting_holder,
         "mx_unknown": found.mx_unknown,
         "verified": found.verified,
         "paid_units": found.paid_units,

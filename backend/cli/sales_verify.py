@@ -9,8 +9,9 @@
 Коды выхода — как у `sales-clean`: 0 — вердикт получен; 2 — адрес не адрес или проверяльщик
 выдуманный (`fixture`: Hunter не спрошен — настройка не та или контейнер не пересоздан), а
 `live` без ключа — тоже 2, отказом настроек общей таблицей консоли; 7 — квота, закрытая
-учётка, ключ не принят или частота и после повторов: повтор без человека не поможет; 8 —
-сеть, 5xx, «ещё проверяет» или непонятный ответ: повтор поможет.
+учётка, ключ не принят, частота и после повторов или домен адреса, с которым сервис проверки
+не работает (`blacklisted_domain`): повтор без человека не поможет; 8 — сеть, 5xx, «ещё
+проверяет» и после переспросов или непонятный ответ: повтор поможет.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.cli.prune import in_session
 from backend.cli.sales import EXIT_BAD_INPUT, EXIT_OK, EXIT_UNAVAILABLE, EXIT_VERIFIER_STOPPED
-from backend.features.contacts.provider import ProviderError
+from backend.features.contacts.provider import ProviderDomainRefusedError, ProviderError
 from backend.features.core import usage
 from backend.features.sales.verifier import (
     FIXTURE,
@@ -34,6 +35,10 @@ from backend.features.sales.verifier import (
     build_verifier,
 )
 from backend.features.sales.verify_cap import MonthCapError, MonthCapped, capped
+
+#: Отказы, которые повтор без человека не лечит, — код 7: остановки платной части очистки
+#: (`STOPS`) и домен адреса, с которым сервис проверки не работает.
+PERMANENT: tuple[type[ProviderError], ...] = (*STOPS, ProviderDomainRefusedError)
 
 #: Слово Hunter → что оно значит словами.
 SAID = {
@@ -85,7 +90,7 @@ async def _verify_with(session: AsyncSession, http: httpx.AsyncClient, email: st
         who = "Проверка не сделана" if isinstance(exc, MonthCapError) else "Hunter отказал"
         print(f"{who}: {exc}.")
         print("Вердикта нет — в журнал расхода ничего не записано, лиды не тронуты.")
-        return EXIT_VERIFIER_STOPPED if isinstance(exc, STOPS) else EXIT_UNAVAILABLE
+        return EXIT_VERIFIER_STOPPED if isinstance(exc, PERMANENT) else EXIT_UNAVAILABLE
     if verdict.units:
         usage.record(session, operation=OPERATION, units=verdict.units)
         await session.commit()

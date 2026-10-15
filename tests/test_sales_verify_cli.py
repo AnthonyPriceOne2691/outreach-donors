@@ -171,8 +171,9 @@ def test_every_word_of_the_provider_has_its_words() -> None:
         (429, {"errors": [{"id": "restricted_account", "details": "Your account was restricted"}]}, EXIT_VERIFIER_STOPPED, "учётка закрыта провайдером: Your account was restricted — квота тут ни при чём, зайти в кабинет и разобраться"),
         (429, {"errors": [{"id": "usage_exceeded", "details": "monthly quota"}]}, EXIT_VERIFIER_STOPPED, "квота исчерпана: monthly quota"),
         (429, None, EXIT_VERIFIER_STOPPED, TOO_OFTEN),
+        (400, {"errors": [{"id": "blacklisted_domain", "details": "This domain is blacklisted"}]}, EXIT_VERIFIER_STOPPED, "провайдер не работает с доменом: This domain is blacklisted — владелец домена запретил обработку адресов"),
         (503, None, EXIT_UNAVAILABLE, "провайдер не ответил (HTTP 503) — повторим следующей очисткой"),
-        (202, {"data": {"status": "pending"}}, EXIT_UNAVAILABLE, "провайдер ещё проверяет адрес — повторим следующей очисткой"),
+        (202, {"data": {"status": "pending"}}, EXIT_UNAVAILABLE, "провайдер ещё проверяет адрес и после 2 переспросов — повторим следующей очисткой"),
         (200, {"data": {"status": "weird"}}, EXIT_UNAVAILABLE, "формат ответа поменялся: status='weird' (HTTP 200) — читать лог, не гадать"),
     ],
 )  # fmt: skip
@@ -184,8 +185,9 @@ async def test_refusal_is_said_in_words_with_its_code_and_nothing_is_written(
     code: int,
     words: str,
 ) -> None:
-    """Код 7 — повтор без человека не поможет (ключ, учётка, квота, частота и после повторов),
-    код 8 — повтор поможет. Ни строки расхода, ни правки лидов: вердикта нет."""
+    """Код 7 — повтор без человека не поможет (ключ, учётка, квота, частота и после повторов,
+    домен, с которым сервис проверки не работает), код 8 — повтор поможет. Ни строки расхода, ни
+    правки лидов: вердикта нет."""
     handler, _ = _answer(status, payload)
 
     assert await _run(session, handler) == code

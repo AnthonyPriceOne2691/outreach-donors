@@ -379,6 +379,8 @@ async def test_a_host_the_hypothesis_already_collected_is_not_judged_again(
 async def test_a_host_whose_address_already_has_a_lead_is_rejected_as_a_duplicate(
     session: AsyncSession, web: Sites
 ) -> None:
+    """Ранний лид отклонён — домен он не держит, и сбор ищет адрес; а его адрес делает лида
+    сбора дублем. Домен живого лида сбор не ищет вовсе (`tests/test_sales_company_hold.py`)."""
     owner = await hypothesis(session)
     domain = DomainModel(host=SHOP)
     session.add(domain)
@@ -388,7 +390,7 @@ async def test_a_host_whose_address_already_has_a_lead_is_rejected_as_a_duplicat
         domain_id=domain.id,
         email=f"hello@{SHOP}",
         source=LeadSource.IMPORT,
-        status=LeadStatus.READY,
+        status=LeadStatus.REJECTED,
     )
     session.add(earlier)
     run = await make_run(session, owner)

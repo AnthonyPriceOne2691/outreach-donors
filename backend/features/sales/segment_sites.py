@@ -10,7 +10,8 @@
   порядок полный, до номера кандидата — строка со стыка страниц не пропадает и не двоится;
 - **итог сайта** — тем же правилом, что числа отчёта (`segment_report._addresses`): правило
   одно и живёт здесь (`address_words`) — лид (со ссылкой), только форма, адреса нет, не
-  искали, повтор по сроку.
+  искали, повтор по сроку; компанию держит живой лид продаж — «компания уже в работе гипотезы
+  «…»» (`company_hold.held_sites`, одно правило с отчётом прогона).
 
 Пересуд прогона (`segment_rejudge.py`) кладёт в отчёт прогона, какой была полоса сайта до него:
 список показывает «было» у сменивших полосу и «стало бы» у сайтов с лидом (их полоса не
@@ -28,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import ContactStatus
 from backend.features.core.models.domain import DomainModel
+from backend.features.sales import company_hold
 from backend.features.sales.models import SalesLeadModel
 from backend.features.sales.segment_models import (
     Decider,
@@ -84,7 +86,7 @@ class OutcomeKind(StrEnum):
     FORM_ONLY = "form_only"
     NO_ADDRESS = "no_address"
     NOT_SEARCHED = "not_searched"
-    #: Повтор по сроку, квота, сбой, мёртвый адрес — слова говорят, что именно.
+    #: Повтор по сроку, квота, сбой, мёртвый адрес, компания уже в работе — слова говорят, что именно.
     OTHER = "other"
 
 
@@ -108,14 +110,18 @@ def outcome(
     lane: str,
     status: ContactStatus | None,
     lead: tuple[int, str, str | None] | None = None,
+    held: str | None = None,
 ) -> Outcome | None:
-    """Итог сайта: лид — по ссылке кандидата; у принятого без лида — исход поиска адреса;
-    у остальных полос итога нет (адрес им не ищут)."""
+    """Итог сайта: лид — по ссылке кандидата; у принятого без лида — компанию держит живой лид
+    продаж (`held`, слова `company_hold`) или исход поиска адреса; у остальных полос итога нет
+    (адрес им не ищут)."""
     if lead is not None:
         lead_id, state, reason = lead
         return Outcome(OutcomeKind.LEAD, LEAD_MADE, lead_id, state, reason)
     if lane != Lane.ACCEPT:
         return None
+    if held is not None:
+        return Outcome(OutcomeKind.OTHER, held)
     if status is None:
         return Outcome(OutcomeKind.NOT_SEARCHED, NOT_SEARCHED)
     return Outcome(_KINDS.get(status, OutcomeKind.OTHER), address_words(status))
@@ -203,6 +209,19 @@ async def _leads(session: AsyncSession, ids: list[int]) -> dict[int, tuple[int, 
     return {lead: (lead, str(status), reason) for lead, status, reason in rows.tuples().all()}
 
 
+async def _outcomes(
+    session: AsyncSession, run_id: int, candidates: list[Candidate]
+) -> dict[int, Outcome | None]:
+    """Итоги сайтов страницы — лиды по ссылке кандидата и удержанные компании (`company_hold`)
+    двумя чтениями на страницу."""
+    leads = await _leads(session, [c.lead_id for c in candidates if c.lead_id is not None])
+    held = await company_hold.held_sites(session, run_id, [c.id for c in candidates])
+    return {
+        c.id: outcome(c.lane, c.contact_status, leads.get(c.lead_id or 0), held.get(c.id))
+        for c in candidates
+    }
+
+
 async def sites_page(session: AsyncSession, ask: SitesAsk) -> SitesPage | None:
     """Страница сайтов прогона под фильтром; `None` — прогона нет."""
     # Заново из базы: отчёт пересуда пишется SQL-правкой своего ключа, мимо объекта прогона.
@@ -223,17 +242,10 @@ async def sites_page(session: AsyncSession, ask: SitesAsk) -> SitesPage | None:
         .limit(PAGE_SIZE)
     )
     found = list(rows.tuples().all())
-    leads = await _leads(session, [c.lead_id for c, _ in found if c.lead_id is not None])
+    outcomes = await _outcomes(session, ask.run_id, [candidate for candidate, _ in found])
     return SitesPage(
         rows=[
-            SiteRow(
-                candidate,
-                host,
-                outcome(
-                    candidate.lane, candidate.contact_status, leads.get(candidate.lead_id or 0)
-                ),
-                changed.get(candidate.id),
-            )
+            SiteRow(candidate, host, outcomes[candidate.id], changed.get(candidate.id))
             for candidate, host in found
         ],
         total=int(total or 0),

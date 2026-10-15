@@ -27,7 +27,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.models.domain import DomainModel
-from backend.features.sales import segment_progress
+from backend.features.sales import company_hold, segment_progress
 from backend.features.sales.models import LeadStatus, SalesHypothesisModel, SalesLeadModel
 from backend.features.sales.segment_models import (
     Decider,
@@ -108,15 +108,19 @@ async def _rejected(session: AsyncSession, run_id: int) -> list[tuple[str, int]]
 
 
 async def _addresses(session: AsyncSession, run_id: int) -> tuple[list[tuple[str, int]], int]:
-    """Принятые без лида: почему нет адреса — и сколько ещё ждут поиска."""
+    """Принятые без лида: почему нет адреса — и сколько ещё ждут поиска. Сайт, чью компанию
+    держит живой лид продаж, адрес не ищет и поиска не ждёт: итог — словами `company_hold`."""
     rows = await session.execute(
         select(Candidate.contact_status, func.count())
         .where(
-            Candidate.run_id == run_id, Candidate.lane == Lane.ACCEPT, Candidate.lead_id.is_(None)
+            Candidate.run_id == run_id,
+            Candidate.lane == Lane.ACCEPT,
+            Candidate.lead_id.is_(None),
+            ~company_hold.held(Candidate.domain_id),
         )
         .group_by(Candidate.contact_status)
     )
-    words: Counter[str] = Counter()
+    words = await company_hold.held_in_run(session, run_id)
     waiting = 0
     for status, count in rows.tuples().all():
         if status is None:

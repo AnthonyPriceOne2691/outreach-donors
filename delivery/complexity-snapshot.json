@@ -337,9 +337,9 @@
       "worst": "of:128"
     },
     "backend/api/sales/clean.py": {
-      "lines": 177,
+      "lines": 178,
       "complexity": 4,
-      "worst": "start_clean:147"
+      "worst": "start_clean:148"
     },
     "backend/api/sales/funnel.py": {
       "lines": 99,
@@ -667,9 +667,9 @@
       "worst": "cmd_sales_telegram_chat_id:34"
     },
     "backend/cli/sales_verify.py": {
-      "lines": 122,
+      "lines": 127,
       "complexity": 7,
-      "worst": "_verify_with:75"
+      "worst": "_verify_with:80"
     },
     "backend/cli/senders_admin.py": {
       "lines": 136,
@@ -2262,14 +2262,19 @@
       "worst": "zones_of:246"
     },
     "backend/features/sales/clean_jobs.py": {
-      "lines": 135,
+      "lines": 140,
       "complexity": 5,
-      "worst": "clean_sales_leads:118"
+      "worst": "clean_sales_leads:123"
+    },
+    "backend/features/sales/clean_known.py": {
+      "lines": 94,
+      "complexity": 7,
+      "worst": "load_known:58"
     },
     "backend/features/sales/clean_report.py": {
-      "lines": 101,
+      "lines": 179,
       "complexity": 5,
-      "worst": "lines:59"
+      "worst": "_count:112"
     },
     "backend/features/sales/clean_write.py": {
       "lines": 63,
@@ -2277,14 +2282,19 @@
       "worst": "_seen:54"
     },
     "backend/features/sales/cleaning.py": {
-      "lines": 483,
+      "lines": 459,
       "complexity": 8,
-      "worst": "_clean_batch:351"
+      "worst": "_clean_batch:302"
     },
     "backend/features/sales/columns.py": {
       "lines": 80,
       "complexity": 3,
       "worst": "guess:72"
+    },
+    "backend/features/sales/company_hold.py": {
+      "lines": 428,
+      "complexity": 5,
+      "worst": "split:242"
     },
     "backend/features/sales/connection.py": {
       "lines": 148,
@@ -2360,6 +2370,16 @@
       "lines": 169,
       "complexity": 8,
       "worst": "note:134"
+    },
+    "backend/features/sales/hold_words.py": {
+      "lines": 92,
+      "complexity": 4,
+      "worst": "_piece:61"
+    },
+    "backend/features/sales/hunter_codes.py": {
+      "lines": 59,
+      "complexity": 1,
+      "worst": "still_checking:39"
     },
     "backend/features/sales/hypotheses.py": {
       "lines": 98,
@@ -2557,9 +2577,9 @@
       "worst": "clean_keywords:55"
     },
     "backend/features/sales/segment_leads.py": {
-      "lines": 123,
+      "lines": 131,
       "complexity": 6,
-      "worst": "make_leads:93"
+      "worst": "make_leads:101"
     },
     "backend/features/sales/segment_models.py": {
       "lines": 221,
@@ -2572,9 +2592,9 @@
       "worst": "live:160"
     },
     "backend/features/sales/segment_queue.py": {
-      "lines": 98,
+      "lines": 106,
       "complexity": 6,
-      "worst": "save:83"
+      "worst": "save:91"
     },
     "backend/features/sales/segment_rejudge.py": {
       "lines": 354,
@@ -2592,9 +2612,9 @@
       "worst": "summary:99"
     },
     "backend/features/sales/segment_report.py": {
-      "lines": 256,
+      "lines": 260,
       "complexity": 6,
-      "worst": "decide:206"
+      "worst": "decide:210"
     },
     "backend/features/sales/segment_run.py": {
       "lines": 272,
@@ -2607,9 +2627,9 @@
       "worst": "_rows:154"
     },
     "backend/features/sales/segment_sites.py": {
-      "lines": 245,
-      "complexity": 7,
-      "worst": "sites_page:206"
+      "lines": 257,
+      "complexity": 6,
+      "worst": "sites_page:225"
     },
     "backend/features/sales/segment_spend.py": {
       "lines": 303,
@@ -2642,9 +2662,9 @@
       "worst": "_sorted:141"
     },
     "backend/features/sales/stoplist_leads.py": {
-      "lines": 118,
+      "lines": 148,
       "complexity": 5,
-      "worst": "close:69"
+      "worst": "release:124"
     },
     "backend/features/sales/suppressions.py": {
       "lines": 72,
@@ -2687,9 +2707,9 @@
       "worst": "sales_cap:38"
     },
     "backend/features/sales/verifier.py": {
-      "lines": 392,
+      "lines": 398,
       "complexity": 8,
-      "worst": "verify:198"
+      "worst": "verify:204"
     },
     "backend/features/sales/verify_cap.py": {
       "lines": 126,
