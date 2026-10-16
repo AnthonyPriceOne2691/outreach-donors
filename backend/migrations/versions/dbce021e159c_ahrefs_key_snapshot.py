@@ -1,7 +1,7 @@
 """снимок ключа Ahrefs и кап «весь лимит ключа»
 
 Revision ID: dbce021e159c
-Revises: f0ec1a11f480
+Revises: e14b9ba7f441
 Create Date: 2026-10-16 18:00:00.000000
 
 Решение владельца 16.10.2026: сервис владеет текущей ситуацией по ключу Ahrefs, а не
@@ -21,7 +21,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "dbce021e159c"  # pragma: allowlist secret
-down_revision: Union[str, Sequence[str], None] = "f0ec1a11f480"  # pragma: allowlist secret
+down_revision: Union[str, Sequence[str], None] = "e14b9ba7f441"  # pragma: allowlist secret
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
