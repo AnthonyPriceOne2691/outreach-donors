@@ -65,6 +65,7 @@ from backend.features.runs.planning import (
 from backend.features.runs.report import RunReport, run_stats
 from backend.features.runs.repository import REASON_KEY, RunRepository
 from backend.features.runs.stopped import tell_stopped
+from backend.features.serp.funds import ensure_funds
 from backend.features.serp.protocol import SerpProvider
 from backend.shared.logs import run_context
 from backend.shared.net.url_guard import guarded_client
@@ -159,6 +160,8 @@ async def _candidates_for(deps: RunDeps, request: RunRequest, run: RunModel) -> 
         )
         return candidates
     else:
+        # Счёт выдачи — до покупки: на пустом прогон встал бы посреди работы (16.10.2026).
+        await ensure_funds(deps.provider, len(request.keywords), request.depth_pages, run.serp_mode)
         candidates = await gather_candidates(
             deps.provider, request.keywords, request.country, depth_pages=request.depth_pages
         )

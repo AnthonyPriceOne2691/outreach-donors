@@ -43,6 +43,7 @@ from backend.features.runs.estimate import UNIQUE_SHARE, forecast
 from backend.features.runs.outcome import outcome
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import rules_in_force
+from backend.features.serp import funds
 from backend.features.serp.dataforseo import COUNTRY_CODES
 from backend.features.serp.modes import mode_of
 from backend.shared.queue import RUN_JOB, RUN_JOB_TIMEOUT, runs_queue, workers_alive
@@ -77,6 +78,20 @@ async def countries(_: UserModel = _runner) -> list[str]:
     return sorted(COUNTRY_CODES)
 
 
+async def _refuse_empty_serp_account(body: RunRequestBody) -> None:
+    """Счёт выдачи — до строки прогона: меньше порога или меньше сметы выдачи — отказ
+    словами «пополните счёт», и прогон не начинается (слово владельца 16.10.2026)."""
+    client = AhrefsClient()
+    try:
+        balance = await funds.provider_balance(client)
+    finally:
+        await client.aclose()
+    cost = funds.search_cost(len(body.keywords), body.depth_pages, body.serp_mode)
+    words = funds.refusal(balance, cost)
+    if words is not None:
+        raise funds.FundsTooLowError(words)
+
+
 @router.post("/estimate", response_model=Forecast, summary="Смета до запуска")
 async def estimate(
     body: RunRequestBody,
@@ -95,6 +110,8 @@ async def estimate(
         # значило вычесть месячную трату дважды — поймано живой
         # проверкой на потолке в пять тысяч.
         left = await units_left(client, keep=keeper(session))
+        # Счёт выдачи — тоже до нажатия: на пустом прогон не начнётся (`serp/funds.py`).
+        balance = await funds.provider_balance(client)
     finally:
         await client.aclose()
     # Кап — от ключа и с экрана «Расход», цикл и потраченное в нём — одним чтением.
@@ -114,6 +131,7 @@ async def estimate(
         ),
         serp_mode=body.serp_mode or mode_of(None),
         cap=cap,
+        serp_balance=balance,
     )
     # Снимок ключа из ответа — в базу: смета больше ничего не пишет.
     await session.commit()
@@ -133,6 +151,7 @@ async def start_run(
     случился». Отказ на нажатии он видит сразу и с текстом.
     """
     check_collect()
+    await _refuse_empty_serp_account(body)
     # Версия настроек, которой прогон будет судить, — действующая: пороги, правило
     # региона и срок метрик, а не окружение (сверка ТЗ 11.10.2026). Несогласованное
     # правило региона — отказ словами здесь, а не остановка из очереди (`geo.py`).

@@ -132,9 +132,9 @@
       "worst": "of:226"
     },
     "backend/api/errors.py": {
-      "lines": 476,
+      "lines": 480,
       "complexity": 7,
-      "worst": "_database_code:304"
+      "worst": "_database_code:308"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -307,14 +307,14 @@
       "worst": "—"
     },
     "backend/api/runs/routes.py": {
-      "lines": 270,
+      "lines": 289,
       "complexity": 2,
-      "worst": "effective_cap:56"
+      "worst": "effective_cap:57"
     },
     "backend/api/runs/schemas.py": {
-      "lines": 442,
+      "lines": 459,
       "complexity": 4,
-      "worst": "_known_mode:66"
+      "worst": "_known_mode:67"
     },
     "backend/api/sales/__init__.py": {
       "lines": 1,
@@ -627,9 +627,9 @@
       "worst": "_report:190"
     },
     "backend/cli/main.py": {
-      "lines": 488,
+      "lines": 492,
       "complexity": 9,
-      "worst": "_print_report:270"
+      "worst": "_print_report:273"
     },
     "backend/cli/probe_advertiser.py": {
       "lines": 93,
@@ -1766,6 +1766,11 @@
       "complexity": 1,
       "worst": "direction:23"
     },
+    "backend/features/ops/funds_watch.py": {
+      "lines": 51,
+      "complexity": 3,
+      "worst": "alarm:37"
+    },
     "backend/features/ops/job_outcome.py": {
       "lines": 229,
       "complexity": 10,
@@ -1787,9 +1792,9 @@
       "worst": "_letters:335"
     },
     "backend/features/ops/silence.py": {
-      "lines": 439,
+      "lines": 442,
       "complexity": 7,
-      "worst": "_crawl_blocked:297"
+      "worst": "_crawl_blocked:300"
     },
     "backend/features/ops/stage_silence.py": {
       "lines": 204,
@@ -2072,9 +2077,9 @@
       "worst": "outcome:175"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 492,
+      "lines": 495,
       "complexity": 8,
-      "worst": "execute_run:345"
+      "worst": "execute_run:348"
     },
     "backend/features/runs/planning.py": {
       "lines": 381,
@@ -2825,6 +2830,11 @@
       "lines": 66,
       "complexity": 7,
       "worst": "build_provider:35"
+    },
+    "backend/features/serp/funds.py": {
+      "lines": 99,
+      "complexity": 4,
+      "worst": "refusal:44"
     },
     "backend/features/serp/markets.py": {
       "lines": 100,

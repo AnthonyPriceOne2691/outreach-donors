@@ -40,6 +40,8 @@ export const FITS = {
   // Остаток по капу меньше остатка у Ahrefs — упор в кап.
   binding: 'cap',
   short_of: [],
+  serp_balance_usd: null,
+  serp_refusal: null,
   serp_cost_usd: 0.0012,
   serp_mode: 'live',
   serp_wait_s: 10,

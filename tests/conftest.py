@@ -51,7 +51,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import SenderModel
-from backend.features.ops import key_watch, silence
+from backend.features.ops import funds_watch, key_watch, silence
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from redis.exceptions import RedisError
@@ -382,10 +382,24 @@ def _no_providers_answer_from_another_test(monkeypatch: pytest.MonkeyPatch) -> N
     у каждого теста он свой, пустой. Иначе тест получил бы ответ, оставленный соседним, и его
     подмена `probe_providers` молча не сработала бы. Так же и правило тревоги провайдеров
     (`silence.WATCH`): молчание, начатое соседним тестом, не в счёт этого. И услышанный
-    опросом ответ Ahrefs (`key_watch.HEARD`): чужой ответ лёг бы снимком ключа в этот тест."""
+    опросом ответ Ahrefs (`key_watch.HEARD`): чужой ответ лёг бы снимком ключа в этот тест.
+    И остаток на счету выдачи (`funds_watch.SEEN`): чужой поднял бы тревогу «пополните счёт»."""
     monkeypatch.setattr(watchdog_routes, "PROBES", watchdog_routes.Probes())
     monkeypatch.setattr(silence, "WATCH", silence.ProviderWatch())
     monkeypatch.setattr(key_watch, "HEARD", key_watch.Heard())
+    monkeypatch.setattr(funds_watch, "SEEN", funds_watch.Seen())
+
+
+@pytest.fixture(autouse=True)
+def _no_real_serp_balance(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Смета и «Запустить» спрашивают остаток на счету выдачи (`serp/funds.provider_balance`,
+    16.10.2026) — в тестах никогда у настоящего DataForSEO, даже если в `.env` разработчика
+    лежат его ключи. Остаток неизвестен — проверки нет; тесты предохранителя ставят свой."""
+
+    async def unknown(_ahrefs: object) -> None:
+        return None
+
+    monkeypatch.setattr("backend.features.serp.funds.provider_balance", unknown)
 
 
 @pytest.fixture

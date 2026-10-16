@@ -212,15 +212,31 @@ export function Estimate({ forecast, lines }: Props) {
       <Text size="sm" c="dimmed">
         Выдача придёт {waitTitle(forecast.serp_wait_s)} и будет стоить{' '}
         {belowCent(forecast.serp_cost_usd) ? '' : 'примерно '}
-        <b>{formatUsd(forecast.serp_cost_usd)}</b> — это другой счёт, не юниты Ahrefs. Потрачено
-        нами юнитов {since(forecast)}: <b>{formatNumber(forecast.units_spent_in_cycle)}</b>.
+        <b>{formatUsd(forecast.serp_cost_usd)}</b> — это другой счёт, не юниты Ahrefs.
+        {forecast.serp_balance_usd !== null && (
+          <>
+            {' '}
+            На счету DataForSEO <b>{formatUsd(forecast.serp_balance_usd)}</b>.
+          </>
+        )}{' '}
+        Потрачено нами юнитов {since(forecast)}:{' '}
+        <b>{formatNumber(forecast.units_spent_in_cycle)}</b>.
       </Text>
 
-      {forecast.affordable ? (
-        <Alert color="green" title="Помещается">
-          Смета считает худший случай — что все домены новые. За те, у которых данные ещё свежие,
-          второй раз не платят, поэтому по факту обычно меньше.
+      {/* Предохранитель счёта выдачи (16.10.2026): мало денег — прогон не начинается, и рядом
+          с «пополните счёт» зелёного «помещается» нет. */}
+      {forecast.serp_refusal !== null && (
+        <Alert color="red" title="Пополните счёт DataForSEO">
+          {forecast.serp_refusal}
         </Alert>
+      )}
+      {forecast.affordable ? (
+        forecast.serp_refusal === null && (
+          <Alert color="green" title="Помещается">
+            Смета считает худший случай — что все домены новые. За те, у которых данные ещё свежие,
+            второй раз не платят, поэтому по факту обычно меньше.
+          </Alert>
+        )
       ) : forecast.units_cap === null ? (
         <Alert color="red" title="Кап неизвестен">
           {forecast.cap_unknown ?? 'Размер ключа Ahrefs неизвестен'}: кап считается от размера

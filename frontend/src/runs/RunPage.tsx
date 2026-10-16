@@ -245,7 +245,12 @@ export function RunPage() {
   const canRun = can('run');
   // Потолок с отказом в тело не попадает: без своей проверки запуск ушёл бы без потолка —
   // на весь остаток по капу, — а в поле стояло бы «1.5».
-  const launchable = forecast?.affordable === true && !stale && canRun && capRefusal === null;
+  const launchable =
+    forecast?.affordable === true &&
+    forecast.serp_refusal === null &&
+    !stale &&
+    canRun &&
+    capRefusal === null;
   const languages = marketLanguages.data ?? [];
 
   return (

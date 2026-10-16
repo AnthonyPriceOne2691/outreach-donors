@@ -263,4 +263,45 @@ describe('смета', () => {
     const alert = (await screen.findByText(title)).closest('.mantine-Alert-root') as HTMLElement;
     expect(alert).toHaveTextContent(words);
   });
+
+  it('на счету DataForSEO мало — «пополните счёт», зелёного «помещается» нет, кнопка стоит', async () => {
+    // Слово владельца 16.10.2026: на счету меньше $5 или выдача дороже остатка — прогон не
+    // начинается, и человек видит, что пополнить.
+    const words =
+      'На счету DataForSEO 3,20 $ — меньше 5,00 $: пополните счёт DataForSEO. До пополнения прогоны не запускаются.';
+    await openRun({
+      'POST /api/runs/estimate': {
+        body: { ...FITS, serp_balance_usd: 3.2, serp_refusal: words },
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    const alert = (await screen.findByText('Пополните счёт DataForSEO')).closest(
+      '.mantine-Alert-root',
+    ) as HTMLElement;
+    expect(alert).toHaveTextContent(words);
+    expect(screen.queryByText('Помещается')).not.toBeInTheDocument();
+    expect(screen.getByText(/Выдача придёт/).closest('p')).toHaveTextContent(
+      /На счету DataForSEO 3,20\s\$/,
+    );
+    expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
+  });
+
+  it('на счету хватает — остаток назван рядом с ценой выдачи, запуск открыт', async () => {
+    await openRun({
+      'POST /api/runs/estimate': { body: { ...FITS, serp_balance_usd: 12.3 } },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    const line = (await screen.findByText(/Выдача придёт/)).closest('p') as HTMLElement;
+    expect(line).toHaveTextContent(/На счету DataForSEO 12,30\s\$/);
+    expect(screen.getByText('Помещается')).toBeInTheDocument();
+    expect(screen.queryByText('Пополните счёт DataForSEO')).not.toBeInTheDocument();
+  });
 });
