@@ -426,4 +426,6 @@ async def test_segment_routes_are_these(api_app: FastAPI) -> None:
         ("GET", "/api/sales/segment/runs/{run_id}/sites"),
         ("GET", "/api/sales/segment/runs/{run_id}/rejudge"),
         ("POST", "/api/sales/segment/runs/{run_id}/rejudge"),
+        # Помощник описания сегмента — `api/sales/segment_helper.py`.
+        ("POST", "/api/sales/segment/helper"),
     }

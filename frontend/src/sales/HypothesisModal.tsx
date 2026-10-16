@@ -34,6 +34,7 @@ import { useAddHypothesis, useEditHypothesis, useRemoveHypothesis } from './hypo
 import type { HypothesisEdit } from './hypothesisData';
 import { HypothesisRemove } from './HypothesisRemove';
 import { OneScrollForm } from './OneScrollForm';
+import { SegmentHelper } from './SegmentHelper';
 
 const NO_NAME = 'Впишите имя — по нему гипотезу выбирают при загрузке базы';
 const NAME_HINT =
@@ -103,6 +104,7 @@ function HypothesisFields({
         value={description}
         onChange={(event) => onDescription(event.currentTarget.value)}
       />
+      <SegmentHelper draft={description} onTake={onDescription} />
     </>
   );
 }

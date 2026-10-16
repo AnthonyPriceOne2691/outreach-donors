@@ -246,6 +246,9 @@ function FoldButton({
 interface Props {
   home: SegmentHome;
   onStarted: (run: number) => void;
+  /** «Взять в описание» у проверки описания при смете: предложение помощника — в правку
+   *  описания сегмента (сохраняет человек). */
+  onPropose: (text: string) => void;
 }
 
 /** Запуск — по смете, которую видел человек: с её отпечатком. Отказ («смета устарела») —
@@ -346,7 +349,7 @@ function initialDraft(home: SegmentHome): Draft {
   };
 }
 
-export function SegmentForm({ home, onStarted }: Props) {
+export function SegmentForm({ home, onStarted, onPropose }: Props) {
   const formId = useId();
   const [draft, setDraft] = useState<Draft>(() => initialDraft(home));
   const [dropped, setDropped] = useState<Dropped[]>([]);
@@ -403,6 +406,7 @@ export function SegmentForm({ home, onStarted }: Props) {
                 start.reset();
                 setDropped((was) => toggled(draft.keywords, was, line, taken));
               }}
+              onPropose={onPropose}
             />
           )}
           <Refusals moved={moved} counted={failed ? count.error : null} started={start.error} />

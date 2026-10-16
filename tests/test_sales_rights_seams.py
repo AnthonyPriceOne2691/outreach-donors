@@ -63,6 +63,8 @@ TELEMARKETER_WRITES: dict[tuple[str, str], Permission | None] = {
     ("PATCH", "/api/sales/hypotheses/{}"): None,
     ("DELETE", "/api/sales/hypotheses/{}"): None,
     ("POST", "/api/sales/segment/estimate"): None,
+    # Помощник описания сегмента: описание правит и телемаркетолог — спросить помощника может тоже.
+    ("POST", "/api/sales/segment/helper"): None,
     ("POST", "/api/sales/segment/candidates/{}/decision"): None,
     ("POST", "/api/sales/chain/preview"): None,
     ("POST", "/api/sales/clean"): Permission.RUN,

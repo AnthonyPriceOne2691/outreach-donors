@@ -138,8 +138,14 @@ async def test_the_queue_build_stops_in_words_of_the_sales_cap_and_spends_under_
 
 
 def test_the_sales_cap_counts_exactly_the_model_calls_of_sales_and_its_agent() -> None:
-    # Судья сегмента сбора базы (6.1) — вызов модели продаж вне агента: тот же потолок.
-    outside = {"sales_reply_kind", "sales_letter_rewrite", "sales_segment_judge"}
+    # Судья сегмента сбора базы (6.1) и помощник его описания (16.10) — вызовы модели продаж вне
+    # агента: тот же потолок.
+    outside = {
+        "sales_reply_kind",
+        "sales_letter_rewrite",
+        "sales_segment_judge",
+        "sales_segment_helper",
+    }
     # Черновик, ситуацию и судью агента продаж — тоже он (ревью стыков, круг 2).
     agent = {"sales_draft", "sales_situation", "sales_judge"}
     assert outside | agent == usage_cap.OPERATIONS

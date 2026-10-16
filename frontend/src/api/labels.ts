@@ -246,9 +246,8 @@ export function usageProvider(provider: string): { title: string; color: string 
   return known[provider] ?? { title: `прочее (${provider})`, color: 'gray' };
 }
 
-/** Операции внутри провайдера — все, что сервер пишет в журнал расхода (`OPERATION_PROVIDERS` в
- *  `backend/features/core/usage.py`). Незнакомая не пропадает с экрана: она показывается общими
- *  словами с кодом в скобках, чтобы новую операцию было видно и было по чему её найти. */
+/** Операции провайдеров — всё, что сервер пишет в журнал расхода (`usage.OPERATION_PROVIDERS`).
+ *  Незнакомая не пропадает: общими словами с кодом в скобках — видно, и есть по чему найти. */
 const OPERATION_TITLES: Record<string, string> = {
   batch_metrics: 'метрики доменов',
   by_country: 'трафик по странам',
@@ -268,6 +267,7 @@ const OPERATION_TITLES: Record<string, string> = {
   sales_draft: 'черновики продаж',
   sales_judge: 'судья черновиков продаж',
   sales_segment_judge: 'судья сегмента продаж',
+  sales_segment_helper: 'помощник описания сегмента',
   sales_serp: 'выдача сбора продаж',
   // Прежние имена: в журнале они остались у старых строк.
   dr_screen: 'просев по DR',
