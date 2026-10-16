@@ -3,15 +3,19 @@
 
 Живая модель здесь не зовётся: её заменяет подставной транспорт — «оракул», который знает
 решение человека, но отвечает только тем, что разрешает промпт: без правила дословной цитаты
-он пересказывает, без определения «no» говорит «unsure». Так порча промпта видна без сети,
-а цитата проверяется тем же кодом судьи (`segment_judge.parse`). Живой прогон на наборе —
-координатор по слову владельца, числа — в verify-report.
+он пересказывает, без определения «no» говорит «unsure», без правила v2 «сайт о бизнесах вида —
+не бизнес вида» принимает справочник под нестрогим описанием («сайты, связанные с …») — как
+модель на калибровке. Так порча промпта видна без сети, а цитата проверяется тем же кодом
+судьи (`segment_judge.parse`). Живой прогон на наборе — координатор по слову владельца, числа —
+в verify-report.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import re
+from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -33,7 +37,8 @@ SYNTHETIC = ev.load(ev.SYNTHETIC)
 
 
 class Oracle:
-    """Подставная модель: решение человека — тем, что разрешает промпт."""
+    """Подставная модель: решение человека — тем, что разрешает промпт. Случай — по домену и
+    описанию: один сайт под строгим и нестрогим описанием — два случая."""
 
     def __init__(
         self,
@@ -41,7 +46,7 @@ class Oracle:
         wrong: dict[str, str] | None = None,
         usage: dict[str, Any] | None = None,
     ):
-        self.cases = {case["host"]: case for case in cases}
+        self.cases = {(case["host"], case["segment"].strip()): case for case in cases}
         self.wrong = wrong or {}
         #: `usage` ответа — как назвал бы провайдер; по умолчанию только итог.
         self.usage = usage or {"total_tokens": 211}
@@ -53,10 +58,13 @@ class Oracle:
         payload = json.loads(request.content)
         system, user = (m["content"] for m in payload["messages"])
         host = user.split("\n", 1)[0].removeprefix("Domain: ")
+        segment = user.split(f"{sj.SEGMENT_OPEN}\n", 1)[1].split(f"\n{sj.SEGMENT_CLOSE}", 1)[0]
         self.asked.append(host)
         self.efforts.append(payload.get("reasoning_effort"))
-        case = self.cases[host]
-        fit = self.wrong.get(host, case["expect"])
+        case = self.cases[host, segment]
+        fit = self.wrong.get(host, case["expect"].split("|")[0])
+        if {"about-businesses", "loose"} <= set(case["tags"]) and ev.RULES["about"] not in system:
+            fit = "yes"  # без правила v2 нестрогое описание принимает справочник, как на калибровке
         if f'- "{fit}": ' not in system:
             fit = "unsure"  # слова, которого промпт не определяет, оракул не говорит
         quote = case["evidence"]
@@ -85,13 +93,24 @@ def oracle(monkeypatch: pytest.MonkeyPatch) -> Oracle:
 # --- синтетика --------------------------------------------------------------------------------
 
 
-def test_synthetic_set_covers_both_hypotheses_every_decision_and_the_rules() -> None:
-    assert 20 <= len(SYNTHETIC) <= 30
-    assert len({case["id"] for case in SYNTHETIC}) == len(SYNTHETIC)
-    assert {case["hypothesis"] for case in SYNTHETIC} == {"en", "cis"}
+def test_synthetic_set_covers_niches_languages_every_decision_and_the_rules() -> None:
+    """Правки — под любые ниши и языки: набор многонишевый (калибровка 15.10 и свои ловушки под
+    нестрогим описанием), с контрольными сегментами, которые сами просят справочники и площадки."""
+    assert len({case["id"] for case in SYNTHETIC}) == len(SYNTHETIC) >= 60
+    assert len({case["hypothesis"] for case in SYNTHETIC}) >= 10
     assert {case["expect"] for case in SYNTHETIC} == {"yes", "no", "unsure"}
-    tags = {tag for case in SYNTHETIC for tag in case["tags"]}
-    assert {"injection", "platform", "public-zone", "empty", "denied"} <= tags
+    tags = Counter(tag for case in SYNTHETIC for tag in case["tags"])
+    assert {"injection", "platform", "public-zone", "empty", "denied", "control"} <= set(tags)
+    kinds = {"directory", "map", "registry", "company-check", "marketplace", "classifieds",
+             "exchange", "tenders", "jobs", "aggregator", "booking-aggregator", "news", "blog",
+             "review"}  # fmt: skip
+    assert kinds <= set(tags)
+    loose = [c for c in SYNTHETIC if {"about-businesses", "loose"} <= set(c["tags"])]
+    assert len(loose) >= 8
+    assert len({c["segment"] for c in loose}) >= 4
+    # Письменности сайтов: латиница, кириллица, казахская кириллица, турецкая и польская латиница.
+    text = " ".join(case["text"] for case in SYNTHETIC)
+    assert all(letter in text for letter in "ąöüñşçіұқә")
 
 
 def test_evidence_is_verbatim_in_one_line_of_the_site_text() -> None:
@@ -101,9 +120,9 @@ def test_evidence_is_verbatim_in_one_line_of_the_site_text() -> None:
             assert SiteText.parse(case["text"]).holds(case["evidence"]), case["id"]
             # Короче — «на проверку» по правилу цитаты, и оракул учил бы судью не тому.
             assert sj.quote_words(case["evidence"]) >= sj.MIN_QUOTE_WORDS, case["id"]
-        for host in (case["host"],):
-            assert host.endswith(("-sample.com", "-sample.net", "-sample.org", "-sample.ru",
-                                  "-sample.kz", "-sample.by", ".zz", "youtube.com")), case["id"]  # fmt: skip
+        # Домены выдуманы: «-sample.», выдуманная зона `.zz` или платформа из правила по имени.
+        assert re.fullmatch(r"[a-z0-9-]+-sample(\.[a-z]{2,})+|[a-z0-9.-]+\.zz|youtube\.com",
+                            case["host"]), case["id"]  # fmt: skip
 
 
 # --- ворота --------------------------------------------------------------------------------------
@@ -140,23 +159,145 @@ def test_spoiled_no_definition_closes_the_gates(oracle: Oracle, capsys: Capture)
 def test_a_misfit_accepted_without_a_human_closes_the_gates(
     monkeypatch: pytest.MonkeyPatch, capsys: Capture
 ) -> None:
-    """Новостной сайт, уверенно принятый с настоящей цитатой, — стал бы лидом без человека."""
-    use(monkeypatch, Oracle(SYNTHETIC, wrong={"pedal-weekly-sample.org": "yes"}))
+    """Новости, обзор и доска объявлений, уверенно принятые с настоящей цитатой, — стали бы
+    лидами без человека. Трёх хватает, чтобы перейти 5 % на нынешнем наборе."""
+    hosts = ("pedal-weekly-sample.org", "softcompare-sample.com", "pisoportal-sample.es")
+    use(monkeypatch, Oracle(SYNTHETIC, wrong=dict.fromkeys(hosts, "yes")))
 
     assert ev.main([]) == 1
 
     out = capsys.readouterr().out
-    assert "ЛОЖНЫХ «ПРИНЯТЬ»: 1 ['en-news-1']" in out
+    assert "ЛОЖНЫХ «ПРИНЯТЬ»: 3 ['en-news-1', 'saas-no-review', 're-no-portal']" in out
     others = sum(case["expect"] != "yes" for case in SYNTHETIC)
-    assert f"ложных «принять» {1 / others:.0%} > 5%" in out
+    assert int(0.05 * others) < 3
+    assert f"ложных «принять» {3 / others:.0%} > 5%" in out
 
 
 def test_a_fit_cut_off_closes_the_gates(monkeypatch: pytest.MonkeyPatch, capsys: Capture) -> None:
-    use(monkeypatch, Oracle(SYNTHETIC, wrong={"kodstart-sample.ru": "no"}))
+    hosts = ("kodstart-sample.ru", "taskhive-sample.io", "trans-wisla-sample.pl")
+    cut = dict.fromkeys(hosts, "no")
+    use(monkeypatch, Oracle(SYNTHETIC, wrong=cut))
 
     assert ev.main([]) == 1
 
-    assert "ложных «отказ» 14% > 10%" in capsys.readouterr().out
+    fits = sum(case["expect"] == "yes" for case in SYNTHETIC)
+    assert f"ложных «отказ» {3 / fits:.0%} > 10%" in capsys.readouterr().out
+
+
+def test_spoiled_v2_rule_lets_directories_in_and_closes_the_gates(
+    oracle: Oracle, capsys: Capture
+) -> None:
+    """Обратный прогон правила v2: без него справочники, карты, реестры и агрегаторы под
+    нестрогим описанием приняты — ложные «принять» выше ворот, порча поймана словами."""
+    assert ev.main(["--spoil", "about"]) == 1
+
+    out = capsys.readouterr().out
+    assert "ПОРЧА ПРОМПТА: снято правило «сайт о бизнесах вида — не бизнес вида»" in out
+    assert "ПОРЧА ПОЙМАНА: без правила «сайт о бизнесах вида — не бизнес вида»" in out
+    loose = [c["id"] for c in SYNTHETIC if {"about-businesses", "loose"} <= set(c["tags"])]
+    traps = sum("about-businesses" in c["tags"] for c in SYNTHETIC)
+    assert f"(about-businesses): ложных «принять» {len(loose)} из {traps} {loose}" in out
+    assert "ложных «принять»" in out.split("ВОРОТА ЗАКРЫТЫ:")[1]
+
+
+def test_with_the_v2_rule_the_traps_are_rejected(oracle: Oracle, capsys: Capture) -> None:
+    assert ev.main([]) == 0
+
+    traps = sum("about-businesses" in c["tags"] for c in SYNTHETIC)
+    assert f"(about-businesses): ложных «принять» 0 из {traps}" in capsys.readouterr().out
+
+
+def test_a_spoil_the_set_does_not_feel_is_said_in_words(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Capture
+) -> None:
+    """Набор без ловушек правила порчу не ловит — итог говорит это словами, а не молчит."""
+    strict = [case for case in SYNTHETIC if "loose" not in case["tags"]]
+    path = tmp_path / "strict.jsonl"
+    path.write_text("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in strict), "utf-8")
+    use(monkeypatch, Oracle(strict))
+
+    assert ev.main(["--spoil", "about", str(path)]) == 0
+
+    assert "ПОРЧА НЕ ПОЙМАНА: без правила «сайт о бизнесах вида — не бизнес вида»" in (
+        capsys.readouterr().out
+    )
+
+
+def test_the_v2_spoil_takes_out_exactly_the_v2_rule_line() -> None:
+    """Без правила v2 промпт — ровно прежний: тот же прогон на наборе даёт замер v1."""
+    prompt = sj.load_prompt()
+
+    spoiled = ev.without_rule(prompt, "about")
+
+    assert "what it writes about" not in spoiled
+    kept = [line for line in prompt.splitlines() if not line.startswith("- Judge what the site")]
+    assert spoiled.splitlines() == kept
+    assert len(kept) == len(prompt.splitlines()) - 1
+
+
+# --- «не уверен»: пара ответов, любой верен --------------------------------------------------
+
+
+def _result(expect: str, lane: Lane) -> ev.Result:
+    return ev.Result("c", "h", expect, lane.value, "", None, "model", False, 0)
+
+
+@pytest.mark.parametrize(
+    ("expect", "lane", "right", "false_accept", "false_reject"),
+    [
+        ("yes|unsure", Lane.ACCEPT, True, False, False),
+        ("yes|unsure", Lane.REVIEW, True, False, False),
+        ("yes|unsure", Lane.REJECT, False, False, True),
+        ("no|unsure", Lane.REJECT, True, False, False),
+        ("no|unsure", Lane.REVIEW, True, False, False),
+        ("no|unsure", Lane.ACCEPT, False, True, False),
+        ("unsure", Lane.ACCEPT, False, True, False),
+        ("yes", Lane.REVIEW, False, False, False),
+    ],
+)
+def test_either_answer_of_a_pair_is_right(
+    expect: str, lane: Lane, right: bool, false_accept: bool, false_reject: bool
+) -> None:
+    found = _result(expect, lane)
+
+    assert (found.right, found.false_accept, found.false_reject) == (
+        right,
+        false_accept,
+        false_reject,
+    )
+
+
+def test_pairs_count_as_hits_in_recall_and_by_their_yes_or_no_in_the_false_shares() -> None:
+    """`yes|unsure` — в знаменателе полноты «принять» и ложных «отказ», `no|unsure` — полноты
+    «отказ» и ложных «принять». «На проверку» по паре — попадание, а не промах."""
+    results = [
+        _result("yes", Lane.ACCEPT),
+        _result("yes|unsure", Lane.REVIEW),
+        _result("yes|unsure", Lane.REJECT),
+        _result("no", Lane.REJECT),
+        _result("no|unsure", Lane.REVIEW),
+        _result("no|unsure", Lane.ACCEPT),
+        _result("unsure", Lane.REVIEW),
+    ]
+
+    found = ev.metrics(results)
+
+    assert found["accept_recall"] == pytest.approx(2 / 3)
+    assert found["false_reject"] == pytest.approx(1 / 3)
+    assert found["reject_recall"] == pytest.approx(2 / 3)
+    assert found["false_accept"] == pytest.approx(1 / 4)
+
+
+def test_the_set_takes_pairs_with_unsure_and_refuses_other_pairs(tmp_path: Path) -> None:
+    path = tmp_path / "set.jsonl"
+    for expect, fine in (("yes|unsure", True), ("no|unsure", True), ("yes|no", False)):
+        case = dict(SYNTHETIC[0], expect=expect)
+        path.write_text(json.dumps(case, ensure_ascii=False) + "\n", encoding="utf-8")
+        if fine:
+            assert ev.load(path)[0]["expect"] == expect
+        else:
+            with pytest.raises(ev.SetError, match="не размечен"):
+                ev.load(path)
 
 
 def test_spoiling_a_rule_the_prompt_does_not_have_is_refused() -> None:
@@ -291,29 +432,56 @@ def test_the_golden_set_is_read_by_the_manifest(
     assert f"sha256 {digest}" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize(
-    ("per", "fields", "words"),
-    [
-        (41, {"sha256": "0" * 64}, "набор не тот, что в манифесте: sha256"),
-        (41, {"count": 7}, "набор не тот, что в манифесте: случаев 82 ≠ 7"),
-        (39, {}, "набор мал: {'en': 39, 'cis': 39} — на гипотезу нужно не меньше 40 сайтов"),
-    ],
-    ids=["hash", "count", "too-small"],
-)
+#: Поле манифеста, которое портит случай; `None` — каждое поле закреплено верно.
+PINS: dict[str, tuple[int, dict[str, Any], str]] = {
+    "hash": (41, {"sha256": "0" * 64}, "набор не тот, что в манифесте: sha256"),
+    "count": (41, {"count": 7}, "набор не тот, что в манифесте: случаев 82 ≠ 7"),
+    "too-small": (
+        39,
+        {},
+        "набор мал: {'en': 39, 'cis': 39} — на гипотезу нужно не меньше 40 сайтов",
+    ),
+    "unpinned-hash": (41, {"sha256": None}, "набор не закреплён в манифесте: впишите count 82"),
+    "unpinned-count": (41, {"count": None}, "набор не закреплён в манифесте"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(PINS))
 def test_a_golden_set_other_than_the_manifest_says_is_red(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: Capture,
-    per: int,
-    fields: dict[str, Any],
-    words: str,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture, case: str
 ) -> None:
-    _golden(tmp_path, per)
-    monkeypatch.setattr(ev, "MANIFEST", _manifest(tmp_path, **fields))
+    """Набора нет, он не тот, мал или не закреплён числом и хэшем — красный словами, а не
+    «0 расхождений»: не закреплённый набор прошёл бы и чужим файлом."""
+    per, fields, words = PINS[case]
+    path, cases = _golden(tmp_path, per)
+    pinned = {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "count": len(cases)}
+    monkeypatch.setattr(ev, "MANIFEST", _manifest(tmp_path, **(pinned | fields)))
+    oracle = Oracle(cases)
+    use(monkeypatch, oracle)
 
     assert ev.main(["--golden"], golden_dir=str(tmp_path)) == 1
 
-    assert words in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert f"НАБОР НЕ ПРОЧИТАН: {words}" in out
+    assert oracle.asked == []
+
+
+def test_the_manifest_pins_the_live_set_its_size_hash_and_the_v1_baseline() -> None:
+    """Первый живой набор — вне репозитория: манифест называет файл, закрепляет число случаев и
+    хэш (другой файл — красный) и хранит базу v1 — живой eval на этом наборе без правила v2."""
+    spec = json.loads(ev.MANIFEST.read_text(encoding="utf-8"))
+
+    assert (spec["file"], spec["count"], spec["env"]) == (
+        "sales_segment_golden.jsonl",
+        74,
+        "SALES_SEGMENT_GOLDEN_DIR",
+    )
+    assert re.fullmatch(r"[0-9a-f]{64}", spec["sha256"])
+    assert spec["count"] >= spec["per_hypothesis"]["min"]
+    base = spec["baseline"]
+    assert base["prompt_version"] == "sales-segment-v1" != sj.PROMPT_VERSION
+    assert base["cases"] == spec["count"]
+    assert {key for key, *_ in ev.CHECKS} <= set(base)
 
 
 def test_no_golden_directory_is_red_in_words(capsys: Capture) -> None:

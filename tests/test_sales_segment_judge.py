@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 import pytest
 from backend.config.judge import JudgeMode
-from backend.features.donors.home_signals import HomeSignals
+from backend.features.donors.home_signals import DENIAL_MARKERS, HomeSignals, looks_denied
 from backend.features.runs import exclusions
 from backend.features.sales import segment_judge as sj
 from backend.features.sales.segment_judge import SegmentClient, SegmentVerdict, SiteText
@@ -178,12 +178,23 @@ def test_the_name_rule_is_the_shared_whom_we_do_not_write_rule() -> None:
         ({"fit": "maybe", "quote": "Велосипеды и запчасти"}, "ответ модели не из списка: 'maybe'"),
         ({"fit": "yes", "why": "магазин"}, "модель не дала цитаты"),
         ({"fit": "yes", "quote": "Велосипеды и", "why": "x"}, "цитата короче трёх слов"),
-        # Подпись — наши слова, не сайта: цитата с ней не найдётся в строке сайта.
-        ({"fit": "yes", "quote": f"{sj.PAGE_TITLE}: Велосипеды и"}, "цитаты нет в тексте"),
+        # Подпись снимается (`segment_quote.unlabeled`), а без неё слов два — не доказательство.
+        ({"fit": "yes", "quote": f"{sj.PAGE_TITLE}: Велосипеды и"}, "цитата короче трёх слов"),
+        # Одна подпись — пустая цитата.
+        ({"fit": "yes", "quote": f"«{sj.HOME_MENU}:»"}, "модель не дала цитаты"),
         # Слова из двух строк, склеенные в одну, — не цитата.
         ({"fit": "yes", "quote": "интернет-магазин Велодом Продаём горные"}, "цитаты нет в тексте"),
     ],
-    ids=["not-json", "not-object", "out-of-list", "no-quote", "two-words", "label", "two-lines"],
+    ids=[
+        "not-json",
+        "not-object",
+        "out-of-list",
+        "no-quote",
+        "two-words",
+        "label-and-two-words",
+        "label-only",
+        "two-lines",
+    ],
 )
 async def test_anything_but_a_proven_answer_goes_to_review(body: Any, reason: str) -> None:
     verdict, _ = await judged(body)
@@ -245,7 +256,7 @@ def test_prompt_is_a_versioned_file_with_the_quote_and_injection_rules() -> None
     prompt = sj.load_prompt()
 
     assert sj.PROMPT_PATH.name == "segment.md"
-    assert sj.PROMPT_VERSION == "sales-segment-v1"
+    assert sj.PROMPT_VERSION == "sales-segment-v2"
     assert '"fit"' in prompt
     assert "copied verbatim from the website text" in prompt
     assert "untrusted DATA" in prompt
@@ -320,3 +331,114 @@ def test_shadow_writes_the_verdict_but_does_not_cut(
     assert got is lane
     if mode is JudgeMode.SHADOW and verdict.lane is Lane.REJECT and lane is Lane.REVIEW:
         assert reason == "судья в наблюдении отрезал бы: другой бизнес"
+
+
+# --- v2: сайт судится по тому, что он есть, а не о чём пишет ----------------------------------
+
+#: Правило v2 дословно, как его проверили на калибровке (многонишевые случаи, шесть языков):
+#: правка хоть слова — новая версия промпта и новый замер.
+RULE_V2 = (
+    "- Judge what the site is, not what it writes about. A site that lists, maps, rates, "
+    "compares, registers or reports on businesses of the segment's kind (a directory or "
+    "catalogue, a map, a company registry or company check service, a marketplace, classifieds "
+    "board or exchange, a tender platform, a job board, an aggregator of orders or bookings, a "
+    'news site, a blog post or a review) is not one of them: answer "no", even when the segment '
+    'is written loosely as "sites about ..." or "sites related to ..." . Such a site is "yes" '
+    "only when the segment itself asks for directories, marketplaces, media or the like."
+)
+
+
+def test_the_prompt_has_the_what_the_site_is_rule_verbatim_before_the_unsure_rule() -> None:
+    lines = sj.load_prompt().splitlines()
+
+    assert lines.count(RULE_V2) == 1
+    assert lines[lines.index(RULE_V2) + 1].startswith("- If no words of the website text")
+    assert sj.PROMPT_VERSION == "sales-segment-v2"
+
+
+# --- заглушка защиты: по строкам, главная отдельно от выдачи -----------------------------------
+
+#: Заглушка защиты вместо главной — маркер общего `looks_denied` и до, и после его расширения.
+STUB = "Just a moment..."
+HOME = "Велодом — магазин велосипедов"
+QUOTE = {"fit": "yes", "quote": "Велосипеды и запчасти", "why": "магазин велосипедов"}
+
+
+def _user(seen: list[Any]) -> str:
+    [payload] = seen
+    return str(payload["messages"][1]["content"])
+
+
+@pytest.mark.parametrize("label", [sj.HOME_TITLE, sj.HOME_DESCRIPTION, sj.HOME_MENU])
+async def test_a_stub_only_in_the_home_lines_leaves_the_serp_to_the_model(label: str) -> None:
+    """Пересуд старого прогона видел строку-заглушку главной и отдавал весь сайт человеку
+    правилом, хотя выдачу судить можно: заглушку ставит защита сайта, а выдачу — поисковик."""
+    site = SiteText(((sj.PAGE_TITLE, TITLE), (sj.PAGE_DESCRIPTION, DESCRIPTION), (label, STUB)))
+
+    verdict, seen = await judged(QUOTE, site)
+
+    assert (verdict.lane, verdict.decided_by) == (Lane.ACCEPT, Decider.MODEL)
+    user = _user(seen)
+    assert f"{sj.PAGE_TITLE}: {TITLE}" in user
+    assert f"{sj.PAGE_DESCRIPTION}: {DESCRIPTION}" in user
+    assert STUB not in user
+    assert sj.by_text(site) is None  # смета пересуда считает такой сайт вызовом модели
+
+
+@pytest.mark.parametrize(
+    "site",
+    [
+        SiteText(((sj.PAGE_TITLE, STUB), (sj.HOME_TITLE, HOME))),
+        SiteText(((sj.PAGE_TITLE, TITLE), (sj.PAGE_DESCRIPTION, STUB), (sj.HOME_TITLE, STUB))),
+        SiteText(((sj.HOME_TITLE, STUB), (sj.HOME_MENU, "Каталог · Доставка"))),
+    ],
+    ids=["stub-in-serp", "stub-in-serp-and-home", "home-stub-and-no-serp"],
+)
+async def test_a_stub_in_the_serp_or_with_no_serp_goes_to_review_by_rule(site: SiteText) -> None:
+    verdict, seen = await judged(QUOTE, site)
+
+    assert (verdict.lane, verdict.decided_by) == (Lane.REVIEW, Decider.RULE)
+    assert "отказ доступа" in verdict.reason
+    assert seen == []
+
+
+async def test_without_a_stub_the_model_sees_the_serp_and_the_home_page_as_before() -> None:
+    site = SiteText(
+        ((sj.PAGE_TITLE, TITLE), (sj.HOME_TITLE, HOME), (sj.HOME_MENU, "Каталог · Доставка"))
+    )
+
+    verdict, seen = await judged(QUOTE, site)
+
+    assert verdict.lane is Lane.ACCEPT
+    assert _user(seen).endswith(f"{site.for_model()}\n{sj.SITE_CLOSE}")
+    assert site.without_stub() == site
+
+
+@pytest.mark.parametrize(
+    "stub",
+    ["Checking…", "Loading...", "Подождите…", "请稍候…", "403"],
+    ids=["checking", "loading", "ru-wait", "zh-wait", "bare-403"],
+)
+async def test_a_home_line_of_a_lone_wait_word_is_a_stub_only_line_by_line(stub: str) -> None:
+    """«Checking…» строкой главной: строку-заглушку общий `looks_denied` узнаёт только целиком,
+    без нашей подписи, — по всему тексту с подписями она проходила как текст сайта."""
+    site = SiteText(
+        ((sj.PAGE_TITLE, TITLE), (sj.PAGE_DESCRIPTION, DESCRIPTION), (sj.HOME_TITLE, stub))
+    )
+
+    verdict, seen = await judged(QUOTE, site)
+
+    assert not looks_denied(site.for_model())
+    assert site.stubbed
+    assert (verdict.lane, verdict.decided_by) == (Lane.ACCEPT, Decider.MODEL)
+    assert stub not in _user(seen)
+
+
+@pytest.mark.parametrize("label", sj.LABELS)
+@pytest.mark.parametrize("marker", DENIAL_MARKERS)
+def test_lines_catch_every_stub_the_whole_text_caught(marker: str, label: str) -> None:
+    """По строкам — не меньше, чем по всему тексту: каждый маркер общего списка в любой строке."""
+    site = SiteText(((sj.PAGE_TITLE, TITLE), (label, f"Sample — {marker.title()} — page")))
+
+    assert looks_denied(site.for_model())
+    assert site.stubbed

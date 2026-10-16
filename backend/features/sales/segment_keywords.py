@@ -13,6 +13,11 @@
 числом общих слов. Сходство — общим правилом пула доноров («дубль чего»,
 `keywords/dedup.near_duplicate_of` и `overlap`): своей копии правила у продаж нет.
 
+**Ключ — название фирмы — тоже пометка, а не отсев.** Ключ с организационно-правовой формой
+отдельным словом («ТОО …», «… GmbH», «… Sp. z o.o.») — имя одной фирмы: выдача найдёт её реестры и
+карточки, а не сегмент. Формы многих стран и письменностей — данными в `legal_forms.py`; пометка
+ложится в то же поле слов, что «похож на «…»», через «; » — ключ взят, решает человек.
+
 **В отчёте прогона — и то, что вышло с покупкой** (`report.serp`): ключи, чью выдачу провайдер
 не отдал (заплачено — не пришло), и ключи, по которым выдача пуста. Это разные исходы: первое —
 сбой провайдера, второе — ключ ничего не находит (`runs/planning.Candidates.lost_keywords`).
@@ -24,6 +29,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.features.keywords import dedup, hygiene
+from backend.features.sales.legal_forms import firm_form
 from backend.features.sales.segment_models import SalesSegmentRunModel
 from backend.features.serp.protocol import keyword_key
 
@@ -34,6 +40,10 @@ REPEAT = "повтор строки {line}: для выдачи это тот ж
 NEAR = (
     "похож на «{twin}» — общих слов {common} из {total}: выдача может частично совпасть, ключ взят"
 )
+#: Ключ с формой фирмы — имя одной фирмы; `{form}` — форма, как её вписал человек.
+FIRM = "похоже на название фирмы («{form}»): выдача найдёт её реестры и карточки, а не сегмент"
+#: Две пометки одного ключа — в одном поле слов.
+NOTES_JOINT = "; "
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +70,7 @@ def clean_keywords(text: str) -> Keywords:
     lines = [hygiene.normalize(line) for _, line in written]
     good, rejected = hygiene.clean(lines)
     fit = set(good)
-    taken: list[str] = []
+    taken: dict[str, str] = {}  # взятый ключ → как вписан
     first: dict[str, int] = {}  # ключ выдачи → номер строки взятого
     for (number, as_written), phrase in zip(written, lines, strict=True):
         if phrase not in fit:
@@ -70,8 +80,22 @@ def clean_keywords(text: str) -> Keywords:
             rejected.setdefault(as_written, REPEAT.format(line=first[key]))
             continue
         first[key] = number
-        taken.append(phrase)
-    return Keywords(taken, rejected, _near(taken))
+        taken[phrase] = as_written
+    phrases = list(taken)
+    return Keywords(phrases, rejected, _joined(phrases, _near(phrases), _firms(taken)))
+
+
+def _firms(taken: dict[str, str]) -> dict[str, str]:
+    """Пометки «название фирмы» — по ключу, как его вписал человек: регистр нужен формам
+    (`legal_forms.CASED`), а взятый ключ уже в нижнем."""
+    found = {phrase: firm_form(as_written) for phrase, as_written in taken.items()}
+    return {phrase: FIRM.format(form=form) for phrase, form in found.items() if form is not None}
+
+
+def _joined(taken: list[str], *notes: dict[str, str]) -> dict[str, str]:
+    """Пометки ключа — одним полем слов: почти повтор и название фирмы вместе, через «; »."""
+    joined = {phrase: [found[phrase] for found in notes if phrase in found] for phrase in taken}
+    return {phrase: NOTES_JOINT.join(words) for phrase, words in joined.items() if words}
 
 
 def _near(taken: list[str]) -> dict[str, str]:
