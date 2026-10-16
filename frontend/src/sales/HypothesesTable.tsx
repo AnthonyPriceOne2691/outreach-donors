@@ -6,17 +6,25 @@
  * не ссылка: вести в пустую таблицу нечестно.
  *
  * Гипотеза заводится окном «Новая гипотеза» в строке вкладок (`HypothesisModal`) — тем же
- * правилом, что командой консоли. Описание — коммерческий текст: живёт данными в базе, а не
- * в репозитории, и в письма не идёт; его читает судья сегмента сбора базы (`SegmentPane`).
+ * правилом, что командой консоли, — и **правится тем же окном**: «Править» под именем в строке.
+ * Там же — «Удалить гипотезу»: только пустую. Кнопка — в ячейке имени, слева: на телефоне
+ * таблица уезжает вбок, а первая колонка видна без прокрутки.
+ *
+ * Описание — коммерческий текст: живёт данными в базе, а не в репозитории, и в письма не идёт;
+ * его читает судья сегмента сбора базы (`SegmentPane`). **В строке — три строки и «показать
+ * целиком»** (решение 15.10): описание до 4000 знаков растягивало строку на экран.
  */
 
-import { Anchor, Stack, Table, Text } from '@mantine/core';
+import { Anchor, Button, Group, Stack, Table, Text } from '@mantine/core';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import type { HypothesisCard } from '../api/salesTypes';
 import { formatDate, formatNumber } from '../format';
+import { ClampText } from './ClampText';
 import { FixedTable } from './FixedTable';
 import type { Column } from './FixedTable';
+import { HypothesisModal } from './HypothesisModal';
 import { LEAD_STATE_KEYS, leadsLink } from './leadFilters';
 
 const COLUMNS: Column[] = [
@@ -29,6 +37,8 @@ const COLUMNS: Column[] = [
 ];
 
 export const HYPOTHESES_MIN_WIDTH = 912;
+/** Строк описания в свёрнутом виде. */
+export const DESCRIPTION_LINES = 3;
 
 function Count({ value, to }: { value: number; to: string }) {
   if (value === 0) {
@@ -56,17 +66,39 @@ function Count({ value, to }: { value: number; to: string }) {
   );
 }
 
-function HypothesisRow({ row }: { row: HypothesisCard }) {
+function HypothesisRow({
+  row,
+  onEdit,
+}: {
+  row: HypothesisCard;
+  onEdit: (row: HypothesisCard) => void;
+}) {
   return (
     <Table.Tr>
       <Table.Td className="cellName wrapCell">
-        <Text size="sm" fw={500}>
-          {row.name}
-        </Text>
-        {row.description !== null && (
-          <Text size="xs" c="dimmed">
-            {row.description}
+        <Group gap="xs" align="center" wrap="wrap">
+          <Text size="sm" fw={500}>
+            {row.name}
           </Text>
+          <Button
+            size="compact-sm"
+            variant="default"
+            className="press"
+            aria-label={`Править гипотезу «${row.name}»`}
+            onClick={() => onEdit(row)}
+          >
+            Править
+          </Button>
+        </Group>
+        {row.description !== null && (
+          <ClampText
+            text={row.description}
+            lines={DESCRIPTION_LINES}
+            className="hypothesisDescription"
+            size="xs"
+            dimmed
+            toggle="link"
+          />
         )}
       </Table.Td>
       {LEAD_STATE_KEYS.map((state) => (
@@ -84,7 +116,14 @@ function HypothesisRow({ row }: { row: HypothesisCard }) {
   );
 }
 
-export function HypothesesTable({ rows }: { rows: HypothesisCard[] }) {
+interface Props {
+  rows: HypothesisCard[];
+  /** Гипотеза удалена: снять её из адреса раздела, если она выбрана. */
+  onRemoved?: (id: number) => void;
+}
+
+export function HypothesesTable({ rows, onRemoved }: Props) {
+  const [editing, setEditing] = useState<HypothesisCard | null>(null);
   if (rows.length === 0) {
     return (
       <Stack gap={6} py="sm">
@@ -101,15 +140,25 @@ export function HypothesesTable({ rows }: { rows: HypothesisCard[] }) {
     );
   }
   return (
-    <FixedTable
-      columns={COLUMNS}
-      minWidth={HYPOTHESES_MIN_WIDTH}
-      className="hypothesesTable"
-      horizontalSpacing="md"
-      tabularNums
-      rows={rows.map((row) => (
-        <HypothesisRow key={row.id} row={row} />
-      ))}
-    />
+    <>
+      <FixedTable
+        columns={COLUMNS}
+        minWidth={HYPOTHESES_MIN_WIDTH}
+        className="hypothesesTable"
+        horizontalSpacing="md"
+        tabularNums
+        rows={rows.map((row) => (
+          <HypothesisRow key={row.id} row={row} onEdit={setEditing} />
+        ))}
+      />
+      {editing !== null && (
+        <HypothesisModal
+          key={editing.id}
+          card={editing}
+          onClose={() => setEditing(null)}
+          onRemoved={(card) => onRemoved?.(card.id)}
+        />
+      )}
+    </>
   );
 }

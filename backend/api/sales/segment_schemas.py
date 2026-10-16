@@ -70,15 +70,20 @@ class RunAsk(SegmentAsk):
 
 
 class SegmentBody(BaseModel):
-    """Описание сегмента гипотезы — его читает судья сегмента."""
+    """Правка гипотезы: описание сегмента (его читает судья сегмента) и имя. Нет поля — оно не
+    меняется: «Сбор базы» шлёт одно описание, окно гипотезы — то, что в нём поправили."""
 
     model_config = ConfigDict(extra="forbid")
 
-    description: str = Field(max_length=SEGMENT_LENGTH)
+    name: str | None = Field(default=None, description="новое имя; правило — как у заведения")
+    description: str | None = Field(
+        default=None, max_length=SEGMENT_LENGTH, description="пустое — описания нет"
+    )
 
 
 class SegmentCard(BaseModel):
     hypothesis_id: int
+    name: str
     description: str | None
 
 

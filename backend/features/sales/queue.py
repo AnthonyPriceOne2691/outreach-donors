@@ -74,6 +74,7 @@ from backend.features.sales import (
     corridor,
     elsewhere,
     handoff,
+    hypotheses,
     letter,
     off_queue,
 )
@@ -116,8 +117,9 @@ SENT_MEANWHILE = "письмо ушло или снято, пока его со�
 
 
 def campaign_name(hypothesis: SalesHypothesisModel) -> str:
-    """Рассылка гипотезы: одна на гипотезу, сроки добивок — при её создании."""
-    return f"Продажи: {hypothesis.name}"
+    """Рассылка гипотезы: одна на гипотезу, сроки добивок — при её создании. Имя — правилом
+    `hypotheses.campaign_title`: по нему же правка имени гипотезы переименовывает рассылку."""
+    return hypotheses.campaign_title(hypothesis.name)
 
 
 @dataclass(frozen=True, slots=True)

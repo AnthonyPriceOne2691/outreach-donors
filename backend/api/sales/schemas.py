@@ -1,12 +1,13 @@
 """Раздел «Продажи»: что уходит на экран — мастеру загрузки, вкладкам гипотез и лидов, —
-и что приходит из окна «Новая гипотеза»."""
+и что приходит из окна «Новая гипотеза»; что держит гипотезу — окну гипотезы."""
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
+from backend.api.sales.segment_schemas import SEGMENT_LENGTH
 from backend.features.sales.browse import HypothesisRow, LeadRow, LeadsPage
 from backend.features.sales.columns import LeadField
 from backend.features.sales.intake import Lead, Preview, Problem
@@ -87,7 +88,18 @@ class HypothesisBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    description: str | None = None
+    #: Предел — тот же, что у правки описания сегмента: поле одно, запись одна.
+    description: str | None = Field(default=None, max_length=SEGMENT_LENGTH)
+
+
+class HypothesisHolds(BaseModel):
+    """Что держит гипотезу — окну гипотезы до нажатия «Удалить»: вид → сколько (только
+    ненулевые) и строка под закрытой кнопкой словами сервера. `held` пуст — гипотеза пустая и
+    удаляется; сервер всё равно считает заново под блокировкой и отвечает 409 словами."""
+
+    hypothesis_id: int
+    holds: dict[str, int]
+    held: str | None
 
 
 class HypothesisCard(BaseModel):

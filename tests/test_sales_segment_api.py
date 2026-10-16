@@ -117,7 +117,11 @@ async def test_the_segment_description_is_written_to_the_hypothesis(
         f"/api/sales/hypotheses/{owner.id}", json={"description": " "}, headers=headers
     )
 
-    assert written.json() == {"hypothesis_id": owner.id, "description": "Магазины самокатов."}
+    assert written.json() == {
+        "hypothesis_id": owner.id,
+        "name": owner.name,
+        "description": "Магазины самокатов.",
+    }
     assert cleared.json()["description"] is None
 
 
@@ -404,8 +408,10 @@ async def test_segment_routes_are_these(api_app: FastAPI) -> None:
     in_app = {
         (method.upper(), path)
         for path, methods in api_app.openapi()["paths"].items()
-        if "/segment" in path or path == "/api/sales/hypotheses/{hypothesis_id}"
         for method in methods
+        # Правка гипотезы — здесь же (`segment.py`); удаление и «что держит» — у заведения.
+        if "/segment" in path
+        or (path == "/api/sales/hypotheses/{hypothesis_id}" and method == "patch")
     }
 
     assert in_app == {

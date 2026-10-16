@@ -21,14 +21,16 @@
  * а плитки и фильтры остаются — условие поправляют тут же.
  */
 
-import { Box, Button, Card, Group, SegmentedControl, Select, Stack } from '@mantine/core';
+import { Box, Button, Card, Group, SegmentedControl, Select, Stack, Text } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import type { SetURLSearchParams } from 'react-router-dom';
 
 import { listHypotheses } from '../api/sales';
+import type { HypothesisCard } from '../api/salesTypes';
 import { PageHead } from '../components/PageHead';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
@@ -153,6 +155,66 @@ function SalesTabs({ tab, counts, onTab }: TabsProps) {
   );
 }
 
+/** Пропавший номер из адреса и гипотеза, взятая вместо него (первая; гипотез нет — `null`). */
+interface LostOne {
+  id: number;
+  first: number | null;
+}
+
+/** Номер из адреса, которого нет в списке гипотез; список не пришёл или номера нет — `null`. */
+function goneOf(rows: HypothesisCard[] | undefined, hypothesis: number | null): number | null {
+  if (rows === undefined || hypothesis === null) return null;
+  return rows.some((row) => row.id === hypothesis) ? null : hypothesis;
+}
+
+/**
+ * Гипотезы из адреса больше нет — удалили, а номер остался в ссылке коллеге, во вкладке «назад»,
+ * в памяти места раздела: раздел берёт первую гипотезу и говорит это одной строкой (`Lost`), а не
+ * падает и не показывает пустоту. Прогон из адреса — той гипотезы, он тоже уходит.
+ *
+ * Удалил её сам человек — первая берётся молча: строка — для чужих ссылок. Удалённая помечается
+ * номером (`onRemoved`), а не правкой адреса из окна: перечитанный список приходит раньше смены
+ * адреса (навигация роутера идёт переходом, а ответ списка — срочным обновлением), и строка
+ * встала бы всё равно (проверено порчей: строка вставала и тому, кто удалил гипотезу сам).
+ */
+function useLostHypothesis(
+  rows: HypothesisCard[] | undefined,
+  hypothesis: number | null,
+  setParams: SetURLSearchParams,
+) {
+  const removed = useRef<number | null>(null);
+  const [lost, setLost] = useState<LostOne | null>(null);
+  const gone = goneOf(rows, hypothesis);
+  const first = rows?.[0]?.id ?? null;
+  useEffect(() => {
+    if (gone === null) return;
+    if (gone !== removed.current) setLost({ id: gone, first });
+    setParams(
+      (current) =>
+        writeLeadFilters({ ...readLeadFilters(current), hypothesis: first, run: null, page: 1 }),
+      { replace: true },
+    );
+  }, [gone, first, setParams]);
+  return {
+    /** Строка «больше нет» — пока выбрана взятая вместо пропавшей гипотеза. */
+    shown: lost !== null && hypothesis === lost.first ? lost : null,
+    onRemoved: (id: number) => {
+      removed.current = id;
+    },
+  };
+}
+
+/** Гипотезы из адреса больше нет: какой номер пропал и какая гипотеза взята вместо него. */
+function Lost({ lost, rows }: { lost: LostOne; rows: HypothesisCard[] }) {
+  const instead = rows.find((row) => row.id === lost.first);
+  return (
+    <Text px="md" size="sm" role="status">
+      Гипотезы №{lost.id} больше нет —{' '}
+      {instead === undefined ? 'гипотез пока нет.' : `выбрана первая: «${instead.name}».`}
+    </Text>
+  );
+}
+
 export function SalesPage() {
   const [params, setParams] = useSearchParams();
   const filters = useMemo(() => readLeadFilters(params), [params]);
@@ -193,6 +255,8 @@ export function SalesPage() {
     }
   }, [back, setParams]);
 
+  const lost = useLostHypothesis(hypotheses.data?.rows, filters.hypothesis, setParams);
+
   if (hypotheses.data === undefined) return <Pending error={hypotheses.error} />;
 
   const known = hypotheses.data.rows;
@@ -226,7 +290,7 @@ export function SalesPage() {
         onReset={() => go(NO_LEAD_FILTERS)}
       />
     ),
-    hypotheses: () => <HypothesesTable rows={known} />,
+    hypotheses: () => <HypothesesTable rows={known} onRemoved={lost.onRemoved} />,
     collect: () => (
       <SegmentPane
         hypotheses={known}
@@ -274,6 +338,7 @@ export function SalesPage() {
           )}
           {filters.tab === 'hypotheses' && <NewHypothesisButton />}
         </Group>
+        {lost.shown !== null && <Lost lost={lost.shown} rows={known} />}
         {bodies[filters.tab]()}
       </Stack>
     </Card>

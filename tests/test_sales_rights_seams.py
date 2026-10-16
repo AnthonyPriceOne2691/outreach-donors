@@ -53,13 +53,15 @@ TELEMARKETER = "telemarketer@team.example.test"
 TELEMARKETER_RIGHTS = {"run": False, "settings": False, "prices": False}
 
 #: Записи раздела, которые телемаркетолог делает или нет, — каждая по своему праву. `None` —
-#: одного права «Продажи» достаточно: загрузка базы, гипотеза, описание сегмента, смета сбора,
-#: решение по сайту «на проверку» и письмо глазами адресата (предпросмотр ничего не пишет).
+#: одного права «Продажи» достаточно: загрузка базы, гипотеза (заведение, правка, удаление
+#: пустой), описание сегмента, смета сбора, решение по сайту «на проверку» и письмо глазами
+#: адресата (предпросмотр ничего не пишет).
 TELEMARKETER_WRITES: dict[tuple[str, str], Permission | None] = {
     ("POST", "/api/sales/import/preview"): None,
     ("POST", "/api/sales/import"): None,
     ("POST", "/api/sales/hypotheses"): None,
     ("PATCH", "/api/sales/hypotheses/{}"): None,
+    ("DELETE", "/api/sales/hypotheses/{}"): None,
     ("POST", "/api/sales/segment/estimate"): None,
     ("POST", "/api/sales/segment/candidates/{}/decision"): None,
     ("POST", "/api/sales/chain/preview"): None,

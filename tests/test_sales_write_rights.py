@@ -65,6 +65,8 @@ ELSEWHERE = {
     ("POST", "/api/sales/import"),
     ("POST", "/api/sales/import/preview"),
     ("POST", "/api/sales/hypotheses"),
+    # Удаление пустой гипотезы — право и журнал как у заведения (`test_sales_hypothesis_delete.py`).
+    ("DELETE", "/api/sales/hypotheses/{}"),
     ("POST", "/api/sales/clean"),
     # Сбор базы (6.1): смета, решение по сайту и описание сегмента — `sales`, запуск и
     # продолжение — ещё `run` (платные выдача, модель и поиск адресов, как очистка), — права
