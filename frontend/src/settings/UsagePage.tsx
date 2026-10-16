@@ -22,8 +22,13 @@
  * DR кандидатов Этапа 2 и метрики прогона — одна операция, но две статьи; платный
  * обход Этапа 2 — строкой против своего потолка.
  *
- * **Кап Ahrefs меняют здесь** (`AhrefsCap.tsx`, решение владельца 16.10.2026): сколько
- * из него потрачено и осталось, кто и когда менял — и «Изменить кап» у кого есть право.
+ * **Кап Ahrefs — от ключа, сузить его можно здесь** (`AhrefsCap.tsx`, решения владельца
+ * 16.10.2026): размер ключа и цикл называет Ahrefs, сколько потрачено и осталось, кто и когда
+ * менял — и «Изменить кап» у кого есть право.
+ *
+ * **Два периода — подписаны оба** (16.10.2026): кап — в цикле ключа, со своего обнуления,
+ * плитки, этапы и статьи — с первого числа. Без подписи два числа Ahrefs на одном экране
+ * читались бы одним.
  */
 
 import { Alert, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core';
@@ -34,7 +39,7 @@ import { Metric } from '../components/Metric';
 import { PageHead } from '../components/PageHead';
 import { SpendTable, tileOf } from '../components/SpendTable';
 import { fetchUsage } from '../api/settings';
-import { formatDate, formatUsd } from '../format';
+import { formatDay, formatUsd } from '../format';
 import { AhrefsCap } from './AhrefsCap';
 import { CrawlCap, StageBreakdown } from './UsageStages';
 import { shownWithoutSpend, SPEND_PROVIDERS } from './usageLabels';
@@ -70,12 +75,12 @@ export function UsagePage() {
         <Stack gap="md">
           <PageHead
             title="Расход"
-            hint={`С ${formatDate(data.since)} — лимиты месячные. Остаток спрашивается у провайдера, а не считается по своей таблице: ключ Ahrefs общий с соседней системой, и её траты нам не видны.`}
+            hint={`Кап Ahrefs — в цикле ключа, со своего обнуления; плитки, этапы и статьи — с ${formatDay(data.since)}, календарный месяц. Остаток спрашивается у провайдера, а не считается по своей таблице: ключ Ahrefs общий с соседней системой, и её траты нам не видны.`}
           />
 
-          {/* Кап — сколько потрачено из него, сколько осталось, кто и когда его менял;
+          {/* Ключ и кап — размер ключа, цикл, сколько потрачено и осталось, кто и когда менял;
               менять — тому, у кого право «править пороги» (`AhrefsCap.tsx`). */}
-          <AhrefsCap data={data} />
+          <AhrefsCap ahrefsKey={data.ahrefs_key} />
 
           {data.ahrefs_left === null && (
             <Alert color="yellow" title="Остаток у Ahrefs спросить не удалось">
@@ -103,7 +108,10 @@ export function UsagePage() {
 
           {/* Плитки — внутри шапки, как на «Отборе» и «Продажах»: на полотне они
               стояли отдельным рядом и в тёмной теме читались провалами (аудит
-              экранов 09.10.2026). */}
+              экранов 09.10.2026). Период — словами над ними: у капа выше он другой. */}
+          <Text size="sm" c="dimmed">
+            Расход с {formatDay(data.since)} — календарный месяц: плитки, этапы и статьи
+          </Text>
           <SimpleGrid cols={{ base: 2, sm: 3, lg: 5 }} spacing="sm">
             {Object.entries(SPEND_PROVIDERS).map(([key, provider]) => {
               const units = data.units_by_provider[key] ?? 0;

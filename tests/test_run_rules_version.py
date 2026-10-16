@@ -41,6 +41,7 @@ from backend.workers import jobs
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.conftest import bearer
+from tests.test_ahrefs_cap import known_key
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -128,7 +129,9 @@ class FakeQueue:
 
 
 @pytest.fixture
-def queue(monkeypatch: pytest.MonkeyPatch) -> FakeQueue:
+async def queue(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> FakeQueue:
+    # Ключ Ahrefs известен — снимком, как от его ответа: потолок прогона — от размера ключа.
+    await known_key(session, key_limit=100_000)
     monkeypatch.setattr("backend.config.ahrefs.API_KEY", "ключ-для-теста")
     monkeypatch.setattr("backend.config.serp.SANDBOX", False)
     fake = FakeQueue()
@@ -185,8 +188,10 @@ async def _no_heartbeat(*args: object, **kwargs: object) -> None:
 
 
 @pytest.fixture
-def pipeline(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> dict[str, Any]:
-    """Задача — в транзакции теста, сбор подменён: вопрос — с чем он позван."""
+async def pipeline(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> dict[str, Any]:
+    """Задача — в транзакции теста, сбор подменён: вопрос — с чем он позван. Ключ Ahrefs
+    известен — снимком: потолок на старте считается от его размера."""
+    await known_key(session, key_limit=100_000)
     seen: dict[str, Any] = {}
 
     async def execute(deps: RunDeps, request: RunRequest) -> Any:

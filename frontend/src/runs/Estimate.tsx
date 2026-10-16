@@ -14,7 +14,7 @@ import { permissionTitle } from '../api/labels';
 import type { Forecast } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
-import { belowCent, formatNumber, formatShare, formatUsd, plural } from '../format';
+import { belowCent, formatDay, formatNumber, formatShare, formatUsd, plural } from '../format';
 import { depthTitle, keywordsTitle, RESULTS_PER_PAGE } from './depth';
 import { waitTitle } from './serpMode';
 
@@ -61,6 +61,21 @@ function RaiseCap() {
   );
 }
 
+/** Кап — на цикл ключа Ahrefs (16.10.2026): «по капу N из M» от размера ключа; размер
+ *  неизвестен — так и сказано, а не «по капу 0 из 0». */
+function capHint(forecast: Forecast): string {
+  return forecast.units_cap === null
+    ? `кап неизвестен: ${forecast.cap_unknown ?? 'размер ключа Ahrefs неизвестен'}`
+    : `по капу ${formatNumber(forecast.cap_left)} из ${formatNumber(forecast.units_cap)}`;
+}
+
+/** С какого дня считается наш расход: от обнуления ключа или — без его даты — с первого. */
+function since(forecast: Forecast): string {
+  return forecast.cycle_by_key
+    ? `за цикл ключа, с ${formatDay(forecast.cycle_start)}`
+    : `с ${formatDay(forecast.cycle_start)} — Ahrefs не назвал даты обнуления ключа`;
+}
+
 interface Props {
   forecast: Forecast;
   /** Сколько непустых строк в поле ключей — смета посчитана по ним. */
@@ -94,8 +109,8 @@ export function Estimate({ forecast, lines }: Props) {
           value={formatNumber(forecast.budget)}
           hint={
             forecast.run_ceiling === null
-              ? `у провайдера ${formatNumber(forecast.units_left)}, по капу ${formatNumber(forecast.cap_left)} из ${formatNumber(forecast.units_cap)}`
-              : `ваш потолок ${formatNumber(forecast.run_ceiling)}; по капу ${formatNumber(forecast.cap_left)} из ${formatNumber(forecast.units_cap)}`
+              ? `у провайдера ${formatNumber(forecast.units_left)}, ${capHint(forecast)}`
+              : `ваш потолок ${formatNumber(forecast.run_ceiling)}; ${capHint(forecast)}`
           }
         />
       </SimpleGrid>
@@ -110,13 +125,19 @@ export function Estimate({ forecast, lines }: Props) {
         Выдача придёт {waitTitle(forecast.serp_wait_s)} и будет стоить{' '}
         {belowCent(forecast.serp_cost_usd) ? '' : 'примерно '}
         <b>{formatUsd(forecast.serp_cost_usd)}</b> — это другой счёт, не юниты Ahrefs. Потрачено
-        нами юнитов с начала месяца: <b>{formatNumber(forecast.units_spent_this_month)}</b>.
+        нами юнитов {since(forecast)}: <b>{formatNumber(forecast.units_spent_in_cycle)}</b>.
       </Text>
 
       {forecast.affordable ? (
         <Alert color="green" title="Помещается">
           Смета считает худший случай — что все домены новые. За те, у которых данные ещё свежие,
           второй раз не платят, поэтому по факту обычно меньше.
+        </Alert>
+      ) : forecast.units_cap === null ? (
+        <Alert color="red" title="Кап неизвестен">
+          {forecast.cap_unknown ?? 'Размер ключа Ahrefs неизвестен'}: кап считается от размера
+          ключа, и прогон не запустится, пока Ahrefs не ответит. Посчитайте смету ещё раз через
+          несколько минут.
         </Alert>
       ) : (
         <Alert color="red" title="Не помещается в бюджет">

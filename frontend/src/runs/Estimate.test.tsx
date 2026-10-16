@@ -3,7 +3,8 @@
  *
  * Числа сметы считает сервер, экран их только называет — и проверяется здесь,
  * что называет он то, что посчитано: ключи, которые купит выдача, долю дублей,
- * которой посчитаны домены, цену выдачи (и в доли цента) и бюджет.
+ * которой посчитаны домены, цену выдачи (и в доли цента) и бюджет. Кап — на цикл ключа Ahrefs
+ * (16.10.2026): период назван словами, а неизвестный размер ключа — причиной, не нулём.
  */
 
 import { screen, within } from '@testing-library/react';
@@ -17,7 +18,7 @@ const TOO_MUCH = { ...FITS, units_left: 100, budget: 100, affordable: false, sho
 
 const CAP_EATEN = {
   ...FITS,
-  units_spent_this_month: 99_950,
+  units_spent_in_cycle: 99_950,
   cap_left: 50,
   budget: 50,
   affordable: false,
@@ -65,8 +66,10 @@ describe('смета', () => {
     await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
 
     // До этого среза расход на выдачу не показывался нигде, хотя это
-    // вторая статья после Ahrefs.
-    expect(await screen.findByText(/Потрачено нами юнитов с начала месяца/)).toBeInTheDocument();
+    // вторая статья после Ahrefs. Наш расход юнитов — за цикл ключа, с его обнуления.
+    expect(
+      await screen.findByText(/Потрачено нами юнитов за цикл ключа, с 21 октября/),
+    ).toBeInTheDocument();
     expect(screen.getByText(/0,72\s\$/)).toBeInTheDocument();
     expect(
       screen.getByText(/Выдача придёт за секунды и будет стоить примерно/),
@@ -144,6 +147,48 @@ describe('смета', () => {
     ) as HTMLElement;
     expect(alert).toHaveTextContent(words);
     expect(within(alert).getByRole('link', { name: '«Расход»' })).toHaveAttribute('href', '/usage');
+  });
+
+  it('без даты обнуления — с первого числа, и сказано почему', async () => {
+    await openRun({
+      'POST /api/runs/estimate': {
+        body: { ...FITS, cycle_by_key: false, cycle_start: '2026-10-01T00:00:00+00:00' },
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    expect(
+      await screen.findByText(/с 1 октября — Ahrefs не назвал даты обнуления ключа/),
+    ).toBeInTheDocument();
+  });
+
+  it('размер ключа неизвестен — словами причины, а не «по капу 0 из 0»', async () => {
+    const unknown = 'Ahrefs ещё не ответил — размер ключа неизвестен';
+    await openRun({
+      'POST /api/runs/estimate': {
+        body: {
+          ...TOO_MUCH,
+          units_cap: null,
+          cap_left: 0,
+          budget: 0,
+          shortfall: 177,
+          cap_unknown: unknown,
+        },
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    expect(await screen.findByText('Кап неизвестен')).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`кап неизвестен: ${unknown}`))).toBeInTheDocument();
+    expect(screen.queryByText(/по капу 0/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Не помещается в бюджет')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
   });
 
   it('не помещается — кнопка не нажимается и сказано, чего не хватает', async () => {

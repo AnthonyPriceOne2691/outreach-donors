@@ -23,13 +23,15 @@ from backend.config.startup_checks import ConfigError
 from backend.features.core import usage
 from backend.features.core.domain import RunStatus, Stage
 from backend.features.donors.verdict import Thresholds
-from backend.features.runs.budget import CapExceededError
+from backend.features.runs.budget import CapExceededError, QuotaUnavailableError
 from backend.features.runs.pipeline import RunDeps, RunRequest
 from backend.features.runs.repository import RunRepository, unique_share_from
 from backend.features.runs.thresholds import defaults
 from backend.features.serp.modes import SerpMode
 from backend.workers import jobs
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.test_ahrefs_cap import known_key
 
 
 class _Closable:
@@ -45,8 +47,10 @@ async def _no_heartbeat(*args: object, **kwargs: object) -> None:
 
 
 @pytest.fixture
-def pipeline(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> dict[str, Any]:
-    """Задача работает в той же транзакции, что и тест, а сбор — подменён."""
+async def pipeline(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> dict[str, Any]:
+    """Задача работает в той же транзакции, что и тест, а сбор — подменён. Ключ Ahrefs
+    известен — снимком, как от его ответа: потолок на старте считается от размера ключа."""
+    await known_key(session, key_limit=100_000)
     seen: dict[str, Any] = {}
 
     async def execute(deps: RunDeps, request: RunRequest) -> SimpleNamespace:
@@ -136,23 +140,36 @@ async def test_serp_is_bought_in_the_mode_the_run_was_queued_with(
 class TestCeilingAtStart:
     """Потолок прогона считается при старте задачи, а не при нажатии (аудит 10.10.2026, №2).
 
-    С нажатия он был остатком месячного капа на ту минуту: два прогона, поставленные подряд,
-    получали каждый весь остаток, единственный воркер шёл ими по очереди, и второй тратил
-    ещё раз то, что уже съел первый, — до двух капов за месяц на ключе, общем с соседней
-    системой.
+    С нажатия он был остатком капа на ту минуту: два прогона, поставленные подряд, получали
+    каждый весь остаток, единственный воркер шёл ими по очереди, и второй тратил ещё раз то,
+    что уже съел первый, — до двух капов за цикл на ключе, общем с соседней системой.
     """
 
+    async def test_an_unknown_key_waits_and_does_not_reach_the_pipeline(
+        self, session: AsyncSession, pipeline: dict[str, Any]
+    ) -> None:
+        """Снимка ключа нет — потолок считать не от чего: прогон ждёт ответа Ahrefs (сбой,
+        повтор поможет), а не уходит в сбор с нулём или с умолчанием."""
+        await session.execute(text("DELETE FROM ahrefs_key_snapshot"))
+        run = await _queued_run(session, cap=1_234)
+
+        with pytest.raises(QuotaUnavailableError, match="размер ключа неизвестен"):
+            await jobs._run(run.id)
+
+        assert "request" not in pipeline
+
     @pytest.fixture(autouse=True)
-    def month_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("backend.config.ahrefs.UNITS_CAP", 10_000)
+    async def month_cap(self, session: AsyncSession, pipeline: dict[str, Any]) -> None:
+        """Кап — ключ на 20 000: снимок поверх того, что положил `pipeline`."""
+        await known_key(session, key_limit=20_000)
 
     async def test_second_run_gets_only_what_the_first_left(
         self, session: AsyncSession, pipeline: dict[str, Any]
     ) -> None:
-        """Оба поставлены при остатке в 10 000, первый его и потратил."""
-        first = await _queued_run(session, cap=10_000)
-        second = await _queued_run(session, cap=10_000)
-        usage.record(session, operation="batch_metrics", units=10_000, run_id=first.id)
+        """Оба поставлены при остатке в 20 000, первый его и потратил."""
+        first = await _queued_run(session, cap=20_000)
+        second = await _queued_run(session, cap=20_000)
+        usage.record(session, operation="batch_metrics", units=20_000, run_id=first.id)
         first.status = RunStatus.DONE
         await session.commit()
 
@@ -163,30 +180,30 @@ class TestCeilingAtStart:
     async def test_promise_of_a_live_run_is_not_spent_twice(
         self, session: AsyncSession, pipeline: dict[str, Any]
     ) -> None:
-        """Идущий прогон обещал 6 000 и потратил 1 000: свободно 10 000 − 1 000 − 5 000."""
-        live = await _queued_run(session, cap=10_000)
+        """Идущий прогон обещал 6 000 и потратил 1 000: свободно 20 000 − 1 000 − 5 000."""
+        live = await _queued_run(session, cap=20_000)
         live.status, live.estimated_units = RunStatus.RUNNING, 6_000
         usage.record(session, operation="batch_metrics", units=1_000, run_id=live.id)
-        second = await _queued_run(session, cap=10_000)
+        second = await _queued_run(session, cap=20_000)
         await session.commit()
 
         await jobs._run(second.id)
 
-        assert pipeline["request"].cap == 4_000
+        assert pipeline["request"].cap == 14_000
 
     async def test_a_resumed_run_does_not_hold_budget_against_itself(
         self, session: AsyncSession, pipeline: dict[str, Any]
     ) -> None:
         """Продолжение после смерти воркера: своё обещание — не соперник, потраченное им
-        уже в таблице расхода. Свободно 10 000 − 2 000."""
-        run = await _queued_run(session, cap=10_000)
+        уже в таблице расхода. Свободно 20 000 − 2 000."""
+        run = await _queued_run(session, cap=20_000)
         run.status, run.estimated_units = RunStatus.RUNNING, 6_000
         usage.record(session, operation="batch_metrics", units=2_000, run_id=run.id)
         await session.commit()
 
         await jobs._run(run.id)
 
-        assert pipeline["request"].cap == 8_000
+        assert pipeline["request"].cap == 18_000
 
     async def test_the_promise_stays_the_upper_bound(
         self, session: AsyncSession, pipeline: dict[str, Any]

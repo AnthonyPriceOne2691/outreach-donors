@@ -80,11 +80,6 @@ def check_collect() -> None:
             Requirement("SERP_PROVIDER", serp.PROVIDER, "источник выдачи"),
         ],
     )
-    if ahrefs.UNITS_CAP > ahrefs.MONTHLY_UNITS:
-        raise ConfigError(
-            f"AHREFS_UNITS_CAP ({ahrefs.UNITS_CAP}) больше месячного лимита "
-            f"AHREFS_MONTHLY_UNITS ({ahrefs.MONTHLY_UNITS}) — кап ничего не ограничивает."
-        )
 
 
 def check_outreach() -> None:

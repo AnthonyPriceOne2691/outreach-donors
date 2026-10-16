@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -33,6 +34,7 @@ from backend.features.donors.geo import CountryShare, GeoVerdict
 from backend.features.donors.geo_top5 import buy_top5, plan_top5
 from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Metrics
+from backend.features.runs.ahrefs_key import cycle_of, day_words
 from backend.features.runs.repository import RunRepository
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -46,10 +48,12 @@ TOP5 = [
     {"country": "gb", "org_traffic": 1200},
     {"country": "ca", "org_traffic": 800},
 ]
-QUOTA = {
+#: Остаток у провайдера. Кап — от ключа (16.10.2026): весь лимит ключа — 100 000, как кап
+#: в замечании ТЗ; суженный — строкой смены с экрана «Расход» (`AhrefsCapModel`).
+QUOTA: dict[str, object] = {
     "units_limit_workspace": 6_400_000,
     "units_usage_workspace": 0,
-    "units_limit_api_key": 1_600_000,
+    "units_limit_api_key": 100_000,
     "units_usage_api_key": 0,
 }
 
@@ -62,12 +66,6 @@ def _no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
         return None
 
     monkeypatch.setattr("backend.features.ahrefs.client.asyncio.sleep", instant)
-
-
-@pytest.fixture(autouse=True)
-def _cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Месячный кап — тот, что в замечании ТЗ, а не из `.env` разработчика."""
-    monkeypatch.setattr("backend.config.ahrefs.UNITS_CAP", 100_000)
 
 
 class Ahrefs:
@@ -83,7 +81,9 @@ class Ahrefs:
         refusals: dict[str, int] | None = None,
         broken: str | None = None,
         cost: int = 55,
+        quota: dict[str, object] | None = None,
     ) -> None:
+        self.quota = quota or QUOTA
         self.countries = countries or {}
         self.refusals = refusals or {}
         self.broken = broken
@@ -94,7 +94,7 @@ class Ahrefs:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("limits-and-usage"):
             self.quota_asked += 1
-            return httpx.Response(200, json={"limits_and_usage": QUOTA})
+            return httpx.Response(200, json={"limits_and_usage": self.quota})
         params = dict(request.url.params)
         assert params["limit"] == "5", "страны — только топ-5: без лимита запрос стоит 1650"
         host = params["target"]
@@ -185,7 +185,10 @@ class TestShow:
         assert "one.example.test — США, принят" in printed
         assert "two.example.test — США, не донор" in printed
         assert "Смета: 2 × 55 = 110 юнитов" in printed
-        assert "Месячный кап: 100 000, осталось 100 000" in printed
+        assert (
+            "Кап Ahrefs: 100 000 (весь лимит ключа), потрачено нами 0, осталось 100 000" in printed
+        )
+        assert "Цикл: календарный месяц с 1 " in printed, "даты обнуления Ahrefs не назвал"
         assert "Можно потратить: 100 000" in printed
         assert "Это показ — ничего не куплено" in printed
 
@@ -195,7 +198,7 @@ class TestShow:
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("backend.config.ahrefs.UNITS_CAP", 100)
+        session.add(AhrefsCapModel(units_cap=100))
         for name in ("a", "b", "c"):
             await _partial(session, f"{name}.example.test")
 
@@ -303,7 +306,7 @@ class TestCap:
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("backend.config.ahrefs.UNITS_CAP", 100)
+        session.add(AhrefsCapModel(units_cap=100))
         for name in ("a", "b", "c"):
             await _partial(session, f"{name}.example.test")
         ahrefs = Ahrefs()
@@ -318,24 +321,34 @@ class TestCap:
     async def test_the_cap_from_the_usage_screen_counts(
         self, session: AsyncSession, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        # Кап задан на экране «Расход» (строка `ahrefs_caps`) — им, а не окружением
-        # (в окружении теста 100 000), меряется докупка, как и прогон (`spending.month_cap`).
+        """Кап — от ключа, который назвал ответ Ahrefs, а сужен на экране «Расход» (строка
+        `ahrefs_caps`): им меряется докупка, как и прогон (`ahrefs_cap.key_cap`). Цикл — от
+        обнуления ключа, которое Ahrefs назвал датой."""
+        reset = (datetime.now(UTC) + timedelta(days=10)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        cycle = cycle_of(reset, datetime.now(UTC))
         session.add(AhrefsCapModel(units_cap=110))
         await session.flush()
         for name in ("a", "b", "c"):
             await _partial(session, f"{name}.example.test")
+        quota = {**QUOTA, "usage_reset_date": reset.date().isoformat()}
 
-        code = await run_geo_top5(session, Ahrefs().client(), _args())
+        code = await run_geo_top5(session, Ahrefs(quota=quota).client(), _args())
 
         printed = capsys.readouterr().out
         assert code == 0, "показ — не отказ"
-        assert "Месячный кап: 110, осталось 110" in printed
+        assert (
+            "Кап Ahrefs: 110 (не больше 110 при лимите ключа 100 000), потрачено нами 0, "
+            "осталось 110"
+        ) in printed
+        assert f"Цикл ключа: с {day_words(cycle.start)}, обнуление {day_words(reset)}" in printed
         assert "не помещается: 3 × 55 = 165 юнитов" in printed
 
     async def test_limit_buys_what_fits(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("backend.config.ahrefs.UNITS_CAP", 100)
+        session.add(AhrefsCapModel(units_cap=100))
         for name in ("a", "b", "c"):
             await _partial(session, f"{name}.example.test")
         ahrefs = Ahrefs()
@@ -350,8 +363,8 @@ class TestCap:
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Кап месячный: потраченное в этом месяце из него вычитается."""
-        monkeypatch.setattr("backend.config.ahrefs.UNITS_CAP", 110)
+        """Кап — на цикл ключа: потраченное в цикле из него вычитается."""
+        session.add(AhrefsCapModel(units_cap=110))
         await RunRepository(session).record_usage(
             run_id=None,
             operation="batch_metrics",
@@ -373,7 +386,7 @@ class TestCap:
     ) -> None:
         """Смета помещалась впритык, но провайдер взял за запрос больше: запрос,
         который по смете уже не влезает, не делается."""
-        monkeypatch.setattr("backend.config.ahrefs.UNITS_CAP", 165)
+        session.add(AhrefsCapModel(units_cap=165))
         for name in ("a", "b", "c"):
             await _partial(session, f"{name}.example.test")
         ahrefs = Ahrefs(cost=100)
@@ -387,11 +400,14 @@ class TestCap:
     async def test_unknown_provider_balance_is_a_refusal(
         self, session: AsyncSession, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """Ключа нет — остаток у Ahrefs неизвестен: показ говорит это, покупка отказывает."""
+        """Ключа нет — остаток у Ahrefs и размер ключа неизвестны: показ говорит это,
+        покупка отказывает."""
         await _partial(session, "a.example.test")
 
         assert await run_geo_top5(session, None, _args()) == 0
-        assert "У Ahrefs: неизвестно — ключа Ahrefs нет" in capsys.readouterr().out
+        printed = capsys.readouterr().out
+        assert "У Ahrefs: неизвестно — ключа Ahrefs нет" in printed
+        assert "Кап Ahrefs: неизвестен — Ahrefs ещё не ответил — размер ключа неизвестен" in printed
         assert await run_geo_top5(session, None, _args(yes=True)) == 3
         assert "тратить вслепую нельзя" in capsys.readouterr().out
 

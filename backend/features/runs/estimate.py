@@ -55,13 +55,14 @@ class RunForecast:
     units_left: int
     """Остаток **у провайдера** за вычетом обещанного идущими прогонами.
     Про наш кап он ничего не знает: ключ общий с соседней системой."""
-    units_cap: int
-    """Наш добровольный кап на месяц. Именно месячный и всегда он:
-    потолок конкретного прогона — отдельное число ниже, и подменять
-    одно другим нельзя (на живой проверке подменил — и свой потолок
-    в пять тысяч начал вычитаться из месячной траты)."""
-    #: Потрачено нами юнитов с начала месяца — то, на что уменьшился кап.
-    units_spent_this_month: int = 0
+    units_cap: int | None
+    """Наш кап на цикл ключа — от размера ключа (`runs/ahrefs_cap.key_cap`); `None` —
+    размер неизвестен, и помещаться нечему. Именно на цикл и всегда он: потолок
+    конкретного прогона — отдельное число ниже, и подменять одно другим нельзя (на
+    живой проверке подменил — и свой потолок в пять тысяч начал вычитаться из
+    месячной траты)."""
+    #: Потрачено нами юнитов с начала цикла ключа — то, на что уменьшился кап.
+    units_spent_in_cycle: int = 0
     #: Потолок, названный человеком для этого прогона. Пусто — не назвал.
     run_ceiling: int | None = None
     #: Доля уникальных доменов, по которой посчитаны домены сметы. Экран
@@ -72,8 +73,10 @@ class RunForecast:
 
     @property
     def cap_left(self) -> int:
-        """Сколько осталось по нашему месячному капу."""
-        return max(0, self.units_cap - self.units_spent_this_month)
+        """Сколько осталось по нашему капу в цикле ключа; кап неизвестен — ноль."""
+        if self.units_cap is None:
+            return 0
+        return max(0, self.units_cap - self.units_spent_in_cycle)
 
     @property
     def budget(self) -> int:
@@ -82,7 +85,7 @@ class RunForecast:
         названного человеком.
 
         Три ограничителя разной природы: первый жёсткий и чужой, второй
-        наш и месячный, третий наш и на один прогон.
+        наш и на цикл ключа, третий наш и на один прогон.
         """
         limits = [self.units_left, self.cap_left]
         if self.run_ceiling is not None:
@@ -105,8 +108,8 @@ def forecast(
     keywords: int,
     depth_pages: int,
     units_left: int,
-    units_cap: int,
-    units_spent_this_month: int = 0,
+    units_cap: int | None,
+    units_spent_in_cycle: int = 0,
     run_ceiling: int | None = None,
     country_share: float = COUNTRY_CALL_SHARE,
     unique_share: float = UNIQUE_SHARE,
@@ -125,7 +128,7 @@ def forecast(
         estimate=estimate_run(domains, country_share=country_share),
         units_left=units_left,
         units_cap=units_cap,
-        units_spent_this_month=units_spent_this_month,
+        units_spent_in_cycle=units_spent_in_cycle,
         run_ceiling=run_ceiling,
         unique_share=unique_share,
     )

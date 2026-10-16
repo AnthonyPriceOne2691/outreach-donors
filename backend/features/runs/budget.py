@@ -4,18 +4,23 @@
 сметы, консольной команде и самому прогону. Пока он жил внутри прогона,
 маршрут применял кап второй раз поверх — и потолок в пять тысяч юнитов
 вычитал из себя месячную трату. Один расчёт — одно место.
+
+**Каждый удачный ответ Ahrefs — в снимок ключа** (`keep`, 16.10.2026): от него считаются
+кап и его цикл (`runs/ahrefs_cap.key_cap`). Кто спрашивает с сессией, тот и кладёт.
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
+from backend.features.runs.ahrefs_cap import key_cap
+from backend.features.runs.ahrefs_key import Keep, keeper
 from backend.features.runs.repository import RunRepository
-from backend.features.runs.spending import cap_left
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +30,7 @@ class CapExceededError(RuntimeError):
 
 
 class QuotaUnavailableError(RuntimeError):
-    """Остаток узнать не удалось. Тратить вслепую нельзя.
+    """Остаток или размер ключа узнать не удалось. Тратить вслепую нельзя.
 
     `permanent` — от причины (`runs/failures.is_permanent`): отказ по ключу или
     правам повтор не исправит, сеть и 5xx — исправят.
@@ -36,9 +41,12 @@ class QuotaUnavailableError(RuntimeError):
         self.permanent = permanent
 
 
-async def units_left(client: AhrefsClient, *, cap: int | None = None, claimed: int = 0) -> int:
+async def units_left(
+    client: AhrefsClient, *, cap: int | None = None, claimed: int = 0, keep: Keep | None = None
+) -> int:
     """Сколько юнитов можно потратить: остаток провайдера минус чужие удержания,
-    и всё это не выше нашего капа.
+    и всё это не выше нашего капа. `keep` — куда положить ответ снимком ключа
+    (`ahrefs_key.keeper`): у кого сессия, тот и кладёт.
 
     Кап ограничивает нас добровольно, остаток провайдера — жёстко.
 
@@ -68,6 +76,8 @@ async def units_left(client: AhrefsClient, *, cap: int | None = None, claimed: i
             f"на том же ключе. Причина: {exc}",
             permanent=getattr(exc, "permanent", False),  # у OSError признака нет
         ) from exc
+    if keep is not None:
+        await keep(quota)
 
     logger.info(
         "Остаток Ahrefs: %s (ключ %s из %s, пространство %s из %s)",
@@ -88,35 +98,62 @@ async def units_left(client: AhrefsClient, *, cap: int | None = None, claimed: i
     return min(free, cap) if cap is not None else free
 
 
+async def cap_left(session: AsyncSession, *, now: datetime | None = None) -> int:
+    """Сколько юнитов осталось по нашему капу в этом цикле ключа.
+
+    **Кап — на цикл, и вычитать из него потраченное обязательно.** Без этого он
+    работает потолком одного прогона: потратив девяносто тысяч из ста, следующий
+    прогон снова видит все сто — и кап, названный на экране расхода, в бюджете
+    прогона означает совсем другое. Одно число с двумя смыслами расходится молча.
+
+    Считается по своей таблице, а не по остатку провайдера: остаток включает траты
+    соседней системы на общем ключе, а наш кап — про нас. Кап — действующий, от ключа
+    (`ahrefs_cap.key_cap`), и параметра, через который вызов подставил бы свой, нет.
+
+    **Размер ключа неизвестен — отказ словами** (`QuotaUnavailableError`, 16.10.2026):
+    Ahrefs ещё не ответил ни разу или не назвал лимитов, и кап считать не от чего. Повтор
+    поможет: сторож спрашивает Ahrefs каждые десять минут.
+    """
+    cap = await key_cap(session, now=now)
+    if cap.unknown is not None:
+        raise QuotaUnavailableError(
+            f"{cap.unknown}. Тратить не от чего: кап считается от размера ключа, а без него "
+            "под риском лимит соседней системы на том же ключе — сторож спросит Ahrefs "
+            "в ближайшие минуты"
+        )
+    return cap.cap_left
+
+
 async def ceiling_at_start(session: AsyncSession, *, run_id: int, promised: int) -> int:
     """Потолок прогона на старте задачи: обещанное при нажатии — но не больше, чем к этой
-    минуте осталось по месячному капу за вычетом обещанного идущими прогонами.
+    минуте осталось по капу цикла ключа за вычетом обещанного идущими прогонами.
 
     **При старте, а не при нажатии** (аудит 10.10.2026, №2). Потолок с нажатия — остаток
     капа на ту минуту: два прогона, поставленные подряд, получали каждый весь остаток,
     единственный воркер шёл ими по очереди, и второй тратил ещё раз то, что съел первый, —
-    до двух капов за месяц на ключе, общем с соседней системой.
+    до двух капов за цикл на ключе, общем с соседней системой.
 
     **Удержания вычитаются и из нашего капа**, а не только из остатка провайдера
     (`units_left`): обещанное идущим прогоном ещё не потрачено, и таблица расхода его
     не видит. Сам прогон из удержаний исключён: продолжению после смерти воркера своё же
     обещание не соперник, а потраченное им уже лежит в таблице расхода.
 
-    **Кап — тот, что действует на старте** (`spending.cap_left`): опущенный на экране
-    «Расход» между нажатием и стартом режет потолок сразу; поднятый — обещанного при
-    нажатии не поднимает: человек видел и согласовал ту цифру.
+    **Кап — тот, что действует на старте** (`cap_left`): опущенный на экране «Расход»
+    между нажатием и стартом режет потолок сразу; поднятый — обещанного при нажатии не
+    поднимает: человек видел и согласовал ту цифру. Размер ключа неизвестен — отказ
+    `QuotaUnavailableError`, прогон продолжат, когда Ahrefs ответит.
     """
-    month = await cap_left(session)
+    left = await cap_left(session)
     claimed = await RunRepository(session).claimed_units(exclude_run_id=run_id)
-    ceiling = max(0, min(promised, month - claimed))
+    ceiling = max(0, min(promised, left - claimed))
     if ceiling < promised:
         logger.info(
-            "Потолок прогона при старте ниже обещанного: от месячного капа осталось меньше",
+            "Потолок прогона при старте ниже обещанного: от капа цикла осталось меньше",
             extra={
                 "run_id": run_id,
                 "promised": promised,
                 "ceiling": ceiling,
-                "month_left": month,
+                "cap_left": left,
                 "claimed": claimed,
             },
         )
@@ -130,11 +167,12 @@ async def units_free(session: AsyncSession, client: AhrefsClient) -> int:
     пакет капа не спрашивал вовсе: DR шёл той же операцией, что метрики Этапа 1, и мимо
     месячного капа — после выбранного месяца пересчёт кандидатов тратил дальше.
 
-    Правило то же, что у прогона, и в тех же двух местах: остаток месячного капа по своей
-    таблице (`ceiling_at_start`) и остаток у провайдера (`units_left`) — оба за вычетом
-    обещанного идущими прогонами: их смета не потрачена, и таблица её не видит. Остаток
-    у провайдера неизвестен — `QuotaUnavailableError`, тратить вслепую нельзя.
+    Правило то же, что у прогона, и в тех же двух местах: остаток у провайдера
+    (`units_left`) и остаток капа цикла по своей таблице (`cap_left`) — оба за вычетом
+    обещанного идущими прогонами: их смета не потрачена, и таблица её не видит. Провайдер
+    спрашивается первым: его ответ ложится в снимок ключа, и кап считается уже от него.
+    Остаток у провайдера или размер ключа неизвестен — `QuotaUnavailableError`.
     """
     claimed = await RunRepository(session).claimed_units()
-    month = await cap_left(session)
-    return await units_left(client, cap=max(0, month - claimed), claimed=claimed)
+    free = await units_left(client, claimed=claimed, keep=keeper(session))
+    return min(free, max(0, await cap_left(session) - claimed))

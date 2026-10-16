@@ -19,7 +19,7 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.ahrefs.units import COUNTRY_CALL_SHARE, UnitsCost
+from backend.features.ahrefs.units import COUNTRY_CALL_SHARE, Quota, UnitsCost
 from backend.features.core import usage
 from backend.features.core.domain import DonorStatus, RunStatus, Stage, UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
@@ -27,6 +27,7 @@ from backend.features.core.models.run import RunModel, RunSettingsModel
 from backend.features.donors.collect import COUNTRIES_FAILED
 from backend.features.donors.geo import NO_COUNTRY_DATA, region_word
 from backend.features.donors.verdict import Thresholds
+from backend.features.runs.ahrefs_key import remember
 from backend.features.runs.browse import UnknownRunError
 
 #: Имя системы в общей таблице расхода живёт в `core.usage` — здесь оно
@@ -481,3 +482,8 @@ class RunRepository:
     async def session_flush(self) -> None:
         """Отправляет накопленное в базу, не фиксируя транзакцию."""
         await self._session.flush()
+
+    async def keep_key(self, quota: Quota) -> None:
+        """Ответ Ahrefs об остатке — снимком ключа этой же транзакцией (16.10.2026): прогон
+        спрашивает остаток на старте, и его ответ свежее снимка сторожа."""
+        await remember(self._session, quota)

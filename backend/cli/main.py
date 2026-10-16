@@ -72,9 +72,11 @@ from backend.features.donors.doors import door_check
 from backend.features.donors.geo import assert_settings_allow_limited_fetch
 from backend.features.donors.repository import DonorRepository
 from backend.features.review.candidates import RunReview
+from backend.features.runs.ahrefs_key import keeper
 from backend.features.runs.budget import (
     CapExceededError,
     QuotaUnavailableError,
+    cap_left,
     units_left,
 )
 from backend.features.runs.exclusions import Exclusions
@@ -82,7 +84,6 @@ from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.planning import RunPlan, gather_candidates, plan_run
 from backend.features.runs.report import RunReport
 from backend.features.runs.repository import RunRepository
-from backend.features.runs.spending import cap_left
 from backend.features.runs.thresholds import rules_in_force
 from backend.features.serp.factory import UnknownProviderError, build_provider
 from backend.shared.logs import setup_logging
@@ -105,20 +106,28 @@ def _read_keywords(path: Path) -> list[str]:
     return words
 
 
+def _of(used: int | None, limit: int | None, *, missing: str) -> str:
+    """«выбрано из лимита» — числами; лимит не назван — словами `missing`, а не нулём."""
+    if limit is None:
+        return missing
+    return f"{used or 0:,} из {limit:,}".replace(",", " ")
+
+
 async def cmd_quota() -> int:
-    """Остаток юнитов. Запрос бесплатный."""
+    """Остаток юнитов. Запрос бесплатный. Пустой лимит — словами (16.10.2026): у ключа без
+    своего лимита действует лимит пространства, и «0 из 0» читалось бы как выбранный ключ."""
     client = AhrefsClient()
     try:
         quota = Quota.from_payload(await client.limits_and_usage())
     finally:
         await client.aclose()
 
+    own = "своего лимита нет — действует лимит пространства"
     print(f"Доступно юнитов:     {quota.available:,}".replace(",", " "))
-    print(f"  ключ:              {quota.key_used:,} из {quota.key_limit:,}".replace(",", " "))
+    print(f"  ключ:              {_of(quota.key_used, quota.key_limit, missing=own)}")
     print(
-        f"  пространство:      {quota.workspace_used:,} из {quota.workspace_limit:,}".replace(
-            ",", " "
-        )
+        "  пространство:      "
+        + _of(quota.workspace_used, quota.workspace_limit, missing="Ahrefs лимита не назвал")
     )
     if quota.reset_date:
         print(f"  обнуление:         {quota.reset_date}")
@@ -180,13 +189,15 @@ async def cmd_run(args: argparse.Namespace) -> int:
             candidates = await gather_candidates(
                 provider, keywords, args.country, depth_pages=args.depth
             )
-            # Кап месячный: из него вычитается уже потраченное нами,
-            # иначе он ограничивает один прогон, а не месяц. Свой
-            # потолок (`--cap`) может быть только меньше. Кап — тот же,
-            # что у кнопки: заданный на экране «Расход», без него — из окружения.
-            month_left = await cap_left(session)
-            allowed = min(args.cap, month_left) if args.cap is not None else month_left
-            budget = await units_left(client, cap=allowed)
+            # Остаток у Ahrefs — первым: его ответ ложится в снимок ключа, и кап ниже
+            # считается от размера ключа на эту минуту (16.10.2026).
+            provider_left = await units_left(client, keep=keeper(session))
+            # Кап — на цикл ключа: из него вычитается уже потраченное нами, иначе он
+            # ограничивает один прогон, а не цикл. Свой потолок (`--cap`) может быть
+            # только меньше. Кап — тот же, что у кнопки: от ключа и с экрана «Расход».
+            left = await cap_left(session)
+            allowed = min(args.cap, left) if args.cap is not None else left
+            budget = min(provider_left, allowed)
             plan = await plan_run(
                 candidates,
                 donors,

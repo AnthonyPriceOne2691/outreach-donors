@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -176,42 +177,104 @@ def estimate_run(
     )
 
 
+def _units(data: Mapping[str, object], name: str) -> int | None:
+    """Число поля ответа об остатке; пусто (null или поля нет) — `None`, а не ноль.
+
+    Не число — тоже `None`, но строкой журнала: это уже «мы не поняли ответ», а не
+    «Ahrefs лимита не назвал», и молча путать одно с другим нельзя."""
+    value = data.get(name)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        logger.warning(
+            "Ahrefs: поле остатка %s — не число (%r), читаю как не названное", name, value
+        )
+        return None
+    return int(value)
+
+
+def _reset_moment(raw: object) -> datetime | None:
+    """Дата обнуления — моментом UTC. По документации Ahrefs API v3 поле — дата
+    («2026-11-21»); ответ с временем («…T00:00:00Z») читается тоже. Пусто — `None`;
+    не разобрано — `None` и строка журнала: цикл капа тогда календарный, и экран
+    говорит это словами (`runs/ahrefs_key.cycle_of`)."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.strip())
+    except ValueError:
+        logger.warning("Ahrefs: дата обнуления %r не разобрана — цикл капа календарный", raw)
+        return None
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def _left(limit: int | None, used: int | None) -> int | None:
+    """Остаток по одному лимиту; `None` — такого лимита нет. Лимит назван, а расход нет —
+    ноль: остаток неизвестен, и тратить вслепую нельзя."""
+    if limit is None:
+        return None
+    return max(0, limit - used) if used is not None else 0
+
+
 @dataclass(frozen=True, slots=True)
 class Quota:
-    """Остаток юнитов по данным Ahrefs.
+    """Лимиты и расход юнитов по ответу Ahrefs (`subscription-info/limits-and-usage`).
 
     Лимитов два и действуют они одновременно: на рабочее пространство и на
     конкретный ключ. Доступно нам меньшее из остатков — упереться можно
     в любой, и упираются в них обе системы на общем ключе.
+
+    **Пустой лимит — не ноль** (16.10.2026). По документации Ahrefs API v3 null бывает
+    у `units_limit_api_key` (своего лимита у ключа нет — действует лимит пространства),
+    у `units_limit_workspace` и `units_usage_workspace`; `units_usage_api_key` и дата
+    обнуления — без null. До 16.10 пустое читалось нулём, и ключ без своего лимита
+    выглядел выбранным целиком: `available` — ноль, прогоны стояли.
     """
 
-    workspace_limit: int
-    workspace_used: int
-    key_limit: int
-    key_used: int
+    workspace_limit: int | None
+    workspace_used: int | None
+    #: Свой лимит ключа; `None` — своего нет, ключ упирается в лимит пространства.
+    key_limit: int | None
+    key_used: int | None
+    #: Дата обнуления — как пришла: её печатает консоль.
     reset_date: str | None = None
+    #: Следующее обнуление моментом UTC; `None` — Ahrefs не назвал или не разобрано.
+    reset_at: datetime | None = None
 
     @classmethod
     def from_payload(cls, data: Mapping[str, object]) -> Quota:
-        def read(name: str) -> int:
-            value = data.get(name)
-            return int(value) if isinstance(value, int | float) else 0
-
         reset = data.get("usage_reset_date")
         return cls(
-            workspace_limit=read("units_limit_workspace"),
-            workspace_used=read("units_usage_workspace"),
-            key_limit=read("units_limit_api_key"),
-            key_used=read("units_usage_api_key"),
+            workspace_limit=_units(data, "units_limit_workspace"),
+            workspace_used=_units(data, "units_usage_workspace"),
+            key_limit=_units(data, "units_limit_api_key"),
+            key_used=_units(data, "units_usage_api_key"),
             reset_date=reset if isinstance(reset, str) else None,
+            reset_at=_reset_moment(reset),
         )
 
     @property
+    def size(self) -> int | None:
+        """Размер ключа за цикл: свой лимит, а своего нет — лимит пространства. Не назван
+        ни тот, ни другой — `None`: размер неизвестен, и планировать от него нечего."""
+        return self.key_limit if self.key_limit is not None else self.workspace_limit
+
+    @property
+    def key_left(self) -> int | None:
+        """Остаток своего лимита ключа; `None` — своего лимита нет."""
+        return _left(self.key_limit, self.key_used)
+
+    @property
+    def workspace_left(self) -> int | None:
+        """Остаток лимита пространства; `None` — Ahrefs его не назвал."""
+        return _left(self.workspace_limit, self.workspace_used)
+
+    @property
     def available(self) -> int:
-        """Сколько реально можно потратить прямо сейчас."""
-        return max(
-            0, min(self.workspace_limit - self.workspace_used, self.key_limit - self.key_used)
-        )
+        """Сколько реально можно потратить прямо сейчас: меньший из названных остатков.
+        Не назван ни один лимит — ноль: размер неизвестен, вслепую не тратим."""
+        named = [left for left in (self.key_left, self.workspace_left) if left is not None]
+        return min(named) if named else 0
 
 
 @dataclass(slots=True)

@@ -376,7 +376,10 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
     # Своё обещание — не чужое удержание: продолжение после смерти воркера иначе вычитало
     # бы из остатка свою же неистраченную смету (аудит 10.10.2026).
     claimed = await deps.runs.claimed_units(exclude_run_id=run.id)
-    budget = await units_left(deps.client, cap=request.cap, claimed=claimed)
+    # Ответ Ahrefs — ещё и снимок ключа: от него кап и цикл у экранов и сторожа.
+    budget = await units_left(
+        deps.client, cap=request.cap, claimed=claimed, keep=deps.runs.keep_key
+    )
     plan = await plan_run(
         candidates,
         deps.donors,

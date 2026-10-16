@@ -34,13 +34,14 @@ from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.donors import standing
 from backend.features.donors.geo import assert_settings_allow_limited_fetch
+from backend.features.runs.ahrefs_cap import key_cap
+from backend.features.runs.ahrefs_key import keeper
 from backend.features.runs.browse import MAX_PAGE_SIZE, PAGE_SIZE, RunBrowser
-from backend.features.runs.budget import units_left
+from backend.features.runs.budget import cap_left, units_left
 from backend.features.runs.duplicates import refuse_duplicate
 from backend.features.runs.estimate import UNIQUE_SHARE, forecast
 from backend.features.runs.outcome import outcome
 from backend.features.runs.repository import RunRepository
-from backend.features.runs.spending import cap_left, month_cap
 from backend.features.runs.thresholds import rules_in_force
 from backend.features.serp.dataforseo import COUNTRY_CODES
 from backend.features.serp.modes import mode_of
@@ -53,8 +54,9 @@ _viewer = Depends(needs(Permission.VIEW))
 
 
 async def effective_cap(session: AsyncSession, *, asked: int | None) -> int:
-    """Потолок этого прогона: остаток по месячному капу, а если человек
-    назвал свой — меньшее из двух.
+    """Потолок этого прогона: остаток по капу цикла ключа, а если человек
+    назвал свой — меньшее из двух. Размер ключа неизвестен — отказ словами
+    (`budget.cap_left`): потолок считать не от чего.
 
     Своё число не может быть больше общего: иначе поле «попробовать
     дёшево» превращалось бы в способ обойти кап.
@@ -82,34 +84,40 @@ async def estimate(
     session: AsyncSession = Depends(db_session),
 ) -> Forecast:
     """Сколько будет стоить. Не тратит ничего: остаток провайдера — это
-    бесплатный запрос, число доменов — арифметика и замеренная доля."""
-    # Кап — действующий, с экрана «Расход», и потраченное из него — одним чтением.
-    month = await month_cap(session)
+    бесплатный запрос, число доменов — арифметика и замеренная доля.
 
+    Ahrefs спрашивается первым: его ответ ложится в снимок ключа, и кап сметы —
+    размер ключа на эту минуту, а не прежний снимок (16.10.2026)."""
     client = AhrefsClient()
     try:
         # Остаток берётся сырой, без капа: всю арифметику потолков
         # делает смета в одном месте. Применить кап и здесь, и там
         # значило вычесть месячную трату дважды — поймано живой
         # проверкой на потолке в пять тысяч.
-        left = await units_left(client)
+        left = await units_left(client, keep=keeper(session))
     finally:
         await client.aclose()
+    # Кап — от ключа и с экрана «Расход», цикл и потраченное в нём — одним чтением.
+    cap = await key_cap(session)
 
-    return Forecast.of(
+    made = Forecast.of(
         forecast(
             # Ключи уже сведены схемой правилом выдачи: смета считает то, что она купит.
             keywords=len(body.keywords),
             depth_pages=body.depth_pages,
             units_left=left,
-            units_cap=month.units_cap,
-            units_spent_this_month=month.spent,
+            units_cap=cap.units_cap,
+            units_spent_in_cycle=cap.spent,
             run_ceiling=body.cap,
             country_share=await RunRepository(session).country_call_share(body.country),
             unique_share=await RunRepository(session).unique_share(UNIQUE_SHARE),
         ),
         serp_mode=body.serp_mode or mode_of(None),
+        cap=cap,
     )
+    # Снимок ключа из ответа — в базу: смета больше ничего не пишет.
+    await session.commit()
+    return made
 
 
 @router.post("", response_model=RunQueued, summary="Запустить прогон")
@@ -141,10 +149,10 @@ async def start_run(
     # не показывал ничего; а если задачу никто не возьмёт, не покажет
     # никогда. Теперь прогон виден сразу и со своим состоянием.
     runs = RunRepository(session)
-    # Кап прогона: остаток по месячному капу, а если человек задал свой
+    # Кап прогона: остаток по капу цикла ключа, а если человек задал свой
     # потолок — меньшее из двух. Дальше он едет в настройках прогона:
     # это обещанное человеку число, и выше него прогон не потратит. Но
-    # и не больше, чем останется по месячному капу к старту задачи, —
+    # и не больше, чем останется по капу к старту задачи, —
     # между нажатием и стартом очередь может пройти другие прогоны
     # (`budget.ceiling_at_start`, аудит 10.10.2026).
     settings = await runs.create_settings(

@@ -38,7 +38,6 @@ from backend.features.core.domain import Stage, UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.core.usage import SALES_OPERATIONS
 from backend.features.outreach.repository import EVERY_STAGE
-from backend.features.runs.ahrefs_cap import ahrefs_units_cap
 
 #: Провайдеры платного обхода Этапа 2 — то, что держит свой потолок Этапа 2.
 CRAWL_PROVIDERS = (UsageProvider.PROXY, UsageProvider.RENDER)
@@ -198,61 +197,23 @@ class SpendingRepository:
         ]
 
 
-async def ahrefs_spent_this_month(session: AsyncSession, *, now: datetime | None = None) -> int:
-    """Сколько юнитов Ahrefs потратили мы с начала месяца.
+async def ahrefs_spent_since(session: AsyncSession, since: datetime) -> int:
+    """Сколько юнитов Ahrefs потратили мы с `since` — все этапы: кап — про весь наш расход,
+    этапы видимости здесь не сужают ничего.
 
-    По своей таблице, а не по остатку провайдера: остаток включает траты
-    соседней системы на общем ключе и на вопрос «сколько съели мы»
-    не отвечает.
+    По своей таблице, а не по остатку провайдера: остаток включает траты соседней системы
+    на общем ключе и на вопрос «сколько съели мы» не отвечает. Кап считает наш расход с
+    начала цикла ключа (`runs/ahrefs_cap.key_cap`, 16.10.2026): у ключа своё обнуление,
+    и расход до него в кап нового цикла не идёт. Статьи «Расхода», Hunter у продаж и
+    выдача на «Обзоре» — по-прежнему с первого числа (`since_month_start`).
     """
-    # Кап — про весь наш расход: этапы видимости здесь не сужают ничего.
-    spending = await SpendingRepository(session).since_month_start(stages=EVERY_STAGE, now=now)
-    return spending.units_by_provider.get(UsageProvider.AHREFS, 0)
-
-
-@dataclass(frozen=True, slots=True)
-class MonthCap:
-    """Месячный кап Ahrefs и сколько из него потрачено нами — одним чтением."""
-
-    units_cap: int
-    spent: int
-
-    @property
-    def left(self) -> int:
-        """Сколько юнитов осталось по капу; выбранный кап — ноль, а не минус."""
-        return max(0, self.units_cap - self.spent)
-
-
-async def month_cap(session: AsyncSession, *, now: datetime | None = None) -> MonthCap:
-    """Действующий кап (`ahrefs_cap.ahrefs_units_cap`: заданный на экране «Расход», без
-    него — умолчание окружения) и наш расход Ahrefs с первого числа.
-
-    Кап и остаток читаются вместе: экран и тревога называют оба числа, и остаток,
-    посчитанный от другого чтения капа, мог бы с ним не сойтись.
-    """
-    return MonthCap(
-        units_cap=await ahrefs_units_cap(session),
-        spent=await ahrefs_spent_this_month(session, now=now),
+    total = await session.scalar(
+        select(func.coalesce(func.sum(UsageRecordModel.units), 0)).where(
+            UsageRecordModel.provider == UsageProvider.AHREFS,
+            UsageRecordModel.created_at >= since,
+        )
     )
-
-
-async def cap_left(session: AsyncSession, *, now: datetime | None = None) -> int:
-    """Сколько юнитов осталось по нашему добровольному капу в этом месяце.
-
-    **Кап месячный, и вычитать из него потраченное обязательно.** Без
-    этого он работает потолком одного прогона: потратив девяносто тысяч
-    из ста, следующий прогон снова видит все сто — и кап, названный
-    месячным на экране расхода, в бюджете прогона означает совсем
-    другое. Одно число с двумя смыслами расходится молча.
-
-    Считается по своей таблице, а не по остатку провайдера: остаток
-    включает траты соседней системы на общем ключе, а наш кап —
-    про нас.
-
-    **Кап — действующий, а не переданный** (16.10.2026): его задают на экране «Расход»,
-    и параметра, через который вызов подставил бы умолчание окружения мимо экрана, нет.
-    """
-    return (await month_cap(session, now=now)).left
+    return int(total or 0)
 
 
 async def crawl_spent_this_month(

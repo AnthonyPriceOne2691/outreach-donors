@@ -35,6 +35,7 @@ from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.repository import RunRepository
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor
+from tests.test_ahrefs_cap import known_key
 
 NOW = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
 #: Доставлено сутки назад — внутри окна тишины ответов (`stage_silence.REPLY_SILENCE_DAYS`).
@@ -191,7 +192,9 @@ class TestSilenceThatMeansBroken:
 
     async def test_cap_is_spent(self, session: AsyncSession) -> None:
         """Прогоны не идут не потому, что сломались, — деньги кончились.
-        Выглядит это одинаково, поэтому названо словами."""
+        Выглядит это одинаково, поэтому названо словами. Кап — от ключа (снимок
+        ответа Ahrefs), уровни до него — `tests/test_ahrefs_key.py`."""
+        await known_key(session, key_limit=100_000)
         usage.record(session, operation="batch_metrics", units=100_000)
         await session.flush()
 

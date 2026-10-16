@@ -204,12 +204,23 @@ describe('сводка на главной', () => {
     expect(screen.getAllByRole('link', { name: /^Рассмотреть/ })).toHaveLength(1);
   });
 
-  it('расход юнитов — полосой и словами', async () => {
+  it('расход юнитов — полосой и словами, за цикл ключа', async () => {
     await openOverview();
 
-    const meter = await screen.findByRole('progressbar', { name: 'Юниты Ahrefs с начала месяца' });
+    // Кап — от ключа Ahrefs и на его цикл (16.10.2026): период назван, выдача — с первого.
+    const meter = await screen.findByRole('progressbar', { name: 'Юниты Ahrefs за цикл ключа' });
     expect(meter).toHaveAttribute('aria-valuenow', String((42716 / 100000) * 100));
     expect(screen.getByText('42 716')).toBeInTheDocument();
+    expect(screen.getByText(/Юниты Ahrefs за цикл ключа, с 21 октября/)).toBeInTheDocument();
+  });
+
+  it('кап неизвестен — без полосы и словами', async () => {
+    await openOverview([], { body: { ...OVERVIEW, ahrefs_cap: null } });
+
+    expect(await screen.findByText(/— кап неизвестен/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole('progressbar', { name: 'Юниты Ahrefs за цикл ключа' }),
+    ).not.toBeInTheDocument();
   });
 
   it('отказ сервера показан целиком, а не пустой главной', async () => {

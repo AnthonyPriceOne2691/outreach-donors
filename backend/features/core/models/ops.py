@@ -1,4 +1,5 @@
-"""UsageRecordModel, AhrefsCapModel и SuppressionModel — расход, кап Ahrefs и стоп-лист."""
+"""UsageRecordModel, AhrefsCapModel, AhrefsKeySnapshotModel и SuppressionModel — расход,
+кап Ahrefs, снимок ключа Ahrefs и стоп-лист."""
 
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     DECIMAL,
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -62,20 +64,22 @@ class UsageRecordModel(TimestampedMixin, Base):
 
 
 class AhrefsCapModel(Base):
-    """Месячный кап юнитов Ahrefs, заданный на экране «Расход»: строка на каждую смену.
+    """Кап юнитов Ahrefs, заданный на экране «Расход»: строка на каждую смену.
 
-    Действующий кап — последняя строка; строк нет — умолчание окружения
-    (`AHREFS_UNITS_CAP`, `runs/ahrefs_cap.py`). Строка не правится и не удаляется:
-    по строкам видно, кто и когда менял кап, — как по версиям порогов (требование:
-    «видно, кто и когда менял»). Остаток капа полем не хранится — он считается
-    по журналу расхода (`runs/spending.cap_left`).
+    Действующая настройка — последняя строка; строк нет — «весь лимит ключа»
+    (`runs/ahrefs_cap.py`). Строка не правится и не удаляется: по строкам видно, кто
+    и когда менял кап, — как по версиям порогов (требование: «видно, кто и когда
+    менял»). Остаток капа полем не хранится — он считается по журналу расхода
+    за цикл ключа (`runs/budget.cap_left`).
     """
 
     __tablename__ = "ahrefs_caps"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    #: Юнитов в месяц; не больше лимита тарифа — проверяет смена (`set_ahrefs_cap`).
-    units_cap: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: «Не больше стольких юнитов за цикл ключа»; пусто — весь лимит ключа: кап следует
+    #: за ключом, когда его лимит двигают в Ahrefs (16.10.2026). Не больше лимита ключа
+    #: на минуту смены — проверяет смена (`set_ahrefs_cap`).
+    units_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
     #: Кто поставил. Пусто — учётку удалили: строка истории остаётся и без неё.
     set_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
@@ -85,6 +89,32 @@ class AhrefsCapModel(Base):
     )
 
     __table_args__ = (CheckConstraint("units_cap > 0", name="ck_ahrefs_caps_positive"),)
+
+
+class AhrefsKeySnapshotModel(Base):
+    """Снимок ключа Ahrefs — последний удачный ответ `limits-and-usage`: одна строка.
+
+    Сервис владеет ситуацией по ключу, а не зашитыми числами (решение владельца
+    16.10.2026): от размера ключа считается кап, от даты обнуления — цикл капа
+    (`runs/ahrefs_key.py`). Строка переписывается каждым ответом, но не старшим: две
+    записи разом не возвращают прошлого (`asked_at`). Пустое число — Ahrefs его не
+    назвал: у ключа без своего лимита действует лимит пространства.
+    """
+
+    __tablename__ = "ahrefs_key_snapshot"
+
+    #: Всегда 1: снимок один, новый ответ ложится на его место.
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    key_limit: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    key_used: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    workspace_limit: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    workspace_used: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    #: Следующее обнуление на минуту ответа; пусто — Ahrefs даты не назвал.
+    reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Когда спросили — по нему экран пишет «проверено в», а запись не затирает новое старым.
+    asked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (CheckConstraint("id = 1", name="ck_ahrefs_key_snapshot_single"),)
 
 
 class SuppressionModel(TimestampedMixin, Base):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel
@@ -98,8 +99,12 @@ class OverviewView(BaseModel):
     #: Карточка той же формы, что строка истории прогонов: одни числа
     #: под двумя формами на двух экранах разошлись бы.
     last_run: RunCard | None
+    #: Юниты Ahrefs, потраченные нами в цикле ключа, против капа; кап `None` — размер ключа
+    #: неизвестен. Цикл — с `ahrefs_since`, `ahrefs_by_key` ложь — календарный месяц.
     ahrefs_units: int
-    ahrefs_cap: int
+    ahrefs_cap: int | None
+    ahrefs_since: datetime
+    ahrefs_by_key: bool
     serp_usd: Decimal
     #: Почта: «не подключена» — не поломка, а состояние до рабочего сервера.
     transport: Transport
@@ -115,6 +120,8 @@ class OverviewView(BaseModel):
             last_run=RunCard.of(overview.last_run) if overview.last_run else None,
             ahrefs_units=overview.ahrefs_units,
             ahrefs_cap=overview.ahrefs_cap,
+            ahrefs_since=overview.ahrefs_since,
+            ahrefs_by_key=overview.ahrefs_by_key,
             serp_usd=overview.serp_usd,
             transport=transport,
             unbound_replies=overview.unbound_replies,

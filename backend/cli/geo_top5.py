@@ -1,8 +1,9 @@
 """Команда `geo-top5`: докупить топ-5 стран донорам, у которых спрошена только верхняя.
 
-Без `--yes` — только показ: кому, во что обойдётся и сколько осталось по месячному
-капу и у Ahrefs; ничего не покупается, в базе ничего не меняется. С `--yes` —
-запрос по странам каждому по очереди, фиксация после каждого. Порядок работы — в ядре
+Без `--yes` — только показ: кому, во что обойдётся и сколько осталось по капу цикла
+ключа и у Ahrefs; ничего не покупается, в базе ничего не меняется — показ не фиксирует
+и снимок ключа. С `--yes` — запрос по странам каждому по очереди, фиксация после каждого
+(снимок ключа из ответа Ahrefs — с первой). Порядок работы — в ядре
 (`features/donors/geo_top5.py`), здесь — доводы и печать.
 
     outreach geo-top5
@@ -30,6 +31,8 @@ from backend.features.donors.geo_top5 import (
     room_for,
 )
 from backend.features.donors.wording import country_title
+from backend.features.runs.ahrefs_cap import KeyCap
+from backend.features.runs.ahrefs_key import day_words
 
 EXIT_OK = 0
 EXIT_CAP_EXCEEDED = 3
@@ -93,8 +96,34 @@ def _print_plan(plan: Top5Plan, *, accepted_only: bool) -> None:
     )
 
 
+def _cap_line(cap: KeyCap) -> str:
+    """Кап — от ключа (16.10.2026): какой, откуда взят и сколько в нём осталось."""
+    units_cap = cap.units_cap
+    if units_cap is None:
+        return f"Кап Ahrefs: неизвестен — {cap.unknown}"
+    if cap.chosen is None:
+        kind = "весь лимит ключа"
+    elif cap.above_key:
+        kind = f"задано не больше {_units(cap.chosen)} — выше лимита ключа, действует ключ"
+    else:
+        kind = f"не больше {_units(cap.chosen)} при лимите ключа {_units(cap.size or 0)}"
+    return (
+        f"Кап Ahrefs: {_units(units_cap)} ({kind}), потрачено нами {_units(cap.spent)}, "
+        f"осталось {_units(cap.cap_left)}"
+    )
+
+
+def _cycle_line(cap: KeyCap) -> str:
+    """Цикл капа: от обнуления ключа, а без его даты — календарный месяц, словами."""
+    start, reset = day_words(cap.cycle.start), day_words(cap.cycle.next_reset)
+    if cap.cycle.by_key:
+        return f"Цикл ключа: с {start}, обнуление {reset}"
+    return f"Цикл: календарный месяц с {start} — Ahrefs не назвал даты обнуления"
+
+
 def _print_room(room: Room) -> None:
-    print(f"Месячный кап: {_units(room.cap)}, осталось {_units(room.cap_left)}")
+    print(_cap_line(room.cap))
+    print(_cycle_line(room.cap))
     if room.claimed:
         print(f"Обещано идущими прогонами: {_units(room.claimed)}")
     if room.provider_left is None:

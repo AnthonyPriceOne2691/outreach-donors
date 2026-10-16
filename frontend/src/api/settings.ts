@@ -35,13 +35,54 @@ export interface CrawlSpend {
   spent_usd: string;
 }
 
-/** Смена месячного капа Ahrefs: что поставили, кто и когда. `set_by` `null` — учётку
- *  удалили, а строка смены осталась. */
+/** Смена капа Ahrefs: что поставили, кто и когда. `units_cap` `null` — весь лимит ключа;
+ *  `set_by` `null` — учётку удалили, а строка смены осталась. */
 export interface CapChange {
   id: number;
-  units_cap: number;
+  units_cap: number | null;
   set_by: string | null;
   set_at: string;
+}
+
+/** Во что упрёмся раньше: наш кап, лимит ключа или лимит пространства Ahrefs. */
+export type CapBinding = 'cap' | 'key' | 'workspace';
+
+/**
+ * Ключ Ahrefs и наш кап на «Расходе» (решение владельца 16.10.2026: «сервис владеет текущей
+ * ситуацией по ключу»). Всё — числами сервера: «осталось» и доля — тем же правилом, что
+ * у тревог сторожа, и экран их называет, а не считает.
+ */
+export interface AhrefsKey {
+  /** Размер ключа за цикл: свой лимит, а своего нет — лимит пространства; `null` — неизвестен. */
+  size: number | null;
+  /** Свой лимит у ключа; ложь — действует лимит пространства. */
+  own_limit: boolean;
+  /** Выбрано на ключе всего — вместе с соседней системой на общем ключе. */
+  key_used: number | null;
+  workspace_limit: number | null;
+  workspace_used: number | null;
+  /** Когда Ahrefs ответил; `null` — не отвечал ни разу. */
+  asked_at: string | null;
+  /** Цикл капа; `by_key` ложь — календарный месяц: Ahrefs не назвал даты обнуления. */
+  cycle_start: string;
+  next_reset: string;
+  by_key: boolean;
+  /** Потрачено нами за цикл — по своему журналу, все этапы. */
+  spent_by_us: number;
+  /** Действующий кап; `null` — размер ключа неизвестен (`unknown` — почему). */
+  cap: number | null;
+  /** Задано на экране: «не больше N»; `null` — весь лимит ключа. */
+  chosen: number | null;
+  /** «Не больше N» выше лимита ключа — действует ключ. */
+  above_key: boolean;
+  left: number;
+  binding: CapBinding | null;
+  used_percent: number | null;
+  unknown: string | null;
+  /** Допустимое «не больше N»: от единицы до размера ключа; `null` — задать не от чего. */
+  limits: ThresholdRange | null;
+  /** Последние смены, новые первыми; пусто — на экране не меняли: весь лимит ключа. */
+  changes: CapChange[];
 }
 
 /**
@@ -49,20 +90,15 @@ export interface CapChange {
  * между собой (решение Anthony 10.10.2026, П2б); экран говорит это словами. Расширением,
  * а не в `types.ts`: тот у потолка длины.
  *
- * Кап Ahrefs (`ahrefs_cap`) — заданный на этом экране, а без смен — умолчание сервера
- * (решение владельца 16.10.2026); остаток по нему и границы поля смены — от сервера.
+ * Статьи и плитки — с первого числа (`since`), кап Ahrefs — в цикле ключа (`ahrefs_key`):
+ * два периода, и экран подписывает оба.
  */
 export interface UsageView extends Omit<SpendingView, 'articles'> {
   articles: StagedArticle[];
   sales_hidden: boolean;
   stages: StageSpending[];
   crawl: CrawlSpend;
-  /** Осталось по капу — тем же правилом, что у потолка прогона: экран называет, а не считает. */
-  ahrefs_cap_left: number;
-  /** Допустимый кап — от единицы до лимита тарифа: поле смены проверяется ими до нажатия. */
-  ahrefs_cap_limits: ThresholdRange;
-  /** Последние смены капа, новые первыми; пусто — кап по умолчанию, на экране не меняли. */
-  ahrefs_cap_changes: CapChange[];
+  ahrefs_key: AhrefsKey;
 }
 
 /** Тревога сторожа с этапом, о почте которого она: `null` — общая тревога (П2б). */
@@ -152,8 +188,9 @@ export function fetchUsage(): Promise<UsageView> {
   return request<UsageView>('/usage');
 }
 
-/** Новый месячный кап Ahrefs — с этой минуты; право — «править пороги», как у порогов. */
-export function saveAhrefsCap(unitsCap: number): Promise<CapChange> {
+/** Новый кап Ahrefs — с этой минуты: «не больше N», `null` — весь лимит ключа; право —
+ *  «править пороги», как у порогов. */
+export function saveAhrefsCap(unitsCap: number | null): Promise<CapChange> {
   return request<CapChange>('/usage/ahrefs-cap', { method: 'POST', body: { units_cap: unitsCap } });
 }
 

@@ -1,9 +1,11 @@
-"""DR кандидатов Этапа 2 — под месячным капом Ahrefs, правилом прогона Этапа 1.
+"""DR кандидатов Этапа 2 — под капом Ahrefs, правилом прогона Этапа 1.
 
 До 12.10.2026 пакет DR кандидатов капа не спрашивал вовсе: шёл той же операцией, что
 метрики прогона, и после выбранного месяца пересчёт кандидатов тратил дальше — на ключе,
 общем с соседней системой. Теперь смета пакета сверяется с тем же, с чем прогон: остаток
-месячного капа и остаток у провайдера, оба — за вычетом обещанного идущими прогонами.
+капа цикла ключа и остаток у провайдера, оба — за вычетом обещанного идущими прогонами.
+Кап — от ключа (его называет ответ Ahrefs, 16.10.2026), сузить его — строкой смены с
+экрана «Расход» (`AhrefsCapModel`).
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from backend.features.ahrefs.units import UnitsCost
 from backend.features.core import usage
 from backend.features.core.domain import CrawlOutcome, RunStatus, Stage, StopReason, Verdict
 from backend.features.core.models.advertiser import CandidateModel
-from backend.features.core.models.ops import UsageRecordModel
+from backend.features.core.models.ops import AhrefsCapModel, UsageRecordModel
 from backend.features.crawl.big_sites import (
     RatingsRefusedError,
     ahrefs_ratings,
@@ -155,9 +157,9 @@ class TestUnitsFree:
     async def test_month_cap_minus_spent_and_minus_promised(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Правило прогона: месячный кап за вычетом потраченного и обещанного идущими."""
-        monkeypatch.setattr(ahrefs_cfg, "UNITS_CAP", 10_000)
-        usage.record(session, operation="batch_metrics", units=6_000, stage=Stage.DONORS)
+        """Правило прогона: кап за вычетом потраченного и обещанного идущими."""
+        session.add(AhrefsCapModel(units_cap=12_000))
+        usage.record(session, operation="batch_metrics", units=8_000, stage=Stage.DONORS)
         await _promise(session, 3_000)
 
         free = await units_free(session, _Ahrefs())  # type: ignore[arg-type]
@@ -168,7 +170,6 @@ class TestUnitsFree:
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Остаток у провайдера включает траты соседней системы на общем ключе."""
-        monkeypatch.setattr(ahrefs_cfg, "UNITS_CAP", 100_000)
         await _promise(session, 300)
 
         free = await units_free(session, _Ahrefs(available=500))  # type: ignore[arg-type]
@@ -215,7 +216,7 @@ class TestJudgeUnderTheCap:
     ) -> None:
         """Месяц выбран — DR не спрашивается, вердикты остаются, а в причинах — кап,
         а не «провайдер не ответил»: следующий пересчёт спросит, когда юниты будут."""
-        monkeypatch.setattr(ahrefs_cfg, "UNITS_CAP", 1_000)
+        session.add(AhrefsCapModel(units_cap=1_000))
         usage.record(session, operation="batch_metrics", units=990, stage=Stage.DONORS)
         run_id = await _crawl(session)
         client = _Ahrefs()
@@ -233,7 +234,7 @@ class TestJudgeUnderTheCap:
     async def test_room_in_the_month_asks_and_blocks_the_big_site(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(ahrefs_cfg, "UNITS_CAP", 1_000)
+        session.add(AhrefsCapModel(units_cap=1_000))
         run_id = await _crawl(session)
         client = _Ahrefs()
 
@@ -253,7 +254,6 @@ async def test_judge_job_writes_the_dr_spend_as_stage_two(
     на экране «Расход» от метрик прогона той же операцией."""
     monkeypatch.setattr(storage, "DSN", TEST_DSN)
     monkeypatch.setattr(ahrefs_cfg, "API_KEY", "test-key")
-    monkeypatch.setattr(ahrefs_cfg, "UNITS_CAP", 100_000)
     monkeypatch.setattr(crawl_jobs, "AhrefsClient", _Ahrefs)
     async with committed_sessions() as factory:
         async with factory() as session:
@@ -304,10 +304,13 @@ async def test_console_without_run_sees_what_it_bought_on_the_previous_donor(
     на один пакет уходили оба."""
     monkeypatch.setattr(storage, "DSN", TEST_DSN)
     monkeypatch.setattr(ahrefs_cfg, "API_KEY", "test-key")
-    monkeypatch.setattr(ahrefs_cfg, "UNITS_CAP", 99)
     monkeypatch.setattr(advertisers, "AhrefsClient", _CliAhrefs)
     _CliAhrefs.asked = []
     async with committed_sessions() as factory:
+        async with factory() as session:
+            # Кап на один пакет — сменой с экрана «Расход»: ключ у подделки с запасом.
+            session.add(AhrefsCapModel(units_cap=99))
+            await session.commit()
         await _crawl_of(factory, "first-donor.example.test")
         await _crawl_of(factory, "second-donor.example.test")
 
