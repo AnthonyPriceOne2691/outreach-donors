@@ -2,14 +2,30 @@
  * Новый прогон гипотезы: ключи, рынок выдачи, язык писем, глубина и режим выдачи — смета до
  * запуска.
  *
+ * **Свёрнута в кнопку «Новый прогон», если у гипотезы уже есть прогоны** (волна 15: форма и
+ * описание сегмента стояли над отчётом при каждом заходе, прогон размера №1 занимал 4,6 тысячи
+ * пикселей на 1440): работа на вкладке с прогонами — читать отчёт, а запускают раз в несколько
+ * дней. Прогонов нет — форма раскрыта и кнопки нет: запустить — следующее, что здесь делают. Так
+ * же свёрнута сборка очереди на «Письмах»; запущенный прогон форму сворачивает.
+ *
  * **Смета — до кнопки «Запустить», и считает её сервер** (`POST /sales/segment/estimate`):
- * выдача с ценой страницы и ожиданием по режиму, сайты, модель в токенах и деньгах, Hunter и
- * деньги вместе — строкой; взятые ключи с пометками и отсеянные с причиной; отказ словами —
- * выше остатка дневного потолка модели, нет описания сегмента, песочница выдачи. Запуск
- * открыт только по смете тех же значений формы **и того же описания сегмента**: правка поля
- * или описания снимает смету — судья судит по описанию, и запустить то, чего не видел,
- * нельзя. Сервер на запуске считает её заново (`POST /sales/segment/runs`) и отказывает теми
- * же словами.
+ * ключи чипами — взятые с пометками, отсеянные с причиной (`SegmentKeywords`); выдача с ценой
+ * страницы и ожиданием по режиму, сайты, модель в токенах и деньгах, Hunter и деньги вместе —
+ * строкой; отказ словами — выше остатка дневного потолка модели, нет описания сегмента,
+ * песочница выдачи. Правка поля или описания снимает смету — судья судит по описанию, и
+ * запустить то, чего не видел, нельзя.
+ *
+ * **У взятого ключа — галочка, по умолчанию стоит.** Сняли — ключ не покупается: смета
+ * пересчитывается сама, без кнопки, через полсекунды после последнего щелчка (`SegmentFormEstimate`);
+ * пока не пересчитана, запуск закрыт, а снятый уже стоит «снят вами». Снимают номер строки, как вписана
+ * (сервер не сдвигает «повтор строки N»); правка поля ключей снятые не теряет — номер ищется
+ * заново по тексту строки (`segmentKeys`).
+ *
+ * **Запуск — только по смете, которую видел человек**: с запуском уходит отпечаток сметы, и
+ * сервер, посчитав смету заново, сверяет его — ключи, снятые, описание сегмента, режимы; иначе
+ * «смета устарела — посчитайте заново» (и вкладка перечитывает описание). Смета, посчитанная по
+ * другому описанию, чем на экране (его поправили в соседней вкладке), не показывается: описание
+ * перечитывается, смету считают заново.
  *
  * **Режим выдачи по умолчанию — настройкой сервиса** (`SegmentHome.serp_mode`, `SERP_MODE`): форма
  * не держит своё умолчание поверх настройки администратора. Сервер её не назвал (старше режимов
@@ -21,9 +37,20 @@
  * очистка лидов. Без права смету видно, а у кнопки — кто запускает.
  */
 
-import { Alert, Button, Group, Select, Stack, Text, Textarea, Title } from '@mantine/core';
-import { useMutation } from '@tanstack/react-query';
-import { useState } from 'react';
+import {
+  Alert,
+  Button,
+  Collapse,
+  Group,
+  Select,
+  Stack,
+  Text,
+  Textarea,
+  Title,
+} from '@mantine/core';
+import { IconChevronDown } from '@tabler/icons-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useId, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { countryTitle, PERMISSION_TITLES } from '../api/labels';
@@ -31,10 +58,13 @@ import { useSession } from '../auth/AuthProvider';
 import { formatNumber } from '../format';
 import { notify } from '../notices';
 import { dropdownBelow } from '../theme';
-import { estimateRun, startRun } from './segmentApi';
-import type { SegmentAsk, SegmentEstimate, SegmentHome, SerpMode } from './segmentApi';
-import { DEPTHS, depthTitle, LANGUAGE_TITLES } from './segmentData';
-import { KeywordLists } from './SegmentKeywords';
+import { startRun } from './segmentApi';
+import type { SegmentAsk, SegmentHome, SerpMode } from './segmentApi';
+import { DEPTHS, depthTitle, LANGUAGE_TITLES, SEGMENT_QUERY_KEY } from './segmentData';
+import { EstimateBlock, useEstimate } from './SegmentFormEstimate';
+import type { Asked } from './SegmentFormEstimate';
+import { excludedLines, toggled } from './segmentKeys';
+import type { Dropped } from './segmentKeys';
 
 /** Рынок, пока человек не выбрал: англоязычная выдача — гипотеза 2. */
 const DEFAULT_COUNTRY = 'us';
@@ -50,7 +80,6 @@ const SERP_MODE_TITLES: Record<SerpMode, string> = {
 };
 /** Режимы, которые форма предлагает всегда. */
 const OFFERED: SerpMode[] = ['live', 'standard'];
-
 /** Режим выдачи, пока человек не выбрал: умолчание сервиса. */
 function serpDefault(home: SegmentHome): SerpMode {
   return home.serp_mode ?? FALLBACK_SERP_MODE;
@@ -71,7 +100,7 @@ interface Draft {
   serpMode: SerpMode;
 }
 
-function askOf(hypothesis: number, draft: Draft): SegmentAsk {
+function askOf(hypothesis: number, draft: Draft, excluded: number[]): SegmentAsk {
   return {
     hypothesis_id: hypothesis,
     keywords: draft.keywords,
@@ -79,37 +108,23 @@ function askOf(hypothesis: number, draft: Draft): SegmentAsk {
     language: draft.language === BY_MARKET ? null : draft.language,
     depth_pages: draft.depth,
     serp_mode: draft.serpMode,
+    excluded,
   };
 }
 
-/** Что считали: значения формы и описание сегмента — смета годна, пока не изменилось ни то,
- *  ни другое. */
-interface Counted {
-  ask: SegmentAsk;
-  segment: string | null;
-}
-
-/** Смета словами сервера и отказ, если запускать нельзя. */
-function EstimateBlock({ found }: { found: SegmentEstimate }) {
-  return (
-    <Stack gap={6} aria-label="Смета прогона">
-      {found.lines.length > 0 && (
-        <Stack gap={2} className="segmentEstimate">
-          {found.lines.map((line) => (
-            <Text key={line} size="sm">
-              {line}
-            </Text>
-          ))}
-        </Stack>
-      )}
-      <KeywordLists taken={found.keywords} notes={found.notes} rejected={found.rejected} />
-      {found.refusal !== null && (
-        <Alert color="red" title="Прогон не запустится">
-          {found.refusal}
-        </Alert>
-      )}
-    </Stack>
-  );
+function asked(
+  hypothesis: number,
+  draft: Draft,
+  excluded: number[],
+  segment: string | null,
+): Asked {
+  const ask = askOf(hypothesis, draft, excluded);
+  return {
+    ask,
+    segment,
+    key: JSON.stringify({ ask, segment }),
+    base: JSON.stringify({ ask: { ...ask, excluded: [] }, segment }),
+  };
 }
 
 function Fields({
@@ -186,86 +201,213 @@ function Fields({
   );
 }
 
+/** Строка свёрнутой формы: кнопка с шевроном — как «Сборка очереди» на «Письмах». */
+function FoldButton({
+  shown,
+  formId,
+  onToggle,
+}: {
+  shown: boolean;
+  formId: string;
+  onToggle: () => void;
+}) {
+  return (
+    <Group gap="xs" align="center">
+      {/* `aria-expanded` — состояние для программы чтения с экрана и для теста: в jsdom
+          анимация высоты не проигрывается. */}
+      <Button
+        variant="subtle"
+        size="compact-sm"
+        px={6}
+        leftSection={
+          <IconChevronDown
+            size={16}
+            style={{
+              transform: shown ? 'rotate(180deg)' : 'none',
+              transition: 'transform 200ms cubic-bezier(0.32, 0.72, 0, 1)',
+            }}
+          />
+        }
+        aria-expanded={shown}
+        aria-controls={formId}
+        onClick={onToggle}
+      >
+        Новый прогон
+      </Button>
+      {!shown && (
+        <Text size="sm" c="dimmed">
+          ключи, рынок и глубина — смета до запуска
+        </Text>
+      )}
+    </Group>
+  );
+}
+
 interface Props {
   home: SegmentHome;
   onStarted: (run: number) => void;
 }
 
-export function SegmentForm({ home, onStarted }: Props) {
+/** Запуск — по смете, которую видел человек: с её отпечатком. Отказ («смета устарела») —
+ *  перечитать описание сегмента: его могли поправить в соседней вкладке. */
+function useStart(onStarted: (run: number) => void) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sent, digest }: { sent: SegmentAsk; digest: string }) => startRun(sent, digest),
+    onSuccess: (queued) => {
+      notify({ message: `Прогон №${queued.run_id} ушёл в очередь задач`, color: 'green' });
+      onStarted(queued.run_id);
+    },
+    onError: () => void client.invalidateQueries({ queryKey: SEGMENT_QUERY_KEY }),
+  });
+}
+
+/** Кнопки формы: смета — всегда, запуск — с правом «run», без него — кто запускает. */
+function Actions({
+  counting,
+  canCount,
+  starting,
+  ready,
+  onCount,
+  onStart,
+}: {
+  counting: boolean;
+  canCount: boolean;
+  starting: boolean;
+  ready: boolean;
+  onCount: () => void;
+  onStart: () => void;
+}) {
   const { can } = useSession();
-  const [draft, setDraft] = useState<Draft>(() => ({
+  return (
+    <Group gap="sm" wrap="wrap">
+      <Button
+        variant="default"
+        className="press"
+        loading={counting}
+        disabled={!canCount}
+        onClick={onCount}
+      >
+        Посчитать смету
+      </Button>
+      {can('run') ? (
+        <Button className="press" disabled={!ready} loading={starting} onClick={onStart}>
+          Запустить прогон
+        </Button>
+      ) : (
+        <Text size="sm" c="dimmed">
+          Запускает сотрудник с правом «{PERMISSION_TITLES.run}».
+        </Text>
+      )}
+    </Group>
+  );
+}
+
+/** Что не вышло — словами, под сметой: описание поправили не здесь, смета не посчитана,
+ *  прогон не запущен. */
+function Refusals({
+  moved,
+  counted,
+  started,
+}: {
+  moved: boolean;
+  counted: Error | null;
+  started: Error | null;
+}) {
+  return (
+    <>
+      {moved && (
+        <Alert color="yellow" title="Смета не показана">
+          Описание сегмента поправили, пока вкладка была открыта: оно перечитано — посчитайте смету
+          заново.
+        </Alert>
+      )}
+      {counted !== null && (
+        <Alert color="red" title="Смета не посчитана">
+          {refusalOf(counted)}
+        </Alert>
+      )}
+      {started !== null && (
+        <Alert color="red" title="Прогон не запущен">
+          {refusalOf(started)}
+        </Alert>
+      )}
+    </>
+  );
+}
+
+function initialDraft(home: SegmentHome): Draft {
+  return {
     keywords: '',
     country: DEFAULT_COUNTRY,
     language: BY_MARKET,
     depth: 1,
     serpMode: serpDefault(home),
-  }));
-  const ask = askOf(home.hypothesis_id, draft);
-  const asked = JSON.stringify({ ask, segment: home.segment } satisfies Counted);
-  // Смета — для тех значений формы и того описания сегмента, по которым её считали: правка
-  // поля или описания её снимает.
-  const [counted, setCounted] = useState<{ key: string; found: SegmentEstimate } | null>(null);
-  const found = counted !== null && counted.key === asked ? counted.found : null;
-  const count = useMutation({
-    mutationFn: (sent: Counted) => estimateRun(sent.ask),
-    onSuccess: (estimate, sent) => setCounted({ key: JSON.stringify(sent), found: estimate }),
+  };
+}
+
+export function SegmentForm({ home, onStarted }: Props) {
+  const formId = useId();
+  const [draft, setDraft] = useState<Draft>(() => initialDraft(home));
+  const [dropped, setDropped] = useState<Dropped[]>([]);
+  // Есть прогоны — форма свёрнута, пока её не раскрыли; прогонов нет — раскрыта, кнопки нет.
+  const folded = home.runs.length > 0;
+  const [opened, setOpened] = useState(false);
+  const excluded = excludedLines(draft.keywords, dropped);
+  const now = asked(home.hypothesis_id, draft, excluded, home.segment);
+  const { count, shown, fresh, moved, drop } = useEstimate(now);
+  const start = useStart((run) => {
+    drop();
+    setOpened(false);
+    onStarted(run);
   });
-  const start = useMutation({
-    mutationFn: (sent: SegmentAsk) => startRun(sent),
-    onSuccess: (queued) => {
-      notify({ message: `Прогон №${queued.run_id} ушёл в очередь задач`, color: 'green' });
-      setCounted(null);
-      onStarted(queued.run_id);
-    },
-  });
-  const ready = found !== null && found.refusal === null;
+  const found = fresh ? shown?.found : undefined;
+  const failed = count.error !== null && count.variables?.key === now.key;
   return (
     <Stack gap="sm">
-      <Title order={5}>Новый прогон</Title>
-      <Fields
-        home={home}
-        draft={draft}
-        onDraft={(patch) => {
-          start.reset();
-          setDraft((current) => ({ ...current, ...patch }));
-        }}
-      />
-      <Group gap="sm" wrap="wrap">
-        <Button
-          variant="default"
-          className="press"
-          loading={count.isPending}
-          disabled={draft.keywords.trim() === ''}
-          onClick={() => count.mutate({ ask, segment: home.segment })}
-        >
-          Посчитать смету
-        </Button>
-        {can('run') ? (
-          <Button
-            className="press"
-            disabled={!ready}
-            loading={start.isPending}
-            onClick={() => start.mutate(ask)}
-          >
-            Запустить прогон
-          </Button>
-        ) : (
-          <Text size="sm" c="dimmed">
-            Запускает сотрудник с правом «{PERMISSION_TITLES.run}».
-          </Text>
-        )}
-      </Group>
-      {count.error !== null && (
-        <Alert color="red" title="Смета не посчитана">
-          {refusalOf(count.error)}
-        </Alert>
+      {folded ? (
+        <FoldButton shown={opened} formId={formId} onToggle={() => setOpened(!opened)} />
+      ) : (
+        <Title order={5}>Новый прогон</Title>
       )}
-      {found !== null && <EstimateBlock found={found} />}
-      {start.error !== null && (
-        <Alert color="red" title="Прогон не запущен">
-          {refusalOf(start.error)}
-        </Alert>
-      )}
+      <Collapse
+        id={formId}
+        in={!folded || opened}
+        transitionDuration={220}
+        transitionTimingFunction="ease"
+      >
+        <Stack gap="sm">
+          <Fields
+            home={home}
+            draft={draft}
+            onDraft={(patch) => {
+              start.reset();
+              setDraft((was) => ({ ...was, ...patch }));
+            }}
+          />
+          <Actions
+            counting={count.isPending}
+            canCount={draft.keywords.trim() !== ''}
+            starting={start.isPending}
+            ready={found !== undefined && found.refusal === null}
+            onCount={() => count.mutate(now)}
+            onStart={() => found && start.mutate({ sent: now.ask, digest: found.digest })}
+          />
+          {shown !== null && (
+            <EstimateBlock
+              found={shown.found}
+              fresh={fresh}
+              failed={failed}
+              excluded={excluded}
+              onToggle={(line, taken) => {
+                start.reset();
+                setDropped((was) => toggled(draft.keywords, was, line, taken));
+              }}
+            />
+          )}
+          <Refusals moved={moved} counted={failed ? count.error : null} started={start.error} />
+        </Stack>
+      </Collapse>
     </Stack>
   );
 }

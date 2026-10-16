@@ -63,8 +63,20 @@ def body(hypothesis_id: int, **changes: Any) -> dict[str, Any]:
     return {"hypothesis_id": hypothesis_id, "keywords": KEYWORDS, "country": "us", **changes}
 
 
+async def seen(
+    client: AsyncClient, headers: dict[str, str], asked: dict[str, Any]
+) -> dict[str, Any]:
+    """Тело запуска — как у сметы, которую «видел человек»: с её отпечатком. Смета не
+    посчиталась (нет гипотезы, нет права) — без отпечатка: отказ скажет запуск."""
+    counted = await client.post(f"{SEGMENT_URL}/estimate", json=asked, headers=headers)
+    digest = counted.json().get("digest") if counted.status_code == 200 else None
+    return {**asked, "digest": digest}
+
+
 async def start(client: AsyncClient, headers: dict[str, str], hypothesis_id: int) -> Response:
-    return await client.post(RUNS, json=body(hypothesis_id), headers=headers)
+    return await client.post(
+        RUNS, json=await seen(client, headers, body(hypothesis_id)), headers=headers
+    )
 
 
 # --- вкладка и описание сегмента -----------------------------------------------------------------

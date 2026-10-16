@@ -6,13 +6,14 @@ import logging
 from collections.abc import Mapping
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from backend.config import serp as serp_cfg
 from backend.features.sales import segment_progress
 from backend.features.sales.segment_estimate import Estimate
+from backend.features.sales.segment_estimate_keys import run_excluded
 from backend.features.sales.segment_keywords import run_keywords
 from backend.features.sales.segment_models import SalesSegmentCandidateModel, SalesSegmentRunModel
 from backend.features.sales.segment_report import RunView, summary
@@ -26,11 +27,13 @@ logger = logging.getLogger(__name__)
 KEYWORDS_LENGTH = 20_000
 #: Длина описания сегмента: абзац-другой, не документ.
 SEGMENT_LENGTH = 4000
+#: Номер строки ключа: в наборе предельной длины строка с ключом не дальше знака с тем же номером.
+LineNumber = Annotated[int, Field(ge=1, le=KEYWORDS_LENGTH)]
 
 
 class SegmentAsk(BaseModel):
-    """Запрос сметы и запуска: гипотеза, ключи строками, рынок, язык писем, глубина и режим
-    покупки выдачи."""
+    """Запрос сметы и запуска: гипотеза, ключи строками, рынок, язык писем, глубина, режим
+    покупки выдачи и снятые человеком ключи — номерами строк, как вписаны."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -46,6 +49,23 @@ class SegmentAsk(BaseModel):
         max_length=16,
         description="режим покупки выдачи: live — быстрый, standard — дешевле и дольше; "
         "пусто — умолчание сервиса",
+    )
+    excluded: list[LineNumber] = Field(
+        default_factory=list,
+        max_length=KEYWORDS_LENGTH // 2,
+        description="номера строк взятых ключей, как вписаны (пустые строки — тоже строки), "
+        "снятые человеком: их выдача не покупается",
+    )
+
+
+class RunAsk(SegmentAsk):
+    """Запуск — по смете, которую видел человек: её отпечаток (`EstimateView.digest`). Запуск
+    считает смету заново и сверяет отпечаток — иначе «смета устарела»."""
+
+    digest: str | None = Field(
+        default=None,
+        max_length=64,
+        description="отпечаток сметы, которую видел человек; пусто — смету не считали",
     )
 
 
@@ -64,13 +84,20 @@ class SegmentCard(BaseModel):
 
 class EstimateView(BaseModel):
     """Смета словами и числами; `refusal` — запускать нельзя, и почему. Ключи — взятые (за них
-    заплатит выдача), отсеянные с причиной и пометки взятых; сайтов — в выдаче (`hosts`), из
-    них уже в сборе гипотезы (`known`) и новых (`sites`) — по доле `share` из истории сбора
-    (`share_runs` прогонов; 0 — запасная доля)."""
+    заплатит выдача), снятые человеком (`excluded`, по порядку строк) — отдельно от отсеянных с
+    причиной, пометки взятых и номер строки, как вписана, у каждого взятого и снятого
+    (`keyword_lines`: по нему экран снимает и возвращает галочку); сайтов — в выдаче (`hosts`),
+    из них уже в сборе гипотезы (`known`) и новых (`sites`) — по доле `share` из истории сбора
+    (`share_runs` прогонов; 0 — запасная доля). `segment` — описание сегмента, по которому
+    посчитано; `digest` — отпечаток сметы: запуск идёт только по нему."""
 
     keywords: list[str]
+    excluded: list[str]
+    keyword_lines: dict[str, int]
     rejected: dict[str, str]
     notes: dict[str, str]
+    segment: str
+    digest: str
     country: str
     language: str
     depth_pages: int
@@ -97,8 +124,12 @@ class EstimateView(BaseModel):
     def of(cls, found: Estimate) -> EstimateView:
         return cls(
             keywords=found.keywords,
+            excluded=list(found.excluded),
+            keyword_lines=found.keyword_lines,
             rejected=found.rejected,
             notes=found.notes,
+            segment=found.segment,
+            digest=found.digest,
             country=found.country,
             language=found.language,
             depth_pages=found.depth_pages,
@@ -138,14 +169,16 @@ class SpendRow(BaseModel):
 
 
 class RunKeywordsView(BaseModel):
-    """Ключи прогона: взятые с пометками и отсеянные с причиной — как на запуске; пропавшие
-    (заплачено — не пришло) и пустые — что вышло с покупкой выдачи."""
+    """Ключи прогона: взятые с пометками, снятые человеком и отсеянные с причиной — как на
+    запуске; пропавшие (заплачено — не пришло) и пустые — что вышло с покупкой выдачи."""
 
     taken: list[str]
     notes: dict[str, str]
     rejected: dict[str, str]
     lost: list[str]
     empty: list[str]
+    #: Сняты человеком на запуске — выдача их не покупала; прогон старше снятия — пусто.
+    excluded: list[str] = Field(default_factory=list)
 
 
 class RunSpend(BaseModel):
@@ -164,6 +197,7 @@ class RunSpend(BaseModel):
                 rejected=found.rejected,
                 lost=found.lost,
                 empty=found.empty,
+                excluded=run_excluded(run),
             ),
             rows=[SpendRow(**asdict(row)) for row in spend_rows(run)],
         )

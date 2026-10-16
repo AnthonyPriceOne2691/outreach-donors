@@ -57,7 +57,8 @@ export interface SegmentHome {
 }
 
 /** Что просят посчитать и запустить. Язык пуст — язык рынка выдачи; режим выдачи пуст —
- *  умолчание сервиса. */
+ *  умолчание сервиса; снятые человеком ключи — номерами строк, как вписаны (пустые — тоже
+ *  строки): их выдача не покупает. */
 export interface SegmentAsk {
   hypothesis_id: number;
   keywords: string;
@@ -65,15 +66,24 @@ export interface SegmentAsk {
   language: string | null;
   depth_pages: number;
   serp_mode: SerpMode | null;
+  excluded: number[];
 }
 
 export interface SegmentEstimate {
-  /** Взятые ключи — за них заплатит выдача, в том порядке, как вписаны. */
+  /** Взятые ключи — за них заплатит выдача (без снятых), в том порядке, как вписаны. */
   keywords: string[];
+  /** Снятые человеком ключи — по порядку строк: выдача их не покупает. Это не отсев. */
+  excluded: string[];
+  /** Номер строки, как вписана, у каждого взятого и снятого ключа: по нему снимают галочку. */
+  keyword_lines: Record<string, number>;
   /** Отсеянный ключ → почему, словами. */
   rejected: Record<string, string>;
   /** Взятый ключ → пометка словами: почти повтор, решает человек. */
   notes: Record<string, string>;
+  /** Описание сегмента, по которому посчитана смета. */
+  segment: string;
+  /** Отпечаток сметы: запуск идёт только по нему — иначе «смета устарела». */
+  digest: string;
   country: string;
   language: string;
   depth_pages: number;
@@ -176,8 +186,12 @@ export function estimateRun(ask: SegmentAsk): Promise<SegmentEstimate> {
   return request<SegmentEstimate>('/sales/segment/estimate', { method: 'POST', body: ask });
 }
 
-export function startRun(ask: SegmentAsk): Promise<SegmentQueued> {
-  return request<SegmentQueued>('/sales/segment/runs', { method: 'POST', body: ask });
+/** Запуск — по смете, которую видел человек: с её отпечатком (`SegmentEstimate.digest`). */
+export function startRun(ask: SegmentAsk, digest: string): Promise<SegmentQueued> {
+  return request<SegmentQueued>('/sales/segment/runs', {
+    method: 'POST',
+    body: { ...ask, digest },
+  });
 }
 
 export function resumeRun(run: number): Promise<SegmentQueued> {
@@ -220,6 +234,8 @@ export interface SegmentRunKeywords {
   rejected: Record<string, string>;
   lost: string[];
   empty: string[];
+  /** Сняты человеком на запуске. У сервера старше снятия поля нет. */
+  excluded?: string[];
 }
 
 export interface SegmentRunSpend {

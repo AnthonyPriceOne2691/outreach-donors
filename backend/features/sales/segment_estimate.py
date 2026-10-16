@@ -5,7 +5,8 @@
 говорит то, что знает:
 
 - **ключи** — отсеиваются только мусор гигиены и точные повторы; почти повтор остаётся с
-  пометкой — решает человек (`segment_keywords.py`);
+  пометкой — решает человек (`segment_keywords.py`); взятый ключ человек может снять галочкой
+  (номер строки, как вписана) — снятый не покупается и в смету не входит (`segment_estimate_keys`);
 - **выдача** — арифметика: ключи на глубину по цене страницы в режиме покупки, который выбрал
   человек (`serp/modes.page_price_usd`), и сколько её ждать (`EXPECTED_WAIT_S`); режим ложится
   в смету прогона (`serp_mode`) — по нему задача прогона и покупает выдачу;
@@ -24,6 +25,9 @@
 
 Деньги вместе — выдача и модель последней строкой; Hunter платится запросами своего тарифа и в
 доллары не переводится (`okf/unit-economy.md`: счета разные, единицы не складываются).
+
+**Отпечаток сметы** (`digest`) — что человек видел: ключи, снятые, описание сегмента и режимы;
+запуск идёт только по нему (`segment_estimate_keys.seen_digest`).
 """
 
 from __future__ import annotations
@@ -47,6 +51,7 @@ from backend.features.runs.estimate import RESULTS_PER_PAGE, UNIQUE_SHARE
 from backend.features.sales import chain_text, usage_cap, verifier, verify_cap
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import SalesHypothesisModel
+from backend.features.sales.segment_estimate_keys import EXCLUDED_KEY, chosen, seen_digest
 from backend.features.sales.segment_estimate_words import lines_of
 from backend.features.sales.segment_history import known_sites, output_share, sites_per_result
 from backend.features.sales.segment_keywords import clean_keywords
@@ -72,6 +77,7 @@ TOKENS_PER_SITE = 1100
 #: Слова отказов — без имён настроек: их задаёт администратор и находит в журнале.
 NO_SEGMENT = "у гипотезы нет описания сегмента — судье не с чем сравнивать сайты: опишите сегмент"
 NO_KEYWORDS = "ключей нет: впишите по ключу на строку"
+ALL_EXCLUDED = "все взятые ключи сняты — выдаче покупать нечего: верните галочку хотя бы одному"
 SANDBOX = (
     "песочница выдачи прогон не запускает: сайты в ней выдуманы, а судья и поиск адресов "
     "по ним — настоящие траты"
@@ -100,8 +106,9 @@ SALES_OFF = (
 
 @dataclass(frozen=True, slots=True)
 class Ask:
-    """Что просит человек: гипотеза, ключи строками, рынок, язык писем, глубина и режим
-    покупки выдачи (пусто — умолчание сервиса, `SERP_MODE`)."""
+    """Что просит человек: гипотеза, ключи строками, рынок, язык писем, глубина, режим
+    покупки выдачи (пусто — умолчание сервиса, `SERP_MODE`) и снятые ключи — номерами строк,
+    как вписаны."""
 
     hypothesis_id: int
     keywords: str
@@ -109,6 +116,7 @@ class Ask:
     language: str | None
     depth_pages: int
     serp_mode: str | None = None
+    excluded: tuple[int, ...] = ()
 
 
 @dataclass(slots=True)
@@ -117,7 +125,7 @@ class Estimate:
 
     hypothesis: str
     segment: str
-    #: Взятые ключи — ровно те, за которые заплатит выдача, в том порядке, как вписаны.
+    #: Взятые ключи — ровно те, за которые заплатит выдача (без снятых), в том порядке, как вписаны.
     keywords: list[str]
     #: Отсеянные ключи → причина словами.
     rejected: dict[str, str]
@@ -127,6 +135,13 @@ class Estimate:
     mode: str
     #: Пометки взятых ключей словами: почти повтор — ключ взят, решает человек.
     notes: dict[str, str] = field(default_factory=dict)
+    #: Снятые человеком ключи → номер строки, как вписаны: не покупаются, стоят отдельно от
+    #: отсеянных.
+    excluded: dict[str, int] = field(default_factory=dict)
+    #: Номер строки, как вписана, у каждого взятого ключа — покупаемого и снятого.
+    keyword_lines: dict[str, int] = field(default_factory=dict)
+    #: Отпечаток того, что человек видел в смете: запуск — только по нему.
+    digest: str = ""
     #: Режим покупки выдачи (`SerpMode`): цена страницы и ожидание — по нему.
     serp_mode: str = SerpMode.LIVE.value
     serp_page_usd: float = 0.0
@@ -169,6 +184,8 @@ class Estimate:
             "keywords": len(self.keywords),
             "rejected": dict(self.rejected),
             "notes": dict(self.notes),
+            EXCLUDED_KEY: dict(self.excluded),
+            "digest": self.digest,
             "serp_mode": self.serp_mode,
             "serp_page_usd": self.serp_page_usd,
             "serp_wait_s": self.serp_wait_s,
@@ -270,6 +287,7 @@ def _first_refusal(
     languages = ", ".join(chain_text.LANGUAGES)
     checks: tuple[tuple[bool, str], ...] = (
         (not found.segment and found.mode != JudgeMode.OFF, NO_SEGMENT),
+        (not found.keywords and bool(found.excluded), ALL_EXCLUDED),
         (not found.keywords, NO_KEYWORDS),
         (
             count > max_keywords,
@@ -310,6 +328,8 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
     if hypothesis is None:
         raise UnknownHypothesisError(f"гипотезы №{ask.hypothesis_id} нет — обновите список гипотез")
     words = clean_keywords(ask.keywords)
+    # Снятые — после отсева: номера «повтор строки N» и сам отсев от снятия не меняются.
+    picked = chosen(ask.keywords, words.taken, ask.excluded)
     serp_mode, mode_refusal = _serp_mode(ask.serp_mode)
     country = ask.country.strip().lower()
     # Язык выдачи рынка — из той же карты, что у выдачи (`serp/markets.py`); нет рынка —
@@ -318,15 +338,18 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
     found = Estimate(
         hypothesis=hypothesis.name,
         segment=(hypothesis.description or "").strip(),
-        keywords=words.taken,
+        keywords=picked.bought,
         rejected=words.rejected,
         notes=words.notes,
+        excluded=picked.excluded,
+        keyword_lines=picked.lines,
         country=country,
         language=(ask.language or market).strip().lower(),
         depth_pages=ask.depth_pages,
         mode=sales_cfg.SEGMENT_JUDGE_MODE.value,
         serp_mode=serp_mode,
     )
+    found.digest = seen_digest(found, hypothesis.id)
     found.refusal = _first_refusal(
         found,
         market=market,

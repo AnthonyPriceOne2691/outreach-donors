@@ -37,6 +37,7 @@ from tests import test_sales_send_world as w
 from tests.conftest import bearer
 from tests.test_sales_autobuild import _AutoJobs
 from tests.test_sales_clean_api import _Job, _Jobs, waiting
+from tests.test_sales_segment_api import seen
 from tests.test_sales_segment_estimate import KEYWORDS, _settings
 from tests.test_sales_segment_run import hypothesis, make_run
 
@@ -222,7 +223,8 @@ async def test_segment_run_and_its_resume_are_queued_off_the_event_loop(
     owner = await hypothesis(session)
     await session.commit()
 
-    started = await client.post("/api/sales/segment/runs", json=_ask(owner.id), headers=headers)
+    asked = await seen(client, headers, _ask(owner.id))  # запуск — с отпечатком сметы
+    started = await client.post("/api/sales/segment/runs", json=asked, headers=headers)
     _off_the_loop(jobs)
     jobs.threads.clear()
     run = await make_run(session, owner)
@@ -242,7 +244,8 @@ async def test_segment_run_and_resume_with_redis_down_are_503_and_leave_no_run(
     owner = await hypothesis(session)
     await session.commit()
 
-    started = await client.post("/api/sales/segment/runs", json=_ask(owner.id), headers=headers)
+    asked = await seen(client, headers, _ask(owner.id))  # запуск — с отпечатком сметы
+    started = await client.post("/api/sales/segment/runs", json=asked, headers=headers)
     runs = await session.scalar(select(func.count()).select_from(SalesSegmentRunModel))
     run = await make_run(session, owner)
     resumed = await client.post(f"/api/sales/segment/runs/{run.id}/resume", headers=headers)

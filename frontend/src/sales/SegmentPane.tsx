@@ -5,8 +5,12 @@
  * сайт под сегмент, дубли, стоп-лист и мёртвые адреса отсекаются до первого письма. Здесь:
  *
  * - **описание сегмента гипотезы** — его читает судья; правка — новый вопрос модели, прежние
- *   вердикты по нему не годятся. Без описания прогон не запускается (судье не с чем сравнивать);
- * - **новый прогон** — смета до запуска словами сервера (`SegmentForm`);
+ *   вердикты по нему не годятся. Без описания прогон не запускается (судье не с чем сравнивать).
+ *   На экране — три строки и «показать целиком» (волна 15: абзац описания стоял над отчётом при
+ *   каждом заходе); кнопка — только когда описание в три строки не помещается, и мерится это в
+ *   браузере, по ширине окна, а не числом букв;
+ * - **новый прогон** — смета до запуска словами сервера (`SegmentForm`); у гипотезы с прогонами
+ *   форма свёрнута в кнопку;
  * - **прогоны гипотезы** — последний сразу, прежние — списком со стадией каждого; список
  *   опрашивается, пока есть идущий прогон (`useSegment`); отчёт и решение человека по
  *   «на проверку» (`SegmentReport`).
@@ -28,7 +32,7 @@ import {
   Title,
 } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import type { HypothesisCard } from '../api/salesTypes';
@@ -42,6 +46,53 @@ import { SegmentForm } from './SegmentForm';
 import { SegmentHint } from './SegmentHint';
 import { SegmentReport } from './SegmentReport';
 import { runState } from './segmentStage';
+
+/** Строк описания сегмента до «показать целиком». */
+export const SEGMENT_LINES = 3;
+
+/** Описание сегмента — три строки; не поместилось — «показать целиком». Поместилось ли, мерит
+ *  браузер (высота текста против высоты трёх строк) и перемеряет при смене ширины: число букв
+ *  этого не скажет — на 1440 и на 390 строк разное число. */
+function SegmentText({ text }: { text: string }) {
+  const textId = useId();
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [whole, setWhole] = useState(false);
+  const [long, setLong] = useState(false);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (node === null || whole) return undefined;
+    const measure = () => setLong(node.scrollHeight > node.clientHeight + 1);
+    measure();
+    const watcher = new ResizeObserver(measure);
+    watcher.observe(node);
+    return () => watcher.disconnect();
+  }, [text, whole]);
+  return (
+    <Stack gap={2} align="flex-start">
+      <Text
+        ref={ref}
+        id={textId}
+        size="sm"
+        className="segmentText"
+        {...(whole ? {} : { lineClamp: SEGMENT_LINES })}
+      >
+        {text}
+      </Text>
+      {(long || whole) && (
+        <Button
+          variant="subtle"
+          size="compact-sm"
+          px={6}
+          aria-expanded={whole}
+          aria-controls={textId}
+          onClick={() => setWhole(!whole)}
+        >
+          {whole ? 'свернуть' : 'показать целиком'}
+        </Button>
+      )}
+    </Stack>
+  );
+}
 
 /** Описание сегмента: как есть — или правка. Пустое — предупреждение, а не тишина. */
 function Segment({ home }: { home: SegmentHome }) {
@@ -107,9 +158,7 @@ function Segment({ home }: { home: SegmentHome }) {
           )}
         </Stack>
       ) : home.segment !== null ? (
-        <Text size="sm" className="segmentText">
-          {home.segment}
-        </Text>
+        <SegmentText text={home.segment} />
       ) : (
         <Alert color="yellow" title="Описания сегмента нет">
           Судье не с чем сравнивать сайты — опишите, кому пишет гипотеза: какие это сайты и чем они

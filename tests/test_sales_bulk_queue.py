@@ -46,6 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
 from tests.conftest import bearer
 from tests.test_sales_clean_api import waiting
+from tests.test_sales_segment_api import seen
 from tests.test_sales_segment_estimate import KEYWORDS, _settings
 from tests.test_sales_segment_run import hypothesis, make_run
 
@@ -227,10 +228,10 @@ async def test_the_segment_run_and_its_resume_go_to_the_bulk_queue_off_the_event
     owner = await hypothesis(session)
     await session.commit()
 
+    asked = {"hypothesis_id": owner.id, "keywords": KEYWORDS, "country": "us"}
+    # Запуск — по смете, которую видел человек: с её отпечатком.
     started = await client.post(
-        "/api/sales/segment/runs",
-        json={"hypothesis_id": owner.id, "keywords": KEYWORDS, "country": "us"},
-        headers=headers,
+        "/api/sales/segment/runs", json=await seen(client, headers, asked), headers=headers
     )
     run = await make_run(session, owner)
     resumed = await client.post(f"/api/sales/segment/runs/{run.id}/resume", headers=headers)
