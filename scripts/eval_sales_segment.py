@@ -6,6 +6,7 @@
     python scripts/eval_sales_segment.py --golden             # внешний набор: $SALES_SEGMENT_GOLDEN_DIR
     python scripts/eval_sales_segment.py --spoil              # порча: снято правило дословной цитаты
     python scripts/eval_sales_segment.py --spoil no           # порча: снято определение «no»
+    python scripts/eval_sales_segment.py --spoil about        # порча: снято правило v2 — это промпт v1
     python scripts/eval_sales_segment.py --effort minimal     # другое усилие рассуждения — замер
     python scripts/eval_sales_segment.py --out run.json       # итог ещё и файлом
     python scripts/eval_sales_segment.py --export-run 12 --out set.jsonl   # сайты прогона — в разметку
@@ -13,24 +14,38 @@
 **Случай** — сайт, как его видел судья: гипотеза, описание сегмента, по которому размечено,
 домен, текст сайта строками с подписями (`Заголовок в выдаче: …`, `Меню главной: …` — тот же
 вид, что хранится у кандидата сбора), решение человека `expect` — `yes`, `no` или `unsure`,
+а когда человек сам не уверен — `yes|unsure` или `no|unsure`: верен любой из двух ответов,
 и `evidence` — слова сайта, на которых решение стоит. Судья — тот же, что у прогона
 (`segment_judge.decide`): правила до модели, модель, дословная цитата; меряется его полоса
 без режима `SALES_SEGMENT_JUDGE_MODE` — режим решает, резать ли, а мерить надо, прав ли судья.
 
-В репозитории — синтетика (`scripts/data/sales_segment_synthetic.jsonl`), выдуманная. Живой
-набор — по 40–60 размеченных сайтов на гипотезу — вне репозитория (он публичный): манифест
-`scripts/data/sales_segment_golden.manifest.json` называет файл, число случаев, хэш, дату и
-базовую метрику. Набора нет, он не тот или мал — красный, а не «0 расхождений». Сайты для
-разметки даёт `--export-run N`: кандидаты прогона с текстом, который видел судья, без вердикта
-судьи (размечающий его не видит) и с пустым `expect`.
+В репозитории — синтетика (`scripts/data/sales_segment_synthetic.jsonl`), выдуманная: ниши и
+языки разные, ловушки «сайт о бизнесах вида» (справочник, карта, реестр, площадка, тендеры,
+вакансии, агрегатор, новости, обзор — метка `about-businesses`) и под строгим описанием, и под
+нестрогим («сайты, связанные с …», метка `loose`), контрольные сегменты, которые сами просят
+справочники и площадки (метка `control`). Живой набор — от 40 размеченных сайтов на гипотезу —
+вне репозитория (он публичный): манифест `scripts/data/sales_segment_golden.manifest.json`
+называет файл, число случаев, хэш, дату и базовые метрики. Набора нет, он не тот, мал или не
+закреплён в манифесте (нет числа и хэша) — красный, а не «0 расхождений». Сайты для разметки
+даёт `--export-run N`: кандидаты прогона с текстом, который видел судья, без вердикта судьи
+(размечающий его не видит) и с пустым `expect`.
+
+**Метрики при `yes|unsure` и `no|unsure`:** случай с `yes` среди ответов — в знаменателе
+полноты «принять» и ложных «отказ», с `no` — полноты «отказ»; без `yes` — ложных «принять».
+Верный ответ (любой из двух) — попадание в полноту; «принять» без `yes` среди ответов — ложное
+«принять», «отказ» при `yes` среди ответов — ложный «отказ». Так `no|unsure`, принятый судьёй, —
+ложное «принять», а «на проверку» — не промах.
 
 **Ворота — предложение, решает владелец:** ложных «принять» среди неподходящих — не больше 5 %
 (такой сайт стал бы лидом без человека), ложных «отказ» среди подходящих — не больше 10 %,
 полнота «принять» и «отказ» — не ниже 70 % (иначе всё уходит человеку и судья не нужен).
 
 **Порча** (`--spoil`) снимает строку правила из промпта (`RULES`): на живой модели eval обязан
-покраснеть. По умолчанию — дословная цитата: без неё цитаты пересказаны и всё уходит человеку.
-Обратный прогон пишется файлом (`--out`) и ложится в verify-report среза.
+покраснеть — итог говорит словами, поймана ли порча. По умолчанию — дословная цитата: без неё
+цитаты пересказаны и всё уходит человеку. `about` — правило v2 «сайт о бизнесах вида — не
+бизнес вида»: без него промпт — ровно v1, и ложные «принять» на ловушках `about-businesses`
+печатаются отдельной строкой. Обратный прогон пишется файлом (`--out`) и ложится в
+verify-report среза.
 
 **Усилие рассуждения** (`--effort`) — вместо продуктового (`segment_judge.REASONING_EFFORT`) на
 время eval: замер до правки продукта — тот же набор при `low` и `minimal`, ворота и токены рядом.
@@ -53,6 +68,7 @@ from collections import Counter
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
+from operator import attrgetter
 from pathlib import Path
 from typing import Any
 
@@ -73,9 +89,21 @@ SYNTHETIC = DATA / "sales_segment_synthetic.jsonl"
 MANIFEST = DATA / "sales_segment_golden.manifest.json"
 #: Решение человека → полоса, которую ждём от судьи.
 WANTED = {"yes": Lane.ACCEPT, "no": Lane.REJECT, "unsure": Lane.REVIEW}
+#: Что можно написать в `expect`: решение или пара «решение|не понять» — верен любой ответ пары.
+EXPECTS = (*WANTED, "yes|unsure", "no|unsure")
 #: Правила, которые снимает порча, — якорь строки в промпте: строка с ним одна.
-RULES = {"quote": '"quote" must be copied verbatim', "no": '- "no": '}
-RULE_WORDS = {"quote": "дословная цитата", "no": "определение «не подходит»"}
+RULES = {
+    "quote": '"quote" must be copied verbatim',
+    "no": '- "no": ',
+    "about": "- Judge what the site is, not what it writes about.",
+}
+RULE_WORDS = {
+    "quote": "дословная цитата",
+    "no": "определение «не подходит»",
+    "about": "сайт о бизнесах вида — не бизнес вида",
+}
+#: Случаи, которые держит правило, — метка набора: их ложные «принять» печатаются отдельно.
+RULE_TAGS = {"about": "about-businesses"}
 #: Усилия рассуждения, которые eval берёт вместо продуктового (`--effort`).
 EFFORTS = ("minimal", "low", "medium", "high")
 
@@ -106,16 +134,26 @@ class Result:
     #: Те же токены раздельно (`segment_window.SPLIT_TOKENS`): ввод, вывод, «раздельно
     #: неизвестно», сколько из вывода — рассуждение.
     split: dict[str, int] = dataclasses.field(default_factory=dict)
+    tags: tuple[str, ...] = ()
+
+    @property
+    def answers(self) -> frozenset[str]:
+        """Верные ответы судьи: решение человека или любой из пары `yes|unsure`, `no|unsure`."""
+        return frozenset(self.expect.split("|"))
+
+    @property
+    def right(self) -> bool:
+        return self.lane in {WANTED[answer] for answer in self.answers}
 
     @property
     def false_accept(self) -> bool:
         """Неподходящий сайт принят без человека — он стал бы лидом."""
-        return self.expect != "yes" and self.lane == Lane.ACCEPT
+        return "yes" not in self.answers and self.lane == Lane.ACCEPT
 
     @property
     def false_reject(self) -> bool:
         """Подходящий сайт отсечён — в `enforce` потерянный лид."""
-        return self.expect == "yes" and self.lane == Lane.REJECT
+        return "yes" in self.answers and self.lane == Lane.REJECT
 
 
 # --- наборы ---------------------------------------------------------------------------------
@@ -125,8 +163,8 @@ def _checked(case: dict[str, Any]) -> dict[str, Any]:
     for key in ("id", "hypothesis", "segment", "host", "text"):
         if not isinstance(case.get(key), str):
             raise SetError(f"{case.get('id')}: нет поля {key}")
-    if case.get("expect") not in WANTED:
-        raise SetError(f"{case['id']}: не размечен — expect: yes | no | unsure")
+    if case.get("expect") not in EXPECTS:
+        raise SetError(f"{case['id']}: не размечен — expect: {' | '.join(EXPECTS)}")
     return case
 
 
@@ -138,7 +176,8 @@ def load(path: Path) -> list[dict[str, Any]]:
 
 
 def golden(directory: str, manifest: Path | None = None) -> list[dict[str, Any]]:
-    """Внешний набор по манифесту: файл, число случаев, хэш и размер на гипотезу."""
+    """Внешний набор по манифесту: файл, число случаев, хэш и размер на гипотезу. Набор, не
+    закреплённый в манифесте числом и хэшем, не судится: не тот файл прошёл бы молча."""
     spec = json.loads((manifest or MANIFEST).read_text(encoding="utf-8"))
     if not directory:
         raise SetError(f"набор не найден: задайте {spec['env']} — каталог вне репозитория")
@@ -146,15 +185,27 @@ def golden(directory: str, manifest: Path | None = None) -> list[dict[str, Any]]
     cases = load(path)
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     print(f"Набор {path}: случаев {len(cases)}, sha256 {digest}")
-    if spec.get("sha256") and spec["sha256"] != digest:
-        raise SetError(f"набор не тот, что в манифесте: sha256 {digest} ≠ {spec['sha256']}")
-    if spec.get("count") and spec["count"] != len(cases):
-        raise SetError(f"набор не тот, что в манифесте: случаев {len(cases)} ≠ {spec['count']}")
+    _pinned(spec, len(cases), digest)
     least = int(spec["per_hypothesis"]["min"])
     sizes = Counter(case["hypothesis"] for case in cases)
     if small := {name: count for name, count in sizes.items() if count < least}:
         raise SetError(f"набор мал: {small} — на гипотезу нужно не меньше {least} сайтов")
+    if base := spec.get("baseline"):
+        print(f"База манифеста: {json.dumps(base, ensure_ascii=False)}")
     return cases
+
+
+def _pinned(spec: dict[str, Any], count: int, digest: str) -> None:
+    """Набор — тот, что закреплён в манифесте числом случаев и хэшем; не закреплён — отказ."""
+    if not spec.get("sha256") or not spec.get("count"):
+        raise SetError(
+            f"набор не закреплён в манифесте: впишите count {count} и sha256 {digest} "
+            "(их напечатала эта проверка), когда набор утверждён"
+        )
+    if spec["sha256"] != digest:
+        raise SetError(f"набор не тот, что в манифесте: sha256 {digest} ≠ {spec['sha256']}")
+    if spec["count"] != count:
+        raise SetError(f"набор не тот, что в манифесте: случаев {count} ≠ {spec['count']}")
 
 
 def without_rule(prompt: str, rule: str) -> str:
@@ -211,6 +262,7 @@ async def run(
                 verdict.unanswered,
                 verdict.tokens,
                 split_of(verdict),
+                tuple(case.get("tags") or ()),
             )
         )
     return results
@@ -220,18 +272,30 @@ def _share(part: int, whole: int) -> float | None:
     return part / whole if whole else None
 
 
+def _groups(results: list[Result]) -> tuple[list[Result], list[Result], list[Result]]:
+    """Знаменатели: с `yes` среди ответов, без `yes`, с `no` (пары — в шапке модуля)."""
+    fits = [r for r in results if "yes" in r.answers]
+    misfits = [r for r in results if "yes" not in r.answers]
+    cuts = [r for r in results if "no" in r.answers]
+    return fits, misfits, cuts
+
+
+def _rate(group: list[Result], field: str) -> float | None:
+    """Доля случаев группы, у которых признак `field` истинен."""
+    return _share(sum(map(attrgetter(field), group)), len(group))
+
+
 def metrics(results: list[Result]) -> dict[str, Any]:
-    """Числа ворот: полнота «принять» и «отказ», доли ложных — от своего знаменателя."""
-    pairs = Counter((r.expect, r.lane) for r in results)
-    expects = Counter(r.expect for r in results)
+    """Числа ворот: полнота «принять» и «отказ», доли ложных — от своего знаменателя (как
+    считаются `yes|unsure` и `no|unsure` — в шапке модуля)."""
+    fits, misfits, cuts = _groups(results)
     lanes = Counter(r.lane for r in results)
-    fits = expects["yes"]
     return {
         "cases": len(results),
-        "accept_recall": _share(pairs["yes", Lane.ACCEPT], fits),
-        "reject_recall": _share(pairs["no", Lane.REJECT], expects["no"]),
-        "false_accept": _share(lanes[Lane.ACCEPT] - pairs["yes", Lane.ACCEPT], len(results) - fits),
-        "false_reject": _share(pairs["yes", Lane.REJECT], fits),
+        "accept_recall": _rate(fits, "right"),
+        "reject_recall": _rate(cuts, "right"),
+        "false_accept": _rate(misfits, "false_accept"),
+        "false_reject": _rate(fits, "false_reject"),
         "to_human": _share(lanes[Lane.REVIEW], len(results)),
         "unanswered": sum(r.unanswered for r in results),
         "tokens": sum(r.tokens for r in results),
@@ -278,11 +342,24 @@ def report(results: list[Result], gates: Gates) -> list[str]:
     _by_hypothesis(results)
     total = metrics(results)
     print(f"Всего: {total}")
-    wrong = Counter(f"{r.expect}→{r.lane}" for r in results if WANTED[r.expect] != r.lane)
+    wrong = Counter(f"{r.expect}→{r.lane}" for r in results if not r.right)
     print(f"Ждали → судья: {dict(wrong)}")
     dangerous = [r.case_id for r in results if r.false_accept]
     print(f"ЛОЖНЫХ «ПРИНЯТЬ»: {len(dangerous)} {dangerous or ''}")
+    _traps(results)
     return closed(total, gates)
+
+
+def _traps(results: list[Result]) -> None:
+    """Ложные «принять» на случаях, которые держит правило (`RULE_TAGS`), — отдельной строкой:
+    так видно, что сделала порча правила, а что — остальной промпт."""
+    for rule, tag in RULE_TAGS.items():
+        if traps := [r for r in results if tag in r.tags]:
+            caught = [r.case_id for r in traps if r.false_accept]
+            print(
+                f"Ловушки правила «{RULE_WORDS[rule]}» ({tag}): ложных «принять» "
+                f"{len(caught)} из {len(traps)} {caught or ''}"
+            )
 
 
 # --- выгрузка сайтов прогона в разметку ------------------------------------------------------
@@ -368,6 +445,16 @@ def _written(args: argparse.Namespace, results: list[Result], failed: list[str])
     print(f"Итог записан: {args.out}")
 
 
+def _spoil_caught(rule: str, failed: list[str]) -> str:
+    """Итог обратного прогона словами: порча обязана закрыть ворота."""
+    if failed:
+        return f"ПОРЧА ПОЙМАНА: без правила «{RULE_WORDS[rule]}» ворота закрылись"
+    return (
+        f"ПОРЧА НЕ ПОЙМАНА: без правила «{RULE_WORDS[rule]}» ворота открыты — набор правило не "
+        "проверяет, дополните его случаями, которые правило держит"
+    )
+
+
 def main(argv: list[str], *, golden_dir: str | None = None) -> int:
     args = _args(argv)
     if args.export_run is not None:
@@ -387,6 +474,8 @@ def main(argv: list[str], *, golden_dir: str | None = None) -> int:
         results = asyncio.run(_evaluate(cases, args, system))
     failed = report(results, Gates())
     _written(args, results, failed)
+    if args.spoil is not None:
+        print(_spoil_caught(args.spoil, failed))
     if failed:
         print("\nВОРОТА ЗАКРЫТЫ: " + "; ".join(failed))
         return 1

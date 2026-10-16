@@ -1,17 +1,30 @@
 {
   "name": "sales_segment_golden",
-  "about": "Размеченные сайты для eval судьи сегмента сбора базы (срез 6.1): по 40–60 сайтов на гипотезу 2 и 3, решение человека по каждому — подходит, не подходит, не понять. Сам набор вне репозитория (он публичный): каталог из SALES_SEGMENT_GOLDEN_DIR, файл ниже.",
+  "about": "Размеченные сайты для eval судьи сегмента сбора базы: первый живой набор — все сайты первого прогона сбора одной гипотезы, решение человека по каждому (подходит, не подходит, не понять; не уверен — пара с «не понять»). Сам набор вне репозитория (он публичный): каталог из SALES_SEGMENT_GOLDEN_DIR, файл ниже.",
   "env": "SALES_SEGMENT_GOLDEN_DIR",
   "file": "sales_segment_golden.jsonl",
-  "format": "JSONL, строка на сайт — как scripts/data/sales_segment_synthetic.jsonl: id; hypothesis — имя гипотезы; segment — описание сегмента, по которому размечено (правка описания — новый вопрос, разметку повторить); host; text — текст сайта строками с подписями, как его видел судья (Заголовок в выдаче, Описание в выдаче, Заголовок главной, Описание главной, Меню главной); expect — yes | no | unsure, решение человека; evidence — слова сайта, на которых решение стоит, дословно; labeled_by, labeled_at; tags. Заготовку без решений даёт eval_sales_segment.py --export-run N --out файл",
+  "format": "JSONL, строка на сайт — как scripts/data/sales_segment_synthetic.jsonl: id; hypothesis — имя гипотезы; segment — описание сегмента, по которому размечено (правка описания — новый вопрос, разметку повторить); host; text — текст сайта строками с подписями, как его видел судья (Заголовок в выдаче, Описание в выдаче, Заголовок главной, Описание главной, Меню главной); expect — yes | no | unsure, решение человека, или yes|unsure | no|unsure — верен любой из двух ответов; evidence — слова сайта, на которых решение стоит, дословно; labeled_by, labeled_at; tags. Заготовку без решений даёт eval_sales_segment.py --export-run N --out файл",
   "per_hypothesis": {
     "min": 40,
-    "max": 60
+    "max": 80
   },
-  "count": null,
-  "sha256": null,
-  "date": null,
-  "baseline": null,
+  "count": 74,
+  "sha256": "55085a3d472c7d78269c2e18bc19ec676b136f557653a09788a14847c5409dd3",
+  "date": "2026-10-15",
+  "baseline": {
+    "prompt_version": "sales-segment-v1",
+    "model": "gpt-5-mini",
+    "reasoning_effort": "low",
+    "segment": "нынешнее описание гипотезы (сверено с базой 15.10)",
+    "command": "eval_sales_segment.py --golden --spoil about (без правила v2 промпт — ровно v1)",
+    "cases": 74,
+    "false_accept": 0.0303,
+    "false_reject": 0.0,
+    "accept_recall": 0.9512,
+    "reject_recall": 0.9394,
+    "to_human": 0.0676,
+    "source": "живой eval 15.10 на закреплённом наборе"
+  },
   "gates": {
     "false_accept_max": 0.05,
     "false_reject_max": 0.1,
@@ -19,5 +32,5 @@
     "reject_recall_min": 0.7
   },
   "gates_status": "предложение до замера: пороги утверждает владелец по прогону на наборе",
-  "fill_in": "count, sha256 и date печатает eval_sales_segment.py --golden; baseline — его итог на утверждённой версии промпта"
+  "fill_in": "sha256 печатает eval_sales_segment.py --golden: незакреплённый набор — красный с напечатанными count и sha256, их вписывают сюда, когда набор утверждён; baseline — итог eval на закреплённом наборе и утверждённой версии промпта"
 }

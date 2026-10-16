@@ -8,14 +8,15 @@
    общее правило прогона доноров (`runs/exclusions.by_name`: зона, платформа, соцсети,
    крупные СМИ, справочники) его словами — отсекается, пустой текст и страница-отказ идут
    человеку (правила текста — судьи площадки, без копии). Правило режет в любом режиме:
-   это знание, а не мнение модели, мерить его нечего.
+   это знание, а не мнение модели, мерить его нечего. Отказ судят по строкам, словами без
+   подписи: заглушка защиты только в строках главной — не отказ всего сайта, строки главной
+   уходят, и модель судит выдачу (`SiteText.without_stub`).
 2. **Модель — строгая форма JSON `{fit, quote, why}`**: «да», «нет», «не понять».
 3. **Цитата — дословно из текста сайта**, внутри одной строки, не короче трёх слов (как
    просит промпт); иначе «на проверку»: цитата, которой нет в тексте, — признак того, что
-   модель сочинила, а не прочла. Такая цитата не хранится. Типографика не в счёт
-   (`quote_holds`): кавычки, многоточие-пропуск, знаки по краям, невидимые знаки, ё/е,
-   регистр — модель ставит их иначе, чем сайт, и честная цитата иначе уходила бы человеку
-   с «модель сочинила».
+   модель сочинила, а не прочла. Такая цитата не хранится. Не в счёт типографика, наша
+   подпись строки в начале цитаты и опечатка переписывания в длинном слове
+   (`segment_quote.py`): честная цитата иначе уходила бы человеку с «модель сочинила».
 4. **Три полосы**: принять, на проверку, отказ.
 5. **Отказ модели не кэшируется**: сбой, пустой ответ — «на проверку» с `unanswered`,
    вердикта нет, и следующий проход судит домен снова.
@@ -30,9 +31,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import re
-import unicodedata
-from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
@@ -41,17 +39,24 @@ from typing import Any
 from backend.config import llm as llm_cfg
 from backend.config.judge import JudgeMode
 from backend.features.donors.home_signals import HomeSignals, looks_denied
-from backend.features.keywords.hygiene import normalize
 from backend.features.runs.exclusions import NOT_WRITING_WORDS, by_name
 from backend.features.sales.segment_models import Decider, Lane
+from backend.features.sales.segment_quote import (
+    MIN_QUOTE_WORDS,
+    quote_holds,
+    quote_words,
+    unlabeled,
+)
 from backend.shared.llm import ModelClient, Refusal, content_of, is_reasoning, post_chat, tokens_of
 
 logger = logging.getLogger(__name__)
 
 TOPIC = "судья сегмента продаж"
 #: Версия промпта. Меняется при КАЖДОЙ правке файла промпта: вердикт хранит её, и точность
-#: против человека считается по версии.
-PROMPT_VERSION = "sales-segment-v1"
+#: против человека считается по версии; кэш вердиктов отдаёт только вердикты своей версии.
+#: v2 — правило «сайт о бизнесах вида — не бизнес вида»: справочник, карта, реестр, площадка,
+#: тендеры, вакансии, агрегатор, новости и обзоры — «нет», если сегмент сам их не просит.
+PROMPT_VERSION = "sales-segment-v2"
 PROMPT_PATH = Path(__file__).with_name("prompts") / "segment.md"
 #: Операция журнала расхода (`core/usage.OPERATION_PROVIDERS`); её считает потолок продаж.
 OPERATION = "sales_segment_judge"
@@ -63,9 +68,7 @@ TOKENS_PLAIN = 300
 #: Сколько знаков текста сайта видит модель: сниппет и шапка главной короткие, потолок —
 #: против аномалии страницы, а не ради экономии.
 MAX_TEXT_CHARS = 2000
-#: Цитата короче — не доказательство: одно-два слова найдутся в любом меню. Столько же просит
-#: промпт («3 to 30 words»). Слова отказа — вместе с числом (`SHORT_QUOTE`).
-MIN_QUOTE_WORDS = 3
+#: Слова отказа — вместе с числом (`segment_quote.MIN_QUOTE_WORDS`).
 SHORT_QUOTE = "цитата короче трёх слов — не доказательство"
 NO_QUOTE = "модель не дала цитаты"
 MADE_UP = "цитаты нет в тексте сайта — модель не прочла, а сочинила"
@@ -77,13 +80,16 @@ FITS = {"yes": Lane.ACCEPT, "no": Lane.REJECT, "unsure": Lane.REVIEW}
 SEGMENT_OPEN, SEGMENT_CLOSE = "<<<SEGMENT", "SEGMENT>>>"
 SITE_OPEN, SITE_CLOSE = "<<<SITE", "SITE>>>"
 
-#: Подписи строк текста сайта: свои слова, не сайта — цитировать их нельзя.
+#: Подписи строк текста сайта: свои слова, не сайта — цитировать их нельзя (модель цитирует —
+#: подпись снимается, `segment_quote.unlabeled`). Строки выдачи и главной различаются по ним же.
 PAGE_TITLE = "Заголовок в выдаче"
 PAGE_DESCRIPTION = "Описание в выдаче"
 HOME_TITLE = "Заголовок главной"
 HOME_DESCRIPTION = "Описание главной"
 HOME_MENU = "Меню главной"
-LABELS = (PAGE_TITLE, PAGE_DESCRIPTION, HOME_TITLE, HOME_DESCRIPTION, HOME_MENU)
+SERP_LABELS = (PAGE_TITLE, PAGE_DESCRIPTION)
+HOME_LABELS = (HOME_TITLE, HOME_DESCRIPTION, HOME_MENU)
+LABELS = (*SERP_LABELS, *HOME_LABELS)
 
 
 @lru_cache(maxsize=1)
@@ -96,75 +102,6 @@ def segment_digest(description: str) -> str:
     """Отпечаток описания сегмента: правка описания — новый вопрос модели, и прежний
     вердикт на него не годится. Пробелы не в счёт — их правка вопрос не меняет."""
     return hashlib.sha256(" ".join(description.split()).encode("utf-8")).hexdigest()[:12]
-
-
-# --- сверка цитаты ------------------------------------------------------------------------------
-
-#: Двойные кавычки всех видов, одинарные ёлочки и уголки японского письма: сайт пишет «ёлочки»,
-#: модель — прямые, а то и никаких.
-_QUOTES = str.maketrans("", "", '"«»“”„‟″〝〞‹›「」『』')
-#: Многоточие внутри цитаты — пропуск: модель выкинула кусок строки. После NFKC «…» — три точки.
-_GAP = re.compile(r"\.{3,}")
-#: Знаки по краям куска цитаты: хвостовая точка, запятая, скобка модели.
-_EDGES = re.compile(r"^\W+|\W+$")
-_WORD = re.compile(r"\w+")
-#: Письменности без пробелов между словами: слово в них — около двух знаков.
-_UNSPACED = ("CJK", "HIRAGANA", "KATAKANA", "IDEOGRAPHIC", "THAI", "LAO", "KHMER", "MYANMAR")
-
-
-def _plain(text: str) -> str:
-    """Строка для сверки цитаты — поверх общего `normalize` (NFKC, тире и апострофы одним
-    знаком, пробелы свёрнуты, нижний регистр): без невидимых знаков (мягкий перенос, нулевой
-    ширины — категория Cf) и кавычек, `casefold`, ё = е."""
-    visible = "".join(char for char in text if unicodedata.category(char) != "Cf")
-    bare = normalize(visible).translate(_QUOTES)
-    return " ".join(bare.split()).casefold().replace("ё", "е")
-
-
-def _pieces(quote: str) -> list[str]:
-    """Цитата → куски между многоточиями-пропусками, без знаков по краям; пустые — вон."""
-    return [piece for part in _GAP.split(_plain(quote)) if (piece := _EDGES.sub("", part))]
-
-
-def _spaced(text: str) -> str:
-    """Слова через пробел и пробелы по краям: так кусок ищется целыми словами, а знаки между
-    словами — запятая, тире, кавычка, пробел у скобки — не в счёт."""
-    return f" {' '.join(_WORD.findall(text))} "
-
-
-def _in_order(pieces: Sequence[str], line: str) -> bool:
-    """Куски — в строке по порядку, каждый после предыдущего (у слов — общий пробел на стыке)."""
-    start = 0
-    for piece in pieces:
-        found = line.find(piece, start)
-        if found < 0:
-            return False
-        start = found + len(piece) - piece.endswith(" ")
-    return True
-
-
-def quote_holds(quote: str, line: str) -> bool:
-    """Цитата — в одной строке сайта дословно, с точностью до типографики: строкой (иероглифы,
-    часть слова) или целыми словами (знаки между словами не в счёт). Многоточие — пропуск:
-    куски по обе его стороны — в той же строке и по порядку."""
-    pieces = _pieces(quote)
-    if not pieces:
-        return False
-    plain = _plain(line)
-    return _in_order(pieces, plain) or _in_order([_spaced(p) for p in pieces], _spaced(plain))
-
-
-def _size(word: str) -> int:
-    if any(unicodedata.name(char, "").startswith(_UNSPACED) for char in word):
-        return max(1, len(word) // 2)
-    return 1
-
-
-def quote_words(quote: str) -> int:
-    """Сколько слов в цитате; знаки и многоточие — не слова. Слово письменности без пробелов
-    (иероглифы, тайский) — около двух знаков: иначе японская цитата всегда была бы «одним
-    словом» и уходила бы человеку."""
-    return sum(_size(word) for word in _WORD.findall(_plain(quote)))
 
 
 def proven_again(decided_by: str, quote: str | None) -> bool:
@@ -191,10 +128,29 @@ class SiteText:
         return "\n".join(f"{label}: {words}" for label, words in self.lines)
 
     def holds(self, quote: str) -> bool:
-        """Цитата — дословно внутри одной строки сайта, с точностью до типографики
-        (`quote_holds`): модель переносит строки и ставит знаки иначе, чем сайт, и честная
-        цитата иначе не прошла бы."""
+        """Цитата — внутри одной строки сайта, с точностью до типографики и опечатки
+        переписывания (`segment_quote.quote_holds`): модель переносит строки и ставит знаки
+        иначе, чем сайт, и честная цитата иначе не прошла бы."""
         return any(quote_holds(quote, words) for _, words in self.lines)
+
+    def _of(self, labels: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+        return tuple(line for line in self.lines if line[0] in labels)
+
+    @property
+    def stubbed(self) -> bool:
+        """Есть строка-отказ или заглушка защиты: проверка — по строкам, словами без подписи
+        (общий `looks_denied`; строку целиком из «Checking…» он узнаёт только без подписи)."""
+        return any(looks_denied(words) for _, words in self.lines)
+
+    def without_stub(self) -> SiteText:
+        """Текст для модели: заглушка защиты только в строках главной («проверка браузера»
+        вместо сайта) — строки главной вон, судится выдача: она пришла от поисковика, а не от
+        защиты сайта. Заглушка в выдаче или выдачи нет — текст как есть: его отдаст человеку
+        `by_text`."""
+        serp = SiteText(self._of(SERP_LABELS))
+        if serp.empty or serp.stubbed or not SiteText(self._of(HOME_LABELS)).stubbed:
+            return self
+        return serp
 
     @classmethod
     def parse(cls, stored: str) -> SiteText:
@@ -308,10 +264,11 @@ def by_host(host: str) -> SegmentVerdict | None:
 
 def by_text(text: SiteText) -> SegmentVerdict | None:
     """Правила по тексту: пустое и страница-отказ — человеку. Угаданный по отказу доступа
-    вердикт был бы случайным попаданием, а не знанием."""
+    вердикт был бы случайным попаданием, а не знанием. Заглушка только в строках главной — не
+    отказ: модель судит выдачу (`SiteText.without_stub`)."""
     if text.empty:
         return _ruled(Lane.REVIEW, "выдача и главная не дали текста — судить не по чему")
-    if looks_denied(text.for_model()):
+    if text.without_stub().stubbed:
         return _ruled(Lane.REVIEW, "вместо страницы пришёл отказ доступа — судить не по чему")
     return None
 
@@ -387,7 +344,8 @@ def parse(content: str, text: SiteText) -> SegmentVerdict:
     if isinstance(form, str):
         return SegmentVerdict(Lane.REVIEW, form)
     raw = form.get("quote")
-    quote = raw.strip() if isinstance(raw, str) and raw.strip() else None
+    words = unlabeled(raw, LABELS) if isinstance(raw, str) else ""
+    quote = words or None
     if (why_not := _unproven(quote, text)) is not None:
         return SegmentVerdict(Lane.REVIEW, why_not)
     why = str(form.get("why") or "").strip()[:300]
@@ -433,12 +391,14 @@ class SegmentClient(ModelClient):
 async def decide(
     client: SegmentClient, *, host: str, segment: str, text: SiteText, system: str | None = None
 ) -> SegmentVerdict:
-    """Правила, затем модель. Не бросает. `system` — промпт вместо файла: так eval гоняет
-    испорченный промпт (`scripts/eval_sales_segment.py --spoil`), не трогая файл."""
+    """Правила, затем модель — по тексту без главной-заглушки (`SiteText.without_stub`). Не
+    бросает. `system` — промпт вместо файла: так eval гоняет испорченный промпт
+    (`scripts/eval_sales_segment.py --spoil`), не трогая файл."""
     ruled = before_model(host, text)
     if ruled is not None:
         return ruled
-    return await client.judge(host=host, segment=segment, text=text, system=system)
+    judged = text.without_stub()
+    return await client.judge(host=host, segment=segment, text=judged, system=system)
 
 
 #: Полоса кандидата при выключенном судье: модель не зовётся, решает человек.

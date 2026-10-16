@@ -11,6 +11,7 @@ Rules:
 - Judge the site, not the search query: a page that mentions the topic of the segment is not enough when the site itself is something else.
 - Language, country or size of the site matter only when the segment names them.
 - "quote" must be copied verbatim from the website text: the exact words of one line, after its label, 3 to 30 words, that show your decision. Never paraphrase, translate, shorten inside, or join words from different lines. Labels are ours, not the site's: never quote them.
+- Judge what the site is, not what it writes about. A site that lists, maps, rates, compares, registers or reports on businesses of the segment's kind (a directory or catalogue, a map, a company registry or company check service, a marketplace, classifieds board or exchange, a tender platform, a job board, an aggregator of orders or bookings, a news site, a blog post or a review) is not one of them: answer "no", even when the segment is written loosely as "sites about ..." or "sites related to ..." . Such a site is "yes" only when the segment itself asks for directories, marketplaces, media or the like.
 - If no words of the website text support your decision, answer "unsure".
 
 Answer with ONLY one JSON object with exactly these keys:

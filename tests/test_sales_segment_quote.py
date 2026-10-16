@@ -1,21 +1,26 @@
-"""Проверка цитаты судьи сегмента: типографика не в счёт, выдумка — по-прежнему «на проверку».
+"""Проверка цитаты судьи сегмента (`segment_quote.py`): типографика, наша подпись строки и
+опечатка переписывания не в счёт, выдумка и пересказ — по-прежнему «на проверку».
 
 Тест прогона: три сайта ушли человеку с «модель не прочла, а сочинила», хотя цитата на
 сайте была — сайт и модель ставили разные кавычки и пробелы. Сверка теперь поверх общего
 `keywords/hygiene.normalize`: двойные кавычки, многоточие-пропуск, знаки по краям, мягкий
 перенос и нулевой ширины, ё/е, `casefold`; слова — по порядку внутри ОДНОЙ строки. Ложные «цитаты
-нет», записанные в кэш вердиктов прежней сверкой, кэш больше не отдаёт.
+нет», записанные в кэш вердиктов прежней сверкой, кэш больше не отдаёт. Калибровка 15.10: модель
+пишет в цитату нашу подпись («Заголовок в выдаче: …») и переписывает длинное слово капсом с
+ошибкой в букву — подпись снимается, опечатка прощается с высоким порогом; пересказ — нет.
 
-Сайты и описание выдуманы; модель — подставным транспортом.
+Сайты и описание выдуманы, строки — разных ниш и письменностей; модель — подставным транспортом.
 """
 
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 from backend.config.judge import JudgeMode
 from backend.features.sales import segment_judge as sj
+from backend.features.sales import segment_quote as sq
 from backend.features.sales.segment_judge import SiteText
 from backend.features.sales.segment_judging import judge_run
 from backend.features.sales.segment_models import (
@@ -78,7 +83,7 @@ def site(title: str = TITLE) -> SiteText:
     ],
 )
 def test_an_honest_quote_holds_whatever_the_typography(line: str, quote: str) -> None:
-    assert sj.quote_holds(quote, line)
+    assert sq.quote_holds(quote, line)
 
 
 async def test_a_typographic_quote_of_the_model_is_accepted_not_sent_to_review() -> None:
@@ -136,15 +141,148 @@ def test_the_minimum_is_the_lower_bound_the_prompt_names() -> None:
     bounds = re.search(r"(\d+) to (\d+) words", sj.load_prompt())
 
     assert bounds is not None
-    assert int(bounds.group(1)) == sj.MIN_QUOTE_WORDS == 3
+    assert int(bounds.group(1)) == sq.MIN_QUOTE_WORDS == 3
 
 
 def test_a_word_of_a_script_without_spaces_counts_by_its_length() -> None:
     """Японская цитата без пробелов — не «одно слово»: иначе любой японский сайт уходил бы
     человеку с «цитата короче трёх слов»."""
-    assert sj.quote_words("東京家具工房のサイト") >= sj.MIN_QUOTE_WORDS
-    assert sj.quote_words("家具") < sj.MIN_QUOTE_WORDS
-    assert sj.quote_words("мебель — на заказ …") == 3
+    assert sq.quote_words("東京家具工房のサイト") >= sq.MIN_QUOTE_WORDS
+    assert sq.quote_words("家具") < sq.MIN_QUOTE_WORDS
+    assert sq.quote_words("мебель — на заказ …") == 3
+    # Знаки при буквах — часть слова: хинди и арабское с огласовками — по слову, а не кусками.
+    assert sq.quote_words("हिन्दी में सेवाएं") == 3
+    assert sq.quote_words("مَرْحَبًا بِكُمْ هُنَا") == 3
+
+
+# --- наша подпись строки в начале цитаты — не слова сайта -----------------------------------------
+
+WORDS = "мебель на заказ по России"
+
+
+@pytest.mark.parametrize("label", sj.LABELS)
+@pytest.mark.parametrize(
+    "written",
+    ["{label}: {words}", "«{label}: {words}»", "{lower}:   {words}", '"{label}: {words}".'],
+    ids=["plain", "in-quotes", "lowercase", "quoted-with-dot"],
+)
+async def test_our_label_at_the_start_of_the_quote_is_taken_off(label: str, written: str) -> None:
+    """Модель переписывает строку вместе с подписью, хотя промпт просит её не цитировать. Каждая
+    подпись — из того же списка, которым строится текст сайта (`segment_judge.LABELS`)."""
+    quote = written.format(label=label, lower=label.lower(), words=WORDS)
+
+    verdict, _ = await judged(
+        {"fit": "yes", "quote": quote, "why": "мастерская"}, site_under(label)
+    )
+
+    assert (verdict.lane, verdict.quote) == (Lane.ACCEPT, WORDS)
+
+
+def site_under(label: str) -> SiteText:
+    return SiteText(((label, TITLE),))
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        # Подпись не в начале — две строки, склеенные в одну.
+        f"шоурум в Москве {sj.HOME_MENU}: Каталог · Доставка и сборка",
+        # Похоже на подпись, но не наша: слова не сайта.
+        f"Заголовок сайта: {WORDS}",
+    ],
+    ids=["label-inside", "not-our-label"],
+)
+async def test_only_our_label_at_the_start_is_taken_off(quote: str) -> None:
+    verdict, _ = await judged({"fit": "yes", "quote": quote, "why": "мастерская"}, site())
+
+    assert (verdict.lane, verdict.reason) == (Lane.REVIEW, sj.MADE_UP)
+
+
+def test_the_labels_come_from_the_site_text_builder_not_a_copy() -> None:
+    """Одна точка правды: модуль цитаты списка подписей не держит — его передаёт судья."""
+    source = Path(sq.__file__).read_text(encoding="utf-8")
+
+    assert "LABELS =" not in source
+    assert [label for label in sj.LABELS if f'"{label}' in source] == []
+
+
+# --- опечатка переписывания: длинное слово, высокий порог, без правил языков ---------------------
+
+GARDENS = "Professional landscaping services for private gardens"
+FREIGHT = "Транспортно-экспедиционная компания полного цикла"
+WEB = "شركة متخصصة في تصميم المواقع الإلكترونية"
+DENTAL = "Zahnarztpraxis mit Implantologie und Prophylaxe in Köln"
+
+
+@pytest.mark.parametrize(
+    ("line", "quote"),
+    [
+        # Латиница капсом: пропущена буква в слове из 11 букв.
+        (GARDENS, "PROFESSIONAL LANDSCAPNG SERVICES"),
+        # Кириллица: две буквы в слове из 14 — у длинного слова правок две.
+        (FREIGHT, "ТРАНСПОРТНО-ЭКСПЕДИЦОНАЯ КОМПАНИЯ ПОЛНОГО ЦИКЛА"),
+        # Справа налево: хамза потеряна в слове из 11 букв.
+        (WEB, "شركة متخصصة في تصميم المواقع الالكترونية"),
+        # Две соседние буквы переставлены в слове из 14 букв; цитата — кусок строки.
+        (DENTAL, "ZAHNARTZPRAXIS MIT IMPLANTOLOGIE"),
+        # Опечатка и многоточие-пропуск вместе: куски по порядку.
+        (GARDENS, "Professional landscapimg services … private gardens"),
+    ],
+    ids=["latin-caps", "cyrillic-two-letters", "arabic-rtl", "german-swap", "with-gap"],
+)
+def test_a_rewriting_typo_in_a_long_word_still_holds(line: str, quote: str) -> None:
+    assert sq.quote_holds(quote, line)
+
+
+@pytest.mark.parametrize(
+    ("line", "quote"),
+    [
+        # Пересказ: те же мысли другими словами.
+        (GARDENS, "Expert garden landscaping for homeowners"),
+        # Те же слова не по порядку.
+        (GARDENS, "SERVICES PROFESSIONAL LANDSCAPING"),
+        # Слово выкинуто изнутри — сокращение, а не опечатка.
+        (GARDENS, "Professional landscaping for private gardens"),
+        # Опечатка в коротком слове — уже другое слово.
+        (FREIGHT, "Транспортно-экспедиционная компания полного цикло"),
+        # Лишняя буква не делает короткое слово сайта длинным: мерило — слово сайта.
+        ("Мебель на заказ по России", "Мебельь на заказ по России"),
+        # Меньше трёх слов с опечаткой: опоры для нечёткой сверки мало.
+        (GARDENS, "LANDSCAPNG SERVICES"),
+        # Неточное каждое длинное слово — это переписанная строка, а не опечатка.
+        (FREIGHT, "ТРАНСПОРТНА-ЭКСПЕДИЦОНАЯ КОМПАНИИ ПОЛНОГО ЦИКЛА"),
+        # Три правки в слове из 14 букв — больше, чем прощается.
+        (DENTAL, "ZAHNARZTPRAKSIZZ MIT IMPLANTOLOGIE"),
+        # Иероглифы: знак — уже слово, нечёткой сверки у письменностей без пробелов нет — даже
+        # когда цитата из трёх слов и знак заменён один в длинном слове.
+        (
+            "東京家具工房株式会社、大阪支店、名古屋支店",
+            "東京家具工場株式会社、大阪支店、名古屋支店",
+        ),
+    ],
+    ids=[
+        "paraphrase",
+        "reordered",
+        "word-dropped",
+        "short-word",
+        "short-word-grown",
+        "two-words",
+        "every-word-off",
+        "three-edits",
+        "cjk-one-sign",
+    ],
+)
+def test_a_paraphrase_or_more_than_a_typo_does_not_hold(line: str, quote: str) -> None:
+    assert not sq.quote_holds(quote, line)
+
+
+async def test_a_quote_with_a_typo_is_accepted_and_kept_as_the_model_wrote_it() -> None:
+    typo = "PROFESSIONAL LANDSCAPNG SERVICES"
+    site_ = SiteText(((sj.PAGE_TITLE, GARDENS),))
+
+    verdict, _ = await judged({"fit": "yes", "quote": typo, "why": "садовник"}, site_)
+
+    assert (verdict.lane, verdict.quote) == (Lane.ACCEPT, typo)
 
 
 # --- кэш: ложные «цитаты нет» прежней сверки не возвращаются --------------------------------------
@@ -159,12 +297,12 @@ async def _legacy_row(session: AsyncSession, domain_id: int, owner_id: int, **ro
         "model": "gpt-5-mini",
         "decided_by": Decider.MODEL,
         "tokens": 587,
+        "prompt_version": sj.PROMPT_VERSION,
     } | row
     session.add(
         SalesSegmentVerdictModel(
             domain_id=domain_id,
             hypothesis_id=owner_id,
-            prompt_version=sj.PROMPT_VERSION,
             segment_digest=sj.segment_digest(SEGMENT),
             **fields,
         )
@@ -270,3 +408,41 @@ async def test_an_unproven_answer_is_not_written_to_the_cache(session: AsyncSess
 
     assert (shop.lane, shop.reason) == (Lane.REVIEW, sj.MADE_UP)
     assert await session.scalar(select(SalesSegmentVerdictModel)) is None
+
+
+@pytest.mark.parametrize(
+    ("version", "asked"),
+    [(sj.PROMPT_VERSION, False), ("sales-segment-v1", True)],
+    ids=["same-version-served", "v1-asked-again"],
+)
+async def test_the_cache_serves_only_verdicts_of_the_current_prompt_version(
+    session: AsyncSession, version: str, asked: bool
+) -> None:
+    """v2 — новый вопрос модели (правило «сайт о бизнесах — не бизнес»): принятый по v1
+    справочник не должен вернуться из кэша принятым. Строка v1 остаётся как была."""
+    owner = await hypothesis(session)
+    run = await make_run(session, owner)
+    [shop] = await candidates(session, run.id, owner.id, SHOP)
+    quote = "интернет-магазин «Велошоп» горные велосипеды"
+    await _legacy_row(
+        session, shop.domain_id, owner.id, prompt_version=version, verdict=Lane.ACCEPT, quote=quote
+    )
+    model = Model({SHOP: {"fit": "no", "quote": "интернет-магазин «Велошоп»", "why": "другое"}})
+
+    tally = await judge_run(
+        session,
+        run_id=run.id,
+        segment=SEGMENT,
+        mode=JudgeMode.ENFORCE,
+        client=judge(model),
+        home=None,
+    )
+
+    assert (model.asked == [SHOP], tally.from_cache) == (asked, int(not asked))
+    assert shop.lane is (Lane.REJECT if asked else Lane.ACCEPT)
+    rows = (await session.scalars(select(SalesSegmentVerdictModel))).all()
+    assert {(row.prompt_version, row.verdict) for row in rows} == (
+        {("sales-segment-v1", Lane.ACCEPT), (sj.PROMPT_VERSION, Lane.REJECT)}
+        if asked
+        else {(sj.PROMPT_VERSION, Lane.ACCEPT)}
+    )
