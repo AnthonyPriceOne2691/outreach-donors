@@ -5,8 +5,20 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { SegmentEstimate } from './segmentApi';
-import { estimateChips, excludedLines, splitLines, toggled } from './segmentKeys';
+import type { SegmentEstimate, SegmentRunKeywords } from './segmentApi';
+import {
+  EMPTY_MARK,
+  estimateChips,
+  excludedLines,
+  keyCounts,
+  LOST_MARK,
+  remarkGroups,
+  runHeadLine,
+  runRows,
+  splitLines,
+  toggled,
+  twinCaption,
+} from './segmentKeys';
 
 describe('строки поля — как у сервера', () => {
   it('разделители Python: «\\r\\n» — один разрыв, редкие переводы строки — тоже разрывы', () => {
@@ -120,5 +132,109 @@ describe('чипы сметы', () => {
     const chips = estimateChips(found, new Set([4]));
 
     expect(chips.map((chip) => chip.state)).toEqual(['taken', 'taken', 'excluded', 'rejected']);
+  });
+});
+
+// --- ключи в отчёте прогона ----------------------------------------------------------------------
+
+const FIRM_NOTE = 'похоже на название фирмы («GmbH»): выдача найдёт её реестры и карточки';
+
+const RUN_KEYS: SegmentRunKeywords = {
+  taken: [
+    'zahnarzt berlin',
+    'kieferorthopäde berlin',
+    'zahnarzt berlin mitte',
+    'praxis müller gmbh',
+    'zahnarzt berlin kreuzberg',
+  ],
+  notes: {
+    'zahnarzt berlin mitte': 'похож на «zahnarzt berlin» — общих слов 2 из 3',
+    'praxis müller gmbh': FIRM_NOTE,
+  },
+  rejected: { 'site:praxis.example.test': 'поисковый оператор' },
+  lost: ['zahnarzt berlin kreuzberg'],
+  empty: ['kieferorthopäde berlin', 'zahnarzt notdienst'],
+  excluded: ['zahnarzt kosten'],
+  twins: {
+    'zahnarzt berlin mitte': 'zahnarzt berlin',
+    'zahnarzt berlin kreuzberg': 'zahnarzt berlin',
+  },
+  remarks: { 'praxis müller gmbh': FIRM_NOTE },
+  sites: { 'zahnarzt berlin': 12, 'zahnarzt berlin mitte': 1, 'praxis müller gmbh': 2 },
+  accepted: { 'zahnarzt berlin': 9, 'praxis müller gmbh': 0 },
+};
+
+describe('ключи отчёта прогона', () => {
+  it('почти повторы — сразу под ключом, на который похожи; пустой не из взятых — в конце', () => {
+    expect(runRows(RUN_KEYS)).toEqual([
+      { phrase: 'zahnarzt berlin', twin: undefined, marks: [], sites: 12, accepted: 9 },
+      {
+        phrase: 'zahnarzt berlin mitte',
+        twin: 'zahnarzt berlin',
+        marks: [],
+        sites: 1,
+        accepted: 0,
+      },
+      {
+        phrase: 'zahnarzt berlin kreuzberg',
+        twin: 'zahnarzt berlin',
+        marks: [LOST_MARK],
+        sites: 0,
+        accepted: 0,
+      },
+      {
+        phrase: 'kieferorthopäde berlin',
+        twin: undefined,
+        marks: [EMPTY_MARK],
+        sites: 0,
+        accepted: 0,
+      },
+      { phrase: 'praxis müller gmbh', twin: undefined, marks: [], sites: 2, accepted: 0 },
+      { phrase: 'zahnarzt notdienst', twin: undefined, marks: [EMPTY_MARK], sites: 0, accepted: 0 },
+    ]);
+  });
+
+  it('ключ, на который похож повтор, не куплен (снят) — повтор стоит своей строкой', () => {
+    const found = { ...RUN_KEYS, twins: { 'zahnarzt berlin mitte': 'zahnarzt kosten' } };
+    expect(runRows(found).map((row) => [row.phrase, row.twin])).toEqual([
+      ['zahnarzt berlin', undefined],
+      ['kieferorthopäde berlin', undefined],
+      ['zahnarzt berlin mitte', undefined],
+      ['praxis müller gmbh', undefined],
+      ['zahnarzt berlin kreuzberg', undefined],
+      ['zahnarzt notdienst', undefined],
+    ]);
+  });
+
+  it('прочие пометки — группами по словам; у сервера без групп — и почти повторы', () => {
+    const twice = {
+      ...RUN_KEYS,
+      remarks: { 'praxis müller gmbh': FIRM_NOTE, 'zahnarzt berlin mitte': FIRM_NOTE },
+    };
+    expect(remarkGroups(twice)).toEqual([
+      { words: FIRM_NOTE, phrases: ['zahnarzt berlin mitte', 'praxis müller gmbh'] },
+    ]);
+    const old: SegmentRunKeywords = { ...RUN_KEYS };
+    delete old.remarks;
+    expect(remarkGroups(old).map((group) => group.phrases)).toEqual([
+      ['zahnarzt berlin mitte'],
+      ['praxis müller gmbh'],
+    ]);
+  });
+
+  it('шапка: взятые с пропавшими и пустыми, снятые на запуске и отсеянные', () => {
+    expect(runHeadLine(RUN_KEYS)).toBe('взято 6 из 8 · снято на запуске 1 · отсеяно 1');
+  });
+
+  it('строка группы и числа ключа — словами', () => {
+    expect(twinCaption('zahnarzt berlin', 1)).toBe(
+      'Похож на «zahnarzt berlin»: выдача может частично совпасть.',
+    );
+    expect(twinCaption('zahnarzt berlin', 2)).toBe(
+      'Похожи на «zahnarzt berlin»: выдача может частично совпасть.',
+    );
+    expect(keyCounts({ phrase: 'x', marks: [], sites: 1234, accepted: 0 })).toBe(
+      'новых сайтов 1\u00a0234 · принято 0',
+    );
   });
 });

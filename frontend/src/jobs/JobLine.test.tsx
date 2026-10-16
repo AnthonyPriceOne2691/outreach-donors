@@ -59,6 +59,21 @@ describe('исход задачи', () => {
     expect(finished).toHaveBeenCalledTimes(1);
   });
 
+  it('задача кончилась ничем — «готово» приглушённо, а не зелёным', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'GET /api/jobs/job-7': { body: { ...BASE, report: { prepared: 0 } } },
+    });
+
+    renderWith(<JobLine jobId="job-7" idle={(report) => report.prepared === 0} />);
+
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('Сборка писем: готово');
+    expect(status.getAttribute('style')).toContain('dimmed');
+    expect(status.getAttribute('style')).not.toContain('green');
+  });
+
   it('новая задача под тем же номером: строка спрашивает заново и говорит и о её конце', async () => {
     // Сборка и пачка писем — одна на этап за раз, номер постоянный (проверка QA 10.10.2026):
     // без нового вопроса строка так и показывала бы итог прежней задачи.

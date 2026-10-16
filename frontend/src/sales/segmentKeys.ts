@@ -1,6 +1,6 @@
 /**
- * Ключи сбора чипами — данные без отрисовки: чипы сметы и отчёта, снятые галочкой и их номера
- * строк, строка чисел под чипами.
+ * Ключи сбора — данные без отрисовки: чипы сметы, снятые галочкой и их номера строк, строка
+ * чисел под чипами; в отчёте прогона — строки таблицы ключей, группы почти повторов и пометки.
  *
  * **Снимают номер строки, как её вписал человек** (`SegmentAsk.excluded`): сервер снимает ключ
  * после отсева, и «повтор строки N» у отсеянных не сдвигается. Номер взятого ключа называет
@@ -24,8 +24,6 @@ export interface KeyChip {
   state: KeyState;
   /** Слова рядом — пометка, «снят вами» или причина отсева, как их сказал сервер. */
   words?: string | undefined;
-  /** Что вышло с покупкой выдачи — значками у взятого (отчёт). */
-  marks?: string[] | undefined;
   /** Номер строки, как вписана: у ключа сметы — галочка. */
   line?: number | undefined;
 }
@@ -37,7 +35,6 @@ export interface Dropped {
 }
 
 export const EXCLUDED_WORDS = 'снят вами';
-export const EXCLUDED_AT_START = 'снят на запуске';
 /** Снятые в строке чисел: в смете — человеком, в отчёте — на запуске. */
 export const EXCLUDED_COUNT = 'снято вами';
 export const EXCLUDED_AT_START_COUNT = 'снято на запуске';
@@ -150,43 +147,95 @@ function rejectedChips(rejected: Record<string, string>): KeyChip[] {
   }));
 }
 
-/** Чипы отчёта: взятые со значками покупки выдачи, снятые на запуске, отсеянные. Пропавший или
- *  пустой ключ, которого нет среди взятых, — своим чипом: молча он не пропадает. */
-export function runChips(found: SegmentRunKeywords): KeyChip[] {
-  const lost = new Set(found.lost);
-  const empty = new Set(found.empty);
-  const marks = (phrase: string): string[] => [
-    ...(lost.has(phrase) ? [LOST_MARK] : []),
-    ...(empty.has(phrase) ? [EMPTY_MARK] : []),
-  ];
-  const taken = new Set(found.taken);
-  const stray = [...new Set([...found.lost, ...found.empty])].filter((each) => !taken.has(each));
-  const bought: KeyChip[] = [...found.taken, ...stray].map((phrase) => ({
-    phrase,
-    state: 'taken',
-    words: found.notes[phrase],
-    marks: marks(phrase),
-  }));
-  const excluded: KeyChip[] = (found.excluded ?? []).map((phrase) => ({
-    phrase,
-    state: 'excluded',
-    words: EXCLUDED_AT_START,
-  }));
-  return [...bought, ...excluded, ...rejectedChips(found.rejected)];
-}
-
-/** Строка чисел под чипами: сколько взято из всех, сняли, отсеяно; в отчёте — сколько ключей
- *  вышло без выдачи. Нулей «снято» и «отсеяно» нет: место держит сама строка — она под чипами. */
+/** Строка чисел под чипами сметы: сколько взято из всех, сняли, отсеяно. Нулей «снято» и
+ *  «отсеяно» нет: место держит сама строка — она под чипами. */
 export function keysLine(chips: readonly KeyChip[], excludedWords: string): string {
   const count = (state: KeyState) => chips.filter((chip) => chip.state === state).length;
-  const marked = (mark: string) => chips.filter((chip) => chip.marks?.includes(mark)).length;
   const parts = [`взято ${formatNumber(count('taken'))} из ${formatNumber(chips.length)}`];
   if (count('excluded') > 0) parts.push(`${excludedWords} ${formatNumber(count('excluded'))}`);
   if (count('rejected') > 0) parts.push(`отсеяно ${formatNumber(count('rejected'))}`);
-  if (marked(LOST_MARK) > 0) {
-    parts.push(`${LOST_MARK} ${formatNumber(marked(LOST_MARK))} — заплачено, а провайдер не отдал`);
-  }
-  if (marked(EMPTY_MARK) > 0) parts.push(`${EMPTY_MARK} ${formatNumber(marked(EMPTY_MARK))}`);
   const text = parts.join(' · ');
   return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
+}
+
+// --- ключи в отчёте прогона ----------------------------------------------------------------------
+
+/** Ключ строкой таблицы отчёта: что вышло с покупкой его выдачи и сколько сайтов он принёс. */
+export interface RunKeyRow {
+  phrase: string;
+  /** Почти повтор: ключ, под которым он стоит. */
+  twin?: string | undefined;
+  /** Что вышло с покупкой выдачи — значками у ключа. */
+  marks: string[];
+  sites: number;
+  accepted: number;
+}
+
+/** Ключи отчёта строками: как куплены, а почти повторы — сразу под ключом, на который похожи
+ *  (между собой — тоже как куплены). Пропавший или пустой ключ, которого нет среди взятых, —
+ *  своей строкой в конце: молча он не пропадает. */
+export function runRows(found: SegmentRunKeywords): RunKeyRow[] {
+  const lost = new Set(found.lost);
+  const empty = new Set(found.empty);
+  const twins = found.twins ?? {};
+  const taken = new Set(found.taken);
+  const row = (phrase: string, twin?: string): RunKeyRow => ({
+    phrase,
+    twin,
+    marks: [...(lost.has(phrase) ? [LOST_MARK] : []), ...(empty.has(phrase) ? [EMPTY_MARK] : [])],
+    sites: found.sites?.[phrase] ?? 0,
+    accepted: found.accepted?.[phrase] ?? 0,
+  });
+  // Ключ, на который похож почти повтор, мог не купиться (снят на запуске) — тогда повтор
+  // стоит своей строкой: группы без головы нет.
+  const grouped = (phrase: string) => taken.has(twins[phrase] ?? '');
+  const rows: RunKeyRow[] = [];
+  for (const phrase of found.taken.filter((each) => !grouped(each))) {
+    rows.push(row(phrase));
+    for (const member of found.taken.filter((each) => twins[each] === phrase)) {
+      rows.push(row(member, phrase));
+    }
+  }
+  const stray = [...new Set([...found.lost, ...found.empty])].filter((each) => !taken.has(each));
+  return [...rows, ...stray.map((phrase) => row(phrase))];
+}
+
+/** Числа ключа строкой — под ключом на узком экране, где колонкам чисел нет места. */
+export function keyCounts(row: RunKeyRow): string {
+  return `новых сайтов ${formatNumber(row.sites)} · принято ${formatNumber(row.accepted)}`;
+}
+
+/** Строка группы почти повторов — над ними, под ключом, на который они похожи. */
+export function twinCaption(twin: string, members: number): string {
+  const similar = members === 1 ? 'Похож' : 'Похожи';
+  return `${similar} на «${twin}»: выдача может частично совпасть.`;
+}
+
+/** Пометка, общая для нескольких ключей, — одной строкой: ключи и её слова. */
+export interface RemarkGroup {
+  words: string;
+  phrases: string[];
+}
+
+/** Прочие пометки взятых (название фирмы и любая другая) — группами по словам, в порядке
+ *  ключей. Сервер без групп почти повторов присылает только `notes`: тогда идут и они. */
+export function remarkGroups(found: SegmentRunKeywords): RemarkGroup[] {
+  const remarks = found.remarks ?? found.notes;
+  const groups = new Map<string, string[]>();
+  for (const phrase of found.taken) {
+    const words = remarks[phrase];
+    if (words !== undefined) groups.set(words, [...(groups.get(words) ?? []), phrase]);
+  }
+  return [...groups].map(([words, phrases]) => ({ words, phrases }));
+}
+
+/** Шапка ключей отчёта: сколько взято из всех, сняли на запуске, отсеяно. */
+export function runHeadLine(found: SegmentRunKeywords): string {
+  const taken = new Set([...found.taken, ...found.lost, ...found.empty]).size;
+  const excluded = found.excluded?.length ?? 0;
+  const rejected = Object.keys(found.rejected).length;
+  const parts = [`взято ${formatNumber(taken)} из ${formatNumber(taken + excluded + rejected)}`];
+  if (excluded > 0) parts.push(`${EXCLUDED_AT_START_COUNT} ${formatNumber(excluded)}`);
+  if (rejected > 0) parts.push(`отсеяно ${formatNumber(rejected)}`);
+  return parts.join(' · ');
 }

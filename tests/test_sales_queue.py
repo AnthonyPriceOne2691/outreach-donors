@@ -278,7 +278,7 @@ async def test_lead_of_an_incomplete_language_waits_others_are_written(
     report = await _build(session, world)
 
     assert report.prepared == 1
-    assert report.waiting == Counter({"цепочка на языке ru задана не целиком": 1})
+    assert report.waiting == Counter({"цепочка на русском задана не целиком": 1})
     [letter] = await _letters(session)
     assert letter.idempotency_key.endswith(f"{JANE}:0")
 

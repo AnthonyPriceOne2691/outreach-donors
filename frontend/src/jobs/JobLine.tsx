@@ -49,9 +49,13 @@ export function jobSentence(job: JobCard): string {
   return parts.join(' — ');
 }
 
-export function JobOutcome({ job }: { job: JobCard }) {
+/** `idle` — задача кончилась, но ничего не сделала: «готово» не зелёным, а приглушённо.
+ *  Зелёное «готово» над плашкой «ничего не вышло» читалось противоречием (очередь продаж:
+ *  сборка без писем, 16.10.2026). */
+export function JobOutcome({ job, idle = false }: { job: JobCard; idle?: boolean }) {
+  const color = idle && job.state === 'done' ? 'dimmed' : COLORS[job.state];
   return (
-    <Text size="sm" c={COLORS[job.state]} role="status">
+    <Text size="sm" c={color} role="status">
       {jobSentence(job)}
     </Text>
   );
@@ -60,15 +64,18 @@ export function JobOutcome({ job }: { job: JobCard }) {
 /** Следит за задачей по номеру и говорит, когда она кончилась.
  *
  *  `describe` — итог законченной задачи словами из её отчёта: «ушло 12,
- *  стоп-лист — 1, осталось 3». Без него строка говорит только исход. */
+ *  стоп-лист — 1, осталось 3». Без него строка говорит только исход. `idle` — по отчёту:
+ *  задача кончилась ничем (собрать было некого), и «готово» — приглушённо (`JobOutcome`). */
 export function JobLine({
   jobId,
   onFinished,
   describe,
+  idle,
 }: {
   jobId: string;
   onFinished?: () => void;
   describe?: (report: Record<string, unknown>) => string | null;
+  idle?: (report: Record<string, unknown>) => boolean;
 }) {
   const { data } = useQuery({
     queryKey: jobKey(jobId),
@@ -97,9 +104,10 @@ export function JobLine({
 
   if (!data) return null;
   const said = data.state === 'done' && data.report && describe ? describe(data.report) : null;
+  const quiet = data.state === 'done' && data.report !== null && idle?.(data.report) === true;
   return (
     <>
-      <JobOutcome job={data} />
+      <JobOutcome job={data} idle={quiet} />
       {said ? <Text size="sm">{said}</Text> : null}
     </>
   );

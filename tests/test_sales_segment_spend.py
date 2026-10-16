@@ -33,9 +33,13 @@ from tests.test_sales_segment_api import headers
 from tests.test_sales_segment_progress import Queued
 from tests.test_sales_segment_run import (
     ANSWERS,
+    KEYWORD,
     NEWS,
+    PARTS,
     SHOP,
+    TITLES,
     Model,
+    Serp,
     Sites,
     _network,
     go,
@@ -342,6 +346,10 @@ async def test_the_run_report_carries_its_keywords_and_spend(
         "lost": ["велосипед москва"],
         "empty": [],
         "excluded": [],  # снятых на запуске нет: смета прогона старше снятия
+        "twins": {},  # «велосипед москва» правилу почти повтора не похож — группы нет
+        "remarks": {},  # у ключа была только пометка почти повтора
+        "sites": {},  # кандидатов у прогона нет
+        "accepted": {},
     }
     assert [row["item"] for row in spend["rows"]] == ["serp", "judge", "search", "check", "money"]
     assert spend["rows"][0] == {
@@ -354,3 +362,31 @@ async def test_the_run_report_carries_its_keywords_and_spend(
         "promised_units": None,
         "promised_usd": 0.0105,
     }
+
+
+def results(*hosts: str) -> list[SerpResult]:
+    return [
+        SerpResult(i + 1, f"https://{host}/catalog", TITLES[host], f"О сайте {host}")
+        for i, host in enumerate(hosts)
+    ]
+
+
+async def test_the_report_counts_new_and_accepted_sites_by_the_first_key_that_found_them(
+    session: AsyncSession, client: AsyncClient, headers: dict[str, str], web: Sites
+) -> None:
+    """Сайты по ключу: сколько новых для гипотезы сайтов принёс ключ и сколько из них принято.
+    Магазин нашли оба ключа — он засчитан первому по списку; у пустого ключа сайтов нет, и в
+    числах его нет: ноль экран покажет сам."""
+    city, empty = "велосипед москва", "велосипед тамбов"
+    run = await make_run(session, await hypothesis(session), keywords=[KEYWORD, city, empty])
+    found = Serp({KEYWORD: results(SHOP, NEWS), city: results(SHOP, PARTS), empty: []})
+    await go(session, run, found, Model(ANSWERS))
+
+    response = await client.get(f"/api/sales/segment/runs/{run.id}", headers=headers)
+
+    assert response.status_code == 200, response.text
+    keywords = response.json()["spend"]["keywords"]
+    assert (keywords["sites"], keywords["accepted"]) == (
+        {KEYWORD: 2, city: 1},
+        {KEYWORD: 1, city: 1},
+    )
