@@ -26,6 +26,11 @@ import type { SegmentHome, SegmentRunDetail, SegmentRunRow } from './segmentApi'
 import type { RejudgeView, SegmentSite, SegmentSitesPage, SiteTab } from './SegmentSitesApi';
 
 const WAIT = { timeout: 5000 };
+/**
+ * Срок тестов с окном сайтов и шагами по истории: локально такой тест идёт до 1,5 с, в CI файл —
+ * втрое дольше, а одно ожидание `WAIT` само может занять весь общий срок теста (5 с).
+ */
+const LONG = { timeout: 15_000 };
 const RUN_ID = 31;
 const SITES = `/api/sales/segment/runs/${RUN_ID}/sites`;
 const REPORT = `/api/sales/segment/runs/${RUN_ID}`;
@@ -424,82 +429,100 @@ describe('отчёт прогона компактно: окна', () => {
     await waitFor(() => expect(button).toHaveFocus(), WAIT);
   });
 
-  it('вид окна — в адресе: ссылка открывает то же окно, «назад» его закрывает, ?run=N держится', async () => {
-    const recorded = await open(
-      {},
-      `/sales?tab=collect&hypothesis=9&run=${RUN_ID}&sites_run=${RUN_ID}&sites=reject`,
-    );
-    const user = userEvent.setup();
+  it(
+    'вид окна — в адресе: ссылка открывает то же окно, «назад» его закрывает, ?run=N держится',
+    LONG,
+    async () => {
+      const recorded = await open(
+        {},
+        `/sales?tab=collect&hypothesis=9&run=${RUN_ID}&sites_run=${RUN_ID}&sites=reject`,
+      );
+      const user = userEvent.setup();
 
-    // Присланная ссылка — то же окно на той же вкладке.
-    const dialog = await screen.findByRole('dialog', { name: WINDOW }, WAIT);
-    expect(await within(dialog).findByRole('radio', { name: 'Отсечены · 5' }, WAIT)).toBeChecked();
-    expect(gets(recorded, `${SITES}?lane=reject&page=1`)).toHaveLength(1);
-    // Вкладка — заменой записи: адрес новый, «назад» по вкладкам не ходит.
-    await user.click(within(dialog).getByRole('radio', { name: 'Приняты · 4' }));
-    await waitFor(() => expect(where()).toContain('sites=accept'), WAIT);
-    // Окно по ссылке снаружи закрывается заменой записи: прогон в адресе остаётся.
-    await user.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), WAIT);
-    expect(where()).toBe(`/sales?tab=collect&hypothesis=9&run=${RUN_ID}`);
+      // Присланная ссылка — то же окно на той же вкладке.
+      const dialog = await screen.findByRole('dialog', { name: WINDOW }, WAIT);
+      expect(
+        await within(dialog).findByRole('radio', { name: 'Отсечены · 5' }, WAIT),
+      ).toBeChecked();
+      expect(gets(recorded, `${SITES}?lane=reject&page=1`)).toHaveLength(1);
+      // Вкладка — заменой записи: адрес новый, «назад» по вкладкам не ходит.
+      await user.click(within(dialog).getByRole('radio', { name: 'Приняты · 4' }));
+      await waitFor(() => expect(where()).toContain('sites=accept'), WAIT);
+      // Окно по ссылке снаружи закрывается заменой записи: прогон в адресе остаётся.
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), WAIT);
+      expect(where()).toBe(`/sales?tab=collect&hypothesis=9&run=${RUN_ID}`);
 
-    // Открыли ссылкой отчёта — «назад» браузера закрывает окно, вперёд — открывает снова.
-    await user.click(screen.getByRole('link', { name: 'Сайты прогона · 14' }));
-    await screen.findByRole('dialog', { name: WINDOW }, WAIT);
-    await user.click(screen.getByRole('button', { name: 'назад браузера', hidden: true }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), WAIT);
-    expect(where()).toBe(`/sales?tab=collect&hypothesis=9&run=${RUN_ID}`);
-    expect(screen.getByText(`Прогон №${RUN_ID}`)).toBeInTheDocument();
-  });
+      // Открыли ссылкой отчёта — «назад» браузера закрывает окно, вперёд — открывает снова.
+      await user.click(screen.getByRole('link', { name: 'Сайты прогона · 14' }));
+      await screen.findByRole('dialog', { name: WINDOW }, WAIT);
+      await user.click(screen.getByRole('button', { name: 'назад браузера', hidden: true }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), WAIT);
+      expect(where()).toBe(`/sales?tab=collect&hypothesis=9&run=${RUN_ID}`);
+      expect(screen.getByText(`Прогон №${RUN_ID}`)).toBeInTheDocument();
+    },
+  );
 
-  it('вкладка и страница — заменой записи: «назад» закрывает окно, а не листает его', async () => {
-    const many = Array.from({ length: 50 }, (_, n) => siteOf(100 + n, `vet-${n}.example.test`));
-    const rest = [siteOf(200, 'vet-tail.example.test')];
-    await open({
-      [`GET ${SITES}?lane=review&page=1`]: { body: pageOf('review', many, 51) },
-      [`GET ${SITES}?lane=review&page=2`]: { body: { ...pageOf('review', rest, 51), page: 2 } },
-    });
-    const user = userEvent.setup();
-    const before = where();
+  it(
+    'вкладка и страница — заменой записи: «назад» закрывает окно, а не листает его',
+    LONG,
+    async () => {
+      const many = Array.from({ length: 50 }, (_, n) => siteOf(100 + n, `vet-${n}.example.test`));
+      const rest = [siteOf(200, 'vet-tail.example.test')];
+      await open({
+        [`GET ${SITES}?lane=review&page=1`]: { body: pageOf('review', many, 51) },
+        [`GET ${SITES}?lane=review&page=2`]: { body: { ...pageOf('review', rest, 51), page: 2 } },
+      });
+      const user = userEvent.setup();
+      const before = where();
 
-    await user.click(screen.getByRole('link', { name: /^Принято\s*4$/ }));
-    const dialog = await screen.findByRole('dialog', { name: WINDOW }, WAIT);
-    await user.click(await within(dialog).findByRole('radio', { name: 'На проверку · 3' }, WAIT));
-    expect(await within(dialog).findByText('Показаны 1–50 из 51.', {}, WAIT)).toBeInTheDocument();
-    await user.click(within(dialog).getByRole('button', { name: 'Страница 2' }));
-    expect(await within(dialog).findByText('Показаны 51–51 из 51.', {}, WAIT)).toBeInTheDocument();
-    expect(where()).toContain('sites=review&sites_page=2');
+      await user.click(screen.getByRole('link', { name: /^Принято\s*4$/ }));
+      const dialog = await screen.findByRole('dialog', { name: WINDOW }, WAIT);
+      await user.click(await within(dialog).findByRole('radio', { name: 'На проверку · 3' }, WAIT));
+      expect(await within(dialog).findByText('Показаны 1–50 из 51.', {}, WAIT)).toBeInTheDocument();
+      await user.click(within(dialog).getByRole('button', { name: 'Страница 2' }));
+      expect(
+        await within(dialog).findByText('Показаны 51–51 из 51.', {}, WAIT),
+      ).toBeInTheDocument();
+      expect(where()).toContain('sites=review&sites_page=2');
 
-    // Окно — одна запись истории: шаг назад — отчёт без окна, а не прежняя вкладка или страница.
-    await user.click(screen.getByRole('button', { name: 'назад браузера', hidden: true }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), WAIT);
-    expect(where()).toBe(before);
-  });
+      // Окно — одна запись истории: шаг назад — отчёт без окна, а не прежняя вкладка или страница.
+      await user.click(screen.getByRole('button', { name: 'назад браузера', hidden: true }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), WAIT);
+      expect(where()).toBe(before);
+    },
+  );
 
-  it('«Закрыть» после смены вкладки и страницы — к отчёту без окна, шагом назад', async () => {
-    const many = Array.from({ length: 50 }, (_, n) => siteOf(100 + n, `vet-${n}.example.test`));
-    const rest = [siteOf(200, 'vet-tail.example.test')];
-    await open({
-      [`GET ${SITES}?lane=review&page=1`]: { body: pageOf('review', many, 51) },
-      [`GET ${SITES}?lane=review&page=2`]: { body: { ...pageOf('review', rest, 51), page: 2 } },
-    });
-    const user = userEvent.setup();
-    const before = where();
+  it(
+    '«Закрыть» после смены вкладки и страницы — к отчёту без окна, шагом назад',
+    LONG,
+    async () => {
+      const many = Array.from({ length: 50 }, (_, n) => siteOf(100 + n, `vet-${n}.example.test`));
+      const rest = [siteOf(200, 'vet-tail.example.test')];
+      await open({
+        [`GET ${SITES}?lane=review&page=1`]: { body: pageOf('review', many, 51) },
+        [`GET ${SITES}?lane=review&page=2`]: { body: { ...pageOf('review', rest, 51), page: 2 } },
+      });
+      const user = userEvent.setup();
+      const before = where();
 
-    await user.click(screen.getByRole('link', { name: /^Отсечено\s*5$/ }));
-    const dialog = await screen.findByRole('dialog', { name: WINDOW }, WAIT);
-    await user.click(await within(dialog).findByRole('radio', { name: 'На проверку · 3' }, WAIT));
-    await user.click(await within(dialog).findByRole('button', { name: 'Страница 2' }, WAIT));
-    expect(await within(dialog).findByText('Показаны 51–51 из 51.', {}, WAIT)).toBeInTheDocument();
-    await user.click(within(dialog).getByRole('button', { name: 'Закрыть' }));
+      await user.click(screen.getByRole('link', { name: /^Отсечено\s*5$/ }));
+      const dialog = await screen.findByRole('dialog', { name: WINDOW }, WAIT);
+      await user.click(await within(dialog).findByRole('radio', { name: 'На проверку · 3' }, WAIT));
+      await user.click(await within(dialog).findByRole('button', { name: 'Страница 2' }, WAIT));
+      expect(
+        await within(dialog).findByText('Показаны 51–51 из 51.', {}, WAIT),
+      ).toBeInTheDocument();
+      await user.click(within(dialog).getByRole('button', { name: 'Закрыть' }));
 
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), WAIT);
-    expect(where()).toBe(before);
-    // Ещё шаг назад — уже не окно: записей окна в истории не осталось.
-    await user.click(screen.getByRole('button', { name: 'назад браузера', hidden: true }));
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), WAIT);
+      expect(where()).toBe(before);
+      // Ещё шаг назад — уже не окно: записей окна в истории не осталось.
+      await user.click(screen.getByRole('button', { name: 'назад браузера', hidden: true }));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(screen.queryByRole('dialog')).toBeNull();
+    },
+  );
 
   it(
     'окно идущего прогона обновляется само; решённая строка стоит на месте и после опроса',
@@ -559,62 +582,54 @@ describe('отчёт прогона компактно: окна', () => {
     },
   );
 
-  it(
-    'окно сметы пересуда поверх окна сайтов: Esc закрывает только его',
-    { timeout: 15_000 },
-    async () => {
-      const estimate: RejudgeView = {
-        run_id: RUN_ID,
-        estimate: {
-          sites: 12,
-          model: 10,
-          per_site: 1100,
-          tokens: 11000,
-          tokens_left: null,
-          kept_human: 0,
-          with_lead: 2,
-          pending: 2,
-          digest: 'digest-of-segment',
-          mode: 'shadow',
-          resumes: false,
-          done: 0,
-          lines: ['Пересудить сайтов: 12 — по тексту, который видел прошлый суд.'],
-          refusal: null,
-        },
-        last: null,
-        going: false,
-      };
-      await open({ [`GET ${REPORT}/rejudge`]: { body: estimate } });
-      const user = userEvent.setup();
+  it('окно сметы пересуда поверх окна сайтов: Esc закрывает только его', LONG, async () => {
+    const estimate: RejudgeView = {
+      run_id: RUN_ID,
+      estimate: {
+        sites: 12,
+        model: 10,
+        per_site: 1100,
+        tokens: 11000,
+        tokens_left: null,
+        kept_human: 0,
+        with_lead: 2,
+        pending: 2,
+        digest: 'digest-of-segment',
+        mode: 'shadow',
+        resumes: false,
+        done: 0,
+        lines: ['Пересудить сайтов: 12 — по тексту, который видел прошлый суд.'],
+        refusal: null,
+      },
+      last: null,
+      going: false,
+    };
+    await open({ [`GET ${REPORT}/rejudge`]: { body: estimate } });
+    const user = userEvent.setup();
 
-      await user.click(screen.getByRole('link', { name: 'Сайты прогона · 14' }));
-      await screen.findByRole('dialog', { name: WINDOW }, WAIT);
-      await user.click(screen.getByRole('button', { name: 'Пересудить прогон' }));
-      const over = await screen.findByRole(
-        'dialog',
-        { name: `Пересудить прогон №${RUN_ID}` },
-        WAIT,
-      );
-      expect(
-        await within(over).findByText(estimate.estimate.lines[0]!, {}, WAIT),
-      ).toBeInTheDocument();
-      await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('link', { name: 'Сайты прогона · 14' }));
+    await screen.findByRole('dialog', { name: WINDOW }, WAIT);
+    await user.click(screen.getByRole('button', { name: 'Пересудить прогон' }));
+    const over = await screen.findByRole('dialog', { name: `Пересудить прогон №${RUN_ID}` }, WAIT);
+    expect(
+      await within(over).findByText(estimate.estimate.lines[0]!, {}, WAIT),
+    ).toBeInTheDocument();
+    await user.keyboard('{Escape}');
 
-      await waitFor(
-        () =>
-          expect(screen.queryByRole('dialog', { name: `Пересудить прогон №${RUN_ID}` })).toBeNull(),
-        WAIT,
-      );
-      // Окно сайтов не закрылось: его вид — в адресе, а уходящее окно ещё стоит в разметке, пока
-      // идёт переход, — поэтому по адресу, а не по разметке.
-      expect(where()).toContain(`sites_run=${RUN_ID}`);
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      expect(where()).toContain(`sites_run=${RUN_ID}`);
-      expect(screen.getByRole('dialog', { name: WINDOW })).toBeInTheDocument();
-      await waitFor(
-        () => expect(screen.getByRole('button', { name: 'Пересудить прогон' })).toHaveFocus(),
-        WAIT,
-      );
-    },
-  );
+    await waitFor(
+      () =>
+        expect(screen.queryByRole('dialog', { name: `Пересудить прогон №${RUN_ID}` })).toBeNull(),
+      WAIT,
+    );
+    // Окно сайтов не закрылось: его вид — в адресе, а уходящее окно ещё стоит в разметке, пока
+    // идёт переход, — поэтому по адресу, а не по разметке.
+    expect(where()).toContain(`sites_run=${RUN_ID}`);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(where()).toContain(`sites_run=${RUN_ID}`);
+    expect(screen.getByRole('dialog', { name: WINDOW })).toBeInTheDocument();
+    await waitFor(
+      () => expect(screen.getByRole('button', { name: 'Пересудить прогон' })).toHaveFocus(),
+      WAIT,
+    );
+  });
 });
