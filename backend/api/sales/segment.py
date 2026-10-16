@@ -2,8 +2,8 @@
 
 `GET /sales/segment?hypothesis=N` — вкладка сбора: описание сегмента, режим судьи, рынки
 выдачи, языки писем, границы формы, режим покупки выдачи по умолчанию и прогоны гипотезы. `PATCH /sales/hypotheses/{N}` —
-описание сегмента: его читает судья сегмента (правка — новый вопрос модели, прежние вердикты
-по нему не годятся); правка — в журнале действий: кто, было и стало.
+описание сегмента и имя гипотезы (окно гипотезы): описание читает судья сегмента (правка — новый
+вопрос модели, прежние вердикты по нему не годятся); правило — `features/sales/hypotheses.edit`.
 
 `POST /sales/segment/estimate` — смета без записи: выдача, модель, Hunter строкой и отказ
 словами; снятые человеком ключи (`excluded`, номера строк, как вписаны) не покупаются и в смету не
@@ -72,6 +72,7 @@ from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.sales import chain_text, segment_progress, segment_report, segment_watch
+from backend.features.sales.hypotheses import HypothesisError, HypothesisRefusedError, edit
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.segment_estimate import Ask, Estimate, estimate
@@ -176,7 +177,7 @@ async def _watched(runs: Sequence[SalesSegmentRunModel]) -> dict[int, segment_wa
 @router.patch(
     "/hypotheses/{hypothesis_id}",
     response_model=SegmentCard,
-    summary="Описание сегмента гипотезы",
+    summary="Правка гипотезы: имя и описание сегмента",
 )
 async def write_segment(
     hypothesis_id: int,
@@ -184,48 +185,25 @@ async def write_segment(
     author: UserModel = _seller,
     session: AsyncSession = Depends(db_session),
 ) -> SegmentCard:
-    """Описание сегмента — данными в базе: репозиторий публичный. Пусто — описания нет.
-    Правка — в журнал той же транзакцией; то же описание — не правка, записи нет."""
-    found = await _hypothesis(session, hypothesis_id)
-    was = found.description
-    found.description = body.description.strip() or None
-    if found.description != was:
-        await _journal_segment(session, author.id, found, was)
+    """Описание сегмента («Сбор базы» и окно гипотезы) и имя (окно гипотезы) — одним правилом
+    (`hypotheses.edit`): пустое описание — описания нет, то же самое — не правка; имя — правилом
+    заведения, и рассылка гипотезы переименовывается с ним. Правка — в журнал той же транзакцией.
+    Негодное имя или пустая правка — 422 словами; имя занято гипотезой или рассылкой, строку держит
+    другая операция — 409 словами."""
+    try:
+        found = await edit(
+            session,
+            hypothesis_id,
+            name=body.name,
+            description=body.description,
+            author_id=author.id,
+        )
+    except HypothesisRefusedError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except HypothesisError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     await session.commit()
-    return SegmentCard(hypothesis_id=hypothesis_id, description=found.description)
-
-
-def _segment_change(was: str | None, now: str | None) -> str:
-    """Что стало с описанием — словами «действия». Пустое «было» или «стало» экран журнала
-    строкой подробностей не выводит: «задано» и «снято» говорят это сами."""
-    if was is None:
-        return "описание сегмента задано"
-    if now is None:
-        return "описание сегмента снято"
-    return "описание сегмента поправлено"
-
-
-async def _journal_segment(
-    session: AsyncSession, author_id: int, hypothesis: SalesHypothesisModel, was: str | None
-) -> None:
-    """Правка описания — новый вопрос судье сегмента: по нему решается, каким сайтам продажи
-    напишут (решение владельца 13.10). В журнале — кто, гипотеза, было и стало: «было» и «стало» —
-    своими строками, как у правки лида (`lead_edit`), — экран журнала режет каждую строку
-    подробностей на трёх, и «стало» за длинным «было» не пропадает. Своего действия журнала нет
-    (новое значение перечисления — миграция): общая «правка» со словами «действия», как у
-    заведения гипотезы (`hypotheses.add`); этап — в записи."""
-    await AccessRepository(session).record(
-        AuditAction.USER_UPDATED,
-        author_id=author_id,
-        target=f"sales_hypothesis:{hypothesis.id}",
-        details={
-            "действие": _segment_change(was, hypothesis.description),
-            "гипотеза": hypothesis.name,
-            "было": was,
-            "стало": hypothesis.description,
-        },
-        stage=domain.Stage.SALES,  # этап воронки, а не стадия прогона (`Stage` выше)
-    )
+    return SegmentCard(hypothesis_id=hypothesis_id, name=found.name, description=found.description)
 
 
 @router.post("/segment/estimate", response_model=EstimateView, summary="Смета прогона: без записи")

@@ -36,6 +36,7 @@ from typing import Any
 from playwright.sync_api import expect
 from ui_screens_sales_funnel import funnel_prepare, funnel_screens
 from ui_screens_sales_hints import SECTION_FIELD, hint_probe, note_probes, section_probes
+from ui_screens_sales_hypotheses import hypothesis_prepare, hypothesis_screens
 from ui_screens_sales_quality import quality_screens
 from ui_screens_sales_queue import queue_screens
 from ui_screens_sales_segment import segment_prepare, segment_screens
@@ -169,19 +170,6 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 *section_probes(norm),
             ],
         },
-        # Гипотезы: имя, описание, счётчики-ссылки и нули без ссылки.
-        "sales-hypotheses": {
-            "path": "/sales?tab=hypotheses",
-            "ready": ("heading", "Продажи"),
-            "probes": [
-                ("подпись колонки", ".hypothesesTable thead th:text-is('Готовы')", norm),
-                ("имя гипотезы", ".hypothesesTable tbody td:first-child p:nth-child(1)", norm),
-                ("описание гипотезы", ".hypothesesTable tbody td:first-child p:nth-child(2)", norm),
-                ("число-ссылка", ".hypothesesTable tbody a", norm),
-                ("ноль без ссылки", ".hypothesesTable tbody td p:text-is('0')", norm),
-                ("дата", ".hypothesesTable tbody td:last-child p", norm),
-            ],
-        },
         # Мастер, шаг источника: шаги, гипотеза, откуда база, кнопка — оживлённая.
         "sales-import": {
             "path": "/sales/import",
@@ -257,6 +245,8 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         **stoplist_screens(norm, big),
         **segment_screens(norm, big),
         **weekly_screens(norm, big),
+        # Гипотезы: строка, окно правки, удаление — `ui_screens_sales_hypotheses.py`.
+        **hypothesis_screens(norm, big),
     }
 
 
@@ -496,4 +486,5 @@ def sales_prepare() -> dict[str, Callable[[Any], None]]:
         **funnel_prepare(),
         **stoplist_prepare(),
         **segment_prepare(),
+        **hypothesis_prepare(),
     }

@@ -17,9 +17,13 @@
 параметров — те же, что в адресе. Логика чтения — `features/sales/browse.py`.
 
 **Гипотеза заводится и здесь** (`POST /sales/hypotheses`) — тем же правилом, что команда
-консоли (`features/sales/hypotheses.add`): негодное имя — 422 словами, занятое — 409 словами;
-заведённая — в журнале действий с автором. Право — `sales`: описание гипотезы в тексты писем
-не идёт, его читают экраны и судья сбора базы.
+консоли (`features/sales/hypotheses.add`): негодное имя — 422 словами, занятое гипотезой или
+рассылкой продаж — 409 словами; заведённая — в журнале действий с автором. Право — `sales`:
+описание гипотезы в тексты писем не идёт, его читают экраны и судья сбора базы. **Удаляется
+только пустая** (`DELETE /sales/hypotheses/{N}`, право и журнал — как у заведения): держат её
+лиды, диалоги, прогоны сбора с сайтами и вердиктами, свой набор цепочки — 409 словами с числами;
+что держит, окно гипотезы читает заранее (`GET /sales/hypotheses/{N}/holds`). Правка имени и
+описания — `PATCH /sales/hypotheses/{N}` в модуле сбора базы (`segment.py`).
 
 **База знаний и отправитель** (срез 3.1) — своим модулем `kb.py`, **цепочка писем**
 (срез 4.6) — модулем `chain.py`, **очередь писем** (срез 4.6b) — модулем `queue.py`,
@@ -40,7 +44,17 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field, NonNegativeInt, TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,15 +74,17 @@ from backend.api.sales.schemas import (
     HypothesesView,
     HypothesisBody,
     HypothesisCard,
+    HypothesisHolds,
     IntakeView,
     LeadsView,
 )
 from backend.config import sales as sales_cfg
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
-from backend.features.sales import browse, hypotheses, intake, sheet
+from backend.features.sales import browse, hypotheses, hypothesis_holds, intake, sheet
 from backend.features.sales.columns import LeadField, Mapping
-from backend.features.sales.models import LeadStatus
+from backend.features.sales.intake import UnknownHypothesisError
+from backend.features.sales.models import LeadStatus, SalesHypothesisModel
 
 #: Лидов в ответе предпросмотра — показать, что получится. Отчёт — целиком.
 PREVIEW_LEADS = 50
@@ -205,6 +221,42 @@ async def add_hypothesis(
     await session.commit()
     # Новая гипотеза — без лидов, но каждое состояние названо нулём, как в списке.
     return HypothesisCard.of(browse.HypothesisRow(made, {state.value: 0 for state in LeadStatus}))
+
+
+@router.get(
+    "/hypotheses/{hypothesis_id}/holds",
+    response_model=HypothesisHolds,
+    summary="Что держит гипотезу: удаляется только пустая",
+)
+async def read_holds(
+    hypothesis_id: int, _: UserModel = _seller, session: AsyncSession = Depends(db_session)
+) -> HypothesisHolds:
+    """Окно гипотезы — до «Удалить»: открыта ли кнопка и что держит, словами сервера."""
+    if await session.get(SalesHypothesisModel, hypothesis_id) is None:
+        raise UnknownHypothesisError(f"гипотезы №{hypothesis_id} нет — обновите список гипотез")
+    found = await hypothesis_holds.count(session, hypothesis_id)
+    return HypothesisHolds(
+        hypothesis_id=hypothesis_id, holds=found, held=hypotheses.held_line(found)
+    )
+
+
+@router.delete(
+    "/hypotheses/{hypothesis_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Удалить пустую гипотезу",
+)
+async def remove_hypothesis(
+    hypothesis_id: int, author: UserModel = _seller, session: AsyncSession = Depends(db_session)
+) -> Response:
+    """Только пустую — на случай, если завели по ошибке. Проверка и удаление — одной транзакцией
+    под блокировкой строки (`hypotheses.remove`); держат — 409 словами с числами и подсказкой
+    переименовать; строку держит другая операция — 409 словами; удалена — в журнале с автором."""
+    try:
+        await hypotheses.remove(session, hypothesis_id, author_id=author.id)
+    except hypotheses.HypothesisRefusedError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/leads", response_model=LeadsView, summary="Лиды с фильтрами под колонками")
