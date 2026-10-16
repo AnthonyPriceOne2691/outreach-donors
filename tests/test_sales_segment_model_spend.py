@@ -66,7 +66,7 @@ def test_the_judge_money_counts_input_and_output_at_their_own_prices() -> None:
     assert (judge.fact_units, judge.fact_usd) == (41_000, usd)
     assert (
         judge.fact
-        == f"токенов 41 000, из них вывод 7 000 (без разбивки 2 000), ≈ ${usd:.4f}".replace(
+        == f"токенов 41\u00a0000, из них вывод 7\u00a0000 (без разбивки 2\u00a0000), ≈ ${usd:.4f}".replace(
             ".", ","
         )
     )
@@ -107,7 +107,7 @@ def test_every_rejudge_of_the_run_is_a_spend_row_and_part_of_the_money() -> None
     assert (rejudge.title, rejudge.promised) == ("Пересуд", REJUDGE_PROMISED)
     assert (rejudge.fact_units, rejudge.fact_usd) == (4_850, usd)
     assert rejudge.fact.startswith(
-        "пересудов 2: токенов 4 850, из них вывод 650 (без разбивки 1 200)"
+        "пересудов 2: токенов 4\u00a0850, из них вывод 650 (без разбивки 1\u00a0200)"
     )
     judge_usd = found["judge"].fact_usd or 0.0
     assert found["money"].fact_usd == round(0.0132 + judge_usd + usd, 4)

@@ -51,6 +51,7 @@ from backend.features.sales.segment_models import (
 )
 from backend.features.sales.segment_rejudge import refusal_of, segment_of, snapshot
 from backend.features.sales.segment_rejudge_report import block_of, left_of
+from backend.features.sales.segment_spend import number
 
 Candidate = SalesSegmentCandidateModel
 Verdict = SalesSegmentVerdictModel
@@ -86,10 +87,6 @@ class RejudgeEstimate:
     done: int = 0
     lines: list[str] = field(default_factory=list)
     refusal: str | None = None
-
-
-def _number(value: int) -> str:
-    return f"{value:,}".replace(",", " ")
 
 
 async def tokens_per_site(session: AsyncSession, hypothesis_id: int) -> int:
@@ -133,8 +130,8 @@ async def _to_model(
 def _refusal(found: RejudgeEstimate, run: SalesSegmentRunModel, segment: str) -> str | None:
     """Первый отказ по порядку: модуль, суть пересуда, ключ модели, потолок."""
     over = (
-        f"смета пересуда выше остатка дневного потолка модели: ≈ {_number(found.tokens)} токенов "
-        f"при остатке {_number(found.tokens_left or 0)} — пересудите завтра"
+        f"смета пересуда выше остатка дневного потолка модели: ≈ {number(found.tokens)} токенов "
+        f"при остатке {number(found.tokens_left or 0)} — пересудите завтра"
     )
     cap_unread = usage_cap.sales_cap().setting in llm_cfg.UNREAD_CAPS
     pointless = refusal_of(run, segment)
@@ -153,12 +150,12 @@ def _what(found: RejudgeEstimate) -> str:
     """Первая строка сметы: новый пересуд — или продолжение незаконченного с места остановки."""
     if found.resumes:
         return (
-            f"Продолжить пересуд с места остановки: осталось {_number(found.sites)} из "
-            f"{_number(found.sites + found.done)} — то же описание и снимок полос прошлого запуска: "
+            f"Продолжить пересуд с места остановки: осталось {number(found.sites)} из "
+            f"{number(found.sites + found.done)} — то же описание и снимок полос прошлого запуска: "
             "пересуженные сайты к модели второй раз не пойдут, «было» у них прежнее."
         )
     return (
-        f"Пересудить сайтов: {_number(found.sites)} — по тексту, который видел прошлый суд, мимо "
+        f"Пересудить сайтов: {number(found.sites)} — по тексту, который видел прошлый суд, мимо "
         "кэша вердиктов; выдачу второй раз не покупаем."
     )
 
@@ -168,24 +165,24 @@ def _lines(found: RejudgeEstimate) -> list[str]:
     left = (
         ""
         if found.tokens_left is None
-        else f", остаток дневного потолка — {_number(found.tokens_left)}"
+        else f", остаток дневного потолка — {number(found.tokens_left)}"
     )
     lines = [
         _what(found),
-        f"К модели — {_number(found.model)}, токенов ≈ {_number(found.tokens)} (≈ "
-        f"{_number(found.per_site)} на сайт по прошлым вердиктам){left}.",
+        f"К модели — {number(found.model)}, токенов ≈ {number(found.tokens)} (≈ "
+        f"{number(found.per_site)} на сайт по прошлым вердиктам){left}.",
     ]
     if found.sites > found.model:
-        lines.append(f"Остальных — {_number(found.sites - found.model)} — решит правило до модели.")
+        lines.append(f"Остальных — {number(found.sites - found.model)} — решит правило до модели.")
     if found.with_lead:
         lines.append(
-            f"С лидом — {_number(found.with_lead)}: их новую полосу только покажем («стало бы»), "
+            f"С лидом — {number(found.with_lead)}: их новую полосу только покажем («стало бы»), "
             "лид и полоса не меняются."
         )
     if found.kept_human:
-        lines.append(f"Решения человека не пересуживаются: {_number(found.kept_human)}.")
+        lines.append(f"Решения человека не пересуживаются: {number(found.kept_human)}.")
     if found.pending:
-        lines.append(f"Ещё не судили — {_number(found.pending)}: их судит продолжение прогона.")
+        lines.append(f"Ещё не судили — {number(found.pending)}: их судит продолжение прогона.")
     if found.mode == JudgeMode.SHADOW:
         lines.append("Судья в наблюдении: его «отказ» не отсекает сайт, а отдаёт человеку.")
     return lines

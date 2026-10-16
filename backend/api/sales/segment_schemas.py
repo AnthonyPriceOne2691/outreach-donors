@@ -360,7 +360,9 @@ class Count(BaseModel):
 
 
 class RunDetail(BaseModel):
-    """Прогон и его отчёт: смета на запуске, этап, полосы, причины, адреса, лиды, «на проверку»."""
+    """Прогон и его отчёт: смета на запуске, этап, полосы, причины, адреса, лиды — числами. Сайтов
+    по одному в нём нет: отчёт опрашивается, пока прогон идёт, а сайты («на проверку» тоже) отдаёт
+    список сайтов прогона страницами (`segment_sites.py`)."""
 
     run: RunRow
     hypothesis: str
@@ -379,7 +381,6 @@ class RunDetail(BaseModel):
     unanswered: int
     #: Итог этапов из строки прогона: выдача, судья, поиск адреса, лиды.
     report: dict[str, object]
-    review: list[CandidateRow]
 
     @classmethod
     def of(cls, view: RunView, *, watch: Watch | None = None) -> RunDetail:
@@ -399,7 +400,6 @@ class RunDetail(BaseModel):
             lead_reasons=view.lead_reasons,
             unanswered=view.unanswered,
             report=dict(run.report or {}),
-            review=[CandidateRow.of(candidate, host) for candidate, host in view.review],
         )
 
 
