@@ -367,9 +367,9 @@
       "worst": "build_queue:155"
     },
     "backend/api/sales/routes.py": {
-      "lines": 284,
+      "lines": 286,
       "complexity": 6,
-      "worst": "_found:104"
+      "worst": "_found:105"
     },
     "backend/api/sales/schemas.py": {
       "lines": 222,
@@ -380,6 +380,11 @@
       "lines": 407,
       "complexity": 4,
       "worst": "_seen:123"
+    },
+    "backend/api/sales/segment_helper.py": {
+      "lines": 77,
+      "complexity": 3,
+      "worst": "help_segment:58"
     },
     "backend/api/sales/segment_schemas.py": {
       "lines": 458,
@@ -1022,7 +1027,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 83,
+      "lines": 85,
       "complexity": 0,
       "worst": "—"
     },
@@ -1097,9 +1102,9 @@
       "worst": "check_connected:126"
     },
     "backend/features/core/usage.py": {
-      "lines": 298,
+      "lines": 301,
       "complexity": 10,
-      "worst": "ensure_llm_within_cap:214"
+      "worst": "ensure_llm_within_cap:217"
     },
     "backend/features/core/window.py": {
       "lines": 172,
@@ -2581,6 +2586,11 @@
       "complexity": 5,
       "worst": "_judge_line:59"
     },
+    "backend/features/sales/segment_helper.py": {
+      "lines": 330,
+      "complexity": 8,
+      "worst": "help_draft:279"
+    },
     "backend/features/sales/segment_history.py": {
       "lines": 113,
       "complexity": 7,
@@ -2612,7 +2622,7 @@
       "worst": "make_leads:101"
     },
     "backend/features/sales/segment_models.py": {
-      "lines": 221,
+      "lines": 256,
       "complexity": 0,
       "worst": "—"
     },
@@ -2737,9 +2747,9 @@
       "worst": "file_name:28"
     },
     "backend/features/sales/usage_cap.py": {
-      "lines": 42,
+      "lines": 43,
       "complexity": 1,
-      "worst": "sales_cap:38"
+      "worst": "sales_cap:39"
     },
     "backend/features/sales/verifier.py": {
       "lines": 398,
@@ -3006,6 +3016,11 @@
       "complexity": 9,
       "worst": "main:458"
     },
+    "scripts/eval_sales_segment_helper.py": {
+      "lines": 428,
+      "complexity": 6,
+      "worst": "_checked:131"
+    },
     "scripts/gates.py": {
       "lines": 401,
       "complexity": 10,
@@ -3102,9 +3117,9 @@
       "worst": "queue_screens:24"
     },
     "scripts/ui_screens_sales_segment.py": {
-      "lines": 183,
+      "lines": 271,
       "complexity": 2,
-      "worst": "collect_prepare:37"
+      "worst": "collect_prepare:45"
     },
     "scripts/ui_screens_sales_sites.py": {
       "lines": 113,

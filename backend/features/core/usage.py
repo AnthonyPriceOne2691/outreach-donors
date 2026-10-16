@@ -71,6 +71,9 @@ OPERATION_PROVIDERS = {
     # расходом продаж (`SALES_OPERATIONS`), а не прогоном доноров.
     "sales_segment_judge": UsageProvider.LLM,
     "sales_serp": UsageProvider.SERP,
+    # Помощник описания сегмента (16.10.2026): черновик описания → описание для судьи сегмента,
+    # по кнопке и при смете сбора; единица — токен, потолок — продаж (`sales/usage_cap.py`).
+    "sales_segment_helper": UsageProvider.LLM,
     # Проверка адреса лида продаж: единица — проверка. Ключ сервиса общий
     # с соседней системой, и до этой строки его траты не писались нигде.
     "sales_verify": UsageProvider.HUNTER,

@@ -32,7 +32,7 @@ import {
   Title,
 } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import type { HypothesisCard } from '../api/salesTypes';
@@ -44,6 +44,7 @@ import { writeSegment } from './segmentApi';
 import type { SegmentHome, SegmentRunRow } from './segmentApi';
 import { runTitle, SEGMENT_QUERY_KEY, useSegment } from './segmentData';
 import { SegmentForm } from './SegmentForm';
+import { SegmentHelper } from './SegmentHelper';
 import { SegmentHint } from './SegmentHint';
 import { SegmentReport } from './SegmentReport';
 import { runState } from './segmentStage';
@@ -51,10 +52,25 @@ import { runState } from './segmentStage';
 /** Строк описания сегмента до «показать целиком». */
 export const SEGMENT_LINES = 3;
 
-/** Описание сегмента: как есть — или правка. Пустое — предупреждение, а не тишина. */
-function Segment({ home }: { home: SegmentHome }) {
+/** Описание сегмента: как есть — или правка. Пустое — предупреждение, а не тишина. Черновик
+ *  правки живёт у вкладки (`HypothesisSegment`): предложение помощника при смете открывает
+ *  правку с ним, и фокус встаёт в поле (`focusKey`). */
+function Segment({
+  home,
+  draft,
+  setDraft,
+  focusKey,
+}: {
+  home: SegmentHome;
+  draft: string | null;
+  setDraft: (text: string | null) => void;
+  focusKey: number;
+}) {
   const client = useQueryClient();
-  const [draft, setDraft] = useState<string | null>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (focusKey > 0) field.current?.focus();
+  }, [focusKey]);
   const save = useMutation({
     mutationFn: (text: string) => writeSegment(home.hypothesis_id, text),
     onSuccess: () => {
@@ -87,6 +103,7 @@ function Segment({ home }: { home: SegmentHome }) {
       {draft !== null ? (
         <Stack gap="xs">
           <Textarea
+            ref={field}
             aria-label="Описание сегмента"
             autosize
             minRows={3}
@@ -94,6 +111,7 @@ function Segment({ home }: { home: SegmentHome }) {
             value={draft}
             onChange={(event) => setDraft(event.currentTarget.value)}
           />
+          <SegmentHelper draft={draft} onTake={setDraft} />
           <SegmentHint draft={draft} onDraft={setDraft} />
           <Group gap="sm">
             <Button className="press" loading={save.isPending} onClick={() => save.mutate(draft)}>
@@ -199,6 +217,10 @@ function HypothesisSegment({
 }) {
   const client = useQueryClient();
   const home = useSegment(hypothesis);
+  // Черновик правки описания — здесь, а не в `Segment`: «Взять в описание» у сметы кладёт в него
+  // предложение помощника, и фокус встаёт в поле правки.
+  const [draft, setDraft] = useState<string | null>(null);
+  const [focusKey, setFocusKey] = useState(0);
   if (home.data === undefined) {
     if (!home.error) return <Loader aria-label="Загружаем сбор базы" m="md" />;
     return (
@@ -210,11 +232,15 @@ function HypothesisSegment({
   return (
     <Stack gap="md">
       <Card component="section" className="glassQuiet" p="md" aria-label="Сегмент гипотезы">
-        <Segment home={home.data} />
+        <Segment home={home.data} draft={draft} setDraft={setDraft} focusKey={focusKey} />
       </Card>
       <Card component="section" className="glassQuiet" p="md" aria-label="Новый прогон">
         <SegmentForm
           home={home.data}
+          onPropose={(text) => {
+            setDraft(text);
+            setFocusKey((was) => was + 1);
+          }}
           onStarted={(started) => {
             onRun(started);
             void client.invalidateQueries({ queryKey: SEGMENT_QUERY_KEY });

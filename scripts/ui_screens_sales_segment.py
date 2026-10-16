@@ -32,6 +32,14 @@ DROPPED = "bike parts store"
 #: Блоки вкладки: форма нового прогона и прогоны гипотезы.
 FORM = "section[aria-label='Новый прогон']"
 RUNS = "section[aria-label='Прогоны гипотезы']"
+#: Помощник описания (16.10.2026): гипотеза стенда с расплывчатым описанием — по имени; её описание
+#: помощник называет расплывчатым, и смета показывает предупреждение с предложением. Ответ модели —
+#: живой, ждать его дольше, чем экран.
+HELPER_HYPOTHESIS = "ветклиники IE"
+HELPER_DRAFT = "Websites related to veterinary clinics in Ireland"
+HELPER_KEYWORDS = "vet clinic dublin\nveterinary practice cork"
+HELPER_WAIT = 90_000
+PROPOSAL = "[aria-label='Предложение помощника']"
 
 
 def collect_prepare(page: Any) -> None:
@@ -62,6 +70,31 @@ def open_why(page: Any) -> None:
     page.keyboard.press("Enter")
     page.locator("ul[aria-label='Отсечены — почему'] li").first.wait_for()
     page.wait_for_timeout(500)
+
+
+def _helper_hypothesis(page: Any) -> None:
+    """Выбрать гипотезу стенда с расплывчатым описанием; её нет — замер падает словами."""
+    page.get_by_role("textbox", name="Гипотеза").click()
+    page.get_by_role("option", name=HELPER_HYPOTHESIS).click()
+    expect(page.get_by_text(HELPER_DRAFT)).to_be_visible()
+
+
+def helper_prepare(page: Any) -> None:
+    """Помощник под полем описания: правка открыта, помощник ответил — предложение и вопросы."""
+    _helper_hypothesis(page)
+    page.get_by_role("button", name="Изменить").click()
+    page.get_by_role("button", name="Помочь с описанием").click()
+    expect(page.locator(PROPOSAL)).to_be_visible(timeout=HELPER_WAIT)
+    page.wait_for_timeout(600)
+
+
+def check_prepare(page: Any) -> None:
+    """Проверка описания при смете: смета посчитана, предупреждение помощника на экране."""
+    _helper_hypothesis(page)
+    page.get_by_role("textbox", name="Ключи").fill(HELPER_KEYWORDS)
+    page.get_by_role("button", name="Посчитать смету").click()
+    expect(page.get_by_text("Описание сегмента расплывчатое")).to_be_visible(timeout=HELPER_WAIT)
+    page.wait_for_timeout(600)
 
 
 def spend_prepare(page: Any) -> None:
@@ -110,6 +143,7 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("подпись «Ещё не судили»", ".metricTile p:text-is('Ещё не судили')", norm),
     ]
     spend = _spend_probes(norm)
+    helper, check = _helper_probes(norm, big)
     return {
         "sales-collect": {"path": path, "ready": ready, "probes": probes},
         "sales-collect-phone": {
@@ -135,8 +169,58 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "viewport": PHONE,
             "probes": spend,
         },
+        # Помощник описания (16.10.2026): ответ под полем описания и предупреждение при смете.
+        "sales-collect-helper": {"path": path, "ready": ready, "probes": helper},
+        "sales-collect-helper-phone": {
+            "path": path,
+            "ready": ready,
+            "viewport": PHONE,
+            "probes": helper,
+        },
+        "sales-collect-check": {"path": path, "ready": ready, "probes": check},
+        "sales-collect-check-phone": {
+            "path": path,
+            "ready": ready,
+            "viewport": PHONE,
+            "probes": check,
+        },
         **sites_screens(norm, big),
     }
+
+
+def _helper_probes(
+    norm: float, big: float
+) -> tuple[list[tuple[str, str, float]], list[tuple[str, str, float]]]:
+    """Помощник описания: кнопка с пояснением, вывод, предложение, вопросы и кнопки — под полем
+    описания; при смете — то же в жёлтой плашке. Приглушённое пояснение у кнопки меряется тоже."""
+    alert = ".mantine-Alert-message"
+    helper = [
+        ("кнопка «Помочь с описанием»", "button:has-text('Помочь с описанием')", norm),
+        ("пояснение у кнопки", "p:has-text('Помощник перепишет черновик')", norm),
+        ("вывод помощника", "p:has-text('Черновик расплывчатый')", norm),
+        ("«Что собьёт судью»", f"{PROPOSAL} p:text-is('Что собьёт судью')", norm),
+        ("беда черновика", f"{PROPOSAL} ul >> nth=0 >> li", norm),
+        ("«Помощник предлагает»", f"{PROPOSAL} p:text-is('Помощник предлагает')", norm),
+        ("предложение помощника", f"{PROPOSAL} p:text-is('Помощник предлагает') + p", norm),
+        ("«Что уточнить»", f"{PROPOSAL} p:text-is('Что уточнить в черновике')", norm),
+        ("вопрос помощника", f"{PROPOSAL} ul >> nth=1 >> li", norm),
+        ("кнопка «Взять этот текст»", "button:has-text('Взять этот текст')", big),
+        ("кнопка «Скрыть»", f"{PROPOSAL} button:has-text('Скрыть')", big),
+    ]
+    check = [
+        (
+            "заголовок плашки",
+            ".mantine-Alert-title:has-text('Описание сегмента расплывчатое')",
+            norm,
+        ),
+        ("текст плашки", f"{alert} p:has-text('Судья читает описание буквально')", norm),
+        ("беда черновика в плашке", f"{alert} {PROPOSAL} ul >> nth=0 >> li", norm),
+        ("предложение в плашке", f"{alert} {PROPOSAL} p:text-is('Помощник предлагает') + p", norm),
+        ("вопрос в плашке", f"{alert} {PROPOSAL} ul >> nth=1 >> li", norm),
+        ("кнопка «Взять в описание»", "button:has-text('Взять в описание')", big),
+        ("кнопка «Скрыть» в плашке", f"{alert} button:has-text('Скрыть')", big),
+    ]
+    return helper, check
 
 
 def _spend_probes(norm: float) -> list[tuple[str, str, float]]:
@@ -179,4 +263,8 @@ def segment_prepare() -> dict[str, Any]:
         "sales-collect-phone": collect_prepare,
         "sales-collect-spend": spend_prepare,
         "sales-collect-spend-phone": spend_prepare,
+        "sales-collect-helper": helper_prepare,
+        "sales-collect-helper-phone": helper_prepare,
+        "sales-collect-check": check_prepare,
+        "sales-collect-check-phone": check_prepare,
     }

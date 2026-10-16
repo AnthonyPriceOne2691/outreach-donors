@@ -33,6 +33,7 @@ from backend.features.sales.models import (
 )
 from backend.features.sales.segment_models import (
     SalesSegmentCandidateModel,
+    SalesSegmentHelpModel,
     SalesSegmentRunModel,
     SalesSegmentVerdictModel,
 )
@@ -65,6 +66,7 @@ __all__ = [
     "SalesKbEntryModel",
     "SalesLeadModel",
     "SalesSegmentCandidateModel",
+    "SalesSegmentHelpModel",
     "SalesSegmentRunModel",
     "SalesSegmentVerdictModel",
     "SalesSettingsModel",
