@@ -1377,9 +1377,9 @@
       "worst": "_recounted:91"
     },
     "backend/features/donors/geo_top5.py": {
-      "lines": 300,
+      "lines": 302,
       "complexity": 8,
-      "worst": "_buy_one:232"
+      "worst": "_buy_one:234"
     },
     "backend/features/donors/home_signals.py": {
       "lines": 364,

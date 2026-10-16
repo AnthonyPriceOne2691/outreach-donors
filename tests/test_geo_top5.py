@@ -27,7 +27,7 @@ from backend.features.ahrefs.units import UnitsCost
 from backend.features.core.domain import DonorStatus, Stage, UsageProvider
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
-from backend.features.core.models.ops import UsageRecordModel
+from backend.features.core.models.ops import AhrefsCapModel, UsageRecordModel
 from backend.features.donors.collect import DomainResult
 from backend.features.donors.geo import CountryShare, GeoVerdict
 from backend.features.donors.geo_top5 import buy_top5, plan_top5
@@ -314,6 +314,23 @@ class TestCap:
         assert ahrefs.asked == []
         assert await _journal(session) == []
         assert "Не куплено ничего: не помещается" in capsys.readouterr().out
+
+    async def test_the_cap_from_the_usage_screen_counts(
+        self, session: AsyncSession, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # Кап задан на экране «Расход» (строка `ahrefs_caps`) — им, а не окружением
+        # (в окружении теста 100 000), меряется докупка, как и прогон (`spending.month_cap`).
+        session.add(AhrefsCapModel(units_cap=110))
+        await session.flush()
+        for name in ("a", "b", "c"):
+            await _partial(session, f"{name}.example.test")
+
+        code = await run_geo_top5(session, Ahrefs().client(), _args())
+
+        printed = capsys.readouterr().out
+        assert code == 0, "показ — не отказ"
+        assert "Месячный кап: 110, осталось 110" in printed
+        assert "не помещается: 3 × 55 = 165 юнитов" in printed
 
     async def test_limit_buys_what_fits(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch

@@ -48,7 +48,7 @@ from backend.features.donors.geo import COUNTRY_ROWS, CountryShare, build_breakd
 from backend.features.donors.standing import is_donor
 from backend.features.runs.budget import QuotaUnavailableError, units_left
 from backend.features.runs.repository import RunRepository
-from backend.features.runs.spending import cap_left
+from backend.features.runs.spending import month_cap
 
 logger = logging.getLogger(__name__)
 
@@ -135,19 +135,21 @@ class Room:
         return max(0, min(self.cap_left - self.claimed, self.provider_left))
 
 
-async def room_for(session: AsyncSession, client: AhrefsClient | None, *, cap: int) -> Room:
-    """Остатки капа и провайдера. Остаток у Ahrefs — бесплатным запросом; без клиента
-    (ключа нет) или без ответа — неизвестен, и сказано почему."""
-    month = await cap_left(session, cap=cap)
+async def room_for(session: AsyncSession, client: AhrefsClient | None) -> Room:
+    """Остатки капа и провайдера. Кап — действующий (`spending.month_cap`: заданный на
+    экране «Расход», без смен — умолчание окружения), как у прогона. Остаток у Ahrefs —
+    бесплатным запросом; без клиента (ключа нет) или без ответа — неизвестен, и сказано
+    почему."""
+    month = await month_cap(session)
     claimed = await RunRepository(session).claimed_units()
     if client is None:
-        return Room(cap, month, claimed, None, "ключа Ahrefs нет (AHREFS_API_KEY)")
+        return Room(month.units_cap, month.left, claimed, None, "ключа Ahrefs нет (AHREFS_API_KEY)")
     try:
         provider = await units_left(client, claimed=claimed)
     except QuotaUnavailableError as exc:
         logger.warning("geo-top5: остаток у Ahrefs неизвестен — %s", exc)
-        return Room(cap, month, claimed, None, str(exc))
-    return Room(cap, month, claimed, provider)
+        return Room(month.units_cap, month.left, claimed, None, str(exc))
+    return Room(month.units_cap, month.left, claimed, provider)
 
 
 def refusal(plan: Top5Plan, room: Room) -> str | None:

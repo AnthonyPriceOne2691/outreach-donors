@@ -142,7 +142,7 @@ async def run_geo_top5(
     if not plan.donors:
         print("Докупать некому: у всех записанных разбивка полная.")
         return EXIT_OK
-    room = await room_for(session, client, cap=ahrefs_cfg.UNITS_CAP)
+    room = await room_for(session, client)
     _print_room(room)
     refused = refusal(plan, room)
     if not args.yes:
