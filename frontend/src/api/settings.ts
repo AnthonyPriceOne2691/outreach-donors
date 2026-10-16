@@ -35,16 +35,34 @@ export interface CrawlSpend {
   spent_usd: string;
 }
 
+/** Смена месячного капа Ahrefs: что поставили, кто и когда. `set_by` `null` — учётку
+ *  удалили, а строка смены осталась. */
+export interface CapChange {
+  id: number;
+  units_cap: number;
+  set_by: string | null;
+  set_at: string;
+}
+
 /**
  * Расход учётки. Без права «Продажи» статьи, плитки и итоги — без расхода продаж и сходятся
  * между собой (решение Anthony 10.10.2026, П2б); экран говорит это словами. Расширением,
  * а не в `types.ts`: тот у потолка длины.
+ *
+ * Кап Ahrefs (`ahrefs_cap`) — заданный на этом экране, а без смен — умолчание сервера
+ * (решение владельца 16.10.2026); остаток по нему и границы поля смены — от сервера.
  */
 export interface UsageView extends Omit<SpendingView, 'articles'> {
   articles: StagedArticle[];
   sales_hidden: boolean;
   stages: StageSpending[];
   crawl: CrawlSpend;
+  /** Осталось по капу — тем же правилом, что у потолка прогона: экран называет, а не считает. */
+  ahrefs_cap_left: number;
+  /** Допустимый кап — от единицы до лимита тарифа: поле смены проверяется ими до нажатия. */
+  ahrefs_cap_limits: ThresholdRange;
+  /** Последние смены капа, новые первыми; пусто — кап по умолчанию, на экране не меняли. */
+  ahrefs_cap_changes: CapChange[];
 }
 
 /** Тревога сторожа с этапом, о почте которого она: `null` — общая тревога (П2б). */
@@ -132,6 +150,11 @@ export function saveThresholds(body: VersionBody): Promise<RulesVersion> {
 
 export function fetchUsage(): Promise<UsageView> {
   return request<UsageView>('/usage');
+}
+
+/** Новый месячный кап Ahrefs — с этой минуты; право — «править пороги», как у порогов. */
+export function saveAhrefsCap(unitsCap: number): Promise<CapChange> {
+  return request<CapChange>('/usage/ahrefs-cap', { method: 'POST', body: { units_cap: unitsCap } });
 }
 
 /** Сторож тишины: поломки, которые выглядят как «ничего не происходит». С этапом — полоса

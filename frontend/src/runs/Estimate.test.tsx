@@ -6,10 +6,11 @@
  * которой посчитаны домены, цену выдачи (и в доли цента) и бюджет.
  */
 
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
+import { ADMIN } from '../test/fixtures';
 import { FITS, openRun } from '../test/runFixtures';
 
 const TOO_MUCH = { ...FITS, units_left: 100, budget: 100, affordable: false, shortfall: 77 };
@@ -113,6 +114,36 @@ describe('смета', () => {
     // поймала ровно эту путаницу: месячная трата вычиталась из потолка.
     expect(await screen.findByText(/ваш потолок 5\s000/)).toBeInTheDocument();
     expect(screen.getByText(/по капу 93\s584 из 100\s000/)).toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      'с правом «править пороги» — поднять самому',
+      ADMIN,
+      'либо поднимите кап на экране «Расход», если остаток у провайдера позволяет.',
+    ],
+    [
+      'без права — попросить того, у кого оно есть',
+      { ...ADMIN, permissions: ADMIN.permissions.filter((right) => right !== 'settings') },
+      'либо попросите поднять кап на экране «Расход»: его меняет учётка с правом «править пороги».',
+    ],
+  ])('не помещается — кап поднимают на «Расходе», ссылка туда: %s', async (_, me, words) => {
+    // Решение владельца 16.10.2026: кап меняют на экране «Расход». Совет «поднимите кап»
+    // без места, где это сделать, человеку не помогал — кап жил в окружении сервера.
+    await openRun({
+      'GET /api/auth/me': { body: me },
+      'POST /api/runs/estimate': { body: TOO_MUCH },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    const alert = (await screen.findByText('Не помещается в бюджет')).closest(
+      '.mantine-Alert-root',
+    ) as HTMLElement;
+    expect(alert).toHaveTextContent(words);
+    expect(within(alert).getByRole('link', { name: '«Расход»' })).toHaveAttribute('href', '/usage');
   });
 
   it('не помещается — кнопка не нажимается и сказано, чего не хватает', async () => {
