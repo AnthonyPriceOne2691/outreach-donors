@@ -320,6 +320,7 @@ async def plan_run(
     freshness: FreshnessSource,
     *,
     units_left: int,
+    limit: str | None = None,
     exclusions: ExclusionSource | None = None,
     stage: Stage = Stage.DONORS,
     country_share: float = COUNTRY_CALL_SHARE,
@@ -357,10 +358,16 @@ async def plan_run(
     estimate = estimate_run(len(new), country_share=country_share)
 
     if estimate.total > units_left:
+        # Упор — словами: «поднимите кап» при кончившемся ключе Ahrefs вёл поднимать кап
+        # зря (16.10.2026). Без упора — прежний совет: так зовут план тесты и консоль.
+        advice = (
+            f"{limit}. Пока сократите список ключей или глубину выдачи"
+            if limit
+            else "сократите список ключей или поднимите кап"
+        )
         raise CapExceededError(
             f"Прогон обойдётся в {estimate.total} юнитов, доступно {units_left}. "
-            f"Новых доменов {len(new)} из {len(candidates.hosts)}; "
-            f"сократите список ключей или поднимите кап."
+            f"Новых доменов {len(new)} из {len(candidates.hosts)}; {advice}."
         )
 
     return RunPlan(

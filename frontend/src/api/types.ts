@@ -2,6 +2,7 @@
  *  перевод на ходу — лишний слой, в котором опечатка видна не сразу. */
 
 import type { PriceDetails, PriceFacets, RowPrice } from './donorPrice';
+import type { ForecastLimits } from './forecastLimits';
 import type { PriceOrigin, PriceRefusal } from './manualPrice';
 import type { Offer } from './offers';
 import type { SamePrice } from './priceRecheck';
@@ -307,7 +308,7 @@ export interface RunRequest {
   serp_mode?: SerpMode;
 }
 
-export interface Forecast {
+export interface Forecast extends ForecastLimits {
   keywords: number;
   depth_pages: number;
   expected_results: number;

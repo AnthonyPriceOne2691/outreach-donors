@@ -52,7 +52,7 @@ from backend.features.donors.judging import JudgePass, JudgeSummary, judge_candi
 from backend.features.donors.repository import DonorRepository, JudgeRecord
 from backend.features.donors.verdict import Thresholds
 from backend.features.review.candidates import RunReview
-from backend.features.runs.budget import units_left
+from backend.features.runs.budget import budget_of
 from backend.features.runs.failures import described, is_permanent
 from backend.features.runs.planning import (
     Candidates,
@@ -377,13 +377,12 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
     # бы из остатка свою же неистраченную смету (аудит 10.10.2026).
     claimed = await deps.runs.claimed_units(exclude_run_id=run.id)
     # Ответ Ahrefs — ещё и снимок ключа: от него кап и цикл у экранов и сторожа.
-    budget = await units_left(
-        deps.client, cap=request.cap, claimed=claimed, keep=deps.runs.keep_key
-    )
+    budget = await budget_of(deps.client, cap=request.cap, claimed=claimed, keep=deps.runs.keep_key)
     plan = await plan_run(
         candidates,
         deps.donors,
-        units_left=budget,
+        units_left=budget.units,
+        limit=budget.limit,
         exclusions=deps.exclusions,
         stage=request.stage,
         country_share=await deps.runs.country_call_share(request.country),

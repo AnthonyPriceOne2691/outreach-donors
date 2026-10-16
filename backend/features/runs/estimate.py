@@ -102,6 +102,18 @@ class RunForecast:
         """Сколько юнитов не хватает. Ноль, если хватает."""
         return max(0, self.estimate.total - self.budget)
 
+    @property
+    def binding(self) -> str:
+        """Во что упирается бюджет: «provider» — остаток у Ahrefs, «cap» — наш кап цикла,
+        «ceiling» — потолок этого прогона (16.10.2026: смета советовала «поднимите кап»,
+        когда кончался ключ Ahrefs, и кап поднимали зря). Поровну — жёсткий раньше: при
+        упоре и в Ahrefs, и в кап подъём капа не помог бы, при упоре и в кап, и в потолок —
+        подъём потолка."""
+        limits = {"provider": self.units_left, "cap": self.cap_left}
+        if self.run_ceiling is not None:
+            limits["ceiling"] = self.run_ceiling
+        return min(limits, key=limits.__getitem__)
+
 
 def forecast(
     *,

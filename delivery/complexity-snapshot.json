@@ -312,9 +312,9 @@
       "worst": "effective_cap:56"
     },
     "backend/api/runs/schemas.py": {
-      "lines": 413,
+      "lines": 431,
       "complexity": 4,
-      "worst": "_known_mode:66"
+      "worst": "_binding:138"
     },
     "backend/api/sales/__init__.py": {
       "lines": 1,
@@ -887,7 +887,7 @@
       "worst": "_request:226"
     },
     "backend/features/ahrefs/units.py": {
-      "lines": 299,
+      "lines": 309,
       "complexity": 5,
       "worst": "_reset_moment:196"
     },
@@ -2037,9 +2037,9 @@
       "worst": "tally_reviews:199"
     },
     "backend/features/runs/budget.py": {
-      "lines": 179,
-      "complexity": 5,
-      "worst": "units_left:44"
+      "lines": 220,
+      "complexity": 6,
+      "worst": "budget_of:82"
     },
     "backend/features/runs/duplicates.py": {
       "lines": 68,
@@ -2047,7 +2047,7 @@
       "worst": "refuse_duplicate:45"
     },
     "backend/features/runs/estimate.py": {
-      "lines": 135,
+      "lines": 147,
       "complexity": 2,
       "worst": "cap_left:75"
     },
@@ -2072,12 +2072,12 @@
       "worst": "outcome:175"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 493,
+      "lines": 492,
       "complexity": 8,
       "worst": "execute_run:345"
     },
     "backend/features/runs/planning.py": {
-      "lines": 374,
+      "lines": 381,
       "complexity": 8,
       "worst": "gather_candidates:240"
     },

@@ -32,10 +32,13 @@ export const FITS = {
   cycle_start: '2026-10-21T00:00:00+00:00',
   cycle_by_key: true,
   cap_unknown: null,
+  next_reset: '2026-11-21T00:00:00+00:00',
   run_ceiling: null,
   budget: 93584,
   affordable: true,
   shortfall: 0,
+  // Остаток по капу меньше остатка у Ahrefs — упор в кап.
+  binding: 'cap',
   serp_cost_usd: 0.0012,
   serp_mode: 'live',
   serp_wait_s: 10,

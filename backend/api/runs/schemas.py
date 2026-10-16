@@ -135,6 +135,17 @@ class RunRequestBody(BaseModel):
         return cap
 
 
+def _binding(forecast: RunForecast, cap: KeyCap) -> str | None:
+    """Упор бюджета словом экрана: остаток у Ahrefs — каким из двух его лимитов (ключа или
+    пространства: поднимают их в Ahrefs по-разному), наш кап, потолок прогона. Кап
+    неизвестен — `None`: у экрана на это своя плашка."""
+    if forecast.units_cap is None:
+        return None
+    if forecast.binding != "provider":
+        return forecast.binding
+    return "key" if cap.key is None else cap.key.quota.tighter
+
+
 class Forecast(BaseModel):
     """Смета до запуска.
 
@@ -165,11 +176,16 @@ class Forecast(BaseModel):
     cycle_by_key: bool
     #: Почему кап неизвестен — словами; `None` — известен.
     cap_unknown: str | None = None
+    #: Следующее обнуление ключа: до какого дня держится остаток («до 14 ноября»).
+    next_reset: datetime
     #: Потолок, названный человеком для этого прогона. Пусто — не назвал.
     run_ceiling: int | None
     budget: int
     affordable: bool
     shortfall: int
+    #: Во что упирается бюджет: «key» или «workspace» — лимит Ahrefs (кап здесь не поможет),
+    #: «cap» — наш кап цикла, «ceiling» — потолок прогона; кап неизвестен — `None`.
+    binding: str | None = None
     #: Ожидаемая стоимость самой выдачи, в долларах. Кнопку не блокирует:
     #: без выдачи прогона нет вовсе. Но названа быть должна.
     serp_cost_usd: float
@@ -200,10 +216,12 @@ class Forecast(BaseModel):
             cycle_start=cap.cycle.start,
             cycle_by_key=cap.cycle.by_key,
             cap_unknown=cap.unknown,
+            next_reset=cap.cycle.next_reset,
             run_ceiling=forecast.run_ceiling,
             budget=forecast.budget,
             affordable=forecast.affordable,
             shortfall=forecast.shortfall,
+            binding=_binding(forecast, cap),
             serp_cost_usd=serp_cost_usd(forecast.keywords, forecast.depth_pages, serp_mode),
             serp_mode=serp_mode,
             serp_wait_s=EXPECTED_WAIT_S[serp_mode],

@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,12 +42,49 @@ class QuotaUnavailableError(RuntimeError):
         self.permanent = permanent
 
 
+#: Во что упёрся бюджет на старте прогона — словами отказа (`planning.plan_run`). Что делать,
+#: зависит от того, чей лимит: 16.10.2026 отказ советовал «поднимите кап», когда кончался
+#: ключ Ahrefs, и подъём капа не помогал.
+LIMIT_WORDS = {
+    "key": "упор — лимит ключа Ahrefs: кап здесь не поможет, лимит ключа поднимают в самом Ahrefs",
+    "workspace": (
+        "упор — лимит пространства Ahrefs, общий для всех его ключей: его поднимают в самом Ahrefs"
+    ),
+    "cap": (
+        "упор — наш кап цикла или потолок прогона: кап поднимают на экране «Расход», "
+        "потолок — в форме прогона"
+    ),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class Budget:
+    """Бюджет и во что он упирается: «key», «workspace» — лимит Ahrefs, «cap» — наш кап
+    цикла или потолок прогона (`cap` у `budget_of` — уже меньшее из них)."""
+
+    units: int
+    binding: str
+
+    @property
+    def limit(self) -> str:
+        """Упор — словами отказа."""
+        return LIMIT_WORDS[self.binding]
+
+
 async def units_left(
     client: AhrefsClient, *, cap: int | None = None, claimed: int = 0, keep: Keep | None = None
 ) -> int:
-    """Сколько юнитов можно потратить: остаток провайдера минус чужие удержания,
-    и всё это не выше нашего капа. `keep` — куда положить ответ снимком ключа
-    (`ahrefs_key.keeper`): у кого сессия, тот и кладёт.
+    """Сколько юнитов можно потратить — число `budget_of` без упора: смете, консоли
+    и докупке стран слова отказа не нужны."""
+    return (await budget_of(client, cap=cap, claimed=claimed, keep=keep)).units
+
+
+async def budget_of(
+    client: AhrefsClient, *, cap: int | None = None, claimed: int = 0, keep: Keep | None = None
+) -> Budget:
+    """Сколько юнитов можно потратить и во что это упирается: остаток провайдера минус
+    чужие удержания, и всё это не выше нашего капа. `keep` — куда положить ответ снимком
+    ключа (`ahrefs_key.keeper`): у кого сессия, тот и кладёт.
 
     Кап ограничивает нас добровольно, остаток провайдера — жёстко.
 
@@ -95,7 +133,10 @@ async def units_left(
             free,
             extra={"claimed": claimed, "available": quota.available, "free": free},
         )
-    return min(free, cap) if cap is not None else free
+    # Поровну — Ahrefs: при упоре и в остаток ключа, и в кап подъём капа не помог бы.
+    if cap is not None and cap < free:
+        return Budget(cap, "cap")
+    return Budget(free, quota.tighter)
 
 
 async def cap_left(session: AsyncSession, *, now: datetime | None = None) -> int:
