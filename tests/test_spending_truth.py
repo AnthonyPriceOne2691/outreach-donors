@@ -6,8 +6,8 @@
   Провайдер называет цену в каждом ответе, а журнал её не видел;
 * строка расхода пишется один раз: продолжение прогона по сохранённой
   выдаче ничего не покупает, и вторая строка удвоила бы счёт;
-* кап месячный. Не вычитать из него потраченное значит называть месячным
-  то, что ограничивает один прогон.
+* кап — на цикл ключа (до 16.10.2026 — на месяц). Не вычитать из него потраченное
+  значит называть капом цикла то, что ограничивает один прогон.
 """
 
 from __future__ import annotations
@@ -20,11 +20,13 @@ import pytest
 from backend.features.core import usage
 from backend.features.core.domain import UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
+from backend.features.runs.budget import cap_left
 from backend.features.runs.planning import Candidates, gather_candidates
-from backend.features.runs.spending import ahrefs_spent_this_month, cap_left
+from backend.features.runs.spending import ahrefs_spent_since
 from backend.features.serp.protocol import SerpResult
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.test_ahrefs_cap import known_key
 
 NOW = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
 
@@ -105,18 +107,18 @@ class TestTheJournal:
         assert by_provider[UsageProvider.SERP] == (None, Decimal("0.36"))
 
 
-class TestTheMonthlyCap:
+class TestTheCycleCap:
     @pytest.fixture(autouse=True)
-    def _cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Кап — умолчание окружения: смен на экране «Расход» в тесте нет
-        (`runs/ahrefs_cap.py`), и действует то, что в окружении."""
-        monkeypatch.setattr("backend.config.ahrefs.UNITS_CAP", 100_000)
+    async def _cap(self, session: AsyncSession) -> None:
+        """Кап — весь ключ на 100 000: смен на экране «Расход» в тесте нет
+        (`runs/ahrefs_cap.py`), и действует размер ключа из снимка."""
+        await known_key(session, key_limit=100_000)
 
     async def test_cap_shrinks_by_what_we_spent(self, session: AsyncSession) -> None:
         usage.record(session, operation="batch_metrics", units=6416)
         await session.flush()
 
-        assert await ahrefs_spent_this_month(session) == 6416
+        assert await ahrefs_spent_since(session, NOW.replace(day=1, hour=0)) == 6416
         assert await cap_left(session) == 93_584
 
     async def test_cap_never_goes_below_zero(self, session: AsyncSession) -> None:

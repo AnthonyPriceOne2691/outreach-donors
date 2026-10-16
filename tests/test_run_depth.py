@@ -25,6 +25,7 @@ from backend.features.serp.modes import EXPECTED_WAIT_S, SerpMode, mode_of, page
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
+from tests.test_ahrefs_cap import known_key
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -56,10 +57,12 @@ class _NoAhrefs:
 
 
 @pytest.fixture
-def offline(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Смета без сети: остаток у провайдера — большой и известный."""
+async def offline(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> None:
+    """Смета без сети: остаток у провайдера — большой и известный, ключ — снимком, как от
+    ответа Ahrefs (кап — от ключа, 16.10.2026)."""
+    await known_key(session, key_limit=10_000_000, workspace_limit=10_000_000)
 
-    async def plenty(_: Any) -> int:
+    async def plenty(_: Any, **__: Any) -> int:
         return 10_000_000
 
     monkeypatch.setattr("backend.api.runs.routes.AhrefsClient", _NoAhrefs)

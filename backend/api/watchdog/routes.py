@@ -13,7 +13,8 @@ transaction» на время чужих ответов, как и у фонов
 Полоса этапа (`?stage=`) — тревоги своего этапа, без опроса: «провайдер не отвечает» — тревога
 общая, её место на «Обзоре». Ответ провайдеров экрану годен минуту (`PROBES`). Тревога — по
 правилу `silence.ProviderWatch` процесса сервера, как у фонового сторожа: неответ, прошедший
-сам, «Обзор» не красит.
+сам, «Обзор» не красит. Ответ Ahrefs из опроса ложится в снимок ключа короткой транзакцией
+после сети (`ops/key_watch.keep_heard`, 16.10.2026).
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from backend.features.access.permissions import visible_stages
 from backend.features.core.domain import Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.ops.alarms import Alarm
+from backend.features.ops.key_watch import keep_heard
 from backend.features.ops.silence import alarms, probe_providers
 
 router = APIRouter(prefix="/watchdog", tags=["сторож тишины"])
@@ -103,6 +105,9 @@ async def silence(
     unreachable = await PROBES.probe()
     if unreachable is not None:
         found.insert(0, unreachable)
+    # Ответ Ahrefs опроса — в снимок ключа, своей короткой транзакцией: сеть уже позади.
+    if await keep_heard(session):
+        await session.commit()
     return WatchdogView(alarms=[AlarmCard.of(alarm) for alarm in found])
 
 

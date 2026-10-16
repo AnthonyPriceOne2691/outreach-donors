@@ -45,9 +45,9 @@ from backend.features.core.domain import (
 )
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.run import RunModel
-from backend.features.ops import mail_watch, stage_silence
+from backend.features.ops import key_watch, mail_watch, stage_silence
 from backend.features.ops.alarms import Alarm
-from backend.features.runs.spending import crawl_spent_this_month, month_cap
+from backend.features.runs.spending import crawl_spent_this_month
 from backend.features.serp.dataforseo import SerpError
 from backend.features.serp.factory import UnknownProviderError, build_provider
 
@@ -86,7 +86,8 @@ async def alarms(
     found: list[Alarm | None] = [*await stage_silence.alarms(session, moment, stages=stages)]
     found += [
         await _runs_stuck(session, moment),
-        await _cap_reached(session),
+        # Кап Ahrefs: 80 % — предупреждение, 95 % — тревога, весь — «кап выбран» (16.10.2026).
+        await key_watch.alarm(session, moment),
         await _crawl_cap_reached(session),
         await _crawl_blocked(session),
     ]
@@ -208,17 +209,22 @@ async def probe_providers() -> Alarm | None:
 
 async def ask_providers() -> list[Miss]:
     """Один опрос: кто из провайдеров не ответил, почему и пройдёт ли это само. Причина — в
-    тревогу: строка журнала пропадает вместе с контейнером на выкатке (так было 15.10.2026)."""
+    тревогу: строка журнала пропадает вместе с контейнером на выкатке (так было 15.10.2026).
+
+    Ответ Ahrefs запоминается для снимка ключа (`key_watch.heard`): опрос идёт без сессии,
+    а в снимок его кладёт тот, у кого она есть, — после сети (16.10.2026)."""
     found: list[Miss] = []
     client = AhrefsClient()
     try:
-        await client.limits_and_usage()
+        answer = await client.limits_and_usage()
     except AhrefsError as exc:
         logger.warning("сторож тишины: Ahrefs не ответил (%s)", exc)
         found.append(Miss("Ahrefs", _reason(exc), permanent=exc.permanent))
     except OSError as exc:
         logger.warning("сторож тишины: Ahrefs не ответил (%s)", exc)
         found.append(Miss("Ahrefs", _reason(exc)))
+    else:
+        key_watch.heard(answer)
     finally:
         await client.aclose()
 
@@ -330,31 +336,6 @@ async def _crawl_blocked(session: AsyncSession) -> Alarm | None:
             "браузером (CRAWL_BROWSER_ENABLED) или резидентными прокси (CRAWL_PROXY_URLS)"
         ),
     )
-
-
-async def _cap_reached(session: AsyncSession) -> Alarm | None:
-    """Месячный кап выбран. Прогоны молчат не потому, что сломались.
-
-    Кап — действующий (`spending.month_cap`): поднятый на экране «Расход» гасит тревогу
-    на следующем проходе, а не после правки окружения. Где его поднять, тревога называет:
-    она стоит на «Обзоре», и человек, увидевший её, должен знать, куда идти."""
-    month = await month_cap(session)
-    if month.left > 0:
-        return None
-    return Alarm(
-        code="cap-reached",
-        title="Месячный кап выбран",
-        detail=(
-            f"Потрачено {_spaced(month.spent)} юнитов Ahrefs при капе {_spaced(month.units_cap)}. "
-            "Новые прогоны не запустятся до первого числа или пока кап не поднимут на экране "
-            "«Расход» — это не поломка, но выглядит одинаково"
-        ),
-    )
-
-
-def _spaced(number: int) -> str:
-    """Число с разрядами, как на экране: «100 000»."""
-    return f"{number:,}".replace(",", " ")
 
 
 def _setting_names(exc: ValueError) -> str:

@@ -14,11 +14,12 @@
 отдельно: решать о них человеку.
 
 **Кап — до первого запроса, правилом трат вне прогона** (`runs/budget.units_free`):
-смета сверяется с остатком месячного капа по своему журналу и с остатком у
-провайдера, оба — за вычетом обещанного идущими прогонами. Остаток провайдера
-неизвестен или смета не помещается — отказ словами до первой траты. И по ходу:
-провайдер взял за запрос больше сметы — запрос, который в остаток уже не влезает,
-не делается.
+смета сверяется с остатком капа цикла ключа по своему журналу и с остатком у
+провайдера, оба — за вычетом обещанного идущими прогонами. Кап — от ключа Ahrefs
+(`runs/ahrefs_cap.key_cap`, 16.10.2026): ответ об остатке ложится в снимок ключа до
+чтения капа. Остаток провайдера или размер ключа неизвестен, смета не помещается —
+отказ словами до первой траты. И по ходу: провайдер взял за запрос больше сметы —
+запрос, который в остаток уже не влезает, не делается.
 
 **Фиксация — после каждого донора.** Расход ложится в журнал той же транзакцией,
 что разбивка, и так же, как пишет прогон (`RunRepository.record_usage`): обрыв
@@ -46,9 +47,10 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.geo import COUNTRY_ROWS, CountryShare, build_breakdown
 from backend.features.donors.standing import is_donor
+from backend.features.runs.ahrefs_cap import KeyCap, key_cap
+from backend.features.runs.ahrefs_key import keeper
 from backend.features.runs.budget import QuotaUnavailableError, units_left
 from backend.features.runs.repository import RunRepository
-from backend.features.runs.spending import month_cap
 
 logger = logging.getLogger(__name__)
 
@@ -117,9 +119,8 @@ async def plan_top5(
 class Room:
     """Сколько можно потратить сейчас — правилом трат вне прогона (`runs/budget.units_free`)."""
 
-    cap: int
-    #: Осталось по месячному капу — по своему журналу расхода.
-    cap_left: int
+    #: Кап цикла ключа, его цикл и наш расход в нём — одним чтением.
+    cap: KeyCap
     #: Обещано идущими прогонами и ещё не потрачено.
     claimed: int
     #: Осталось у Ahrefs за вычетом обещанного; `None` — неизвестно.
@@ -129,27 +130,26 @@ class Room:
 
     @property
     def free(self) -> int:
-        """Меньшее из двух остатков; остаток провайдера неизвестен — ноль: вслепую не тратим."""
-        if self.provider_left is None:
+        """Меньшее из двух остатков; остаток провайдера или кап неизвестен — ноль: вслепую не
+        тратим."""
+        if self.provider_left is None or self.cap.units_cap is None:
             return 0
-        return max(0, min(self.cap_left - self.claimed, self.provider_left))
+        return max(0, min(self.cap.cap_left - self.claimed, self.provider_left))
 
 
 async def room_for(session: AsyncSession, client: AhrefsClient | None) -> Room:
-    """Остатки капа и провайдера. Кап — действующий (`spending.month_cap`: заданный на
-    экране «Расход», без смен — умолчание окружения), как у прогона. Остаток у Ahrefs —
-    бесплатным запросом; без клиента (ключа нет) или без ответа — неизвестен, и сказано
-    почему."""
-    month = await month_cap(session)
+    """Остатки капа и провайдера. Кап — действующий, от ключа (`ahrefs_cap.key_cap`), как
+    у прогона: Ahrefs спрашивается первым, и его ответ ложится в снимок ключа до чтения
+    капа. Без клиента (ключа нет) или без ответа остаток неизвестен — и сказано почему."""
     claimed = await RunRepository(session).claimed_units()
     if client is None:
-        return Room(month.units_cap, month.left, claimed, None, "ключа Ahrefs нет (AHREFS_API_KEY)")
+        return Room(await key_cap(session), claimed, None, "ключа Ahrefs нет (AHREFS_API_KEY)")
     try:
-        provider = await units_left(client, claimed=claimed)
+        provider = await units_left(client, claimed=claimed, keep=keeper(session))
     except QuotaUnavailableError as exc:
         logger.warning("geo-top5: остаток у Ahrefs неизвестен — %s", exc)
-        return Room(month.units_cap, month.left, claimed, None, str(exc))
-    return Room(month.units_cap, month.left, claimed, provider)
+        return Room(await key_cap(session), claimed, None, str(exc))
+    return Room(await key_cap(session), claimed, provider)
 
 
 def refusal(plan: Top5Plan, room: Room) -> str | None:
@@ -158,6 +158,8 @@ def refusal(plan: Top5Plan, room: Room) -> str | None:
         return (
             f"остаток юнитов у Ahrefs неизвестен — тратить вслепую нельзя: {room.provider_unknown}"
         )
+    if room.cap.unknown is not None:
+        return f"{room.cap.unknown} — кап считать не от чего, тратить вслепую нельзя"
     if plan.units <= room.free:
         return None
     fits = room.free // UNITS_BY_COUNTRY

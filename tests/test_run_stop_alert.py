@@ -37,6 +37,7 @@ from backend.shared import alerts
 from backend.workers import jobs
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.test_ahrefs_cap import known_key
 from tests.test_execute_run import GOOD, FakeSerp, _ahrefs, _deps, _flaky_ahrefs
 
 TOKEN = "123456:run-alert-test-token"
@@ -78,13 +79,15 @@ async def _no_heartbeat(*args: object, **kwargs: object) -> None:
 
 
 @pytest.fixture
-def provider(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> dict[str, Any]:
+async def provider(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> dict[str, Any]:
     """Задача прогона в транзакции теста: сбор настоящий, провайдеры — нет.
 
     Каждая попытка берёт нового клиента Ahrefs, как и боевая задача; каким
     он будет, решает тест (`provider["ahrefs"]`). Судья и главные сайтов
-    выключены: это сеть, и к тревоге они отношения не имеют.
+    выключены: это сеть, и к тревоге они отношения не имеют. Ключ Ahrefs
+    известен — снимком: потолок на старте считается от его размера.
     """
+    await known_key(session, key_limit=1_000_000)
     wiring: dict[str, Callable[[], AhrefsClient]] = {"ahrefs": lambda: _ahrefs({"good.com": GOOD})}
     monkeypatch.setattr("backend.config.judge.MODE", JudgeMode.OFF)
     monkeypatch.setattr("backend.config.judge.HOME_CHECK", False)

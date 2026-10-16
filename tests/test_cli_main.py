@@ -295,6 +295,22 @@ class TestQuota:
         assert ahrefs.paths == ["/v3/subscription-info/limits-and-usage"]
         assert ahrefs.closed
 
+    async def test_a_key_without_its_own_limit_says_so_in_words(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Ahrefs отдаёт null вместо лимита ключа — своего лимита нет, и действует лимит
+        пространства (16.10.2026): «0 из 0» читалось бы как выбранный ключ."""
+        payload = {**QUOTA, "units_limit_api_key": None, "units_limit_workspace": None}
+        monkeypatch.setattr("backend.cli.main.AhrefsClient", Ahrefs(payload))
+
+        assert await cmd_quota() == 0
+
+        assert _lines(capsys.readouterr().out)[:3] == [
+            "Доступно юнитов: 0",
+            "ключ: своего лимита нет — действует лимит пространства",
+            "пространство: Ahrefs лимита не назвал",
+        ]
+
     async def test_no_reset_line_when_the_provider_did_not_name_a_date(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:

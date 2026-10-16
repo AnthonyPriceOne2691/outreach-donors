@@ -8,7 +8,12 @@ from backend.features.core.models.attachment import ReplyAttachmentModel
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
-from backend.features.core.models.ops import AhrefsCapModel, SuppressionModel, UsageRecordModel
+from backend.features.core.models.ops import (
+    AhrefsCapModel,
+    AhrefsKeySnapshotModel,
+    SuppressionModel,
+    UsageRecordModel,
+)
 from backend.features.core.models.outgoing_attachment import OutgoingAttachmentModel
 from backend.features.core.models.outreach import (
     CampaignModel,
@@ -44,6 +49,7 @@ __all__ = [
     "AgentDraftModel",
     "AgentSettingsModel",
     "AhrefsCapModel",
+    "AhrefsKeySnapshotModel",
     "AuditLogModel",
     "CampaignModel",
     "CandidateModel",

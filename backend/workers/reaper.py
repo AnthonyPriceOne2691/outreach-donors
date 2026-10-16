@@ -47,6 +47,7 @@ from backend.features.crawl.lifecycle import recover as recover_crawls
 from backend.features.ops import silence
 from backend.features.ops.alarm_feed import Feed
 from backend.features.ops.alarms import Alarm
+from backend.features.ops.key_watch import keep_heard
 from backend.features.ops.silence import probe_providers
 from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.lifecycle import Recovery, recover
@@ -207,6 +208,11 @@ async def watch() -> None:
     Сессия — только на чтение тревог. Опрос провайдеров и лента тревог
     (Telegram, Redis) идут после её закрытия: при открытой транзакции
     соединение висело бы «idle in transaction» на время чужих ответов.
+
+    Ответ Ahrefs из опроса ложится в снимок ключа второй, короткой сессией —
+    после сети и после ленты: сказанное не ждёт записи, а сбой записи его не
+    съедает (`ops/key_watch.keep_heard`, 16.10.2026). Свежим снимок ключа
+    держит именно этот проход.
     """
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -215,10 +221,13 @@ async def watch() -> None:
             # Фоновый проход — все этапы: тревоги идут владельцу в Telegram, а не на экран
             # учётки (этапы видимости — `EVERY_STAGE` явно, ревью продаж к #304).
             found = await silence.alarms(session, stages=EVERY_STAGE)
+        told = await silence.with_providers(found, probe=PROVIDERS.probe, journal=JOURNAL)
+        await FEED.tell(told, unseen=PROVIDERS.unseen)
+        async with factory() as session:
+            if await keep_heard(session):
+                await session.commit()
     finally:
         await engine.dispose()
-    told = await silence.with_providers(found, probe=PROVIDERS.probe, journal=JOURNAL)
-    await FEED.tell(told, unseen=PROVIDERS.unseen)
 
 
 async def retry_handoffs() -> None:

@@ -40,7 +40,7 @@ import { useSession } from '../auth/AuthProvider';
 import { Meter } from '../components/Meter';
 import { PageHead } from '../components/PageHead';
 import { Metric } from '../components/Metric';
-import { formatDateTime, formatNumber, formatShare, formatUsd, plural } from '../format';
+import { formatDateTime, formatDay, formatNumber, formatShare, formatUsd, plural } from '../format';
 import { mailLine } from '../letters/mailTile';
 import { Watchdog } from './Watchdog';
 
@@ -374,20 +374,27 @@ function RunSection({ data }: { data: OverviewView }) {
         <LastRunLine run={data.last_run} />
         <Stack gap={6} className="hairline" pt="md">
           {/* «Потрачено из потолка» — одна единица смысла: на телефоне строка
-              рвалась между «из» и потолком (аудит 25.09.2026, №28). */}
+              рвалась между «из» и потолком (аудит 25.09.2026, №28). Период — цикл ключа
+              (16.10.2026): кап считает его, а не месяц, и выдача ниже — с первого числа. */}
           <Text size="sm">
-            Юниты Ahrefs с начала месяца:{' '}
+            Юниты Ahrefs {data.ahrefs_by_key ? 'за цикл ключа, ' : ''}с{' '}
+            {formatDay(data.ahrefs_since)}:{' '}
             <span style={{ whiteSpace: 'nowrap' }}>
-              <b>{formatNumber(data.ahrefs_units)}</b> из {formatNumber(data.ahrefs_cap)}
+              <b>{formatNumber(data.ahrefs_units)}</b>
+              {data.ahrefs_cap === null
+                ? ' — кап неизвестен'
+                : ` из ${formatNumber(data.ahrefs_cap)}`}
             </span>
           </Text>
-          <Meter
-            spent={data.ahrefs_units}
-            cap={data.ahrefs_cap}
-            label="Юниты Ahrefs с начала месяца"
-          />
+          {data.ahrefs_cap !== null && (
+            <Meter
+              spent={data.ahrefs_units}
+              cap={data.ahrefs_cap}
+              label="Юниты Ahrefs за цикл ключа"
+            />
+          )}
           <Text size="sm" c="dimmed">
-            По нашему капу. Остаток у провайдера — на экране{' '}
+            По нашему капу — он от ключа Ahrefs. Ключ, его цикл и остаток у провайдера — на экране{' '}
             <Anchor component={Link} to="/usage" size="sm">
               расхода
             </Anchor>

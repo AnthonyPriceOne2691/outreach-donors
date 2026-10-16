@@ -26,7 +26,9 @@ from backend.features.core.models.access import UserModel
 from backend.shared import queue
 from httpx import AsyncClient, Response
 from rq import Worker
+from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
+from tests.test_ahrefs_cap import known_key
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -131,11 +133,18 @@ async def test_runs_page_does_not_stop_the_server(
 
 
 async def test_start_does_not_stop_the_server_and_says_why(
-    client: AsyncClient, token: str, silent_redis: str, monkeypatch: pytest.MonkeyPatch
+    client: AsyncClient,
+    session: AsyncSession,
+    token: str,
+    silent_redis: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Постановка прогона в молчащий Redis — 503 словами, и цикл событий не стоял."""
+    """Постановка прогона в молчащий Redis — 503 словами, и цикл событий не стоял. Ключ
+    Ahrefs известен (снимком): иначе отказ пришёл бы раньше очереди — «размер ключа
+    неизвестен»."""
     monkeypatch.setattr("backend.config.ahrefs.API_KEY", "ключ-для-теста")
     monkeypatch.setattr("backend.config.serp.SANDBOX", False)
+    await known_key(session)
 
     started, ticks = await _with_ticks(
         client.post(

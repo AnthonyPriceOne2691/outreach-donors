@@ -11,6 +11,7 @@ from pydantic_core import PydanticCustomError
 from backend.api.settings.schemas import ArticleCard
 from backend.config import serp as serp_cfg
 from backend.features.core.domain import RunStatus
+from backend.features.runs.ahrefs_cap import KeyCap
 from backend.features.runs.browse import RunRow
 from backend.features.runs.estimate import RESULTS_PER_PAGE, RunForecast
 from backend.features.runs.outcome import Domains, Rejection, RunOutcome, Threshold
@@ -25,11 +26,12 @@ from backend.features.serp.modes import (
 )
 from backend.features.serp.protocol import distinct_keywords
 
-#: Свой потолок юнитов на прогон — не больше этого. Миллион — месячный лимит всего
-#: аккаунта Ahrefs по умолчанию (`AHREFS_MONTHLY_UNITS`): выше потолок ничего не
-#: ограничивает, а двадцать девяток в поле — опечатка. До 10.10.2026 верха не было,
-#: и смета отвечала «ваш потолок 100 000 000 000 000 000 000» (проверка прода).
-#: Экран держит то же число (`runs/RunPage.tsx`, `CAP`) и отказывает до нажатия.
+#: Свой потолок юнитов на прогон — не больше этого: страж опечатки, а не лимит. Выше
+#: остатка капа потолок ничего не ограничивает — прогон всё равно режется им
+#: (`routes.effective_cap`, кап — от размера ключа Ahrefs с 16.10.2026), а двадцать
+#: девяток в поле — опечатка. До 10.10.2026 верха не было, и смета отвечала «ваш потолок
+#: 100 000 000 000 000 000 000» (проверка прода). Экран держит то же число
+#: (`runs/RunPage.tsx`, `CAP`) и отказывает до нажатия.
 MAX_RUN_CEILING = 1_000_000
 
 
@@ -51,7 +53,7 @@ class RunRequestBody(BaseModel):
     #: 10, 20, 30, 50 и 100 результатов; сервер принимает любую глубину
     #: от одной страницы до `MAX_DEPTH_PAGES` (командная строка берёт и 40).
     depth_pages: int = 1
-    #: Потолок юнитов на этот прогон. Пусто — остаток по месячному капу.
+    #: Потолок юнитов на этот прогон. Пусто — остаток по капу цикла ключа.
     #: Нужен, чтобы попробовать нишу дёшево: без него единственный способ
     #: ограничить трату — сократить список ключей, а это другой вопрос.
     cap: int | None = Field(default=None, ge=1)
@@ -128,7 +130,7 @@ class RunRequestBody(BaseModel):
             raise PydanticCustomError(
                 "cap_out_of_range",
                 f"Потолок юнитов — не больше {most} на прогон, пришло {came}. "
-                "Пусто — весь остаток по месячному капу",
+                "Пусто — весь остаток по капу",
             )
         return cap
 
@@ -151,11 +153,18 @@ class Forecast(BaseModel):
     units_by_country: int
     units_total: int
     units_left: int
-    units_cap: int
-    #: Потрачено нами с начала месяца — то, на что уменьшился кап.
-    units_spent_this_month: int
-    #: Остаток по месячному капу.
+    #: Наш кап на цикл ключа Ahrefs; `None` — размер ключа неизвестен (`cap_unknown`).
+    units_cap: int | None
+    #: Потрачено нами с начала цикла ключа — то, на что уменьшился кап.
+    units_spent_in_cycle: int
+    #: Остаток по капу цикла.
     cap_left: int
+    #: С какого момента считается цикл, и от ключа ли он: `False` — календарный месяц,
+    #: Ahrefs не назвал дату обнуления.
+    cycle_start: datetime
+    cycle_by_key: bool
+    #: Почему кап неизвестен — словами; `None` — известен.
+    cap_unknown: str | None = None
     #: Потолок, названный человеком для этого прогона. Пусто — не назвал.
     run_ceiling: int | None
     budget: int
@@ -172,7 +181,9 @@ class Forecast(BaseModel):
     unique_share: float
 
     @classmethod
-    def of(cls, forecast: RunForecast, *, serp_mode: SerpMode) -> Forecast:
+    def of(cls, forecast: RunForecast, *, serp_mode: SerpMode, cap: KeyCap) -> Forecast:
+        """Смета и кап, от которого она посчитана: цикл и почему кап неизвестен — от того же
+        чтения (`ahrefs_cap.key_cap`), что дал смете кап и наш расход."""
         return cls(
             keywords=forecast.keywords,
             depth_pages=forecast.depth_pages,
@@ -184,8 +195,11 @@ class Forecast(BaseModel):
             units_total=forecast.estimate.total,
             units_left=forecast.units_left,
             units_cap=forecast.units_cap,
-            units_spent_this_month=forecast.units_spent_this_month,
+            units_spent_in_cycle=forecast.units_spent_in_cycle,
             cap_left=forecast.cap_left,
+            cycle_start=cap.cycle.start,
+            cycle_by_key=cap.cycle.by_key,
+            cap_unknown=cap.unknown,
             run_ceiling=forecast.run_ceiling,
             budget=forecast.budget,
             affordable=forecast.affordable,

@@ -8,9 +8,10 @@
 Расход смотрят все: это то же содержимое базы, что и доноры. Расход продаж —
 только с правом «Продажи» (решение Anthony 10.10.2026, П2б, `runs/spending.py`).
 
-Месячный кап юнитов Ahrefs меняют на экране «Расход» тем же правом, что пороги
-(`settings`, решение владельца 16.10.2026): смена — строкой истории и записью журнала,
-окружение (`AHREFS_UNITS_CAP`) — умолчание, пока кап на экране не задавали.
+Кап юнитов Ahrefs меняют на экране «Расход» тем же правом, что пороги (`settings`,
+решение владельца 16.10.2026): «весь лимит ключа» или «не больше N», смена — строкой
+истории и записью журнала. Сам кап — от ключа: экран спрашивает Ahrefs, и ответ ложится
+в снимок ключа, от которого кап, цикл и «осталось» (`runs/ahrefs_cap.key_cap`).
 """
 
 from __future__ import annotations
@@ -22,12 +23,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import actor, db_session, needs
+from backend.api.settings.cap_schemas import CapBody, CapChangeCard
 from backend.api.settings.schemas import (
     LIMITS,
     RULE_LIMITS,
     AdvertiserSettingsView,
-    CapBody,
-    CapChangeCard,
     ConsequencesView,
     CrawlSpendCard,
     SpendingView,
@@ -45,12 +45,9 @@ from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import selection_settings
 from backend.features.donors.geo import assert_settings_allow_limited_fetch
-from backend.features.runs.ahrefs_cap import cap_changes, set_ahrefs_cap
-from backend.features.runs.spending import (
-    SpendingRepository,
-    crawl_spent_this_month,
-    month_cap,
-)
+from backend.features.runs.ahrefs_cap import cap_changes, cap_words, key_cap, set_ahrefs_cap
+from backend.features.runs.ahrefs_key import remember
+from backend.features.runs.spending import SpendingRepository, crawl_spent_this_month
 from backend.features.runs.thresholds import (
     ThresholdsRepository,
     consequences,
@@ -190,7 +187,7 @@ async def usage(
     user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> SpendingView:
-    """Расход с начала месяца и остаток у провайдера.
+    """Расход с начала месяца, остаток у провайдера и кап Ahrefs в цикле ключа.
 
     Недоступный остаток — не повод прятать расход: своя таблица знает,
     на что мы потратили, и этот ответ не зависит от провайдера. Поэтому
@@ -201,16 +198,21 @@ async def usage(
 
     Платный обход Этапа 2 — своей строкой против своего потолка: потрачено тем же
     числом, с которым потолок сравнивает сам обход.
+
+    Ответ Ahrefs ложится в снимок ключа до чтения капа: размер ключа, цикл и «осталось»
+    экран показывает на эту минуту, а не по прошлому снимку (16.10.2026).
     """
     stages = visible_stages(actor(user))
     spending = await SpendingRepository(session).since_month_start(stages=stages)
     crawl_spent = await crawl_spent_this_month(session, stages=stages)
-    return SpendingView.of(
+    serp_balance = await _serp_balance()
+    ahrefs_balance = await _ahrefs_balance(session)
+    view = SpendingView.of(
         spending,
-        serp_balance=await _serp_balance(),
-        ahrefs_balance=await _ahrefs_balance(),
-        # Кап — действующий, с этого же экрана, и остаток по нему — правилом прогона.
-        month=await month_cap(session),
+        serp_balance=serp_balance,
+        ahrefs_balance=ahrefs_balance,
+        # Кап — от ключа и с этого же экрана, остаток по нему — правилом прогона.
+        cap=await key_cap(session),
         cap_changes=await cap_changes(session),
         sales_hidden=Stage.SALES not in stages,
         crawl=CrawlSpendCard(
@@ -218,18 +220,22 @@ async def usage(
             spent_usd=crawl_spent,
         ),
     )
+    # Снимок ключа из ответа Ahrefs — в базу: больше экран ничего не пишет.
+    await session.commit()
+    return view
 
 
-async def _ahrefs_balance() -> tuple[int | None, str | None]:
+async def _ahrefs_balance(session: AsyncSession) -> tuple[int | None, str | None]:
     """Остаток у Ahrefs — или почему его нет. Недоступен — отдельное поле, а не пятисотка.
 
     Спрашивается сырой остаток провайдера, а не бюджет прогона: бюджет — это меньшее
     из остатка и капа, и сравнивать его с нашим расходом бессмысленно (первая версия
-    экрана так и показывала «израсходовано 0» при шести тысячах потраченных).
+    экрана так и показывала «израсходовано 0» при шести тысячах потраченных). Ответ —
+    ещё и снимок ключа (`ahrefs_key.remember`), транзакцией запроса.
     """
     client = AhrefsClient()
     try:
-        return Quota.from_payload(await client.limits_and_usage()).available, None
+        quota = Quota.from_payload(await client.limits_and_usage())
     except (AhrefsError, OSError) as exc:
         logger.warning("расход: остаток у Ahrefs недоступен (%s)", exc)
         return None, (
@@ -238,30 +244,38 @@ async def _ahrefs_balance() -> tuple[int | None, str | None]:
         )
     finally:
         await client.aclose()
+    await remember(session, quota)
+    return quota.available, None
 
 
 @router.post(
     "/usage/ahrefs-cap",
     response_model=CapChangeCard,
-    summary="Сменить месячный кап юнитов Ahrefs",
+    summary="Сменить кап юнитов Ahrefs: весь лимит ключа или не больше N",
 )
 async def change_ahrefs_cap(
     body: CapBody,
     author: UserModel = _settler,
     session: AsyncSession = Depends(db_session),
 ) -> CapChangeCard:
-    """Новый месячный кап — с этой минуты, под тем же правом, что пороги (решение владельца
-    16.10.2026: кап меняют на экране «Расход», видно, кто и когда).
+    """Новый кап — с этой минуты, под тем же правом, что пороги (решение владельца
+    16.10.2026: кап меняют на экране «Расход», видно, кто, когда и что поставил).
 
     Смена заводит строку, а не правит прежнюю, и пишет в журнал «было → стало» той же
-    транзакцией. За границами — отказ словами до записи (`runs/ahrefs_cap.py`).
+    транзакцией, с размером ключа на минуту смены. За границами ключа или без снимка
+    ключа — отказ словами до записи (`runs/ahrefs_cap.py`).
     """
     done = await set_ahrefs_cap(session, body.units_cap, author=author)
+    details: dict[str, object] = {
+        "кап Ahrefs": {"было": cap_words(done.was), "стало": cap_words(done.change.units_cap)}
+    }
+    if done.size is not None:
+        details["лимит ключа"] = done.size
     await AccessRepository(session).record(
         AuditAction.AHREFS_CAP_CHANGED,
         author_id=author.id,
         target=f"ahrefs_cap:{done.change.id}",
-        details={"кап, юнитов в месяц": {"было": done.was, "стало": done.change.units_cap}},
+        details=details,
     )
     await session.commit()
     return CapChangeCard.of(done.change)

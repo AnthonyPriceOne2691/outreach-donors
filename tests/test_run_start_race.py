@@ -24,6 +24,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
+from tests.test_ahrefs_cap import known_key
 from tests.test_send_race import committed_sessions
 
 PASSWORD = "пароль-для-двойного-щелчка"
@@ -58,6 +59,8 @@ async def test_two_clicks_at_once_make_one_run(
                 email="двойной@site.com", password=PASSWORD, role=UserRole.OPERATOR
             )
             user.must_change_password = False
+            # Ключ Ahrefs известен — снимком, как от его ответа: потолок — от размера ключа.
+            await known_key(session)
             await session.commit()
 
         async def per_request() -> AsyncIterator[AsyncSession]:

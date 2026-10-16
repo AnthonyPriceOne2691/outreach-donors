@@ -84,7 +84,7 @@ from backend.features.replies.lead_handoff import UnknownZoneError
 from backend.features.replies.repository import LeadError, NotAPriceError, UnknownReplyError
 from backend.features.review.candidates import NotInRunError
 from backend.features.review.candidates import UnknownRunError as ReviewUnknownRunError
-from backend.features.runs.ahrefs_cap import CapRangeError
+from backend.features.runs.ahrefs_cap import CapRangeError, CapUnknownError
 from backend.features.runs.browse import UnknownRunError
 from backend.features.runs.budget import QuotaUnavailableError
 from backend.features.runs.duplicates import DuplicateRunError
@@ -193,8 +193,11 @@ STATUSES: dict[type[Exception], int] = {
     NotWritingAcceptError: status.HTTP_409_CONFLICT,
     # Такой же прогон ещё в очереди или идёт: второй купил бы ту же выдачу — состояние.
     DuplicateRunError: status.HTTP_409_CONFLICT,
-    # Месячный кап Ahrefs вне границ — это запрос: текст называет, какой допустим.
+    # Кап Ahrefs вне границ ключа — это запрос: текст называет, какой допустим. Размер
+    # ключа неизвестен (Ahrefs ещё не ответил) — «не больше N» задать не от чего, повтор
+    # после ответа поможет (16.10.2026).
     CapRangeError: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    CapUnknownError: status.HTTP_503_SERVICE_UNAVAILABLE,
     # Ручная очередь форм: донора в ней уже нет — либо адрес нашёлся,
     # либо очередь разобрал кто-то другой. Это состояние, а не запрос.
     UnknownFormError: status.HTTP_409_CONFLICT,

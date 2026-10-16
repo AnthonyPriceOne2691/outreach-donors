@@ -125,6 +125,25 @@ export function formatDate(moment: string | null | undefined): string {
     : new Date(moment).toLocaleDateString(LOCALE);
 }
 
+/** День словами — «21 октября»: по UTC, как дату обнуления ключа называет Ahrefs. По местному
+ *  времени полночь UTC к западу от Гринвича читалась бы предыдущим днём (16.10.2026). */
+export function formatDay(moment: string | null | undefined): string {
+  return moment === null || moment === undefined || moment === ''
+    ? '—'
+    : new Date(moment).toLocaleDateString(LOCALE, {
+        day: 'numeric',
+        month: 'long',
+        timeZone: 'UTC',
+      });
+}
+
+/** Время без секунд: «14:05» — когда сегодня спросили провайдера. */
+export function formatTime(moment: string | null | undefined): string {
+  return moment === null || moment === undefined || moment === ''
+    ? '—'
+    : new Date(moment).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
+}
+
 /** Дата и время без секунд: «23.09.2026, 14:05». */
 export function formatDateTime(moment: string | null | undefined): string {
   return moment === null || moment === undefined || moment === ''

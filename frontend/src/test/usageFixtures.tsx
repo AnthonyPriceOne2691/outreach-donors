@@ -12,7 +12,31 @@ import { renderWith } from './render';
 import { serve } from './server';
 import type { Recorded } from './server';
 
-/** Расход с базы разработки: юниты Ahrefs и выдача доноров, кап по умолчанию сервера. */
+/** Ключ Ahrefs по снимку: свой лимит, цикл от обнуления 21-го, кап — весь лимит ключа.
+ *  Числа выдуманные: лимиты настоящего ключа в публичный репозиторий не идут. */
+export const AHREFS_KEY = {
+  size: 50000,
+  own_limit: true,
+  key_used: 15000,
+  workspace_limit: 500000,
+  workspace_used: 120000,
+  asked_at: '2026-10-16T11:05:00+00:00',
+  cycle_start: '2026-10-21T00:00:00+00:00',
+  next_reset: '2026-11-21T00:00:00+00:00',
+  by_key: true,
+  spent_by_us: 6416,
+  cap: 50000,
+  chosen: null as number | null,
+  above_key: false,
+  left: 35000,
+  binding: 'key' as string | null,
+  used_percent: 30,
+  unknown: null as string | null,
+  limits: { min: 1, max: 50000 } as { min: number; max: number } | null,
+  changes: [] as unknown[],
+};
+
+/** Расход с базы разработки: юниты Ahrefs и выдача доноров, кап — весь лимит ключа. */
 export const SPENDING = {
   since: '2026-09-01T00:00:00+00:00',
   articles: [
@@ -46,12 +70,8 @@ export const SPENDING = {
   amount_by_provider: { serp: '0.3600' },
   total_units: 7777,
   total_amount: '0.3600',
-  ahrefs_left: 913000,
-  ahrefs_cap: 100000,
-  ahrefs_cap_left: 93584,
-  ahrefs_cap_limits: { min: 1, max: 1000000 },
-  ahrefs_cap_changes: [] as unknown[],
-  ahrefs_spent_by_us: 6416,
+  ahrefs_left: 35000,
+  ahrefs_key: AHREFS_KEY,
   ahrefs_left_error: null,
   serp_left_usd: '51.90',
   serp_spent_by_us: '0.3600',
@@ -65,7 +85,8 @@ interface Opening {
   routes?: Parameters<typeof serve>[0];
 }
 
-/** Открыть «Расход» и дождаться строки капа — по ней видно, что ответ пришёл. */
+/** Открыть «Расход» и дождаться строки нашего капа — она есть всегда, и по ней видно, что
+ *  ответ пришёл. */
 export async function openUsage(
   spending: unknown = SPENDING,
   { me = ADMIN, routes = {} }: Opening = {},
@@ -77,6 +98,6 @@ export async function openUsage(
     ...routes,
   });
   renderWith(<AppRoutes />, '/usage');
-  await screen.findByText(/потрачено за месяц/);
+  await screen.findByText(/^Наш кап:/);
   return recorded;
 }

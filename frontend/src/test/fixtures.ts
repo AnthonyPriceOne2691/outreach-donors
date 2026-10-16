@@ -87,6 +87,8 @@ export const OVERVIEW: OverviewView = {
   },
   ahrefs_units: 42716,
   ahrefs_cap: 100000,
+  ahrefs_since: '2026-10-21T00:00:00+00:00',
+  ahrefs_by_key: true,
   serp_usd: '0.7194',
   transport: { name: 'null', real: false, problem: null },
   unbound_replies: 0,

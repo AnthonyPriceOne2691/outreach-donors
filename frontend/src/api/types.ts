@@ -317,15 +317,17 @@ export interface Forecast {
   units_by_country: number;
   units_total: number;
   units_left: number;
-  units_cap: number;
+  units_cap: number | null;
   budget: number;
   /** Помещается ли смета в бюджет. По этому полю блокируется кнопка. */
   affordable: boolean;
   shortfall: number;
-  /** Потрачено нами юнитов с начала месяца — на столько уменьшился кап. */
-  units_spent_this_month: number;
-  /** Остаток по месячному капу. */
+  /** Кап и наш расход — на цикл ключа (с `cycle_start`); кап `null` — см. `cap_unknown`. */
+  units_spent_in_cycle: number;
   cap_left: number;
+  cycle_start: string;
+  cycle_by_key: boolean;
+  cap_unknown: string | null;
   /** Потолок, названный человеком для этого прогона. */
   run_ceiling: number | null;
   /** Ожидаемая стоимость выдачи в долларах. Другой счёт, не юниты. */
@@ -531,11 +533,6 @@ export interface SpendingView {
   /** Остаток **у провайдера**: ключ общий с соседней системой, поэтому
    *  её траты тоже уменьшают это число. `null` — спросить не удалось. */
   ahrefs_left: number | null;
-  /** Наш добровольный потолок на месяц. */
-  ahrefs_cap: number;
-  /** Сколько потратили мы, по своей таблице. Именно это сравнивают с капом:
-   *  остаток провайдера включает чужой расход и для этого не годится. */
-  ahrefs_spent_by_us: number;
   ahrefs_left_error: string | null;
   /** Остаток денег у источника выдачи. Счёт свой, чужого расхода в нём нет. */
   serp_left_usd: string | null;
@@ -752,9 +749,12 @@ export interface OverviewView {
   letters: Record<LetterStage, OverviewLetters>;
   /** Последний прогон — той же карточкой, что строка истории прогонов. */
   last_run: RunCard | null;
-  /** Юниты Ahrefs, потраченные нами с начала месяца, — по своей таблице. */
+  /** Юниты Ahrefs, потраченные нами в цикле ключа (с `ahrefs_since`), против капа; кап `null`
+   *  — размер ключа неизвестен; `ahrefs_by_key` ложь — цикл календарный. */
   ahrefs_units: number;
-  ahrefs_cap: number;
+  ahrefs_cap: number | null;
+  ahrefs_since: string;
+  ahrefs_by_key: boolean;
   serp_usd: string;
   transport: LetterTransport;
   /** Ответов, не привязанных ни к одному нашему письму, — тем же условием,

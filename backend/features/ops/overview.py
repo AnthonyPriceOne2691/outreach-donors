@@ -59,7 +59,7 @@ from backend.features.outreach.repository import OutreachRepository, ThreadMark
 from backend.features.outreach.threads import ThreadState
 from backend.features.replies import unbound
 from backend.features.review.candidates import Decision
-from backend.features.runs.ahrefs_cap import ahrefs_units_cap
+from backend.features.runs.ahrefs_cap import key_cap
 from backend.features.runs.browse import RunBrowser, RunRow
 from backend.features.runs.spending import SpendingRepository
 
@@ -155,10 +155,15 @@ class Overview:
     letters: dict[Stage, LetterCounts]
     #: Последний прогон — той же строкой, что в истории прогонов.
     last_run: RunRow | None
-    #: Юниты Ahrefs, потраченные нами с начала месяца, — по своей таблице.
+    #: Юниты Ahrefs, потраченные нами в цикле ключа, — по своей таблице: их полоса — против
+    #: капа, а кап считает цикл ключа, а не месяц (16.10.2026).
     ahrefs_units: int
-    #: Действующий месячный кап — заданный на экране «Расход», без него — из окружения.
-    ahrefs_cap: int
+    #: Действующий кап — от ключа (`runs/ahrefs_cap.key_cap`); `None` — размер неизвестен.
+    ahrefs_cap: int | None
+    #: С какого момента считается цикл и от ключа ли он: `False` — календарный месяц.
+    ahrefs_since: datetime
+    ahrefs_by_key: bool
+    #: Выдача — с первого числа, как и прежде: её счёт месячный.
     serp_usd: Decimal
     #: Ответов, не привязанных ни к одному нашему письму, — тем же условием и тех же
     #: этапов, что у вкладки «Не привязаны» (`replies/unbound.py`). Не в «Ждут
@@ -202,6 +207,8 @@ async def overview(
     # то, что правило читает: статусы писем и поля ответов без текстов (аудит 10.10.2026).
     threads = await OutreachRepository(session).states(stages=stages)
     spending = await SpendingRepository(session).since_month_start(stages=stages, now=moment)
+    # Полоса Ahrefs — против капа, и наш расход в ней — за тот же цикл ключа, что у капа.
+    cap = await key_cap(session, now=moment)
     decisions = await standing.waiting(session)
     advertisers, in_niche = await _advertisers(session)
     advertiser_forms = await forms.advertiser_total(session)
@@ -219,8 +226,10 @@ async def overview(
         ),
         letters=await _letters(session, stages),
         last_run=await _last_run(session),
-        ahrefs_units=spending.units_by_provider.get(UsageProvider.AHREFS, 0),
-        ahrefs_cap=await ahrefs_units_cap(session),
+        ahrefs_units=cap.spent,
+        ahrefs_cap=cap.units_cap,
+        ahrefs_since=cap.cycle.start,
+        ahrefs_by_key=cap.cycle.by_key,
         serp_usd=spending.amount_by_provider.get(UsageProvider.SERP, Decimal(0)),
         unbound_replies=await unbound.total(session, stages=stages),
     )

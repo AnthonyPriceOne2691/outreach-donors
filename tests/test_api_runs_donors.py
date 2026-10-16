@@ -28,6 +28,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
+from tests.test_ahrefs_cap import known_key
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -53,6 +54,13 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("POST", "/api/donors", {"host": "example.com", "price": "150"}, "run"),
     ("POST", "/api/donors/{donor}/price", {"price": "150"}, "run"),
 ]
+
+
+@pytest.fixture(autouse=True)
+async def _key(session: AsyncSession) -> None:
+    """Ключ Ahrefs известен — снимком, как от его ответа: кап — весь ключ на 100 000, как
+    в замечании ТЗ (16.10.2026: кап — от ключа Ahrefs, а не из окружения)."""
+    await known_key(session, key_limit=100_000)
 
 
 @pytest.fixture
@@ -712,7 +720,7 @@ class _NoAhrefs:
 def offline(monkeypatch: pytest.MonkeyPatch) -> FakeQueue:
     """Смета и запуск без сети: остаток у Ahrefs большой и известный, очередь — заглушка."""
 
-    async def plenty(_: Any) -> int:
+    async def plenty(_: Any, **__: Any) -> int:
         return 10_000_000
 
     monkeypatch.setattr("backend.api.runs.routes.AhrefsClient", _NoAhrefs)

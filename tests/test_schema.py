@@ -22,8 +22,10 @@ EXPECTED_TABLES = {
     "runs",
     "run_settings",
     "usage_records",
-    # Месячный кап юнитов Ahrefs с экрана «Расход»: строка на каждую смену (16.10.2026).
+    # Кап юнитов Ahrefs с экрана «Расход»: строка на каждую смену (16.10.2026).
     "ahrefs_caps",
+    # Снимок ключа Ahrefs — последний ответ об остатке: от него кап и его цикл (16.10.2026).
+    "ahrefs_key_snapshot",
     "suppressions",
     # Срез доступа: учётки и журнал действий.
     "users",
@@ -127,4 +129,5 @@ def test_config_modules_load() -> None:
     """Конфиг читается без .env — умолчания самодостаточны."""
     assert storage.DSN.startswith("postgresql+asyncpg://")
     assert serp.DEPTH_PAGES == 1  # топ-10
-    assert ahrefs.UNITS_CAP == 100_000  # кап расхода
+    # Кап — от ключа Ahrefs, а не из окружения (16.10.2026): в конфиге его нет.
+    assert ahrefs.RATE_LIMIT_PER_MIN == 50
