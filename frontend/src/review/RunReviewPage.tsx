@@ -35,7 +35,6 @@ import {
   SegmentedControl,
   SimpleGrid,
   Stack,
-  Switch,
   Table,
   Text,
 } from '@mantine/core';
@@ -55,6 +54,7 @@ import type { Column } from '../components/ColumnsHead';
 import { Metric } from '../components/Metric';
 import { missingRun, NoSuchRun, RunHead, useRunAddress } from '../runs/runAddress';
 import { CandidateRow } from './CandidateRow';
+import { DoubtfulNote, ShowDoubtful } from './DoubtfulNote';
 import { BulkBar, TierRow } from './QueueParts';
 import { notify } from '../notices';
 
@@ -232,6 +232,14 @@ export function RunReviewPage() {
     setStatus(next);
   };
 
+  // Сомнительные — переключателем над списком и кнопкой в его конце: отметки и страница —
+  // заново, как при смене вкладки, — строки уже другие.
+  const showDoubtfulRows = (on: boolean) => {
+    setPicked(new Set());
+    setShownCount(PAGE);
+    setShowDoubtful(on);
+  };
+
   const missing = missingRun(address, review.error);
   if (missing !== null) {
     return (
@@ -337,14 +345,11 @@ export function RunReviewPage() {
           {/* Ряд под вкладками — только на «Предложенных»: на «Приняты» и
               «Отклонены» пустой ряд добавлял лишний отступ. */}
           {status === 'pending' && (
-            <Switch
-              label={`Показать сомнительные (скрыто ${view.hidden})`}
-              checked={showDoubtful}
-              onChange={(event) => {
-                setPicked(new Set());
-                setShownCount(PAGE);
-                setShowDoubtful(event.currentTarget.checked);
-              }}
+            <DoubtfulNote
+              total={view.counts.pending}
+              hidden={view.hidden}
+              shown={showDoubtful}
+              onShow={showDoubtfulRows}
             />
           )}
         </Stack>
@@ -433,6 +438,13 @@ export function RunReviewPage() {
             </Button>
           </Group>
         )}
+        <ShowDoubtful
+          pending={status === 'pending'}
+          shown={showDoubtful}
+          hidden={view.hidden}
+          rest={rest}
+          onShow={() => showDoubtfulRows(true)}
+        />
       </Card>
 
       {/* Решение пачкой — панелью, закреплённой внизу окна, пока есть отметки:

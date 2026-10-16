@@ -188,7 +188,7 @@ describe('рассмотрение прогона', () => {
     });
     const user = userEvent.setup();
 
-    await user.click(screen.getByLabelText('Показать сомнительные (скрыто 278)'));
+    await user.click(screen.getByLabelText('Показать сомнительные'));
 
     expect(recorded.calls.some((call: Call) => call.path.endsWith('show_doubtful=true'))).toBe(
       true,
