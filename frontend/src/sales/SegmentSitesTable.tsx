@@ -12,8 +12,13 @@
  * телефоне нет, подсказка там не открылась бы (`docs/UI_RULES.md`, «Длинный текст в ячейке не
  * живёт»), а у причины в карточке вся ширина.
  *
- * **Решённая строка стоит на месте** до смены вкладки или страницы — с пометкой «решено»: строки
- * снизу не поднимаются под курсор, и второе нажатие не уходит в соседний сайт.
+ * **Решённая строка стоит на месте** до смены вкладки или страницы — с пометкой: «принят —
+ * записываем…», пока сервер не ответил, потом «решено: принят»; строки снизу не поднимаются под
+ * курсор, и второе нажатие не уходит в соседний сайт. Соседние строки решаются, не дожидаясь ответа.
+ *
+ * **На «На проверку» причина — целиком**: по ней решают (правило «Длинный текст в ячейке не
+ * живёт» — кроме того, по чему решают сейчас); на остальных вкладках — две строки, целиком — в
+ * подсказке. Причина переносится в своей колонке, кнопки — в своей (находка стенда 14.10.2026).
  */
 
 import { Anchor, Badge, Button, Group, Select, Stack, Table, Text, Tooltip } from '@mantine/core';
@@ -73,6 +78,13 @@ const CLAMP = 2;
 /** Место под причину на узкой раскладке: две строки по 28–30 знаков. */
 const WHY_MIN_PX = 232;
 const REM_PX = 16;
+
+/** Решение человека этого вида по строке «на проверку»: куда и записано ли сервером. */
+export interface Held {
+  site: SegmentSite;
+  lane: 'accept' | 'reject';
+  written: boolean;
+}
 
 /** Колонки вкладки — без тех, которым на ней нечего показать. */
 export function columnsOf(tab: SiteTab): Column[] {
@@ -203,7 +215,7 @@ function reasonOf(site: SegmentSite): string {
   return site.lane === 'pending' ? 'судья ещё не смотрел' : 'причина не записана';
 }
 
-function WhyCell({ site, clamp }: { site: SegmentSite; clamp: Clamp }) {
+function WhyCell({ site, clamp, whole }: { site: SegmentSite; clamp: Clamp; whole: boolean }) {
   const reason = reasonOf(site);
   const would = site.change?.would === true ? site.change : null;
   const quote = site.quote !== null && (
@@ -214,9 +226,15 @@ function WhyCell({ site, clamp }: { site: SegmentSite; clamp: Clamp }) {
   return (
     <Table.Td data-label={WHY.title} className="wrapCell" style={WHOLE_LINE}>
       <Stack gap={2} align="center">
-        <Text size="sm" ta="center" {...clamped(clamp)} title={reason}>
-          {reason}
-        </Text>
+        {whole ? (
+          <Text size="sm" ta="center" className="segmentReason">
+            {reason}
+          </Text>
+        ) : (
+          <Text size="sm" ta="center" {...clamped(clamp)} title={reason}>
+            {reason}
+          </Text>
+        )}
         {site.quote !== null &&
           (clamp === undefined ? (
             quote
@@ -288,17 +306,23 @@ function OutcomeCell({ site, clamp }: { site: SegmentSite; clamp: Clamp }) {
 
 interface DecideProps {
   site: SegmentSite;
-  decided: SegmentLane | undefined;
+  held: Held | undefined;
   busy: boolean;
   onDecide: (site: SegmentSite, accept: boolean) => void;
 }
 
-function DecideCell({ site, decided, busy, onDecide }: DecideProps) {
+/** Решённая строка — словами на месте кнопок: «принят — записываем…», потом «решено: принят». */
+function heldWords(held: Held): string {
+  const lane = LANE_WORDS[held.lane];
+  return held.written ? `решено: ${lane}` : `${lane} — записываем…`;
+}
+
+function DecideCell({ site, held, busy, onDecide }: DecideProps) {
   return (
     <Table.Td className="cellDecide">
-      {decided !== undefined ? (
-        <Text size="sm" c="dimmed">
-          решено: {LANE_WORDS[decided]}
+      {held !== undefined ? (
+        <Text size="sm" c="dimmed" role="status">
+          {heldWords(held)}
         </Text>
       ) : (
         <Group gap="xs" justify="center" wrap="nowrap">
@@ -366,8 +390,8 @@ interface TableProps {
   decider: SiteDecider | null;
   onDecider: (decider: SiteDecider | null) => void;
   /** Решения человека в этом виде: строка стоит на месте с пометкой. */
-  decided: Record<number, SegmentLane>;
-  busy: boolean;
+  held: Record<number, Held>;
+  /** Строки прежнего вида ждут замены: решать по ним нельзя. */
   stale: boolean;
   onDecide: (site: SegmentSite, accept: boolean) => void;
 }
@@ -377,12 +401,16 @@ export function SegmentSitesTable({
   page,
   decider,
   onDecider,
-  decided,
-  busy,
+  held,
   stale,
   onDecide,
 }: TableProps) {
   const columns = columnsOf(tab);
+  // Решение сервером записано — полоса и «кто решил» уже его; пока пишется — прежние.
+  const written = (id: number): SegmentLane | undefined => {
+    const found = held[id];
+    return found?.written === true ? found.lane : undefined;
+  };
   const cards = useMediaQuery(CARDS, false, { getInitialValueInEffect: false }) === true;
   const clamp = cards ? undefined : CLAMP;
   const head = columns.includes(WHO) ? (
@@ -406,18 +434,15 @@ export function SegmentSitesTable({
       {page.rows.map((site) => (
         <Table.Tr key={site.id} style={CARD_ROW}>
           <SiteCell site={site} clamp={clamp} />
-          <LaneCell site={site} decided={decided[site.id]} />
+          <LaneCell site={site} decided={written(site.id)} />
           {columns.includes(JUDGE) && <JudgeCell site={site} />}
-          {columns.includes(WHO) && <WhoCell site={site} decided={site.id in decided} />}
-          <WhyCell site={site} clamp={clamp} />
+          {columns.includes(WHO) && (
+            <WhoCell site={site} decided={written(site.id) !== undefined} />
+          )}
+          <WhyCell site={site} clamp={clamp} whole={columns.includes(DECIDE)} />
           {columns.includes(OUTCOME) && <OutcomeCell site={site} clamp={clamp} />}
           {columns.includes(DECIDE) && (
-            <DecideCell
-              site={site}
-              decided={decided[site.id]}
-              busy={busy || stale}
-              onDecide={onDecide}
-            />
+            <DecideCell site={site} held={held[site.id]} busy={stale} onDecide={onDecide} />
           )}
         </Table.Tr>
       ))}

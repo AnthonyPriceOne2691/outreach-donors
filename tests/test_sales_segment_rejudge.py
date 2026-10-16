@@ -524,7 +524,7 @@ async def test_the_estimate_names_sites_model_calls_tokens_and_whom_it_leaves_al
     assert found.refusal is None
     assert found.digest == segment_digest(SEGMENT)
     assert found.lines[0].startswith("Пересудить сайтов: 3 — по тексту, который видел прошлый суд")
-    assert "токенов ≈ 2 154" in found.lines[1]
+    assert "токенов ≈ 2\u00a0154" in found.lines[1]
 
 
 def _left(tokens: int | None) -> Any:

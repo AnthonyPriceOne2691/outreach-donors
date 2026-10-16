@@ -13,6 +13,12 @@
  *
  * **Незаконченный пересуд того же описания продолжается** с места остановки (потолок модели,
  * отказ, умер воркер) — и экран так и говорит: «Продолжить пересуд», в окне — сколько осталось.
+ *
+ * **Где что** (отчёт прогона компактно, 15.10.2026): кнопка, ход и итог — в окне «Сайты прогона»;
+ * в отчёте — ход и остановка одной строкой (без `onChanged`), а следит за пересудом отчёт
+ * (`useRejudgeWatch`): окно могут закрыть посреди пересуда, а плитки обязаны обновиться. Окно
+ * сметы встаёт поверх окна сайтов, и Esc закрывает только его (`onWindow`): у Mantine Esc слушает
+ * каждое открытое окно.
  */
 
 import { Alert, Button, Group, List, Loader, Modal, Stack, Text } from '@mantine/core';
@@ -31,6 +37,9 @@ import { moveWords, personOf } from './SegmentSitesWords';
 
 export const REJUDGE_QUERY_KEY = ['sales', 'segment-rejudge'] as const;
 export const SITES_QUERY_KEY = ['sales', 'segment-sites'] as const;
+
+/** Фокус — на кнопку, когда окно сметы ушло: та же пауза, что у окон Mantine. */
+const RETURN_FOCUS_MS = 10;
 
 /** Задача пересуда ещё идёт: отчёт говорит «идёт», и очередь не сказала, что задачи нет. */
 function moving(view: RejudgeView | undefined): boolean {
@@ -60,6 +69,18 @@ function useSettled(view: RejudgeView | undefined) {
     }
     was.current = now;
   }, [client, now]);
+}
+
+/**
+ * Пересуд прогона глазами отчёта: ход спрашивается, если пересуд был или его только что поставили,
+ * и кончился — отчёт и список сайтов перечитаны. Живёт в отчёте, а не в окне сайтов: окно
+ * закрыли посреди пересуда — плитки всё равно обновятся, когда он кончится.
+ */
+export function useRejudgeWatch(run: number, asked: boolean) {
+  const [started, setStarted] = useState(false);
+  const found = useRejudge(run, started || asked);
+  useSettled(found.data);
+  return { view: found.data, onStarted: () => setStarted(true) };
 }
 
 function Estimate({ view }: { view: RejudgeView }) {
@@ -175,13 +196,29 @@ export function RejudgeButton({
   run,
   resumes,
   onStarted,
+  onWindow,
 }: {
   run: number;
   resumes: boolean;
   onStarted: () => void;
+  /** Окно сметы открыто или закрыто: окно сайтов под ним не закрывается своим Esc. */
+  onWindow?: (opened: boolean) => void;
 }) {
   const { can } = useSession();
   const [opened, setOpened] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  // Ушла кнопка вместе с окном сайтов — окна сметы тоже нет.
+  useEffect(() => {
+    onWindow?.(opened);
+    return () => onWindow?.(false);
+  }, [onWindow, opened]);
+  // Окно сметы снимается целиком (смета — свежая на каждое открытие), и само окно фокус не
+  // вернёт: Mantine возвращает его, только когда окно закрывают, а не снимают. Возврат — на
+  // кнопку, после того как окно ушло, как у Mantine.
+  const close = () => {
+    setOpened(false);
+    window.setTimeout(() => button.current?.focus({ preventScroll: true }), RETURN_FOCUS_MS);
+  };
   if (!can('run')) {
     return (
       <Text size="sm" c="dimmed">
@@ -191,12 +228,16 @@ export function RejudgeButton({
   }
   return (
     <>
-      <Button variant="default" className="press" onClick={() => setOpened(true)}>
+      <Button
+        ref={button}
+        variant="default"
+        className="press"
+        aria-haspopup="dialog"
+        onClick={() => setOpened(true)}
+      >
         {resumes ? 'Продолжить пересуд' : 'Пересудить прогон'}
       </Button>
-      {opened ? (
-        <RejudgeModal run={run} onClose={() => setOpened(false)} onStarted={onStarted} />
-      ) : null}
+      {opened ? <RejudgeModal run={run} onClose={close} onStarted={onStarted} /> : null}
     </>
   );
 }
@@ -317,24 +358,28 @@ function Going({ view, last }: { view: RejudgeView; last: RejudgeLast }) {
   );
 }
 
-/** Ход и итог последнего пересуда — словами. */
+/** Пересуд поставлен, идёт или стоит — ход или что ждёт человека. */
+function Unsettled({ view, last }: { view: RejudgeView; last: RejudgeLast }) {
+  if (last.state !== 'stopped') return <Going view={view} last={last} />;
+  return (
+    <Alert color="yellow" title="Пересуд остановлен">
+      {last.error ?? 'причина не записана'} — сделано {counted(last)}. {goOn(view, 'остановки')}
+    </Alert>
+  );
+}
+
+/** Ход и итог последнего пересуда — словами. Без `onChanged` (отчёт прогона) — только ход и
+ *  остановка: итог «было → стало» — в окне сайтов, рядом с вкладкой сменивших. */
 export function RejudgeStatus({
   view,
   onChanged,
 }: {
   view: RejudgeView | undefined;
-  onChanged: () => void;
+  /** «Показать сменившие» — вкладка сменивших в окне сайтов. */
+  onChanged?: () => void;
 }) {
-  useSettled(view);
   const last = view?.last ?? null;
   if (view === undefined || last === null) return null;
-  if (last.state === 'queued' || last.state === 'going') return <Going view={view} last={last} />;
-  if (last.state === 'stopped') {
-    return (
-      <Alert color="yellow" title="Пересуд остановлен">
-        {last.error ?? 'причина не записана'} — сделано {counted(last)}. {goOn(view, 'остановки')}
-      </Alert>
-    );
-  }
-  return <Done last={last} onChanged={onChanged} />;
+  if (last.state !== 'done') return <Unsettled view={view} last={last} />;
+  return onChanged === undefined ? null : <Done last={last} onChanged={onChanged} />;
 }

@@ -1,12 +1,13 @@
 /**
- * Все сайты прогона и пересуд в отчёте прогона, подсказка к описанию сегмента. Ответы сервера —
- * записанные (`serve()`), незаписанный запрос роняет тест; домены выдуманы.
+ * Все сайты прогона и пересуд — в окне «Сайты прогона» отчёта прогона, подсказка к описанию
+ * сегмента. Ответы сервера — записанные (`serve()`), незаписанный запрос роняет тест; домены
+ * выдуманы.
  *
- * Проверяется то, ради чего экран: список свёрнут и без запроса, пока его не открыли; вкладки —
+ * Проверяется то, ради чего экран: окно закрыто и без запроса, пока его не открыли; вкладки —
  * полосы с числами сервера, вид — в адресе; строка называет полосу, судью, кто решил и итог,
  * лид — ссылкой; страницы и «показаны N из M»; решение «на проверку» — строка стоит на месте;
- * пересуд — смета в окне, запуск по её отпечатку, ход и «было → стало»; без права «run» —
- * кто пересуживает; шаблон описания — в пустое поле.
+ * пересуд — смета в окне поверх окна сайтов, запуск по её отпечатку, ход и «было → стало»; без
+ * права «run» — кто пересуживает; шаблон описания — в пустое поле.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -73,7 +74,6 @@ function detailOf(report: Record<string, unknown> = {}): SegmentRunDetail {
     lead_reasons: {},
     unanswered: 0,
     report,
-    review: [],
   };
 }
 
@@ -150,11 +150,18 @@ async function open(routes: Routes = {}, who: Me = ADMIN, path = ''): Promise<Re
     'GET /api/sales/kb': { body: kb },
     'GET /api/sales/segment?hypothesis=7': { body: home },
     [`GET /api/sales/segment/runs/${RUN_ID}`]: { body: detailOf() },
+    [`GET ${SITES}?lane=all&page=1`]: { body: pageOf([siteOf(1, 'tischler-sample.example.test')]) },
     ...routes,
   });
   renderWith(<AppRoutes />, `/sales?tab=collect&hypothesis=7${path}`);
-  await screen.findByText('Сайты прогона', {}, WAIT);
+  await screen.findByText(`Прогон №${RUN_ID}`, {}, WAIT);
   return recorded;
+}
+
+/** Окно «Сайты прогона» — кнопкой у заголовка прогона. */
+async function openWindow(): Promise<HTMLElement> {
+  await userEvent.setup().click(screen.getByRole('link', { name: 'Сайты прогона · 10' }));
+  return screen.findByRole('dialog', { name: `Сайты прогона №${RUN_ID}` }, WAIT);
 }
 
 function gets(recorded: Recorded, path: string): Call[] {
@@ -162,7 +169,7 @@ function gets(recorded: Recorded, path: string): Call[] {
 }
 
 describe('сайты прогона', () => {
-  it('свёрнуты без запроса: числа полос — из отчёта, список — по нажатию', async () => {
+  it('окно закрыто — без запроса; «Сайты прогона · N» открывает его на «Все»', async () => {
     const recorded = await open({
       [`GET ${SITES}?lane=all&page=1`]: {
         body: pageOf([
@@ -185,13 +192,12 @@ describe('сайты прогона', () => {
         ]),
       },
     });
-    const user = userEvent.setup();
 
     expect(gets(recorded, `${SITES}?lane=all&page=1`)).toHaveLength(0);
-    expect(screen.getByText('принят — 3, на проверке — 2, отсечён — 4, ещё не судили — 1'));
-    await user.click(screen.getByRole('button', { name: 'Показать сайты · 10' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const dialog = await openWindow();
 
-    const table = await screen.findByRole('table', {}, WAIT);
+    const table = await within(dialog).findByRole('table', {}, WAIT);
     const lead = within(table).getByRole('link', { name: 'лид · готов' });
     expect(lead).toHaveAttribute('href', '/sales?search=werkstatt-sample.example.test');
     expect(within(table).getAllByText('«Möbel nach Maß aus eigener Werkstatt»'));
@@ -199,8 +205,9 @@ describe('сайты прогона', () => {
       'title',
       'seller@ours.example.test',
     );
-    expect(screen.getByRole('radio', { name: 'На проверку · 2' })).toBeInTheDocument();
-    expect(screen.getByText('Показаны 1–2 из 2.')).toBeInTheDocument();
+    expect(within(dialog).getByRole('radio', { name: 'Все · 10' })).toBeChecked();
+    expect(within(dialog).getByRole('radio', { name: 'На проверку · 2' })).toBeInTheDocument();
+    expect(within(dialog).getByText('Показаны 1–2 из 2.')).toBeInTheDocument();
   });
 
   it('вкладка уходит на сервер и в адрес; на «На проверку» — решение, строка стоит на месте', async () => {
@@ -346,8 +353,13 @@ describe('пересуд прогона', () => {
     });
     const user = userEvent.setup();
 
+    const sites = await openWindow();
     await user.click(screen.getByRole('button', { name: 'Пересудить прогон' }));
-    const dialog = await screen.findByRole('dialog', {}, WAIT);
+    const dialog = await screen.findByRole(
+      'dialog',
+      { name: `Пересудить прогон №${RUN_ID}` },
+      WAIT,
+    );
     expect(await within(dialog).findByText(estimate.lines[1]!, {}, WAIT)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Пересудить · 9' }));
 
@@ -358,7 +370,7 @@ describe('пересуд прогона', () => {
         }),
       WAIT,
     );
-    expect(await screen.findByText('Пересуд: 4 из 9', {}, WAIT)).toBeInTheDocument();
+    expect(await within(sites).findByText('Пересуд: 4 из 9', {}, WAIT)).toBeInTheDocument();
     expect(
       await screen.findByText(/сменили полосу 3 из 9/, {}, { timeout: 8000 }),
     ).toBeInTheDocument();
@@ -379,9 +391,14 @@ describe('пересуд прогона', () => {
     });
     const user = userEvent.setup();
 
+    await openWindow();
     await user.click(screen.getByRole('button', { name: 'Пересудить прогон' }));
 
-    const dialog = await screen.findByRole('dialog', {}, WAIT);
+    const dialog = await screen.findByRole(
+      'dialog',
+      { name: `Пересудить прогон №${RUN_ID}` },
+      WAIT,
+    );
     expect(await within(dialog).findByText(refusal, {}, WAIT)).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Пересудить · 9' })).toBeDisabled();
   });
@@ -416,11 +433,14 @@ describe('пересуд прогона', () => {
       [`GET ${REJUDGE}`]: { body: lost },
     });
 
+    // Оборвался — видно и в отчёте, не открывая окна: ждёт человека.
     expect(await screen.findByText('Пересуд оборвался', {}, WAIT)).toBeInTheDocument();
     expect(screen.getByText(/сделано 2 из 9/)).toBeInTheDocument();
     // Описание с тех пор поправили (смета — не продолжение): пересуд начнётся заново.
     expect(screen.getByText(/пересуд начнётся заново/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Пересудить прогон' })).toBeInTheDocument();
+    const dialog = await openWindow();
+    expect(within(dialog).getByText('Пересуд оборвался')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Пересудить прогон' })).toBeInTheDocument();
   });
 
   it('остановленный потолком пересуд того же описания — «Продолжить пересуд» с места остановки', async () => {
@@ -466,6 +486,7 @@ describe('пересуд прогона', () => {
 
     expect(await screen.findByText('Пересуд остановлен', {}, WAIT)).toBeInTheDocument();
     expect(screen.getByText(/пойдёт с места остановки/)).toBeInTheDocument();
+    await openWindow();
     await user.click(screen.getByRole('button', { name: 'Продолжить пересуд' }));
     const dialog = await screen.findByRole('dialog', {
       name: `Продолжить пересуд прогона №${RUN_ID}`,
@@ -476,10 +497,11 @@ describe('пересуд прогона', () => {
 
   it('без права «run» — кто пересуживает, а кнопки нет', async () => {
     await open({}, { ...OPERATOR, permissions: ['sales', 'view'] });
+    const dialog = await openWindow();
 
-    expect(screen.queryByRole('button', { name: 'Пересудить прогон' })).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: 'Пересудить прогон' })).toBeNull();
     expect(
-      screen.getByText(`Пересуживает сотрудник с правом «${PERMISSION_TITLES.run}».`),
+      within(dialog).getByText(`Пересуживает сотрудник с правом «${PERMISSION_TITLES.run}».`),
     ).toBeInTheDocument();
   });
 });

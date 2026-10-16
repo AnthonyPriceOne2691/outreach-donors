@@ -14,6 +14,10 @@
 
 **Ход прогона** — запись прохода и живое «сделано» судьи и адресов из кандидатов
 (`segment_progress.live`); плитки сходятся и во время судьи: «ещё не судили» — своим числом.
+
+**Списка сайтов в отчёте нет** — только числа: отчёт опрашивается раз в три секунды, пока прогон
+идёт, а сайты по одному (и «на проверку» тоже) отдаёт список сайтов прогона страницами
+(`segment_sites.py`), и экран спрашивает его, только когда список открыт.
 """
 
 from __future__ import annotations
@@ -26,7 +30,6 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.models.domain import DomainModel
 from backend.features.sales import company_hold, segment_progress
 from backend.features.sales.models import LeadStatus, SalesHypothesisModel, SalesLeadModel
 from backend.features.sales.segment_models import (
@@ -38,8 +41,6 @@ from backend.features.sales.segment_models import (
 from backend.features.sales.segment_sites import address_words
 
 Candidate = SalesSegmentCandidateModel
-#: Строк «на проверку» в ответе: решают по одной, сверху; остальные — после.
-REVIEW_ROWS = 100
 #: Причин отсева в отчёте — частые первыми.
 TOP_REASONS = 12
 
@@ -80,7 +81,6 @@ class RunView:
     lead_reasons: dict[str, int] = field(default_factory=dict)
     #: Модель не ответила — сейчас, по кандидатам.
     unanswered: int = 0
-    review: list[tuple[Candidate, str]] = field(default_factory=list)
     #: Ход прохода (`segment_progress.live`); пусто — записи хода нет.
     progress: dict[str, Any] | None = None
 
@@ -147,17 +147,6 @@ async def _leads(session: AsyncSession, run_id: int) -> tuple[dict[str, int], di
     return dict(states), dict(reasons)
 
 
-async def _review(session: AsyncSession, run_id: int) -> list[tuple[Candidate, str]]:
-    rows = await session.execute(
-        select(Candidate, DomainModel.host)
-        .join(DomainModel, DomainModel.id == Candidate.domain_id)
-        .where(Candidate.run_id == run_id, Candidate.lane == Lane.REVIEW)
-        .order_by(Candidate.id)
-        .limit(REVIEW_ROWS)
-    )
-    return list(rows.tuples().all())
-
-
 async def run_view(session: AsyncSession, run_id: int) -> RunView | None:
     """Отчёт прогона; `None` — прогона нет."""
     run = await session.get(SalesSegmentRunModel, run_id)
@@ -179,7 +168,6 @@ async def run_view(session: AsyncSession, run_id: int) -> RunView | None:
         )
         or 0
     )
-    view.review = await _review(session, run_id)
     view.progress = await segment_progress.live(session, run)
     return view
 

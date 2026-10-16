@@ -50,7 +50,7 @@ async def test_unread_sales_cap_is_zero_tokens_and_refuses_the_run_in_words(
     assert found.refusal == se.CAP_UNREAD
     assert CAP not in se.CAP_UNREAD
     assert found.lines[2] == (
-        "Судья сегмента: сайтов ≈ 26, токенов модели ≈ 28 600 (по 1 100 на сайт) — ≈ $0,0172, "
+        "Судья сегмента: сайтов ≈ 26, токенов модели ≈ 28\u00a0600 (по 1\u00a0100 на сайт) — ≈ $0,0172, "
         "дневной потолок модели продаж не прочитан из настроек — токенов ноль; доля вывода — "
         "запасная, замеров ещё нет: 20% токенов."
     )

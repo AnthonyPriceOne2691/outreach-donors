@@ -132,6 +132,8 @@ export interface SegmentSummary {
   leads: number;
 }
 
+/** Отчёт прогона — числами: сайтов по одному в нём нет. Отчёт опрашивается, пока прогон идёт, а
+ *  сайты («на проверку» тоже) отдаёт список сайтов прогона страницами (`SegmentSitesApi.readSites`). */
 export interface SegmentRunDetail {
   run: SegmentRunRow;
   hypothesis: string;
@@ -148,7 +150,6 @@ export interface SegmentRunDetail {
   lead_reasons: Record<string, number>;
   unanswered: number;
   report: Record<string, unknown>;
-  review: SegmentCandidate[];
   /** Ключи и расход прогона рядом со сметой на запуске. В записанных ответах старых тестов
    *  его нет — тогда панели ключей и расхода молчат. */
   spend?: SegmentRunSpend;

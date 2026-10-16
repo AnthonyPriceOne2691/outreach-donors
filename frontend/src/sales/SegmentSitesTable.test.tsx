@@ -1,19 +1,22 @@
 /**
  * Раскладка таблицы сайтов прогона: во что она умещается и что обрезается.
  *
- * Замеры стенда (1440 и 390 px): на 1440 при раскрытом меню таблице достаётся около 1 044 px —
- * шире, и «Итог» или «Решение» уезжают в прокрутку; на телефоне строка — карточкой, и длинное
- * в ней — целиком: наведения там нет, подсказка по наведению не открылась бы.
+ * Замеры стенда (1440 и 390 px): на 1440 при раскрытом меню таблице доставалось около 1 044 px —
+ * шире, и «Итог» или «Решение» уезжали в прокрутку; теперь таблица — в окне «Сайты прогона»
+ * (на 1440 ему 1 280 px), и тот же предел — запас. На телефоне строка — карточкой, и длинное
+ * в ней — целиком: наведения там нет, подсказка по наведению не открылась бы. На «На проверку»
+ * причина целиком и в таблице: по ней решают; решённая строка — словами на месте кнопок.
  */
 
 import { MantineProvider } from '@mantine/core';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
 import { theme } from '../theme';
 import type { SegmentSite, SegmentSitesPage, SiteTab } from './SegmentSitesApi';
 import { columnsOf, minWidthOf, SegmentSitesTable } from './SegmentSitesTable';
+import type { Held } from './SegmentSitesTable';
 import { sitesPoll } from './SegmentSites';
 import type { SegmentRunRow } from './segmentApi';
 
@@ -66,7 +69,22 @@ const page: SegmentSitesPage = {
   rows: [site],
 };
 
-function screenOf(phone: boolean) {
+/** Строки «на проверку»: решают по причине — она целиком и в таблице. */
+const reviewed: SegmentSite = { ...site, id: 6, lane: 'review', outcome: null };
+const second: SegmentSite = {
+  ...site,
+  id: 7,
+  host: 'escuela-idiomas-sample.example.test',
+  lane: 'review',
+  reason: 'по тексту не понять: школа это или блог преподавателя',
+  quote: 'Aprende inglés con nuestros grupos reducidos',
+  outcome: null,
+};
+
+function screenOf(
+  phone: boolean,
+  { tab = 'all', held = {} }: { tab?: SiteTab; held?: Record<number, Held> } = {},
+) {
   // Заглушку снимает `restoreAllMocks` после теста (`test/setup.ts`).
   vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
     matches: phone && query === PHONE,
@@ -82,12 +100,11 @@ function screenOf(phone: boolean) {
     <MantineProvider theme={theme}>
       <MemoryRouter>
         <SegmentSitesTable
-          tab="all"
-          page={page}
+          tab={tab}
+          page={tab === 'review' ? { ...page, lane: 'review', rows: [reviewed, second] } : page}
           decider={null}
           onDecider={() => {}}
-          decided={{}}
-          busy={false}
+          held={held}
           stale={false}
           onDecide={() => {}}
         />
@@ -114,6 +131,33 @@ describe('таблица сайтов прогона', () => {
     expect(screen.getByText(REASON)).toHaveAttribute('data-line-clamp', 'true');
     expect(screen.getByText(REASON)).toHaveAttribute('title', REASON);
     expect(screen.getByText(OUTCOME)).toHaveAttribute('data-line-clamp', 'true');
+  });
+
+  it('на «На проверку» причина — целиком: по ней решают; цитата — двумя строками', () => {
+    screenOf(false, { tab: 'review' });
+
+    const [reason] = screen.getAllByText(REASON);
+    expect(reason).not.toHaveAttribute('data-line-clamp');
+    expect(screen.getAllByText(`«${QUOTE}»`)[0]).toHaveAttribute('data-line-clamp', 'true');
+  });
+
+  it('решённая строка — словами на месте кнопок: «записываем…», потом «решено»', () => {
+    screenOf(false, {
+      tab: 'review',
+      held: {
+        6: { site: reviewed, lane: 'accept', written: false },
+        7: { site: second, lane: 'reject', written: true },
+      },
+    });
+
+    // Строки тела таблицы: над ними — подписи колонок и строка фильтров.
+    const [first, next] = screen.getAllByRole('row').filter((row) => row.closest('tbody'));
+    expect(within(first!).getByText('принят — записываем…')).toBeInTheDocument();
+    expect(within(first!).queryByRole('button')).toBeNull();
+    expect(within(next!).getByText('решено: отсечён')).toBeInTheDocument();
+    // Записано сервером — полоса уже новая; пока пишется — прежняя.
+    expect(within(next!).getByText('отсечён', { selector: '.mantine-Badge-label' }));
+    expect(within(first!).getByText('на проверке', { selector: '.mantine-Badge-label' }));
   });
 
   it('на телефоне карточка показывает причину, цитату и итог целиком', () => {

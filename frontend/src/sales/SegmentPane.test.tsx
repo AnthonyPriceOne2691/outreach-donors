@@ -21,7 +21,13 @@ import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
-import type { SegmentEstimate, SegmentHome, SegmentRunDetail, SegmentRunRow } from './segmentApi';
+import type {
+  SegmentCandidate,
+  SegmentEstimate,
+  SegmentHome,
+  SegmentRunDetail,
+  SegmentRunRow,
+} from './segmentApi';
 
 const SCREEN_WAIT = { timeout: 5000 };
 const SEGMENT_TEXT = 'Интернет-магазины велосипедов: продают велосипеды у себя на сайте.';
@@ -93,21 +99,21 @@ const DETAIL: SegmentRunDetail = {
   lead_reasons: { duplicate: 1 },
   unanswered: 0,
   report: {},
-  review: [
-    {
-      id: 41,
-      host: 'velo-news-sample.org',
-      page_url: 'https://velo-news-sample.org/catalog',
-      page_title: 'Новости велоспорта',
-      keyword: 'купить горный велосипед',
-      lane: 'review',
-      verdict: 'reject',
-      reason: 'судья в наблюдении отрезал бы: пишет о чужих, сам не продаёт',
-      quote: 'Новости велоспорта',
-      unanswered: false,
-      decided_by_user: null,
-    },
-  ],
+};
+
+/** Сайт «на проверку» — в списке сайтов прогона: отчёт отдаёт только числа. */
+const REVIEW_SITE: SegmentCandidate = {
+  id: 41,
+  host: 'velo-news-sample.org',
+  page_url: 'https://velo-news-sample.org/catalog',
+  page_title: 'Новости велоспорта',
+  keyword: 'купить горный велосипед',
+  lane: 'review',
+  verdict: 'reject',
+  reason: 'судья в наблюдении отрезал бы: пишет о чужих, сам не продаёт',
+  quote: 'Новости велоспорта',
+  unanswered: false,
+  decided_by_user: null,
 };
 
 const ESTIMATE: SegmentEstimate = {
@@ -194,7 +200,11 @@ describe('сбор базы: прогон гипотезы', () => {
     expect(
       screen.getByText('судья в наблюдении: его «отказ» не отсекает сайт, а отдаёт человеку.'),
     ).toBeInTheDocument();
-    const rejected = screen.getByRole('list', { name: 'Отсечены — почему' });
+    // Причины — одной свёрнутой строкой, раскрываются по нажатию.
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Почему отсечены и без адреса' }));
+    const rejected = await screen.findByRole('list', { name: 'Отсечены — почему' });
     expect(
       within(rejected)
         .getAllByRole('listitem')
@@ -210,10 +220,9 @@ describe('сбор базы: прогон гипотезы', () => {
         'Лидов заведено 2: готовы к письмам 1, отклонены очисткой 1 (дубль — 1), ждут очистки 0.',
       ),
     ).toBeInTheDocument();
-    const review = screen.getByRole('table', { name: 'Сайты на проверку' });
-    expect(within(review).getByText('velo-news-sample.org')).toBeInTheDocument();
-    expect(within(review).getByText('не подходит')).toBeInTheDocument();
-    expect(within(review).getByText('«Новости велоспорта»')).toBeInTheDocument();
+    // «На проверку» — строкой со ссылкой на вкладку решений в окне сайтов, а не таблицей.
+    expect(screen.getByRole('link', { name: 'На проверку 1 — решить' })).toBeInTheDocument();
+    expect(screen.queryByRole('table')).toBeNull();
   });
 
   it('смета — до запуска: ключи, рынок, язык и глубина уходят на сервер, слова — его', async () => {
@@ -294,7 +303,7 @@ describe('сбор базы: прогон гипотезы', () => {
       'POST /api/sales/segment/estimate': { body: ESTIMATE },
       'POST /api/sales/segment/runs': { body: { run_id: 13, job_id: 'sales-segment-13' } },
       'GET /api/sales/segment/runs/13': {
-        body: { ...DETAIL, run: started, review: [], summary: { ...DETAIL.summary, hosts: 0 } },
+        body: { ...DETAIL, run: started, summary: { ...DETAIL.summary, hosts: 0 } },
       },
       'GET /api/jobs/sales-segment-13': {
         body: {
@@ -329,13 +338,37 @@ describe('сбор базы: прогон гипотезы', () => {
   });
 
   it('решение по «на проверку» уходит на сервер, отчёт перечитывается', async () => {
+    const site = {
+      ...REVIEW_SITE,
+      decided_by: 'model',
+      decided_at: '2026-10-11T09:35:00+00:00',
+      model: 'gpt-5-mini',
+      outcome: null,
+      change: null,
+    };
     const recorded = await openTab({
+      'GET /api/sales/segment/runs/12/sites?lane=review&page=1': {
+        body: {
+          run_id: 12,
+          lane: 'review',
+          decider: null,
+          page: 1,
+          limit: 50,
+          total: 1,
+          lanes: { all: 7, accept: 3, review: 1, reject: 3, pending: 0, changed: 0 },
+          deciders: { rule: 0, model: 1, human: 0, none: 0 },
+          rows: [site],
+        },
+      },
       'POST /api/sales/segment/candidates/41/decision': {
-        body: { ...DETAIL.review[0], lane: 'accept', decided_by_user: ADMIN.email },
+        body: { ...REVIEW_SITE, lane: 'accept', decided_by_user: ADMIN.email },
       },
     });
     const user = userEvent.setup();
-    const review = await screen.findByRole('table', { name: 'Сайты на проверку' }, SCREEN_WAIT);
+    await user.click(
+      await screen.findByRole('link', { name: 'На проверку 1 — решить' }, SCREEN_WAIT),
+    );
+    const review = await screen.findByRole('table', {}, SCREEN_WAIT);
 
     await user.click(within(review).getByRole('button', { name: 'Принять' }));
 

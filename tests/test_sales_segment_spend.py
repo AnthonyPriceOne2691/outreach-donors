@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -21,6 +22,7 @@ from backend.features.sales.segment_spend import (
     AFTER_SERP,
     BUYING,
     SpendRow,
+    number,
     spend_rows,
     usd_per_million,
 )
@@ -99,7 +101,12 @@ def test_every_row_comes_from_the_report_with_the_estimate_beside_it() -> None:
 
     assert [(row.item, row.title, row.fact, row.promised) for row in found] == [
         ("serp", "Выдача", "$0,0132", "≈ $0,0105"),
-        ("judge", "Судья сегмента", "токенов 40 211, ≈ $0,0241", "токенов ≈ 61 600, ≈ $0,0370"),
+        (
+            "judge",
+            "Судья сегмента",
+            "токенов 40\u00a0211, ≈ $0,0241",
+            "токенов ≈ 61\u00a0600, ≈ $0,0370",
+        ),
         (
             "search",
             "Hunter: поиск адреса",
@@ -117,6 +124,19 @@ def test_every_row_comes_from_the_report_with_the_estimate_beside_it() -> None:
     assert (by_item["money"].fact_usd, by_item["money"].promised_usd) == (0.0373, 0.0475)
 
 
+def test_digit_groups_are_joined_by_a_no_break_space() -> None:
+    """«11 310» не рвётся посреди числа ни в узкой колонке окна расхода, ни в карточке на телефоне:
+    разряды — неразрывным пробелом, как пишет числа экран (`Intl` для ru-RU). Обычного пробела
+    внутри числа нет ни в факте, ни в смете."""
+    assert (number(999), number(11_310), number(1_234_567)) == (
+        "999",
+        "11\u00a0310",
+        "1\u00a0234\u00a0567",
+    )
+    for row in spend_rows(run_of()):
+        assert re.search(r"\d \d", row.fact + row.promised) is None, row
+
+
 def test_the_judge_money_takes_the_price_of_the_launch_and_of_the_settings_for_old_runs() -> None:
     """Цена на запуске — в смете прогона: правка настройки потом прошлые отчёты не переписывает.
     У прогона до цены в смете — цена настроек, и смета денег модели не называла."""
@@ -126,7 +146,7 @@ def test_the_judge_money_takes_the_price_of_the_launch_and_of_the_settings_for_o
     assert launched.fact_usd == round(40_211 * 0.6 / 1_000_000, 4)
     assert usd_per_million() == pytest.approx(0.8 * 1.25 + 0.2 * 10.0)
     assert old.fact_usd == round(40_211 * usd_per_million() / 1_000_000, 4)
-    assert (old.promised, old.promised_usd) == ("токенов ≈ 61 600", None)
+    assert (old.promised, old.promised_usd) == ("токенов ≈ 61\u00a0600", None)
 
 
 @pytest.mark.parametrize(
@@ -146,7 +166,7 @@ def test_the_judge_money_takes_the_price_of_the_launch_and_of_the_settings_for_o
             {key: REPORT[key] for key in ("serp", "judge")},
             [
                 "$0,0132",
-                "токенов 40 211, ≈ $0,0241",
+                "токенов 40\u00a0211, ≈ $0,0241",
                 "адреса ещё не искали",
                 "адреса ещё не проверяли",
                 "$0,0373",

@@ -2,8 +2,9 @@
  * Ход прогона сбора на экране (тест прогона 14.10): стадия с ходом «X из Y», сколько идёт и
  * когда отмечался; «остановлен» без задачи — словами сервера и «Продолжить»; «Задачу некому
  * взять»; опрос отчёта и списка, пока прогон идёт, и после продолжения; `?run=N`; баги экрана
- * 8a, 8c, 8e, 8f, 8g, 8h, 8i; длинная причина «на проверку» — в своей колонке (находка стенда).
- * Ответы сервера — записанные (`serve()`); домены выдуманы.
+ * 8a, 8c, 8e, 8f, 8g, 8h, 8i; длинная причина «на проверку» — в своей колонке (находка стенда),
+ * и в окне «Сайты прогона», куда переехали решения (15.10.2026). Ответы сервера — записанные
+ * (`serve()`); домены выдуманы.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -18,6 +19,7 @@ import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
 import { NO_LEAD_FILTERS, readLeadFilters, writeLeadFilters } from './leadFilters';
 import type { SegmentCandidate, SegmentHome, SegmentRunDetail, SegmentRunRow } from './segmentApi';
+import type { SegmentSite, SegmentSitesPage } from './SegmentSitesApi';
 import { listPoll, runFacts, runPoll } from './segmentData';
 import { ago, lasting, pulse, runState, stageBadge, stageLine, stoppedAt } from './segmentStage';
 
@@ -120,10 +122,38 @@ function detailOf(run: SegmentRunRow, changes: Partial<SegmentRunDetail> = {}): 
     lead_reasons: {},
     unanswered: 0,
     report: {},
-    review: [],
     ...changes,
   };
 }
+
+/** Сайт «на проверку» глазами списка сайтов прогона — решения теперь в его окне. */
+function siteOf(candidate: SegmentCandidate): SegmentSite {
+  return {
+    ...candidate,
+    decided_by: 'model',
+    decided_at: '2026-10-14T09:35:00+00:00',
+    model: 'gpt-5-mini',
+    outcome: null,
+    change: null,
+  };
+}
+
+/** Вкладка «На проверку» окна сайтов: строки и всего. */
+function reviewPage(rows: SegmentCandidate[], total = rows.length): SegmentSitesPage {
+  return {
+    run_id: 12,
+    lane: 'review',
+    decider: null,
+    page: 1,
+    limit: 50,
+    total,
+    lanes: { all: 7, accept: 3, review: total, reject: 3, pending: 0, changed: 0 },
+    deciders: { rule: 0, model: total, human: 0, none: 0 },
+    rows: rows.map(siteOf),
+  };
+}
+
+const REVIEW_TAB = 'GET /api/sales/segment/runs/12/sites?lane=review&page=1';
 
 function homeOf(...runs: SegmentRunRow[]): SegmentHome {
   return {
@@ -385,54 +415,61 @@ describe('сбор базы: ход прогона — экран', () => {
     async () => {
       const next: SegmentCandidate = { ...SITE, id: 42, host: 'velo-maybe-sample.example.test' };
       let decided = false;
-      const recorded = await openTab({
-        'GET /api/sales/segment?hypothesis=5': { body: homeOf(DONE) },
-        'GET /api/sales/segment/runs/12': () => ({
-          body: detailOf(DONE, {
-            review: decided ? [next] : [SITE, next],
-            summary: { ...detailOf(DONE).summary, review: decided ? 1 : 2 },
+      const recorded = await openTab(
+        {
+          'GET /api/sales/segment?hypothesis=5': { body: homeOf(DONE) },
+          'GET /api/sales/segment/runs/12': () => ({
+            body: detailOf(DONE, {
+              summary: { ...detailOf(DONE).summary, review: decided ? 1 : 2 },
+            }),
           }),
-        }),
-        'POST /api/sales/segment/candidates/41/decision': () => {
-          decided = true;
-          return { body: { ...SITE, lane: 'accept', decided_by_user: ADMIN.email } };
+          [REVIEW_TAB]: () => ({ body: reviewPage(decided ? [next] : [SITE, next]) }),
+          'POST /api/sales/segment/candidates/41/decision': () => {
+            decided = true;
+            return { body: { ...SITE, lane: 'accept', decided_by_user: ADMIN.email } };
+          },
         },
-      });
+        '/sales?tab=collect&run=12&sites_run=12&sites=review',
+      );
       const user = userEvent.setup();
-      const review = await screen.findByRole('table', { name: 'Сайты на проверку' }, SCREEN_WAIT);
+      const review = await screen.findByRole('table', {}, SCREEN_WAIT);
       const [first] = within(review).getAllByRole('button', { name: 'Принять' });
 
       await user.dblClick(first!);
 
       await waitFor(
-        () => expect(within(review).getByText('принят')).toBeInTheDocument(),
+        () => expect(within(review).getByText('решено: принят')).toBeInTheDocument(),
         SCREEN_WAIT,
       );
       expect(calls(recorded, 'POST', '/api/sales/segment/candidates/41/decision')).toHaveLength(1);
-      const rows = within(review).getAllByRole('row');
+      const rows = within(review)
+        .getAllByRole('row')
+        .filter((row) => row.closest('tbody'));
       // Решённая строка — на своём месте, соседняя не поднялась под курсор.
-      expect(rows[1]).toHaveTextContent(SITE.host);
-      expect(rows[2]).toHaveTextContent(next.host);
-      expect(within(rows[2]!).getByRole('button', { name: 'Принять' })).toBeEnabled();
+      expect(rows[0]).toHaveTextContent(SITE.host);
+      expect(rows[1]).toHaveTextContent(next.host);
+      expect(within(rows[1]!).getByRole('button', { name: 'Принять' })).toBeEnabled();
     },
   );
 
-  it('«На проверку» обрезано сервером — сказано, сколько показано из скольких', async () => {
+  it('«На проверку» — всем числом в строке «решить», а список — страницами сервера в окне', async () => {
     await openTab({
       'GET /api/sales/segment?hypothesis=5': { body: homeOf(DONE) },
       'GET /api/sales/segment/runs/12': {
         body: detailOf(DONE, {
-          review: [SITE],
           summary: { ...detailOf(DONE).summary, review: 234 },
           report: { serp: { known: 9 } },
         }),
       },
+      [REVIEW_TAB]: { body: reviewPage([SITE], 234) },
     });
+    const user = userEvent.setup();
 
-    expect(
-      await screen.findByText(/Показаны первые 1 из 234/, {}, SCREEN_WAIT),
-    ).toBeInTheDocument();
+    await user.click(
+      await screen.findByRole('link', { name: 'На проверку 234 — решить' }, SCREEN_WAIT),
+    );
     expect(screen.getByText(/Уже в сборе гипотезы: 9/)).toBeInTheDocument();
+    expect(await screen.findByText('Показаны 1–1 из 234.', {}, SCREEN_WAIT)).toBeInTheDocument();
   });
 
   it('длинная причина «на проверку» переносится в своей колонке, кнопки решения — в своей', async () => {
@@ -448,30 +485,38 @@ describe('сбор базы: ход прогона — экран', () => {
         'Alle Fahrradhändler Ihrer Region auf einen Blick: Bewertungen, Öffnungszeiten, ' +
         'Anfahrt und Angebote der Händler aus Ihrer Stadt und Umgebung im Vergleich',
     };
-    await openTab({
-      'GET /api/sales/segment?hypothesis=5': { body: homeOf(DONE) },
-      'GET /api/sales/segment/runs/12': { body: detailOf(DONE, { review: [long] }) },
-    });
+    await openTab(
+      {
+        'GET /api/sales/segment?hypothesis=5': { body: homeOf(DONE) },
+        'GET /api/sales/segment/runs/12': { body: detailOf(DONE) },
+        [REVIEW_TAB]: { body: reviewPage([long]) },
+      },
+      '/sales?tab=collect&run=12&sites_run=12&sites=review',
+    );
 
-    const review = await screen.findByRole('table', { name: 'Сайты на проверку' }, SCREEN_WAIT);
-    const row = within(review).getAllByRole('row')[1]!;
+    // Решения — в окне «Сайты прогона», на вкладке «На проверку»: правка волны 14 держится и там.
+    const review = await screen.findByRole('table', {}, SCREEN_WAIT);
+    const row = within(review)
+      .getAllByRole('row')
+      .find((found) => found.closest('tbody'))!;
     const why = within(row).getByText(long.reason!).closest('td');
     expect(why).toHaveClass('wrapCell');
+    // Причина — целиком: по ней решают.
+    expect(within(row).getByText(long.reason!)).not.toHaveAttribute('data-line-clamp');
     for (const name of ['Принять', 'Отказ']) {
       const cell = within(row).getByRole('button', { name }).closest('td');
       expect(cell).not.toBe(why);
+      expect(cell).toHaveClass('cellDecide');
       expect(cell).not.toHaveClass('wrapCell');
     }
     // Цитата — двумя строками, целиком — в подсказке.
-    const quote = within(row).getByText(`«${long.quote}»`);
-    expect(quote).toHaveAttribute('data-line-clamp');
-    expect(quote).toHaveAttribute('title', `«${long.quote}»`);
+    expect(within(row).getByText(`«${long.quote}»`)).toHaveAttribute('data-line-clamp');
     // Домен — по швам в своей колонке, ключ — одной строкой и целиком в подсказке.
     const site = within(row).getByRole('link', { name: long.host });
     expect(site.closest('td')).toHaveClass('cellName');
     expect(site.querySelectorAll('wbr').length).toBeGreaterThan(0);
     const keyword = `по ключу «${long.keyword}»`;
-    expect(within(row).getByText(keyword)).toHaveAttribute('title', keyword);
+    expect(within(row).getByText(keyword)).toHaveAttribute('title', long.keyword);
   });
 
   it('?run=N открывает тот прогон, а выбор в списке пишет его в адрес', async () => {

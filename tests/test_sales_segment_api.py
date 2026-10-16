@@ -189,7 +189,7 @@ async def test_a_run_above_the_model_cap_is_refused_before_the_queue(
 
     assert response.status_code == 409
     assert response.json()["detail"].startswith(
-        "Прогон не запущен: смета модели выше остатка дневного потолка: ≈ 28 600 токенов"
+        "Прогон не запущен: смета модели выше остатка дневного потолка: ≈ 28\u00a0600 токенов"
     )
     assert await session.scalar(select(func.count()).select_from(SalesSegmentRunModel)) == 0
     assert jobs.enqueued == []
@@ -327,12 +327,15 @@ async def _review_site(
     return run, candidate
 
 
-async def test_the_report_names_the_lanes_and_lists_the_sites_waiting_for_a_human(
+async def test_the_report_counts_the_lanes_and_the_list_of_sites_names_those_waiting(
     session: AsyncSession, client: AsyncClient, headers: dict[str, str]
 ) -> None:
+    """Отчёт опрашивается раз в три секунды, пока прогон идёт, — в нём только числа: сайтов «на
+    проверку» по одному в нём нет, их отдаёт список сайтов прогона страницами."""
     run, candidate = await _review_site(session)
 
     response = await client.get(f"{RUNS}/{run.id}", headers=headers)
+    listed = await client.get(f"{RUNS}/{run.id}/sites?lane=review", headers=headers)
 
     assert response.status_code == 200, response.text
     found = response.json()
@@ -341,7 +344,9 @@ async def test_the_report_names_the_lanes_and_lists_the_sites_waiting_for_a_huma
         "leads": 0,
     }  # fmt: skip
     assert found["estimate_lines"] == ["смета"]
-    [row] = found["review"]
+    assert "review" not in found
+    assert listed.status_code == 200, listed.text
+    [row] = listed.json()["rows"]
     assert (row["id"], row["host"], row["verdict"], row["reason"]) == (
         candidate.id,
         "velo-maybe-sample.com",

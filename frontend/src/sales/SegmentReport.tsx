@@ -1,6 +1,14 @@
 /**
- * Отчёт прогона гипотезы: ход, сколько сайтов нашла выдача, принято, на проверку, отсечено
- * с причинами словами, без адреса, лидов создано — и решение человека по «на проверку».
+ * Отчёт прогона гипотезы: ход, сколько сайтов нашла выдача, принято, на проверку, отсечено, без
+ * адреса, лидов создано — и что ждёт человека.
+ *
+ * **Компактно — за один-два экрана** (15.10.2026; замер стенда до правки — прогон в 70 сайтов, из
+ * них 20 на проверку: 4 980 px на 1440 и 7 676 на 390, почти половина — таблица «На проверку»):
+ * сразу — шапка, ход, плитки, «На проверку N — решить», лиды и продолжение; списки и расход — по
+ * кнопке, в окнах. Плитки сайтов и полос, «Сайты прогона · N» у заголовка и «На проверку N —
+ * решить» — ссылки: открывают окно «Сайты прогона» на своей вкладке (`SegmentSitesWindow`), вид
+ * окна — в адресе. «Расход и смета» — своё окно (`SpendWindow`). Почему отсечены и почему без адреса —
+ * одной свёрнутой строкой: прочесть её нужно и на телефоне, а подсказки по наведению там нет.
  *
  * **Числа — из сайтов прогона, а не из итога задачи** (`GET /sales/segment/runs/{N}`):
  * решение человека и продолжение меняют их после задачи, и отчёт показывает, что есть
@@ -8,18 +16,14 @@
  * (`useRun`), ход — строкой `SegmentProgress`, исход задачи — строкой `JobLine`. Плитки
  * сходятся и во время судьи: «ещё не судили» — своим числом.
  *
- * **Человек решает только «на проверку»**: «Принять» — сайт пойдёт к поиску адреса
- * продолжением прогона, «Отказ» — отсечён. Вердикт судьи остаётся рядом: в наблюдении
- * «не подходит» судьи лежит здесь же, а решает человек — по их расхождению меряют судью.
- * Решённая строка стоит на месте с пометкой, пока открыт отчёт: двойной клик не уходит
- * вторым решением, а нижние строки не поднимаются под курсор (правило «Отбора»).
- * Продолжение — кнопкой: поиск адреса стоит денег (Hunter), и запускает его человек
- * с правом «run»; пока прогон идёт, кнопки нет — принятым адреса ищет он сам.
+ * **Человек решает только «на проверку»** — на её вкладке в окне сайтов: «Принять» — сайт пойдёт к
+ * поиску адреса продолжением прогона, «Отказ» — отсечён. Продолжение — кнопкой: поиск адреса стоит
+ * денег (Hunter), и запускает его человек с правом «run»; пока прогон идёт, кнопки нет — принятым
+ * адреса ищет он сам.
  */
 
 import {
   Alert,
-  Anchor,
   Badge,
   Button,
   Group,
@@ -27,26 +31,24 @@ import {
   Loader,
   SimpleGrid,
   Stack,
-  Table,
   Text,
   Title,
 } from '@mantine/core';
+import { IconChevronDown } from '@tabler/icons-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { PERMISSION_TITLES } from '../api/labels';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
-import { Seams } from '../components/Seams';
 import { formatNumber } from '../format';
 import { JobLine, jobRestarted } from '../jobs/JobLine';
 import { notify } from '../notices';
-import { FixedTable } from './FixedTable';
-import type { Column } from './FixedTable';
-import { decideSite, resumeRun } from './segmentApi';
-import type { SegmentCandidate, SegmentCount, SegmentRunDetail } from './segmentApi';
-import { SegmentSites } from './SegmentSites';
+import { Unfold } from '../runs/Unfold';
+import { resumeRun } from './segmentApi';
+import type { SegmentCount, SegmentRunDetail } from './segmentApi';
 import {
   knownSites,
   leadsLine,
@@ -56,21 +58,72 @@ import {
   SEGMENT_QUERY_KEY,
   useRun,
   useRunSettled,
-  VERDICT_WORDS,
 } from './segmentData';
 import { SegmentKeywords } from './SegmentKeywords';
 import { SegmentProgress } from './SegmentProgress';
-import { SegmentSpend } from './SegmentSpend';
+import { SegmentSitesWindow } from './SegmentSites';
+import { RejudgeStatus, useRejudgeWatch } from './SegmentSitesRejudge';
+import type { SiteTab } from './SegmentSitesApi';
+import { useSitesWindow } from './SegmentSitesView';
+import { SpendWindow } from './SegmentSpend';
 import { isActive, stageBadge } from './segmentStage';
 
-const COLUMNS: Column[] = [
-  { title: 'Сайт', width: '15rem' },
-  { title: 'Судья', width: '7.5rem' },
-  { title: 'Почему на проверке', start: true },
-  { title: 'Решение', width: '12.5rem' },
-];
+/** Адрес окна сайтов на вкладке — у ссылок отчёта, которые его открывают. */
+type Href = (tab: SiteTab) => string;
 
-export const REVIEW_MIN_WIDTH = 900;
+/** Плитки: сайты прогона и его полосы — ссылки на свою вкладку окна сайтов (`Metric` с `to`):
+ *  число ведёт в тот же список, которым посчитано, — «Сайтов из выдачи» на «Все». */
+function Tiles({ detail, href }: { detail: SegmentRunDetail; href: Href }) {
+  const { summary } = detail;
+  const pending = summary.pending ?? detail.lanes.pending ?? 0;
+  return (
+    <SimpleGrid cols={{ base: 2, xs: 4, md: 7 }} spacing="sm">
+      <Metric title="Сайтов из выдачи" value={formatNumber(summary.hosts)} to={href('all')} />
+      <Metric title="Принято" value={formatNumber(summary.accepted)} to={href('accept')} />
+      <Metric
+        title="На проверку"
+        value={formatNumber(summary.review)}
+        color={summary.review > 0 ? 'yellow' : undefined}
+        to={href('review')}
+      />
+      <Metric title="Отсечено" value={formatNumber(summary.rejected)} to={href('reject')} />
+      <Metric title="Ещё не судили" value={formatNumber(pending)} to={href('pending')} />
+      <Metric title="Без адреса" value={formatNumber(summary.no_address)} />
+      <Metric title="Лидов создано" value={formatNumber(summary.leads)} />
+    </SimpleGrid>
+  );
+}
+
+/** Что ждёт человека — сразу под плитками: «На проверку N — решить» открывает вкладку решений. */
+function ReviewLine({ detail, href }: { detail: SegmentRunDetail; href: Href }) {
+  const total = detail.summary.review;
+  if (total === 0) return null;
+  return (
+    <Group>
+      <Button
+        component={Link}
+        to={href('review')}
+        variant="default"
+        className="press"
+        aria-haspopup="dialog"
+      >
+        На проверку {formatNumber(total)} — решить
+      </Button>
+    </Group>
+  );
+}
+
+/** Сайты, которые гипотеза уже собирала: их не судят и не ищут снова. */
+function Known({ detail }: { detail: SegmentRunDetail }) {
+  const known = knownSites(detail);
+  if (known === 0) return null;
+  return (
+    <Text size="sm" c="dimmed">
+      Уже в сборе гипотезы: {formatNumber(known)} — эти сайты нашли её прошлые прогоны, их не судим
+      и не ищем снова.
+    </Text>
+  );
+}
 
 function Counts({ title, rows }: { title: string; rows: SegmentCount[] }) {
   if (rows.length === 0) return null;
@@ -90,204 +143,50 @@ function Counts({ title, rows }: { title: string; rows: SegmentCount[] }) {
   );
 }
 
-function Tiles({ detail }: { detail: SegmentRunDetail }) {
-  const { summary } = detail;
-  const pending = summary.pending ?? detail.lanes.pending ?? 0;
-  return (
-    <SimpleGrid cols={{ base: 2, xs: 4, md: 7 }} spacing="sm">
-      <Metric title="Сайтов из выдачи" value={formatNumber(summary.hosts)} />
-      <Metric title="Принято" value={formatNumber(summary.accepted)} />
-      <Metric
-        title="На проверку"
-        value={formatNumber(summary.review)}
-        color={summary.review > 0 ? 'yellow' : undefined}
-      />
-      <Metric title="Отсечено" value={formatNumber(summary.rejected)} />
-      <Metric title="Ещё не судили" value={formatNumber(pending)} />
-      <Metric title="Без адреса" value={formatNumber(summary.no_address)} />
-      <Metric title="Лидов создано" value={formatNumber(summary.leads)} />
-    </SimpleGrid>
-  );
+/** Подпись свёрнутой строки — по тому, что в ней есть: обещать пустой список нельзя. */
+function whyTitle(detail: SegmentRunDetail): string | null {
+  const cut = detail.rejected.length > 0;
+  const lost = detail.no_address.length > 0;
+  if (cut && lost) return 'Почему отсечены и без адреса';
+  if (cut) return 'Почему отсечены';
+  return lost ? 'Почему без адреса' : null;
 }
 
-/** Сайты, которые гипотеза уже собирала: их не судят и не ищут снова. */
-function Known({ detail }: { detail: SegmentRunDetail }) {
-  const known = knownSites(detail);
-  if (known === 0) return null;
+/** Причины отсева и «без адреса» — одной свёрнутой строкой, раскрываются по нажатию в два такта
+ *  (`runs/Unfold`; свёрнутое не отрисовывается). Не в подсказке по наведению: на телефоне её не
+ *  открыть, а прочесть нужно. */
+function Why({ detail }: { detail: SegmentRunDetail }) {
+  const [open, setOpen] = useState(false);
+  const panel = useId();
+  const title = whyTitle(detail);
+  if (title === null) return null;
   return (
-    <Text size="sm" c="dimmed">
-      Уже в сборе гипотезы: {formatNumber(known)} — эти сайты нашли её прошлые прогоны, их не судим
-      и не ищем снова.
-    </Text>
-  );
-}
-
-/** Почему сайт на проверке: причина — целиком, переносом в своей колонке (ячейка `wrapCell`);
- *  цитата сайта — двумя строками, целиком — в подсказке, как цитата судьи доноров
- *  (`components/JudgeVerdict`): в 30 слов она растягивала бы строку на пять. */
-function Why({ site }: { site: SegmentCandidate }) {
-  return (
-    <Stack gap={2}>
-      <Text size="sm" className="segmentReason">
-        {site.reason ?? 'причина не записана'}
-      </Text>
-      {site.quote !== null && (
-        <Text size="xs" c="dimmed" lineClamp={2} title={`«${site.quote}»`}>
-          «{site.quote}»
-        </Text>
-      )}
-    </Stack>
-  );
-}
-
-/** Решение этого экрана по сайту: чем решён и записан ли уже сервером. */
-interface Held {
-  site: SegmentCandidate;
-  accept: boolean;
-  written: boolean;
-}
-
-function Decided({ held }: { held: Held }) {
-  const words = held.accept ? 'принят' : 'отсечён';
-  return (
-    <Text size="sm" ta="center" c="dimmed">
-      {held.written ? words : `${words} — записываем…`}
-    </Text>
-  );
-}
-
-function ReviewRow({
-  site,
-  held,
-  onDecide,
-}: {
-  site: SegmentCandidate;
-  held: Held | undefined;
-  onDecide: (accept: boolean) => void;
-}) {
-  return (
-    <Table.Tr>
-      {/* Домен — по швам (`components/Seams`), а не под соседнюю колонку; ключ — одной
-          строкой, целиком — в подсказке. */}
-      <Table.Td className="cellName">
-        <Stack gap={0}>
-          {site.page_url !== null ? (
-            <Anchor
-              href={site.page_url}
-              target="_blank"
-              rel="noreferrer"
-              size="sm"
-              c="var(--ink)"
-              underline="always"
-              className="inkLink"
-            >
-              <Seams text={site.host} />
-            </Anchor>
-          ) : (
-            <Text size="sm">
-              <Seams text={site.host} />
-            </Text>
-          )}
-          {site.keyword !== null && (
-            <Text size="xs" c="dimmed" truncate title={`по ключу «${site.keyword}»`}>
-              по ключу «{site.keyword}»
-            </Text>
-          )}
+    <Stack gap={6}>
+      <Group>
+        <Button
+          variant="subtle"
+          size="compact-sm"
+          className="press"
+          aria-expanded={open}
+          aria-controls={panel}
+          rightSection={
+            <IconChevronDown
+              size={14}
+              aria-hidden
+              style={{ transform: open ? 'rotate(180deg)' : undefined }}
+            />
+          }
+          onClick={() => setOpen((was) => !was)}
+        >
+          {title}
+        </Button>
+      </Group>
+      <Unfold open={open}>
+        <Stack gap="xs" id={panel}>
+          <Counts title="Отсечены — почему" rows={detail.rejected} />
+          <Counts title="Без адреса — почему" rows={detail.no_address} />
         </Stack>
-      </Table.Td>
-      <Table.Td>
-        <Text size="sm">
-          {site.unanswered ? 'не ответил' : VERDICT_WORDS[site.verdict ?? 'pending']}
-        </Text>
-      </Table.Td>
-      {/* Причина переносится в своей колонке: в строке без переноса длинная уезжала под
-          кнопки «Решения» (находка стенда 14.10.2026). */}
-      <Table.Td className="wrapCell" ta="left">
-        <Why site={site} />
-      </Table.Td>
-      <Table.Td>
-        {held !== undefined ? (
-          <Decided held={held} />
-        ) : (
-          <Group gap="xs" justify="center" wrap="nowrap">
-            <Button size="compact-sm" className="press" onClick={() => onDecide(true)}>
-              Принять
-            </Button>
-            <Button
-              size="compact-sm"
-              variant="default"
-              className="press"
-              onClick={() => onDecide(false)}
-            >
-              Отказ
-            </Button>
-          </Group>
-        )}
-      </Table.Td>
-    </Table.Tr>
-  );
-}
-
-/** Строки «на проверку»: сайты сервера и решённые здесь — на своих местах, по порядку. */
-function reviewRows(detail: SegmentRunDetail, held: Record<number, Held>): SegmentCandidate[] {
-  const shown = new Map(detail.review.map((site) => [site.id, site]));
-  for (const { site } of Object.values(held)) if (!shown.has(site.id)) shown.set(site.id, site);
-  return [...shown.values()].sort((a, b) => a.id - b.id);
-}
-
-function Review({ detail }: { detail: SegmentRunDetail }) {
-  const client = useQueryClient();
-  const [held, setHeld] = useState<Record<number, Held>>({});
-  const decide = useMutation({
-    mutationFn: ({ site, accept }: { site: SegmentCandidate; accept: boolean }) =>
-      decideSite(site.id, accept),
-    onMutate: ({ site, accept }) =>
-      setHeld((known) => ({ ...known, [site.id]: { site, accept, written: false } })),
-    onSuccess: (_written, { site, accept }) => {
-      setHeld((known) => ({ ...known, [site.id]: { site, accept, written: true } }));
-      void client.invalidateQueries({ queryKey: SEGMENT_QUERY_KEY });
-    },
-    onError: (_failure, { site }) =>
-      setHeld((known) => {
-        const rest = { ...known };
-        delete rest[site.id];
-        return rest;
-      }),
-  });
-  const rows = reviewRows(detail, held);
-  if (rows.length === 0) return null;
-  const total = detail.summary.review;
-  return (
-    <Stack gap="xs">
-      <Title order={5}>На проверку — решает человек</Title>
-      <Text size="sm" c="dimmed">
-        «Принять» — сайт пойдёт к поиску адреса, когда прогон продолжат; «Отказ» — отсечён.
-      </Text>
-      {detail.review.length < total && (
-        <Text size="sm" c="dimmed">
-          Показаны первые {formatNumber(detail.review.length)} из {formatNumber(total)} — следующие
-          встанут сюда, когда решите эти.
-        </Text>
-      )}
-      {decide.error !== null && (
-        <Alert color="red" title="Решение не записано">
-          {refusalOf(decide.error)}
-        </Alert>
-      )}
-      <FixedTable
-        columns={COLUMNS}
-        minWidth={REVIEW_MIN_WIDTH}
-        className="segmentReview"
-        label="Сайты на проверку"
-        rows={rows.map((site) => (
-          <ReviewRow
-            key={site.id}
-            site={site}
-            held={held[site.id]}
-            onDecide={(accept) => decide.mutate({ site, accept })}
-          />
-        ))}
-      />
+      </Unfold>
     </Stack>
   );
 }
@@ -356,11 +255,27 @@ function Report({ detail }: { detail: SegmentRunDetail }) {
   const client = useQueryClient();
   const { run } = detail;
   useRunSettled(detail);
+  const sites = useSitesWindow(run.id);
+  // Пересуд: ход спрашивается, если он был или его только что поставили (окно сайтов).
+  const rejudge = useRejudgeWatch(run.id, detail.report.rejudge !== undefined);
+  const total = Object.values(detail.lanes).reduce((sum, count) => sum + count, 0);
   return (
     <Stack gap="sm">
+      {/* Кнопки окон — сразу за заголовком, а не в правом краю строки (правило 10.10.2026). */}
       <Group gap="xs" wrap="wrap">
         <Title order={5}>Прогон №{run.id}</Title>
         <StageBadge detail={detail} />
+        <Button
+          component={Link}
+          to={sites.href('all')}
+          variant="default"
+          size="compact-sm"
+          className="press"
+          aria-haspopup="dialog"
+        >
+          Сайты прогона · {formatNumber(total)}
+        </Button>
+        <SpendWindow detail={detail} />
       </Group>
       <Text size="sm" c="dimmed">
         {runFacts(run)}
@@ -376,28 +291,15 @@ function Report({ detail }: { detail: SegmentRunDetail }) {
           onFinished={() => void client.invalidateQueries({ queryKey: SEGMENT_QUERY_KEY })}
         />
       )}
-      <Tiles detail={detail} />
+      <Tiles detail={detail} href={sites.href} />
+      <ReviewLine detail={detail} href={sites.href} />
       <Known detail={detail} />
       <Text size="sm">{leadsLine(detail)}</Text>
       <Resume detail={detail} />
-      <Counts title="Отсечены — почему" rows={detail.rejected} />
-      <Counts title="Без адреса — почему" rows={detail.no_address} />
+      <RejudgeStatus view={rejudge.view} />
+      <Why detail={detail} />
       <SegmentKeywords detail={detail} />
-      <SegmentSpend detail={detail} />
-      {detail.estimate_lines.length > 0 && (
-        <Stack gap={2}>
-          <Text size="sm" fw={500}>
-            Смета на запуске
-          </Text>
-          {detail.estimate_lines.map((line) => (
-            <Text key={line} size="sm" c="dimmed">
-              {line}
-            </Text>
-          ))}
-        </Stack>
-      )}
-      <SegmentSites detail={detail} />
-      <Review key={run.id} detail={detail} />
+      <SegmentSitesWindow detail={detail} sites={sites} rejudge={rejudge} />
     </Stack>
   );
 }
@@ -412,5 +314,6 @@ export function SegmentReport({ run }: { run: number }) {
       </Alert>
     );
   }
-  return <Report detail={found.data} />;
+  // Другой прогон — свой отчёт с нуля: окна, пересуд, раскрытое «почему» — его, а не прошлого.
+  return <Report key={found.data.run.id} detail={found.data} />;
 }

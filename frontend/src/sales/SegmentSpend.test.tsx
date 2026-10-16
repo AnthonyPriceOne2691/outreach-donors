@@ -1,11 +1,12 @@
 /**
  * Отчёт прогона сбора: ключи прогона (взятые с пометками, отсеянные с причиной, пропавшие и пустые)
  * и расход статьями рядом со сметой на запуске — словами сервера (`SegmentKeywords`,
- * `SegmentSpend`). Ответы записанные (`serve()`), незаписанный запрос роняет тест; ключи и домены
- * выдуманы.
+ * `SegmentSpend`). Расход и смета — в окне «Расход и смета» у заголовка прогона, в отчёте их нет.
+ * Ответы записанные (`serve()`), незаписанный запрос роняет тест; ключи и домены выдуманы.
  */
 
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
@@ -89,8 +90,9 @@ const SPEND: SegmentRunSpend = {
     {
       item: 'judge',
       title: 'Судья сегмента',
-      fact: 'токенов 40 211, ≈ $0,0241',
-      promised: 'токенов ≈ 61 600, ≈ $0,0370',
+      // Разряды сервер пишет неразрывным пробелом, как экран: ответ — в форме живого.
+      fact: 'токенов 40\u00a0211, ≈ $0,0241',
+      promised: 'токенов ≈ 61\u00a0600, ≈ $0,0370',
       fact_units: 40211,
       fact_usd: 0.0241,
       promised_units: 61600,
@@ -144,7 +146,6 @@ const DETAIL: SegmentRunDetail = {
   lead_reasons: {},
   unanswered: 0,
   report: {},
-  review: [],
 };
 
 async function openReport(detail: SegmentRunDetail = DETAIL) {
@@ -158,6 +159,12 @@ async function openReport(detail: SegmentRunDetail = DETAIL) {
   });
   renderWith(<AppRoutes />, '/sales?tab=collect');
   await screen.findByText('Прогон №21', {}, SCREEN_WAIT);
+}
+
+/** Окно «Расход и смета» — кнопкой у заголовка прогона. */
+async function openSpend(): Promise<HTMLElement> {
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Расход и смета' }));
+  return screen.findByRole('dialog', { name: 'Расход и смета прогона №21' }, SCREEN_WAIT);
 }
 
 function items(name: string | RegExp): (string | null)[] {
@@ -187,8 +194,13 @@ describe('сбор базы: ключи и расход в отчёте прог
 
   it('расход статьями: факт и смета на запуске словами сервера; Hunter — не в деньгах', async () => {
     await openReport();
+    // В отчёте расхода и сметы нет — они в окне.
+    expect(screen.queryByRole('region', { name: 'Расход прогона' })).toBeNull();
+    expect(screen.queryByText('Смета на запуске')).toBeNull();
+    const dialog = await openSpend();
 
-    const table = within(screen.getByRole('region', { name: 'Расход прогона' })).getByRole('table');
+    const spend = within(dialog).getByRole('region', { name: 'Расход прогона' });
+    const table = within(spend).getByRole('table');
     const rows = within(table)
       .getAllByRole('row')
       .slice(1)
@@ -199,19 +211,31 @@ describe('сбор базы: ключи и расход в отчёте прог
       );
     expect(rows).toEqual(SPEND.rows.map((row) => [row.title, row.fact, row.promised]));
     expect(
-      screen.getByText(
+      within(dialog).getByText(
         'Hunter платится запросами своего тарифа: в деньги не переводится и в сумму не входит.',
       ),
     ).toBeInTheDocument();
+    // Смета на запуске — строками сервера, рядом с расходом.
+    const promised = within(dialog).getByRole('region', { name: 'Смета на запуске' });
+    expect(within(promised).getByText('смета')).toBeInTheDocument();
   });
 
-  it('ответ без ключей и расхода (старые записи) — панелей нет, остальной отчёт на месте', async () => {
+  it('ответ без ключей и расхода (старые записи) — в окне только смета на запуске', async () => {
     const old: SegmentRunDetail = { ...DETAIL };
     delete old.spend;
     await openReport(old);
 
-    expect(screen.queryByRole('region', { name: 'Расход прогона' })).toBeNull();
     expect(screen.queryByText('Ключи прогона')).toBeNull();
-    expect(screen.getByText('Смета на запуске')).toBeInTheDocument();
+    const dialog = await openSpend();
+    expect(within(dialog).queryByRole('region', { name: 'Расход прогона' })).toBeNull();
+    expect(within(dialog).getByText('Смета на запуске')).toBeInTheDocument();
+  });
+
+  it('ни расхода, ни сметы у прогона — кнопки «Расход и смета» нет', async () => {
+    const bare: SegmentRunDetail = { ...DETAIL, estimate_lines: [] };
+    delete bare.spend;
+    await openReport(bare);
+
+    expect(screen.queryByRole('button', { name: 'Расход и смета' })).toBeNull();
   });
 });
