@@ -17,6 +17,7 @@ from backend.features.runs.estimate import RESULTS_PER_PAGE, RunForecast
 from backend.features.runs.outcome import Domains, Rejection, RunOutcome, Threshold
 from backend.features.runs.reasons import readable
 from backend.features.runs.repository import REASON_KEY
+from backend.features.serp.funds import refusal
 from backend.features.serp.modes import (
     EXPECTED_WAIT_S,
     SerpMode,
@@ -135,6 +136,22 @@ class RunRequestBody(BaseModel):
         return cap
 
 
+def _binding(forecast: RunForecast, cap: KeyCap) -> str | None:
+    """Упор бюджета словом экрана: остаток у Ahrefs — каким из двух его лимитов (ключа или
+    пространства: поднимают их в Ahrefs по-разному), наш кап, потолок прогона. Кап
+    неизвестен — `None`: у экрана на это своя плашка."""
+    if forecast.units_cap is None:
+        return None
+    return _side(forecast.binding, cap)
+
+
+def _side(limit: str, cap: KeyCap) -> str:
+    """«provider» — словом экрана: какой из двух лимитов Ahrefs (ключа или пространства)."""
+    if limit != "provider":
+        return limit
+    return "key" if cap.key is None else cap.key.quota.tighter
+
+
 class Forecast(BaseModel):
     """Смета до запуска.
 
@@ -165,14 +182,27 @@ class Forecast(BaseModel):
     cycle_by_key: bool
     #: Почему кап неизвестен — словами; `None` — известен.
     cap_unknown: str | None = None
+    #: Следующее обнуление ключа: до какого дня держится остаток («до 14 ноября»).
+    next_reset: datetime
     #: Потолок, названный человеком для этого прогона. Пусто — не назвал.
     run_ceiling: int | None
     budget: int
     affordable: bool
     shortfall: int
+    #: Во что упирается бюджет: «key» или «workspace» — лимит Ahrefs (кап здесь не поможет),
+    #: «cap» — наш кап цикла, «ceiling» — потолок прогона; кап неизвестен — `None`.
+    binding: str | None = None
+    #: Каких лимитов не хватает — каждого, теми же словами, жёсткие первыми: не хватает и ключа,
+    #: и капа — экран просит проверить оба. Помещается или кап неизвестен — пусто.
+    short_of: list[str] = Field(default_factory=list)
     #: Ожидаемая стоимость самой выдачи, в долларах. Кнопку не блокирует:
     #: без выдачи прогона нет вовсе. Но названа быть должна.
     serp_cost_usd: float
+    #: Остаток на счету выдачи (DataForSEO); `None` — счёта нет или он не ответил.
+    serp_balance_usd: float | None = None
+    #: Почему выдачу не купить — «пополните счёт» словами (`serp/funds.py`, 16.10.2026):
+    #: кнопку блокирует, как и нехватка юнитов. `None` — купить можно или остаток неизвестен.
+    serp_refusal: str | None = None
     #: Режим выдачи, по которому посчитана цена, и сколько её ждать, секунд.
     serp_mode: SerpMode
     serp_wait_s: int
@@ -181,7 +211,14 @@ class Forecast(BaseModel):
     unique_share: float
 
     @classmethod
-    def of(cls, forecast: RunForecast, *, serp_mode: SerpMode, cap: KeyCap) -> Forecast:
+    def of(
+        cls,
+        forecast: RunForecast,
+        *,
+        serp_mode: SerpMode,
+        cap: KeyCap,
+        serp_balance: float | None = None,
+    ) -> Forecast:
         """Смета и кап, от которого она посчитана: цикл и почему кап неизвестен — от того же
         чтения (`ahrefs_cap.key_cap`), что дал смете кап и наш расход."""
         return cls(
@@ -200,11 +237,20 @@ class Forecast(BaseModel):
             cycle_start=cap.cycle.start,
             cycle_by_key=cap.cycle.by_key,
             cap_unknown=cap.unknown,
+            next_reset=cap.cycle.next_reset,
             run_ceiling=forecast.run_ceiling,
             budget=forecast.budget,
             affordable=forecast.affordable,
             shortfall=forecast.shortfall,
-            serp_cost_usd=serp_cost_usd(forecast.keywords, forecast.depth_pages, serp_mode),
+            binding=_binding(forecast, cap),
+            short_of=(
+                [] if forecast.units_cap is None else [_side(n, cap) for n in forecast.short_of]
+            ),
+            serp_cost_usd=(
+                cost := serp_cost_usd(forecast.keywords, forecast.depth_pages, serp_mode)
+            ),
+            serp_balance_usd=serp_balance,
+            serp_refusal=refusal(serp_balance, cost),
             serp_mode=serp_mode,
             serp_wait_s=EXPECTED_WAIT_S[serp_mode],
             unique_share=forecast.unique_share,

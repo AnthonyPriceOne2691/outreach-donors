@@ -14,7 +14,16 @@ import { describe, expect, it } from 'vitest';
 import { ADMIN } from '../test/fixtures';
 import { FITS, openRun } from '../test/runFixtures';
 
-const TOO_MUCH = { ...FITS, units_left: 100, budget: 100, affordable: false, shortfall: 77 };
+// Свободно у Ahrefs меньше остатка по капу — упор в лимит ключа.
+const TOO_MUCH = {
+  ...FITS,
+  units_left: 100,
+  budget: 100,
+  affordable: false,
+  shortfall: 77,
+  binding: 'key' as const,
+  short_of: ['key' as const],
+};
 
 const CAP_EATEN = {
   ...FITS,
@@ -23,6 +32,8 @@ const CAP_EATEN = {
   budget: 50,
   affordable: false,
   shortfall: 127,
+  binding: 'cap' as const,
+  short_of: ['cap' as const],
 };
 
 describe('смета', () => {
@@ -104,7 +115,7 @@ describe('смета', () => {
   it('со своим потолком бюджет считается по нему, а не по капу', async () => {
     await openRun({
       'POST /api/runs/estimate': {
-        body: { ...FITS, run_ceiling: 5000, budget: 5000 },
+        body: { ...FITS, run_ceiling: 5000, budget: 5000, binding: 'ceiling' },
       },
     });
     const user = userEvent.setup();
@@ -120,31 +131,28 @@ describe('смета', () => {
   });
 
   it.each([
-    [
-      'с правом «править пороги» — поднять самому',
-      ADMIN,
-      'либо поднимите кап на экране «Расход», если остаток у провайдера позволяет.',
-    ],
+    ['с правом «править пороги» — поднять самому', ADMIN, 'поднимите кап на экране «Расход».'],
     [
       'без права — попросить того, у кого оно есть',
       { ...ADMIN, permissions: ADMIN.permissions.filter((right) => right !== 'settings') },
-      'либо попросите поднять кап на экране «Расход»: его меняет учётка с правом «править пороги».',
+      'попросите администратора поднять кап на экране «Расход».',
     ],
-  ])('не помещается — кап поднимают на «Расходе», ссылка туда: %s', async (_, me, words) => {
+  ])('упор в кап — кап поднимают на «Расходе», ссылка туда: %s', async (_, me, words) => {
     // Решение владельца 16.10.2026: кап меняют на экране «Расход». Совет «поднимите кап»
     // без места, где это сделать, человеку не помогал — кап жил в окружении сервера.
     await openRun({
       'GET /api/auth/me': { body: me },
-      'POST /api/runs/estimate': { body: TOO_MUCH },
+      'POST /api/runs/estimate': { body: CAP_EATEN },
     });
     const user = userEvent.setup();
 
     await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
     await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
 
-    const alert = (await screen.findByText('Не помещается в бюджет')).closest(
+    const alert = (await screen.findByText('Не помещается в кап')).closest(
       '.mantine-Alert-root',
     ) as HTMLElement;
+    expect(alert).toHaveTextContent('По нашему капу осталось 50 из 100 000 до обнуления 21 ноября');
     expect(alert).toHaveTextContent(words);
     expect(within(alert).getByRole('link', { name: '«Расход»' })).toHaveAttribute('href', '/usage');
   });
@@ -187,19 +195,113 @@ describe('смета', () => {
     expect(await screen.findByText('Кап неизвестен')).toBeInTheDocument();
     expect(screen.getByText(new RegExp(`кап неизвестен: ${unknown}`))).toBeInTheDocument();
     expect(screen.queryByText(/по капу 0/)).not.toBeInTheDocument();
-    expect(screen.queryByText('Не помещается в бюджет')).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Не помещается/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
   });
 
-  it('не помещается — кнопка не нажимается и сказано, чего не хватает', async () => {
+  it('не хватает ключа Ahrefs — увеличить лимит ключа, кап не поможет', async () => {
+    // 16.10.2026: смета советовала «поднимите кап», когда кончался ключ, и кап поднимали
+    // зря — бюджет всё равно держал остаток ключа.
     await openRun({ 'POST /api/runs/estimate': { body: TOO_MUCH } });
     const user = userEvent.setup();
 
     await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
     await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
 
-    expect(await screen.findByText('Не помещается в бюджет')).toBeInTheDocument();
-    expect(screen.getByText(/Не хватает 77 юнитов/)).toBeInTheDocument();
+    const alert = (
+      await screen.findByText('Не помещается: не хватает лимита ключа Ahrefs')
+    ).closest('.mantine-Alert-root') as HTMLElement;
+    expect(alert).toHaveTextContent('Не хватает 77 юнитов.');
+    expect(alert).toHaveTextContent(
+      'На ключе Ahrefs свободно 100 до обнуления 21 ноября — увеличьте лимит ключа в самом Ahrefs: кап здесь не поможет.',
+    );
+    expect(within(alert).queryByRole('link', { name: '«Расход»' })).toBeNull();
+    expect(
+      screen.getByText(/^упор — у Ahrefs 100 · по капу 93\s584 из 100\s000$/),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
+  });
+
+  it('не хватает и ключа, и капа — проверить оба, каждый своей строкой', async () => {
+    // Слово владельца 16.10.2026: «если и то, и другое — проверьте лимиты ключа и лимиты капа».
+    const both = { ...TOO_MUCH, cap_left: 50, short_of: ['key', 'cap'] };
+    await openRun({ 'POST /api/runs/estimate': { body: both } });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    const alert = (
+      await screen.findByText('Не помещается: проверьте лимит ключа Ahrefs и кап')
+    ).closest('.mantine-Alert-root') as HTMLElement;
+    expect(alert).toHaveTextContent('увеличьте лимит ключа в самом Ahrefs.');
+    expect(alert).not.toHaveTextContent('кап здесь не поможет');
+    expect(alert).toHaveTextContent('По нашему капу осталось 50 из 100 000 до обнуления 21 ноября');
+    expect(within(alert).getByRole('link', { name: '«Расход»' })).toHaveAttribute('href', '/usage');
+  });
+
+  it.each([
+    [
+      'пространство Ahrefs — общий лимит всех ключей',
+      { binding: 'workspace', short_of: ['workspace'] },
+      'Не помещается: не хватает лимита пространства Ahrefs',
+      'это общий лимит всех его ключей; увеличьте его в самом Ahrefs: кап здесь не поможет.',
+    ],
+    [
+      'свой потолок прогона — поднять или убрать в форме',
+      { units_left: 100_000, binding: 'ceiling', run_ceiling: 100, short_of: ['ceiling'] },
+      'Не помещается в ваш потолок',
+      'Потолок этого прогона — 100: поднимите или уберите его в форме.',
+    ],
+  ])('не хватает — %s', async (_, extra, title, words) => {
+    await openRun({ 'POST /api/runs/estimate': { body: { ...TOO_MUCH, ...extra } } });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    const alert = (await screen.findByText(title)).closest('.mantine-Alert-root') as HTMLElement;
+    expect(alert).toHaveTextContent(words);
+  });
+
+  it('на счету DataForSEO мало — «пополните счёт», зелёного «помещается» нет, кнопка стоит', async () => {
+    // Слово владельца 16.10.2026: на счету меньше $5 или выдача дороже остатка — прогон не
+    // начинается, и человек видит, что пополнить.
+    const words =
+      'На счету DataForSEO 3,20 $ — меньше 5,00 $: пополните счёт DataForSEO. До пополнения прогоны не запускаются.';
+    await openRun({
+      'POST /api/runs/estimate': {
+        body: { ...FITS, serp_balance_usd: 3.2, serp_refusal: words },
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    const alert = (await screen.findByText('Пополните счёт DataForSEO')).closest(
+      '.mantine-Alert-root',
+    ) as HTMLElement;
+    expect(alert).toHaveTextContent(words);
+    expect(screen.queryByText('Помещается')).not.toBeInTheDocument();
+    expect(screen.getByText(/Выдача придёт/).closest('p')).toHaveTextContent(
+      /На счету DataForSEO 3,20\s\$/,
+    );
+    expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
+  });
+
+  it('на счету хватает — остаток назван рядом с ценой выдачи, запуск открыт', async () => {
+    await openRun({
+      'POST /api/runs/estimate': { body: { ...FITS, serp_balance_usd: 12.3 } },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    const line = (await screen.findByText(/Выдача придёт/)).closest('p') as HTMLElement;
+    expect(line).toHaveTextContent(/На счету DataForSEO 12,30\s\$/);
+    expect(screen.getByText('Помещается')).toBeInTheDocument();
+    expect(screen.queryByText('Пополните счёт DataForSEO')).not.toBeInTheDocument();
   });
 });

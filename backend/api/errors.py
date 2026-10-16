@@ -94,6 +94,7 @@ from backend.features.sales.intake import IntakeError, UnknownHypothesisError
 from backend.features.sales.kb import KbError, KbKeyTakenError, UnknownKbEntryError
 from backend.features.sales.sender import SenderSettingsError
 from backend.features.sales.sheet import SheetError, SheetUnavailableError
+from backend.features.serp.funds import FundsTooLowError
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +199,9 @@ STATUSES: dict[type[Exception], int] = {
     # после ответа поможет (16.10.2026).
     CapRangeError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     CapUnknownError: status.HTTP_503_SERVICE_UNAVAILABLE,
+    # Счёт выдачи меньше порога или сметы — состояние: поможет пополнение, а не правка
+    # запроса (16.10.2026).
+    FundsTooLowError: status.HTTP_409_CONFLICT,
     # Ручная очередь форм: донора в ней уже нет — либо адрес нашёлся,
     # либо очередь разобрал кто-то другой. Это состояние, а не запрос.
     UnknownFormError: status.HTTP_409_CONFLICT,

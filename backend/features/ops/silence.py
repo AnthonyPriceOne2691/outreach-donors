@@ -45,7 +45,7 @@ from backend.features.core.domain import (
 )
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.run import RunModel
-from backend.features.ops import key_watch, mail_watch, stage_silence
+from backend.features.ops import funds_watch, key_watch, mail_watch, stage_silence
 from backend.features.ops.alarms import Alarm
 from backend.features.runs.spending import crawl_spent_this_month
 from backend.features.serp.dataforseo import SerpError
@@ -88,6 +88,8 @@ async def alarms(
         await _runs_stuck(session, moment),
         # Кап Ahrefs: 80 % — предупреждение, 95 % — тревога, весь — «кап выбран» (16.10.2026).
         await key_watch.alarm(session, moment),
+        # Счёт выдачи меньше порога — прогоны не запустятся, пока не пополнят (16.10.2026).
+        funds_watch.alarm(),
         await _crawl_cap_reached(session),
         await _crawl_blocked(session),
     ]
@@ -248,7 +250,8 @@ async def _serp_silent() -> Miss | None:
     balance = getattr(provider, "balance", None)
     try:
         if balance is not None:
-            await balance()
+            # Остаток — и сторожу счёта: меньше порога — «пополните счёт» (16.10.2026).
+            funds_watch.remember(float(await balance()))
     except SerpError as exc:
         logger.warning("сторож тишины: источник выдачи не ответил (%s)", exc)
         return Miss(SERP, _reason(exc), permanent=exc.permanent)

@@ -276,6 +276,16 @@ class Quota:
         named = [left for left in (self.key_left, self.workspace_left) if left is not None]
         return min(named) if named else 0
 
+    @property
+    def tighter(self) -> str:
+        """Какой лимит Ahrefs кончится раньше — «key» или «workspace»: в него и упирается
+        остаток у провайдера, и поднимают его в Ahrefs по-разному (16.10.2026). Поровну или
+        пространство не названо — ключ: его лимит и двигают чаще."""
+        key, workspace = self.key_left, self.workspace_left
+        if workspace is not None and (key is None or workspace < key):
+            return "workspace"
+        return "key"
+
 
 @dataclass(slots=True)
 class UsageCollector:
