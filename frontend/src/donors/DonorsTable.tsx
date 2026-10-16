@@ -56,6 +56,7 @@ import { formatCompact, formatDate, formatMoney, formatNumber, formatShare } fro
 import type { Emptiness } from './donorFilters';
 import { FilterRow } from './DonorsFilterRow';
 import type { FilterRowProps } from './DonorsFilterRow';
+import { GEO_PARTIAL_NOTE } from './geoWords';
 import type { Picks } from './picks';
 import { DONOR_REVIEWS } from './priceWords';
 import { placeOf } from './place';
@@ -71,7 +72,9 @@ import { reasonText } from './reasonText';
  *  - трафик — порог «1 000 000 000» (84): миллиарды бывают, у крупнейшего
  *    сайта базы пять;
  *  - гео — строка «Саудовская Аравия · 62%» (173); в поле — только название,
- *    счётчик — в списке: по названию в поле ищут;
+ *    счётчик — в списке: по названию в поле ищут. Остальные страны топ-5 — под ней,
+ *    мельче и с переносом (16.10.2026): пять стран одной строкой раздули бы колонку
+ *    вчетверо, и таблица уехала бы в прокрутку вбок;
  *  - адреса — число и значок «предел запросов» (140);
  *  - данные — значок и поле «не проверялись» без числа.
  *
@@ -91,7 +94,7 @@ const COLUMNS: Column[] = [
   { title: 'Вердикт', width: '8.5rem', hint: <VerdictHint /> },
   { title: 'DR', width: '5.75rem' },
   { title: 'Трафик', width: '7.75rem' },
-  { title: 'Гео', width: '12rem' },
+  { title: 'Гео', width: '12rem', hint: <GeoHint /> },
   { title: 'Адреса', width: '9.75rem' },
   { title: 'Данные', width: '9.5rem' },
 ];
@@ -115,6 +118,42 @@ function VerdictHint() {
       «Не проверен» — не «не подходит»: у домена не было данных, и его надо добрать позже, а не
       закрыть. Причина отсева или почему не проверен — под доменом.
     </InfoHint>
+  );
+}
+
+/** Что в колонке «Гео» и что ищет её фильтр: страна в топ-5, а не только первая. */
+function GeoHint() {
+  return (
+    <InfoHint name="Страна в топ-5" width={300}>
+      Первой строкой — страна с наибольшим трафиком и её доля, ниже — остальные страны топ-5. Фильтр
+      находит донора, у которого страна в топ-5, на любом месте. «{GEO_PARTIAL_NOTE}» — спрошена
+      только верхняя страна: так было до 16.10.2026, а у нового донора — если запрос по странам не
+      удался.
+    </InfoHint>
+  );
+}
+
+/** «Гео» строки: верхняя страна с долей — как было, под ней мельче и тише — остальные
+ *  страны топ-5 с долями, с переносом (решение 16.10.2026: «нужны все пять»). У неполной
+ *  разбивки — короткая пометка: одна страна без неё читалась бы «весь трафик — отсюда». */
+function GeoCell({ donor }: { donor: DonorRowCard }) {
+  if (donor.geo === null) return <>—</>;
+  const share = donor.geo_top_share === null ? '' : ` · ${formatShare(donor.geo_top_share)}`;
+  const rest = (donor.geo_breakdown ?? []).filter((row) => row.country !== donor.geo);
+  return (
+    <>
+      <div>{`${countryTitle(donor.geo)}${share}`}</div>
+      {rest.length > 0 && (
+        <Text size="xs" c="dimmed">
+          {rest.map((row) => `${countryTitle(row.country)} ${formatShare(row.share)}`).join(' · ')}
+        </Text>
+      )}
+      {donor.geo_partial === true && (
+        <Text size="xs" c="dimmed">
+          {GEO_PARTIAL_NOTE}
+        </Text>
+      )}
+    </>
   );
 }
 
@@ -240,11 +279,7 @@ function DonorRow({ donor, place, picked, onPick, onOpen }: RowProps) {
       <Table.Td>{formatNumber(donor.dr)}</Table.Td>
       <Table.Td>{formatCompact(donor.org_traffic)}</Table.Td>
       <Table.Td>
-        {donor.geo === null
-          ? '—'
-          : `${countryTitle(donor.geo)}${
-              donor.geo_top_share === null ? '' : ` · ${formatShare(donor.geo_top_share)}`
-            }`}
+        <GeoCell donor={donor} />
       </Table.Td>
       <Table.Td>
         <AddressCell donor={donor} />

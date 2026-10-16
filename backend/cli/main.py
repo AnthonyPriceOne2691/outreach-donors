@@ -19,7 +19,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from backend.cli import donor_add, geo_shares
+from backend.cli import donor_add, geo_shares, geo_top5
 from backend.cli.access_admin import cmd_user_add, cmd_user_reset
 from backend.cli.advertisers import add_parser as add_advertisers_parser
 from backend.cli.advertisers import (
@@ -280,14 +280,14 @@ def _print_report(report: RunReport) -> None:
     _print_review(report)
     if abs(error) > 0.2:
         print(f"\nСмета разошлась с фактом на {error:+.0%}.")
-        # Смета — верхняя граница: метрики на все новые домены, доля
-        # запросов по странам из истории страны (okf/funnel-calibration.md).
-        # Перерасход значит, что прогон дороже своей истории.
+        # Смета — верхняя граница: метрики на все новые домены, запрос по странам —
+        # худшей долей прошедших пороги в недавних прогонах страны
+        # (okf/funnel-calibration.md). Перерасход значит, что прогон дороже своей истории.
         if error > 0:
             print(
-                "  Трата выше сметы: запросов по странам понадобилось больше, чем "
-                "в прошлых прогонах этой страны, или изменились цены — "
-                "scripts/measure_units.py"
+                "  Трата выше сметы: пороги прошло больше доменов, чем в прошлых "
+                "прогонах этой страны (каждому — запрос по странам), или изменились "
+                "цены — scripts/measure_units.py"
             )
 
 
@@ -376,6 +376,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_mail_test_parser(sub)
     add_prune_parser(sub)
     geo_shares.add_parser(sub)
+    geo_top5.add_parser(sub)
     add_probe_donor_parser(sub)
     add_probe_advertiser_parser(sub)
     donor_add.add_parser(sub)
@@ -405,6 +406,8 @@ _KEPT_ON_INTERRUPT: dict[str, str] = {
     "и запишет итог.",
     "prune": "Чистка идёт одной транзакцией: в базе ничего не изменилось.",
     "geo-shares": "Пересчёт идёт одной транзакцией: в базе ничего не изменилось.",
+    "geo-top5": "Каждый донор фиксируется сразу вместе со строкой расхода: докупленное "
+    "осталось в базе, повторный запуск возьмёт остальных.",
     "probe-donor": "Липовый донор заводится одной транзакцией: в базе ничего не изменилось.",
     "probe-advertiser": "Пробный заводится одной транзакцией: в базе ничего не изменилось.",
     **SALES_KEPT,
@@ -440,6 +443,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "mail-test": cmd_mail_test,
     "prune": cmd_prune,
     "geo-shares": geo_shares.cmd_geo_shares,
+    "geo-top5": geo_top5.cmd_geo_top5,
     "probe-donor": cmd_probe_donor,
     "probe-advertiser": cmd_probe_advertiser,
     "donor-add": donor_add.cmd_donor_add,

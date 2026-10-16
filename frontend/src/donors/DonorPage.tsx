@@ -62,11 +62,20 @@ import { Seams } from '../components/Seams';
 import { fetchDonor } from '../api/runs';
 import { DonorAddresses } from './DonorAddresses';
 import { DonorPrice } from './DonorPrice';
+import { GEO_PARTIAL_NOTE } from './geoWords';
 import { PriceRecheck } from './PriceRecheck';
 import { neighboursOf } from './place';
 import { reasonLabel } from './reasonText';
 
 const when = formatDate;
+
+/** «i» у полной разбивки: правило региона — вхождение в топ-5, а не только доля. */
+const GEO_FULL_HINT =
+  'Проверяется вхождение в топ-5, а не только доля выше порога: страна с долей 12% на третьем месте нам подходит.';
+
+/** «i» у неполной разбивки: остальные страны не запрашивались — и почему (16.10.2026). */
+const GEO_PARTIAL_HINT =
+  'Остальные страны топ-5 не запрашивались: до 16.10.2026 их не спрашивали, когда верхняя страна совпадала со страной прогона, — вердикт по региону от них не зависит. С 16.10 прогон спрашивает все пять; одна страна у нового донора — запрос по странам не удался.';
 
 /** Донора нет: номер негодный или такого нет в базе. */
 function NoSuchDonor({ back, said }: { back: string; said: string }) {
@@ -305,10 +314,11 @@ export function DonorPage() {
               }
             />
           </SimpleGrid>
-          {/* Разбивка по странам — строкой значков под плитками, и только когда стран
-              больше одной: при неполной разбивке была одна страна — та же, что в плитке
-              «Гео», — и абзац-оправдание к ней. Пояснение — в «i». */}
-          {data.geo_breakdown !== null && data.geo_breakdown.length > 1 && (
+          {/* Разбивка по странам — строкой значков под плитками, когда стран больше одной
+              или разбивка неполная: одна страна — та же, что в плитке «Гео», и без пометки
+              «остальные не запрашивались» читалась бы «весь трафик — отсюда» (16.10.2026).
+              Почему так — в «i». */}
+          {data.geo_breakdown !== null && (data.geo_breakdown.length > 1 || data.geo_partial) && (
             <Group gap="xs" mt="xs">
               <Text size="sm">Откуда трафик</Text>
               {data.geo_breakdown.map((row) => (
@@ -316,10 +326,13 @@ export function DonorPage() {
                   {countryTitle(row.country)} · {formatShare(row.share)}
                 </Badge>
               ))}
+              {data.geo_partial && (
+                <Text size="sm" c="dimmed">
+                  {GEO_PARTIAL_NOTE}
+                </Text>
+              )}
               <InfoHint name="Как проверяется страна" width={320}>
-                {data.geo_partial
-                  ? 'Спрошена только верхняя страна: она же целевая, а значит донор в топ-5 при любом раскладе — остальные строки вердикт не меняют и стоили бы впятеро дороже.'
-                  : 'Проверяется вхождение в топ-5, а не только доля выше порога: страна с долей 12% на третьем месте нам подходит.'}
+                {data.geo_partial ? GEO_PARTIAL_HINT : GEO_FULL_HINT}
               </InfoHint>
             </Group>
           )}

@@ -4,17 +4,25 @@
 
     1. просев по DR пакетом          2 юнита на домен, отсекает ~17%
     2. пороги и ВЕРХНЯЯ СТРАНА пакетом   28 юнитов, отсекает ещё ~44%
-    3. страны по одному домену       55 юнитов, только когда без них никак
+    3. топ-5 стран по одному домену  55 юнитов, каждому, кто прошёл пороги
 
 Смысл в том, чтобы самый дорогой запрос видел как можно меньше доменов.
 При обратном порядке прогон дороже почти вдвое.
 
-**Третья ступень зовётся не всегда.** Верхняя страна приезжает пакетом
-вместе с метриками, и когда она же целевая — вердикт по региону готов:
-страна на первом месте, а значит в топ-N по определению. Дорогой запрос
-остаётся для тех, у кого верхняя страна другая: про целевую мы тогда
-не знаем ничего. Замер: у 118 годных доноров из 132 верхняя страна
-совпадает с целевой, то есть дорогой шаг нужен примерно каждому девятому.
+**Третья ступень зовётся всегда** (решение владельца 16.10.2026). ТЗ называет
+«org_traffic по топ-5 странам» обязательным полем донора, и смета ТЗ закладывала
+запрос по странам на каждый проверяемый домен. С 22.09 по 16.10.2026 он не шёл,
+когда верхняя страна пакета совпадала со страной прогона: вердикт от этого не
+менялся — страна на первом месте в топ-N при любом N, — но у донора оставалась
+одна страна вместо пяти (`geo_partial`), и таблица «Доноры» не могла показать
+и отфильтровать остальные. Таких по замеру 22.09 — 118 годных из 132. Докупить
+им страны — `outreach geo-top5` (`donors/geo_top5.py`).
+
+**Верхняя страна пакета — запасной путь.** Запрос по странам не удался, а верхняя
+страна из того же пакета и есть целевая — донор годен по правилу региона
+(первое место — в топ-N при любом N), и сбой дорогого запроса его не отнимает:
+«подходит» с неполной разбивкой и строкой в журнал. Верхняя другая или её нет —
+«не проверен», страны доберёт следующий прогон.
 
 На вход идут ТОЛЬКО домены с истёкшим сроком годности: за свежие уже
 заплачено, и отбирает их вызывающий, до входа сюда.
@@ -63,10 +71,10 @@ FULL_FIELDS = (
     "org_traffic",
     "refdomains",
     "org_keywords",
-    # Верхняя страна приезжает вместе с метриками за 10 юнитов на домен.
-    # Отдельный запрос по странам стоит 55 и идёт по одному домену — это
-    # 70% расхода прогона. Замер 22.09.2026: 360 юнитов на пять доменов
-    # нынешним путём против 135 пакетом.
+    # Верхняя страна приезжает вместе с метриками за 10 юнитов на домен. До 16.10.2026
+    # она избавляла от запроса по странам (55 юнитов) тех, у кого совпадала со страной
+    # прогона; теперь страны спрашиваются всегда, а она — вердикт, когда этот запрос
+    # не удался (`_countries_failed`).
     "org_traffic_top_by_country",
 )
 
@@ -203,7 +211,7 @@ def _top_pair(rows: Any) -> tuple[str, int] | None:
 
     Разбор защитный: формат чужой, и когда он приедет другим, молчаливое
     «страны нет» отбраковало бы домен, за метрики которого уже заплачено.
-    Непонятый ответ здесь — это `None`, то есть «платим как раньше».
+    Непонятый ответ здесь — это `None`, то есть «запасного вердикта нет».
     """
     # Сопоставление с образцом, а не цепочка проверок: форма ответа
     # видна целиком одной строкой, и лишнее поле в ней ничего не ломает.
@@ -244,24 +252,33 @@ class _Region:
         )
 
 
-def _geo_without_paying(
-    row: dict[str, Any], metrics: Metrics, region: _Region
-) -> GeoVerdict | None:
-    """Вердикт по региону из пакетного ответа — или `None`, если его мало.
+def _countries_failed(
+    host: str, metrics: Metrics, raw: dict[str, Any], region: _Region
+) -> DomainResult:
+    """Запрос по странам не удался: вердикт — по верхней стране пакета, если её хватает.
 
-    Хватает ровно одного случая: верхняя страна и есть целевая. Тогда она
-    на первом месте, то есть в топ-N при любом N ≥ 1, и дорогой запрос
-    ничего не изменит — он вернул бы ту же страну первой строкой.
-
-    Во всех прочих случаях про целевую страну мы не знаем ничего: она
-    может быть второй, а может не быть в ответе вовсе. Догадываться здесь
-    значит отбраковывать годных доноров молча, поэтому `None` — и платим.
+    Хватает ровно одного случая: верхняя страна и есть целевая. Она на первом месте,
+    то есть в топ-N при любом N ≥ 1, — донор годен, и сбой дорогого запроса годного
+    не отнимает: «подходит» с неполной разбивкой (`GeoVerdict.partial`), остальные
+    страны докупит `outreach geo-top5`. Во всех прочих случаях про целевую страну
+    мы не знаем ничего — она может быть второй, а может не быть в ответе вовсе, —
+    и догадка отбраковывала бы годных молча: «не проверен», метрики сохранены,
+    и следующий прогон доберёт только страны (`repository.countries_missing`).
+    Строку в журнал о сбое пишет вызывающий — с тем исходом, что вышел здесь.
     """
-    top = _top_country_share(row, metrics.org_traffic or 0)
-    if top is None or top.country != region.country.lower():
-        return None
-    verdict = region.judge([top])
-    return replace(verdict, partial=True) if verdict.passed else None
+    top = _top_country_share(raw, metrics.org_traffic or 0)
+    wanted = region.country.lower()
+    verdict = region.judge([top]) if top is not None and top.country == wanted else None
+    if verdict is not None and verdict.passed:
+        return DomainResult(
+            host,
+            DonorStatus.SUITABLE,
+            verdict.reason,
+            metrics,
+            geo=replace(verdict, partial=True),
+            raw=raw,
+        )
+    return DomainResult(host, DonorStatus.UNCHECKED, COUNTRIES_FAILED, metrics, raw=raw)
 
 
 async def _resolve_geo(
@@ -271,19 +288,23 @@ async def _resolve_geo(
     raw: dict[str, Any],
     region: _Region,
 ) -> DomainResult:
-    """Ступень 3. Страны по одному домену — пакетного аналога у запроса нет.
+    """Ступень 3. Топ-5 стран по одному домену — пакетного аналога у запроса нет.
 
-    Зовётся только когда верхней страны не хватило: см. `_geo_without_paying`.
-    Строк в ответе — `COUNTRY_ROWS`: шире топа правило не бывает
-    (`geo.assert_settings_allow_limited_fetch`).
+    Зовётся для каждого, кто прошёл пороги: страны — обязательное поле донора, а не
+    только довод вердикта. Строк в ответе — `COUNTRY_ROWS`: шире топа правило
+    не бывает (`geo.assert_settings_allow_limited_fetch`). Вердикт — правилом региона
+    (`geo.check_geo`) по полной разбивке; сбой запроса — `_countries_failed`.
     """
     try:
         response = await client.metrics_by_country(host, region.day, top_n=COUNTRY_ROWS)
     except AhrefsError as exc:
-        # Метрики уже собраны и оплачены — сохраняем их и помечаем домен
-        # «не проверен». Повторный прогон доберёт только страны.
-        logger.warning("Страны для %s не получены: %s", host, exc)
-        return DomainResult(host, DonorStatus.UNCHECKED, COUNTRIES_FAILED, metrics, raw=raw)
+        # Метрики уже собраны и оплачены — сохраняем их в любом случае.
+        failed = _countries_failed(host, metrics, raw, region)
+        kept = "годен по верхней стране пакета, разбивка неполная"
+        logger.warning(
+            "Страны для %s не получены: %s — %s", host, exc, kept if failed.geo else failed.reason
+        )
+        return failed
 
     breakdown = build_breakdown(response.rows, metrics.org_traffic or 0)
     geo = region.judge(breakdown)
@@ -291,24 +312,6 @@ async def _resolve_geo(
     if not breakdown:
         status = DonorStatus.UNCHECKED
     return DomainResult(host, status, geo.reason, metrics, geo=geo, raw=raw)
-
-
-async def _geo_result(
-    client: AhrefsClient,
-    host: str,
-    metrics: Metrics,
-    raw: dict[str, Any],
-    region: _Region,
-) -> DomainResult:
-    """Вердикт по региону — даром, если верхней страны хватило.
-
-    Дорогой запрос остаётся для тех, у кого верхняя страна другая: про
-    целевую мы тогда не знаем ничего.
-    """
-    cheap = _geo_without_paying(raw, metrics, region)
-    if cheap is None:
-        return await _resolve_geo(client, host, metrics, raw, region)
-    return DomainResult(host, DonorStatus.SUITABLE, cheap.reason, metrics, geo=cheap, raw=raw)
 
 
 async def _countries_only(
@@ -321,13 +324,13 @@ async def _countries_only(
     """Добор стран к метрикам, купленным прошлым прогоном: ступени 1–2 не платятся.
 
     Пороги — этого прогона, по купленным метрикам: не прошедшему их страны не
-    нужны, и вердикт выносится даром. Дальше — как у свежего домена: верхняя
-    страна из той же строки ответа, а без неё — запрос по странам.
+    нужны, и вердикт выносится даром. Прошедшему — запрос по странам, как у
+    свежего домена; верхняя страна той же строки ответа — запасной вердикт.
     """
     metrics = _metrics_from_row(paid.raw)
     verdict = check_metrics(metrics, thresholds)
     if verdict is None:
-        result = await _geo_result(client, host, metrics, paid.raw, region)
+        result = await _resolve_geo(client, host, metrics, paid.raw, region)
     else:
         result = DomainResult(host, verdict.status, verdict.reason, metrics, raw=paid.raw)
     return replace(result, metrics_at=paid.bought_at)
@@ -347,7 +350,7 @@ async def _measured(
         survived_metrics, rejected = await _measure_batch(client, survived_screen, thresholds)
         results.extend(rejected)
         for host, metrics, raw in survived_metrics:
-            results.append(await _geo_result(client, host, metrics, raw, region))
+            results.append(await _resolve_geo(client, host, metrics, raw, region))
     return results
 
 

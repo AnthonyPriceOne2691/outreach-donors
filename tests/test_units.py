@@ -13,7 +13,14 @@ from backend.features.ahrefs.units import (
     batch_cost,
     estimate_run,
 )
-from backend.features.runs.repository import country_share_from
+from backend.features.core.domain import DonorStatus, RunStatus, Stage
+from backend.features.donors.collect import COUNTRIES_FAILED
+from backend.features.donors.geo import NO_COUNTRY_DATA, CountryShare, check_geo
+from backend.features.donors.verdict import Thresholds
+from backend.features.runs.planning import Candidates, RunPlan
+from backend.features.runs.report import RunReport, run_stats
+from backend.features.runs.repository import RunRepository, country_share_from, reached_countries
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class TestUnitsCost:
@@ -71,19 +78,20 @@ class TestRunEstimate:
         assert estimate.by_country == 0
 
     def test_battle_run_is_not_underestimated(self) -> None:
-        """Прогон 23.09.2026: 508 новых доменов США, списано 16 998. Доля
-        запросов по странам у США по истории — около 8%."""
+        """Прогон 23.09.2026: 508 новых доменов США, списано 16 998. Запрос по
+        странам тогда шёл 8% доменов — тех, у кого верхняя страна пакета чужая;
+        арифметика сметы с этой долей покрывает списанное."""
         estimate = estimate_run(508, country_share=0.079)
 
         assert estimate.total >= 16_998
         assert estimate.total < 16_998 * 1.1
 
     def test_more_country_calls_cost_more(self) -> None:
-        """Страна, где верхняя страна пакета редко совпадает с целевой,
-        дороже: у ЮАР и Австрии запрос нужен 60%, у США 8%."""
-        us = estimate_run(10_000, country_share=0.08)
-        za = estimate_run(10_000, country_share=0.6)
-        assert za.total > us.total
+        """Страна, где пороги проходит больше доменов, дороже: с 16.10.2026
+        запрос по странам — каждому прошедшему."""
+        weak = estimate_run(10_000, country_share=0.62)
+        strong = estimate_run(10_000, country_share=0.96)
+        assert strong.total > weak.total
 
     def test_only_new_domains_are_billed(self) -> None:
         """За домены со свежими данными уже заплачено, в смету
@@ -100,11 +108,6 @@ class TestRunEstimate:
         estimate = estimate_run(1000, country_share=0.5)
 
         assert estimate.by_country == 500 * UNITS_BY_COUNTRY
-
-    def test_without_history_the_share_errs_high(self) -> None:
-        """Без своей истории доля — с запасом: занизить значит пропустить
-        трату мимо капа."""
-        assert COUNTRY_CALL_SHARE >= 0.5
 
 
 class TestCachedResponses:
@@ -139,41 +142,145 @@ class TestCachedResponses:
         assert cost.billable == 55
 
 
-class TestCountryShareFromHistory:
-    """Доля запросов по странам — из своих прогонов, по своей стране.
+def _passed(
+    checked: int,
+    suitable: int,
+    *,
+    region: int = 0,
+    failed: int = 0,
+    empty: int = 0,
+    calls: int = 0,
+    code: str = "US",
+) -> dict[str, object]:
+    """Отчёт прогона (`report.run_stats`): сколько проверено, вердикты и причины.
 
-    Бэктест на 14 прогонах 22–23.09.2026: одна константа занижала смету
-    в 14 из 14 (до +132%), своя страна со свежим окном — в 2 из 14 (до +6%).
+    Остальные проверенные — отсеяны порогом: «DR 5 ниже 20» и прочие первые слова.
+    `calls` — запросов по странам, как их записал журнал прогона.
+    """
+    thresholds = checked - suitable - region - failed - empty
+    return {
+        "checked_now": checked,
+        "by_status": {
+            "suitable": suitable,
+            "unsuitable": region + thresholds,
+            "unchecked": failed + empty,
+        },
+        "reject_reasons": {code: region, "DR": thresholds} if region else {"DR": thresholds},
+        "unchecked_reasons": {COUNTRIES_FAILED: failed, NO_COUNTRY_DATA: empty},
+        "units_by_operation": {"by_country": calls * UNITS_BY_COUNTRY},
+    }
+
+
+class TestCountryShareFromHistory:
+    """Доля доменов с запросом по странам — с 16.10.2026 доля прошедших пороги метрик.
+
+    Запрос по странам идёт каждому прошедшему (топ-5 стран — поле донора по ТЗ),
+    и доля берётся из вердиктов своих прогонов, а не из числа самих запросов:
+    до 16.10 их было меньше прошедших, и старые прогоны занизили бы смету.
     """
 
-    @staticmethod
-    def _run(checked: int, calls: int) -> dict[str, object]:
-        return {"checked_now": checked, "units_by_operation": {"by_country": calls * 55}}
+    def test_passed_thresholds_not_paid_calls(self) -> None:
+        """Боевой прогон 23.09.2026: 508 новых доменов США, запросов по странам —
+        40 (верхняя страна пакета избавляла от остальных), пороги прошли 389."""
+        battle = _passed(508, 389, calls=40)
 
-    def test_own_country_wins(self) -> None:
-        history = [("za", self._run(100, 60)), ("us", self._run(500, 40))]
+        assert country_share_from([("us", battle)], "us") == pytest.approx(389 / 508)
 
-        assert country_share_from(history, "US") == pytest.approx(0.08)
-        assert country_share_from(history, "za") == pytest.approx(0.6)
+    def test_region_and_countries_unchecked_count_as_reached(self) -> None:
+        """Дошёл до стран — годный, отказ по региону (кодом страны прогона, у старых
+        записей — строчными) и «не проверен» по странам; отсеянный порогом — нет."""
+        stats = _passed(100, 50, region=10, failed=5, empty=5, code="us")
+
+        assert reached_countries(stats, "US") == 70
+        assert country_share_from([("us", stats)], "us") == pytest.approx(0.7)
+
+    def test_the_worst_of_the_recent_runs(self) -> None:
+        """Худшая, а не средняя — как у уникальных доменов: смета — верхняя граница."""
+        newest_first = [("us", _passed(100, 60)), ("us", _passed(100, 90))]
+
+        assert country_share_from(newest_first, "us") == pytest.approx(0.9)
+
+    def test_window_washes_out_old_runs(self) -> None:
+        """Недавние — пока не наберётся 500 новых доменов: старое вымывается без дат."""
+        newest_first = [("us", _passed(508, 389)), ("us", _passed(83, 80))]
+
+        assert country_share_from(newest_first, "us") == pytest.approx(389 / 508)
+
+    def test_small_runs_are_noise(self) -> None:
+        """Шестнадцать доменов — не число: один домен в них — шесть процентов."""
+        assert country_share_from([("mx", _passed(16, 16))], "mx") == COUNTRY_CALL_SHARE
+        newest_first = [("mx", _passed(16, 16)), ("mx", _passed(40, 20))]
+        assert country_share_from(newest_first, "mx") == pytest.approx(0.5)
 
     def test_other_countries_do_not_transfer(self) -> None:
-        """Доля ходит от 3% до 88% по странам: средняя по чужим для новой
-        страны занижала смету. Без своей истории — умолчание с запасом."""
-        history = [("us", self._run(500, 40)), ("vn", self._run(300, 10))]
+        """В региональной выдаче сайты слабее: доля чужой страны — не своя."""
+        history = [("us", _passed(500, 400)), ("vn", _passed(300, 250, code="VN"))]
 
         assert country_share_from(history, "fr") == COUNTRY_CALL_SHARE
 
-    def test_too_little_own_history_is_noise(self) -> None:
-        assert country_share_from([("mx", self._run(5, 5))], "mx") == COUNTRY_CALL_SHARE
-
-    def test_fresh_window_washes_out_old_logic(self) -> None:
-        """Прогоны до пакетной верхней страны звали запрос на каждый домен.
-        Свежее окно в 500 доменов вымывает их без дат и исключений."""
-        newest_first = [("us", self._run(508, 40)), ("us", self._run(83, 80))]
-
-        assert country_share_from(newest_first, "us") == pytest.approx(40 / 508)
-
     def test_runs_without_checks_are_skipped(self) -> None:
-        history = [("us", {"checked_now": 0}), ("us", self._run(100, 10))]
+        history = [("us", {"checked_now": 0}), ("us", _passed(100, 80))]
 
-        assert country_share_from(history, "us") == pytest.approx(0.1)
+        assert country_share_from(history, "us") == pytest.approx(0.8)
+
+    def test_without_history_the_share_errs_high_but_not_blind(self) -> None:
+        """Без своей истории — у верхнего края замеров (70–97% в 16 прогонах),
+        но не единица: смета на единице не пускала бы прогоны, которые помещаются."""
+        assert 0.85 <= COUNTRY_CALL_SHARE < 1.0
+
+    def test_counts_the_words_a_run_really_writes(self) -> None:
+        """Сверка со словами вердиктов, а не с образцом теста: причина отказа по
+        региону — от `check_geo`, первым словом — как пишет отчёт (`RunReport.record`).
+        Поменяют слова — покраснеет здесь, а не смета тихо занизит страны."""
+        candidates = Candidates(
+            hosts=[f"d{i}.com" for i in range(6)],
+            keywords=1,
+            results=6,
+            empty_keywords=[],
+            dropped=0,
+        )
+        plan = RunPlan(candidates, fresh=[], new=list(candidates.hosts), estimate=estimate_run(6))
+        report = RunReport(plan=plan)
+        report.record(DonorStatus.SUITABLE, check_geo("us", [CountryShare("us", 9, 0.9)]).reason)
+        report.record(DonorStatus.UNSUITABLE, check_geo("us", [CountryShare("de", 9, 0.9)]).reason)
+        report.record(DonorStatus.UNCHECKED, COUNTRIES_FAILED)
+        report.record(DonorStatus.UNCHECKED, check_geo("us", []).reason)
+        report.record(DonorStatus.UNSUITABLE, "DR 5 ниже 20")
+        report.record(DonorStatus.UNCHECKED, "Ahrefs не знает домен")
+
+        assert reached_countries(run_stats(report, None), "us") == 4
+
+
+class TestCountryShareInTheBase:
+    """Смета берёт долю из записанных прогонов своей страны — только законченных:
+    у идущего и остановленного отчёт неполный, и их доля — не доля."""
+
+    async def test_only_finished_runs_of_the_country(self, session: AsyncSession) -> None:
+        repo = RunRepository(session)
+        settings = await repo.create_settings(
+            Thresholds(min_dr=20, min_org_traffic=500, min_refdomains=100, min_keywords=300),
+            geo_top_n=5,
+            geo_min_share=0.2,
+            metrics_ttl_days=90,
+            price_ttl_days=150,
+            units_cap=100_000,
+        )
+        history = (
+            (RunStatus.DONE, "us", _passed(100, 60)),
+            (RunStatus.RUNNING, "us", _passed(100, 100)),
+            (RunStatus.STOPPED, "us", _passed(100, 100)),
+            (RunStatus.DONE, "za", _passed(100, 95, code="ZA")),
+        )
+        for status, country, stats in history:
+            run = await repo.create_run(
+                stage=Stage.DONORS,
+                settings_id=settings.id,
+                keywords=["crm"],
+                country=country,
+                status=status,
+            )
+            await repo.save_stats(run, stats)
+
+        assert await repo.country_call_share("US") == pytest.approx(0.6)
+        assert await repo.country_call_share("za") == pytest.approx(0.95)
+        assert await repo.country_call_share("fr") == COUNTRY_CALL_SHARE

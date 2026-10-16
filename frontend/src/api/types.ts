@@ -398,6 +398,9 @@ export interface DonorRowCard extends RowPrice {
   org_traffic: number | null;
   geo: string | null;
   geo_top_share: number | null;
+  /** Топ-5 стран с долями (16.10.2026) и признак неполной: в ней одна верхняя страна. */
+  geo_breakdown?: { country: string; share: number }[] | null;
+  geo_partial?: boolean;
   contacts: number;
   contact_status: ContactStatus | null;
   last_price: string | null;
@@ -449,8 +452,8 @@ export type DonorReview = 'accepted' | 'rejected';
 export interface DonorFullCard
   extends Omit<DonorRowCard, 'contacts'>, PriceOrigin, PriceRefusal, PriceDetails {
   geo_breakdown: { country: string; share: number }[] | null;
-  /** Разбивка неполная: спрашивали только верхнюю страну — её хватило
-   *  для вердикта, а полный запрос стоит впятеро дороже. */
+  /** Разбивка неполная: в ней одна верхняя страна — до 16.10.2026 остальные не
+   *  спрашивали, когда она совпадала со страной прогона. */
   geo_partial: boolean;
   metrics: Record<string, unknown> | null;
   expires_at: string | null;

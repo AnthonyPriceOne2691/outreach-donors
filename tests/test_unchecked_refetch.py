@@ -242,7 +242,9 @@ class TestOnlyCountriesArePaid:
         assert by_host["half.example.test"].metrics_at == NOW, "метрики — прошлой покупки"
         assert by_host["new.example.test"].metrics_at is None
 
-    async def test_top_country_in_the_paid_row_costs_nothing(self) -> None:
+    async def test_top_country_in_the_paid_row_still_asks_for_countries(self) -> None:
+        """Верхняя страна той же строки и есть целевая — страны всё равно спрашиваются
+        (16.10.2026: топ-5 — поле донора, а не только довод вердикта); метрики — нет."""
         ahrefs = Ahrefs({})
         raw = {"url": "half.example.test/", **GOOD, "org_traffic_top_by_country": [["us", 8000]]}
 
@@ -252,8 +254,29 @@ class TestOnlyCountriesArePaid:
             {"half.example.test": PaidMetrics(raw=raw, bought_at=NOW)},
         )
 
-        assert ahrefs.calls == []
+        assert ahrefs.calls == [("country", "half.example.test")]
         assert result.status is DonorStatus.SUITABLE
+        assert result.geo is not None
+        assert not result.geo.partial
+
+    async def test_paid_row_with_the_target_on_top_survives_a_country_failure(self) -> None:
+        """Добор стран упал, а верхняя страна купленной строки — целевая: «подходит»
+        с неполной разбивкой, как у свежего домена, — а не снова «не проверен»."""
+        ahrefs = Ahrefs({})
+        ahrefs.countries = False
+        raw = {"url": "half.example.test/", **GOOD, "org_traffic_top_by_country": [["us", 8000]]}
+
+        (result,) = await _collect(
+            ahrefs,
+            ["half.example.test"],
+            {"half.example.test": PaidMetrics(raw=raw, bought_at=NOW)},
+        )
+
+        assert set(ahrefs.calls) == {("country", "half.example.test")}
+        assert result.status is DonorStatus.SUITABLE
+        assert result.geo is not None
+        assert result.geo.partial
+        assert result.metrics_at == NOW, "метрики — прошлой покупки"
 
     async def test_stricter_thresholds_need_no_countries(self) -> None:
         """Пороги — этого прогона: не прошедшему их страны не нужны."""

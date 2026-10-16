@@ -39,7 +39,7 @@ export interface DonorFilters {
   minDr: number | null;
   /** Органический трафик не ниже. Бывает до миллиардов. */
   minTraffic: number | null;
-  /** Страна донора — код ISO-2 строчными. */
+  /** Страна в топ-5 донора — код ISO-2 строчными: верхняя или в разбивке (16.10.2026). */
   geo: string | null;
   freshness: DonorFreshness | null;
   /** Найден ли адрес: `true` — есть, `false` — нет (в том числе не искали). */
@@ -183,7 +183,8 @@ export function conditionsOf(filters: DonorFilters): string[] {
   if (filters.search !== '') said.push(`«${filters.search}» в домене или причине отсева`);
   if (filters.minDr !== null) said.push(`DR не ниже ${filters.minDr}`);
   if (filters.minTraffic !== null) said.push(`трафик не ниже ${formatNumber(filters.minTraffic)}`);
-  if (filters.geo !== null) said.push(`страна «${countryTitle(filters.geo)}»`);
+  // «В топ-5»: фильтр находит страну на любом из пяти мест, а не только первой (16.10.2026).
+  if (filters.geo !== null) said.push(`страна «${countryTitle(filters.geo)}» в топ-5`);
   if (filters.freshness !== null) {
     said.push(`данные «${DONOR_FRESHNESS[filters.freshness].title}»`);
   }

@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config.judge import JudgeMode
 from backend.features.core.domain import DonorStatus, Stage
 from backend.features.core.models.run import RunSettingsModel
+from backend.features.donors.geo import region_word
 from backend.features.runs.browse import RunBrowser, RunRow
 from backend.features.runs.repository import RESUMES_KEY, RunRepository
 from backend.features.runs.spending import Article, SpendingRepository
@@ -71,10 +72,10 @@ ORDER: tuple[Threshold, ...] = (
 
 def threshold_of(word: str, country: str) -> Threshold:
     """Порог по первому слову причины. Регион вердикт пишет кодом страны прогона:
-    «US не входит в топ-5…» (`donors/geo.check_geo`)."""
+    «US не входит в топ-5…» (`donors/geo.region_word`)."""
     if word in FIRST_WORDS:
         return FIRST_WORDS[word]
-    if country and word.upper() == country.upper():
+    if region_word(word, country):
         return Threshold.GEO
     return Threshold.OTHER
 
