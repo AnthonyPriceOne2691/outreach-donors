@@ -19,11 +19,14 @@
 FROM ghcr.io/astral-sh/uv:0.11.26 AS uv
 
 # --- зависимости питона ----------------------------------------------------
-# Базовые образы — официальные образы Docker с их зеркала в ECR Public, а не с
-# Docker Hub: анонимные скачивания с Hub делят лимит по IP со всеми машинами
-# GitHub, и 09.10.2026 «toomanyrequests» уронил сборку образа трижды подряд.
-# Образы те же: Docker сам выкладывает официальные образы в `docker/library`.
-FROM public.ecr.aws/docker/library/python:3.12-slim AS python-base
+# Базовые образы — официальные образы Docker с зеркала Google (`mirror.gcr.io`), как
+# postgres в CI. С Docker Hub ушли 09.10.2026: анонимные скачивания делят лимит по IP
+# со всеми машинами GitHub, и «toomanyrequests» уронил сборку образа трижды подряд.
+# ECR Public, куда ушли тогда, отказывал «toomanyrequests: Data limit exceeded» 13.10
+# и 16.10.2026 — дважды подряд на одном PR: у анонимных скачиваний и там свой лимит,
+# а без образа на main выкатывать нечего. Образы те же: зеркало отдаёт официальные
+# образы Docker Hub (`library/…`).
+FROM mirror.gcr.io/library/python:3.12-slim AS python-base
 
 # Окружение — отдельное, в /opt/venv. Не системный питон: `uv sync`
 # приводит окружение к lock-файлу точно, то есть удаляет всё, чего
@@ -86,7 +89,7 @@ CMD ["uvicorn", "backend.api.main:app", \
      "--proxy-headers", "--forwarded-allow-ips", "*"]
 
 # --- сборка фронта ---------------------------------------------------------
-FROM public.ecr.aws/docker/library/node:22-alpine AS web-build
+FROM mirror.gcr.io/library/node:22-alpine AS web-build
 
 WORKDIR /web
 
@@ -100,7 +103,7 @@ COPY frontend ./
 RUN npm run build
 
 # --- фронт под nginx -------------------------------------------------------
-FROM public.ecr.aws/docker/library/nginx:1.27-alpine AS web
+FROM mirror.gcr.io/library/nginx:1.27-alpine AS web
 
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY deploy/security-headers.conf /etc/nginx/snippets/security-headers.conf
