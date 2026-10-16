@@ -66,6 +66,7 @@ export function AhrefsCap({ data }: { data: UsageView }) {
             size="compact-sm"
             variant="default"
             className="press"
+            aria-haspopup="dialog"
             onClick={() => setEditing(true)}
           >
             Изменить кап

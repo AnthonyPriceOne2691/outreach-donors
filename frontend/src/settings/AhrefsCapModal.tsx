@@ -113,26 +113,29 @@ export function AhrefsCapModal({ cap, limits, changes, onClose }: Props) {
             }}
           />
           {changes.length > 0 && <RecentChanges changes={changes} />}
-          <Group justify="flex-end" gap="sm" mt={ACTIONS_GAP}>
-            {/* Почему «Сохранить» заперта — строкой рядом, а не догадкой: за границей причина
-                уже под полем, а то же число — «менять нечего». */}
+          <Stack gap={6} mt={ACTIONS_GAP}>
+            <Group justify="flex-end" gap="sm">
+              <Button variant="default" className="press" onClick={onClose}>
+                Отмена
+              </Button>
+              <Button
+                type="submit"
+                className="press"
+                loading={save.isPending}
+                disabled={typed === null || same}
+              >
+                Сохранить
+              </Button>
+            </Group>
+            {/* Почему «Сохранить» заперта — строкой под кнопками (правило 10.10.2026), а не
+                в одном ряду с ними: в ряд окна 440 px они не вставали, и «Сохранить» уезжала
+                на вторую строку (снимок стенда). За границей причина — уже под полем. */}
             {same && (
-              <Text size="sm" c="dimmed" mr="auto">
+              <Text size="sm" c="dimmed" ta="right">
                 Это действующий кап — впишите другой
               </Text>
             )}
-            <Button variant="default" className="press" onClick={onClose}>
-              Отмена
-            </Button>
-            <Button
-              type="submit"
-              className="press"
-              loading={save.isPending}
-              disabled={typed === null || same}
-            >
-              Сохранить
-            </Button>
-          </Group>
+          </Stack>
         </Stack>
       </form>
     </Modal>

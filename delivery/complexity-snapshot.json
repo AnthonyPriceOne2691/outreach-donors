@@ -3052,7 +3052,7 @@
       "worst": "donor_screens:19"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 326,
+      "lines": 366,
       "complexity": 2,
       "worst": "unbound_probes:32"
     },
