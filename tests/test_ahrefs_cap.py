@@ -302,7 +302,7 @@ class TestBounds:
 
         assert response.status_code == 422, response.text
         assert response.json()["detail"][0]["msg"] == (
-            "Кап — целое число юнитов в месяц, например 150 000"
+            "Кап — целое число юнитов в месяц, например 150 000"
         )
 
     async def test_the_change_itself_refuses_without_the_screen(

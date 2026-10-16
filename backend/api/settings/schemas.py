@@ -280,7 +280,7 @@ class CapBody(BaseModel):
         if isinstance(value, int) and not isinstance(value, bool):
             return value
         raise PydanticCustomError(
-            "cap_not_whole", "Кап — целое число юнитов в месяц, например 150 000"
+            "cap_not_whole", "Кап — целое число юнитов в месяц, например 150 000"
         )
 
 
