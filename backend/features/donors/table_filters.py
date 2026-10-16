@@ -148,7 +148,7 @@ class DonorFilters:
     has_contact: bool | None = None
     #: Органический трафик не ниже. Бывает до миллиардов — колонка `BigInteger`.
     min_traffic: int | None = None
-    #: Страна донора, код ISO-2 (`donors.geo`).
+    #: Страна в топ-5 донора, код ISO-2 (`in_top_countries`).
     geo: str | None = None
     freshness: Freshness | None = None
     #: Есть ли цена и в сроке ли (`PriceState`).
@@ -162,6 +162,24 @@ class DonorFilters:
     offset: int = 0
 
 
+def in_top_countries(code: str) -> ColumnElement[bool]:
+    """Страна — в известной топ-5 донора: верхняя (`donors.geo`) или в разбивке.
+
+    С 16.10.2026 таблица показывает все пять стран, и фильтр «Гео» — «страна
+    в топ-5»: по одной верхней он не находил донора, у которого США — вторая.
+    Верхняя — своим условием: у донора, заведённого руками, разбивки нет, а у
+    неполной в ней одна верхняя. Разбивка — содержанием JSONB (`@>`): пустая лежит
+    JSON-значением null и не содержит ничего. Тем же правилом — верхняя или в
+    разбивке — считает счётчики пунктов фильтра чтение (`browse.DonorBrowser.facets`);
+    что счётчик пункта равен найденному фильтром, держит тест.
+    """
+    wanted = code.strip().lower()
+    return or_(
+        DonorModel.geo == wanted,
+        DonorModel.geo_breakdown.contains([{"country": wanted}]),
+    )
+
+
 def _by_metrics(
     statement: Select[Any], filters: DonorFilters, now: datetime, ttl_days: int
 ) -> Select[Any]:
@@ -173,7 +191,7 @@ def _by_metrics(
     if filters.min_traffic is not None:
         statement = statement.where(DonorModel.org_traffic >= filters.min_traffic)
     if filters.geo:
-        statement = statement.where(DonorModel.geo == filters.geo.strip().lower())
+        statement = statement.where(in_top_countries(filters.geo))
     if filters.freshness is not None:
         statement = statement.where(_freshness_is(filters.freshness, now, ttl_days))
     return statement

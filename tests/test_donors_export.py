@@ -56,6 +56,10 @@ async def donor(session: AsyncSession) -> DonorModel:
         org_traffic=2_400_000_000,
         geo="de",
         geo_top_share=0.4,
+        geo_breakdown=[
+            {"country": "de", "org_traffic": 960_000_000, "share": 0.4},
+            {"country": "at", "org_traffic": 480_000_000, "share": 0.2},
+        ],
         contact_status=ContactStatus.FOUND,
         last_price=Decimal("50.00"),
         last_price_currency="EUR",
@@ -114,6 +118,7 @@ async def test_every_column_carries_the_value(
             "оплата": "PayPal, Wise",
             "срок, дней": "3",
             "ссылка": "dofollow",
+            "страны (топ-5)": "Германия 40%; Австрия 20%",
         }
     ]
 

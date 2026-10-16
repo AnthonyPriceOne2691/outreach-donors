@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import httpx
@@ -116,35 +117,58 @@ def _with_top(row: dict[str, Any], country: str, traffic: int) -> dict[str, Any]
     return {**row, "org_traffic_top_by_country": [[country, traffic]]}
 
 
-class TestGeoWithoutPaying:
-    """Верхняя страна приезжает пакетом за 10 юнитов на домен, отдельный
-    запрос по странам стоит 55 и идёт по одному домену — это 70% расхода
-    прогона. Проверяется главное: **вердикт от этого не меняется**.
+#: Топ стран домена, у которого верхняя — целевая: ответ запроса по странам.
+US_FIRST = [
+    {"country": "us", "org_traffic": 5000},
+    {"country": "gb", "org_traffic": 1200},
+    {"country": "ca", "org_traffic": 800},
+]
+
+
+class TestCountriesAlways:
+    """Топ-5 стран — каждому, кто прошёл пороги (решение владельца 16.10.2026).
+
+    До 16.10 верхняя страна пакета, совпавшая с целевой, избавляла от запроса по
+    странам: вердикт он не менял, а у донора оставалась одна страна из пяти. ТЗ
+    называет «org_traffic по топ-5 странам» обязательным полем донора.
     """
 
-    async def test_target_on_top_needs_no_country_call(self) -> None:
-        """Верхняя страна и есть целевая → она на первом месте, то есть
-        в топ-N при любом N. Дорогой запрос вернул бы её же первой строкой."""
-        fake = Fake({"good.com": _with_top(GOOD, "us", 8000)}, {"good.com": US_ONLY})
-        results = await _run(fake, ["good.com"])
+    async def test_target_on_top_is_asked_for_all_five(self) -> None:
+        """Верхняя страна и есть целевая — запрос всё равно идёт: страны нужны
+        донору, а не только вердикту. Разбивка полная, без пометки «неполная»."""
+        fake = Fake({"good.com": _with_top(GOOD, "us", 5000)}, {"good.com": US_FIRST})
+        (result,) = await _run(fake, ["good.com"])
 
-        assert fake.by_country_hosts == [], "заплатили за то, что уже знали"
-        assert results[0].status is DonorStatus.SUITABLE
-        assert results[0].geo is not None
-        assert results[0].geo.partial, "разбивка неполная, и это должно быть видно"
+        assert fake.by_country_hosts == ["good.com"]
+        assert result.status is DonorStatus.SUITABLE
+        assert result.geo is not None
+        assert not result.geo.partial
+        assert [item.country for item in result.breakdown] == ["us", "gb", "ca"]
 
-    async def test_another_country_on_top_still_pays(self) -> None:
+    async def test_another_country_on_top_is_asked_too(self) -> None:
         """Верхняя страна чужая — про целевую мы не знаем НИЧЕГО: она может
-        быть второй, а может не быть в ответе вовсе. Догадка здесь
-        отбраковывала бы годных доноров молча."""
+        быть второй, а может не быть в ответе вовсе."""
         rows = [{"country": "de", "org_traffic": 5000}, {"country": "us", "org_traffic": 3000}]
         fake = Fake({"good.com": _with_top(GOOD, "de", 5000)}, {"good.com": rows})
-        results = await _run(fake, ["good.com"])
+        (result,) = await _run(fake, ["good.com"])
 
-        assert fake.by_country_hosts == ["good.com"], "сэкономили там, где знать не могли"
-        assert results[0].status is DonorStatus.SUITABLE
-        assert results[0].geo is not None
-        assert not results[0].geo.partial
+        assert fake.by_country_hosts == ["good.com"]
+        assert result.status is DonorStatus.SUITABLE
+        assert result.reason == "US на 2-м месте по трафику (33%)"
+
+    async def test_every_survivor_is_asked_once(self) -> None:
+        """Каждый дошедший — ровно одним запросом, с колонкой верхней страны и без."""
+        fake = Fake(
+            {
+                "a.com": _with_top(GOOD, "us", 5000),
+                "b.com": _with_top(GOOD, "de", 5000),
+                "c.com": GOOD,
+            },
+            {"a.com": US_FIRST, "b.com": US_FIRST, "c.com": US_FIRST},
+        )
+        await _run(fake, ["a.com", "b.com", "c.com"])
+
+        assert sorted(fake.by_country_hosts) == ["a.com", "b.com", "c.com"]
 
     @pytest.mark.parametrize(
         ("top_country", "rows"),
@@ -161,36 +185,68 @@ class TestGeoWithoutPaying:
             ("de", [{"country": "de", "org_traffic": 8000}]),
         ],
     )
-    async def test_verdict_is_the_same_with_and_without_the_cheap_column(
+    async def test_the_top_column_changes_nothing_when_countries_come(
         self, top_country: str, rows: list[dict[str, Any]]
     ) -> None:
-        """Ради этого всё и затевалось: экономия не должна менять вердикты.
-
-        Один и тот же домен проходит оба пути — с дешёвой колонкой и без
-        неё, — и статус с причиной обязаны совпасть.
-        """
+        """Колонка верхней страны — запасной путь, а не второй судья: пришли страны —
+        с ней и без неё те же запросы, тот же вердикт и та же разбивка."""
         with_column = Fake(
             {"x.com": _with_top(GOOD, top_country, rows[0]["org_traffic"])}, {"x.com": rows}
         )
         without = Fake({"x.com": GOOD}, {"x.com": rows})
 
-        cheap = (await _run(with_column, ["x.com"]))[0]
-        full = (await _run(without, ["x.com"]))[0]
+        topped = (await _run(with_column, ["x.com"]))[0]
+        plain = (await _run(without, ["x.com"]))[0]
 
-        assert cheap.status is full.status
-        assert cheap.reason == full.reason
+        assert with_column.calls == without.calls
+        assert (topped.status, topped.reason) == (plain.status, plain.reason)
+        assert topped.breakdown == plain.breakdown
 
-    async def test_broken_column_falls_back_to_paying(self) -> None:
-        """Чужой формат однажды приедет другим. Молча счесть его за «страны
-        нет» значит отбраковать домен, за метрики которого уже заплатили."""
-        fake = Fake(
-            {"good.com": {**GOOD, "org_traffic_top_by_country": "не список"}},
-            {"good.com": US_ONLY},
-        )
-        results = await _run(fake, ["good.com"])
+
+class TestCountriesFailed:
+    """Запрос по странам не удался — правило 16.10.2026: годного донора сбой не отнимает.
+
+    Отказ — постоянный (402): клиент не повторяет его, и тест не ждёт пауз."""
+
+    async def test_target_on_top_keeps_a_suitable_donor(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Верхняя страна пакета и есть целевая — первое место в топ-N при любом N:
+        «подходит», разбивка — одна верхняя страна с пометкой «неполная»,
+        и строка в журнал."""
+        fake = Fake({"good.com": _with_top(GOOD, "us", 5000)}, {}, refusal=402)
+
+        with caplog.at_level(logging.WARNING, logger="backend.features.donors.collect"):
+            (result,) = await _run(fake, ["good.com"])
 
         assert fake.by_country_hosts == ["good.com"]
-        assert results[0].status is DonorStatus.SUITABLE
+        assert result.status is DonorStatus.SUITABLE
+        assert result.reason == "US на 1-м месте по трафику (56%)"
+        assert result.geo is not None
+        assert result.geo.partial
+        assert [item.country for item in result.breakdown] == ["us"]
+        assert "Страны для good.com не получены" in caplog.text
+        assert "годен по верхней стране пакета" in caplog.text
+
+    @pytest.mark.parametrize(
+        "row",
+        [
+            _with_top(GOOD, "de", 5000),
+            {**GOOD, "org_traffic_top_by_country": "не список"},
+            GOOD,
+        ],
+        ids=["чужая верхняя", "колонка не разобрана", "колонки нет"],
+    )
+    async def test_otherwise_unchecked_with_paid_metrics(self, row: dict[str, Any]) -> None:
+        """Верхняя чужая, непонятная или её нет — про целевую страну не знаем
+        ничего: «не проверен», метрики сохранены, страны доберёт следующий прогон."""
+        fake = Fake({"good.com": row}, {}, refusal=402)
+
+        (result,) = await _run(fake, ["good.com"])
+
+        assert (result.status, result.reason) == (DonorStatus.UNCHECKED, "страны не получены")
+        assert result.geo is None
+        assert result.metrics.org_traffic == 9000
 
 
 class TestVerdicts:

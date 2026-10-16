@@ -80,15 +80,17 @@ class TestBothPathsToTheShare:
         assert (top.country, top.org_traffic) == ("ca", 12_800)
         assert top.share == pytest.approx(12_800 / 14_000)
 
-    async def test_free_top_country_larger_than_the_domain(self) -> None:
-        """Верхняя страна из пакета — та же беда без покупки: колонка страны
-        и трафик домена в одной строке ответа, а числа расходятся."""
+    async def test_batch_top_country_larger_than_the_domain(self) -> None:
+        """Верхняя страна из пакета — та же беда: колонка страны и трафик домена
+        в одной строке ответа, а числа расходятся. Вердикт по ней — когда запрос
+        по странам не удался (с 16.10.2026 он идёт всегда); отказ постоянный —
+        клиент его не повторяет."""
         row = _with_top({**GOOD, "org_traffic": DOMAIN_TRAFFIC}, "ca", 12_800)
-        fake = Fake({"maple.example.test": row}, {})
+        fake = Fake({"maple.example.test": row}, {}, refusal=402)
 
         [result] = await _run(fake, ["maple.example.test"], country="ca")
 
-        assert fake.by_country_hosts == [], "верхней страны хватило — платить не за что"
+        assert fake.by_country_hosts == ["maple.example.test"]
         assert result.geo is not None
         assert result.geo.partial
         assert result.breakdown[0].share == 1.0

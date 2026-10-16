@@ -30,7 +30,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import ColumnClause, Select, func, literal_column, select, union
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.contacts.manual import removal_refusals
@@ -62,6 +62,10 @@ from backend.shared.database.ids import storable
 #: Сколько текста ответа показывает карточка рядом с ценой: прайс в письме укладывается,
 #: а простыня пересланной переписки — нет; целиком письмо — в переписке по ссылке.
 REPLY_TEXT_LIMIT = 4000
+
+#: Страны разбивки донора (`donors.geo_breakdown`) — путь JSON. Постоянной строкой
+#: запроса, а не параметром: тип пути база выводит из места, параметр пришёл бы текстом.
+_BREAKDOWN_COUNTRIES: ColumnClause[str] = literal_column("'$[*].country'")
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,11 +308,6 @@ class DonorBrowser:
                 DonorModel.status
             )
         )
-        countries = await self._session.execute(
-            _screen(review, DonorModel.geo, func.count(DonorModel.id))
-            .where(DonorModel.geo.is_not(None))
-            .group_by(DonorModel.geo)
-        )
         # Через подзапрос, а не `group_by(выражение)`: граница срока едет
         # параметром, и выражение в списке колонок и в группировке вышло бы
         # с разными номерами параметров — базе они разные.
@@ -319,11 +318,37 @@ class DonorBrowser:
         )
         return Facets(
             statuses=dict(statuses.tuples().all()),
-            countries={str(code).lower(): int(count) for code, count in countries.tuples()},
+            countries=await self._countries(review),
             freshness={Freshness(value): int(count) for value, count in by_state.tuples()},
             prices=await self._prices(review, moment),
             reviews=await self._reviews(),
         )
+
+    async def _countries(self, review: Review) -> dict[str, int]:
+        """Страна → у скольких доноров экрана она в топ-5 — тем же условием, что фильтр
+        «Гео» (`table_filters.in_top_countries`): верхняя или в разбивке.
+
+        Пункты фильтра — и страны разбивок (16.10.2026), а не только верхние: «Канада»,
+        вторая у десяти доноров, иначе не появилась бы в списке вовсе, а счётчик пункта
+        расходился бы с тем, что найдёт фильтр. Донор — один раз на страну: `UNION`
+        сводит «верхняя и она же в разбивке». Разбивка — путём JSON в нестрогом режиме:
+        пустая лежит JSON-значением null и даёт ноль стран, а не ошибку разбора массива.
+        """
+        top = _screen(review, DonorModel.id.label("donor"), DonorModel.geo.label("country"))
+        listed = _screen(
+            review,
+            DonorModel.id.label("donor"),
+            func.jsonb_array_elements_text(
+                func.jsonb_path_query_array(DonorModel.geo_breakdown, _BREAKDOWN_COUNTRIES)
+            ).label("country"),
+        )
+        both = union(top, listed).subquery()
+        rows = await self._session.execute(
+            select(both.c.country, func.count())
+            .where(both.c.country.is_not(None))
+            .group_by(both.c.country)
+        )
+        return {str(code).lower(): int(count) for code, count in rows.tuples()}
 
     async def _prices(self, review: Review, now: datetime) -> dict[PriceState, int]:
         """Сколько доноров экрана с ценой, со свежей, с устаревшей и без неё."""

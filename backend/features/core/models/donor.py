@@ -74,8 +74,10 @@ class DonorModel(TimestampedMixin, ContactAttemptMixin, Base):
     # вхождение в топ-5, и страна с долей 12% на третьем месте нам подходит.
     geo_breakdown: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     geo_top_share: Mapped[float | None] = mapped_column(Float, nullable=True)
-    #: Разбивка неполная: спрашивали только верхнюю страну. Одна строка
-    #: у полного ответа и одна у дешёвого пути — разные вещи.
+    #: Разбивка неполная: в ней одна верхняя страна пакета, топ-5 не спрошен — до
+    #: 16.10.2026 так было, когда она совпадала со страной прогона, теперь — когда
+    #: запрос по странам не удался. Одна строка у полного ответа и одна у неполного —
+    #: разные вещи. Докупает остальные страны `outreach geo-top5`.
     geo_partial: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     geo_refreshed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

@@ -18,9 +18,11 @@ from backend.features.donors.wording import (
     CONTACT_STATUS_TITLES,
     COUNTRY_TITLES,
     DONOR_STATUS_TITLES,
+    GEO_PARTIAL_NOTE,
     NOT_SEARCHED,
     REVIEW_TITLES,
     SELLER_ANSWER_TITLES,
+    countries_text,
     country_title,
     reject_reason_text,
     share_text,
@@ -87,6 +89,20 @@ class TestSameWordsAsTheScreen:
         """«Не продаёт» и «берёт бесплатно» стоят в выгрузке на месте цены, которую
         снял ответ донора, — словами отбора и карточки."""
         assert _titles("SELLER_ANSWERS") == SELLER_ANSWER_TITLES
+
+    def test_partial_breakdown_note(self) -> None:
+        """«Остальные не запрашивались» — в колонке «Гео», в карточке и в файле одними
+        словами (16.10.2026): иначе файл и экран называли бы одно двумя фразами."""
+        source = (LABELS_TS.parent.parent / "donors" / "geoWords.ts").read_text(encoding="utf-8")
+        assert f"GEO_PARTIAL_NOTE = '{GEO_PARTIAL_NOTE}'" in source
+
+    def test_top_countries_read_like_the_screen(self) -> None:
+        """Страны топ-5 — названиями и процентами экрана; неполная — с той же пометкой."""
+        shares = [("us", 0.5502), ("gb", 0.125), ("np", 0.03)]
+
+        assert countries_text(shares) == "США 55%; Великобритания 13%; Непал 3%"
+        assert countries_text(shares[:1], partial=True) == f"США 55%; {GEO_PARTIAL_NOTE}"
+        assert countries_text([], partial=True) == ""
 
 
 class TestRejectReason:

@@ -16,6 +16,7 @@ from backend.features.core.models.donor import ContactModel
 from backend.features.donors.browse import DonorCard as CardData
 from backend.features.donors.browse import DonorPage as PageData
 from backend.features.donors.browse import DonorRow, Facets
+from backend.features.donors.geo import stored_shares
 from backend.features.donors.manual_price import (
     DEFAULT_CURRENCY,
     Entered,
@@ -48,7 +49,7 @@ class DonorQuery(BaseModel):
         default=None, ge=0, le=MAX_TRAFFIC, description="органический трафик не ниже"
     )
     geo: str | None = Field(
-        default=None, pattern=r"^[A-Za-z]{2}$", description="страна донора, код ISO-2"
+        default=None, pattern=r"^[A-Za-z]{2}$", description="страна в топ-5 донора, код ISO-2"
     )
     freshness: Freshness | None = Field(
         default=None, description="метрики: в сроке, пора обновить, не проверялись"
@@ -102,6 +103,13 @@ class PickedBody(BaseModel):
     sort: DonorSort = DonorSort.DR
 
 
+class CountryShareCard(BaseModel):
+    """Страна разбивки донора и её доля органического трафика (0…1)."""
+
+    country: str
+    share: float
+
+
 class DonorRowCard(BaseModel):
     """Строка таблицы доноров.
 
@@ -119,6 +127,12 @@ class DonorRowCard(BaseModel):
     org_traffic: int | None
     geo: str | None
     geo_top_share: float | None
+    #: Топ-5 стран с долями, по убыванию трафика (16.10.2026): колонка «Гео» показывает
+    #: под верхней остальные. Пусто — стран не спрашивали.
+    geo_breakdown: list[CountryShareCard] | None = None
+    #: Разбивка неполная — как у карточки (`DonorFullCard.geo_partial`): экран говорит,
+    #: что остальные страны не запрашивались, а не выдаёт одну за весь трафик.
+    geo_partial: bool = False
     contacts: int
     contact_status: ContactStatus | None
     last_price: Decimal | None
@@ -151,6 +165,12 @@ class DonorRowCard(BaseModel):
             org_traffic=donor.org_traffic,
             geo=donor.geo,
             geo_top_share=donor.geo_top_share,
+            geo_breakdown=[
+                CountryShareCard(country=country, share=share)
+                for country, share in stored_shares(donor.geo_breakdown)
+            ]
+            or None,
+            geo_partial=donor.geo_partial,
             contacts=row.contacts,
             contact_status=donor.contact_status,
             last_price=donor.last_price,
@@ -185,7 +205,8 @@ class DonorsPage(BaseModel):
     total: int
     #: Вердикт → сколько доноров, по всем донорам экрана, а не по фильтру.
     counts: dict[str, int]
-    #: Страна → сколько доноров: варианты фильтра «Гео» со счётчиками.
+    #: Страна → у скольких доноров она в топ-5: варианты фильтра «Гео» со счётчиками,
+    #: тем же условием, что фильтр (`table_filters.in_top_countries`).
     countries: dict[str, int]
     #: Состояние метрик → сколько доноров: варианты фильтра «Данные».
     freshness: dict[str, int]
@@ -262,8 +283,8 @@ class DonorFullCard(BaseModel):
     geo: str | None
     geo_top_share: float | None
     geo_breakdown: list[dict[str, Any]] | None
-    #: Разбивка неполная: спрашивали только верхнюю страну, её хватило
-    #: для вердикта. Экран обязан это сказать, иначе одна строка выглядит
+    #: Разбивка неполная: в ней одна верхняя страна, остальные не запрашивались
+    #: (`donors.geo_partial`). Экран обязан это сказать, иначе одна строка выглядит
     #: как «у домена трафик из одной страны».
     geo_partial: bool
     metrics: dict[str, Any] | None

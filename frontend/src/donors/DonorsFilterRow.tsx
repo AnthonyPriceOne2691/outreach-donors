@@ -50,7 +50,7 @@ export interface Facets {
   freshness: Partial<Record<DonorFreshness, number>>;
 }
 
-/** Страны — какие есть у доноров: частые сверху, при равенстве — по имени.
+/** Страны — какие есть в топ-5 доноров: частые сверху, при равенстве — по имени.
  *  Подпись — только название: по нему в поле ищут, а счётчик рисует список. */
 function countryOptions(facets: Facets | null): { value: string; label: string }[] {
   const countries = Object.entries(facets?.countries ?? {});
@@ -165,14 +165,15 @@ export function FilterRow({
       </Table.Th>
       <Table.Th>
         {/* Стран может быть много — поле ищет по названию: «герм» находит
-            «Германия · 32». */}
+            «Германия · 32». Страна — в топ-5 донора, на любом месте (16.10.2026):
+            пункты и их счётчики сервер считает тем же условием, что фильтр. */}
         <Select
           size="xs"
           aria-label="Гео"
           rightSectionWidth={ARROW_WIDTH}
           searchable
           allowDeselect={false}
-          nothingFoundMessage="Такой страны у доноров нет"
+          nothingFoundMessage="Такой страны нет в топ-5 доноров"
           value={geo ?? 'all'}
           onChange={(value) => onFilter({ geo: value === null || value === 'all' ? null : value })}
           data={[{ value: 'all', label: 'все' }, ...countries]}

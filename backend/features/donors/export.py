@@ -32,12 +32,14 @@ from typing import Any
 
 from backend.features.core.domain import DonorStatus
 from backend.features.donors.browse import DonorRow
+from backend.features.donors.geo import stored_shares
 from backend.features.donors.wording import (
     CONTACT_STATUS_TITLES,
     DONOR_STATUS_TITLES,
     NOT_SEARCHED,
     REVIEW_TITLES,
     SELLER_ANSWER_TITLES,
+    countries_text,
     country_title,
     reject_reason_text,
     share_text,
@@ -100,7 +102,20 @@ COLUMNS: tuple[tuple[str, str], ...] = (
     ("оплата", "last_payment_methods"),
     ("срок, дней", "last_placement_days"),
     ("ссылка", "last_link_type"),
+    # С 16.10.2026 — все страны топ-5 с долями, как под верхней в колонке «Гео» экрана
+    # (ТЗ: «org_traffic по топ-5 странам»). В конце — по тому же правилу.
+    ("страны (топ-5)", "top_countries"),
 )
+
+
+def _top_countries(row: DonorRow) -> str:
+    """«США 55%; Великобритания 12%; …» — разбивка донора; у неполной — с пометкой."""
+    donor = row.donor
+    return countries_text(stored_shares(donor.geo_breakdown), partial=donor.geo_partial)
+
+
+#: Поля, которых нет ни у строки, ни у донора: файл собирает их из нескольких колонок.
+_COMPUTED: dict[str, Callable[[DonorRow], Any]] = {"top_countries": _top_countries}
 
 
 #: Причина вердикта — колонкой своего вердикта (12.10.2026): у «не проверен» своя
@@ -160,6 +175,8 @@ def _value(row: DonorRow, field: str) -> Any:
     содержимое файла никто не видел. Умолчания здесь больше нет: поле,
     которого нет ни у строки, ни у донора, — ошибка, а не пустая ячейка.
     """
+    if field in _COMPUTED:
+        return _COMPUTED[field](row)
     if field in _REASON_OF:
         return row.donor.reject_reason if row.donor.status is _REASON_OF[field] else None
     if hasattr(row, field):

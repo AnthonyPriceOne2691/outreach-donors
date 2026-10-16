@@ -37,6 +37,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 from backend.config import filters
 from backend.config.startup_checks import ConfigError
@@ -47,6 +48,10 @@ logger = logging.getLogger(__name__)
 #: по топ-5 странам»). Смета считает запрос за пять строк (55 юнитов,
 #: `ahrefs.units.UNITS_BY_COUNTRY`), и топ шире пяти ответом не проверить.
 COUNTRY_ROWS = 5
+
+#: Причина «не проверен», когда Ahrefs ответил по странам пусто: домен дошёл до
+#: стран, а данных нет. Её же ищет смета прогона среди дошедших (`runs/repository.py`).
+NO_COUNTRY_DATA = "нет данных по странам"
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,10 +83,11 @@ class GeoVerdict:
     reason: str
     top_country: str | None
     breakdown: list[CountryShare]
-    #: Разбивка неполная: спросили только верхнюю страну, потому что её
-    #: хватило для вердикта. Флаг нужен, чтобы карточка донора говорила
-    #: правду: одна строка у полного ответа и одна строка у дешёвого —
-    #: это разные вещи, и по длине списка их не отличить.
+    #: Разбивка неполная: в ней одна верхняя страна пакета, а топ-5 не спрошен —
+    #: до 16.10.2026 так было, когда она совпадала со страной прогона, теперь —
+    #: когда запрос по странам не удался (`collect._countries_failed`). Флаг нужен,
+    #: чтобы экран говорил правду: одна строка у полного ответа и одна у неполного —
+    #: разные вещи, и по длине списка их не отличить.
     partial: bool = False
 
 
@@ -193,7 +199,7 @@ def check_geo(
     топ-3 и пороге 20%. Поэтому оно и оставлено в коде, а не свёрнуто.
     """
     if not breakdown:
-        return GeoVerdict(False, "нет данных по странам", None, [])
+        return GeoVerdict(False, NO_COUNTRY_DATA, None, [])
 
     wanted = target_country.lower()
     top_country = breakdown[0].country
@@ -219,3 +225,38 @@ def check_geo(
         top_country,
         breakdown,
     )
+
+
+def region_word(word: str, country: str) -> bool:
+    """Первое слово причины — отказ по региону: его пишут кодом страны прогона.
+
+    «US не входит в топ-5…» (`check_geo`), до 25.09.2026 — строчными. Отчёт прогона
+    хранит причины отказа первым словом (`runs/report.py`), и по нему регион узнают
+    двое: отчёт на экране (`runs/outcome.threshold_of`) и смета — сколько доменов
+    дошло до стран (`runs/repository.reached_countries`). Правило одно — здесь,
+    рядом со словами, которые оно узнаёт.
+    """
+    return bool(country) and word.upper() == country.upper()
+
+
+def stored_shares(stored: object) -> list[tuple[str, float]]:
+    """Страны и доли записанной разбивки (`donors.geo_breakdown`) — в её порядке,
+    по убыванию трафика.
+
+    Запись — JSON: пустая разбивка лежит JSON-значением null, а строку без страны
+    или доли таблица и выгрузка пропускают, а не падают на ней всем списком.
+    """
+    rows = stored if isinstance(stored, list) else []
+    return [
+        (row["country"].lower(), float(row["share"]))
+        for row in rows
+        if isinstance(row, dict) and _readable_share(row)
+    ]
+
+
+def _readable_share(row: dict[str, Any]) -> bool:
+    """Строка разбивки со страной и долей числом. Флаг — не доля, хоть Python
+    и считает его числом."""
+    share = row.get("share")
+    number = isinstance(share, int | float) and not isinstance(share, bool)
+    return number and isinstance(row.get("country"), str)

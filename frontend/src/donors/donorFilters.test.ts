@@ -72,7 +72,7 @@ describe('фильтры доноров: разбор адреса', () => {
       conditionsOf({ ...NO_FILTERS, minTraffic: 1_000_000, geo: 'de', freshness: 'stale' }).map(
         plain,
       ),
-    ).toEqual(['трафик не ниже 1 000 000', 'страна «Германия»', 'данные «пора обновить»']);
+    ).toEqual(['трафик не ниже 1 000 000', 'страна «Германия» в топ-5', 'данные «пора обновить»']);
   });
 });
 
@@ -101,7 +101,7 @@ describe('фильтры доноров: пустой экран', () => {
       { domains: 0, runs: [] },
     );
 
-    expect(empty.detail).toBe('Условия: страна «Германия». Всего доноров — 4.');
+    expect(empty.detail).toBe('Условия: страна «Германия» в топ-5. Всего доноров — 4.');
     expect(empty.path).toBeUndefined();
     expect(empty.resettable).toBe(true);
   });

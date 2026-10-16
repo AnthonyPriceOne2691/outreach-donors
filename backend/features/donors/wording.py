@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Sequence
 
 from backend.features.core.domain import ContactStatus, DonorStatus
 from backend.features.donors.regions_ru import REGION_NAMES
@@ -148,6 +149,25 @@ def share_text(share: float | None) -> str:
     «13%» на экране.
     """
     return "" if share is None else f"{math.floor(share * 100 + 0.5)}%"
+
+
+#: Пометка у неполной разбивки по странам — те же слова, что `GEO_PARTIAL_NOTE`
+#: в `frontend/src/donors/geoWords.ts`: в разбивке одна верхняя страна, остальные
+#: топ-5 не спрашивали.
+GEO_PARTIAL_NOTE = "остальные не запрашивались"
+
+
+def countries_text(shares: Sequence[tuple[str, float]], *, partial: bool = False) -> str:
+    """Страны топ-5 с долями — «США 55%; Великобритания 12%; …», словами экрана.
+
+    Доли — тем же округлением, что «доля региона» (`share_text`). У неполной
+    разбивки — пометка, что остальные страны не запрашивались: одна страна
+    без неё читалась бы «весь трафик — из одной страны».
+    """
+    said = [f"{country_title(code)} {share_text(share)}" for code, share in shares]
+    if partial and said:
+        said.append(GEO_PARTIAL_NOTE)
+    return "; ".join(said)
 
 
 def country_name_en(code: str | None) -> str:

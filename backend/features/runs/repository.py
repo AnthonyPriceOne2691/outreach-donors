@@ -12,18 +12,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.ahrefs.units import COUNTRY_CALL_SHARE, UNITS_BY_COUNTRY, UnitsCost
+from backend.features.ahrefs.units import COUNTRY_CALL_SHARE, UnitsCost
 from backend.features.core import usage
-from backend.features.core.domain import RunStatus, Stage, UsageProvider
+from backend.features.core.domain import DonorStatus, RunStatus, Stage, UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.core.models.run import RunModel, RunSettingsModel
+from backend.features.donors.collect import COUNTRIES_FAILED
+from backend.features.donors.geo import NO_COUNTRY_DATA, region_word
 from backend.features.donors.verdict import Thresholds
 from backend.features.runs.browse import UnknownRunError
 
@@ -35,40 +37,71 @@ SYSTEM = usage.SYSTEM
 # Какой провайдер стоит за операцией. Список закрытый: неизвестная операция
 # должна быть замечена, а не тихо записана как «прочее» — иначе разбор
 # расхода со временем превратится в одну строку «прочее» на весь счёт.
-#: Сколько проверенных доменов по стране нужно, чтобы доверять её
-#: собственной доле запросов по странам. Меньше — умолчание: одна страна
-#: с тремя доменами даёт шум, а не число.
+#: Сколько новых доменов должно быть в прогоне, чтобы его доля шла в смету.
+#: Меньше — шум, а не число: три ключа дают шестнадцать доменов, и один домен
+#: в них — шесть процентов.
 MIN_COUNTRY_HISTORY = 20
-#: Окно истории: самые новые прогоны по стране, пока не наберётся столько
-#: доменов. Старое вымывается само — прогоны до пакетной верхней страны
-#: (18.09.2026) звали запрос по странам на каждый домен, и их доля
-#: к нынешней логике отношения не имеет.
+#: Окно истории: самые новые прогоны по стране, пока не наберётся столько новых
+#: доменов. Недавнее важнее: ключи и ниша меняются, и прогон месячной давности
+#: говорит о следующем меньше вчерашнего.
 COUNTRY_HISTORY_WINDOW = 500
 
 
 def country_share_from(history: Sequence[tuple[str, dict[str, Any]]], country: str) -> float:
-    """Доля новых доменов, которым понадобился запрос по странам.
+    """Доля новых доменов, которым прогон купит запрос по странам, — для сметы.
 
-    На вход — прогоны от НОВЫХ к старым: страна и статистика. Берётся
-    только своя страна: бэктест на 14 прогонах 22–23.09.2026 показал, что
-    доля не переносится между странами (от 3% до 88%), и средняя по чужим
-    для страны без истории занижала смету. Без своей истории — умолчание,
-    с запасом: занизить здесь значит, что кап не держит трату.
+    **С 16.10.2026 это доля доменов, прошедших пороги метрик**: запрос по странам
+    идёт каждому из них (`donors/collect.py`, решение владельца — топ-5 стран
+    по ТЗ). До того её брали из истории самих запросов — юнитов за `by_country`, —
+    а запросов тогда было меньше прошедших: верхняя страна пакета, совпавшая
+    со страной прогона, избавляла от запроса. Боевой прогон 23.09.2026 — 508 новых
+    доменов США: запросов по странам 40, пороги прошли 389, — по старому счёту смета
+    занизила бы страны почти вдесятеро. Сколько доменов прошло пороги, отчёт прогона
+    знает и у старых прогонов (`reached_countries`).
 
-    Считается по юнитам, списанным за запросы по странам, а не по
-    вердиктам: это и есть то, что смета должна предсказать.
+    На вход — прогоны от НОВЫХ к старым: страна и отчёт. Берётся своя страна:
+    в региональной выдаче сайты слабее, и доля прошедших пороги у стран своя
+    (okf/funnel-calibration.md). Из её прогонов — **худшая доля из недавних**, как
+    у уникальных доменов (`unique_share_from`): смета — верхняя граница, занизить
+    здесь значит, что кап не держит трату. Недавние — самые новые прогоны страны,
+    пока не наберётся `COUNTRY_HISTORY_WINDOW` новых доменов; прогон меньше
+    `MIN_COUNTRY_HISTORY` — шум, его доля не берётся. Нет ни одного — умолчание.
     """
     own = (country or "").lower()
-    checked = 0
-    calls = 0.0
+    shares: list[float] = []
+    seen = 0
     for stats in _own_runs(history, own):
-        checked += int(stats["checked_now"])
-        calls += _by_country_units(stats) / UNITS_BY_COUNTRY
-        if checked >= COUNTRY_HISTORY_WINDOW:
+        checked = int(stats["checked_now"])
+        seen += checked
+        if checked >= MIN_COUNTRY_HISTORY:
+            shares.append(min(1.0, reached_countries(stats, own) / checked))
+        if seen >= COUNTRY_HISTORY_WINDOW:
             break
-    if checked < MIN_COUNTRY_HISTORY:
-        return COUNTRY_CALL_SHARE
-    return min(1.0, calls / checked)
+    return max(shares) if shares else COUNTRY_CALL_SHARE
+
+
+def reached_countries(stats: Mapping[str, Any], country: str) -> int:
+    """Сколько доменов прогона прошли пороги метрик — дошли до запроса по странам.
+
+    Из вердиктов отчёта (`report.run_stats`), а не из юнитов: так считается и у
+    прогонов до 16.10.2026, когда запрос по странам шёл не каждому дошедшему.
+    Дошёл — годный (годным делает только вердикт по странам), отказ по региону (кодом
+    страны прогона, `geo.region_word`) и «не проверен» по странам: запрос не удался
+    или Ahrefs ответил пусто. Отсеянный порогом и «Ahrefs не знает домен» — нет.
+    """
+    by_status = stats.get("by_status") or {}
+    rejected = stats.get("reject_reasons") or {}
+    unchecked = stats.get("unchecked_reasons") or {}
+    region = sum(_count(n) for word, n in rejected.items() if region_word(str(word), country))
+    no_countries = sum(_count(unchecked.get(why)) for why in (COUNTRIES_FAILED, NO_COUNTRY_DATA))
+    return _count(by_status.get(DonorStatus.SUITABLE.value)) + region + no_countries
+
+
+def _count(value: object) -> int:
+    """Число из отчёта — JSON прошлых версий: чего нет — ноль, а не падение."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return 0
+    return int(value)
 
 
 def _own_runs(history: Sequence[tuple[str, dict[str, Any]]], own: str) -> Iterator[dict[str, Any]]:
@@ -76,10 +109,6 @@ def _own_runs(history: Sequence[tuple[str, dict[str, Any]]], own: str) -> Iterat
     for run_country, stats in history:
         if (run_country or "").lower() == own and int(stats.get("checked_now") or 0) > 0:
             yield stats
-
-
-def _by_country_units(stats: dict[str, Any]) -> int:
-    return int((stats.get("units_by_operation") or {}).get("by_country") or 0)
 
 
 #: Пометки о судьбе прогона в его отчёте. Их читает экран («причина») и
@@ -287,11 +316,12 @@ class RunRepository:
         return was_open
 
     async def country_call_share(self, country: str) -> float:
-        """Доля запросов по странам для сметы — из истории своих прогонов.
+        """Доля новых доменов с запросом по странам для сметы — из истории своих прогонов.
 
-        Смета по одной константе занижала трату в 14 прогонах из 14:
-        доля ходит от 3% до 88% в зависимости от страны. См.
-        `country_share_from` и okf/funnel-calibration.md.
+        С 16.10.2026 запрос идёт каждому, кто прошёл пороги метрик, и доля — доля
+        прошедших: худшая из недавних прогонов страны (`country_share_from`,
+        okf/funnel-calibration.md). Смета по одной константе занижала трату
+        в 14 прогонах из 14.
         """
         rows = await self._session.execute(
             select(RunModel.country, RunModel.stats)
