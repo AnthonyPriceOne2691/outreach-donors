@@ -112,6 +112,28 @@ async def test_queue_shows_connected_sales_chains_and_what_waits(
     }
 
 
+async def test_leads_without_a_letter_are_counted_by_language_like_the_build_takes_them(
+    session: AsyncSession, world: w.World, client: AsyncClient, headers: dict[str, str]
+) -> None:
+    """Лиды без письма — и по языку письма, основой кода, тем же правилом, что у сборки
+    (`ru-RU` → `ru`): по этим числам плашка «отправлять нечего» называет неполную цепочку только
+    того языка, чьи лиды ждут. Лид без языка — в общем числе, а по языкам — нигде."""
+    for email, language in [
+        ("jane@acme.example.test", "ru-RU"),
+        ("olga@beta.example.test", "RU"),
+        ("ivan@gamma.example.test", "en"),
+        ("petr@delta.example.test", None),
+    ]:
+        await w.lead(session, world.hypothesis_id, email, language=language)
+    await session.commit()
+
+    response = await client.get(f"{QUEUE}?hypothesis={world.hypothesis_id}", headers=headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body["unwritten"], body["unwritten_languages"]) == (4, {"ru": 2, "en": 1})
+
+
 async def test_followup_stuck_in_the_queue_is_not_in_the_number_of_the_batch(
     session: AsyncSession, world: w.World, client: AsyncClient, headers: dict[str, str]
 ) -> None:

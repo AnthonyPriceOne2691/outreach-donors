@@ -44,15 +44,27 @@ export function buildJobKey(hypothesis: number): string {
   return `sales:last-queue-build:${hypothesis}`;
 }
 
-/** Итог сборки одной строкой — из отчёта задачи (`QueueReport` сервера): сколько
- *  писем собрано, сколько лидов ждёт и почему, почему сборка остановилась. */
-export function queueLine(report: Record<string, unknown>): string {
+/** Писем, которые написала сборка: новых и собранных заново. */
+export function builtLetters(report: Record<string, unknown>): number {
+  return Number(report.prepared ?? 0) + Number(report.refreshed ?? 0);
+}
+
+/** Почему лиды ждут — причина словами сервера и сколько лидов, как их сложила сборка. */
+export function waitingOf(report: Record<string, unknown>): [string, number][] {
   const waiting = (report.waiting ?? {}) as Record<string, number>;
+  return Object.entries(waiting).map(([why, count]) => [why, Number(count)]);
+}
+
+/** Итог сборки одной строкой — из отчёта задачи (`QueueReport` сервера): сколько
+ *  писем собрано, сколько лидов ждёт и почему, почему сборка остановилась. `loud` — под строкой
+ *  плашка «отправлять нечего» (`QueueOutcome`): кто ждёт и почему остановлено, говорит она. */
+export function queueLine(report: Record<string, unknown>, loud = false): string {
   const parts = [
     `Новых писем ${formatNumber(Number(report.prepared ?? 0))}, ` +
       `собрано заново ${formatNumber(Number(report.refreshed ?? 0))}.`,
   ];
-  const reasons = Object.entries(waiting).map(([why, count]) => `${why}: ${formatNumber(count)}`);
+  if (loud) return parts[0] ?? '';
+  const reasons = waitingOf(report).map(([why, count]) => `${why}: ${formatNumber(count)}`);
   if (reasons.length > 0) parts.push(`Ждут — ${reasons.join('; ')}.`);
   const template = Number(report.followups_template ?? 0);
   if (template > 0) parts.push(`Добивок шаблоном: ${formatNumber(template)}.`);

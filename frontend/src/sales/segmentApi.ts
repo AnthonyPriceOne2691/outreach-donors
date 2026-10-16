@@ -253,6 +253,15 @@ export interface SegmentRunKeywords {
   empty: string[];
   /** Сняты человеком на запуске. У сервера старше снятия поля нет. */
   excluded?: string[];
+  /** Почти повтор → ключ, на который он похож: отчёт ставит его под этим ключом. У сервера
+   *  старше групп этого и полей ниже нет — пометки тогда идут словами под таблицей. */
+  twins?: Record<string, string>;
+  /** Прочие пометки взятых — без «похож на «…»». */
+  remarks?: Record<string, string>;
+  /** Ключ → новых для гипотезы сайтов; сайт нескольких ключей — у первого по списку. */
+  sites?: Record<string, number>;
+  /** Ключ → сколько из его сайтов принято. */
+  accepted?: Record<string, number>;
 }
 
 export interface SegmentRunSpend {

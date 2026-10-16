@@ -66,6 +66,7 @@ const READY: SalesQueueView = {
     { language: 'en', source: 'own', missing: [], version: 'chain-en0000000000' },
   ],
   unwritten: 4,
+  unwritten_languages: { ru: 3, en: 1 },
   queued: 2,
   stage_queued: 7,
   limit_max: 200,
@@ -705,6 +706,86 @@ describe('«Писем за раз» — как набрано', () => {
       await screen.findByText('Новых писем 4, собрано заново 1.', {}, SCREEN_WAIT),
     ).toBeInTheDocument();
     expect(calls(recorded, 'POST', QUEUE)).toHaveLength(2);
+  });
+});
+
+describe('сборка без писем — плашкой «отправлять нечего» (просьба владельца 16.10.2026)', () => {
+  const CHAIN_WAIT = 'цепочка на русском задана не целиком';
+  /** Очередь продаж пуста: сборка не написала ни письма — пачке отправлять нечего. Английская
+   *  цепочка тоже не полна, но лидов на английском нет — в плашке её быть не должно. */
+  const EMPTY_QUEUE: SalesQueueView = {
+    ...READY,
+    chains: [
+      { language: 'ru', source: 'common', missing: ALL_MISSING, version: 'chain-ru0000000000' },
+      { language: 'en', source: 'own', missing: ['второй добивки'], version: 'chain-en0000000000' },
+    ],
+    unwritten: 47,
+    unwritten_languages: { ru: 47 },
+    queued: 0,
+    stage_queued: 0,
+  };
+  const NOTHING = { prepared: 0, refreshed: 0, waiting: { [CHAIN_WAIT]: 47 }, stopped: null };
+
+  async function build(report: Record<string, unknown>, view: SalesQueueView): Promise<void> {
+    await openQueue(
+      {
+        [`POST ${QUEUE}`]: { body: { job_id: 'job-b' } },
+        'GET /api/jobs/job-b': { body: job('job-b', report) },
+      },
+      view,
+    );
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Собрать очередь' }));
+    await screen.findByText(/^Новых писем/, {}, SCREEN_WAIT);
+  }
+
+  it('почему лиды ждут, у какого языка цепочка не полна и вход в «Цепочку писем»', async () => {
+    await build(NOTHING, EMPTY_QUEUE);
+
+    const alert = await screen.findByRole('alert', {}, SCREEN_WAIT);
+    expect(within(alert).getByText('Писем не собрано — отправлять нечего')).toBeVisible();
+    expect(within(alert).getByText(`${CHAIN_WAIT} — 47 лидов`)).toBeVisible();
+    expect(
+      within(alert).getByText(`Русский — нет ${ALL_MISSING.join(', ')}; ждут 47 лидов`),
+    ).toBeVisible();
+    // Неполная цепочка языка без ждущих лидов в плашке не названа: она не обязанность.
+    expect(within(alert).queryByText(/Английский/)).toBeNull();
+    expect(within(alert).getByRole('link', { name: 'Открыть «Цепочку писем»' })).toHaveAttribute(
+      'href',
+      '/sales?tab=chain&hypothesis=5',
+    );
+    // Строка задачи — короткая: кто ждёт и почему, говорит плашка; «готово» — не зелёным.
+    expect(screen.getByText('Новых писем 0, собрано заново 0.')).toBeVisible();
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('Сборка очереди продаж: готово');
+    expect(status.getAttribute('style')).toContain('dimmed');
+  });
+
+  it('сборка остановлена потолком — почему, в той же плашке', async () => {
+    const stopped = { ...NOTHING, waiting: {}, stopped: 'дневной потолок модели продаж выбран' };
+    await build(stopped, EMPTY_QUEUE);
+
+    const alert = await screen.findByRole('alert', {}, SCREEN_WAIT);
+    expect(
+      within(alert).getByText('Сборка остановлена: дневной потолок модели продаж выбран'),
+    ).toBeVisible();
+  });
+
+  it('новых писем нет, но в очереди продаж есть другие — отправка будет, плашки нет', async () => {
+    await build(NOTHING, { ...EMPTY_QUEUE, stage_queued: 3 });
+
+    expect(
+      screen.getByText(`Новых писем 0, собрано заново 0. Ждут — ${CHAIN_WAIT}: 47.`),
+    ).toBeVisible();
+    expect(screen.queryByText('Писем не собрано — отправлять нечего')).toBeNull();
+  });
+
+  it('письма собраны — плашки нет, итог строкой задачи', async () => {
+    await build({ ...NOTHING, prepared: 3 }, EMPTY_QUEUE);
+
+    expect(
+      screen.getByText(`Новых писем 3, собрано заново 0. Ждут — ${CHAIN_WAIT}: 47.`),
+    ).toBeVisible();
+    expect(screen.queryByText('Писем не собрано — отправлять нечего')).toBeNull();
   });
 });
 

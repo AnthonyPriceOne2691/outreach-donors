@@ -16,7 +16,7 @@ from backend.features.sales.segment_estimate import Estimate
 from backend.features.sales.segment_estimate_keys import run_excluded
 from backend.features.sales.segment_keywords import run_keywords
 from backend.features.sales.segment_models import SalesSegmentCandidateModel, SalesSegmentRunModel
-from backend.features.sales.segment_report import RunView, summary
+from backend.features.sales.segment_report import KeySites, RunView, summary
 from backend.features.sales.segment_spend import spend_rows
 from backend.features.sales.segment_watch import GOING, Watch
 from backend.features.serp.modes import UnknownModeError, mode_of
@@ -175,7 +175,9 @@ class SpendRow(BaseModel):
 
 class RunKeywordsView(BaseModel):
     """Ключи прогона: взятые с пометками, снятые человеком и отсеянные с причиной — как на
-    запуске; пропавшие (заплачено — не пришло) и пустые — что вышло с покупкой выдачи."""
+    запуске; пропавшие (заплачено — не пришло) и пустые — что вышло с покупкой выдачи. Для
+    отчёта — почти повторы группами (`twins`), прочие пометки без «похож на «…»» (`remarks`) и
+    сколько новых для гипотезы сайтов принёс каждый ключ и сколько из них принято."""
 
     taken: list[str]
     notes: dict[str, str]
@@ -184,6 +186,14 @@ class RunKeywordsView(BaseModel):
     empty: list[str]
     #: Сняты человеком на запуске — выдача их не покупала; прогон старше снятия — пусто.
     excluded: list[str] = Field(default_factory=list)
+    #: Почти повтор → ключ, на который он похож.
+    twins: dict[str, str] = Field(default_factory=dict)
+    #: Прочие пометки взятых — без «похож на «…»».
+    remarks: dict[str, str] = Field(default_factory=dict)
+    #: Ключ → новых для гипотезы сайтов; сайт нескольких ключей — у первого по списку.
+    sites: dict[str, int] = Field(default_factory=dict)
+    #: Ключ → сколько из его сайтов принято.
+    accepted: dict[str, int] = Field(default_factory=dict)
 
 
 class RunSpend(BaseModel):
@@ -193,8 +203,11 @@ class RunSpend(BaseModel):
     rows: list[SpendRow]
 
     @classmethod
-    def of(cls, run: SalesSegmentRunModel) -> RunSpend:
+    def of(
+        cls, run: SalesSegmentRunModel, *, by_keyword: Mapping[str, KeySites] | None = None
+    ) -> RunSpend:
         found = run_keywords(run)
+        counts = by_keyword or {}
         return cls(
             keywords=RunKeywordsView(
                 taken=found.taken,
@@ -203,6 +216,10 @@ class RunSpend(BaseModel):
                 lost=found.lost,
                 empty=found.empty,
                 excluded=run_excluded(run),
+                twins=found.twins,
+                remarks=found.remarks,
+                sites={key: count.sites for key, count in counts.items()},
+                accepted={key: count.accepted for key, count in counts.items()},
             ),
             rows=[SpendRow(**asdict(row)) for row in spend_rows(run)],
         )
@@ -429,7 +446,7 @@ class RunDetail(BaseModel):
             hypothesis=view.hypothesis,
             keywords=list(run.keywords),
             estimate_lines=list((run.estimate or {}).get("lines", [])),
-            spend=RunSpend.of(run),
+            spend=RunSpend.of(run, by_keyword=view.keyword_sites),
             summary=summary(view),
             lanes=view.lanes,
             rejected=[Count(words=words, count=count) for words, count in view.rejected],

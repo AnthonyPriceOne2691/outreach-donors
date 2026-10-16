@@ -59,7 +59,7 @@ import {
   useRun,
   useRunSettled,
 } from './segmentData';
-import { SegmentKeywords } from './SegmentKeywords';
+import { RunKeywords } from './SegmentRunKeywords';
 import { SegmentProgress } from './SegmentProgress';
 import { SegmentSitesWindow } from './SegmentSites';
 import { RejudgeStatus, useRejudgeWatch } from './SegmentSitesRejudge';
@@ -298,7 +298,7 @@ function Report({ detail }: { detail: SegmentRunDetail }) {
       <Resume detail={detail} />
       <RejudgeStatus view={rejudge.view} />
       <Why detail={detail} />
-      <SegmentKeywords detail={detail} />
+      <RunKeywords detail={detail} />
       <SegmentSitesWindow detail={detail} sites={sites} rejudge={rejudge} />
     </Stack>
   );

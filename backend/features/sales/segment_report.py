@@ -12,6 +12,9 @@
 клик, повтор запроса) — не отказ и не вторая запись журнала: сайт уже там, куда его
 просят (`Decision.repeated`); противоположное по решённому — по-прежнему отказ словами.
 
+**Сайты по ключу** — сколько новых для гипотезы сайтов принёс каждый ключ и сколько из них
+принято (`KeySites`): по ним видно, что почти повторы общего ключа почти ничего не добавили.
+
 **Ход прогона** — запись прохода и живое «сделано» судьи и адресов из кандидатов
 (`segment_progress.live`); плитки сходятся и во время судьи: «ещё не судили» — своим числом.
 
@@ -62,6 +65,15 @@ class Decision:
     repeated: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class KeySites:
+    """Сайты прогона по ключу: новые для гипотезы и сколько из них принято. Сайт, который нашли
+    несколько ключей, засчитан первому из них по списку (`Candidate.keyword`)."""
+
+    sites: int
+    accepted: int
+
+
 @dataclass(slots=True)
 class RunView:
     """Прогон глазами экрана."""
@@ -83,6 +95,22 @@ class RunView:
     unanswered: int = 0
     #: Ход прохода (`segment_progress.live`); пусто — записи хода нет.
     progress: dict[str, Any] | None = None
+    #: Сайты по ключу — сколько принёс каждый (`KeySites`); ключа без сайтов здесь нет.
+    keyword_sites: dict[str, KeySites] = field(default_factory=dict)
+
+
+async def _keyword_sites(session: AsyncSession, run_id: int) -> dict[str, KeySites]:
+    accepted = func.count().filter(Candidate.lane == Lane.ACCEPT)
+    rows = await session.execute(
+        select(Candidate.keyword, func.count(), accepted)
+        .where(Candidate.run_id == run_id)
+        .group_by(Candidate.keyword)
+    )
+    return {
+        keyword: KeySites(sites, taken)
+        for keyword, sites, taken in rows.tuples().all()
+        if keyword is not None
+    }
 
 
 async def _lanes(session: AsyncSession, run_id: int) -> dict[str, int]:
@@ -169,6 +197,7 @@ async def run_view(session: AsyncSession, run_id: int) -> RunView | None:
         or 0
     )
     view.progress = await segment_progress.live(session, run)
+    view.keyword_sites = await _keyword_sites(session, run_id)
     return view
 
 

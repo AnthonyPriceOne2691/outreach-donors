@@ -21,6 +21,11 @@
 **В отчёте прогона — и то, что вышло с покупкой** (`report.serp`): ключи, чью выдачу провайдер
 не отдал (заплачено — не пришло), и ключи, по которым выдача пуста. Это разные исходы: первое —
 сбой провайдера, второе — ключ ничего не находит (`runs/planning.Candidates.lost_keywords`).
+
+**Почти повтор в отчёте — группой под похожим ключом, а не словами у каждого** (просьба владельца
+16.10: одиннадцать ключей, у семи — одна и та же пометка, и где ключ, а где пометка, не видно).
+Группы — тем же правилом, что пометка на запуске (`dedup.near_duplicate_of` по купленным
+ключам); прочие пометки (название фирмы и любая другая) отчёт показывает один раз под списком.
 """
 
 from __future__ import annotations
@@ -44,6 +49,8 @@ NEAR = (
 FIRM = "похоже на название фирмы («{form}»): выдача найдёт её реестры и карточки, а не сегмент"
 #: Две пометки одного ключа — в одном поле слов.
 NOTES_JOINT = "; "
+#: Начало пометки почти повтора — до имени похожего ключа: по нему отчёт отделяет её от прочих.
+NEAR_LEAD = NEAR.split("{twin}", 1)[0]
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +127,19 @@ class RunKeywords:
     lost: list[str]
     #: Выдача пришла пустой: по ключу ничего не нашлось.
     empty: list[str]
+    #: Почти повтор → ключ, на который он похож: отчёт ставит его под этим ключом.
+    twins: dict[str, str]
+    #: Прочие пометки взятых — без «похож на «…»»: её заменяет группа под похожим ключом.
+    remarks: dict[str, str]
+
+
+def _remarks(notes: dict[str, str]) -> dict[str, str]:
+    """Пометки ключей без почти повтора; ключ, у которого была только она, — без пометки."""
+    kept = {
+        phrase: [part for part in words.split(NOTES_JOINT) if not part.startswith(NEAR_LEAD)]
+        for phrase, words in notes.items()
+    }
+    return {phrase: NOTES_JOINT.join(parts) for phrase, parts in kept.items() if parts}
 
 
 def _words(found: Any) -> dict[str, str]:
@@ -139,10 +159,13 @@ def run_keywords(run: SalesSegmentRunModel) -> RunKeywords:
     estimate = run.estimate or {}
     serp = (run.report or {}).get("serp")
     serp = serp if isinstance(serp, dict) else {}
+    notes = _words(estimate.get("notes"))
     return RunKeywords(
         taken=list(run.keywords),
-        notes=_words(estimate.get("notes")),
+        notes=notes,
         rejected=_words(estimate.get("rejected")),
         lost=_phrases(serp.get("lost_keywords")),
         empty=_phrases(serp.get("empty_keywords")),
+        twins=dedup.near_duplicate_of(list(run.keywords)),
+        remarks=_remarks(notes),
     )

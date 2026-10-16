@@ -222,6 +222,12 @@ export function leadsLink(hypothesis: number | null, state: LeadState | null): s
   return `/sales?${writeLeadFilters({ ...NO_LEAD_FILTERS, state, hypothesis }).toString()}`;
 }
 
+/** Вкладка раздела для гипотезы — тем же адресом, что пишет сам раздел: так ведёт вход в
+ *  «Цепочку писем» из плашки очереди. */
+export function salesTabLink(tab: SalesTab, hypothesis: number | null): string {
+  return `/sales?${writeLeadFilters({ ...NO_LEAD_FILTERS, tab, hypothesis }).toString()}`;
+}
+
 /** Сужает ли что-нибудь, кроме вкладки и страницы. */
 export function isLeadFiltered(filters: LeadFilters): boolean {
   const fit = fitted(filters);
