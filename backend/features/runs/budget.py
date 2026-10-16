@@ -12,7 +12,6 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import ahrefs as ahrefs_cfg
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
 from backend.features.runs.repository import RunRepository
@@ -102,8 +101,12 @@ async def ceiling_at_start(session: AsyncSession, *, run_id: int, promised: int)
     (`units_left`): обещанное идущим прогоном ещё не потрачено, и таблица расхода его
     не видит. Сам прогон из удержаний исключён: продолжению после смерти воркера своё же
     обещание не соперник, а потраченное им уже лежит в таблице расхода.
+
+    **Кап — тот, что действует на старте** (`spending.cap_left`): опущенный на экране
+    «Расход» между нажатием и стартом режет потолок сразу; поднятый — обещанного при
+    нажатии не поднимает: человек видел и согласовал ту цифру.
     """
-    month = await cap_left(session, cap=ahrefs_cfg.UNITS_CAP)
+    month = await cap_left(session)
     claimed = await RunRepository(session).claimed_units(exclude_run_id=run_id)
     ceiling = max(0, min(promised, month - claimed))
     if ceiling < promised:
@@ -133,5 +136,5 @@ async def units_free(session: AsyncSession, client: AhrefsClient) -> int:
     у провайдера неизвестен — `QuotaUnavailableError`, тратить вслепую нельзя.
     """
     claimed = await RunRepository(session).claimed_units()
-    month = await cap_left(session, cap=ahrefs_cfg.UNITS_CAP)
+    month = await cap_left(session)
     return await units_left(client, cap=max(0, month - claimed), claimed=claimed)

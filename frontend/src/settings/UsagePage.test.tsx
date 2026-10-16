@@ -10,64 +10,9 @@
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { AppRoutes } from '../App';
 import { operationTitle } from '../api/labels';
 import { spendOperation } from './usageLabels';
-import { ADMIN, TOKEN_KEY } from '../test/fixtures';
-import { renderWith } from '../test/render';
-import { serve } from '../test/server';
-
-const SPENDING = {
-  since: '2026-09-01T00:00:00+00:00',
-  articles: [
-    {
-      provider: 'ahrefs',
-      operation: 'batch_metrics',
-      units: 6416,
-      amount_usd: '0',
-      calls: 12,
-      stage: 'donors',
-    },
-    {
-      provider: 'serp',
-      operation: 'serp_search',
-      units: 0,
-      amount_usd: '0.3600',
-      calls: 4,
-      stage: 'donors',
-    },
-  ],
-  stages: [
-    {
-      stage: 'donors',
-      units_by_provider: { ahrefs: 6416 },
-      amount_usd: '0.3600',
-      calls: 16,
-    },
-  ],
-  crawl: { cap_usd: null, spent_usd: '0' },
-  units_by_provider: { ahrefs: 6416, llm: 1361 },
-  amount_by_provider: { serp: '0.3600' },
-  total_units: 7777,
-  total_amount: '0.3600',
-  ahrefs_left: 913000,
-  ahrefs_cap: 100000,
-  ahrefs_spent_by_us: 6416,
-  ahrefs_left_error: null,
-  serp_left_usd: '51.90',
-  serp_spent_by_us: '0.3600',
-  serp_left_error: null,
-};
-
-async function openUsage(spending: unknown = SPENDING) {
-  localStorage.setItem(TOKEN_KEY, 'пропуск');
-  serve({
-    'GET /api/auth/me': { body: ADMIN },
-    'GET /api/usage': { body: spending },
-  });
-  renderWith(<AppRoutes />, '/usage');
-  await screen.findByText(/Мы потратили с начала месяца/);
-}
+import { openUsage, SPENDING } from '../test/usageFixtures';
 
 describe('расход', () => {
   it.each([

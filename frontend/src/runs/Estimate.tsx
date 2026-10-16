@@ -7,9 +7,12 @@
  * купит выдача и какая доля доменов схлопнется в дубли, говорит ответ сервера.
  */
 
-import { Alert, SimpleGrid, Stack, Text } from '@mantine/core';
+import { Alert, Anchor, SimpleGrid, Stack, Text } from '@mantine/core';
+import { Link } from 'react-router-dom';
 
+import { permissionTitle } from '../api/labels';
 import type { Forecast } from '../api/types';
+import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
 import { belowCent, formatNumber, formatShare, formatUsd, plural } from '../format';
 import { depthTitle, keywordsTitle, RESULTS_PER_PAGE } from './depth';
@@ -26,6 +29,36 @@ function resultsHint(forecast: Forecast, lines: number): string {
   return repeats > 0
     ? `${asked} · ${repeats} ${plural(repeats, 'повтор', 'повтора', 'повторов')} не в счёт`
     : asked;
+}
+
+/** «Поднимите кап» — с адресом: кап меняют на экране «Расход» (решение владельца
+ *  16.10.2026), и совет без места, где его исполнить, человеку не помогал. Кто меняет —
+ *  словами права, а не роли: право «править пороги» по умолчанию есть и у оператора, и
+ *  «меняет админ» отправляло бы оператора за тем, что он может сам. Ссылка — чернилами
+ *  с подчёркиванием (`inkLink`), как ссылки посреди текста на главной. */
+function RaiseCap() {
+  const { can } = useSession();
+  const usage = (
+    <Anchor
+      component={Link}
+      to="/usage"
+      size="sm"
+      fw={500}
+      c="var(--ink)"
+      underline="always"
+      className="inkLink"
+    >
+      «Расход»
+    </Anchor>
+  );
+  return can('settings') ? (
+    <>либо поднимите кап на экране {usage}, если остаток у провайдера позволяет.</>
+  ) : (
+    <>
+      либо попросите поднять кап на экране {usage}: его меняет учётка с правом «
+      {permissionTitle('settings')}».
+    </>
+  );
 }
 
 interface Props {
@@ -88,7 +121,7 @@ export function Estimate({ forecast, lines }: Props) {
       ) : (
         <Alert color="red" title="Не помещается в бюджет">
           Не хватает {formatNumber(forecast.shortfall)} юнитов. Сократите список ключей или глубину
-          выдачи — либо поднимите кап, если остаток у провайдера позволяет.
+          выдачи — <RaiseCap />
         </Alert>
       )}
     </Stack>

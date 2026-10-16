@@ -207,7 +207,15 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "ready": ("heading", "Расход"),
             "probes": [
                 ("заголовок раздела", "h3", big),
-                ("сколько потратили", "p:has-text('Мы потратили')", norm),
+                # Строка капа (16.10.2026): «потрачено за месяц N из капа M, осталось K»,
+                # под полосой — кто и когда менял кап, рядом — «Изменить кап».
+                ("сколько потратили", "p:has-text('потрачено за месяц')", norm),
+                (
+                    "кто и когда менял кап",
+                    "p:has-text('Кап изменён'), p:has-text('Кап по умолчанию')",
+                    norm,
+                ),
+                ("кнопка «Изменить кап»", "button:has-text('Изменить кап')", big),
                 ("подпись плитки", ".glassQuiet p:nth-child(1)", norm),
                 ("число в плитке", ".glassQuiet p:nth-child(2)", big),
                 # Единица — словом под числом («токена»), а не хвостом за
@@ -216,6 +224,28 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("статья расхода", "table tbody td p", norm),
                 ("провайдер значком", "table tbody .mantine-Badge-label", norm),
                 ("пункт меню", "nav a", norm),
+            ],
+        },
+        # Окно смены капа Ahrefs (16.10.2026): поле, лимит тарифа под ним, почему
+        # «Сохранить» заперта, последние смены. Окно — плотное стекло поверх экрана.
+        "usage-cap": {
+            "path": "/usage",
+            "ready": ("heading", "Расход"),
+            "probes": [
+                ("заголовок окна", ".mantine-Modal-title", big),
+                ("пояснение окна", ".mantine-Modal-body p:has-text('Кап держит')", norm),
+                ("кап в поле", ".mantine-Modal-body input", norm),
+                (
+                    "лимит тарифа под полем",
+                    ".mantine-Modal-body .mantine-InputWrapper-description",
+                    norm,
+                ),
+                (
+                    "почему «Сохранить» заперта",
+                    ".mantine-Modal-body p:has-text('действующий кап')",
+                    norm,
+                ),
+                ("кнопка «Отмена»", ".mantine-Modal-body button:has-text('Отмена')", big),
             ],
         },
         # Ответы без письма (28.09.2026): вторая вкладка экрана диалогов.
@@ -295,7 +325,16 @@ def usage_loaded(page: Any) -> None:
     """Дождаться расхода: остаток экран спрашивает у провайдеров, и ответ
     идёт секунду-две. Девятисот миллисекунд после перезагрузки не хватало —
     замер 25.09.2026 не нашёл на экране ни одной точки, кроме меню."""
-    expect(page.get_by_text("Мы потратили")).to_be_visible(timeout=15_000)
+    expect(page.get_by_text("потрачено за месяц")).to_be_visible(timeout=15_000)
+    page.wait_for_timeout(900)
+
+
+def open_cap_editing(page: Any) -> None:
+    """Открыть «Изменить кап»: без окна на экране нет ни поля, ни лимита тарифа под
+    ним. Окно появляется подъёмом — мерить по улёгшемуся."""
+    usage_loaded(page)
+    page.get_by_role("button", name="Изменить кап").click()
+    expect(page.get_by_role("dialog", name="Месячный кап Ahrefs")).to_be_visible()
     page.wait_for_timeout(900)
 
 
@@ -319,6 +358,7 @@ def mail_prepare() -> dict[str, Callable[[Any], None]]:
         "suppressions": fill_target,
         "advertisers": show_decided,
         "usage": usage_loaded,
+        "usage-cap": open_cap_editing,
         "thresholds-refused": refuse_thresholds,
         "unbound": open_unbound_reply,
         "unbound-phone": open_unbound_reply,

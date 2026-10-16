@@ -38,6 +38,7 @@ from backend.features.core.domain import Stage, UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.core.usage import SALES_OPERATIONS
 from backend.features.outreach.repository import EVERY_STAGE
+from backend.features.runs.ahrefs_cap import ahrefs_units_cap
 
 #: Провайдеры платного обхода Этапа 2 — то, что держит свой потолок Этапа 2.
 CRAWL_PROVIDERS = (UsageProvider.PROXY, UsageProvider.RENDER)
@@ -209,7 +210,33 @@ async def ahrefs_spent_this_month(session: AsyncSession, *, now: datetime | None
     return spending.units_by_provider.get(UsageProvider.AHREFS, 0)
 
 
-async def cap_left(session: AsyncSession, *, cap: int, now: datetime | None = None) -> int:
+@dataclass(frozen=True, slots=True)
+class MonthCap:
+    """Месячный кап Ahrefs и сколько из него потрачено нами — одним чтением."""
+
+    units_cap: int
+    spent: int
+
+    @property
+    def left(self) -> int:
+        """Сколько юнитов осталось по капу; выбранный кап — ноль, а не минус."""
+        return max(0, self.units_cap - self.spent)
+
+
+async def month_cap(session: AsyncSession, *, now: datetime | None = None) -> MonthCap:
+    """Действующий кап (`ahrefs_cap.ahrefs_units_cap`: заданный на экране «Расход», без
+    него — умолчание окружения) и наш расход Ahrefs с первого числа.
+
+    Кап и остаток читаются вместе: экран и тревога называют оба числа, и остаток,
+    посчитанный от другого чтения капа, мог бы с ним не сойтись.
+    """
+    return MonthCap(
+        units_cap=await ahrefs_units_cap(session),
+        spent=await ahrefs_spent_this_month(session, now=now),
+    )
+
+
+async def cap_left(session: AsyncSession, *, now: datetime | None = None) -> int:
     """Сколько юнитов осталось по нашему добровольному капу в этом месяце.
 
     **Кап месячный, и вычитать из него потраченное обязательно.** Без
@@ -221,8 +248,11 @@ async def cap_left(session: AsyncSession, *, cap: int, now: datetime | None = No
     Считается по своей таблице, а не по остатку провайдера: остаток
     включает траты соседней системы на общем ключе, а наш кап —
     про нас.
+
+    **Кап — действующий, а не переданный** (16.10.2026): его задают на экране «Расход»,
+    и параметра, через который вызов подставил бы умолчание окружения мимо экрана, нет.
     """
-    return max(0, cap - await ahrefs_spent_this_month(session, now=now))
+    return (await month_cap(session, now=now)).left
 
 
 async def crawl_spent_this_month(

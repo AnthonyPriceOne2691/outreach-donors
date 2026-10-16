@@ -185,7 +185,7 @@ def budget_run(
     monkeypatch.setattr("backend.cli.main.AhrefsClient", run.ahrefs)
     monkeypatch.setattr("backend.cli.main.build_provider", lambda _client: Serp())
 
-    async def month_left(_session: object, *, cap: int) -> int:
+    async def month_left(_session: object) -> int:
         return run.month_left
 
     def answer(prompt: str) -> str:

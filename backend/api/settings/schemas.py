@@ -6,14 +6,16 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from pydantic_core import PydanticCustomError
 
 from backend.features.core.domain import Stage, UsageProvider
 from backend.features.core.models.run import RunSettingsModel
 from backend.features.crawl.selection_settings import InForce, Number
 from backend.features.donors.geo import COUNTRY_ROWS, GeoRule
 from backend.features.donors.verdict import Thresholds
-from backend.features.runs.spending import Article, Spending, StageSpending
+from backend.features.runs.ahrefs_cap import CapChange, cap_limits
+from backend.features.runs.spending import Article, MonthCap, Spending, StageSpending
 from backend.features.runs.thresholds import Consequences, Rules
 
 #: Допустимые пороги — целые от и до, включительно. Одно место на схему и
@@ -264,6 +266,42 @@ class CrawlSpendCard(BaseModel):
     spent_usd: Decimal = Decimal(0)
 
 
+class CapBody(BaseModel):
+    """Новый месячный кап юнитов Ahrefs. Границы проверяет сама смена
+    (`runs/ahrefs_cap.cap_refusal`) — тем же правилом, что экран получает
+    в `SpendingView.ahrefs_cap_limits`: второй копии чисел здесь нет."""
+
+    units_cap: int
+
+    @field_validator("units_cap", mode="before")
+    @classmethod
+    def _whole(cls, value: object) -> object:
+        """Кап — целое число: дробь, строка и «да/нет» — отказ словами, а не именем поля."""
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        raise PydanticCustomError(
+            "cap_not_whole", "Кап — целое число юнитов в месяц, например 150 000"
+        )
+
+
+class CapChangeCard(BaseModel):
+    """Смена месячного капа: что поставили, кто и когда. `set_by` пусто — учётку удалили."""
+
+    id: int
+    units_cap: int
+    set_by: str | None
+    set_at: datetime
+
+    @classmethod
+    def of(cls, change: CapChange) -> CapChangeCard:
+        return cls(
+            id=change.id,
+            units_cap=change.units_cap,
+            set_by=change.set_by,
+            set_at=change.set_at,
+        )
+
+
 class SpendingView(BaseModel):
     """Расход с начала месяца плюс остаток у провайдера.
 
@@ -272,7 +310,8 @@ class SpendingView(BaseModel):
 
     * `ahrefs_left` — остаток **у провайдера**. Ключ общий с соседней
       системой, поэтому её траты тоже уменьшают это число;
-    * `ahrefs_cap` — наш добровольный потолок на месяц;
+    * `ahrefs_cap` — наш добровольный потолок на месяц: заданный на этом же
+      экране (`ahrefs_cap_changes`), а без смен — умолчание окружения;
     * `ahrefs_spent_by_us` — сколько потратили мы, по своей таблице.
       Именно это число сравнивают с капом; остаток провайдера для этого
       не годится, потому что включает чужой расход.
@@ -287,6 +326,13 @@ class SpendingView(BaseModel):
     ahrefs_left: int | None
     ahrefs_cap: int
     ahrefs_spent_by_us: int
+    #: Осталось по капу — тем же правилом, что у потолка прогона (`spending.cap_left`):
+    #: экран называет его, а не считает, и число не расходится с тем, что увидит прогон.
+    ahrefs_cap_left: int
+    #: Допустимый кап — от единицы до лимита тарифа: поле смены проверяется ими до нажатия.
+    ahrefs_cap_limits: Range
+    #: Последние смены капа, новые первыми; пусто — кап из окружения, на экране не меняли.
+    ahrefs_cap_changes: list[CapChangeCard]
     ahrefs_left_error: str | None = None
     #: Остаток денег у источника выдачи. Ключ там свой, не общий,
     #: поэтому вычитать чужое не из чего.
@@ -306,15 +352,23 @@ class SpendingView(BaseModel):
         cls,
         spending: Spending,
         *,
-        ahrefs_left: int | None,
-        ahrefs_cap: int,
-        error: str | None = None,
-        serp_left_usd: Decimal | None = None,
-        serp_left_error: str | None = None,
+        ahrefs_balance: tuple[int | None, str | None],
+        month: MonthCap,
+        cap_changes: list[CapChange],
+        serp_balance: tuple[Decimal | None, str | None] = (None, None),
         sales_hidden: bool = False,
         crawl: CrawlSpendCard | None = None,
     ) -> SpendingView:
+        """Остатки у провайдеров — парами «число или почему его нет»: ответ провайдера
+        приходит одним из двух, и пара не даёт передать оба или ни одного по ошибке."""
+        ahrefs_left, ahrefs_left_error = ahrefs_balance
+        serp_left_usd, serp_left_error = serp_balance
+        low, high = cap_limits()
         return cls(
+            ahrefs_cap=month.units_cap,
+            ahrefs_cap_left=month.left,
+            ahrefs_cap_limits=Range(min=low, max=high),
+            ahrefs_cap_changes=[CapChangeCard.of(change) for change in cap_changes],
             since=spending.since,
             articles=[ArticleCard.of(article) for article in spending.articles],
             stages=[StageCard.of(spent) for spent in spending.by_stage],
@@ -328,9 +382,8 @@ class SpendingView(BaseModel):
             total_units=spending.total_units,
             total_amount=spending.total_amount,
             ahrefs_left=ahrefs_left,
-            ahrefs_cap=ahrefs_cap,
             ahrefs_spent_by_us=spending.units_by_provider.get(UsageProvider.AHREFS, 0),
-            ahrefs_left_error=error,
+            ahrefs_left_error=ahrefs_left_error,
             serp_left_usd=serp_left_usd,
             serp_spent_by_us=spending.amount_by_provider.get(UsageProvider.SERP, Decimal(0)),
             serp_left_error=serp_left_error,

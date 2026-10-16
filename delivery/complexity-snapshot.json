@@ -132,9 +132,9 @@
       "worst": "of:205"
     },
     "backend/api/errors.py": {
-      "lines": 470,
+      "lines": 473,
       "complexity": 7,
-      "worst": "_database_code:298"
+      "worst": "_database_code:301"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -309,7 +309,7 @@
     "backend/api/runs/routes.py": {
       "lines": 262,
       "complexity": 2,
-      "worst": "effective_cap:56"
+      "worst": "effective_cap:55"
     },
     "backend/api/runs/schemas.py": {
       "lines": 399,
@@ -437,14 +437,14 @@
       "worst": "—"
     },
     "backend/api/settings/routes.py": {
-      "lines": 267,
+      "lines": 304,
       "complexity": 5,
-      "worst": "_serp_balance:238"
+      "worst": "_serp_balance:275"
     },
     "backend/api/settings/schemas.py": {
-      "lines": 378,
-      "complexity": 6,
-      "worst": "of:305"
+      "lines": 431,
+      "complexity": 7,
+      "worst": "of:351"
     },
     "backend/api/stage_access.py": {
       "lines": 139,
@@ -1012,12 +1012,12 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 310,
+      "lines": 313,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 82,
+      "lines": 83,
       "complexity": 0,
       "worst": "—"
     },
@@ -1067,9 +1067,9 @@
       "worst": "_enum:34"
     },
     "backend/features/core/models/ops.py": {
-      "lines": 92,
+      "lines": 128,
       "complexity": 2,
-      "worst": "_enum:18"
+      "worst": "_enum:28"
     },
     "backend/features/core/models/outgoing_attachment.py": {
       "lines": 64,
@@ -1757,14 +1757,14 @@
       "worst": "_of_stage:117"
     },
     "backend/features/ops/overview.py": {
-      "lines": 358,
+      "lines": 359,
       "complexity": 5,
-      "worst": "_letters:325"
+      "worst": "_letters:326"
     },
     "backend/features/ops/silence.py": {
-      "lines": 450,
+      "lines": 458,
       "complexity": 7,
-      "worst": "_crawl_blocked:292"
+      "worst": "_crawl_blocked:291"
     },
     "backend/features/ops/stage_silence.py": {
       "lines": 204,
@@ -1996,15 +1996,20 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/runs/ahrefs_cap.py": {
+      "lines": 145,
+      "complexity": 3,
+      "worst": "cap_refusal:80"
+    },
     "backend/features/runs/browse.py": {
       "lines": 272,
       "complexity": 8,
       "worst": "tally_reviews:199"
     },
     "backend/features/runs/budget.py": {
-      "lines": 138,
+      "lines": 141,
       "complexity": 4,
-      "worst": "units_left:40"
+      "worst": "units_left:39"
     },
     "backend/features/runs/duplicates.py": {
       "lines": 68,
@@ -2067,9 +2072,9 @@
       "worst": "unique_share_from:122"
     },
     "backend/features/runs/spending.py": {
-      "lines": 263,
+      "lines": 293,
       "complexity": 6,
-      "worst": "by_stage:94"
+      "worst": "by_stage:95"
     },
     "backend/features/runs/stopped.py": {
       "lines": 37,
@@ -3047,7 +3052,7 @@
       "worst": "donor_screens:19"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 326,
+      "lines": 366,
       "complexity": 2,
       "worst": "unbound_probes:32"
     },

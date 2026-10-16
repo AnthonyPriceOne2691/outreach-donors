@@ -22,6 +22,8 @@ EXPECTED_TABLES = {
     "runs",
     "run_settings",
     "usage_records",
+    # Месячный кап юнитов Ahrefs с экрана «Расход»: строка на каждую смену (16.10.2026).
+    "ahrefs_caps",
     "suppressions",
     # Срез доступа: учётки и журнал действий.
     "users",

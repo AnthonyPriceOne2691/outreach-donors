@@ -35,7 +35,6 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import ahrefs as ahrefs_cfg
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.core.domain import (
     CrawlOutcome,
@@ -48,7 +47,7 @@ from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.run import RunModel
 from backend.features.ops import mail_watch, stage_silence
 from backend.features.ops.alarms import Alarm
-from backend.features.runs.spending import ahrefs_spent_this_month, crawl_spent_this_month
+from backend.features.runs.spending import crawl_spent_this_month, month_cap
 from backend.features.serp.dataforseo import SerpError
 from backend.features.serp.factory import UnknownProviderError, build_provider
 
@@ -334,19 +333,28 @@ async def _crawl_blocked(session: AsyncSession) -> Alarm | None:
 
 
 async def _cap_reached(session: AsyncSession) -> Alarm | None:
-    """Месячный кап выбран. Прогоны молчат не потому, что сломались."""
-    spent = await ahrefs_spent_this_month(session)
-    if spent < ahrefs_cfg.UNITS_CAP:
+    """Месячный кап выбран. Прогоны молчат не потому, что сломались.
+
+    Кап — действующий (`spending.month_cap`): поднятый на экране «Расход» гасит тревогу
+    на следующем проходе, а не после правки окружения. Где его поднять, тревога называет:
+    она стоит на «Обзоре», и человек, увидевший её, должен знать, куда идти."""
+    month = await month_cap(session)
+    if month.left > 0:
         return None
     return Alarm(
         code="cap-reached",
         title="Месячный кап выбран",
         detail=(
-            f"Потрачено {spent} юнитов при капе {ahrefs_cfg.UNITS_CAP}. "
-            "Новые прогоны не запустятся до первого числа или до поднятия капа — "
-            "это не поломка, но выглядит одинаково"
+            f"Потрачено {_spaced(month.spent)} юнитов Ahrefs при капе {_spaced(month.units_cap)}. "
+            "Новые прогоны не запустятся до первого числа или пока кап не поднимут на экране "
+            "«Расход» — это не поломка, но выглядит одинаково"
         ),
     )
+
+
+def _spaced(number: int) -> str:
+    """Число с разрядами, как на экране: «100 000»."""
+    return f"{number:,}".replace(",", " ")
 
 
 def _setting_names(exc: ValueError) -> str:

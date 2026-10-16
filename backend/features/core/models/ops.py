@@ -1,11 +1,21 @@
-"""UsageRecordModel и SuppressionModel — расход и стоп-лист."""
+"""UsageRecordModel, AhrefsCapModel и SuppressionModel — расход, кап Ahrefs и стоп-лист."""
 
 from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DECIMAL, DateTime, ForeignKey, Index, Integer, String, or_
+from sqlalchemy import (
+    DECIMAL,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    func,
+    or_,
+)
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.elements import ColumnElement
@@ -49,6 +59,32 @@ class UsageRecordModel(TimestampedMixin, Base):
         Index("idx_usage_provider_created", "provider", "created_at"),
         Index("idx_usage_run_id", "run_id"),
     )
+
+
+class AhrefsCapModel(Base):
+    """Месячный кап юнитов Ahrefs, заданный на экране «Расход»: строка на каждую смену.
+
+    Действующий кап — последняя строка; строк нет — умолчание окружения
+    (`AHREFS_UNITS_CAP`, `runs/ahrefs_cap.py`). Строка не правится и не удаляется:
+    по строкам видно, кто и когда менял кап, — как по версиям порогов (требование:
+    «видно, кто и когда менял»). Остаток капа полем не хранится — он считается
+    по журналу расхода (`runs/spending.cap_left`).
+    """
+
+    __tablename__ = "ahrefs_caps"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Юнитов в месяц; не больше лимита тарифа — проверяет смена (`set_ahrefs_cap`).
+    units_cap: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Кто поставил. Пусто — учётку удалили: строка истории остаётся и без неё.
+    set_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    set_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (CheckConstraint("units_cap > 0", name="ck_ahrefs_caps_positive"),)
 
 
 class SuppressionModel(TimestampedMixin, Base):

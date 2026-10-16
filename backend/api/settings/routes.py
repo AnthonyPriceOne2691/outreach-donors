@@ -7,6 +7,10 @@
 
 Расход смотрят все: это то же содержимое базы, что и доноры. Расход продаж —
 только с правом «Продажи» (решение Anthony 10.10.2026, П2б, `runs/spending.py`).
+
+Месячный кап юнитов Ahrefs меняют на экране «Расход» тем же правом, что пороги
+(`settings`, решение владельца 16.10.2026): смена — строкой истории и записью журнала,
+окружение (`AHREFS_UNITS_CAP`) — умолчание, пока кап на экране не задавали.
 """
 
 from __future__ import annotations
@@ -22,6 +26,8 @@ from backend.api.settings.schemas import (
     LIMITS,
     RULE_LIMITS,
     AdvertiserSettingsView,
+    CapBody,
+    CapChangeCard,
     ConsequencesView,
     CrawlSpendCard,
     SpendingView,
@@ -30,7 +36,6 @@ from backend.api.settings.schemas import (
     ThresholdsView,
     share_percent,
 )
-from backend.config import ahrefs as ahrefs_cfg
 from backend.config import crawl as crawl_cfg
 from backend.features.access.permissions import visible_stages
 from backend.features.access.repository import AccessRepository
@@ -40,7 +45,12 @@ from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import selection_settings
 from backend.features.donors.geo import assert_settings_allow_limited_fetch
-from backend.features.runs.spending import SpendingRepository, crawl_spent_this_month
+from backend.features.runs.ahrefs_cap import cap_changes, set_ahrefs_cap
+from backend.features.runs.spending import (
+    SpendingRepository,
+    crawl_spent_this_month,
+    month_cap,
+)
 from backend.features.runs.thresholds import (
     ThresholdsRepository,
     consequences,
@@ -195,39 +205,66 @@ async def usage(
     stages = visible_stages(actor(user))
     spending = await SpendingRepository(session).since_month_start(stages=stages)
     crawl_spent = await crawl_spent_this_month(session, stages=stages)
-    serp_left, serp_error = await _serp_balance()
-
-    # Спрашивается сырой остаток провайдера, а не бюджет прогона: бюджет —
-    # это меньшее из остатка и капа, и сравнивать его с нашим расходом
-    # бессмысленно (первая версия экрана так и показывала «израсходовано
-    # 0» при шести тысячах потраченных).
-    left: int | None = None
-    error: str | None = None
-    client = AhrefsClient()
-    try:
-        left = Quota.from_payload(await client.limits_and_usage()).available
-    except (AhrefsError, OSError) as exc:
-        logger.warning("расход: остаток у Ahrefs недоступен (%s)", exc)
-        error = (
-            "Не удалось узнать остаток у Ahrefs. Расход ниже — из своей таблицы, "
-            "он от провайдера не зависит."
-        )
-    finally:
-        await client.aclose()
-
     return SpendingView.of(
         spending,
-        ahrefs_left=left,
-        ahrefs_cap=ahrefs_cfg.UNITS_CAP,
-        error=error,
-        serp_left_usd=serp_left,
-        serp_left_error=serp_error,
+        serp_balance=await _serp_balance(),
+        ahrefs_balance=await _ahrefs_balance(),
+        # Кап — действующий, с этого же экрана, и остаток по нему — правилом прогона.
+        month=await month_cap(session),
+        cap_changes=await cap_changes(session),
         sales_hidden=Stage.SALES not in stages,
         crawl=CrawlSpendCard(
             cap_usd=None if crawl_cfg.MONTH_CAP_USD is None else _usd(crawl_cfg.MONTH_CAP_USD),
             spent_usd=crawl_spent,
         ),
     )
+
+
+async def _ahrefs_balance() -> tuple[int | None, str | None]:
+    """Остаток у Ahrefs — или почему его нет. Недоступен — отдельное поле, а не пятисотка.
+
+    Спрашивается сырой остаток провайдера, а не бюджет прогона: бюджет — это меньшее
+    из остатка и капа, и сравнивать его с нашим расходом бессмысленно (первая версия
+    экрана так и показывала «израсходовано 0» при шести тысячах потраченных).
+    """
+    client = AhrefsClient()
+    try:
+        return Quota.from_payload(await client.limits_and_usage()).available, None
+    except (AhrefsError, OSError) as exc:
+        logger.warning("расход: остаток у Ahrefs недоступен (%s)", exc)
+        return None, (
+            "Не удалось узнать остаток у Ahrefs. Расход ниже — из своей таблицы, "
+            "он от провайдера не зависит."
+        )
+    finally:
+        await client.aclose()
+
+
+@router.post(
+    "/usage/ahrefs-cap",
+    response_model=CapChangeCard,
+    summary="Сменить месячный кап юнитов Ahrefs",
+)
+async def change_ahrefs_cap(
+    body: CapBody,
+    author: UserModel = _settler,
+    session: AsyncSession = Depends(db_session),
+) -> CapChangeCard:
+    """Новый месячный кап — с этой минуты, под тем же правом, что пороги (решение владельца
+    16.10.2026: кап меняют на экране «Расход», видно, кто и когда).
+
+    Смена заводит строку, а не правит прежнюю, и пишет в журнал «было → стало» той же
+    транзакцией. За границами — отказ словами до записи (`runs/ahrefs_cap.py`).
+    """
+    done = await set_ahrefs_cap(session, body.units_cap, author=author)
+    await AccessRepository(session).record(
+        AuditAction.AHREFS_CAP_CHANGED,
+        author_id=author.id,
+        target=f"ahrefs_cap:{done.change.id}",
+        details={"кап, юнитов в месяц": {"было": done.was, "стало": done.change.units_cap}},
+    )
+    await session.commit()
+    return CapChangeCard.of(done.change)
 
 
 def _usd(value: float) -> Decimal:

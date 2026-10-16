@@ -21,18 +21,21 @@
  * **Этап — у каждой статьи, разбивка — отдельной панелью** (`UsageStages.tsx`):
  * DR кандидатов Этапа 2 и метрики прогона — одна операция, но две статьи; платный
  * обход Этапа 2 — строкой против своего потолка.
+ *
+ * **Кап Ahrefs меняют здесь** (`AhrefsCap.tsx`, решение владельца 16.10.2026): сколько
+ * из него потрачено и осталось, кто и когда менял — и «Изменить кап» у кого есть право.
  */
 
 import { Alert, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
-import { Meter } from '../components/Meter';
 import { Metric } from '../components/Metric';
 import { PageHead } from '../components/PageHead';
 import { SpendTable, tileOf } from '../components/SpendTable';
 import { fetchUsage } from '../api/settings';
-import { formatDate, formatNumber, formatUsd } from '../format';
+import { formatDate, formatUsd } from '../format';
+import { AhrefsCap } from './AhrefsCap';
 import { CrawlCap, StageBreakdown } from './UsageStages';
 import { shownWithoutSpend, SPEND_PROVIDERS } from './usageLabels';
 
@@ -70,33 +73,9 @@ export function UsagePage() {
             hint={`С ${formatDate(data.since)} — лимиты месячные. Остаток спрашивается у провайдера, а не считается по своей таблице: ключ Ahrefs общий с соседней системой, и её траты нам не видны.`}
           />
 
-          {/* Три числа, и путать их нельзя: остаток у провайдера включает
-              траты соседней системы на общем ключе, а с нашим капом
-              сравнивают наш же расход. Первая версия экрана показывала
-              «израсходовано 0» при шести тысячах потраченных юнитов. */}
-          <Stack gap={6}>
-            <Group justify="space-between">
-              <Text size="sm">
-                Мы потратили с начала месяца: <b>{formatNumber(data.ahrefs_spent_by_us)}</b> из{' '}
-                {formatNumber(data.ahrefs_cap)} по нашему капу
-              </Text>
-              {data.ahrefs_left === null ? (
-                <Text size="sm" c="dimmed">
-                  остаток у провайдера неизвестен
-                </Text>
-              ) : (
-                <Text size="sm" c="dimmed">
-                  у провайдера осталось {formatNumber(data.ahrefs_left)} — с учётом чужих трат на
-                  общем ключе
-                </Text>
-              )}
-            </Group>
-            <Meter
-              spent={data.ahrefs_spent_by_us}
-              cap={data.ahrefs_cap}
-              label="Юниты Ahrefs с начала месяца"
-            />
-          </Stack>
+          {/* Кап — сколько потрачено из него, сколько осталось, кто и когда его менял;
+              менять — тому, у кого право «править пороги» (`AhrefsCap.tsx`). */}
+          <AhrefsCap data={data} />
 
           {data.ahrefs_left === null && (
             <Alert color="yellow" title="Остаток у Ahrefs спросить не удалось">
