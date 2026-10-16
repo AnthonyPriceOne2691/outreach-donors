@@ -106,22 +106,28 @@ class TestTheJournal:
 
 
 class TestTheMonthlyCap:
+    @pytest.fixture(autouse=True)
+    def _cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Кап — умолчание окружения: смен на экране «Расход» в тесте нет
+        (`runs/ahrefs_cap.py`), и действует то, что в окружении."""
+        monkeypatch.setattr("backend.config.ahrefs.UNITS_CAP", 100_000)
+
     async def test_cap_shrinks_by_what_we_spent(self, session: AsyncSession) -> None:
         usage.record(session, operation="batch_metrics", units=6416)
         await session.flush()
 
         assert await ahrefs_spent_this_month(session) == 6416
-        assert await cap_left(session, cap=100_000) == 93_584
+        assert await cap_left(session) == 93_584
 
     async def test_cap_never_goes_below_zero(self, session: AsyncSession) -> None:
         usage.record(session, operation="batch_metrics", units=120_000)
         await session.flush()
 
-        assert await cap_left(session, cap=100_000) == 0
+        assert await cap_left(session) == 0
 
     async def test_money_of_the_search_does_not_eat_units(self, session: AsyncSession) -> None:
         """Счета разные: доллары выдачи не уменьшают кап юнитов."""
         usage.record(session, operation="serp_search", amount_usd=42)
         await session.flush()
 
-        assert await cap_left(session, cap=100_000) == 100_000
+        assert await cap_left(session) == 100_000

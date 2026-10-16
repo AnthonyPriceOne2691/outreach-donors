@@ -63,7 +63,6 @@ from backend.cli.senders_admin import add_parser as add_senders_parser
 from backend.cli.senders_admin import cmd_sender_add, cmd_senders
 from backend.cli.sending_domains import add_parser as add_domains_parser
 from backend.cli.sending_domains import cmd_sending_domain
-from backend.config import ahrefs as ahrefs_cfg
 from backend.config import storage
 from backend.config.startup_checks import ConfigError, check_collect, check_storage
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
@@ -183,8 +182,9 @@ async def cmd_run(args: argparse.Namespace) -> int:
             )
             # Кап месячный: из него вычитается уже потраченное нами,
             # иначе он ограничивает один прогон, а не месяц. Свой
-            # потолок (`--cap`) может быть только меньше.
-            month_left = await cap_left(session, cap=ahrefs_cfg.UNITS_CAP)
+            # потолок (`--cap`) может быть только меньше. Кап — тот же,
+            # что у кнопки: заданный на экране «Расход», без него — из окружения.
+            month_left = await cap_left(session)
             allowed = min(args.cap, month_left) if args.cap is not None else month_left
             budget = await units_left(client, cap=allowed)
             plan = await plan_run(

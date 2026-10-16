@@ -26,7 +26,6 @@ from backend.api.runs.schemas import (
     RunRequestBody,
     RunsView,
 )
-from backend.config import ahrefs as ahrefs_cfg
 from backend.config.startup_checks import check_collect
 from backend.features.access.permissions import visible_stages
 from backend.features.access.repository import AccessRepository
@@ -41,7 +40,7 @@ from backend.features.runs.duplicates import refuse_duplicate
 from backend.features.runs.estimate import UNIQUE_SHARE, forecast
 from backend.features.runs.outcome import outcome
 from backend.features.runs.repository import RunRepository
-from backend.features.runs.spending import ahrefs_spent_this_month, cap_left
+from backend.features.runs.spending import cap_left, month_cap
 from backend.features.runs.thresholds import rules_in_force
 from backend.features.serp.dataforseo import COUNTRY_CODES
 from backend.features.serp.modes import mode_of
@@ -60,7 +59,7 @@ async def effective_cap(session: AsyncSession, *, asked: int | None) -> int:
     Своё число не может быть больше общего: иначе поле «попробовать
     дёшево» превращалось бы в способ обойти кап.
     """
-    left = await cap_left(session, cap=ahrefs_cfg.UNITS_CAP)
+    left = await cap_left(session)
     return min(asked, left) if asked is not None else left
 
 
@@ -84,7 +83,8 @@ async def estimate(
 ) -> Forecast:
     """Сколько будет стоить. Не тратит ничего: остаток провайдера — это
     бесплатный запрос, число доменов — арифметика и замеренная доля."""
-    spent = await ahrefs_spent_this_month(session)
+    # Кап — действующий, с экрана «Расход», и потраченное из него — одним чтением.
+    month = await month_cap(session)
 
     client = AhrefsClient()
     try:
@@ -102,8 +102,8 @@ async def estimate(
             keywords=len(body.keywords),
             depth_pages=body.depth_pages,
             units_left=left,
-            units_cap=ahrefs_cfg.UNITS_CAP,
-            units_spent_this_month=spent,
+            units_cap=month.units_cap,
+            units_spent_this_month=month.spent,
             run_ceiling=body.cap,
             country_share=await RunRepository(session).country_call_share(body.country),
             unique_share=await RunRepository(session).unique_share(UNIQUE_SHARE),

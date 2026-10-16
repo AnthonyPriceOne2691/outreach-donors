@@ -38,7 +38,6 @@ from decimal import Decimal
 from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import ahrefs as ahrefs_cfg
 from backend.features.contacts import forms
 from backend.features.contacts.repository import has_address
 from backend.features.core.domain import (
@@ -60,6 +59,7 @@ from backend.features.outreach.repository import OutreachRepository, ThreadMark
 from backend.features.outreach.threads import ThreadState
 from backend.features.replies import unbound
 from backend.features.review.candidates import Decision
+from backend.features.runs.ahrefs_cap import ahrefs_units_cap
 from backend.features.runs.browse import RunBrowser, RunRow
 from backend.features.runs.spending import SpendingRepository
 
@@ -157,6 +157,7 @@ class Overview:
     last_run: RunRow | None
     #: Юниты Ahrefs, потраченные нами с начала месяца, — по своей таблице.
     ahrefs_units: int
+    #: Действующий месячный кап — заданный на экране «Расход», без него — из окружения.
     ahrefs_cap: int
     serp_usd: Decimal
     #: Ответов, не привязанных ни к одному нашему письму, — тем же условием и тех же
@@ -219,7 +220,7 @@ async def overview(
         letters=await _letters(session, stages),
         last_run=await _last_run(session),
         ahrefs_units=spending.units_by_provider.get(UsageProvider.AHREFS, 0),
-        ahrefs_cap=ahrefs_cfg.UNITS_CAP,
+        ahrefs_cap=await ahrefs_units_cap(session),
         serp_usd=spending.amount_by_provider.get(UsageProvider.SERP, Decimal(0)),
         unbound_replies=await unbound.total(session, stages=stages),
     )

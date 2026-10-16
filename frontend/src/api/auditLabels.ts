@@ -50,6 +50,8 @@ export const AUDIT_ACTIONS: Record<AuditAction, string> = {
   probe_created: 'Проверочная запись заведена',
   sales_chain_changed: 'Цепочка писем продаж изменена',
   agent_draft_decided: 'Решение по черновику агента',
+  // Месячный кап юнитов Ahrefs сменён на экране «Расход» — в подробностях «было → стало».
+  ahrefs_cap_changed: 'Кап Ahrefs изменён',
 };
 
 /** Действия этапа продаж: без права «Продажи» их нет ни в журнале, ни в фильтре (П2). */
@@ -105,6 +107,8 @@ const TARGETS: Record<string, { noun: string; path?: (id: string) => string; bar
   sender: { noun: 'ящик рассылки' },
   settings: { noun: 'пороги', bare: true },
   agent_settings: { noun: 'настройки агента', bare: true },
+  // Номер строки смены человеку ничего не говорит: что стало с капом — в подробностях.
+  ahrefs_cap: { noun: 'месячный кап Ahrefs', bare: true },
   agent_draft: { noun: 'черновик агента' },
   sales_hypothesis: { noun: 'гипотеза продаж' },
   sales_handoff: { noun: 'передача лида продаж' },
