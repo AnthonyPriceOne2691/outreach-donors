@@ -10,7 +10,7 @@
 import { Alert, Anchor, SimpleGrid, Stack, Text } from '@mantine/core';
 import { Link } from 'react-router-dom';
 
-import { permissionTitle } from '../api/labels';
+import type { BudgetBinding } from '../api/forecastLimits';
 import type { Forecast } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
@@ -32,11 +32,10 @@ function resultsHint(forecast: Forecast, lines: number): string {
 }
 
 /** «Поднимите кап» — с адресом: кап меняют на экране «Расход» (решение владельца
- *  16.10.2026), и совет без места, где его исполнить, человеку не помогал. Кто меняет —
- *  словами права, а не роли: право «править пороги» по умолчанию есть и у оператора, и
- *  «меняет админ» отправляло бы оператора за тем, что он может сам. Ссылка — чернилами
- *  с подчёркиванием (`inkLink`), как ссылки посреди текста на главной. */
-function RaiseCap({ free }: { free: number }) {
+ *  16.10.2026). Право «править пороги» по умолчанию есть и у оператора, и тот, у кого оно
+ *  есть, поднимает сам; у кого нет — просит администратора (слово владельца). Ссылка —
+ *  чернилами с подчёркиванием (`inkLink`), как ссылки посреди текста на главной. */
+function RaiseCap() {
   const { can } = useSession();
   const usage = (
     <Anchor
@@ -52,14 +51,9 @@ function RaiseCap({ free }: { free: number }) {
     </Anchor>
   );
   return can('settings') ? (
-    <>
-      либо поднимите кап на экране {usage}: у Ahrefs свободно {formatNumber(free)}.
-    </>
+    <>поднимите кап на экране {usage}.</>
   ) : (
-    <>
-      либо попросите поднять кап на экране {usage}: у Ahrefs свободно {formatNumber(free)}, а кап
-      меняет учётка с правом «{permissionTitle('settings')}».
-    </>
+    <>попросите администратора поднять кап на экране {usage}.</>
   );
 }
 
@@ -77,46 +71,86 @@ function budgetHint(forecast: Forecast): string {
   return (bound === null ? rest : [`упор — ${bound}`, ...rest]).join(' · ');
 }
 
-/** Не помещается — во что упёрлись и что делать: у каждого упора свой совет (16.10.2026:
- *  «поднимите кап» при кончившемся ключе Ahrefs вёл поднимать кап зря). */
-function ShortAlert({ forecast }: { forecast: Forecast }) {
-  const short = `Не хватает ${formatNumber(forecast.shortfall)} юнитов`;
+const LIMIT_NAMES: Record<BudgetBinding, string> = {
+  key: 'лимит ключа Ahrefs',
+  workspace: 'лимит пространства Ahrefs',
+  cap: 'кап',
+  ceiling: 'ваш потолок',
+};
+
+const ONE_TITLES: Record<BudgetBinding, string> = {
+  key: 'Не помещается: не хватает лимита ключа Ahrefs',
+  workspace: 'Не помещается: не хватает лимита пространства Ahrefs',
+  cap: 'Не помещается в кап',
+  ceiling: 'Не помещается в ваш потолок',
+};
+
+/** Заголовок плашки «не помещается»: один лимит — он; несколько — проверить каждый
+ *  (слово владельца 16.10.2026: «если и то, и другое — проверьте лимиты ключа и капа»). */
+function shortTitle(short: BudgetBinding[]): string {
+  const names = short.map((limit) => LIMIT_NAMES[limit]);
+  const last = names.pop();
+  if (last === undefined) return ONE_TITLES.cap;
+  if (names.length === 0) return ONE_TITLES[short[0] ?? 'cap'];
+  return `Не помещается: проверьте ${names.join(', ')} и ${last}`;
+}
+
+/** Строка плашки об одном лимите: сколько осталось и что с ним делать. «Кап здесь не
+ *  поможет» — только когда кап хватает: не хватает и его, — поднимать надо оба. */
+function ShortLine({ limit, forecast }: { limit: BudgetBinding; forecast: Forecast }) {
   const until = forecast.cycle_by_key ? ` до обнуления ${formatDay(forecast.next_reset)}` : '';
   const free = formatNumber(forecast.units_left);
-  const trim = 'Пока сократите список ключей или глубину выдачи.';
-  switch (forecast.binding) {
+  const alone = forecast.short_of.includes('cap') ? '' : ': кап здесь не поможет';
+  switch (limit) {
     case 'key':
       return (
-        <Alert color="red" title="Не помещается: кончается лимит ключа Ahrefs">
-          {short}: на ключе Ahrefs свободно {free}
-          {until}. Кап здесь не поможет — лимит ключа поднимают в самом Ahrefs. {trim}
-        </Alert>
+        <>
+          На ключе Ahrefs свободно {free}
+          {until} — увеличьте лимит ключа в самом Ahrefs{alone}.
+        </>
       );
     case 'workspace':
       return (
-        <Alert color="red" title="Не помещается: кончается лимит пространства Ahrefs">
-          {short}: в пространстве Ahrefs свободно {free}
-          {until} — это общий лимит всех его ключей. Кап здесь не поможет — лимит пространства
-          поднимают в самом Ahrefs. {trim}
-        </Alert>
+        <>
+          В пространстве Ahrefs свободно {free}
+          {until} — это общий лимит всех его ключей; увеличьте его в самом Ahrefs{alone}.
+        </>
       );
-    case 'ceiling':
+    case 'cap':
       return (
-        <Alert color="red" title="Не помещается в ваш потолок">
-          {short} до потолка этого прогона, {formatNumber(forecast.run_ceiling ?? 0)}. Поднимите или
-          уберите потолок в форме — или сократите список ключей или глубину выдачи.
-        </Alert>
+        <>
+          По нашему капу осталось {formatNumber(forecast.cap_left)} из{' '}
+          {formatNumber(forecast.units_cap ?? 0)}
+          {until} — <RaiseCap />
+        </>
       );
     default:
       return (
-        <Alert color="red" title="Не помещается в кап">
-          {short}: по нашему капу осталось {formatNumber(forecast.cap_left)} из{' '}
-          {formatNumber(forecast.units_cap ?? 0)}
-          {until}. Сократите список ключей или глубину выдачи —{' '}
-          <RaiseCap free={forecast.units_left} />
-        </Alert>
+        <>
+          Потолок этого прогона — {formatNumber(forecast.run_ceiling ?? 0)}: поднимите или уберите
+          его в форме.
+        </>
       );
   }
+}
+
+/** Не помещается — чего не хватает и что делать: каждый лимит своей строкой (16.10.2026:
+ *  «поднимите кап» при кончившемся ключе Ahrefs вёл поднимать кап зря). */
+function ShortAlert({ forecast }: { forecast: Forecast }) {
+  const short = forecast.short_of.length > 0 ? forecast.short_of : [forecast.binding ?? 'cap'];
+  return (
+    <Alert color="red" title={shortTitle(short)}>
+      <Stack gap={4}>
+        <Text size="sm">Не хватает {formatNumber(forecast.shortfall)} юнитов.</Text>
+        {short.map((limit) => (
+          <Text size="sm" key={limit}>
+            <ShortLine limit={limit} forecast={forecast} />
+          </Text>
+        ))}
+        <Text size="sm">Или сократите список ключей или глубину выдачи.</Text>
+      </Stack>
+    </Alert>
+  );
 }
 
 /** Кап — на цикл ключа Ahrefs (16.10.2026): «по капу N из M» от размера ключа; размер

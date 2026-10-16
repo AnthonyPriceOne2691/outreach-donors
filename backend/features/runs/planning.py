@@ -19,7 +19,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
@@ -320,7 +320,7 @@ async def plan_run(
     freshness: FreshnessSource,
     *,
     units_left: int,
-    limit: str | None = None,
+    limit: Callable[[int], str] | None = None,
     exclusions: ExclusionSource | None = None,
     stage: Stage = Stage.DONORS,
     country_share: float = COUNTRY_CALL_SHARE,
@@ -361,7 +361,7 @@ async def plan_run(
         # Упор — словами: «поднимите кап» при кончившемся ключе Ahrefs вёл поднимать кап
         # зря (16.10.2026). Без упора — прежний совет: так зовут план тесты и консоль.
         advice = (
-            f"{limit}. Пока сократите список ключей или глубину выдачи"
+            f"{limit(estimate.total)}. Или сократите список ключей или глубину выдачи"
             if limit
             else "сократите список ключей или поднимите кап"
         )

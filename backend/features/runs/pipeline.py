@@ -382,7 +382,7 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
         candidates,
         deps.donors,
         units_left=budget.units,
-        limit=budget.limit,
+        limit=budget.shortage,
         exclusions=deps.exclusions,
         stage=request.stage,
         country_share=await deps.runs.country_call_share(request.country),

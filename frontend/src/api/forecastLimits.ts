@@ -14,4 +14,6 @@ export interface ForecastLimits {
   next_reset: string;
   /** Упор бюджета; кап неизвестен — `null`. */
   binding: BudgetBinding | null;
+  /** Каких лимитов не хватает — каждого, жёсткие первыми; помещается — пусто. */
+  short_of: BudgetBinding[];
 }

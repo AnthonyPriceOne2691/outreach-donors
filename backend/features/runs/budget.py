@@ -42,33 +42,57 @@ class QuotaUnavailableError(RuntimeError):
         self.permanent = permanent
 
 
-#: Во что упёрся бюджет на старте прогона — словами отказа (`planning.plan_run`). Что делать,
+#: Чего не хватило на старте прогона — словами отказа (`planning.plan_run`). Что делать,
 #: зависит от того, чей лимит: 16.10.2026 отказ советовал «поднимите кап», когда кончался
-#: ключ Ahrefs, и подъём капа не помогал.
+#: ключ Ahrefs, и подъём капа не помогал. Не хватает обоих — проверить оба (слово владельца).
 LIMIT_WORDS = {
-    "key": "упор — лимит ключа Ahrefs: кап здесь не поможет, лимит ключа поднимают в самом Ahrefs",
+    "key": (
+        "не хватает лимита ключа Ahrefs: увеличьте лимит ключа в самом Ahrefs — "
+        "кап здесь не поможет"
+    ),
     "workspace": (
-        "упор — лимит пространства Ahrefs, общий для всех его ключей: его поднимают в самом Ahrefs"
+        "не хватает лимита пространства Ahrefs, общего для всех его ключей: увеличьте его "
+        "в самом Ahrefs — кап здесь не поможет"
     ),
     "cap": (
-        "упор — наш кап цикла или потолок прогона: кап поднимают на экране «Расход», "
-        "потолок — в форме прогона"
+        "не хватает нашего капа цикла или потолка прогона: кап поднимают на экране «Расход» "
+        "(администратор или учётка с правом «править пороги»), потолок — в форме прогона"
+    ),
+    "both": (
+        "не хватает ни лимита ключа Ahrefs, ни нашего капа: проверьте лимит ключа в Ahrefs "
+        "и кап на экране «Расход»"
     ),
 }
 
 
 @dataclass(frozen=True, slots=True)
 class Budget:
-    """Бюджет и во что он упирается: «key», «workspace» — лимит Ahrefs, «cap» — наш кап
-    цикла или потолок прогона (`cap` у `budget_of` — уже меньшее из них)."""
+    """Бюджет на старте прогона: свободно у Ahrefs, наш кап — уже меньшее из капа цикла
+    и потолка прогона (`cap` у `budget_of`), — и какой лимит Ahrefs кончится раньше."""
 
-    units: int
-    binding: str
+    free: int
+    cap: int | None
+    #: «key» или «workspace» — какой лимит Ahrefs кончится раньше (`Quota.tighter`).
+    side: str
 
     @property
-    def limit(self) -> str:
-        """Упор — словами отказа."""
-        return LIMIT_WORDS[self.binding]
+    def units(self) -> int:
+        """Сколько можно потратить — меньшее из двух."""
+        return self.free if self.cap is None else min(self.free, self.cap)
+
+    @property
+    def binding(self) -> str:
+        """Упор: лимит Ahrefs (`side`) или наш кап — «cap». Поровну — Ahrefs: при упоре
+        и в остаток ключа, и в кап подъём капа не помог бы."""
+        return "cap" if self.cap is not None and self.cap < self.free else self.side
+
+    def shortage(self, total: int) -> str:
+        """Чего не хватает на `total` юнитов — каждого лимита по отдельности, словами отказа."""
+        ahrefs = total > self.free
+        ours = self.cap is not None and total > self.cap
+        if ahrefs and ours:
+            return LIMIT_WORDS["both"]
+        return LIMIT_WORDS[self.side] if ahrefs else LIMIT_WORDS["cap"]
 
 
 async def units_left(
@@ -133,10 +157,7 @@ async def budget_of(
             free,
             extra={"claimed": claimed, "available": quota.available, "free": free},
         )
-    # Поровну — Ahrefs: при упоре и в остаток ключа, и в кап подъём капа не помог бы.
-    if cap is not None and cap < free:
-        return Budget(cap, "cap")
-    return Budget(free, quota.tighter)
+    return Budget(free=free, cap=cap, side=quota.tighter)
 
 
 async def cap_left(session: AsyncSession, *, now: datetime | None = None) -> int:

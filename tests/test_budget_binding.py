@@ -11,13 +11,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from backend.api.runs.schemas import _binding
+from backend.api.runs.schemas import Forecast, _binding
 from backend.features.ahrefs.units import Quota
 from backend.features.runs.ahrefs_cap import KeyCap
 from backend.features.runs.ahrefs_key import Cycle, KeySnapshot
-from backend.features.runs.budget import LIMIT_WORDS, CapExceededError, budget_of
+from backend.features.runs.budget import LIMIT_WORDS, Budget, CapExceededError, budget_of
 from backend.features.runs.estimate import forecast
 from backend.features.runs.planning import plan_run
+from backend.features.serp.modes import SerpMode
 from tests import test_pipeline as pipeline_tests
 
 
@@ -60,6 +61,20 @@ class TestForecastBinding:
         assert tie.binding == "cap"
 
 
+class TestShortOf:
+    def test_each_limit_short_is_named_hard_first(self) -> None:
+        def short(left: int, cap: int, ceiling: int | None = None) -> list[str]:
+            return forecast(
+                keywords=1, depth_pages=1, units_left=left, units_cap=cap, run_ceiling=ceiling
+            ).short_of
+
+        assert short(left=1, cap=10**6) == ["provider"]
+        assert short(left=10**6, cap=1) == ["cap"]
+        assert short(left=1, cap=1) == ["provider", "cap"]
+        assert short(left=10**6, cap=10**6, ceiling=1) == ["ceiling"]
+        assert short(left=10**6, cap=10**6) == []
+
+
 class TestQuotaTighter:
     @pytest.mark.parametrize(
         ("key_left", "workspace_left", "tighter"),
@@ -81,39 +96,52 @@ class TestQuotaTighter:
 
 class TestBudgetOf:
     async def test_cap_below_free_binds_as_ours(self) -> None:
-        found = await budget_of(_Client(_payload(key_left=9_000, workspace_left=400_000)), cap=500)  # type: ignore[arg-type]
+        client = _Client(_payload(key_left=9_000, workspace_left=400_000))
+        found = await budget_of(client, cap=500)  # type: ignore[arg-type]
         assert (found.units, found.binding) == (500, "cap")
-        assert "кап поднимают на экране «Расход»" in found.limit
+        assert found.shortage(600) == LIMIT_WORDS["cap"]
+        assert "кап поднимают на экране «Расход»" in found.shortage(600)
 
-    async def test_key_binds_and_says_the_cap_will_not_help(self) -> None:
+    async def test_key_binds_and_says_raise_the_key(self) -> None:
         client = _Client(_payload(key_left=700, workspace_left=400_000))
         found = await budget_of(client, cap=5_000, claimed=200)  # type: ignore[arg-type]
         assert (found.units, found.binding) == (500, "key")
-        assert found.limit == LIMIT_WORDS["key"]
-        assert "кап здесь не поможет" in found.limit
+        assert found.shortage(600) == LIMIT_WORDS["key"]
+        assert "увеличьте лимит ключа в самом Ahrefs — кап здесь не поможет" in found.shortage(600)
+
+    async def test_short_of_both_asks_to_check_both(self) -> None:
+        """Слово владельца 16.10.2026: «если и то, и другое — проверьте лимиты ключа и капа»."""
+        client = _Client(_payload(key_left=700, workspace_left=400_000))
+        found = await budget_of(client, cap=5_000)  # type: ignore[arg-type]
+        assert found.shortage(6_000) == LIMIT_WORDS["both"]
+        assert "проверьте лимит ключа в Ahrefs и кап" in found.shortage(6_000)
 
     async def test_equal_cap_and_key_name_the_key(self) -> None:
-        found = await budget_of(_Client(_payload(key_left=700, workspace_left=None)), cap=700)  # type: ignore[arg-type]
+        client = _Client(_payload(key_left=700, workspace_left=None))
+        found = await budget_of(client, cap=700)  # type: ignore[arg-type]
         assert found.binding == "key"
 
     async def test_workspace_binds_when_it_ends_first(self) -> None:
-        found = await budget_of(_Client(_payload(key_left=9_000, workspace_left=300)))  # type: ignore[arg-type]
+        client = _Client(_payload(key_left=9_000, workspace_left=300))
+        found = await budget_of(client)  # type: ignore[arg-type]
         assert (found.units, found.binding) == (300, "workspace")
+        assert found.shortage(400) == LIMIT_WORDS["workspace"]
 
 
 class TestPlanRefusal:
-    async def test_refusal_names_the_limit_and_keeps_the_trim_advice(self) -> None:
+    async def test_refusal_says_what_is_short_and_keeps_the_trim_advice(self) -> None:
+        budget = Budget(free=100, cap=None, side="key")
         with pytest.raises(CapExceededError) as caught:
             await plan_run(
                 pipeline_tests.TestPlanning.CANDIDATES,
                 pipeline_tests.FakeFreshness(set()),
-                units_left=100,
-                limit=LIMIT_WORDS["key"],
+                units_left=budget.units,
+                limit=budget.shortage,
             )
         words = str(caught.value)
         assert "доступно 100" in words
-        assert "упор — лимит ключа Ahrefs: кап здесь не поможет" in words
-        assert words.endswith("Пока сократите список ключей или глубину выдачи.")
+        assert "не хватает лимита ключа Ahrefs: увеличьте лимит ключа в самом Ahrefs" in words
+        assert words.endswith("Или сократите список ключей или глубину выдачи.")
         assert "поднимите кап" not in words
 
 
@@ -145,3 +173,10 @@ class TestScreenBinding:
         unknown = forecast(keywords=1, depth_pages=1, units_left=9_000, units_cap=None)
         assert _binding(capped, _cap(quota)) == "cap"
         assert _binding(unknown, _cap(quota)) is None
+
+    def test_screen_short_of_names_the_ahrefs_side(self) -> None:
+        made = forecast(keywords=1, depth_pages=1, units_left=1, units_cap=1)
+        quota = Quota.from_payload(_payload(key_left=9_000, workspace_left=1))
+        view = Forecast.of(made, serp_mode=SerpMode.LIVE, cap=_cap(quota))
+        assert view.short_of == ["workspace", "cap"]
+        assert view.next_reset == datetime(2026, 11, 21, tzinfo=UTC)

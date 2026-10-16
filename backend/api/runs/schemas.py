@@ -141,8 +141,13 @@ def _binding(forecast: RunForecast, cap: KeyCap) -> str | None:
     неизвестен — `None`: у экрана на это своя плашка."""
     if forecast.units_cap is None:
         return None
-    if forecast.binding != "provider":
-        return forecast.binding
+    return _side(forecast.binding, cap)
+
+
+def _side(limit: str, cap: KeyCap) -> str:
+    """«provider» — словом экрана: какой из двух лимитов Ahrefs (ключа или пространства)."""
+    if limit != "provider":
+        return limit
     return "key" if cap.key is None else cap.key.quota.tighter
 
 
@@ -186,6 +191,9 @@ class Forecast(BaseModel):
     #: Во что упирается бюджет: «key» или «workspace» — лимит Ahrefs (кап здесь не поможет),
     #: «cap» — наш кап цикла, «ceiling» — потолок прогона; кап неизвестен — `None`.
     binding: str | None = None
+    #: Каких лимитов не хватает — каждого, теми же словами, жёсткие первыми: не хватает и ключа,
+    #: и капа — экран просит проверить оба. Помещается или кап неизвестен — пусто.
+    short_of: list[str] = Field(default_factory=list)
     #: Ожидаемая стоимость самой выдачи, в долларах. Кнопку не блокирует:
     #: без выдачи прогона нет вовсе. Но названа быть должна.
     serp_cost_usd: float
@@ -222,6 +230,9 @@ class Forecast(BaseModel):
             affordable=forecast.affordable,
             shortfall=forecast.shortfall,
             binding=_binding(forecast, cap),
+            short_of=(
+                [] if forecast.units_cap is None else [_side(n, cap) for n in forecast.short_of]
+            ),
             serp_cost_usd=serp_cost_usd(forecast.keywords, forecast.depth_pages, serp_mode),
             serp_mode=serp_mode,
             serp_wait_s=EXPECTED_WAIT_S[serp_mode],
