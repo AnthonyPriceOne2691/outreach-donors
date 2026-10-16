@@ -6,8 +6,13 @@
 по нему не годятся); правка — в журнале действий: кто, было и стало.
 
 `POST /sales/segment/estimate` — смета без записи: выдача, модель, Hunter строкой и отказ
-словами. `POST /sales/segment/runs` — запуск: смета считается заново на сервере, отказ — 409
-словами до очереди задач; иначе прогон заводится и встаёт задачей очереди долгих задач продаж
+словами; снятые человеком ключи (`excluded`, номера строк, как вписаны) не покупаются и в смету не
+входят. `POST /sales/segment/runs` — запуск только по смете, которую видел человек: смета
+считается заново на сервере, отказ — 409 словами до очереди задач; ключи, снятые, описание
+сегмента и режимы — сверкой отпечатка (`digest` сметы): не совпал — 409 «смета устарела —
+посчитайте заново» (до 15.10 запуск лишь пересчитывал смету и шёл по тому, что получилось, —
+правка описания между сметой и запуском уходила в прогон, которого человек не видел); иначе
+прогон заводится и встаёт задачей очереди долгих задач продаж
 (`sales-bulk`, `worker-sales-bulk`; `sales/segment_jobs.py`): сбор идёт до получаса и не держит
 разбор ответа лида. `POST /sales/segment/runs/{N}/resume` — продолжить прогон: после
 потолка модели, сбоя или решений человека по «на проверку». Стадию продолжение не трогает
@@ -49,6 +54,7 @@ from backend.api.sales.segment_schemas import (
     CandidateRow,
     DecisionBody,
     EstimateView,
+    RunAsk,
     RunDetail,
     RunQueued,
     RunRow,
@@ -68,7 +74,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.sales import chain_text, segment_progress, segment_report, segment_watch
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import SalesHypothesisModel
-from backend.features.sales.segment_estimate import Ask, estimate
+from backend.features.sales.segment_estimate import Ask, Estimate, estimate
 from backend.features.sales.segment_jobs import SEGMENT_JOB, segment_job_id
 from backend.features.sales.segment_models import (
     Lane,
@@ -92,6 +98,13 @@ RUN_GOING = (
     "тем же сайтам и заплатил бы дважды"
 )
 UNKNOWN_RUN = "прогона сбора №{run_id} нет — обновите список прогонов"
+#: Смета на запуске — не та, что видел человек: ключи, снятые, описание сегмента или режим другие.
+STALE = "Прогон не запущен: смета устарела — посчитайте заново"
+#: Запрос без отпечатка сметы: так шлёт только страница старше сверки — её надо обновить.
+UNSEEN = (
+    "Прогон не запущен: запуск — только по смете, которую вы видели, а её отпечатка в запросе "
+    "нет — обновите страницу и посчитайте смету"
+)
 
 
 def _ask(body: SegmentAsk) -> Ask:
@@ -102,7 +115,19 @@ def _ask(body: SegmentAsk) -> Ask:
         language=body.language,
         depth_pages=body.depth_pages,
         serp_mode=body.serp_mode,
+        excluded=tuple(body.excluded),
     )
+
+
+def _seen(body: RunAsk, found: Estimate) -> None:
+    """Запуск — только по смете, которую видел человек: отказ сметы — её словами, другой
+    отпечаток — «смета устарела». Отказ — первым: он называет, что не так, точнее."""
+    if found.refusal is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Прогон не запущен: {found.refusal}")
+    if body.digest is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, UNSEEN)
+    if body.digest != found.digest:
+        raise HTTPException(status.HTTP_409_CONFLICT, STALE)
 
 
 async def _hypothesis(session: AsyncSession, hypothesis_id: int) -> SalesHypothesisModel:
@@ -217,16 +242,16 @@ async def read_estimate(
     summary="Запустить прогон гипотезы",
 )
 async def start_run(
-    body: SegmentAsk,
+    body: RunAsk,
     author: UserModel = _seller,
     __: UserModel = _runner,
     session: AsyncSession = Depends(db_session),
 ) -> RunQueued:
-    """Смета — заново, на сервере: выше потолка или негодный запрос — 409 словами, до
-    очереди задач. Прогон и запись журнала — одна транзакция с постановкой."""
+    """Смета — заново, на сервере: выше потолка или негодный запрос — 409 словами, смета не та,
+    что видел человек, — 409 «смета устарела», до очереди задач. Прогон и запись журнала — одна
+    транзакция с постановкой."""
     found = await estimate(session, _ask(body))
-    if found.refusal is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, f"Прогон не запущен: {found.refusal}")
+    _seen(body, found)
     run = SalesSegmentRunModel(
         hypothesis_id=body.hypothesis_id,
         keywords=found.keywords,
@@ -264,17 +289,26 @@ async def start_run(
         AuditAction.RUN_STARTED,
         author_id=author.id,
         target=f"job:{job.id}",
-        details={
-            "действие": "сбор базы продаж",
-            "гипотеза": found.hypothesis,
-            "ключей": len(found.keywords),
-            "рынок": found.country,
-            "смета": " ".join(found.lines),
-        },
+        details=_started(found),
         stage=domain.Stage.SALES,  # этап воронки, а не стадия прогона (`Stage` ниже)
     )
     await session.commit()
     return RunQueued(run_id=run.id, job_id=str(job.id))
+
+
+def _started(found: Estimate) -> dict[str, object]:
+    """Запуск в журнале действий: гипотеза, ключи, рынок и смета словами; снятые человеком
+    ключи — как вписаны в смету, когда они есть."""
+    details: dict[str, object] = {
+        "действие": "сбор базы продаж",
+        "гипотеза": found.hypothesis,
+        "ключей": len(found.keywords),
+        "рынок": found.country,
+        "смета": " ".join(found.lines),
+    }
+    if found.excluded:
+        details["снято ключей"] = ", ".join(f"«{phrase}»" for phrase in found.excluded)
+    return details
 
 
 async def _enqueue(jobs: Queue, run_id: int) -> Job | None:

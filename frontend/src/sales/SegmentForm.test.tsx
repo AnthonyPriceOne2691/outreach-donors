@@ -1,10 +1,10 @@
 /**
  * Форма нового прогона сбора (`SegmentForm`): режим выдачи — умолчание сервиса (сервер не назвал —
  * быстрый), «Стандарт» на выбор, приоритетный — только когда он умолчание сервиса — уходит в смету
- * и запуск; смета называет взятые ключи с пометками и отсеянные с причиной; правка описания
- * сегмента снимает посчитанную смету — судья судит по описанию, и запустить посчитанное по
- * прежнему нельзя. Ответы сервера — записанные (`serve()`), незаписанный запрос роняет тест;
- * ключи и домены выдуманы.
+ * и запуск; смета называет взятые ключи чипами с пометками и отсеянные с причиной (снятие
+ * галочкой — `SegmentKeywords.test.tsx`); правка описания сегмента снимает посчитанную смету —
+ * судья судит по описанию, и запустить посчитанное по прежнему нельзя. Ответы сервера —
+ * записанные (`serve()`), незаписанный запрос роняет тест; ключи и домены выдуманы.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -63,8 +63,12 @@ const REPEAT = 'повтор строки 1: для выдачи это тот �
 
 const ESTIMATE: SegmentEstimate = {
   keywords: ['доставка грузов', 'доставка грузов казань'],
-  rejected: { 'доставка грузов': REPEAT },
+  excluded: [],
+  keyword_lines: { 'доставка грузов': 1, 'доставка грузов казань': 2 },
+  rejected: { 'Доставка грузов': REPEAT },
   notes: { 'доставка грузов казань': NEAR },
+  segment: SEGMENT_TEXT,
+  digest: 'seen-cargo',
   country: 'kz',
   language: 'ru',
   depth_pages: 1,
@@ -180,20 +184,28 @@ describe('сбор базы: форма прогона и смета', () => {
     ]);
   });
 
-  it('смета называет взятые ключи с пометкой и отсеянные с причиной', async () => {
+  it('смета называет взятые ключи чипами с пометкой и отсеянные с причиной — одним списком', async () => {
     await openTab({});
     const user = userEvent.setup();
 
     await countEstimate(user, 'доставка грузов\nдоставка грузов казань\nДоставка грузов');
 
-    const taken = screen.getByRole('list', { name: 'Взято ключей: 2 из 3' });
+    const keys = screen.getByRole('list', { name: 'Ключи сметы' });
     expect(
-      within(taken)
+      within(keys)
         .getAllByRole('listitem')
         .map((item) => item.textContent),
-    ).toEqual(['«доставка грузов»', `«доставка грузов казань» — ${NEAR}`]);
-    const cut = screen.getByRole('list', { name: 'Отсеяно ключей: 1' });
-    expect(within(cut).getByRole('listitem')).toHaveTextContent(`«доставка грузов» — ${REPEAT}`);
+    ).toEqual([
+      'доставка грузов',
+      `доставка грузов казань ${NEAR}`,
+      `отсеян: Доставка грузов ${REPEAT}`,
+    ]);
+    expect(
+      within(keys)
+        .getAllByRole('checkbox')
+        .map((box) => (box as HTMLInputElement).checked),
+    ).toEqual([true, true]);
+    expect(screen.getByText(/^Взято 2 из 3 · отсеяно 1\./)).toBeInTheDocument();
   });
 
   it('правка описания сегмента снимает смету: посчитанное по прежнему не запустить', async () => {

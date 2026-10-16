@@ -3,14 +3,16 @@
 Своим модулем, как очередь и воронка: каталог продаж (`ui_screens_sales.py`) у предела длины.
 Нормы передаются параметрами — обратный импорт замкнул бы круг.
 
-Экран мерится со сметой: подготовка вписывает ключи и считает смету (`collect_prepare`), иначе
-строк сметы и открытой кнопки «Запустить прогон» на экране нет. Отчёт — последнего прогона
-гипотезы стенда, компактный (15.10.2026): шапка с кнопками окон, плитки-ссылки, «На проверку N —
-решить», причины отсева — раскрытием свёрнутой строки (`open_why`), ключи прогона. Расход рядом
-со сметой — в окне «Расход и смета» (`sales-collect-spend`: приглушённая колонка сметы и пометка о
-Hunter — мелким текстом); сайты прогона и решения «на проверку» — в окне сайтов
-(`ui_screens_sales_sites.py`). Какой прогон на стенде, решает его база (в нём должны быть сайты
-всех полос и итог этапов в отчёте).
+Экран мерится со сметой: подготовка раскрывает форму «Новый прогон» (у гипотезы с прогонами она
+свёрнута в кнопку), вписывает ключи, считает смету и снимает галочку у одного ключа
+(`collect_prepare`), иначе строк сметы, снятого ключа и открытой кнопки «Запустить прогон» на
+экране нет. Отчёт — последнего прогона гипотезы стенда, компактный (15.10.2026): шапка с кнопками
+окон, плитки-ссылки, «На проверку N — решить», причины отсева — раскрытием свёрнутой строки
+(`open_why`), ключи прогона чипами. Расход рядом со сметой — в окне «Расход и смета»
+(`sales-collect-spend`: приглушённая колонка сметы и пометка о Hunter — мелким текстом); сайты
+прогона и решения «на проверку» — в окне сайтов (`ui_screens_sales_sites.py`). Какой прогон на
+стенде, решает его база (в нём должны быть сайты всех полос, итог этапов в отчёте и ключ, чья
+выдача не пришла; описание сегмента — длиннее трёх строк).
 """
 
 import re
@@ -23,18 +25,32 @@ from ui_screens_sales_sites import sites_screens
 #: Узкое окно — телефон: плитки в две колонки, окна отчёта — во весь экран.
 PHONE = {"width": 390, "height": 844}
 
-#: Ключи для сметы: один отсеивается гигиеной — видна и строка отсеянных.
+#: Ключи для сметы: один отсеивается гигиеной — виден и отсеянный чип; у второго подготовка
+#: снимает галочку (`DROPPED`) — виден и снятый.
 KEYWORDS = "buy mountain bike online\nbike parts store\nsite:example.com bikes"
+DROPPED = "bike parts store"
+#: Блоки вкладки: форма нового прогона и прогоны гипотезы.
+FORM = "section[aria-label='Новый прогон']"
+RUNS = "section[aria-label='Прогоны гипотезы']"
 
 
 def collect_prepare(page: Any) -> None:
-    """Вписать ключи и посчитать смету: без этого строк сметы на экране нет. Кнопка — с
-    клавиатуры, а не мышью: после щелчка фокус на «i» уже не «видимый», и подсказка точки
-    `hint_probe` не открылась бы (у Mantine подсказка по фокусу — только клавиатурному)."""
+    """Раскрыть форму, вписать ключи, посчитать смету и снять галочку у одного ключа: без этого
+    строк сметы и снятого ключа на экране нет. Кнопки — с клавиатуры, а не мышью: после щелчка
+    фокус на «i» уже не «видимый», и подсказка точки `hint_probe` не открылась бы (у Mantine
+    подсказка по фокусу — только клавиатурному)."""
+    fold = page.locator(f"{FORM} button[aria-expanded='false']")
+    if fold.count() > 0:
+        fold.first.focus()
+        page.keyboard.press("Enter")
     page.get_by_role("textbox", name="Ключи").fill(KEYWORDS)
     page.get_by_role("button", name="Посчитать смету").focus()
     page.keyboard.press("Enter")
     expect(page.locator(".segmentEstimate p").first).to_be_visible()
+    page.get_by_role("checkbox", name=DROPPED).focus()
+    page.keyboard.press("Space")
+    # Смета пересчитывается сама, без кнопки: запуск открыт снова — значит, пересчитана.
+    expect(page.get_by_role("button", name="Запустить прогон")).to_be_enabled(timeout=10_000)
     page.wait_for_timeout(400)
 
 
@@ -64,6 +80,7 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("описание сегмента", ".segmentText", norm),
         ("подпись поля", ".mantine-InputWrapper-label:text-is('Ключи')", norm),
         ("пояснение поля", ".mantine-InputWrapper-description", norm),
+        ("подпись поля «Выдача»", ".mantine-InputWrapper-label:text-is('Выдача')", norm),
         ("строка сметы", ".segmentEstimate p", norm),
         ("кнопка «Посчитать смету»", "button:has-text('Посчитать смету')", big),
         ("кнопка «Запустить прогон»", "button:has-text('Запустить прогон')", big),
@@ -77,8 +94,7 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("«На проверку N — решить»", "a:has-text('— решить')", norm),
         ("свёрнутое «почему»", "button:has-text('Почему')", norm),
         ("причина отсева", "ul[aria-label='Отсечены — почему'] li", norm, open_why),
-        ("ключ прогона", "section[aria-label='Прогоны гипотезы'] ul[aria-label^='Взято'] li", norm),
-        *_form_probes(norm),
+        *_keys_probes(norm),
     ]
     probes = [
         ("вступление вкладки", ".salesTabs + div p", norm),
@@ -123,16 +139,6 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     }
 
 
-def _form_probes(norm: float) -> list[tuple[str, str, float]]:
-    """Режим выдачи и ключи сметы в форме нового прогона (проверка прода 14.10)."""
-    form = "section[aria-label='Новый прогон']"
-    return [
-        ("подпись поля «Выдача»", ".mantine-InputWrapper-label:text-is('Выдача')", norm),
-        ("взятый ключ сметы", f"{form} ul[aria-label^='Взято ключей'] li", norm),
-        ("отсеянный ключ сметы", f"{form} ul[aria-label^='Отсеяно ключей'] li", norm),
-    ]
-
-
 def _spend_probes(norm: float) -> list[tuple[str, str, float]]:
     """Окно «Расход и смета»: расход рядом со сметой — смета в таблице и пометка о Hunter
     приглушённым текстом, и он тоже меряется; смета на запуске строками сервера."""
@@ -148,8 +154,26 @@ def _spend_probes(norm: float) -> list[tuple[str, str, float]]:
     ]
 
 
+def _keys_probes(norm: float) -> list[tuple[str, str, float]]:
+    """Ключи чипами (волна 15): взятый, снятый (пустая галочка, «снят вами»), отсеянный, слова
+    рядом и строка чисел под чипами — в смете; взятый и значок «выдача не пришла» — в отчёте;
+    кнопка свёрнутой формы и «показать целиком» у описания сегмента."""
+    keys = "ul[aria-label='Ключи прогона']"
+    return [
+        ("кнопка «Новый прогон»", f"{FORM} button:has-text('Новый прогон')", norm),
+        ("описание: «показать целиком»", "button:has-text('показать целиком')", norm),
+        ("взятый ключ сметы", f"{FORM} .keyChip[data-state='taken'] label", norm),
+        ("снятый ключ сметы", f"{FORM} .keyChip[data-state='excluded'] label", norm),
+        ("отсеянный ключ сметы", f"{FORM} .keyChip[data-state='rejected']", norm),
+        ("слова у ключа сметы", f"{FORM} .keyWords", norm),
+        ("числа ключей сметы", f"{FORM} .keyCounts", norm),
+        ("ключ прогона", f"{RUNS} .keyChip[data-state='taken']", norm),
+        ("значок «выдача не пришла»", f"{RUNS} {keys} .mantine-Badge-label", norm),
+    ]
+
+
 def segment_prepare() -> dict[str, Any]:
-    """Подготовка экранов сбора до замера: смета посчитана; окно расхода открыто."""
+    """Подготовка экранов сбора до замера: смета посчитана, галочка снята; окно расхода открыто."""
     return {
         "sales-collect": collect_prepare,
         "sales-collect-phone": collect_prepare,

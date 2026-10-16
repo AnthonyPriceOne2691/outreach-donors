@@ -341,6 +341,7 @@ async def test_the_run_report_carries_its_keywords_and_spend(
         "rejected": {"site:shop.example.test велосипед": "поисковый оператор"},
         "lost": ["велосипед москва"],
         "empty": [],
+        "excluded": [],  # снятых на запуске нет: смета прогона старше снятия
     }
     assert [row["item"] for row in spend["rows"]] == ["serp", "judge", "search", "check", "money"]
     assert spend["rows"][0] == {

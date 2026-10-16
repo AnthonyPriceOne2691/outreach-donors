@@ -118,8 +118,12 @@ const REVIEW_SITE: SegmentCandidate = {
 
 const ESTIMATE: SegmentEstimate = {
   keywords: ['купить горный велосипед', 'велосипед для города'],
+  excluded: [],
+  keyword_lines: { 'купить горный велосипед': 1, 'велосипед для города': 2 },
   rejected: { 'site:example.com велосипед': 'поисковый оператор: так пользователи не ищут' },
   notes: {},
+  segment: SEGMENT_TEXT,
+  digest: 'seen-bikes',
   country: 'us',
   language: 'en',
   depth_pages: 1,
@@ -180,6 +184,12 @@ async function openTab(
   return recorded;
 }
 
+/** У гипотезы с прогонами форма нового прогона свёрнута в кнопку — раскрываем. */
+async function openForm(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'Новый прогон' }));
+  await screen.findByRole('button', { name: 'Посчитать смету' }, SCREEN_WAIT);
+}
+
 /** Ключи — вставкой, одним изменением поля: по букве набор на нагруженной машине шёл бы
  *  дольше срока теста, а проверяется не клавиатура. */
 async function typeKeywords(user: ReturnType<typeof userEvent.setup>, text: string) {
@@ -230,6 +240,7 @@ describe('сбор базы: прогон гипотезы', () => {
       'POST /api/sales/segment/estimate': { body: ESTIMATE },
     });
     const user = userEvent.setup();
+    await openForm(user);
 
     expect(screen.getByRole('button', { name: 'Запустить прогон' })).toBeDisabled();
     await typeKeywords(user, 'купить горный велосипед');
@@ -249,18 +260,20 @@ describe('сбор базы: прогон гипотезы', () => {
       language: null,
       depth_pages: 1,
       serp_mode: 'live',
+      excluded: [],
     });
     expect(
-      screen.getByText(
-        '«site:example.com велосипед» — поисковый оператор: так пользователи не ищут',
-      ),
-    ).toBeInTheDocument();
+      within(screen.getByRole('list', { name: 'Ключи сметы' }))
+        .getByText('поисковый оператор: так пользователи не ищут')
+        .closest('li'),
+    ).toHaveTextContent('отсеян: site:example.com велосипед');
     expect(screen.getByRole('button', { name: 'Запустить прогон' })).toBeEnabled();
   });
 
   it('правка поля после сметы закрывает запуск: запустить то, чего не видел, нельзя', async () => {
     await openTab({ 'POST /api/sales/segment/estimate': { body: ESTIMATE } });
     const user = userEvent.setup();
+    await openForm(user);
     await typeKeywords(user, 'купить горный велосипед');
     await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
     await waitFor(
@@ -282,6 +295,7 @@ describe('сбор базы: прогон гипотезы', () => {
       'POST /api/sales/segment/estimate': { body: { ...ESTIMATE, refusal } },
     });
     const user = userEvent.setup();
+    await openForm(user);
 
     await typeKeywords(user, 'купить горный велосипед');
     await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
@@ -320,6 +334,7 @@ describe('сбор базы: прогон гипотезы', () => {
       },
     });
     const user = userEvent.setup();
+    await openForm(user);
 
     await typeKeywords(user, 'купить горный велосипед');
     await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
@@ -331,9 +346,11 @@ describe('сбор базы: прогон гипотезы', () => {
       () => expect(calls(recorded, 'POST', '/api/sales/segment/runs')).toHaveLength(1),
       SCREEN_WAIT,
     );
-    expect(calls(recorded, 'POST', '/api/sales/segment/runs')[0]?.body).toEqual(
-      calls(recorded, 'POST', '/api/sales/segment/estimate')[0]?.body,
-    );
+    // Запуск — той же формой, что смета, и с отпечатком сметы, которую видел человек.
+    expect(calls(recorded, 'POST', '/api/sales/segment/runs')[0]?.body).toEqual({
+      ...(calls(recorded, 'POST', '/api/sales/segment/estimate')[0]?.body as object),
+      digest: 'seen-bikes',
+    });
     expect(await screen.findByText('Прогон №13', {}, SCREEN_WAIT)).toBeInTheDocument();
   });
 
@@ -429,6 +446,7 @@ describe('сбор базы: прогон гипотезы', () => {
       { ...OPERATOR, permissions: ['sales', 'view'] },
       { ...HOME, runs: [stopped] },
     );
+    await openForm(userEvent.setup());
 
     expect(screen.queryByRole('button', { name: 'Запустить прогон' })).toBeNull();
     expect(
