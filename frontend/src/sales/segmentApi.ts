@@ -186,6 +186,23 @@ export function estimateRun(ask: SegmentAsk): Promise<SegmentEstimate> {
   return request<SegmentEstimate>('/sales/segment/estimate', { method: 'POST', body: ask });
 }
 
+/** Предложение помощника описания сегмента (`backend/api/sales/segment_helper.py`): описание для
+ *  судьи, вопросы человеку, что в черновике собьёт судью (`problems`; не пусто — `loose`);
+ *  `cached` — из кэша, модель не звали. */
+export interface SegmentHelp {
+  description: string;
+  unclear: string[];
+  problems: string[];
+  loose: boolean;
+  cached: boolean;
+}
+
+/** Помощник описания: черновик — тот, что в поле, сохранён он или нет. В гипотезу ответ не
+ *  пишется — человек берёт текст и сохраняет сам. */
+export function helpSegment(description: string): Promise<SegmentHelp> {
+  return request<SegmentHelp>('/sales/segment/helper', { method: 'POST', body: { description } });
+}
+
 /** Запуск — по смете, которую видел человек: с её отпечатком (`SegmentEstimate.digest`). */
 export function startRun(ask: SegmentAsk, digest: string): Promise<SegmentQueued> {
   return request<SegmentQueued>('/sales/segment/runs', {

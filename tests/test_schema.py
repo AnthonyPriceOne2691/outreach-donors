@@ -63,6 +63,8 @@ EXPECTED_TABLES = {
     "sales_segment_runs",
     "sales_segment_candidates",
     "sales_segment_verdicts",
+    # Ответы помощника описания сегмента: кэш по черновику, версии промпта и модели (16.10.2026).
+    "sales_segment_helps",
     # Журнал отправки недельного отчёта продаж в группу продаж: строка на неделю.
     "sales_weekly_reports",
 }

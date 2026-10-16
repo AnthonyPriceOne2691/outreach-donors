@@ -218,3 +218,38 @@ class SalesSegmentVerdictModel(TimestampedMixin, Base):
         ),
         Index("idx_sales_segment_verdicts_hypothesis", "hypothesis_id"),
     )
+
+
+class SalesSegmentHelpModel(TimestampedMixin, Base):
+    """Ответ помощника описания сегмента (`segment_helper.py`): черновик человека → описание для
+    судьи, вопросы человеку и что в черновике собьёт судью. Кэш: тот же черновик под той же версией
+    промпта и моделью второй раз не оплачивается; ответа модели нет (сбой, пустой или негодный
+    ответ) — строки нет. Черновик хранится текстом — по нему видно, что пишут люди и что им
+    предложено (докрутка промпта на накопленном). Гипотезы строка не держит: черновик из окна
+    новой гипотезы ещё ничей."""
+
+    __tablename__ = "sales_segment_helps"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Версия файла промпта (`segment_helper.PROMPT_VERSION`).
+    prompt_version: Mapped[str] = mapped_column(String(MODEL_LENGTH), nullable=False)
+    model: Mapped[str] = mapped_column(String(MODEL_LENGTH), nullable=False)
+    #: Отпечаток черновика — тем же правилом, что у описания в вердикте (`segment_digest`).
+    draft_digest: Mapped[str] = mapped_column(String(CODE_LENGTH), nullable=False)
+    draft: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Вопросы человеку — списком строк, пустой — открытого нет.
+    unclear: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    #: Что в черновике собьёт судью; пустой — черновик не расплывчатый.
+    problems: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "prompt_version", "model", "draft_digest", name="uq_sales_segment_helps_key"
+        ),
+    )

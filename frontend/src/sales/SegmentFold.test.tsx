@@ -17,6 +17,7 @@ import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer, Call } from '../test/server';
+import { HELP_QUIET } from './segmentHelpFixtures';
 import type { SegmentEstimate, SegmentHome, SegmentRunDetail, SegmentRunRow } from './segmentApi';
 
 const SCREEN_WAIT = { timeout: 5000 };
@@ -127,6 +128,7 @@ async function openTab(
 ) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
+    ...HELP_QUIET,
     'GET /api/auth/me': { body: ADMIN },
     'GET /api/sales/hypotheses': { body: HYPOTHESES },
     'GET /api/sales/kb': { body: KB },

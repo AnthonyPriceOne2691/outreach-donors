@@ -1,0 +1,18 @@
+{"id": "de-dental-goal-ru", "hypothesis": "de-dental", "draft": "Проверить рассылку по стоматологиям в Германии — у нас есть пара хороших кейсов по SEO для клиник", "loose": true}
+{"id": "de-dental-topic-de", "hypothesis": "de-dental", "draft": "Seiten rund um Zahnärzte in Deutschland", "loose": true}
+{"id": "de-dental-strict", "hypothesis": "de-dental", "draft": "Стоматологические клиники и частные практики в Германии: сами лечат пациентов, на своём сайте — услуги и запись на приём.", "loose": false}
+{"id": "en-saas-topic-en", "hypothesis": "en-saas", "draft": "Websites about project management and task tracking software", "loose": true}
+{"id": "en-saas-strict", "hypothesis": "en-saas", "draft": "SaaS-сервисы для управления проектами и задачами: продают подписку на свой продукт на своём сайте, есть тарифы и пробный период.", "loose": false}
+{"id": "es-realty-topic-es", "hypothesis": "es-realty", "draft": "Sitios sobre inmobiliarias en España", "loose": true}
+{"id": "pl-freight-topic-pl", "hypothesis": "pl-freight", "draft": "Strony związane z transportem i spedycją w Polsce", "loose": true}
+{"id": "kz-restaurants-topic-kk", "hypothesis": "kz-restaurants", "draft": "Алматыдағы мейрамханалар мен кафелерге қатысты сайттар", "loose": true}
+{"id": "kz-directories-ru", "hypothesis": "kz-directories", "draft": "Справочники и каталоги компаний, где собраны списки фирм с контактами, — продаём им размещение рекламы", "loose": true, "trap": "control", "note": "«продаём им размещение рекламы» — наше предложение, а не свойство сайта: по определению промпта это беда черновика; сам сегмент справочников — точный (контроль)"}
+{"id": "kz-marketplaces-en", "hypothesis": "kz-marketplaces", "draft": "Online marketplaces and classifieds boards where many different sellers list their goods", "loose": false, "trap": "control"}
+{"id": "ru-school-topic-ru", "hypothesis": "ru-school", "draft": "Сайты про онлайн-курсы на русском языке", "loose": true}
+{"id": "en-bikes-topic-en", "hypothesis": "en", "draft": "English-language websites about bicycles and bike parts", "loose": true}
+{"id": "cis-strict", "hypothesis": "cis", "draft": "Русскоязычные онлайн-школы в странах СНГ: сами продают свои курсы и обучение на сайте, с оплатой и записью.", "loose": false}
+{"id": "tr-hotels-letters-ru", "hypothesis": "tr-hotels-loose", "draft": "Отели Антальи — пишем им по-русски, у нас есть кейсы для отелей", "loose": true, "trap": "letters-language"}
+{"id": "tr-hotels-loose", "hypothesis": "tr-hotels-loose", "draft": "Сайты, связанные с отелями в Анталье.", "loose": true}
+{"id": "en-vets-loose", "hypothesis": "en-vets-loose", "draft": "Websites related to veterinary clinics in Ireland.", "loose": true}
+{"id": "pt-accounting-loose", "hypothesis": "pt-accounting-loose", "draft": "Sites sobre escritórios de contabilidade em São Paulo.", "loose": true}
+{"id": "de-dental-loose", "hypothesis": "de-dental-loose", "draft": "Сайты, связанные со стоматологией в Германии.", "loose": true}

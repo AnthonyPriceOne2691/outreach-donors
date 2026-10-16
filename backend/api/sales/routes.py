@@ -67,6 +67,7 @@ from backend.api.sales import kb as kb_routes
 from backend.api.sales import leads as lead_routes
 from backend.api.sales import queue as queue_routes
 from backend.api.sales import segment as segment_routes
+from backend.api.sales import segment_helper as segment_helper_routes
 from backend.api.sales import segment_sites as segment_sites_routes
 from backend.api.sales import stoplist as stoplist_routes
 from backend.api.sales import weekly as weekly_routes
@@ -279,5 +280,6 @@ router.include_router(calibration_routes.router)
 router.include_router(lead_routes.router)
 router.include_router(stoplist_routes.router)
 router.include_router(segment_routes.router)
+router.include_router(segment_helper_routes.router)
 router.include_router(segment_sites_routes.router)
 router.include_router(weekly_routes.router)

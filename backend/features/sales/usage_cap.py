@@ -22,6 +22,7 @@ from backend.config import llm as llm_cfg
 from backend.features.core import usage
 from backend.features.sales.agent import parts
 from backend.features.sales.reply_kind import OPERATION as REPLY_KIND
+from backend.features.sales.segment_helper import OPERATION as SEGMENT_HELPER
 from backend.features.sales.segment_judge import OPERATION as SEGMENT_JUDGE
 
 #: Переписывание зон письма очереди продаж моделью — своя операция журнала расхода, а не
@@ -31,8 +32,8 @@ LETTER_REWRITE = "sales_letter_rewrite"
 
 #: Агент продаж: черновик, ситуация письма, судья.
 AGENT = frozenset({parts.DRAFT_OPERATION, parts.SITUATION_OPERATION, parts.JUDGE_OPERATION})
-#: Вызовы модели продаж — их считает свой дневной потолок.
-OPERATIONS = frozenset({REPLY_KIND, LETTER_REWRITE, SEGMENT_JUDGE}) | AGENT
+#: Вызовы модели продаж — их считает свой дневной потолок; помощник описания сегмента — тоже.
+OPERATIONS = frozenset({REPLY_KIND, LETTER_REWRITE, SEGMENT_JUDGE, SEGMENT_HELPER}) | AGENT
 
 
 def sales_cap() -> usage.OwnCap:
