@@ -28,6 +28,12 @@
 
 **Домен, уже собранный гипотезой, второй раз не заводится**: его не судят и не ищут ему
 адрес снова — отчёт называет его «уже в сборе гипотезы».
+
+**Перед покупкой — счёт** (`serp/funds.ensure_funds`, слово владельца 16.10.2026): денег на
+счету выдачи меньше порога или меньше цены покупки — постоянный отказ словами, ничего не
+куплено; счёт мог уйти между сметой и задачей. Цена — ключей, которые проход купит: ключ с
+номером задачи прошлой попытки уже оплачен и забирается по номеру, и повтор после сбоя опроса
+не встаёт на счету, опустевшем от той же покупки.
 """
 
 from __future__ import annotations
@@ -52,6 +58,7 @@ from backend.features.sales.segment_models import (
 )
 from backend.features.sales.segment_progress import KEY as PROGRESS
 from backend.features.sales.segment_progress import advanced, noted
+from backend.features.serp import funds
 from backend.features.serp.modes import SerpMode
 from backend.features.serp.protocol import SerpProgress, SerpProvider, SerpWatch
 
@@ -195,12 +202,23 @@ def provider_mode(provider: SerpProvider) -> str | None:
     return mode.value if isinstance(mode, SerpMode) else None
 
 
+async def _ensure_funds(run: SalesSegmentRunModel, provider: SerpProvider) -> None:
+    """Хватит ли счёта на покупку (`funds.ensure_funds`) — по ключам без номера задачи: с номером
+    оплачен прошлой попыткой. Покупать нечего — счёт не спрашивается."""
+    tasks = _partial(run).get("tasks")
+    paid = tasks if isinstance(tasks, dict) else {}
+    to_buy = [keyword for keyword in run.keywords if keyword not in paid]
+    if to_buy:
+        await funds.ensure_funds(provider, len(to_buy), run.depth_pages, provider_mode(provider))
+
+
 async def collect(
     session: AsyncSession, run: SalesSegmentRunModel, provider: SerpProvider
 ) -> dict[str, Any]:
     """Купить выдачу по ключам прогона и завести кандидатов. Коммит — за вызывающим,
     сразу: строка расхода, кандидаты и итог — одна транзакция. Номера задач и ход покупки
-    коммитит `SerpTrail` по ходу."""
+    коммитит `SerpTrail` по ходу. Денег на счету мало — отказ до покупки (`_ensure_funds`)."""
+    await _ensure_funds(run, provider)
     trail = SerpTrail(session, run)
     before = getattr(provider, "spent", 0.0)
     try:
