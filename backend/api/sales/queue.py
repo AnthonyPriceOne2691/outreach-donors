@@ -91,6 +91,9 @@ class SalesQueueView(BaseModel):
     chains: list[ChainState]
     #: Лидов `ready` без письма — их возьмёт следующая сборка.
     unwritten: int
+    #: Те же лиды по языку письма (основой кода): плашка «отправлять нечего» называет неполную
+    #: цепочку только того языка, лиды которого ждут.
+    unwritten_languages: dict[str, int] = Field(default_factory=dict)
     #: Писем гипотезы в очереди — ждут отправки.
     queued: int
     #: Писем продаж в очереди — всех гипотез: столько возьмёт пачка этапа продаж.
@@ -139,6 +142,7 @@ async def read_queue(
         missing=found.missing,
         chains=[ChainState.of(item) for item in found.chains],
         unwritten=found.unwritten,
+        unwritten_languages=found.unwritten_by_language,
         queued=found.queued,
         stage_queued=found.stage_queued,
         limit_max=LIMIT_MAX,

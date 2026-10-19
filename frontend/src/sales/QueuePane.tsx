@@ -70,6 +70,7 @@ import { SendQueue } from '../letters/SendQueue';
 import { notify } from '../notices';
 import { remember, remembered } from '../storage';
 import { BuildLetter } from './BuildLetter';
+import { nothingToSend, QueueOutcome } from './QueueOutcome';
 import { buildJobKey, buildLetters, QUEUE_QUERY_KEY, queueLine, useSalesQueue } from './queueData';
 import { useMayWrite, WriteRight } from './WriteRight';
 
@@ -295,9 +296,11 @@ function BuildQueue({ view }: { view: SalesQueueView }) {
         <>
           <JobLine
             jobId={jobId}
-            describe={queueLine}
+            describe={(report) => queueLine(report, nothingToSend(report, view))}
+            idle={(report) => nothingToSend(report, view)}
             onFinished={() => void client.invalidateQueries({ queryKey: QUEUE_QUERY_KEY })}
           />
+          <QueueOutcome jobId={jobId} view={view} />
           <BuildLetters jobId={jobId} />
         </>
       ) : null}
