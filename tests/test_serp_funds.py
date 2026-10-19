@@ -168,6 +168,21 @@ class TestMemory:
         assert await funds.balance_of(_Account(SerpError("молчит"))) is None
         assert await funds.balance_of(_Account(7.5)) == 7.5
 
+    async def test_the_purchase_asks_the_provider_even_after_a_fresh_balance(self) -> None:
+        """Память — для смет, а не для траты: последняя проверка перед покупкой спрашивает
+        провайдера сейчас (кросс-ревью продаж 19.10.2026)."""
+        assert await funds.balance_of(_Account(40.0)) == 40.0
+        account = _Counted(4.0)
+
+        with pytest.raises(funds.FundsTooLowError):
+            await funds.ensure_funds(account, 2, 1, "live")
+        assert account.asked == 1
+
+    async def test_the_purchase_still_falls_back_when_the_provider_refuses(self) -> None:
+        assert await funds.balance_of(_Account(40.0)) == 40.0
+
+        await funds.ensure_funds(_Account(SerpError("40202 Rate limit")), 2, 1, "live")
+
 
 class TestBeforeThePurchase:
     async def test_low_balance_stops_before_buying_and_is_not_retried(self) -> None:

@@ -2832,9 +2832,9 @@
       "worst": "build_provider:35"
     },
     "backend/features/serp/funds.py": {
-      "lines": 148,
+      "lines": 153,
       "complexity": 4,
-      "worst": "refusal:71"
+      "worst": "refusal:73"
     },
     "backend/features/serp/markets.py": {
       "lines": 100,

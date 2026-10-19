@@ -16,6 +16,8 @@
 формы, и сметы подряд получали от провайдера отказ вместо остатка: экран терял остаток, а
 проверка счёта пропускалась. Названный за `FRESH_S` берётся без запроса, а при отказе
 провайдера годится названный за `STALE_OK_S`. Память у каждого процесса своя.
+Последняя проверка перед покупкой (`ensure_funds`) спрашивает провайдера всегда: память — для
+смет, а не для траты, и не зависит от того, форкает ли воркер процесс на задачу.
 """
 
 from __future__ import annotations
@@ -90,13 +92,14 @@ def search_cost(keywords: int, depth_pages: int, mode: str | None) -> float:
     return serp_cost_usd(keywords, depth_pages, mode_of(mode))
 
 
-async def balance_of(provider: object) -> float | None:
+async def balance_of(provider: object, *, fresh_s: float = FRESH_S) -> float | None:
     """Остаток на счету провайдера выдачи; `None` — счёта у него нет или он не ответил, а
-    названного за `STALE_OK_S` нет. Названный за `FRESH_S` берётся без запроса."""
+    названного за `STALE_OK_S` нет. Названный моложе `fresh_s` берётся без запроса; перед
+    тратой — ноль: провайдера спрашивают всегда."""
     ask: Any = getattr(provider, "balance", None)
     if ask is None:
         return None
-    fresh = _named_within(FRESH_S)
+    fresh = _named_within(fresh_s)
     if fresh is not None:
         return fresh
     try:
@@ -141,7 +144,9 @@ async def provider_balance(ahrefs: AhrefsClient) -> float | None:
 
 
 async def ensure_funds(provider: object, keywords: int, depth_pages: int, mode: str | None) -> None:
-    """Перед покупкой выдачи: денег мало — `FundsTooLowError` словами, ничего не куплено."""
-    words = refusal(await balance_of(provider), search_cost(keywords, depth_pages, mode))
+    """Перед покупкой выдачи: денег мало — `FundsTooLowError` словами, ничего не куплено.
+    Остаток — у провайдера сейчас, а не из памяти смет (кросс-ревью продаж 19.10.2026)."""
+    balance = await balance_of(provider, fresh_s=0.0)
+    words = refusal(balance, search_cost(keywords, depth_pages, mode))
     if words is not None:
         raise FundsTooLowError(words)
