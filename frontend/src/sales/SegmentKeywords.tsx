@@ -1,5 +1,6 @@
 /**
- * Ключи сбора чипами — одним списком в строку, в смете до запуска и в отчёте прогона.
+ * Ключи сбора чипами — одним списком в строку, в смете до запуска. В отчёте прогона ключи —
+ * таблицей со сайтами по ключу (`SegmentRunKeywords`).
  *
  * **Один список, а не два столбца** (волна 15: прогон размера №1 занимал на телефоне семь тысяч
  * пикселей, ключи — двумя столбцами списков). Взятый ключ — чипом с ✓, отсеянный — с ✗; слова
@@ -11,19 +12,14 @@
  * и это не отсев — галочку можно вернуть. У отсеянного галочки нет. Чипы стоят на своих местах:
  * снятый не уезжает в другой список, и под курсор не подъезжает соседний (правило «Отбора»), а
  * строка чисел — под чипами, её длина их не двигает.
- *
- * **В отчёте — и что вышло с покупкой**: у взятого значок «выдача не пришла» (заплачено, а
- * провайдер не отдал) или «ничего не нашлось» (выдача пуста) — разные исходы, разными словами;
- * снятые на запуске — своим чипом.
  */
 
-import { Badge, Checkbox, Stack, Text, VisuallyHidden } from '@mantine/core';
+import { Checkbox, Stack, Text, VisuallyHidden } from '@mantine/core';
 import { IconCheck, IconMinus, IconX } from '@tabler/icons-react';
 import { useId } from 'react';
 import type { CSSProperties } from 'react';
 
-import type { SegmentRunDetail } from './segmentApi';
-import { EXCLUDED_AT_START_COUNT, keysLine, LOST_MARK, runChips } from './segmentKeys';
+import { keysLine } from './segmentKeys';
 import type { KeyChip, KeyState } from './segmentKeys';
 
 /** Список чипов: в строку с переносом, без маркеров и отступа браузера. */
@@ -156,21 +152,8 @@ function Chip({
       ) : (
         <StaticChip chip={chip} />
       )}
-      {/* Между чипом, значками и словами — пробелы, а не отступы: строка читается фразой и
-          программой чтения с экрана, а перенос идёт по ним. */}
-      {(chip.marks ?? []).map((mark) => (
-        <span key={mark}>
-          {' '}
-          <Badge
-            size="sm"
-            variant="light"
-            color={mark === LOST_MARK ? 'yellow' : 'gray'}
-            style={{ verticalAlign: 'middle' }}
-          >
-            {mark}
-          </Badge>
-        </span>
-      ))}
+      {/* Между чипом и словами — пробел, а не отступ: строка читается фразой и программой
+          чтения с экрана, а перенос идёт по нему. */}
       {chip.words !== undefined && (
         <>
           {' '}
@@ -187,7 +170,7 @@ interface ChipsProps {
   /** Подпись над чипами — она же имя списка. */
   label: string;
   chips: KeyChip[];
-  /** Как назван снятый в строке чисел: «снято вами» в смете, «снято на запуске» в отчёте. */
+  /** Как назван снятый в строке чисел («снято вами»). */
   excludedWords: string;
   /** Снять ключ или вернуть ему галочку — у взятых и снятых ключей сметы. */
   onToggle?: (line: number, taken: boolean) => void;
@@ -219,18 +202,5 @@ export function KeywordChips({ label, chips, excludedWords, onToggle, note }: Ch
         {note === undefined ? '' : ` ${note}`}
       </Text>
     </Stack>
-  );
-}
-
-/** Ключи прогона: как их видел человек на запуске — и что вышло с покупкой выдачи. */
-export function SegmentKeywords({ detail }: { detail: SegmentRunDetail }) {
-  const found = detail.spend?.keywords;
-  if (found === undefined) return null;
-  return (
-    <KeywordChips
-      label="Ключи прогона"
-      chips={runChips(found)}
-      excludedWords={EXCLUDED_AT_START_COUNT}
-    />
   );
 }

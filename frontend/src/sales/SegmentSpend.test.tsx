@@ -167,23 +167,29 @@ async function openSpend(): Promise<HTMLElement> {
   return screen.findByRole('dialog', { name: 'Расход и смета прогона №21' }, SCREEN_WAIT);
 }
 
-function items(name: string | RegExp): (string | null)[] {
-  return within(screen.getByRole('list', { name }))
-    .getAllByRole('listitem')
-    .map((item) => item.textContent);
-}
-
 describe('сбор базы: ключи и расход в отчёте прогона', () => {
-  it('ключи прогона: взятые с пометкой, отсеянные с причиной, пропавшие и пустые', async () => {
+  it('ключи прогона: таблица со значками покупки, пометки и отсеянные — под ней', async () => {
     await openReport();
 
-    // Один список чипами (`SegmentKeywords`): у взятых — значки покупки выдачи.
-    expect(items('Ключи прогона')).toEqual([
-      'взят: доставка грузов',
-      'взят: доставка грузов казань ничего не нашлось похож на «доставка грузов» — общих слов 2 из 3',
-      'взят: перевозка мебели выдача не пришла',
-      'отсеян: site:cargo.example.test поисковый оператор: так пользователи не ищут',
+    // Таблицей (`SegmentRunKeywords`): у ключа — значки покупки выдачи. У ответа без сайтов по
+    // ключу колонок чисел нет, а пометка почти повтора — словами под таблицей.
+    const block = screen.getByRole('region', { name: 'Ключи прогона' });
+    const rows = within(within(block).getByRole('table')).getAllByRole('row').slice(1);
+    expect(rows.map((row) => row.textContent)).toEqual([
+      'доставка грузов',
+      'доставка грузов казань ничего не нашлось',
+      'перевозка мебели выдача не пришла',
     ]);
+    expect(
+      within(block).getByText(
+        'доставка грузов казань — похож на «доставка грузов» — общих слов 2 из 3.',
+      ),
+    ).toBeVisible();
+    expect(
+      within(block).getByText(
+        'Отсеян «site:cargo.example.test»: поисковый оператор: так пользователи не ищут.',
+      ),
+    ).toBeVisible();
   });
 
   it('расход статьями: факт и смета на запуске словами сервера; Hunter — не в деньгах', async () => {

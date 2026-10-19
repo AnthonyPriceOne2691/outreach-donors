@@ -52,7 +52,8 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import func, or_, select, true, update
@@ -81,6 +82,7 @@ from backend.features.sales import (
 from backend.features.sales.followup_texts import CAPPED, Built
 from backend.features.sales.followup_texts import build as build_followups
 from backend.features.sales.intake import UnknownHypothesisError
+from backend.features.sales.kb_gaps import IN_LANGUAGE
 from backend.features.sales.lead_edit import edited
 from backend.features.sales.lead_values import language_base
 from backend.features.sales.mail import stopped_by
@@ -254,7 +256,9 @@ async def _plan(session: AsyncSession, row: _Lead, hypothesis_id: int) -> _Plan 
         return NO_LANGUAGE
     found = await chain.resolve(session, hypothesis_id=hypothesis_id, language=language)
     if found.missing:
-        return f"цепочка на языке {language} задана не целиком"
+        # Язык словами («на русском»), а не кодом: причину читает человек на экране очереди.
+        said = IN_LANGUAGE.get(language, f"на языке {language}")
+        return f"цепочка {said} задана не целиком"
     values = letter.values_of(row.lead, row.host)
     absent = letter.lacking(found.steps.values(), values)
     if absent:
@@ -437,6 +441,9 @@ class QueueState:
     #: очередь этапа целиком, и кнопка называет это число, а не число гипотезы. Как и у
     #: пачки, только первые письма: добивка в очереди ждёт свой ящик и проход добивок.
     stage_queued: int
+    #: Те же лиды без письма — по языку письма (основой кода, как у сборки): плашка «отправлять
+    #: нечего» называет неполную цепочку только того языка, лиды которого ждут.
+    unwritten_by_language: dict[str, int] = field(default_factory=dict)
 
 
 async def state(session: AsyncSession, hypothesis_id: int) -> QueueState:
@@ -445,12 +452,18 @@ async def state(session: AsyncSession, hypothesis_id: int) -> QueueState:
         await chain.resolve(session, hypothesis_id=hypothesis_id, language=code)
         for code in chain_text.LANGUAGES
     ]
-    unwritten = await session.scalar(
-        select(func.count())
+    # Язык — основой кода тем же правилом, что у сборки (`language_base`): разных записей языка
+    # у гипотезы — единицы, группа по ним дешевле правила в SQL.
+    written = await session.execute(
+        select(SalesLeadModel.language, func.count())
         .select_from(SalesLeadModel)
         .outerjoin(SalesThreadModel, SalesThreadModel.lead_id == SalesLeadModel.id)
         .where(SalesLeadModel.hypothesis_id == hypothesis_id, elsewhere.writable())
+        .group_by(SalesLeadModel.language)
     )
+    by_language: Counter[str] = Counter()
+    for language, count in written.tuples().all():
+        by_language[language_base(language)] += count
     queued = await session.scalar(
         select(func.count())
         .select_from(MessageModel)
@@ -475,7 +488,9 @@ async def state(session: AsyncSession, hypothesis_id: int) -> QueueState:
     return QueueState(
         await connection.missing(session),
         chains,
-        int(unwritten or 0),
+        sum(by_language.values()),
         int(queued or 0),
         int(stage_queued or 0),
+        # Лид без языка — в общем числе, а не по языкам: цепочки у него нет ни на одном.
+        {code: count for code, count in by_language.items() if code},
     )

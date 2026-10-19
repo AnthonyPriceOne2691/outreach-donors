@@ -362,9 +362,9 @@
       "worst": "change_lead:57"
     },
     "backend/api/sales/queue.py": {
-      "lines": 241,
+      "lines": 245,
       "complexity": 3,
-      "worst": "build_queue:155"
+      "worst": "build_queue:159"
     },
     "backend/api/sales/routes.py": {
       "lines": 286,
@@ -387,9 +387,9 @@
       "worst": "help_segment:58"
     },
     "backend/api/sales/segment_schemas.py": {
-      "lines": 458,
+      "lines": 475,
       "complexity": 5,
-      "worst": "of:425"
+      "worst": "of:206"
     },
     "backend/api/sales/segment_sites.py": {
       "lines": 453,
@@ -2547,9 +2547,9 @@
       "worst": "zones_of:49"
     },
     "backend/features/sales/queue.py": {
-      "lines": 482,
+      "lines": 497,
       "complexity": 7,
-      "worst": "build:145"
+      "worst": "build:147"
     },
     "backend/features/sales/queue_jobs.py": {
       "lines": 103,
@@ -2632,9 +2632,9 @@
       "worst": "_without_stoplisted:134"
     },
     "backend/features/sales/segment_keywords.py": {
-      "lines": 149,
+      "lines": 172,
       "complexity": 5,
-      "worst": "clean_keywords:65"
+      "worst": "clean_keywords:72"
     },
     "backend/features/sales/segment_leads.py": {
       "lines": 131,
@@ -2677,9 +2677,9 @@
       "worst": "summary:99"
     },
     "backend/features/sales/segment_report.py": {
-      "lines": 248,
+      "lines": 277,
       "complexity": 6,
-      "worst": "decide:198"
+      "worst": "decide:227"
     },
     "backend/features/sales/segment_run.py": {
       "lines": 272,
@@ -3142,7 +3142,7 @@
       "worst": "queue_screens:24"
     },
     "scripts/ui_screens_sales_segment.py": {
-      "lines": 271,
+      "lines": 276,
       "complexity": 2,
       "worst": "collect_prepare:45"
     },

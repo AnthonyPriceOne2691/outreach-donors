@@ -11,15 +11,23 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from backend.features.sales.segment_keywords import REPEAT, clean_keywords, run_keywords
+from backend.features.sales.segment_keywords import (
+    FIRM,
+    NEAR_LEAD,
+    REPEAT,
+    clean_keywords,
+    run_keywords,
+)
 from backend.features.sales.segment_models import SalesSegmentRunModel
 
 
-def run_of(*, estimate: Any = None, report: Any = None) -> SalesSegmentRunModel:
+def run_of(
+    *, estimate: Any = None, report: Any = None, keywords: list[str] | None = None
+) -> SalesSegmentRunModel:
     """Строка прогона без базы: отчёт ключей читает только её поля."""
     return SalesSegmentRunModel(
         hypothesis_id=1,
-        keywords=["plumber london", "emergency plumber london"],
+        keywords=keywords or ["plumber london", "emergency plumber london"],
         country="gb",
         language="en",
         depth_pages=1,
@@ -178,3 +186,55 @@ def test_a_run_before_the_serp_or_of_an_old_estimate_has_no_lists_instead_of_fai
 
     assert (found.notes, found.rejected, found.lost, found.empty) == ({}, {}, [], [])
     assert found.taken == ["plumber london", "emergency plumber london"]
+
+
+# --- отчёт: почти повторы группами, прочие пометки --------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("keywords", "twins"),
+    [
+        (
+            ["доставка грузов", "доставка грузов москва", "доставка грузов казань", "грузчики"],
+            {
+                "доставка грузов москва": "доставка грузов",
+                "доставка грузов казань": "доставка грузов",
+            },
+        ),
+        (["dentist berlin", "dentist munich", "zahnarzt berlin"], {}),
+        (
+            ["abogado laboral madrid", "abogado laboral", "abogado laboral barcelona"],
+            {"abogado laboral": "abogado laboral madrid"},
+        ),
+    ],
+    ids=["ru-cargo-cities", "de-dentists-distinct", "es-lawyers-general-after-city"],
+)
+def test_the_report_groups_near_repeats_by_the_rule_of_the_launch(
+    keywords: list[str], twins: dict[str, str]
+) -> None:
+    """В отчёте почти повтор стоит группой под ключом, на который похож, — тем же правилом, что
+    пометка на запуске: в группах ровно те ключи, которым смета сказала «похож на «…»»."""
+    found = run_keywords(run_of(keywords=keywords))
+
+    launch = clean_keywords("\n".join(keywords)).notes
+    assert found.twins == twins
+    assert set(found.twins) == {key for key, words in launch.items() if words.startswith(NEAR_LEAD)}
+
+
+def test_other_remarks_stay_without_the_near_repeat_part() -> None:
+    """Ключ, похожий на другой и с формой фирмы, теряет в отчёте только «похож на «…»» — её
+    заменяет группа; ключ, у которого была лишь она, пометок не держит."""
+    launch = clean_keywords(
+        "plumber london\nplumber london Ltd\nAcme GmbH Berlin\nplumber london city"
+    )
+
+    found = run_keywords(run_of(keywords=launch.taken, estimate={"notes": launch.notes}))
+
+    assert found.remarks == {
+        "plumber london ltd": FIRM.format(form="Ltd"),
+        "acme gmbh berlin": FIRM.format(form="GmbH"),
+    }
+    assert found.twins == {
+        "plumber london ltd": "plumber london",
+        "plumber london city": "plumber london",
+    }

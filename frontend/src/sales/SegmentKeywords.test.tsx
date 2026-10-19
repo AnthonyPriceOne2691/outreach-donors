@@ -3,8 +3,8 @@
  * взятого — галочка, у отсеянного — нет; снятый — «снят вами», а не отсеян; смета
  * пересчитывается сама, без кнопки и с задержкой на щелчки; запуск — со снятыми строками и
  * отпечатком сметы, которую видел человек; сняты все — запуск закрыт словами; правка поля
- * ключей снятый не теряет; ответ на прошлое состояние галочек не перебивает новое. В отчёте —
- * взятые со значками «выдача не пришла» и «ничего не нашлось» и снятые на запуске.
+ * ключей снятый не теряет; ответ на прошлое состояние галочек не перебивает новое. Ключи в
+ * отчёте прогона — таблицей (`SegmentRunKeywords.test.tsx`).
  *
  * Ответы сервера — записанные (`serve()`), незаписанный запрос роняет тест; ключи — разных ниш и
  * языков, домены выдуманы.
@@ -21,13 +21,7 @@ import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
 import { HELP_QUIET } from './segmentHelpFixtures';
-import type {
-  SegmentAsk,
-  SegmentEstimate,
-  SegmentHome,
-  SegmentRunDetail,
-  SegmentRunRow,
-} from './segmentApi';
+import type { SegmentAsk, SegmentEstimate, SegmentHome } from './segmentApi';
 
 const SCREEN_WAIT = { timeout: 5000 };
 const SEGMENT_TEXT = 'Talleres de bicicletas: reparan y venden bicicletas en su propio local.';
@@ -399,85 +393,5 @@ describe('ключи сметы чипами и снятие галочкой', 
         ).toBeGreaterThan(1),
       SCREEN_WAIT,
     );
-  });
-});
-
-// --- ключи в отчёте прогона ----------------------------------------------------------------------
-
-const RUN: SegmentRunRow = {
-  id: 44,
-  created_at: '2026-10-15T09:30:00+00:00',
-  finished_at: '2026-10-15T09:41:00+00:00',
-  created_by: 'seller@ours.example.test',
-  country: 'de',
-  language: 'en',
-  depth_pages: 1,
-  keywords: 3,
-  mode: 'shadow',
-  stage: 'done',
-  error: null,
-  job_id: 'sales-segment-44',
-};
-
-const DETAIL: SegmentRunDetail = {
-  run: RUN,
-  hypothesis: 'talleres ES',
-  keywords: ['zahnarzt berlin', 'zahnarztpraxis berlin mitte', 'zahnarzt notdienst'],
-  estimate_lines: ['смета'],
-  spend: {
-    keywords: {
-      taken: ['zahnarzt berlin', 'zahnarztpraxis berlin mitte', 'zahnarzt notdienst'],
-      notes: { 'zahnarztpraxis berlin mitte': 'похож на «zahnarzt berlin» — общих слов 2 из 4' },
-      rejected: { 'site:praxis.example.test zahnarzt': OPERATOR },
-      lost: ['zahnarzt notdienst'],
-      empty: ['zahnarztpraxis berlin mitte', 'zahnarzt bewertung'],
-      excluded: ['zahnarzt kosten'],
-    },
-    rows: [],
-  },
-  summary: { hosts: 7, accepted: 2, review: 0, rejected: 5, no_address: 0, leads: 2 },
-  lanes: { pending: 0, accept: 2, review: 0, reject: 5 },
-  rejected: [],
-  no_address: [],
-  waiting_address: 0,
-  leads: { new: 0, ready: 2, rejected: 0 },
-  lead_reasons: {},
-  unanswered: 0,
-  report: {},
-};
-
-describe('ключи прогона чипами в отчёте', () => {
-  it('взятые со значками покупки, снятые на запуске, отсеянные; без галочек', async () => {
-    localStorage.setItem(TOKEN_KEY, 'пропуск');
-    serve({
-      'GET /api/auth/me': { body: ADMIN },
-      'GET /api/sales/hypotheses': { body: HYPOTHESES },
-      'GET /api/sales/kb': { body: KB },
-      'GET /api/sales/segment?hypothesis=9': { body: { ...HOME, runs: [RUN] } },
-      'GET /api/sales/segment/runs/44': { body: DETAIL },
-    });
-    renderWith(<AppRoutes />, '/sales?tab=collect');
-    const list = await screen.findByRole('list', { name: 'Ключи прогона' }, SCREEN_WAIT);
-
-    expect(
-      within(list)
-        .getAllByRole('listitem')
-        .map((item) => item.textContent),
-    ).toEqual([
-      'взят: zahnarzt berlin',
-      'взят: zahnarztpraxis berlin mitte ничего не нашлось похож на «zahnarzt berlin» — общих слов 2 из 4',
-      'взят: zahnarzt notdienst выдача не пришла',
-      // Пустой ключ, которого нет среди взятых, не пропадает молча.
-      'взят: zahnarzt bewertung ничего не нашлось',
-      'снят: zahnarzt kosten снят на запуске',
-      `отсеян: site:praxis.example.test zahnarzt ${OPERATOR}`,
-    ]);
-    expect(within(list).queryByRole('checkbox')).toBeNull();
-    expect(
-      screen.getByText(
-        'Взято 4 из 6 · снято на запуске 1 · отсеяно 1 · выдача не пришла 1 — заплачено, а ' +
-          'провайдер не отдал · ничего не нашлось 2.',
-      ),
-    ).toBeInTheDocument();
   });
 });
