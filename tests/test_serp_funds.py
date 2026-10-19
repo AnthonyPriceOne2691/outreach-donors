@@ -120,6 +120,55 @@ class TestBalance:
         assert await REAL_PROVIDER_BALANCE(object()) is None  # type: ignore[arg-type]
 
 
+class _Counted(_Account):
+    """Счёт, который считает вопросы о себе."""
+
+    def __init__(self, balance: float | Exception) -> None:
+        super().__init__(balance)
+        self.asked = 0
+
+    async def balance(self) -> float:
+        self.asked += 1
+        return await super().balance()
+
+
+def _older(seconds: float) -> None:
+    """Состарить названный остаток: как будто его назвали `seconds` назад."""
+    funds.LAST.at -= seconds
+
+
+class TestMemory:
+    """Названный остаток помнится (19.10.2026): сметы подряд не спрашивают провайдера каждый
+    раз, а его отказ не выключает проверку счёта."""
+
+    async def test_a_fresh_balance_is_not_asked_again(self) -> None:
+        account = _Counted(40.0)
+        assert await funds.balance_of(account) == 40.0
+        assert await funds.balance_of(account) == 40.0
+        assert account.asked == 1
+
+    async def test_after_a_minute_the_provider_is_asked_again(self) -> None:
+        assert await funds.balance_of(_Account(40.0)) == 40.0
+        _older(funds.FRESH_S + 1)
+        account = _Counted(12.0)
+        assert await funds.balance_of(account) == 12.0
+        assert account.asked == 1
+
+    async def test_a_refusal_falls_back_to_the_balance_named_lately(self) -> None:
+        assert await funds.balance_of(_Account(40.0)) == 40.0
+        _older(funds.FRESH_S + 1)
+        assert await funds.balance_of(_Account(SerpError("40202 Rate limit"))) == 40.0
+
+    async def test_too_old_a_balance_is_not_used(self) -> None:
+        assert await funds.balance_of(_Account(40.0)) == 40.0
+        _older(funds.STALE_OK_S + 1)
+        assert await funds.balance_of(_Account(SerpError("молчит"))) is None
+
+    async def test_a_refusal_is_not_remembered(self) -> None:
+        assert await funds.balance_of(_Account(SerpError("молчит"))) is None
+        assert await funds.balance_of(_Account(7.5)) == 7.5
+
+
 class TestBeforeThePurchase:
     async def test_low_balance_stops_before_buying_and_is_not_retried(self) -> None:
         with pytest.raises(funds.FundsTooLowError) as caught:

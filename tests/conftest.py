@@ -52,6 +52,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import SenderModel
 from backend.features.ops import funds_watch, key_watch, silence
+from backend.features.serp import funds
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from redis.exceptions import RedisError
@@ -383,11 +384,14 @@ def _no_providers_answer_from_another_test(monkeypatch: pytest.MonkeyPatch) -> N
     подмена `probe_providers` молча не сработала бы. Так же и правило тревоги провайдеров
     (`silence.WATCH`): молчание, начатое соседним тестом, не в счёт этого. И услышанный
     опросом ответ Ahrefs (`key_watch.HEARD`): чужой ответ лёг бы снимком ключа в этот тест.
-    И остаток на счету выдачи (`funds_watch.SEEN`): чужой поднял бы тревогу «пополните счёт»."""
+    И остаток на счету выдачи (`funds_watch.SEEN`): чужой поднял бы тревогу «пополните счёт».
+    И названный провайдером остаток (`funds.LAST`, минута в памяти): чужой заслонил бы счёт
+    поддельного провайдера этого теста."""
     monkeypatch.setattr(watchdog_routes, "PROBES", watchdog_routes.Probes())
     monkeypatch.setattr(silence, "WATCH", silence.ProviderWatch())
     monkeypatch.setattr(key_watch, "HEARD", key_watch.Heard())
     monkeypatch.setattr(funds_watch, "SEEN", funds_watch.Seen())
+    monkeypatch.setattr(funds, "LAST", funds.Last())
 
 
 @pytest.fixture(autouse=True)

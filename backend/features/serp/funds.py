@@ -11,11 +11,18 @@
 **Остаток неизвестен — не отказ.** У провайдера нет счёта (подделка, Ahrefs как источник
 выдачи) или он не ответил — проверки нет: о неответе говорит своя тревога сторожа, а покупка
 у неответившего откажет громко сама.
+
+**Названный остаток помнится** (`LAST`, 19.10.2026). Смета пересчитывается на каждую правку
+формы, и сметы подряд получали от провайдера отказ вместо остатка: экран терял остаток, а
+проверка счёта пропускалась. Названный за `FRESH_S` берётся без запроса, а при отказе
+провайдера годится названный за `STALE_OK_S`. Память у каждого процесса своя.
 """
 
 from __future__ import annotations
 
 import logging
+import time
+from dataclasses import dataclass
 from typing import Any
 
 from backend.features.ahrefs.client import AhrefsClient
@@ -27,6 +34,26 @@ logger = logging.getLogger(__name__)
 
 #: На счету меньше — прогоны не запускаются (слово владельца 16.10.2026: «меньше $5»).
 MIN_BALANCE_USD = 5.0
+#: Названный остаток моложе — провайдера не спрашиваем.
+FRESH_S = 60.0
+#: Провайдер не назвал остаток — годится названный моложе этого; старше — остаток неизвестен.
+STALE_OK_S = 600.0
+
+
+@dataclass(slots=True)
+class Last:
+    """Последний названный провайдером остаток и когда (`time.monotonic`)."""
+
+    balance: float | None = None
+    at: float = 0.0
+
+
+LAST = Last()
+
+
+def forget() -> None:
+    """Забыть названный остаток — тестам между случаями."""
+    LAST.balance, LAST.at = None, 0.0
 
 
 class FundsTooLowError(RuntimeError):
@@ -64,15 +91,26 @@ def search_cost(keywords: int, depth_pages: int, mode: str | None) -> float:
 
 
 async def balance_of(provider: object) -> float | None:
-    """Остаток на счету провайдера выдачи; `None` — счёта у него нет или он не ответил."""
+    """Остаток на счету провайдера выдачи; `None` — счёта у него нет или он не ответил, а
+    названного за `STALE_OK_S` нет. Названный за `FRESH_S` берётся без запроса."""
     ask: Any = getattr(provider, "balance", None)
     if ask is None:
         return None
+    age = time.monotonic() - LAST.at
+    if LAST.balance is not None and age < FRESH_S:
+        return LAST.balance
     try:
-        return float(await ask())
+        balance = float(await ask())
     except (SerpError, OSError) as exc:
+        if LAST.balance is not None and age < STALE_OK_S:
+            logger.warning(
+                "счёт выдачи: остаток не узнать (%s) — беру названный %.0f с назад", exc, age
+            )
+            return LAST.balance
         logger.warning("счёт выдачи: остаток не узнать (%s) — проверка счёта пропущена", exc)
         return None
+    LAST.balance, LAST.at = balance, time.monotonic()
+    return balance
 
 
 async def provider_balance(ahrefs: AhrefsClient) -> float | None:
