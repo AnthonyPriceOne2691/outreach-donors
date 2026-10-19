@@ -2,7 +2,8 @@
 
 Смета прогона считает деньги модели долей вывода, заложенной предложением; у вывода своя цена,
 и рассуждение модели идёт в счёт вывода. Раздельный счёт в отчёте прогона и пересуда даёт
-настоящую долю. Строка журнала расхода — прежняя: итогом провайдера (`total_tokens`).
+настоящую долю. Строка журнала расхода — прежняя: итогом провайдера (`total_tokens`; нет его —
+суммой ввода и вывода, `shared/llm.tokens_of`).
 
 На настоящей базе: проход судьи, продолжение прогона (сумма по проходам), пересуд и его повтор;
 разбор `usage` — формами ответа провайдера, в том числе без разбивки. Модель — подставным
@@ -152,6 +153,8 @@ def split_of(numbers: dict[str, Any]) -> tuple[int, ...]:
     [
         (split(1000, 120, 64), Spent(1000, 120, 64)),
         ({"prompt_tokens": 900, "completion_tokens": 50, "total_tokens": 950}, Spent(900, 50, 0)),
+        # Итога нет — итог вызова есть сумма частей (`shared/llm.tokens_of`): раздельно известно.
+        ({"prompt_tokens": 900, "completion_tokens": 50}, Spent(900, 50, 0)),
         (whole(950), None),
         (None, None),
         ({"prompt_tokens": 900, "total_tokens": 900}, None),
@@ -160,11 +163,13 @@ def split_of(numbers: dict[str, Any]) -> tuple[int, ...]:
         ({"prompt_tokens": True, "completion_tokens": 949, "total_tokens": 950}, None),
         # Части не сходятся с итогом, по которому пишется расход: раздельно неизвестно.
         ({"prompt_tokens": 900, "completion_tokens": 50, "total_tokens": 1000}, None),
-        ({"prompt_tokens": 900, "completion_tokens": 50}, None),
+        # Ввод и вывод под другими именами: итог вызова есть (`tokens_of`), раздельно неизвестно.
+        ({"input_tokens": 900, "output_tokens": 50}, None),
     ],
     ids=[
         "openai",
         "no-reasoning-details",
+        "no-total",
         "total-only",
         "no-usage",
         "no-completion",
@@ -172,7 +177,7 @@ def split_of(numbers: dict[str, Any]) -> tuple[int, ...]:
         "negative",
         "bool",
         "parts-off-the-total",
-        "no-total",
+        "input-output-names",
     ],
 )
 def test_the_usage_of_an_answer_splits_into_input_output_and_reasoning(
