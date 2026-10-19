@@ -26,6 +26,11 @@
 Деньги вместе — выдача и модель последней строкой; Hunter платится запросами своего тарифа и в
 доллары не переводится (`okf/unit-economy.md`: счета разные, единицы не складываются).
 
+**Счёт выдачи — последней ступенью отказа** (`serp/funds`, слово владельца 16.10.2026): на счету
+DataForSEO меньше порога или выдача по смете дороже остатка — «пополните счёт», прогон не
+запускается. Остаток не узнать — проверки нет: покупка у неответившего откажет сама. Запуск
+пересчитывает смету на сервере и отказывает её словами — проверка та же.
+
 **Отпечаток сметы** (`digest`) — что человек видел: ключи, снятые, описание сегмента и режимы;
 запуск идёт только по нему (`segment_estimate_keys.seen_digest`).
 """
@@ -56,7 +61,7 @@ from backend.features.sales.segment_estimate_words import lines_of
 from backend.features.sales.segment_history import known_sites, output_share, sites_per_result
 from backend.features.sales.segment_keywords import clean_keywords
 from backend.features.sales.segment_spend import number, tokens_usd, usd_per_million
-from backend.features.serp import markets
+from backend.features.serp import funds, markets
 from backend.features.serp.factory import AHREFS, UnknownProviderError, build_provider
 from backend.features.serp.modes import (
     EXPECTED_WAIT_S,
@@ -389,7 +394,7 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
 
 async def _money_refusal(found: Estimate) -> str | None:
     """Отказ по деньгам и настройкам: модуль выключен, модель выше остатка потолка, нет ключа,
-    нет выдачи."""
+    нет выдачи, на счету выдачи не хватает денег."""
     if not sales_cfg.ENABLED:
         return SALES_OFF
     if found.mode != JudgeMode.OFF and not llm_cfg.API_KEY:
@@ -404,4 +409,17 @@ async def _money_refusal(found: Estimate) -> str | None:
             f"остатке {number(found.tokens_left)} — уменьшите число ключей или глубину, "
             "или запустите завтра"
         )
-    return await serp_refusal()
+    refused = await serp_refusal()
+    return refused if refused is not None else await _funds_refusal(found.serp_usd)
+
+
+async def _funds_refusal(cost: float) -> str | None:
+    """Хватит ли счёта выдачи на прогон (`serp/funds.refusal`): мало — слова «пополните счёт»;
+    остаток не узнать — проверки нет. Остаток — через модуль: тесты подменяют его там
+    (`conftest._no_real_serp_balance`), и настоящий счёт они не спрашивают."""
+    client = AhrefsClient()
+    try:
+        balance = await funds.provider_balance(client)
+    finally:
+        await client.aclose()
+    return funds.refusal(balance, cost)
