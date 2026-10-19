@@ -388,7 +388,8 @@ class TestTheCeilings:
 
         assert response.status_code == 422, response.text
         said = response.json()["detail"][0]["msg"]
-        assert said.startswith("Потолок юнитов — не больше 1 000 000 на прогон"), said
+        # Разряды — неразрывным пробелом: обычный рвал число переносом строки (19.10.2026).
+        assert said.startswith("Потолок юнитов — не больше 1\u00a0000\u00a0000 на прогон"), said
         assert offline.calls == []
 
     async def test_a_million_is_still_a_ceiling(

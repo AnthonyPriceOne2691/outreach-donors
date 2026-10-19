@@ -26,6 +26,7 @@ from backend.features.serp.modes import (
     serp_cost_usd,
 )
 from backend.features.serp.protocol import distinct_keywords
+from backend.shared.numbers import spaced
 
 #: Свой потолок юнитов на прогон — не больше этого: страж опечатки, а не лимит. Выше
 #: остатка капа потолок ничего не ограничивает — прогон всё равно режется им
@@ -127,7 +128,7 @@ class RunRequestBody(BaseModel):
     def _ceiling_that_means_something(cls, cap: int | None) -> int | None:
         """Потолок — до `MAX_RUN_CEILING`: выше он ничего не ограничивает."""
         if cap is not None and cap > MAX_RUN_CEILING:
-            most, came = (f"{number:,}".replace(",", " ") for number in (MAX_RUN_CEILING, cap))
+            most, came = (spaced(number) for number in (MAX_RUN_CEILING, cap))
             raise PydanticCustomError(
                 "cap_out_of_range",
                 f"Потолок юнитов — не больше {most} на прогон, пришло {came}. "

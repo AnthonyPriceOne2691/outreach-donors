@@ -32,8 +32,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.ahrefs.units import Quota
 from backend.features.ops.alarms import Alarm
-from backend.features.runs.ahrefs_cap import KeyCap, key_cap, spaced
+from backend.features.runs.ahrefs_cap import KeyCap, key_cap
 from backend.features.runs.ahrefs_key import day_words, remember
+from backend.shared.numbers import spaced
 
 logger = logging.getLogger(__name__)
 
