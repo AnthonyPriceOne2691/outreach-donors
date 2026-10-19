@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,12 +42,73 @@ class QuotaUnavailableError(RuntimeError):
         self.permanent = permanent
 
 
+#: Чего не хватило на старте прогона — словами отказа (`planning.plan_run`). Что делать,
+#: зависит от того, чей лимит: 16.10.2026 отказ советовал «поднимите кап», когда кончался
+#: ключ Ahrefs, и подъём капа не помогал. Не хватает обоих — проверить оба (слово владельца).
+LIMIT_WORDS = {
+    "key": (
+        "не хватает лимита ключа Ahrefs: увеличьте лимит ключа в самом Ahrefs — "
+        "кап здесь не поможет"
+    ),
+    "workspace": (
+        "не хватает лимита пространства Ahrefs, общего для всех его ключей: увеличьте его "
+        "в самом Ahrefs — кап здесь не поможет"
+    ),
+    "cap": (
+        "не хватает нашего капа цикла или потолка прогона: кап поднимают на экране «Расход» "
+        "(администратор или учётка с правом «править пороги»), потолок — в форме прогона"
+    ),
+    "both": (
+        "не хватает ни лимита ключа Ahrefs, ни нашего капа: проверьте лимит ключа в Ahrefs "
+        "и кап на экране «Расход»"
+    ),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class Budget:
+    """Бюджет на старте прогона: свободно у Ahrefs, наш кап — уже меньшее из капа цикла
+    и потолка прогона (`cap` у `budget_of`), — и какой лимит Ahrefs кончится раньше."""
+
+    free: int
+    cap: int | None
+    #: «key» или «workspace» — какой лимит Ahrefs кончится раньше (`Quota.tighter`).
+    side: str
+
+    @property
+    def units(self) -> int:
+        """Сколько можно потратить — меньшее из двух."""
+        return self.free if self.cap is None else min(self.free, self.cap)
+
+    @property
+    def binding(self) -> str:
+        """Упор: лимит Ahrefs (`side`) или наш кап — «cap». Поровну — Ahrefs: при упоре
+        и в остаток ключа, и в кап подъём капа не помог бы."""
+        return "cap" if self.cap is not None and self.cap < self.free else self.side
+
+    def shortage(self, total: int) -> str:
+        """Чего не хватает на `total` юнитов — каждого лимита по отдельности, словами отказа."""
+        ahrefs = total > self.free
+        ours = self.cap is not None and total > self.cap
+        if ahrefs and ours:
+            return LIMIT_WORDS["both"]
+        return LIMIT_WORDS[self.side] if ahrefs else LIMIT_WORDS["cap"]
+
+
 async def units_left(
     client: AhrefsClient, *, cap: int | None = None, claimed: int = 0, keep: Keep | None = None
 ) -> int:
-    """Сколько юнитов можно потратить: остаток провайдера минус чужие удержания,
-    и всё это не выше нашего капа. `keep` — куда положить ответ снимком ключа
-    (`ahrefs_key.keeper`): у кого сессия, тот и кладёт.
+    """Сколько юнитов можно потратить — число `budget_of` без упора: смете, консоли
+    и докупке стран слова отказа не нужны."""
+    return (await budget_of(client, cap=cap, claimed=claimed, keep=keep)).units
+
+
+async def budget_of(
+    client: AhrefsClient, *, cap: int | None = None, claimed: int = 0, keep: Keep | None = None
+) -> Budget:
+    """Сколько юнитов можно потратить и во что это упирается: остаток провайдера минус
+    чужие удержания, и всё это не выше нашего капа. `keep` — куда положить ответ снимком
+    ключа (`ahrefs_key.keeper`): у кого сессия, тот и кладёт.
 
     Кап ограничивает нас добровольно, остаток провайдера — жёстко.
 
@@ -95,7 +157,7 @@ async def units_left(
             free,
             extra={"claimed": claimed, "available": quota.available, "free": free},
         )
-    return min(free, cap) if cap is not None else free
+    return Budget(free=free, cap=cap, side=quota.tighter)
 
 
 async def cap_left(session: AsyncSession, *, now: datetime | None = None) -> int:
