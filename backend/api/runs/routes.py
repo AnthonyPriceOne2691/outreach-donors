@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,12 +35,12 @@ from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.donors import standing
 from backend.features.donors.geo import assert_settings_allow_limited_fetch
-from backend.features.runs.ahrefs_cap import key_cap
+from backend.features.runs.ahrefs_cap import KeyCap, key_cap
 from backend.features.runs.ahrefs_key import keeper
 from backend.features.runs.browse import MAX_PAGE_SIZE, PAGE_SIZE, RunBrowser
-from backend.features.runs.budget import cap_left, units_left
+from backend.features.runs.budget import CapExceededError, cap_left, shortage_words, units_left
 from backend.features.runs.duplicates import refuse_duplicate
-from backend.features.runs.estimate import UNIQUE_SHARE, forecast
+from backend.features.runs.estimate import UNIQUE_SHARE, RunForecast, forecast
 from backend.features.runs.outcome import outcome
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import rules_in_force
@@ -92,6 +93,48 @@ async def _refuse_empty_serp_account(body: RunRequestBody) -> None:
         raise funds.FundsTooLowError(words)
 
 
+#: Снимок ключа старше — запуск бюджет не сверяет: сверит задача живым ответом Ahrefs.
+SNAPSHOT_FRESH = timedelta(minutes=15)
+
+
+async def _refuse_over_budget(body: RunRequestBody, session: AsyncSession) -> None:
+    """Бюджет — до строки прогона, той же сметой, что видел человек: не помещается — отказ
+    словами задачи (`budget.shortage_words`), и прогон не начинается. До 19.10.2026 кнопку
+    блокировал только экран, а запуск мимо экрана вставал в очередь и отказывал уже после
+    покупки выдачи. Остаток Ahrefs — из снимка ключа последней сметы: снимка нет или он
+    старше `SNAPSHOT_FRESH` — сверит задача, живым ответом Ahrefs."""
+    cap = await key_cap(session)
+    key = cap.key
+    if key is None or datetime.now(UTC) - key.asked_at > SNAPSHOT_FRESH:
+        return
+    made = await _forecast(body, session, left=key.quota.available, cap=cap)
+    words = shortage_words(made.short_of, key.quota.tighter)
+    if words is not None:
+        # Заголовок «Прогон не запущен» ставит экран — здесь одни слова, предложением.
+        raise CapExceededError(
+            f"{words[:1].upper()}{words[1:]}. Или сократите список ключей или глубину выдачи."
+        )
+
+
+async def _forecast(
+    body: RunRequestBody, session: AsyncSession, *, left: int, cap: KeyCap
+) -> RunForecast:
+    """Смета тела прогона — одна для экрана и для запуска: остаток Ahrefs `left`, кап цикла
+    ключа, потрачено в цикле и потолок, названный человеком."""
+    runs = RunRepository(session)
+    return forecast(
+        # Ключи уже сведены схемой правилом выдачи: смета считает то, что она купит.
+        keywords=len(body.keywords),
+        depth_pages=body.depth_pages,
+        units_left=left,
+        units_cap=cap.units_cap,
+        units_spent_in_cycle=cap.spent,
+        run_ceiling=body.cap,
+        country_share=await runs.country_call_share(body.country),
+        unique_share=await runs.unique_share(UNIQUE_SHARE),
+    )
+
+
 @router.post("/estimate", response_model=Forecast, summary="Смета до запуска")
 async def estimate(
     body: RunRequestBody,
@@ -118,17 +161,7 @@ async def estimate(
     cap = await key_cap(session)
 
     made = Forecast.of(
-        forecast(
-            # Ключи уже сведены схемой правилом выдачи: смета считает то, что она купит.
-            keywords=len(body.keywords),
-            depth_pages=body.depth_pages,
-            units_left=left,
-            units_cap=cap.units_cap,
-            units_spent_in_cycle=cap.spent,
-            run_ceiling=body.cap,
-            country_share=await RunRepository(session).country_call_share(body.country),
-            unique_share=await RunRepository(session).unique_share(UNIQUE_SHARE),
-        ),
+        await _forecast(body, session, left=left, cap=cap),
         serp_mode=body.serp_mode or mode_of(None),
         cap=cap,
         serp_balance=balance,
@@ -152,6 +185,7 @@ async def start_run(
     """
     check_collect()
     await _refuse_empty_serp_account(body)
+    await _refuse_over_budget(body, session)
     # Версия настроек, которой прогон будет судить, — действующая: пороги, правило
     # региона и срок метрик, а не окружение (сверка ТЗ 11.10.2026). Несогласованное
     # правило региона — отказ словами здесь, а не остановка из очереди (`geo.py`).

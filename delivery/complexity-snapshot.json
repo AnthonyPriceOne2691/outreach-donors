@@ -132,9 +132,9 @@
       "worst": "of:226"
     },
     "backend/api/errors.py": {
-      "lines": 480,
+      "lines": 483,
       "complexity": 7,
-      "worst": "_database_code:308"
+      "worst": "_database_code:311"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -307,9 +307,9 @@
       "worst": "—"
     },
     "backend/api/runs/routes.py": {
-      "lines": 289,
-      "complexity": 2,
-      "worst": "effective_cap:57"
+      "lines": 323,
+      "complexity": 4,
+      "worst": "_refuse_over_budget:100"
     },
     "backend/api/runs/schemas.py": {
       "lines": 459,
@@ -2042,9 +2042,9 @@
       "worst": "tally_reviews:199"
     },
     "backend/features/runs/budget.py": {
-      "lines": 241,
-      "complexity": 5,
-      "worst": "shortage:89"
+      "lines": 254,
+      "complexity": 4,
+      "worst": "_words:104"
     },
     "backend/features/runs/duplicates.py": {
       "lines": 68,
@@ -2817,7 +2817,7 @@
       "worst": "_take_organic:73"
     },
     "backend/features/serp/dataforseo.py": {
-      "lines": 452,
+      "lines": 461,
       "complexity": 9,
       "worst": "_post:243"
     },
@@ -2832,9 +2832,9 @@
       "worst": "build_provider:35"
     },
     "backend/features/serp/funds.py": {
-      "lines": 99,
+      "lines": 153,
       "complexity": 4,
-      "worst": "refusal:44"
+      "worst": "refusal:73"
     },
     "backend/features/serp/markets.py": {
       "lines": 100,

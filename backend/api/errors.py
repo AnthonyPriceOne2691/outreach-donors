@@ -86,7 +86,7 @@ from backend.features.review.candidates import NotInRunError
 from backend.features.review.candidates import UnknownRunError as ReviewUnknownRunError
 from backend.features.runs.ahrefs_cap import CapRangeError, CapUnknownError
 from backend.features.runs.browse import UnknownRunError
-from backend.features.runs.budget import QuotaUnavailableError
+from backend.features.runs.budget import CapExceededError, QuotaUnavailableError
 from backend.features.runs.duplicates import DuplicateRunError
 from backend.features.runs.exclusions import NotWritingAcceptError
 from backend.features.sales.chain import ChainNotReadyError
@@ -202,6 +202,9 @@ STATUSES: dict[type[Exception], int] = {
     # Счёт выдачи меньше порога или сметы — состояние: поможет пополнение, а не правка
     # запроса (16.10.2026).
     FundsTooLowError: status.HTTP_409_CONFLICT,
+    # Прогон не помещается в лимит ключа Ahrefs, кап или потолок — тоже состояние: слова
+    # называют, какой лимит поднять (19.10.2026).
+    CapExceededError: status.HTTP_409_CONFLICT,
     # Ручная очередь форм: донора в ней уже нет — либо адрес нашёлся,
     # либо очередь разобрал кто-то другой. Это состояние, а не запрос.
     UnknownFormError: status.HTTP_409_CONFLICT,

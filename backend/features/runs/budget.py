@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -88,11 +89,23 @@ class Budget:
 
     def shortage(self, total: int) -> str:
         """Чего не хватает на `total` юнитов — каждого лимита по отдельности, словами отказа."""
-        ahrefs = total > self.free
-        ours = self.cap is not None and total > self.cap
-        if ahrefs and ours:
-            return LIMIT_WORDS["both"]
-        return LIMIT_WORDS[self.side] if ahrefs else LIMIT_WORDS["cap"]
+        return _words(total > self.free, self.cap is not None and total > self.cap, self.side)
+
+
+def shortage_words(short_of: Sequence[str], side: str) -> str | None:
+    """Чего не хватает по лимитам сметы (`RunForecast.short_of`: «provider», «cap»,
+    «ceiling») — теми же словами, что у отказа задачи; хватает всего — `None`. `side` —
+    какой лимит Ahrefs кончится раньше (`Quota.tighter`)."""
+    if not short_of:
+        return None
+    return _words("provider" in short_of, "cap" in short_of or "ceiling" in short_of, side)
+
+
+def _words(ahrefs: bool, ours: bool, side: str) -> str:
+    """Слова отказа: не хватает лимита Ahrefs, нашего капа или потолка — или и того, и другого."""
+    if ahrefs and ours:
+        return LIMIT_WORDS["both"]
+    return LIMIT_WORDS[side] if ahrefs else LIMIT_WORDS["cap"]
 
 
 async def units_left(

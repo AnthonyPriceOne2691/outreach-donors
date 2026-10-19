@@ -217,6 +217,19 @@ class TestTheBalance:
         with pytest.raises(SerpError, match="остатка"):
             await _provider(handler).balance()
 
+    async def test_refusal_inside_the_task_is_named_in_the_provider_words(self) -> None:
+        """Отказ приходит с 200 и общим 20000, а код и слова — в задаче (19.10.2026: журнал
+        писал «формат поменялся», и причина терялась)."""
+
+        def handler(_: httpx.Request) -> httpx.Response:
+            task = {"status_code": 40202, "status_message": "Rate limit per minute exceeded."}
+            return httpx.Response(
+                200, json={"status_code": 20000, "tasks": [{**task, "result": None}]}
+            )
+
+        with pytest.raises(SerpError, match="не назвал остаток: 40202 Rate limit per minute"):
+            await _provider(handler).balance()
+
 
 class TestFailures:
     async def test_refused_task_does_not_hide_the_others(self) -> None:

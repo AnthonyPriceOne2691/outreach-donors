@@ -397,10 +397,19 @@ class DataForSeoProvider:
 
         **Счёт в песочнице тот же, что в бою** — учётка одна. Разница
         только в том, что задачи песочницы бесплатны.
+
+        **Отказ — в задаче, а не в коде ответа.** Ответ приходит с 200 и общим кодом
+        20000, а отказ лежит кодом и словами в самой задаче, с пустым результатом. 19.10.2026
+        сметы подряд получали такой ответ, и журнал писал «формат поменялся», а слова
+        провайдера терялись.
         """
         body = await self._call("GET", BALANCE_PATH)
         tasks = body.get("tasks") or []
-        result = (tasks[0].get("result") or [{}])[0] if tasks else {}
+        task = tasks[0] if tasks and isinstance(tasks[0], dict) else {}
+        status = task.get("status_code")
+        if status not in (TASK_OK, None):
+            raise SerpError(f"Провайдер не назвал остаток: {status} {task.get('status_message')}")
+        result = (task.get("result") or [{}])[0]
         money = result.get("money") if isinstance(result, dict) else None
         if not isinstance(money, dict) or "balance" not in money:
             raise SerpError("В ответе о счёте нет остатка — формат провайдера поменялся")
