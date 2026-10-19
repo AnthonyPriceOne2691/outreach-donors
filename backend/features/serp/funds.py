@@ -96,21 +96,32 @@ async def balance_of(provider: object) -> float | None:
     ask: Any = getattr(provider, "balance", None)
     if ask is None:
         return None
-    age = time.monotonic() - LAST.at
-    if LAST.balance is not None and age < FRESH_S:
-        return LAST.balance
+    fresh = _named_within(FRESH_S)
+    if fresh is not None:
+        return fresh
     try:
         balance = float(await ask())
     except (SerpError, OSError) as exc:
-        if LAST.balance is not None and age < STALE_OK_S:
-            logger.warning(
-                "счёт выдачи: остаток не узнать (%s) — беру названный %.0f с назад", exc, age
-            )
-            return LAST.balance
-        logger.warning("счёт выдачи: остаток не узнать (%s) — проверка счёта пропущена", exc)
-        return None
+        # Не назвал — годится названный за `STALE_OK_S`, иначе остаток неизвестен.
+        named = _named_within(STALE_OK_S)
+        logger.warning("счёт выдачи: остаток не узнать (%s) — %s", exc, _instead(named))
+        return named
     LAST.balance, LAST.at = balance, time.monotonic()
     return balance
+
+
+def _named_within(seconds: float) -> float | None:
+    """Названный остаток, если он моложе `seconds`; нет такого — `None`."""
+    if LAST.balance is not None and time.monotonic() - LAST.at < seconds:
+        return LAST.balance
+    return None
+
+
+def _instead(named: float | None) -> str:
+    """Что вместо остатка, которого провайдер не назвал, — словами журнала."""
+    if named is None:
+        return "проверка счёта пропущена"
+    return f"беру названный {time.monotonic() - LAST.at:.0f} с назад"
 
 
 async def provider_balance(ahrefs: AhrefsClient) -> float | None:
