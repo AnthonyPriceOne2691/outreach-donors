@@ -237,13 +237,17 @@ def tokens_of(body: dict[str, Any]) -> int:
 
     **Без итога — суммой, а не нулём** (19.10.2026). Ответ без `usage.total_tokens` выглядел
     бесплатным и шёл мимо потолка расхода на модель (`core/usage`). Итога нет — сумма ввода
-    и вывода; нет и её — ноль, но строкой в журнал: неизмеренный вызов виден.
+    и вывода; нет и её — ноль, но строкой в журнал: неизмеренный вызов виден. Значение не
+    числом (строка, `True`, отрицательное) — как не названное: `int()` от него ронял бы
+    удачный ответ модели.
     """
-    usage = body.get("usage") or {}
-    if usage.get("total_tokens"):
-        return int(usage["total_tokens"])
+    usage = body.get("usage")
+    usage = usage if isinstance(usage, dict) else {}
+    total = _count(usage.get("total_tokens"))
+    if total:
+        return total
     for pair in TOKEN_PAIRS:
-        counted = sum(int(usage.get(name) or 0) for name in pair)
+        counted = sum(_count(usage.get(name)) for name in pair)
         if counted:
             return counted
     logger.warning(
@@ -251,3 +255,8 @@ def tokens_of(body: dict[str, Any]) -> int:
         extra={"usage_fields": sorted(usage)},
     )
     return 0
+
+
+def _count(value: object) -> int:
+    """Токены из поля `usage`: целое не меньше нуля, а прочее — ноль, как не названное."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0

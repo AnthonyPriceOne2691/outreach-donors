@@ -239,6 +239,19 @@ class TestTokensOf:
     def test_without_a_total_the_parts_are_summed(self, usage: dict[str, int]) -> None:
         assert tokens_of({"usage": usage}) == 42
 
+    @pytest.mark.parametrize(
+        "usage",
+        [
+            {"total_tokens": "много", "prompt_tokens": 30, "completion_tokens": 12},
+            {"total_tokens": True, "prompt_tokens": 30, "completion_tokens": 12},
+            {"total_tokens": -1, "input_tokens": 30, "output_tokens": 12},
+        ],
+        ids=["string-total", "bool-total", "negative-total"],
+    )
+    def test_a_total_that_is_not_a_number_is_not_named(self, usage: dict[str, object]) -> None:
+        """Не число — как не названо: `int()` от него ронял бы удачный ответ модели."""
+        assert tokens_of({"usage": usage}) == 42
+
     def test_nothing_measured_is_zero_and_said_in_the_log(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
