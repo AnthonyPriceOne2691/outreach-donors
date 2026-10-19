@@ -55,6 +55,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.review.accuracy import Agreement, JudgeAccuracy
+from backend.features.review.domain_lock import lock_domains_of
 from backend.features.review.ordering import (
     SellsBy,
     Tier,
@@ -317,6 +318,7 @@ class RunReview:
         if not candidate_ids:
             return DecideReport(changed=0, accepted_domains=[])
         moment = now or datetime.now(UTC)
+        await lock_domains_of(self._session, candidate_ids)  # против взаимной блокировки
         candidates = await self._of_run(run_id, candidate_ids)
         if decision is Decision.ACCEPTED:  # «кому не пишем» не принимают — отказ словами
             refused = await not_writing_of(self._session, [c.domain_id for c in candidates])
@@ -344,13 +346,14 @@ class RunReview:
 
     async def _of_run(self, run_id: int, candidate_ids: Sequence[int]) -> list[RunCandidateModel]:
         """Кандидаты — и только этого прогона: чужой номер значит, что экран
-        показывает устаревший список."""
+        показывает устаревший список. Читаются заново, а не из памяти сессии: после
+        замка (`domain_lock`) строка могла уже нести чужое решение."""
         # Номер за пределами столбца кандидатом быть не может — он «чужой»,
         # как и любой другой несуществующий, а не повод для пятисотки.
         found = await self._session.execute(
-            select(RunCandidateModel).where(
-                RunCandidateModel.id.in_([one for one in candidate_ids if storable(one)])
-            )
+            select(RunCandidateModel)
+            .where(RunCandidateModel.id.in_([one for one in candidate_ids if storable(one)]))
+            .execution_options(populate_existing=True)
         )
         candidates = list(found.scalars().all())
         ours = {c.id for c in candidates if c.run_id == run_id}

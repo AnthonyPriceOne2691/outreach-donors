@@ -228,7 +228,35 @@ def content_of(body: dict[str, Any], *, topic: str) -> str:
     return str(((choices[0] or {}).get("message") or {}).get("content") or "")
 
 
+#: Ввод и вывод — в ответе без итога: у OpenAI `prompt`/`completion`, у прочих `input`/`output`.
+TOKEN_PAIRS = (("prompt_tokens", "completion_tokens"), ("input_tokens", "output_tokens"))
+
+
 def tokens_of(body: dict[str, Any]) -> int:
-    """Сколько токенов стоил вызов. Единственный честный измеритель расхода."""
-    usage = body.get("usage") or {}
-    return int(usage.get("total_tokens") or 0)
+    """Сколько токенов стоил вызов. Единственный честный измеритель расхода.
+
+    **Без итога — суммой, а не нулём** (19.10.2026). Ответ без `usage.total_tokens` выглядел
+    бесплатным и шёл мимо потолка расхода на модель (`core/usage`). Итога нет — сумма ввода
+    и вывода; нет и её — ноль, но строкой в журнал: неизмеренный вызов виден. Значение не
+    числом (строка, `True`, отрицательное) — как не названное: `int()` от него ронял бы
+    удачный ответ модели.
+    """
+    usage = body.get("usage")
+    usage = usage if isinstance(usage, dict) else {}
+    total = _count(usage.get("total_tokens"))
+    if total:
+        return total
+    for pair in TOKEN_PAIRS:
+        counted = sum(_count(usage.get(name)) for name in pair)
+        if counted:
+            return counted
+    logger.warning(
+        "модель: в ответе нет расхода токенов — вызов посчитан бесплатным",
+        extra={"usage_fields": sorted(usage)},
+    )
+    return 0
+
+
+def _count(value: object) -> int:
+    """Токены из поля `usage`: целое не меньше нуля, а прочее — ноль, как не названное."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0

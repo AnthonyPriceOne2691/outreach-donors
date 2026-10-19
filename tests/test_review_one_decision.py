@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 
 import pytest
@@ -31,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor
 from tests.migration_helpers import load_migration
 from tests.test_review import NOW, _candidate_ids, _donor, _judged, _run
+from tests.test_send_race import committed_sessions
 
 HOST = "blog.example.test"
 LATER = NOW + timedelta(days=1)
@@ -280,3 +283,48 @@ class TestRowsLeftFromBefore:
         await connection.run_sync(_revision, "upgrade", "downgrade")
 
         assert await self._rows(session, first, second) == once
+
+
+async def test_two_decisions_on_one_domain_from_two_runs_wait_instead_of_deadlocking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Два человека решают один домен в разных прогонах разом (хвост аудита 11.10.2026).
+
+    Первое решение задержано между своей строкой и копией в чужую. Без общего замка второе
+    взяло бы свою строку, оба ждали бы друг друга, и Postgres оборвал бы одно «deadlock
+    detected». Под замком второе ждёт первое и ложится после него — побеждает последнее.
+    Сессии настоящие, на своих соединениях (`committed_sessions`)."""
+    async with committed_sessions() as factory:
+        async with factory() as session:
+            first, second = await _run(session), await _run(session)
+            await _queued(session, first, second)
+            await session.commit()
+            ids = {run.id: (await _candidate_ids(session, run.id))[HOST] for run in (first, second)}
+
+        gate = asyncio.Event()
+        copy = RunReview._copy_elsewhere
+
+        async def held(
+            self: RunReview, run_id: int, domains: Sequence[int], decision: Decision
+        ) -> int:
+            if run_id == first.id:
+                await gate.wait()
+            return await copy(self, run_id, domains, decision)
+
+        monkeypatch.setattr(RunReview, "_copy_elsewhere", held)
+
+        async def decide(run: RunModel, decision: Decision, by: str) -> None:
+            async with factory() as session:
+                await RunReview(session).decide(run.id, [ids[run.id]], decision, by=by, now=NOW)
+                await session.commit()
+
+        accepting = asyncio.create_task(decide(first, Decision.ACCEPTED, "первый"))
+        await asyncio.sleep(0.3)
+        rejecting = asyncio.create_task(decide(second, Decision.REJECTED, "второй"))
+        await asyncio.sleep(0.3)
+        gate.set()
+        await asyncio.wait_for(asyncio.gather(accepting, rejecting), timeout=15)
+
+        async with factory() as session:
+            assert (await _row(session, second))[:3] == (Decision.REJECTED.value, False, "второй")
+            assert await _row(session, first) == copy_of(Decision.REJECTED)

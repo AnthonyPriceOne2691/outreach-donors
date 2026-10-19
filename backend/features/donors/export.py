@@ -44,6 +44,7 @@ from backend.features.donors.wording import (
     reject_reason_text,
     share_text,
 )
+from backend.shared.numbers import spaced
 from backend.shared.spreadsheet import inert
 
 #: Потолок строк файла и числа отмеченных номеров. Экран получает его
@@ -55,11 +56,6 @@ class PickRefusedError(ValueError):
     """Отмеченных не выгрузить: ни одного или больше потолка. Текст говорит почему."""
 
 
-def _spaced(number: int) -> str:
-    """Число с разрядами, как на экране: «10 000»."""
-    return f"{number:,}".replace(",", "\u00a0")
-
-
 def checked_picks(ids: Sequence[int]) -> list[int]:
     """Номера отмеченных — или отказ словами."""
     unique = list(dict.fromkeys(ids))
@@ -67,8 +63,8 @@ def checked_picks(ids: Sequence[int]) -> list[int]:
         raise PickRefusedError("Не отмечено ни одного донора — выгружать нечего.")
     if len(unique) > EXPORT_LIMIT:
         raise PickRefusedError(
-            f"Отмечено {_spaced(len(unique))} — в файл за раз идёт не больше "
-            f"{_spaced(EXPORT_LIMIT)}. Снимите часть отметок или выгрузите найденных фильтром."
+            f"Отмечено {spaced(len(unique))} — в файл за раз идёт не больше "
+            f"{spaced(EXPORT_LIMIT)}. Снимите часть отметок или выгрузите найденных фильтром."
         )
     return unique
 

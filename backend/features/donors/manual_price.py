@@ -64,6 +64,7 @@ from backend.features.replies.money import (
 )
 from backend.features.review.candidates import Decision
 from backend.shared.database.ids import storable
+from backend.shared.numbers import spaced
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +227,7 @@ def typed_amount(raw: object) -> Decimal:
     if not value.is_finite() or value <= 0:
         raise ManualPriceError(f"«{said}» — не цена: {_PRICE_HINT}.")
     if value >= IMPLAUSIBLE_PRICE:
-        ceiling = f"{int(IMPLAUSIBLE_PRICE):,}".replace(",", " ")
+        ceiling = spaced(int(IMPLAUSIBLE_PRICE))
         raise ManualPriceError(
             f"Цена {said} — не меньше {ceiling}: за одно размещение столько не платят, "
             "проверьте число."

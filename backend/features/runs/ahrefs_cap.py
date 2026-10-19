@@ -46,6 +46,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.core.models.ops import AhrefsCapModel
 from backend.features.runs.ahrefs_key import NOT_ASKED, Cycle, KeySnapshot, cycle_of, snapshot
 from backend.features.runs.spending import ahrefs_spent_since
+from backend.shared.numbers import spaced
 
 #: Ключ замка смены капа — «AHRCAP» байтами. Смены редки и коротки: замок один на все.
 CAP_LOCK = 0x414852434150
@@ -169,12 +170,6 @@ def cap_limits(size: int | None) -> tuple[int, int] | None:
     """Допустимое «не больше N» — от `MIN_CAP` до размера ключа включительно; размер
     неизвестен — `None`: задать не от чего."""
     return None if size is None else (MIN_CAP, size)
-
-
-def spaced(number: int) -> str:
-    """Число с разрядами, как на экране: «1 000 000» — неразрывным пробелом: обычный рвёт
-    число переносом строки в Telegram и на «Обзоре»."""
-    return f"{number:,}".replace(",", "\u00a0")
 
 
 def cap_words(units_cap: int | None) -> str | int:

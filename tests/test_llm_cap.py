@@ -8,6 +8,7 @@ BACKLOG 28.09.2026: у модели не было предела трат — о
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -23,6 +24,8 @@ from backend.features.replies.pipeline import Inbox, Parser
 from backend.features.runs import failures
 from backend.features.runs.pipeline import JUDGE_OPERATION
 from backend.features.runs.repository import RunRepository
+from backend.shared.llm import tokens_of
+from backend.shared.numbers import spaced
 from backend.workers import jobs
 from fastapi import status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -219,3 +222,45 @@ class TestParseJobAfterCap:
         assert args == (42,)
         assert when == jobs.next_utc_day(datetime.now(UTC))
         assert str(kwargs["job_id"]).startswith("parse-reply-42-")
+
+
+class TestTokensOf:
+    """Вызов без итога в ответе — не бесплатный (19.10.2026): иначе он шёл мимо потолка."""
+
+    def test_the_total_is_taken_as_is(self) -> None:
+        usage = {"total_tokens": 42, "prompt_tokens": 30, "completion_tokens": 12}
+        assert tokens_of({"usage": usage}) == 42
+
+    @pytest.mark.parametrize(
+        "usage",
+        [{"prompt_tokens": 30, "completion_tokens": 12}, {"input_tokens": 30, "output_tokens": 12}],
+        ids=["openai", "input-output"],
+    )
+    def test_without_a_total_the_parts_are_summed(self, usage: dict[str, int]) -> None:
+        assert tokens_of({"usage": usage}) == 42
+
+    @pytest.mark.parametrize(
+        "usage",
+        [
+            {"total_tokens": "много", "prompt_tokens": 30, "completion_tokens": 12},
+            {"total_tokens": True, "prompt_tokens": 30, "completion_tokens": 12},
+            {"total_tokens": -1, "input_tokens": 30, "output_tokens": 12},
+        ],
+        ids=["string-total", "bool-total", "negative-total"],
+    )
+    def test_a_total_that_is_not_a_number_is_not_named(self, usage: dict[str, object]) -> None:
+        """Не число — как не названо: `int()` от него ронял бы удачный ответ модели."""
+        assert tokens_of({"usage": usage}) == 42
+
+    def test_nothing_measured_is_zero_and_said_in_the_log(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING, logger="backend.shared.llm"):
+            assert tokens_of({"choices": []}) == 0
+        assert "нет расхода токенов" in caplog.text
+
+
+def test_numbers_keep_their_digits_on_one_line() -> None:
+    """Разряды — неразрывным пробелом: обычный рвал число переносом строки (19.10.2026)."""
+    assert spaced(1_000_000) == "1\u00a0000\u00a0000"
+    assert spaced(999) == "999"

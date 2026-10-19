@@ -312,9 +312,9 @@
       "worst": "_refuse_over_budget:100"
     },
     "backend/api/runs/schemas.py": {
-      "lines": 459,
+      "lines": 460,
       "complexity": 4,
-      "worst": "_known_mode:67"
+      "worst": "_known_mode:68"
     },
     "backend/api/sales/__init__.py": {
       "lines": 1,
@@ -1372,9 +1372,9 @@
       "worst": "__call__:93"
     },
     "backend/features/donors/export.py": {
-      "lines": 200,
+      "lines": 196,
       "complexity": 5,
-      "worst": "_value:168"
+      "worst": "_value:164"
     },
     "backend/features/donors/geo.py": {
       "lines": 263,
@@ -1407,9 +1407,9 @@
       "worst": "judge_candidates:326"
     },
     "backend/features/donors/manual_price.py": {
-      "lines": 446,
+      "lines": 447,
       "complexity": 9,
-      "worst": "typed_payment:183"
+      "worst": "typed_payment:184"
     },
     "backend/features/donors/price.py": {
       "lines": 175,
@@ -1777,9 +1777,9 @@
       "worst": "_outcome:163"
     },
     "backend/features/ops/key_watch.py": {
-      "lines": 150,
+      "lines": 151,
       "complexity": 10,
-      "worst": "_binding:91"
+      "worst": "_binding:92"
     },
     "backend/features/ops/mail_watch.py": {
       "lines": 286,
@@ -2007,9 +2007,14 @@
       "worst": "auto_accept_ready:57"
     },
     "backend/features/review/candidates.py": {
-      "lines": 491,
+      "lines": 494,
       "complexity": 10,
-      "worst": "decide:300"
+      "worst": "decide:301"
+    },
+    "backend/features/review/domain_lock.py": {
+      "lines": 32,
+      "complexity": 2,
+      "worst": "lock_domains_of:21"
     },
     "backend/features/review/keyword_yield.py": {
       "lines": 170,
@@ -2027,9 +2032,9 @@
       "worst": "—"
     },
     "backend/features/runs/ahrefs_cap.py": {
-      "lines": 271,
+      "lines": 266,
       "complexity": 7,
-      "worst": "set_ahrefs_cap:244"
+      "worst": "set_ahrefs_cap:239"
     },
     "backend/features/runs/ahrefs_key.py": {
       "lines": 198,
@@ -2887,7 +2892,7 @@
       "worst": "is_demo:19"
     },
     "backend/shared/llm.py": {
-      "lines": 235,
+      "lines": 263,
       "complexity": 7,
       "worst": "post_chat:162"
     },
@@ -2920,6 +2925,11 @@
       "lines": 50,
       "complexity": 2,
       "worst": "split_url:25"
+    },
+    "backend/shared/numbers.py": {
+      "lines": 18,
+      "complexity": 1,
+      "worst": "spaced:15"
     },
     "backend/shared/queue.py": {
       "lines": 364,

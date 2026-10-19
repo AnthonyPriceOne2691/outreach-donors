@@ -370,7 +370,7 @@ class TestTypedPriceIsChecked:
             ({"price_white": "-5", "currency": "EUR"}, "«-5» — не цена"),
             ({"price_white": -5, "currency": "EUR"}, "«-5» — не цена"),
             ({"price_white": "0", "currency": "EUR"}, "«0» — не цена"),
-            ({"price_grey": "1e12", "currency": "EUR"}, "не меньше 100 000"),
+            ({"price_grey": "1e12", "currency": "EUR"}, "не меньше 100\u00a0000"),
             ({"price_white": "100.555", "currency": "EUR"}, "точнее копеек"),
             ({"price_white": "сто евро", "currency": "EUR"}, "«сто евро» — не цена"),
             ({"price_white": "250", "currency": "фантики"}, "«фантики» не знакома"),
