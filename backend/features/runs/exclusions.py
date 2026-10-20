@@ -161,6 +161,13 @@ NOT_WRITING_WORDS: dict[ExclusionReason, str] = {
 }
 
 
+def exclusion_words(reason: ExclusionReason) -> str:
+    """Причина гейта словами отчёта и резерва: «кому не пишем» — так и сказано."""
+    if reason in NOT_WRITING_WORDS:
+        return f"Кому не пишем: {reason.caption}"
+    return reason.caption[:1].upper() + reason.caption[1:]
+
+
 def _either(labels: Iterable[str]) -> str:
     return "|".join(sorted(re.escape(label) for label in labels))
 

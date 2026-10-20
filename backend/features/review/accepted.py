@@ -11,6 +11,11 @@
 Приём вердикта не ухудшает: прогон, который судить нечем (метрик донора нет —
 заведён руками, липовый), донору свой вердикт не навязывает.
 
+**Взятый из резерва — годен словом человека** (резерв, 20.10.2026): вердикт прогона у него
+«не подходит», и человек принял его, это зная, — как донора, заведённого руками
+(`donors/manual_price.py`). Иначе принятый из резерва не получил бы ни адреса, ни письма. Замер
+другого прогона его вердикт для выходов тоже не снимает (`donors/held.py`).
+
 **Снятое решение возвращает вердикт последнего замера** (`settle_returned`, ревью
 20.10.2026): приём поднял вердикт по прогону, где приняли, и без решения подъёму не на чем
 стоять. Вернули в «предложен» или отклонили — донору снова вердикт его последнего замера
@@ -29,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core.domain import DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
-from backend.features.core.models.run import RunModel
+from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.review.queue import Decision
 from backend.features.runs.verdicts import RunVerdicts
 
@@ -56,17 +61,29 @@ async def settle_accepted(session: AsyncSession, run_id: int, domain_ids: Sequen
     )
     ids = dict(rows.tuples().all())
     verdicts = await RunVerdicts(session).judged(run, list(ids), keep=False)
-    suitable = sorted(ids[host] for host, verdict in verdicts.items() if verdict.suitable)
+    suitable = {ids[host] for host, verdict in verdicts.items() if verdict.suitable}
+    suitable |= set(await _taken(session, run_id, list(ids.values())))
     if not suitable:
         return 0
     changed = await session.execute(
         update(DonorModel)
-        .where(DonorModel.domain_id.in_(suitable))
+        .where(DonorModel.domain_id.in_(sorted(suitable)))
         .where(DonorModel.status != DonorStatus.SUITABLE)
         .values(status=DonorStatus.SUITABLE, reject_reason=None)
         .returning(DonorModel.id)
     )
     return len(changed.all())
+
+
+async def _taken(session: AsyncSession, run_id: int, domain_ids: Sequence[int]) -> list[int]:
+    """Из этих доменов — взятые в очередь этого прогона из резерва."""
+    rows = await session.execute(
+        select(RunCandidateModel.domain_id)
+        .where(RunCandidateModel.run_id == run_id)
+        .where(RunCandidateModel.domain_id.in_(list(domain_ids)))
+        .where(RunCandidateModel.taken_by.is_not(None))
+    )
+    return list(rows.scalars().all())
 
 
 async def settle_returned(session: AsyncSession, domain_ids: Sequence[int]) -> int:

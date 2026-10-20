@@ -31,7 +31,7 @@ from decimal import Decimal
 from functools import partial
 from typing import Any
 
-from sqlalchemy import ColumnClause, Select, func, literal_column, select, union
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.contacts.manual import removal_refusals
@@ -53,6 +53,7 @@ from backend.features.donors.table_filters import (
     freshness,
     narrowed,
     ordered,
+    top_country_counts,
 )
 from backend.features.letters.recipients import LetterAddress, Recipients
 from backend.features.replies.extract import WITHOUT_PRICE
@@ -64,10 +65,6 @@ from backend.shared.database.ids import storable
 #: Сколько текста ответа показывает карточка рядом с ценой: прайс в письме укладывается,
 #: а простыня пересланной переписки — нет; целиком письмо — в переписке по ссылке.
 REPLY_TEXT_LIMIT = 4000
-
-#: Страны разбивки донора (`donors.geo_breakdown`) — путь JSON. Постоянной строкой
-#: запроса, а не параметром: тип пути база выводит из места, параметр пришёл бы текстом.
-_BREAKDOWN_COUNTRIES: ColumnClause[str] = literal_column("'$[*].country'")
 
 
 @dataclass(frozen=True, slots=True)
@@ -347,19 +344,8 @@ class DonorBrowser:
         сводит «верхняя и она же в разбивке». Разбивка — путём JSON в нестрогом режиме:
         пустая лежит JSON-значением null и даёт ноль стран, а не ошибку разбора массива.
         """
-        top = _screen(review, DonorModel.id.label("donor"), DonorModel.geo.label("country"))
-        listed = _screen(
-            review,
-            DonorModel.id.label("donor"),
-            func.jsonb_array_elements_text(
-                func.jsonb_path_query_array(DonorModel.geo_breakdown, _BREAKDOWN_COUNTRIES)
-            ).label("country"),
-        )
-        both = union(top, listed).subquery()
         rows = await self._session.execute(
-            select(both.c.country, func.count())
-            .where(both.c.country.is_not(None))
-            .group_by(both.c.country)
+            top_country_counts(_screen(review, DonorModel.id.label("donor")))
         )
         return {str(code).lower(): int(count) for code, count in rows.tuples()}
 

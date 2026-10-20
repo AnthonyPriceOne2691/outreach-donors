@@ -19,12 +19,12 @@
  * а не значком в строке (аудит экранов 09.10.2026: строка в 110–140 px).
  */
 
-import { Anchor, Badge, Button, Checkbox, Group, Stack, Table, Text, Tooltip } from '@mantine/core';
+import { Badge, Button, Checkbox, Group, Stack, Table, Text, Tooltip } from '@mantine/core';
 
 import { CONTACT_STATUSES, countryTitle } from '../api/labels';
 import type { ReviewCandidate, ReviewDecision } from '../api/types';
 import { JudgeVerdict, SellerAnswer } from '../components/JudgeVerdict';
-import { Seams } from '../components/Seams';
+import { SiteLink } from '../components/SiteLink';
 import { formatCompact } from '../format';
 import { TopicLine } from '../topics/TopicLine';
 
@@ -43,6 +43,13 @@ interface Props {
 
 const KEYWORDS_SHOWN = 2;
 
+/** Взят из резерва: почему прогон его не предложил (`reserve` ответа, 20.10.2026); пусто —
+ *  предложил прогон. Полем общего типа не объявлен: `api/types.ts` у потолка длины. */
+function reserveOf(row: ReviewCandidate): string | null {
+  const said: unknown = (row as { reserve?: unknown }).reserve;
+  return typeof said === 'string' ? said : null;
+}
+
 /** Что стоит рядом со значком «продаёт размещение» у домена. Ответ сайта
  *  и тип по судье здесь не повторяются: они видны в своих колонках. */
 function sellsNote(row: ReviewCandidate): string | null {
@@ -56,15 +63,7 @@ function Site({ row }: { row: ReviewCandidate }) {
   const note = sellsNote(row);
   return (
     <Stack gap={2}>
-      <Anchor
-        href={`https://${row.host}`}
-        target="_blank"
-        rel="noreferrer"
-        fw={500}
-        className="cellName"
-      >
-        <Seams text={row.host} />
-      </Anchor>
+      <SiteLink host={row.host} />
       <Text size="xs" c="dimmed">
         DR {row.dr ?? '—'} · трафик {formatCompact(row.org_traffic)}
         {row.geo !== null && ` · ${countryTitle(row.geo)}${share === null ? '' : ` ${share}%`}`}
@@ -86,6 +85,17 @@ function Site({ row }: { row: ReviewCandidate }) {
         <Badge variant="outline" color="gray" size="sm">
           решено раньше
         </Badge>
+      )}
+      {/* Взят из резерва: прогон его не предложил — решают, видя почему (20.10.2026). */}
+      {reserveOf(row) !== null && (
+        <Group gap={6} wrap="wrap" data-reserve>
+          <Badge variant="light" color="yellow" size="sm">
+            из резерва
+          </Badge>
+          <Text size="xs" c="dimmed">
+            {reserveOf(row)}
+          </Text>
+        </Group>
       )}
     </Stack>
   );

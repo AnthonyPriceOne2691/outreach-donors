@@ -46,6 +46,7 @@ import { PageSwitch } from '../components/PageSwitch';
 import { useLastPage, useUrlFilters } from '../components/useUrlFilters';
 import { formatNumber } from '../format';
 import { DonorsScope } from './DonorsScope';
+import { DonorsTabs } from './DonorsTabs';
 import { DonorsTable } from './DonorsTable';
 import { placeOf } from './place';
 import {
@@ -170,6 +171,7 @@ export function DonorsPage() {
   return (
     <Card className="glassPanel" p="lg">
       <Stack gap="sm">
+        <DonorsTabs tab="donors" />
         <Group justify="space-between" align="center" gap="sm">
           <Group gap="sm" align="baseline" wrap="nowrap">
             <Title order={3}>Доноры</Title>

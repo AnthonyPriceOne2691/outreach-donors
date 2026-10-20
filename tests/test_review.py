@@ -468,6 +468,9 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
         "prices",
     ),
     ("GET", "/api/review/accuracy", None, "view"),
+    # Резерв (20.10.2026): смотреть — `view`, взять на рассмотрение — `prices`, как решение.
+    ("GET", "/api/review/reserve", None, "view"),
+    ("POST", "/api/review/reserve/take", {"items": [{"run_id": 1, "domain_id": 1}]}, "prices"),
 ]
 
 

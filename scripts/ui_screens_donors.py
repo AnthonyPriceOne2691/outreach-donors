@@ -136,6 +136,54 @@ def donor_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("пункт меню", "nav a", norm),
             ],
         },
+        # Резерв (20.10.2026): не прошедшие прогонов — вкладка «Доноров». Мерится то, по
+        # чему берут домен из резерва: вкладки, причина, прогон, место страны и верхняя
+        # страна, кнопка «Взять на рассмотрение» и отказ словами вместо неё. На базе без
+        # прогонов от 20.10.2026 резерв пуст, и точки строк честно «не найдены».
+        "reserve": {
+            "path": "/donors/reserve",
+            "ready": ("heading", "Резерв"),
+            "probes": [
+                ("заголовок экрана", "h3:text-is('Резерв')", big),
+                # Вкладки — внутри панели экрана: переключатель темы в колонке меню — тоже
+                # SegmentedControl, и без панели проба мерила бы его.
+                (
+                    "выбранная вкладка",
+                    ".glassPanel .mantine-SegmentedControl-label[data-active] "
+                    ".mantine-SegmentedControl-innerLabel",
+                    norm,
+                ),
+                (
+                    "невыбранная вкладка",
+                    ".glassPanel .mantine-SegmentedControl-label:not([data-active]) "
+                    ".mantine-SegmentedControl-innerLabel",
+                    norm,
+                ),
+                ("сколько в резерве", ".glassPanel h3 + p", norm),
+                ("значение фильтра", "tr.filterRow input", norm),
+                # Имя — на сайт, как в очереди (`SiteLink`); снятый гейтом — текстом (ревью 20.10).
+                ("имя домена", "tbody td:first-child a.cellName", norm),
+                ("имя без ссылки", "tbody td:first-child p.cellName", norm),
+                ("причина в строке", "tbody td[data-label='Почему не прошёл'] p", norm),
+                ("номер прогона", "tbody td[data-label='Прогон'] a", norm),
+                ("страна прогона", "tbody td[data-label='Прогон'] p", norm),
+                ("место страны", "tbody td[data-label='Гео'] p", norm),
+                ("верхняя страна", "tbody td[data-label='Гео'] p + p", norm),
+                ("кнопка «Взять»", "tbody button:has-text('Взять на рассмотрение')", big),
+                ("почему не взять", "tbody td.cellDecide p", norm),
+                ("пункт меню", "nav a", norm),
+            ],
+        },
+        # Резерв одного прогона — по ссылке из его отчёта и очереди: строка прогона и входы.
+        "reserve-run": {
+            "path": "/donors/reserve?run=18",
+            "ready": ("heading", "Резерв"),
+            "probes": [
+                ("строка прогона", "p:has-text('его не прошедшие')", norm),
+                ("«Рассмотрение прогона»", "a:has-text('Рассмотрение прогона')", norm),
+                ("«Весь резерв»", "a:has-text('Весь резерв')", norm),
+            ],
+        },
         # Та же карточка без адреса: почему поиск не ставится — или кнопка поиска.
         # Кнопка есть только у принятого человеком донора без свежей попытки: на
         # базе без таких доноров точка честно «не измерена», а отказ — измерен.

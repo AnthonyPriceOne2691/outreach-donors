@@ -11,6 +11,12 @@
 очередь старого прогона кладёт консоль `outreach review-queue`, и так решение человека
 узнаёт вердикт прогона, где его приняли. Пороги и правило региона — версии настроек
 этого прогона (`runs.settings_id`), страна — его.
+
+**Исключённые гейтом — тоже строкой** (`save_excluded`, резерв 20.10.2026): статус
+`excluded` и причина гейта. Без неё резерв прогона не мог бы сказать, что платформу и
+крупное СМИ он видел и почему не взял: отчёт хранит только их число. «Не проверен» из-за
+нехватки данных — с кодом `gap` (`rejudge.DATA_GAPS`): по нему резерв показывает такие
+домены своей группой.
 """
 
 from __future__ import annotations
@@ -28,8 +34,9 @@ from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.run import RunModel, RunSettingsModel, RunVerdictModel
 from backend.features.donors.collect import DomainResult
 from backend.features.donors.geo import GeoRule
-from backend.features.donors.rejudge import Stored, rejudge
+from backend.features.donors.rejudge import DATA_GAPS, Stored, rejudge
 from backend.features.donors.verdict import Thresholds
+from backend.features.runs.exclusions import ExclusionReason, exclusion_words
 from backend.features.runs.refusals import kind_of
 from backend.features.runs.thresholds import rules_of
 
@@ -39,6 +46,10 @@ REASON_LENGTH = 128
 CHUNK = 1000
 #: Статусы вердикта порогов — других строка вердикта прогона вердиктом не несёт.
 _STATUSES = tuple(status.value for status in DonorStatus)
+#: Статус строки домена, которого гейт снял до Ahrefs: вердикта порогов у него нет.
+EXCLUDED = "excluded"
+#: Код причины «не проверен» из-за нехватки данных (`rejudge.DATA_GAPS`) — группа резерва.
+GAP = "gap"
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +107,33 @@ class RunVerdicts:
                     "measured": verdict.measured,
                 }
                 for host, verdict in verdicts.items()
+                if host in ids
+            ]
+        )
+
+    async def save_excluded(self, run: RunModel, excluded: Mapping[str, ExclusionReason]) -> int:
+        """Исключённые гейтом — строкой прогона с причиной гейта. Домену без строки в
+        `domains` она заводится: платформу и СМИ гейт снимает раньше, чем их кто-то видел."""
+        if not excluded:
+            return 0
+        for chunk in _chunks(list(dict.fromkeys(excluded))):
+            await self._session.execute(
+                insert(DomainModel)
+                .values([{"host": host} for host in chunk])
+                .on_conflict_do_nothing(index_elements=["host"])
+            )
+        ids = await self._domain_ids(list(excluded))
+        return await self._upsert(
+            [
+                {
+                    "run_id": run.id,
+                    "domain_id": ids[host],
+                    "status": EXCLUDED,
+                    "cause": reason.value,
+                    "reason": exclusion_words(reason)[:REASON_LENGTH],
+                    "measured": False,
+                }
+                for host, reason in excluded.items()
                 if host in ids
             ]
         )
@@ -209,10 +247,13 @@ def _chunks[Item](items: Sequence[Item]) -> Iterator[Sequence[Item]]:
 
 
 def _cause(verdict: RunVerdict, country: str) -> str | None:
-    """Порог отказа кодом — только у «не подходит»."""
-    if verdict.status is not DonorStatus.UNSUITABLE:
-        return None
-    return kind_of(verdict.reason, country).value
+    """Почему не прошёл — кодом: порог у «не подходит», `gap` у «не проверен» из-за
+    нехватки данных (`rejudge.DATA_GAPS`); у остальных — пусто."""
+    if verdict.status is DonorStatus.UNSUITABLE:
+        return kind_of(verdict.reason, country).value
+    if verdict.status is DonorStatus.UNCHECKED and verdict.reason in DATA_GAPS:
+        return GAP
+    return None
 
 
 async def judging_of(session: AsyncSession, run: RunModel) -> Judging:

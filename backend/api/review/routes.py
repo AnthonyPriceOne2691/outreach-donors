@@ -7,6 +7,10 @@
 **Принятие ставит поиск контактов сразу.** Контакт ищется после решения
 человека, а не до: так же в соседней системе, и платный поиск не тратится
 на бренды и госсайты.
+
+**Резерв — не прошедшие прогона** (`review/reserve.py`, 20.10.2026): смотреть — под
+`view`, «Взять на рассмотрение» — под `prices`, как решение: оно меняет очередь, и
+запись в журнал — та же «Правка» с «действием».
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
+from backend.api.review.reserve_schemas import ReserveView, TakeBody, TakeResult
 from backend.api.review.schemas import AccuracyView, DecideBody, DecideResult, ReviewView
 from backend.features.access.repository import AccessRepository
 from backend.features.contacts.repository import ContactRepository
@@ -25,6 +30,8 @@ from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
 from backend.features.review.candidates import Decision, RunReview
 from backend.features.review.keyword_yield import run_yield
+from backend.features.review.reserve import Reserve, ReserveFilters
+from backend.features.review.reserve_rules import Group
 from backend.shared.queue import (
     CONTACTS_JOB,
     contacts_queue,
@@ -38,6 +45,9 @@ router = APIRouter(prefix="/review", tags=["рассмотрение"])
 
 _viewer = Depends(needs(Permission.VIEW))
 _reviewer = Depends(needs(Permission.PRICES))
+
+#: Строк резерва на странице.
+RESERVE_PAGE = 20
 
 
 @router.get("/runs/{run_id}", response_model=ReviewView, summary="Кандидаты прогона")
@@ -106,3 +116,57 @@ async def accuracy(
     session: AsyncSession = Depends(db_session),
 ) -> AccuracyView:
     return AccuracyView.of(await RunReview(session).accuracy(run_id))
+
+
+@router.get("/reserve", response_model=ReserveView, summary="Резерв: не прошедшие прогонов")
+async def reserve(
+    run_id: int | None = Query(default=None, description="резерв одного прогона; пусто — всех"),
+    country: str | None = Query(default=None, max_length=8, description="страна прогона"),
+    group: Group | None = Query(default=None, description="слабые метрики, регион, кому не пишем"),
+    geo: str | None = Query(default=None, max_length=8, description="страна в топ-5 домена"),
+    page: int = Query(default=1, ge=1, le=10_000),
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> ReserveView:
+    filters = ReserveFilters(
+        run_id=run_id,
+        country=country,
+        group=group,
+        geo=geo,
+        limit=RESERVE_PAGE,
+        offset=(page - 1) * RESERVE_PAGE,
+    )
+    return ReserveView.of(await Reserve(session).page(filters), limit=RESERVE_PAGE)
+
+
+@router.post("/reserve/take", response_model=TakeResult, summary="Взять из резерва")
+async def take(
+    body: TakeBody,
+    author: UserModel = _reviewer,
+    session: AsyncSession = Depends(db_session),
+) -> TakeResult:
+    """Положить домены резерва в очереди их прогонов. Взятые — в журнал, по прогону."""
+    report = await Reserve(session).take(
+        [(item.run_id, item.domain_id) for item in body.items], by=author.email
+    )
+    journal = AccessRepository(session)
+    for run_id, hosts in report.taken.items():
+        await journal.record(
+            AuditAction.USER_UPDATED,
+            author_id=author.id,
+            target=f"run:{run_id}",
+            details={
+                "действие": "взят из резерва на рассмотрение",
+                "доменов": len(hosts),
+                "домены": hosts[:20],
+            },
+        )
+    await session.commit()
+    logger.info(
+        "резерв: взято %s, уже были %s, отказано %s (%s)",
+        report.count,
+        len(report.already),
+        len(report.refused),
+        author.email,
+    )
+    return TakeResult.of(report)

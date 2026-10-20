@@ -30,7 +30,18 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any, assert_never
 
-from sqlalchemy import ColumnElement, Select, case, or_, true
+from sqlalchemy import (
+    ColumnClause,
+    ColumnElement,
+    Select,
+    case,
+    func,
+    literal_column,
+    or_,
+    select,
+    true,
+    union,
+)
 
 from backend.features.contacts.repository import has_address
 from backend.features.core.domain import DonorStatus
@@ -163,6 +174,34 @@ class DonorFilters:
     ids: tuple[int, ...] = ()
     limit: int = 100
     offset: int = 0
+
+
+#: Страны разбивки донора (`donors.geo_breakdown`) — путь JSON. Постоянной строкой
+#: запроса, а не параметром: тип пути база выводит из места, параметр пришёл бы текстом.
+_BREAKDOWN_COUNTRIES: ColumnClause[str] = literal_column("'$[*].country'")
+
+
+def top_country_counts(base: Select[Any]) -> Select[Any]:
+    """Страна → у скольких записей выборки `base` она в топ-5 донора — тем же условием, что
+    фильтр «Гео» (`in_top_countries`): верхняя (`donors.geo`) или в разбивке. Одно правило у
+    счётчиков «Гео» доноров и резерва.
+
+    `base` — выборка записей с донором (номер записи — столбцом): к ней добавляется страна.
+    Запись — один раз на страну: `UNION` сводит «верхняя и она же в разбивке». Разбивка —
+    путём JSON в нестрогом режиме: пустая лежит JSON-значением null и даёт ноль стран.
+    """
+    top = base.add_columns(DonorModel.geo.label("country"))
+    listed = base.add_columns(
+        func.jsonb_array_elements_text(
+            func.jsonb_path_query_array(DonorModel.geo_breakdown, _BREAKDOWN_COUNTRIES)
+        ).label("country")
+    )
+    both = union(top, listed).subquery()
+    return (
+        select(both.c.country, func.count())
+        .where(both.c.country.is_not(None))
+        .group_by(both.c.country)
+    )
 
 
 def in_top_countries(code: str) -> ColumnElement[bool]:

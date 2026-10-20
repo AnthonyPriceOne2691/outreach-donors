@@ -180,16 +180,18 @@ async def _record_search_cost(deps: RunDeps, run: RunModel, candidates: Candidat
     await deps.runs.session_commit()
 
 
-async def _judge_fresh(
+async def _judge_known(
     deps: RunDeps, run: RunModel, request: RunRequest, report: RunReport
 ) -> None:
-    """Свежие домены — вердиктом этого прогона: его страной и порогами, по метрикам и
-    странам, что лежат у домена (`runs/verdicts.py`), без Ahrefs. До 20.10.2026 свежему
-    шёл вердикт последнего замера, чьей бы страны он ни был. Купленное этим же прогоном
-    до сбоя продолжение застаёт свежим — оно остаётся вердиктом замера. Пишет очередь
-    прогона: без неё вердикт свежего никому не нужен."""
-    if deps.review is None or not report.plan.fresh:
+    """Вердикт прогона без Ahrefs: исключённые гейтом — с его причиной, свежие — страной и
+    порогами прогона по метрикам и странам, что лежат у домена (`runs/verdicts.py`). До
+    20.10.2026 свежему шёл вердикт последнего замера, чьей бы страны он ни был, а
+    исключённые оставались одним числом. Купленное этим же прогоном до сбоя продолжение
+    застаёт свежим — оно остаётся вердиктом замера. Пишет очередь прогона: вердикт нужен
+    ей и её резерву."""
+    if deps.review is None:
         return
+    await deps.review.verdicts.save_excluded(run, report.plan.excluded)
     judging = Judging(request.country, request.thresholds, request.geo)
     fresh = await deps.review.verdicts.fresh(run, report.plan.fresh, judging)
     for verdict in fresh.values():
@@ -287,7 +289,7 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 )
 
         try:
-            await _judge_fresh(deps, run, request, report)
+            await _judge_known(deps, run, request, report)
             judged = await judge_stage(deps, run, plan, candidates, report)
             targets = plan.new
             if judged is not None:

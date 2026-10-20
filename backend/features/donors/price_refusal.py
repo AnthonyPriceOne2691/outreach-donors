@@ -9,13 +9,14 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import SenderModel
+from backend.features.core.models.run import RunVerdictModel
 from backend.features.donors.host import normalize_host
 from backend.features.donors.standing import decided_in, donor_now
 from backend.features.donors.wording import reject_reason_text
@@ -25,6 +26,7 @@ from backend.features.runs.exclusions import (
     by_name,
     not_writing_reason,
 )
+from backend.features.runs.refusals import Threshold
 
 #: Исключения прогона, которые закрывают и ручной ввод, — словами отказа.
 #: Молчания и «не продаём» здесь нет намеренно: цену человек знает не из письма.
@@ -111,6 +113,23 @@ async def _candidate_refusal(session: AsyncSession, donor: DonorModel, host: str
         why = reject_reason_text(donor.reject_reason)
         return (
             f"{host} не прошёл пороги отбора{f' ({why})' if why else ''}: Этап 2 обходит "
-            "только годных доноров."
+            f"только годных доноров.{await _reserve_hint(session, donor.domain_id)}"
         )
     return None
+
+
+async def _reserve_hint(session: AsyncSession, domain_id: int) -> str:
+    """Где не прошедший лежит в резерве — туда за ним и идти (резерв, 20.10.2026): взятый
+    оттуда на рассмотрение и принятый — донор, и цену ему укажут на карточке."""
+    run_id = await session.scalar(
+        select(func.max(RunVerdictModel.run_id))
+        .where(RunVerdictModel.domain_id == domain_id)
+        .where(RunVerdictModel.status == DonorStatus.UNSUITABLE.value)
+        # Крупного сайта резерв не берёт — туда за ним не посылаем.
+        .where(RunVerdictModel.cause.is_distinct_from(Threshold.BIG.value))
+    )
+    if run_id is None:
+        return ""
+    return (
+        f" Он в резерве прогона №{run_id}: взять на рассмотрение можно там — «Доноры» → «Резерв»."
+    )

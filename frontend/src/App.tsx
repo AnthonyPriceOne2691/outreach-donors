@@ -39,6 +39,7 @@ import { ThreadsScreen } from './threads/ThreadsScreen';
 import { JournalPage } from './users/JournalPage';
 import { UsersPage } from './users/UsersPage';
 import { RunReviewPage } from './review/RunReviewPage';
+import { ReservePage } from './reserve/ReservePage';
 import { ImportWizard } from './sales/ImportWizard';
 import { SalesPage } from './sales/SalesPage';
 import { SelectionPage } from './selection/SelectionPage';
@@ -87,6 +88,14 @@ export function AppRoutes() {
           element={
             <RequireAccess permission="view">
               <DonorsPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/donors/reserve"
+          element={
+            <RequireAccess permission="view">
+              <ReservePage />
             </RequireAccess>
           }
         />

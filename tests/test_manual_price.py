@@ -44,6 +44,7 @@ from backend.features.donors.standing import UnknownDonorError
 from backend.features.replies.repository import ReplyRepository
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
+from backend.features.runs.verdicts import RunVerdict, RunVerdicts
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor, make_sender
@@ -411,6 +412,33 @@ class TestRefusals:
             await enter_host(session, "example.com", price())
         await _nothing_changed(session, 1)
         assert (await _donor(session, "example.com")).review is None
+
+    async def test_failed_the_thresholds_points_to_its_reserve(self, session: AsyncSession) -> None:
+        """Не прошедший пороги прогона лежит в его резерве — отказ говорит, где его взять
+        на рассмотрение (резерв, 20.10.2026)."""
+        runs = RunRepository(session)
+        settings = await runs.create_settings(
+            defaults(),
+            geo_top_n=5,
+            geo_min_share=0.2,
+            metrics_ttl_days=90,
+            price_ttl_days=150,
+            units_cap=100_000,
+        )
+        run = await runs.create_run(
+            stage=Stage.DONORS, settings_id=settings.id, keywords=["garden"], country="us"
+        )
+        await make_donor(session, "example.com", review=None)
+        donor = await _donor(session, "example.com")
+        donor.status, donor.reject_reason = DonorStatus.UNSUITABLE, "DR 9 ниже 20"
+        await RunVerdicts(session).save(
+            run, {"example.com": RunVerdict(DonorStatus.UNSUITABLE, "DR 9 ниже 20")}
+        )
+
+        with pytest.raises(
+            DonorRefusedError, match=f"Он в резерве прогона №{run.id}: взять на рассмотрение"
+        ):
+            await enter_host(session, "example.com", price())
 
     async def test_failed_the_thresholds(self, session: AsyncSession) -> None:
         await make_donor(session, "example.com", review=None)

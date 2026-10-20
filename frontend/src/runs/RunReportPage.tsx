@@ -87,14 +87,14 @@ function NotReached({ domains, status }: { domains: RunDomains; status: RunStatu
 
 /** Почему «Рассмотреть» у прогона не равно «Подходит» (ревью 20.10.2026): «Подходит» — вердикт
  *  прогона, а «Рассмотреть» — кто ждёт решения сейчас. Решённые туда не входят, «кому не пишем»
- *  в очередь не кладут. Числа сходятся — строки нет. */
+ *  в очередь не кладут, а взятые из резерва — сверх «Подходит». Числа сходятся — строки нет. */
 function QueueNote({ run, domains }: { run: RunCard; domains: RunDomains }) {
   const pending = run.queue.pending ?? 0;
   if (pending === domains.suitable) return null;
   return (
     <Text size="sm" c="dimmed">
       «Рассмотреть» — кто ждёт решения сейчас, поэтому не равно «Подходит»: решённые человеком в
-      него не входят, а «кому не пишем» в очередь не кладут.
+      него не входят, «кому не пишем» в очередь не кладут, а взятые из резерва — сверх.
     </Text>
   );
 }
@@ -243,6 +243,7 @@ export function RunReportPage() {
           thresholds={view.thresholds}
           country={view.run.country}
           freshJudged={view.domains.fresh_judged}
+          runId={view.run.id}
         />
       )}
       {view.domains !== null && <ReasonsCard excluded={view.excluded} unchecked={view.unchecked} />}

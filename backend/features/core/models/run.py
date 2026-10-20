@@ -150,6 +150,11 @@ class RunCandidateModel(RunDomainMixin, TimestampedMixin, Base):
     #: позже), а не само решение: один и тот же домен человек решает один раз.
     #: Автора, времени и записки у копии нет — они у решения и у донора.
     carried: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=false())
+    #: Положил человек из резерва прогона (`review/reserve.py`, с 20.10.2026): кто и когда.
+    #: Пусто — положил прогон, годного по своему вердикту. У взятого из резерва вердикт
+    #: прогона «не подходит», и очередь показывает почему.
+    taken_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    taken_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("run_id", "domain_id", name="uq_run_candidates_run_domain"),
@@ -172,10 +177,13 @@ class RunVerdictModel(RunDomainMixin, TimestampedMixin, Base):
 
     __tablename__ = "run_verdicts"
 
-    #: `DonorStatus` строкой: подходит, не подходит, не проверен.
+    #: `DonorStatus` строкой: подходит, не подходит, не проверен — или `excluded`: домен
+    #: снял гейт до Ahrefs (`runs.verdicts.EXCLUDED`, с резервом 20.10.2026).
     status: Mapped[str] = mapped_column(String(16), nullable=False)
-    #: Почему не прошёл — кодом: порог отказа (`runs.refusals.Threshold`) у «не подходит»;
-    #: иначе пусто. По нему фильтруют и называют причину словами экрана.
+    #: Почему не прошёл — кодом: порог отказа (`runs.refusals.Threshold`) у «не подходит»,
+    #: причина гейта (`runs.exclusions.ExclusionReason`) у исключённого, `gap` у «не проверен»
+    #: из-за нехватки данных (`rejudge.DATA_GAPS`); иначе пусто. По нему фильтруют и называют
+    #: причину словами экрана.
     cause: Mapped[str | None] = mapped_column(String(16), nullable=True)
     #: Причина словами вердикта: почему не подходит, не проверен — или чем подходит.
     reason: Mapped[str | None] = mapped_column(String(128), nullable=True)

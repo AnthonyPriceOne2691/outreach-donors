@@ -616,3 +616,30 @@ describe('номер прогона из адреса', () => {
     expect(screen.getByRole('link', { name: 'К прогонам' })).toBeInTheDocument();
   });
 });
+
+describe('рассмотрение прогона и резерв', () => {
+  it('из шапки — резерв этого прогона: не прошедшие не пропали', async () => {
+    await openReview();
+
+    expect(screen.getByRole('link', { name: 'Резерв прогона — не прошедшие' })).toHaveAttribute(
+      'href',
+      '/donors/reserve?run=18',
+    );
+  });
+
+  it('взятый из резерва помечен, и сказано, почему прогон его не предложил', async () => {
+    const reserved = card(3, 'far-away.example.test', {
+      reserve: 'Канада не входит в топ-5 и даёт меньше 20%',
+    });
+    await openReview({ [PENDING]: { body: { ...VIEW, rows: [...VIEW.rows, reserved] } } });
+
+    const row = screen.getByRole('link', { name: 'far-away.example.test' }).closest('tr');
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText('из резерва')).toBeInTheDocument();
+    expect(
+      within(row as HTMLElement).getByText('Канада не входит в топ-5 и даёт меньше 20%'),
+    ).toBeInTheDocument();
+    const offered = screen.getByRole('link', { name: 'martech.example.test' }).closest('tr');
+    expect(within(offered as HTMLElement).queryByText('из резерва')).not.toBeInTheDocument();
+  });
+});
