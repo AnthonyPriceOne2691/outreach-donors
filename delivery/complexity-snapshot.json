@@ -1242,8 +1242,8 @@
       "worst": "marker_reason:71"
     },
     "backend/features/crawl/niche.py": {
-      "lines": 295,
-      "complexity": 7,
+      "lines": 301,
+      "complexity": 9,
       "worst": "collect:68"
     },
     "backend/features/crawl/offer_state.py": {

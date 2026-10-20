@@ -260,6 +260,19 @@ class TestPages:
         assert pages == [hosts[0:2], hosts[2:4], hosts[4:5], []]
         assert await niche.total(session) == 5
 
+    async def test_businesses_come_in_the_order_of_the_run(self, session: AsyncSession) -> None:
+        # Заведены по алфавиту, в выдаче — иначе: ни порядок места в таблице, ни индекс
+        # по имени не дают порядка выдачи. Без сортировки в `collect` экран шёл по алфавиту,
+        # а в CI 20.10 — и вовсе вразнобой.
+        for host in ("shop-a.example.test", "shop-b.example.test", "shop-c.example.test"):
+            await _domain(session, host, judge="sells_own")
+        run_hosts = ["shop-b.example.test", "shop-c.example.test", "shop-a.example.test"]
+        await niche.collect(session, await _run(session, run_hosts))
+
+        listed = [row.host for row in await niche.listed(session, page=1, size=20)]
+
+        assert listed == run_hosts
+
     async def test_decided_leaves_the_count_of_pages(self, session: AsyncSession) -> None:
         hosts = await _five_waiting(session)
         first = (await _advertisers(session))[hosts[0]]

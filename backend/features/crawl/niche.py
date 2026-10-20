@@ -71,6 +71,10 @@ async def collect(session: AsyncSession, run_id: int) -> NicheReport:
     Повторный сбор того же прогона ничего не дублирует: рекламодатель —
     один на домен, и уже заведённый (по ссылке или раньше из выдачи) не
     трогается.
+
+    Заводятся в порядке выдачи прогона: экран показывает бизнесы номером строки
+    (`listed`), а выборка без ORDER BY отдаёт строки в порядке их места в таблице —
+    он плавал от прогона к прогону.
     """
     run = await session.get(RunModel, run_id)
     if run is None:
@@ -80,15 +84,17 @@ async def collect(session: AsyncSession, run_id: int) -> NicheReport:
         return NicheReport(run_id=run_id, found=0, added=0)
 
     ours = select(DonorModel.domain_id).where(DonorModel.review == _ACCEPTED)
-    rows = (
-        await session.scalars(
-            select(DomainModel.id).where(
+    found = (
+        await session.execute(
+            select(DomainModel.host, DomainModel.id).where(
                 DomainModel.host.in_(hosts),
                 _sells_own(),
                 DomainModel.id.not_in(ours),
             )
         )
-    ).all()
+    ).tuples()
+    place = {host: index for index, host in enumerate(dict.fromkeys(hosts))}
+    rows = [domain_id for _, domain_id in sorted(found, key=lambda row: place[row[0]])]
     known = set(
         (
             await session.scalars(
