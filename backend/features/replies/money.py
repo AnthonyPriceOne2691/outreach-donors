@@ -88,9 +88,11 @@ CURRENCIES: dict[str, str] = {
     "aed": "AED", "dirham": "AED", "dirhams": "AED",
     "sar": "SAR", "riyal": "SAR", "riyals": "SAR",
     "₸": "KZT", "kzt": "KZT", "tenge": "KZT", "тенге": "KZT", "теңге": "KZT",
-    # Сум: код и узбекские написания — кириллицей и латиницей, где «ʻ» на письме
-    # бывает и апострофом, и кавычкой. Русское «сум» — в `WHOLE_WORDS`.
-    "uzs": "UZS", "сўм": "UZS", "soʻm": "UZS", "so'm": "UZS", "so‘m": "UZS", "so’m": "UZS",
+    # Сум: код и узбекские написания — кириллицей и латиницей. «ʻ» латиницы на письме
+    # заменяют апострофом, кавычками, буквой «ʼ» и обратной кавычкой. Русское «сум» —
+    # в `WHOLE_WORDS`; «сума» (по-украински «сумма») и «som» (киргизский сом) — не сум.
+    "uzs": "UZS", "сўм": "UZS", "soʻm": "UZS", "soʼm": "UZS", "so'm": "UZS", "so‘m": "UZS",
+    "so’m": "UZS", "so`m": "UZS",
     "₴": "UAH", "uah": "UAH", "грн": "UAH", "грив": "UAH", "hryvnia": "UAH",
     "e£": "EGP", "egp": "EGP", "ksh": "KES", "myr": "MYR", "ringgit": "MYR",
     "s/": "PEN", "s/.": "PEN", "soles": "PEN",

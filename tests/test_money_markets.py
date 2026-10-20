@@ -107,8 +107,7 @@ def test_market_price_is_a_sum_with_its_own_code(text: str, token: str, code: st
         ("₪", "ILS"), ("₸", "KZT"), ("₴", "UAH"), ("гривень", "UAH"), ("R", "ZAR"),
         ("rand", "ZAR"), ("₦", "NGN"), ("naira", "NGN"), ("Franken", "CHF"),
         ("kronor", "SEK"), ("dólares", "USD"), ("reais", "BRL"), ("euroa", "EUR"),
-        ("MXN", "MXN"), ("DAI", "DAI"), ("TON", "TON"), ("сум", "UZS"), ("сумов", "UZS"),
-        ("сўм", "UZS"), ("soʻm", "UZS"), ("so'm", "UZS"), ("so‘m", "UZS"),
+        ("MXN", "MXN"), ("DAI", "DAI"), ("TON", "TON"),
     ],
 )  # fmt: skip
 def test_currency_as_the_model_names_it(raw: str, code: str) -> None:
@@ -171,17 +170,53 @@ def test_real_sign_is_not_a_us_dollar() -> None:
         ("Размещение — 25 TON", {"25"}),
         ("Price: PHP 1,500", {"1500"}),
         ("our stack is php 8", set()),
-        # Сум — целым словом: «сумма», «в сумме» и «суммарно» начинаются так же.
-        ("Narxi: 500 000 so'm", {"500000"}),
-        ("Price: UZS 1 200 000", {"1200000"}),
-        ("Maqola 300 000 soʻmdan", {"300000"}),
-        ("В сумме 3 статьи", set()),
-        ("Сумма 500 за пакет", set()),
-        ("Охват 50 000 суммарно за месяц", set()),
     ],
 )
 def test_word_of_a_market_language_is_not_a_currency(text: str, want: set[str]) -> None:
     assert amounts_in(text) == {Decimal(value) for value in want}
+
+
+# --- сум -----------------------------------------------------------------------
+
+#: Сум так, как его пишут (ревью продаж #436): кодом, по-узбекски кириллицей и латиницей,
+#: по-русски. «ʻ» узбекской латиницы на письме — апостроф, кавычки, буква «ʼ» (U+02BC)
+#: или обратная кавычка. Регистр не важен.
+SUM_SPELLINGS = (
+    "UZS", "сўм", "soʻm", "soʼm", "so'm", "so‘m", "so’m", "so`m", "сум", "сумов", "СЎМ", "SO'M",
+)  # fmt: skip
+
+
+@pytest.mark.parametrize("spelling", SUM_SPELLINGS)
+def test_sum_in_every_spelling(spelling: str) -> None:
+    """Сум любым написанием — валюта `UZS`, и число рядом с ним — сумма, после числа
+    («1 000 000 so'm», «500 000 сум») и перед ним."""
+    assert normalize_currency(spelling) == "UZS"
+    assert amounts_in(f"Narxi: 1 000 000 {spelling}") == {Decimal("1000000")}
+    assert amounts_in(f"Нархи {spelling} 500 000") == {Decimal("500000")}
+
+
+def test_sum_with_an_uzbek_ending_is_a_sum() -> None:
+    """Окончание пишется слитно и только после числа: «300 000 soʻmdan» — «от 300 000 сумов»."""
+    assert amounts_in("Maqola 300 000 soʻmdan") == {Decimal("300000")}
+    assert normalize_currency("soʻmdan") == "UZS"
+
+
+@pytest.mark.parametrize(
+    ("text", "want", "code"),
+    [
+        ("сумма 5000 тенге", {"5000"}, "KZT"),
+        ("в сумме 300", set(), None),
+        ("Сумма 500 за пакет", set(), None),
+        ("суммарно 10 000", set(), None),
+        ("Охват 50 000 суммарно за месяц", set(), None),
+    ],
+)
+def test_words_that_begin_like_sum_are_not_sum(text: str, want: set[str], code: str | None) -> None:
+    """«Сумма», «в сумме», «суммарно» начинаются с «сум»: основой он сделал бы суммой число
+    рядом с ними в каждом русском письме, поэтому русское «сум» — только целым словом."""
+    assert amounts_in(text) == {Decimal(value) for value in want}
+    assert normalize_currency(text) != "UZS"
+    assert code is None or normalize_currency(text) == code
 
 
 def test_sign_of_the_next_sum_is_not_eaten_by_the_previous() -> None:
