@@ -44,7 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import contacts as cfg
 from backend.features.contacts.browser import PlaywrightRenderer
-from backend.features.contacts.ladder import ContactLadder, LadderResult
+from backend.features.contacts.ladder import ContactLadder, DeepLadder, LadderResult
 from backend.features.contacts.provider import (
     ContactProvider,
     HunterProvider,
@@ -75,6 +75,21 @@ BATCH = 32
 
 #: Почему платная ступень доноров и рекламодателей не зовётся, пока её не включили.
 PAID_SEARCH_OFF = "платный поиск адресов выключен (CONTACTS_PAID_SEARCH_ENABLED)"
+
+#: Нота прохода, у которого не поднялся браузер: пакета нет в окружении (в образе прода
+#: его нет — `uv sync --extra browser`) или Chromium не запустился.
+NO_BROWSER = "Браузер не поднялся — проход идёт без этой ступени."
+
+
+def _is_deep(queue: object) -> bool:
+    """Нужна ли очереди лестница глубже — поиск глубже по кнопке (`deeper.DeeperQueue`).
+
+    Признак — у очереди (`deep_search = True`), а не доводом прохода: «глубже» — это
+    про то, кому ищут (донор, у которого обычный поиск кончился «адреса нет»), и одно
+    без другого не бывает. Читается значение, а не наличие имени: проверка протокола
+    (`runtime_checkable`) видит только имя, и очередь с `deep_search = False` шла бы глубже.
+    """
+    return getattr(queue, "deep_search", False) is True
 
 
 @dataclass
@@ -181,7 +196,7 @@ async def _browser(stack: AsyncExitStack, report: SearchReport) -> TracedRendere
     """
     renderer = await stack.enter_async_context(PlaywrightRenderer())
     if renderer is None:
-        report.notes.append("Браузер не поднялся — проход идёт без этой ступени.")
+        report.notes.append(NO_BROWSER)
         return None
     return TracedRenderer(renderer)
 
@@ -243,6 +258,10 @@ async def search_contacts(
 
     Расход платной ступени пишется на этап очереди (`ContactQueue.stage`):
     поиск адресов рекламодателей — трата Этапа 2.
+
+    Очередь поиска глубже (`deeper.DeeperQueue`, `_is_deep`) получает лестницу глубже
+    (`ladder.DeepLadder`): шире потолки обхода, карта сайта и браузер даже у открытого
+    сайта (`site_steps`).
     """
     report = SearchReport()
     repository = queue if queue is not None else ContactRepository(session, donor_id=donor_id)
@@ -259,12 +278,15 @@ async def search_contacts(
         # и из ссылок на чужих страницах. Проверка идёт на каждом шаге
         # редиректа, иначе публичный сайт уводит нас внутрь сети одним 302.
         http = await stack.enter_async_context(guarded_client(timeout=timeout))
-        pays = _pays(report, stage, no_paid=no_paid)
+        deep = _is_deep(repository)
+        # Глубже платная ступень не зовётся по устройству (`deeper.py`).
+        pays = not deep and _pays(report, stage, no_paid=no_paid)
         provider = await paid_step(http, report) if pays else None
         # Обмен с сайтами учитывается: по нему решается, ответил ли сайт.
         watch(http)
 
-        ladder = ContactLadder(
+        stairs = DeepLadder if deep else ContactLadder
+        ladder = stairs(
             http,
             provider=provider,
             paid_first=paid_first,

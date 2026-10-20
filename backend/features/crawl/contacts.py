@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import contacts as cfg
 from backend.features.contacts import attempts
 from backend.features.contacts.ladder import LadderResult
-from backend.features.contacts.repository import domain_ids, save_addresses
+from backend.features.contacts.repository import domain_ids, save_addresses, save_form_urls
 from backend.features.core.domain import Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
@@ -108,6 +108,7 @@ class AdvertiserContactRepository:
             ids,
             moment=moment,
         )
+        await save_form_urls(self._session, results, ids)
         return await save_addresses(self._session, results, ids)
 
     async def last_tries(self, hosts: Sequence[str]) -> set[str]:

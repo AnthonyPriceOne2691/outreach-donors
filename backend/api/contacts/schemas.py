@@ -57,6 +57,9 @@ class FormCard(BaseModel):
     dr: int | None
     org_traffic: int | None
     attempted_at: datetime | None
+    #: Страница с формой — человек открывает её прямо. Пусто — адрес формы не записан:
+    #: искали до 20.10.2026, когда он ещё не запоминался.
+    form_url: str | None = None
 
     @classmethod
     def of(cls, row: FormRow) -> FormCard:
@@ -67,6 +70,7 @@ class FormCard(BaseModel):
             dr=row.dr,
             org_traffic=row.org_traffic,
             attempted_at=row.attempted_at,
+            form_url=row.form_url,
         )
 
 
@@ -105,6 +109,8 @@ class AdvertiserFormCard(BaseModel):
     run_id: int | None
     points: int
     attempted_at: datetime | None
+    #: Страница с формой — как у доноров (`FormCard.form_url`).
+    form_url: str | None = None
 
     @classmethod
     def of(cls, row: AdvertiserFormRow) -> AdvertiserFormCard:
@@ -117,6 +123,7 @@ class AdvertiserFormCard(BaseModel):
             run_id=row.run_id,
             points=row.points,
             attempted_at=row.attempted_at,
+            form_url=row.form_url,
         )
 
 
@@ -160,3 +167,47 @@ class GiveUpBody(BaseModel):
     """Форму заполнить не вышло. Причина — для журнала."""
 
     reason: str | None = Field(default=None, max_length=200)
+
+
+class FormLetterCard(BaseModel):
+    """Текст письма для формы сайта — тот же, что ушёл бы письмом."""
+
+    subject: str
+    body: str
+    #: Чей текст взят за основу: рассылка или умолчание.
+    based_on: str
+    built_at: datetime
+    #: Доля отличия от шаблона, как у письма в очереди.
+    uniqueness_pct: float | None
+    #: Почему часть текста осталась шаблонной — словами модели и сборки.
+    notes: str | None
+    #: Метки незаполненных настроек в тексте («ИМЯ ОТПРАВИТЕЛЯ НЕ ЗАДАНО»): такой
+    #: текст в форму не вставляют, пока настройку не заполнят.
+    unset: list[str] = Field(default_factory=list)
+
+
+class FormLetterView(BaseModel):
+    """Окно «Форма и письмо»: где форма, текст письма и задача, которая его собирает."""
+
+    donor_id: int
+    host: str
+    form_url: str | None
+    letter: FormLetterCard | None
+    #: Задача сборки текста, если она поставлена этим запросом или ещё идёт.
+    job_id: str | None = None
+
+
+class FormLetterBody(BaseModel):
+    """Собрать текст письма для формы: `again` — заново, даже если он уже есть."""
+
+    again: bool = False
+
+
+class DeeperCard(BaseModel):
+    """«Искать глубже» у донора: можно ли сейчас и чем кончился прошлый раз."""
+
+    #: Почему сейчас нельзя — словами; пусто — можно (`contacts.deeper.deeper_refusal`).
+    refusal: str | None
+    #: Когда искали глубже и чем кончилось. Пусто — глубже не искали.
+    at: datetime | None = None
+    note: str | None = None

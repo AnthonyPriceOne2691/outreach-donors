@@ -28,7 +28,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Protocol
 
-from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy import ColumnElement, and_, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
@@ -108,7 +108,7 @@ class SearchRefusedError(ValueError):
 UNEXPLAINED = "Донор не ждёт поиска адреса по общему правилу — причину назвать не удалось."
 
 
-def _not_entitled(donor: DonorModel) -> str | None:
+def not_entitled(donor: DonorModel) -> str | None:
     """Кому поиск не положен вовсе, пока не изменится сам донор: не подходит
     по порогам или не принят человеком. Первые два условия `_needs_contact`."""
     if donor.status is DonorStatus.UNCHECKED:
@@ -152,7 +152,7 @@ def refusal_of(
     сама, значком и датой. Отказ отвечает на другой вопрос — почему нельзя
     сейчас и когда станет можно.
     """
-    never = _not_entitled(donor)
+    never = not_entitled(donor)
     if never is not None:
         return never
     if not_writing is not None:
@@ -239,6 +239,27 @@ async def save_addresses(
         )
     )
     return len(payload)
+
+
+async def save_form_urls(
+    session: AsyncSession, results: Sequence[LadderResult], ids: dict[str, int]
+) -> None:
+    """Где форма на сайте — у домена: её открывает человек на «Формах». Общее у обеих
+    очередей: форма, как и адрес, принадлежит сайту, а не роли.
+
+    Пишется по каждому прочитанному сайту (`pages_read`) — и пустота тоже: формы, которую
+    сайт убрал, на «Формах» быть не должно. Сайт, не прочитанный вовсе — не пустил,
+    показал проверку, не ответил, — о форме не сказал ничего, и прежняя ссылка остаётся:
+    его «адреса нет» её не стирает."""
+    for result in results:
+        domain_id = ids.get(result.host)
+        if domain_id is None or result.pages_read == 0:
+            continue
+        await session.execute(
+            update(DomainModel)
+            .where(DomainModel.id == domain_id)
+            .values(contact_form_url=result.form_url)
+        )
 
 
 class ContactRepository:
@@ -329,6 +350,7 @@ class ContactRepository:
             moment=moment,
             keep=manual_address(),
         )
+        await save_form_urls(self._session, results, ids)
         return await save_addresses(self._session, results, ids)
 
 

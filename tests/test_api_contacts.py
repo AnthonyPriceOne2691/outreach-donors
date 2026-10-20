@@ -79,6 +79,9 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
         "run",
     ),
     ("DELETE", "/api/contacts/donors/{donor}/addresses/{contact}", None, "run"),
+    ("POST", "/api/contacts/donors/{donor}/deeper", None, "run"),
+    ("GET", "/api/contacts/forms/{donor}/letter", None, "view"),
+    ("POST", "/api/contacts/forms/{donor}/letter", {}, "run"),
 ]
 
 

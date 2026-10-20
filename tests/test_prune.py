@@ -631,6 +631,9 @@ REVIEWED = {
     "sales_segment_candidates.domain_id → domains CASCADE": "уходит с доменом; лид — держит",
     "sales_segment_verdicts.domain_id → domains CASCADE": "уходит с доменом: кэш судьи",
     "suppressions.domain_id → domains CASCADE": "держит: стоп-лист",
+    # Текст письма для формы — память о собранном, а не решение человека: собирается
+    # заново. Домен донора из «Форм» чистка и так держит — он принят человеком.
+    "form_letters.domain_id → domains CASCADE": "уходит с доменом; донора «Форм» — держит",
     "threads.domain_id → domains CASCADE": "держит: история",
     "run_candidates.run_id → runs CASCADE": "очередь уходит с прогоном",
     # Вердикт прогона (20.10.2026) — только у доменов его выдачи, а их оставшийся прогон

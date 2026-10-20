@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from backend.api.contacts.reach import ReachCard, ReachRow, reach_fields
 from backend.api.threads.schemas import OfferCard
 from backend.api.topics.schemas import TopicCount, TopicFields, topic_counts, topic_fields
 from backend.config import filters as filters_cfg
@@ -115,7 +116,7 @@ class CountryShareCard(BaseModel):
     share: float
 
 
-class DonorRowCard(TopicFields):
+class DonorRowCard(TopicFields, ReachRow):
     """Строка таблицы доноров.
 
     `reject_reason` отдаётся всегда: «не подходит» без причины — это
@@ -188,6 +189,7 @@ class DonorRowCard(TopicFields):
             fresh=row.fresh,
             freshness=row.freshness,
             **topic_fields(row.topic, row.topic_secondary, row.topic_reason),
+            deeper=row.deeper,
         )
 
 
@@ -275,7 +277,7 @@ class ContactCard(BaseModel):
         )
 
 
-class DonorFullCard(BaseModel):
+class DonorFullCard(ReachCard):
     """Карточка донора.
 
     Срок годности метрик отдаётся отдельным полем, а не выводится
@@ -423,6 +425,7 @@ class DonorFullCard(BaseModel):
             letter_blocked=card.letter.blocked,
             letter_note=card.letter.note,
             threads=list(card.threads),
+            **reach_fields(donor, form_url=card.form_url, refusal=card.deeper_refusal),
         )
 
 

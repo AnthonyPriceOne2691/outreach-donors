@@ -31,6 +31,7 @@ import logging
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.api.contacts import deeper, form_letter
 from backend.api.contacts.schemas import (
     AddressBody,
     ContactsQueued,
@@ -275,3 +276,9 @@ async def give_up(
     )
     await session.commit()
     return FormCard.of(row)
+
+
+# --- поиск глубже и письмо для формы — своими модулями (`deeper.py`, `form_letter.py`),
+# тем же префиксом ---
+router.include_router(deeper.router)
+router.include_router(form_letter.router)
