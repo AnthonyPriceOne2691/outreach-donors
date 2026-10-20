@@ -1182,9 +1182,9 @@
       "worst": "_public_zone:126"
     },
     "backend/features/crawl/fetch.py": {
-      "lines": 437,
+      "lines": 443,
       "complexity": 8,
-      "worst": "_proxy:313"
+      "worst": "_proxy:319"
     },
     "backend/features/crawl/gate.py": {
       "lines": 274,
@@ -1307,9 +1307,9 @@
       "worst": "snapshot:110"
     },
     "backend/features/crawl/sitemap.py": {
-      "lines": 268,
+      "lines": 272,
       "complexity": 15,
-      "worst": "scan:162"
+      "worst": "scan:166"
     },
     "backend/features/crawl/spend.py": {
       "lines": 193,
@@ -1337,7 +1337,7 @@
       "worst": "off_topic:148"
     },
     "backend/features/crawl/walk.py": {
-      "lines": 491,
+      "lines": 500,
       "complexity": 8,
       "worst": "same_site_links:74"
     },

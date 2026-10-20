@@ -207,6 +207,12 @@ class PageCascade:
         self.degradation = Degradation()
         self.by_level: dict[CascadeLevel, int] = dict.fromkeys(CascadeLevel, 0)
 
+    @property
+    def headers(self) -> dict[str, str]:
+        """Заголовки запроса страниц. Ими же обход читает robots.txt и карту сайта
+        (`walk.py`): имя у сайта должно быть одно на все запросы обхода."""
+        return dict(self._headers)
+
     async def get(self, url: str) -> FetchResult:
         """Страница первым уровнем, который её отдал."""
         result = await self._http(url)

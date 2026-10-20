@@ -19,7 +19,7 @@ from typing import Any
 import httpx
 import pytest
 from backend.features.core.domain import CrawlOutcome, StopReason
-from backend.features.crawl.fetch import CascadeLevel
+from backend.features.crawl.fetch import CascadeLevel, PageCascade
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.robots import RobotsStatus
 from backend.features.crawl.walk import DonorCrawler, same_site_links
@@ -180,6 +180,35 @@ class TestPermission:
 
         assert report.crawl_delay == 3.0
         assert limiter.requested == [3.0]
+
+    @pytest.mark.parametrize("identify", [True, False], ids=["представляемся", "браузером"])
+    async def test_robots_and_map_are_asked_under_the_pages_name(self, identify: bool) -> None:
+        """robots.txt и карта сайта — с тем же именем, что страницы. Голый клиент
+        представлялся `python-httpx`: сайт, который режет это имя, отказывал на robots.txt,
+        и донор не обходился вовсе, а запрет читался не для того имени (20.10.2026)."""
+        site = FakeSite(
+            {"/": _page(), "/a": _page()},
+            robots=f"User-agent: *\nDisallow:\nSitemap: https://{HOST}/sitemap.xml\n",
+            sitemap=_urlset(f"https://{HOST}/a"),
+        )
+        agents: dict[str, str] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            agents.setdefault(request.url.path, request.headers.get("user-agent", ""))
+            return site.handler(request)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        cascade = PageCascade(client, identify=identify, browser_enabled=False)
+        crawler = DonorCrawler(
+            client, limiter=DomainLimiter(delay_sec=0.0, max_delay_sec=0.0), cascade=cascade
+        )
+        async with client:
+            await crawler.crawl(HOST)
+        await crawler.aclose()
+
+        name = cascade.headers["User-Agent"]
+        assert not name.startswith("python-httpx")
+        assert (agents["/robots.txt"], agents["/sitemap.xml"], agents["/"]) == (name, name, name)
 
 
 class TestSources:
