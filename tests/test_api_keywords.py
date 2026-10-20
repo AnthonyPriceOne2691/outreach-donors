@@ -16,7 +16,11 @@ import pytest
 from backend.features.core.domain import UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.ops import UsageRecordModel
+from backend.features.keywords.by_examples import ExamplesPool
 from backend.features.keywords.client import LlmError
+from backend.features.keywords.example_pages import ExamplePage
+from backend.features.keywords.example_theme import Theme
+from backend.features.keywords.examples import Example
 from backend.features.keywords.generator import Pool, PoolReport
 from fastapi import FastAPI
 from httpx import AsyncClient
@@ -28,6 +32,7 @@ MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
 
 POOL_BODY = {"preset": "reviews", "country": "za", "topics": ["ставки"], "cap": 6}
+EXAMPLES_BODY = {"examples": ["garden.example.test"], "preset": "reviews", "country": "za"}
 
 ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/keywords/presets", None, "run"),
@@ -35,6 +40,8 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     # Ключи страны, дававшие доноров, — часть запуска прогона.
     ("GET", "/api/keywords/yield?country=us", None, "run"),
     ("POST", "/api/keywords", POOL_BODY, "run"),
+    # Сборка по примерам — тот же шаг запуска прогона, что и сборка по теме.
+    ("POST", "/api/keywords/examples", EXAMPLES_BODY, "run"),
 ]
 
 
@@ -63,6 +70,15 @@ def _pool(phrases: list[str]) -> Pool:
     return Pool(keywords=phrases, report=report)
 
 
+def examples_pool() -> ExamplesPool:
+    """Пул по примерам — готовым: главные и модель подделаны целиком."""
+    theme = Theme(theme="сады", about="garden blogs", topics={"English": "gardening"})
+    page = ExamplePage(Example(1, "garden.example.test"), title="Garden")
+    return ExamplesPool(
+        pool=_pool(["gardening blog"]), theme=theme, pages=[page], repeats=0, theme_tokens=100
+    )
+
+
 @pytest.fixture
 async def admin_token(make_user: MakeUser, sign_in: SignIn) -> str:
     await make_user("админ@site.com", role=UserRole.ADMIN)
@@ -88,6 +104,12 @@ def model(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             return _pool(["best betting sites south africa", "top bookmakers sa"])
 
     monkeypatch.setattr("backend.api.keywords.routes.PoolBuilder", Builder)
+
+    async def from_examples(*_args: Any, **_kwargs: Any) -> Any:
+        # Сборка по примерам ходит по главным: здесь проверяется только право.
+        return examples_pool()
+
+    monkeypatch.setattr("backend.api.keywords.routes.build_from_examples", from_examples)
     return seen
 
 

@@ -128,14 +128,33 @@ class KeygenClient:
         без этого «модель ничего не придумала» и «модель не ответила»
         неразличимы, и отчёт называет вторым первое.
         """
+        content = await self.reply(ask)
+        if content is None:
+            return []
+        phrases = parse_phrases(content)
+        if not phrases:
+            logger.warning("ключи: модель вернула пустой набор (модель %s)", self._model)
+        return phrases
+
+    def require_key(self) -> None:
+        """Ключа модели нет — отказ сразу. Сборка по примерам спрашивает это до главных
+        примеров: без ключа она обошла бы десять сайтов, чтобы отказать после."""
         if not self._api_key:
             raise LlmError(
                 "LLM_API_KEY не задан — генерация ключей работать не может. "
                 "Заполнить в окружении или брать ключи списком"
             )
 
+    async def reply(self, ask: Ask) -> str | None:
+        """Ответ модели текстом; `None` — отказ, и он уже в `refusals`.
+
+        Отдельно от `ask`: тема примеров (`keywords/example_theme.py`) просит у той же
+        модели не список фраз, а объект, — а ключ, счёт токенов и отказы у сборки
+        одни на оба вызова.
+        """
+        self.require_key()
         if self._skip_hopeless():
-            return []
+            return None
 
         self.calls += 1
         body = await post_chat(
@@ -146,11 +165,7 @@ class KeygenClient:
         )
         if isinstance(body, Refusal):
             self._remember(body)
-            return []
+            return None
 
         self.tokens_spent += tokens_of(body)
-
-        phrases = parse_phrases(content_of(body, topic=TOPIC))
-        if not phrases:
-            logger.warning("ключи: модель вернула пустой набор (модель %s)", self._model)
-        return phrases
+        return content_of(body, topic=TOPIC)

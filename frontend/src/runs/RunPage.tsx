@@ -20,7 +20,8 @@
  * моделью: там было три высоты подписи.
  *
  * **Режим сборки раскрывается в два такта** (`Unfold`): сначала место,
- * потом содержимое.
+ * потом содержимое. Само содержимое — свой компонент (`ModelPool`): сборка
+ * по теме и по примерам сайтов.
  */
 
 import {
@@ -33,60 +34,50 @@ import {
   Stack,
   Text,
   Textarea,
-  TagsInput,
   Title,
 } from '@mantine/core';
-import { IconCalculator, IconPlayerPlay, IconSparkles } from '@tabler/icons-react';
+import { IconCalculator, IconPlayerPlay } from '@tabler/icons-react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
 import { refusalOf } from '../api/client';
-import { countryTitle, languageTitle, presetTitle } from '../api/labels';
+import { countryTitle } from '../api/labels';
 import { NumberField } from '../components/NumberField';
 import { numberRefusal, validNumber } from '../components/numberText';
 import type { NumberRule } from '../components/numberText';
 import { PageHead } from '../components/PageHead';
 import { FIELD_GAP } from '../components/formRhythm';
 import { usePageParam } from '../components/PageSwitch';
-import { buildPool, fetchMarketLanguages, fetchPresets } from '../api/keywords';
 import { ProvenKeywords } from './ProvenKeywords';
 import { ACTIVE, pagesOf, RunHistory } from './RunHistory';
 import { estimateRun, fetchCountries, listRuns, startRun } from '../api/runs';
 import type { Forecast, RunRequest } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
-import { DEFAULT_DEPTH, DEPTHS, depthTitle, keywordsTitle, pagesOf as depthPages } from './depth';
+import { DEFAULT_DEPTH, DEPTHS, depthTitle, pagesOf as depthPages } from './depth';
 import type { Depth } from './depth';
 import { isCountry, isDepth, useLastChoice } from './lastChoice';
 import { DEFAULT_SERP_MODE, SERP_MODES, SERP_MODE_TITLES, isSerpMode } from './serpMode';
 import type { OfferedSerpMode } from './serpMode';
 import { Estimate } from './Estimate';
+import { ModelPool, useModelPool } from './ModelPool';
 import { Unfold } from './Unfold';
 import { notify, refuse, settle } from '../notices';
 
-/** Набор углов, пока человек не выбрал другой, — тот же, что берёт сервер
- *  по умолчанию (`angles.DEFAULT_PRESET`). */
-const DEFAULT_PRESET = 'wide';
-
-/** Потолок юнитов и сколько ключей собрать — целые. Поля держат набранное:
+/** Потолок юнитов — целый. Поле держит набранное:
  *  «1.5» не становится ни пустым, ни 15, а получает отказ (проверка QA 10.10.2026).
  *  Верх потолка — тот же, что у сервера (`api/runs/schemas.py`, `MAX_RUN_CEILING`):
  *  без него двадцать девяток уходили в смету и возвращались «1e20» (проверка прода). */
 const CAP: NumberRule = { decimals: 0, min: 1, max: 1_000_000 };
-const POOL_CAP: NumberRule = { decimals: 0, min: 1, max: 100 };
 
 /** Ширины полей ряда — по самому длинному значению шрифтом экрана, а не на
  *  глаз: «Саудовская Аравия» в поле страны, «100 результатов» в поле
- *  глубины, «инструкции и правила» в наборе углов. На телефоне (уже `xs`)
- *  поле — во всю ширину: разной длины поля одно под другим читались бы
- *  рваным краем. */
+ *  глубины. На телефоне (уже `xs`) поле — во всю ширину: разной длины поля
+ *  одно под другим читались бы рваным краем. Ряд сборки моделью — `ModelPool`. */
 const WIDTH = {
   country: 200,
   depth: 176,
   serpMode: 220,
   cap: 190,
-  preset: 206,
-  topics: 260,
-  poolCap: 140,
 } as const;
 
 function parseKeywords(text: string): string[] {
@@ -113,26 +104,18 @@ export function RunPage() {
   // Ключи по требованиям приносит оператор, поэтому «свои» — умолчание,
   // а сборка моделью это второй режим того же поля, а не замена ему.
   const [source, setSource] = useState<'manual' | 'model'>('manual');
-  const [preset, setPreset] = useState<string>(DEFAULT_PRESET);
-  const [topics, setTopics] = useState<string[]>([]);
-  const [poolCap, setPoolCap] = useState('30');
+  // Собранные моделью фразы падают в то же поле, а не уходят в прогон: человек
+  // видит их и правит до сметы. Смета и кап остаются последним рубежом.
+  const modelPool = useModelPool({
+    country,
+    open: source === 'model',
+    onKeywords: (built) => {
+      setKeywords(built.join('\n'));
+      setForecast(null);
+    },
+  });
 
   const countries = useQuery({ queryKey: ['countries'], queryFn: fetchCountries });
-  // Пресеты спрашиваются у сервера по той же причине, что и страны:
-  // второй список на фронте разъехался бы с первым добавленным набором,
-  // и разошёлся бы молча.
-  const presets = useQuery({
-    queryKey: ['presets'],
-    queryFn: fetchPresets,
-    enabled: source === 'model',
-  });
-  // Языки выводятся из страны, а не выбираются: оператору нечем ошибиться,
-  // а незнакомая страна отказывает вслух вместо тихого английского.
-  const marketLanguages = useQuery({
-    queryKey: ['market-languages', country],
-    queryFn: () => fetchMarketLanguages(country),
-    enabled: source === 'model',
-  });
   const queryClient = useQueryClient();
   const [page, goToPage] = usePageParam();
   const runs = useQuery({
@@ -172,7 +155,6 @@ export function RunPage() {
   const list = parseKeywords(keywords);
   const capRefusal = numberRefusal(cap, CAP);
   const capValue = validNumber(cap, CAP);
-  const poolRefusal = numberRefusal(poolCap, POOL_CAP);
   const body: RunRequest = {
     keywords: list,
     country,
@@ -180,33 +162,6 @@ export function RunPage() {
     serp_mode: serpMode,
     ...(capValue !== null ? { cap: capValue } : {}),
   };
-
-  const pool = useMutation({
-    mutationFn: () =>
-      buildPool({
-        preset,
-        country,
-        topics,
-        cap: validNumber(poolCap, POOL_CAP) ?? 30,
-      }),
-    onSuccess: (built) => {
-      settle('run-pool');
-      // Фразы падают в то же поле, а не уходят в прогон: человек видит
-      // их и правит до сметы. Смета и кап остаются последним рубежом.
-      setKeywords(built.keywords.join('\n'));
-      setForecast(null);
-      notify({
-        title: `Собрано ${keywordsTitle(built.keywords.length)}`,
-        message:
-          built.refusals.length > 0
-            ? `Модель ${built.model} отказала ${built.refusals.length} раз(а) — пул неполный: ${built.refusals[0]}`
-            : `Модель ${built.model}, ${built.tokens} токенов, языки: ${built.languages.map(languageTitle).join(', ')}. Проверьте список перед сметой.`,
-        color: built.refusals.length > 0 ? 'yellow' : 'green',
-      });
-    },
-    onError: (failure) =>
-      refuse('run-pool', { title: 'Пул не собрался', message: refusalOf(failure) }),
-  });
 
   // Удача действия снимает его прежний отказ — и только его (`notices.ts`, проверка
   // прода 10.10.2026: красный «Смета не посчиталась» висел рядом с новой сметой).
@@ -251,7 +206,6 @@ export function RunPage() {
     !stale &&
     canRun &&
     capRefusal === null;
-  const languages = marketLanguages.data ?? [];
 
   return (
     <Stack gap="lg">
@@ -284,62 +238,7 @@ export function RunPage() {
                   плитой, и весь приглушённый текст на ней выцветает —
                   намерено 2.46 : 1 при норме 4.5. */}
               <Unfold open={source === 'model'} className="glassSolid" p="md" mt="xs">
-                <Stack gap="sm">
-                  <Text size="sm" c="dimmed">
-                    Сборка ничего платного не тратит — только модель. Фразы попадут в поле ниже, и
-                    до сметы их можно править: смета и кап остаются последним рубежом перед тратой.
-                  </Text>
-                  {/* Языки называются до сборки: на двух языках пул стоит вдвое
-                      дороже, и узнавать об этом по счёту неправильно. */}
-                  <Text size="sm" c="dimmed">
-                    {marketLanguages.isError
-                      ? 'Язык этого рынка не выводится — сборка откажет и скажет почему.'
-                      : `${languages.length === 1 ? 'Язык' : 'Языки'} рынка: ${languages.map(languageTitle).join(', ') || '…'}`}
-                  </Text>
-                  <Group align="flex-end" gap="md" className="fieldRow runFields">
-                    <Select
-                      label="Набор углов"
-                      description="Только обкатанные наборы"
-                      data={(presets.data ?? [DEFAULT_PRESET]).map((code) => ({
-                        value: code,
-                        label: presetTitle(code),
-                      }))}
-                      value={preset}
-                      allowDeselect={false}
-                      onChange={(value) => value !== null && setPreset(value)}
-                      comboboxProps={{ width: 'target', position: 'bottom-start' }}
-                      w={{ base: '100%', xs: WIDTH.preset }}
-                    />
-                    <TagsInput
-                      label="Про что"
-                      description="Несколько тем — больше доменов"
-                      placeholder={topics.length === 0 ? 'ставки на спорт' : ''}
-                      value={topics}
-                      onChange={setTopics}
-                      clearable
-                      w={{ base: '100%', xs: WIDTH.topics }}
-                    />
-                    <NumberField
-                      label="Сколько ключей"
-                      description="От 1 до 100"
-                      refusalAbove
-                      value={poolCap}
-                      error={poolRefusal}
-                      onChange={setPoolCap}
-                      w={{ base: '100%', xs: WIDTH.poolCap }}
-                    />
-                    <Button
-                      variant="light"
-                      className="press"
-                      leftSection={<IconSparkles size={16} />}
-                      onClick={() => pool.mutate()}
-                      loading={pool.isPending}
-                      disabled={!canRun || poolRefusal !== null}
-                    >
-                      Собрать
-                    </Button>
-                  </Group>
-                </Stack>
+                <ModelPool state={modelPool} canRun={canRun} />
               </Unfold>
             </div>
 

@@ -202,12 +202,12 @@
       "worst": "—"
     },
     "backend/api/keywords/routes.py": {
-      "lines": 137,
+      "lines": 225,
       "complexity": 3,
-      "worst": "build_pool:86"
+      "worst": "build_pool:101"
     },
     "backend/api/keywords/schemas.py": {
-      "lines": 47,
+      "lines": 98,
       "complexity": 0,
       "worst": "—"
     },
@@ -1486,15 +1486,35 @@
       "complexity": 3,
       "worst": "preset:130"
     },
-    "backend/features/keywords/client.py": {
-      "lines": 157,
+    "backend/features/keywords/by_examples.py": {
+      "lines": 93,
       "complexity": 5,
-      "worst": "ask:124"
+      "worst": "build_from_examples:56"
+    },
+    "backend/features/keywords/client.py": {
+      "lines": 172,
+      "complexity": 4,
+      "worst": "__init__:76"
     },
     "backend/features/keywords/dedup.py": {
       "lines": 126,
       "complexity": 6,
       "worst": "interleave:89"
+    },
+    "backend/features/keywords/example_pages.py": {
+      "lines": 326,
+      "complexity": 8,
+      "worst": "_read:273"
+    },
+    "backend/features/keywords/example_theme.py": {
+      "lines": 218,
+      "complexity": 8,
+      "worst": "_off_theme:157"
+    },
+    "backend/features/keywords/examples.py": {
+      "lines": 185,
+      "complexity": 8,
+      "worst": "site_host:130"
     },
     "backend/features/keywords/footprints.py": {
       "lines": 131,
@@ -1502,9 +1522,9 @@
       "worst": "with_niche:106"
     },
     "backend/features/keywords/generator.py": {
-      "lines": 421,
+      "lines": 473,
       "complexity": 6,
-      "worst": "_backfill:386"
+      "worst": "_backfill:438"
     },
     "backend/features/keywords/hygiene.py": {
       "lines": 205,
@@ -3107,7 +3127,7 @@
       "worst": "main:127"
     },
     "scripts/ui_screens.py": {
-      "lines": 474,
+      "lines": 477,
       "complexity": 2,
       "worst": "open_reason:25"
     },
@@ -3115,6 +3135,11 @@
       "lines": 177,
       "complexity": 1,
       "worst": "donor_screens:19"
+    },
+    "scripts/ui_screens_examples.py": {
+      "lines": 116,
+      "complexity": 1,
+      "worst": "build_from_examples:52"
     },
     "scripts/ui_screens_mail.py": {
       "lines": 370,

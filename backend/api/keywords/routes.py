@@ -18,17 +18,32 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
-from backend.api.keywords.schemas import PoolRequestBody, PoolView
+from backend.api.keywords.schemas import (
+    ExampleSiteView,
+    ExamplesPoolView,
+    ExamplesRequestBody,
+    PoolRequestBody,
+    PoolView,
+)
 from backend.api.review.schemas import KeywordYieldView
 from backend.config import llm as llm_cfg
 from backend.features.core import usage
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
+from backend.features.donors.home_signals import home_timeout
 from backend.features.keywords.angles import PRESETS, UnknownPresetError
+from backend.features.keywords.by_examples import (
+    ExamplesPool,
+    NothingReadError,
+    build_from_examples,
+)
 from backend.features.keywords.client import KeygenClient, LlmError
+from backend.features.keywords.example_pages import PageReader
+from backend.features.keywords.examples import ExamplesError
 from backend.features.keywords.generator import PoolBuilder
 from backend.features.review.keyword_yield import country_yield
 from backend.features.serp import markets
+from backend.shared.net.url_guard import guarded_client
 
 router = APIRouter(prefix="/keywords", tags=["ключи"])
 
@@ -125,6 +140,79 @@ async def build_pool(
         refusals=list(report.refusals),
         tokens=report.tokens,
         model=llm_cfg.KEYGEN_MODEL,
+    )
+
+
+@router.post(
+    "/examples", response_model=ExamplesPoolView, summary="Собрать ключи по примерам сайтов"
+)
+async def build_examples_pool(
+    body: ExamplesRequestBody,
+    session: AsyncSession = Depends(db_session),
+    _: UserModel = _runner,
+) -> ExamplesPoolView:
+    """Ключи по примерам: главные примеров → общая тема → тот же генератор, что у
+    сборки по теме. Юниты и выдача не трогаются — только главные примеров и модель.
+
+    Отказы до модели (строки поля, набор углов, ни одной прочитанной главной) — 422
+    со словами; отказ модели — 502, и токены, на которые она успела ответить, — строкой
+    журнала, как у сборки по теме.
+    """
+    languages = _languages_or_refuse(body.country)
+    await usage.ensure_llm_within_cap(session)
+    client = KeygenClient()
+    try:
+        async with guarded_client(timeout=home_timeout()) as http:
+            made = await build_from_examples(
+                client,
+                PageReader(http),
+                body.examples,
+                country=body.country,
+                languages=languages,
+                preset_name=body.preset,
+                cap=body.cap,
+            )
+    except (ExamplesError, NothingReadError, UnknownPresetError, ValueError) as exc:
+        await _record_tokens(session, client.tokens_spent)
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    except LlmError as exc:
+        await _record_tokens(session, client.tokens_spent)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    finally:
+        await client.aclose()
+
+    await _record_tokens(session, made.pool.report.tokens)
+    return _examples_view(made, languages)
+
+
+def _examples_view(made: ExamplesPool, languages: tuple[str, ...]) -> ExamplesPoolView:
+    """Ответ сборки по примерам: отчёт генератора, тема и каждый пример с исходом."""
+    report = made.pool.report
+    off = set(made.theme.off_theme)
+    return ExamplesPoolView(
+        keywords=made.pool.keywords,
+        languages=list(languages),
+        asked=report.asked,
+        received=report.received,
+        rejected=len(report.rejected),
+        near_duplicates=report.near_duplicates,
+        refusals=list(report.refusals),
+        tokens=report.tokens,
+        model=llm_cfg.KEYGEN_MODEL,
+        theme=made.theme.theme,
+        topics=made.theme.topics,
+        sites=[
+            ExampleSiteView(
+                host=page.example.shown,
+                read=page.read,
+                reason=page.reason,
+                title=page.title,
+                off_theme=page.example.host in off,
+            )
+            for page in made.pages
+        ],
+        repeats=made.repeats,
+        theme_tokens=made.theme_tokens,
     )
 
 
