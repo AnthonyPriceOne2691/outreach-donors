@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from backend.api.selection.schemas import MachineView, SellerView
 from backend.api.topics.schemas import TopicFields, topic_fields
+from backend.features.donors.wording import reject_reason_text
 from backend.features.review.accuracy import (
     AUTO_ACCEPT_MIN_DECISIONS,
     AUTO_ACCEPT_PRECISION,
@@ -60,6 +61,8 @@ class CandidateCard(TopicFields):
     #: Чей голос это сказал: ответ сайта, человек, судья или дверь на сайте.
     #: Экран показывает признак один раз — в колонке своего источника.
     sells_by: SellsBy | None = None
+    #: Взят из резерва человеком: почему прогон его не предложил. Пусто — предложил прогон.
+    reserve: str | None = None
     machine: MachineView
     seller: SellerView
 
@@ -84,6 +87,7 @@ class CandidateCard(TopicFields):
             found_by=row.found_by,
             sells=row.sells,
             sells_by=row.sells_by,
+            reserve=reject_reason_text(row.reserve),
             machine=machine_of(row),
             seller=SellerView(
                 answer=domain.seller_answer,

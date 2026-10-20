@@ -42,6 +42,7 @@ def report_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("причина в строке", "table tbody td:has-text('Кому не пишем')", norm),
                 # «Рассмотреть» не равно «Подходит» — почему, строкой под плитками (ревью 20.10.2026).
                 ("очередь и «Подходит»", "p:has-text('кто ждёт решения сейчас')", norm),
+                ("ссылка на резерв прогона", "a:has-text('в резерве прогона')", norm),
                 ("статья расхода", "table tbody .cellName", norm),
                 ("провайдер статьи", "table tbody .mantine-Badge-label", norm),
                 ("пункт меню", "nav a", norm),

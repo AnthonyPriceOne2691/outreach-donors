@@ -36,7 +36,7 @@ from backend.config.judge import JudgeMode
 from backend.features.core.domain import DonorStatus, Stage
 from backend.features.core.models.run import RunSettingsModel
 from backend.features.runs.browse import RunBrowser, RunRow
-from backend.features.runs.exclusions import NOT_WRITING_WORDS, ExclusionReason
+from backend.features.runs.exclusions import NOT_WRITING_WORDS, ExclusionReason, exclusion_words
 from backend.features.runs.refusals import ORDER, Threshold, threshold_of
 from backend.features.runs.report import FRESH_KEY
 from backend.features.runs.repository import RESUMES_KEY, RunRepository
@@ -79,13 +79,6 @@ class Named:
     count: int
     #: «Кому не пишем» ТЗ: взять такой домен нельзя по правилу, а не по числам.
     not_writing: bool = False
-
-
-def exclusion_words(reason: ExclusionReason) -> str:
-    """Причина гейта словами отчёта: «кому не пишем» — так и сказано."""
-    if reason in NOT_WRITING_WORDS:
-        return f"Кому не пишем: {reason.caption}"
-    return reason.caption[:1].upper() + reason.caption[1:]
 
 
 def excluded_named(stats: Mapping[str, Any]) -> list[Named]:

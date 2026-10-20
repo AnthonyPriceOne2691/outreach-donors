@@ -45,12 +45,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, false, func, select, update
+from sqlalchemy import ColumnElement, and_, false, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
-from backend.features.core.models.run import RunCandidateModel, RunModel
+from backend.features.core.models.run import RunCandidateModel, RunModel, RunVerdictModel
 from backend.features.review.accepted import settle_decision
 from backend.features.review.accuracy import Agreement, JudgeAccuracy
 from backend.features.review.domain_lock import lock_domains_of
@@ -64,6 +64,7 @@ from backend.features.review.ordering import (
     tier_order,
 )
 from backend.features.review.queue import Decision, QueueReport, copy_of, fill
+from backend.features.review.reserve_rules import said_of
 from backend.features.runs.exclusions import NotWritingAcceptError, not_writing_of
 from backend.features.runs.verdicts import RunVerdicts
 from backend.shared.database.ids import storable
@@ -113,6 +114,8 @@ class CandidateRow:
     sells: str | None = None
     #: Чей голос это сказал: экран показывает признак в колонке источника.
     sells_by: SellsBy | None = None
+    #: Взят из резерва (`reserve.py`): почему прогон его не предложил. Пусто — предложил.
+    reserve: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,8 +229,9 @@ class RunReview:
                 found_by=list(found_by.get(domain.host, [])),
                 sells=sells,
                 sells_by=_voice(sells_by),
+                reserve=(said_of(cause, said) or "не подходит") if candidate.taken_by else None,
             )
-            for candidate, domain, donor, row_tier, sells, sells_by in result.all()
+            for candidate, domain, donor, row_tier, sells, sells_by, cause, said in result.all()
         ]
         return ReviewPage(
             run=run,
@@ -411,9 +415,18 @@ class RunReview:
                 tier().label("tier"),
                 sells_placement().label("sells"),
                 sells_source().label("sells_by"),
+                RunVerdictModel.cause,
+                RunVerdictModel.reason,
             )
             .join(DomainModel, DomainModel.id == RunCandidateModel.domain_id)
             .join(DonorModel, DonorModel.domain_id == RunCandidateModel.domain_id)
+            .outerjoin(
+                RunVerdictModel,
+                and_(
+                    RunVerdictModel.run_id == RunCandidateModel.run_id,
+                    RunVerdictModel.domain_id == RunCandidateModel.domain_id,
+                ),
+            )
             .where(RunCandidateModel.run_id == run_id)
         )
 

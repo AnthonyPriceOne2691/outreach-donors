@@ -13,7 +13,8 @@
 
 **Принятый без прогона — годен словом человека**: заведённый руками (`manual_price.py`) и
 липовый (`probe.py`). Решения в очереди прогона у них нет, и понизить их некому — замер
-только пишет вердикт замера.
+только пишет вердикт замера. Так же — взятый из резерва и принятый (`review/reserve.py`):
+вердикт прогона у него «не подходит», и человек принял его, это зная.
 """
 
 from __future__ import annotations
@@ -82,16 +83,17 @@ def _judged(result: DomainResult, judging: Judging, current: Standing) -> Standi
 
 async def _accepted_in(session: AsyncSession, domain_ids: Sequence[int]) -> dict[int, int]:
     """Прогон, где донора приняли: строка решения, а не копия, — самая поздняя, как у
-    решения донора (`RunReview._settle_donor`). Нет такой — принят без прогона."""
+    решения донора (`RunReview._settle_donor`). Нет такой — принят без прогона; взят из
+    резерва — тоже без прогона: годен словом человека, а не вердиктом прогона."""
     rows = await session.execute(
-        select(RunCandidateModel.domain_id, RunCandidateModel.run_id)
+        select(RunCandidateModel.domain_id, RunCandidateModel.run_id, RunCandidateModel.taken_by)
         .where(RunCandidateModel.domain_id.in_(list(domain_ids)))
         .where(RunCandidateModel.status == Decision.ACCEPTED.value)
         .where(RunCandidateModel.carried.is_(False))
         .order_by(RunCandidateModel.domain_id, RunCandidateModel.decided_at.desc().nullslast())
         .distinct(RunCandidateModel.domain_id)
     )
-    return dict(rows.tuples().all())
+    return {domain_id: run_id for domain_id, run_id, taken in rows.tuples().all() if taken is None}
 
 
 async def _judgings(session: AsyncSession, run_ids: set[int]) -> dict[int, Judging]:
