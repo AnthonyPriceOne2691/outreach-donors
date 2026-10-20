@@ -34,7 +34,6 @@
 
 import {
   ActionIcon,
-  Anchor,
   Badge,
   Button,
   Card,
@@ -49,16 +48,18 @@ import {
 import { IconLock, IconTrash } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
-import { Link } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { addDonorAddress, removeDonorAddress, searchDonorContact } from '../api/contacts';
+import type { DonorCardWithReach } from '../api/deeper';
 import { fetchJob } from '../api/jobs';
 import { CONTACT_SOURCES, CONTACT_STATUSES, NOT_SEARCHED, PERMISSION_TITLES } from '../api/labels';
 import type { ContactCard, DonorFullCard, JobCard, JobState } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatDate } from '../format';
 import { JobLine } from '../jobs/JobLine';
+import { FormOnly, SearchState } from './AddressState';
+import { DeeperBlock } from './DeeperSearch';
 import { CONTACTS_QUERY_KEY } from './PendingContacts';
 import { notify } from '../notices';
 
@@ -90,24 +91,6 @@ function remember(key: string, value: string | null): void {
 function sentence(text: string): string {
   const said = text.charAt(0).toUpperCase() + text.slice(1);
   return said.endsWith('.') ? said : `${said}.`;
-}
-
-function SearchState({ donor }: { donor: DonorFullCard }) {
-  if (donor.contact_attempted_at !== null) {
-    return (
-      <Text size="sm" c="dimmed">
-        Искали {formatDate(donor.contact_attempted_at)}.
-      </Text>
-    );
-  }
-  // Вписанный руками адрес — «адрес найден», но поиска не было: дата
-  // поиска здесь была бы выдумкой.
-  const written = donor.contacts.some((contact) => contact.source === 'manual');
-  return (
-    <Text size="sm" c="dimmed">
-      {written ? 'Адрес вписан вручную, лестницей не искали.' : 'Адрес ещё не искали.'}
-    </Text>
-  );
 }
 
 /** Почему адрес не удалить — за значком, целиком по нажатию: текст длинный,
@@ -339,33 +322,7 @@ function AddAddress({
   );
 }
 
-/** Только форма: где её заполнить и что будет дальше. В очереди «Формы» — только
- *  доноры (`contacts/forms.py`, `in_queue`): у кандидата карточка писала «Донор стоит
- *  в очереди», а очередь его не брала (проверка прода 10.10.2026). */
-function FormOnly({ donor }: { donor: DonorFullCard }) {
-  return (
-    <Text size="sm">
-      Адреса нет — на сайте только форма, её заполняет человек:{' '}
-      <Anchor href={`https://${donor.host}`} target="_blank" rel="noreferrer" size="sm">
-        открыть сайт
-      </Anchor>
-      .{' '}
-      {donor.review === 'accepted' ? (
-        <>
-          Донор стоит в очереди{' '}
-          <Anchor component={Link} to="/forms" size="sm">
-            «Формы»
-          </Anchor>
-          : ответ на форму письмом даст адрес, и ему уйдёт письмо из очереди.
-        </>
-      ) : (
-        'В очередь «Формы» встают только доноры, принятые человеком.'
-      )}
-    </Text>
-  );
-}
-
-export function DonorAddresses({ donor }: { donor: DonorFullCard }) {
+export function DonorAddresses({ donor }: { donor: DonorCardWithReach }) {
   const { can } = useSession();
   const queryClient = useQueryClient();
   const [jobId, setJobId] = useState<string | null>(() => remembered(jobKey(donor.id)));
@@ -440,8 +397,8 @@ export function DonorAddresses({ donor }: { donor: DonorFullCard }) {
           </Badge>
         </Group>
         <SearchState donor={donor} />
-        {/* Адреса нет, а форма есть: её заполняет человек. Где именно форма,
-            лестница не запоминает — ссылка ведёт на сайт и в очередь форм. */}
+        {/* Адреса нет, а форма есть: её заполняет человек — ссылка ведёт на страницу
+            формы (с 20.10.2026 лестница её запоминает) и в очередь «Форм». */}
         {empty && donor.contact_status === 'form_only' ? <FormOnly donor={donor} /> : null}
 
         {!empty && (
@@ -478,6 +435,8 @@ export function DonorAddresses({ donor }: { donor: DonorFullCard }) {
           </Stack>
         )}
         {jobId !== null && <JobLine jobId={jobId} onFinished={finished} />}
+        {/* «Адреса нет» после обычного поиска — искать глубже (`DeeperSearch.tsx`). */}
+        {empty && donor.contact_status === 'not_found' && <DeeperBlock donor={donor} />}
 
         {/* Без права — объяснение на месте, одной строкой на все три действия:
             две похожие строки читались бы как сбой. */}

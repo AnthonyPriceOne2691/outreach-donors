@@ -31,15 +31,19 @@ import { PageSwitch, usePageParam } from '../components/PageSwitch';
 import { Seams } from '../components/Seams';
 import { formatNumber, plural } from '../format';
 import { notify } from '../notices';
+import { FormLetterModal } from './FormLetterModal';
+import type { LetterTarget } from './FormLetterModal';
 import type { FormQueue, FormsTab, QueueColumn, QueuePage } from './formQueues';
 
 /** Колонка кнопок — 29 долей: «Вписать адрес» и «Не вышло» с зазором и полями ячейки
- *  (260 px) на `TABLE_MIN_WIDTH`. */
+ *  (260 px) на `TABLE_MIN_WIDTH`; у доноров ещё «Форма и письмо» (20.10.2026) — 42 доли
+ *  под три кнопки (`LETTER_ACTIONS`). */
 const ACTIONS = { title: 'Действия', share: 29 };
+const LETTER_ACTIONS = { title: 'Действия', share: 42 };
 
-/** Уже этого таблица уезжает в прокрутку: с кнопками — 29% не меньше их
- *  260 px, без кнопок — имени его двести. */
-const TABLE_MIN_WIDTH = { withActions: 900, readOnly: 650 } as const;
+/** Уже этого таблица уезжает в прокрутку: с кнопками — их доля не меньше их ширины,
+ *  без кнопок — имени его двести. */
+const TABLE_MIN_WIDTH = { withActions: 900, withLetter: 1040, readOnly: 650 } as const;
 
 const TAB_TITLES: Record<FormsTab, string> = { donors: 'Доноры', advertisers: 'Рекламодатели' };
 
@@ -143,22 +147,30 @@ function useActions<Row, Page extends QueuePage<Row>>(
   return { fill, giveUp };
 }
 
-function Name({ host }: { host: string }) {
+function Name({ host, formUrl }: { host: string; formUrl: string | null }) {
   // Имя — чернилами, как у доноров и диалогов: бирюзовая ссылка в верхних строках
   // стоит на бирюзовом углу полотна, и замер дал 4,30 : 1 при норме 4,5 (25.09.2026).
   // Длинный домен переносится по швам (`Seams`), а не посреди слова.
   return (
-    <Anchor
-      href={`https://${host}`}
-      target="_blank"
-      rel="noreferrer"
-      c="var(--ink)"
-      fw={500}
-      underline="hover"
-      className="cellName"
-    >
-      <Seams text={host} />
-    </Anchor>
+    <Stack gap={2} align="center">
+      <Anchor
+        href={`https://${host}`}
+        target="_blank"
+        rel="noreferrer"
+        c="var(--ink)"
+        fw={500}
+        underline="hover"
+        className="cellName"
+      >
+        <Seams text={host} />
+      </Anchor>
+      {/* Страница формы — прямо, если лестница её запомнила (с 20.10.2026). */}
+      {formUrl !== null && (
+        <Anchor href={formUrl} target="_blank" rel="noreferrer" size="xs" c="var(--ink)">
+          открыть форму
+        </Anchor>
+      )}
+    </Stack>
   );
 }
 
@@ -167,6 +179,8 @@ interface RowActions<Row> {
   closing: number | null;
   onFill: (row: Row) => void;
   onGiveUp: (row: Row) => void;
+  /** «Форма и письмо» — у очереди, где собирается текст письма (доноры). */
+  onLetter: ((row: Row) => void) | null;
 }
 
 function Actions<Row, Page extends QueuePage<Row>>({
@@ -182,7 +196,20 @@ function Actions<Row, Page extends QueuePage<Row>>({
 }) {
   return (
     <Table.Td className="cellDecide">
-      <Group gap="xs" justify="center" wrap="nowrap">
+      {/* Переносом: на телефоне три кнопки в ряд не помещаются и резались до «Форма и
+          пись» (снимок 20.10.2026); на широком окне колонка мерена под три в ряд. */}
+      <Group gap="xs" justify="center" wrap="wrap">
+        {actions.onLetter !== null && (
+          <Button
+            size="compact-sm"
+            variant="default"
+            className="press"
+            disabled={actions.stale}
+            onClick={() => actions.onLetter?.(row)}
+          >
+            Форма и письмо
+          </Button>
+        )}
         <Button
           size="compact-sm"
           className="press"
@@ -227,7 +254,8 @@ function QueueTable<Row, Page extends QueuePage<Row>>({
   actions: RowActions<Row> | null;
 }) {
   const shared: { title: string; share: number }[] = [queue.name, ...queue.columns];
-  if (actions !== null) shared.push(ACTIONS);
+  const letter = actions?.onLetter != null;
+  if (actions !== null) shared.push(letter ? LETTER_ACTIONS : ACTIONS);
   const shares = shared.reduce((sum, column) => sum + column.share, 0);
   const columns = shared.map((column) => ({
     title: column.title,
@@ -238,7 +266,13 @@ function QueueTable<Row, Page extends QueuePage<Row>>({
   return (
     <DataTable
       columns={columns}
-      minWidth={actions !== null ? TABLE_MIN_WIDTH.withActions : TABLE_MIN_WIDTH.readOnly}
+      minWidth={
+        actions === null
+          ? TABLE_MIN_WIDTH.readOnly
+          : letter
+            ? TABLE_MIN_WIDTH.withLetter
+            : TABLE_MIN_WIDTH.withActions
+      }
       className="allCentered"
       cardRow
       stale={actions?.stale ?? false}
@@ -246,7 +280,7 @@ function QueueTable<Row, Page extends QueuePage<Row>>({
       {page.rows.map((row) => (
         <Table.Tr key={queue.idOf(row)}>
           <Table.Td>
-            <Name host={queue.hostOf(row)} />
+            <Name host={queue.hostOf(row)} formUrl={queue.formOf(row)} />
           </Table.Td>
           {queue.columns.map((column: QueueColumn<Row>) => (
             <Table.Td key={column.title} data-label={column.title}>
@@ -317,6 +351,7 @@ export function FormsQueue<Row, Page extends QueuePage<Row>>({
 }) {
   const { can } = useSession();
   const [filling, setFilling] = useState<Row | null>(null);
+  const [writing, setWriting] = useState<LetterTarget | null>(null);
   const [email, setEmail] = useState('');
   const { query, page, pages, goToPage } = useQueuePage(queue);
   const { fill, giveUp } = useActions(queue, () => setFilling(null));
@@ -342,6 +377,7 @@ export function FormsQueue<Row, Page extends QueuePage<Row>>({
           setEmail('');
         },
         onGiveUp: (row) => giveUp.mutate(row),
+        onLetter: letterOf(queue, setWriting),
       }
     : null;
 
@@ -386,6 +422,17 @@ export function FormsQueue<Row, Page extends QueuePage<Row>>({
         onClose={() => setFilling(null)}
         onSave={(email) => filling !== null && fill.mutate({ row: filling, email })}
       />
+      <FormLetterModal target={writing} onClose={() => setWriting(null)} />
     </Stack>
   );
+}
+
+/** «Форма и письмо» — открыть окно строки, если у очереди собирается текст письма. */
+function letterOf<Row, Page extends QueuePage<Row>>(
+  queue: FormQueue<Row, Page>,
+  open: (target: LetterTarget) => void,
+): ((row: Row) => void) | null {
+  const donor = queue.letterOf;
+  if (donor === undefined) return null;
+  return (row) => open({ donorId: donor(row), host: queue.hostOf(row) });
 }
