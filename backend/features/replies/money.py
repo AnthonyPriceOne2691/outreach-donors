@@ -23,6 +23,9 @@
   шведская, «pesos» — мексиканский, аргентинский, чилийский, колумбийский
   или филиппинский. Суммой такое число считается, а кода не получает:
   код по стране донора был бы догадкой, записанной ценой в карточку.
+* Имя валюты, с которого начинаются частые слова языка рынка, — валюта
+  только целым словом (`WHOLE_WORDS`): «сум» — узбекский сум, но и начало
+  «суммы», «в сумме», «суммарно».
 """
 
 from __future__ import annotations
@@ -85,6 +88,9 @@ CURRENCIES: dict[str, str] = {
     "aed": "AED", "dirham": "AED", "dirhams": "AED",
     "sar": "SAR", "riyal": "SAR", "riyals": "SAR",
     "₸": "KZT", "kzt": "KZT", "tenge": "KZT", "тенге": "KZT", "теңге": "KZT",
+    # Сум: код и узбекские написания — кириллицей и латиницей, где «ʻ» на письме
+    # бывает и апострофом, и кавычкой. Русское «сум» — в `WHOLE_WORDS`.
+    "uzs": "UZS", "сўм": "UZS", "soʻm": "UZS", "so'm": "UZS", "so‘m": "UZS", "so’m": "UZS",
     "₴": "UAH", "uah": "UAH", "грн": "UAH", "грив": "UAH", "hryvnia": "UAH",
     "e£": "EGP", "egp": "EGP", "ksh": "KES", "myr": "MYR", "ringgit": "MYR",
     "s/": "PEN", "s/.": "PEN", "soles": "PEN",
@@ -114,6 +120,11 @@ UNCODED: dict[str, str] = {
     "kr": "KR", "kroner": "KR", "krone": "KR", "pesos": "PESO", "peso": "PESO",
 }  # fmt: skip
 
+#: Валюта только целым словом, не основой: с неё начинаются частые слова языка
+#: рынка. Основой «сум» сделал бы суммой число рядом с «суммой», «в сумме»
+#: и «суммарно» — в каждом русском письме, а не только в узбекском.
+WHOLE_WORDS: dict[str, str] = {"сум": "UZS", "сумов": "UZS"}
+
 #: При разборе ответа модели регистр не важен: валютой слово назвала она.
 _FOLDED = {token.lower(): code for token, code in CASE_SENSITIVE.items()}
 
@@ -134,7 +145,9 @@ _WORDS = re.compile(r"[^\W\d_]+")
 
 
 def _exact(token: str) -> str | None:
-    return CURRENCIES.get(token) or UNCODED.get(token) or _FOLDED.get(token)
+    return (
+        CURRENCIES.get(token) or UNCODED.get(token) or WHOLE_WORDS.get(token) or _FOLDED.get(token)
+    )
 
 
 def _by_compound_sign(key: str, _words: list[str]) -> str | None:
@@ -275,7 +288,7 @@ def _names_currency(token: str, *, before: bool) -> bool:
     if word in CASE_SENSITIVE:
         return before or word != "R"
     key = word.lower()
-    return key in CURRENCIES or key in UNCODED or key.startswith(_STEMS)
+    return key in CURRENCIES or key in UNCODED or key in WHOLE_WORDS or key.startswith(_STEMS)
 
 
 def _priced(text: str, start: int, end: int) -> bool:

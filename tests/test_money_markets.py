@@ -79,6 +79,7 @@ BY_MARKET: dict[str, tuple[str, str, str]] = {
     "tr": ("Tanıtım yazısı 2.500 TL", "TL", "TRY"),
     "ua": ("Стаття — 3 000 грн", "грн", "UAH"),
     "us": ("Sponsored post $150", "$", "USD"),
+    "uz": ("Статья — 500 000 сум", "сум", "UZS"),
     "vn": ("Bài PR 2.000.000₫", "₫", "VND"),
     "za": ("Sponsored post R1 500", "R", "ZAR"),
 }
@@ -106,7 +107,8 @@ def test_market_price_is_a_sum_with_its_own_code(text: str, token: str, code: st
         ("₪", "ILS"), ("₸", "KZT"), ("₴", "UAH"), ("гривень", "UAH"), ("R", "ZAR"),
         ("rand", "ZAR"), ("₦", "NGN"), ("naira", "NGN"), ("Franken", "CHF"),
         ("kronor", "SEK"), ("dólares", "USD"), ("reais", "BRL"), ("euroa", "EUR"),
-        ("MXN", "MXN"), ("DAI", "DAI"), ("TON", "TON"),
+        ("MXN", "MXN"), ("DAI", "DAI"), ("TON", "TON"), ("сум", "UZS"), ("сумов", "UZS"),
+        ("сўм", "UZS"), ("soʻm", "UZS"), ("so'm", "UZS"), ("so‘m", "UZS"),
     ],
 )  # fmt: skip
 def test_currency_as_the_model_names_it(raw: str, code: str) -> None:
@@ -169,6 +171,13 @@ def test_real_sign_is_not_a_us_dollar() -> None:
         ("Размещение — 25 TON", {"25"}),
         ("Price: PHP 1,500", {"1500"}),
         ("our stack is php 8", set()),
+        # Сум — целым словом: «сумма», «в сумме» и «суммарно» начинаются так же.
+        ("Narxi: 500 000 so'm", {"500000"}),
+        ("Price: UZS 1 200 000", {"1200000"}),
+        ("Maqola 300 000 soʻmdan", {"300000"}),
+        ("В сумме 3 статьи", set()),
+        ("Сумма 500 за пакет", set()),
+        ("Охват 50 000 суммарно за месяц", set()),
     ],
 )
 def test_word_of_a_market_language_is_not_a_currency(text: str, want: set[str]) -> None:

@@ -37,14 +37,15 @@ SERP_LANGUAGE: dict[str, str] = {
     "kz": "ru", "lt": "lt", "lv": "lv", "mx": "es", "my": "ms", "ng": "en",
     "nl": "nl", "no": "no", "nz": "en", "pe": "es", "ph": "en", "pl": "pl",
     "pt": "pt", "ro": "ro", "sa": "ar", "se": "sv", "sg": "en", "si": "sl",
-    "sk": "sk", "th": "th", "tr": "tr", "ua": "uk", "us": "en", "vn": "vi",
-    "za": "en",
+    "sk": "sk", "th": "th", "tr": "tr", "ua": "uk", "us": "en", "uz": "ru",
+    "vn": "vi", "za": "en",
 }  # fmt: skip
 
 #: Дополнительные языки генерации сверх основного. Строка добавляется
 #: только когда на языке есть своя пресса, которой основной не покрывает:
 #: Квебек, Валлония, романдская Швейцария, русскоязычная пресса СНГ,
-#: тагальские издания Филиппин. Код Филиппин — `fil`, а не `tl`.
+#: казахская и узбекская пресса, тагальские издания Филиппин. Код
+#: Филиппин — `fil`, а не `tl`.
 EXTRA_KEYGEN_LANGUAGES: dict[str, tuple[str, ...]] = {
     "be": ("fr",),
     "ca": ("fr",),
@@ -52,6 +53,7 @@ EXTRA_KEYGEN_LANGUAGES: dict[str, tuple[str, ...]] = {
     "kz": ("kk",),
     "ph": ("fil",),
     "ua": ("ru",),
+    "uz": ("uz",),
 }
 
 #: Код → английское НАЗВАНИЕ языка для промпта. Модель понимает «Bengali»
@@ -66,7 +68,7 @@ LANGUAGE_NAMES: dict[str, str] = {
     "lv": "Latvian", "ms": "Malay", "nl": "Dutch", "no": "Norwegian",
     "pl": "Polish", "pt": "Portuguese", "ro": "Romanian", "ru": "Russian",
     "sk": "Slovak", "sl": "Slovenian", "sv": "Swedish", "th": "Thai",
-    "tr": "Turkish", "uk": "Ukrainian", "vi": "Vietnamese",
+    "tr": "Turkish", "uk": "Ukrainian", "uz": "Uzbek", "vi": "Vietnamese",
 }  # fmt: skip
 
 

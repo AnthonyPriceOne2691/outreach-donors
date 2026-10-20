@@ -14,8 +14,10 @@ from pathlib import Path
 import pytest
 from backend.features.core.domain import ContactStatus, DonorStatus
 from backend.features.donors.geo import CountryShare, check_geo
+from backend.features.donors.regions_ru import REGION_NAMES
 from backend.features.donors.wording import (
     CONTACT_STATUS_TITLES,
+    COUNTRY_NAMES_EN,
     COUNTRY_TITLES,
     DONOR_STATUS_TITLES,
     GEO_PARTIAL_NOTE,
@@ -23,6 +25,7 @@ from backend.features.donors.wording import (
     REVIEW_TITLES,
     SELLER_ANSWER_TITLES,
     countries_text,
+    country_name_en,
     country_title,
     reject_reason_text,
     share_text,
@@ -59,6 +62,18 @@ class TestSameWordsAsTheScreen:
     def test_every_market_has_a_name(self) -> None:
         """Страна без названия ушла бы в файл кодом — ровно то, что чинили."""
         assert set(COUNTRY_CODES) <= set(COUNTRY_TITLES)
+
+    def test_every_market_has_an_english_name(self) -> None:
+        """Аудитория площадки в письме рекламодателю — английским именем страны: без него
+        фраза об аудитории выпала бы из письма."""
+        assert set(COUNTRY_CODES) <= set(COUNTRY_NAMES_EN)
+
+    def test_cldr_snapshot_leaves_markets_to_us(self) -> None:
+        """Снимок CLDR (`regions_ru.py`) — для стран вне рынков: рынок называется нашим словом."""
+        assert set(COUNTRY_CODES) & set(REGION_NAMES) == set()
+
+    def test_uzbekistan_is_named_on_the_screen_and_in_letters(self) -> None:
+        assert (country_title("uz"), country_name_en("UZ")) == ("Узбекистан", "Uzbekistan")
 
     def test_donor_verdicts(self) -> None:
         assert _titles("DONOR_STATUSES") == {

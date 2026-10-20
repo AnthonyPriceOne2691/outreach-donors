@@ -23,6 +23,7 @@ from backend.features.core.models.run import RunModel, RunSettingsModel
 from backend.features.donors.verdict import Thresholds
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import ThresholdsRepository, defaults, thresholds_of
+from backend.features.serp.dataforseo import COUNTRY_CODES
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -163,6 +164,18 @@ class TestWhoIsLetIn:
             for method, path, _, _ in ROUTES
         }
         assert in_app == in_table
+
+
+class TestCountriesOfTheSource:
+    async def test_the_list_is_the_provider_map_with_uzbekistan(
+        self, client: AsyncClient, operator_token: str
+    ) -> None:
+        """Список стран отдаёт сервер — карта кодов провайдера, а не список фронта: до
+        20.10.2026 Узбекистана в ней не было, и прогон по нему было не запустить."""
+        response = await client.get("/api/runs/countries", headers=bearer(operator_token))
+
+        assert response.json() == sorted(COUNTRY_CODES)
+        assert {"kz", "uz"} <= set(response.json())
 
 
 class TestDonorsTable:

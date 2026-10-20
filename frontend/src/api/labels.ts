@@ -218,6 +218,7 @@ const COUNTRY_TITLES: Record<string, string> = {
   lt: 'Литва',
   lv: 'Латвия',
   ee: 'Эстония',
+  uz: 'Узбекистан',
 };
 
 /** Страна одним видом на всех экранах: рынок — нашим словом, другая страна — именем CLDR
@@ -426,50 +427,6 @@ const KEYWORD_PRESET_TITLES: Record<string, string> = {
 
 export function presetTitle(code: string): string {
   return KEYWORD_PRESET_TITLES[code] ?? `другой набор (${code})`;
-}
-
-/** Языки рынка. Сервер называет их по-английски — так их понимает модель
- *  (`serp/markets.py`), а на экране они по-русски. */
-const LANGUAGE_TITLES: Record<string, string> = {
-  Arabic: 'арабский',
-  Bulgarian: 'болгарский',
-  Croatian: 'хорватский',
-  Czech: 'чешский',
-  Danish: 'датский',
-  Dutch: 'нидерландский',
-  English: 'английский',
-  Estonian: 'эстонский',
-  Filipino: 'филиппинский',
-  Finnish: 'финский',
-  French: 'французский',
-  German: 'немецкий',
-  Greek: 'греческий',
-  Hebrew: 'иврит',
-  Hungarian: 'венгерский',
-  Indonesian: 'индонезийский',
-  Italian: 'итальянский',
-  Japanese: 'японский',
-  Kazakh: 'казахский',
-  Latvian: 'латышский',
-  Lithuanian: 'литовский',
-  Malay: 'малайский',
-  Norwegian: 'норвежский',
-  Polish: 'польский',
-  Portuguese: 'португальский',
-  Romanian: 'румынский',
-  Russian: 'русский',
-  Slovak: 'словацкий',
-  Slovenian: 'словенский',
-  Spanish: 'испанский',
-  Swedish: 'шведский',
-  Thai: 'тайский',
-  Turkish: 'турецкий',
-  Ukrainian: 'украинский',
-  Vietnamese: 'вьетнамский',
-};
-
-export function languageTitle(name: string): string {
-  return LANGUAGE_TITLES[name] ?? `другой язык (${name})`;
 }
 
 /** Признаки продажи своего на главной (`donors/home_signals.py`): сервер

@@ -346,10 +346,12 @@ class TestCountries:
     async def test_known_countries(self) -> None:
         assert location_code("us") == 2840
         assert location_code(" GB ") == 2826
+        assert location_code("uz") == 2860  # ISO 860: Узбекистан с 20.10.2026
 
     async def test_language_follows_country(self) -> None:
         assert language_code("de") == "de"
         assert language_code("br") == "pt"
+        assert language_code("uz") == "ru"
 
     async def test_english_is_an_answer_not_a_fallback(self) -> None:
         """Прежнее правило звучало «английский как умолчание безопаснее

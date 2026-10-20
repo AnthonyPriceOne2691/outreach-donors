@@ -19,7 +19,8 @@ import { useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { buildPool, fetchMarketLanguages, fetchPresets } from '../api/keywords';
-import { languageTitle, presetTitle } from '../api/labels';
+import { presetTitle } from '../api/labels';
+import { languageTitle } from '../api/languageLabels';
 import { NumberField } from '../components/NumberField';
 import { numberRefusal, validNumber } from '../components/numberText';
 import type { NumberRule } from '../components/numberText';
