@@ -63,6 +63,8 @@ SignIn = Callable[..., Awaitable[str]]
 
 ROOT = Path(__file__).resolve().parent.parent
 TYPES_TS = ROOT / "frontend" / "src" / "api" / "types.ts"
+#: Исход поиска адреса — своим файлом с 20.10.2026: `types.ts` у потолка длины.
+CONTACT_STATUS_TS = TYPES_TS.parent / "contactStatus.ts"
 
 #: Группа «контакты» целиком. Номер донора подставляется на месте.
 ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
@@ -696,11 +698,12 @@ class TestAddressFilter:
 
 
 def _union(name: str) -> set[str]:
-    """Значения строкового объединения из `types.ts` фронта."""
-    source = TYPES_TS.read_text(encoding="utf-8")
-    found = re.search(rf"export type {name} =([^;]+);", source)
-    assert found is not None, f"в {TYPES_TS.name} нет типа {name}"
-    return set(re.findall(r"'([a-z_]+)'", found.group(1)))
+    """Значения строкового объединения из `types.ts` фронта — или из файла, куда тип ушёл."""
+    for path in (TYPES_TS, CONTACT_STATUS_TS):
+        found = re.search(rf"export type {name} =([^;]+);", path.read_text(encoding="utf-8"))
+        if found is not None:
+            return set(re.findall(r"'([a-z_]+)'", found.group(1)))
+    raise AssertionError(f"во фронте нет типа {name}")
 
 
 class TestScreenSpeaksServerWords:

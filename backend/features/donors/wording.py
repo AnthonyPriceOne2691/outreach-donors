@@ -78,6 +78,7 @@ CONTACT_STATUS_TITLES: dict[ContactStatus, str] = {
     ContactStatus.BLOCKED: "учётка закрыта",
     ContactStatus.ERROR: "ошибка поиска",
     ContactStatus.NO_ANSWER: "сайт не ответил",
+    ContactStatus.PAID_OFF: "платный поиск выключен — не спросили",
 }
 
 #: Адрес ещё не искали: «не нашли» и «не искали» решаются по-разному.

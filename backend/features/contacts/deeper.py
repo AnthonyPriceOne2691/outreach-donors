@@ -114,6 +114,10 @@ async def deeper_ready(session: AsyncSession, donor_ids: Sequence[int]) -> set[i
 _AFTER = {
     ContactStatus.FORM_ONLY: "На сайте нашлась форма — донор в очереди «Формы».",
     ContactStatus.NO_ANSWER: "Сайт не ответил — обычный поиск повторится сам, по сроку.",
+    ContactStatus.PAID_OFF: (
+        "Прошлый поиск шёл без платной ступени — глубже ищут после поиска, кончившегося "
+        "«адреса нет»."
+    ),
 }
 
 

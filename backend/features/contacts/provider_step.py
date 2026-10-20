@@ -1,8 +1,15 @@
 """Ступень 3 лестницы — платный сервис: звать ли его по домену и чем кончился отказ.
 
-Вынесена из `ladder.py` швом перед правками платной ступени (ревью 20.10.2026): лестница
-решает порядок ступеней и исход домена, а здесь — разговор с сервисом и его отказы.
-Ключа нет или платный поиск выключен — ступени нет: рабочий режим, «адреса нет» честное.
+Вынесена из `ladder.py`, когда к ней добавились «платная ступень недоступна на этот
+проход» (`PaidUnavailable`) и «платный поиск выключен» (`paid_off`): лестница решает
+порядок ступеней и исход домена, а здесь — разговор с сервисом и его отказы.
+
+**Ступени нет совсем и ступени нет на этот проход — разное.** Без ключа и с выключенным
+флагом платного поиска доноров (решение Anthony 12.10.2026) ступени нет совсем: рабочий
+режим, «адреса нет» честное. Квота кончилась, остаток не узнать, учётку закрыли, проход
+вызван без платной (`no_paid`) — ступень есть, но не спросит: исход называет причину
+(`PaidUnavailable.status`; приходит отчётом прохода — `search.SearchReport.paid_missing`),
+а не «адреса нет».
 """
 
 from __future__ import annotations
@@ -14,6 +21,7 @@ from backend.features.contacts.collected import Collected
 from backend.features.contacts.mx import MailRoute
 from backend.features.contacts.provider import (
     ContactProvider,
+    PaidUnavailable,
     ProviderBlockedError,
     ProviderDomainRefusedError,
     ProviderError,
@@ -32,12 +40,14 @@ class ProviderStep:
 
     def __init__(
         self,
-        provider: ContactProvider | None,
+        provider: ContactProvider | PaidUnavailable | None,
         counters: StepCounters,
         *,
         silence: Callable[[], str | None] | None = None,
     ) -> None:
-        self._provider = provider
+        #: Ступень есть, но в этом проходе не спросит — и почему (`PaidUnavailable`).
+        self.missing = provider if isinstance(provider, PaidUnavailable) else None
+        self._provider = None if isinstance(provider, PaidUnavailable) else provider
         self._counters = counters
         self._silence = silence
         #: Почему проходу пора встать: сервис ограничил частоту и после повторов не
@@ -52,8 +62,6 @@ class ProviderStep:
         повторим по сроку, и платить за худший адрес, пока страницы с
         лучшим просто не ответили, рано — кроме последнего прохода.
         """
-        if self._provider is None:
-            return "не подключена"
         if collected.route is MailRoute.NULL_MX:
             return "нулевой MX"
         if self._silence is not None and not collected.last_try:
@@ -61,11 +69,16 @@ class ProviderStep:
         return ""
 
     async def run(self, host: str, collected: Collected) -> ContactStatus | None:
-        """Спросить сервис. Возвращает исход, если платить не вышло."""
+        """Спросить сервис. Возвращает исход, если спросить не вышло.
+
+        Ступени нет совсем — `None`, и «адреса нет» честное. Нет на этот проход — её
+        исход (`PaidUnavailable.status`): домен «недоспрошен» или «не спросили», как если
+        бы сервис отказал посреди прохода (`ladder._unfinished`).
+        """
         why = self.needless(collected)
-        if self._provider is None or why:
-            logger.debug("контакты: платная ступень по %s не зовётся — %s", host, why)
-            return None
+        if why or self._provider is None:
+            logger.debug("контакты: платная ступень по %s не зовётся — %s", host, why or "нет")
+            return None if why or self.missing is None else self.missing.status
         if self.halt:
             # Частота не отпустила на другом домене прохода: этот упёрся бы в тот же лимит.
             return ContactStatus.RATE_LIMITED

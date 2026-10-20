@@ -57,6 +57,9 @@ class StepCounters:
     #: Сайт не ответил — повтор по сроку. Отдельно от «не нашли»: ступень,
     #: которая молча не достучалась, иначе выглядела бы работающей.
     no_answer: int = 0
+    #: Проход без платной (`no_paid`): адреса на страницах нет, платный сервис не
+    #: спросили. Отдельно от «не нашли»: спроси его — адрес мог бы и найтись.
+    paid_off: int = 0
     rejected_emails: int = 0  # адреса, отсеянные фильтром качества
 
     def mark_found(self, step: str) -> None:
@@ -93,5 +96,6 @@ class StepCounters:
             "manual_queued": self.manual_queued,
             "not_found": self.not_found,
             "no_answer": self.no_answer,
+            "paid_off": self.paid_off,
             "rejected_emails": self.rejected_emails,
         }

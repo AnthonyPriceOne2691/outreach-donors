@@ -37,12 +37,18 @@ LABELS_TS = Path(__file__).resolve().parent.parent / "frontend" / "src" / "api" 
 PRICE_WORDS_TS = LABELS_TS.parent.parent / "donors" / "priceWords.ts"
 
 
+#: Исход поиска адреса и его слова — своим файлом с 20.10.2026: `labels.ts` у потолка длины.
+CONTACT_STATUS_TS = LABELS_TS.parent / "contactStatus.ts"
+
+
 def _block(name: str) -> str:
-    """Тело объявления `const NAME … = { … };` из `labels.ts`."""
-    source = LABELS_TS.read_text(encoding="utf-8")
-    found = re.search(rf"const {name}\b[^=]*=\s*\{{(.*?)\n\}};", source, re.S)
-    assert found is not None, f"в {LABELS_TS.name} нет {name}"
-    return found.group(1)
+    """Тело объявления `const NAME … = { … };` из `labels.ts` — или из файла, куда оно ушло."""
+    for path in (LABELS_TS, CONTACT_STATUS_TS):
+        source = path.read_text(encoding="utf-8")
+        found = re.search(rf"const {name}\b[^=]*=\s*\{{(.*?)\n\}};", source, re.S)
+        if found is not None:
+            return found.group(1)
+    raise AssertionError(f"во фронте нет {name}")
 
 
 def _pairs(name: str) -> dict[str, str]:

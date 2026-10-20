@@ -33,7 +33,7 @@ from backend.features.contacts import rdap, site_steps
 from backend.features.contacts.collected import Collected
 from backend.features.contacts.messengers import FoundHandle
 from backend.features.contacts.mx import DELIVERABLE, MailRoute, mail_route
-from backend.features.contacts.provider import ContactProvider
+from backend.features.contacts.provider import ContactProvider, PaidUnavailable
 from backend.features.contacts.provider_step import ProviderStep
 from backend.features.contacts.quality import Candidate, best
 from backend.features.contacts.step_counters import StepCounters
@@ -105,7 +105,7 @@ class ContactLadder:
         self,
         http: httpx.AsyncClient,
         *,
-        provider: ContactProvider | None = None,
+        provider: ContactProvider | PaidUnavailable | None = None,
         manual_queue_left: int | None = None,
         paid_first: bool = False,
         renderer: browser_step.PageRenderer | None = None,
@@ -128,7 +128,8 @@ class ContactLadder:
         # с повтором по сроку (`attempts.py`). Без крючка лестница как прежде.
         self._silence = silence
         self.counters = StepCounters()
-        # Платная ступень (`provider_step.py`): разговор с сервисом и его отказы.
+        # Платная ступень (`provider_step.py`): ключа нет — её нет совсем; квота кончилась,
+        # учётку закрыли, проход без платной — есть, но не спросит (`PaidUnavailable`).
         self._paid = ProviderStep(provider, self.counters, silence=silence)
 
     @property
@@ -225,6 +226,10 @@ class ContactLadder:
                 self.counters.mark_found(origin.get(result.contact.email, step.name))
                 return result
 
+        if unfinished is not None and collected.has_form:
+            # Платная ступень не спросила, а форма есть: сайт — в «Формы» сейчас, а не
+            # когда вернётся квота или учётка (ревью 20.10.2026).
+            return self._without_contact(collected)
         return self._unfinished(collected, unfinished) or self._without_contact(collected)
 
     def _timed_out(self, collected: Collected) -> LadderResult:
@@ -340,11 +345,18 @@ class ContactLadder:
     ) -> LadderResult | None:
         """Домен «недоспрошен», а не «без контакта»: квота, частота, поломка
         платной ступени — или сайт не ответил. Смешав это с «адреса нет», мы
-        похоронили бы домен на полгода из-за минутного сбоя."""
+        похоронили бы домен на полгода из-за минутного сбоя. Платный поиск выключен
+        у прохода — «не спросили» (`paid_off`): очередь, которой его включат, возьмёт
+        домен раньше срока."""
         reason = "" if unfinished is not None or self._silence is None else self._silence() or ""
         if unfinished is None and not reason:
             return None
         self.counters.no_answer += bool(reason)
+        if unfinished is ContactStatus.PAID_OFF:
+            # «Не спросили» — исход прочитанного сайта, как «адреса нет»: причина та же,
+            # если сайт не прочитан вовсе (`Collected.unread_reason`).
+            self.counters.paid_off += 1
+            reason = collected.unread_reason
         return LadderResult(
             host=collected.site_host,
             status=unfinished or ContactStatus.NO_ANSWER,

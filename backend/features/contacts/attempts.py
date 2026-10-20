@@ -15,6 +15,17 @@
 последнего: платному сервису живой сайт не нужен, а «не ответил» часто
 значит, что сайт молча режет адрес нашего сервера (решения Anthony
 01.10.2026).
+
+**Платная ступень не спросила — у общей очереди повтор со сроком, а не каждым
+проходом.** Квота кончилась или сервис не ответил — домен «недоспрошен», но без срока
+каждый проход — автопоиск после каждого «принять» берёт всех ждущих, ручной поиск —
+верхних — снова брал бы те же домены и упирался в ту же стену (ревью 20.10.2026). Квота
+возвращается в начале месяца, сбой сервиса проходит за часы: доноры и рекламодатели
+ждут сутки (`PAID_RETRY_DELAY`, довод `paid_delay`). Срок — довод очереди, как срок
+годности: очередь сбора базы продаж ведёт свои сроки и «Повторить сейчас» сама
+(`sales/segment_queue.py`) и зовёт правило без него — у неё «недоспрошен» повторяется
+следующим проходом, как и раньше. Частота — без срока у всех: проход после неё встаёт
+сам (`ladder.halt`), а следующий застаёт лимит снятым.
 """
 
 from __future__ import annotations
@@ -30,9 +41,19 @@ from backend.features.core.domain import ContactStatus
 from backend.features.core.models._mixins import ContactAttemptMixin
 from backend.features.core.models.domain import DomainModel
 
-#: Исходы, которые повторяются при следующем прогоне: мы не спросили, а не
-#: узнали, что контакта нет.
+#: Исходы, которые повторяются: мы не спросили, а не узнали, что контакта нет.
 RETRIABLE = frozenset({ContactStatus.NO_QUOTA, ContactStatus.RATE_LIMITED, ContactStatus.ERROR})
+
+#: Из них — повтор по сроку очереди (`paid_delay`): квота платной ступени и её сбой.
+#: Частота повторяется следующим проходом (см. модуль).
+PAID_DELAYED = frozenset({ContactStatus.NO_QUOTA, ContactStatus.ERROR})
+
+#: Через сколько общая очередь — доноры и рекламодатели — повторяет домен, которому
+#: платная ступень не ответила (см. модуль).
+PAID_RETRY_DELAY = timedelta(days=1)
+
+#: Без срока: «недоспрошен» повторяется следующим проходом.
+NO_DELAY = timedelta(0)
 
 #: Сколько ждать повтора после первой, второй и третьей неудачи подряд.
 RETRY_DELAYS = (timedelta(0), timedelta(days=1), timedelta(days=7))
@@ -67,12 +88,17 @@ def _tries_are(model: type[ContactAttemptMixin], tries: int) -> ColumnElement[bo
 
 
 def waiting(
-    model: type[ContactAttemptMixin], *, now: datetime, ttl_days: int
+    model: type[ContactAttemptMixin],
+    *,
+    now: datetime,
+    ttl_days: int,
+    paid_delay: timedelta = NO_DELAY,
 ) -> ColumnElement[bool]:
     """Пора ли искать снова — по исходу прошлой попытки.
 
     Остальные условия очереди (принят ли донор, нет ли уже адреса на
-    домене) — у самой очереди: они про роль, а это — про попытку.
+    домене) — у самой очереди: они про роль, а это — про попытку. `paid_delay` — срок
+    повтора, когда платная ступень не спросила (см. модуль).
     """
     border = now - timedelta(days=ttl_days)
     due = or_(
@@ -84,32 +110,47 @@ def waiting(
     return or_(
         model.contact_attempted_at.is_(None),
         model.contact_attempted_at < border,
-        model.contact_status.in_(tuple(RETRIABLE)),
+        model.contact_status.in_(tuple(RETRIABLE - PAID_DELAYED)),
+        and_(
+            model.contact_status.in_(tuple(PAID_DELAYED)),
+            model.contact_attempted_at <= now - paid_delay,
+        ),
         and_(model.contact_status == ContactStatus.NO_ANSWER, due),
     )
 
 
-def waits(row: ContactAttemptMixin, *, now: datetime, ttl_days: int) -> bool:
+def waits(
+    row: ContactAttemptMixin, *, now: datetime, ttl_days: int, paid_delay: timedelta = NO_DELAY
+) -> bool:
     """`waiting`, прочитанный по одной строке: экран решает по нему, показать
     ли поиск, и не должен разойтись с запросом (тест гоняет обе стороны)."""
     attempted = row.contact_attempted_at
-    if attempted is None or row.contact_status in RETRIABLE:
+    if attempted is None or attempted < now - timedelta(days=ttl_days):
         return True
-    if attempted < now - timedelta(days=ttl_days):
-        return True
-    if row.contact_status is ContactStatus.NO_ANSWER:
-        return attempted <= now - delay_after(row.contact_tries)
-    return False
+    again = _retry_at(row, paid_delay)
+    return row.contact_status in RETRIABLE if again is None else again <= now
 
 
-def again_at(row: ContactAttemptMixin, *, ttl_days: int) -> datetime | None:
-    """Когда домен снова встанет в очередь. `None` — исхода ещё нет."""
+def _retry_at(row: ContactAttemptMixin, paid_delay: timedelta) -> datetime | None:
+    """Когда повтор по своему сроку — у «не ответил» и у платной ступени; `None` — срока нет."""
     attempted = row.contact_attempted_at
     if attempted is None:
         return None
     if row.contact_status is ContactStatus.NO_ANSWER:
         return attempted + delay_after(row.contact_tries)
-    return attempted + timedelta(days=ttl_days)
+    if row.contact_status in PAID_DELAYED:
+        return attempted + paid_delay
+    return None
+
+
+def again_at(
+    row: ContactAttemptMixin, *, ttl_days: int, paid_delay: timedelta = NO_DELAY
+) -> datetime | None:
+    """Когда домен снова встанет в очередь. `None` — исхода ещё нет."""
+    attempted = row.contact_attempted_at
+    if attempted is None:
+        return None
+    return _retry_at(row, paid_delay) or attempted + timedelta(days=ttl_days)
 
 
 def on_last_try(model: type[ContactAttemptMixin]) -> ColumnElement[bool]:
@@ -123,7 +164,8 @@ def values(outcome: Outcome, *, tries_before: int, moment: datetime) -> dict[str
     - сайт не ответил — `no_answer` и счёт +1; сверх предела — `not_found`
       на обычный срок, счёт с нуля, причина остаётся словами;
     - квота, частота, поломка платной ступени — «не спросили»: счёт и
-      причина не трогаются, домен пойдёт в следующий прогон;
+      причина не трогаются; частота — в следующий прогон, квота и поломка — по сроку
+      очереди (`paid_delay`);
     - иначе сайт ответил: счёт с нуля. Причина — только у «адреса нет» сайта,
       который так и не прочитан: не пустил, показал проверку «вы не робот», закрыт
       для страны сервера, не принимает почту (`ladder._without_contact`). Без неё

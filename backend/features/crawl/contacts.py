@@ -51,7 +51,9 @@ class AdvertiserContactRepository:
         has_contact = select(ContactModel.id).where(
             ContactModel.domain_id == AdvertiserModel.domain_id
         )
-        waiting = attempts.waiting(AdvertiserModel, now=moment, ttl_days=ttl_days)
+        waiting = attempts.waiting(
+            AdvertiserModel, now=moment, ttl_days=ttl_days, paid_delay=attempts.PAID_RETRY_DELAY
+        )
         # Бизнес ниши из выдачи — только после «пишем» человека: адрес
         # платной ступени тратится на того, кому точно напишем (`niche.py`).
         decided = (AdvertiserModel.source != NICHE) | AdvertiserModel.confirmed_by_human.is_(True)

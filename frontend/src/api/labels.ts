@@ -11,7 +11,6 @@
 
 import type {
   ContactSource,
-  ContactStatus,
   DonorFreshness,
   DonorStatus,
   HumanIntent,
@@ -113,19 +112,8 @@ export const DONOR_STATUSES: Record<DonorStatus, { title: string; color: string 
   unchecked: { title: 'не проверен', color: 'yellow' },
 };
 
-export const CONTACT_STATUSES: Record<ContactStatus, { title: string; color: string }> = {
-  found: { title: 'адрес найден', color: 'green' },
-  not_found: { title: 'адреса нет', color: 'gray' },
-  form_only: { title: 'только форма', color: 'yellow' },
-  no_quota: { title: 'кончилась квота', color: 'yellow' },
-  rate_limited: { title: 'предел запросов', color: 'yellow' },
-  // Красный, а не жёлтый: жёлтое оператор ждёт, а здесь ждать нечего —
-  // пока учётку не откроют, платная ступень мертва по всем доменам.
-  blocked: { title: 'учётка закрыта', color: 'red' },
-  error: { title: 'ошибка поиска', color: 'red' },
-  // Жёлтый: сайт не ответил, повтор идёт сам по сроку — человеку ждать.
-  no_answer: { title: 'сайт не ответил', color: 'yellow' },
-};
+// Исход поиска адреса и его слова — своим файлом (`contactStatus.ts`): здесь — те же имена.
+export { CONTACT_STATUS_SHORT, CONTACT_STATUSES } from './contactStatus';
 
 /** Ступень лестницы, которая дала адрес. Порядок в подписях тот же,
  *  что и в самой лестнице: от бесплатных к платной. Адрес, вписанный по

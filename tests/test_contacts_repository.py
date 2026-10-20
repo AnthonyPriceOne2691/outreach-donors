@@ -101,15 +101,22 @@ class TestPending:
         )
         assert await ContactRepository(session).pending_hosts(now=NOW) == ["old.com"]
 
-    async def test_no_quota_returns_even_when_fresh(self, session: AsyncSession) -> None:
-        """«Квота кончилась» — не «контакта нет»: домен обязан вернуться."""
+    async def test_no_quota_returns_after_a_day(self, session: AsyncSession) -> None:
+        """«Квота кончилась» — не «контакта нет»: домен обязан вернуться — через сутки, а не
+        следующим же проходом (`attempts.PAID_RETRY_DELAY`, ревью 20.10.2026)."""
         await _donor(
             session,
             "unpaid.com",
             contact_status=ContactStatus.NO_QUOTA,
             attempted_at=NOW - timedelta(hours=1),
         )
-        assert await ContactRepository(session).pending_hosts(now=NOW) == ["unpaid.com"]
+        await _donor(
+            session,
+            "unpaid-yesterday.com",
+            contact_status=ContactStatus.NO_QUOTA,
+            attempted_at=NOW - timedelta(hours=25),
+        )
+        assert await ContactRepository(session).pending_hosts(now=NOW) == ["unpaid-yesterday.com"]
 
     async def test_strongest_donors_go_first(self, session: AsyncSession) -> None:
         """Кончится квота — пусть она кончится на слабых, а не на сильных."""

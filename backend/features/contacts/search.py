@@ -48,13 +48,16 @@ from backend.features.contacts.ladder import ContactLadder, DeepLadder, LadderRe
 from backend.features.contacts.provider import (
     ContactProvider,
     HunterProvider,
+    PaidUnavailable,
+    ProviderBlockedError,
     ProviderError,
+    ProviderQuotaError,
 )
 from backend.features.contacts.repository import ContactQueue, ContactRepository
 from backend.features.contacts.step_counters import StepCounters
 from backend.features.contacts.sweep_trace import TracedRenderer, current_silence, traced, watch
 from backend.features.core import usage
-from backend.features.core.domain import Stage
+from backend.features.core.domain import ContactStatus, Stage
 from backend.shared.net.url_guard import guarded_client
 
 logger = logging.getLogger(__name__)
@@ -80,6 +83,17 @@ PAID_SEARCH_OFF = "платный поиск адресов выключен (CO
 #: его нет — `uv sync --extra browser`) или Chromium не запустился.
 NO_BROWSER = "Браузер не поднялся — проход идёт без этой ступени."
 
+#: Проход вызван без платной (`no_paid`): сайт без адреса на страницах — «не спросили»,
+#: а не «адреса нет» (`ContactStatus.PAID_OFF`).
+PAID_OFF = PaidUnavailable(ContactStatus.PAID_OFF, "платный поиск выключен — не спросили")
+
+#: Что сказать о доменах без адреса на страницах, когда платная ступень не спросит.
+_UNAVAILABLE_THEN = {
+    ContactStatus.NO_QUOTA: "«кончилась квота», повтор по сроку очереди (доноров — через сутки)",
+    ContactStatus.ERROR: "«ошибка поиска», повтор по сроку очереди (доноров — через сутки)",
+    ContactStatus.BLOCKED: "«учётка закрыта» — повтор не поможет, пока учётку не откроют",
+}
+
 
 def _is_deep(queue: object) -> bool:
     """Нужна ли очереди лестница глубже — поиск глубже по кнопке (`deeper.DeeperQueue`).
@@ -104,6 +118,9 @@ class SearchReport:
     #: Что стоит сказать человеку вслух: платный сервис не настроен,
     #: браузер не поднялся, квота кончилась. Не ошибки — условия работы.
     notes: list[str] = field(default_factory=list)
+    #: Платная ступень есть, но в этом проходе не спросит — и почему (`paid_step`): для
+    #: лестницы, а не для отчёта. Ответ `paid_step` при этом — «ступени нет» (`None`).
+    paid_missing: PaidUnavailable | None = None
 
     @property
     def as_report(self) -> str:
@@ -137,7 +154,7 @@ def _pays(report: SearchReport, stage: Stage | None, *, no_paid: bool) -> bool:
 
 
 async def paid_step(http: httpx.AsyncClient, report: SearchReport) -> ContactProvider | None:
-    """Платный сервис, если ключ есть и квота осталась.
+    """Платный сервис, если ключ есть и квота осталась; иначе `None` — «ступени нет».
 
     Отсутствие ключа — рабочий режим, а не поломка: три бесплатные
     ступени работают и без него, просто часть доменов останется
@@ -145,6 +162,15 @@ async def paid_step(http: httpx.AsyncClient, report: SearchReport) -> ContactPro
 
     Имя публичное: тем же правилом готовность платной ступени проверяет
     до прохода и повтор сбора продаж (`sales/segment_paid.ready`).
+
+    **Ответ — только «готова ли ступень»**: продажи спрашивают ровно это (`is not None`), и
+    их тесты подменяют функцию подделкой с тем же ответом. Квота кончилась, остаток не
+    узнать, учётку закрыли — `None`, а причина для лестницы — в отчёте прохода
+    (`report.paid_missing`, `PaidUnavailable`): исход домена без адреса на страницах её
+    называет. До 20.10.2026 все случаи выглядели как «ключа нет», и домен получал «адреса
+    нет» на полгода, хотя квота возвращается в начале месяца (находка продаж). Отказ
+    остатка разбирается, как посреди прохода (`provider_step.ProviderStep._ask`): квота —
+    `no_quota`, закрытая учётка и непринятый ключ — `blocked`, сеть и 5xx — `error`.
     """
     if not cfg.HUNTER_API_KEY:
         report.notes.append("Платный сервис не настроен — идём по бесплатным ступеням.")
@@ -154,18 +180,36 @@ async def paid_step(http: httpx.AsyncClient, report: SearchReport) -> ContactPro
     try:
         quota = await provider.quota()
     except ProviderError as exc:
-        logger.warning("контакты: остаток платного сервиса неизвестен (%s)", exc)
-        report.notes.append("Остаток платного сервиса узнать не удалось — идём без него.")
+        logger.warning("контакты: остаток платного сервиса не узнать (%s)", exc)
+        _unavailable(report, *_balance_refusal(exc))
         return None
-
     if quota.left <= 0:
-        report.notes.append("Квота платного сервиса исчерпана — ступень пропускается.")
+        _unavailable(report, ContactStatus.NO_QUOTA, "квота платного сервиса исчерпана")
         return None
     # Остаток — это про деньги, а не про доступность: провайдер отвечает
     # на запрос остатка и при закрытой учётке, показывая полный запас.
     # Поэтому строка говорит ровно про остаток и ничего не обещает.
     report.notes.append(f"Платный сервис: остаток квоты {quota.left} поисков.")
     return provider
+
+
+def _balance_refusal(exc: ProviderError) -> tuple[ContactStatus, str]:
+    """Отказ остатка — исходом, как отказ посреди прохода: квота, учётка или сбой."""
+    if isinstance(exc, ProviderBlockedError):
+        return ContactStatus.BLOCKED, str(exc)
+    if isinstance(exc, ProviderQuotaError):
+        return ContactStatus.NO_QUOTA, str(exc)
+    return ContactStatus.ERROR, f"остаток платного сервиса не узнать: {exc}"
+
+
+def _unavailable(report: SearchReport, status: ContactStatus, reason: str) -> None:
+    """Платная ступень не спросит в этом проходе: причина — в отчёт словами и в отчёт для
+    лестницы (`paid_missing`); ответ `paid_step` — «ступени нет»."""
+    report.notes.append(
+        f"Платная ступень не зовётся: {reason}. Домены без адреса на страницах — "
+        f"{_UNAVAILABLE_THEN[status]}; сайты с формой — в «Формы»."
+    )
+    report.paid_missing = PaidUnavailable(status, reason)
 
 
 async def _walk(ladder: ContactLadder, hosts: list[str], last: set[str]) -> list[LadderResult]:
@@ -279,9 +323,14 @@ async def search_contacts(
         # редиректа, иначе публичный сайт уводит нас внутрь сети одним 302.
         http = await stack.enter_async_context(guarded_client(timeout=timeout))
         deep = _is_deep(repository)
-        # Глубже платная ступень не зовётся по устройству (`deeper.py`).
-        pays = not deep and _pays(report, stage, no_paid=no_paid)
-        provider = await paid_step(http, report) if pays else None
+        # Глубже платная ступень не зовётся по устройству (`deeper.py`): её исход —
+        # «адреса нет», а не «не спросили», хотя бы проход и звали с `no_paid`.
+        provider: ContactProvider | PaidUnavailable | None = None
+        if not deep and _pays(report, stage, no_paid=no_paid):
+            # По имени модуля: тесты подменяют `paid_step` своей подделкой.
+            provider = await paid_step(http, report) or report.paid_missing
+        elif no_paid and not deep:
+            provider = PAID_OFF
         # Обмен с сайтами учитывается: по нему решается, ответил ли сайт.
         watch(http)
 

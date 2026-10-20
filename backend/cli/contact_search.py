@@ -67,6 +67,9 @@ def _print_report(report: SearchReport) -> None:
         f"Сайт не ответил:       {counters.get('no_answer', 0)} — повторим: "
         "следующий проход, через день, через неделю"
     )
+    if counters.get("paid_off"):
+        # Проход без платной: «адреса нет» здесь — «не спросили» (`ContactStatus.PAID_OFF`).
+        print(f"Платный не спросили:   {counters['paid_off']} — платный поиск выключен у прохода")
     print(f"Адресов отсеяно:       {counters.get('rejected_emails', 0)}")
 
     paid = counters.get("provider_entered", 0)

@@ -31,10 +31,31 @@ import httpx
 
 from backend.config import contacts as cfg
 from backend.features.contacts.quality import Candidate
-from backend.features.core.domain import ContactSource
+from backend.features.core.domain import ContactSource, ContactStatus
 from backend.shared.net.retry import RETRY_STATUSES, reason_of, unsent, with_retries
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class PaidUnavailable:
+    """Платная ступень есть, но в этом проходе не спросит — и почему (`search.paid_step`):
+
+    - квота кончилась — `no_quota`; остаток не узнать (сеть, 5xx) — `error`: домен
+      «недоспрошен», повтор по сроку очереди (у доноров и рекламодателей — через сутки,
+      `attempts.PAID_RETRY_DELAY`);
+    - учётку закрыли или ключ не принят — `blocked`, как посреди прохода: повтор не
+      поможет, пока учётку не откроют;
+    - проход вызван без платной (`no_paid`) — `paid_off`: «не спросили».
+
+    Не то же, что «ступени нет»: без ключа или с выключенным флагом платного поиска
+    доноров (решение Anthony 12.10.2026) лестница честно отдаёт «адреса нет» — это
+    рабочий режим. `reason` — словами, для отчёта прохода.
+    """
+
+    status: ContactStatus
+    reason: str
+
 
 BASE_URL = "https://api.hunter.io/v2"
 
@@ -222,6 +243,13 @@ class HunterProvider:
             error = ProviderError(f"сеть до провайдера не дошла: {reason_of(exc)}")
             raise error from None if unsent(exc) else exc
 
+        if response.status_code == httpx.codes.UNAUTHORIZED:
+            # Ключ не принят: код однозначен при любом маркере и теле, и повтор не поможет
+            # ни сейчас, ни завтра — как закрытая учётка (так же у проверки адресов продаж,
+            # `sales/verifier._unauthorized`).
+            raise ProviderBlockedError(
+                "ключ платного сервиса не принят (HTTP 401) — проверить CONTACTS_HUNTER_API_KEY"
+            )
         try:
             body = response.json()
         except ValueError as exc:
