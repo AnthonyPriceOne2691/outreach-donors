@@ -36,6 +36,7 @@ from typing import Any
 
 from backend.features.core.domain import RunStatus
 from backend.features.core.models.run import RunModel
+from backend.features.runs.competitor_run import journal_of
 from backend.features.runs.reasons import explained_line
 from backend.features.runs.repository import (
     FAILURE_KEY,
@@ -244,9 +245,9 @@ async def recover(
                 f"остановлен разбором: {cause.said}, продолжений {attempts} "
                 f"из {MAX_RESUMES}, молчание {silent_for:.0f} с"
             )
-            await repository.stop_run(
-                run, stats=_with_note(run, **{REASON_KEY: reason, FAILURE_KEY: cause.detail})
-            )
+            # Журнал списков конкурентов — и у прогона, умершего до воронки.
+            notes = {REASON_KEY: reason, FAILURE_KEY: cause.detail, **journal_of(run)}
+            await repository.stop_run(run, stats=_with_note(run, **notes))
             stopped[run.id] = reason
             logger.error(
                 "Прогон %s закрыт как мёртвый: молчит %.0f с, продолжения исчерпаны (%s)",

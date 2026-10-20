@@ -41,6 +41,7 @@ from backend.features.runs.budget import CapExceededError, budget_of
 from backend.features.runs.competitor_estimate import COUNTRY_SHARE, TRIM, model_cost
 from backend.features.runs.competitors import (
     SKIPPED_STATUSES,
+    SOURCE_KIND,
     Ask,
     CompetitorLinksError,
     Fetched,
@@ -114,6 +115,34 @@ def lists_paid(run: RunModel) -> int:
     (`workers/run_job`): остаток капа цикла их уже учёл, а обещанное — нет. У прогона по ключам
     — ноль."""
     return Progress.of(run.competitors).units
+
+
+def journal_of(run: RunModel) -> dict[str, Any]:
+    """Журнал списков в отчёт остановленного прогона — тот же, что пишет закрытие воронки
+    (`report._source_of`): прогон, вставший до неё (отказ сметы, списков, потолка, разбор
+    мёртвых), иначе молчал бы о том, за что заплатил. Кандидаты сохранены — их журнал; нет —
+    полученные и пропущенные списки, без счёта нового: до разбора списков его нет."""
+    ask = Ask.of(run.competitors)
+    if ask is None:
+        return {}
+    if run.candidates:
+        source = Candidates.restored(run.candidates).source
+        return {"source": {key: value for key, value in source.items() if key != "linked_to"}}
+    progress = Progress.of(run.competitors)
+    lists = [
+        {"target": got.target, "rows": len(got.rows), "units": got.units, "per_row": got.per_row}
+        for got in progress.lists(ask)
+    ]
+    skipped = [{"target": target, "reason": why} for target, why in progress.skipped.items()]
+    return {
+        "source": {
+            "kind": SOURCE_KIND,
+            "depth": ask.depth,
+            "targets": lists,
+            "dropped": {},
+            "skipped": skipped,
+        }
+    }
 
 
 def held(run: RunModel) -> bool:

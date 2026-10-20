@@ -87,6 +87,33 @@ class TestStrictNames:
         assert competitor_hosts(["example.com/@team"]) == ["example.com"]
 
 
+class TestMixedScripts:
+    """Метка в двух письменностях — подделка адреса: список её пуст, а запрос оплачен."""
+
+    @pytest.mark.parametrize("typed", ["ex\u0430mple.com", "xn--exmple-4nf.com"])
+    def test_latin_with_a_cyrillic_letter_is_refused(self, typed: str) -> None:
+        with pytest.raises(
+            ValueError, match=r"смешаны письменности \(кириллица и латиница\)"
+        ) as caught:
+            competitor_hosts([typed])
+
+        assert "подделка адреса" in str(caught.value)
+
+    @pytest.mark.parametrize(
+        ("typed", "host"),
+        [
+            ("\u30c9\u30e1\u30a4\u30f3\u540d\u4f8b.jp", "xn--eckwd4c7cu47r2wf.jp"),
+            (
+                "\u03c0\u03b1\u03c1\u03ac\u03b4\u03b5\u03b9\u03b3\u03bc\u03b1.gr",
+                "xn--hxajbheg2az3al.gr",
+            ),
+        ],
+    )
+    def test_one_script_or_kana_with_ideographs_is_a_name(self, typed: str, host: str) -> None:
+        """Японская метка смешивает иероглифы и кану законно; греческая — одна письменность."""
+        assert competitor_hosts([typed]) == [host]
+
+
 class TestNationalNames:
     def test_unicode_and_ascii_forms_are_one_competitor_and_one_list(self) -> None:
         typed = [UNICODE_NAME, PUNYCODE_NAME, f"https://www.{UNICODE_NAME.upper()}/путь"]

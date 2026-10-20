@@ -7,6 +7,9 @@
 * имя — по правилам DNS: метки из латиницы, цифр и дефиса, не с дефиса и не на дефис,
   до 63 знаков, имя целиком — до 253; национальное имя (`пример.рф`) — к ASCII-форме IDNA
   (`xn--e1afmkfd.xn--p1ai`): одна форма — один конкурент и один список;
+* в одной метке — одна письменность: `аpple.com` с кириллической «а» — подделка адреса,
+  и её список пуст, а минимум за запрос Ahrefs берёт; японская, корейская и китайская метки
+  смешивают иероглифы и кану законно;
 * в строке — ни пробелов, ни невидимых знаков, ни `%`, `@` и обратной косой: адрес с ними
   значит не то, что видно (`example.com@other.example` ведёт на второй);
 * корневой домен — по тому же списку суффиксов, что у выдачи (`donors/host.py`);
@@ -19,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from collections.abc import Sequence
 
 import idna
@@ -43,6 +47,16 @@ _HIDDEN = re.compile(r"[\s\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\uf
 _MISLEADING = ("%", "@")
 #: Пример в отказе — домен из RFC 2606: подсказка, а не чей-то сайт.
 EXAMPLE = "example.com"
+#: Письменности, которые законно смешиваются в одной метке — японская (иероглифы и кана),
+#: корейская и китайская: так их разрешают правила регистраторов IDN.
+_EAST_ASIAN = frozenset({"CJK", "HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA", "HANGUL", "BOPOMOFO"})
+#: Письменность словами отказа; прочие — как их называет Юникод.
+_SCRIPT_WORDS = {
+    "LATIN": "латиница",
+    "CYRILLIC": "кириллица",
+    "GREEK": "греческое письмо",
+    "EAST-ASIAN": "иероглифы и кана",
+}
 #: Чем имя не домен по правилам DNS — словами отказа.
 NOT_DNS = (
     f"не домен по правилам имён: метки из букв, цифр и дефиса до 63 знаков, имя — до {MAX_NAME}"
@@ -68,6 +82,33 @@ def _authority(text: str) -> str:
     return re.split(r"[/?#]", rest, maxsplit=1)[0]
 
 
+def _scripts(label: str) -> set[str]:
+    """Письменности букв метки: цифры и дефис не в счёт."""
+    found: set[str] = set()
+    for char in label:
+        if char.isalpha():
+            script = unicodedata.name(char, "?").split(" ", 1)[0]
+            found.add("EAST-ASIAN" if script in _EAST_ASIAN else script)
+    return found
+
+
+def _one_script(text: str, name: str) -> None:
+    """Каждая метка — одной письменностью; смешанная — отказ словами (`аpple.com`)."""
+    try:
+        labels = idna.decode(name).split(".")
+    except idna.IDNAError:
+        raise _refusal(text, NOT_DNS) from None
+    for label in labels:
+        scripts = _scripts(label)
+        if len(scripts) > 1:
+            words = " и ".join(sorted(_SCRIPT_WORDS.get(s, s.lower()) for s in scripts))
+            raise _refusal(
+                text,
+                f"в метке «{label}» смешаны письменности ({words}) — так выглядит подделка "
+                "адреса, а её список пуст и стоит юнитов",
+            )
+
+
 def _strict(text: str) -> str:
     """Один набранный домен — корневым доменом в ASCII-форме; отказ — словами."""
     if _HIDDEN.search(text):
@@ -83,6 +124,7 @@ def _strict(text: str) -> str:
     labels = name.split(".")
     if not name or len(name) > MAX_NAME or not all(_LABEL.fullmatch(part) for part in labels):
         raise _refusal(text, NOT_DNS)
+    _one_script(text, name)
     host = normalize_host(name)
     if not host:
         raise _refusal(text, "не домен")

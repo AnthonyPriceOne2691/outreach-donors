@@ -20,6 +20,7 @@ from backend.features.core.domain import RunStatus
 from backend.features.core.models.run import RunModel
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.donors.repository import DonorRepository
+from backend.features.runs.browse import RunRow
 from backend.features.runs.budget import CapExceededError, QuotaUnavailableError
 from backend.features.runs.competitor_estimate import JUDGE_TOKENS_PER_DOMAIN, TRIM
 from backend.features.runs.competitor_run import Prepared, held, lists_paid, prepare
@@ -168,6 +169,14 @@ class TestStopAfterLists:
         assert run.status is RunStatus.STOPPED
         assert run.actual_units == TWO_LISTS, "списки оплачены — факт прогона их называет"
         assert await runs.claimed_units() == 0, "остановленный прогон ничего не держит"
+        assert RunRow(run).estimate_error is None, "у недоделанного прогона — не ошибка сметы"
+
+    def test_finished_run_still_names_the_estimate_error(self) -> None:
+        done = RunModel(status=RunStatus.DONE, estimated_units=10_000, actual_units=3_000)
+        stopped = RunModel(status=RunStatus.STOPPED, estimated_units=10_000, actual_units=3_000)
+
+        assert RunRow(done).estimate_error == pytest.approx(-0.7)
+        assert RunRow(stopped).estimate_error is None
 
 
 class TestOneListRefused:

@@ -99,4 +99,31 @@ describe('отчёт прогона по конкурентам', () => {
       ),
     ).toBeVisible();
   });
+
+  it('у прогона, вставшего до разбора списков, — что пришло и почём, без счёта нового', async () => {
+    const stopped = {
+      ...REPORT,
+      run: {
+        ...RIVALS_RUN,
+        status: 'stopped',
+        stats: {
+          source: {
+            kind: 'competitors',
+            depth: 100,
+            targets: [{ target: 'example.com', rows: 100, units: 1400, per_row: 14 }],
+            dropped: {},
+            skipped: [],
+          },
+        },
+      },
+    };
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({ 'GET /api/auth/me': { body: ADMIN }, 'GET /api/runs/32/report': { body: stopped } });
+    renderWith(<AppRoutes />, '/runs/32');
+
+    expect(
+      await screen.findByText('Списки Ahrefs: example.com — 100 строк за 1 400 юн.'),
+    ).toBeVisible();
+    expect(screen.queryByText(/по смете —/)).toBeNull();
+  });
 });

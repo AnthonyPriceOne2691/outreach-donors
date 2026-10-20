@@ -28,7 +28,8 @@ interface SourceList {
   rows: number;
   units: number;
   per_row: number | null;
-  kept: number;
+  /** Сколько нового принёс список; нет — прогон встал до разбора списков, счёта не было. */
+  kept?: number;
 }
 
 /** Конкурент, чей список Ahrefs не принял после хотя бы одного полученного: пропущен, а не
@@ -85,7 +86,13 @@ export function sourceOf(run: RunCard): Source | null {
 
 function listLine(list: SourceList): string {
   const rows = `${formatNumber(list.rows)} ${plural(list.rows, 'строка', 'строки', 'строк')}`;
-  return `${list.target} — ${rows} за ${formatNumber(list.units)} юн., нового ${formatNumber(list.kept)}`;
+  const kept = typeof list.kept === 'number' ? `, нового ${formatNumber(list.kept)}` : '';
+  return `${list.target} — ${rows} за ${formatNumber(list.units)} юн.${kept}`;
+}
+
+/** Точка в конце — одна: строка без счёта нового кончается сокращением «юн.». */
+function sentence(text: string): string {
+  return text.endsWith('.') ? text : `${text}.`;
 }
 
 export function CompetitorJournal({ run }: { run: RunCard }) {
@@ -95,7 +102,7 @@ export function CompetitorJournal({ run }: { run: RunCard }) {
   const priced = source.targets.find((list) => list.per_row !== null && list.per_row > 0);
   return (
     <Stack gap={2}>
-      <Text size="sm">Списки Ahrefs: {source.targets.map(listLine).join('; ')}.</Text>
+      <Text size="sm">Списки Ahrefs: {sentence(source.targets.map(listLine).join('; '))}</Text>
       {source.skipped.map((one) => (
         <Text size="sm" key={one.target}>
           Пропущен {one.target}: {one.reason}
@@ -110,7 +117,7 @@ export function CompetitorJournal({ run }: { run: RunCard }) {
           .
         </Text>
       )}
-      {priced !== undefined && priced.per_row !== source.row_units && (
+      {priced !== undefined && source.row_units > 0 && priced.per_row !== source.row_units && (
         <Text size="sm" c="dimmed">
           Строка списка по ответу Ahrefs — {formatNumber(priced.per_row ?? 0)} юн., по смете —{' '}
           {formatNumber(source.row_units)}: смета считала моделью, её пора перемерить.

@@ -336,6 +336,37 @@ async def test_stopped_run_carries_what_it_spent(
     assert run.actual_units == 700
 
 
+async def test_competitor_run_stopped_before_the_funnel_keeps_its_lists_journal(
+    session: AsyncSession, failing: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Прогон по конкурентам встал посреди списков: в отчёте — что пришло и почём, кто
+    пропущен и почему, а не пустота, как будто списков не покупали."""
+    run = await _queued_run(session)
+    listed = {"rows": [["example.org", 40.0]], "units": 700, "per_row": 14}
+    run.competitors = {
+        "targets": ["example.com", "example.net", "example.co.uk"],
+        "depth": 100,
+        "fetched": {"example.com": listed},
+        "skipped": {"example.net": "Ahrefs не принял этот домен (код 404)"},
+        "units": 750,
+    }
+    await session.commit()
+
+    async def refused(*_args: object, **_kwargs: object) -> Prepared:
+        raise CapExceededError("Списки конкурентов обойдутся до 9 000 юнитов")
+
+    monkeypatch.setattr(jobs, "prepare", refused)
+
+    await jobs._search(run.id)
+    await session.refresh(run)
+
+    source = run.stats["source"]
+    assert source["targets"] == [{"target": "example.com", "rows": 1, "units": 700, "per_row": 14}]
+    assert source["skipped"] == [
+        {"target": "example.net", "reason": "Ahrefs не принял этот домен (код 404)"}
+    ]
+
+
 async def test_heartbeat_beats_before_the_competitor_lists(
     session: AsyncSession, pipeline: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -27,7 +27,7 @@ from backend.features.donors.geo import assert_settings_allow_limited_fetch
 from backend.features.donors.repository import DonorRepository
 from backend.features.review.candidates import RunReview
 from backend.features.runs.budget import ceiling_at_start
-from backend.features.runs.competitor_run import lists_paid, prepare
+from backend.features.runs.competitor_run import journal_of, lists_paid, prepare
 from backend.features.runs.exclusions import Exclusions
 from backend.features.runs.failures import described, is_permanent
 from backend.features.runs.lifecycle import heartbeat
@@ -161,7 +161,8 @@ async def _mark(run_id: int, reason: str, failed: BaseException, *, stop: bool) 
                 FAILURE_KEY: described(failed)[:500],
             }
             if stop:
-                closed = await runs.stop_run(run, stats=stats)
+                # Журнал списков конкурентов — и у прогона, вставшего до воронки.
+                closed = await runs.stop_run(run, stats={**stats, **journal_of(run)})
             else:
                 await runs.save_stats(run, stats)
             await session.commit()

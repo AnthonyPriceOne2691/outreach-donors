@@ -1447,9 +1447,9 @@
       "worst": "normalize_host:37"
     },
     "backend/features/donors/judging.py": {
-      "lines": 398,
+      "lines": 464,
       "complexity": 13,
-      "worst": "judge_candidates:335"
+      "worst": "judge_candidates:398"
     },
     "backend/features/donors/manual_price.py": {
       "lines": 447,
@@ -1477,9 +1477,9 @@
       "worst": "checked_email:100"
     },
     "backend/features/donors/publisher_judge.py": {
-      "lines": 439,
+      "lines": 447,
       "complexity": 9,
-      "worst": "parse:261"
+      "worst": "parse:265"
     },
     "backend/features/donors/regions_ru.py": {
       "lines": 74,
@@ -1487,9 +1487,9 @@
       "worst": "—"
     },
     "backend/features/donors/repository.py": {
-      "lines": 413,
+      "lines": 418,
       "complexity": 9,
-      "worst": "_donor_values:387"
+      "worst": "_donor_values:392"
     },
     "backend/features/donors/selection.py": {
       "lines": 412,
@@ -2107,9 +2107,9 @@
       "worst": "cycle_of:120"
     },
     "backend/features/runs/browse.py": {
-      "lines": 272,
+      "lines": 273,
       "complexity": 8,
-      "worst": "tally_reviews:199"
+      "worst": "tally_reviews:200"
     },
     "backend/features/runs/budget.py": {
       "lines": 254,
@@ -2122,17 +2122,17 @@
       "worst": "judge_tokens_from:97"
     },
     "backend/features/runs/competitor_hosts.py": {
-      "lines": 118,
+      "lines": 160,
       "complexity": 14,
-      "worst": "_strict:71"
+      "worst": "_strict:112"
     },
     "backend/features/runs/competitor_run.py": {
-      "lines": 311,
+      "lines": 340,
       "complexity": 7,
-      "worst": "_hold:152"
+      "worst": "_hold:181"
     },
     "backend/features/runs/competitors.py": {
-      "lines": 329,
+      "lines": 333,
       "complexity": 8,
       "worst": "refused:135"
     },
@@ -2162,9 +2162,9 @@
       "worst": "judge_stage:67"
     },
     "backend/features/runs/lifecycle.py": {
-      "lines": 287,
+      "lines": 288,
       "complexity": 9,
-      "worst": "recover:168"
+      "worst": "recover:169"
     },
     "backend/features/runs/outcome.py": {
       "lines": 196,
@@ -2192,7 +2192,7 @@
       "worst": "explained_line:81"
     },
     "backend/features/runs/report.py": {
-      "lines": 261,
+      "lines": 263,
       "complexity": 11,
       "worst": "run_stats:174"
     },
@@ -3182,7 +3182,7 @@
       "worst": "_told:193"
     },
     "backend/workers/run_job.py": {
-      "lines": 175,
+      "lines": 176,
       "complexity": 5,
       "worst": "_mark:143"
     },

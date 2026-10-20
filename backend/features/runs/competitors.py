@@ -249,7 +249,7 @@ def _drop_reason(
 ) -> DropReason | None:
     if not host:
         return DropReason.UNPARSED
-    if ascii_host(host) in rivals:
+    if host in rivals:
         return DropReason.COMPETITOR
     if dr is not None and not thresholds.min_dr <= dr <= thresholds.max_dr:
         return DropReason.DR_OUTSIDE
@@ -258,14 +258,18 @@ def _drop_reason(
 
 def collapse(ask: Ask, lists: Sequence[Fetched], thresholds: Thresholds) -> Journal:
     """Списки конкурентов — в один список кандидатов: корневой домен, как у выдачи
-    (`donors/host.normalize_host`), первый встреченный — первым, без самих конкурентов
-    и без DR вне порогов. Каждая строка либо кандидат, либо число в `dropped`."""
+    (`donors/host.normalize_host`), в ASCII-форме IDNA, первый встреченный — первым, без
+    самих конкурентов и без DR вне порогов. Каждая строка либо кандидат, либо число
+    в `dropped`."""
     rivals = set(ask.targets)
     journal = Journal(kept=dict.fromkeys(ask.targets, 0))
     for fetched in lists:
         for domain, dr in fetched.rows:
             journal.rows += 1
+            # Одна форма имени — ASCII IDNA, как у конкурентов (`competitor_hosts`): сайт,
+            # пришедший национальным именем и его ASCII-формой, — один кандидат.
             host = normalize_host(domain)
+            host = ascii_host(host) if host else host
             reason = _drop_reason(host, dr, rivals, thresholds)
             if reason is None:
                 journal.keep(host, fetched.target)

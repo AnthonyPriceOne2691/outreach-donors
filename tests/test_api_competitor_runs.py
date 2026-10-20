@@ -116,6 +116,7 @@ class TestEstimate:
             ({"competitors": ["a_b.com"]}, "«a_b.com» — не домен по правилам имён"),
             ({"competitors": ["-bad-.com"]}, "«-bad-.com» — не домен по правилам имён"),
             ({"competitors": ["%65xample.com"]}, "ведёт не туда, куда виден"),
+            ({"competitors": ["ex\u0430mple.com"]}, "смешаны письменности"),
             ({"competitors": ["facebook.com/somepage"]}, "«facebook.com» — платформа или соцсеть"),
             ({"competitors": ["youtube.com/@chan"]}, "«youtube.com» — платформа или соцсеть"),
             ({"competitors": ["t.me/somechan"]}, "«t.me» — платформа или соцсеть"),

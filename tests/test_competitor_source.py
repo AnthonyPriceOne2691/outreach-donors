@@ -126,6 +126,19 @@ class TestCollapse:
         assert journal.hosts == ["example.org"]
         assert journal.dropped == {DropReason.COMPETITOR.value: 1}
 
+    def test_national_name_and_its_ascii_form_in_lists_are_one_candidate(self) -> None:
+        """Ahrefs может отдать сайт и национальным именем, и ASCII-формой — кандидат один."""
+        lists = [
+            _list("example.com", ("пример.рф", 40.0)),
+            _list("example.net", ("xn--e1afmkfd.xn--p1ai", 40.0)),
+        ]
+
+        journal = collapse(ASK, lists, THRESHOLDS)
+
+        assert journal.hosts == ["xn--e1afmkfd.xn--p1ai"]
+        assert journal.linked_to == {"xn--e1afmkfd.xn--p1ai": ["example.com", "example.net"]}
+        assert journal.dropped == {DropReason.REPEAT.value: 1}
+
     def test_accepted_donors_leave_the_list_counted(self) -> None:
         journal = collapse(
             ASK, [_list("example.com", ("example.org", 40.0), ("a.github.io", 40.0))], THRESHOLDS

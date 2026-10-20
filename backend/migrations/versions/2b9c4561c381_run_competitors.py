@@ -1,7 +1,7 @@
 """прогон по ссылкам конкурентов
 
 Revision ID: 2b9c4561c381
-Revises: b14a5e5368a1
+Revises: b6440cd714cc
 Create Date: 2026-10-20 18:00:00.000000
 
 Вопрос оператора: «указываем сайты конкурентов, и оно парсит их ссылочную массу, отбирает
@@ -18,7 +18,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "2b9c4561c381"  # pragma: allowlist secret
-down_revision: Union[str, Sequence[str], None] = "b14a5e5368a1"  # pragma: allowlist secret
+down_revision: Union[str, Sequence[str], None] = "b6440cd714cc"  # pragma: allowlist secret
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
