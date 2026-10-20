@@ -121,7 +121,7 @@ def _network(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("backend.features.contacts.ladder.mail_route", route)
     monkeypatch.setattr(cleaning, "mail_route", route)
-    monkeypatch.setattr("backend.features.contacts.search._paid_step", no_paid)
+    monkeypatch.setattr("backend.features.contacts.search.paid_step", no_paid)
 
 
 def _sites(monkeypatch: pytest.MonkeyPatch, found: Web) -> Web:
@@ -152,7 +152,7 @@ def paid(monkeypatch: pytest.MonkeyPatch) -> Paid:
     async def step(_http: httpx.AsyncClient, _report: object) -> Paid:
         return found
 
-    monkeypatch.setattr("backend.features.contacts.search._paid_step", step)
+    monkeypatch.setattr("backend.features.contacts.search.paid_step", step)
     monkeypatch.setattr("backend.config.sales.SEGMENT_PAID_CONTACTS", True)
     monkeypatch.setattr("backend.config.contacts.HUNTER_API_KEY", "k-test")
     return found
@@ -621,7 +621,7 @@ def _paid_ready(monkeypatch: pytest.MonkeyPatch, provider: object) -> None:
     async def step(_http: httpx.AsyncClient, _report: object) -> object:
         return provider
 
-    monkeypatch.setattr("backend.features.contacts.search._paid_step", step)
+    monkeypatch.setattr("backend.features.contacts.search.paid_step", step)
     monkeypatch.setattr("backend.config.sales.SEGMENT_PAID_CONTACTS", True)
     monkeypatch.setattr("backend.config.contacts.HUNTER_API_KEY", "k-test")
 
@@ -636,7 +636,7 @@ class Refusing:
         self.calls: list[str] = []
 
     async def quota(self) -> Any:
-        raise AssertionError("остаток узнаёт `_paid_step`, подменённый в тесте")
+        raise AssertionError("остаток узнаёт `paid_step`, подменённый в тесте")
 
     async def find_emails(self, host: str) -> list[Any]:
         self.calls.append(host)

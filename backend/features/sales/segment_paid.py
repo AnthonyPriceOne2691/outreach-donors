@@ -51,7 +51,7 @@ async def ready() -> bool:
     """Платная ступень у прохода есть — тем же правилом, что у поиска (`contacts.search`): ключ
     задан, остаток узнаётся и не выбран."""
     async with httpx.AsyncClient() as http:
-        return await contacts_search._paid_step(http, contacts_search.SearchReport()) is not None
+        return await contacts_search.paid_step(http, contacts_search.SearchReport()) is not None
 
 
 def _contacts(run: Run) -> dict[str, Any]:

@@ -1022,9 +1022,9 @@
       "worst": "refusal_of:134"
     },
     "backend/features/contacts/search.py": {
-      "lines": 297,
+      "lines": 300,
       "complexity": 8,
-      "worst": "search_contacts:218"
+      "worst": "search_contacts:221"
     },
     "backend/features/contacts/slugs.py": {
       "lines": 330,
