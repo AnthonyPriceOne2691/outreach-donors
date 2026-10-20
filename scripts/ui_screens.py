@@ -424,6 +424,7 @@ from ui_screens_examples import examples_prepare, examples_screens  # noqa: E402
 from ui_screens_letters import letters_prepare, letters_screens  # noqa: E402
 from ui_screens_mail import mail_prepare, mail_screens  # noqa: E402
 from ui_screens_reports import report_screens  # noqa: E402
+from ui_screens_runs import run_prepare, run_screens  # noqa: E402
 from ui_screens_sales import sales_prepare, sales_screens  # noqa: E402
 from ui_screens_stage2 import stage2_screens  # noqa: E402
 
@@ -434,6 +435,8 @@ PREPARE.update(donor_prepare())
 SCREENS.update(sales_screens(NORM, BIG))
 PREPARE.update(sales_prepare())
 SCREENS.update(report_screens(NORM, BIG))
+SCREENS.update(run_screens(NORM, BIG))
+PREPARE.update(run_prepare())
 SCREENS.update(stage2_screens(NORM, BIG))
 SCREENS.update(examples_screens(NORM, BIG))
 PREPARE.update(examples_prepare())

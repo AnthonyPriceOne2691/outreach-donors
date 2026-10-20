@@ -10,6 +10,27 @@
 /** Во что упирается бюджет: лимит ключа или пространства Ahrefs, наш кап, потолок прогона. */
 export type BudgetBinding = 'key' | 'workspace' | 'cap' | 'ceiling';
 
+/** Бюджет сметы — общий у прогона по ключам и по ссылкам конкурентов: остаток у Ahrefs,
+ *  кап цикла ключа, потолок прогона и упор; одна плашка «помещается / не хватает» на оба. */
+export interface BudgetFigures {
+  units_left: number;
+  /** Кап цикла ключа; `null` — размер ключа неизвестен, см. `cap_unknown`. */
+  units_cap: number | null;
+  units_spent_in_cycle: number;
+  cap_left: number;
+  cycle_start: string;
+  cycle_by_key: boolean;
+  cap_unknown: string | null;
+  next_reset: string;
+  run_ceiling: number | null;
+  budget: number;
+  /** Помещается ли смета в бюджет. По этому полю блокируется кнопка. */
+  affordable: boolean;
+  shortfall: number;
+  binding: BudgetBinding | null;
+  short_of: BudgetBinding[];
+}
+
 export interface ForecastLimits {
   /** Следующее обнуление ключа: до какого дня держится остаток. */
   next_reset: string;

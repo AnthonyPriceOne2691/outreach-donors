@@ -15,7 +15,10 @@ import { Badge, Text } from '@mantine/core';
 import type { Forecast } from '../api/types';
 import { formatCompact, formatNumber } from '../format';
 
-export function TopicTokens({ forecast }: { forecast: Forecast }) {
+/** Поля сметы о тематике — у прогона по ключам и по ссылкам конкурентов они одни. */
+type TopicFigures = Pick<Forecast, 'topic_tokens' | 'topic_tokens_per_site' | 'topic_measured'>;
+
+export function TopicTokens({ forecast }: { forecast: TopicFigures }) {
   const tokens = forecast.topic_tokens ?? 0;
   if (tokens <= 0) return null;
   const how = forecast.topic_measured

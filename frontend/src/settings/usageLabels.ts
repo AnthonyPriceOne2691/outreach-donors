@@ -43,6 +43,8 @@ export function shownWithoutSpend(provider: string): boolean {
 const CRAWL_OPERATIONS: Partial<Record<string, string>> = {
   crawl_proxy: 'трафик прокси обхода',
   crawl_render: 'рендеринг пустых страниц',
+  // Не обход, но тоже позже общих подписей: списки прогона по ссылкам конкурентов.
+  refdomains: 'ссылки конкурентов',
 };
 
 /** Операции модели, заведённые после того, как общие подписи упёрлись в потолок длины:
@@ -51,7 +53,8 @@ const MODEL_OPERATIONS: Partial<Record<string, string>> = {
   site_topic: 'тематика сайтов',
 };
 
-/** Статья словами — `crawl_*` и новые операции модели здесь, остальное — общими подписями. */
+/** Статья словами — `crawl_*`, списки конкурентов и новые операции модели здесь, остальное —
+ *  общими подписями. */
 export function spendOperation(operation: string): string {
   return CRAWL_OPERATIONS[operation] ?? MODEL_OPERATIONS[operation] ?? operationTitle(operation);
 }

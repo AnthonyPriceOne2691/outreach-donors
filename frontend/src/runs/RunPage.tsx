@@ -22,6 +22,10 @@
  * **Режим сборки раскрывается в два такта** (`Unfold`): сначала место,
  * потом содержимое. Само содержимое — свой компонент (`ModelPool`): сборка
  * по теме и по примерам сайтов.
+ *
+ * **Третий вход — «Конкуренты»** (`CompetitorRun`): вместо ключей — домены конкурентов,
+ * вместо выдачи — списки сайтов, которые на них ссылаются. Свои поля, смета и запуск —
+ * в его файле; здесь только переключатель и место на экране.
  */
 
 import {
@@ -35,6 +39,7 @@ import {
   Text,
   Textarea,
   Title,
+  useMatches,
 } from '@mantine/core';
 import { IconCalculator, IconPlayerPlay } from '@tabler/icons-react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -61,6 +66,7 @@ import type { OfferedSerpMode } from './serpMode';
 import { Estimate } from './Estimate';
 import { ModelPool, useModelPool } from './ModelPool';
 import { Unfold } from './Unfold';
+import { CompetitorEstimate, CompetitorFields, useCompetitorRun } from './CompetitorRun';
 import { notify, refuse, settle } from '../notices';
 
 /** Потолок юнитов — целый. Поле держит набранное:
@@ -103,7 +109,7 @@ export function RunPage() {
   const [askedFor, setAskedFor] = useState<string | null>(null);
   // Ключи по требованиям приносит оператор, поэтому «свои» — умолчание,
   // а сборка моделью это второй режим того же поля, а не замена ему.
-  const [source, setSource] = useState<'manual' | 'model'>('manual');
+  const [source, setSource] = useState<'manual' | 'model' | 'competitors'>('manual');
   // Собранные моделью фразы падают в то же поле, а не уходят в прогон: человек
   // видит их и правит до сметы. Смета и кап остаются последним рубежом.
   const modelPool = useModelPool({
@@ -118,6 +124,15 @@ export function RunPage() {
   const countries = useQuery({ queryKey: ['countries'], queryFn: fetchCountries });
   const queryClient = useQueryClient();
   const [page, goToPage] = usePageParam();
+  // Новый прогон встаёт первым на первой странице — туда и ведём, как после запуска ключей.
+  const rivals = useCompetitorRun(country, () => goToPage(1));
+  // Три входа на телефоне в строку не встают — подписи шире 390 px окна, и переключатель
+  // вылезал за панель, сдвигая её содержимое. Уже `xs` — столбиком. Ширина — с первого
+  // кадра, а не из эффекта: на столе переключатель иначе прыгал бы из столбика в строку.
+  const segments = useMatches<'horizontal' | 'vertical'>(
+    { base: 'vertical', xs: 'horizontal' },
+    { getInitialValueInEffect: false },
+  );
   const runs = useQuery({
     // Ключ со словом `history`: выбор прогонов на экране писем — свой запрос
     // (`['runs', 'with-accepted']`), и страница истории его не затирает.
@@ -222,14 +237,16 @@ export function RunPage() {
                 сдвигалось бы на десять пикселей рывком в первом кадре. */}
             <div>
               {/* По содержимому: два слова на 1 140 px во всю ширину читались полосой,
-                  а не выбором (аудит экранов 09.10.2026). На телефоне и так помещается. */}
+                  а не выбором (аудит экранов 09.10.2026). На телефоне — столбиком. */}
               <SegmentedControl
+                orientation={segments}
                 value={source}
-                onChange={(value) => setSource(value as 'manual' | 'model')}
+                onChange={(value) => setSource(value as 'manual' | 'model' | 'competitors')}
                 disabled={!canRun}
                 data={[
                   { label: 'Свои ключи', value: 'manual' },
                   { label: 'Собрать моделью', value: 'model' },
+                  { label: 'Конкуренты', value: 'competitors' },
                 ]}
               />
 
@@ -242,111 +259,125 @@ export function RunPage() {
               </Unfold>
             </div>
 
-            <Textarea
-              label="Ключевые слова"
-              description="По одному в строке"
-              placeholder={'ремонт квартир\nдизайн интерьера'}
-              autosize
-              minRows={4}
-              maxRows={12}
-              value={keywords}
-              onChange={(event) => setKeywords(event.currentTarget.value)}
-            />
-
-            {/* Обратная связь прошлых прогонов: ключи, которые уже давали
-                принятых доноров в этой стране. */}
-            {canRun ? (
-              <ProvenKeywords
+            {source === 'competitors' ? (
+              <CompetitorFields
+                run={rivals}
                 country={country}
-                current={list}
-                onAdd={(extra) =>
-                  setKeywords((was) => [was.trim(), ...extra].filter(Boolean).join('\n'))
-                }
+                onCountry={setCountry}
+                countries={countries.data ?? []}
+                canRun={canRun}
               />
-            ) : null}
+            ) : (
+              <>
+                <Textarea
+                  label="Ключевые слова"
+                  description="По одному в строке"
+                  placeholder={'ремонт квартир\nдизайн интерьера'}
+                  autosize
+                  minRows={4}
+                  maxRows={12}
+                  value={keywords}
+                  onChange={(event) => setKeywords(event.currentTarget.value)}
+                />
+
+                {/* Обратная связь прошлых прогонов: ключи, которые уже давали
+                    принятых доноров в этой стране. */}
+                {canRun ? (
+                  <ProvenKeywords
+                    country={country}
+                    current={list}
+                    onAdd={(extra) =>
+                      setKeywords((was) => [was.trim(), ...extra].filter(Boolean).join('\n'))
+                    }
+                  />
+                ) : null}
+              </>
+            )}
           </Stack>
 
-          <Group align="flex-end" gap="md" className="fieldRow runFields">
-            <Select
-              label="Страна выдачи"
-              description="Список приходит с сервера"
-              w={{ base: '100%', xs: WIDTH.country }}
-              searchable
-              value={country}
-              data={(countries.data ?? []).map((code) => ({
-                value: code,
-                label: countryTitle(code),
-              }))}
-              onChange={(value) => value !== null && setCountry(value)}
-              comboboxProps={{ width: 'target', position: 'bottom-start' }}
-            />
-            <Select
-              label="Глубина выдачи"
-              description="На каждый ключ"
-              w={{ base: '100%', xs: WIDTH.depth }}
-              value={String(depth)}
-              allowDeselect={false}
-              data={DEPTHS.map((results) => ({
-                value: String(results),
-                label: depthTitle(results),
-              }))}
-              onChange={(value) => {
-                const chosen = DEPTHS.find((results) => String(results) === value);
-                if (chosen !== undefined) setDepth(chosen);
-              }}
-              comboboxProps={{ width: 'target', position: 'bottom-start' }}
-            />
-            {/* Слово владельца 14.10.2026: по умолчанию быстрый — выдача за секунды;
-                дешёвый ждёт в очереди провайдера минутами. Цена — в смете. */}
-            <Select
-              label="Режим выдачи"
-              description="Быстрый втрое дороже"
-              w={{ base: '100%', xs: WIDTH.serpMode }}
-              value={serpMode}
-              allowDeselect={false}
-              data={SERP_MODES.map((mode) => ({ value: mode, label: SERP_MODE_TITLES[mode] }))}
-              onChange={(value) => {
-                if (isSerpMode(value)) setSerpMode(value);
-              }}
-              comboboxProps={{ width: 'target', position: 'bottom-start' }}
-            />
-            {/* Своя планка на прогон: попробовать нишу дёшево, не сокращая
-                список ключей. Больше остатка по капу её всё равно не
-                поднять — сервер возьмёт меньшее из двух. */}
-            <NumberField
-              label="Потолок юнитов"
-              description="Пусто — весь остаток по капу"
-              w={{ base: '100%', xs: WIDTH.cap }}
-              refusalAbove
-              value={cap}
-              error={capRefusal}
-              onChange={setCap}
-            />
-            <Group gap="sm" className="runActions">
-              <Button
-                variant="default"
-                className="press"
-                leftSection={<IconCalculator size={18} />}
-                loading={estimate.isPending}
-                disabled={list.length === 0 || capRefusal !== null}
-                onClick={() => estimate.mutate(body)}
-              >
-                Посчитать смету
-              </Button>
-              <Button
-                className="press"
-                variant="gradient"
-                leftSection={<IconPlayerPlay size={18} />}
-                loading={launch.isPending}
-                disabled={!launchable}
-                onClick={() => launch.mutate()}
-              >
-                Запустить
-              </Button>
+          {source !== 'competitors' && (
+            <Group align="flex-end" gap="md" className="fieldRow runFields">
+              <Select
+                label="Страна выдачи"
+                description="Список приходит с сервера"
+                w={{ base: '100%', xs: WIDTH.country }}
+                searchable
+                value={country}
+                data={(countries.data ?? []).map((code) => ({
+                  value: code,
+                  label: countryTitle(code),
+                }))}
+                onChange={(value) => value !== null && setCountry(value)}
+                comboboxProps={{ width: 'target', position: 'bottom-start' }}
+              />
+              <Select
+                label="Глубина выдачи"
+                description="На каждый ключ"
+                w={{ base: '100%', xs: WIDTH.depth }}
+                value={String(depth)}
+                allowDeselect={false}
+                data={DEPTHS.map((results) => ({
+                  value: String(results),
+                  label: depthTitle(results),
+                }))}
+                onChange={(value) => {
+                  const chosen = DEPTHS.find((results) => String(results) === value);
+                  if (chosen !== undefined) setDepth(chosen);
+                }}
+                comboboxProps={{ width: 'target', position: 'bottom-start' }}
+              />
+              {/* Слово владельца 14.10.2026: по умолчанию быстрый — выдача за секунды;
+                  дешёвый ждёт в очереди провайдера минутами. Цена — в смете. */}
+              <Select
+                label="Режим выдачи"
+                description="Быстрый втрое дороже"
+                w={{ base: '100%', xs: WIDTH.serpMode }}
+                value={serpMode}
+                allowDeselect={false}
+                data={SERP_MODES.map((mode) => ({ value: mode, label: SERP_MODE_TITLES[mode] }))}
+                onChange={(value) => {
+                  if (isSerpMode(value)) setSerpMode(value);
+                }}
+                comboboxProps={{ width: 'target', position: 'bottom-start' }}
+              />
+              {/* Своя планка на прогон: попробовать нишу дёшево, не сокращая
+                  список ключей. Больше остатка по капу её всё равно не
+                  поднять — сервер возьмёт меньшее из двух. */}
+              <NumberField
+                label="Потолок юнитов"
+                description="Пусто — весь остаток по капу"
+                w={{ base: '100%', xs: WIDTH.cap }}
+                refusalAbove
+                value={cap}
+                error={capRefusal}
+                onChange={setCap}
+              />
+              <Group gap="sm" className="runActions">
+                <Button
+                  variant="default"
+                  className="press"
+                  leftSection={<IconCalculator size={18} />}
+                  loading={estimate.isPending}
+                  disabled={list.length === 0 || capRefusal !== null}
+                  onClick={() => estimate.mutate(body)}
+                >
+                  Посчитать смету
+                </Button>
+                <Button
+                  className="press"
+                  variant="gradient"
+                  leftSection={<IconPlayerPlay size={18} />}
+                  loading={launch.isPending}
+                  disabled={!launchable}
+                  onClick={() => launch.mutate()}
+                >
+                  Запустить
+                </Button>
+              </Group>
             </Group>
-          </Group>
+          )}
 
-          {stale && (
+          {stale && source !== 'competitors' && (
             <Alert color="yellow" title="Смета устарела">
               Ключи, страна, глубина выдачи или потолок изменились после расчёта. Посчитайте смету
               заново — иначе кнопка обещает цену, которой уже нет.
@@ -373,7 +404,8 @@ export function RunPage() {
         </Alert>
       )}
 
-      {forecast !== null && !stale && (
+      {source === 'competitors' && <CompetitorEstimate run={rivals} />}
+      {forecast !== null && !stale && source !== 'competitors' && (
         <Card className="glass" p="lg">
           <Title order={5} mb="sm">
             Смета

@@ -25,6 +25,7 @@
 import { Anchor, Badge, Box, Card, Group, Stack, Table, Text, VisuallyHidden } from '@mantine/core';
 import { Link, useLocation } from 'react-router-dom';
 
+import { competitorsOf } from '../api/competitors';
 import { countryTitle, RUN_STATUSES } from '../api/labels';
 import type { RunsPage } from '../api/runs';
 import type { RunCard, RunsView, RunStatus } from '../api/types';
@@ -199,6 +200,21 @@ function StatusCell({ run }: { run: RunCard }) {
   );
 }
 
+/** Колонка ключей. У прогона по ссылкам конкурентов ключей нет — там число конкурентов
+ *  и слово под ним, а домены — подсказкой: «0» читалось бы прогоном без входа. */
+function KeywordsCell({ run }: { run: RunCard }) {
+  const rivals = competitorsOf(run);
+  if (rivals.length === 0) return <>{formatNumber(run.keywords)}</>;
+  return (
+    <Stack gap={0} align="center" title={rivals.join(', ')}>
+      <Text size="sm">{formatNumber(rivals.length)}</Text>
+      <Text size="xs" c="dimmed">
+        {plural(rivals.length, 'конкурент', 'конкурента', 'конкурентов')}
+      </Text>
+    </Stack>
+  );
+}
+
 function HistoryRow({ run, from }: { run: RunCard; from: string }) {
   return (
     <Table.Tr>
@@ -230,7 +246,9 @@ function HistoryRow({ run, from }: { run: RunCard; from: string }) {
       <Table.Td>
         <StatusCell run={run} />
       </Table.Td>
-      <Table.Td>{formatNumber(run.keywords)}</Table.Td>
+      <Table.Td>
+        <KeywordsCell run={run} />
+      </Table.Td>
       <Table.Td>
         {formatNumber(run.hosts)}
         {excludedIn(run) ? (
