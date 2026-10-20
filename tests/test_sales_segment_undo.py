@@ -2,8 +2,9 @@
 
 Тест продаж 20.10: «Принять» и «Отказ» по сайту «на проверку» есть, вернуть решение нечем. Сайты
 судит настоящий проход судьи (`judge_run`) с подделкой модели — полоса, слова и кэш вердиктов те
-же, что у прогона; ниши и письменности разные: латиница, кириллица, японский без пробелов,
-арабский справа налево. Проверяется:
+же, что у прогона. Правило одно для любого сайта, ниши и языка: ниши разные, а слова судьи (не
+только цитаты) — в четырёх письменностях: латиница, японский без пробелов, арабский справа налево,
+кириллица; приписка «Отказ: » ставится перед ними как есть, слова не разбираются. Проверяется:
 
 - отмена «Принять» и «Отказ» — сайт туда и с теми словами, куда и с какими его положил судья (в
   наблюдении отказ модели — «на проверке» с «Отказ: …»), кто и когда решил — очищено;
@@ -81,41 +82,45 @@ class Said:
     answer: dict[str, Any] | int | None = None
 
 
-#: Справочник мастерских мебели (немецкий): модель — «нет».
+#: Справочник мастерских мебели: модель — «нет», слова судьи — латиницей (немецкий).
 WORKSHOPS = Said(
     "moebel-verzeichnis.example.test",
     "Alle Möbeltischler in Ihrer Stadt finden und vergleichen",
     {
         "fit": "no",
         "quote": "Alle Möbeltischler in Ihrer Stadt",
-        "why": "справочник мастерских — своей мебели не делает",
+        "why": "Branchenverzeichnis für Tischler — baut selbst keine Möbel",
     },
 )
-#: Портал языковых школ (японский, без пробелов): модель — «нет».
+#: Портал языковых школ: модель — «нет», слова судьи — японским письмом без пробелов.
 PORTAL = Said(
     "eikaiwa-portal.example.test",
     "全国の英会話教室を比較して口コミで選べるポータル",
     {
         "fit": "no",
         "quote": "全国の英会話教室を比較して口コミで選べる",
-        "why": "портал школ: список чужих курсов и отзывы",
+        "why": "英会話教室の比較ポータルで、自社のレッスンはない",
     },
 )
-#: Школа или блог — не понять (арабский, справа налево): модель — «не понять».
+#: Школа или блог — не понять: модель — «не понять», слова судьи — арабским, справа налево.
 MAYBE_SCHOOL = Said(
     "madrasat-lughat.example.test",
     "تعلم اللغة الإنجليزية مع دروسنا المجانية على الإنترنت",
     {
         "fit": "unsure",
         "quote": "تعلم اللغة الإنجليزية مع دروسنا",
-        "why": "по тексту не понять: школа это или блог преподавателя",
+        "why": "غير واضح من النص: مدرسة لغات أم مدونة معلم",
     },
 )
-#: Ветклиника (польский): модель — «да».
+#: Ветклиника: модель — «да», слова судьи — латиницей (польский).
 CLINIC = Said(
     "weterynarz-krakow.example.test",
     "Przychodnia weterynaryjna — umów wizytę online",
-    {"fit": "yes", "quote": "Przychodnia weterynaryjna — umów wizytę", "why": "своя клиника"},
+    {
+        "fit": "yes",
+        "quote": "Przychodnia weterynaryjna — umów wizytę",
+        "why": "własna przychodnia weterynaryjna",
+    },
 )
 #: Выдача ничего не дала: правило — человеку.
 EMPTY = Said("pusto.example.test", None)
@@ -193,12 +198,16 @@ async def undone(session: AsyncSession, candidate: Candidate) -> su.Undone:
 @pytest.mark.parametrize(
     ("said", "mode", "words"),
     [
-        (WORKSHOPS, JudgeMode.SHADOW, "Отказ: справочник мастерских — своей мебели не делает"),
-        (PORTAL, JudgeMode.SHADOW, "Отказ: портал школ: список чужих курсов и отзывы"),
-        (MAYBE_SCHOOL, JudgeMode.ENFORCE, "по тексту не понять: школа это или блог преподавателя"),
+        (
+            WORKSHOPS,
+            JudgeMode.SHADOW,
+            "Отказ: Branchenverzeichnis für Tischler — baut selbst keine Möbel",
+        ),
+        (PORTAL, JudgeMode.SHADOW, "Отказ: 英会話教室の比較ポータルで、自社のレッスンはない"),
+        (MAYBE_SCHOOL, JudgeMode.ENFORCE, "غير واضح من النص: مدرسة لغات أم مدونة معلم"),
         (EMPTY, JudgeMode.SHADOW, "выдача и главная не дали текста — судить не по чему"),
     ],
-    ids=["shadow-cut-latin", "shadow-cut-japanese", "unsure-arabic", "rule-empty"],
+    ids=["shadow-cut-latin", "shadow-cut-japanese", "unsure-arabic", "rule-empty-cyrillic"],
 )
 @pytest.mark.parametrize("accept", [True, False], ids=["accept", "reject"])
 async def test_an_undone_decision_puts_the_site_where_the_judge_put_it_with_its_words(
@@ -238,7 +247,7 @@ async def test_the_lane_after_an_undo_is_the_judges_rule_not_a_hardwired_review(
     await session.refresh(site)
     assert (site.lane, site.reason, site.decided_by) == (
         Lane.REJECT,
-        "в другой полосе: справочник мастерских — своей мебели не делает",
+        "в другой полосе: Branchenverzeichnis für Tischler — baut selbst keine Möbel",
         Decider.MODEL,
     )
 
@@ -259,13 +268,36 @@ async def test_words_missing_from_the_cache_are_named_and_a_silent_model_is_aske
     assert (quiet.lane, quiet.reason, quiet.decided_by) == (Lane.REVIEW, su.LOST, Decider.MODEL)
     # Модель не ответила — сайт снова ждёт судью: следующий проход его судит.
     assert (silent.lane, silent.reason, silent.decided_by) == (Lane.REVIEW, su.SILENT, None)
-    model = Model({SILENT.host: {"fit": "yes", "quote": "Türkçe kursları ve özel", "why": "курсы"}})
+    said = {"fit": "yes", "quote": "Türkçe kursları ve özel", "why": "kendi dil kursları"}
+    model = Model({SILENT.host: said})
     await judge_run(
         session, run_id=run.id, segment="курсы", mode=JudgeMode.SHADOW, client=_client(model),
         home=None,
     )  # fmt: skip
     await session.refresh(silent)
     assert (model.asked, silent.lane, silent.unanswered) == ([SILENT.host], Lane.ACCEPT, False)
+
+
+async def test_a_site_the_judge_did_not_see_goes_back_with_the_words_of_the_judge_off(
+    session: AsyncSession,
+) -> None:
+    """Источник вердикта любой — и его нет вовсе: судья был выключен. Отмена кладёт сайт туда же, со
+    словами выключенного судьи, а «кто решил» снова никто."""
+    _, made = await judged(
+        session,
+        Said("kursy-bez-sudi.example.test", "Kursy hiszpańskiego w małych grupach"),
+        mode=JudgeMode.OFF,
+    )
+    site = made["kursy-bez-sudi.example.test"]
+    assert (site.lane, site.reason, site.verdict) == (Lane.REVIEW, segment_judge.JUDGE_OFF, None)
+    before = landed(site)
+    await decided(session, site, accept=True)
+
+    await undone(session, site)
+
+    await session.refresh(site)
+    assert landed(site) == before
+    assert (site.decided_by, site.decided_at, site.decided_by_user) == (None, None, None)
 
 
 # --- кому отмена отказывает ----------------------------------------------------------------------

@@ -1,14 +1,16 @@
 /**
  * «Отменить решение» и «Отказ:» в окне «Сайты прогона» (тест продаж 20.10).
  *
- * Ответы сервера — записанные (`serve()`), незаписанный запрос роняет тест; домены выдуманы, ниши и
- * письменности — разные (латиница, японский без пробелов, арабский справа налево). Проверяется:
+ * Ответы сервера — записанные (`serve()`), незаписанный запрос роняет тест; домены выдуманы. Правило
+ * одно для любого сайта, ниши и языка: ниши разные, слова судьи — в четырёх письменностях (латиница,
+ * японский без пробелов, арабский справа налево, кириллица). Проверяется:
  * - на «На проверку» решённая строка — «решено: …» и «Отменить решение»; после отмены — снова
  *   «Принять» и «Отказ», числа вкладок и отчёт — без перезагрузки;
  * - на других вкладках отмена — под «кто решил»; отменённая строка стоит на месте и решается там же;
  * - кнопки нет, когда сервер говорит, что отменить нельзя (лид заведён); отказ сервера — его словами;
  * - отказ судьи в наблюдении — «Отказ: …» и у старой причины («судья в наблюдении отрезал бы: …»),
- *   и в «стало бы», и в словах судьи у решения человека; сайт с ним — «на проверке», «решает человек».
+ *   и в «стало бы», и в словах судьи у решения человека; сайт с ним — «на проверке», «решает человек»;
+ * - функция показа меняет только нашу приписку в начале, слова судьи после неё — как есть.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -23,15 +25,21 @@ import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
 import type { SegmentHome, SegmentRunDetail, SegmentRunRow } from './segmentApi';
 import type { SegmentSite, SegmentSitesPage, SiteTab } from './SegmentSitesApi';
+import { reasonWords } from './SegmentSitesWords';
 
 const WAIT = { timeout: 5000 };
 const RUN_ID = 31;
 const SITES = `/api/sales/segment/runs/${RUN_ID}/sites`;
 const REPORT = `/api/sales/segment/runs/${RUN_ID}`;
 const SELLER = 'seller@ours.example.test';
-const OLD_CUT = 'судья в наблюдении отрезал бы: справочник мастерских — своей мебели не делает';
-const CUT = 'Отказ: справочник мастерских — своей мебели не делает';
-const PORTAL = 'Отказ: портал школ — список чужих курсов и отзывы';
+/** Наша приписка до 20.10 и теперь; слова судьи после неё — на любом языке, как их дала модель. */
+const BEFORE = 'судья в наблюдении отрезал бы: ';
+const WORKSHOP_WHY = 'Branchenverzeichnis für Tischler — baut selbst keine Möbel';
+const PORTAL_WHY = '英会話教室の比較ポータルで、自社のレッスンはない';
+const HUB_WHY = 'مجمع مدارس: قائمة بأكاديميات الآخرين وأسعارها';
+const OLD_CUT = `${BEFORE}${WORKSHOP_WHY}`;
+const CUT = `Отказ: ${WORKSHOP_WHY}`;
+const PORTAL = `Отказ: ${PORTAL_WHY}`;
 const LEAD_MADE = 'лид уже заведён — отклоните его во вкладке «emails»';
 
 const run: SegmentRunRow = {
@@ -245,7 +253,7 @@ describe('«Отменить решение»', () => {
   it('на «Приняты»: отмена — под «кто решил», строка стоит на месте и решается там же', async () => {
     const school = reviewOf(5, 'madrasat-lughat.example.test', {
       verdict: 'review',
-      reason: 'по тексту не понять: школа это или блог преподавателя',
+      reason: 'غير واضح من النص: مدرسة لغات أم مدونة معلم',
       quote: 'تعلم اللغة الإنجليزية مع دروسنا',
     });
     const accepted = { ...decidedBy(school, true), decided_by_user: SELLER };
@@ -336,13 +344,19 @@ describe('«Отказ:» вместо «судья в наблюдении от
     const fresh = reviewOf(12, 'neu-verzeichnis.example.test');
     const human = {
       ...decidedBy(reviewOf(13, 'eikaiwa-portal.example.test', { reason: PORTAL }), true),
-      judge_reason: 'судья в наблюдении отрезал бы: портал школ — список чужих курсов и отзывы',
+      judge_reason: `${BEFORE}${PORTAL_WHY}`,
     };
-    const would = reviewOf(14, 'velo-lead.example.test', {
+    const would = reviewOf(14, 'academias-hub.example.test', {
       lane: 'accept',
       verdict: 'accept',
-      reason: 'магазин велосипедов',
-      change: { was: 'accept', now: 'review', would: true, reason: OLD_CUT, quote: null },
+      reason: 'magazyn rowerów — własny sklep',
+      change: {
+        was: 'accept',
+        now: 'review',
+        would: true,
+        reason: `${BEFORE}${HUB_WHY}`,
+        quote: null,
+      },
     });
     await open('all', {
       [`GET ${SITES}?lane=all&page=1`]: { body: pageOf('all', [old, fresh, human, would]) },
@@ -352,7 +366,7 @@ describe('«Отказ:» вместо «судья в наблюдении от
     expect(within(first!).getByText(CUT)).toBeInTheDocument();
     expect(within(second!).getByText(CUT)).toBeInTheDocument();
     expect(within(third!).getByText(`Судья: ${PORTAL}`)).toBeInTheDocument();
-    expect(within(fourth!).getByText(`стало бы: ${CUT}`)).toBeInTheDocument();
+    expect(within(fourth!).getByText(`стало бы: Отказ: ${HUB_WHY}`)).toBeInTheDocument();
     expect(screen.queryByText(/отрезал бы/)).toBeNull();
     // Отказ судьи — мнение: сайт «на проверке», и подпись полосы говорит, что решает человек.
     for (const row of [first!, second!]) {
@@ -360,5 +374,28 @@ describe('«Отказ:» вместо «судья в наблюдении от
       expect(within(row).getByText('решает человек')).toBeInTheDocument();
     }
     expect(within(fourth!).queryByText('решает человек')).toBeNull();
+  });
+});
+
+describe('функция показа причины', () => {
+  it('меняет только нашу приписку в начале — слова судьи после неё на любом языке как есть', () => {
+    const said = [
+      WORKSHOP_WHY,
+      PORTAL_WHY,
+      HUB_WHY,
+      'справочник клиник — списки чужих врачей',
+      'ร้านค้าออนไลน์ของตัวเอง',
+    ];
+    for (const words of said) {
+      expect(reasonWords(`${BEFORE}${words}`)).toBe(`Отказ: ${words}`);
+      expect(reasonWords(`Отказ: ${words}`)).toBe(`Отказ: ${words}`);
+      // Своё слово модели не трогается — ни «отрезал бы» в середине, ни чужое начало.
+      expect(reasonWords(words)).toBe(words);
+      expect(reasonWords(`${words}; ${BEFORE}x`)).toBe(`${words}; ${BEFORE}x`);
+    }
+    expect(reasonWords('судья в наблюдении: отказ не отсекает сайт')).toBe(
+      'судья в наблюдении: отказ не отсекает сайт',
+    );
+    expect(reasonWords('принял человек')).toBe('принял человек');
   });
 });

@@ -38,7 +38,7 @@ SignIn = Callable[..., Awaitable[str]]
 SELLER = "seller@ours.example.test"
 CANDIDATES = "/api/sales/segment/candidates"
 SCREEN = Path(__file__).resolve().parent.parent / "frontend/src/sales/SegmentSitesApi.ts"
-CUT = "Отказ: справочник мастерских — своей мебели не делает"
+CUT = "Отказ: Branchenverzeichnis für Tischler — baut selbst keine Möbel"
 
 
 @pytest.fixture
@@ -178,9 +178,13 @@ async def test_the_list_names_the_judge_next_to_a_human_decision_and_whether_it_
     assert said == {
         # Лид заведён — отменять нечего: его отклоняют во вкладке «emails».
         WORKSHOPS.host: ("принял человек", CUT, False),
-        PORTAL.host: ("отказал человек", "Отказ: портал школ: список чужих курсов и отзывы", True),
+        PORTAL.host: (
+            "отказал человек",
+            "Отказ: 英会話教室の比較ポータルで、自社のレッスンはない",
+            True,
+        ),
         # Решила модель — её слова и так в причине.
-        CLINIC.host: ("своя клиника", None, False),
+        CLINIC.host: ("własna przychodnia weterynaryjna", None, False),
     }
 
 
