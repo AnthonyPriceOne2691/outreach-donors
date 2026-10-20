@@ -154,14 +154,14 @@ describe('карточка донора: «адреса нет» и поиск �
       contact_status: 'paid_off',
       deeper: {
         refusal:
-          'Прошлый поиск шёл без платной ступени — глубже ищут после поиска, кончившегося «адреса нет».',
+          'В прошлый раз платный поиск был недоступен — глубже ищут после обычного поиска вместе с ним.',
         at: null,
         note: null,
       },
     });
 
     expect(screen.getByText('Искали 18.09.2026: сайт не пустил нас (403).')).toBeVisible();
-    expect(screen.getByText('платный поиск выключен — не спросили')).toBeVisible();
+    expect(screen.getByText('платный поиск недоступен — не спросили')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Искать глубже' })).toBeNull();
   });
 
@@ -243,7 +243,7 @@ describe('список доноров: глубже — значком в кол
     });
 
     const row = (await screen.findByText('unasked.example.test')).closest('tr')!;
-    expect(within(row).getByTitle('платный поиск выключен — не спросили')).toHaveTextContent(
+    expect(within(row).getByTitle('платный поиск недоступен — не спросили')).toHaveTextContent(
       'не спросили',
     );
   });

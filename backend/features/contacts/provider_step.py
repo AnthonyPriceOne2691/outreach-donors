@@ -1,15 +1,21 @@
 """Ступень 3 лестницы — платный сервис: звать ли его по домену и чем кончился отказ.
 
 Вынесена из `ladder.py`, когда к ней добавились «платная ступень недоступна на этот
-проход» (`PaidUnavailable`) и «платный поиск выключен» (`paid_off`): лестница решает
-порядок ступеней и исход домена, а здесь — разговор с сервисом и его отказы.
+проход» (`PaidUnavailable`) и «не спросили» (`paid_off`): лестница решает порядок
+ступеней и исход домена, а здесь — разговор с сервисом и его отказы.
 
 **Ступени нет совсем и ступени нет на этот проход — разное.** Без ключа и с выключенным
 флагом платного поиска доноров (решение Anthony 12.10.2026) ступени нет совсем: рабочий
-режим, «адреса нет» честное. Квота кончилась, остаток не узнать, учётку закрыли, проход
-вызван без платной (`no_paid`) — ступень есть, но не спросит: исход называет причину
-(`PaidUnavailable.status`; приходит отчётом прохода — `search.SearchReport.paid_missing`),
-а не «адреса нет».
+режим, «адреса нет» честное. Квота кончилась, остаток не узнать, ключ не принят, учётку
+закрыли, проход вызван без платной (`no_paid`) — ступень есть, но не спросит: исход
+называет причину (`PaidUnavailable.status`; приходит отчётом прохода —
+`search.SearchReport.paid_missing`), а не «адреса нет».
+
+**Ключ не принят или учётку закрыли посреди прохода — до конца прохода ступень не спросит**
+(решение продаж 20.10.2026): следующий домен упёрся бы в тот же отказ. Домен — «не
+спросили» (`paid_off`), как если бы отказ узнал остаток до прохода; причина — «ключ не
+принят» или «учётка закрыта» (`closed`, в отчёт прохода). `blocked` ступень больше не
+отдаёт: у продаж это «сайт закрылся от нас».
 """
 
 from __future__ import annotations
@@ -48,6 +54,8 @@ class ProviderStep:
         #: Ступень есть, но в этом проходе не спросит — и почему (`PaidUnavailable`).
         self.missing = provider if isinstance(provider, PaidUnavailable) else None
         self._provider = None if isinstance(provider, PaidUnavailable) else provider
+        #: Сервис не пустил посреди прохода — ключ не принят или учётка закрыта (`_close`).
+        self.closed: PaidUnavailable | None = None
         self._counters = counters
         self._silence = silence
         #: Почему проходу пора встать: сервис ограничил частоту и после повторов не
@@ -90,6 +98,20 @@ class ProviderStep:
             collected.add(candidate)
         return None
 
+    def _close(self, exc: ProviderBlockedError) -> ContactStatus:
+        """Ключ не принят или учётку закрыли: до конца прохода ступень не спросит, домен —
+        «не спросили» (см. модуль). Домены, что спрашивали в ту же минуту, получают тот же
+        отказ и сюда же; громко — первый."""
+        if self.closed is None:
+            logger.error(
+                "контакты: платный сервис не пускает (%s) — до конца прохода не спрашиваем: %s",
+                exc.why,
+                exc,
+            )
+        self.closed = self.missing = PaidUnavailable(ContactStatus.PAID_OFF, exc.why)
+        self._provider = None
+        return ContactStatus.PAID_OFF
+
     def _refused(self, reason: str) -> None:
         """Записать отказ ступени. Первый отказ сохраняется дословно:
         последующие обычно тот же самый, а первый ближе к причине."""
@@ -103,12 +125,11 @@ class ProviderStep:
         try:
             return await provider.find_emails(host)
         except ProviderBlockedError as exc:
-            self._refused(str(exc))
             # Раньше этот случай приезжал сюда как «частота» и лестница
             # бодро шла по следующему домену. Ловится первым: он потомок
             # ProviderError, и порядок веток решает.
-            logger.exception("контакты: платный сервис закрыл учётку — %s", exc)
-            return ContactStatus.BLOCKED
+            self._refused(str(exc))
+            return self._close(exc)
         except ProviderQuotaError as exc:
             self._refused(str(exc))
             logger.warning("контакты: квота платного сервиса исчерпана на %s — %s", host, exc)

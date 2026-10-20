@@ -9,8 +9,10 @@
 
 Правило (ревью 20.10.2026):
 
-- отказ остатка разбирается, как отказ посреди прохода: квота — `no_quota`, закрытая
-  учётка и непринятый ключ — `blocked`, сеть и 5xx — `error`;
+- отказ остатка разбирается, как отказ посреди прохода: квота — `no_quota`, сеть и 5xx —
+  `error`, непринятый ключ и закрытая учётка — `paid_off` с причиной «ключ не принят» или
+  «учётка закрыта» (решение продаж 20.10.2026; до него — `blocked`, у продаж это «сайт
+  закрылся от нас»). Посреди прохода — так же, и до конца прохода ступень не спрашивает;
 - «недоспрошен» повторяется через сутки (`attempts.PAID_RETRY_DELAY`), а не каждым
   проходом: автопоиск после каждого «принять» брал бы те же домены снова;
 - сайт с формой — «только форма» сразу: иначе он не попал бы в «Формы» до квоты.
@@ -27,7 +29,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 from backend.config import contacts as contacts_cfg
-from backend.features.contacts import attempts, mx, search
+from backend.features.contacts import attempts, mx, provider, search
 from backend.features.contacts.ladder import ContactLadder, LadderResult
 from backend.features.contacts.provider import HunterProvider, PaidUnavailable, ProviderQuotaError
 from backend.features.contacts.quality import Candidate
@@ -48,8 +50,10 @@ WITH_FORM = (
 )
 NO_QUOTA = PaidUnavailable(ContactStatus.NO_QUOTA, "квота платного сервиса исчерпана")
 UNKNOWN = PaidUnavailable(ContactStatus.ERROR, "остаток платного сервиса не узнать")
-CLOSED = PaidUnavailable(ContactStatus.BLOCKED, "учётка закрыта провайдером")
+CLOSED = PaidUnavailable(ContactStatus.PAID_OFF, provider.ACCOUNT_CLOSED)
 ZERO = {"data": {"requests": {"searches": {"used": 100, "available": 100}}}}
+LEFT = {"data": {"requests": {"searches": {"used": 10, "available": 100}}}}
+OTHER = "other.example.test"
 
 
 @pytest.fixture(autouse=True)
@@ -99,9 +103,10 @@ class TestTheLadder:
         assert result.status is ContactStatus.ERROR
 
     async def test_closed_account_is_named_as_mid_pass(self) -> None:
+        """Учётку закрыли до прохода — «не спросили», как посреди него."""
         result = await _find(EMPTY, provider=CLOSED)
 
-        assert result.status is ContactStatus.BLOCKED
+        assert result.status is ContactStatus.PAID_OFF
 
     async def test_without_a_key_the_site_has_no_address_as_before(self) -> None:
         result = await _find(EMPTY, provider=None)
@@ -148,15 +153,16 @@ class TestTheLadder:
 
 
 class Queue:
-    """Очередь из одного домена: проверяется, что лестница отдала очереди."""
+    """Очередь из названных доменов: проверяется, что лестница отдала очереди."""
 
     stage = Stage.DONORS
 
-    def __init__(self) -> None:
+    def __init__(self, hosts: Sequence[str] = (HOST,)) -> None:
+        self.hosts = list(hosts)
         self.saved: list[LadderResult] = []
 
     async def pending_hosts(self, *, limit: int = 100) -> list[str]:
-        return [HOST][:limit]
+        return self.hosts[:limit]
 
     async def save(self, results: Sequence[LadderResult]) -> int:
         self.saved.extend(results)
@@ -191,10 +197,10 @@ REFUSALS = pytest.mark.parametrize(
     [
         (httpx.Response(200, json=ZERO), ContactStatus.NO_QUOTA),
         (_refusal("usage_exceeded", 429), ContactStatus.NO_QUOTA),
-        (_refusal("restricted_account", 403), ContactStatus.BLOCKED),
-        (_refusal("restricted_account", 429), ContactStatus.BLOCKED),
-        (_refusal("authentication_failed", 401), ContactStatus.BLOCKED),
-        (httpx.Response(401, text="<html>unauthorized</html>"), ContactStatus.BLOCKED),
+        (_refusal("restricted_account", 403), ContactStatus.PAID_OFF),
+        (_refusal("restricted_account", 429), ContactStatus.PAID_OFF),
+        (_refusal("authentication_failed", 401), ContactStatus.PAID_OFF),
+        (httpx.Response(401, text="<html>unauthorized</html>"), ContactStatus.PAID_OFF),
         (httpx.Response(500, json={"errors": [{"details": "сбой"}]}), ContactStatus.ERROR),
         (httpx.ConnectError("нет сети"), ContactStatus.ERROR),
     ],
@@ -208,6 +214,44 @@ REFUSALS = pytest.mark.parametrize(
         "5xx",
         "сеть",
     ],
+)
+
+
+class _Closing:
+    """Сеть прохода: сайты без адреса; остаток квоты есть, а поиск по домену — `refusal`.
+    Каждый спрошенный домен — в список."""
+
+    def __init__(self, refusal: httpx.Response) -> None:
+        self.refusal = refusal
+        self.searched: list[str] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.hunter.io":
+            if request.url.path.endswith("/account"):
+                return httpx.Response(200, json=LEFT)
+            self.searched.append(request.url.params["domain"])
+            return self.refusal
+        if request.url.path in ("", "/"):
+            return httpx.Response(200, html=EMPTY, request=request)
+        return httpx.Response(404, request=request)
+
+
+#: Отказ учётки → причина коротко (`PaidUnavailable.reason`) и слова провайдера.
+ACCOUNT_REFUSALS = pytest.mark.parametrize(
+    ("refusal", "why", "words"),
+    [
+        (
+            _refusal("authentication_failed", 401),
+            provider.KEY_REFUSED,
+            "ключ платного сервиса не принят (HTTP 401)",
+        ),
+        (
+            _refusal("restricted_account", 429),
+            provider.ACCOUNT_CLOSED,
+            "учётка закрыта провайдером",
+        ),
+    ],
+    ids=["ключ", "учётка"],
 )
 
 
@@ -240,10 +284,54 @@ class TestTheSearchPass:
         assert report.paid_missing is not None
         assert report.paid_missing.status is status
 
-    async def test_paid_step_with_balance_left_is_the_provider(self) -> None:
-        left = {"data": {"requests": {"searches": {"used": 10, "available": 100}}}}
+    @ACCOUNT_REFUSALS
+    async def test_refused_account_is_named_briefly_and_in_the_providers_words(
+        self, refusal: httpx.Response, why: str, words: str
+    ) -> None:
+        """Причина — коротко, в отчёте прохода («ключ не принят», «учётка закрыта»); слова
+        провайдера — строкой отчёта: что чинить."""
         report = SearchReport()
-        async with _hunter(httpx.Response(200, json=left))() as http:
+        async with _hunter(refusal)() as http:
+            await search.paid_step(http, report)
+
+        assert report.paid_missing == PaidUnavailable(ContactStatus.PAID_OFF, why)
+        [note] = [note for note in report.notes if note.startswith("Платная ступень не зовётся:")]
+        assert words in note
+        assert "«не спросили», повтор по сроку очереди" in note
+
+    @ACCOUNT_REFUSALS
+    async def test_refusal_mid_pass_stops_asking_and_names_the_reason(
+        self,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        refusal: httpx.Response,
+        why: str,
+        words: str,
+    ) -> None:
+        """Остаток есть, а поиск по домену — отказ учётки: до конца прохода ступень не
+        спрашивает, оба домена — «не спросили», причина — в отчёте прохода, как у отказа
+        остатка (решение продаж 20.10.2026). По одному домену за раз — иначе второй успел
+        бы спросить, пока первый ждёт ответа."""
+        hunter = _Closing(refusal)
+        monkeypatch.setattr(search, "CONCURRENCY", 1)
+        monkeypatch.setattr(
+            "backend.features.contacts.search.guarded_client",
+            lambda **_kw: httpx.AsyncClient(transport=httpx.MockTransport(hunter)),
+        )
+        queue = Queue((HOST, OTHER))
+
+        report = await search_contacts(session, limit=2, queue=queue)
+
+        assert [result.status for result in queue.saved] == [ContactStatus.PAID_OFF] * 2
+        assert hunter.searched == [HOST]
+        assert report.paid_missing == PaidUnavailable(ContactStatus.PAID_OFF, why)
+        assert f"Платная ступень остановлена посреди прохода: {why}." in " ".join(report.notes)
+        assert [note for note in report.notes if words in note]
+        assert (report.counters["provider_refused"], report.counters["paid_off"]) == (1, 2)
+
+    async def test_paid_step_with_balance_left_is_the_provider(self) -> None:
+        report = SearchReport()
+        async with _hunter(httpx.Response(200, json=LEFT))() as http:
             answer = await search.paid_step(http, report)
 
         assert isinstance(answer, HunterProvider)
@@ -368,6 +456,26 @@ class TestRetryWindow:
         await session.refresh(donor)
         assert donor.contact_status is ContactStatus.NO_QUOTA
         tomorrow = datetime.now(UTC) + attempts.PAID_RETRY_DELAY + timedelta(minutes=1)
+        assert await ContactRepository(session).pending_hosts(now=tomorrow) == [HOST]
+
+    async def test_refused_key_is_asked_again_after_a_day(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ключ не принят — «не спросили», и общая очередь берёт донора снова через сутки:
+        ключ сменят — его и спросят, без рук (решение продаж 20.10.2026)."""
+        monkeypatch.setattr(
+            "backend.features.contacts.search.guarded_client",
+            _hunter(_refusal("authentication_failed", 401)),
+        )
+        donor = await _accepted_donor(session, HOST)
+
+        await search_contacts(session, limit=50)
+
+        await session.refresh(donor)
+        assert donor.contact_status is ContactStatus.PAID_OFF
+        now = datetime.now(UTC)
+        assert await ContactRepository(session).pending_hosts(now=now) == []
+        tomorrow = now + attempts.PAID_RETRY_DELAY + timedelta(minutes=1)
         assert await ContactRepository(session).pending_hosts(now=tomorrow) == [HOST]
 
     async def test_card_says_when_the_search_comes_back(self, session: AsyncSession) -> None:

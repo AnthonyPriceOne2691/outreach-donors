@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, ClassVar, Protocol, runtime_checkable
 
 import httpx
 
@@ -44,9 +44,12 @@ class PaidUnavailable:
     - квота кончилась — `no_quota`; остаток не узнать (сеть, 5xx) — `error`: домен
       «недоспрошен», повтор по сроку очереди (у доноров и рекламодателей — через сутки,
       `attempts.PAID_RETRY_DELAY`);
-    - учётку закрыли или ключ не принят — `blocked`, как посреди прохода: повтор не
-      поможет, пока учётку не откроют;
-    - проход вызван без платной (`no_paid`) — `paid_off`: «не спросили».
+    - ключ не принят (401) или учётку закрыли — до прохода или посреди него — `paid_off`,
+      «не спросили», с причиной «ключ не принят» или «учётка закрыта»
+      (`ProviderBlockedError.why`). Общая очередь берёт такие домены снова через сутки,
+      если платный поиск включён: ключ сменят или учётку откроют — их и спросят (решение
+      продаж 20.10.2026). До него исход был `blocked` на срок годности;
+    - проход вызван без платной (`no_paid`) — тоже `paid_off`.
 
     Не то же, что «ступени нет»: без ключа или с выключенным флагом платного поиска
     доноров (решение Anthony 12.10.2026) лестница честно отдаёт «адреса нет» — это
@@ -65,6 +68,10 @@ ATTEMPTS = 3
 #: Маркер частоты — единственный отказ с маркером, который повтор лечит.
 _RATE_MARKER = "too_many_requests"
 
+#: Почему сервис не пускает учётку — коротко, для отчёта прохода (`PaidUnavailable.reason`).
+KEY_REFUSED = "ключ не принят"
+ACCOUNT_CLOSED = "учётка закрыта"
+
 
 class ProviderError(RuntimeError):
     """Сервис не ответил или ответил непонятным. Домен можно повторить."""
@@ -79,9 +86,19 @@ class ProviderRateLimitError(ProviderError):
 
 
 class ProviderBlockedError(ProviderError):
-    """Учётку закрыли. Повтор не поможет ни сейчас, ни завтра — идти
-    в кабинет провайдера. Отдельно от квоты намеренно: «кончились
-    запросы» и «нас закрыли» ведут человека к разным действиям."""
+    """Учётку закрыли. Повтор того же запроса не поможет — идти в кабинет
+    провайдера. Отдельно от квоты намеренно: «кончились запросы» и «нас
+    закрыли» ведут человека к разным действиям. Для поиска адреса — «не
+    спросили» до конца прохода (`provider_step.ProviderStep._close`)."""
+
+    #: Коротко — для отчёта прохода (`PaidUnavailable.reason`).
+    why: ClassVar[str] = ACCOUNT_CLOSED
+
+
+class ProviderKeyRefusedError(ProviderBlockedError):
+    """Ключ не принят (HTTP 401): как закрытая учётка, только чинить — ключ."""
+
+    why: ClassVar[str] = KEY_REFUSED
 
 
 class ProviderDomainRefusedError(ProviderError):
@@ -247,7 +264,7 @@ class HunterProvider:
             # Ключ не принят: код однозначен при любом маркере и теле, и повтор не поможет
             # ни сейчас, ни завтра — как закрытая учётка (так же у проверки адресов продаж,
             # `sales/verifier._unauthorized`).
-            raise ProviderBlockedError(
+            raise ProviderKeyRefusedError(
                 "ключ платного сервиса не принят (HTTP 401) — проверить CONTACTS_HUNTER_API_KEY"
             )
         try:

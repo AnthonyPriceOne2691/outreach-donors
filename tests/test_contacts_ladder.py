@@ -15,8 +15,10 @@ from backend.features.contacts import mx
 from backend.features.contacts.ladder import ContactLadder
 from backend.features.contacts.provider import (
     Candidate,
+    PaidUnavailable,
     ProviderBlockedError,
     ProviderDomainRefusedError,
+    ProviderKeyRefusedError,
     ProviderQuotaError,
     ProviderRateLimitError,
     Quota,
@@ -557,7 +559,8 @@ class TestOutcomes:
         [
             (ProviderQuotaError("кончилась"), ContactStatus.NO_QUOTA),
             (ProviderRateLimitError("частота"), ContactStatus.RATE_LIMITED),
-            (ProviderBlockedError("учётку закрыли"), ContactStatus.BLOCKED),
+            (ProviderBlockedError("учётку закрыли"), ContactStatus.PAID_OFF),
+            (ProviderKeyRefusedError("ключ не принят (HTTP 401)"), ContactStatus.PAID_OFF),
         ],
     )
     async def test_paid_failure_is_not_absence_of_contact(
@@ -572,6 +575,33 @@ class TestOutcomes:
 
         assert result.status is status
         assert result.status is not ContactStatus.NOT_FOUND
+
+    @pytest.mark.parametrize(
+        ("error", "why"),
+        [
+            (ProviderKeyRefusedError("ключ не принят (HTTP 401)"), "ключ не принят"),
+            (ProviderBlockedError("учётку закрыли"), "учётка закрыта"),
+        ],
+        ids=["ключ", "учётка"],
+    )
+    async def test_refused_account_is_not_asked_again_in_the_pass(
+        self, error: ProviderBlockedError, why: str
+    ) -> None:
+        """Ключ не принят или учётку закрыли (решение продаж 20.10.2026): до конца прохода
+        ступень не спрашивает — следующий домен упёрся бы в тот же отказ. Домены — «не
+        спросили», а не «сайт закрылся» (`blocked` у продаж); причина — для отчёта прохода."""
+        site = Site({"/": EMPTY_PAGE})
+        provider = FakeProvider(error=error)
+
+        async with _client(site) as http:
+            ladder = ContactLadder(http, provider=provider)
+            first = await ladder.find("site.com")
+            second = await ladder.find("other.com")
+
+        assert (first.status, second.status) == (ContactStatus.PAID_OFF, ContactStatus.PAID_OFF)
+        assert provider.calls == ["site.com"]
+        assert ladder.paid_closed == PaidUnavailable(ContactStatus.PAID_OFF, why)
+        assert ladder.counters.provider_refused == 1
 
     async def test_domain_the_provider_refuses_is_settled_not_retried(self) -> None:
         """Провайдер не работает с доменом (владелец запретил): адресов у платной ступени

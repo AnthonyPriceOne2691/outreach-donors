@@ -85,13 +85,13 @@ NO_BROWSER = "Браузер не поднялся — проход идёт б�
 
 #: Проход вызван без платной (`no_paid`): сайт без адреса на страницах — «не спросили»,
 #: а не «адреса нет» (`ContactStatus.PAID_OFF`).
-PAID_OFF = PaidUnavailable(ContactStatus.PAID_OFF, "платный поиск выключен — не спросили")
+PAID_OFF = PaidUnavailable(ContactStatus.PAID_OFF, "проход без платного поиска")
 
 #: Что сказать о доменах без адреса на страницах, когда платная ступень не спросит.
 _UNAVAILABLE_THEN = {
     ContactStatus.NO_QUOTA: "«кончилась квота», повтор по сроку очереди (доноров — через сутки)",
     ContactStatus.ERROR: "«ошибка поиска», повтор по сроку очереди (доноров — через сутки)",
-    ContactStatus.BLOCKED: "«учётка закрыта» — повтор не поможет, пока учётку не откроют",
+    ContactStatus.PAID_OFF: "«не спросили», повтор по сроку очереди (доноров — через сутки)",
 }
 
 
@@ -118,8 +118,9 @@ class SearchReport:
     #: Что стоит сказать человеку вслух: платный сервис не настроен,
     #: браузер не поднялся, квота кончилась. Не ошибки — условия работы.
     notes: list[str] = field(default_factory=list)
-    #: Платная ступень есть, но в этом проходе не спросит — и почему (`paid_step`): для
-    #: лестницы, а не для отчёта. Ответ `paid_step` при этом — «ступени нет» (`None`).
+    #: Платная ступень есть, но в этом проходе не спросит — и почему (`PaidUnavailable`):
+    #: до прохода — от `paid_step` (её ответ при этом — «ступени нет», `None`) для лестницы;
+    #: посреди прохода — ключ не принят или учётку закрыли (`ladder.paid_closed`).
     paid_missing: PaidUnavailable | None = None
 
     @property
@@ -170,7 +171,8 @@ async def paid_step(http: httpx.AsyncClient, report: SearchReport) -> ContactPro
     называет. До 20.10.2026 все случаи выглядели как «ключа нет», и домен получал «адреса
     нет» на полгода, хотя квота возвращается в начале месяца (находка продаж). Отказ
     остатка разбирается, как посреди прохода (`provider_step.ProviderStep._ask`): квота —
-    `no_quota`, закрытая учётка и непринятый ключ — `blocked`, сеть и 5xx — `error`.
+    `no_quota`, непринятый ключ и закрытая учётка — `paid_off` с причиной «ключ не принят»
+    или «учётка закрыта», сеть и 5xx — `error`.
     """
     if not cfg.HUNTER_API_KEY:
         report.notes.append("Платный сервис не настроен — идём по бесплатным ступеням.")
@@ -184,7 +186,8 @@ async def paid_step(http: httpx.AsyncClient, report: SearchReport) -> ContactPro
         _unavailable(report, *_balance_refusal(exc))
         return None
     if quota.left <= 0:
-        _unavailable(report, ContactStatus.NO_QUOTA, "квота платного сервиса исчерпана")
+        said = "квота платного сервиса исчерпана"
+        _unavailable(report, PaidUnavailable(ContactStatus.NO_QUOTA, said), said)
         return None
     # Остаток — это про деньги, а не про доступность: провайдер отвечает
     # на запрос остатка и при закрытой учётке, показывая полный запас.
@@ -193,23 +196,39 @@ async def paid_step(http: httpx.AsyncClient, report: SearchReport) -> ContactPro
     return provider
 
 
-def _balance_refusal(exc: ProviderError) -> tuple[ContactStatus, str]:
-    """Отказ остатка — исходом, как отказ посреди прохода: квота, учётка или сбой."""
+def _balance_refusal(exc: ProviderError) -> tuple[PaidUnavailable, str]:
+    """Отказ остатка — исходом, как отказ посреди прохода: квота, учётка или сбой; и
+    словами для отчёта. У учётки причина коротко («ключ не принят», «учётка закрыта»), а
+    слова — провайдера: что чинить."""
     if isinstance(exc, ProviderBlockedError):
-        return ContactStatus.BLOCKED, str(exc)
+        return PaidUnavailable(ContactStatus.PAID_OFF, exc.why), str(exc)
     if isinstance(exc, ProviderQuotaError):
-        return ContactStatus.NO_QUOTA, str(exc)
-    return ContactStatus.ERROR, f"остаток платного сервиса не узнать: {exc}"
+        return PaidUnavailable(ContactStatus.NO_QUOTA, str(exc)), str(exc)
+    said = f"остаток платного сервиса не узнать: {exc}"
+    return PaidUnavailable(ContactStatus.ERROR, said), said
 
 
-def _unavailable(report: SearchReport, status: ContactStatus, reason: str) -> None:
-    """Платная ступень не спросит в этом проходе: причина — в отчёт словами и в отчёт для
-    лестницы (`paid_missing`); ответ `paid_step` — «ступени нет»."""
+def _unavailable(report: SearchReport, missing: PaidUnavailable, said: str) -> None:
+    """Платная ступень не спросит в этом проходе: причина — в отчёт словами (`said`) и в
+    отчёт для лестницы (`paid_missing`); ответ `paid_step` — «ступени нет»."""
     report.notes.append(
-        f"Платная ступень не зовётся: {reason}. Домены без адреса на страницах — "
-        f"{_UNAVAILABLE_THEN[status]}; сайты с формой — в «Формы»."
+        f"Платная ступень не зовётся: {said}. Домены без адреса на страницах — "
+        f"{_UNAVAILABLE_THEN[missing.status]}; сайты с формой — в «Формы»."
     )
-    report.paid_missing = PaidUnavailable(status, reason)
+    report.paid_missing = missing
+
+
+def _note_closed(report: SearchReport, closed: PaidUnavailable | None) -> None:
+    """Ключ не принят или учётку закрыли посреди прохода (`ladder.paid_closed`): причина — в
+    отчёт прохода, как у отказа до него. Слова провайдера — строкой об отказах ступени."""
+    if closed is None:
+        return
+    report.paid_missing = closed
+    report.notes.append(
+        f"Платная ступень остановлена посреди прохода: {closed.reason}. Домены без адреса "
+        f"на страницах с этого места — {_UNAVAILABLE_THEN[closed.status]}; сайты с формой — "
+        "в «Формы»."
+    )
 
 
 async def _walk(ladder: ContactLadder, hosts: list[str], last: set[str]) -> list[LadderResult]:
@@ -364,6 +383,7 @@ async def search_contacts(
             )
         report.counters = ladder.counters.as_report()
         report.manual_queue_left = ladder.manual_queue_left
+        _note_closed(report, ladder.paid_closed)
         _note_provider_refusal(report, ladder.counters)
 
     logger.info("контакты: %s", report.as_report)

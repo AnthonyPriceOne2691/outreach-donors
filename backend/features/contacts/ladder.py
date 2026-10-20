@@ -129,7 +129,8 @@ class ContactLadder:
         self._silence = silence
         self.counters = StepCounters()
         # Платная ступень (`provider_step.py`): ключа нет — её нет совсем; квота кончилась,
-        # учётку закрыли, проход без платной — есть, но не спросит (`PaidUnavailable`).
+        # ключ не принят, учётку закрыли, проход без платной — есть, но не спросит
+        # (`PaidUnavailable`).
         self._paid = ProviderStep(provider, self.counters, silence=silence)
 
     @property
@@ -138,6 +139,13 @@ class ContactLadder:
         не отпустил (`provider.py`). Пусто — идём дальше. Следующий домен упёрся бы в тот
         же лимит: платная ступень больше не зовётся, домен — «недоспрошен»."""
         return self._paid.halt
+
+    @property
+    def paid_closed(self) -> PaidUnavailable | None:
+        """Платный сервис не пустил посреди прохода — ключ не принят или учётка закрыта
+        (`ProviderStep.closed`): дальше ступень не спрашивала, домены — «не спросили».
+        Причина — для отчёта прохода (`search.SearchReport.paid_missing`)."""
+        return self._paid.closed
 
     def _sequence(self) -> list[_Step]:
         """Порядок ступеней после MX.
