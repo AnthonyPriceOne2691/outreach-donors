@@ -3,7 +3,8 @@
 `GET /sales/segment/runs/{N}/sites?lane=…&decider=…&page=…` — все сайты прогона страницами:
 полоса, вердикт судьи, кто решил и когда, причина словами, цитата, ключ и итог (лид, только
 форма, адреса нет, не искали); у сменивших полосу при пересуде — «было», у сайтов с лидом —
-«стало бы» (`features/sales/segment_sites.py`).
+«стало бы»; у решённых человеком — слова судьи и можно ли решение отменить
+(`features/sales/segment_sites.py`).
 
 `GET /sales/segment/runs/{N}/rejudge` — смета пересуда (сайтов, к модели, токенов), ход и итог
 последнего пересуда «было → стало». `POST /sales/segment/runs/{N}/rejudge` — запуск: смета
@@ -128,7 +129,8 @@ class ChangeView(BaseModel):
 
 
 class SiteView(BaseModel):
-    """Сайт прогона: что о нём сказала выдача, судья или человек — и чем кончилось."""
+    """Сайт прогона: что о нём сказала выдача, судья или человек — и чем кончилось. Тем же видом —
+    ответ на решение человека и на его отмену (`api/sales/segment.py`)."""
 
     id: int
     host: str
@@ -144,6 +146,10 @@ class SiteView(BaseModel):
     quote: str | None
     unanswered: bool
     model: str | None
+    #: Решение человека можно отменить: решил человек, и лида из сайта нет.
+    undoable: bool
+    #: Решил человек — слова судьи, с которыми он не согласился (или согласился); иначе пусто.
+    judge_reason: str | None
     outcome: OutcomeView | None
     change: ChangeView | None
 
@@ -166,6 +172,8 @@ class SiteView(BaseModel):
             quote=site.quote,
             unanswered=site.unanswered,
             model=site.model,
+            undoable=row.undoable,
+            judge_reason=row.judge,
             outcome=OutcomeView.of(row.outcome),
             change=None
             if change is None

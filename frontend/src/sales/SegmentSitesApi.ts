@@ -52,6 +52,10 @@ export interface SegmentSite {
   quote: string | null;
   unanswered: boolean;
   model: string | null;
+  /** Решение человека можно отменить: решил человек, и лида из сайта нет. */
+  undoable: boolean;
+  /** Решил человек — слова судьи, с которыми он не согласился (или согласился); иначе пусто. */
+  judge_reason: string | null;
   outcome: SiteOutcome | null;
   change: SiteChange | null;
 }
@@ -164,5 +168,22 @@ export function startRejudge(run: number, digest: string): Promise<RejudgeQueued
   return request<RejudgeQueued>(`/sales/segment/runs/${run}/rejudge`, {
     method: 'POST',
     body: { digest },
+  });
+}
+
+/** Решение человека по сайту «на проверку» — ответ строкой списка: она встаёт на место той, по
+ *  которой решали. */
+export function decideSite(candidate: number, accept: boolean): Promise<SegmentSite> {
+  return request<SegmentSite>(`/sales/segment/candidates/${candidate}/decision`, {
+    method: 'POST',
+    body: { accept },
+  });
+}
+
+/** Отмена решения человека: сайт — туда и со словами, куда его кладёт судья; лид уже заведён,
+ *  решил не человек — отказ словами сервера. */
+export function undoDecision(candidate: number): Promise<SegmentSite> {
+  return request<SegmentSite>(`/sales/segment/candidates/${candidate}/decision`, {
+    method: 'DELETE',
   });
 }

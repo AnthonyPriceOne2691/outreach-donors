@@ -60,7 +60,13 @@ def living_address(domain_id: ColumnElement[int] | InstrumentedAttribute[int]) -
 
 async def _ready(session: AsyncSession, run_id: int) -> list[tuple[Candidate, int, str]]:
     """Принятые кандидаты прогона без лида — и лучший живой адрес их домена; домен с живым
-    лидом продаж лида не даёт (`company_hold.held`)."""
+    лидом продаж лида не даёт (`company_hold.held`).
+
+    **Строки взятых — под замком до конца транзакции заведения** (`FOR UPDATE OF` кандидатов):
+    человек может отменить решение «принят» посреди прохода (`segment_undo`). Без замка проход,
+    прочитавший сайт принятым, заводил лида уже после отмены — сайт «на проверке», а лид есть.
+    С замком отмена ждёт конца заведения и видит лид (отказ словами), а заведение, пришедшее
+    посреди отмены, ждёт её и перечитывает строку: сайт уже не принят — лида нет."""
     best = (
         select(ContactModel.domain_id, ContactModel.id, ContactModel.email)
         .distinct(ContactModel.domain_id)
@@ -78,6 +84,7 @@ async def _ready(session: AsyncSession, run_id: int) -> list[tuple[Candidate, in
             ~company_hold.held(Candidate.domain_id),
         )
         .order_by(Candidate.id)
+        .with_for_update(of=Candidate)
     )
     return list(rows.tuples().all())
 

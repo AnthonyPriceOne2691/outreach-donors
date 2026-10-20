@@ -22,7 +22,10 @@
 
 `GET /sales/segment/runs/{N}` — прогон и его отчёт; `POST /sales/segment/candidates/{N}/decision`
 — решение человека по сайту «на проверку»: то же решение второй раз — 200 без второй записи
-журнала, противоположное по решённому — 409 словами.
+журнала, противоположное по решённому — 409 словами. `DELETE` того же адреса — отмена решения
+человека (`features/sales/segment_undo.py`): сайт — в полосу и со словами судьи, автор и время
+очищены; решение правила или судьи и сайт с заведённым лидом — 409 словами, повтор — 200 без второй
+записи журнала. Ответ обоих — строкой списка сайтов прогона (`segment_sites.SiteView`).
 
 **Ход и живость — при чтении.** Строка прогона несёт стадию и запись хода; «сделано» судьи
 и адресов — живое, из кандидатов (`segment_progress.live`), а жив ли прогон — ответ очереди
@@ -39,19 +42,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from redis.exceptions import RedisError
 from rq import Queue
 from rq.job import Job
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
 from backend.api.letters.once import enqueue_once
 from backend.api.sales.segment_schemas import (
-    CandidateRow,
     DecisionBody,
     EstimateView,
     RunAsk,
@@ -64,25 +65,26 @@ from backend.api.sales.segment_schemas import (
     SegmentHome,
     default_serp_mode,
 )
-from backend.api.sales.segment_sites import refuse_while_rejudging
+from backend.api.sales.segment_sites import SiteView, refuse_while_rejudging
 from backend.config import sales as sales_cfg
 from backend.features.access.repository import AccessRepository
 from backend.features.core import domain
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
-from backend.features.core.models.domain import DomainModel
-from backend.features.sales import chain_text, segment_progress, segment_report, segment_watch
+from backend.features.sales import (
+    chain_text,
+    segment_progress,
+    segment_report,
+    segment_undo,
+    segment_watch,
+)
 from backend.features.sales.hypotheses import HypothesisError, HypothesisRefusedError, edit
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.segment_estimate import Ask, Estimate, estimate
 from backend.features.sales.segment_jobs import SEGMENT_JOB, segment_job_id
-from backend.features.sales.segment_models import (
-    Lane,
-    SalesSegmentCandidateModel,
-    SalesSegmentRunModel,
-    Stage,
-)
+from backend.features.sales.segment_models import Lane, SalesSegmentRunModel, Stage
+from backend.features.sales.segment_sites import SiteRow, site_row
 from backend.features.serp import markets
 from backend.shared.queue import sales_bulk_queue, with_retries
 
@@ -355,7 +357,7 @@ async def read_run(
 
 @router.post(
     "/segment/candidates/{candidate_id}/decision",
-    response_model=CandidateRow,
+    response_model=SiteView,
     summary="Решение человека по сайту «на проверку»",
 )
 async def decide(
@@ -363,7 +365,7 @@ async def decide(
     body: DecisionBody,
     author: UserModel = _seller,
     session: AsyncSession = Depends(db_session),
-) -> CandidateRow:
+) -> SiteView:
     """То же решение второй раз (двойной клик) — 200 без второй записи журнала: сайт уже там,
     куда его просят. Противоположное по решённому — 409 словами."""
     try:
@@ -374,33 +376,76 @@ async def decide(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except segment_report.DecisionRefusedError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    candidate = decision.candidate
-    host = await session.scalar(
-        select(DomainModel.host).where(DomainModel.id == candidate.domain_id)
-    )
+    row = await site_row(session, decision.candidate)
     if not decision.repeated:
-        await _journal_decision(session, author.id, candidate, str(host))
+        await _journal_decision(session, author.id, row)
     await session.commit()
-    return CandidateRow.of(candidate, str(host))
+    return SiteView.of(row)
 
 
-async def _journal_decision(
-    session: AsyncSession, author_id: int, candidate: SalesSegmentCandidateModel, host: str
-) -> None:
+@router.delete(
+    "/segment/candidates/{candidate_id}/decision",
+    response_model=SiteView,
+    summary="Отменить решение человека по сайту сбора",
+)
+async def undo_decision(
+    candidate_id: int,
+    author: UserModel = _seller,
+    session: AsyncSession = Depends(db_session),
+) -> SiteView:
+    """Сайт — в полосу и со словами судьи (`segment_undo`). Решение правила или судьи, сайт с
+    заведённым лидом, строка, занятая заведением лидов дольше предела, — 409 словами; повтор
+    (двойной клик) — 200 без второй записи журнала."""
+    try:
+        undone = await segment_undo.undo(session, candidate_id)
+    except segment_undo.UndoRefusedError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    if undone is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"сайта сбора №{candidate_id} нет — обновите отчёт прогона"
+        )
+    row = await site_row(session, undone.candidate)
+    if undone.was is not None:
+        await _journal_undo(session, author.id, row, undone.was)
+    await session.commit()
+    return SiteView.of(row)
+
+
+def _code(lane: str) -> str:
+    """Решение человека кодом записи журнала — одним у решения и у его отмены."""
+    return "accepted" if lane == Lane.ACCEPT else "rejected"
+
+
+async def _journal_decision(session: AsyncSession, author_id: int, row: SiteRow) -> None:
     """Решение — в журнал, как решение по сайту на «Отборе»: оно меняет, кому уйдёт письмо, и
     по нему считают, как ошибается судья сегмента. Этап — в записи (без права «Продажи» её не
     видно); «действие» отличает её от решения по донору."""
-    verdict = candidate.verdict or ""
+    what = {"решение": _code(row.candidate.lane)}
+    await _journal(session, author_id, row, "решение по сайту сбора базы", what)
+
+
+async def _journal_undo(session: AsyncSession, author_id: int, row: SiteRow, was: str) -> None:
+    """Отмена — тем же действием журнала, что решение, и с той же целью: рядом с ним. Что
+    отменено — кодом, как «решение» у решения, и куда вернулся сайт — полосой словами."""
+    lane = row.candidate.lane
+    what = {"отменено": _code(was), "стало": segment_report.LANE_WORDS.get(lane, lane)}
+    await _journal(session, author_id, row, "отмена решения по сайту сбора базы", what)
+
+
+async def _journal(
+    session: AsyncSession, author_id: int, row: SiteRow, action: str, what: Mapping[str, str]
+) -> None:
+    verdict = row.candidate.verdict or ""
     await AccessRepository(session).record(
         AuditAction.SITE_REVIEWED,
         author_id=author_id,
-        target=f"sales_segment_candidate:{candidate.id}",
+        target=f"sales_segment_candidate:{row.candidate.id}",
         details={
-            "действие": "решение по сайту сбора базы",
-            "домен": host,
-            "решение": "accepted" if candidate.lane == Lane.ACCEPT else "rejected",
+            "действие": action,
+            "домен": row.host,
+            **what,
             "судья сегмента": segment_report.LANE_WORDS.get(verdict, verdict),
-            "прогон": candidate.run_id,
+            "прогон": row.candidate.run_id,
         },
         stage=domain.Stage.SALES,  # этап воронки, а не стадия прогона (`Stage` выше)
     )

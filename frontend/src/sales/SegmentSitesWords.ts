@@ -54,3 +54,22 @@ export function moveWords(move: Pick<RejudgeMove, 'was' | 'now'>): string {
 export function personOf(email: string): string {
   return email.split('@', 1)[0] ?? email;
 }
+
+/** Начало причины у отказа судьи в наблюдении — как его пишет сервер (`segment_judge.SHADOW_CUT`). */
+const SHADOW_CUT = 'Отказ: ';
+/** Так сервер писал его до 20.10.2026; причины в базе не переписываются. */
+const SHADOW_CUT_BEFORE = 'судья в наблюдении отрезал бы: ';
+
+/**
+ * Причина словами экрана — одна для старых и новых: длинное начало отказа судьи в наблюдении
+ * («судья в наблюдении отрезал бы: …», до 20.10.2026) — коротким «Отказ: …», как его пишет сервер
+ * теперь (тест продаж 20.10: «для экономии места»). Остальное — как есть.
+ */
+export function reasonWords(reason: string): string {
+  return reason.startsWith(SHADOW_CUT_BEFORE)
+    ? `${SHADOW_CUT}${reason.slice(SHADOW_CUT_BEFORE.length)}`
+    : reason;
+}
+
+/** Под полосой сайта «на проверке», которому судья отказал: отказ — мнение, решение за человеком. */
+export const HUMAN_DECIDES = 'решает человек';

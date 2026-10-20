@@ -330,7 +330,9 @@ def test_shadow_writes_the_verdict_but_does_not_cut(
 
     assert got is lane
     if mode is JudgeMode.SHADOW and verdict.lane is Lane.REJECT and lane is Lane.REVIEW:
-        assert reason == "судья в наблюдении отрезал бы: другой бизнес"
+        # Тест продаж 20.10: «Отказ:» вместо длинного «судья в наблюдении отрезал бы:» — сайт при
+        # этом «на проверке» с кнопками: это мнение судьи, решение за человеком.
+        assert reason == "Отказ: другой бизнес"
 
 
 # --- v2: сайт судится по тому, что он есть, а не о чём пишет ----------------------------------

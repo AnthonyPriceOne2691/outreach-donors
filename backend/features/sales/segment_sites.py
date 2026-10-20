@@ -16,6 +16,11 @@
 Пересуд прогона (`segment_rejudge.py`) кладёт в отчёт прогона, какой была полоса сайта до него:
 список показывает «было» у сменивших полосу и «стало бы» у сайтов с лидом (их полоса не
 меняется), а фильтр «сменили полосу» — только их.
+
+**Решение человека — со словами судьи** (тест продаж 20.10: с чем человек не согласился, видно не
+было): у решённого человеком сайта — что сказал бы судья (`segment_undo.judged_before`), и можно ли
+решение отменить (`segment_undo.undoable`: лида из сайта нет). Строка после решения и его отмены —
+тем же правилом, что строка списка (`site_row`): экран ставит её на место той, по которой решали.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from typing import Any
 from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config.judge import JudgeMode
 from backend.features.core.domain import ContactStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.sales import company_hold
@@ -38,6 +44,7 @@ from backend.features.sales.segment_models import (
     SalesSegmentRunModel,
 )
 from backend.features.sales.segment_rejudge_report import Change, changes
+from backend.features.sales.segment_undo import judged_before, undoable
 
 Candidate = SalesSegmentCandidateModel
 
@@ -136,6 +143,13 @@ class SiteRow:
     outcome: Outcome | None
     #: Пересуд сменил полосу (или сменил бы — у сайта с лидом): какой она была и что вышло.
     change: Change | None = None
+    #: Решил человек — что сказал судья: его слова тем видом, каким их кладёт судья. Пусто — решил
+    #: не человек (слова судьи и так в причине) или вердикта не было (не ответил, выключен).
+    judge: str | None = None
+
+    @property
+    def undoable(self) -> bool:
+        return undoable(self.candidate)
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,6 +236,21 @@ async def _outcomes(
     }
 
 
+async def _judges(
+    session: AsyncSession, run: SalesSegmentRunModel, candidates: list[Candidate]
+) -> dict[int, str]:
+    """Слова судьи у решённых человеком сайтов страницы — одним чтением кэша вердиктов. Вердикта
+    не было (модель не ответила, судья выключен) — слов нет: колонка «Судья» так и говорит."""
+    said = await judged_before(session, candidates, JudgeMode(run.mode))
+    return {
+        c.id: found.reason
+        for c in candidates
+        if (found := said.get(c.id)) is not None
+        and found.verdict is not None
+        and found.reason is not None
+    }
+
+
 async def sites_page(session: AsyncSession, ask: SitesAsk) -> SitesPage | None:
     """Страница сайтов прогона под фильтром; `None` — прогона нет."""
     # Заново из базы: отчёт пересуда пишется SQL-правкой своего ключа, мимо объекта прогона.
@@ -242,10 +271,18 @@ async def sites_page(session: AsyncSession, ask: SitesAsk) -> SitesPage | None:
         .limit(PAGE_SIZE)
     )
     found = list(rows.tuples().all())
-    outcomes = await _outcomes(session, ask.run_id, [candidate for candidate, _ in found])
+    candidates = [candidate for candidate, _ in found]
+    outcomes = await _outcomes(session, ask.run_id, candidates)
+    judges = await _judges(session, run, candidates)
     return SitesPage(
         rows=[
-            SiteRow(candidate, host, outcomes[candidate.id], changed.get(candidate.id))
+            SiteRow(
+                candidate,
+                host,
+                outcomes[candidate.id],
+                changed.get(candidate.id),
+                judges.get(candidate.id),
+            )
             for candidate, host in found
         ],
         total=int(total or 0),
@@ -254,3 +291,19 @@ async def sites_page(session: AsyncSession, ask: SitesAsk) -> SitesPage | None:
         lanes=await _lanes(session, ask.run_id, changed),
         deciders=await _deciders(session, ask.run_id, lane),
     )
+
+
+async def site_row(session: AsyncSession, candidate: Candidate) -> SiteRow:
+    """Один сайт — строкой списка, тем же правилом: итог, «было» пересуда, слова судьи у решения
+    человека. После решения и его отмены экран ставит её на место той, по которой решали."""
+    # Заново из базы: отчёт пересуда пишется SQL-правкой своего ключа, мимо объекта прогона.
+    run = await session.get(SalesSegmentRunModel, candidate.run_id, populate_existing=True)
+    host = await session.scalar(
+        select(DomainModel.host).where(DomainModel.id == candidate.domain_id)
+    )
+    if run is None or host is None:  # кандидат держит прогон и домен ключами — не бывает
+        raise LookupError(f"у сайта сбора №{candidate.id} нет прогона или домена")
+    outcomes = await _outcomes(session, run.id, [candidate])
+    judges = await _judges(session, run, [candidate])
+    change = changes(run.report).get(candidate.id)
+    return SiteRow(candidate, host, outcomes[candidate.id], change, judges.get(candidate.id))
