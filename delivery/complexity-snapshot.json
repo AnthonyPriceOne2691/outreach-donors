@@ -617,7 +617,7 @@
       "worst": "_print_domain:42"
     },
     "backend/cli/contact_search.py": {
-      "lines": 115,
+      "lines": 116,
       "complexity": 5,
       "worst": "_print_report:36"
     },
@@ -967,14 +967,19 @@
       "worst": "—"
     },
     "backend/features/contacts/attempts.py": {
-      "lines": 237,
+      "lines": 260,
       "complexity": 5,
-      "worst": "values:161"
+      "worst": "values:184"
     },
     "backend/features/contacts/browser.py": {
-      "lines": 285,
+      "lines": 308,
       "complexity": 8,
-      "worst": "render_pages:246"
+      "worst": "render_pages:269"
+    },
+    "backend/features/contacts/browser_proxy.py": {
+      "lines": 181,
+      "complexity": 7,
+      "worst": "_forwarded:88"
     },
     "backend/features/contacts/collected.py": {
       "lines": 152,
@@ -992,9 +997,9 @@
       "worst": "deeper_words:172"
     },
     "backend/features/contacts/extract.py": {
-      "lines": 389,
+      "lines": 391,
       "complexity": 9,
-      "worst": "find_contact_links:367"
+      "worst": "find_contact_links:369"
     },
     "backend/features/contacts/file_sweep.py": {
       "lines": 379,
@@ -1017,9 +1022,9 @@
       "worst": "—"
     },
     "backend/features/contacts/ladder.py": {
-      "lines": 434,
+      "lines": 442,
       "complexity": 10,
-      "worst": "_descend:200"
+      "worst": "_descend:208"
     },
     "backend/features/contacts/manual.py": {
       "lines": 208,
@@ -1037,7 +1042,7 @@
       "worst": "_query:145"
     },
     "backend/features/contacts/pages.py": {
-      "lines": 469,
+      "lines": 474,
       "complexity": 8,
       "worst": "is_challenge:168"
     },
@@ -1047,19 +1052,19 @@
       "worst": "preferred_first:47"
     },
     "backend/features/contacts/provider.py": {
-      "lines": 317,
+      "lines": 334,
       "complexity": 9,
-      "worst": "_call:219"
+      "worst": "_call:236"
     },
     "backend/features/contacts/provider_step.py": {
-      "lines": 132,
+      "lines": 154,
       "complexity": 9,
-      "worst": "run:71"
+      "worst": "run:79"
     },
     "backend/features/contacts/quality.py": {
-      "lines": 425,
+      "lines": 444,
       "complexity": 5,
-      "worst": "foreign_on_legal_page:295"
+      "worst": "foreign_on_legal_page:314"
     },
     "backend/features/contacts/rdap.py": {
       "lines": 111,
@@ -1072,14 +1077,14 @@
       "worst": "_clear:211"
     },
     "backend/features/contacts/repository.py": {
-      "lines": 401,
+      "lines": 405,
       "complexity": 6,
-      "worst": "refusal_of:136"
+      "worst": "refusal_of:134"
     },
     "backend/features/contacts/search.py": {
-      "lines": 371,
+      "lines": 391,
       "complexity": 13,
-      "worst": "search_contacts:280"
+      "worst": "search_contacts:299"
     },
     "backend/features/contacts/section_map.py": {
       "lines": 109,
@@ -1122,7 +1127,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 317,
+      "lines": 322,
       "complexity": 0,
       "worst": "—"
     },
@@ -1497,7 +1502,7 @@
       "worst": "held_statuses:39"
     },
     "backend/features/donors/home_signals.py": {
-      "lines": 418,
+      "lines": 424,
       "complexity": 12,
       "worst": "_shop_marks:302"
     },
@@ -3207,9 +3212,9 @@
       "worst": "with_retries:120"
     },
     "backend/shared/net/url_guard.py": {
-      "lines": 175,
+      "lines": 211,
       "complexity": 10,
-      "worst": "assert_safe_url:95"
+      "worst": "assert_safe_url:105"
     },
     "backend/shared/net/url_parts.py": {
       "lines": 50,
