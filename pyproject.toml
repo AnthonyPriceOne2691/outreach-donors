@@ -121,6 +121,7 @@ include = ["backend*"]
 "backend.features.replies" = ["prompts/*.md"]
 "backend.features.sales" = ["prompts/*.md"]
 "backend.features.sales.agent" = ["prompts/*.md", "moves.toml"]
+"backend.features.topics" = ["prompts/*.md"]
 
 [tool.ruff]
 target-version = "py312"
