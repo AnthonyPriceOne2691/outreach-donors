@@ -25,16 +25,40 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, ClassVar, Protocol, runtime_checkable
 
 import httpx
 
 from backend.config import contacts as cfg
 from backend.features.contacts.quality import Candidate
-from backend.features.core.domain import ContactSource
+from backend.features.core.domain import ContactSource, ContactStatus
 from backend.shared.net.retry import RETRY_STATUSES, reason_of, unsent, with_retries
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class PaidUnavailable:
+    """Платная ступень есть, но в этом проходе не спросит — и почему (`search.paid_step`):
+
+    - квота кончилась — `no_quota`; остаток не узнать (сеть, 5xx) — `error`: домен
+      «недоспрошен», повтор по сроку очереди (у доноров и рекламодателей — через сутки,
+      `attempts.PAID_RETRY_DELAY`);
+    - ключ не принят (401) или учётку закрыли — до прохода или посреди него — `paid_off`,
+      «не спросили», с причиной «ключ не принят» или «учётка закрыта»
+      (`ProviderBlockedError.why`). Общая очередь берёт такие домены снова через сутки,
+      если платный поиск включён: ключ сменят или учётку откроют — их и спросят (решение
+      продаж 20.10.2026). До него исход был `blocked` на срок годности;
+    - проход вызван без платной (`no_paid`) — тоже `paid_off`.
+
+    Не то же, что «ступени нет»: без ключа или с выключенным флагом платного поиска
+    доноров (решение Anthony 12.10.2026) лестница честно отдаёт «адреса нет» — это
+    рабочий режим. `reason` — словами, для отчёта прохода.
+    """
+
+    status: ContactStatus
+    reason: str
+
 
 BASE_URL = "https://api.hunter.io/v2"
 
@@ -43,6 +67,10 @@ ATTEMPTS = 3
 
 #: Маркер частоты — единственный отказ с маркером, который повтор лечит.
 _RATE_MARKER = "too_many_requests"
+
+#: Почему сервис не пускает учётку — коротко, для отчёта прохода (`PaidUnavailable.reason`).
+KEY_REFUSED = "ключ не принят"
+ACCOUNT_CLOSED = "учётка закрыта"
 
 
 class ProviderError(RuntimeError):
@@ -58,9 +86,19 @@ class ProviderRateLimitError(ProviderError):
 
 
 class ProviderBlockedError(ProviderError):
-    """Учётку закрыли. Повтор не поможет ни сейчас, ни завтра — идти
-    в кабинет провайдера. Отдельно от квоты намеренно: «кончились
-    запросы» и «нас закрыли» ведут человека к разным действиям."""
+    """Учётку закрыли. Повтор того же запроса не поможет — идти в кабинет
+    провайдера. Отдельно от квоты намеренно: «кончились запросы» и «нас
+    закрыли» ведут человека к разным действиям. Для поиска адреса — «не
+    спросили» до конца прохода (`provider_step.ProviderStep._close`)."""
+
+    #: Коротко — для отчёта прохода (`PaidUnavailable.reason`).
+    why: ClassVar[str] = ACCOUNT_CLOSED
+
+
+class ProviderKeyRefusedError(ProviderBlockedError):
+    """Ключ не принят (HTTP 401): как закрытая учётка, только чинить — ключ."""
+
+    why: ClassVar[str] = KEY_REFUSED
 
 
 class ProviderDomainRefusedError(ProviderError):
@@ -222,6 +260,13 @@ class HunterProvider:
             error = ProviderError(f"сеть до провайдера не дошла: {reason_of(exc)}")
             raise error from None if unsent(exc) else exc
 
+        if response.status_code == httpx.codes.UNAUTHORIZED:
+            # Ключ не принят: код однозначен при любом маркере и теле, и повтор не поможет
+            # ни сейчас, ни завтра — как закрытая учётка (так же у проверки адресов продаж,
+            # `sales/verifier._unauthorized`).
+            raise ProviderKeyRefusedError(
+                "ключ платного сервиса не принят (HTTP 401) — проверить CONTACTS_HUNTER_API_KEY"
+            )
         try:
             body = response.json()
         except ValueError as exc:

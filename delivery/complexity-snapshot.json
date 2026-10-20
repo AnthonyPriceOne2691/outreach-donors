@@ -81,15 +81,30 @@
       "complexity": 0,
       "worst": "—"
     },
-    "backend/api/contacts/routes.py": {
-      "lines": 278,
+    "backend/api/contacts/deeper.py": {
+      "lines": 95,
       "complexity": 3,
-      "worst": "_donor:146"
+      "worst": "donor_of:50"
+    },
+    "backend/api/contacts/form_letter.py": {
+      "lines": 141,
+      "complexity": 5,
+      "worst": "build_letter:104"
+    },
+    "backend/api/contacts/reach.py": {
+      "lines": 46,
+      "complexity": 1,
+      "worst": "reach_fields:37"
+    },
+    "backend/api/contacts/routes.py": {
+      "lines": 285,
+      "complexity": 3,
+      "worst": "_donor:147"
     },
     "backend/api/contacts/schemas.py": {
-      "lines": 163,
+      "lines": 214,
       "complexity": 1,
-      "worst": "of:62"
+      "worst": "of:65"
     },
     "backend/api/contacts/search_state.py": {
       "lines": 52,
@@ -127,9 +142,9 @@
       "worst": "_file:121"
     },
     "backend/api/donors/schemas.py": {
-      "lines": 487,
+      "lines": 490,
       "complexity": 6,
-      "worst": "of:234"
+      "worst": "of:236"
     },
     "backend/api/errors.py": {
       "lines": 498,
@@ -602,8 +617,8 @@
       "worst": "_print_domain:42"
     },
     "backend/cli/contact_search.py": {
-      "lines": 112,
-      "complexity": 4,
+      "lines": 116,
+      "complexity": 5,
       "worst": "_print_report:36"
     },
     "backend/cli/contact_sweep.py": {
@@ -772,7 +787,7 @@
       "worst": "—"
     },
     "backend/config/contacts.py": {
-      "lines": 125,
+      "lines": 139,
       "complexity": 0,
       "worst": "—"
     },
@@ -952,29 +967,39 @@
       "worst": "—"
     },
     "backend/features/contacts/attempts.py": {
-      "lines": 192,
+      "lines": 260,
       "complexity": 5,
-      "worst": "waits:92"
+      "worst": "values:184"
     },
     "backend/features/contacts/browser.py": {
-      "lines": 193,
+      "lines": 308,
+      "complexity": 8,
+      "worst": "render_pages:269"
+    },
+    "backend/features/contacts/browser_proxy.py": {
+      "lines": 181,
       "complexity": 7,
-      "worst": "render:111"
+      "worst": "_forwarded:88"
     },
     "backend/features/contacts/collected.py": {
-      "lines": 93,
+      "lines": 152,
       "complexity": 10,
-      "worst": "add:69"
+      "worst": "add:128"
     },
     "backend/features/contacts/dead.py": {
       "lines": 58,
       "complexity": 4,
       "worst": "bury_address:45"
     },
+    "backend/features/contacts/deeper.py": {
+      "lines": 236,
+      "complexity": 11,
+      "worst": "deeper_words:172"
+    },
     "backend/features/contacts/extract.py": {
-      "lines": 312,
+      "lines": 391,
       "complexity": 9,
-      "worst": "find_contact_links:290"
+      "worst": "find_contact_links:369"
     },
     "backend/features/contacts/file_sweep.py": {
       "lines": 379,
@@ -982,9 +1007,14 @@
       "worst": "_handle_columns:194"
     },
     "backend/features/contacts/forms.py": {
-      "lines": 375,
+      "lines": 387,
       "complexity": 3,
-      "worst": "monthly_left:149"
+      "worst": "monthly_left:171"
+    },
+    "backend/features/contacts/hidden.py": {
+      "lines": 248,
+      "complexity": 16,
+      "worst": "_attribute_pairs:174"
     },
     "backend/features/contacts/known_addresses.py": {
       "lines": 67,
@@ -992,9 +1022,9 @@
       "worst": "—"
     },
     "backend/features/contacts/ladder.py": {
-      "lines": 491,
+      "lines": 442,
       "complexity": 10,
-      "worst": "_step_pages:223"
+      "worst": "_descend:208"
     },
     "backend/features/contacts/manual.py": {
       "lines": 208,
@@ -1012,9 +1042,9 @@
       "worst": "_query:145"
     },
     "backend/features/contacts/pages.py": {
-      "lines": 329,
-      "complexity": 7,
-      "worst": "language_hint:116"
+      "lines": 474,
+      "complexity": 8,
+      "worst": "is_challenge:168"
     },
     "backend/features/contacts/preference.py": {
       "lines": 65,
@@ -1022,14 +1052,19 @@
       "worst": "preferred_first:47"
     },
     "backend/features/contacts/provider.py": {
-      "lines": 289,
-      "complexity": 8,
-      "worst": "transient:138"
+      "lines": 334,
+      "complexity": 9,
+      "worst": "_call:236"
+    },
+    "backend/features/contacts/provider_step.py": {
+      "lines": 154,
+      "complexity": 9,
+      "worst": "run:79"
     },
     "backend/features/contacts/quality.py": {
-      "lines": 417,
-      "complexity": 6,
-      "worst": "foreign_on_legal_page:287"
+      "lines": 444,
+      "complexity": 5,
+      "worst": "foreign_on_legal_page:314"
     },
     "backend/features/contacts/rdap.py": {
       "lines": 111,
@@ -1042,14 +1077,24 @@
       "worst": "_clear:211"
     },
     "backend/features/contacts/repository.py": {
-      "lines": 363,
+      "lines": 405,
       "complexity": 6,
       "worst": "refusal_of:134"
     },
     "backend/features/contacts/search.py": {
-      "lines": 300,
-      "complexity": 8,
-      "worst": "search_contacts:221"
+      "lines": 391,
+      "complexity": 13,
+      "worst": "search_contacts:299"
+    },
+    "backend/features/contacts/section_map.py": {
+      "lines": 109,
+      "complexity": 9,
+      "worst": "sitemap_sections:93"
+    },
+    "backend/features/contacts/site_steps.py": {
+      "lines": 187,
+      "complexity": 10,
+      "worst": "walk_pages:77"
     },
     "backend/features/contacts/slugs.py": {
       "lines": 330,
@@ -1057,9 +1102,9 @@
       "worst": "_markers_by_length:248"
     },
     "backend/features/contacts/step_counters.py": {
-      "lines": 91,
+      "lines": 102,
       "complexity": 5,
-      "worst": "mark_found:57"
+      "worst": "mark_found:65"
     },
     "backend/features/contacts/sweep_checkpoint.py": {
       "lines": 205,
@@ -1082,12 +1127,12 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 313,
+      "lines": 322,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 97,
+      "lines": 99,
       "complexity": 0,
       "worst": "—"
     },
@@ -1127,12 +1172,17 @@
       "worst": "—"
     },
     "backend/features/core/models/domain.py": {
-      "lines": 109,
+      "lines": 117,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/core/models/donor.py": {
-      "lines": 186,
+      "lines": 192,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/core/models/form_letter.py": {
+      "lines": 47,
       "complexity": 0,
       "worst": "—"
     },
@@ -1227,9 +1277,9 @@
       "worst": "eligible:141"
     },
     "backend/features/crawl/contacts.py": {
-      "lines": 125,
+      "lines": 128,
       "complexity": 5,
-      "worst": "save:93"
+      "worst": "save:95"
     },
     "backend/features/crawl/denylist.py": {
       "lines": 171,
@@ -1412,9 +1462,9 @@
       "worst": "backfill:203"
     },
     "backend/features/donors/browse.py": {
-      "lines": 463,
+      "lines": 475,
       "complexity": 7,
-      "worst": "picked:277"
+      "worst": "picked:286"
     },
     "backend/features/donors/collect.py": {
       "lines": 389,
@@ -1452,7 +1502,7 @@
       "worst": "held_statuses:39"
     },
     "backend/features/donors/home_signals.py": {
-      "lines": 418,
+      "lines": 424,
       "complexity": 12,
       "worst": "_shop_marks:302"
     },
@@ -1537,9 +1587,9 @@
       "worst": "check_metrics:105"
     },
     "backend/features/donors/wording.py": {
-      "lines": 176,
+      "lines": 177,
       "complexity": 4,
-      "worst": "reject_reason_text:129"
+      "worst": "reject_reason_text:130"
     },
     "backend/features/keywords/__init__.py": {
       "lines": 2,
@@ -1650,6 +1700,11 @@
       "lines": 499,
       "complexity": 7,
       "worst": "_deliver:424"
+    },
+    "backend/features/letters/form_letter.py": {
+      "lines": 209,
+      "complexity": 5,
+      "worst": "_template:94"
     },
     "backend/features/letters/funnel.py": {
       "lines": 102,
@@ -1857,9 +1912,9 @@
       "worst": "alarm:37"
     },
     "backend/features/ops/job_outcome.py": {
-      "lines": 232,
+      "lines": 236,
       "complexity": 10,
-      "worst": "_outcome:166"
+      "worst": "_outcome:170"
     },
     "backend/features/ops/key_watch.py": {
       "lines": 151,
@@ -2827,9 +2882,9 @@
       "worst": "live:194"
     },
     "backend/features/sales/segment_queue.py": {
-      "lines": 233,
+      "lines": 234,
       "complexity": 6,
-      "worst": "save:218"
+      "worst": "save:219"
     },
     "backend/features/sales/segment_quote.py": {
       "lines": 231,
@@ -2867,9 +2922,9 @@
       "worst": "_rows:161"
     },
     "backend/features/sales/segment_sites.py": {
-      "lines": 312,
+      "lines": 313,
       "complexity": 6,
-      "worst": "sites_page:256"
+      "worst": "sites_page:257"
     },
     "backend/features/sales/segment_spend.py": {
       "lines": 337,
@@ -3157,9 +3212,9 @@
       "worst": "with_retries:120"
     },
     "backend/shared/net/url_guard.py": {
-      "lines": 175,
+      "lines": 211,
       "complexity": 10,
-      "worst": "assert_safe_url:95"
+      "worst": "assert_safe_url:105"
     },
     "backend/shared/net/url_parts.py": {
       "lines": 50,
@@ -3172,9 +3227,9 @@
       "worst": "spaced:15"
     },
     "backend/shared/queue.py": {
-      "lines": 364,
+      "lines": 377,
       "complexity": 7,
-      "worst": "job_alive:284"
+      "worst": "job_alive:297"
     },
     "backend/shared/sliding_window.py": {
       "lines": 75,
@@ -3200,6 +3255,11 @@
       "lines": 220,
       "complexity": 4,
       "worst": "queue_draft:58"
+    },
+    "backend/workers/contact_jobs.py": {
+      "lines": 84,
+      "complexity": 1,
+      "worst": "_deeper:37"
     },
     "backend/workers/crawl_jobs.py": {
       "lines": 280,

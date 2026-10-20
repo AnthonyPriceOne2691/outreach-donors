@@ -39,6 +39,7 @@ import { Anchor, Badge, Checkbox, Group, Table, Text } from '@mantine/core';
 import { Link } from 'react-router-dom';
 
 import {
+  CONTACT_STATUS_SHORT,
   CONTACT_STATUSES,
   countryTitle,
   DONOR_FRESHNESS,
@@ -63,6 +64,7 @@ import { placeOf } from './place';
 import type { DonorPlace } from './place';
 import { reasonText } from './reasonText';
 import { TopicLine } from '../topics/TopicLine';
+import { DeeperRowIcon } from './DeeperSearch';
 
 /** Колонки слева направо. Ширина донора — остаток: в ней домен, и ей
  *  отдаётся всё, что не нужно остальным. Остальные — по самому длинному,
@@ -205,14 +207,19 @@ function NotADonor({ donor }: { donor: DonorRowCard }) {
 function AddressCell({ donor }: { donor: DonorRowCard }) {
   const state =
     donor.contact_status === null ? NOT_SEARCHED : CONTACT_STATUSES[donor.contact_status];
+  // Группа постоянной ширины: длинное имя исхода — коротким, полное — подсказкой.
+  const short =
+    donor.contact_status === null ? undefined : CONTACT_STATUS_SHORT[donor.contact_status];
   return (
     // Число и значок — одной группой постоянной ширины: числа встают
     // столбиком, значки начинаются с одной линии, а группа — по центру.
     <span className="addressCell">
       <span className="addressCount">{formatNumber(donor.contacts)}</span>
-      <Badge variant="light" size="sm" color={state.color}>
-        {state.title}
+      <Badge variant="light" size="sm" color={state.color} title={short && state.title}>
+        {short ?? state.title}
       </Badge>
+      {/* «Адреса нет» — искать глубже прямо из списка (`DeeperSearch.tsx`). */}
+      <DeeperRowIcon donor={donor} />
     </span>
   );
 }

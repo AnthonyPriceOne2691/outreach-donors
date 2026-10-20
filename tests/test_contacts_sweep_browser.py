@@ -120,6 +120,12 @@ class _Context:
     def __init__(self, tab: _Tab) -> None:
         self._tab = tab
 
+    async def route(self, _pattern: str, _handler: object) -> None:
+        """Защита исходящих вкладки (`browser._guard`) — здесь запросов нет вовсе."""
+
+    async def route_web_socket(self, _pattern: str, _handler: object) -> None:
+        """Сокеты вкладки закрываются (`browser._closed`)."""
+
     async def new_page(self) -> _Tab:
         return self._tab
 

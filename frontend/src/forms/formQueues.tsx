@@ -22,7 +22,8 @@ import {
   formGaveUp,
 } from '../api/contacts';
 import type { AdvertiserFormCard, AdvertiserFormsView } from '../api/contacts';
-import type { FormCard, FormsView } from '../api/types';
+import type { FormRow } from '../api/deeper';
+import type { FormsView } from '../api/types';
 import { Seams } from '../components/Seams';
 import { formatCompact, formatDate, formatNumber, plural } from '../format';
 
@@ -67,6 +68,10 @@ export interface FormQueue<Row, Page extends QueuePage<Row> = QueuePage<Row>> {
   filled: (host: string) => string;
   /** Подтверждение «Не вышло» — тем, что сделает код: адрес поищут снова по сроку. */
   closeAsk: (host: string, page: Page) => string;
+  /** Страница с формой — ссылкой под именем сайта; `null` — не записана (искали раньше). */
+  formOf: (row: Row) => string | null;
+  /** Донор, которому собирается текст письма для формы; нет — у очереди текста нет. */
+  letterOf?: (row: Row) => number;
 }
 
 /** Когда «Не вышло» вернёт сайт в поиск: срок годности от прошлого поиска (`forms.gave_up`,
@@ -81,7 +86,7 @@ function searched<Row extends { attempted_at: string | null }>(): QueueColumn<Ro
   return { title: 'Искали', share: 17, cell: (row) => formatDate(row.attempted_at) };
 }
 
-export const DONOR_FORMS: FormQueue<FormCard, FormsView> = {
+export const DONOR_FORMS: FormQueue<FormRow, FormsView> = {
   tab: 'donors',
   queryKey: ['forms'],
   fetch: fetchForms,
@@ -102,8 +107,9 @@ export const DONOR_FORMS: FormQueue<FormCard, FormsView> = {
   other: (page) => page.advertisers_waiting,
   hint:
     'У этих доноров есть контактная форма и нет почты. Лестница дошла до них и остановилась: ' +
-    'дальше нужны руки. Заполнили и получили адрес — впишите его, и донор пойдёт в очередь ' +
-    'писем обычным порядком.',
+    'дальше нужны руки. «Форма и письмо» — ссылка на форму и текст, тот же, что ушёл бы ' +
+    'донору письмом. Форму отправляете вы: сервис форм не заполняет. Получили ответ с ' +
+    'адресом — впишите его, и донор пойдёт в очередь писем обычным порядком.',
   empty: 'Очередь пуста. Сюда попадают доноры, у которых лестница нашла форму, но не нашла адреса.',
   whose: 'донора',
   about:
@@ -113,6 +119,8 @@ export const DONOR_FORMS: FormQueue<FormCard, FormsView> = {
   closeAsk: (host, page) =>
     `Закрыть ${host} без адреса? Донор уйдёт из очереди форм; адрес ему поищут снова ` +
     `${again(page.retry_days)} — до этого письма не будет.`,
+  formOf: (row) => row.form_url ?? null,
+  letterOf: (row) => row.donor_id,
 };
 
 /** Откуда рекламодатель: донор, на котором нашли ссылку, — или бизнес ниши с прогоном. */
@@ -165,4 +173,5 @@ export const ADVERTISER_FORMS: FormQueue<AdvertiserFormCard, AdvertiserFormsView
   closeAsk: (host, page) =>
     `Закрыть ${host} без адреса? Рекламодатель уйдёт из очереди форм; адрес ему поищут снова ` +
     `${again(page.retry_days)} — до этого оффера не будет.`,
+  formOf: (row) => row.form_url ?? null,
 };

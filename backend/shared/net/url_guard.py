@@ -83,6 +83,16 @@ def _is_private(address: str) -> bool:
     )
 
 
+def _is_address(name: str) -> bool:
+    """Адрес ли это, а не имя: адрес проверен как есть, распознавать нечего."""
+    try:
+        ipaddress.ip_address(name)
+    except ValueError:
+        logger.debug("url-guard: %r — имя, а не адрес: распознаём", name)
+        return False
+    return True
+
+
 def _resolved_addresses(host: str) -> list[str]:
     """Все адреса имени. Пустой список — имя не разрешилось."""
     try:
@@ -110,6 +120,32 @@ def assert_safe_url(url: str | httpx.URL) -> None:
     for address in _resolved_addresses(host):
         if _is_private(address):
             raise UnsafeUrlError(f"имя {host} ведёт на внутренний адрес {address}")
+
+
+def checked_addresses(host: str) -> list[str]:
+    """Адреса имени, прошедшие ту же проверку, — чтобы соединяться по ним, а не по имени.
+
+    Для того, кто соединяется сам (прокси браузера, `contacts/browser_proxy.py`): имя
+    распознаётся один раз, и соединение идёт на проверенный адрес — второе распознавание
+    могло бы вернуть уже другой, внутренний (подмена DNS между проверкой и соединением).
+    В отличие от `assert_safe_url`, нераспознанное имя — отказ: соединяться не с чем.
+    """
+    name = host.strip().lower().rstrip(".").strip("[]")
+    if not name:
+        raise UnsafeUrlError(f"в адресе нет хоста: {host!r}")
+    if name in BLOCKED_HOSTS:
+        raise UnsafeUrlError(f"служебное имя {name} запрещено")
+    if _is_private(name):
+        raise UnsafeUrlError(f"внутренний адрес {name} запрещён")
+    if _is_address(name):
+        return [name]
+    addresses = _resolved_addresses(name)
+    if not addresses:
+        raise UnsafeUrlError(f"имя {name} не распознаётся")
+    for address in addresses:
+        if _is_private(address):
+            raise UnsafeUrlError(f"имя {name} ведёт на внутренний адрес {address}")
+    return addresses
 
 
 class _CappedStream(httpx.AsyncByteStream):

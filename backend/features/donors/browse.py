@@ -34,6 +34,7 @@ from typing import Any
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.contacts.deeper import deeper_ready, deeper_refusal
 from backend.features.contacts.manual import removal_refusals
 from backend.features.contacts.preference import preferred_first
 from backend.features.contacts.repository import search_refusal
@@ -84,6 +85,8 @@ class DonorRow:
     topic: str | None = None
     topic_secondary: str | None = None
     topic_reason: str | None = None
+    #: Можно искать адрес глубже — правилом кнопки (`contacts.deeper.deeper_rule`).
+    deeper: bool = False
 
     @property
     def fresh(self) -> bool:
@@ -190,6 +193,10 @@ class DonorCard:
     #: правилом, что у разбора (`quoting.written_by_hand`). ТЗ: в карточке «распознанные
     #: цены … и рядом исходный текст ответа, из которого они взяты». Пусто — как выше.
     price_reply_text: str | None = None
+    #: Страница с контактной формой сайта (`domains.contact_form_url`).
+    form_url: str | None = None
+    #: «Искать глубже»: почему нельзя сейчас (`None` — можно) — тем же правилом, что кнопка.
+    deeper_refusal: str | None = None
 
     @property
     def fresh(self) -> bool:
@@ -256,6 +263,7 @@ class DonorBrowser:
             )
         )
         contacts = await self._contact_counts([donor.domain_id for donor, *_ in found])
+        deeper = await deeper_ready(self._session, [donor.id for donor, *_ in found])
         return DonorPage(
             rows=[
                 DonorRow(
@@ -268,6 +276,7 @@ class DonorBrowser:
                     topic=topic,
                     topic_secondary=second,
                     topic_reason=why,
+                    deeper=donor.id in deeper,
                 )
                 for donor, host, answer, state, stale, topic, second, why in found
             ],
@@ -385,6 +394,7 @@ class DonorBrowser:
                 DomainModel.seller_answer,
                 freshness(moment, ttl).label("freshness"),
                 price_is(PriceState.STALE, moment).label("price_stale"),
+                DomainModel.contact_form_url,
             )
             .join(DomainModel, DomainModel.id == DonorModel.domain_id)
             .where(DonorModel.id == donor_id)
@@ -393,7 +403,7 @@ class DonorBrowser:
         if found is None:
             raise UnknownDonorError(f"Донора №{donor_id} нет")
 
-        donor, host, answer, state, stale = found
+        donor, host, answer, state, stale, form_url = found
         contacts = (
             (
                 await self._session.execute(
@@ -421,6 +431,8 @@ class DonorBrowser:
             removal=await removal_refusals(self._session, contacts),
             threads=await self._threads(donor.domain_id),
             price_stale=bool(stale),
+            form_url=form_url,
+            deeper_refusal=await deeper_refusal(self._session, donor),
             **await self._price_reply(donor.last_price_reply_id),
         )
 

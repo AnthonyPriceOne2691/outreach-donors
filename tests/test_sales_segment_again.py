@@ -591,22 +591,28 @@ async def test_retry_now_takes_only_the_sites_whose_term_came(
     assert silent.asked == []
 
 
+@pytest.mark.parametrize("unasked", [ContactStatus.NO_QUOTA, ContactStatus.PAID_OFF])
 async def test_retry_now_asks_the_unasked_only_with_the_paid_step(
-    session: AsyncSession, web: Web, later: Later, monkeypatch: pytest.MonkeyPatch
+    session: AsyncSession,
+    web: Web,
+    later: Later,
+    monkeypatch: pytest.MonkeyPatch,
+    unasked: ContactStatus,
 ) -> None:
     """«Не спросили» платный сервис — кнопкой, только когда платная ступень у повтора правда есть:
-    без неё бесплатные ступени (уже пройденные) отправили бы сайт в «адреса нет»."""
+    без неё бесплатные ступени (уже пройденные) отправили бы сайт в «адреса нет». Квота и
+    недоступная ступень (выключена, ключ не принят) — одно «не спросили»."""
     monkeypatch.setattr("backend.config.sales.SEGMENT_PAID_CONTACTS", False)
     run = await _done_run(session, searches=5)
     quota = await _accepted(
-        session, run, BOOKS, contact_status=ContactStatus.NO_QUOTA,
+        session, run, BOOKS, contact_status=unasked,
         contact_attempted_at=_ago(hours=2),
     )  # fmt: skip
 
     await again(session, run.id, FixtureVerifier(), Again.ADDRESSES)
     assert (web.asked, (await _fresh(session, quota)).contact_status) == (
         [],
-        ContactStatus.NO_QUOTA,
+        unasked,
     )
 
     _paid_ready(monkeypatch, Paid())

@@ -24,6 +24,7 @@ import logging
 import re
 from urllib.parse import unquote
 
+import idna
 from selectolax.parser import HTMLParser
 
 from backend.features.contacts.known_addresses import MAIL_ONLY_DOMAINS
@@ -47,6 +48,47 @@ logger = logging.getLogger(__name__)
 EMAIL_RE = re.compile(
     r"(?<![a-zA-Z0-9._%+\-])[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.(?:xn--[a-zA-Z0-9\-]{2,}|[a-zA-Z]{2,})"
 )
+
+# Адрес на домене Юникодом — `info@пекарня-пример.рф`: так его и пишут на странице,
+# а `EMAIL_RE` знает только ASCII, и адрес шёл в отсев «не похож на адрес» (находка
+# продаж 20.10.2026). Своё выражение рядом, а не шире прежнего: зона здесь — только
+# не-ASCII буквами, и потому прежние находки не меняются ни на знак — у «info@site.com.
+# Следующее предложение» латинский адрес по-прежнему снимает `EMAIL_RE`, а склейка
+# с кириллическим словом уходит в отсев отдельной строкой: «латинский адрес склеен со
+# словом после точки» (`quality._RULES`). Локальная часть — ASCII: адрес с ней Юникодом
+# (EAI) почтовые сервисы принимают не все, и он остаётся отказом.
+IDN_EMAIL_RE = re.compile(
+    r"(?<![a-zA-Z0-9._%+\-])[a-zA-Z0-9._%+\-]+@[\w\-]+(?:\.[\w\-]+)*\.[^\W\d_\x00-\x7f]{2,}"
+)
+
+
+def emails_in(text: str) -> set[str]:
+    """Всё похожее на адрес в тексте: ASCII и домены Юникодом."""
+    return set(EMAIL_RE.findall(text)) | set(IDN_EMAIL_RE.findall(text))
+
+
+def ascii_domain(domain: str) -> str:
+    """Домен в ASCII: `пекарня-пример.рф` → `xn----7sbocojrfofidd7r.xn--p1ai`.
+
+    Так адрес проходит проверку годности (`quality.rejection_reason`) и сверку «свой
+    домен сайта»: хост сайта в базе бывает и Юникодом, и в punycode, и сравнивать надо
+    одно с одним. Не переводится (пустая метка, длинная метка) — остаётся как есть:
+    проверка годности назовёт причину.
+
+    Перевод — IDNA 2008 с сопоставлением UTS 46 (`idna`, пакет у `httpx`), а не кодек
+    Python: тот — IDNA 2003 и переводит `straße.example.test` в `strasse.example.test`, то
+    есть в чужой домен, а регистраторы и почта давно пишут `xn--strae-oqa.example.test`
+    (ревью 20.10.2026).
+    """
+    lowered = domain.strip().lower()
+    if lowered.isascii():
+        return lowered
+    try:
+        return idna.encode(lowered, uts46=True).decode("ascii")
+    except (idna.IDNAError, UnicodeError) as exc:
+        logger.debug("домен %r не переводится в IDNA: %s", domain[:80], exc)
+        return lowered
+
 
 # Экранирование JS и JSON: `\u003e` — это `>`, `\x40` — `@`. Встречается в
 # скриптах ТЕЛА страницы: их текст selectolax отдаёт вместе с видимым, и со
@@ -159,19 +201,56 @@ def deobfuscate(text: str) -> str:
     return _DOT_RE.sub(".", text)
 
 
-def _from_mailto(tree: HTMLParser) -> set[str]:
-    found: set[str] = set()
-    for node in tree.css("a[href]"):
-        href = (node.attributes.get("href") or "").strip()
-        if not href.lower().startswith("mailto:"):
-            continue
-        value = href[7:].split("?")[0].strip()
-        # Адрес в mailto бывает процентно-закодирован (`info%40site.com`)
-        # или записан сущностями (`&#64;`), а часто и не один.
-        for part in value.split(","):
+#: `mailto:` внутри значения атрибута — `location.href='mailto:…'` в `onclick`,
+#: `action="mailto:…"` у формы, `data-href`: адрес — до кавычки, пробела или `?`.
+_MAILTO_IN_VALUE = re.compile(r"mailto:\s*/{0,2}([^\s'\"<>?;&]+)", re.IGNORECASE)
+
+
+def _balanced(raw: str) -> str:
+    """Без непарной скобки в хвосте. Скобки — часть обфускации «info(at)site(dot)com»,
+    а непарная в конце — конец вызова в скрипте: `open(mailto:info@site.com)`."""
+    while raw.endswith(")") and raw.count(")") > raw.count("("):
+        raw = raw[:-1]
+    return raw
+
+
+def _mailto_values(value: str) -> list[str]:
+    """Адреса после `mailto:` в одном значении атрибута — раскрытыми и без обфускации."""
+    found: list[str] = []
+    for raw in _MAILTO_IN_VALUE.findall(html_entities.unescape(value)):
+        for part in _balanced(raw).split(","):
             cleaned = html_entities.unescape(unquote(part)).strip()
+            if cleaned and "@" not in cleaned:
+                cleaned = deobfuscate(cleaned)
             if cleaned:
-                found.add(cleaned)
+                found.append(cleaned)
+    return found
+
+
+def _from_mailto(tree: HTMLParser, html: str) -> set[str]:
+    """`mailto:` в любом атрибуте любого элемента: `<a>`, `<area>` карты-картинки,
+    `onclick`, `action` формы, `data-href`.
+
+    Значение бывает процентно-закодировано (`info%40site.com`), записано сущностями
+    (`&#64;`) и не одно. Бывает и спрятано тем же приёмом, что текст, — прямо в ссылке
+    (`mailto:info[at]site[dot]com`), или со слешами после схемы (`mailto://info@…`):
+    синтетика 20.10.2026 нашла, что оба вида шли в отсев «не похож на адрес». В значении
+    `mailto:` двусмысленности нет — это поле адреса, и «at» там всегда собака.
+
+    **Прямой, а не догадка, — и вне ссылки** (находка продаж 20.10.2026): `mailto:` в
+    атрибуте элемента пишет автор этой страницы, и ведёт он посетителя туда же, куда
+    `<a href>`, — чужой домен здесь бывает ящиком владельца (`owner@gmail.com`), и фильтр
+    качества тот же. Скрипт — другое дело: в нём живёт чужой код, и адрес из `<head>`
+    берётся только на домене сайта (`hidden.extract_hidden`). Обход всех элементов дорог
+    на странице в мегабайт, поэтому он — только когда `mailto:` в исходнике вообще есть.
+    """
+    if "mailto:" not in html.lower():
+        return set()
+    found: set[str] = set()
+    for node in tree.css("*"):
+        for value in node.attributes.values():
+            if value and "mailto:" in value.lower():
+                found.update(_mailto_values(value))
     return found
 
 
@@ -229,16 +308,17 @@ def repair_glued_domain(domain: str) -> str:
     return f"{head}.{glued.group(1)}" if glued else domain
 
 
-def _unescape_js(text: str) -> str:
+def unescape_js(text: str) -> str:
     """`\\u003e` → `>`, `\\x40` → `@` — экранирование из скриптов страницы."""
     return _JS_ESCAPE_RE.sub(lambda m: chr(int(m.group(1) or m.group(2), 16)), text)
 
 
-def _clean(items: set[str]) -> set[str]:
+def clean_tokens(items: set[str]) -> set[str]:
     """Привести токены к адресам: обрезать пунктуацию, починить зону, снизить регистр.
 
     Порядок важен: зона чинится ДО снижения регистра, потому что регистр —
-    это и есть признак склейки. Снизить его первым значит потерять его.
+    это и есть признак склейки. Снизить его первым значит потерять его. Домен
+    Юникодом — в punycode (`ascii_domain`): так он проходит проверку годности.
     """
     cleaned: set[str] = set()
     for item in items:
@@ -246,7 +326,7 @@ def _clean(items: set[str]) -> set[str]:
         if not token:
             continue
         local, at, domain = token.partition("@")
-        token = f"{local}{at}{repair_glued_domain(domain)}" if at else token
+        token = f"{local}{at}{ascii_domain(repair_glued_domain(domain))}" if at else token
         cleaned.add(token.lower())
     return cleaned
 
@@ -261,10 +341,10 @@ def extract_emails(html: str) -> set[str]:
         return set()
 
     tree = HTMLParser(html)
-    found = _from_mailto(tree) | _from_cloudflare(tree)
-    text = _unescape_js(html_entities.unescape(tree.text(separator=" ")))
-    found.update(EMAIL_RE.findall(text))
-    return _clean(found)
+    found = _from_mailto(tree, html) | _from_cloudflare(tree)
+    text = unescape_js(html_entities.unescape(tree.text(separator=" ")))
+    found.update(emails_in(text))
+    return clean_tokens(found)
 
 
 def extract_obfuscated(html: str) -> set[str]:
@@ -282,9 +362,8 @@ def extract_obfuscated(html: str) -> set[str]:
     if not html:
         return set()
 
-    text = _unescape_js(html_entities.unescape(HTMLParser(html).text(separator=" ")))
-    direct = set(EMAIL_RE.findall(text))
-    return _clean(set(EMAIL_RE.findall(deobfuscate(text))) - direct)
+    text = unescape_js(html_entities.unescape(HTMLParser(html).text(separator=" ")))
+    return clean_tokens(emails_in(deobfuscate(text)) - emails_in(text))
 
 
 def find_contact_links(html: str, *, slugs: frozenset[str]) -> set[str]:

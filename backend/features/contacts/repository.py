@@ -28,7 +28,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Protocol
 
-from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy import ColumnElement, and_, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
@@ -94,7 +94,7 @@ def _needs_contact(now: datetime, ttl_days: int) -> ColumnElement[bool]:
         is_donor(),
         ~not_writing(),
         ~manual_address(),
-        attempts.waiting(DonorModel, now=now, ttl_days=ttl_days),
+        attempts.waiting(DonorModel, now=now, ttl_days=ttl_days, unasked=attempts.general_queue()),
     )
 
 
@@ -108,7 +108,7 @@ class SearchRefusedError(ValueError):
 UNEXPLAINED = "Донор не ждёт поиска адреса по общему правилу — причину назвать не удалось."
 
 
-def _not_entitled(donor: DonorModel) -> str | None:
+def not_entitled(donor: DonorModel) -> str | None:
     """Кому поиск не положен вовсе, пока не изменится сам донор: не подходит
     по порогам или не принят человеком. Первые два условия `_needs_contact`."""
     if donor.status is DonorStatus.UNCHECKED:
@@ -152,7 +152,7 @@ def refusal_of(
     сама, значком и датой. Отказ отвечает на другой вопрос — почему нельзя
     сейчас и когда станет можно.
     """
-    never = _not_entitled(donor)
+    never = not_entitled(donor)
     if never is not None:
         return never
     if not_writing is not None:
@@ -161,10 +161,18 @@ def refusal_of(
         return MANUAL_REFUSAL
     # Решает то же правило попыток, что и запрос (`attempts.waits`): на самой
     # границе срока экран не обещает поиск, который сервер отказал бы.
-    again = attempts.again_at(donor, ttl_days=ttl_days)
-    if again is None or attempts.waits(donor, now=now, ttl_days=ttl_days):
+    unasked = attempts.general_queue()
+    again = attempts.again_at(donor, ttl_days=ttl_days, unasked=unasked)
+    if again is None or attempts.waits(donor, now=now, ttl_days=ttl_days, unasked=unasked):
         return None
     return _not_yet(donor, again)
+
+
+#: Почему платная ступень в прошлый раз не спросила — для «повторится сам».
+_PAID_MISSED = {
+    ContactStatus.NO_QUOTA: "кончилась квота",
+    ContactStatus.ERROR: "сервис не ответил",
+}
 
 
 def _not_yet(donor: DonorModel, again: datetime) -> str:
@@ -173,6 +181,18 @@ def _not_yet(donor: DonorModel, again: datetime) -> str:
         return (
             f"Сайт не ответил ({donor.contact_reason or 'причина не записана'}) — поиск "
             f"повторится сам, не раньше {again:%d.%m.%Y %H:%M}."
+        )
+    if donor.contact_status is ContactStatus.PAID_OFF:
+        # Свои слова: платную ступень не звали — «не спросила» было бы неправдой.
+        return (
+            "Бесплатные ступени адреса не дали, а платный поиск в тот раз был недоступен — "
+            f"поиск повторится сам, не раньше {again:%d.%m.%Y %H:%M}."
+        )
+    missed = _PAID_MISSED.get(donor.contact_status) if donor.contact_status else None
+    if missed is not None:
+        return (
+            f"Платная ступень в прошлый раз не спросила ({missed}) — поиск повторится сам, "
+            f"не раньше {again:%d.%m.%Y %H:%M}."
         )
     return (
         f"Повторный поиск — не раньше {again:%d.%m.%Y}: до тех пор исход прошлого "
@@ -239,6 +259,27 @@ async def save_addresses(
         )
     )
     return len(payload)
+
+
+async def save_form_urls(
+    session: AsyncSession, results: Sequence[LadderResult], ids: dict[str, int]
+) -> None:
+    """Где форма на сайте — у домена: её открывает человек на «Формах». Общее у обеих
+    очередей: форма, как и адрес, принадлежит сайту, а не роли.
+
+    Пишется по каждому прочитанному сайту (`pages_read`) — и пустота тоже: формы, которую
+    сайт убрал, на «Формах» быть не должно. Сайт, не прочитанный вовсе — не пустил,
+    показал проверку, не ответил, — о форме не сказал ничего, и прежняя ссылка остаётся:
+    его «адреса нет» её не стирает."""
+    for result in results:
+        domain_id = ids.get(result.host)
+        if domain_id is None or result.pages_read == 0:
+            continue
+        await session.execute(
+            update(DomainModel)
+            .where(DomainModel.id == domain_id)
+            .values(contact_form_url=result.form_url)
+        )
 
 
 class ContactRepository:
@@ -329,6 +370,7 @@ class ContactRepository:
             moment=moment,
             keep=manual_address(),
         )
+        await save_form_urls(self._session, results, ids)
         return await save_addresses(self._session, results, ids)
 
 

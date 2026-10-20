@@ -76,6 +76,8 @@ export interface AdvertiserFormCard {
   run_id: number | null;
   points: number;
   attempted_at: string | null;
+  /** Страница с формой; `null` — не записана (искали до 20.10.2026). */
+  form_url?: string | null;
 }
 
 export interface AdvertiserFormsView {

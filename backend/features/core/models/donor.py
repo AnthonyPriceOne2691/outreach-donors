@@ -125,6 +125,12 @@ class DonorModel(TimestampedMixin, ContactAttemptMixin, Base):
     last_price_reply_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # --- Контакт: исход поиска — колонки `ContactAttemptMixin` ---
+    # Поиск глубже по кнопке (`contacts/deeper.py`): когда был и чем кончился — словами.
+    # Глубже ищут раз после обычного поиска: снова — после следующего обычного.
+    contact_deeper_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    contact_deeper_note: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     # --- Решение человека ---
     # Пороги отвечают «годен ли по цифрам», человек — «берём ли». Цифры

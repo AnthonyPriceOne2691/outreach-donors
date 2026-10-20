@@ -1,6 +1,7 @@
 /** Что отдаёт сервер. Имена полей повторяют схему API один в один:
  *  перевод на ходу — лишний слой, в котором опечатка видна не сразу. */
 
+import type { ContactStatus } from './contactStatus';
 import type { PriceDetails, PriceFacets, RowPrice } from './donorPrice';
 import type { ForecastLimits } from './forecastLimits';
 import type { PriceOrigin, PriceRefusal } from './manualPrice';
@@ -254,15 +255,8 @@ export interface Reviewed {
 }
 
 export type DonorStatus = 'suitable' | 'unsuitable' | 'unchecked';
-export type ContactStatus =
-  | 'found'
-  | 'not_found'
-  | 'form_only'
-  | 'no_quota'
-  | 'rate_limited'
-  | 'blocked'
-  | 'error'
-  | 'no_answer';
+// Исход поиска адреса — своим файлом вместе со словами (`contactStatus.ts`).
+export type { ContactStatus };
 /** Ступень лестницы, давшая адрес, — значения сервера (`ContactSource`).
  *  До 25.09.2026 здесь стояли `mx`, `rdap`, `paid`, `form`, которых сервер
  *  не отдаёт, а `whois` и `provider` не было: колонка «Откуда» в карточке

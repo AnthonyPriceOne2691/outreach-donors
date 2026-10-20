@@ -34,7 +34,6 @@
 
 import {
   ActionIcon,
-  Anchor,
   Badge,
   Button,
   Card,
@@ -47,67 +46,32 @@ import {
   Title,
 } from '@mantine/core';
 import { IconLock, IconTrash } from '@tabler/icons-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
-import { Link } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { addDonorAddress, removeDonorAddress, searchDonorContact } from '../api/contacts';
-import { fetchJob } from '../api/jobs';
+import type { DonorCardWithReach } from '../api/deeper';
 import { CONTACT_SOURCES, CONTACT_STATUSES, NOT_SEARCHED, PERMISSION_TITLES } from '../api/labels';
-import type { ContactCard, DonorFullCard, JobCard, JobState } from '../api/types';
+import type { ContactCard, DonorFullCard, JobCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatDate } from '../format';
 import { JobLine } from '../jobs/JobLine';
+import { useStartedJob } from '../jobs/startedJob';
+import { forget } from '../storage';
+import { FormOnly, SearchState } from './AddressState';
+import { DeeperBlock } from './DeeperSearch';
 import { CONTACTS_QUERY_KEY } from './PendingContacts';
 import { notify } from '../notices';
 
-/** Пока задача не кончилась, второй поиск не предлагается. */
-const ACTIVE: ReadonlySet<JobState> = new Set(['queued', 'running', 'retry_wait']);
-
 function jobKey(donorId: number): string {
   return `donor:${donorId}:contacts-job`;
-}
-
-function remembered(key: string): string | null {
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function remember(key: string, value: string | null): void {
-  try {
-    if (value === null) window.localStorage.removeItem(key);
-    else window.localStorage.setItem(key, value);
-  } catch {
-    // Хранилище недоступно (приватное окно) — помним до перезагрузки.
-  }
 }
 
 /** Фраза сервера — предложением: с заглавной и с точкой. */
 function sentence(text: string): string {
   const said = text.charAt(0).toUpperCase() + text.slice(1);
   return said.endsWith('.') ? said : `${said}.`;
-}
-
-function SearchState({ donor }: { donor: DonorFullCard }) {
-  if (donor.contact_attempted_at !== null) {
-    return (
-      <Text size="sm" c="dimmed">
-        Искали {formatDate(donor.contact_attempted_at)}.
-      </Text>
-    );
-  }
-  // Вписанный руками адрес — «адрес найден», но поиска не было: дата
-  // поиска здесь была бы выдумкой.
-  const written = donor.contacts.some((contact) => contact.source === 'manual');
-  return (
-    <Text size="sm" c="dimmed">
-      {written ? 'Адрес вписан вручную, лестницей не искали.' : 'Адрес ещё не искали.'}
-    </Text>
-  );
 }
 
 /** Почему адрес не удалить — за значком, целиком по нажатию: текст длинный,
@@ -339,54 +303,19 @@ function AddAddress({
   );
 }
 
-/** Только форма: где её заполнить и что будет дальше. В очереди «Формы» — только
- *  доноры (`contacts/forms.py`, `in_queue`): у кандидата карточка писала «Донор стоит
- *  в очереди», а очередь его не брала (проверка прода 10.10.2026). */
-function FormOnly({ donor }: { donor: DonorFullCard }) {
-  return (
-    <Text size="sm">
-      Адреса нет — на сайте только форма, её заполняет человек:{' '}
-      <Anchor href={`https://${donor.host}`} target="_blank" rel="noreferrer" size="sm">
-        открыть сайт
-      </Anchor>
-      .{' '}
-      {donor.review === 'accepted' ? (
-        <>
-          Донор стоит в очереди{' '}
-          <Anchor component={Link} to="/forms" size="sm">
-            «Формы»
-          </Anchor>
-          : ответ на форму письмом даст адрес, и ему уйдёт письмо из очереди.
-        </>
-      ) : (
-        'В очередь «Формы» встают только доноры, принятые человеком.'
-      )}
-    </Text>
-  );
-}
-
-export function DonorAddresses({ donor }: { donor: DonorFullCard }) {
+export function DonorAddresses({ donor }: { donor: DonorCardWithReach }) {
   const { can } = useSession();
   const queryClient = useQueryClient();
-  const [jobId, setJobId] = useState<string | null>(() => remembered(jobKey(donor.id)));
-  // Исход задачи читается из того же кэша, что у `JobLine`: второго опроса нет.
-  const job = useQuery({
-    queryKey: ['job', jobId],
-    queryFn: () => fetchJob(jobId ?? ''),
-    enabled: jobId !== null,
-    retry: false,
-  });
-  const searching = job.data !== undefined && ACTIVE.has(job.data.state);
-
-  const start = useMutation({
-    mutationFn: () => searchDonorContact(donor.id),
-    onSuccess: (queued) => {
-      remember(jobKey(donor.id), queued.job_id);
-      setJobId(queued.job_id);
-      notify({ message: 'Поиск адреса поставлен в очередь', color: 'green' });
-    },
-    onError: (failure) =>
-      notify({ title: 'Не поставили', message: refusalOf(failure), color: 'red' }),
+  // Пока задача не кончилась, второй поиск не предлагается; исход — тем же запросом и
+  // кэшем, что у `JobLine` (`jobs/startedJob.ts`).
+  const {
+    jobId,
+    running: searching,
+    start,
+  } = useStartedJob(() => searchDonorContact(donor.id), {
+    remember: jobKey(donor.id),
+    queued: 'Поиск адреса поставлен в очередь',
+    refused: 'Не поставили',
   });
 
   // Адрес вписали или удалили — карточка приходит в ответе целиком, а списку
@@ -417,7 +346,7 @@ export function DonorAddresses({ donor }: { donor: DonorFullCard }) {
   // Упавший — показывается, пока не поставят новый: причина нужна и завтра.
   const finished = useCallback(() => {
     if (queryClient.getQueryData<JobCard>(['job', jobId])?.state === 'done') {
-      remember(jobKey(donor.id), null);
+      forget(jobKey(donor.id));
     }
     void queryClient.invalidateQueries({ queryKey: ['donor', String(donor.id)] });
     void queryClient.invalidateQueries({ queryKey: ['donors'] });
@@ -440,8 +369,8 @@ export function DonorAddresses({ donor }: { donor: DonorFullCard }) {
           </Badge>
         </Group>
         <SearchState donor={donor} />
-        {/* Адреса нет, а форма есть: её заполняет человек. Где именно форма,
-            лестница не запоминает — ссылка ведёт на сайт и в очередь форм. */}
+        {/* Адреса нет, а форма есть: её заполняет человек — ссылка ведёт на страницу
+            формы (с 20.10.2026 лестница её запоминает) и в очередь «Форм». */}
         {empty && donor.contact_status === 'form_only' ? <FormOnly donor={donor} /> : null}
 
         {!empty && (
@@ -478,6 +407,8 @@ export function DonorAddresses({ donor }: { donor: DonorFullCard }) {
           </Stack>
         )}
         {jobId !== null && <JobLine jobId={jobId} onFinished={finished} />}
+        {/* «Адреса нет» после обычного поиска — искать глубже (`DeeperSearch.tsx`). */}
+        {empty && donor.contact_status === 'not_found' && <DeeperBlock donor={donor} />}
 
         {/* Без права — объяснение на месте, одной строкой на все три действия:
             две похожие строки читались бы как сбой. */}

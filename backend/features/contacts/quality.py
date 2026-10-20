@@ -18,7 +18,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from backend.features.contacts.extract import EMAIL_RE
+from backend.features.contacts.extract import EMAIL_RE, ascii_domain
 from backend.features.contacts.known_addresses import FREE_MAILBOX_DOMAINS, ROLE_LOCAL_PARTS
 from backend.features.core.domain import ContactSource, PageKind
 from backend.features.donors.host import split_host
@@ -64,7 +64,7 @@ LEGAL_CONTACT_LOCAL = re.compile(r"^(?:eu|uk)representative(?:$|[._-])|(?:^|[._-
 GLUED_LOWERCASE_ZONE = re.compile(r"\.(?:com|net|org)[a-z]{1,3}$")
 
 # Обрывок экранирования JSON в начале адреса: `u003eprivacy@…`, `u002f…@…`.
-# Извлечение теперь раскодирует `\uXXXX` до поиска (`extract._unescape_js`),
+# Извлечение теперь раскодирует `\uXXXX` до поиска (`extract.unescape_js`),
 # а правило держит то, что попало в базу раньше, — при сборке письма. Только
 # знаки, которые на странице и экранируют (`<`, `>`, `&`, кавычки, `/`, `@`):
 # `u0012345@…` — живой идентификатор, и шире правило отсеивало бы людей
@@ -255,6 +255,14 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
     (lambda _v, _l, domain: domain.endswith(FILE_EXTENSIONS), "хвост имени файла"),
     (lambda _v, _l, domain: domain.startswith(".") or ".." in domain, "домен разобран неверно"),
     (
+        # `info@site.com.Сайт`: латинский адрес слипся с кириллическим словом после точки,
+        # а зона `.сайт` (`xn--80aswg`) в списке суффиксов есть — правило ниже его пропустило
+        # бы. Латинский домен с зоной под зоной Юникодом — склейка: такие зоны держат имена
+        # своим письмом (`_glued_idn_word`).
+        lambda _v, _l, domain: _glued_idn_word(domain),
+        "латинский адрес склеен со словом после точки",
+    ),
+    (
         # Последним, как самое общее: частные правила выше называют причину
         # точнее (`logo@site.com.png` — «хвост имени файла», а не «нет зоны»).
         # Ловит слово, склеенное с зоной не только у com/net/org (`…@site.ruand`,
@@ -264,6 +272,17 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
         "зоны нет в списке публичных суффиксов — адрес склеен с текстом",
     ),
 )
+
+
+def _glued_idn_word(domain: str) -> bool:
+    """Домен — латинский домен с именем и своей зоной и метка Юникодом за ним:
+    `site.com.xn--80aswg`. Одно латинское имя под зоной Юникодом (`site.xn--p1ai`) — не
+    склейка: перед точкой нет своей зоны."""
+    head, _, last = domain.rpartition(".")
+    if not last.startswith("xn--") or "xn--" in head:
+        return False
+    _subdomain, name, suffix = split_host(head)
+    return bool(name and suffix)
 
 
 def _bare(local: str) -> str:
@@ -284,6 +303,14 @@ def _placeholder(local: str) -> bool:
     )
 
 
+def on_site(domain: str, site_host: str) -> bool:
+    """Домен адреса — домен сайта или его поддомен. Обе стороны — в ASCII (`ascii_domain`):
+    хост сайта в базе бывает Юникодом (`пекарня-пример.рф`), адрес после разбора — в punycode,
+    и сравнение разных записей одного имени молча говорило бы «чужой»."""
+    own, site = ascii_domain(domain), ascii_domain(site_host)
+    return own == site or own.endswith(f".{site}")
+
+
 def foreign_on_legal_page(candidate: Candidate, *, site_host: str) -> str | None:
     """Сторонний адрес со страницы правил или конфиденциальности — не адрес редакции.
 
@@ -297,7 +324,7 @@ def foreign_on_legal_page(candidate: Candidate, *, site_host: str) -> str | None
     if candidate.page_kind is not PageKind.LEGAL or candidate.source is not ContactSource.PAGE:
         return None
     domain = candidate.mail_domain
-    if domain == site_host or domain.endswith(f".{site_host}") or domain in FREE_MAILBOX_DOMAINS:
+    if on_site(domain, site_host) or domain in FREE_MAILBOX_DOMAINS:
         return None
     return f"сторонний адрес со страницы правил — регулятор или юрист, а не редакция: {candidate.email}"
 
@@ -366,7 +393,7 @@ def trusted_guess(email: str, *, site_host: str) -> bool:
     складывается легко (ревью e6 #144).
     """
     local, _, domain = email.partition("@")
-    if domain == site_host or domain.endswith(f".{site_host}"):
+    if on_site(domain, site_host):
         return True
     return domain in FREE_MAILBOX_DOMAINS and local not in ROLE_LOCAL_PARTS
 
@@ -376,7 +403,7 @@ def weight(candidate: Candidate, *, site_host: str) -> int:
     score = _PAGE_WEIGHT.get(candidate.page_kind, 0)
 
     domain = candidate.mail_domain
-    if domain == site_host or domain.endswith(f".{site_host}"):
+    if on_site(domain, site_host):
         score += 40  # адрес на домене сайта — у того, кто им распоряжается
     elif domain in FREE_MAILBOX_DOMAINS:
         score += 10  # личный ящик вебмастера: писать можно, но это слабее

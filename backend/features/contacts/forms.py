@@ -67,6 +67,10 @@ MAX_PAGE_SIZE = 100
 class UnknownFormError(ValueError):
     """Такого донора в ручной очереди нет."""
 
+    #: Повтор задачи это не исправит (`runs/failures.is_permanent`): донора из очереди
+    #: убрали — вписали адрес или закрыли «Не вышло».
+    permanent = True
+
 
 @dataclass(frozen=True, slots=True)
 class FormRow:
@@ -78,6 +82,9 @@ class FormRow:
     dr: int | None
     org_traffic: int | None
     attempted_at: datetime | None
+    #: Страница с формой (`domains.contact_form_url`): человек открывает её прямо.
+    #: Пусто — искали до 20.10.2026, когда адрес формы ещё не запоминался.
+    form_url: str | None = None
 
 
 def in_queue() -> ColumnElement[bool]:
@@ -99,6 +106,38 @@ def in_queue() -> ColumnElement[bool]:
     )
 
 
+#: Колонки строки очереди — одни у страницы и у строки под действие.
+_ROW_COLUMNS = (
+    DonorModel.id,
+    DonorModel.domain_id,
+    DomainModel.host,
+    DonorModel.dr,
+    DonorModel.org_traffic,
+    DonorModel.contact_attempted_at,
+    DomainModel.contact_form_url,
+)
+
+
+def _form_row(
+    donor_id: int,
+    domain_id: int,
+    host: str,
+    dr: int | None,
+    traffic: int | None,
+    attempted: datetime | None,
+    form_url: str | None,
+) -> FormRow:
+    return FormRow(
+        donor_id=donor_id,
+        domain_id=domain_id,
+        host=host,
+        dr=dr,
+        org_traffic=traffic,
+        attempted_at=attempted,
+        form_url=form_url,
+    )
+
+
 async def queue(session: AsyncSession, *, page: int = 1, size: int = PAGE_SIZE) -> list[FormRow]:
     """Кого заполнять руками — страница очереди, номер с единицы. Сильные
     доноры сверху: их форма стоит потраченного времени, слабые подождут.
@@ -110,14 +149,7 @@ async def queue(session: AsyncSession, *, page: int = 1, size: int = PAGE_SIZE) 
     страниц экран узнаёт по `total`.
     """
     rows = await session.execute(
-        select(
-            DonorModel.id,
-            DonorModel.domain_id,
-            DomainModel.host,
-            DonorModel.dr,
-            DonorModel.org_traffic,
-            DonorModel.contact_attempted_at,
-        )
+        select(*_ROW_COLUMNS)
         .join(DomainModel, DomainModel.id == DonorModel.domain_id)
         .where(in_queue())
         .order_by(
@@ -128,17 +160,7 @@ async def queue(session: AsyncSession, *, page: int = 1, size: int = PAGE_SIZE) 
         .limit(size)
         .offset((page - 1) * size)
     )
-    return [
-        FormRow(
-            donor_id=donor_id,
-            domain_id=domain_id,
-            host=host,
-            dr=dr,
-            org_traffic=traffic,
-            attempted_at=attempted,
-        )
-        for donor_id, domain_id, host, dr, traffic, attempted in rows.all()
-    ]
+    return [_form_row(*found) for found in rows.all()]
 
 
 async def total(session: AsyncSession) -> int:
@@ -193,7 +215,7 @@ async def filled(session: AsyncSession, donor_id: int, *, email: str) -> FormRow
     (`manual.add`): с той же проверкой, отказом на дубликат словами и тем же
     исходом «адрес найден».
     """
-    row = await _row(session, donor_id)
+    row = await form_row(session, donor_id)
     donor = await session.get(DonorModel, donor_id)
     if donor is None:
         raise UnknownFormError(f"Донора №{donor_id} нет")
@@ -206,7 +228,7 @@ async def gave_up(session: AsyncSession, donor_id: int) -> FormRow:
     """Заполнить не вышло. Донор уходит из очереди — висеть в ней
     вечно он не должен, а срок годности вернёт его, если что-то
     изменится."""
-    row = await _row(session, donor_id)
+    row = await form_row(session, donor_id)
     donor = await session.get(DonorModel, donor_id)
     if donor is not None:
         donor.contact_status = ContactStatus.NOT_FOUND
@@ -214,16 +236,10 @@ async def gave_up(session: AsyncSession, donor_id: int) -> FormRow:
     return row
 
 
-async def _row(session: AsyncSession, donor_id: int) -> FormRow:
+async def form_row(session: AsyncSession, donor_id: int) -> FormRow:
+    """Строка очереди этого донора — или отказ словами: его в очереди нет."""
     found = await session.execute(
-        select(
-            DonorModel.id,
-            DonorModel.domain_id,
-            DomainModel.host,
-            DonorModel.dr,
-            DonorModel.org_traffic,
-            DonorModel.contact_attempted_at,
-        )
+        select(*_ROW_COLUMNS)
         .join(DomainModel, DomainModel.id == DonorModel.domain_id)
         .where(DonorModel.id == donor_id, in_queue())
     )
@@ -234,15 +250,7 @@ async def _row(session: AsyncSession, donor_id: int) -> FormRow:
             "либо его не принимал человек — форму заполняют только донору, — "
             "либо очередь успел разобрать кто-то другой"
         )
-    donor_id_, domain_id, host, dr, traffic, attempted = one
-    return FormRow(
-        donor_id=donor_id_,
-        domain_id=domain_id,
-        host=host,
-        dr=dr,
-        org_traffic=traffic,
-        attempted_at=attempted,
-    )
+    return _form_row(*one)
 
 
 # --- рекламодатели: та же ручная очередь Этапа 2 ---
@@ -263,6 +271,8 @@ class AdvertiserFormRow:
     run_id: int | None
     points: int
     attempted_at: datetime | None
+    #: Страница с формой — как у доноров (`FormRow.form_url`).
+    form_url: str | None = None
 
 
 def advertiser_in_queue() -> ColumnElement[bool]:
@@ -276,15 +286,17 @@ def advertiser_in_queue() -> ColumnElement[bool]:
     )
 
 
-def _advertiser_rows() -> Select[tuple[AdvertiserModel, str]]:
+def _advertiser_rows() -> Select[tuple[AdvertiserModel, str, str | None]]:
     return (
-        select(AdvertiserModel, DomainModel.host)
+        select(AdvertiserModel, DomainModel.host, DomainModel.contact_form_url)
         .join(DomainModel, DomainModel.id == AdvertiserModel.domain_id)
         .where(advertiser_in_queue())
     )
 
 
-def _advertiser_row(advertiser: AdvertiserModel, host: str) -> AdvertiserFormRow:
+def _advertiser_row(
+    advertiser: AdvertiserModel, host: str, form_url: str | None = None
+) -> AdvertiserFormRow:
     niche = advertiser.source == NICHE
     return AdvertiserFormRow(
         advertiser_id=advertiser.id,
@@ -295,6 +307,7 @@ def _advertiser_row(advertiser: AdvertiserModel, host: str) -> AdvertiserFormRow
         run_id=advertiser.found_run_id if niche else None,
         points=advertiser.points,
         attempted_at=advertiser.contact_attempted_at,
+        form_url=form_url,
     )
 
 
@@ -309,7 +322,7 @@ async def advertiser_queue(
         .limit(size)
         .offset((page - 1) * size)
     )
-    return [_advertiser_row(advertiser, host) for advertiser, host in rows.tuples()]
+    return [_advertiser_row(*found) for found in rows.tuples()]
 
 
 async def advertiser_total(session: AsyncSession) -> int:
@@ -340,8 +353,7 @@ async def _advertiser(session: AsyncSession, advertiser_id: int) -> AdvertiserFo
             "есть, либо ему не пишем — бизнесу ниши форму заполняют после «пишем», — "
             "либо очередь успел разобрать кто-то другой"
         )
-    advertiser, host = found._tuple()
-    return _advertiser_row(advertiser, host)
+    return _advertiser_row(*found._tuple())
 
 
 async def advertiser_filled(

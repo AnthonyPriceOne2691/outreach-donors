@@ -8,6 +8,7 @@ from backend.features.core.models.attachment import ReplyAttachmentModel
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
+from backend.features.core.models.form_letter import FormLetterModel
 from backend.features.core.models.ops import (
     AhrefsCapModel,
     AhrefsKeySnapshotModel,
@@ -62,6 +63,7 @@ __all__ = [
     "CrawlRunModel",
     "DomainModel",
     "DonorModel",
+    "FormLetterModel",
     "MessageModel",
     "OutLinkModel",
     "OutgoingAttachmentModel",

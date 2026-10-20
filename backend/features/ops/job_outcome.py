@@ -44,6 +44,8 @@ from backend.features.runs.reasons import explained_line
 from backend.shared.queue import (
     BUILD_JOB,
     CONTACTS_JOB,
+    DEEPER_JOB,
+    FORM_LETTER_JOB,
     PARSE_JOB,
     RUN_JOB,
     SALES_BULK_QUEUE_NAME,
@@ -73,6 +75,8 @@ KINDS = {
     "backend.features.sales.segment_jobs.due_again": "срок повтора адреса продаж",
     "backend.features.sales.verify_again_jobs.recheck": "перепроверка адресов продаж",
     CONTACTS_JOB: "поиск контактов",
+    DEEPER_JOB: "поиск адреса глубже",
+    FORM_LETTER_JOB: "текст письма для формы",
     PARSE_JOB: "разбор ответа",
     # Задача агента переписки живёт в своём модуле (`workers/agent_jobs.py`).
     "backend.workers.agent_jobs.draft_answer": "черновик ответа",

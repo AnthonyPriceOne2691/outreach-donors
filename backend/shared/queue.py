@@ -71,6 +71,9 @@ BUILD_JOB = "backend.workers.jobs.build_letter_queue"
 SEND_QUEUE_JOB = "backend.workers.send_jobs.send_letter_queue"
 PARSE_JOB = "backend.workers.jobs.parse_reply"
 CONTACTS_JOB = "backend.workers.jobs.find_contacts"
+#: «Искать глубже» и текст письма для формы — по кнопке, по донору (`workers/contact_jobs.py`).
+DEEPER_JOB = "backend.workers.contact_jobs.find_deeper"
+FORM_LETTER_JOB = "backend.workers.contact_jobs.build_form_letter"
 LEAD_JOB = "backend.workers.jobs.send_lead"
 CRAWL_JOB = "backend.workers.crawl_jobs.crawl_donor"
 JUDGE_CRAWL_JOB = "backend.workers.crawl_jobs.judge_crawl"
@@ -145,6 +148,16 @@ def parse_job_id(reply_id: int, message_id: str | None = None) -> str:
 def sales_job_id(reply_id: int, message_id: str | None = None) -> str:
     """Номер задачи ответа продаж: один на ответ, по правилу `parse_job_id`."""
     return f"sales-{parse_job_id(reply_id, message_id)}"
+
+
+def deeper_job_id(donor_id: int) -> str:
+    """Номер поиска глубже — один на донора за раз (`api/letters/once.enqueue_once`)."""
+    return f"contacts-deeper-{donor_id}"
+
+
+def form_letter_job_id(donor_id: int) -> str:
+    """Номер сборки текста письма для формы — один на донора за раз."""
+    return f"form-letter-{donor_id}"
 
 
 def crawl_job_id(run_id: int) -> str:

@@ -72,6 +72,14 @@ class DomainModel(TimestampedMixin, Base):
     topic_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     topic_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # --- контактная форма -----------------------------------------------------
+    #
+    # Страница с контактной формой, которую нашла лестница адресов
+    # (`contacts/collected.note_form`). Здесь, а не у донора: форма — свойство
+    # САЙТА, и очередь «Форм» рекламодателей ведёт на ту же страницу. Пусто —
+    # формы нет или искали до 20.10.2026, когда её адрес ещё не запоминался.
+    contact_form_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
     # --- ответ самого донора ------------------------------------------------
     #
     # Продаёт ли сайт размещение — по его собственному ответу на письмо:
