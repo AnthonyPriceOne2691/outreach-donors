@@ -12,6 +12,11 @@ Create Date: 2026-10-20 11:06:45.000000
 письма и второго `unknown`. Частичный индекс — задача перепроверки ищет лидов по сроку.
 
 Колонки новые: у прежних лидов срока нет — они ведут себя как раньше.
+
+**Замок — с пределом ожидания** (`SET LOCAL lock_timeout`): ADD COLUMN берёт ACCESS EXCLUSIVE на
+`sales_leads`, а индекс без CONCURRENTLY держит запись всё время сборки. За долгой транзакцией
+очистки или сбора выкатка встала бы, а за ней — все запросы к лидам; с пределом она честно падает
+за 5 с, и её повторяют.
 """
 
 from typing import Sequence, Union
@@ -25,10 +30,12 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 INDEX = "idx_sales_leads_verify_again"
+LOCK_TIMEOUT = "SET LOCAL lock_timeout = '5s'"
 
 
 def upgrade() -> None:
     """Начало «ещё проверяет» подряд и срок перепроверки у лида продаж; индекс по сроку."""
+    op.execute(LOCK_TIMEOUT)
     op.add_column(
         "sales_leads", sa.Column("verify_since", sa.DateTime(timezone=True), nullable=True)
     )
@@ -46,6 +53,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Снять срок и окно: отложенная перепроверка прежнему коду неизвестна — такие лиды остаются
     «новыми» со словами и ждут очистки, как до неё."""
+    op.execute(LOCK_TIMEOUT)
     op.drop_index(INDEX, table_name="sales_leads")
     op.drop_column("sales_leads", "verify_again_at")
     op.drop_column("sales_leads", "verify_since")
