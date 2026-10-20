@@ -36,6 +36,7 @@ import gzip
 import logging
 import re
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from urllib.parse import urljoin
 
@@ -153,9 +154,12 @@ class SitemapReader:
         *,
         max_files: int | None = None,
         max_urls: int | None = None,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         self._client = client
         self._limiter = limiter
+        # Заголовки страниц обхода (`PageCascade.headers`): карту просит то же имя.
+        self._headers = dict(headers or {})
         self._max_files = max_files if max_files is not None else cfg.MAX_SITEMAP_FILES
         self._max_urls = max_urls if max_urls is not None else cfg.MAX_SITEMAP_URLS
 
@@ -219,7 +223,7 @@ class SitemapReader:
         """Один файл карты. Отказ сети — это «не дочитали», а не «нет»."""
         async with self._limiter.slot(host):
             try:
-                response = await self._client.get(url, follow_redirects=True)
+                response = await self._client.get(url, headers=self._headers, follow_redirects=True)
             except httpx.HTTPError as exc:
                 logger.info("sitemap: %s не открылся (%r)", url, exc)
                 scan.found = None

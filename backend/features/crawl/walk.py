@@ -212,13 +212,22 @@ class DonorCrawler:
         return self._report(host, self._outcome(done, stop), stop, rules, started, pages=done)
 
     async def _robots(self, host: str) -> RobotsRules:
-        """robots.txt в первом виде хоста, который ответил."""
+        """robots.txt в первом виде хоста, который ответил.
+
+        Заголовки — те же, что у страниц (`PageCascade.headers`). До 20.10.2026 robots.txt
+        запрашивался голым клиентом с именем `python-httpx`. Сайт, который режет это имя,
+        отвечал на robots.txt отказом, и донор не обходился вовсе: «не прочитан» — значит
+        «не согласие». К тому же запрет читался для одного имени, а страницы просило другое.
+        """
         for scheme in ("https", "http"):
             url = f"{scheme}://{host}/robots.txt"
             async with self._limiter.slot(host):
                 try:
                     response = await self._client.get(
-                        url, follow_redirects=True, timeout=cfg.ROBOTS_TIMEOUT_SEC
+                        url,
+                        headers=self._cascade.headers,
+                        follow_redirects=True,
+                        timeout=cfg.ROBOTS_TIMEOUT_SEC,
                     )
                 except httpx.HTTPError as exc:
                     logger.info("robots: %s не открылся (%r)", url, exc)
@@ -260,7 +269,7 @@ class DonorCrawler:
     async def _sitemap(
         self, host: str, base: str, rules: RobotsRules, deadline: float
     ) -> SitemapScan:
-        reader = SitemapReader(self._client, self._limiter)
+        reader = SitemapReader(self._client, self._limiter, headers=self._cascade.headers)
         return await reader.scan(host, base, rules.sitemaps, deadline=deadline)
 
     def _queue(
