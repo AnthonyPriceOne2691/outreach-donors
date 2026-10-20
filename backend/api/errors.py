@@ -356,7 +356,8 @@ async def _database_refused(request: Request, exc: Exception) -> JSONResponse:
 
 #: Отказ разбора запроса по типу pydantic — что не так, словами (аудит 10.10.2026, QA №5).
 #: Подстановки — из `ctx` отказа. Число стоит в конце фразы: «элементов — не больше 500»
-#: склоняется одинаково при любом числе, «не больше 500 элементов» — нет.
+#: склоняется одинаково при любом числе, «не больше 500 элементов» — нет. Даты и время —
+#: семейством целиком, сверка с pydantic — в тесте: «abc» в дате-времени давало общие слова.
 _SAID: dict[str, str] = {
     "missing": "обязательно, а в запросе его нет",
     "extra_forbidden": "такого поля нет",
@@ -397,9 +398,23 @@ _SAID: dict[str, str] = {
     "url_parsing": "нужна ссылка",
     "date_type": "нужна дата",
     "date_parsing": "нужна дата",
+    "date_from_datetime_parsing": "нужна дата",
+    "date_from_datetime_inexact": "нужна дата без времени",
+    "date_past": "нужна прошедшая дата",
+    "date_future": "нужна будущая дата",
     "datetime_type": "нужны дата и время",
     "datetime_parsing": "нужны дата и время",
+    "datetime_from_date_parsing": "нужны дата и время",
+    "datetime_object_invalid": "нужны дата и время",
+    "datetime_past": "нужны прошедшие дата и время",
+    "datetime_future": "нужны будущие дата и время",
     "timezone_aware": "нужно время с часовым поясом",
+    "timezone_naive": "нужно время без часового пояса",
+    "timezone_offset": "часовой пояс не тот",
+    "time_type": "нужно время",
+    "time_parsing": "нужно время",
+    "time_delta_type": "нужна длительность",
+    "time_delta_parsing": "нужна длительность",
     "uuid_type": "нужен UUID",
     "uuid_parsing": "нужен UUID",
 }

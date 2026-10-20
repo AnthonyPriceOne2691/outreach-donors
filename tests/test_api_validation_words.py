@@ -8,14 +8,17 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from backend.api.errors import said_in_russian
 from backend.features.core.domain import UserRole
 from backend.features.core.models.access import UserModel
 from httpx import AsyncClient
+from pydantic import AwareDatetime, BaseModel, ValidationError
+from pydantic_core import core_schema
 from tests.conftest import bearer
 
 MakeUser = Callable[..., Awaitable[UserModel]]
@@ -191,3 +194,32 @@ def test_every_refusal_reads_in_russian(error: dict[str, Any], said: str) -> Non
     """Знакомый тип — фразой, незнакомый и чужой английский текст — общими словами
     с именем поля, свой русский текст — как есть."""
     assert said_in_russian(error) == said
+
+
+#: Отказы семейства дат и времени — все, что знает установленный pydantic.
+DATED = [
+    kind for kind in get_args(core_schema.ErrorType) if re.search(r"date|time|zone|delta", kind)
+]
+
+
+@pytest.mark.parametrize("kind", DATED)
+def test_no_date_or_time_refusal_is_left_without_words(kind: str) -> None:
+    """Тип дат и времени без строки в таблице — общие слова «значение не подходит» (20.10.2026:
+    «abc» в поле даты-времени — `datetime_from_date_parsing`, которого в таблице не было).
+    Новый тип в следующей версии pydantic покраснеет здесь, а не на экране."""
+    error = {"type": kind, "loc": ("body", "at"), "msg": "Input should be ..."}
+    assert said_in_russian(error) != "Поле «at»: значение не подходит"
+
+
+class _Stamped(BaseModel):
+    at: AwareDatetime
+
+
+@pytest.mark.parametrize("raw", ["abc", "2026-02-30", "1e3"])
+def test_a_broken_datetime_says_what_is_needed(raw: str) -> None:
+    """Живой разбор pydantic, а не выдуманный отказ: тип — тот, что приходит на самом деле."""
+    with pytest.raises(ValidationError) as caught:
+        _Stamped.model_validate({"at": raw})
+    error = caught.value.errors()[0]
+    assert error["type"] in DATED, error["type"]
+    assert said_in_russian(dict(error)) == "Поле «at»: нужны дата и время"
