@@ -28,6 +28,7 @@ from typing import Any
 import httpx
 
 from backend.config import ahrefs as cfg
+from backend.features.ahrefs import refdomains as links
 from backend.features.ahrefs.units import MAX_BATCH_TARGETS, UnitsCost
 from backend.shared.net.retry import reason_of, unsent
 
@@ -51,11 +52,15 @@ class AhrefsError(RuntimeError):
     ответа. Без признака — повторы запроса кончились на временном сбое,
     провайдер ответил 5xx вне списка повторов (остаток квоты без повторов —
     ещё и 429 или 5xx из списка) или вместо данных пришла страница (ответ
-    не JSON), и прогон стоит продолжить позже."""
+    не JSON), и прогон стоит продолжить позже.
 
-    def __init__(self, message: str, *, permanent: bool = False) -> None:
+    `status` — код последнего ответа Ahrefs: по нему вызывающий называет отказ словами
+    (ключ, права, запрос). `None` — кода не было: сеть, не собран запрос, не разобран ответ."""
+
+    def __init__(self, message: str, *, permanent: bool = False, status: int | None = None) -> None:
         super().__init__(message)
         self.permanent = permanent
+        self.status = status
 
 
 @dataclass(slots=True)
@@ -223,11 +228,55 @@ class AhrefsClient:
             "GET", "/v3/serp-overview/serp-overview", operation="serp", params=params
         )
 
-    async def _request(self, method: str, path: str, *, operation: str, **kwargs: Any) -> Response:
+    async def refdomains(
+        self,
+        target: str,
+        *,
+        where: links.RefdomainsFilter,
+        limit: int,
+        mode: str = "subdomains",
+    ) -> Response:
+        """Ссылающиеся домены цели — до `limit` строк, сильнейшие первыми (`ahrefs/refdomains`).
+
+        Пороги — в `where`, на стороне Ahrefs: строки вне них не приходят и не оплачиваются.
+        `history=live` — только те, кто ссылается сейчас: потерянная ссылка о площадке уже
+        ничего не говорит. `limit` подставляется всегда и не больше `MAX_ROWS`: без него
+        ответ — весь список цели, и платим за каждую строку.
+        """
+        if mode not in links.MODES:
+            raise ValueError(
+                f"Режим цели «{mode}» Ahrefs не знает: {', '.join(sorted(links.MODES))}"
+            )
+        if not 1 <= limit <= links.MAX_ROWS:
+            raise ValueError(
+                f"Строк в списке — от 1 до {links.MAX_ROWS} за запрос, передано {limit}: "
+                "больше Ahrefs не отдаёт, а без предела платим за весь список"
+            )
+        params = {
+            "target": target,
+            "mode": mode,
+            "protocol": "both",
+            "history": "live",
+            "select": ",".join(links.SELECT),
+            "where": where.where(),
+            "order_by": links.ORDER_BY,
+            "limit": limit,
+        }
+        return await self._request(
+            "GET", links.PATH, operation=links.OPERATION, rows_key=links.ROWS_KEY, params=params
+        )
+
+    async def _request(
+        self, method: str, path: str, *, operation: str, rows_key: str | None = None, **kwargs: Any
+    ) -> Response:
+        """Запрос с повторами и расходом. `rows_key` — под каким ключом ответ кладёт строки,
+        когда метод его называет (`_rows`)."""
         last_error: Exception | None = None
         #: Что сказала последняя неудачная попытка — без имени операции: оно
         #: стоит в начале итоговой строки один раз.
         last_reason = ""
+        #: Код последнего ответа из повторяемых — уходит в отказ, когда повторы кончились.
+        last_status: int | None = None
 
         for attempt in range(1, MAX_ATTEMPTS + 1):
             await self._limiter.acquire()
@@ -271,7 +320,8 @@ class AhrefsClient:
                 # повторяется — гадать по коду мы не беремся, — но
                 # человек увидит, что именно сказал Ahrefs.
                 last_reason = f"{response.status_code} {response.text[:200]}"
-                last_error = AhrefsError(f"{operation}: {last_reason}")
+                last_status = response.status_code
+                last_error = AhrefsError(f"{operation}: {last_reason}", status=last_status)
                 if attempt == MAX_ATTEMPTS:
                     break
                 delay = _retry_delay(attempt, response)
@@ -287,13 +337,14 @@ class AhrefsClient:
                 continue
 
             _raise_for_status(response, operation)
-            return Response(rows=_rows(_json(response, operation), operation), cost=cost)
+            rows = _rows(_json(response, operation), operation, rows_key)
+            return Response(rows=rows, cost=cost)
 
         # Имя операции — один раз: до 09.10.2026 хвост брался из `last_error`,
         # который сам начинается с него («batch_metrics: не удалось за 4 попыток —
         # batch_metrics: 503»), а у сетевой ошибки httpx бывал пустым.
         raise AhrefsError(
-            f"{operation}: не удалось, попыток: {MAX_ATTEMPTS} — {last_reason}"
+            f"{operation}: не удалось, попыток: {MAX_ATTEMPTS} — {last_reason}", status=last_status
         ) from last_error
 
 
@@ -330,6 +381,7 @@ def _raise_for_status(response: httpx.Response, operation: str) -> None:
     raise AhrefsError(
         f"{operation}: Ahrefs ответил {status}{moved}: {said}",
         permanent=status < 500 and status not in RETRY_STATUSES,
+        status=status,
     )
 
 
@@ -351,9 +403,11 @@ def _json(response: httpx.Response, what: str) -> Any:
         ) from exc
 
 
-def _rows(payload: Any, operation: str) -> list[dict[str, Any]]:
+def _rows(payload: Any, operation: str, key: str | None = None) -> list[dict[str, Any]]:
     """Ahrefs кладёт список под разными ключами в зависимости от эндпоинта
     (`metrics`, `domains`, …). Берём первый список — имя ключа нам не нужно.
+    Назван `key` (списки конкурентов, `refdomains`) — только он: первое списочное
+    значение ответа могло бы оказаться не тем списком, а его нет — смена формы ответа.
 
     Форму, которую не удалось разобрать, считаем поломкой, а не пустым
     ответом. Разница принципиальная: пустой ответ значит «провайдер ничего
@@ -362,6 +416,15 @@ def _rows(payload: Any, operation: str) -> list[dict[str, Any]]:
     получили бы прогон, где все домены «неизвестны», и искали бы причину
     в данных, а не в коде.
     """
+    if key is not None:
+        named = payload.get(key) if isinstance(payload, dict) else None
+        if isinstance(named, list):
+            return [r for r in named if isinstance(r, dict)]
+        raise AhrefsError(
+            f"{operation}: в ответе Ahrefs нет списка «{key}» — скорее всего, провайдер "
+            "изменил форму ответа.",
+            permanent=True,
+        )
     if isinstance(payload, list):
         return [r for r in payload if isinstance(r, dict)]
     if isinstance(payload, dict):

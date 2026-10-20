@@ -120,6 +120,9 @@ PLATFORM_LABELS: frozenset[str] = frozenset(
         "issuu",
         "tumblr",
         "blogspot",
+        # Поддомен блога на wordpress.com сводится к самой платформе: её адрес исключён
+        # из списка суффиксов ею же (`donors/host.py`), и `блог.wordpress.com` — это она.
+        "wordpress",
         "flickr",
         "imgur",
         "vimeo",

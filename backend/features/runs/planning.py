@@ -99,6 +99,13 @@ def saved_texts(candidates: dict[str, Any] | None) -> dict[str, SerpText]:
     }
 
 
+#: Чем сократить прогон, когда точная смета не помещается, — по источнику кандидатов
+#: (`Candidates.trim`): у выдачи — ключи и глубину выдачи, у списков конкурентов
+#: (`runs/competitors.SOURCE_KIND`) — конкурентов и глубину списка.
+TRIM = "Или сократите список ключей или глубину выдачи"
+SOURCE_TRIMS = {"competitors": "Или уберите конкурента, или уменьшите глубину списка"}
+
+
 @dataclass(frozen=True, slots=True)
 class Candidates:
     """Что дала выдача после нормализации и дедупликации."""
@@ -146,6 +153,15 @@ class Candidates:
     площадки, но посчитать это удалось только по адресам страниц. Связь
     уже оплачена вместе с выдачей и весит мало."""
 
+    source: dict[str, Any] = field(default_factory=dict)
+    """Откуда кандидаты, если не из выдачи: журнал ссылок конкурентов (`runs/competitors.py`) —
+    что спросили, что пришло, во что обошлось и что выброшено почему. Пусто — выдача."""
+
+    @property
+    def trim(self) -> str:
+        """Чем сократить прогон в отказе сметы — по источнику кандидатов (`SOURCE_TRIMS`)."""
+        return SOURCE_TRIMS.get(str(self.source.get("kind") or ""), TRIM)
+
     @property
     def duplicates(self) -> int:
         """Сколько адресов схлопнулось в уже известные домены. Это и есть
@@ -169,6 +185,7 @@ class Candidates:
             # её заново, а без текста судья на второй попытке ослеп бы.
             "texts": {host: text.as_dict() for host, text in self.texts.items()},
             "found_by": {host: list(keys) for host, keys in self.found_by.items()},
+            "source": dict(self.source),
         }
 
     @classmethod
@@ -191,6 +208,7 @@ class Candidates:
                 for host, value in (payload.get("texts") or {}).items()
             },
             found_by={host: list(keys) for host, keys in (payload.get("found_by") or {}).items()},
+            source=dict(payload.get("source") or {}),
         )
 
 
@@ -361,7 +379,7 @@ async def plan_run(
         # Упор — словами: «поднимите кап» при кончившемся ключе Ahrefs вёл поднимать кап
         # зря (16.10.2026). Без упора — прежний совет: так зовут план тесты и консоль.
         advice = (
-            f"{limit(estimate.total)}. Или сократите список ключей или глубину выдачи"
+            f"{limit(estimate.total)}. {candidates.trim}"
             if limit
             else "сократите список ключей или поднимите кап"
         )
