@@ -210,6 +210,11 @@ class Forecast(BaseModel):
     #: Доля уникальных доменов среди результатов, с которой посчитано
     #: `expected_domains`: экран называет по ней долю дублей, а не своим числом.
     unique_share: float
+    #: Токены модели на тематику сайтов (`topics/cost.py`) — худший случай и на сайт; ноль —
+    #: темы прогон не определит. `topic_measured` — по замеру прошлых прогонов, а не оценка.
+    topic_tokens: int = 0
+    topic_tokens_per_site: int = 0
+    topic_measured: bool = False
 
     @classmethod
     def of(
@@ -255,6 +260,9 @@ class Forecast(BaseModel):
             serp_mode=serp_mode,
             serp_wait_s=EXPECTED_WAIT_S[serp_mode],
             unique_share=forecast.unique_share,
+            topic_tokens=forecast.topic_tokens,
+            topic_tokens_per_site=forecast.topic_per_site,
+            topic_measured=forecast.topic_measured,
         )
 
 

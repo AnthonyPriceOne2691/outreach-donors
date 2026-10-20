@@ -32,6 +32,7 @@ import { ColumnsHead } from '../components/ColumnsHead';
 import type { Column } from '../components/ColumnsHead';
 import { PageSwitch } from '../components/PageSwitch';
 import { formatDateTime, formatNumber, plural } from '../format';
+import { TopicSilence } from '../topics/TopicNotes';
 import { ReviewLink } from './ReviewLink';
 import { RunReason } from './RunReason';
 
@@ -258,6 +259,7 @@ function HistoryRow({ run, from }: { run: RunCard; from: string }) {
           <Text size="sm">отрезал бы {judgeCut(run)}</Text>
         )}
         <JudgeSilence run={run} />
+        <TopicSilence run={run} />
         {/* Цвет несёт значок, а не текст: янтарь — «нужно внимание»,
             и на подложке значка чернила держат норму контраста. */}
         {run.reviewed === 0 ? (

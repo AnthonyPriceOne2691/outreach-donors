@@ -37,6 +37,7 @@ from backend.api.donors.schemas import (
     PickedBody,
     PriceBody,
 )
+from backend.api.topics.schemas import with_chosen
 from backend.features.access.permissions import sees_stage
 from backend.features.core.domain import Permission, Stage
 from backend.features.core.models.access import UserModel
@@ -61,12 +62,14 @@ async def all_donors(
     page = await browser.page(query.filters(limit=query.limit, offset=query.offset))
     # Счётчики фильтров — по всем донорам экрана, а не по странице: они
     # отвечают на вопрос «что вообще есть», а не «что видно сейчас».
-    return DonorsPage.of(
+    made = DonorsPage.of(
         page,
         await browser.facets(query.review),
         export_limit=EXPORT_LIMIT,
         waiting=await waiting(session),
     )
+    made.topics = with_chosen(made.topics, query.topic)
+    return made
 
 
 @router.get("/export", summary="Выгрузка найденных доноров")

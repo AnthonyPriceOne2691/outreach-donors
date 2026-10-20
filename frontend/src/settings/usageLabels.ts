@@ -45,9 +45,15 @@ const CRAWL_OPERATIONS: Partial<Record<string, string>> = {
   crawl_render: 'рендеринг пустых страниц',
 };
 
-/** Статья словами — `crawl_*` здесь, остальное — общими подписями. */
+/** Операции модели, заведённые после того, как общие подписи упёрлись в потолок длины:
+ *  тематика сайтов (20.10.2026). Провайдер у них — модель, единица — токен. */
+const MODEL_OPERATIONS: Partial<Record<string, string>> = {
+  site_topic: 'тематика сайтов',
+};
+
+/** Статья словами — `crawl_*` и новые операции модели здесь, остальное — общими подписями. */
 export function spendOperation(operation: string): string {
-  return CRAWL_OPERATIONS[operation] ?? operationTitle(operation);
+  return CRAWL_OPERATIONS[operation] ?? MODEL_OPERATIONS[operation] ?? operationTitle(operation);
 }
 
 const STAGES: Record<Stage, string> = {

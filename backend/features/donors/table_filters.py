@@ -39,6 +39,7 @@ from backend.features.core.models.donor import DonorModel
 from backend.features.donors.price_freshness import PriceState, price_is
 from backend.features.donors.standing import is_donor
 from backend.features.review.candidates import Decision
+from backend.features.topics.store import topic_is
 from backend.shared.database.text_search import contains
 
 
@@ -153,6 +154,8 @@ class DonorFilters:
     freshness: Freshness | None = None
     #: Есть ли цена и в сроке ли (`PriceState`).
     price: PriceState | None = None
+    #: Тематика сайта — основная или вторая; `none` — не определена (`topics/store.topic_is`).
+    topic: str | None = None
     #: Решение человека — кто на экране; без фильтра — доноры, как было.
     review: Review = Review.ACCEPTED
     sort: DonorSort = DonorSort.DR
@@ -206,6 +209,8 @@ def narrowed(
     statement = _by_metrics(statement, filters, now, metrics_ttl_days)
     if filters.price is not None:
         statement = statement.where(price_is(filters.price, now))
+    if filters.topic:
+        statement = statement.where(topic_is(filters.topic))
     if filters.search:
         # Набранное — текст, а не шаблон: «_» и «%» находили всех (`text_search`).
         statement = statement.where(

@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from backend.api.threads.schemas import OfferCard
+from backend.api.topics.schemas import TopicCount, TopicFields, topic_counts, topic_fields
 from backend.config import filters as filters_cfg
 from backend.features.contacts.preference import DEAD
 from backend.features.core.domain import ContactSource, ContactStatus, DonorStatus, PriceSource
@@ -62,6 +63,9 @@ class DonorQuery(BaseModel):
         description="решение человека: принятые (доноры), отклонённые, без решения или все",
     )
     sort: DonorSort = Field(default=DonorSort.DR, description="порядок строк")
+    topic: str | None = Field(
+        default=None, pattern=r"^[a-z_]{2,32}$", description="тематика: код темы или none"
+    )
 
     def filters(self, *, limit: int, offset: int = 0) -> DonorFilters:
         return DonorFilters(
@@ -73,6 +77,7 @@ class DonorQuery(BaseModel):
             geo=self.geo.lower() if self.geo else None,
             freshness=self.freshness,
             price=self.price,
+            topic=self.topic,
             review=self.review,
             sort=self.sort,
             limit=limit,
@@ -110,7 +115,7 @@ class CountryShareCard(BaseModel):
     share: float
 
 
-class DonorRowCard(BaseModel):
+class DonorRowCard(TopicFields):
     """Строка таблицы доноров.
 
     `reject_reason` отдаётся всегда: «не подходит» без причины — это
@@ -182,6 +187,7 @@ class DonorRowCard(BaseModel):
             metrics_refreshed_at=donor.metrics_refreshed_at,
             fresh=row.fresh,
             freshness=row.freshness,
+            **topic_fields(row.topic, row.topic_secondary, row.topic_reason),
         )
 
 
@@ -221,6 +227,8 @@ class DonorsPage(BaseModel):
     export_limit: int
     #: Путь к первым донорам: пустой экран говорит, сколько ждёт решения.
     waiting: WaitingCard
+    #: Пункты фильтра «Тематика» со счётчиками — тем же условием, что фильтр.
+    topics: list[TopicCount] = Field(default_factory=list)
 
     @classmethod
     def of(
@@ -234,6 +242,7 @@ class DonorsPage(BaseModel):
             freshness={state.value: count for state, count in facets.freshness.items()},
             prices={state.value: count for state, count in facets.prices.items()},
             reviews={review.value: count for review, count in facets.reviews.items()},
+            topics=topic_counts(facets.topics),
             export_limit=export_limit,
             waiting=WaitingCard.of(waiting),
         )

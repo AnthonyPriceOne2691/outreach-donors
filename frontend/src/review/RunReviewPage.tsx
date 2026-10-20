@@ -56,6 +56,8 @@ import { missingRun, NoSuchRun, RunHead, useRunAddress } from '../runs/runAddres
 import { CandidateRow } from './CandidateRow';
 import { DoubtfulNote, ShowDoubtful } from './DoubtfulNote';
 import { BulkBar, TierRow } from './QueueParts';
+import { TopicFilter } from '../topics/TopicFilter';
+import { anyTopic, topicWords, useTopicFilter } from '../topics/topicRows';
 import { notify } from '../notices';
 
 const STATUSES = Object.keys(REVIEW_DECISIONS) as ReviewDecision[];
@@ -201,6 +203,8 @@ export function RunReviewPage() {
     queryFn: () => loadAccuracy(),
     enabled: runId !== null,
   });
+  // Тематика — по строкам вкладки: очередь приходит целиком (`topics/topicRows.ts`).
+  const topics = useTopicFilter(review.data?.view.rows);
 
   const decide = useMutation({
     mutationFn: ({ ids, decision }: { ids: number[]; decision: ReviewDecision }) =>
@@ -229,6 +233,8 @@ export function RunReviewPage() {
   const switchTo = (next: ReviewDecision) => {
     setPicked(new Set());
     setShownCount(PAGE);
+    // Тематика — по строкам вкладки: на другой вкладке выбранной темы может не быть вовсе.
+    topics.setTopic(null);
     setStatus(next);
   };
 
@@ -238,6 +244,11 @@ export function RunReviewPage() {
     setPicked(new Set());
     setShownCount(PAGE);
     setShowDoubtful(on);
+  };
+  const showTopic = (code: string | null) => {
+    setPicked(new Set());
+    setShownCount(PAGE);
+    topics.setTopic(code);
   };
 
   const missing = missingRun(address, review.error);
@@ -282,10 +293,11 @@ export function RunReviewPage() {
   const columns = columnsOf({ mayDecide, withKeywords, withAnswers });
   // Сколько строк в каждом ярусе — для разделителей групп: ярус стоит над группой
   // один раз, а не значком в каждой строке.
+  const listed = topics.shown;
   const perTier = new Map<string, number>();
-  for (const row of view.rows) perTier.set(row.tier, (perTier.get(row.tier) ?? 0) + 1);
-  const rows = view.rows.slice(0, shownCount);
-  const rest = view.rows.length - rows.length;
+  for (const row of listed) perTier.set(row.tier, (perTier.get(row.tier) ?? 0) + 1);
+  const rows = listed.slice(0, shownCount);
+  const rest = listed.length - rows.length;
   const allPicked = rows.length > 0 && rows.every((row) => picked.has(row.candidate_id));
   const toggle = (id: number, on: boolean) =>
     setPicked((was) => {
@@ -352,6 +364,9 @@ export function RunReviewPage() {
               onShow={showDoubtfulRows}
             />
           )}
+          {(anyTopic(topics.items) || topics.topic !== null) && (
+            <TopicFilter value={topics.topic} items={topics.items} onChange={showTopic} />
+          )}
         </Stack>
       </Card>
 
@@ -363,7 +378,9 @@ export function RunReviewPage() {
       >
         {rows.length === 0 ? (
           <Text size="sm" c="dimmed" p="lg">
-            {EMPTY[shown.status]}
+            {topics.topic === null
+              ? EMPTY[shown.status]
+              : `Под фильтр никто не попал: ${topicWords(topics.topic, topics.items)}. В списке — ${view.rows.length}.`}
           </Text>
         ) : (
           <Table.ScrollContainer
@@ -431,7 +448,7 @@ export function RunReviewPage() {
         {rest > 0 && (
           <Group justify="center" gap="sm" p="sm">
             <Text size="sm" c="dimmed">
-              Показано {rows.length} из {view.rows.length}
+              Показано {rows.length} из {listed.length}
             </Text>
             <Button variant="light" onClick={() => setShownCount((was) => was + PAGE)}>
               Показать ещё {Math.min(PAGE, rest)}

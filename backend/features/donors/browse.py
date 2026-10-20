@@ -28,6 +28,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from functools import partial
 from typing import Any
 
 from sqlalchemy import ColumnClause, Select, func, literal_column, select, union
@@ -57,6 +58,7 @@ from backend.features.letters.recipients import LetterAddress, Recipients
 from backend.features.replies.extract import WITHOUT_PRICE
 from backend.features.replies.quoting import written_by_hand
 from backend.features.runs.thresholds import rules_in_force
+from backend.features.topics.store import TOPIC_COLUMNS, topic_counts
 from backend.shared.database.ids import storable
 
 #: Сколько текста ответа показывает карточка рядом с ценой: прайс в письме укладывается,
@@ -81,6 +83,10 @@ class DonorRow:
     seller_answer: str | None
     #: Цена старше срока годности — тем же условием, что фильтр «цена устарела».
     price_stale: bool = False
+    #: Тема сайта (`domains.site_topic*`): основная, вторая и почему.
+    topic: str | None = None
+    topic_secondary: str | None = None
+    topic_reason: str | None = None
 
     @property
     def fresh(self) -> bool:
@@ -125,6 +131,8 @@ class Facets:
     freshness: dict[Freshness, int] = field(default_factory=dict)
     prices: dict[PriceState, int] = field(default_factory=dict)
     reviews: dict[Review, int] = field(default_factory=dict)
+    #: Тема → у скольких доноров экрана она основная или вторая; `none` — без темы.
+    topics: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +241,7 @@ class DonorBrowser:
             DomainModel.seller_answer,
             freshness(moment, ttl).label("freshness"),
             price_is(PriceState.STALE, moment).label("price_stale"),
+            *TOPIC_COLUMNS,
         )
         rows = await self._session.execute(
             narrowed(_screen(filters.review, *columns), filters, moment, metrics_ttl_days=ttl)
@@ -259,8 +268,11 @@ class DonorBrowser:
                     freshness=Freshness(state),
                     seller_answer=answer,
                     price_stale=bool(stale),
+                    topic=topic,
+                    topic_secondary=second,
+                    topic_reason=why,
                 )
-                for donor, host, answer, state, stale in found
+                for donor, host, answer, state, stale, topic, second, why in found
             ],
             total=int(total or 0),
         )
@@ -322,6 +334,7 @@ class DonorBrowser:
             freshness={Freshness(value): int(count) for value, count in by_state.tuples()},
             prices=await self._prices(review, moment),
             reviews=await self._reviews(),
+            topics=await topic_counts(self._session, partial(_screen, review)),
         )
 
     async def _countries(self, review: Review) -> dict[str, int]:

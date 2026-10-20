@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
@@ -47,6 +48,8 @@ from backend.features.runs.thresholds import rules_in_force
 from backend.features.serp import funds
 from backend.features.serp.dataforseo import COUNTRY_CODES
 from backend.features.serp.modes import mode_of
+from backend.features.topics.cost import per_site as topic_cost
+from backend.features.topics.cost import runs_classify
 from backend.shared.queue import RUN_JOB, RUN_JOB_TIMEOUT, runs_queue, workers_alive
 
 router = APIRouter(prefix="/runs", tags=["прогоны"])
@@ -122,7 +125,7 @@ async def _forecast(
     """Смета тела прогона — одна для экрана и для запуска: остаток Ahrefs `left`, кап цикла
     ключа, потрачено в цикле и потолок, названный человеком."""
     runs = RunRepository(session)
-    return forecast(
+    made = forecast(
         # Ключи уже сведены схемой правилом выдачи: смета считает то, что она купит.
         keywords=len(body.keywords),
         depth_pages=body.depth_pages,
@@ -132,6 +135,13 @@ async def _forecast(
         run_ceiling=body.cap,
         country_share=await runs.country_call_share(body.country),
         unique_share=await runs.unique_share(UNIQUE_SHARE),
+    )
+    # Тематика сайтов — токены модели, а не юниты: в бюджет Ahrefs не входят (`topics/cost.py`).
+    topics = await topic_cost(session)
+    return replace(
+        made,
+        topic_per_site=topics.tokens if runs_classify() else 0,
+        topic_measured=topics.measured,
     )
 
 

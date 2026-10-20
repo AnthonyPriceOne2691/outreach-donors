@@ -26,6 +26,7 @@ import type { ReviewCandidate, ReviewDecision } from '../api/types';
 import { JudgeVerdict, SellerAnswer } from '../components/JudgeVerdict';
 import { Seams } from '../components/Seams';
 import { formatCompact } from '../format';
+import { TopicLine } from '../topics/TopicLine';
 
 interface Props {
   row: ReviewCandidate;
@@ -68,6 +69,7 @@ function Site({ row }: { row: ReviewCandidate }) {
         DR {row.dr ?? '—'} · трафик {formatCompact(row.org_traffic)}
         {row.geo !== null && ` · ${countryTitle(row.geo)}${share === null ? '' : ` ${share}%`}`}
       </Text>
+      <TopicLine row={row} />
       {/* Почему строка стоит первой в ярусе: для гест-постинга это главный
           признак донора, и человек должен видеть, на чём он держится. */}
       {note !== null && (

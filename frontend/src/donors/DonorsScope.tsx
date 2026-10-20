@@ -14,8 +14,11 @@ import { Group, Select, Text } from '@mantine/core';
 import type { ReactNode } from 'react';
 
 import type { PriceState, ReviewScope } from '../api/donorPrice';
+import type { TopicCount } from '../api/topics';
 import { InfoHint } from '../components/InfoHint';
 import { formatNumber } from '../format';
+import { anyTopic } from '../topics/topicRows';
+import { TopicFilter } from '../topics/TopicFilter';
 import { PRICES, REVIEWS, SORTS } from './donorFilters';
 import type { DonorFilters } from './donorFilters';
 import { DONOR_SORTS, PRICE_STATES, REVIEW_SCOPES } from './priceWords';
@@ -28,6 +31,8 @@ interface Props {
   prices: Partial<Record<PriceState, number>> | null;
   /** Срок годности цены, дней, — числом сервера; `null` — сводка не пришла. */
   priceTtlDays: number | null;
+  /** Пункты «Тематики» со счётчиками; `null` — сводка не пришла. Тем нет — фильтра нет. */
+  topics: readonly TopicCount[] | null;
   onFilter: (patch: Partial<DonorFilters>) => void;
 }
 
@@ -59,7 +64,7 @@ function PriceHint({ days }: { days: number | null }) {
   );
 }
 
-export function DonorsScope({ filters, reviews, prices, priceTtlDays, onFilter }: Props) {
+export function DonorsScope({ filters, reviews, prices, priceTtlDays, topics, onFilter }: Props) {
   return (
     <Group gap="md" wrap="wrap">
       <Labeled label="Решение">
@@ -116,6 +121,13 @@ export function DonorsScope({ filters, reviews, prices, priceTtlDays, onFilter }
           data={SORTS.map((one) => ({ value: one, label: DONOR_SORTS[one] }))}
         />
       </Labeled>
+      {(anyTopic(topics ?? []) || filters.topic !== null) && (
+        <TopicFilter
+          value={filters.topic}
+          items={topics}
+          onChange={(topic) => onFilter({ topic })}
+        />
+      )}
     </Group>
   );
 }
