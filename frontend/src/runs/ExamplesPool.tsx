@@ -21,7 +21,7 @@ import { useMutation } from '@tanstack/react-query';
 import { refusalOf } from '../api/client';
 import { buildFromExamples } from '../api/examples';
 import type { ExamplesPool, ExamplesRequest, ExampleSite } from '../api/examples';
-import { languageTitle } from '../api/labels';
+import { languageTitle } from '../api/languageLabels';
 import { formatNumber, plural } from '../format';
 import { notify, refuse, settle } from '../notices';
 import { countExamples, examplesCaption } from './examples';

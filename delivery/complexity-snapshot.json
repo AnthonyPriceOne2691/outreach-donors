@@ -1227,9 +1227,9 @@
       "worst": "_public_zone:126"
     },
     "backend/features/crawl/fetch.py": {
-      "lines": 443,
+      "lines": 445,
       "complexity": 8,
-      "worst": "_proxy:319"
+      "worst": "_proxy:321"
     },
     "backend/features/crawl/gate.py": {
       "lines": 274,
@@ -1437,9 +1437,9 @@
       "worst": "_buy_one:236"
     },
     "backend/features/donors/home_signals.py": {
-      "lines": 415,
+      "lines": 418,
       "complexity": 12,
-      "worst": "_shop_marks:299"
+      "worst": "_shop_marks:302"
     },
     "backend/features/donors/host.py": {
       "lines": 73,
@@ -1992,9 +1992,9 @@
       "worst": "from_form:298"
     },
     "backend/features/replies/money.py": {
-      "lines": 310,
+      "lines": 325,
       "complexity": 8,
-      "worst": "_plain_number:202"
+      "worst": "_plain_number:217"
     },
     "backend/features/replies/offers.py": {
       "lines": 151,
@@ -2987,9 +2987,9 @@
       "worst": "refusal:73"
     },
     "backend/features/serp/markets.py": {
-      "lines": 100,
+      "lines": 102,
       "complexity": 2,
-      "worst": "serp_language:78"
+      "worst": "serp_language:80"
     },
     "backend/features/serp/modes.py": {
       "lines": 71,

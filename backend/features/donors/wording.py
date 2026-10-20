@@ -40,7 +40,7 @@ COUNTRY_TITLES: dict[str, str] = {
     "ar": "Аргентина", "cl": "Чили", "co": "Колумбия", "pe": "Перу",
     "ch": "Швейцария", "at": "Австрия", "be": "Бельгия", "hu": "Венгрия",
     "bg": "Болгария", "hr": "Хорватия", "sk": "Словакия", "si": "Словения",
-    "lt": "Литва", "lv": "Латвия", "ee": "Эстония",
+    "lt": "Литва", "lv": "Латвия", "ee": "Эстония", "uz": "Узбекистан",
 }  # fmt: skip
 
 #: Те же рынки по-английски — для текста письма рекламодателю: язык письма
@@ -58,7 +58,7 @@ COUNTRY_NAMES_EN: dict[str, str] = {
     "eg": "Egypt", "ng": "Nigeria", "ke": "Kenya", "ar": "Argentina", "cl": "Chile",
     "co": "Colombia", "pe": "Peru", "ch": "Switzerland", "at": "Austria", "be": "Belgium",
     "hu": "Hungary", "bg": "Bulgaria", "hr": "Croatia", "sk": "Slovakia", "si": "Slovenia",
-    "lt": "Lithuania", "lv": "Latvia", "ee": "Estonia",
+    "lt": "Lithuania", "lv": "Latvia", "ee": "Estonia", "uz": "Uzbekistan",
 }  # fmt: skip
 
 #: Вердикт по донору — те же слова, что `DONOR_STATUSES` в `labels.ts`.

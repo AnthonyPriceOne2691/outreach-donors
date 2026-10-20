@@ -233,16 +233,20 @@ class TestRefusals:
         assert response.status_code == 422
         assert "карте рынков" in response.text
 
+    @pytest.mark.parametrize(
+        ("country", "languages"),
+        [("ca", ["English", "French"]), ("uz", ["Russian", "Uzbek"])],
+    )
     async def test_languages_come_from_the_market(
-        self, client: AsyncClient, admin_token: str
+        self, client: AsyncClient, admin_token: str, country: str, languages: list[str]
     ) -> None:
         """Оператор выбирает только страну — языки показываются до сборки:
         пул на двух языках стоит вдвое дороже."""
         response = await client.get(
-            "/api/keywords/languages?country=ca", headers=bearer(admin_token)
+            f"/api/keywords/languages?country={country}", headers=bearer(admin_token)
         )
 
-        assert response.json() == ["English", "French"]
+        assert response.json() == languages
 
     async def test_too_many_combinations_refuse_with_a_way_out(
         self, client: AsyncClient, admin_token: str

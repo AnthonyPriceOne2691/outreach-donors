@@ -7,9 +7,17 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 from backend.features.serp import markets
 from backend.features.serp.dataforseo import COUNTRY_CODES
+
+#: Языки рынка словами экрана (`languageLabels.ts`).
+LANGUAGE_LABELS_TS = (
+    Path(__file__).resolve().parent.parent / "frontend" / "src" / "api" / "languageLabels.ts"
+)
 
 
 class TestEveryMarketHasALanguage:
@@ -41,6 +49,14 @@ class TestEveryMarketHasALanguage:
 
         assert strangers == []
 
+    def test_every_language_has_a_name_on_the_screen(self) -> None:
+        """Экран называет языки рынка по-русски; язык без подписи вышел бы у сборки ключей
+        «другой язык (Uzbek)»."""
+        source = LANGUAGE_LABELS_TS.read_text(encoding="utf-8")
+        titled = set(re.findall(r"^\s*([A-Za-z]+): '[^']+',", source, re.M))
+
+        assert set(markets.LANGUAGE_NAMES.values()) == titled
+
 
 class TestUnknownMarketIsLoud:
     def test_unknown_country_refuses_instead_of_english(self) -> None:
@@ -66,6 +82,7 @@ class TestLanguagesOfAMarket:
             ("ca", ("English", "French")),  # Квебек — своя пресса
             ("ua", ("Ukrainian", "Russian")),
             ("ph", ("English", "Filipino")),  # код `fil`, а не `tl`
+            ("uz", ("Russian", "Uzbek")),  # своя узбекоязычная пресса, как у Казахстана
         ],
     )
     def test_market_languages(self, country: str, expected: tuple[str, ...]) -> None:

@@ -18,6 +18,7 @@ import pytest
 from backend.features.crawl import robots as robots_module
 from backend.features.crawl.fetch import (
     FetchOutcome,
+    FetchResult,
     PageCascade,
     classify,
     headers_for,
@@ -25,8 +26,10 @@ from backend.features.crawl.fetch import (
 )
 from backend.features.crawl.health import CrawlHealth, HealthVerdict
 from backend.features.crawl.limiter import DomainLimiter
+from backend.features.crawl.proxies import ProxyPool
 from backend.features.crawl.robots import RobotsStatus, parse_robots
 from backend.features.crawl.sitemap import SitemapReader
+from tests.protection_pages import IMPERVA_BLOCK, PARDON_ARTICLE, answering
 
 AGENT = "ParsingPricesBot"
 
@@ -171,6 +174,30 @@ class TestAntibotSignals:
         article = "<html><body>" + ("текст " * 3000) + "just a moment</body></html>"
 
         assert looks_like_antibot(article) is False
+
+    async def test_imperva_block_page_is_a_refusal(self) -> None:
+        """Страница блокировки Imperva с кодом 200 (20.10.2026): «Pardon Our Interruption»
+        стоит в head, в начале страницы, — это отказ, а не страница без ссылок."""
+        result = await _first_level(IMPERVA_BLOCK)
+
+        assert (result.outcome, result.reason, result.html) == (
+            FetchOutcome.BLOCKED,
+            "заставка антибота в теле",
+            None,
+        )
+
+    async def test_the_word_pardon_alone_is_a_page(self) -> None:
+        """Статья со словом «pardon» в заголовке и тексте — страница: маркер — фраза целиком."""
+        result = await _first_level(PARDON_ARTICLE)
+
+        assert (result.outcome, result.html) == (FetchOutcome.OK, PARDON_ARTICLE)
+
+
+async def _first_level(html: str) -> FetchResult:
+    """Страница обычным запросом: браузера и прокси нет, решает первый уровень каскада."""
+    async with httpx.AsyncClient(transport=answering(html)) as client:
+        cascade = PageCascade(client, browser_enabled=False, proxies=ProxyPool([]))
+        return await cascade.get("https://news.example.com/")
 
 
 class TestHealth:

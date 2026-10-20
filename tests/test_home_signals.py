@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 
+import httpx
 import pytest
 from backend.features.contacts.pages import FetchedPage, PageFetcher
 from backend.features.core.domain import PageKind
@@ -22,6 +23,7 @@ from backend.features.donors.home_signals import (
 )
 from backend.features.donors.site_index import index_homes
 from backend.features.serp.protocol import SerpResult
+from tests.protection_pages import IMPERVA_BLOCK, PARDON_ARTICLE, answering
 
 
 def page(body: str, head: str = "") -> str:
@@ -171,6 +173,29 @@ async def test_protection_stub_is_a_closed_home(
     monkeypatch.setattr(PageFetcher, "home", stub)
     signals = await check_home(None, "closed.test")  # type: ignore[arg-type]
     assert (signals.reached, signals.text) == (False, "")
+
+
+async def test_imperva_block_page_is_a_closed_home() -> None:
+    """Страница блокировки Imperva с кодом 200 — закрытая главная, а не её текст: 20.10.2026
+    судья сегмента продаж читал «Pardon Our Interruption» как главную сайта."""
+    async with httpx.AsyncClient(transport=answering(IMPERVA_BLOCK)) as client:
+        signals = await check_home(client, "shop.example.com")
+
+    assert (signals.reached, signals.error, signals.text) == (
+        False,
+        "заглушка защиты: 'Pardon Our Interruption'",
+        "",
+    )
+
+
+async def test_the_word_pardon_alone_is_not_a_stub() -> None:
+    """Маркер — фраза защиты целиком: статья о помиловании, «Pardon our dust» и передача
+    «Pardon the Interruption» — главная сайта, а не заглушка."""
+    async with httpx.AsyncClient(transport=answering(PARDON_ARTICLE)) as client:
+        signals = await check_home(client, "law.example.com")
+
+    assert (signals.reached, signals.error) == (True, "")
+    assert signals.title == "Presidential Pardon: How Clemency Works | Law Notes"
 
 
 #: Главная с кодом, стилями, меню, вектором и повтором абзаца — образец судьи сегмента продаж

@@ -82,6 +82,8 @@ ANTIBOT_MARKERS: tuple[str, ...] = (
     "ddos protection by",
     "request unsuccessful. incapsula",
     "_incapsula_resource",
+    # Страница блокировки Imperva (бывший Distil), 20.10.2026: заголовок стоит в head.
+    "pardon our interruption",
     "px-captcha",
     "are you a human",
     "access denied",
