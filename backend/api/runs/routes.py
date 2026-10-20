@@ -13,8 +13,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,8 +45,9 @@ from backend.features.runs.budget import CapExceededError, cap_left, shortage_wo
 from backend.features.runs.duplicates import refuse_duplicate
 from backend.features.runs.estimate import UNIQUE_SHARE, RunForecast, forecast
 from backend.features.runs.outcome import outcome
+from backend.features.runs.planning import TRIM
 from backend.features.runs.repository import RunRepository
-from backend.features.runs.thresholds import rules_in_force
+from backend.features.runs.thresholds import Rules, rules_in_force
 from backend.features.serp import funds
 from backend.features.serp.dataforseo import COUNTRY_CODES
 from backend.features.serp.modes import mode_of
@@ -99,24 +102,81 @@ async def _refuse_empty_serp_account(body: RunRequestBody) -> None:
 #: Снимок ключа старше — запуск бюджет не сверяет: сверит задача живым ответом Ahrefs.
 SNAPSHOT_FRESH = timedelta(minutes=15)
 
+#: Смета по остатку Ahrefs и капу ключа — своя у прогона по ключам и по конкурентам.
+ForecastWith = Callable[[int, KeyCap], Awaitable[RunForecast]]
 
-async def _refuse_over_budget(body: RunRequestBody, session: AsyncSession) -> None:
+
+async def refuse_over_budget(session: AsyncSession, made_with: ForecastWith, *, trim: str) -> None:
     """Бюджет — до строки прогона, той же сметой, что видел человек: не помещается — отказ
     словами задачи (`budget.shortage_words`), и прогон не начинается. До 19.10.2026 кнопку
     блокировал только экран, а запуск мимо экрана вставал в очередь и отказывал уже после
     покупки выдачи. Остаток Ahrefs — из снимка ключа последней сметы: снимка нет или он
-    старше `SNAPSHOT_FRESH` — сверит задача, живым ответом Ahrefs."""
+    старше `SNAPSHOT_FRESH` — сверит задача, живым ответом Ahrefs. `trim` — чем сократить
+    прогон: у ключей — список и глубину выдачи, у конкурентов — конкурентов и глубину."""
     cap = await key_cap(session)
     key = cap.key
     if key is None or datetime.now(UTC) - key.asked_at > SNAPSHOT_FRESH:
         return
-    made = await _forecast(body, session, left=key.quota.available, cap=cap)
+    made = await made_with(key.quota.available, cap)
     words = shortage_words(made.short_of, key.quota.tighter)
     if words is not None:
         # Заголовок «Прогон не запущен» ставит экран — здесь одни слова, предложением.
-        raise CapExceededError(
-            f"{words[:1].upper()}{words[1:]}. Или сократите список ключей или глубину выдачи."
-        )
+        raise CapExceededError(f"{words[:1].upper()}{words[1:]}. {trim}")
+
+
+async def enqueue_run(
+    session: AsyncSession,
+    *,
+    author: UserModel,
+    rules: Rules,
+    asked_cap: int | None,
+    details: dict[str, Any],
+    competitors: dict[str, Any] | None = None,
+    **fields: Any,
+) -> RunQueued:
+    """Строка прогона, задача очереди и запись журнала — одним путём у прогона по ключам
+    и по ссылкам конкурентов (`api/runs/competitors.py`). `fields` — поля строки прогона:
+    ключи, страна, глубина, режим выдачи; `competitors` — конкуренты и глубина их списков;
+    `details` — что сказать журналу.
+
+    Строка прогона заводится здесь, а не в задаче. Между нажатием и первой тратой идут
+    выдача (или списки) и смета — минуты, за которые экран не показывал ничего; а если
+    задачу никто не возьмёт, не покажет никогда. Теперь прогон виден сразу и со своим
+    состоянием.
+    """
+    runs = RunRepository(session)
+    # Кап прогона: остаток по капу цикла ключа, а если человек задал свой
+    # потолок — меньшее из двух. Дальше он едет в настройках прогона:
+    # это обещанное человеку число, и выше него прогон не потратит. Но
+    # и не больше, чем останется по капу к старту задачи, —
+    # между нажатием и стартом очередь может пройти другие прогоны
+    # (`budget.ceiling_at_start`, аудит 10.10.2026).
+    settings = await runs.create_settings(
+        # Пороги — действующие, с экрана «Пороги»: умолчания конфига здесь
+        # молча отменяли сохранённую версию (аудит 10.10.2026). Правило региона
+        # и сроки — той же версии: окружение их тоже молча отменяло.
+        rules.thresholds,
+        **rules.columns(),
+        units_cap=await effective_cap(session, asked=asked_cap),
+    )
+    run = await runs.create_run(stage=Stage.DONORS, settings_id=settings.id, **fields)
+    if competitors is not None:
+        # Конкуренты — в строке прогона, как ключи: задаче хватает номера прогона.
+        run.competitors = competitors
+    # Клиент очереди синхронный: в пуле потоков, а не в цикле событий единственного
+    # процесса API — зависший Redis иначе держал бы всех (аудит 10.10.2026).
+    job = await asyncio.to_thread(
+        runs_queue().enqueue, RUN_JOB, run.id, job_timeout=RUN_JOB_TIMEOUT
+    )
+    await runs.bind_job(run, str(job.id))
+    await AccessRepository(session).record(
+        AuditAction.RUN_STARTED,
+        author_id=author.id,
+        target=f"run:{run.id}",
+        details={**details, "потолок юнитов": settings.units_cap, "задача": str(job.id)},
+    )
+    await session.commit()
+    return RunQueued(run_id=run.id, job_id=str(job.id))
 
 
 async def _forecast(
@@ -195,7 +255,11 @@ async def start_run(
     """
     check_collect()
     await _refuse_empty_serp_account(body)
-    await _refuse_over_budget(body, session)
+
+    async def made(left: int, cap: KeyCap) -> RunForecast:
+        return await _forecast(body, session, left=left, cap=cap)
+
+    await refuse_over_budget(session, made, trim=f"{TRIM}.")
     # Версия настроек, которой прогон будет судить, — действующая: пороги, правило
     # региона и срок метрик, а не окружение (сверка ТЗ 11.10.2026). Несогласованное
     # правило региона — отказ словами здесь, а не остановка из очереди (`geo.py`).
@@ -206,54 +270,18 @@ async def start_run(
     await refuse_duplicate(
         session, keywords=body.keywords, country=body.country, depth_pages=body.depth_pages
     )
-
-    # Строка прогона заводится здесь, а не в задаче. Между нажатием
-    # и первой тратой идут выдача и смета — минуты, за которые экран
-    # не показывал ничего; а если задачу никто не возьмёт, не покажет
-    # никогда. Теперь прогон виден сразу и со своим состоянием.
-    runs = RunRepository(session)
-    # Кап прогона: остаток по капу цикла ключа, а если человек задал свой
-    # потолок — меньшее из двух. Дальше он едет в настройках прогона:
-    # это обещанное человеку число, и выше него прогон не потратит. Но
-    # и не больше, чем останется по капу к старту задачи, —
-    # между нажатием и стартом очередь может пройти другие прогоны
-    # (`budget.ceiling_at_start`, аудит 10.10.2026).
-    settings = await runs.create_settings(
-        # Пороги — действующие, с экрана «Пороги»: умолчания конфига здесь
-        # молча отменяли сохранённую версию (аудит 10.10.2026). Правило региона
-        # и сроки — той же версии: окружение их тоже молча отменяло.
-        rules.thresholds,
-        **rules.columns(),
-        units_cap=await effective_cap(session, asked=body.cap),
-    )
-    run = await runs.create_run(
-        stage=Stage.DONORS,
-        settings_id=settings.id,
+    return await enqueue_run(
+        session,
+        author=author,
+        rules=rules,
+        asked_cap=body.cap,
+        details={"ключей": len(body.keywords), "страна": body.country},
         keywords=body.keywords,
         country=body.country,
         depth_pages=body.depth_pages,
         # Режим — какой человек видел в смете, а не умолчание на момент старта задачи.
         serp_mode=body.serp_mode or mode_of(None),
     )
-    # Клиент очереди синхронный: в пуле потоков, а не в цикле событий единственного
-    # процесса API — зависший Redis иначе держал бы всех (аудит 10.10.2026).
-    job = await asyncio.to_thread(
-        runs_queue().enqueue, RUN_JOB, run.id, job_timeout=RUN_JOB_TIMEOUT
-    )
-    await runs.bind_job(run, str(job.id))
-    await AccessRepository(session).record(
-        AuditAction.RUN_STARTED,
-        author_id=author.id,
-        target=f"run:{run.id}",
-        details={
-            "ключей": len(body.keywords),
-            "страна": body.country,
-            "потолок юнитов": settings.units_cap,
-            "задача": str(job.id),
-        },
-    )
-    await session.commit()
-    return RunQueued(run_id=run.id, job_id=str(job.id))
 
 
 @router.get("", response_model=RunsView, summary="История прогонов, по странице")
