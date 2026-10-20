@@ -132,7 +132,7 @@ def checked_addresses(host: str) -> list[str]:
     """
     name = host.strip().lower().rstrip(".").strip("[]")
     if not name:
-        raise UnsafeUrlError("в адресе нет хоста")
+        raise UnsafeUrlError(f"в адресе нет хоста: {host!r}")
     if name in BLOCKED_HOSTS:
         raise UnsafeUrlError(f"служебное имя {name} запрещено")
     if _is_private(name):
