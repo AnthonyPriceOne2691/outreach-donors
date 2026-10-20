@@ -3211,6 +3211,11 @@
       "complexity": 7,
       "worst": "_checked:39"
     },
+    "scripts/eval_topic.py": {
+      "lines": 377,
+      "complexity": 12,
+      "worst": "_case:155"
+    },
     "scripts/gates.py": {
       "lines": 401,
       "complexity": 10,
