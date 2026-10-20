@@ -23,9 +23,13 @@
 
 **Как называется язык сайта** (`_named`). Письменность одного языка называет его сама (`SCRIPT_NAMES`:
 кана — японский, хангыль — корейский, греческое письмо, иврит, грузинское, армянское, тайское). В
-письменности нескольких языков (латиница, кириллица, арабское письмо) язык называют только особые
-буквы — те, что есть не у всех языков письменности (`_core`); лучший по буквам, при равенстве — частый
-(порядок таблицы). **Язык без своих букв** (английский среди латиницы, текст из одних общих букв,
+письменности нескольких языков (латиница, кириллица, арабское письмо) язык называют только его
+**отличительные буквы** (`Language.marks`; по умолчанию — те, что есть не у всех языков письменности,
+`_core`), и их слов — не меньше `NAMED_SPECIAL_MIN`; из таких языков — лучший по буквам, при равенстве —
+частый (порядок таблицы). Алфавит казахского — все русские буквы и ещё свои, среди них «і», которая есть
+и у украинского и белорусского: смесь русского с украинским он «объяснял» лучше обоих и назывался
+казахским (разбор паттернов 20.10). Казахский называют только ә/ғ/қ/ң/ө/ұ/ү/һ — одна «і» его не
+называет; так же у других алфавитов «русский и ещё свои буквы» (киргизский, монгольский). **Язык без своих букв** (английский среди латиницы, текст из одних общих букв,
 иероглифы без каны, деванагари) по буквам не назвать: в той же письменности, что язык писем, проверка
 молчит, а на другой письменности — «не понять» (`Mismatch.code` пуст): сайт точно не на языке писем,
 но на каком — решает человек, а не отказ.
@@ -101,6 +105,10 @@ class Language:
     switch: tuple[str, ...]
     #: Ещё письменности языка: японский пишет и каной, и иероглифами.
     also: tuple[str, ...] = ()
+    #: Отличительные буквы — язык называется буквами, только если они есть в тексте (`_named`). Пусто —
+    #: все его буквы вне общего ядра письменности (`_core`). Задаются, где алфавит — чужой плюс свои
+    #: буквы и среди своих есть общая с третьим языком (казахская «і» — и украинская, и белорусская).
+    marks: str = ""
 
 
 _LATIN = "abcdefghijklmnopqrstuvwxyz"
@@ -139,10 +147,10 @@ LANGUAGES: tuple[Language, ...] = (
     Language("ru", "русский", "CYRILLIC", _RU, ("RU", "rus", "рус", "русский", "russian", "русская", "російська", "орысша")),
     Language("uk", "украинский", "CYRILLIC", "абвгґдеєжзиіїйклмнопрстуфхцчшщьюя", ("UA", "UK", "ukr", "укр", "українська", "украинский", "ukrainian")),
     Language("be", "белорусский", "CYRILLIC", "абвгдеёжзійклмнопрстуўфхцчшыьэюя", ("BE", "BY", "бел", "беларуская", "белорусский", "belarusian")),
-    Language("kk", "казахский", "CYRILLIC", _RU + "әғқңөұүһі", ("KK", "KZ", "kaz", "қаз", "каз", "қазақ", "қазақша", "казахский", "kazakh")),
-    Language("ky", "киргизский", "CYRILLIC", _RU + "ңөү", ("KY", "KG", "kir", "кыр", "кыргызча", "киргизский", "kyrgyz")),
+    Language("kk", "казахский", "CYRILLIC", _RU + "әғқңөұүһі", ("KK", "KZ", "kaz", "қаз", "каз", "қазақ", "қазақша", "казахский", "kazakh"), marks="әғқңөұүһ"),
+    Language("ky", "киргизский", "CYRILLIC", _RU + "ңөү", ("KY", "KG", "kir", "кыр", "кыргызча", "киргизский", "kyrgyz"), marks="ңөү"),
     Language("tg", "таджикский", "CYRILLIC", "абвгғдеёжзиӣйкқлмнопрстуӯфхҳчҷшъэюя", ("TG", "TJ", "тоҷ", "тоҷикӣ", "таджикский", "tajik")),
-    Language("mn", "монгольский", "CYRILLIC", _RU + "өү", ("MN", "mon", "монгол", "монгольский", "mongolian")),
+    Language("mn", "монгольский", "CYRILLIC", _RU + "өү", ("MN", "mon", "монгол", "монгольский", "mongolian"), marks="өү"),
     Language("bg", "болгарский", "CYRILLIC", "абвгдежзийклмнопрстуфхцчшщъьюя", ("BG", "bul", "бг", "български", "болгарский", "bulgarian")),
     Language("sr", "сербский", "CYRILLIC", "абвгдђежзијклљмнњопрстћуфхцчџш", ("SR", "RS", "srb", "срп", "српски", "сербский", "serbian")),
     Language("mk", "македонский", "CYRILLIC", "абвгдѓежзѕијклљмнњопрстќуфхцчџш", ("MK", "mkd", "мкд", "македонски", "македонский", "macedonian")),
@@ -269,17 +277,34 @@ def _best(words: list[str], tongues: list[Language]) -> Language | None:
     return tongues[covered.index(best)] if best >= NAMED_SHARE_MIN * len(words) else None
 
 
+def _marks(language: Language) -> frozenset[str]:
+    """Отличительные буквы языка (`Language.marks`; пусто — его буквы вне ядра письменности)."""
+    return (
+        frozenset(language.marks)
+        if language.marks
+        else frozenset(language.letters) - _core(language.script)
+    )
+
+
+def _marked(words: list[str], language: Language) -> bool:
+    """Слов с отличительными буквами языка — не меньше `NAMED_SPECIAL_MIN`: одно «café» не делает
+    английский текст французским, одна «і» — русский казахским."""
+    marks = _marks(language)
+    found = sum(any(char in marks for char in _letters(word)) for word in words)
+    return found >= NAMED_SPECIAL_MIN * len(words)
+
+
 def _named(words: list[str], script: str) -> Language | None:
-    """Язык слов письменности `script` (шапка модуля): письменность одного языка — он; иначе особые
-    буквы и лучший по ним язык, при равенстве — порядок таблицы; особых букв мало — `None`."""
+    """Язык слов письменности `script` (шапка модуля): письменность одного языка — он; иначе языки,
+    чьих отличительных букв в словах достаточно (`_marked`), и лучший по буквам из них, при равенстве —
+    порядок таблицы; таких нет — `None`."""
     if (code := SCRIPT_NAMES.get(script)) is not None:
         return BY_CODE[code]
-    tongues = [item for item in LANGUAGES if item.script == script and item.letters]
-    if not tongues or not words:
+    if not words:
         return None
-    core = _core(script)
-    special = sum(any(char not in core for char in _letters(word)) for word in words)
-    return _best(words, tongues) if special >= NAMED_SPECIAL_MIN * len(words) else None
+    tongues = [item for item in LANGUAGES if item.script == script and item.letters]
+    marked = [item for item in tongues if _marked(words, item)]
+    return _best(words, marked) if marked else None
 
 
 def _other_script(counts: Counter[str], words: list[str]) -> Mismatch:

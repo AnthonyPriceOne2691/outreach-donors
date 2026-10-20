@@ -25,7 +25,13 @@ from scripts import eval_sales_segment_home as eh
 from scripts.eval_sales_segment_metrics import Result, metrics
 from tests.test_sales_segment_eval import SYNTHETIC, Capture, Oracle, use
 
-LANGUAGE_CUT = {c["host"] for c in SYNTHETIC if "language" in c["tags"] and c["expect"] == "no"}
+#: Сайты, которым язык назван буквами и чужой: их режет код, модель не зовётся. Язык без своих букв
+#: («unnamed») — модель спрашивается раньше: вид сайта решает прежде языка.
+LANGUAGE_CUT = {
+    c["host"]
+    for c in SYNTHETIC
+    if "language" in c["tags"] and "unnamed" not in c["tags"] and c["expect"] == "no"
+}
 
 
 @pytest.fixture
@@ -86,14 +92,32 @@ def test_only_foreign_geography_is_unsure_and_its_pair_with_the_segments_place_i
     assert len({case["hypothesis"] for case in only}) >= 5
 
 
-def test_a_language_without_letters_of_its_own_is_unsure_in_the_set(oracle: Oracle) -> None:
-    """Латиница и иероглифы при письмах на кириллице — «не понять», а не отказ."""
+def test_a_language_without_letters_of_its_own_asks_the_model_for_the_kind_first(
+    oracle: Oracle, tmp_path: Path
+) -> None:
+    """Латиница и иероглифы при письмах на кириллице — «не понять», а не отказ; но вид сайта решает
+    раньше языка: модель спрошена, и её «нет» посреднику стоит (разбор паттернов 20.10) — в двух
+    нишах и двух письменностях. Своё дело на непонятном языке — по-прежнему человеку."""
     unnamed = [case for case in SYNTHETIC if "unnamed" in case["tags"]]
+    middle = {case["id"] for case in unnamed if "intermediary" in case["tags"]}
+    out = tmp_path / "run.json"
+
+    assert ev.main(["--out", str(out)]) == 0
 
     assert len({case["hypothesis"] for case in unnamed}) >= 2
-    assert all(case["expect"] == "no|unsure" for case in unnamed)
-    assert ev.main([]) == 0
-    assert {case["host"] for case in unnamed}.isdisjoint(oracle.asked)
+    assert len(middle) >= 2
+    assert {case["host"] for case in unnamed} <= set(oracle.asked)
+    found = {row["case_id"]: row for row in json.loads(out.read_text("utf-8"))["results"]}
+    for case in unnamed:
+        row = found[case["id"]]
+        if case["id"] in middle:
+            assert (case["expect"], row["lane"], row["decided_by"]) == ("no", "reject", "model")
+        else:
+            assert (case["expect"], row["lane"], row["decided_by"]) == (
+                "no|unsure",
+                "review",
+                "language",
+            )
 
 
 def test_a_site_in_another_language_never_reaches_the_model(

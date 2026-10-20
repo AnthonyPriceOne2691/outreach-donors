@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
 from backend.config.judge import JudgeMode
 from backend.features.donors.home_signals import read_home
@@ -331,6 +332,8 @@ def test_html_lang_does_not_decide_the_letters_do() -> None:
 
 
 async def test_an_unnamed_language_on_another_script_goes_to_a_human_not_cut() -> None:
+    """Своё дело на языке без своих букв — человеку, а не отказ; модель спрошена раньше языка (вид
+    сайта решает прежде, `after_language`), и её токены — в счёте прохода."""
     model, seen = client(says({"kind": "own", "fit": "yes", "quote": "x y z", "why": "w"}))
 
     verdict = await sj.decide(
@@ -338,10 +341,77 @@ async def test_an_unnamed_language_on_another_script_goes_to_a_human_not_cut() -
         text=site(DENTAL["en"]), letters="ru",
     )  # fmt: skip
 
-    assert seen == []
+    assert len(seen) == 1
     assert (verdict.lane, verdict.decided_by) == (Lane.REVIEW, Decider.LANGUAGE)
     assert verdict.reason == "язык сайта — не понять по буквам (латиница), письма — русский"
+    assert verdict.tokens == 731
+    assert verdict.model is None
     assert sj.effective(verdict, JudgeMode.ENFORCE) == (Lane.REVIEW, verdict.reason)
+
+
+#: Посредник и издание — «нет» на любом языке: латиница без особых букв, иероглифы и деванагари.
+KIND_CASES = [
+    (DENTAL["en"], "intermediary", "Our dental clinic treats adults"),
+    (DENTAL["zh"], "media", "我们的牙科诊所为成人和儿童提供治疗"),
+    (DENTAL["hi"], "intermediary", "हमारा दंत चिकित्सालय वयस्कों"),
+]
+
+
+@pytest.mark.parametrize(("text", "kind", "quote"), KIND_CASES, ids=["latin", "han", "devanagari"])
+async def test_the_kind_of_the_site_decides_before_an_unnamed_language(
+    text: str, kind: str, quote: str
+) -> None:
+    """Разбор паттернов 20.10: латиница без особых букв уводила к человеку посредника раньше, чем
+    модель его видела. Теперь «нет» модели по виду сайта стоит, в наблюдении — «судья отказал бы»."""
+    model, seen = client(says({"kind": kind, "fit": "no", "quote": quote, "why": "чужие клиники"}))
+
+    verdict = await sj.decide(
+        model, host="clinics-sample.com", segment="Стоматологические клиники", text=site(text),
+        letters="ru",
+    )  # fmt: skip
+
+    assert len(seen) == 1
+    assert (verdict.lane, verdict.decided_by, verdict.kind) == (Lane.REJECT, Decider.MODEL, kind)
+    assert sj.effective(verdict, JudgeMode.SHADOW)[0] is Lane.WOULD_REJECT
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"kind": "own", "fit": "no", "quote": "Our dental clinic treats adults", "why": "не Кипр"},
+        {
+            "kind": "unclear",
+            "fit": "unsure",
+            "quote": "Our dental clinic treats adults",
+            "why": "?",
+        },
+        {"kind": "intermediary", "fit": "unsure", "quote": "Our dental clinic", "why": "?"},
+    ],
+    ids=["own-no", "unclear", "intermediary-unsure"],
+)
+async def test_other_answers_leave_an_unnamed_language_to_a_human(answer: dict[str, str]) -> None:
+    """Раньше языка решает только «нет» по виду сайта; своё дело с «нет», «не понять» и посредник
+    без «нет» — «не понять» языка, человеку."""
+    model, _ = client(says(answer))
+
+    verdict = await sj.decide(
+        model, host="dental-sample.com", segment="Стоматологические клиники Кипра",
+        text=site(DENTAL["en"]), letters="ru",
+    )  # fmt: skip
+
+    assert (verdict.lane, verdict.decided_by) == (Lane.REVIEW, Decider.LANGUAGE)
+
+
+async def test_a_silent_model_on_an_unnamed_language_is_asked_again_next_pass() -> None:
+    model, _ = client(lambda request: httpx.Response(503, json={"error": {"message": "нет"}}))
+
+    verdict = await sj.decide(
+        model, host="dental-sample.com", segment="Стоматологические клиники",
+        text=site(DENTAL["en"]), letters="ru",
+    )  # fmt: skip
+
+    assert verdict.unanswered
+    assert verdict.decided_by is Decider.MODEL
 
 
 async def test_the_judge_gives_a_language_verdict_without_asking_the_model() -> None:
@@ -406,6 +476,41 @@ def test_a_language_verdict_counts_as_would_cut_and_not_as_a_rule() -> None:
     count(Judged(verdict, site(UK)), tally)
 
     assert (tally.would_cut, tally.by_rule, tally.judged) == (1, 0, 1)
+
+
+#: Персидский — арабским письмом, со своими буквами (پ چ ژ گ ک ی): для смеси с арабским.
+FA_WORD = "کارگاه"
+
+
+@pytest.mark.parametrize(
+    ("text", "bucket"),
+    [
+        (f"{RU} {RU} Ми міняємо ланцюги і гальма.", "ru"),
+        (f"{RU} {RU} Київ і Харків, ціни і запис.", "ru"),
+        (f"{RU} {BE}", "ru"),
+        (f"{UK} {BE}", "uk"),
+        (f"{RU} {KK}", "kk"),
+        (f"{EN} {EN} Zapisz się na naprawę na stronie.", "латиница"),
+        (f"{AR} {AR} {FA_WORD}", "ar"),
+    ],
+    ids=["ru+uk", "ru+i", "ru+be", "uk+be", "ru+kk", "en+pl", "ar+fa"],
+)
+def test_a_mixed_text_is_named_only_by_letters_of_its_own(text: str, bucket: str) -> None:
+    """Разбор паттернов 20.10: смесь русского с украинским называлась казахской — у казахского
+    алфавита все русские буквы и «і», и смесь он «объяснял» лучше обоих. Язык называют только его
+    отличительные буквы: казахский — ә/ғ/қ/ң/ө/ұ/ү/һ, одна «і» (она и украинская, и белорусская) его не
+    называет. Смеси в трёх письменностях: кириллица, латиница, арабское письмо."""
+    assert sl.identify(text) == bucket
+
+
+def test_a_mixed_russian_page_is_not_named_kazakh_in_the_verdict_either() -> None:
+    """То же правило — в словах вердикта и в языке лида: письма на английском, страница русская с
+    украинскими вставками — «русский», а не «казахский»."""
+    found = sl.mismatch(f"{RU} {RU} Київ і Харків, ціни і запис.", "en")
+
+    assert found is not None
+    assert (found.code, found.said) == ("ru", "русский")
+    assert sl.mismatch(f"{RU} {KK}", "ru") is None  # двуязычная — не режем
 
 
 @pytest.mark.parametrize(

@@ -76,6 +76,7 @@ __all__ = [
     "HOME_TITLE",
     "JUDGE_OFF",
     "KINDS",
+    "KIND_FIRST",
     "LABELS",
     "MADE_UP",
     "MAX_TEXT_CHARS",
@@ -98,6 +99,7 @@ __all__ = [
     "SegmentVerdict",
     "SiteText",
     "Spent",
+    "after_language",
     "before_model",
     "build_payload",
     "by_host",
@@ -420,6 +422,21 @@ class SegmentClient(ModelClient):
         return replace(parse(content, text), model=self._model, tokens=tokens, spent=spent)
 
 
+#: Виды сайта, чьё «нет» стоит раньше «язык не назван» (`after_language`): посредник и издание не
+#: подходят на любом языке — решать человеку по ним нечего.
+KIND_FIRST = frozenset({"intermediary", "media"})
+
+
+def after_language(verdict: SegmentVerdict, said: SegmentVerdict) -> SegmentVerdict:
+    """Язык сайта буквами не назван («не понять», `said`), а модель спрошена: её «нет» по виду сайта
+    (`KIND_FIRST`) стоит — иначе латиница без особых букв уводила к человеку посредника, которого
+    модель видит (разбор паттернов 20.10). Остальное — «не понять» языка, с токенами вызова в счёт
+    прохода. Модель не ответила — её ответ как есть: следующий проход спросит снова."""
+    if verdict.unanswered or (verdict.lane is Lane.REJECT and verdict.kind in KIND_FIRST):
+        return verdict
+    return replace(said, tokens=verdict.tokens, spent=verdict.spent)
+
+
 async def decide(
     client: SegmentClient,
     *,
@@ -430,16 +447,19 @@ async def decide(
     letters: str | None = None,
 ) -> SegmentVerdict:
     """Правила, язык сайта против языка писем `letters` (`by_language`), затем модель — по тексту
-    без главной-заглушки (`SiteText.without_stub`). Не бросает. `system` — промпт вместо файла: так
-    eval гоняет испорченный промпт (`scripts/eval_sales_segment.py --spoil`), не трогая файл."""
+    без главной-заглушки (`SiteText.without_stub`). Язык назван буквами — вердикт кода, модель не
+    зовётся; не назван — модель спрашивается раньше, и вид сайта решает прежде языка
+    (`after_language`). Не бросает. `system` — промпт вместо файла: так eval гоняет испорченный
+    промпт (`scripts/eval_sales_segment.py --spoil`), не трогая файл."""
     ruled = before_model(host, text)
     if ruled is not None:
         return ruled
     judged = text.without_stub()
     said = by_language(judged, letters)
-    if said is not None:
+    if said is not None and said.lane is Lane.REJECT:
         return said
-    return await client.judge(host=host, segment=segment, text=judged, system=system)
+    verdict = await client.judge(host=host, segment=segment, text=judged, system=system)
+    return verdict if said is None else after_language(verdict, said)
 
 
 #: Полоса кандидата при выключенном судье: модель не зовётся, решает человек.
