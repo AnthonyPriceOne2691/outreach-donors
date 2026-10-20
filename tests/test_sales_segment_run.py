@@ -297,7 +297,7 @@ async def test_the_whole_way_from_keywords_to_a_clean_lead(
     # Магазин запчастей принят, но адреса на сайте нет: лида нет, в отчёте — «без адреса».
     view = await segment_report.run_view(session, run.id)
     assert view is not None
-    assert view.no_address == [("адреса на сайте нет", 1)]
+    assert view.no_address == [("платный поиск недоступен — не спросили", 1)]
     assert segment_report.summary(view) == {
         "hosts": 5,
         "accepted": 2,
@@ -639,7 +639,7 @@ async def test_no_address_words_name_why(session: AsyncSession, web: Sites) -> N
     await go(session, run, serp(PARTS), Model(ANSWERS))
     candidate = await session.scalar(select(SalesSegmentCandidateModel))
     assert candidate is not None
-    assert candidate.contact_status is ContactStatus.NOT_FOUND
+    assert candidate.contact_status is ContactStatus.PAID_OFF
     candidate.contact_status = ContactStatus.NO_ANSWER
     await session.flush()
 

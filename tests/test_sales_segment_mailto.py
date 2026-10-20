@@ -7,10 +7,9 @@
 ниш, рынков и письменностей. И что ступень MX решает: домен без почты адреса не даёт.
 
 Домены — разных зон и письменностей, IDN — в punycode, как их хранит база: лестница общая для
-любого домена, правил под зону, нишу или язык в ней нет. Чего она не находит — домен IDN,
-записанный в `mailto:` Юникодом, и адрес в подвале главной длиннее предела страницы, — помечено
-`xfail` с причиной: правка общего кода (`contacts/*`) — отдельным PR «общее», модуль продаж его
-не правит.
+любого домена, правил под зону, нишу или язык в ней нет. Домен IDN, записанный в `mailto:`
+Юникодом, и адрес в подвале главной длиннее предела страницы она находит с правки общего кода
+(`contacts/*`, «Формы» и «Искать глубже»): до неё оба теста стояли `xfail`.
 
 Сайты — `httpx.MockTransport`, DNS — подменой ступени MX. Домены выдуманы.
 """
@@ -143,17 +142,9 @@ async def test_the_run_path_finds_it_and_makes_the_lead(
     assert made["created"] == len(SITES)
 
 
-# --- находки для общего кода: правка — PR «общее», здесь — что она должна закрыть -----------------
+# --- находки для общего кода: закрыты правкой общего `contacts/*` ------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "общий contacts: домен IDN в mailto: Юникодом (info@стоматология-пример.рф) отсеивается "
-        "«не похож на адрес» — extract._from_mailto отдаёт адрес как есть, quality.rejection_reason "
-        "сверяет его ASCII-выражением; правка — домен адреса в punycode до проверки (extract._clean)"
-    ),
-)
 async def test_a_mailto_with_an_idn_domain_written_in_unicode_is_found() -> None:
     host = "xn----7sbjjnbrggmcbqodbrd6w.xn--p1ai"
     page = _home(host, '<a href="mailto:info@стоматология-пример.рф">почта</a>')
@@ -165,14 +156,6 @@ async def test_a_mailto_with_an_idn_domain_written_in_unicode_is_found() -> None
     assert found.contact.email == f"info@{host}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "общий contacts: страница режется по CONTACTS_MAX_PAGE_BYTES с головы "
-        "(pages.PageFetcher.get), и mailto: в подвале главной длиннее предела теряется — исход "
-        "«адреса нет»; правка — разбирать и хвост страницы или ссылки mailto: всего ответа до обрезки"
-    ),
-)
 async def test_a_mailto_in_the_footer_of_a_home_longer_than_the_page_limit_is_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

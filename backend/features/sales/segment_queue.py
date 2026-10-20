@@ -70,8 +70,9 @@ logger = logging.getLogger(__name__)
 
 Candidate = SalesSegmentCandidateModel
 
-#: «Не спросили» платный сервис: квота, частота, сбой — повтор кнопкой, когда платная ступень есть.
-UNASKED = tuple(sorted(attempts.RETRIABLE))
+#: «Не спросили» платный сервис: квота, частота, сбой или платная ступень была недоступна (выключена,
+#: ключ не принят) — повтор кнопкой, когда платная ступень есть.
+UNASKED = tuple(sorted({*attempts.RETRIABLE, ContactStatus.PAID_OFF}))
 
 
 class Retry(StrEnum):
