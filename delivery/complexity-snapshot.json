@@ -367,9 +367,9 @@
       "worst": "build_queue:159"
     },
     "backend/api/sales/routes.py": {
-      "lines": 347,
+      "lines": 349,
       "complexity": 6,
-      "worst": "_found:124"
+      "worst": "_found:125"
     },
     "backend/api/sales/schemas.py": {
       "lines": 222,
@@ -377,9 +377,14 @@
       "worst": "of:27"
     },
     "backend/api/sales/segment.py": {
-      "lines": 530,
+      "lines": 467,
+      "complexity": 4,
+      "worst": "_seen:127"
+    },
+    "backend/api/sales/segment_again.py": {
+      "lines": 102,
       "complexity": 5,
-      "worst": "again_run:385"
+      "worst": "again_run:64"
     },
     "backend/api/sales/segment_helper.py": {
       "lines": 77,
