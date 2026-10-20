@@ -75,6 +75,9 @@ ELSEWHERE = {
     ("POST", "/api/sales/segment/estimate"),
     ("POST", "/api/sales/segment/runs"),
     ("POST", "/api/sales/segment/runs/{}/resume"),
+    # «Повторить сейчас» из отчёта прогона — `sales` и `run`, как «Продолжить»: поиск адреса и
+    # проверка — траты; права держит `test_sales_segment_again.py`.
+    ("POST", "/api/sales/segment/runs/{}/again"),
     ("POST", "/api/sales/segment/candidates/{}/decision"),
     # Отмена решения человека по сайту — `sales`, как само решение; права держит
     # `test_sales_segment_undo_api.py`; в письма ничего не уходит.

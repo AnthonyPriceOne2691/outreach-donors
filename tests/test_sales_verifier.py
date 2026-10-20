@@ -32,6 +32,7 @@ from backend.features.core import usage
 from backend.features.core.domain import UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.sales import verifier
+from backend.features.sales.hunter_codes import StillCheckingError
 from backend.features.sales.verifier import (
     DELIVERABLE_BY_STATUS,
     TOO_OFTEN,
@@ -145,8 +146,8 @@ def test_every_known_status_has_a_deliverability_and_only_dead_ones_have_words()
     ("handler", "kind", "words"),
     [
         (_reply(429), ProviderRateLimitError, "частота превышена (HTTP 429) и после 3 попыток с паузой — проверка адресов встала до следующей очистки"),
-        (_reply(503, text="<html>упал</html>"), ProviderError, "провайдер не ответил (HTTP 503) — повторим следующей очисткой"),
-        (_reply(202, {"data": {"status": "pending"}}), ProviderError, "провайдер ещё проверяет адрес и после 2 переспросов — повторим следующей очисткой"),
+        (_reply(503, text="<html>упал</html>"), ProviderError, "провайдер не ответил (HTTP 503)"),
+        (_reply(202, {"data": {"status": "pending"}}), StillCheckingError, "провайдер ещё проверяет адрес и после 2 переспросов — вердикта пока нет"),
         (_reply(200, text="не json"), ProviderError, "ответ не разобран как JSON (HTTP 200): 'не json'"),
         (_reply(200, []), ProviderError, "ответ не разобран как JSON (HTTP 200): '[]'"),
         (_reply(200, {"meta": {}}), ProviderError, "в ответе нет объекта data (HTTP 200): \"{'meta': {}}\""),
@@ -234,7 +235,7 @@ async def test_429_without_retry_after_waits_one_then_two_seconds_and_a_long_one
         (
             httpx.Response(503),
             ProviderError,
-            "провайдер не ответил (HTTP 503) — повторим следующей очисткой",
+            "провайдер не ответил (HTTP 503)",
         ),
         (
             httpx.ConnectError("сети нет"),

@@ -158,7 +158,7 @@ class TestThePass:
         async def paid_step(_http: httpx.AsyncClient, _report: object) -> Limited:
             return limited
 
-        monkeypatch.setattr("backend.features.contacts.search._paid_step", paid_step)
+        monkeypatch.setattr("backend.features.contacts.search.paid_step", paid_step)
         monkeypatch.setattr("backend.config.contacts.PAID_SEARCH_ENABLED", True)
         monkeypatch.setattr("backend.features.contacts.search.BATCH", 1)
         monkeypatch.setattr(

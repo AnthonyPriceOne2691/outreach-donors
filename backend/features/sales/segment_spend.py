@@ -222,20 +222,54 @@ def _rejudge(report: dict[str, Any], prices: Prices) -> SpendRow | None:
     return SpendRow("rejudge", "Пересуд", fact, REJUDGE_PROMISED, totals["tokens"], usd)
 
 
+def _counters(report: dict[str, Any]) -> dict[str, Any]:
+    contacts = _section(report, "contacts")
+    counters = None if contacts is None else contacts.get("counters")
+    return counters if isinstance(counters, dict) else {}
+
+
+#: Резерв платных поисков повтора (`contacts.paid_pending`, `segment_paid`): кусок поиска оставил
+#: его перед собой и снимает после — не снятым он остаётся, только если проход упал посреди куска.
+PENDING_KEY = "paid_pending"
+#: Принято провайдером, но не записано в счёт: резерв упавшего прохода, сведённый следующим
+#: (`segment_paid.settle`), — верхней границей.
+UNRECORDED_KEY = "paid_unrecorded"
+
+
+def pending(report: dict[str, Any]) -> int:
+    """Резерв платных поисков, не снятый упавшим проходом повтора: остаток сметы его вычитает
+    (`segment_queue.paid_left`) — повтор задачи не потратит его второй раз."""
+    contacts = _section(report, "contacts") or {}
+    return _int(contacts.get(PENDING_KEY)) or 0
+
+
+def unrecorded(report: dict[str, Any]) -> int:
+    """Платных поисков, принятых провайдером, но не записанных в счёт прогона (верхняя граница)."""
+    contacts = _section(report, "contacts") or {}
+    return _int(contacts.get(UNRECORDED_KEY)) or 0
+
+
+def searched(report: dict[str, Any]) -> int:
+    """Запросов поиска адреса, которые провайдер принял у прогона за все проходы: вошло в платную
+    ступень минус отказы. Им же меряет остаток сметы повтор по сроку (`segment_queue.paid_left`)."""
+    counters = _counters(report)
+    refused = _int(counters.get("provider_refused")) or 0
+    return max(0, (_int(counters.get("provider_entered")) or 0) - refused)
+
+
 def _search(report: dict[str, Any], estimate: dict[str, Any]) -> SpendRow:
     title = "Hunter: поиск адреса"
     promised_units = _int(estimate.get("hunter_searches")) or 0
     promised = f"до {number(promised_units)}" if promised_units else "платный поиск выключен"
-    contacts = _section(report, "contacts")
-    if contacts is None:
+    if _section(report, "contacts") is None:
         return SpendRow("search", title, NOT_YET["search"], promised, None, None, promised_units)
-    counters = contacts.get("counters")
-    counters = counters if isinstance(counters, dict) else {}
-    refused = _int(counters.get("provider_refused")) or 0
-    paid = max(0, (_int(counters.get("provider_entered")) or 0) - refused)
+    refused = _int(_counters(report).get("provider_refused")) or 0
+    paid = searched(report)
     fact = f"поисков {number(paid)}" if paid else "платных поисков не было"
     if refused:
         fact += f"; отказов провайдера {number(refused)} — их он не засчитывает"
+    if unsettled := pending(report) + unrecorded(report):
+        fact += f"; ещё до {number(unsettled)} — не записаны: проход повтора упал посреди поиска"
     return SpendRow("search", title, fact, promised, paid, None, promised_units)
 
 

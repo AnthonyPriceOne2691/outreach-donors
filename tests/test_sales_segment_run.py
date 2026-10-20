@@ -177,7 +177,7 @@ def _network(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("backend.features.contacts.ladder.mail_route", route)
     monkeypatch.setattr(cleaning, "mail_route", route)
-    monkeypatch.setattr("backend.features.contacts.search._paid_step", no_paid)
+    monkeypatch.setattr("backend.features.contacts.search.paid_step", no_paid)
 
 
 @pytest.fixture

@@ -63,12 +63,15 @@ KINDS = {
     BUILD_JOB: "сборка писем",
     SEND_QUEUE_JOB: "отправка очереди",
     # Задачи продаж живут в своём модуле (`sales/queue_jobs.py`, `sales/clean_jobs.py`,
-    # `sales/segment_jobs.py`): общий код о продажах знает только их пути строкой — сверку
-    # держат `tests/test_sales_queue_api.py`, `tests/test_sales_clean_api.py` и
-    # `tests/test_sales_segment_api.py`.
+    # `sales/segment_jobs.py`, `sales/verify_again_jobs.py`): общий код о продажах знает только
+    # их пути строкой — сверку держат `tests/test_sales_queue_api.py`,
+    # `tests/test_sales_clean_api.py`, `tests/test_sales_segment_api.py`,
+    # `tests/test_sales_segment_again.py` и `tests/test_sales_verify_again.py`.
     "backend.features.sales.queue_jobs.build_sales_queue": "сборка очереди продаж",
     "backend.features.sales.clean_jobs.clean_sales_leads": "очистка лидов продаж",
     "backend.features.sales.segment_jobs.run_segment": "сбор базы продаж",
+    "backend.features.sales.segment_jobs.due_again": "срок повтора адреса продаж",
+    "backend.features.sales.verify_again_jobs.recheck": "перепроверка адресов продаж",
     CONTACTS_JOB: "поиск контактов",
     PARSE_JOB: "разбор ответа",
     # Задача агента переписки живёт в своём модуле (`workers/agent_jobs.py`).

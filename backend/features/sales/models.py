@@ -39,6 +39,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.features.core.models._mixins import TimestampedMixin
+from backend.features.sales.verify_columns import VERIFY_AGAIN_INDEX, VerifyAgainMixin
 from backend.shared.database.base import Base
 
 
@@ -92,7 +93,7 @@ class SalesHypothesisModel(TimestampedMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-class SalesLeadModel(TimestampedMixin, Base):
+class SalesLeadModel(TimestampedMixin, VerifyAgainMixin, Base):
     """Человек, которому напишут продажи: кто он, где работает, откуда взялся."""
 
     __tablename__ = "sales_leads"
@@ -101,13 +102,11 @@ class SalesLeadModel(TimestampedMixin, Base):
     hypothesis_id: Mapped[int] = mapped_column(
         ForeignKey("sales_hypotheses.id", ondelete="RESTRICT"), nullable=False
     )
-    #: Домен компании обязателен: по нему стоп-лист, дубли с другими
-    #: направлениями и сам сайт, о котором пишем.
+    #: Домен компании обязателен: по нему стоп-лист, дубли других направлений и сам сайт.
     domain_id: Mapped[int] = mapped_column(
         ForeignKey("domains.id", ondelete="RESTRICT"), nullable=False
     )
-    #: Общая строка адреса. Пусто — строки ещё нет или её удалили у доноров:
-    #: кому писать, лид знает по `email`.
+    #: Общая строка адреса; пусто — строки нет или её удалили у доноров: адрес лида — `email`.
     contact_id: Mapped[int | None] = mapped_column(
         ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
     )
@@ -156,6 +155,7 @@ class SalesLeadModel(TimestampedMixin, Base):
         # Экран фильтрует лидов по состоянию и причине отказа.
         Index("idx_sales_leads_status_reason", "status", "rejection_reason"),
         Index("idx_sales_leads_referred_from_thread", "referred_from_thread_id"),
+        VERIFY_AGAIN_INDEX,
     )
 
 

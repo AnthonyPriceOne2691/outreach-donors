@@ -20,6 +20,8 @@
 и экран, спросив очередь, видит прогон идущим. Задачу умершего воркера, которую rq держит
 «идёт» до таймаута, продолжение убирает (`segment_watch.drop_dead`), а не отвечает 409.
 
+`POST /sales/segment/runs/{N}/again` — «Повторить сейчас» из отчёта прогона: `segment_again.py`.
+
 `GET /sales/segment/runs/{N}` — прогон и его отчёт; `POST /sales/segment/candidates/{N}/decision`
 — решение человека по сайту «на проверку»: то же решение второй раз — 200 без второй записи
 журнала, противоположное по решённому — 409 словами. `DELETE` того же адреса — отмена решения
@@ -160,11 +162,17 @@ async def read_segment(
             RunRow.of(
                 run,
                 progress=await segment_progress.live(session, run) if run.id in watched else None,
+                again=await _again_live(session, run) if run.id in watched else None,
                 watch=watched.get(run.id),
             )
             for run in runs
         ],
     )
+
+
+async def _again_live(session: AsyncSession, run: SalesSegmentRunModel) -> dict[str, object] | None:
+    """Живой ход повтора идущего прогона (`segment_progress.AGAIN_KEY`)."""
+    return await segment_progress.live(session, run, key=segment_progress.AGAIN_KEY)
 
 
 async def _watched(runs: Sequence[SalesSegmentRunModel]) -> dict[int, segment_watch.Watch]:
@@ -291,21 +299,28 @@ def _started(found: Estimate) -> dict[str, object]:
     return details
 
 
-async def _enqueue(jobs: Queue, run_id: int) -> Job | None:
-    """Проход прогона — в очередь долгих задач продаж; `None` — номер занят (`enqueue_once`)."""
+async def _enqueue(jobs: Queue, run_id: int, *more: object) -> Job | None:
+    """Проход прогона — в очередь долгих задач продаж; `None` — номер занят (`enqueue_once`).
+    `more` — довод повтора (`segment_run.Again`)."""
     return await asyncio.to_thread(
-        enqueue_once, jobs, segment_job_id(run_id), SEGMENT_JOB, run_id, **with_retries()
+        enqueue_once, jobs, segment_job_id(run_id), SEGMENT_JOB, run_id, *more, **with_retries()
     )
 
 
-async def _queued(run_id: int) -> Job | None:
+def bulk_queue() -> Queue:
+    """Очередь долгих задач продаж маршрутов прогона — одна у постановки прохода и у вопроса о
+    пересуде, здесь и у «Повторить сейчас» (`segment_again.py`)."""
+    return sales_bulk_queue()
+
+
+async def queued_pass(run_id: int, *more: object) -> Job | None:
     """Поставить проход продолжения. Номер занят — «идёт» или задача умершего воркера, которую
     rq держит «идёт» до таймаута: такая убирается (`segment_watch.drop_dead`), и проход
     ставится снова. `None` — прогон и правда идёт."""
-    jobs = sales_bulk_queue()
-    job = await _enqueue(jobs, run_id)
+    jobs = bulk_queue()
+    job = await _enqueue(jobs, run_id, *more)
     if job is None and await asyncio.to_thread(segment_watch.drop_dead, jobs, run_id):
-        job = await _enqueue(jobs, run_id)
+        job = await _enqueue(jobs, run_id, *more)
     return job
 
 
@@ -327,7 +342,7 @@ async def resume_run(
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, UNKNOWN_RUN.format(run_id=run_id))
     await refuse_while_rejudging(run.id, sales_bulk_queue())
-    job = await _queued(run.id)
+    job = await queued_pass(run.id)
     if job is None:
         raise HTTPException(status.HTTP_409_CONFLICT, RUN_GOING)
     # Проход поставлен: прогон идёт, пока проход не кончится. Стадия — прежняя: «в очереди»

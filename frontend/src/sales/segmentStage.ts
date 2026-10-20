@@ -15,10 +15,14 @@
  * хода у него ещё прошлого прохода и не показывается. Так же — прогон, чья задача ещё не у
  * воркера (`watch.job`): стоит в очереди — «в очереди задач», ждёт повтора — «ждёт повтора
  * задачи», хотя стадия у него — этап, на котором встал прошлый проход.
+ *
+ * **Повтор стадию не трогает тоже** (`run.again`, ревью 20.10.2026): готовый остаётся готовым,
+ * остановленный — остановленным; пока задача повтора у воркера, ход — его записью: «повтор:
+ * адреса 3 из 12 доменов», «повтор: очистка лидов 2 из 5».
  */
 
 import { formatNumber, plural } from '../format';
-import type { SegmentRunRow, SegmentStage } from './segmentApi';
+import type { SegmentProgress, SegmentRunRow, SegmentStage } from './segmentApi';
 
 /** Этапы, в которых прогон «идёт» по своей строке. */
 export const GOING: ReadonlySet<SegmentStage> = new Set([
@@ -70,15 +74,18 @@ function resumed(run: SegmentRunRow): boolean {
   return isActive(run) && (run.stage === 'done' || run.stage === 'stopped');
 }
 
+/** Повтор у воркера: стадия прежняя, ход — записью повтора (`run.again`). */
+export function repeating(run: SegmentRunRow): boolean {
+  return resumed(run) && run.watch?.job === 'started' && Boolean(run.again);
+}
+
 /** Задача прогона ещё не у воркера: стоит в очереди (`queued`) или ждёт повтора (`retry`). */
 function waiting(run: SegmentRunRow): 'queued' | 'retry' | null {
   if (!isActive(run)) return null;
   const job = run.watch?.job;
   if (job === 'scheduled') return 'retry';
-  if (job === 'queued' || job === 'deferred' || run.stage === 'queued' || resumed(run)) {
-    return 'queued';
-  }
-  return null;
+  if (job === 'queued' || job === 'deferred' || run.stage === 'queued') return 'queued';
+  return resumed(run) && !repeating(run) ? 'queued' : null;
 }
 
 /** Сколько секунд прошло с отметки; отметки нет — пусто. */
@@ -101,6 +108,9 @@ export function lasting(seconds: number): string {
   if (minutes < 60) return `${formatNumber(minutes)} мин`;
   return `${formatNumber(Math.floor(minutes / 60))} ч ${String(minutes % 60).padStart(2, '0')} мин`;
 }
+
+/** Лидов — «из 1 лида», «из 5 лидов». */
+const LEAD_FORMS: [string, string, string] = ['лида', 'лидов', 'лидов'];
 
 /** «из 11 ключей», «из 1 ключа». */
 function outOf(done: number, total: number, forms: [string, string, string]): string {
@@ -132,8 +142,21 @@ function stageProgress(run: SegmentRunRow): string {
   return count === null ? words : `${words}: ${count}`;
 }
 
-/** Где прогон сейчас — одной фразой: этап и его ход, «в очереди задач», «готово». */
+/** Ход повтора словами: «повтор: адреса 3 из 12 доменов», «повтор: очистка лидов 2 из 5». */
+function againLine(again: SegmentProgress): string {
+  const done = again.done ?? 0;
+  if (again.what === 'cleaning') {
+    const count = again.total === null ? '' : `: ${outOf(done, again.total, LEAD_FORMS)}`;
+    return `повтор: очистка лидов${count}`;
+  }
+  const count = stageCount(again.stage, done, again.total);
+  const words = again.stage === 'contacts' ? 'повтор: адреса' : 'повтор: лиды и очистка';
+  return count === null ? words : `${words}: ${count}`;
+}
+
+/** Где прогон сейчас — одной фразой: этап и его ход, повтор, «в очереди задач», «готово». */
 export function stageLine(run: SegmentRunRow): string {
+  if (repeating(run) && run.again) return againLine(run.again);
   if (resumed(run)) return 'в очереди задач — продолжение';
   const wait = waiting(run);
   if (wait === 'retry') return 'ждёт повтора задачи';
@@ -172,7 +195,8 @@ export function pulse(run: SegmentRunRow, now = Date.now()): Pulse | null {
   const alive = secondsSince(run.alive_at, now);
   if (alive === null) return null;
   if (wait === 'queued') return { words: `поставлен ${ago(alive)}`, quiet: false };
-  const going = secondsSince(run.progress?.pass_started_at, now);
+  const pass = repeating(run) ? run.again : run.progress;
+  const going = secondsSince(pass?.pass_started_at, now);
   const lead = going === null ? '' : `идёт ${lasting(going)} · `;
   const quiet = alive > QUIET_S;
   const said = `${lead}обновлено ${ago(alive)}`;
@@ -182,6 +206,7 @@ export function pulse(run: SegmentRunRow, now = Date.now()): Pulse | null {
 /** Значок стадии в шапке отчёта: что написано и каким цветом. */
 export function stageBadge(run: SegmentRunRow): { title: string; color: string } {
   if (run.watch?.stalled) return { title: STAGE_WORDS.stopped, color: 'yellow' };
+  if (repeating(run)) return { title: 'идёт повтор', color: 'blue' };
   if (isActive(run)) {
     const wait = waiting(run);
     const title =

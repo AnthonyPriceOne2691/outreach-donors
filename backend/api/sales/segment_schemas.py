@@ -10,6 +10,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from backend.api.sales.segment_waits import OfferRow, WaitRow
 from backend.config import serp as serp_cfg
 from backend.features.sales import segment_progress
 from backend.features.sales.segment_estimate import Estimate
@@ -240,6 +241,8 @@ class RunProgress(BaseModel):
     mode: str | None = None
     #: Что знать о сбое этапа до следующего прохода: «следующий проход купит её заново».
     note: str | None = None
+    #: У хода повтора — что он повторяет (`segment_run.Again`): `due`, `addresses`, `cleaning`.
+    what: str | None = None
 
     @classmethod
     def of(cls, raw: object) -> RunProgress | None:
@@ -311,6 +314,8 @@ class RunRow(BaseModel):
     #: Прогон идёт — экран опрашивает его и список, пока это так.
     active: bool
     progress: RunProgress | None
+    #: Ход повтора (`report.again`): идёт — что повторяет (`what`) и этап; нет — пусто.
+    again: RunProgress | None = None
     watch: RunWatch | None
 
     @classmethod
@@ -319,10 +324,11 @@ class RunRow(BaseModel):
         run: SalesSegmentRunModel,
         *,
         progress: Mapping[str, Any] | None = None,
+        again: Mapping[str, Any] | None = None,
         watch: Watch | None = None,
     ) -> RunRow:
-        """`progress` — живой ход (`segment_progress.live`); не дан — запись прохода как есть.
-        `watch` — ответ очереди; не дан — прогон о ней не спрашивали (он кончился)."""
+        """`progress` и `again` — живой ход прохода и повтора (`segment_progress.live`); не даны —
+        записи как есть. `watch` — ответ очереди; не дан — прогон о ней не спрашивали."""
         return cls(
             id=run.id,
             hypothesis_id=run.hypothesis_id,
@@ -341,6 +347,9 @@ class RunRow(BaseModel):
             active=_active(run, watch),
             progress=RunProgress.of(
                 progress if progress is not None else run.report.get(segment_progress.KEY)
+            ),
+            again=RunProgress.of(
+                again if again is not None else run.report.get(segment_progress.AGAIN_KEY)
             ),
             watch=None if watch is None else RunWatch.of(watch),
         )
@@ -400,6 +409,10 @@ class RunDetail(BaseModel):
     rejected: list[Count]
     no_address: list[Count]
     waiting_address: int
+    #: Что ждёт повтора: адреса и очистка — словами, сроком и берёт ли строку кнопка повтора.
+    waits: list[WaitRow]
+    #: «Повторить сейчас» у групп: скольких возьмёт и до скольких платных запросов Hunter.
+    again: list[OfferRow]
     leads: dict[str, int]
     lead_reasons: dict[str, int]
     unanswered: int
@@ -410,7 +423,7 @@ class RunDetail(BaseModel):
     def of(cls, view: RunView, *, watch: Watch | None = None) -> RunDetail:
         run = view.run
         return cls(
-            run=RunRow.of(run, progress=view.progress, watch=watch),
+            run=RunRow.of(run, progress=view.progress, again=view.again, watch=watch),
             hypothesis=view.hypothesis,
             keywords=list(run.keywords),
             estimate_lines=list((run.estimate or {}).get("lines", [])),
@@ -420,6 +433,8 @@ class RunDetail(BaseModel):
             rejected=[Count(words=words, count=count) for words, count in view.rejected],
             no_address=[Count(words=words, count=count) for words, count in view.no_address],
             waiting_address=view.waiting_address,
+            waits=[WaitRow.of(wait) for wait in view.waits],
+            again=[OfferRow.of(found) for found in view.offers],
             leads=view.leads,
             lead_reasons=view.lead_reasons,
             unanswered=view.unanswered,

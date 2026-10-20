@@ -708,7 +708,7 @@ async def test_a6_service_failure_leaves_the_lead_new_with_the_reason_and_the_ne
     world: World,
 ) -> None:  # A6
     # A6 — пример спеки
-    why = "провайдер не ответил (HTTP 503) — повторим следующей очисткой"
+    why = "провайдер не ответил (HTTP 503)"
     failing = Scripted({IVAN: ProviderError(why)})
     await world.lead(IVAN)
     await world.lead("maria@acme.example.test")

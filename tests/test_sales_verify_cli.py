@@ -172,8 +172,8 @@ def test_every_word_of_the_provider_has_its_words() -> None:
         (429, {"errors": [{"id": "usage_exceeded", "details": "monthly quota"}]}, EXIT_VERIFIER_STOPPED, "квота исчерпана: monthly quota"),
         (429, None, EXIT_VERIFIER_STOPPED, TOO_OFTEN),
         (400, {"errors": [{"id": "blacklisted_domain", "details": "This domain is blacklisted"}]}, EXIT_VERIFIER_STOPPED, "провайдер не работает с доменом: This domain is blacklisted — владелец домена запретил обработку адресов"),
-        (503, None, EXIT_UNAVAILABLE, "провайдер не ответил (HTTP 503) — повторим следующей очисткой"),
-        (202, {"data": {"status": "pending"}}, EXIT_UNAVAILABLE, "провайдер ещё проверяет адрес и после 2 переспросов — повторим следующей очисткой"),
+        (503, None, EXIT_UNAVAILABLE, "провайдер не ответил (HTTP 503)"),
+        (202, {"data": {"status": "pending"}}, EXIT_UNAVAILABLE, "провайдер ещё проверяет адрес и после 2 переспросов — вердикта пока нет"),
         (200, {"data": {"status": "weird"}}, EXIT_UNAVAILABLE, "формат ответа поменялся: status='weird' (HTTP 200) — читать лог, не гадать"),
     ],
 )  # fmt: skip

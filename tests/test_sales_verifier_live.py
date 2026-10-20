@@ -166,7 +166,7 @@ class Refusing:
 @pytest.mark.parametrize(
     "refusal",
     [
-        ProviderError("провайдер не ответил (HTTP 503) — повторим следующей очисткой"),
+        ProviderError("провайдер не ответил (HTTP 503)"),
         ProviderBlockedError("ключ проверки адресов не принят провайдером (HTTP 401)"),
         ProviderRateLimitError(TOO_OFTEN),
     ],

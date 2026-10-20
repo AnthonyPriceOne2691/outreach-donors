@@ -121,12 +121,15 @@ def _pays(report: SearchReport, stage: Stage | None, *, no_paid: bool) -> bool:
     return False
 
 
-async def _paid_step(http: httpx.AsyncClient, report: SearchReport) -> ContactProvider | None:
+async def paid_step(http: httpx.AsyncClient, report: SearchReport) -> ContactProvider | None:
     """Платный сервис, если ключ есть и квота осталась.
 
     Отсутствие ключа — рабочий режим, а не поломка: три бесплатные
     ступени работают и без него, просто часть доменов останется
     без контакта. Включён ли он вовсе, решает флаг до этого (`_pays`).
+
+    Имя публичное: тем же правилом готовность платной ступени проверяет
+    до прохода и повтор сбора продаж (`sales/segment_paid.ready`).
     """
     if not cfg.HUNTER_API_KEY:
         report.notes.append("Платный сервис не настроен — идём по бесплатным ступеням.")
@@ -257,7 +260,7 @@ async def search_contacts(
         # редиректа, иначе публичный сайт уводит нас внутрь сети одним 302.
         http = await stack.enter_async_context(guarded_client(timeout=timeout))
         pays = _pays(report, stage, no_paid=no_paid)
-        provider = await _paid_step(http, report) if pays else None
+        provider = await paid_step(http, report) if pays else None
         # Обмен с сайтами учитывается: по нему решается, ответил ли сайт.
         watch(http)
 

@@ -19,6 +19,14 @@
 **Ход прогона** — запись прохода и живое «сделано» судьи и адресов из кандидатов
 (`segment_progress.live`); плитки сходятся и во время судьи: «ещё не судили» — своим числом.
 
+**«Ждут адреса» — тем же условием, что у прохода** (разбор прогона сбора 20.10: счёт брал лишь
+не искавшиеся, и сайт с наступившим сроком повтора кнопки не получал): поиск адреса — не
+искавшиеся и с наступившим сроком (`segment_queue.due_now`: срок не раньше
+`SALES_SEGMENT_AGAIN_MIN`), лид из адреса, что уже есть на домене, — условием этапа лидов
+(`segment_leads.lead_ready`). «Без адреса — почему» — по исходу поиска, как и было. Что ждёт
+повтора и когда — строками ожидания, а что возьмёт «Повторить сейчас» и до скольких платных
+запросов — предложениями повтора, тем же условием, что у прохода (`segment_waits.py`).
+
 **Списка сайтов в отчёте нет** — только числа: отчёт опрашивается раз в три секунды, пока прогон
 идёт, а сайты по одному (и «на проверку» тоже) отдаёт список сайтов прогона страницами
 (`segment_sites.py`), и экран спрашивает его, только когда список открыт.
@@ -36,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.sales import company_hold, segment_progress
 from backend.features.sales.models import LeadStatus, SalesHypothesisModel, SalesLeadModel
+from backend.features.sales.segment_leads import lead_ready
 from backend.features.sales.segment_models import (
     AWAITS_HUMAN,
     Decider,
@@ -43,7 +52,10 @@ from backend.features.sales.segment_models import (
     SalesSegmentCandidateModel,
     SalesSegmentRunModel,
 )
+from backend.features.sales.segment_queue import SegmentContactQueue
 from backend.features.sales.segment_sites import address_words
+from backend.features.sales.segment_waits import Offer, Wait, run_offers, run_waits
+from backend.features.sales.verifier import live
 
 Candidate = SalesSegmentCandidateModel
 #: Причин отсева в отчёте — частые первыми.
@@ -87,8 +99,12 @@ class RunView:
     rejected: list[tuple[str, int]] = field(default_factory=list)
     #: Принятые без лида после поиска: почему словами → сколько.
     no_address: list[tuple[str, int]] = field(default_factory=list)
-    #: Принятые, которым поиск адреса ещё предстоит.
+    #: Принятые, которых возьмёт проход: поиск адреса сейчас и лид из готового адреса.
     waiting_address: int = 0
+    #: Что ждёт повтора — адреса и очистка: словами, сроком и берёт ли строку кнопка повтора.
+    waits: list[Wait] = field(default_factory=list)
+    #: «Повторить сейчас» у групп: скольких возьмёт и до скольких платных запросов Hunter.
+    offers: list[Offer] = field(default_factory=list)
     #: Лидов из прогона и что с ними сделала очистка: состояние → сколько.
     leads: dict[str, int] = field(default_factory=dict)
     #: Отсеянные очисткой лиды: код причины → сколько.
@@ -97,6 +113,8 @@ class RunView:
     unanswered: int = 0
     #: Ход прохода (`segment_progress.live`); пусто — записи хода нет.
     progress: dict[str, Any] | None = None
+    #: Ход повтора (`segment_progress.AGAIN_KEY`); пусто — повтор не идёт.
+    again: dict[str, Any] | None = None
     #: Сайты по ключу — сколько принёс каждый (`KeySites`); ключа без сайтов здесь нет.
     keyword_sites: dict[str, KeySites] = field(default_factory=dict)
 
@@ -138,27 +156,30 @@ async def _rejected(session: AsyncSession, run_id: int) -> list[tuple[str, int]]
 
 
 async def _addresses(session: AsyncSession, run_id: int) -> tuple[list[tuple[str, int]], int]:
-    """Принятые без лида: почему нет адреса — и сколько ещё ждут поиска. Сайт, чью компанию
-    держит живой лид продаж, адрес не ищет и поиска не ждёт: итог — словами `company_hold`."""
+    """Принятые без лида: почему нет адреса после поиска — и сколько возьмёт проход тем же
+    условием, что у него: поиск сейчас — не искавшиеся и с наступившим сроком повтора
+    (`segment_queue`), и лид из адреса, что уже есть на домене (`segment_leads.lead_ready`).
+    Сайт, чью компанию держит живой лид продаж, адрес не ищет и поиска не ждёт: итог — словами
+    `company_hold`."""
     rows = await session.execute(
         select(Candidate.contact_status, func.count())
         .where(
             Candidate.run_id == run_id,
             Candidate.lane == Lane.ACCEPT,
             Candidate.lead_id.is_(None),
+            Candidate.contact_status.is_not(None),
             ~company_hold.held(Candidate.domain_id),
         )
         .group_by(Candidate.contact_status)
     )
     words = await company_hold.held_in_run(session, run_id)
-    waiting = 0
     for status, count in rows.tuples().all():
-        if status is None:
-            waiting += count
-        else:
+        if status is not None:  # исход есть у каждого, кого поиск видел (условие выборки)
             # Слова — одним правилом с итогом сайта в списке сайтов прогона.
             words[address_words(status)] += count
-    return words.most_common(), waiting
+    searched = await SegmentContactQueue(session, run_id).pending_count()
+    ready = await session.scalar(select(func.count(Candidate.id)).where(lead_ready(run_id)))
+    return words.most_common(), searched + int(ready or 0)
 
 
 async def _leads(session: AsyncSession, run_id: int) -> tuple[dict[str, int], dict[str, int]]:
@@ -187,6 +208,9 @@ async def run_view(session: AsyncSession, run_id: int) -> RunView | None:
     view.lanes = await _lanes(session, run_id)
     view.rejected = await _rejected(session, run_id)
     view.no_address, view.waiting_address = await _addresses(session, run_id)
+    now, real = datetime.now(UTC), live()
+    view.waits = await run_waits(session, run, real=real, now=now)
+    view.offers = await run_offers(session, run, real=real, now=now)
     view.leads, view.lead_reasons = await _leads(session, run_id)
     view.unanswered = int(
         await session.scalar(
@@ -199,6 +223,7 @@ async def run_view(session: AsyncSession, run_id: int) -> RunView | None:
         or 0
     )
     view.progress = await segment_progress.live(session, run)
+    view.again = await segment_progress.live(session, run, key=segment_progress.AGAIN_KEY)
     view.keyword_sites = await _keyword_sites(session, run_id)
     return view
 

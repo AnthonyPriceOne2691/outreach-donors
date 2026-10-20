@@ -4,7 +4,8 @@
 забота: куда ушёл каждый лид (`Outcome`), что проход сделал (`tally`) и как это сказать консоли
 (`lines`) и строке задачи на экране (`clean_jobs.report_of`, слова там строит экран). Каждый
 исход — своим числом: «готово», «отклонено» по причинам, «не подтверждено» (`unknown`,
-`unconfirmed.py`), «не проверено» (отказ сервиса) и «ждут держателя» (компанию держит
+`unconfirmed.py`), «Hunter ещё проверяет» (перепроверка отложена и пойдёт сама,
+`verify_again.py`), «не проверено» (отказ сервиса) и «ждут держателя» (компанию держит
 непроверенный лид другой гипотезы, `company_hold.split`) — человек должен видеть, куда ушёл
 каждый лид.
 """
@@ -34,6 +35,8 @@ REASON_LABELS = {
 }
 #: Ждущие держателя — словами сводки консоли (экран говорит теми же, `cleanData.cleanLine`).
 AWAITING_HOLDER = "ждут: компанию держит непроверенный лид другой гипотезы"
+#: Начало слов лида, чья проверка не выполнена: отказ сервиса, остановка или «ещё проверяет».
+NOT_VERIFIED = "проверка не выполнена"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +53,10 @@ class Outcome:
     kept: bool = False
     #: Ждёт держателя компании — непроверенного лида другой гипотезы (`company_hold.split`).
     waits: bool = False
+    #: Hunter «ещё проверяет»: когда перепроверка пойдёт сама и с какого момента идёт окно
+    #: перепроверок (`verify_again.later`); пусто — отложенной перепроверки у лида нет.
+    again_at: datetime | None = None
+    since: datetime | None = None
 
     @property
     def unknown(self) -> bool:
@@ -83,6 +90,10 @@ class CleaningReport:
     recheck_on: date | None = None
     #: Проверка не выполнена: остались в прежнем статусе (`cleaning._unverified`).
     unverified: int = 0
+    #: Hunter «ещё проверяет» и после переспросов: статус прежний, перепроверка пойдёт сама —
+    #: первая не раньше `again_at` (`verify_again.py`).
+    still_checking: int = 0
+    again_at: datetime | None = None
     #: Ждут держателя компании — непроверенного лида другой гипотезы: проверку им никто не
     #: запускал, статус и вердикт прежние; разбудит их очистка, которая решит держателя.
     awaiting_holder: int = 0
@@ -118,6 +129,9 @@ def _count(report: CleaningReport, outcome: Outcome, moment: datetime) -> None:
     elif outcome.unknown:
         report.unconfirmed += 1
         report.recheck_on = recheck_on(moment)
+    elif outcome.again_at is not None:
+        report.still_checking += 1
+        report.again_at = min(report.again_at or outcome.again_at, outcome.again_at)
     elif outcome.passed:
         report.ready += 1
     else:
@@ -140,6 +154,11 @@ def lines(report: CleaningReport) -> list[str]:
     ]
     shown = (
         (
+            report.still_checking,
+            f"  перепроверка по сроку (Hunter ещё проверяет или не ответил): "
+            f"{report.still_checking} — пойдёт сама",
+        ),
+        (
             report.awaiting_holder,
             f"  {AWAITING_HOLDER} — {report.awaiting_holder}: Hunter за них не платился, их решит "
             "очистка гипотезы держателя — она названа в словах лида",
@@ -161,6 +180,11 @@ def _waiting(report: CleaningReport) -> list[str]:
     """Кто ждёт и почему: адрес не подтверждён — дня перепроверки, не проверен — следующей
     очистки или снятой причины остановки."""
     said = []
+    if report.still_checking and report.again_at is not None:
+        said.append(
+            "\nHunter ещё проверяет адрес или не ответил — к письмам такие лиды пока не идут: "
+            f"перепроверка пойдёт сама около {report.again_at:%d.%m %H:%M} UTC."
+        )
     if report.unconfirmed and report.recheck_on is not None:
         said.append(
             "\nАдрес не подтверждён (unknown) — к письмам такие лиды не идут: очистка проверит "

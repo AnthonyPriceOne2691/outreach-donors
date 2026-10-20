@@ -1,9 +1,10 @@
 """Ответы Hunter на проверку адреса, которые не вердикт: 202 и отказ домену (`hunter_codes.py`).
 
 202 («ещё проверяет») проход переспрашивает тут же — бесплатно, не больше двух раз, с паузой
-общих повторов и под ограничителем частоты; не дождались — лид ждёт следующей очистки, как
-прежде. 400 `blacklisted_domain` — общий `ProviderDomainRefusedError`, отказ домену постоянный:
-лид отклонён сразу словами, без повтора и без единицы расхода.
+общих повторов и под ограничителем частоты; не дождались — `StillCheckingError`, и перепроверка
+отложена по сроку (`verify_again.py`, свои тесты — `test_sales_verify_again.py`). 400
+`blacklisted_domain` — общий `ProviderDomainRefusedError`, отказ домену постоянный: лид отклонён
+сразу словами, без повтора и без единицы расхода.
 
 Сеть — только `httpx.MockTransport`, формы ответов — по документации Hunter, числа некруглые.
 Паузы повторов записываются, а не спятся.
@@ -13,13 +14,14 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable
+from datetime import timedelta
 
 import httpx
 import pytest
 from backend.features.contacts.mx import MailRoute
 from backend.features.contacts.provider import ProviderDomainRefusedError, ProviderError
 from backend.features.core.models.ops import UsageRecordModel
-from backend.features.sales import cleaning, hunter_codes
+from backend.features.sales import cleaning, hunter_codes, verify_again
 from backend.features.sales.clean_report import CleaningReport
 from backend.features.sales.models import LeadStatus, SalesHypothesisModel
 from backend.features.sales.verifier import HunterVerifier, Verdict
@@ -33,7 +35,11 @@ EMAIL = "ivan@acme.example.test"
 KEY = "k-test"
 VALID = httpx.Response(200, json={"data": {"status": "valid", "score": 97}})
 PENDING = httpx.Response(202, json={"data": {"status": "pending"}})
-NOT_YET = f"проверка не выполнена: {hunter_codes.STILL_CHECKING}"
+#: Hunter ещё проверяет — перепроверка через двадцать минут, первая из трёх (умолчания настроек).
+AGAIN_AT = NOW + timedelta(minutes=20)
+#: Окно перепроверок — три срока по двадцать минут от первого «ещё проверяет».
+UNTIL = NOW + timedelta(minutes=60)
+NOT_YET = verify_again.checking(AGAIN_AT, UNTIL)
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -116,17 +122,18 @@ async def test_still_checking_is_asked_again_in_the_same_pass_until_the_verdict(
     assert {request.url.params["email"] for request in seen} == {EMAIL}
 
 
-async def test_still_checking_after_two_asks_waits_for_the_next_cleaning(
+async def test_still_checking_after_two_asks_is_its_own_refusal_for_a_later_recheck(
     pauses: list[float],
 ) -> None:
+    """Не дождались — своё исключение, а не общий отказ сервиса: его очистка откладывает."""
     handler, seen = _script(PENDING)
 
     with pytest.raises(ProviderError) as refused:
         await _verify(handler)
 
-    assert type(refused.value) is ProviderError
+    assert type(refused.value) is hunter_codes.StillCheckingError
     assert str(refused.value) == (
-        "провайдер ещё проверяет адрес и после 2 переспросов — повторим следующей очисткой"
+        "провайдер ещё проверяет адрес и после 2 переспросов — вердикта пока нет"
     )
     assert (len(seen), len(pauses)) == (3, 2)
 
@@ -169,11 +176,14 @@ async def test_asks_again_and_retries_of_the_network_are_counted_apart(
     assert (len(seen), len(pauses)) == (3, 2)
 
 
-async def test_cleaning_gets_the_verdict_in_the_same_pass_or_leaves_the_lead_for_the_next(
-    world: World,
+async def test_cleaning_gets_the_verdict_in_the_same_pass_or_defers_the_lead_to_its_term(
+    world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Дождались — лид «готов» тем же проходом и платит одну проверку; не дождались — лид в
-    прежнем статусе со словами, а следующая очистка спросит снова."""
+    прежнем статусе со словами, сроком и окном, а следующая очистка спросит снова — окно прежнее:
+    заход раньше срока его не сокращает."""
+    planned: list[object] = []
+    monkeypatch.setattr(verify_again.deferred, "plan", lambda *a, **k: planned.append(a))
     answers = {EMAIL: [PENDING, VALID], "olga@beta.example.test": [PENDING]}
     seen: Counter[str] = Counter()
 
@@ -192,9 +202,11 @@ async def test_cleaning_gets_the_verdict_in_the_same_pass_or_leaves_the_lead_for
         Row(LeadStatus.READY, verification="hunter:valid", score=97, verified_at=NOW),
         Row(LeadStatus.NEW, note=NOT_YET),
     ]
-    assert (report.ready, report.unverified, report.paid_units) == (1, 1, 1)
+    assert (report.ready, report.still_checking, report.unverified) == (1, 1, 0)
+    assert (report.again_at, report.paid_units) == (AGAIN_AT, 1)
     assert await _units(world.session) == [1]
     assert seen == Counter({EMAIL: 2, "olga@beta.example.test": 3})
+    assert len(planned) == 1
 
     await _clean(world, handler)
 

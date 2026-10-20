@@ -37,9 +37,9 @@ Verifier. Умолчание — `fixture`; на `live` переключает �
 платят только за вердикт.
 
 **202 и отказ домену** (`hunter_codes.py`, тест прогона сбора 14.10): «ещё проверяет» проход
-переспрашивает тут же, бесплатно; 400 `blacklisted_domain` общий разбор называет
-`ProviderDomainRefusedError` — отказ постоянный, и очистка отклоняет лида сразу, без повторов и
-единиц.
+переспрашивает тут же, бесплатно, а не дождался — `StillCheckingError`, и перепроверка идёт сама
+(`verify_again.py`); 400 `blacklisted_domain` общий разбор называет `ProviderDomainRefusedError` —
+отказ постоянный, и очистка отклоняет лида сразу, без повторов и единиц.
 
 Исключения и разбор маркеров отказа — общие с поиском адресов
 (`contacts/provider.py`): сервис тот же, маркеры те же, вторую копию
@@ -167,9 +167,11 @@ class FixtureVerifier:
 
     Правило — по началу локальной части, чтобы тест и демо задавали исход
     самим адресом: `bounce@` — ящика нет, `disposable@` — одноразовый,
-    `unknown@` — провайдер не знает, `catchall@` — сервер принимает всё;
-    прочие годные. Уверенность выдумана и не кругла: чтобы не спутать
-    с настоящей и чтобы испорченное сравнение роняло тест.
+    `unknown@` — провайдер не знает, `catchall@` — сервер принимает всё,
+    `still-checking@` — «ещё проверяет» и после переспросов, как 202 Hunter
+    (маркер длинный нарочно: настоящий адрес с ним не совпадёт); прочие
+    годные. Уверенность выдумана и не кругла: чтобы не спутать с настоящей
+    и чтобы испорченное сравнение роняло тест.
     """
 
     name = FIXTURE
@@ -181,8 +183,15 @@ class FixtureVerifier:
         (("catchall", "catch-all", "acceptall", "accept-all"), "accept_all", 61),
     )
 
+    #: «Ещё проверяет» — не вердикт: начало локальной части, на котором выдуманный отвечает как
+    #: Hunter на 202 после переспросов (`hunter_codes.StillCheckingError`). Длинное и с дефисом —
+    #: не начало настоящего адреса вроде `pending.orders@`: при `fixture` пилот его не откладывает.
+    _STILL_CHECKING = ("still-checking",)
+
     async def verify(self, email: str) -> Verdict:
         local = email.partition("@")[0].lower()
+        if local.startswith(self._STILL_CHECKING):
+            raise hunter_codes.StillCheckingError(hunter_codes.STILL_CHECKING)
         for markers, status, score in self._RULES:
             if local.startswith(markers):
                 return Verdict(status, score)
@@ -212,9 +221,9 @@ class HunterVerifier:
         if code == httpx.codes.TOO_MANY_REQUESTS:
             raise ProviderRateLimitError(TOO_OFTEN)  # повторы с паузой уже позади (`_get`)
         if code >= httpx.codes.INTERNAL_SERVER_ERROR:
-            raise ProviderError(f"провайдер не ответил (HTTP {code}) — повторим следующей очисткой")
-        if code == httpx.codes.ACCEPTED:
-            raise ProviderError(hunter_codes.STILL_CHECKING)  # переспросы позади (`asked`)
+            raise ProviderError(f"провайдер не ответил (HTTP {code})")
+        if code == httpx.codes.ACCEPTED:  # переспросы позади (`asked`): перепроверка отложится
+            raise hunter_codes.StillCheckingError(hunter_codes.STILL_CHECKING)
         if body is None:
             raise ProviderError(
                 f"ответ не разобран как JSON (HTTP {code}): {response.text[:120]!r}"

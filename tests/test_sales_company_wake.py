@@ -31,8 +31,8 @@ from backend.features.sales import (
     clean_report,
     cleaning,
     company_hold,
-    hunter_codes,
     stoplist_leads,
+    verify_again,
 )
 from backend.features.sales.clean_report import CleaningReport, Outcome
 from backend.features.sales.company_hold import Holder
@@ -268,9 +268,9 @@ async def test_a_holder_without_a_verdict_keeps_the_lead_waiting_until_its_check
 
     first = await hunter.clean(world)
 
-    still = f"проверка не выполнена: {hunter_codes.STILL_CHECKING}"
+    still = verify_again.checking(NOW + timedelta(minutes=20), NOW + timedelta(minutes=60))
     assert await world.rows() == [Row(LeadStatus.NEW, note=still), kept]
-    assert (first.unverified, first.awaiting_holder) == (1, 1)
+    assert (first.still_checking, first.awaiting_holder) == (1, 1)
 
     await hunter.clean(world)
 
