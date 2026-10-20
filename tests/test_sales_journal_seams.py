@@ -154,6 +154,8 @@ async def test_a_decision_on_a_collected_site_is_journaled_with_the_sales_stage(
         "действие": "решение по сайту сбора базы",
         "домен": "velo-maybe-sample.com",
         "решение": "rejected",
+        # Из какой полосы решили: «на проверке» или «судья отказал бы» (вариант (b)).
+        "было": LANE_WORDS["review"],
         "судья сегмента": LANE_WORDS["reject"],
         "прогон": run.id,
     }
