@@ -1817,9 +1817,9 @@
       "worst": "alarm:37"
     },
     "backend/features/ops/job_outcome.py": {
-      "lines": 229,
+      "lines": 232,
       "complexity": 10,
-      "worst": "_outcome:163"
+      "worst": "_outcome:166"
     },
     "backend/features/ops/key_watch.py": {
       "lines": 151,

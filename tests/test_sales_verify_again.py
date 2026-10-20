@@ -24,6 +24,7 @@ from backend.features.contacts.mx import MailRoute
 from backend.features.contacts.provider import ProviderError
 from backend.features.core.domain import AuditAction
 from backend.features.core.models.access import AuditLogModel
+from backend.features.ops import job_outcome
 from backend.features.sales import cleaning, deferred, hunter_codes, verify_again, verify_again_jobs
 from backend.features.sales.models import (
     LeadStatus,
@@ -612,3 +613,9 @@ def test_the_job_path_is_importable_by_the_worker() -> None:
     module, _, name = verify_again.JOB.rpartition(".")
     assert (module, name) == ("backend.features.sales.verify_again_jobs", "recheck")
     assert callable(getattr(verify_again_jobs, name))
+
+
+def test_the_job_is_named_in_words_on_the_screen() -> None:
+    """Строка задачи на экране говорит, что это за задача, а не путь функции; задача — продаж."""
+    assert job_outcome.KINDS[verify_again.JOB] == "перепроверка адресов продаж"
+    assert job_outcome.sales_job("x", verify_again.JOB, None)

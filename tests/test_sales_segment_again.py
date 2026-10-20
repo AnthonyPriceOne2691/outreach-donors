@@ -33,6 +33,7 @@ from backend.features.core.domain import AuditAction, ContactSource, ContactStat
 from backend.features.core.models.access import AuditLogModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
+from backend.features.ops import job_outcome
 from backend.features.sales import (
     cleaning,
     deferred,
@@ -499,6 +500,12 @@ def test_the_term_with_sales_off_spends_nothing(monkeypatch: pytest.MonkeyPatch)
 def test_the_term_job_path_is_importable_by_the_worker() -> None:
     module, _, name = segment_again.TRIGGER.rpartition(".")
     assert (module, name) == ("backend.features.sales.segment_jobs", "due_again")
+
+
+def test_the_term_job_is_named_in_words_on_the_screen() -> None:
+    """Строка задачи на экране говорит, что это за задача, а не путь функции; задача — продаж."""
+    assert job_outcome.KINDS[segment_again.TRIGGER] == "срок повтора адреса продаж"
+    assert job_outcome.sales_job("x", segment_again.TRIGGER, None)
 
 
 # --- проход по сроку и «Повторить сейчас» ---------------------------------------------------------
