@@ -324,6 +324,16 @@ def _no_real_alerts(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_real_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тесты не зовут настоящую модель, даже если в `.env` разработчика лежит ключ:
+    в CI ключа нет, а на рабочей копии сборка писем в тесте консоли уходила
+    к провайдеру модели (ревью 20.10.2026) — токены за чужой счёт и тексты наружу.
+    Ключ читается в момент вызова (`llm_cfg.API_KEY`), поэтому пустого здесь хватает;
+    тест, которому нужен ключ, ставит свой вместе с подставным транспортом."""
+    monkeypatch.setattr("backend.config.llm.API_KEY", "")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_kommo(monkeypatch: pytest.MonkeyPatch) -> None:
     """Тесты не пишут в настоящий Kommo, даже если в `.env` разработчика лежат
     живой режим и ключ: сделка в чужой CRM — побочный эффект, который не
