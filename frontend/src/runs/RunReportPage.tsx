@@ -20,12 +20,14 @@ import { Alert, Badge, Card, Group, Loader, SimpleGrid, Stack, Text } from '@man
 import { useQuery } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
+import { competitorsOf } from '../api/competitors';
 import { countryTitle, DONOR_STATUSES, RUN_STATUSES } from '../api/labels';
 import { fetchRunReport } from '../api/runReport';
 import type { RunDomains, RunReportView } from '../api/runReport';
 import type { RunCard, RunStatus } from '../api/types';
 import { Metric } from '../components/Metric';
 import { formatDateTime, formatNumber, plural } from '../format';
+import { CompetitorJournal } from './CompetitorJournal';
 import { RejectionsCard } from './RejectionsCard';
 import { ReviewLink } from './ReviewLink';
 import { ACTIVE } from './RunHistory';
@@ -41,12 +43,13 @@ const domainsWord = (count: number) => plural(count, 'домен', 'домена
 /** Слово вердикта с заглавной — подписью плитки: слова те же, что у доноров. */
 const titled = (word: string) => word.charAt(0).toUpperCase() + word.slice(1);
 
-/** Путь домена до вердикта одной строкой: из выдачи — мимо гейта и свежих — в Ahrefs. */
-function Funnel({ domains }: { domains: RunDomains }) {
+/** Путь домена до вердикта одной строкой: из выдачи (или ссылок конкурентов) — мимо гейта
+ *  и свежих — в Ahrefs. */
+function Funnel({ domains, from }: { domains: RunDomains; from: string }) {
   const found =
     domains.found === null
-      ? 'Из выдачи'
-      : `Из выдачи — ${formatNumber(domains.found)} ${domainsWord(domains.found)}`;
+      ? from
+      : `${from} — ${formatNumber(domains.found)} ${domainsWord(domains.found)}`;
   return (
     <Text size="sm">
       {found}: исключено {formatNumber(domains.excluded)}, проверены раньше{' '}
@@ -87,8 +90,11 @@ function Facts({ run, from }: { run: RunCard; from: string }) {
         {RUN_STATUSES[run.status].title}
       </Badge>
       <Text size="sm">
-        {countryTitle(run.country)}, ключей {formatNumber(run.keywords)}, запущен{' '}
-        {formatDateTime(run.started_at)}
+        {countryTitle(run.country)},{' '}
+        {competitorsOf(run).length > 0
+          ? `конкуренты ${competitorsOf(run).join(', ')}`
+          : `ключей ${formatNumber(run.keywords)}`}
+        , запущен {formatDateTime(run.started_at)}
         {/* Кто — по записи журнала о запуске; прогон из консоли её не оставляет. */}
         {run.started_by ? `, запустил ${run.started_by}` : ' — кто запустил, не записано'}
       </Text>
@@ -112,7 +118,11 @@ function DomainsBlock({ run, domains }: { run: RunCard; domains: RunDomains }) {
           Идёт продолжение — числа прошлой попытки. Итог обновится, когда прогон закончится.
         </Text>
       )}
-      <Funnel domains={domains} />
+      <Funnel
+        domains={domains}
+        from={competitorsOf(run).length > 0 ? 'Из ссылок конкурентов' : 'Из выдачи'}
+      />
+      <CompetitorJournal run={run} />
       <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
         <Metric
           title="Проверено в Ahrefs"
