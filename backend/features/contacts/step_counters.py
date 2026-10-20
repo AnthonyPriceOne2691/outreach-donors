@@ -35,6 +35,11 @@ class StepCounters:
     pages_blocked: int = 0  # сайтов, закрывшихся от нас (401/403/429)
     browser_entered: int = 0
     browser_found: int = 0
+    #: Страниц, которые браузер отрисовал и отдал на разбор: «вошло» без числа
+    #: страниц не отличает «открыл три» от «не открыл ни одной».
+    browser_pages: int = 0
+    #: Разделов, взятых из карты сайта (только поиск глубже, `section_map`).
+    sitemap_sections: int = 0
     rdap_entered: int = 0
     rdap_found: int = 0
     rdap_failed: int = 0
@@ -76,6 +81,8 @@ class StepCounters:
             "pages_blocked": self.pages_blocked,
             "browser_entered": self.browser_entered,
             "browser_found": self.browser_found,
+            "browser_pages": self.browser_pages,
+            "sitemap_sections": self.sitemap_sections,
             "rdap_entered": self.rdap_entered,
             "rdap_found": self.rdap_found,
             "rdap_failed": self.rdap_failed,

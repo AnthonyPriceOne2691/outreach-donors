@@ -36,6 +36,8 @@ import httpx
 from selectolax.parser import HTMLParser
 
 from backend.config import contacts as cfg
+from backend.features.contacts.extract import extract_emails
+from backend.features.contacts.hidden import extract_structured
 from backend.features.contacts.slugs import (
     ALL_SLUGS,
     LANGUAGE_BY_TLD,
@@ -84,6 +86,112 @@ FORM_MARKERS = ("wpcf7", "gravity_form", "contact-form", "formcraft", "hs-form")
 # но это не письмо владельцу — её выдаёт сам тег (`commentform`,
 # `wp-comments-post`).
 _OWN_FORM = re.compile(r"<form\b([^>]*)>(.*?)(?:</form>|\Z)", re.S)
+
+# Страница проверки «вы не робот» вместо сайта: содержимого нет — только скрипт проверки.
+# Живой замер 20.10.2026: два донора с исходом «адреса нет» отвечали 202 и страницей
+# AWS WAF, и лестница читала её как пустую главную.
+#
+# **Проверка — страница, с которой нечего взять** (ревью 20.10.2026). Скрипт службы
+# защиты стоит и на обычных страницах — Imperva, SDK AWS WAF, Turnstile у формы, «защищено
+# DDoS-Guard» в подвале, — и по нему одному одностраничник с адресом читался бы закрытым.
+# Поэтому проверкой считается только страница без адреса, без формы и почти без текста —
+# и с признаком самой страницы проверки (`_CHALLENGE_PAGE`) или с ответом, каким служба
+# отвечает на проверку (`CHALLENGE_STATUSES`), и признаком службы (`PROTECTION_MARKERS`).
+_CHALLENGE_PAGE = ("<title>just a moment", "cf_chl_opt", "incapsula incident id")
+#: Проверка AWS WAF: её свойства и её скрипт — вместе; по отдельности бывают и у сайта.
+_AWS_CHALLENGE = ("gokuprops", "challenge.js")
+PROTECTION_MARKERS = (
+    "awswafintegration", "token.awswaf.com", "cf-chl-", "challenge-platform",
+    "challenges.cloudflare.com", "_incapsula_resource", "captcha-delivery.com",
+    "px-captcha", "ddos-guard", "sucuri", "checking your browser",
+    "checking if the site connection", "verify that you're not a robot",
+    "verify you are human", "showcaptcha",
+)  # fmt: skip
+#: Чем службы отвечают на проверку: AWS WAF — 202, Cloudflare — 403 и 503, лимит — 429.
+CHALLENGE_STATUSES = frozenset({202, 403, 429, 503})
+#: Видимого текста у страницы проверки — строка-две: «Just a moment…», «Enable JavaScript».
+_CHALLENGE_TEXT_MAX = 600
+_INVISIBLE_TAGS = ["script", "style", "noscript", "template", "svg"]
+
+#: Отказы сайта, после которых он «закрылся» (`blocked`): только их и стоит открывать
+#: браузером. 451 — закрыт для страны сервера, браузер с того же адреса его не откроет:
+#: причина записывается, а браузер не зовётся.
+REFUSALS = frozenset({401, 403, 429})
+GEO_REFUSAL = 451
+
+
+#: Хвост страницы, который разбирается и у страницы больше предела: подвал с адресом.
+_TAIL_CHARS = 300_000
+#: Граница среза — на начале тега или пробеле: адрес не содержит ни того ни другого, и
+#: срез по ним не режет его пополам. Ищется в окне у среза: дальше — срез как есть.
+_SEAM = re.compile(r"[<\s]")
+_SEAM_WINDOW = 4_096
+
+
+def bounded(text: str) -> str:
+    """Страница в пределах разбора: голова и хвост, середина — вон.
+
+    Предел (`CONTACTS_MAX_PAGE_BYTES`) бережёт время разбора, а не память: ответ к этому
+    месту уже прочитан целиком. Срез по голове терял подвал — `mailto:` после двух
+    миллионов знаков каталога не находился (находка продаж 20.10.2026). Адрес живёт в
+    голове (разметка организации, шапка) и в подвале, а середина длинной страницы —
+    каталог или лента. Поэтому голова и хвост, разделённые комментарием: слова на стыке
+    не склеятся в ложный адрес. Оба края среза сдвинуты к тегу или пробелу (`_SEAM`):
+    хвост, начатый посреди `mailto:sales@site`, дал бы `es@site` (ревью 20.10.2026).
+    """
+    if len(text) <= cfg.MAX_PAGE_BYTES:
+        return text
+    head = max(cfg.MAX_PAGE_BYTES - _TAIL_CHARS, 0)
+    before = [m.start() for m in _SEAM.finditer(text, max(head - _SEAM_WINDOW, 0), head)]
+    head = before[-1] if before else head
+    tail = len(text) - _TAIL_CHARS
+    after = _SEAM.search(text, tail, tail + _SEAM_WINDOW)
+    tail = after.start() if after else tail
+    return f"{text[:head]}\n<!-- середина страницы не разбиралась -->\n{text[tail:]}"
+
+
+def _visible_chars(html: str) -> int:
+    """Сколько видимого текста на странице — без скриптов, стилей и пробелов подряд."""
+    tree = HTMLParser(html)
+    tree.strip_tags(_INVISIBLE_TAGS)
+    root = tree.body or tree.root
+    return len(" ".join((root.text(separator=" ") if root is not None else "").split()))
+
+
+def _nothing_to_read(html: str) -> bool:
+    """Разбор ничего не снял бы со страницы: ни адреса, ни формы, почти нет текста."""
+    if has_contact_form(html) or extract_emails(html) or extract_structured(html):
+        return False
+    return _visible_chars(html) <= _CHALLENGE_TEXT_MAX
+
+
+def is_challenge(html: str, status: int = 200) -> bool:
+    """Страница проверки «вы не робот», а не страница сайта (см. `_CHALLENGE_PAGE`)."""
+    lowered = html.lower()
+    own = any(marker in lowered for marker in _CHALLENGE_PAGE) or all(
+        marker in lowered for marker in _AWS_CHALLENGE
+    )
+    if not own and not (
+        status in CHALLENGE_STATUSES and any(marker in lowered for marker in PROTECTION_MARKERS)
+    ):
+        return False
+    return _nothing_to_read(html)
+
+
+#: Слова отказа — для исхода «адреса нет»: человек видит, что сайт не пустил,
+#: а не что адреса на нём нет.
+CHALLENGE = "сайт показал проверку «вы не робот»"
+
+
+def refusal_words(status: int) -> str:
+    """Почему главная не открылась — словами, по коду ответа."""
+    if status in (401, 403):
+        return f"сайт не пустил нас ({status})"
+    if status == 429:
+        return "сайт ограничил частоту запросов (429)"
+    if status == GEO_REFUSAL:
+        return "сайт закрыт для страны нашего сервера (451)"
+    return f"главная не открылась (ответ {status})"
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,17 +279,28 @@ _TEXT_ONLY_BEFORE_GUESSES = 2
 
 
 def page_queue(
-    followed: list[tuple[str, PageKind]], guesses: Iterable[tuple[str, PageKind]]
+    followed: list[tuple[str, PageKind]],
+    guesses: Iterable[tuple[str, PageKind]],
+    *,
+    mapped: Iterable[tuple[str, PageKind]] = (),
+    text_first: int | None = None,
 ) -> list[tuple[str, PageKind]]:
-    """Порядок обхода: разделы по ссылкам главной, догадки, остальные ссылки."""
+    """Порядок обхода: разделы по ссылкам главной, разделы из карты сайта, догадки,
+    остальные ссылки.
+
+    Карта сайта (`mapped`) и число ссылок, узнанных только по тексту, до догадок
+    (`text_first`) — у поиска глубже: у обычного прохода карты нет, а ссылок две.
+    Раздел из карты стоит раньше догадки: он существует, догадка — нет.
+    """
     typed = [link for link in followed if link[1] is not PageKind.HOME]
     text_only = sorted(
         (link for link in followed if link[1] is PageKind.HOME),
         key=lambda link: (len(link[0]), link[0]),
     )
-    early = text_only[:_TEXT_ONLY_BEFORE_GUESSES]
-    late = text_only[_TEXT_ONLY_BEFORE_GUESSES:]
-    return [*typed, *early, *guesses, *late]
+    cut = _TEXT_ONLY_BEFORE_GUESSES if text_first is None else text_first
+    early = text_only[:cut]
+    late = text_only[cut:]
+    return [*typed, *mapped, *early, *guesses, *late]
 
 
 def slug_urls(base: str, *, language: str | None = None) -> Iterator[tuple[str, PageKind]]:
@@ -250,7 +369,10 @@ class PageFetcher:
         )
         self.opened = 0  # страницы, которые удалось разобрать
         self.attempts = 0  # все запросы, включая 404 и отказы
-        self.blocked = False  # сайт закрылся от нас: 401/403/429
+        self.blocked = False  # сайт закрылся от нас: 401/403/429 или проверка «не робот»
+        #: Почему страница не открылась — словами, последний отказ. Нужен исходу,
+        #: когда не открылась ни одна: «адреса нет» без причины прятал «сайт не пустил».
+        self.refusal = ""
 
     @property
     def exhausted(self) -> bool:
@@ -262,21 +384,39 @@ class PageFetcher:
 
         self.attempts += 1
         response = await self._request(url)
-        if response is None:
-            return None
-        if response.status_code in (401, 403, 429):
-            self.blocked = True
-            logger.debug("сайт закрылся: %s ответил %s", url, response.status_code)
-            return None
-        if response.status_code >= 400:
-            return None
-        if "html" not in response.headers.get("content-type", "").lower():
-            return None
+        page = None if response is None else self._read(response, kind)
+        if page is not None:
+            self.opened += 1
+        return page
 
-        self.opened += 1
-        return FetchedPage(
-            url=str(response.url), kind=kind, html=response.text[: cfg.MAX_PAGE_BYTES]
-        )
+    def _read(self, response: httpx.Response, kind: PageKind) -> FetchedPage | None:
+        """Страница сайта из ответа — или `None` с причиной, почему её нет."""
+        status = response.status_code
+        is_html = "html" in response.headers.get("content-type", "").lower()
+        html = bounded(response.text) if is_html else ""
+        if html and is_challenge(html, status):
+            # Сайт не пустил, показав проверку: браузер её иногда проходит, а читать
+            # такую страницу как пустую главную значило бы записать «адреса нет».
+            self.blocked = True
+            self.refusal = CHALLENGE
+            logger.debug("сайт показал проверку «вы не робот»: %s (%s)", response.url, status)
+            return None
+        if status >= 400:
+            # Закрылся (401/403/429) — повод для браузера; остальное — только причина.
+            self.blocked = self.blocked or status in REFUSALS
+            self.refusal = refusal_words(status)
+            logger.debug("страница не открылась: %s ответил %s", response.url, status)
+            return None
+        return FetchedPage(url=str(response.url), kind=kind, html=html) if html else None
+
+    async def text(self, url: str) -> str | None:
+        """Текст служебного файла сайта — карты (`section_map`): в тот же счёт и потолок
+        попыток, что и страницы. Не ответил или отказал — `None`."""
+        if self.exhausted:
+            return None
+        self.attempts += 1
+        response = await self._request(url)
+        return None if response is None or response.status_code >= 400 else response.text
 
     async def _request(self, url: str) -> httpx.Response | None:
         """Запрос одной страницы. `None` — страница не открылась."""

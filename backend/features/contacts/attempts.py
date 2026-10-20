@@ -124,7 +124,10 @@ def values(outcome: Outcome, *, tries_before: int, moment: datetime) -> dict[str
       на обычный срок, счёт с нуля, причина остаётся словами;
     - квота, частота, поломка платной ступени — «не спросили»: счёт и
       причина не трогаются, домен пойдёт в следующий прогон;
-    - иначе сайт ответил: счёт с нуля, причины нет.
+    - иначе сайт ответил: счёт с нуля. Причина — только у «адреса нет» сайта,
+      который так и не прочитан: не пустил, показал проверку «вы не робот», закрыт
+      для страны сервера, не принимает почту (`ladder._without_contact`). Без неё
+      такой исход читался как «адреса на сайте нет» (живой замер 20.10.2026).
     """
     if outcome.status is ContactStatus.NO_ANSWER:
         tries = tries_before + 1
@@ -147,7 +150,7 @@ def values(outcome: Outcome, *, tries_before: int, moment: datetime) -> dict[str
         "contact_status": outcome.status,
         "contact_attempted_at": moment,
         "contact_tries": 0,
-        "contact_reason": None,
+        "contact_reason": outcome.reason or None,
     }
 
 

@@ -84,6 +84,16 @@ class _Contacts(DomainSettings):
     # Срок годности исхода поиска: раньше по домену не ходим заново.
     contact_ttl_days: int = Field(default=180, validation_alias="CONTACTS_TTL_DAYS")
 
+    # --- «Искать глубже»: один донор по кнопке, после обычного поиска без адреса ---
+    # Потолки обхода шире обычных (8 страниц и 24 запроса): человек просит один домен,
+    # и время на него не делится с сотней соседей. Плюс карта сайта и браузер.
+    deep_max_pages: int = Field(default=20, validation_alias="CONTACTS_DEEP_MAX_PAGES")
+    deep_max_attempts: int = Field(default=60, validation_alias="CONTACTS_DEEP_MAX_ATTEMPTS")
+    # Страниц браузером: каждая — секунды, обычному проходу их три.
+    deep_browser_pages: int = Field(default=6, validation_alias="CONTACTS_DEEP_BROWSER_PAGES")
+    # Потолок времени на домен: дольше — сайт тянет, и человек ждёт итога у кнопки.
+    deep_timeout_sec: float = Field(default=240.0, validation_alias="CONTACTS_DEEP_TIMEOUT_SEC")
+
     # --- Прогон по файлу: проверка сети ---
     # Заведомо живые адреса через запятую. По ним прогон по файлу отличает
     # «сайт молчит» от «сети нет», чтобы попытки доменов не сгорали без сети.
@@ -119,6 +129,10 @@ HUNTER_TIMEOUT_SEC: float = _s.hunter_timeout_sec
 HUNTER_MIN_CONFIDENCE: int = _s.hunter_min_confidence
 MANUAL_QUEUE_MONTHLY_CAP: int = _s.manual_queue_monthly_cap
 CONTACT_TTL_DAYS: int = _s.contact_ttl_days
+DEEP_MAX_PAGES: int = _s.deep_max_pages
+DEEP_MAX_ATTEMPTS: int = _s.deep_max_attempts
+DEEP_BROWSER_PAGES: int = _s.deep_browser_pages
+DEEP_TIMEOUT_SEC: float = _s.deep_timeout_sec
 NETWORK_PROBES: tuple[str, ...] = tuple(
     url.strip() for url in _s.network_probes.split(",") if url.strip()
 )
