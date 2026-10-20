@@ -89,6 +89,8 @@ class Later:
         self.known: dict[str, _Job] = {}
         self.planned: list[tuple[datetime, str, tuple[object, ...], str]] = []
         self.enqueued: list[tuple[str, tuple[object, ...], str]] = []
+        #: Повтор после сбоя у отложенной задачи по номеру: пусто — без повторов очереди.
+        self.retries: dict[str, object] = {}
 
     def fetch_job(self, number: str) -> _Job | None:
         found = self.known.get(number)
@@ -96,7 +98,8 @@ class Later:
 
     def enqueue_at(self, when: datetime, path: str, *args: object, **kwargs: Any) -> _Job:
         number = str(kwargs["job_id"])
-        assert "retry" in kwargs  # повтор после сбоя — как у прочих задач продаж
+        assert "retry" in kwargs  # повтор после сбоя назван явно: есть или нет
+        self.retries[number] = kwargs["retry"]
         self.planned.append((when, path, args, number))
         self.known[number] = _Job(number, path, self.connection)
         self.known[number].status = JobStatus.SCHEDULED
@@ -313,7 +316,8 @@ async def test_a_passing_refusal_in_the_window_keeps_the_term(world: World, late
     assert found.cleaning_note == _words(
         NOW + TERM, since + WINDOW, "провайдер не ответил (HTTP 503)"
     )
-    assert [when for when, *_ in later.planned] == [NOW + TERM]
+    # Следующую задачу ставит тело задачи после прохода, а не каждая его партия.
+    assert later.planned == []
 
 
 async def test_a_passing_refusal_after_the_window_leaves_the_lead_in_words(
@@ -397,6 +401,17 @@ async def test_the_recheck_leaves_the_leads_of_a_going_run_to_the_run(
     assert await verify_again_jobs.again_pass(world.session, FixtureVerifier(), now=NOW) is None
     assert await verify_again.next_at(world.session, NOW) is None
     assert (await _lead(world.session, lead.id)).verify_again_at == NOW - timedelta(minutes=2)
+
+
+class Counting(FixtureVerifier):
+    """Выдуманный проверяльщик, который считает обращения."""
+
+    def __init__(self) -> None:
+        self.asked: list[str] = []
+
+    async def verify(self, email: str) -> Verdict:
+        self.asked.append(email)
+        return await super().verify(email)
 
 
 class Paying:
@@ -522,6 +537,53 @@ async def test_the_window_starts_at_the_answer_not_at_the_pass(
     found = await _lead(world.session, lead.id)
     answered = NOW + timedelta(minutes=2)
     assert (found.verify_since, found.verify_again_at) == (answered, answered + TERM)
+
+
+async def test_the_edge_of_the_window_is_asked_once_per_job(world: World, later: Later) -> None:
+    """Ревью 20.10, третий круг: у лида, чьё окно кончалось в ближайшую минуту, срок снова вставал
+    на край окна — в пределах минуты задачи, и каждая партия той же задачи брала его опять (до
+    `MAX_BATCHES` вопросов Hunter). Теперь задача берёт лида не больше раза."""
+    lead = await world.lead(PENDING)
+    lead.verify_since = NOW - WINDOW + timedelta(seconds=30)
+    lead.verify_again_at = lead.verify_since + WINDOW
+    await world.session.commit()
+    hunter = Counting()
+
+    report = await verify_again_jobs.again_pass(world.session, hunter, now=NOW)
+
+    assert report is not None
+    assert hunter.asked == [PENDING]
+
+
+async def test_the_recheck_writes_the_run_report_without_moving_its_pulse(
+    world: World, later: Later
+) -> None:
+    """Ревью 20.10, третий круг: запись отчёта прогона задачей перепроверки сдвигала отметку
+    строки (`updated_at`), по которой видно, жив ли проход прогона, — и мёртвый прогон «оживал»
+    на десять минут. Теперь отчёт пишется без её сдвига."""
+    run, _ = await _run_with_lead(world, going=False)
+    quiet = NOW - timedelta(hours=2)
+    run.updated_at = quiet
+    await world.session.commit()
+
+    await verify_again_jobs.again_pass(world.session, FixtureVerifier(), now=NOW)
+
+    refreshed = await world.session.get(SalesSegmentRunModel, run.id, populate_existing=True)
+    assert refreshed is not None
+    assert (refreshed.updated_at, refreshed.report["leads"]["cleaning"]["checked"]) == (quiet, 1)
+
+
+async def test_the_recheck_job_has_no_queue_retries(world: World, later: Later) -> None:
+    """Ревью 20.10, третий круг: сбой между ответом Hunter и коммитом партии — повторы очереди
+    оплатили бы партию снова. Задача перепроверки ставится без них: срок держит база."""
+    lead = await world.lead(PENDING)
+    lead.verify_since, lead.verify_again_at = NOW, NOW + TERM
+    await world.session.flush()
+
+    number = await verify_again.plan(world.session, now=NOW)
+
+    assert number is not None
+    assert later.retries[number] is None
 
 
 async def test_the_recheck_writes_its_spend_into_the_run_and_the_journal(

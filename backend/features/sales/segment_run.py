@@ -48,9 +48,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import sales as sales_cfg
 from backend.config.judge import JudgeMode
 from backend.features.contacts.search import search_contacts
-from backend.features.sales import cleaning
+from backend.features.sales import cleaning, segment_paid
 from backend.features.sales.clean_jobs import report_of
 from backend.features.sales.models import SalesHypothesisModel
+from backend.features.sales.segment_counts import contacts_report
+from backend.features.sales.segment_counts import counts as _counts
+from backend.features.sales.segment_counts import number as _number
 from backend.features.sales.segment_estimate import NO_SEGMENT
 from backend.features.sales.segment_judge import SegmentClient
 from backend.features.sales.segment_judging import JudgeTally, judge_run
@@ -66,7 +69,6 @@ from backend.features.sales.segment_progress import (
 )
 from backend.features.sales.segment_queue import Retry, SegmentContactQueue, paid_left
 from backend.features.sales.segment_serp import bought, collect, provider_mode
-from backend.features.sales.segment_spend import PENDING_KEY
 from backend.features.sales.segment_waits import waiting_leads
 from backend.features.sales.segment_window import SPLIT_TOKENS
 from backend.features.sales.verifier import FIXTURE, EmailVerifier
@@ -76,8 +78,6 @@ logger = logging.getLogger(__name__)
 
 #: Числа судьи, которые копятся от прохода к проходу: каждый судил своих.
 _SUMMED = ("judged", "from_cache", "by_rule", "would_cut", "tokens", *SPLIT_TOKENS)
-#: Числа поиска адреса, которые копятся; остальное (`pending`, заметки) — последнего прохода.
-_CONTACTS_SUMMED = ("walked", "saved")
 #: Числа очистки лидов, которые копятся: каждый проход чистит своих новых лидов.
 _CLEANING_SUMMED = (
     "checked",
@@ -88,12 +88,6 @@ _CLEANING_SUMMED = (
     "verified",
     "paid_units",
 )
-
-
-#: Резерв платных поисков повтора в отчёте прогона (`contacts`): ключ — у `segment_spend.pending`.
-PAID_PENDING = PENDING_KEY
-#: Кусков платного поиска за проход — не больше: страховка от круга.
-PAID_CHUNKS = 20
 
 
 class UnknownRunError(LookupError):
@@ -125,38 +119,11 @@ class RunDeps:
     verifier: EmailVerifier
 
 
-def _number(value: object) -> int:
-    """Число из отчёта; не число (поле правили руками, его нет) — ноль, а не отказ."""
-    return int(value) if isinstance(value, int | float) else 0
-
-
-def _counts(*passes: object) -> dict[str, int]:
-    """Счётчики проходов по ключам — суммой: ключ одного прохода — как есть."""
-    found: dict[str, int] = {}
-    for counted in passes:
-        if isinstance(counted, Mapping):
-            for key, value in counted.items():
-                found[str(key)] = found.get(str(key), 0) + _number(value)
-    return found
-
-
 def _judge_report(before: dict[str, Any] | None, tally: JudgeTally) -> dict[str, Any]:
     """Итог судьи за все проходы: расход и счёт — суммой, остановка и сбой — последнего."""
     now = tally.as_dict()
     earlier = before or {}
     return {**now, **{key: int(earlier.get(key, 0)) + int(now[key]) for key in _SUMMED}}
-
-
-def contacts_report(before: Mapping[str, Any] | None, now: Mapping[str, Any]) -> dict[str, Any]:
-    """Итог поиска адреса за все проходы: пройдено, найдено и ступени (`counters` — в них
-    запросы платного сервиса) — суммой; ждали и заметки — последнего прохода."""
-    earlier = dict(before or {})
-    return {
-        **earlier,
-        **now,
-        **{key: _number(earlier.get(key)) + _number(now.get(key)) for key in _CONTACTS_SUMMED},
-        "counters": _counts(earlier.get("counters"), now.get("counters")),
-    }
 
 
 def _cleaning(before: object, now: object) -> dict[str, Any]:
@@ -303,6 +270,7 @@ async def execute(
     # Проход идёт: причины прежней остановки, конца прежнего прохода и хода повтора у него нет.
     run.error, run.finished_at = None, None
     run.report = without_again(run.report)
+    await segment_paid.settle(session, run)
     if not bought(run):
         await _serp(session, run, deps, started)
     if not segment and JudgeMode(run.mode) is not JudgeMode.OFF:
@@ -335,58 +303,17 @@ def _again_started(run: SalesSegmentRunModel, what: Again) -> datetime | None:
         return None
 
 
-def _reserved(report: dict[str, Any], delta: int) -> dict[str, Any]:
-    """Отчёт с резервом платных поисков повтора (`contacts.paid_pending`), сдвинутым на `delta`."""
-    contacts = dict(report.get("contacts") or {})
-    contacts[PAID_PENDING] = max(0, _number(contacts.get(PAID_PENDING)) + delta)
-    return {**report, "contacts": contacts}
-
-
-async def _merged(session: AsyncSession, run: SalesSegmentRunModel, found: dict[str, Any]) -> int:
-    """Итог куска поиска — в отчёт прогона своим коммитом. Возвращает, скольких сайтов он прошёл."""
-    run.report = {**run.report, "contacts": contacts_report(run.report.get("contacts"), found)}
-    await session.commit()
-    return _number(found.get("walked"))
-
-
-async def _paid_walk(session: AsyncSession, run: SalesSegmentRunModel, retry: Retry) -> int:
-    """Поиск с платной ступенью — кусками не больше остатка сметы (`paid_left`): сайт — не больше
-    одного платного запроса, и кусок не потратит больше остатка, а молчащий сайт, который не
-    заплатил, остаток не съедает — его получит следующий кусок (ревью 20.10, второй круг: бюджет
-    делился по сайтам, а не по запросам). Перед куском его доля остатка резервируется в отчёте своим
-    коммитом и снимается после (`segment_spend.pending`): упади проход посреди куска — повтор
-    задачи не потратит её второй раз. Провайдер отказал или идти некому — платная часть кончилась.
-    Возвращает, скольких сайтов прошёл поиск."""
-    walked = 0
-    for _ in range(PAID_CHUNKS):
-        left = paid_left(run.report, run.estimate)
-        queue = SegmentContactQueue(session, run.id, retry=retry, paid=True)
-        if left <= 0 or await queue.pending_count() == 0:
-            break
-        run.report = _reserved(run.report, left)
-        await session.commit()
-        found = (await search_contacts(session, limit=left, queue=queue)).as_dict()
-        run.report = _reserved(run.report, -left)
-        step = await _merged(session, run, found)
-        walked += step
-        counters = found.get("counters")
-        refused = _number(counters.get("provider_refused")) if isinstance(counters, Mapping) else 0
-        if step == 0 or refused:
-            break
-    return walked
-
-
 async def _retry_walk(session: AsyncSession, run: SalesSegmentRunModel, retry: Retry) -> int:
-    """Поиск адреса повтора: сначала с платной ступенью в пределах сметы (`_paid_walk`), затем
-    остальным сайтам, чей срок настал, — без неё; «не спросили» без платной ступени не берутся
-    (`segment_queue.Retry`). Итог — в отчёт прогона по кускам. Возвращает, скольких сайтов
-    прошёл поиск."""
-    walked = await _paid_walk(session, run, retry)
+    """Поиск адреса повтора: сначала с платной ступенью в пределах сметы (`segment_paid.walk`),
+    затем — если платная часть не задержала остальных — сайтам, чей срок настал, без неё; «не
+    спросили» без платной ступени не берутся (`segment_queue.Retry`). Итог — в отчёт прогона по
+    кускам. Возвращает, скольких сайтов прошёл поиск."""
+    walked, held = await segment_paid.walk(session, run, retry)
     queue = SegmentContactQueue(session, run.id, retry=retry)
-    rest = await queue.pending_count()
+    rest = 0 if held else await queue.pending_count()
     if rest > 0:
         found = await search_contacts(session, limit=rest, queue=queue, no_paid=True)
-        walked += await _merged(session, run, found.as_dict())
+        walked += await segment_paid.merged(session, run, found.as_dict())
     return walked
 
 
@@ -460,6 +387,7 @@ async def again(
     run = await session.get(SalesSegmentRunModel, run_id)
     if run is None:
         raise UnknownRunError(f"прогона сбора №{run_id} нет")
+    await segment_paid.settle(session, run)
     resumed = _again_started(run, what)
     started = resumed or datetime.now(UTC)
     if what is Again.CLEANING:

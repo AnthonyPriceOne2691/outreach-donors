@@ -29,6 +29,7 @@ import httpx
 import pytest
 from backend.config.judge import JudgeMode
 from backend.features.contacts import mx
+from backend.features.contacts.provider import ProviderQuotaError
 from backend.features.core.domain import AuditAction, ContactSource, ContactStatus
 from backend.features.core.models.access import AuditLogModel
 from backend.features.core.models.domain import DomainModel
@@ -39,6 +40,7 @@ from backend.features.sales import (
     deferred,
     segment_again,
     segment_jobs,
+    segment_paid,
     segment_report,
     segment_run,
     segment_spend,
@@ -48,7 +50,12 @@ from backend.features.sales.models import LeadSource, LeadStatus, SalesLeadModel
 from backend.features.sales.segment_estimate import SALES_OFF
 from backend.features.sales.segment_jobs import SEGMENT_JOB, segment_job_id
 from backend.features.sales.segment_models import Lane, SalesSegmentCandidateModel, Stage
-from backend.features.sales.segment_queue import SegmentContactQueue, retry_at, term_reached
+from backend.features.sales.segment_queue import (
+    SegmentContactQueue,
+    paid_left,
+    retry_at,
+    term_reached,
+)
 from backend.features.sales.segment_rejudge import rejudge_job_id
 from backend.features.sales.segment_run import Again, again
 from backend.features.sales.verifier import FixtureVerifier
@@ -602,11 +609,38 @@ async def test_retry_now_asks_the_unasked_only_with_the_paid_step(
         ContactStatus.NO_QUOTA,
     )
 
-    monkeypatch.setattr("backend.config.sales.SEGMENT_PAID_CONTACTS", True)
-    monkeypatch.setattr("backend.config.contacts.HUNTER_API_KEY", "k-test")
+    _paid_ready(monkeypatch, Paid())
     await again(session, run.id, FixtureVerifier(), Again.ADDRESSES)
     assert set(web.asked) == {BOOKS}
     assert await _leads_of(session, run) == {BOOKS: f"info@{BOOKS}"}
+
+
+def _paid_ready(monkeypatch: pytest.MonkeyPatch, provider: object) -> None:
+    """Платная ступень есть: включена у сбора, ключ задан, поиск получает этого провайдера."""
+
+    async def step(_http: httpx.AsyncClient, _report: object) -> object:
+        return provider
+
+    monkeypatch.setattr("backend.features.contacts.search._paid_step", step)
+    monkeypatch.setattr("backend.config.sales.SEGMENT_PAID_CONTACTS", True)
+    monkeypatch.setattr("backend.config.contacts.HUNTER_API_KEY", "k-test")
+
+
+class Refusing:
+    """Платная ступень, у которой кончилась квота: каждый запрос — отказ (провайдер его не
+    засчитывает)."""
+
+    name = "fake"
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def quota(self) -> Any:
+        raise AssertionError("остаток узнаёт `_paid_step`, подменённый в тесте")
+
+    async def find_emails(self, host: str) -> list[Any]:
+        self.calls.append(host)
+        raise ProviderQuotaError("квота исчерпана")
 
 
 async def _last_try(session: AsyncSession, run: Any, host: str) -> Candidate:
@@ -704,7 +738,14 @@ async def test_a_crash_mid_search_does_not_pay_past_the_estimate(
     assert paid.calls == [CLINIC]
     assert set(silent.asked) >= {CLINIC, TEA}
     refreshed = await _run(session, run)
-    assert segment_spend.pending(refreshed.report) == 1  # незаписанный запрос — в резерве
+    # Резерв упавшего куска сведён следующим проходом: запрос принят, но в счёт не попал.
+    assert (
+        segment_spend.pending(refreshed.report),
+        segment_spend.unrecorded(refreshed.report),
+    ) == (
+        0,
+        1,
+    )
 
 
 async def test_a_silent_site_does_not_take_the_budget_of_one_that_answers(
@@ -728,6 +769,93 @@ async def test_a_silent_site_does_not_take_the_budget_of_one_that_answers(
     await again(session, run.id, FixtureVerifier(), Again.DUE)
 
     assert paid.calls == ["plain-sample.nl"]
+
+
+async def test_without_the_paid_step_the_unasked_stay_unasked(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, later: Later
+) -> None:
+    """Ревью 20.10, третий круг: квота Hunter кончилась (поиск не получил платной ступени), а
+    кнопка кусками прошла всех «не спросили» бесплатными ступенями — и похоронила их в «адреса
+    нет» на полгода. Теперь платная ступень проверяется до куска: её нет — «не спросили» не
+    трогаются."""
+    web = _sites(monkeypatch, Web())
+    monkeypatch.setattr("backend.config.sales.SEGMENT_PAID_CONTACTS", True)
+    monkeypatch.setattr("backend.config.contacts.HUNTER_API_KEY", "k-test")
+    run = await _done_run(session, searches=2)
+    unasked = [
+        await _accepted(
+            session, run, f"quota{n}-sample.example.test", contact_status=ContactStatus.NO_QUOTA,
+            contact_attempted_at=_ago(hours=2),
+        )
+        for n in range(5)
+    ]  # fmt: skip
+
+    await again(session, run.id, FixtureVerifier(), Again.ADDRESSES)
+
+    statuses = {(await _fresh(session, site)).contact_status for site in unasked}
+    assert (statuses, web.asked) == ({ContactStatus.NO_QUOTA}, [])
+
+
+async def test_a_crash_does_not_freeze_the_whole_estimate(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, later: Later, paid: Paid
+) -> None:
+    """Ревью 20.10, третий круг: кусок резервировал весь остаток сметы, и после сбоя посреди куска
+    резерв замораживал её навсегда. Теперь кусок — не больше сайтов к поиску и пачки поиска, а
+    следующий проход сводит резерв по журналу расхода: смета 10, сайт один — свободно не меньше 9."""
+    _sites(monkeypatch, Web(down={CLINIC}))
+    run = await _done_run(session, searches=10)
+    await _last_try(session, run, CLINIC)
+    real = segment_paid.contacts_search.search_contacts
+
+    async def crash(*args: Any, **kwargs: Any) -> Any:
+        await real(*args, **kwargs)
+        raise ConnectionError("воркер упал посреди куска")
+
+    monkeypatch.setattr(segment_paid.contacts_search, "search_contacts", crash)
+    with pytest.raises(ConnectionError):
+        await again(session, run.id, FixtureVerifier(), Again.DUE)
+    crashed = await _run(session, run)
+    assert segment_spend.pending(crashed.report) == 1
+    monkeypatch.setattr(segment_paid.contacts_search, "search_contacts", real)
+
+    await again(session, run.id, FixtureVerifier(), Again.DUE)  # следующий проход прогона
+
+    after = await _run(session, run)
+    assert segment_spend.pending(after.report) == 0
+    assert paid_left(after.report, after.estimate) >= 9
+
+
+async def test_a_refusal_leaves_the_rest_for_the_next_pass(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, later: Later
+) -> None:
+    """Ревью 20.10, третий круг: после отказа провайдера остальные сайты шли бесплатными ступенями,
+    и ответивший без адреса получал «адреса нет» при живом остатке. Теперь проход кончает платную
+    часть и остальных не трогает — их возьмёт следующий."""
+    _sites(monkeypatch, Web())
+    refusing = Refusing()
+    _paid_ready(monkeypatch, refusing)
+    run = await _done_run(session, searches=1)
+    hosts = [f"plain{n}-sample.example.test" for n in range(3)]
+    for host in hosts:
+        await _accepted(
+            session, run, host, contact_status=ContactStatus.NO_ANSWER, contact_tries=1,
+            contact_attempted_at=_ago(hours=1),
+        )  # fmt: skip
+
+    await again(session, run.id, FixtureVerifier(), Again.DUE)
+
+    rows = await session.execute(
+        select(DomainModel.host, Candidate.contact_status, Candidate.contact_tries)
+        .join(Candidate, Candidate.domain_id == DomainModel.id)
+        .where(Candidate.run_id == run.id)
+    )
+    found = {host: (status, tries) for host, status, tries in rows.tuples().all()}
+    assert refusing.calls == [hosts[0]]
+    assert found == {
+        hosts[0]: (ContactStatus.NO_QUOTA, 1),  # «не спросили»: повтор — с платной ступенью
+        hosts[1]: (ContactStatus.NO_ANSWER, 1),
+        hosts[2]: (ContactStatus.NO_ANSWER, 1),
+    }
 
 
 async def test_a_stopped_run_keeps_its_stage_words_and_progress(

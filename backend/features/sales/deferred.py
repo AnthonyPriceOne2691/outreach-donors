@@ -41,13 +41,17 @@ def job_id(prefix: str, when: datetime) -> str:
     return f"{prefix}{when.astimezone(UTC):%Y%m%dT%H%M}"
 
 
-def at(jobs: Queue, prefix: str, path: str, when: datetime, *args: object) -> str | None:
+def at(
+    jobs: Queue, prefix: str, path: str, when: datetime, *args: object, retry: bool = True
+) -> str | None:
     """Поставить задачу `path(*args)` на `when` под номером минуты срока. `None` — номер занят:
-    задача на эту минуту уже есть."""
+    задача на эту минуту уже есть. `retry` — повторы после сбоя, как у прочих задач продаж; без
+    них упавшую задачу не повторяет никто, а срок ждёт в базе."""
     number = job_id(prefix, when)
     if holder(jobs, number) is not None:
         return None
-    jobs.enqueue_at(when, path, *args, job_id=number, **with_retries())
+    retries = with_retries() if retry else {**with_retries(), "retry": None}
+    jobs.enqueue_at(when, path, *args, job_id=number, **retries)
     return number
 
 
@@ -58,13 +62,14 @@ def plan(
     *args: object,
     now: datetime,
     soonest: timedelta = SOONEST,
+    retry: bool = True,
 ) -> str | None:
     """`at` в очередь долгих задач продаж — не раньше `soonest` от `now` (после сбоя прохода —
     дальше минуты: повтор задачи на ту же беду не должен крутиться каждую минуту). Очередь не
     ответила — строка журнала и `None`: срок лежит в базе, поставит следующий проход."""
     when = max(when, now + soonest)
     try:
-        return at(sales_bulk_queue(), prefix, path, when, *args)
+        return at(sales_bulk_queue(), prefix, path, when, *args, retry=retry)
     except RedisError as exc:
         logger.warning(
             "продажи: отложенная задача не поставлена — очередь не ответила; срок в базе, "

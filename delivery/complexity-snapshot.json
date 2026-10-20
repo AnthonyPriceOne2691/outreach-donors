@@ -2412,9 +2412,9 @@
       "worst": "colleague:56"
     },
     "backend/features/sales/deferred.py": {
-      "lines": 92,
+      "lines": 97,
       "complexity": 4,
-      "worst": "once:77"
+      "worst": "once:82"
     },
     "backend/features/sales/domain_hold.py": {
       "lines": 123,
@@ -2661,6 +2661,11 @@
       "complexity": 2,
       "worst": "plan:51"
     },
+    "backend/features/sales/segment_counts.py": {
+      "lines": 41,
+      "complexity": 4,
+      "worst": "counts:21"
+    },
     "backend/features/sales/segment_estimate.py": {
       "lines": 449,
       "complexity": 11,
@@ -2716,6 +2721,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/sales/segment_paid.py": {
+      "lines": 134,
+      "complexity": 6,
+      "worst": "walk:118"
+    },
     "backend/features/sales/segment_progress.py": {
       "lines": 233,
       "complexity": 7,
@@ -2752,9 +2762,9 @@
       "worst": "decide:254"
     },
     "backend/features/sales/segment_run.py": {
-      "lines": 479,
+      "lines": 407,
       "complexity": 9,
-      "worst": "execute:293"
+      "worst": "execute:260"
     },
     "backend/features/sales/segment_serp.py": {
       "lines": 306,
@@ -2767,7 +2777,7 @@
       "worst": "sites_page:254"
     },
     "backend/features/sales/segment_spend.py": {
-      "lines": 330,
+      "lines": 337,
       "complexity": 9,
       "worst": "_judge:189"
     },
@@ -2857,14 +2867,14 @@
       "worst": "verify:213"
     },
     "backend/features/sales/verify_again.py": {
-      "lines": 182,
+      "lines": 184,
       "complexity": 5,
       "worst": "later:109"
     },
     "backend/features/sales/verify_again_jobs.py": {
-      "lines": 220,
+      "lines": 240,
       "complexity": 9,
-      "worst": "_sum:155"
+      "worst": "_sum:175"
     },
     "backend/features/sales/verify_cap.py": {
       "lines": 126,

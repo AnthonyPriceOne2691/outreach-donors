@@ -178,4 +178,6 @@ async def plan(
     when = await next_at(session, now)
     if when is None:
         return None
-    return deferred.plan(PREFIX, JOB, when, now=now, soonest=soonest)
+    # Без повторов очереди: сбой между ответом Hunter и коммитом партии повтор оплатил бы снова
+    # (ревью 20.10, третий круг); срок держит база, задачу ставит следующий проход.
+    return deferred.plan(PREFIX, JOB, when, now=now, soonest=soonest, retry=False)

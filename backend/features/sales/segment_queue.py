@@ -64,7 +64,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.sales import company_hold
 from backend.features.sales.segment_leads import living_address
 from backend.features.sales.segment_models import Lane, SalesSegmentCandidateModel
-from backend.features.sales.segment_spend import pending, searched
+from backend.features.sales.segment_spend import pending, searched, unrecorded
 
 logger = logging.getLogger(__name__)
 
@@ -140,13 +140,13 @@ def needs_address(run_id: int) -> ColumnElement[bool]:
 
 def paid_left(report: dict[str, object], estimate: dict[str, object]) -> int:
     """Сколько платных поисков адреса осталось повтору прогона: платный поиск у сбора включён и
-    ключ есть — смета запуска минус принятые провайдером запросы прогона и резерв, не снятый
-    упавшим проходом (`segment_spend.pending`); иначе ноль."""
+    ключ есть — смета запуска минус принятые провайдером запросы прогона: записанные, принятые
+    без записи (`segment_spend.unrecorded`) и резерв упавшего прохода (`pending`); иначе ноль."""
     if not (sales_cfg.SEGMENT_PAID_CONTACTS and contacts_cfg.HUNTER_API_KEY):
         return 0
     promised = estimate.get("hunter_searches")
     promised = int(promised) if isinstance(promised, int | float) else 0
-    return max(0, promised - searched(report) - pending(report))
+    return max(0, promised - searched(report) - unrecorded(report) - pending(report))
 
 
 class SegmentContactQueue:

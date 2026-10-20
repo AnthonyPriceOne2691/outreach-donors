@@ -33,14 +33,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import fields
 from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
 from rq import get_current_job
-from sqlalchemy import Select, select
+from sqlalchemy import Select, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import sales as sales_cfg
@@ -73,11 +73,13 @@ BATCH = cleaning.BATCH
 MAX_BATCHES = 50
 
 
-def due_rows(now: datetime) -> Select[tuple[SalesLeadModel, int]]:
+def due_rows(now: datetime, taken: Collection[int] = ()) -> Select[tuple[SalesLeadModel, int]]:
     """Лиды, чей срок настал, с прогоном сбора (у лида не из прогона — пусто: внешнее
     соединение), прогон за прогоном, — под блокировкой строк лидов до конца транзакции; занятые
-    другой транзакцией пропускаются (`SKIP LOCKED`)."""
-    return (
+    другой транзакцией пропускаются (`SKIP LOCKED`). `taken` — уже взятые этой задачей: лида
+    задача спрашивает не больше раза (ревью 20.10, третий круг: у края окна срок оставался в
+    пределах минуты, и каждая партия брала лида снова)."""
+    found = (
         select(SalesLeadModel, Candidate.run_id)
         .outerjoin(Candidate, Candidate.lead_id == SalesLeadModel.id)
         .where(verify_again.due(now))
@@ -85,12 +87,15 @@ def due_rows(now: datetime) -> Select[tuple[SalesLeadModel, int]]:
         .limit(BATCH)
         .with_for_update(of=SalesLeadModel, skip_locked=True)
     )
+    return found.where(SalesLeadModel.id.not_in(sorted(taken))) if taken else found
 
 
-async def _batch(session: AsyncSession, now: datetime) -> tuple[int | None, list[SalesLeadModel]]:
+async def _batch(
+    session: AsyncSession, now: datetime, taken: Collection[int]
+) -> tuple[int | None, list[SalesLeadModel]]:
     """Следующая партия — лиды одного прогона (`None` — лиды не из прогона); пусто — сроков нет.
     Строки других прогонов, попавшие в выборку, освободит коммит партии."""
-    rows = (await session.execute(due_rows(now))).tuples().all()
+    rows = (await session.execute(due_rows(now, taken))).tuples().all()
     if not rows:
         return None, []
     first = rows[0][1]
@@ -103,15 +108,22 @@ async def _batch(session: AsyncSession, now: datetime) -> tuple[int | None, list
 
 async def _to_run(session: AsyncSession, run_id: int, report: CleaningReport) -> None:
     """Проверки партии — в отчёт прогона, как у его очистки, и запись «автоматически, по сроку» —
-    своей транзакцией: вердикты уже закоммичены, и сбой здесь их не откатывает."""
+    своей точкой сохранения: вердикты уже закоммичены, и сбой здесь их не откатывает. Отчёт —
+    без сдвига отметки строки (`updated_at`): по ней видно, жив ли проход прогона
+    (`verify_again.free`), а запись задачи перепроверки — не его пульс (ревью 20.10, третий
+    круг)."""
     try:
-        # Точка сохранения: сбой здесь откатывает только запись отчёта, а не транзакцию задачи.
         async with session.begin_nested():
-            run = await session.get(Run, run_id, populate_existing=True)
-            if run is None:
+            stored = await session.scalar(
+                select(Run.report).where(Run.id == run_id).with_for_update()
+            )
+            if stored is None:
                 return
             made = {"created": 0, "cleaning": report_of(report)}
-            run.report = {**run.report, "leads": leads_report(run.report.get("leads"), made)}
+            merged = {**stored, "leads": leads_report(stored.get("leads"), made)}
+            await session.execute(
+                update(Run).where(Run.id == run_id).values(report=merged, updated_at=Run.updated_at)
+            )
             await AccessRepository(session).record(
                 AuditAction.RUN_STARTED,
                 author_id=None,
@@ -133,11 +145,19 @@ async def again_pass(
     """Лиды, чей срок перепроверки настал, — партиями по прогонам, каждая своим коммитом
     (шапка модуля). `None` — таких нет."""
     reports: list[CleaningReport] = []
+    taken: set[int] = set()
+    started = verify_again.clock()
     for _ in range(MAX_BATCHES):
-        run_id, leads = await _batch(session, now)
+        # «Ответ» партии — от настоящего времени задачи (шаг — минута): у края окна — отказ, а не
+        # новый срок в пределах той же минуты.
+        moment = verify_again.answered(now, started)
+        run_id, leads = await _batch(session, moment, taken)
         if not leads:
             break
-        report = await cleaning.clean_leads(session, leads, verifier, now=now, commit=True)
+        taken.update(lead.id for lead in leads)
+        report = await cleaning.clean_leads(
+            session, leads, verifier, now=moment, commit=True, plan=False
+        )
         await session.commit()
         reports.append(report)
         if run_id is not None:

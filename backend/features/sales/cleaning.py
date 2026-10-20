@@ -439,21 +439,21 @@ async def clean_leads(
     *,
     now: datetime | None = None,
     commit: bool = False,
+    plan: bool = True,
 ) -> CleaningReport:
     """Очистить названных лидов тем же проходом, что `clean`, — с кругами; своя область — их
-    гипотезы. Коммит — за вызывающим: лид из ответа «пишите другому» чистится в транзакции задачи
-    ответа; `commit` — каждая партия своим коммитом, как у `clean` (перепроверка по сроку: сбой
-    после вердиктов не должен их терять)."""
+    гипотезы. Коммит — за вызывающим (лид из «пишите другому» — в транзакции задачи ответа) или
+    по партиям (`commit`, как у `clean`); без `plan` задачу перепроверки ставит вызывающий."""
     moment = now or datetime.now(UTC)
     verifier = await capped(session, verifier, now=moment)  # месячный потолок у живого
     report = CleaningReport(verifier=verifier.name)
     run = _Run(verifier, moment, report, {lead.hypothesis_id for lead in leads})
-    return await _later(session, await _pass(session, leads, run, commit=commit), moment)
+    found = await _pass(session, leads, run, commit=commit)
+    return await _later(session, found, moment) if plan else found
 
 
 async def _later(session: AsyncSession, report: CleaningReport, moment: datetime) -> CleaningReport:
-    """Проход отложил перепроверку «ещё проверяет» — задача на самый ранний срок
-    (`verify_again.plan`)."""
+    """Проход отложил перепроверку «ещё проверяет» — задача на срок (`verify_again.plan`)."""
     if report.still_checking:
         await verify_again.plan(session, now=moment)
     return report
