@@ -181,14 +181,18 @@ export function ModelPool({ state, canRun }: Props) {
         можно править: смета и кап остаются последним рубежом перед тратой.
       </Text>
       <MarketLanguages query={state.marketLanguages} />
-      <SegmentedControl
-        size="xs"
-        value={state.basis}
-        onChange={(value) => state.setBasis(value as PoolBasis)}
-        disabled={!canRun}
-        data={POOL_BASES}
-        aria-label="Основа сборки"
-      />
+      {/* По содержимому, как переключатель режима над секцией: во всю ширину два
+          слова читались бы полосой, а не выбором (аудит экранов 09.10.2026). */}
+      <div>
+        <SegmentedControl
+          size="xs"
+          value={state.basis}
+          onChange={(value) => state.setBasis(value as PoolBasis)}
+          disabled={!canRun}
+          data={POOL_BASES}
+          aria-label="Основа сборки"
+        />
+      </div>
       {byExamples ? (
         <ExamplesField
           value={state.examples}

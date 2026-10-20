@@ -58,6 +58,13 @@ const BUILT = {
   theme_tokens: 1210,
 };
 
+/** Вписать текст в поле вставкой: посимвольная печать длинных адресов под нагрузкой
+ *  машины не укладывалась в срок теста (5 с), а проверяется здесь не клавиатура. */
+async function paste(user: ReturnType<typeof userEvent.setup>, label: string, text: string) {
+  await user.click(screen.getByLabelText(label));
+  await user.paste(text);
+}
+
 async function openExamples(extra: Record<string, unknown> = {}) {
   const recorded = await openRun({ ...ROUTES, ...extra });
   const user = userEvent.setup();
@@ -78,7 +85,7 @@ describe('сборка по примерам сайтов', () => {
   it('негодная строка — отказ до нажатия, словами сервера и с номером строки', async () => {
     const { recorded, user } = await openExamples();
 
-    await user.type(screen.getByLabelText('Примеры сайтов'), 'garden.example.test{enter}не сайт');
+    await paste(user, 'Примеры сайтов', 'garden.example.test\nне сайт');
 
     expect(await screen.findByText(/строка 2: «не сайт» — пробел внутри/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Собрать по примерам' })).toBeDisabled();
@@ -88,9 +95,10 @@ describe('сборка по примерам сайтов', () => {
   it('под полем — сколько сайтов и сколько повторов не в счёт', async () => {
     const { user } = await openExamples();
 
-    await user.type(
-      screen.getByLabelText('Примеры сайтов'),
-      'garden.example.test{enter}https://www.garden.example.test/blog{enter}news.example.test',
+    await paste(
+      user,
+      'Примеры сайтов',
+      'garden.example.test\nhttps://www.garden.example.test/blog\nnews.example.test',
     );
 
     expect(screen.getByText('2 сайта из 10 · 1 повтор не в счёт')).toBeInTheDocument();
@@ -102,9 +110,10 @@ describe('сборка по примерам сайтов', () => {
       'POST /api/keywords/examples': { body: BUILT },
     });
 
-    await user.type(
-      screen.getByLabelText('Примеры сайтов'),
-      'garden.example.test{enter}{enter}сад.example.test{enter}gone.example.test',
+    await paste(
+      user,
+      'Примеры сайтов',
+      'garden.example.test\n\nсад.example.test\ngone.example.test',
     );
     await user.click(screen.getByRole('button', { name: 'Собрать по примерам' }));
 
@@ -124,8 +133,10 @@ describe('сборка по примерам сайтов', () => {
 
     const outcome = screen.getByLabelText('Итог сборки по примерам');
     expect(within(outcome).getByText('Тема примеров: блоги о домашнем садоводстве')).toBeVisible();
-    expect(within(outcome).getByText(/Ключи — про английский — «home gardening»/)).toBeVisible();
-    expect(within(outcome).getByText(/по 2 из 3 примеров · 1 повтор не в счёт/)).toBeVisible();
+    expect(within(outcome).getByText(/Ключи — про «home gardening» \(английский\)/)).toBeVisible();
+    expect(
+      within(outcome).getByText(/Тема — по 1 из 3 примеров · 1 повтор не в счёт/),
+    ).toBeVisible();
     expect(within(outcome).getByText(/— прочитан: «Garden friends»/)).toBeVisible();
     expect(within(outcome).getByText(/— прочитан, но не про общую тему/)).toBeVisible();
     expect(within(outcome).getByText(/— не прочитан: не открылся: имя не найдено/)).toBeVisible();
@@ -151,7 +162,7 @@ describe('сборка по примерам сайтов', () => {
     });
 
     await user.type(screen.getByLabelText('Ключевые слова'), 'свой ключ');
-    await user.type(screen.getByLabelText('Примеры сайтов'), 'gone.example.test');
+    await paste(user, 'Примеры сайтов', 'gone.example.test');
     await user.click(screen.getByRole('button', { name: 'Собрать по примерам' }));
 
     expect(await screen.findByText('Ключи по примерам не собрались')).toBeInTheDocument();
@@ -162,7 +173,7 @@ describe('сборка по примерам сайтов', () => {
   it('назад к теме — поле тем на месте, а вписанные примеры не теряются', async () => {
     const { user } = await openExamples();
 
-    await user.type(screen.getByLabelText('Примеры сайтов'), 'garden.example.test');
+    await paste(user, 'Примеры сайтов', 'garden.example.test');
     await user.click(screen.getByRole('radio', { name: 'По теме' }));
 
     expect(screen.queryByLabelText('Примеры сайтов')).not.toBeInTheDocument();

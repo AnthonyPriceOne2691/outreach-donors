@@ -47,7 +47,9 @@ interface FieldProps {
 export function ExamplesField({ value, onChange, refusal }: FieldProps) {
   const count = countExamples(value);
   return (
-    <Stack gap={4}>
+    // Счёт — в 8 px под полем и шириной по тексту: в 4 px он лип к кромке поля, и замер
+    // контраста брал кромку в фокусе вместо букв (3,56 : 1 у текста с 11,5 : 1).
+    <Stack gap={8}>
       <Textarea
         label="Примеры сайтов"
         description="Адрес или домен, по одному в строке. Сервис откроет их главные, модель назовёт общую тему и соберёт ключи на языке рынка"
@@ -60,7 +62,7 @@ export function ExamplesField({ value, onChange, refusal }: FieldProps) {
         onChange={(event) => onChange(event.currentTarget.value)}
       />
       {refusal === null && count.sites > 0 ? (
-        <Text size="xs" c="dimmed">
+        <Text size="xs" c="dimmed" w="fit-content">
           {examplesCaption(count)}
         </Text>
       ) : null}
@@ -100,10 +102,11 @@ function siteOutcome(site: ExampleSite): string {
   return site.title === '' ? 'прочитан' : `прочитан: «${site.title}»`;
 }
 
-/** Темы ниши по языкам рынка — ровно то, что ушло генератору. */
+/** Темы ниши по языкам рынка — ровно то, что ушло генератору: «home gardening»
+ *  (английский), «jardinage» (французский). */
 function topicsLine(topics: Record<string, string>): string {
   return Object.entries(topics)
-    .map(([language, topic]) => `${languageTitle(language)} — «${topic}»`)
+    .map(([language, topic]) => `«${topic}» (${languageTitle(language)})`)
     .join(', ');
 }
 
@@ -125,21 +128,24 @@ export function ExamplesOutcome({ built, pending, sites }: OutcomeProps) {
     );
   }
   if (built === undefined) return null;
-  const read = built.sites.filter((site) => site.read).length;
+  // Тему задают прочитанные примеры про общую тему: не про неё — прочитан, но не в счёт.
+  const shaping = built.sites.filter((site) => site.read && !site.off_theme).length;
   return (
     <Stack gap={4} aria-label="Итог сборки по примерам">
       <Text size="sm" fw={600}>
         Тема примеров: {built.theme}
       </Text>
       <Text size="sm" c="dimmed">
-        Ключи — про {topicsLine(built.topics)}. Тема — по {read} из {built.sites.length}{' '}
+        Ключи — про {topicsLine(built.topics)}. Тема — по {shaping} из {built.sites.length}{' '}
         {plural(built.sites.length, 'примера', 'примеров', 'примеров')}
         {built.repeats > 0
           ? ` · ${built.repeats} ${plural(built.repeats, 'повтор', 'повтора', 'повторов')} не в счёт`
           : ''}
         .
       </Text>
-      <Stack gap={2} component="ul" className="examplesSites">
+      {/* Список без маркеров и отступа браузера: строка начинается с той же кромки,
+          что тема над ним. */}
+      <Stack gap={2} component="ul" m={0} p={0} style={{ listStyle: 'none' }}>
         {built.sites.map((site) => (
           <Text key={site.host} size="sm" component="li">
             <Text span fw={500}>

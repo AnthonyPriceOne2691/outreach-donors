@@ -458,6 +458,7 @@ PREPARE = {
 }
 
 from ui_screens_donors import donor_prepare, donor_screens  # noqa: E402
+from ui_screens_examples import examples_prepare, examples_screens  # noqa: E402
 from ui_screens_mail import mail_prepare, mail_screens  # noqa: E402
 from ui_screens_reports import report_screens  # noqa: E402
 from ui_screens_sales import sales_prepare, sales_screens  # noqa: E402
@@ -471,3 +472,5 @@ SCREENS.update(sales_screens(NORM, BIG))
 PREPARE.update(sales_prepare())
 SCREENS.update(report_screens(NORM, BIG))
 SCREENS.update(stage2_screens(NORM, BIG))
+SCREENS.update(examples_screens(NORM, BIG))
+PREPARE.update(examples_prepare())
