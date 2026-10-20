@@ -52,7 +52,7 @@ class AdvertiserContactRepository:
             ContactModel.domain_id == AdvertiserModel.domain_id
         )
         waiting = attempts.waiting(
-            AdvertiserModel, now=moment, ttl_days=ttl_days, paid_delay=attempts.PAID_RETRY_DELAY
+            AdvertiserModel, now=moment, ttl_days=ttl_days, unasked=attempts.general_queue()
         )
         # Бизнес ниши из выдачи — только после «пишем» человека: адрес
         # платной ступени тратится на того, кому точно напишем (`niche.py`).

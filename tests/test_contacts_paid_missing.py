@@ -403,8 +403,8 @@ class TestRetryWindow:
         donor.contact_status, donor.contact_attempted_at = status, now - timedelta(hours=2)
         await session.flush()
 
-        ttl, delay = contacts_cfg.CONTACT_TTL_DAYS, attempts.PAID_RETRY_DELAY
-        assert attempts.waits(donor, now=now, ttl_days=ttl, paid_delay=delay) is waits
+        ttl, unasked = contacts_cfg.CONTACT_TTL_DAYS, attempts.general_queue()
+        assert attempts.waits(donor, now=now, ttl_days=ttl, unasked=unasked) is waits
         hosts = await ContactRepository(session).pending_hosts(now=now)
         assert hosts == ([HOST] if waits else [])
 

@@ -24,11 +24,13 @@ from alembic.runtime.migration import MigrationContext
 from backend.config import contacts as contacts_cfg
 from backend.features.contacts import attempts, mx
 from backend.features.contacts.ladder import ContactLadder, LadderResult
-from backend.features.contacts.repository import ContactRepository
+from backend.features.contacts.repository import ContactRepository, refusal_of
 from backend.features.contacts.search import PAID_OFF, search_contacts
 from backend.features.core.domain import ContactStatus, DonorStatus, Stage
+from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
+from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.donors.wording import CONTACT_STATUS_TITLES
 from sqlalchemy import select, text
 from sqlalchemy.engine import Connection
@@ -195,7 +197,11 @@ async def _donor(session: AsyncSession, host: str, attempted: datetime) -> Donor
 
 
 class TestTheGeneralQueue:
-    async def test_paid_off_is_held_like_no_address(self, session: AsyncSession) -> None:
+    async def test_paid_off_is_held_like_no_address(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Платный поиск выключен — спросить «не спросили» некому: держится, как «адреса нет»."""
+        monkeypatch.setattr(contacts_cfg, "PAID_SEARCH_ENABLED", False)
         now = datetime.now(UTC)
         fresh = await _donor(session, "fresh.example.test", now - timedelta(days=5))
         old = await _donor(
@@ -209,6 +215,49 @@ class TestTheGeneralQueue:
         assert not attempts.waits(fresh, now=now, ttl_days=ttl)
         assert attempts.waits(old, now=now, ttl_days=ttl)
         assert attempts.again_at(fresh, ttl_days=ttl) == now - timedelta(days=5 - ttl)
+
+    async def test_paid_search_on_takes_it_again_after_a_day(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Платный поиск включён — «не спросили» общая очередь берёт снова через сутки, как
+        квоту и сбой (ревью 20.10.2026): обещание исхода, а не «адреса нет» на полгода."""
+        monkeypatch.setattr(contacts_cfg, "PAID_SEARCH_ENABLED", True)
+        monkeypatch.setattr(contacts_cfg, "HUNTER_API_KEY", "k-test")
+        now = datetime.now(UTC)
+        fresh = await _donor(session, "fresh.example.test", now - timedelta(hours=2))
+        await _donor(session, "yesterday.example.test", now - timedelta(hours=25))
+
+        hosts = await ContactRepository(session).pending_hosts(now=now)
+
+        assert hosts == ["yesterday.example.test"]
+        unasked = attempts.general_queue()
+        ttl = contacts_cfg.CONTACT_TTL_DAYS
+        assert not attempts.waits(fresh, now=now, ttl_days=ttl, unasked=unasked)
+        refusal = refusal_of(fresh, now=now)
+        assert refusal is not None
+        assert refusal.startswith(
+            "Бесплатные ступени адреса не дали, а платный поиск в тот раз был недоступен"
+        )
+        assert "платная ступень" not in refusal.lower()
+
+    async def test_advertisers_queue_takes_it_again_after_a_day_too(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(contacts_cfg, "PAID_SEARCH_ENABLED", True)
+        monkeypatch.setattr(contacts_cfg, "HUNTER_API_KEY", "k-test")
+        domain = DomainModel(host="advertiser.example.test")
+        session.add(domain)
+        await session.flush()
+        session.add(AdvertiserModel(domain_id=domain.id))
+        await session.flush()
+        queue = AdvertiserContactRepository(session)
+        moment = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
+        result = LadderResult(host=domain.host, status=ContactStatus.PAID_OFF, pages_read=1)
+
+        await queue.save([result], now=moment)
+
+        assert await queue.pending_hosts(now=moment + timedelta(hours=23)) == []
+        assert await queue.pending_hosts(now=moment + timedelta(hours=25)) == [domain.host]
 
     async def test_words_are_the_promised_ones(self) -> None:
         assert (

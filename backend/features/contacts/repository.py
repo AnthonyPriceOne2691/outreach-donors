@@ -94,9 +94,7 @@ def _needs_contact(now: datetime, ttl_days: int) -> ColumnElement[bool]:
         is_donor(),
         ~not_writing(),
         ~manual_address(),
-        attempts.waiting(
-            DonorModel, now=now, ttl_days=ttl_days, paid_delay=attempts.PAID_RETRY_DELAY
-        ),
+        attempts.waiting(DonorModel, now=now, ttl_days=ttl_days, unasked=attempts.general_queue()),
     )
 
 
@@ -163,9 +161,9 @@ def refusal_of(
         return MANUAL_REFUSAL
     # Решает то же правило попыток, что и запрос (`attempts.waits`): на самой
     # границе срока экран не обещает поиск, который сервер отказал бы.
-    paid_delay = attempts.PAID_RETRY_DELAY
-    again = attempts.again_at(donor, ttl_days=ttl_days, paid_delay=paid_delay)
-    if again is None or attempts.waits(donor, now=now, ttl_days=ttl_days, paid_delay=paid_delay):
+    unasked = attempts.general_queue()
+    again = attempts.again_at(donor, ttl_days=ttl_days, unasked=unasked)
+    if again is None or attempts.waits(donor, now=now, ttl_days=ttl_days, unasked=unasked):
         return None
     return _not_yet(donor, again)
 
@@ -183,6 +181,12 @@ def _not_yet(donor: DonorModel, again: datetime) -> str:
         return (
             f"Сайт не ответил ({donor.contact_reason or 'причина не записана'}) — поиск "
             f"повторится сам, не раньше {again:%d.%m.%Y %H:%M}."
+        )
+    if donor.contact_status is ContactStatus.PAID_OFF:
+        # Свои слова: платную ступень не звали — «не спросила» было бы неправдой.
+        return (
+            "Бесплатные ступени адреса не дали, а платный поиск в тот раз был недоступен — "
+            f"поиск повторится сам, не раньше {again:%d.%m.%Y %H:%M}."
         )
     missed = _PAID_MISSED.get(donor.contact_status) if donor.contact_status else None
     if missed is not None:

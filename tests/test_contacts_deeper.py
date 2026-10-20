@@ -75,7 +75,7 @@ STATES: list[tuple[str, dict[str, Any], str | None]] = [
     ("только форма", {"contact_status": ContactStatus.FORM_ONLY}, "очереди «Формы»"),
     ("сайт не ответил", {"contact_status": ContactStatus.NO_ANSWER}, "повторится сам"),
     ("квота платной ступени", {"contact_status": ContactStatus.NO_QUOTA}, "не закончен"),
-    ("платный поиск выключен", {"contact_status": ContactStatus.PAID_OFF}, "без платной ступени"),
+    ("платный поиск был недоступен", {"contact_status": ContactStatus.PAID_OFF}, "был недоступен"),
     ("адрес есть", {"email": "editor@x.example.test"}, "есть адрес"),
     ("кандидат, не донор", {"review": None}, "после решения человека"),
     ("отклонён человеком", {"review": "rejected"}, "отклонил человек"),
