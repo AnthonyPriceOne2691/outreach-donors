@@ -109,6 +109,9 @@ class JudgeTally:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            # Версия промпта прохода: токены на сайт в смете — из прогонов той же версии
+            # (`segment_history.tokens_per_site`).
+            "prompt_version": PROMPT_VERSION,
             "judged": self.judged,
             "from_cache": self.from_cache,
             "by_rule": self.by_rule,

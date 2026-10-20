@@ -266,9 +266,7 @@ class _Sales(DomainSettings):
     segment_again_min: int = Field(
         default=30, ge=1, le=1440, validation_alias="SALES_SEGMENT_AGAIN_MIN"
     )
-    # Сколько знаков видимого текста главной видит судья сегмента (строка «Текст главной»): по нему
-    # понятнее вид сайта и его язык. Текст — из общего разбора главной (`HomeSignals.text`, до 8000
-    # знаков). 0 — без него; больше 8000 — опечатка.
+    # Знаков текста главной у судьи сегмента (`HomeSignals.text`); 0 — без него, > 8000 — опечатка.
     segment_home_text_chars: int = Field(
         default=1500, ge=0, le=8000, validation_alias="SALES_SEGMENT_HOME_TEXT_CHARS"
     )
