@@ -1,54 +1,37 @@
-"""Судья сегмента: подходит ли сайт под сегмент гипотезы — той же формы, что судья площадки.
-
-Судья площадки доноров (`donors/publisher_judge.py`) отвечает на «продаёт ли сайт
-размещение»; сбору продаж нужен другой вопрос — «подходит ли сайт под сегмент», и сегмент
-у каждой гипотезы свой: описание гипотезы в базе (репозиторий публичный). Форма — та же:
-
-1. **Правила до модели** — бесплатные и точные: «кому не пишем» по имени домена —
-   общее правило прогона доноров (`runs/exclusions.by_name`: зона, платформа, соцсети,
-   крупные СМИ, справочники) его словами — отсекается, пустой текст и страница-отказ идут
-   человеку (правила текста — судьи площадки, без копии). Правило режет в любом режиме:
-   это знание, а не мнение модели, мерить его нечего. Отказ судят по строкам, словами без
-   подписи: заглушка защиты только в строках главной — не отказ всего сайта, строки главной
-   уходят, и модель судит выдачу (`SiteText.without_stub`).
-2. **Модель — строгая форма JSON `{kind, fit, quote, why}`**: «да», «нет», «не понять»; вид
-   сайта (`kind`) полосу не решает.
-3. **Цитата — дословно из текста сайта**, внутри одной строки, не короче трёх слов (как
-   просит промпт); иначе «на проверку»: цитата, которой нет в тексте, — признак того, что
-   модель сочинила, а не прочла. Такая цитата не хранится. Не в счёт типографика, наша
-   подпись строки в начале цитаты и опечатка переписывания в длинном слове
-   (`segment_quote.py`): честная цитата иначе уходила бы человеку с «модель сочинила».
-4. **Три полосы**: принять, на проверку, отказ.
-5. **Отказ модели не кэшируется**: сбой, пустой ответ — «на проверку» с `unanswered`,
-   вердикта нет, и следующий проход судит домен снова.
-
-Текст сайта — выдача (заголовок и описание страницы, что пришла под ключ) и главная
-(заголовок, описание, меню; отрывок видимого текста — когда его отдаст общий разбор главной,
-`segment_text.site_text`): способ жизни — свойство сайта, а не страницы. Текст — данные, а не
-указание: метки данных в нём гасятся, как у разбора ответа (`reply_kind.py`).
-
-**Язык сайта судит код, а не модель** (`by_language`, `segment_language.py`): сайт уверенно не на
-языке писем прогона и без переключателя на него — вердикт «отказал бы» словами («язык сайта — …,
-письма — …»), а если язык по буквам не назвать — «не понять»; модель не зовётся. Это не жёсткое
-правило (`Decider.LANGUAGE`): режим решает с ним, как с вердиктом модели, и в кэш вердиктов он не
-ложится — язык писем у прогонов гипотезы бывает разный.
-"""
-
 from __future__ import annotations
 
 import hashlib
-import json
-import logging
 from dataclasses import dataclass, replace
-from functools import lru_cache
-from pathlib import Path
-from typing import Any
 
-from backend.config import llm as llm_cfg
 from backend.config.judge import JudgeMode
 from backend.features.runs.exclusions import NOT_WRITING_WORDS, by_name
+from backend.features.sales.hypothesis_countries import CountryPolicy
+from backend.features.sales.segment_client import (
+    CUT_OFF,
+    PROMPT_PATH,
+    PROMPT_VERSION,
+    REASONING_EFFORT,
+    SEGMENT_CLOSE,
+    SEGMENT_OPEN,
+    SITE_CLOSE,
+    SITE_OPEN,
+    TOKENS_PLAIN,
+    TOKENS_REASONING,
+    Asked,
+    Said,
+    SegmentClient,
+    Spent,
+    build_payload,
+    finish_of,
+    load_prompt,
+    spent_of,
+    user_message,
+)
+from backend.features.sales.segment_facts import KINDS, MADE_UP, NO_QUOTE, SHORT_QUOTE, SiteFacts
 from backend.features.sales.segment_models import Decider, Lane
-from backend.features.sales.segment_quote import MIN_QUOTE_WORDS, quote_words, unlabeled
+from backend.features.sales.segment_quote import MIN_QUOTE_WORDS, quote_words
+from backend.features.sales.segment_rules import BY_LANGUAGE, BY_RULE, RULES, Case, Rule, first
+from backend.features.sales.segment_scope import Scope
 from backend.features.sales.segment_text import (
     HOME_DESCRIPTION,
     HOME_MENU,
@@ -62,12 +45,9 @@ from backend.features.sales.segment_text import (
     site_language,
     site_text,
 )
-from backend.shared.llm import ModelClient, Refusal, content_of, is_reasoning, post_chat, tokens_of
 
-logger = logging.getLogger(__name__)
-
-#: Что судья отдаёт наружу. Текст сайта живёт своим модулем (`segment_text.py`), а окно, eval и тесты
-#: берут его имена и отсюда, как до разреза: список держит их явными.
+#: Что судья отдаёт наружу. Вызов модели — `segment_client.py`, текст сайта — `segment_text.py`,
+#: факты — `segment_facts.py`, правила — `segment_rules.py`; окно, eval и тесты берут имена и отсюда.
 __all__ = [
     "CUT_OFF",
     "HOME_DESCRIPTION",
@@ -76,7 +56,6 @@ __all__ = [
     "HOME_TITLE",
     "JUDGE_OFF",
     "KINDS",
-    "KIND_FIRST",
     "LABELS",
     "MADE_UP",
     "MAX_TEXT_CHARS",
@@ -95,11 +74,13 @@ __all__ = [
     "SITE_OPEN",
     "TOKENS_PLAIN",
     "TOKENS_REASONING",
+    "Asked",
+    "Said",
     "SegmentClient",
     "SegmentVerdict",
+    "SiteFacts",
     "SiteText",
     "Spent",
-    "after_language",
     "before_model",
     "build_payload",
     "by_host",
@@ -109,107 +90,23 @@ __all__ = [
     "effective",
     "finish_of",
     "load_prompt",
-    "parse",
-    "proven_again",
     "quote_words",
     "segment_digest",
+    "settle",
     "site_language",
     "site_text",
     "spent_of",
     "user_message",
 ]
 
-
-TOPIC = "судья сегмента продаж"
-#: Версия промпта. Меняется при КАЖДОЙ правке файла промпта: вердикт хранит её, и точность
-#: против человека считается по версии; кэш вердиктов отдаёт только вердикты своей версии.
-#: v2 — правило «сайт о бизнесах вида — не бизнес вида»: справочник, карта, реестр, площадка,
-#: тендеры, вакансии, агрегатор, новости и обзоры — «нет», если сегмент сам их не просит.
-#: v3 — признак сегмента, которого в тексте нет (страна или город работы, язык, размер), — «не
-#: видно», а не «нет»: ядро вида есть и ничто прямо не противоречит — «да»; посредники — «нет» по
-#: сигналам в тексте, в любой нише; «не понять» — только когда неясен сам вид сайта; ответ называет
-#: вид сайта (`kind`); о языке сайта модель не судит (`by_language`); в тексте — строка «Текст главной».
-PROMPT_VERSION = "sales-segment-v3"
-PROMPT_PATH = Path(__file__).with_name("prompts") / "segment.md"
 #: Операция журнала расхода (`core/usage.OPERATION_PROVIDERS`); её считает потолок продаж.
 OPERATION = "sales_segment_judge"
-#: Усилие рассуждения — как у судьи площадки: на `minimal` модель читает только буквы.
-REASONING_EFFORT = "low"
-#: Потолки вывода: рассуждение входит в потолок, и обрезанный ответ пришёл бы пустым.
-TOKENS_REASONING = 2000
-TOKENS_PLAIN = 300
-#: Слова отказа — вместе с числом (`segment_quote.MIN_QUOTE_WORDS`).
-SHORT_QUOTE = "цитата короче трёх слов — не доказательство"
-NO_QUOTE = "модель не дала цитаты"
-MADE_UP = "цитаты нет в тексте сайта — модель не прочла, а сочинила"
-#: Ответ обрезан потолком вывода (`finish_reason == "length"`): у модели с рассуждением потолок
-#: `max_completion_tokens` включает рассуждение — оно съело ответ. Это не вердикт: следующий проход
-#: спросит снова, а доля таких за прогон — в его итоге (`JudgeTally.cut_off`).
-CUT_OFF = (
-    "модель упёрлась в потолок вывода — рассуждение съело ответ; следующий проход спросит снова"
-)
-#: Ответ модели → полоса.
-FITS = {"yes": Lane.ACCEPT, "no": Lane.REJECT, "unsure": Lane.REVIEW}
-#: Вид сайта в ответе модели (`kind`): своё дело, посредник между клиентом и чужими компаниями,
-#: издание о чужих, не понять. Полосу не решает — по нему eval разбивает ошибки по классу.
-KINDS = ("own", "intermediary", "media", "unclear")
-
-#: Метки данных. Сайт может написать их сам, чтобы «закрыть» текст раньше времени:
-#: в его тексте они заменяются похожими знаками.
-SEGMENT_OPEN, SEGMENT_CLOSE = "<<<SEGMENT", "SEGMENT>>>"
-SITE_OPEN, SITE_CLOSE = "<<<SITE", "SITE>>>"
-
-
-@lru_cache(maxsize=1)
-def load_prompt() -> str:
-    """Промпт файлом рядом с модулем: читается один раз на процесс."""
-    return PROMPT_PATH.read_text(encoding="utf-8").strip()
 
 
 def segment_digest(description: str) -> str:
     """Отпечаток описания сегмента: правка описания — новый вопрос модели, и прежний
     вердикт на него не годится. Пробелы не в счёт — их правка вопрос не меняет."""
     return hashlib.sha256(" ".join(description.split()).encode("utf-8")).hexdigest()[:12]
-
-
-def proven_again(decided_by: str, quote: str | None) -> bool:
-    """Годится ли вердикт кэша по нынешнему правилу цитаты, без вызова модели: правило — да;
-    ответ модели — с цитатой не короче `MIN_QUOTE_WORDS`. «На проверку» без цитаты (модель её
-    не дала, сочинила или проверка её не нашла) — не вердикт: модель спросят снова."""
-    if decided_by == Decider.RULE:
-        return True
-    return quote is not None and quote_words(quote) >= MIN_QUOTE_WORDS
-
-
-@dataclass(frozen=True, slots=True)
-class Spent:
-    """Токены вызова раздельно: ввод и вывод — у вывода своя цена, и рассуждение модели идёт в
-    счёт вывода (`completion_tokens` его включает); `reasoning` — сколько из вывода рассуждение.
-    Провайдер не назвал ввод или вывод — раздельно неизвестно, а не ноль (`spent_of`)."""
-
-    prompt: int
-    completion: int
-    reasoning: int = 0
-
-
-def _count(value: object) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
-
-
-def spent_of(body: dict[str, Any]) -> Spent | None:
-    """Ввод, вывод и рассуждение из `usage` ответа; `None` — провайдер не назвал ввод или вывод
-    или они не сходятся с его итогом (`tokens_of`: по итогу пишется расход): такие токены —
-    «раздельно неизвестно», а не ноль ни там, ни там. Так ввод, вывод и «раздельно неизвестно»
-    прохода в сумме всегда дают его токены."""
-    usage = body.get("usage")
-    if not isinstance(usage, dict):
-        return None
-    prompt, completion = _count(usage.get("prompt_tokens")), _count(usage.get("completion_tokens"))
-    if prompt is None or completion is None or prompt + completion != tokens_of(body):
-        return None
-    details = usage.get("completion_tokens_details")
-    reasoning = _count(details.get("reasoning_tokens")) if isinstance(details, dict) else None
-    return Spent(prompt, completion, reasoning or 0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,6 +127,10 @@ class SegmentVerdict:
     kind: str | None = None
     #: Ответ обрезан потолком вывода (`CUT_OFF`): вердикта нет, как у неответившей модели.
     cut_off: bool = False
+    #: Факты модели (`segment_facts.SiteFacts`) — их хранит кэш, по ним пересуд ставит полосу.
+    facts: SiteFacts | None = None
+    #: Правило таблицы, решившее полосу (`segment_rules.RULES`): разбивка eval и отчёта.
+    rule: str | None = None
 
     @property
     def would_cut(self) -> bool:
@@ -238,10 +139,10 @@ class SegmentVerdict:
 
     @property
     def proven(self) -> bool:
-        """Вердикт, которому можно верить снова, — в кэш: правило или ответ модели с цитатой из
-        текста. «На проверку» без цитаты — не дала, сочинила, ответ не разобран, не ответила —
-        это не вердикт модели, а несработавшая проверка: следующий суд спросит снова."""
-        return self.decided_by is Decider.RULE or self.quote is not None
+        """Вердикт, который ложится в кэш: правило или факты модели с цитатой из текста. Без
+        фактов — не дала цитаты, сочинила, ответ не разобран, не ответила — это несработавшая
+        проверка: следующий суд спросит снова."""
+        return self.decided_by is Decider.RULE or self.facts is not None
 
 
 def _ruled(lane: Lane, reason: str) -> SegmentVerdict:
@@ -250,17 +151,14 @@ def _ruled(lane: Lane, reason: str) -> SegmentVerdict:
 
 def by_host(host: str) -> SegmentVerdict | None:
     """«Кому не пишем» по одному имени домена — общим правилом прогона доноров
-    (`runs/exclusions.by_name`: зона, платформа, соцсети, крупные СМИ, справочники) и его
-    словами, до главной: сайт такому домену не открываем вовсе. DR > 80 — не здесь: метрик у
-    кандидата нет, а замер платный."""
+    (`runs/exclusions.by_name`) и его словами, до главной: сайт такому домену не открываем."""
     why = by_name([host]).get(host)
     return None if why is None else _ruled(Lane.REJECT, NOT_WRITING_WORDS[why])
 
 
 def by_text(text: SiteText) -> SegmentVerdict | None:
-    """Правила по тексту: пустое и страница-отказ — человеку. Угаданный по отказу доступа
-    вердикт был бы случайным попаданием, а не знанием. Заглушка только в строках главной — не
-    отказ: модель судит выдачу (`SiteText.without_stub`)."""
+    """Правила по тексту: пустое и страница-отказ — человеку. Заглушка только в строках главной —
+    не отказ: модель судит выдачу (`SiteText.without_stub`)."""
     if text.empty:
         return _ruled(Lane.REVIEW, "выдача и главная не дали текста — судить не по чему")
     if text.without_stub().stubbed:
@@ -269,10 +167,9 @@ def by_text(text: SiteText) -> SegmentVerdict | None:
 
 
 def by_language(text: SiteText, letters: str | None) -> SegmentVerdict | None:
-    """Язык сайта не тот, что у писем, — вердикт без модели: язык назван буквами — «отказал бы»
-    словами («язык сайта — украинский, письма — русский»); не назван (язык без своих букв, другая
-    письменность) — «не понять», решает человек. Не жёсткое правило (`Decider.LANGUAGE`): режим решает
-    с ним, как с вердиктом модели (`effective`); цитаты нет — в кэш вердиктов он не ложится."""
+    """Язык сайта не тот, что у писем, — вердикт без модели: назван буквами — «отказал бы» словами
+    («язык сайта — украинский, письма — русский»); не назван — «не понять». Не жёсткое правило
+    (`Decider.LANGUAGE`): режим решает с ним, как с вердиктом модели (`effective`)."""
     found = site_language(text, letters)
     if found is None:
         return None
@@ -281,160 +178,70 @@ def by_language(text: SiteText, letters: str | None) -> SegmentVerdict | None:
 
 
 def before_model(host: str, text: SiteText) -> SegmentVerdict | None:
-    """Всё, что решается без модели и не стоит ни одного токена. Порядок — от
-    окончательного к осторожному: «кому не пишем» по имени режется, пустое и отказ — человеку."""
+    """Всё, что решается без модели и не стоит ни одного токена: «кому не пишем» по имени
+    режется, пустое и отказ — человеку."""
     return by_host(host) or by_text(text)
 
 
-def _quiet(words: str) -> str:
-    """Метки данных в чужом тексте — похожими знаками: закрыть текст раньше он не сможет."""
-    return words.replace("<<<", "‹‹‹").replace(">>>", "›››")
+@dataclass(frozen=True, slots=True)
+class _Early:
+    """Вердикты до фактов: правило по домену и тексту, язык сайта."""
+
+    ruled: SegmentVerdict | None = None
+    language: SegmentVerdict | None = None
 
 
-def user_message(*, host: str, segment: str, text: SiteText) -> str:
-    """Сегмент и текст сайта — данными между метками; домен — строкой над ними."""
-    return (
-        f"Domain: {_quiet(host)}\n{SEGMENT_OPEN}\n{_quiet(segment.strip())}\n{SEGMENT_CLOSE}\n"
-        f"{SITE_OPEN}\n{_quiet(text.for_model())}\n{SITE_CLOSE}"
-    )
-
-
-def build_payload(model: str, *, user: str, system: str | None = None) -> dict[str, Any]:
-    """Тело запроса: строгая форма JSON, потолок вывода — по семейству модели."""
-    limits: dict[str, Any] = (
-        {"max_completion_tokens": TOKENS_REASONING, "reasoning_effort": REASONING_EFFORT}
-        if is_reasoning(model)
-        else {"max_tokens": TOKENS_PLAIN, "temperature": 0}
-    )
-    return {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system or load_prompt()},
-            {"role": "user", "content": user},
-        ],
-        "response_format": {"type": "json_object"},
-        **limits,
-    }
-
-
-def _form(content: str) -> dict[str, Any] | str:
-    """Строгая форма ответа: объект с `fit` из списка. Иначе — почему нет, словами."""
-    try:
-        body = json.loads(content)
-    except ValueError:
-        logger.info("%s: ответ модели не JSON", TOPIC, extra={"content": content[:120]})
-        return "ответ модели не разобран"
-    if not isinstance(body, dict):
-        return "ответ модели не объект"
-    fit = str(body.get("fit") or "").strip().lower()
-    if fit not in FITS:
-        logger.info("%s: ответ не из списка", TOPIC, extra={"fit": fit[:40]})
-        return f"ответ модели не из списка: {fit[:40]!r}"
-    return {**body, "fit": fit}
-
-
-def finish_of(body: dict[str, Any]) -> str | None:
-    """Почему модель закончила ответ (`finish_reason` первой альтернативы); не названо — `None`."""
-    choices = body.get("choices")
-    first = choices[0] if isinstance(choices, list) and choices else None
-    reason = first.get("finish_reason") if isinstance(first, dict) else None
-    return reason if isinstance(reason, str) else None
-
-
-def _unproven(quote: str | None, text: SiteText) -> str | None:
-    """Почему цитата не доказывает вердикт — словами; `None` — доказывает."""
-    if quote is None:
-        return NO_QUOTE
-    if quote_words(quote) < MIN_QUOTE_WORDS:
-        return SHORT_QUOTE
-    if not text.holds(quote):
-        return MADE_UP
-    return None
-
-
-def parse(content: str, text: SiteText) -> SegmentVerdict:
-    """Ответ модели → вердикт. Непонятный ответ и цитата не из текста — «на проверку»,
-    а не отказ; выдуманная цитата не хранится."""
-    form = _form(content)
-    if isinstance(form, str):
-        return SegmentVerdict(Lane.REVIEW, form)
-    raw = form.get("quote")
-    words = unlabeled(raw, LABELS) if isinstance(raw, str) else ""
-    quote = words or None
-    if (why_not := _unproven(quote, text)) is not None:
-        return SegmentVerdict(Lane.REVIEW, why_not)
-    why = str(form.get("why") or "").strip()[:300]
-    kind = str(form.get("kind") or "").strip().lower()
-    return SegmentVerdict(
-        FITS[form["fit"]], why or "по тексту сайта", quote, kind=kind if kind in KINDS else None
-    )
-
-
-class SegmentClient(ModelClient):
-    """Вызов модели судьи сегмента. Не бросает: любой сбой — «на проверку»."""
-
-    def _default_model(self) -> str:
-        return llm_cfg.SALES_SEGMENT_MODEL
-
-    async def judge(
-        self, *, host: str, segment: str, text: SiteText, system: str | None = None
-    ) -> SegmentVerdict:
-        """Вердикт по одному сайту. Правила до модели — у вызывающего (`decide`)."""
-        body = await post_chat(
-            self._http,
-            api_key=self._api_key,
-            payload=build_payload(
-                self._model, user=user_message(host=host, segment=segment, text=text), system=system
-            ),
-            topic=TOPIC,
+def _verdict(rule: Rule, case: Case, said: Said, early: _Early) -> SegmentVerdict:
+    """Правило таблицы → вердикт: до фактов — вердикт правила или языка как есть (с токенами
+    вызова и фактами, если модель спрашивали); по фактам — слова правила и пояснение модели."""
+    # Полоса — из таблицы и здесь: условие правила и вердикт до фактов совпадают по построению.
+    if rule.name in BY_RULE and early.ruled is not None:
+        return replace(early.ruled, lane=rule.lane, rule=rule.name)
+    if rule.name in BY_LANGUAGE and early.language is not None:
+        # Без модели у вердикта: по ней отмена решения узнаёт вердикт языка (`segment_undo`).
+        return replace(
+            early.language,
+            lane=rule.lane,
+            tokens=said.tokens,
+            spent=said.spent,
+            facts=said.facts,
+            rule=rule.name,
         )
-        if isinstance(body, Refusal):
-            logger.warning("%s: %s", TOPIC, body, extra={"host": host})
-            return SegmentVerdict(Lane.REVIEW, f"модель не ответила: {body}", unanswered=True)
-        tokens, spent = tokens_of(body), spent_of(body)
-        content = content_of(body, topic=TOPIC)
-        if finish_of(body) == "length":
-            # Пустой или обрезанный посередине JSON — одно и то же: ответа нет, оплачен весь вывод.
-            logger.warning(
-                "%s: ответ обрезан потолком вывода",
-                TOPIC,
-                extra={"host": host, "tokens": tokens, "empty": not content},
-            )
-            return SegmentVerdict(
-                Lane.REVIEW,
-                CUT_OFF,
-                model=self._model,
-                tokens=tokens,
-                unanswered=True,
-                spent=spent,
-                cut_off=True,
-            )
-        if not content:
-            # Оплачен: рассуждение съело потолок и до ответа не дошло.
-            return SegmentVerdict(
-                Lane.REVIEW,
-                "пустой ответ модели",
-                model=self._model,
-                tokens=tokens,
-                unanswered=True,
-                spent=spent,
-            )
-        return replace(parse(content, text), model=self._model, tokens=tokens, spent=spent)
+    facts = said.facts
+    words = rule.words(case)
+    # Пояснение модели — вторым предложением: с заглавной (у письменностей без регистра — как есть).
+    why = facts.why if facts is not None else ""
+    return SegmentVerdict(
+        rule.lane,
+        f"{words}. {why[:1].upper()}{why[1:]}" if why else words,
+        facts.quote if facts is not None else None,
+        said.model,
+        said.tokens,
+        Decider.MODEL,
+        unanswered=said.unanswered or rule.name == "scope_failed",
+        spent=said.spent,
+        kind=facts.kind if facts is not None else None,
+        cut_off=said.cut_off,
+        facts=facts,
+        rule=rule.name,
+    )
 
 
-#: Виды сайта, чьё «нет» стоит раньше «язык не назван» (`after_language`): посредник и издание не
-#: подходят на любом языке — решать человеку по ним нечего.
-KIND_FIRST = frozenset({"intermediary", "media"})
-
-
-def after_language(verdict: SegmentVerdict, said: SegmentVerdict) -> SegmentVerdict:
-    """Язык сайта буквами не назван («не понять», `said`), а модель спрошена: её «нет» по виду сайта
-    (`KIND_FIRST`) стоит — иначе латиница без особых букв уводила к человеку посредника, которого
-    модель видит (разбор паттернов 20.10). Остальное — «не понять» языка, с токенами вызова в счёт
-    прохода. Модель не ответила — её ответ как есть: следующий проход спросит снова."""
-    if verdict.unanswered or (verdict.lane is Lane.REJECT and verdict.kind in KIND_FIRST):
-        return verdict
-    return replace(said, tokens=verdict.tokens, spent=verdict.spent)
+def settle(
+    *,
+    host: str,
+    policy: CountryPolicy,
+    scope: Scope | None,
+    said: Said | None = None,
+    ruled: SegmentVerdict | None = None,
+    language: SegmentVerdict | None = None,
+    rules: tuple[Rule, ...] = RULES,
+) -> SegmentVerdict:
+    """Вердикт по таблице правил (`segment_rules.RULES`): правило до модели, язык, факты модели,
+    разбор описания и поле гипотезы. Модели не зовёт: факты из кэша решаются здесь же."""
+    said = said or Said(None)
+    case = Case(host, policy, scope, said.facts, said.failure, ruled, language)
+    return _verdict(first(case, rules), case, said, _Early(ruled, language))
 
 
 async def decide(
@@ -443,23 +250,24 @@ async def decide(
     host: str,
     segment: str,
     text: SiteText,
+    scope: Scope | None,
+    policy: CountryPolicy,
     system: str | None = None,
     letters: str | None = None,
 ) -> SegmentVerdict:
-    """Правила, язык сайта против языка писем `letters` (`by_language`), затем модель — по тексту
-    без главной-заглушки (`SiteText.without_stub`). Язык назван буквами — вердикт кода, модель не
-    зовётся; не назван — модель спрашивается раньше, и вид сайта решает прежде языка
-    (`after_language`). Не бросает. `system` — промпт вместо файла: так eval гоняет испорченный
-    промпт (`scripts/eval_sales_segment.py --spoil`), не трогая файл."""
+    """Правила до модели, язык сайта против языка писем `letters` (`by_language`), затем факты
+    модели — по тексту без главной-заглушки (`SiteText.without_stub`) — и таблица правил. Язык назван
+    буквами и не тот — модель не зовётся. Не бросает. `system` — промпт вместо файла: так eval гоняет
+    испорченный промпт, не трогая файл."""
     ruled = before_model(host, text)
     if ruled is not None:
-        return ruled
+        return settle(host=host, policy=policy, scope=scope, ruled=ruled)
     judged = text.without_stub()
-    said = by_language(judged, letters)
-    if said is not None and said.lane is Lane.REJECT:
-        return said
-    verdict = await client.judge(host=host, segment=segment, text=judged, system=system)
-    return verdict if said is None else after_language(verdict, said)
+    language = by_language(judged, letters)
+    if language is not None and language.lane is Lane.REJECT:
+        return settle(host=host, policy=policy, scope=scope, language=language)
+    said = await client.judge(host=host, segment=segment, text=judged, system=system)
+    return settle(host=host, policy=policy, scope=scope, said=said, language=language)
 
 
 #: Полоса кандидата при выключенном судье: модель не зовётся, решает человек.
@@ -470,16 +278,10 @@ def effective(verdict: SegmentVerdict, mode: JudgeMode) -> tuple[Lane, str]:
     """Полоса кандидата по вердикту и режиму (`JudgeMode`, как у судьи площадки).
 
     Правило режет в любом режиме. В наблюдении (`shadow`) отказ модели или языка сайта не отсекает
-    сайт, а кладёт его в свою полосу «судья отказал бы» (`Lane.WOULD_REJECT`; вариант (b),
-    решение владельца 20.10): «на проверке» — только сомнительные, решать по отказам человеку не
-    обязательно, лида без его «Принять» нет. Причина — слова судьи как есть: что это отказ, говорит
-    полоса. До своей полосы такой сайт лежал «на проверке» с приставкой к причине — «Отказ: »
-    (20.10.2026), раньше «судья в наблюдении отрезал бы: »; эти строки база хранит как были, экран
-    показывает их коротким видом (`frontend/src/sales/SegmentSitesWords.reasonWords`), пересуд кладёт
-    их по-новому. Так видно, насколько отказам можно верить, до того как они начнут резать сами
-    (`enforce`). Принятое и «на проверку» — как сказал судья в обоих режимах. Отмена решения
-    человека возвращает сайт сюда же (`segment_undo`): куда его кладёт судья, решает только это
-    место."""
+    сайт, а кладёт его в свою полосу «судья отказал бы» (`Lane.WOULD_REJECT`; вариант (b), решение
+    владельца 20.10): «на проверке» — только сомнительные, решать по отказам человеку не обязательно,
+    лида без его «Принять» нет. Причина — слова судьи как есть: что это отказ, говорит полоса. Отмена
+    решения человека возвращает сайт сюда же (`segment_undo`)."""
     if verdict.decided_by is Decider.RULE or mode is JudgeMode.ENFORCE:
         return verdict.lane, verdict.reason
     if verdict.lane is Lane.REJECT:

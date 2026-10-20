@@ -52,6 +52,8 @@ from backend.features.serp.dataforseo import SerpError
 from backend.features.serp.protocol import SerpResult, SerpWatch
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.segment_facts_fakes import facts, is_scope
+from tests.segment_facts_fakes import reply as scope_reply
 from tests.test_sales_segment_judge import MODEL_KEY
 
 SEGMENT = "Интернет-магазины велосипедов: продают велосипеды и запчасти у себя на сайте."
@@ -74,15 +76,15 @@ TITLES = {
     PLATFORM: "Обзор горного велосипеда — видео",
 }
 ANSWERS: dict[str, Any] = {
-    SHOP: {"fit": "yes", "quote": "интернет-магазин Велошоп", "why": "магазин велосипедов"},
-    PARTS: {"fit": "yes", "quote": "Запчасти для велосипедов", "why": "магазин запчастей"},
-    NEWS: {
-        "fit": "no",
-        "quote": "Новости велоспорта и обзоры",
-        "why": "пишет о чужих, сам не продаёт",
-    },
-    MAYBE: {"fit": "unsure", "quote": "Велосипеды на главной", "why": "мало текста"},
+    SHOP: facts("yes", "интернет-магазин Велошоп", "магазин велосипедов"),
+    PARTS: facts("yes", "Запчасти для велосипедов", "магазин запчастей"),
+    NEWS: facts("no", "Новости велоспорта и обзоры", "пишет о чужих, сам не продаёт", kind="media"),
+    MAYBE: facts("unsure", "Велосипеды на главной", "мало текста"),
 }
+#: Слова судьи v4 у новостного сайта: правило таблицы (издание) и пояснение модели.
+NEWS_WORDS = "издание — пишет о чужих компаниях: сегмент таких сайтов не просит. Пишет о чужих, сам не продаёт"
+#: Разбор описания сегмента (`segment_scope`) — без места, своё дело: место сайта здесь не важно.
+SCOPE = {"countries": [], "kinds": ["own"]}
 HOME = "<html><head><title>{title}</title></head><body>{body}</body></html>"
 
 
@@ -124,13 +126,22 @@ def serp(*hosts: str) -> Serp:
 
 @dataclass
 class Model:
-    """Модель-подделка: ответ по домену из сообщения; число — код отказа провайдера."""
+    """Модель-подделка: ответ фактами по домену из сообщения; число — код отказа провайдера.
+    Разбор описания (`segment_scope`) — `scope` за `scope_tokens`, в `asked` не идёт."""
 
     answers: dict[str, Any]
     tokens: int = 613
     asked: list[str] = field(default_factory=list)
+    scope: Any = field(default_factory=lambda: SCOPE)
+    scope_tokens: int = 0
+    scoped: int = 0
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
+        if is_scope(request):
+            self.scoped += 1
+            if isinstance(self.scope, int):
+                return httpx.Response(self.scope, json={"error": {"message": "сбой провайдера"}})
+            return scope_reply(request, self.scope, tokens=self.scope_tokens)
         user = json.loads(request.content)["messages"][1]["content"]
         host = user.split("\n", 1)[0].removeprefix("Domain: ")
         self.asked.append(host)
@@ -309,7 +320,10 @@ async def test_the_whole_way_from_keywords_to_a_clean_lead(
         "leads": 1,
     }
     assert sorted(view.rejected) == [
-        ("пишет о чужих, сам не продаёт", 1),
+        (
+            NEWS_WORDS,
+            1,
+        ),
         ("платформам и соцсетям не пишем", 1),
     ]
     assert report["leads"]["created"] == 1
@@ -477,7 +491,8 @@ async def test_shadow_writes_the_verdict_but_does_not_cut(
         .where(DomainModel.host == NEWS)
     )
     assert news is not None
-    assert (news.verdict, news.reason) == (Lane.REJECT, "пишет о чужих, сам не продаёт")
+    assert news.verdict == Lane.REJECT
+    assert news.reason == NEWS_WORDS
     written = await session.scalar(
         select(SalesSegmentVerdictModel.verdict).where(
             SalesSegmentVerdictModel.domain_id == news.domain_id

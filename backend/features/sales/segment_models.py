@@ -222,6 +222,11 @@ class SalesSegmentVerdictModel(TimestampedMixin, Base):
     model: Mapped[str | None] = mapped_column(String(MODEL_LENGTH), nullable=True)
     decided_by: Mapped[str] = mapped_column(String(CODE_LENGTH), nullable=False)
     tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    #: Факты сайта, как их дала модель v4 и проверил код (`segment_facts.SiteFacts`): вид сайта,
+    #: дело, страна бизнеса, места работы — с дословными цитатами. Полосу из них ставит код по полю
+    #: гипотезы (`segment_rules`), поэтому правка поля пересчитывает полосу без модели. Пусто —
+    #: вердикт правила или версии до v4.
+    facts: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
         UniqueConstraint(

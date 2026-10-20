@@ -47,13 +47,16 @@ from backend.features.sales.segment_models import (
     SalesSegmentCandidateModel,
     SalesSegmentRunModel,
 )
+from backend.features.sales.segment_rules import KIND_WORDS
 from backend.features.sales.verifier import FixtureVerifier
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.segment_facts_fakes import facts
 from tests.test_sales_segment_judge import MODEL_KEY
 from tests.test_sales_segment_run import (
     ANSWERS,
     NEWS,
+    NEWS_WORDS,
     SHOP,
     Model,
     Sites,
@@ -82,53 +85,63 @@ class Said:
     answer: dict[str, Any] | int | None = None
 
 
-#: Справочник мастерских мебели: модель — «нет», слова судьи — латиницей (немецкий).
+#: Справочник мастерских мебели: модель — посредник, слова судьи — латиницей (немецкий).
 WORKSHOPS = Said(
     "moebel-verzeichnis.example.test",
     "Alle Möbeltischler in Ihrer Stadt finden und vergleichen",
-    {
-        "fit": "no",
-        "quote": "Alle Möbeltischler in Ihrer Stadt",
-        "why": "Branchenverzeichnis für Tischler — baut selbst keine Möbel",
-    },
+    facts(
+        "no",
+        "Alle Möbeltischler in Ihrer Stadt",
+        "Branchenverzeichnis für Tischler — baut selbst keine Möbel",
+        kind="intermediary",
+    ),
 )
-#: Портал языковых школ: модель — «нет», слова судьи — японским письмом без пробелов.
+#: Портал языковых школ: модель — посредник, слова судьи — японским письмом без пробелов.
 PORTAL = Said(
     "eikaiwa-portal.example.test",
     "全国の英会話教室を比較して口コミで選べるポータル",
-    {
-        "fit": "no",
-        "quote": "全国の英会話教室を比較して口コミで選べる",
-        "why": "英会話教室の比較ポータルで、自社のレッスンはない",
-    },
+    facts(
+        "no",
+        "全国の英会話教室を比較して口コミで選べる",
+        "英会話教室の比較ポータルで、自社のレッスンはない",
+        kind="intermediary",
+    ),
 )
-#: Школа или блог — не понять: модель — «не понять», слова судьи — арабским, справа налево.
+#: Школа или блог — не понять: модель — дело не видно, слова судьи — арабским, справа налево.
 MAYBE_SCHOOL = Said(
     "madrasat-lughat.example.test",
     "تعلم اللغة الإنجليزية مع دروسنا المجانية على الإنترنت",
-    {
-        "fit": "unsure",
-        "quote": "تعلم اللغة الإنجليزية مع دروسنا",
-        "why": "غير واضح من النص: مدرسة لغات أم مدونة معلم",
-    },
+    facts(
+        "unsure", "تعلم اللغة الإنجليزية مع دروسنا", "غير واضح من النص: مدرسة لغات أم مدونة معلم"
+    ),
 )
-#: Ветклиника: модель — «да», слова судьи — латиницей (польский).
+#: Ветклиника: модель — своё дело того вида, слова судьи — латиницей (польский).
 CLINIC = Said(
     "weterynarz-krakow.example.test",
     "Przychodnia weterynaryjna — umów wizytę online",
-    {
-        "fit": "yes",
-        "quote": "Przychodnia weterynaryjna — umów wizytę",
-        "why": "własna przychodnia weterynaryjna",
-    },
+    facts("yes", "Przychodnia weterynaryjna — umów wizytę", "własna przychodnia weterynaryjna"),
 )
+#: Слова судьи v4: правило таблицы и пояснение модели.
+INTERMEDIARY = f"{KIND_WORDS['intermediary']}: сегмент таких сайтов не просит"
+UNCLEAR = "по тексту не видно, чем занят сайт, — решает человек"
+ANYWHERE = "дело сайта — то, что ищет сегмент; места сегмент не называет"
+
+
+def words(rule: str, said: Said) -> str:
+    """Слова судьи у сайта: правило таблицы и пояснение модели вторым предложением, с заглавной
+    (`segment_judge._verdict`)."""
+    assert isinstance(said.answer, dict)
+    why = said.answer["why"]
+    return f"{rule}. {why[:1].upper()}{why[1:]}"
+
+
 #: Выдача ничего не дала: правило — человеку.
 EMPTY = Said("pusto.example.test", None)
 #: Модель не дала цитаты: «на проверку», в кэш не ложится.
 NO_QUOTE = Said(
     "kurs-sample.example.test",
     "Курсы испанского языка в мини-группах",
-    {"fit": "no", "why": "похоже на агрегатор"},
+    facts("no", why="похоже на агрегатор"),
 )
 #: Модель не ответила.
 SILENT = Said("sessiz.example.test", "Türkçe kursları ve özel dersler", 503)
@@ -198,24 +211,9 @@ async def undone(session: AsyncSession, candidate: Candidate) -> su.Undone:
 @pytest.mark.parametrize(
     ("said", "mode", "lane", "words"),
     [
-        (
-            WORKSHOPS,
-            JudgeMode.SHADOW,
-            Lane.WOULD_REJECT,
-            "Branchenverzeichnis für Tischler — baut selbst keine Möbel",
-        ),
-        (
-            PORTAL,
-            JudgeMode.SHADOW,
-            Lane.WOULD_REJECT,
-            "英会話教室の比較ポータルで、自社のレッスンはない",
-        ),
-        (
-            MAYBE_SCHOOL,
-            JudgeMode.ENFORCE,
-            Lane.REVIEW,
-            "غير واضح من النص: مدرسة لغات أم مدونة معلم",
-        ),
+        (WORKSHOPS, JudgeMode.SHADOW, Lane.WOULD_REJECT, words(INTERMEDIARY, WORKSHOPS)),
+        (PORTAL, JudgeMode.SHADOW, Lane.WOULD_REJECT, words(INTERMEDIARY, PORTAL)),
+        (MAYBE_SCHOOL, JudgeMode.ENFORCE, Lane.REVIEW, words(UNCLEAR, MAYBE_SCHOOL)),
         (
             EMPTY,
             JudgeMode.SHADOW,
@@ -264,7 +262,7 @@ async def test_the_lane_after_an_undo_is_the_judges_rule_not_a_hardwired_review(
     await session.refresh(site)
     assert (site.lane, site.reason, site.decided_by) == (
         Lane.REJECT,
-        "в другой полосе: Branchenverzeichnis für Tischler — baut selbst keine Möbel",
+        f"в другой полосе: {words(INTERMEDIARY, WORKSHOPS)}",
         Decider.MODEL,
     )
 
@@ -285,7 +283,7 @@ async def test_words_missing_from_the_cache_are_named_and_a_silent_model_is_aske
     assert (quiet.lane, quiet.reason, quiet.decided_by) == (Lane.REVIEW, su.LOST, Decider.MODEL)
     # Модель не ответила — сайт снова ждёт судью: следующий проход его судит.
     assert (silent.lane, silent.reason, silent.decided_by) == (Lane.REVIEW, su.SILENT, None)
-    said = {"fit": "yes", "quote": "Türkçe kursları ve özel", "why": "kendi dil kursları"}
+    said = facts("yes", "Türkçe kursları ve özel", "kendi dil kursları")
     model = Model({SILENT.host: said})
     await judge_run(
         session, run_id=run.id, segment="курсы", mode=JudgeMode.SHADOW, client=_client(model),
@@ -419,7 +417,7 @@ async def test_an_undone_accept_is_not_taken_into_leads_by_the_resumed_run(
         .where(DomainModel.host == NEWS)
     )  # fmt: skip
     assert news is not None
-    assert (news.lane, news.reason) == (Lane.WOULD_REJECT, "пишет о чужих, сам не продаёт")
+    assert (news.lane, news.reason) == (Lane.WOULD_REJECT, NEWS_WORDS)
     await decided(session, news, accept=True)
     await undone(session, news)
 
@@ -430,7 +428,7 @@ async def test_an_undone_accept_is_not_taken_into_leads_by_the_resumed_run(
     await session.refresh(news)
     assert (news.lane, news.reason, news.lead_id) == (
         Lane.WOULD_REJECT,
-        "пишет о чужих, сам не продаёт",
+        NEWS_WORDS,
         None,
     )
     assert not [hit for hit in found.hits if hit.startswith(NEWS)]

@@ -97,11 +97,15 @@ async def output_share(session: AsyncSession) -> tuple[float, int]:
 
     Суммой по прогонам (`report.judge`: ввод и вывод — `segment_window.SPLIT_TOKENS`), а не
     средним долей: прогон в десять сайтов не весит столько же, сколько прогон в сотню. Токены без
-    разбивки в долю не идут — их делить не на что."""
+    разбивки в долю не идут — их делить не на что. Только прогоны той же версии промпта, как у
+    токенов на сайт: у судьи v4 вывод — 27 % токенов, у v3 — около 15 %."""
     judge = SalesSegmentRunModel.report["judge"]
     rows = await session.scalars(
         select(judge)
-        .where(judge.has_key("completion_tokens"))
+        .where(
+            judge.has_key("completion_tokens"),
+            judge["prompt_version"].astext == PROMPT_VERSION,
+        )
         .order_by(SalesSegmentRunModel.id.desc())
         .limit(HISTORY_RUNS)
     )

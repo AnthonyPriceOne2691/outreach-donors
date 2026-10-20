@@ -9,6 +9,11 @@
 не меряется, меряются слова). Подтверждение удаления — у самой кнопки. Номер гипотезы, которой
 больше нет, в адресе — строка «больше нет» под вкладками.
 
+Поле «страны компаний» (судья сегмента v4) — в окне правки: подпись переключателя «Компании из
+других стран», выбранный и невыбранный его пункт, подпись «Не пишем компаниям из» и страна в поле
+(у держащей — выбрана), и пояснение под подписью «Пусто — никому не отказываем по стране». Было
+подсказкой в поле — бледными чернилами подсказки (`--ink-faint`) оно мерилось 3,43 на свету.
+
 Стенд: гипотеза `EMPTY` пустая, `HELD` держат лиды и прогон, её описание длиннее трёх строк;
 без них точки окон честно «не найдены».
 """
@@ -74,6 +79,22 @@ def hypothesis_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("ноль без ссылки", f"{TABLE} tbody td p:text-is('0')", norm),
         ("дата", f"{TABLE} tbody td:last-child p", norm),
     ]
+    countries = [
+        (
+            "подпись переключателя стран",
+            f"{DIALOG} div.mantine-Text-root:has-text('других стран')",
+            norm,
+        ),
+        ("выбранный пункт", f"{DIALOG} .mantine-SegmentedControl-label[data-active]", norm),
+        ("невыбранный пункт", f"{DIALOG} .mantine-SegmentedControl-label:not([data-active])", norm),
+        ("подпись «Не пишем…»", f"{DIALOG} .mantine-InputWrapper-label:has-text('Не пишем')", norm),
+        ("страна в поле", f"{DIALOG} .mantine-Pill-label", norm),
+        (
+            "пояснение «Не пишем…»",
+            f"{DIALOG} .mantine-InputWrapper-description:has-text('никому не отказываем')",
+            norm,
+        ),
+    ]
     window = [
         ("заголовок окна", f"{DIALOG} .mantine-Modal-title", norm),
         ("подпись поля", f"{DIALOG} .mantine-InputWrapper-label", norm),
@@ -100,13 +121,17 @@ def hypothesis_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         "sales-hypothesis-held": {
             "path": path,
             "ready": ready,
-            "probes": [*window[:3], ("что держит", f"{DIALOG} .hypothesisRemove p", norm)],
+            "probes": [
+                *window[:3],
+                *countries,
+                ("что держит", f"{DIALOG} .hypothesisRemove p", norm),
+            ],
         },
         "sales-hypothesis-held-phone": {
             "path": path,
             "ready": ready,
             "viewport": PHONE,
-            "probes": [("что держит", f"{DIALOG} .hypothesisRemove p", norm)],
+            "probes": [*countries, ("что держит", f"{DIALOG} .hypothesisRemove p", norm)],
         },
         "sales-hypothesis-confirm": {
             "path": path,

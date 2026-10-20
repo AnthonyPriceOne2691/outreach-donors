@@ -41,7 +41,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -54,6 +54,13 @@ from backend.features.core.domain import AuditAction, Stage
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.donors.probe import emptied_campaign
 from backend.features.sales import hypothesis_holds
+from backend.features.sales.hypothesis_countries import (
+    CountryCodeError,
+    OtherCountries,
+    checked_codes,
+    checked_other,
+    field_words,
+)
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import NAME_LENGTH, SalesHypothesisModel
 from backend.features.sales.segment_spend import number
@@ -66,6 +73,8 @@ RENAMED = "гипотеза продаж переименована"
 REMOVED = "гипотеза продаж удалена"
 #: Начало «действия» правки описания: «… задано», «… поправлено», «… снято».
 SEGMENT = "описание сегмента"
+#: «Действие» правки поля «страны компаний» (`hypothesis_countries`).
+COUNTRIES = "страны компаний гипотезы поправлены"
 
 #: Сколько ждать блокировку строки гипотезы: тот же предел, что у миграций продаж. Строкой
 #: целиком — значение не из ввода; тест предела подменяет её короткой.
@@ -90,7 +99,11 @@ class BadNameError(HypothesisError):
 
 
 class NothingToEditError(HypothesisError):
-    """В правке нет ни имени, ни описания."""
+    """В правке нет ни имени, ни описания, ни поля «страны компаний»."""
+
+
+class BadCountriesError(HypothesisError):
+    """Поле «страны компаний» не годится: положение не из списка или код страны не ISO."""
 
 
 class HypothesisRefusedError(HypothesisError):
@@ -187,14 +200,34 @@ async def _journal(
     )
 
 
+def _field(
+    other: str | None, excluded: Sequence[str] | None
+) -> tuple[str | None, list[str] | None]:
+    """Поле «страны компаний» по правилу — или отказ словами; `None` — часть поля не трогать."""
+    try:
+        return (
+            checked_other(other).value if other is not None else None,
+            checked_codes(excluded) if excluded is not None else None,
+        )
+    except CountryCodeError as exc:
+        raise BadCountriesError(str(exc)) from exc
+
+
 async def add(
     session: AsyncSession, name: str, description: str | None, *, author_id: int | None = None
 ) -> SalesHypothesisModel:
     """Завести гипотезу. Запись и строка журнала — в транзакции вызывающего, коммит — за ним.
-    `author_id` — учётка экрана; у команды консоли автора нет."""
+    `author_id` — учётка экрана; у команды консоли автора нет. Поле «страны компаний» новой
+    гипотезы — «на проверку» и пустой список «не пишем» (решение владельца 20.10); правится окном
+    гипотезы (`edit`)."""
     clean = _name_of(name)
     await _free(session, clean)
-    hypothesis = SalesHypothesisModel(name=clean, description=(description or "").strip() or None)
+    hypothesis = SalesHypothesisModel(
+        name=clean,
+        description=(description or "").strip() or None,
+        other_countries=OtherCountries.REVIEW.value,
+        excluded_countries=[],
+    )
     session.add(hypothesis)
     await session.flush()
     # Время заведения ставит база: без чтения назад поле не загружено, и экран в async
@@ -204,7 +237,14 @@ async def add(
         session,
         author_id,
         hypothesis.id,
-        {"действие": MADE, "имя": hypothesis.name, "описание сегмента": hypothesis.description},
+        {
+            "действие": MADE,
+            "имя": hypothesis.name,
+            "описание сегмента": hypothesis.description,
+            "страны компаний": field_words(
+                hypothesis.other_countries, hypothesis.excluded_countries
+            ),
+        },
     )
     logger.info("продажи: заведена гипотеза", extra={"hypothesis_id": hypothesis.id})
     return hypothesis
@@ -299,24 +339,58 @@ async def _describe(
     )
 
 
+async def _countries(
+    session: AsyncSession,
+    found: SalesHypothesisModel,
+    field: tuple[str | None, list[str] | None],
+    author_id: int | None,
+) -> None:
+    """Поле «страны компаний»: то же самое — не правка, записи нет. В журнале — было и стало
+    словами (`hypothesis_countries.field_words`). Полосы сайтов правка не трогает: их ставит
+    пересуд прогона — по фактам из кэша, без модели."""
+    other, excluded = field
+    was_other, was_excluded = found.other_countries, list(found.excluded_countries)
+    now_other = other if other is not None else was_other
+    now_excluded = excluded if excluded is not None else was_excluded
+    if (now_other, now_excluded) == (was_other, was_excluded):
+        return
+    found.other_countries, found.excluded_countries = now_other, now_excluded
+    await _journal(
+        session,
+        author_id,
+        found.id,
+        {
+            "действие": COUNTRIES,
+            "гипотеза": found.name,
+            "было": field_words(was_other, was_excluded),
+            "стало": field_words(now_other, now_excluded),
+        },
+    )
+
+
 async def edit(
     session: AsyncSession,
     hypothesis_id: int,
     *,
     name: str | None = None,
     description: str | None = None,
+    other_countries: str | None = None,
+    excluded_countries: Sequence[str] | None = None,
     author_id: int | None = None,
 ) -> SalesHypothesisModel:
-    """Поправить имя, описание сегмента или оба. `None` — поле не трогать. Записи и журнал —
-    в транзакции вызывающего, коммит — за ним."""
-    if name is None and description is None:
-        raise NothingToEditError("нечего править: дайте имя или описание сегмента")
+    """Поправить имя, описание сегмента, поле «страны компаний» — что дано. `None` — поле не
+    трогать. Записи и журнал — в транзакции вызывающего, коммит — за ним."""
+    field = _field(other_countries, excluded_countries)
+    if name is None and description is None and field == (None, None):
+        raise NothingToEditError("нечего править: дайте имя, описание сегмента или страны компаний")
     # Имя — под уникальным индексом: его правка в Postgres — правка ключа (`FOR UPDATE`).
     found = await _locked(session, hypothesis_id, key=name is not None)
     if name is not None:
         await _rename(session, found, name, author_id)
     if description is not None:
         await _describe(session, found, description, author_id)
+    if field != (None, None):
+        await _countries(session, found, field, author_id)
     logger.info("продажи: гипотеза поправлена", extra={"hypothesis_id": hypothesis_id})
     return found
 

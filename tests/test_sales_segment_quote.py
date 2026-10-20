@@ -21,6 +21,7 @@ import pytest
 from backend.config.judge import JudgeMode
 from backend.features.sales import segment_judge as sj
 from backend.features.sales import segment_quote as sq
+from backend.features.sales.segment_facts import SiteFacts
 from backend.features.sales.segment_judge import SiteText
 from backend.features.sales.segment_judging import judge_run
 from backend.features.sales.segment_models import (
@@ -30,6 +31,7 @@ from backend.features.sales.segment_models import (
 )
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.segment_facts_fakes import facts
 from tests.test_sales_segment_judge import judged
 from tests.test_sales_segment_judging import candidates, judge
 from tests.test_sales_segment_run import SEGMENT, SHOP, Model, hypothesis, make_run
@@ -89,7 +91,7 @@ def test_an_honest_quote_holds_whatever_the_typography(line: str, quote: str) ->
 async def test_a_typographic_quote_of_the_model_is_accepted_not_sent_to_review() -> None:
     """Как на тесте прогона: цитата есть на сайте, кавычки — другие."""
     verdict, _ = await judged(
-        {"fit": "yes", "quote": 'ООО "Образец Мебель" — мебель на заказ', "why": "мастерская"},
+        facts("yes", 'ООО "Образец Мебель" — мебель на заказ', "мастерская"),
         site(),
     )
 
@@ -114,7 +116,7 @@ async def test_a_typographic_quote_of_the_model_is_accepted_not_sent_to_review()
     ids=["made-up", "two-lines", "two-lines-gap", "out-of-order", "changed-word"],
 )
 async def test_a_made_up_quote_still_goes_to_review(quote: str) -> None:
-    verdict, _ = await judged({"fit": "yes", "quote": quote, "why": "мастерская"}, site())
+    verdict, _ = await judged(facts("yes", quote, "мастерская"), site())
 
     assert (verdict.lane, verdict.reason, verdict.quote) == (Lane.REVIEW, sj.MADE_UP, None)
 
@@ -129,7 +131,7 @@ async def test_a_made_up_quote_still_goes_to_review(quote: str) -> None:
     ids=["two-words", "two-words-and-signs", "three-words"],
 )
 async def test_the_quote_is_at_least_three_words_as_the_prompt_asks(quote: str, lane: Lane) -> None:
-    verdict, _ = await judged({"fit": "yes", "quote": quote, "why": "мастерская"}, site())
+    verdict, _ = await judged(facts("yes", quote, "мастерская"), site())
 
     assert verdict.lane is lane
     if lane is Lane.REVIEW:
@@ -171,9 +173,7 @@ async def test_our_label_at_the_start_of_the_quote_is_taken_off(label: str, writ
     подпись — из того же списка, которым строится текст сайта (`segment_judge.LABELS`)."""
     quote = written.format(label=label, lower=label.lower(), words=WORDS)
 
-    verdict, _ = await judged(
-        {"fit": "yes", "quote": quote, "why": "мастерская"}, site_under(label)
-    )
+    verdict, _ = await judged(facts("yes", quote, "мастерская"), site_under(label))
 
     assert (verdict.lane, verdict.quote) == (Lane.ACCEPT, WORDS)
 
@@ -193,7 +193,7 @@ def site_under(label: str) -> SiteText:
     ids=["label-inside", "not-our-label"],
 )
 async def test_only_our_label_at_the_start_is_taken_off(quote: str) -> None:
-    verdict, _ = await judged({"fit": "yes", "quote": quote, "why": "мастерская"}, site())
+    verdict, _ = await judged(facts("yes", quote, "мастерская"), site())
 
     assert (verdict.lane, verdict.reason) == (Lane.REVIEW, sj.MADE_UP)
 
@@ -280,7 +280,7 @@ async def test_a_quote_with_a_typo_is_accepted_and_kept_as_the_model_wrote_it() 
     typo = "PROFESSIONAL LANDSCAPNG SERVICES"
     site_ = SiteText(((sj.PAGE_TITLE, GARDENS),))
 
-    verdict, _ = await judged({"fit": "yes", "quote": typo, "why": "садовник"}, site_)
+    verdict, _ = await judged(facts("yes", typo, "садовник"), site_)
 
     assert (verdict.lane, verdict.quote) == (Lane.ACCEPT, typo)
 
@@ -317,9 +317,7 @@ async def test_an_old_false_no_quote_from_the_cache_does_not_come_back(
     run = await make_run(session, owner)
     [shop] = await candidates(session, run.id, owner.id, SHOP)
     await _legacy_row(session, shop.domain_id, owner.id)
-    model = Model(
-        {SHOP: {"fit": "yes", "quote": "интернет-магазин «Велошоп»", "why": "магазин велосипедов"}}
-    )
+    model = Model({SHOP: facts("yes", "интернет-магазин «Велошоп»", "магазин велосипедов")})
 
     tally = await judge_run(
         session,
@@ -346,7 +344,7 @@ async def test_a_cached_verdict_with_a_short_quote_is_asked_again(session: Async
     await _legacy_row(
         session, shop.domain_id, owner.id, verdict=Lane.ACCEPT, quote="Горные велосипеды"
     )
-    model = Model({SHOP: {"fit": "yes", "quote": "интернет-магазин Велошоп", "why": "магазин"}})
+    model = Model({SHOP: facts("yes", "интернет-магазин Велошоп", "магазин")})
 
     await judge_run(
         session,
@@ -395,7 +393,7 @@ async def test_an_unproven_answer_is_not_written_to_the_cache(session: AsyncSess
     owner = await hypothesis(session)
     run = await make_run(session, owner)
     [shop] = await candidates(session, run.id, owner.id, SHOP)
-    model = Model({SHOP: {"fit": "yes", "quote": "лучшие велосипеды Европы", "why": "магазин"}})
+    model = Model({SHOP: facts("yes", "лучшие велосипеды Европы", "магазин")})
 
     await judge_run(
         session,
@@ -418,16 +416,24 @@ async def test_an_unproven_answer_is_not_written_to_the_cache(session: AsyncSess
 async def test_the_cache_serves_only_verdicts_of_the_current_prompt_version(
     session: AsyncSession, version: str, asked: bool
 ) -> None:
-    """v2 — новый вопрос модели (правило «сайт о бизнесах — не бизнес»): принятый по v1
-    справочник не должен вернуться из кэша принятым. Строка v1 остаётся как была."""
+    """Новая версия промпта — новый вопрос модели: принятый по v1 справочник не должен вернуться
+    из кэша принятым. Строка v1 остаётся как была. Своя версия отдаёт факты (v4): полосу по ним
+    ставит таблица правил, без модели."""
     owner = await hypothesis(session)
     run = await make_run(session, owner)
     [shop] = await candidates(session, run.id, owner.id, SHOP)
     quote = "интернет-магазин «Велошоп» горные велосипеды"
+    known = SiteFacts("own", "yes", quote, "магазин велосипедов")
     await _legacy_row(
-        session, shop.domain_id, owner.id, prompt_version=version, verdict=Lane.ACCEPT, quote=quote
+        session,
+        shop.domain_id,
+        owner.id,
+        prompt_version=version,
+        verdict=Lane.ACCEPT,
+        quote=quote,
+        facts=known.as_json(),
     )
-    model = Model({SHOP: {"fit": "no", "quote": "интернет-магазин «Велошоп»", "why": "другое"}})
+    model = Model({SHOP: facts("no", "интернет-магазин «Велошоп»", "другое")})
 
     tally = await judge_run(
         session,

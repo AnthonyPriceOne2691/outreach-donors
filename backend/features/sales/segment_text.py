@@ -10,9 +10,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import urlsplit
+
+import httpx
 
 from backend.config import sales as sales_cfg
-from backend.features.donors.home_signals import HomeSignals, looks_denied
+from backend.features.donors.home_signals import HomeSignals, check_home, looks_denied
 from backend.features.sales import segment_language
 from backend.features.sales.segment_quote import quote_holds
 
@@ -106,6 +109,19 @@ def _home_lines(home: HomeSignals | None) -> list[tuple[str, str | None]]:
         return []
     menu = " · ".join(home.nav) if home.nav else None
     return [(HOME_TITLE, home.title), (HOME_DESCRIPTION, home.description), (HOME_MENU, menu)]
+
+
+async def page_home(client: httpx.AsyncClient, host: str, page_url: str | None) -> HomeSignals:
+    """Главная для судьи — хоста страницы выдачи, а не только корня: у поддомена страны или города
+    своя главная (замер 20.10 на наборе трёх гипотез: 14 из 191 страницы выдачи — на поддомене, у 9
+    из них главная поддомена другая или главная корня не открылась). Главная поддомена не открылась
+    — главная корня (`host`, домен базы). Разбор главной — общий `check_home`."""
+    page_host = urlsplit(page_url).hostname or "" if page_url else ""
+    if page_host.endswith(f".{host}") and page_host != f"www.{host}":
+        found = await check_home(client, page_host)
+        if found.reached:
+            return found
+    return await check_home(client, host)
 
 
 def site_text(

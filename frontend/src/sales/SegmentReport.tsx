@@ -68,6 +68,7 @@ import {
 } from './segmentData';
 import { RunKeywords } from './SegmentRunKeywords';
 import { SegmentProgress } from './SegmentProgress';
+import { SegmentScopeLine } from './SegmentScopeLine';
 import { SegmentSitesWindow } from './SegmentSites';
 import { RejudgeStatus, useRejudgeWatch } from './SegmentSitesRejudge';
 import type { SiteTab } from './SegmentSitesApi';
@@ -298,6 +299,7 @@ function Report({ detail }: { detail: SegmentRunDetail }) {
       <Text size="sm" c="dimmed">
         {MODE_WORDS[run.mode]}.
       </Text>
+      <SegmentScopeLine report={detail.report} />
       <SegmentProgress run={run} />
       {run.job_id !== null && jobLineShown(run) && (
         <JobLine

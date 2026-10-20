@@ -14,8 +14,8 @@ from backend.features.sales.segment_models import Decider, Lane
 from backend.features.sales.segment_window import SPLIT_TOKENS
 from scripts.eval_sales_segment_sets import WANTED
 
-#: Класс ложного «отказ»: по кому он вышел.
-CLASSES = ("segment", "language", "intermediary", "rule")
+#: Класс ложного «отказ»: по кому он вышел. `country` — страна бизнеса в «не пишем» гипотезы.
+CLASSES = ("segment", "language", "intermediary", "rule", "country")
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +40,10 @@ class Result:
     site_language: str = ""
     #: Ответ обрезан потолком вывода (`segment_judge.CUT_OFF`).
     cut_off: bool = False
+    #: Правило таблицы, решившее полосу (`segment_rules.RULES`): разбивка ошибок по правилу.
+    rule: str | None = None
+    #: Факты модели (`segment_facts.SiteFacts.as_json`): по ним пересчёт полос без модели.
+    facts: dict[str, Any] | None = None
 
     @property
     def labeled(self) -> bool:
@@ -67,11 +71,14 @@ class Result:
 
     @property
     def cut_by(self) -> str:
-        """Чей это «отказ»: язык сайта, правило, посредник (по виду от модели) или сегмент."""
+        """Чей это «отказ»: язык сайта, правило, «не пишем» гипотезы, посредник (по виду от
+        модели) или сегмент."""
         if self.decided_by == Decider.LANGUAGE:
             return "language"
         if self.decided_by == Decider.RULE:
             return "rule"
+        if self.rule == "excluded_country":
+            return "country"
         return "intermediary" if self.kind == "intermediary" else "segment"
 
 
@@ -134,4 +141,5 @@ def metrics(results: list[Result]) -> dict[str, Any]:
         **_lanes(results),
         **_tokens(results),
         "kinds": dict(Counter(r.kind or "—" for r in results if r.decided_by == Decider.MODEL)),
+        "rules": dict(Counter(r.rule or "—" for r in results)),
     }

@@ -366,7 +366,8 @@ async def test_the_rejudge_estimate_comes_before_the_run(
     assert response.status_code == 200, response.text
     found = response.json()
     assert (found["estimate"]["sites"], found["estimate"]["model"]) == (2, 2)
-    assert found["estimate"]["tokens"] == 2 * se.TOKENS_PER_SITE
+    # И один вызов разбора описания: у прогона его ещё нет.
+    assert found["estimate"]["tokens"] == 2 * se.TOKENS_PER_SITE + se.SCOPE_TOKENS
     assert found["estimate"]["refusal"] is None
     assert (found["last"], found["going"]) == (None, False)
 

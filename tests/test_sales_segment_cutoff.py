@@ -14,10 +14,12 @@ from typing import Any
 
 import httpx
 import pytest
+from backend.features.sales import segment_client
 from backend.features.sales import segment_judge as sj
 from backend.features.sales.segment_models import Lane
 from backend.features.sales.segment_run import _judge_report
 from backend.features.sales.segment_window import Judged, JudgeTally, count
+from tests.segment_facts_fakes import decide_any, facts
 from tests.test_sales_segment_judge import MODEL_KEY, SEGMENT, SHOP, text
 
 USAGE = {
@@ -42,7 +44,7 @@ async def judged(body: dict[str, Any]) -> sj.SegmentVerdict:
     http = httpx.AsyncClient(transport=httpx.MockTransport(reply))
     client = sj.SegmentClient(http, model="gpt-5-mini", api_key=MODEL_KEY)
     try:
-        return await sj.decide(client, host=SHOP, segment=SEGMENT, text=text())
+        return await decide_any(client, host=SHOP, segment=SEGMENT, text=text())
     finally:
         await client.aclose()
 
@@ -56,7 +58,7 @@ async def test_an_answer_cut_by_the_output_cap_is_its_own_reason_and_a_warning(
     content: str | None, caplog: pytest.LogCaptureFixture
 ) -> None:
     """200 OK, а ответа нет: рассуждение съело потолок. Ни вердикта, ни «ответ не разобран»."""
-    with caplog.at_level(logging.WARNING, logger=sj.logger.name):
+    with caplog.at_level(logging.WARNING, logger=segment_client.logger.name):
         verdict = await judged(answered(content, "length"))
 
     assert (verdict.lane, verdict.reason) == (Lane.REVIEW, sj.CUT_OFF)
@@ -75,7 +77,7 @@ async def test_an_empty_answer_that_was_not_cut_stays_an_empty_answer() -> None:
 
 
 async def test_a_whole_answer_is_judged_whatever_the_finish_reason_says() -> None:
-    body = {"kind": "own", "fit": "yes", "quote": "Велосипеды и запчасти", "why": "магазин"}
+    body = facts("yes", "Велосипеды и запчасти", "магазин")
 
     verdict = await judged(answered(json.dumps(body, ensure_ascii=False), "stop"))
 

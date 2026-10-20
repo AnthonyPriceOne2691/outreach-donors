@@ -49,6 +49,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
+from tests.segment_facts_fakes import facts
 from tests.test_sales_segment_judge_v3 import _candidate, _judge
 from tests.test_sales_segment_language import RU, UK
 from tests.test_sales_segment_rejudge import NEWS as OLD_NEWS
@@ -59,6 +60,7 @@ from tests.test_sales_segment_run import (
     ANSWERS,
     MAYBE,
     NEWS,
+    NEWS_WORDS,
     SHOP,
     Model,
     go,
@@ -71,6 +73,7 @@ from tests.test_sales_segment_run import (
 )
 from tests.test_sales_segment_undo import (
     CLINIC,
+    INTERMEDIARY,
     MAYBE_SCHOOL,
     PORTAL,
     WORKSHOPS,
@@ -78,6 +81,7 @@ from tests.test_sales_segment_undo import (
     decided,
     judged,
     undone,
+    words,
 )
 
 __all__ = ["_network"]  # сеть прогона (DNS, платная ступень) — отсюда фикстуру видит pytest
@@ -92,7 +96,7 @@ CANDIDATES = "/api/sales/segment/candidates"
 FRONT = Path(__file__).resolve().parent.parent / "frontend/src/sales"
 UK_HOST = "velo-maisternia-sample.com"
 RU_HOST = "velo-masterskaya-sample.com"
-RU_ANSWER = {"kind": "own", "fit": "yes", "quote": RU[:60].rsplit(" ", 1)[0], "why": "мастерская"}
+RU_ANSWER = facts("yes", RU[:60].rsplit(" ", 1)[0], "мастерская")
 LANGUAGE_WORDS = "язык сайта — украинский, письма — русский"
 
 
@@ -161,7 +165,7 @@ async def test_a_refusal_in_any_script_waits_in_its_own_lane_in_shadow_and_is_cu
         CLINIC.host: (Lane.ACCEPT, Lane.ACCEPT),
     }
     # Слова судьи — как есть: что это отказ, говорит полоса, а не приставка к причине.
-    assert made[PORTAL.host].reason == "英会話教室の比較ポータルで、自社のレッスンはない"
+    assert made[PORTAL.host].reason == words(INTERMEDIARY, PORTAL)
     view = await segment_report.run_view(session, run.id)
     assert view is not None
     counts = segment_report.summary(view)
@@ -205,7 +209,7 @@ async def test_a_refused_site_makes_no_lead_until_a_human_accepts_it_and_the_jou
         NEWS,
         "would_reject",
         "reject",
-        "пишет о чужих, сам не продаёт",
+        NEWS_WORDS,
     )
     assert tab.json()["lanes"]["would_reject"] == 1
     news = await _by_host(session, run, NEWS)
@@ -265,7 +269,7 @@ async def test_an_undo_puts_a_refused_site_back_into_its_own_lane_with_the_judge
     assert found.was == (Lane.ACCEPT if accept else Lane.REJECT)
     assert (site.lane, site.reason, site.decided_by) == (
         Lane.WOULD_REJECT,
-        "英会話教室の比較ポータルで、自社のレッスンはない",
+        words(INTERMEDIARY, PORTAL),
         Decider.MODEL,
     )
 
@@ -349,19 +353,26 @@ async def test_a_rejudge_moves_an_old_refusal_from_review_into_its_own_lane_and_
     with_lead = await old_site(session, run, OLD_SHOP, lane=Lane.ACCEPT)
     await lead_of(session, with_lead)
     await asked(session, run)
-    no_shop = {"fit": "no", "quote": "интернет-магазин Велодом", "why": "продаёт только самокаты"}
+    no_shop = facts("no", "интернет-магазин Велодом", "продаёт только самокаты")
 
     await sr.rejudge(session, run.id, deps(Model({OLD_NEWS: NO_NEWS, OLD_SHOP: no_shop})))
 
     await session.refresh(old)
     await session.refresh(with_lead)
-    assert (old.lane, old.reason) == (Lane.WOULD_REJECT, "пишет о чужих")
+    assert (old.lane, old.reason) == (
+        Lane.WOULD_REJECT,
+        "другая деятельность — не то, что ищет сегмент. Пишет о чужих",
+    )
     assert with_lead.lane == Lane.ACCEPT  # у сайта с лидом полоса не меняется
     found = changes(await report(session, run))
     assert found == {
         old.id: Change("review", "would_reject"),
         with_lead.id: Change(
-            "accept", "would_reject", True, "продаёт только самокаты", "интернет-магазин Велодом"
+            "accept",
+            "would_reject",
+            True,
+            "другая деятельность — не то, что ищет сегмент. Продаёт только самокаты",
+            "интернет-магазин Велодом",
         ),
     }
     moved = (summary(await report(session, run)) or {})["moved"]

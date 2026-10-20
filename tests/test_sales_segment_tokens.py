@@ -23,6 +23,7 @@ from backend.features.core.domain import UsageProvider
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.sales import segment_rejudge as sr
+from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.segment_judge import SegmentClient, Spent, spent_of
 from backend.features.sales.segment_judging import judge_run
 from backend.features.sales.segment_models import (
@@ -37,6 +38,7 @@ from backend.features.sales.verifier import FixtureVerifier
 from backend.features.serp.protocol import SerpResult
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.segment_facts_fakes import SCOPE_BODY, facts, is_scope, reply
 from tests.test_sales_segment_judge import MODEL_KEY
 from tests.test_sales_segment_rejudge import asked, report, site
 from tests.test_sales_segment_run import KEYWORD, SEGMENT, Serp, hypothesis, make_run
@@ -58,11 +60,11 @@ TITLES = {
     PARTS: "Запчасти для велосипедов — магазин Велодеталь",
 }
 TITLES |= {SHOP_RUN: TITLES[SHOP], NEWS_RUN: TITLES[NEWS], PARTS_RUN: TITLES[PARTS]}
-YES = {"fit": "yes", "quote": "интернет-магазин Велодом", "why": "магазин велосипедов"}
+YES = facts("yes", "интернет-магазин Велодом", "магазин велосипедов")
 #: Отказ магазину — чтобы прогон не дошёл до поиска адреса: принятых нет, сеть не нужна.
-NO_SHOP = {"fit": "no", "quote": "интернет-магазин Велодом", "why": "не тот сегмент"}
-NO_NEWS = {"fit": "no", "quote": "Новости велоспорта и обзоры", "why": "пишет о чужих"}
-NO_PARTS = {"fit": "no", "quote": "Запчасти для велосипедов", "why": "запчасти, не велосипеды"}
+NO_SHOP = facts("no", "интернет-магазин Велодом", "не тот сегмент")
+NO_NEWS = facts("no", "Новости велоспорта и обзоры", "пишет о чужих")
+NO_PARTS = facts("no", "Запчасти для велосипедов", "запчасти, не велосипеды")
 #: Рассуждение съело потолок вывода: ответа нет, а вызов оплачен.
 EMPTY = ""
 
@@ -92,6 +94,8 @@ class Billed:
     asked: list[str] = field(default_factory=list)
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
+        if is_scope(request):  # разбор описания (`segment_scope`) — бесплатно и мимо очереди
+            return reply(request, SCOPE_BODY)
         user = json.loads(request.content)["messages"][1]["content"]
         host = next(
             line.removeprefix("Domain: ")
@@ -355,6 +359,12 @@ async def test_the_spend_of_every_rejudge_of_the_run_is_summed_apart_from_the_la
     await asked(session, run)
     first = Billed({SHOP: [(YES, split(1100, 300, 192))], PARTS: [(NO_PARTS, whole(1200))]})
     await sr.rejudge(session, run.id, rejudge_deps(first))
+    # Тот же вопрос второй раз модель не спрашивают (факты — из кэша, судья v4): второй пересуд —
+    # после правки описания, новый вопрос модели.
+    owner = await session.get(SalesHypothesisModel, run.hypothesis_id)
+    assert owner is not None
+    owner.description = f"{owner.description} Только городские велосипеды."
+    await session.commit()
     await asked(session, run)  # как маршрут запуска: новый пересуд заменяет блок прошлого
     second = Billed({SHOP: [(YES, split(1000, 200, 100))], PARTS: [(NO_PARTS, split(900, 150))]})
 

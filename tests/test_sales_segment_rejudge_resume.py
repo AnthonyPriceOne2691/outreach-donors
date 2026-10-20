@@ -34,6 +34,7 @@ from backend.features.sales.segment_rejudge_report import (
 )
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.segment_facts_fakes import facts
 from tests.test_sales_clean_api import _Jobs
 from tests.test_sales_segment_rejudge import (
     NARROWER,
@@ -62,7 +63,7 @@ from tests.test_sales_segment_sites import (
 __all__ = ["alive", "headers", "jobs", "outcomes", "owner", "run", "spendable"]  # фикстуры
 
 #: Магазин после правки описания «отказ»: его полоса сменится — «было» у него «принят».
-NO_SHOP = {"fit": "no", "quote": "интернет-магазин Велодом", "why": "не тот сегмент"}
+NO_SHOP = facts("no", "интернет-магазин Велодом", "не тот сегмент")
 CAP = "дневной потолок вызовов модели продаж выбран"
 
 
@@ -79,8 +80,8 @@ async def rejudge_asked(
 
 
 def capped_after(monkeypatch: pytest.MonkeyPatch, allowed: int) -> None:
-    """Потолок модели выбран после `allowed` проверок: проверка — до первого сайта и после
-    каждого чекпоинта."""
+    """Потолок модели выбран после `allowed` проверок: проверка — до разбора описания, до первого
+    сайта и после каждого чекпоинта."""
     asked = {"n": 0}
 
     async def check(*_args: object, **_kwargs: object) -> None:
@@ -117,7 +118,7 @@ async def test_a_rejudge_stopped_by_the_cap_goes_on_from_its_snapshot(
     await describe(session, owner, NARROWER)
     monkeypatch.setattr(segment_window, "BATCH", 1)
     monkeypatch.setattr(sales_cfg, "SEGMENT_JUDGE_CONCURRENCY", 1)
-    capped_after(monkeypatch, 1)
+    capped_after(monkeypatch, 2)  # разбор описания и первый сайт
     await rejudge_asked(client, headers, run.id)
     moment = datetime.now(UTC)
     first = Model({SHOP: NO_SHOP}, tokens=500)

@@ -19,6 +19,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
 from backend.features.sales import segment_judging, segment_window
 from backend.features.sales.models import SalesStoplistModel
+from backend.features.sales.segment_facts import SiteFacts
 from backend.features.sales.segment_judge import (
     JUDGE_OFF,
     PROMPT_VERSION,
@@ -36,6 +37,7 @@ from backend.features.sales.segment_models import (
 from backend.features.sales.segment_window import Ask, Judged, Site
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.segment_facts_fakes import facts
 from tests.test_sales_segment_judge import MODEL_KEY
 from tests.test_sales_segment_run import (
     ANSWERS,
@@ -105,6 +107,8 @@ async def test_a_fresh_verdict_of_the_same_prompt_and_segment_costs_no_tokens(
             model="gpt-5-mini",
             decided_by=Decider.MODEL,
             tokens=613,
+            # Судья v4 кэширует факты: полосу по ним ставит таблица правил, без модели.
+            facts=SiteFacts("own", "yes", "интернет-магазин Велошоп", "магазин").as_json(),
         )
     )
     await session.commit()
@@ -517,7 +521,7 @@ async def test_a_human_decision_in_the_middle_of_the_pass_is_not_overwritten(
         return await real(site, ask, known)
 
     monkeypatch.setattr(segment_window, "_one", meanwhile)
-    model = Model({SHOP: {"fit": "no", "quote": "интернет-магазин Велошоп", "why": "не тот"}})
+    model = Model({SHOP: facts("no", "интернет-магазин Велошоп", "не тот")})
 
     await judge_run(
         session,

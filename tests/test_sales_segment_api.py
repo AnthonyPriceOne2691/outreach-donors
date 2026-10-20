@@ -121,6 +121,8 @@ async def test_the_segment_description_is_written_to_the_hypothesis(
         "hypothesis_id": owner.id,
         "name": owner.name,
         "description": "Магазины самокатов.",
+        "other_countries": "review",
+        "excluded_countries": [],
     }
     assert cleared.json()["description"] is None
 
@@ -205,7 +207,7 @@ async def test_a_run_above_the_model_cap_is_refused_before_the_queue(
 
     assert response.status_code == 409
     assert response.json()["detail"].startswith(
-        "Прогон не запущен: смета модели выше остатка дневного потолка: ≈ 46\u00a0800 токенов"
+        "Прогон не запущен: смета модели выше остатка дневного потолка: ≈ 83\u00a0200 токенов"
     )
     assert await session.scalar(select(func.count()).select_from(SalesSegmentRunModel)) == 0
     assert jobs.enqueued == []

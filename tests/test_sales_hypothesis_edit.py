@@ -83,6 +83,8 @@ async def test_a_new_name_is_written_journaled_and_comes_back(
         "hypothesis_id": made,
         "name": "блоги EN",
         "description": "Блоги о путешествиях.",
+        "other_countries": "review",
+        "excluded_countries": [],
     }
     assert await _journal(session, made) == [
         {
@@ -225,7 +227,7 @@ async def test_an_edit_without_fields_is_422_in_words(
     )
     typo = await client.patch(f"{HYPOTHESES}/{made}", json={"title": "x"}, headers=headers)
 
-    words = "нечего править: дайте имя или описание сегмента"
+    words = "нечего править: дайте имя, описание сегмента или страны компаний"
     assert (empty.status_code, empty.json()["detail"]) == (422, words)
     assert (nulls.status_code, nulls.json()["detail"]) == (422, words)
     # Опечатка в имени поля — отказ схемы, а не молчаливое «ничего не поменялось».

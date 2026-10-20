@@ -20,6 +20,7 @@ from backend.features.sales import segment_language as sl
 from backend.features.sales.segment_judge import SiteText
 from backend.features.sales.segment_models import Decider, Lane
 from backend.features.sales.segment_window import Judged, JudgeTally, count
+from tests.segment_facts_fakes import decide_any, facts
 from tests.test_sales_segment_judge import client, says
 
 #: Один и тот же смысл — мастерская ремонта велосипедов — на разных языках: ниша одна, разница —
@@ -334,9 +335,9 @@ def test_html_lang_does_not_decide_the_letters_do() -> None:
 async def test_an_unnamed_language_on_another_script_goes_to_a_human_not_cut() -> None:
     """Своё дело на языке без своих букв — человеку, а не отказ; модель спрошена раньше языка (вид
     сайта решает прежде, `after_language`), и её токены — в счёте прохода."""
-    model, seen = client(says({"kind": "own", "fit": "yes", "quote": "x y z", "why": "w"}))
+    model, seen = client(says(facts("yes", "Our dental clinic treats adults", "w")))
 
-    verdict = await sj.decide(
+    verdict = await decide_any(
         model, host="dental-sample.com", segment="Стоматологические клиники",
         text=site(DENTAL["en"]), letters="ru",
     )  # fmt: skip
@@ -363,9 +364,9 @@ async def test_the_kind_of_the_site_decides_before_an_unnamed_language(
 ) -> None:
     """Разбор паттернов 20.10: латиница без особых букв уводила к человеку посредника раньше, чем
     модель его видела. Теперь «нет» модели по виду сайта стоит, в наблюдении — «судья отказал бы»."""
-    model, seen = client(says({"kind": kind, "fit": "no", "quote": quote, "why": "чужие клиники"}))
+    model, seen = client(says(facts("no", quote, "чужие клиники", kind=kind)))
 
-    verdict = await sj.decide(
+    verdict = await decide_any(
         model, host="clinics-sample.com", segment="Стоматологические клиники", text=site(text),
         letters="ru",
     )  # fmt: skip
@@ -376,36 +377,46 @@ async def test_the_kind_of_the_site_decides_before_an_unnamed_language(
 
 
 @pytest.mark.parametrize(
-    "answer",
+    ("answer", "lane", "decider"),
     [
-        {"kind": "own", "fit": "no", "quote": "Our dental clinic treats adults", "why": "не Кипр"},
-        {
-            "kind": "unclear",
-            "fit": "unsure",
-            "quote": "Our dental clinic treats adults",
-            "why": "?",
-        },
-        {"kind": "intermediary", "fit": "unsure", "quote": "Our dental clinic", "why": "?"},
+        (
+            facts("no", "Our dental clinic treats adults", "другое дело"),
+            Lane.REJECT,
+            Decider.MODEL,
+        ),
+        (
+            facts("unsure", "Our dental clinic treats adults", "?"),
+            Lane.REVIEW,
+            Decider.LANGUAGE,
+        ),
+        (
+            facts("unsure", "Our dental clinic treats adults", "?", kind="intermediary"),
+            Lane.REJECT,
+            Decider.MODEL,
+        ),
     ],
-    ids=["own-no", "unclear", "intermediary-unsure"],
+    ids=["own-another-business", "unclear", "intermediary-unsure"],
 )
-async def test_other_answers_leave_an_unnamed_language_to_a_human(answer: dict[str, str]) -> None:
-    """Раньше языка решает только «нет» по виду сайта; своё дело с «нет», «не понять» и посредник
-    без «нет» — «не понять» языка, человеку."""
+async def test_the_kind_and_the_business_decide_before_an_unnamed_language(
+    answer: dict[str, object], lane: Lane, decider: Decider
+) -> None:
+    """С v4 вид сайта и дело — факты таблицы правил, и они стоят раньше «язык не назван»: другое
+    дело и посредник не подходят на любом языке. Своё дело, которое по тексту не понять, — «не
+    понять» языка, человеку."""
     model, _ = client(says(answer))
 
-    verdict = await sj.decide(
+    verdict = await decide_any(
         model, host="dental-sample.com", segment="Стоматологические клиники Кипра",
         text=site(DENTAL["en"]), letters="ru",
     )  # fmt: skip
 
-    assert (verdict.lane, verdict.decided_by) == (Lane.REVIEW, Decider.LANGUAGE)
+    assert (verdict.lane, verdict.decided_by) == (lane, decider)
 
 
 async def test_a_silent_model_on_an_unnamed_language_is_asked_again_next_pass() -> None:
     model, _ = client(lambda request: httpx.Response(503, json={"error": {"message": "нет"}}))
 
-    verdict = await sj.decide(
+    verdict = await decide_any(
         model, host="dental-sample.com", segment="Стоматологические клиники",
         text=site(DENTAL["en"]), letters="ru",
     )  # fmt: skip
@@ -415,9 +426,9 @@ async def test_a_silent_model_on_an_unnamed_language_is_asked_again_next_pass() 
 
 
 async def test_the_judge_gives_a_language_verdict_without_asking_the_model() -> None:
-    model, seen = client(says({"kind": "own", "fit": "yes", "quote": "x y z", "why": "w"}))
+    model, seen = client(says(facts("yes", "x y z", "w")))
 
-    verdict = await sj.decide(
+    verdict = await decide_any(
         model, host="velo-sample.com", segment="Мастерские ремонта велосипедов", text=site(UK),
         letters="ru",
     )  # fmt: skip
@@ -429,9 +440,9 @@ async def test_the_judge_gives_a_language_verdict_without_asking_the_model() -> 
 
 
 async def test_without_the_letters_language_the_model_judges_as_before() -> None:
-    model, seen = client(says({"kind": "own", "fit": "yes", "quote": UK[:40], "why": "мастерская"}))
+    model, seen = client(says(facts("yes", UK[:40], "мастерская")))
 
-    verdict = await sj.decide(model, host="velo-sample.com", segment="Мастерские", text=site(UK))
+    verdict = await decide_any(model, host="velo-sample.com", segment="Мастерские", text=site(UK))
 
     assert len(seen) == 1
     assert (verdict.lane, verdict.decided_by) == (Lane.ACCEPT, Decider.MODEL)
@@ -441,7 +452,7 @@ async def test_rules_go_before_the_language() -> None:
     """Платформу правило режет по имени — язык её текста уже не спрашивается."""
     model, seen = client(says({}))
 
-    verdict = await sj.decide(
+    verdict = await decide_any(
         model, host="youtube.com", segment="Мастерские", text=site(UK), letters="ru"
     )
 

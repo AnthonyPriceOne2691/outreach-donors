@@ -17,6 +17,7 @@ from backend.config import sales as sales_cfg
 from backend.features.sales import segment_history
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.segment_estimate import estimate
+from backend.features.sales.segment_judge import PROMPT_VERSION
 from backend.features.sales.segment_models import SalesSegmentRunModel
 from backend.features.sales.segment_rejudge_report import TOTALS
 from backend.features.sales.segment_spend import (
@@ -125,9 +126,9 @@ def test_without_a_rejudge_there_is_no_rejudge_row() -> None:
 
 
 async def judged(session: AsyncSession, owner: SalesHypothesisModel, judge: dict[str, Any]) -> None:
-    """Прошлый прогон сбора с отчётом судьи."""
+    """Прошлый прогон сбора с отчётом судьи — нынешней версии промпта, если не сказано иное."""
     run = await make_run(session, owner)
-    run.report = {"judge": judge}
+    run.report = {"judge": {"prompt_version": PROMPT_VERSION} | judge}
     await session.commit()
 
 
@@ -170,7 +171,29 @@ async def test_a_handful_of_split_tokens_is_not_history_and_the_share_is_the_fal
     found = await estimate(session, ask(owner.id))
 
     assert (found.output_share, found.output_share_runs) == (OUTPUT_SHARE, 0)
-    assert found.lines[2].endswith("; доля вывода — запасная, замеров ещё нет: 20% токенов.")
+    assert found.lines[2].endswith("; доля вывода — запасная, замеров ещё нет: 30% токенов.")
+
+
+async def test_runs_of_another_prompt_version_do_not_give_the_output_share(
+    session: AsyncSession,
+) -> None:
+    """Доля вывода — по прогонам той же версии промпта, как токены на сайт: у прошлой версии судьи
+    вывод короче, и её прогоны занизили бы цену сметы."""
+    owner = await hypothesis(session)
+    older = {
+        "prompt_tokens": 85_000,
+        "completion_tokens": 15_000,
+        "prompt_version": "sales-segment-v3",
+    }
+    await judged(session, owner, {"tokens": 100_000, **older})
+
+    assert await segment_history.output_share(session) == (OUTPUT_SHARE, 0)
+
+    await judged(
+        session, owner, {"tokens": 40_000, "prompt_tokens": 30_000, "completion_tokens": 10_000}
+    )
+
+    assert await segment_history.output_share(session) == (pytest.approx(0.25), 1)
 
 
 async def test_runs_without_the_split_do_not_take_the_window_of_the_history(

@@ -57,6 +57,7 @@ from backend.features.sales.segment_rejudge_report import (
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import TEST_DSN
+from tests.segment_facts_fakes import facts
 from tests.test_sales_segment_judge import MODEL_KEY
 from tests.test_sales_segment_run import SEGMENT, Model, hypothesis, make_run
 
@@ -78,9 +79,11 @@ TEXTS = {
     PARTS: "Заголовок в выдаче: Запчасти для велосипедов — магазин Велодеталь",
     MAYBE: "Заголовок в выдаче: Велосипеды",
 }
-YES = {"fit": "yes", "quote": "интернет-магазин Велодом", "why": "магазин велосипедов"}
-NO_PARTS = {"fit": "no", "quote": "Запчасти для велосипедов", "why": "запчасти, не велосипеды"}
-NO_NEWS = {"fit": "no", "quote": "Новости велоспорта и обзоры", "why": "пишет о чужих"}
+YES = facts("yes", "интернет-магазин Велодом", "магазин велосипедов")
+#: Слова судьи v4 у магазина запчастей: правило таблицы и пояснение модели.
+NOT_PARTS_WORDS = "другая деятельность — не то, что ищет сегмент. Запчасти, не велосипеды"
+NO_PARTS = facts("no", "Запчасти для велосипедов", "запчасти, не велосипеды")
+NO_NEWS = facts("no", "Новости велоспорта и обзоры", "пишет о чужих")
 
 
 async def site(
@@ -190,7 +193,8 @@ async def test_a_rejudge_asks_the_new_question_and_names_what_changed(
 
     assert sorted(model.asked) == [PARTS, SHOP]
     assert (shop.lane, parts.lane) == (Lane.ACCEPT, Lane.REJECT)
-    assert (parts.reason, parts.quote) == ("запчасти, не велосипеды", "Запчасти для велосипедов")
+    # Судья v4: слова правила таблицы и пояснение модели.
+    assert (parts.reason, parts.quote) == (NOT_PARTS_WORDS, "Запчасти для велосипедов")
     assert parts.decided_at is not None
     found = changes(await report(session, run))
     assert found == {parts.id: sr_change("accept", "reject")}
@@ -222,7 +226,7 @@ async def test_the_judge_reads_the_text_of_the_last_judgment_not_the_home_page_a
         return httpx.Response(200, html=html, request=request)
 
     home = httpx.AsyncClient(transport=httpx.MockTransport(homes))
-    model = Model({SHOP: YES, MAYBE: {"fit": "unsure", "quote": "x y z", "why": "мало"}})
+    model = Model({SHOP: YES, MAYBE: facts("unsure", "x y z", "мало")})
 
     await sr.rejudge(session, run.id, deps(model, home))
 
@@ -301,7 +305,7 @@ async def test_a_human_decision_in_the_middle_of_the_rejudge_wins(
         return await real(*args)
 
     monkeypatch.setattr(segment_window, "_one", meanwhile)
-    model = Model({MAYBE: {"fit": "no", "quote": "x y z", "why": "не тот"}})
+    model = Model({MAYBE: facts("no", "x y z", "не тот")})
 
     outcome = await sr.rejudge(session, run.id, deps(model))
 
@@ -331,7 +335,7 @@ async def test_a_site_with_a_lead_only_shows_what_it_would_become(
             "accept",
             "reject",
             would=True,
-            reason="запчасти, не велосипеды",
+            reason=NOT_PARTS_WORDS,
             quote="Запчасти для велосипедов",
         )
     }
@@ -447,7 +451,7 @@ async def test_a_repeated_rejudge_after_another_edit_asks_again(
     await sr.rejudge(session, run.id, deps(Model({PARTS: NO_PARTS})))
     await describe(session, owner, SEGMENT)
     await asked(session, run)
-    model = Model({PARTS: {"fit": "yes", "quote": "Запчасти для велосипедов", "why": "магазин"}})
+    model = Model({PARTS: facts("yes", "Запчасти для велосипедов", "магазин")})
 
     await sr.rejudge(session, run.id, deps(model))
 
@@ -520,11 +524,17 @@ async def test_the_estimate_names_sites_model_calls_tokens_and_whom_it_leaves_al
 
     assert (found.sites, found.model, found.with_lead) == (3, 2, 1)
     assert (found.kept_human, found.pending) == (1, 1)
-    assert (found.per_site, found.tokens, found.tokens_left) == (1077, 2 * 1077, 50_000)
+    # Разбора описания у прогона ещё нет: один вызов разбора — в смете отдельной строкой.
+    assert (found.per_site, found.tokens, found.tokens_left) == (
+        1077,
+        2 * 1077 + se.SCOPE_TOKENS,
+        50_000,
+    )
     assert found.refusal is None
     assert found.digest == segment_digest(SEGMENT)
     assert found.lines[0].startswith("Пересудить сайтов: 3 — по тексту, который видел прошлый суд")
-    assert "токенов ≈ 2\u00a0154" in found.lines[1]
+    assert "токенов ≈ 2\u00a0854" in found.lines[1]
+    assert "Разбор описания сегмента — один вызов" in " ".join(found.lines)
 
 
 def _left(tokens: int | None) -> Any:
