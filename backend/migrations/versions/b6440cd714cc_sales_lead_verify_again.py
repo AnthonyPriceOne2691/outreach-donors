@@ -1,7 +1,7 @@
 """перепроверка адреса лида по сроку, пока Hunter «ещё проверяет»
 
 Revision ID: b6440cd714cc
-Revises: dbce021e159c
+Revises: b14a5e5368a1
 Create Date: 2026-10-20 11:06:45.000000
 
 Разбор прогона сбора 20.10: Hunter отвечал «ещё проверяет» (202) и после переспросов прохода, и
@@ -20,7 +20,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b6440cd714cc"  # pragma: allowlist secret
-down_revision: Union[str, Sequence[str], None] = "dbce021e159c"  # pragma: allowlist secret
+down_revision: Union[str, Sequence[str], None] = "b14a5e5368a1"  # pragma: allowlist secret
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
