@@ -16,17 +16,13 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, func
-from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.features.core.domain import AuditAction, UserRole
 from backend.features.core.models._mixins import TimestampedMixin
+from backend.features.core.models._mixins import sql_enum as _enum
 from backend.shared.database.base import Base
-
-
-def _enum(e: type) -> SQLEnum:
-    return SQLEnum(e, values_callable=lambda x: [i.value for i in x])
 
 
 class UserModel(TimestampedMixin, Base):

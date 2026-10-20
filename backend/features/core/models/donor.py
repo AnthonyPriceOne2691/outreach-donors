@@ -18,21 +18,17 @@ from sqlalchemy import (
     UniqueConstraint,
     false,
 )
-from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import DateTime
 
 from backend.features.core.domain import ContactSource, DonorStatus
 from backend.features.core.models._mixins import ContactAttemptMixin, TimestampedMixin
+from backend.features.core.models._mixins import sql_enum as _enum
 from backend.shared.database.base import Base
 
 if TYPE_CHECKING:
     from backend.features.core.models.domain import DomainModel
-
-
-def _enum(e: type) -> SQLEnum:
-    return SQLEnum(e, values_callable=lambda x: [i.value for i in x])
 
 
 class DonorModel(TimestampedMixin, ContactAttemptMixin, Base):

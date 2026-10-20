@@ -13,6 +13,14 @@ from sqlalchemy.types import DateTime
 from backend.features.core.domain import ContactStatus
 
 
+def sql_enum(enum: type) -> SQLEnum:
+    """Колонка-перечисление по значениям членов, а не по именам: в базе `"queued"`, а не `"QUEUED"`.
+
+    Одна на все модели: до 20.10.2026 эти две строки были скопированы в семь файлов (`_enum`).
+    """
+    return SQLEnum(enum, values_callable=lambda x: [i.value for i in x])
+
+
 class TimestampedMixin:
     """Пара `created_at` + `updated_at` с серверными умолчаниями.
 
@@ -38,7 +46,7 @@ class ContactAttemptMixin:
     """
 
     contact_status: Mapped[ContactStatus | None] = mapped_column(
-        SQLEnum(ContactStatus, values_callable=lambda x: [i.value for i in x]), nullable=True
+        sql_enum(ContactStatus), nullable=True
     )
     contact_attempted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

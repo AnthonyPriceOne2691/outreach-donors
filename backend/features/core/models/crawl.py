@@ -17,17 +17,13 @@ from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, text
-from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, StopReason
 from backend.features.core.models._mixins import TimestampedMixin
+from backend.features.core.models._mixins import sql_enum as _enum
 from backend.shared.database.base import Base
-
-
-def _enum(e: type) -> SQLEnum:
-    return SQLEnum(e, values_callable=lambda x: [i.value for i in x])
 
 
 class CrawlRunModel(TimestampedMixin, Base):
