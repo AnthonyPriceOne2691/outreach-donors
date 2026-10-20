@@ -133,6 +133,8 @@ function siteOf(candidate: SegmentCandidate): SegmentSite {
     decided_by: 'model',
     decided_at: '2026-10-14T09:35:00+00:00',
     model: 'gpt-5-mini',
+    undoable: false,
+    judge_reason: null,
     outcome: null,
     change: null,
   };
@@ -426,7 +428,10 @@ describe('сбор базы: ход прогона — экран', () => {
           [REVIEW_TAB]: () => ({ body: reviewPage(decided ? [next] : [SITE, next]) }),
           'POST /api/sales/segment/candidates/41/decision': () => {
             decided = true;
-            return { body: { ...SITE, lane: 'accept', decided_by_user: ADMIN.email } };
+            // Ответ — строкой списка: решил человек, слова судьи рядом.
+            const row = siteOf({ ...SITE, lane: 'accept', decided_by_user: ADMIN.email });
+            const human = { decided_by: 'human', reason: 'принял человек', undoable: true };
+            return { body: { ...row, ...human, judge_reason: SITE.reason } };
           },
         },
         '/sales?tab=collect&run=12&sites_run=12&sites=review',
@@ -479,8 +484,8 @@ describe('сбор базы: ход прогона — экран', () => {
       host: 'regionalbicyclecatalogue.directory-sample.example.test',
       keyword: 'купить горный велосипед с доставкой по всей стране недорого',
       reason:
-        'судья в наблюдении отрезал бы: справочник — списки чужих магазинов велосипедов с ' +
-        'отзывами, рейтингами и картой проезда, сам ничего не продаёт и не доставляет',
+        'Отказ: справочник — списки чужих магазинов велосипедов с отзывами, рейтингами и картой ' +
+        'проезда, сам ничего не продаёт и не доставляет',
       quote:
         'Alle Fahrradhändler Ihrer Region auf einen Blick: Bewertungen, Öffnungszeiten, ' +
         'Anfahrt und Angebote der Händler aus Ihrer Stadt und Umgebung im Vergleich',

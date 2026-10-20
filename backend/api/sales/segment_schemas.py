@@ -15,7 +15,7 @@ from backend.features.sales import segment_progress
 from backend.features.sales.segment_estimate import Estimate
 from backend.features.sales.segment_estimate_keys import run_excluded
 from backend.features.sales.segment_keywords import run_keywords
-from backend.features.sales.segment_models import SalesSegmentCandidateModel, SalesSegmentRunModel
+from backend.features.sales.segment_models import SalesSegmentRunModel
 from backend.features.sales.segment_report import KeySites, RunView, summary
 from backend.features.sales.segment_spend import spend_rows
 from backend.features.sales.segment_watch import GOING, Watch
@@ -374,38 +374,6 @@ class SegmentHome(BaseModel):
     #: прочитан из настроек.
     serp_mode: str | None = None
     runs: list[RunRow]
-
-
-class CandidateRow(BaseModel):
-    """Сайт «на проверку»: что о нём сказала выдача, что — судья, и почему он ждёт человека."""
-
-    id: int
-    host: str
-    page_url: str | None
-    page_title: str | None
-    keyword: str | None
-    lane: str
-    verdict: str | None
-    reason: str | None
-    quote: str | None
-    unanswered: bool
-    decided_by_user: str | None
-
-    @classmethod
-    def of(cls, candidate: SalesSegmentCandidateModel, host: str) -> CandidateRow:
-        return cls(
-            id=candidate.id,
-            host=host,
-            page_url=candidate.page_url,
-            page_title=candidate.page_title,
-            keyword=candidate.keyword,
-            lane=candidate.lane,
-            verdict=candidate.verdict,
-            reason=candidate.reason,
-            quote=candidate.quote,
-            unanswered=candidate.unanswered,
-            decided_by_user=candidate.decided_by_user,
-        )
 
 
 class Count(BaseModel):

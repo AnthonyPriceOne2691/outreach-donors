@@ -54,8 +54,8 @@ TELEMARKETER_RIGHTS = {"run": False, "settings": False, "prices": False}
 
 #: Записи раздела, которые телемаркетолог делает или нет, — каждая по своему праву. `None` —
 #: одного права «Продажи» достаточно: загрузка базы, гипотеза (заведение, правка, удаление
-#: пустой), описание сегмента, смета сбора, решение по сайту «на проверку» и письмо глазами
-#: адресата (предпросмотр ничего не пишет).
+#: пустой), описание сегмента, смета сбора, решение по сайту «на проверку» и его отмена и письмо
+#: глазами адресата (предпросмотр ничего не пишет).
 TELEMARKETER_WRITES: dict[tuple[str, str], Permission | None] = {
     ("POST", "/api/sales/import/preview"): None,
     ("POST", "/api/sales/import"): None,
@@ -66,6 +66,8 @@ TELEMARKETER_WRITES: dict[tuple[str, str], Permission | None] = {
     # Помощник описания сегмента: описание правит и телемаркетолог — спросить помощника может тоже.
     ("POST", "/api/sales/segment/helper"): None,
     ("POST", "/api/sales/segment/candidates/{}/decision"): None,
+    # Отмена решения по сайту — как само решение: одного права «Продажи».
+    ("DELETE", "/api/sales/segment/candidates/{}/decision"): None,
     ("POST", "/api/sales/chain/preview"): None,
     ("POST", "/api/sales/clean"): Permission.RUN,
     ("POST", "/api/sales/segment/runs"): Permission.RUN,

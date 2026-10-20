@@ -18,6 +18,11 @@
  * пометкой («принят — записываем…», потом «решено: принят»), пока вид не сменили, — и тогда, когда
  * опрос идущего прогона уже принёс список без неё: нижние строки не поднимаются под курсор.
  * Повтор того же решения сервер принимает (200), противоположное — отказ словами (409) над таблицей.
+ *
+ * **«Отменить решение»** (тест продаж 20.10) — у решения человека, пока сервер говорит, что можно
+ * (`undoable`): сайт возвращается туда и со словами, куда его кладёт судья, — на «На проверку» снова
+ * «Принять» и «Отказ». Строка, по которой отменили, стоит на месте на любой вкладке, числа вкладок и
+ * отчёта следуют за ответом сервера без перезагрузки; лид завели посреди — отказ словами сервера.
  */
 
 import { Alert, Group, SegmentedControl, Stack, Text } from '@mantine/core';
@@ -29,12 +34,11 @@ import { refusalOf } from '../api/client';
 import { InfoHint } from '../components/InfoHint';
 import { PageSwitch } from '../components/PageSwitch';
 import { formatNumber } from '../format';
-import { decideSite } from './segmentApi';
 import type { SegmentRunDetail, SegmentRunRow } from './segmentApi';
 import { SEGMENT_QUERY_KEY } from './segmentData';
 import { ReportWindow } from './SegmentReportWindow';
 import { isActive } from './segmentStage';
-import { readSites } from './SegmentSitesApi';
+import { decideSite, readSites, undoDecision } from './SegmentSitesApi';
 import type {
   RejudgeView,
   SegmentSite,
@@ -43,9 +47,9 @@ import type {
   SitesQuery,
   SiteTab,
 } from './SegmentSitesApi';
+import type { Held, SiteAction } from './SegmentSitesDecide';
 import { RejudgeButton, RejudgeStatus, SITES_QUERY_KEY } from './SegmentSitesRejudge';
 import { SegmentSitesTable } from './SegmentSitesTable';
-import type { Held } from './SegmentSitesTable';
 import type { SitesGo, SitesView, SitesWindow } from './SegmentSitesView';
 import { TAB_KEYS, TAB_TITLES } from './SegmentSitesWords';
 
@@ -67,9 +71,10 @@ const NARROW = '(max-width: 36em)';
 const WINDOW_SIZE = '80rem';
 
 /**
- * Числа вкладок — сервера, с поправкой на решения человека, которых сервер ещё не видел: строка
- * в его ответе всё ещё «на проверке». Список, перечитанный после решения (опрос идущего прогона),
- * уже считает его сам — второй раз не вычитается.
+ * Числа вкладок — сервера, с поправкой на решения и отмены человека, которых сервер в этом ответе
+ * ещё не видел: строка в нём — в прежней полосе. Список, перечитанный после действия (опрос идущего
+ * прогона), уже считает его сам — строка в нём в новой полосе или ушла с вкладки: второй раз не
+ * переносится.
  */
 export function countsOf(
   page: SegmentSitesPage,
@@ -77,22 +82,23 @@ export function countsOf(
 ): Record<SiteTab, number> {
   const counts = { ...page.lanes };
   const served = new Map(page.rows.map((site) => [site.id, site.lane]));
-  for (const [id, decision] of Object.entries(held)) {
-    if (!decision.written || served.get(Number(id)) !== 'review') continue;
-    counts.review -= 1;
-    counts[decision.lane] += 1;
+  for (const [id, { site, doing }] of Object.entries(held)) {
+    const was = served.get(Number(id));
+    if (doing !== null || was === undefined || was === site.lane) continue;
+    counts[was] -= 1;
+    counts[site.lane] += 1;
   }
   return counts;
 }
 
 /**
- * Строки вкладки: ответ сервера и решённые здесь — на своих местах, по порядку сервера (номер
- * сайта). Опрос идущего прогона приносит «на проверку» уже без решённой строки — она остаётся, пока
- * вид не сменили, и строки под ней не поднимаются под курсор.
+ * Строки вкладки: ответ сервера, у строк, по которым действовали здесь, — то, что записал сервер,
+ * и все — на своих местах, по порядку сервера (номер сайта). Опрос идущего прогона приносит вкладку
+ * уже без такой строки («на проверку» — без решённой, «приняты» — без отменённой) — она остаётся,
+ * пока вид не сменили, и строки под ней не поднимаются под курсор.
  */
 export function rowsOf(page: SegmentSitesPage, held: Record<number, Held>): SegmentSite[] {
-  const shown = new Map(page.rows.map((site) => [site.id, site]));
-  if (page.lane !== 'review') return page.rows;
+  const shown = new Map(page.rows.map((site) => [site.id, held[site.id]?.site ?? site]));
   for (const { site } of Object.values(held)) if (!shown.has(site.id)) shown.set(site.id, site);
   return [...shown.values()].sort((a, b) => a.id - b.id);
 }
@@ -138,38 +144,40 @@ const EMPTY: Record<SiteTab, string> = {
 };
 
 /**
- * Решения человека этого вида: строка стоит на месте с пометкой, пока вид не сменили. Пометка
- * встаёт сразу по нажатию («записываем…»): второе нажатие по строке не уходит, а соседние строки
- * решаются, не дожидаясь ответа. Отказ сервера снимает пометку — кнопки строки возвращаются.
+ * Решения человека этого вида и их отмены: строка стоит на месте с тем, что записал сервер, пока вид
+ * не сменили. Пометка встаёт сразу по нажатию («записываем…», «отменяем решение…»): второе нажатие
+ * по строке не уходит, а соседние строки решаются, не дожидаясь ответа. Записано — строка сервера на
+ * месте прежней, отчёт прогона перечитывается (плитки и «На проверку N»); отказ сервера возвращает
+ * строку, какой она была, — с её кнопками.
  */
 function useDecisions(shape: string) {
   const client = useQueryClient();
   const [held, setHeld] = useState<Record<number, Held>>({});
   useEffect(() => setHeld({}), [shape]);
-  const decide = useMutation({
-    mutationFn: ({ site, accept }: { site: SegmentSite; accept: boolean }) =>
-      decideSite(site.id, accept),
-    onMutate: ({ site, accept }) =>
-      setHeld((was) => ({
-        ...was,
-        [site.id]: { site, lane: accept ? 'accept' : 'reject', written: false },
-      })),
+  const act = useMutation({
+    mutationFn: ({ site, action }: { site: SegmentSite; action: SiteAction }) =>
+      action === 'undo' ? undoDecision(site.id) : decideSite(site.id, action === 'accept'),
+    onMutate: ({ site, action }) =>
+      setHeld((was) => ({ ...was, [site.id]: { site, doing: action } })),
     onSuccess: (row, { site }) => {
-      const lane = row.lane === 'accept' || row.lane === 'reject' ? row.lane : null;
-      setHeld((was) => ({
-        ...was,
-        [site.id]: { site, lane: lane ?? was[site.id]?.lane ?? 'accept', written: true },
-      }));
+      // Ответ — строкой списка; у сервера старше её — только поля решения: остальное — прежнее.
+      setHeld((was) => ({ ...was, [site.id]: { site: { ...site, ...row }, doing: null } }));
       void client.invalidateQueries({ queryKey: SEGMENT_QUERY_KEY });
     },
     onError: (_failure, { site }) =>
-      setHeld((was) => {
-        const rest = { ...was };
-        delete rest[site.id];
-        return rest;
-      }),
+      setHeld((was) => ({ ...was, [site.id]: { site, doing: null } })),
   });
-  return { held, decide };
+  return { held, act };
+}
+
+/** Отказ сервера на последнее действие — заголовком по действию, словами сервера. */
+function ActRefusal({ error, action }: { error: Error | null; action: SiteAction | undefined }) {
+  if (error === null) return null;
+  return (
+    <Alert color="red" title={action === 'undo' ? 'Решение не отменено' : 'Решение не записано'}>
+      {refusalOf(error)}
+    </Alert>
+  );
 }
 
 /** Сколько показано из скольких — и переключатель страниц сервера. */
@@ -217,7 +225,7 @@ function Sites({ detail, view, go }: { detail: SegmentRunDetail; view: SitesView
     placeholderData: keepPreviousData,
     refetchInterval: sitesPoll(detail.run),
   });
-  const { held, decide } = useDecisions(`${run}/${query.tab}/${query.decider ?? ''}/${query.page}`);
+  const { held, act } = useDecisions(`${run}/${query.tab}/${query.decider ?? ''}/${query.page}`);
   const page = sites.data;
   usePageBack(page, sites.isPlaceholderData, view, go);
   if (page === undefined) {
@@ -240,11 +248,7 @@ function Sites({ detail, view, go }: { detail: SegmentRunDetail; view: SitesView
         tab={view.tab}
         onTab={(tab) => go({ tab, decider: null, page: 1 })}
       />
-      {decide.error !== null && (
-        <Alert color="red" title="Решение не записано">
-          {refusalOf(decide.error)}
-        </Alert>
-      )}
+      <ActRefusal error={act.error} action={act.variables?.action} />
       {empty ? (
         <Text size="sm" c="dimmed">
           {view.decider !== null ? 'Под этим фильтром сайтов нет.' : EMPTY[view.tab]}
@@ -257,7 +261,7 @@ function Sites({ detail, view, go }: { detail: SegmentRunDetail; view: SitesView
           onDecider={(decider: SiteDecider | null) => go({ decider, page: 1 })}
           held={held}
           stale={sites.isPlaceholderData}
-          onDecide={(site, accept) => decide.mutate({ site, accept })}
+          onAct={(site, action) => act.mutate({ site, action })}
         />
       )}
       <Footer page={page} view={view} go={go} />
@@ -304,8 +308,11 @@ export function SegmentSitesWindow({ detail, sites, rejudge }: WindowProps) {
           />
           <InfoHint name="Что в списке сайтов" width={360}>
             Каждый сайт прогона: полоса, что сказал судья, кто решил и когда, почему и цитата сайта,
-            итог поиска адреса. Пересуд — после правки описания сегмента: те же сайты и тот же
-            текст, новый вопрос судье; что сменилось — числами и вкладкой «Сменили при пересуде».
+            итог поиска адреса. «Отказ: …» у сайта на проверке — мнение судьи в наблюдении: решает
+            человек. Решение человека отменяется кнопкой «Отменить решение», пока по сайту не
+            заведён лид: сайт вернётся туда, куда его положил судья. Пересуд — после правки описания
+            сегмента: те же сайты и тот же текст, новый вопрос судье; что сменилось — числами и
+            вкладкой «Сменили при пересуде».
           </InfoHint>
         </Group>
         <RejudgeStatus

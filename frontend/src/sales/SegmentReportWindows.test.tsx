@@ -112,9 +112,25 @@ function siteOf(id: number, host: string, extra: Partial<SegmentSite> = {}): Seg
     quote: 'Znajdź najlepszego weterynarza w Twojej okolicy',
     unanswered: false,
     model: 'gpt-5-mini',
+    undoable: false,
+    judge_reason: null,
     outcome: null,
     change: null,
     ...extra,
+  };
+}
+
+/** Ответ сервера на «Принять»: строка списка — решил человек, слова судьи рядом. */
+function acceptedBy(site: SegmentSite, email: string): SegmentSite {
+  return {
+    ...site,
+    lane: 'accept',
+    decided_by: 'human',
+    decided_by_user: email,
+    decided_at: '2026-10-15T09:00:00+00:00',
+    reason: 'принял человек',
+    undoable: true,
+    judge_reason: site.reason,
   };
 }
 
@@ -307,7 +323,7 @@ describe('отчёт прогона компактно: окна', () => {
         [`GET ${SITES}?lane=review&page=1`]: { body: pageOf('review', [first, second], 3) },
         // Повтор того же решения: сайт уже принят человеком — сервер отвечает 200.
         'POST /api/sales/segment/candidates/2/decision': {
-          body: { ...first, lane: 'accept', decided_by_user: 'colleague@ours.example.test' },
+          body: acceptedBy(first, 'colleague@ours.example.test'),
         },
         // Противоположное по решённому — 409 словами.
         'POST /api/sales/segment/candidates/5/decision': { status: 409, body: { detail: refusal } },
@@ -351,9 +367,7 @@ describe('отчёт прогона компактно: окна', () => {
     const recorded = await open(
       {
         [`GET ${SITES}?lane=review&page=1`]: { body: pageOf('review', [site], 3) },
-        'POST /api/sales/segment/candidates/2/decision': {
-          body: { ...site, lane: 'accept', decided_by_user: ADMIN.email },
-        },
+        'POST /api/sales/segment/candidates/2/decision': { body: acceptedBy(site, ADMIN.email) },
       },
       `/sales?tab=collect&hypothesis=9&run=${RUN_ID}&sites_run=${RUN_ID}&sites=review`,
     );
@@ -556,7 +570,7 @@ describe('отчёт прогона компактно: окна', () => {
           },
           'POST /api/sales/segment/candidates/2/decision': () => {
             decided = true;
-            return { body: { ...first, lane: 'accept', decided_by_user: ADMIN.email } };
+            return { body: acceptedBy(first, ADMIN.email) };
           },
         },
         `/sales?tab=collect&hypothesis=9&run=${RUN_ID}&sites_run=${RUN_ID}&sites=review`,

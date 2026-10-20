@@ -7,6 +7,9 @@
 15.10.2026 список — в окне поверх отчёта, на телефоне — во весь экран, а решения «на проверку» —
 на её вкладке (`sales-collect-sites-review`): причина целиком, цитата, «Принять» и «Отказ».
 Точки — то, по чему решают: полоса, кто решил и когда, причина и цитата, итог, «было → стало».
+С 20.10.2026 — и отмена решения человека: «Отменить решение» под «кто решил» и в колонке «Решение»
+после решения (шаг `decide_first` решает строку стенда — каждая тема следующую), слова судьи у
+решения человека («Судья: …») и «решает человек» под полосой сайта, которому судья отказал.
 """
 
 from typing import Any
@@ -19,6 +22,16 @@ STAND_RUN = 1
 CELL = "table.filteredTable td[data-label='{}']"
 #: Телефон: окно во весь экран, строка таблицы — карточкой.
 PHONE = {"width": 390, "height": 844}
+#: Решение в колонке «Решение» вкладки «На проверку» — и его отмена под ним.
+DECIDE = "td.cellDecide button:has-text('{}')"
+
+
+def decide_first(page: Any) -> None:
+    """Шаг перед точкой: «Принять» по первой строке «на проверку» — под «решено» встаёт «Отменить
+    решение». Решение пишется в базу стенда: после перезагрузки (смена темы) решается следующая."""
+    page.locator(DECIDE.format("Принять")).first.click()
+    page.locator(DECIDE.format("Отменить решение")).first.wait_for()
+    page.wait_for_timeout(700)
 
 
 def sites_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
@@ -54,6 +67,17 @@ def sites_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("цитата сайта", f"{CELL.format('Почему')} .judgeQuote", norm),
         ("итог словами", f"{CELL.format('Итог')} p", norm),
         ("лид ссылкой", f"{CELL.format('Итог')} a", norm),
+        (
+            "«решает человек» у полосы",
+            f"{CELL.format('Полоса')} p:has-text('решает человек')",
+            norm,
+        ),
+        ("слова судьи у решения", f"{CELL.format('Почему')} p:has-text('Судья:')", norm),
+        (
+            "«Отменить решение»",
+            f"{CELL.format('Кто решил')} button:has-text('Отменить решение')",
+            norm,
+        ),
         ("сколько показано", "p:has-text('Показаны')", norm),
         ("кнопка «Пересудить прогон»", "button:has-text('Пересудить прогон')", big),
         ("итог пересуда", "[role='status'] p:has-text('сменили полосу')", norm),
@@ -65,8 +89,17 @@ def sites_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("причина целиком", f"{CELL.format('Почему')} .segmentReason", norm),
         ("цитата сайта", f"{CELL.format('Почему')} .judgeQuote", norm),
         ("вердикт судьи", f"{CELL.format('Судья')} p", norm),
-        ("кнопка «Принять»", "td.cellDecide button:has-text('Принять')", big),
-        ("кнопка «Отказ»", "td.cellDecide button:has-text('Отказ')", big),
+        ("кнопка «Принять»", DECIDE.format("Принять"), big),
+        ("кнопка «Отказ»", DECIDE.format("Отказ"), big),
+        (
+            "«решает человек» у полосы",
+            f"{CELL.format('Полоса')} p:has-text('решает человек')",
+            norm,
+        ),
+        # Последними: шаг решает строку стенда.
+        ("«Отменить решение» после решения", DECIDE.format("Отменить решение"), norm, decide_first),
+        ("«решено: …»", "td.cellDecide p:has-text('решено:')", norm),
+        ("слова судьи после решения", f"{CELL.format('Почему')} p:has-text('Судья:')", norm),
     ]
     changed = [
         (
@@ -85,7 +118,7 @@ def sites_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "ready": ready,
             "viewport": PHONE,
             # Строки подписей колонок на телефоне нет — подписи у значений.
-            "probes": [probe for probe in rows[:16] if probe[0] != "заголовок колонки"],
+            "probes": [probe for probe in rows[:19] if probe[0] != "заголовок колонки"],
         },
         "sales-collect-sites-review": {
             "path": f"{base}&sites=review",

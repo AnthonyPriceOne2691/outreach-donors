@@ -475,10 +475,7 @@ async def test_shadow_writes_the_verdict_but_does_not_cut(
         .where(DomainModel.host == NEWS)
     )
     assert news is not None
-    assert (news.verdict, news.reason) == (
-        Lane.REJECT,
-        "судья в наблюдении отрезал бы: пишет о чужих, сам не продаёт",
-    )
+    assert (news.verdict, news.reason) == (Lane.REJECT, "Отказ: пишет о чужих, сам не продаёт")
     written = await session.scalar(
         select(SalesSegmentVerdictModel.verdict).where(
             SalesSegmentVerdictModel.domain_id == news.domain_id

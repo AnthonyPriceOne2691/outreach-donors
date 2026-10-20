@@ -335,6 +335,8 @@ async def _review_site(
         keyword="купить горный велосипед",
         lane=Lane.REVIEW,
         verdict=Lane.REJECT,
+        # Причина старого вида — так её писал судья до 20.10: в базе она не переписывается, экран
+        # показывает её коротко, как новую «Отказ: …» (`SegmentSitesWords.reasonWords`).
         reason="судья в наблюдении отрезал бы: мало текста",
         decided_by="model",
     )
@@ -422,6 +424,8 @@ async def test_segment_routes_are_these(api_app: FastAPI) -> None:
         ("POST", "/api/sales/segment/runs/{run_id}/resume"),
         ("GET", "/api/sales/segment/runs/{run_id}"),
         ("POST", "/api/sales/segment/candidates/{candidate_id}/decision"),
+        # Отмена решения человека (`features/sales/segment_undo.py`) — тот же адрес.
+        ("DELETE", "/api/sales/segment/candidates/{candidate_id}/decision"),
         # Все сайты прогона и пересуд — `api/sales/segment_sites.py`.
         ("GET", "/api/sales/segment/runs/{run_id}/sites"),
         ("GET", "/api/sales/segment/runs/{run_id}/rejudge"),

@@ -15,8 +15,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { theme } from '../theme';
 import type { SegmentSite, SegmentSitesPage, SiteTab } from './SegmentSitesApi';
+import type { Held } from './SegmentSitesDecide';
 import { columnsOf, minWidthOf, SegmentSitesTable } from './SegmentSitesTable';
-import type { Held } from './SegmentSitesTable';
 import { sitesPoll } from './SegmentSites';
 import type { SegmentRunRow } from './segmentApi';
 
@@ -27,8 +27,8 @@ const TABS: SiteTab[] = ['all', 'accept', 'review', 'reject', 'pending', 'change
 const PHONE = '(max-width: 47.99em)';
 
 const REASON =
-  'судья в наблюдении отрезал бы: справочник — списки чужих мастерских по городам, кнопка ' +
-  '«добавить компанию» и отзывы, своей мебели не делает';
+  'Отказ: справочник — списки чужих мастерских по городам, кнопка «добавить компанию» и отзывы, ' +
+  'своей мебели не делает';
 const QUOTE = 'Alle Möbeltischler in Ihrer Stadt finden und vergleichen';
 const OUTCOME = 'адрес ещё не искали — найдёт продолжение прогона';
 
@@ -47,6 +47,8 @@ const site: SegmentSite = {
   quote: QUOTE,
   unanswered: false,
   model: 'gpt-5-mini',
+  undoable: false,
+  judge_reason: null,
   outcome: {
     kind: 'not_searched',
     words: OUTCOME,
@@ -83,7 +85,11 @@ const second: SegmentSite = {
 
 function screenOf(
   phone: boolean,
-  { tab = 'all', held = {} }: { tab?: SiteTab; held?: Record<number, Held> } = {},
+  {
+    tab = 'all',
+    held = {},
+    rows,
+  }: { tab?: SiteTab; held?: Record<number, Held>; rows?: SegmentSite[] } = {},
 ) {
   // Заглушку снимает `restoreAllMocks` после теста (`test/setup.ts`).
   vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
@@ -101,12 +107,16 @@ function screenOf(
       <MemoryRouter>
         <SegmentSitesTable
           tab={tab}
-          page={tab === 'review' ? { ...page, lane: 'review', rows: [reviewed, second] } : page}
+          page={
+            tab === 'review'
+              ? { ...page, lane: 'review', rows: rows ?? [reviewed, second] }
+              : { ...page, rows: rows ?? page.rows }
+          }
           decider={null}
           onDecider={() => {}}
           held={held}
           stale={false}
-          onDecide={() => {}}
+          onAct={() => {}}
         />
       </MemoryRouter>
     </MantineProvider>,
@@ -142,12 +152,20 @@ describe('таблица сайтов прогона', () => {
   });
 
   it('решённая строка — словами на месте кнопок: «записываем…», потом «решено»', () => {
+    // Строка, записанная сервером, — его ответ на месте прежней (`SegmentSites.rowsOf`).
+    const written: SegmentSite = {
+      ...second,
+      lane: 'reject',
+      decided_by: 'human',
+      decided_by_user: 'seller@ours.example.test',
+      reason: 'отказал человек',
+      undoable: true,
+      judge_reason: second.reason,
+    };
     screenOf(false, {
       tab: 'review',
-      held: {
-        6: { site: reviewed, lane: 'accept', written: false },
-        7: { site: second, lane: 'reject', written: true },
-      },
+      rows: [reviewed, written],
+      held: { 6: { site: reviewed, doing: 'accept' }, 7: { site: written, doing: null } },
     });
 
     // Строки тела таблицы: над ними — подписи колонок и строка фильтров.
@@ -155,6 +173,7 @@ describe('таблица сайтов прогона', () => {
     expect(within(first!).getByText('принят — записываем…')).toBeInTheDocument();
     expect(within(first!).queryByRole('button')).toBeNull();
     expect(within(next!).getByText('решено: отсечён')).toBeInTheDocument();
+    expect(within(next!).getByRole('button', { name: 'Отменить решение' })).toBeEnabled();
     // Записано сервером — полоса уже новая; пока пишется — прежняя.
     expect(within(next!).getByText('отсечён', { selector: '.mantine-Badge-label' }));
     expect(within(first!).getByText('на проверке', { selector: '.mantine-Badge-label' }));

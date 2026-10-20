@@ -362,6 +362,8 @@ describe('сбор базы: прогон гипотезы', () => {
       decided_by: 'model',
       decided_at: '2026-10-11T09:35:00+00:00',
       model: 'gpt-5-mini',
+      undoable: false,
+      judge_reason: null,
       outcome: null,
       change: null,
     };

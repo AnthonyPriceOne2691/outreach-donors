@@ -6,11 +6,12 @@
 адреса и сколько лидов заведено (и что с ними сделала очистка). Расход и итог этапов —
 из строки прогона (`report`).
 
-**Человек решает только «на проверку»**: принять — сайт идёт к поиску адреса продолжением
-прогона; отказать — отсечён. Решение ложится на кандидата с именем и временем, а вердикт
-судьи остаётся рядом — по их расхождению меряется судья. То же решение второй раз (двойной
-клик, повтор запроса) — не отказ и не вторая запись журнала: сайт уже там, куда его
-просят (`Decision.repeated`); противоположное по решённому — по-прежнему отказ словами.
+**Человек решает только «на проверку»** (полосы ожидания человека — `AWAITS_HUMAN`): принять —
+сайт идёт к поиску адреса продолжением прогона; отказать — отсечён. Решение ложится на кандидата
+с именем и временем, а вердикт судьи остаётся рядом — по их расхождению меряется судья. То же
+решение второй раз (двойной клик, повтор запроса) — не отказ и не вторая запись журнала: сайт уже
+там, куда его просят (`Decision.repeated`); противоположное по решённому — по-прежнему отказ
+словами. Вернуть решение — отменой (`segment_undo.py`), пока из сайта не заведён лид.
 
 **Сайты по ключу** — сколько новых для гипотезы сайтов принёс каждый ключ и сколько из них
 принято (`KeySites`): по ним видно, что почти повторы общего ключа почти ничего не добавили.
@@ -36,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.sales import company_hold, segment_progress
 from backend.features.sales.models import LeadStatus, SalesHypothesisModel, SalesLeadModel
 from backend.features.sales.segment_models import (
+    AWAITS_HUMAN,
     Decider,
     Lane,
     SalesSegmentCandidateModel,
@@ -241,7 +243,7 @@ async def decide(
     if candidate is None:
         raise UnknownCandidateError(f"сайта сбора №{candidate_id} нет — обновите отчёт прогона")
     lane = Lane.ACCEPT if accept else Lane.REJECT
-    if candidate.lane != Lane.REVIEW:
+    if candidate.lane not in AWAITS_HUMAN:
         return _settled(candidate, lane)
     candidate.lane = lane
     candidate.reason = "принял человек" if accept else "отказал человек"

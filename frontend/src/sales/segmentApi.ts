@@ -219,13 +219,6 @@ export function readRun(run: number): Promise<SegmentRunDetail> {
   return request<SegmentRunDetail>(`/sales/segment/runs/${run}`);
 }
 
-export function decideSite(candidate: number, accept: boolean): Promise<SegmentCandidate> {
-  return request<SegmentCandidate>(`/sales/segment/candidates/${candidate}/decision`, {
-    method: 'POST',
-    body: { accept },
-  });
-}
-
 /** Режим покупки выдачи: быстрый — секунды, стандарт — дешевле и дольше (приоритетный форма
  *  не предлагает). Цену страницы и ожидание называет смета. */
 export type SerpMode = 'live' | 'standard' | 'priority';
