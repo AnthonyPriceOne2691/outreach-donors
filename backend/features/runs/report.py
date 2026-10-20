@@ -22,6 +22,7 @@ from backend.features.runs.failures import described
 from backend.features.runs.planning import RunPlan
 from backend.features.runs.reasons import explained
 from backend.features.runs.repository import FAILURE_KEY, REASON_KEY
+from backend.features.topics.step import TopicSummary
 
 # Операции, которые покрывает смета. Выдача в неё не входит: к моменту, когда
 # смета показывается человеку, она уже потрачена, и включать её значило бы
@@ -60,6 +61,11 @@ class RunReport:
 
     review: QueueReport | None = None
     """Что прогон положил на рассмотрение человеку. `None` — очереди нет."""
+
+    topics: TopicSummary | None = None
+    """Тематика сайтов — рядом с судьёй, тем же текстом (`topics/step.py`). `None` — судья или
+    тематика (`TOPIC_MODE=off`) выключены, и темы в прогоне не определялись: ноль читался бы
+    «тем нет»."""
 
     doors: DoorReport | None = None
     """Меню главных у очереди (`donors.doors`). `None` — не смотрели."""
@@ -150,6 +156,13 @@ def _reject_key(reason: str) -> str:
     return reason.split(" ", maxsplit=1)[0]
 
 
+def _topic_stats(report: RunReport) -> dict[str, object]:
+    """Ветка тем отчёта — только когда темы определялись: у выключенной тематики нулей нет.
+    «Модель не ответила» — своим числом с причиной, как у судьи: экран прогонов показывает
+    его меткой, а не нулём определённых."""
+    return {} if report.topics is None else {"topics": report.topics.as_dict()}
+
+
 def run_stats(
     report: RunReport, failed: BaseException | None, *, retry: bool = False
 ) -> dict[str, object]:
@@ -210,6 +223,7 @@ def run_stats(
             # Число одно, и по режиму рядом видно, какое из двух.
             "units_saved": summary.units_saved,
         }
+    stats.update(_topic_stats(report))
     if report.review is not None:
         stats["review"] = {
             "pending": report.review.pending,

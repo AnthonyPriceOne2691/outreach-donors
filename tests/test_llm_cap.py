@@ -22,7 +22,7 @@ from backend.features.core.usage import LlmCapExceededError
 from backend.features.donors.verdict import Thresholds
 from backend.features.replies.pipeline import Inbox, Parser
 from backend.features.runs import failures
-from backend.features.runs.pipeline import JUDGE_OPERATION
+from backend.features.runs.judge_stage import JUDGE_OPERATION
 from backend.features.runs.repository import RunRepository
 from backend.shared.llm import tokens_of
 from backend.shared.numbers import spaced

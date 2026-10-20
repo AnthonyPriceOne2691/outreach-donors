@@ -37,6 +37,7 @@ from backend.api import deps
 from backend.api.app import create_app
 from backend.api.watchdog import routes as watchdog_routes
 from backend.config import outreach as outreach_cfg
+from backend.config.topics import TopicMode
 from backend.features.access.attempts import LoginAttempts
 from backend.features.access.repository import AccessRepository
 from backend.features.core import models  # noqa: F401  — регистрирует таблицы
@@ -353,6 +354,15 @@ def _no_real_autosend(monkeypatch: pytest.MonkeyPatch) -> None:
     (`tests/test_sales_autosend.py`, `tests/test_sales_autobuild.py`)."""
     monkeypatch.setattr("backend.config.sales.AUTOSEND", False)
     monkeypatch.setattr("backend.config.sales.AUTOBUILD", False)
+
+
+@pytest.fixture(autouse=True)
+def _no_topic_model_unasked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тесты не зовут модель тематики сайта, даже если в `.env` разработчика лежит живой ключ:
+    прогон в тестах подменяет судью, а тему определяет рядом с ним (`topics/step.py`), и без
+    этой строки каждый тест прогона ходил бы к настоящей модели. Тесты тематики включают
+    её сами и подменяют вызов (`tests/test_topic_*.py`)."""
+    monkeypatch.setattr("backend.config.topics.MODE", TopicMode.OFF)
 
 
 @pytest.fixture(autouse=True)

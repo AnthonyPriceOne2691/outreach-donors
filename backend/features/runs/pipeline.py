@@ -10,8 +10,8 @@
           → отчёт со сверкой сметы и факта
 
 Первые пять шагов живут в `planning.py`: до первой траты и решается,
-что вообще будет куплено. Здесь — исполнение; итог и его запись
-в прогон — `report.py`.
+что вообще будет куплено. Здесь — исполнение; суд до первой траты —
+`judge_stage.py`, итог и его запись в прогон — `report.py`.
 
 Два свойства, ради которых всё это и написано.
 
@@ -32,11 +32,8 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
-import httpx
-
 from backend.config import filters as filters_cfg
 from backend.config import judge as judge_cfg
-from backend.config import llm as llm_cfg
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.ahrefs.units import (
     UsageCollector,
@@ -47,13 +44,12 @@ from backend.features.crawl.niche import NicheReport
 from backend.features.donors.collect import collect
 from backend.features.donors.doors import DoorCheck
 from backend.features.donors.geo import GeoRule
-from backend.features.donors.home_signals import home_timeout
-from backend.features.donors.judging import JudgePass, JudgeSummary, judge_candidates
-from backend.features.donors.repository import DonorRepository, JudgeRecord
+from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
 from backend.features.review.candidates import RunReview
 from backend.features.runs.budget import budget_of
 from backend.features.runs.failures import described, is_permanent
+from backend.features.runs.judge_stage import SERP_OPERATION, judge_stage
 from backend.features.runs.planning import (
     Candidates,
     ExclusionSource,
@@ -68,16 +64,8 @@ from backend.features.runs.stopped import tell_stopped
 from backend.features.serp.funds import ensure_funds
 from backend.features.serp.protocol import SerpProvider
 from backend.shared.logs import run_context
-from backend.shared.net.url_guard import guarded_client
 
 logger = logging.getLogger(__name__)
-
-
-#: Как называется расход на выдачу в журнале. Единица — доллар:
-#: основной источник берёт деньгами, а не юнитами.
-SERP_OPERATION = "serp_search"
-#: Токены судьи площадки — строка журнала, как у сборки ключей.
-JUDGE_OPERATION = "site_judge"
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,111 +198,6 @@ async def _check_doors(
         report.doors_failure = described(exc)[:300]
 
 
-#: Судья сохраняет вердикты пачками по столько доменов. Прогон, убитый посреди суда
-#: (выкатка, смерть воркера, потолок задачи), продолжает с места: вердикты прошлых
-#: пачек уже в базе, и `fresh_judged` отдаёт их из кэша, а не судит снова. До
-#: 14.10.2026 вердикты писались одним разом после всего прохода — полчаса токенов
-#: на прогоне в пятьсот доменов терялись целиком.
-JUDGE_CHUNK = 50
-
-
-async def _judge_candidates(
-    deps: RunDeps, run: RunModel, plan: RunPlan, candidates: Candidates
-) -> JudgePass | None:
-    """Суд до первой траты у Ahrefs. `None` — судья выключен.
-
-    Место вызова выбрано ценой, а не удобством: за домен, который мы всё
-    равно отбросим, платить метриками незачем. В наблюдении он не режет,
-    но считает сэкономленное — см. `donors/judging.py`.
-    """
-    # Свежие домены тоже судятся, если вердикта у них нет: иначе у базы,
-    # собранной до судьи, его не появится никогда (замер 23.09 — 28 из 43
-    # доменов ниши ставок). Платят за это токенами, не юнитами, и экономию
-    # такие домены не дают: их метрики уже куплены.
-    hosts = [*plan.new, *plan.fresh]
-    if judge_cfg.MODE is judge_cfg.JudgeMode.OFF or not hosts:
-        return None
-
-    fresh = await deps.donors.fresh_judged(hosts)
-    passes: list[JudgePass] = []
-    async with (
-        httpx.AsyncClient(timeout=llm_cfg.TIMEOUT_S) as http,
-        guarded_client(timeout=home_timeout()) as home,
-    ):
-        for start in range(0, len(hosts), JUDGE_CHUNK):
-            # Потолок модели — до каждой пачки: прогон останавливается причиной, как при
-            # нехватке юнитов Ahrefs, а не тратит сверх (`runs/failures.REFUSALS`).
-            await deps.runs.ensure_llm_within_cap(run_id=run.id)
-            part = await judge_candidates(
-                http,
-                hosts[start : start + JUDGE_CHUNK],
-                candidates.texts,
-                already_judged=fresh,
-                paid=plan.new,
-                home_client=home if judge_cfg.HOME_CHECK else None,
-                # Закрытую главную смотрим глазами индекса: `site:` у того же
-                # источника выдачи, что и сам прогон.
-                index=deps.provider if judge_cfg.HOME_CHECK else None,
-            )
-            await _save_judged(deps, run, part)
-            passes.append(part)
-
-    outcome = _joined(passes)
-    _log_judged(run, outcome)
-    return outcome
-
-
-async def _save_judged(deps: RunDeps, run: RunModel, part: JudgePass) -> None:
-    """Вердикты пачки — СРАЗУ, до метрик и до следующей пачки: прогон, упавший на
-    Ahrefs или посреди суда, не должен стоить уже оплаченных токенов. Токены и
-    деньги `site:` — в журнал рядом."""
-    await deps.donors.save_judgements(part.verdicts)
-    if part.summary.tokens:
-        await deps.runs.record_tokens(
-            run_id=run.id, operation=JUDGE_OPERATION, tokens=part.summary.tokens
-        )
-    if part.summary.index_usd:
-        await deps.runs.record_money(
-            run_id=run.id, operation=SERP_OPERATION, amount_usd=part.summary.index_usd
-        )
-    await deps.runs.session_commit()
-
-
-def _joined(passes: list[JudgePass]) -> JudgePass:
-    """Пачки суда — одним итогом для отчёта и для отбора к Ahrefs."""
-    summary = JudgeSummary()
-    verdicts: dict[str, JudgeRecord] = {}
-    rejected: set[str] = set()
-    for part in passes:
-        summary.merge(part.summary)
-        verdicts.update(part.verdicts)
-        rejected |= part.rejected
-    return JudgePass(verdicts, summary, rejected)
-
-
-def _log_judged(run: RunModel, outcome: JudgePass) -> None:
-    logger.info(
-        "Судья площадки (%s): судили %s, из кэша %s, отрезал бы %s (сэкономил бы %s юнитов), "
-        "к человеку %s, токенов %s",
-        judge_cfg.MODE.value,
-        outcome.summary.judged,
-        outcome.summary.from_cache,
-        outcome.summary.would_cut,
-        outcome.summary.units_saved,
-        outcome.summary.to_review,
-        outcome.summary.tokens,
-    )
-    if outcome.summary.unanswered:
-        # Громко: домены ушли человеку без совета, а вердикт у них будет
-        # только при следующем суде. Причина — что чинить.
-        logger.error(
-            "Прогон %s: модель не ответила судье по %s доменам — %s",
-            run.id,
-            outcome.summary.unanswered,
-            outcome.summary.unanswered_reason,
-        )
-
-
 async def _hand_over(
     deps: RunDeps, run: RunModel, plan: RunPlan, report: RunReport, candidates: Candidates
 ) -> None:
@@ -415,7 +298,7 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 )
 
         try:
-            judged = await _judge_candidates(deps, run, plan, candidates)
+            judged = await judge_stage(deps, run, plan, candidates, report)
             targets = plan.new
             if judged is not None:
                 report.judge = judged.summary

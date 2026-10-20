@@ -47,6 +47,9 @@ OPERATION_PROVIDERS = {
     # Судья площадки: единица — токен. До 23.09 не писался вовсе, и журнал
     # показывал, что судья работает даром.
     "site_judge": UsageProvider.LLM,
+    # Тематика сайта (`features/topics/`): единица — токен. Своя строка, а не судья:
+    # вызов свой, и «во что обходится тема» иначе не посчитать.
+    "site_topic": UsageProvider.LLM,
     # Уникализация письма: единица расхода — токен.
     "letter_rewrite": UsageProvider.LLM,
     # Отправка: единица — письмо. Считается и у нулевого транспорта,
@@ -107,6 +110,7 @@ OPERATION_STAGES: dict[str, Stage] = {
     "serp_search": Stage.DONORS,
     "keywords": Stage.DONORS,
     "site_judge": Stage.DONORS,
+    "site_topic": Stage.DONORS,
     **dict.fromkeys(CRAWL_OPERATIONS, Stage.ADVERTISERS),
     **dict.fromkeys(SALES_OPERATIONS, Stage.SALES),
 }

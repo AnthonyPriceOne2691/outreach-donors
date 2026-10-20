@@ -56,6 +56,22 @@ class DomainModel(TimestampedMixin, Base):
     site_door: Mapped[str | None] = mapped_column(String(256), nullable=True)
     judged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # --- тематика сайта (`features/topics/`) ---------------------------------
+    #
+    # Тоже у домена: о чём сайт — свойство сайта, а не его роли. Код темы из общего
+    # списка (`topics/taxonomy.py`) — строкой, а не перечислением базы: новая тема
+    # заводится без миграции. Пусто при отметке времени — модель прочла и сказала, что
+    # темы по тексту не понять («не ясна», свежа месяц); без отметки — не определяли.
+    site_topic: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    site_topic_secondary: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    topic_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    topic_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Версия промпта и списка тем: тема прежней версии — несвежая.
+    topic_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # По чему определена: `serp` — страница из выдачи, `home` — главная, или обе.
+    topic_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    topic_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     # --- ответ самого донора ------------------------------------------------
     #
     # Продаёт ли сайт размещение — по его собственному ответу на письмо:

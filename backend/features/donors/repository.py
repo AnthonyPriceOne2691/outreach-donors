@@ -32,6 +32,7 @@ from backend.features.donors.author_door import opened_reason, opens
 from backend.features.donors.collect import DomainResult, PaidMetrics
 from backend.features.donors.publisher_judge import Decider, Recommendation
 from backend.features.donors.selection import human_advice
+from backend.features.topics.store import TopicStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +116,10 @@ class DonorRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    def topics(self) -> TopicStore:
+        """Темы сайтов — тем же сеансом: прогон пишет их пачкой рядом с вердиктами судьи."""
+        return TopicStore(self._session)
 
     async def fresh_hosts(
         self,
