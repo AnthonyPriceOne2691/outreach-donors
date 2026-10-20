@@ -100,6 +100,8 @@ def report_of(found: CleaningReport) -> dict[str, Any]:
         "unconfirmed": found.unconfirmed,
         "recheck_on": None if found.recheck_on is None else found.recheck_on.isoformat(),
         "unverified": found.unverified,
+        "still_checking": found.still_checking,
+        "again_at": None if found.again_at is None else found.again_at.isoformat(),
         "awaiting_holder": found.awaiting_holder,
         "mx_unknown": found.mx_unknown,
         "verified": found.verified,

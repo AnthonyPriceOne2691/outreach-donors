@@ -20,6 +20,13 @@
 и экран, спросив очередь, видит прогон идущим. Задачу умершего воркера, которую rq держит
 «идёт» до таймаута, продолжение убирает (`segment_watch.drop_dead`), а не отвечает 409.
 
+`POST /sales/segment/runs/{N}/again` — «Повторить сейчас» из отчёта прогона (разбор прогона сбора
+20.10): поиск адреса сайтам, которые ждут повтора, не дожидаясь срока, или очистка ждущих лидов
+прогона — проходом без выдачи и судьи под номером прогона (`segment_run.again`). Повторять нечего —
+409 словами; прогон идёт — 409 «уже идёт». Сам, по сроку, повтор адреса ставит очередь
+(`sales/segment_again.py`), а лидов «Hunter ещё проверяет» перепроверяет без кнопки
+`sales/verify_again.py`.
+
 `GET /sales/segment/runs/{N}` — прогон и его отчёт; `POST /sales/segment/candidates/{N}/decision`
 — решение человека по сайту «на проверку»: то же решение второй раз — 200 без второй записи
 журнала, противоположное по решённому — 409 словами. `DELETE` того же адреса — отмена решения
@@ -43,6 +50,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from redis.exceptions import RedisError
@@ -66,6 +74,7 @@ from backend.api.sales.segment_schemas import (
     default_serp_mode,
 )
 from backend.api.sales.segment_sites import SiteView, refuse_while_rejudging
+from backend.api.sales.segment_waits import AgainBody
 from backend.config import sales as sales_cfg
 from backend.features.access.repository import AccessRepository
 from backend.features.core import domain
@@ -84,7 +93,11 @@ from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.segment_estimate import Ask, Estimate, estimate
 from backend.features.sales.segment_jobs import SEGMENT_JOB, segment_job_id
 from backend.features.sales.segment_models import Lane, SalesSegmentRunModel, Stage
+from backend.features.sales.segment_queue import Retry, SegmentContactQueue
+from backend.features.sales.segment_run import Again
 from backend.features.sales.segment_sites import SiteRow, site_row
+from backend.features.sales.segment_waits import waiting_leads
+from backend.features.sales.verifier import live
 from backend.features.serp import markets
 from backend.shared.queue import sales_bulk_queue, with_retries
 
@@ -101,6 +114,11 @@ RUN_GOING = (
     "тем же сайтам и заплатил бы дважды"
 )
 UNKNOWN_RUN = "прогона сбора №{run_id} нет — обновите список прогонов"
+#: «Повторить сейчас», а повторять нечего — по видам повтора.
+NOTHING_AGAIN = {
+    Again.ADDRESSES: "Повторять нечего: сайтов, которые ждут повтора поиска адреса, в прогоне нет",
+    Again.CLEANING: "Повторять нечего: лидов прогона, которых возьмёт очистка, нет",
+}
 #: Смета на запуске — не та, что видел человек: ключи, снятые, описание сегмента или режим другие.
 STALE = "Прогон не запущен: смета устарела — посчитайте заново"
 #: Запрос без отпечатка сметы: так шлёт только страница старше сверки — её надо обновить.
@@ -291,21 +309,22 @@ def _started(found: Estimate) -> dict[str, object]:
     return details
 
 
-async def _enqueue(jobs: Queue, run_id: int) -> Job | None:
-    """Проход прогона — в очередь долгих задач продаж; `None` — номер занят (`enqueue_once`)."""
+async def _enqueue(jobs: Queue, run_id: int, *more: object) -> Job | None:
+    """Проход прогона — в очередь долгих задач продаж; `None` — номер занят (`enqueue_once`).
+    `more` — довод повтора (`segment_run.Again`)."""
     return await asyncio.to_thread(
-        enqueue_once, jobs, segment_job_id(run_id), SEGMENT_JOB, run_id, **with_retries()
+        enqueue_once, jobs, segment_job_id(run_id), SEGMENT_JOB, run_id, *more, **with_retries()
     )
 
 
-async def _queued(run_id: int) -> Job | None:
+async def _queued(run_id: int, *more: object) -> Job | None:
     """Поставить проход продолжения. Номер занят — «идёт» или задача умершего воркера, которую
     rq держит «идёт» до таймаута: такая убирается (`segment_watch.drop_dead`), и проход
     ставится снова. `None` — прогон и правда идёт."""
     jobs = sales_bulk_queue()
-    job = await _enqueue(jobs, run_id)
+    job = await _enqueue(jobs, run_id, *more)
     if job is None and await asyncio.to_thread(segment_watch.drop_dead, jobs, run_id):
-        job = await _enqueue(jobs, run_id)
+        job = await _enqueue(jobs, run_id, *more)
     return job
 
 
@@ -339,6 +358,52 @@ async def resume_run(
         target=f"job:{job.id}",
         details={"действие": "продолжение сбора базы продаж", "прогон": run.id},
         stage=domain.Stage.SALES,  # этап воронки, а не стадия прогона (`Stage` ниже)
+    )
+    await session.commit()
+    return RunQueued(run_id=run.id, job_id=str(job.id))
+
+
+async def _waits_again(session: AsyncSession, run_id: int, what: Again) -> bool:
+    """Есть ли что повторить сейчас — тем же условием, что возьмёт проход повтора."""
+    if what is Again.ADDRESSES:
+        queue = SegmentContactQueue(session, run_id, retry=Retry.NOW)
+        return await queue.pending_count() > 0
+    return bool(await waiting_leads(session, run_id, real=live(), now=datetime.now(UTC)))
+
+
+@router.post(
+    "/segment/runs/{run_id}/again",
+    response_model=RunQueued,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Повторить сейчас: поиск адреса ждущим или очистку ждущих лидов",
+)
+async def again_run(
+    run_id: int,
+    body: AgainBody,
+    author: UserModel = _seller,
+    __: UserModel = _runner,
+    session: AsyncSession = Depends(db_session),
+) -> RunQueued:
+    """То, что ждёт повтора, — сейчас, не дожидаясь срока: проходом без выдачи и судьи под
+    номером прогона. Повторять нечего — 409 словами; прогон или пересуд идёт — 409 словами."""
+    run = await session.get(SalesSegmentRunModel, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, UNKNOWN_RUN.format(run_id=run_id))
+    what = Again(body.what)
+    await refuse_while_rejudging(run.id, sales_bulk_queue())
+    if not await _waits_again(session, run.id, what):
+        raise HTTPException(status.HTTP_409_CONFLICT, NOTHING_AGAIN[what])
+    job = await _queued(run.id, what.value)
+    if job is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, RUN_GOING)
+    run.job_id, run.finished_at = str(job.id), None
+    what_words = "поиск адреса" if what is Again.ADDRESSES else "очистка лидов"
+    await AccessRepository(session).record(
+        AuditAction.RUN_STARTED,
+        author_id=author.id,
+        target=f"job:{job.id}",
+        details={"действие": f"повтор сбора базы продаж: {what_words}", "прогон": run.id},
+        stage=domain.Stage.SALES,  # этап воронки, а не стадия прогона (`Stage` выше)
     )
     await session.commit()
     return RunQueued(run_id=run.id, job_id=str(job.id))

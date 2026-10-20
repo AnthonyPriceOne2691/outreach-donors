@@ -15,11 +15,12 @@
   истории нет — запасная доля (`runs/estimate.UNIQUE_SHARE`), и смета так и говорит. Сайты,
   которые гипотеза уже собрала теми же ключами на том же рынке, вычитаются (`known_sites`):
   их не судят и адрес им не ищут;
-- **модель** — новые сайты на токены судьи за сайт (`TOKENS_PER_SITE`, замер) и деньгами по
-  ценам ввода и вывода модели, смешанным долей вывода из истории прогонов с раздельным счётом
-  (`segment_history.output_share`; без истории — запасная, словами); выше остатка дневного потолка модели
-  (общего и своего у продаж — как у остальных вызовов модели продаж) — **прогон не
-  запускается**, отказ словами;
+- **модель** — новые сайты на токены судьи за сайт из истории прогонов с судьёй
+  (`segment_history.tokens_per_site`; без истории — запасное `TOKENS_PER_SITE`, словами) и
+  деньгами по ценам ввода и вывода модели, смешанным долей вывода из истории прогонов с
+  раздельным счётом (`segment_history.output_share`; без истории — запасная, словами); выше
+  остатка дневного потолка модели (общего и своего у продаж — как у остальных вызовов модели
+  продаж) — **прогон не запускается**, отказ словами;
 - **Hunter** — не больше поиска адреса на новый сайт (платная ступень — только тем, кому
   бесплатные ступени адреса не нашли) и не больше проверки адреса на лида, если она живая.
 
@@ -58,7 +59,12 @@ from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.segment_estimate_keys import EXCLUDED_KEY, chosen, seen_digest
 from backend.features.sales.segment_estimate_words import lines_of
-from backend.features.sales.segment_history import known_sites, output_share, sites_per_result
+from backend.features.sales.segment_history import (
+    known_sites,
+    output_share,
+    sites_per_result,
+    tokens_per_site,
+)
 from backend.features.sales.segment_keywords import clean_keywords
 from backend.features.sales.segment_spend import number, tokens_usd, usd_per_million
 from backend.features.serp import funds, markets
@@ -74,9 +80,11 @@ from backend.features.serp.modes import (
 
 logger = logging.getLogger(__name__)
 
-#: Токенов судьи на сайт. Живой прогон сбора 14.10 (рассуждение `low`, сниппет выдачи и шапка
-#: главной) — около тысячи на сайт, который судила модель; 1 100 — с запасом на длинное
-#: описание сегмента. Прежние 1 500 были предложением до замера и завышали модель в полтора раза.
+#: Токенов судьи на сайт — запасное число, пока прогонов с судьёй в истории нет
+#: (`segment_history.tokens_per_site`). Живой прогон сбора 14.10 (рассуждение `low`, сниппет
+#: выдачи и шапка главной) — около тысячи на сайт, который судила модель; 1 100 — с запасом на
+#: длинное описание сегмента. Прежние 1 500 были предложением до замера и завышали модель в
+#: полтора раза.
 TOKENS_PER_SITE = 1100
 
 #: Слова отказов — без имён настроек: их задаёт администратор и находит в журнале.
@@ -164,6 +172,10 @@ class Estimate:
     sites: int = 0
     serp_usd: float = 0.0
     tokens: int = 0
+    #: Токенов судьи на сайт — из истории прогонов с судьёй или запасное число.
+    tokens_per_site: int = TOKENS_PER_SITE
+    #: По скольким прошлым прогонам посчитаны токены на сайт; 0 — своей истории нет.
+    tokens_per_site_runs: int = 0
     #: Токены судьи деньгами — по цене миллиона токенов модели на запуске.
     tokens_usd: float = 0.0
     usd_per_1m_tokens: float = 0.0
@@ -202,6 +214,8 @@ class Estimate:
             "sites": self.sites,
             "serp_usd": self.serp_usd,
             "tokens": self.tokens,
+            "tokens_per_site": self.tokens_per_site,
+            "tokens_per_site_runs": self.tokens_per_site_runs,
             "tokens_usd": self.tokens_usd,
             "usd_per_1m_tokens": self.usd_per_1m_tokens,
             "usd_per_1m_input": self.usd_per_1m_input,
@@ -371,7 +385,7 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
     found.serp_usd = serp_cost_usd(
         len(found.keywords), found.depth_pages, SerpMode(found.serp_mode)
     )
-    found.tokens = 0 if found.mode == JudgeMode.OFF else found.sites * TOKENS_PER_SITE
+    await _tokens(session, found)
     found.output_share, found.output_share_runs = await output_share(session)
     found.usd_per_1m_input = sales_cfg.SEGMENT_INPUT_USD_PER_1M_TOKENS
     found.usd_per_1m_output = sales_cfg.SEGMENT_OUTPUT_USD_PER_1M_TOKENS
@@ -387,9 +401,18 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
         return found
     if found.hunter_checks:
         found.month = await verify_cap.month(session, now=now)
-    found.lines = lines_of(found, per_site=TOKENS_PER_SITE, cap_unread=_cap_unread())
+    found.lines = lines_of(found, cap_unread=_cap_unread())
     found.refusal = await _money_refusal(found)
     return found
+
+
+async def _tokens(session: AsyncSession, found: Estimate) -> None:
+    """Токены судьи: новые сайты на токены за сайт из истории прогонов с судьёй (без неё —
+    запасное число); судья выключен — ноль."""
+    per_site, runs = await tokens_per_site(session)
+    if runs:
+        found.tokens_per_site, found.tokens_per_site_runs = per_site, runs
+    found.tokens = 0 if found.mode == JudgeMode.OFF else found.sites * found.tokens_per_site
 
 
 async def _money_refusal(found: Estimate) -> str | None:

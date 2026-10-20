@@ -12,7 +12,9 @@
 (`sales-collect-spend`: приглушённая колонка сметы и пометка о Hunter — мелким текстом); сайты
 прогона и решения «на проверку» — в окне сайтов (`ui_screens_sales_sites.py`). Какой прогон на
 стенде, решает его база (в нём должны быть сайты всех полос, итог этапов в отчёте и ключ, чья
-выдача не пришла; описание сегмента — длиннее трёх строк).
+выдача не пришла; описание сегмента — длиннее трёх строк). Что ждёт повтора (20.10.2026,
+`sales-collect-waits`): у последнего прогона стенда — сайт, не ответивший поиску адреса, и лиды,
+ждущие очистки («Hunter ещё проверяет», первый `unknown`, сбой сети), — строки и «Повторить сейчас».
 """
 
 import re
@@ -144,6 +146,7 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     ]
     spend = _spend_probes(norm)
     helper, check = _helper_probes(norm, big)
+    waits = _waits_probes(norm, big)
     return {
         "sales-collect": {"path": path, "ready": ready, "probes": probes},
         "sales-collect-phone": {
@@ -176,6 +179,14 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "ready": ready,
             "viewport": PHONE,
             "probes": helper,
+        },
+        # Что ждёт повтора (20.10.2026): строки под лидами и «Повторить сейчас».
+        "sales-collect-waits": {"path": path, "ready": ready, "probes": waits},
+        "sales-collect-waits-phone": {
+            "path": path,
+            "ready": ready,
+            "viewport": PHONE,
+            "probes": waits,
         },
         "sales-collect-check": {"path": path, "ready": ready, "probes": check},
         "sales-collect-check-phone": {
@@ -221,6 +232,20 @@ def _helper_probes(
         ("кнопка «Скрыть» в плашке", f"{alert} button:has-text('Скрыть')", big),
     ]
     return helper, check
+
+
+def _waits_probes(norm: float, big: float) -> list[tuple[str, str, float]]:
+    """Что ждёт повтора: заголовки групп с числом, строки причин со сроком, «Повторить сейчас»
+    (приглушённой кнопкой на стекле) и строка лидов над ними; кнопка «Найти адреса принятым»."""
+    return [
+        ("строка лидов", "p:has-text('Лидов заведено')", norm),
+        ("группа «Ждут адреса»", "p:has-text('Ждут адреса —')", norm),
+        ("строка «ждут адреса»", "ul[aria-label='Ждут адреса'] li", norm),
+        ("группа «Ждут очистки»", "p:has-text('Ждут очистки —')", norm),
+        ("строка «ждут очистки»", "ul[aria-label='Ждут очистки'] li", norm),
+        ("кнопка «Повторить сейчас»", "button:has-text('Повторить сейчас')", norm),
+        ("кнопка «Найти адреса принятым»", "button:has-text('Найти адреса принятым')", big),
+    ]
 
 
 def _spend_probes(norm: float) -> list[tuple[str, str, float]]:

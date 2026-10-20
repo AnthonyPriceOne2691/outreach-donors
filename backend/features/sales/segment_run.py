@@ -22,6 +22,12 @@
 последний (тест прогона 14.10: «Найти адреса принятым» затирало счёт первого прохода).
 Ключи прежние — их читает панель расхода. Сколько сайтов в какой полосе, отчёт читает из
 кандидатов (`segment_report.py`).
+
+**Повтор — своим проходом** (`again`, разбор прогона сбора 20.10): без выдачи и судьи —
+поиск адреса сайтам, которые ждут повтора, сам по сроку или кнопкой «Повторить сейчас»
+(`Again`), и лиды из найденного; или очистка ждущих лидов прогона. Стадия после него —
+прежняя. В конце любого прохода очередь получает задачу на срок молчавших сайтов
+(`segment_again.plan`).
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 import httpx
@@ -38,6 +45,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import sales as sales_cfg
 from backend.config.judge import JudgeMode
 from backend.features.contacts.search import search_contacts
+from backend.features.sales import cleaning, segment_again
+from backend.features.sales.clean_jobs import report_of
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.segment_estimate import NO_SEGMENT
 from backend.features.sales.segment_judge import SegmentClient
@@ -45,10 +54,11 @@ from backend.features.sales.segment_judging import JudgeTally, judge_run
 from backend.features.sales.segment_leads import make_leads
 from backend.features.sales.segment_models import SalesSegmentRunModel, Stage
 from backend.features.sales.segment_progress import advanced, enter, judge_waiting
-from backend.features.sales.segment_queue import SegmentContactQueue
+from backend.features.sales.segment_queue import Retry, SegmentContactQueue
 from backend.features.sales.segment_serp import bought, collect, provider_mode
+from backend.features.sales.segment_waits import waiting_leads
 from backend.features.sales.segment_window import SPLIT_TOKENS
-from backend.features.sales.verifier import EmailVerifier
+from backend.features.sales.verifier import FIXTURE, EmailVerifier
 from backend.features.serp.protocol import SerpProvider
 
 logger = logging.getLogger(__name__)
@@ -73,6 +83,17 @@ class UnknownRunError(LookupError):
     """Прогона нет: удалён или номер чужой. Повтор задачи это не исправит."""
 
     permanent = True
+
+
+class Again(StrEnum):
+    """Что повторяет проход без выдачи и судьи (`again`)."""
+
+    #: Поиск адреса сайтам, чей срок повтора настал, — сам (`segment_jobs.due_again`).
+    DUE = "due"
+    #: Поиск адреса сайтам, которые ждут повтора, — сейчас, не дожидаясь срока: кнопка отчёта.
+    ADDRESSES = "addresses"
+    #: Очистка ждущих лидов прогона — сейчас: кнопка отчёта.
+    CLEANING = "cleaning"
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,9 +239,12 @@ async def _judge(
     return tally
 
 
-async def _addresses(session: AsyncSession, run: SalesSegmentRunModel, started: datetime) -> None:
-    """Этап адресов: «адреса: X из Y» — Y принятых ждали поиска на входе."""
-    queue = SegmentContactQueue(session, run.id)
+async def _addresses(
+    session: AsyncSession, run: SalesSegmentRunModel, started: datetime, retry: Retry | None = None
+) -> None:
+    """Этап адресов: «адреса: X из Y» — Y принятых ждали поиска на входе; `retry` — только
+    сайтам, которые ждут повтора (`segment_queue.Retry`)."""
+    queue = SegmentContactQueue(session, run.id, retry=retry)
     waiting = await queue.pending_count()
     await enter(session, run, Stage.CONTACTS, total=waiting, pass_started=started)
     found = await _contacts(session, run, queue, waiting)
@@ -231,11 +255,17 @@ async def _addresses(session: AsyncSession, run: SalesSegmentRunModel, started: 
 
 
 async def _leads(
-    session: AsyncSession, run: SalesSegmentRunModel, deps: RunDeps, started: datetime
+    session: AsyncSession,
+    run: SalesSegmentRunModel,
+    verifier: EmailVerifier,
+    started: datetime,
+    *,
+    since: datetime | None = None,
 ) -> None:
-    """Этап лидов: заведение и очистка; сколько лидов выйдет, заранее не известно."""
+    """Этап лидов: заведение и очистка; сколько лидов выйдет, заранее не известно. `since` —
+    лиды только из найденного с этого момента (`segment_leads.make_leads`)."""
     await enter(session, run, Stage.LEADS, total=None, pass_started=started)
-    made = await make_leads(session, run, deps.verifier)
+    made = await make_leads(session, run, verifier, since=since)
     created = _number(made.get("created"))
     run.report = {
         **advanced(run, done=created, total=created),
@@ -264,8 +294,54 @@ async def execute(
     if tally.stopped is not None:
         return await _stop(session, run, f"судья остановлен: {tally.stopped}", now)
     await _addresses(session, run, started)
-    await _leads(session, run, deps, started)
+    await _leads(session, run, deps.verifier, started)
     run.stage, run.finished_at = Stage.DONE, now or datetime.now(UTC)
     await session.commit()
+    await segment_again.plan(session, run.id, now=run.finished_at)
     logger.info("сбор продаж: прогон прошёл", extra={"run": run.id})
+    return dict(run.report)
+
+
+async def _clean_waiting(
+    session: AsyncSession, run: SalesSegmentRunModel, verifier: EmailVerifier, started: datetime
+) -> None:
+    """Этап очистки ждущих лидов прогона — тем же проходом, что у новых (`cleaning.clean_leads`):
+    кого возьмёт очистка, решает её условие (`segment_waits.waiting_leads`)."""
+    leads = await waiting_leads(session, run.id, real=verifier.name != FIXTURE, now=started)
+    await enter(session, run, Stage.LEADS, total=len(leads), pass_started=started)
+    found = await cleaning.clean_leads(session, leads, verifier, now=started) if leads else None
+    run.report = advanced(run, done=len(leads))
+    if found is not None:
+        made = {"created": 0, "cleaning": report_of(found)}
+        run.report = {**run.report, "leads": leads_report(run.report.get("leads"), made)}
+
+
+async def again(
+    session: AsyncSession,
+    run_id: int,
+    verifier: EmailVerifier,
+    what: Again,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Повтор без выдачи и судьи (`Again`): поиск адреса сайтам, которые ждут повтора, и лиды из
+    найденного — или очистка ждущих лидов. Стадия после прохода — прежняя: готовый остаётся
+    готовым, остановленный — остановленным со своей причиной."""
+    run = await session.get(SalesSegmentRunModel, run_id)
+    if run is None:
+        raise UnknownRunError(f"прогона сбора №{run_id} нет")
+    before, started = run.stage, datetime.now(UTC)
+    run.finished_at = None
+    if what is Again.CLEANING:
+        await _clean_waiting(session, run, verifier, started)
+    else:
+        retry = Retry.DUE if what is Again.DUE else Retry.NOW
+        await _addresses(session, run, started, retry)
+        await _leads(session, run, verifier, started, since=started)
+    finished = before in (Stage.CONTACTS, Stage.LEADS)  # прежний проход прошёл адреса
+    run.stage = Stage.DONE if finished else before
+    run.finished_at = now or datetime.now(UTC)
+    await session.commit()
+    await segment_again.plan(session, run.id, now=run.finished_at)
+    logger.info("сбор продаж: повтор прошёл", extra={"run": run.id, "what": what.value})
     return dict(run.report)

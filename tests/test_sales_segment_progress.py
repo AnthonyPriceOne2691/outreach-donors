@@ -114,9 +114,9 @@ async def test_each_stage_is_set_when_its_work_begins_and_committed_before_it(
         stages["contacts"] = (run.stage, run in session.dirty)
         return await original_search(session_, **kwargs)
 
-    async def made(session_: AsyncSession, run_: Run, verifier: Any) -> dict[str, Any]:
+    async def made(session_: AsyncSession, run_: Run, verifier: Any, **kw: Any) -> dict[str, Any]:
         stages["leads"] = (run.stage, run in session.dirty)
-        return await original_leads(session_, run_, verifier)
+        return await original_leads(session_, run_, verifier, **kw)
 
     monkeypatch.setattr(segment_run, "search_contacts", search)
     monkeypatch.setattr(segment_run, "make_leads", made)

@@ -17,7 +17,7 @@ import { cleanSalesLeads, readSalesClean } from '../api/sales';
 import { leadReasonTitle } from '../api/salesLabels';
 import type { SalesCleanReport, SalesCleanView } from '../api/salesCleanTypes';
 import type { HypothesisCard } from '../api/salesTypes';
-import { formatNumber } from '../format';
+import { formatNumber, formatTime } from '../format';
 import { jobRestarted } from '../jobs/JobLine';
 import { notify } from '../notices';
 import { forget, remember, remembered } from '../storage';
@@ -104,10 +104,21 @@ function reasonsOf(rejected: Record<string, number>): string {
   return named.length > 0 ? ` (${named.join(', ')})` : '';
 }
 
-/** Кто ждёт и почему — после чисел: держателя компании, день перепроверки неподтверждённых,
- *  остановка платной части или повтор непроверенных следующей очисткой. */
+/** Hunter «ещё проверяет» — своим числом и сроком: перепроверка идёт сама, а не «следующей
+ *  очисткой» (разбор прогона сбора 20.10.2026). */
+function checkingWords(found: Partial<SalesCleanReport>): string[] {
+  const checking = found.still_checking ?? 0;
+  if (checking === 0 || typeof found.again_at !== 'string') return [];
+  return [
+    `Hunter ещё проверяет адрес — ${formatNumber(checking)}: перепроверка пойдёт сама около ` +
+      `${formatTime(found.again_at)}.`,
+  ];
+}
+
+/** Кто ждёт и почему — после чисел: «ещё проверяет», держателя компании, день перепроверки
+ *  неподтверждённых, остановка платной части или повтор непроверенных следующей очисткой. */
 function waitingWords(found: Partial<SalesCleanReport>): string[] {
-  const said: string[] = [];
+  const said: string[] = checkingWords(found);
   const held = found.awaiting_holder ?? 0;
   if (held > 0) {
     said.push(

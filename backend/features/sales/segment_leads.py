@@ -25,9 +25,10 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, Exists, select
+from sqlalchemy import ColumnElement, Exists, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -58,9 +59,25 @@ def living_address(domain_id: ColumnElement[int] | InstrumentedAttribute[int]) -
     return select(ContactModel.id).where(ContactModel.domain_id == domain_id, _alive()).exists()
 
 
-async def _ready(session: AsyncSession, run_id: int) -> list[tuple[Candidate, int, str]]:
+def lead_ready(run_id: int) -> ColumnElement[bool]:
+    """Принятые кандидаты прогона без лида, чей домен даёт лида из живого адреса, — без чужого
+    живого лида на домене (`company_hold.held`). Одно условие у этапа лидов и у числа «ждут» в
+    отчёте прогона (`segment_report`)."""
+    return and_(
+        Candidate.run_id == run_id,
+        Candidate.lane == Lane.ACCEPT,
+        Candidate.lead_id.is_(None),
+        living_address(Candidate.domain_id),
+        ~company_hold.held(Candidate.domain_id),
+    )
+
+
+async def _ready(
+    session: AsyncSession, run_id: int, since: datetime | None = None
+) -> list[tuple[Candidate, int, str]]:
     """Принятые кандидаты прогона без лида — и лучший живой адрес их домена; домен с живым
-    лидом продаж лида не даёт (`company_hold.held`).
+    лидом продаж лида не даёт (`company_hold.held`). `since` — только те, кому поиск записал
+    исход с этого момента: повтор по сроку заводит лиды лишь из найденного им самим.
 
     **Строки взятых — под замком до конца транзакции заведения** (`FOR UPDATE OF` кандидатов):
     человек может отменить решение «принят» посреди прохода (`segment_undo`). Без замка проход,
@@ -74,19 +91,16 @@ async def _ready(session: AsyncSession, run_id: int) -> list[tuple[Candidate, in
         .order_by(ContactModel.domain_id, *preferred_first())
         .subquery()
     )
-    rows = await session.execute(
+    query = (
         select(Candidate, best.c.id, best.c.email)
         .join(best, best.c.domain_id == Candidate.domain_id)
-        .where(
-            Candidate.run_id == run_id,
-            Candidate.lane == Lane.ACCEPT,
-            Candidate.lead_id.is_(None),
-            ~company_hold.held(Candidate.domain_id),
-        )
+        .where(lead_ready(run_id))
         .order_by(Candidate.id)
         .with_for_update(of=Candidate)
     )
-    return list(rows.tuples().all())
+    if since is not None:
+        query = query.where(Candidate.contact_attempted_at >= since)
+    return list((await session.execute(query)).tuples().all())
 
 
 def _lead(
@@ -106,11 +120,16 @@ def _lead(
 
 
 async def make_leads(
-    session: AsyncSession, run: SalesSegmentRunModel, verifier: EmailVerifier
+    session: AsyncSession,
+    run: SalesSegmentRunModel,
+    verifier: EmailVerifier,
+    *,
+    since: datetime | None = None,
 ) -> dict[str, Any]:
     """Завести лидов принятым с адресом и очистить их. Коммит — за вызывающим: лиды,
-    ссылки кандидатов, журнал, итог очистки и строка расхода проверки — одна транзакция."""
-    ready = await _ready(session, run.id)
+    ссылки кандидатов, журнал, итог очистки и строка расхода проверки — одна транзакция.
+    `since` — только из найденного поиском с этого момента (`_ready`)."""
+    ready = await _ready(session, run.id, since)
     if not ready:
         return {"created": 0}
     pairs = [

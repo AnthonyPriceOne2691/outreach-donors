@@ -39,6 +39,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.features.core.models._mixins import TimestampedMixin
+from backend.features.sales.verify_columns import VerifyAgainMixin
 from backend.shared.database.base import Base
 
 
@@ -92,7 +93,7 @@ class SalesHypothesisModel(TimestampedMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-class SalesLeadModel(TimestampedMixin, Base):
+class SalesLeadModel(TimestampedMixin, VerifyAgainMixin, Base):
     """Человек, которому напишут продажи: кто он, где работает, откуда взялся."""
 
     __tablename__ = "sales_leads"
@@ -106,8 +107,7 @@ class SalesLeadModel(TimestampedMixin, Base):
     domain_id: Mapped[int] = mapped_column(
         ForeignKey("domains.id", ondelete="RESTRICT"), nullable=False
     )
-    #: Общая строка адреса. Пусто — строки ещё нет или её удалили у доноров:
-    #: кому писать, лид знает по `email`.
+    #: Общая строка адреса; пусто — строки нет или её удалили у доноров: адрес лида — `email`.
     contact_id: Mapped[int | None] = mapped_column(
         ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
     )

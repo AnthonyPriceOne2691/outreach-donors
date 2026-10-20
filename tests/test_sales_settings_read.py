@@ -64,6 +64,10 @@ BAD: dict[str, tuple[str, str, str, object]] = {
         16,
     ),
     "SALES_SEND_SPREAD_MIN": ("-5", "нужно целое от 0 до 1440", "SEND_SPREAD_MIN", 30),
+    # Перепроверка «Hunter ещё проверяет» и повтор поиска адреса молчавшему сайту — по сроку.
+    "SALES_VERIFY_AGAIN_MIN": ("0", "нужно целое от 1 до 1440", "VERIFY_AGAIN_MIN", 20),
+    "SALES_VERIFY_AGAIN_TRIES": ("21", "нужно целое от 1 до 20", "VERIFY_AGAIN_TRIES", 3),
+    "SALES_SEGMENT_AGAIN_MIN": ("полчаса", "нужно целое от 1 до 1440", "SEGMENT_AGAIN_MIN", 30),
     "SALES_OOO_DELAY_DAYS": ("0", "нужно целое от 1 до 60", "OOO_DELAY_DAYS", 7),
     "SALES_REWRITE_ATTEMPTS": ("11", "нужно целое от 1 до 10", "REWRITE_ATTEMPTS", 3),
     "SALES_AUTOSEND_PASS_SEC": ("5", "нужно целое от 10 до 3600", "AUTOSEND_PASS_SEC", 60),

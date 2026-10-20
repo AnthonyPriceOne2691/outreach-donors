@@ -41,8 +41,10 @@
 «Failure visibility»). Вердикт `unknown` записывается, но к письмам лид не идёт: первый —
 статус прежний и день перепроверки словами, второй — отказ (`unconfirmed.py`, решение
 владельца 13.10). Отказ сервиса оставляет лида в прежнем статусе с прежним вердиктом и
-причиной «проверка не выполнена»: следующая очистка повторит его. Квота, закрытая
-учётка и 429 после повторов (`verifier.STOPS`) останавливают платную часть прохода.
+причиной «проверка не выполнена»: следующая очистка повторит его. «Ещё проверяет» (202 и после
+переспросов) — тоже прежний статус, но перепроверка идёт сама: срок и счёт у лида, не больше
+`SALES_VERIFY_AGAIN_TRIES` раз (`verify_again.py`). Квота, закрытая учётка и 429 после
+повторов (`verifier.STOPS`) останавливают платную часть прохода.
 
 **Проход коммитит каждую партию сам.** Платные вердикты — деньги; обрыв
 посреди прохода не должен терять ни их, ни строку расхода (политика
@@ -70,10 +72,10 @@ from backend.features.contacts.provider import ProviderDomainRefusedError, Provi
 from backend.features.contacts.quality import rejection_reason
 from backend.features.core import usage
 from backend.features.letters import attempts
-from backend.features.sales import clean_write, company_hold, off_queue, unconfirmed
+from backend.features.sales import clean_write, company_hold, off_queue, unconfirmed, verify_again
 from backend.features.sales.clean_known import Known, load_known
-from backend.features.sales.clean_report import CleaningReport, Outcome, tally
-from backend.features.sales.hunter_codes import refused
+from backend.features.sales.clean_report import NOT_VERIFIED, CleaningReport, Outcome, tally
+from backend.features.sales.hunter_codes import StillCheckingError, refused
 from backend.features.sales.intake import host_key
 from backend.features.sales.models import (
     LeadStatus,
@@ -86,6 +88,7 @@ from backend.features.sales.verifier import (
     STOPS,
     UNKNOWN,
     EmailVerifier,
+    Verdict,
     due,
 )
 from backend.features.sales.verify_cap import capped
@@ -98,7 +101,6 @@ BATCH = 200
 MX_CONCURRENCY = 8
 #: Обращений к платному сервису одновременно; частоту держит проверяльщик (`verifier.py`).
 VERIFY_CONCURRENCY = 4
-NOT_VERIFIED = "проверка не выполнена"
 #: Кругов в проходе — не больше. Круги сходятся сами: каждый решает лидов, а решённый лид кругом не
 #: возвращается (`company_hold.after`); предел — страховка от зацикливания, если правило однажды
 #: ошибётся. Столько ждущих у одной компании не бывает, а лиды последнего круга остаются как есть —
@@ -242,23 +244,34 @@ async def mail_routes(
 
 
 async def _verify_one(lead: SalesLeadModel, run: _Run) -> Outcome:
-    verifier = run.verifier
     try:
-        verdict = await verifier.verify(lead.email)
+        verdict = await run.verifier.verify(lead.email)
     except STOPS as exc:
         run.halt = str(exc)
         logger.exception("продажи: проверка адресов остановлена", extra={"reason": str(exc)})
         return _unverified(lead, str(exc))
-    except ProviderDomainRefusedError as exc:  # не проверить никогда: отказ сразу, без повторов
-        logger.info("продажи: адрес не проверить", extra={"lead_id": lead.id, "reason": str(exc)})
-        return Outcome(
-            lead.id, LeadStatus.REJECTED, RejectionReason.UNCONFIRMED, refused(lead.email)
-        )
+    except (ProviderDomainRefusedError, StillCheckingError) as exc:  # ответ про адрес, не сбой
+        logger.info("продажи: вердикта по адресу нет", extra={"lead_id": lead.id, "why": str(exc)})
+        return _no_verdict(lead, run, exc)
     except ProviderError as exc:
         logger.warning(
             "продажи: адрес не проверен, повторим", extra={"lead_id": lead.id, "reason": str(exc)}
         )
         return _unverified(lead, str(exc))
+    return _judged(lead, verdict, run)
+
+
+def _no_verdict(lead: SalesLeadModel, run: _Run, exc: ProviderError) -> Outcome:
+    """Сервис ответил про адрес, но без вердикта: с доменом не работает — отказ сразу, без
+    повторов; «ещё проверяет» — перепроверка по сроку и со счётом (`verify_again.later`)."""
+    if isinstance(exc, StillCheckingError):
+        return verify_again.later(lead, run.moment)
+    return Outcome(lead.id, LeadStatus.REJECTED, RejectionReason.UNCONFIRMED, refused(lead.email))
+
+
+def _judged(lead: SalesLeadModel, verdict: Verdict, run: _Run) -> Outcome:
+    """Вердикт проверяльщика — в исход лида."""
+    verifier = run.verifier
     if verdict.deliverable is False:
         note = f"{verdict.words}: {lead.email}"
         return Outcome(
@@ -327,6 +340,9 @@ def _row(outcome: Outcome, moment: datetime) -> dict[str, Any]:
         "status": outcome.status,
         "rejection_reason": None if outcome.reason is None else outcome.reason.value,
         "cleaning_note": outcome.note,
+        # Срок и счёт «ещё проверяет» — только у отложенного; любой другой исход их снимает.
+        "verify_tries": outcome.tries,
+        "verify_again_at": outcome.again_at,
     }
     if outcome.kept:  # прежний вердикт лида остаётся
         return row
@@ -416,7 +432,14 @@ async def clean_leads(
     verifier = await capped(session, verifier, now=moment)  # месячный потолок у живого
     report = CleaningReport(verifier=verifier.name)
     run = _Run(verifier, moment, report, {lead.hypothesis_id for lead in leads})
-    return await _pass(session, leads, run, commit=False)
+    return await _later(session, await _pass(session, leads, run, commit=False), moment)
+
+
+async def _later(session: AsyncSession, report: CleaningReport, moment: datetime) -> CleaningReport:
+    """Проход отложил перепроверку «ещё проверяет» — задача на самый ранний срок (`verify_again`)."""
+    if report.still_checking:
+        await verify_again.plan(session, now=moment)
+    return report
 
 
 async def clean(
@@ -442,7 +465,7 @@ async def clean(
     leads = await _due_leads(session, hypothesis_id, verifier.name != FIXTURE, moment)
     leads += company_hold.only(await company_hold.freed(session), scope)  # были отклонены
     run = _Run(verifier, moment, CleaningReport(verifier=verifier.name), scope, mx_concurrency)
-    report = await _pass(session, leads, run, commit=True)
+    report = await _later(session, await _pass(session, leads, run, commit=True), moment)
     logger.info(
         "продажи: очистка прошла",
         extra={
@@ -451,6 +474,7 @@ async def clean(
             "rejected": report.rejected_total,
             "unconfirmed": report.unconfirmed,
             "unverified": report.unverified,
+            "still_checking": report.still_checking,
             "awaiting_holder": report.awaiting_holder,
             "verifier": verifier.name,
         },

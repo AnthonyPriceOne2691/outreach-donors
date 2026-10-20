@@ -131,6 +131,15 @@ class _Sales(DomainSettings):
     # умолчания: не задан — платная часть очистки встаёт словами. Строкой: разбор — при чтении
     # (`features/sales/verify_cap.month_cap`), опечатка не роняет общий старт.
     verifier_month_cap: str = Field(default="", validation_alias="SALES_VERIFIER_MONTH_CAP")
+    # Hunter «ещё проверяет» (202) и после переспросов прохода: перепроверка адреса сама — через
+    # столько минут, не больше стольких раз; дальше — «не проверить» словами
+    # (`features/sales/verify_again.py`). Больше суток и двадцати раз — опечатка.
+    verify_again_min: int = Field(
+        default=20, ge=1, le=1440, validation_alias="SALES_VERIFY_AGAIN_MIN"
+    )
+    verify_again_tries: int = Field(
+        default=3, ge=1, le=20, validation_alias="SALES_VERIFY_AGAIN_TRIES"
+    )
     # `fixture` — сделки с выдуманными номерами, без сети; `live` — закрытая
     # интеграция аккаунта Kommo долгоживущим ключом (секрет: в `.env`).
     kommo_provider: str = Field(default="fixture", validation_alias="SALES_KOMMO_PROVIDER")
@@ -250,6 +259,12 @@ class _Sales(DomainSettings):
     # `JUDGE_CONCURRENCY` — у судьи доноров. Больше 64 — опечатка.
     segment_judge_concurrency: int = Field(
         default=16, ge=1, le=64, validation_alias="SALES_SEGMENT_JUDGE_CONCURRENCY"
+    )
+    # Сайт не ответил поиску адреса — повтор по сроку общего правила (`contacts/attempts.py`)
+    # идёт сам, но не раньше стольких минут после попытки (`features/sales/segment_again.py`):
+    # первый срок у правила — «следующий проход», и без паузы молчащий сайт спросили бы сразу.
+    segment_again_min: int = Field(
+        default=30, ge=1, le=1440, validation_alias="SALES_SEGMENT_AGAIN_MIN"
     )
 
 
@@ -389,6 +404,10 @@ AGENT_MAX_TURNS: str = _s.agent_max_turns.strip()
 VERIFIER_PROVIDER: str = _s.verifier_provider
 #: Месячный потолок проверок адреса — текстом как есть: разбирает `sales/verify_cap.month_cap`.
 VERIFIER_MONTH_CAP: str = _s.verifier_month_cap.strip()
+#: Перепроверка адреса, у которого Hunter «ещё проверяет»: через сколько минут и не больше
+#: скольких раз (`features/sales/verify_again.py`).
+VERIFY_AGAIN_MIN: int = _s.verify_again_min
+VERIFY_AGAIN_TRIES: int = _s.verify_again_tries
 
 KOMMO_PROVIDER: str = _s.kommo_provider
 KOMMO_SUBDOMAIN: str = _s.kommo_subdomain.strip().lower()
@@ -439,6 +458,9 @@ SEGMENT_OUTPUT_USD_PER_1M_TOKENS: float = _s.segment_output_usd_per_1m_tokens
 SEGMENT_PAID_CONTACTS: bool = _s.segment_paid_contacts
 #: Сколько сайтов судья сегмента судит разом (`segment_judging`, окно, а не партии).
 SEGMENT_JUDGE_CONCURRENCY: int = _s.segment_judge_concurrency
+#: Повтор поиска адреса молчавшему сайту — не раньше стольких минут после попытки
+#: (`features/sales/segment_again.py`).
+SEGMENT_AGAIN_MIN: int = _s.segment_again_min
 
 #: Не больше стольких запросов в секунду. Предел Kommo из его документации —
 #: семь в секунду с одного IP для любой интеграции; чаще — 429, а частые 429

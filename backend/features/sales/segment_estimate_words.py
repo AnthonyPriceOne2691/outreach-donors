@@ -1,8 +1,9 @@
 """Смета прогона сбора словами — строкой на статью: выдача, сайты, судья, Hunter, деньги.
 
 Вынесено из `segment_estimate.py` целиком (он у предела длины): там смета считает, здесь — как она
-говорит. Что нужно из сметы, кроме самих чисел, — параметрами `lines_of` (токенов на сайт,
-непрочитанный потолок модели), и цикла импорта нет.
+говорит. Что нужно из сметы, кроме самих чисел, — параметрами `lines_of` (непрочитанный потолок
+модели), и цикла импорта нет. Токены на сайт и откуда они — истории прогонов с судьёй или запасное
+число — смета несёт сама (`Estimate.tokens_per_site`, `tokens_per_site_runs`).
 """
 
 from __future__ import annotations
@@ -56,7 +57,18 @@ def _sites_line(found: Estimate) -> str:
     )
 
 
-def _judge_line(found: Estimate, *, per_site: int, cap_unread: bool) -> str:
+def _per_site(found: Estimate) -> str:
+    """Токены на сайт и откуда они: из прошлых прогонов с судьёй — или запасное число."""
+    per_site = number(found.tokens_per_site)
+    if found.tokens_per_site_runs:
+        return (
+            f"по {per_site} на сайт, как в прошлых прогонах сбора "
+            f"(с судьёй — {found.tokens_per_site_runs})"
+        )
+    return f"по {per_site} на сайт — запасное число: прогонов сбора с судьёй ещё нет"
+
+
+def _judge_line(found: Estimate, *, cap_unread: bool) -> str:
     if found.mode == JudgeMode.OFF:
         return (
             f"Судья сегмента выключен: модель не зовётся, сайтов ≈ {number(found.sites)} — "
@@ -78,7 +90,7 @@ def _judge_line(found: Estimate, *, per_site: int, cap_unread: bool) -> str:
     )
     return (
         f"Судья сегмента: сайтов ≈ {number(found.sites)}, токенов модели ≈ {number(found.tokens)} "
-        f"(по {number(per_site)} на сайт) — ≈ {money(found.tokens_usd)}{left}; {shared}."
+        f"({_per_site(found)}) — ≈ {money(found.tokens_usd)}{left}; {shared}."
     )
 
 
@@ -109,13 +121,13 @@ def _money_line(found: Estimate) -> str:
     return f"Деньгами: ≈ {money(found.serp_usd + found.tokens_usd)} — {what}; {hunter}."
 
 
-def lines_of(found: Estimate, *, per_site: int, cap_unread: bool) -> list[str]:
-    """Смета словами — строкой на статью. `per_site` — токенов судьи на сайт, `cap_unread` —
-    свой потолок модели продаж не прочитан из настроек (`segment_estimate`)."""
+def lines_of(found: Estimate, *, cap_unread: bool) -> list[str]:
+    """Смета словами — строкой на статью. `cap_unread` — свой потолок модели продаж не прочитан
+    из настроек (`segment_estimate`)."""
     lines = [
         _serp_line(found),
         _sites_line(found),
-        _judge_line(found, per_site=per_site, cap_unread=cap_unread),
+        _judge_line(found, cap_unread=cap_unread),
     ]
     if found.mode == JudgeMode.SHADOW:
         lines.append("Судья в наблюдении: его «отказ» не отсекает сайт, а отдаёт человеку.")

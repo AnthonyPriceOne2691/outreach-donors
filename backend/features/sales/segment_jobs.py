@@ -22,6 +22,11 @@ SERP_PROVIDER=…» на экране продаж).
 **Режим покупки выдачи — из сметы прогона** (`estimate["serp_mode"]`, `SERP_MODE_KEY`): какой
 режим человек видел в смете на запуске, такой и покупается, а не тот, что стоит в настройке
 сервиса сейчас. Нет его в смете (прогон старше режимов) — умолчание сервиса (`SERP_MODE`).
+
+**Повтор — та же задача прогона с доводом** (`run_segment(run, what)`, `segment_run.again`):
+без выдачи и судьи, под номером прогона — один проход прогона за раз, а строка задачи на экране
+называет его «сбор базы продаж», как остальные. Срок повтора адреса ставит задачу `due_again`
+(`segment_again.py`): она только ставит проход по сроку под номером прогона, если номер свободен.
 """
 
 from __future__ import annotations
@@ -46,18 +51,19 @@ from backend.config.startup_checks import check_storage
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.runs.failures import described, is_permanent
 from backend.features.runs.reasons import explained
+from backend.features.sales import deferred
 from backend.features.sales.segment_estimate import SALES_OFF, SANDBOX, SERP_AHREFS, SERP_NOT_SET
 from backend.features.sales.segment_judge import SegmentClient
 from backend.features.sales.segment_models import SalesSegmentRunModel, Stage
 from backend.features.sales.segment_progress import pulse
-from backend.features.sales.segment_run import RunDeps, execute
+from backend.features.sales.segment_run import Again, RunDeps, again, execute
 from backend.features.sales.verifier import build_verifier
 from backend.features.serp.factory import AHREFS, UnknownProviderError, build_provider
 from backend.features.serp.modes import SerpMode, UnknownModeError, mode_of
 from backend.features.serp.protocol import SerpProvider
 from backend.shared.logs import setup_logging
 from backend.shared.net.url_guard import guarded_client
-from backend.shared.queue import remember_job_error
+from backend.shared.queue import remember_job_error, sales_bulk_queue
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +83,8 @@ SETTINGS_WORDS = (
 RETRIES_SPENT = (
     "сбой не прошёл и после повторов задачи: {why} — продолжите прогон, когда он пройдёт"
 )
+#: Срок повтора адреса настал, а проход прогона идёт: следующий срок поставит он сам.
+GOING_NOW = "проход прогона уже идёт — следующий срок повтора поставит он сам"
 
 
 class SerpNotSetError(RuntimeError):
@@ -214,14 +222,23 @@ async def _with_clients(factory: async_sessionmaker[Any], run_id: int) -> dict[s
         await ahrefs.aclose()
 
 
-async def run_once(run_id: int) -> dict[str, Any]:
-    """Один проход прогона: своя сессия и свои клиенты на задачу. Постоянный отказ и сбой
-    последней попытки — причиной в строке прогона: экран читает её оттуда."""
+async def _again(factory: async_sessionmaker[Any], run_id: int, what: Again) -> dict[str, Any]:
+    """Повтор без выдачи и судьи: проверка адресов — своим клиентом, как у очистки."""
+    async with httpx.AsyncClient() as http, factory() as session:
+        return await again(session, run_id, build_verifier(http), what)
+
+
+async def run_once(run_id: int, what: Again | None = None) -> dict[str, Any]:
+    """Один проход прогона — или повтор (`what`): своя сессия и свои клиенты на задачу.
+    Постоянный отказ и сбой последней попытки — причиной в строке прогона: экран читает её
+    оттуда."""
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         if not sales_cfg.ENABLED:
             raise SalesOffError(SALES_OFF)
+        if what is not None:
+            return await _again(factory, run_id, what)
         return await _with_clients(factory, run_id)
     except Exception as exc:
         if (words := _stopped_by(exc)) is not None:
@@ -231,12 +248,29 @@ async def run_once(run_id: int) -> dict[str, Any]:
         await engine.dispose()
 
 
-def run_segment(run_id: int) -> dict[str, Any]:
-    """Задача очереди: провести прогон гипотезы с места, где он стоит. Писем не пишет."""
+def due_again(run_id: int) -> dict[str, Any]:
+    """Задача на срок повтора адреса (`segment_again.plan`): поставить проход прогона «повтор по
+    сроку» под номером прогона. Номер держит живой проход — пропуск: он сам поставит следующий
+    срок. Модуль продаж выключен — пропуск словами: сбор не тратит."""
+    setup_logging()
+    if not sales_cfg.ENABLED:
+        logger.info("сбор продаж: срок повтора адреса — продажи выключены", extra={"run": run_id})
+        return {"run": run_id, "skipped": SALES_OFF}
+    jobs = sales_bulk_queue()
+    job = deferred.once(jobs, segment_job_id(run_id), SEGMENT_JOB, run_id, Again.DUE.value)
+    if job is None:
+        logger.info("сбор продаж: срок повтора адреса — проход уже идёт", extra={"run": run_id})
+        return {"run": run_id, "skipped": GOING_NOW}
+    return {"run": run_id, "job_id": str(job.id)}
+
+
+def run_segment(run_id: int, what: str | None = None) -> dict[str, Any]:
+    """Задача очереди: провести прогон гипотезы с места, где он стоит, — или повтор (`what`,
+    значение `segment_run.Again`). Писем не пишет."""
     setup_logging()
     check_storage()
     try:
-        return asyncio.run(run_once(run_id))
+        return asyncio.run(run_once(run_id) if what is None else run_once(run_id, Again(what)))
     except Exception as exc:
         if is_permanent(exc):
             logger.warning(

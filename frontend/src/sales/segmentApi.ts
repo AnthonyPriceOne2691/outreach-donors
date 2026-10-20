@@ -163,6 +163,9 @@ export interface SegmentRunDetail {
   /** Ключи и расход прогона рядом со сметой на запуске. В записанных ответах старых тестов
    *  его нет — тогда панели ключей и расхода молчат. */
   spend?: SegmentRunSpend;
+  /** Что ждёт повтора — адреса и очистка (`SegmentWait`). В записанных ответах старых тестов
+   *  его нет — тогда строк ожидания нет. */
+  waits?: SegmentWait[];
 }
 
 export interface SegmentQueued {
@@ -289,4 +292,26 @@ export interface SegmentWatch {
   silent: boolean;
   /** Состояние живой задачи: `queued`, `deferred`, `scheduled` (ждёт повтора), `started`. */
   job?: string | null;
+}
+
+/** Что в прогоне ждёт повтора (`features/sales/segment_waits.py`): адрес сайта или очистка лида,
+ *  почему словами, сколько, когда повтор пойдёт сам (ISO, UTC; `null` — срока нет) и можно ли
+ *  «Повторить сейчас». */
+export interface SegmentWait {
+  kind: 'address' | 'cleaning';
+  words: string;
+  count: number;
+  at: string | null;
+  again: boolean;
+}
+
+/** «Повторить сейчас»: поиск адреса сайтам, которые ждут повтора, или очистку ждущих лидов —
+ *  проходом без выдачи и судьи под номером прогона. */
+export type SegmentAgain = 'addresses' | 'cleaning';
+
+export function againRun(run: number, what: SegmentAgain): Promise<SegmentQueued> {
+  return request<SegmentQueued>(`/sales/segment/runs/${run}/again`, {
+    method: 'POST',
+    body: { what },
+  });
 }

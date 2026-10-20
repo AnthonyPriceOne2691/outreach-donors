@@ -19,7 +19,11 @@
  * **Человек решает только «на проверку»** — на её вкладке в окне сайтов: «Принять» — сайт пойдёт к
  * поиску адреса продолжением прогона, «Отказ» — отсечён. Продолжение — кнопкой: поиск адреса стоит
  * денег (Hunter), и запускает его человек с правом «run»; пока прогон идёт, кнопки нет — принятым
- * адреса ищет он сам.
+ * адреса ищет он сам. Число у «Найти адреса принятым» — условием прохода (сервер): не искавшиеся,
+ * с наступившим сроком повтора и лиды из адреса, что уже есть на домене.
+ *
+ * **Что ждёт повтора — строками под лидами** (`SegmentWaits`, разбор прогона сбора 20.10.2026):
+ * почему словами, когда повтор пойдёт сам и «Повторить сейчас».
  */
 
 import {
@@ -66,6 +70,7 @@ import { RejudgeStatus, useRejudgeWatch } from './SegmentSitesRejudge';
 import type { SiteTab } from './SegmentSitesApi';
 import { useSitesWindow } from './SegmentSitesView';
 import { SpendWindow } from './SegmentSpend';
+import { SegmentWaits } from './SegmentWaits';
 import { isActive, stageBadge } from './segmentStage';
 
 /** Адрес окна сайтов на вкладке — у ссылок отчёта, которые его открывают. */
@@ -295,6 +300,7 @@ function Report({ detail }: { detail: SegmentRunDetail }) {
       <ReviewLine detail={detail} href={sites.href} />
       <Known detail={detail} />
       <Text size="sm">{leadsLine(detail)}</Text>
+      <SegmentWaits detail={detail} />
       <Resume detail={detail} />
       <RejudgeStatus view={rejudge.view} />
       <Why detail={detail} />

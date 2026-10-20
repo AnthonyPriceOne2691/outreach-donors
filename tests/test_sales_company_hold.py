@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -682,7 +682,9 @@ async def test_a_held_site_does_not_wait_for_an_address_in_the_run_report(world:
         )
     )
     assert parts is not None
-    parts.contact_status = ContactStatus.NOT_FOUND  # запчастям поиск ответил «адреса нет»
+    # Запчастям поиск ответил «адреса нет» — исход и время попытки, как их пишет поиск
+    # (`attempts.values`): «ждут адреса» считает условием прохода, а оно смотрит и на время.
+    parts.contact_status, parts.contact_attempted_at = ContactStatus.NOT_FOUND, datetime.now(UTC)
     await world.session.flush()
 
     view = await segment_report.run_view(world.session, run.id)

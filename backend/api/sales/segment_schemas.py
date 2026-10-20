@@ -10,6 +10,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from backend.api.sales.segment_waits import WaitRow
 from backend.config import serp as serp_cfg
 from backend.features.sales import segment_progress
 from backend.features.sales.segment_estimate import Estimate
@@ -400,6 +401,8 @@ class RunDetail(BaseModel):
     rejected: list[Count]
     no_address: list[Count]
     waiting_address: int
+    #: Что ждёт повтора: адреса и очистка — словами, сроком и можно ли повторить сейчас.
+    waits: list[WaitRow]
     leads: dict[str, int]
     lead_reasons: dict[str, int]
     unanswered: int
@@ -420,6 +423,7 @@ class RunDetail(BaseModel):
             rejected=[Count(words=words, count=count) for words, count in view.rejected],
             no_address=[Count(words=words, count=count) for words, count in view.no_address],
             waiting_address=view.waiting_address,
+            waits=[WaitRow.of(wait) for wait in view.waits],
             leads=view.leads,
             lead_reasons=view.lead_reasons,
             unanswered=view.unanswered,

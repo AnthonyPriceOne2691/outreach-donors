@@ -422,6 +422,8 @@ async def test_segment_routes_are_these(api_app: FastAPI) -> None:
         ("POST", "/api/sales/segment/estimate"),
         ("POST", "/api/sales/segment/runs"),
         ("POST", "/api/sales/segment/runs/{run_id}/resume"),
+        # «Повторить сейчас» из отчёта прогона: адреса ждущим повтора или очистка ждущих лидов.
+        ("POST", "/api/sales/segment/runs/{run_id}/again"),
         ("GET", "/api/sales/segment/runs/{run_id}"),
         ("POST", "/api/sales/segment/candidates/{candidate_id}/decision"),
         # Отмена решения человека (`features/sales/segment_undo.py`) — тот же адрес.
