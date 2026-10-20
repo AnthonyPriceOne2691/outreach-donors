@@ -19,7 +19,7 @@ from backend.features.donors.judging import JudgeSummary
 from backend.features.donors.verdict import BIG_SITE_WORDS
 from backend.features.review.candidates import QueueReport
 from backend.features.runs.failures import described
-from backend.features.runs.planning import RunPlan
+from backend.features.runs.planning import Candidates, RunPlan
 from backend.features.runs.reasons import explained
 from backend.features.runs.repository import FAILURE_KEY, REASON_KEY
 from backend.features.topics.step import TopicSummary
@@ -163,6 +163,14 @@ def _topic_stats(report: RunReport) -> dict[str, object]:
     return {} if report.topics is None else {"topics": report.topics.as_dict()}
 
 
+def _source_of(candidates: Candidates) -> dict[str, object]:
+    """Журнал списков конкурентов (`runs/competitors.candidates_of`) — без карты «кто на кого
+    ссылается»: она лежит с кандидатами, а отчёт читают строкой истории. У выдачи — пусто."""
+    if not candidates.source:
+        return {}
+    return {"source": {k: v for k, v in candidates.source.items() if k != "linked_to"}}
+
+
 def run_stats(
     report: RunReport, failed: BaseException | None, *, retry: bool = False
 ) -> dict[str, object]:
@@ -199,6 +207,7 @@ def run_stats(
         "units_saved_by_cache": report.plan.savings_from_cache,
         "units_saved_by_gate": report.plan.savings_from_gate,
     }
+    stats.update(_source_of(candidates))
     if report.judge is not None:
         # Отдельной веткой, а не строками в общем словаре: у выключенного
         # судьи нулей быть не должно. Ноль читается как «судил и никого

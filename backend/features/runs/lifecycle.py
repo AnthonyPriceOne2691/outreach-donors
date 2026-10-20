@@ -219,7 +219,7 @@ async def recover(
                         run,
                         **{
                             RESUMES_KEY: attempts + 1,
-                            REASON_KEY: f"{cause.said}; прогон продолжен по сохранённой выдаче",
+                            REASON_KEY: f"{cause.said}; прогон продолжен {_resumed_by(run)}",
                             FAILURE_KEY: cause.detail,
                         },
                     ),
@@ -270,6 +270,12 @@ async def _tell_stopped(stopped: dict[int, str]) -> None:
     """
     for run_id, reason in stopped.items():
         await tell_stopped(run_id, reason)
+
+
+def _resumed_by(run: RunModel) -> str:
+    """Чем продолжен прогон: у прогона по конкурентам вместо выдачи — их списки, полученные
+    прошлой попыткой (`runs/competitor_run`)."""
+    return "по сохранённым спискам конкурентов" if run.competitors else "по сохранённой выдаче"
 
 
 def _updated_at(run: RunModel) -> datetime:

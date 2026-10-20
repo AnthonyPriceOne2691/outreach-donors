@@ -48,6 +48,7 @@ from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
 from backend.features.review.candidates import RunReview
 from backend.features.runs.budget import budget_of
+from backend.features.runs.competitor_run import country_share_of, release_hold
 from backend.features.runs.failures import described, is_permanent
 from backend.features.runs.judge_stage import SERP_OPERATION, judge_stage
 from backend.features.runs.planning import (
@@ -123,6 +124,9 @@ class RunRequest:
     #: или когда её сохранила прошлая попытка этого же прогона. Без неё
     #: продолжение и подтверждение покупали бы выдачу второй раз.
     candidates: Candidates | None = None
+    #: Юниты Ahrefs, уже потраченные на кандидатов, — списки конкурентов (`competitor_run`):
+    #: смета прогона их включает, иначе удержание и «смета против факта» их бы не видели.
+    spent_before: int = 0
 
 
 async def _candidates_for(deps: RunDeps, request: RunRequest, run: RunModel) -> Candidates:
@@ -271,10 +275,13 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
         limit=budget.shortage,
         exclusions=deps.exclusions,
         stage=request.stage,
-        country_share=await deps.runs.country_call_share(request.country),
+        # У прогона по конкурентам доля своя, как у его сметы до запуска (`competitor_run`).
+        country_share=await country_share_of(deps.runs, run, request.country),
         metrics_ttl_days=request.metrics_ttl_days,
     )
-    await deps.runs.set_estimate(run, plan.estimate.total)
+    # Удержание на время списков конкурентов сменяет точная смета — той же фиксацией.
+    release_hold(run)
+    await deps.runs.set_estimate(run, request.spent_before + plan.estimate.total)
     # То же для сметы: дальше суд — до десятков минут, и строку прогона он держать не должен.
     await deps.runs.session_commit()
     # Дальше каждая запись несёт идентификатор прогона, включая чужие логгеры:

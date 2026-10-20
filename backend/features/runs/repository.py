@@ -303,8 +303,8 @@ class RunRepository:
         await self._session.flush()
 
     async def stop_run(self, run: RunModel, *, stats: dict[str, Any]) -> bool:
-        """Закрыть прогон как остановленный. Расход не трогаем: то, что
-        он успел потратить, уже записано в журнале построчно.
+        """Закрыть прогон как остановленный. Факт — по журналу расхода: прогон, закрытый
+        мимо `_close` (отказ сметы, списков, потолка), без него выглядел бы бесплатным.
 
         `True` — прогон закрыла именно эта запись: до неё он был открыт.
         По этому ответу уходит тревога (`runs/stopped.py`) — одна на прогон,
@@ -312,6 +312,7 @@ class RunRepository:
         что уже закрыл сам прогон."""
         was_open = run.status is not RunStatus.STOPPED
         run.status = RunStatus.STOPPED
+        run.actual_units = await self.spent_units(run.id)
         run.stats = stats
         await self._session.flush()
         return was_open
@@ -336,6 +337,8 @@ class RunRepository:
         rows = await self._session.execute(
             select(RunModel.stats)
             .where(RunModel.status == RunStatus.DONE)
+            # Только прогоны по выдаче: у списков конкурентов свои повторы (`runs/competitors`).
+            .where(RunModel.competitors.is_(None))
             .order_by(RunModel.id.desc())
             .limit(UNIQUE_HISTORY_WINDOW * 2)
         )

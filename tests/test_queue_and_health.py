@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from backend.config.startup_checks import ConfigError, check_collect
 from backend.shared.queue import JOB_TIMEOUT, QUEUE_NAME
-from backend.workers import jobs
+from backend.workers import jobs, run_job
 from backend.workers.main import QUEUE_NAME as LISTENED_QUEUE
 from httpx import AsyncClient
 from sqlalchemy.exc import OperationalError
@@ -122,5 +122,7 @@ class TestSandboxDoesNotSpend:
         """Задача из очереди обязана проверять то же, что консольная команда:
         мимо неё идёт тот же прогон и те же деньги."""
         source = Path(jobs.__file__ or "").read_text(encoding="utf-8")
-        assert "check_collect()" in source
+        # Тело задачи прогона — своим модулем (`workers/run_job`), вход очереди — в `jobs`.
+        run = Path(run_job.__file__ or "").read_text(encoding="utf-8")
+        assert "check_collect()" in run
         assert "check_storage()" in source

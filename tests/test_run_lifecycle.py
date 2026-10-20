@@ -345,6 +345,31 @@ class TestFailureIsNamed:
         )
         assert run.stats["failure"] == self.TRACE_LINE
 
+    async def test_competitor_run_is_resumed_by_its_saved_lists(
+        self, session: AsyncSession
+    ) -> None:
+        """У прогона по конкурентам выдачи нет — продолжение идёт по полученным спискам."""
+        run = await _run_row(session, status=RunStatus.RUNNING, silent_for=RESUME_AFTER_SEC + 10)
+        # Запросом, а не через объект: запись объекта сама обновила бы отметку молчания.
+        await session.execute(
+            update(RunModel)
+            .where(RunModel.id == run.id)
+            .values(
+                competitors={"targets": ["example.com"], "depth": 100}, updated_at=run.updated_at
+            )
+        )
+        await session.refresh(run)
+
+        await recover(
+            RunRepository(session),
+            alive=lambda _: False,
+            enqueue=Enqueued(),
+            failure=lambda _: self.TRACE_LINE,
+        )
+        await session.refresh(run)
+
+        assert run.stats["причина"].endswith("прогон продолжен по сохранённым спискам конкурентов")
+
     async def test_our_refusal_is_told_in_its_own_words(self, session: AsyncSession) -> None:
         """Наш отказ сам говорит, что делать: он и становится причиной."""
         run = await _run_row(session, status=RunStatus.RUNNING, silent_for=RESUME_AFTER_SEC + 10)
