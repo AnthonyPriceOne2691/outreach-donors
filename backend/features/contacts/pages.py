@@ -373,6 +373,9 @@ class PageFetcher:
         #: Почему страница не открылась — словами, последний отказ. Нужен исходу,
         #: когда не открылась ни одна: «адреса нет» без причины прятал «сайт не пустил».
         self.refusal = ""
+        #: Заголовок последней страницы проверки «вы не робот» — её называет разбор главной
+        #: (`donors/home_signals.check_home`: «заглушка защиты: …»).
+        self.challenge_title = ""
 
     @property
     def exhausted(self) -> bool:
@@ -399,6 +402,8 @@ class PageFetcher:
             # такую страницу как пустую главную значило бы записать «адреса нет».
             self.blocked = True
             self.refusal = CHALLENGE
+            title = HTMLParser(html).css_first("title")
+            self.challenge_title = title.text(strip=True) if title is not None else ""
             logger.debug("сайт показал проверку «вы не робот»: %s (%s)", response.url, status)
             return None
         if status >= 400:

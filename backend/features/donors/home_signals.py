@@ -33,7 +33,7 @@ import httpx
 from selectolax.parser import HTMLParser
 
 from backend.config import judge as judge_cfg
-from backend.features.contacts.pages import PageFetcher
+from backend.features.contacts.pages import CHALLENGE, PageFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -408,6 +408,12 @@ async def check_home(client: httpx.AsyncClient, host: str) -> HomeSignals:
     except (httpx.HTTPError, ValueError) as exc:
         logger.info("главная %s не открылась: %r", host, exc)
         return HomeSignals(reached=False, error=type(exc).__name__)
+    if page is None and fetcher.refusal == CHALLENGE:
+        # Страницу проверки «вы не робот» узнаёт сам обход (`pages.is_challenge`) и главной
+        # её не отдаёт; для разбора главной это та же заглушка защиты, что и с кодом 200.
+        return HomeSignals(
+            reached=False, error=f"заглушка защиты: {fetcher.challenge_title[:40]!r}"
+        )
     if page is None:
         return HomeSignals(reached=False, error="закрылась" if fetcher.blocked else "не ответила")
     signals = read_home(page.html)

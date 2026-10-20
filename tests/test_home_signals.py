@@ -198,6 +198,43 @@ async def test_the_word_pardon_alone_is_not_a_stub() -> None:
     assert signals.title == "Presidential Pardon: How Clemency Works | Law Notes"
 
 
+@pytest.mark.parametrize(
+    ("status", "html", "title"),
+    [
+        (
+            200,
+            "<html><head><title>Just a moment...</title></head><body></body></html>",
+            "Just a moment...",
+        ),
+        (
+            403,
+            "<html><head><title>Just a moment...</title></head><body></body></html>",
+            "Just a moment...",
+        ),
+        (
+            202,
+            "<html><head><script>window.gokuProps = {};</script>"
+            "<script src='https://x.token.awswaf.com/x/challenge.js'></script></head><body></body></html>",
+            "",
+        ),
+    ],
+    ids=["Cloudflare 200", "Cloudflare 403", "AWS WAF 202"],
+)
+async def test_challenge_the_walk_recognised_is_still_a_protection_stub(
+    status: int, html: str, title: str
+) -> None:
+    """Страницу проверки «вы не робот» обход узнаёт сам (`pages.is_challenge`) и главной
+    её не отдаёт — для разбора главной это та же заглушка защиты, со своим заголовком."""
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, html=html, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+        signals = await check_home(client, "closed.example.test")
+
+    assert (signals.reached, signals.error) == (False, f"заглушка защиты: {title!r}")
+
+
 #: Главная с кодом, стилями, меню, вектором и повтором абзаца — образец судьи сегмента продаж
 #: (eval v3 с текстом главной, 20.10.2026).
 LAW_FIRM = """<html lang="ru"><head><title>Юрист Плюс — юридические услуги</title>
