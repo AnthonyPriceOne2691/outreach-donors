@@ -1082,19 +1082,19 @@
       "worst": "—"
     },
     "backend/features/core/models/_mixins.py": {
-      "lines": 57,
+      "lines": 65,
+      "complexity": 2,
+      "worst": "sql_enum:16"
+    },
+    "backend/features/core/models/access.py": {
+      "lines": 80,
       "complexity": 0,
       "worst": "—"
     },
-    "backend/features/core/models/access.py": {
-      "lines": 84,
-      "complexity": 2,
-      "worst": "_enum:28"
-    },
     "backend/features/core/models/advertiser.py": {
-      "lines": 84,
-      "complexity": 2,
-      "worst": "_enum:34"
+      "lines": 80,
+      "complexity": 0,
+      "worst": "—"
     },
     "backend/features/core/models/advertisers.py": {
       "lines": 132,
@@ -1102,7 +1102,7 @@
       "worst": "in_force:129"
     },
     "backend/features/core/models/agent.py": {
-      "lines": 136,
+      "lines": 131,
       "complexity": 0,
       "worst": "—"
     },
@@ -1112,9 +1112,9 @@
       "worst": "—"
     },
     "backend/features/core/models/crawl.py": {
-      "lines": 145,
-      "complexity": 2,
-      "worst": "_enum:29"
+      "lines": 141,
+      "complexity": 0,
+      "worst": "—"
     },
     "backend/features/core/models/domain.py": {
       "lines": 109,
@@ -1122,14 +1122,14 @@
       "worst": "—"
     },
     "backend/features/core/models/donor.py": {
-      "lines": 183,
-      "complexity": 2,
-      "worst": "_enum:34"
+      "lines": 179,
+      "complexity": 0,
+      "worst": "—"
     },
     "backend/features/core/models/ops.py": {
-      "lines": 158,
-      "complexity": 2,
-      "worst": "_enum:30"
+      "lines": 154,
+      "complexity": 1,
+      "worst": "in_force:145"
     },
     "backend/features/core/models/outgoing_attachment.py": {
       "lines": 64,
@@ -1137,14 +1137,14 @@
       "worst": "—"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 412,
-      "complexity": 2,
-      "worst": "_enum:42"
+      "lines": 406,
+      "complexity": 0,
+      "worst": "—"
     },
     "backend/features/core/models/run.py": {
-      "lines": 157,
-      "complexity": 2,
-      "worst": "_enum:27"
+      "lines": 153,
+      "complexity": 0,
+      "worst": "—"
     },
     "backend/features/core/stages.py": {
       "lines": 475,

@@ -28,12 +28,11 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.features.core.domain import DraftStatus, Stage
-from backend.features.core.models._mixins import TimestampedMixin
+from backend.features.core.models._mixins import TimestampedMixin, sql_enum
 from backend.shared.database.base import Base
 
 
@@ -43,9 +42,7 @@ class AgentSettingsModel(TimestampedMixin, Base):
     __tablename__ = "agent_settings"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    stage: Mapped[Stage] = mapped_column(
-        SQLEnum(Stage, values_callable=lambda x: [i.value for i in x]), nullable=False
-    )
+    stage: Mapped[Stage] = mapped_column(sql_enum(Stage), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
@@ -96,9 +93,7 @@ class AgentDraftModel(TimestampedMixin, Base):
     )
     #: По какой версии настроек написан.
     settings_id: Mapped[int] = mapped_column(ForeignKey("agent_settings.id"), nullable=False)
-    status: Mapped[DraftStatus] = mapped_column(
-        SQLEnum(DraftStatus, values_callable=lambda x: [i.value for i in x]), nullable=False
-    )
+    status: Mapped[DraftStatus] = mapped_column(sql_enum(DraftStatus), nullable=False)
     #: Текст агента. Пусто — бриф этапа решил не писать (`skipped`) или сразу
     #: отдал ответ человеку (`escalated`), либо модель не вернула годного.
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
