@@ -24,7 +24,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from backend.config import llm as cfg
@@ -99,7 +99,9 @@ class Pool:
     report: PoolReport
 
 
-def build_user_prompt(*, country: str, language: str, angle: Angle, topic: str = "") -> str:
+def build_user_prompt(
+    *, country: str, language: str, angle: Angle, topic: str = "", examples: str = ""
+) -> str:
     """Просьба к модели: рынок, язык, тема и угол.
 
     Требование писать на языке рынка стоит отдельной строкой и с нажимом:
@@ -111,6 +113,10 @@ def build_user_prompt(*, country: str, language: str, angle: Angle, topic: str =
     а не «обзоры про Y в стране X»: прогон по ЮАР с пресетом обзоров
     выдал интернет-провайдеров там, где нужны были ставки. Пустая тема —
     законный исход: широкий пул иногда и нужен.
+
+    **Примеры сайтов — какие сайты ищем, словами их общей темы** (сборка по
+    примерам, `keywords/by_examples.py`), а не их имена: запрос с именем сайта
+    нашёл бы его самого, а не похожих.
     """
     about = (
         f"topic: EVERY query must be about {topic}. Queries about anything else "
@@ -118,10 +124,18 @@ def build_user_prompt(*, country: str, language: str, angle: Angle, topic: str =
         if topic.strip()
         else ""
     )
+    like = (
+        f"sites we look for: {examples.strip()}\n"
+        "EVERY query must find MORE sites of this kind, not one particular site, brand "
+        "or company.\n"
+        if examples.strip()
+        else ""
+    )
     return (
         f"market/country: {country}\n"
         f"language: {language}\n"
         f"{about}"
+        f"{like}"
         f"CRITICAL: write EVERY query ONLY in {language}, using its native script. "
         f"Do NOT mix in any other language. Examples in the instructions show STYLE only — "
         f"express that intent natively.\n"
@@ -239,9 +253,43 @@ def _log_dry(report: PoolReport, *, collected: list[str], cap: int) -> None:
 class PoolBuilder:
     """Сборка пула для одной пары «рынок и язык»."""
 
-    def __init__(self, client: KeygenClient, *, topics: Sequence[str] = ()) -> None:
+    def __init__(
+        self,
+        client: KeygenClient,
+        *,
+        topics: Sequence[str] = (),
+        examples: str = "",
+        language_topics: Mapping[str, str] | None = None,
+    ) -> None:
         self._client = client
         self._topics = _clean_list(topics) or ("",)
+        #: Какие сайты ищем — словами общей темы примеров (`build_user_prompt`).
+        self._examples = examples
+        #: Тема ниши на каждом языке рынка (сборка по примерам): пара «тема × язык» —
+        #: одна на язык, а не все со всеми. Тема на чужом языке рядом со словами
+        #: футпринта дала бы запрос на двух языках («home renovation écrire pour nous»).
+        self._language_topics = dict(language_topics or {})
+
+    def _pairs(self, languages: Sequence[str]) -> list[tuple[str, str]]:
+        """Сочетания «тема × язык»: все со всеми или тема своего языка."""
+        if not self._language_topics:
+            return _combinations(self._topics, languages)
+        langs = _clean_list(languages) or ("English",)
+        return [(self._language_topics.get(language, ""), language) for language in langs]
+
+    def check(self, *, cap: int, languages: Sequence[str], preset_name: str | None) -> None:
+        """Отказы сборки, которые не ждут модели, — без единого вызова: набора нет,
+        доля на сочетание тонка, у языка рынка нет футпринтов.
+
+        Сборка по примерам зовёт это до главных и до вызова о теме: тот же отказ после
+        них стоил бы минуты ожидания и токенов, а ответ был бы тот же.
+        """
+        angles = preset(preset_name)
+        combinations = self._pairs(languages)
+        _refuse_if_too_thin(cap, combinations)
+        if angles[0].footprints:
+            for _, language in combinations:
+                templates_for(language)
 
     async def build(
         self,
@@ -257,7 +305,7 @@ class PoolBuilder:
         схлопывается сразу, а не после того, как за неё дважды заплатили.
         """
         angles = preset(preset_name)
-        combinations = _combinations(self._topics, languages)
+        combinations = self._pairs(languages)
         report = _new_report(combinations, cap=cap, country=country, preset_name=preset_name)
         if cap <= 0:
             return Pool(keywords=[], report=report)
@@ -369,7 +417,11 @@ class PoolBuilder:
             Ask(
                 system=system,
                 user=build_user_prompt(
-                    country=country, language=language, angle=angle, topic=topic
+                    country=country,
+                    language=language,
+                    angle=angle,
+                    topic=topic,
+                    examples=self._examples,
                 ),
                 max_phrases=request,
             )
