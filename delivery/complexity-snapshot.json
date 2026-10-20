@@ -3127,7 +3127,7 @@
       "worst": "main:127"
     },
     "scripts/ui_screens.py": {
-      "lines": 477,
+      "lines": 436,
       "complexity": 2,
       "worst": "open_reason:25"
     },
@@ -3140,6 +3140,11 @@
       "lines": 116,
       "complexity": 1,
       "worst": "build_from_examples:52"
+    },
+    "scripts/ui_screens_letters.py": {
+      "lines": 90,
+      "complexity": 1,
+      "worst": "open_letter_draft:30"
     },
     "scripts/ui_screens_mail.py": {
       "lines": 370,
