@@ -226,6 +226,8 @@ def run_stats(
             "by_intent": dict(summary.by_intent),
             "by_decider": dict(summary.by_decider),
             "home_unreached": summary.home_unreached,
+            # Судить было не по чему — ни выдачи, ни главной: вердикта нет, судится снова.
+            "no_text": summary.no_text,
             "from_index": summary.from_index,
             "tokens": summary.tokens,
             # В наблюдении это «сэкономил бы», во включённом — «сэкономил».

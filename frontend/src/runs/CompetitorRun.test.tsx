@@ -251,4 +251,33 @@ describe('история прогонов', () => {
     const word = await screen.findByText('конкурента');
     expect(word.parentElement).toHaveAttribute('title', 'example.com, example.net');
   });
+
+  it('судить было нечем — числом меткой, а не молча «посмотри»', async () => {
+    const run = {
+      id: 33,
+      status: 'done',
+      country: 'us',
+      keywords: 0,
+      estimated_units: 9900,
+      actual_units: 6100,
+      estimate_error: -0.38,
+      stats: { judge: { mode: 'shadow', judged: 40, no_text: 3, would_cut: 0 } },
+      started_at: '2026-10-20T10:00:00Z',
+      alive_at: '2026-10-20T10:40:00Z',
+      hosts: 43,
+      reviewed: 0,
+      disagreements: 0,
+      queue: {},
+      reason: null,
+      started_by: null,
+      competitors: ['example.com'],
+    };
+    await openRun({ 'GET /api/runs?page=1': history([run]) });
+
+    const badge = await screen.findByText('судить нечем: 3');
+    expect(badge.closest('[title]')).toHaveAttribute(
+      'title',
+      'Ни текста выдачи, ни главной — вердикта нет, следующий прогон судит снова',
+    );
+  });
 });

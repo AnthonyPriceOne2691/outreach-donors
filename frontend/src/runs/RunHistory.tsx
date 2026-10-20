@@ -114,6 +114,26 @@ function JudgeSilence({ run }: { run: { stats: Record<string, unknown> | null } 
   );
 }
 
+/** Судить было не по чему — ни текста выдачи, ни главной: у этих доменов вердикта нет, и
+ *  следующий прогон судит их снова (ревью 20.10.2026). Меткой, как неответ модели: иначе
+ *  такие домены читались бы судом «посмотри». */
+function JudgeBlind({ run }: { run: { stats: Record<string, unknown> | null } }) {
+  const judge = run.stats?.['judge'];
+  if (typeof judge !== 'object' || judge === null) return null;
+  const blind = (judge as Record<string, unknown>)['no_text'];
+  if (typeof blind !== 'number' || blind === 0) return null;
+  return (
+    <Badge
+      variant="light"
+      size="sm"
+      color="red"
+      title="Ни текста выдачи, ни главной — вердикта нет, следующий прогон судит снова"
+    >
+      судить нечем: {blind}
+    </Badge>
+  );
+}
+
 /** Ключи, выдачу по которым провайдер не отдал: заплачено, а не пришло.
  *  Отдельно от «ничего не нашлось» (25.09.2026): раньше они сливались,
  *  и прогон, у которого провайдер не успел, выглядел прогоном по неудачным
@@ -277,6 +297,7 @@ function HistoryRow({ run, from }: { run: RunCard; from: string }) {
           <Text size="sm">отрезал бы {judgeCut(run)}</Text>
         )}
         <JudgeSilence run={run} />
+        <JudgeBlind run={run} />
         <TopicSilence run={run} />
         {/* Цвет несёт значок, а не текст: янтарь — «нужно внимание»,
             и на подложке значка чернила держат норму контраста. */}
