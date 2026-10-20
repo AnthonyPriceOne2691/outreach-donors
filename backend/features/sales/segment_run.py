@@ -214,6 +214,7 @@ async def _judge(
         client=deps.judge,
         home=deps.home,
         now=now,
+        letters=run.language,
     )
     left = await judge_waiting(session, run.id)
     run.report = {

@@ -74,6 +74,9 @@ class Decider(StrEnum):
     RULE = "rule"  # правило до модели: стоп-лист, «кому не пишем» по имени, пустой текст, отказ
     MODEL = "model"  # модель по тексту сайта
     HUMAN = "human"  # сотрудник на экране прогона
+    # Язык сайта не тот, что у писем прогона (`segment_language`): вердикт кода, а не модели, и не
+    # жёсткое правило — режим решает с ним, как с отказом модели (`segment_judge.effective`).
+    LANGUAGE = "language"
 
 
 class Stage(StrEnum):

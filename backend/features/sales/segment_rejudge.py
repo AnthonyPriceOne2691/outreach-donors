@@ -275,7 +275,14 @@ async def rejudge(
     sink = Rejudged(run_id, block, tally, before)
     sites = await _cut_stoplisted(session, await _todo(session, block), sink, moment)
     ask = Ask(
-        segment, JudgeMode(run.mode), deps.judge, deps.home, moment, cached=False, stored_text=True
+        segment,
+        JudgeMode(run.mode),
+        deps.judge,
+        deps.home,
+        moment,
+        cached=False,
+        stored_text=True,
+        letters=run.language,
     )
     await judge_sites(session, sites, ask, sink, tally)
     await sink.flush(session, moment)

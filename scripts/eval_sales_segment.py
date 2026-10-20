@@ -5,111 +5,113 @@
     python scripts/eval_sales_segment.py                      # синтетика из репозитория
     python scripts/eval_sales_segment.py --golden             # внешний набор: $SALES_SEGMENT_GOLDEN_DIR
     python scripts/eval_sales_segment.py --spoil              # порча: снято правило дословной цитаты
-    python scripts/eval_sales_segment.py --spoil no           # порча: снято определение «no»
-    python scripts/eval_sales_segment.py --spoil about        # порча: снято правило v2 — это промпт v1
+    python scripts/eval_sales_segment.py --spoil about        # порча: снято правило v2
+    python scripts/eval_sales_segment.py --spoil unseen       # порча: «не видно» — снова «нет», как в v2
+    python scripts/eval_sales_segment.py --prompt-file v2.md --no-home --no-language   # замер v2
+    python scripts/eval_sales_segment.py --golden --fetch-home homes.jsonl            # дочитать главные
+    python scripts/eval_sales_segment.py --golden --home homes.jsonl --home-chars 800  # с текстом главной
     python scripts/eval_sales_segment.py --effort minimal     # другое усилие рассуждения — замер
     python scripts/eval_sales_segment.py --out run.json       # итог ещё и файлом
     python scripts/eval_sales_segment.py --export-run 12 --out set.jsonl   # сайты прогона — в разметку
 
 **Случай** — сайт, как его видел судья: гипотеза, описание сегмента, по которому размечено,
-домен, текст сайта строками с подписями (`Заголовок в выдаче: …`, `Меню главной: …` — тот же
+домен, текст сайта строками с подписями (`Заголовок в выдаче: …`, `Текст главной: …` — тот же
 вид, что хранится у кандидата сбора), решение человека `expect` — `yes`, `no` или `unsure`,
 а когда человек сам не уверен — `yes|unsure` или `no|unsure`: верен любой из двух ответов,
-и `evidence` — слова сайта, на которых решение стоит. Судья — тот же, что у прогона
-(`segment_judge.decide`): правила до модели, модель, дословная цитата; меряется его полоса
-без режима `SALES_SEGMENT_JUDGE_MODE` — режим решает, резать ли, а мерить надо, прав ли судья.
+`evidence` — слова сайта, на которых решение стоит, и `letters` — язык писем (у живого набора —
+полем манифеста): сайт уверенно на другом языке судья отдаёт в «отказал бы» без модели
+(`segment_judge.by_language`). Судья — тот же, что у прогона (`segment_judge.decide`): правила до
+модели, язык, модель, дословная цитата; меряется его полоса без режима `SALES_SEGMENT_JUDGE_MODE`.
 
-В репозитории — синтетика (`scripts/data/sales_segment_synthetic.jsonl`), выдуманная: ниши и
-языки разные, ловушки «сайт о бизнесах вида» (справочник, карта, реестр, площадка, тендеры,
-вакансии, агрегатор, новости, обзор — метка `about-businesses`) и под строгим описанием, и под
-нестрогим («сайты, связанные с …», метка `loose`), контрольные сегменты, которые сами просят
-справочники и площадки (метка `control`). Живой набор — от 40 размеченных сайтов на гипотезу —
-вне репозитория (он публичный): манифест `scripts/data/sales_segment_golden.manifest.json`
-называет файл, число случаев, хэш, дату и базовые метрики. Набора нет, он не тот, мал или не
-закреплён в манифесте (нет числа и хэша) — красный, а не «0 расхождений». Сайты для разметки
-даёт `--export-run N`: кандидаты прогона с текстом, который видел судья, без вердикта судьи
-(размечающий его не видит) и с пустым `expect`.
+В репозитории — синтетика (`scripts/data/sales_segment_synthetic.jsonl`), выдуманная: ниши,
+языки и письменности разные; ловушки «сайт о бизнесах вида» (метка `about-businesses`) под строгим
+и нестрогим описанием (`loose`), контрольные сегменты, которые сами просят справочники (`control`);
+под v3 — признак сегмента не виден (`unseen`, `in-addition`) и прямое противоречие
+(`contradiction`), посредники по сигналам текста (`intermediary`) и свои формы и калькуляторы
+(`intermediary-lookalike`), язык сайта (`language`, двуязычный — `bilingual`) и вид сайта, который
+показывает только текст главной (`home-text`). Живой набор — вне репозитория (он публичный):
+манифест `scripts/data/sales_segment_golden.manifest.json` называет файл, число случаев, хэш, дату,
+язык писем, метки случаев без разметки и базу метрик (наборы — `eval_sales_segment_sets.py`).
 
 **Метрики при `yes|unsure` и `no|unsure`:** случай с `yes` среди ответов — в знаменателе
 полноты «принять» и ложных «отказ», с `no` — полноты «отказ»; без `yes` — ложных «принять».
-Верный ответ (любой из двух) — попадание в полноту; «принять» без `yes` среди ответов — ложное
-«принять», «отказ» при `yes` среди ответов — ложный «отказ». Так `no|unsure`, принятый судьёй, —
-ложное «принять», а «на проверку» — не промах.
+Ложные «отказ» — ещё и по классу: язык сайта (`by_language`), посредник (модель назвала вид
+`intermediary`), правило, остальное — сегмент. Доли полос — по всем случаям, с разметкой и без:
+**вариант (b)** — «на проверку» только сомнительные (`to_human`), отказы судьи — отдельно
+(`would_reject`); в нынешнем наблюдении на проверку идут и те и другие (`to_human_shadow`).
 
 **Ворота — предложение, решает владелец:** ложных «принять» среди неподходящих — не больше 5 %
 (такой сайт стал бы лидом без человека), ложных «отказ» среди подходящих — не больше 10 %,
 полнота «принять» и «отказ» — не ниже 70 % (иначе всё уходит человеку и судья не нужен).
 
-**Порча** (`--spoil`) снимает строку правила из промпта (`RULES`): на живой модели eval обязан
-покраснеть — итог говорит словами, поймана ли порча. По умолчанию — дословная цитата: без неё
-цитаты пересказаны и всё уходит человеку. `about` — правило v2 «сайт о бизнесах вида — не
-бизнес вида»: без него промпт — ровно v1, и ложные «принять» на ловушках `about-businesses`
-печатаются отдельной строкой. Обратный прогон пишется файлом (`--out`) и ложится в
-verify-report среза.
+**Порча** (`--spoil`) снимает строку правила из промпта (`RULES`) или ставит вместо неё прежнюю
+(`SPOILED_WITH`): на живой модели eval обязан покраснеть — итог говорит словами, поймана ли порча, а
+ошибки на ловушках правила (`RULE_TAGS`) печатает отдельной строкой. Обратный прогон пишется файлом
+(`--out`) и ложится в verify-report среза.
 
-**Усилие рассуждения** (`--effort`) — вместо продуктового (`segment_judge.REASONING_EFFORT`) на
-время eval: замер до правки продукта — тот же набор при `low` и `minimal`, ворота и токены рядом.
-Токены — всего и раздельно (ввод, вывод, сколько из вывода — рассуждение, «раздельно
-неизвестно»): рассуждение идёт в счёт вывода, а у вывода своя цена.
+**Усилие рассуждения** (`--effort`) — вместо продуктового на время eval. Токены — всего, раздельно
+(ввод, вывод, сколько из вывода — рассуждение, «раздельно неизвестно») и на вызов модели.
 
-Модель зовётся по-настоящему — нужен `LLM_API_KEY`; запускает координатор по слову владельца.
-Механика ворот — `tests/test_sales_segment_eval.py` на подставной модели.
+Модель зовётся по-настоящему — нужен `LLM_API_KEY`. Механика — `tests/test_sales_segment_eval*.py`
+на подставной модели.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import dataclasses
-import hashlib
 import json
 import sys
 from collections import Counter
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from operator import attrgetter
 from pathlib import Path
 from typing import Any
 
 from backend.config import sales as sales_cfg
-from backend.config import storage
-from backend.features.core.models.domain import DomainModel
 from backend.features.sales import segment_judge as sj
-from backend.features.sales.models import SalesHypothesisModel as H
+from backend.features.sales import segment_language
 from backend.features.sales.segment_judge import SegmentClient, SegmentVerdict, SiteText
-from backend.features.sales.segment_models import Lane
-from backend.features.sales.segment_models import SalesSegmentCandidateModel as C
 from backend.features.sales.segment_window import SPLIT_TOKENS, JudgeTally
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from scripts.eval_sales_segment_home import (
+    HomesError,
+    fetched_to,
+    read_homes,
+    with_home,
+    without_home,
+)
+from scripts.eval_sales_segment_metrics import Result, metrics
+from scripts.eval_sales_segment_sets import SetError, export_to, golden, load
 
 DATA = Path(__file__).parent / "data"
 SYNTHETIC = DATA / "sales_segment_synthetic.jsonl"
 MANIFEST = DATA / "sales_segment_golden.manifest.json"
-#: Решение человека → полоса, которую ждём от судьи.
-WANTED = {"yes": Lane.ACCEPT, "no": Lane.REJECT, "unsure": Lane.REVIEW}
-#: Что можно написать в `expect`: решение или пара «решение|не понять» — верен любой ответ пары.
-EXPECTS = (*WANTED, "yes|unsure", "no|unsure")
 #: Правила, которые снимает порча, — якорь строки в промпте: строка с ним одна.
 RULES = {
     "quote": '"quote" must be copied verbatim',
     "no": '- "no": ',
     "about": "- Judge what the site is, not what it writes about.",
+    "unseen": "- The core of the segment is the kind of business it describes",
+    "intermediary": '- Intermediaries are "no" in any field of business',
+}
+#: Порча, которая ставит вместо правила прежнюю строку: без «не видно» — правило v2 о стране.
+SPOILED_WITH = {
+    "unseen": "- Language, country or size of the site matter only when the segment names them.",
 }
 RULE_WORDS = {
     "quote": "дословная цитата",
     "no": "определение «не подходит»",
     "about": "сайт о бизнесах вида — не бизнес вида",
+    "unseen": "признак сегмента, которого нет в тексте, — «не видно», а не «нет»",
+    "intermediary": "посредники — «нет» по сигналам в тексте",
 }
-#: Случаи, которые держит правило, — метка набора: их ложные «принять» печатаются отдельно.
-RULE_TAGS = {"about": "about-businesses"}
+#: Случаи, которые держит правило, — метка набора: их ошибки печатаются отдельно.
+RULE_TAGS = {"about": "about-businesses", "unseen": "unseen", "intermediary": "intermediary"}
 #: Усилия рассуждения, которые eval берёт вместо продуктового (`--effort`).
 EFFORTS = ("minimal", "low", "medium", "high")
-
-
-class SetError(RuntimeError):
-    """Набор не прочитан: нет файла, не тот хэш или число случаев, битый случай."""
+#: Сайтов к модели разом: замер, а не прогон — скромнее окна судьи (`SALES_SEGMENT_JUDGE_CONCURRENCY`).
+AT_ONCE = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,100 +122,16 @@ class Gates:
     reject_recall_min: float = 0.70
 
 
-@dataclass(frozen=True, slots=True)
-class Result:
-    case_id: str
-    hypothesis: str
-    expect: str
-    lane: str
-    reason: str
-    quote: str | None
-    decided_by: str
-    unanswered: bool
-    tokens: int
-    #: Те же токены раздельно (`segment_window.SPLIT_TOKENS`): ввод, вывод, «раздельно
-    #: неизвестно», сколько из вывода — рассуждение.
-    split: dict[str, int] = dataclasses.field(default_factory=dict)
-    tags: tuple[str, ...] = ()
-
-    @property
-    def answers(self) -> frozenset[str]:
-        """Верные ответы судьи: решение человека или любой из пары `yes|unsure`, `no|unsure`."""
-        return frozenset(self.expect.split("|"))
-
-    @property
-    def right(self) -> bool:
-        return self.lane in {WANTED[answer] for answer in self.answers}
-
-    @property
-    def false_accept(self) -> bool:
-        """Неподходящий сайт принят без человека — он стал бы лидом."""
-        return "yes" not in self.answers and self.lane == Lane.ACCEPT
-
-    @property
-    def false_reject(self) -> bool:
-        """Подходящий сайт отсечён — в `enforce` потерянный лид."""
-        return "yes" in self.answers and self.lane == Lane.REJECT
-
-
-# --- наборы ---------------------------------------------------------------------------------
-
-
-def _checked(case: dict[str, Any]) -> dict[str, Any]:
-    for key in ("id", "hypothesis", "segment", "host", "text"):
-        if not isinstance(case.get(key), str):
-            raise SetError(f"{case.get('id')}: нет поля {key}")
-    if case.get("expect") not in EXPECTS:
-        raise SetError(f"{case['id']}: не размечен — expect: {' | '.join(EXPECTS)}")
-    return case
-
-
-def load(path: Path) -> list[dict[str, Any]]:
-    if not path.is_file():
-        raise SetError(f"набор не найден: {path}")
-    lines = path.read_text(encoding="utf-8").splitlines()
-    return [_checked(json.loads(line)) for line in lines if line.strip()]
-
-
-def golden(directory: str, manifest: Path | None = None) -> list[dict[str, Any]]:
-    """Внешний набор по манифесту: файл, число случаев, хэш и размер на гипотезу. Набор, не
-    закреплённый в манифесте числом и хэшем, не судится: не тот файл прошёл бы молча."""
-    spec = json.loads((manifest or MANIFEST).read_text(encoding="utf-8"))
-    if not directory:
-        raise SetError(f"набор не найден: задайте {spec['env']} — каталог вне репозитория")
-    path = Path(directory) / spec["file"]
-    cases = load(path)
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    print(f"Набор {path}: случаев {len(cases)}, sha256 {digest}")
-    _pinned(spec, len(cases), digest)
-    least = int(spec["per_hypothesis"]["min"])
-    sizes = Counter(case["hypothesis"] for case in cases)
-    if small := {name: count for name, count in sizes.items() if count < least}:
-        raise SetError(f"набор мал: {small} — на гипотезу нужно не меньше {least} сайтов")
-    if base := spec.get("baseline"):
-        print(f"База манифеста: {json.dumps(base, ensure_ascii=False)}")
-    return cases
-
-
-def _pinned(spec: dict[str, Any], count: int, digest: str) -> None:
-    """Набор — тот, что закреплён в манифесте числом случаев и хэшем; не закреплён — отказ."""
-    if not spec.get("sha256") or not spec.get("count"):
-        raise SetError(
-            f"набор не закреплён в манифесте: впишите count {count} и sha256 {digest} "
-            "(их напечатала эта проверка), когда набор утверждён"
-        )
-    if spec["sha256"] != digest:
-        raise SetError(f"набор не тот, что в манифесте: sha256 {digest} ≠ {spec['sha256']}")
-    if spec["count"] != count:
-        raise SetError(f"набор не тот, что в манифесте: случаев {count} ≠ {spec['count']}")
-
-
 def without_rule(prompt: str, rule: str) -> str:
-    """Промпт без строки правила `rule` (`RULES`) — порча для обратного прогона."""
-    kept = [line for line in prompt.splitlines() if RULES[rule] not in line]
-    if len(kept) == len(prompt.splitlines()):
+    """Промпт без строки правила `rule` (`RULES`) — или с прежней строкой вместо неё
+    (`SPOILED_WITH`): порча для обратного прогона."""
+    instead = SPOILED_WITH.get(rule)
+    lines = prompt.splitlines()
+    kept = [instead if RULES[rule] in line else line for line in lines]
+    spoiled = [line for line in kept if line is not None]
+    if all(RULES[rule] not in line for line in lines):
         raise SetError(f"в промпте нет правила «{RULE_WORDS[rule]}» — портить нечего")
-    return "\n".join(kept)
+    return "\n".join(spoiled)
 
 
 # --- прогон ------------------------------------------------------------------------------------
@@ -239,68 +157,44 @@ def effort(chosen: str | None) -> Iterator[str]:
 
 
 async def run(
-    cases: Iterable[dict[str, Any]], client: SegmentClient, *, system: str | None = None
+    cases: Iterable[dict[str, Any]],
+    client: SegmentClient,
+    *,
+    system: str | None = None,
+    letters: str | None = None,
+    language: bool = True,
 ) -> list[Result]:
-    results = []
-    for case in cases:
-        verdict = await sj.decide(
-            client,
-            host=case["host"],
-            segment=case["segment"],
-            text=SiteText.parse(case["text"]),
-            system=system,
-        )
-        results.append(
-            Result(
-                case["id"],
-                case["hypothesis"],
-                case["expect"],
-                verdict.lane.value,
-                verdict.reason,
-                verdict.quote,
-                verdict.decided_by.value,
-                verdict.unanswered,
-                verdict.tokens,
-                split_of(verdict),
-                tuple(case.get("tags") or ()),
+    """Судья по случаям — до `AT_ONCE` разом, итог в порядке набора. Язык писем — случая, иначе
+    набора (`letters`); `language=False` — без сверки языка, как до v3."""
+    gate = asyncio.Semaphore(AT_ONCE)
+
+    async def one(case: dict[str, Any]) -> Result:
+        async with gate:
+            verdict = await sj.decide(
+                client,
+                host=case["host"],
+                segment=case["segment"],
+                text=SiteText.parse(case["text"]),
+                system=system,
+                letters=(case.get("letters") or letters) if language else None,
             )
+        return Result(
+            case["id"],
+            case["hypothesis"],
+            case["expect"],
+            verdict.lane.value,
+            verdict.reason,
+            verdict.quote,
+            verdict.decided_by.value,
+            verdict.unanswered,
+            verdict.tokens,
+            split_of(verdict),
+            tuple(case.get("tags") or ()),
+            verdict.kind,
+            segment_language.identify(case["text"]),
         )
-    return results
 
-
-def _share(part: int, whole: int) -> float | None:
-    return part / whole if whole else None
-
-
-def _groups(results: list[Result]) -> tuple[list[Result], list[Result], list[Result]]:
-    """Знаменатели: с `yes` среди ответов, без `yes`, с `no` (пары — в шапке модуля)."""
-    fits = [r for r in results if "yes" in r.answers]
-    misfits = [r for r in results if "yes" not in r.answers]
-    cuts = [r for r in results if "no" in r.answers]
-    return fits, misfits, cuts
-
-
-def _rate(group: list[Result], field: str) -> float | None:
-    """Доля случаев группы, у которых признак `field` истинен."""
-    return _share(sum(map(attrgetter(field), group)), len(group))
-
-
-def metrics(results: list[Result]) -> dict[str, Any]:
-    """Числа ворот: полнота «принять» и «отказ», доли ложных — от своего знаменателя (как
-    считаются `yes|unsure` и `no|unsure` — в шапке модуля)."""
-    fits, misfits, cuts = _groups(results)
-    lanes = Counter(r.lane for r in results)
-    return {
-        "cases": len(results),
-        "accept_recall": _rate(fits, "right"),
-        "reject_recall": _rate(cuts, "right"),
-        "false_accept": _rate(misfits, "false_accept"),
-        "false_reject": _rate(fits, "false_reject"),
-        "to_human": _share(lanes[Lane.REVIEW], len(results)),
-        "unanswered": sum(r.unanswered for r in results),
-        "tokens": sum(r.tokens for r in results),
-        **{key: sum(r.split.get(key, 0) for r in results) for key in SPLIT_TOKENS},
-    }
+    return list(await asyncio.gather(*(one(case) for case in cases)))
 
 
 def _percent(value: float | None) -> str:
@@ -326,70 +220,66 @@ def closed(total: dict[str, Any], gates: Gates) -> list[str]:
     return failed
 
 
-def _by_hypothesis(results: list[Result]) -> None:
-    for name in sorted({r.hypothesis for r in results}):
-        part = metrics([r for r in results if r.hypothesis == name])
+def _by(results: list[Result], field: str, title: str) -> None:
+    """Числа по гипотезе (нише) или по языку сайта: v3 не хуже v2 — в каждой, а не в сумме."""
+    print(title)
+    for name in sorted({getattr(r, field) for r in results}):
+        part = metrics([r for r in results if getattr(r, field) == name])
         print(
-            f"  {name}: «принять» {_percent(part['accept_recall'])}, «отказ» "
-            f"{_percent(part['reject_recall'])}, ложных «принять» {_percent(part['false_accept'])}, "
-            f"ложных «отказ» {_percent(part['false_reject'])}, человеку {_percent(part['to_human'])}"
+            f"  {name}: случаев {part['labeled']}, «принять» {_percent(part['accept_recall'])}, "
+            f"«отказ» {_percent(part['reject_recall'])}, ложных «принять» "
+            f"{_percent(part['false_accept'])}, ложных «отказ» {_percent(part['false_reject'])}, "
+            f"человеку {_percent(part['to_human'])}"
         )
+
+
+def _summary(total: dict[str, Any]) -> None:
+    """Классы ошибок, доли полос по варианту (b) и токены — словами."""
+    by = total["false_reject_by"]
+    print(
+        f"Ложных «отказ» по классу: сегмент {by['segment']}, язык {by['language']}, "
+        f"посредник {by['intermediary']}, правило {by['rule']}; «не понять» среди размеченных "
+        f"{_percent(total['unsure'])}; без разметки {total['cases'] - total['labeled']}"
+    )
+    print(
+        f"Вариант (b): на проверку {_percent(total['to_human'])}, судья отказал бы "
+        f"{_percent(total['would_reject'])}; в нынешнем наблюдении на проверку "
+        f"{_percent(total['to_human_shadow'])}"
+    )
+    print(
+        f"Токены: на вызов модели {total['tokens_per_call'] or '—'} (вызовов "
+        f"{total['model_calls']}); вид сайта по модели {total['kinds']}"
+    )
 
 
 def report(results: list[Result], gates: Gates) -> list[str]:
     """Печать итога — всего и по гипотезам. Возвращает нарушенные ворота словами."""
     print(f"Версия промпта: {sj.PROMPT_VERSION}, случаев {len(results)}")
-    _by_hypothesis(results)
+    _by(results, "hypothesis", "По нише (гипотезе):")
+    _by(results, "site_language", "По языку сайта:")
     total = metrics(results)
     print(f"Всего: {total}")
-    wrong = Counter(f"{r.expect}→{r.lane}" for r in results if not r.right)
+    labeled = [r for r in results if r.labeled]
+    wrong = Counter(f"{r.expect}→{r.lane}" for r in labeled if not r.right)
     print(f"Ждали → судья: {dict(wrong)}")
-    dangerous = [r.case_id for r in results if r.false_accept]
+    dangerous = [r.case_id for r in labeled if r.false_accept]
     print(f"ЛОЖНЫХ «ПРИНЯТЬ»: {len(dangerous)} {dangerous or ''}")
-    _traps(results)
+    _summary(total)
+    _traps(labeled)
     return closed(total, gates)
 
 
 def _traps(results: list[Result]) -> None:
-    """Ложные «принять» на случаях, которые держит правило (`RULE_TAGS`), — отдельной строкой:
-    так видно, что сделала порча правила, а что — остальной промпт."""
+    """Ошибки на случаях, которые держит правило (`RULE_TAGS`), — отдельной строкой: так видно,
+    что сделала порча правила, а что — остальной промпт."""
     for rule, tag in RULE_TAGS.items():
         if traps := [r for r in results if tag in r.tags]:
             caught = [r.case_id for r in traps if r.false_accept]
+            cut = [r.case_id for r in traps if r.false_reject]
             print(
                 f"Ловушки правила «{RULE_WORDS[rule]}» ({tag}): ложных «принять» "
-                f"{len(caught)} из {len(traps)} {caught or ''}"
+                f"{len(caught)} из {len(traps)} {caught or ''}; ложных «отказ» {len(cut)} {cut or ''}"
             )
-
-
-# --- выгрузка сайтов прогона в разметку ------------------------------------------------------
-
-
-async def cases_of_run(session: AsyncSession, run_id: int) -> list[dict[str, Any]]:
-    """Сайты прогона — случаями без решения: размечает человек (`expect`, `evidence`). Вердикта
-    судьи в заготовке нет: размечающий его не видит, иначе разметка повторила бы судью."""
-    rows = await session.execute(
-        select(C.id, H.name, H.description, DomainModel.host, C.site_text)
-        .join(DomainModel, DomainModel.id == C.domain_id)
-        .join(H, H.id == C.hypothesis_id)
-        .where(C.run_id == run_id, C.site_text.is_not(None))
-        .order_by(C.id)
-    )
-    return [
-        {"id": f"run{run_id}-{cid}", "hypothesis": name, "segment": segment or "", "host": host,
-         "text": text, "expect": None, "evidence": "", "labeled_by": "", "labeled_at": "", "tags": []}
-        for cid, name, segment, host, text in rows.tuples()
-    ]  # fmt: skip
-
-
-async def _export(run_id: int) -> list[dict[str, Any]]:
-    """Заготовка разметки прогона из базы настроек (`STORAGE_DSN`)."""
-    engine = create_async_engine(storage.DSN)
-    try:
-        async with async_sessionmaker(engine)() as session:
-            return await cases_of_run(session, run_id)
-    finally:
-        await engine.dispose()
 
 
 # --- запуск --------------------------------------------------------------------------------------
@@ -406,27 +296,27 @@ def _args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--out", type=Path, default=None, help="итог файлом JSON / выгрузка JSONL")
     parser.add_argument("--export-run", type=int, default=None, help="сайты прогона — в разметку")
+    parser.add_argument("--prompt-file", type=Path, default=None, help="промпт вместо продуктового")
+    parser.add_argument("--no-home", action="store_true", help="без строки «Текст главной»")
+    parser.add_argument("--no-language", action="store_true", help="без сверки языка сайта")
+    parser.add_argument("--letters", default=None, help="язык писем вместо языка набора")
+    parser.add_argument("--home", type=Path, default=None, help="дочитанные главные к набору")
+    parser.add_argument("--home-chars", type=int, default=None, help="потолок текста главной")
+    parser.add_argument("--fetch-home", type=Path, default=None, help="дочитать главные в файл")
+    parser.add_argument("--manifest", type=Path, default=None, help="манифест другого набора")
     return parser.parse_args(argv)
 
 
 async def _evaluate(
-    cases: list[dict[str, Any]], args: argparse.Namespace, system: str | None
+    cases: list[dict[str, Any]], args: argparse.Namespace, system: str | None, letters: str | None
 ) -> list[Result]:
     client = SegmentClient(model=args.model)
     try:
-        return await run(cases, client, system=system)
+        return await run(
+            cases, client, system=system, letters=letters, language=not args.no_language
+        )
     finally:
         await client.aclose()
-
-
-def _export_to(run_id: int, out: Path | None) -> int:
-    if out is None:
-        print("Выгрузке нужен файл: --out set.jsonl")
-        return 2
-    cases = asyncio.run(_export(run_id))
-    out.write_text("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in cases), "utf-8")
-    print(f"Сайтов прогона №{run_id} к разметке: {len(cases)} → {out}")
-    return 0
 
 
 def _written(args: argparse.Namespace, results: list[Result], failed: list[str]) -> None:
@@ -434,9 +324,12 @@ def _written(args: argparse.Namespace, results: list[Result], failed: list[str])
     if args.out is None:
         return
     spoiled = f"+spoiled-{args.spoil}" if args.spoil else ""
+    prompt = f"file:{args.prompt_file.name}" if args.prompt_file else sj.PROMPT_VERSION
     payload = {
-        "prompt_version": sj.PROMPT_VERSION + spoiled,
+        "prompt_version": prompt + spoiled,
         "reasoning_effort": args.effort or sj.REASONING_EFFORT,
+        "home_text": not args.no_home,
+        "language": not args.no_language,
         "metrics": metrics(results),
         "failed": failed,
         "results": [asdict(r) for r in results],
@@ -455,23 +348,50 @@ def _spoil_caught(rule: str, failed: list[str]) -> str:
     )
 
 
+def _cases(args: argparse.Namespace, golden_dir: str) -> tuple[list[dict[str, Any]], str | None]:
+    """Случаи набора — с текстом главной или без — и язык писем набора."""
+    letters = args.letters
+    if args.golden:
+        cases, spec = golden(golden_dir, args.manifest or MANIFEST)
+        letters = letters or spec.get("letters")
+    else:
+        cases = load(Path(args.path))
+    if args.home is not None:
+        limit = sales_cfg.SEGMENT_HOME_TEXT_CHARS if args.home_chars is None else args.home_chars
+        cases = with_home(cases, read_homes(args.home), limit)
+        print(f"Текст главной: до {limit} знаков из {args.home}")
+    if args.no_home:
+        cases = without_home(cases)
+    return cases, letters
+
+
+def _system(args: argparse.Namespace) -> str | None:
+    """Промпт вместо продуктового: файл (`--prompt-file`) — и/или с порчей (`--spoil`)."""
+    prompt = args.prompt_file.read_text(encoding="utf-8").strip() if args.prompt_file else None
+    if args.spoil is None:
+        return prompt
+    return without_rule(prompt or sj.load_prompt(), args.spoil)
+
+
 def main(argv: list[str], *, golden_dir: str | None = None) -> int:
     args = _args(argv)
     if args.export_run is not None:
-        return _export_to(args.export_run, args.out)
+        return export_to(args.export_run, args.out)
     where = sales_cfg.SEGMENT_GOLDEN_DIR if golden_dir is None else golden_dir
     try:
-        cases = golden(where) if args.golden else load(Path(args.path))
-        system = None if args.spoil is None else without_rule(sj.load_prompt(), args.spoil)
-    except SetError as exc:
+        cases, letters = _cases(args, where)
+        if args.fetch_home is not None:
+            return fetched_to(cases, args.fetch_home)
+        system = _system(args)
+    except (SetError, HomesError) as exc:
         print(f"НАБОР НЕ ПРОЧИТАН: {exc}")
         return 1
-    if system is not None:
+    if args.spoil is not None:
         print(f"ПОРЧА ПРОМПТА: снято правило «{RULE_WORDS[args.spoil]}» — ворота обязаны закрыться")
     product = sj.REASONING_EFFORT
     with effort(args.effort) as chosen:
-        print(f"Усилие рассуждения: {chosen} (у судьи прогона — {product})")
-        results = asyncio.run(_evaluate(cases, args, system))
+        print(f"Усилие рассуждения: {chosen} (у судьи прогона — {product}); язык писем: {letters}")
+        results = asyncio.run(_evaluate(cases, args, system, letters))
     failed = report(results, Gates())
     _written(args, results, failed)
     if args.spoil is not None:

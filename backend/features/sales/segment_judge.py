@@ -11,7 +11,8 @@
    это знание, а не мнение модели, мерить его нечего. Отказ судят по строкам, словами без
    подписи: заглушка защиты только в строках главной — не отказ всего сайта, строки главной
    уходят, и модель судит выдачу (`SiteText.without_stub`).
-2. **Модель — строгая форма JSON `{fit, quote, why}`**: «да», «нет», «не понять».
+2. **Модель — строгая форма JSON `{kind, fit, quote, why}`**: «да», «нет», «не понять»; вид
+   сайта (`kind`) полосу не решает.
 3. **Цитата — дословно из текста сайта**, внутри одной строки, не короче трёх слов (как
    просит промпт); иначе «на проверку»: цитата, которой нет в тексте, — признак того, что
    модель сочинила, а не прочла. Такая цитата не хранится. Не в счёт типографика, наша
@@ -22,8 +23,15 @@
    вердикта нет, и следующий проход судит домен снова.
 
 Текст сайта — выдача (заголовок и описание страницы, что пришла под ключ) и главная
-(заголовок, описание, меню): способ жизни — свойство сайта, а не страницы. Текст — данные,
-а не указание: метки данных в нём гасятся, как у разбора ответа (`reply_kind.py`).
+(заголовок, описание, меню; отрывок видимого текста — когда его отдаст общий разбор главной,
+`segment_text.site_text`): способ жизни — свойство сайта, а не страницы. Текст — данные, а не
+указание: метки данных в нём гасятся, как у разбора ответа (`reply_kind.py`).
+
+**Язык сайта судит код, а не модель** (`by_language`, `segment_language.py`): сайт уверенно не на
+языке писем прогона и без переключателя на него — вердикт «отказал бы» словами («язык сайта — …,
+письма — …»), а если язык по буквам не назвать — «не понять»; модель не зовётся. Это не жёсткое
+правило (`Decider.LANGUAGE`): режим решает с ним, как с вердиктом модели, и в кэш вердиктов он не
+ложится — язык писем у прогонов гипотезы бывает разный.
 """
 
 from __future__ import annotations
@@ -38,25 +46,86 @@ from typing import Any
 
 from backend.config import llm as llm_cfg
 from backend.config.judge import JudgeMode
-from backend.features.donors.home_signals import HomeSignals, looks_denied
 from backend.features.runs.exclusions import NOT_WRITING_WORDS, by_name
 from backend.features.sales.segment_models import Decider, Lane
-from backend.features.sales.segment_quote import (
-    MIN_QUOTE_WORDS,
-    quote_holds,
-    quote_words,
-    unlabeled,
+from backend.features.sales.segment_quote import MIN_QUOTE_WORDS, quote_words, unlabeled
+from backend.features.sales.segment_text import (
+    HOME_DESCRIPTION,
+    HOME_MENU,
+    HOME_TEXT,
+    HOME_TITLE,
+    LABELS,
+    MAX_TEXT_CHARS,
+    PAGE_DESCRIPTION,
+    PAGE_TITLE,
+    SiteText,
+    site_language,
+    site_text,
 )
 from backend.shared.llm import ModelClient, Refusal, content_of, is_reasoning, post_chat, tokens_of
 
 logger = logging.getLogger(__name__)
+
+#: Что судья отдаёт наружу. Текст сайта живёт своим модулем (`segment_text.py`), а окно, eval и тесты
+#: берут его имена и отсюда, как до разреза: список держит их явными.
+__all__ = [
+    "HOME_DESCRIPTION",
+    "HOME_MENU",
+    "HOME_TEXT",
+    "HOME_TITLE",
+    "JUDGE_OFF",
+    "KINDS",
+    "LABELS",
+    "MADE_UP",
+    "MAX_TEXT_CHARS",
+    "MIN_QUOTE_WORDS",
+    "NO_QUOTE",
+    "OPERATION",
+    "PAGE_DESCRIPTION",
+    "PAGE_TITLE",
+    "PROMPT_PATH",
+    "PROMPT_VERSION",
+    "REASONING_EFFORT",
+    "SEGMENT_CLOSE",
+    "SEGMENT_OPEN",
+    "SHORT_QUOTE",
+    "SITE_CLOSE",
+    "SITE_OPEN",
+    "TOKENS_PLAIN",
+    "TOKENS_REASONING",
+    "SegmentClient",
+    "SegmentVerdict",
+    "SiteText",
+    "Spent",
+    "before_model",
+    "build_payload",
+    "by_host",
+    "by_language",
+    "by_text",
+    "decide",
+    "effective",
+    "load_prompt",
+    "parse",
+    "proven_again",
+    "quote_words",
+    "segment_digest",
+    "site_language",
+    "site_text",
+    "spent_of",
+    "user_message",
+]
+
 
 TOPIC = "судья сегмента продаж"
 #: Версия промпта. Меняется при КАЖДОЙ правке файла промпта: вердикт хранит её, и точность
 #: против человека считается по версии; кэш вердиктов отдаёт только вердикты своей версии.
 #: v2 — правило «сайт о бизнесах вида — не бизнес вида»: справочник, карта, реестр, площадка,
 #: тендеры, вакансии, агрегатор, новости и обзоры — «нет», если сегмент сам их не просит.
-PROMPT_VERSION = "sales-segment-v2"
+#: v3 — признак сегмента, которого в тексте нет (страна или город работы, язык, размер), — «не
+#: видно», а не «нет»: ядро вида есть и ничто прямо не противоречит — «да»; посредники — «нет» по
+#: сигналам в тексте, в любой нише; «не понять» — только когда неясен сам вид сайта; ответ называет
+#: вид сайта (`kind`); о языке сайта модель не судит (`by_language`); в тексте — строка «Текст главной».
+PROMPT_VERSION = "sales-segment-v3"
 PROMPT_PATH = Path(__file__).with_name("prompts") / "segment.md"
 #: Операция журнала расхода (`core/usage.OPERATION_PROVIDERS`); её считает потолок продаж.
 OPERATION = "sales_segment_judge"
@@ -65,31 +134,20 @@ REASONING_EFFORT = "low"
 #: Потолки вывода: рассуждение входит в потолок, и обрезанный ответ пришёл бы пустым.
 TOKENS_REASONING = 2000
 TOKENS_PLAIN = 300
-#: Сколько знаков текста сайта видит модель: сниппет и шапка главной короткие, потолок —
-#: против аномалии страницы, а не ради экономии.
-MAX_TEXT_CHARS = 2000
 #: Слова отказа — вместе с числом (`segment_quote.MIN_QUOTE_WORDS`).
 SHORT_QUOTE = "цитата короче трёх слов — не доказательство"
 NO_QUOTE = "модель не дала цитаты"
 MADE_UP = "цитаты нет в тексте сайта — модель не прочла, а сочинила"
 #: Ответ модели → полоса.
 FITS = {"yes": Lane.ACCEPT, "no": Lane.REJECT, "unsure": Lane.REVIEW}
+#: Вид сайта в ответе модели (`kind`): своё дело, посредник между клиентом и чужими компаниями,
+#: издание о чужих, не понять. Полосу не решает — по нему eval разбивает ошибки по классу.
+KINDS = ("own", "intermediary", "media", "unclear")
 
 #: Метки данных. Сайт может написать их сам, чтобы «закрыть» текст раньше времени:
 #: в его тексте они заменяются похожими знаками.
 SEGMENT_OPEN, SEGMENT_CLOSE = "<<<SEGMENT", "SEGMENT>>>"
 SITE_OPEN, SITE_CLOSE = "<<<SITE", "SITE>>>"
-
-#: Подписи строк текста сайта: свои слова, не сайта — цитировать их нельзя (модель цитирует —
-#: подпись снимается, `segment_quote.unlabeled`). Строки выдачи и главной различаются по ним же.
-PAGE_TITLE = "Заголовок в выдаче"
-PAGE_DESCRIPTION = "Описание в выдаче"
-HOME_TITLE = "Заголовок главной"
-HOME_DESCRIPTION = "Описание главной"
-HOME_MENU = "Меню главной"
-SERP_LABELS = (PAGE_TITLE, PAGE_DESCRIPTION)
-HOME_LABELS = (HOME_TITLE, HOME_DESCRIPTION, HOME_MENU)
-LABELS = (*SERP_LABELS, *HOME_LABELS)
 
 
 @lru_cache(maxsize=1)
@@ -111,83 +169,6 @@ def proven_again(decided_by: str, quote: str | None) -> bool:
     if decided_by == Decider.RULE:
         return True
     return quote is not None and quote_words(quote) >= MIN_QUOTE_WORDS
-
-
-@dataclass(frozen=True, slots=True)
-class SiteText:
-    """Текст сайта для судьи — по строке на кусок: (подпись, слова сайта)."""
-
-    lines: tuple[tuple[str, str], ...]
-
-    @property
-    def empty(self) -> bool:
-        return not self.lines
-
-    def for_model(self) -> str:
-        """Как его видит модель — и как он хранится у кандидата."""
-        return "\n".join(f"{label}: {words}" for label, words in self.lines)
-
-    def holds(self, quote: str) -> bool:
-        """Цитата — внутри одной строки сайта, с точностью до типографики и опечатки
-        переписывания (`segment_quote.quote_holds`): модель переносит строки и ставит знаки
-        иначе, чем сайт, и честная цитата иначе не прошла бы."""
-        return any(quote_holds(quote, words) for _, words in self.lines)
-
-    def _of(self, labels: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
-        return tuple(line for line in self.lines if line[0] in labels)
-
-    @property
-    def stubbed(self) -> bool:
-        """Есть строка-отказ или заглушка защиты: проверка — по строкам, словами без подписи
-        (общий `looks_denied`; строку целиком из «Checking…» он узнаёт только без подписи)."""
-        return any(looks_denied(words) for _, words in self.lines)
-
-    def without_stub(self) -> SiteText:
-        """Текст для модели: заглушка защиты только в строках главной («проверка браузера»
-        вместо сайта) — строки главной вон, судится выдача: она пришла от поисковика, а не от
-        защиты сайта. Заглушка в выдаче или выдачи нет — текст как есть: его отдаст человеку
-        `by_text`."""
-        serp = SiteText(self._of(SERP_LABELS))
-        if serp.empty or serp.stubbed or not SiteText(self._of(HOME_LABELS)).stubbed:
-            return self
-        return serp
-
-    @classmethod
-    def parse(cls, stored: str) -> SiteText:
-        """Текст, сохранённый у кандидата, — обратно в строки: по нему сверяется цитата."""
-        lines: list[tuple[str, str]] = []
-        for line in stored.splitlines():
-            label, _, words = line.partition(": ")
-            if label in LABELS and words:
-                lines.append((label, words))
-        return cls(tuple(lines))
-
-
-def site_text(
-    *,
-    title: str | None,
-    description: str | None,
-    home: HomeSignals | None = None,
-) -> SiteText:
-    """Выдача и главная → текст судьи. Пустые куски не попадают; не больше
-    `MAX_TEXT_CHARS` знаков: хвост последней строки срезается."""
-    pieces: list[tuple[str, str | None]] = [(PAGE_TITLE, title), (PAGE_DESCRIPTION, description)]
-    if home is not None and home.reached:
-        menu = " · ".join(home.nav) if home.nav else None
-        pieces += [
-            (HOME_TITLE, home.title),
-            (HOME_DESCRIPTION, home.description),
-            (HOME_MENU, menu),
-        ]
-    lines: list[tuple[str, str]] = []
-    left = MAX_TEXT_CHARS
-    for label, words in pieces:
-        clean = " ".join((words or "").split())
-        if not clean or left <= 0:
-            continue
-        lines.append((label, clean[:left]))
-        left -= len(clean)
-    return SiteText(tuple(lines))
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +216,8 @@ class SegmentVerdict:
     unanswered: bool = False
     #: Токены раздельно, как их назвал провайдер (`Spent`): ввод и вывод стоят по-разному.
     spent: Spent | None = None
+    #: Вид сайта, как его назвала модель (`KINDS`); пусто — не назвала или вердикт не модели.
+    kind: str | None = None
 
     @property
     def would_cut(self) -> bool:
@@ -271,6 +254,18 @@ def by_text(text: SiteText) -> SegmentVerdict | None:
     if text.without_stub().stubbed:
         return _ruled(Lane.REVIEW, "вместо страницы пришёл отказ доступа — судить не по чему")
     return None
+
+
+def by_language(text: SiteText, letters: str | None) -> SegmentVerdict | None:
+    """Язык сайта не тот, что у писем, — вердикт без модели: язык назван буквами — «отказал бы»
+    словами («язык сайта — украинский, письма — русский»); не назван (язык без своих букв, другая
+    письменность) — «не понять», решает человек. Не жёсткое правило (`Decider.LANGUAGE`): режим решает
+    с ним, как с вердиктом модели (`effective`); цитаты нет — в кэш вердиктов он не ложится."""
+    found = site_language(text, letters)
+    if found is None:
+        return None
+    lane = Lane.REJECT if found.code else Lane.REVIEW
+    return SegmentVerdict(lane, found.words, decided_by=Decider.LANGUAGE)
 
 
 def before_model(host: str, text: SiteText) -> SegmentVerdict | None:
@@ -349,7 +344,10 @@ def parse(content: str, text: SiteText) -> SegmentVerdict:
     if (why_not := _unproven(quote, text)) is not None:
         return SegmentVerdict(Lane.REVIEW, why_not)
     why = str(form.get("why") or "").strip()[:300]
-    return SegmentVerdict(FITS[form["fit"]], why or "по тексту сайта", quote)
+    kind = str(form.get("kind") or "").strip().lower()
+    return SegmentVerdict(
+        FITS[form["fit"]], why or "по тексту сайта", quote, kind=kind if kind in KINDS else None
+    )
 
 
 class SegmentClient(ModelClient):
@@ -389,15 +387,24 @@ class SegmentClient(ModelClient):
 
 
 async def decide(
-    client: SegmentClient, *, host: str, segment: str, text: SiteText, system: str | None = None
+    client: SegmentClient,
+    *,
+    host: str,
+    segment: str,
+    text: SiteText,
+    system: str | None = None,
+    letters: str | None = None,
 ) -> SegmentVerdict:
-    """Правила, затем модель — по тексту без главной-заглушки (`SiteText.without_stub`). Не
-    бросает. `system` — промпт вместо файла: так eval гоняет испорченный промпт
-    (`scripts/eval_sales_segment.py --spoil`), не трогая файл."""
+    """Правила, язык сайта против языка писем `letters` (`by_language`), затем модель — по тексту
+    без главной-заглушки (`SiteText.without_stub`). Не бросает. `system` — промпт вместо файла: так
+    eval гоняет испорченный промпт (`scripts/eval_sales_segment.py --spoil`), не трогая файл."""
     ruled = before_model(host, text)
     if ruled is not None:
         return ruled
     judged = text.without_stub()
+    said = by_language(judged, letters)
+    if said is not None:
+        return said
     return await client.judge(host=host, segment=segment, text=judged, system=system)
 
 

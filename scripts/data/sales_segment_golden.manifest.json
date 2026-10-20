@@ -1,29 +1,93 @@
 {
   "name": "sales_segment_golden",
-  "about": "Размеченные сайты для eval судьи сегмента сбора базы: первый живой набор — все сайты первого прогона сбора одной гипотезы, решение человека по каждому (подходит, не подходит, не понять; не уверен — пара с «не понять»). Сам набор вне репозитория (он публичный): каталог из SALES_SEGMENT_GOLDEN_DIR, файл ниже.",
+  "about": "Размеченные сайты для eval судьи сегмента сбора базы: все сайты одного живого прогона сбора одной гипотезы и решение человека по тем, что судья отдал ему (в наблюдении — «нет» и «не понять» модели). Сайты, которые судья принял сам и человек не смотрел, лежат в наборе без решения — по ним видны доли полос и токены, в точность они не идут. Сам набор вне репозитория (он публичный): каталог из SALES_SEGMENT_GOLDEN_DIR, файл ниже.",
   "env": "SALES_SEGMENT_GOLDEN_DIR",
   "file": "sales_segment_golden.jsonl",
-  "format": "JSONL, строка на сайт — как scripts/data/sales_segment_synthetic.jsonl: id; hypothesis — имя гипотезы; segment — описание сегмента, по которому размечено (правка описания — новый вопрос, разметку повторить); host; text — текст сайта строками с подписями, как его видел судья (Заголовок в выдаче, Описание в выдаче, Заголовок главной, Описание главной, Меню главной); expect — yes | no | unsure, решение человека, или yes|unsure | no|unsure — верен любой из двух ответов; evidence — слова сайта, на которых решение стоит, дословно; labeled_by, labeled_at; tags. Заготовку без решений даёт eval_sales_segment.py --export-run N --out файл",
+  "format": "JSONL, строка на сайт — как scripts/data/sales_segment_synthetic.jsonl: id; hypothesis — имя гипотезы; segment — описание сегмента, по которому размечено (правка описания — новый вопрос, разметку повторить); host; text — текст сайта строками с подписями, как его видел судья (Заголовок в выдаче, Описание в выдаче, Заголовок главной, Описание главной, Меню главной); expect — yes | no | unsure, решение человека, или yes|unsure | no|unsure — верен любой из двух ответов; evidence — слова сайта, на которых решение стоит, дословно; labeled_by, labeled_at; tags. Заготовку без решений даёт eval_sales_segment.py --export-run N --out файл; expect пуст — сайт без решения человека, только с меткой из unlabeled_tags",
   "per_hypothesis": {
     "min": 40,
-    "max": 80
+    "max": 200
   },
-  "count": 74,
-  "sha256": "55085a3d472c7d78269c2e18bc19ec676b136f557653a09788a14847c5409dd3",
-  "date": "2026-10-15",
+  "count": 174,
+  "sha256": "6453c1a88b268d55ab19c1121185a6fbcfbe1ed58fd1884980de8b806a220155",
+  "date": "2026-10-20",
+  "letters": "ru",
+  "unlabeled_tags": [
+    "model-yes-unreviewed",
+    "rule-cut"
+  ],
+  "labeled": 118,
   "baseline": {
-    "prompt_version": "sales-segment-v1",
+    "prompt_version": "sales-segment-v3",
     "model": "gpt-5-mini",
     "reasoning_effort": "low",
-    "segment": "нынешнее описание гипотезы (сверено с базой 15.10)",
-    "command": "eval_sales_segment.py --golden --spoil about (без правила v2 промпт — ровно v1)",
-    "cases": 74,
-    "false_accept": 0.0303,
-    "false_reject": 0.0,
-    "accept_recall": 0.9512,
-    "reject_recall": 0.9394,
-    "to_human": 0.0676,
-    "source": "живой eval 15.10 на закреплённом наборе"
+    "segment": "описание гипотезы прогона, то же для всех замеров",
+    "cases": 174,
+    "labeled": 118,
+    "text": "выдача и шапка главной (пять строк, как шлёт прогон сейчас)",
+    "language": "сверка языка сайта с языком писем набора",
+    "command": "eval_sales_segment.py --golden",
+    "false_accept": 0.3333,
+    "false_reject": 0.1803,
+    "accept_recall": 0.7869,
+    "reject_recall": 0.6491,
+    "unsure": 0.0254,
+    "to_human": 0.0287,
+    "would_reject": 0.2759,
+    "to_human_shadow": 0.3046,
+    "false_reject_by": {
+      "segment": 9,
+      "language": 1,
+      "intermediary": 1,
+      "rule": 0
+    },
+    "tokens_per_call": 2119,
+    "repeat": "второй прогон того же: ложных «принять» 0.2807, ложных «отказ» 0.2295",
+    "source": "живой eval 20.10 на закреплённом наборе"
+  },
+  "before": {
+    "prompt_version": "sales-segment-v2",
+    "model": "gpt-5-mini",
+    "reasoning_effort": "low",
+    "segment": "описание гипотезы прогона, то же для всех замеров",
+    "cases": 174,
+    "labeled": 118,
+    "text": "пять строк, без сверки языка",
+    "command": "eval_sales_segment.py --golden --prompt-file <промпт v2> --no-home --no-language",
+    "false_accept": 0.0351,
+    "false_reject": 0.6885,
+    "accept_recall": 0.0164,
+    "reject_recall": 0.8421,
+    "unsure": 0.2119,
+    "to_human": 0.1609,
+    "would_reject": 0.5172,
+    "to_human_shadow": 0.6782,
+    "false_reject_by": {
+      "segment": 42,
+      "language": 0,
+      "intermediary": 0,
+      "rule": 0
+    },
+    "tokens_per_call": 1332
+  },
+  "previous": {
+    "count": 74,
+    "date": "2026-10-15",
+    "baseline": {
+      "prompt_version": "sales-segment-v1",
+      "model": "gpt-5-mini",
+      "reasoning_effort": "low",
+      "segment": "нынешнее описание гипотезы (сверено с базой 15.10)",
+      "command": "eval_sales_segment.py --golden --spoil about (без правила v2 промпт — ровно v1)",
+      "cases": 74,
+      "false_accept": 0.0303,
+      "false_reject": 0.0,
+      "accept_recall": 0.9512,
+      "reject_recall": 0.9394,
+      "to_human": 0.0676,
+      "source": "живой eval 15.10 на закреплённом наборе"
+    },
+    "note": "прежний живой набор (первый прогон сбора); хэш — в истории манифеста"
   },
   "gates": {
     "false_accept_max": 0.05,
@@ -31,6 +95,31 @@
     "accept_recall_min": 0.7,
     "reject_recall_min": 0.7
   },
-  "gates_status": "предложение до замера: пороги утверждает владелец по прогону на наборе",
-  "fill_in": "sha256 печатает eval_sales_segment.py --golden: незакреплённый набор — красный с напечатанными count и sha256, их вписывают сюда, когда набор утверждён; baseline — итог eval на закреплённом наборе и утверждённой версии промпта"
+  "gates_status": "предложение до замера: пороги утверждает владелец по прогону на наборе; на этом наборе их не проходят ни v2, ни v3 — решения человека здесь строже правила «не видно — не отказ» для сайтов, где видна только чужая география",
+  "fill_in": "sha256 печатает eval_sales_segment.py --golden: незакреплённый набор — красный с напечатанными count и sha256, их вписывают сюда, когда набор утверждён; baseline — итог eval на закреплённом наборе и утверждённой версии промпта",
+  "with_home_text": {
+    "prompt_version": "sales-segment-v3",
+    "model": "gpt-5-mini",
+    "reasoning_effort": "low",
+    "segment": "описание гипотезы прогона, то же для всех замеров",
+    "cases": 174,
+    "labeled": 118,
+    "text": "пять строк и «Текст главной» до 1500 знаков: главные дочитаны 20.10 вне репозитория (открылись 161 из 174, с текстом 156)",
+    "command": "eval_sales_segment.py --golden --home <файл дочитанных главных>",
+    "false_accept": 0.2281,
+    "false_reject": 0.1311,
+    "accept_recall": 0.8197,
+    "reject_recall": 0.6842,
+    "unsure": 0.0678,
+    "to_human": 0.0747,
+    "would_reject": 0.2701,
+    "to_human_shadow": 0.3448,
+    "false_reject_by": {
+      "segment": 5,
+      "language": 2,
+      "intermediary": 1,
+      "rule": 0
+    },
+    "tokens_per_call": 2541
+  }
 }

@@ -210,7 +210,8 @@ async def test_who_decided_is_named_and_filtered_and_a_human_comes_with_the_auth
     assert (human["decided_by"], human["decided_by_user"]) == ("human", SELLER)
     assert human["decided_at"] == "2026-10-14T09:31:00Z"
     assert (human["verdict"], human["reason"]) == ("accept", "отказал человек")
-    assert found["deciders"] == {"rule": 1, "model": 1, "human": 1, "none": 0}
+    # «язык» — вердикт языка сайта (`Decider.LANGUAGE`): в этом прогоне таких нет.
+    assert found["deciders"] == {"rule": 1, "model": 1, "human": 1, "language": 0, "none": 0}
 
 
 async def test_the_outcome_of_each_kind_and_the_lead_link(

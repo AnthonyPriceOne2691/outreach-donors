@@ -89,25 +89,25 @@ async def test_estimate_names_serp_model_and_hunter_in_words(session: AsyncSessi
     assert (found.results, found.sites, found.tokens, found.tokens_left) == (
         30,
         26,
-        26 * 1100,
+        26 * se.TOKENS_PER_SITE,
         None,
     )
     assert found.serp_usd == pytest.approx(3 * 0.0007)
     # Деньги токенов: 80% входа по $0,25 и 20% вывода по $2,00 — $0,60 за миллион.
-    assert found.tokens_usd == pytest.approx(round(28_600 * 0.6 / 1_000_000, 4))
+    assert found.tokens_usd == pytest.approx(round(26 * se.TOKENS_PER_SITE * 0.6 / 1_000_000, 4))
     assert (found.country, found.language, found.mode) == ("us", "en", "shadow")
     assert found.lines == [
         "Выдача — стандарт: ключей 3 × страниц 1 — результатов до 30, по $0,0007 за страницу "
         "≈ $0,0021; ждать ≈ 5 мин.",
         "Сайтов ≈ 26 — 85% результатов: прогонов сбора с выдачей ещё нет, доля — худшая из "
         "замеренных у выдачи, смета скорее завышена.",
-        "Судья сегмента: сайтов ≈ 26, токенов модели ≈ 28\u00a0600 (по 1\u00a0100 на сайт — "
-        "запасное число: прогонов сбора с судьёй ещё нет) — ≈ $0,0172; "
+        "Судья сегмента: сайтов ≈ 26, токенов модели ≈ 46\u00a0800 (по 1\u00a0800 на сайт — "
+        "запасное число: прогонов сбора с судьёй ещё нет) — ≈ $0,0281; "
         "доля вывода — запасная, замеров ещё нет: 20% токенов.",
         "Судья в наблюдении: его «отказ» не отсекает сайт, а отдаёт человеку.",
         "Hunter: платный поиск адреса у сбора выключен или не настроен — только бесплатные "
         "ступени; проверка адреса выдуманная.",
-        "Деньгами: ≈ $0,0193 — выдача и модель; Hunter не тратится.",
+        "Деньгами: ≈ $0,0302 — выдача и модель; Hunter не тратится.",
     ]
 
 
@@ -128,7 +128,7 @@ async def test_a_paid_address_search_and_check_are_named_as_upper_bounds(
     assert found.lines[-2:] == [
         "Hunter: поисков адреса до 51 — только тем, кому бесплатные ступени адреса не нашли; "
         "проверок адреса до 51, в этом месяце 120 из 1500.",
-        "Деньгами: ≈ $0,0379 — выдача и модель; Hunter платится запросами своего тарифа и в "
+        "Деньгами: ≈ $0,0593 — выдача и модель; Hunter платится запросами своего тарифа и в "
         "сумму не входит.",
     ]
     assert (found.refusal, found.as_dict()["month"]) == (None, "в этом месяце 120 из 1500")
@@ -196,13 +196,13 @@ async def test_estimate_above_the_model_cap_refuses_in_words(
 
     assert found.tokens_left == 29113 - 2219
     assert found.refusal == (
-        "смета модели выше остатка дневного потолка: ≈ 28\u00a0600 токенов при остатке 26\u00a0894 — "
+        "смета модели выше остатка дневного потолка: ≈ 46\u00a0800 токенов при остатке 26\u00a0894 — "
         "уменьшите число ключей или глубину, или запустите завтра"
     )
     # Слова сметы остаются: видно, сколько просили.
     assert found.lines[2] == (
-        "Судья сегмента: сайтов ≈ 26, токенов модели ≈ 28\u00a0600 (по 1\u00a0100 на сайт — "
-        "запасное число: прогонов сбора с судьёй ещё нет) — ≈ $0,0172, "
+        "Судья сегмента: сайтов ≈ 26, токенов модели ≈ 46\u00a0800 (по 1\u00a0800 на сайт — "
+        "запасное число: прогонов сбора с судьёй ещё нет) — ≈ $0,0281, "
         "остаток дневного потолка — 26\u00a0894; доля вывода — запасная, замеров ещё нет: 20% токенов."
     )
 
@@ -442,7 +442,7 @@ async def test_the_share_of_sites_comes_from_the_history_of_collection_runs(
 
     assert (found.share, found.share_runs) == (pytest.approx(38 / 80), 2)
     assert (found.results, found.hosts, found.known, found.sites) == (30, 14, 0, 14)
-    assert found.tokens == 14 * 1100
+    assert found.tokens == 14 * se.TOKENS_PER_SITE
     assert found.lines[1] == (
         "Сайтов ≈ 14 — 48% результатов, как в прошлых прогонах сбора (с выдачей — 2): выдача "
         "отдаёт не все результаты и повторяет сайты."
@@ -498,11 +498,11 @@ async def test_sites_the_hypothesis_already_collected_by_the_same_keys_are_subtr
     found = await estimate(session, ask(owner.id))
 
     assert (found.hosts, found.known, found.sites) == (26, 7, 19)
-    assert (found.tokens, found.as_dict()["known"]) == (19 * 1100, 7)
+    assert (found.tokens, found.as_dict()["known"]) == (19 * se.TOKENS_PER_SITE, 7)
     assert found.lines[1].endswith(
         " Уже в сборе гипотезы ≈ 7 — их не судят и адрес им не ищут: новых ≈ 19."
     )
-    assert found.lines[2].startswith("Судья сегмента: сайтов ≈ 19, токенов модели ≈ 20\u00a0900")
+    assert found.lines[2].startswith("Судья сегмента: сайтов ≈ 19, токенов модели ≈ 34\u00a0200")
 
 
 async def test_a_deeper_past_run_counts_no_more_than_this_serp_gives_per_key(
@@ -540,15 +540,15 @@ async def test_tokens_are_named_in_money_by_the_price_of_the_model(
     found = await estimate(session, ask(owner.id))
 
     assert found.usd_per_1m_tokens == pytest.approx(0.8 * 0.5 + 0.2 * 4.0)
-    assert (found.tokens, found.tokens_usd) == (28_600, pytest.approx(0.0343))
+    assert (found.tokens, found.tokens_usd) == (26 * se.TOKENS_PER_SITE, pytest.approx(0.0562))
     assert found.lines[2] == (
-        "Судья сегмента: сайтов ≈ 26, токенов модели ≈ 28\u00a0600 (по 1\u00a0100 на сайт — "
-        "запасное число: прогонов сбора с судьёй ещё нет) — ≈ $0,0343; "
+        "Судья сегмента: сайтов ≈ 26, токенов модели ≈ 46\u00a0800 (по 1\u00a0800 на сайт — "
+        "запасное число: прогонов сбора с судьёй ещё нет) — ≈ $0,0562; "
         "доля вывода — запасная, замеров ещё нет: 20% токенов."
     )
-    assert found.lines[-1] == "Деньгами: ≈ $0,0364 — выдача и модель; Hunter не тратится."
+    assert found.lines[-1] == "Деньгами: ≈ $0,0583 — выдача и модель; Hunter не тратится."
     assert (found.as_dict()["tokens_usd"], found.as_dict()["usd_per_1m_tokens"]) == (
-        pytest.approx(0.0343),
+        pytest.approx(0.0562),
         pytest.approx(1.2),
     )
 
