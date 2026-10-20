@@ -20,6 +20,7 @@ from backend.features.runs import exclusions
 from backend.features.sales import segment_judge as sj
 from backend.features.sales.segment_judge import SegmentClient, SegmentVerdict, SiteText
 from backend.features.sales.segment_models import Decider, Lane
+from backend.features.sales.segment_text import STUB_LABELS
 
 #: Выдуманный ключ подставной модели: запрос с пустым ключом модель не собирает вовсе.
 MODEL_KEY = "k-test"  # pragma: allowlist secret
@@ -256,8 +257,9 @@ def test_prompt_is_a_versioned_file_with_the_quote_and_injection_rules() -> None
     prompt = sj.load_prompt()
 
     assert sj.PROMPT_PATH.name == "segment.md"
-    assert sj.PROMPT_VERSION == "sales-segment-v2"
+    assert sj.PROMPT_VERSION == "sales-segment-v3"
     assert '"fit"' in prompt
+    assert '"kind"' in prompt
     assert "copied verbatim from the website text" in prompt
     assert "untrusted DATA" in prompt
     for label in sj.LABELS:
@@ -310,7 +312,7 @@ def test_segment_digest_ignores_spaces_and_changes_with_the_words() -> None:
 @pytest.mark.parametrize(
     ("verdict", "mode", "lane"),
     [
-        (SegmentVerdict(Lane.REJECT, "другой бизнес"), JudgeMode.SHADOW, Lane.REVIEW),
+        (SegmentVerdict(Lane.REJECT, "другой бизнес"), JudgeMode.SHADOW, Lane.WOULD_REJECT),
         (SegmentVerdict(Lane.REJECT, "другой бизнес"), JudgeMode.ENFORCE, Lane.REJECT),
         (SegmentVerdict(Lane.ACCEPT, "магазин"), JudgeMode.SHADOW, Lane.ACCEPT),
         (SegmentVerdict(Lane.REVIEW, "не понять"), JudgeMode.ENFORCE, Lane.REVIEW),
@@ -329,10 +331,9 @@ def test_shadow_writes_the_verdict_but_does_not_cut(
     got, reason = sj.effective(verdict, mode)
 
     assert got is lane
-    if mode is JudgeMode.SHADOW and verdict.lane is Lane.REJECT and lane is Lane.REVIEW:
-        # Тест продаж 20.10: «Отказ:» вместо длинного «судья в наблюдении отрезал бы:» — сайт при
-        # этом «на проверке» с кнопками: это мнение судьи, решение за человеком.
-        assert reason == "Отказ: другой бизнес"
+    # Вариант (b): что это отказ судьи, говорит полоса «судья отказал бы», а причина — его слова как
+    # есть, без приставки «Отказ: », которая была нужна, пока такой сайт лежал «на проверке».
+    assert reason == verdict.reason
 
 
 # --- v2: сайт судится по тому, что он есть, а не о чём пишет ----------------------------------
@@ -350,12 +351,14 @@ RULE_V2 = (
 )
 
 
-def test_the_prompt_has_the_what_the_site_is_rule_verbatim_before_the_unsure_rule() -> None:
+def test_the_v2_what_the_site_is_rule_stays_verbatim_before_the_intermediary_signs() -> None:
+    """v3 правило v2 не переписывает: сигналы посредника — следующей строкой, рядом с ним."""
     lines = sj.load_prompt().splitlines()
 
     assert lines.count(RULE_V2) == 1
-    assert lines[lines.index(RULE_V2) + 1].startswith("- If no words of the website text")
-    assert sj.PROMPT_VERSION == "sales-segment-v2"
+    assert lines[lines.index(RULE_V2) + 1].startswith('- Intermediaries are "no"')
+    assert lines[-1].startswith('- "why"')
+    assert sj.PROMPT_VERSION == "sales-segment-v3"
 
 
 # --- заглушка защиты: по строкам, главная отдельно от выдачи -----------------------------------
@@ -436,11 +439,36 @@ async def test_a_home_line_of_a_lone_wait_word_is_a_stub_only_line_by_line(stub:
     assert stub not in _user(seen)
 
 
-@pytest.mark.parametrize("label", sj.LABELS)
+@pytest.mark.parametrize("label", STUB_LABELS)
 @pytest.mark.parametrize("marker", DENIAL_MARKERS)
 def test_lines_catch_every_stub_the_whole_text_caught(marker: str, label: str) -> None:
-    """По строкам — не меньше, чем по всему тексту: каждый маркер общего списка в любой строке."""
+    """По строкам — не меньше, чем по всему тексту: каждый маркер общего списка в любой строке,
+    кроме текста главной (`test_the_home_text_is_never_a_stub`)."""
     site = SiteText(((sj.PAGE_TITLE, TITLE), (label, f"Sample — {marker.title()} — page")))
 
     assert looks_denied(site.for_model())
     assert site.stubbed
+
+
+@pytest.mark.parametrize(
+    "footer",
+    ["This site is protected by reCAPTCHA and the Google Privacy Policy", "403 Forbidden"],
+    ids=["recaptcha-footer", "forbidden-words"],
+)
+async def test_the_home_text_is_never_a_stub(footer: str) -> None:
+    """Текст главной законно несёт «captcha» и «forbidden» (подпись reCAPTCHA в подвале, статья
+    об ошибках): он не делает сайт заглушкой — закрытую главную узнаёт её заголовок."""
+    site = SiteText(
+        (
+            (sj.PAGE_TITLE, TITLE),
+            (sj.HOME_TITLE, HOME),
+            (sj.HOME_TEXT, f"Велосипеды и запчасти с доставкой · {footer}"),
+        )
+    )
+
+    verdict, seen = await judged(QUOTE, site)
+
+    assert looks_denied(site.for_model())
+    assert not site.stubbed
+    assert (verdict.lane, verdict.decided_by) == (Lane.ACCEPT, Decider.MODEL)
+    assert footer in _user(seen)

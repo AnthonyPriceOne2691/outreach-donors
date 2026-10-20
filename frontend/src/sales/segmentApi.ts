@@ -12,8 +12,10 @@ import { request } from '../api/client';
 /** Режим судьи сегмента — как у судьи площадки: наблюдает, режет, выключен. */
 export type SegmentMode = 'shadow' | 'enforce' | 'off';
 
-/** Полоса сайта: ещё не судили, принят, на проверке, отсечён. */
-export type SegmentLane = 'pending' | 'accept' | 'review' | 'reject';
+/** Полоса сайта (`segment_models.Lane`): ещё не судили, принят, на проверке, судья отказал бы,
+ *  отсечён. «Судья отказал бы» — отказ судьи в наблюдении: решать по нему не обязательно, лид — только
+ *  после «Принять» человека. */
+export type SegmentLane = 'pending' | 'accept' | 'review' | 'would_reject' | 'reject';
 
 /** Где прогон: этап, в который он вошёл (с начала его работы), или чем кончился. */
 export type SegmentStage = 'queued' | 'serp' | 'judge' | 'contacts' | 'leads' | 'done' | 'stopped';
@@ -121,7 +123,7 @@ export interface SegmentCandidate {
   page_title: string | null;
   keyword: string | null;
   lane: SegmentLane;
-  /** Что сказал судья сам: при наблюдении «отказ» лежит здесь, а сайт — на проверке. */
+  /** Что сказал судья сам: при наблюдении «отказ» лежит здесь, а сайт — в «судья отказал бы». */
   verdict: SegmentLane | null;
   reason: string | null;
   quote: string | null;
@@ -138,6 +140,8 @@ export interface SegmentSummary {
   hosts: number;
   accepted: number;
   review: number;
+  /** Судья отказал бы — отказы судьи в наблюдении. У сервера до варианта (b) его нет. */
+  would_reject?: number;
   rejected: number;
   /** Ещё не судили: без этой плитки во время судьи числа не сходились. */
   pending?: number;

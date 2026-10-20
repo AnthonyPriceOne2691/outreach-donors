@@ -77,7 +77,7 @@ from backend.features.serp.protocol import SerpProvider
 logger = logging.getLogger(__name__)
 
 #: Числа судьи, которые копятся от прохода к проходу: каждый судил своих.
-_SUMMED = ("judged", "from_cache", "by_rule", "would_cut", "tokens", *SPLIT_TOKENS)
+_SUMMED = ("judged", "from_cache", "by_rule", "would_cut", "cut_off", "tokens", *SPLIT_TOKENS)
 #: Числа очистки лидов, которые копятся: каждый проход чистит своих новых лидов.
 _CLEANING_SUMMED = (
     "checked",
@@ -214,6 +214,7 @@ async def _judge(
         client=deps.judge,
         home=deps.home,
         now=now,
+        letters=run.language,
     )
     left = await judge_waiting(session, run.id)
     run.report = {

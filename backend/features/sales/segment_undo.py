@@ -7,8 +7,12 @@
   причину словами «принял человек», но вердикт, цитата и модель остаются у сайта, а слова вердикта —
   в кэше вердиктов (`sales_segment_verdicts`). Полоса и причина ложатся тем же правилом, что у
   прохода судьи (`segment_window.landing`: `segment_judge.effective` в режиме прогона): в
-  наблюдении отказ модели — «на проверке» с «Отказ: …». Станет судья класть такие сайты в свою
-  полосу — отмена пойдёт туда же без правки здесь. Кто и когда решил — очищено: решения нет.
+  наблюдении отказ модели — «судья отказал бы» со словами судьи. Кто и когда решил — очищено:
+  решения нет.
+- **Вердикт языка сайта** (`Decider.LANGUAGE`) в кэш не ложится и модели у него нет — как у
+  правила. Он повторяется по сохранённому тексту сайта и языку писем прогона
+  (`segment_judge.by_language`): совпал с вердиктом сайта — сайт вернётся как от языка («судья
+  отказал бы» в наблюдении) и с его словами, а не отсечённым правилом.
 - **Слов нет в кэше** — модель не дала цитаты или ответ не разобран (такой вердикт не кэшируется,
   `segment_judge.proven_again`), модель не ответила: причина — словами, что она не сохранилась.
 - **Отменяется только решение человека**: решение правила или судья — отказ словами; сайт уже
@@ -35,7 +39,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config.judge import JudgeMode
-from backend.features.sales.segment_judge import SegmentVerdict, SiteText
+from backend.features.sales.segment_judge import SegmentVerdict, SiteText, by_language
 from backend.features.sales.segment_models import (
     AWAITS_HUMAN,
     Decider,
@@ -64,6 +68,7 @@ NOT_JUDGED = "сайт ещё не судили — отменять нечег�
 NOT_HUMAN = {
     Decider.RULE: "сайт решило правило, а не человек — отменяется только решение человека",
     Decider.MODEL: "сайт решил судья, а не человек — отменяется только решение человека",
+    Decider.LANGUAGE: "сайт решила сверка языка, а не человек — отменяется только решение человека",
 }
 #: Слов вердикта нет в кэше: модель не дала цитаты или ответ не разобран.
 LOST = "причина не сохранилась"
@@ -102,12 +107,23 @@ def _decider(candidate: Candidate) -> Decider:
     return Decider.RULE if candidate.model is None else Decider.MODEL
 
 
-def _verdict(candidate: Candidate, words: str | None) -> SegmentVerdict | None:
+def _language(candidate: Candidate, letters: str | None) -> SegmentVerdict | None:
+    """Вердикт языка сайта, если сайт решала сверка языка: модели у такого вердикта нет, и по
+    тексту, который видел судья, сверка даёт тот же вердикт (`segment_judge.by_language`)."""
+    if candidate.model is not None or not candidate.site_text:
+        return None
+    found = by_language(SiteText.parse(candidate.site_text), letters)
+    return found if found is not None and found.lane == candidate.verdict else None
+
+
+def _verdict(candidate: Candidate, words: str | None, letters: str | None) -> SegmentVerdict | None:
     """Вердикт судьи, как он лёг на сайт до решения человека; `None` — судья был выключен."""
     if candidate.unanswered:
         return SegmentVerdict(Lane.REVIEW, SILENT, model=candidate.model, unanswered=True)
     if candidate.verdict is None:
         return None
+    if (language := _language(candidate, letters)) is not None:
+        return language
     return SegmentVerdict(
         Lane(candidate.verdict),
         words or LOST,
@@ -159,15 +175,16 @@ def _key(candidate: Candidate) -> tuple[int, int, str, str | None, str]:
 
 
 async def judged_before(
-    session: AsyncSession, candidates: Sequence[Candidate], mode: JudgeMode
+    session: AsyncSession, candidates: Sequence[Candidate], mode: JudgeMode, letters: str | None
 ) -> dict[int, Landing]:
     """Что лежало бы на решённых человеком сайтах без него — полоса и слова судьи тем же правилом,
-    что у прохода (`segment_window.landing`). Сайты прогона: режим — его (`run.mode`)."""
+    что у прохода (`segment_window.landing`). Сайты прогона: режим и язык писем — его (`run.mode`,
+    `run.language`)."""
     human = [candidate for candidate in candidates if candidate.decided_by == Decider.HUMAN]
     words = await _cached_words(session, human)
     return {
         candidate.id: landing(
-            Judged(_verdict(candidate, words.get(candidate.id)), SiteText(())), mode
+            Judged(_verdict(candidate, words.get(candidate.id), letters), SiteText(())), mode
         )
         for candidate in human
     }
@@ -179,13 +196,15 @@ def _sqlstate(exc: DBAPIError) -> str:
     return str(getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None) or "")
 
 
-async def _locked(session: AsyncSession, candidate_id: int) -> tuple[Candidate, str] | None:
-    """Строка сайта под `FOR UPDATE` (строка прогона — без замка: её пишет идущий проход) и режим
-    судьи прогона — с пределом ожидания и в точке сохранения: отказ по пределу не ломает транзакцию
-    вызывающего. Значения — из базы, а не из памяти сессии."""
+async def _locked(
+    session: AsyncSession, candidate_id: int
+) -> tuple[Candidate, str, str | None] | None:
+    """Строка сайта под `FOR UPDATE` (строка прогона — без замка: её пишет идущий проход), режим
+    судьи и язык писем прогона — с пределом ожидания и в точке сохранения: отказ по пределу не
+    ломает транзакцию вызывающего. Значения — из базы, а не из памяти сессии."""
     await session.execute(text(LOCK_WAIT))
     query = (
-        select(Candidate, SalesSegmentRunModel.mode)
+        select(Candidate, SalesSegmentRunModel.mode, SalesSegmentRunModel.language)
         .join(SalesSegmentRunModel, SalesSegmentRunModel.id == Candidate.run_id)
         .where(Candidate.id == candidate_id)
         .with_for_update(of=Candidate)
@@ -201,7 +220,7 @@ async def _locked(session: AsyncSession, candidate_id: int) -> tuple[Candidate, 
             "сбор продаж: строку сайта держит другая операция", extra={"id": candidate_id}
         )
         raise UndoBusyError(BUSY) from exc
-    return None if found is None else (found[0], found[1])
+    return None if found is None else (found[0], found[1], found[2])
 
 
 def _not_human(candidate: Candidate) -> Undone:
@@ -218,12 +237,12 @@ async def undo(session: AsyncSession, candidate_id: int) -> Undone | None:
     locked = await _locked(session, candidate_id)
     if locked is None:
         return None
-    candidate, mode = locked
+    candidate, mode, letters = locked
     if candidate.decided_by != Decider.HUMAN:
         return _not_human(candidate)
     if candidate.lead_id is not None:
         raise UndoRefusedError(LEAD_MADE)
-    found = (await judged_before(session, [candidate], JudgeMode(mode)))[candidate.id]
+    found = (await judged_before(session, [candidate], JudgeMode(mode), letters))[candidate.id]
     was = candidate.lane
     values = found.values(datetime.now(UTC)) | {"decided_at": None, "decided_by_user": None}
     for name, value in values.items():

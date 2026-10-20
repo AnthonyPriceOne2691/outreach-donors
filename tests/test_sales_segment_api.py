@@ -205,7 +205,7 @@ async def test_a_run_above_the_model_cap_is_refused_before_the_queue(
 
     assert response.status_code == 409
     assert response.json()["detail"].startswith(
-        "Прогон не запущен: смета модели выше остатка дневного потолка: ≈ 28\u00a0600 токенов"
+        "Прогон не запущен: смета модели выше остатка дневного потолка: ≈ 46\u00a0800 токенов"
     )
     assert await session.scalar(select(func.count()).select_from(SalesSegmentRunModel)) == 0
     assert jobs.enqueued == []
@@ -358,8 +358,8 @@ async def test_the_report_counts_the_lanes_and_the_list_of_sites_names_those_wai
     assert response.status_code == 200, response.text
     found = response.json()
     assert found["summary"] == {
-        "hosts": 1, "accepted": 0, "review": 1, "rejected": 0, "pending": 0, "no_address": 0,
-        "leads": 0,
+        "hosts": 1, "accepted": 0, "review": 1, "would_reject": 0, "rejected": 0, "pending": 0,
+        "no_address": 0, "leads": 0,
     }  # fmt: skip
     assert found["estimate_lines"] == ["смета"]
     assert "review" not in found

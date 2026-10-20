@@ -149,8 +149,8 @@ function reviewPage(rows: SegmentCandidate[], total = rows.length): SegmentSites
     page: 1,
     limit: 50,
     total,
-    lanes: { all: 7, accept: 3, review: total, reject: 3, pending: 0, changed: 0 },
-    deciders: { rule: 0, model: total, human: 0, none: 0 },
+    lanes: { all: 7, accept: 3, review: total, would_reject: 0, reject: 3, pending: 0, changed: 0 },
+    deciders: { rule: 0, model: total, language: 0, human: 0, none: 0 },
     rows: rows.map(siteOf),
   };
 }

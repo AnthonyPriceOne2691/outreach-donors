@@ -21,6 +21,7 @@ import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
+import { MODE_WORDS } from './segmentData';
 import { HELP_QUIET } from './segmentHelpFixtures';
 import type {
   SegmentCandidate,
@@ -209,9 +210,8 @@ describe('сбор базы: прогон гипотезы', () => {
 
     expect(screen.getByText(SEGMENT_TEXT)).toBeInTheDocument();
     expect(await screen.findByText('Прогон №12', {}, SCREEN_WAIT)).toBeInTheDocument();
-    expect(
-      screen.getByText('судья в наблюдении: его «отказ» не отсекает сайт, а отдаёт человеку.'),
-    ).toBeInTheDocument();
+    // Неразрывный пробел в словах («отказал бы») поиск по тексту сводит к обычному — и здесь так же.
+    expect(screen.getByText(`${MODE_WORDS.shadow.replace(/\s+/g, ' ')}.`)).toBeInTheDocument();
     // Причины — одной свёрнутой строкой, раскрываются по нажатию.
     await userEvent
       .setup()

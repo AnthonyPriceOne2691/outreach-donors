@@ -91,7 +91,7 @@ Run = SalesSegmentRunModel
 REJUDGE_JOB = "backend.features.sales.segment_rejudge.rejudge_segment"
 #: Числа пересуда, которые копятся от попытки к попытке задачи: токены — всего и раздельно
 #: (ввод, вывод, рассуждение, «раздельно неизвестно»), «модель не ответила», сбои.
-_SUMMED = ("tokens", *SPLIT_TOKENS, "unanswered", "failed")
+_SUMMED = ("tokens", *SPLIT_TOKENS, "unanswered", "cut_off", "failed")
 #: Прогон шёл с выключенным судьёй: модель его сайтов не судила, сравнивать не с чем.
 JUDGE_WAS_OFF = (
     "в этом прогоне судья был выключен — пересуживать некому: каждый сайт здесь решает человек"
@@ -275,7 +275,14 @@ async def rejudge(
     sink = Rejudged(run_id, block, tally, before)
     sites = await _cut_stoplisted(session, await _todo(session, block), sink, moment)
     ask = Ask(
-        segment, JudgeMode(run.mode), deps.judge, deps.home, moment, cached=False, stored_text=True
+        segment,
+        JudgeMode(run.mode),
+        deps.judge,
+        deps.home,
+        moment,
+        cached=False,
+        stored_text=True,
+        letters=run.language,
     )
     await judge_sites(session, sites, ask, sink, tally)
     await sink.flush(session, moment)

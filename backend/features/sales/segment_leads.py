@@ -7,8 +7,12 @@
 файла (`contact_id`, `SET NULL`), а сам адрес лид хранит у себя (решение 01.10).
 
 **Лид — источник `collected`**, страна — рынок выдачи прогона, пояс — по стране, язык —
-язык писем прогона. Имени, должности и компании сбор не знает: первое письмо и так
-спрашивает, кто отвечает за SEO и маркетинг.
+язык писем прогона, а если сайт уверенно на другом языке и без переключателя на язык писем — язык
+сайта (`segment_judge.site_language`: тем же решением и по тому же тексту, что вердикт судьи
+«язык сайта — …, письма — …»; такой сайт стал принятым только словом человека). На языке без
+цепочки писем лид ждёт с причиной в отчёте очереди, а не уходит письмом не на том языке. Имени,
+должности и компании сбор не знает: первое письмо и так спрашивает, кто отвечает за SEO и
+маркетинг.
 
 **Дубли, стоп-листы, отписки, чужое направление и мёртвые адреса** отсекает очистка — та же,
 что у загрузки, без копии: адрес уже у лида продаж — «дубль», домен в работе у доноров или
@@ -38,6 +42,7 @@ from backend.features.core.domain import AuditAction, Stage
 from backend.features.core.models.donor import ContactModel
 from backend.features.sales import clean_jobs, cleaning, company_hold, geo
 from backend.features.sales.models import LeadSource, LeadStatus, SalesLeadModel
+from backend.features.sales.segment_judge import SiteText, site_language
 from backend.features.sales.segment_models import (
     Lane,
     SalesSegmentCandidateModel,
@@ -103,6 +108,12 @@ async def _ready(
     return list((await session.execute(query)).tuples().all())
 
 
+def lead_language(run: SalesSegmentRunModel, candidate: Candidate) -> str:
+    """Язык писем лиду: язык сайта, если он уверенно другой и названный буквами, иначе — прогона."""
+    found = site_language(SiteText.parse(candidate.site_text or ""), run.language)
+    return found.code if found is not None and found.code else run.language
+
+
 def _lead(
     run: SalesSegmentRunModel, candidate: Candidate, contact_id: int, email: str
 ) -> SalesLeadModel:
@@ -113,7 +124,7 @@ def _lead(
         email=email.strip().lower(),
         country=run.country,
         timezone=geo.timezone_for(run.country),
-        language=run.language,
+        language=lead_language(run, candidate),
         source=LeadSource.COLLECTED,
         status=LeadStatus.NEW,
     )

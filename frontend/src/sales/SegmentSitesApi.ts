@@ -9,10 +9,17 @@ import { request } from '../api/client';
 import type { SegmentLane } from './segmentApi';
 
 /** Вкладка списка: полоса сайта, все — или сменившие полосу при пересуде. */
-export type SiteTab = 'all' | 'accept' | 'review' | 'reject' | 'pending' | 'changed';
+export type SiteTab =
+  | 'all'
+  | 'accept'
+  | 'review'
+  | 'would_reject'
+  | 'reject'
+  | 'pending'
+  | 'changed';
 
-/** Кто решил: правило до модели, модель, человек. */
-export type SiteDecider = 'rule' | 'model' | 'human';
+/** Кто решил: правило до модели, модель, язык сайта (сверка с языком писем — кодом), человек. */
+export type SiteDecider = 'rule' | 'model' | 'language' | 'human';
 
 /** Чем кончился сайт после судьи. */
 export type OutcomeKind = 'lead' | 'form_only' | 'no_address' | 'not_searched' | 'other';
@@ -43,7 +50,7 @@ export interface SegmentSite {
   page_title: string | null;
   keyword: string | null;
   lane: SegmentLane;
-  /** Что сказал судья сам: в наблюдении «отказ» лежит здесь, а сайт — на проверке. */
+  /** Что сказал судья сам: в наблюдении «отказ» лежит здесь, а сайт — в «судья отказал бы». */
   verdict: SegmentLane | null;
   decided_by: SiteDecider | null;
   decided_by_user: string | null;

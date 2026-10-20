@@ -17,6 +17,9 @@
 - **Кэш вердиктов** (`cached`): свежий вердикт того же домена, гипотезы, версии промпта и
   описания не пересуживается и токенов не стоит; «на проверку» без цитаты — не вердикт
   (`segment_judge.proven_again`): не пишется и не отдаётся.
+- **Язык писем прогона** (`Ask.letters`): сайт уверенно на другом языке — вердикт «отказал бы»
+  словами до модели (`segment_judge.by_language`), и вердикт из кэша он тоже перекрывает: кэш —
+  вердикт гипотезы, а язык писем — у каждого прогона свой.
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ from backend.features.sales.segment_judge import (
     SegmentVerdict,
     SiteText,
     by_host,
+    by_language,
     decide,
     effective,
     proven_again,
@@ -84,8 +88,11 @@ class JudgeTally:
     by_rule: int = 0
     #: Модель не ответила: вердикта нет, домен — человеку и следующему проходу.
     unanswered: int = 0
+    #: Из них ответ обрезан потолком вывода (`segment_judge.CUT_OFF`): доля за прогон — по ним.
+    cut_off: int = 0
     unanswered_reason: str | None = None
-    #: Модель сказала «нет»: в `enforce` отсечены, в наблюдении — человеку с пометкой.
+    #: Судья сказал «нет» — модель или язык сайта: в `enforce` отсечены, в наблюдении — в полосе
+    #: «судья отказал бы».
     would_cut: int = 0
     #: Упали мимо судьи (ошибка кода): остались неосуждёнными, следующий проход повторит.
     failed: int = 0
@@ -102,10 +109,14 @@ class JudgeTally:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            # Версия промпта прохода: токены на сайт в смете — из прогонов той же версии
+            # (`segment_history.tokens_per_site`).
+            "prompt_version": PROMPT_VERSION,
             "judged": self.judged,
             "from_cache": self.from_cache,
             "by_rule": self.by_rule,
             "unanswered": self.unanswered,
+            "cut_off": self.cut_off,
             "unanswered_reason": self.unanswered_reason,
             "would_cut": self.would_cut,
             "failed": self.failed,
@@ -167,6 +178,9 @@ class Ask:
     cached: bool = True
     #: Судить по тексту прошлого суда, не открывая главную: пересуд.
     stored_text: bool = False
+    #: Язык писем прогона (`SalesSegmentRunModel.language`): сайт уверенно на другом — «отказал бы»
+    #: словами (`segment_judge.by_language`). Пусто — язык не сверяется.
+    letters: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,12 +247,13 @@ def count(judged: Judged, tally: JudgeTally) -> None:
     tally.spend(verdict)
     if verdict.unanswered:
         tally.unanswered += 1
+        tally.cut_off += int(verdict.cut_off)
         tally.unanswered_reason = tally.unanswered_reason or verdict.reason[:300]
         return
     tally.from_cache += int(judged.cached)
     tally.judged += int(not judged.cached)
     tally.by_rule += int(verdict.decided_by is Decider.RULE)
-    tally.would_cut += int(verdict.decided_by is Decider.MODEL and verdict.would_cut)
+    tally.would_cut += int(verdict.decided_by is not Decider.RULE and verdict.would_cut)
 
 
 async def land(
@@ -300,7 +315,8 @@ async def cached(
 
 
 async def _text(site: Site, ask: Ask) -> SiteText:
-    """Текст сайта судье: у пересуда — тот, что видел прошлый суд; иначе выдача и главная."""
+    """Текст сайта судье: у пересуда — тот, что видел прошлый суд; иначе выдача и главная общего
+    разбора (`check_home`) — шапка и отрывок видимого текста (`segment_text.site_text`)."""
     if ask.stored_text and site.stored:
         return SiteText.parse(site.stored)
     signals = await check_home(ask.home, site.host) if ask.home is not None else None
@@ -317,9 +333,12 @@ async def _one(site: Site, ask: Ask, known: SegmentVerdict | None) -> Judged:
     if ask.client is None:
         return Judged(None, page)
     if known is not None:
-        return Judged(known, page, cached=True)
+        return Judged(by_language(page, ask.letters) or known, page, cached=True)
     text = await _text(site, ask)
-    return Judged(await decide(ask.client, host=site.host, segment=ask.segment, text=text), text)
+    verdict = await decide(
+        ask.client, host=site.host, segment=ask.segment, text=text, letters=ask.letters
+    )
+    return Judged(verdict, text)
 
 
 async def _remember(session: AsyncSession, rows: Sequence[dict[str, Any]]) -> None:

@@ -127,7 +127,8 @@ def spendable(monkeypatch: pytest.MonkeyPatch) -> None:
 
 async def every_lane(session: AsyncSession, run: SalesSegmentRunModel) -> dict[str, int]:
     """По сайту на каждый вид: принятые с лидом, с формой, без адреса, не искали; на проверку —
-    моделью и без ответа модели; отсечённые правилом, моделью и человеком; ещё не судили."""
+    моделью и без ответа модели; отказ судьи в наблюдении («судья отказал бы»); отсечённые
+    правилом, моделью и человеком; ещё не судили."""
     made = {
         "lead": await site(session, run, SHOP, lane=Lane.ACCEPT),
         "form": await site(session, run, "form-only.example.test", lane=Lane.ACCEPT,
@@ -141,6 +142,10 @@ async def every_lane(session: AsyncSession, run: SalesSegmentRunModel) -> dict[s
         "unanswered": await site(session, run, "quiet.example.test", lane=Lane.REVIEW,
                                  verdict=None, decided_by=None, unanswered=True,
                                  reason="модель не ответила: 503"),
+        "shadow": await site(session, run, "masterskie-katalog.example.test",
+                             lane=Lane.WOULD_REJECT, verdict=Lane.REJECT,
+                             reason="каталог мастерских — сам не чинит",
+                             quote="Все веломастерские города в одном каталоге"),
         "rule": await site(session, run, "youtube.com", lane=Lane.REJECT, decided_by=Decider.RULE,
                            verdict=Lane.REJECT, reason="платформам и соцсетям не пишем"),
         "model": await site(session, run, NEWS, lane=Lane.REJECT, verdict=Lane.REJECT,
@@ -165,6 +170,7 @@ async def every_lane(session: AsyncSession, run: SalesSegmentRunModel) -> dict[s
     [
         ("accept", {"lead", "form", "none", "silent", "fresh"}),
         ("review", {"review", "unanswered"}),
+        ("would_reject", {"shadow"}),
         ("reject", {"rule", "model", "human"}),
         ("pending", {"pending"}),
         ("all", None),
@@ -188,9 +194,10 @@ async def test_each_lane_lists_its_sites_and_the_tabs_count_all_of_them(
     assert {row["id"] for row in found["rows"]} == {ids[name] for name in wanted}
     assert found["total"] == len(wanted)
     assert found["lanes"] == {
-        "all": 11,
+        "all": 12,
         "accept": 5,
         "review": 2,
+        "would_reject": 1,
         "reject": 3,
         "pending": 1,
         "changed": 0,
@@ -210,7 +217,8 @@ async def test_who_decided_is_named_and_filtered_and_a_human_comes_with_the_auth
     assert (human["decided_by"], human["decided_by_user"]) == ("human", SELLER)
     assert human["decided_at"] == "2026-10-14T09:31:00Z"
     assert (human["verdict"], human["reason"]) == ("accept", "отказал человек")
-    assert found["deciders"] == {"rule": 1, "model": 1, "human": 1, "none": 0}
+    # «язык» — вердикт языка сайта (`Decider.LANGUAGE`): в этом прогоне таких нет.
+    assert found["deciders"] == {"rule": 1, "model": 1, "human": 1, "language": 0, "none": 0}
 
 
 async def test_the_outcome_of_each_kind_and_the_lead_link(
@@ -238,7 +246,7 @@ async def test_the_outcome_of_each_kind_and_the_lead_link(
     assert rows[ids["none"]]["outcome"]["kind"] == "no_address"
     assert rows[ids["silent"]]["outcome"]["kind"] == "other"
     assert rows[ids["fresh"]]["outcome"]["words"] == NOT_SEARCHED
-    for name in ("review", "rule", "model", "human", "pending"):
+    for name in ("review", "shadow", "rule", "model", "human", "pending"):
         assert rows[ids[name]]["outcome"] is None, name
 
 

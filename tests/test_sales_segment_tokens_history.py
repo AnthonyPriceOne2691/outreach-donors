@@ -19,6 +19,7 @@ from backend.config.judge import JudgeMode
 from backend.features.sales import segment_estimate as se
 from backend.features.sales import segment_history
 from backend.features.sales.segment_estimate import estimate
+from backend.features.sales.segment_judge import PROMPT_VERSION
 from backend.features.sales.segment_models import SalesSegmentRunModel
 from backend.features.sales.segment_spend import number
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +33,9 @@ KEYS = "zahnarzt berlin mitte\n日本茶 通販\nikinci el kitap satın al"
 
 
 async def _past(session: AsyncSession, owner_id: int, judge: Any) -> None:
-    """Прошлый прогон с итогом судьи в отчёте."""
+    """Прошлый прогон с итогом судьи в отчёте — нынешней версии промпта, если она не названа."""
+    if isinstance(judge, dict):
+        judge = {"prompt_version": PROMPT_VERSION} | judge
     session.add(
         SalesSegmentRunModel(
             hypothesis_id=owner_id,
@@ -59,11 +62,12 @@ async def test_without_history_the_spare_number_says_so(session: AsyncSession) -
 
     assert (found.tokens_per_site, found.tokens_per_site_runs) == (se.TOKENS_PER_SITE, 0)
     assert found.tokens == found.sites * se.TOKENS_PER_SITE
-    assert "(по 1 100 на сайт — запасное число: прогонов сбора с судьёй ещё нет)" in (
+    spare = number(se.TOKENS_PER_SITE)
+    assert f"(по {spare} на сайт — запасное число: прогонов сбора с судьёй ещё нет)" in (
         _judge_line(found.lines)
     )
     assert (found.as_dict()["tokens_per_site"], found.as_dict()["tokens_per_site_runs"]) == (
-        1100,
+        se.TOKENS_PER_SITE,
         0,
     )
 
@@ -105,6 +109,29 @@ async def test_runs_without_judged_sites_or_tokens_are_not_history(
     await _past(session, owner.id, judge)
 
     assert await segment_history.tokens_per_site(session) == (0, 0)
+
+
+async def test_runs_of_another_prompt_version_are_not_history(session: AsyncSession) -> None:
+    """Промпт v3 длиннее v2 в 1,6 раза: прогоны прежней версии (и без версии в отчёте — они
+    прежние) занизили бы смету. Токены на сайт — из прогонов той же версии."""
+    owner = await hypothesis(session)
+    await _past(
+        session, owner.id, {"tokens": 30_007, "judged": 22, "prompt_version": "sales-segment-v2"}
+    )
+    session.add(
+        SalesSegmentRunModel(
+            hypothesis_id=owner.id, keywords=["ключ"], country="de", language="en",
+            depth_pages=1, mode=JudgeMode.SHADOW.value, estimate={},
+            report={"judge": {"tokens": 30_007, "judged": 22}},
+        )
+    )  # fmt: skip
+    await session.flush()
+
+    assert await segment_history.tokens_per_site(session) == (0, 0)
+
+    await _past(session, owner.id, {"tokens": 45_031, "judged": 21, "unanswered": 0})
+
+    assert await segment_history.tokens_per_site(session) == (round(45_031 / 21), 1)
 
 
 async def test_a_handful_of_sites_is_not_history(session: AsyncSession) -> None:

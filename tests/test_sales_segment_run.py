@@ -302,6 +302,7 @@ async def test_the_whole_way_from_keywords_to_a_clean_lead(
         "hosts": 5,
         "accepted": 2,
         "review": 1,
+        "would_reject": 0,
         "rejected": 2,
         "pending": 0,
         "no_address": 1,
@@ -468,14 +469,15 @@ async def test_shadow_writes_the_verdict_but_does_not_cut(
 
     await go(session, run, serp(SHOP, NEWS), Model(ANSWERS))
 
-    assert await lanes(session, run) == {SHOP: Lane.ACCEPT, NEWS: Lane.REVIEW}
+    # Вариант (b): отказ модели в наблюдении — своя полоса «судья отказал бы», а не «на проверке».
+    assert await lanes(session, run) == {SHOP: Lane.ACCEPT, NEWS: Lane.WOULD_REJECT}
     news = await session.scalar(
         select(SalesSegmentCandidateModel)
         .join(DomainModel, DomainModel.id == SalesSegmentCandidateModel.domain_id)
         .where(DomainModel.host == NEWS)
     )
     assert news is not None
-    assert (news.verdict, news.reason) == (Lane.REJECT, "Отказ: пишет о чужих, сам не продаёт")
+    assert (news.verdict, news.reason) == (Lane.REJECT, "пишет о чужих, сам не продаёт")
     written = await session.scalar(
         select(SalesSegmentVerdictModel.verdict).where(
             SalesSegmentVerdictModel.domain_id == news.domain_id

@@ -23,6 +23,11 @@
  * (`undoable`): сайт возвращается туда и со словами, куда его кладёт судья, — на «На проверку» снова
  * «Принять» и «Отказ». Строка, по которой отменили, стоит на месте на любой вкладке, числа вкладок и
  * отчёта следуют за ответом сервера без перезагрузки; лид завели посреди — отказ словами сервера.
+ *
+ * **«Судья отказал бы»** (вариант (b), решение владельца 20.10) — своя вкладка: отказы судьи в
+ * наблюдении. Решать по ним не обязательно — строка над таблицей так и говорит; «Принять» оттуда —
+ * единственный путь к лиду у такого сайта. «На проверку» — только сомнительные. Вкладка видна у
+ * прогона в наблюдении и у любого прогона, где такие сайты есть.
  */
 
 import { Alert, Group, SegmentedControl, Stack, Text } from '@mantine/core';
@@ -34,7 +39,7 @@ import { refusalOf } from '../api/client';
 import { InfoHint } from '../components/InfoHint';
 import { PageSwitch } from '../components/PageSwitch';
 import { formatNumber } from '../format';
-import type { SegmentRunDetail, SegmentRunRow } from './segmentApi';
+import type { SegmentMode, SegmentRunDetail, SegmentRunRow } from './segmentApi';
 import { SEGMENT_QUERY_KEY } from './segmentData';
 import { ReportWindow } from './SegmentReportWindow';
 import { isActive } from './segmentStage';
@@ -51,7 +56,7 @@ import type { Held, SiteAction } from './SegmentSitesDecide';
 import { RejudgeButton, RejudgeStatus, SITES_QUERY_KEY } from './SegmentSitesRejudge';
 import { SegmentSitesTable } from './SegmentSitesTable';
 import type { SitesGo, SitesView, SitesWindow } from './SegmentSitesView';
-import { TAB_KEYS, TAB_TITLES } from './SegmentSitesWords';
+import { TAB_KEYS, TAB_TITLES, WOULD_REJECT_NOTE } from './SegmentSitesWords';
 
 /** Пока прогон идёт, список опрашивается сам: судья и адреса меняют полосы на глазах. */
 const SITES_POLL_MS = 5_000;
@@ -103,19 +108,30 @@ export function rowsOf(page: SegmentSitesPage, held: Record<number, Held>): Segm
   return [...shown.values()].sort((a, b) => a.id - b.id);
 }
 
+/** Вкладки прогона: «Сменили при пересуде» — только когда пересуд что-то сменил, «Судья отказал
+ *  бы» — у прогона в наблюдении или когда такие сайты есть: вкладка, где пусто по определению,
+ *  ничего не говорит. */
+export function tabsOf(counts: Record<SiteTab, number> | null, mode: SegmentMode): SiteTab[] {
+  return TAB_KEYS.filter((key) => {
+    if (key === 'changed') return (counts?.changed ?? 0) > 0;
+    if (key === 'would_reject') return mode === 'shadow' || (counts?.would_reject ?? 0) > 0;
+    return true;
+  });
+}
+
 function Tabs({
   counts,
+  mode,
   tab,
   onTab,
 }: {
   counts: Record<SiteTab, number> | null;
+  mode: SegmentMode;
   tab: SiteTab;
   onTab: (tab: SiteTab) => void;
 }) {
   const narrow = useMediaQuery(NARROW, false, { getInitialValueInEffect: false }) === true;
-  // «Сменили при пересуде» — только когда пересуд что-то сменил: вкладка, где пусто по
-  // определению, ничего не говорит.
-  const shown = TAB_KEYS.filter((key) => key !== 'changed' || (counts?.changed ?? 0) > 0);
+  const shown = tabsOf(counts, mode);
   return (
     <SegmentedControl
       aria-label="Полоса сайтов"
@@ -138,6 +154,7 @@ const EMPTY: Record<SiteTab, string> = {
   all: 'Выдача не дала прогону ни одного нового сайта.',
   accept: 'Принятых сайтов нет.',
   review: 'Решать человеку нечего: сайтов на проверке нет.',
+  would_reject: 'Судья не отказал ни одному сайту.',
   reject: 'Отсечённых сайтов нет.',
   pending: 'Судья прошёл все сайты прогона.',
   changed: 'Пересуд не сменил ни одной полосы.',
@@ -245,9 +262,15 @@ function Sites({ detail, view, go }: { detail: SegmentRunDetail; view: SitesView
     <Stack gap="sm">
       <Tabs
         counts={countsOf(page, held)}
+        mode={detail.run.mode}
         tab={view.tab}
         onTab={(tab) => go({ tab, decider: null, page: 1 })}
       />
+      {view.tab === 'would_reject' && (
+        <Text size="sm" c="dimmed">
+          {WOULD_REJECT_NOTE}
+        </Text>
+      )}
       <ActRefusal error={act.error} action={act.variables?.action} />
       {empty ? (
         <Text size="sm" c="dimmed">
@@ -308,11 +331,12 @@ export function SegmentSitesWindow({ detail, sites, rejudge }: WindowProps) {
           />
           <InfoHint name="Что в списке сайтов" width={360}>
             Каждый сайт прогона: полоса, что сказал судья, кто решил и когда, почему и цитата сайта,
-            итог поиска адреса. «Отказ: …» у сайта на проверке — мнение судьи в наблюдении: решает
-            человек. Решение человека отменяется кнопкой «Отменить решение», пока по сайту не
-            заведён лид: сайт вернётся туда, куда его положил судья. Пересуд — после правки описания
-            сегмента: те же сайты и тот же текст, новый вопрос судье; что сменилось — числами и
-            вкладкой «Сменили при пересуде».
+            итог поиска адреса. «Судья отказал бы» — отказы судьи в наблюдении: сайт не отсечён,
+            решать по нему не обязательно, лид — только после «Принять»; «На проверку» — сайты, по
+            которым судья не решил. Решение человека отменяется кнопкой «Отменить решение», пока по
+            сайту не заведён лид: сайт вернётся туда, куда его положил судья. Пересуд — после правки
+            описания сегмента: те же сайты и тот же текст, новый вопрос судье; что сменилось —
+            числами и вкладкой «Сменили при пересуде».
           </InfoHint>
         </Group>
         <RejudgeStatus

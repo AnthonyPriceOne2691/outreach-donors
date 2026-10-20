@@ -266,6 +266,10 @@ class _Sales(DomainSettings):
     segment_again_min: int = Field(
         default=30, ge=1, le=1440, validation_alias="SALES_SEGMENT_AGAIN_MIN"
     )
+    # Знаков текста главной у судьи сегмента (`HomeSignals.text`); 0 — без него, > 8000 — опечатка.
+    segment_home_text_chars: int = Field(
+        default=1500, ge=0, le=8000, validation_alias="SALES_SEGMENT_HOME_TEXT_CHARS"
+    )
 
 
 def _days(text: str) -> frozenset[int]:
@@ -461,6 +465,8 @@ SEGMENT_JUDGE_CONCURRENCY: int = _s.segment_judge_concurrency
 #: Повтор поиска адреса молчавшему сайту — не раньше стольких минут после попытки
 #: (`features/sales/segment_again.py`).
 SEGMENT_AGAIN_MIN: int = _s.segment_again_min
+#: Знаков видимого текста главной у судьи сегмента (`segment_judge.site_text`); 0 — без него.
+SEGMENT_HOME_TEXT_CHARS: int = _s.segment_home_text_chars
 
 #: Не больше стольких запросов в секунду. Предел Kommo из его документации —
 #: семь в секунду с одного IP для любой интеграции; чаще — 429, а частые 429

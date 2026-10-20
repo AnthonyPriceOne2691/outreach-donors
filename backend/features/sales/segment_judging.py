@@ -153,15 +153,18 @@ async def judge_run(
     client: SegmentClient | None,
     home: httpx.AsyncClient | None,
     now: datetime | None = None,
+    letters: str | None = None,
 ) -> JudgeTally:
     """Судить кандидатов прогона, которые ждут судью. Коммит — по чекпоинту, здесь.
 
     `mode` — режим прогона; выключенный судья (`off`) модели не зовёт: стоп-лист и правило по
     домену режут, остальных решает человек. Потолок модели выбран — `stopped` словами, остальные
-    ждут следующего прохода."""
+    ждут следующего прохода. `letters` — язык писем прогона: сайт уверенно на другом — «отказал бы»
+    словами (`segment_judge.by_language`)."""
     moment = now or datetime.now(UTC)
     tally = JudgeTally()
     waiting = await _without_stoplisted(session, await _pending(session, run_id), tally, moment)
     asked = None if mode is JudgeMode.OFF else client
-    await judge_sites(session, waiting, Ask(segment, mode, asked, home, moment), Waiting(), tally)
+    ask = Ask(segment, mode, asked, home, moment, letters=letters)
+    await judge_sites(session, waiting, ask, Waiting(), tally)
     return tally

@@ -8,7 +8,8 @@
 дороже ввода, и рассуждение идёт в счёт вывода, — смета берёт её из прогонов с раздельным счётом.
 И токены на сайт (разбор прогона сбора 20.10: смета считала константой из замера 14.10, а живой
 прогон вышел заметно дороже): длина описания сегмента, текст главных и рассуждение модели у
-каждой гипотезы свои — смета берёт их из прогонов с судьёй (`tokens_per_site`).
+каждой гипотезы свои — смета берёт их из прогонов с судьёй (`tokens_per_site`) той же версии
+промпта: v3 длиннее v2 в 1,6 раза, и прогоны прежней версии занизили бы смету.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.runs.estimate import RESULTS_PER_PAGE, UNIQUE_SHARE
+from backend.features.sales.segment_judge import PROMPT_VERSION
 from backend.features.sales.segment_models import SalesSegmentCandidateModel, SalesSegmentRunModel
 from backend.features.sales.segment_spend import OUTPUT_SHARE
 
@@ -131,11 +133,13 @@ async def tokens_per_site(session: AsyncSession) -> tuple[int, int]:
     столько же, сколько прогон в сотню. На сайт — из тех, кого судья спросил заново, а не взял из
     кэша: судил (`judged`, и правилом до модели — тоже сайт прогона) или не дождался ответа модели
     (`unanswered`: токены такого вызова тоже в счёте). Смета умножает это число на новые сайты
-    прогона: кэш в ней не вычитается — она скорее завысит, чем занизит."""
+    прогона: кэш в ней не вычитается — она скорее завысит, чем занизит. Только прогоны той же
+    версии промпта (`report.judge.prompt_version`, как у сметы пересуда по вердиктам): у прогона
+    без версии в отчёте она прежняя."""
     judge = SalesSegmentRunModel.report["judge"]
     rows = await session.scalars(
         select(judge)
-        .where(judge.has_key("tokens"))
+        .where(judge.has_key("tokens"), judge["prompt_version"].astext == PROMPT_VERSION)
         .order_by(SalesSegmentRunModel.id.desc())
         .limit(HISTORY_RUNS)
     )

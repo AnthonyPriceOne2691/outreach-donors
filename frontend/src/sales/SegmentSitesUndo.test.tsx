@@ -72,6 +72,7 @@ const counts: Record<SiteTab, number> = {
   all: 9,
   accept: 3,
   review: 2,
+  would_reject: 0,
   reject: 3,
   pending: 1,
   changed: 0,
@@ -143,7 +144,7 @@ function pageOf(tab: SiteTab, rows: SegmentSite[], lanes = counts): SegmentSites
     limit: 50,
     total: rows.length,
     lanes,
-    deciders: { rule: 0, model: 6, human: 2, none: 1 },
+    deciders: { rule: 0, model: 6, language: 0, human: 2, none: 1 },
     rows,
   };
 }

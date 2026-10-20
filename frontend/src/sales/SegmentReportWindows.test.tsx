@@ -134,7 +134,15 @@ function acceptedBy(site: SegmentSite, email: string): SegmentSite {
   };
 }
 
-const counts = { all: 14, accept: 4, review: 3, reject: 5, pending: 2, changed: 0 };
+const counts = {
+  all: 14,
+  accept: 4,
+  review: 3,
+  would_reject: 0,
+  reject: 5,
+  pending: 2,
+  changed: 0,
+};
 
 function pageOf(tab: SiteTab, rows: SegmentSite[], total = rows.length): SegmentSitesPage {
   return {
@@ -145,7 +153,7 @@ function pageOf(tab: SiteTab, rows: SegmentSite[], total = rows.length): Segment
     limit: 50,
     total,
     lanes: counts,
-    deciders: { rule: 0, model: rows.length, human: 0, none: 0 },
+    deciders: { rule: 0, model: rows.length, language: 0, human: 0, none: 0 },
     rows,
   };
 }

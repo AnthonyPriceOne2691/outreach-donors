@@ -1,29 +1,94 @@
 {
   "name": "sales_segment_golden",
-  "about": "Размеченные сайты для eval судьи сегмента сбора базы: первый живой набор — все сайты первого прогона сбора одной гипотезы, решение человека по каждому (подходит, не подходит, не понять; не уверен — пара с «не понять»). Сам набор вне репозитория (он публичный): каталог из SALES_SEGMENT_GOLDEN_DIR, файл ниже.",
+  "about": "Размеченные сайты для eval судьи сегмента сбора базы: все сайты одного живого прогона сбора одной гипотезы и решение человека по тем, что судья отдал ему (в наблюдении — «нет» и «не понять» модели). Сайты, которые судья принял сам и человек не смотрел, лежат в наборе без решения — по ним видны доли полос и токены, в точность они не идут. Сам набор вне репозитория (он публичный): каталог из SALES_SEGMENT_GOLDEN_DIR, файл ниже.",
   "env": "SALES_SEGMENT_GOLDEN_DIR",
   "file": "sales_segment_golden.jsonl",
-  "format": "JSONL, строка на сайт — как scripts/data/sales_segment_synthetic.jsonl: id; hypothesis — имя гипотезы; segment — описание сегмента, по которому размечено (правка описания — новый вопрос, разметку повторить); host; text — текст сайта строками с подписями, как его видел судья (Заголовок в выдаче, Описание в выдаче, Заголовок главной, Описание главной, Меню главной); expect — yes | no | unsure, решение человека, или yes|unsure | no|unsure — верен любой из двух ответов; evidence — слова сайта, на которых решение стоит, дословно; labeled_by, labeled_at; tags. Заготовку без решений даёт eval_sales_segment.py --export-run N --out файл",
+  "format": "JSONL, строка на сайт — как scripts/data/sales_segment_synthetic.jsonl: id; hypothesis — имя гипотезы; segment — описание сегмента, по которому размечено (правка описания — новый вопрос, разметку повторить); host; text — текст сайта строками с подписями, как его видел судья (Заголовок в выдаче, Описание в выдаче, Заголовок главной, Описание главной, Меню главной); expect — yes | no | unsure, решение человека, или yes|unsure | no|unsure — верен любой из двух ответов; evidence — слова сайта, на которых решение стоит, дословно; labeled_by, labeled_at; tags. Заготовку без решений даёт eval_sales_segment.py --export-run N --out файл; expect пуст — сайт без решения человека, только с меткой из unlabeled_tags",
   "per_hypothesis": {
     "min": 40,
-    "max": 80
+    "max": 200
   },
-  "count": 74,
-  "sha256": "55085a3d472c7d78269c2e18bc19ec676b136f557653a09788a14847c5409dd3",
-  "date": "2026-10-15",
+  "count": 174,
+  "sha256": "6453c1a88b268d55ab19c1121185a6fbcfbe1ed58fd1884980de8b806a220155",
+  "date": "2026-10-20",
+  "letters": "ru",
+  "unlabeled_tags": [
+    "model-yes-unreviewed",
+    "rule-cut"
+  ],
+  "labeled": 118,
   "baseline": {
-    "prompt_version": "sales-segment-v1",
+    "prompt_version": "sales-segment-v3",
     "model": "gpt-5-mini",
     "reasoning_effort": "low",
-    "segment": "нынешнее описание гипотезы (сверено с базой 15.10)",
-    "command": "eval_sales_segment.py --golden --spoil about (без правила v2 промпт — ровно v1)",
-    "cases": 74,
-    "false_accept": 0.0303,
-    "false_reject": 0.0,
-    "accept_recall": 0.9512,
-    "reject_recall": 0.9394,
-    "to_human": 0.0676,
-    "source": "живой eval 15.10 на закреплённом наборе"
+    "segment": "описание гипотезы прогона, то же для всех замеров",
+    "cases": 174,
+    "labeled": 118,
+    "language": "сверка языка сайта с языком писем набора",
+    "text": "выдача и шапка главной (пять строк, как шлёт прогон сейчас)",
+    "command": "eval_sales_segment.py --golden",
+    "false_accept": 0.0877,
+    "false_reject": 0.0656,
+    "accept_recall": 0.3279,
+    "reject_recall": 0.5088,
+    "unsure": 0.5085,
+    "to_human": 0.3736,
+    "would_reject": 0.1897,
+    "to_human_shadow": 0.5632,
+    "false_reject_by": {
+      "segment": 2,
+      "language": 1,
+      "intermediary": 1,
+      "rule": 0
+    },
+    "tokens_per_call": 2198,
+    "repeat": "второй прогон: ложных «принять» 0.0877, ложных «отказ» 0.0492, «не понять» 0.5169, на проверку при (b) 0.3678",
+    "leads_without_human": "из 57 сайтов, отклонённых человеком, судья принял бы 5 (второй прогон — 5)",
+    "source": "живой eval 20.10 на закреплённом наборе: итоговый v3 — язык называют отличительные буквы, вид сайта решает раньше «язык не назван»"
+  },
+  "before": {
+    "prompt_version": "sales-segment-v2",
+    "model": "gpt-5-mini",
+    "reasoning_effort": "low",
+    "segment": "описание гипотезы прогона, то же для всех замеров",
+    "cases": 174,
+    "labeled": 118,
+    "text": "пять строк, без сверки языка",
+    "command": "eval_sales_segment.py --golden --prompt-file <промпт v2> --no-home --no-language",
+    "false_accept": 0.0351,
+    "false_reject": 0.6885,
+    "accept_recall": 0.0164,
+    "reject_recall": 0.8421,
+    "unsure": 0.2119,
+    "to_human": 0.1609,
+    "would_reject": 0.5172,
+    "to_human_shadow": 0.6782,
+    "false_reject_by": {
+      "segment": 42,
+      "language": 0,
+      "intermediary": 0,
+      "rule": 0
+    },
+    "tokens_per_call": 1332
+  },
+  "previous": {
+    "count": 74,
+    "date": "2026-10-15",
+    "baseline": {
+      "prompt_version": "sales-segment-v1",
+      "model": "gpt-5-mini",
+      "reasoning_effort": "low",
+      "segment": "нынешнее описание гипотезы (сверено с базой 15.10)",
+      "command": "eval_sales_segment.py --golden --spoil about (без правила v2 промпт — ровно v1)",
+      "cases": 74,
+      "false_accept": 0.0303,
+      "false_reject": 0.0,
+      "accept_recall": 0.9512,
+      "reject_recall": 0.9394,
+      "to_human": 0.0676,
+      "source": "живой eval 15.10 на закреплённом наборе"
+    },
+    "note": "прежний живой набор (первый прогон сбора); хэш — в истории манифеста"
   },
   "gates": {
     "false_accept_max": 0.05,
@@ -31,6 +96,245 @@
     "accept_recall_min": 0.7,
     "reject_recall_min": 0.7
   },
-  "gates_status": "предложение до замера: пороги утверждает владелец по прогону на наборе",
-  "fill_in": "sha256 печатает eval_sales_segment.py --golden: незакреплённый набор — красный с напечатанными count и sha256, их вписывают сюда, когда набор утверждён; baseline — итог eval на закреплённом наборе и утверждённой версии промпта"
+  "gates_status": "предложение до замера: пороги утверждает владелец по прогону на наборе; на этом наборе их не проходят ни v2, ни v3 — сайты, где видна только чужая география, v3 отдаёт человеку («не понять», слово владельца 20.10): «на проверку» при (b) — 37–42 %",
+  "fill_in": "sha256 печатает eval_sales_segment.py --golden: незакреплённый набор — красный с напечатанными count и sha256, их вписывают сюда, когда набор утверждён; baseline — итог eval на закреплённом наборе и утверждённой версии промпта",
+  "with_home_text": {
+    "prompt_version": "sales-segment-v3",
+    "model": "gpt-5-mini",
+    "reasoning_effort": "low",
+    "segment": "описание гипотезы прогона, то же для всех замеров",
+    "cases": 174,
+    "labeled": 118,
+    "text": "пять строк и «Текст главной» до 1500 знаков: главные дочитаны 20.10 общим разбором главной (#424) вне репозитория (открылись 156 из 174, с текстом 152)",
+    "command": "eval_sales_segment.py --golden --home <файл дочитанных главных>",
+    "false_accept": 0.1053,
+    "false_reject": 0.0492,
+    "accept_recall": 0.1475,
+    "reject_recall": 0.5789,
+    "unsure": 0.5678,
+    "to_human": 0.4195,
+    "would_reject": 0.2126,
+    "to_human_shadow": 0.6322,
+    "false_reject_by": {
+      "segment": 0,
+      "language": 2,
+      "intermediary": 1,
+      "rule": 0
+    },
+    "tokens_per_call": 2703,
+    "repeat": "второй прогон: ложных «принять» 0.1053, ложных «отказ» 0.0492, «не понять» 0.5085, на проверку при (b) 0.3851",
+    "leads_without_human": "из 57 сайтов, отклонённых человеком, судья принял бы 6 (второй прогон — 6)"
+  },
+  "without_foreign_rule": {
+    "prompt_version": "sales-segment-v3 без подпункта о чужой географии (до слова владельца 20.10)",
+    "five_lines": {
+      "false_accept": 0.3333,
+      "false_reject": 0.1803,
+      "unsure": 0.0254,
+      "to_human": 0.0287,
+      "would_reject": 0.2759,
+      "to_human_shadow": 0.3046,
+      "tokens_per_call": 2119
+    },
+    "with_home_text": {
+      "false_accept": 0.2281,
+      "false_reject": 0.1311,
+      "unsure": 0.0678,
+      "to_human": 0.0747,
+      "would_reject": 0.2701,
+      "to_human_shadow": 0.3448,
+      "tokens_per_call": 2541
+    }
+  },
+  "agreement_by_kind": {
+    "about": "согласие вердикта судьи с решением человека по виду сайта: kind модели, language — вердикт кода по языку, none — модель вид не назвала; вердикт судьи → решение человека, сумма двух прогонов итогового v3 на размеченных сайтах набора: five_lines — на 5 строках, with_home_text — с текстом главной, without_foreign_rule_own — «нет» для own у v3 без подпункта о чужой географии; заготовка к решению владельца о строгом режиме, в коде её нет; ориентир доверия классу «нет»: от 30 случаев и не больше 5 % ложных блокировок",
+    "five_lines": {
+      "intermediary": {
+        "no": {
+          "human_no": 50,
+          "human_yes": 2
+        }
+      },
+      "language": {
+        "no": {
+          "human_no": 2,
+          "human_yes": 2
+        },
+        "unsure": {
+          "human_no": 2
+        }
+      },
+      "media": {
+        "no": {
+          "human_no": 6,
+          "human_yes": 2
+        }
+      },
+      "none": {
+        "unsure": {
+          "human_yes": 2
+        }
+      },
+      "own": {
+        "unsure": {
+          "human_yes": 74,
+          "human_no": 43
+        },
+        "yes": {
+          "human_yes": 39,
+          "human_no": 10
+        },
+        "no": {
+          "human_yes": 1,
+          "human_no": 1
+        }
+      }
+    },
+    "with_home_text": {
+      "intermediary": {
+        "no": {
+          "human_no": 42,
+          "human_yes": 2
+        }
+      },
+      "language": {
+        "no": {
+          "human_no": 16,
+          "human_yes": 4
+        },
+        "unsure": {
+          "human_yes": 2,
+          "human_no": 6
+        }
+      },
+      "media": {
+        "no": {
+          "human_no": 6
+        }
+      },
+      "none": {
+        "unsure": {
+          "human_yes": 3
+        }
+      },
+      "own": {
+        "unsure": {
+          "human_yes": 86,
+          "human_no": 30
+        },
+        "yes": {
+          "human_yes": 25,
+          "human_no": 12
+        },
+        "no": {
+          "human_no": 2
+        }
+      }
+    },
+    "without_foreign_rule_own": {
+      "no": {
+        "human_yes": 16,
+        "human_no": 18
+      }
+    }
+  },
+  "acceptance_claims": {
+    "about": "приёмка по претензиям другой стороны к прогону №3 (лист «Лог проверок», строки 40–46): по виду претензии — сайтов в наборе и сколько из них итоговый v3 не пускает к лиду без человека («судья отказал бы» при варианте (b) или отсечён правилом) в каждом из двух прогонов; претензия «отсеял подходящие: нет упоминания Казахстана» — по всем «да» человека, которым повтор v2 отказал из-за страны (причина называет страну или регион): полосы v3 при (b); домены и причины — вне репозитория",
+    "marketplace": {
+      "sites": 1,
+      "five_lines": [
+        1,
+        1
+      ],
+      "with_home_text": [
+        1,
+        1
+      ]
+    },
+    "exchange": {
+      "sites": 1,
+      "five_lines": [
+        1,
+        1
+      ],
+      "with_home_text": [
+        1,
+        1
+      ]
+    },
+    "catalog": {
+      "sites": 3,
+      "five_lines": [
+        3,
+        3
+      ],
+      "with_home_text": [
+        3,
+        3
+      ]
+    },
+    "online_assistant": {
+      "sites": 1,
+      "five_lines": [
+        1,
+        1
+      ],
+      "with_home_text": [
+        1,
+        1
+      ]
+    },
+    "aggregator": {
+      "sites": 1,
+      "five_lines": [
+        1,
+        1
+      ],
+      "with_home_text": [
+        1,
+        1
+      ]
+    },
+    "language_uk_letters_ru": {
+      "sites": 2,
+      "five_lines": [
+        1,
+        1
+      ],
+      "with_home_text": [
+        1,
+        1
+      ],
+      "note": "второй сайт — двуязычный: выдача и его версия на русском, главная на украинском с переключателем на русский; сверка языка такой сайт не режет (правило v3: версия на языке писем — не отказ), модель отдаёт его человеку — видна только чужая география; лида без человека нет"
+    },
+    "unseen_country": {
+      "human_yes": 61,
+      "v2_cut_by_country": 41,
+      "five_lines": [
+        {
+          "review": 29,
+          "accept": 10,
+          "would_reject": 2
+        },
+        {
+          "review": 33,
+          "accept": 6,
+          "would_reject": 2
+        }
+      ],
+      "with_home_text": [
+        {
+          "review": 36,
+          "would_reject": 2,
+          "accept": 3
+        },
+        {
+          "review": 31,
+          "accept": 8,
+          "would_reject": 2
+        }
+      ]
+    },
+    "no_lead_without_human": "у всех сайтов претензий 2–7 (9 из 9) полоса при (b) — «судья отказал бы» или «на проверку» во всех четырёх прогонах: лидом без «Принять» человека не станет ни один"
+  }
 }

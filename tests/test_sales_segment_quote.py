@@ -446,3 +446,74 @@ async def test_the_cache_serves_only_verdicts_of_the_current_prompt_version(
         if asked
         else {(sj.PROMPT_VERSION, Lane.ACCEPT)}
     )
+
+
+# --- знаки при буквах: ударения, огласовки, тоны — не в счёт ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("quote", "line"),
+    [
+        (
+            "Δεχομαστε ασθενεις μονο στην Αθηνα",
+            "Δεχόμαστε ασθενείς μόνο στην Αθήνα και τα προάστια.",
+        ),
+        ("Phong kham nha khoa cho ca nha", "Phòng khám nha khoa cho cả nhà"),
+        ("Zamow bezplatna wycene projektu", "Zamów bezpłatną wycenę projektu."),
+        ("نحن نصنع الأثاث للمنزل", "نَحْنُ نَصْنَعُ الأَثَاثَ لِلْمَنْزِلِ والمكتب"),
+        ("Елка и еж в лесу", "Ёлка и ёж в лесу"),
+    ],
+    ids=["greek-accents", "vietnamese-tones", "polish-ogonki", "arabic-harakat", "russian-yo"],
+)
+def test_marks_on_letters_the_model_drops_do_not_make_a_quote_made_up(
+    quote: str, line: str
+) -> None:
+    """Модель роняет ударения и огласовки: в коротком слове («μόνο») это уже не «опечатка в длинном
+    слове», и честная цитата уходила человеку с «модель сочинила»."""
+    assert sq.quote_holds(quote, line)
+
+
+@pytest.mark.parametrize(
+    ("quote", "line"),
+    [
+        ("Принимаем пациентов только в Афинах", "Δεχόμαστε ασθενείς μόνο στην Αθήνα"),
+        ("bezplatna wycena dla kazdego", "Zamów bezpłatną wycenę projektu."),
+        ("Lozka i szafy", "Łóżka i szafy na wymiar"),
+    ],
+    ids=["translation", "paraphrase", "another-letter-in-a-short-word"],
+)
+def test_without_marks_a_paraphrase_or_another_letter_still_does_not_hold(
+    quote: str, line: str
+) -> None:
+    """Знак при букве снимается, буква — нет: «ł» и «l» — разные буквы, пересказ — другие слова."""
+    assert not sq.quote_holds(quote, line)
+
+
+@pytest.mark.parametrize(
+    ("quote", "line"),
+    [
+        ("חשב את מחיר החבילה במחשבון שלנו", "חשבו את מחיר החבילה במחשבון שלנו והירשמו לשיעור"),
+        ("Заказывайте ремонт велосипедов онлайн", "Заказывайте ремонты велосипедов онлайн у нас"),
+        ("Reserva tu cit con nuestros dentistas", "Reserva tu cita con nuestros dentistas hoy"),
+    ],
+    ids=["hebrew-plural-ending", "russian-ending", "spanish-ending"],
+)
+def test_an_ending_the_model_dropped_from_a_short_word_still_holds(quote: str, line: str) -> None:
+    """Модель отбросила последнюю букву короткого слова — окончание переписывания, а не выдумка:
+    одно такое слово на три слова цитаты, как опечатка в длинном."""
+    assert sq.quote_holds(quote, line)
+
+
+@pytest.mark.parametrize(
+    ("quote", "line"),
+    [
+        ("Мебельь на заказ по России", "Мебель на заказ по России"),
+        ("Заказыва ремон велосипедо онлай", "Заказывайте ремонты велосипедов онлайн"),
+        ("ко на окне сидит", "кот на окне сидит"),
+    ],
+    ids=["extra-letter", "every-word-cut", "word-of-three-letters"],
+)
+def test_a_letter_added_or_endings_cut_everywhere_do_not_hold(quote: str, line: str) -> None:
+    """Лишняя буква — другое слово; окончания срезаны у каждого слова — переписанная строка; от
+    слова из трёх букв осталось две — одна буква там уже другое слово."""
+    assert not sq.quote_holds(quote, line)

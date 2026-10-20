@@ -3,7 +3,8 @@
  *
  * Замеры стенда (1440 и 390 px): на 1440 при раскрытом меню таблице доставалось около 1 044 px —
  * шире, и «Итог» или «Решение» уезжали в прокрутку; теперь таблица — в окне «Сайты прогона»
- * (на 1440 ему 1 280 px), и тот же предел — запас. На телефоне строка — карточкой, и длинное
+ * (на 1440 ему 1 280 px, таблице в нём — 1 240, замер стенда 20.10). Предел — ширина таблицы в окне:
+ * бейдж «судья отказал бы» шире прежнего запаса в 1 044 px на «Все» и на вкладке решения. На телефоне строка — карточкой, и длинное
  * в ней — целиком: наведения там нет, подсказка по наведению не открылась бы. На «На проверку»
  * причина целиком и в таблице: по ней решают; решённая строка — словами на месте кнопок.
  */
@@ -20,9 +21,9 @@ import { columnsOf, minWidthOf, SegmentSitesTable } from './SegmentSitesTable';
 import { sitesPoll } from './SegmentSites';
 import type { SegmentRunRow } from './segmentApi';
 
-/** Ширина таблицы в панели на 1440 при раскрытом меню — замер стенда. */
-const PANEL_1440 = 1044;
-const TABS: SiteTab[] = ['all', 'accept', 'review', 'reject', 'pending', 'changed'];
+/** Ширина таблицы в окне «Сайты прогона» на 1440 — замер стенда 20.10. */
+const WINDOW_1440 = 1240;
+const TABS: SiteTab[] = ['all', 'accept', 'review', 'would_reject', 'reject', 'pending', 'changed'];
 /** Порог карточек — тот же, что у `phoneCards` в `styles/glass.css`. */
 const PHONE = '(max-width: 47.99em)';
 
@@ -66,8 +67,8 @@ const page: SegmentSitesPage = {
   page: 1,
   limit: 50,
   total: 1,
-  lanes: { all: 1, accept: 1, review: 0, reject: 0, pending: 0, changed: 0 },
-  deciders: { rule: 0, model: 1, human: 0, none: 0 },
+  lanes: { all: 1, accept: 1, review: 0, would_reject: 0, reject: 0, pending: 0, changed: 0 },
+  deciders: { rule: 0, model: 1, language: 0, human: 0, none: 0 },
   rows: [site],
 };
 
@@ -124,15 +125,32 @@ function screenOf(
 }
 
 describe('таблица сайтов прогона', () => {
-  it.each(TABS)('вкладка «%s» умещается в панель на 1440 без прокрутки', (tab) => {
-    expect(minWidthOf(columnsOf(tab))).toBeLessThanOrEqual(PANEL_1440);
+  it.each(TABS)('вкладка «%s» умещается в окно на 1440 без прокрутки', (tab) => {
+    expect(minWidthOf(columnsOf(tab))).toBeLessThanOrEqual(WINDOW_1440);
   });
 
-  it('полоса шире там, где бывает «ещё не судили»: в 8.5rem бейдж обрезался', () => {
+  it('полоса — по самому длинному бейджу вкладки: «ещё не судили», «судья отказал бы»', () => {
     const lane = (tab: SiteTab) => columnsOf(tab)[1]?.width;
 
-    expect([lane('all'), lane('pending')]).toEqual(['9.5rem', '9.5rem']);
-    expect(lane('review')).toBe('8.5rem');
+    expect(lane('pending')).toBe('9.5rem');
+    expect([lane('all'), lane('would_reject'), lane('changed')]).toEqual([
+      '10.5rem',
+      '10.5rem',
+      '10.5rem',
+    ]);
+    expect([lane('review'), lane('accept'), lane('reject')]).toEqual([
+      '8.5rem',
+      '8.5rem',
+      '8.5rem',
+    ]);
+  });
+
+  it('решение — у полос, где оно за человеком: «На проверку» и «Судья отказал бы»', () => {
+    const titles = (tab: SiteTab) => columnsOf(tab).map((column) => column.title);
+
+    expect(titles('review')).toContain('Решение');
+    expect(titles('would_reject')).toContain('Решение');
+    expect(titles('all')).not.toContain('Решение');
   });
 
   it('в таблице длинное — двумя строками, целиком — в подсказке', () => {

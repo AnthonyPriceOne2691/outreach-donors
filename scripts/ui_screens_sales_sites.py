@@ -9,7 +9,10 @@
 Точки — то, по чему решают: полоса, кто решил и когда, причина и цитата, итог, «было → стало».
 С 20.10.2026 — и отмена решения человека: «Отменить решение» под «кто решил» и в колонке «Решение»
 после решения (шаг `decide_first` решает строку стенда — каждая тема следующую), слова судьи у
-решения человека («Судья: …») и «решает человек» под полосой сайта, которому судья отказал.
+решения человека («Судья: …») и «решает человек» под полосой сайта, которому судья отказал. С
+варианта (b) судьи (20.10.2026) — вкладка «Судья отказал бы» (`sales-collect-sites-would-reject`):
+строка «решать не обязательно» над таблицей, бейдж полосы, «Принять» и «Отказ»; на «Все» — бейдж
+«судья отказал бы» и «язык» у «кто решил».
 """
 
 from typing import Any
@@ -83,6 +86,32 @@ def sites_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("итог пересуда", "[role='status'] p:has-text('сменили полосу')", norm),
         ("было → стало", "ul[aria-label='Было → стало'] li", norm),
         hint_probe("что в списке сайтов", "Что в списке сайтов", norm),
+        (
+            "полоса «судья отказал бы»",
+            f"{CELL.format('Полоса')} .mantine-Badge-label:text-is('судья отказал бы')",
+            norm,
+        ),
+        ("кто решил: язык", f"{CELL.format('Кто решил')} p:text-is('язык')", norm),
+    ]
+    refused = [
+        (
+            "вкладка «Судья отказал бы»",
+            ".mantine-SegmentedControl-label:has-text('Судья отказал бы')",
+            norm,
+        ),
+        ("строка «решать не обязательно»", "[role='dialog'] p:has-text('Решать по ним')", norm),
+        (
+            "полоса «судья отказал бы»",
+            f"{CELL.format('Полоса')} .mantine-Badge-label:text-is('судья отказал бы')",
+            norm,
+        ),
+        ("причина целиком", f"{CELL.format('Почему')} .segmentReason", norm),
+        ("вердикт судьи", f"{CELL.format('Судья')} p", norm),
+        ("кнопка «Принять»", DECIDE.format("Принять"), big),
+        ("кнопка «Отказ»", DECIDE.format("Отказ"), big),
+        # Последними: шаг решает строку стенда.
+        ("«Отменить решение» после решения", DECIDE.format("Отменить решение"), norm, decide_first),
+        ("«решено: …»", "td.cellDecide p:has-text('решено:')", norm),
     ]
     review = [
         ("вкладка «На проверку»", ".mantine-SegmentedControl-label:has-text('На проверку')", norm),
@@ -141,5 +170,20 @@ def sites_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "path": f"{base}&sites=changed",
             "ready": ready,
             "probes": changed,
+        },
+        "sales-collect-sites-would-reject": {
+            "path": f"{base}&sites=would_reject",
+            "ready": ready,
+            "probes": refused,
+        },
+        # На телефоне вкладки — столбиком, вырезка выбранной ловит индикатор: меряется соседняя.
+        "sales-collect-sites-would-reject-phone": {
+            "path": f"{base}&sites=would_reject",
+            "ready": ready,
+            "viewport": PHONE,
+            "probes": [
+                ("вкладка-полоса", ".mantine-SegmentedControl-label:has-text('Отсечены')", norm),
+                *refused[1:],
+            ],
         },
     }

@@ -23,8 +23,9 @@
 `POST /sales/segment/runs/{N}/again` — «Повторить сейчас» из отчёта прогона: `segment_again.py`.
 
 `GET /sales/segment/runs/{N}` — прогон и его отчёт; `POST /sales/segment/candidates/{N}/decision`
-— решение человека по сайту «на проверку»: то же решение второй раз — 200 без второй записи
-журнала, противоположное по решённому — 409 словами. `DELETE` того же адреса — отмена решения
+— решение человека по сайту «на проверку» или «судья отказал бы» (из неё лид — только так): то же
+решение второй раз — 200 без второй записи журнала, противоположное по решённому — 409 словами;
+в журнале — и полоса, из которой решили. `DELETE` того же адреса — отмена решения
 человека (`features/sales/segment_undo.py`): сайт — в полосу и со словами судьи, автор и время
 очищены; решение правила или судьи и сайт с заведённым лидом — 409 словами, повтор — 200 без второй
 записи журнала. Ответ обоих — строкой списка сайтов прогона (`segment_sites.SiteView`).
@@ -373,7 +374,7 @@ async def read_run(
 @router.post(
     "/segment/candidates/{candidate_id}/decision",
     response_model=SiteView,
-    summary="Решение человека по сайту «на проверку»",
+    summary="Решение человека по сайту «на проверку» или «судья отказал бы»",
 )
 async def decide(
     candidate_id: int,
@@ -393,7 +394,7 @@ async def decide(
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     row = await site_row(session, decision.candidate)
     if not decision.repeated:
-        await _journal_decision(session, author.id, row)
+        await _journal_decision(session, author.id, row, decision.was)
     await session.commit()
     return SiteView.of(row)
 
@@ -431,11 +432,16 @@ def _code(lane: str) -> str:
     return "accepted" if lane == Lane.ACCEPT else "rejected"
 
 
-async def _journal_decision(session: AsyncSession, author_id: int, row: SiteRow) -> None:
+async def _journal_decision(
+    session: AsyncSession, author_id: int, row: SiteRow, was: str | None
+) -> None:
     """Решение — в журнал, как решение по сайту на «Отборе»: оно меняет, кому уйдёт письмо, и
     по нему считают, как ошибается судья сегмента. Этап — в записи (без права «Продажи» её не
-    видно); «действие» отличает её от решения по донору."""
+    видно); «действие» отличает её от решения по донору; «было» — полоса, из которой решили:
+    «Принять» из «судья отказал бы» — единственный путь к лиду у сайта, которому судья отказал."""
     what = {"решение": _code(row.candidate.lane)}
+    if was is not None:
+        what["было"] = segment_report.LANE_WORDS.get(was, was)
     await _journal(session, author_id, row, "решение по сайту сбора базы", what)
 
 
