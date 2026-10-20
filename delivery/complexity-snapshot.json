@@ -2692,9 +2692,9 @@
       "worst": "run_once:291"
     },
     "backend/features/sales/segment_judge.py": {
-      "lines": 468,
+      "lines": 488,
       "complexity": 9,
-      "worst": "parse:353"
+      "worst": "parse:355"
     },
     "backend/features/sales/segment_judging.py": {
       "lines": 171,
@@ -2707,9 +2707,9 @@
       "worst": "clean_keywords:72"
     },
     "backend/features/sales/segment_language.py": {
-      "lines": 406,
+      "lines": 431,
       "complexity": 10,
-      "worst": "switches_to:385"
+      "worst": "switches_to:410"
     },
     "backend/features/sales/segment_leads.py": {
       "lines": 149,
