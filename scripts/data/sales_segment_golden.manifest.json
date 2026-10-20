@@ -145,5 +145,92 @@
       "to_human_shadow": 0.3448,
       "tokens_per_call": 2541
     }
+  },
+  "agreement_by_kind": {
+    "about": "согласие вердикта судьи с решением человека по виду сайта: kind модели, language — вердикт кода по языку, none — модель вид не назвала; вердикт судьи → решение человека, сумма двух прогонов итогового v3 на размеченных сайтах набора: five_lines — на 5 строках, with_home_text — с текстом главной, without_foreign_rule_own — «нет» для own у v3 без подпункта о чужой географии; заготовка к решению владельца о строгом режиме, в коде её нет; ориентир доверия классу «нет»: от 30 случаев и не больше 5 % ложных блокировок",
+    "five_lines": {
+      "intermediary": {
+        "no": {
+          "human_no": 51,
+          "human_yes": 2
+        }
+      },
+      "language": {
+        "no": {
+          "human_no": 2,
+          "human_yes": 2
+        },
+        "unsure": {
+          "human_no": 2
+        }
+      },
+      "media": {
+        "no": {
+          "human_no": 6
+        }
+      },
+      "own": {
+        "yes": {
+          "human_yes": 30,
+          "human_no": 11
+        },
+        "unsure": {
+          "human_yes": 86,
+          "human_no": 39
+        },
+        "no": {
+          "human_no": 3
+        }
+      },
+      "unclear": {
+        "unsure": {
+          "human_yes": 2
+        }
+      }
+    },
+    "with_home_text": {
+      "intermediary": {
+        "no": {
+          "human_no": 36,
+          "human_yes": 2
+        }
+      },
+      "language": {
+        "unsure": {
+          "human_no": 10,
+          "human_yes": 2
+        },
+        "no": {
+          "human_no": 18,
+          "human_yes": 4
+        }
+      },
+      "media": {
+        "no": {
+          "human_no": 6
+        }
+      },
+      "none": {
+        "unsure": {
+          "human_yes": 3
+        }
+      },
+      "own": {
+        "yes": {
+          "human_yes": 31,
+          "human_no": 12
+        },
+        "unsure": {
+          "human_yes": 80,
+          "human_no": 32
+        }
+      }
+    },
+    "without_foreign_rule_own": {
+      "no": {
+        "human_yes": 16,
+        "human_no": 18
+      }
+    }
   }
 }
