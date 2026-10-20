@@ -25,8 +25,10 @@ Create Date: 2026-10-20 18:00:00.000000
 
 **«Не проверен» из-за нехватки данных получает код причины** (`gap`, ревью 20.10.2026): код
 вердикта прогона пишет «не проверен» без кода, и строки, записанные до резерва, в его группу «не
-хватает данных» не попали бы. Подъём ставит им код по причине — тем же списком причин, что пишет
-код (`rejudge.DATA_GAPS`), а не их копией; откат код снимает.
+хватает данных» не попали бы. Подъём ставит им код по причине (`GAP_REASONS`); откат код снимает.
+Значения заморожены на 20.10.2026 — ровно то, что код вердикта прогона писал без кода причины
+(`rejudge.DATA_GAPS`, обрезанные по длине колонки); новые причины код резерва сразу пишет с
+`cause = 'gap'`, и заполнять их не нужно. Ревизия — снимок: кода приложения она не импортирует.
 
 **Замок — с пределом ожидания** (`SET LOCAL lock_timeout`): ADD COLUMN и DROP COLUMN берут
 ACCESS EXCLUSIVE на `run_candidates`, а её читают очередь, решения и отчёт прогона. За долгой
@@ -39,10 +41,6 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-from backend.features.core.domain import DonorStatus
-from backend.features.donors.rejudge import DATA_GAPS
-from backend.features.runs.verdicts import GAP, REASON_LENGTH
-
 revision: str = "aa72439e27d1"  # pragma: allowlist secret
 down_revision: Union[str, Sequence[str], None] = "c9c37509854f"  # pragma: allowlist secret
 branch_labels: Union[str, Sequence[str], None] = None
@@ -52,6 +50,18 @@ LOCK_TIMEOUT = "SET LOCAL lock_timeout = '5s'"
 
 #: Строки вердиктов прогона — то, что ревизия читает и правит.
 VERDICTS = sa.table("run_verdicts", sa.column("status"), sa.column("cause"), sa.column("reason"))
+#: «Не проверен» — статус строки вердикта (`DonorStatus.UNCHECKED`); код причины нехватки
+#: данных — `gap` (`runs.verdicts.GAP`). На 20.10.2026.
+UNCHECKED = "unchecked"
+GAP = "gap"
+#: Причины нехватки данных, как их писал код вердикта прогона (`rejudge.DATA_GAPS`), уже
+#: обрезанные по длине колонки `run_verdicts.reason` (128). На 20.10.2026.
+GAP_REASONS: tuple[str, ...] = (
+    "в разбивке одна верхняя страна — места страны прогона не видно",
+    "куплен только DR: прежние пороги отсеяли домен по нему, других метрик нет",
+    "страны не получены",
+    "страны не спрашивали: прежние пороги отсеяли домен по метрикам",
+)
 
 
 def upgrade() -> None:
@@ -61,12 +71,11 @@ def upgrade() -> None:
     op.add_column(
         "run_candidates", sa.Column("taken_at", sa.DateTime(timezone=True), nullable=True)
     )
-    gaps = sorted({reason[:REASON_LENGTH] for reason in DATA_GAPS})
     op.execute(
         VERDICTS.update()
-        .where(VERDICTS.c.status == DonorStatus.UNCHECKED.value)
+        .where(VERDICTS.c.status == UNCHECKED)
         .where(VERDICTS.c.cause.is_(None))
-        .where(VERDICTS.c.reason.in_(gaps))
+        .where(VERDICTS.c.reason.in_(GAP_REASONS))
         .values(cause=GAP)
     )
 

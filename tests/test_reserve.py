@@ -40,7 +40,6 @@ from backend.features.runs.exclusions import Exclusions
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.planning import Candidates
 from backend.features.runs.repository import RunRepository
-from backend.features.runs.verdicts import GAP
 from backend.features.serp.protocol import SerpResult
 from httpx import AsyncClient
 from sqlalchemy import select, text
@@ -565,9 +564,13 @@ async def test_the_revision_goes_down_and_up(session: AsyncSession) -> None:
     assert (down, up) == (set(), {"taken_by", "taken_at"})
 
 
+#: Ревизия резерва: её значения — её же, а не кода приложения (ревизия — снимок).
+RESERVE_REVISION = load_migration("aa72439e27d1_reserve_taken.py")
+
+
 def _gaps_down_and_up(connection: Connection) -> dict[str, str | None]:
     """Вниз и вверх; код причины у строк вердикта после подъёма — по причине словами."""
-    migration = load_migration("aa72439e27d1_reserve_taken.py")
+    migration = RESERVE_REVISION
     with Operations.context(MigrationContext.configure(connection)):
         migration.downgrade()
         migration.upgrade()
@@ -580,7 +583,8 @@ async def test_the_revision_names_a_data_gap_written_without_a_cause(
 ) -> None:
     """Код вердикта прогона писал «не проверен» без кода причины (ревью 20.10.2026): такая
     строка в группу «не хватает данных» не попала бы. Подъём ставит ей `gap` — по причине из
-    того же списка, что пишет код; «не проверен» по другой причине и отказ кода не получают."""
+    замороженного списка ревизии; «не проверен» по другой причине и отказ кода не получают."""
+    gap_reason = RESERVE_REVISION.GAP_REASONS[1]
     run = await _run(session, "ca", ["far-away.test"])
     domains = [
         DomainModel(host=host) for host in ("gap-left.test", "unknown-left.test", "weak-left.test")
@@ -590,7 +594,10 @@ async def test_the_revision_names_a_data_gap_written_without_a_cause(
     session.add_all(
         [
             RunVerdictModel(
-                run_id=run.id, domain_id=domains[0].id, status="unchecked", reason=ONLY_DR
+                run_id=run.id,
+                domain_id=domains[0].id,
+                status=RESERVE_REVISION.UNCHECKED,
+                reason=gap_reason,
             ),
             RunVerdictModel(
                 run_id=run.id,
@@ -608,6 +615,6 @@ async def test_the_revision_names_a_data_gap_written_without_a_cause(
 
     causes = await connection.run_sync(_gaps_down_and_up)
 
-    assert causes[ONLY_DR] == GAP
+    assert causes[gap_reason] == RESERVE_REVISION.GAP
     assert causes["Ahrefs не знает домен"] is None
     assert causes["DR 9 ниже 20"] is None
