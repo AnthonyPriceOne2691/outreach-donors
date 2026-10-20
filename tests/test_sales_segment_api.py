@@ -97,7 +97,7 @@ async def test_the_tab_names_the_segment_the_markets_the_languages_and_the_runs(
         "shadow",
         ["ru", "en"],
     )
-    assert {"us", "kz", "ua"} <= set(found["countries"])
+    assert {"us", "kz", "ua", "uz"} <= set(found["countries"])
     assert (found["max_keywords"], found["max_depth"]) == (100, 10)
     assert [row["id"] for row in found["runs"]] == [run.id]
     assert found["runs"][0]["keywords"] == 1
