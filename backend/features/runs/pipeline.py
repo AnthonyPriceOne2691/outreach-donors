@@ -6,12 +6,14 @@
           → гейт исключений
           → отсев уже проверенных
           → смета и проверка капа
+          → вердикт свежих по сохранённым метрикам — страной и порогами прогона
           → трёхступенчатый сбор пачками
           → отчёт со сверкой сметы и факта
 
 Первые пять шагов живут в `planning.py`: до первой траты и решается,
 что вообще будет куплено. Здесь — исполнение; суд до первой траты —
-`judge_stage.py`, итог и его запись в прогон — `report.py`.
+`judge_stage.py`, итог и его запись в прогон — `report.py`, вердикт прогона
+по каждому домену — `verdicts.py`, очередь человеку — `handover.py`.
 
 Два свойства, ради которых всё это и написано.
 
@@ -29,7 +31,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass, field
 
 from backend.config import filters as filters_cfg
@@ -41,7 +43,7 @@ from backend.features.ahrefs.units import (
 from backend.features.core.domain import RunStatus, Stage
 from backend.features.core.models.run import RunModel
 from backend.features.crawl.niche import NicheReport
-from backend.features.donors.collect import collect
+from backend.features.donors.collect import DomainResult, collect
 from backend.features.donors.doors import DoorCheck
 from backend.features.donors.geo import GeoRule
 from backend.features.donors.repository import DonorRepository
@@ -49,19 +51,19 @@ from backend.features.donors.verdict import Thresholds
 from backend.features.review.candidates import RunReview
 from backend.features.runs.budget import budget_of
 from backend.features.runs.competitor_run import country_share_of, release_hold
-from backend.features.runs.failures import described, is_permanent
+from backend.features.runs.failures import is_permanent
+from backend.features.runs.handover import hand_over
 from backend.features.runs.judge_stage import SERP_OPERATION, judge_stage
 from backend.features.runs.planning import (
     Candidates,
     ExclusionSource,
-    RunPlan,
-    SerpText,
     gather_candidates,
     plan_run,
 )
 from backend.features.runs.report import RunReport, run_stats
 from backend.features.runs.repository import REASON_KEY, RunRepository
 from backend.features.runs.stopped import tell_stopped
+from backend.features.runs.verdicts import Judging, measured
 from backend.features.serp.funds import ensure_funds
 from backend.features.serp.protocol import SerpProvider
 from backend.shared.logs import run_context
@@ -178,58 +180,38 @@ async def _record_search_cost(deps: RunDeps, run: RunModel, candidates: Candidat
     await deps.runs.session_commit()
 
 
-async def _check_doors(
-    deps: RunDeps, run: RunModel, report: RunReport, pages: Mapping[str, SerpText]
+async def _judge_fresh(
+    deps: RunDeps, run: RunModel, request: RunRequest, report: RunReport
 ) -> None:
-    """Двери очереди — страница выдачи и меню главных: кто сам продаёт
-    размещение — наверх.
-
-    Сбой здесь прогон не роняет: платное уже сделано и лежит в очереди,
-    а без двери очередь просто не поднимет продающих. Причина — в запись
-    прогона, а не только в лог.
-    """
-    if deps.doors is None or deps.review is None:
+    """Свежие домены — вердиктом этого прогона: его страной и порогами, по метрикам и
+    странам, что лежат у домена (`runs/verdicts.py`), без Ahrefs. До 20.10.2026 свежему
+    шёл вердикт последнего замера, чьей бы страны он ни был. Купленное этим же прогоном
+    до сбоя продолжение застаёт свежим — оно остаётся вердиктом замера. Пишет очередь
+    прогона: без неё вердикт свежего никому не нужен."""
+    if deps.review is None or not report.plan.fresh:
         return
-    try:
-        report.doors = await deps.doors(
-            deps.donors,
-            await deps.review.pending_hosts(run.id),
-            pages=pages,
-            checkpoint=deps.runs.session_commit,
-        )
-    except Exception as exc:
-        logger.exception("Прогон %s: меню главных не посмотрели", run.id)
-        report.doors_failure = described(exc)[:300]
+    judging = Judging(request.country, request.thresholds, request.geo)
+    fresh = await deps.review.verdicts.fresh(run, report.plan.fresh, judging)
+    for verdict in fresh.values():
+        report.record_fresh(verdict.status, verdict.reason)
+    await deps.runs.session_commit()
 
 
-async def _hand_over(
-    deps: RunDeps, run: RunModel, plan: RunPlan, report: RunReport, candidates: Candidates
+async def _save_batch(
+    deps: RunDeps,
+    run: RunModel,
+    batch: Sequence[DomainResult],
+    report: RunReport,
+    *,
+    again: Collection[str],
 ) -> None:
-    """После сбора: очередь человеку, меню главных, бизнесы ниши."""
+    """Пачка замера — донорам, вердиктом — прогону (`run_verdicts`) и в отчёт. `again` —
+    кому добирали страны: метрики куплены раньше (`collect.PaidMetrics`)."""
+    await deps.donors.save_results(batch)
     if deps.review is not None:
-        # Свежие домены тоже: прогон их нашёл, и человек должен их
-        # увидеть — просто платить за них не пришлось.
-        report.review = await deps.review.queue_run(run.id, [*plan.new, *plan.fresh])
-        await deps.runs.session_commit()
-        await _check_doors(deps, run, report, candidates.texts)
-    await _collect_niche(deps, run, report)
-
-
-async def _collect_niche(deps: RunDeps, run: RunModel, report: RunReport) -> None:
-    """Вердикт «продаёт своё» уже оплачен выдачей: такой сайт не донор, а
-    кандидат в рекламодатели — решит человек.
-
-    Сбой здесь прогон не роняет — как у меню главных: доноры оплачены и
-    сохранены, а сбор повторяется из прогона кнопкой. Причина — в запись.
-    """
-    if deps.niche is None:
-        return
-    try:
-        report.niche = await deps.niche(run.id)
-        await deps.runs.session_commit()
-    except Exception as exc:
-        logger.exception("Прогон %s: бизнесы ниши не собрали", run.id)
-        report.niche_failure = described(exc)[:300]
+        await deps.review.verdicts.save(run, measured(batch))
+    for result in batch:
+        report.record(result.status, result.reason, again=result.host in again)
 
 
 async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
@@ -305,6 +287,7 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 )
 
         try:
+            await _judge_fresh(deps, run, request, report)
             judged = await judge_stage(deps, run, plan, candidates, report)
             targets = plan.new
             if judged is not None:
@@ -324,14 +307,12 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 paid=paid,
                 geo=request.geo,
             ):
-                await deps.donors.save_results(batch)
-                for result in batch:
-                    report.record(result.status, result.reason, again=result.host in paid)
+                await _save_batch(deps, run, batch, report, again=paid.keys())
                 await flush_usage()
                 # Пачка сохранена — это чекпоинт: повторный прогон её пропустит.
                 await deps.runs.session_commit()
 
-            await _hand_over(deps, run, plan, report, candidates)
+            await hand_over(deps, run, [*targets, *plan.fresh], report, candidates.texts)
         except Exception as exc:
             failed = exc
             status = _status_after(exc, run.id)

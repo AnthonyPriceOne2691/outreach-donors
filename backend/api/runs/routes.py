@@ -22,11 +22,11 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import actor, db_session, needs
+from backend.api.runs.report_schemas import RunReportView
 from backend.api.runs.schemas import (
     Forecast,
     RunCard,
     RunQueued,
-    RunReportView,
     RunRequestBody,
     RunsView,
 )

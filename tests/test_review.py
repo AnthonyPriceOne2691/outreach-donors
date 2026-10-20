@@ -33,6 +33,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer, make_donor
+from tests.donor_metrics import measured
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -77,6 +78,7 @@ async def _judged(
     review: str | None = None,
 ) -> DomainModel:
     domain = await make_donor(session, host, review=review)
+    await measured(session, domain)
     domain.judge_recommendation = recommendation
     domain.judge_decided_by = decided_by if recommendation else None
     domain.site_intent = intent if recommendation else None
@@ -399,7 +401,9 @@ class TestLetterScope:
     ) -> None:
         chosen, other = await _run(session), await _run(session)
         for host in ("in.test", "rejected.test", "elsewhere.test"):
-            await make_donor(session, host, email=f"info@{host}", review=None)
+            await measured(
+                session, await make_donor(session, host, email=f"info@{host}", review=None)
+            )
         review = RunReview(session)
         await review.queue_run(chosen.id, ["in.test", "rejected.test"])
         await review.queue_run(other.id, ["elsewhere.test"])

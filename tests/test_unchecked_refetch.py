@@ -169,6 +169,30 @@ class TestWithoutCountriesIsNotFresh:
         assert paid["half.example.test"].bought_at == NOW
         assert paid["half.example.test"].raw["org_keywords"] == 2000
 
+    async def test_accepted_donor_without_countries_is_picked_up_again(
+        self, session: AsyncSession
+    ) -> None:
+        """Принятого перемер не понижает (`donors/held.py`): `status` держится, а «страны не
+        получены» лежит в вердикте замера. По нему страны и добираются — иначе принятый
+        донор 90 дней жил бы без разбивки, и «Гео» с фильтром топ-5 его не видели бы."""
+        repo = DonorRepository(session)
+        good = DomainResult(
+            "kept.example.test", DonorStatus.SUITABLE, "US на 1-м месте", Metrics(dr=40)
+        )
+        await repo.save_results([good], now=NOW - timedelta(days=91))
+        (await _donor(session, "kept.example.test")).review = "accepted"
+        await session.flush()
+
+        await repo.save_results([_countries_failed("kept.example.test")], now=NOW)
+
+        donor = await _donor(session, "kept.example.test")
+        assert (donor.status, donor.measured_status) == (
+            DonorStatus.SUITABLE,
+            DonorStatus.UNCHECKED.value,
+        )
+        assert await repo.fresh_hosts(["kept.example.test"], now=NOW) == set()
+        assert "kept.example.test" in await repo.paid_metrics(["kept.example.test"], now=NOW)
+
     async def test_ahrefs_answering_no_countries_stays_fresh(self, session: AsyncSession) -> None:
         """Ответ «стран нет» — «проверяли, данных нет»: отметка стран стоит, и платить
         за тот же ответ второй раз незачем."""

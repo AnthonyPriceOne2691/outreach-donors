@@ -16,11 +16,11 @@ from backend.features.core.domain import DonorStatus
 from backend.features.crawl.niche import NicheReport
 from backend.features.donors.doors import DoorReport
 from backend.features.donors.judging import JudgeSummary
-from backend.features.donors.verdict import BIG_SITE_WORDS
 from backend.features.review.candidates import QueueReport
 from backend.features.runs.failures import described
 from backend.features.runs.planning import Candidates, RunPlan
 from backend.features.runs.reasons import explained
+from backend.features.runs.refusals import reject_key
 from backend.features.runs.repository import FAILURE_KEY, REASON_KEY
 from backend.features.topics.step import TopicSummary
 
@@ -28,6 +28,9 @@ from backend.features.topics.step import TopicSummary
 # смета показывается человеку, она уже потрачена, и включать её значило бы
 # просить подтвердить трату, которой не избежать.
 ESTIMATED_OPERATIONS = frozenset({"batch_metrics", "by_country"})
+
+#: Вердикты свежих доменов в отчёте прогона (`RunReport.fresh`).
+FRESH_KEY = "fresh_verdicts"
 
 
 @dataclass(slots=True)
@@ -45,6 +48,13 @@ class RunReport:
     countries_refetched: int = 0
     """Сколько доменов прогон добирал по метрикам, купленным раньше (`collect.PaidMetrics`):
     без второй покупки метрик; страны — если пороги этого прогона их пропустили."""
+
+    fresh: Verdicts | None = None
+    """Вердикты свежих доменов — этого прогона, по сохранённым метрикам и странам, без
+    Ahrefs (`runs/verdicts.py`). Отдельно от купленных сейчас: по вердиктам купленных
+    смета считает, сколько доменов дойдёт до запроса по странам
+    (`repository.reached_countries`), а свежие стран не спрашивают. `None` — свежих
+    этот прогон не судил: их нет или прогон без очереди."""
 
     spent_units: int = 0
     spent_by_operation: dict[str, int] = field(default_factory=dict)
@@ -124,14 +134,16 @@ class RunReport:
 
     def record(self, status: DonorStatus, reason: str, *, again: bool = False) -> None:
         """Вердикт по домену. `again` — домену добирали страны (`countries_refetched`)."""
-        self.by_status[status] = self.by_status.get(status, 0) + 1
         self.countries_refetched += int(again)
-        if status is DonorStatus.UNSUITABLE:
-            key = _reject_key(reason)
-            self.reject_reasons[key] = self.reject_reasons.get(key, 0) + 1
-        elif status is DonorStatus.UNCHECKED:
-            key = reason or "без причины"
-            self.unchecked_reasons[key] = self.unchecked_reasons.get(key, 0) + 1
+        _tally(self.by_status, self.reject_reasons, self.unchecked_reasons, status, reason)
+
+    def record_fresh(self, status: DonorStatus, reason: str) -> None:
+        """Вердикт свежего домена — этого прогона, по сохранённым метрикам."""
+        if self.fresh is None:
+            self.fresh = Verdicts()
+        _tally(
+            self.fresh.by_status, self.fresh.reject_reasons, self.fresh.unchecked, status, reason
+        )
 
     def add_usage(self, operation: str, cost: UnitsCost) -> None:
         if cost.was_free:
@@ -143,17 +155,44 @@ class RunReport:
         )
 
 
-def _reject_key(reason: str) -> str:
-    """Причина отказа в отчёте — первым словом: «DR», «органический», «US»…
+@dataclass(slots=True)
+class Verdicts:
+    """Вердикты доменов одним счётом: по вердикту, по причине отказа и «не проверен»."""
 
-    Крупный сайт — своим ключом, с порогом версии («DR > 80»): первым словом он слился
-    бы с «DR 12 ниже 20» под одним «DR», а это «кому не пишем», а не нижний порог.
-    """
-    if not reason:
-        return "без причины"
-    if reason.endswith(BIG_SITE_WORDS):
-        return reason.split(" — ", maxsplit=1)[0]
-    return reason.split(" ", maxsplit=1)[0]
+    by_status: dict[DonorStatus, int] = field(default_factory=dict)
+    reject_reasons: dict[str, int] = field(default_factory=dict)
+    unchecked: dict[str, int] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "by_status": {status.value: count for status, count in self.by_status.items()},
+            "reject_reasons": dict(self.reject_reasons),
+            "unchecked_reasons": dict(self.unchecked),
+        }
+
+
+def _tally(
+    by_status: dict[DonorStatus, int],
+    rejected: dict[str, int],
+    unchecked: dict[str, int],
+    status: DonorStatus,
+    reason: str,
+) -> None:
+    """Учесть вердикт: отказ — ключом причины (`refusals.reject_key`), «не проверен» —
+    причиной целиком."""
+    by_status[status] = by_status.get(status, 0) + 1
+    if status is DonorStatus.UNSUITABLE:
+        key = reject_key(reason)
+        rejected[key] = rejected.get(key, 0) + 1
+    elif status is DonorStatus.UNCHECKED:
+        key = reason or "без причины"
+        unchecked[key] = unchecked.get(key, 0) + 1
+
+
+def _fresh(report: RunReport) -> dict[str, object]:
+    """Вердикты свежих — своей веткой: долю дошедших до стран смета берёт из вердиктов
+    купленных (`repository.reached_countries`). Свежих не судили — ветки нет."""
+    return {} if report.fresh is None else {FRESH_KEY: report.fresh.as_dict()}
 
 
 def _topic_stats(report: RunReport) -> dict[str, object]:
@@ -208,6 +247,7 @@ def run_stats(
         "units_saved_by_gate": report.plan.savings_from_gate,
     }
     stats.update(_source_of(candidates))
+    stats.update(_fresh(report))
     if report.judge is not None:
         # Отдельной веткой, а не строками в общем словаре: у выключенного
         # судьи нулей быть не должно. Ноль читается как «судил и никого

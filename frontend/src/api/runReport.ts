@@ -9,9 +9,10 @@
 import { request } from './client';
 import type { ArticleCard, RunCard } from './types';
 
-/** Порог, по которому домен отсеян. `other` — причина, которой нет среди порогов:
- *  её экран показывает как записана (`said`). */
-export type Threshold = 'dr' | 'org_traffic' | 'keywords' | 'refdomains' | 'geo' | 'other';
+/** Порог, по которому домен отсеян. `big` — DR выше порога версии: крупному сайту не
+ *  пишем. `other` — причина, которой нет среди порогов: её экран показывает как записана
+ *  (`said`). */
+export type Threshold = 'dr' | 'big' | 'org_traffic' | 'keywords' | 'refdomains' | 'geo' | 'other';
 
 /** Пороги, с которыми прогон запущен, — его версия, а не сегодняшняя с экрана «Пороги». */
 export interface RunThresholds {
@@ -19,6 +20,8 @@ export interface RunThresholds {
   min_org_traffic: number;
   min_refdomains: number;
   min_keywords: number;
+  /** DR выше — крупный сайт: «кому не пишем». */
+  max_dr: number;
   /** Регион: страна прогона в топ-N стран по трафику или доля не меньше этой. */
   geo_top_n: number;
   geo_min_share: number;
@@ -45,12 +48,23 @@ export interface RunDomains {
   judge_enforced: boolean;
   /** Сколько раз прогон продолжали после сбоя: числа — последней попытки. */
   resumes: number;
+  /** Свежих прогон судил сам, по сохранённым метрикам: их вердикты — в числах выше.
+   *  `false` — отчёт записан до 20.10.2026: вердикты — только купленных сейчас. */
+  fresh_judged: boolean;
 }
 
 export interface RejectionCard {
   threshold: Threshold;
   count: number;
   said: string | null;
+}
+
+/** Сколько доменов не предложено по причине — словами сервера. */
+export interface NamedCard {
+  said: string;
+  count: number;
+  /** «Кому не пишем»: такой домен не берут по правилу, а не по числам. */
+  not_writing: boolean;
 }
 
 export interface RunReportView {
@@ -63,6 +77,10 @@ export interface RunReportView {
   spending: ArticleCard[];
   /** Запросы к Ahrefs, которые обслужил кэш провайдера, — бесплатно. */
   free_requests: number;
+  /** Исключённые гейтом до Ahrefs — по причине. */
+  excluded: NamedCard[];
+  /** «Не проверен» — почему. */
+  unchecked: NamedCard[];
 }
 
 export function fetchRunReport(id: number): Promise<RunReportView> {

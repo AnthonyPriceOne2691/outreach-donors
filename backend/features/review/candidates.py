@@ -41,19 +41,17 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import ColumnElement, false, func, select, update
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.domain import DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.run import RunCandidateModel, RunModel
+from backend.features.review.accepted import settle_decision
 from backend.features.review.accuracy import Agreement, JudgeAccuracy
 from backend.features.review.domain_lock import lock_domains_of
 from backend.features.review.ordering import (
@@ -65,16 +63,25 @@ from backend.features.review.ordering import (
     tier,
     tier_order,
 )
-from backend.features.runs.exclusions import NotWritingAcceptError, not_writing, not_writing_of
+from backend.features.review.queue import Decision, QueueReport, copy_of, fill
+from backend.features.runs.exclusions import NotWritingAcceptError, not_writing_of
+from backend.features.runs.verdicts import RunVerdicts
 from backend.shared.database.ids import storable
 
 logger = logging.getLogger(__name__)
 
-
-class Decision(StrEnum):
-    PENDING = "pending"
-    ACCEPTED = "accepted"
-    REJECTED = "rejected"
+#: Решение и отчёт очереди живут в `queue.py` (с 20.10.2026), а называют их отсюда.
+__all__ = [
+    "DECISION_ADVICE",
+    "CandidateRow",
+    "DecideReport",
+    "Decision",
+    "NotInRunError",
+    "QueueReport",
+    "ReviewPage",
+    "RunReview",
+    "UnknownRunError",
+]
 
 
 class UnknownRunError(ValueError):
@@ -83,18 +90,6 @@ class UnknownRunError(ValueError):
 
 class NotInRunError(ValueError):
     """Кандидаты не из этого прогона. Сообщение называет номера."""
-
-
-@dataclass(frozen=True, slots=True)
-class QueueReport:
-    """Что прогон положил на рассмотрение."""
-
-    pending: int = 0
-    #: Решено в прошлых прогонах и перенесено: смотреть заново не нужно.
-    carried: dict[str, int] = field(default_factory=dict)
-    #: Годны по вердикту, вынесенному до 11.10.2026, но в «кому не пишем» ТЗ
-    #: (`runs.exclusions.not_writing`): на рассмотрение не положены.
-    not_writing: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,68 +174,19 @@ def _apply(
     candidate.decided_by, candidate.decided_at, candidate.note = by, moment, note
 
 
-def _copy_of(review: str | None) -> dict[str, Any]:
-    """Строка домена в прогоне, где о нём не решали: копия решения с пометкой
-    «перенесено» — или «предложен», если решения нет. Автора, времени и записки
-    у копии нет: они у самого решения и у донора. Одна на очередь и на решение
-    в другом прогоне — копии из двух мест не расходятся."""
-    decided = review in (Decision.ACCEPTED, Decision.REJECTED)
-    return {
-        "status": review if decided else Decision.PENDING.value,
-        "carried": decided,
-        "decided_by": None,
-        "decided_at": None,
-        "note": None,
-    }
-
-
 class RunReview:
-    """Очередь прогона: наполнить, показать, решить."""
+    """Очередь прогона: наполнить, показать, решить. Наполняет её вердикт прогона —
+    он же пишется здесь (`verdicts`): прогон судит свои домены для своей очереди."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+        self.verdicts = RunVerdicts(session)
 
     async def queue_run(self, run_id: int, hosts: Sequence[str]) -> QueueReport:
-        """Положить на рассмотрение годных по порогам доменов прогона.
-
-        Повтор безопасен: пара «прогон + домен» кладётся один раз.
-        Решённый домен приходит копией решения (`_copy_of`) — той же, что
-        кладёт решение в другом прогоне (`decide`): решение по домену одно.
-
-        Домен из «кому не пишем» не кладётся, даже годный по вердикту (11.10.2026):
-        крупный сайт новый замер и так ставит «не подходит» (`verdict.check_dr`), а здесь —
-        годные по замеру до правила, свежие и потому не перемеренные. Сколько таких —
-        в отчёте (`not_writing`).
-        """
+        """Положить на рассмотрение годных по вердикту этого прогона (`queue.fill`)."""
         if not hosts:
             return QueueReport()
-        rows = await self._session.execute(
-            select(DonorModel.domain_id, DonorModel.review, not_writing())
-            .join(DomainModel, DomainModel.id == DonorModel.domain_id)
-            .where(DomainModel.host.in_(hosts))
-            .where(DonorModel.status == DonorStatus.SUITABLE)
-        )
-        pending = skipped = 0
-        carried: dict[str, int] = {}
-        for domain_id, review, off in rows.all():
-            if off:
-                skipped += 1
-                continue
-            values = _copy_of(review)
-            inserted = await self._session.execute(
-                insert(RunCandidateModel)
-                .values(run_id=run_id, domain_id=domain_id, **values)
-                .on_conflict_do_nothing(constraint="uq_run_candidates_run_domain")
-                .returning(RunCandidateModel.id)
-            )
-            if inserted.scalar_one_or_none() is None:
-                continue
-            if values["carried"]:
-                carried[review] = carried.get(review, 0) + 1
-            else:
-                pending += 1
-        await self._session.flush()
-        return QueueReport(pending=pending, carried=carried, not_writing=skipped)
+        return await fill(self._session, await self._run(run_id), hosts)
 
     async def pending_hosts(self, run_id: int) -> list[str]:
         """Домены прогона, ждущие решения человека."""
@@ -314,6 +260,8 @@ class RunReview:
         когда, записка), строки домена в остальных прогонах — его копия,
         какими бы они ни были, донор — то же решение: контакты, письма и гейт
         следующего прогона смотрят на донора. «Предложен» — решения нет нигде.
+        Принятому — ещё и вердикт этого прогона, если он «подходит»; снятое и отклонённое
+        решение возвращает донору вердикт последнего замера (`accepted.py`).
         """
         if not candidate_ids:
             return DecideReport(changed=0, accepted_domains=[])
@@ -331,6 +279,8 @@ class RunReview:
         copies = await self._copy_elsewhere(run_id, domains, decision)
         for domain_id in domains:
             await self._settle_donor(domain_id)
+        accepted = domains if decision is Decision.ACCEPTED else []
+        await settle_decision(self._session, run_id, domains, accepted=bool(accepted))
         logger.info(
             "рассмотрение: прогон %s, %s кандидатов → %s (%s), строк в других прогонах: %s",
             run_id,
@@ -339,10 +289,7 @@ class RunReview:
             by,
             copies,
         )
-        return DecideReport(
-            changed=len(candidates),
-            accepted_domains=domains if decision is Decision.ACCEPTED else [],
-        )
+        return DecideReport(changed=len(candidates), accepted_domains=accepted)
 
     async def _of_run(self, run_id: int, candidate_ids: Sequence[int]) -> list[RunCandidateModel]:
         """Кандидаты — и только этого прогона: чужой номер значит, что экран
@@ -373,7 +320,7 @@ class RunReview:
             update(RunCandidateModel)
             .where(RunCandidateModel.domain_id.in_(domains))
             .where(RunCandidateModel.run_id != run_id)
-            .values(**_copy_of(decision.value))
+            .values(**copy_of(decision.value))
             .returning(RunCandidateModel.id)
         )
         return len(copied.all())

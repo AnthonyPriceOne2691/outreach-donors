@@ -39,6 +39,18 @@ def big_site_reason(max_dr: int) -> str:
     return f"DR > {max_dr} — {BIG_SITE_WORDS}"
 
 
+def big_site_bound(reason: str | None) -> int | None:
+    """Порог из причины отказа крупному сайту — обратно `big_site_reason`: «DR > 80 — …» → 80.
+
+    Колонка DR — целая: крупный сайт с DR 80,4 лежит в ней числом 80, и по ней одной порог 80
+    его уже не узнаёт. Причина помнит, что замер видел DR выше порога (аудит 20.10.2026).
+    Не причина крупного сайта — `None`."""
+    if not reason or not reason.endswith(BIG_SITE_WORDS):
+        return None
+    bound = reason.split(" — ", maxsplit=1)[0].removeprefix("DR >").strip()
+    return int(bound) if bound.isdigit() else None
+
+
 @dataclass(frozen=True, slots=True)
 class Thresholds:
     """Пороги отбора. Приходят из настроек прогона, а не из кода: смена порога

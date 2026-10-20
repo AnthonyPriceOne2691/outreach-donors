@@ -44,6 +44,7 @@ const REPORT: RunReportView = {
     min_org_traffic: 700,
     min_refdomains: 150,
     min_keywords: 400,
+    max_dr: 80,
     geo_top_n: 3,
     geo_min_share: 0.25,
   },
@@ -59,9 +60,11 @@ const REPORT: RunReportView = {
     not_reached: 0,
     judge_enforced: false,
     resumes: 0,
+    fresh_judged: false,
   },
   rejected: [
     { threshold: 'dr', count: 12, said: null },
+    { threshold: 'big', count: 9, said: null },
     { threshold: 'org_traffic', count: 20, said: null },
     { threshold: 'keywords', count: 6, said: null },
     { threshold: 'refdomains', count: 0, said: null },
@@ -75,6 +78,11 @@ const REPORT: RunReportView = {
     { provider: 'serp', operation: 'serp_search', units: 0, amount_usd: '0.42', calls: 2 },
   ],
   free_requests: 5,
+  excluded: [
+    { said: 'Кому не пишем: крупное СМИ', count: 2, not_writing: true },
+    { said: 'В стоп-листе', count: 1, not_writing: false },
+  ],
+  unchecked: [{ said: 'Не проверен: Ahrefs не знает домен', count: 6, not_writing: false }],
 };
 
 function openReport(report: unknown, path = '/runs/27') {
@@ -109,6 +117,20 @@ describe('отчёт прогона', () => {
     }
   });
 
+  it('«Рассмотреть» не равно «Подходит» — и сказано почему; сошлись — строки нет', async () => {
+    openReport(REPORT);
+
+    expect(await screen.findByText(/«Рассмотреть» — кто ждёт решения сейчас/)).toBeInTheDocument();
+    expect(screen.getByText(/«кому не пишем» в очередь не кладут/)).toBeInTheDocument();
+  });
+
+  it('«Рассмотреть» равно «Подходит» — пояснения нет', async () => {
+    openReport({ ...REPORT, run: { ...RUN, queue: { pending: 30 } } });
+
+    expect(await screen.findByRole('heading', { name: 'Отчёт прогона №27' })).toBeInTheDocument();
+    expect(screen.queryByText(/«Рассмотреть» — кто ждёт решения сейчас/)).not.toBeInTheDocument();
+  });
+
   it('каждый порог — со значением этого прогона и числом отсеянных, незнакомая причина — как записана', async () => {
     openReport(REPORT);
 
@@ -125,12 +147,59 @@ describe('отчёт прогона', () => {
       );
     expect(cells).toEqual([
       ['DR не ниже 25', '12'],
+      // Крупный сайт — «кому не пишем», а не «другая причина» (аудит 20.10.2026).
+      ['Кому не пишем: слишком крупный — DR выше 80', '9'],
       ['Органический трафик не ниже 700 в месяц', '20'],
       ['Ключей в органике не меньше 400', '6'],
       ['Реф. доменов не меньше 150', '0'],
       ['Регион: США — в топ-3 стран по трафику или от 25% трафика', '2'],
       ['Другая причина: «без причины»', '1'],
     ]);
+  });
+
+  it('исключённые до Ahrefs и «не проверен» — по причине словами, «кому не пишем» первыми', async () => {
+    openReport(REPORT);
+
+    const card = (await screen.findByRole('heading', { name: 'Исключены и не проверены' })).closest(
+      '.mantine-Card-root',
+    ) as HTMLElement;
+    const rows = within(card)
+      .getAllByRole('table')
+      .map((table) =>
+        within(table)
+          .getAllByRole('row')
+          .slice(1)
+          .map((row) =>
+            within(row)
+              .getAllByRole('cell')
+              .map((cell) => cell.textContent),
+          ),
+      );
+    expect(within(card).getByText('Исключено до Ahrefs')).toBeInTheDocument();
+    expect(rows).toEqual([
+      [
+        ['Кому не пишем: крупное СМИ', '2'],
+        ['В стоп-листе', '1'],
+      ],
+      [['Не проверен: Ahrefs не знает домен', '6']],
+    ]);
+  });
+
+  it('нет ни исключённых, ни «не проверен» — карточки нет', async () => {
+    openReport({ ...REPORT, excluded: [], unchecked: [] });
+
+    expect(await screen.findByRole('heading', { name: 'Отсеяно по порогам' })).toBeInTheDocument();
+    expect(screen.queryByText('Исключены и не проверены')).not.toBeInTheDocument();
+  });
+
+  it('свежих прогон судил сам — так и сказано в пути доменов и над порогами', async () => {
+    openReport({ ...REPORT, domains: { ...REPORT.domains!, fresh_judged: true } });
+
+    expect(
+      await screen.findByText(/проверены раньше 40 — метрики в сроке: вердикт этого прогона/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/В числах и проверенные раньше/)).toBeInTheDocument();
+    expect(screen.getByText('новых, с любым вердиктом')).toBeInTheDocument();
   });
 
   it('расход — единицей своего провайдера: Ahrefs юнитами со сметой, выдача деньгами, модель токенами', async () => {

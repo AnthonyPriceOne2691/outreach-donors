@@ -316,15 +316,20 @@
       "complexity": 2,
       "worst": "start:93"
     },
+    "backend/api/runs/report_schemas.py": {
+      "lines": 137,
+      "complexity": 4,
+      "worst": "of:117"
+    },
     "backend/api/runs/routes.py": {
       "lines": 361,
       "complexity": 4,
       "worst": "refuse_over_budget:109"
     },
     "backend/api/runs/schemas.py": {
-      "lines": 478,
+      "lines": 379,
       "complexity": 4,
-      "worst": "_known_mode:68"
+      "worst": "_known_mode:66"
     },
     "backend/api/sales/__init__.py": {
       "lines": 1,
@@ -1077,7 +1082,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 91,
+      "lines": 97,
       "complexity": 0,
       "worst": "—"
     },
@@ -1122,7 +1127,7 @@
       "worst": "—"
     },
     "backend/features/core/models/donor.py": {
-      "lines": 179,
+      "lines": 186,
       "complexity": 0,
       "worst": "—"
     },
@@ -1142,7 +1147,7 @@
       "worst": "—"
     },
     "backend/features/core/models/run.py": {
-      "lines": 153,
+      "lines": 190,
       "complexity": 0,
       "worst": "—"
     },
@@ -1436,6 +1441,11 @@
       "complexity": 8,
       "worst": "_buy_one:236"
     },
+    "backend/features/donors/held.py": {
+      "lines": 103,
+      "complexity": 9,
+      "worst": "held_statuses:38"
+    },
     "backend/features/donors/home_signals.py": {
       "lines": 418,
       "complexity": 12,
@@ -1452,9 +1462,9 @@
       "worst": "judge_candidates:398"
     },
     "backend/features/donors/manual_price.py": {
-      "lines": 447,
+      "lines": 450,
       "complexity": 9,
-      "worst": "typed_payment:184"
+      "worst": "typed_payment:185"
     },
     "backend/features/donors/price.py": {
       "lines": 175,
@@ -1486,10 +1496,15 @@
       "complexity": 0,
       "worst": "—"
     },
-    "backend/features/donors/repository.py": {
-      "lines": 418,
+    "backend/features/donors/rejudge.py": {
+      "lines": 189,
       "complexity": 9,
-      "worst": "_donor_values:392"
+      "worst": "of:81"
+    },
+    "backend/features/donors/repository.py": {
+      "lines": 439,
+      "complexity": 9,
+      "worst": "_donor_values:410"
     },
     "backend/features/donors/selection.py": {
       "lines": 412,
@@ -1512,9 +1527,9 @@
       "worst": "narrowed:203"
     },
     "backend/features/donors/verdict.py": {
-      "lines": 127,
+      "lines": 139,
       "complexity": 5,
-      "worst": "check_metrics:93"
+      "worst": "check_metrics:105"
     },
     "backend/features/donors/wording.py": {
       "lines": 176,
@@ -2066,15 +2081,20 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/review/accepted.py": {
+      "lines": 99,
+      "complexity": 5,
+      "worst": "settle_returned:72"
+    },
     "backend/features/review/accuracy.py": {
       "lines": 63,
       "complexity": 3,
       "worst": "auto_accept_ready:57"
     },
     "backend/features/review/candidates.py": {
-      "lines": 494,
+      "lines": 441,
       "complexity": 10,
-      "worst": "decide:301"
+      "worst": "decide:247"
     },
     "backend/features/review/domain_lock.py": {
       "lines": 32,
@@ -2090,6 +2110,11 @@
       "lines": 139,
       "complexity": 1,
       "worst": "tier:38"
+    },
+    "backend/features/review/queue.py": {
+      "lines": 107,
+      "complexity": 7,
+      "worst": "fill:64"
     },
     "backend/features/runs/__init__.py": {
       "lines": 1,
@@ -2156,6 +2181,11 @@
       "complexity": 2,
       "worst": "is_permanent:29"
     },
+    "backend/features/runs/handover.py": {
+      "lines": 84,
+      "complexity": 4,
+      "worst": "_check_doors:45"
+    },
     "backend/features/runs/judge_stage.py": {
       "lines": 166,
       "complexity": 7,
@@ -2167,14 +2197,14 @@
       "worst": "recover:169"
     },
     "backend/features/runs/outcome.py": {
-      "lines": 196,
+      "lines": 241,
       "complexity": 6,
-      "worst": "outcome:175"
+      "worst": "domains_of:168"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 385,
-      "complexity": 8,
-      "worst": "execute_run:235"
+      "lines": 366,
+      "complexity": 7,
+      "worst": "execute_run:217"
     },
     "backend/features/runs/planning.py": {
       "lines": 399,
@@ -2191,10 +2221,15 @@
       "complexity": 4,
       "worst": "explained_line:81"
     },
+    "backend/features/runs/refusals.py": {
+      "lines": 88,
+      "complexity": 4,
+      "worst": "threshold_of:73"
+    },
     "backend/features/runs/report.py": {
-      "lines": 263,
+      "lines": 303,
       "complexity": 11,
-      "worst": "run_stats:174"
+      "worst": "run_stats:213"
     },
     "backend/features/runs/repository.py": {
       "lines": 493,
@@ -2212,9 +2247,14 @@
       "worst": "tell_stopped:30"
     },
     "backend/features/runs/thresholds.py": {
-      "lines": 274,
+      "lines": 276,
       "complexity": 6,
-      "worst": "count:109"
+      "worst": "count:111"
+    },
+    "backend/features/runs/verdicts.py": {
+      "lines": 222,
+      "complexity": 4,
+      "worst": "save:80"
     },
     "backend/features/sales/__init__.py": {
       "lines": 33,
@@ -3342,7 +3382,7 @@
       "worst": "unbound_probes:32"
     },
     "scripts/ui_screens_reports.py": {
-      "lines": 64,
+      "lines": 73,
       "complexity": 1,
       "worst": "report_screens:15"
     },

@@ -17,6 +17,7 @@ from backend.features.review.candidates import RunReview
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer, make_donor
+from tests.donor_metrics import measured
 from tests.test_review import _run
 
 MakeUser = Callable[..., Awaitable[UserModel]]
@@ -107,7 +108,10 @@ class TestReview:
         run = await _run(session)
         news = await make_donor(session, "ledger.queued.test", review=None)
         news.site_topic, news.topic_reason = "news", "городская газета"
-        await make_donor(session, "blank.queued.test", review=None)
+        blank = await make_donor(session, "blank.queued.test", review=None)
+        # Очередь кладёт годных по вердикту прогона — донору нужны данные замера.
+        for domain in (news, blank):
+            await measured(session, domain)
         await RunReview(session).queue_run(run.id, ["ledger.queued.test", "blank.queued.test"])
         await session.commit()
 
