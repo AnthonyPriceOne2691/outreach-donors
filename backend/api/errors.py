@@ -410,7 +410,7 @@ _SAID: dict[str, str] = {
     "datetime_future": "нужны будущие дата и время",
     "timezone_aware": "нужно время с часовым поясом",
     "timezone_naive": "нужно время без часового пояса",
-    "timezone_offset": "часовой пояс не тот",
+    "timezone_offset": "нужен другой часовой пояс",
     "time_type": "нужно время",
     "time_parsing": "нужно время",
     "time_delta_type": "нужна длительность",
