@@ -17,22 +17,16 @@
 
 import { ActionIcon, Button, Loader, Stack, Text, Tooltip } from '@mantine/core';
 import { IconSearch } from '@tabler/icons-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 
-import { refusalOf } from '../api/client';
 import { searchDonorDeeper } from '../api/deeper';
 import type { DeeperCard, DonorCardWithReach, DonorRowWithReach } from '../api/deeper';
-import { fetchJob } from '../api/jobs';
-import type { JobState } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatDate } from '../format';
-import { JobLine, jobRestarted } from '../jobs/JobLine';
-import { notify } from '../notices';
-import { forget, remember, remembered } from '../storage';
+import { JobLine } from '../jobs/JobLine';
+import { useJobEnd, useStartedJob } from '../jobs/startedJob';
+import { forget } from '../storage';
 import { CONTACTS_QUERY_KEY } from './PendingContacts';
-
-const ACTIVE: ReadonlySet<JobState> = new Set(['queued', 'running', 'retry_wait']);
 
 /** Что делает кнопка — одной фразой у неё, без обещаний сверх замеренного. */
 export const DEEPER_HINT =
@@ -54,49 +48,25 @@ function describe(report: Record<string, unknown>): string | null {
  *  строка задачи: в строке списка строке задачи нет места, а перечитать список надо. */
 function useDeeper(donorId: number) {
   const queryClient = useQueryClient();
-  const [jobId, setJobId] = useState<string | null>(() => remembered(jobKey(donorId)));
-  const job = useQuery({
-    queryKey: ['job', jobId],
-    queryFn: () => fetchJob(jobId ?? ''),
-    enabled: jobId !== null,
-    retry: false,
-    refetchInterval: (query) =>
-      query.state.data === undefined || ACTIVE.has(query.state.data.state) ? 3_000 : false,
-  });
-  const state = job.data?.state;
-  const running = state !== undefined && ACTIVE.has(state);
-
-  const start = useMutation({
-    mutationFn: () => searchDonorDeeper(donorId),
-    onSuccess: async (queued) => {
-      remember(jobKey(donorId), queued.job_id);
-      setJobId(queued.job_id);
-      // Номер у задачи постоянный — на донора: прежний итог под ним надо перечитать.
-      await jobRestarted(queryClient, queued.job_id);
-      notify({ message: 'Поиск глубже поставлен в очередь', color: 'green' });
-    },
-    onError: (failure) =>
-      notify({ title: 'Не поставили', message: refusalOf(failure), color: 'red' }),
+  const job = useStartedJob(() => searchDonorDeeper(donorId), {
+    remember: jobKey(donorId),
+    queued: 'Поиск глубже поставлен в очередь',
+    refused: 'Не поставили',
+    // Номер у задачи постоянный — на донора: прежний итог под ним надо перечитать.
+    restart: true,
+    poll: true,
   });
 
   // Кончилась задача — перечитать карточку, список и число ждущих: у донора мог
-  // появиться адрес или форма, и итог глубже записан у него самого. Один раз на задачу.
-  const told = useRef<string | null>(null);
-  useEffect(() => {
-    if (jobId === null || state === undefined) return;
-    if (ACTIVE.has(state)) {
-      told.current = null;
-      return;
-    }
-    if (told.current === jobId) return;
-    told.current = jobId;
+  // появиться адрес или форма, и итог глубже записан у него самого.
+  useJobEnd(job.jobId, job.state, (state) => {
     if (state === 'done') forget(jobKey(donorId));
     void queryClient.invalidateQueries({ queryKey: ['donor', String(donorId)] });
     void queryClient.invalidateQueries({ queryKey: ['donors'] });
     void queryClient.invalidateQueries({ queryKey: CONTACTS_QUERY_KEY });
-  }, [queryClient, donorId, jobId, state]);
+  });
 
-  return { jobId, running, start };
+  return job;
 }
 
 /** Итог прошлого поиска глубже — словами сервера. */

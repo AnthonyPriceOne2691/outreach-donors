@@ -40,6 +40,17 @@ depends_on: Union[str, Sequence[str], None] = None
 LOCK_TIMEOUT = "SET LOCAL lock_timeout = '5s'"
 
 
+def _stamps() -> list[sa.Column]:
+    """Когда строку завели и когда меняли — как у примеси моделей (`TimestampedMixin`).
+
+    Свои колонки, а не импорт из кода приложения: ревизия читается и катится сама по себе,
+    какой бы ни была модель к моменту выкатки."""
+    return [
+        sa.Column(stamp, sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now())
+        for stamp in ("created_at", "updated_at")
+    ]
+
+
 def upgrade() -> None:
     """Колонки формы и поиска глубже, таблица писем для форм."""
     op.execute(LOCK_TIMEOUT)
@@ -65,12 +76,7 @@ def upgrade() -> None:
         sa.Column("based_on", sa.String(300), nullable=False),
         sa.Column("notes", sa.Text(), nullable=True),
         sa.Column("built_by", sa.String(255), nullable=True),
-        sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
-        ),
-        sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
-        ),
+        *_stamps(),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("domain_id", "stage", name="uq_form_letters_domain_stage"),
     )

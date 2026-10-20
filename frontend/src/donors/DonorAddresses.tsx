@@ -46,45 +46,26 @@ import {
   Title,
 } from '@mantine/core';
 import { IconLock, IconTrash } from '@tabler/icons-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { addDonorAddress, removeDonorAddress, searchDonorContact } from '../api/contacts';
 import type { DonorCardWithReach } from '../api/deeper';
-import { fetchJob } from '../api/jobs';
 import { CONTACT_SOURCES, CONTACT_STATUSES, NOT_SEARCHED, PERMISSION_TITLES } from '../api/labels';
-import type { ContactCard, DonorFullCard, JobCard, JobState } from '../api/types';
+import type { ContactCard, DonorFullCard, JobCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatDate } from '../format';
 import { JobLine } from '../jobs/JobLine';
+import { useStartedJob } from '../jobs/startedJob';
+import { forget } from '../storage';
 import { FormOnly, SearchState } from './AddressState';
 import { DeeperBlock } from './DeeperSearch';
 import { CONTACTS_QUERY_KEY } from './PendingContacts';
 import { notify } from '../notices';
 
-/** Пока задача не кончилась, второй поиск не предлагается. */
-const ACTIVE: ReadonlySet<JobState> = new Set(['queued', 'running', 'retry_wait']);
-
 function jobKey(donorId: number): string {
   return `donor:${donorId}:contacts-job`;
-}
-
-function remembered(key: string): string | null {
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function remember(key: string, value: string | null): void {
-  try {
-    if (value === null) window.localStorage.removeItem(key);
-    else window.localStorage.setItem(key, value);
-  } catch {
-    // Хранилище недоступно (приватное окно) — помним до перезагрузки.
-  }
 }
 
 /** Фраза сервера — предложением: с заглавной и с точкой. */
@@ -325,25 +306,16 @@ function AddAddress({
 export function DonorAddresses({ donor }: { donor: DonorCardWithReach }) {
   const { can } = useSession();
   const queryClient = useQueryClient();
-  const [jobId, setJobId] = useState<string | null>(() => remembered(jobKey(donor.id)));
-  // Исход задачи читается из того же кэша, что у `JobLine`: второго опроса нет.
-  const job = useQuery({
-    queryKey: ['job', jobId],
-    queryFn: () => fetchJob(jobId ?? ''),
-    enabled: jobId !== null,
-    retry: false,
-  });
-  const searching = job.data !== undefined && ACTIVE.has(job.data.state);
-
-  const start = useMutation({
-    mutationFn: () => searchDonorContact(donor.id),
-    onSuccess: (queued) => {
-      remember(jobKey(donor.id), queued.job_id);
-      setJobId(queued.job_id);
-      notify({ message: 'Поиск адреса поставлен в очередь', color: 'green' });
-    },
-    onError: (failure) =>
-      notify({ title: 'Не поставили', message: refusalOf(failure), color: 'red' }),
+  // Пока задача не кончилась, второй поиск не предлагается; исход — тем же запросом и
+  // кэшем, что у `JobLine` (`jobs/startedJob.ts`).
+  const {
+    jobId,
+    running: searching,
+    start,
+  } = useStartedJob(() => searchDonorContact(donor.id), {
+    remember: jobKey(donor.id),
+    queued: 'Поиск адреса поставлен в очередь',
+    refused: 'Не поставили',
   });
 
   // Адрес вписали или удалили — карточка приходит в ответе целиком, а списку
@@ -374,7 +346,7 @@ export function DonorAddresses({ donor }: { donor: DonorCardWithReach }) {
   // Упавший — показывается, пока не поставят новый: причина нужна и завтра.
   const finished = useCallback(() => {
     if (queryClient.getQueryData<JobCard>(['job', jobId])?.state === 'done') {
-      remember(jobKey(donor.id), null);
+      forget(jobKey(donor.id));
     }
     void queryClient.invalidateQueries({ queryKey: ['donor', String(donor.id)] });
     void queryClient.invalidateQueries({ queryKey: ['donors'] });

@@ -28,22 +28,17 @@ import {
   Textarea,
   TextInput,
 } from '@mantine/core';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
 import { buildFormLetter, fetchFormLetter } from '../api/deeper';
 import type { FormLetterCard, FormLetterView } from '../api/deeper';
-import { fetchJob } from '../api/jobs';
-import type { JobState } from '../api/types';
 import { PERMISSION_TITLES } from '../api/labels';
 import { useSession } from '../auth/AuthProvider';
 import { FIELD_GAP } from '../components/formRhythm';
 import { formatDateTime } from '../format';
-import { JobLine, jobRestarted } from '../jobs/JobLine';
-import { notify } from '../notices';
-
-const ACTIVE: ReadonlySet<JobState> = new Set(['queued', 'running', 'retry_wait']);
+import { JobLine } from '../jobs/JobLine';
+import { useJob, useStartedJob } from '../jobs/startedJob';
 
 /** Как отправляется форма — одним абзацем внизу окна. */
 const HOW =
@@ -138,35 +133,23 @@ function Letter({ letter }: { letter: FormLetterCard }) {
 /** Текст письма окна: запрос, сборка задачей и идёт ли она. */
 function useFormLetter(donorId: number) {
   const queryClient = useQueryClient();
-  const [started, setStarted] = useState<string | null>(null);
   const view = useQuery({
     queryKey: letterKey(donorId),
     queryFn: () => fetchFormLetter(donorId),
   });
-  const build = useMutation({
-    mutationFn: (again: boolean) => buildFormLetter(donorId, again),
-    onSuccess: async (answer) => {
-      if (answer.job_id === null) {
-        queryClient.setQueryData(letterKey(answer.donor_id), answer);
-        return;
-      }
-      setStarted(answer.job_id);
-      await jobRestarted(queryClient, answer.job_id);
-    },
-    onError: (failure) =>
-      notify({ title: 'Текст не собирается', message: refusalOf(failure), color: 'red' }),
+  // Сборка — задачей с постоянным номером на донора; собранный раньше текст сервер
+  // отдаёт сразу, без задачи (`jobs/startedJob.ts`).
+  const build = useStartedJob((again: boolean) => buildFormLetter(donorId, again), {
+    refused: 'Текст не собирается',
+    restart: true,
+    onAnswer: (answer) => queryClient.setQueryData(letterKey(answer.donor_id), answer),
   });
-  const jobId = started ?? view.data?.job_id ?? null;
+  // Задача этого окна — или та, что уже шла, когда окно открыли.
+  const jobId = build.jobId ?? view.data?.job_id ?? null;
   // Тот же запрос, что ведёт строка задачи: пока текст собирается, второй сборки нет.
-  const job = useQuery({
-    queryKey: ['job', jobId],
-    queryFn: () => fetchJob(jobId ?? ''),
-    enabled: jobId !== null,
-    retry: false,
-  });
-  const building = job.data !== undefined && ACTIVE.has(job.data.state);
+  const { running: building } = useJob(jobId);
   const reread = () => void queryClient.invalidateQueries({ queryKey: letterKey(donorId) });
-  return { view, build, jobId, building, reread };
+  return { view, build: build.start, jobId, building, reread };
 }
 
 /** «Собрать текст» / «Собрать заново» — или почему собирать нельзя. */
