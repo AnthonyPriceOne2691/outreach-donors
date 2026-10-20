@@ -82,7 +82,36 @@ from scripts.eval_sales_segment_home import (
     without_home,
 )
 from scripts.eval_sales_segment_metrics import Result, metrics
-from scripts.eval_sales_segment_sets import SetError, export_to, golden, load
+from scripts.eval_sales_segment_sets import WANTED, SetError, export_to, load
+from scripts.eval_sales_segment_sets import golden as golden_set
+
+#: Что eval отдаёт наружу (eval помощника описания и тесты): наборы и метрики живут соседними
+#: модулями, имена — и отсюда, как до разреза.
+__all__ = [
+    "CHECKS",
+    "DATA",
+    "EFFORTS",
+    "MANIFEST",
+    "RULES",
+    "RULE_TAGS",
+    "RULE_WORDS",
+    "SPOILED_WITH",
+    "SYNTHETIC",
+    "WANTED",
+    "Gates",
+    "Result",
+    "SetError",
+    "closed",
+    "effort",
+    "golden",
+    "load",
+    "main",
+    "metrics",
+    "report",
+    "run",
+    "split_of",
+    "without_rule",
+]
 
 DATA = Path(__file__).parent / "data"
 SYNTHETIC = DATA / "sales_segment_synthetic.jsonl"
@@ -120,6 +149,12 @@ class Gates:
     false_reject_max: float = 0.10
     accept_recall_min: float = 0.70
     reject_recall_min: float = 0.70
+
+
+def golden(directory: str, manifest: Path | None = None) -> list[dict[str, Any]]:
+    """Внешний набор по манифесту — случаи, как до разреза (eval помощника описания); язык писем и
+    метки набора — `eval_sales_segment_sets.golden`."""
+    return golden_set(directory, manifest or MANIFEST)[0]
 
 
 def without_rule(prompt: str, rule: str) -> str:
@@ -352,7 +387,7 @@ def _cases(args: argparse.Namespace, golden_dir: str) -> tuple[list[dict[str, An
     """Случаи набора — с текстом главной или без — и язык писем набора."""
     letters = args.letters
     if args.golden:
-        cases, spec = golden(golden_dir, args.manifest or MANIFEST)
+        cases, spec = golden_set(golden_dir, args.manifest or MANIFEST)
         letters = letters or spec.get("letters")
     else:
         cases = load(Path(args.path))

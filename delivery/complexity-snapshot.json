@@ -3192,9 +3192,9 @@
       "worst": "report:223"
     },
     "scripts/eval_sales_segment.py": {
-      "lines": 407,
+      "lines": 442,
       "complexity": 8,
-      "worst": "_traps:272"
+      "worst": "_traps:307"
     },
     "scripts/eval_sales_segment_helper.py": {
       "lines": 428,

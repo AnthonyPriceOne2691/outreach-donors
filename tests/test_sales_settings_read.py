@@ -63,6 +63,12 @@ BAD: dict[str, tuple[str, str, str, object]] = {
         "SEGMENT_JUDGE_CONCURRENCY",
         16,
     ),
+    "SALES_SEGMENT_HOME_TEXT_CHARS": (
+        "9000",
+        "нужно целое от 0 до 8000",
+        "SEGMENT_HOME_TEXT_CHARS",
+        1500,
+    ),
     "SALES_SEND_SPREAD_MIN": ("-5", "нужно целое от 0 до 1440", "SEND_SPREAD_MIN", 30),
     # Перепроверка «Hunter ещё проверяет» и повтор поиска адреса молчавшему сайту — по сроку.
     "SALES_VERIFY_AGAIN_MIN": ("0", "нужно целое от 1 до 1440", "VERIFY_AGAIN_MIN", 20),
