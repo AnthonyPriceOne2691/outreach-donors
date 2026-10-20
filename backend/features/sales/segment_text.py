@@ -109,15 +109,12 @@ def _home_lines(home: HomeSignals | None) -> list[tuple[str, str | None]]:
 
 
 def site_text(
-    *,
-    title: str | None,
-    description: str | None,
-    home: HomeSignals | None = None,
-    home_text: str | None = None,
+    *, title: str | None, description: str | None, home: HomeSignals | None = None
 ) -> SiteText:
     """Выдача и главная → текст судьи. Пустые куски не попадают; не больше
-    `MAX_TEXT_CHARS` знаков: хвост последней строки срезается. Отрывок видимого текста главной —
-    последней строкой, своим потолком (`SALES_SEGMENT_HOME_TEXT_CHARS`; 0 — без него)."""
+    `MAX_TEXT_CHARS` знаков: хвост последней строки срезается. Отрывок видимого текста главной
+    (`HomeSignals.text` общего разбора) — последней строкой, своим потолком
+    (`SALES_SEGMENT_HOME_TEXT_CHARS`; 0 — без него)."""
     pieces = [(PAGE_TITLE, title), (PAGE_DESCRIPTION, description), *_home_lines(home)]
     lines: list[tuple[str, str]] = []
     left = MAX_TEXT_CHARS
@@ -127,7 +124,7 @@ def site_text(
             continue
         lines.append((label, clean[:left]))
         left -= len(clean)
-    tail = excerpt(home_text, sales_cfg.SEGMENT_HOME_TEXT_CHARS) if _home_lines(home) else ""
+    tail = excerpt(home.text, sales_cfg.SEGMENT_HOME_TEXT_CHARS) if home and home.reached else ""
     if tail:
         lines.append((HOME_TEXT, tail))
     return SiteText(tuple(lines))

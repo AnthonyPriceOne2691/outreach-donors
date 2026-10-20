@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -143,16 +144,18 @@ async def test_the_kind_is_kept_only_from_the_list_and_never_decides_the_lane(
 
 # --- строка «Текст главной» -------------------------------------------------------------------
 
-HOME = HomeSignals(
-    reached=True, title="Велодом", description="Магазин велосипедов", nav=("Каталог",)
-)
 TEXT = "Велодом · Продаём горные и городские велосипеды · Доставка по стране и сборка бесплатно"
+HOME = HomeSignals(
+    reached=True, title="Велодом", description="Магазин велосипедов", nav=("Каталог",), text=TEXT
+)
 
 
 def test_the_home_text_is_the_last_line_capped_at_a_word(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sales_cfg, "SEGMENT_HOME_TEXT_CHARS", 40)
 
-    site = sj.site_text(title="Велодом", description=None, home=HOME, home_text=f"  {TEXT}  ")
+    home = replace(HOME, text=f"  {TEXT}  ")
+
+    site = sj.site_text(title="Велодом", description=None, home=home)
 
     label, words = site.lines[-1]
     assert label == sj.HOME_TEXT
@@ -164,13 +167,13 @@ def test_the_home_text_is_the_last_line_capped_at_a_word(monkeypatch: pytest.Mon
 def test_without_the_home_page_or_with_the_setting_at_zero_there_is_no_home_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    closed = HomeSignals(reached=False, error="закрылась")
+    closed = HomeSignals(reached=False, error="закрылась", text=TEXT)
     assert sj.HOME_TEXT not in dict(
-        sj.site_text(title="Велодом", description=None, home=closed, home_text=TEXT).lines
+        sj.site_text(title="Велодом", description=None, home=closed).lines
     )
     monkeypatch.setattr(sales_cfg, "SEGMENT_HOME_TEXT_CHARS", 0)
     assert sj.HOME_TEXT not in dict(
-        sj.site_text(title="Велодом", description=None, home=HOME, home_text=TEXT).lines
+        sj.site_text(title="Велодом", description=None, home=HOME).lines
     )
 
 
@@ -179,7 +182,7 @@ def test_unspaced_text_is_cut_by_the_sign() -> None:
 
 
 def test_a_quote_from_the_home_text_holds_and_its_label_is_ours() -> None:
-    site = sj.site_text(title="Велодом", description=None, home=HOME, home_text=TEXT)
+    site = sj.site_text(title="Велодом", description=None, home=HOME)
 
     assert site.holds("Продаём горные и городские велосипеды")
     assert sj.HOME_TEXT in sj.LABELS
@@ -260,7 +263,7 @@ async def test_the_run_pass_gives_a_language_verdict_to_a_site_in_another_langua
 
     assert model.asked == [RU_HOST]
     assert (uk.lane, uk.verdict, uk.decided_by) == (Lane.REVIEW, Lane.REJECT, Decider.LANGUAGE)
-    assert uk.reason == "судья в наблюдении отрезал бы: язык сайта — украинский, письма — русский"
+    assert uk.reason == f"{sj.SHADOW_CUT}язык сайта — украинский, письма — русский"
     assert ru.lane == Lane.ACCEPT
     assert (tally.would_cut, tally.by_rule, tally.judged) == (1, 0, 2)
     kept = await session.scalars(select(SalesSegmentVerdictModel.domain_id))
@@ -292,7 +295,7 @@ async def test_a_cached_verdict_does_not_skip_the_language_of_this_run(
 
     assert model.asked == []
     assert (site.lane, site.decided_by) == (Lane.REVIEW, Decider.LANGUAGE)
-    assert site.reason == "судья в наблюдении отрезал бы: язык сайта — украинский, письма — русский"
+    assert site.reason == f"{sj.SHADOW_CUT}язык сайта — украинский, письма — русский"
     assert (tally.from_cache, tally.would_cut) == (1, 1)
 
 

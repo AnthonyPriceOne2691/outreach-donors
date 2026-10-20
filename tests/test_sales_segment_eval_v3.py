@@ -304,15 +304,6 @@ PAGE = """<html lang="ru"><head><title>Юрист Плюс — юридичес�
 STUB = "<html><head><title>Just a moment...</title></head><body>Checking your browser</body></html>"
 
 
-def test_visible_text_drops_code_menus_and_repeats() -> None:
-    text = eh.visible_text(PAGE)
-
-    assert text == (
-        "Юрист Плюс · +000 00 00 · Юридические услуги для бизнеса · "
-        "Договоры, споры и регистрация компаний."
-    )
-
-
 def test_homes_are_fetched_by_the_runs_own_home_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
 ) -> None:
@@ -338,7 +329,10 @@ def test_homes_are_fetched_by_the_runs_own_home_check(
 
     rows = {row["id"]: row for row in map(json.loads, out.read_text("utf-8").splitlines())}
     assert rows["law-in-addition"]["reached"] is True
-    assert rows["law-in-addition"]["text"] == eh.visible_text(PAGE)
+    assert rows["law-in-addition"]["text"] == (
+        "Юрист Плюс · +000 00 00 · Юридические услуги для бизнеса · "
+        "Договоры, споры и регистрация компаний."
+    )
     assert (rows["law-contradiction"]["reached"], rows["law-contradiction"]["text"]) == (False, "")
     assert "заглушка" in rows["law-contradiction"]["error"]
     assert (rows["law-unseen"]["reached"], rows["law-unseen"]["text"]) == (False, "")

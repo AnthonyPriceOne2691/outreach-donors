@@ -382,7 +382,7 @@ async def test_rules_go_before_the_language() -> None:
 @pytest.mark.parametrize(
     ("mode", "lane", "reason"),
     [
-        (JudgeMode.SHADOW, Lane.REVIEW, "судья в наблюдении отрезал бы: язык сайта — "),
+        (JudgeMode.SHADOW, Lane.REVIEW, f"{sj.SHADOW_CUT}язык сайта — "),
         (JudgeMode.ENFORCE, Lane.REJECT, "язык сайта — "),
     ],
 )

@@ -312,9 +312,8 @@ async def cached(
 
 
 async def _text(site: Site, ask: Ask) -> SiteText:
-    """Текст сайта судье: у пересуда — тот, что видел прошлый суд; иначе выдача и главная. Видимого
-    текста главной общий разбор (`check_home`) пока не отдаёт — строка «Текст главной» ляжет, когда
-    отдаст (`segment_text.site_text`, `home_text`)."""
+    """Текст сайта судье: у пересуда — тот, что видел прошлый суд; иначе выдача и главная общего
+    разбора (`check_home`) — шапка и отрывок видимого текста (`segment_text.site_text`)."""
     if ask.stored_text and site.stored:
         return SiteText.parse(site.stored)
     signals = await check_home(ask.home, site.host) if ask.home is not None else None
