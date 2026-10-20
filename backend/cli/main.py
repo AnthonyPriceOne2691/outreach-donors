@@ -19,7 +19,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from backend.cli import donor_add, geo_shares, geo_top5
+from backend.cli import donor_add, geo_shares, geo_top5, topic_backfill
 from backend.cli.access_admin import cmd_user_add, cmd_user_reset
 from backend.cli.advertisers import add_parser as add_advertisers_parser
 from backend.cli.advertisers import (
@@ -391,6 +391,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_prune_parser(sub)
     geo_shares.add_parser(sub)
     geo_top5.add_parser(sub)
+    topic_backfill.add_parser(sub)
     add_probe_donor_parser(sub)
     add_probe_advertiser_parser(sub)
     donor_add.add_parser(sub)
@@ -425,6 +426,7 @@ _KEPT_ON_INTERRUPT: dict[str, str] = {
     "осталось в базе, повторный запуск возьмёт остальных.",
     "probe-donor": "Липовый донор заводится одной транзакцией: в базе ничего не изменилось.",
     "probe-advertiser": "Пробный заводится одной транзакцией: в базе ничего не изменилось.",
+    "topic-backfill": topic_backfill.KEPT_ON_INTERRUPT,
     **SALES_KEPT,
 }
 
@@ -459,6 +461,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "prune": cmd_prune,
     "geo-shares": geo_shares.cmd_geo_shares,
     "geo-top5": geo_top5.cmd_geo_top5,
+    "topic-backfill": topic_backfill.cmd_topic_backfill,
     "probe-donor": cmd_probe_donor,
     "probe-advertiser": cmd_probe_advertiser,
     "donor-add": donor_add.cmd_donor_add,
