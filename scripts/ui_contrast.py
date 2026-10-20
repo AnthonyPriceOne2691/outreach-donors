@@ -75,7 +75,8 @@ def contrast(path, box, pad=PAD, core=False):
     (`ui_contrast_ratio.ratio_of`). `None` — измерить не удалось: в куске одна краска."""
     crop = Image.open(path).convert("RGB").crop(rect_of(box, pad))
     # `getdata` уходит из Pillow 14; новый вызов есть с 12.1 (не с 12.0).
-    return ratio_of(crop.get_flattened_data(), core)
+    # Ширина — чтобы фоном считалась группа на кромке куска, а не меньшая (`ratio_of`).
+    return ratio_of(crop.get_flattened_data(), core, crop.width)
 
 
 def probe_notification(page, scheme, email):

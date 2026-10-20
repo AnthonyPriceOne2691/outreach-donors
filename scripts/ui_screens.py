@@ -375,31 +375,6 @@ SCREENS: dict[str, dict] = {
             ("«Принять выбранные»", ".bulkBar button:has-text('Принять выбранные')", BIG),
         ],
     },
-    # Правка текста первого письма живёт на экране писем за раскрытием —
-    # отдельной целью, потому что свёрнутое не отрисовывается и меряться
-    # ему нечем. Кнопка «Вернуть исходный текст» меряется оживлённой:
-    # подготовка правит зону, выключенная дала бы серое на сером.
-    "letter-draft": {
-        # Текст первого письма — в окне (09.10.2026): поля мерятся на стекле окна.
-        # Эталон «число в поле формы» здесь не меряется — форма сборки под окном
-        # размыта подложкой; мелкий текст в поле сверяется с ним на «letters».
-        "path": "/letters",
-        "ready": ("button", "Текст первого письма"),
-        "probes": [
-            ("значок «поправлен»", "[data-letter-draft] .mantine-Badge-root", NORM),
-            ("заголовок окна", "[role='dialog'] .mantine-Modal-title", BIG),
-            ("пояснение окна", "[role='dialog'] .mantine-Stack-root > p", NORM),
-            ("название зоны", "[role='dialog'] .mantine-InputWrapper-label", NORM),
-            ("что сделает модель", "[role='dialog'] .mantine-InputWrapper-description", NORM),
-            ("текст зоны «Приветствие»", "[role='dialog'] textarea", NORM),
-            ("текст зоны «Вопросы»", "[role='dialog'] textarea >> nth=3", NORM),
-            (
-                "кнопка «Вернуть исходный»",
-                "[role='dialog'] button:has-text('Вернуть исходный текст')",
-                BIG,
-            ),
-        ],
-    },
     # Жёлтая плашка общего экрана: сервер без настроек письма — «Отправка пока
     # не подключена». Заголовок пишется чернилами темы (`theme.ts`, `Alert`),
     # смысл несёт подложка: янтарь на янтаре мерился здесь на свету 4,37.
@@ -432,33 +407,15 @@ def estimate(page):
     page.wait_for_timeout(400)
 
 
-def open_letter_draft(page):
-    """Открыть окно текста письма и поправить зону.
-
-    Правка оживляет «Вернуть исходный текст» и переводит значок
-    в «поправлен» — мерить надо то состояние, в котором на них смотрят.
-    """
-    page.get_by_role("button", name="Текст первого письма").click()
-    expect(page.get_by_role("dialog", name="Текст первого письма")).to_be_visible()
-    # Приветствие — «Hi,», три знака в широкой рамке: вырезка почти целиком
-    # фон, и в тёмной теме замер давал 1,9 : 1 полю, у которого те же стили,
-    # что у «Вопросов» с 5,5 : 1. Меряется поле с фразой, а не с тремя знаками.
-    page.get_by_label("Приветствие").fill("Hello there, and thank you for reading this,")
-    field = page.get_by_label("Условия")
-    field.fill(field.input_value() + " Thank you.")
-    expect(page.get_by_role("button", name="Вернуть исходный текст")).to_be_enabled()
-    page.wait_for_timeout(300)
-
-
 #: Что сделать на экране до замера. Общего у этих шагов нет ничего, кроме
 #: повода: мерить нечего, пока экран пуст или главная кнопка выключена.
 PREPARE = {
     "run": estimate,
-    "letter-draft": open_letter_draft,
 }
 
 from ui_screens_donors import donor_prepare, donor_screens  # noqa: E402
 from ui_screens_examples import examples_prepare, examples_screens  # noqa: E402
+from ui_screens_letters import letters_prepare, letters_screens  # noqa: E402
 from ui_screens_mail import mail_prepare, mail_screens  # noqa: E402
 from ui_screens_reports import report_screens  # noqa: E402
 from ui_screens_sales import sales_prepare, sales_screens  # noqa: E402
@@ -474,3 +431,5 @@ SCREENS.update(report_screens(NORM, BIG))
 SCREENS.update(stage2_screens(NORM, BIG))
 SCREENS.update(examples_screens(NORM, BIG))
 PREPARE.update(examples_prepare())
+SCREENS.update(letters_screens(NORM, BIG))
+PREPARE.update(letters_prepare())

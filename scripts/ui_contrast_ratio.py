@@ -29,20 +29,29 @@ Box = dict[str, float]
 Pixel = tuple[int, ...]
 
 
-def lum(px):
-    def ch(c):
-        c /= 255
-        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+def lum(px: Pixel) -> float:
+    def ch(value: int) -> float:
+        c = value / 255
+        return float(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4)
 
     return 0.2126 * ch(px[0]) + 0.7152 * ch(px[1]) + 0.0722 * ch(px[2])
 
 
-def _otsu(hist, total):
-    """Порог, делящий пиксели на две группы — чернила и фон.
+def _otsu(hist: list[int], total: int) -> int:
+    """Порог, делящий пиксели на две группы — чернила и фон: номер корзины,
+    последней в тёмной группе.
 
     Вынесено из замера отдельной функцией не для красоты: вместе они
     давали функцию сложности 11 при потолке 10, и ратчет сложности
     отказывался её принимать.
+
+    **Порог — корзиной, а не яркостью** (20.10.2026, находка ревью). Раньше
+    здесь возвращалось `корзина / 255`, а пиксели делились по `яркость <=
+    порог`: пиксели самой пороговой корзины, которую Оцу считал тёмной,
+    уходили к фону. Максимум межклассовой дисперсии — плато через пустые
+    корзины между группами, и первым он встаёт ровно на последней тёмной
+    корзине — к фону уходили самые светлые чернила. Буквы одного цвета без
+    сглаживания уходили к фону целиком, и замер говорил «не измерено».
     """
     best, threshold = -1.0, 128
     sum_all = sum(i * hist[i] for i in range(256))
@@ -57,7 +66,7 @@ def _otsu(hist, total):
         between = weight_b * (total - weight_b) * (mean_b - mean_f) ** 2
         if between > best:
             best, threshold = between, i
-    return threshold / 255
+    return threshold
 
 
 def rect_of(box: Box, pad: float) -> tuple[int, int, int, int]:
@@ -70,9 +79,11 @@ def rect_of(box: Box, pad: float) -> tuple[int, int, int, int]:
     )
 
 
-def ratio_of(pixels: Iterable[Pixel], core: bool = False) -> float | None:
+def ratio_of(pixels: Iterable[Pixel], core: bool = False, width: int | None = None) -> float | None:
     """Отношение контраста между буквами и фоном под ними — по пикселям выреза.
-    `None` — измерить не удалось: в куске одна краска.
+    `None` — измерить не удалось: в куске одна краска. `width` — ширина куска
+    в пикселях (пиксели — построчно): по ней видно, какая группа держит его
+    кромку, то есть где фон (`_ground_is_dark`).
 
     Пиксели куска делятся на две группы порогом Оцу и сравниваются их
     средние. Простая медиана здесь врёт: на тесном куске, где буквы
@@ -82,29 +93,62 @@ def ratio_of(pixels: Iterable[Pixel], core: bool = False) -> float | None:
     темнее текста.
     """
     lums = [lum(p) for p in pixels]
+    bins = [min(255, int(value * 255)) for value in lums]
     hist = [0] * 256
-    for value in lums:
-        hist[min(255, int(value * 255))] += 1
+    for one in bins:
+        hist[one] += 1
 
     edge = _otsu(hist, len(lums))
-    dark = [v for v in lums if v <= edge]
-    light = [v for v in lums if v > edge]
+    is_dark = [one <= edge for one in bins]
+    dark = [v for v, inked in zip(lums, is_dark, strict=True) if inked]
+    light = [v for v, inked in zip(lums, is_dark, strict=True) if not inked]
     if not dark or not light:
         # Мерить нечего: кусок однородный. Так выглядит элемент, уехавший
         # за край снимка, и выключенный — серое на сером. Раньше здесь
         # стояло 21.0, и оба случая печатались как безупречный результат.
         return None
-    return _ratio(dark, light, core)
+    return _ratio(dark, light, core, _ground_is_dark(is_dark, width))
 
 
-def _ratio(dark, light, core):
+def _ground_is_dark(is_dark: list[bool], width: int | None) -> bool | None:
+    """Фон — тёмная группа? Решает кромка куска: буквы окружены фоном, и его пиксели
+    держат первую и последнюю строку и столбец. `None` — ширины нет или кромка
+    поделена поровну: тогда чернила — меньшая группа, как раньше.
+
+    Зачем (20.10.2026, ревью): в тесной коробке крупного жирного текста — так бывает
+    при перемере внутри элемента (`measure`) — буквы могут занять больше половины
+    пикселей, и «меньшая группа» оказывалась фоном: ядро бралось у фона, и точка
+    ниже нормы могла «спастись» чужим числом. По числу пикселей «65 % букв на 35 %
+    фона» не отличить от «35 % букв на 65 % фона» — различает только геометрия.
+    """
+    if not width or len(is_dark) < 2 * width:
+        return None
+    rows = len(is_dark) // width
+    rim = [
+        inked
+        for index, inked in enumerate(is_dark[: rows * width])
+        if index < width or index >= (rows - 1) * width or index % width in (0, width - 1)
+    ]
+    darks = sum(rim)
+    if darks * 2 == len(rim):
+        return None
+    return darks * 2 > len(rim)
+
+
+def _ratio(
+    dark: list[float], light: list[float], core: bool, ground_is_dark: bool | None = None
+) -> float:
     """Отношение групп: средних — или ядра чернил к среднему фона.
 
-    Чернила — меньшая группа: в куске с полями вокруг текста фона всегда
+    Чернила — группа внутри, фон — на кромке куска (`_ground_is_dark`); кромки не
+    знаем — чернила меньшая группа: в куске с полями вокруг текста фона всегда
     больше, чем букв. Ядро — треть пикселей чернил, дальше всех от фона.
     """
     if core:
-        ink, ground = (dark, light) if len(dark) <= len(light) else (light, dark)
+        if ground_is_dark is None:
+            ink, ground = (dark, light) if len(dark) <= len(light) else (light, dark)
+        else:
+            ink, ground = (light, dark) if ground_is_dark else (dark, light)
         ordered = sorted(ink, reverse=ink is light)
         part = ordered[: max(1, len(ordered) // 3)]
         a, b = sum(part) / len(part), sum(ground) / len(ground)
