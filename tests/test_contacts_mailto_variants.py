@@ -22,7 +22,7 @@ from backend.features.contacts.extract import ascii_domain, extract_emails
 from backend.features.contacts.hidden import extract_hidden
 from backend.features.contacts.ladder import ContactLadder, LadderResult
 from backend.features.contacts.pages import bounded
-from backend.features.contacts.quality import on_site, trusted_guess
+from backend.features.contacts.quality import on_site, rejection_reason, trusted_guess
 from backend.features.core.domain import ContactStatus
 
 HOST = "baeckerei-sample.example.test"
@@ -99,7 +99,7 @@ class TestIdn:
 
     def test_idna_2008_keeps_letters_idna_2003_would_change(self) -> None:
         """Кодек Python — IDNA 2003: `ß` у него `ss`, то есть чужой домен (ревью 20.10.2026)."""
-        assert ascii_domain("straße.de") == "xn--strae-oqa.de"
+        assert ascii_domain("straße.example.test") == "xn--strae-oqa.example.test"
         assert ascii_domain("ς.gr") == "xn--3xa.gr"
 
     def test_unconvertible_domain_stays_as_written(self) -> None:
@@ -124,6 +124,18 @@ class TestIdn:
         html = "<p>Пишите: info@site.example.test.Ответим за день</p>"
 
         assert "info@site.example.test" in extract_emails(html)
+
+    def test_latin_address_glued_to_a_word_of_an_idn_zone_is_refused(self) -> None:
+        """`info@site.com.Сайт` — склейка: зона `.сайт` есть в списке суффиксов, и без
+        отдельного правила адрес прошёл бы (ревью 20.10.2026). Сам латинский адрес остаётся."""
+        found = extract_emails("<p>Пишите: info@site.com.Сайт откроется завтра</p>")
+
+        assert "info@site.com" in found
+        glued = "info@site.com.xn--80aswg"
+        assert glued in found
+        assert rejection_reason(glued) == f"латинский адрес склеен со словом после точки: {glued}"
+        assert rejection_reason(f"info@{IDN}") is None
+        assert rejection_reason("info@site.xn--p1ai") is None  # одно имя под зоной — не склейка
 
     async def test_unicode_local_part_stays_refused(self) -> None:
         result = await _home(HOST, '<a href="mailto:почта@baeckerei-sample.example.test">x</a>')

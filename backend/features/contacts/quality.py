@@ -255,6 +255,14 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
     (lambda _v, _l, domain: domain.endswith(FILE_EXTENSIONS), "хвост имени файла"),
     (lambda _v, _l, domain: domain.startswith(".") or ".." in domain, "домен разобран неверно"),
     (
+        # `info@site.com.Сайт`: латинский адрес слипся с кириллическим словом после точки,
+        # а зона `.сайт` (`xn--80aswg`) в списке суффиксов есть — правило ниже его пропустило
+        # бы. Латинский домен с зоной под зоной Юникодом — склейка: такие зоны держат имена
+        # своим письмом (`_glued_idn_word`).
+        lambda _v, _l, domain: _glued_idn_word(domain),
+        "латинский адрес склеен со словом после точки",
+    ),
+    (
         # Последним, как самое общее: частные правила выше называют причину
         # точнее (`logo@site.com.png` — «хвост имени файла», а не «нет зоны»).
         # Ловит слово, склеенное с зоной не только у com/net/org (`…@site.ruand`,
@@ -264,6 +272,17 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
         "зоны нет в списке публичных суффиксов — адрес склеен с текстом",
     ),
 )
+
+
+def _glued_idn_word(domain: str) -> bool:
+    """Домен — латинский домен с именем и своей зоной и метка Юникодом за ним:
+    `site.com.xn--80aswg`. Одно латинское имя под зоной Юникодом (`site.xn--p1ai`) — не
+    склейка: перед точкой нет своей зоны."""
+    head, _, last = domain.rpartition(".")
+    if not last.startswith("xn--") or "xn--" in head:
+        return False
+    _subdomain, name, suffix = split_host(head)
+    return bool(name and suffix)
 
 
 def _bare(local: str) -> str:
