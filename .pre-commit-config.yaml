@@ -211,19 +211,19 @@ repos:
       - id: silent-except-gate
         name: silent-except — broad-except без raise/лога (AST)
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule silent-except'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule silent-except'
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
       - id: inline-prompt-gate
         name: inline-prompt — LLM-промпт инлайном в .py (AST)
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule inline-prompt'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule inline-prompt'
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
       - id: cpu-in-async-gate
         name: cpu-in-async — разбор/регулярка в цикле внутри async def (AST)
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule cpu-in-async'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule cpu-in-async'
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
 
@@ -235,7 +235,7 @@ repos:
       - id: unbounded-list-gate
         name: unbounded-list — эндпоинт отдаёт список без границы (AST)
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule unbounded-list'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule unbounded-list'
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
 
@@ -274,20 +274,20 @@ repos:
       # видела «Skipped» (`cqg@2.53`, поле outreach #201). То же у jscpd выше.
       - id: complexity-gate
         name: function complexity ratchet (C901/PLR09xx)
-        entry: bash scripts/lint/check_complexity_gate.sh
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_complexity_gate.sh'
         language: system
         files: ^(backend/.*\.py|frontend/src/.*\.(ts|tsx)|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
 
       - id: blind-error
         name: error messages carry context
-        entry: bash scripts/lint/check_grep_gate.sh --rule blind-error
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_grep_gate.sh --rule blind-error'
         language: system
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
       - id: unstructured-log
         name: logs are structured (searchable by field)
-        entry: bash scripts/lint/check_grep_gate.sh --rule unstructured-log
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_grep_gate.sh --rule unstructured-log'
         language: system
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
