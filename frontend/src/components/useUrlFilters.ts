@@ -15,6 +15,8 @@
  * функции, которые отдаёт хук.
  */
 
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import type { QueryKey } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -60,4 +62,28 @@ export function useLastPage(
       turn(last, true);
     }
   }, [answer, page, last, turn]);
+}
+
+/** Ответ сервера на страницу списка с размером страницы — по нему считаются страницы. */
+interface PageAnswer extends Answer {
+  limit: number;
+}
+
+/**
+ * Страница списка с сервера: пока едет новый ответ, виден прежний (`isPlaceholderData`), а
+ * страница из старой ссылки за концом — последняя настоящая (`useLastPage`). Одно правило на
+ * списки со страницами — рекламодатели и резерв; до 20.10.2026 каждый держал его своей копией.
+ */
+export function usePagedQuery<Page extends PageAnswer>(
+  key: QueryKey,
+  load: () => Promise<Page>,
+  page: number,
+  turn: (page: number, replace?: boolean) => void,
+) {
+  const query = useQuery({ queryKey: key, queryFn: load, placeholderData: keepPreviousData });
+  const data = query.data;
+  const settled = data !== undefined && !query.isPlaceholderData;
+  const pages = data === undefined ? 1 : Math.max(1, Math.ceil(data.total / data.limit));
+  useLastPage(page, settled ? data : undefined, pages, turn);
+  return { query, data, settled, pages };
 }

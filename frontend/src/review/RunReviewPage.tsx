@@ -52,6 +52,7 @@ import { useSession } from '../auth/AuthProvider';
 import { ColumnsHead } from '../components/ColumnsHead';
 import type { Column } from '../components/ColumnsHead';
 import { Metric } from '../components/Metric';
+import { ReserveLink } from '../reserve/ReserveLink';
 import { missingRun, NoSuchRun, RunHead, useRunAddress } from '../runs/runAddress';
 import { CandidateRow } from './CandidateRow';
 import { DoubtfulNote, ShowDoubtful } from './DoubtfulNote';
@@ -320,9 +321,12 @@ export function RunReviewPage() {
             title={title}
             hint="Годные по порогам ждут решения: контакты ищутся и письма собираются только принятым. Судья сортирует очередь и подсказывает, но не решает; сомнительные скрыты, а не выброшены."
           >
-            <Text size="sm">
-              {countryTitle(view.run.country)}, ключей {view.run.keywords}
-            </Text>
+            <Group gap="sm">
+              <Text size="sm">
+                {countryTitle(view.run.country)}, ключей {view.run.keywords}
+              </Text>
+              <ReserveLink runId={view.run.id}>Резерв прогона — не прошедшие</ReserveLink>
+            </Group>
             {/* Пояснение там, где его видно, а не под полусотней строк: без
                 него пропавшая колонка читалась бы как поломка. */}
             {!withKeywords && (

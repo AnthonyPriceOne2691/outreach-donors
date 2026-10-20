@@ -15,7 +15,7 @@
  */
 
 import { Button, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 
 import {
   exportAdvertisers,
@@ -27,7 +27,7 @@ import { refusalOf } from '../api/client';
 import { exportCounts, saveFile } from '../api/donors';
 import { InfoHint } from '../components/InfoHint';
 import { PageSwitch } from '../components/PageSwitch';
-import { useLastPage, useUrlFilters } from '../components/useUrlFilters';
+import { usePagedQuery, useUrlFilters } from '../components/useUrlFilters';
 import { exportPlan } from '../donors/exporting';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber, plural } from '../format';
@@ -75,16 +75,12 @@ function exported(rows: number | null, asked: number | null): string {
 /** Страница списка с сервера; страница из старой ссылки за концом — последняя
  *  настоящая, а не пустота. */
 function useListPage(filters: ListFilters, turn: (page: number, replace?: boolean) => void) {
-  const query = useQuery({
-    queryKey: [...ADVERTISER_LIST_KEY, writeListFilters(filters).toString()],
-    queryFn: () => fetchAdvertiserList(listQueryOf(filters), filters.page),
-    placeholderData: keepPreviousData,
-  });
-  const data = query.data;
-  const settled = data !== undefined && !query.isPlaceholderData;
-  const pages = data === undefined ? 1 : Math.max(1, Math.ceil(data.total / data.limit));
-  useLastPage(filters.page, settled ? data : undefined, pages, turn);
-  return { query, data, settled, pages };
+  return usePagedQuery(
+    [...ADVERTISER_LIST_KEY, writeListFilters(filters).toString()],
+    () => fetchAdvertiserList(listQueryOf(filters), filters.page),
+    filters.page,
+    turn,
+  );
 }
 
 /** Выгрузка тем же фильтром; что легло в файл — уведомлением по заголовкам ответа. */

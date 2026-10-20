@@ -21,6 +21,7 @@ import type { RejectionCard, RunThresholds } from '../api/runReport';
 import { ColumnsHead } from '../components/ColumnsHead';
 import type { Column } from '../components/ColumnsHead';
 import { formatNumber, formatShare } from '../format';
+import { ReserveLink } from '../reserve/ReserveLink';
 
 /** Порогу — остаток: порог словами, а с регионом и долей трафика — длинной строкой. */
 const COLUMNS: Column[] = [{ title: 'Порог' }, { title: 'Отсеяно доменов', width: '9rem' }];
@@ -58,9 +59,11 @@ interface Props {
   country: string;
   /** Свежих прогон судил сам — их отказы в тех же числах. */
   freshJudged: boolean;
+  /** Номер прогона: не прошедшие — в его резерве. */
+  runId: number;
 }
 
-export function RejectionsCard({ rejected, thresholds, country, freshJudged }: Props) {
+export function RejectionsCard({ rejected, thresholds, country, freshJudged, runId }: Props) {
   return (
     // Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что у шапки:
     // текст соседних карточек начинается с одной кромки.
@@ -73,6 +76,7 @@ export function RejectionsCard({ rejected, thresholds, country, freshJudged }: P
           {freshJudged &&
             ' В числах и проверенные раньше: их прогон судил своими порогами и страной по сохранённым метрикам, без Ahrefs.'}
         </Text>
+        <ReserveLink runId={runId}>Не прошедшие — в резерве прогона</ReserveLink>
       </Stack>
       <Table className="dataTable" layout="fixed" verticalSpacing="sm" horizontalSpacing="md">
         <ColumnsHead columns={COLUMNS} />

@@ -122,6 +122,7 @@ describe('отчёт прогона', () => {
 
     expect(await screen.findByText(/«Рассмотреть» — кто ждёт решения сейчас/)).toBeInTheDocument();
     expect(screen.getByText(/«кому не пишем» в очередь не кладут/)).toBeInTheDocument();
+    expect(screen.getByText(/взятые из резерва — сверх/)).toBeInTheDocument();
   });
 
   it('«Рассмотреть» равно «Подходит» — пояснения нет', async () => {
@@ -183,6 +184,14 @@ describe('отчёт прогона', () => {
       ],
       [['Не проверен: Ahrefs не знает домен', '6']],
     ]);
+  });
+
+  it('не прошедшие — в резерве прогона: ссылка у отсева по порогам', async () => {
+    openReport(REPORT);
+
+    expect(
+      await screen.findByRole('link', { name: 'Не прошедшие — в резерве прогона' }),
+    ).toHaveAttribute('href', '/donors/reserve?run=27');
   });
 
   it('нет ни исключённых, ни «не проверен» — карточки нет', async () => {

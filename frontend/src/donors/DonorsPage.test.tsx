@@ -143,6 +143,22 @@ async function choose(field: string, option: string) {
 }
 
 describe('доноры: таблица', () => {
+  it('вкладка «Резерв» рядом с донорами ведёт к не прошедшим прогонов', async () => {
+    await openDonors({
+      'GET /api/review/reserve': {
+        body: { rows: [], total: 0, limit: 20, groups: {}, countries: {}, geos: {}, run: null },
+      },
+    });
+    const user = userEvent.setup();
+
+    const tabs = screen.getByRole('radiogroup', { name: 'Раздел доноров' });
+    expect(within(tabs).getByRole('radio', { name: 'Доноры' })).toBeChecked();
+    await user.click(within(tabs).getByText('Резерв'));
+
+    expect(await screen.findByRole('heading', { name: 'Резерв' })).toBeInTheDocument();
+    expect(screen.getByText('Резерв пуст')).toBeInTheDocument();
+  });
+
   it('показывает вердикт и причину отсева', async () => {
     await openDonors();
 
