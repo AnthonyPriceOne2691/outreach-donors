@@ -136,6 +136,15 @@ class KeygenClient:
             logger.warning("ключи: модель вернула пустой набор (модель %s)", self._model)
         return phrases
 
+    def require_key(self) -> None:
+        """Ключа модели нет — отказ сразу. Сборка по примерам спрашивает это до главных
+        примеров: без ключа она обошла бы десять сайтов, чтобы отказать после."""
+        if not self._api_key:
+            raise LlmError(
+                "LLM_API_KEY не задан — генерация ключей работать не может. "
+                "Заполнить в окружении или брать ключи списком"
+            )
+
     async def reply(self, ask: Ask) -> str | None:
         """Ответ модели текстом; `None` — отказ, и он уже в `refusals`.
 
@@ -143,12 +152,7 @@ class KeygenClient:
         модели не список фраз, а объект, — а ключ, счёт токенов и отказы у сборки
         одни на оба вызова.
         """
-        if not self._api_key:
-            raise LlmError(
-                "LLM_API_KEY не задан — генерация ключей работать не может. "
-                "Заполнить в окружении или брать ключи списком"
-            )
-
+        self.require_key()
         if self._skip_hopeless():
             return None
 

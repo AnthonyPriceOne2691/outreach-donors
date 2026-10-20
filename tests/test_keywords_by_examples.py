@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from backend.features.keywords.angles import UnknownPresetError, load_prompt, preset
 from backend.features.keywords.by_examples import NothingReadError, build_from_examples
-from backend.features.keywords.client import Ask
+from backend.features.keywords.client import Ask, KeygenClient, LlmError
 from backend.features.keywords.example_pages import ExamplePage
 from backend.features.keywords.example_theme import THEME_PROMPT
 from backend.features.keywords.examples import Example, ExamplesError
@@ -34,6 +34,9 @@ class FakeModel:
         self.tokens_spent = 0
         self.calls = 0
         self.refusals: list[str] = []
+
+    def require_key(self) -> None:
+        """Ключ у заглушки есть всегда — его отсутствие проверяет тест клиента."""
 
     async def reply(self, ask: Ask) -> str | None:
         self.asks.append(ask)
@@ -287,3 +290,24 @@ class TestRefusalsBeforeSpending:
         PoolBuilder(FakeModel(THEME)).check(  # type: ignore[arg-type]
             cap=10, languages=("English", "French"), preset_name="guest"
         )
+
+
+async def test_without_a_model_key_no_example_is_opened() -> None:
+    """Ключа модели нет — отказ до главных: обойти десять сайтов, чтобы отказать после,
+    значит заставить человека ждать ради известного ответа."""
+    reader = FakeReader({"garden.example.test": GARDEN})
+    client = KeygenClient(api_key="")
+
+    with pytest.raises(LlmError, match="LLM_API_KEY не задан"):
+        await build_from_examples(
+            client,
+            reader,  # type: ignore[arg-type]
+            ["garden.example.test"],
+            country="us",
+            languages=("English",),
+            preset_name="reviews",
+            cap=6,
+        )
+
+    assert reader.asked == []
+    await client.aclose()

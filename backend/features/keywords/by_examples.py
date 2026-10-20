@@ -65,9 +65,11 @@ async def build_from_examples(
 ) -> ExamplesPool:
     """Пул по примерам. Отказы — исключениями, со словами для человека:
     `ExamplesError` (строки поля), `NothingReadError` (ни одной главной),
-    отказ набора углов или доли (`PoolBuilder.check`) и `LlmError` модели."""
+    отказ набора углов или доли (`PoolBuilder.check`) и `LlmError` модели — ключа нет
+    (до главных) или она отказала."""
     examples = read_examples(lines)
     PoolBuilder(client).check(cap=cap, languages=languages, preset_name=preset_name)
+    client.require_key()
 
     pages = await reader.read_all(examples.sites)
     read = [page for page in pages if page.read]

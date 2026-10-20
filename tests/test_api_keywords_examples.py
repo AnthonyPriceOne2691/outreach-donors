@@ -57,6 +57,9 @@ class FakeModel:
         self.closed = False
         self._count = 0
 
+    def require_key(self) -> None:
+        """Ключ у заглушки есть всегда — его отсутствие проверяет тест клиента."""
+
     async def reply(self, ask: Ask) -> str | None:
         self.calls += 1
         theme = ask.system == load_prompt(THEME_PROMPT)
