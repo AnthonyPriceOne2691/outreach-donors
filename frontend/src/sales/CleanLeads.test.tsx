@@ -403,7 +403,7 @@ const OUTCOME: IntakeView = {
 };
 
 describe('очистка в итоге загрузки', () => {
-  it('очистка — главная кнопка итога, «К лидам» — обычная; команд консоли нет', async () => {
+  it('очистка — главная кнопка итога, «Открыть «emails»» — обычная; команд консоли нет', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({ 'GET /api/auth/me': { body: ADMIN } });
 
@@ -421,7 +421,7 @@ describe('очистка в итоге загрузки', () => {
     const clean = await screen.findByRole('button', { name: 'Очистить' }, SCREEN_WAIT);
     expect(screen.getByText('97 лидов ждут очистки')).toBeInTheDocument();
     expect(isFilled(clean)).toBe(true);
-    expect(isFilled(screen.getByRole('link', { name: 'К лидам' }))).toBe(false);
+    expect(isFilled(screen.getByRole('link', { name: 'Открыть «emails»' }))).toBe(false);
     expect(document.body.textContent).not.toMatch(/outreach /);
   });
 });

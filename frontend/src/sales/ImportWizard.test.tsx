@@ -200,7 +200,7 @@ describe('мастер загрузки', () => {
     expect(textOf(loadForm, 'hypothesis_id')).toBe('1');
     expect(mappingSent(loadForm)).toEqual(PREVIEW.mapping);
     expect(fileOf(loadForm, 'file').name).toBe('leads.csv');
-    expect(screen.getByRole('link', { name: 'К лидам' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Открыть «emails»' })).toHaveAttribute(
       'href',
       '/sales?hypothesis=1',
     );

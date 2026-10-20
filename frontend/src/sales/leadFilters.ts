@@ -20,8 +20,9 @@
  * **Гипотеза — одна на раздел** (аудит экранов 09.10.2026): лиды, цепочка, очередь
  * и воронка смотрят на одну `?hypothesis=`, и смена вкладки её не теряет — до того
  * у цепочки, очереди и воронки она жила в состоянии вкладки и пропадала при уходе
- * с неё. Остальные фильтры — своей вкладки: у лидов — состояние, причина, поиск
- * и страница, у воронки — период и свои даты (`?period=custom&from=…&to=…`), у отчёта —
+ * с неё. Остальные фильтры — своей вкладки: у лидов — состояние, причина, поиск, период
+ * добавления (`?added_from=…&added_to=…`, днями, `leadPeriod.ts`) и страница, у воронки —
+ * период и свои даты (`?period=custom&from=…&to=…`), у отчёта —
  * неделя (`?tab=report&week=…`, её понедельник), у качества агента — версия агента
  * (`?cohort=…`, номер сервера; пусто — текущая), у сбора базы — выбранный прогон
  * (`?tab=collect&run=N`: «назад» и ссылка открывают тот же прогон, тест прогона 14.10).
@@ -33,6 +34,7 @@ import type { LeadState } from '../api/salesTypes';
 import { formatNumber } from '../format';
 import { PERIOD_KEYS } from './funnelData';
 import type { PeriodKey } from './funnelData';
+import { ADDED_KEYS, addedDayOf, addedProblem, addedQuery, addedWords } from './leadPeriod';
 import { COHORT_ID } from './qualityData';
 
 export type SalesTab =
@@ -55,11 +57,12 @@ export type SalesTab =
  *  агента, 6.4). Затем настройки — в порядке первого запуска: от чьего имени пишем
  *  (отправитель: без него письма не уходят), из чего пишет агент (база знаний, 3.1) и кому
  *  продажи не пишут (стоп-лист). Открывается раздел по-прежнему на лидах (`tab: 'leads'`).
- *  Порядок один у вкладок и у списка «Раздел» на телефоне. */
+ *  Порядок один у вкладок и у списка «Раздел» на телефоне. Вкладка лидов называется «emails» —
+ *  ровно так, строчными латиницей (слово владельца 20.10.2026); ключ в коде и в адресе прежний. */
 export const SALES_TABS: Record<SalesTab, string> = {
   hypotheses: 'Гипотезы',
   collect: 'Сбор базы',
-  leads: 'Лиды',
+  leads: 'emails',
   chain: 'Цепочка писем',
   queue: 'Очередь писем',
   funnel: 'Воронка',
@@ -85,6 +88,9 @@ export interface LeadFilters {
   reason: string | null;
   /** Номер гипотезы — один на раздел: его видят все вкладки, где выбирают гипотезу. */
   hypothesis: number | null;
+  /** Период добавления лида — дни `YYYY-MM-DD`, оба включительно; пусто — без границы. */
+  addedFrom: string;
+  addedTo: string;
   page: number;
   /** Период воронки и свои даты (`YYYY-MM-DD`, пусто — без границы). */
   period: PeriodKey;
@@ -104,6 +110,8 @@ export const NO_LEAD_FILTERS: LeadFilters = {
   state: null,
   reason: null,
   hypothesis: null,
+  addedFrom: '',
+  addedTo: '',
   page: 1,
   period: 'all',
   from: '',
@@ -153,6 +161,8 @@ export function readLeadFilters(params: URLSearchParams): LeadFilters {
     state: known(LEAD_STATE_KEYS, params.get('state')),
     reason: reason !== null && REASON_CODE.test(reason) ? reason : null,
     hypothesis: numberOf(params.get('hypothesis'), 9_999_999),
+    addedFrom: addedDayOf(params.get(ADDED_KEYS.from)),
+    addedTo: addedDayOf(params.get(ADDED_KEYS.to)),
     page: numberOf(params.get('page'), 1_000_000) ?? 1,
     period: known(PERIOD_KEYS, params.get('period')) ?? 'all',
     from: dayOf(params.get('from')),
@@ -168,16 +178,38 @@ function cohortOf(raw: string | null): string {
   return raw !== null && COHORT_ID.test(raw) ? raw : '';
 }
 
-/** Фильтры → запрос к серверу. Имена те же, что у адреса экрана. */
-export function queryOf(filters: LeadFilters): LeadsQuery {
-  const fit = fitted(filters);
+/** Условия под колонками — одними именами в адресе и в запросе к серверу. */
+function narrowing(fit: LeadFilters): LeadsQuery {
   return {
     ...(fit.state !== null ? { state: fit.state } : {}),
     ...(fit.reason !== null ? { reason: fit.reason } : {}),
     ...(fit.hypothesis !== null ? { hypothesis: fit.hypothesis } : {}),
     ...(fit.search !== '' ? { search: fit.search } : {}),
+  };
+}
+
+/** Фильтры → запрос к серверу. Имена условий те же, что у адреса экрана; период добавления —
+ *  моментами (`addedQuery`), в адресе он днями. Период «с» позже «по» на сервер не уходит. */
+export function queryOf(filters: LeadFilters): LeadsQuery {
+  const fit = fitted(filters);
+  return {
+    ...narrowing(fit),
+    ...addedQuery(fit.addedFrom, fit.addedTo),
     ...(fit.page > 1 ? { page: fit.page } : {}),
   };
+}
+
+/** Адрес вкладки лидов: условия — именами запроса, период — днями своих ключей, страница. */
+function leadParams(filters: LeadFilters): [string, string][] {
+  const fit = fitted(filters);
+  const found = Object.entries(narrowing(fit)).map(([key, value]): [string, string] => [
+    key,
+    String(value),
+  ]);
+  if (fit.addedFrom !== '') found.push([ADDED_KEYS.from, fit.addedFrom]);
+  if (fit.addedTo !== '') found.push([ADDED_KEYS.to, fit.addedTo]);
+  if (fit.page > 1) found.push(['page', String(fit.page)]);
+  return found;
 }
 
 /** Фильтры → адрес. Умолчания не пишутся: первая вкладка без `tab`, первая
@@ -186,9 +218,7 @@ export function queryOf(filters: LeadFilters): LeadsQuery {
 export function writeLeadFilters(filters: LeadFilters): URLSearchParams {
   const params = new URLSearchParams();
   if (filters.tab === 'leads') {
-    for (const [key, value] of Object.entries(queryOf(filters))) {
-      params.set(key, String(value));
-    }
+    for (const [key, value] of leadParams(filters)) params.set(key, value);
     return params;
   }
   params.set('tab', filters.tab);
@@ -231,7 +261,14 @@ export function salesTabLink(tab: SalesTab, hypothesis: number | null): string {
 /** Сужает ли что-нибудь, кроме вкладки и страницы. */
 export function isLeadFiltered(filters: LeadFilters): boolean {
   const fit = fitted(filters);
-  return fit.search !== '' || fit.state !== null || fit.reason !== null || fit.hypothesis !== null;
+  const added = fit.addedFrom !== '' || fit.addedTo !== '';
+  return (
+    added ||
+    fit.search !== '' ||
+    fit.state !== null ||
+    fit.reason !== null ||
+    fit.hypothesis !== null
+  );
 }
 
 /** Что сужает таблицу — словами: «ничего не нашлось» без условий читается
@@ -249,6 +286,8 @@ export function conditionsOf(
     const name = hypothesisName(fit.hypothesis);
     said.push(name === undefined ? `гипотеза №${fit.hypothesis}` : `гипотеза «${name}»`);
   }
+  const added = addedWords(fit.addedFrom, fit.addedTo);
+  if (added !== null) said.push(added);
   return said;
 }
 
@@ -288,5 +327,16 @@ export function emptinessOf(
         ? `На этой странице пусто. Всего лидов — ${formatNumber(total)}.`
         : `Условия: ${conditions.join(', ')}. Всего лидов — ${formatNumber(total)}.`,
     action: resettable ? 'reset' : null,
+  };
+}
+
+/** Период «с» позже «по» — вместо строк: запроса нет, а пустая таблица без слов читалась бы
+ *  «за период никого». `null` — период годится. */
+export function backwardsOf(filters: LeadFilters): Emptiness | null {
+  if (addedProblem(filters.addedFrom, filters.addedTo) === null) return null;
+  return {
+    title: 'Период задан наоборот.',
+    detail: `«С» позже «по» — такой период пуст. Поменяйте даты местами, и таблица покажет, кого добавили за период.`,
+    action: 'reset',
   };
 }

@@ -15,7 +15,7 @@
  * один и тот же сухой прогон; экран ничего не пересчитывает.
  *
  * **Следующий шаг после загрузки — очистка, и она здесь же** (`CleanLeads`): без неё
- * лид не станет «готов к письмам». Её кнопка — главная на итоге (залитая), «К лидам» —
+ * лид не станет «готов к письмам». Её кнопка — главная на итоге (залитая), «Открыть «emails»» —
  * обычная: залитая кнопка на экране одна.
  */
 
@@ -316,8 +316,9 @@ export function ImportOutcome({
       <Reasons title="Почему отклонены" groups={groupProblems(outcome.problems, false)} />
       <Reasons title="Загружены с замечанием" groups={groupProblems(outcome.problems, true)} />
       <Group>
+        {/* Имя вкладки — как у самой вкладки: «emails» (слово владельца 20.10.2026). */}
         <Button component={Link} to={leadsAt} variant="default" className="press">
-          К лидам
+          Открыть «emails»
         </Button>
         <Button variant="subtle" className="press" onClick={onAgain}>
           Загрузить ещё

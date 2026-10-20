@@ -5,9 +5,14 @@
 фильтр — по тем же кодам. Здесь только чтение.
 
 **Фильтр — по колонке, тем же словом, что в её ячейке** (как у отбора, 26.09.2026):
-состояние, причина отказа, гипотеза, поиск по адресу, имени, компании и домену.
-Сводка — по всем лидам, а не по странице: она отвечает на вопрос «сколько готово
+состояние, причина отказа, гипотеза, поиск по адресу, имени, компании и домену, период
+добавления. Сводка — по всем лидам, а не по странице: она отвечает на вопрос «сколько готово
 к письмам», и фильтры таблицы её не трогают.
+
+**Период добавления — тем же полуинтервалом, что у воронки** (`funnel.Period`): лид входит,
+если строка заведена (`created_at`) не раньше начала и раньше конца. Дни человека в моменты
+переводит экран — полночью первого дня и полночью после последнего по часам браузера, как свои
+даты воронки: пояса человека сервер не знает.
 
 **Счётчики — полным перечислением, с нулями.** Экран строит фильтр причин по
 ключам ответа, а не по своему списку: причина, которой ещё никто не получил,
@@ -27,7 +32,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -60,6 +65,9 @@ class LeadFilters:
     reason: str | None = None
     hypothesis_id: int | None = None
     search: str | None = None
+    #: Когда лид появился в сервисе (`created_at`): полуинтервал `[since, until)`. Без границ —
+    #: всё время.
+    added: Period = field(default_factory=Period)
     #: Страница — с единицы. Страница за концом — пустая, с настоящим `total`.
     page: int = 1
     size: int = PAGE_SIZE
@@ -111,9 +119,16 @@ def _by_search(text: str) -> ColumnElement[bool]:
     )
 
 
+def _added(period: Period) -> list[ColumnElement[bool]]:
+    """Лид заведён в период добавления; без границ — условия нет вовсе."""
+    if period.since is None and period.until is None:
+        return []
+    return [period.holds(SalesLeadModel.created_at)]
+
+
 def _conditions(filters: LeadFilters) -> list[ColumnElement[bool]]:
     """Условия фильтров под колонками — все сразу, «и»."""
-    found: list[ColumnElement[bool]] = []
+    found: list[ColumnElement[bool]] = _added(filters.added)
     if filters.state is not None:
         found.append(SalesLeadModel.status == filters.state)
     if filters.reason is not None:

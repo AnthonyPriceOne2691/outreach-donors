@@ -24,6 +24,10 @@
  *
  * **Правка лида — значком у имени** (`LeadEditModal`): имя, должность, компания, язык,
  * страна и пояс. Без права отправки — «Открыть»: окно смотреть, как у базы знаний.
+ *
+ * **Дата добавления — за гипотезой** (`LeadsAdded`): откуда лид и когда он появился в сервисе
+ * читаются рядом, и на 1440 при развёрнутом меню колонка с её фильтром «с … по …» видна без
+ * прокрутки вбок (просьба владельца 20.10.2026 — видеть добавленных за период).
  */
 
 import {
@@ -50,6 +54,7 @@ import { FixedTable } from './FixedTable';
 import type { Column } from './FixedTable';
 import { LEAD_STATE_KEYS, reasonOn } from './leadFilters';
 import type { Emptiness, LeadFilters } from './leadFilters';
+import { AddedCell, AddedFilter } from './LeadsAdded';
 import { LeadNote, NOTE_SLOT } from './LeadNote';
 
 /** Ширины полей фильтра — по самому длинному значению: «отклонён» — узкое поле,
@@ -68,6 +73,9 @@ const COLUMNS: Column[] = [
   // Имя и домен компании — по левому краю, как имя лида (аудит экранов 09.10.2026).
   { title: 'Компания', width: '13rem', start: true },
   { title: 'Гипотеза', width: '10rem' },
+  // По фильтру под заголовком: «по» (16 px), зазор 4 и поле даты 112 px, с полями ячейки —
+  // 156 px; заголовок — 121 px текста, дата в строке — 72 (замер в браузере, 20.10.2026).
+  { title: 'Дата добавления', width: '9.75rem' },
   { title: 'Страна', width: '9rem' },
   { title: 'Состояние', width: '8rem' },
   // Самая длинная причина значком и «!» рядом: «домен в работе у другого направления» —
@@ -76,8 +84,8 @@ const COLUMNS: Column[] = [
   { title: 'Причина', width: '19.5rem' },
 ];
 
-/** Уже этого таблица не сжимается и уезжает в прокрутку: сумма ширин (76,5rem). */
-export const TABLE_MIN_WIDTH = 1224;
+/** Уже этого таблица не сжимается и уезжает в прокрутку: сумма ширин (86,25rem). */
+export const TABLE_MIN_WIDTH = 1380;
 
 const ALL = 'all';
 
@@ -153,6 +161,9 @@ function FilterRow({ filters, search, onSearch, onFilter, hypotheses, reasons }:
           choices={hypotheses.map((row) => ({ value: String(row.id), label: row.name }))}
           onChange={(value) => onFilter({ hypothesis: value === null ? null : Number(value) })}
         />
+      </Table.Th>
+      <Table.Th>
+        <AddedFilter filters={filters} onFilter={onFilter} />
       </Table.Th>
       <Table.Th />
       <Table.Th>
@@ -316,6 +327,7 @@ function LeadRow({ row, mayWrite, onEdit }: RowProps) {
       <Table.Td className="wrapCell">
         <Text size="sm">{row.hypothesis}</Text>
       </Table.Td>
+      <AddedCell row={row} />
       <Table.Td>
         <Text size="sm">{countryTitle(row.country)}</Text>
         {/* «America/Argentina/ComodRivadavia» шире колонки: одной строкой с многоточием,

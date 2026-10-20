@@ -367,9 +367,9 @@
       "worst": "build_queue:159"
     },
     "backend/api/sales/routes.py": {
-      "lines": 286,
+      "lines": 347,
       "complexity": 6,
-      "worst": "_found:105"
+      "worst": "_found:124"
     },
     "backend/api/sales/schemas.py": {
       "lines": 222,
@@ -2307,9 +2307,9 @@
       "worst": "in_window:55"
     },
     "backend/features/sales/browse.py": {
-      "lines": 244,
+      "lines": 259,
       "complexity": 6,
-      "worst": "_conditions:114"
+      "worst": "_conditions:129"
     },
     "backend/features/sales/chain.py": {
       "lines": 224,
@@ -3152,9 +3152,14 @@
       "worst": "report_screens:15"
     },
     "scripts/ui_screens_sales.py": {
-      "lines": 491,
+      "lines": 494,
       "complexity": 1,
-      "worst": "pick_hypothesis:67"
+      "worst": "pick_hypothesis:68"
+    },
+    "scripts/ui_screens_sales_added.py": {
+      "lines": 87,
+      "complexity": 1,
+      "worst": "added_screens:27"
     },
     "scripts/ui_screens_sales_funnel.py": {
       "lines": 91,

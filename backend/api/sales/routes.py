@@ -16,6 +16,11 @@
 страница — в адресе экрана (`?state=rejected&reason=duplicate&page=2`), имена
 параметров — те же, что в адресе. Логика чтения — `features/sales/browse.py`.
 
+**Период добавления лида** (`added_since`, `added_until`) — как у воронки: моменты с поясом,
+полуинтервал `[начало, конец)`; дни человека в них переводит экран (в его адресе — дни,
+`added_from` и `added_to`). Не момент или без пояса — 422 словами, что прислать; начало не
+раньше конца — 422 теми же словами, что у воронки.
+
 **Гипотеза заводится и здесь** (`POST /sales/hypotheses`) — тем же правилом, что команда
 консоли (`features/sales/hypotheses.add`): негодное имя — 422 словами, занятое гипотезой или
 рассылкой продаж — 409 словами; заведённая — в журнале действий с автором. Право — `sales`:
@@ -41,6 +46,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from datetime import datetime
 from typing import Annotated
 
 import httpx
@@ -55,7 +61,18 @@ from fastapi import (
     UploadFile,
     status,
 )
-from pydantic import BaseModel, Field, NonNegativeInt, TypeAdapter, ValidationError
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    Field,
+    NonNegativeInt,
+    TypeAdapter,
+    ValidationError,
+    ValidationInfo,
+    ValidatorFunctionWrapHandler,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
@@ -71,6 +88,7 @@ from backend.api.sales import segment_helper as segment_helper_routes
 from backend.api.sales import segment_sites as segment_sites_routes
 from backend.api.sales import stoplist as stoplist_routes
 from backend.api.sales import weekly as weekly_routes
+from backend.api.sales.funnel import EMPTY_PERIOD
 from backend.api.sales.schemas import (
     HypothesesView,
     HypothesisBody,
@@ -84,6 +102,7 @@ from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.sales import browse, hypotheses, hypothesis_holds, intake, sheet
 from backend.features.sales.columns import LeadField, Mapping
+from backend.features.sales.funnel import Period
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import LeadStatus, SalesHypothesisModel
 
@@ -160,13 +179,24 @@ async def load(
 # --- списки раздела: гипотезы и лиды ------------------------------------------------
 
 
+#: Границы периода добавления — словами отказа: экран шлёт их сам, руками их пишут в адрес API.
+_ADDED_BOUNDS = {
+    "added_since": "начало периода добавления",
+    "added_until": "конец периода добавления",
+}
+#: Что прислать вместо негодной границы — с примером.
+_MOMENT = "нужен момент с поясом, например 2026-10-01T00:00:00+03:00"
+
+
 class LeadsQuery(BaseModel):
     """Фильтры под колонками экрана лидов — одной моделью, как у отбора.
 
     Состояние — тип базы: негодное значение отвергает схема. Причина — код
     строкой, как в базе (`RejectionReason`): незнакомый код из устаревшей
     ссылки ничего не находит, а не отказывает. Страница — номером, размер
-    страницы знает сервер и называет его в ответе."""
+    страницы знает сервер и называет его в ответе. Период добавления — моменты
+    с поясом, как у воронки: негодная граница — отказ словами, что прислать, а не
+    «значение не подходит» умолчания разбора."""
 
     state: LeadStatus | None = Field(
         default=None, description="new — загружен, ready — прошёл очистку, rejected — отсеян"
@@ -178,10 +208,40 @@ class LeadsQuery(BaseModel):
         max_length=browse.SEARCH_LENGTH,
         description="по адресу, имени, компании, домену",
     )
+    added_since: AwareDatetime | None = Field(
+        default=None, description="добавлен не раньше — момент с поясом: полночь первого дня"
+    )
+    added_until: AwareDatetime | None = Field(
+        default=None,
+        description="добавлен раньше — момент с поясом, не включая: полночь после последнего дня",
+    )
     page: int = Field(default=1, ge=1, le=1_000_000, description="страница, с единицы")
     limit: int = Field(
         default=browse.PAGE_SIZE, ge=1, le=browse.MAX_PAGE_SIZE, description="лидов на странице"
     )
+
+    @field_validator("added_since", "added_until", mode="wrap")
+    @classmethod
+    def _moment(
+        cls, value: object, handler: ValidatorFunctionWrapHandler, info: ValidationInfo
+    ) -> datetime | None:
+        """Граница — момент с поясом; иначе — какая граница и что прислать."""
+        try:
+            moment: datetime | None = handler(value)
+        except ValidationError as exc:
+            kinds = {error["type"] for error in exc.errors()}
+            said = "без пояса" if kinds == {"timezone_aware"} else "не дата"
+            name = str(info.field_name)
+            raise ValueError(f"{_ADDED_BOUNDS[name]} ({name}) — {said}: {_MOMENT}") from exc
+        return moment
+
+    @model_validator(mode="after")
+    def _ordered(self) -> LeadsQuery:
+        """Начало не раньше конца — период пуст: отказ словами воронки, а не пустая таблица."""
+        since, until = self.added_since, self.added_until
+        if since is not None and until is not None and since >= until:
+            raise ValueError(EMPTY_PERIOD)
+        return self
 
     def filters(self) -> browse.LeadFilters:
         return browse.LeadFilters(
@@ -189,6 +249,7 @@ class LeadsQuery(BaseModel):
             reason=self.reason,
             hypothesis_id=self.hypothesis,
             search=self.search,
+            added=Period(self.added_since, self.added_until),
             page=self.page,
             size=self.limit,
         )

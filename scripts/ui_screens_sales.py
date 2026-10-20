@@ -34,6 +34,7 @@ from tempfile import mkdtemp
 from typing import Any
 
 from playwright.sync_api import expect
+from ui_screens_sales_added import added_screens
 from ui_screens_sales_funnel import funnel_prepare, funnel_screens
 from ui_screens_sales_hints import SECTION_FIELD, hint_probe, note_probes, section_probes
 from ui_screens_sales_hypotheses import hypothesis_prepare, hypothesis_screens
@@ -124,9 +125,9 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("имя и должность", ".leadsTable tbody .leadWho", norm),
         ("домен компании", ".leadsTable tbody a.leadHost", norm),
         ("гипотеза в строке", ".leadsTable tbody td:nth-child(3) p", norm),
-        ("страна в строке", ".leadsTable tbody td:nth-child(4) p", norm),
-        ("значок состояния", ".leadsTable tbody td:nth-child(5) .mantine-Badge-label", norm),
-        ("значок причины", ".leadsTable tbody td:nth-child(6) .mantine-Badge-label", norm),
+        ("страна в строке", ".leadsTable tbody td:nth-child(5) p", norm),
+        ("значок состояния", ".leadsTable tbody td:nth-child(6) .mantine-Badge-label", norm),
+        ("значок причины", ".leadsTable tbody td:nth-child(7) .mantine-Badge-label", norm),
         (
             "номер другой страницы",
             "nav[aria-label='Страницы лидов'] button:not([aria-current]) "
@@ -163,7 +164,7 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("адрес лида", ".leadsTable tbody .leadEmail", norm),
                 (
                     "значок состояния",
-                    ".leadsTable tbody td:nth-child(5) .mantine-Badge-label",
+                    ".leadsTable tbody td:nth-child(6) .mantine-Badge-label",
                     norm,
                 ),
                 hint_probe("пояснение раздела", "Как устроен экран «Продажи»", norm),
@@ -241,6 +242,8 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         **chain_screens(norm, big),
         **queue_screens(norm, big),
         **funnel_screens(norm, big),
+        # Вкладка «emails»: период добавления и его отказ — `ui_screens_sales_added.py`.
+        **added_screens(norm),
         **quality_screens(norm, big),
         **stoplist_screens(norm, big),
         **segment_screens(norm, big),

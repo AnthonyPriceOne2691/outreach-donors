@@ -318,7 +318,7 @@ describe('продажи: лиды', () => {
   it('сводка — по всем лидам, вкладки с числами, и дорога к загрузке', async () => {
     await openScreen();
 
-    expect(screen.getByText('Лиды — 5')).toBeInTheDocument();
+    expect(screen.getByText('emails — 5')).toBeInTheDocument();
     expect(screen.getByText('Гипотезы — 2')).toBeInTheDocument();
     // Число записей базы — со вкладки лидов; у отправителя считать нечего.
     expect(await screen.findByText('База знаний — 3', {}, SCREEN_WAIT)).toBeInTheDocument();
@@ -752,7 +752,7 @@ describe('продажи: гипотеза — одна на раздел, пе�
     expect(screen.getByRole('textbox', { name: 'Гипотеза' })).toHaveValue('сайты EN');
     expect(where()).toBe('/sales?tab=funnel&hypothesis=1');
 
-    await user.click(screen.getByRole('radio', { name: 'Лиды — 5' }));
+    await user.click(screen.getByRole('radio', { name: 'emails — 5' }));
     await waitFor(() => expect(asked(recorded).at(-1)).toBe('hypothesis=1'), SCREEN_WAIT);
     expect(screen.getByRole('textbox', { name: 'Гипотеза' })).toHaveValue('сайты EN');
   });
@@ -874,9 +874,10 @@ async function listOf(field: HTMLElement): Promise<HTMLElement> {
 }
 
 describe('продажи: вкладки на телефоне — список «Раздел» (аудит 09.10.2026)', () => {
-  // Одиннадцати вкладкам с числами побольше нужно окно 1 587 px при развёрнутом меню (снимки
-  // стенда 12.10.2026, `SalesTabs`): 1 440 и 1 536 — частые окна ноутбуков, и на них ряд
-  // срезался бы краем; на 1 580 «Стоп-лист» ещё срезан на 7 px — порог не ниже этого.
+  // Одиннадцати вкладкам с числами побольше нужно окно 1 591 px при развёрнутом меню (снимки
+  // стенда 12.10.2026, перемерено с «emails» 20.10.2026, `SalesTabs`): 1 440 и 1 536 — частые
+  // окна ноутбуков, и на них ряд срезался бы краем; на 1 580 «Стоп-лист» ещё срезан на 11 px —
+  // порог не ниже этого.
   it.each([800, 1024, 1440, 1536, 1580])(
     'окно %i px: одиннадцать вкладок не влезают в панель — тоже список, а не обрезанные вкладки',
     async (width) => {
@@ -884,7 +885,7 @@ describe('продажи: вкладки на телефоне — список 
       await openScreen();
 
       expect(screen.queryByRole('radiogroup', { name: 'Вкладки продаж' })).toBeNull();
-      expect(screen.getByRole('textbox', { name: 'Раздел' })).toHaveValue('Лиды — 5');
+      expect(screen.getByRole('textbox', { name: 'Раздел' })).toHaveValue('emails — 5');
     },
   );
 
@@ -902,7 +903,7 @@ describe('продажи: вкладки на телефоне — список 
 
     expect(screen.queryByRole('radiogroup', { name: 'Вкладки продаж' })).toBeNull();
     const field = screen.getByRole('textbox', { name: 'Раздел' });
-    expect(field).toHaveValue('Лиды — 5');
+    expect(field).toHaveValue('emails — 5');
 
     const list = await listOf(field);
     const options = within(list)
@@ -913,7 +914,7 @@ describe('продажи: вкладки на телефоне — список 
     expect(options).toEqual([
       'Гипотезы — 2',
       'Сбор базы',
-      'Лиды — 5',
+      'emails — 5',
       'Цепочка писем',
       'Очередь писем',
       'Воронка',
