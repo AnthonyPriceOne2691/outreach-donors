@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Sequence
 
 import pytest
@@ -398,12 +399,16 @@ async def past_run(
     return run
 
 
+# Номер сайта сквозной, а не с нуля у вызова: иначе хосты двух ключей одного прогона совпадут.
+_SITE_NUMBERS = itertools.count()
+
+
 async def collected(
     session: AsyncSession, run: SalesSegmentRunModel, keyword: str | None, count: int
 ) -> None:
     """Сайты, которые прогон уже завёл в гипотезу, — найденные этим ключом."""
-    for number in range(count):
-        domain = DomainModel(host=f"site-{run.id}-{number}-{abs(hash(keyword)) % 997}.example.test")
+    for _ in range(count):
+        domain = DomainModel(host=f"site-{run.id}-{next(_SITE_NUMBERS)}.example.test")
         session.add(domain)
         await session.flush()
         session.add(
