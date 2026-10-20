@@ -75,12 +75,14 @@ class Wait:
 
 @dataclass(frozen=True, slots=True)
 class Offer:
-    """«Повторить сейчас» у группы: что повторит (`what`, `segment_run.Again`), скольких возьмёт и
-    до скольких платных запросов Hunter."""
+    """«Повторить сейчас» у группы: что повторит (`what`, `segment_run.Again`), скольких возьмёт
+    самое большее и до скольких платных запросов Hunter — поисков адреса (`searches`) и проверок
+    адреса (`checks`: найденный адрес становится лидом, и его проверка тоже платная)."""
 
     what: str
     count: int
-    paid: int
+    searches: int
+    checks: int
 
 
 def leads_waiting(run_id: int, *, real: bool, now: datetime) -> list[ColumnElement[bool]]:
@@ -191,12 +193,13 @@ async def offer(
     session: AsyncSession, run: SalesSegmentRunModel, what: str, *, real: bool, now: datetime
 ) -> Offer:
     """Что возьмёт «Повторить сейчас» — тем же условием, что у прохода повтора, — и до скольких
-    платных запросов Hunter: у поиска — не больше остатка сметы, у очистки — лид на проверку."""
+    платных запросов Hunter: поисков — не больше остатка сметы, проверок — лид на проверку (у
+    поиска — каждый найденный адрес)."""
     if what == ADDRESSES:
         left = paid_left(run.report, run.estimate)
         queue = SegmentContactQueue(session, run.id, retry=Retry.NOW, paid=left > 0, now=now)
         count = await queue.pending_count()
-        return Offer(what, count, min(count, left))
+        return Offer(what, count, min(count, left), count if real else 0)
     count = int(
         await session.scalar(
             select(func.count(SalesLeadModel.id))
@@ -205,7 +208,7 @@ async def offer(
         )
         or 0
     )
-    return Offer(what, count, count if real else 0)
+    return Offer(what, count, 0, count if real else 0)
 
 
 async def run_offers(

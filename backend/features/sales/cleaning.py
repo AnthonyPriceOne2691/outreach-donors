@@ -59,7 +59,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -125,6 +125,8 @@ class _Run:
     mx_concurrency: int = MX_CONCURRENCY
     #: Первая неисправимая причина — остальным лидам партии и прохода она же.
     halt: str | None = None
+    #: Отметка начала прохода: срок «ещё проверяет» — от ответа (`verify_again.answered`).
+    started: float = field(default_factory=verify_again.clock)
 
 
 def _mailbox(email: str) -> str:
@@ -265,15 +267,19 @@ def _not_verified(lead: SalesLeadModel, run: _Run, why: str) -> Outcome:
     """Проверка не выполнена: посреди окна перепроверки по сроку — срок остаётся
     (`verify_again.later`), у прочих — прежний статус со словами отказа (`_unverified`)."""
     if verify_again.in_window(lead):
-        return verify_again.later(lead, run.moment, failure=why)
+        return verify_again.later(lead, _answered(run), failure=why)
     return _unverified(lead, why)
+
+
+def _answered(run: _Run) -> datetime:
+    return verify_again.answered(run.moment, run.started)
 
 
 def _no_verdict(lead: SalesLeadModel, run: _Run, exc: ProviderError) -> Outcome:
     """Сервис ответил про адрес, но без вердикта: с доменом не работает — отказ сразу, без
     повторов; «ещё проверяет» — перепроверка по сроку и со счётом (`verify_again.later`)."""
     if isinstance(exc, StillCheckingError):
-        return verify_again.later(lead, run.moment)
+        return verify_again.later(lead, _answered(run))
     return Outcome(lead.id, LeadStatus.REJECTED, RejectionReason.UNCONFIRMED, refused(lead.email))
 
 
@@ -432,15 +438,17 @@ async def clean_leads(
     verifier: EmailVerifier,
     *,
     now: datetime | None = None,
+    commit: bool = False,
 ) -> CleaningReport:
     """Очистить названных лидов тем же проходом, что `clean`, — с кругами; своя область — их
     гипотезы. Коммит — за вызывающим: лид из ответа «пишите другому» чистится в транзакции задачи
-    ответа."""
+    ответа; `commit` — каждая партия своим коммитом, как у `clean` (перепроверка по сроку: сбой
+    после вердиктов не должен их терять)."""
     moment = now or datetime.now(UTC)
     verifier = await capped(session, verifier, now=moment)  # месячный потолок у живого
     report = CleaningReport(verifier=verifier.name)
     run = _Run(verifier, moment, report, {lead.hypothesis_id for lead in leads})
-    return await _later(session, await _pass(session, leads, run, commit=False), moment)
+    return await _later(session, await _pass(session, leads, run, commit=commit), moment)
 
 
 async def _later(session: AsyncSession, report: CleaningReport, moment: datetime) -> CleaningReport:

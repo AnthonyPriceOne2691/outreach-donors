@@ -92,8 +92,9 @@ async def again_run(
         details={
             "действие": f"повтор сбора базы продаж: {what_words}",
             "прогон": run.id,
-            "возьмёт": found.count,
-            "платных запросов Hunter до": found.paid,
+            "возьмёт до": found.count,
+            "поисков Hunter до": found.searches,
+            "проверок Hunter до": found.checks,
         },
         stage=domain.Stage.SALES,  # этап воронки, а не стадия прогона
     )

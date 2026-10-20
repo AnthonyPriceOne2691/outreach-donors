@@ -316,12 +316,14 @@ export interface SegmentWait {
  *  проходом без выдачи и судьи под номером прогона. */
 export type SegmentAgain = 'addresses' | 'cleaning';
 
-/** «Повторить сейчас» у группы: скольких возьмёт — тем же условием, что у прохода повтора, — и
- *  до скольких платных запросов Hunter. */
+/** «Повторить сейчас» у группы: скольких возьмёт самое большее — тем же условием, что у прохода
+ *  повтора, — и до скольких платных запросов Hunter: поисков адреса и проверок адреса (найденный
+ *  адрес становится лидом, и его проверка тоже платная). */
 export interface SegmentOffer {
   what: SegmentAgain;
   count: number;
-  paid: number;
+  searches: number;
+  checks: number;
 }
 
 export function againRun(run: number, what: SegmentAgain): Promise<SegmentQueued> {

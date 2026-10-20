@@ -24,6 +24,7 @@ from backend.features.contacts.mx import MailRoute
 from backend.features.contacts.provider import ProviderError
 from backend.features.core.domain import AuditAction
 from backend.features.core.models.access import AuditLogModel
+from backend.features.core.models.ops import UsageRecordModel
 from backend.features.ops import job_outcome
 from backend.features.sales import cleaning, deferred, hunter_codes, verify_again, verify_again_jobs
 from backend.features.sales.models import (
@@ -34,13 +35,13 @@ from backend.features.sales.models import (
 )
 from backend.features.sales.segment_estimate import SALES_OFF
 from backend.features.sales.segment_models import Lane, SalesSegmentRunModel, Stage
-from backend.features.sales.verifier import FixtureVerifier, HunterVerifier, Verdict
+from backend.features.sales.verifier import OPERATION, FixtureVerifier, HunterVerifier, Verdict
 from backend.features.sales.verify_cap import MonthCapped
 from backend.shared.net import retry
 from redis.exceptions import ConnectionError as RedisConnectionError
 from rq.exceptions import DuplicateJobError
 from rq.job import JobStatus
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import TEST_DSN
@@ -394,8 +395,133 @@ async def test_the_recheck_leaves_the_leads_of_a_going_run_to_the_run(
     _, lead = await _run_with_lead(world, going=True)
 
     assert await verify_again_jobs.again_pass(world.session, FixtureVerifier(), now=NOW) is None
-    assert await verify_again.next_at(world.session) is None
+    assert await verify_again.next_at(world.session, NOW) is None
     assert (await _lead(world.session, lead.id)).verify_again_at == NOW - timedelta(minutes=2)
+
+
+class Paying:
+    """Живой проверяльщик: каждый вызов — платный вердикт «годен»; спрошенные — в список."""
+
+    name = "hunter"
+
+    def __init__(self) -> None:
+        self.asked: list[str] = []
+
+    async def verify(self, email: str) -> Verdict:
+        self.asked.append(email)
+        return Verdict("valid", 91, units=1)
+
+
+async def _units(session: AsyncSession) -> int:
+    found = await session.scalar(
+        select(func.coalesce(func.sum(UsageRecordModel.units), 0)).where(
+            UsageRecordModel.operation == OPERATION
+        )
+    )
+    return int(found or 0)
+
+
+async def _job_session(world: World) -> AsyncSession:
+    """Сессия задачи на соединении теста: её коммит сохраняет, откат — снимает несохранённое, как
+    у настоящей задачи (точками сохранения внутри внешней транзакции теста)."""
+    connection = await world.session.connection()
+    return AsyncSession(
+        bind=connection, expire_on_commit=False, join_transaction_mode="create_savepoint"
+    )
+
+
+async def test_a_failure_after_paid_verdicts_keeps_them_and_asks_nobody_again(
+    world: World, later: Later, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ревью 20.10, второй круг: задача коммитила один раз в конце, и сбой после вердиктов
+    откатывал их и строки расхода — лид оставался со старым сроком, а повтор задачи платил за него
+    снова. Теперь вердикты и расход — коммитом партии: после сбоя и отката задачи лид решён, и
+    Hunter о нём больше не спрашивают."""
+    monkeypatch.setattr("backend.config.sales.VERIFIER_PROVIDER", "live")
+    _, lead = await _run_with_lead(world, going=False)
+    lead_id = lead.id
+    hunter = Paying()
+    real = cleaning.clean_leads
+
+    async def then_fail(*args: Any, **kwargs: Any) -> Any:
+        await real(*args, **kwargs)
+        raise ConnectionError("база мигнула после вердиктов")
+
+    job = await _job_session(world)
+    monkeypatch.setattr(cleaning, "clean_leads", then_fail)
+    with pytest.raises(ConnectionError):
+        await verify_again_jobs.again_pass(job, hunter, now=NOW)
+    await job.rollback()  # задача упала: несохранённое — снято
+    monkeypatch.setattr(cleaning, "clean_leads", real)
+
+    again = await verify_again_jobs.again_pass(job, hunter, now=NOW)
+    await job.close()
+
+    found = await _lead(world.session, lead_id)
+    assert (found.status, found.verification_status, found.verify_again_at) == (
+        LeadStatus.READY,
+        "hunter:valid",
+        None,
+    )
+    assert (await _units(world.session), hunter.asked, again) == (1, [CHECKING], None)
+
+
+async def test_a_failure_of_the_run_report_keeps_the_verdicts(
+    world: World, later: Later, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Отчёт прогона и запись в журнале — своей транзакцией после партии: их сбой — строка журнала
+    сервиса, а вердикты и расход остаются."""
+    monkeypatch.setattr("backend.config.sales.VERIFIER_PROVIDER", "live")
+    run, lead = await _run_with_lead(world, going=False)
+    run_id, lead_id = run.id, lead.id
+
+    def broken(*_args: object) -> dict[str, Any]:
+        raise ValueError("отчёт прогона не разобран")
+
+    monkeypatch.setattr(verify_again_jobs, "leads_report", broken)
+
+    report = await verify_again_jobs.again_pass(world.session, Paying(), now=NOW)
+
+    assert report is not None
+    found = await _lead(world.session, lead_id)
+    assert (found.status, await _units(world.session)) == (LeadStatus.READY, 1)
+    refreshed = await world.session.get(SalesSegmentRunModel, run_id, populate_existing=True)
+    assert refreshed is not None
+    assert "leads" not in refreshed.report
+    assert any("вердикты сохранены" in record.getMessage() for record in caplog.records)
+
+
+async def test_the_recheck_takes_the_leads_of_a_run_whose_pass_went_quiet(
+    world: World, later: Later
+) -> None:
+    """Ревью 20.10, второй круг: проход «идёт», пока пуст его конец, — а у потерянной задачи и
+    убитого воркера он пуст навсегда, и перепроверка лидов прогона вставала. Теперь проход идёт,
+    только пока его строка отмечается (`verify_again.QUIET`)."""
+    run, lead = await _run_with_lead(world, going=True)
+    run.updated_at = NOW - verify_again.QUIET - timedelta(minutes=1)
+    await world.session.commit()
+
+    assert await verify_again.next_at(world.session, NOW) == NOW - timedelta(minutes=2)
+    report = await verify_again_jobs.again_pass(world.session, FixtureVerifier(), now=NOW)
+
+    assert report is not None
+    assert (await _lead(world.session, lead.id)).verify_again_at == NOW + TERM
+
+
+async def test_the_window_starts_at_the_answer_not_at_the_pass(
+    world: World, later: Later, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ревью 20.10, второй круг: окно и срок считались от начала прохода, и в долгом проходе лид,
+    чей 202 пришёл через минуты, получал срок уже в прошлом. Теперь — от ответа (с шагом минута)."""
+    ticks = iter([1000.0])
+    monkeypatch.setattr(verify_again, "_clock", lambda: next(ticks, 1000.0 + 125))
+    lead = await world.lead(PENDING)
+
+    await cleaning.clean(world.session, FixtureVerifier(), now=NOW)
+
+    found = await _lead(world.session, lead.id)
+    answered = NOW + timedelta(minutes=2)
+    assert (found.verify_since, found.verify_again_at) == (answered, answered + TERM)
 
 
 async def test_the_recheck_writes_its_spend_into_the_run_and_the_journal(
@@ -555,18 +681,17 @@ async def test_the_recheck_with_sales_off_asks_nobody(
     assert (built, later.planned) == ([], [])
 
 
-async def test_a_failed_recheck_plans_the_next_not_sooner_than_the_term(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Ревью 20.10: упавшая перепроверка не ставила следующей — срок ждал, пока кто-то зайдёт.
-    Теперь следующая — после любого исхода, после сбоя — не раньше обычного срока."""
-    planned: list[timedelta] = []
+async def test_a_failed_recheck_plans_no_next_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ревью 20.10, второй круг: упавшая перепроверка ставила свою новую задачу, и вместе с
+    повторами очереди выходил круг «упала — поставила — упала», платный на каждой попытке. Теперь
+    новой задачи упавшая не ставит: повтор — за очередью, сроки ждут в базе."""
+    planned: list[datetime] = []
 
     async def broken(*_args: object, **_kwargs: object) -> None:
         raise ConnectionError("база мигнула")
 
-    async def plan(_session: AsyncSession, *, now: datetime, soonest: timedelta) -> None:
-        planned.append(soonest)
+    async def plan(_session: AsyncSession, *, now: datetime, **_kw: object) -> None:
+        planned.append(now)
 
     monkeypatch.setattr("backend.config.sales.ENABLED", True)
     monkeypatch.setattr("backend.config.storage.DSN", TEST_DSN)
@@ -576,7 +701,7 @@ async def test_a_failed_recheck_plans_the_next_not_sooner_than_the_term(
     with pytest.raises(ConnectionError):
         await verify_again_jobs.run_again()
 
-    assert planned == [TERM]
+    assert planned == []
 
 
 def test_the_job_settles_a_misconfigured_verifier_as_an_outcome(

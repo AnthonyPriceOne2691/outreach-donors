@@ -228,6 +228,20 @@ def _counters(report: dict[str, Any]) -> dict[str, Any]:
     return counters if isinstance(counters, dict) else {}
 
 
+#: Резерв платных поисков повтора (`contacts.paid_pending`, `segment_run._paid_walk`): кусок
+#: поиска оставил его перед собой и снимает после — пустым он остаётся, только если проход упал
+#: посреди куска; тогда принятые провайдером запросы куска в счёт не попали, и резерв их покрывает.
+PENDING_KEY = "paid_pending"
+
+
+def pending(report: dict[str, Any]) -> int:
+    """Резерв платных поисков, не снятый упавшим проходом повтора: верхняя граница незаписанных
+    запросов. Остаток сметы его вычитает (`segment_queue.paid_left`) — повтор задачи не потратит
+    его второй раз."""
+    contacts = _section(report, "contacts") or {}
+    return _int(contacts.get(PENDING_KEY)) or 0
+
+
 def searched(report: dict[str, Any]) -> int:
     """Запросов поиска адреса, которые провайдер принял у прогона за все проходы: вошло в платную
     ступень минус отказы. Им же меряет остаток сметы повтор по сроку (`segment_queue.paid_left`)."""
@@ -247,6 +261,8 @@ def _search(report: dict[str, Any], estimate: dict[str, Any]) -> SpendRow:
     fact = f"поисков {number(paid)}" if paid else "платных поисков не было"
     if refused:
         fact += f"; отказов провайдера {number(refused)} — их он не засчитывает"
+    if unsettled := pending(report):
+        fact += f"; ещё до {number(unsettled)} — не записаны: проход повтора упал посреди поиска"
     return SpendRow("search", title, fact, promised, paid, None, promised_units)
 
 

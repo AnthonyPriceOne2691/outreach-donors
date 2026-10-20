@@ -66,6 +66,7 @@ from backend.features.sales.segment_progress import (
 )
 from backend.features.sales.segment_queue import Retry, SegmentContactQueue, paid_left
 from backend.features.sales.segment_serp import bought, collect, provider_mode
+from backend.features.sales.segment_spend import PENDING_KEY
 from backend.features.sales.segment_waits import waiting_leads
 from backend.features.sales.segment_window import SPLIT_TOKENS
 from backend.features.sales.verifier import FIXTURE, EmailVerifier
@@ -87,6 +88,12 @@ _CLEANING_SUMMED = (
     "verified",
     "paid_units",
 )
+
+
+#: Резерв платных поисков повтора в отчёте прогона (`contacts`): ключ — у `segment_spend.pending`.
+PAID_PENDING = PENDING_KEY
+#: Кусков платного поиска за проход — не больше: страховка от круга.
+PAID_CHUNKS = 20
 
 
 class UnknownRunError(LookupError):
@@ -328,23 +335,59 @@ def _again_started(run: SalesSegmentRunModel, what: Again) -> datetime | None:
         return None
 
 
-async def _retry_walk(
-    session: AsyncSession, run: SalesSegmentRunModel, retry: Retry, waiting: int, left: int
-) -> dict[str, Any]:
-    """Поиск адреса повтора: с платной ступенью — не больше сайтов, чем осталось платных поисков
-    по смете (`left`; сайт — не больше одного запроса), остальным — без неё; «не спросили» без
-    платной ступени не берутся (`segment_queue.Retry`)."""
-    found: dict[str, Any] = {}
-    if left > 0:
+def _reserved(report: dict[str, Any], delta: int) -> dict[str, Any]:
+    """Отчёт с резервом платных поисков повтора (`contacts.paid_pending`), сдвинутым на `delta`."""
+    contacts = dict(report.get("contacts") or {})
+    contacts[PAID_PENDING] = max(0, _number(contacts.get(PAID_PENDING)) + delta)
+    return {**report, "contacts": contacts}
+
+
+async def _merged(session: AsyncSession, run: SalesSegmentRunModel, found: dict[str, Any]) -> int:
+    """Итог куска поиска — в отчёт прогона своим коммитом. Возвращает, скольких сайтов он прошёл."""
+    run.report = {**run.report, "contacts": contacts_report(run.report.get("contacts"), found)}
+    await session.commit()
+    return _number(found.get("walked"))
+
+
+async def _paid_walk(session: AsyncSession, run: SalesSegmentRunModel, retry: Retry) -> int:
+    """Поиск с платной ступенью — кусками не больше остатка сметы (`paid_left`): сайт — не больше
+    одного платного запроса, и кусок не потратит больше остатка, а молчащий сайт, который не
+    заплатил, остаток не съедает — его получит следующий кусок (ревью 20.10, второй круг: бюджет
+    делился по сайтам, а не по запросам). Перед куском его доля остатка резервируется в отчёте своим
+    коммитом и снимается после (`segment_spend.pending`): упади проход посреди куска — повтор
+    задачи не потратит её второй раз. Провайдер отказал или идти некому — платная часть кончилась.
+    Возвращает, скольких сайтов прошёл поиск."""
+    walked = 0
+    for _ in range(PAID_CHUNKS):
+        left = paid_left(run.report, run.estimate)
         queue = SegmentContactQueue(session, run.id, retry=retry, paid=True)
-        paid = await search_contacts(session, limit=min(waiting, left), queue=queue)
-        found = contacts_report(found, paid.as_dict())
-    rest = waiting - _number(found.get("walked"))
+        if left <= 0 or await queue.pending_count() == 0:
+            break
+        run.report = _reserved(run.report, left)
+        await session.commit()
+        found = (await search_contacts(session, limit=left, queue=queue)).as_dict()
+        run.report = _reserved(run.report, -left)
+        step = await _merged(session, run, found)
+        walked += step
+        counters = found.get("counters")
+        refused = _number(counters.get("provider_refused")) if isinstance(counters, Mapping) else 0
+        if step == 0 or refused:
+            break
+    return walked
+
+
+async def _retry_walk(session: AsyncSession, run: SalesSegmentRunModel, retry: Retry) -> int:
+    """Поиск адреса повтора: сначала с платной ступенью в пределах сметы (`_paid_walk`), затем
+    остальным сайтам, чей срок настал, — без неё; «не спросили» без платной ступени не берутся
+    (`segment_queue.Retry`). Итог — в отчёт прогона по кускам. Возвращает, скольких сайтов
+    прошёл поиск."""
+    walked = await _paid_walk(session, run, retry)
+    queue = SegmentContactQueue(session, run.id, retry=retry)
+    rest = await queue.pending_count()
     if rest > 0:
-        queue = SegmentContactQueue(session, run.id, retry=retry)
-        free = await search_contacts(session, limit=rest, queue=queue, no_paid=True)
-        found = contacts_report(found, free.as_dict())
-    return found
+        found = await search_contacts(session, limit=rest, queue=queue, no_paid=True)
+        walked += await _merged(session, run, found.as_dict())
+    return walked
 
 
 async def _retry_addresses(
@@ -360,19 +403,16 @@ async def _retry_addresses(
     повтора. `resumed` — повтор задачи после сбоя: лиды из найденного первой попыткой заводятся,
     даже если искать уже некому. `False` — делать нечего: ни хода, ни записи."""
     retry = Retry.DUE if what is Again.DUE else Retry.NOW
-    left = paid_left(run.report, run.estimate)
-    waiting = await SegmentContactQueue(session, run.id, retry=retry, paid=left > 0).pending_count()
+    paid = paid_left(run.report, run.estimate) > 0
+    waiting = await SegmentContactQueue(session, run.id, retry=retry, paid=paid).pending_count()
     if waiting == 0 and not resumed:
         return False
     if waiting > 0:
         await enter_again(
             session, run, what.value, Stage.CONTACTS, total=waiting, pass_started=started
         )
-        found = await _retry_walk(session, run, retry, waiting, left)
-        run.report = {
-            **advanced(run, done=_number(found.get("walked")), key=AGAIN_KEY),
-            "contacts": contacts_report(run.report.get("contacts"), found),
-        }
+        walked = await _retry_walk(session, run, retry)
+        run.report = advanced(run, done=walked, key=AGAIN_KEY)
     await enter_again(session, run, what.value, Stage.LEADS, total=None, pass_started=started)
     made = await make_leads(session, run, verifier, since=started)
     created = _number(made.get("created"))

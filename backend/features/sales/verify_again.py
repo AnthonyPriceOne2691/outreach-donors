@@ -18,8 +18,9 @@
   отказа, без срока;
 - **перепроверку ставит очередь** (`deferred.py`: `enqueue_at` и планировщик воркера долгих задач
   продаж) — задачу `verify_again_jobs.recheck` на самый ранний срок в базе (`plan`). Лидов прогона
-  сбора, чей проход идёт, задача не берёт (`free`): их чистит сам проход, а срок поставит его
-  конец;
+  сбора, чей проход идёт (конец пуст и пульс свежий), задача не берёт (`free`): их чистит сам
+  проход, а срок поставит его конец;
+- **окно и срок — от ответа 202**, а не от начала долгого прохода (`answered`);
 - **деньги**: переспрос, пока Hunter проверяет, бесплатен (шапка `hunter_codes`); вердикт —
   проверка под месячным потолком, как у любой очистки (`verify_cap.capped`).
 
@@ -29,6 +30,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
 
 from sqlalchemy import ColumnElement, func, select
@@ -49,6 +51,25 @@ PREFIX = "sales-verify-again-"
 EARLY = timedelta(minutes=1)
 #: Слова строки лида, чью перепроверку ждут, — в отчёте прогона и в словах лида.
 CHECKING = "Hunter ещё проверяет адрес"
+#: Проход прогона «идёт», пока его строка отмечалась не раньше этого (пульс — каждые 15 с, в
+#: очереди задача может постоять): дольше тишина — задачу потеряли или воркер убит, и задача
+#: перепроверки берёт лидов прогона сама (ревью 20.10: иначе — навсегда).
+QUIET = timedelta(minutes=10)
+
+#: Часы прохода — косвенным именем: тест двигает их, а не время всего процесса.
+_clock = time.monotonic
+
+
+def clock() -> float:
+    """Отметка начала прохода очистки — для `answered`."""
+    return _clock()
+
+
+def answered(moment: datetime, started: float) -> datetime:
+    """Когда пришёл ответ — начало прохода (`moment`) и прошедшие целые минуты: окно и срок
+    «ещё проверяет» — от ответа, а не от начала долгого прохода (ревью 20.10); минута — шаг
+    сроков и номеров задач."""
+    return moment + timedelta(minutes=int((_clock() - started) // 60))
 
 
 def interval() -> timedelta:
@@ -112,7 +133,7 @@ def due(now: datetime) -> ColumnElement[bool]:
     больше не проверяют) и лидов прогона, чей проход идёт (`free`)."""
     at = SalesLeadModel.verify_again_at
     timely = at.is_not(None) & (at <= now + EARLY)
-    return timely & (SalesLeadModel.status != LeadStatus.REJECTED) & free()
+    return timely & (SalesLeadModel.status != LeadStatus.REJECTED) & free(now)
 
 
 def ahead(now: datetime) -> ColumnElement[bool]:
@@ -121,23 +142,29 @@ def ahead(now: datetime) -> ColumnElement[bool]:
     return at.is_not(None) & (at > now)
 
 
-def free() -> ColumnElement[bool]:
-    """Лид не из прогона сбора, чей проход идёт (`finished_at` пуст): такого чистит сам проход, и
-    задача перепроверки его не берёт — две записи в отчёт прогона затёрли бы одна другую. Срок
-    таких лидов поставит конец прохода (`segment_jobs.run_once`)."""
+def free(now: datetime) -> ColumnElement[bool]:
+    """Лид не из прогона сбора, чей проход идёт: конец пуст (`finished_at`), и строка прогона
+    отмечалась недавно (`QUIET`). Такого чистит сам проход, и задача перепроверки его не берёт —
+    две записи в отчёт прогона затёрли бы одна другую; срок поставит конец прохода
+    (`segment_jobs.run_once`). Проход, чья строка давно молчит, — не идёт: задачу потеряли или
+    воркер убит, и лиды не должны ждать вечно."""
     going = (
         select(Candidate.id)
         .join(Run, Run.id == Candidate.run_id)
-        .where(Candidate.lead_id == SalesLeadModel.id, Run.finished_at.is_(None))
+        .where(
+            Candidate.lead_id == SalesLeadModel.id,
+            Run.finished_at.is_(None),
+            Run.updated_at > now - QUIET,
+        )
     )
     return ~going.exists()
 
 
-async def next_at(session: AsyncSession) -> datetime | None:
+async def next_at(session: AsyncSession, now: datetime) -> datetime | None:
     """Самый ранний срок отложенной перепроверки в базе, который возьмёт задача; нет — пусто."""
     return await session.scalar(
         select(func.min(SalesLeadModel.verify_again_at)).where(
-            SalesLeadModel.status != LeadStatus.REJECTED, free()
+            SalesLeadModel.status != LeadStatus.REJECTED, free(now)
         )
     )
 
@@ -148,7 +175,7 @@ async def plan(
     """Поставить задачу перепроверки на самый ранний срок в базе, не раньше `soonest` от `now`.
     Номер поставленной; `None` — сроков нет, задача на эту минуту уже стоит или очередь не
     ответила."""
-    when = await next_at(session)
+    when = await next_at(session, now)
     if when is None:
         return None
     return deferred.plan(PREFIX, JOB, when, now=now, soonest=soonest)

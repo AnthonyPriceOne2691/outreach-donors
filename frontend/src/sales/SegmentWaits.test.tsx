@@ -82,8 +82,8 @@ const UNKNOWN: SegmentWait = {
 };
 const WAITS: SegmentWait[] = [SILENT_DUE, SILENT_LATER, CHECKING, UNKNOWN];
 /** Что предложил сервер: поиск двум сайтам без платной ступени, перепроверку двух лидов. */
-const FREE_SEARCH: SegmentOffer = { what: 'addresses', count: 2, paid: 0 };
-const PAID_CHECK: SegmentOffer = { what: 'cleaning', count: 2, paid: 2 };
+const FREE_SEARCH: SegmentOffer = { what: 'addresses', count: 2, searches: 0, checks: 0 };
+const PAID_CHECK: SegmentOffer = { what: 'cleaning', count: 2, searches: 0, checks: 2 };
 const OFFERS: SegmentOffer[] = [FREE_SEARCH, PAID_CHECK];
 
 function detailOf(changes: Partial<SegmentRunDetail> = {}): SegmentRunDetail {
@@ -149,11 +149,15 @@ describe('срок и предложение словами', () => {
     );
   });
 
-  it('что возьмёт кнопка — числом и платными запросами', () => {
-    expect(offerWords(FREE_SEARCH)).toBe('поищет 2, без платных запросов');
-    expect(offerWords(PAID_CHECK)).toBe('перепроверит 2, до 2 проверок Hunter');
-    expect(offerWords({ what: 'addresses', count: 3, paid: 1 })).toBe(
-      'поищет 3, до 1 поиска Hunter',
+  it('что возьмёт кнопка — верхней границей, поисками и проверками', () => {
+    expect(offerWords(FREE_SEARCH)).toBe('поищет до 2 сайтов, без платных запросов');
+    expect(offerWords(PAID_CHECK)).toBe('перепроверит до 2 лидов, до 2 проверок Hunter');
+    // Найденный адрес становится лидом, и его проверка тоже платная — названа рядом с поиском.
+    expect(offerWords({ what: 'addresses', count: 3, searches: 1, checks: 3 })).toBe(
+      'поищет до 3 сайтов, до 1 поиска и до 3 проверок Hunter',
+    );
+    expect(offerWords({ what: 'addresses', count: 1, searches: 0, checks: 1 })).toBe(
+      'поищет до 1 сайта, до 1 проверки Hunter',
     );
   });
 });
@@ -180,8 +184,8 @@ describe('строки ожидания в отчёте прогона', () => {
     expect(await screen.findAllByRole('button', { name: 'Повторить сейчас' }, WAIT)).toHaveLength(
       2,
     );
-    expect(screen.getByText('поищет 2, без платных запросов')).toBeInTheDocument();
-    expect(screen.getByText('перепроверит 2, до 2 проверок Hunter')).toBeInTheDocument();
+    expect(screen.getByText('поищет до 2 сайтов, без платных запросов')).toBeInTheDocument();
+    expect(screen.getByText('перепроверит до 2 лидов, до 2 проверок Hunter')).toBeInTheDocument();
   });
 
   it('бесплатный повтор уходит сразу, платный — после подтверждения у кнопки', async () => {
@@ -252,7 +256,7 @@ describe('строки ожидания в отчёте прогона', () => {
       WAIT,
     );
     expect(screen.getByText('Ждут адреса — 2')).toBeInTheDocument();
-    expect(screen.queryByText('поищет 2, без платных запросов')).toBeNull();
+    expect(screen.queryByText('поищет до 2 сайтов, без платных запросов')).toBeNull();
   });
 
   it('отказ сервера — его словами под группой', async () => {

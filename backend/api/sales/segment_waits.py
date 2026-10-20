@@ -30,16 +30,18 @@ class WaitRow(BaseModel):
 
 
 class OfferRow(BaseModel):
-    """«Повторить сейчас» у группы: что повторит (`addresses`, `cleaning`), скольких возьмёт — тем
-    же условием, что у прохода повтора, — и до скольких платных запросов Hunter."""
+    """«Повторить сейчас» у группы: что повторит (`addresses`, `cleaning`), скольких возьмёт самое
+    большее — тем же условием, что у прохода повтора, — и до скольких платных запросов Hunter:
+    поисков адреса и проверок адреса."""
 
     what: str
     count: int
-    paid: int
+    searches: int
+    checks: int
 
     @classmethod
     def of(cls, found: Offer) -> OfferRow:
-        return cls(what=found.what, count=found.count, paid=found.paid)
+        return cls(what=found.what, count=found.count, searches=found.searches, checks=found.checks)
 
 
 class AgainBody(BaseModel):

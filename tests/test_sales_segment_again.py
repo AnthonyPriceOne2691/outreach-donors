@@ -41,6 +41,7 @@ from backend.features.sales import (
     segment_jobs,
     segment_report,
     segment_run,
+    segment_spend,
     verify_again,
 )
 from backend.features.sales.models import LeadSource, LeadStatus, SalesLeadModel
@@ -670,6 +671,63 @@ async def test_the_paid_search_by_term_stops_at_the_estimate(
     assert set(silent.asked) >= {CLINIC, TEA}
     counters = (await _run(session, run)).report["contacts"]["counters"]
     assert counters["provider_entered"] == 2
+
+
+async def test_a_crash_mid_search_does_not_pay_past_the_estimate(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, later: Later, paid: Paid
+) -> None:
+    """Ревью 20.10, второй круг: запросы поиска попадали в отчёт прогона только в конце прохода, а
+    поиск платит и коммитит по пачкам — проход упал между пачками, и повтор задачи считал остаток
+    сметы целым и платил второй раз. Теперь доля остатка резервируется до куска своим коммитом
+    (`segment_spend.pending`): смета 1 — и после сбоя платный запрос один."""
+    silent = _sites(monkeypatch, Web(down={CLINIC, TEA}))
+    run = await _done_run(session, searches=1)
+    await _last_try(session, run, CLINIC)
+    await _last_try(session, run, TEA)
+    monkeypatch.setattr("backend.features.contacts.search.BATCH", 1)  # пачка — один сайт
+    real_commit = AsyncSession.commit
+    crashed: list[bool] = []
+
+    async def crash_after_the_paid_batch(self: AsyncSession) -> None:
+        await real_commit(self)
+        if paid.calls and not crashed:
+            crashed.append(True)
+            raise ConnectionError("воркер упал между пачками")
+
+    monkeypatch.setattr(AsyncSession, "commit", crash_after_the_paid_batch)
+    with pytest.raises(ConnectionError):
+        await again(session, run.id, FixtureVerifier(), Again.DUE)
+    monkeypatch.setattr(AsyncSession, "commit", real_commit)
+
+    await again(session, run.id, FixtureVerifier(), Again.DUE)  # повтор задачи rq
+
+    assert paid.calls == [CLINIC]
+    assert set(silent.asked) >= {CLINIC, TEA}
+    refreshed = await _run(session, run)
+    assert segment_spend.pending(refreshed.report) == 1  # незаписанный запрос — в резерве
+
+
+async def test_a_silent_site_does_not_take_the_budget_of_one_that_answers(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, later: Later, paid: Paid
+) -> None:
+    """Ревью 20.10, второй круг: бюджет делился по сайтам — молчащий сайт занимал место в платной
+    части, не заплатив, а ответивший без адреса уходил в бесплатную и в «адреса нет» при живом
+    остатке. Теперь кусок не больше остатка, и остаток, который молчащий не потратил, получает
+    следующий."""
+    _sites(monkeypatch, Web(down={BAKERY}))
+    run = await _done_run(session, searches=1)
+    await _accepted(
+        session, run, BAKERY, contact_status=ContactStatus.NO_ANSWER, contact_tries=1,
+        contact_attempted_at=_ago(hours=1),
+    )  # fmt: skip
+    await _accepted(
+        session, run, "plain-sample.nl", contact_status=ContactStatus.NO_ANSWER, contact_tries=1,
+        contact_attempted_at=_ago(hours=1),
+    )  # fmt: skip
+
+    await again(session, run.id, FixtureVerifier(), Again.DUE)
+
+    assert paid.calls == ["plain-sample.nl"]
 
 
 async def test_a_stopped_run_keeps_its_stage_words_and_progress(

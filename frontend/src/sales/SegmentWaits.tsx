@@ -43,20 +43,28 @@ export function waitLine(wait: SegmentWait, now: Date = new Date()): string {
   return wait.at === null ? said : `${said}, ${termWords(wait.at, now)}`;
 }
 
-/** Платные запросы повтора словами: «до 3 проверок Hunter», «до 1 поиска Hunter». */
-function paidWords(found: SegmentOffer): string {
-  const unit =
-    found.what === 'cleaning'
-      ? plural(found.paid, 'проверки', 'проверок', 'проверок')
-      : plural(found.paid, 'поиска', 'поисков', 'поисков');
-  return `до ${formatNumber(found.paid)} ${unit} Hunter`;
+/** Платные запросы повтора словами: «до 3 поисков и до 3 проверок Hunter», «до 1 проверки
+ *  Hunter»; платных нет — пусто. */
+function paidWords(found: SegmentOffer): string | null {
+  const parts = [
+    found.searches > 0
+      ? `до ${formatNumber(found.searches)} ${plural(found.searches, 'поиска', 'поисков', 'поисков')}`
+      : null,
+    found.checks > 0
+      ? `до ${formatNumber(found.checks)} ${plural(found.checks, 'проверки', 'проверок', 'проверок')}`
+      : null,
+  ].filter((part): part is string => part !== null);
+  return parts.length > 0 ? `${parts.join(' и ')} Hunter` : null;
 }
 
-/** Что возьмёт кнопка: «перепроверит 3, до 3 проверок Hunter», «поищет 2, без платных запросов». */
+/** Что возьмёт кнопка — верхней границей: «поищет до 2 сайтов, до 2 поисков и до 2 проверок
+ *  Hunter», «перепроверит до 3 лидов, без платных запросов». */
 export function offerWords(found: SegmentOffer): string {
-  const verb = found.what === 'cleaning' ? 'перепроверит' : 'поищет';
-  const paid = found.paid > 0 ? paidWords(found) : 'без платных запросов';
-  return `${verb} ${formatNumber(found.count)}, ${paid}`;
+  const taken =
+    found.what === 'cleaning'
+      ? `перепроверит до ${formatNumber(found.count)} ${plural(found.count, 'лида', 'лидов', 'лидов')}`
+      : `поищет до ${formatNumber(found.count)} ${plural(found.count, 'сайта', 'сайтов', 'сайтов')}`;
+  return `${taken}, ${paidWords(found) ?? 'без платных запросов'}`;
 }
 
 function useAgain(run: number, what: SegmentAgain) {
@@ -71,13 +79,13 @@ function useAgain(run: number, what: SegmentAgain) {
   });
 }
 
-/** Вопрос окна у платного повтора: что будет стоить и почему запросов обычно меньше. */
+/** Вопрос подтверждения у платного повтора: сколько самое большее и почему обычно меньше. */
 export function paidQuestion(found: SegmentOffer): string {
-  const each =
+  const why =
     found.what === 'cleaning'
       ? 'каждый лид — не больше одной проверки'
-      : 'платный поиск — только сайтам, где бесплатные ступени адреса не нашли';
-  return `Повторить сейчас? Повтор платный: ${paidWords(found)} — ${each}.`;
+      : 'поиск платит только там, где бесплатные ступени адреса не нашли, проверка — за найденный адрес';
+  return `Повторить сейчас? Повтор платный: ${paidWords(found) ?? ''} — ${why}.`;
 }
 
 /** «Повторить сейчас» и что он возьмёт — или почему кнопки нет у этой учётки. Платный повтор —
@@ -106,7 +114,7 @@ function AgainButton({
   );
   return (
     <>
-      {found.paid > 0 ? (
+      {paidWords(found) !== null ? (
         <ConfirmPopover message={paidQuestion(found)} confirm="Повторить" onConfirm={press}>
           {button}
         </ConfirmPopover>

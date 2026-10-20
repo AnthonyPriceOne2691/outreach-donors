@@ -121,7 +121,7 @@ async def test_retry_of_cleaning_takes_what_the_button_offered(
     offers = await segment_waits.run_offers(session, run, real=True, now=datetime.now(UTC))
     await again(session, run.id, verifier, Again.CLEANING)
 
-    assert offers == [segment_waits.Offer("cleaning", 2, 2)]
+    assert offers == [segment_waits.Offer("cleaning", 2, 0, 2)]
     assert sorted(verifier.asked) == sorted([leads["fresh"].email, leads["overdue"].email])
     refreshed = await _run(session, run)
     assert refreshed.report["leads"]["cleaning"]["checked"] == 2
@@ -225,8 +225,8 @@ async def test_waits_name_why_when_and_what_the_button_takes(session: AsyncSessi
     ]
     assert not any("следующей очисткой" in wait.words for wait in view.waits)
     assert view.offers == [
-        segment_waits.Offer("addresses", 1, 0),
-        segment_waits.Offer("cleaning", 4, 0),
+        segment_waits.Offer("addresses", 1, 0, 0),
+        segment_waits.Offer("cleaning", 4, 0, 0),
     ]
     for offered in view.offers:
         kind = "address" if offered.what == "addresses" else "cleaning"
@@ -249,7 +249,20 @@ async def test_unasked_sites_show_with_the_paid_step_and_its_budget(
         segment_waits.Wait("address", "квота платного поиска — повтор следующим проходом", 1)
         in view.waits
     )
-    assert view.offers == [segment_waits.Offer("addresses", 2, 1)]
+    assert view.offers == [segment_waits.Offer("addresses", 2, 1, 0)]
+
+
+async def test_the_address_offer_names_the_checks_of_found_addresses(
+    session: AsyncSession,
+) -> None:
+    """Ревью 20.10, второй круг: найденный адрес становится лидом, и его проверка тоже платная —
+    предложение у адресов называет и её, верхней границей: сайт — не больше одной."""
+    run = await _done_run(session)
+    await _silent_sites(session, run)
+
+    offers = await segment_waits.run_offers(session, run, real=True, now=datetime.now(UTC))
+
+    assert offers == [segment_waits.Offer("addresses", 1, 0, 1)]
 
 
 # --- маршрут «Повторить сейчас» -------------------------------------------------------------------
@@ -283,8 +296,9 @@ async def test_again_queues_the_retry_under_the_run_number_and_journals_it(
     assert journal.details == {
         "действие": "повтор сбора базы продаж: поиск адреса",
         "прогон": run.id,
-        "возьмёт": 1,
-        "платных запросов Hunter до": 0,
+        "возьмёт до": 1,
+        "поисков Hunter до": 0,
+        "проверок Hunter до": 0,
         "этап": "sales",
     }
 
@@ -415,7 +429,7 @@ async def test_the_run_report_carries_the_waits_and_the_offers(
             "again": False,
         },
     ]
-    assert detail["again"] == [{"what": "addresses", "count": 1, "paid": 0}]
+    assert detail["again"] == [{"what": "addresses", "count": 1, "searches": 0, "checks": 0}]
     assert detail["waiting_address"] == 3
     count = await session.scalar(select(func.count()).select_from(Candidate))
     assert count == 5
