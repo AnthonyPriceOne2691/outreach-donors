@@ -13,7 +13,13 @@ import asyncio
 import pytest
 from backend.features.contacts.pages import FetchedPage, PageFetcher
 from backend.features.core.domain import PageKind
-from backend.features.donors.home_signals import check_home, looks_denied, read_home
+from backend.features.donors.home_signals import (
+    MAX_HOME_TEXT,
+    check_home,
+    looks_denied,
+    read_home,
+    visible_text,
+)
 from backend.features.donors.site_index import index_homes
 from backend.features.serp.protocol import SerpResult
 
@@ -164,7 +170,56 @@ async def test_protection_stub_is_a_closed_home(
 
     monkeypatch.setattr(PageFetcher, "home", stub)
     signals = await check_home(None, "closed.test")  # type: ignore[arg-type]
-    assert not signals.reached
+    assert (signals.reached, signals.text) == (False, "")
+
+
+#: Главная с кодом, стилями, меню, вектором и повтором абзаца — образец судьи сегмента продаж
+#: (eval v3 с текстом главной, 20.10.2026).
+LAW_FIRM = """<html lang="ru"><head><title>Юрист Плюс — юридические услуги</title>
+<meta name="description" content="Ведём дела компаний"><script>var x = 1;</script>
+<style>.a{color:red}</style></head><body><header>Юрист Плюс · +000 00 00</header>
+<nav><a href="/">Главная</a><a href="/uslugi">Услуги</a></nav>
+<main><h1>Юридические услуги для бизнеса</h1><p>Договоры, споры и регистрация компаний.</p>
+<p>Договоры, споры и регистрация компаний.</p><svg><text>logo</text></svg></main></body></html>"""
+
+
+def test_visible_text_drops_code_menus_and_repeats() -> None:
+    """Видимый текст — тело без кода, стилей, вектора и меню, блоки через « · », повтор
+    абзаца подряд — один раз."""
+    assert visible_text(LAW_FIRM) == (
+        "Юрист Плюс · +000 00 00 · Юридические услуги для бизнеса · "
+        "Договоры, споры и регистрация компаний."
+    )
+
+
+def test_home_text_travels_apart_from_record_and_arbiter() -> None:
+    """Текст главной едет в сигналах, но ни в запись на домен, ни арбитру доноров не идёт;
+    меню, снятое до вычистки дерева, на месте."""
+    signals = read_home(LAW_FIRM)
+
+    assert signals.text == visible_text(LAW_FIRM)
+    assert signals.nav == ("Главная", "Услуги")
+    assert "text" not in signals.as_dict()
+    assert "Договоры, споры" not in signals.as_text()
+
+
+def test_home_text_does_not_hide_shop_marks() -> None:
+    """Текст снимается последним: разметка товара в скрипте по-прежнему признак магазина."""
+    html = page(
+        "<p>Кофе и кофемашины с доставкой по всей стране.</p>",
+        '<script type="application/ld+json">{"@type": "Product", "sku": "A1"}</script>',
+    )
+    signals = read_home(html)
+
+    assert signals.shop == ("schema:Product",)
+    assert signals.text == "Кофе и кофемашины с доставкой по всей стране."
+
+
+def test_home_text_is_capped() -> None:
+    """Потолок — против аномальной страницы: текст не длиннее `MAX_HOME_TEXT`."""
+    html = page("".join(f"<p>Абзац номер {n} о садоводстве.</p>" for n in range(2000)))
+
+    assert len(read_home(html).text) == MAX_HOME_TEXT
 
 
 def test_index_home_takes_root_and_page_titles() -> None:

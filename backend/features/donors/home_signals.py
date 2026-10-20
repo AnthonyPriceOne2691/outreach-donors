@@ -175,6 +175,27 @@ SERVICE_PATH = re.compile(
 #: утопить модель в подвале страницы.
 MAX_NAV_ITEMS = 40
 
+#: Потолок видимого текста главной (`HomeSignals.text`) — против аномальной страницы,
+#: а не ради экономии: кто читает текст, режет его своим потолком.
+MAX_HOME_TEXT = 8000
+#: Что не текст для глаз человека: код, стили, векторы, шаблоны, рамки — и меню
+#: (меню у судьи — своя строка, `nav`).
+_HIDDEN_TAGS = ["script", "style", "noscript", "template", "svg", "iframe", "nav"]
+#: Элементы, с которых на экране начинается новый блок: между блоками — « · ».
+_BLOCK_TAGS = frozenset(
+    {
+        "address", "article", "aside", "blockquote", "br", "button", "caption", "dd", "div",
+        "dl", "dt", "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4",
+        "h5", "h6", "header", "hr", "label", "legend", "li", "main", "option", "p", "pre",
+        "section", "summary", "table", "td", "th", "tr", "ul", "ol",
+    }
+)  # fmt: skip
+#: Граница блока, пока пробелы не схлопнуты: перевод строки в исходнике — пробел, а не граница.
+#: Разделитель абзацев Юникода: пробельный знак, которого в вёрстке почти не бывает.
+_EDGE = " "
+_SPACES = re.compile(rf"[^\S{_EDGE}]+")
+_JOIN = " · "
+
 
 @dataclass(frozen=True, slots=True)
 class HomeSignals:
@@ -190,6 +211,10 @@ class HomeSignals:
     #: Откуда образ главной: `page` — сама страница, `index` — индекс поиска,
     #: когда сайт закрылся (`site_index.py`). В индексе нет структуры.
     via: str = "page"
+    #: Видимый текст главной одной строкой (`visible_text`), до `MAX_HOME_TEXT` знаков. Его
+    #: читает судья сегмента продаж. В запись на домен и арбитру доноров не идёт: `as_dict`
+    #: и `as_text` — прежние.
+    text: str = ""
 
     @property
     def is_shop(self) -> bool:
@@ -331,18 +356,44 @@ def _nav_texts(tree: HTMLParser) -> tuple[str, ...]:
     return tuple(seen)
 
 
+def visible_text(html: str) -> str:
+    """Видимый текст страницы одной строкой: тело без кода, стилей, векторов, шаблонов и меню,
+    блоки через « · », пробелы схлопнуты, повтор блока подряд — один раз."""
+    return _visible_of(HTMLParser(html))
+
+
+def _visible_of(tree: HTMLParser) -> str:
+    """`visible_text` по готовому дереву. Дерево меняется: вызывать последним."""
+    tree.strip_tags(_HIDDEN_TAGS)
+    root = tree.body or tree.root
+    if root is None:
+        return ""
+    for node in [node for node in root.traverse() if node.tag in _BLOCK_TAGS]:
+        node.insert_before(_EDGE)
+        node.insert_after(_EDGE)
+    blocks: list[str] = []
+    for piece in _SPACES.sub(" ", root.text(separator=" ")).split(_EDGE):
+        block = piece.strip()
+        if block and (not blocks or blocks[-1] != block):
+            blocks.append(block)
+    return _JOIN.join(blocks)
+
+
 def read_home(html: str) -> HomeSignals:
     """Разбор готового HTML. Без сети — тесты гоняют его на образцах."""
     tree = HTMLParser(html)
     title_node = tree.css_first("title")
     description = tree.css_first('meta[name="description"]')
+    shop, service, nav = tuple(_shop_marks(tree)), tuple(_service_marks(tree)), _nav_texts(tree)
     return HomeSignals(
         reached=True,
-        shop=tuple(_shop_marks(tree)),
-        service=tuple(_service_marks(tree)),
+        shop=shop,
+        service=service,
         title=" ".join((title_node.text() if title_node else "").split())[:200],
         description=((description.attributes.get("content") if description else "") or "")[:400],
-        nav=_nav_texts(tree),
+        nav=nav,
+        # Последним: текст снимается с того же дерева, вычищая из него код и меню.
+        text=_visible_of(tree)[:MAX_HOME_TEXT],
     )
 
 

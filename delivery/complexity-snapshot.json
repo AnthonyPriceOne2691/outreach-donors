@@ -1392,9 +1392,9 @@
       "worst": "_buy_one:236"
     },
     "backend/features/donors/home_signals.py": {
-      "lines": 364,
+      "lines": 415,
       "complexity": 12,
-      "worst": "_shop_marks:274"
+      "worst": "_shop_marks:299"
     },
     "backend/features/donors/host.py": {
       "lines": 73,
