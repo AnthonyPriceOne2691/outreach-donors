@@ -3092,9 +3092,14 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 305,
+      "lines": 257,
       "complexity": 9,
-      "worst": "main:247"
+      "worst": "main:199"
+    },
+    "scripts/ui_contrast_ratio.py": {
+      "lines": 148,
+      "complexity": 7,
+      "worst": "ratio_of:73"
     },
     "scripts/ui_hover.py": {
       "lines": 178,

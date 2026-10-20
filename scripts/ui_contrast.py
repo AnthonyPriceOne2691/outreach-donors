@@ -30,6 +30,19 @@
 с пометкой «по ядру». Крупный текст меряется средним, как раньше: у него
 середина штриха и есть большинство пикселей.
 
+**Ниже нормы — перемер внутри элемента.** Вырез берёт 6 px вокруг
+элемента, чтобы у букв был фон. С 20.10.2026 у поля и обычной кнопки
+на панели светлой темы кромка из чернил, как у окон, и в вырез попадает
+тёмная линия: своя рамка поля или край переключателя под подписью. Порог
+Оцу кладёт её к буквам, и чернила светлеют: значение фильтра с теми же
+буквами намерилось 3,58 вместо 16,58, подпись над переключателем — 2,32
+вместо 6,67. Поэтому точка ниже нормы перемеряется внутри элемента —
+без рамки, полей и выреза вокруг, с запасом 2 px: там только буквы и то,
+на чём они лежат. В норме там — печатается это число с пометкой «внутри»
+и рядом число по вырезу; ниже и там — «МАЛО». Точку, которая в норме по
+вырезу, перемер не трогает. Расчёт по пикселям и это решение — в
+`ui_contrast_ratio.py`, под тестом.
+
 Что он нашёл 19.09.2026, когда стекло стало прозрачнее:
   • тихий текст на свету — 3.8 : 1 при норме 4.5 (чернила посветлели
     на прозрачной панели), в темноте — 4.5 : 1 у пояснений;
@@ -51,95 +64,18 @@ from playwright.sync_api import expect, sync_playwright
 #: в репозиторий вместе с правкой — заметил это только `git ls-files`.
 SHOTS = Path(tempfile.mkdtemp(prefix="ui-contrast-"))
 
-SCALE = 2
-# Каталог экранов лежит рядом: `python scripts/ui_contrast.py` кладёт
-# папку скрипта в путь поиска, и соседний модуль находится без установки.
+# Каталог экранов и расчёт по пикселям лежат рядом: `python scripts/ui_contrast.py`
+# кладёт папку скрипта в путь поиска, и соседние модули находятся без установки.
+from ui_contrast_ratio import PAD, SCALE, measure, ratio_of, rect_of  # noqa: E402
 from ui_screens import NORM, PREPARE, SCREENS  # noqa: E402
 
 
-def lum(px):
-    def ch(c):
-        c /= 255
-        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-
-    return 0.2126 * ch(px[0]) + 0.7152 * ch(px[1]) + 0.0722 * ch(px[2])
-
-
-def _otsu(hist, total):
-    """Порог, делящий пиксели на две группы — чернила и фон.
-
-    Вынесено из замера отдельной функцией не для красоты: вместе они
-    давали функцию сложности 11 при потолке 10, и ратчет сложности
-    отказывался её принимать.
-    """
-    best, threshold = -1.0, 128
-    sum_all = sum(i * hist[i] for i in range(256))
-    sum_b = weight_b = 0
-    for i in range(256):
-        weight_b += hist[i]
-        if weight_b in (0, total):
-            continue
-        sum_b += i * hist[i]
-        mean_b = sum_b / weight_b
-        mean_f = (sum_all - sum_b) / (total - weight_b)
-        between = weight_b * (total - weight_b) * (mean_b - mean_f) ** 2
-        if between > best:
-            best, threshold = between, i
-    return threshold / 255
-
-
-def contrast(path, box, pad=6, core=False):
-    """Отношение контраста между буквами и фоном под ними.
-    `None` — измерить не удалось: в куске одна краска.
-
-    Пиксели куска делятся на две группы порогом Оцу и сравниваются их
-    средние. Простая медиана здесь врёт: на тесном куске, где буквы
-    занимают половину площади, она попадает в сами буквы, и текст 96 %
-    яркости над тёмным стеклом показывал 4.4 : 1 вместо двенадцати.
-    На просторном куске врёт min/max: сглаживание даёт одиночные пиксели
-    темнее текста.
-    """
-    im = Image.open(path).convert("RGB")
-    crop = im.crop(
-        (
-            int((box["x"] - pad) * SCALE),
-            int((box["y"] - pad) * SCALE),
-            int((box["x"] + box["width"] + pad) * SCALE),
-            int((box["y"] + box["height"] + pad) * SCALE),
-        )
-    )
+def contrast(path, box, pad=PAD, core=False):
+    """Отношение контраста между буквами и фоном под ними — в вырезе снимка
+    (`ui_contrast_ratio.ratio_of`). `None` — измерить не удалось: в куске одна краска."""
+    crop = Image.open(path).convert("RGB").crop(rect_of(box, pad))
     # `getdata` уходит из Pillow 14; новый вызов есть с 12.1 (не с 12.0).
-    lums = [lum(p) for p in crop.get_flattened_data()]
-    hist = [0] * 256
-    for value in lums:
-        hist[min(255, int(value * 255))] += 1
-
-    edge = _otsu(hist, len(lums))
-    dark = [v for v in lums if v <= edge]
-    light = [v for v in lums if v > edge]
-    if not dark or not light:
-        # Мерить нечего: кусок однородный. Так выглядит элемент, уехавший
-        # за край снимка, и выключенный — серое на сером. Раньше здесь
-        # стояло 21.0, и оба случая печатались как безупречный результат.
-        return None
-    return _ratio(dark, light, core)
-
-
-def _ratio(dark, light, core):
-    """Отношение групп: средних — или ядра чернил к среднему фона.
-
-    Чернила — меньшая группа: в куске с полями вокруг текста фона всегда
-    больше, чем букв. Ядро — треть пикселей чернил, дальше всех от фона.
-    """
-    if core:
-        ink, ground = (dark, light) if len(dark) <= len(light) else (light, dark)
-        ordered = sorted(ink, reverse=ink is light)
-        part = ordered[: max(1, len(ordered) // 3)]
-        a, b = sum(part) / len(part), sum(ground) / len(ground)
-    else:
-        a, b = sum(dark) / len(dark), sum(light) / len(light)
-    hi, lo = max(a, b), min(a, b)
-    return (hi + 0.05) / (lo + 0.05)
+    return ratio_of(crop.get_flattened_data(), core)
 
 
 def probe_notification(page, scheme, email):
@@ -175,6 +111,22 @@ def probe_notification(page, scheme, email):
 
 #: Мелкий текст — мельче 14 px: у него почти весь штрих из краёв.
 SMALL_TEXT = "node => parseFloat(getComputedStyle(node).fontSize) < 14"
+
+#: Рамка и поля элемента с каждой стороны: сверху, справа, снизу, слева.
+INSETS = """node => { const s = getComputedStyle(node);
+  return ['Top', 'Right', 'Bottom', 'Left'].map(
+    (k) => parseFloat(s['padding' + k]) + parseFloat(s['border' + k + 'Width'])); }"""
+
+
+def point(el, frame, small, norm):
+    """Отношение у точки и пометка к нему (`ui_contrast_ratio.measure`): ниже
+    нормы по вырезу — перемер внутри элемента."""
+    return measure(
+        lambda box, pad: contrast(frame, box, pad, core=small),
+        el.bounding_box(),
+        lambda: el.evaluate(INSETS),
+        norm,
+    )
 
 
 def measurable(page, selector):
@@ -226,7 +178,7 @@ def run(page, scheme, shot, probes, prepare=None):
         frame = shot.replace(".png", f"-{index}.png")
         page.screenshot(path=frame)
         small = el.evaluate(SMALL_TEXT)
-        value = contrast(frame, el.bounding_box(), core=small)
+        value, where = point(el, frame, small, norm)
         if value is None:
             print(f"  {name:28} НЕ ИЗМЕРЕНО: в куске одна краска")
             worst_ok = False
@@ -234,7 +186,7 @@ def run(page, scheme, shot, probes, prepare=None):
         mark = "ок" if value >= norm else "МАЛО"
         worst_ok &= value >= norm
         how = "  по ядру" if small else ""
-        print(f"  {name:28} {value:5.2f} : 1  при норме {norm}  {mark}{how}")
+        print(f"  {name:28} {value:5.2f} : 1  при норме {norm}  {mark}{how}{where}")
     return worst_ok
 
 
