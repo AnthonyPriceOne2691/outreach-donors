@@ -1,5 +1,6 @@
-"""Судья сегмента v3: правила промпта дословно, вид сайта в ответе, строка «Текст главной», кэш
-прежней версии, вердикт языка в проходе прогона и язык лида.
+"""Судья сегмента с v3: общие слова промпта, вид сайта в ответе, строка «Текст главной», кэш
+прежней версии, вердикт языка в проходе прогона и язык лида. Правила v4 (факты и таблица кода) —
+`test_sales_segment_judge_v4.py`.
 
 Модель — подставным транспортом, сайты и тексты выдуманы (`*-sample.*`), ниши и письменности
 разные.
@@ -21,6 +22,7 @@ from backend.features.donors.home_signals import HomeSignals
 from backend.features.sales import cleaning, segment_leads
 from backend.features.sales import segment_judge as sj
 from backend.features.sales.models import SalesLeadModel
+from backend.features.sales.segment_facts import SiteFacts
 from backend.features.sales.segment_judge import SiteText
 from backend.features.sales.segment_judging import judge_run
 from backend.features.sales.segment_models import (
@@ -34,90 +36,30 @@ from backend.features.sales.segment_text import excerpt
 from backend.features.sales.verifier import FixtureVerifier
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.segment_facts_fakes import facts
 from tests.test_sales_segment_judge import MODEL_KEY, judged
 from tests.test_sales_segment_language import RU, UK
 from tests.test_sales_segment_run import Model, hypothesis, make_run
 
 Candidate = SalesSegmentCandidateModel
 
-#: Правила v3 — дословно: правка слов промпта — новая версия и новый замер eval.
-UNSEEN = (
-    "- The core of the segment is the kind of business it describes: what the business does "
-    'itself. The kind of the site itself is never "not visible": a site whose text does not show '
-    'it to be of that kind is not a "yes". Other features the segment names (the country, region '
-    "or city where the business "
-    "works, the language of the site, the size of the business, the industry or the customers it "
-    "serves) count only when the website text shows them. A named feature that the text does not "
-    'show is "not visible", and it is never a reason for "no" or "unsure": when the core is shown '
-    'and nothing contradicts the segment, answer "yes" and say in "why" what is not visible.'
-)
-CONTRADICTION = (
-    "- A contradiction is only a direct statement that excludes what the segment asks for, such "
-    'as "we work only in" a place outside the segment\'s region, or a different kind of activity. '
-    "Other countries, cities or languages named in addition to the segment's ones are not a "
-    "contradiction."
-)
-LANGUAGE = (
-    "- Do not judge by the language the website text is written in: our code compares it with "
-    "the language of our letters."
-)
-INTERMEDIARY = (
-    '- Intermediaries are "no" in any field of business, unless the segment itself asks for '
-    'directories, marketplaces or the like; a segment written loosely as "sites about ..." a kind '
-    "of business does not ask for them. An intermediary is a marketplace, an exchange, a catalogue "
-    "or directory, an aggregator, a classifieds "
-    "board, a price comparison or a matching service. Signs of an intermediary in the text: many "
-    "other companies, specialists or their ads; an offer to post a request that other companies "
-    "answer, or to find a contractor, supplier or specialist for the customer; a rating or a "
-    "comparison of companies or their prices; a calculator or an online assistant that picks among "
-    "the offers of other companies. A business's own order form, own price calculator, own "
-    "branches or own team are not signs of an intermediary."
-)
-FOREIGN = (
-    "- When the segment names a country, region or city where the business works, and the "
-    "website text shows only other countries, regions or cities where the business works (none "
-    'of the segment\'s) without saying that it works only there, answer "unsure": a human '
-    'decides. This is neither "not visible" ("yes") nor a contradiction ("no").'
-)
-UNSURE = (
-    '- Answer "unsure" only when the text does not show what kind of site it is, or when it '
-    "shows only places outside the segment's region (the rule above). A country, region, city, "
-    'language, size or industry that the text does not show is not a reason for "unsure".'
-)
 #: Слова, по которым угадывались бы ниша или страна живого прогона, — промпту общие слова.
 NICHE_WORDS = ("carrier", "logistic", "freight", "cargo", "shipping", "kazakh", "courier")
 
 
-def test_the_v3_prompt_has_its_rules_verbatim_and_a_new_version() -> None:
-    lines = sj.load_prompt().splitlines()
+def test_the_prompt_has_no_words_of_one_niche_or_country() -> None:
+    """Правила — общие для любой ниши и страны: ни одного слова отдельной ниши. Прежнее правило о
+    стране и языке из v2 снято: оно и резало сайты без страны в тексте."""
+    prompt = sj.load_prompt()
 
-    assert sj.PROMPT_VERSION == "sales-segment-v3"
-    for rule in (UNSEEN, CONTRADICTION, FOREIGN, LANGUAGE, INTERMEDIARY, UNSURE):
-        assert lines.count(rule) == 1, rule[:40]
-    # Чужая география без «только» — сразу за противоречием: «только там» — по-прежнему «нет».
-    assert lines.index(FOREIGN) == lines.index(CONTRADICTION) + 1
-    # «не понять» — после правил вида: последним словом о нём говорит правило v3, а не v1.
-    assert lines.index(UNSURE) > lines.index(INTERMEDIARY)
-    # Прежнее правило о стране и языке из v2 снято: оно и резало сайты без страны в тексте.
-    assert not [line for line in lines if "matter only when the segment names them" in line]
-    # Правила — общие для любой ниши и страны: ни одного слова отдельной ниши.
-    prompt = sj.load_prompt().lower()
-    assert [word for word in NICHE_WORDS if word in prompt] == []
-
-
-#: Вид «посредник» и «издание» подходит только сегменту, который сам их просит: «сайты о …» — не просьба.
-KIND_FIT = (
-    'A site of the kind "intermediary" or "media" fits only a segment that itself asks for '
-    'directories, marketplaces, media or the like; a segment written loosely as "sites about ..." '
-    'or "sites related to ..." a kind of business does not ask for them.'
-)
+    assert sj.PROMPT_VERSION == "sales-segment-v4"
+    assert "matter only when the segment names them" not in prompt
+    assert [word for word in NICHE_WORDS if word in prompt.lower()] == []
 
 
 def test_the_answer_names_the_kind_of_the_site_from_a_closed_list() -> None:
     prompt = sj.load_prompt()
-    assert prompt.splitlines().count(KIND_FIT) == 1
 
-    assert '- "kind": "own", "intermediary", "media" or "unclear";' in prompt
     for kind in sj.KINDS:
         assert f'- "{kind}": ' in prompt
 
@@ -126,20 +68,29 @@ QUOTE = "Велосипеды и запчасти"
 
 
 @pytest.mark.parametrize(
-    ("kind", "found"),
-    [("intermediary", "intermediary"), (" OWN ", "own"), ("broker", None), (None, None)],
+    ("kind", "lane", "found"),
+    [
+        ("intermediary", Lane.REJECT, "intermediary"),
+        (" OWN ", Lane.ACCEPT, "own"),
+        ("broker", Lane.REVIEW, None),
+        (None, Lane.REVIEW, None),
+    ],
     ids=["intermediary", "spaces-and-case", "not-in-the-list", "absent"],
 )
-async def test_the_kind_is_kept_only_from_the_list_and_never_decides_the_lane(
-    kind: str | None, found: str | None
+async def test_the_kind_comes_only_from_the_list_and_an_unasked_intermediary_is_no(
+    kind: str | None, lane: Lane, found: str | None
 ) -> None:
-    body: dict[str, Any] = {"fit": "yes", "quote": QUOTE, "why": "магазин"}
-    if kind is not None:
+    """С v4 вид сайта — факт, по которому решает код: посредник, которого сегмент не просит, —
+    «нет»; вид не из списка или без него — ответ не разобран, «на проверку»."""
+    body: dict[str, Any] = facts("yes", QUOTE, "магазин")
+    if kind is None:
+        del body["kind"]
+    else:
         body["kind"] = kind
 
     verdict, _ = await judged(body)
 
-    assert (verdict.lane, verdict.kind) == (Lane.ACCEPT, found)
+    assert (verdict.lane, verdict.kind) == (lane, found)
 
 
 # --- строка «Текст главной» -------------------------------------------------------------------
@@ -193,7 +144,7 @@ def test_a_quote_from_the_home_text_holds_and_its_label_is_ours() -> None:
 SEGMENT = "Мастерские ремонта велосипедов: сами чинят велосипеды, на своём сайте — услуги и запись."
 UK_HOST = "velo-maisternia-sample.com"
 RU_HOST = "velo-masterskaya-sample.com"
-ANSWER = {"kind": "own", "fit": "yes", "quote": RU[:60].rsplit(" ", 1)[0], "why": "мастерская"}
+ANSWER = facts("yes", RU[:60].rsplit(" ", 1)[0], "мастерская")
 
 
 async def _candidate(
@@ -216,7 +167,7 @@ def _judge(model: Model) -> sj.SegmentClient:
     return sj.SegmentClient(http, model="gpt-5-mini", api_key=MODEL_KEY)
 
 
-async def test_a_v2_verdict_is_not_served_to_the_v3_judge(session: AsyncSession) -> None:
+async def test_a_v2_verdict_is_not_served_to_the_v4_judge(session: AsyncSession) -> None:
     owner = await hypothesis(session, SEGMENT)
     run = await make_run(session, owner)
     site = await _candidate(session, run, RU_HOST, RU)
@@ -287,6 +238,7 @@ async def test_a_cached_verdict_does_not_skip_the_language_of_this_run(
             domain_id=site.domain_id, hypothesis_id=owner.id, prompt_version=sj.PROMPT_VERSION,
             segment_digest=sj.segment_digest(SEGMENT), verdict=Lane.ACCEPT, quote=UK[:40],
             reason="майстерня", model="gpt-5-mini", decided_by=Decider.MODEL, tokens=600,
+            facts=SiteFacts("own", "yes", UK[:40], "майстерня").as_json(),
         )
     )  # fmt: skip
     await session.commit()

@@ -148,7 +148,7 @@ def test_the_judge_money_takes_the_price_of_the_launch_and_of_the_settings_for_o
     old = rows_of(run_of(estimate={"tokens": 61_600, "lines": ["смета"]}))["judge"]
 
     assert launched.fact_usd == round(40_211 * 0.6 / 1_000_000, 4)
-    assert usd_per_million() == pytest.approx(0.8 * 1.25 + 0.2 * 10.0)
+    assert usd_per_million() == pytest.approx(0.7 * 1.25 + 0.3 * 10.0)
     assert old.fact_usd == round(40_211 * usd_per_million() / 1_000_000, 4)
     assert (old.promised, old.promised_usd) == ("токенов ≈ 61\u00a0600", None)
 

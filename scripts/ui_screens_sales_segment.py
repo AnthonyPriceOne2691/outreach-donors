@@ -124,6 +124,7 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("ссылка «Сайты прогона · N»", "a:has-text('Сайты прогона ·')", norm),
         ("кнопка «Расход и смета»", "button:has-text('Расход и смета')", norm),
         ("режим судьи", "p:has-text('судья в наблюдении')", norm),
+        ("как судья понял описание", "p:has-text('Как судья понял описание')", norm),
         ("подпись плитки", ".metricTile p:nth-child(1)", norm),
         ("число в плитке", ".metricTile p:nth-child(2)", big),
         ("подпись плитки-ссылки", "a.metricTile p:nth-child(1)", norm),

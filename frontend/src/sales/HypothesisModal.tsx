@@ -18,6 +18,10 @@
  * Описание читают только экраны и судья сбора базы: в тексты писем оно не идёт. Хранится в
  * базе, а не в репозитории — это коммерческий текст.
  *
+ * **Страны компаний** (`HypothesisCountries`) — в режиме правки: переключатель «Компании из других
+ * стран» и «Не пишем компаниям из», поле гипотезы для судьи сбора базы. Новая гипотеза заводится с
+ * «На проверку» и пустым списком (решение владельца 20.10), поле уходит, только если его поправили.
+ *
  * **В окне одна прокрутка** (`OneScrollForm`): описание с потолком в 8 строк прокручивалось
  * внутри окна, а на низком экране (844 × 390) окно прокручивалось и само, и «Завести» уезжала
  * под край. Теперь описание растёт по тексту, а прокручивается середина окна.
@@ -30,8 +34,14 @@ import { refusalOf } from '../api/client';
 import type { HypothesisCard } from '../api/salesTypes';
 import { ACTIONS_GAP, FIELD_GAP } from '../components/formRhythm';
 import { HintLabel } from '../components/HintLabel';
-import { useAddHypothesis, useEditHypothesis, useRemoveHypothesis } from './hypothesisData';
-import type { HypothesisEdit } from './hypothesisData';
+import { HypothesisCountries } from './HypothesisCountries';
+import {
+  countriesOf,
+  useAddHypothesis,
+  useEditHypothesis,
+  useRemoveHypothesis,
+} from './hypothesisData';
+import type { CountriesField, HypothesisEdit } from './hypothesisData';
 import { HypothesisRemove } from './HypothesisRemove';
 import { OneScrollForm } from './OneScrollForm';
 import { SegmentHelper } from './SegmentHelper';
@@ -42,9 +52,24 @@ const NAME_HINT =
 const SEGMENT_HINT =
   'Правка описания — новый вопрос судье сбора базы: смета сбора снимется, прежние вердикты по нему не годятся.';
 
+/** Поле «страны компаний», которое отличается от `was`, — только его части. */
+function fieldChanges(was: CountriesField, now: CountriesField): Partial<CountriesField> {
+  const edit: Partial<CountriesField> = {};
+  if (now.other_countries !== was.other_countries) edit.other_countries = now.other_countries;
+  if (now.excluded_countries.join() !== was.excluded_countries.join()) {
+    edit.excluded_countries = now.excluded_countries;
+  }
+  return edit;
+}
+
 /** Что поправили — только это и уходит. Пробелы имя новым не делают, как на сервере. */
-function changes(card: HypothesisCard, name: string, description: string): HypothesisEdit {
-  const edit: HypothesisEdit = {};
+function changes(
+  card: HypothesisCard,
+  name: string,
+  description: string,
+  field: CountriesField,
+): HypothesisEdit {
+  const edit: HypothesisEdit = fieldChanges(countriesOf(card), field);
   if (name.split(/\s+/).filter(Boolean).join(' ') !== card.name) edit.name = name;
   if (description.trim() !== (card.description ?? '')) edit.description = description;
   return edit;
@@ -75,6 +100,8 @@ interface FieldsProps {
   nameError: string | undefined;
   onName: (value: string) => void;
   onDescription: (value: string) => void;
+  field: CountriesField;
+  onField: (field: CountriesField) => void;
 }
 
 function HypothesisFields({
@@ -84,6 +111,8 @@ function HypothesisFields({
   nameError,
   onName,
   onDescription,
+  field,
+  onField,
 }: FieldsProps) {
   return (
     <>
@@ -105,6 +134,7 @@ function HypothesisFields({
         onChange={(event) => onDescription(event.currentTarget.value)}
       />
       <SegmentHelper draft={description} onTake={onDescription} />
+      {editing && <HypothesisCountries field={field} onChange={onField} />}
     </>
   );
 }
@@ -164,6 +194,7 @@ export function HypothesisModal(props: ModalProps) {
   const { card, onClose } = props;
   const [name, setName] = useState(card?.name ?? '');
   const [description, setDescription] = useState(card?.description ?? '');
+  const [field, setField] = useState<CountriesField>(countriesOf(card));
   // Пустая новая форма не краснеет сразу: «впишите» встаёт под полем после правки или нажатия.
   const [touched, setTouched] = useState(false);
   const { add, save, remove, busy, saving, refusal } = useRequests(props);
@@ -180,7 +211,7 @@ export function HypothesisModal(props: ModalProps) {
       add.mutate({ name, description: description.trim() === '' ? null : description });
       return;
     }
-    const edit = changes(card, name, description);
+    const edit = changes(card, name, description, field);
     remove.reset();
     if (Object.keys(edit).length === 0) onClose();
     else save.mutate({ id: card.id, body: edit });
@@ -225,6 +256,8 @@ export function HypothesisModal(props: ModalProps) {
             setTouched(true);
           }}
           onDescription={setDescription}
+          field={field}
+          onField={setField}
         />
         {card !== undefined && (
           <HypothesisRemove

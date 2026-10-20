@@ -14,12 +14,15 @@
   останавливается словами (`JudgeTally.stopped`).
 - **Полоса ложится одной строкой UPDATE под условием** (`land`): решение человека, пришедшее
   посреди прохода, судья не переписывает.
-- **Кэш вердиктов** (`cached`): свежий вердикт того же домена, гипотезы, версии промпта и
-  описания не пересуживается и токенов не стоит; «на проверку» без цитаты — не вердикт
-  (`segment_judge.proven_again`): не пишется и не отдаётся.
+- **Кэш** (`segment_cache`): факты того же домена, гипотезы, версии промпта и описания модель
+  второй раз не спрашивает и токенов за них не платит — полосу по ним ставит таблица правил заново
+  (`segment_judge.settle`) по нынешнему полю гипотезы и разбору описания: правка поля — пересуд без
+  модели. Без фактов и не правило — не вердикт: не отдаётся.
 - **Язык писем прогона** (`Ask.letters`): сайт уверенно на другом языке — вердикт «отказал бы»
-  словами до модели (`segment_judge.by_language`), и вердикт из кэша он тоже перекрывает: кэш —
-  вердикт гипотезы, а язык писем — у каждого прогона свой.
+  словами до модели (`segment_judge.by_language`), и факты из кэша он тоже перекрывает: кэш — знание
+  гипотезы, а язык писем — у каждого прогона свой.
+- **Разбор описания и поле гипотезы** (`Ask.scope`, `Ask.policy`) — одни на проход: разбор делается
+  до окна (`segment_scope`), его сбой — «на проверку» словами у каждого сайта, а не «мест нет».
 """
 
 from __future__ import annotations
@@ -28,55 +31,51 @@ import asyncio
 import logging
 from collections import deque
 from collections.abc import Sequence
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Protocol
 
 import httpx
-from sqlalchemy import ColumnElement, select, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import ColumnElement, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import sales as sales_cfg
 from backend.config.judge import JudgeMode
 from backend.features.core import usage
-from backend.features.donors.home_signals import check_home
 from backend.features.sales import usage_cap
+from backend.features.sales.hypothesis_countries import CountryPolicy
+from backend.features.sales.segment_cache import Known, cached, relabel, remember, verdict_row
 from backend.features.sales.segment_judge import (
     JUDGE_OFF,
     OPERATION,
     PROMPT_VERSION,
+    Said,
     SegmentClient,
     SegmentVerdict,
     SiteText,
+    Spent,
     by_host,
     by_language,
     decide,
     effective,
-    proven_again,
     segment_digest,
+    settle,
     site_text,
 )
-from backend.features.sales.segment_models import (
-    Decider,
-    Lane,
-    SalesSegmentCandidateModel,
-    SalesSegmentVerdictModel,
-)
+from backend.features.sales.segment_models import Decider, Lane, SalesSegmentCandidateModel
+from backend.features.sales.segment_scope import Scope
+from backend.features.sales.segment_text import page_home
 
 logger = logging.getLogger(__name__)
 
 #: Вердиктов на чекпоинт: полосы, вердикты и строка расхода — одной транзакцией.
 BATCH = 20
-#: Срок вердикта: чем сайт живёт, он меняет раз в годы — как у судьи площадки.
-VERDICT_TTL_DAYS = 180
 #: Токены раздельно в итоге прохода (`JudgeTally`): копятся от прохода к проходу, как `tokens`.
 #: У прогона, судившегося до разбивки, ранние токены есть только в `tokens`: раздельно
 #: неизвестное у такого отчёта — `tokens` без ввода и вывода, а не `unsplit_tokens`.
 SPLIT_TOKENS = ("prompt_tokens", "completion_tokens", "unsplit_tokens", "reasoning_tokens")
 
 Candidate = SalesSegmentCandidateModel
-Verdict = SalesSegmentVerdictModel
 
 
 @dataclass(slots=True)
@@ -130,13 +129,17 @@ class JudgeTally:
 
     def spend(self, verdict: SegmentVerdict) -> None:
         """Токены вызова — в счёт прохода: всего и раздельно."""
-        self.tokens += verdict.tokens
-        if verdict.spent is None:
-            self.unsplit_tokens += verdict.tokens
+        self.paid(verdict.tokens, verdict.spent)
+
+    def paid(self, tokens: int, spent: Spent | None) -> None:
+        """Токены одного вызова модели — всего и раздельно (`segment_judge.Spent`)."""
+        self.tokens += tokens
+        if spent is None:
+            self.unsplit_tokens += tokens
             return
-        self.prompt_tokens += verdict.spent.prompt
-        self.completion_tokens += verdict.spent.completion
-        self.reasoning_tokens += verdict.spent.reasoning
+        self.prompt_tokens += spent.prompt
+        self.completion_tokens += spent.completion
+        self.reasoning_tokens += spent.reasoning
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +154,8 @@ class Site:
     description: str | None
     #: Текст, который видел прошлый суд (`site_text`): по нему судит пересуд.
     stored: str | None = None
+    #: Страница выдачи: главная судье — её хоста, при сбое — корня (`segment_text.page_home`).
+    page_url: str | None = None
 
     @classmethod
     def of(cls, candidate: Candidate, host: str) -> Site:
@@ -162,6 +167,7 @@ class Site:
             candidate.page_title,
             candidate.page_description,
             candidate.site_text,
+            candidate.page_url,
         )
 
 
@@ -181,6 +187,10 @@ class Ask:
     #: Язык писем прогона (`SalesSegmentRunModel.language`): сайт уверенно на другом — «отказал бы»
     #: словами (`segment_judge.by_language`). Пусто — язык не сверяется.
     letters: str | None = None
+    #: Разбор описания (`segment_scope`); пусто — разбор не удался: сайты — «на проверку» словами.
+    scope: Scope | None = None
+    #: Поле гипотезы «страны компаний» (`hypothesis_countries`).
+    policy: CountryPolicy = field(default_factory=CountryPolicy)
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,101 +294,57 @@ class Sink(Protocol):
     async def flush(self, session: AsyncSession, moment: datetime) -> None: ...
 
 
-async def cached(
-    session: AsyncSession,
-    *,
-    hypothesis_id: int,
-    digest: str,
-    domain_ids: Sequence[int],
-    now: datetime,
-) -> dict[int, SegmentVerdict]:
-    """Свежие вердикты той же версии промпта и того же описания сегмента — по домену. Строка,
-    которая по нынешнему правилу цитаты не вердикт (`proven_again`), не отдаётся."""
-    if not domain_ids:
-        return {}
-    rows = await session.scalars(
-        select(Verdict).where(
-            Verdict.hypothesis_id == hypothesis_id,
-            Verdict.prompt_version == PROMPT_VERSION,
-            Verdict.segment_digest == digest,
-            Verdict.domain_id.in_(list(domain_ids)),
-            Verdict.updated_at >= now - timedelta(days=VERDICT_TTL_DAYS),
-        )
-    )
-    return {
-        row.domain_id: SegmentVerdict(
-            Lane(row.verdict), row.reason, row.quote, row.model, 0, Decider(row.decided_by)
-        )
-        for row in rows.all()
-        if proven_again(row.decided_by, row.quote)
-    }
-
-
 async def _text(site: Site, ask: Ask) -> SiteText:
-    """Текст сайта судье: у пересуда — тот, что видел прошлый суд; иначе выдача и главная общего
-    разбора (`check_home`) — шапка и отрывок видимого текста (`segment_text.site_text`)."""
+    """Текст сайта судье: у пересуда — тот, что видел прошлый суд; иначе выдача и главная хоста
+    страницы выдачи, при сбое — корня (`segment_text.page_home`, разбор — общий `check_home`): шапка
+    и отрывок видимого текста (`segment_text.site_text`)."""
     if ask.stored_text and site.stored:
         return SiteText.parse(site.stored)
-    signals = await check_home(ask.home, site.host) if ask.home is not None else None
-    return site_text(title=site.title, description=site.description, home=signals)
+    home = await page_home(ask.home, site.host, site.page_url) if ask.home is not None else None
+    return site_text(title=site.title, description=site.description, home=home)
 
 
-async def _one(site: Site, ask: Ask, known: SegmentVerdict | None) -> Judged:
+def _recalled(site: Site, ask: Ask, known: Known) -> Judged:
+    """Вердикт по знанию кэша, без модели: правило — как есть; факты — таблицей правил по нынешнему
+    полю гипотезы, разбору описания и языку писем прогона. Язык сверяется по тексту, который видел
+    прошлый суд, а нет его — по выдаче."""
+    stored = SiteText.parse(site.stored) if site.stored else None
+    text = stored or site_text(title=site.title, description=site.description)
+    language = by_language(text.without_stub(), ask.letters)
+    if known.ruled is not None:
+        return Judged(language or known.ruled, text, cached=True)
+    verdict = settle(
+        host=site.host,
+        policy=ask.policy,
+        scope=ask.scope,
+        said=Said(known.facts, model=known.model),
+        language=language,
+    )
+    return Judged(verdict, text, cached=True)
+
+
+async def _one(site: Site, ask: Ask, known: Known | None) -> Judged:
     """Вердикт одному сайту: правило по домену, кэш, главная, правила текста, модель. Модели
-    нет — судья выключен: правило по домену режет, остальное решает человек, и прежний вердикт
-    модели из кэша не решает за него."""
+    нет — судья выключен: правило по домену режет, остальное решает человек, и прежнее знание
+    из кэша не решает за него."""
     page = site_text(title=site.title, description=site.description)
     if (ruled := by_host(site.host)) is not None:
         return Judged(ruled, page)
     if ask.client is None:
         return Judged(None, page)
     if known is not None:
-        return Judged(by_language(page, ask.letters) or known, page, cached=True)
+        return _recalled(site, ask, known)
     text = await _text(site, ask)
     verdict = await decide(
-        ask.client, host=site.host, segment=ask.segment, text=text, letters=ask.letters
+        ask.client,
+        host=site.host,
+        segment=ask.segment,
+        text=text,
+        scope=ask.scope,
+        policy=ask.policy,
+        letters=ask.letters,
     )
     return Judged(verdict, text)
-
-
-async def _remember(session: AsyncSession, rows: Sequence[dict[str, Any]]) -> None:
-    """Вердикты чекпоинта — в таблицу вердиктов: новый ключ — строка, тот же — поверх."""
-    if not rows:
-        return
-    statement = insert(Verdict).values(list(rows))
-    fresh = statement.excluded
-    await session.execute(
-        statement.on_conflict_do_update(
-            constraint="uq_sales_segment_verdicts_key",
-            set_={
-                "verdict": fresh.verdict,
-                "quote": fresh.quote,
-                "reason": fresh.reason,
-                "model": fresh.model,
-                "decided_by": fresh.decided_by,
-                "tokens": fresh.tokens,
-                "updated_at": fresh.updated_at,
-            },
-        )
-    )
-
-
-def _verdict_row(
-    site: Site, verdict: SegmentVerdict, digest: str, moment: datetime
-) -> dict[str, Any]:
-    return {
-        "domain_id": site.domain_id,
-        "hypothesis_id": site.hypothesis_id,
-        "prompt_version": PROMPT_VERSION,
-        "segment_digest": digest,
-        "verdict": verdict.lane.value,
-        "quote": verdict.quote,
-        "reason": verdict.reason[:1000],
-        "model": verdict.model,
-        "decided_by": verdict.decided_by.value,
-        "tokens": verdict.tokens,
-        "updated_at": moment,
-    }
 
 
 class _Window:
@@ -389,9 +355,11 @@ class _Window:
         self.session, self.ask, self.sink, self.tally = session, ask, sink, tally
         self.limit = max(1, sales_cfg.SEGMENT_JUDGE_CONCURRENCY)
         self.digest = segment_digest(ask.segment)
-        self.known: dict[int, SegmentVerdict] = {}
+        self.known: dict[int, Known] = {}
         self.running: dict[asyncio.Task[Judged], Site] = {}
         self.rows: list[dict[str, Any]] = []
+        #: Полосы по фактам из кэша: переписывают полосу и слова строки кэша, но не её цену.
+        self.relabeled: list[dict[str, Any]] = []
         self.landed = 0
         self.spent = tally.tokens
         self.cap_checked = False
@@ -464,8 +432,15 @@ class _Window:
         count(judged, self.tally)
         self.sink.take(site, landing(judged, self.ask.mode))
         verdict = judged.verdict
-        if verdict is not None and verdict.proven and not judged.cached:
-            self.rows.append(_verdict_row(site, verdict, self.digest, self.ask.moment))
+        if verdict is not None and verdict.proven:
+            row = verdict_row(
+                domain_id=site.domain_id,
+                hypothesis_id=site.hypothesis_id,
+                verdict=verdict,
+                digest=self.digest,
+                moment=self.ask.moment,
+            )
+            (self.relabeled if judged.cached else self.rows).append(row)
         self.landed += 1
 
     async def _checkpoint(self) -> None:
@@ -473,11 +448,13 @@ class _Window:
         if not self.landed and self.tally.tokens == self.spent:
             return
         await self.sink.flush(self.session, self.ask.moment)
-        await _remember(self.session, self.rows)
+        await remember(self.session, self.rows)
+        await relabel(self.session, self.relabeled)
         if self.tally.tokens > self.spent:
             usage.record(self.session, operation=OPERATION, units=self.tally.tokens - self.spent)
         await self.session.commit()
-        self.rows, self.landed, self.spent, self.cap_checked = [], 0, self.tally.tokens, False
+        self.rows, self.relabeled = [], []
+        self.landed, self.spent, self.cap_checked = 0, self.tally.tokens, False
 
 
 async def judge_sites(

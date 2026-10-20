@@ -28,7 +28,17 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
-from tests.test_sales_segment_undo import CLINIC, PORTAL, WORKSHOPS, _network, judged, landed
+from tests.test_sales_segment_undo import (
+    ANYWHERE,
+    CLINIC,
+    INTERMEDIARY,
+    PORTAL,
+    WORKSHOPS,
+    _network,
+    judged,
+    landed,
+    words,
+)
 
 __all__ = ["_network"]  # сеть прогона — отсюда фикстуру видит pytest
 
@@ -39,7 +49,7 @@ SELLER = "seller@ours.example.test"
 CANDIDATES = "/api/sales/segment/candidates"
 SCREEN = Path(__file__).resolve().parent.parent / "frontend/src/sales/SegmentSitesApi.ts"
 #: Слова судьи при отказе в наблюдении — как есть: что это отказ, говорит полоса «судья отказал бы».
-CUT = "Branchenverzeichnis für Tischler — baut selbst keine Möbel"
+CUT = words(INTERMEDIARY, WORKSHOPS)
 
 
 @pytest.fixture
@@ -183,9 +193,9 @@ async def test_the_list_names_the_judge_next_to_a_human_decision_and_whether_it_
     assert said == {
         # Лид заведён — отменять нечего: его отклоняют во вкладке «emails».
         WORKSHOPS.host: ("принял человек", CUT, False),
-        PORTAL.host: ("отказал человек", "英会話教室の比較ポータルで、自社のレッスンはない", True),
+        PORTAL.host: ("отказал человек", words(INTERMEDIARY, PORTAL), True),
         # Решила модель — её слова и так в причине.
-        CLINIC.host: ("własna przychodnia weterynaryjna", None, False),
+        CLINIC.host: (words(ANYWHERE, CLINIC), None, False),
     }
 
 

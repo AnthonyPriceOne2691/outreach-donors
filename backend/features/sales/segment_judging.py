@@ -23,6 +23,11 @@
 — общее правило `runs/exclusions.by_name`) режется до неё, такой сайт не открывается вовсе; кэш
 и выключенный судья главной не просят.
 
+**Разбор описания — один раз до окна** (`read_scope`, `segment_scope`): страны и виды сайтов
+сегмента; тот же разбор того же описания берётся из отчёта прогона, без модели. Сбой разбора — не
+«мест нет»: окно кладёт сайты «на проверку» словами и следующий проход спросит снова. Поле гипотезы
+«страны компаний» (`hypothesis_countries`) — тоже одно на проход.
+
 **Стоп-лист — до всего** (`stoplisted`): домен в стоп-листе продаж или под строкой общего
 стоп-листа, которая держит продажи, отсекается правилом до кэша, главной и модели — при любом
 режиме судьи. Иначе он оплатил бы модель и платную ступень поиска адреса и отсеялся бы только
@@ -33,6 +38,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -42,13 +48,24 @@ from sqlalchemy import ColumnElement, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config.judge import JudgeMode
+from backend.features.core import usage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import SuppressionModel
-from backend.features.sales.models import SalesStoplistModel
-from backend.features.sales.segment_judge import SegmentClient
-from backend.features.sales.segment_models import Decider, Lane, SalesSegmentCandidateModel
+from backend.features.sales import segment_scope, usage_cap
+from backend.features.sales.hypothesis_countries import CountryPolicy, policy_of
+from backend.features.sales.models import SalesHypothesisModel, SalesStoplistModel
+from backend.features.sales.segment_judge import OPERATION, SegmentClient, segment_digest
+from backend.features.sales.segment_models import (
+    Decider,
+    Lane,
+    SalesSegmentCandidateModel,
+    SalesSegmentRunModel,
+)
+from backend.features.sales.segment_scope import Scope
 from backend.features.sales.segment_window import Ask, JudgeTally, Landing, Site, judge_sites, land
 from backend.features.sales.suppressions import holds_sales
+
+logger = logging.getLogger(__name__)
 
 #: Что проход отдаёт наружу. Итог прохода (`JudgeTally`) живёт в окне (`segment_window.py`),
 #: а прогон (`segment_run`) берёт его по имени прохода — список держит это имя явным.
@@ -59,6 +76,8 @@ __all__ = [
     "Waiting",
     "cut",
     "judge_run",
+    "policy_of_run",
+    "read_scope",
     "stoplisted",
     "waiting_judge",
 ]
@@ -144,6 +163,44 @@ async def _without_stoplisted(
     return [site for site in waiting if site.domain_id not in closed]
 
 
+async def policy_of_run(session: AsyncSession, run: SalesSegmentRunModel) -> CountryPolicy:
+    """Поле гипотезы прогона «страны компаний» — нынешнее: по нему проход и пересуд ставят полосы."""
+    hypothesis = await session.get(SalesHypothesisModel, run.hypothesis_id)
+    if hypothesis is None:
+        return CountryPolicy()
+    return policy_of(hypothesis.other_countries, hypothesis.excluded_countries)
+
+
+async def read_scope(
+    session: AsyncSession,
+    run: SalesSegmentRunModel,
+    client: SegmentClient,
+    segment: str,
+    tally: JudgeTally,
+    moment: datetime,
+) -> Scope | None:
+    """Разбор описания прогона (`segment_scope`): того же описания — из отчёта прогона, без модели;
+    иначе вызов модели под потолком продаж — итог или сбой словами ложится в отчёт, токены — в счёт
+    прохода и в журнал расхода. Сбой — `None`: сайты — «на проверку» словами, следующий проход
+    спросит снова. Потолок выбран — `None` и остановка прохода словами (`tally.stopped`)."""
+    digest = segment_digest(segment)
+    if (known := segment_scope.remembered(run.report, digest)) is not None:
+        return known
+    try:
+        await usage.ensure_llm_within_cap(session, now=moment, own=usage_cap.sales_cap())
+    except usage.LlmCapExceededError as exc:
+        logger.warning(
+            "разбор описания не спрошен: потолок модели продаж", extra={"error": str(exc)}
+        )
+        tally.stopped = str(exc)
+        return None
+    found, asked = await client.scope(segment)
+    tally.paid(asked.tokens, asked.spent)
+    entry = segment_scope.entry(digest, found, asked.tokens)
+    await segment_scope.write(session, run, entry, operation=OPERATION)
+    return found if isinstance(found, Scope) else None
+
+
 async def judge_run(
     session: AsyncSession,
     *,
@@ -160,11 +217,17 @@ async def judge_run(
     `mode` — режим прогона; выключенный судья (`off`) модели не зовёт: стоп-лист и правило по
     домену режут, остальных решает человек. Потолок модели выбран — `stopped` словами, остальные
     ждут следующего прохода. `letters` — язык писем прогона: сайт уверенно на другом — «отказал бы»
-    словами (`segment_judge.by_language`)."""
+    словами (`segment_judge.by_language`). Поле гипотезы «страны компаний» — нынешнее
+    (`policy_of_run`)."""
     moment = now or datetime.now(UTC)
     tally = JudgeTally()
     waiting = await _without_stoplisted(session, await _pending(session, run_id), tally, moment)
     asked = None if mode is JudgeMode.OFF else client
-    ask = Ask(segment, mode, asked, home, moment, letters=letters)
+    scope, policy = None, CountryPolicy()
+    run = await session.get(SalesSegmentRunModel, run_id)
+    if waiting and asked is not None and run is not None:
+        scope = await read_scope(session, run, asked, segment, tally, moment)
+        policy = await policy_of_run(session, run)
+    ask = Ask(segment, mode, asked, home, moment, letters=letters, scope=scope, policy=policy)
     await judge_sites(session, waiting, ask, Waiting(), tally)
     return tally

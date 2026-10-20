@@ -39,6 +39,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.features.core.models._mixins import TimestampedMixin
+from backend.features.sales.hypothesis_countries import HypothesisCountriesMixin
 from backend.features.sales.verify_columns import VERIFY_AGAIN_INDEX, VerifyAgainMixin
 from backend.shared.database.base import Base
 
@@ -82,7 +83,7 @@ def _enum(e: type[StrEnum], name: str) -> SQLEnum:
     return SQLEnum(e, name=name, values_callable=lambda x: [i.value for i in x])
 
 
-class SalesHypothesisModel(TimestampedMixin, Base):
+class SalesHypothesisModel(TimestampedMixin, HypothesisCountriesMixin, Base):
     """Кому и зачем пишем. Текст — данными в базе: репозиторий публичный."""
 
     __tablename__ = "sales_hypotheses"
@@ -140,8 +141,7 @@ class SalesLeadModel(TimestampedMixin, VerifyAgainMixin, Base):
     verification_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     verification_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    #: Диалог, в котором этого лида назвали («пишите …», источник `referral`).
-    #: Удаление диалога лида не уносит: ссылка обнуляется.
+    #: Диалог, где лида назвали («пишите …», `referral`); удаление диалога — ссылка обнуляется.
     referred_from_thread_id: Mapped[int | None] = mapped_column(
         ForeignKey("threads.id", ondelete="SET NULL"), nullable=True
     )

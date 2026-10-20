@@ -109,6 +109,9 @@ class HypothesisCard(BaseModel):
     id: int
     name: str
     description: str | None
+    #: Поле «страны компаний» (`hypothesis_countries`): переключатель и коды «не пишем».
+    other_countries: str
+    excluded_countries: list[str]
     created_at: datetime
     #: Состояние → сколько. Все состояния названы, хоть и нулём.
     leads: dict[str, int]
@@ -127,12 +130,21 @@ class HypothesisCard(BaseModel):
             id=found.id,
             name=found.name,
             description=found.description,
+            other_countries=found.other_countries,
+            excluded_countries=list(found.excluded_countries),
             created_at=found.created_at,
             leads=row.states,
             total=row.total,
             recheck=row.recheck,
             waiting=row.waiting,
         )
+
+
+class CountriesView(BaseModel):
+    """Коды стран ISO 3166-1 alpha-2, которые годятся в «не пишем компаниям из» (таблица стран
+    модуля, `geo.COUNTRIES`). Названия экран берёт у браузера (`Intl.DisplayNames`)."""
+
+    codes: list[str]
 
 
 class HypothesesView(BaseModel):

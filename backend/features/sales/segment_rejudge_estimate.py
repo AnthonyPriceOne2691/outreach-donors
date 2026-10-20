@@ -7,7 +7,10 @@
 - **незаконченный пересуд того же описания продолжается** (`segment_rejudge_report.left_of`): смета —
   на сайты его снимка, до которых он не дошёл, и словами «продолжить с места остановки»;
 - **к модели** — без тех, кого решит правило до модели (стоп-лист, «кому не пишем» по имени,
-  пустой текст и отказ доступа): они бесплатны;
+  пустой текст и отказ доступа), и без тех, чьи факты уже в кэше под тем же описанием и версией
+  промпта (судья v4: полосу по ним ставит таблица правил по нынешнему полю гипотезы — 0 токенов);
+- **разбор описания** (`segment_scope`) — один вызов, если в отчёте прогона его нет для этого
+  описания;
 - **токенов на сайт — по истории**: среднее прошлых вердиктов модели этой гипотезы (той же
   версии промпта), нет — всех гипотез, нет и их — предложение сметы прогона
   (`segment_estimate.TOKENS_PER_SITE`); выше остатка дневного потолка модели продаж — отказ.
@@ -27,7 +30,8 @@ from backend.config import llm as llm_cfg
 from backend.config import sales as sales_cfg
 from backend.config.judge import JudgeMode
 from backend.features.core.models.domain import DomainModel
-from backend.features.sales import usage_cap
+from backend.features.sales import segment_scope, usage_cap
+from backend.features.sales.segment_cache import cached
 from backend.features.sales.segment_estimate import (
     CAP_UNREAD,
     MODEL_NOT_SET,
@@ -57,6 +61,9 @@ from backend.features.sales.segment_spend import number
 Candidate = SalesSegmentCandidateModel
 Verdict = SalesSegmentVerdictModel
 
+#: Токенов на разбор описания (`segment_scope`): ответ короткий — замер 20.10.
+SCOPE_TOKENS = 700
+
 NOTHING = (
     "пересуживать нечего: сайты прогона ещё не судили или все их решил человек — решения "
     "человека пересуд не трогает"
@@ -69,8 +76,12 @@ class RejudgeEstimate:
 
     #: Пересудить: не решённые человеком и уже судившиеся.
     sites: int = 0
-    #: Из них к модели — без решённых правилом до модели.
+    #: Из них к модели — без решённых правилом до модели и без фактов в кэше.
     model: int = 0
+    #: С фактами в кэше под тем же описанием: полосу поставит код по полю гипотезы, без модели.
+    from_facts: int = 0
+    #: Разбор описания — вызовов (0 — разбор этого описания уже в отчёте прогона).
+    scope_calls: int = 0
     per_site: int = 0
     tokens: int = 0
     #: Остаток дневного потолка модели; `None` — потолка нет.
@@ -106,9 +117,14 @@ async def tokens_per_site(session: AsyncSession, hypothesis_id: int) -> int:
 
 
 async def _to_model(
-    session: AsyncSession, ids: list[int], found: RejudgeEstimate, moment: datetime
+    session: AsyncSession,
+    run: SalesSegmentRunModel,
+    ids: list[int],
+    found: RejudgeEstimate,
+    moment: datetime,
 ) -> None:
-    """Сколько сайтов дойдёт до модели и у скольких лид — по строкам кандидатов."""
+    """Сколько сайтов дойдёт до модели, у скольких факты уже в кэше и у скольких лид — по строкам
+    кандидатов."""
     if not ids:
         return
     rows = await session.execute(
@@ -117,10 +133,21 @@ async def _to_model(
         .where(Candidate.id.in_(ids))
     )
     pairs = list(rows.tuples().all())
-    closed = await stoplisted(session, [candidate.domain_id for candidate, _ in pairs], moment)
+    domains = [candidate.domain_id for candidate, _ in pairs]
+    closed = await stoplisted(session, domains, moment)
+    known = await cached(
+        session,
+        hypothesis_id=run.hypothesis_id,
+        digest=found.digest,
+        domain_ids=domains,
+        now=moment,
+    )
     for candidate, host in pairs:
         found.with_lead += int(candidate.lead_id is not None)
         if candidate.domain_id in closed or by_host(host) is not None:
+            continue
+        if candidate.domain_id in known:
+            found.from_facts += 1
             continue
         if not candidate.site_text:
             found.model += 1  # пересуд откроет главную — и спросит модель
@@ -173,8 +200,16 @@ def _lines(found: RejudgeEstimate) -> list[str]:
         f"К модели — {number(found.model)}, токенов ≈ {number(found.tokens)} (≈ "
         f"{number(found.per_site)} на сайт по прошлым вердиктам){left}.",
     ]
-    if found.sites > found.model:
-        lines.append(f"Остальных — {number(found.sites - found.model)} — решит правило до модели.")
+    if found.from_facts:
+        lines.append(
+            f"По фактам из кэша — {number(found.from_facts)}: полосу поставит таблица правил по "
+            "нынешнему полю гипотезы, без модели — 0 токенов."
+        )
+    if found.scope_calls:
+        lines.append(f"Разбор описания сегмента — один вызов (≈ {number(SCOPE_TOKENS)} токенов).")
+    rest = found.sites - found.model - found.from_facts
+    if rest > 0:
+        lines.append(f"Остальных — {number(rest)} — решит правило до модели.")
     if found.with_lead:
         lines.append(
             f"С лидом — {number(found.with_lead)}: их новую полосу только покажем («стало бы»), "
@@ -221,10 +256,14 @@ async def estimate(
     """Смета пересуда прогона. Ничего не пишет."""
     moment = now or datetime.now(UTC)
     segment = await segment_of(session, run)
-    found, ids = await _start_point(session, run, segment_digest(segment))
-    await _to_model(session, ids, found, moment)
+    digest = segment_digest(segment)
+    found, ids = await _start_point(session, run, digest)
+    await _to_model(session, run, ids, found, moment)
     found.per_site = await tokens_per_site(session, run.hypothesis_id)
-    found.tokens = found.model * found.per_site
+    asks_model = found.model > 0 or found.from_facts > 0
+    remembered = segment_scope.remembered(run.report, digest) is not None
+    found.scope_calls = int(asks_model and not remembered)
+    found.tokens = found.model * found.per_site + found.scope_calls * SCOPE_TOKENS
     found.tokens_left = await tokens_left(session, now)
     found.refusal = _refusal(found, run, segment)
     found.lines = _lines(found)

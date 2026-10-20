@@ -91,6 +91,7 @@ from backend.api.sales import stoplist as stoplist_routes
 from backend.api.sales import weekly as weekly_routes
 from backend.api.sales.funnel import EMPTY_PERIOD
 from backend.api.sales.schemas import (
+    CountriesView,
     HypothesesView,
     HypothesisBody,
     HypothesisCard,
@@ -104,6 +105,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.sales import browse, hypotheses, hypothesis_holds, intake, sheet
 from backend.features.sales.columns import LeadField, Mapping
 from backend.features.sales.funnel import Period
+from backend.features.sales.hypothesis_countries import known_codes
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import LeadStatus, SalesHypothesisModel
 
@@ -262,6 +264,12 @@ async def list_hypotheses(
 ) -> HypothesesView:
     rows = [HypothesisCard.of(row) for row in await browse.hypotheses(session)]
     return HypothesesView(rows=rows, total=len(rows), module_enabled=sales_cfg.ENABLED)
+
+
+@router.get("/countries", response_model=CountriesView, summary="Коды стран для «не пишем»")
+async def list_countries(_: UserModel = _seller) -> CountriesView:
+    """Коды стран, которые примет поле гипотезы «Не пишем компаниям из» (`checked_codes`)."""
+    return CountriesView(codes=sorted(known_codes()))
 
 
 @router.post(

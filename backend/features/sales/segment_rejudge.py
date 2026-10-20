@@ -1,4 +1,4 @@
-"""Пересуд прогона после правки описания сегмента: те же сайты и тот же текст — новый вопрос.
+"""Пересуд прогона после правки описания сегмента или поля гипотезы: те же сайты и тот же текст.
 
 Судья сортирует, решает человек (`okf/run-review.md`), а описание сегмента — главный рычаг его
 калибровки. Правка описания уже рассуженные сайты не пересуживала: сверить правку было не с чем.
@@ -7,7 +7,10 @@
 - **Без новой выдачи**: сайты этого прогона и текст, который видел прошлый суд (`site_text`), —
   разница от правки описания, а не от сайта, успевшего поменяться. Сайт без сохранённого текста
   судится как обычно: выдача и главная.
-- **Мимо кэша вердиктов**: правка описания и есть вопрос заново; новые вердикты ложатся в кэш.
+- **Факты — из кэша, полоса — заново** (судья v4): факты сайта под тем же описанием и той же
+  версией промпта модель второй раз не спрашивает — полосу ставит таблица правил по нынешнему полю
+  гипотезы «страны компаний» (`segment_rules`), 0 токенов. Правка описания — новый вопрос: модель
+  спрашивается, новые факты ложатся в кэш. Описание разбирается один раз (`segment_judging.read_scope`).
 - **Решения человека не пересуживаются** — ни принятые до пересуда, ни пришедшие посреди него.
 - **Сайт с лидом**: новая полоса только показывается («стало бы»), полоса и лид не трогаются.
 - **«Ещё не судили» не трогает** — их судит продолжение прогона; **известные по прошлым
@@ -49,7 +52,7 @@ from backend.features.runs.reasons import explained
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.segment_estimate import NO_SEGMENT, SALES_OFF
 from backend.features.sales.segment_judge import PROMPT_VERSION, SegmentClient, segment_digest
-from backend.features.sales.segment_judging import cut, stoplisted
+from backend.features.sales.segment_judging import cut, policy_of_run, read_scope, stoplisted
 from backend.features.sales.segment_models import (
     Decider,
     Lane,
@@ -274,15 +277,17 @@ async def rejudge(
     before = {key: int(block.get(key, 0)) for key in _SUMMED}
     sink = Rejudged(run_id, block, tally, before)
     sites = await _cut_stoplisted(session, await _todo(session, block), sink, moment)
+    scope = await read_scope(session, run, deps.judge, segment, tally, moment) if sites else None
     ask = Ask(
         segment,
         JudgeMode(run.mode),
         deps.judge,
         deps.home,
         moment,
-        cached=False,
         stored_text=True,
         letters=run.language,
+        scope=scope,
+        policy=await policy_of_run(session, run),
     )
     await judge_sites(session, sites, ask, sink, tally)
     await sink.flush(session, moment)

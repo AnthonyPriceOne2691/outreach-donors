@@ -86,7 +86,9 @@ def test_only_foreign_geography_is_unsure_and_its_pair_with_the_segments_place_i
     only = [case for case in SYNTHETIC if "foreign-only" in case["tags"]]
     among = [case for case in SYNTHETIC if "segment-among" in case["tags"]]
 
-    assert {case["expect"] for case in only} == {"unsure"}
+    # Местный бизнес в другой стране (клиника, отель) — с v4 «нет» или человеку: работает только у себя.
+    assert {c["expect"] for c in only if "local" not in c["tags"]} == {"unsure"}
+    assert {c["expect"] for c in only if "local" in c["tags"]} == {"no|unsure"}
     assert {case["expect"] for case in among} == {"yes"}
     assert {case["hypothesis"] for case in only} == {case["hypothesis"] for case in among}
     assert len({case["hypothesis"] for case in only}) >= 5
@@ -95,9 +97,9 @@ def test_only_foreign_geography_is_unsure_and_its_pair_with_the_segments_place_i
 def test_a_language_without_letters_of_its_own_asks_the_model_for_the_kind_first(
     oracle: Oracle, tmp_path: Path
 ) -> None:
-    """Латиница и иероглифы при письмах на кириллице — «не понять», а не отказ; но вид сайта решает
-    раньше языка: модель спрошена, и её «нет» посреднику стоит (разбор паттернов 20.10) — в двух
-    нишах и двух письменностях. Своё дело на непонятном языке — по-прежнему человеку."""
+    """Латиница и иероглифы при письмах на кириллице — «не понять», а не отказ; но вид сайта и дело
+    решают раньше языка (таблица правил v4): модель спрошена, посредник и другое дело — «нет» на любом
+    языке — в двух нишах и двух письменностях."""
     unnamed = [case for case in SYNTHETIC if "unnamed" in case["tags"]]
     middle = {case["id"] for case in unnamed if "intermediary" in case["tags"]}
     out = tmp_path / "run.json"
@@ -111,12 +113,12 @@ def test_a_language_without_letters_of_its_own_asks_the_model_for_the_kind_first
     for case in unnamed:
         row = found[case["id"]]
         if case["id"] in middle:
-            assert (case["expect"], row["lane"], row["decided_by"]) == ("no", "reject", "model")
+            assert (case["expect"], row["lane"], row["rule"]) == ("no", "reject", "kind_unwanted")
         else:
-            assert (case["expect"], row["lane"], row["decided_by"]) == (
+            assert (case["expect"], row["lane"], row["rule"]) == (
                 "no|unsure",
-                "review",
-                "language",
+                "reject",
+                "other_business",
             )
 
 
@@ -140,15 +142,13 @@ def test_without_the_language_check_those_sites_go_to_the_model(
     assert set(oracle.asked) >= LANGUAGE_CUT
 
 
-@pytest.mark.parametrize(
-    ("rule", "tag"),
-    [("unseen", "unseen"), ("intermediary", "intermediary"), ("foreign", "foreign-only")],
-)
-def test_a_spoiled_v3_rule_closes_the_gates(
+@pytest.mark.parametrize(("rule", "tag"), [("places", "unseen"), ("intermediary", "intermediary")])
+def test_a_spoiled_rule_closes_the_gates(
     oracle: Oracle, capsys: Capture, rule: str, tag: str
 ) -> None:
-    """Без «не видно» сайты, где признака сегмента нет, отсечены; без сигналов посредника площадки
-    заявок приняты — ворота закрыты, порча поймана словами, ловушки правила — отдельной строкой."""
+    """Места судит модель — сайты, где признака сегмента нет, отсечены; без сигналов посредника
+    площадки заявок приняты — ворота закрыты, порча поймана словами, ловушки — отдельной строкой.
+    Чужая география с v4 — правило кода, а не промпта: её порча — в тестах таблицы правил."""
     assert ev.main(["--spoil", rule]) == 1
 
     out = capsys.readouterr().out
@@ -158,27 +158,19 @@ def test_a_spoiled_v3_rule_closes_the_gates(
     assert f" из {traps} " in out
 
 
-def test_the_unseen_spoil_puts_the_v2_country_line_back_instead_of_the_rule() -> None:
-    prompt = sj.load_prompt()
-
-    spoiled = ev.without_rule(prompt, "unseen")
-
-    assert ev.RULES["unseen"] not in spoiled
-    assert ev.SPOILED_WITH["unseen"] in spoiled.splitlines()
-    assert len(spoiled.splitlines()) == len(prompt.splitlines())
-
-
 def test_the_intermediary_spoil_takes_out_exactly_its_line() -> None:
     prompt = sj.load_prompt()
 
     spoiled = ev.without_rule(prompt, "intermediary")
 
-    assert "Signs of an intermediary" not in spoiled
+    assert ev.RULES["intermediary"] not in spoiled
     assert len(spoiled.splitlines()) == len(prompt.splitlines()) - 1
 
 
-def _result(expect: str, lane: Lane, by: str = "model", kind: str | None = None) -> Result:
-    return Result("c", "h", expect, lane.value, "", None, by, False, 100, {}, (), kind)
+def _result(
+    expect: str, lane: Lane, by: str = "model", kind: str | None = None, rule: str | None = None
+) -> Result:
+    return Result("c", "h", expect, lane.value, "", None, by, False, 100, {}, (), kind, rule=rule)
 
 
 def test_false_rejects_are_split_by_who_cut() -> None:
@@ -187,14 +179,21 @@ def test_false_rejects_are_split_by_who_cut() -> None:
         _result("yes", Lane.REJECT, "model", "intermediary"),
         _result("yes|unsure", Lane.REJECT, "model", "own"),
         _result("yes", Lane.REJECT, "rule"),
+        _result("yes", Lane.REJECT, "model", "own", "excluded_country"),
         _result("yes", Lane.ACCEPT),
         _result("no", Lane.REJECT, "language"),  # верный отказ — не в счёт
     ]
 
     found = metrics(results)
 
-    assert found["false_reject_by"] == {"segment": 1, "language": 1, "intermediary": 1, "rule": 1}
-    assert found["false_reject"] == pytest.approx(4 / 5)
+    assert found["false_reject_by"] == {
+        "segment": 1,
+        "language": 1,
+        "intermediary": 1,
+        "rule": 1,
+        "country": 1,
+    }
+    assert found["false_reject"] == pytest.approx(5 / 6)
 
 
 def test_lane_shares_count_every_case_and_accuracy_only_labeled_ones() -> None:

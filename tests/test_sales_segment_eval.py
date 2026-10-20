@@ -1,13 +1,14 @@
-"""Eval судьи сегмента сбора базы (волна В3в): синтетика, ворота, порча промпта, внешний набор
-по манифесту и заготовка разметки из прогона.
+"""Eval судьи сегмента сбора базы (волна В3в, судья v4): синтетика, ворота, порча промпта, внешний
+набор по манифесту и заготовка разметки из прогона.
 
-Живая модель здесь не зовётся: её заменяет подставной транспорт — «оракул», который знает
-решение человека, но отвечает только тем, что разрешает промпт: без правила дословной цитаты
-он пересказывает, без определения «no» говорит «unsure», без правила v2 «сайт о бизнесах вида —
-не бизнес вида» принимает справочник под нестрогим описанием («сайты, связанные с …») — как
-модель на калибровке. Так порча промпта видна без сети, а цитата проверяется тем же кодом
-судьи (`segment_judge.parse`). Живой прогон на наборе — координатор по слову владельца, числа —
-в verify-report.
+Живая модель здесь не зовётся: её заменяет подставной транспорт — «оракул», который знает решение
+человека, но отвечает только тем, что разрешает промпт (судья v4 — фактами): без правила дословной
+цитаты он пересказывает, без определения «другое дело» говорит «не видно», без признаков посредника
+принимает площадку заявок за своё дело, а с правилом «места сравнивает модель» режет сайт без места
+сегмента — как модель на калибровке. Описание он разбирает как «сегмент без места» (контрольным
+сегментам, что сами просят справочники и площадки, — и такие виды сайтов). Так порча промпта видна без
+сети, а цитата проверяется тем же кодом судьи. Живой прогон на наборе — по слову владельца, числа — в
+verify-report.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from scripts import eval_sales_segment as ev
 from scripts.eval_sales_segment_metrics import CLASSES
 from scripts.eval_sales_segment_sets import cases_of_run
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.segment_facts_fakes import facts, is_scope
 from tests.test_sales_segment_judge import MODEL_KEY
 from tests.test_sales_segment_run import hypothesis, make_run
 
@@ -42,8 +44,9 @@ LANGUAGE_FREE = {case["host"] for case in SYNTHETIC if "language" in case["tags"
 
 
 class Oracle:
-    """Подставная модель: решение человека — тем, что разрешает промпт. Случай — по домену и
-    описанию: один сайт под строгим и нестрогим описанием — два случая."""
+    """Подставная модель: решение человека — фактами, которые разрешает промпт. Случай — по домену и
+    описанию: один сайт под строгим и нестрогим описанием — два случая. Разбор описания — «без места»;
+    контрольные сегменты просят и посредников, и издания."""
 
     def __init__(
         self,
@@ -52,45 +55,59 @@ class Oracle:
         usage: dict[str, Any] | None = None,
     ):
         self.cases = {(case["host"], case["segment"].strip()): case for case in cases}
+        self.controls = {
+            c["segment"].strip() for c in self.cases.values() if "control" in c["tags"]
+        }
         self.wrong = wrong or {}
         #: `usage` ответа — как назвал бы провайдер; по умолчанию только итог.
         self.usage = usage or {"total_tokens": 211}
+        #: Сайты, о которых спросили (разбор описания — не сайт: `scoped`).
         self.asked: list[str] = []
+        self.scoped = 0
         #: Усилие рассуждения каждого запроса.
         self.efforts: list[str | None] = []
-        #: Промпт и текст сайта каждого запроса.
+        #: Промпт и текст сайта каждого запроса о сайте.
         self.systems: list[str] = []
         self.users: list[str] = []
+
+    def _answer(self, request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        content = json.dumps(body, ensure_ascii=False)
+        answer = {"choices": [{"message": {"content": content}}], "usage": self.usage}
+        return httpx.Response(200, json=answer, request=request)
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         system, user = (m["content"] for m in payload["messages"])
-        host = user.split("\n", 1)[0].removeprefix("Domain: ")
         segment = user.split(f"{sj.SEGMENT_OPEN}\n", 1)[1].split(f"\n{sj.SEGMENT_CLOSE}", 1)[0]
-        self.asked.append(host)
         self.efforts.append(payload.get("reasoning_effort"))
+        if is_scope(request):
+            self.scoped += 1
+            kinds = ["own", "intermediary", "media"] if segment in self.controls else ["own"]
+            return self._answer(
+                request, {"countries": [], "kinds": kinds, "excludes_networks": False}
+            )
+        host = user.split("\n", 1)[0].removeprefix("Domain: ")
+        self.asked.append(host)
         self.systems.append(system)
         self.users.append(user)
-        case = self.cases[host, segment]
-        # Сайт без разметки — тот, что судья принял сам и человек не смотрел.
-        fit = self.wrong.get(host, (case["expect"] or "yes").split("|")[0])
-        if {"about-businesses", "loose"} <= set(case["tags"]) and ev.RULES["about"] not in system:
-            fit = "yes"  # без правила v2 нестрогое описание принимает справочник, как на калибровке
-        if "unseen" in case["tags"] and ev.RULES["unseen"] not in system:
-            fit = "no"  # без «не видно» признак сегмента, которого нет в тексте, режет — как v2
-        if "intermediary" in case["tags"] and ev.RULES["intermediary"] not in system:
-            fit = "yes"  # без сигналов посредника площадка заявок проходит за своё дело
-        if "foreign-only" in case["tags"] and ev.RULES["foreign"] not in system:
-            fit = "yes"  # без подпункта чужая география — «не видно», как у v3 на живом наборе
-        if f'- "{fit}": ' not in system:
-            fit = "unsure"  # слова, которого промпт не определяет, оракул не говорит
+        return self._answer(request, self.facts(self.cases[host, segment], system))
+
+    def facts(self, case: dict[str, Any], system: str) -> dict[str, Any]:
+        """Решение человека фактами — тем, что разрешает промпт."""
+        fit = self.wrong.get(case["host"], (case["expect"] or "yes").split("|")[0])
+        tags = set(case["tags"])
+        kind = "intermediary" if fit == "no" and "intermediary" in tags else "own"
+        if "intermediary" in tags and ev.RULES["intermediary"] not in system:
+            kind, fit = "own", "yes"  # без признаков посредника площадка заявок — «своё дело»
+        if "unseen" in tags and ev.RULES["places"] not in system:
+            fit = "no"  # места судит модель: сайт без места сегмента режется, как до v3
+        if fit == "no" and ev.RULES["no"] not in system:
+            fit = "unsure"  # «другого дела» промпт не определяет — оракул его не говорит
         quote = case["evidence"]
         if ev.RULES["quote"] not in system:
             quote = " ".join(reversed(quote.split()))  # без правила — пересказ, а не цитата
-        kind = "intermediary" if "intermediary" in case["tags"] else "own"
-        body = {"kind": kind, "fit": fit, "quote": quote, "why": "по тексту сайта"}
-        answer = {"choices": [{"message": {"content": json.dumps(body)}}], "usage": self.usage}
-        return httpx.Response(200, json=answer, request=request)
+        body = facts(fit, quote, "по тексту сайта")
+        return body | {"kind": "unclear" if fit == "unsure" else kind}
 
 
 def use(monkeypatch: pytest.MonkeyPatch, oracle: Oracle) -> None:
@@ -214,55 +231,69 @@ def test_a_fit_cut_off_closes_the_gates(monkeypatch: pytest.MonkeyPatch, capsys:
     assert f"ложных «отказ» {need / len(fits):.0%} > 10%" in capsys.readouterr().out
 
 
-def test_spoiled_v2_rule_lets_directories_in_and_closes_the_gates(
+def test_a_spoiled_intermediary_definition_lets_them_in_and_closes_the_gates(
     oracle: Oracle, capsys: Capture
 ) -> None:
-    """Обратный прогон правила v2: без него справочники, карты, реестры и агрегаторы под
-    нестрогим описанием приняты — ложные «принять» выше ворот, порча поймана словами."""
-    assert ev.main(["--spoil", "about"]) == 1
+    """Обратный прогон: без признаков посредника площадки заявок, каталоги и подборщики приняты как
+    своё дело — ложные «принять» выше ворот, порча поймана словами."""
+    assert ev.main(["--spoil", "intermediary"]) == 1
 
     out = capsys.readouterr().out
-    assert "ПОРЧА ПРОМПТА: снято правило «сайт о бизнесах вида — не бизнес вида»" in out
-    assert "ПОРЧА ПОЙМАНА: без правила «сайт о бизнесах вида — не бизнес вида»" in out
-    loose = [c["id"] for c in SYNTHETIC if {"about-businesses", "loose"} <= set(c["tags"])]
-    traps = sum("about-businesses" in c["tags"] for c in SYNTHETIC)
-    assert f"(about-businesses): ложных «принять» {len(loose)} из {traps} {loose}" in out
+    assert "ПОРЧА ПРОМПТА: снято правило «посредник по сигналам в тексте»" in out
+    assert "ПОРЧА ПОЙМАНА: без правила «посредник по сигналам в тексте»" in out
+    traps = [c for c in SYNTHETIC if "intermediary" in c["tags"]]
+    # Сайт на чужом языке режет код до модели — порча промпта его не пускает.
+    caught = [c for c in traps if "language" not in c["tags"]]
+    assert f"(intermediary): ложных «принять» {len(caught)} из {len(traps)}" in out
     assert "ложных «принять»" in out.split("ВОРОТА ЗАКРЫТЫ:")[1]
 
 
-def test_with_the_v2_rule_the_traps_are_rejected(oracle: Oracle, capsys: Capture) -> None:
+def test_with_the_intermediary_definition_the_traps_are_rejected(
+    oracle: Oracle, capsys: Capture
+) -> None:
     assert ev.main([]) == 0
 
-    traps = sum("about-businesses" in c["tags"] for c in SYNTHETIC)
-    assert f"(about-businesses): ложных «принять» 0 из {traps}" in capsys.readouterr().out
+    traps = sum("intermediary" in c["tags"] for c in SYNTHETIC)
+    assert f"(intermediary): ложных «принять» 0 из {traps}" in capsys.readouterr().out
+
+
+def test_a_spoiled_places_rule_cuts_sites_without_the_segments_place(
+    oracle: Oracle, capsys: Capture
+) -> None:
+    """Места сверяет код, а не модель: вернуть модели суд о местах — сайты без места сегмента в
+    тексте («не видно») режутся, ложные «отказ» выше ворот."""
+    assert ev.main(["--spoil", "places"]) == 1
+
+    out = capsys.readouterr().out
+    assert "ПОРЧА ПОЙМАНА: без правила «места сверяет код, а не модель»" in out
+    assert "ложных «отказ»" in out.split("ВОРОТА ЗАКРЫТЫ:")[1]
 
 
 def test_a_spoil_the_set_does_not_feel_is_said_in_words(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Capture
 ) -> None:
     """Набор без ловушек правила порчу не ловит — итог говорит это словами, а не молчит."""
-    strict = [case for case in SYNTHETIC if "loose" not in case["tags"]]
-    path = tmp_path / "strict.jsonl"
-    path.write_text("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in strict), "utf-8")
-    use(monkeypatch, Oracle(strict))
+    plain = [case for case in SYNTHETIC if "intermediary" not in case["tags"]]
+    path = tmp_path / "plain.jsonl"
+    path.write_text("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in plain), "utf-8")
+    use(monkeypatch, Oracle(plain))
 
-    assert ev.main(["--spoil", "about", str(path)]) == 0
+    assert ev.main(["--spoil", "intermediary", str(path)]) == 0
 
-    assert "ПОРЧА НЕ ПОЙМАНА: без правила «сайт о бизнесах вида — не бизнес вида»" in (
+    assert "ПОРЧА НЕ ПОЙМАНА: без правила «посредник по сигналам в тексте»" in (
         capsys.readouterr().out
     )
 
 
-def test_the_v2_spoil_takes_out_exactly_the_v2_rule_line() -> None:
-    """Без правила v2 промпт — ровно прежний: тот же прогон на наборе даёт замер v1."""
+def test_the_places_spoil_puts_the_old_line_instead_of_the_rule() -> None:
+    """Порча «места судит модель» ставит прежнюю строку вместо правила, остальное — как было."""
     prompt = sj.load_prompt()
 
-    spoiled = ev.without_rule(prompt, "about")
+    spoiled = ev.without_rule(prompt, "places")
 
-    assert "what it writes about" not in spoiled
-    kept = [line for line in prompt.splitlines() if not line.startswith("- Judge what the site")]
-    assert spoiled.splitlines() == kept
-    assert len(kept) == len(prompt.splitlines()) - 1
+    assert ev.RULES["places"] not in spoiled
+    assert ev.SPOILED_WITH["places"] in spoiled.splitlines()
+    assert len(spoiled.splitlines()) == len(prompt.splitlines())
 
 
 # --- «не уверен»: пара ответов, любой верен --------------------------------------------------

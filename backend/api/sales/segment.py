@@ -2,8 +2,9 @@
 
 `GET /sales/segment?hypothesis=N` — вкладка сбора: описание сегмента, режим судьи, рынки
 выдачи, языки писем, границы формы, режим покупки выдачи по умолчанию и прогоны гипотезы. `PATCH /sales/hypotheses/{N}` —
-описание сегмента и имя гипотезы (окно гипотезы): описание читает судья сегмента (правка — новый
-вопрос модели, прежние вердикты по нему не годятся); правило — `features/sales/hypotheses.edit`.
+описание сегмента, имя гипотезы и поле «страны компаний» (окно гипотезы): описание читает судья
+сегмента (правка — новый вопрос модели, прежние вердикты по нему не годятся), поле — таблица правил
+судьи (правка — пересуд без модели); правило — `features/sales/hypotheses.edit`.
 
 `POST /sales/segment/estimate` — смета без записи: выдача, модель, Hunter строкой и отказ
 словами; снятые человеком ключи (`excluded`, номера строк, как вписаны) не покупаются и в смету не
@@ -188,7 +189,7 @@ async def _watched(runs: Sequence[SalesSegmentRunModel]) -> dict[int, segment_wa
 @router.patch(
     "/hypotheses/{hypothesis_id}",
     response_model=SegmentCard,
-    summary="Правка гипотезы: имя и описание сегмента",
+    summary="Правка гипотезы: имя, описание сегмента, страны компаний",
 )
 async def write_segment(
     hypothesis_id: int,
@@ -207,6 +208,8 @@ async def write_segment(
             hypothesis_id,
             name=body.name,
             description=body.description,
+            other_countries=body.other_countries,
+            excluded_countries=body.excluded_countries,
             author_id=author.id,
         )
     except HypothesisRefusedError as exc:
@@ -214,7 +217,13 @@ async def write_segment(
     except HypothesisError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     await session.commit()
-    return SegmentCard(hypothesis_id=hypothesis_id, name=found.name, description=found.description)
+    return SegmentCard(
+        hypothesis_id=hypothesis_id,
+        name=found.name,
+        description=found.description,
+        other_countries=found.other_countries,
+        excluded_countries=list(found.excluded_countries),
+    )
 
 
 @router.post("/segment/estimate", response_model=EstimateView, summary="Смета прогона: без записи")

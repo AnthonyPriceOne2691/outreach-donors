@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from backend.api.sales.segment_waits import OfferRow, WaitRow
 from backend.config import serp as serp_cfg
 from backend.features.sales import segment_progress
+from backend.features.sales.geo import COUNTRIES
 from backend.features.sales.segment_estimate import Estimate
 from backend.features.sales.segment_estimate_keys import run_excluded
 from backend.features.sales.segment_keywords import run_keywords
@@ -28,6 +29,10 @@ logger = logging.getLogger(__name__)
 KEYWORDS_LENGTH = 20_000
 #: Длина описания сегмента: абзац-другой, не документ.
 SEGMENT_LENGTH = 4000
+#: Поле «страны компаний»: кодов «не пишем» — не больше, чем стран в ISO 3166-1; код — короткий,
+#: а не абзац (годный ли он, судит ядро словами, `hypothesis_countries.checked_codes`).
+COUNTRIES_MAX = len(COUNTRIES)
+CountryCode = Annotated[str, Field(max_length=8)]
 #: Номер строки ключа: в наборе предельной длины строка с ключом не дальше знака с тем же номером.
 LineNumber = Annotated[int, Field(ge=1, le=KEYWORDS_LENGTH)]
 
@@ -80,12 +85,21 @@ class SegmentBody(BaseModel):
     description: str | None = Field(
         default=None, max_length=SEGMENT_LENGTH, description="пустое — описания нет"
     )
+    other_countries: str | None = Field(
+        default=None, max_length=16, description="компании из других стран: review или accept"
+    )
+    excluded_countries: list[CountryCode] | None = Field(
+        default=None, max_length=COUNTRIES_MAX, description="не пишем компаниям из: коды ISO"
+    )
 
 
 class SegmentCard(BaseModel):
     hypothesis_id: int
     name: str
     description: str | None
+    #: Поле «страны компаний» (`hypothesis_countries`): переключатель и коды «не пишем».
+    other_countries: str
+    excluded_countries: list[str]
 
 
 class EstimateView(BaseModel):
