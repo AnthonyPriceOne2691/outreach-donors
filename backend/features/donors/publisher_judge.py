@@ -168,6 +168,10 @@ class Judgement:
     #: не ложится, кэшем не становится — иначе сбой одного вечера держит домен
     #: без суда полгода (прогон №21, 24.09.2026 — 44 домена без ключа).
     unanswered: bool = False
+    #: Судить было не по чему: ни текста выдачи, ни главной (`judging.by_home`). Вердикта
+    #: нет, как у неответа: на домен не ложится, кэшем не становится — прогон по ключам,
+    #: нашедший домен с текстом, судит его сразу, а не через полгода (ревью 20.10.2026).
+    blind: bool = False
 
     @property
     def would_cut(self) -> bool:
@@ -294,6 +298,10 @@ def parse(content: str, text: str) -> Judgement:
     return Judgement(intent, ADVICE[intent], quote, why or "по тексту выдачи")
 
 
+#: Почему вердикта нет: судить было не по чему.
+NO_TEXT = "выдача не дала ни заголовка, ни описания"
+
+
 def before_model(host: str, text: str) -> Judgement | None:
     """Всё, что решается без модели и не стоит ни одного токена.
 
@@ -316,8 +324,8 @@ def before_model(host: str, text: str) -> Judgement | None:
         )
     if not text:
         return Judgement(
-            Intent.UNKNOWN, Recommendation.REVIEW, None,
-            "выдача не дала ни заголовка, ни описания", decided_by=Decider.RULE,
+            Intent.UNKNOWN, Recommendation.REVIEW, None, NO_TEXT,
+            decided_by=Decider.RULE, blind=True,
         )  # fmt: skip
     if looks_denied(text):
         # Судить отказ доступа нельзя даже когда получается: правильный

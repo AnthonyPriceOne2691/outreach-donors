@@ -28,6 +28,7 @@ from backend.api.overview import routes as overview_routes
 from backend.api.rechecks import routes as rechecks_routes
 from backend.api.replies import routes as replies_routes
 from backend.api.review import routes as review_routes
+from backend.api.runs import competitors as competitor_routes
 from backend.api.runs import routes as runs_routes
 from backend.api.sales import routes as sales_routes
 from backend.api.selection import routes as selection_routes
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
     app.include_router(users_routes.router, prefix=API_PREFIX)
     app.include_router(journal_routes.router, prefix=API_PREFIX)
     app.include_router(runs_routes.router, prefix=API_PREFIX)
+    app.include_router(competitor_routes.router, prefix=API_PREFIX)
     app.include_router(keywords_routes.router, prefix=API_PREFIX)
     app.include_router(donors_routes.router, prefix=API_PREFIX)
     app.include_router(contacts_routes.router, prefix=API_PREFIX)

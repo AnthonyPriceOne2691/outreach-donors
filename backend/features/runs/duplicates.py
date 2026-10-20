@@ -15,11 +15,15 @@
 «такого нет» раньше, чем любое зафиксирует свою строку. Рекомендательная блокировка
 Postgres на транзакцию запуска ставит их в очередь: второй ждёт фиксации первого
 и видит его прогон. Замок снимается фиксацией или откатом — сам, без уборки.
+
+**Прогон по ссылкам конкурентов** (`runs/competitors.py`) — тем же правилом: такой же —
+те же конкуренты набором, страна и глубина списка; второй купил бы те же списки.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,11 +46,24 @@ def _keyset(keywords: Iterable[str]) -> frozenset[str]:
     return frozenset(filter(None, map(keyword_key, keywords)))
 
 
+def _rivals(asked: Mapping[str, Any] | None) -> tuple[frozenset[str], int] | None:
+    """Конкуренты набором и глубина списка; у прогона по ключам — `None`."""
+    if not asked:
+        return None
+    return frozenset(asked.get("targets") or ()), int(asked.get("depth") or 0)
+
+
 async def refuse_duplicate(
-    session: AsyncSession, *, keywords: Sequence[str], country: str, depth_pages: int
+    session: AsyncSession,
+    *,
+    keywords: Sequence[str],
+    country: str,
+    depth_pages: int,
+    competitors: Mapping[str, Any] | None = None,
 ) -> None:
     """Отказ, если такой же прогон стоит в очереди или идёт. Берёт замок запуска до конца
-    транзакции: зовётся до записи своего прогона, в той же транзакции."""
+    транзакции: зовётся до записи своего прогона, в той же транзакции. `competitors` —
+    строка прогона по ссылкам конкурентов (`runs.competitors`)."""
     await session.execute(select(func.pg_advisory_xact_lock(START_LOCK)))
     rows = await session.scalars(
         select(RunModel)
@@ -58,10 +75,19 @@ async def refuse_duplicate(
         )
         .order_by(RunModel.id)
     )
-    wanted = _keyset(keywords)
-    twin = next((run for run in rows if _keyset(run.keywords) == wanted), None)
-    if twin is not None:
+    wanted = (_keyset(keywords), _rivals(competitors))
+    twin = next(
+        (run for run in rows if (_keyset(run.keywords), _rivals(run.competitors)) == wanted), None
+    )
+    if twin is None:
+        return
+    if competitors:
         raise DuplicateRunError(
-            f"Такой же прогон №{twin.id} ещё не закончен: те же ключи, страна и глубина. "
-            "Второй купил бы ту же выдачу ещё раз — дождитесь конца первого или поменяйте ключи"
+            f"Такой же прогон №{twin.id} ещё не закончен: те же конкуренты, страна и глубина. "
+            "Второй купил бы те же списки ещё раз — дождитесь конца первого или поменяйте "
+            "конкурентов"
         )
+    raise DuplicateRunError(
+        f"Такой же прогон №{twin.id} ещё не закончен: те же ключи, страна и глубина. "
+        "Второй купил бы ту же выдачу ещё раз — дождитесь конца первого или поменяйте ключи"
+    )

@@ -74,12 +74,20 @@ class RunForecast:
     #: (тематика или судья выключены). Замер ли это прошлых прогонов или оценка — рядом.
     topic_per_site: int = 0
     topic_measured: bool = False
+    #: Юниты Ahrefs сверх трёх ступеней — списки ссылающихся доменов прогона по конкурентам
+    #: (`runs/competitor_run.py`). У прогона по ключам ноль: его выдача платится долларами.
+    lists_units: int = 0
 
     @property
     def topic_tokens(self) -> int:
         """Токены тематики — худший случай, как у юнитов: все домены новые и без темы.
         Юниты Ahrefs не трогает: это дневной потолок модели, а не кап."""
         return self.expected_domains * self.topic_per_site
+
+    @property
+    def units_total(self) -> int:
+        """Вся смета в юнитах Ahrefs — списки и три ступени: с ней сверяется бюджет."""
+        return self.lists_units + self.estimate.total
 
     @property
     def cap_left(self) -> int:
@@ -105,12 +113,12 @@ class RunForecast:
     @property
     def affordable(self) -> bool:
         """Помещается ли смета в бюджет. По этому полю блокируется кнопка."""
-        return self.estimate.total <= self.budget
+        return self.units_total <= self.budget
 
     @property
     def shortfall(self) -> int:
         """Сколько юнитов не хватает. Ноль, если хватает."""
-        return max(0, self.estimate.total - self.budget)
+        return max(0, self.units_total - self.budget)
 
     @property
     def binding(self) -> str:
@@ -127,7 +135,7 @@ class RunForecast:
         """Каких лимитов смете не хватает — каждого по отдельности, жёсткие первыми: не хватает
         и ключа, и капа — человеку поднимать оба (слово владельца 16.10.2026: «если и то, и
         другое — проверьте лимиты ключа и лимиты капа»), а упор (`binding`) назвал бы один."""
-        return [name for name, left in self._limits().items() if self.estimate.total > left]
+        return [name for name, left in self._limits().items() if self.units_total > left]
 
     def _limits(self) -> dict[str, int]:
         """Остатки, из которых взят бюджет, жёсткие первыми: Ahrefs, наш кап, потолок."""

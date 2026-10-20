@@ -222,6 +222,35 @@ class TestRecovery:
         # То, что прогон успел сделать, из отчёта не пропадает.
         assert run.stats["checked_now"] == 7
 
+    async def test_dead_competitor_run_is_closed_with_its_lists_journal(
+        self, session: AsyncSession
+    ) -> None:
+        """Прогон по конкурентам умер с сохранёнными кандидатами: журнал списков — в отчёт."""
+        run = await _run_row(
+            session,
+            status=RunStatus.RUNNING,
+            silent_for=STALE_AFTER_SEC + 10,
+            stats={RESUMES_KEY: MAX_RESUMES},
+        )
+        source = {"kind": "competitors", "targets": [{"target": "example.com", "rows": 3}]}
+        await session.execute(
+            update(RunModel)
+            .where(RunModel.id == run.id)
+            .values(
+                competitors={"targets": ["example.com"], "depth": 100},
+                candidates={"hosts": ["example.org"], "keywords": 0, "results": 3,
+                            "source": {**source, "linked_to": {"example.org": ["example.com"]}}},
+                updated_at=run.updated_at,
+            )
+        )  # fmt: skip
+        await session.refresh(run)
+
+        await recover(RunRepository(session), alive=lambda _: False, enqueue=Enqueued())
+        await session.refresh(run)
+
+        assert run.status is RunStatus.STOPPED
+        assert run.stats["source"] == source, "без карты «кто на кого» — как у закрытия воронки"
+
     async def test_exhausted_but_fresh_run_waits_instead_of_burial(
         self, session: AsyncSession
     ) -> None:
@@ -344,6 +373,31 @@ class TestFailureIsNamed:
             "прогон продолжен по сохранённой выдаче"
         )
         assert run.stats["failure"] == self.TRACE_LINE
+
+    async def test_competitor_run_is_resumed_by_its_saved_lists(
+        self, session: AsyncSession
+    ) -> None:
+        """У прогона по конкурентам выдачи нет — продолжение идёт по полученным спискам."""
+        run = await _run_row(session, status=RunStatus.RUNNING, silent_for=RESUME_AFTER_SEC + 10)
+        # Запросом, а не через объект: запись объекта сама обновила бы отметку молчания.
+        await session.execute(
+            update(RunModel)
+            .where(RunModel.id == run.id)
+            .values(
+                competitors={"targets": ["example.com"], "depth": 100}, updated_at=run.updated_at
+            )
+        )
+        await session.refresh(run)
+
+        await recover(
+            RunRepository(session),
+            alive=lambda _: False,
+            enqueue=Enqueued(),
+            failure=lambda _: self.TRACE_LINE,
+        )
+        await session.refresh(run)
+
+        assert run.stats["причина"].endswith("прогон продолжен по сохранённым спискам конкурентов")
 
     async def test_our_refusal_is_told_in_its_own_words(self, session: AsyncSession) -> None:
         """Наш отказ сам говорит, что делать: он и становится причиной."""

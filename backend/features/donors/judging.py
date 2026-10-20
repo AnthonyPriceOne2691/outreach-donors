@@ -16,6 +16,11 @@
 **Сбой судьи не отбирает домен.** Любой отказ — «посмотри», и в `enforce`
 такой домен идёт дальше как обычно: терять его из-за нашей поломки дороже,
 чем оплатить ему метрики.
+
+**Нет текста выдачи — судят главную** (`by_home`): кандидат из списка ссылок конкурентов
+или выдача без сниппета. Тем же походом, что вторая сторона (`check_home`), и тем же
+текстом читает тематика. Не открылась и она — вердикта нет (`Judgement.blind`): в кэш он
+не ложится, домен судится следующим прогоном, а в отчёте — своим числом (`no_text`).
 """
 
 from __future__ import annotations
@@ -37,6 +42,7 @@ from backend.features.donors.publisher_judge import (
     Judgement,
     Recommendation,
     arbitrate,
+    before_model,
     judge_host,
     source_text,
 )
@@ -52,6 +58,8 @@ logger = logging.getLogger(__name__)
 #: каждому значило бы завышать экономию.
 UNITS_DR = 2
 UNITS_METRICS = 28
+#: Пометка вердикта по главной: текста выдачи у кандидата не было (`by_home`).
+BY_HOME = "по главной: текста выдачи нет"
 
 
 @dataclass(slots=True)
@@ -92,6 +100,11 @@ class JudgeSummary:
     """Главная не открылась. Отдельным числом: иначе закрывшийся сайт
     выглядит как сайт без признаков магазина."""
 
+    no_text: int = 0
+    """Судить было не по чему: ни текста выдачи, ни главной. Модель не звали, вердикта
+    нет — домен судится следующим прогоном. Отдельным числом: иначе такой домен читался
+    бы судом «посмотри»."""
+
     from_index: int = 0
     """Скольких судили по образу главной из индекса поиска."""
 
@@ -119,6 +132,7 @@ class JudgeSummary:
         self.unanswered_reason = self.unanswered_reason or other.unanswered_reason
         self.tokens += other.tokens
         self.home_unreached += other.home_unreached
+        self.no_text += other.no_text
         self.from_index += other.from_index
         self.index_usd += other.index_usd
         for key, count in other.by_intent.items():
@@ -128,6 +142,9 @@ class JudgeSummary:
 
     def record(self, verdict: Judgement, *, paid: bool) -> None:
         self.tokens += verdict.tokens
+        if verdict.blind:
+            self.no_text += 1
+            return
         if verdict.unanswered:
             self.unanswered += 1
             if self.unanswered_reason is None:
@@ -228,6 +245,52 @@ async def settle(
     return ruling
 
 
+def page_of(home: HomeSignals) -> SerpText | None:
+    """Главная страницей для судьи: заголовок и описание, а описания нет — начало видимого
+    текста. Не открылась или пуста — `None`: судить не по чему."""
+    description = home.description or home.text
+    if not home.reached or not (home.title or description):
+        return None
+    return SerpText(url="", title=home.title or None, description=description or None)
+
+
+def _without_text(host: str, text: SerpText | None) -> bool:
+    """Текста выдачи нет, а правило без текста домен не решает (платформа, госзона решают)."""
+    ruled = before_model(host, source_text(text.title, text.description) if text else "")
+    return ruled is not None and ruled.blind
+
+
+async def by_home(
+    http: httpx.AsyncClient, home_client: httpx.AsyncClient, *, host: str
+) -> tuple[Judgement, HomeSignals]:
+    """Кандидат без текста выдачи: судья читает главную тем же походом, что вторую сторону
+    (`check_home`: robots, пауза на хост, свой таймаут), и судит по ней одним вызовом —
+    спорить странице с главной не о чем. Отказ модели по главной режет, только если его
+    подтверждает структура (корзина, услуга), иначе — «посмотри»: так же досуд по главной
+    (`backfill._from_home_verdict`). Главная не открылась или пуста — вердикта нет."""
+    home = await check_home(home_client, host)
+    page = page_of(home)
+    verdict = await judge_host(
+        http,
+        host=host,
+        title=page.title if page else None,
+        description=page.description if page else None,
+    )
+    if verdict.blind or verdict.unanswered or verdict.decided_by is Decider.RULE:
+        return verdict, home
+    reason = f"{BY_HOME} · {verdict.reason}"
+    if verdict.recommendation is not Recommendation.REJECT:
+        return replace(verdict, reason=reason), home
+    if verdict.intent is Intent.SELLS_OWN and home.sells:
+        marks = ", ".join((*home.shop, *home.service)[:3])
+        return replace(
+            verdict, reason=f"{reason} · главная: {marks}", decided_by=Decider.RULE
+        ), home
+    return replace(
+        verdict, recommendation=Recommendation.REVIEW, reason=f"{reason} · посмотри"
+    ), home
+
+
 async def through_index(
     http: httpx.AsyncClient,
     index: SerpProvider,
@@ -304,7 +367,7 @@ def _collect(
         door = door_of(text, home)
         verdict = open_door(judged, door)
         summary.record(verdict, paid=host in unpaid)
-        if verdict.unanswered:
+        if verdict.unanswered or verdict.blind:
             continue
         if home is not None and not home.reached:
             summary.home_unreached += 1
@@ -368,6 +431,9 @@ async def judge_candidates(
     async def one(host: str) -> None:
         text = texts.get(host)
         async with gate:
+            if home_client is not None and _without_text(host, text):
+                results[host] = await by_home(http, home_client, host=host)
+                return
             first = await judge_host(
                 http,
                 host=host,

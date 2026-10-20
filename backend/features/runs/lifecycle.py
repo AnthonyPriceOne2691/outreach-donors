@@ -36,6 +36,7 @@ from typing import Any
 
 from backend.features.core.domain import RunStatus
 from backend.features.core.models.run import RunModel
+from backend.features.runs.competitor_run import journal_of
 from backend.features.runs.reasons import explained_line
 from backend.features.runs.repository import (
     FAILURE_KEY,
@@ -219,7 +220,7 @@ async def recover(
                         run,
                         **{
                             RESUMES_KEY: attempts + 1,
-                            REASON_KEY: f"{cause.said}; прогон продолжен по сохранённой выдаче",
+                            REASON_KEY: f"{cause.said}; прогон продолжен {_resumed_by(run)}",
                             FAILURE_KEY: cause.detail,
                         },
                     ),
@@ -244,9 +245,9 @@ async def recover(
                 f"остановлен разбором: {cause.said}, продолжений {attempts} "
                 f"из {MAX_RESUMES}, молчание {silent_for:.0f} с"
             )
-            await repository.stop_run(
-                run, stats=_with_note(run, **{REASON_KEY: reason, FAILURE_KEY: cause.detail})
-            )
+            # Журнал списков конкурентов — и у прогона, умершего до воронки.
+            notes = {REASON_KEY: reason, FAILURE_KEY: cause.detail, **journal_of(run)}
+            await repository.stop_run(run, stats=_with_note(run, **notes))
             stopped[run.id] = reason
             logger.error(
                 "Прогон %s закрыт как мёртвый: молчит %.0f с, продолжения исчерпаны (%s)",
@@ -270,6 +271,12 @@ async def _tell_stopped(stopped: dict[int, str]) -> None:
     """
     for run_id, reason in stopped.items():
         await tell_stopped(run_id, reason)
+
+
+def _resumed_by(run: RunModel) -> str:
+    """Чем продолжен прогон: у прогона по конкурентам вместо выдачи — их списки, полученные
+    прошлой попыткой (`runs/competitor_run`)."""
+    return "по сохранённым спискам конкурентов" if run.competitors else "по сохранённой выдаче"
 
 
 def _updated_at(run: RunModel) -> datetime:

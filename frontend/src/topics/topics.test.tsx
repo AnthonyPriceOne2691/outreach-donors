@@ -16,7 +16,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { TopicCount, TopicFields } from '../api/topics';
-import type { Forecast } from '../api/types';
 import {
   conditionsOf,
   NO_FILTERS,
@@ -144,14 +143,14 @@ const FORECAST = { expected_domains: 26, topic_tokens: 52_000, topic_tokens_per_
 
 describe('тематика: смета и история прогонов', () => {
   it('смета называет токены тематики и говорит, оценка это или замер', () => {
-    const { rerender } = plain(<TopicTokens forecast={FORECAST as unknown as Forecast} />);
+    const { rerender } = plain(<TopicTokens forecast={FORECAST} />);
     const line = document.querySelector('.topicTokens');
     expect(spaced(line?.textContent)).toContain('по оценке — замера ещё не было');
     expect(spaced(line?.textContent)).toContain('2 000 на сайт');
 
     rerender(
       <MantineProvider theme={theme}>
-        <TopicTokens forecast={{ ...FORECAST, topic_measured: true } as unknown as Forecast} />
+        <TopicTokens forecast={{ ...FORECAST, topic_measured: true }} />
       </MantineProvider>,
     );
     expect(document.querySelector('.topicTokens')?.textContent).toContain(
@@ -160,7 +159,7 @@ describe('тематика: смета и история прогонов', () =
   });
 
   it('тематика не определяется — строки нет, а не «0 токенов»', () => {
-    plain(<TopicTokens forecast={{ topic_tokens: 0 } as unknown as Forecast} />);
+    plain(<TopicTokens forecast={{ topic_tokens: 0 }} />);
     expect(document.querySelector('.topicTokens')).toBeNull();
   });
 

@@ -34,7 +34,7 @@ from backend.features.runs.pipeline import RunRequest, execute_run
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
 from backend.shared import alerts
-from backend.workers import jobs
+from backend.workers import run_job as jobs
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.test_ahrefs_cap import known_key

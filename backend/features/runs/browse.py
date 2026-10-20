@@ -73,9 +73,10 @@ class RunRow:
     @property
     def estimate_error(self) -> float | None:
         """На сколько смета разошлась с фактом, в долях. `None` — прогон
-        ещё идёт или расхода не было."""
+        ещё идёт, расхода не было или прогон остановлен: факт недоделанного
+        против полной сметы — не ошибка сметы, и «−70 %» у него читалось бы ею."""
         estimated, actual = self.run.estimated_units, self.run.actual_units
-        if not estimated or actual is None:
+        if not estimated or actual is None or self.run.status is RunStatus.STOPPED:
             return None
         return (actual - estimated) / estimated
 

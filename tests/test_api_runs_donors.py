@@ -36,11 +36,15 @@ SignIn = Callable[..., Awaitable[str]]
 NOW = datetime.now(UTC)
 
 RUN_BODY = {"keywords": ["ремонт квартир"], "country": "us", "depth_pages": 1}
+#: Прогон по ссылкам конкурентов (`api/runs/competitors.py`) — те же права, что у ключей.
+RIVALS_BODY = {"competitors": ["example.com"], "country": "us", "depth": 100}
 
 ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/runs/countries", None, "run"),
     ("POST", "/api/runs/estimate", RUN_BODY, "run"),
     ("POST", "/api/runs", RUN_BODY, "run"),
+    ("POST", "/api/runs/competitors/estimate", RIVALS_BODY, "run"),
+    ("POST", "/api/runs/competitors", RIVALS_BODY, "run"),
     ("GET", "/api/runs", None, "view"),
     ("GET", "/api/runs/with-accepted", None, "view"),
     ("GET", "/api/runs/{run}", None, "view"),

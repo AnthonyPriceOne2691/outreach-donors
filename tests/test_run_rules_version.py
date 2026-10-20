@@ -37,7 +37,7 @@ from backend.features.runs.thresholds import (
     rules_in_force,
     rules_of,
 )
-from backend.workers import jobs
+from backend.workers import run_job as jobs
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.conftest import bearer

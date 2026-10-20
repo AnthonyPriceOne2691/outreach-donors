@@ -57,9 +57,9 @@
       "worst": "to_settings:58"
     },
     "backend/api/app.py": {
-      "lines": 102,
+      "lines": 104,
       "complexity": 1,
-      "worst": "create_app:49"
+      "worst": "create_app:50"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -306,13 +306,23 @@
       "complexity": 0,
       "worst": "—"
     },
-    "backend/api/runs/routes.py": {
-      "lines": 333,
+    "backend/api/runs/competitor_schemas.py": {
+      "lines": 179,
       "complexity": 4,
-      "worst": "_refuse_over_budget:103"
+      "worst": "of:153"
+    },
+    "backend/api/runs/competitors.py": {
+      "lines": 132,
+      "complexity": 2,
+      "worst": "start:93"
+    },
+    "backend/api/runs/routes.py": {
+      "lines": 361,
+      "complexity": 4,
+      "worst": "refuse_over_budget:109"
     },
     "backend/api/runs/schemas.py": {
-      "lines": 468,
+      "lines": 478,
       "complexity": 4,
       "worst": "_known_mode:68"
     },
@@ -767,7 +777,7 @@
       "worst": "—"
     },
     "backend/config/judge.py": {
-      "lines": 141,
+      "lines": 144,
       "complexity": 0,
       "worst": "—"
     },
@@ -912,9 +922,14 @@
       "worst": "—"
     },
     "backend/features/ahrefs/client.py": {
-      "lines": 379,
-      "complexity": 11,
-      "worst": "_request:226"
+      "lines": 442,
+      "complexity": 12,
+      "worst": "_rows:406"
+    },
+    "backend/features/ahrefs/refdomains.py": {
+      "lines": 135,
+      "complexity": 4,
+      "worst": "nodes:101"
     },
     "backend/features/ahrefs/units.py": {
       "lines": 309,
@@ -1127,7 +1142,7 @@
       "worst": "_enum:42"
     },
     "backend/features/core/models/run.py": {
-      "lines": 150,
+      "lines": 157,
       "complexity": 2,
       "worst": "_enum:27"
     },
@@ -1137,9 +1152,9 @@
       "worst": "check_connected:126"
     },
     "backend/features/core/usage.py": {
-      "lines": 305,
+      "lines": 308,
       "complexity": 10,
-      "worst": "ensure_llm_within_cap:221"
+      "worst": "ensure_llm_within_cap:224"
     },
     "backend/features/core/window.py": {
       "lines": 172,
@@ -1432,9 +1447,9 @@
       "worst": "normalize_host:37"
     },
     "backend/features/donors/judging.py": {
-      "lines": 398,
+      "lines": 464,
       "complexity": 13,
-      "worst": "judge_candidates:335"
+      "worst": "judge_candidates:398"
     },
     "backend/features/donors/manual_price.py": {
       "lines": 447,
@@ -1462,9 +1477,9 @@
       "worst": "checked_email:100"
     },
     "backend/features/donors/publisher_judge.py": {
-      "lines": 439,
+      "lines": 447,
       "complexity": 9,
-      "worst": "parse:261"
+      "worst": "parse:265"
     },
     "backend/features/donors/regions_ru.py": {
       "lines": 74,
@@ -1472,9 +1487,9 @@
       "worst": "—"
     },
     "backend/features/donors/repository.py": {
-      "lines": 413,
+      "lines": 418,
       "complexity": 9,
-      "worst": "_donor_values:387"
+      "worst": "_donor_values:392"
     },
     "backend/features/donors/selection.py": {
       "lines": 412,
@@ -2092,24 +2107,44 @@
       "worst": "cycle_of:120"
     },
     "backend/features/runs/browse.py": {
-      "lines": 272,
+      "lines": 273,
       "complexity": 8,
-      "worst": "tally_reviews:199"
+      "worst": "tally_reviews:200"
     },
     "backend/features/runs/budget.py": {
       "lines": 254,
       "complexity": 4,
       "worst": "_words:104"
     },
+    "backend/features/runs/competitor_estimate.py": {
+      "lines": 190,
+      "complexity": 8,
+      "worst": "judge_tokens_from:97"
+    },
+    "backend/features/runs/competitor_hosts.py": {
+      "lines": 160,
+      "complexity": 14,
+      "worst": "_strict:112"
+    },
+    "backend/features/runs/competitor_run.py": {
+      "lines": 340,
+      "complexity": 7,
+      "worst": "_hold:181"
+    },
+    "backend/features/runs/competitors.py": {
+      "lines": 333,
+      "complexity": 8,
+      "worst": "refused:135"
+    },
     "backend/features/runs/duplicates.py": {
-      "lines": 68,
-      "complexity": 3,
-      "worst": "refuse_duplicate:45"
+      "lines": 94,
+      "complexity": 4,
+      "worst": "_rivals:49"
     },
     "backend/features/runs/estimate.py": {
-      "lines": 169,
+      "lines": 177,
       "complexity": 2,
-      "worst": "cap_left:85"
+      "worst": "cap_left:93"
     },
     "backend/features/runs/exclusions.py": {
       "lines": 440,
@@ -2127,9 +2162,9 @@
       "worst": "judge_stage:67"
     },
     "backend/features/runs/lifecycle.py": {
-      "lines": 281,
+      "lines": 288,
       "complexity": 9,
-      "worst": "recover:168"
+      "worst": "recover:169"
     },
     "backend/features/runs/outcome.py": {
       "lines": 196,
@@ -2137,14 +2172,14 @@
       "worst": "outcome:175"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 378,
+      "lines": 385,
       "complexity": 8,
-      "worst": "execute_run:231"
+      "worst": "execute_run:235"
     },
     "backend/features/runs/planning.py": {
-      "lines": 381,
+      "lines": 399,
       "complexity": 8,
-      "worst": "gather_candidates:240"
+      "worst": "gather_candidates:258"
     },
     "backend/features/runs/prune.py": {
       "lines": 489,
@@ -2157,12 +2192,12 @@
       "worst": "explained_line:81"
     },
     "backend/features/runs/report.py": {
-      "lines": 252,
+      "lines": 263,
       "complexity": 11,
-      "worst": "run_stats:166"
+      "worst": "run_stats:174"
     },
     "backend/features/runs/repository.py": {
-      "lines": 490,
+      "lines": 493,
       "complexity": 8,
       "worst": "unique_share_from:152"
     },
@@ -3132,9 +3167,9 @@
       "worst": "worker_problems:83"
     },
     "backend/workers/jobs.py": {
-      "lines": 495,
+      "lines": 359,
       "complexity": 6,
-      "worst": "_search_contacts:310"
+      "worst": "_search_contacts:174"
     },
     "backend/workers/main.py": {
       "lines": 67,
@@ -3145,6 +3180,11 @@
       "lines": 298,
       "complexity": 4,
       "worst": "_told:193"
+    },
+    "backend/workers/run_job.py": {
+      "lines": 176,
+      "complexity": 5,
+      "worst": "_mark:143"
     },
     "backend/workers/sales_jobs.py": {
       "lines": 150,
@@ -3277,7 +3317,7 @@
       "worst": "main:127"
     },
     "scripts/ui_screens.py": {
-      "lines": 442,
+      "lines": 445,
       "complexity": 2,
       "worst": "open_reason:25"
     },
@@ -3305,6 +3345,11 @@
       "lines": 64,
       "complexity": 1,
       "worst": "report_screens:15"
+    },
+    "scripts/ui_screens_runs.py": {
+      "lines": 144,
+      "complexity": 2,
+      "worst": "_estimate:65"
     },
     "scripts/ui_screens_sales.py": {
       "lines": 494,

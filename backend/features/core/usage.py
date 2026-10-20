@@ -36,6 +36,8 @@ OPERATION_PROVIDERS = {
     "batch_metrics": UsageProvider.AHREFS,
     "by_country": UsageProvider.AHREFS,
     "serp": UsageProvider.AHREFS,
+    # Списки ссылающихся доменов конкурентов (`runs/competitors.py`): юниты того же ключа.
+    "refdomains": UsageProvider.AHREFS,
     # Выдача у основного источника платится деньгами, а не юнитами:
     # единица расхода — доллар, и цену называет сам провайдер в ответе.
     "serp_search": UsageProvider.SERP,
@@ -106,6 +108,7 @@ CRAWL_OPERATIONS = frozenset({"crawl_proxy", "crawl_render"})
 #: догадка разошлась бы со счётом молча. Отправка письма — общая на все этапы нарочно (П2б).
 OPERATION_STAGES: dict[str, Stage] = {
     "by_country": Stage.DONORS,
+    "refdomains": Stage.DONORS,
     "serp": Stage.DONORS,
     "serp_search": Stage.DONORS,
     "keywords": Stage.DONORS,

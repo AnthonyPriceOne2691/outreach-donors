@@ -30,7 +30,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.author_door import opened_reason, opens
 from backend.features.donors.collect import DomainResult, PaidMetrics
-from backend.features.donors.publisher_judge import Decider, Recommendation
+from backend.features.donors.publisher_judge import NO_TEXT, Decider, Recommendation
 from backend.features.donors.selection import human_advice
 from backend.features.topics.store import TopicStore
 
@@ -70,7 +70,12 @@ def judged_for_real() -> ColumnElement[bool]:
     # и из кэша, и из досуда разом.
     return or_(
         DomainModel.judge_model.is_not(None),
-        func.coalesce(DomainModel.judge_decided_by, "") == Decider.RULE.value,
+        and_(
+            func.coalesce(DomainModel.judge_decided_by, "") == Decider.RULE.value,
+            # «Судить было не по чему» до 20.10.2026 ложилось правилом и держало домен без
+            # суда полгода: это не вердикт (`Judgement.blind`), и судья берёт домен снова.
+            func.coalesce(DomainModel.judge_reason, "") != NO_TEXT,
+        ),
     )
 
 

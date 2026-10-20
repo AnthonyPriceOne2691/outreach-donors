@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 
@@ -24,11 +25,12 @@ from backend.features.core import usage
 from backend.features.core.domain import RunStatus, Stage
 from backend.features.donors.verdict import Thresholds
 from backend.features.runs.budget import CapExceededError, QuotaUnavailableError
+from backend.features.runs.competitor_run import Prepared
 from backend.features.runs.pipeline import RunDeps, RunRequest
 from backend.features.runs.repository import RunRepository, unique_share_from
 from backend.features.runs.thresholds import defaults
 from backend.features.serp.modes import SerpMode
-from backend.workers import jobs
+from backend.workers import run_job as jobs
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.test_ahrefs_cap import known_key
@@ -205,6 +207,35 @@ class TestCeilingAtStart:
 
         assert pipeline["request"].cap == 18_000
 
+    @pytest.mark.parametrize(("promised", "funnel"), [(20_000, 17_000), (10_000, 7_000)])
+    async def test_lists_of_past_attempts_are_taken_from_the_promise_not_twice_from_the_month(
+        self, session: AsyncSession, pipeline: dict[str, Any], promised: int, funnel: int
+    ) -> None:
+        """Прогон по конкурентам продолжается после смерти воркера с сохранёнными кандидатами.
+        Списки прошлой попытки (3 000) уже в журнале: остаток капа их учёл сам (20 000 −
+        3 000), из обещанного они вычитаются здесь. Обещано 20 000 — упор в месяц, воронке
+        17 000: вычти их второй раз, прогон встал бы на продолжении с оплаченными списками на
+        руках. Обещано 10 000 — упор в обещанное, воронке 7 000, а не все 10 000."""
+        run = await _queued_run(session, cap=promised)
+        listed = {"rows": [["example.org", 40.0]], "units": 3_000, "per_row": 14}
+        run.competitors = {
+            "targets": ["example.com"],
+            "depth": 100,
+            "fetched": {"example.com": listed},
+            "skipped": {},
+            "units": 3_000,
+        }
+        run.candidates = {"hosts": ["example.org"], "keywords": 0, "results": 1}
+        run.status, run.estimated_units = RunStatus.RUNNING, 9_000
+        usage.record(session, operation="refdomains", units=3_000, run_id=run.id)
+        await session.commit()
+
+        result = await jobs._run(run.id)
+
+        assert pipeline["request"].cap == funnel
+        assert pipeline["request"].spent_before == 3_000, "смета прогона — со списками"
+        assert result["estimated_units"] == 9_000, "итог задачи называет смету со списками"
+
     async def test_the_promise_stays_the_upper_bound(
         self, session: AsyncSession, pipeline: dict[str, Any]
     ) -> None:
@@ -286,6 +317,79 @@ async def test_cap_refusal_closes_the_run_with_its_reason(
     ), "сообщение потолка говорит, что делать, — имя класса экрану не нужно (25.09.2026)"
     assert "CapExceededError" in run.stats["failure"], "а журналу нужно: по нему ищут"
     assert result["refused"]
+
+
+async def test_stopped_run_carries_what_it_spent(
+    session: AsyncSession, failing: dict[str, Any]
+) -> None:
+    """Отказ мимо закрытия прогона (смета, списки, потолок) — факт по журналу: прогон,
+    остановленный после оплаченных списков конкурентов, не выглядит бесплатным."""
+    run = await _queued_run(session)
+    usage.record(session, operation="refdomains", units=700, run_id=run.id)
+    await session.commit()
+    failing["fail_with"](CapExceededError("Прогон обойдётся в 3480 юнитов, доступно 3000"))
+
+    await jobs._search(run.id)
+    await session.refresh(run)
+
+    assert run.status is RunStatus.STOPPED
+    assert run.actual_units == 700
+
+
+async def test_competitor_run_stopped_before_the_funnel_keeps_its_lists_journal(
+    session: AsyncSession, failing: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Прогон по конкурентам встал посреди списков: в отчёте — что пришло и почём, кто
+    пропущен и почему, а не пустота, как будто списков не покупали."""
+    run = await _queued_run(session)
+    listed = {"rows": [["example.org", 40.0]], "units": 700, "per_row": 14}
+    run.competitors = {
+        "targets": ["example.com", "example.net", "example.co.uk"],
+        "depth": 100,
+        "fetched": {"example.com": listed},
+        "skipped": {"example.net": "Ahrefs не принял этот домен (код 404)"},
+        "units": 750,
+    }
+    await session.commit()
+
+    async def refused(*_args: object, **_kwargs: object) -> Prepared:
+        raise CapExceededError("Списки конкурентов обойдутся до 9 000 юнитов")
+
+    monkeypatch.setattr(jobs, "prepare", refused)
+
+    await jobs._search(run.id)
+    await session.refresh(run)
+
+    source = run.stats["source"]
+    assert source["targets"] == [{"target": "example.com", "rows": 1, "units": 700, "per_row": 14}]
+    assert source["skipped"] == [
+        {"target": "example.net", "reason": "Ahrefs не принял этот домен (код 404)"}
+    ]
+
+
+async def test_heartbeat_beats_before_the_competitor_lists(
+    session: AsyncSession, pipeline: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Списки конкурентов платные и идут до воронки: пульс прогона бьётся уже тогда, иначе
+    живой прогон со списками выглядел бы для разбора мёртвым."""
+    beats: list[int] = []
+    seen: dict[str, bool] = {}
+
+    async def beat(_runs: object, run_id: int) -> None:
+        beats.append(run_id)
+
+    async def lists(*_args: object, cap: int, **_kwargs: object) -> Prepared:
+        await asyncio.sleep(0)
+        seen["beating"] = bool(beats)
+        return Prepared(None, cap)
+
+    monkeypatch.setattr(jobs, "heartbeat", beat)
+    monkeypatch.setattr(jobs, "prepare", lists)
+    run = await _queued_run(session)
+
+    await jobs._run(run.id)
+
+    assert seen == {"beating": True}
 
 
 async def test_unexpected_failure_is_written_and_still_raised(

@@ -25,6 +25,7 @@
 import { Anchor, Badge, Box, Card, Group, Stack, Table, Text, VisuallyHidden } from '@mantine/core';
 import { Link, useLocation } from 'react-router-dom';
 
+import { competitorsOf } from '../api/competitors';
 import { countryTitle, RUN_STATUSES } from '../api/labels';
 import type { RunsPage } from '../api/runs';
 import type { RunCard, RunsView, RunStatus } from '../api/types';
@@ -109,6 +110,26 @@ function JudgeSilence({ run }: { run: { stats: Record<string, unknown> | null } 
       title={typeof reason === 'string' ? reason : undefined}
     >
       модель не ответила: {unanswered}
+    </Badge>
+  );
+}
+
+/** Судить было не по чему — ни текста выдачи, ни главной: у этих доменов вердикта нет, и
+ *  следующий прогон судит их снова (ревью 20.10.2026). Меткой, как неответ модели: иначе
+ *  такие домены читались бы судом «посмотри». */
+function JudgeBlind({ run }: { run: { stats: Record<string, unknown> | null } }) {
+  const judge = run.stats?.['judge'];
+  if (typeof judge !== 'object' || judge === null) return null;
+  const blind = (judge as Record<string, unknown>)['no_text'];
+  if (typeof blind !== 'number' || blind === 0) return null;
+  return (
+    <Badge
+      variant="light"
+      size="sm"
+      color="red"
+      title="Ни текста выдачи, ни главной — вердикта нет, следующий прогон судит снова"
+    >
+      судить нечем: {blind}
     </Badge>
   );
 }
@@ -199,6 +220,21 @@ function StatusCell({ run }: { run: RunCard }) {
   );
 }
 
+/** Колонка ключей. У прогона по ссылкам конкурентов ключей нет — там число конкурентов
+ *  и слово под ним, а домены — подсказкой: «0» читалось бы прогоном без входа. */
+function KeywordsCell({ run }: { run: RunCard }) {
+  const rivals = competitorsOf(run);
+  if (rivals.length === 0) return <>{formatNumber(run.keywords)}</>;
+  return (
+    <Stack gap={0} align="center" title={rivals.join(', ')}>
+      <Text size="sm">{formatNumber(rivals.length)}</Text>
+      <Text size="xs" c="dimmed">
+        {plural(rivals.length, 'конкурент', 'конкурента', 'конкурентов')}
+      </Text>
+    </Stack>
+  );
+}
+
 function HistoryRow({ run, from }: { run: RunCard; from: string }) {
   return (
     <Table.Tr>
@@ -230,7 +266,9 @@ function HistoryRow({ run, from }: { run: RunCard; from: string }) {
       <Table.Td>
         <StatusCell run={run} />
       </Table.Td>
-      <Table.Td>{formatNumber(run.keywords)}</Table.Td>
+      <Table.Td>
+        <KeywordsCell run={run} />
+      </Table.Td>
       <Table.Td>
         {formatNumber(run.hosts)}
         {excludedIn(run) ? (
@@ -259,6 +297,7 @@ function HistoryRow({ run, from }: { run: RunCard; from: string }) {
           <Text size="sm">отрезал бы {judgeCut(run)}</Text>
         )}
         <JudgeSilence run={run} />
+        <JudgeBlind run={run} />
         <TopicSilence run={run} />
         {/* Цвет несёт значок, а не текст: янтарь — «нужно внимание»,
             и на подложке значка чернила держат норму контраста. */}
