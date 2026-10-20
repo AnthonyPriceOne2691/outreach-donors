@@ -3112,14 +3112,14 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 257,
+      "lines": 258,
       "complexity": 9,
-      "worst": "main:199"
+      "worst": "main:200"
     },
     "scripts/ui_contrast_ratio.py": {
-      "lines": 148,
-      "complexity": 7,
-      "worst": "ratio_of:73"
+      "lines": 192,
+      "complexity": 9,
+      "worst": "ratio_of:82"
     },
     "scripts/ui_hover.py": {
       "lines": 178,
