@@ -2922,9 +2922,9 @@
       "worst": "_take_organic:73"
     },
     "backend/features/serp/dataforseo.py": {
-      "lines": 461,
+      "lines": 480,
       "complexity": 9,
-      "worst": "_post:243"
+      "worst": "_post:245"
     },
     "backend/features/serp/dataforseo_answers.py": {
       "lines": 181,

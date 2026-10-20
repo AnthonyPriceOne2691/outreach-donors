@@ -43,12 +43,17 @@ def _task(task_id: str, keyword: str, *, status: int = 20100) -> dict[str, Any]:
 def _result(
     items: list[dict[str, Any]], *, status: int = 20000, pages: int | None = None
 ) -> dict[str, Any]:
+    """Ответ забора, как у провайдера: цену задачи он повторяет, хотя сам забор бесплатный
+    (находка продаж 20.10.2026 — ответ task_get отдаёт `cost` задачи, прайс учётки — 0 $)."""
     first: dict[str, Any] = {"items": items}
     if pages is not None:
         first["pages_count"] = pages
     return {
         "status_code": 20000,
-        "tasks": [{"status_code": status, "status_message": "Ok.", "result": [first]}],
+        "cost": TASK_COST,
+        "tasks": [
+            {"status_code": status, "status_message": "Ok.", "cost": TASK_COST, "result": [first]}
+        ],
     }
 
 
@@ -94,7 +99,8 @@ class Provider:
                 task_id = f"task-{number}-{keyword}"
                 self._ids[task_id] = keyword
                 tasks.append(_task(task_id, keyword))
-            return httpx.Response(200, json={"status_code": 20000, "cost": 0.05, "tasks": tasks})
+            cost = sum(task["cost"] for task in tasks)
+            return httpx.Response(200, json={"status_code": 20000, "cost": cost, "tasks": tasks})
 
         task_id = request.url.path.rsplit("/", 1)[-1]
         self.gets.append(task_id)
@@ -179,10 +185,28 @@ class TestWiring:
         await _provider(site).search([f"ключ-{i}" for i in range(150)], "us")
         assert site.posts == 2
 
-    async def test_cost_is_counted(self) -> None:
-        provider = _provider(Provider(results={"к": []}))
-        await provider.search(["к"], "us")
-        assert provider.spent > 0
+    async def test_task_price_is_counted_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Ответ забора повторяет цену задачи: до 20.10.2026 она шла в расход второй раз,
+        # и журнал выдачи и предохранитель счёта видели вдвое больше списанного.
+        monkeypatch.setattr("backend.features.serp.dataforseo.cfg.POLL_INTERVAL_S", 0)
+        provider = _provider(Provider(results={"к": [], "л": [], "м": []}, queue_rounds=1))
+        await provider.search(["к", "л", "м"], "us")
+        assert provider.spent == pytest.approx(3 * TASK_COST)
+
+    async def test_task_of_an_earlier_attempt_is_paid_by_its_answer(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Прошлая попытка поставила задачу и упала до журнала: эта её не ставит, а цена
+        # приходит только ответом забора — один раз, сколько бы раз ни опрашивали.
+        monkeypatch.setattr("backend.features.serp.dataforseo.cfg.POLL_INTERVAL_S", 0)
+        site = Provider(results={"к": []}, queue_rounds=2)
+        site._ids["task-old-к"] = "к"
+        provider = _provider(site)
+
+        await provider.search(["к"], "us", watch=SerpWatch(tasks={"к": "task-old-к"}))
+
+        assert (site.posts, len(site.gets)) == (0, 3)
+        assert provider.spent == pytest.approx(TASK_COST)
 
 
 class TestTheBalance:

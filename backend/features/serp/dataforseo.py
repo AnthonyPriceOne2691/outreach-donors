@@ -186,6 +186,8 @@ class DataForSeoProvider:
         #: Сколько денег провайдера потрачено за время жизни адаптера.
         #: В песочнице всегда ноль — на то она и песочница.
         self.spent = 0.0
+        #: Задачи, чья цена уже в `spent`: каждая платится один раз (`_count_once`).
+        self._counted: set[str] = set()
         self._limiter = RateLimiter(per_minute=RATE_PER_MINUTE)
 
     async def aclose(self) -> None:
@@ -258,6 +260,7 @@ class DataForSeoProvider:
         self.spent += float(body.get("cost") or 0)
 
         created, refused, costs = sort_posted(body.get("tasks") or [])
+        self._counted.update(created.values())
         # Номера — наружу до опроса: сбой опроса после этой строки не купит их снова.
         await ticker.watch.posted(created)
         await ticker.start()
@@ -371,7 +374,6 @@ class DataForSeoProvider:
     async def _fetch(self, task_id: str) -> tuple[list[Any], int | None] | None:
         """Позиции задачи и сколько страниц собрал провайдер. `None` — ещё не готово."""
         body = await self._call("GET", f"{GET_PATH}/{task_id}")
-        self.spent += float(body.get("cost") or 0)
 
         tasks = body.get("tasks") or []
         if not tasks or not isinstance(tasks[0], dict):
@@ -381,12 +383,29 @@ class DataForSeoProvider:
         status = task.get("status_code")
         if status in TASK_IN_QUEUE:
             return None
+        self._count_once(task_id, body, task)
         if status != TASK_OK:
             logger.error(
                 "выдача: задача %s отклонена (%s %s)", task_id, status, task.get("status_message")
             )
             return [], None
         return task_items(task)
+
+    def _count_once(self, task_id: str, body: dict[str, Any], task: dict[str, Any]) -> None:
+        """Цена задачи, которую поставила прошлая попытка (`watch.tasks`), — из ответа забора.
+
+        Забор бесплатный (прайс учётки: task_get — 0 $), но ответ повторяет цену задачи.
+        Задачу этой попытки уже сосчитал ответ постановки, и до 20.10.2026 второй счёт
+        удваивал расход выдачи в журнале и у предохранителя счёта (находка продаж). Задачу
+        прошлой попытки постановка этой не видела: её цена берётся здесь, один раз.
+        """
+        if task_id in self._counted:
+            return
+        self._counted.add(task_id)
+        cost = task.get("cost")
+        if not isinstance(cost, int | float):
+            cost = body.get("cost")
+        self.spent += float(cost or 0)
 
     async def balance(self) -> float:
         """Остаток денег на счету провайдера. Запрос бесплатный.
