@@ -101,13 +101,7 @@ class ProviderStep:
     def _close(self, exc: ProviderBlockedError) -> ContactStatus:
         """Ключ не принят или учётку закрыли: до конца прохода ступень не спросит, домен —
         «не спросили» (см. модуль). Домены, что спрашивали в ту же минуту, получают тот же
-        отказ и сюда же; громко — первый."""
-        if self.closed is None:
-            logger.error(
-                "контакты: платный сервис не пускает (%s) — до конца прохода не спрашиваем: %s",
-                exc.why,
-                exc,
-            )
+        отказ и сюда же."""
         self.closed = self.missing = PaidUnavailable(ContactStatus.PAID_OFF, exc.why)
         self._provider = None
         return ContactStatus.PAID_OFF
@@ -129,6 +123,13 @@ class ProviderStep:
             # бодро шла по следующему домену. Ловится первым: он потомок
             # ProviderError, и порядок веток решает.
             self._refused(str(exc))
+            logger.exception(
+                "контакты: платный сервис не пускает (%s) на %s — до конца прохода не "
+                "спрашиваем: %s",
+                exc.why,
+                host,
+                exc,
+            )
             return self._close(exc)
         except ProviderQuotaError as exc:
             self._refused(str(exc))

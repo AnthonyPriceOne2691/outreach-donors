@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 
 import pytest
@@ -24,6 +25,8 @@ from backend.features.contacts.browser import PlaywrightRenderer
 from backend.shared.net.url_guard import UnsafeUrlError
 
 pytestmark = pytest.mark.asyncio
+
+logger = logging.getLogger(__name__)
 
 SITE = "site.example.test"
 
@@ -40,7 +43,9 @@ async def _http(pages: dict[str, tuple[str, str]], hits: list[str]) -> asyncio.S
     async def answer(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             head = await reader.readuntil(b"\r\n\r\n")
-        except (asyncio.IncompleteReadError, ConnectionError):
+        except (asyncio.IncompleteReadError, ConnectionError) as exc:
+            # Браузер открыл соединение заранее и закрыл без запроса.
+            logger.debug("тестовый сервер: соединение без запроса — %r", exc)
             writer.close()
             return
         path = head.split(b" ", 2)[1].decode()

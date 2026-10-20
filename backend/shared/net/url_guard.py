@@ -83,6 +83,16 @@ def _is_private(address: str) -> bool:
     )
 
 
+def _is_address(name: str) -> bool:
+    """Адрес ли это, а не имя: адрес проверен как есть, распознавать нечего."""
+    try:
+        ipaddress.ip_address(name)
+    except ValueError:
+        logger.debug("url-guard: %r — имя, а не адрес: распознаём", name)
+        return False
+    return True
+
+
 def _resolved_addresses(host: str) -> list[str]:
     """Все адреса имени. Пустой список — имя не разрешилось."""
     try:
@@ -127,12 +137,9 @@ def checked_addresses(host: str) -> list[str]:
         raise UnsafeUrlError(f"служебное имя {name} запрещено")
     if _is_private(name):
         raise UnsafeUrlError(f"внутренний адрес {name} запрещён")
-    try:
-        ipaddress.ip_address(name)
-    except ValueError:
-        addresses = _resolved_addresses(name)
-    else:
+    if _is_address(name):
         return [name]
+    addresses = _resolved_addresses(name)
     if not addresses:
         raise UnsafeUrlError(f"имя {name} не распознаётся")
     for address in addresses:
