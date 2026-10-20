@@ -235,6 +235,7 @@ async def run(
             tuple(case.get("tags") or ()),
             verdict.kind,
             segment_language.identify(case["text"]),
+            verdict.cut_off,
         )
 
     return list(await asyncio.gather(*(one(case) for case in cases)))
@@ -291,7 +292,8 @@ def _summary(total: dict[str, Any]) -> None:
     )
     print(
         f"Токены: на вызов модели {total['tokens_per_call'] or '—'} (вызовов "
-        f"{total['model_calls']}); вид сайта по модели {total['kinds']}"
+        f"{total['model_calls']}, обрезано потолком вывода {total['cut_off']}); вид сайта по "
+        f"модели {total['kinds']}"
     )
 
 

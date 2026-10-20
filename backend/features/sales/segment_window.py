@@ -88,6 +88,8 @@ class JudgeTally:
     by_rule: int = 0
     #: Модель не ответила: вердикта нет, домен — человеку и следующему проходу.
     unanswered: int = 0
+    #: Из них ответ обрезан потолком вывода (`segment_judge.CUT_OFF`): доля за прогон — по ним.
+    cut_off: int = 0
     unanswered_reason: str | None = None
     #: Судья сказал «нет» — модель или язык сайта: в `enforce` отсечены, в наблюдении — человеку с
     #: пометкой.
@@ -111,6 +113,7 @@ class JudgeTally:
             "from_cache": self.from_cache,
             "by_rule": self.by_rule,
             "unanswered": self.unanswered,
+            "cut_off": self.cut_off,
             "unanswered_reason": self.unanswered_reason,
             "would_cut": self.would_cut,
             "failed": self.failed,
@@ -241,6 +244,7 @@ def count(judged: Judged, tally: JudgeTally) -> None:
     tally.spend(verdict)
     if verdict.unanswered:
         tally.unanswered += 1
+        tally.cut_off += int(verdict.cut_off)
         tally.unanswered_reason = tally.unanswered_reason or verdict.reason[:300]
         return
     tally.from_cache += int(judged.cached)

@@ -2697,9 +2697,9 @@
       "worst": "run_once:291"
     },
     "backend/features/sales/segment_judge.py": {
-      "lines": 427,
+      "lines": 461,
       "complexity": 9,
-      "worst": "parse:335"
+      "worst": "parse:353"
     },
     "backend/features/sales/segment_judging.py": {
       "lines": 171,
@@ -2802,9 +2802,9 @@
       "worst": "watch:98"
     },
     "backend/features/sales/segment_window.py": {
-      "lines": 482,
+      "lines": 486,
       "complexity": 5,
-      "worst": "count:236"
+      "worst": "count:239"
     },
     "backend/features/sales/sender.py": {
       "lines": 182,
@@ -3192,9 +3192,9 @@
       "worst": "report:223"
     },
     "scripts/eval_sales_segment.py": {
-      "lines": 450,
+      "lines": 452,
       "complexity": 8,
-      "worst": "_traps:315"
+      "worst": "_traps:317"
     },
     "scripts/eval_sales_segment_helper.py": {
       "lines": 428,
@@ -3207,9 +3207,9 @@
       "worst": "visible_text:58"
     },
     "scripts/eval_sales_segment_metrics.py": {
-      "lines": 135,
-      "complexity": 8,
-      "worst": "_tokens:104"
+      "lines": 138,
+      "complexity": 9,
+      "worst": "_tokens:106"
     },
     "scripts/eval_sales_segment_sets.py": {
       "lines": 130,

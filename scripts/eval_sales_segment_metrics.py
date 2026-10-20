@@ -38,6 +38,8 @@ class Result:
     #: Язык текста сайта — код или письменность словами (`segment_language.identify`): разбивка
     #: замера по языку, тем же правилом, что вердикт языка.
     site_language: str = ""
+    #: Ответ обрезан потолком вывода (`segment_judge.CUT_OFF`).
+    cut_off: bool = False
 
     @property
     def labeled(self) -> bool:
@@ -106,6 +108,7 @@ def _tokens(results: list[Result]) -> dict[str, Any]:
     total = sum(r.tokens for r in results)
     return {
         "unanswered": sum(r.unanswered for r in results),
+        "cut_off": sum(r.cut_off for r in results),
         "tokens": total,
         **{key: sum(r.split.get(key, 0) for r in results) for key in SPLIT_TOKENS},
         "model_calls": calls,

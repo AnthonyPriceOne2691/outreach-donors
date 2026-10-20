@@ -69,6 +69,7 @@ logger = logging.getLogger(__name__)
 #: Что судья отдаёт наружу. Текст сайта живёт своим модулем (`segment_text.py`), а окно, eval и тесты
 #: берут его имена и отсюда, как до разреза: список держит их явными.
 __all__ = [
+    "CUT_OFF",
     "HOME_DESCRIPTION",
     "HOME_MENU",
     "HOME_TEXT",
@@ -104,6 +105,7 @@ __all__ = [
     "by_text",
     "decide",
     "effective",
+    "finish_of",
     "load_prompt",
     "parse",
     "proven_again",
@@ -138,6 +140,12 @@ TOKENS_PLAIN = 300
 SHORT_QUOTE = "цитата короче трёх слов — не доказательство"
 NO_QUOTE = "модель не дала цитаты"
 MADE_UP = "цитаты нет в тексте сайта — модель не прочла, а сочинила"
+#: Ответ обрезан потолком вывода (`finish_reason == "length"`): у модели с рассуждением потолок
+#: `max_completion_tokens` включает рассуждение — оно съело ответ. Это не вердикт: следующий проход
+#: спросит снова, а доля таких за прогон — в его итоге (`JudgeTally.cut_off`).
+CUT_OFF = (
+    "модель упёрлась в потолок вывода — рассуждение съело ответ; следующий проход спросит снова"
+)
 #: Ответ модели → полоса.
 FITS = {"yes": Lane.ACCEPT, "no": Lane.REJECT, "unsure": Lane.REVIEW}
 #: Вид сайта в ответе модели (`kind`): своё дело, посредник между клиентом и чужими компаниями,
@@ -218,6 +226,8 @@ class SegmentVerdict:
     spent: Spent | None = None
     #: Вид сайта, как его назвала модель (`KINDS`); пусто — не назвала или вердикт не модели.
     kind: str | None = None
+    #: Ответ обрезан потолком вывода (`CUT_OFF`): вердикта нет, как у неответившей модели.
+    cut_off: bool = False
 
     @property
     def would_cut(self) -> bool:
@@ -321,6 +331,14 @@ def _form(content: str) -> dict[str, Any] | str:
     return {**body, "fit": fit}
 
 
+def finish_of(body: dict[str, Any]) -> str | None:
+    """Почему модель закончила ответ (`finish_reason` первой альтернативы); не названо — `None`."""
+    choices = body.get("choices")
+    first = choices[0] if isinstance(choices, list) and choices else None
+    reason = first.get("finish_reason") if isinstance(first, dict) else None
+    return reason if isinstance(reason, str) else None
+
+
 def _unproven(quote: str | None, text: SiteText) -> str | None:
     """Почему цитата не доказывает вердикт — словами; `None` — доказывает."""
     if quote is None:
@@ -373,6 +391,22 @@ class SegmentClient(ModelClient):
             return SegmentVerdict(Lane.REVIEW, f"модель не ответила: {body}", unanswered=True)
         tokens, spent = tokens_of(body), spent_of(body)
         content = content_of(body, topic=TOPIC)
+        if finish_of(body) == "length":
+            # Пустой или обрезанный посередине JSON — одно и то же: ответа нет, оплачен весь вывод.
+            logger.warning(
+                "%s: ответ обрезан потолком вывода",
+                TOPIC,
+                extra={"host": host, "tokens": tokens, "empty": not content},
+            )
+            return SegmentVerdict(
+                Lane.REVIEW,
+                CUT_OFF,
+                model=self._model,
+                tokens=tokens,
+                unanswered=True,
+                spent=spent,
+                cut_off=True,
+            )
         if not content:
             # Оплачен: рассуждение съело потолок и до ответа не дошло.
             return SegmentVerdict(
