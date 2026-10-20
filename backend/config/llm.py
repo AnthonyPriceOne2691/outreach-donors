@@ -55,6 +55,9 @@ class _Llm(DomainSettings):
     sales_segment_model: str = Field(
         default="gpt-5-mini", validation_alias="LLM_SALES_SEGMENT_MODEL"
     )
+    # Тематика сайта (`features/topics/`): дешёвая, как у судьи площадки — выбрать тему
+    # из списка по тексту сайта. Точность меряет eval на наборе (`scripts/eval_topic.py`).
+    topic_model: str = Field(default="gpt-5-mini", validation_alias="LLM_TOPIC_MODEL")
     timeout_s: float = Field(default=180.0, validation_alias="LLM_TIMEOUT_S")
     # Фраз за один вызов. Больше — растёт доля почти одинаковых, а ответ
     # обрывается на середине токенного лимита.
@@ -112,6 +115,7 @@ SALES_DRAFT_MODEL: str = _s.sales_draft_model.strip()
 SALES_SITUATION_MODEL: str = _s.sales_situation_model.strip()
 SALES_JUDGE_MODEL: str = _s.sales_judge_model.strip()
 SALES_SEGMENT_MODEL: str = _s.sales_segment_model.strip()
+TOPIC_MODEL: str = _s.topic_model.strip()
 TIMEOUT_S: float = _s.timeout_s
 MAX_PHRASES_PER_CALL: int = _s.max_phrases_per_call
 ANGLE_BUFFER: int = _s.angle_buffer

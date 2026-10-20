@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from backend.api.selection.schemas import MachineView, SellerView
+from backend.api.topics.schemas import TopicFields, topic_fields
 from backend.features.review.accuracy import (
     AUTO_ACCEPT_MIN_DECISIONS,
     AUTO_ACCEPT_PRECISION,
@@ -36,7 +37,7 @@ def machine_of(row: CandidateRow) -> MachineView:
     )
 
 
-class CandidateCard(BaseModel):
+class CandidateCard(TopicFields):
     candidate_id: int
     domain_id: int
     host: str
@@ -90,6 +91,7 @@ class CandidateCard(BaseModel):
                 price=donor.last_price,
                 currency=donor.last_price_currency,
             ),
+            **topic_fields(domain.site_topic, domain.site_topic_secondary, domain.topic_reason),
         )
 
 

@@ -764,7 +764,7 @@ class TestPulseAndJudgeChunks:
         уже в базе, и продолжение возьмёт его из кэша, а не засудит снова."""
         monkeypatch.setattr("backend.config.judge.MODE", JudgeMode.SHADOW)
         TestTheJudgeStandsBeforeTheBill._judge(monkeypatch, rejects=set())
-        monkeypatch.setattr("backend.features.runs.pipeline.JUDGE_CHUNK", 1)
+        monkeypatch.setattr("backend.features.runs.judge_stage.JUDGE_CHUNK", 1)
         checks = {"n": 0}
 
         async def cap(self: RunRepository, *, run_id: int | None) -> None:

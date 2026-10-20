@@ -153,6 +153,10 @@ class JudgePass:
     rejected: set[str]
     """Кого судья отрезал. В наблюдении этот список НЕ применяется."""
 
+    homes: dict[str, HomeSignals] = field(default_factory=dict)
+    """Главные, которые судья открыл в этом проходе (или их образ из индекса): тот же
+    текст читает тематика сайта (`topics/step.py`), второй раз за главной не ходят."""
+
 
 async def second_opinion(
     http: httpx.AsyncClient,
@@ -323,6 +327,11 @@ def _collect(
     return verdicts, rejected
 
 
+def _opened(results: Mapping[str, tuple[Judgement, HomeSignals | None]]) -> dict[str, HomeSignals]:
+    """Главные, которые судья видел в проходе, — тексту темы сайта (`JudgePass.homes`)."""
+    return {host: home for host, (_, home) in results.items() if home is not None}
+
+
 async def judge_candidates(
     http: httpx.AsyncClient,
     hosts: list[str],
@@ -385,4 +394,4 @@ async def judge_candidates(
     collected, cut = _collect(results, texts, summary, unpaid)
     verdicts.update(collected)
     rejected |= cut
-    return JudgePass(verdicts, summary, rejected)
+    return JudgePass(verdicts, summary, rejected, _opened(results))

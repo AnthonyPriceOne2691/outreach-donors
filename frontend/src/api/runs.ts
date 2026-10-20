@@ -55,6 +55,8 @@ export interface DonorQuery {
   price?: string;
   review?: string;
   sort?: string;
+  /** Тематика сайта: код темы, основная или вторая; `none` — не определена (20.10.2026). */
+  topic?: string;
   limit?: number;
   offset?: number;
 }

@@ -62,6 +62,7 @@ import { DONOR_REVIEWS } from './priceWords';
 import { placeOf } from './place';
 import type { DonorPlace } from './place';
 import { reasonText } from './reasonText';
+import { TopicLine } from '../topics/TopicLine';
 
 /** Колонки слева направо. Ширина донора — остаток: в ней домен, и ей
  *  отдаётся всё, что не нужно остальным. Остальные — по самому длинному,
@@ -268,6 +269,7 @@ function DonorRow({ donor, place, picked, onPick, onOpen }: RowProps) {
         )}
         <NotADonor donor={donor} />
         <PriceLine donor={donor} />
+        <TopicLine row={donor} />
       </Table.Td>
       <Table.Td>
         <Group justify="center">

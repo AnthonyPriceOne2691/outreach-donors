@@ -15,6 +15,7 @@ import type { Forecast } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
 import { belowCent, formatDay, formatNumber, formatShare, formatUsd, plural } from '../format';
+import { TopicTokens } from '../topics/TopicNotes';
 import { depthTitle, keywordsTitle, RESULTS_PER_PAGE } from './depth';
 import { waitTitle } from './serpMode';
 
@@ -222,6 +223,7 @@ export function Estimate({ forecast, lines }: Props) {
         Потрачено нами юнитов {since(forecast)}:{' '}
         <b>{formatNumber(forecast.units_spent_in_cycle)}</b>.
       </Text>
+      <TopicTokens forecast={forecast} />
 
       {/* Предохранитель счёта выдачи (16.10.2026): мало денег — прогон не начинается, и рядом
           с «пополните счёт» зелёного «помещается» нет. */}

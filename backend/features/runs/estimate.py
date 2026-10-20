@@ -70,6 +70,16 @@ class RunForecast:
     #: стояла от константы 0,17, убранной 24.09, — рядом с «≈ 31 из 40»
     #: (проверка прода 10.10.2026).
     unique_share: float = UNIQUE_SHARE
+    #: Токенов модели на сайт у тематики (`topics/cost.py`): ноль — темы прогон не определит
+    #: (тематика или судья выключены). Замер ли это прошлых прогонов или оценка — рядом.
+    topic_per_site: int = 0
+    topic_measured: bool = False
+
+    @property
+    def topic_tokens(self) -> int:
+        """Токены тематики — худший случай, как у юнитов: все домены новые и без темы.
+        Юниты Ahrefs не трогает: это дневной потолок модели, а не кап."""
+        return self.expected_domains * self.topic_per_site
 
     @property
     def cap_left(self) -> int:

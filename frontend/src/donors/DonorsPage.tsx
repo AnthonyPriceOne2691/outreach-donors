@@ -221,6 +221,7 @@ export function DonorsPage() {
           reviews={data?.reviews ?? null}
           prices={data?.prices ?? null}
           priceTtlDays={data?.price_ttl_days ?? null}
+          topics={data?.topics ?? null}
           onFilter={apply}
         />
 
@@ -232,7 +233,7 @@ export function DonorsPage() {
           refusal={query.error ? refusalOf(query.error) : null}
           empty={
             settled && data.rows.length === 0
-              ? emptinessOf(filters, data.counts, data.waiting)
+              ? emptinessOf(filters, data.counts, data.waiting, data.topics)
               : null
           }
           from={location.search}

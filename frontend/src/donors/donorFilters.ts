@@ -26,7 +26,9 @@ import { numberOf, numberRefusal, numberText } from '../components/numberText';
 import { formatNumber } from '../format';
 import type { DonorFilterQuery } from '../api/donors';
 import type { DonorSort, PriceState, ReviewScope } from '../api/donorPrice';
+import type { TopicCount } from '../api/topics';
 import type { DonorFreshness, DonorStatus, DonorsWaiting } from '../api/types';
+import { topicWords } from '../topics/topicRows';
 import { DONOR_SORTS, PRICE_STATES, REVIEW_SCOPES } from './priceWords';
 
 /** Доноров на странице: замечание 25.09.2026 — «максимум 20 за раз». */
@@ -46,6 +48,8 @@ export interface DonorFilters {
   address: boolean | null;
   /** Есть ли цена и в сроке ли. */
   price: PriceState | null;
+  /** Тематика сайта — код темы (основная или вторая) или `none`; пусто — не сужать. */
+  topic: string | null;
   /** Решение человека — кто на экране; умолчание — доноры. */
   review: ReviewScope;
   sort: DonorSort;
@@ -61,6 +65,7 @@ export const NO_FILTERS: DonorFilters = {
   freshness: null,
   address: null,
   price: null,
+  topic: null,
   review: 'accepted',
   sort: 'dr',
   page: 1,
@@ -114,6 +119,11 @@ function countryCode(raw: string | null): string | null {
   return raw !== null && /^[a-z]{2}$/i.test(raw) ? raw.toLowerCase() : null;
 }
 
+/** Код темы — той формы, что принимает сервер; знает ли он её, скажут пункты фильтра. */
+function topicCode(raw: string | null): string | null {
+  return raw !== null && /^[a-z_]{2,32}$/.test(raw) ? raw : null;
+}
+
 /** Известное значение из адреса — или `null`: незнакомое не сужает. */
 function known<T extends string>(values: readonly T[], raw: string | null): T | null {
   return values.find((value) => value === raw) ?? null;
@@ -130,6 +140,7 @@ export function readFilters(params: URLSearchParams): DonorFilters {
     freshness: known(FRESHNESS, params.get('freshness')),
     address: address === 'true' ? true : address === 'false' ? false : null,
     price: known(PRICES, params.get('price')),
+    topic: topicCode(params.get('topic')),
     review: known(REVIEWS, params.get('review')) ?? 'accepted',
     sort: known(SORTS, params.get('sort')) ?? 'dr',
     page: wholeNumber(params.get('page'), 1, 999_999) ?? 1,
@@ -147,6 +158,7 @@ function narrowing(filters: DonorFilters): DonorFilterQuery {
     ...(filters.freshness !== null ? { freshness: filters.freshness } : {}),
     ...(filters.address !== null ? { has_contact: filters.address } : {}),
     ...(filters.price !== null ? { price: filters.price } : {}),
+    ...(filters.topic !== null ? { topic: filters.topic } : {}),
   };
 }
 
@@ -175,9 +187,14 @@ export function isFiltered(filters: DonorFilters): boolean {
   return Object.keys(narrowing(filters)).length > 0;
 }
 
+/** Тема словами — подписью из пунктов фильтра; темы в фильтре нет — ничего. */
+function topicCondition(code: string | null, topics?: readonly TopicCount[]): string[] {
+  return code === null ? [] : [topicWords(code, topics ?? [])];
+}
+
 /** Что сужает таблицу — словами. Для пустого результата: «ничего не нашлось»
  *  без условий читается как «доноров нет». */
-export function conditionsOf(filters: DonorFilters): string[] {
+export function conditionsOf(filters: DonorFilters, topics?: readonly TopicCount[]): string[] {
   const said: string[] = [];
   if (filters.status !== null) said.push(`вердикт «${DONOR_STATUSES[filters.status].title}»`);
   if (filters.search !== '') said.push(`«${filters.search}» в домене или причине отсева`);
@@ -191,7 +208,7 @@ export function conditionsOf(filters: DonorFilters): string[] {
   if (filters.address === true) said.push('адрес найден');
   if (filters.address === false) said.push('адреса нет');
   if (filters.price !== null) said.push(PRICE_STATES[filters.price].said);
-  return said;
+  return [...said, ...topicCondition(filters.topic, topics)];
 }
 
 /** Всего доноров по сводке сервера: она считается по всем донорам, а не по фильтру. */
@@ -248,6 +265,7 @@ export function emptinessOf(
   filters: DonorFilters,
   counts: Record<string, number>,
   waiting: DonorsWaiting,
+  topics?: readonly TopicCount[],
 ): Emptiness {
   const all = totalOf(counts);
   const resettable = isFiltered(filters);
@@ -267,7 +285,7 @@ export function emptinessOf(
       resettable,
     };
   }
-  const conditions = conditionsOf(filters);
+  const conditions = conditionsOf(filters, topics);
   return {
     title: 'Под фильтр ничего не попало.',
     detail:

@@ -44,7 +44,7 @@ from backend.features.core.models.run import RunModel
 from backend.features.donors.home_signals import check_home
 from backend.features.donors.judging import JudgeSummary, judge_candidates
 from backend.features.donors.repository import DonorRepository, JudgeRecord, judged_for_real
-from backend.features.runs.pipeline import JUDGE_OPERATION, SERP_OPERATION
+from backend.features.runs.judge_stage import JUDGE_OPERATION, SERP_OPERATION
 from backend.features.runs.planning import SerpText, gather_candidates, saved_texts
 from backend.features.serp.protocol import SerpProvider
 from backend.shared.net.url_parts import parse_url

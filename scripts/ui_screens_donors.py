@@ -60,6 +60,11 @@ def donor_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ),
                 ("число в «Адресах»", ".donorsTable .addressCount", norm),
                 ("значок исхода поиска", ".donorsTable .addressCell .mantine-Badge-label", norm),
+                # Тематика (20.10.2026) — строкой под доменом и фильтром над таблицей; у базы
+                # без тем точки честно «не найдены»: фильтра без тем нет.
+                ("тематика под доменом", ".donorsTable .topicLine", norm),
+                ("вторая тема", ".donorsTable .topicLine .mantine-Text-root", norm),
+                ("значение фильтра тематики", "input[aria-label='Тематика']", norm),
                 (
                     "значок свежести",
                     ".donorsTable tbody td:nth-child(8) .mantine-Badge-label",
