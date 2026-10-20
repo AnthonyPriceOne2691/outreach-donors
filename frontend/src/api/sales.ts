@@ -43,12 +43,16 @@ import type { SalesFunnelView } from './salesFunnelTypes';
 import type { BuildQueued } from './types';
 
 /** Фильтры под колонками и страница. Размера страницы здесь нет: его называет
- *  сервер и возвращает в ответе (`limit`). Имена — те же, что в адресе экрана. */
+ *  сервер и возвращает в ответе (`limit`). Имена — те же, что в адресе экрана, кроме
+ *  периода добавления: в адресе он днями (`added_from`, `added_to`), здесь — моментами ISO
+ *  с поясом, как у воронки; `added_until` — не включая. */
 export interface LeadsQuery {
   state?: LeadState;
   reason?: string;
   hypothesis?: number;
   search?: string;
+  added_since?: string;
+  added_until?: string;
   page?: number;
 }
 

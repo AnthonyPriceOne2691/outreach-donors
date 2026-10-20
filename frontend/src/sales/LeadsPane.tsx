@@ -41,8 +41,9 @@ import { Metric } from '../components/Metric';
 import { PageSwitch } from '../components/PageSwitch';
 import { formatNumber } from '../format';
 import { notify } from '../notices';
-import { emptinessOf, LEAD_STATE_KEYS, leadsLink, queryOf } from './leadFilters';
+import { backwardsOf, emptinessOf, LEAD_STATE_KEYS, leadsLink, queryOf } from './leadFilters';
 import type { LeadFilters } from './leadFilters';
+import { addedProblem } from './leadPeriod';
 import { waitingOf } from './cleanData';
 import { CleanLeads } from './CleanLeads';
 import { LeadEditModal } from './LeadEditModal';
@@ -116,7 +117,8 @@ export interface Leads {
   refusal: string | null;
 }
 
-/** Лиды под фильтрами. На вкладке гипотез таблицы лидов нет — и запроса за ней нет. */
+/** Лиды под фильтрами. На вкладке гипотез таблицы лидов нет — и запроса за ней нет; период
+ *  «с» позже «по» пуст по определению — за ним запроса тоже нет, что не так — сказано словами. */
 export function useLeads(filters: LeadFilters): Leads {
   const leads = useQuery({
     queryKey: [
@@ -125,11 +127,13 @@ export function useLeads(filters: LeadFilters): Leads {
       filters.reason,
       filters.hypothesis,
       filters.search,
+      filters.addedFrom,
+      filters.addedTo,
       filters.page,
     ],
     queryFn: () => listLeads(queryOf(filters)),
     placeholderData: keepPreviousData,
-    enabled: filters.tab === 'leads',
+    enabled: filters.tab === 'leads' && addedProblem(filters.addedFrom, filters.addedTo) === null,
   });
   const [last, setLast] = useState<LeadsView | undefined>(undefined);
   useEffect(() => {
@@ -197,33 +201,58 @@ function useLeadSaved(close: () => void) {
   };
 }
 
+/** Что встаёт в таблицу: отказ или объяснение пустоты вместо строк, коды причин для фильтра,
+ *  число страниц. `null` — показывать ещё нечего: первого ответа нет. Период «с» позже «по» —
+ *  таблица и без ответа: из ссылки с таким периодом запроса нет, а без шапки даты было бы не
+ *  поправить. */
+function tableOf(
+  leads: Leads,
+  filters: LeadFilters,
+  total: number,
+  nameOf: (id: number) => string | undefined,
+) {
+  const reasons = Object.keys(leads.table?.reasons ?? {});
+  const backwards = backwardsOf(filters);
+  if (backwards !== null) return { empty: backwards, refusal: null, reasons, pages: 1 };
+  if (leads.table === undefined) return null;
+  const nothing = leads.answer !== undefined && leads.rows.length === 0;
+  return {
+    empty: nothing ? emptinessOf(filters, total, nameOf) : null,
+    refusal: leads.refusal,
+    reasons,
+    pages: leads.pages,
+  };
+}
+
 /** Таблица со страницами — или крутилка до первого ответа, или отказ. */
 function LeadsBody({ leads, total, onTurn, onReset, ...filterRow }: Props) {
-  const { table, answer, rows, refusal } = leads;
   const mayWrite = useMayWrite();
   const [editing, setEditing] = useState<LeadCard | null>(null);
   const saved = useLeadSaved(() => setEditing(null));
-  if (table === undefined) {
+  const { filters, hypotheses } = filterRow;
+  const shown = tableOf(
+    leads,
+    filters,
+    total,
+    (id) => hypotheses.find((row) => row.id === id)?.name,
+  );
+  if (shown === null) {
     // Первого ответа ещё нет — или не будет.
-    return refusal !== null ? (
-      <LeadsRefused refusal={refusal} />
+    return leads.refusal !== null ? (
+      <LeadsRefused refusal={leads.refusal} />
     ) : (
       <Loader aria-label="Загружаем лидов" m="md" />
     );
   }
-  const { filters, hypotheses } = filterRow;
-  const nameOf = (id: number) => hypotheses.find((row) => row.id === id)?.name;
   return (
     <>
       <LeadsTable
         {...filterRow}
-        rows={rows}
+        rows={leads.rows}
         stale={leads.stale}
-        refusal={refusal}
-        empty={
-          answer !== undefined && rows.length === 0 ? emptinessOf(filters, total, nameOf) : null
-        }
-        reasons={Object.keys(table.reasons)}
+        refusal={shown.refusal}
+        empty={shown.empty}
+        reasons={shown.reasons}
         onReset={onReset}
         mayWrite={mayWrite}
         onEdit={setEditing}
@@ -231,7 +260,7 @@ function LeadsBody({ leads, total, onTurn, onReset, ...filterRow }: Props) {
       <PageSwitch
         label="Страницы лидов"
         page={filters.page}
-        pages={leads.pages}
+        pages={shown.pages}
         onChange={onTurn}
         pt="xs"
       />
