@@ -8,6 +8,10 @@
  *
  * Незнакомая причина (`other`) — своей строкой, как записана: значит, слова вердикта
  * разошлись с экраном, и это должно быть видно, а не спрятано в сумму.
+ *
+ * **Крупный сайт — «кому не пишем», а не «другая причина»** (аудит 20.10.2026: отчёт
+ * прогона показывал 39 таких строкой «Другая причина: «DR > 80»»). **Свежие домены — в тех
+ * же числах**: прогон судит их сам, по сохранённым метрикам, и это сказано под заголовком.
  */
 
 import { Card, Stack, Table, Text, Title } from '@mantine/core';
@@ -30,6 +34,8 @@ export function thresholdWords(
   switch (rejection.threshold) {
     case 'dr':
       return `DR не ниже ${formatNumber(thresholds.min_dr)}`;
+    case 'big':
+      return `Кому не пишем: слишком крупный — DR выше ${formatNumber(thresholds.max_dr)}`;
     case 'org_traffic':
       return `Органический трафик не ниже ${formatNumber(thresholds.min_org_traffic)} в месяц`;
     case 'keywords':
@@ -50,9 +56,11 @@ interface Props {
   rejected: RejectionCard[];
   thresholds: RunThresholds;
   country: string;
+  /** Свежих прогон судил сам — их отказы в тех же числах. */
+  freshJudged: boolean;
 }
 
-export function RejectionsCard({ rejected, thresholds, country }: Props) {
+export function RejectionsCard({ rejected, thresholds, country, freshJudged }: Props) {
   return (
     // Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что у шапки:
     // текст соседних карточек начинается с одной кромки.
@@ -60,7 +68,10 @@ export function RejectionsCard({ rejected, thresholds, country }: Props) {
       <Stack gap={4} px="md" pt="xs">
         <Title order={5}>Отсеяно по порогам</Title>
         <Text size="sm" c="dimmed">
-          Пороги этого прогона — версия на момент запуска. Домен проходит, если не ниже каждого.
+          Пороги этого прогона — версия на момент запуска. Домен проходит, если не ниже каждого и не
+          выше DR крупного сайта.
+          {freshJudged &&
+            ' В числах и проверенные раньше: их прогон судил своими порогами и страной по сохранённым метрикам, без Ahrefs.'}
         </Text>
       </Stack>
       <Table className="dataTable" layout="fixed" verticalSpacing="sm" horizontalSpacing="md">

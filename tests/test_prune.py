@@ -633,6 +633,10 @@ REVIEWED = {
     "suppressions.domain_id → domains CASCADE": "держит: стоп-лист",
     "threads.domain_id → domains CASCADE": "держит: история",
     "run_candidates.run_id → runs CASCADE": "очередь уходит с прогоном",
+    # Вердикт прогона (20.10.2026) — только у доменов его выдачи, а их оставшийся прогон
+    # держит; с удалённым прогоном уходят и его вердикты.
+    "run_verdicts.domain_id → domains CASCADE": "вердикт оставшегося прогона держит: выдача",
+    "run_verdicts.run_id → runs CASCADE": "вердикты уходят с прогоном",
     "usage_records.run_id → runs SET NULL": "теряет номер",
     "campaigns.run_id → runs SET NULL": "теряет номер",
     "advertisers.found_run_id → runs SET NULL": "теряет номер",

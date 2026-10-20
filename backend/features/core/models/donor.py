@@ -47,6 +47,13 @@ class DonorModel(TimestampedMixin, ContactAttemptMixin, Base):
     # почему (с 11.10.2026): «страны не получены» добирает следующий прогон,
     # «Ahrefs не знает домен» — нет. У подходящего — пусто.
     reject_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Вердикт последнего замера — его страной и порогами (аудит 20.10.2026), строкой
+    # `DonorStatus`, и его причина. `status` выше — вердикт для выходов: у непринятого
+    # донора тот же, а принятому его понижает только вердикт прогона, где приняли
+    # (`donors/held.py`). Снятое решение возвращает донору этот (`review/accepted.py`).
+    # Пусто — Ahrefs донора не мерил: заведён руками или липовый.
+    measured_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    measured_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # --- Метрики Ahrefs ---
     # Сырой ответ в JSONB: набор полей ещё будет меняться.

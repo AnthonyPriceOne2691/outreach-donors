@@ -115,7 +115,18 @@ class RunModel(TimestampedMixin, Base):
     settings: Mapped[RunSettingsModel] = relationship("RunSettingsModel", back_populates="runs")
 
 
-class RunCandidateModel(TimestampedMixin, Base):
+class RunDomainMixin:
+    """Строка на пару «прогон + домен»: кандидат очереди (`RunCandidateModel`) и вердикт прогона
+    (`RunVerdictModel`). Подмешивается первым родителем, как `TimestampedMixin`."""
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), nullable=False)
+    domain_id: Mapped[int] = mapped_column(
+        ForeignKey("domains.id", ondelete="CASCADE"), nullable=False
+    )
+
+
+class RunCandidateModel(RunDomainMixin, TimestampedMixin, Base):
     """Домен, который прогон предлагает человеку: принять или отклонить.
 
     Прогон кончается не записью в базу доноров, а очередью на рассмотрение:
@@ -128,11 +139,6 @@ class RunCandidateModel(TimestampedMixin, Base):
 
     __tablename__ = "run_candidates"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    run_id: Mapped[int] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), nullable=False)
-    domain_id: Mapped[int] = mapped_column(
-        ForeignKey("domains.id", ondelete="CASCADE"), nullable=False
-    )
     #: `pending`, `accepted`, `rejected` (`review.candidates.Decision`).
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", server_default="pending"
@@ -149,4 +155,35 @@ class RunCandidateModel(TimestampedMixin, Base):
         UniqueConstraint("run_id", "domain_id", name="uq_run_candidates_run_domain"),
         Index("idx_run_candidates_run_status", "run_id", "status"),
         Index("idx_run_candidates_domain", "domain_id"),
+    )
+
+
+class RunVerdictModel(RunDomainMixin, TimestampedMixin, Base):
+    """Вердикт домена в прогоне — страной и порогами этого прогона (аудит 20.10.2026).
+
+    Вердикт на домене (`donors.status`) — последнего замера, без страны и порогов, для
+    которых его вынесли; свежий домен прогон не перемерял, и годный для США шёл в очередь
+    прогона Канады. Теперь каждый прогон судит каждый свой домен сам: купленный сейчас —
+    замером (`measured`), свежий — по сохранённым метрикам и странам (`donors/rejudge.py`),
+    без Ahrefs. По этой строке прогон кладёт годных в очередь и называет, почему остальные
+    не прошли. Пишет её `runs/verdicts.py`; страна и пороги — прогона (`runs.country`,
+    `runs.settings_id`): по ним вердикт объясним и через полгода.
+    """
+
+    __tablename__ = "run_verdicts"
+
+    #: `DonorStatus` строкой: подходит, не подходит, не проверен.
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    #: Почему не прошёл — кодом: порог отказа (`runs.refusals.Threshold`) у «не подходит»;
+    #: иначе пусто. По нему фильтруют и называют причину словами экрана.
+    cause: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    #: Причина словами вердикта: почему не подходит, не проверен — или чем подходит.
+    reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    #: Данные куплены этим прогоном; иначе — вердикт по сохранённым, без Ahrefs.
+    measured: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=false())
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "domain_id", name="uq_run_verdicts_run_domain"),
+        Index("idx_run_verdicts_run_status", "run_id", "status"),
+        Index("idx_run_verdicts_domain", "domain_id"),
     )

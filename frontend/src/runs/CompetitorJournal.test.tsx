@@ -56,6 +56,7 @@ describe('отчёт прогона по конкурентам', () => {
       min_org_traffic: 500,
       min_refdomains: 100,
       min_keywords: 300,
+      max_dr: 80,
       geo_top_n: 5,
       geo_min_share: 0.2,
     },
@@ -71,10 +72,14 @@ describe('отчёт прогона по конкурентам', () => {
       not_reached: 0,
       judge_enforced: false,
       resumes: 0,
+      fresh_judged: false,
     },
     rejected: [],
     spending: [],
     free_requests: 0,
+    // Исключённые гейтом и «не проверен» — по причине (отчёт прогона с 20.10.2026).
+    excluded: [],
+    unchecked: [],
   };
 
   it('называет вход, что пришло от Ahrefs, что выброшено и цену строки по ответу', async () => {

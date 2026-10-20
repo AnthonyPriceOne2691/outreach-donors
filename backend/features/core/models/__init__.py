@@ -24,7 +24,12 @@ from backend.features.core.models.outreach import (
     SendingDomainModel,
     ThreadModel,
 )
-from backend.features.core.models.run import RunCandidateModel, RunModel, RunSettingsModel
+from backend.features.core.models.run import (
+    RunCandidateModel,
+    RunModel,
+    RunSettingsModel,
+    RunVerdictModel,
+)
 from backend.features.sales.models import (
     SalesChainTemplateModel,
     SalesDraftNoticeModel,
@@ -65,6 +70,7 @@ __all__ = [
     "RunCandidateModel",
     "RunModel",
     "RunSettingsModel",
+    "RunVerdictModel",
     "SalesChainTemplateModel",
     "SalesDraftNoticeModel",
     "SalesHandoffModel",

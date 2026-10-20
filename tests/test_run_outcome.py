@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
@@ -31,8 +32,9 @@ from backend.features.donors.verdict import (
     check_metrics,
 )
 from backend.features.runs.exclusions import ExclusionReason
-from backend.features.runs.outcome import Threshold, domains_of, rejections
+from backend.features.runs.outcome import domains_of, excluded_named, rejections, unchecked_named
 from backend.features.runs.planning import Candidates, RunPlan
+from backend.features.runs.refusals import Threshold
 from backend.features.runs.report import RunReport, run_stats
 from backend.features.runs.repository import RESUMES_KEY, RunRepository
 from httpx import AsyncClient
@@ -62,6 +64,9 @@ def _measured(*, traffic: int = 900, keywords: int = 900, refdomains: int = 900)
 #: Отказ по каждому порогу — словами самого вердикта.
 REFUSALS: list[tuple[Threshold, str]] = [
     (Threshold.DR, _reason(check_dr(12, THRESHOLDS))),
+    # Крупный сайт — свой порог «кому не пишем», а не «другая причина» (аудит 20.10.2026:
+    # отчёт прогона показывал 39 таких строкой «Другая причина: «DR > 80»»).
+    (Threshold.BIG, _reason(check_dr(91, THRESHOLDS))),
     (Threshold.TRAFFIC, _measured(traffic=90)),
     (Threshold.KEYWORDS, _measured(keywords=9)),
     (Threshold.REFDOMAINS, _measured(refdomains=9)),
@@ -99,12 +104,13 @@ class TestThresholdOfReason:
         assert named[threshold] == 1, (reason, report.reject_reasons)
         assert Threshold.OTHER not in named, f"«{reason}» не узнана как порог"
 
-    def test_all_five_thresholds_are_named_even_at_zero(self) -> None:
+    def test_all_thresholds_are_named_even_at_zero(self) -> None:
         """«Реф. домены не отсеяли никого» — тоже ответ на «по какому порогу»."""
         rows = rejections({"DR": 3}, "us")
 
         assert [(row.threshold, row.count) for row in rows] == [
             (Threshold.DR, 3),
+            (Threshold.BIG, 0),
             (Threshold.TRAFFIC, 0),
             (Threshold.KEYWORDS, 0),
             (Threshold.REFDOMAINS, 0),
@@ -171,6 +177,83 @@ class TestDomainsOfStats:
         assert domains is not None
         assert domains.resumes == 1
         assert domains.judge_enforced is True
+
+
+class TestEveryReasonIsNamed:
+    """Аудит 20.10.2026: «кому не пишем» шёл «другой причиной», а исключённые гейтом и
+    «не проверен» — одним числом. Каждая причина «не предложен» — словами."""
+
+    def test_a_big_site_is_its_own_threshold_with_the_version_bound(self) -> None:
+        report = RunReport(plan=None)  # type: ignore[arg-type]
+        bigger = replace(THRESHOLDS, max_dr=75)
+        report.record(DonorStatus.UNSUITABLE, _reason(check_dr(91, bigger)))
+        report.record(DonorStatus.UNSUITABLE, _reason(check_dr(76, bigger)))
+
+        named = {row.threshold: row.count for row in rejections(report.reject_reasons, "ca")}
+
+        assert report.reject_reasons == {"DR > 75": 2}
+        assert named[Threshold.BIG] == 2
+        assert named[Threshold.DR] == 0
+        assert Threshold.OTHER not in named
+
+    def test_gate_exclusions_are_named_and_not_writing_comes_first(self) -> None:
+        stats = {
+            "excluded_by_reason": {
+                "в стоп-листе": 1,
+                "платформа или соцсеть": 6,
+                "крупное СМИ": 8,
+                "что-то новое": 2,
+            }
+        }
+
+        named = [(one.said, one.count, one.not_writing) for one in excluded_named(stats)]
+
+        assert named == [
+            ("Кому не пишем: крупное СМИ", 8, True),
+            ("Кому не пишем: платформа или соцсеть", 6, True),
+            ("что-то новое", 2, False),
+            ("В стоп-листе", 1, False),
+        ]
+
+    def test_unchecked_reasons_of_measured_and_fresh_are_summed(self) -> None:
+        stats = {
+            "unchecked_reasons": {"Ahrefs не знает домен": 2},
+            "fresh_verdicts": {"unchecked_reasons": {"Ahrefs не знает домен": 1, "x": 1}},
+        }
+
+        named = [(one.said, one.count) for one in unchecked_named(stats)]
+
+        assert named == [("Не проверен: Ahrefs не знает домен", 3), ("Не проверен: x", 1)]
+
+
+class TestFreshVerdictsAreTheRunsOwn:
+    def test_fresh_verdicts_count_as_the_runs_but_not_as_checked_in_ahrefs(self) -> None:
+        """Свежих прогон судит сам — их вердикты в числах прогона, по ним собрана
+        очередь; «проверено в Ahrefs» — только купленные сейчас: за свежих не платили."""
+        report = RunReport(plan=_plan())
+        report.record(DonorStatus.SUITABLE, "US на 1-м месте по трафику (80%)")
+        report.record_fresh(DonorStatus.UNSUITABLE, REFUSALS[-1][1])
+
+        stats = run_stats(report, None)
+        domains = domains_of(stats)
+
+        assert stats["fresh_verdicts"] == {
+            "by_status": {"unsuitable": 1},
+            "reject_reasons": {"US": 1},
+            "unchecked_reasons": {},
+        }
+        assert domains is not None
+        assert domains.fresh_judged is True
+        assert (domains.suitable, domains.unsuitable, domains.checked) == (1, 1, 1)
+        geo = {row.threshold: row.count for row in rejections(stats["reject_reasons"], "us")}
+        assert geo[Threshold.GEO] == 0, "смета берёт долю дошедших до стран у купленных"
+
+    def test_a_report_before_the_fix_has_no_fresh_verdicts(self) -> None:
+        domains = domains_of({"checked_now": 1, "by_status": {"suitable": 1}})
+
+        assert domains is not None
+        assert domains.fresh_judged is False
+        assert (domains.suitable, domains.checked) == (1, 1)
 
 
 # --- по HTTP ---
@@ -244,6 +327,7 @@ class TestReportRoute:
             "min_org_traffic": 700,
             "min_refdomains": 150,
             "min_keywords": 400,
+            "max_dr": 80,
             "geo_top_n": 3,
             "geo_min_share": 0.25,
         }
@@ -261,7 +345,19 @@ class TestReportRoute:
         assert domains["to_check"] == 4
         assert domains["not_reached"] == 0
         rejected = {row["threshold"]: row["count"] for row in body["rejected"]}  # type: ignore[union-attr]
-        assert rejected == {"dr": 1, "org_traffic": 0, "keywords": 0, "refdomains": 0, "geo": 1}
+        assert rejected == {
+            "dr": 1,
+            "big": 0,
+            "org_traffic": 0,
+            "keywords": 0,
+            "refdomains": 0,
+            "geo": 1,
+        }
+        assert body["excluded"] == [{"said": "В стоп-листе", "count": 1, "not_writing": False}]
+        assert body["unchecked"] == [
+            {"said": "Не проверен: Ahrefs не знает домен", "count": 1, "not_writing": False}
+        ]
+        assert domains["fresh_judged"] is False
         spending = {
             row["operation"]: (row["provider"], row["units"], row["amount_usd"], row["calls"])
             for row in body["spending"]  # type: ignore[union-attr]

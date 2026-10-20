@@ -22,6 +22,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer, make_donor
+from tests.donor_metrics import measured
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -56,12 +57,16 @@ async def _run(
 
 
 async def _decide(session: AsyncSession, run: RunModel, decisions: dict[str, Decision]) -> None:
+    domains = await session.scalars(
+        select(DomainModel).where(DomainModel.host.in_(list(decisions)))
+    )
+    ids: dict[str, int] = {}
+    for domain in domains.all():
+        # Годный по порогам — с метриками замера: прогон судит домен сам (`donors/rejudge.py`).
+        await measured(session, domain, country=run.country)
+        ids[domain.host] = domain.id
     review = RunReview(session)
     await review.queue_run(run.id, list(decisions))
-    rows = await session.execute(
-        select(DomainModel.host, DomainModel.id).where(DomainModel.host.in_(list(decisions)))
-    )
-    ids = dict(rows.tuples().all())
     page = await review.page(run.id, status=Decision.PENDING, show_doubtful=True)
     by_host = {row.domain.host: row.candidate.id for row in page.rows}
     for host, decision in decisions.items():

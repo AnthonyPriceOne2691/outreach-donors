@@ -20,6 +20,7 @@ from backend.features.ahrefs.client import AhrefsClient
 from backend.features.core.domain import ContactSource, DonorStatus, RunStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
+from backend.features.core.models.run import RunModel
 from backend.features.crawl.denylist import MAJOR_MEDIA, REFERENCE_DOMAINS, SOCIAL_DOMAINS
 from backend.features.donors.collect import DomainResult, collect
 from backend.features.donors.publisher_judge import is_platform
@@ -32,7 +33,9 @@ from backend.features.runs.exclusions import NOT_WRITING_WORDS, ExclusionReason,
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.planning import Candidates
 from backend.features.runs.repository import RunRepository
+from backend.features.runs.verdicts import RunVerdict, RunVerdicts
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.donor_metrics import measured
 
 T = Thresholds(min_dr=20, min_org_traffic=500, min_refdomains=100, min_keywords=300)
 GOOD = {"domain_rating": 40, "org_traffic": 9000, "refdomains": 500, "org_keywords": 2000}
@@ -174,28 +177,54 @@ async def _donor(
     return domain
 
 
+async def _done_run(session: AsyncSession) -> RunModel:
+    return await RunRepository(session).create_run(
+        stage=Stage.DONORS,
+        settings_id=await _settings_id(session),
+        keywords=["crm"],
+        country="us",
+        status=RunStatus.DONE,
+    )
+
+
 class TestTheQueueDoesNotOfferThem:
     async def test_big_site_judged_suitable_before_the_rule_is_not_queued(
         self, session: AsyncSession
     ) -> None:
-        """Годен по замеру до 11.10.2026 и ещё свеж — не перемерен; DR > 80 — им не пишем,
-        и предлагать его человеку незачем. Сколько таких — в отчёте прогона."""
-        await _donor(session, "big.example.test", dr=94, review=None)
-        await _donor(session, "blog.example.test", dr=45, review=None)
-        run = await RunRepository(session).create_run(
-            stage=Stage.DONORS,
-            settings_id=await _settings_id(session),
-            keywords=["crm"],
-            country="us",
-            status=RunStatus.DONE,
-        )
+        """Годен по замеру до 11.10.2026 и ещё свеж — прогон судит его сам своими порогами
+        (`donors/rejudge.py`, с 20.10.2026): DR > 80 — «не подходит», им не пишем, и
+        предлагать его человеку незачем."""
+        big = await _donor(session, "big.example.test", dr=94, review=None)
+        blog = await _donor(session, "blog.example.test", dr=45, review=None)
+        for domain in (big, blog):
+            await measured(session, domain)
+        run = await _done_run(session)
 
         report = await RunReview(session).queue_run(
             run.id, ["big.example.test", "blog.example.test"]
         )
 
-        assert (report.pending, report.not_writing) == (1, 1)
+        assert (report.pending, report.not_writing) == (1, 0)
         assert await RunReview(session).pending_hosts(run.id) == ["blog.example.test"]
+        verdicts = await RunVerdicts(session).of(run.id, ["big.example.test"])
+        assert verdicts["big.example.test"].reason == big_site_reason(80)
+
+    async def test_the_threshold_in_force_still_guards_the_queue(
+        self, session: AsyncSession
+    ) -> None:
+        """Прогон судил своей версией, а «кому не пишем» — по действующей: версия прогона
+        пропустила DR 88, действующая граница — 80, и в очередь он не идёт. Сколько
+        таких — в отчёте прогона."""
+        big = await _donor(session, "big.example.test", dr=88, review=None)
+        await measured(session, big)
+        run = await _done_run(session)
+        await RunVerdicts(session).save(
+            run, {"big.example.test": RunVerdict(DonorStatus.SUITABLE, "US на 1-м месте")}
+        )
+
+        report = await RunReview(session).queue_run(run.id, ["big.example.test"])
+
+        assert (report.pending, report.not_writing) == (0, 1)
 
 
 class TestLettersDoNotTakeThem:

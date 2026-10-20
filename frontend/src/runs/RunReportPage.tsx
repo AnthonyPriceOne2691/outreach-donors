@@ -28,6 +28,7 @@ import type { RunCard, RunStatus } from '../api/types';
 import { Metric } from '../components/Metric';
 import { formatDateTime, formatNumber, plural } from '../format';
 import { CompetitorJournal } from './CompetitorJournal';
+import { ReasonsCard } from './ReasonsCard';
 import { RejectionsCard } from './RejectionsCard';
 import { ReviewLink } from './ReviewLink';
 import { ACTIVE } from './RunHistory';
@@ -44,17 +45,21 @@ const domainsWord = (count: number) => plural(count, 'домен', 'домена
 const titled = (word: string) => word.charAt(0).toUpperCase() + word.slice(1);
 
 /** Путь домена до вердикта одной строкой: из выдачи (или ссылок конкурентов) — мимо гейта
- *  и свежих — в Ahrefs. */
+ *  и свежих — в Ahrefs. Свежих прогон с 20.10.2026 судит сам — своей страной и порогами, без
+ *  Ahrefs. */
 function Funnel({ domains, from }: { domains: RunDomains; from: string }) {
   const found =
     domains.found === null
       ? from
       : `${from} — ${formatNumber(domains.found)} ${domainsWord(domains.found)}`;
+  const fresh = domains.fresh_judged
+    ? 'метрики в сроке: вердикт этого прогона по сохранённым, платить не пришлось'
+    : 'метрики в сроке, платить не пришлось';
   return (
     <Text size="sm">
       {found}: исключено {formatNumber(domains.excluded)}, проверены раньше{' '}
-      {formatNumber(domains.fresh)} — метрики в сроке, платить не пришлось; новых в проверку Ahrefs
-      — {formatNumber(domains.to_check)}.
+      {formatNumber(domains.fresh)} — {fresh}; новых в проверку Ahrefs —{' '}
+      {formatNumber(domains.to_check)}.
     </Text>
   );
 }
@@ -76,6 +81,20 @@ function NotReached({ domains, status }: { domains: RunDomains; status: RunStatu
   return (
     <Text size="sm" c="dimmed">
       {said}
+    </Text>
+  );
+}
+
+/** Почему «Рассмотреть» у прогона не равно «Подходит» (ревью 20.10.2026): «Подходит» — вердикт
+ *  прогона, а «Рассмотреть» — кто ждёт решения сейчас. Решённые туда не входят, «кому не пишем»
+ *  в очередь не кладут. Числа сходятся — строки нет. */
+function QueueNote({ run, domains }: { run: RunCard; domains: RunDomains }) {
+  const pending = run.queue.pending ?? 0;
+  if (pending === domains.suitable) return null;
+  return (
+    <Text size="sm" c="dimmed">
+      «Рассмотреть» — кто ждёт решения сейчас, поэтому не равно «Подходит»: решённые человеком в
+      него не входят, а «кому не пишем» в очередь не кладут.
     </Text>
   );
 }
@@ -127,7 +146,7 @@ function DomainsBlock({ run, domains }: { run: RunCard; domains: RunDomains }) {
         <Metric
           title="Проверено в Ahrefs"
           value={formatNumber(domains.checked)}
-          hint="с любым вердиктом"
+          hint={domains.fresh_judged ? 'новых, с любым вердиктом' : 'с любым вердиктом'}
         />
         <Metric
           title={titled(DONOR_STATUSES.suitable.title)}
@@ -144,10 +163,11 @@ function DomainsBlock({ run, domains }: { run: RunCard; domains: RunDomains }) {
         <Metric
           title={titled(DONOR_STATUSES.unchecked.title)}
           value={formatNumber(domains.unchecked)}
-          hint="Ahrefs не дал данных"
+          hint={domains.fresh_judged ? 'данных не хватило' : 'Ahrefs не дал данных'}
         />
       </SimpleGrid>
       <NotReached domains={domains} status={run.status} />
+      <QueueNote run={run} domains={domains} />
       {domains.resumes > 0 && (
         <Text size="sm" c="dimmed">
           Прогон продолжали после сбоя ({formatNumber(domains.resumes)}{' '}
@@ -222,8 +242,10 @@ export function RunReportPage() {
           rejected={view.rejected}
           thresholds={view.thresholds}
           country={view.run.country}
+          freshJudged={view.domains.fresh_judged}
         />
       )}
+      {view.domains !== null && <ReasonsCard excluded={view.excluded} unchecked={view.unchecked} />}
       <SpendCard
         spending={view.spending}
         estimated={view.run.estimated_units}

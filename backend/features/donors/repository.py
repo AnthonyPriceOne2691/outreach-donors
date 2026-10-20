@@ -30,6 +30,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.author_door import opened_reason, opens
 from backend.features.donors.collect import DomainResult, PaidMetrics
+from backend.features.donors.held import Standing, held_statuses
 from backend.features.donors.publisher_judge import NO_TEXT, Decider, Recommendation
 from backend.features.donors.selection import human_advice
 from backend.features.topics.store import TopicStore
@@ -89,7 +90,9 @@ def countries_missing() -> ColumnElement[bool]:
     отметка стран у него стоит, это «проверяли, данных нет».
 
     Признак — по колонкам, а не по причине: у записей до 11.10.2026 причина
-    «не проверен» не хранилась (`_donor_values`).
+    «не проверен» не хранилась (`_donor_values`). И по вердикту замера (`measured_status`), а не
+    для выходов: у принятого `status` держится (`donors/held.py`), и по нему принятый со
+    сломавшимся запросом стран 90 дней жил бы без разбивки (повторное ревью 20.10.2026).
     """
 
     def counted(key: str) -> ColumnElement[bool]:
@@ -98,13 +101,18 @@ def countries_missing() -> ColumnElement[bool]:
         return func.coalesce(func.jsonb_typeof(DonorModel.metrics[key]), "") == "number"
 
     return and_(
-        DonorModel.status == DonorStatus.UNCHECKED,
+        func.coalesce(DonorModel.measured_status, "") == DonorStatus.UNCHECKED.value,
         DonorModel.geo_refreshed_at.is_(None),
         DonorModel.dr.is_not(None),
         DonorModel.org_traffic.is_not(None),
         counted("refdomains"),
         counted("org_keywords"),
     )
+
+
+def _reason(status: DonorStatus, reason: str | None) -> str | None:
+    """Причина вердикта в колонку: у подходящего — пусто, у остальных — не длиннее колонки."""
+    return None if status is DonorStatus.SUITABLE else (reason or "")[:64]
 
 
 def _is_partial(result: DomainResult) -> bool:
@@ -354,13 +362,21 @@ class DonorRepository:
 
         Пачка — чекпоинт: после сохранения эти домены выпадают из повторных
         прогонов, и падение на следующей пачке не стоит уже сделанной работы.
+
+        Вердикт замера ложится донору всегда (`measured_status`), а вердикт для выходов
+        принятому — только по прогону, где приняли (`donors/held.py`, ревью 20.10.2026).
         """
         if not results:
             return 0
 
         moment = now or datetime.now(UTC)
         ids = await self.ensure_domains([r.host for r in results])
-        payload = [self._donor_values(r, ids[r.host], moment) for r in results if r.host in ids]
+        held = await held_statuses(self._session, results, ids)
+        payload = [
+            self._donor_values(r, ids[r.host], moment, held.get(ids[r.host]))
+            for r in results
+            if r.host in ids
+        ]
         if not payload:
             return 0
 
@@ -373,6 +389,8 @@ class DonorRepository:
                     for column in (
                         "status",
                         "reject_reason",
+                        "measured_status",
+                        "measured_reason",
                         "metrics",
                         "metrics_refreshed_at",
                         "dr",
@@ -389,19 +407,22 @@ class DonorRepository:
         return len(payload)
 
     @staticmethod
-    def _donor_values(result: DomainResult, domain_id: int, moment: datetime) -> dict[str, object]:
+    def _donor_values(
+        result: DomainResult, domain_id: int, moment: datetime, held: Standing | None
+    ) -> dict[str, object]:
         breakdown = result.breakdown
         geo_asked = result.geo is not None
+        status, reason = held or (result.status, result.reason)
         return {
             "domain_id": domain_id,
-            "status": result.status,
+            "status": status,
             # Причина — у отказа и у «не проверен»: у подходящего донора она была
             # бы объяснением успеха и путала бы отчёт. «Не проверен» без причины
             # (так было до 11.10.2026) не отличить: «Ahrefs не знает домен» добирать
             # незачем, «страны не получены» добирает следующий прогон.
-            "reject_reason": (
-                None if result.status is DonorStatus.SUITABLE else result.reason[:64]
-            ),
+            "reject_reason": _reason(status, reason),
+            "measured_status": result.status.value,
+            "measured_reason": _reason(result.status, result.reason),
             "metrics": result.raw,
             # Отметка ставится всегда, даже когда данных не пришло: иначе
             # домен вне индекса Ahrefs будет оплачиваться каждым прогоном.
