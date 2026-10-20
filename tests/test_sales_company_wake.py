@@ -268,7 +268,7 @@ async def test_a_holder_without_a_verdict_keeps_the_lead_waiting_until_its_check
 
     first = await hunter.clean(world)
 
-    still = verify_again.checking(1, NOW + timedelta(minutes=20))
+    still = verify_again.checking(NOW + timedelta(minutes=20), NOW + timedelta(minutes=60))
     assert await world.rows() == [Row(LeadStatus.NEW, note=still), kept]
     assert (first.still_checking, first.awaiting_holder) == (1, 1)
 

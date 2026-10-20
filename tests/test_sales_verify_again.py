@@ -1,13 +1,14 @@
-"""Перепроверка адреса, у которого Hunter «ещё проверяет» (202), — сама, по сроку и со счётом.
+"""Перепроверка адреса, у которого Hunter «ещё проверяет» (202), — сама, по сроку, в окне времени.
 
 Разбор прогона сбора: после переспросов прохода лид оставался «новым» со словами «повторим
-следующей очисткой», и следующей очистки никто не запускал. Здесь: срок и счёт у лида, слова со
-временем, задача очереди на срок (`enqueue_at`, своего планировщика нет), тело задачи на
-настоящей базе, предел перепроверок — «не проверить» словами, вердикт — в месячный потолок,
-202 — нет.
+следующей очисткой», и следующей очистки никто не запускал. Здесь: срок и окно у лида, слова с
+датой и временем, задача очереди на срок (`enqueue_at`, своего планировщика нет), тело задачи на
+настоящей базе, предел — временем от первого «ещё проверяет» (нажатие раньше срока его не
+сокращает), временный отказ посреди окна срок не снимает, вердикт — в месячный потолок, 202 —
+нет; продажи выключены — задача ничего не делает; расход — в отчёт прогона и запись в журнале.
 
-Hunter — `httpx.MockTransport` или выдуманный проверяльщик (`pending@` — «ещё проверяет»), очередь
-— подделка с правилами rq 2.12. Адреса и ниши разные, домены выдуманы.
+Hunter — `httpx.MockTransport` или выдуманный проверяльщик (`still-checking@` — «ещё проверяет»),
+очередь — подделка с правилами rq 2.12. Адреса и ниши разные, домены выдуманы, IDN — в punycode.
 """
 
 from __future__ import annotations
@@ -20,6 +21,9 @@ import httpx
 import pytest
 from backend.config.startup_checks import ConfigError
 from backend.features.contacts.mx import MailRoute
+from backend.features.contacts.provider import ProviderError
+from backend.features.core.domain import AuditAction
+from backend.features.core.models.access import AuditLogModel
 from backend.features.sales import cleaning, deferred, hunter_codes, verify_again, verify_again_jobs
 from backend.features.sales.models import (
     LeadStatus,
@@ -27,23 +31,30 @@ from backend.features.sales.models import (
     SalesHypothesisModel,
     SalesLeadModel,
 )
-from backend.features.sales.verifier import FixtureVerifier, HunterVerifier
+from backend.features.sales.segment_estimate import SALES_OFF
+from backend.features.sales.segment_models import Lane, SalesSegmentRunModel, Stage
+from backend.features.sales.verifier import FixtureVerifier, HunterVerifier, Verdict
 from backend.features.sales.verify_cap import MonthCapped
 from backend.shared.net import retry
 from redis.exceptions import ConnectionError as RedisConnectionError
 from rq.exceptions import DuplicateJobError
 from rq.job import JobStatus
 from sqlalchemy import select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.conftest import TEST_DSN
 from tests.test_sales_clean_api import _Job, _Redis
 from tests.test_sales_cleaning import NOW, World
+from tests.test_sales_segment_rejudge import site
+from tests.test_sales_segment_run import make_run
 
-#: Умолчания настроек: перепроверка через двадцать минут, не больше трёх раз.
+#: Умолчания настроек: перепроверка через двадцать минут, окно — три такие перепроверки.
 TERM = timedelta(minutes=20)
+WINDOW = 3 * TERM
 #: Лиды разных ниш, рынков и зон, с доменами IDN в punycode: пекарня (.de), клиника (.com.br),
 #: чайная (IDN в .jp), книжная лавка (IDN в .рф), магазин книг (IDN в зоне IDN, .امارات).
-PENDING = "pending.bakery@xn--bckerei-beispiel-vnb.de"
-CHECKING = "checking-office@clinica-sample.com.br"
+PENDING = "still-checking.bakery@xn--bckerei-beispiel-vnb.de"
+CHECKING = "still-checking-office@clinica-sample.com.br"
 FINE = "kenji@xn----ifuwe8csby996gnwb.jp"
 OTHER = "salma@xn----zmcbedj7noabf.xn--mgbaam7a8h"
 BOOKS = "zakaz@xn-----6kcbalxbrhngkudc6bsd10a.xn--p1ai"
@@ -119,10 +130,30 @@ async def _lead(session: AsyncSession, lead_id: int) -> SalesLeadModel:
     return found
 
 
-# --- исход «ещё проверяет»: срок, счёт, слова -----------------------------------------------------
+def _words(at: datetime, until: datetime, why: str = "Hunter ещё проверяет адрес") -> str:
+    return (
+        f"проверка не выполнена: {why} — перепроверка сама около {at:%d.%m %H:%M} UTC, "
+        f"ждём до {until:%d.%m %H:%M} UTC"
+    )
 
 
-async def test_still_checking_keeps_the_lead_new_with_the_term_the_count_and_words(
+class Refusing:
+    """Проверяльщик, у которого сервис временно не отвечает: 5xx словами общего разбора."""
+
+    name = "hunter"
+
+    def __init__(self) -> None:
+        self.asked: list[str] = []
+
+    async def verify(self, email: str) -> Verdict:
+        self.asked.append(email)
+        raise ProviderError("провайдер не ответил (HTTP 503)")
+
+
+# --- исход «ещё проверяет»: срок, окно, слова ------------------------------------------------------
+
+
+async def test_still_checking_keeps_the_lead_new_with_the_term_the_window_and_words(
     world: World, later: Later
 ) -> None:
     pending = await world.lead(PENDING)
@@ -131,18 +162,23 @@ async def test_still_checking_keeps_the_lead_new_with_the_term_the_count_and_wor
     report = await cleaning.clean(world.session, FixtureVerifier(), now=NOW)
 
     waiting = await _lead(world.session, pending.id)
-    assert (waiting.status, waiting.verify_tries, waiting.verify_again_at) == (
+    assert (waiting.status, waiting.verify_since, waiting.verify_again_at) == (
         LeadStatus.NEW,
-        1,
+        NOW,
         NOW + TERM,
     )
+    # Дата и время — по UTC, со днём: «около 09:50» завтрашним утром читалось бы прошедшим.
     assert waiting.cleaning_note == (
-        "проверка не выполнена: Hunter ещё проверяет адрес — перепроверка сама около 09:50 UTC "
-        "(1 из 3)"
+        "проверка не выполнена: Hunter ещё проверяет адрес — перепроверка сама около "
+        "04.10 09:50 UTC, ждём до 04.10 10:30 UTC"
     )
     assert waiting.verification_status is None
     ready = await _lead(world.session, fine.id)
-    assert (ready.status, ready.verify_tries, ready.verify_again_at) == (LeadStatus.READY, 0, None)
+    assert (ready.status, ready.verify_since, ready.verify_again_at) == (
+        LeadStatus.READY,
+        None,
+        None,
+    )
     assert (report.still_checking, report.again_at, report.unverified) == (1, NOW + TERM, 0)
     # Задача на срок — очередью долгих задач продаж, номер — от минуты срока.
     assert later.planned == [(NOW + TERM, verify_again.JOB, (), "sales-verify-again-20261004T0950")]
@@ -166,23 +202,26 @@ async def test_a_previous_verdict_stays_while_hunter_is_still_checking(
 
     found = await _lead(world.session, lead.id)
     assert (found.verification_status, found.verified_at) == ("fixture:unknown", earlier)
-    assert (found.verify_tries, found.verify_again_at) == (1, NOW + TERM)
+    assert (found.verify_since, found.verify_again_at) == (NOW, NOW + TERM)
     assert len(later.planned) == 1
 
 
-async def test_after_the_last_recheck_the_lead_is_refused_in_words(
+async def test_after_the_window_the_lead_is_refused_in_words(
     world: World, later: Later, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Не больше `SALES_VERIFY_AGAIN_TRIES` перепроверок: следующее «ещё проверяет» — отказ
-    «не подтверждён» словами, срок и счёт сняты, задачи на срок больше нет."""
+    """Окно — `SALES_VERIFY_AGAIN_TRIES` сроков по `SALES_VERIFY_AGAIN_MIN` от первого «ещё
+    проверяет»: последний срок — конец окна, а «ещё проверяет» после него — отказ «не подтверждён»
+    словами; срок и окно сняты, задачи на срок больше нет."""
     monkeypatch.setattr("backend.config.sales.VERIFY_AGAIN_TRIES", 2)
     monkeypatch.setattr("backend.config.sales.VERIFY_AGAIN_MIN", 45)
     lead = await world.lead(PENDING)
+    until = NOW + timedelta(minutes=90)
 
-    for step in range(3):
-        await cleaning.clean(world.session, FixtureVerifier(), now=NOW + step * timedelta(hours=1))
-        if step < 2:
-            assert (await _lead(world.session, lead.id)).verify_tries == step + 1
+    await cleaning.clean(world.session, FixtureVerifier(), now=NOW)
+    await cleaning.clean(world.session, FixtureVerifier(), now=NOW + timedelta(minutes=45))
+    second = await _lead(world.session, lead.id)
+    assert (second.verify_since, second.verify_again_at) == (NOW, until)
+    await cleaning.clean(world.session, FixtureVerifier(), now=until)
 
     found = await _lead(world.session, lead.id)
     assert (found.status, found.rejection_reason) == (
@@ -190,23 +229,103 @@ async def test_after_the_last_recheck_the_lead_is_refused_in_words(
         RejectionReason.UNCONFIRMED.value,
     )
     assert found.cleaning_note == (
-        "адрес не проверить: Hunter не закончил проверку и после 2 перепроверок через 45 мин"
+        "адрес не проверить: Hunter не закончил проверку и за 90 мин — перепроверяли каждые 45 мин"
     )
-    assert (found.verify_tries, found.verify_again_at) == (0, None)
+    assert (found.verify_since, found.verify_again_at) == (None, None)
     assert len(later.planned) == 2  # третий проход отказал — нового срока нет
 
 
-async def test_any_other_outcome_takes_the_term_and_the_count_away(
+async def test_pressing_early_does_not_shorten_the_window(world: World, later: Later) -> None:
+    """Ревью 20.10: счёт заходов сжигался нажатиями — три «Очистить» подряд, и лид отклонён.
+    Теперь предел — временем: шесть заходов за окно (каждые десять минут, раньше срока) его не
+    сокращают, лид ждёт дальше; последний срок — конец окна."""
+    lead = await world.lead(PENDING)
+
+    for minute in range(0, 60, 10):
+        await cleaning.clean(world.session, FixtureVerifier(), now=NOW + timedelta(minutes=minute))
+
+    found = await _lead(world.session, lead.id)
+    assert (found.status, found.verify_since, found.verify_again_at) == (
+        LeadStatus.NEW,
+        NOW,
+        NOW + WINDOW,
+    )
+    assert found.cleaning_note == _words(NOW + WINDOW, NOW + WINDOW)
+
+
+async def test_any_other_outcome_takes_the_term_and_the_window_away(
     world: World, later: Later
 ) -> None:
     lead = await world.lead(FINE)
-    lead.verify_tries, lead.verify_again_at = 2, NOW - timedelta(minutes=1)
+    lead.verify_since, lead.verify_again_at = NOW - TERM, NOW - timedelta(minutes=1)
     await world.session.flush()
 
     await cleaning.clean(world.session, FixtureVerifier(), now=NOW)
 
     found = await _lead(world.session, lead.id)
-    assert (found.status, found.verify_tries, found.verify_again_at) == (LeadStatus.READY, 0, None)
+    assert (found.status, found.verify_since, found.verify_again_at) == (
+        LeadStatus.READY,
+        None,
+        None,
+    )
+    assert later.planned == []
+
+
+async def test_a_real_address_is_not_taken_for_still_checking() -> None:
+    """Выдуманный проверяльщик откладывает только длинный маркер: настоящий адрес вроде
+    `pending.orders@` при `fixture` проходит, как и проходил (ревью 20.10)."""
+    fixture = FixtureVerifier()
+
+    verdicts = [
+        (await fixture.verify(email)).status
+        for email in ("pending.orders@sklep-sample.pl", "checking-in@hotel-sample.gr")
+    ]
+
+    assert verdicts == ["valid", "valid"]
+    with pytest.raises(hunter_codes.StillCheckingError):
+        await fixture.verify("still-checking@sklep-sample.pl")
+
+
+# --- временный отказ посреди окна -------------------------------------------------------------------
+
+
+async def test_a_passing_refusal_in_the_window_keeps_the_term(world: World, later: Later) -> None:
+    """Ревью 20.10: 5xx, сеть, частота посреди окна снимали срок, и лид висел «новым» без
+    перепроверки. Теперь — как «ещё проверяет»: срок следующий, окно прежнее, слова — отказа."""
+    lead = await world.lead(OTHER)
+    since = NOW - timedelta(minutes=30)
+    lead.verify_since, lead.verify_again_at = since, NOW - timedelta(minutes=1)
+    await world.session.commit()
+    hunter = Refusing()
+
+    report = await verify_again_jobs.again_pass(world.session, hunter, now=NOW)
+
+    assert report is not None
+    assert hunter.asked == [OTHER]
+    found = await _lead(world.session, lead.id)
+    assert (found.status, found.verify_since, found.verify_again_at) == (
+        LeadStatus.NEW,
+        since,
+        NOW + TERM,
+    )
+    assert found.cleaning_note == _words(
+        NOW + TERM, since + WINDOW, "провайдер не ответил (HTTP 503)"
+    )
+    assert [when for when, *_ in later.planned] == [NOW + TERM]
+
+
+async def test_a_passing_refusal_after_the_window_leaves_the_lead_in_words(
+    world: World, later: Later
+) -> None:
+    lead = await world.lead(OTHER)
+    lead.verify_since, lead.verify_again_at = NOW - WINDOW, NOW - timedelta(minutes=1)
+    await world.session.commit()
+
+    await verify_again_jobs.again_pass(world.session, Refusing(), now=NOW)
+
+    found = await _lead(world.session, lead.id)
+    assert (found.status, found.verify_since, found.verify_again_at) == (LeadStatus.NEW, None, None)
+    assert found.cleaning_note == "проверка не выполнена: провайдер не ответил (HTTP 503)"
     assert later.planned == []
 
 
@@ -215,16 +334,17 @@ async def test_any_other_outcome_takes_the_term_and_the_count_away(
 
 async def test_the_recheck_takes_only_the_leads_whose_term_came(world: World, later: Later) -> None:
     """Срок настал (и в пределах минуты) — перепроверка; ещё не настал, отклонён или без срока —
-    не трогает. Перепроверенный «ещё проверяет» — следующий срок и счёт +1."""
+    не трогает. Перепроверенный «ещё проверяет» — следующий срок, окно прежнее."""
     due = await world.lead(PENDING)
     soon = await world.lead(FINE)
     future = await world.lead(OTHER)
-    gone = await world.lead("checking@gone-sample.co.uk", status=LeadStatus.REJECTED)
+    gone = await world.lead("still-checking@gone-sample.co.uk", status=LeadStatus.REJECTED)
     plain = await world.lead(BOOKS)
-    due.verify_tries, due.verify_again_at = 1, NOW - timedelta(minutes=5)
-    soon.verify_tries, soon.verify_again_at = 1, NOW + timedelta(seconds=40)
-    future.verify_tries, future.verify_again_at = 1, NOW + timedelta(minutes=9)
-    gone.verify_tries, gone.verify_again_at = 1, NOW - timedelta(minutes=5)
+    since = NOW - timedelta(minutes=25)
+    due.verify_since, due.verify_again_at = since, NOW - timedelta(minutes=5)
+    soon.verify_since, soon.verify_again_at = since, NOW + timedelta(seconds=40)
+    future.verify_since, future.verify_again_at = since, NOW + timedelta(minutes=9)
+    gone.verify_since, gone.verify_again_at = since, NOW - timedelta(minutes=5)
     await world.session.commit()
 
     report = await verify_again_jobs.again_pass(world.session, FixtureVerifier(), now=NOW)
@@ -232,14 +352,75 @@ async def test_the_recheck_takes_only_the_leads_whose_term_came(world: World, la
     assert report is not None
     assert report.checked == 2
     rows = {
-        lead.id: (lead.status, lead.verify_tries, lead.verify_again_at)
+        lead.id: (lead.status, lead.verify_since, lead.verify_again_at)
         for lead in (await world.session.scalars(select(SalesLeadModel))).all()
     }
-    assert rows[due.id] == (LeadStatus.NEW, 2, NOW + TERM)
-    assert rows[soon.id] == (LeadStatus.READY, 0, None)
-    assert rows[future.id] == (LeadStatus.NEW, 1, NOW + timedelta(minutes=9))
+    assert rows[due.id] == (LeadStatus.NEW, since, NOW + TERM)
+    assert rows[soon.id] == (LeadStatus.READY, None, None)
+    assert rows[future.id] == (LeadStatus.NEW, since, NOW + timedelta(minutes=9))
     assert rows[gone.id][0] is LeadStatus.REJECTED
-    assert rows[plain.id] == (LeadStatus.NEW, 0, None)
+    assert rows[plain.id] == (LeadStatus.NEW, None, None)
+
+
+def test_the_recheck_takes_its_leads_under_a_lock_and_skips_taken_ones() -> None:
+    """Ревью 20.10: две задачи на соседние минуты и «Повторить сейчас» у очистки проверили бы один
+    адрес дважды. Выборка задачи — `FOR UPDATE … SKIP LOCKED` по строкам лидов."""
+    sql = str(verify_again_jobs.due_rows(NOW).compile(dialect=postgresql.dialect()))  # type: ignore[no-untyped-call]
+
+    assert sql.endswith("FOR UPDATE OF sales_leads SKIP LOCKED")
+
+
+async def _run_with_lead(
+    world: World, *, going: bool
+) -> tuple[SalesSegmentRunModel, SalesLeadModel]:
+    """Прогон сбора с лидом «ещё проверяет», чей срок настал; `going` — проход прогона идёт."""
+    run = await make_run(world.session, world.hypothesis)
+    run.stage, run.finished_at = Stage.DONE, None if going else NOW - timedelta(hours=1)
+    lead = await world.lead(CHECKING)
+    lead.verify_since, lead.verify_again_at = NOW - TERM, NOW - timedelta(minutes=2)
+    host = CHECKING.rpartition("@")[2]
+    candidate = await site(world.session, run, host, lane=Lane.ACCEPT)
+    candidate.lead_id = lead.id
+    await world.session.commit()
+    return run, lead
+
+
+async def test_the_recheck_leaves_the_leads_of_a_going_run_to_the_run(
+    world: World, later: Later
+) -> None:
+    """Проход прогона идёт — его лидов задача не берёт (запись в отчёт прогона затёрла бы одна
+    другую), и срок не ставит: его поставит конец прохода."""
+    _, lead = await _run_with_lead(world, going=True)
+
+    assert await verify_again_jobs.again_pass(world.session, FixtureVerifier(), now=NOW) is None
+    assert await verify_again.next_at(world.session) is None
+    assert (await _lead(world.session, lead.id)).verify_again_at == NOW - timedelta(minutes=2)
+
+
+async def test_the_recheck_writes_its_spend_into_the_run_and_the_journal(
+    world: World, later: Later
+) -> None:
+    """Ревью 20.10: проверки задачи мимо отчёта прогона — панель расхода занижала Hunter. Теперь
+    проверки — в `report.leads.cleaning` прогона, а в журнале — «автоматически, по сроку»."""
+    run, lead = await _run_with_lead(world, going=False)
+    run.report = {"leads": {"created": 4, "cleaning": {"checked": 4, "paid_units": 3}}}
+    await world.session.commit()
+
+    await verify_again_jobs.again_pass(world.session, FixtureVerifier(), now=NOW)
+
+    refreshed = await world.session.get(SalesSegmentRunModel, run.id, populate_existing=True)
+    assert refreshed is not None
+    cleaning_report = refreshed.report["leads"]["cleaning"]
+    assert (cleaning_report["checked"], refreshed.report["leads"]["created"]) == (5, 4)
+    assert (await _lead(world.session, lead.id)).status is LeadStatus.NEW  # всё ещё проверяет
+    journal = await world.session.scalar(
+        select(AuditLogModel).where(AuditLogModel.action == AuditAction.RUN_STARTED)
+    )
+    assert journal is not None
+    assert (journal.user_id, journal.details) == (
+        None,
+        {"этап": "sales", "действие": verify_again_jobs.AUTO, "прогон": run.id, "лидов": 1},
+    )
 
 
 async def test_the_recheck_with_nothing_due_is_empty(world: World) -> None:
@@ -250,21 +431,24 @@ async def test_the_recheck_with_nothing_due_is_empty(world: World) -> None:
 
 
 async def test_the_next_term_is_the_earliest_left_in_the_base(world: World, later: Later) -> None:
-    """Следующая задача — на самый ранний срок в базе, не ближе минуты от «сейчас»; минута, у
-    которой задача уже есть, второй не получает."""
+    """Следующая задача — на самый ранний срок в базе, не ближе минуты от «сейчас» (после сбоя —
+    не ближе срока); минута, у которой задача уже есть, второй не получает."""
     first = await world.lead(PENDING)
     second = await world.lead(OTHER)
-    first.verify_tries, first.verify_again_at = 1, NOW + timedelta(minutes=7)
-    second.verify_tries, second.verify_again_at = 1, NOW - timedelta(minutes=3)
+    first.verify_since, first.verify_again_at = NOW, NOW + timedelta(minutes=7)
+    second.verify_since, second.verify_again_at = NOW, NOW - timedelta(minutes=3)
     await world.session.flush()
 
     planned = await verify_again.plan(world.session, now=NOW)
     again = await verify_again.plan(world.session, now=NOW)
+    after_failure = await verify_again.plan(world.session, now=NOW, soonest=TERM)
 
     assert planned == "sales-verify-again-20261004T0931"
     assert again is None
+    assert after_failure == "sales-verify-again-20261004T0950"
     assert [(when, number) for when, _, _, number in later.planned] == [
-        (NOW + deferred.SOONEST, "sales-verify-again-20261004T0931")
+        (NOW + deferred.SOONEST, "sales-verify-again-20261004T0931"),
+        (NOW + TERM, "sales-verify-again-20261004T0950"),
     ]
 
 
@@ -332,11 +516,11 @@ async def test_still_checking_costs_no_place_under_the_month_cap_and_the_verdict
 async def test_the_recheck_asks_hunter_under_the_month_cap(
     world: World, later: Later, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Потолок месяца выбран — перепроверка не спрашивает Hunter и встаёт его словами: лид ждёт
-    в прежнем статусе, срок снят (до следующего месяца перепроверять бессмысленно)."""
+    """Потолок месяца выбран — перепроверка не спрашивает Hunter и встаёт его словами; посреди
+    окна срок остаётся (временный отказ — как «ещё проверяет»), окно его ограничит."""
     monkeypatch.setattr("backend.config.sales.VERIFIER_MONTH_CAP", "0")
     lead = await world.lead(FINE)
-    lead.verify_tries, lead.verify_again_at = 1, NOW - timedelta(minutes=2)
+    lead.verify_since, lead.verify_again_at = NOW - TERM, NOW - timedelta(minutes=2)
     await world.session.commit()
     handler, seen = _script(VALID)
 
@@ -351,10 +535,47 @@ async def test_the_recheck_asks_hunter_under_the_month_cap(
         == "потолок проверки адресов на месяц выбран: 0 из 0 — следующий месяц продолжит"
     )
     found = await _lead(world.session, lead.id)
-    assert (found.status, found.verify_again_at) == (LeadStatus.NEW, None)
+    assert (found.status, found.verify_again_at) == (LeadStatus.NEW, NOW + TERM)
 
 
-# --- задача очереди: отказы как у очистки ---------------------------------------------------------
+# --- задача очереди: продажи выключены, отказы как у очистки, срок после сбоя ----------------------
+
+
+async def test_the_recheck_with_sales_off_asks_nobody(
+    later: Later, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ревью 20.10: выключенные продажи не останавливали задачу — Hunter спрашивался и новая
+    задача ставилась. Теперь — пропуск словами: ни проверки, ни задачи."""
+    built: list[object] = []
+    monkeypatch.setattr("backend.config.sales.ENABLED", False)
+    monkeypatch.setattr(verify_again_jobs, "build_verifier", built.append)
+
+    assert await verify_again_jobs.run_again() == {"skipped": SALES_OFF}
+    assert (built, later.planned) == ([], [])
+
+
+async def test_a_failed_recheck_plans_the_next_not_sooner_than_the_term(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ревью 20.10: упавшая перепроверка не ставила следующей — срок ждал, пока кто-то зайдёт.
+    Теперь следующая — после любого исхода, после сбоя — не раньше обычного срока."""
+    planned: list[timedelta] = []
+
+    async def broken(*_args: object, **_kwargs: object) -> None:
+        raise ConnectionError("база мигнула")
+
+    async def plan(_session: AsyncSession, *, now: datetime, soonest: timedelta) -> None:
+        planned.append(soonest)
+
+    monkeypatch.setattr("backend.config.sales.ENABLED", True)
+    monkeypatch.setattr("backend.config.storage.DSN", TEST_DSN)
+    monkeypatch.setattr(verify_again_jobs, "again_pass", broken)
+    monkeypatch.setattr(verify_again, "plan", plan)
+
+    with pytest.raises(ConnectionError):
+        await verify_again_jobs.run_again()
+
+    assert planned == [TERM]
 
 
 def test_the_job_settles_a_misconfigured_verifier_as_an_outcome(

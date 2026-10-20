@@ -23,6 +23,12 @@
 записал исход этого этапа. Писать его по ходу из прохода нельзя без блокировки строки
 прогона на всё время сетевой партии.
 
+**Ход повтора — своим ключом** (`report.again`, `enter_again`; ревью 20.10): проход повтора
+(`segment_run.again`) стадию прогона и запись хода прохода не трогает — готовый остаётся готовым,
+остановленный — остановленным со своим этапом («остановлен на этапе «судья»: 40 из 60»), и повтор
+задачи после сбоя их не теряет. Запись повтора — та же форма и `what` (`segment_run.Again`);
+кончился повтор — запись снята (`without_again`).
+
 **Пульс — `updated_at` строки** (`pulse`, своей сессией каждые `PULSE_SEC`), как отметка
 о жизни прогона доноров (`runs/lifecycle.heartbeat`): по одному «когда менялась строка»
 медленный этап (шесть минут выдачи) неотличим от мёртвого. Пульс трогает только
@@ -50,6 +56,8 @@ logger = logging.getLogger(__name__)
 
 #: Ключ хода в отчёте прогона.
 KEY = "progress"
+#: Ключ хода прохода повтора (`segment_run.again`): стадию и ход прохода он не трогает.
+AGAIN_KEY = "again"
 #: Как часто идущий прогон отмечается живым. Экран называет «обновлено N с назад».
 PULSE_SEC = 15.0
 
@@ -98,14 +106,20 @@ def entered(
     return found
 
 
-def advanced(run: Run, *, done: int, total: int | None = None) -> dict[str, Any]:
-    """Отчёт прогона с новым «сделано» этапа (и «всего», если оно стало известно)."""
-    progress = dict(run.report.get(KEY) or {})
+def advanced(run: Run, *, done: int, total: int | None = None, key: str = KEY) -> dict[str, Any]:
+    """Отчёт прогона с новым «сделано» этапа (и «всего», если оно стало известно); `key` —
+    запись хода прохода или повтора (`AGAIN_KEY`)."""
+    progress = dict(run.report.get(key) or {})
     progress["done"] = done
     if total is not None:
         progress["total"] = total
     progress["updated_at"] = _now().isoformat()
-    return {**run.report, KEY: progress}
+    return {**run.report, key: progress}
+
+
+def without_again(report: dict[str, Any]) -> dict[str, Any]:
+    """Отчёт без записи хода повтора: повтор кончился или начался проход прогона."""
+    return {key: value for key, value in report.items() if key != AGAIN_KEY}
 
 
 def noted(run: Run, words: str) -> dict[str, Any]:
@@ -135,6 +149,26 @@ async def enter(
     )
 
 
+async def enter_again(
+    session: AsyncSession,
+    run: Run,
+    what: str,
+    stage: Stage,
+    *,
+    total: int | None,
+    pass_started: datetime,
+) -> None:
+    """Войти в этап повтора: запись хода повтора (`AGAIN_KEY`) — своим коммитом; стадия прогона
+    и запись хода прохода — прежние."""
+    progress = {**entered(stage, total=total, pass_started=pass_started), "what": what}
+    run.report = {**run.report, AGAIN_KEY: progress}
+    await session.commit()
+    logger.info(
+        "сбор продаж: этап повтора начат",
+        extra={"run": run.id, "what": what, "stage": stage.value, "total": total},
+    )
+
+
 async def judge_waiting(session: AsyncSession, run_id: int) -> int:
     """Сколько сайтов прогона ждут судью — тем же правилом, что берёт проход судьи."""
     return int(
@@ -157,12 +191,13 @@ async def _walked(session: AsyncSession, run_id: int, since: datetime) -> int:
     )
 
 
-async def live(session: AsyncSession, run: Run) -> dict[str, Any] | None:
-    """Ход прогона для экрана: запись прохода и живое «сделано» судьи и поиска адреса.
+async def live(session: AsyncSession, run: Run, *, key: str = KEY) -> dict[str, Any] | None:
+    """Ход прогона для экрана: запись прохода (или повтора, `key`) и живое «сделано» судьи и
+    поиска адреса.
 
     У остановленного — тот же счёт: «остановлен на судье, 40 из 60». Записи нет (прогон
     до этой версии или ещё не взят задачей) — `None`."""
-    stored = run.report.get(KEY)
+    stored = run.report.get(key)
     if not isinstance(stored, dict):
         return None
     total = stored.get("total")

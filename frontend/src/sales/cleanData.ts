@@ -17,10 +17,11 @@ import { cleanSalesLeads, readSalesClean } from '../api/sales';
 import { leadReasonTitle } from '../api/salesLabels';
 import type { SalesCleanReport, SalesCleanView } from '../api/salesCleanTypes';
 import type { HypothesisCard } from '../api/salesTypes';
-import { formatNumber, formatTime } from '../format';
+import { formatNumber } from '../format';
 import { jobRestarted } from '../jobs/JobLine';
 import { notify } from '../notices';
 import { forget, remember, remembered } from '../storage';
+import { momentWords } from './termWords';
 import { dayWords } from './weeklyData';
 
 /** Ключ всего раздела: после очистки устаревают и лиды, и счётчики гипотез. */
@@ -111,7 +112,7 @@ function checkingWords(found: Partial<SalesCleanReport>): string[] {
   if (checking === 0 || typeof found.again_at !== 'string') return [];
   return [
     `Hunter ещё проверяет адрес — ${formatNumber(checking)}: перепроверка пойдёт сама около ` +
-      `${formatTime(found.again_at)}.`,
+      `${momentWords(found.again_at)}.`,
   ];
 }
 

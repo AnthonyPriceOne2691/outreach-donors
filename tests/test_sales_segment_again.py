@@ -1,25 +1,32 @@
 """Повтор поиска адреса сайтам прогона, которые не ответили, — сам, по сроку; «ждут адреса» и
-кнопка — условием прохода; «Повторить сейчас» и строки ожидания в отчёте прогона.
+кнопка — условием прохода; «Повторить сейчас», строки ожидания и предложения повтора в отчёте.
 
 Разбор прогона сбора: проход адресов ставили только запуск и «Продолжить», а «ждут адреса» брал
 лишь не искавшиеся — сайт с наступившим сроком повтора никто не искал и кнопки он не получал.
-Здесь: срок после прохода — задачей очереди (`enqueue_at`), задача на срок ставит проход под
-номером прогона, проход по сроку ищет только тех, кто ждёт повтора, и заводит лиды только из
-найденного им; «Повторить сейчас» — не дожидаясь срока; отчёт называет, что ждёт и когда.
+Здесь: срок — одним правилом в Python и в SQL, не раньше `SALES_SEGMENT_AGAIN_MIN` и для прохода,
+и для числа; срок после любого прохода — задачей очереди (`enqueue_at`), и после сбоя тоже;
+задача на срок ставит проход под номером прогона с журналом «автоматически, по сроку», а пропуск
+(проход или пересуд идёт) — новым сроком; проход по сроку ищет только «не ответил» с наступившим
+сроком и заводит лиды только из найденного им (и после повтора задачи); стадию, причину и ход
+прохода повтор не трогает; кнопка берёт только наступившие сроки, а «не спросили» — при платной
+ступени; платный поиск повтора — в последний проход и в пределах сметы (ревью 20.10). Что
+называет отчёт и что возьмёт кнопка, маршрут «Повторить сейчас» —
+`test_sales_segment_again_report.py`.
 
 Сайты — `httpx.MockTransport`: главная с адресом или обрыв соединения; DNS — «почта есть»;
-проверка адресов выдуманная; очередь — подделка с правилами rq 2.12. Ниши, рынки и письменности
-разные, домены выдуманы.
+проверка адресов выдуманная или подставная; очередь — подделка с правилами rq 2.12; платная
+ступень — подделка со счётом обращений. Ниши, рынки, зоны и письменности разные, домены выдуманы,
+IDN — в punycode.
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
 import pytest
-from backend.api.sales import segment as segment_api
 from backend.config.judge import JudgeMode
 from backend.features.contacts import mx
 from backend.features.core.domain import AuditAction, ContactSource, ContactStatus
@@ -32,28 +39,30 @@ from backend.features.sales import (
     segment_again,
     segment_jobs,
     segment_report,
-    segment_waits,
+    segment_run,
+    verify_again,
 )
 from backend.features.sales.models import LeadSource, LeadStatus, SalesLeadModel
 from backend.features.sales.segment_estimate import SALES_OFF
 from backend.features.sales.segment_jobs import SEGMENT_JOB, segment_job_id
 from backend.features.sales.segment_models import Lane, SalesSegmentCandidateModel, Stage
-from backend.features.sales.segment_queue import SegmentContactQueue, retry_at
+from backend.features.sales.segment_queue import SegmentContactQueue, retry_at, term_reached
+from backend.features.sales.segment_rejudge import rejudge_job_id
 from backend.features.sales.segment_run import Again, again
 from backend.features.sales.verifier import FixtureVerifier
-from httpx import AsyncClient
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from tests.conftest import bearer
-from tests.test_sales_clean_api import _Jobs
-from tests.test_sales_segment_api import RUNS, headers, jobs
+from rq.job import JobStatus
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from tests.conftest import TEST_DSN
+from tests.test_contacts_no_answer import Paid
+from tests.test_sales_clean_api import _Job
 from tests.test_sales_segment_rejudge import site
 from tests.test_sales_segment_run import ANSWERS, PARTS, SHOP, Model, go, hypothesis, make_run, serp
 from tests.test_sales_verify_again import Later
 
-__all__ = ["headers", "jobs"]  # вход и подделка очереди — те же, что у маршрутов сбора
-
 Candidate = SalesSegmentCandidateModel
+#: Срок повтора не раньше этого (`SALES_SEGMENT_AGAIN_MIN`, умолчание).
+LEAST = timedelta(minutes=30)
 
 #: Сайты разных ниш, рынков, зон и письменностей — у каждого адрес на главной своим языком;
 #: домены IDN — в punycode, как их хранит база: пекарня (.рф), стоматология (.de), книги (зона IDN
@@ -106,9 +115,7 @@ def _network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("backend.features.contacts.search._paid_step", no_paid)
 
 
-@pytest.fixture
-def web(monkeypatch: pytest.MonkeyPatch) -> Web:
-    found = Web()
+def _sites(monkeypatch: pytest.MonkeyPatch, found: Web) -> Web:
     monkeypatch.setattr(
         "backend.features.contacts.search.guarded_client",
         lambda **_kw: httpx.AsyncClient(transport=httpx.MockTransport(found)),
@@ -117,9 +124,28 @@ def web(monkeypatch: pytest.MonkeyPatch) -> Web:
 
 
 @pytest.fixture
+def web(monkeypatch: pytest.MonkeyPatch) -> Web:
+    return _sites(monkeypatch, Web())
+
+
+@pytest.fixture
 def later(monkeypatch: pytest.MonkeyPatch) -> Later:
     found = Later()
     monkeypatch.setattr(deferred, "sales_bulk_queue", lambda: found)
+    return found
+
+
+@pytest.fixture
+def paid(monkeypatch: pytest.MonkeyPatch) -> Paid:
+    """Платная ступень есть: включена у сбора, ключ задан; обращения — в счёт подделки."""
+    found = Paid()
+
+    async def step(_http: httpx.AsyncClient, _report: object) -> Paid:
+        return found
+
+    monkeypatch.setattr("backend.features.contacts.search._paid_step", step)
+    monkeypatch.setattr("backend.config.sales.SEGMENT_PAID_CONTACTS", True)
+    monkeypatch.setattr("backend.config.contacts.HUNTER_API_KEY", "k-test")
     return found
 
 
@@ -131,9 +157,12 @@ async def _accepted(session: AsyncSession, run: Any, host: str, **contact: Any) 
     return await site(session, run, host, lane=Lane.ACCEPT, **contact)
 
 
-async def _done_run(session: AsyncSession) -> Any:
+async def _done_run(session: AsyncSession, *, searches: int | None = None) -> Any:
+    """Готовый прогон; `searches` — платных поисков адреса в смете запуска."""
     run = await make_run(session, await hypothesis(session))
     run.stage, run.finished_at = Stage.DONE, _ago(hours=3)
+    if searches is not None:
+        run.estimate = {**run.estimate, "hunter_searches": searches}
     await session.commit()
     return run
 
@@ -144,7 +173,13 @@ async def _fresh(session: AsyncSession, candidate: Candidate) -> Candidate:
     return found
 
 
-# --- срок повтора -----------------------------------------------------------------------------------
+async def _run(session: AsyncSession, run: Any) -> Any:
+    found = await session.get(type(run), run.id, populate_existing=True)
+    assert found is not None
+    return found
+
+
+# --- срок повтора: одно правило в Python и в SQL ---------------------------------------------------
 
 
 def test_the_term_is_the_attempts_rule_but_not_sooner_than_the_setting(
@@ -155,8 +190,8 @@ def test_the_term_is_the_attempts_rule_but_not_sooner_than_the_setting(
     attempted = datetime(2026, 10, 14, 8, 0, tzinfo=UTC)
 
     assert [retry_at(attempted, tries) - attempted for tries in (0, 1, 2, 3, 4)] == [
-        timedelta(minutes=30),
-        timedelta(minutes=30),
+        LEAST,
+        LEAST,
         timedelta(days=1),
         timedelta(days=7),
         timedelta(days=7),
@@ -165,18 +200,91 @@ def test_the_term_is_the_attempts_rule_but_not_sooner_than_the_setting(
     assert retry_at(attempted, 2) - attempted == timedelta(days=2)
 
 
-async def test_a_silent_site_gets_its_term_after_the_pass(
+#: Счёт проходов без ответа и минут после попытки — по краю каждой ступени расписания; домены —
+#: разных зон.
+EDGES = [
+    (0, 29, "edge-a-sample.it"),
+    (0, 31, "edge-b-sample.com.mx"),
+    (1, 29, "xn--edge-c-sample-xyb.fr"),
+    (1, 31, "edge-d-sample.co.kr"),
+    (2, 24 * 60 - 1, "edge-e-sample.pl"),
+    (2, 24 * 60 + 1, "edge-f-sample.nl"),
+    (3, 7 * 24 * 60 - 1, "edge-g-sample.se"),
+    (3, 7 * 24 * 60 + 1, "edge-h-sample.co.za"),
+    (5, 7 * 24 * 60 + 1, "edge-i-sample.ca"),
+]
+
+
+async def test_the_sql_term_is_the_python_term(session: AsyncSession) -> None:
+    """Срок у выборки (`term_reached`) и у задачи на срок (`retry_at`) — одно правило: по каждой
+    ступени и по краю. Иначе задача приходила бы к сайтам, которых выборка ещё не берёт."""
+    run = await _done_run(session)
+    now = datetime.now(UTC)
+    for tries, minutes, host in EDGES:
+        await _accepted(
+            session, run, host, contact_status=ContactStatus.NO_ANSWER, contact_tries=tries,
+            contact_attempted_at=now - timedelta(minutes=minutes),
+        )  # fmt: skip
+
+    reached = set(
+        (
+            await session.scalars(
+                select(DomainModel.host)
+                .join(Candidate, Candidate.domain_id == DomainModel.id)
+                .where(Candidate.run_id == run.id, term_reached(now))
+            )
+        ).all()
+    )
+
+    expected = {
+        host
+        for tries, minutes, host in EDGES
+        if retry_at(now - timedelta(minutes=minutes), tries) <= now
+    }
+    assert reached == expected
+    assert expected == {
+        "edge-b-sample.com.mx",
+        "edge-d-sample.co.kr",
+        "edge-f-sample.nl",
+        "edge-h-sample.co.za",
+        "edge-i-sample.ca",
+    }
+
+
+async def test_the_setting_holds_back_the_pass_and_the_count(session: AsyncSession) -> None:
+    """Ревью 20.10: `SALES_SEGMENT_AGAIN_MIN` откладывал задачу на срок, но не выборку — первый
+    «не ответил» (у общего правила — «следующий проход») брался «Найти адреса принятым» и считался
+    в «ждут адреса» сразу. Теперь — одним условием с задачей."""
+    run = await _done_run(session)
+    await _accepted(
+        session, run, BAKERY, contact_status=ContactStatus.NO_ANSWER, contact_tries=1,
+        contact_attempted_at=_ago(minutes=40),
+    )  # fmt: skip
+    await _accepted(
+        session, run, BOOKS, contact_status=ContactStatus.NO_ANSWER, contact_tries=1,
+        contact_attempted_at=_ago(minutes=2),
+    )  # fmt: skip
+
+    hosts = await SegmentContactQueue(session, run.id).pending_hosts()
+    view = await segment_report.run_view(session, run.id)
+
+    assert hosts == [BAKERY]
+    assert view is not None
+    assert view.waiting_address == 1
+
+
+# --- срок после прохода — задачей очереди, и после сбоя тоже ----------------------------------------
+
+
+async def test_a_silent_site_gets_its_term(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch, later: Later
 ) -> None:
-    """Проход прогона кончился, сайт не ответил поиску — очередь получает задачу на его срок."""
-    silent = Web(down={PARTS})
-    monkeypatch.setattr(
-        "backend.features.contacts.search.guarded_client",
-        lambda **_kw: httpx.AsyncClient(transport=httpx.MockTransport(silent)),
-    )
+    """Проход прогона кончился, сайт не ответил поиску — задача на его срок, номер — от минуты."""
+    _sites(monkeypatch, Web(down={PARTS}))
     run = await make_run(session, await hypothesis(session), mode=JudgeMode.ENFORCE)
-
     await go(session, run, serp(SHOP, PARTS), Model(ANSWERS))
+
+    await segment_again.plan(session, run.id, now=datetime.now(UTC))
 
     parts = await session.scalar(
         select(Candidate).join(DomainModel).where(DomainModel.host == PARTS)
@@ -184,7 +292,7 @@ async def test_a_silent_site_gets_its_term_after_the_pass(
     assert parts is not None
     assert (parts.contact_status, parts.contact_tries) == (ContactStatus.NO_ANSWER, 1)
     assert parts.contact_attempted_at is not None
-    term = parts.contact_attempted_at + timedelta(minutes=30)
+    term = parts.contact_attempted_at + LEAST
     assert [(when, path, args) for when, path, args, _ in later.planned] == [
         (term, segment_again.TRIGGER, (run.id,))
     ]
@@ -193,59 +301,93 @@ async def test_a_silent_site_gets_its_term_after_the_pass(
 
 async def test_no_silent_sites_no_term(session: AsyncSession, web: Web, later: Later) -> None:
     run = await make_run(session, await hypothesis(session))
-
     await go(session, run, serp(SHOP), Model(ANSWERS))
 
+    assert await segment_again.plan(session, run.id, now=datetime.now(UTC)) is None
     assert later.planned == []
 
 
-# --- задача на срок -------------------------------------------------------------------------------
-
-
-@pytest.fixture
-def bulk(monkeypatch: pytest.MonkeyPatch) -> Later:
-    found = Later()
-    monkeypatch.setattr(segment_jobs, "sales_bulk_queue", lambda: found)
-    monkeypatch.setattr(segment_jobs, "setup_logging", lambda: None)
-    return found
-
-
-def test_the_term_puts_the_pass_by_term_under_the_run_number(
-    bulk: Later, monkeypatch: pytest.MonkeyPatch
+async def test_every_pass_plans_the_next_terms_even_a_failed_one(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Проход по сроку — задача прогона под его номером, как «Продолжить»: один проход за раз.
-    Номер держит живой проход — пропуск: следующий срок поставит он сам."""
+    """Ревью 20.10: проход, кончившийся сбоем или остановкой, срока не ставил — повтор замолкал.
+    Теперь сроки молчавших сайтов и лидов «ещё проверяет» ставит задача прохода после любого
+    исхода; после сбоя — не раньше `SALES_SEGMENT_AGAIN_MIN`. Сбой повтора стадию не трогает."""
+    planned: list[tuple[str, timedelta]] = []
+    failed: list[int] = []
+    stopped: list[int] = []
+
+    async def plan_sites(_s: AsyncSession, _run: int, *, now: datetime, soonest: timedelta) -> None:
+        planned.append(("сайты", soonest))
+
+    async def plan_leads(_s: AsyncSession, *, now: datetime, soonest: timedelta) -> None:
+        planned.append(("лиды", soonest))
+
+    async def done(_factory: object, run_id: int, _what: Again) -> dict[str, Any]:
+        return {"run": run_id}
+
+    async def broken(_factory: object, _run_id: int, _what: Again) -> dict[str, Any]:
+        raise ConnectionError("база мигнула")
+
+    async def again_failed(_factory: object, run_id: int) -> None:
+        failed.append(run_id)
+
+    async def stop(_factory: object, run_id: int, _words: str) -> None:
+        stopped.append(run_id)
+
     monkeypatch.setattr("backend.config.sales.ENABLED", True)
+    monkeypatch.setattr("backend.config.storage.DSN", TEST_DSN)
+    monkeypatch.setattr(segment_again, "plan", plan_sites)
+    monkeypatch.setattr(verify_again, "plan", plan_leads)
+    monkeypatch.setattr(segment_jobs, "_again_failed", again_failed)
+    monkeypatch.setattr(segment_jobs, "_stop", stop)
+    monkeypatch.setattr(segment_jobs, "get_current_job", lambda: None)  # последняя попытка
 
-    first = segment_jobs.due_again(41)
-    second = segment_jobs.due_again(41)
+    monkeypatch.setattr(segment_jobs, "_again", done)
+    assert await segment_jobs.run_once(7, Again.DUE) == {"run": 7}
+    monkeypatch.setattr(segment_jobs, "_again", broken)
+    with pytest.raises(ConnectionError):
+        await segment_jobs.run_once(7, Again.DUE)
 
-    assert first == {"run": 41, "job_id": segment_job_id(41)}
-    assert second == {"run": 41, "skipped": segment_jobs.GOING_NOW}
-    assert bulk.enqueued == [(SEGMENT_JOB, (41, Again.DUE.value), segment_job_id(41))]
-
-
-def test_the_term_with_sales_off_spends_nothing(
-    bulk: Later, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("backend.config.sales.ENABLED", False)
-
-    assert segment_jobs.due_again(41) == {"run": 41, "skipped": SALES_OFF}
-    assert bulk.enqueued == []
+    assert planned == [
+        ("сайты", deferred.SOONEST),
+        ("лиды", deferred.SOONEST),
+        ("сайты", LEAST),
+        ("лиды", LEAST),
+    ]
+    assert (failed, stopped) == ([7], [])
 
 
-def test_the_term_job_path_is_importable_by_the_worker() -> None:
-    module, _, name = segment_again.TRIGGER.rpartition(".")
-    assert (module, name) == ("backend.features.sales.segment_jobs", "due_again")
+async def test_the_retry_pass_has_its_pulse(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ревью 20.10: повтор шёл без пульса — экран не отличал его от мёртвого."""
+    beats: list[int] = []
+
+    async def pulse(_factory: object, run_id: int, **_kw: object) -> None:
+        beats.append(run_id)
+        await asyncio.sleep(3600)
+
+    async def retried(_s: AsyncSession, run_id: int, _v: object, _w: Again) -> dict[str, Any]:
+        await asyncio.sleep(0)
+        return {"run": run_id}
+
+    monkeypatch.setattr(segment_jobs, "pulse", pulse)
+    monkeypatch.setattr(segment_jobs, "again", retried)
+    engine = create_async_engine(TEST_DSN)
+    try:
+        found = await segment_jobs._again(async_sessionmaker(engine), 7, Again.DUE)
+    finally:
+        await engine.dispose()
+
+    assert (found, beats) == ({"run": 7}, [7])
 
 
-# --- проход по сроку и «Повторить сейчас» ---------------------------------------------------------
+# --- задача на срок ставит проход ---------------------------------------------------------------------
 
 
 async def _silent_sites(session: AsyncSession, run: Any) -> dict[str, Candidate]:
     """Принятые сайты прогона в разных исходах поиска."""
     return {
-        # Не ответил час назад первый раз — срок общего правила настал («следующий проход»).
+        # Не ответил час назад первый раз — срок (30 мин) настал.
         "due": await _accepted(
             session, run, BAKERY, contact_status=ContactStatus.NO_ANSWER,
             contact_tries=1, contact_attempted_at=_ago(hours=1),
@@ -255,7 +397,7 @@ async def _silent_sites(session: AsyncSession, run: Any) -> dict[str, Candidate]
             session, run, CLINIC, contact_status=ContactStatus.NO_ANSWER,
             contact_tries=2, contact_attempted_at=_ago(hours=1),
         ),
-        # Квота платной ступени — «не спросили», повтор следующим проходом.
+        # Квота платной ступени — «не спросили»: повтор — с платной ступенью.
         "quota": await _accepted(
             session, run, BOOKS, contact_status=ContactStatus.NO_QUOTA,
             contact_attempted_at=_ago(hours=2),
@@ -268,6 +410,98 @@ async def _silent_sites(session: AsyncSession, run: Any) -> dict[str, Candidate]
             contact_attempted_at=_ago(days=2),
         ),
     }  # fmt: skip
+
+
+async def test_the_term_puts_the_pass_by_term_under_the_run_number(
+    session: AsyncSession, later: Later
+) -> None:
+    """Проход по сроку — задача прогона под его номером, как «Продолжить»: один проход за раз.
+    Поставлен — прогон идёт (пуст конец, номер задачи), в журнале — «автоматически, по сроку».
+    Номер занят — пропуск и новый срок: идущий проход мог упасть, не поставив своего."""
+    run = await _done_run(session)
+    await _silent_sites(session, run)
+    now = datetime.now(UTC)
+
+    first = await segment_jobs.put_due(session, later, run.id, now=now)
+    second = await segment_jobs.put_due(session, later, run.id, now=now)
+
+    assert first == {"run": run.id, "job_id": segment_job_id(run.id)}
+    assert (second["skipped"], later.enqueued) == (
+        segment_jobs.GOING_NOW,
+        [(SEGMENT_JOB, (run.id, Again.DUE.value), segment_job_id(run.id))],
+    )
+    assert [(when, path) for when, path, *_ in later.planned] == [
+        (now + LEAST, segment_again.TRIGGER)
+    ]
+    refreshed = await _run(session, run)
+    assert (refreshed.job_id, refreshed.finished_at) == (segment_job_id(run.id), None)
+    journal = await session.scalar(
+        select(AuditLogModel).where(AuditLogModel.action == AuditAction.RUN_STARTED)
+    )
+    assert journal is not None
+    assert (journal.user_id, journal.details) == (
+        None,
+        {"этап": "sales", "действие": segment_jobs.AUTO, "прогон": run.id, "сайтов": 1},
+    )
+
+
+async def test_the_term_with_nothing_due_puts_nothing(session: AsyncSession, later: Later) -> None:
+    """Ревью 20.10: пустой проход мигал «идёт» и сдвигал конец прогона. Повторять некому —
+    прохода нет, конец прежний, задача — на срок впереди."""
+    run = await _done_run(session)
+    ahead = await _accepted(
+        session, run, CLINIC, contact_status=ContactStatus.NO_ANSWER, contact_tries=2,
+        contact_attempted_at=_ago(hours=1),
+    )  # fmt: skip
+    finished = run.finished_at
+
+    found = await segment_jobs.put_due(session, later, run.id, now=datetime.now(UTC))
+
+    assert found == {"run": run.id, "skipped": segment_jobs.NOTHING_DUE}
+    assert later.enqueued == []
+    assert ahead.contact_attempted_at is not None
+    assert [when for when, *_ in later.planned] == [ahead.contact_attempted_at + timedelta(days=1)]
+    assert (await _run(session, run)).finished_at == finished
+
+
+@pytest.mark.parametrize("alive", [True, None])
+async def test_the_term_waits_for_a_rejudge(
+    session: AsyncSession, later: Later, monkeypatch: pytest.MonkeyPatch, alive: bool | None
+) -> None:
+    """Ревью 20.10: «Продолжить» посреди пересуда отказывает, а проход по сроку шёл. Теперь —
+    пропуск и новый срок; очередь не ответила о пересуде — тоже пропуск: неизвестность — не
+    «не идёт»."""
+    run = await _done_run(session)
+    await _silent_sites(session, run)
+    number = rejudge_job_id(run.id)
+    later.known[number] = _Job(number, "rejudge", later.connection)
+    later.known[number].status = JobStatus.STARTED
+    monkeypatch.setattr(segment_jobs, "job_alive", lambda _job_id, _redis: alive)
+    now = datetime.now(UTC)
+
+    found = await segment_jobs.put_due(session, later, run.id, now=now)
+
+    assert found["skipped"] == segment_jobs.REJUDGING
+    assert later.enqueued == []
+    assert [when for when, *_ in later.planned] == [now + LEAST]
+
+
+def test_the_term_with_sales_off_spends_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    jobs = Later()
+    monkeypatch.setattr(segment_jobs, "sales_bulk_queue", lambda: jobs)
+    monkeypatch.setattr(segment_jobs, "setup_logging", lambda: None)
+    monkeypatch.setattr("backend.config.sales.ENABLED", False)
+
+    assert segment_jobs.due_again(41) == {"run": 41, "skipped": SALES_OFF}
+    assert (jobs.enqueued, jobs.planned) == ([], [])
+
+
+def test_the_term_job_path_is_importable_by_the_worker() -> None:
+    module, _, name = segment_again.TRIGGER.rpartition(".")
+    assert (module, name) == ("backend.features.sales.segment_jobs", "due_again")
+
+
+# --- проход по сроку и «Повторить сейчас» ---------------------------------------------------------
 
 
 async def _ready(session: AsyncSession, run: Any) -> Candidate:
@@ -294,66 +528,249 @@ async def _leads_of(session: AsyncSession, run: Any) -> dict[str, str]:
     return dict(rows.tuples().all())
 
 
-async def test_the_pass_by_term_asks_only_the_sites_waiting_for_a_retry(
+async def test_the_pass_by_term_asks_only_the_silent_sites_whose_term_came(
     session: AsyncSession, web: Web, later: Later
 ) -> None:
-    """По сроку — только те, кому поиск уже шёл и чей срок настал; первый поиск принятому — нет:
-    он стоит денег, и его запускает человек. Лиды — только из найденного этим проходом."""
+    """По сроку — только «не ответил», чей срок настал. «Не спросили» (квота) без платной ступени
+    не берётся (ревью 20.10: повтор отправлял его в «адреса нет» на полгода); первый поиск
+    принятому — тоже нет: он стоит денег, и его запускает человек. Лиды — только из найденного."""
     run = await _done_run(session)
     found = await _silent_sites(session, run)
     ready_domain = await _ready(session, run)
+    quota_before = found["quota"].contact_attempted_at
 
     await again(session, run.id, FixtureVerifier(), Again.DUE)
 
-    assert set(web.asked) == {BAKERY, BOOKS}
-    assert await _leads_of(session, run) == {
-        BAKERY: f"zakaz@{BAKERY}",
-        BOOKS: f"info@{BOOKS}",
-    }
+    assert set(web.asked) == {BAKERY}
+    assert await _leads_of(session, run) == {BAKERY: f"zakaz@{BAKERY}"}
+    quota = await _fresh(session, found["quota"])
+    assert (quota.contact_status, quota.contact_attempted_at) == (
+        ContactStatus.NO_QUOTA,
+        quota_before,
+    )
     assert (await _fresh(session, found["later"])).contact_status is ContactStatus.NO_ANSWER
     assert (await _fresh(session, found["fresh"])).contact_status is None
     assert (await _fresh(session, ready_domain)).lead_id is None
-    refreshed = await session.get(type(run), run.id, populate_existing=True)
-    assert refreshed is not None
+    refreshed = await _run(session, run)
     assert (refreshed.stage, refreshed.finished_at is not None) == (Stage.DONE, True)
-    # Следующий срок — у сайта, чей повтор через день.
-    later_site = await _fresh(session, found["later"])
-    assert later_site.contact_attempted_at is not None
-    assert [when for when, *_ in later.planned] == [
-        later_site.contact_attempted_at + timedelta(days=1)
-    ]
+    assert segment_run.AGAIN_KEY not in refreshed.report
 
 
-async def test_retry_now_does_not_wait_for_the_term(
-    session: AsyncSession, web: Web, later: Later
+async def test_retry_now_takes_only_the_sites_whose_term_came(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, later: Later
 ) -> None:
+    """Ревью 20.10: кнопка брала всех, и каждое нажатие было проходом без ответа — три нажатия, и
+    «адреса нет» на полгода. Срок, который не настал, кнопка не трогает, сколько ни жми."""
+    silent = _sites(monkeypatch, Web(down={BAKERY}))
     run = await _done_run(session)
-    found = await _silent_sites(session, run)
+    waiting = await _accepted(
+        session, run, BAKERY, contact_status=ContactStatus.NO_ANSWER, contact_tries=1,
+        contact_attempted_at=_ago(minutes=5),
+    )  # fmt: skip
+
+    for _ in range(4):
+        await again(session, run.id, FixtureVerifier(), Again.ADDRESSES)
+
+    found = await _fresh(session, waiting)
+    assert (found.contact_status, found.contact_tries) == (ContactStatus.NO_ANSWER, 1)
+    assert silent.asked == []
+
+
+async def test_retry_now_asks_the_unasked_only_with_the_paid_step(
+    session: AsyncSession, web: Web, later: Later, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """«Не спросили» платный сервис — кнопкой, только когда платная ступень у повтора правда есть:
+    без неё бесплатные ступени (уже пройденные) отправили бы сайт в «адреса нет»."""
+    monkeypatch.setattr("backend.config.sales.SEGMENT_PAID_CONTACTS", False)
+    run = await _done_run(session, searches=5)
+    quota = await _accepted(
+        session, run, BOOKS, contact_status=ContactStatus.NO_QUOTA,
+        contact_attempted_at=_ago(hours=2),
+    )  # fmt: skip
 
     await again(session, run.id, FixtureVerifier(), Again.ADDRESSES)
+    assert (web.asked, (await _fresh(session, quota)).contact_status) == (
+        [],
+        ContactStatus.NO_QUOTA,
+    )
 
-    assert set(web.asked) == {BAKERY, CLINIC, BOOKS}
-    assert (await _fresh(session, found["later"])).contact_status is ContactStatus.FOUND
-    assert (await _fresh(session, found["fresh"])).contact_status is None
-    assert later.planned == []  # молчавших не осталось
+    monkeypatch.setattr("backend.config.sales.SEGMENT_PAID_CONTACTS", True)
+    monkeypatch.setattr("backend.config.contacts.HUNTER_API_KEY", "k-test")
+    await again(session, run.id, FixtureVerifier(), Again.ADDRESSES)
+    assert set(web.asked) == {BOOKS}
+    assert await _leads_of(session, run) == {BOOKS: f"info@{BOOKS}"}
 
 
-async def test_a_stopped_run_stays_stopped_with_its_words(
+async def _last_try(session: AsyncSession, run: Any, host: str) -> Candidate:
+    """Не ответил три прохода подряд, неделю назад: этот проход — последний, в нём платят."""
+    return await _accepted(
+        session, run, host, contact_status=ContactStatus.NO_ANSWER, contact_tries=3,
+        contact_attempted_at=_ago(days=8),
+    )  # fmt: skip
+
+
+async def test_paid_search_by_term_only_on_the_last_pass_and_only_within_the_estimate(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, later: Later, paid: Paid
+) -> None:
+    """Платная ступень по сроку — только сайту, для которого проход последний, и только когда
+    поиск был в смете: остальным сроком — бесплатные ступени. Запрос — в отчёт прогона."""
+    silent = _sites(monkeypatch, Web(down={BAKERY, CLINIC}))
+    run = await _done_run(session, searches=5)
+    await _accepted(
+        session, run, BAKERY, contact_status=ContactStatus.NO_ANSWER, contact_tries=1,
+        contact_attempted_at=_ago(hours=1),
+    )  # fmt: skip
+    await _last_try(session, run, CLINIC)
+
+    await again(session, run.id, FixtureVerifier(), Again.DUE)
+
+    assert paid.calls == [CLINIC]
+    assert set(silent.asked) >= {BAKERY, CLINIC}
+    counters = (await _run(session, run)).report["contacts"]["counters"]
+    assert counters["provider_entered"] == 1
+
+
+async def test_no_paid_search_in_the_estimate_no_hunter(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, later: Later, paid: Paid
+) -> None:
+    """Смета запуска без платного поиска (`hunter_searches` = 0) — Hunter не спрошен и в
+    последний проход."""
+    _sites(monkeypatch, Web(down={CLINIC}))
+    run = await _done_run(session, searches=0)
+    await _last_try(session, run, CLINIC)
+
+    await again(session, run.id, FixtureVerifier(), Again.DUE)
+
+    assert paid.calls == []
+
+
+async def test_the_paid_search_by_term_stops_at_the_estimate(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, later: Later, paid: Paid
+) -> None:
+    """Ревью 20.10: платный поиск по сроку разрешал флаг «поиск был в смете», а не остаток. Теперь
+    — не больше, чем смета минус уже принятые провайдером запросы прогона; остальным — бесплатные
+    ступени."""
+    silent = _sites(monkeypatch, Web(down={CLINIC, TEA}))
+    run = await _done_run(session, searches=2)
+    run.report = {"contacts": {"walked": 9, "counters": {"provider_entered": 1}}}
+    await session.commit()
+    await _last_try(session, run, CLINIC)
+    await _last_try(session, run, TEA)
+
+    await again(session, run.id, FixtureVerifier(), Again.DUE)
+
+    assert paid.calls == [CLINIC]
+    assert set(silent.asked) >= {CLINIC, TEA}
+    counters = (await _run(session, run)).report["contacts"]["counters"]
+    assert counters["provider_entered"] == 2
+
+
+async def test_a_stopped_run_keeps_its_stage_words_and_progress(
     session: AsyncSession, web: Web, later: Later
 ) -> None:
+    """Повтор стадию, причину остановки и ход прохода не трогает (ревью 20.10: ход перетирался, и
+    «остановлен на этапе «судья»: 40 из 60» становилось «адреса»); его ход — своим ключом и
+    снимается в конце."""
     run = await make_run(session, await hypothesis(session))
+    progress = {"stage": "judge", "done": 40, "total": 60, "pass_started_at": "2026-10-20T07:00:00"}
     run.stage, run.error = Stage.STOPPED, "судья остановлен: потолок модели на сегодня выбран"
+    run.report = {"progress": progress}
     await session.commit()
     await _silent_sites(session, run)
 
     await again(session, run.id, FixtureVerifier(), Again.DUE)
 
-    refreshed = await session.get(type(run), run.id, populate_existing=True)
-    assert refreshed is not None
+    refreshed = await _run(session, run)
     assert (refreshed.stage, refreshed.error) == (
         Stage.STOPPED,
         "судья остановлен: потолок модели на сегодня выбран",
     )
+    assert refreshed.report["progress"] == progress
+    assert segment_run.AGAIN_KEY not in refreshed.report
+
+
+async def test_a_crash_and_the_queue_retry_keep_the_stage(
+    session: AsyncSession, web: Web, later: Later, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ревью 20.10: повтор задачи после сбоя читал стадию, которую записала упавшая попытка, —
+    остановленный прогон становился готовым. Теперь стадии повтор не пишет вовсе."""
+    run = await make_run(session, await hypothesis(session))
+    run.stage, run.error = Stage.STOPPED, "судья остановлен: потолок модели на сегодня выбран"
+    await session.commit()
+    await _silent_sites(session, run)
+    calls = {"n": 0}
+    real = segment_run._retry_walk
+
+    async def broken(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ConnectionError("база мигнула")
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(segment_run, "_retry_walk", broken)
+    with pytest.raises(ConnectionError):
+        await again(session, run.id, FixtureVerifier(), Again.DUE)
+    await session.rollback()
+    crashed = await _run(session, run)
+    assert (crashed.stage, crashed.report[segment_run.AGAIN_KEY]["what"]) == (Stage.STOPPED, "due")
+
+    await again(session, run.id, FixtureVerifier(), Again.DUE)  # повтор задачи rq
+
+    after = await _run(session, run)
+    assert (after.stage, after.error) == (
+        Stage.STOPPED,
+        "судья остановлен: потолок модели на сегодня выбран",
+    )
+    assert segment_run.AGAIN_KEY not in after.report
+    assert await _leads_of(session, run) == {BAKERY: f"zakaz@{BAKERY}"}
+
+
+async def test_the_queue_retry_makes_the_leads_of_the_first_try(
+    session: AsyncSession, web: Web, later: Later, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Первая попытка нашла адрес и упала на лидах: повтор задачи заводит лида из найденного ею —
+    начало повтора записано, а искать уже некому."""
+    run = await _done_run(session)
+    await _silent_sites(session, run)
+    calls = {"n": 0}
+    real = segment_run.make_leads
+
+    async def broken(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ConnectionError("база мигнула")
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(segment_run, "make_leads", broken)
+    with pytest.raises(ConnectionError):
+        await again(session, run.id, FixtureVerifier(), Again.DUE)
+    await session.rollback()
+    asked = list(web.asked)
+
+    await again(session, run.id, FixtureVerifier(), Again.DUE)
+
+    assert await _leads_of(session, run) == {BAKERY: f"zakaz@{BAKERY}"}
+    assert (set(asked), web.asked) == ({BAKERY}, asked)  # второй раз сайт не спрашивали
+
+
+async def test_an_empty_pass_by_term_changes_nothing(
+    session: AsyncSession, web: Web, later: Later
+) -> None:
+    """Ревью 20.10: проход, которому некого искать, писал ход и сдвигал конец прогона."""
+    run = await _done_run(session)
+    run.report = {"progress": {"stage": "leads", "done": 3, "total": 3}, "leads": {"created": 3}}
+    await session.commit()
+    await _accepted(
+        session, run, CLINIC, contact_status=ContactStatus.NO_ANSWER, contact_tries=2,
+        contact_attempted_at=_ago(hours=1),
+    )  # fmt: skip
+    finished, report = run.finished_at, dict(run.report)
+
+    await again(session, run.id, FixtureVerifier(), Again.DUE)
+
+    refreshed = await _run(session, run)
+    assert (refreshed.report, refreshed.finished_at) == (report, finished)
+    assert web.asked == []
 
 
 async def _lead(
@@ -372,281 +789,3 @@ async def _lead(
     candidate.lead_id = lead.id
     await session.commit()
     return lead
-
-
-async def test_retry_of_cleaning_takes_the_waiting_leads_of_the_run(
-    session: AsyncSession, later: Later
-) -> None:
-    """«Повторить сейчас» у «ждут очистки» — очистка ждущих лидов прогона тем же условием, что у
-    прохода очистки: новый — проверяется, первый `unknown` неделю не трогается, готовый — тоже."""
-    run = await _done_run(session)
-    waiting = await _lead(
-        session,
-        await _accepted(session, run, BAKERY),
-        f"zakaz@{BAKERY}",
-        cleaning_note="проверка не выполнена: сеть до провайдера не дошла",
-    )
-    checking = await _lead(
-        session,
-        await _accepted(session, run, CLINIC),
-        f"pending@{CLINIC}",
-        verify_tries=1,
-        verify_again_at=datetime.now(UTC) + timedelta(minutes=12),
-    )
-    unknown = await _lead(
-        session,
-        await _accepted(session, run, BOOKS),
-        f"info@{BOOKS}",
-        verification_status="fixture:unknown",
-        verified_at=_ago(days=1),
-    )
-    ready = await _lead(
-        session, await _accepted(session, run, YOGA), f"hello@{YOGA}",
-        status=LeadStatus.READY, verification_status="fixture:valid",
-    )  # fmt: skip
-
-    await again(session, run.id, FixtureVerifier(), Again.CLEANING)
-
-    statuses = {
-        lead.id: (lead.status, lead.verify_tries)
-        for lead in (await session.scalars(select(SalesLeadModel))).all()
-    }
-    assert statuses[waiting.id] == (LeadStatus.READY, 0)
-    assert statuses[checking.id] == (LeadStatus.NEW, 2)
-    assert statuses[unknown.id] == (LeadStatus.NEW, 0)
-    assert statuses[ready.id] == (LeadStatus.READY, 0)
-    refreshed = await session.get(type(run), run.id, populate_existing=True)
-    assert refreshed is not None
-    assert refreshed.report["leads"]["cleaning"]["checked"] == 2
-
-
-# --- отчёт: «ждут адреса» условием прохода и строки ожидания ----------------------------------------
-
-
-async def test_waiting_address_is_the_condition_of_the_pass(
-    session: AsyncSession, web: Web
-) -> None:
-    """«Найти адреса принятым · N» — тем же условием, что у прохода: не искавшиеся, с наступившим
-    сроком повтора и «не спросили», и лид из адреса, что уже есть на домене; не ответивший с
-    повтором через день и «адреса нет» в счёт не входят."""
-    run = await _done_run(session)
-    await _silent_sites(session, run)
-    await _ready(session, run)
-
-    view = await segment_report.run_view(session, run.id)
-
-    assert view is not None
-    pass_takes = await SegmentContactQueue(session, run.id).pending_count()
-    assert (pass_takes, view.waiting_address) == (3, 4)  # due, quota, fresh — и лид из адреса
-    # «Без адреса — почему» — по исходу поиска, как было.
-    assert sorted(words for words, _ in view.no_address) == sorted(
-        [
-            "сайт не ответил — повтор по сроку",
-            "квота платного поиска — повтор следующим проходом",
-            "адреса на сайте нет",
-        ]
-    )
-
-
-async def test_waits_name_why_when_and_whether_again(session: AsyncSession) -> None:
-    run = await _done_run(session)
-    sites = await _silent_sites(session, run)
-    at = datetime.now(UTC) + timedelta(minutes=12)
-    await _lead(
-        session,
-        await _accepted(session, run, "chai-sample.in"),
-        "pending@chai-sample.in",
-        verify_tries=1,
-        verify_again_at=at,
-    )
-    unknown_at = _ago(days=1)
-    await _lead(
-        session,
-        await _accepted(session, run, "xn--musique-cole-ieb.ca"),
-        "contact@xn--musique-cole-ieb.ca",
-        verification_status="fixture:unknown",
-        verified_at=unknown_at,
-    )
-    for host in ("orto-sample.it", "vinho-sample.pt"):
-        await _lead(
-            session,
-            await _accepted(session, run, host),
-            f"ola@{host}",
-            cleaning_note="проверка не выполнена: сеть до провайдера не дошла",
-        )
-    await _lead(session, await _accepted(session, run, "sauna-sample.fi"), "moi@sauna-sample.fi")  # fmt: skip
-
-    view = await segment_report.run_view(session, run.id)
-
-    assert view is not None
-    later_site = await _fresh(session, sites["later"])
-    assert later_site.contact_attempted_at is not None
-    day = (unknown_at + timedelta(days=7)).strftime("%d.%m.%Y")
-    assert view.waits == [
-        segment_waits.Wait(
-            "address",
-            "сайт не ответил поиску адреса",
-            1,
-            later_site.contact_attempted_at + timedelta(days=1),
-        ),
-        segment_waits.Wait("cleaning", "Hunter ещё проверяет адрес", 1, at),
-        segment_waits.Wait(
-            "cleaning",
-            f"адрес не подтверждён (unknown) — перепроверка не раньше {day}",
-            1,
-            again=False,
-        ),
-        segment_waits.Wait("cleaning", "проверка не выполнена: сеть до провайдера не дошла", 2),
-        segment_waits.Wait("cleaning", "ещё не очищали", 1),
-    ]
-
-
-async def test_rare_reasons_go_into_one_line(session: AsyncSession) -> None:
-    run = await _done_run(session)
-    for n in range(segment_waits.TOP_NOTES + 2):
-        host = f"shop-{n}-sample.example.test"
-        await _lead(
-            session, await _accepted(session, run, host), f"info@{host}",
-            cleaning_note=f"ждут: компанию держит непроверенный лид другой гипотезы (лид №{n})",
-        )  # fmt: skip
-
-    view = await segment_report.run_view(session, run.id)
-
-    assert view is not None
-    assert [wait.count for wait in view.waits] == [1] * segment_waits.TOP_NOTES + [2]
-    assert view.waits[-1].words == segment_waits.OTHER_NOTES
-
-
-# --- маршрут «Повторить сейчас» -------------------------------------------------------------------
-
-
-async def test_again_queues_the_retry_under_the_run_number_and_journals_it(
-    session: AsyncSession, client: AsyncClient, headers: dict[str, str], jobs: _Jobs
-) -> None:
-    run = await _done_run(session)
-    await _silent_sites(session, run)
-
-    response = await client.post(
-        f"{RUNS}/{run.id}/again", json={"what": "addresses"}, headers=headers
-    )
-    second = await client.post(
-        f"{RUNS}/{run.id}/again", json={"what": "addresses"}, headers=headers
-    )
-
-    assert response.status_code == 202, response.text
-    assert response.json() == {"run_id": run.id, "job_id": segment_job_id(run.id)}
-    assert (second.status_code, second.json()["detail"]) == (409, segment_api.RUN_GOING)
-    [(args, kwargs)] = jobs.enqueued
-    assert (args, kwargs["job_id"]) == ((SEGMENT_JOB, run.id, "addresses"), segment_job_id(run.id))
-    refreshed = await session.get(type(run), run.id, populate_existing=True)
-    assert refreshed is not None
-    assert (refreshed.job_id, refreshed.finished_at) == (segment_job_id(run.id), None)
-    journal = await session.scalar(
-        select(AuditLogModel).where(AuditLogModel.action == AuditAction.RUN_STARTED)
-    )
-    assert journal is not None
-    assert journal.details == {
-        "действие": "повтор сбора базы продаж: поиск адреса",
-        "прогон": run.id,
-        "этап": "sales",
-    }
-
-
-async def test_again_cleaning_queues_its_own_retry(
-    session: AsyncSession, client: AsyncClient, headers: dict[str, str], jobs: _Jobs
-) -> None:
-    run = await _done_run(session)
-    await _lead(session, await _accepted(session, run, BAKERY), f"zakaz@{BAKERY}")
-
-    response = await client.post(
-        f"{RUNS}/{run.id}/again", json={"what": "cleaning"}, headers=headers
-    )
-
-    assert response.status_code == 202, response.text
-    [(args, _)] = jobs.enqueued
-    assert args == (SEGMENT_JOB, run.id, "cleaning")
-
-
-@pytest.mark.parametrize(
-    ("what", "words"),
-    [
-        (
-            "addresses",
-            "Повторять нечего: сайтов, которые ждут повтора поиска адреса, в прогоне нет",
-        ),
-        ("cleaning", "Повторять нечего: лидов прогона, которых возьмёт очистка, нет"),
-    ],
-)
-async def test_again_with_nothing_to_retry_is_refused_in_words(
-    session: AsyncSession,
-    client: AsyncClient,
-    headers: dict[str, str],
-    jobs: _Jobs,
-    what: str,
-    words: str,
-) -> None:
-    run = await _done_run(session)
-    await _accepted(session, run, YOGA)  # первый поиск — не повтор
-
-    response = await client.post(f"{RUNS}/{run.id}/again", json={"what": what}, headers=headers)
-
-    assert (response.status_code, response.json()["detail"]) == (409, words)
-    assert jobs.enqueued == []
-
-
-async def test_again_needs_the_run_right(
-    session: AsyncSession, client: AsyncClient, make_user: Any, sign_in: Any, jobs: _Jobs
-) -> None:
-    """Повтор тратит (поиск адреса, проверка) — право «run», как у «Продолжить»."""
-    run = await _done_run(session)
-    await _silent_sites(session, run)
-    await make_user("viewer@ours.example.test", permissions={"run": False})
-    viewer = bearer(await sign_in("viewer@ours.example.test"))
-
-    refused = await client.post(
-        f"{RUNS}/{run.id}/again", json={"what": "addresses"}, headers=viewer
-    )
-
-    assert refused.status_code == 403
-    assert jobs.enqueued == []
-
-
-async def test_again_of_an_unknown_run_or_an_unknown_kind_is_refused(
-    session: AsyncSession, client: AsyncClient, headers: dict[str, str], jobs: _Jobs
-) -> None:
-    run = await _done_run(session)
-
-    unknown = await client.post(f"{RUNS}/987654/again", json={"what": "addresses"}, headers=headers)
-    odd = await client.post(f"{RUNS}/{run.id}/again", json={"what": "everything"}, headers=headers)
-
-    assert (unknown.status_code, unknown.json()["detail"]) == (
-        404,
-        "прогона сбора №987654 нет — обновите список прогонов",
-    )
-    assert odd.status_code == 422
-    assert jobs.enqueued == []
-
-
-async def test_the_run_report_carries_the_waits(
-    session: AsyncSession, client: AsyncClient, headers: dict[str, str], jobs: _Jobs
-) -> None:
-    run = await _done_run(session)
-    sites = await _silent_sites(session, run)
-
-    detail = (await client.get(f"{RUNS}/{run.id}", headers=headers)).json()
-
-    later_site = await _fresh(session, sites["later"])
-    assert later_site.contact_attempted_at is not None
-    term = later_site.contact_attempted_at + timedelta(days=1)
-    assert detail["waits"] == [
-        {
-            "kind": "address",
-            "words": "сайт не ответил поиску адреса",
-            "count": 1,
-            "at": term.isoformat().replace("+00:00", "Z"),
-            "again": True,
-        }
-    ]
-    assert detail["waiting_address"] == 3
-    count = await session.scalar(select(func.count()).select_from(Candidate))
-    assert count == 5

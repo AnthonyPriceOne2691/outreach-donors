@@ -3,8 +3,19 @@
 Ставит её не человек, а очередь — на самый ранний срок в базе (`verify_again.plan`,
 `deferred.py`). Тело — та же очистка названных лидов (`cleaning.clean_leads`): правила, DNS,
 держатель компании и проверка под месячным потолком; партии — одной транзакцией задачи, как у
-лидов прогона сбора. В конце задача ставит следующую по базе: срок мог появиться у лидов, которых
-проход отложил снова, или у тех, кого отложили другие проходы, пока эта шла.
+лидов прогона сбора. Лиды берутся под блокировкой строк с пропуском занятых (`SKIP LOCKED`): две
+задачи на соседние минуты и «Повторить сейчас» у очистки не проверят один адрес дважды.
+
+**Ревью 20.10:**
+
+- **продажи выключены — задача ничего не делает**: ни Hunter, ни новой задачи (`SALES_OFF`);
+- **расход — в отчёт своего прогона**: проверки лидов прогона сбора ложатся в его
+  `report.leads.cleaning` (`segment_run.leads_report`), и панель расхода видит их рядом со сметой;
+  лиды загрузки базы — без прогона, их расход — в журнале расхода, как у очистки;
+- **в журнал действий** — запись «автоматически, по сроку» на каждый прогон (без автора, как у
+  автосборки): трату сделал не человек, и это видно;
+- **следующая задача — после любого исхода**: прошёл — на самый ранний срок в базе; упал — не
+  раньше `SALES_VERIFY_AGAIN_MIN` (беда, повторённая каждую минуту, — не повтор, а круг).
 
 Отказы — как у задачи очистки (`clean_jobs.py`): негодная настройка проверяльщика — итог «не
 выполнена» словами человека, а не три повтора; остальное (база) — исключение, и очередь повторит
@@ -15,60 +26,147 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from collections import Counter
+from collections.abc import Sequence
+from dataclasses import fields
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import httpx
 from rq import get_current_job
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from backend.config import sales as sales_cfg
 from backend.config import storage
 from backend.config.startup_checks import ConfigError, check_storage
+from backend.features.access.repository import AccessRepository
+from backend.features.core.domain import AuditAction, Stage
 from backend.features.runs.failures import described, is_permanent
-from backend.features.sales import cleaning, verify_again
+from backend.features.sales import cleaning, deferred, verify_again
 from backend.features.sales.clean_jobs import VERIFIER_NOT_SET, report_of
 from backend.features.sales.clean_report import CleaningReport
 from backend.features.sales.models import SalesLeadModel
+from backend.features.sales.segment_estimate import SALES_OFF
+from backend.features.sales.segment_models import SalesSegmentCandidateModel as Candidate
+from backend.features.sales.segment_models import SalesSegmentRunModel as Run
+from backend.features.sales.segment_run import leads_report
 from backend.features.sales.verifier import EmailVerifier, build_verifier
 from backend.shared.logs import setup_logging
 from backend.shared.queue import remember_job_error
 
 logger = logging.getLogger(__name__)
 
+#: Действие в журнале: перепроверку запустил срок, а не человек.
+AUTO = "перепроверка адресов «Hunter ещё проверяет» — автоматически, по сроку"
+
+
+def due_rows(now: datetime) -> Select[tuple[SalesLeadModel, int]]:
+    """Лиды, чей срок настал, с прогоном сбора (у лида не из прогона — пусто: внешнее
+    соединение) — под блокировкой строк лидов до конца транзакции; занятые другой транзакцией
+    пропускаются (`SKIP LOCKED`)."""
+    return (
+        select(SalesLeadModel, Candidate.run_id)
+        .outerjoin(Candidate, Candidate.lead_id == SalesLeadModel.id)
+        .where(verify_again.due(now))
+        .order_by(SalesLeadModel.id)
+        .with_for_update(of=SalesLeadModel, skip_locked=True)
+    )
+
+
+async def _due(session: AsyncSession, now: datetime) -> dict[int | None, list[SalesLeadModel]]:
+    """Лиды, чей срок настал, по прогонам сбора (`None` — лид не из прогона)."""
+    rows = await session.execute(due_rows(now))
+    found: dict[int | None, list[SalesLeadModel]] = {}
+    seen: set[int] = set()
+    for lead, run_id in rows.tuples().all():
+        if lead.id not in seen:
+            seen.add(lead.id)
+            found.setdefault(run_id, []).append(lead)
+    return found
+
+
+async def _to_run(session: AsyncSession, run_id: int, report: CleaningReport) -> None:
+    """Проверки — в отчёт прогона, как у его очистки; запись «автоматически, по сроку»."""
+    run = await session.get(Run, run_id)
+    if run is None:
+        return
+    made = {"created": 0, "cleaning": report_of(report)}
+    run.report = {**run.report, "leads": leads_report(run.report.get("leads"), made)}
+    await AccessRepository(session).record(
+        AuditAction.RUN_STARTED,
+        author_id=None,
+        target=f"sales_segment_run:{run_id}",
+        details={"действие": AUTO, "прогон": run_id, "лидов": report.checked},
+        stage=Stage.SALES,
+    )
+
 
 async def again_pass(
     session: AsyncSession, verifier: EmailVerifier, *, now: datetime
 ) -> CleaningReport | None:
-    """Лиды, чей срок перепроверки настал, — проходом очистки; коммит здесь. `None` — таких нет."""
-    leads = list(
-        (
-            await session.scalars(
-                select(SalesLeadModel).where(verify_again.due(now)).order_by(SalesLeadModel.id)
-            )
-        ).all()
-    )
-    if not leads:
+    """Лиды, чей срок перепроверки настал, — проходом очистки по прогонам; коммит здесь. `None` —
+    таких нет."""
+    groups = await _due(session, now)
+    if not groups:
         return None
-    report = await cleaning.clean_leads(session, leads, verifier, now=now)
+    reports: list[CleaningReport] = []
+    for run_id, leads in groups.items():
+        report = await cleaning.clean_leads(session, leads, verifier, now=now)
+        reports.append(report)
+        if run_id is not None:
+            await _to_run(session, run_id, report)
     await session.commit()
+    total = _sum(reports)
     logger.info(
         "продажи: перепроверка «ещё проверяет» прошла",
-        extra={"leads": len(leads), "still_checking": report.still_checking},
+        extra={"leads": total.checked, "still_checking": total.still_checking},
     )
-    return report
+    return total
+
+
+def _sum(reports: Sequence[CleaningReport]) -> CleaningReport:
+    """Итог задачи — проходы по прогонам вместе: числа и причины — суммой, сроки — ближайшим,
+    остановка — первой."""
+    total = CleaningReport(verifier=reports[0].verifier)
+    for report in reports:
+        for item in fields(CleaningReport):
+            mine, theirs = getattr(total, item.name), getattr(report, item.name)
+            if isinstance(theirs, Counter):
+                mine.update(theirs)
+            elif isinstance(theirs, int):
+                setattr(total, item.name, mine + theirs)
+            elif isinstance(theirs, date):  # и `datetime`: срок — ближайший
+                setattr(total, item.name, theirs if mine is None else min(mine, theirs))
+            elif item.name == "stopped":
+                total.stopped = total.stopped or report.stopped
+    return total
+
+
+async def _plan(factory: async_sessionmaker[Any], soonest: timedelta) -> None:
+    """Следующая задача — по базе, своей сессией: сбой постановки не подменяет исход прохода."""
+    try:
+        async with factory() as session:
+            await verify_again.plan(session, now=datetime.now(UTC), soonest=soonest)
+    except Exception:
+        logger.exception("продажи: следующая перепроверка адресов не поставлена")
 
 
 async def run_again() -> dict[str, Any]:
-    """Одна перепроверка: своя сессия и свой клиент HTTP; следующая — по базе."""
+    """Одна перепроверка: своя сессия и свой клиент HTTP; следующая — по базе, после любого
+    исхода. Продажи выключены — ничего: ни проверки, ни новой задачи."""
+    if not sales_cfg.ENABLED:
+        logger.info("продажи: перепроверка адресов — продажи выключены")
+        return {"skipped": SALES_OFF}
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
+    soonest = verify_again.interval()  # упал — не раньше обычного срока
     try:
         async with httpx.AsyncClient() as http, factory() as session:
-            now = datetime.now(UTC)
-            found = await again_pass(session, build_verifier(http), now=now)
-            await verify_again.plan(session, now=now)
+            found = await again_pass(session, build_verifier(http), now=datetime.now(UTC))
+        soonest = deferred.SOONEST
     finally:
+        await _plan(factory, soonest)
         await engine.dispose()
     return {"checked": 0} if found is None else report_of(found)
 

@@ -169,7 +169,7 @@ async def test_a_refusal_costs_no_place_under_the_cap(
     """Отказ провайдера единиц не стоит — место под потолком возвращается следующему адресу."""
     monkeypatch.setattr(cleaning, "VERIFY_CONCURRENCY", 1)
     _cap(monkeypatch, "1")
-    why = "провайдер не ответил (HTTP 503) — повторим следующей очисткой"
+    why = "провайдер не ответил (HTTP 503)"
     hunter = Scripted({IVAN: ProviderError(why)})
     await world.lead(IVAN)
     await world.lead(MARIA)

@@ -42,9 +42,9 @@
 статус прежний и день перепроверки словами, второй — отказ (`unconfirmed.py`, решение
 владельца 13.10). Отказ сервиса оставляет лида в прежнем статусе с прежним вердиктом и
 причиной «проверка не выполнена»: следующая очистка повторит его. «Ещё проверяет» (202 и после
-переспросов) — тоже прежний статус, но перепроверка идёт сама: срок и счёт у лида, не больше
-`SALES_VERIFY_AGAIN_TRIES` раз (`verify_again.py`). Квота, закрытая учётка и 429 после
-повторов (`verifier.STOPS`) останавливают платную часть прохода.
+переспросов) — тоже прежний статус, но перепроверка идёт сама: срок у лида, окно — от первого
+«ещё проверяет» (`verify_again.py`); временный отказ сервиса посреди окна срок не снимает. Квота,
+закрытая учётка и 429 после повторов (`verifier.STOPS`) останавливают платную часть прохода.
 
 **Проход коммитит каждую партию сам.** Платные вердикты — деньги; обрыв
 посреди прохода не должен терять ни их, ни строку расхода (политика
@@ -249,7 +249,7 @@ async def _verify_one(lead: SalesLeadModel, run: _Run) -> Outcome:
     except STOPS as exc:
         run.halt = str(exc)
         logger.exception("продажи: проверка адресов остановлена", extra={"reason": str(exc)})
-        return _unverified(lead, str(exc))
+        return _not_verified(lead, run, str(exc))
     except (ProviderDomainRefusedError, StillCheckingError) as exc:  # ответ про адрес, не сбой
         logger.info("продажи: вердикта по адресу нет", extra={"lead_id": lead.id, "why": str(exc)})
         return _no_verdict(lead, run, exc)
@@ -257,8 +257,16 @@ async def _verify_one(lead: SalesLeadModel, run: _Run) -> Outcome:
         logger.warning(
             "продажи: адрес не проверен, повторим", extra={"lead_id": lead.id, "reason": str(exc)}
         )
-        return _unverified(lead, str(exc))
+        return _not_verified(lead, run, str(exc))
     return _judged(lead, verdict, run)
+
+
+def _not_verified(lead: SalesLeadModel, run: _Run, why: str) -> Outcome:
+    """Проверка не выполнена: посреди окна перепроверки по сроку — срок остаётся
+    (`verify_again.later`), у прочих — прежний статус со словами отказа (`_unverified`)."""
+    if verify_again.in_window(lead):
+        return verify_again.later(lead, run.moment, failure=why)
+    return _unverified(lead, why)
 
 
 def _no_verdict(lead: SalesLeadModel, run: _Run, exc: ProviderError) -> Outcome:
@@ -294,7 +302,7 @@ async def _verify_all(leads: Sequence[SalesLeadModel], run: _Run) -> list[Outcom
     async def one(lead: SalesLeadModel) -> Outcome:
         async with limiter:
             if run.halt is not None:
-                return _unverified(lead, run.halt)
+                return _not_verified(lead, run, run.halt)
             return await _verify_one(lead, run)
 
     return list(await asyncio.gather(*(one(lead) for lead in leads)))
@@ -340,8 +348,8 @@ def _row(outcome: Outcome, moment: datetime) -> dict[str, Any]:
         "status": outcome.status,
         "rejection_reason": None if outcome.reason is None else outcome.reason.value,
         "cleaning_note": outcome.note,
-        # Срок и счёт «ещё проверяет» — только у отложенного; любой другой исход их снимает.
-        "verify_tries": outcome.tries,
+        # Срок и окно «ещё проверяет» — только у отложенного; любой другой исход их снимает.
+        "verify_since": outcome.since,
         "verify_again_at": outcome.again_at,
     }
     if outcome.kept:  # прежний вердикт лида остаётся
@@ -436,7 +444,8 @@ async def clean_leads(
 
 
 async def _later(session: AsyncSession, report: CleaningReport, moment: datetime) -> CleaningReport:
-    """Проход отложил перепроверку «ещё проверяет» — задача на самый ранний срок (`verify_again`)."""
+    """Проход отложил перепроверку «ещё проверяет» — задача на самый ранний срок
+    (`verify_again.plan`)."""
     if report.still_checking:
         await verify_again.plan(session, now=moment)
     return report

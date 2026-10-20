@@ -265,6 +265,36 @@ describe('сбор базы: ход прогона — слова', () => {
     expect(stageBadge(DONE)).toEqual({ title: 'готово', color: 'green' });
   });
 
+  it('повтор у воркера — его ход словами; стадия и запись хода прохода — прежние', () => {
+    const again = {
+      ...JUDGING.progress!,
+      stage: 'contacts',
+      done: 3,
+      total: 12,
+      pass_started_at: before(120),
+      what: 'due',
+    };
+    const going: SegmentRunRow = {
+      ...DONE,
+      active: true,
+      alive_at: before(5),
+      again,
+      watch: { going: true, stalled: null, workers: 1, silent: false, job: 'started' },
+    };
+    expect(stageLine(going)).toBe('повтор: адреса: 3 из 12 доменов');
+    expect(stageBadge(going)).toEqual({ title: 'идёт повтор', color: 'blue' });
+    expect(pulse(going)?.words).toBe('идёт 2 мин · обновлено 5 с назад');
+    const cleaning: SegmentRunRow = {
+      ...going,
+      stage: 'stopped',
+      again: { ...again, stage: 'leads', done: 2, total: 5, what: 'cleaning' },
+    };
+    expect(stageLine(cleaning)).toBe('повтор: очистка лидов: 2 из 5 лидов');
+    // Задача повтора ещё в очереди — «в очереди задач», как у продолжения.
+    const queued: SegmentRunRow = { ...going, watch: { ...going.watch!, job: 'queued' } };
+    expect(stageLine(queued)).toBe('в очереди задач — продолжение');
+  });
+
   it('задачи нет — «остановлен», где встал — словами', () => {
     const stalled: SegmentRunRow = {
       ...JUDGING,

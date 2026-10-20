@@ -10,12 +10,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from backend.features.sales.segment_waits import Wait
+from backend.features.sales.segment_waits import Offer, Wait
 
 
 class WaitRow(BaseModel):
     """Что в прогоне ждёт повтора: адрес сайта (`address`) или очистка лида (`cleaning`), почему
-    словами, сколько, когда повтор пойдёт сам (UTC; пусто — срока нет) и можно ли «Повторить
+    словами, сколько, срок повтора (UTC; пусто — срока нет) и берёт ли строку «Повторить
     сейчас»."""
 
     kind: str
@@ -27,6 +27,19 @@ class WaitRow(BaseModel):
     @classmethod
     def of(cls, wait: Wait) -> WaitRow:
         return cls(kind=wait.kind, words=wait.words, count=wait.count, at=wait.at, again=wait.again)
+
+
+class OfferRow(BaseModel):
+    """«Повторить сейчас» у группы: что повторит (`addresses`, `cleaning`), скольких возьмёт — тем
+    же условием, что у прохода повтора, — и до скольких платных запросов Hunter."""
+
+    what: str
+    count: int
+    paid: int
+
+    @classmethod
+    def of(cls, found: Offer) -> OfferRow:
+        return cls(what=found.what, count=found.count, paid=found.paid)
 
 
 class AgainBody(BaseModel):

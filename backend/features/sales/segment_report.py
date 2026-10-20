@@ -21,10 +21,11 @@
 
 **«Ждут адреса» — тем же условием, что у прохода** (разбор прогона сбора 20.10: счёт брал лишь
 не искавшиеся, и сайт с наступившим сроком повтора кнопки не получал): поиск адреса — не
-искавшиеся и с наступившим сроком (`segment_queue`), лид из адреса, что уже есть на домене, —
-условием этапа лидов (`segment_leads.lead_ready`). «Без адреса — почему» — по исходу поиска,
-как и было: сайт с наступившим сроком в нём со своими словами и в счёте кнопки. Что ждёт повтора,
-когда и можно ли «Повторить сейчас», — строками ожидания (`segment_waits.py`).
+искавшиеся и с наступившим сроком (`segment_queue.due_now`: срок не раньше
+`SALES_SEGMENT_AGAIN_MIN`), лид из адреса, что уже есть на домене, — условием этапа лидов
+(`segment_leads.lead_ready`). «Без адреса — почему» — по исходу поиска, как и было. Что ждёт
+повтора и когда — строками ожидания, а что возьмёт «Повторить сейчас» и до скольких платных
+запросов — предложениями повтора, тем же условием, что у прохода (`segment_waits.py`).
 
 **Списка сайтов в отчёте нет** — только числа: отчёт опрашивается раз в три секунды, пока прогон
 идёт, а сайты по одному (и «на проверку» тоже) отдаёт список сайтов прогона страницами
@@ -53,7 +54,7 @@ from backend.features.sales.segment_models import (
 )
 from backend.features.sales.segment_queue import SegmentContactQueue
 from backend.features.sales.segment_sites import address_words
-from backend.features.sales.segment_waits import Wait, run_waits
+from backend.features.sales.segment_waits import Offer, Wait, run_offers, run_waits
 from backend.features.sales.verifier import live
 
 Candidate = SalesSegmentCandidateModel
@@ -100,8 +101,10 @@ class RunView:
     no_address: list[tuple[str, int]] = field(default_factory=list)
     #: Принятые, которых возьмёт проход: поиск адреса сейчас и лид из готового адреса.
     waiting_address: int = 0
-    #: Что ждёт повтора — адреса и очистка: словами, сроком и можно ли повторить сейчас.
+    #: Что ждёт повтора — адреса и очистка: словами, сроком и берёт ли строку кнопка повтора.
     waits: list[Wait] = field(default_factory=list)
+    #: «Повторить сейчас» у групп: скольких возьмёт и до скольких платных запросов Hunter.
+    offers: list[Offer] = field(default_factory=list)
     #: Лидов из прогона и что с ними сделала очистка: состояние → сколько.
     leads: dict[str, int] = field(default_factory=dict)
     #: Отсеянные очисткой лиды: код причины → сколько.
@@ -110,6 +113,8 @@ class RunView:
     unanswered: int = 0
     #: Ход прохода (`segment_progress.live`); пусто — записи хода нет.
     progress: dict[str, Any] | None = None
+    #: Ход повтора (`segment_progress.AGAIN_KEY`); пусто — повтор не идёт.
+    again: dict[str, Any] | None = None
     #: Сайты по ключу — сколько принёс каждый (`KeySites`); ключа без сайтов здесь нет.
     keyword_sites: dict[str, KeySites] = field(default_factory=dict)
 
@@ -203,7 +208,9 @@ async def run_view(session: AsyncSession, run_id: int) -> RunView | None:
     view.lanes = await _lanes(session, run_id)
     view.rejected = await _rejected(session, run_id)
     view.no_address, view.waiting_address = await _addresses(session, run_id)
-    view.waits = await run_waits(session, run_id, real=live(), now=datetime.now(UTC))
+    now, real = datetime.now(UTC), live()
+    view.waits = await run_waits(session, run, real=real, now=now)
+    view.offers = await run_offers(session, run, real=real, now=now)
     view.leads, view.lead_reasons = await _leads(session, run_id)
     view.unanswered = int(
         await session.scalar(
@@ -216,6 +223,7 @@ async def run_view(session: AsyncSession, run_id: int) -> RunView | None:
         or 0
     )
     view.progress = await segment_progress.live(session, run)
+    view.again = await segment_progress.live(session, run, key=segment_progress.AGAIN_KEY)
     view.keyword_sites = await _keyword_sites(session, run_id)
     return view
 

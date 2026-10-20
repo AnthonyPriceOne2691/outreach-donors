@@ -132,8 +132,8 @@ class _Sales(DomainSettings):
     # (`features/sales/verify_cap.month_cap`), опечатка не роняет общий старт.
     verifier_month_cap: str = Field(default="", validation_alias="SALES_VERIFIER_MONTH_CAP")
     # Hunter «ещё проверяет» (202) и после переспросов прохода: перепроверка адреса сама — через
-    # столько минут, не больше стольких раз; дальше — «не проверить» словами
-    # (`features/sales/verify_again.py`). Больше суток и двадцати раз — опечатка.
+    # столько минут; окно — столько перепроверок от первого «ещё проверяет» (минуты × раз), дальше
+    # «не проверить» словами (`features/sales/verify_again.py`). Больше суток и двадцати — опечатка.
     verify_again_min: int = Field(
         default=20, ge=1, le=1440, validation_alias="SALES_VERIFY_AGAIN_MIN"
     )
@@ -404,8 +404,8 @@ AGENT_MAX_TURNS: str = _s.agent_max_turns.strip()
 VERIFIER_PROVIDER: str = _s.verifier_provider
 #: Месячный потолок проверок адреса — текстом как есть: разбирает `sales/verify_cap.month_cap`.
 VERIFIER_MONTH_CAP: str = _s.verifier_month_cap.strip()
-#: Перепроверка адреса, у которого Hunter «ещё проверяет»: через сколько минут и не больше
-#: скольких раз (`features/sales/verify_again.py`).
+#: Перепроверка адреса, у которого Hunter «ещё проверяет»: через сколько минут и сколько таких
+#: перепроверок укладывается в окно от первого «ещё проверяет» (`features/sales/verify_again.py`).
 VERIFY_AGAIN_MIN: int = _s.verify_again_min
 VERIFY_AGAIN_TRIES: int = _s.verify_again_tries
 

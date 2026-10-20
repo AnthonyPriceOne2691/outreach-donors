@@ -37,7 +37,9 @@ VALID = httpx.Response(200, json={"data": {"status": "valid", "score": 97}})
 PENDING = httpx.Response(202, json={"data": {"status": "pending"}})
 #: Hunter ещё проверяет — перепроверка через двадцать минут, первая из трёх (умолчания настроек).
 AGAIN_AT = NOW + timedelta(minutes=20)
-NOT_YET = verify_again.checking(1, AGAIN_AT)
+#: Окно перепроверок — три срока по двадцать минут от первого «ещё проверяет».
+UNTIL = NOW + timedelta(minutes=60)
+NOT_YET = verify_again.checking(AGAIN_AT, UNTIL)
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -178,7 +180,8 @@ async def test_cleaning_gets_the_verdict_in_the_same_pass_or_defers_the_lead_to_
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Дождались — лид «готов» тем же проходом и платит одну проверку; не дождались — лид в
-    прежнем статусе со словами, сроком и счётом, а следующая очистка спросит снова и сочтёт."""
+    прежнем статусе со словами, сроком и окном, а следующая очистка спросит снова — окно прежнее:
+    заход раньше срока его не сокращает."""
     planned: list[object] = []
     monkeypatch.setattr(verify_again.deferred, "plan", lambda *a, **k: planned.append(a))
     answers = {EMAIL: [PENDING, VALID], "olga@beta.example.test": [PENDING]}
@@ -208,7 +211,7 @@ async def test_cleaning_gets_the_verdict_in_the_same_pass_or_defers_the_lead_to_
     await _clean(world, handler)
 
     assert seen["olga@beta.example.test"] == 6
-    assert (await world.rows())[1] == Row(LeadStatus.NEW, note=verify_again.checking(2, AGAIN_AT))
+    assert (await world.rows())[1] == Row(LeadStatus.NEW, note=NOT_YET)
 
 
 # --- 400 blacklisted_domain: отказ домену постоянный -------------------------------------------

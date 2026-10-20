@@ -53,10 +53,10 @@ class Outcome:
     kept: bool = False
     #: Ждёт держателя компании — непроверенного лида другой гипотезы (`company_hold.split`).
     waits: bool = False
-    #: Hunter «ещё проверяет»: когда перепроверка пойдёт сама и какая она по счёту
-    #: (`verify_again.later`); пусто — отложенной перепроверки у лида нет.
+    #: Hunter «ещё проверяет»: когда перепроверка пойдёт сама и с какого момента идёт окно
+    #: перепроверок (`verify_again.later`); пусто — отложенной перепроверки у лида нет.
     again_at: datetime | None = None
-    tries: int = 0
+    since: datetime | None = None
 
     @property
     def unknown(self) -> bool:
@@ -155,7 +155,8 @@ def lines(report: CleaningReport) -> list[str]:
     shown = (
         (
             report.still_checking,
-            f"  Hunter ещё проверяет адрес: {report.still_checking} — перепроверка пойдёт сама",
+            f"  перепроверка по сроку (Hunter ещё проверяет или не ответил): "
+            f"{report.still_checking} — пойдёт сама",
         ),
         (
             report.awaiting_holder,
@@ -181,8 +182,8 @@ def _waiting(report: CleaningReport) -> list[str]:
     said = []
     if report.still_checking and report.again_at is not None:
         said.append(
-            "\nHunter ещё проверяет адрес — к письмам такие лиды пока не идут: перепроверка "
-            f"пойдёт сама около {report.again_at:%H:%M} UTC."
+            "\nHunter ещё проверяет адрес или не ответил — к письмам такие лиды пока не идут: "
+            f"перепроверка пойдёт сама около {report.again_at:%d.%m %H:%M} UTC."
         )
     if report.unconfirmed and report.recheck_on is not None:
         said.append(

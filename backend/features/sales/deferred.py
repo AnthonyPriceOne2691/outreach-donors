@@ -51,10 +51,18 @@ def at(jobs: Queue, prefix: str, path: str, when: datetime, *args: object) -> st
     return number
 
 
-def plan(prefix: str, path: str, when: datetime, *args: object, now: datetime) -> str | None:
-    """`at` в очередь долгих задач продаж — не раньше минуты от `now`. Очередь не ответила —
-    строка журнала и `None`: срок лежит в базе, поставит следующий проход."""
-    when = max(when, now + SOONEST)
+def plan(
+    prefix: str,
+    path: str,
+    when: datetime,
+    *args: object,
+    now: datetime,
+    soonest: timedelta = SOONEST,
+) -> str | None:
+    """`at` в очередь долгих задач продаж — не раньше `soonest` от `now` (после сбоя прохода —
+    дальше минуты: повтор задачи на ту же беду не должен крутиться каждую минуту). Очередь не
+    ответила — строка журнала и `None`: срок лежит в базе, поставит следующий проход."""
+    when = max(when, now + soonest)
     try:
         return at(sales_bulk_queue(), prefix, path, when, *args)
     except RedisError as exc:

@@ -6,8 +6,12 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { formatTime } from '../format';
+import { formatDateTime, formatTime } from '../format';
 import { cleanLine } from './cleanData';
+
+/** Срок — через двадцать минут от «сейчас»: сегодня (около полуночи — уже завтра, с датой). */
+const SOON = new Date(Date.now() + 20 * 60_000);
+const sameDay = SOON.toDateString() === new Date().toDateString();
 
 const REPORT = {
   checked: 5,
@@ -17,7 +21,7 @@ const REPORT = {
   recheck_on: null,
   unverified: 0,
   still_checking: 2,
-  again_at: '2026-10-20T09:20:00+00:00',
+  again_at: SOON.toISOString(),
   awaiting_holder: 0,
   mx_unknown: 0,
   verified: 3,
@@ -30,10 +34,17 @@ describe('итог очистки: Hunter ещё проверяет', () => {
   it('число и срок перепроверки — словами, без «следующая очистка повторит»', () => {
     const line = cleanLine(REPORT);
 
-    expect(line).toContain(
-      `Hunter ещё проверяет адрес — 2: перепроверка пойдёт сама около ${formatTime(REPORT.again_at)}.`,
-    );
+    const at = sameDay ? formatTime(REPORT.again_at) : formatDateTime(REPORT.again_at);
+    expect(line).toContain(`Hunter ещё проверяет адрес — 2: перепроверка пойдёт сама около ${at}.`);
     expect(line).not.toContain('следующая очистка повторит');
+  });
+
+  it('срок не сегодня — с датой: «около 09:50» завтрашним утром читалось бы прошедшим', () => {
+    const later = new Date(Date.now() + 26 * 3_600_000).toISOString();
+
+    expect(cleanLine({ ...REPORT, again_at: later })).toContain(
+      `перепроверка пойдёт сама около ${formatDateTime(later)}.`,
+    );
   });
 
   it('таких нет — строки нет', () => {

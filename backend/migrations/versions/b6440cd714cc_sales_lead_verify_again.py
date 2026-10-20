@@ -1,4 +1,4 @@
-"""перепроверка адреса лида, у которого Hunter «ещё проверяет»
+"""перепроверка адреса лида по сроку, пока Hunter «ещё проверяет»
 
 Revision ID: b6440cd714cc
 Revises: dbce021e159c
@@ -6,12 +6,12 @@ Create Date: 2026-10-20 11:06:45.000000
 
 Разбор прогона сбора 20.10: Hunter отвечал «ещё проверяет» (202) и после переспросов прохода, и
 лид оставался «новым» со словами «повторим следующей очисткой» — следующей очистки никто не
-запускал, лиды висели неделю. Теперь перепроверка идёт сама (`sales/verify_again.py`): лиду
-нужны срок и счёт — когда спросить снова и сколько раз уже ответили «ещё проверяет»; после
-предела — «не проверить» словами. Вердикт лида колонки не трогают: его держат правила первого
-письма и второго `unknown`.
+запускал, лиды висели неделю. Теперь перепроверка идёт сама (`sales/verify_again.py`): у лида —
+срок следующей перепроверки и момент первого «ещё проверяет», от которого считается окно; после
+окна — «не проверить» словами. Вердикт лида колонки не трогают: его держат правила первого
+письма и второго `unknown`. Частичный индекс — задача перепроверки ищет лидов по сроку.
 
-Колонки новые: у прежних лидов счёт ноль и срока нет — они ведут себя как раньше.
+Колонки новые: у прежних лидов срока нет — они ведут себя как раньше.
 """
 
 from typing import Sequence, Union
@@ -24,20 +24,28 @@ down_revision: Union[str, Sequence[str], None] = "dbce021e159c"  # pragma: allow
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+INDEX = "idx_sales_leads_verify_again"
+
 
 def upgrade() -> None:
-    """Счёт «ещё проверяет» подряд и срок перепроверки у лида продаж."""
+    """Начало «ещё проверяет» подряд и срок перепроверки у лида продаж; индекс по сроку."""
     op.add_column(
-        "sales_leads",
-        sa.Column("verify_tries", sa.SmallInteger(), server_default="0", nullable=False),
+        "sales_leads", sa.Column("verify_since", sa.DateTime(timezone=True), nullable=True)
     )
     op.add_column(
         "sales_leads", sa.Column("verify_again_at", sa.DateTime(timezone=True), nullable=True)
     )
+    op.create_index(
+        INDEX,
+        "sales_leads",
+        ["verify_again_at"],
+        postgresql_where=sa.text("verify_again_at IS NOT NULL"),
+    )
 
 
 def downgrade() -> None:
-    """Снять срок и счёт: отложенная перепроверка прежнему коду неизвестна — такие лиды остаются
+    """Снять срок и окно: отложенная перепроверка прежнему коду неизвестна — такие лиды остаются
     «новыми» со словами и ждут очистки, как до неё."""
+    op.drop_index(INDEX, table_name="sales_leads")
     op.drop_column("sales_leads", "verify_again_at")
-    op.drop_column("sales_leads", "verify_tries")
+    op.drop_column("sales_leads", "verify_since")

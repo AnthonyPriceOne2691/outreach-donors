@@ -222,17 +222,28 @@ def _rejudge(report: dict[str, Any], prices: Prices) -> SpendRow | None:
     return SpendRow("rejudge", "Пересуд", fact, REJUDGE_PROMISED, totals["tokens"], usd)
 
 
+def _counters(report: dict[str, Any]) -> dict[str, Any]:
+    contacts = _section(report, "contacts")
+    counters = None if contacts is None else contacts.get("counters")
+    return counters if isinstance(counters, dict) else {}
+
+
+def searched(report: dict[str, Any]) -> int:
+    """Запросов поиска адреса, которые провайдер принял у прогона за все проходы: вошло в платную
+    ступень минус отказы. Им же меряет остаток сметы повтор по сроку (`segment_queue.paid_left`)."""
+    counters = _counters(report)
+    refused = _int(counters.get("provider_refused")) or 0
+    return max(0, (_int(counters.get("provider_entered")) or 0) - refused)
+
+
 def _search(report: dict[str, Any], estimate: dict[str, Any]) -> SpendRow:
     title = "Hunter: поиск адреса"
     promised_units = _int(estimate.get("hunter_searches")) or 0
     promised = f"до {number(promised_units)}" if promised_units else "платный поиск выключен"
-    contacts = _section(report, "contacts")
-    if contacts is None:
+    if _section(report, "contacts") is None:
         return SpendRow("search", title, NOT_YET["search"], promised, None, None, promised_units)
-    counters = contacts.get("counters")
-    counters = counters if isinstance(counters, dict) else {}
-    refused = _int(counters.get("provider_refused")) or 0
-    paid = max(0, (_int(counters.get("provider_entered")) or 0) - refused)
+    refused = _int(_counters(report).get("provider_refused")) or 0
+    paid = searched(report)
     fact = f"поисков {number(paid)}" if paid else "платных поисков не было"
     if refused:
         fact += f"; отказов провайдера {number(refused)} — их он не засчитывает"

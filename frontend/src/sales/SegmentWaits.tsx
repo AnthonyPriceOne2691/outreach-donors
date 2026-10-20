@@ -1,16 +1,17 @@
 /**
  * Что в прогоне ждёт повтора — строками отчёта под лидами: адреса и очистка, почему словами,
- * когда повтор пойдёт сам и «Повторить сейчас» (разбор прогона сбора 20.10.2026: у «ждут очистки»
- * и «ждут адреса» не было ни причины, ни кнопки, и лиды висели неделю).
+ * срок повтора и «Повторить сейчас» (разбор прогона сбора 20.10.2026: у «ждут очистки» и «ждут
+ * адреса» не было ни причины, ни кнопки, и лиды висели неделю).
  *
- * **Срок — часами человека** (`formatTime` — сегодня, иначе дата и время): сервер отдаёт момент
- * UTC. Срок прошёл, а повтора ещё не было, — «срок повтора … наступил», и «Повторить сейчас» рядом.
+ * **Срок — часами человека** (`termWords`): впереди — «срок ещё не настал — повтор сам около …»,
+ * прошёл, а повтора ещё не было, — «срок повтора … наступил».
  *
- * **«Повторить сейчас» — у группы, а не у строки**: повтор адресов ищет всех, кто ждёт повтора, а
- * очистка берёт всех ждущих лидов прогона тем же условием, что у прохода очистки. Кнопки нет, пока
- * прогон идёт (сервер ответил бы «уже идёт»), и у группы, где сейчас повторять нечего (первый
- * `unknown` ждёт дня перепроверки: платная проверка раньше срока — трата впустую). Без права «run»
- * — слова, как у «Продолжить».
+ * **«Повторить сейчас» берёт только то, чей срок настал** (ревью 20.10.2026: кнопка, бравшая
+ * всех, сжигала расписание повторов). Что она возьмёт и до скольких платных запросов Hunter —
+ * числом сервера рядом с кнопкой (`SegmentOffer`: то же условие, что у прохода повтора), а
+ * платный повтор — через подтверждение у кнопки, как прочие действия с последствиями
+ * (`ConfirmPopover`: фокус на «Отмене»). Кнопки нет, пока прогон идёт (сервер ответил бы «уже
+ * идёт»), и у группы, где сейчас повторять нечего. Без права «run» — слова, как у «Продолжить».
  */
 
 import { Alert, Button, Group, List, Stack, Text } from '@mantine/core';
@@ -19,13 +20,15 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { refusalOf } from '../api/client';
 import { PERMISSION_TITLES } from '../api/labels';
 import { useSession } from '../auth/AuthProvider';
-import { formatDateTime, formatNumber, formatTime } from '../format';
+import { ConfirmPopover } from '../components/ConfirmPopover';
+import { formatNumber, plural } from '../format';
 import { jobRestarted } from '../jobs/JobLine';
 import { notify } from '../notices';
 import { againRun } from './segmentApi';
-import type { SegmentAgain, SegmentRunDetail, SegmentWait } from './segmentApi';
+import type { SegmentAgain, SegmentOffer, SegmentRunDetail, SegmentWait } from './segmentApi';
 import { SEGMENT_QUERY_KEY } from './segmentData';
 import { isActive } from './segmentStage';
+import { termWords } from './termWords';
 
 /** Группы ожидания по порядку отчёта: заголовок и что повторяет кнопка. */
 const GROUPS: { kind: SegmentWait['kind']; title: string; again: SegmentAgain }[] = [
@@ -33,21 +36,27 @@ const GROUPS: { kind: SegmentWait['kind']; title: string; again: SegmentAgain }[
   { kind: 'cleaning', title: 'Ждут очистки', again: 'cleaning' },
 ];
 
-/** Срок повтора словами: «повтор около 14:35» — сегодня, иначе с датой; прошёл — «наступил». */
-export function termWords(at: string, now: Date = new Date()): string {
-  const when = new Date(at);
-  const sameDay = when.toDateString() === now.toDateString();
-  const moment = sameDay ? formatTime(at) : formatDateTime(at);
-  return when.getTime() <= now.getTime()
-    ? `срок повтора ${moment} наступил`
-    : `повтор около ${moment}`;
-}
-
-/** Строка ожидания: почему, сколько и когда повтор сам. Тире и число — неразрывно с последним
- *  словом: на телефоне число одно на строке читалось оторванным (снимок стенда 20.10.2026). */
+/** Строка ожидания: почему, сколько и срок. Тире и число — неразрывно с последним словом: на
+ *  телефоне число одно на строке читалось оторванным (снимок стенда 20.10.2026). */
 export function waitLine(wait: SegmentWait, now: Date = new Date()): string {
   const said = `${wait.words}\u00a0—\u00a0${formatNumber(wait.count)}`;
   return wait.at === null ? said : `${said}, ${termWords(wait.at, now)}`;
+}
+
+/** Платные запросы повтора словами: «до 3 проверок Hunter», «до 1 поиска Hunter». */
+function paidWords(found: SegmentOffer): string {
+  const unit =
+    found.what === 'cleaning'
+      ? plural(found.paid, 'проверки', 'проверок', 'проверок')
+      : plural(found.paid, 'поиска', 'поисков', 'поисков');
+  return `до ${formatNumber(found.paid)} ${unit} Hunter`;
+}
+
+/** Что возьмёт кнопка: «перепроверит 3, до 3 проверок Hunter», «поищет 2, без платных запросов». */
+export function offerWords(found: SegmentOffer): string {
+  const verb = found.what === 'cleaning' ? 'перепроверит' : 'поищет';
+  const paid = found.paid > 0 ? paidWords(found) : 'без платных запросов';
+  return `${verb} ${formatNumber(found.count)}, ${paid}`;
 }
 
 function useAgain(run: number, what: SegmentAgain) {
@@ -62,8 +71,26 @@ function useAgain(run: number, what: SegmentAgain) {
   });
 }
 
-/** «Повторить сейчас» — или почему кнопки нет у этой учётки. */
-function AgainButton({ busy, press }: { busy: boolean; press: () => void }) {
+/** Вопрос окна у платного повтора: что будет стоить и почему запросов обычно меньше. */
+export function paidQuestion(found: SegmentOffer): string {
+  const each =
+    found.what === 'cleaning'
+      ? 'каждый лид — не больше одной проверки'
+      : 'платный поиск — только сайтам, где бесплатные ступени адреса не нашли';
+  return `Повторить сейчас? Повтор платный: ${paidWords(found)} — ${each}.`;
+}
+
+/** «Повторить сейчас» и что он возьмёт — или почему кнопки нет у этой учётки. Платный повтор —
+ *  через подтверждение у кнопки (`ConfirmPopover`: фокус на «Отмене»). */
+function AgainButton({
+  found,
+  busy,
+  press,
+}: {
+  found: SegmentOffer;
+  busy: boolean;
+  press: () => void;
+}) {
   const { can } = useSession();
   if (!can('run')) {
     return (
@@ -72,38 +99,51 @@ function AgainButton({ busy, press }: { busy: boolean; press: () => void }) {
       </Text>
     );
   }
-  return (
-    <Button size="compact-sm" variant="default" className="press" loading={busy} onClick={press}>
+  const button = (onClick: () => void) => (
+    <Button size="compact-sm" variant="default" className="press" loading={busy} onClick={onClick}>
       Повторить сейчас
     </Button>
   );
+  return (
+    <>
+      {found.paid > 0 ? (
+        <ConfirmPopover message={paidQuestion(found)} confirm="Повторить" onConfirm={press}>
+          {button}
+        </ConfirmPopover>
+      ) : (
+        button(press)
+      )}
+      <Text size="sm" c="dimmed">
+        {offerWords(found)}
+      </Text>
+    </>
+  );
 }
 
-function WaitGroup({
-  detail,
-  title,
-  what,
-  rows,
-}: {
+interface GroupProps {
   detail: SegmentRunDetail;
   title: string;
   what: SegmentAgain;
   rows: SegmentWait[];
-}) {
+}
+
+function WaitGroup({ detail, title, what, rows }: GroupProps) {
   const again = useAgain(detail.run.id, what);
   const total = rows.reduce((sum, row) => sum + row.count, 0);
-  const offered = !isActive(detail.run) && rows.some((row) => row.again);
+  const found = isActive(detail.run) ? undefined : detail.again?.find((one) => one.what === what);
   return (
     <Stack gap={2}>
       <Group gap="xs" wrap="wrap">
         <Text size="sm" fw={500}>
           {title} — {formatNumber(total)}
         </Text>
-        {offered && <AgainButton busy={again.isPending} press={() => again.mutate()} />}
+        {found !== undefined && (
+          <AgainButton found={found} busy={again.isPending} press={() => again.mutate()} />
+        )}
       </Group>
       <List size="sm" spacing={2} aria-label={title}>
         {rows.map((row) => (
-          <List.Item key={row.words}>{waitLine(row)}</List.Item>
+          <List.Item key={`${row.words}:${String(row.again)}`}>{waitLine(row)}</List.Item>
         ))}
       </List>
       {again.error !== null && (

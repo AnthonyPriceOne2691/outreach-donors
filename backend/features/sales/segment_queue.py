@@ -23,12 +23,24 @@
 у итога кандидата в отчёте прогона (`company_hold.held`, `held_in_run`).
 
 **Повтор — своими режимами** (`Retry`, разбор прогона сбора 20.10: «повтор по сроку» не
-случался — проход ставили только запуск и «Продолжить»). Сам, по сроку (`DUE`), и кнопкой
-«Повторить сейчас» (`NOW`) очередь берёт только сайты, поиск которым уже шёл и ждёт повтора:
-не ответил (`no_answer`) и «не спросили» (квота, частота, сбой — `attempts.RETRIABLE`). Первый
-поиск принятым — по-прежнему кнопкой: он стоит денег, и запускает его человек. Срок повтора
-молчавшему сайту — общего правила, но не раньше `SALES_SEGMENT_AGAIN_MIN` минут после попытки
-(`retry_at`): первый срок у правила — «следующий проход», а сам проход идёт сразу.
+случался — проход ставили только запуск и «Продолжить»), и только тем, чей срок настал
+(ревью 20.10: кнопка, бравшая всех, сжигала расписание — три нажатия, и «адреса нет» на полгода):
+
+- **сам, по сроку** (`DUE`) — только «сайт не ответил» (`no_answer`), чей срок настал
+  (`term_reached`). «Не спросили» платный сервис (квота, частота, сбой — `attempts.RETRIABLE`)
+  без платной ступени повтор только испортил бы: бесплатные ступени уже прошли, и сайт ушёл бы в
+  «адреса нет»;
+- **кнопкой «Повторить сейчас»** (`NOW`) — те же и «не спросили», когда платная ступень у прохода
+  правда есть (`paid`: включена у сбора, ключ есть и смета не выбрана, `paid_left`).
+
+Первый поиск принятым — по-прежнему кнопкой: он стоит денег, и запускает его человек. **Срок —
+одним правилом** у прохода, у чисел отчёта и у задачи на срок: ступень общего расписания
+(`attempts.delay_after`), но не раньше `SALES_SEGMENT_AGAIN_MIN` минут после попытки — в Python
+(`retry_at`) и в SQL (`term_reached`); у первой ступени общего правила срок — «следующий проход».
+
+**Платный поиск повтора — в пределах сметы** (`paid_left`): смета запуска минус запросы, которые
+провайдер уже принял у прогона (`segment_spend.searched`). Повтор идёт сам, без человека, и
+платить сверх того, что человек подтвердил запуском, он не должен.
 """
 
 from __future__ import annotations
@@ -38,9 +50,10 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
-from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import contacts as contacts_cfg
 from backend.config import sales as sales_cfg
 from backend.config.contacts import CONTACT_TTL_DAYS
 from backend.features.contacts import attempts
@@ -51,34 +64,66 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.sales import company_hold
 from backend.features.sales.segment_leads import living_address
 from backend.features.sales.segment_models import Lane, SalesSegmentCandidateModel
+from backend.features.sales.segment_spend import searched
 
 logger = logging.getLogger(__name__)
 
 Candidate = SalesSegmentCandidateModel
 
-#: Исходы поиска, после которых он повторяется: сайт не ответил — по сроку, «не спросили» —
-#: следующим проходом.
-RETRIES = (ContactStatus.NO_ANSWER, *sorted(attempts.RETRIABLE))
+#: «Не спросили» платный сервис: квота, частота, сбой — повтор кнопкой, когда платная ступень есть.
+UNASKED = tuple(sorted(attempts.RETRIABLE))
 
 
 class Retry(StrEnum):
-    """Повтор поиска сайтам, которым он уже шёл: сам по сроку или кнопкой, не дожидаясь срока."""
+    """Повтор поиска сайтам, которым он уже шёл и чей срок настал: сам или кнопкой."""
 
     DUE = "due"
     NOW = "now"
 
 
+def least() -> timedelta:
+    """Срок повтора не раньше этого после попытки (`SALES_SEGMENT_AGAIN_MIN`)."""
+    return timedelta(minutes=sales_cfg.SEGMENT_AGAIN_MIN)
+
+
 def retry_at(attempted: datetime, tries: int) -> datetime:
-    """Когда сайт, не ответивший поиску, спросят снова сами: срок общего правила
+    """Когда сайт, не ответивший поиску, спросят снова: срок общего правила
     (`attempts.delay_after`), но не раньше `SALES_SEGMENT_AGAIN_MIN` минут после попытки."""
-    least = timedelta(minutes=sales_cfg.SEGMENT_AGAIN_MIN)
-    return attempted + max(attempts.delay_after(tries), least)
+    return attempted + max(attempts.delay_after(tries), least())
+
+
+def _on_step(step: int) -> ColumnElement[bool]:
+    """Ступень расписания по счёту проходов без ответа — как `attempts.delay_after`: первая берёт
+    и ноль, последняя — всё, что выше."""
+    tries = Candidate.contact_tries
+    if step == 1:
+        return tries <= 1
+    if step == attempts.MAX_RETRIES:
+        return tries >= step
+    return tries == step
+
+
+def term_reached(now: datetime) -> ColumnElement[bool]:
+    """«Сайт не ответил», и срок повтора (`retry_at`) настал — тем же правилом в SQL."""
+    attempted = Candidate.contact_attempted_at
+    steps = [
+        and_(_on_step(step), attempted <= now - max(attempts.delay_after(step), least()))
+        for step in range(1, attempts.MAX_RETRIES + 1)
+    ]
+    return and_(Candidate.contact_status == ContactStatus.NO_ANSWER, or_(*steps))
 
 
 def due_now(now: datetime) -> ColumnElement[bool]:
-    """Пора ли искать снова — общим правилом попыток (`attempts.waiting`) со сроком годности
-    адреса: одно у прохода и у чисел отчёта прогона."""
-    return attempts.waiting(Candidate, now=now, ttl_days=CONTACT_TTL_DAYS)
+    """Пора ли искать — общим правилом попыток (`attempts.waiting`), а «сайт не ответил» — когда
+    настал его срок (`term_reached`): одно у прохода, у числа отчёта и у задачи на срок."""
+    return and_(
+        attempts.waiting(Candidate, now=now, ttl_days=CONTACT_TTL_DAYS),
+        or_(
+            Candidate.contact_status.is_(None),
+            Candidate.contact_status != ContactStatus.NO_ANSWER,
+            term_reached(now),
+        ),
+    )
 
 
 def needs_address(run_id: int) -> ColumnElement[bool]:
@@ -93,6 +138,16 @@ def needs_address(run_id: int) -> ColumnElement[bool]:
     )
 
 
+def paid_left(report: dict[str, object], estimate: dict[str, object]) -> int:
+    """Сколько платных поисков адреса осталось повтору прогона: платный поиск у сбора включён и
+    ключ есть — смета запуска минус принятые провайдером запросы прогона; иначе ноль."""
+    if not (sales_cfg.SEGMENT_PAID_CONTACTS and contacts_cfg.HUNTER_API_KEY):
+        return 0
+    promised = estimate.get("hunter_searches")
+    promised = int(promised) if isinstance(promised, int | float) else 0
+    return max(0, promised - searched(report))
+
+
 class SegmentContactQueue:
     """Кому из кандидатов прогона пора искать адрес и куда писать исход."""
 
@@ -100,22 +155,34 @@ class SegmentContactQueue:
     #: `ContactQueue`: поиск берёт этап из очереди, а не из вызова.
     stage: Stage | None = Stage.SALES
 
-    def __init__(self, session: AsyncSession, run_id: int, *, retry: Retry | None = None) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        run_id: int,
+        *,
+        retry: Retry | None = None,
+        paid: bool = False,
+        now: datetime | None = None,
+    ) -> None:
         self._session = session
         self._run_id = run_id
         self._retry = retry
+        self._paid = paid
+        self._now = now
 
     def _due(self) -> ColumnElement[bool]:
         """Условие «нужен адрес» — одно на счёт и на выборку: два разных правила
         разошлись бы, и отчёт называл бы одно число, а поиск брал другое. Повтор (`Retry`) —
-        только сайтам, поиск которым уже шёл: по сроку или сейчас."""
-        due = due_now(datetime.now(UTC))
+        только сайтам, чей срок настал; «не спросили» — кнопкой и с платной ступенью (`paid`)."""
+        now = self._now or datetime.now(UTC)
         if self._retry is None:
-            return and_(needs_address(self._run_id), due)
-        again = Candidate.contact_status.in_(RETRIES)
-        if self._retry is Retry.NOW:
-            return and_(needs_address(self._run_id), again)
-        return and_(needs_address(self._run_id), again, due)
+            return and_(needs_address(self._run_id), due_now(now))
+        if self._retry is Retry.NOW and self._paid:
+            return and_(
+                needs_address(self._run_id),
+                or_(term_reached(now), Candidate.contact_status.in_(UNASKED)),
+            )
+        return and_(needs_address(self._run_id), term_reached(now))
 
     async def pending_hosts(self, *, limit: int = 100) -> list[str]:
         """Принятые без адреса — в порядке выдачи: кого судья принял раньше, тот раньше."""

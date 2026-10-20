@@ -271,7 +271,7 @@ async def test_a_failed_recheck_keeps_the_first_unknown_so_the_next_one_is_the_s
     сошёл бы снова за первый, и лид ждал бы ещё неделю — лишняя платная проверка."""
     old = NOW - WEEK
     lead = await _new(session, world, JANE, verification_status="hunter:unknown", verified_at=old)
-    down = ProviderError("провайдер не ответил (HTTP 503) — повторим следующей очисткой")
+    down = ProviderError("провайдер не ответил (HTTP 503)")
 
     await _clean(session, world, Hunter(jane=down), NOW)
 

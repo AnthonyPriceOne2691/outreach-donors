@@ -38,6 +38,9 @@ export interface SegmentRunRow {
   /** Прогон идёт — решает сервер по очереди задач; экран опрашивает, пока это так. */
   active?: boolean;
   progress?: SegmentProgress | null;
+  /** Ход повтора (`segment_run.again`): стадию прогона повтор не трогает, его ход — здесь;
+   *  `what` — что повторяет. Повтор не идёт — пусто. */
+  again?: SegmentProgress | null;
   watch?: SegmentWatch | null;
 }
 
@@ -166,6 +169,8 @@ export interface SegmentRunDetail {
   /** Что ждёт повтора — адреса и очистка (`SegmentWait`). В записанных ответах старых тестов
    *  его нет — тогда строк ожидания нет. */
   waits?: SegmentWait[];
+  /** «Повторить сейчас» у групп (`SegmentOffer`): только где есть что повторить. */
+  again?: SegmentOffer[];
 }
 
 export interface SegmentQueued {
@@ -278,6 +283,8 @@ export interface SegmentProgress {
   mode?: string | null;
   /** Что знать о сбое этапа до следующего прохода — словами сервера. */
   note?: string | null;
+  /** У хода повтора — что он повторяет: `due` (сам, по сроку), `addresses`, `cleaning`. */
+  what?: string | null;
 }
 
 /** Что с задачей прогона в очереди — у идущего прогона и у поставленного продолжения. */
@@ -295,7 +302,7 @@ export interface SegmentWatch {
 }
 
 /** Что в прогоне ждёт повтора (`features/sales/segment_waits.py`): адрес сайта или очистка лида,
- *  почему словами, сколько, когда повтор пойдёт сам (ISO, UTC; `null` — срока нет) и можно ли
+ *  почему словами, сколько, срок повтора (ISO, UTC; `null` — срока нет) и берёт ли строку
  *  «Повторить сейчас». */
 export interface SegmentWait {
   kind: 'address' | 'cleaning';
@@ -308,6 +315,14 @@ export interface SegmentWait {
 /** «Повторить сейчас»: поиск адреса сайтам, которые ждут повтора, или очистку ждущих лидов —
  *  проходом без выдачи и судьи под номером прогона. */
 export type SegmentAgain = 'addresses' | 'cleaning';
+
+/** «Повторить сейчас» у группы: скольких возьмёт — тем же условием, что у прохода повтора, — и
+ *  до скольких платных запросов Hunter. */
+export interface SegmentOffer {
+  what: SegmentAgain;
+  count: number;
+  paid: number;
+}
 
 export function againRun(run: number, what: SegmentAgain): Promise<SegmentQueued> {
   return request<SegmentQueued>(`/sales/segment/runs/${run}/again`, {

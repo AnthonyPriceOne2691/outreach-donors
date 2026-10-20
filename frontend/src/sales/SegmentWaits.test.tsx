@@ -1,12 +1,14 @@
 /**
  * Что в прогоне ждёт повтора (разбор прогона сбора 20.10.2026): строки «ждут адреса» и «ждут
- * очистки» — почему словами, сколько, когда повтор пойдёт сам (часами человека, прошёл —
- * «наступил»), и «Повторить сейчас» у группы: запрос с видом повтора, отказ сервера — словами;
- * кнопки нет, пока прогон идёт, где повторять нечего и у учётки без права «run». Ответы сервера —
- * записанные (`serve()`); слова — разных ниш и языков.
+ * очистки» — почему словами, сколько, срок (часами человека: впереди — «ещё не настал», прошёл —
+ * «наступил»), и «Повторить сейчас» у группы — только где сервер предложил повтор (`again`): что
+ * он возьмёт и до скольких платных запросов, платный — через окно подтверждения. Кнопки нет, пока
+ * прогон идёт, где повторять нечего и у учётки без права «run»; после нажатия — отчёт
+ * перечитывается, и идущий повтор кнопки не даёт. Ответы сервера — записанные (`serve()`); слова —
+ * разных ниш и языков.
  */
 
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -17,12 +19,16 @@ import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer } from '../test/server';
-import type { SegmentRunDetail, SegmentRunRow, SegmentWait } from './segmentApi';
-import { SegmentWaits, termWords, waitLine } from './SegmentWaits';
+import type { SegmentOffer, SegmentRunDetail, SegmentRunRow, SegmentWait } from './segmentApi';
+import { useRun } from './segmentData';
+import { offerWords, SegmentWaits, waitLine } from './SegmentWaits';
+import { momentWords, termWords } from './termWords';
 
 const WAIT = { timeout: 5000 };
 const RUN_ID = 44;
 const AGAIN = `/api/sales/segment/runs/${RUN_ID}/again`;
+const READ = `/api/sales/segment/runs/${RUN_ID}`;
+const JOB = `/api/jobs/sales-segment-${RUN_ID}`;
 /** «Сейчас» чистых функций — передаётся им явно, часы не подменяются. */
 const NOW = new Date('2026-10-20T09:00:00+00:00');
 
@@ -50,19 +56,21 @@ function inHours(hours: number): string {
   return new Date(Date.now() + hours * 3_600_000).toISOString();
 }
 
-/** Строки ожидания отчёта: сайт не ответил, Hunter ещё проверяет, первый unknown ждёт своего дня. */
-const SILENT: SegmentWait = {
+/** Строки ожидания отчёта: сайт не ответил (срок прошёл и впереди), Hunter ещё проверяет, первый
+ *  unknown ждёт своего дня. */
+const SILENT_DUE: SegmentWait = {
   kind: 'address',
   words: 'сайт не ответил поиску адреса',
-  count: 3,
-  at: inHours(1),
+  count: 2,
+  at: inHours(-0.5),
   again: true,
 };
+const SILENT_LATER: SegmentWait = { ...SILENT_DUE, count: 1, at: inHours(20), again: false };
 const CHECKING: SegmentWait = {
   kind: 'cleaning',
   words: 'Hunter ещё проверяет адрес',
   count: 2,
-  at: inHours(0.3),
+  at: inHours(-0.2),
   again: true,
 };
 const UNKNOWN: SegmentWait = {
@@ -72,7 +80,11 @@ const UNKNOWN: SegmentWait = {
   at: null,
   again: false,
 };
-const WAITS: SegmentWait[] = [SILENT, CHECKING, UNKNOWN];
+const WAITS: SegmentWait[] = [SILENT_DUE, SILENT_LATER, CHECKING, UNKNOWN];
+/** Что предложил сервер: поиск двум сайтам без платной ступени, перепроверку двух лидов. */
+const FREE_SEARCH: SegmentOffer = { what: 'addresses', count: 2, paid: 0 };
+const PAID_CHECK: SegmentOffer = { what: 'cleaning', count: 2, paid: 2 };
+const OFFERS: SegmentOffer[] = [FREE_SEARCH, PAID_CHECK];
 
 function detailOf(changes: Partial<SegmentRunDetail> = {}): SegmentRunDetail {
   return {
@@ -90,6 +102,7 @@ function detailOf(changes: Partial<SegmentRunDetail> = {}): SegmentRunDetail {
     unanswered: 0,
     report: {},
     waits: WAITS,
+    again: OFFERS,
     ...changes,
   };
 }
@@ -107,71 +120,145 @@ function open(detail: SegmentRunDetail, me: Me = ADMIN, routes: Record<string, A
   return recorded;
 }
 
-describe('срок словами', () => {
-  it('сегодня — время, другой день — дата и время, прошёл — «наступил»', () => {
+const QUEUED: Record<string, Answer> = {
+  [`POST ${AGAIN}`]: { status: 202, body: { run_id: RUN_ID, job_id: `sales-segment-${RUN_ID}` } },
+  [`GET ${JOB}`]: { body: {} },
+};
+
+describe('срок и предложение словами', () => {
+  it('сегодня — время, другой день — дата и время; впереди — «ещё не настал», прошёл — «наступил»', () => {
     const soon = '2026-10-20T09:35:00+00:00';
     const tomorrow = '2026-10-21T09:35:00+00:00';
     const past = '2026-10-20T08:50:00+00:00';
 
-    expect(termWords(soon, NOW)).toBe(`повтор около ${formatTime(soon)}`);
-    expect(termWords(tomorrow, NOW)).toBe(`повтор около ${formatDateTime(tomorrow)}`);
+    expect(momentWords(tomorrow, NOW)).toBe(formatDateTime(tomorrow));
+    expect(termWords(soon, NOW)).toBe(`срок ещё не настал — повтор сам около ${formatTime(soon)}`);
+    expect(termWords(tomorrow, NOW)).toBe(
+      `срок ещё не настал — повтор сам около ${formatDateTime(tomorrow)}`,
+    );
     expect(termWords(past, NOW)).toBe(`срок повтора ${formatTime(past)} наступил`);
   });
 
   it('строка — почему, сколько и срок; без срока — без него', () => {
-    const at = '2026-10-20T09:20:00+00:00';
+    const at = '2026-10-20T08:20:00+00:00';
     expect(waitLine({ ...CHECKING, at }, NOW)).toBe(
-      `Hunter ещё проверяет адрес\u00a0—\u00a02, повтор около ${formatTime(at)}`,
+      `Hunter ещё проверяет адрес\u00a0—\u00a02, срок повтора ${formatTime(at)} наступил`,
     );
     expect(waitLine(UNKNOWN, NOW)).toBe(
       'адрес не подтверждён (unknown) — перепроверка не раньше 27.10.2026\u00a0—\u00a01',
     );
   });
+
+  it('что возьмёт кнопка — числом и платными запросами', () => {
+    expect(offerWords(FREE_SEARCH)).toBe('поищет 2, без платных запросов');
+    expect(offerWords(PAID_CHECK)).toBe('перепроверит 2, до 2 проверок Hunter');
+    expect(offerWords({ what: 'addresses', count: 3, paid: 1 })).toBe(
+      'поищет 3, до 1 поиска Hunter',
+    );
+  });
 });
 
 describe('строки ожидания в отчёте прогона', () => {
-  it('группы с числом, причины и срок; «Повторить сейчас» у каждой группы, где повтор возможен', async () => {
+  it('группы с числом, причины и срок; у каждой группы, где сервер предложил, — кнопка и что возьмёт', async () => {
     open(detailOf());
 
     expect(await screen.findByText('Ждут адреса — 3')).toBeInTheDocument();
     expect(screen.getByText('Ждут очистки — 3')).toBeInTheDocument();
-    const cleaning = screen.getByRole('list', { name: 'Ждут очистки' });
+    const addresses = screen.getByRole('list', { name: 'Ждут адреса' });
     expect(
-      within(cleaning)
+      within(addresses)
         .getAllByRole('listitem')
         .map((item) => item.textContent),
     ).toEqual([
-      expect.stringMatching(/^Hunter ещё проверяет адрес\u00a0—\u00a02, повтор около /),
-      'адрес не подтверждён (unknown) — перепроверка не раньше 27.10.2026\u00a0—\u00a01',
+      expect.stringMatching(
+        /^сайт не ответил поиску адреса\u00a0—\u00a02, срок повтора .+ наступил$/,
+      ),
+      expect.stringMatching(
+        /^сайт не ответил поиску адреса\u00a0—\u00a01, срок ещё не настал — повтор сам около /,
+      ),
     ]);
     expect(await screen.findAllByRole('button', { name: 'Повторить сейчас' }, WAIT)).toHaveLength(
       2,
     );
+    expect(screen.getByText('поищет 2, без платных запросов')).toBeInTheDocument();
+    expect(screen.getByText('перепроверит 2, до 2 проверок Hunter')).toBeInTheDocument();
   });
 
-  it('«Повторить сейчас» уходит на сервер своим видом повтора', async () => {
-    const recorded = open(detailOf(), ADMIN, {
-      [`POST ${AGAIN}`]: {
-        status: 202,
-        body: { run_id: RUN_ID, job_id: `sales-segment-${RUN_ID}` },
-      },
-      [`GET /api/jobs/sales-segment-${RUN_ID}`]: { body: {} },
-    });
-    const buttons = await screen.findAllByRole('button', { name: 'Повторить сейчас' }, WAIT);
+  it('бесплатный повтор уходит сразу, платный — после подтверждения у кнопки', async () => {
+    const recorded = open(detailOf(), ADMIN, QUEUED);
+    const [search, check] = await screen.findAllByRole(
+      'button',
+      { name: 'Повторить сейчас' },
+      WAIT,
+    );
 
-    // По порядку отчёта: сначала адреса, затем очистка.
-    for (const button of buttons) await userEvent.click(button);
+    await userEvent.click(search ?? document.body);
+    await userEvent.click(check ?? document.body);
+    // Выпадающее окно Mantine в jsdom остаётся `display: none` — его ищут с `hidden`.
+    const ask = await screen.findByRole('dialog', { name: /^Повторить сейчас\?/, hidden: true });
+    expect(ask).toHaveTextContent(
+      'Повторить сейчас? Повтор платный: до 2 проверок Hunter — каждый лид — не больше одной проверки.',
+    );
+    const sentBefore = recorded.calls.filter((call) => call.method === 'POST');
+    await userEvent.click(within(ask).getByRole('button', { name: 'Повторить', hidden: true }));
 
+    await waitFor(
+      () => expect(recorded.calls.filter((call) => call.method === 'POST')).toHaveLength(2),
+      WAIT,
+    );
     const sent = recorded.calls.filter((call) => call.method === 'POST');
+    expect(sentBefore.map((call) => call.body)).toEqual([{ what: 'addresses' }]);
     expect(sent.map((call) => [call.path, call.body])).toEqual([
       [AGAIN, { what: 'addresses' }],
       [AGAIN, { what: 'cleaning' }],
     ]);
   });
 
+  it('«Отмена» у подтверждения — запроса нет', async () => {
+    const recorded = open(detailOf({ waits: [CHECKING], again: [PAID_CHECK] }), ADMIN, QUEUED);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Повторить сейчас' }, WAIT));
+    const ask = await screen.findByRole('dialog', { name: /^Повторить сейчас\?/, hidden: true });
+    await userEvent.click(within(ask).getByRole('button', { name: 'Отмена', hidden: true }));
+
+    expect(recorded.calls.filter((call) => call.method === 'POST')).toEqual([]);
+  });
+
+  it('после нажатия отчёт перечитывается: повтор идёт — кнопки нет, строки есть', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    let posted = false;
+    const going = { ...run, active: true, finished_at: null, watch: null };
+    serve({
+      'GET /api/auth/me': { body: ADMIN },
+      [`GET ${READ}`]: () => ({
+        body: detailOf({ waits: [SILENT_DUE], again: [FREE_SEARCH], run: posted ? going : run }),
+      }),
+      [`POST ${AGAIN}`]: () => {
+        posted = true;
+        return { status: 202, body: { run_id: RUN_ID, job_id: `sales-segment-${RUN_ID}` } };
+      },
+      [`GET ${JOB}`]: { body: {} },
+    });
+    function Live() {
+      const { data } = useRun(RUN_ID);
+      return data === undefined ? null : <SegmentWaits detail={data} />;
+    }
+    renderWith(<Live />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Повторить сейчас' }, WAIT));
+
+    await waitFor(
+      () => expect(screen.queryByRole('button', { name: 'Повторить сейчас' })).toBeNull(),
+      WAIT,
+    );
+    expect(screen.getByText('Ждут адреса — 2')).toBeInTheDocument();
+    expect(screen.queryByText('поищет 2, без платных запросов')).toBeNull();
+  });
+
   it('отказ сервера — его словами под группой', async () => {
-    const words = 'Повторять нечего: сайтов, которые ждут повтора поиска адреса, в прогоне нет';
-    open(detailOf({ waits: [SILENT] }), ADMIN, {
+    const words =
+      'Повторять нечего: сайтов, чей срок повтора поиска адреса настал, в прогоне нет — у остальных повтор пойдёт сам в свой срок';
+    open(detailOf({ waits: [SILENT_DUE], again: [FREE_SEARCH] }), ADMIN, {
       [`POST ${AGAIN}`]: { status: 409, body: { detail: words } },
     });
 
@@ -192,22 +279,22 @@ describe('строки ожидания в отчёте прогона', () => {
           <SegmentWaits detail={detailOf({ run: { ...run, active: true, stage: 'contacts' } })} />
         </section>
         <section aria-label="готов">
-          <SegmentWaits detail={detailOf({ waits: [SILENT] })} />
+          <SegmentWaits detail={detailOf({ waits: [SILENT_DUE], again: [FREE_SEARCH] })} />
         </section>
       </>,
     );
     const idle = screen.getByRole('region', { name: 'готов' });
-    const going = screen.getByRole('region', { name: 'идёт' });
+    const busy = screen.getByRole('region', { name: 'идёт' });
 
     await within(idle).findByRole('button', { name: 'Повторить сейчас' }, WAIT);
-    expect(within(going).getByText('Ждут адреса — 3')).toBeInTheDocument();
-    expect(within(going).queryByRole('button', { name: 'Повторить сейчас' })).toBeNull();
+    expect(within(busy).getByText('Ждут адреса — 3')).toBeInTheDocument();
+    expect(within(busy).queryByRole('button', { name: 'Повторить сейчас' })).toBeNull();
   });
 
-  it('где повторять нечего — кнопки нет: первый unknown ждёт своего дня', async () => {
-    open(detailOf({ waits: [SILENT, UNKNOWN] }));
+  it('сервер не предложил повтор — кнопки нет: срок впереди, первый unknown ждёт своего дня', async () => {
+    open(detailOf({ waits: [SILENT_DUE, SILENT_LATER, UNKNOWN], again: [FREE_SEARCH] }));
 
-    // Кнопка у адресов — знак, что вход прочитан; у очистки с одним unknown её нет.
+    // Кнопка у адресов — знак, что вход прочитан; у очистки предложения нет — и кнопки нет.
     const [button] = await screen.findAllByRole('button', { name: 'Повторить сейчас' }, WAIT);
     expect(screen.getAllByRole('button', { name: 'Повторить сейчас' })).toHaveLength(1);
     expect(screen.getByText('Ждут адреса — 3').parentElement).toContainElement(button ?? null);
@@ -225,7 +312,7 @@ describe('строки ожидания в отчёте прогона', () => {
     renderWith(
       <>
         <Who />
-        <SegmentWaits detail={detailOf({ waits: [SILENT] })} />
+        <SegmentWaits detail={detailOf({ waits: [SILENT_DUE], again: [FREE_SEARCH] })} />
       </>,
     );
 
@@ -240,10 +327,16 @@ describe('строки ожидания в отчёте прогона', () => {
     expect(screen.queryByText(/^Ждут /)).not.toBeInTheDocument();
   });
 
-  it('сервер старше строк ожидания — блока нет', () => {
+  it('сервер старше строк ожидания — блока нет; старше предложений — кнопок нет', async () => {
     const older = detailOf();
     delete older.waits;
     open(older);
     expect(screen.queryByText(/^Ждут /)).not.toBeInTheDocument();
+
+    const noOffers = detailOf();
+    delete noOffers.again;
+    renderWith(<SegmentWaits detail={noOffers} />);
+    expect(await screen.findByText('Ждут адреса — 3')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Повторить сейчас' })).toBeNull();
   });
 });

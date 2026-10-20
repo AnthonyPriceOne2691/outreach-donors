@@ -24,10 +24,13 @@
 кандидатов (`segment_report.py`).
 
 **Повтор — своим проходом** (`again`, разбор прогона сбора 20.10): без выдачи и судьи —
-поиск адреса сайтам, которые ждут повтора, сам по сроку или кнопкой «Повторить сейчас»
-(`Again`), и лиды из найденного; или очистка ждущих лидов прогона. Стадия после него —
-прежняя. В конце любого прохода очередь получает задачу на срок молчавших сайтов
-(`segment_again.plan`).
+поиск адреса сайтам, чей срок повтора настал, сам по сроку или кнопкой «Повторить сейчас»
+(`Again`), и лиды из найденного; или очистка ждущих лидов прогона. **Стадию, причину остановки и
+ход прохода повтор не трогает** (ревью 20.10): его ход — своим ключом
+(`segment_progress.enter_again`), и повтор задачи после сбоя не превращает остановленный прогон в
+готовый. Повторять нечего — повтор кончается сразу, без записи хода. Платный поиск повтора — в
+пределах сметы (`segment_queue.paid_left`). Срок следующего повтора ставит задача прохода
+(`segment_jobs.run_once`) — после любого исхода, и после сбоя тоже.
 """
 
 from __future__ import annotations
@@ -45,7 +48,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import sales as sales_cfg
 from backend.config.judge import JudgeMode
 from backend.features.contacts.search import search_contacts
-from backend.features.sales import cleaning, segment_again
+from backend.features.sales import cleaning
 from backend.features.sales.clean_jobs import report_of
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.segment_estimate import NO_SEGMENT
@@ -53,8 +56,15 @@ from backend.features.sales.segment_judge import SegmentClient
 from backend.features.sales.segment_judging import JudgeTally, judge_run
 from backend.features.sales.segment_leads import make_leads
 from backend.features.sales.segment_models import SalesSegmentRunModel, Stage
-from backend.features.sales.segment_progress import advanced, enter, judge_waiting
-from backend.features.sales.segment_queue import Retry, SegmentContactQueue
+from backend.features.sales.segment_progress import (
+    AGAIN_KEY,
+    advanced,
+    enter,
+    enter_again,
+    judge_waiting,
+    without_again,
+)
+from backend.features.sales.segment_queue import Retry, SegmentContactQueue, paid_left
 from backend.features.sales.segment_serp import bought, collect, provider_mode
 from backend.features.sales.segment_waits import waiting_leads
 from backend.features.sales.segment_window import SPLIT_TOKENS
@@ -90,9 +100,9 @@ class Again(StrEnum):
 
     #: Поиск адреса сайтам, чей срок повтора настал, — сам (`segment_jobs.due_again`).
     DUE = "due"
-    #: Поиск адреса сайтам, которые ждут повтора, — сейчас, не дожидаясь срока: кнопка отчёта.
+    #: Поиск адреса сайтам, чей срок настал, и «не спросили» при платной ступени — кнопкой.
     ADDRESSES = "addresses"
-    #: Очистка ждущих лидов прогона — сейчас: кнопка отчёта.
+    #: Очистка ждущих лидов прогона — кнопкой отчёта (`segment_waits.waiting_leads`).
     CLEANING = "cleaning"
 
 
@@ -283,8 +293,9 @@ async def execute(
     hypothesis = await session.get(SalesHypothesisModel, run.hypothesis_id)
     segment = (hypothesis.description or "").strip() if hypothesis is not None else ""
     started = datetime.now(UTC)
-    # Проход идёт: причины прежней остановки и конца прежнего прохода у него нет.
+    # Проход идёт: причины прежней остановки, конца прежнего прохода и хода повтора у него нет.
     run.error, run.finished_at = None, None
+    run.report = without_again(run.report)
     if not bought(run):
         await _serp(session, run, deps, started)
     if not segment and JudgeMode(run.mode) is not JudgeMode.OFF:
@@ -297,23 +308,102 @@ async def execute(
     await _leads(session, run, deps.verifier, started)
     run.stage, run.finished_at = Stage.DONE, now or datetime.now(UTC)
     await session.commit()
-    await segment_again.plan(session, run.id, now=run.finished_at)
     logger.info("сбор продаж: прогон прошёл", extra={"run": run.id})
     return dict(run.report)
 
 
+def _again_started(run: SalesSegmentRunModel, what: Again) -> datetime | None:
+    """Начало повтора, который задача повторяет после сбоя: лиды — из найденного с него, а не с
+    повтора задачи (адреса первой попытки уже записаны). Записи нет — повтор новый."""
+    stored = run.report.get(AGAIN_KEY)
+    if not isinstance(stored, Mapping) or stored.get("what") != what.value:
+        return None
+    raw = stored.get("pass_started_at")
+    try:
+        return datetime.fromisoformat(raw) if isinstance(raw, str) else None
+    except ValueError:
+        # Запись правили руками: повтор начнётся заново — лиды из найденного первой попыткой
+        # заведёт следующий проход прогона.
+        logger.warning("сбор продаж: начало повтора не разобрано", extra={"value": raw})
+        return None
+
+
+async def _retry_walk(
+    session: AsyncSession, run: SalesSegmentRunModel, retry: Retry, waiting: int, left: int
+) -> dict[str, Any]:
+    """Поиск адреса повтора: с платной ступенью — не больше сайтов, чем осталось платных поисков
+    по смете (`left`; сайт — не больше одного запроса), остальным — без неё; «не спросили» без
+    платной ступени не берутся (`segment_queue.Retry`)."""
+    found: dict[str, Any] = {}
+    if left > 0:
+        queue = SegmentContactQueue(session, run.id, retry=retry, paid=True)
+        paid = await search_contacts(session, limit=min(waiting, left), queue=queue)
+        found = contacts_report(found, paid.as_dict())
+    rest = waiting - _number(found.get("walked"))
+    if rest > 0:
+        queue = SegmentContactQueue(session, run.id, retry=retry)
+        free = await search_contacts(session, limit=rest, queue=queue, no_paid=True)
+        found = contacts_report(found, free.as_dict())
+    return found
+
+
+async def _retry_addresses(
+    session: AsyncSession,
+    run: SalesSegmentRunModel,
+    verifier: EmailVerifier,
+    what: Again,
+    started: datetime,
+    *,
+    resumed: bool = False,
+) -> bool:
+    """Повтор поиска адреса — сайтам, чей срок настал, и лиды только из найденного с начала
+    повтора. `resumed` — повтор задачи после сбоя: лиды из найденного первой попыткой заводятся,
+    даже если искать уже некому. `False` — делать нечего: ни хода, ни записи."""
+    retry = Retry.DUE if what is Again.DUE else Retry.NOW
+    left = paid_left(run.report, run.estimate)
+    waiting = await SegmentContactQueue(session, run.id, retry=retry, paid=left > 0).pending_count()
+    if waiting == 0 and not resumed:
+        return False
+    if waiting > 0:
+        await enter_again(
+            session, run, what.value, Stage.CONTACTS, total=waiting, pass_started=started
+        )
+        found = await _retry_walk(session, run, retry, waiting, left)
+        run.report = {
+            **advanced(run, done=_number(found.get("walked")), key=AGAIN_KEY),
+            "contacts": contacts_report(run.report.get("contacts"), found),
+        }
+    await enter_again(session, run, what.value, Stage.LEADS, total=None, pass_started=started)
+    made = await make_leads(session, run, verifier, since=started)
+    created = _number(made.get("created"))
+    run.report = {
+        **advanced(run, done=created, total=created, key=AGAIN_KEY),
+        "leads": leads_report(run.report.get("leads"), made),
+    }
+    return True
+
+
 async def _clean_waiting(
     session: AsyncSession, run: SalesSegmentRunModel, verifier: EmailVerifier, started: datetime
-) -> None:
-    """Этап очистки ждущих лидов прогона — тем же проходом, что у новых (`cleaning.clean_leads`):
-    кого возьмёт очистка, решает её условие (`segment_waits.waiting_leads`)."""
-    leads = await waiting_leads(session, run.id, real=verifier.name != FIXTURE, now=started)
-    await enter(session, run, Stage.LEADS, total=len(leads), pass_started=started)
-    found = await cleaning.clean_leads(session, leads, verifier, now=started) if leads else None
-    run.report = advanced(run, done=len(leads))
+) -> bool:
+    """Очистка ждущих лидов прогона — тем же проходом, что у новых (`cleaning.clean_leads`); кого
+    возьмёт, решает условие кнопки (`segment_waits.waiting_leads`). Лиды — под блокировкой строк:
+    задача перепроверки (`verify_again_jobs`) их в это время не возьмёт. `False` — чистить
+    некого."""
+    real, moment = verifier.name != FIXTURE, datetime.now(UTC)
+    count = len(await waiting_leads(session, run.id, real=real, now=moment))
+    if count == 0:
+        return False
+    await enter_again(
+        session, run, Again.CLEANING.value, Stage.LEADS, total=count, pass_started=started
+    )
+    leads = await waiting_leads(session, run.id, real=real, now=moment, lock=True)
+    found = await cleaning.clean_leads(session, leads, verifier, now=moment) if leads else None
+    run.report = advanced(run, done=len(leads), total=len(leads), key=AGAIN_KEY)
     if found is not None:
         made = {"created": 0, "cleaning": report_of(found)}
         run.report = {**run.report, "leads": leads_report(run.report.get("leads"), made)}
+    return True
 
 
 async def again(
@@ -324,24 +414,25 @@ async def again(
     *,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Повтор без выдачи и судьи (`Again`): поиск адреса сайтам, которые ждут повтора, и лиды из
-    найденного — или очистка ждущих лидов. Стадия после прохода — прежняя: готовый остаётся
-    готовым, остановленный — остановленным со своей причиной."""
+    """Повтор без выдачи и судьи (`Again`): поиск адреса сайтам, чей срок настал, и лиды из
+    найденного — или очистка ждущих лидов. Стадия, причина остановки и ход прохода — прежние;
+    ход повтора — своим ключом и снимается в конце. Повторять нечего — конец без хода."""
     run = await session.get(SalesSegmentRunModel, run_id)
     if run is None:
         raise UnknownRunError(f"прогона сбора №{run_id} нет")
-    before, started = run.stage, datetime.now(UTC)
-    run.finished_at = None
+    resumed = _again_started(run, what)
+    started = resumed or datetime.now(UTC)
     if what is Again.CLEANING:
-        await _clean_waiting(session, run, verifier, started)
+        worked = await _clean_waiting(session, run, verifier, started)
     else:
-        retry = Retry.DUE if what is Again.DUE else Retry.NOW
-        await _addresses(session, run, started, retry)
-        await _leads(session, run, verifier, started, since=started)
-    finished = before in (Stage.CONTACTS, Stage.LEADS)  # прежний проход прошёл адреса
-    run.stage = Stage.DONE if finished else before
-    run.finished_at = now or datetime.now(UTC)
+        worked = await _retry_addresses(
+            session, run, verifier, what, started, resumed=resumed is not None
+        )
+    run.report = without_again(run.report)
+    if worked or run.finished_at is None:
+        run.finished_at = now or datetime.now(UTC)
     await session.commit()
-    await segment_again.plan(session, run.id, now=run.finished_at)
-    logger.info("сбор продаж: повтор прошёл", extra={"run": run.id, "what": what.value})
+    logger.info(
+        "сбор продаж: повтор прошёл", extra={"run": run.id, "what": what.value, "worked": worked}
+    )
     return dict(run.report)
