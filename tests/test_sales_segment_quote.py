@@ -487,3 +487,33 @@ def test_without_marks_a_paraphrase_or_another_letter_still_does_not_hold(
 ) -> None:
     """Знак при букве снимается, буква — нет: «ł» и «l» — разные буквы, пересказ — другие слова."""
     assert not sq.quote_holds(quote, line)
+
+
+@pytest.mark.parametrize(
+    ("quote", "line"),
+    [
+        ("חשב את מחיר החבילה במחשבון שלנו", "חשבו את מחיר החבילה במחשבון שלנו והירשמו לשיעור"),
+        ("Заказывайте ремонт велосипедов онлайн", "Заказывайте ремонты велосипедов онлайн у нас"),
+        ("Reserva tu cit con nuestros dentistas", "Reserva tu cita con nuestros dentistas hoy"),
+    ],
+    ids=["hebrew-plural-ending", "russian-ending", "spanish-ending"],
+)
+def test_an_ending_the_model_dropped_from_a_short_word_still_holds(quote: str, line: str) -> None:
+    """Модель отбросила последнюю букву короткого слова — окончание переписывания, а не выдумка:
+    одно такое слово на три слова цитаты, как опечатка в длинном."""
+    assert sq.quote_holds(quote, line)
+
+
+@pytest.mark.parametrize(
+    ("quote", "line"),
+    [
+        ("Мебельь на заказ по России", "Мебель на заказ по России"),
+        ("Заказыва ремон велосипедо онлай", "Заказывайте ремонты велосипедов онлайн"),
+        ("ко на окне сидит", "кот на окне сидит"),
+    ],
+    ids=["extra-letter", "every-word-cut", "word-of-three-letters"],
+)
+def test_a_letter_added_or_endings_cut_everywhere_do_not_hold(quote: str, line: str) -> None:
+    """Лишняя буква — другое слово; окончания срезаны у каждого слова — переписанная строка; от
+    слова из трёх букв осталось две — одна буква там уже другое слово."""
+    assert not sq.quote_holds(quote, line)

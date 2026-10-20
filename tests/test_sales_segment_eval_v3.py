@@ -61,8 +61,10 @@ def _script(text: str) -> str | None:
 
 
 @pytest.mark.parametrize(
-    "tag", ["unseen", "contradiction", "intermediary", "intermediary-lookalike", "language"]
-)
+    "tag",
+    ["unseen", "contradiction", "intermediary", "intermediary-lookalike", "language",
+     "foreign-only", "segment-among"],
+)  # fmt: skip
 def test_every_v3_rule_is_held_in_three_niches_and_three_scripts(tag: str) -> None:
     """Слово владельца: правки универсальные — каждое правило держат случаи из разных ниш и
     письменностей, а не одной ниши или языка живого прогона."""
@@ -70,6 +72,18 @@ def test_every_v3_rule_is_held_in_three_niches_and_three_scripts(tag: str) -> No
 
     assert len({case["hypothesis"] for case in cases}) >= 3, tag
     assert len({_script(case["text"]) for case in cases}) >= 3, tag
+
+
+def test_only_foreign_geography_is_unsure_and_its_pair_with_the_segments_place_is_yes() -> None:
+    """Сегмент называет страну работы, а сайт — только другие места: «не понять» (решает человек);
+    та же ниша, где место сегмента видно среди других, — «да». Парами, в разных нишах и письменностях."""
+    only = [case for case in SYNTHETIC if "foreign-only" in case["tags"]]
+    among = [case for case in SYNTHETIC if "segment-among" in case["tags"]]
+
+    assert {case["expect"] for case in only} == {"unsure"}
+    assert {case["expect"] for case in among} == {"yes"}
+    assert {case["hypothesis"] for case in only} == {case["hypothesis"] for case in among}
+    assert len({case["hypothesis"] for case in only}) >= 5
 
 
 def test_a_language_without_letters_of_its_own_is_unsure_in_the_set(oracle: Oracle) -> None:
@@ -102,7 +116,10 @@ def test_without_the_language_check_those_sites_go_to_the_model(
     assert set(oracle.asked) >= LANGUAGE_CUT
 
 
-@pytest.mark.parametrize(("rule", "tag"), [("unseen", "unseen"), ("intermediary", "intermediary")])
+@pytest.mark.parametrize(
+    ("rule", "tag"),
+    [("unseen", "unseen"), ("intermediary", "intermediary"), ("foreign", "foreign-only")],
+)
 def test_a_spoiled_v3_rule_closes_the_gates(
     oracle: Oracle, capsys: Capture, rule: str, tag: str
 ) -> None:

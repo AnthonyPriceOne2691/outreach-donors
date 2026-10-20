@@ -80,6 +80,8 @@ class Oracle:
             fit = "no"  # без «не видно» признак сегмента, которого нет в тексте, режет — как v2
         if "intermediary" in case["tags"] and ev.RULES["intermediary"] not in system:
             fit = "yes"  # без сигналов посредника площадка заявок проходит за своё дело
+        if "foreign-only" in case["tags"] and ev.RULES["foreign"] not in system:
+            fit = "yes"  # без подпункта чужая география — «не видно», как у v3 на живом наборе
         if f'- "{fit}": ' not in system:
             fit = "unsure"  # слова, которого промпт не определяет, оракул не говорит
         quote = case["evidence"]

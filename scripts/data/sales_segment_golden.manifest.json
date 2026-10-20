@@ -27,23 +27,24 @@
     "text": "выдача и шапка главной (пять строк, как шлёт прогон сейчас)",
     "language": "сверка языка сайта с языком писем набора",
     "command": "eval_sales_segment.py --golden",
-    "false_accept": 0.3333,
-    "false_reject": 0.1803,
-    "accept_recall": 0.7869,
-    "reject_recall": 0.6491,
-    "unsure": 0.0254,
-    "to_human": 0.0287,
-    "would_reject": 0.2759,
-    "to_human_shadow": 0.3046,
+    "false_accept": 0.0702,
+    "false_reject": 0.0328,
+    "accept_recall": 0.2623,
+    "reject_recall": 0.5263,
+    "unsure": 0.5593,
+    "to_human": 0.3908,
+    "would_reject": 0.1839,
+    "to_human_shadow": 0.5747,
     "false_reject_by": {
-      "segment": 9,
+      "segment": 0,
       "language": 1,
       "intermediary": 1,
       "rule": 0
     },
-    "tokens_per_call": 2119,
-    "repeat": "второй прогон того же: ложных «принять» 0.2807, ложных «отказ» 0.2295",
-    "source": "живой eval 20.10 на закреплённом наборе"
+    "tokens_per_call": 2188,
+    "repeat": "второй прогон: ложных «принять» 0.1228, ложных «отказ» 0.0328, «не понять» 0.5339, на проверку при (b) 0.3793",
+    "leads_without_human": "из 57 сайтов, отклонённых человеком, судья принял бы 4 (второй прогон — 7)",
+    "source": "живой eval 20.10 на закреплённом наборе, итоговый текст v3 и сверка цитаты ветки"
   },
   "before": {
     "prompt_version": "sales-segment-v2",
@@ -95,7 +96,7 @@
     "accept_recall_min": 0.7,
     "reject_recall_min": 0.7
   },
-  "gates_status": "предложение до замера: пороги утверждает владелец по прогону на наборе; на этом наборе их не проходят ни v2, ни v3 — решения человека здесь строже правила «не видно — не отказ» для сайтов, где видна только чужая география",
+  "gates_status": "предложение до замера: пороги утверждает владелец по прогону на наборе; на этом наборе их не проходят ни v2, ни v3 — сайты, где видна только чужая география, v3 отдаёт человеку («не понять», слово владельца 20.10): «на проверку» при (b) — 35–41 %",
   "fill_in": "sha256 печатает eval_sales_segment.py --golden: незакреплённый набор — красный с напечатанными count и sha256, их вписывают сюда, когда набор утверждён; baseline — итог eval на закреплённом наборе и утверждённой версии промпта",
   "with_home_text": {
     "prompt_version": "sales-segment-v3",
@@ -106,20 +107,43 @@
     "labeled": 118,
     "text": "пять строк и «Текст главной» до 1500 знаков: главные дочитаны 20.10 вне репозитория (открылись 161 из 174, с текстом 156)",
     "command": "eval_sales_segment.py --golden --home <файл дочитанных главных>",
-    "false_accept": 0.2281,
-    "false_reject": 0.1311,
-    "accept_recall": 0.8197,
-    "reject_recall": 0.6842,
-    "unsure": 0.0678,
-    "to_human": 0.0747,
-    "would_reject": 0.2701,
-    "to_human_shadow": 0.3448,
+    "false_accept": 0.1228,
+    "false_reject": 0.0492,
+    "accept_recall": 0.1967,
+    "reject_recall": 0.5263,
+    "unsure": 0.5593,
+    "to_human": 0.4138,
+    "would_reject": 0.1954,
+    "to_human_shadow": 0.6092,
     "false_reject_by": {
-      "segment": 5,
+      "segment": 0,
       "language": 2,
       "intermediary": 1,
       "rule": 0
     },
-    "tokens_per_call": 2541
+    "tokens_per_call": 2614,
+    "repeat": "второй прогон: ложных «принять» 0.0877, ложных «отказ» 0.0492, «не понять» 0.5169, на проверку при (b) 0.3966",
+    "leads_without_human": "из 57 сайтов, отклонённых человеком, судья принял бы 7 (второй прогон — 5)"
+  },
+  "without_foreign_rule": {
+    "prompt_version": "sales-segment-v3 без подпункта о чужой географии (до слова владельца 20.10)",
+    "five_lines": {
+      "false_accept": 0.3333,
+      "false_reject": 0.1803,
+      "unsure": 0.0254,
+      "to_human": 0.0287,
+      "would_reject": 0.2759,
+      "to_human_shadow": 0.3046,
+      "tokens_per_call": 2119
+    },
+    "with_home_text": {
+      "false_accept": 0.2281,
+      "false_reject": 0.1311,
+      "unsure": 0.0678,
+      "to_human": 0.0747,
+      "would_reject": 0.2701,
+      "to_human_shadow": 0.3448,
+      "tokens_per_call": 2541
+    }
   }
 }

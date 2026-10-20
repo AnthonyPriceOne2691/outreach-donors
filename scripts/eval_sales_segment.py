@@ -27,9 +27,10 @@
 языки и письменности разные; ловушки «сайт о бизнесах вида» (метка `about-businesses`) под строгим
 и нестрогим описанием (`loose`), контрольные сегменты, которые сами просят справочники (`control`);
 под v3 — признак сегмента не виден (`unseen`, `in-addition`) и прямое противоречие
-(`contradiction`), посредники по сигналам текста (`intermediary`) и свои формы и калькуляторы
-(`intermediary-lookalike`), язык сайта (`language`, двуязычный — `bilingual`) и вид сайта, который
-показывает только текст главной (`home-text`). Живой набор — вне репозитория (он публичный):
+(`contradiction`), сайт, где видна только чужая география (`foreign-only` — «не понять»), и его
+пара со страной сегмента среди других (`segment-among` — «да»), посредники по сигналам текста
+(`intermediary`) и свои формы и калькуляторы (`intermediary-lookalike`), язык сайта (`language`,
+двуязычный — `bilingual`) и вид сайта, который показывает только текст главной (`home-text`). Живой набор — вне репозитория (он публичный):
 манифест `scripts/data/sales_segment_golden.manifest.json` называет файл, число случаев, хэш, дату,
 язык писем, метки случаев без разметки и базу метрик (наборы — `eval_sales_segment_sets.py`).
 
@@ -123,6 +124,7 @@ RULES = {
     "about": "- Judge what the site is, not what it writes about.",
     "unseen": "- The core of the segment is the kind of business it describes",
     "intermediary": '- Intermediaries are "no" in any field of business',
+    "foreign": "- When the segment names a country, region or city where the business works, and",
 }
 #: Порча, которая ставит вместо правила прежнюю строку: без «не видно» — правило v2 о стране.
 SPOILED_WITH = {
@@ -134,9 +136,15 @@ RULE_WORDS = {
     "about": "сайт о бизнесах вида — не бизнес вида",
     "unseen": "признак сегмента, которого нет в тексте, — «не видно», а не «нет»",
     "intermediary": "посредники — «нет» по сигналам в тексте",
+    "foreign": "видна только чужая география — «не понять», решает человек",
 }
 #: Случаи, которые держит правило, — метка набора: их ошибки печатаются отдельно.
-RULE_TAGS = {"about": "about-businesses", "unseen": "unseen", "intermediary": "intermediary"}
+RULE_TAGS = {
+    "about": "about-businesses",
+    "unseen": "unseen",
+    "intermediary": "intermediary",
+    "foreign": "foreign-only",
+}
 #: Усилия рассуждения, которые eval берёт вместо продуктового (`--effort`).
 EFFORTS = ("minimal", "low", "medium", "high")
 #: Сайтов к модели разом: замер, а не прогон — скромнее окна судьи (`SALES_SEGMENT_JUDGE_CONCURRENCY`).

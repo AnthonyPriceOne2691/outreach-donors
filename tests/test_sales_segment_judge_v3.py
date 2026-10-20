@@ -72,10 +72,16 @@ INTERMEDIARY = (
     "the offers of other companies. A business's own order form, own price calculator, own "
     "branches or own team are not signs of an intermediary."
 )
+FOREIGN = (
+    "- When the segment names a country, region or city where the business works, and the "
+    "website text shows only other countries, regions or cities where the business works (none "
+    'of the segment\'s) without saying that it works only there, answer "unsure": a human '
+    'decides. This is neither "not visible" ("yes") nor a contradiction ("no").'
+)
 UNSURE = (
-    '- Answer "unsure" only when the text does not show what kind of site it is. A country, '
-    "region, city, language, size or industry that the text does not show is not a reason for "
-    '"unsure".'
+    '- Answer "unsure" only when the text does not show what kind of site it is, or when it '
+    "shows only places outside the segment's region (the rule above). A country, region, city, "
+    'language, size or industry that the text does not show is not a reason for "unsure".'
 )
 #: Слова, по которым угадывались бы ниша или страна живого прогона, — промпту общие слова.
 NICHE_WORDS = ("carrier", "logistic", "freight", "cargo", "shipping", "kazakh", "courier")
@@ -85,8 +91,10 @@ def test_the_v3_prompt_has_its_rules_verbatim_and_a_new_version() -> None:
     lines = sj.load_prompt().splitlines()
 
     assert sj.PROMPT_VERSION == "sales-segment-v3"
-    for rule in (UNSEEN, CONTRADICTION, LANGUAGE, INTERMEDIARY, UNSURE):
+    for rule in (UNSEEN, CONTRADICTION, FOREIGN, LANGUAGE, INTERMEDIARY, UNSURE):
         assert lines.count(rule) == 1, rule[:40]
+    # Чужая география без «только» — сразу за противоречием: «только там» — по-прежнему «нет».
+    assert lines.index(FOREIGN) == lines.index(CONTRADICTION) + 1
     # «не понять» — после правил вида: последним словом о нём говорит правило v3, а не v1.
     assert lines.index(UNSURE) > lines.index(INTERMEDIARY)
     # Прежнее правило о стране и языке из v2 снято: оно и резало сайты без страны в тексте.

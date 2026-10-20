@@ -2742,9 +2742,9 @@
       "worst": "save:218"
     },
     "backend/features/sales/segment_quote.py": {
-      "lines": 215,
-      "complexity": 6,
-      "worst": "_miss:141"
+      "lines": 231,
+      "complexity": 7,
+      "worst": "_miss:153"
     },
     "backend/features/sales/segment_rejudge.py": {
       "lines": 361,
@@ -3192,9 +3192,9 @@
       "worst": "report:223"
     },
     "scripts/eval_sales_segment.py": {
-      "lines": 442,
+      "lines": 450,
       "complexity": 8,
-      "worst": "_traps:307"
+      "worst": "_traps:315"
     },
     "scripts/eval_sales_segment_helper.py": {
       "lines": 428,
