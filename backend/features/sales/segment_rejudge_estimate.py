@@ -35,6 +35,7 @@ from backend.features.sales.segment_estimate import (
     TOKENS_PER_SITE,
     tokens_left,
 )
+from backend.features.sales.segment_estimate_words import SHADOW_LINE
 from backend.features.sales.segment_judge import (
     PROMPT_VERSION,
     SiteText,
@@ -184,7 +185,7 @@ def _lines(found: RejudgeEstimate) -> list[str]:
     if found.pending:
         lines.append(f"Ещё не судили — {number(found.pending)}: их судит продолжение прогона.")
     if found.mode == JudgeMode.SHADOW:
-        lines.append("Судья в наблюдении: его «отказ» не отсекает сайт, а отдаёт человеку.")
+        lines.append(SHADOW_LINE)
     return lines
 
 

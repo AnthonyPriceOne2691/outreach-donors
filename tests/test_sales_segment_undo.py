@@ -4,10 +4,10 @@
 судит настоящий проход судьи (`judge_run`) с подделкой модели — полоса, слова и кэш вердиктов те
 же, что у прогона. Правило одно для любого сайта, ниши и языка: ниши разные, а слова судьи (не
 только цитаты) — в четырёх письменностях: латиница, японский без пробелов, арабский справа налево,
-кириллица; приписка «Отказ: » ставится перед ними как есть, слова не разбираются. Проверяется:
+кириллица; слова не разбираются. Проверяется:
 
 - отмена «Принять» и «Отказ» — сайт туда и с теми словами, куда и с какими его положил судья (в
-  наблюдении отказ модели — «на проверке» с «Отказ: …»), кто и когда решил — очищено;
+  наблюдении отказ модели — «судья отказал бы» со словами судьи), кто и когда решил — очищено;
 - куда — решает правило судьи (`segment_window.landing`), а не прошитая «на проверке»;
 - слов нет в кэше — словами, что не сохранились; модель не ответила — следующий проход судит снова;
 - решение правила или судьи, «ещё не судили», заведённый лид — отказ словами; повтор — не отказ;
@@ -196,27 +196,43 @@ async def undone(session: AsyncSession, candidate: Candidate) -> su.Undone:
 
 
 @pytest.mark.parametrize(
-    ("said", "mode", "words"),
+    ("said", "mode", "lane", "words"),
     [
         (
             WORKSHOPS,
             JudgeMode.SHADOW,
-            "Отказ: Branchenverzeichnis für Tischler — baut selbst keine Möbel",
+            Lane.WOULD_REJECT,
+            "Branchenverzeichnis für Tischler — baut selbst keine Möbel",
         ),
-        (PORTAL, JudgeMode.SHADOW, "Отказ: 英会話教室の比較ポータルで、自社のレッスンはない"),
-        (MAYBE_SCHOOL, JudgeMode.ENFORCE, "غير واضح من النص: مدرسة لغات أم مدونة معلم"),
-        (EMPTY, JudgeMode.SHADOW, "выдача и главная не дали текста — судить не по чему"),
+        (
+            PORTAL,
+            JudgeMode.SHADOW,
+            Lane.WOULD_REJECT,
+            "英会話教室の比較ポータルで、自社のレッスンはない",
+        ),
+        (
+            MAYBE_SCHOOL,
+            JudgeMode.ENFORCE,
+            Lane.REVIEW,
+            "غير واضح من النص: مدرسة لغات أم مدونة معلم",
+        ),
+        (
+            EMPTY,
+            JudgeMode.SHADOW,
+            Lane.REVIEW,
+            "выдача и главная не дали текста — судить не по чему",
+        ),
     ],
     ids=["shadow-cut-latin", "shadow-cut-japanese", "unsure-arabic", "rule-empty-cyrillic"],
 )
 @pytest.mark.parametrize("accept", [True, False], ids=["accept", "reject"])
 async def test_an_undone_decision_puts_the_site_where_the_judge_put_it_with_its_words(
-    session: AsyncSession, said: Said, mode: JudgeMode, words: str, accept: bool
+    session: AsyncSession, said: Said, mode: JudgeMode, lane: Lane, words: str, accept: bool
 ) -> None:
     _, made = await judged(session, said, mode=mode)
     site = made[said.host]
     before = landed(site)
-    assert (site.lane, site.reason) == (Lane.REVIEW, words)
+    assert (site.lane, site.reason) == (lane, words)
     await decided(session, site, accept=accept)
     assert site.reason == ("принял человек" if accept else "отказал человек")
 
@@ -232,8 +248,9 @@ async def test_an_undone_decision_puts_the_site_where_the_judge_put_it_with_its_
 async def test_the_lane_after_an_undo_is_the_judges_rule_not_a_hardwired_review(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Куда класть отказ модели, решает одно место (`segment_judge.effective`): заведёт судья для
-    отказов в наблюдении свою полосу — отмена пойдёт туда же без правки отмены."""
+    """Куда класть отказ модели, решает одно место (`segment_judge.effective`): судья завёл для
+    отказов в наблюдении свою полосу («судья отказал бы») — отмена пошла туда же без правки
+    отмены; заведёт другую — пойдёт и туда."""
     _, made = await judged(session, WORKSHOPS)
     site = made[WORKSHOPS.host]
     await decided(session, site, accept=True)
@@ -402,7 +419,7 @@ async def test_an_undone_accept_is_not_taken_into_leads_by_the_resumed_run(
         .where(DomainModel.host == NEWS)
     )  # fmt: skip
     assert news is not None
-    assert (news.lane, news.reason) == (Lane.REVIEW, "Отказ: пишет о чужих, сам не продаёт")
+    assert (news.lane, news.reason) == (Lane.WOULD_REJECT, "пишет о чужих, сам не продаёт")
     await decided(session, news, accept=True)
     await undone(session, news)
 
@@ -412,8 +429,8 @@ async def test_an_undone_accept_is_not_taken_into_leads_by_the_resumed_run(
     assert model.asked == []
     await session.refresh(news)
     assert (news.lane, news.reason, news.lead_id) == (
-        Lane.REVIEW,
-        "Отказ: пишет о чужих, сам не продаёт",
+        Lane.WOULD_REJECT,
+        "пишет о чужих, сам не продаёт",
         None,
     )
     assert not [hit for hit in found.hits if hit.startswith(NEWS)]
@@ -522,7 +539,7 @@ async def test_lead_making_in_the_middle_of_an_undo_waits_for_it_and_makes_no_le
 
         assert made["created"] == 0
         lane, lead_id, leads = await _state(factory, site_id)
-        assert (lane, lead_id, leads) == (Lane.REVIEW, None, 0)
+        assert (lane, lead_id, leads) == (Lane.WOULD_REJECT, None, 0)
 
 
 async def test_a_row_held_longer_than_the_limit_is_refused_in_words(

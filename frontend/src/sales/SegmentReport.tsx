@@ -1,6 +1,6 @@
 /**
- * Отчёт прогона гипотезы: ход, сколько сайтов нашла выдача, принято, на проверку, отсечено, без
- * адреса, лидов создано — и что ждёт человека.
+ * Отчёт прогона гипотезы: ход, сколько сайтов нашла выдача, принято, на проверку, судья отказал бы,
+ * отсечено, без адреса, лидов создано — и что ждёт человека.
  *
  * **Компактно — за один-два экрана** (15.10.2026; замер стенда до правки — прогон в 70 сайтов, из
  * них 20 на проверку: 4 980 px на 1440 и 7 676 на 390, почти половина — таблица «На проверку»):
@@ -16,11 +16,14 @@
  * (`useRun`), ход — строкой `SegmentProgress`, исход задачи — строкой `JobLine`. Плитки
  * сходятся и во время судьи: «ещё не судили» — своим числом.
  *
- * **Человек решает только «на проверку»** — на её вкладке в окне сайтов: «Принять» — сайт пойдёт к
- * поиску адреса продолжением прогона, «Отказ» — отсечён. Продолжение — кнопкой: поиск адреса стоит
- * денег (Hunter), и запускает его человек с правом «run»; пока прогон идёт, кнопки нет — принятым
- * адреса ищет он сам. Число у «Найти адреса принятым» — условием прохода (сервер): не искавшиеся,
- * с наступившим сроком повтора и лиды из адреса, что уже есть на домене.
+ * **Человек решает «на проверку»** — на её вкладке в окне сайтов: «Принять» — сайт пойдёт к поиску
+ * адреса продолжением прогона, «Отказ» — отсечён. **«Судья отказал бы»** (вариант (b), 20.10.2026) —
+ * своя плитка без цвета внимания: решать по этим сайтам не обязательно, а «Принять» на их вкладке —
+ * единственный путь к лиду; плитка — у прогона в наблюдении или когда такие сайты есть.
+ * Продолжение — кнопкой: поиск адреса стоит денег (Hunter), и запускает его человек с правом «run»;
+ * пока прогон идёт, кнопки нет — принятым адреса ищет он сам. Число у «Найти адреса принятым» —
+ * условием прохода (сервер): не искавшиеся, с наступившим сроком повтора и лиды из адреса, что уже
+ * есть на домене.
  *
  * **Что ждёт повтора — строками под лидами** (`SegmentWaits`, разбор прогона сбора 20.10.2026):
  * почему словами, когда повтор пойдёт сам и «Повторить сейчас».
@@ -69,6 +72,7 @@ import { SegmentSitesWindow } from './SegmentSites';
 import { RejudgeStatus, useRejudgeWatch } from './SegmentSitesRejudge';
 import type { SiteTab } from './SegmentSitesApi';
 import { useSitesWindow } from './SegmentSitesView';
+import { REFUSED_TILE } from './SegmentSitesWords';
 import { SpendWindow } from './SegmentSpend';
 import { SegmentWaits } from './SegmentWaits';
 import { isActive, stageBadge } from './segmentStage';
@@ -81,8 +85,11 @@ type Href = (tab: SiteTab) => string;
 function Tiles({ detail, href }: { detail: SegmentRunDetail; href: Href }) {
   const { summary } = detail;
   const pending = summary.pending ?? detail.lanes.pending ?? 0;
+  const refused = summary.would_reject ?? detail.lanes.would_reject ?? 0;
+  // «Судья отказал бы» — у прогона в наблюдении и там, где такие сайты есть (как вкладка окна).
+  const withRefused = detail.run.mode === 'shadow' || refused > 0;
   return (
-    <SimpleGrid cols={{ base: 2, xs: 4, md: 7 }} spacing="sm">
+    <SimpleGrid cols={{ base: 2, xs: 4, md: withRefused ? 8 : 7 }} spacing="sm">
       <Metric title="Сайтов из выдачи" value={formatNumber(summary.hosts)} to={href('all')} />
       <Metric title="Принято" value={formatNumber(summary.accepted)} to={href('accept')} />
       <Metric
@@ -91,6 +98,9 @@ function Tiles({ detail, href }: { detail: SegmentRunDetail; href: Href }) {
         color={summary.review > 0 ? 'yellow' : undefined}
         to={href('review')}
       />
+      {withRefused && (
+        <Metric title={REFUSED_TILE} value={formatNumber(refused)} to={href('would_reject')} />
+      )}
       <Metric title="Отсечено" value={formatNumber(summary.rejected)} to={href('reject')} />
       <Metric title="Ещё не судили" value={formatNumber(pending)} to={href('pending')} />
       <Metric title="Без адреса" value={formatNumber(summary.no_address)} />

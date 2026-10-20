@@ -312,7 +312,7 @@ def test_segment_digest_ignores_spaces_and_changes_with_the_words() -> None:
 @pytest.mark.parametrize(
     ("verdict", "mode", "lane"),
     [
-        (SegmentVerdict(Lane.REJECT, "другой бизнес"), JudgeMode.SHADOW, Lane.REVIEW),
+        (SegmentVerdict(Lane.REJECT, "другой бизнес"), JudgeMode.SHADOW, Lane.WOULD_REJECT),
         (SegmentVerdict(Lane.REJECT, "другой бизнес"), JudgeMode.ENFORCE, Lane.REJECT),
         (SegmentVerdict(Lane.ACCEPT, "магазин"), JudgeMode.SHADOW, Lane.ACCEPT),
         (SegmentVerdict(Lane.REVIEW, "не понять"), JudgeMode.ENFORCE, Lane.REVIEW),
@@ -331,10 +331,9 @@ def test_shadow_writes_the_verdict_but_does_not_cut(
     got, reason = sj.effective(verdict, mode)
 
     assert got is lane
-    if mode is JudgeMode.SHADOW and verdict.lane is Lane.REJECT and lane is Lane.REVIEW:
-        # Тест продаж 20.10: «Отказ:» вместо длинного «судья в наблюдении отрезал бы:» — сайт при
-        # этом «на проверке» с кнопками: это мнение судьи, решение за человеком.
-        assert reason == "Отказ: другой бизнес"
+    # Вариант (b): что это отказ судьи, говорит полоса «судья отказал бы», а причина — его слова как
+    # есть, без приставки «Отказ: », которая была нужна, пока такой сайт лежал «на проверке».
+    assert reason == verdict.reason
 
 
 # --- v2: сайт судится по тому, что он есть, а не о чём пишет ----------------------------------

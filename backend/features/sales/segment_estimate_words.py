@@ -17,6 +17,13 @@ from backend.features.serp.modes import SerpMode
 if TYPE_CHECKING:
     from backend.features.sales.segment_estimate import Estimate
 
+#: Судья в наблюдении — строкой сметы прогона и пересуда: его отказ не отсекает сайт (вариант (b),
+#: `segment_judge.effective`).
+SHADOW_LINE = (
+    "Судья в наблюдении: его «отказ» не отсекает сайт — сайт ляжет в «Судья отказал бы»; решать по "
+    "нему не обязательно, лид — только после «Принять» человека."
+)
+
 #: Режим покупки выдачи словами — как в форме: быстрый — секунды, стандарт — дешевле и дольше.
 SERP_MODE_WORDS = {
     SerpMode.LIVE: "быстрая (Live)",
@@ -130,5 +137,5 @@ def lines_of(found: Estimate, *, cap_unread: bool) -> list[str]:
         _judge_line(found, cap_unread=cap_unread),
     ]
     if found.mode == JudgeMode.SHADOW:
-        lines.append("Судья в наблюдении: его «отказ» не отсекает сайт, а отдаёт человеку.")
+        lines.append(SHADOW_LINE)
     return [*lines, _hunter_line(found), _money_line(found)]

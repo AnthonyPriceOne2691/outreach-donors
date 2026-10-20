@@ -289,7 +289,9 @@ async def _run(session: AsyncSession, run_id: int) -> SalesSegmentRunModel:
 async def read_sites(
     run_id: int,
     lane: SiteLane = Query(default=SiteLane.ALL, description="вкладка: полоса, все, сменили"),
-    decider: Decider | None = Query(default=None, description="кто решил: rule, model, human"),
+    decider: Decider | None = Query(
+        default=None, description="кто решил: rule, model, language, human"
+    ),
     page: int = Query(default=1, ge=1, le=100_000),
     _: UserModel = _seller,
     session: AsyncSession = Depends(db_session),

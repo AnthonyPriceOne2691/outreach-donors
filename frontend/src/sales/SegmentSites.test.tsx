@@ -101,7 +101,15 @@ function siteOf(id: number, host: string, extra: Partial<SegmentSite> = {}): Seg
   };
 }
 
-const counts = { all: 10, accept: 3, review: 2, reject: 4, pending: 1, changed: 0 };
+const counts = {
+  all: 10,
+  accept: 3,
+  review: 2,
+  would_reject: 0,
+  reject: 4,
+  pending: 1,
+  changed: 0,
+};
 
 function pageOf(rows: SegmentSite[], extra: Partial<SegmentSitesPage> = {}): SegmentSitesPage {
   return {
@@ -112,7 +120,7 @@ function pageOf(rows: SegmentSite[], extra: Partial<SegmentSitesPage> = {}): Seg
     limit: 50,
     total: rows.length,
     lanes: counts,
-    deciders: { rule: 1, model: 8, human: 0, none: 1 },
+    deciders: { rule: 1, model: 8, language: 0, human: 0, none: 1 },
     rows,
     ...extra,
   };

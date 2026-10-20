@@ -38,7 +38,8 @@ SignIn = Callable[..., Awaitable[str]]
 SELLER = "seller@ours.example.test"
 CANDIDATES = "/api/sales/segment/candidates"
 SCREEN = Path(__file__).resolve().parent.parent / "frontend/src/sales/SegmentSitesApi.ts"
-CUT = "Отказ: Branchenverzeichnis für Tischler — baut selbst keine Möbel"
+#: Слова судьи при отказе в наблюдении — как есть: что это отказ, говорит полоса «судья отказал бы».
+CUT = "Branchenverzeichnis für Tischler — baut selbst keine Möbel"
 
 
 @pytest.fixture
@@ -101,7 +102,7 @@ async def test_a_decision_and_its_undo_answer_with_the_row_and_are_journaled_sid
     assert undone.status_code == 200, undone.text
     back = undone.json()
     assert (back["lane"], back["reason"], back["decided_by"], back["verdict"]) == (
-        "review",
+        "would_reject",
         CUT,
         "model",
         "reject",
@@ -119,13 +120,17 @@ async def test_a_decision_and_its_undo_answer_with_the_row_and_are_journaled_sid
     )
     assert (again.status_code, again.json()) == (200, back)
     decision, undo = await _journal(session, site.id)  # повтор отмены второй записи не пишет
-    assert decision["действие"] == "решение по сайту сбора базы"
+    assert (decision["действие"], decision["решение"], decision["было"]) == (
+        "решение по сайту сбора базы",
+        "rejected",
+        "судья отказал бы",
+    )
     assert undo == {
         "этап": Stage.SALES.value,
         "действие": "отмена решения по сайту сбора базы",
         "домен": WORKSHOPS.host,
         "отменено": "rejected",
-        "стало": "на проверке",
+        "стало": "судья отказал бы",
         "судья сегмента": "отсечён",
         "прогон": site.run_id,
     }
@@ -178,11 +183,7 @@ async def test_the_list_names_the_judge_next_to_a_human_decision_and_whether_it_
     assert said == {
         # Лид заведён — отменять нечего: его отклоняют во вкладке «emails».
         WORKSHOPS.host: ("принял человек", CUT, False),
-        PORTAL.host: (
-            "отказал человек",
-            "Отказ: 英会話教室の比較ポータルで、自社のレッスンはない",
-            True,
-        ),
+        PORTAL.host: ("отказал человек", "英会話教室の比較ポータルで、自社のレッスンはない", True),
         # Решила модель — её слова и так в причине.
         CLINIC.host: ("własna przychodnia weterynaryjna", None, False),
     }

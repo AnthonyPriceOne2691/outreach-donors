@@ -247,7 +247,7 @@ async def test_the_run_pass_gives_a_language_verdict_to_a_site_in_another_langua
     session: AsyncSession,
 ) -> None:
     """Прогон с письмами на русском: украинский сайт — «отказал бы» словами без модели, в
-    наблюдении — человеку; русский — модели. В кэш вердиктов язык не ложится."""
+    наблюдении — в полосе «судья отказал бы»; русский — модели. В кэш вердиктов язык не ложится."""
     owner = await hypothesis(session, SEGMENT)
     run = await make_run(session, owner, mode=JudgeMode.SHADOW)
     run.language = "ru"
@@ -262,8 +262,12 @@ async def test_the_run_pass_gives_a_language_verdict_to_a_site_in_another_langua
     )  # fmt: skip
 
     assert model.asked == [RU_HOST]
-    assert (uk.lane, uk.verdict, uk.decided_by) == (Lane.REVIEW, Lane.REJECT, Decider.LANGUAGE)
-    assert uk.reason == f"{sj.SHADOW_CUT}язык сайта — украинский, письма — русский"
+    assert (uk.lane, uk.verdict, uk.decided_by) == (
+        Lane.WOULD_REJECT,
+        Lane.REJECT,
+        Decider.LANGUAGE,
+    )
+    assert uk.reason == "язык сайта — украинский, письма — русский"
     assert ru.lane == Lane.ACCEPT
     assert (tally.would_cut, tally.by_rule, tally.judged) == (1, 0, 2)
     kept = await session.scalars(select(SalesSegmentVerdictModel.domain_id))
@@ -294,8 +298,8 @@ async def test_a_cached_verdict_does_not_skip_the_language_of_this_run(
     )  # fmt: skip
 
     assert model.asked == []
-    assert (site.lane, site.decided_by) == (Lane.REVIEW, Decider.LANGUAGE)
-    assert site.reason == f"{sj.SHADOW_CUT}язык сайта — украинский, письма — русский"
+    assert (site.lane, site.decided_by) == (Lane.WOULD_REJECT, Decider.LANGUAGE)
+    assert site.reason == "язык сайта — украинский, письма — русский"
     assert (tally.from_cache, tally.would_cut) == (1, 1)
 
 

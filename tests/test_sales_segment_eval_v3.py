@@ -175,7 +175,7 @@ def test_false_rejects_are_split_by_who_cut() -> None:
 
 def test_lane_shares_count_every_case_and_accuracy_only_labeled_ones() -> None:
     """Вариант (b): «на проверку» — только сомнительные, отказы судьи (модель и язык) — своей
-    долей; в нынешнем наблюдении на проверку идут и те и другие. Отсев правила — ни там ни там."""
+    долей; до варианта (b) на проверку шли и те и другие. Отсев правила — ни там ни там."""
     results = [
         _result("yes", Lane.ACCEPT),
         _result("", Lane.ACCEPT),  # без разметки: судья принял сам, человек не смотрел

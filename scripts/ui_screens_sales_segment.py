@@ -127,6 +127,7 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("подпись плитки", ".metricTile p:nth-child(1)", norm),
         ("число в плитке", ".metricTile p:nth-child(2)", big),
         ("подпись плитки-ссылки", "a.metricTile p:nth-child(1)", norm),
+        ("плитка «Судья отказал бы»", "a.metricTile p:has-text('Судья отказал')", norm),
         ("«На проверку N — решить»", "a:has-text('— решить')", norm),
         ("свёрнутое «почему»", "button:has-text('Почему')", norm),
         ("причина отсева", "ul[aria-label='Отсечены — почему'] li", norm, open_why),
