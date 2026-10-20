@@ -217,6 +217,16 @@ class TestTheTab:
         assert context.routes == ["**/*", "сокеты **/*"]
         # Запросы сервис-воркера шли бы мимо перехвата.
         assert chromium.options["service_workers"] == "block"
+        # Запросы перехвата (`route.fetch`) делает Playwright — и они через прокси сети.
+        assert set(chromium.options["proxy"]) == {"server"}
+
+    async def test_chromium_goes_online_only_through_the_proxy(self) -> None:
+        """Сеть браузера — только через свой прокси: петлевые адреса тоже, UDP мимо — нет."""
+        options = browser_step.launch_options(True, "http://127.0.0.1:5000")
+
+        assert options["proxy"] == {"server": "http://127.0.0.1:5000"}
+        assert "--proxy-bypass-list=<-loopback>" in options["args"]
+        assert "--force-webrtc-ip-handling-policy=disable_non_proxied_udp" in options["args"]
 
     async def test_tab_without_interception_reads_nothing(self) -> None:
         """Защиту не поставить — страницы нет: отказ закрытый, а не открытый."""

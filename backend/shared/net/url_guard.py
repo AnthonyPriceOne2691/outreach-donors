@@ -112,6 +112,35 @@ def assert_safe_url(url: str | httpx.URL) -> None:
             raise UnsafeUrlError(f"имя {host} ведёт на внутренний адрес {address}")
 
 
+def checked_addresses(host: str) -> list[str]:
+    """Адреса имени, прошедшие ту же проверку, — чтобы соединяться по ним, а не по имени.
+
+    Для того, кто соединяется сам (прокси браузера, `contacts/browser_proxy.py`): имя
+    распознаётся один раз, и соединение идёт на проверенный адрес — второе распознавание
+    могло бы вернуть уже другой, внутренний (подмена DNS между проверкой и соединением).
+    В отличие от `assert_safe_url`, нераспознанное имя — отказ: соединяться не с чем.
+    """
+    name = host.strip().lower().rstrip(".").strip("[]")
+    if not name:
+        raise UnsafeUrlError("в адресе нет хоста")
+    if name in BLOCKED_HOSTS:
+        raise UnsafeUrlError(f"служебное имя {name} запрещено")
+    if _is_private(name):
+        raise UnsafeUrlError(f"внутренний адрес {name} запрещён")
+    try:
+        ipaddress.ip_address(name)
+    except ValueError:
+        addresses = _resolved_addresses(name)
+    else:
+        return [name]
+    if not addresses:
+        raise UnsafeUrlError(f"имя {name} не распознаётся")
+    for address in addresses:
+        if _is_private(address):
+            raise UnsafeUrlError(f"имя {name} ведёт на внутренний адрес {address}")
+    return addresses
+
+
 class _CappedStream(httpx.AsyncByteStream):
     """Поток ответа с потолком: лишнее не читается, а не отбрасывается после."""
 

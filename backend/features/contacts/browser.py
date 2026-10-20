@@ -23,6 +23,11 @@
 заглушку хостера с его адресом. Принять такое за сайт значило бы
 записать в контакты чужое.
 
+**Сеть браузера — только через свой прокси** (`browser_proxy.py`, ревью 20.10.2026): он
+проверяет каждое соединение — страницы, воркеров, сокетов, preconnect — тем же правилом,
+что обычный обход, и соединяется с проверенным адресом; UDP мимо прокси выключен. Перехват
+маршрутов вкладки — второй слой.
+
 **Защита исходящих — та же, что у обычного обхода** (`url_guard`, ревью 20.10.2026).
 Каждый запрос вкладки — страница, её скрипты и запросы скриптов, шаг редиректа — идёт
 через проверку адреса (`_guarded`): публичный сайт иначе увёл бы браузер внутрь сети
@@ -45,6 +50,7 @@ from typing import Any, Protocol, runtime_checkable
 from urllib.parse import urljoin
 
 from backend.config import contacts as cfg
+from backend.features.contacts.browser_proxy import CHROMIUM_ARGS, BrowserProxy, Resolve, checked
 from backend.features.contacts.extract import find_contact_links
 from backend.features.contacts.pages import HEADERS, FetchedPage, bounded, is_challenge
 from backend.features.contacts.slugs import LINK_MARKERS, SLUGS, WALK_ORDER
@@ -140,6 +146,12 @@ class PageRenderer(Protocol):
         ...
 
 
+def launch_options(headless: bool, proxy_url: str) -> dict[str, Any]:
+    """Как запускать Chromium: сеть — только через свой прокси, петлевые адреса тоже, UDP
+    мимо прокси — нет (`browser_proxy.CHROMIUM_ARGS`)."""
+    return {"headless": headless, "proxy": {"server": proxy_url}, "args": list(CHROMIUM_ARGS)}
+
+
 class PlaywrightRenderer:
     """Хромиум через Playwright. Пакет необязательный: нет — ступени нет.
 
@@ -147,8 +159,12 @@ class PlaywrightRenderer:
     около секунды, и на сотне доменов это лишние полторы минуты.
     """
 
-    def __init__(self, *, headless: bool = True) -> None:
+    def __init__(self, *, headless: bool = True, resolve: Resolve = checked) -> None:
         self._headless = headless
+        # Сеть браузера — только через свой прокси (`browser_proxy.py`): перехват маршрутов
+        # не видит запросов воркеров, WebRTC и preconnect. `resolve` — проверка цели.
+        self._proxy = BrowserProxy(resolve)
+        self._proxy_url = ""
         # Тип намеренно `Any`: пакет необязательный, и там, где его нет —
         # в CI, например, — типизатор о нём ничего не знает. Указав здесь
         # что-то конкретнее, мы получили бы проверку, которая зелёная
@@ -169,8 +185,11 @@ class PlaywrightRenderer:
             return None
 
         try:
+            self._proxy_url = await self._proxy.start()
             self._playwright = await async_playwright().start()
-            self._browser = await self._playwright.chromium.launch(headless=self._headless)
+            self._browser = await self._playwright.chromium.launch(
+                **launch_options(self._headless, self._proxy_url)
+            )
         except Exception as exc:  # noqa: BLE001 — браузер необязателен, падать нельзя
             logger.warning("контакты: браузер не запустился (%r) — ступень пропускается", exc)
             await self.aclose()
@@ -190,6 +209,7 @@ class PlaywrightRenderer:
                 logger.debug("контакты: %s не закрылся: %r", name, exc)
         self._browser = None
         self._playwright = None
+        await self._proxy.close()
 
     async def render(self, url: str) -> str | None:
         if self._browser is None:
@@ -203,6 +223,9 @@ class PlaywrightRenderer:
                 ignore_https_errors=True,
                 # Запросы сервис-воркера идут мимо перехвата (`_guarded`).
                 service_workers="block",
+                # И у вкладки — тот же прокси: запросы перехвата (`route.fetch`) делает
+                # Playwright, а не браузер, и они тоже идут через проверку сети.
+                proxy={"server": self._proxy_url},
             )
             await _guard(context)
             page = await context.new_page()
