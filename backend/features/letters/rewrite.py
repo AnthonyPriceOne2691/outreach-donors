@@ -24,6 +24,12 @@
 **Подсказка повторной попытки — необязательна.** Продажи переписывают письмо
 вне коридора отличия заново и называют модели направление и число промаха
 (`sales/corridor.py`). Доноры её не передают: их запрос — слово в слово прежний.
+
+**Знаки модели — обычными, сразу при разборе ответа** (`plain_marks`, стенд продаж
+21.10.2026: в «e-mail» обоих русских писем модель поставила неразрывный дефис U+2011).
+Место одно на все направления — доноров, рекламодателей, формы контактов и продажи:
+дальше зону читают возврат меток, проверки и замер коридора отличия, и все они видят
+обычный текст.
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -188,10 +195,37 @@ def build_payload(
     return payload
 
 
-def parse_zones(content: str, *, expected: set[str]) -> dict[str, str]:
+#: Дефисы, которые модель ставит вместо обычного: U+2010 и неразрывный U+2011. Часть
+#: почтовых программ рисует их квадратиком.
+HYPHENS = "\u2010\u2011"
+#: Невидимые знаки: мягкий перенос U+00AD, нулевой ширины пробел U+200B, разделитель U+200C
+#: и соединитель U+200D, «склейка слов» U+2060, метка порядка байтов U+FEFF. Их не видно, а
+#: слово они режут надвое — и для поиска в почте, и для замера отличия (`uniqueness.words`).
+#: Неразрывный пробел и кавычки — не здесь: это типографика текста, а не след модели.
+INVISIBLE = "\u00ad\u200b\u200c\u200d\u2060\ufeff"
+
+
+def plain_marks(text: str, *, template: str = "") -> str:
+    """Текст модели обычными знаками: дефисы `HYPHENS` — «-», невидимые `INVISIBLE` — прочь.
+
+    Невидимый знак, который пишет сам шаблон зоны (`template`), остаётся: в персидском, урду
+    и индийских письменностях разделитель и соединитель — орфография, мягкий перенос автор
+    ставит сам. Убрать его только у модели значило бы разойтись с шаблоном и в написании,
+    и в счёте слов коридора: шаблон режет слово надвое, письмо — нет.
+    """
+    table: dict[int, str | None] = {ord(mark): "-" for mark in HYPHENS}
+    table.update({ord(mark): None for mark in INVISIBLE if mark not in template})
+    return text.translate(table)
+
+
+def parse_zones(
+    content: str, *, expected: set[str], template: Mapping[str, str] | None = None
+) -> dict[str, str]:
     """Разобрать ответ модели. Лишние ключи отбрасываются с записью в лог.
 
-    Пустой словарь — законный исход: вызывающий оставит зоны шаблонными.
+    Знаки модели — обычными до всего остального (`plain_marks`; `template` — текст зон
+    шаблона): зона из одних невидимых знаков пуста. Пустой словарь — законный исход:
+    вызывающий оставит зоны шаблонными.
     """
     try:
         body = json.loads(content)
@@ -209,9 +243,25 @@ def parse_zones(content: str, *, expected: set[str]) -> dict[str, str]:
         # модель поняла задачу иначе, и это видно только здесь.
         logger.warning("письма: модель вернула лишние зоны: %s", ", ".join(unknown))
 
-    return {
-        k: v.strip() for k, v in body.items() if k in expected and isinstance(v, str) and v.strip()
+    zones = {
+        name: _plain(name, text, template)
+        for name, text in body.items()
+        if name in expected and isinstance(text, str)
     }
+    return {name: text for name, text in zones.items() if text}
+
+
+def _plain(name: str, text: str, template: Mapping[str, str] | None) -> str:
+    """Зона ответа обычными знаками, без пробелов по краям. Замена — со своим следом в журнале:
+    знаки, которые чистка убрала, не видны больше нигде."""
+    plain = plain_marks(text, template=(template or {}).get(name, ""))
+    gone = sorted(set(text) - set(plain))
+    if gone:
+        logger.info(
+            "письма: знаки модели в зоне заменены обычными",
+            extra={"zone": name, "marks": [f"U+{ord(mark):04X}" for mark in gone]},
+        )
+    return plain.strip()
 
 
 class RewriteClient(ModelClient):
@@ -271,7 +321,7 @@ class RewriteClient(ModelClient):
         процентом, но и объяснением.
         """
         result = RewriteResult(tokens_spent=tokens_of(body))
-        answered = parse_zones(content_of(body, topic=TOPIC), expected=set(zones))
+        answered = parse_zones(content_of(body, topic=TOPIC), expected=set(zones), template=zones)
         for name, text in answered.items():
             _accept(name, text, labels.get(name, {}), before=zones[name], into=result)
 

@@ -5,6 +5,7 @@ You receive a JSON object: each key is a zone name, each value is that zone's cu
 Rules:
 - Keep the meaning, intent and reading level of every zone. You are rephrasing, not writing a new email.
 - Keep the same language as the input and the same approximate length.
+- Keep the speaker of every zone as the zone has it, in any language: the same grammatical person and number in every pronoun, possessive and verb form. A zone written in the first person plural stays plural, a zone written in the first person singular stays singular, and an impersonal zone with no first-person speaker stays impersonal. Never switch between these forms, even where another one sounds more natural.
 - Change roughly the share of the wording named in the request. Fewer changes make the emails look identical to spam filters; more changes lose the point of the sentence.
 - If a zone contains a numbered list, keep every item, with its number, in the same order, one item per line. Rephrase each item, but keep every option it names (for example payment methods, niches, link types).
 - Never claim to have read a specific article, author or section of the site. You have not seen the site. General interest in what it covers is fine.

@@ -37,11 +37,12 @@ PINNED: list[tuple[str, ModuleType, str, str]] = [
         "ARBITER_SYSTEM",
         "9db7081c02f28b65827c5f965b0d134ca36bbf0cfcc07100b70bebea7d5667ca",  # pragma: allowlist secret
     ),
+    # Переписывание — правленое после переноса (21.10.2026): лицо и число говорящего — как в зоне.
     (
         "rewrite",
         rewrite,
         "SYSTEM",
-        "1a9724df15ff294148cea9c582858bbf4a79ffed7097dab8c240b801d43899ef",  # pragma: allowlist secret
+        "cdfb5711081012500eb0e43fc4ed12eda2a352cb7c91d930852e10b4a533fd31",  # pragma: allowlist secret
     ),
     # Разбор ответа — правленый после переноса: v7 (09.10.2026), тексты вложений.
     (
