@@ -323,6 +323,25 @@ describe('прогон', () => {
     expect(hint).toHaveFocus();
   });
 
+  it('колонка «Вход» говорит словом, ключи это или конкуренты', async () => {
+    const byKeys = { ...QUEUED, id: 7, status: 'done', keywords: 2 };
+    const byRivals = {
+      ...QUEUED,
+      id: 8,
+      status: 'done',
+      keywords: 0,
+      competitors: ['rival.example'],
+    };
+    await openRun({ 'GET /api/runs?page=1': history([byKeys, byRivals]) });
+
+    expect(await screen.findByText('Вход')).toBeInTheDocument();
+    expect(screen.getByText('ключа')).toBeInTheDocument();
+    expect(screen.getByText('конкурент').closest('[title]')).toHaveAttribute(
+      'title',
+      'rival.example',
+    );
+  });
+
   it('исключённые доменом стоят рядом с числом доменов, а не вместо него', async () => {
     const gated = {
       ...STOPPED,

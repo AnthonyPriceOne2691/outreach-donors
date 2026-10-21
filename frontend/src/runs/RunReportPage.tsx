@@ -20,7 +20,7 @@ import { Alert, Badge, Card, Group, Loader, SimpleGrid, Stack, Text } from '@man
 import { useQuery } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
-import { competitorsOf } from '../api/competitors';
+import { competitorsOf, runInput } from '../api/competitors';
 import { countryTitle, DONOR_STATUSES, RUN_STATUSES } from '../api/labels';
 import { fetchRunReport } from '../api/runReport';
 import type { RunDomains, RunReportView } from '../api/runReport';
@@ -110,10 +110,8 @@ function Facts({ run, from }: { run: RunCard; from: string }) {
       </Badge>
       <Text size="sm">
         {countryTitle(run.country)},{' '}
-        {competitorsOf(run).length > 0
-          ? `конкуренты ${competitorsOf(run).join(', ')}`
-          : `ключей ${formatNumber(run.keywords)}`}
-        , запущен {formatDateTime(run.started_at)}
+        {runInput({ keywords: run.keywords, competitors: competitorsOf(run) })}, запущен{' '}
+        {formatDateTime(run.started_at)}
         {/* Кто — по записи журнала о запуске; прогон из консоли её не оставляет. */}
         {run.started_by ? `, запустил ${run.started_by}` : ' — кто запустил, не записано'}
       </Text>

@@ -98,6 +98,8 @@ class ReserveRunView(BaseModel):
     id: int
     country: str
     keywords: int
+    #: Домены конкурентов у прогона по их ссылкам; `None` — по ключам (`RunModel.competitor_targets`).
+    competitors: list[str] | None = None
     created_at: datetime
 
 
@@ -131,6 +133,7 @@ class ReserveView(BaseModel):
                 id=run.id,
                 country=run.country,
                 keywords=len(run.keywords or []),
+                competitors=run.competitor_targets,
                 created_at=run.created_at,
             ),
         )

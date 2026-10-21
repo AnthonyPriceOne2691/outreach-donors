@@ -55,6 +55,8 @@ export interface ReserveRun {
   id: number;
   country: string;
   keywords: number;
+  /** Домены конкурентов у прогона по их ссылкам; `null` — по ключам. */
+  competitors?: string[] | null;
   created_at: string;
 }
 

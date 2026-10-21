@@ -23,6 +23,7 @@ import { Anchor, Card, Group, Loader, Stack, Text } from '@mantine/core';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { runInput } from '../api/competitors';
 import { countryTitle } from '../api/labels';
 import { useSession } from '../auth/AuthProvider';
 import { PageHead } from '../components/PageHead';
@@ -48,8 +49,7 @@ function RunLine({ view }: { view: ReserveView }) {
   return (
     <Group gap="sm">
       <Text size="sm">
-        Прогон №{run.id} · {countryTitle(run.country)}, ключей {formatNumber(run.keywords)} — его не
-        прошедшие.
+        Прогон №{run.id} · {countryTitle(run.country)}, {runInput(run)} — его не прошедшие.
       </Text>
       <Anchor
         component={Link}

@@ -5,6 +5,7 @@
  * прогона — отдельная тема экрана. Бюджет у сметы тот же, что у ключей (`BudgetFigures`).
  */
 
+import { formatNumber } from '../format';
 import { request } from './client';
 import type { BudgetFigures } from './forecastLimits';
 import type { RunCard, RunQueued } from './types';
@@ -67,4 +68,17 @@ export function competitorsOf(run: RunCard): string[] {
   const value: unknown = (run as RunCard & { competitors?: unknown }).competitors;
   if (!Array.isArray(value)) return [];
   return (value as unknown[]).filter((item): item is string => typeof item === 'string');
+}
+
+/** Вход прогона словами — шапка отчёта и резерва прогона: «конкуренты a.com, b.com» у прогона по
+ *  ссылкам конкурентов, «ключей 6» — по ключам. Без него резерв прогона по конкурентам писал
+ *  «ключей 0» (проверка прода 21.10.2026). */
+export function runInput(run: {
+  keywords: number;
+  competitors?: readonly string[] | null;
+}): string {
+  const rivals = run.competitors ?? [];
+  return rivals.length > 0
+    ? `конкуренты ${rivals.join(', ')}`
+    : `ключей ${formatNumber(run.keywords)}`;
 }

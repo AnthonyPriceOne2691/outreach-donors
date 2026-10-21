@@ -196,6 +196,31 @@ describe('резерв', () => {
     expect(screen.queryByRole('textbox', { name: 'Страна прогона' })).not.toBeInTheDocument();
   });
 
+  it('резерв прогона по конкурентам называет конкурентов, а не «ключей 0»', async () => {
+    open(
+      {
+        'GET /api/review/reserve?run_id=31': {
+          body: {
+            ...VIEW,
+            run: {
+              id: 31,
+              country: 'us',
+              keywords: 0,
+              competitors: ['rival.example'],
+              created_at: '2026-10-21T15:14:00Z',
+            },
+          },
+        },
+      },
+      '/donors/reserve?run=31',
+    );
+
+    expect(
+      await screen.findByText(/Прогон №31 · США, конкуренты rival\.example — его не прошедшие/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/ключей 0/)).not.toBeInTheDocument();
+  });
+
   it('пустой резерв прогона говорит почему', async () => {
     open(
       {
