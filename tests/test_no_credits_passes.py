@@ -30,6 +30,7 @@ from backend.features.topics import backfill as topic_backfill
 from backend.features.topics.backfill import TopicPlan, backfill_topics
 from backend.features.topics.classifier import SiteText, TopicVerdict
 from backend.features.topics.cost import PerSite
+from backend.features.topics.step import TopicSummary
 from backend.shared.llm import NO_CREDITS_WORDS, ModelUnreadyError
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -100,7 +101,8 @@ async def test_the_index_arbiter_stops_on_the_first_no_credits(
 
     assert asked == [SITES[0]]
     assert (cost, stopped) == (0.003, NO_CREDITS_WORDS)
-    assert [results[host][0] for host in SITES[1:]] == [ACCEPTED, ACCEPTED]  # вердикт по выдаче
+    # Вердикт по выдаче — у всех трёх, и у сайта, на котором арбитр встал: как при сбое индекса.
+    assert [results[host][0] for host in SITES] == [ACCEPTED] * 3
 
 
 async def test_a_pass_whose_index_arbiter_finds_no_credits_names_why(
@@ -131,6 +133,7 @@ async def test_a_pass_whose_index_arbiter_finds_no_credits_names_why(
         NO_CREDITS_WORDS,
         NO_CREDITS_WORDS,
     )
+    assert sorted(found.verdicts) == sorted(SITES)  # вердикты по выдаче легли у всех
 
 
 @pytest.mark.parametrize("broke_first", [False, True], ids=["timeout-first", "no-credits-first"])
@@ -144,6 +147,18 @@ def test_no_credits_wins_the_reason_when_chunks_are_summed(broke_first: bool) ->
 
     assert (summed.unanswered, summed.unanswered_reason) == (3, NO_CREDITS_WORDS)
     assert summed.stopped == NO_CREDITS_WORDS
+
+
+@pytest.mark.parametrize("broke_first", [False, True], ids=["timeout-first", "no-credits-first"])
+def test_no_credits_wins_the_reason_of_the_topics(broke_first: bool) -> None:
+    timeout = TopicVerdict(None, None, "ReadTimeout('timed out')", unanswered=True)
+    broke = TopicVerdict(None, None, NO_CREDITS_WORDS, unanswered=True, no_credits=True)
+    summary = TopicSummary()
+
+    for verdict in (broke, timeout) if broke_first else (timeout, broke):
+        summary.record(verdict)
+
+    assert (summary.unanswered, summary.unanswered_reason) == (2, NO_CREDITS_WORDS)
 
 
 # --- смета прогона по ссылкам конкурентов -------------------------------------------------------

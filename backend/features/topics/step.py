@@ -91,7 +91,9 @@ class TopicSummary:
             self.unreadable_reason = self.unreadable_reason or verdict.reason[:300]
         elif verdict.unanswered:
             self.unanswered += 1
-            self.unanswered_reason = self.unanswered_reason or verdict.reason[:300]
+            # «Нет кредитов» побеждает прочие причины: чинить надо счёт, а не ждать сеть.
+            first = self.unanswered_reason or verdict.reason[:300]
+            self.unanswered_reason = verdict.reason[:300] if verdict.no_credits else first
         elif verdict.topic is None:
             self.unclear += 1
         else:

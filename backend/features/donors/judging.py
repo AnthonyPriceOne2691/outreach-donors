@@ -311,7 +311,8 @@ async def through_index(
     Спрашиваем только про принятых моделью — у отрезанных и отправленных
     к человеку спорить не о чем. Пакетом, одним запросом на всех: `site:`
     у источника выдачи стоит денег, и по одному это десятки вызовов. Нет кредитов —
-    арбитр дальше не зовётся: у остальных остаётся вердикт модели по выдаче.
+    арбитр дальше не зовётся, и вердикт модели по выдаче остаётся у всех: и у сайта, на котором
+    арбитр встал, — как при сбое индекса.
     """
     blind = [
         host
@@ -329,7 +330,6 @@ async def through_index(
         ruling = await arbitrate(http, host=host, serp=serp, home=home)
         ruling = replace(ruling, tokens=ruling.tokens + verdict.tokens)
         if ruling.no_credits:
-            results[host] = (ruling, home)
             return cost, NO_CREDITS_WORDS
         if ruling.recommendation is Recommendation.REJECT:
             # Структуры в индексе нет — правило доказательства шлёт к человеку.
