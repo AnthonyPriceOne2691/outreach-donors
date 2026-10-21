@@ -212,7 +212,8 @@ async def test_a_build_begun_before_the_lead_was_closed_does_not_bring_its_lette
     session: AsyncSession, world: w.World
 ) -> None:
     """Сборка взяла вернувшегося лида и пишет его письмо, а лида тем временем снова сняли: снятое
-    письмо остаётся снятым — сборка не ставит в очередь письмо лида, которому писать нельзя."""
+    письмо остаётся снятым — сборка не ставит в очередь письмо лида, которому писать нельзя, и в
+    отчёте так и говорит: лида сняли, пока письмо собирали (`off_queue.still_ready`)."""
     letter = await _queued(session, world)
     await stoplist.add(session, stoplist.read_text(JANE), author="тест", note=None)
     await _closed_and_back(session)
@@ -222,7 +223,7 @@ async def test_a_build_begun_before_the_lead_was_closed_does_not_bring_its_lette
     )
 
     assert (report.prepared, report.refreshed) == (0, 0)
-    assert dict(report.waiting) == {queue.SENT_MEANWHILE: 1}
+    assert dict(report.waiting) == {off_queue.WITHDRAWN: 1}
     await session.refresh(letter)
     assert (letter.status, letter.failure_reason) == (MessageStatus.STOPPED, CLOSED)
 

@@ -11,6 +11,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
 import { countryTitle } from '../api/labels';
@@ -77,10 +78,16 @@ export function useRunSettled(detail: SegmentRunDetail) {
     const reachedLeads = stage === 'leads' && was.stage !== 'leads';
     const ended = was.active && !active;
     if (!reachedLeads && !ended) return;
-    void client.invalidateQueries({ queryKey: HYPOTHESES_QUERY_KEY });
-    void client.invalidateQueries({ queryKey: LEADS_QUERY_KEY });
+    rereadLeads(client);
     if (ended) void client.invalidateQueries({ queryKey: [...SEGMENT_QUERY_KEY, 'home'] });
   }, [stage, active, client]);
+}
+
+/** Лиды сменились — перечитать гипотезы (число лидов во вкладках) и список лидов: прогон дошёл до
+ *  лидов, отмена решения по сайту сняла его лида. */
+export function rereadLeads(client: QueryClient): void {
+  void client.invalidateQueries({ queryKey: HYPOTHESES_QUERY_KEY });
+  void client.invalidateQueries({ queryKey: LEADS_QUERY_KEY });
 }
 
 /** Режим судьи словами — так, как он влияет на сайты. */

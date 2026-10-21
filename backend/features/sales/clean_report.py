@@ -32,6 +32,7 @@ REASON_LABELS = {
     RejectionReason.NO_MAIL: "домен не принимает почту",
     RejectionReason.UNDELIVERABLE: "адрес не существует",
     RejectionReason.UNCONFIRMED: "адрес не подтверждён",
+    RejectionReason.UNDONE: "решение по сайту отменено",
 }
 #: Ждущие держателя — словами сводки консоли (экран говорит теми же, `cleanData.cleanLine`).
 AWAITING_HOLDER = "ждут: компанию держит непроверенный лид другой гипотезы"

@@ -346,9 +346,11 @@ async def _store(
     campaign_id: int,
 ) -> str | None:
     """Письмо и тексты добивок в очередь — или почему нет, строкой отчёта: потолок модели
-    встал на добивках, письмо ушло, пока его собирали заново."""
+    встал на добивках, лида сняли (`off_queue.still_ready`) или письмо ушло, пока его собирали."""
     if later.capped:
         return CAPPED
+    if (withdrawn := await off_queue.still_ready(session, row.lead.id)) is not None:
+        return withdrawn
     texts = later.stored(plan.chain.version)
     if not await _write(session, row, plan, written, tried.difference, texts, campaign_id):
         return SENT_MEANWHILE

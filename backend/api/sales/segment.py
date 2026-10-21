@@ -30,8 +30,9 @@
 решение второй раз — 200 без второй записи журнала, противоположное по решённому — 409 словами;
 в журнале — и полоса, из которой решили. `DELETE` того же адреса — отмена решения
 человека (`features/sales/segment_undo.py`): сайт — в полосу и со словами судьи, автор и время
-очищены; решение правила или судьи и сайт с заведённым лидом — 409 словами, повтор — 200 без второй
-записи журнала. Ответ обоих — строкой списка сайтов прогона (`segment_sites.SiteView`).
+очищены; лид сайта, которому письмо не ушло, снят вместе с решением (в журнале — какой и что с его
+письмом); решение правила или судьи и сайт, чьему лиду письмо ушло, — 409 словами, повтор — 200 без
+второй записи журнала. Ответ обоих — строкой списка сайтов прогона (`segment_sites.SiteView`).
 
 **Ход и живость — при чтении.** Строка прогона несёт стадию и запись хода; «сделано» судьи
 и адресов — живое, из кандидатов (`segment_progress.live`), а жив ли прогон — ответ очереди
@@ -423,9 +424,10 @@ async def undo_decision(
     author: UserModel = _seller,
     session: AsyncSession = Depends(db_session),
 ) -> SiteView:
-    """Сайт — в полосу и со словами судьи (`segment_undo`). Решение правила или судьи, сайт с
-    заведённым лидом, строка, занятая заведением лидов дольше предела, — 409 словами; повтор
-    (двойной клик) — 200 без второй записи журнала."""
+    """Сайт — в полосу и со словами судьи, лид сайта без ушедшего письма — снят (`segment_undo`).
+    Решение правила или судьи, письмо лиду ушло, строка, занятая заведением лидов, сборкой или
+    отправкой письма дольше предела, — 409 словами; повтор (двойной клик) — 200 без второй записи
+    журнала."""
     try:
         undone = await segment_undo.undo(session, candidate_id)
     except segment_undo.UndoRefusedError as exc:
@@ -436,7 +438,7 @@ async def undo_decision(
         )
     row = await site_row(session, undone.candidate)
     if undone.was is not None:
-        await _journal_undo(session, author.id, row, undone.was)
+        await _journal_undo(session, author.id, row, undone.was, undone.lead)
     await session.commit()
     return SiteView.of(row)
 
@@ -459,11 +461,18 @@ async def _journal_decision(
     await _journal(session, author_id, row, "решение по сайту сбора базы", what)
 
 
-async def _journal_undo(session: AsyncSession, author_id: int, row: SiteRow, was: str) -> None:
+async def _journal_undo(
+    session: AsyncSession, author_id: int, row: SiteRow, was: str, lead: segment_undo.LeadOff | None
+) -> None:
     """Отмена — тем же действием журнала, что решение, и с той же целью: рядом с ним. Что
-    отменено — кодом, как «решение» у решения, и куда вернулся сайт — полосой словами."""
+    отменено — кодом, как «решение» у решения, куда вернулся сайт — полосой словами, и снятый лид
+    сайта — номер, адрес, каким был и что стало с его письмом: по журналу ищут, куда делся лид."""
     lane = row.candidate.lane
     what = {"отменено": _code(was), "стало": segment_report.LANE_WORDS.get(lane, lane)}
+    if lead is not None:
+        what["лид снят"] = f"№{lead.lead_id} {lead.email}"
+        what["лид был"] = lead.was
+        what["письмо лиду"] = "снято с очереди" if lead.letter_off else "в очереди не было"
     await _journal(session, author_id, row, "отмена решения по сайту сбора базы", what)
 
 

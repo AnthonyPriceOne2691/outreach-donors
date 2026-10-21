@@ -7,7 +7,10 @@
  * - на «На проверку» решённая строка — «решено: …» и «Отменить решение»; после отмены — снова
  *   «Принять» и «Отказ», числа вкладок и отчёт — без перезагрузки;
  * - на других вкладках отмена — под «кто решил»; отменённая строка стоит на месте и решается там же;
- * - кнопки нет, когда сервер говорит, что отменить нельзя (лид заведён); отказ сервера — его словами;
+ * - у сайта с лидом, которому письмо не ушло, под кнопкой — что станет с лидом (тест продаж 21.10);
+ *   после отмены перечитаны и гипотезы — числа лидов во вкладках раздела;
+ * - кнопки нет, когда сервер говорит, что отменить нельзя (письмо лиду ушло); отказ сервера — его
+ *   словами;
  * - отказ судьи в наблюдении — «Отказ: …» и у старой причины («судья в наблюдении отрезал бы: …»),
  *   и в «стало бы», и в словах судьи у решения человека; сайт с ним — «на проверке», «решает человек»;
  * - функция показа меняет только нашу приписку в начале, слова судьи после неё — как есть.
@@ -25,7 +28,7 @@ import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
 import type { SegmentHome, SegmentRunDetail, SegmentRunRow } from './segmentApi';
 import type { SegmentSite, SegmentSitesPage, SiteTab } from './SegmentSitesApi';
-import { reasonWords } from './SegmentSitesWords';
+import { LEAD_OFF_NOTE, reasonWords } from './SegmentSitesWords';
 
 const WAIT = { timeout: 5000 };
 const RUN_ID = 31;
@@ -40,7 +43,18 @@ const HUB_WHY = 'مجمع مدارس: قائمة بأكاديميات الآخر
 const OLD_CUT = `${BEFORE}${WORKSHOP_WHY}`;
 const CUT = `Отказ: ${WORKSHOP_WHY}`;
 const PORTAL = `Отказ: ${PORTAL_WHY}`;
-const LEAD_MADE = 'лид уже заведён — отклоните его во вкладке «emails»';
+/** Отказ сервера: письмо лиду ушло между загрузкой списка и нажатием. */
+const GONE =
+  'письмо лиду уже ушло — отменой его не отозвать; остановить лида можно только стоп-листом ' +
+  'продаж: адрес или домен — на вкладке «Стоп-лист»';
+/** Итог сайта с лидом — как его даёт сервер. */
+const LEAD = {
+  kind: 'lead' as const,
+  words: 'лид заведён',
+  lead_id: 12,
+  lead_status: 'ready',
+  lead_reason: null,
+};
 
 const run: SegmentRunRow = {
   id: RUN_ID,
@@ -304,33 +318,83 @@ describe('«Отменить решение»', () => {
     expect(posted.map((call) => call.body)).toEqual([{ accept: false }]);
   });
 
-  it('лид уже заведён — кнопки нет; завели посреди — отказ словами сервера, строка прежняя', async () => {
-    const withLead = {
-      ...decidedBy(reviewOf(7, 'tischlerei-mit-lead.example.test'), true),
+  it('лид без ушедшего письма: под кнопкой — что с ним станет; после отмены — сайт у судьи, лида нет', async () => {
+    // Тест продаж 21.10: лид заводится почти сразу после «Принять». Каталог курсов (английский),
+    // мастерская (русский) — правило одно для любой ниши и языка.
+    const catalog = reviewOf(7, 'course-finder.example.test', {
+      reason: 'a course directory that runs no classes itself',
+      quote: 'Compare English courses for adults',
+    });
+    const withLead = { ...decidedBy(catalog, true), decided_by_user: SELLER, outcome: LEAD };
+    const workshop = decidedBy(
+      reviewOf(8, 'remont-velo.example.test', { verdict: 'review' }),
+      true,
+    );
+    const recorded = await open('accept', {
+      [`GET ${SITES}?lane=accept&page=1`]: { body: pageOf('accept', [withLead, workshop]) },
+      'DELETE /api/sales/segment/candidates/7/decision': { body: catalog },
+    });
+    const user = userEvent.setup();
+    const [lead, noLead] = bodyRows();
+    const undo = within(lead!).getByRole('button', { name: 'Отменить решение' });
+    expect(within(lead!).getByText(LEAD_OFF_NOTE)).toBeInTheDocument();
+    // Слова описывают кнопку и для программы чтения с экрана.
+    expect(undo).toHaveAccessibleDescription(LEAD_OFF_NOTE);
+    expect(within(lead!).getByRole('link', { name: 'лид · готов' })).toBeInTheDocument();
+    // Лида у сайта нет — снимать нечего, и слов о лиде нет.
+    expect(within(noLead!).getByRole('button', { name: 'Отменить решение' })).toBeInTheDocument();
+    expect(within(noLead!).queryByText(LEAD_OFF_NOTE)).toBeNull();
+    const hypothesesBefore = calls(recorded, 'GET', '/api/sales/hypotheses').length;
+
+    await user.click(undo);
+
+    await waitFor(
+      () =>
+        expect(
+          within(bodyRows()[0]!).getByText('на проверке', { selector: '.mantine-Badge-label' }),
+        ).toBeInTheDocument(),
+      WAIT,
+    );
+    const [back] = bodyRows();
+    expect(within(back!).queryByRole('link', { name: /^лид/ })).toBeNull();
+    expect(within(back!).queryByText(LEAD_OFF_NOTE)).toBeNull();
+    expect(within(back!).getByRole('button', { name: 'Принять' })).toBeEnabled();
+    expect(screen.getByRole('radio', { name: 'Приняты · 2' })).toBeChecked();
+    // Лид снят — числа лидов во вкладках раздела перечитаны.
+    await waitFor(
+      () =>
+        expect(calls(recorded, 'GET', '/api/sales/hypotheses').length).toBeGreaterThan(
+          hypothesesBefore,
+        ),
+      WAIT,
+    );
+  });
+
+  it('письмо лиду ушло — кнопки нет; ушло посреди — отказ словами сервера, строка прежняя', async () => {
+    const gone = {
+      ...decidedBy(reviewOf(9, 'tischlerei-mit-lead.example.test'), true),
       undoable: false,
-      outcome: {
-        kind: 'lead' as const,
-        words: 'лид заведён',
-        lead_id: 12,
-        lead_status: 'ready',
-        lead_reason: null,
-      },
+      outcome: LEAD,
     };
-    const racing = decidedBy(reviewOf(8, 'werkstatt-sample.example.test'), true);
+    const racing = {
+      ...decidedBy(reviewOf(10, 'werkstatt-sample.example.test'), true),
+      outcome: { ...LEAD, lead_id: 13 },
+    };
     await open('accept', {
-      [`GET ${SITES}?lane=accept&page=1`]: { body: pageOf('accept', [withLead, racing]) },
-      'DELETE /api/sales/segment/candidates/8/decision': {
+      [`GET ${SITES}?lane=accept&page=1`]: { body: pageOf('accept', [gone, racing]) },
+      'DELETE /api/sales/segment/candidates/10/decision': {
         status: 409,
-        body: { detail: LEAD_MADE },
+        body: { detail: GONE },
       },
     });
     const user = userEvent.setup();
     const [lead, other] = bodyRows();
     expect(within(lead!).queryByRole('button', { name: 'Отменить решение' })).toBeNull();
+    expect(within(lead!).queryByText(LEAD_OFF_NOTE)).toBeNull();
 
     await user.click(within(other!).getByRole('button', { name: 'Отменить решение' }));
 
-    expect(await screen.findByText(LEAD_MADE, {}, WAIT)).toBeInTheDocument();
+    expect(await screen.findByText(GONE, {}, WAIT)).toBeInTheDocument();
     expect(screen.getByText('Решение не отменено')).toBeInTheDocument();
     expect(
       within(bodyRows()[1]!).getByRole('button', { name: 'Отменить решение' }),

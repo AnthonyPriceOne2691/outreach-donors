@@ -59,7 +59,8 @@ export interface SegmentSite {
   quote: string | null;
   unanswered: boolean;
   model: string | null;
-  /** Решение человека можно отменить: решил человек, и лида из сайта нет. */
+  /** Решение человека можно отменить: решил человек, и письмо лиду сайта не ушло — заведённый лид
+   *  снимется вместе с решением. */
   undoable: boolean;
   /** Решил человек — слова судьи, с которыми он не согласился (или согласился); иначе пусто. */
   judge_reason: string | null;
@@ -187,8 +188,8 @@ export function decideSite(candidate: number, accept: boolean): Promise<SegmentS
   });
 }
 
-/** Отмена решения человека: сайт — туда и со словами, куда его кладёт судья; лид уже заведён,
- *  решил не человек — отказ словами сервера. */
+/** Отмена решения человека: сайт — туда и со словами, куда его кладёт судья, лид сайта без
+ *  ушедшего письма — снят; письмо лиду ушло, решил не человек — отказ словами сервера. */
 export function undoDecision(candidate: number): Promise<SegmentSite> {
   return request<SegmentSite>(`/sales/segment/candidates/${candidate}/decision`, {
     method: 'DELETE',
