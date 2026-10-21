@@ -274,6 +274,10 @@ async def _walk(
     лестница знает, ответил ли сайт, — молчащему не платят, а исход
     `no_answer` повторится по сроку (`attempts.py`). `last` — домены, для
     которых этот проход — последний шанс.
+
+    Сбой одного домена — после того, как дошли остальные: соседи пишут в ту же сессию,
+    и вызывающий, получив сбой раньше них, работал бы с ней одновременно с ними (CI #449).
+    Заодно ответы, за которые соседи уже заплатили, ложатся в базу, а не пропадают.
     """
     limiter = asyncio.Semaphore(CONCURRENCY)
 
@@ -283,7 +287,10 @@ async def _walk(
                 result = await ladder.find(host, last_try=host in last)
         await keep(result)
 
-    await asyncio.gather(*(one(host) for host in hosts))
+    outcomes = await asyncio.gather(*(one(host) for host in hosts), return_exceptions=True)
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            raise outcome
 
 
 async def _browser(stack: AsyncExitStack, report: SearchReport) -> TracedRenderer | None:

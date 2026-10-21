@@ -12,9 +12,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 
 import httpx
 import pytest
+from backend.features.contacts.ladder import LadderResult
+from backend.features.contacts.repository import ContactRepository
 from backend.features.contacts.search import search_contacts
 from backend.features.core.domain import ContactStatus, UsageProvider
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -98,6 +101,32 @@ async def test_a_paid_answer_is_kept_while_its_batch_still_waits(
     assert (await _state(session, FAST))[0] is ContactStatus.NOT_FOUND
     assert (await _state(session, SLOW))[0] is None, "сосед не прошёл — его исхода нет"
     assert await _journal(session) == (1, {UsageProvider.HUNTER})
+
+
+@pytest.mark.usefixtures("two_donors")
+async def test_a_failed_record_waits_for_its_neighbours_before_it_is_raised(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Запись быстрого домена падает — сбой выходит из прохода только после соседа: тот пишет в ту
+    же сессию, и вызывающий, получив сбой раньше, работал бы с ней одновременно с ним (CI #449).
+    Ответ соседа, за который заплачено, при этом ложится в базу."""
+    sites = Sites()
+    _install(monkeypatch, Paid(), sites)
+    saving = ContactRepository.save
+
+    async def save(queue: ContactRepository, results: Sequence[LadderResult]) -> int:
+        if results[0].host == FAST:
+            sites.answer()  # сосед отвечает только теперь — сбой его уже не ждал бы
+            raise ConnectionError("запись исхода оборвалась")
+        return await saving(queue, results)
+
+    monkeypatch.setattr(ContactRepository, "save", save)
+
+    with pytest.raises(ConnectionError):
+        await search_contacts(session, limit=10)
+
+    assert (await _state(session, SLOW))[0] is ContactStatus.NOT_FOUND
+    assert (await _state(session, FAST))[0] is None
 
 
 @pytest.mark.usefixtures("two_donors")
