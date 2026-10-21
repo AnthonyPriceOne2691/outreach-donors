@@ -17,9 +17,13 @@
 говорит почему без платной. Очередь сбора базы продаж платит по своему флагу
 (`SALES_SEGMENT_PAID_CONTACTS`, вызывающий передаёт `no_paid`), этот её не держит.
 
-**Пачка — чекпоинт.** Поиск по сотне доменов идёт минутами; падение
-на середине не должно стоить уже пройденного. Сохранили пачку — эти
-домены выпали из повторного запуска.
+**Исход домена — чекпоинт.** Поиск по сотне доменов идёт минутами; падение
+на середине не должно стоить уже пройденного — и тем более оплаченного. Исход
+домена записывается, как только лестница по нему кончилась, а не в конце пачки:
+пачка ждёт самый медленный сайт, и ответ платной ступени по быстрому соседу
+лежал бы до того в памяти — падение воркера теряло оплаченный ответ, а повтор
+платил за тот же домен снова (ревью продаж 21.10.2026). Записанный домен выпал
+из повторного запуска. Пачка осталась шагом хода прохода (`on_batch`).
 
 **Отчёт показывает каждую ступень.** Сколько доменов вошло, сколько
 адресов дала, сколько стоила. Только по этим числам видно, окупается
@@ -35,7 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 
@@ -231,22 +235,62 @@ def _note_closed(report: SearchReport, closed: PaidUnavailable | None) -> None:
     )
 
 
-async def _walk(ladder: ContactLadder, hosts: list[str], last: set[str]) -> list[LadderResult]:
-    """Пройти пачку доменов одновременно, но не все сразу.
+@dataclass
+class _Keeper:
+    """Исход домена — в базу сразу, как только лестница по нему кончилась (`_walk`).
+
+    Лестница идёт по доменам одновременно, а сессия одна — запись по одному, под замком.
+    Запросы к платному провайдеру — в журнал той же записью: сколько их принято с прошлой
+    записи. Запрос соседа, который ещё ждёт ответа, попадёт в неё же — он уже ушёл
+    провайдеру, и недосчёт в журнале хуже пересчёта."""
+
+    session: AsyncSession
+    repository: ContactQueue
+    ladder: ContactLadder
+    stage: Stage | None
+    report: SearchReport
+    recorded: int = 0
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    async def __call__(self, result: LadderResult) -> None:
+        async with self.lock:
+            self.report.saved += await self.repository.save([result])
+            paid = _paid_calls(self.ladder.counters)
+            _record_paid(self.session, paid - self.recorded, self.stage)
+            self.recorded = paid
+            await self.session.commit()
+
+
+async def _walk(
+    ladder: ContactLadder,
+    hosts: list[str],
+    last: set[str],
+    keep: Callable[[LadderResult], Awaitable[None]],
+) -> None:
+    """Пройти пачку доменов одновременно, но не все сразу; исход каждого — в `keep`
+    сразу, не дожидаясь соседей по пачке.
 
     Обмен с каждым сайтом идёт в своём следе (`sweep_trace.traced`): по нему
     лестница знает, ответил ли сайт, — молчащему не платят, а исход
     `no_answer` повторится по сроку (`attempts.py`). `last` — домены, для
     которых этот проход — последний шанс.
+
+    Сбой одного домена — после того, как дошли остальные: соседи пишут в ту же сессию,
+    и вызывающий, получив сбой раньше них, работал бы с ней одновременно с ними (CI #449).
+    Заодно ответы, за которые соседи уже заплатили, ложатся в базу, а не пропадают.
     """
     limiter = asyncio.Semaphore(CONCURRENCY)
 
-    async def one(host: str) -> LadderResult:
+    async def one(host: str) -> None:
         async with limiter:
             with traced(host):
-                return await ladder.find(host, last_try=host in last)
+                result = await ladder.find(host, last_try=host in last)
+        await keep(result)
 
-    return list(await asyncio.gather(*(one(host) for host in hosts)))
+    outcomes = await asyncio.gather(*(one(host) for host in hosts), return_exceptions=True)
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            raise outcome
 
 
 async def _browser(stack: AsyncExitStack, report: SearchReport) -> TracedRenderer | None:
@@ -362,13 +406,10 @@ async def search_contacts(
             silence=current_silence,
         )
 
+        keep = _Keeper(session, repository, ladder, stage, report)
         for start in range(0, len(hosts), BATCH):
             batch = hosts[start : start + BATCH]
-            paid_before = _paid_calls(ladder.counters)
-            results = await _walk(ladder, batch, await repository.last_tries(batch))
-            report.saved += await repository.save(results)
-            _record_paid(session, _paid_calls(ladder.counters) - paid_before, stage)
-            await session.commit()
+            await _walk(ladder, batch, await repository.last_tries(batch), keep)
             report.walked = start + len(batch)
             if on_batch is not None:
                 on_batch(report.walked, len(hosts))
