@@ -3172,8 +3172,8 @@
       "worst": "per_site_from:96"
     },
     "backend/features/topics/step.py": {
-      "lines": 280,
-      "complexity": 6,
+      "lines": 282,
+      "complexity": 7,
       "worst": "record:85"
     },
     "backend/features/topics/store.py": {
