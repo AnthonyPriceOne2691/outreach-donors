@@ -86,7 +86,9 @@ async def test_advertiser_contact_search_is_stage_two(
     await search_contacts(session, limit=10, queue=_AdvertiserQueue())
 
     assert len(paid.calls) == 2
-    assert await _stages(session, CONTACTS_OPERATION) == [Stage.ADVERTISERS]
+    # Строка журнала — на каждый домен с платным запросом: исход и расход пишутся одной
+    # записью, как только лестница по домену кончилась (`contacts/search._Keeper`).
+    assert set(await _stages(session, CONTACTS_OPERATION)) == {Stage.ADVERTISERS}
 
 
 async def test_letter_rewrite_is_written_with_the_stage_of_the_build(
