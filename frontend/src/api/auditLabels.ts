@@ -195,14 +195,18 @@ const INTENT_WORDS: Record<string, string> = Object.fromEntries(
 
 const SUPPRESSION_WORDS: Record<string, string> = SUPPRESSION_REASON_TITLES;
 
+/** Решение человека кодом записи — у решения и у его отмены («Отменить решение», сбор базы продаж). */
+const DECISION_WORDS: Record<string, string> = {
+  accepted: 'принят',
+  rejected: 'отклонён',
+  pending: 'снова ждёт решения',
+  ...INTENT_WORDS,
+};
+
 /** Значения-коды под ключом — словами экрана. Незнакомое значение — как записано. */
 const VALUE_WORDS: Record<string, Record<string, string>> = {
-  решение: {
-    accepted: 'принят',
-    rejected: 'отклонён',
-    pending: 'снова ждёт решения',
-    ...INTENT_WORDS,
-  },
+  решение: DECISION_WORDS,
+  отменено: DECISION_WORDS,
   было: INTENT_WORDS,
   судья: Object.fromEntries(
     Object.entries(JUDGE_ADVICE).map(([code, advice]) => [code, advice.title]),
