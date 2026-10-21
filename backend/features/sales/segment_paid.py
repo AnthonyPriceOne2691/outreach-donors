@@ -10,41 +10,45 @@
   то же правило, что у поиска). Не готова — платная часть кончилась, и «не спросили» (квота,
   частота, сбой) не трогаются: без неё повтор отправил бы их в «адреса нет» на полгода.
 - **Резерв** (ревью 20.10, второй и третий круг): доля остатка под кусок пишется в отчёт своим
-  коммитом с моментом по часам базы и снимается после куска. Проход упал посреди куска — резерв
-  остаётся, и следующий проход прогона сводит его (`settle`; номер задачи прогона держит он, так
-  что прежний мёртв): верхняя граница оплаченного — строки журнала расхода поиска этапа продаж с
-  момента резерва и сайты куска, чей исход не сохранился (каждый — не больше одного запроса); её —
-  в «принято, но не записано», остальное — снять.
+  коммитом и снимается после куска. Проход упал посреди куска — резерв остаётся, и следующий проход
+  прогона сводит его (`settle`; номер задачи прогона держит он, так что прежний мёртв): **весь — в
+  «принято, но не записано»** (ревью #426). Сайт куска — не больше одного платного запроса, и
+  резерв — верхняя граница оплаченного; точнее не узнать: строка журнала расхода поиска прогона не
+  знает, а исход сайта пишется домену во всех прогонах (`attempts.record`). Прежняя оценка «журнал с
+  момента резерва + сайты куска без исхода» теряла оплаченное целиком — до пачки поиска, 32, — когда
+  между сбоем и сведением те же сайты проходил прогон другой гипотезы. Пересчёт — в сторону траты:
+  лучше остаток сметы меньше на неоплаченное, чем повтор, заплативший сверх сметы.
 - **Провайдер отказал или кусков набралось на проход** — остальных сайтов этот проход не трогает
   (`walk` → `held`): бесплатные ступени отправили бы ответивших без адреса в «адреса нет» при живом
-  остатке, а следующий проход продолжит.
+  остатке, а следующий проход продолжит. **Отказ** (квота, частота, сбой, ключ) — моментом в отчёт
+  (`REFUSED_AT`, ревью #426): сроки задержанных сайтов уже настали, и проход через минуту упёрся бы в
+  ту же стену, — следующий по сроку не раньше `SALES_SEGMENT_AGAIN_MIN` после отказа
+  (`segment_again.next_at`, `segment_jobs.put_due`). Кусков набралось — продолжит через минуту.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.contacts import search as contacts_search
-from backend.features.core.domain import Stage
-from backend.features.core.models.ops import UsageRecordModel
 from backend.features.sales.segment_counts import contacts_report, number
-from backend.features.sales.segment_models import SalesSegmentCandidateModel as Candidate
 from backend.features.sales.segment_models import SalesSegmentRunModel as Run
 from backend.features.sales.segment_queue import Retry, SegmentContactQueue, paid_left
 from backend.features.sales.segment_spend import PENDING_KEY, UNRECORDED_KEY, pending
 
 logger = logging.getLogger(__name__)
 
-#: Момент резерва по часам базы — с него сводит резерв `settle`.
-PENDING_AT = "paid_pending_at"
 #: Кусков платного поиска за проход — не больше: остальное — следующему проходу.
 CHUNKS = 20
+#: Когда платная часть повтора последний раз получила отказ провайдера (UTC, `merged`): проход по
+#: сроку — не раньше `SALES_SEGMENT_AGAIN_MIN` после него (`segment_again.paused_until`).
+REFUSED_AT = "paid_refused_at"
 
 
 async def ready() -> bool:
@@ -59,52 +63,52 @@ def _contacts(run: Run) -> dict[str, Any]:
 
 
 async def settle(session: AsyncSession, run: Run) -> None:
-    """Свести резерв, оставленный упавшим проходом (шапка модуля), — в начале каждого прохода
-    прогона (`segment_run.execute`, `again`); резерва нет — ничего."""
+    """Свести резерв, оставленный упавшим проходом, — весь в «принято, но не записано» (шапка
+    модуля): в начале каждого прохода прогона (`segment_run.execute`, `again`); резерва нет —
+    ничего."""
     reserved = pending(run.report)
-    contacts = _contacts(run)
-    raw = contacts.get(PENDING_AT)
     if not reserved:
         return
-    since = datetime.fromisoformat(raw) if isinstance(raw, str) else run.created_at
-    journal = await session.scalar(
-        select(func.coalesce(func.sum(UsageRecordModel.units), 0)).where(
-            UsageRecordModel.operation == contacts_search.CONTACTS_OPERATION,
-            UsageRecordModel.stage == Stage.SALES,
-            UsageRecordModel.created_at >= since,
-        )
-    )
-    saved = await session.scalar(
-        select(func.count(Candidate.id)).where(
-            Candidate.run_id == run.id, Candidate.contact_attempted_at >= since
-        )
-    )
-    unrecorded = min(reserved, int(journal or 0) + max(0, reserved - int(saved or 0)))
-    contacts[UNRECORDED_KEY] = number(contacts.get(UNRECORDED_KEY)) + unrecorded
+    contacts = _contacts(run)
+    contacts[UNRECORDED_KEY] = number(contacts.get(UNRECORDED_KEY)) + reserved
     contacts[PENDING_KEY] = 0
-    contacts.pop(PENDING_AT, None)
     run.report = {**run.report, "contacts": contacts}
     await session.commit()
     logger.warning(
-        "сбор продаж: резерв платного поиска после сбоя сведён",
-        extra={"run": run.id, "reserved": reserved, "unrecorded": unrecorded},
+        "сбор продаж: резерв платного поиска после сбоя сведён — весь в «принято без записи»",
+        extra={"run": run.id, "reserved": reserved},
     )
 
 
 async def _reserve(session: AsyncSession, run: Run, size: int) -> None:
     contacts = _contacts(run)
-    at = await session.scalar(select(func.now()))
-    contacts[PENDING_KEY], contacts[PENDING_AT] = size, at.isoformat() if at else None
+    contacts[PENDING_KEY] = size
     run.report = {**run.report, "contacts": contacts}
     await session.commit()
 
 
+def refused_at(report: Mapping[str, Any]) -> datetime | None:
+    """Последний отказ провайдера платной части повтора (`REFUSED_AT`); не было или момент не
+    разобрать (запись правили руками) — пусто: паузы нет, срок прохода — как без отказа."""
+    contacts = report.get("contacts")
+    raw = contacts.get(REFUSED_AT) if isinstance(contacts, Mapping) else None
+    if not isinstance(raw, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(raw)
+    except ValueError:
+        logger.warning("сбор продаж: момент отказа провайдера не разобран", extra={"value": raw})
+        return None
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+
+
 async def merged(session: AsyncSession, run: Run, found: dict[str, Any]) -> int:
-    """Итог куска поиска — в отчёт прогона своим коммитом, резерв куска снят. Возвращает, скольких
-    сайтов он прошёл."""
+    """Итог куска поиска — в отчёт прогона своим коммитом, резерв куска снят; провайдер отказал —
+    и момент отказа (`REFUSED_AT`). Возвращает, скольких сайтов он прошёл."""
     contacts = contacts_report(run.report.get("contacts"), found)
     contacts[PENDING_KEY] = 0
-    contacts.pop(PENDING_AT, None)
+    if _refused(found):
+        contacts[REFUSED_AT] = datetime.now(UTC).isoformat()
     run.report = {**run.report, "contacts": contacts}
     await session.commit()
     return number(found.get("walked"))

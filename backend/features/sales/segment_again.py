@@ -23,15 +23,24 @@
 
 Срок — в базе: задачу, потерянную очередью, поставит следующий проход прогона, а отчёт называет
 срок, «наступил» и даёт «Повторить сейчас» (`segment_waits.py`).
+
+**После отказа провайдера — пауза** (ревью #426): платная часть повтора получила отказ (квота,
+частота, сбой — `segment_paid.REFUSED_AT`) и остальных сайтов прохода не тронула, а их сроки уже
+настали — без паузы задача вставала через минуту и упиралась в ту же стену. Проход по сроку — не
+раньше `SALES_SEGMENT_AGAIN_MIN` после отказа: и срок задачи (`next_at`), и задача, пришедшая в
+паузу (`segment_jobs.put_due`). «Повторить сейчас» паузу не ждёт: повтор решает человек.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.sales import deferred
+from backend.features.sales import deferred, segment_paid
+from backend.features.sales.segment_models import SalesSegmentRunModel
 from backend.features.sales.segment_queue import SegmentContactQueue, least
 
 #: Задача на срок — путём строкой: она ставит проход прогона под его номером.
@@ -43,9 +52,22 @@ def prefix(run_id: int) -> str:
     return f"sales-segment-again-{run_id}-"
 
 
+def paused_until(report: Mapping[str, Any]) -> datetime | None:
+    """Конец паузы после отказа провайдера (шапка модуля): отказ плюс `SALES_SEGMENT_AGAIN_MIN`;
+    отказа не было — пусто."""
+    refused = segment_paid.refused_at(report)
+    return None if refused is None else refused + least()
+
+
 async def next_at(session: AsyncSession, run_id: int) -> datetime | None:
-    """Самый ранний срок, когда прогон сам спросит молчавший сайт; таких нет — пусто."""
-    return min(await SegmentContactQueue(session, run_id).silent_retries(), default=None)
+    """Самый ранний срок, когда прогон сам спросит молчавший сайт, — не раньше конца паузы после
+    отказа провайдера (`paused_until`); молчавших нет — пусто."""
+    when = min(await SegmentContactQueue(session, run_id).silent_retries(), default=None)
+    if when is None:
+        return None
+    run = await session.get(SalesSegmentRunModel, run_id)
+    pause = None if run is None else paused_until(run.report)
+    return when if pause is None else max(when, pause)
 
 
 async def plan(
@@ -61,7 +83,7 @@ async def plan(
 
 
 def later(run_id: int, *, now: datetime) -> str | None:
-    """Срок пропущен (проход прогона или пересуд идёт): задача на срок — снова, через
-    `SALES_SEGMENT_AGAIN_MIN` минут. Идущий проход поставит свой срок и сам — это страховка на
-    случай, когда он кончится сбоем."""
+    """Срок пропущен (проход прогона или пересуд идёт, пауза после отказа провайдера): задача на
+    срок — снова, через `SALES_SEGMENT_AGAIN_MIN` минут. Идущий проход поставит свой срок и сам —
+    это страховка на случай, когда он кончится сбоем."""
     return deferred.plan(prefix(run_id), TRIGGER, now + least(), run_id, now=now)

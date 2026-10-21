@@ -32,12 +32,14 @@ SERP_PROVIDER=…» на экране продаж).
 конце очередь получает задачи на сроки молчавших сайтов прогона (`segment_again.plan`) и лидов
 «ещё проверяет» (`verify_again.plan`: пока проход шёл, задача перепроверки лидов прогона не
 брала). После сбоя — не раньше `SALES_SEGMENT_AGAIN_MIN`: беда, повторённая каждую минуту, —
-круг, а не повтор.
+круг, а не повтор. После отказа провайдера платной части — тоже (срок считает
+`segment_again.next_at`, ревью #426).
 
 **Задача на срок** (`due_again`) только ставит проход по сроку — под номером прогона, с пустым
 `finished_at` и записью «автоматически, по сроку» в журнале, как «Повторить сейчас» с экрана.
-Повторять некому — не ставит: пустой проход мигал бы «идёт». Номер прогона занят или идёт
-пересуд — пропуск и задача на срок снова, через `SALES_SEGMENT_AGAIN_MIN` (`segment_again.later`).
+Повторять некому — не ставит: пустой проход мигал бы «идёт». Номер прогона занят, идёт пересуд
+или не кончилась пауза после отказа провайдера (`segment_again.paused_until`: задачу поставили до
+отказа) — пропуск и задача на срок снова, через `SALES_SEGMENT_AGAIN_MIN` (`segment_again.later`).
 """
 
 from __future__ import annotations
@@ -104,6 +106,8 @@ RETRIES_SPENT = (
 GOING_NOW = "проход прогона уже идёт — повтор по сроку пойдёт после него"
 #: Срок настал, а идёт пересуд прогона: повтор поиска адреса посреди него — как «Продолжить».
 REJUDGING = "идёт пересуд прогона — повтор по сроку пойдёт после него"
+#: Срок настал, а провайдер недавно отказал платному поиску: проход упёрся бы в тот же отказ.
+PAUSED = "провайдер отказал платному поиску адреса — повтор по сроку пойдёт после паузы"
 #: Срок настал, а повторять некому: сайты ответили кнопке или их адрес нашёлся иначе.
 NOTHING_DUE = "сайтов, чей срок повтора настал, в прогоне нет"
 #: Прогона нет: удалён.
@@ -336,7 +340,7 @@ async def put_due(
     session: AsyncSession, jobs: Queue, run_id: int, *, now: datetime
 ) -> dict[str, Any]:
     """Поставить проход «повтор по сроку» под номером прогона — когда есть кому и никто не
-    мешает: проход прогона, пересуд."""
+    мешает: проход прогона, пересуд, пауза после отказа провайдера."""
     run = await session.get(SalesSegmentRunModel, run_id)
     if run is None:
         return {"run": run_id, "skipped": NO_RUN}
@@ -346,6 +350,8 @@ async def put_due(
     if (waiting := await queue.pending_count()) == 0:
         await segment_again.plan(session, run_id, now=now)  # срок впереди — его задача
         return {"run": run_id, "skipped": NOTHING_DUE}
+    if (pause := segment_again.paused_until(run.report)) is not None and now < pause:
+        return _skipped(run_id, PAUSED, now)
     job = deferred.once(jobs, segment_job_id(run_id), SEGMENT_JOB, run_id, Again.DUE.value)
     if job is None:
         return _skipped(run_id, GOING_NOW, now)

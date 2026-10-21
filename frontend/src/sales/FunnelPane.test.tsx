@@ -20,7 +20,7 @@ import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
-import { funnelQuery, NO_FUNNEL_FILTERS, periodProblem, stepHint } from './funnelData';
+import { dayOf, funnelQuery, NO_FUNNEL_FILTERS, periodProblem, stepHint } from './funnelData';
 
 const SCREEN_WAIT = { timeout: 5000 };
 const FUNNEL = '/api/sales/funnel';
@@ -236,6 +236,21 @@ describe('воронка продаж', () => {
     expect(recorded.calls.slice(before).map((call) => call.path)).toEqual([`${FUNNEL}?${asked}`]);
   });
 
+  it('свои даты из адреса: несуществующий день — не дата, сказано под полем, запрос не уходит', async () => {
+    // Раньше «2026-02-30» из адреса уходил на сервер полуночью 2 марта — молча чужим периодом.
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    const recorded = serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'GET /api/sales/hypotheses': { body: HYPOTHESES },
+      'GET /api/sales/kb': { body: KB },
+      [`GET ${FUNNEL}`]: { body: ALL_VIEW },
+    });
+    renderWith(<AppRoutes />, '/sales?tab=funnel&period=custom&from=2026-02-30');
+
+    expect(await screen.findByText('Первый день — не дата.', {}, SCREEN_WAIT)).toBeInTheDocument();
+    expect(recorded.calls.filter((call) => call.path.startsWith(FUNNEL))).toEqual([]);
+  });
+
   it('за период ничего — сказано словами, а не одними нулями', async () => {
     const week = new URLSearchParams({ since: midnightAgo(29) }).toString();
     const empty = { ...ALL_VIEW, rows: [], total: counts({}) };
@@ -348,6 +363,23 @@ describe('фильтры воронки → запрос', () => {
     expect(periodProblem({ ...custom, from: '2026-10-08', to: '2026-10-07' })).toBe(
       'Первый день позже последнего — поменяйте даты местами.',
     );
+  });
+
+  it('несуществующий день — не дата: границы нет, сказано под полем; 29 февраля високосного — дата', () => {
+    // Раньше `Date` переносил несуществующий день молча: «2026-02-30» уходил 2 марта.
+    const custom = { ...NO_FUNNEL_FILTERS, period: 'custom' as const };
+    for (const day of ['2026-02-30', '2026-13-01', '2025-02-29']) {
+      expect(dayOf(day)).toBeNull();
+      expect(funnelQuery({ ...custom, from: day, to: day }, NOW)).toEqual({});
+      expect(periodProblem({ ...custom, from: day })).toBe('Первый день — не дата.');
+      expect(periodProblem({ ...custom, to: day })).toBe('Последний день — не дата.');
+    }
+    expect(dayOf('2024-02-29')).toEqual(new Date(2024, 1, 29));
+    expect(funnelQuery({ ...custom, from: '2024-02-29', to: '2024-02-29' }, NOW)).toEqual({
+      since: new Date(2024, 1, 29).toISOString(),
+      until: new Date(2024, 2, 1).toISOString(),
+    });
+    expect(periodProblem({ ...custom, from: '2024-02-29', to: '2024-02-29' })).toBeNull();
   });
 
   it('доля — от своей основы, основа ноль — словами', () => {
