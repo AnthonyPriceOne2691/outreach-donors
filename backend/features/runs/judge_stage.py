@@ -14,6 +14,14 @@
 **Тема сайта — в той же пачке и тем же текстом** (`topics/step.py`): страница из выдачи
 и главная, которую судья уже открыл, — ни одного лишнего захода на сайт. Тематика
 выключена (`TOPIC_MODE=off`) — шага нет, и в отчёте прогона ветки тем нет вовсе.
+
+**Нет кредитов у ключа модели — до конца прохода модель не зовётся** (слово владельца
+20.10.2026): судья встал (`JudgeSummary.stopped`) — следующие пачки берут вердикты из кэша, а
+остальные домены — «модель не ответила» с причиной словами; тема тех пачек — так же, без вызова
+(`TopicStep.stopped`). Встала тема — суд следующих пачек модель тоже не зовёт: счёт у них один.
+Прогон идёт дальше: суд не та ступень, ради которой стоит терять оплаченную выдачу. Модели прогона
+(`stage_models`) проверяет и запуск до очереди (`api/runs/routes.py`), и задача в начале
+каждого запуска, до первой траты (`workers/run_job.py`).
 """
 
 from __future__ import annotations
@@ -54,6 +62,15 @@ JUDGE_OPERATION = "site_judge"
 JUDGE_CHUNK = 50
 
 
+def stage_models() -> tuple[str, ...]:
+    """Модели, которые позовёт ступень суда: судья площадки и тема сайта; выключенный судья —
+    ни одной (тема определяется только в его пачке)."""
+    if judge_cfg.MODE is judge_cfg.JudgeMode.OFF:
+        return ()
+    topics = topics_cfg.MODE is topics_cfg.TopicMode.ON
+    return (llm_cfg.JUDGE_MODEL, *((llm_cfg.TOPIC_MODEL,) if topics else ()))
+
+
 def _topic_step(deps: RunDeps, run: RunModel, report: RunReport) -> TopicStep | None:
     """Тема сайта — шагом пачки, только когда тематика включена: у выключенной в отчёте
     прогона нет ни ветки, ни нулей (`report._topic_stats`)."""
@@ -84,6 +101,7 @@ async def judge_stage(
     fresh = await deps.donors.fresh_judged(hosts)
     topics = _topic_step(deps, run, report)
     passes: list[JudgePass] = []
+    stopped: str | None = None
     async with (
         httpx.AsyncClient(timeout=llm_cfg.TIMEOUT_S) as http,
         guarded_client(timeout=home_timeout()) as home,
@@ -103,10 +121,14 @@ async def judge_stage(
                 # Закрытую главную смотрим глазами индекса: `site:` у того же
                 # источника выдачи, что и сам прогон.
                 index=deps.provider if judge_cfg.HOME_CHECK else None,
+                stopped=stopped,
             )
             await _save_judged(deps, run, part)
+            stopped = stopped or part.summary.stopped
             if topics is not None:
-                await topics.classify(http, chunk, candidates.texts, part.homes)
+                await topics.classify(http, chunk, candidates.texts, part.homes, stopped=stopped)
+                # Тема встала без кредитов — суд следующих пачек модель тоже не зовёт.
+                stopped = stopped or topics.stopped
             passes.append(part)
 
     outcome = _joined(passes)

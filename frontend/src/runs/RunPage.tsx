@@ -218,6 +218,7 @@ export function RunPage() {
   const launchable =
     forecast?.affordable === true &&
     forecast.serp_refusal === null &&
+    forecast.model_refusal === null &&
     !stale &&
     canRun &&
     capRefusal === null;

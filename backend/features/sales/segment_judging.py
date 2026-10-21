@@ -28,6 +28,12 @@
 «мест нет»: окно кладёт сайты «на проверку» словами и следующий проход спросит снова. Поле гипотезы
 «страны компаний» (`hypothesis_countries`) — тоже одно на проход.
 
+**Модель — до первой траты прохода** (`unready`, слово владельца 20.10.2026): судья включён, а
+модель не ответила проверке (`shared/llm.unready`: нет кредитов, ключ не принят, не ответила) —
+смета, запуск и «Продолжить» отказывают её словами, задача встаёт ими же. Факты сайта и разбор
+описания — одна модель (`SegmentClient`), проверка спрашивает её один раз. Нет кредитов на разборе
+описания — проход к сайтам не идёт и встаёт словами (`read_scope`), а не «сбоем разбора» у каждого.
+
 **Стоп-лист — до всего** (`stoplisted`): домен в стоп-листе продаж или под строкой общего
 стоп-листа, которая держит продажи, отсекается правилом до кэша, главной и модели — при любом
 режиме судьи. Иначе он оплатил бы модель и платную ступень поиска адреса и отсеялся бы только
@@ -47,6 +53,7 @@ import httpx
 from sqlalchemy import ColumnElement, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import llm as llm_cfg
 from backend.config.judge import JudgeMode
 from backend.features.core import usage
 from backend.features.core.models.domain import DomainModel
@@ -62,8 +69,17 @@ from backend.features.sales.segment_models import (
     SalesSegmentRunModel,
 )
 from backend.features.sales.segment_scope import Scope
-from backend.features.sales.segment_window import Ask, JudgeTally, Landing, Site, judge_sites, land
+from backend.features.sales.segment_window import (
+    NO_CREDITS,
+    Ask,
+    JudgeTally,
+    Landing,
+    Site,
+    judge_sites,
+    land,
+)
 from backend.features.sales.suppressions import holds_sales
+from backend.shared import llm
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +95,7 @@ __all__ = [
     "policy_of_run",
     "read_scope",
     "stoplisted",
+    "unready",
     "waiting_judge",
 ]
 
@@ -145,6 +162,14 @@ async def stoplisted(
     return found
 
 
+async def unready(mode: JudgeMode) -> str | None:
+    """Почему проходу с судьёй не начинать — словами владельца (`shared/llm.words_of`); `None` —
+    модель судьи ответила проверке или судья выключен: модель не зовётся, проверять нечего."""
+    if mode is JudgeMode.OFF:
+        return None
+    return await llm.unready(llm_cfg.SALES_SEGMENT_MODEL)
+
+
 def cut(why: str) -> Landing:
     """Стоп-лист — «отсечён» правилом. Судья не говорил: вердикта нет."""
     return Landing(Lane.REJECT, why, decided_by=Decider.RULE)
@@ -182,7 +207,8 @@ async def read_scope(
     """Разбор описания прогона (`segment_scope`): того же описания — из отчёта прогона, без модели;
     иначе вызов модели под потолком продаж — итог или сбой словами ложится в отчёт, токены — в счёт
     прохода и в журнал расхода. Сбой — `None`: сайты — «на проверку» словами, следующий проход
-    спросит снова. Потолок выбран — `None` и остановка прохода словами (`tally.stopped`)."""
+    спросит снова. Потолок выбран или у ключа нет кредитов — `None` и остановка прохода словами
+    (`tally.stopped`): к сайтам проход не идёт."""
     digest = segment_digest(segment)
     if (known := segment_scope.remembered(run.report, digest)) is not None:
         return known
@@ -196,6 +222,11 @@ async def read_scope(
         return None
     found, asked = await client.scope(segment)
     tally.paid(asked.tokens, asked.spent)
+    if asked.no_credits:
+        # Не «сбой разбора»: к сайтам проход не идёт — они ждут «Продолжить» после пополнения.
+        logger.warning("разбор описания: у модели нет кредитов", extra={"run": run.id})
+        tally.stopped = NO_CREDITS
+        return None
     entry = segment_scope.entry(digest, found, asked.tokens)
     await segment_scope.write(session, run, entry, operation=OPERATION)
     return found if isinstance(found, Scope) else None

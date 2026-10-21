@@ -26,6 +26,8 @@
 у нас не сработала модель, дороже, чем показать его человеку. Но если
 модель не ответила вовсе (`Judgement.unanswered`), это «посмотри» — не
 вердикт: на домен оно не ложится, и в следующий раз домен судится снова.
+У ключа нет кредитов (`Judgement.no_credits`) — проход дальше модель не зовёт
+(`judging.judge_candidates`, слово владельца 20.10.2026).
 
 **Граница, найденная дымовым прогоном 23.09.** Сайт, который и публикует,
 и торгует своим (`kingarthurbaking.com` — рецепты плюс собственный магазин
@@ -172,6 +174,8 @@ class Judgement:
     #: нет, как у неответа: на домен не ложится, кэшем не становится — прогон по ключам,
     #: нашедший домен с текстом, судит его сразу, а не через полгода (ревью 20.10.2026).
     blind: bool = False
+    #: У ключа модели нет кредитов: неответ, после которого проход модель не зовёт.
+    no_credits: bool = False
 
     @property
     def would_cut(self) -> bool:
@@ -364,7 +368,14 @@ async def judge_host(
     )
     if isinstance(answer, Refusal):
         logger.warning("%s: %s (%s)", TOPIC, answer, host)
-        return Judgement(Intent.UNKNOWN, Recommendation.REVIEW, None, str(answer), unanswered=True)
+        return Judgement(
+            Intent.UNKNOWN,
+            Recommendation.REVIEW,
+            None,
+            str(answer),
+            unanswered=True,
+            no_credits=answer.no_credits,
+        )
 
     content = content_of(answer, topic=TOPIC)
     if not content:
@@ -428,6 +439,7 @@ async def arbitrate(
             f"арбитр: {answer}",
             decided_by=Decider.ARBITER,
             unanswered=True,
+            no_credits=answer.no_credits,
         )
     content = content_of(answer, topic=TOPIC)
     silent = Judgement(

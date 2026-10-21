@@ -16,7 +16,9 @@
 прогон заводится и встаёт задачей очереди долгих задач продаж
 (`sales-bulk`, `worker-sales-bulk`; `sales/segment_jobs.py`): сбор идёт до получаса и не держит
 разбор ответа лида. `POST /sales/segment/runs/{N}/resume` — продолжить прогон: после
-потолка модели, сбоя или решений человека по «на проверку». Стадию продолжение не трогает
+потолка модели, сбоя или решений человека по «на проверку»; проход позовёт модель, а она не
+ответила проверке, — 409 её словами до очереди (`segment_run.unready_pass`). Стадию продолжение
+не трогает
 («в очереди» значило бы для прохода «купить выдачу»): проход поставлен — пуст `finished_at`,
 и экран, спросив очередь, видит прогон идущим. Задачу умершего воркера, которую rq держит
 «идёт» до таймаута, продолжение убирает (`segment_watch.drop_dead`), а не отвечает 409.
@@ -88,6 +90,7 @@ from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.segment_estimate import Ask, Estimate, estimate
 from backend.features.sales.segment_jobs import SEGMENT_JOB, segment_job_id
 from backend.features.sales.segment_models import Lane, SalesSegmentRunModel, Stage
+from backend.features.sales.segment_run import unready_pass
 from backend.features.sales.segment_sites import SiteRow, site_row
 from backend.features.serp import markets
 from backend.shared.queue import sales_bulk_queue, with_retries
@@ -352,6 +355,8 @@ async def resume_run(
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, UNKNOWN_RUN.format(run_id=run_id))
     await refuse_while_rejudging(run.id, sales_bulk_queue())
+    if (words := await unready_pass(session, run)) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, words)
     job = await queued_pass(run.id)
     if job is None:
         raise HTTPException(status.HTTP_409_CONFLICT, RUN_GOING)

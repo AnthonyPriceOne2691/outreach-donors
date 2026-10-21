@@ -15,7 +15,9 @@
 
 **Сбой судьи не отбирает домен.** Любой отказ — «посмотри», и в `enforce`
 такой домен идёт дальше как обычно: терять его из-за нашей поломки дороже,
-чем оплатить ему метрики.
+чем оплатить ему метрики. **У ключа нет кредитов** (слово владельца 20.10.2026) —
+до конца прохода модель не зовётся (`JudgeSummary.stopped`): остальные домены — без
+вердикта, «модель не ответила» с причиной словами, а не вызов на каждый.
 
 **Нет текста выдачи — судят главную** (`by_home`): кандидат из списка ссылок конкурентов
 или выдача без сниппета. Тем же походом, что вторая сторона (`check_home`), и тем же
@@ -50,6 +52,7 @@ from backend.features.donors.repository import JudgeRecord
 from backend.features.donors.site_index import index_homes
 from backend.features.runs.planning import SerpText
 from backend.features.serp.protocol import SerpProvider
+from backend.shared.llm import NO_CREDITS_WORDS
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +114,9 @@ class JudgeSummary:
     index_usd: float = 0.0
     """Цена запросов `site:` — деньги источника выдачи, в журнал отдельно."""
 
+    stopped: str | None = None
+    """У ключа модели нет кредитов: до конца прохода модель не зовётся — почему, словами."""
+
     @property
     def units_saved(self) -> int:
         """Во что обошлись бы отрезанные, дойди они до Ahrefs.
@@ -135,6 +141,7 @@ class JudgeSummary:
         self.no_text += other.no_text
         self.from_index += other.from_index
         self.index_usd += other.index_usd
+        self.stopped = self.stopped or other.stopped
         for key, count in other.by_intent.items():
             self.by_intent[key] = self.by_intent.get(key, 0) + count
         for key, count in other.by_decider.items():
@@ -390,6 +397,22 @@ def _collect(
     return verdicts, rejected
 
 
+async def _judged(
+    http: httpx.AsyncClient, home_client: httpx.AsyncClient | None, host: str, text: SerpText | None
+) -> tuple[Judgement, HomeSignals | None]:
+    """Вердикт одного домена: без текста выдачи — по главной (`by_home`), иначе выдача и главная
+    второй стороной (`second_opinion`)."""
+    if home_client is not None and _without_text(host, text):
+        return await by_home(http, home_client, host=host)
+    first = await judge_host(
+        http,
+        host=host,
+        title=text.title if text else None,
+        description=text.description if text else None,
+    )
+    return await second_opinion(http, home_client, host=host, text=text, verdict=first)
+
+
 def _opened(results: Mapping[str, tuple[Judgement, HomeSignals | None]]) -> dict[str, HomeSignals]:
     """Главные, которые судья видел в проходе, — тексту темы сайта (`JudgePass.homes`)."""
     return {host: home for host, (_, home) in results.items() if home is not None}
@@ -404,7 +427,7 @@ async def judge_candidates(
     paid: Collection[str] | None = None,
     home_client: httpx.AsyncClient | None = None,
     index: SerpProvider | None = None,
-    concurrency: int | None = None,
+    stopped: str | None = None,
 ) -> JudgePass:
     """Судит домены, которые ещё не судили. Не бросает.
 
@@ -413,11 +436,12 @@ async def judge_candidates(
     `paid` — за кого ещё предстоит платить Ahrefs; только они дают экономию.
     Пусто — все. `home_client` — клиент для главных; нет его — без главной.
     `index` — источник выдачи для `site:`, когда главная закрыта; нет его —
-    закрытая главная оставляет вердикт модели.
+    закрытая главная оставляет вердикт модели. `stopped` — модель встала прошлой пачкой
+    (нет кредитов): свежие — из кэша, остальные — без вызова, «не ответила» той же причиной.
     """
     fresh = already_judged or {}
     unpaid = set(hosts) if paid is None else set(paid)
-    summary = JudgeSummary(from_cache=sum(1 for host in hosts if host in fresh))
+    summary = JudgeSummary(from_cache=sum(1 for host in hosts if host in fresh), stopped=stopped)
     pending = [host for host in hosts if host not in fresh]
     verdicts: dict[str, JudgeRecord] = {}
     rejected = {host for host, rec in fresh.items() if rec == Recommendation.REJECT.value}
@@ -425,24 +449,17 @@ async def judge_candidates(
     if not pending:
         return JudgePass(verdicts, summary, rejected)
 
-    gate = asyncio.Semaphore(concurrency or cfg.CONCURRENCY)
+    gate = asyncio.Semaphore(cfg.CONCURRENCY)
     results: dict[str, tuple[Judgement, HomeSignals | None]] = {}
 
     async def one(host: str) -> None:
-        text = texts.get(host)
         async with gate:
-            if home_client is not None and _without_text(host, text):
-                results[host] = await by_home(http, home_client, host=host)
+            if summary.stopped is not None:
+                summary.unanswered += 1  # без кредитов модель не зовём: судится следующим прогоном
                 return
-            first = await judge_host(
-                http,
-                host=host,
-                title=text.title if text else None,
-                description=text.description if text else None,
-            )
-            results[host] = await second_opinion(
-                http, home_client, host=host, text=text, verdict=first
-            )
+            results[host] = await _judged(http, home_client, host, texts.get(host))
+        if results[host][0].no_credits:
+            summary.stopped = NO_CREDITS_WORDS
 
     # `gather` без `return_exceptions` уронил бы прогон из-за одного домена,
     # а судья — не та ступень, ради которой стоит терять оплаченную выдачу.
@@ -451,7 +468,7 @@ async def judge_candidates(
         if isinstance(outcome, BaseException):
             logger.warning("судья площадки упал на %s: %s", host, outcome)
 
-    if index is not None:
+    if index is not None and summary.stopped is None:
         try:
             summary.index_usd = await through_index(http, index, results, texts)
         except Exception as exc:  # noqa: BLE001 — индекс необязателен, вердикты уже есть
@@ -460,4 +477,6 @@ async def judge_candidates(
     collected, cut = _collect(results, texts, summary, unpaid)
     verdicts.update(collected)
     rejected |= cut
+    if summary.stopped is not None:
+        summary.unanswered_reason = summary.stopped  # что чинить — словами, а не кодом провайдера
     return JudgePass(verdicts, summary, rejected, _opened(results))

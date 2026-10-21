@@ -334,6 +334,19 @@ def _no_real_model(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _model_answers_the_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Смета, запуск, «Продолжить» и пересуд спрашивают модель до первой траты
+    (`shared/llm.probe`, 20.10.2026) — в тестах никогда настоящую: ключ пуст (`_no_real_model`),
+    и проверка закрыла бы каждый запуск. Модель «ответила»; тесты проверки ставят настоящую
+    функцию с подставным транспортом (`tests/test_model_no_credits.py`)."""
+
+    async def answered(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr("backend.shared.llm.probe", answered)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_kommo(monkeypatch: pytest.MonkeyPatch) -> None:
     """Тесты не пишут в настоящий Kommo, даже если в `.env` разработчика лежат
     живой режим и ключ: сделка в чужой CRM — побочный эффект, который не

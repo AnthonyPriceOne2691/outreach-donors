@@ -131,6 +131,8 @@ class SegmentVerdict:
     facts: SiteFacts | None = None
     #: Правило таблицы, решившее полосу (`segment_rules.RULES`): разбивка eval и отчёта.
     rule: str | None = None
+    #: У ключа модели нет кредитов: вердикта нет, проход встаёт (`segment_window`).
+    no_credits: bool = False
 
     @property
     def would_cut(self) -> bool:
@@ -224,6 +226,7 @@ def _verdict(rule: Rule, case: Case, said: Said, early: _Early) -> SegmentVerdic
         cut_off=said.cut_off,
         facts=facts,
         rule=rule.name,
+        no_credits=said.no_credits,
     )
 
 

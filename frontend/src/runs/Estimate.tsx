@@ -92,9 +92,15 @@ export function Estimate({ forecast, lines }: Props) {
           {forecast.serp_refusal}
         </Alert>
       )}
+      {/* Модель суда не ответила проверке (20.10.2026): прогон не начнётся — причина словами. */}
+      {forecast.model_refusal !== null && (
+        <Alert color="red" title="Модель не готова">
+          {forecast.model_refusal}
+        </Alert>
+      )}
       <BudgetVerdict
         figures={forecast}
-        blocked={forecast.serp_refusal !== null}
+        blocked={forecast.serp_refusal !== null || forecast.model_refusal !== null}
         trim="Или сократите список ключей или глубину выдачи."
         fits="Смета считает худший случай — что все домены новые. За те, у которых данные ещё свежие, второй раз не платят, поэтому по факту обычно меньше."
       />
