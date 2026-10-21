@@ -83,15 +83,16 @@ async def _first_search(session: AsyncSession, run: SalesSegmentRunModel) -> dic
     return await go(session, run, serp(), Model({}))
 
 
-def _dies_on_save(monkeypatch: pytest.MonkeyPatch, *, on: int = 1) -> list[int]:
-    """Воркер падает, когда пачка сохраняет исход в `on`-й раз: Hunter уже ответил, а ни исхода,
-    ни строки журнала пачки нет — её коммит не случился."""
+def _dies_on_save(monkeypatch: pytest.MonkeyPatch, *, host: str) -> list[int]:
+    """Воркер падает, когда сохраняется исход сайта `host`: Hunter уже ответил, а исхода этого
+    сайта и строки журнала нет — коммит не случился. По сайту, а не по счёту сохранений: поиск
+    пишет исход пачкой или по сайту — тест держит одно и то же падение при обоих."""
     saving = SegmentContactQueue.save
     saves: list[int] = []
 
     async def save(queue: SegmentContactQueue, results: Sequence[Any]) -> int:
         saves.append(len(results))
-        if len(saves) == on:
+        if any(result.host == host for result in results):
             raise ConnectionError("воркер упал посреди пачки: Hunter ответил, исход не записан")
         return await saving(queue, results)
 
@@ -123,7 +124,7 @@ async def test_a_crash_mid_batch_counts_the_batch_as_spent(
     _paid_ready(monkeypatch, paid)
     _sites(monkeypatch, Web())
     run = await _bought(session, PLAIN[:3], searches=10)
-    _dies_on_save(monkeypatch)
+    _dies_on_save(monkeypatch, host=PLAIN[0])
 
     with pytest.raises(ConnectionError):
         await _first_search(session, run)
@@ -145,7 +146,7 @@ async def test_the_job_retry_does_not_pay_for_the_crashed_batch_again(
     _sites(monkeypatch, Web())
     run = await _bought(session, PLAIN[:3], searches=10)
     saving = SegmentContactQueue.save
-    _dies_on_save(monkeypatch)
+    _dies_on_save(monkeypatch, host=PLAIN[0])
     crashed_at = datetime.now(UTC)
     with pytest.raises(ConnectionError):
         await _first_search(session, run)
@@ -157,7 +158,9 @@ async def test_the_job_retry_does_not_pay_for_the_crashed_batch_again(
     assert len(paid.calls) == 3
     assert (pending(after.report), unrecorded(after.report)) == (0, 3)
     assert paid_left(after.report, after.estimate) == 7
-    assert await _outcomes(session, run) == dict.fromkeys(PLAIN[:3], (ContactStatus.NO_ANSWER, 0))
+    # Упавший — «спрошен, ответа нет»; соседи по пачке — со своим исходом, если их запись успела,
+    # иначе с той же меткой: повтор задачи не берёт ни тех, ни других.
+    assert (await _outcomes(session, run))[PLAIN[0]] == (ContactStatus.NO_ANSWER, 0)
     term = await segment_again.next_at(session, run.id)
     assert term is not None
     assert term >= crashed_at + LEAST
@@ -174,7 +177,7 @@ async def test_batches_before_the_crash_are_already_in_the_count(
     _sites(monkeypatch, Web())
     monkeypatch.setattr("backend.features.contacts.search.BATCH", 2)
     run = await _bought(session, PLAIN, searches=10)
-    _dies_on_save(monkeypatch, on=2)
+    _dies_on_save(monkeypatch, host=PLAIN[2])  # первый сайт второй пачки
 
     with pytest.raises(ConnectionError):
         await _first_search(session, run)
