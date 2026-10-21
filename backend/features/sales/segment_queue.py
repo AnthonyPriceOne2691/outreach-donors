@@ -46,7 +46,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
@@ -165,17 +165,23 @@ class SegmentContactQueue:
         retry: Retry | None = None,
         paid: bool = False,
         now: datetime | None = None,
+        only: Collection[int] | None = None,
     ) -> None:
         self._session = session
         self._run_id = run_id
         self._retry = retry
         self._paid = paid
         self._now = now
+        self._only = None if only is None else list(only)
 
     def _due(self) -> ColumnElement[bool]:
         """Условие «нужен адрес» — одно на счёт и на выборку: два разных правила
         разошлись бы, и отчёт называл бы одно число, а поиск брал другое. Повтор (`Retry`) —
-        только сайтам, чей срок настал; «не спросили» — кнопкой и с платной ступенью (`paid`)."""
+        только сайтам, чей срок настал; «не спросили» — кнопкой и с платной ступенью (`paid`).
+        `only` — домены, выбранные заранее (`segment_paid.first_search`): их пометили «спрошен,
+        ответа нет» до запроса, и срок их не держит."""
+        if self._only is not None:
+            return and_(needs_address(self._run_id), Candidate.domain_id.in_(self._only))
         now = self._now or datetime.now(UTC)
         if self._retry is None:
             return and_(needs_address(self._run_id), due_now(now))

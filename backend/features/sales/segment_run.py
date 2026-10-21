@@ -17,7 +17,9 @@
 2. **Судья** (`segment_judging.judge_run`) — кандидаты, ждущие судью; потолок модели
    выбран — прогон останавливается словами, неосуждённые ждут продолжения.
 3. **Адрес** — общий вход лестницы `search_contacts(queue=…)` со своей очередью
-   кандидатов (`segment_queue.py`): принятым без живого адреса на домене.
+   кандидатов (`segment_queue.py`): принятым без живого адреса на домене. С платной ступенью —
+   пачками с резервом и в пределах сметы (`segment_paid.first_search`): сбой посреди пачки не
+   теряет оплаченного из счёта и не платит за те же сайты повтором задачи.
 4. **Лиды и очистка** (`segment_leads.make_leads`) — принятым с адресом; очистка — та же,
    что у загрузки базы.
 
@@ -49,13 +51,11 @@ from typing import Any
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import sales as sales_cfg
 from backend.config.judge import JudgeMode
 from backend.features.contacts.search import search_contacts
 from backend.features.sales import cleaning, segment_paid
 from backend.features.sales.clean_jobs import report_of
 from backend.features.sales.models import SalesHypothesisModel
-from backend.features.sales.segment_counts import contacts_report
 from backend.features.sales.segment_counts import counts as _counts
 from backend.features.sales.segment_counts import number as _number
 from backend.features.sales.segment_estimate import NO_SEGMENT
@@ -167,17 +167,24 @@ async def _stop(
 
 async def _contacts(
     session: AsyncSession, run: SalesSegmentRunModel, queue: SegmentContactQueue, waiting: int
-) -> dict[str, Any]:
-    """Поиск адреса принятым — общим входом лестницы, своей очередью кандидатов.
+) -> int:
+    """Поиск адреса принятым — общим входом лестницы, своей очередью кандидатов; итог — в отчёт
+    прогона. Возвращает, скольких сайтов прошёл поиск.
 
     Платная ступень — только когда она включена у сбора (`SALES_SEGMENT_PAID_CONTACTS`) и
-    была в смете, которую человек подтвердил запуском: ключ Hunter общий с донорами, и его
-    включение для доноров не должно молча включать платное сбору."""
-    if waiting == 0:
-        return {"pending": 0, "walked": 0, "saved": 0}
-    paid = sales_cfg.SEGMENT_PAID_CONTACTS and int(run.estimate.get("hunter_searches", 0)) > 0
-    found = await search_contacts(session, limit=waiting, queue=queue, no_paid=not paid)
-    return found.as_dict()
+    была в смете, которую человек подтвердил запуском (ключ Hunter общий с донорами, и его
+    включение для доноров не должно молча включать платное сбору), и не сверх её остатка: тогда —
+    пачками с резервом (`segment_paid.first_search`); иначе — одним проходом без неё
+    (`segment_paid.unpaid`)."""
+    if waiting and paid_left(run.report, run.estimate) > 0:
+        return await segment_paid.first_search(session, run, waiting)
+    found: dict[str, Any] = {"pending": 0, "walked": 0, "saved": 0}
+    if waiting:
+        unpaid = segment_paid.unpaid(run)
+        found = (
+            await search_contacts(session, limit=waiting, queue=queue, no_paid=unpaid)
+        ).as_dict()
+    return await segment_paid.merged(session, run, found)
 
 
 async def _serp(
@@ -228,19 +235,12 @@ async def _judge(
     return tally
 
 
-async def _addresses(
-    session: AsyncSession, run: SalesSegmentRunModel, started: datetime, retry: Retry | None = None
-) -> None:
-    """Этап адресов: «адреса: X из Y» — Y принятых ждали поиска на входе; `retry` — только
-    сайтам, которые ждут повтора (`segment_queue.Retry`)."""
-    queue = SegmentContactQueue(session, run.id, retry=retry)
+async def _addresses(session: AsyncSession, run: SalesSegmentRunModel, started: datetime) -> None:
+    """Этап адресов: «адреса: X из Y» — Y принятых ждали поиска на входе."""
+    queue = SegmentContactQueue(session, run.id)
     waiting = await queue.pending_count()
     await enter(session, run, Stage.CONTACTS, total=waiting, pass_started=started)
-    found = await _contacts(session, run, queue, waiting)
-    run.report = {
-        **advanced(run, done=_number(found.get("walked"))),
-        "contacts": contacts_report(run.report.get("contacts"), found),
-    }
+    run.report = advanced(run, done=await _contacts(session, run, queue, waiting))
 
 
 async def _leads(

@@ -22,7 +22,13 @@ from backend.features.contacts.search import SearchReport
 from backend.features.core.domain import UsageProvider
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import UsageRecordModel
-from backend.features.sales import segment_jobs, segment_progress, segment_run, segment_serp
+from backend.features.sales import (
+    segment_counts,
+    segment_jobs,
+    segment_progress,
+    segment_run,
+    segment_serp,
+)
 from backend.features.sales.segment_models import (
     Lane,
     SalesSegmentCandidateModel,
@@ -556,14 +562,14 @@ def test_address_search_numbers_of_passes_add_up() -> None:
     }
     second = {"pending": 0, "walked": 0, "saved": 0}
 
-    found = segment_run.contacts_report(segment_run.contacts_report(None, first), second)
+    found = segment_counts.contacts_report(segment_counts.contacts_report(None, first), second)
 
     assert (found["walked"], found["saved"], found["pending"]) == (3, 1, 0)
     assert found["counters"] == {"provider_entered": 2, "pages": 3}
     assert found["notes"] == ["Платный сервис: остаток квоты 50 поисков."]
 
     third = {"pending": 2, "walked": 2, "saved": 2, "counters": {"provider_entered": 1}}
-    again = segment_run.contacts_report(found, third)
+    again = segment_counts.contacts_report(found, third)
 
     assert again["counters"] == {"provider_entered": 3, "pages": 3}
     assert (again["walked"], again["saved"], again["pending"]) == (5, 3, 2)
