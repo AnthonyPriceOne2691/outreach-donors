@@ -113,6 +113,43 @@ class TestMixedScripts:
         """Японская метка смешивает иероглифы и кану законно; греческая — одна письменность."""
         assert competitor_hosts([typed]) == [host]
 
+    @pytest.mark.parametrize(
+        ("typed", "host"),
+        [
+            # знаки повтора и долготы — часть иероглифов и каны, а не своя письменность
+            ("佐々木.jp", "xn--u6jy55gilq.jp"),
+            ("〆切.jp", "xn--v6jt73h.jp"),
+            ("ラーメン.jp", "xn--4dkp5a8a.jp"),
+            # латиница с восточноазиатским письмом и иероглифы с хангылем и бопомофо
+            ("ドメインname.jp", "xn--name-uk4cni7fuf.jp"),
+            ("例example.cn", "xn--example-ff6k.cn"),
+            ("도메인example.kr", "xn--example-vy31a954bf54a.kr"),
+            ("韓國도메인.kr", "xn--9cs902mfsr95fuvr.kr"),
+            ("ㄅㄆ例.tw", "xn--5ekc355u.tw"),
+        ],
+    )
+    def test_east_asian_mix_of_the_highly_restrictive_profile_is_a_name(
+        self, typed: str, host: str
+    ) -> None:
+        """UTS #39, Highly Restrictive: латиница сходится в метке с иероглифами и каной,
+        с иероглифами и бопомофо, с иероглифами и хангылем — так пишут японские, китайские и
+        корейские имена (ревью 20.10.2026: `佐々木.jp` и `百度baidu.cn` получали отказ)."""
+        assert competitor_hosts([typed]) == [host]
+
+    @pytest.mark.parametrize(
+        ("typed", "words"),
+        [
+            ("도メイン.jp", "кана и хангыль"),
+            ("пример例.com", "иероглифы и кириллица"),
+            ("exαmple.com", "греческое письмо и латиница"),
+        ],
+    )
+    def test_mix_outside_the_profile_is_refused(self, typed: str, words: str) -> None:
+        """Хангыль с каной, кириллица с иероглифами, греческая буква в латинице — ни одно
+        письмо так не пишет: отказ, и в нём названы обе письменности."""
+        with pytest.raises(ValueError, match=f"смешаны письменности \\({words}\\)"):
+            competitor_hosts([typed])
+
 
 class TestNationalNames:
     def test_unicode_and_ascii_forms_are_one_competitor_and_one_list(self) -> None:

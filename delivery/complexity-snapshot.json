@@ -2217,9 +2217,9 @@
       "worst": "judge_tokens_from:97"
     },
     "backend/features/runs/competitor_hosts.py": {
-      "lines": 160,
+      "lines": 180,
       "complexity": 14,
-      "worst": "_strict:112"
+      "worst": "_strict:132"
     },
     "backend/features/runs/competitor_run.py": {
       "lines": 340,

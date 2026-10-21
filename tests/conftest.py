@@ -27,10 +27,12 @@ import asyncio
 import hashlib
 import logging
 import os
+import socket
 import subprocess
 import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from backend.api import deps
@@ -437,6 +439,48 @@ def _no_real_serp_balance(monkeypatch: pytest.MonkeyPatch) -> None:
         return None
 
     monkeypatch.setattr("backend.features.serp.funds.provider_balance", unknown)
+
+
+#: Имена петли: база, Redis и серверы самих тестов живут на ней.
+_LOOPBACK_NAMES = frozenset({"", "localhost", "::1"})
+
+
+def _loopback(host: object) -> bool:
+    name = host.decode() if isinstance(host, bytes) else str(host or "")
+    return name in _LOOPBACK_NAMES or name.startswith("127.") or name.endswith(".localhost")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тесты не ходят в настоящую сеть: имя не петли не распознаётся, соединение не с петлёй —
+    отказ, как у машины без сети. Ревью 20.10.2026: тесты прогона и меню главных открывали
+    `good.com`, `also-good.com` и `*.test` по-настоящему — в CI ответ чужого сайта решал, что
+    увидит тест, а запрос уходил чужому серверу. Тест, которому нужен ответ сайта, ставит
+    подставной транспорт или своё распознавание (`url_guard._resolved_addresses`)."""
+    real_getaddrinfo = socket.getaddrinfo
+    real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+
+    def refuse(address: object) -> None:
+        if isinstance(address, tuple) and address and not _loopback(address[0]):
+            raise OSError(f"тест не ходит в сеть: соединение с {address!r}")
+
+    def getaddrinfo(host: object, *args: Any, **kwargs: Any) -> Any:
+        if not _loopback(host):
+            raise socket.gaierror(socket.EAI_NONAME, f"тест не ходит в сеть: имя {host!r}")
+        return real_getaddrinfo(host, *args, **kwargs)  # type: ignore[arg-type]
+
+    def connect(self: socket.socket, address: Any) -> None:
+        refuse(address)
+        real_connect(self, address)
+
+    def connect_ex(self: socket.socket, address: Any) -> int:
+        refuse(address)
+        return real_connect_ex(self, address)
+
+    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
 
 
 @pytest.fixture
