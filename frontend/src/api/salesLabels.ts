@@ -42,6 +42,7 @@ export const LEAD_REJECTION_REASONS: Record<string, string> = {
   no_mail: 'домен не принимает почту',
   undeliverable: 'адрес не существует',
   unconfirmed: 'адрес не подтверждён',
+  undone: 'решение по сайту отменено',
 };
 
 export function leadReasonTitle(code: string): string {

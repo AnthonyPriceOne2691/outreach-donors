@@ -2,10 +2,10 @@
 
 Ответ решения и отмены — строкой списка сайтов прогона (`SiteView`): экран ставит её на место той,
 по которой решали, — с полосой, словами судьи и тем, можно ли отменить. Отмена — в журнале рядом с
-решением, тем же действием; повтор — 200 без второй записи; решение правила или судьи, заведённый
-лид — 409 словами; нет сайта — 404; без права «Продажи» — 403, и ничего не меняется. Список сайтов
-называет у решения человека слова судьи. Сайты судит настоящий проход судьи с подделкой модели
-(`test_sales_segment_undo.judged`); домены выдуманы.
+решением, тем же действием, со снятым лидом сайта, если он был; повтор — 200 без второй записи;
+решение правила или судьи, письмо лиду ушло — 409 словами; нет сайта — 404; без права «Продажи» —
+403, и ничего не меняется. Список сайтов называет у решения человека слова судьи. Сайты судит
+настоящий проход судьи с подделкой модели (`test_sales_segment_undo.judged`); домены выдуманы.
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ from tests.test_sales_segment_undo import (
     landed,
     words,
 )
+from tests.test_sales_segment_undo_lead import sent_letter
 
 __all__ = ["_network"]  # сеть прогона — отсюда фикстуру видит pytest
 
@@ -70,7 +71,7 @@ async def _journal(session: AsyncSession, candidate_id: int) -> list[dict[str, A
     return [entry.details for entry in found]
 
 
-async def _lead(session: AsyncSession, site: SalesSegmentCandidateModel) -> None:
+async def _lead(session: AsyncSession, site: SalesSegmentCandidateModel) -> SalesLeadModel:
     lead = SalesLeadModel(
         hypothesis_id=site.hypothesis_id,
         domain_id=site.domain_id,
@@ -82,6 +83,7 @@ async def _lead(session: AsyncSession, site: SalesSegmentCandidateModel) -> None
     await session.flush()
     site.lead_id = lead.id
     await session.commit()
+    return lead
 
 
 async def test_a_decision_and_its_undo_answer_with_the_row_and_are_journaled_side_by_side(
@@ -146,6 +148,42 @@ async def test_a_decision_and_its_undo_answer_with_the_row_and_are_journaled_sid
     }
 
 
+async def test_an_undo_takes_off_the_lead_without_a_letter_and_journals_it(
+    session: AsyncSession, client: AsyncClient, headers: dict[str, str]
+) -> None:
+    """Тест продаж 21.10: лид заводится почти сразу после «Принять». Письма ему нет — кнопка есть,
+    отмена снимает лида, а журнал говорит, какого и что с его письмом: по журналу ищут, куда он
+    делся."""
+    run, made = await judged(session, WORKSHOPS)
+    site = made[WORKSHOPS.host]
+    url = f"{CANDIDATES}/{site.id}/decision"
+    assert (await client.post(url, json={"accept": True}, headers=headers)).status_code == 200
+    lead = await _lead(session, site)
+    listed = await client.get(f"/api/sales/segment/runs/{run.id}/sites", headers=headers)
+    assert [row["undoable"] for row in listed.json()["rows"]] == [True]
+
+    undone = await client.delete(url, headers=headers)
+
+    assert undone.status_code == 200, undone.text
+    row = undone.json()
+    assert (row["lane"], row["outcome"], row["undoable"]) == ("would_reject", None, False)
+    await session.refresh(lead)
+    assert (lead.status, lead.rejection_reason) == (LeadStatus.REJECTED, "undone")
+    _, undo = await _journal(session, site.id)
+    assert undo == {
+        "этап": Stage.SALES.value,
+        "действие": "отмена решения по сайту сбора базы",
+        "домен": WORKSHOPS.host,
+        "отменено": "accepted",
+        "стало": "судья отказал бы",
+        "лид снят": f"№{lead.id} {lead.email}",
+        "лид был": "готов",
+        "письмо лиду": "в очереди не было",
+        "судья сегмента": "отсечён",
+        "прогон": site.run_id,
+    }
+
+
 async def test_refusals_are_409_in_words_and_an_unknown_site_is_404(
     session: AsyncSession, client: AsyncClient, headers: dict[str, str]
 ) -> None:
@@ -153,13 +191,13 @@ async def test_refusals_are_409_in_words_and_an_unknown_site_is_404(
     workshops, clinic = made[WORKSHOPS.host], made[CLINIC.host]
     url = f"{CANDIDATES}/{workshops.id}/decision"
     assert (await client.post(url, json={"accept": True}, headers=headers)).status_code == 200
-    await _lead(session, workshops)
+    await sent_letter(session, await _lead(session, workshops))
 
     with_lead = await client.delete(url, headers=headers)
     by_judge = await client.delete(f"{CANDIDATES}/{clinic.id}/decision", headers=headers)
     unknown = await client.delete(f"{CANDIDATES}/987654/decision", headers=headers)
 
-    assert (with_lead.status_code, with_lead.json()["detail"]) == (409, su.LEAD_MADE)
+    assert (with_lead.status_code, with_lead.json()["detail"]) == (409, su.GONE)
     assert (by_judge.status_code, by_judge.json()["detail"]) == (409, su.NOT_HUMAN["model"])
     assert (unknown.status_code, unknown.json()["detail"]) == (
         404,
@@ -181,7 +219,7 @@ async def test_the_list_names_the_judge_next_to_a_human_decision_and_whether_it_
     for site, accept in ((workshops, True), (portal, False)):
         url = f"{CANDIDATES}/{site.id}/decision"
         assert (await client.post(url, json={"accept": accept}, headers=headers)).status_code == 200
-    await _lead(session, workshops)
+    await sent_letter(session, await _lead(session, workshops))
 
     response = await client.get(f"/api/sales/segment/runs/{run.id}/sites", headers=headers)
 
@@ -191,7 +229,7 @@ async def test_the_list_names_the_judge_next_to_a_human_decision_and_whether_it_
         host: (row["reason"], row["judge_reason"], row["undoable"]) for host, row in rows.items()
     }
     assert said == {
-        # Лид заведён — отменять нечего: его отклоняют во вкладке «emails».
+        # Письмо лиду ушло — отменой его не отозвать: кнопки нет.
         WORKSHOPS.host: ("принял человек", CUT, False),
         PORTAL.host: ("отказал человек", words(INTERMEDIARY, PORTAL), True),
         # Решила модель — её слова и так в причине.

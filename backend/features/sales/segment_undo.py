@@ -17,11 +17,30 @@
   `segment_judge.proven_again`), модель не ответила: причина — словами, что она не сохранилась.
 - **Отменяется только решение человека**: решение правила или судья — отказ словами; сайт уже
   ждёт человека (двойной клик, повтор запроса) — не отказ и не вторая запись журнала.
-- **Лид уже заведён — отказ словами**: письма лиду отменой не отозвать, его отклоняют во вкладке
-  «emails». Проверка и отмена — одной транзакцией под замком строки сайта; заведение лидов держит
-  строки принятых тем же замком до конца своей транзакции (`segment_leads._ready`). Отмена, пришедшая
-  посреди заведения, ждёт его конца и видит лид — или, дольше предела ожидания, отказывает словами
-  «занято», а не висит; заведение, пришедшее посреди отмены, ждёт её и сайт без решения не берёт.
+- **Лид уже заведён, а письмо ему не ушло — лид снимается вместе с решением** (тест продаж 21.10:
+  после «Принять» адрес находится и лид заводится почти сразу, и отказ «лид уже заведён» не давал
+  отменить «Принять» вовсе). Лид — «отклонён» с причиной `RejectionReason.UNDONE` и словами
+  `UNDONE_NOTE`, а не удалён: так его снимают и стоп-лист, и очистка. Его первое письмо в очереди —
+  с очереди тем же местом (`off_queue.take_off`, слова — `off_queue.closed`), добивок без ушедшего
+  первого не бывает, а отправка снятому лиду не пустит ничего (`mail.unwritable`). Ссылка сайта на
+  лида гаснет: сайт — как не принятый, и числа прогона и воронки сходятся без поправок (лиды прогона
+  считаются по ссылке сайта, воронка — по письмам). Снятый держатель отпускает компанию
+  (`company_hold.freed`), как после стоп-листа. «Принять» снова возвращает того же лида
+  (`segment_leads`: новый лид с тем же адресом очистка отсекла бы дублем снятого). Удаление строки
+  потеряло бы оплаченную проверку адреса и оставило бы без хозяина ссылки на лида в словах чужих
+  лидов («дубль: адрес уже у лида №…», держатель компании).
+- **Письмо ушло, уходит или могло уйти — отказ словами** (`GONE`, правило — `gone_leads`): отменой
+  письмо не отозвать. Остановить лида можно стоп-листом продаж; во вкладке «emails» остановки
+  цепочки нет. Тем же правилом список сайтов говорит, есть ли кнопка (`undoable`).
+- **Гонки — замками строк в одном порядке: сайт → лид → письма его диалога.** Проверка и снятие —
+  одной транзакцией. Заведение лидов держит строки принятых до конца своей транзакции
+  (`segment_leads._ready`): отмена, пришедшая посреди заведения, ждёт его и снимает заведённого
+  лида; заведение, пришедшее посреди отмены, ждёт её и сайт без решения не берёт. Сборка письма
+  берёт строку лида на запись письма (`off_queue.still_ready`): пришла посреди отмены — ждёт её и
+  письма снятому лиду не пишет; отмена посреди записи письма ждёт её конца и снимает письмо.
+  Отправка захватывает письмо условием «в очереди» (`sending._claim`), отмена держит строку письма:
+  кто первым взял строку, тот и прав — письмо ушло, и отмена отказывает, или снято, и отправка его не
+  берёт. Строку держат дольше предела ожидания — отказ словами «занято», а не ожидание без конца.
 
 Слова судьи у решённого человеком сайта (`judged_before`) читает и список сайтов прогона: с чем
 человек не согласился, видно рядом с его решением.
@@ -30,15 +49,28 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Collection, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import ColumnElement, Row, Select, or_, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config.judge import JudgeMode
+from backend.features.core.domain import MessageStatus
+from backend.features.core.models.outreach import MessageModel
+from backend.features.letters.chain import FIRST_STEP
+from backend.features.sales import clean_write, company_hold, off_queue
+from backend.features.sales.clean_report import REASON_LABELS
+from backend.features.sales.models import (
+    LeadStatus,
+    RejectionReason,
+    SalesLeadModel,
+    SalesThreadModel,
+)
 from backend.features.sales.segment_judge import SegmentVerdict, SiteText, by_language
 from backend.features.sales.segment_models import (
     AWAITS_HUMAN,
@@ -49,20 +81,32 @@ from backend.features.sales.segment_models import (
     SalesSegmentVerdictModel,
 )
 from backend.features.sales.segment_window import Judged, Landing, landing
+from backend.features.sales.verifier import WENT
 
 logger = logging.getLogger(__name__)
 
 Candidate = SalesSegmentCandidateModel
 Verdict = SalesSegmentVerdictModel
 
-#: Сколько ждать замок строки сайта: заведение лидов держит строки принятых до конца очистки
-#: адресов. Строкой целиком — значение не из ввода; тест предела подменяет её короткой.
+#: Сколько ждать замок строки сайта, его лида и писем лида: заведение лидов держит строки принятых
+#: до конца очистки адресов, сборка — строку лида до конца записи письма. Строкой целиком — значение
+#: не из ввода; тест предела подменяет её короткой.
 LOCK_WAIT = "SET LOCAL lock_timeout = '5s'"
 #: SQLSTATE «замок не дождались» (`lock_not_available`).
 LOCK_NOT_AVAILABLE = "55P03"
 
-LEAD_MADE = "лид уже заведён — отклоните его во вкладке «emails»"
-BUSY = "по сайту сейчас заводится лид или пишется другое решение — обновите список через минуту"
+#: Письмо лиду ушло, уходит или могло уйти: отменой его не отозвать.
+GONE = (
+    "письмо лиду уже ушло — отменой его не отозвать; остановить лида можно только стоп-листом "
+    "продаж: адрес или домен — на вкладке «Стоп-лист»"
+)
+#: Почему лид снят — словами у лида (`cleaning_note`) и, с началом `off_queue.LEAD_CLOSED`, у его
+#: снятого письма.
+UNDONE_NOTE = "решение человека по сайту сбора отменено — лид снят, письмо ему не уйдёт"
+BUSY = (
+    "по сайту сейчас заводится лид, пишется другое решение или собирается и уходит письмо — "
+    "обновите список через минуту"
+)
 NOT_JUDGED = "сайт ещё не судили — отменять нечего"
 #: Решение правила или судьи: отменяется только решение человека.
 NOT_HUMAN = {
@@ -78,28 +122,83 @@ SILENT = "модель не ответила — следующий проход
 
 
 class UndoRefusedError(ValueError):
-    """Решение не отменить: решил не человек, лид уже заведён. Текст — почему."""
+    """Решение не отменить: решил не человек, письмо лиду сайта ушло. Текст — почему."""
 
 
 class UndoBusyError(UndoRefusedError):
-    """Строку сайта держит другая операция дольше `LOCK_WAIT`."""
+    """Строку сайта, его лида или письма лида держит другая операция дольше `LOCK_WAIT`."""
+
+
+@dataclass(frozen=True, slots=True)
+class LeadOff:
+    """Лид сайта, снятый отменой, — для журнала: номер, адрес, было ли его письмо в очереди и каким
+    был лид (`_was`)."""
+
+    lead_id: int
+    email: str
+    #: Первое письмо лида снято с очереди; ложь — в очереди письма не было.
+    letter_off: bool
+    #: Каким лид был до снятия — словами вкладки «emails»: «готов», «новый», «отклонён: дубль».
+    was: str
+
+
+#: Состояние лида словами — как на вкладке «emails».
+STATE_WORDS = {LeadStatus.NEW: "новый", LeadStatus.READY: "готов", LeadStatus.REJECTED: "отклонён"}
+#: Причина отказа словами по коду, как он записан у лида; незнакомый код — как записан.
+_REASON_WORDS = {code.value: words for code, words in REASON_LABELS.items()}
+
+
+def _was(lead: SalesLeadModel) -> str:
+    """Каким лид был до снятия: отклонённому — и причина очистки словами, иначе она пропала бы —
+    снятие пишет свою (`UNDONE`)."""
+    said = STATE_WORDS[lead.status]
+    reason = lead.rejection_reason
+    if lead.status is LeadStatus.REJECTED and reason:
+        said = f"{said}: {_REASON_WORDS.get(reason, reason)}"
+    return said
 
 
 @dataclass(frozen=True, slots=True)
 class Undone:
-    """Сайт после отмены и какое решение отменено; `None` — повтор: сайт уже ждёт человека."""
+    """Сайт после отмены, какое решение отменено и снятый лид сайта; `was` — `None`: повтор, сайт
+    уже ждёт человека."""
 
     candidate: Candidate
     was: str | None = None
+    lead: LeadOff | None = None
 
     @property
     def repeated(self) -> bool:
         return self.was is None
 
 
-def undoable(candidate: Candidate) -> bool:
-    """Отменить можно: решил человек, и лида из сайта нет."""
-    return candidate.decided_by == Decider.HUMAN and candidate.lead_id is None
+def undoable(candidate: Candidate, *, gone: bool = False) -> bool:
+    """Отменить можно: решил человек, а письмо лиду сайта не ушло, не уходит и уйти не могло
+    (`gone` — у лида сайта такое письмо есть, `gone_leads`)."""
+    return candidate.decided_by == Decider.HUMAN and not gone
+
+
+def _went() -> ColumnElement[bool]:
+    """Письмо ушло, уходит или могло уйти: «отправляется», ушло, вернулось отказом доставки
+    (`verifier.WENT`) — или у него наш `Message-ID` прежней попытки, которая могла дойти: такое
+    не трогает и сборка (`off_queue.again`)."""
+    return or_(MessageModel.status.in_(WENT), MessageModel.internet_message_id.is_not(None))
+
+
+async def gone_leads(session: AsyncSession, lead_ids: Collection[int]) -> set[int]:
+    """Лиды, чьё письмо ушло, уходит или могло уйти (`_went`): снять их отменой нельзя. Письма —
+    все письма диалога лида: добивка и ответ бывают только после ушедшего первого. Одно правило у
+    отказа отмены и у кнопки в списке сайтов (`undoable`)."""
+    wanted = sorted(set(lead_ids))
+    if not wanted:
+        return set()
+    rows = await session.scalars(
+        select(SalesThreadModel.lead_id)
+        .join(MessageModel, MessageModel.thread_id == SalesThreadModel.thread_id)
+        .where(SalesThreadModel.lead_id.in_(wanted), _went())
+        .distinct()
+    )
+    return set(rows.all())
 
 
 def _decider(candidate: Candidate) -> Decider:
@@ -196,12 +295,33 @@ def _sqlstate(exc: DBAPIError) -> str:
     return str(getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None) or "")
 
 
+@asynccontextmanager
+async def _waiting(session: AsyncSession, what: str) -> AsyncIterator[None]:
+    """Шаг, который ждёт чужой замок строки, — с пределом ожидания (`LOCK_WAIT`, ставит `_locked`
+    на всю транзакцию) и в точке сохранения: отказ по пределу — словами «занято», а не пятисотка,
+    и транзакция вызывающего жива."""
+    try:
+        async with session.begin_nested():
+            yield
+    except DBAPIError as exc:
+        if _sqlstate(exc) != LOCK_NOT_AVAILABLE:
+            raise
+        logger.warning("сбор продаж: строку держит другая операция", extra={"what": what})
+        raise UndoBusyError(BUSY) from exc
+
+
+async def _held(session: AsyncSession, query: Select[Any], what: str) -> list[Row[Any]]:
+    """Строки запроса под замком (`_waiting`). Значения — из базы, а не из памяти сессии."""
+    async with _waiting(session, what):
+        rows = await session.execute(query)  # строки уже прочитаны: результат буферизован
+    return list(rows.all())
+
+
 async def _locked(
     session: AsyncSession, candidate_id: int
 ) -> tuple[Candidate, str, str | None] | None:
     """Строка сайта под `FOR UPDATE` (строка прогона — без замка: её пишет идущий проход), режим
-    судьи и язык писем прогона — с пределом ожидания и в точке сохранения: отказ по пределу не
-    ломает транзакцию вызывающего. Значения — из базы, а не из памяти сессии."""
+    судьи и язык писем прогона (`_held`)."""
     await session.execute(text(LOCK_WAIT))
     query = (
         select(Candidate, SalesSegmentRunModel.mode, SalesSegmentRunModel.language)
@@ -210,17 +330,58 @@ async def _locked(
         .with_for_update(of=Candidate)
         .execution_options(populate_existing=True)
     )
-    try:
-        async with session.begin_nested():
-            found = (await session.execute(query)).tuples().first()
-    except DBAPIError as exc:
-        if _sqlstate(exc) != LOCK_NOT_AVAILABLE:
-            raise
-        logger.warning(
-            "сбор продаж: строку сайта держит другая операция", extra={"id": candidate_id}
-        )
-        raise UndoBusyError(BUSY) from exc
-    return None if found is None else (found[0], found[1], found[2])
+    found = await _held(session, query, f"сайт №{candidate_id}")
+    return None if not found else (found[0][0], found[0][1], found[0][2])
+
+
+async def _lead_off(session: AsyncSession, lead_id: int) -> LeadOff | None:
+    """Снять лида сайта, пока его письмо не ушло. Строка лида и письма его диалога — под замком
+    (`_held`); письмо ушло, уходит или могло уйти (`gone_leads`) — отказ словами `GONE`, ничего не
+    тронуто. Иначе первое письмо в очереди — с очереди (`off_queue.take_off`), лид — «отклонён» с
+    причиной `UNDONE` (время правки лида — прежнее, как у очистки: `clean_write`), а компания,
+    которую он держал, свободна (`company_hold.freed`). `None` — лида уже нет."""
+    lead_query = select(SalesLeadModel).where(SalesLeadModel.id == lead_id).with_for_update()
+    leads = await _held(
+        session, lead_query.execution_options(populate_existing=True), f"лид №{lead_id}"
+    )
+    if not leads:
+        return None
+    lead: SalesLeadModel = leads[0][0]
+    letters_query = (
+        select(MessageModel)
+        .join(SalesThreadModel, SalesThreadModel.thread_id == MessageModel.thread_id)
+        .where(SalesThreadModel.lead_id == lead_id)
+        .order_by(MessageModel.id)
+        .with_for_update(of=MessageModel)
+        .execution_options(populate_existing=True)
+    )
+    letters = [row[0] for row in await _held(session, letters_query, f"письма лида №{lead_id}")]
+    if await gone_leads(session, [lead_id]):
+        raise UndoRefusedError(GONE)
+    was = _was(lead)
+    queued = [
+        letter
+        for letter in letters
+        if letter.step == FIRST_STEP and letter.status is MessageStatus.QUEUED
+    ]
+    for letter in queued:  # строки письма под замком: отправка взять его не успеет
+        await off_queue.take_off(session, letter, off_queue.closed(UNDONE_NOTE))
+    await clean_write.write(session, [_rejected(lead_id)])
+    async with _waiting(session, f"компания лида №{lead_id}"):  # лиды других гипотез
+        await company_hold.freed(session, {lead.domain_id})
+    return LeadOff(lead_id, lead.email, letter_off=bool(queued), was=was)
+
+
+def _rejected(lead_id: int) -> dict[str, object]:
+    """Исход снятого лида: «отклонён», причина — отмена решения; срок перепроверки адреса снят."""
+    return {
+        clean_write.LEAD_ID: lead_id,
+        "status": LeadStatus.REJECTED,
+        "rejection_reason": RejectionReason.UNDONE.value,
+        "cleaning_note": UNDONE_NOTE,
+        "verify_since": None,
+        "verify_again_at": None,
+    }
 
 
 def _not_human(candidate: Candidate) -> Undone:
@@ -233,19 +394,27 @@ def _not_human(candidate: Candidate) -> Undone:
 
 
 async def undo(session: AsyncSession, candidate_id: int) -> Undone | None:
-    """Отменить решение человека по сайту; `None` — сайта нет. Коммит — за вызывающим."""
+    """Отменить решение человека по сайту — и снять его лида, пока письмо лиду не ушло (`_lead_off`);
+    `None` — сайта нет. Коммит — за вызывающим: отказ словами — до первой записи, «занято» на
+    лидах других гипотез (`company_hold.freed`) — после снятия лида, и записанное откатывает он."""
     locked = await _locked(session, candidate_id)
     if locked is None:
         return None
     candidate, mode, letters = locked
     if candidate.decided_by != Decider.HUMAN:
         return _not_human(candidate)
-    if candidate.lead_id is not None:
-        raise UndoRefusedError(LEAD_MADE)
+    lead = None if candidate.lead_id is None else await _lead_off(session, candidate.lead_id)
     found = (await judged_before(session, [candidate], JudgeMode(mode), letters))[candidate.id]
     was = candidate.lane
-    values = found.values(datetime.now(UTC)) | {"decided_at": None, "decided_by_user": None}
+    values = found.values(datetime.now(UTC)) | {
+        "decided_at": None,
+        "decided_by_user": None,
+        "lead_id": None,
+    }
     for name, value in values.items():
         setattr(candidate, name, value)
-    logger.info("сбор продаж: решение по сайту отменено", extra={"id": candidate_id, "was": was})
-    return Undone(candidate, was)
+    logger.info(
+        "сбор продаж: решение по сайту отменено",
+        extra={"id": candidate_id, "was": was, "lead": None if lead is None else lead.lead_id},
+    )
+    return Undone(candidate, was, lead)

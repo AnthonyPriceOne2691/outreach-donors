@@ -10,11 +10,14 @@
   наблюдении отказ модели — «судья отказал бы» со словами судьи), кто и когда решил — очищено;
 - куда — решает правило судьи (`segment_window.landing`), а не прошитая «на проверке»;
 - слов нет в кэше — словами, что не сохранились; модель не ответила — следующий проход судит снова;
-- решение правила или судьи, «ещё не судили», заведённый лид — отказ словами; повтор — не отказ;
+- решение правила или судьи, «ещё не судили» — отказ словами; повтор — не отказ; заведённый лид без
+  письма снимается вместе с решением (письма, сборка, отправка и «Принять» снова —
+  `test_sales_segment_undo_lead.py`);
 - путь целиком: отменённое «принят» продолжение прогона в лиды не берёт;
 - **гонка с заведением лида — на настоящих фиксациях** (две сессии своего движка, у фикстуры
-  `session` второго соединения нет): отмена посреди заведения ждёт его и видит лид, заведение
-  посреди отмены ждёт её и лида не заводит; строка, занятая дольше предела, — отказ словами.
+  `session` второго соединения нет): отмена посреди заведения ждёт его и снимает заведённого лида,
+  заведение посреди отмены ждёт её и лида не заводит; строка, занятая дольше предела, — отказ
+  словами.
 
 Домены и тексты выдуманы (`*.example.test`).
 """
@@ -37,6 +40,7 @@ from backend.features.sales import segment_undo as su
 from backend.features.sales.models import (
     LeadSource,
     LeadStatus,
+    RejectionReason,
     SalesHypothesisModel,
     SalesLeadModel,
 )
@@ -367,11 +371,15 @@ async def test_a_repeated_undo_is_not_refused_and_changes_nothing(session: Async
     assert landed(site) == after
 
 
-async def test_a_site_whose_lead_is_made_is_refused_in_words_and_stays(
+async def test_a_made_lead_without_a_letter_is_taken_off_with_the_decision(
     session: AsyncSession,
 ) -> None:
+    """Тест продаж 21.10: лид заводится почти сразу после «Принять», и отказ «лид уже заведён» не
+    давал отменить «Принять» вовсе. Письма лиду нет — отмена снимает его вместе с решением:
+    «отклонён» с причиной «решение отменено», ссылка сайта гаснет."""
     _, made = await judged(session, WORKSHOPS)
     site = made[WORKSHOPS.host]
+    before = landed(site)
     await decided(session, site, accept=True)
     lead = SalesLeadModel(
         hypothesis_id=site.hypothesis_id,
@@ -384,14 +392,20 @@ async def test_a_site_whose_lead_is_made_is_refused_in_words_and_stays(
     await session.flush()
     site.lead_id = lead.id
     await session.commit()
-    before = landed(site)
+    assert su.undoable(site)
 
-    with pytest.raises(su.UndoRefusedError) as refused:
-        await su.undo(session, site.id)
+    found = await undone(session, site)
 
-    assert str(refused.value) == "лид уже заведён — отклоните его во вкладке «emails»"
+    await session.refresh(site)
+    await session.refresh(lead)
     assert landed(site) == before
-    assert not su.undoable(site)
+    assert site.lead_id is None
+    assert (lead.status, lead.rejection_reason, lead.cleaning_note) == (
+        LeadStatus.REJECTED,
+        RejectionReason.UNDONE.value,
+        su.UNDONE_NOTE,
+    )
+    assert found.lead == su.LeadOff(lead.id, lead.email, letter_off=False, was="готов")
 
 
 # --- путь целиком --------------------------------------------------------------------------------
@@ -490,11 +504,12 @@ async def _paused_after(
     return reached, release
 
 
-async def test_an_undo_in_the_middle_of_lead_making_waits_for_it_and_sees_the_lead(
+async def test_an_undo_in_the_middle_of_lead_making_waits_for_it_and_takes_the_lead_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Заведение прочло сайт принятым и стоит до записи лида; отмена приходит сейчас. Старый проход
-    строку не держал: отмена проходила, а лид потом ложился на сайт «на проверке»."""
+    строку не держал: отмена проходила, а лид потом ложился на сайт «на проверке». Теперь отмена
+    ждёт конца заведения, видит лида и снимает его вместе с решением: письма ему ещё нет."""
     async with committed_sessions() as factory:
         site_id, run_id = await _accepted_with_address(factory)
         selected, release = await _paused_after(monkeypatch, "_ready")
@@ -509,16 +524,24 @@ async def test_an_undo_in_the_middle_of_lead_making_waits_for_it_and_sees_the_le
                 await session.commit()
                 return found
 
-        made, refused = await asyncio.gather(
+        made, found = await asyncio.gather(
             _making(factory, run_id), undoing(), return_exceptions=True
         )
 
         assert isinstance(made, dict), made
         assert made["created"] == 1
-        assert isinstance(refused, su.UndoRefusedError), refused
-        assert str(refused) == su.LEAD_MADE
+        assert isinstance(found, su.Undone), found
+        assert found.lead is not None
+        assert not found.lead.letter_off
         lane, lead_id, leads = await _state(factory, site_id)
-        assert (lane, lead_id is not None, leads) == (Lane.ACCEPT, True, 1)
+        assert (lane, lead_id, leads) == (Lane.WOULD_REJECT, None, 1)
+        async with factory() as session:
+            lead = await session.get(SalesLeadModel, found.lead.lead_id)
+            assert lead is not None
+            assert (lead.status, lead.rejection_reason) == (
+                LeadStatus.REJECTED,
+                RejectionReason.UNDONE.value,
+            )
 
 
 async def test_lead_making_in_the_middle_of_an_undo_waits_for_it_and_makes_no_lead() -> None:

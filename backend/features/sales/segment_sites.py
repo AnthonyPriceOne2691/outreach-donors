@@ -20,8 +20,9 @@
 
 **Решение человека — со словами судьи** (тест продаж 20.10: с чем человек не согласился, видно не
 было): у решённого человеком сайта — что сказал бы судья (`segment_undo.judged_before`), и можно ли
-решение отменить (`segment_undo.undoable`: лида из сайта нет). Строка после решения и его отмены —
-тем же правилом, что строка списка (`site_row`): экран ставит её на место той, по которой решали.
+решение отменить (`segment_undo.undoable`: письмо лиду сайта не ушло — тем же правилом, что у самой
+отмены, `segment_undo.gone_leads`). Строка после решения и его отмены — тем же правилом, что строка
+списка (`site_row`): экран ставит её на место той, по которой решали.
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ from backend.features.sales.segment_models import (
     SalesSegmentRunModel,
 )
 from backend.features.sales.segment_rejudge_report import Change, changes
-from backend.features.sales.segment_undo import judged_before, undoable
+from backend.features.sales.segment_undo import gone_leads, judged_before, undoable
 
 Candidate = SalesSegmentCandidateModel
 
@@ -149,10 +150,12 @@ class SiteRow:
     #: Решил человек — что сказал судья: его слова тем видом, каким их кладёт судья. Пусто — решил
     #: не человек (слова судьи и так в причине) или вердикта не было (не ответил, выключен).
     judge: str | None = None
+    #: Письмо лиду сайта ушло, уходит или могло уйти (`segment_undo.gone_leads`): отменить нельзя.
+    gone: bool = False
 
     @property
     def undoable(self) -> bool:
-        return undoable(self.candidate)
+        return undoable(self.candidate, gone=self.gone)
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,6 +242,13 @@ async def _outcomes(
     }
 
 
+async def _gone(session: AsyncSession, candidates: list[Candidate]) -> set[int]:
+    """Сайты страницы, чьему лиду письмо ушло, уходит или могло уйти: решение по ним не отменить —
+    одним правилом с самой отменой (`segment_undo.gone_leads`), одним чтением на страницу."""
+    leads = await gone_leads(session, [c.lead_id for c in candidates if c.lead_id is not None])
+    return {c.id for c in candidates if c.lead_id in leads}
+
+
 async def _judges(
     session: AsyncSession, run: SalesSegmentRunModel, candidates: list[Candidate]
 ) -> dict[int, str]:
@@ -277,6 +287,7 @@ async def sites_page(session: AsyncSession, ask: SitesAsk) -> SitesPage | None:
     candidates = [candidate for candidate, _ in found]
     outcomes = await _outcomes(session, ask.run_id, candidates)
     judges = await _judges(session, run, candidates)
+    gone = await _gone(session, candidates)
     return SitesPage(
         rows=[
             SiteRow(
@@ -285,6 +296,7 @@ async def sites_page(session: AsyncSession, ask: SitesAsk) -> SitesPage | None:
                 outcomes[candidate.id],
                 changed.get(candidate.id),
                 judges.get(candidate.id),
+                gone=candidate.id in gone,
             )
             for candidate, host in found
         ],
@@ -309,4 +321,7 @@ async def site_row(session: AsyncSession, candidate: Candidate) -> SiteRow:
     outcomes = await _outcomes(session, run.id, [candidate])
     judges = await _judges(session, run, [candidate])
     change = changes(run.report).get(candidate.id)
-    return SiteRow(candidate, host, outcomes[candidate.id], change, judges.get(candidate.id))
+    gone = candidate.id in await _gone(session, [candidate])
+    return SiteRow(
+        candidate, host, outcomes[candidate.id], change, judges.get(candidate.id), gone=gone
+    )
