@@ -17,12 +17,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from backend.features.sales.chain_text import LANGUAGES
+from backend.features.sales.chain_text import LANGUAGES, in_language
 from backend.features.sales.kb import Fact, speaks
 from backend.features.sales.models import KbKind
-
-#: Язык письма словами — после «на»: «на английском».
-IN_LANGUAGE = {"ru": "на русском", "en": "на английском"}
 
 #: Вид записи — словами «чего нет» и что агент сделает без неё.
 WITHOUT: dict[KbKind, tuple[str, str]] = {
@@ -47,19 +44,13 @@ class Gap:
     words: str
 
 
-def _in(code: str) -> str:
-    """«на английском» — и у кода с регионом (`en-us`): язык записи тот же."""
-    base = code.partition("-")[0]
-    return IN_LANGUAGE.get(code) or IN_LANGUAGE.get(base) or f"на языке {code}"
-
-
 def _gap(kind: KbKind, language: str, of_kind: Sequence[Fact]) -> Gap:
     what, without = WITHOUT[kind]
     elsewhere = tuple(sorted({fact.language for fact in of_kind}))
     if elsewhere:
-        others = dict.fromkeys(_in(code).removeprefix("на ") for code in elsewhere)
+        others = dict.fromkeys(in_language(code).removeprefix("на ") for code in elsewhere)
         without = f"агент возьмёт записи на {', '.join(others)} и переведёт"
-    return Gap(kind, language, elsewhere, f"{what} {_in(language)} нет — {without}")
+    return Gap(kind, language, elsewhere, f"{what} {in_language(language)} нет — {without}")
 
 
 def gaps(found: Sequence[Fact]) -> list[Gap]:

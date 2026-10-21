@@ -32,6 +32,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from backend.config import outreach as cfg
 from backend.features.letters import compose, guards, uniqueness
@@ -46,7 +47,9 @@ from backend.features.letters.template import (
     ZoneKind,
 )
 from backend.features.sales.models import SUBJECT_LENGTH
-from backend.features.sales.sender import Sender
+
+if TYPE_CHECKING:  # отправитель знает языки цепочек отсюда: импорт в ответ замкнул бы круг
+    from backend.features.sales.sender import Sender
 
 #: Шаги цепочки: 1 — первое письмо, 2 и 3 — добивки. Больше трёх писем человеку,
 #: который дважды промолчал, — жалоба на спам, а не настойчивость (как у доноров).
@@ -57,6 +60,12 @@ STEP_TITLES = {1: "первое письмо", 2: "первая добивка",
 STEP_WORDS = {1: "первого письма", 2: "первой добивки", 3: "второй добивки"}
 #: Языки писем. Новый язык — код здесь: экран берёт список из ответа сервера.
 LANGUAGES = ("ru", "en")
+#: Язык письма словами — после «на»: «на английском». Языка нет здесь — «на языке <код>».
+IN_LANGUAGE = {"ru": "на русском", "en": "на английском"}
+#: Подстановка без значения: сырая `{{имя}}` или громкая метка сборки («… НЕ ЗАДАНО»). Одно правило
+#: у сверки готового письма (`letter.problem`) и у записи «Отправителя» (`sender._clean`): поле
+#: «Отправителя» уходит в письмо как есть, и подстановка в нём держала бы каждое письмо.
+UNFILLED = re.compile(r"\{\{[^{}]*\}\}|«[^«»]*НЕ ЗАДАН[^«»]*»")
 #: Подстановки шаблона: имя адресата, компания, сайт компании — значения у лида.
 PLACEHOLDERS = ("name", "company", "site")
 #: Подстановка с запасным текстом — только у имени: `{{name|there}}` — лиду с именем имя, без
@@ -163,6 +172,12 @@ def language_code(value: str) -> str:
     if code not in LANGUAGES:
         raise ChainError(f"языка «{value}» у цепочки нет; есть: {', '.join(LANGUAGES)}")
     return code
+
+
+def in_language(code: str) -> str:
+    """Язык письма словами после «на»: «на английском» — и у кода с регионом (`en-us`)."""
+    base = code.partition("-")[0]
+    return IN_LANGUAGE.get(code) or IN_LANGUAGE.get(base) or f"на языке {code}"
 
 
 def _subject(step: int, value: str | None) -> str | None:
@@ -435,10 +450,11 @@ def squashed(text: str) -> str:
 
 def unsigned(new: StepTemplate, found: Sender) -> None:
     """Подпись и адрес из настроек отправителя в тексте не повторяются: их допишет сборка,
-    и в письме они встали бы дважды."""
-    body = squashed(new.body)
+    и в письме они встали бы дважды. Сверка — с набором языка шаблона (`Sender.in_language`):
+    его сборка и допишет письму на этом языке."""
+    body, signer = squashed(new.body), found.in_language(new.language)
     for name, words in (("signature", "подпись"), ("physical_address", "физический адрес")):
-        value = found.values.get(name)
+        value = signer.values.get(name)
         if value and squashed(value) in body:
             raise ChainError(
                 f"в тексте — {words} из настроек отправителя: сборка допишет это сама, "
@@ -454,13 +470,16 @@ class Preview:
     subject: str | None
     zones: tuple[Zone, ...]
     values: dict[str, str]
+    #: Отправитель письма на языке шаблона (`Sender.in_language`): имя, подпись и адрес — его.
     sender: Sender
     #: Коридор отличия трудно достижим — словами (`corridor_warning`); `None` — нет.
     warning: str | None = None
 
 
 def preview(new: StepTemplate, found: Sender) -> Preview:
-    """Подставить выдуманные значения. Подписи и адреса в шаблоне нет — они из настроек."""
+    """Подставить выдуманные значения. Подписи и адреса в шаблоне нет — они из настроек: набора
+    языка шаблона, а пустое поле набора — общее, как у сборки."""
     values = SAMPLE[new.language]
     rendered = compose.render(filled(new.letter, values["name"]), values)
-    return Preview(rendered.subject or None, rendered.zones, values, found, new.warning)
+    signer = found.in_language(new.language)
+    return Preview(rendered.subject or None, rendered.zones, values, signer, new.warning)

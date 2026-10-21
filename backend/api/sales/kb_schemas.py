@@ -14,7 +14,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from backend.features.sales import connection, kb, kb_gaps, sender
+from backend.features.sales import chain_text, connection, kb, kb_gaps, sender
 from backend.features.sales.models import TAG_LENGTH, TITLE_LENGTH, KbKind, SalesKbEntryModel
 
 #: Границы записи для экрана — те же числа, которыми отказывает ядро.
@@ -159,10 +159,8 @@ class AgentView(BaseModel):
         return cls(version=kb.version_of(found), total=len(found), groups=groups)
 
 
-class SenderBody(BaseModel):
-    """Настройки отправителя целиком: чего нет в теле — «не задано»."""
-
-    model_config = ConfigDict(extra="forbid")
+class _SenderFields(BaseModel):
+    """Общие поля отправителя: пусто — «не задано»."""
 
     sender_name: str | None = None
     sender_position: str | None = None
@@ -173,26 +171,71 @@ class SenderBody(BaseModel):
     call_link: str | None = None
 
 
-class SenderView(SenderBody):
-    """Настройки, кто и когда их правил и чего не хватает для отправки продаж."""
+class SenderLanguageBody(BaseModel):
+    """Набор отправителя на языке письма (`sender.LANGUAGE_FIELDS`): пустое поле — в письмах на
+    этом языке общее поле."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sender_name: str | None = None
+    sender_position: str | None = None
+    signature: str | None = None
+    physical_address: str | None = None
+
+
+class SenderLanguageCard(SenderLanguageBody):
+    """Набор языка на экране: код, заголовок блока словами сервера и поля как записаны."""
 
     model_config = ConfigDict(extra="ignore")
 
+    language: str
+    #: «Письма на английском» — экран языков не называет сам: новый язык — данными сервера.
+    title: str
+
+
+class SenderBody(_SenderFields):
+    """Настройки отправителя целиком: чего нет в теле — «не задано». Наборы языков — по коду
+    языка (`{"en": {…}}`); поля `languages` нет — наборы как были: консоль и прежний экран
+    пишут только общие поля."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    languages: dict[str, SenderLanguageBody] | None = None
+
+
+class SenderView(_SenderFields):
+    """Настройки, наборы языков, кто и когда их правил и чего не хватает для отправки продаж."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    #: Набор на каждом языке писем (`chain_text.LANGUAGES`) — в порядке языков цепочек.
+    languages: list[SenderLanguageCard]
     updated_by: str | None
     updated_at: datetime | None
     #: Чего не хватает — теми же словами, какими откажет отправка (Ф4): выключенный модуль
     #: первым, затем учётка, отписка и поля отправителя (`connection.blockers`). До находки QA
     #: на проде здесь были только поля — и «Отправка продаж готова» при выключенном модуле.
+    #: Набор языка готовность не меняет: она — по общим полям.
     missing: list[str]
-    #: Предел длины каждого поля — экран проверяет им поле до нажатия.
+    #: Предел длины каждого поля — экран проверяет им поле до нажатия; у полей набора языка —
+    #: те же пределы, что у общих.
     limits: dict[str, int]
+    #: Образец подстановки, которой в поле не бывает (`chain_text.UNFILLED`): экран проверяет им
+    #: поле до нажатия и словами под ним, второго экземпляра правила на экране нет.
+    unfilled: str
 
     @classmethod
     def of(cls, found: sender.Sender) -> SenderView:
+        sets = [
+            SenderLanguageCard(language=code, title=sender.set_title(code), **own)
+            for code, own in found.languages.items()
+        ]
         return cls(
             **found.values,
+            languages=sets,
             updated_by=found.updated_by,
             updated_at=found.updated_at,
             missing=connection.blockers(found),
             limits={name: limit for name, (_, limit) in sender.FIELDS.items()},
+            unfilled=chain_text.UNFILLED.pattern,
         )

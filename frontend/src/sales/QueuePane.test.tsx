@@ -760,6 +760,20 @@ describe('сборка без писем — плашкой «отправлят
     expect(status.getAttribute('style')).toContain('dimmed');
   });
 
+  it('лиды без цепочки на своём языке — строкой на каждый язык, словами сервера как есть', async () => {
+    // Слова сервера (`queue_report.no_chain`): экран их не разбирает — число лидов дописывает сам.
+    const UK = 'язык лида — украинский (uk): цепочки на нём нет, есть ru, en';
+    const DE = 'язык лида — немецкий (de): цепочки на нём нет, есть ru, en';
+    const NONE = 'язык лида не задан';
+    const waiting = { [UK]: 2, [DE]: 1, [NONE]: 5 };
+    await build({ ...NOTHING, waiting }, { ...EMPTY_QUEUE, unwritten_languages: { uk: 2, de: 1 } });
+
+    const alert = await screen.findByRole('alert', {}, SCREEN_WAIT);
+    expect(within(alert).getByText(`${UK} — 2 лида`)).toBeVisible();
+    expect(within(alert).getByText(`${DE} — 1 лид`)).toBeVisible();
+    expect(within(alert).getByText(`${NONE} — 5 лидов`)).toBeVisible();
+  });
+
   it('сборка остановлена потолком — почему, в той же плашке', async () => {
     const stopped = { ...NOTHING, waiting: {}, stopped: 'дневной потолок модели продаж выбран' };
     await build(stopped, EMPTY_QUEUE);

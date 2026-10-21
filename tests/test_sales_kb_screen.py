@@ -45,3 +45,17 @@ def test_sender_fields_of_the_server_are_the_fields_of_the_screen_form() -> None
 
     assert _union("SenderField") == fields
     assert _keys("SENDER_FIELDS") == fields
+
+
+def test_language_set_fields_of_the_server_are_the_fields_of_the_screen_blocks() -> None:
+    """Поле набора языка, которого экран не знает, не попало бы в блок — и сохранение стирало бы
+    его в `null`; порядок полей блока — порядок сервера."""
+    types = (ROOT / "frontend/src/api/salesSenderTypes.ts").read_text(encoding="utf-8")
+    blocks = (ROOT / "frontend/src/sales/SenderLanguages.tsx").read_text(encoding="utf-8")
+    union = re.search(r"export type SenderLanguageField =([^;]+);", types)
+    order = re.search(r"export const LANGUAGE_FIELDS\b[^=]*= \[([^\]]+)\]", blocks)
+
+    assert union is not None, "в salesSenderTypes.ts нет типа SenderLanguageField"
+    assert order is not None, "в SenderLanguages.tsx нет LANGUAGE_FIELDS"
+    assert set(re.findall(r"'([a-z_]+)'", union.group(1))) == set(sender.LANGUAGE_FIELDS)
+    assert re.findall(r"'([a-z_]+)'", order.group(1)) == list(sender.LANGUAGE_FIELDS)

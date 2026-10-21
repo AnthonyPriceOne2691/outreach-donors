@@ -28,22 +28,18 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Mapping
 
 from backend.features.core.domain import Stage
 from backend.features.letters import compose
 from backend.features.letters.chain import FIRST_STEP
-from backend.features.sales.chain_text import StepTemplate, filled, squashed
+from backend.features.sales.chain_text import UNFILLED, StepTemplate, filled, squashed
 from backend.features.sales.models import SalesLeadModel
 from backend.features.sales.sender import WHERE, Sender
 
 #: Ширина ключа письма в базе (`messages.idempotency_key`): длиннее — вставка упала бы
 #: посреди сборки. Сверку с колонкой держит тест.
 KEY_LENGTH = 320
-
-#: Подстановка без значения: сырая `{{имя}}` или громкая метка сборки («… НЕ ЗАДАНО»).
-_UNFILLED = re.compile(r"\{\{[^{}]*\}\}|«[^«»]*НЕ ЗАДАН[^«»]*»")
 
 
 def template_step(step: int) -> int:
@@ -109,7 +105,7 @@ def problem(body: str, found: Sender) -> str | None:
                 f"{words} из настроек отправителя стоит и в тексте письма — шаблон её "
                 "повторяет: уберите из шаблона цепочки"
             )
-    if (left := _UNFILLED.search(body)) is not None:
+    if (left := UNFILLED.search(body)) is not None:
         return f"в письме подстановка без значения: {left.group(0)}"
     return None
 
@@ -131,7 +127,7 @@ def answer_problem(body: str, found: Sender) -> str | None:
             "подписи и физического адреса из настроек отправителя в конце ответа нет — "
             "настройки сменились после того, как ответ записан: отправьте его заново"
         )
-    if (left := _UNFILLED.search(body)) is not None:
+    if (left := UNFILLED.search(body)) is not None:
         return f"в ответе подстановка без значения: {left.group(0)}"
     return None
 

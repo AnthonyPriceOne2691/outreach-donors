@@ -6,6 +6,11 @@
 коридора после всех попыток — серия лидов, и на `corridor.STREAK` сборка встаёт словами.
 Добивки письма — в его строке (отличие или «шаблоном»), а добивки, которые уйдут текстом
 шаблона, потому что не легли в коридор, — ещё и счётом сборки (`followups_template`).
+
+**Лид без цепочки на своём языке ждёт со словами, где назван его язык** (`no_chain`): «язык лида —
+украинский (uk): цепочки на нём нет, есть ru, en» — у каждого такого языка своя строка, и человек
+видит, какой цепочки не хватает. Лид без языка — своя строка (`NO_LANGUAGE`). Те же слова — в отчёте
+сборки, в плашке «отправлять нечего» и в консоли: все трое показывают `waiting` как есть.
 """
 
 from __future__ import annotations
@@ -16,8 +21,24 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from backend.features.sales import corridor
+from backend.features.sales.chain_text import LANGUAGES
+from backend.features.sales.segment_language import BY_CODE
 
 logger = logging.getLogger(__name__)
+
+#: Почему лид ждёт: язык у лида не записан — цепочки ему нет ни на одном языке.
+NO_LANGUAGE = "язык лида не задан"
+
+
+def no_chain(language: str) -> str:
+    """Почему лид ждёт, когда цепочки на его языке (коде основой) нет: имя языка — из таблицы
+    языков модуля (`segment_language.BY_CODE`), незнакомый код — кодом; языка нет вовсе —
+    `NO_LANGUAGE`."""
+    if not language:
+        return NO_LANGUAGE
+    known = BY_CODE.get(language)
+    named = f"{known.name} ({language})" if known is not None else language
+    return f"язык лида — {named}: цепочки на нём нет, есть {', '.join(LANGUAGES)}"
 
 
 @dataclass

@@ -370,6 +370,7 @@ async def ahead(
     if last is None or (last.status is not MessageStatus.QUEUED and last.next_action_at is None):
         return []
     current = await chain.of_set(session, link.chain_hypothesis_id, link.language)
-    values, check = letter.values_of(lead, host), unbuilt(await sender.read(session))
+    signer = (await sender.read(session)).in_language(link.language)  # как у отправки добивки
+    values, check = letter.values_of(lead, host), unbuilt(signer)
     after = letter.template_step(last.step)
     return [planned(link.followups, current, step, values, check) for step in STEPS if step > after]

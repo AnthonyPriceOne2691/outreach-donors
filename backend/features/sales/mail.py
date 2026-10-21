@@ -9,11 +9,13 @@
 
 - `recipient` — кому и от чьего имени, до выбора учётки этапа: подключены ли продажи
   (`connection.py`), адрес лида по явной связи диалога (`sales_threads`), имя в From
-  из «Отправителя», готова ли цепочка набора, которым написано первое письмо (ответу в
-  переписке — нет: он не шаг цепочки); пояса получателя для окна (`policy.zones_of`:
-  лида, его страны). Ответ в переписке уходит тому, кто написал, если это коллега лида со
-  своего адреса на домене компании (`colleague_of`, решение владельца 13.10), — и ручной,
-  и черновик агента: оба уходят этой отправкой; иначе — лиду, как прежде;
+  из «Отправителя» на языке диалога (`Sender.in_language`: набор языка, пустое поле — общее;
+  тем же набором подписаны письмо, добивки и ответы), готова ли цепочка набора, которым
+  написано первое письмо (ответу в переписке — нет: он не шаг цепочки); пояса получателя
+  для окна (`policy.zones_of`: лида, его страны). Ответ в переписке уходит тому, кто
+  написал, если это коллега лида со своего адреса на домене компании (`colleague_of`,
+  решение владельца 13.10), — и ручной, и черновик агента: оба уходят этой отправкой;
+  иначе — лиду, как прежде;
 - `check` — ветка продаж проверки перед отправкой (вместо отказа 1.1b в
   `sending._check_review`): лид не снят, не передан телемаркетологу
   (`handoff.handed_off` — переданному цепочка не идёт), не в стоп-листе (`unwritable` —
@@ -236,7 +238,8 @@ async def recipient(session: AsyncSession, message: MessageModel, what: str) -> 
         except chain.ChainNotReadyError as exc:
             raise NotReadyError(f"{what} не уходит: {exc}") from exc
     to = await _answered_colleague(session, message, dialog) or dialog.lead.email
-    return Recipient(Stage.SALES, to, found.values["sender_name"], zones=zones_of(dialog.lead))
+    name = found.in_language(dialog.link.language).values["sender_name"]  # From — языка письма
+    return Recipient(Stage.SALES, to, name, zones=zones_of(dialog.lead))
 
 
 async def stopped_by(
@@ -346,7 +349,8 @@ async def check(session: AsyncSession, message: MessageModel) -> None:
     if (refused := _chain_refused(dialog, message, what)) is not None:
         raise refused
     rule = letter.answer_problem if message.step >= ANSWER_STEP else letter.problem
-    problem = rule(message.body or "", await sender.read(session))
+    signer = (await sender.read(session)).in_language(dialog.link.language)  # набор языка письма
+    problem = rule(message.body or "", signer)
     if problem is not None:
         raise _text_refused(message, what, problem)
 
@@ -388,6 +392,7 @@ async def answer(session: AsyncSession, thread_id: int, body: str, what: str) ->
     if dialog is None:
         raise SendError(f"{what}: у переписки нет лида продаж — её начала не сборка очереди продаж")
     await _writable(session, dialog, what)
+    found = found.in_language(dialog.link.language)  # подпись и адрес — языка переписки
     text = letter.answered(body, found)
     if (leak := guards.metrics_leak(text)) is not None:
         raise NotReadyError(
@@ -436,6 +441,7 @@ async def followup(session: AsyncSession, thread_id: int | None, step: int) -> S
     if number not in ready.steps:  # полная цепочка — три шага; четвёртого письма не бывает
         raise SalesNotConnectedError(what, f"шага {number} у цепочки нет")
     values = letter.values_of(dialog.lead, dialog.host)
+    found = found.in_language(dialog.link.language)  # подпись и адрес — языка цепочки
     check_text = followup_texts.unbuilt(found)
     chosen = followup_texts.choose(dialog.link.followups, ready, number, values, check_text)
     if chosen.earlier:

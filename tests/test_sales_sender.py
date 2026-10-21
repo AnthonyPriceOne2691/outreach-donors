@@ -223,4 +223,5 @@ def test_settings_table_has_no_place_for_secrets() -> None:
     ]
 
     assert secret_like == []
-    assert columns == {*sender.FIELDS, "id", "updated_by", "created_at", "updated_at"}
+    # Наборы по языку письма — те же поля отправителя (`sender.LANGUAGE_FIELDS`), не секреты.
+    assert columns == {*sender.FIELDS, "languages", "id", "updated_by", "created_at", "updated_at"}
