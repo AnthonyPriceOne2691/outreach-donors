@@ -7,10 +7,12 @@
 
 **Письмо продаж — подпись «Отправителя» продаж:** имя и физический адрес из базы
 (`sales/sender.py`), язык — язык диалога, которым написаны его письма
-(`sales_threads.language`, `sales/mail.linked`). Адрес доноров сюда не подставляется: у
-продаж свой отправитель, и чужой адрес выглядел бы заданным (`sales/sender.py`). И слова —
-о человеке, а не о сайте: отписка с письма продаж закрывает адрес того, кому оно ушло
-(решение владельца 12.10.2026, `letters/optout.py`), и «все адреса сайта» страница не обещает.
+(`sales_threads.language`, `sales/mail.linked`); имя и адрес — набора этого языка, пустое
+поле набора — общее (`Sender.in_language`), как в подписи самого письма. Адрес доноров сюда
+не подставляется: у продаж свой отправитель, и чужой адрес выглядел бы заданным
+(`sales/sender.py`). И слова — о человеке, а не о сайте: отписка с письма продаж закрывает
+адрес того, кому оно ушло (решение владельца 12.10.2026, `letters/optout.py`), и «все адреса
+сайта» страница не обещает.
 
 **Поломка модуля продаж страницу не роняет.** Модуль спрашивается в своей точке
 сохранения; упал — подпись без имени и адреса, по-английски, и строка журнала. Отписка —
@@ -68,8 +70,8 @@ async def _sales(session: AsyncSession, thread_id: int | None) -> page.Voice:
             exc_info=True,
         )
         return page.Voice(None, None)
+    language = dialog.link.language if dialog is not None else "en"
+    signer = found.in_language(language)  # тот же набор, что подписал письмо
     return page.Voice(
-        found.values.get("sender_name"),
-        found.values.get("physical_address"),
-        dialog.link.language if dialog is not None else "en",
+        signer.values.get("sender_name"), signer.values.get("physical_address"), language
     )

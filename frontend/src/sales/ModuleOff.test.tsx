@@ -51,9 +51,11 @@ const SENDER: SenderView = {
   telegram: null,
   physical_address: null,
   call_link: null,
+  languages: [],
   updated_by: null,
   updated_at: null,
   missing: ['не задана подпись'],
+  unfilled: '\\{\\{[^{}]*\\}\\}|«[^«»]*НЕ ЗАДАН[^«»]*»',
   limits: {
     sender_name: 128,
     sender_position: 128,

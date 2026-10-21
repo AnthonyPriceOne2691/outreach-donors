@@ -182,7 +182,7 @@ async def queued(session: AsyncSession) -> Queued:
     отправки (`mail._first_problem`)."""
     found = await sender.read(session)
     rows = await session.execute(
-        select(MessageModel, SalesLeadModel, DomainModel.host)
+        select(MessageModel, SalesLeadModel, DomainModel.host, SalesThreadModel.language)
         .join(SalesThreadModel, SalesThreadModel.thread_id == MessageModel.thread_id)
         .join(SalesLeadModel, SalesLeadModel.id == SalesThreadModel.lead_id)
         .join(DomainModel, DomainModel.id == SalesLeadModel.domain_id)
@@ -191,12 +191,13 @@ async def queued(session: AsyncSession) -> Queued:
     ready: set[int] = set()
     redo: dict[int, int] = {}
     held: set[int] = set()
-    for message, lead, host in rows.tuples().all():
+    for message, lead, host, language in rows.tuples().all():
         if _closed(lead, host):
             continue
+        signer = found.in_language(language)  # письмо подписано набором языка его цепочки
         if first_letter(lead) is not None:
             held.add(message.id)
-        elif letter.problem(message.body or "", found) is not None or edited(lead, message):
+        elif letter.problem(message.body or "", signer) is not None or edited(lead, message):
             redo[message.id] = lead.hypothesis_id
         else:
             ready.add(message.id)

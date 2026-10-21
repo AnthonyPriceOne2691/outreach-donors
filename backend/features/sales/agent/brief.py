@@ -19,7 +19,8 @@
    телемаркетологу тем же путём, что по виду ответа (`agent/handover.py`, крючок этапа);
    ход зовёт, а позвать некуда — `human` со словами, что заполнить;
 6. **факты под ход** строками, `meta` для калибровки и подпись персоной продаж —
-   у всех брифов, где имя задано: «всё же написать» тоже подпишет ею.
+   у всех брифов, где имя задано: «всё же написать» тоже подпишет ею. Имя и должность
+   персоны — из набора «Отправителя» на языке переписки (`sender.of_thread`), ссылки — общие.
 
 Пропуск — без фактов: «всё же написать» поверх пропуска пишет без хода, и судья
 продаж отдаёт такой черновик человеку (`judge.py`).
@@ -151,8 +152,9 @@ def _answered(
 
 
 async def brief(session: AsyncSession, conversation: Conversation) -> Brief:
-    """Что шов отдаст писателю и судье — или почему писать не надо."""
-    sender = await sales_sender.read(session)
+    """Что шов отдаст писателю и судье — или почему писать не надо. Отправитель — набора языка
+    переписки (`sender.of_thread`): тем же набором отправка подпишет ответ и поставит имя в From."""
+    sender = await sales_sender.of_thread(session, conversation.thread_id)
     sign_as = (sender.values.get("sender_name") or "").strip()
     letter = situation.last_letter(conversation.turns)
     language = reading.language_of(letter)

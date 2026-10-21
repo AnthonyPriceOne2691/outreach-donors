@@ -39,6 +39,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.features.core.models._mixins import TimestampedMixin
 from backend.features.sales.hypothesis_countries import HypothesisCountriesMixin
+from backend.features.sales.sender_columns import SenderLanguagesMixin
 from backend.features.sales.verify_columns import VERIFY_AGAIN_INDEX, VerifyAgainMixin
 from backend.shared.database.base import Base
 
@@ -241,17 +242,16 @@ class SalesKbEntryModel(TimestampedMixin, Base):
 SETTINGS_ROW = 1
 
 
-class SalesSettingsModel(TimestampedMixin, Base):
+class SalesSettingsModel(TimestampedMixin, SenderLanguagesMixin, Base):
     """Отправитель продаж: от чьего имени письмо, чем подписано, куда звать. Одна строка.
 
-    **Тексты — здесь, а не в окружении**: подпись и адрес правят на экране, и правка
-    видна в журнале, а переменную окружения меняет только выкатка. **Секретов здесь
-    нет**: ключи сервисов приходят из окружения через `config/`, а эту строку целиком
-    показывает экран.
+    **Тексты — здесь, а не в окружении**: подпись и адрес правят на экране, и правка видна в
+    журнале, а переменную окружения меняет только выкатка. **Секретов здесь нет**: ключи сервисов
+    приходят из окружения через `config/`, а эту строку целиком показывает экран.
 
-    Ключ всегда `SETTINGS_ROW`, вторую строку не пустит проверка базы. Пусто —
-    «не задано»: без адреса, подписи или имени отправителя отправка продаж отказывает
-    (`sender.check_ready`).
+    Ключ всегда `SETTINGS_ROW`, вторую строку не пустит проверка базы. Пусто — «не задано»: без
+    адреса, подписи или имени отправителя отправка продаж отказывает (`sender.check_ready`), а
+    наборы по языку письма (`languages`, `sender_columns.py`) готовности не меняют.
     """
 
     __tablename__ = "sales_settings"

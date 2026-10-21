@@ -329,6 +329,9 @@ def kb_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("значение в несколько строк", "form textarea", norm),
         ("кто и когда правил", "form p:text-matches('Правил|Ещё не')", norm),
         ("кнопка «Сохранить»", "form button:has-text('Сохранить')", big),
+        ("заголовок набора языка (кнопка)", "form .senderLanguage h5 button", norm),
+        ("пометка «не заполнено — общее»", "form .senderLanguageMark", norm),
+        ("подсказка набора языка", "form .senderLanguageHint", norm),
     ]
     return {
         "sales-kb": {"path": "/sales?tab=kb", "ready": ready, "probes": kb_list},
@@ -374,7 +377,7 @@ def kb_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "path": "/sales?tab=sender",
             "ready": ready,
             "viewport": PHONE,
-            "probes": [sender[0], sender[1], sender[2], sender[4], sender[7]],
+            "probes": [sender[0], sender[1], sender[2], sender[4], *sender[7:]],
         },
     }
 

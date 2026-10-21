@@ -255,7 +255,34 @@ async def test_leads_that_cannot_be_written_cost_no_model_call(
             queue.HANDED_OFF: 1,
             queue.STOPLIST: 1,
             "у лида нет значения для {{name}}": 1,
-            queue.NO_LANGUAGE: 2,
+            "язык лида — немецкий (de): цепочки на нём нет, есть ru, en": 1,
+            "язык лида не задан": 1,
+        }
+    )
+
+
+async def test_leads_without_a_chain_wait_with_their_language_named(
+    session: AsyncSession, world: w.World
+) -> None:
+    """Находка стенда 21.10.2026: одна строка «язык лида не задан или цепочки на нём нет (ru, en)»
+    не называла язык — человек не видел, что у лида украинский. Каждый язык без цепочки — своя
+    строка с именем языка из таблицы языков (код — основой: `uk-UA` → `uk`), лид без языка — своя,
+    незнакомый код — кодом. Модель не звали."""
+    await w.lead(session, world.hypothesis_id, "olena@stomatolog.example.test", language="uk")
+    await w.lead(session, world.hypothesis_id, "petro@pekarnia.example.test", language="uk-UA")
+    await w.lead(session, world.hypothesis_id, "jonas@fahrrad.example.test", language="de")
+    await w.lead(session, world.hypothesis_id, "kim@lingua-school.example.test", language=None)
+    await w.lead(session, world.hypothesis_id, "zed@fan-club.example.test", language="tlh")
+
+    report = await _build(session, world, w.NoRewrite())
+
+    assert report.prepared == 0
+    assert report.waiting == Counter(
+        {
+            "язык лида — украинский (uk): цепочки на нём нет, есть ru, en": 2,
+            "язык лида — немецкий (de): цепочки на нём нет, есть ru, en": 1,
+            "язык лида не задан": 1,
+            "язык лида — tlh: цепочки на нём нет, есть ru, en": 1,
         }
     )
 
@@ -457,7 +484,10 @@ async def test_limit_counts_letters_not_leads_looked_at(
 
     report = await _build(session, world, limit=1)
 
-    assert (report.prepared, report.waiting) == (1, Counter({queue.NO_LANGUAGE: 1}))
+    assert (report.prepared, report.waiting) == (
+        1,
+        Counter({"язык лида — немецкий (de): цепочки на нём нет, есть ru, en": 1}),
+    )
 
 
 async def test_spend_cap_of_the_model_stops_the_build_before_the_next_letter(
@@ -503,7 +533,7 @@ async def test_console_prints_the_report(
     out = capsys.readouterr().out
     assert code == 0
     assert "новых писем: 1, собрано заново: 0" in out
-    assert f"ждут — {queue.NO_LANGUAGE}: 1" in out
+    assert "ждут — язык лида — немецкий (de): цепочки на нём нет, есть ru, en: 1" in out
     # Письма по одному: лид, отличие, принятые зоны, попыток, в очереди — лид без цепочки
     # модели не стоил.
     assert re.search(

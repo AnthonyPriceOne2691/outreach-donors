@@ -10,6 +10,8 @@
  * и полей сверяет с сервером `tests/test_api_sales_screen.py`.
  */
 
+import type { SenderLanguageBody, SenderLanguageCard } from './salesSenderTypes';
+
 /** Где лид на пути к первому письму (`LeadStatus` сервера): загружен и ещё не
  *  очищен, прошёл очистку, отсеян. Почему отсеян — код `rejection_reason`. */
 export type LeadState = 'new' | 'ready' | 'rejected';
@@ -257,16 +259,22 @@ export type SenderField =
   | 'physical_address'
   | 'call_link';
 
-/** Отправитель целиком: пусто — «не задано». */
-export type SenderBody = Record<SenderField, string | null>;
+/** Отправитель целиком: пусто — «не задано»; наборы языков — по коду языка. */
+export interface SenderBody extends Record<SenderField, string | null> {
+  languages: Record<string, SenderLanguageBody>;
+}
 
-export interface SenderView extends SenderBody {
+export interface SenderView extends Record<SenderField, string | null> {
+  /** Набор на каждом языке писем — в порядке языков цепочек (`salesSenderTypes.ts`). */
+  languages: SenderLanguageCard[];
   updated_by: string | null;
   updated_at: string | null;
   /** Чего не хватает для отправки продаж — словами отказа. Пусто — готово. */
   missing: string[];
   /** Предел длины каждого поля. */
   limits: Record<SenderField, number>;
+  /** Образец подстановки, которой в поле не бывает (`chain_text.UNFILLED`): проверка до нажатия. */
+  unfilled: string;
 }
 
 /** Язык письма цепочки (`chain_text.LANGUAGES` сервера). */

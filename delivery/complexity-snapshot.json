@@ -382,12 +382,12 @@
       "worst": "read_funnel:76"
     },
     "backend/api/sales/kb.py": {
-      "lines": 106,
+      "lines": 107,
       "complexity": 1,
-      "worst": "list_entries:42"
+      "worst": "list_entries:43"
     },
     "backend/api/sales/kb_schemas.py": {
-      "lines": 199,
+      "lines": 242,
       "complexity": 3,
       "worst": "of:112"
     },
@@ -567,9 +567,9 @@
       "worst": "apply:99"
     },
     "backend/api/unsubscribe/signer.py": {
-      "lines": 76,
+      "lines": 78,
       "complexity": 5,
-      "worst": "voice_of:42"
+      "worst": "voice_of:44"
     },
     "backend/api/users/__init__.py": {
       "lines": 1,
@@ -2337,9 +2337,9 @@
       "worst": "—"
     },
     "backend/features/sales/agent/brief.py": {
-      "lines": 186,
+      "lines": 188,
       "complexity": 8,
-      "worst": "brief:153"
+      "worst": "brief:154"
     },
     "backend/features/sales/agent/calibration.py": {
       "lines": 471,
@@ -2457,9 +2457,9 @@
       "worst": "autosend_line:93"
     },
     "backend/features/sales/autobuild.py": {
-      "lines": 465,
+      "lines": 466,
       "complexity": 8,
-      "worst": "_choose:322"
+      "worst": "_choose:323"
     },
     "backend/features/sales/autobuild_alarm.py": {
       "lines": 113,
@@ -2502,9 +2502,9 @@
       "worst": "apply:163"
     },
     "backend/features/sales/chain_text.py": {
-      "lines": 467,
+      "lines": 486,
       "complexity": 8,
-      "worst": "zones_of:246"
+      "worst": "zones_of:261"
     },
     "backend/features/sales/clean_jobs.py": {
       "lines": 142,
@@ -2572,7 +2572,7 @@
       "worst": "roles:57"
     },
     "backend/features/sales/followup_texts.py": {
-      "lines": 376,
+      "lines": 377,
       "complexity": 8,
       "worst": "build:137"
     },
@@ -2662,9 +2662,9 @@
       "worst": "change:340"
     },
     "backend/features/sales/kb_gaps.py": {
-      "lines": 74,
+      "lines": 65,
       "complexity": 6,
-      "worst": "gaps:65"
+      "worst": "gaps:56"
     },
     "backend/features/sales/kb_load.py": {
       "lines": 183,
@@ -2712,9 +2712,9 @@
       "worst": "_pattern:114"
     },
     "backend/features/sales/letter.py": {
-      "lines": 142,
+      "lines": 138,
       "complexity": 7,
-      "worst": "problem:95"
+      "worst": "problem:91"
     },
     "backend/features/sales/loops.py": {
       "lines": 141,
@@ -2722,14 +2722,14 @@
       "worst": "__call__:111"
     },
     "backend/features/sales/mail.py": {
-      "lines": 483,
+      "lines": 489,
       "complexity": 7,
-      "worst": "colleague_of:176"
+      "worst": "colleague_of:178"
     },
     "backend/features/sales/models.py": {
       "lines": 500,
       "complexity": 2,
-      "worst": "_enum:81"
+      "worst": "_enum:82"
     },
     "backend/features/sales/no_draft.py": {
       "lines": 55,
@@ -2762,9 +2762,9 @@
       "worst": "zones_of:49"
     },
     "backend/features/sales/queue.py": {
-      "lines": 499,
+      "lines": 498,
       "complexity": 7,
-      "worst": "build:147"
+      "worst": "build:145"
     },
     "backend/features/sales/queue_jobs.py": {
       "lines": 103,
@@ -2772,9 +2772,9 @@
       "worst": "build_sales_queue:83"
     },
     "backend/features/sales/queue_report.py": {
-      "lines": 97,
+      "lines": 118,
       "complexity": 8,
-      "worst": "tally:65"
+      "worst": "tally:86"
     },
     "backend/features/sales/queue_start.py": {
       "lines": 70,
@@ -2987,9 +2987,14 @@
       "worst": "_land:425"
     },
     "backend/features/sales/sender.py": {
-      "lines": 182,
-      "complexity": 5,
-      "worst": "_link:92"
+      "lines": 335,
+      "complexity": 7,
+      "worst": "_stored:258"
+    },
+    "backend/features/sales/sender_columns.py": {
+      "lines": 29,
+      "complexity": 0,
+      "worst": "—"
     },
     "backend/features/sales/sheet.py": {
       "lines": 109,
@@ -3517,7 +3522,7 @@
       "worst": "_estimate:65"
     },
     "scripts/ui_screens_sales.py": {
-      "lines": 494,
+      "lines": 497,
       "complexity": 1,
       "worst": "pick_hypothesis:68"
     },

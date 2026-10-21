@@ -9,7 +9,7 @@
 с подстановками лида (`{{name}}`, `{{company}}`, `{{site}}`); зоны `rewrite` переписывает
 модель — общим клиентом доноров (`RewriteClient`), а какие из переписанных принять, подбирает
 сборка (`corridor.py`): в отдельном письме зона может остаться текстом шаблона; зоны `fixed`
-уходят как есть; подпись и физический адрес — блоком из «Отправителя» (`letter.signed`).
+уходят как есть; подпись и адрес — блоком «Отправителя» на языке письма (`letter.signed`).
 Тема — шаблона, без «Re:» (правило записи 4.6a). Адрес получателя — лида
 (`sales_leads.email`), а не `contacts` (решение 01.10); связь диалога с лидом — явная
 (`sales_threads`).
@@ -82,7 +82,6 @@ from backend.features.sales import (
 from backend.features.sales.followup_texts import CAPPED, Built
 from backend.features.sales.followup_texts import build as build_followups
 from backend.features.sales.intake import UnknownHypothesisError
-from backend.features.sales.kb_gaps import IN_LANGUAGE
 from backend.features.sales.lead_edit import edited
 from backend.features.sales.lead_values import language_base
 from backend.features.sales.mail import stopped_by
@@ -93,7 +92,7 @@ from backend.features.sales.models import (
     SalesThreadModel,
 )
 from backend.features.sales.not_writing import excluded
-from backend.features.sales.queue_report import QueueReport
+from backend.features.sales.queue_report import QueueReport, no_chain
 from backend.features.sales.sender import Sender
 from backend.features.sales.unconfirmed import first_letter
 from backend.features.sales.usage_cap import sales_cap
@@ -107,7 +106,6 @@ CHUNK = 200
 WHAT = "Очередь продаж не собрана"
 
 #: Почему лид ждёт — словами отчёта; одинаковые причины складываются.
-NO_LANGUAGE = "язык лида не задан или цепочки на нём нет (ru, en)"
 HANDED_OFF = "передан телемаркетологу"
 STOPLIST = "стоп-лист"
 LONG_KEY = "адрес и домен длиннее ключа письма"
@@ -253,11 +251,11 @@ async def _plan(session: AsyncSession, row: _Lead, hypothesis_id: int) -> _Plan 
     # Язык без цепочки — причина в отчёте, не ошибка; язык — основой кода: `ru-RU` → `ru`.
     language = language_base(row.lead.language)
     if language not in chain_text.LANGUAGES:
-        return NO_LANGUAGE
+        return no_chain(language)
     found = await chain.resolve(session, hypothesis_id=hypothesis_id, language=language)
     if found.missing:
         # Язык словами («на русском»), а не кодом: причину читает человек на экране очереди.
-        said = IN_LANGUAGE.get(language, f"на языке {language}")
+        said = chain_text.in_language(language)
         return f"цепочка {said} задана не целиком"
     values = letter.values_of(row.lead, row.host)
     absent = letter.lacking(found.steps.values(), values)
@@ -268,8 +266,8 @@ async def _plan(session: AsyncSession, row: _Lead, hypothesis_id: int) -> _Plan 
 
 
 def _current(row: _Lead, plan: _Plan, found: Sender) -> bool:
-    """Письмо в очереди написано нынешней цепочкой, подписано нынешними настройками и после
-    последней правки лида (`lead_edit.edited`). Снятое до отправки — не в очереди."""
+    """Письмо в очереди написано нынешней цепочкой, подписано нынешним «Отправителем» языка
+    письма и после последней правки лида (`lead_edit.edited`). Снятое до отправки — не в очереди."""
     if row.queued is None or row.link is None or row.queued.status is not MessageStatus.QUEUED:
         return False
     same = (row.link.chain_hypothesis_id, row.link.chain_version) == (
@@ -295,7 +293,8 @@ async def _prepare(
     if isinstance(plan, str):
         report.waiting[plan] += 1
         return
-    if _current(row, plan, found):
+    signer = found.in_language(plan.chain.language)  # «Отправитель» на языке письма
+    if _current(row, plan, signer):
         report.waiting[UP_TO_DATE] += 1
         return
     writer = corridor.Writer(
@@ -308,7 +307,7 @@ async def _prepare(
     )
     first = plan.chain.steps[letter.template_step(FIRST_STEP)]
     tried = await writer.write(letter.rendered(first, plan.values))
-    signed = _signed(tried, found)
+    signed = _signed(tried, signer)
     later = Built()
     if isinstance(signed, compose.Letter):
         later = await build_followups(writer, plan.chain, plan.values)
