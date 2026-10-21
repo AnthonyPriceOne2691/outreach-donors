@@ -34,6 +34,16 @@
 молчит, а на другой письменности — «не понять» (`Mismatch.code` пуст): сайт точно не на языке писем,
 но на каком — решает человек, а не отказ.
 
+**Язык писем лиду, когда язык сайта не назван** (`letters_by_script`), — по письменности сайта
+(`Mismatch.script`, кодом, а не по словам вердикта), таблицей данных `LETTERS_BY_SCRIPT`: латиница —
+английский, для любого языка писем на другой письменности (кириллица, греческое, арабское письмо …).
+Письменность без строки (арабское письмо, иероглифы, деванагари: языков на ней несколько, общего
+для письма нет) — язык писем прогона, как раньше; у языка писем той же письменности правило молчит.
+Язык из таблицы — одно значение (`Mismatch.then`): его называют слова вердикта («…; примете —
+английский») и его же получает лид (`segment_leads.lead_language`), поэтому они не расходятся.
+Полоса судьи не меняется: такой сайт по-прежнему «не понять», и лид из него — только словом
+человека.
+
 **Переключатель на версию на языке писем — не отказ** (`switches_to`): «RU», «Рус», «English» в меню
 или в тексте главной — у сайта есть версия, на которой и пишем. `<html lang>` не решает и не называет
 язык: шаблоны врут (сайт на украинском с `lang="ru"` от шаблона и наоборот), а решение обязано
@@ -182,6 +192,12 @@ SCRIPT_WORDS = {
     "KANA": "японская кана", "HANGUL": "хангыль", "THAI": "тайское письмо",
     "DEVANAGARI": "деванагари", "GEORGIAN": "грузинское письмо", "ARMENIAN": "армянское письмо",
 }  # fmt: skip
+#: Язык писем лиду, когда язык сайта буквами не назван, — по письменности сайта
+#: (`letters_by_script`). Латиница без отличительных букв — английский: его алфавит — ядро латиницы
+#: (`_core`), а немецкий или испанский с редкими особыми буквами по ним тоже не назван, и письмо
+#: на английском им ближе письма другой письменностью. Строка — язык этой письменности;
+#: письменность без строки — язык писем прогона.
+LETTERS_BY_SCRIPT: dict[str, str] = {"LATIN": "en"}
 #: Имена Юникода, у которых первое слово — не письменность языка: «CJK UNIFIED IDEOGRAPH»,
 #: «KATAKANA-HIRAGANA PROLONGED SOUND MARK» (знак долготы японского).
 _SCRIPT_ALIASES = {
@@ -242,21 +258,31 @@ def _script(word: str) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class Mismatch:
-    """Сайт уверенно не на языке писем: на каком он (код, если язык назван буквами) — словами."""
+    """Сайт уверенно не на языке писем: на каком он (код, если язык назван буквами) — словами, и
+    его письменность кодом."""
 
     #: Код языка сайта; пусто — назвать язык буквами нельзя, известна только письменность.
     code: str | None
     #: «украинский» — или письменность словами («латиница»).
     said: str
+    #: Письменность сайта кодом (`script_of`: «LATIN», «CYRILLIC», «ARABIC» …): язык не назван — по
+    #: ней язык писем лиду (`letters_by_script`), а не по словам `said`.
+    script: str
     #: Язык писем словами: «русский».
     letters: str = ""
+    #: Язык писем лиду после «Принять» кодом, когда язык сайта не назван, — из таблицы письменностей
+    #: (`letters_by_script`); пусто — язык назван или строки нет. Его называют слова вердикта и его
+    #: же получает лид (`segment_leads.lead_language`).
+    then: str = ""
 
     @property
     def words(self) -> str:
         """Вердикт словами: «язык сайта — украинский, письма — русский»; язык не назван —
-        «язык сайта — не понять по буквам (латиница), письма — русский»."""
+        «язык сайта — не понять по буквам (латиница), письма — русский», и с языком писем лиду из
+        таблицы — «…; примете — английский»."""
         said = self.said if self.code else f"не понять по буквам ({self.said})"
-        return f"язык сайта — {said}, письма — {self.letters}"
+        found = f"язык сайта — {said}, письма — {self.letters}"
+        return f"{found}; примете — {BY_CODE[self.then].name}" if self.then else found
 
 
 def _foreign(word: str, language: Language) -> bool:
@@ -314,8 +340,8 @@ def _other_script(counts: Counter[str], words: list[str]) -> Mismatch:
         script = "KANA"
     named = _named([word for word in words if _script(word) == script], script)
     if named is None:
-        return Mismatch(None, SCRIPT_WORDS.get(script, script.lower()))
-    return Mismatch(named.code, named.name)
+        return Mismatch(None, SCRIPT_WORDS.get(script, script.lower()), script)
+    return Mismatch(named.code, named.name, script)
 
 
 def _mixed(text: str, letters: Language) -> bool:
@@ -359,13 +385,14 @@ def _same_script(text: str, words: list[str], letters: Language) -> Mismatch | N
         or _bilingual(text, own, foreign, (letters, named))
     ):
         return None
-    return Mismatch(named.code, named.name)
+    return Mismatch(named.code, named.name, letters.script)
 
 
 def mismatch(text: str, letters: str) -> Mismatch | None:
     """Сайт уверенно не на языке писем `letters` (код, `ru-RU` — тоже `ru`) — на каком; `None` — на
     нём, не уверены (текста мало, страница смешанная, язык буквами не отличить) или язык писем
-    не знаком таблице. Переключатель версий здесь не смотрится — `switches_to`."""
+    не знаком таблице. Язык не назван — язык писем лиду из таблицы письменностей (`then`).
+    Переключатель версий здесь не смотрится — `switches_to`."""
     language = BY_CODE.get(language_code(letters) or "")
     if language is None:
         return None
@@ -380,7 +407,25 @@ def mismatch(text: str, letters: str) -> Mismatch | None:
         found: Mismatch | None = _other_script(counts, words)
     else:
         found = _same_script(text, words, language)
-    return None if found is None else replace(found, letters=language.name)
+    if found is None:
+        return None
+    return replace(found, letters=language.name, then=_then(found, letters))
+
+
+def letters_by_script(script: str, letters: str) -> str | None:
+    """Язык писем сайту, чей язык буквами не назван, — по его письменности `script`
+    (`LETTERS_BY_SCRIPT`); `None` — строки нет, язык писем `letters` таблице языков не знаком или
+    пишет той же письменностью: сайт своей письменности проверка и так не режет, правило молчит."""
+    language = BY_CODE.get(language_code(letters) or "")
+    if language is None or language.script == script:
+        return None
+    return LETTERS_BY_SCRIPT.get(script)
+
+
+def _then(found: Mismatch, letters: str) -> str:
+    """Язык писем лиду из таблицы письменностей (`Mismatch.then`) — только у неназванного языка
+    сайта: названный буквами язык лид получает и так."""
+    return "" if found.code else (letters_by_script(found.script, letters) or "")
 
 
 def identify(text: str) -> str:
