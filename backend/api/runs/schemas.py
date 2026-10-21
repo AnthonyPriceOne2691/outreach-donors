@@ -202,6 +202,9 @@ class Forecast(BaseModel):
     #: Почему выдачу не купить — «пополните счёт» словами (`serp/funds.py`, 16.10.2026):
     #: кнопку блокирует, как и нехватка юнитов. `None` — купить можно или остаток неизвестен.
     serp_refusal: str | None = None
+    #: Почему модель суда не готова — словами владельца (`shared/llm.unready`, 20.10.2026): нет
+    #: кредитов, ключ не принят, не ответила. Кнопку блокирует, как «пополните счёт».
+    model_refusal: str | None = None
     #: Режим выдачи, по которому посчитана цена, и сколько её ждать, секунд.
     serp_mode: SerpMode
     serp_wait_s: int
@@ -222,6 +225,7 @@ class Forecast(BaseModel):
         serp_mode: SerpMode,
         cap: KeyCap,
         serp_balance: float | None = None,
+        model_refusal: str | None = None,
     ) -> Forecast:
         """Смета и кап, от которого она посчитана: цикл и почему кап неизвестен — от того же
         чтения (`ahrefs_cap.key_cap`), что дал смете кап и наш расход."""
@@ -255,6 +259,7 @@ class Forecast(BaseModel):
             ),
             serp_balance_usd=serp_balance,
             serp_refusal=refusal(serp_balance, cost),
+            model_refusal=model_refusal,
             serp_mode=serp_mode,
             serp_wait_s=EXPECTED_WAIT_S[serp_mode],
             unique_share=forecast.unique_share,

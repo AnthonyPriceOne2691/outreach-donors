@@ -8,6 +8,11 @@
 **Запуск кладёт задачу в очередь, а не выполняет её.** Прогон идёт
 минутами; выполнить его внутри запроса значит потерять оплаченную
 работу, если человек закрыл вкладку.
+
+**Модель суда — до строки прогона** (слово владельца 20.10.2026): смета называет, почему модель
+не готова (нет кредитов, ключ не принят, не ответила), и кнопку не даёт; запуск отказывает 409
+теми же словами (`refuse_unready_model`). Остаток счёта OpenAI обычным ключом не узнать — модель
+спрашивается крошечным вызовом (`shared/llm.probe`).
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import actor, db_session, needs
@@ -44,6 +49,7 @@ from backend.features.runs.browse import MAX_PAGE_SIZE, PAGE_SIZE, RunBrowser
 from backend.features.runs.budget import CapExceededError, cap_left, shortage_words, units_left
 from backend.features.runs.duplicates import refuse_duplicate
 from backend.features.runs.estimate import UNIQUE_SHARE, RunForecast, forecast
+from backend.features.runs.judge_stage import stage_models
 from backend.features.runs.outcome import outcome
 from backend.features.runs.planning import TRIM
 from backend.features.runs.repository import RunRepository
@@ -53,6 +59,7 @@ from backend.features.serp.dataforseo import COUNTRY_CODES
 from backend.features.serp.modes import mode_of
 from backend.features.topics.cost import per_site as topic_cost
 from backend.features.topics.cost import runs_classify
+from backend.shared import llm
 from backend.shared.queue import RUN_JOB, RUN_JOB_TIMEOUT, runs_queue, workers_alive
 
 router = APIRouter(prefix="/runs", tags=["прогоны"])
@@ -97,6 +104,15 @@ async def _refuse_empty_serp_account(body: RunRequestBody) -> None:
     words = funds.refusal(balance, cost)
     if words is not None:
         raise funds.FundsTooLowError(words)
+
+
+async def refuse_unready_model() -> None:
+    """Модели суда (`judge_stage.stage_models`) — до строки прогона: не ответила проверке —
+    409 её словами (`shared/llm.words_of`), и прогон не начинается. Судья выключен — проверять
+    нечего."""
+    words = await llm.unready(*stage_models())
+    if words is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, words)
 
 
 #: Снимок ключа старше — запуск бюджет не сверяет: сверит задача живым ответом Ahrefs.
@@ -211,8 +227,10 @@ async def estimate(
     _: UserModel = _runner,
     session: AsyncSession = Depends(db_session),
 ) -> Forecast:
-    """Сколько будет стоить. Не тратит ничего: остаток провайдера — это
-    бесплатный запрос, число доменов — арифметика и замеренная доля.
+    """Сколько будет стоить. Выдачу и юниты не тратит: остаток провайдера — это
+    бесплатный запрос, число доменов — арифметика и замеренная доля. Модель суда
+    спрашивается проверкой — живым вызовом в десятки токенов (`shared/llm.probe`):
+    смета называет, готова ли она, до нажатия «Запустить».
 
     Ahrefs спрашивается первым: его ответ ложится в снимок ключа, и кап сметы —
     размер ключа на эту минуту, а не прежний снимок (16.10.2026)."""
@@ -235,6 +253,8 @@ async def estimate(
         serp_mode=body.serp_mode or mode_of(None),
         cap=cap,
         serp_balance=balance,
+        # Модель суда — тоже до нажатия: не ответила — прогон не начнётся (20.10.2026).
+        model_refusal=await llm.unready(*stage_models()),
     )
     # Снимок ключа из ответа — в базу: смета больше ничего не пишет.
     await session.commit()
@@ -254,6 +274,8 @@ async def start_run(
     случился». Отказ на нажатии он видит сразу и с текстом.
     """
     check_collect()
+    # Модель — первой: не ответила — ни DataForSEO, ни Ahrefs прогон уже не спрашивает.
+    await refuse_unready_model()
     await _refuse_empty_serp_account(body)
 
     async def made(left: int, cap: KeyCap) -> RunForecast:

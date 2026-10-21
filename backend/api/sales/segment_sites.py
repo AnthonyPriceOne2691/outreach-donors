@@ -9,7 +9,8 @@
 `GET /sales/segment/runs/{N}/rejudge` — смета пересуда (сайтов, к модели, токенов), ход и итог
 последнего пересуда «было → стало». `POST /sales/segment/runs/{N}/rejudge` — запуск: смета
 заново на сервере, отказ — 409 словами до очереди (прогон идёт, пересуд уже идёт, смета
-отказала, описание поменялось после сметы); иначе задача в очереди долгих задач продаж
+отказала, описание поменялось после сметы, модель не ответила проверке —
+`segment_judging.unready`); иначе задача в очереди долгих задач продаж
 (`sales-bulk`, `features/sales/segment_rejudge.py`) и запись в журнале действий.
 
 **Проход и пересуд одного прогона — не разом**: судили бы одни и те же сайты, а проход пишет
@@ -42,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
 from backend.api.letters.once import enqueue_once
+from backend.config.judge import JudgeMode
 from backend.features.access.repository import AccessRepository
 from backend.features.core import domain
 from backend.features.core.domain import AuditAction, Permission
@@ -49,6 +51,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.ops.job_outcome import job_outcome
 from backend.features.sales import segment_watch
 from backend.features.sales.segment_jobs import segment_job_id
+from backend.features.sales.segment_judging import unready
 from backend.features.sales.segment_models import Decider, SalesSegmentRunModel
 from backend.features.sales.segment_rejudge import REJUDGE_JOB, rejudge_job_id
 from backend.features.sales.segment_rejudge_estimate import RejudgeEstimate, estimate
@@ -364,7 +367,9 @@ async def read_rejudge(
 
 async def _refusal(run: SalesSegmentRunModel, found: RejudgeEstimate, digest: str) -> str | None:
     """Почему пересуд сейчас не запустить — словами; `None` — можно. Очередь не ответила —
-    503: идёт ли прогон, не узнать, а неизвестность — не «не идёт»."""
+    503: идёт ли прогон, не узнать, а неизвестность — не «не идёт». Модель — последней и только
+    когда пересуд её позовёт (сайты к модели или разбор описания по смете): живой вызов незачем,
+    когда пересуд и так не пойдёт или ставит полосы по фактам кэша без модели."""
     run_going = await _alive(segment_job_id(run.id))
     rejudge_going = await _alive(rejudge_job_id(run.id))
     if run_going is None or rejudge_going is None:
@@ -375,7 +380,10 @@ async def _refusal(run: SalesSegmentRunModel, found: RejudgeEstimate, digest: st
         (found.refusal is not None, f"Пересуд не запущен: {found.refusal}"),
         (digest != found.digest, DIGEST_STALE),
     )
-    return next((words for failed, words in checks if failed), None)
+    words = next((words for failed, words in checks if failed), None)
+    if words is not None or not (found.model or found.scope_calls):
+        return words
+    return await unready(JudgeMode(run.mode))
 
 
 #: Запись журнала действий: новый пересуд — или продолжение прерванного.

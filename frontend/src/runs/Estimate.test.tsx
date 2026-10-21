@@ -290,6 +290,23 @@ describe('смета', () => {
     expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
   });
 
+  it('модель не готова — причина словами, зелёного «помещается» нет, кнопка стоит', async () => {
+    // Слово владельца 20.10.2026: модель суда не ответила проверке — прогон не начинается.
+    const words = 'у модели нет кредитов — пополните счёт OpenAI';
+    await openRun({ 'POST /api/runs/estimate': { body: { ...FITS, model_refusal: words } } });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    const alert = (await screen.findByText('Модель не готова')).closest(
+      '.mantine-Alert-root',
+    ) as HTMLElement;
+    expect(alert).toHaveTextContent(words);
+    expect(screen.queryByText('Помещается')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
+  });
+
   it('на счету хватает — остаток назван рядом с ценой выдачи, запуск открыт', async () => {
     await openRun({
       'POST /api/runs/estimate': { body: { ...FITS, serp_balance_usd: 12.3 } },

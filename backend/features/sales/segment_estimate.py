@@ -32,6 +32,11 @@ DataForSEO меньше порога или выдача по смете дор�
 запускается. Остаток не узнать — проверки нет: покупка у неответившего откажет сама. Запуск
 пересчитывает смету на сервере и отказывает её словами — проверка та же.
 
+**Модель — последней ступенью отказа** (слово владельца 20.10.2026): судья включён, а модель не
+ответила проверке (`segment_judging.unready` — живой вызов в десятки токенов) — нет кредитов, ключ
+не принят, не ответила — прогон не запускается, словами владельца; запуск пересчитывает смету, и
+отказ у него тот же.
+
 **Отпечаток сметы** (`digest`) — что человек видел: ключи, снятые, описание сегмента и режимы;
 запуск идёт только по нему (`segment_estimate_keys.seen_digest`).
 """
@@ -65,6 +70,7 @@ from backend.features.sales.segment_history import (
     sites_per_result,
     tokens_per_site,
 )
+from backend.features.sales.segment_judging import unready
 from backend.features.sales.segment_keywords import clean_keywords
 from backend.features.sales.segment_spend import number, tokens_usd, usd_per_million
 from backend.features.serp import funds, markets
@@ -348,7 +354,7 @@ async def _sites(session: AsyncSession, found: Estimate, hypothesis_id: int) -> 
 
 
 async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = None) -> Estimate:
-    """Смета прогона. Ничего не пишет и никуда не ходит, кроме базы."""
+    """Смета прогона. Ничего не пишет; кроме базы, спрашивает только счёт выдачи и модель."""
     hypothesis = await session.get(SalesHypothesisModel, ask.hypothesis_id)
     if hypothesis is None:
         raise UnknownHypothesisError(f"гипотезы №{ask.hypothesis_id} нет — обновите список гипотез")
@@ -423,7 +429,7 @@ async def _tokens(session: AsyncSession, found: Estimate) -> None:
 
 async def _money_refusal(found: Estimate) -> str | None:
     """Отказ по деньгам и настройкам: модуль выключен, модель выше остатка потолка, нет ключа,
-    нет выдачи, на счету выдачи не хватает денег."""
+    нет выдачи, на счету выдачи не хватает денег, модель не ответила проверке."""
     if not sales_cfg.ENABLED:
         return SALES_OFF
     if found.mode != JudgeMode.OFF and not llm_cfg.API_KEY:
@@ -438,8 +444,8 @@ async def _money_refusal(found: Estimate) -> str | None:
             f"остатке {number(found.tokens_left)} — уменьшите число ключей или глубину, "
             "или запустите завтра"
         )
-    refused = await serp_refusal()
-    return refused if refused is not None else await _funds_refusal(found.serp_usd)
+    refused = await serp_refusal() or await _funds_refusal(found.serp_usd)
+    return refused if refused is not None else await unready(JudgeMode(found.mode))
 
 
 async def _funds_refusal(cost: float) -> str | None:

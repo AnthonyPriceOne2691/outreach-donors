@@ -4,6 +4,10 @@
 встал: упавшая задача повторяется очередью, остановленный потолком модели — продолжается
 кнопкой, решения человека по «на проверку» — тем же продолжением.
 
+**Модель — до первой траты** (`unready_pass`, слово владельца 20.10.2026): проход позовёт модель
+(выдача не куплена или сайты ждут судью), а она не ответила проверке — прогон встаёт её словами,
+не купив ни выдачи, ни Hunter. Задачу воркер мог взять позже нажатия — проверка здесь своя.
+
 **Стадия — при входе в этап**, своим коммитом до его работы (`segment_progress.enter`):
 человек видит «покупаем выдачу», «судья: X из Y», «адреса: X из Y», «лиды и очистка», а не
 «в очереди» шесть минут выдачи (тест прогона 14.10). Ход — в `report.progress`.
@@ -56,7 +60,7 @@ from backend.features.sales.segment_counts import counts as _counts
 from backend.features.sales.segment_counts import number as _number
 from backend.features.sales.segment_estimate import NO_SEGMENT
 from backend.features.sales.segment_judge import SegmentClient
-from backend.features.sales.segment_judging import JudgeTally, judge_run
+from backend.features.sales.segment_judging import JudgeTally, judge_run, unready
 from backend.features.sales.segment_leads import make_leads
 from backend.features.sales.segment_models import SalesSegmentRunModel, Stage
 from backend.features.sales.segment_progress import (
@@ -258,6 +262,15 @@ async def _leads(
     }
 
 
+async def unready_pass(session: AsyncSession, run: SalesSegmentRunModel) -> str | None:
+    """Почему проход прогона не начинать — словами (`segment_judging.unready`): он позовёт модель
+    — выдача не куплена или сайты ждут судью, — а она не ответила проверке. Остались только адреса
+    и лиды — модель не нужна, и проверки нет: «Найти адреса принятым» идёт и без неё."""
+    if bought(run) and await judge_waiting(session, run.id) == 0:
+        return None
+    return await unready(JudgeMode(run.mode))
+
+
 async def execute(
     session: AsyncSession, run_id: int, deps: RunDeps, *, now: datetime | None = None
 ) -> dict[str, Any]:
@@ -272,6 +285,8 @@ async def execute(
     run.error, run.finished_at = None, None
     run.report = without_again(run.report)
     await segment_paid.settle(session, run)
+    if (words := await unready_pass(session, run)) is not None:
+        return await _stop(session, run, words, now)
     if not bought(run):
         await _serp(session, run, deps, started)
     if not segment and JudgeMode(run.mode) is not JudgeMode.OFF:

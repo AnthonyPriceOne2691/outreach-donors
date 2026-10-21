@@ -15,6 +15,12 @@
 превращался в `[]`, добор крутил углы вхолостую и записывал в отчёт
 «модель исчерпала уникальные фразы» — то есть называла неработающий ключ
 исчерпанной фантазией. Лог при этом был полон, но читают отчёт.
+
+**Нет кредитов — свой вид отказа, без повторов** (слово владельца 20.10.2026). У OpenAI 429 —
+и частота, и пустой счёт; различает их только тело (`no_credits`). Пустой счёт повторялся как
+частота, а прогон с ним стартовал, покупал выдачу и уводил каждый сайт «на проверку: сбой».
+Теперь прогон до первой траты спрашивает модель (`probe`, `unready`): любой отказ — прогон не
+начинается, причина — словами оператору (`words_of`). Остаток счёта обычным ключом не узнать.
 """
 
 from __future__ import annotations
@@ -27,7 +33,7 @@ from typing import Any
 import httpx
 
 from backend.config import llm as llm_cfg
-from backend.shared.net.retry import reason_of, unsent, with_retries
+from backend.shared.net.retry import reason_of, temporary, unsent, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +56,22 @@ def is_reasoning(model: str) -> bool:
 #: запроса. Разделение то же, что у клиента Ahrefs, и по той же причине —
 #: «повторить позже» на протухшем ключе это вечный цикл с бодрым текстом.
 PERMANENT_STATUSES = frozenset({400, 401, 403, 404, 422})
+#: Ключ не принят: неверный, отозван или без прав на модель.
+KEY_STATUSES = frozenset({401, 403})
+#: «Нет кредитов» в теле отказа (`error.type`, `error.code`). Ответ OpenAI 20.10.2026: 429,
+#: `type: insufficient_quota`, `code: credit_balance_exhausted`; прежде — `insufficient_quota`
+#: в обоих.
+NO_CREDITS_MARKS = frozenset({"insufficient_quota", "credit_balance_exhausted"})
+#: 403 «страна запроса не обслуживается» (`error.code` или `error.type`): ключ годен, а модель отсюда
+#: недоступна — это не «ключ не принят», а «модель не ответила» с причиной (`words_of`).
+REGION_MARK = "unsupported_country_region_territory"
+
+#: Слова оператору (слово владельца 20.10.2026): нет кредитов — ими же и `str()` такого отказа на
+#: любом экране (заметка разбора, черновик агента, «Написать заново»); подробности провайдера — в
+#: журнале (`post_chat`). Два других — почему прогон не начат (`words_of`).
+NO_CREDITS_WORDS = "у модели нет кредитов — пополните счёт OpenAI"
+KEY_WORDS = "ключ модели не принят — проверьте ключ"
+SILENT_WORDS = "модель не ответила ({why}) — проверить счёт нельзя, прогон не начат"
 
 
 class RefusalKind(StrEnum):
@@ -57,6 +79,7 @@ class RefusalKind(StrEnum):
     REFUSED = "отказ"  # провайдер ответил и отказал
     FORMAT = "формат"  # ответил, но разобрать нечего
     LOCAL = "запрос"  # запрос не собран у нас: ключ или заголовок
+    NO_CREDITS = "нет кредитов"  # на счету ключа нет денег: пополнить может только человек
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,14 +87,25 @@ class Refusal:
     """Почему вызов не удался. Отдаётся вызывающему наравне с ответом.
 
     `permanent` — это не «серьёзность», а указание, что делать: повтор
-    не поможет, чинить надо ключ, права или запрос.
+    не поможет, чинить надо ключ, права или запрос. `status` — код ответа
+    провайдера, если он ответил, `marks` — признаки из тела отказа (`error.type`,
+    `error.code`): по ним «ключ не принят» (`words_of`).
     """
 
     kind: RefusalKind
     detail: str
     permanent: bool
+    status: int | None = None
+    marks: frozenset[str] = frozenset()
+
+    @property
+    def no_credits(self) -> bool:
+        """Нет кредитов: проход встаёт, а не зовёт модель вхолостую (слово владельца 20.10.2026)."""
+        return self.kind is RefusalKind.NO_CREDITS
 
     def __str__(self) -> str:
+        if self.no_credits:
+            return NO_CREDITS_WORDS  # что делать — словами; ответ провайдера — в журнале
         what = "чинить" if self.permanent else "можно повторить"
         return f"модель, {self.kind} ({what}): {self.detail}"
 
@@ -110,20 +144,43 @@ class ModelClient:
             await self._http.aclose()
 
 
-def _message_of(response: httpx.Response) -> str:
-    """Внятная фраза провайдера, если она есть, иначе сырое тело."""
+def _error_of(response: httpx.Response) -> dict[str, Any]:
+    """Объект `error` тела отказа; тело не JSON или объекта нет — пусто."""
     try:
         body = response.json()
     except ValueError:
         # Не JSON — законный случай для страницы прокси или шлюза.
         # Тело всё равно уедет в ноту целиком, но молчать о разборе нельзя.
         logger.debug("отказ провайдера пришёл не в JSON, берём тело как есть")
-        return response.text[:300]
-    if isinstance(body, dict):
-        error = body.get("error")
-        if isinstance(error, dict) and error.get("message"):
-            return str(error["message"])[:300]
-    return response.text[:300]
+        return {}
+    error = body.get("error") if isinstance(body, dict) else None
+    return error if isinstance(error, dict) else {}
+
+
+def _message_of(response: httpx.Response) -> str:
+    """Внятная фраза провайдера, если она есть, иначе сырое тело."""
+    message = _error_of(response).get("message")
+    return str(message)[:300] if message else response.text[:300]
+
+
+def _marks_of(response: httpx.Response) -> frozenset[str]:
+    """Признаки отказа из тела (`error.type`, `error.code`); тела или их нет — пусто."""
+    error = _error_of(response)
+    return frozenset(str(error[field]) for field in ("type", "code") if error.get(field))
+
+
+def no_credits(response: httpx.Response) -> bool:
+    """На счету ключа нет денег: 402 — у любого провайдера; 429 — только с признаком в теле
+    (`NO_CREDITS_MARKS`): частота проходит сама, пустой счёт — нет."""
+    if response.status_code == 402:
+        return True
+    return response.status_code == 429 and bool(_marks_of(response) & NO_CREDITS_MARKS)
+
+
+def _passes(response: httpx.Response) -> bool:
+    """Повторять ли ответ модели: временный по коду (`net.retry.temporary`), но не «нет
+    кредитов» — повтор пустого счёта втрое дольше ведёт к тому же отказу."""
+    return temporary(response) and not no_credits(response)
 
 
 def _unusable_key(api_key: str, topic: str) -> Refusal | None:
@@ -183,6 +240,7 @@ async def post_chat(
             ),
             attempts=ATTEMPTS,
             topic=topic,
+            retry_when=_passes,
         )
     except httpx.HTTPError as exc:
         refusal = _unreached(exc)
@@ -199,10 +257,13 @@ async def post_chat(
         # в `error.message`, и она прямо говорит, что чинить.
         detail = f"HTTP {response.status_code}: {_message_of(response)}"
         logger.error("%s: модель отказала (%s)", topic, detail)
+        broke = no_credits(response)
         return Refusal(
-            RefusalKind.REFUSED,
+            RefusalKind.NO_CREDITS if broke else RefusalKind.REFUSED,
             detail,
-            permanent=response.status_code in PERMANENT_STATUSES,
+            permanent=broke or response.status_code in PERMANENT_STATUSES,
+            status=response.status_code,
+            marks=_marks_of(response),
         )
 
     try:
@@ -260,3 +321,83 @@ def tokens_of(body: dict[str, Any]) -> int:
 def _count(value: object) -> int:
     """Токены из поля `usage`: целое не меньше нуля, а прочее — ноль, как не названное."""
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+# --- проверка модели до прогона -------------------------------------------------------------------
+
+#: Потолок вывода проверки — десятки токенов. У модели с рассуждением он вмещает и рассуждение;
+#: упрётся — ответ обрезан (`finish_reason` `length`), но модель ответила: для проверки это «жива».
+PROBE_TOKENS_REASONING = 64
+PROBE_TOKENS_PLAIN = 8
+#: Усилие рассуждения проверки — нижнее из тех, что принимает любая модель с рассуждением: `minimal`
+#: знает только пятое семейство, и отказ 400 у другой закрыл бы запуск исправной модели.
+PROBE_EFFORT = "low"
+#: Срок попытки: проверку ждёт запрос экрана, а не задача (`LLM_TIMEOUT_S` — минуты).
+PROBE_TIMEOUT_S = 20.0
+PROBE_TOPIC = "проверка модели до прогона"
+
+
+class ModelUnreadyError(RuntimeError):
+    """Модель прогона не ответила проверке (`ensure_model`): словами `words_of`. Повтор задачи
+    не поможет — пополнить счёт или поправить ключ может только человек
+    (`runs/failures.is_permanent`)."""
+
+    permanent = True
+
+
+def probe_payload(model: str) -> dict[str, Any]:
+    """Тело проверки: слово в ответ, потолок вывода — по семейству модели."""
+    limits: dict[str, Any] = (
+        {"max_completion_tokens": PROBE_TOKENS_REASONING, "reasoning_effort": PROBE_EFFORT}
+        if is_reasoning(model)
+        else {"max_tokens": PROBE_TOKENS_PLAIN}
+    )
+    return {"model": model, "messages": [{"role": "user", "content": "Ответь: ok"}], **limits}
+
+
+async def probe(http: httpx.AsyncClient, *, api_key: str, model: str) -> Refusal | None:
+    """Жива ли модель: крошечный вызов той же модели тем же ключом — через `post_chat`, с его
+    повторами (один обрыв связи запуск не закрывает) и разбором отказов. `None` — модель ответила:
+    любой ответ 200, пустой и обрезанный потолком тоже; `Refusal` — что не так."""
+    answer = await post_chat(http, api_key=api_key, payload=probe_payload(model), topic=PROBE_TOPIC)
+    if isinstance(answer, Refusal):
+        return answer
+    logger.info("%s: %s ответила", PROBE_TOPIC, model, extra={"tokens": tokens_of(answer)})
+    return None
+
+
+def words_of(refusal: Refusal) -> str:
+    """Почему прогон не начат — словами оператору: нет кредитов, ключ не принят (`KEY_STATUSES`,
+    ключ не собрать в заголовок) или модель не ответила — с причиной. 403 из-за страны запроса
+    (`REGION_MARK`) — не ключ: ключ годен, модель отсюда недоступна."""
+    if refusal.kind is RefusalKind.NO_CREDITS:
+        return NO_CREDITS_WORDS
+    key_refused = refusal.status in KEY_STATUSES and REGION_MARK not in refusal.marks
+    if refusal.kind is RefusalKind.LOCAL or key_refused:
+        return KEY_WORDS
+    return SILENT_WORDS.format(why=refusal.detail[:200])
+
+
+def probe_client() -> httpx.AsyncClient:
+    """Клиент проверки — свой, со сроком `PROBE_TIMEOUT_S`; тест подставляет транспорт здесь."""
+    return httpx.AsyncClient(timeout=PROBE_TIMEOUT_S)
+
+
+async def unready(*models: str) -> str | None:
+    """Почему прогону, который позовёт эти модели, не начинать — словами (`words_of`); `None` —
+    каждая ответила проверке (`probe`) или моделей нет. Одна модель дважды не спрашивается."""
+    if not models:
+        return None
+    async with probe_client() as http:
+        for model in dict.fromkeys(models):
+            refusal = await probe(http, api_key=llm_cfg.API_KEY, model=model)
+            if refusal is not None:
+                return words_of(refusal)
+    return None
+
+
+async def ensure_model(*models: str) -> None:
+    """Перед первой тратой задачи прогона: модель не ответила — `ModelUnreadyError` словами."""
+    words = await unready(*models)
+    if words is not None:
+        raise ModelUnreadyError(words)

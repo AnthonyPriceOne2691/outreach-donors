@@ -19,6 +19,8 @@
 проза, обрезанный ответ и тема не из списка — сбой формы (`TopicVerdict.unreadable`): на домен
 не пишется. **Отказ — с причиной, а не ноль**: модель не ответила (сеть, ключ, отказ
 провайдера, пустой ответ) — темы нет, следующий проход спросит снова, причина — в итоге прохода.
+У ключа нет кредитов — причина словами владельца (`TopicVerdict.no_credits`), и пачка дальше
+модель не зовёт (`step.classify_many`, 20.10.2026).
 """
 
 from __future__ import annotations
@@ -154,6 +156,8 @@ class TopicVerdict:
     unanswered: bool = False
     #: Ответ пришёл, а формы нет: проза, обрезан потолком, тема не из списка (`answer.py`).
     unreadable: bool = False
+    #: У ключа модели нет кредитов: неответ, после которого пачка модель не зовёт.
+    no_credits: bool = False
 
     @property
     def unclear(self) -> bool:
@@ -234,7 +238,14 @@ async def classify(
     )
     if isinstance(answer, Refusal):
         logger.warning("%s: %s (%s)", LOG_TOPIC, answer, host)
-        return TopicVerdict(None, None, str(answer), source=text.source, unanswered=True)
+        return TopicVerdict(
+            None,
+            None,
+            str(answer),
+            source=text.source,
+            unanswered=True,
+            no_credits=answer.no_credits,
+        )
     # Ответ оплачен, каким бы он ни был: модель, токены и источник — у каждого исхода ниже.
     paid = TopicVerdict(
         None, None, "", chosen, tokens_of(answer), *split_tokens(answer), text.source

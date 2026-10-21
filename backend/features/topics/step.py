@@ -39,6 +39,7 @@ from backend.features.topics.classifier import (
     site_text,
 )
 from backend.features.topics.store import Known, TopicRecord, TopicStore
+from backend.shared.llm import NO_CREDITS_WORDS
 
 logger = logging.getLogger(__name__)
 
@@ -143,22 +144,20 @@ async def classify_many(
 
     Упавший вызов модели — «не ответила» с причиной: тема — не та ступень, ради которой стоит
     терять оплаченные ответы соседей. Упавшая запись в базу — громко, после прохода: ответы,
-    записанные до неё, остаются.
+    записанные до неё, остаются. У ключа нет кредитов — дальше модель не зовётся: остальным
+    сайтам пачки — «не ответила» той же причиной, без вызова (`unasked`, 20.10.2026).
     """
     gate = asyncio.Semaphore(concurrency or cfg.CONCURRENCY)
     writing = asyncio.Lock()
+    broke = asyncio.Event()
     hosts = list(texts)
 
     async def one(host: str) -> TopicVerdict:
         async with gate:
-            try:
-                verdict = await classify(http, host=host, text=texts[host])
-            except Exception as exc:  # noqa: BLE001 — сбой одного сайта не роняет пачку
-                logger.warning("тематика сайта упала на %s: %s", host, exc)
-                reason = described(exc)[:300]
-                verdict = TopicVerdict(
-                    None, None, reason, source=texts[host].source, unanswered=True
-                )
+            text = texts[host]
+            verdict = unasked(text) if broke.is_set() else await _asked(http, host, text)
+        if verdict.no_credits:
+            broke.set()
         if on_answer is not None:
             # Сессия базы одна на проход: записи — по одной, а не наперегонки.
             async with writing:
@@ -175,6 +174,22 @@ async def classify_many(
     return verdicts
 
 
+async def _asked(http: httpx.AsyncClient, host: str, text: SiteText) -> TopicVerdict:
+    """Тема одного сайта моделью; упавший вызов — «не ответила» с причиной."""
+    try:
+        return await classify(http, host=host, text=text)
+    except Exception as exc:  # noqa: BLE001 — сбой одного сайта не роняет пачку
+        logger.warning("тематика сайта упала на %s: %s", host, exc)
+        return TopicVerdict(None, None, described(exc)[:300], source=text.source, unanswered=True)
+
+
+def unasked(text: SiteText) -> TopicVerdict:
+    """У ключа модели нет кредитов: сайт не спрашивали — темы нет, следующий проход спросит."""
+    return TopicVerdict(
+        None, None, NO_CREDITS_WORDS, source=text.source, unanswered=True, no_credits=True
+    )
+
+
 class RunLedger(Protocol):
     """Чем пачка прогона пишет расход и фиксирует сделанное (`RunRepository`)."""
 
@@ -186,13 +201,17 @@ class RunLedger(Protocol):
 
 
 class TopicStep:
-    """Тема в прогоне: по пачке судьи, тем же текстом. Счёт копится через пачки."""
+    """Тема в прогоне: по пачке судьи, тем же текстом. Счёт копится через пачки. У ключа нет
+    кредитов (`stopped`) — до конца прохода модель не зовётся: сайтам, которых спросили бы, —
+    «не ответила» той же причиной, без вызова (`unasked`), и в отчёте — причина, а не нули."""
 
     def __init__(self, store: TopicStore, ledger: RunLedger, run_id: int | None) -> None:
         self._store = store
         self._ledger = ledger
         self._run_id = run_id
         self.summary = TopicSummary()
+        #: У ключа модели нет кредитов — словами: до конца прохода тема модель не зовёт.
+        self.stopped: str | None = None
 
     async def classify(
         self,
@@ -200,13 +219,21 @@ class TopicStep:
         hosts: Sequence[str],
         pages: Mapping[str, SerpText],
         homes: Mapping[str, HomeSignals],
+        *,
+        stopped: str | None = None,
     ) -> None:
-        """Темы сайтов пачки: свежие — из базы, остальные — моделью; каждый ответ — сразу."""
+        """Темы сайтов пачки: свежие — из базы, остальные — моделью; каждый ответ — сразу.
+        `stopped` — суд прохода встал без кредитов: модель не зовётся и здесь."""
         if not hosts:
             return
         known = await self._store.known(hosts, version=TOPIC_VERSION)
         texts = self._to_ask(known, hosts, pages, homes)
         if not texts:
+            return
+        self.stopped = self.stopped or stopped
+        if self.stopped is not None:
+            for text in texts.values():
+                self.summary.record(unasked(text))
             return
         await self._ledger.ensure_llm_within_cap(run_id=self._run_id)
         log_silent(await classify_many(http, texts, on_answer=self._write))
@@ -241,6 +268,8 @@ class TopicStep:
             )
         await self._ledger.session_commit()
         self.summary.record(verdict)
+        if verdict.no_credits:
+            self.stopped = NO_CREDITS_WORDS
 
 
 def log_silent(verdicts: Mapping[str, TopicVerdict]) -> None:

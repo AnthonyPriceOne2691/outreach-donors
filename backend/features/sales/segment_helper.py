@@ -52,7 +52,15 @@ from backend.config import llm as llm_cfg
 from backend.features.core import usage
 from backend.features.sales.segment_judge import segment_digest
 from backend.features.sales.segment_models import SalesSegmentHelpModel
-from backend.shared.llm import ModelClient, Refusal, content_of, is_reasoning, post_chat, tokens_of
+from backend.shared.llm import (
+    NO_CREDITS_WORDS,
+    ModelClient,
+    Refusal,
+    content_of,
+    is_reasoning,
+    post_chat,
+    tokens_of,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +105,11 @@ EMPTY = "Напишите черновик описания — помощник
 FAILED = (
     "Помощник не ответил ({reason}) — попробуйте ещё раз чуть позже; описание можно написать "
     "и самому, подсказка «Как описать сегмент» — под полем"
+)
+#: У ключа модели нет кредитов: «попробуйте позже» не поможет (слово владельца 20.10.2026).
+BROKE = (
+    f"Помощник не ответил: {NO_CREDITS_WORDS}; описание можно написать и самому, подсказка "
+    "«Как описать сегмент» — под полем"
 )
 
 
@@ -214,6 +227,8 @@ class Answer:
     reason: str | None
     tokens: int
     model: str
+    #: У ключа модели нет кредитов: повтор не поможет, нужен пополненный счёт.
+    no_credits: bool = False
 
 
 class HelperClient(ModelClient):
@@ -231,7 +246,7 @@ class HelperClient(ModelClient):
         )
         if isinstance(body, Refusal):
             logger.warning("%s: %s", TOPIC, body)
-            return Answer(None, f"модель не ответила: {body}", 0, self._model)
+            return Answer(None, f"модель не ответила: {body}", 0, self._model, body.no_credits)
         tokens = tokens_of(body)
         content = content_of(body, topic=TOPIC)
         if not content:
@@ -310,7 +325,7 @@ async def help_draft(
     found = answer.suggestion
     if found is None:
         await session.commit()
-        raise HelperFailedError(FAILED.format(reason=answer.reason))
+        raise HelperFailedError(BROKE if answer.no_credits else FAILED.format(reason=answer.reason))
     await session.execute(
         insert(SalesSegmentHelpModel)
         .values(

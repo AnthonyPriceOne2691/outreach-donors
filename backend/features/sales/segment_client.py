@@ -4,7 +4,8 @@
 (`segment_scope`); полосу ставит судья кодом (`segment_judge`, `segment_rules`). Здесь — только
 вызов: промпт, тело запроса, потолок вывода, токены и сбой словами. Клиент не бросает: отказ
 провайдера, обрезанный и пустой ответ — словами в ответе (`Asked.failure`), с токенами, если они
-оплачены.
+оплачены. У ключа нет кредитов — признак `no_credits` в ответе: проход встаёт, а не судит дальше
+вхолостую (`segment_window`, `segment_judging.read_scope`; слово владельца 20.10.2026).
 """
 
 from __future__ import annotations
@@ -149,6 +150,8 @@ class Asked:
     tokens: int = 0
     spent: Spent | None = None
     cut_off: bool = False
+    #: У ключа модели нет кредитов (`Refusal.no_credits`): дальше модель не зовут.
+    no_credits: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +166,8 @@ class Said:
     #: Ответа нет вовсе (отказ, пустой или обрезанный ответ): следующий проход спросит снова.
     unanswered: bool = False
     cut_off: bool = False
+    #: У ключа модели нет кредитов: сайт не судили — проход встаёт, сайт ждёт «Продолжить».
+    no_credits: bool = False
 
 
 class SegmentClient(ModelClient):
@@ -177,7 +182,7 @@ class SegmentClient(ModelClient):
         body = await post_chat(self._http, api_key=self._api_key, payload=payload, topic=TOPIC)
         if isinstance(body, Refusal):
             logger.warning("%s: %s", TOPIC, body, extra={"host": host})
-            return Asked(failure=f"модель не ответила: {body}")
+            return Asked(failure=f"модель не ответила: {body}", no_credits=body.no_credits)
         tokens, spent = tokens_of(body), spent_of(body)
         content = content_of(body, topic=TOPIC)
         if finish_of(body) == "length":
@@ -205,7 +210,14 @@ class SegmentClient(ModelClient):
         )
         if asked.failure is not None:
             return Said(
-                None, asked.failure, asked.model, asked.tokens, asked.spent, True, asked.cut_off
+                None,
+                asked.failure,
+                asked.model,
+                asked.tokens,
+                asked.spent,
+                True,
+                asked.cut_off,
+                asked.no_credits,
             )
         found = segment_facts.read_facts(asked.content, text)
         if isinstance(found, str):

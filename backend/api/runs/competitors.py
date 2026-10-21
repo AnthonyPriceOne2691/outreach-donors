@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
 from backend.api.runs.competitor_schemas import CompetitorForecast, CompetitorRunBody
-from backend.api.runs.routes import enqueue_run, refuse_over_budget
+from backend.api.runs.routes import enqueue_run, refuse_over_budget, refuse_unready_model
 from backend.api.runs.schemas import RunQueued
 from backend.config.startup_checks import check_collect
 from backend.features.ahrefs.client import AhrefsClient
@@ -96,8 +96,10 @@ async def start(
     session: AsyncSession = Depends(db_session),
 ) -> RunQueued:
     """Поставить прогон в очередь. Отказы — до строки прогона и словами: настройки, бюджет
-    по смете, потолки модели, правило региона, такой же прогон, который ещё не закончен."""
+    по смете, потолки модели, правило региона, такой же прогон, который ещё не закончен, модель
+    суда не ответила проверке — до первого платного списка (`refuse_unready_model`)."""
     check_collect()
+    await refuse_unready_model()
     rules = await rules_in_force(session)
 
     async def made(left: int, cap: KeyCap) -> RunForecast:

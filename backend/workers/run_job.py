@@ -5,6 +5,11 @@
 Своей логики здесь по-прежнему нет: задача собирает исполнителей и зовёт то же ядро, что
 консольная команда, а исход пишет в строку прогона.
 
+**Модель суда — в начале каждого запуска задачи** (слово владельца 20.10.2026): первого и
+возобновлённого после смерти воркера, до любой траты — списков конкурентов, выдачи, Ahrefs. Не
+ответила проверке (нет кредитов, ключ не принят, не ответила) — прогон встаёт её словами
+(`shared/llm.ensure_model`): воркер мог взять задачу позже нажатия, и проверка запуска уже стара.
+
 **Списки — уже с пульсом.** Удары о жизни начинаются до шага конкурентов, а прогон тот шаг
 сам переводит в «идёт» до первого списка: до 20.10.2026 списки покупались у прогона «в
 очереди» и без пульса, и экран показывал оплачиваемую работу ждущей.
@@ -30,6 +35,7 @@ from backend.features.runs.budget import ceiling_at_start
 from backend.features.runs.competitor_run import journal_of, lists_paid, prepare
 from backend.features.runs.exclusions import Exclusions
 from backend.features.runs.failures import described, is_permanent
+from backend.features.runs.judge_stage import stage_models
 from backend.features.runs.lifecycle import heartbeat
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.reasons import explained
@@ -38,6 +44,7 @@ from backend.features.runs.stopped import tell_stopped
 from backend.features.runs.thresholds import rules_of
 from backend.features.serp.factory import build_provider
 from backend.features.serp.modes import mode_of
+from backend.shared.llm import ensure_model
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +134,7 @@ async def _search(run_id: int) -> dict[str, Any]:
     """
     try:
         check_collect()
+        await ensure_model(*stage_models())  # до любой траты задачи, при каждом её запуске
         return await _run(run_id)
     except Exception as exc:
         if is_permanent(exc):
