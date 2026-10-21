@@ -307,7 +307,7 @@
       "worst": "—"
     },
     "backend/api/review/reserve_schemas.py": {
-      "lines": 167,
+      "lines": 170,
       "complexity": 7,
       "worst": "of:65"
     },
@@ -347,7 +347,7 @@
       "worst": "refuse_over_budget:125"
     },
     "backend/api/runs/schemas.py": {
-      "lines": 384,
+      "lines": 377,
       "complexity": 4,
       "worst": "_known_mode:66"
     },
@@ -1202,9 +1202,9 @@
       "worst": "—"
     },
     "backend/features/core/models/run.py": {
-      "lines": 198,
-      "complexity": 0,
-      "worst": "—"
+      "lines": 205,
+      "complexity": 3,
+      "worst": "competitor_targets:118"
     },
     "backend/features/core/stages.py": {
       "lines": 475,

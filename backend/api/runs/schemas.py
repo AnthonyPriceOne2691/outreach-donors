@@ -269,13 +269,6 @@ class Forecast(BaseModel):
         )
 
 
-def _competitors_of(row: RunRow) -> list[str] | None:
-    """Домены конкурентов прогона по их ссылкам (`runs.competitors`); у прогона по ключам —
-    `None`, и строка истории показывает число ключей."""
-    targets = (row.run.competitors or {}).get("targets")
-    return list(targets) if targets else None
-
-
 class RunCard(BaseModel):
     """Прогон в списке: что запускали, где он сейчас и чем кончился."""
 
@@ -334,7 +327,7 @@ class RunCard(BaseModel):
             queue=row.queue,
             reason=readable((row.run.stats or {}).get(REASON_KEY)),
             started_by=row.started_by,
-            competitors=_competitors_of(row),
+            competitors=row.run.competitor_targets,
         )
 
 

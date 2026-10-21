@@ -114,6 +114,13 @@ class RunModel(TimestampedMixin, Base):
 
     settings: Mapped[RunSettingsModel] = relationship("RunSettingsModel", back_populates="runs")
 
+    @property
+    def competitor_targets(self) -> list[str] | None:
+        """Домены конкурентов прогона по их ссылкам; у прогона по ключам — `None`. Одно правило для
+        истории прогонов и резерва: по нему экран пишет вход прогона словами, а не «ключей 0»."""
+        targets = (self.competitors or {}).get("targets")
+        return list(targets) if targets else None
+
 
 class RunDomainMixin:
     """Строка на пару «прогон + домен»: кандидат очереди (`RunCandidateModel`) и вердикт прогона

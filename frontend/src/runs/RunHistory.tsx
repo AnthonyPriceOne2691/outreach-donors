@@ -51,7 +51,7 @@ export const ACTIVE = new Set<RunStatus>(['queued', 'estimating', 'running']);
 const COLUMNS: Column[] = [
   { title: 'Прогон', width: '12.2%' },
   { title: 'Состояние', width: '14.4%' },
-  { title: 'Ключей', width: '7%' },
+  { title: 'Вход', width: '7%' },
   { title: 'Доменов', width: '9.7%' },
   { title: 'Смета', width: '6.5%' },
   { title: 'Факт', width: '6.5%' },
@@ -220,16 +220,20 @@ function StatusCell({ run }: { run: RunCard }) {
   );
 }
 
-/** Колонка ключей. У прогона по ссылкам конкурентов ключей нет — там число конкурентов
- *  и слово под ним, а домены — подсказкой: «0» читалось бы прогоном без входа. */
-function KeywordsCell({ run }: { run: RunCard }) {
+/** Колонка «Вход»: число и слово под ним — ключей или конкурентов, домены конкурентов —
+ *  подсказкой. Одно число «1» не отличало прогон по ключу от прогона по конкуренту (проверка
+ *  прода 21.10.2026), а «0» читалось бы прогоном без входа. */
+function EntryCell({ run }: { run: RunCard }) {
   const rivals = competitorsOf(run);
-  if (rivals.length === 0) return <>{formatNumber(run.keywords)}</>;
+  const [count, word] =
+    rivals.length > 0
+      ? [rivals.length, plural(rivals.length, 'конкурент', 'конкурента', 'конкурентов')]
+      : [run.keywords, plural(run.keywords, 'ключ', 'ключа', 'ключей')];
   return (
-    <Stack gap={0} align="center" title={rivals.join(', ')}>
-      <Text size="sm">{formatNumber(rivals.length)}</Text>
+    <Stack gap={0} align="center" title={rivals.length > 0 ? rivals.join(', ') : undefined}>
+      <Text size="sm">{formatNumber(count)}</Text>
       <Text size="xs" c="dimmed">
-        {plural(rivals.length, 'конкурент', 'конкурента', 'конкурентов')}
+        {word}
       </Text>
     </Stack>
   );
@@ -267,7 +271,7 @@ function HistoryRow({ run, from }: { run: RunCard; from: string }) {
         <StatusCell run={run} />
       </Table.Td>
       <Table.Td>
-        <KeywordsCell run={run} />
+        <EntryCell run={run} />
       </Table.Td>
       <Table.Td>
         {formatNumber(run.hosts)}
