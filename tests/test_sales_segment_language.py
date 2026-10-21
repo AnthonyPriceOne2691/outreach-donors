@@ -177,26 +177,27 @@ def test_a_site_in_the_letters_language_is_not_cut(text: str, letters: str) -> N
 
 
 @pytest.mark.parametrize(
-    ("text", "letters", "said"),
+    ("text", "letters", "said", "then"),
     [
-        (EN, "ru", "латиница"),
-        (DENTAL["en"], "ru", "латиница"),
-        (DENTAL["zh"], "en", "иероглифы"),
-        (DENTAL["hi"], "ru", "деванагари"),
+        (EN, "ru", "латиница", "; примете — английский"),
+        (DENTAL["en"], "ru", "латиница", "; примете — английский"),
+        (DENTAL["zh"], "en", "иероглифы", ""),
+        (DENTAL["hi"], "ru", "деванагари", ""),
     ],
     ids=["bike-en-ru", "dental-en-ru", "dental-zh-en", "dental-hi-ru"],
 )
 def test_another_script_without_letters_of_its_own_is_unsure_not_a_refusal(
-    text: str, letters: str, said: str
+    text: str, letters: str, said: str, then: str
 ) -> None:
     """Английский среди латиницы, иероглифы без каны, деванагари — язык по буквам не назвать: сайт
-    точно не на языке писем (другая письменность), но на каком — «не понять», решает человек."""
+    точно не на языке писем (другая письменность), но на каком — «не понять», решает человек. У
+    латиницы слова называют и язык писем лиду после «Принять» (таблица письменностей)."""
     found = sl.mismatch(text, letters)
 
     assert found is not None
     assert (found.code, found.said) == (None, said)
     assert found.words == (
-        f"язык сайта — не понять по буквам ({said}), письма — {sl.language_name(letters)}"
+        f"язык сайта — не понять по буквам ({said}), письма — {sl.language_name(letters)}{then}"
     )
 
 
@@ -344,7 +345,9 @@ async def test_an_unnamed_language_on_another_script_goes_to_a_human_not_cut() -
 
     assert len(seen) == 1
     assert (verdict.lane, verdict.decided_by) == (Lane.REVIEW, Decider.LANGUAGE)
-    assert verdict.reason == "язык сайта — не понять по буквам (латиница), письма — русский"
+    assert verdict.reason == (
+        "язык сайта — не понять по буквам (латиница), письма — русский; примете — английский"
+    )
     assert verdict.tokens == 731
     assert verdict.model is None
     assert sj.effective(verdict, JudgeMode.ENFORCE) == (Lane.REVIEW, verdict.reason)

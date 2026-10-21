@@ -2877,14 +2877,14 @@
       "worst": "clean_keywords:72"
     },
     "backend/features/sales/segment_language.py": {
-      "lines": 431,
+      "lines": 476,
       "complexity": 10,
-      "worst": "switches_to:410"
+      "worst": "switches_to:455"
     },
     "backend/features/sales/segment_leads.py": {
-      "lines": 168,
+      "lines": 175,
       "complexity": 6,
-      "worst": "make_leads:133"
+      "worst": "make_leads:140"
     },
     "backend/features/sales/segment_models.py": {
       "lines": 276,
