@@ -267,7 +267,7 @@ async def test_a_401_stays_a_permanent_refusal_of_the_key() -> None:
             MODEL,
             # Литералы, а не константы модуля: правка усилия или потолка обязана краснеть здесь —
             # `minimal` пятого семейства закрыл бы запуск исправной модели другого (отказ 400).
-            {"max_completion_tokens": 64, "reasoning_effort": "low"},
+            {"max_completion_tokens": 1024, "reasoning_effort": "low"},
         ),
         ("gpt-4o-mini", {"max_tokens": 8}),
     ],
@@ -302,6 +302,47 @@ async def test_any_answer_200_means_the_model_answers(reply: dict[str, Any]) -> 
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(provider)) as http:
         assert await REAL_PROBE(http, api_key=KEY, model=MODEL) is None
+
+
+#: Отказ OpenAI, когда рассуждение съело потолок вывода (прод 21.10.2026, gpt-5-mini, потолок 64).
+OUT_OF_ROOM = {
+    "error": {
+        "message": "Could not finish the message because max_tokens or model output limit was "
+        "reached. Please try again with higher max_tokens.",
+        "type": "invalid_request_error",
+    }
+}
+
+
+async def test_a_model_that_ran_out_of_our_output_limit_answers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Модель отвечала, пока не кончился потолок вывода, — ключ принят и счёт жив: запуск не
+    закрывается (смета прода 21.10.2026 закрывала его при пополненном счёте)."""
+    provider = answering(monkeypatch, lambda: httpx.Response(400, json=OUT_OF_ROOM))
+
+    assert await unready(MODEL) is None
+    assert provider.calls == 1  # отказ 400 не повторяется
+
+
+async def test_a_request_the_model_did_not_accept_still_closes_the_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Слова «max_tokens» сами по себе — не «модель ответила»: неверный запрос модель не принимала,
+    и судья с тем же запросом не ответил бы тоже."""
+    body = {
+        "error": {
+            "message": "Unsupported parameter: 'max_tokens' is not supported with this model. "
+            "Use 'max_completion_tokens' instead.",
+            "type": "invalid_request_error",
+        }
+    }
+    answering(monkeypatch, lambda: httpx.Response(400, json=body))
+
+    said = await unready(MODEL)
+
+    assert said is not None
+    assert said.startswith("модель не ответила (HTTP 400: Unsupported parameter: 'max_tokens'")
 
 
 @pytest.mark.parametrize("kind", list(REFUSALS))

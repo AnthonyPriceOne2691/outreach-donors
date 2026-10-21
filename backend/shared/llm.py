@@ -325,10 +325,17 @@ def _count(value: object) -> int:
 
 # --- проверка модели до прогона -------------------------------------------------------------------
 
-#: Потолок вывода проверки — десятки токенов. У модели с рассуждением он вмещает и рассуждение;
-#: упрётся — ответ обрезан (`finish_reason` `length`), но модель ответила: для проверки это «жива».
-PROBE_TOKENS_REASONING = 64
+#: Потолок вывода проверки. У модели с рассуждением он вмещает и рассуждение, и 64 не хватало:
+#: gpt-5-mini с усилием `low` не успевала ответить, и OpenAI отвечал не обрезанным 200, а отказом
+#: 400 «Could not finish the message because max_tokens or model output limit was reached» — смета
+#: закрывала запуск при живых ключе и счёте (прод 21.10.2026). С запасом: модель останавливается,
+#: ответив «ok», а не по потолку, — платится то, что она потратила.
+PROBE_TOKENS_REASONING = 1024
 PROBE_TOKENS_PLAIN = 8
+#: Отказ «модель упёрлась в наш потолок вывода»: она отвечала — ключ принят, счёт жив (`probe`).
+#: Только эти слова: 400 «Unsupported parameter: 'max_tokens'» — запрос, который модель не приняла,
+#: и судья с тем же запросом не ответил бы тоже.
+OUTPUT_LIMIT_MARK = "output limit was reached"
 #: Усилие рассуждения проверки — нижнее из тех, что принимает любая модель с рассуждением: `minimal`
 #: знает только пятое семейство, и отказ 400 у другой закрыл бы запуск исправной модели.
 PROBE_EFFORT = "low"
@@ -358,12 +365,21 @@ def probe_payload(model: str) -> dict[str, Any]:
 async def probe(http: httpx.AsyncClient, *, api_key: str, model: str) -> Refusal | None:
     """Жива ли модель: крошечный вызов той же модели тем же ключом — через `post_chat`, с его
     повторами (один обрыв связи запуск не закрывает) и разбором отказов. `None` — модель ответила:
-    любой ответ 200, пустой и обрезанный потолком тоже; `Refusal` — что не так."""
+    любой ответ 200, пустой и обрезанный потолком тоже, и отказ «упёрлась в потолок вывода»
+    (`OUTPUT_LIMIT_MARK`); `Refusal` — что не так."""
     answer = await post_chat(http, api_key=api_key, payload=probe_payload(model), topic=PROBE_TOPIC)
     if isinstance(answer, Refusal):
-        return answer
+        if not _out_of_room(answer):
+            return answer
+        logger.info("%s: %s отвечала до потолка вывода — ключ и счёт живы", PROBE_TOPIC, model)
+        return None
     logger.info("%s: %s ответила", PROBE_TOPIC, model, extra={"tokens": tokens_of(answer)})
     return None
+
+
+def _out_of_room(refusal: Refusal) -> bool:
+    """Модель отвечала, пока не кончился потолок вывода запроса (`OUTPUT_LIMIT_MARK`)."""
+    return refusal.status == 400 and OUTPUT_LIMIT_MARK in refusal.detail.lower()
 
 
 def words_of(refusal: Refusal) -> str:
