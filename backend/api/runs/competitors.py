@@ -29,7 +29,9 @@ from backend.features.runs.competitor_estimate import TRIM, forecast, model_cost
 from backend.features.runs.competitors import row_price
 from backend.features.runs.duplicates import refuse_duplicate
 from backend.features.runs.estimate import RunForecast
+from backend.features.runs.judge_stage import stage_models
 from backend.features.runs.thresholds import rules_in_force
+from backend.shared import llm
 
 router = APIRouter(prefix="/runs/competitors", tags=["прогоны"])
 
@@ -66,8 +68,9 @@ async def estimate(
     _: UserModel = _runner,
     session: AsyncSession = Depends(db_session),
 ) -> CompetitorForecast:
-    """Сколько будет стоить — худшим случаем. Не тратит ничего: остаток у Ahrefs — бесплатный
-    запрос (его ответ ложится снимком ключа), списки и сайты — арифметика."""
+    """Сколько будет стоить — худшим случаем. Списков и юнитов не тратит: остаток у Ahrefs —
+    бесплатный запрос (его ответ ложится снимком ключа), списки и сайты — арифметика. Модель суда
+    спрашивается проверкой в десятки токенов (`shared/llm.probe`): смета называет, готова ли она."""
     ahrefs = AhrefsClient()
     try:
         # Остаток сырой, без капа: арифметику потолков делает смета в одном месте.
@@ -83,6 +86,7 @@ async def estimate(
         cap=cap,
         row_units=row_price(rules.thresholds),
         model=await model_cost(session, made.expected_domains),
+        model_refusal=await llm.unready(*stage_models()),
     )
     # Снимок ключа из ответа — в базу: смета больше ничего не пишет.
     await session.commit()

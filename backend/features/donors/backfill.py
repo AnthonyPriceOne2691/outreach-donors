@@ -37,6 +37,7 @@ from sqlalchemy import not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import judge as judge_cfg
+from backend.config import llm as llm_cfg
 from backend.features.core import usage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
@@ -47,6 +48,7 @@ from backend.features.donors.repository import DonorRepository, JudgeRecord, jud
 from backend.features.runs.judge_stage import JUDGE_OPERATION, SERP_OPERATION
 from backend.features.runs.planning import SerpText, gather_candidates, saved_texts
 from backend.features.serp.protocol import SerpProvider
+from backend.shared.llm import ensure_model
 from backend.shared.net.url_parts import parse_url
 
 logger = logging.getLogger(__name__)
@@ -209,7 +211,10 @@ async def backfill(
     provider: SerpProvider | None,
     progress: Callable[[int, int], None] | None = None,
 ) -> BackfillReport:
-    """Досудить по плану и записать вердикты. Метрики не покупаются."""
+    """Досудить по плану и записать вердикты. Метрики не покупаются. Модель судьи — до первой
+    траты (выдача заново, `site:`): не ответила проверке — `ModelUnreadyError` словами, ничего не
+    куплено; у ключа нет кредитов посреди досуда — следующие пачки модель не зовут."""
+    await ensure_model(llm_cfg.JUDGE_MODEL)
     texts = dict(plan.saved)
     by_source = {"сохранённая выдача": len(texts)}
 
@@ -239,6 +244,7 @@ async def backfill(
 
     judged = [host for host in plan.hosts if host in texts]
     summary = JudgeSummary()
+    stopped: str | None = None
     repository = DonorRepository(session)
     # Пачками, с записью после каждой: 23.09 пересуд 385 доменов шёл полчаса
     # и писал всё одним куском в конце — упади он на середине, оплаченные
@@ -254,7 +260,9 @@ async def backfill(
             paid=[],
             home_client=home_client,
             index=provider,
+            stopped=stopped,
         )
+        stopped = stopped or outcome.summary.stopped
         await repository.save_judgements(
             {
                 host: _from_home_verdict(record) if host in homes else record

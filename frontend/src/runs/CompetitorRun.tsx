@@ -142,6 +142,16 @@ function modelRefusal(forecast: CompetitorForecast | null): string | null {
   return forecast?.llm_refusal ?? null;
 }
 
+/** Модель суда не ответила проверке (20.10.2026); поля нет — модель не проверяли. */
+function modelNotReady(forecast: CompetitorForecast | null): string | null {
+  return forecast?.model_refusal ?? null;
+}
+
+/** Запуск закрыт сметой: потолок модели или модель не готова. */
+function refusedByModel(forecast: CompetitorForecast | null): boolean {
+  return modelRefusal(forecast) !== null || modelNotReady(forecast) !== null;
+}
+
 interface FieldsProps {
   run: CompetitorRun;
   country: string;
@@ -153,7 +163,7 @@ interface FieldsProps {
 /** Поля входа «Конкуренты» и кнопки: без сметы, с устаревшей или непомещающейся — не
  *  запускается, как у ключей. */
 export function CompetitorFields({ run, country, onCountry, countries, canRun }: FieldsProps) {
-  const fits = run.forecast?.affordable === true && modelRefusal(run.forecast) === null;
+  const fits = run.forecast?.affordable === true && !refusedByModel(run.forecast);
   const launchable = fits && !run.stale && canRun && run.capRefusal === null;
   return (
     <Stack gap="xs">
@@ -258,6 +268,7 @@ export function CompetitorEstimate({ run }: { run: CompetitorRun }) {
   const forecast = run.forecast;
   if (forecast === null || run.stale) return null;
   const refusal = modelRefusal(forecast);
+  const notReady = modelNotReady(forecast);
   return (
     <Card className="glass" p="lg">
       <Title order={5} mb="sm">
@@ -292,9 +303,15 @@ export function CompetitorEstimate({ run }: { run: CompetitorRun }) {
             {refusal}.
           </Alert>
         )}
+        {/* Модель суда не ответила проверке (20.10.2026): прогон не начнётся — причина словами. */}
+        {notReady !== null && (
+          <Alert color="red" title="Модель не готова">
+            {notReady}
+          </Alert>
+        )}
         <BudgetVerdict
           figures={forecast}
-          blocked={refusal !== null}
+          blocked={refusedByModel(forecast)}
           trim="Или уберите конкурента, или уменьшите глубину списка."
           fits="Смета считает худший случай — каждый список до глубины и все сайты новые. За сайты, у которых данные ещё свежие, второй раз не платят, а уже принятых доноров прогон не берёт, поэтому по факту обычно меньше."
         />

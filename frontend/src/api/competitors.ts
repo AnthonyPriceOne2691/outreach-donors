@@ -48,6 +48,9 @@ export interface CompetitorForecast extends BudgetFigures {
   topic_measured: boolean;
   /** Суд не помещается в потолки модели — словами сервера, и прогон не запускается. */
   llm_refusal: string | null;
+  /** Модель суда не ответила проверке — нет кредитов, ключ не принят, не ответила (20.10.2026):
+   *  запуск закрыт; `null` — модель ответила или судья выключен. */
+  model_refusal: string | null;
 }
 
 export function estimateCompetitors(body: CompetitorRunBody): Promise<CompetitorForecast> {

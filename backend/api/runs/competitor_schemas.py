@@ -134,6 +134,9 @@ class CompetitorForecast(BaseModel):
     #: Суд и тематика не помещаются в потолки модели — словами, и прогон не запускается
     #: (`competitor_estimate.model_cost`); помещаются — пусто.
     llm_refusal: str | None = None
+    #: Модель суда не ответила проверке — словами владельца (`shared/llm.unready`, 20.10.2026): нет
+    #: кредитов, ключ не принят, не ответила. Кнопку блокирует, как у сметы по ключам.
+    model_refusal: str | None = None
     units_left: int
     units_cap: int | None
     units_spent_in_cycle: int
@@ -151,7 +154,14 @@ class CompetitorForecast(BaseModel):
 
     @classmethod
     def of(
-        cls, ask: Ask, made: RunForecast, *, cap: KeyCap, row_units: int, model: ModelCost
+        cls,
+        ask: Ask,
+        made: RunForecast,
+        *,
+        cap: KeyCap,
+        row_units: int,
+        model: ModelCost,
+        model_refusal: str | None = None,
     ) -> CompetitorForecast:
         """Смета и бюджет: поля бюджета — теми же правилами упора, что у ключей."""
         budget = Forecast.of(made, serp_mode=mode_of(None), cap=cap).model_dump(
@@ -174,5 +184,6 @@ class CompetitorForecast(BaseModel):
             topic_tokens_per_site=model.topics.tokens if model.topics else 0,
             topic_measured=model.topics.measured if model.topics else False,
             llm_refusal=model.refusal,
+            model_refusal=model_refusal,
             **budget,
         )

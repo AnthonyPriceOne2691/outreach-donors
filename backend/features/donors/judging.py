@@ -135,13 +135,14 @@ class JudgeSummary:
         self.would_cut_paid += other.would_cut_paid
         self.to_review += other.to_review
         self.unanswered += other.unanswered
-        self.unanswered_reason = self.unanswered_reason or other.unanswered_reason
+        self.stopped = self.stopped or other.stopped
+        # «Нет кредитов» побеждает прочие причины пачек: чинить надо счёт, а не ждать сеть.
+        self.unanswered_reason = self.stopped or self.unanswered_reason or other.unanswered_reason
         self.tokens += other.tokens
         self.home_unreached += other.home_unreached
         self.no_text += other.no_text
         self.from_index += other.from_index
         self.index_usd += other.index_usd
-        self.stopped = self.stopped or other.stopped
         for key, count in other.by_intent.items():
             self.by_intent[key] = self.by_intent.get(key, 0) + count
         for key, count in other.by_decider.items():
@@ -303,12 +304,14 @@ async def through_index(
     index: SerpProvider,
     results: dict[str, tuple[Judgement, HomeSignals | None]],
     texts: Mapping[str, SerpText],
-) -> float:
-    """Второй проход по тем, чья главная закрылась: образ главной из индекса.
+) -> tuple[float, str | None]:
+    """Второй проход по тем, чья главная закрылась: образ главной из индекса. Цена запросов
+    `site:` — и почему арбитр встал: у ключа модели нет кредитов (`None` — не вставал).
 
     Спрашиваем только про принятых моделью — у отрезанных и отправленных
     к человеку спорить не о чем. Пакетом, одним запросом на всех: `site:`
-    у источника выдачи стоит денег, и по одному это десятки вызовов.
+    у источника выдачи стоит денег, и по одному это десятки вызовов. Нет кредитов —
+    арбитр дальше не зовётся: у остальных остаётся вердикт модели по выдаче.
     """
     blind = [
         host
@@ -325,6 +328,9 @@ async def through_index(
         serp = source_text(text.title, text.description) if text else ""
         ruling = await arbitrate(http, host=host, serp=serp, home=home)
         ruling = replace(ruling, tokens=ruling.tokens + verdict.tokens)
+        if ruling.no_credits:
+            results[host] = (ruling, home)
+            return cost, NO_CREDITS_WORDS
         if ruling.recommendation is Recommendation.REJECT:
             # Структуры в индексе нет — правило доказательства шлёт к человеку.
             ruling = replace(
@@ -333,7 +339,7 @@ async def through_index(
                 reason=f"{ruling.reason} · главная закрыта, судил по индексу — посмотри",
             )
         results[host] = (ruling, home)
-    return cost
+    return cost, None
 
 
 def door_of(text: SerpText | None, home: HomeSignals | None) -> str | None:
@@ -470,7 +476,7 @@ async def judge_candidates(
 
     if index is not None and summary.stopped is None:
         try:
-            summary.index_usd = await through_index(http, index, results, texts)
+            summary.index_usd, summary.stopped = await through_index(http, index, results, texts)
         except Exception as exc:  # noqa: BLE001 — индекс необязателен, вердикты уже есть
             logger.warning("судья площадки: индекс не ответил (%r) — остаются вердикты модели", exc)
 

@@ -327,14 +327,14 @@
       "worst": "—"
     },
     "backend/api/runs/competitor_schemas.py": {
-      "lines": 179,
+      "lines": 190,
       "complexity": 4,
-      "worst": "of:153"
+      "worst": "of:156"
     },
     "backend/api/runs/competitors.py": {
-      "lines": 134,
+      "lines": 138,
       "complexity": 2,
-      "worst": "start:93"
+      "worst": "start:97"
     },
     "backend/api/runs/report_schemas.py": {
       "lines": 137,
@@ -682,9 +682,9 @@
       "worst": "_report:190"
     },
     "backend/cli/main.py": {
-      "lines": 495,
+      "lines": 499,
       "complexity": 9,
-      "worst": "_print_report:273"
+      "worst": "_print_report:276"
     },
     "backend/cli/probe_advertiser.py": {
       "lines": 93,
@@ -1457,9 +1457,9 @@
       "worst": "_door_in_url:107"
     },
     "backend/features/donors/backfill.py": {
-      "lines": 278,
-      "complexity": 14,
-      "worst": "backfill:203"
+      "lines": 286,
+      "complexity": 15,
+      "worst": "backfill:205"
     },
     "backend/features/donors/browse.py": {
       "lines": 475,
@@ -1512,9 +1512,9 @@
       "worst": "normalize_host:37"
     },
     "backend/features/donors/judging.py": {
-      "lines": 483,
+      "lines": 489,
       "complexity": 14,
-      "worst": "judge_candidates:421"
+      "worst": "judge_candidates:427"
     },
     "backend/features/donors/manual_price.py": {
       "lines": 450,
@@ -3157,9 +3157,9 @@
       "worst": "parse:121"
     },
     "backend/features/topics/backfill.py": {
-      "lines": 281,
+      "lines": 310,
       "complexity": 9,
-      "worst": "plan_topics:181"
+      "worst": "plan_topics:185"
     },
     "backend/features/topics/classifier.py": {
       "lines": 265,
