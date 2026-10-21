@@ -56,12 +56,20 @@ function midnight(now: Date, daysAgo: number): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo);
 }
 
-/** День поля даты → полночь этого дня, сдвинутая на `plus` суток. Не дата — `null`. */
-function dayOf(value: string, plus = 0): Date | null {
-  const found = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** День поля даты (`ГГГГ-ММ-ДД`) → полночь этого дня по часам браузера, сдвинутая на `plus`
+ *  суток; не настоящий день — `null`. Проверка строгая: «2026-02-30» `Date` молча перенёс бы на
+ *  2 марта, «2026-13-01» — на январь, а годы до сотого — в двадцатый век. Тем же правилом —
+ *  период лидов (`leadPeriod.ts`): адрес экрана — чужой ввод. */
+export function dayOf(value: string, plus = 0): Date | null {
+  const found = DAY.exec(value);
   if (found === null) return null;
-  const day = new Date(Number(found[1]), Number(found[2]) - 1, Number(found[3]) + plus);
-  return Number.isNaN(day.getTime()) ? null : day;
+  const [year, month, day] = [Number(found[1]), Number(found[2]) - 1, Number(found[3])];
+  const moment = new Date(year, month, day);
+  const real =
+    moment.getFullYear() === year && moment.getMonth() === month && moment.getDate() === day;
+  return real ? new Date(year, month, day + plus) : null;
 }
 
 /** Почему свои даты не годятся — словами; `null` — годятся (или период не свой). */
