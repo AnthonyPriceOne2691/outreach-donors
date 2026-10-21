@@ -32,6 +32,7 @@ const FITS = {
   topic_tokens_per_site: 0,
   topic_measured: false,
   llm_refusal: null,
+  model_refusal: null,
   units_left: 100000,
   units_cap: 100000,
   units_spent_in_cycle: 6416,
@@ -197,6 +198,23 @@ describe('вход «Конкуренты»', () => {
 
     expect(await screen.findByText('Не помещается в потолок модели')).toBeInTheDocument();
     expect(screen.getByText(`${refusal}.`)).toBeVisible();
+    expect(screen.queryByText('Помещается')).toBeNull();
+    expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
+  });
+
+  it('модель не готова — плашка словами сервера, запуск закрыт', async () => {
+    // Слово владельца 20.10.2026: модель суда не ответила проверке — прогон не начинается.
+    const words = 'у модели нет кредитов — пополните счёт OpenAI';
+    const { user } = await openRivals({
+      'POST /api/runs/competitors/estimate': { body: { ...FITS, model_refusal: words } },
+    });
+
+    await user.click(screen.getByRole('button', { name: /Посчитать смету/ }));
+
+    const alert = (await screen.findByText('Модель не готова')).closest(
+      '.mantine-Alert-root',
+    ) as HTMLElement;
+    expect(alert).toHaveTextContent(words);
     expect(screen.queryByText('Помещается')).toBeNull();
     expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
   });

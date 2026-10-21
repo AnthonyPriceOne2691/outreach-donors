@@ -36,6 +36,7 @@ import httpx
 from sqlalchemy import Row, case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import llm as llm_cfg
 from backend.config import topics as cfg
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
@@ -55,12 +56,15 @@ from backend.features.topics.classifier import (
 from backend.features.topics.cost import PerSite, per_site
 from backend.features.topics.step import (
     TOPIC_OPERATION,
+    Answered,
     TopicSummary,
     classify_many,
     log_silent,
     record_of,
+    unasked,
 )
 from backend.features.topics.store import TopicStore, is_fresh
+from backend.shared.llm import ensure_model
 
 #: Зарезервированная зона демо-данных: настоящим сайтом быть не может.
 RESERVED_SUFFIX = ".test"
@@ -230,7 +234,11 @@ async def backfill_topics(
     home_client: httpx.AsyncClient | None,
     progress: Callable[[int, int], None] | None = None,
 ) -> TopicBackfillReport:
-    """Темы по плану — пачками; каждый ответ — в базу сразу, вместе со строкой журнала."""
+    """Темы по плану — пачками; каждый ответ — в базу сразу, вместе со строкой журнала. Модель
+    тем — до первого вызова: не ответила проверке — `ModelUnreadyError` словами. У ключа нет
+    кредитов посреди досуда — следующие пачки модель не зовут и главные не открывают: их сайтам —
+    «не ответила» той же причиной (`unasked`), и в итоге — причина, а не нули."""
+    await ensure_model(llm_cfg.TOPIC_MODEL)
     report = TopicBackfillReport(summary=TopicSummary())
     store = TopicStore(session)
 
@@ -244,15 +252,36 @@ async def backfill_topics(
 
     order = [host for host in plan.hosts if host in plan.texts or host in plan.to_fetch]
     report.no_text = len(plan.hosts) - len(order)
+    stopped = False
     for start in range(0, len(order), CHUNK):
         chunk = order[start : start + CHUNK]
-        texts = await _chunk_texts(plan, chunk, home_client, report)
-        if texts:
-            await ensure_llm_within_cap(session)
-            log_silent(await classify_many(http, texts, on_answer=write))
+        if stopped:
+            for _host in chunk:
+                report.summary.record(unasked(SiteText("")))
+        else:
+            stopped = await _asked(session, plan, chunk, (http, home_client), report, write)
         if progress is not None:
             progress(min(start + CHUNK, len(order)), len(order))
     return report
+
+
+async def _asked(
+    session: AsyncSession,
+    plan: TopicPlan,
+    chunk: list[str],
+    clients: tuple[httpx.AsyncClient, httpx.AsyncClient | None],
+    report: TopicBackfillReport,
+    write: Answered,
+) -> bool:
+    """Темы пачки: тексты, потолок модели, модель. `True` — у ключа нет кредитов."""
+    http, home_client = clients
+    texts = await _chunk_texts(plan, chunk, home_client, report)
+    if not texts:
+        return False
+    await ensure_llm_within_cap(session)
+    verdicts = await classify_many(http, texts, on_answer=write)
+    log_silent(verdicts)
+    return any(verdict.no_credits for verdict in verdicts.values())
 
 
 async def _chunk_texts(

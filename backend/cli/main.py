@@ -80,6 +80,7 @@ from backend.features.runs.budget import (
     units_left,
 )
 from backend.features.runs.exclusions import Exclusions
+from backend.features.runs.judge_stage import stage_models
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.planning import RunPlan, gather_candidates, plan_run
 from backend.features.runs.report import RunReport
@@ -87,6 +88,7 @@ from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import rules_in_force
 from backend.features.serp.factory import UnknownProviderError, build_provider
 from backend.features.serp.funds import FundsTooLowError, ensure_funds
+from backend.shared.llm import ModelUnreadyError, ensure_model
 from backend.shared.logs import setup_logging
 
 EXIT_OK = 0
@@ -187,7 +189,8 @@ async def cmd_run(args: argparse.Namespace) -> int:
             donors = DonorRepository(session)
             runs = RunRepository(session)
 
-            # Счёт выдачи — до покупки, как у кнопки (`serp/funds.py`, 16.10.2026).
+            # Модель суда и счёт выдачи — до покупки, как у кнопки и задачи (20.10.2026).
+            await ensure_model(*stage_models())
             await ensure_funds(provider, len(keywords), args.depth, None)
             candidates = await gather_candidates(
                 provider, keywords, args.country, depth_pages=args.depth
@@ -407,6 +410,7 @@ _FAILURES: tuple[tuple[type[Exception], int, str], ...] = (
     (UnknownProviderError, EXIT_MISCONFIGURED, "Источник выдачи не выбран"),
     (CapExceededError, EXIT_CAP_EXCEEDED, "Прогон не запущен"),
     (FundsTooLowError, EXIT_CAP_EXCEEDED, "Прогон не запущен"),
+    (ModelUnreadyError, EXIT_CAP_EXCEEDED, "Не запущено"),
     (LlmCapExceededError, EXIT_CAP_EXCEEDED, "Остановлено"),
     (QuotaUnavailableError, EXIT_QUOTA_UNAVAILABLE, "Прогон не запущен"),
     (AhrefsError, EXIT_PROVIDER_FAILED, "Провайдер не ответил"),
