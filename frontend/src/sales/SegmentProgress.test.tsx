@@ -336,7 +336,7 @@ describe('сбор базы: ход прогона — слова', () => {
 });
 
 describe('сбор базы: ход прогона — экран', () => {
-  it('идущий прогон: стадия, ход и пульс; «Найти адреса принятым» посреди прогона нет', async () => {
+  it('идущий прогон: стадия, ход и пульс; «Найти адреса ещё …» посреди прогона нет', async () => {
     await openTab({
       'GET /api/sales/segment?hypothesis=5': { body: homeOf(JUDGING) },
       'GET /api/sales/segment/runs/12': {
@@ -350,7 +350,7 @@ describe('сбор базы: ход прогона — экран', () => {
     const going = await screen.findByRole('status', { name: 'Ход прогона' }, SCREEN_WAIT);
     expect(going).toHaveTextContent('судья: 12 из 60 сайтов · идёт 4 мин · обновлено 5 с назад');
     expect(screen.getByText('судит судья')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Найти адреса принятым/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Найти адреса ещё/ })).toBeNull();
     // Плитки сходятся и во время судьи: «ещё не судили» — своим числом.
     expect(screen.getByText('Ещё не судили')).toBeInTheDocument();
     expect(screen.getByText('48')).toBeInTheDocument();
@@ -399,14 +399,14 @@ describe('сбор базы: ход прогона — экран', () => {
     expect(screen.queryByText(/docker|python -m/)).toBeNull();
   });
 
-  it('после «Найти адреса принятым» экран сам переходит в «идёт» — без перезагрузки', async () => {
+  it('после «Найти адреса ещё …» экран сам переходит в «идёт» — без перезагрузки', async () => {
     let reads = 0;
     const resumed: SegmentRunRow = { ...DONE, finished_at: null, active: true };
     await openTab({
       'GET /api/sales/segment?hypothesis=5': { body: homeOf(DONE) },
       'GET /api/sales/segment/runs/12': () => {
         reads += 1;
-        return { body: detailOf(reads === 1 ? DONE : resumed, { waiting_address: 4 }) };
+        return { body: detailOf(reads === 1 ? DONE : resumed, { waiting_address: 2 }) };
       },
       'POST /api/sales/segment/runs/12/resume': {
         body: { run_id: 12, job_id: 'sales-segment-12' },
@@ -415,12 +415,12 @@ describe('сбор базы: ход прогона — экран', () => {
     const user = userEvent.setup();
 
     await user.click(
-      await screen.findByRole('button', { name: 'Найти адреса принятым · 4' }, SCREEN_WAIT),
+      await screen.findByRole('button', { name: 'Найти адреса ещё 2 из 3 принятых' }, SCREEN_WAIT),
     );
 
     const going = await screen.findByRole('status', { name: 'Ход прогона' }, SCREEN_WAIT);
     expect(going).toHaveTextContent('в очереди задач — продолжение');
-    expect(screen.queryByRole('button', { name: /Найти адреса принятым/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Найти адреса ещё/ })).toBeNull();
   });
 
   it('прогон кончился — перечитаны гипотезы и лиды («Лиды — N»)', { timeout: 15000 }, async () => {
