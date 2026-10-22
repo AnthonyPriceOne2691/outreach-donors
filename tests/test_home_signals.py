@@ -235,6 +235,24 @@ async def test_challenge_the_walk_recognised_is_still_a_protection_stub(
     assert (signals.reached, signals.error) == (False, f"заглушка защиты: {title!r}")
 
 
+async def test_the_home_is_asked_in_the_given_language_and_as_before_without_it() -> None:
+    """`check_home` передаёт язык загрузчику: с ним главная просится на нём — так её просит судья
+    сегмента продаж, на языке писем прогона; без него — с прежним английским заголовком, как у
+    доноров, дверей и досудов."""
+    asked: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        asked.append(request.headers["Accept-Language"])
+        return httpx.Response(200, html=page("<p>Γεωργικά μηχανήματα</p>"), request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+        greek = await check_home(client, "agro-sample.gr", language="el")
+        plain = await check_home(client, "agro-sample.gr")
+
+    assert asked == ["el,en;q=0.9", "en-US,en;q=0.9"]
+    assert (greek.reached, plain.reached) == (True, True)
+
+
 #: Главная с кодом, стилями, меню, вектором и повтором абзаца — образец судьи сегмента продаж
 #: (eval v3 с текстом главной, 20.10.2026).
 LAW_FIRM = """<html lang="ru"><head><title>Юрист Плюс — юридические услуги</title>

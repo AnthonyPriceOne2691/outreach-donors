@@ -360,3 +360,34 @@ def test_homes_are_fetched_by_the_runs_own_home_check(
     assert "заглушка" in rows["law-contradiction"]["error"]
     assert (rows["law-unseen"]["reached"], rows["law-unseen"]["text"]) == (False, "")
     assert "Главных дочитано: 1 из 3, с текстом 1" in capsys.readouterr().out
+
+
+def test_homes_are_asked_in_the_letters_of_the_case_else_of_the_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Главная дочитывается на языке писем, как у прогона (`run.language`): язык случая, иначе
+    набора (`--letters`, у живого набора — поле манифеста) — тем же правилом, что у судьи eval.
+    Сайт с версиями по языку браузера иначе отдал бы eval английскую главную, а прогону — на языке
+    писем. Языка нет ни у случая, ни у набора — прежний английский заголовок."""
+    asked: list[tuple[str, str]] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        asked.append((request.url.host, request.headers["Accept-Language"]))
+        return httpx.Response(200, html=PAGE, request=request)
+
+    def client(**kwargs: Any) -> httpx.AsyncClient:
+        kwargs.pop("timeout", None)
+        return httpx.AsyncClient(transport=httpx.MockTransport(answer), **kwargs)
+
+    monkeypatch.setattr(eh, "guarded_client", client)
+    own = next(case for case in SYNTHETIC if case.get("letters") == "ru")
+    bare = next(case for case in SYNTHETIC if "letters" not in case)
+    path = tmp_path / "set.jsonl"
+    path.write_text("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in (own, bare)), "utf-8")
+
+    assert ev.main([str(path), "--fetch-home", str(tmp_path / "a.jsonl"), "--letters", "el"]) == 0
+    assert set(asked) == {(own["host"], "ru,en;q=0.9"), (bare["host"], "el,en;q=0.9")}
+
+    asked.clear()
+    assert ev.main([str(path), "--fetch-home", str(tmp_path / "b.jsonl")]) == 0
+    assert set(asked) == {(own["host"], "ru,en;q=0.9"), (bare["host"], "en-US,en;q=0.9")}

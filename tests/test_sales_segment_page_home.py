@@ -3,7 +3,8 @@
 Страница выдачи на поддомене страны или города: у поддомена своя главная, а главная корня бывает
 другим сайтом — магазином на другом языке (замер 20.10 на наборе трёх гипотез: 14 из 191 страницы
 выдачи — на поддомене, у 9 главная поддомена другая или корень не открылся). Разбор главной —
-общий `check_home`, здесь — только выбор хоста. Домены выдуманы, ниши и письменности разные.
+общий `check_home`, здесь — выбор хоста и язык, на котором главная просится: язык писем прогона.
+Домены выдуманы, ниши и письменности разные.
 """
 
 from __future__ import annotations
@@ -12,9 +13,15 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import httpx
+import pytest
 from backend.config.judge import JudgeMode
 from backend.features.sales import segment_window as sw
+from backend.features.sales.segment_judging import judge_run
 from backend.features.sales.segment_text import HOME_TITLE, page_home
+from sqlalchemy.ext.asyncio import AsyncSession
+from tests.segment_facts_fakes import facts
+from tests.test_sales_segment_judging import candidates, judge
+from tests.test_sales_segment_run import Model, hypothesis, make_run
 
 PAGE = "<html><head><title>{title}</title></head><body><p>{title}</p></body></html>"
 
@@ -102,3 +109,79 @@ async def test_the_judge_text_carries_the_home_of_the_search_result_page() -> No
         text = await sw._text(site, ask)
 
     assert (HOME_TITLE, "Իրավաբանական ընկերություն Երևանում") in text.lines
+
+
+#: Главная сайта с версиями по языку браузера — на каждом языке своя.
+AGRO = {
+    "ru": "Сельхозтехника с доставкой по стране",
+    "el": "Γεωργικά μηχανήματα με παράδοση",
+    "ar": "معدات زراعية مع التوصيل",
+    "en": "Farm machinery with delivery",
+}
+
+
+@dataclass
+class Versions:
+    """Сайт с версиями по языку браузера: главная корня — на первом языке `Accept-Language`, а
+    какого у сайта нет — английская; поддомен не открывается. Помнит хост и язык каждого запроса."""
+
+    root: str
+    asked: list[tuple[str, str]] = field(default_factory=list)
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        accept = request.headers["Accept-Language"]
+        host = request.url.host.removeprefix("www.")
+        self.asked.append((host, accept))
+        if host != self.root:
+            return httpx.Response(503, text="нет", request=request)
+        title = AGRO.get(accept.split(",")[0].split("-")[0], AGRO["en"])
+        return httpx.Response(200, html=PAGE.format(title=title), request=request)
+
+
+@pytest.mark.parametrize(
+    ("letters", "accept", "seen"),
+    [
+        ("ru", "ru,en;q=0.9", "ru"),
+        ("el", "el,en;q=0.9", "el"),
+        ("ar", "ar,en;q=0.9", "ar"),
+        ("en-US", "en", "en"),
+        (None, "en-US,en;q=0.9", "en"),
+    ],
+)
+async def test_the_judge_reads_the_home_in_the_language_of_the_run_letters(
+    letters: str | None, accept: str, seen: str
+) -> None:
+    """Главная судье — на языке писем прогона (`Ask.letters`): сайт с версиями по языку браузера
+    отдаёт её на нём, и модель читает тот же сайт, что человек и письмо. Главная поддомена и корня —
+    на одном языке; `en-US` — основой кода; язык писем не задан — как раньше."""
+    versions = Versions("agro-sample.com")
+    site = sw.Site(
+        1, 1, 1, "agro-sample.com", "Agro", None, page_url="https://b2b.agro-sample.com/"
+    )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(versions)) as http:
+        ask = sw.Ask("сегмент", JudgeMode.SHADOW, None, http, datetime.now(UTC), letters=letters)
+        text = await sw._text(site, ask)
+
+    assert {host for host, _ in versions.asked} == {"b2b.agro-sample.com", "agro-sample.com"}
+    assert {language for _, language in versions.asked} == {accept}
+    assert (HOME_TITLE, AGRO[seen]) in text.lines
+
+
+async def test_the_judge_pass_of_a_run_asks_the_homes_in_its_letters(session: AsyncSession) -> None:
+    """Настоящий проход судьи — с языком писем прогона, как его зовёт прогон
+    (`letters=run.language`): главная кандидата просится на нём, и судят по её версии на нём."""
+    run = await make_run(session, await hypothesis(session))
+    run.language = "ar"
+    [found] = await candidates(session, run.id, run.hypothesis_id, "agro-sample.com")
+    versions = Versions("agro-sample.com")
+    model = Model({"agro-sample.com": facts("yes", AGRO["ar"], "продаёт технику у себя")})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(versions)) as http:
+        await judge_run(
+            session, run_id=run.id, segment="Продавцы сельхозтехники", mode=JudgeMode.SHADOW,
+            client=judge(model), home=http, letters=run.language,
+        )  # fmt: skip
+
+    assert {language for _, language in versions.asked} == {"ar,en;q=0.9"}
+    assert f"{HOME_TITLE}: {AGRO['ar']}" in (found.site_text or "")

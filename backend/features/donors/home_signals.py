@@ -407,9 +407,15 @@ def read_home(html: str) -> HomeSignals:
     )
 
 
-async def check_home(client: httpx.AsyncClient, host: str) -> HomeSignals:
-    """Главная домена. Не бросает: не открылась — так и записано."""
-    fetcher = PageFetcher(client, max_pages=1, max_attempts=4)
+async def check_home(
+    client: httpx.AsyncClient, host: str, *, language: str | None = None
+) -> HomeSignals:
+    """Главная домена. Не бросает: не открылась — так и записано.
+
+    `language` — язык, на котором просить главную (загрузчик, `pages.page_headers`): сайт с
+    версиями по языку браузера отдаёт её на нём. Так просит судья сегмента продаж — на языке писем
+    прогона. Без языка — как раньше, с прежним английским заголовком: доноры, двери и досуды."""
+    fetcher = PageFetcher(client, max_pages=1, max_attempts=4, language=language)
     try:
         page = await fetcher.home(host)
     except (httpx.HTTPError, ValueError) as exc:

@@ -73,6 +73,23 @@ HEADERS = {
     "Sec-Fetch-User": "?1",
     "Upgrade-Insecure-Requests": "1",
 }
+#: Запасной язык страницы и его вес — как у второго языка в списке браузера (`page_headers`).
+FALLBACK_LANGUAGE, FALLBACK_WEIGHT = "en", "0.9"
+
+
+def page_headers(language: str | None = None) -> dict[str, str]:
+    """`HEADERS` с `Accept-Language` на языке `language`: он первым, английский — запасным, у
+    английского — он один; код — основа тега (`en-US` → `en`), латиница 2–8 букв: заголовок —
+    ASCII, правил под язык нет. Без языка — `HEADERS` как есть; не код — тоже, с предупреждением."""
+    asked = (language or "").strip()
+    code = asked.replace("_", "-").split("-")[0].lower()
+    if not re.fullmatch(r"[a-z]{2,8}", code):
+        if asked:
+            logger.warning("язык страницы %r — не код языка: Accept-Language прежний", language)
+        return HEADERS
+    fallback = "" if code == FALLBACK_LANGUAGE else f",{FALLBACK_LANGUAGE};q={FALLBACK_WEIGHT}"
+    return {**HEADERS, "Accept-Language": code + fallback}
+
 
 # Признаки контактной формы: адреса нет, но написать можно руками.
 # Конструкторы форм узнаются по имени. Голого `<form` здесь больше нет:
@@ -353,6 +370,10 @@ class PageFetcher:
 
     Ошибка по одной странице — не поломка домена, а норма. Поломкой было
     бы промолчать о ней, поэтому счётчики отказов ведутся и уходят в отчёт.
+
+    **Язык — необязательный** (`page_headers`): сайт с версиями по языку браузера отдаёт страницу
+    на нём — так судья продаж просит главную на языке писем прогона, а не английскую. Без языка
+    заголовки прежние (`HEADERS`): так ходят доноры, контакты и двери.
     """
 
     def __init__(
@@ -361,8 +382,10 @@ class PageFetcher:
         *,
         max_pages: int | None = None,
         max_attempts: int | None = None,
+        language: str | None = None,
     ) -> None:
         self._client = client
+        self._headers = page_headers(language)
         self._max_pages = max_pages if max_pages is not None else cfg.MAX_PAGES_PER_DOMAIN
         self._max_attempts = (
             max_attempts if max_attempts is not None else cfg.MAX_ATTEMPTS_PER_DOMAIN
@@ -426,7 +449,7 @@ class PageFetcher:
     async def _request(self, url: str) -> httpx.Response | None:
         """Запрос одной страницы. `None` — страница не открылась."""
         try:
-            return await self._client.get(url, headers=HEADERS, follow_redirects=True)
+            return await self._client.get(url, headers=self._headers, follow_redirects=True)
         except httpx.HTTPError as exc:
             logger.debug("страница не открылась: %s — %r", url, exc)
         except UnsafeUrlError as exc:

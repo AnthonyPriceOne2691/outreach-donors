@@ -124,19 +124,26 @@ def _home_lines(home: HomeSignals | None) -> list[tuple[str, str | None]]:
     return [(HOME_TITLE, home.title), (HOME_DESCRIPTION, home.description), (HOME_MENU, menu)]
 
 
-async def page_home(client: httpx.AsyncClient, host: str, page_url: str | None) -> HomeSignals:
+async def page_home(
+    client: httpx.AsyncClient, host: str, page_url: str | None, *, language: str | None = None
+) -> HomeSignals:
     """Главная для судьи — хоста страницы выдачи, а не только корня: у поддомена страны или города
     своя главная (замер 20.10 на наборе трёх гипотез: 14 из 191 страницы выдачи — на поддомене, у 9
     из них главная поддомена другая или главная корня не открылась). Главная поддомена не открылась
     — главная корня (`host`, домен базы). Разбор главной — общий `check_home`. Не открылась и она —
     почему (`HomeSignals.error`) — в журнал прохода с доменом: судья видит только выдачу, и «не
-    понять» скажет это человеку словами (`segment_rules.SNIPPET_ONLY`)."""
+    понять» скажет это человеку словами (`segment_rules.SNIPPET_ONLY`).
+
+    `language` — язык писем прогона: главная просится на нём, у поддомена и корня одинаково. Сайт с
+    версиями по языку браузера отдавал английскую главную и при прогоне на другом языке (проверка
+    22.10.2026): модель читала не тот текст, что видят человек и письмо. Без языка — как раньше
+    (общий английский заголовок). Пересуд по сохранённому тексту главную не качает вовсе."""
     page_host = urlsplit(page_url).hostname or "" if page_url else ""
     if page_host.endswith(f".{host}") and page_host != f"www.{host}":
-        found = await check_home(client, page_host)
+        found = await check_home(client, page_host, language=language)
         if found.reached:
             return found
-    root = await check_home(client, host)
+    root = await check_home(client, host, language=language)
     if not root.reached:
         logger.info(
             "судья сегмента: главная не открылась — судья видит только выдачу",
