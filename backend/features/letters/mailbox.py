@@ -150,22 +150,24 @@ async def _free_box(session: AsyncSession, stage: Stage, now: datetime) -> Choic
 
 def _nobody(screened: limits.Screened, now: datetime) -> str:
     """Почему сегодня писать некому — словами отказа: и годные ящики, выбравшие дневной лимит
-    (`_spent`), и отсеянные лимитами. Прежде отказ называл только отсеянных: ящик с лимитом,
+    (`spent_words`), и отсеянные лимитами. Прежде отказ называл только отсеянных: ящик с лимитом,
     сниженным на сутки, выглядел единственной причиной, а четыре других выбрали ступень разгона
     (проверка на проде 22.10.2026). «Завтра лимит откроется» — только когда годные ящики есть
     и выбрали дневной лимит: у этапа без единого включённого ящика (ни годного, ни отсеянного
     лимитами) обещание было бы неправдой."""
-    spent = _spent(screened.fit, now)
+    spent = spent_words(screened.fit, now)
     why = "; ".join(part for part in (spent, screened.why()) if part) or SILENT
     tomorrow = " — завтра лимит откроется заново" if spent else ""
     return f"Сегодня писать некому: {why}. Письмо остаётся в очереди{tomorrow}"
 
 
-def _spent(boxes: Sequence[SenderModel], now: datetime) -> str | None:
+def spent_words(boxes: Sequence[SenderModel], now: datetime) -> str | None:
     """Годные ящики, выбравшие сегодня дневной лимит, — по ступеням: «4 ящика выбрали дневной
-    лимит разгона — 5 писем». Ступень разгона названа: без неё «5 из 5» у ящика с капом 20
-    читалось как поломка, а это рост объёма нового ящика (`senders.warmup_state`). Годный ящик
-    здесь — без остатка: зовут, когда выбор ящика никого не нашёл."""
+    лимит разгона — 5 писем на ящик». Ступень разгона названа: без неё «5 из 5» у ящика с капом
+    20 читалось как поломка, а это рост объёма нового ящика (`senders.warmup_state`); «на ящик» —
+    иначе «5 писем» у четырёх ящиков читалось как пять на всех. Годный ящик здесь — без остатка:
+    зовут, когда выбор ящика никого не нашёл, — и отправка, и перезапрос цены
+    (`recheck_target._nobody`)."""
     steps = Counter(
         (state.allowance, state.finished)
         for state in (sender_rules.warmup_state(box, now=now) for box in boxes)
@@ -174,6 +176,7 @@ def _spent(boxes: Sequence[SenderModel], now: datetime) -> str | None:
         f"{count} {_word(count, 'ящик', 'ящика', 'ящиков')} {_word(count, 'выбрал', 'выбрали', 'выбрали')}"
         f" дневной лимит{'' if finished else ' разгона'}"
         f" — {allowance} {_word(allowance, 'письмо', 'письма', 'писем')}"
+        f"{' на ящик' if count > 1 else ''}"
         for (allowance, finished), count in steps.items()
     ]
     return "; ".join(parts) or None

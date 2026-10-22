@@ -3,7 +3,8 @@
 Проверка на проде 22.10.2026: пачка продаж встала с «ящику снижен лимит на сутки (мягкие
 отказы): … — 2 из 2», а четыре других ящика молча выбрали первую ступень разгона (5 из 5).
 Отказ выглядел поломкой одного ящика, хотя это рост объёма новых ящиков. Теперь отказ
-называет и ступень разгона, и отсеянного лимитами (`letters/mailbox._nobody`).
+называет и ступень разгона, и отсеянного лимитами (`letters/mailbox._nobody`), и тем же
+правилом — перезапрос цены у доноров (`letters/recheck_target._nobody`).
 
 Ящики — в памяти, без базы: слова собираются из ступени разгона и итога фильтра лимитов.
 """
@@ -15,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from backend.features.core.domain import SenderStatus, Stage
 from backend.features.core.models.outreach import SenderModel
-from backend.features.letters import mailbox
+from backend.features.letters import mailbox, recheck_target
 from backend.features.outreach import limits, senders
 
 #: Ступени разгона — выдуманные: тест не зависит от настроек окружения.
@@ -52,7 +53,7 @@ def test_the_warmup_step_and_the_cut_box_are_both_named() -> None:
     words = mailbox._nobody(limits.Screened(fit=fit, refused={5: cut}), NOW)
 
     assert words == (
-        "Сегодня писать некому: 4 ящика выбрали дневной лимит разгона — 5 писем; "
+        "Сегодня писать некому: 4 ящика выбрали дневной лимит разгона — 5 писем на ящик; "
         f"{cut}. Письмо остаётся в очереди — завтра лимит откроется заново"
     )
 
@@ -68,7 +69,7 @@ def test_steps_are_grouped_and_a_finished_warmup_is_a_plain_daily_limit() -> Non
     words = mailbox._nobody(limits.Screened(fit=fit), NOW)
 
     assert words == (
-        "Сегодня писать некому: 2 ящика выбрали дневной лимит разгона — 10 писем; "
+        "Сегодня писать некому: 2 ящика выбрали дневной лимит разгона — 10 писем на ящик; "
         "1 ящик выбрал дневной лимит — 20 писем. "
         "Письмо остаётся в очереди — завтра лимит откроется заново"
     )
@@ -79,6 +80,19 @@ def test_only_refused_boxes_promise_no_tomorrow() -> None:
     words = mailbox._nobody(limits.Screened(fit=(), refused={1: limits.DOMAIN_PAUSED}), NOW)
 
     assert words == f"Сегодня писать некому: {limits.DOMAIN_PAUSED}. Письмо остаётся в очереди"
+
+
+def test_the_price_recheck_names_the_same_reasons() -> None:
+    """Перезапрос цены у доноров — тем же правилом: ступень разгона и отсеянный лимитами."""
+    fit = (_box(1, first_letter=NOW - timedelta(hours=2)),)
+    cut = f"{limits.BOX_CUT}: alex@mail-2.example.test — 2 из 2"
+
+    words = recheck_target._nobody(limits.Screened(fit=fit, refused={2: cut}), NOW)
+
+    assert words == (
+        "Сегодня писать некому: 1 ящик выбрал дневной лимит разгона — 5 писем; "
+        f"{cut}. Перезапрос новым письмом уйдёт, когда у ящиков откроется лимит."
+    )
 
 
 @pytest.mark.parametrize(

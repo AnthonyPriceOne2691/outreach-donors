@@ -1722,9 +1722,9 @@
       "worst": "sender_domain:62"
     },
     "backend/features/letters/mailbox.py": {
-      "lines": 333,
+      "lines": 336,
       "complexity": 7,
-      "worst": "silence_words:217"
+      "worst": "spent_words:164"
     },
     "backend/features/letters/masking.py": {
       "lines": 260,
@@ -1792,7 +1792,7 @@
       "worst": "refusal:42"
     },
     "backend/features/letters/recheck_target.py": {
-      "lines": 322,
+      "lines": 323,
       "complexity": 11,
       "worst": "in_thread:155"
     },
