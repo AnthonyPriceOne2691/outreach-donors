@@ -366,7 +366,14 @@ def visible_text(html: str) -> str:
 
 
 def _visible_of(tree: HTMLParser) -> str:
-    """`visible_text` по готовому дереву. Дерево меняется: вызывать последним."""
+    """`visible_text` по готовому дереву. Дерево меняется: вызывать последним.
+
+    Узлы текста склеиваются без своего разделителя, как их рисует браузер: пробел — тот, что
+    есть в HTML, а блоки и перенос строки разделены границей `_EDGE`. С разделителем-пробелом
+    строчный тег посреди слова рвал слово: «ком<strong></strong>пания» становилось «ком пания»,
+    и цитата судьи продаж с сайта не сходилась с текстом (проверка на проде 22.10.2026). Цена —
+    строчные элементы, которые CSS делает блоками, без пробела в HTML склеятся, как и у браузера
+    без стилей."""
     tree.strip_tags(_HIDDEN_TAGS)
     root = tree.body or tree.root
     if root is None:
@@ -375,7 +382,7 @@ def _visible_of(tree: HTMLParser) -> str:
         node.insert_before(_EDGE)
         node.insert_after(_EDGE)
     blocks: list[str] = []
-    for piece in _SPACES.sub(" ", root.text(separator=" ")).split(_EDGE):
+    for piece in _SPACES.sub(" ", root.text(separator="")).split(_EDGE):
         block = piece.strip()
         if block and (not blocks or blocks[-1] != block):
             blocks.append(block)
