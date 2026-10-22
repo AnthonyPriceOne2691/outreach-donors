@@ -2811,6 +2811,11 @@
       "complexity": 4,
       "worst": "next_at:62"
     },
+    "backend/features/sales/segment_alphabets.py": {
+      "lines": 115,
+      "complexity": 0,
+      "worst": "—"
+    },
     "backend/features/sales/segment_cache.py": {
       "lines": 142,
       "complexity": 4,
@@ -2877,9 +2882,9 @@
       "worst": "clean_keywords:72"
     },
     "backend/features/sales/segment_language.py": {
-      "lines": 476,
+      "lines": 430,
       "complexity": 10,
-      "worst": "switches_to:455"
+      "worst": "switches_to:388"
     },
     "backend/features/sales/segment_leads.py": {
       "lines": 262,
@@ -2962,9 +2967,9 @@
       "worst": "_judge:191"
     },
     "backend/features/sales/segment_text.py": {
-      "lines": 160,
+      "lines": 180,
       "complexity": 8,
-      "worst": "site_text:127"
+      "worst": "site_text:137"
     },
     "backend/features/sales/segment_undo.py": {
       "lines": 433,

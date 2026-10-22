@@ -4,7 +4,14 @@
 не сайта: цитировать их нельзя (`segment_quote.unlabeled` снимает их из цитаты), по ним же строки
 выдачи и главной различаются (`SiteText.without_stub`) и текст хранится у кандидата (`site_text`) —
 пересуд и заведение лида читают его обратно (`SiteText.parse`). Сюда же — язык текста против языка
-писем (`site_language`): тем же решением, по тем же строкам, в вердикте судьи и у лида.
+писем (`site_language`): тем же решением, по тем же строкам, в вердикте судьи, при пересуде, при
+отмене решения и у лида — по сохранённому тексту строки те же, подписи при них.
+
+Язык сайта меряется только по словам сайта — строкам выдачи и главной (`SITE_LABELS`): служебная
+строка со своими словами его не решает. Версия на языке писем у сайта есть — несовпадения нет: в
+меню или тексте главной переключатель на этот язык (`SWITCH_LABELS`) или страница выдачи на нём
+(`SERP_LABELS`, `segment_language.written_in`) — главная приходит на языке загрузчика, а поисковик
+показал страницу на языке писем.
 """
 
 from __future__ import annotations
@@ -40,6 +47,9 @@ LABELS = (*SERP_LABELS, *HOME_LABELS)
 STUB_LABELS = (*SERP_LABELS, HOME_TITLE, HOME_DESCRIPTION, HOME_MENU)
 #: Строки, где сайт показывает переключатель версий на других языках (`segment_language.switches_to`).
 SWITCH_LABELS = (HOME_MENU, HOME_TEXT)
+#: Строки, по которым меряется язык сайта (`site_language`): только слова сайта — выдача и главная.
+#: Не `LABELS`: строка со своими словами, если ляжет в текст, язык сайта не решает.
+SITE_LABELS = (*SERP_LABELS, *HOME_LABELS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,14 +156,24 @@ def site_text(
     return SiteText(tuple(lines))
 
 
+def _words_of(text: SiteText, labels: tuple[str, ...]) -> str:
+    """Слова строк с этими подписями — строка на строку."""
+    return "\n".join(words for label, words in text.lines if label in labels)
+
+
 def site_language(text: SiteText, letters: str | None) -> segment_language.Mismatch | None:
-    """Сайт уверенно не на языке писем `letters` и без переключателя на версию на нём — на каком он
-    (`segment_language`); `None` — на нём, не уверены или язык писем не задан. По тем же строкам и в
-    вердикте судьи, и у лида (`segment_leads`): решение повторяется по сохранённому тексту."""
+    """Сайт уверенно не на языке писем `letters` и без версии на нём — на каком он
+    (`segment_language`); `None` — на нём, не уверены или язык писем не задан.
+
+    Меряются строки сайта (`SITE_LABELS`), без главной-заглушки (`SiteText.without_stub` — судья
+    видит текст так же). Версия на языке писем: переключатель в меню или тексте главной
+    (`segment_language.switches_to`) или страница выдачи уверенно на нём
+    (`segment_language.written_in`). Одно решение у вердикта судьи, пересуда, отмены решения и лида
+    (`segment_leads`): оно повторяется по сохранённому тексту."""
     if not letters:
         return None
-    found = segment_language.mismatch("\n".join(words for _, words in text.lines), letters)
-    if found is None:
+    site = text.without_stub()
+    found = segment_language.mismatch(_words_of(site, SITE_LABELS), letters)
+    if found is None or segment_language.written_in(_words_of(site, SERP_LABELS), letters):
         return None
-    switch = "\n".join(words for label, words in text.lines if label in SWITCH_LABELS)
-    return None if segment_language.switches_to(switch, letters) else found
+    return None if segment_language.switches_to(_words_of(site, SWITCH_LABELS), letters) else found
