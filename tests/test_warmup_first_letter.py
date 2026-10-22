@@ -45,7 +45,7 @@ REVISION = "07bcb0eef6a1_sender_warmup_first_letter.py"
 #: Старт разгона — некруглый, не дата-обязательство.
 START = datetime(2026, 10, 1, 9, 17, 43, tzinfo=UTC)
 LIMIT_SPENT = (
-    "Сегодня писать некому: все ящики либо выключены, либо выбрали дневной лимит. "
+    "Сегодня писать некому: 1 ящик выбрал дневной лимит разгона — 3 письма. "
     "Письмо остаётся в очереди — завтра лимит откроется заново"
 )
 
@@ -77,8 +77,8 @@ async def test_a_box_added_a_week_before_its_first_letter_sends_the_first_step(
     session: AsyncSession, filled_legal: None
 ) -> None:
     """Пачка с ящика, заведённого неделю назад и ни разу не писавшего: первая ступень, а не
-    верхняя. Первое письмо ставит отметку — время его ухода; слова отказа — прежние: ящик
-    включён и выбрал лимит, завтра он откроется."""
+    верхняя. Первое письмо ставит отметку — время его ухода; отказ называет ступень разгона:
+    ящик включён и выбрал её, завтра лимит откроется."""
     for n in range(5):
         await make_donor(session, f"donor{n}.example.test", email=f"info@donor{n}.example.test")
     box = await _box(session, "a@mail.example.test", started=datetime.now(UTC) - timedelta(days=7))

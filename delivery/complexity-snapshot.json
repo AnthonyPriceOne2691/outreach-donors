@@ -1722,9 +1722,9 @@
       "worst": "sender_domain:62"
     },
     "backend/features/letters/mailbox.py": {
-      "lines": 307,
+      "lines": 333,
       "complexity": 7,
-      "worst": "silence_words:191"
+      "worst": "silence_words:217"
     },
     "backend/features/letters/masking.py": {
       "lines": 260,

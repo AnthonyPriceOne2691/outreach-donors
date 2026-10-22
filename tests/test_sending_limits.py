@@ -157,7 +157,7 @@ class TestBatch:
         assert report.stopped is not None
         assert "у направления кончился дневной лимит (2 из 2 первых писем)" in report.stopped
 
-    async def test_stages_1_2_without_rows_stop_with_the_old_words(
+    async def test_stages_1_2_without_rows_stop_naming_the_spent_limit(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
         await _queue(session, 3, ["a@mail.example.test"], cap=2)
@@ -166,7 +166,7 @@ class TestBatch:
 
         assert (report.sent, report.left) == (2, 1)
         assert report.stopped == (
-            "Сегодня писать некому: все ящики либо выключены, либо выбрали дневной лимит. "
+            "Сегодня писать некому: 1 ящик выбрал дневной лимит — 2 письма. "
             "Письмо остаётся в очереди — завтра лимит откроется заново"
         )
 
