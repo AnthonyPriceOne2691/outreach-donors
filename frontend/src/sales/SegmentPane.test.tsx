@@ -433,13 +433,13 @@ describe('сбор базы: прогон гипотезы', () => {
     );
   });
 
-  it('принятые без поиска адреса — кнопка с их числом', async () => {
+  it('принятые без поиска адреса — кнопка: сколько ещё из скольких принятых', async () => {
     await openTab({
-      'GET /api/sales/segment/runs/12': { body: { ...DETAIL, waiting_address: 4 } },
+      'GET /api/sales/segment/runs/12': { body: { ...DETAIL, waiting_address: 2 } },
     });
 
     expect(
-      await screen.findByRole('button', { name: 'Найти адреса принятым · 4' }, SCREEN_WAIT),
+      await screen.findByRole('button', { name: 'Найти адреса ещё 2 из 3 принятых' }, SCREEN_WAIT),
     ).toBeEnabled();
   });
 
