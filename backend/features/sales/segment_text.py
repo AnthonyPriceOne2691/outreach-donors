@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -25,6 +26,8 @@ from backend.config import sales as sales_cfg
 from backend.features.donors.home_signals import HomeSignals, check_home, looks_denied
 from backend.features.sales import segment_language
 from backend.features.sales.segment_quote import quote_holds
+
+logger = logging.getLogger(__name__)
 
 #: Сколько знаков текста сайта видит модель: сниппет и шапка главной короткие, потолок —
 #: против аномалии страницы, а не ради экономии. Отрывок текста главной — сверх него, своим потолком
@@ -125,13 +128,21 @@ async def page_home(client: httpx.AsyncClient, host: str, page_url: str | None) 
     """Главная для судьи — хоста страницы выдачи, а не только корня: у поддомена страны или города
     своя главная (замер 20.10 на наборе трёх гипотез: 14 из 191 страницы выдачи — на поддомене, у 9
     из них главная поддомена другая или главная корня не открылась). Главная поддомена не открылась
-    — главная корня (`host`, домен базы). Разбор главной — общий `check_home`."""
+    — главная корня (`host`, домен базы). Разбор главной — общий `check_home`. Не открылась и она —
+    почему (`HomeSignals.error`) — в журнал прохода с доменом: судья видит только выдачу, и «не
+    понять» скажет это человеку словами (`segment_rules.SNIPPET_ONLY`)."""
     page_host = urlsplit(page_url).hostname or "" if page_url else ""
     if page_host.endswith(f".{host}") and page_host != f"www.{host}":
         found = await check_home(client, page_host)
         if found.reached:
             return found
-    return await check_home(client, host)
+    root = await check_home(client, host)
+    if not root.reached:
+        logger.info(
+            "судья сегмента: главная не открылась — судья видит только выдачу",
+            extra={"host": host, "page_host": page_host or None, "error": root.error},
+        )
+    return root
 
 
 def site_text(

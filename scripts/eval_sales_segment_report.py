@@ -91,6 +91,10 @@ def summary(total: dict[str, Any]) -> None:
     )
     print(f"Правила таблицы: {total['rules']}")
     print(
+        f"Второй шанс цитате: повторов {total['quote_retried']}, удались "
+        f"{total['quote_retry_held']}; «цитата не нашлась» в итоге {total['made_up']}"
+    )
+    print(
         f"Токены: на вызов модели {total['tokens_per_call'] or '—'} (вызовов "
         f"{total['model_calls']}, обрезано потолком вывода {total['cut_off']}); вид сайта по "
         f"модели {total['kinds']}"

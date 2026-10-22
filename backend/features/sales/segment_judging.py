@@ -35,6 +35,12 @@
 описания — одна модель (`SegmentClient`), проверка спрашивает её один раз. Нет кредитов на разборе
 описания — проход к сайтам не идёт и встаёт словами (`read_scope`), а не «сбоем разбора» у каждого.
 
+**Второй шанс цитате — в итоге прохода** (`PassTally`, рядом с `JudgeTally` окна): сколько раз
+модель спросили второй раз, потому что цитата первого ответа не нашлась в тексте, и сколько раз
+цитата нового ответа нашлась (`segment_client.SegmentClient.judge`). Токены обоих вызовов — в
+токенах вердикта, то есть в счёте прохода и в расходе, как у одного вызова. Тот же итог — у
+пересуда (`segment_rejudge`); в отчёте прогона повторы — суммой по проходам (`segment_run`).
+
 **Стоп-лист — до всего** (`stoplisted`): домен в стоп-листе продаж или под строкой общего
 стоп-листа, которая держит продажи, отсекается правилом до кэша, главной и модели — при любом
 режиме судьи. Иначе он оплатил бы модель и платную ступень поиска адреса и отсеялся бы только
@@ -49,6 +55,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 from sqlalchemy import ColumnElement, and_, or_, select
@@ -62,7 +69,12 @@ from backend.features.core.models.ops import SuppressionModel
 from backend.features.sales import segment_scope, usage_cap
 from backend.features.sales.hypothesis_countries import CountryPolicy, policy_of
 from backend.features.sales.models import SalesHypothesisModel, SalesStoplistModel
-from backend.features.sales.segment_judge import OPERATION, SegmentClient, segment_digest
+from backend.features.sales.segment_judge import (
+    OPERATION,
+    SegmentClient,
+    SegmentVerdict,
+    segment_digest,
+)
 from backend.features.sales.segment_models import (
     Decider,
     Lane,
@@ -90,6 +102,7 @@ __all__ = [
     "STOPLIST_OWN",
     "STOPLIST_SHARED",
     "JudgeTally",
+    "PassTally",
     "Waiting",
     "cut",
     "judge_run",
@@ -105,6 +118,30 @@ STOPLIST_OWN = "домен в стоп-листе продаж — отсечё�
 STOPLIST_SHARED = "домен в общем стоп-листе — отсечён до судьи, адрес не ищем"
 
 Candidate = SalesSegmentCandidateModel
+
+
+@dataclass(slots=True)
+class PassTally(JudgeTally):
+    """Итог прохода прогона и пересуда и рядом — второй шанс цитате (шапка модуля). Считается по
+    вердикту там же, где его токены (`spend`): второй вызов — часть того же вердикта."""
+
+    #: Цитата первого ответа не нашлась — модель спросили второй раз.
+    quote_retried: int = 0
+    #: Из них цитата нового ответа нашлась: факты — его.
+    quote_retry_held: int = 0
+
+    def spend(self, verdict: SegmentVerdict) -> None:
+        JudgeTally.spend(self, verdict)
+        self.quote_retried += int(verdict.retried)
+        self.quote_retry_held += int(verdict.retry_held)
+
+    def as_dict(self) -> dict[str, Any]:
+        found = JudgeTally.as_dict(self)
+        return {
+            **found,
+            "quote_retried": self.quote_retried,
+            "quote_retry_held": self.quote_retry_held,
+        }
 
 
 def waiting_judge() -> ColumnElement[bool]:
@@ -243,7 +280,7 @@ async def judge_run(
     home: httpx.AsyncClient | None,
     now: datetime | None = None,
     letters: str | None = None,
-) -> JudgeTally:
+) -> PassTally:
     """Судить кандидатов прогона, которые ждут судью. Коммит — по чекпоинту, здесь.
 
     `mode` — режим прогона; выключенный судья (`off`) модели не зовёт: стоп-лист и правило по
@@ -252,7 +289,7 @@ async def judge_run(
     словами (`segment_judge.by_language`). Поле гипотезы «страны компаний» — нынешнее
     (`policy_of_run`)."""
     moment = now or datetime.now(UTC)
-    tally = JudgeTally()
+    tally = PassTally()
     waiting = await _without_stoplisted(session, await _pending(session, run_id), tally, moment)
     asked = None if mode is JudgeMode.OFF else client
     scope, policy = None, CountryPolicy()

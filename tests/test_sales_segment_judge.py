@@ -89,13 +89,17 @@ async def test_site_of_the_segment_with_a_quote_from_its_text_is_accepted() -> N
 
 
 async def test_a_quote_the_site_text_does_not_have_goes_to_review_and_is_not_kept() -> None:  # A2
-    """Цитата, которой нет в тексте, — признак того, что модель сочинила, а не прочла."""
-    verdict, _ = await judged(facts("yes", "лучшие велосипеды Европы", "магазин велосипедов"))
+    """Цитаты нет в тексте и во втором ответе — «на проверку»: слова называют цитату модели, решает
+    человек; колонка цитаты пуста."""
+    verdict, seen = await judged(facts("yes", "лучшие велосипеды Европы", "магазин велосипедов"))
 
     assert verdict.lane is Lane.REVIEW
     assert verdict.quote is None
-    assert verdict.reason == "цитаты нет в тексте сайта — модель не прочла, а сочинила"
+    assert verdict.reason == (
+        "цитата модели не нашлась в тексте сайта: «лучшие велосипеды Европы» — решает человек"
+    )
     assert not verdict.unanswered
+    assert (len(seen), verdict.retried, verdict.retry_held) == (2, True, False)
 
 
 @pytest.mark.parametrize(
@@ -195,7 +199,7 @@ def test_the_name_rule_is_the_shared_whom_we_do_not_write_rule() -> None:
         # Одна подпись — пустая цитата.
         (facts("yes", f"«{sj.HOME_MENU}:»"), "модель не дала цитаты"),
         # Слова из двух строк, склеенные в одну, — не цитата.
-        (facts("yes", "интернет-магазин Велодом Продаём горные"), "цитаты нет в тексте"),
+        (facts("yes", "интернет-магазин Велодом Продаём горные"), sj.MADE_UP),
     ],
     ids=[
         "not-json",
@@ -273,7 +277,7 @@ def test_prompt_is_a_versioned_file_with_the_quote_and_injection_rules() -> None
     prompt = sj.load_prompt()
 
     assert sj.PROMPT_PATH.name == "segment.md"
-    assert sj.PROMPT_VERSION == "sales-segment-v4"
+    assert sj.PROMPT_VERSION == "sales-segment-v5"
     # Модель отдаёт факты, а не полосу: слова полосы v3 в промпте нет.
     assert '"fit"' not in prompt
     for key in ("kind", "home", "served", "only", "local", "core", "quote", "why"):
@@ -365,7 +369,7 @@ def test_the_prompt_leaves_places_to_the_code_and_keeps_the_intermediary_signs()
     assert "Places are compared by our code, never here" in prompt
     assert "an online assistant that picks among the offers of other companies" in prompt
     assert "A business's own order form, own price calculator" in prompt
-    assert sj.PROMPT_VERSION == "sales-segment-v4"
+    assert sj.PROMPT_VERSION == "sales-segment-v5"
 
 
 # --- заглушка защиты: по строкам, главная отдельно от выдачи -----------------------------------

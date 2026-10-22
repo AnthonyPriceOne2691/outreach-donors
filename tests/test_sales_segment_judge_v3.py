@@ -52,7 +52,7 @@ def test_the_prompt_has_no_words_of_one_niche_or_country() -> None:
     стране и языке из v2 снято: оно и резало сайты без страны в тексте."""
     prompt = sj.load_prompt()
 
-    assert sj.PROMPT_VERSION == "sales-segment-v4"
+    assert sj.PROMPT_VERSION == "sales-segment-v5"
     assert "matter only when the segment names them" not in prompt
     assert [word for word in NICHE_WORDS if word in prompt.lower()] == []
 

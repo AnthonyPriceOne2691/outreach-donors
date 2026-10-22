@@ -118,7 +118,7 @@ async def test_a_typographic_quote_of_the_model_is_accepted_not_sent_to_review()
 async def test_a_made_up_quote_still_goes_to_review(quote: str) -> None:
     verdict, _ = await judged(facts("yes", quote, "мастерская"), site())
 
-    assert (verdict.lane, verdict.reason, verdict.quote) == (Lane.REVIEW, sj.MADE_UP, None)
+    assert (verdict.lane, verdict.reason, verdict.quote) == (Lane.REVIEW, sj.made_up(quote), None)
 
 
 @pytest.mark.parametrize(
@@ -195,7 +195,7 @@ def site_under(label: str) -> SiteText:
 async def test_only_our_label_at_the_start_is_taken_off(quote: str) -> None:
     verdict, _ = await judged(facts("yes", quote, "мастерская"), site())
 
-    assert (verdict.lane, verdict.reason) == (Lane.REVIEW, sj.MADE_UP)
+    assert (verdict.lane, verdict.reason) == (Lane.REVIEW, sj.made_up(quote))
 
 
 def test_the_labels_come_from_the_site_text_builder_not_a_copy() -> None:
@@ -404,7 +404,7 @@ async def test_an_unproven_answer_is_not_written_to_the_cache(session: AsyncSess
         home=None,
     )
 
-    assert (shop.lane, shop.reason) == (Lane.REVIEW, sj.MADE_UP)
+    assert (shop.lane, shop.reason) == (Lane.REVIEW, sj.made_up("лучшие велосипеды Европы"))
     assert await session.scalar(select(SalesSegmentVerdictModel)) is None
 
 

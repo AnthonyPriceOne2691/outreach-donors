@@ -1,7 +1,7 @@
 """Цитата судьи сегмента: есть ли слова модели в строке текста сайта.
 
 Цитата — доказательство, что модель прочла сайт, а не сочинила (`segment_judge`). Сверка идёт
-внутри ОДНОЙ строки сайта и прощает три вещи, которые честная цитата делает сама:
+внутри ОДНОЙ строки сайта и прощает четыре вещи, которые честная цитата делает сама:
 
 1. **Типографику** (`_plain`, поверх общего `keywords/hygiene.normalize`): кавычки, многоточие-
    пропуск, знаки по краям, невидимые знаки, регистр и знаки при буквах — ударения, огласовки, тоны
@@ -23,6 +23,13 @@
    счёте. Пересказ меняет слова, их число и порядок — и не проходит. Письменности без пробелов
    (иероглифы, тайский) — только точно: знак там — уже слово, длинных слов, где видна опечатка,
    у них нет.
+4. **Границы слов** (`_glued`): в строке сайта слово бывает разорвано пробелом — так его отдаёт
+   разбор текста страницы, когда внутри слова стоит пустой строчный тег («ком пания»), — а модель
+   пишет его слитно; или наоборот. Сверка по буквам и цифрам подряд, без пробелов и знаков между
+   ними, — раньше меры опечатки и отдельно от неё: буквы куска — те же и в том же порядке, что у
+   подряд идущих слов строки, и кусок начинается и кончается на границе слова сайта (якорь — целые
+   слова на обоих концах). Пересказ, перевод и склейка строк меняют буквы — и не проходят.
+   Письменности без пробелов — как прежде, только точно.
 
 Слово — буквы со своими знаками (огласовки, вирамы, ударения) и цифры подряд (`_tokens`):
 `\\w` регулярных выражений рвёт слово хинди или арабское с огласовками на куски.
@@ -33,6 +40,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Sequence
+from itertools import accumulate
 
 from backend.features.keywords.hygiene import normalize
 
@@ -191,16 +199,45 @@ def _nearly(pieces: Sequence[str], line: str) -> bool:
     return misses <= max(1, total // WORDS_PER_MISS)
 
 
+def _glued(pieces: Sequence[str], line: str) -> bool:
+    """Куски — в строке по буквам, без границ слов, по порядку: буквы куска — подряд идущие слова
+    строки целиком, от начала слова до конца слова (мера — в шапке модуля, п. 4). Письменности без
+    пробелов — как прежде, только точно: пробел у них не граница слова."""
+    if any(_unspaced(word) for piece in pieces for word in _tokens(piece)):
+        return False
+    words = _tokens(line)
+    bounds = list(accumulate(len(word) for word in words))
+    starts = {end - len(word) for word, end in zip(words, bounds, strict=True)}
+    letters, ends, start = "".join(words), set(bounds), 0
+    for piece in pieces:
+        found = _letters_at(letters, "".join(_tokens(piece)), start, (starts, ends))
+        if found < 0:
+            return False
+        start = found
+    return True
+
+
+def _letters_at(letters: str, wanted: str, start: int, edges: tuple[set[int], set[int]]) -> int:
+    """Где кончаются буквы `wanted` в буквах строки с `start`, если они начинаются в начале слова
+    строки и кончаются в конце слова; нет такого места — -1."""
+    starts, ends = edges
+    found = letters.find(wanted, start) if wanted else -1
+    while found >= 0 and (found not in starts or found + len(wanted) not in ends):
+        found = letters.find(wanted, found + 1)
+    return found + len(wanted) if found >= 0 else -1
+
+
 def quote_holds(quote: str, line: str) -> bool:
     """Цитата — в одной строке сайта: дословно с точностью до типографики — строкой (иероглифы,
-    часть слова) или целыми словами (знаки между словами не в счёт), — или по словам с опечаткой
-    переписывания. Многоточие — пропуск: куски по обе его стороны — в той же строке и по порядку."""
+    часть слова) или целыми словами (знаки между словами не в счёт), — по буквам без границ слов,
+    или по словам с опечаткой переписывания. Многоточие — пропуск: куски по обе его стороны — в той
+    же строке и по порядку."""
     pieces = _pieces(quote)
     if not pieces:
         return False
     plain = _plain(line)
     exact = _in_order(pieces, plain) or _in_order([_spaced(p) for p in pieces], _spaced(plain))
-    return exact or _nearly(pieces, plain)
+    return exact or _glued(pieces, plain) or _nearly(pieces, plain)
 
 
 def _size(word: str) -> int:

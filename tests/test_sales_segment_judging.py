@@ -81,6 +81,15 @@ async def candidates(
     return made
 
 
+def _about(hosts: list[str]) -> dict[str, Any]:
+    """Ответ «издание» с цитатой из описания каждого сайта (`candidates`): цитата находится, и
+    второго вопроса модели нет — меряется окно, а не второй шанс цитате."""
+    return {
+        host: facts("no", f"О сайте {host}", "пишет о чужих, сам не продаёт", kind="media")
+        for host in hosts
+    }
+
+
 def judge(model: Model) -> SegmentClient:
     return SegmentClient(
         httpx.AsyncClient(transport=httpx.MockTransport(model)),
@@ -220,7 +229,7 @@ async def test_each_batch_writes_its_own_spending_line(
     run = await make_run(session, owner)
     hosts = [f"velo-{n}-sample.com" for n in ("one", "two", "three")]
     await candidates(session, run.id, owner.id, *hosts)
-    model = Model(dict.fromkeys(hosts, ANSWERS[NEWS]), tokens=401)
+    model = Model(_about(hosts), tokens=401)
 
     tally = await judge_run(
         session,
@@ -433,7 +442,7 @@ async def test_the_window_holds_at_most_n_sites_at_once(
             inside["now"] -= 1
 
     monkeypatch.setattr(segment_window, "_one", counted)
-    model = Model(dict.fromkeys(hosts, ANSWERS[NEWS]))
+    model = Model(_about(hosts))
 
     await judge_run(
         session,
@@ -484,7 +493,7 @@ async def test_a_slow_site_does_not_hold_the_others(
         return judged
 
     monkeypatch.setattr(segment_window, "_one", stuck)
-    model = Model(dict.fromkeys([slow, *others], ANSWERS[NEWS]))
+    model = Model(_about([slow, *others]))
 
     tally = await asyncio.wait_for(
         judge_run(

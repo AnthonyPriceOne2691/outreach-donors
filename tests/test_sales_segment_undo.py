@@ -55,7 +55,7 @@ from backend.features.sales.segment_models import (
     SalesSegmentCandidateModel,
     SalesSegmentRunModel,
 )
-from backend.features.sales.segment_rules import KIND_WORDS
+from backend.features.sales.segment_rules import KIND_WORDS, SNIPPET_ONLY
 from backend.features.sales.verifier import FixtureVerifier
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -144,7 +144,8 @@ CLINIC = Said(
 )
 #: Слова судьи v4: правило таблицы и пояснение модели.
 INTERMEDIARY = f"{KIND_WORDS['intermediary']}: сегмент таких сайтов не просит"
-UNCLEAR = "по тексту не видно, чем занят сайт, — решает человек"
+#: «Не понять» по одной выдаче: главной у подделки нет — слова говорят, что судья видел только её.
+UNCLEAR = SNIPPET_ONLY
 ANYWHERE = "дело сайта — то, что ищет сегмент; места сегмент не называет"
 
 

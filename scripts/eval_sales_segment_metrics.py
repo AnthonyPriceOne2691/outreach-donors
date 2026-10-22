@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from operator import attrgetter
 from typing import Any
 
+from backend.features.sales.segment_facts import MADE_UP
 from backend.features.sales.segment_models import Decider, Lane
 from backend.features.sales.segment_window import SPLIT_TOKENS
 from scripts.eval_sales_segment_sets import WANTED
@@ -44,6 +45,10 @@ class Result:
     rule: str | None = None
     #: Факты модели (`segment_facts.SiteFacts.as_json`): по ним пересчёт полос без модели.
     facts: dict[str, Any] | None = None
+    #: Второй шанс цитате (`segment_client.SegmentClient.judge`): модель спросили второй раз — и
+    #: цитата нового ответа нашлась.
+    retried: bool = False
+    retry_held: bool = False
 
     @property
     def labeled(self) -> bool:
@@ -111,7 +116,9 @@ def _lanes(results: list[Result]) -> dict[str, Any]:
 
 
 def _tokens(results: list[Result]) -> dict[str, Any]:
-    calls = sum(r.decided_by == Decider.MODEL and r.tokens > 0 for r in results)
+    """Токены и вызовы: второй вопрос модели — тоже вызов, его токены — в токенах случая."""
+    asked = [r for r in results if r.decided_by == Decider.MODEL and r.tokens > 0]
+    calls = sum(1 + r.retried for r in asked)
     total = sum(r.tokens for r in results)
     return {
         "unanswered": sum(r.unanswered for r in results),
@@ -120,6 +127,16 @@ def _tokens(results: list[Result]) -> dict[str, Any]:
         **{key: sum(r.split.get(key, 0) for r in results) for key in SPLIT_TOKENS},
         "model_calls": calls,
         "tokens_per_call": round(total / calls) if calls else None,
+        **_second_chance(results),
+    }
+
+
+def _second_chance(results: list[Result]) -> dict[str, int]:
+    """Второй шанс цитате: сколько повторов, сколько удались, сколько «цитата не нашлась» в итоге."""
+    return {
+        "quote_retried": sum(r.retried for r in results),
+        "quote_retry_held": sum(r.retry_held for r in results),
+        "made_up": sum(r.reason.startswith(MADE_UP) for r in results),
     }
 
 
