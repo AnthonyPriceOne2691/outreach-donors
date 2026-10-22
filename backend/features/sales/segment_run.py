@@ -81,7 +81,18 @@ from backend.features.serp.protocol import SerpProvider
 logger = logging.getLogger(__name__)
 
 #: Числа судьи, которые копятся от прохода к проходу: каждый судил своих.
-_SUMMED = ("judged", "from_cache", "by_rule", "would_cut", "cut_off", "tokens", *SPLIT_TOKENS)
+#: Второй шанс цитате (`segment_judging.PassTally`) — суммой по проходам, как остальные числа.
+_SUMMED = (
+    "judged",
+    "from_cache",
+    "by_rule",
+    "would_cut",
+    "cut_off",
+    "tokens",
+    *SPLIT_TOKENS,
+    "quote_retried",
+    "quote_retry_held",
+)
 #: Числа очистки лидов, которые копятся: каждый проход чистит своих новых лидов.
 _CLEANING_SUMMED = (
     "checked",
@@ -127,7 +138,7 @@ def _judge_report(before: dict[str, Any] | None, tally: JudgeTally) -> dict[str,
     """Итог судьи за все проходы: расход и счёт — суммой, остановка и сбой — последнего."""
     now = tally.as_dict()
     earlier = before or {}
-    return {**now, **{key: int(earlier.get(key, 0)) + int(now[key]) for key in _SUMMED}}
+    return {**now, **{key: int(earlier.get(key, 0)) + int(now.get(key, 0)) for key in _SUMMED}}
 
 
 def _cleaning(before: object, now: object) -> dict[str, Any]:

@@ -39,6 +39,10 @@ KIND_WORDS = {
 SCOPE_FAILED = (
     "описание сегмента не разобрано — судья не сверил место сайта; следующий проход спросит снова"
 )
+#: «Не понять» — словами того, что видел судья: текст сайта целиком — или один сниппет выдачи, когда
+#: главная не открылась (`SiteFacts.snippet_only`): тогда «не видно» честно и решает человек.
+UNCLEAR = "по тексту не видно, чем занят сайт, — решает человек"
+SNIPPET_ONLY = "главная сайта не открылась — судья видел только сниппет выдачи; решает человек"
 
 
 class Early(Protocol):
@@ -116,6 +120,12 @@ def _early(found: Early | None, lane: Lane) -> bool:
 
 def _early_words(found: Early | None) -> str:
     return found.reason if found is not None else ""
+
+
+def _seen(case: Case) -> bool:
+    """Модель видит, что за сайт: при виде «не понять» её «другое дело» и «смежное» — не отказ, а
+    противоречие ответа — сайт идёт к человеку правилом «не понять»."""
+    return case.known.kind != "unclear"
 
 
 def _unwanted(case: Case) -> bool:
@@ -204,13 +214,13 @@ RULES: tuple[Rule, ...] = (
     ),
     Rule(
         "other_business",
-        lambda c: c.known.core == "no",
+        lambda c: c.known.core == "no" and _seen(c),
         Lane.REJECT,
         lambda _c: "другая деятельность — не то, что ищет сегмент",
     ),
     Rule(
         "adjacent",
-        lambda c: c.known.core == "adjacent",
+        lambda c: c.known.core == "adjacent" and _seen(c),
         Lane.REJECT,
         lambda _c: "смежная деятельность — не то, что ищет сегмент",
     ),
@@ -236,7 +246,7 @@ RULES: tuple[Rule, ...] = (
         "unclear",
         lambda c: c.known.core == "unsure" or c.known.kind == "unclear",
         Lane.REVIEW,
-        lambda _c: "по тексту не видно, чем занят сайт, — решает человек",
+        lambda c: SNIPPET_ONLY if c.known.snippet_only else UNCLEAR,
     ),
     Rule(
         "segment_anywhere",

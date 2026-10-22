@@ -6,10 +6,17 @@
 провайдера, обрезанный и пустой ответ — словами в ответе (`Asked.failure`), с токенами, если они
 оплачены. У ключа нет кредитов — признак `no_credits` в ответе: проход встаёт, а не судит дальше
 вхолостую (`segment_window`, `segment_judging.read_scope`; слово владельца 20.10.2026).
+
+**Второй шанс цитате** (v5): цитата вида сайта не нашлась в тексте — модель спрашивают ещё раз по
+тому же тексту с короткой подсказкой: какие слова не нашлись и правило «дословно слова одной строки,
+без подписи» (`prompts/segment_again.md`). Один раз на сайт; цитата нового ответа нашлась — в счёт
+идут его факты, нет — «на проверку» словами. Токены обоих вызовов — в ответе (`Said.tokens`): в счёт
+прохода и в расход; повтор и его исход — признаками ответа (`Said.retried`, `Said.retry_held`).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from functools import lru_cache
@@ -32,8 +39,16 @@ TOPIC = "судья сегмента продаж"
 #: «не видно», а не «нет»; посредники — по сигналам текста; язык сайта — кодом.
 #: v4 — модель отдаёт факты (вид сайта, дело, страна бизнеса, места работы — с цитатами), полосу
 #: ставит код по таблице правил и полю гипотезы «страны компаний» (`segment_rules`).
-PROMPT_VERSION = "sales-segment-v4"
+#: v5 — второй шанс цитате: подсказка второго вопроса (`AGAIN_PATH`); факты помнят, что судья видел
+#: только выдачу (`SiteFacts.snippet_only`). Текст `segment.md` — прежний: калибровка «не понять»
+#: замерена парно (22.10) и не взята — доля «на проверку» на эталонах не упала.
+PROMPT_VERSION = "sales-segment-v5"
 PROMPT_PATH = Path(__file__).with_name("prompts") / "segment.md"
+#: Подсказка второго вопроса, когда цитата вида сайта не нашлась (`SegmentClient.judge`): файлом
+#: рядом с промптом — её правка тоже правка поведения модели и той же версии.
+AGAIN_PATH = Path(__file__).with_name("prompts") / "segment_again.md"
+#: Сколько знаков ненайденной цитаты уходит в подсказку: цитата — до 30 слов.
+AGAIN_QUOTE_CHARS = 300
 #: Усилие рассуждения — как у судьи площадки: на `minimal` модель читает только буквы.
 REASONING_EFFORT = "low"
 #: Потолки вывода: рассуждение входит в потолок, и обрезанный ответ пришёл бы пустым. Факты v4
@@ -56,6 +71,12 @@ SITE_OPEN, SITE_CLOSE = "<<<SITE", "SITE>>>"
 def load_prompt() -> str:
     """Промпт файлом рядом с модулем: читается один раз на процесс."""
     return PROMPT_PATH.read_text(encoding="utf-8").strip()
+
+
+@lru_cache(maxsize=1)
+def load_again() -> str:
+    """Подсказка второго вопроса файлом рядом с промптом; `{quote}` — место ненайденной цитаты."""
+    return AGAIN_PATH.read_text(encoding="utf-8").strip()
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +120,14 @@ def user_message(*, host: str, segment: str, text: SiteText) -> str:
         f"Domain: {_quiet(host)}\n{SEGMENT_OPEN}\n{_quiet(segment.strip())}\n{SEGMENT_CLOSE}\n"
         f"{SITE_OPEN}\n{_quiet(text.for_model())}\n{SITE_CLOSE}"
     )
+
+
+def again_message(user: str, missing: str) -> str:
+    """Второй вопрос: тот же вопрос по тому же тексту и подсказка — какие слова не нашлись и правило
+    цитаты (`load_again`). Слова — строкой JSON с погашенными метками данных: они пришли из ответа
+    модели о чужом тексте, и закрыть данные раньше времени или сойти за наше правило не могут."""
+    words = json.dumps(_quiet(missing[:AGAIN_QUOTE_CHARS]), ensure_ascii=False)
+    return f"{user}\n{load_again().replace('{quote}', words)}"
 
 
 def scope_message(segment: str) -> str:
@@ -168,6 +197,33 @@ class Said:
     cut_off: bool = False
     #: У ключа модели нет кредитов: сайт не судили — проход встаёт, сайт ждёт «Продолжить».
     no_credits: bool = False
+    #: Цитата первого ответа не нашлась — модель спросили второй раз (токены обоих — в `tokens`).
+    retried: bool = False
+    #: И цитата второго ответа нашлась: факты — его.
+    retry_held: bool = False
+
+
+def _both(first: Spent | None, second: Spent | None) -> Spent | None:
+    """Токены двух вызовов раздельно; хоть один не назван раздельно — оба «раздельно неизвестно»."""
+    if first is None or second is None:
+        return None
+    return Spent(
+        first.prompt + second.prompt,
+        first.completion + second.completion,
+        first.reasoning + second.reasoning,
+    )
+
+
+def second_chance(first: Said, again: Said, missing_again: str) -> Said:
+    """Итог второго вопроса: факты нового ответа — или «на проверку» словами. Цитата нового ответа
+    тоже не нашлась — его слова (с его цитатой); новый ответ не дал ничего лучше (сбой провайдера, нет
+    цитаты) — слова первого. Токены — обоих вызовов. Нет кредитов на втором — первый ответ остаётся:
+    проход встанет на следующем сайте."""
+    tokens, spent = first.tokens + again.tokens, _both(first.spent, again.spent)
+    if again.facts is not None:
+        return Said(again.facts, "", again.model, tokens, spent, retried=True, retry_held=True)
+    failure = again.failure if missing_again else first.failure
+    return Said(None, failure, first.model, tokens, spent, retried=True)
 
 
 class SegmentClient(ModelClient):
@@ -201,13 +257,22 @@ class SegmentClient(ModelClient):
     async def judge(
         self, *, host: str, segment: str, text: SiteText, system: str | None = None
     ) -> Said:
-        """Факты одного сайта. Правила до модели — у судьи (`segment_judge.decide`)."""
-        asked = await self.ask(
-            user=user_message(host=host, segment=segment, text=text),
-            system=system or load_prompt(),
-            schema=segment_facts.SCHEMA,
-            host=host,
+        """Факты одного сайта; цитата вида сайта не нашлась — второй вопрос с подсказкой, один на
+        сайт (шапка модуля). Правила до модели — у судьи (`segment_judge.decide`)."""
+        user, prompt = user_message(host=host, segment=segment, text=text), system or load_prompt()
+        said, missing = await self._facts(user, prompt, text, host)
+        if not missing:
+            return said
+        again, missing_again = await self._facts(again_message(user, missing), prompt, text, host)
+        logger.info(
+            "судья сегмента: цитата не нашлась — второй вопрос",
+            extra={"host": host, "held": again.facts is not None},
         )
+        return second_chance(said, again, missing_again)
+
+    async def _facts(self, user: str, system: str, text: SiteText, host: str) -> tuple[Said, str]:
+        """Один вызов фактов: ответ — и цитата вида сайта, которой нет в тексте (пусто — нет такой)."""
+        asked = await self.ask(user=user, system=system, schema=segment_facts.SCHEMA, host=host)
         if asked.failure is not None:
             return Said(
                 None,
@@ -218,11 +283,11 @@ class SegmentClient(ModelClient):
                 True,
                 asked.cut_off,
                 asked.no_credits,
-            )
-        found = segment_facts.read_facts(asked.content, text)
-        if isinstance(found, str):
-            return Said(None, found, asked.model, asked.tokens, asked.spent)
-        return Said(found, "", asked.model, asked.tokens, asked.spent)
+            ), ""
+        found = segment_facts.read(asked.content, text)
+        return Said(
+            found.facts, found.failure, asked.model, asked.tokens, asked.spent
+        ), found.missing
 
     async def scope(self, segment: str) -> tuple[Scope | str, Asked]:
         """Разбор описания сегмента (`segment_scope`): итог или почему его нет — и сам вызов."""

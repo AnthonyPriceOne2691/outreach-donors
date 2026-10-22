@@ -1,0 +1,1 @@
+Our code checked your answer: its "quote" {quote} is not in the website text as the words of one line. Answer again with the whole JSON object by the same rules. Copy "quote" verbatim from ONE line of the website text, after its label: the exact words of that line in their order — without the label, without words from other lines, never retold, shortened inside or translated.

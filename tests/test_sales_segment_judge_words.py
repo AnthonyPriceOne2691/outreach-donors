@@ -27,8 +27,9 @@
 Ниши и языки разные: пекарня и бухгалтерия (польский), стоматология (японский, без пробелов), юрист
 и языковая школа (арабский, справа налево), справочник мастерских (немецкий), ветклиника
 (польский), сантехник (испанский), йога (хинди), школы танцев и серфинга (португальский), курсы
-(турецкий), велосипедные мастерские (украинский и русский — сверка языка). Слова сверки — константой
-судьи (`segment_judge.MADE_UP`), не копией. Домены выдуманы (`*.example.test`).
+(турецкий), велосипедные мастерские (украинский и русский — сверка языка). Слова сверки — словами
+судьи (`segment_judge.made_up` с цитатой подделки), не копией: цитата не нашлась и во втором вопросе
+судьи — подделка отвечает тем же, вызовов модели два. Домены выдуманы (`*.example.test`).
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ import pytest
 from backend.config.judge import JudgeMode
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
+from backend.features.core.models.ops import UsageRecordModel
 from backend.features.sales import segment_judge as sj
 from backend.features.sales import segment_rejudge as sr
 from backend.features.sales import segment_report, segment_sites, segment_window
@@ -92,6 +94,14 @@ REJUDGED = datetime(2026, 10, 22, 11, 5, tzinfo=UTC)
 #: Судили до колонок судьи — время прохода, как его оставила прежняя запись.
 BEFORE = datetime(2026, 10, 20, 16, 2, tzinfo=UTC)
 HUMAN_WORDS = {True: "принял человек", False: "отказал человек"}
+
+
+def made_up(said: Said) -> str:
+    """Слова сверки у сайта, чья цитата не нашлась ни в первом, ни во втором ответе (подделка
+    отвечает тем же): словами судьи с цитатой подделки (`segment_judge.made_up`)."""
+    assert isinstance(said.answer, dict)
+    return sj.made_up(said.answer["quote"])
+
 
 #: Пекарня (польский): цитата модели не из текста сайта — «цитаты нет», в кэш не ложится.
 BAKERY = Said(
@@ -204,7 +214,7 @@ async def test_every_verdict_of_the_pass_keeps_the_judges_words_and_time_and_a_h
         for said in (BAKERY, CLOSED, PLATFORM, EMPTY, SILENT)
     ]
     assert said_by[:3] == [
-        (sj.MADE_UP, Decider.MODEL),
+        (made_up(BAKERY), Decider.MODEL),
         (STOPLIST_OWN, Decider.RULE),
         (platform.reason, Decider.RULE),
     ]
@@ -283,7 +293,13 @@ async def test_a_verdict_without_its_quote_in_the_text_keeps_its_words_and_date_
     `decided_at`."""
     run, made = await judged(session, said, now=JUDGED)
     site = made[said.host]
-    assert (site.lane, site.reason, site.decided_by) == (Lane.REVIEW, sj.MADE_UP, Decider.MODEL)
+    words_of = made_up(said)
+    assert (site.lane, site.reason, site.decided_by) == (Lane.REVIEW, words_of, Decider.MODEL)
+    # Второй шанс цитате: цитата не нашлась и во втором ответе — вызовов модели два, оба в расходе.
+    spent = select(func.sum(UsageRecordModel.units)).where(
+        UsageRecordModel.operation == sj.OPERATION
+    )
+    assert await session.scalar(spent) == 2 * Model({}).tokens
     cached = select(func.count()).select_from(Verdict).where(Verdict.domain_id == site.domain_id)
     assert await session.scalar(cached) == 0
     url = f"{CANDIDATES}/{site.id}/decision"
@@ -294,13 +310,13 @@ async def test_a_verdict_without_its_quote_in_the_text_keeps_its_words_and_date_
 
     assert decision.status_code == 200, decision.text
     row = decision.json()
-    assert (row["reason"], row["judge_reason"]) == (HUMAN_WORDS[accept], sj.MADE_UP)
-    assert [found["judge_reason"] for found in listed.json()["rows"]] == [sj.MADE_UP]
+    assert (row["reason"], row["judge_reason"]) == (HUMAN_WORDS[accept], words_of)
+    assert [found["judge_reason"] for found in listed.json()["rows"]] == [words_of]
     assert back.status_code == 200, back.text
     row = back.json()
     assert (row["lane"], row["reason"], row["decided_by"], row["decided_at"]) == (
         "review",
-        sj.MADE_UP,
+        words_of,
         "model",
         "2026-10-22T09:15:00Z",
     )

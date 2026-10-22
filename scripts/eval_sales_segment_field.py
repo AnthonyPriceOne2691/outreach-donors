@@ -102,6 +102,8 @@ def result_of(case: dict[str, Any], verdict: SegmentVerdict, split: dict[str, in
         verdict.cut_off,
         verdict.rule,
         verdict.facts.as_json() if verdict.facts is not None else None,
+        verdict.retried,
+        verdict.retry_held,
     )
 
 

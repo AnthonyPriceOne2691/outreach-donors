@@ -27,7 +27,14 @@ from backend.features.sales.segment_client import (
     spent_of,
     user_message,
 )
-from backend.features.sales.segment_facts import KINDS, MADE_UP, NO_QUOTE, SHORT_QUOTE, SiteFacts
+from backend.features.sales.segment_facts import (
+    KINDS,
+    MADE_UP,
+    NO_QUOTE,
+    SHORT_QUOTE,
+    SiteFacts,
+    made_up,
+)
 from backend.features.sales.segment_models import Decider, Lane
 from backend.features.sales.segment_quote import MIN_QUOTE_WORDS, quote_words
 from backend.features.sales.segment_rules import BY_LANGUAGE, BY_RULE, RULES, Case, Rule, first
@@ -90,6 +97,7 @@ __all__ = [
     "effective",
     "finish_of",
     "load_prompt",
+    "made_up",
     "quote_words",
     "segment_digest",
     "settle",
@@ -133,6 +141,10 @@ class SegmentVerdict:
     rule: str | None = None
     #: У ключа модели нет кредитов: вердикта нет, проход встаёт (`segment_window`).
     no_credits: bool = False
+    #: Второй шанс цитате (`segment_client.SegmentClient.judge`): модель спросили второй раз — и
+    #: цитата нового ответа нашлась. Итог прохода считает их рядом с токенами (`segment_judging`).
+    retried: bool = False
+    retry_held: bool = False
 
     @property
     def would_cut(self) -> bool:
@@ -142,8 +154,8 @@ class SegmentVerdict:
     @property
     def proven(self) -> bool:
         """Вердикт, который ложится в кэш: правило или факты модели с цитатой из текста. Без
-        фактов — не дала цитаты, сочинила, ответ не разобран, не ответила — это несработавшая
-        проверка: следующий суд спросит снова."""
+        фактов — не дала цитаты, цитата не нашлась в тексте и после второго вопроса, ответ не
+        разобран, не ответила — это несработавшая проверка: следующий суд спросит снова."""
         return self.decided_by is Decider.RULE or self.facts is not None
 
 
@@ -208,6 +220,8 @@ def _verdict(rule: Rule, case: Case, said: Said, early: _Early) -> SegmentVerdic
             spent=said.spent,
             facts=said.facts,
             rule=rule.name,
+            retried=said.retried,
+            retry_held=said.retry_held,
         )
     facts = said.facts
     words = rule.words(case)
@@ -227,6 +241,8 @@ def _verdict(rule: Rule, case: Case, said: Said, early: _Early) -> SegmentVerdic
         facts=facts,
         rule=rule.name,
         no_credits=said.no_credits,
+        retried=said.retried,
+        retry_held=said.retry_held,
     )
 
 

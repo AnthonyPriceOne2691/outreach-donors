@@ -11,9 +11,15 @@
 не из списка — ответ не разобран: «на проверку», модель спросят снова.
 
 **Цитаты проверяет код** (`SiteText.holds`, как у v3): цитата вида сайта не нашлась — ответ не
-доказан целиком, как у v3 («модель сочинила»). Цитата места, страны бизнеса или «только там» не
-нашлась — в счёт не идёт этот факт, а не весь ответ; сколько таких — `dropped`: пропуск считается, а не
-исчезает молча. Код страны, которого нет в ISO 3166-1, — тоже пропуск.
+доказан целиком: слова причины называют саму цитату коротко (`made_up`) — решает человек, а модель
+спрашивают второй раз (`Read.missing`, `segment_client.SegmentClient.judge`). Цитата места, страны
+бизнеса или «только там» не нашлась — в счёт не идёт этот факт, а не весь ответ; сколько таких —
+`dropped`: пропуск считается, а не исчезает молча. Код страны, которого нет в ISO 3166-1, — тоже
+пропуск.
+
+**Что видел судья** (`SiteFacts.snippet_only`): в тексте нет строк главной — главная не открылась
+или пришла заглушкой, и модель судила по одному сниппету выдачи. Это часть фактов: с ними оно лежит в
+кэше, и «не понять» говорит человеку, почему (`segment_rules`), и у вердикта из кэша.
 """
 
 from __future__ import annotations
@@ -25,7 +31,7 @@ from typing import Any
 
 from backend.features.sales.hypothesis_countries import known_codes
 from backend.features.sales.segment_quote import MIN_QUOTE_WORDS, quote_words, unlabeled
-from backend.features.sales.segment_text import LABELS, SiteText
+from backend.features.sales.segment_text import HOME_LABELS, LABELS, SiteText, excerpt
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +47,10 @@ KEYS = ("kind", "home", "home_quote", "served", "only", "network", "local", "cor
 #: Слова — вместе с числом (`segment_quote.MIN_QUOTE_WORDS`).
 SHORT_QUOTE = "цитата короче трёх слов — не доказательство"
 NO_QUOTE = "модель не дала цитаты"
-MADE_UP = "цитаты нет в тексте сайта — модель не прочла, а сочинила"
+#: Начало слов причины, когда цитаты вида сайта нет в тексте; целиком — с цитатой (`made_up`).
+MADE_UP = "цитата модели не нашлась в тексте сайта"
+#: Сколько знаков цитаты показать в словах причины (срез — по границе слова): дальше — многоточие.
+SHOWN_CHARS = 120
 
 _TEXT = {"type": "string"}
 #: Строгая форма ответа у провайдера.
@@ -103,6 +112,8 @@ class SiteFacts:
     network: bool = False
     #: Сколько фактов не в счёт: цитаты нет в тексте или кода страны нет в ISO 3166-1.
     dropped: int = 0
+    #: В тексте, по которому судила модель, нет строк главной — только сниппет выдачи.
+    snippet_only: bool = False
 
     @property
     def places(self) -> frozenset[str]:
@@ -128,6 +139,7 @@ class SiteFacts:
             "local": self.local,
             "network": self.network,
             "dropped": self.dropped,
+            "snippet_only": self.snippet_only,
         }
 
     @classmethod
@@ -152,6 +164,7 @@ class SiteFacts:
                 bool(data.get("local")),
                 bool(data.get("network")),
                 int(data.get("dropped") or 0),
+                bool(data.get("snippet_only")),
             )
         except (AssertionError, KeyError, TypeError, ValueError) as exc:
             logger.warning("судья сегмента: факты кэша не той формы", extra={"error": repr(exc)})
@@ -164,6 +177,14 @@ def _words(raw: object) -> str:
     return unlabeled(raw, LABELS).strip() if isinstance(raw, str) else ""
 
 
+def made_up(quote: str) -> str:
+    """Слова причины, когда цитаты вида сайта нет в тексте: цитата модели — коротко, решает человек.
+    Колонка цитаты у сайта при этом пуста: по ней сверяется ключ кэша (`segment_undo`)."""
+    whole = " ".join(quote.split())
+    shown = excerpt(whole, SHOWN_CHARS)
+    return f"{MADE_UP}: «{shown}{'…' if len(shown) < len(whole) else ''}» — решает человек"
+
+
 def unproven(quote: str, text: SiteText) -> str | None:
     """Почему цитата вида сайта не доказывает ответ — словами; `None` — доказывает."""
     if not quote:
@@ -171,7 +192,7 @@ def unproven(quote: str, text: SiteText) -> str | None:
     if quote_words(quote) < MIN_QUOTE_WORDS:
         return SHORT_QUOTE
     if not text.holds(quote):
-        return MADE_UP
+        return made_up(quote)
     return None
 
 
@@ -228,20 +249,30 @@ class _Checked:
         return Place(codes, quote) if quote and codes else None
 
 
-def read_facts(content: str, text: SiteText) -> SiteFacts | str:
+@dataclass(frozen=True, slots=True)
+class Read:
+    """Ответ модели, прочитанный по тексту сайта: факты — или почему их нет, словами. Цитата вида
+    сайта, которой нет в тексте, — отдельно (`missing`): по ней модель спрашивают второй раз."""
+
+    facts: SiteFacts | None
+    failure: str = ""
+    missing: str = ""
+
+
+def read(content: str, text: SiteText) -> Read:
     """Ответ модели → факты по тексту сайта; не разобран или цитата вида сайта не доказывает его —
-    почему, словами (`unproven`)."""
+    почему, словами (`unproven`), а цитата, которой нет в тексте, — ещё и как есть."""
     form = _form(content)
     if isinstance(form, str):
-        return form
+        return Read(None, form)
     quote = _words(form["quote"])
     if (why_not := unproven(quote, text)) is not None:
-        return why_not
+        return Read(None, why_not, "" if why_not in (NO_QUOTE, SHORT_QUOTE) else quote)
     check = _Checked(text)
     home_quote = check.quote(form["home_quote"])
     home = check.code(form["home"]) if home_quote else ""
     served = tuple(found for raw in form["served"] if (found := check.place(raw)) is not None)
-    return SiteFacts(
+    facts = SiteFacts(
         form["kind"],
         form["core"],
         quote,
@@ -253,4 +284,12 @@ def read_facts(content: str, text: SiteText) -> SiteFacts | str:
         form["local"],
         form["network"],
         check.dropped,
+        not any(label in HOME_LABELS for label, _ in text.lines),
     )
+    return Read(facts)
+
+
+def read_facts(content: str, text: SiteText) -> SiteFacts | str:
+    """Ответ модели → факты по тексту сайта или почему их нет, словами (`read`)."""
+    found = read(content, text)
+    return found.facts if found.facts is not None else found.failure

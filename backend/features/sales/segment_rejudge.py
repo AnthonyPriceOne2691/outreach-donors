@@ -18,6 +18,8 @@
 - **Смета до запуска** (`segment_rejudge_estimate.py`), отказ словами, пока идёт прогон или
   пересуд (`api/sales/segment_sites.py`).
 - **Расход** — строкой `sales_segment_judge`, потолок модели — тот же, что у судьи (`segment_window`).
+  Второй шанс цитате — как у прохода прогона: токены обоих вызовов — в расходе, сколько раз спросили
+  второй раз и сколько удалось — в итоге пересуда (`segment_judging.PassTally`).
 - **Ход** («пересуд: X из Y») и итог — в `run.report["rejudge"]`, без миграции
   (`segment_rejudge_report.py`).
 
@@ -52,7 +54,13 @@ from backend.features.runs.reasons import explained
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.segment_estimate import NO_SEGMENT, SALES_OFF
 from backend.features.sales.segment_judge import PROMPT_VERSION, SegmentClient, segment_digest
-from backend.features.sales.segment_judging import cut, policy_of_run, read_scope, stoplisted
+from backend.features.sales.segment_judging import (
+    PassTally,
+    cut,
+    policy_of_run,
+    read_scope,
+    stoplisted,
+)
 from backend.features.sales.segment_models import (
     Decider,
     Lane,
@@ -75,7 +83,6 @@ from backend.features.sales.segment_rejudge_report import (
 from backend.features.sales.segment_window import (
     SPLIT_TOKENS,
     Ask,
-    JudgeTally,
     Landing,
     Site,
     judge_sites,
@@ -93,8 +100,17 @@ Run = SalesSegmentRunModel
 #: Путь задачи строкой: очередь импортирует её в воркере долгих задач продаж.
 REJUDGE_JOB = "backend.features.sales.segment_rejudge.rejudge_segment"
 #: Числа пересуда, которые копятся от попытки к попытке задачи: токены — всего и раздельно
-#: (ввод, вывод, рассуждение, «раздельно неизвестно»), «модель не ответила», сбои.
-_SUMMED = ("tokens", *SPLIT_TOKENS, "unanswered", "cut_off", "failed")
+#: (ввод, вывод, рассуждение, «раздельно неизвестно»), «модель не ответила», сбои и второй шанс
+#: цитате (`segment_judging.PassTally`: сколько раз спросили второй раз и сколько удалось).
+_SUMMED = (
+    "tokens",
+    *SPLIT_TOKENS,
+    "unanswered",
+    "cut_off",
+    "failed",
+    "quote_retried",
+    "quote_retry_held",
+)
 #: Прогон шёл с выключенным судьёй: модель его сайтов не судила, сравнивать не с чем.
 JUDGE_WAS_OFF = (
     "в этом прогоне судья был выключен — пересуживать некому: каждый сайт здесь решает человек"
@@ -167,7 +183,7 @@ class Rejudged:
 
     run_id: int
     block: dict[str, Any]
-    tally: JudgeTally
+    tally: PassTally
     #: Числа прежних попыток той же задачи: повтор их не теряет.
     before: dict[str, int] = field(default_factory=dict)
     taken: list[tuple[Site, Landing]] = field(default_factory=list)
@@ -273,7 +289,7 @@ async def rejudge(
     if (why := refusal_of(run, segment)) is not None:
         return await stop(session, run_id, f"пересуд не выполнен: {why}", moment)
     block = await _start(session, run, segment, moment)
-    tally = JudgeTally()
+    tally = PassTally()
     before = {key: int(block.get(key, 0)) for key in _SUMMED}
     sink = Rejudged(run_id, block, tally, before)
     sites = await _cut_stoplisted(session, await _todo(session, block), sink, moment)
