@@ -4,17 +4,23 @@
 нечем. Отмена — обратное решению (`segment_report.decide`):
 
 - **Куда возвращается сайт — решает судья, а не прошитая полоса.** Решение человека затирает
-  причину словами «принял человек», но вердикт, цитата и модель остаются у сайта, а слова вердикта —
-  в кэше вердиктов (`sales_segment_verdicts`). Полоса и причина ложатся тем же правилом, что у
-  прохода судьи (`segment_window.landing`: `segment_judge.effective` в режиме прогона): в
-  наблюдении отказ модели — «судья отказал бы» со словами судьи. Кто и когда решил — очищено:
-  решения нет.
-- **Вердикт языка сайта** (`Decider.LANGUAGE`) в кэш не ложится и модели у него нет — как у
-  правила. Он повторяется по сохранённому тексту сайта и языку писем прогона
-  (`segment_judge.by_language`): совпал с вердиктом сайта — сайт вернётся как от языка («судья
-  отказал бы» в наблюдении) и с его словами, а не отсечённым правилом.
-- **Слов нет в кэше** — модель не дала цитаты или ответ не разобран (такой вердикт не кэшируется,
-  `segment_judge.proven_again`), модель не ответила: причина — словами, что она не сохранилась.
+  причину, время и «кто решил» своими («принял человек»), но вердикт, цитата и модель остаются у
+  сайта, а слова, время и решавший судьи — в своих колонках (`judge_reason`, `judged_at`,
+  `judged_by`: их пишет только судья, `segment_window.land`). Полоса и причина ложатся тем же
+  правилом, что у прохода судьи (`segment_window.landing`: `segment_judge.effective` в режиме
+  прогона): в наблюдении отказ модели или языка — «судья отказал бы» со словами судьи. Автор
+  решения очищен, время — судьи: под «модель» снова дата его решения (тест продаж 22.10: было
+  пусто).
+- **Кто решал до человека — из колонки судьи** (`judged_by`: правило, модель, язык). Раньше отмена
+  угадывала: вердикт языка сайта (`Decider.LANGUAGE`) в кэш не ложится и модели у него нет — как у
+  правила, — и узнавался повтором сверки по сохранённому тексту (`segment_judge.by_language`);
+  правило языка поменялось — сайт вернулся бы «отсечённым» правилом, а не «судья отказал бы».
+  Догадка осталась только у сайтов, судимых до колонки (`_language`, `_decider`).
+- **Слова судьи — из его колонки; кэш вердиктов — у сайтов, судимых до неё** (тест продаж 22.10:
+  вердикт без цитаты в тексте в кэш не ложится, `SegmentVerdict.proven`, — и у решения человека
+  выходило «Судья: причина не сохранилась»). Решено человеком до колонки, и в кэше слов нет —
+  словами, что причина не сохранилась: восстанавливать не из чего. Модель не ответила — словами,
+  что следующий проход спросит её снова.
 - **Отменяется только решение человека**: решение правила или судья — отказ словами; сайт уже
   ждёт человека (двойной клик, повтор запроса) — не отказ и не вторая запись журнала.
 - **Лид уже заведён, а письмо ему не ушло — лид снимается вместе с решением** (тест продаж 21.10:
@@ -52,7 +58,6 @@ import logging
 from collections.abc import AsyncIterator, Collection, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import ColumnElement, Row, Select, or_, select, text
@@ -114,7 +119,8 @@ NOT_HUMAN = {
     Decider.MODEL: "сайт решил судья, а не человек — отменяется только решение человека",
     Decider.LANGUAGE: "сайт решила сверка языка, а не человек — отменяется только решение человека",
 }
-#: Слов вердикта нет в кэше: модель не дала цитаты или ответ не разобран.
+#: Слов судьи нет ни в его колонке, ни в кэше: человек решил до колонки, а вердикт без цитаты в
+#: тексте или с неразобранным ответом в кэш не ложится.
 LOST = "причина не сохранилась"
 #: Модель не ответила: слова отказа провайдера не хранятся, а следующий проход спросит снова
 #: (`segment_judging.waiting_judge`).
@@ -202,21 +208,30 @@ async def gone_leads(session: AsyncSession, lead_ids: Collection[int]) -> set[in
 
 
 def _decider(candidate: Candidate) -> Decider:
-    """Кто дал вердикт до человека: правило модель не зовёт, и модели у его вердикта нет."""
+    """Кто дал вердикт до человека — из колонки судьи (`judged_by`). Судили до неё — догадка:
+    правило модель не зовёт, и модели у его вердикта нет."""
+    if candidate.judged_by is not None:
+        return Decider(candidate.judged_by)
     return Decider.RULE if candidate.model is None else Decider.MODEL
 
 
 def _language(candidate: Candidate, letters: str | None) -> SegmentVerdict | None:
-    """Вердикт языка сайта, если сайт решала сверка языка: модели у такого вердикта нет, и по
-    тексту, который видел судья, сверка даёт тот же вердикт (`segment_judge.by_language`)."""
-    if candidate.model is not None or not candidate.site_text:
+    """Вердикт языка сайта у сайта, судимого до колонки судьи (`judged_by` пуст), если его решала
+    сверка языка: модели у такого вердикта нет, и по тексту, который видел судья, сверка даёт тот
+    же вердикт (`segment_judge.by_language`) — пока правило языка не поменялось."""
+    if candidate.judged_by is not None or candidate.model is not None or not candidate.site_text:
         return None
     found = by_language(SiteText.parse(candidate.site_text), letters)
     return found if found is not None and found.lane == candidate.verdict else None
 
 
-def _verdict(candidate: Candidate, words: str | None, letters: str | None) -> SegmentVerdict | None:
-    """Вердикт судьи, как он лёг на сайт до решения человека; `None` — судья был выключен."""
+def _verdict(
+    candidate: Candidate, cached: str | None, letters: str | None
+) -> SegmentVerdict | None:
+    """Вердикт судьи, как он лёг на сайт до решения человека; `None` — судья был выключен. Слова —
+    судьи из его колонки (`judge_reason`); у сайта, судимого до неё, — из кэша (`cached`), нет и
+    там — `LOST`. Кто решал — из колонки судьи (`_decider`); у сайта, судимого до неё, — повтор
+    сверки языка, иначе догадка по модели."""
     if candidate.unanswered:
         return SegmentVerdict(Lane.REVIEW, SILENT, model=candidate.model, unanswered=True)
     if candidate.verdict is None:
@@ -225,7 +240,7 @@ def _verdict(candidate: Candidate, words: str | None, letters: str | None) -> Se
         return language
     return SegmentVerdict(
         Lane(candidate.verdict),
-        words or LOST,
+        candidate.judge_reason or cached or LOST,
         candidate.quote,
         candidate.model,
         decided_by=_decider(candidate),
@@ -278,9 +293,9 @@ async def judged_before(
 ) -> dict[int, Landing]:
     """Что лежало бы на решённых человеком сайтах без него — полоса и слова судьи тем же правилом,
     что у прохода (`segment_window.landing`). Сайты прогона: режим и язык писем — его (`run.mode`,
-    `run.language`)."""
+    `run.language`). Кэш вердиктов читается только для сайтов без слов судьи в его колонке."""
     human = [candidate for candidate in candidates if candidate.decided_by == Decider.HUMAN]
-    words = await _cached_words(session, human)
+    words = await _cached_words(session, [c for c in human if c.judge_reason is None])
     return {
         candidate.id: landing(
             Judged(_verdict(candidate, words.get(candidate.id), letters), SiteText(())), mode
@@ -406,11 +421,8 @@ async def undo(session: AsyncSession, candidate_id: int) -> Undone | None:
     lead = None if candidate.lead_id is None else await _lead_off(session, candidate.lead_id)
     found = (await judged_before(session, [candidate], JudgeMode(mode), letters))[candidate.id]
     was = candidate.lane
-    values = found.values(datetime.now(UTC)) | {
-        "decided_at": None,
-        "decided_by_user": None,
-        "lead_id": None,
-    }
+    # Время решения — судьи, а не отмены; колонки судьи отмена не пишет — их пишет только судья.
+    values = found.values(candidate.judged_at) | {"decided_by_user": None, "lead_id": None}
     for name, value in values.items():
         setattr(candidate, name, value)
     logger.info(

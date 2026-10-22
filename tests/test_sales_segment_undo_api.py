@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,8 @@ SignIn = Callable[..., Awaitable[str]]
 
 SELLER = "seller@ours.example.test"
 CANDIDATES = "/api/sales/segment/candidates"
+#: Время прохода судьи: отмена возвращает его под «модель».
+JUDGED = datetime(2026, 10, 22, 9, 15, tzinfo=UTC)
 SCREEN = Path(__file__).resolve().parent.parent / "frontend/src/sales/SegmentSitesApi.ts"
 #: Слова судьи при отказе в наблюдении — как есть: что это отказ, говорит полоса «судья отказал бы».
 CUT = words(INTERMEDIARY, WORKSHOPS)
@@ -89,7 +92,7 @@ async def _lead(session: AsyncSession, site: SalesSegmentCandidateModel) -> Sale
 async def test_a_decision_and_its_undo_answer_with_the_row_and_are_journaled_side_by_side(
     session: AsyncSession, client: AsyncClient, headers: dict[str, str]
 ) -> None:
-    _, made = await judged(session, WORKSHOPS)
+    _, made = await judged(session, WORKSHOPS, now=JUDGED)
     site = made[WORKSHOPS.host]
     url = f"{CANDIDATES}/{site.id}/decision"
 
@@ -119,6 +122,7 @@ async def test_a_decision_and_its_undo_answer_with_the_row_and_are_journaled_sid
         "model",
         "reject",
     )
+    # Под «модель» — снова дата судьи: решения человека нет, а судья решал тогда.
     assert (
         back["decided_by_user"],
         back["decided_at"],
@@ -126,7 +130,7 @@ async def test_a_decision_and_its_undo_answer_with_the_row_and_are_journaled_sid
         back["judge_reason"],
     ) == (
         None,
-        None,
+        "2026-10-22T09:15:00Z",
         False,
         None,
     )
