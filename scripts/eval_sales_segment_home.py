@@ -4,7 +4,9 @@
 У сайтов живого набора тела главной нет: в разметку лёг текст, который видел судья прогона
 (выдача и шапка главной). Главная дочитывается **тем же кодом, что у прогона** — общим
 `donors/home_signals.check_home`: адреса, попытки, заглушка защиты и видимый текст
-(`HomeSignals.text`) — его. Файл с главными — вне репозитория, с датой дочитывания.
+(`HomeSignals.text`) — его. И на том же языке: прогон просит главную на языке писем
+(`run.language`), eval — на языке писем случая, иначе набора, тем же правилом, что у его судьи.
+Файл с главными — вне репозитория, с датой дочитывания.
 """
 
 from __future__ import annotations
@@ -32,10 +34,10 @@ class HomesError(RuntimeError):
 
 
 async def _fetch_one(
-    client: httpx.AsyncClient, case: dict[str, Any], gate: asyncio.Semaphore
+    client: httpx.AsyncClient, case: dict[str, Any], gate: asyncio.Semaphore, letters: str | None
 ) -> dict[str, Any]:
     async with gate:
-        signals = await check_home(client, case["host"])
+        signals = await check_home(client, case["host"], language=case.get("letters") or letters)
     return {
         "id": case["id"],
         "host": case["host"],
@@ -46,18 +48,20 @@ async def _fetch_one(
     }
 
 
-async def fetch_homes(cases: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+async def fetch_homes(
+    cases: Sequence[dict[str, Any]], letters: str | None = None
+) -> list[dict[str, Any]]:
     """Главные случаев набора — общим `check_home`, клиентом с защитой исходящих адресов и сроком
-    главной судьи, как у прогона (`segment_jobs`)."""
+    главной судьи, как у прогона (`segment_jobs`), на языке писем случая, иначе набора `letters`."""
     gate = asyncio.Semaphore(FETCH_AT_ONCE)
     async with guarded_client(timeout=judge_cfg.HOME_TIMEOUT_SEC) as client:
-        tasks = [_fetch_one(client, case, gate) for case in cases]
+        tasks = [_fetch_one(client, case, gate, letters) for case in cases]
         return list(await asyncio.gather(*tasks))
 
 
-def fetched_to(cases: Sequence[dict[str, Any]], out: Path) -> int:
+def fetched_to(cases: Sequence[dict[str, Any]], out: Path, letters: str | None = None) -> int:
     """Дочитать главные набора в файл (вне репозитория) и сказать, сколько открылось."""
-    rows = asyncio.run(fetch_homes(cases))
+    rows = asyncio.run(fetch_homes(cases, letters))
     out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), "utf-8")
     opened = sum(bool(row["reached"]) for row in rows)
     texts = sum(bool(row["text"]) for row in rows)

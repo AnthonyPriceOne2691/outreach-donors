@@ -190,7 +190,8 @@ class Ask:
     #: Судить по тексту прошлого суда, не открывая главную: пересуд.
     stored_text: bool = False
     #: Язык писем прогона (`SalesSegmentRunModel.language`): сайт уверенно на другом — «отказал бы»
-    #: словами (`segment_judge.by_language`). Пусто — язык не сверяется.
+    #: словами (`segment_judge.by_language`); главная просится на нём (`segment_text.page_home`).
+    #: Пусто — язык не сверяется, главная — как раньше.
     letters: str | None = None
     #: Разбор описания (`segment_scope`); пусто — разбор не удался: сайты — «на проверку» словами.
     scope: Scope | None = None
@@ -315,10 +316,15 @@ class Sink(Protocol):
 async def _text(site: Site, ask: Ask) -> SiteText:
     """Текст сайта судье: у пересуда — тот, что видел прошлый суд; иначе выдача и главная хоста
     страницы выдачи, при сбое — корня (`segment_text.page_home`, разбор — общий `check_home`): шапка
-    и отрывок видимого текста (`segment_text.site_text`)."""
+    и отрывок видимого текста (`segment_text.site_text`). Главная — на языке писем прогона
+    (`Ask.letters`): у сайта с версиями по языку браузера модель видит ту же, что человек."""
     if ask.stored_text and site.stored:
         return SiteText.parse(site.stored)
-    home = await page_home(ask.home, site.host, site.page_url) if ask.home is not None else None
+    home = (
+        await page_home(ask.home, site.host, site.page_url, language=ask.letters)
+        if ask.home is not None
+        else None
+    )
     return site_text(title=site.title, description=site.description, home=home)
 
 

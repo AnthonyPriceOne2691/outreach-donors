@@ -1042,9 +1042,9 @@
       "worst": "_query:145"
     },
     "backend/features/contacts/pages.py": {
-      "lines": 474,
+      "lines": 497,
       "complexity": 8,
-      "worst": "is_challenge:168"
+      "worst": "is_challenge:185"
     },
     "backend/features/contacts/preference.py": {
       "lines": 65,
@@ -1502,7 +1502,7 @@
       "worst": "held_statuses:39"
     },
     "backend/features/donors/home_signals.py": {
-      "lines": 431,
+      "lines": 437,
       "complexity": 12,
       "worst": "_shop_marks:302"
     },
@@ -2967,7 +2967,7 @@
       "worst": "_judge:191"
     },
     "backend/features/sales/segment_text.py": {
-      "lines": 191,
+      "lines": 198,
       "complexity": 8,
       "worst": "page_home:127"
     },
@@ -2987,9 +2987,9 @@
       "worst": "watch:98"
     },
     "backend/features/sales/segment_window.py": {
-      "lines": 486,
+      "lines": 492,
       "complexity": 7,
-      "worst": "_land:440"
+      "worst": "_land:446"
     },
     "backend/features/sales/sender.py": {
       "lines": 335,
@@ -3412,9 +3412,9 @@
       "worst": "_checked:131"
     },
     "scripts/eval_sales_segment_home.py": {
-      "lines": 97,
+      "lines": 101,
       "complexity": 5,
-      "worst": "with_home:85"
+      "worst": "with_home:89"
     },
     "scripts/eval_sales_segment_metrics.py": {
       "lines": 163,

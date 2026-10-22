@@ -424,7 +424,7 @@ def main(argv: list[str], *, golden_dir: str | None = None) -> int:
     try:
         cases, letters = _cases(args, where)
         if args.fetch_home is not None:
-            return fetched_to(cases, args.fetch_home)
+            return fetched_to(cases, args.fetch_home, letters)
         system = _system(args)
     except (SetError, HomesError) as exc:
         print(f"НАБОР НЕ ПРОЧИТАН: {exc}")
