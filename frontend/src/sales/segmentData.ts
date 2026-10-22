@@ -16,7 +16,7 @@ import { useEffect, useRef } from 'react';
 
 import { countryTitle } from '../api/labels';
 import { leadReasonTitle } from '../api/salesLabels';
-import { formatDateTime, formatNumber } from '../format';
+import { formatDateTime, formatNumber, plural } from '../format';
 import { HYPOTHESES_QUERY_KEY } from './hypothesisData';
 import { readRun, readSegment } from './segmentApi';
 import type { SegmentHome, SegmentMode, SegmentRunDetail, SegmentRunRow } from './segmentApi';
@@ -174,4 +174,34 @@ export function knownSites(detail: SegmentRunDetail): number {
   if (typeof serp !== 'object' || serp === null) return 0;
   const known = (serp as Record<string, unknown>).known;
   return typeof known === 'number' ? known : 0;
+}
+
+/** Второй шанс цитате (судья сегмента v5): у скольких сайтов цитата первого ответа модели не
+ *  нашлась в тексте сайта и модель спросили второй раз (`retried`) и у скольких из них цитата
+ *  нового ответа нашлась (`held`). Вопрос — один на сайт, поэтому числа — сайты. */
+export interface QuoteRetries {
+  retried: number;
+  held: number;
+}
+
+function positive(value: unknown): number {
+  return typeof value === 'number' && value > 0 ? value : 0;
+}
+
+/** Числа второго шанса из итога судьи — `report.judge` прогона или итог пересуда — как их записал
+ *  сервер (`quote_retried`, `quote_retry_held`). Второго вопроса не было или итог записан до судьи
+ *  v5 (полей нет) — `null`: строки нет. */
+export function quoteRetries(tally: unknown): QuoteRetries | null {
+  if (typeof tally !== 'object' || tally === null) return null;
+  const found = tally as Record<string, unknown>;
+  const retried = positive(found.quote_retried);
+  return retried > 0 ? { retried, held: positive(found.quote_retry_held) } : null;
+}
+
+/** Второй шанс словами — одними у отчёта прогона и у итога пересуда: «цитату переспросили у
+ *  модели: 3 сайта, со второго раза нашлась у 2». */
+export function quoteRetryWords({ retried, held }: QuoteRetries): string {
+  const sites = `${formatNumber(retried)} ${plural(retried, 'сайт', 'сайта', 'сайтов')}`;
+  const second = held > 0 ? `нашлась у ${formatNumber(held)}` : 'не нашлась ни у одного';
+  return `цитату переспросили у модели: ${sites}, со второго раза ${second}`;
 }

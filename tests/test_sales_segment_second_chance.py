@@ -3,7 +3,8 @@
 - Цитата вида сайта не нашлась в тексте — модель спрашивают второй раз по тому же тексту с подсказкой:
   какие слова не нашлись и правило «дословно слова одной строки, без подписи». Цитата нового ответа
   нашлась — в счёт идут его факты; нет — «на проверку» словами с цитатой; третьего вопроса нет. Токены
-  обоих вызовов — в вердикте, в счёте прохода и в строке расхода; повторы и удачи — в итоге прохода.
+  обоих вызовов — в вердикте, в счёте прохода и в строке расхода; повторы и удачи — в итоге прохода
+  и в итоге пересуда, который маршрут пересуда отдаёт экрану.
 - Слова «не понять» говорят, что видел судья: только сниппет выдачи — «главная не открылась».
 - Сверка цитаты по буквам без границ слов: слово, разорванное пробелом в строке сайта, и слитное в
   цитате — честная цитата; письменность без пробелов — как прежде.
@@ -35,7 +36,7 @@ from backend.features.sales.hypothesis_countries import CountryPolicy
 from backend.features.sales.segment_facts import SiteFacts, made_up, read
 from backend.features.sales.segment_judging import PassTally, judge_run
 from backend.features.sales.segment_models import Decider, Lane, SalesSegmentVerdictModel
-from backend.features.sales.segment_rejudge_report import KEY, write_block
+from backend.features.sales.segment_rejudge_report import KEY, summary, write_block
 from backend.features.sales.segment_rules import SNIPPET_ONLY, UNCLEAR
 from backend.features.sales.segment_run import _judge_report
 from backend.features.sales.segment_scope import Scope
@@ -298,12 +299,15 @@ async def test_a_rejudge_counts_second_questions_and_adds_them_to_earlier_attemp
         second={SHOP: facts("yes", "интернет-магазин Велодом", "магазин велосипедов")},
     )
 
-    await sr.rejudge(session, run.id, sr.RejudgeDeps(judge(model), None))
+    shown = await sr.rejudge(session, run.id, sr.RejudgeDeps(judge(model), None))
 
     found = (await report(session, run))[KEY]
     assert (found["quote_retried"], found["quote_retry_held"]) == (3, 2)
     assert found["tokens"] == 2 * 500
     assert (shop.lane, shop.quote) == (Lane.ACCEPT, "интернет-магазин Велодом")
+    # Итог пересуда для экрана (`summary` — его же отдаёт маршрут пересуда) — те же числа.
+    assert (shown["quote_retried"], shown["quote_retry_held"]) == (3, 2)
+    assert summary(await report(session, run)) == shown
 
 
 def test_the_spare_tokens_per_site_keep_a_share_for_the_second_question() -> None:

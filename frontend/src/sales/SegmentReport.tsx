@@ -72,6 +72,7 @@ import {
 } from './segmentData';
 import { RunKeywords } from './SegmentRunKeywords';
 import { SegmentProgress } from './SegmentProgress';
+import { SegmentQuoteRetry } from './SegmentQuoteRetry';
 import { SegmentScopeLine } from './SegmentScopeLine';
 import { SegmentSitesWindow } from './SegmentSites';
 import { RejudgeStatus, useRejudgeWatch } from './SegmentSitesRejudge';
@@ -322,6 +323,7 @@ function Report({ detail }: { detail: SegmentRunDetail }) {
         {MODE_WORDS[run.mode]}.
       </Text>
       <SegmentScopeLine report={detail.report} />
+      <SegmentQuoteRetry report={detail.report} />
       <SegmentProgress run={run} />
       {run.job_id !== null && jobLineShown(run) && (
         <JobLine

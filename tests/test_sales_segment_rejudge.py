@@ -682,6 +682,9 @@ def test_the_summary_of_a_report_without_a_rejudge_is_empty() -> None:
         "reasoning_tokens": 0,
         "unanswered": 0,
         "failed": 0,
+        # Пересуд до судьи v5 полей второго шанса не нёс — нули: экран строки не рисует.
+        "quote_retried": 0,
+        "quote_retry_held": 0,
         "error": None,
     }
 
