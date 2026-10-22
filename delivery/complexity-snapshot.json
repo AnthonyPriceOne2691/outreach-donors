@@ -1502,7 +1502,7 @@
       "worst": "held_statuses:39"
     },
     "backend/features/donors/home_signals.py": {
-      "lines": 424,
+      "lines": 431,
       "complexity": 12,
       "worst": "_shop_marks:302"
     },
