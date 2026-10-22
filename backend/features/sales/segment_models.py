@@ -179,9 +179,17 @@ class SalesSegmentCandidateModel(TimestampedMixin, ContactAttemptMixin, Base):
     unanswered: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
-    #: Решение человека по «на проверку»: кто и когда.
+    #: Когда решено: судьёй (правилом, моделью, языком) или человеком — и кто из людей.
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decided_by_user: Mapped[str | None] = mapped_column(String(AUTHOR_LENGTH), nullable=True)
+    #: Слова, время и решавший судьи (`Decider`: правило, модель, язык) — как их положили проход или
+    #: пересуд (`segment_window.land`); решение человека затирает `reason`, `decided_at` и
+    #: `decided_by` своими, а эти колонки не трогает: по ним «Судья: …» у его решения и отмена
+    #: (`segment_undo`). Время и решавший пусты — решения не было (модель не ответила, судья
+    #: выключен). Все три пусты — судили до этих колонок: их заполнит решение человека.
+    judge_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    judged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    judged_by: Mapped[str | None] = mapped_column(String(CODE_LENGTH), nullable=True)
     #: Лид, заведённый из кандидата. Лид убран чисткой пробы — ссылка гаснет.
     lead_id: Mapped[int | None] = mapped_column(
         ForeignKey("sales_leads.id", ondelete="SET NULL"), nullable=True

@@ -14,7 +14,9 @@
   останавливается словами (`JudgeTally.stopped`). Так же — у ключа модели нет кредитов
   (`NO_CREDITS`): сайт без ответа не ложится «на проверку», а ждёт «Продолжить».
 - **Полоса ложится одной строкой UPDATE под условием** (`land`): решение человека, пришедшее
-  посреди прохода, судья не переписывает.
+  посреди прохода, судья не переписывает. С полосой — слова, время и решавший судьи в своих
+  колонках (`judge_reason`, `judged_at`, `judged_by`): решение человека затирает причину, время и
+  «кто решил», а их — нет.
 - **Кэш** (`segment_cache`): факты того же домена, гипотезы, версии промпта и описания модель
   второй раз не спрашивает и токенов за них не платит — полосу по ним ставит таблица правил заново
   (`segment_judge.settle`) по нынешнему полю гипотезы и разбору описания: правка поля — пересуд без
@@ -219,7 +221,7 @@ class Landing:
     #: Текст, по которому судили; пусто — прежний остаётся (стоп-лист текста не читает).
     site_text: str | None = None
 
-    def values(self, moment: datetime) -> dict[str, Any]:
+    def values(self, moment: datetime | None) -> dict[str, Any]:
         """Колонки кандидата. «Когда решено» — у решённого правилом или моделью."""
         found: dict[str, Any] = {
             "lane": self.lane,
@@ -234,6 +236,17 @@ class Landing:
         if self.site_text is not None:
             found["site_text"] = self.site_text
         return found
+
+    def by_judge(self, moment: datetime) -> dict[str, Any]:
+        """Колонки кандидата от судьи: те же и его слова, время и решавший (правило, модель, язык) в
+        своих колонках (`judge_reason`, `judged_at`, `judged_by`) — решение человека их не трогает,
+        по ним «Судья: …» и отмена (`segment_undo`)."""
+        found = self.values(moment)
+        return found | {
+            "judge_reason": self.reason,
+            "judged_at": found["decided_at"],
+            "judged_by": found["decided_by"],
+        }
 
 
 def landing(judged: Judged, mode: JudgeMode) -> Landing:
@@ -278,11 +291,13 @@ async def land(
     guard: ColumnElement[bool],
 ) -> bool:
     """Полоса — на кандидата одной строкой UPDATE, пока строка под условием `guard`; иначе —
-    ничего (решил человек, завёлся лид). Объект кандидата в сессии получает те же значения."""
+    ничего (решил человек, завёлся лид). Объект кандидата в сессии получает те же значения. Одно
+    место записи судьи — у прохода, стоп-листа и пересуда: с полосой ложатся и слова, время и
+    решавший самого судьи (`Landing.by_judge`)."""
     applied = await session.scalar(
         update(Candidate)
         .where(Candidate.id == candidate_id, guard)
-        .values(**found.values(moment))
+        .values(**found.by_judge(moment))
         .returning(Candidate.id)
         .execution_options(synchronize_session="fetch")
     )

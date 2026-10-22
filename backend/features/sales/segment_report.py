@@ -10,10 +10,12 @@
 `AWAITS_HUMAN`): принять — сайт идёт к поиску адреса продолжением прогона; отказать — отсечён. Из
 «судья отказал бы» лид — только так: заводятся лиды только принятых. Решение ложится на кандидата
 с именем и временем, а вердикт судьи остаётся рядом — по их расхождению меряется судья; в журнал —
-и полоса, из которой решили (`Decision.was`). То же решение второй раз (двойной клик, повтор
-запроса) — не отказ и не вторая запись журнала: сайт уже там, куда его просят
-(`Decision.repeated`); противоположное по решённому — по-прежнему отказ словами. Вернуть решение —
-отменой (`segment_undo.py`), пока из сайта не заведён лид.
+и полоса, из которой решили (`Decision.was`). Слова, время и решавшего судьи решение не трогает —
+они в своих колонках (`judge_reason`, `judged_at`, `judged_by`); у сайта, судимого до них, решение
+сначала переносит туда причину, время и «кто решил» судьи (`_keep_judge`), потом пишет своё. То же
+решение второй раз (двойной клик, повтор запроса) — не отказ и не вторая запись журнала: сайт уже
+там, куда его просят (`Decision.repeated`); противоположное по решённому — по-прежнему отказ
+словами. Вернуть решение — отменой (`segment_undo.py`), пока из сайта не заведён лид.
 
 **Сайты по ключу** — сколько новых для гипотезы сайтов принёс каждый ключ и сколько из них
 принято (`KeySites`): по ним видно, что почти повторы общего ключа почти ничего не добавили.
@@ -245,6 +247,19 @@ async def runs_of(
     return list(rows.all())
 
 
+def _keep_judge(candidate: Candidate) -> None:
+    """Слова, время и решавший судьи — в его колонки, если их положил проход до этих колонок (все
+    три пусты): решение затрёт причину, время и «кто решил» своими, а «Судья: …» и отмена читают их
+    оттуда (`segment_undo`). Последним решал человек — переносить нечего: его слова — не слова
+    судьи."""
+    judge = (candidate.judge_reason, candidate.judged_at, candidate.judged_by)
+    if any(column is not None for column in judge) or candidate.decided_by == Decider.HUMAN:
+        return
+    candidate.judge_reason = candidate.reason
+    candidate.judged_at = candidate.decided_at
+    candidate.judged_by = candidate.decided_by
+
+
 def _settled(candidate: Candidate, lane: Lane) -> Decision:
     """Сайт уже не ждёт человека: тот же ответ человека — повтор, иначе — отказ словами."""
     if candidate.lane == lane and candidate.decided_by == Decider.HUMAN:
@@ -276,6 +291,7 @@ async def decide(
     if candidate.lane not in AWAITS_HUMAN:
         return _settled(candidate, lane)
     was = candidate.lane
+    _keep_judge(candidate)
     candidate.lane = lane
     candidate.reason = "принял человек" if accept else "отказал человек"
     candidate.decided_by = Decider.HUMAN

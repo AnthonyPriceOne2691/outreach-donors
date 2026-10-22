@@ -7,9 +7,12 @@
 кириллица; слова не разбираются. Проверяется:
 
 - отмена «Принять» и «Отказ» — сайт туда и с теми словами, куда и с какими его положил судья (в
-  наблюдении отказ модели — «судья отказал бы» со словами судьи), кто и когда решил — очищено;
+  наблюдении отказ модели — «судья отказал бы» со словами судьи), автор решения очищен, время —
+  судьи; слова и время самого судьи (`judge_reason`, `judged_at`) решение и отмена не трогают;
 - куда — решает правило судьи (`segment_window.landing`), а не прошитая «на проверке»;
-- слов нет в кэше — словами, что не сохранились; модель не ответила — следующий проход судит снова;
+- слова вердикта, которого нет в кэше (модель не дала цитаты), — те же; модель не ответила —
+  следующий проход судит снова (строки, судимые до колонок судьи, —
+  `test_sales_segment_judge_words.py`);
 - решение правила или судьи, «ещё не судили» — отказ словами; повтор — не отказ; заведённый лид без
   письма снимается вместе с решением (письма, сборка, отправка и «Принять» снова —
   `test_sales_segment_undo_lead.py`);
@@ -27,6 +30,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -76,8 +80,21 @@ __all__ = ["_network"]  # сеть прогона (DNS, платная ступ�
 
 Candidate = SalesSegmentCandidateModel
 SELLER = "seller@ours.example.test"
-#: Колонки решения: что ложится на сайт от судьи и от человека.
-FIELDS = ("lane", "reason", "verdict", "quote", "decided_by", "model", "unanswered")
+#: Колонки решения: что ложится на сайт от судьи и от человека, с его временем, — и слова, время и
+#: решавший самого судьи, которые решение человека и отмена не трогают.
+FIELDS = (
+    "lane",
+    "reason",
+    "verdict",
+    "quote",
+    "decided_by",
+    "model",
+    "unanswered",
+    "decided_at",
+    "judge_reason",
+    "judged_at",
+    "judged_by",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,9 +169,13 @@ SILENT = Said("sessiz.example.test", "Türkçe kursları ve özel dersler", 503)
 
 
 async def judged(
-    session: AsyncSession, *said: Said, mode: JudgeMode = JudgeMode.SHADOW
+    session: AsyncSession,
+    *said: Said,
+    mode: JudgeMode = JudgeMode.SHADOW,
+    now: datetime | None = None,
 ) -> tuple[SalesSegmentRunModel, dict[str, Candidate]]:
-    """Прогон гипотезы, его сайты из выдачи и проход судьи с подделкой модели."""
+    """Прогон гипотезы, его сайты из выдачи и проход судьи с подделкой модели; `now` — время
+    прохода."""
     owner = await hypothesis(session)
     run = await make_run(session, owner, mode=mode)
     made: dict[str, Candidate] = {}
@@ -178,6 +199,7 @@ async def judged(
         mode=mode,
         client=_client(Model({site.host: site.answer for site in said})),
         home=None,
+        now=now,
     )
     for candidate in made.values():
         await session.refresh(candidate)
@@ -243,7 +265,9 @@ async def test_an_undone_decision_puts_the_site_where_the_judge_put_it_with_its_
     assert (found.was, found.repeated) == (Lane.ACCEPT if accept else Lane.REJECT, False)
     await session.refresh(site)
     assert landed(site) == before
-    assert (site.decided_at, site.decided_by_user) == (None, None)
+    # Под «модель» («правило») — снова время судьи, а не пусто и не время отмены.
+    assert (site.decided_at, site.decided_by_user) == (before["judged_at"], None)
+    assert before["judged_at"] is not None
     assert site.decided_by == (Decider.RULE if said is EMPTY else Decider.MODEL)
 
 
@@ -271,7 +295,7 @@ async def test_the_lane_after_an_undo_is_the_judges_rule_not_a_hardwired_review(
     )
 
 
-async def test_words_missing_from_the_cache_are_named_and_a_silent_model_is_asked_again(
+async def test_words_outside_the_cache_are_kept_and_a_silent_model_is_asked_again(
     session: AsyncSession,
 ) -> None:
     run, made = await judged(session, NO_QUOTE, SILENT)
@@ -283,8 +307,13 @@ async def test_words_missing_from_the_cache_are_named_and_a_silent_model_is_aske
         await undone(session, site)
         await session.refresh(site)
 
-    # Модель не дала цитаты — вердикта в кэше нет: слова «не сохранились», решала модель.
-    assert (quiet.lane, quiet.reason, quiet.decided_by) == (Lane.REVIEW, su.LOST, Decider.MODEL)
+    # Модель не дала цитаты — вердикта в кэше нет, а слова судьи — в его колонке: те же, решала
+    # модель (тест продаж 22.10: было «причина не сохранилась»).
+    assert (quiet.lane, quiet.reason, quiet.decided_by) == (
+        Lane.REVIEW,
+        segment_judge.NO_QUOTE,
+        Decider.MODEL,
+    )
     # Модель не ответила — сайт снова ждёт судью: следующий проход его судит.
     assert (silent.lane, silent.reason, silent.decided_by) == (Lane.REVIEW, su.SILENT, None)
     said = facts("yes", "Türkçe kursları ve özel", "kendi dil kursları")

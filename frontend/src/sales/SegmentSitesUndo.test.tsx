@@ -6,7 +6,8 @@
  * японский без пробелов, арабский справа налево, кириллица). Проверяется:
  * - на «На проверку» решённая строка — «решено: …» и «Отменить решение»; после отмены — снова
  *   «Принять» и «Отказ», числа вкладок и отчёт — без перезагрузки;
- * - на других вкладках отмена — под «кто решил»; отменённая строка стоит на месте и решается там же;
+ * - на других вкладках отмена — под «кто решил»; отменённая строка стоит на месте и решается там же,
+ *   под «модель» — дата судьи из ответа сервера (тест продаж 22.10: была пуста);
  * - у сайта с лидом, которому письмо не ушло, под кнопкой — что станет с лидом (тест продаж 21.10);
  *   после отмены перечитаны и гипотезы — числа лидов во вкладках раздела;
  * - кнопки нет, когда сервер говорит, что отменить нельзя (письмо лиду ушло); отказ сервера — его
@@ -22,6 +23,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { HypothesesView } from '../api/salesTypes';
+import { formatDateTime } from '../format';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -299,6 +301,8 @@ describe('«Отменить решение»', () => {
     const [back] = bodyRows();
     expect(back).toHaveTextContent(school.host);
     expect(within(back!).getByText('модель')).toBeInTheDocument();
+    // Под «модель» — время судьи, как его вернул сервер: экран берёт `decided_at` ответа как есть.
+    expect(within(back!).getByText(formatDateTime(school.decided_at))).toBeInTheDocument();
     expect(within(back!).getByText(school.reason!)).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Приняты · 2' })).toBeChecked();
     expect(screen.getByRole('radio', { name: 'На проверку · 3' })).toBeInTheDocument();

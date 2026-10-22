@@ -246,7 +246,12 @@ async def test_an_undone_accept_takes_the_lead_and_its_queued_letter_off(
     for row in (site, lead, letter):
         await session.refresh(row)
     assert landed(site) == before
-    assert (site.lead_id, site.decided_at, site.decided_by_user) == (None, None, None)
+    # Время — судьи, как до «Принять»: решения человека нет.
+    assert (site.lead_id, site.decided_at, site.decided_by_user) == (
+        None,
+        before["judged_at"],
+        None,
+    )
     assert (lead.status, lead.rejection_reason, lead.cleaning_note) == (
         LeadStatus.REJECTED,
         "undone",
