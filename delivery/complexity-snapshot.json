@@ -2927,9 +2927,9 @@
       "worst": "_lines:191"
     },
     "backend/features/sales/segment_rejudge_report.py": {
-      "lines": 177,
+      "lines": 181,
       "complexity": 8,
-      "worst": "summary:99"
+      "worst": "summary:100"
     },
     "backend/features/sales/segment_report.py": {
       "lines": 328,

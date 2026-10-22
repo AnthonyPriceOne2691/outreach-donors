@@ -131,6 +131,10 @@ export interface RejudgeLast {
   tokens: number;
   unanswered: number;
   failed: number;
+  /** Второй шанс цитате (судья v5): у скольких сайтов модель спросили второй раз и у скольких
+   *  цитата нашлась (`segmentData.quoteRetries`). У сервера старше этих полей нет. */
+  quote_retried?: number;
+  quote_retry_held?: number;
   error: string | null;
 }
 

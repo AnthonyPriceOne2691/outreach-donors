@@ -30,7 +30,7 @@ import { PERMISSION_TITLES } from '../api/labels';
 import { useSession } from '../auth/AuthProvider';
 import { formatDateTime, formatNumber } from '../format';
 import { notify } from '../notices';
-import { SEGMENT_QUERY_KEY } from './segmentData';
+import { quoteRetries, quoteRetryWords, SEGMENT_QUERY_KEY } from './segmentData';
 import { readRejudge, startRejudge } from './SegmentSitesApi';
 import type { RejudgeLast, RejudgeView } from './SegmentSitesApi';
 import { moveWords, personOf } from './SegmentSitesWords';
@@ -257,7 +257,8 @@ function Moves({ last }: { last: RejudgeLast }) {
   );
 }
 
-/** Числа пересуда, о которых надо знать: кто остался за человеком и что не вышло. */
+/** Числа пересуда, о которых надо знать: кто остался за человеком, что не вышло и сколько стоило —
+ *  второй вопрос модели о цитате (судья v5) идёт рядом с токенами: его токены — в них. */
 function aside(last: RejudgeLast): string[] {
   const lines: string[] = [];
   if (last.human > 0) {
@@ -268,6 +269,8 @@ function aside(last: RejudgeLast): string[] {
   }
   if (last.failed > 0)
     lines.push(`сбой на сайтах — ${formatNumber(last.failed)}: их полосы прежние`);
+  const retries = quoteRetries(last);
+  if (retries !== null) lines.push(quoteRetryWords(retries));
   if (last.tokens > 0) lines.push(`токенов модели — ${formatNumber(last.tokens)}`);
   return lines;
 }
