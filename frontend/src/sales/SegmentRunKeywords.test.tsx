@@ -3,9 +3,10 @@
  * гипотезы сайтов он принёс и сколько из них принято; почти повторы — группой под ключом, на
  * который похожи, с одной строкой «похожи на «…»»; значки покупки выдачи у ключа; прочие пометки,
  * снятые и отсеянные — один раз под таблицей; галочек нет. На узком окне числа — строкой под
- * ключом; у сервера без сайтов по ключу колонок чисел нет, а не нули.
+ * ключом, а таблица — в ширину карточки: нижней границы ширины нет, длинное слово переносится где
+ * угодно; у сервера без сайтов по ключу колонок чисел нет, а не нули.
  *
- * Ответы сервера — записанные (`serve()`); ключи — немецкой ниши, домены выдуманы.
+ * Ответы сервера — записанные (`serve()`); ключи — немецкой и финской ниш, домены выдуманы.
  */
 
 import { screen, within } from '@testing-library/react';
@@ -137,6 +138,29 @@ async function openReport(detail: SegmentRunDetail = DETAIL): Promise<HTMLElemen
   return screen.findByRole('region', { name: 'Ключи прогона' }, SCREEN_WAIT);
 }
 
+/** Окно телефона: узкий вид ключей (`max-width: 36em`). Заглушку снимает `restoreAllMocks` после
+ *  теста (`test/setup.ts`). */
+function narrowWindow() {
+  vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
+    matches: query.includes('max-width: 36em'),
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
+
+/** Уже какой ширины таблица уезжает в свою прокрутку — переменная контейнера прокрутки. */
+function minWidthOf(block: HTMLElement): string | undefined {
+  const scroll = within(block)
+    .getByRole('table')
+    .closest<HTMLElement>('[style*="--table-min-width"]');
+  return scroll?.style.getPropertyValue('--table-min-width');
+}
+
 /** Строки таблицы без шапки — текстом ячеек. */
 function rowsOf(block: HTMLElement): string[][] {
   return within(within(block).getByRole('table'))
@@ -172,6 +196,8 @@ describe('ключи прогона таблицей в отчёте', () => {
     // Пометка почти повтора — одна строка группы, а не у каждого ключа.
     expect(within(block).queryByText(/общих слов/)).toBeNull();
     expect(within(block).queryByRole('checkbox')).toBeNull();
+    // С колонками чисел уже 300 px (18,75 rem) таблица уезжает в прокрутку: ключу — хоть 84 px.
+    expect(minWidthOf(block)).toContain('18.75rem');
   });
 
   it('под таблицей — что значат числа и значок, пометка фирмы, снятые и отсеянные', async () => {
@@ -189,17 +215,7 @@ describe('ключи прогона таблицей в отчёте', () => {
   });
 
   it('на узком окне числа — строкой под ключом, колонок чисел нет', async () => {
-    // Заглушку снимает `restoreAllMocks` после теста (`test/setup.ts`).
-    vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
-      matches: query.includes('max-width: 36em'),
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }));
+    narrowWindow();
     const block = await openReport();
 
     expect(
@@ -208,6 +224,40 @@ describe('ключи прогона таблицей в отчёте', () => {
         .map((cell) => cell.textContent),
     ).toEqual(['Ключ']);
     expect(rowsOf(block)[0]).toEqual(['zahnarzt berlinновых сайтов 14 · принято 11']);
+  });
+
+  it('на узком окне таблица — в ширину карточки: границы ширины нет, длинное слово переносится', async () => {
+    narrowWindow();
+    // Длинное слово без пробелов (финская ниша) — в ключе, в строке группы и в пометке фирмы.
+    const long = 'hammaslääkäriajanvarausjärjestelmä';
+    const head = `${long} helsinki`;
+    const firm =
+      'похоже на название фирмы («Oy»): выдача найдёт её реестры и карточки, а не сегмент';
+    const keywords = {
+      ...DETAIL.spend!.keywords,
+      taken: [head, `${head} keskusta`, `${long} Oy`],
+      notes: {},
+      lost: [],
+      empty: [],
+      twins: { [`${head} keskusta`]: head },
+      remarks: { [`${long} Oy`]: firm },
+      sites: { [head]: 7 },
+      accepted: { [head]: 5 },
+    };
+    const block = await openReport({ ...DETAIL, spend: { keywords, rows: [] } });
+
+    // В одну колонку таблице беречь нечего: в 300 px она стояла в карточке 282 px на 390 px и
+    // уезжала в свою прокрутку, обрезая значки и строку группы.
+    expect(minWidthOf(block)).toBe('0rem');
+    expect(rowsOf(block)).toEqual([
+      [`${head}новых сайтов 7 · принято 5`],
+      [`Похож на «${head}»: выдача может частично совпасть.`],
+      [`${head} keskustaновых сайтов 0 · принято 0`],
+      [`${long} Oyновых сайтов 0 · принято 0`],
+    ]);
+    expect(within(block).getByText(`${long} Oy — ${firm}.`)).toBeVisible();
+    // Перенос где угодно — свойством всего блока: ключ, строка группы и пометки под таблицей.
+    expect(block).toHaveStyle({ overflowWrap: 'anywhere' });
   });
 
   it('сервер без сайтов по ключу и групп — колонок чисел нет, пометки идут словами под таблицей', async () => {
