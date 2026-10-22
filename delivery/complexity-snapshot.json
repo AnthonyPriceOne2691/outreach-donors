@@ -2972,9 +2972,9 @@
       "worst": "site_text:137"
     },
     "backend/features/sales/segment_undo.py": {
-      "lines": 433,
+      "lines": 484,
       "complexity": 7,
-      "worst": "_cached_words:250"
+      "worst": "_cached:300"
     },
     "backend/features/sales/segment_waits.py": {
       "lines": 220,

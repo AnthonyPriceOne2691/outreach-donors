@@ -11,11 +11,15 @@
   прогона): в наблюдении отказ модели или языка — «судья отказал бы» со словами судьи. Автор
   решения очищен, время — судьи: под «модель» снова дата его решения (тест продаж 22.10: было
   пусто).
-- **Кто решал до человека — из колонки судьи** (`judged_by`: правило, модель, язык). Раньше отмена
-  угадывала: вердикт языка сайта (`Decider.LANGUAGE`) в кэш не ложится и модели у него нет — как у
-  правила, — и узнавался повтором сверки по сохранённому тексту (`segment_judge.by_language`);
-  правило языка поменялось — сайт вернулся бы «отсечённым» правилом, а не «судья отказал бы».
-  Догадка осталась только у сайтов, судимых до колонки (`_language`, `_decider`).
+- **Кто решал до человека — из колонки судьи** (`judged_by`: правило, модель, язык). У сайта,
+  решённого человеком до колонки, — из строки кэша вердиктов под его вердикт (`_cached`: домен,
+  гипотеза, вердикт и цитата; у вердикта без модели решавший в строке — правило или язык; свежая
+  первой) — с её словами и временем. Стенд 22.10: правило языка поменялось, повтор сверки по
+  сохранённому тексту вердикт языка больше не узнавал, и такой сайт выходил «Судья: причина не
+  сохранилась», а отмена — «правило» без даты, хотя строка кэша со словами и решавшим «язык» есть.
+  Нет и строки — догадка: повтор сверки языка (`_language`, `segment_judge.by_language`), иначе по
+  модели вердикта (`_decider`). Вердикт языка ложится в кэш, только если модель спрашивали (язык
+  «не понять» — с фактами); отказ языка до модели строки не оставляет — его узнаёт только догадка.
 - **Слова судьи — из его колонки; кэш вердиктов — у сайтов, судимых до неё** (тест продаж 22.10:
   вердикт без цитаты в тексте в кэш не ложится, `SegmentVerdict.proven`, — и у решения человека
   выходило «Судья: причина не сохранилась»). Решено человеком до колонки, и в кэше слов нет —
@@ -58,6 +62,7 @@ import logging
 from collections.abc import AsyncIterator, Collection, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import ColumnElement, Row, Select, or_, select, text
@@ -207,18 +212,31 @@ async def gone_leads(session: AsyncSession, lead_ids: Collection[int]) -> set[in
     return set(rows.all())
 
 
-def _decider(candidate: Candidate) -> Decider:
-    """Кто дал вердикт до человека — из колонки судьи (`judged_by`). Судили до неё — догадка:
-    правило модель не зовёт, и модели у его вердикта нет."""
+@dataclass(frozen=True, slots=True)
+class _Cached:
+    """Строка кэша вердиктов, совпавшая с вердиктом сайта: слова, кто решал и когда (время строки —
+    когда судья положил в неё эти слова: проход или пересуд)."""
+
+    words: str
+    by: Decider
+    at: datetime
+
+
+def _decider(candidate: Candidate, cached: _Cached | None = None) -> Decider:
+    """Кто дал вердикт до человека — из колонки судьи (`judged_by`). Судили и решили до неё — из
+    совпавшей строки кэша (`cached`); нет её — догадка: правило модель не зовёт, и модели у его
+    вердикта нет."""
     if candidate.judged_by is not None:
         return Decider(candidate.judged_by)
+    if cached is not None:
+        return cached.by
     return Decider.RULE if candidate.model is None else Decider.MODEL
 
 
 def _language(candidate: Candidate, letters: str | None) -> SegmentVerdict | None:
-    """Вердикт языка сайта у сайта, судимого до колонки судьи (`judged_by` пуст), если его решала
-    сверка языка: модели у такого вердикта нет, и по тексту, который видел судья, сверка даёт тот
-    же вердикт (`segment_judge.by_language`) — пока правило языка не поменялось."""
+    """Вердикт языка сайта у сайта, судимого до колонки судьи (`judged_by` пуст) и без строки кэша,
+    если его решала сверка языка: модели у такого вердикта нет, и по тексту, который видел судья,
+    сверка даёт тот же вердикт (`segment_judge.by_language`) — пока правило языка не поменялось."""
     if candidate.judged_by is not None or candidate.model is not None or not candidate.site_text:
         return None
     found = by_language(SiteText.parse(candidate.site_text), letters)
@@ -226,34 +244,67 @@ def _language(candidate: Candidate, letters: str | None) -> SegmentVerdict | Non
 
 
 def _verdict(
-    candidate: Candidate, cached: str | None, letters: str | None
+    candidate: Candidate, cached: _Cached | None, letters: str | None
 ) -> SegmentVerdict | None:
     """Вердикт судьи, как он лёг на сайт до решения человека; `None` — судья был выключен. Слова —
-    судьи из его колонки (`judge_reason`); у сайта, судимого до неё, — из кэша (`cached`), нет и
-    там — `LOST`. Кто решал — из колонки судьи (`_decider`); у сайта, судимого до неё, — повтор
-    сверки языка, иначе догадка по модели."""
+    судьи из его колонки (`judge_reason`); у сайта, судимого до неё, — из строки кэша (`cached`),
+    нет и там — `LOST`. Кто решал — из колонки судьи; у сайта, решённого до неё, — из строки кэша,
+    нет её — повтор сверки языка, иначе догадка по модели."""
     if candidate.unanswered:
         return SegmentVerdict(Lane.REVIEW, SILENT, model=candidate.model, unanswered=True)
     if candidate.verdict is None:
         return None
-    if (language := _language(candidate, letters)) is not None:
+    if cached is None and (language := _language(candidate, letters)) is not None:
         return language
     return SegmentVerdict(
         Lane(candidate.verdict),
-        candidate.judge_reason or cached or LOST,
+        _words(candidate, cached),
         candidate.quote,
         candidate.model,
-        decided_by=_decider(candidate),
+        decided_by=_decider(candidate, cached),
     )
 
 
-async def _cached_words(session: AsyncSession, candidates: Sequence[Candidate]) -> dict[int, str]:
-    """Слова вердикта из кэша — по домену, гипотезе, вердикту, цитате и тому, кто решил; свежий
-    первым: пересуд под другим описанием кладёт тому же домену вторую строку."""
+def _words(candidate: Candidate, cached: _Cached | None) -> str:
+    """Слова судьи: из его колонки; у сайта, судимого до неё, — из строки кэша; нет и там —
+    `LOST`."""
+    remembered = cached.words if cached is not None else ""
+    return candidate.judge_reason or remembered or LOST
+
+
+def _deciders(candidate: Candidate) -> tuple[str, ...]:
+    """Кем мог быть решавший в строке кэша: у вердикта с моделью — модель; без модели — правило
+    или язык (вердикт языка в кэше — со своим решавшим, и угадывать его по тексту не нужно)."""
+    if candidate.model is not None:
+        return (Decider.MODEL.value,)
+    return (Decider.RULE.value, Decider.LANGUAGE.value)
+
+
+#: Строки кэша по вердикту сайта: домен, гипотеза, вердикт, цитата → (решавший, слова, время),
+#: свежая первой.
+_Rows = dict[tuple[int, int, str, str | None], list[tuple[str, str, datetime]]]
+
+
+def _key(candidate: Candidate) -> tuple[int, int, str, str | None]:
+    return (candidate.domain_id, candidate.hypothesis_id, candidate.verdict or "", candidate.quote)
+
+
+def _fit(candidate: Candidate, rows: _Rows) -> _Cached | None:
+    """Свежая строка под вердикт сайта, чей решавший возможен у такого вердикта (`_deciders`)."""
+    for by, reason, at in rows.get(_key(candidate), []):
+        if by in _deciders(candidate):
+            return _Cached(reason, Decider(by), at)
+    return None
+
+
+async def _cached(session: AsyncSession, candidates: Sequence[Candidate]) -> dict[int, _Cached]:
+    """Строка кэша вердиктов под вердикт сайта — по домену, гипотезе, вердикту и цитате, решавший —
+    из возможных у такого вердикта (`_deciders`); свежая первой: пересуд под другим описанием
+    кладёт тому же домену вторую строку."""
     asked = [candidate for candidate in candidates if candidate.verdict is not None]
     if not asked:
         return {}
-    rows = await session.execute(
+    found = await session.execute(
         select(
             Verdict.domain_id,
             Verdict.hypothesis_id,
@@ -261,6 +312,7 @@ async def _cached_words(session: AsyncSession, candidates: Sequence[Candidate]) 
             Verdict.quote,
             Verdict.decided_by,
             Verdict.reason,
+            Verdict.updated_at,
         )
         .where(
             Verdict.domain_id.in_({candidate.domain_id for candidate in asked}),
@@ -268,24 +320,29 @@ async def _cached_words(session: AsyncSession, candidates: Sequence[Candidate]) 
         )
         .order_by(Verdict.updated_at.desc(), Verdict.id.desc())
     )
-    found: dict[tuple[int, int, str, str | None, str], str] = {}
-    for domain_id, hypothesis_id, verdict, quote, decided_by, reason in rows.tuples().all():
-        found.setdefault((domain_id, hypothesis_id, verdict, quote, decided_by), reason)
-    return {
-        candidate.id: words
-        for candidate in asked
-        if (words := found.get(_key(candidate))) is not None
-    }
+    rows: _Rows = {}
+    for domain_id, hypothesis_id, verdict, quote, by, reason, at in found.tuples().all():
+        rows.setdefault((domain_id, hypothesis_id, verdict, quote), []).append((by, reason, at))
+    return {candidate.id: kept for candidate in asked if (kept := _fit(candidate, rows))}
 
 
-def _key(candidate: Candidate) -> tuple[int, int, str, str | None, str]:
-    return (
-        candidate.domain_id,
-        candidate.hypothesis_id,
-        candidate.verdict or "",
-        candidate.quote,
-        _decider(candidate).value,
-    )
+async def _before(
+    session: AsyncSession, candidates: Sequence[Candidate], mode: JudgeMode, letters: str | None
+) -> dict[int, tuple[Landing, datetime | None]]:
+    """Что лежало бы на решённых человеком сайтах без него и когда судья это решил: время — из
+    колонки судьи (`judged_at`); у сайта без модели, решённого до колонок, — время строки кэша,
+    по которой узнан решавший; иначе его нет."""
+    human = [candidate for candidate in candidates if candidate.decided_by == Decider.HUMAN]
+    cached = await _cached(session, [c for c in human if c.judge_reason is None])
+    found: dict[int, tuple[Landing, datetime | None]] = {}
+    for candidate in human:
+        row = cached.get(candidate.id)
+        verdict = _verdict(candidate, row, letters)
+        at = candidate.judged_at
+        if at is None and row is not None and candidate.model is None:
+            at = row.at
+        found[candidate.id] = (landing(Judged(verdict, SiteText(())), mode), at)
+    return found
 
 
 async def judged_before(
@@ -294,14 +351,8 @@ async def judged_before(
     """Что лежало бы на решённых человеком сайтах без него — полоса и слова судьи тем же правилом,
     что у прохода (`segment_window.landing`). Сайты прогона: режим и язык писем — его (`run.mode`,
     `run.language`). Кэш вердиктов читается только для сайтов без слов судьи в его колонке."""
-    human = [candidate for candidate in candidates if candidate.decided_by == Decider.HUMAN]
-    words = await _cached_words(session, [c for c in human if c.judge_reason is None])
-    return {
-        candidate.id: landing(
-            Judged(_verdict(candidate, words.get(candidate.id), letters), SiteText(())), mode
-        )
-        for candidate in human
-    }
+    found = await _before(session, candidates, mode, letters)
+    return {candidate_id: said for candidate_id, (said, _) in found.items()}
 
 
 def _sqlstate(exc: DBAPIError) -> str:
@@ -419,10 +470,10 @@ async def undo(session: AsyncSession, candidate_id: int) -> Undone | None:
     if candidate.decided_by != Decider.HUMAN:
         return _not_human(candidate)
     lead = None if candidate.lead_id is None else await _lead_off(session, candidate.lead_id)
-    found = (await judged_before(session, [candidate], JudgeMode(mode), letters))[candidate.id]
+    found, at = (await _before(session, [candidate], JudgeMode(mode), letters))[candidate.id]
     was = candidate.lane
     # Время решения — судьи, а не отмены; колонки судьи отмена не пишет — их пишет только судья.
-    values = found.values(candidate.judged_at) | {"decided_by_user": None, "lead_id": None}
+    values = found.values(at) | {"decided_by_user": None, "lead_id": None}
     for name, value in values.items():
         setattr(candidate, name, value)
     logger.info(
