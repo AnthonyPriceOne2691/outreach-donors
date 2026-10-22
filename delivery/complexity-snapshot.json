@@ -3562,7 +3562,7 @@
       "worst": "queue_screens:24"
     },
     "scripts/ui_screens_sales_segment.py": {
-      "lines": 306,
+      "lines": 309,
       "complexity": 2,
       "worst": "collect_prepare:48"
     },
