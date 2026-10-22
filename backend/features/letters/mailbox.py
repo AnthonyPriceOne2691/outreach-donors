@@ -39,6 +39,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Collection, Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -143,21 +144,49 @@ async def _free_box(session: AsyncSession, stage: Stage, now: datetime) -> Choic
     if spot is None:
         if rest and sender_rules.pick(screened.fit, sent_today=sent, stage=stage, now=now):
             return Choice(sender=None, refusal=f"Сейчас писать некому: {RESTING}")
-        return Choice(sender=None, refusal=_nobody(screened))
+        return Choice(sender=None, refusal=_nobody(screened, now))
     return Choice(sender=spot.sender)
 
 
-def _nobody(screened: limits.Screened) -> str:
-    """Почему сегодня писать некому — словами отказа. «Завтра лимит откроется» — только
-    когда включённые ящики есть и выбрали дневной лимит: у этапа без единого включённого
-    ящика (ни годного, ни отсеянного лимитами) обещание было бы неправдой."""
-    why = screened.why() or (None if screened.fit else SILENT)
-    if why:
-        return f"Сегодня писать некому: {why}. Письмо остаётся в очереди"
-    return (
-        "Сегодня писать некому: все ящики либо выключены, либо выбрали дневной "
-        "лимит. Письмо остаётся в очереди — завтра лимит откроется заново"
+def _nobody(screened: limits.Screened, now: datetime) -> str:
+    """Почему сегодня писать некому — словами отказа: и годные ящики, выбравшие дневной лимит
+    (`spent_words`), и отсеянные лимитами. Прежде отказ называл только отсеянных: ящик с лимитом,
+    сниженным на сутки, выглядел единственной причиной, а четыре других выбрали ступень разгона
+    (проверка на проде 22.10.2026). «Завтра лимит откроется» — только когда годные ящики есть
+    и выбрали дневной лимит: у этапа без единого включённого ящика (ни годного, ни отсеянного
+    лимитами) обещание было бы неправдой."""
+    spent = spent_words(screened.fit, now)
+    why = "; ".join(part for part in (spent, screened.why()) if part) or SILENT
+    tomorrow = " — завтра лимит откроется заново" if spent else ""
+    return f"Сегодня писать некому: {why}. Письмо остаётся в очереди{tomorrow}"
+
+
+def spent_words(boxes: Sequence[SenderModel], now: datetime) -> str | None:
+    """Годные ящики, выбравшие сегодня дневной лимит, — по ступеням: «4 ящика выбрали дневной
+    лимит разгона — 5 писем на ящик». Ступень разгона названа: без неё «5 из 5» у ящика с капом
+    20 читалось как поломка, а это рост объёма нового ящика (`senders.warmup_state`); «на ящик» —
+    иначе «5 писем» у четырёх ящиков читалось как пять на всех. Годный ящик здесь — без остатка:
+    зовут, когда выбор ящика никого не нашёл, — и отправка, и перезапрос цены
+    (`recheck_target._nobody`)."""
+    steps = Counter(
+        (state.allowance, state.finished)
+        for state in (sender_rules.warmup_state(box, now=now) for box in boxes)
     )
+    parts = [
+        f"{count} {_word(count, 'ящик', 'ящика', 'ящиков')} {_word(count, 'выбрал', 'выбрали', 'выбрали')}"
+        f" дневной лимит{'' if finished else ' разгона'}"
+        f" — {allowance} {_word(allowance, 'письмо', 'письма', 'писем')}"
+        f"{' на ящик' if count > 1 else ''}"
+        for (allowance, finished), count in steps.items()
+    ]
+    return "; ".join(parts) or None
+
+
+def _word(count: int, one: str, few: str, many: str) -> str:
+    """Слово при числе: 1 ящик, 3 ящика, 5 ящиков."""
+    if count % 10 == 1 and count % 100 != 11:
+        return one
+    return few if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14) else many
 
 
 async def _thread_box(session: AsyncSession, sender_id: int) -> Choice:
