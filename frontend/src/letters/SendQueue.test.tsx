@@ -89,6 +89,12 @@ describe('отправка очереди пачкой', () => {
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/В очереди 2 письма: каждое уйдёт/)).toBeInTheDocument();
     expect(within(dialog).getByText(/дневной лимит ящиков/)).toBeInTheDocument();
+    // Остаток сам не уйдёт: «до завтра» читалось как «завтра уйдут сами» (тест-группа 23.10.2026).
+    expect(
+      within(dialog).getByText(
+        /останется в очереди и само не уйдёт — завтра отправьте очередь ещё раз/,
+      ),
+    ).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Отправить 2' }));
 
     await waitFor(() =>
