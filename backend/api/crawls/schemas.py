@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 from pydantic_core import PydanticCustomError
 
+from backend.config import crawl as crawl_cfg
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, PriceSource, StopReason
 from backend.features.crawl.board import CrawlLine, DonorLine
 
@@ -16,7 +17,24 @@ from backend.features.crawl.board import CrawlLine, DonorLine
 MAX_HOSTS = 50
 
 
-class CrawlRow(BaseModel):
+class CrawlCeilings(BaseModel):
+    """Потолки обхода донора, кроме страниц (`max_pages` — полем рядом): попытки, время
+    и пауза между страницами. Числами настроек (`config/crawl.py`), а не копией в экране:
+    значок обхода называет потолок, в который упёрся обход, «i» панели — все.
+
+    Модель берёт числа сама, поэтому их несёт любая строка обхода — и в ответе
+    «Приёмки по донорам», который собирается своим маршрутом.
+    """
+
+    max_attempts: int = Field(default_factory=lambda: crawl_cfg.MAX_ATTEMPTS_PER_DONOR)
+    max_seconds: float = Field(default_factory=lambda: crawl_cfg.MAX_SECONDS_PER_DONOR)
+    #: Наша пауза между страницами, с: меньше не ждём, что бы ни просил сайт.
+    delay_sec: float = Field(default_factory=lambda: crawl_cfg.DELAY_SEC)
+    #: Больше этой паузы не ждём, даже если сайт просит.
+    max_delay_sec: float = Field(default_factory=lambda: crawl_cfg.MAX_DELAY_SEC)
+
+
+class CrawlRow(CrawlCeilings):
     """Один обход: где он и чем кончился. `max_pages` — потолок, к которому
     идёт ход «340 из 1000»."""
 
@@ -44,6 +62,17 @@ class CrawlRow(BaseModel):
     window: int | None = None
     #: Чего каскаду не хватило — уровень обхода → словами (`fetch.Degradation`).
     degradation: dict[str, str] = Field(default_factory=dict)
+    #: Почему кончился — из отчёта законченного обхода; у идущего и у записанного до
+    #: отчёта пусто. Откуда брались адреса: `sitemap`, `links` или `sitemap+links`.
+    source: str | None = None
+    #: Дочитана ли карта сайта: `False` — «больше адресов нет» сказано по неполной карте.
+    sitemap_complete: bool | None = None
+    #: Пауза, которую просит robots.txt сайта, с; пусто — не просит.
+    crawl_delay: float | None = None
+    #: Сколько обход шёл, с, вместе с продолжениями.
+    elapsed_sec: float | None = None
+    #: Свой срок обхода, с, если он его записал; пусто — срок общий (`max_seconds`).
+    time_budget_sec: float | None = None
 
     @classmethod
     def of(cls, line: CrawlLine, *, max_pages: int) -> CrawlRow:
@@ -67,6 +96,11 @@ class CrawlRow(BaseModel):
             failure_share=line.failure_share,
             window=line.window,
             degradation=line.degradation,
+            source=line.source,
+            sitemap_complete=line.sitemap_complete,
+            crawl_delay=line.crawl_delay,
+            elapsed_sec=line.elapsed_sec,
+            time_budget_sec=line.time_budget_sec,
         )
 
 
@@ -93,8 +127,9 @@ class DonorRow(BaseModel):
         )
 
 
-class TargetsView(BaseModel):
-    """Кого можно обойти и кого нельзя — числами и словами, что делать."""
+class TargetsView(CrawlCeilings):
+    """Кого можно обойти и кого нельзя — числами и словами, что делать. Потолки обхода —
+    для «i» панели: она называет их и тогда, когда строк обходов нет."""
 
     donors: list[DonorRow]
     no_price: int
