@@ -110,6 +110,9 @@ class TargetsView(BaseModel):
     health_window: int | None = None
     slow_down_share: float | None = None
     stop_share: float | None = None
+    #: Потолок срока сайту с долгой паузой (`crawl/pace.py`), с: «i» панели называет его
+    #: рядом с общим сроком.
+    max_seconds_slow: float | None = None
 
 
 class CrawlsView(BaseModel):

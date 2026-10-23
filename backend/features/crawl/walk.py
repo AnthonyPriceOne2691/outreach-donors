@@ -10,10 +10,14 @@
 вовсе, разрешено — работаем. Пропустить этот шаг «ради замера» нельзя:
 замер идёт по живым чужим сайтам.
 
-**Список страниц берётся из карты сайта, а обход по ссылкам — запасной
-путь.** Карта отдаёт статьи сразу; обход по ссылкам идёт кругами по
-навигации и до статей доходит последним. Но карта есть не у всех,
-и без запасного пути каждый пятый донор остался бы необойдённым.
+**Сначала карта сайта, потом ссылки** (`frontier.py`). Карта отдаёт статьи
+сразу; обход по ссылкам идёт кругами по навигации и до статей доходит
+последним. Но карта есть не у всех, а бывает и короче потолка: без ссылок
+каждый пятый донор остался бы необойдённым, а сайт с короткой картой —
+обойдённым наполовину.
+
+**Срок — по паузе сайта** (`pace.py`): час на всех не вмещал сайту с долгой
+паузой и половины потолка страниц.
 
 **Сырой HTML не хранится** — это прямое требование. Страница живёт
 ровно столько,
@@ -25,12 +29,9 @@ from __future__ import annotations
 
 import logging
 import time
-from collections import deque
 from dataclasses import replace
-from urllib.parse import urldefrag
 
 import httpx
-from selectolax.parser import HTMLParser
 
 from backend.config import crawl as cfg
 from backend.features.contacts.pages import home_variants
@@ -38,61 +39,18 @@ from backend.features.core.domain import CrawlOutcome, StopReason
 from backend.features.crawl import robots as robots_rules
 from backend.features.crawl.article import extract_article
 from backend.features.crawl.fetch import CascadeLevel, FetchOutcome, FetchResult, PageCascade
+from backend.features.crawl.frontier import BOTH, LINKS, Frontier, crawlable, same_site_links
 from backend.features.crawl.health import CrawlHealth, HealthVerdict
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.links import OutLink, harvest
+from backend.features.crawl.pace import ResponseClock, time_budget
 from backend.features.crawl.page_facts import read_page
 from backend.features.crawl.progress import Checkpoint, CrawlInterruptedError, Progress
 from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.robots import RobotsRules
 from backend.features.crawl.sitemap import SitemapReader, SitemapScan
-from backend.shared.net.url_parts import join_url, parse_url
 
 logger = logging.getLogger(__name__)
-
-#: Расширения, за которыми страницы нет: качать их — это трафик без пользы.
-SKIP_SUFFIXES: tuple[str, ...] = (
-    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".bmp",
-    ".css", ".js", ".json", ".xml", ".rss", ".atom",
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".zip", ".gz", ".rar", ".7z", ".tar",
-    ".mp3", ".mp4", ".avi", ".mov", ".webm", ".woff", ".woff2", ".ttf",
-)  # fmt: skip
-
-
-def _crawlable(url: str, host: str) -> bool:
-    """Наш ли это адрес и страница ли это вообще. Битый адрес — не наш."""
-    parts = parse_url(url)
-    if parts is None or parts.scheme not in ("http", "https"):
-        return False
-    netloc = parts.netloc.lower().split(":")[0]
-    if not (netloc == host or netloc.endswith(f".{host}")):
-        return False
-    return not parts.path.lower().endswith(SKIP_SUFFIXES)
-
-
-def same_site_links(html: str, page_url: str, host: str) -> list[str]:
-    """Ссылки со страницы на свой же сайт, без якорей и дублей.
-
-    Якорь отбрасывается до сравнения: `/post` и `/post#comments` — одна
-    страница, и без этого обход платит за неё столько раз, сколько
-    на ней разделов.
-    """
-    out: list[str] = []
-    seen: set[str] = set()
-    for node in HTMLParser(html).css("a[href]"):
-        href = (node.attributes.get("href") or "").strip()
-        if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
-            continue
-        joined = join_url(page_url, href)
-        if joined is None:
-            continue
-        absolute, _ = urldefrag(joined)
-        if absolute in seen or not _crawlable(absolute, host):
-            continue
-        seen.add(absolute)
-        out.append(absolute)
-    return out
 
 
 class DonorCrawler:
@@ -112,6 +70,7 @@ class DonorCrawler:
         max_pages: int | None = None,
         max_attempts: int | None = None,
         max_seconds: float | None = None,
+        max_seconds_slow: float | None = None,
     ) -> None:
         self._client = client
         self._limiter = limiter or DomainLimiter()
@@ -124,6 +83,10 @@ class DonorCrawler:
             max_attempts if max_attempts is not None else cfg.MAX_ATTEMPTS_PER_DONOR
         )
         self._max_seconds = max_seconds if max_seconds is not None else cfg.MAX_SECONDS_PER_DONOR
+        self._slow_cap = max_seconds_slow if max_seconds_slow is not None else cfg.MAX_SECONDS_SLOW
+        # Срок донора по паузе сайта (`pace.py`); пусто — ещё не посчитан.
+        self._budget: float | None = None
+        self._clock = ResponseClock()
         self._attempts = 0
         self._slowed = False
         self.articles = 0
@@ -133,7 +96,7 @@ class DonorCrawler:
         self.pages_dated = 0
         self._progress: Progress | None = None
         self._sent = 0
-        self._where: tuple[str, float] = ("none", time.monotonic())
+        self._started = time.monotonic()
         self._was_slowed = False
 
     async def crawl(self, host: str, progress: Progress | None = None) -> CrawlReport:
@@ -146,10 +109,7 @@ class DonorCrawler:
         host = host.lower().removeprefix("www.")
         point = self._resume(progress)
         # Продолжение считает время с прошлых попыток: потолок — на донора.
-        started = time.monotonic() - point.elapsed_sec
-        # Срок общий на всего донора, а не на обход страниц: robots и карты
-        # тоже запросы, и на сайте с длинной паузой они одни съедают минуты.
-        deadline = started + self._max_seconds
+        started = self._started = time.monotonic() - point.elapsed_sec
         done = list(point.pages)
         rules = await self._robots(host)
 
@@ -167,14 +127,14 @@ class DonorCrawler:
         if home.url not in done:
             self._harvest(home.html or "", home.url, host)
 
-        self._limiter.set_delay(host, rules.crawl_delay)
-        scan = await self._sitemap(host, home.url, rules, deadline)
-        queue, source, opened = self._queue(home, host, scan, point)
-        self._where = (source, started)
-        pages, stop = await self._walk(
-            host, rules, queue, started, opened=opened, follow=source == "links"
-        )
-        await self._send(pages, queue)
+        pause = self._limiter.set_delay(host, rules.crawl_delay)
+        self._budget = point.time_budget_sec or self._time_budget(host, pause)
+        # Срок общий на всего донора, а не на обход страниц: robots и карты
+        # тоже запросы, и на сайте с длинной паузой они одни съедают минуты.
+        scan = await self._sitemap(host, home.url, rules, started + self._budget)
+        frontier, opened = self._frontier(home, host, scan, point)
+        pages, stop = await self._walk(host, rules, frontier, started, opened=opened)
+        await self._send(pages, frontier)
         return self._report(
             host,
             self._outcome(pages, stop),
@@ -183,8 +143,30 @@ class DonorCrawler:
             started,
             pages=pages,
             scan=scan,
-            source=source,
+            frontier=frontier,
         )
+
+    def _time_budget(self, host: str, pause: float) -> float:
+        """Срок донора по паузе сайта и времени его ответа (`pace.py`) — раз, до карты."""
+        budget = round(
+            time_budget(
+                pause=pause,
+                response=self._clock.average,
+                pages=self._max_pages,
+                base=self._max_seconds,
+                ceiling=self._slow_cap,
+            )
+        )
+        if budget > self._max_seconds:
+            logger.info(
+                "обход %s: пауза %.1f с, ответ %.2f с — срок %s с вместо %.0f",
+                host,
+                pause,
+                self._clock.average,
+                budget,
+                self._max_seconds,
+            )
+        return budget
 
     def _resume(self, progress: Progress | None) -> Checkpoint:
         """С чего начать: чекпоинт продолжения или чистый лист. Счётчики
@@ -222,6 +204,7 @@ class DonorCrawler:
         for scheme in ("https", "http"):
             url = f"{scheme}://{host}/robots.txt"
             async with self._limiter.slot(host):
+                began = time.monotonic()
                 try:
                     response = await self._client.get(
                         url,
@@ -232,6 +215,8 @@ class DonorCrawler:
                 except httpx.HTTPError as exc:
                     logger.info("robots: %s не открылся (%r)", url, exc)
                     continue
+                # Ответ — любой: время ответа сайта идёт в срок донора (`pace.py`).
+                self._clock.record(time.monotonic() - began)
             if response.status_code in (404, 410):
                 return robots_rules.absent()
             if response.status_code >= 400:
@@ -259,10 +244,13 @@ class DonorCrawler:
                 logger.info("обход %s: robots.txt запрещает корень — донор откладывается", host)
                 return None
             async with self._limiter.slot(host):
+                began = time.monotonic()
                 result = await self._cascade.get(url)
             self._attempts += 1
             self._health.record(result.outcome)
             if result.outcome is FetchOutcome.OK:
+                # Время отказа — не время ответа: срок по нему не считается.
+                self._clock.record(time.monotonic() - began)
                 return result
         return None
 
@@ -272,55 +260,56 @@ class DonorCrawler:
         reader = SitemapReader(self._client, self._limiter, headers=self._cascade.headers)
         return await reader.scan(host, base, rules.sitemaps, deadline=deadline)
 
-    def _queue(
+    def _frontier(
         self, home: FetchResult, host: str, scan: SitemapScan, point: Checkpoint
-    ) -> tuple[deque[str], str, list[str]]:
-        """Очередь адресов, источник списка и уже открытые страницы.
+    ) -> tuple[Frontier, list[str]]:
+        """Очередь — сначала карта, потом ссылки (`frontier.py`) — и уже открытые страницы.
 
-        Из карты сайта — обход не ходит по ссылкам вовсе: адреса уже
-        есть, и каждая лишняя страница стоит запроса к чужой машине.
-        Без карты очередь собирается со скачанной главной, а сама она
-        считается открытой: второй раз её качать не за чем.
+        Адреса карты проходят те же правила, что ссылки: свой сайт, страница, а не файл.
+        Ссылки копятся с главной и с каждой открытой страницы; продолжение берёт их из
+        чекпоинта — собрать заново значило бы обойти сайт второй раз, — а карту читает снова.
         """
         # Главная открыта в любом случае — её качала проверка «сайт
         # открывается». Она же и первая страница отчёта, откуда бы
         # ни взялась очередь: иначе статей окажется больше, чем страниц.
-        # Продолжение начинает с уже открытых, а очередь по ссылкам
-        # берёт из чекпоинта: собрать её заново — обойти сайт второй раз.
         opened = list(point.pages) or [home.url]
-        if point.source == "links":
-            return deque(point.queue), "links", opened
-        if scan.urls:
-            return deque(scan.urls), "sitemap", opened
-        links = same_site_links(home.html or "", home.url, host)
-        return deque(links), "links", opened
+        mapped = [] if point.source == LINKS else [u for u in scan.urls if crawlable(u, host)]
+        linked = point.queue if point.pages else same_site_links(home.html or "", home.url, host)
+        frontier = Frontier.start(
+            mapped,
+            linked,
+            opened,
+            has_map=bool(mapped) or point.source not in (LINKS, "none"),
+            took_links=point.source == BOTH,
+            counts=(point.from_map, point.from_links),
+        )
+        return frontier, opened
 
     async def _walk(
         self,
         host: str,
         rules: RobotsRules,
-        queue: deque[str],
+        frontier: Frontier,
         started: float,
         *,
         opened: list[str],
-        follow: bool,
     ) -> tuple[list[str], StopReason]:
-        """Собственно обход. Возвращает открытые страницы и причину конца."""
+        """Собственно обход. Возвращает открытые страницы и причину конца:
+        «адреса кончились» — когда кончились и карта, и ссылки."""
         pages = list(opened)
-        seen: set[str] = set(opened) | set(queue)
         # Уже открытое не открывается второй раз. Карта сайта почти всегда
         # перечисляет главную, а её качает проверка «сайт открывается»:
         # без этой проверки донор получает лишний запрос, а отчёт —
         # лишнюю статью, которой не было.
         visited: set[str] = set(opened)
 
-        while queue:
+        while frontier:
             stop = self._limit_hit(pages, started)
             if stop is not None:
                 return pages, stop
-            await self._stop_if_asked(pages, queue)
+            await self._stop_if_asked(pages, frontier)
 
-            url = queue.popleft()
+            url, by_link = frontier.pop()
             if url in visited or not rules.allows(url):
                 continue
             visited.add(url)
@@ -334,41 +323,43 @@ class DonorCrawler:
             if result.outcome is not FetchOutcome.OK or result.html is None:
                 continue
             pages.append(result.url)
+            frontier.opened(by_link=by_link)
             self._harvest(result.html, result.url, host)
-            if follow:
-                self._enqueue(result, host, queue, seen)
-            await self._send_if_due(pages, queue)
+            self._follow(result, host, frontier)
+            await self._send_if_due(pages, frontier)
 
         return pages, StopReason.EXHAUSTED
 
-    async def _send_if_due(self, pages: list[str], queue: deque[str]) -> None:
+    async def _send_if_due(self, pages: list[str], frontier: Frontier) -> None:
         """Пачка по ходу — если обход ведёт задача очереди и пора."""
         if self._progress is not None and self._progress.due(len(pages)):
-            await self._send(pages, queue)
+            await self._send(pages, frontier)
 
-    async def _stop_if_asked(self, pages: list[str], queue: deque[str]) -> None:
+    async def _stop_if_asked(self, pages: list[str], frontier: Frontier) -> None:
         """Просьба остановиться (выкатка) — на границе страницы: пачка
         дописывается, и обход выходит с чекпоинтом, а не обрывается."""
         if self._progress is None or not self._progress.stop():
             return
-        raise CrawlInterruptedError(await self._send(pages, queue))
+        raise CrawlInterruptedError(await self._send(pages, frontier))
 
-    async def _send(self, pages: list[str], queue: deque[str]) -> Checkpoint:
+    async def _send(self, pages: list[str], frontier: Frontier) -> Checkpoint:
         """Ссылки с прошлой пачки и чекпоинт — тому, кто ведёт обход."""
-        source, started = self._where
-        # Очередь по ссылкам — не длиннее оставшихся попыток: больше не открыть.
+        # Очередь ссылок — не длиннее оставшихся попыток: больше не открыть.
         left = max(self._max_attempts - self._attempts, 0)
         checkpoint = Checkpoint(
-            source=source,
+            source=frontier.source,
             pages=list(pages),
-            queue=list(queue)[:left] if source == "links" else [],
+            queue=frontier.saved(left),
             attempts=self._attempts,
             articles=self.articles,
             share_links=self.share_links,
             pages_labeled=self.pages_labeled,
             pages_dated=self.pages_dated,
-            elapsed_sec=round(time.monotonic() - started, 1),
+            elapsed_sec=round(time.monotonic() - self._started, 1),
             slowed=self._slowed or self._was_slowed,
+            from_map=frontier.from_map,
+            from_links=frontier.from_links,
+            time_budget_sec=self._budget or 0.0,
         )
         if self._progress is not None:
             fresh = self.links[self._sent :]
@@ -405,14 +396,10 @@ class DonorCrawler:
         )
         self.share_links += len(shares)
 
-    def _enqueue(self, result: FetchResult, host: str, queue: deque[str], seen: set[str]) -> None:
-        """Ссылки со страницы — в очередь, каждая по одному разу."""
-        if result.html is None:
-            return
-        for link in same_site_links(result.html, result.url, host):
-            if link not in seen:
-                seen.add(link)
-                queue.append(link)
+    def _follow(self, result: FetchResult, host: str, frontier: Frontier) -> None:
+        """Ссылки со страницы — в очередь, и с картой тоже: после карты обход идёт по ним."""
+        if result.html is not None:
+            frontier.add(same_site_links(result.html, result.url, host))
 
     def _limit_hit(self, pages: list[str], started: float) -> StopReason | None:
         """Какой потолок кончился первым. `None` — можно продолжать."""
@@ -420,7 +407,8 @@ class DonorCrawler:
             return StopReason.MAX_PAGES
         if self._attempts >= self._max_attempts:
             return StopReason.MAX_ATTEMPTS
-        if time.monotonic() - started >= self._max_seconds:
+        # Срок не меньше общего (`pace.time_budget`), так что до расчёта — общий.
+        if time.monotonic() - started >= (self._budget or self._max_seconds):
             return StopReason.TIMEOUT
         if self._health.verdict is HealthVerdict.STOP:
             return StopReason.UNHEALTHY
@@ -467,8 +455,11 @@ class DonorCrawler:
         *,
         pages: list[str] | None = None,
         scan: SitemapScan | None = None,
-        source: str = "none",
+        frontier: Frontier | None = None,
     ) -> CrawlReport:
+        found, complete = (scan.found, scan.complete) if scan else (False, False)
+        # `is not None`: пустая очередь — ложь (`Frontier.__bool__`), а она у кончившегося обхода.
+        source, from_map, from_links = frontier.facts() if frontier is not None else ("none", 0, 0)
         return CrawlReport(
             host=host,
             outcome=outcome,
@@ -481,9 +472,12 @@ class DonorCrawler:
             pages_dated=self.pages_dated,
             robots_status=rules.status,
             crawl_delay=rules.crawl_delay,
-            sitemap_found=scan.found if scan else False,
-            sitemap_complete=scan.complete if scan else False,
+            sitemap_found=found,
+            sitemap_complete=complete,
             source=source,
+            pages_from_sitemap=from_map,
+            pages_from_links=from_links,
+            time_budget_sec=self._budget,
             elapsed_sec=time.monotonic() - started,
             slowed_down=self._slowed or self._was_slowed,
             health=self._health.report(),

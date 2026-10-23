@@ -160,7 +160,23 @@ class TestPlumbing:
     def test_crawl_queue_is_its_own_with_a_longer_timeout(self) -> None:
         built = queue.crawl_queue(queue.connection())
         assert built.name == queue.CRAWL_QUEUE_NAME == "crawl"
-        assert built._default_timeout == queue.CRAWL_JOB_TIMEOUT > queue.JOB_TIMEOUT
+        assert built._default_timeout == queue.crawl_job_timeout() > queue.JOB_TIMEOUT
+
+    def test_a_slow_site_crawl_outlives_its_own_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Сайту с долгой паузой срок — до `CRAWL_MAX_SECONDS_SLOW` (`crawl/pace.py`): таймаут
+        задачи — от настройки и с запасом, а не вшитые два часа, которые убили бы трёхчасовой
+        обход посреди страницы."""
+        monkeypatch.setattr("backend.config.crawl.MAX_SECONDS_PER_DONOR", 3_600.0)
+        monkeypatch.setattr("backend.config.crawl.MAX_SECONDS_SLOW", 10_800.0)
+        assert queue.crawl_job_timeout() == 10_800 + queue.CRAWL_JOB_MARGIN_SEC
+
+        monkeypatch.setattr("backend.config.crawl.MAX_SECONDS_SLOW", 20_000.0)
+        assert queue.crawl_queue(queue.connection())._default_timeout == 23_600
+        # Потолок медленных ниже общего срока — таймаут по общему.
+        monkeypatch.setattr("backend.config.crawl.MAX_SECONDS_SLOW", 600.0)
+        assert queue.crawl_job_timeout() == 3_600 + queue.CRAWL_JOB_MARGIN_SEC
 
     def test_crawl_job_number_is_known_before_the_queue(
         self, monkeypatch: pytest.MonkeyPatch

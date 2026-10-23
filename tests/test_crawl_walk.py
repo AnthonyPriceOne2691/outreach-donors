@@ -20,9 +20,10 @@ import httpx
 import pytest
 from backend.features.core.domain import CrawlOutcome, StopReason
 from backend.features.crawl.fetch import CascadeLevel, PageCascade
+from backend.features.crawl.frontier import same_site_links
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.robots import RobotsStatus
-from backend.features.crawl.walk import DonorCrawler, same_site_links
+from backend.features.crawl.walk import DonorCrawler
 
 HOST = "donor.test"
 HTML = {"content-type": "text/html; charset=utf-8"}
@@ -356,7 +357,8 @@ class TestCaps:
         меньше чекпоинта из требования, и тот не сработал бы ни разу."""
         site = FakeSite({"/": _page("/a"), "/a": _page()})
 
-        report = await _crawl(site, max_seconds=0.0)
+        # Срок по паузе сайта (`pace.py`) не ниже общего и не выше потолка медленных: оба — ноль.
+        report = await _crawl(site, max_seconds=0.0, max_seconds_slow=0.0)
 
         assert report.stop_reason is StopReason.TIMEOUT
 
