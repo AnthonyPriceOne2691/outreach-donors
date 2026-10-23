@@ -8,8 +8,9 @@
  * значке, а сколько именно — в той же подсказке: трёхзначное число на значке
  * в 20 px не читается. Подписи групп свёрнуты в линию.
  *
- * **Подсвечен один пункт — тот, чей адрес открыт** (`sections.activeKey`): «Диалоги» и
- * «Диалоги продаж» — один путь, и различает их часть в адресе (`?stage=sales`).
+ * **Подсвечен один пункт — тот, чей адрес открыт** (`sections.activeKey`): «Диалоги»
+ * доноров, рекламодателей и «Диалоги продаж» — один путь, и различает их часть в адресе
+ * (`?stage=…`).
  */
 
 import { Badge, Indicator, NavLink, Stack, Tooltip, VisuallyHidden } from '@mantine/core';
@@ -46,14 +47,26 @@ interface ItemProps {
   folded: boolean;
 }
 
+/**
+ * Как пункт звучит — диктору и в подсказке свёрнутого меню: полным именем и с числом
+ * ждущей работы. Полное имя — у пунктов с одной подписью на двоих (`sections.ts`, `name`):
+ * «Письма» доноров и рекламодателей глазу различает группа, а диктору — только имя ссылки.
+ */
+function spoken(section: Section, count: number | undefined) {
+  const name = section.name ?? section.title;
+  const said = count !== undefined && count > 0 ? `${name} · ${capped(count)} ждут человека` : name;
+  return { said, label: section.name === undefined ? undefined : said };
+}
+
 function NavItem({ section, count, to, active, folded }: ItemProps) {
   const Icon = section.icon;
   const waiting = count !== undefined && count > 0;
   const icon = <Icon size={20} stroke={1.6} aria-hidden />;
-  const said = waiting ? `${section.title} · ${capped(count)} ждут человека` : section.title;
+  const { said, label } = spoken(section, count);
   const link = (
     <NavLink
       label={folded ? <VisuallyHidden>{said}</VisuallyHidden> : section.title}
+      aria-label={label}
       leftSection={
         folded && waiting ? (
           <Indicator size={8} color="yellow" offset={2}>

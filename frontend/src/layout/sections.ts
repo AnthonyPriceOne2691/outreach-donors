@@ -9,6 +9,16 @@
  * продаж общих экранов: «Диалоги продаж», «Агент продаж», «Домены продаж» — те же
  * экраны, суженные адресом (`?stage=sales`, `api/stages.ts`). Два пункта одного пути
  * различаются частью: она — в ключе пункта, в его подсветке и в памяти места.
+ *
+ * **Доноры и рекламодатели — двумя группами, «Письма» и «Диалоги» — в каждой** (23.10.2026,
+ * замечание тест-группы «разделить вкладки Письма и Диалог» у Этапа 1 и Этапа 2): в группе
+ * «Доноры» — `?stage=donors`, в группе «Рекламодатели» — `?stage=advertisers`. Подпись
+ * пункта короткая: чьи это письма, говорит группа, а полное имя («Письма донорам») — в
+ * имени ссылки и подсказке свёрнутого меню (`name`) и заголовком экрана. Полные имена
+ * подписями расширили бы колонку с 288 до 348 px. Пунктов без части у этих экранов нет:
+ * прежние адреса `/letters` и `/threads` открывают экран со всеми переключателями, а
+ * подсвеченного пункта у них нет. Значки пары различает знак: вопрос — донору
+ * (спрашиваем цену), доллар — рекламодателю (оффер).
  */
 
 import {
@@ -20,7 +30,10 @@ import {
   IconForms,
   IconHistory,
   IconLayoutDashboard,
-  IconMail,
+  IconMailDollar,
+  IconMailQuestion,
+  IconMessageDollar,
+  IconMessageQuestion,
   IconMessages,
   IconPlayerPlay,
   IconReceipt2,
@@ -34,15 +47,20 @@ import type { Icon } from '@tabler/icons-react';
 import { PART_PARAM } from '../api/stages';
 import type { Part } from '../api/stages';
 import type { Permission } from '../api/types';
+import { LETTERS_TITLES } from '../letters/targets';
+import { THREADS_TITLES } from '../threads/threadFilters';
 import type { NavGroupKey } from './NavGroup';
 import type { WorkSection } from './work';
 
 export interface Section {
   path: string;
-  /** Часть общего экрана: `sales` — только продажи (`?stage=sales`). Пункт без части
-   *  на том же пути — экран без неё: «Диалоги» — доноры и рекламодатели. */
+  /** Часть общего экрана — один этап (`?stage=…`): «Диалоги продаж» — только продажи.
+   *  Пункт без части на том же пути — экран без неё: «Агент переписки» — все этапы. */
   part?: Part;
   title: string;
+  /** Полное имя, когда подпись одна у двух пунктов («Письма» доноров и рекламодателей):
+   *  его называет ссылка диктору и подсказка свёрнутого меню, им же озаглавлен экран. */
+  name?: string;
   group: NavGroupKey;
   icon: Icon;
   permission?: Permission;
@@ -53,45 +71,82 @@ export interface Section {
   remember?: true;
 }
 
-/** Три группы — просьба Anthony 11.10.2026; до неё — «Работа» и «Настройки» (решение
- *  09.10.2026). Порядок внутри групп — прежний: к нему привыкли. В группе продаж — сам
- *  раздел, затем части общих экранов в том порядке, в каком эти экраны стоят в меню. */
+/** Четыре группы (23.10.2026; с 11.10.2026 — три, до того — «Работа» и «Настройки»).
+ *  Порядок внутри групп — прежний: к нему привыкли; письма и диалоги — после экранов, где
+ *  выбирают адресатов. В группе продаж — сам раздел, затем части общих экранов в том
+ *  порядке, в каком эти экраны стоят в меню. */
 export const SECTIONS: Section[] = [
-  { path: '/', title: 'Обзор', group: 'mail', icon: IconLayoutDashboard },
+  { path: '/', title: 'Обзор', group: 'donors', icon: IconLayoutDashboard },
   {
     path: '/run',
     title: 'Прогон',
-    group: 'mail',
+    group: 'donors',
     icon: IconPlayerPlay,
     permission: 'view',
     work: 'run',
   },
-  { path: '/donors', title: 'Доноры', group: 'mail', icon: IconWorldWww, permission: 'view' },
-  { path: '/selection', title: 'Отбор', group: 'mail', icon: IconFilterCheck, permission: 'view' },
+  { path: '/donors', title: 'Доноры', group: 'donors', icon: IconWorldWww, permission: 'view' },
+  {
+    path: '/selection',
+    title: 'Отбор',
+    group: 'donors',
+    icon: IconFilterCheck,
+    permission: 'view',
+  },
   {
     path: '/forms',
     title: 'Формы',
-    group: 'mail',
+    group: 'donors',
     icon: IconForms,
     permission: 'view',
     work: 'forms',
   },
   {
+    path: '/letters',
+    part: 'donors',
+    title: 'Письма',
+    name: LETTERS_TITLES.donors,
+    group: 'donors',
+    icon: IconMailQuestion,
+    permission: 'view',
+  },
+  {
+    path: '/threads',
+    part: 'donors',
+    title: 'Диалоги',
+    name: THREADS_TITLES.donors,
+    group: 'donors',
+    icon: IconMessageQuestion,
+    permission: 'view',
+    work: 'donor_threads',
+    remember: true,
+  },
+  {
     path: '/advertisers',
     title: 'Рекламодатели',
-    group: 'mail',
+    group: 'advertisers',
     icon: IconSpeakerphone,
     permission: 'view',
     work: 'advertisers',
   },
-  { path: '/letters', title: 'Письма', group: 'mail', icon: IconMail, permission: 'view' },
+  {
+    path: '/letters',
+    part: 'advertisers',
+    title: 'Письма',
+    name: LETTERS_TITLES.advertisers,
+    group: 'advertisers',
+    icon: IconMailDollar,
+    permission: 'view',
+  },
   {
     path: '/threads',
+    part: 'advertisers',
     title: 'Диалоги',
-    group: 'mail',
-    icon: IconMessages,
+    name: THREADS_TITLES.advertisers,
+    group: 'advertisers',
+    icon: IconMessageDollar,
     permission: 'view',
-    work: 'threads',
+    work: 'advertiser_threads',
     remember: true,
   },
   // Своё право, а не `view`: раздел снимается с учётки поимённо (решение владельца 01.10).
@@ -99,7 +154,7 @@ export const SECTIONS: Section[] = [
   {
     path: '/threads',
     part: 'sales',
-    title: 'Диалоги продаж',
+    title: THREADS_TITLES.sales,
     group: 'sales',
     icon: IconMessages,
     permission: 'view',
@@ -179,7 +234,8 @@ function inside(path: string, pathname: string): boolean {
  * Пункт, которому принадлежит адрес, — ключом. Самый длинный подходящий путь; из пунктов
  * одного пути — тот, чья часть названа в адресе (`?stage=sales`), а без неё — пункт без
  * части. Части, пункта которой у человека нет (нет права), нет и в подсветке: адрес
- * достаётся пункту без части, как и экран (`readThreadFilters`).
+ * достаётся пункту без части, как и экран (`readThreadFilters`). У «Писем» и «Диалогов»
+ * пункта без части нет — их прежние адреса без части не подсвечивают ничего.
  */
 export function activeKey(
   sections: readonly Section[],

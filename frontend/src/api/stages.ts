@@ -47,14 +47,22 @@ export function stateShown(state: string, sales: boolean): boolean {
  * 11.10.2026: продажи — отдельный продукт, и меню показывает их своей группой). Так
  * открываются «Диалоги продаж», «Агент продаж» и «Домены продаж» — те же экраны, что
  * «Диалоги», «Агент переписки» и «Домены рассылки», суженные до этапа продаж.
+ *
+ * Тем же параметром — доноры и рекламодатели (23.10.2026, замечание тест-группы
+ * «разделить вкладки Письма и Диалог» у Этапа 1 и Этапа 2): «Письма донорам» и «Диалоги
+ * с донорами» — `?stage=donors`, «Письма рекламодателям» и «Диалоги с рекламодателями» —
+ * `?stage=advertisers`. Экран без части — прежний, со всеми переключателями.
  */
 export const PART_PARAM = 'stage';
 
-/** Часть, которую называет адрес: `sales` — продажи; иначе — пусто (раздел без сужения). */
-export type Part = 'sales';
+/** Часть, которую называет адрес: этап; иначе — пусто (раздел без сужения). */
+export type Part = Stage;
+
+const PARTS: readonly Part[] = ['donors', 'advertisers', 'sales'];
 
 export function partOf(params: URLSearchParams): Part | null {
-  return params.get(PART_PARAM) === 'sales' ? 'sales' : null;
+  const named = params.get(PART_PARAM);
+  return PARTS.find((part) => part === named) ?? null;
 }
 
 /** Адрес с частью или без неё — прочие параметры остаются как были. */

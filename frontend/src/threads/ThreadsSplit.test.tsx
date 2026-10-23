@@ -6,6 +6,10 @@
  * переход к соседнему — без возврата к списку, фильтр переживает выбор, ждущие
  * человека — сверху. Узкое окно (список и переписка отдельными страницами) — в
  * `ThreadsPage.test` и `ThreadPage.test`: там `matchMedia` по умолчанию узкий.
+ *
+ * Переписка открывается с частью в адресе (`?stage=donors`), как из пункта меню «Диалоги
+ * с донорами»: без неё переписка дописала бы часть сама (`threadPart.ts`), и ссылки до и
+ * после замены адреса отличались бы.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -122,14 +126,14 @@ const where = () => screen.getByTestId('where');
 
 describe('диалоги на широком окне: список и переписка рядом', () => {
   it('открытый диалог — справа, его строка выбрана, «К списку» нет: список рядом', async () => {
-    const list = await openWide('/threads/3');
+    const list = await openWide('/threads/3?stage=donors');
 
     expect(
       await screen.findByRole('heading', { name: 'tech-review.example.test' }),
     ).toBeInTheDocument();
     expect(await list.findByRole('link', { current: 'page' })).toHaveAttribute(
       'href',
-      '/threads/3',
+      '/threads/3?stage=donors',
     );
     expect(screen.queryByRole('link', { name: 'К списку' })).not.toBeInTheDocument();
   });
@@ -209,20 +213,24 @@ describe('диалоги на широком окне: список и пере�
   it('«Следующий ждущий» — ниже открытого, после последнего — верхний, решённый ведёт к верхнему', async () => {
     const user = userEvent.setup();
     const lead = thread(4, 'price-desk.example.test', 'lead', '2026-09-16T10:00:00+00:00');
-    await openWide('/threads/3', [...THREADS, lead]);
+    await openWide('/threads/3?stage=donors', [...THREADS, lead]);
     const next = () => screen.findByRole('link', { name: /Следующий ждущий/ });
 
-    expect(await next()).toHaveAttribute('href', '/threads/4');
+    expect(await next()).toHaveAttribute('href', '/threads/4?stage=donors');
     await user.click(await next());
-    expect(where()).toHaveTextContent('/threads/4');
+    expect(where()).toHaveTextContent('/threads/4?stage=donors');
     expect(
       await screen.findByRole('heading', { name: 'price-desk.example.test' }),
     ).toBeInTheDocument();
-    await waitFor(async () => expect(await next()).toHaveAttribute('href', '/threads/3'));
+    await waitFor(async () =>
+      expect(await next()).toHaveAttribute('href', '/threads/3?stage=donors'),
+    );
 
     await user.keyboard('j');
-    expect(where()).toHaveTextContent('/threads/1');
-    await waitFor(async () => expect(await next()).toHaveAttribute('href', '/threads/3'));
+    expect(where()).toHaveTextContent('/threads/1?stage=donors');
+    await waitFor(async () =>
+      expect(await next()).toHaveAttribute('href', '/threads/3?stage=donors'),
+    );
   });
 
   it('переход к соседней переписке не перекачивает весь список — он рядом и уже есть', async () => {
@@ -268,10 +276,10 @@ describe('диалоги на широком окне: список и пере�
 
   it('«Следующий ждущий» держит фильтр из адреса', async () => {
     const lead = thread(4, 'price-desk.example.test', 'lead', '2026-09-16T10:00:00+00:00');
-    await openWide('/threads/1?state=lead', [...THREADS, lead]);
+    await openWide('/threads/1?stage=donors&state=lead', [...THREADS, lead]);
     expect(await screen.findByRole('link', { name: /Следующий ждущий/ })).toHaveAttribute(
       'href',
-      '/threads/4?state=lead',
+      '/threads/4?stage=donors&state=lead',
     );
   });
 
@@ -285,16 +293,16 @@ describe('диалоги на широком окне: список и пере�
 
   it('вернулись в «Диалоги» из другого раздела — открыт тот же диалог с тем же фильтром', async () => {
     const user = userEvent.setup();
-    await openWide('/threads/3?state=needs_review', THREADS, HOME_ROUTES);
+    await openWide('/threads/3?stage=donors&state=needs_review', THREADS, HOME_ROUTES);
     const menu = within(screen.getByRole('navigation', { name: 'Разделы' }));
     await screen.findByRole('heading', { name: 'tech-review.example.test' });
 
     await user.click(menu.getByRole('link', { name: 'Обзор' }));
     expect(where()).toHaveTextContent(/^\/$/);
-    // «Диалоги», а не «Диалоги продаж»: у админа в меню оба пункта одного пути.
-    await user.click(menu.getByRole('link', { name: /^Диалоги(?! продаж)/ }));
+    // У админа в меню три пункта одного пути — доноров, рекламодателей и продаж.
+    await user.click(menu.getByRole('link', { name: 'Диалоги с донорами' }));
 
-    expect(where()).toHaveTextContent('/threads/3?state=needs_review');
+    expect(where()).toHaveTextContent('/threads/3?stage=donors&state=needs_review');
     expect(
       await screen.findByRole('heading', { name: 'tech-review.example.test' }),
     ).toBeInTheDocument();
@@ -302,11 +310,11 @@ describe('диалоги на широком окне: список и пере�
 
   it('«Не привязаны» — на всю ширину: у ответа без письма переписки справа нет', async () => {
     const user = userEvent.setup();
-    await openWide('/threads/3');
+    await openWide('/threads/3?stage=donors');
 
     await user.click(await screen.findByRole('radio', { name: 'Не привязаны — 0' }));
 
-    expect(where()).toHaveTextContent('/threads?tab=unbound');
+    expect(where()).toHaveTextContent('/threads?stage=donors&tab=unbound');
     expect(screen.queryByRole('navigation', { name: 'Список диалогов' })).not.toBeInTheDocument();
   });
 
@@ -314,14 +322,14 @@ describe('диалоги на широком окне: список и пере�
     // Проверка QA 10.10.2026: вкладка «Диалоги» вела в начало списка, и открытый
     // диалог закрывался.
     const user = userEvent.setup();
-    await openWide('/threads/3?state=needs_review');
+    await openWide('/threads/3?stage=donors&state=needs_review');
     await screen.findByRole('heading', { name: 'tech-review.example.test' });
 
     await user.click(await screen.findByRole('radio', { name: 'Не привязаны — 0' }));
-    expect(where()).toHaveTextContent('/threads?tab=unbound');
+    expect(where()).toHaveTextContent('/threads?stage=donors&tab=unbound');
     await user.click(await screen.findByRole('radio', { name: /^Диалоги/ }));
 
-    expect(where()).toHaveTextContent('/threads/3?state=needs_review');
+    expect(where()).toHaveTextContent('/threads/3?stage=donors&state=needs_review');
     expect(
       await screen.findByRole('heading', { name: 'tech-review.example.test' }),
     ).toBeInTheDocument();
@@ -350,6 +358,20 @@ describe('диалоги на широком окне: список и пере�
 
     expect(screen.getByLabelText('Белая цена')).toHaveValue('300');
     expect(screen.queryByText(`— ${refusal}`)).not.toBeInTheDocument();
+  });
+
+  it('имя части в колонке — на ступень меньше, выгрузка лидов — в шапке колонки', async () => {
+    // На 1440 колонка списка — 20rem: «Диалоги с рекламодателями» крупным заголовком рвались
+    // на две строки, и значок выгрузки уходил за край (снимок 23.10.2026).
+    const brand = {
+      ...thread(4, 'brand.example.test', 'lead', '2026-09-20T10:00:00+00:00'),
+      stage: 'advertisers',
+    };
+    await openWide('/threads?stage=advertisers', [...THREADS, brand]);
+
+    const column = screen.getByRole('heading', { name: 'Диалоги с рекламодателями' });
+    expect(column.tagName).toBe('H4');
+    expect(screen.getByRole('button', { name: 'Выгрузить лиды' })).toBeInTheDocument();
   });
 
   it('поиск — подсказкой в слово, что ищется — в имени поля', async () => {
