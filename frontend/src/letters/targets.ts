@@ -58,7 +58,7 @@ export function audienceOf(target: LetterTarget): LetterAudience {
   return target === 'niche' ? 'niche' : 'links';
 }
 
-/** Запомненный выбор — из вариантов части; незнакомое — первый вариант (доноры, как до выбора). */
+/** Запомненный выбор — из вариантов части; незнакомое — первый из них (без части — доноры). */
 export function targetOf(saved: string | null, options = TARGETS): LetterTarget {
   return options.find((one) => one.value === saved)?.value ?? options[0]?.value ?? 'donors';
 }
