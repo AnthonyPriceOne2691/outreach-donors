@@ -3512,9 +3512,9 @@
       "worst": "open_letter_draft:36"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 386,
+      "lines": 391,
       "complexity": 2,
-      "worst": "unbound_probes:32"
+      "worst": "unbound_probes:35"
     },
     "scripts/ui_screens_reports.py": {
       "lines": 74,

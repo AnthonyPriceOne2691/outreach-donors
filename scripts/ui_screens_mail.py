@@ -27,6 +27,9 @@ from playwright.sync_api import expect
 UNBOUND_TABS = "[aria-label='Вкладки диалогов']"
 UNBOUND_PAGER = "nav[aria-label='Страницы непривязанных ответов']"
 PHONE = {"width": 390, "height": 844}
+#: Пункт меню по имени ссылки (у двух «Писем» подпись одна) и его видимая подпись.
+NAMED = "nav a[aria-label^="
+LABEL = ".mantine-NavLink-label"
 
 
 def unbound_probes(norm: float, big: float, *, menu: bool) -> list[tuple[Any, ...]]:
@@ -118,16 +121,18 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("пункт меню", "nav a", norm),
             ],
         },
-        # Пункты Этапа 1 и Этапа 2 (23.10.2026) — над разными местами полотна: подпись
-        # пункта и подсвеченный пункт; число ждущей работы — янтарным значком.
+        # Группы «Доноры» и «Рекламодатели» (23.10.2026) и их «Письма» и «Диалоги» — над
+        # разными местами полотна: подписи групп, пунктов (по имени ссылки — подпись у двух
+        # пунктов одна) и подсвеченный пункт; число ждущей работы — янтарным значком.
         "menu-stages": {
             "path": "/threads?stage=advertisers",
             "ready": ("heading", "Диалоги с рекламодателями"),
             "probes": [
-                *(
-                    (f"пункт «{name}»", f"nav a:has-text('{name}') .mantine-NavLink-label", norm)
-                    for name in ("Письма донорам", "Диалоги с донорами", "Письма рекламодателям")
-                ),
+                ("подпись группы «Доноры»", "#nav-group-donors .navGroupName", norm),
+                ("подпись группы «Рекламодатели»", "#nav-group-advertisers .navGroupName", norm),
+                ("пункт «Письма» доноров", f"{NAMED}'Письма донорам'] {LABEL}", norm),
+                ("пункт «Диалоги» доноров", f"{NAMED}'Диалоги с донорами'] {LABEL}", norm),
+                ("пункт «Письма» рекламодателей", f"{NAMED}'Письма рекламодателям'] {LABEL}", norm),
                 ("подсвеченный пункт", "nav a[data-active] .mantine-NavLink-label", norm),
                 ("число ждущей работы", "nav a .mantine-Badge-label", norm),
                 # Имя части в колонке списка — на ступень меньше (`ThreadsTitle`, `compact`).

@@ -1,7 +1,8 @@
 /**
- * Чей адрес — у пунктов меню одного пути с разной частью: «Диалоги с донорами»
- * (`/threads?stage=donors`), «Диалоги с рекламодателями» и «Диалоги продаж»; «Письма
- * донорам» и «Письма рекламодателям». Подсветка и память места — по ключу пункта.
+ * Чей адрес — у пунктов меню одного пути с разной частью: «Диалоги» доноров
+ * (`/threads?stage=donors`), рекламодателей и «Диалоги продаж»; «Письма» доноров и
+ * рекламодателей. Подсветка и память места — по ключу пункта. У двух «Писем» и двух
+ * «Диалогов» подпись одна, а имя — своё (`name`).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -9,10 +10,11 @@ import { describe, expect, it } from 'vitest';
 import { activeKey, sectionKey, SECTIONS } from './sections';
 import type { Section } from './sections';
 
-const titled = (title: string): Section => {
-  const found = SECTIONS.find((section) => section.title === title);
-  if (found === undefined) throw new Error(`пункта «${title}» нет`);
-  return found;
+/** Пункт по полному имени: у «Писем» и «Диалогов» доноров и рекламодателей подпись одна. */
+const titled = (name: string): Section => {
+  const found = SECTIONS.filter((section) => (section.name ?? section.title) === name);
+  if (found.length !== 1) throw new Error(`пунктов «${name}» — ${found.length}`);
+  return found[0]!;
 };
 
 /** Пункты Этапа 1 и Этапа 2 — части «Писем» и «Диалогов» (23.10.2026). */
@@ -40,9 +42,24 @@ describe('ключ пункта', () => {
   });
 });
 
-describe('значки', () => {
-  it('в группе доноров и рекламодателей у каждого пункта свой — свёрнутое меню различимо', () => {
-    const icons = SECTIONS.filter((section) => section.group === 'mail').map((one) => one.icon);
+describe('подписи и значки', () => {
+  it('подпись короткая, группа — своя, полное имя — пункту и заголовку экрана', () => {
+    expect(titled('Письма донорам')).toMatchObject({ title: 'Письма', group: 'donors' });
+    expect(titled('Диалоги с донорами')).toMatchObject({ title: 'Диалоги', group: 'donors' });
+    expect(titled('Письма рекламодателям')).toMatchObject({
+      title: 'Письма',
+      group: 'advertisers',
+    });
+    expect(titled('Диалоги с рекламодателями')).toMatchObject({
+      title: 'Диалоги',
+      group: 'advertisers',
+    });
+  });
+
+  it('у доноров и рекламодателей у каждого пункта свой значок — свёрнутое меню различимо', () => {
+    const icons = SECTIONS.filter((one) => ['donors', 'advertisers'].includes(one.group)).map(
+      (one) => one.icon,
+    );
     expect(new Set(icons).size).toBe(icons.length);
   });
 

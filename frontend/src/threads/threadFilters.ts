@@ -41,7 +41,7 @@ export type ThreadRole = Exclude<Stage, 'sales'>;
 /** Параметр адреса переключателя «Кому писали». */
 export const ROLE_PARAM = 'role';
 
-/** Список части — заголовком экрана и пунктом меню (`layout/sections.ts`): одни слова. */
+/** Список части — заголовком экрана и полным именем пункта меню (`layout/sections.ts`). */
 export const THREADS_TITLES: Record<Part, string> = {
   donors: 'Диалоги с донорами',
   advertisers: 'Диалоги с рекламодателями',

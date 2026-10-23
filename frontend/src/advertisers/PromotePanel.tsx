@@ -105,10 +105,10 @@ export function PromotePanel() {
         </Group>
         <Text size="sm" c="dimmed">
           Офферы собираются в{' '}
-          <Anchor component={Link} to="/letters">
-            «Письмах»
+          <Anchor component={Link} to="/letters?stage=advertisers">
+            «Письмах» рекламодателей
           </Anchor>{' '}
-          на переключателе «Рекламодателям».
+          — вариант «По найденной ссылке».
         </Text>
         <Group gap="xs">
           <Badge variant="light" color={data.fresh > 0 ? 'green' : 'gray'}>

@@ -1,12 +1,12 @@
 /**
- * Меню тремя группами — «Доноры и рекламодатели», «Продажи», «Настройки» (просьба
- * Anthony 11.10.2026: доноры и рекламодатели зависят друг от друга, продажи — отдельный
- * продукт, и меню это показывает).
+ * Меню группами — «Доноры», «Рекламодатели», «Продажи», «Настройки» (продажи — своей
+ * группой с 11.10.2026; доноры и рекламодатели — двумя с 23.10.2026, у каждой свои
+ * «Письма» и «Диалоги»).
  *
  * Проверяется: состав и порядок групп; группа продаж — только с правом; части общих
- * экранов — тем же путём с `?stage=…` (продажи; с 23.10.2026 — и «Письма» с «Диалогами»
- * доноров и рекламодателей); подсвечен пункт открытой части; число ждущей работы — у
- * своего пункта; место в разделе помнится у каждого пункта своё.
+ * экранов — тем же путём с `?stage=…`; у двух «Писем» и двух «Диалогов» подпись одна, а
+ * имя ссылки — полное; подсвечен пункт открытой части; число ждущей работы — у своего
+ * пункта; место в разделе помнится у каждого пункта своё.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -122,22 +122,19 @@ const DIALOGS = ['Диалоги с донорами', 'Диалоги с рек
 const lit = () => DIALOGS.filter((name) => link(name).hasAttribute('data-active'));
 
 describe('меню группами', () => {
-  it('три группы, порядок внутри прежний, журнал действий — рядом с учётками', async () => {
+  it('четыре группы, порядок внутри прежний, журнал действий — рядом с учётками', async () => {
     await open('/');
 
-    // Сначала работа с донорами, потом с рекламодателями (23.10.2026).
-    expect(await items('Доноры и рекламодатели')).toEqual([
+    expect(await items('Доноры')).toEqual([
       'Обзор',
       'Прогон',
       'Доноры',
       'Отбор',
       'Формы',
-      'Письма донорам',
-      'Диалоги с донорами',
-      'Рекламодатели',
-      'Письма рекламодателям',
-      'Диалоги с рекламодателями',
+      'Письма',
+      'Диалоги',
     ]);
+    expect(await items('Рекламодатели')).toEqual(['Рекламодатели', 'Письма', 'Диалоги']);
     expect(await items('Продажи')).toEqual([
       'Продажи',
       'Диалоги продаж',
@@ -155,11 +152,26 @@ describe('меню группами', () => {
     ]);
   });
 
+  it('«Письма» и «Диалоги» — подпись одна, имя ссылки — полное, у каждой группы своё', async () => {
+    await open('/');
+
+    const donors = within(await menu().findByRole('group', { name: 'Доноры' }));
+    const advertisers = within(menu().getByRole('group', { name: 'Рекламодатели' }));
+    expect(donors.getByRole('link', { name: 'Письма донорам' })).toHaveTextContent(/^Письма$/);
+    expect(donors.getByRole('link', { name: 'Диалоги с донорами' })).toHaveTextContent(/^Диалоги$/);
+    expect(advertisers.getByRole('link', { name: 'Письма рекламодателям' })).toHaveTextContent(
+      /^Письма$/,
+    );
+    expect(advertisers.getByRole('link', { name: 'Диалоги с рекламодателями' })).toHaveTextContent(
+      /^Диалоги$/,
+    );
+  });
+
   it('без права «Продажи» группы продаж нет вовсе — ни подписи, ни пунктов', async () => {
     const noSales: Me = { ...OPERATOR, permissions: ['prices', 'run', 'settings', 'view'] };
     await open('/', noSales);
 
-    await menu().findByRole('group', { name: 'Доноры и рекламодатели' });
+    await menu().findByRole('group', { name: 'Доноры' });
     expect(menu().queryByRole('group', { name: 'Продажи' })).not.toBeInTheDocument();
     expect(menu().queryByRole('link', { name: 'Диалоги продаж' })).not.toBeInTheDocument();
   });
@@ -311,7 +323,7 @@ describe('свёрнутое меню держит границы групп', (
     if (before !== undefined) Object.defineProperty(window, 'matchMedia', before);
   });
 
-  it('три группы — линиями, подписи — диктору, пункты групп на месте', async () => {
+  it('четыре группы — линиями, подписи — диктору, пункты групп на месте', async () => {
     // Колонка рядом с содержимым — на широком окне: совпадает только этот запрос.
     window.matchMedia = (query: string) =>
       ({
@@ -330,7 +342,8 @@ describe('свёрнутое меню держит границы групп', (
 
     const groups = menu().getAllByRole('group');
     expect(groups.map((group) => group.getAttribute('aria-labelledby'))).toEqual([
-      'nav-group-mail',
+      'nav-group-donors',
+      'nav-group-advertisers',
       'nav-group-sales',
       'nav-group-settings',
     ]);
@@ -338,9 +351,18 @@ describe('свёрнутое меню держит границы групп', (
       // Подпись свёрнута в линию (`data-folded`), а имя группы диктору — на месте.
       expect(group.querySelector('.navGroupTitle')).toHaveAttribute('data-folded');
     }
-    expect(within(groups[1]!).getByRole('link', { name: 'Диалоги продаж' })).toHaveAttribute(
+    expect(within(groups[2]!).getByRole('link', { name: 'Диалоги продаж' })).toHaveAttribute(
       'href',
       '/threads?stage=sales',
+    );
+    // Без подписи «Письма» доноров и рекламодателей различает имя: диктору и в подсказке.
+    const letters = within(groups[1]!).getByRole('link', { name: 'Письма рекламодателям' });
+    expect(letters).toHaveAttribute('href', '/letters?stage=advertisers');
+    await userEvent.setup().hover(letters);
+    await waitFor(() =>
+      expect(
+        [...document.querySelectorAll('.mantine-Tooltip-tooltip')].map((tip) => tip.textContent),
+      ).toContain('Письма рекламодателям'),
     );
   });
 });
