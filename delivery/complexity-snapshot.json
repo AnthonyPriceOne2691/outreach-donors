@@ -1662,9 +1662,9 @@
       "worst": "next_address_note:159"
     },
     "backend/features/letters/batch.py": {
-      "lines": 208,
+      "lines": 228,
       "complexity": 5,
-      "worst": "_send_one:170"
+      "worst": "_send_one:179"
     },
     "backend/features/letters/building.py": {
       "lines": 471,
@@ -1722,9 +1722,9 @@
       "worst": "sender_domain:62"
     },
     "backend/features/letters/mailbox.py": {
-      "lines": 336,
+      "lines": 339,
       "complexity": 7,
-      "worst": "spent_words:164"
+      "worst": "spent_words:167"
     },
     "backend/features/letters/masking.py": {
       "lines": 260,
