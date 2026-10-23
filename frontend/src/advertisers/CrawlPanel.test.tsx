@@ -375,8 +375,15 @@ describe('панель в покое', () => {
 describe('состояние обхода словами', () => {
   it.each([
     [{ status: 'queued' as const }, 'в очереди'],
-    [{ status: 'done' as const, outcome: 'ok' as const, pages: 1 }, 'обойдён: 1 страница'],
-    [{ status: 'done' as const, outcome: 'partial' as const, pages: 5 }, 'частично: 5 страниц'],
+    // Страницы — против потолка: «из 1 000» видно, что до потолка не дошёл (23.10.2026).
+    [
+      { status: 'done' as const, outcome: 'ok' as const, pages: 1 },
+      'обойдён: 1 из 1\u00a0000 страниц',
+    ],
+    [
+      { status: 'done' as const, outcome: 'partial' as const, pages: 5 },
+      'частично: 5 из 1\u00a0000 страниц',
+    ],
     [{ status: 'done' as const, outcome: 'forbidden' as const }, 'robots.txt запрещает'],
     [{ status: 'done' as const, outcome: 'blocked' as const }, 'закрылся от нас'],
     [{ status: 'done' as const, outcome: 'failed' as const }, 'не открылся'],
@@ -463,5 +470,63 @@ describe('доля закрытых страниц у строки обхода'
     expect(within(table).getByText('закрыто 12,5% из 480 запросов')).toBeInTheDocument();
     const recent = screen.getByText('Последние обходы').parentElement!;
     expect(within(recent).getByText(/· закрыто 12,5% из 480 запросов$/)).toBeInTheDocument();
+  });
+});
+
+describe('почему обход кончился', () => {
+  const PAUSED = crawl({
+    status: 'done',
+    outcome: 'partial',
+    stop_reason: 'timeout',
+    pages: 412,
+    finished_at: '2026-10-22T09:00:00Z',
+    max_seconds: 3600,
+    delay_sec: 1,
+    max_delay_sec: 10,
+    crawl_delay: 6,
+  });
+  const SAID = 'кончился час на донора; сайт просит паузу 6 с между страницами';
+
+  it('под значком — в таблице доноров и в последних обходах', async () => {
+    open({
+      'GET /api/crawls/targets': {
+        body: { ...TARGETS, donors: [{ ...TARGETS.donors[0], crawl: PAUSED }] },
+      },
+      'GET /api/crawls': { body: { rows: [PAUSED], active: 0, workers: 4 } },
+    });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Доноры и обходы' }));
+
+    const table = await screen.findByRole('table');
+    expect(within(table).getByText(/^частично: 412 из 1\s000 страниц$/)).toBeInTheDocument();
+    expect(within(table).getByText(SAID)).toBeInTheDocument();
+    const recent = screen.getByText('Последние обходы').parentElement!;
+    expect(within(recent).getByText(SAID)).toBeInTheDocument();
+  });
+
+  it('«i» панели — путь обхода и потолки числами сервера, а не копией в экране', async () => {
+    open({
+      'GET /api/crawls/targets': {
+        body: {
+          ...TARGETS,
+          max_pages: 500,
+          max_attempts: 1500,
+          max_seconds: 1800,
+          delay_sec: 2,
+          max_delay_sec: 5,
+          max_seconds_slow: 7200,
+        },
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.hover(await screen.findByRole('button', { name: 'Как устроен обход доноров' }));
+
+    expect(
+      await screen.findByText(
+        /с главной по карте сайта, свежие адреса первыми; карта кончилась или её нет — дальше по ссылкам сайта\. На донора — не больше 500 страниц, 1\s500 запросов и 30 мин \(сайту с долгой паузой — до 2 ч, чтобы успеть страницы\); пауза между страницами — та, что просит сайт в robots\.txt, но не меньше 2 с и не больше 5 с\. Что кончилось первым — под значком обхода\./,
+      ),
+    ).toBeInTheDocument();
   });
 });

@@ -58,6 +58,7 @@ import { InfoHint } from '../components/InfoHint';
 import { Seams } from '../components/Seams';
 import { Unfold } from '../runs/Unfold';
 import { CrawlState, TargetsTable, healthLines, isActive } from './CrawlTable';
+import { crawlRule } from './crawlWords';
 import { ManualDonor } from './ManualDonor';
 import { StalePrices } from './StalePrices';
 import { notify } from '../notices';
@@ -113,15 +114,17 @@ function RecentCrawls({ view }: { view: CrawlsView | undefined }) {
       {/* На телефоне строка складывается в ярусы — домен, значок, дата, —
           а не ужимает значок до «идё…» (06.10.2026). */}
       {/* Доля закрытых страниц и мера здоровья ТЗ — в строке с датой (сверка ТЗ
-          11.10.2026): под значком они растягивали бы строку списка в ярусы. */}
+          11.10.2026): под значком они растягивали бы строку списка в ярусы. Почему обход
+          кончился — под значком, от его края (23.10.2026): по центру под значком строка
+          шире значка читалась отдельно от него. Домен, значок и дата — по первой строке. */}
       {rows.map((row) => {
         const health = healthLines(row);
         return (
-          <Group key={row.id} gap="xs">
+          <Group key={row.id} gap="xs" align="baseline">
             <Text size="sm" className="cellName">
               <Seams text={row.host} />
             </Text>
-            <CrawlState crawl={row} share={false} />
+            <CrawlState crawl={row} share={false} align="start" />
             <Text size="xs" c="dimmed">
               {formatDateTime(row.finished_at ?? row.created_at)}
               {row.requested_by ? ` · ${row.requested_by}` : ''}
@@ -214,12 +217,13 @@ function healthRule(data: CrawlTargets | undefined): string {
   );
 }
 
-/** Что панель делает — в «i» у заголовка, а не абзацем над таблицей. */
+/** Что панель делает — в «i» у заголовка, а не абзацем над таблицей. Путь обхода и его
+ *  потолки — числами сервера (`crawlRule`): что из них кончилось, называет значок. */
 function about(data: CrawlTargets | undefined): string {
   return (
-    `Этап 2 начинается здесь: обходим доноров с известной и свежей ценой — до ` +
-    `${formatNumber(data?.max_pages ?? 1000)} страниц на донора — и ищем, кому они ставят ` +
-    'ссылки. Кандидаты в рекламодатели считаются сами, когда обход закончится.' +
+    'Этап 2 начинается здесь: обходим доноров с известной и свежей ценой и ищем, кому они ' +
+    'ставят ссылки. Кандидаты в рекламодатели считаются сами, когда обход закончится.' +
+    crawlRule(data) +
     healthRule(data)
   );
 }

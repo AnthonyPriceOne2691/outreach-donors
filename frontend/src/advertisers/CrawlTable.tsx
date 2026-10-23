@@ -7,6 +7,9 @@
  * запросов, а от этой доли считается смета Этапа 2. Число — с запросами за ним:
  * «закрыто 100%» на трёх запросах и на тысяче — разные новости. Под ним — мера
  * здоровья ТЗ словами ТЗ: «403/429/5xx/таймаут — 4,2% за последние 500 запросов».
+ *
+ * **Значок — с потолком, под ним — почему обход кончился** (23.10.2026, `crawlWords`): один
+ * вид в таблице доноров, последних обходах и «Приёмке по донорам».
  */
 
 import { Badge, Checkbox, Group, Stack, Table, Text } from '@mantine/core';
@@ -15,8 +18,9 @@ import type { CrawlRow, CrawlTarget } from '../api/crawls';
 import type { Column } from '../components/ColumnsHead';
 import { ColumnsHead } from '../components/ColumnsHead';
 import { Seams } from '../components/Seams';
-import { formatDate, formatMoney, formatNumber, formatPercent, plural } from '../format';
+import { formatDate, formatMoney, formatNumber, formatPercent } from '../format';
 import { RunReason } from '../runs/RunReason';
+import { pagesOutOf, requestsOf, stopWords } from './crawlWords';
 
 const ACTIVE = new Set(['queued', 'running']);
 
@@ -24,9 +28,9 @@ export function isActive(crawl: CrawlRow | null): boolean {
   return crawl !== null && ACTIVE.has(crawl.status);
 }
 
-/** Что с обходом — словами и цветом. */
+/** Что с обходом — словами и цветом; законченный — страницы против потолка (`pagesOutOf`). */
 export function crawlState(crawl: CrawlRow): { label: string; color: string } {
-  const pages = `${formatNumber(crawl.pages)} ${plural(crawl.pages, 'страница', 'страницы', 'страниц')}`;
+  const pages = pagesOutOf(crawl);
   if (crawl.status === 'queued') return { label: 'в очереди', color: 'gray' };
   if (crawl.status === 'running') {
     return {
@@ -49,11 +53,6 @@ export function crawlState(crawl: CrawlRow): { label: string; color: string } {
   }
 }
 
-/** «480 запросов» — родительный после «из» и «за последние». */
-function requestsWord(count: number): string {
-  return `${formatNumber(count)} ${plural(count, 'запроса', 'запросов', 'запросов')}`;
-}
-
 /** «закрыто 12,5% из 480 запросов» — или `null`, если доли нет: обход идёт (числа пишет
  *  его конец), не сделал ни одного запроса или записан до замера. Десятая — как в замере
  *  доступности доноров (`okf/crawl-access.md`: 8,3%), а не целые проценты. */
@@ -61,7 +60,7 @@ export function closedShare(crawl: CrawlRow): string | null {
   const share = crawl.blocked_share ?? null;
   const requests = crawl.requests ?? null;
   if (share === null || requests === null) return null;
-  return `закрыто ${formatPercent(share)} из ${requestsWord(requests)}`;
+  return `закрыто ${formatPercent(share)} из ${requestsOf(requests)}`;
 }
 
 /** Мера здоровья ТЗ — «доля 403/429/5xx/timeout за последние 500 запросов» — на конец
@@ -71,7 +70,7 @@ export function failureShare(crawl: CrawlRow): string | null {
   const share = crawl.failure_share ?? null;
   const window = crawl.window ?? null;
   if (share === null || window === null) return null;
-  return `403/429/5xx/таймаут — ${formatPercent(share)} за последние ${requestsWord(window)}`;
+  return `403/429/5xx/таймаут — ${formatPercent(share)} за последние ${requestsOf(window)}`;
 }
 
 /** Числа здоровья обхода строками: закрытые страницы и мера ТЗ. */
@@ -95,9 +94,25 @@ export function degradationText(degradation: Record<string, string> | undefined)
   return lines.length === 0 ? null : ['Не хватило:', ...lines].join('\n');
 }
 
-/** Состояние обхода значком; `share` — доля закрытых страниц второй строкой под ним (в
- *  таблице доноров). Строка последних обходов называет долю сама, в строке с датой. */
-export function CrawlState({ crawl, share = true }: { crawl: CrawlRow | null; share?: boolean }) {
+/** Строки под значком переносятся в ширине колонки: ячейки `fixedTable` в строку не
+ *  переносятся, и «кончился час на донора; сайт просит паузу 6 с между страницами»
+ *  вылезала из колонки «Последний обход» на 62 px с каждой стороны — на дату цены и число
+ *  ссылок; строка меры здоровья — на 28–34 px (замер 23.10.2026, 1440). */
+const WRAPS = { whiteSpace: 'normal', textWrap: 'balance' } as const;
+
+/** Состояние обхода значком; под ним — почему законченный обход кончился, и везде, где
+ *  значок стоит. `share` — ещё и доля закрытых страниц строками ниже (в таблице доноров);
+ *  строка последних обходов называет долю сама, в строке с датой. `align` — по центру
+ *  колонки таблицы или от края значка в строке списка. */
+export function CrawlState({
+  crawl,
+  share = true,
+  align = 'center',
+}: {
+  crawl: CrawlRow | null;
+  share?: boolean;
+  align?: 'center' | 'start';
+}) {
   if (crawl === null) {
     return (
       <Text size="sm" c="dimmed">
@@ -106,7 +121,10 @@ export function CrawlState({ crawl, share = true }: { crawl: CrawlRow | null; sh
     );
   }
   const state = crawlState(crawl);
-  const lines = share ? healthLines(crawl) : [];
+  // Причина — первой, до чисел здоровья: это ответ на «почему не 1 000».
+  const lines = [stopWords(crawl), ...(share ? healthLines(crawl) : [])].filter(
+    (said) => said !== null,
+  );
   // Причина и «не хватило» — одной запиской за одним значком: два «!» в ячейке читались бы
   // как две разные беды.
   const note = [crawl.reason, degradationText(crawl.degradation)].filter(Boolean).join('\n');
@@ -128,10 +146,10 @@ export function CrawlState({ crawl, share = true }: { crawl: CrawlRow | null; sh
   // Под значком, а не рядом: значок «обойдён: 1 000 страниц» с долей в одну строку
   // не помещается в колонку «Последний обход».
   return (
-    <Stack gap={2} align="center">
+    <Stack gap={2} align={align === 'center' ? 'center' : 'flex-start'}>
       {line}
       {lines.map((said) => (
-        <Text key={said} size="xs" c="dimmed">
+        <Text key={said} size="xs" c="dimmed" style={WRAPS}>
           {said}
         </Text>
       ))}

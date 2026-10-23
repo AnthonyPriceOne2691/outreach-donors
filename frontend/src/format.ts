@@ -107,6 +107,11 @@ export function formatPercent(share: number | null | undefined, digits = 1): str
   return `${percentFormat(exact).format(share * 100)}%`;
 }
 
+/** Секунды с десятой: «6 с», «2,5 с», «1 000 с» — пауза между страницами обхода. */
+export function formatSeconds(seconds: number): string {
+  return `${percentFormat(1).format(seconds)} с`;
+}
+
 /** Слово при числе: `plural(4, 'письмо', 'письма', 'писем')` — «письма». */
 export function plural(count: number, one: string, few: string, many: string): string {
   const whole = Math.abs(Math.trunc(count));
