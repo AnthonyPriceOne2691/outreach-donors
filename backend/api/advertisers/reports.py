@@ -26,6 +26,7 @@ from backend.api.advertisers.report_schemas import (
     AdvertiserPageQuery,
     AdvertiserQuery,
     DonorAcceptance,
+    FindingsView,
     TallyView,
 )
 from backend.api.crawls.schemas import CrawlRow
@@ -106,8 +107,9 @@ async def accepted(
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> AcceptanceView:
-    """Каждый обойдённый донор: сколько рекламодателей найдено, сколько с адресом,
-    какой доле ушло письмо — и все доноры вместе, по разным доменам."""
+    """Каждый обойдённый донор: что нашёл обход (домены по вердиктам и страницы со
+    ссылками), сколько рекламодателей, сколько с адресом, какой доле ушло письмо — и все
+    доноры вместе: рекламодатели — по разным доменам, найденное обходом — суммой."""
     report = await acceptance.acceptance(session, limit=limit)
     crawls = await board.latest_by_host(session, [row.host for row in report.donors])
     pages = crawl_cfg.MAX_PAGES_PER_DONOR
@@ -119,12 +121,14 @@ async def accepted(
                 if row.host in crawls
                 else None,
                 tally=TallyView.of(row.tally),
+                findings=FindingsView.of(row.findings),
                 supplier=row.supplier,
             )
             for row in report.donors
         ],
         total=report.total,
         overall=TallyView.of(report.overall),
+        overall_findings=FindingsView.of(report.overall_findings),
         target_with_address=acceptance.TARGET_WITH_ADDRESS,
         target_sent_share=acceptance.TARGET_SENT_SHARE,
     )
