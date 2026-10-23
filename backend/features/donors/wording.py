@@ -127,6 +127,13 @@ def country_title(code: str | None) -> str:
     return _country_name(code) or code.upper()
 
 
+def region_refusal(reason: str | None) -> bool:
+    """Причина отсева — регион: «DE не входит в топ-5…». Правило региона пишет её кодом страны
+    прогона, который мерил домен (`donors/geo.check_geo`), — у ручного ввода страны нет, и этой
+    причиной он не отказывает (`price_refusal`)."""
+    return reason is not None and _LEADING_COUNTRY.match(reason) is not None
+
+
 def reject_reason_text(reason: str | None) -> str | None:
     """Причина отсева словами: код страны в начале — её названием.
 

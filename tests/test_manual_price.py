@@ -450,6 +450,27 @@ class TestRefusals:
         await _nothing_changed(session, 1)
         assert (donor.status, donor.review) == (DonorStatus.UNSUITABLE, None)
 
+    async def test_a_region_refusal_of_another_run_is_not_a_refusal(
+        self, session: AsyncSession
+    ) -> None:
+        """Регион судят страной прогона, который мерил домен, а у ручного ввода страны нет:
+        отсеянный прогоном по одной стране за то, что её нет в топе его трафика, заводится, как
+        новый, — словом человека (тест-группа 23.10.2026: «при заносе донора требований по ГЕО
+        не указывалось»). Остальные пороги регион не проверяет — он идёт последним."""
+        await make_donor(session, "example.com", review=None)
+        donor = await _donor(session, "example.com")
+        donor.status = DonorStatus.UNSUITABLE
+        donor.reject_reason = "DE не входит в топ-5 и даёт меньше 20%"
+
+        entered = await enter_host(session, "example.com", price(), now=NOW)
+
+        assert entered.created is True
+        assert (donor.status, donor.review, donor.entered_by) == (
+            DonorStatus.SUITABLE,
+            "accepted",
+            WHO,
+        )
+
 
 # --- консоль ---------------------------------------------------------------------------------
 
