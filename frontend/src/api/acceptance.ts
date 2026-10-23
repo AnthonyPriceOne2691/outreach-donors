@@ -22,11 +22,28 @@ export interface Tally {
   accepted: boolean;
 }
 
+/** Что нашёл обход донора (`crawl/findings.py`): домены его кандидатов по вердиктам и страницы
+ *  со ссылками. Рекламодателей донора — «куплено» и ещё те, кому человек сказал «пишем». */
+export interface Findings {
+  /** «Куплено» скоринга без тех, кому человек сказал «не пишем». */
+  bought: number;
+  /** «Спорно» — все, и решённые, и ждущие человека. */
+  pending: number;
+  /** Из спорных — решённые человеком: «пишем» или «не пишем». */
+  decided: number;
+  skipped: number;
+  /** «Кому не пишем»: домен из списка. */
+  blocked: number;
+  /** Разных страниц обхода со ссылкой на рекламодателя, которому пишем. */
+  pages: number;
+}
+
 export interface DonorAcceptance {
   host: string;
   /** Последний обход донора — тем же видом, что на панели «Обход доноров». */
   crawl: CrawlRow | null;
   tally: Tally;
+  findings: Findings;
   /** Донор-поставщик: его рекламодателей не трогаем, порог ему не задача. */
   supplier: boolean;
 }
@@ -38,6 +55,8 @@ export interface AcceptanceView {
   /** Все доноры вместе, без поставщиков, — по разным доменам. Справочно: критерий ТЗ —
    *  по донору. */
   overall: Tally;
+  /** Что нашли обходы всех доноров, кроме поставщиков, — суммой по донорам. */
+  overall_findings: Findings;
   /** Пороги ТЗ — от сервера, а не копией чисел в экране. */
   target_with_address: number;
   target_sent_share: number;
