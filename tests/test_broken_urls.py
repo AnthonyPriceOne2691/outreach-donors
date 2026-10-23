@@ -16,11 +16,11 @@ import pytest
 from backend.features.contacts import mx
 from backend.features.contacts.ladder import ContactLadder
 from backend.features.contacts.sweep_trace import SiteTrace
+from backend.features.crawl.frontier import crawlable, same_site_links
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.links import harvest
 from backend.features.crawl.robots import absent, parse_robots
 from backend.features.crawl.sitemap import SitemapReader, _same_site
-from backend.features.crawl.walk import _crawlable, same_site_links
 from backend.features.donors.author_door import author_door
 from backend.features.donors.backfill import _site_search
 from backend.features.donors.site_index import index_homes
@@ -117,7 +117,7 @@ class TestOnePageOneBrokenLink:
 
     @pytest.mark.parametrize("url", BROKEN)
     def test_broken_address_is_not_a_page_of_ours(self, url: str) -> None:
-        assert not _crawlable(url, "site.com")
+        assert not crawlable(url, "site.com")
 
     def test_redirect_to_a_broken_address_is_not_a_new_host(self) -> None:
         trace = SiteTrace(hosts={"site.com"})

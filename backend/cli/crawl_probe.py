@@ -82,7 +82,10 @@ def add_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
         "--seconds",
         type=float,
         default=cfg.MAX_SECONDS_PER_DONOR,
-        help=f"потолок времени на донора (по умолчанию {cfg.MAX_SECONDS_PER_DONOR:.0f} с)",
+        help=(
+            f"срок на донора (по умолчанию {cfg.MAX_SECONDS_PER_DONOR:.0f} с); сайту с долгой "
+            f"паузой — по паузе, до {cfg.MAX_SECONDS_SLOW:.0f} с (CRAWL_MAX_SECONDS_SLOW)"
+        ),
     )
     crawl.add_argument(
         "--browser",
@@ -131,10 +134,11 @@ def _print_report(report: CrawlReport) -> None:
     print(f"  robots.txt:     {report.robots_status.value}", end="")
     print(f", пауза {report.crawl_delay} с" if report.crawl_delay else "")
     print(f"  список страниц: {report.source}", end="")
-    if report.source == "sitemap":
-        print(f" (дочитан: {'да' if report.sitemap_complete else 'нет'})")
-    else:
-        print()
+    if report.source.startswith("sitemap"):
+        print(f" (дочитан: {'да' if report.sitemap_complete else 'нет'})", end="")
+    print(f", с карты {report.pages_from_sitemap}, по ссылкам {report.pages_from_links}")
+    if report.time_budget_sec is not None:
+        print(f"  срок на донора: {report.time_budget_sec:.0f} с")
     print(
         f"  запросов:       {health.get('requests', 0)} "
         f"(открыто {health.get('opened', 0)}, нет страницы {health.get('missing', 0)}, "

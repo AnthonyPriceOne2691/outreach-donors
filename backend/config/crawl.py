@@ -40,6 +40,11 @@ class _Crawl(DomainSettings):
     # Час: боевой обход шёл ~1,4 с на страницу (200 за 259–297 с), то есть
     # 1 000 страниц — около 25 минут; прежние 10 минут обрывали бы на ~400.
     max_seconds_per_donor: float = Field(default=3_600.0, validation_alias="CRAWL_MAX_SECONDS")
+    # Потолок срока сайту с долгой паузой (23.10.2026): срок донора — столько, чтобы при
+    # его паузе успеть потолок страниц, но не меньше срока выше и не больше этого
+    # (`crawl/pace.py`): с долгой паузой час не вмещал и половины потолка. Три часа —
+    # тысяча страниц при самой долгой паузе, которой слушаемся (10 с), и обычном ответе.
+    max_seconds_slow: float = Field(default=10_800.0, validation_alias="CRAWL_MAX_SECONDS_SLOW")
     # Страницы больше этого размера не разбираем.
     max_page_bytes: int = Field(default=3_000_000, validation_alias="CRAWL_MAX_PAGE_BYTES")
     page_timeout_sec: float = Field(default=15.0, validation_alias="CRAWL_PAGE_TIMEOUT_SEC")
@@ -222,6 +227,7 @@ _s = _Crawl()
 MAX_PAGES_PER_DONOR: int = _s.max_pages_per_donor
 MAX_ATTEMPTS_PER_DONOR: int = _s.max_attempts_per_donor
 MAX_SECONDS_PER_DONOR: float = _s.max_seconds_per_donor
+MAX_SECONDS_SLOW: float = _s.max_seconds_slow
 MAX_PAGE_BYTES: int = _s.max_page_bytes
 PAGE_TIMEOUT_SEC: float = _s.page_timeout_sec
 DELAY_SEC: float = _s.delay_sec

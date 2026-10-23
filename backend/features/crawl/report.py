@@ -38,7 +38,12 @@ class CrawlReport:
     crawl_delay: float | None = None
     sitemap_found: bool | None = False
     sitemap_complete: bool = False
-    source: str = "none"  # откуда брались адреса: sitemap или ссылки
+    source: str = "none"  # откуда брались адреса: sitemap, links или sitemap+links
+    # Сколько страниц открыто с карты и сколько по ссылкам (главная — ни там, ни там).
+    pages_from_sitemap: int = 0
+    pages_from_links: int = 0
+    # Срок донора по паузе сайта (`pace.py`); пусто — обход кончился раньше расчёта.
+    time_budget_sec: float | None = None
     elapsed_sec: float = 0.0
     slowed_down: bool = False
     health: dict[str, float | int] = field(default_factory=dict)
@@ -67,6 +72,9 @@ class CrawlReport:
             "sitemap_found": self.sitemap_found,
             "sitemap_complete": self.sitemap_complete,
             "source": self.source,
+            "pages_from_sitemap": self.pages_from_sitemap,
+            "pages_from_links": self.pages_from_links,
+            "time_budget_sec": self.time_budget_sec,
             "elapsed_sec": round(self.elapsed_sec, 1),
             "slowed_down": self.slowed_down,
             "degradation": self.degradation,

@@ -76,6 +76,7 @@ async def crawl_targets(
         health_window=crawl_cfg.HEALTH_WINDOW,
         slow_down_share=crawl_cfg.SLOW_DOWN_SHARE,
         stop_share=crawl_cfg.STOP_SHARE,
+        max_seconds_slow=crawl_cfg.MAX_SECONDS_SLOW,
     )
 
 
