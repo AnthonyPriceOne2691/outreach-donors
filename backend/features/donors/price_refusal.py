@@ -19,7 +19,7 @@ from backend.features.core.models.outreach import SenderModel
 from backend.features.core.models.run import RunVerdictModel
 from backend.features.donors.host import normalize_host
 from backend.features.donors.standing import decided_in, donor_now
-from backend.features.donors.wording import reject_reason_text
+from backend.features.donors.wording import region_refusal, reject_reason_text
 from backend.features.runs.exclusions import (
     ExclusionReason,
     Exclusions,
@@ -102,6 +102,11 @@ async def _candidate_refusal(session: AsyncSession, donor: DonorModel, host: str
     Решение о кандидате принимают в очереди прогона — там судья, выдача и
     причина, по которой он туда попал. Не прошедший пороги в очередь не
     попадает вовсе: «годен ли по цифрам» решают пороги, а не ручной ввод.
+
+    **Регион — не отказ** (тест-группа 23.10.2026). Его судят страной прогона, который мерил
+    домен, а у ручного ввода страны нет: отказ «Германия не входит в топ-5» человеку, не
+    задававшему никакой страны, называл чужое требование, а новый домен та же форма заводит
+    без порогов вовсе. Регион проверяется последним — остальные пороги такой домен прошёл.
     """
     waits = await decided_in(session, donor.domain_id, None)
     if waits is not None:
@@ -109,7 +114,7 @@ async def _candidate_refusal(session: AsyncSession, donor: DonorModel, host: str
             f"{host} ждёт решения в очереди прогона №{waits}: решают там. Примете — "
             "цену укажете на карточке донора."
         )
-    if donor.status is DonorStatus.UNSUITABLE:
+    if donor.status is DonorStatus.UNSUITABLE and not region_refusal(donor.reject_reason):
         why = reject_reason_text(donor.reject_reason)
         return (
             f"{host} не прошёл пороги отбора{f' ({why})' if why else ''}: Этап 2 обходит "

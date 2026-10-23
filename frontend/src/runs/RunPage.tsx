@@ -300,7 +300,7 @@ export function RunPage() {
             <Group align="flex-end" gap="md" className="fieldRow runFields">
               <Select
                 label="Страна выдачи"
-                description="Список приходит с сервера"
+                description="По ней — и выдача, и регион донора"
                 w={{ base: '100%', xs: WIDTH.country }}
                 searchable
                 value={country}

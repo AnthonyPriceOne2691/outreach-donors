@@ -1532,7 +1532,7 @@
       "worst": "price_is:50"
     },
     "backend/features/donors/price_refusal.py": {
-      "lines": 136,
+      "lines": 141,
       "complexity": 7,
       "worst": "refusal_for:73"
     },
@@ -1587,9 +1587,9 @@
       "worst": "check_metrics:105"
     },
     "backend/features/donors/wording.py": {
-      "lines": 177,
+      "lines": 184,
       "complexity": 4,
-      "worst": "reject_reason_text:130"
+      "worst": "reject_reason_text:137"
     },
     "backend/features/keywords/__init__.py": {
       "lines": 2,
