@@ -14,7 +14,9 @@ Anthony выбрал пачку — «вся очередь» (06.10.2026): пи
 добивка и ответ уходят своим путём и с ящика своей переписки (`mailbox.py`).
 
 **Когда пачка останавливается.** Ящики выбрали дневной лимит — остальное
-ждёт завтра в очереди. Связь с почтой оборвалась — ушло ли письмо,
+ждёт в очереди, но само не уйдёт: итог пачки так и говорит и называет, когда
+нажать её снова (`_stop_words`). Без этого «завтра лимит откроется» читалось
+как «завтра уйдут сами» (замечание тест-группы 23.10.2026). Связь с почтой оборвалась — ушло ли письмо,
 неизвестно, и слать дальше вслепую нельзя: письмо остаётся «отправляется»
 (`Sending._hand_over`), и его исход решает событие платформы или человек
 в блоке «Исход неизвестен» (`unknown_outcome.py`). Почта отказала не письму,
@@ -48,6 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core.domain import Stage
 from backend.features.core.stages import SalesNotConnectedError
 from backend.features.crawl.niche import LINKS
+from backend.features.letters import mailbox
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import (
     NoSenderError,
@@ -101,6 +104,12 @@ _WHY: tuple[tuple[type[SendError], str], ...] = (
 #: Отказ предохранителя (`sendgrid.py`): пока список своих адресов не пуст,
 #: письма уходят только на них.
 _ALLOWLIST_MARK = "не в списке разрешённых получателей"
+#: Пачка встала на лимите ящиков: письма остаются в очереди, но сами не уйдут. Первые письма
+#: доноров и рекламодателей уходят только пачкой или по одному; у продаж — так же, пока
+#: автоотправка выключена (включённая закрывает пачку вовсе, `sales/mail.py`).
+BY_HAND = "Сами письма не уйдут — очередь уходит только по нажатию"
+_AGAIN_TOMORROW = "завтра нажмите «Отправить очередь» ещё раз"
+_AGAIN_LATER = "нажмите «Отправить очередь» снова, когда ящики смогут писать"
 
 
 @dataclass(slots=True)
@@ -178,7 +187,7 @@ async def _send_one(
         # следующее письмо упрётся в то же — пачка встаёт с причиной словами, а не
         # «связь с почтой оборвалась».
         logger.info("письма: пачка встала на письме №%s — %s", letter_id, exc)
-        return str(exc)
+        return _stop_words(exc)
     except SendError as exc:
         logger.info("письма: письмо №%s пачки не ушло — %s", letter_id, exc)
         report.refused[why(exc)] += 1
@@ -195,6 +204,17 @@ async def _send_one(
         )
     report.sent += 1
     return None
+
+
+def _stop_words(exc: NoSenderError | SalesNotConnectedError) -> str:
+    """Почему пачка встала, словами отказа, — а когда писать некому, ещё и что письма сами не
+    уйдут и когда нажать пачку снова: завтра, если ящики выбрали дневной лимит (`mailbox.TOMORROW`),
+    иначе — когда ящики смогут писать (все выключены или отсеяны лимитами)."""
+    said = str(exc)
+    if not isinstance(exc, NoSenderError):
+        return said
+    again = _AGAIN_TOMORROW if said.endswith(mailbox.TOMORROW) else _AGAIN_LATER
+    return f"{said}. {BY_HAND}: {again}"
 
 
 def _refused_all(letter_id: int, refusal: PlatformRefusalError) -> str:
