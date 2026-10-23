@@ -41,6 +41,12 @@ PATHS = [
     "/sales",
     "/sales?tab=hypotheses",
     "/sales/import",
+    # «Письма» и «Диалоги» — пунктами доноров и рекламодателей (23.10.2026); прежние
+    # адреса без части открываются по-прежнему.
+    "/letters?stage=donors",
+    "/letters?stage=advertisers",
+    "/threads?stage=donors",
+    "/threads?stage=advertisers",
     "/letters",
     "/threads",
     # Вкладка экрана диалогов со своими кнопками (28.09.2026).

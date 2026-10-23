@@ -11,7 +11,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { Me } from '../api/types';
@@ -106,6 +106,26 @@ describe('части списка диалогов', () => {
     expect(within(brand).queryByText(/рекламодатель/)).not.toBeInTheDocument();
     expect(screen.queryByText('donor.example.test')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Выгрузить лиды' })).toBeInTheDocument();
+  });
+
+  it('на телефоне имя части — на ступень меньше: «Диалоги с рекламодателями» — одной строкой', async () => {
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) =>
+        ({
+          matches: query === '(max-width: 36em)',
+          media: query,
+          onchange: null,
+          addListener: () => {},
+          removeListener: () => {},
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          dispatchEvent: () => false,
+        }) as MediaQueryList,
+    );
+    await open('/threads?stage=advertisers');
+
+    const title = await screen.findByRole('heading', { name: 'Диалоги с рекламодателями' });
+    expect(title.tagName).toBe('H4');
   });
 
   it('пустая часть называет экран писем, где заводится её переписка', async () => {

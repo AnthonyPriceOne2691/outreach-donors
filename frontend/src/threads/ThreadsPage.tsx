@@ -26,7 +26,7 @@
  * а первая её страница из кэша открывает вкладку сразу.
  */
 
-import { Alert, Card, Group, Loader, SegmentedControl, Stack } from '@mantine/core';
+import { Alert, Card, Loader, SegmentedControl, Stack } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -56,19 +56,19 @@ function tabLabel(tab: ThreadTab, count: number | undefined): string {
 }
 
 /** Шапка: заголовок части, число и выгрузка лидов. Лиды файлом — ответы на оффер
- *  рекламодателю: у частей доноров и продаж их нет, и кнопки там нет. */
-function Head({ list }: { list: ThreadListState }) {
+ *  рекламодателю: у частей доноров и продаж их нет, и кнопки там нет. На телефоне
+ *  заголовок на ступень меньше (`ThreadsTitle`, `compact`). */
+function Head({ list, narrow }: { list: ThreadListState; narrow: boolean }) {
   const part = list.filters.part;
   return (
     <Card className="glassPanel" px="xl" py="lg">
-      <Group justify="space-between" gap="sm">
-        <ThreadsTitle
-          total={list.total}
-          found={isThreadFiltered(list.typed) ? list.shown.length : null}
-          part={part}
-        />
-        {hasLeads(part) && <LeadsExport />}
-      </Group>
+      <ThreadsTitle
+        total={list.total}
+        found={isThreadFiltered(list.typed) ? list.shown.length : null}
+        part={part}
+        compact={narrow}
+        aside={hasLeads(part) ? <LeadsExport /> : undefined}
+      />
     </Card>
   );
 }
@@ -81,8 +81,10 @@ export function ThreadsPage() {
   // На первой вкладке — ради числа во вкладке: первая страница, та же, что
   // откроется на второй.
   const unbound = useUnboundPage(tab === 'unbound' ? page : 1);
-  // На узком окне вкладки — во всю ширину, поровну.
-  const narrow = useMediaQuery('(max-width: 36em)') === true;
+  // На узком окне вкладки — во всю ширину, поровну, а заголовок — на ступень меньше.
+  // Значение — с первой отрисовки: иначе телефон на миг рисовал бы крупный заголовок.
+  const narrow =
+    useMediaQuery('(max-width: 36em)', false, { getInitialValueInEffect: false }) === true;
 
   const list = useThreadList();
   const { isLoading, error } = list.query;
@@ -115,7 +117,7 @@ export function ThreadsPage() {
 
   return (
     <Stack gap="lg">
-      <Head list={list} />
+      <Head list={list} narrow={narrow} />
 
       <Card className="glass tableCard" p="md">
         <Stack gap="sm">

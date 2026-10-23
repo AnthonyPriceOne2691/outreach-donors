@@ -2,6 +2,9 @@
 
 Часть каталога `ui_screens.py`, своим модулем: основной каталог стоит у предела длины файла.
 
+«Письма рекламодателям» (`letters-advertisers`, 23.10.2026) — переключатель двух аудиторий
+Этапа 2: с отдельными пунктами меню он ушёл с «Писем донорам», и мерить его — здесь.
+
 Текст первого письма правится в окне (09.10.2026). Мерятся два состояния, и в каждом —
 то, на что в нём смотрят:
 
@@ -25,6 +28,9 @@ from playwright.sync_api import expect
 DIALOG = "Текст первого письма"
 #: Значок «поправлен / по умолчанию» рядом с кнопкой окна.
 BADGE = "[data-letter-draft] .mantine-Badge-root"
+#: Переключатель адресата и его подпись — без подвижной подложки.
+SWITCH = "[aria-label='Кому письма']"
+INNER = ".mantine-SegmentedControl-innerLabel"
 
 
 def open_letter_draft(page: Any) -> None:
@@ -60,7 +66,7 @@ def letters_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         "letter-draft": {
             # Эталон «число в поле формы» здесь не меряется — форма сборки под окном
             # размыта подложкой; мелкий текст в поле сверяется с ним на «letters».
-            "path": "/letters",
+            "path": "/letters?stage=donors",
             "ready": ("button", DIALOG),
             "probes": [
                 ("заголовок окна", "[role='dialog'] .mantine-Modal-title", big),
@@ -77,9 +83,23 @@ def letters_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             ],
         },
         "letter-draft-badge": {
-            "path": "/letters",
+            "path": "/letters?stage=donors",
             "ready": ("button", DIALOG),
             "probes": [("значок «поправлен»", BADGE, norm)],
+        },
+        # Переключатель аудитории: подпись невыбранной тише выбранной — меряются обе, и
+        # внутренняя подпись, а не обёртка `-label`: вырезка обёртки захватывает подвижную
+        # подложку и занижает число (24.09.2026 — 3,5 : 1 тексту, который читается чисто).
+        "letters-advertisers": {
+            "path": "/letters?stage=advertisers",
+            "ready": ("heading", "Письма рекламодателям"),
+            "probes": [
+                ("заголовок раздела", "h3", big),
+                ("аудитория, выбранная", f"{SWITCH} label[data-active] {INNER}", norm),
+                ("аудитория, другая", f"{SWITCH} label:not([data-active]) {INNER}", norm),
+                ("пояснение под ним", "p.mantine-Text-root", norm),
+                ("пункт меню части", "nav a[data-active]", norm),
+            ],
         },
     }
 

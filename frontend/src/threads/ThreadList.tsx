@@ -302,15 +302,14 @@ export function ThreadList() {
 
   return (
     <Stack gap="sm" className="threadListColumn">
-      <Group justify="space-between" wrap="nowrap" gap="xs">
-        <ThreadsTitle
-          total={total}
-          found={isThreadFiltered(list.typed) ? list.shown.length : null}
-          part={list.filters.part}
-        />
-        {/* Лиды файлом — ответы на оффер рекламодателю: у доноров и продаж их нет. */}
-        {hasLeads(list.filters.part) && <LeadsExport compact />}
-      </Group>
+      {/* Лиды файлом — ответы на оффер рекламодателю: у доноров и продаж их нет. */}
+      <ThreadsTitle
+        total={total}
+        found={isThreadFiltered(list.typed) ? list.shown.length : null}
+        part={list.filters.part}
+        compact
+        aside={hasLeads(list.filters.part) ? <LeadsExport compact /> : undefined}
+      />
       <SegmentedControl
         aria-label="Вкладки диалогов"
         fullWidth

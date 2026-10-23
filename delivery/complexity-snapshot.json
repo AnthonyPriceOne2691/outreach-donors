@@ -3487,12 +3487,12 @@
       "worst": "ratio_of:82"
     },
     "scripts/ui_hover.py": {
-      "lines": 178,
+      "lines": 184,
       "complexity": 8,
-      "worst": "main:127"
+      "worst": "main:133"
     },
     "scripts/ui_screens.py": {
-      "lines": 449,
+      "lines": 436,
       "complexity": 2,
       "worst": "open_reason:25"
     },
@@ -3507,12 +3507,12 @@
       "worst": "build_from_examples:52"
     },
     "scripts/ui_screens_letters.py": {
-      "lines": 90,
+      "lines": 110,
       "complexity": 1,
-      "worst": "open_letter_draft:30"
+      "worst": "open_letter_draft:36"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 370,
+      "lines": 386,
       "complexity": 2,
       "worst": "unbound_probes:32"
     },

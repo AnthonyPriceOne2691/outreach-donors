@@ -102,8 +102,8 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         # Мерится то, по чему ищут диалог, — донор, состояние, цена, — и
         # значение фильтра в поле: его сверяют с текстом рядом.
         "threads": {
-            "path": "/threads",
-            "ready": ("heading", "Диалоги"),
+            "path": "/threads?stage=donors",
+            "ready": ("heading", "Диалоги с донорами"),
             "probes": [
                 ("заголовок раздела", "h3", big),
                 ("сколько найдено", ".glassPanel h3 + p", norm),
@@ -116,6 +116,22 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("цена", "table tbody td:nth-child(4) p", norm),
                 ("когда последнее событие", "table tbody td:nth-child(5) p", norm),
                 ("пункт меню", "nav a", norm),
+            ],
+        },
+        # Пункты Этапа 1 и Этапа 2 (23.10.2026) — над разными местами полотна: подпись
+        # пункта и подсвеченный пункт; число ждущей работы — янтарным значком.
+        "menu-stages": {
+            "path": "/threads?stage=advertisers",
+            "ready": ("heading", "Диалоги с рекламодателями"),
+            "probes": [
+                *(
+                    (f"пункт «{name}»", f"nav a:has-text('{name}') .mantine-NavLink-label", norm)
+                    for name in ("Письма донорам", "Диалоги с донорами", "Письма рекламодателям")
+                ),
+                ("подсвеченный пункт", "nav a[data-active] .mantine-NavLink-label", norm),
+                ("число ждущей работы", "nav a .mantine-Badge-label", norm),
+                # Имя части в колонке списка — на ступень меньше (`ThreadsTitle`, `compact`).
+                ("заголовок списка части", ".threadListColumn h4", norm),
             ],
         },
         "forms": {

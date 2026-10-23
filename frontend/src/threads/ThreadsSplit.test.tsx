@@ -360,6 +360,20 @@ describe('диалоги на широком окне: список и пере�
     expect(screen.queryByText(`— ${refusal}`)).not.toBeInTheDocument();
   });
 
+  it('имя части в колонке — на ступень меньше, выгрузка лидов — в шапке колонки', async () => {
+    // На 1440 колонка списка — 20rem: «Диалоги с рекламодателями» крупным заголовком рвались
+    // на две строки, и значок выгрузки уходил за край (снимок 23.10.2026).
+    const brand = {
+      ...thread(4, 'brand.example.test', 'lead', '2026-09-20T10:00:00+00:00'),
+      stage: 'advertisers',
+    };
+    await openWide('/threads?stage=advertisers', [...THREADS, brand]);
+
+    const column = screen.getByRole('heading', { name: 'Диалоги с рекламодателями' });
+    expect(column.tagName).toBe('H4');
+    expect(screen.getByRole('button', { name: 'Выгрузить лиды' })).toBeInTheDocument();
+  });
+
   it('поиск — подсказкой в слово, что ищется — в имени поля', async () => {
     // На 1280 колонка списка — 20rem: «Донор или адрес» обрезалось до «Донор или ад»
     // (проверка QA 10.10.2026).
