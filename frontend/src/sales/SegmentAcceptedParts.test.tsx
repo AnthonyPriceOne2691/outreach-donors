@@ -13,7 +13,7 @@
 
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PERMISSION_TITLES } from '../api/labels';
 import type { Me } from '../api/types';
@@ -29,7 +29,7 @@ import { SegmentReport } from './SegmentReport';
 const WAIT = { timeout: 5000 };
 const RUN_ID = 57;
 const READ = `/api/sales/segment/runs/${RUN_ID}`;
-/** «Сейчас» чистой функции — передаётся явно, часы не подменяются. */
+/** «Сейчас»: чистой функции передаётся явно, отчёту целиком — закреплёнными на нём часами `Date`. */
 const NOW = new Date('2026-10-22T09:00:00+00:00');
 const LATER = '2026-10-22T15:40:00+00:00';
 const PASSED = '2026-10-22T08:20:00+00:00';
@@ -226,6 +226,17 @@ describe('принятые по частям — словами', () => {
 });
 
 describe('расшифровка под кнопкой в отчёте прогона', () => {
+  // Отчёт берёт «сейчас» из часов (`new Date()`): с настоящими часами срок фикстуры (`LATER`) стал
+  // прошлым, и 23.10.2026 «ещё не настал» сменилось на «наступил» — тест падал у каждого PR.
+  // Подменяется только `Date`: таймеры настоящие, `findBy` и `waitFor` ждут как прежде.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('готовый прогон: под кнопкой — части числами сервера, сумма сходится с плиткой «Принято»', async () => {
     openReport(detailOf());
 

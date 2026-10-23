@@ -543,7 +543,9 @@ async def test_an_odd_refusal_of_the_module_stops_the_batch_in_words(
 
     assert (report.sent, dict(report.refused), report.left) == (0, {}, 1)
     assert report.stopped is not None
-    assert report.stopped.endswith(said)
+    # Слова отказа — в остановке, но не обязательно в конце: на пути пачки после отказа
+    # `NoSenderError` идёт хвост «сами письма не уйдут…» (`batch._stop_words`, #470).
+    assert said in report.stopped
     assert _seen(source) == []
     await session.refresh(world.letter)
     assert (world.letter.status, world.letter.sender_id) == (MessageStatus.QUEUED, None)
