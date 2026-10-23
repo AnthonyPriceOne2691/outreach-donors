@@ -69,10 +69,8 @@ async def linked(session: AsyncSession, run: CrawlRunModel, path: str, url: str)
 
 @pytest.fixture
 async def alpha(session: AsyncSession) -> CrawlRunModel:
-    """Донор с обходом: кандидаты всех вердиктов и решения человека — «куплено» ×4 (одному
-    «не пишем»), спорные ×3 («пишем», «не пишем», без решения), «мимо» ×2, «кому не
-    пишем». Ссылки обхода: витрина с тремя рекламодателями и спорным без решения, обзор,
-    две ссылки через сеть партнёрок, PDF рекламодателя, страницы «не пишем» и «мимо»."""
+    """Донор: все вердикты и решения человека; ссылки — витрина, обзор, две через сеть
+    партнёрок, PDF рекламодателя, страницы «не пишем» и «мимо»."""
     run = await crawled(session, ALPHA)
     await scored(session, run, "brand-a.test")
     await scored(session, run, "brand-b.test", confirmed=True)
@@ -147,8 +145,7 @@ DONOR = "gamma-donor.test"
 
 
 def _pages() -> list[tuple[str, str]]:
-    """Страницы донора: витрина двух рекламодателей, обзор одного с PDF рядом, ссылка через
-    сеть партнёрок, новость со ссылками на «мимо» и на соцсеть."""
+    """Витрина двух рекламодателей, обзор с PDF, ссылка через сеть, «мимо» и соцсеть."""
     body = {
         "top-5": '<a href="https://brand-a.test/go" rel="sponsored">Brand A</a> '
         '<a href="https://brand-b.test/" rel="sponsored">Brand B</a>',
@@ -175,10 +172,8 @@ def _links() -> list[OutLink]:
 async def test_pages_of_a_crawled_donor_follow_the_pages_of_its_candidates(
     session: AsyncSession,
 ) -> None:
-    """Донор с обходом от начала до конца: страницы, ссылки, скоринг. Страниц — без
-    повторов: у кандидатов их 2 + 1 + 1, а разных — три (витрина у двоих). PDF страницей
-    не считается — как в `pages` кандидата. «Не пишем» рекламодателю за сетью снимает
-    страницу, которую держал только он."""
+    """Обход от начала до конца: у кандидатов страниц 2 + 1 + 1, разных — три (витрина у
+    двоих), PDF не в счёт; «не пишем» рекламодателю за сетью снимает его страницу."""
     run = await save_crawl(
         session,
         CrawlReport(
@@ -226,9 +221,8 @@ def test_advertiser_pages_are_the_pages_of_each_candidate() -> None:
 async def test_all_donors_together_sum_findings_without_suppliers(
     session: AsyncSession, alpha: CrawlRunModel
 ) -> None:
-    """«Вместе» — суммой по донорам: рекламодатель двух доноров — два «куплено» и две
-    страницы, а в «рекламодателях» — один домен. Поставщик в сумму не идёт, а его
-    строка показывает, что нашёл его обход."""
+    """«Вместе» — суммой по донорам, без поставщика: домен двух доноров — два «куплено» и
+    две страницы, а в «рекламодателях» — один."""
     beta = await crawled(session, BETA)
     await scored(session, beta, "brand-a.test")
     await linked(session, beta, "post", "https://brand-a.test/")

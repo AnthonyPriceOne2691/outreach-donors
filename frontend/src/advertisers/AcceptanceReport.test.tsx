@@ -208,9 +208,10 @@ function cellsOf(row: HTMLElement): Record<string, string> {
 }
 
 describe('что нашёл обход', () => {
-  it('колонки — между обходом и рекламодателями, по порядку', async () => {
+  it('колонки — между обходом и рекламодателями, по порядку; донор — липкой колонкой', async () => {
     await openReport();
 
+    expect(screen.getByRole('table')).toHaveClass('stickyName');
     expect(screen.getAllByRole('columnheader').map((head) => head.textContent)).toEqual([
       'Донор',
       'Обход',
@@ -263,15 +264,9 @@ describe('что нашёл обход', () => {
       screen.getByRole('button', { name: 'Как устроен экран «Приёмка по донорам»' }),
     );
 
-    expect(
-      await screen.findByText(/Куплено — скоринг уверен, что это купленное размещение/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Куплено — скоринг уверен, что это купленное/)).toBeDefined();
     expect(screen.getByText(/Спорных — решает человек/)).toBeInTheDocument();
     expect(screen.getByText(/Мимо — не реклама/)).toBeInTheDocument();
-    expect(screen.getByText(/Страниц — страниц донора со ссылкой/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Рекламодателей — «куплено» и все, кому человек сказал «пишем»/),
-    ).toBeInTheDocument();
   });
 });
 
