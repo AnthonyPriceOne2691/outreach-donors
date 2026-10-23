@@ -1,5 +1,5 @@
 /**
- * «Приёмка по донорам» — порог ТЗ Этапа 2 по каждому обойдённому донору.
+ * «Приёмка по донорам» — порог ТЗ Этапа 2 по каждому обойдённому донору и что нашёл его обход.
  *
  * Сверка ТЗ 11.10.2026: «по донору 100 рекламодателей с контактами, дедуплицировано,
  * письма ушли 70% из них» — этих чисел не было нигде. Строка — донор, его последний
@@ -7,21 +7,21 @@
  * сколько у него рекламодателей, сколько из них с адресом, скольким ушло письмо
  * и пройден ли порог. Чего не хватает — словами: «с адресом 34 из 100».
  *
- * **Все доноры вместе — строкой над таблицей, справочно**: критерий ТЗ — по донору, а
- * сумма отвечает на оговорку самого ТЗ («Арифметика», п. 6) — по разным доменам, без
- * поставщиков. Пороги — от сервера.
+ * **Что нашёл обход — колонками между обходом и рекламодателями** (тест-группа 23.10.2026):
+ * «куплено», спорные и сколько решено, «мимо», «кому не пишем», страницы со ссылками — числа
+ * сервера (`crawl/findings.py`). **Все доноры вместе — первой строкой таблицы**, справочно.
  *
  * **С адресом и «ушло» — среди переведённых** (проверка ветки 12.10.2026): домен, снятый
  * стоп-листом, с адресом от Этапа 1 приёмку не украшает. **Поставщик — помечен**: его
  * рекламодателей не трогаем, порог ему не задача. Доноров больше, чем строк, —
- * «показано N из M».
+ * «показано N из M». Пороги — от сервера.
  */
 
-import { Alert, Badge, Card, Group, Loader, Stack, Table, Text } from '@mantine/core';
+import { Alert, Badge, Card, Loader, Stack, Table, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 
 import { fetchAcceptance } from '../api/acceptance';
-import type { AcceptanceView, Tally } from '../api/acceptance';
+import type { AcceptanceView, Findings, Tally } from '../api/acceptance';
 import { refusalOf } from '../api/client';
 import type { Column } from '../components/ColumnsHead';
 import { DataTable } from '../components/DataTable';
@@ -32,25 +32,48 @@ import { CrawlState } from './CrawlTable';
 
 export const ACCEPTANCE_KEY = ['advertisers', 'acceptance'] as const;
 
-const ABOUT =
-  'Рекламодатель донора — его «куплено» и «пишем» последнего обхода, без «не пишем»: тех же ' +
-  'переводит «Перевести в рекламодатели». Один домен у донора — один раз; домен двух доноров ' +
-  'считается у каждого, а в строке «Все доноры вместе» — один раз. С адресом — среди ' +
-  'переведённых, адрес в базе. Письмо ушло — платформа приняла хоть одно письмо, отказ ' +
-  'доставки тоже ушедшее письмо. Доля — от тех, что с адресом. Поставщик помечен: его ' +
-  'рекламодателей не трогаем.';
-
-/** Колонки: донору — остаток; обходу — как «Последний обход» панели обхода (17rem);
- *  числам — по «1 000 · 100%»; приёмке — по «ушло 69,9% из 70%». */
-const COLUMNS: Column[] = [
-  { title: 'Донор' },
-  { title: 'Обход', width: '17rem' },
-  { title: 'Рекламодателей', width: '9.5rem' },
-  { title: 'С адресом', width: '8rem' },
-  { title: 'Письмо ушло', width: '8.5rem' },
-  { title: 'Приёмка', width: '12rem' },
+/** Как устроен вид — абзацем на колонку: подсказку читают, чтобы понять одно число. */
+const ABOUT_LINES = [
+  'Числа — по последнему обходу донора; домен у донора — один раз.',
+  'Куплено — скоринг уверен, что это купленное размещение, и человек не сказал «не пишем».',
+  'Спорных — решает человек; «решено» — сколько он уже решил.',
+  'Мимо — не реклама. Кому не пишем — домен из списка: соцсеть, СМИ, гос. сайт, крупный сайт.',
+  'Страниц — страниц донора со ссылкой на его рекламодателей; витрина с пятью — одна.',
+  'Рекламодателей — «куплено» и все, кому человек сказал «пишем»: их переводит «Перевести в рекламодатели».',
+  'С адресом — из переведённых. Письмо ушло — платформа приняла хоть одно, отказ доставки тоже; доля — от тех, что с адресом.',
+  'Поставщик не считается: его рекламодателей не трогаем. «Все доноры вместе» — рекламодатели, адреса и письма по разным доменам, остальное — суммой.',
 ];
-const TABLE_MIN_WIDTH = 1100;
+
+const ABOUT = (
+  <Stack gap={6}>
+    {ABOUT_LINES.map((line) => (
+      <span key={line}>{line}</span>
+    ))}
+  </Stack>
+);
+
+/** Колонки — по самому длинному содержимому (замер шрифтом экрана 23.10.2026): имя донора
+ *  переносится по швам (`Seams`), обход — по значку «остановлен — смотрит человек», «Кому не
+ *  пишем» — в две строки, спорные — по «решено 1 000», длинный текст обхода и приёмки — переносом. */
+const COLUMNS: Column[] = [
+  { title: 'Донор', width: '11rem' },
+  { title: 'Обход', width: '15.25rem' },
+  { title: 'Куплено', width: '6rem' },
+  { title: 'Спорных', width: '7.25rem' },
+  { title: 'Мимо', width: '5.5rem' },
+  { title: 'Кому не пишем', width: '6rem' },
+  { title: 'Страниц', width: '6rem' },
+  { title: 'Рекламодателей', width: '9.5rem' },
+  { title: 'С адресом', width: '7rem' },
+  { title: 'Письмо ушло', width: '8rem' },
+  { title: 'Приёмка', width: '11rem' },
+];
+/** Уже — прокрутка таблицы, а донор стоит на месте (`stickyName`): сумма ширин колонок. */
+const TABLE_MIN_WIDTH = 1480;
+
+/** На телефоне строка — карточкой, числа — по три в ряд (`phoneCardsRow`); обход и приёмка —
+ *  во всю ширину карточки. В таблице сетки нет, и правило ни на что не действует. */
+const WHOLE_LINE = { gridColumn: '1 / -1' } as const;
 
 /** Чего не хватает до порога — словами; порог пройден — пусто. */
 export function shortOf(tally: Tally, view: AcceptanceView): string[] {
@@ -113,30 +136,77 @@ function Verdict({
   );
 }
 
-function Found({ tally }: { tally: Tally }) {
+/** Число и под ним — пояснение, если оно есть. */
+function WithNote({ value, note }: { value: number; note: string | null }) {
   return (
     <Stack gap={0} align="center">
-      <span>{formatNumber(tally.found)}</span>
-      {/* Не переведённые адреса не получат: искать их начнут после перевода. */}
-      {tally.promoted < tally.found ? (
+      <span>{formatNumber(value)}</span>
+      {note === null ? null : (
         <Text size="xs" c="dimmed">
-          переведено {formatNumber(tally.promoted)}
+          {note}
         </Text>
-      ) : null}
+      )}
     </Stack>
   );
 }
 
-function Overall({ view }: { view: AcceptanceView }) {
-  const all = view.overall;
+/** Что нашёл обход: «куплено», спорные и сколько из них решено, «мимо», «кому не пишем», страницы.
+ *  «Решено» — у каждого числа спорных, и нулём: «никто ещё не смотрел» — тоже ответ. */
+function FoundCells({ found }: { found: Findings }) {
   return (
-    <Group gap="xs" align="center">
-      <Text size="sm">Все доноры вместе — справочно, не критерий:</Text>
-      <Text size="sm" c="dimmed">
-        рекламодателей {formatNumber(all.found)}, с адресом {formatNumber(all.with_address)}, письмо
-        ушло {sentLine(all)}; без поставщиков, домен — один раз
-      </Text>
-    </Group>
+    <>
+      <Table.Td data-label="Куплено">{formatNumber(found.bought)}</Table.Td>
+      <Table.Td data-label="Спорных">
+        <WithNote
+          value={found.pending}
+          note={found.pending > 0 ? `решено\u00a0${formatNumber(found.decided)}` : null}
+        />
+      </Table.Td>
+      <Table.Td data-label="Мимо">{formatNumber(found.skipped)}</Table.Td>
+      <Table.Td data-label="Кому не пишем">{formatNumber(found.blocked)}</Table.Td>
+      <Table.Td data-label="Страниц">{formatNumber(found.pages)}</Table.Td>
+    </>
+  );
+}
+
+/** Рекламодатели, адреса и письма. Не переведённые адреса не получат: искать их начнут после
+ *  перевода — это сказано у числа найденных. */
+function TallyCells({ tally }: { tally: Tally }) {
+  return (
+    <>
+      <Table.Td data-label="Рекламодателей">
+        <WithNote
+          value={tally.found}
+          note={
+            tally.promoted < tally.found ? `переведено\u00a0${formatNumber(tally.promoted)}` : null
+          }
+        />
+      </Table.Td>
+      <Table.Td data-label="С адресом">{formatNumber(tally.with_address)}</Table.Td>
+      <Table.Td data-label="Письмо ушло">{sentLine(tally)}</Table.Td>
+    </>
+  );
+}
+
+/** Все доноры вместе — над донорами, теми же колонками; обхода у суммы нет. */
+function Together({ view }: { view: AcceptanceView }) {
+  return (
+    <Table.Tr>
+      <Table.Td>
+        <Text fw={600}>Все доноры вместе</Text>
+        <Text size="xs" c="dimmed">
+          без поставщиков
+        </Text>
+      </Table.Td>
+      <Table.Td style={WHOLE_LINE} />
+      <FoundCells found={view.overall_findings} />
+      <TallyCells tally={view.overall} />
+      <Table.Td data-label="Приёмка" className="wrapCell" style={WHOLE_LINE}>
+        <Text size="xs" c="dimmed">
+          справочно, не критерий
+        </Text>
+      </Table.Td>
+    </Table.Tr>
   );
 }
 
@@ -153,7 +223,13 @@ function Shown({ view }: { view: AcceptanceView }) {
 
 function Rows({ view }: { view: AcceptanceView }) {
   return (
-    <DataTable columns={COLUMNS} minWidth={TABLE_MIN_WIDTH}>
+    <DataTable
+      columns={COLUMNS}
+      minWidth={TABLE_MIN_WIDTH}
+      className="stickyName headsWrap"
+      cardRow
+    >
+      <Together view={view} />
       {view.donors.map((row) => (
         <Table.Tr key={row.host}>
           <Table.Td className="cellName">
@@ -161,15 +237,15 @@ function Rows({ view }: { view: AcceptanceView }) {
               <Seams text={row.host} />
             </Text>
           </Table.Td>
-          <Table.Td data-label="Обход">
+          {/* Мера здоровья обхода шире колонки — переносом, а не поверх соседней колонки. */}
+          <Table.Td data-label="Обход" className="wrapCell crawlCell" style={WHOLE_LINE}>
             <CrawlState crawl={row.crawl} />
           </Table.Td>
-          <Table.Td data-label="Рекламодателей">
-            <Found tally={row.tally} />
-          </Table.Td>
-          <Table.Td data-label="С адресом">{formatNumber(row.tally.with_address)}</Table.Td>
-          <Table.Td data-label="Письмо ушло">{sentLine(row.tally)}</Table.Td>
-          <Table.Td data-label="Приёмка">
+          <FoundCells found={row.findings} />
+          <TallyCells tally={row.tally} />
+          {/* Чего не хватает и почему поставщик не считается — переносом: в одну строку
+              не помещаются ни в колонку, ни в карточку телефона. */}
+          <Table.Td data-label="Приёмка" className="wrapCell" style={WHOLE_LINE}>
             <Verdict tally={row.tally} view={view} supplier={row.supplier} />
           </Table.Td>
         </Table.Tr>
@@ -204,7 +280,6 @@ export function AcceptanceReport() {
           </Text>
         ) : (
           <>
-            <Overall view={data} />
             <Rows view={data} />
             <Shown view={data} />
           </>
