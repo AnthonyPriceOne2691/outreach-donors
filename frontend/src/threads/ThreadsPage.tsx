@@ -35,7 +35,7 @@ import { usePageParam } from '../components/PageSwitch';
 import { formatNumber } from '../format';
 import { LeadsExport } from './LeadsExport';
 import { ThreadRows } from './ThreadList';
-import { isThreadFiltered } from './threadFilters';
+import { hasLeads, isThreadFiltered } from './threadFilters';
 import { ThreadsTitle } from './ThreadsTitle';
 import {
   readThreadTab,
@@ -56,18 +56,18 @@ function tabLabel(tab: ThreadTab, count: number | undefined): string {
 }
 
 /** Шапка: заголовок части, число и выгрузка лидов. Лиды файлом — ответы на оффер
- *  рекламодателю: у части продаж их нет, и кнопки там нет. */
+ *  рекламодателю: у частей доноров и продаж их нет, и кнопки там нет. */
 function Head({ list }: { list: ThreadListState }) {
-  const sales = list.filters.part === 'sales';
+  const part = list.filters.part;
   return (
     <Card className="glassPanel" px="xl" py="lg">
       <Group justify="space-between" gap="sm">
         <ThreadsTitle
           total={list.total}
           found={isThreadFiltered(list.typed) ? list.shown.length : null}
-          sales={sales}
+          part={part}
         />
-        {!sales && <LeadsExport />}
+        {hasLeads(part) && <LeadsExport />}
       </Group>
     </Card>
   );
@@ -106,7 +106,7 @@ export function ThreadsPage() {
   // Смена вкладки — замена записи в истории, как у «Отбора»; недонабранный
   // поиск сбрасывается, чтобы не догнать новую вкладку своей записью в адрес.
   // «Диалоги» — туда, где на этой вкладке были: к открытому диалогу и фильтру.
-  // Часть списка (`?stage=sales`) вкладки переживает (`threadTabs.ts`).
+  // Часть списка (`?stage=…`) вкладки переживает (`threadTabs.ts`).
   const switchTab = (next: ThreadTab) => {
     list.setSearch('');
     if (next === 'threads') void navigate(threadsPlace(part), { replace: true });

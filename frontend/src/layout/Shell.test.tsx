@@ -78,7 +78,7 @@ function item(title: string): HTMLElement {
   return link;
 }
 
-const WORK = { run: 3, threads: 2, forms: 0, advertisers: 12 };
+const WORK = { run: 3, donor_threads: 2, advertiser_threads: 4, forms: 0, advertisers: 12 };
 
 describe('числа ждущей работы у пунктов меню', () => {
   it('стоят у своих разделов, ноль не рисуется', async () => {
@@ -91,7 +91,8 @@ describe('числа ждущей работы у пунктов меню', () =
     renderWith(<AppRoutes />, '/');
 
     await waitFor(() => expect(item('Прогон')).toHaveTextContent('3 ждут человека'));
-    expect(item('Диалоги')).toHaveTextContent('2 ждут человека');
+    expect(item('Диалоги с донорами')).toHaveTextContent('2 ждут человека');
+    expect(item('Диалоги с рекламодателями')).toHaveTextContent('4 ждут человека');
     expect(item('Рекламодатели')).toHaveTextContent('12 ждут человека');
     expect(item('Формы')).not.toHaveTextContent('ждут человека');
     expect(item('Доноры')).not.toHaveTextContent('ждут человека');

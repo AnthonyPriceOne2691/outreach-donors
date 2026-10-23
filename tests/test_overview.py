@@ -358,8 +358,10 @@ class TestMenuWork:
         waiting = (await overview(session, stages=EVERY_STAGE)).waiting
 
         assert menu.run == waiting.review == 1
-        # Цена, которую подтверждает человек, и невзятый лид; цена и взятый лид — не работа.
-        assert menu.threads == waiting.prices + waiting.leads == 2
+        # Цена, которую подтверждает человек, — у доноров, невзятый лид — у рекламодателей;
+        # цена и взятый лид — не работа.
+        assert (menu.donor_threads, menu.advertiser_threads) == (waiting.prices, waiting.leads)
+        assert waiting.prices + waiting.leads == 2
         assert (menu.forms, menu.advertisers) == (waiting.forms, waiting.advertisers)
 
     async def test_niche_businesses_wait_on_advertisers_too(self, session: AsyncSession) -> None:
@@ -402,30 +404,36 @@ class TestMenuWork:
         assert waiting.niche == await niche.waiting(session) == 2
         assert menu.advertisers == waiting.advertisers == 1 + 2
 
-    async def test_sales_lead_waiting_counts_at_the_sales_threads_item(
+    async def test_waiting_threads_count_at_the_item_of_their_stage(
         self, session: AsyncSession
     ) -> None:
-        """Ответ лида продаж ждёт человека — у «Диалогов продаж», а не у «Диалогов»: продажи
-        в меню — своей группой (просьба Anthony 11.10.2026), и число стоит у своего пункта."""
+        """Ждущая переписка — у пункта своей части: продажи — у «Диалогов продаж» (просьба
+        Anthony 11.10.2026), доноры и рекламодатели — у «Диалогов с донорами» и «Диалогов
+        с рекламодателями» (23.10.2026), а не одним числом на двоих."""
+        unsure = {"kind": ReplyKind.HUMAN, "price_white": 300, "confidence": 0.4}
+        await self._answered(session, Stage.DONORS, "first.example.test", **unsure)
+        await self._answered(session, Stage.DONORS, "second.example.test", **unsure)
         await self._answered(session, Stage.SALES, "client.example.test", kind=ReplyKind.HUMAN)
-        await self._answered(session, Stage.ADVERTISERS, "lead.example.test", kind=ReplyKind.HUMAN)
+        for host in ("lead.example.test", "brand.example.test", "shop.example.test"):
+            await self._answered(session, Stage.ADVERTISERS, host, kind=ReplyKind.HUMAN)
         await session.flush()
 
         menu = await work(session, stages=EVERY_STAGE)
 
-        assert (menu.threads, menu.sales_threads) == (1, 1)
+        assert (menu.donor_threads, menu.advertiser_threads, menu.sales_threads) == (2, 3, 1)
 
-    async def test_menu_answer_has_the_five_numbers(
+    async def test_menu_answer_has_the_six_numbers(
         self, client: AsyncClient, operator_token: str
     ) -> None:
         response = await client.get("/api/overview/work", headers=bearer(operator_token))
 
         assert response.json() == {
             "run": 0,
-            "threads": 0,
+            "donor_threads": 0,
+            "advertiser_threads": 0,
+            "sales_threads": 0,
             "forms": 0,
             "advertisers": 0,
-            "sales_threads": 0,
         }
 
 

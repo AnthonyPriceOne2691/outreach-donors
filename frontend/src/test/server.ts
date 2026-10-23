@@ -60,7 +60,14 @@ export const misses: string[] = [];
  */
 const FRAME_ROUTES: Record<string, Route> = {
   'GET /api/overview/work': {
-    body: { run: 0, threads: 0, forms: 0, advertisers: 0, sales_threads: 0 },
+    body: {
+      run: 0,
+      donor_threads: 0,
+      advertiser_threads: 0,
+      forms: 0,
+      advertisers: 0,
+      sales_threads: 0,
+    },
   },
   'GET /api/watchdog': { body: { alarms: [] } },
   'GET /api/watchdog?stage=sales': { body: { alarms: [] } },

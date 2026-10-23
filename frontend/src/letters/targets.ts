@@ -7,6 +7,7 @@
  */
 
 import type { LetterAudience } from '../api/letters';
+import { partOf } from '../api/stages';
 import type { LetterStage } from '../api/types';
 import type { StageOption } from '../components/StageSwitch';
 import { plural } from '../format';
@@ -20,6 +21,35 @@ export const TARGETS: StageOption<LetterTarget>[] = [
   { value: 'niche', label: 'Бизнесам ниши' },
 ];
 
+/**
+ * Часть экрана из адреса (`?stage=`, 23.10.2026): «Письма донорам» — только доноры, без
+ * переключателя; «Письма рекламодателям» — две аудитории Этапа 2. Заголовок части — её
+ * пункт меню (`layout/sections.ts`): одни слова. Без части — прежний экран, все три.
+ */
+export const LETTERS_TITLES: Record<LetterStage, string> = {
+  donors: 'Письма донорам',
+  advertisers: 'Письма рекламодателям',
+};
+
+/** Аудитории Этапа 2 под заголовком «Письма рекламодателям»: «Рекламодателям» там
+ *  читалось бы всеми письмами экрана, поэтому — чем аудитории различаются. */
+const STAGE_TWO: StageOption<LetterTarget>[] = [
+  { value: 'advertisers', label: 'По найденной ссылке' },
+  { value: 'niche', label: 'Бизнесам ниши' },
+];
+
+/** Часть из адреса; продаж и незнакомого у экрана писем нет — без части. */
+export function lettersPart(params: URLSearchParams): LetterStage | null {
+  const part = partOf(params);
+  return part === 'donors' || part === 'advertisers' ? part : null;
+}
+
+/** Варианты части: у доноров один — переключателя нет; без части — все три. */
+export function targetsOf(part: LetterStage | null): StageOption<LetterTarget>[] {
+  if (part === null) return TARGETS;
+  return part === 'donors' ? TARGETS.slice(0, 1) : STAGE_TWO;
+}
+
 export function stageOf(target: LetterTarget): LetterStage {
   return target === 'donors' ? 'donors' : 'advertisers';
 }
@@ -28,9 +58,9 @@ export function audienceOf(target: LetterTarget): LetterAudience {
   return target === 'niche' ? 'niche' : 'links';
 }
 
-/** Запомненный выбор; незнакомое — доноры, как до выбора. */
-export function targetOf(saved: string | null): LetterTarget {
-  return TARGETS.find((one) => one.value === saved)?.value ?? 'donors';
+/** Запомненный выбор — из вариантов части; незнакомое — первый вариант (доноры, как до выбора). */
+export function targetOf(saved: string | null, options = TARGETS): LetterTarget {
+  return options.find((one) => one.value === saved)?.value ?? options[0]?.value ?? 'donors';
 }
 
 /** Что экран говорит об адресатах — словами человека. */

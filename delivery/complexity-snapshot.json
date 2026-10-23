@@ -262,7 +262,7 @@
       "worst": "summary:34"
     },
     "backend/api/overview/schemas.py": {
-      "lines": 151,
+      "lines": 153,
       "complexity": 3,
       "worst": "of:115"
     },
@@ -1927,9 +1927,9 @@
       "worst": "_of_stage:117"
     },
     "backend/features/ops/overview.py": {
-      "lines": 368,
+      "lines": 369,
       "complexity": 5,
-      "worst": "_letters:335"
+      "worst": "_letters:336"
     },
     "backend/features/ops/silence.py": {
       "lines": 442,

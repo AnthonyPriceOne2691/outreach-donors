@@ -23,10 +23,15 @@
  * отличалось от письма донору. Переключатель «Все · Доноры · Рекламодатели» сужает список
  * и считается фильтром — «найдено N из M» и «Сбросить фильтры» его видят. В «Диалогах
  * продаж» его нет: там одна сторона, и `role` из адреса там не сужает.
+ *
+ * **Доноры и рекламодатели — тоже части** (23.10.2026): «Диалоги с донорами» —
+ * `?stage=donors`, «Диалоги с рекламодателями» — `?stage=advertisers`, своими пунктами
+ * меню. Переключатель «Кому писали» остался только у списка без части — прежнего адреса
+ * `/threads`, которого в меню больше нет.
  */
 
 import { THREAD_STATES } from '../api/labels';
-import { PART_PARAM, partOf, stateShown } from '../api/stages';
+import { PART_PARAM, partOf, stageShown, stateShown } from '../api/stages';
 import type { Part, Stage } from '../api/stages';
 import type { ThreadCard, ThreadState } from '../api/types';
 
@@ -35,6 +40,13 @@ export type ThreadRole = Exclude<Stage, 'sales'>;
 
 /** Параметр адреса переключателя «Кому писали». */
 export const ROLE_PARAM = 'role';
+
+/** Список части — заголовком экрана и пунктом меню (`layout/sections.ts`): одни слова. */
+export const THREADS_TITLES: Record<Part, string> = {
+  donors: 'Диалоги с донорами',
+  advertisers: 'Диалоги с рекламодателями',
+  sales: 'Диалоги продаж',
+};
 
 /** Подписи переключателя — в том же порядке, что «Кому письма» на «Письмах». */
 export const THREAD_ROLES: Record<ThreadRole, string> = {
@@ -50,7 +62,8 @@ export function roleOf(value: string | null): ThreadRole | null {
 }
 
 export interface ThreadFilters {
-  /** Часть: `sales` — только переписки продаж; пусто — доноры и рекламодатели. */
+  /** Часть: переписки одного этапа — доноров, рекламодателей или продаж; пусто — доноры
+   *  и рекламодатели вместе. */
   part: Part | null;
   /** Кому писали — только в «Диалогах», без части. Пусто — и донорам, и рекламодателям. */
   role: ThreadRole | null;
@@ -66,7 +79,8 @@ export const THREAD_STATE_KEYS = Object.keys(THREAD_STATES) as ThreadState[];
 /** Фильтры из адреса. `sales` — `can('sales')`: без права состояния и часть продаж не сужают. */
 export function readThreadFilters(params: URLSearchParams, sales: boolean): ThreadFilters {
   const state = params.get('state');
-  const part = sales ? partOf(params) : null;
+  const named = partOf(params);
+  const part = named !== null && stageShown(named, sales) ? named : null;
   return {
     part,
     role: part === null ? roleOf(params.get(ROLE_PARAM)) : null,
@@ -89,9 +103,14 @@ export function isThreadFiltered(filters: ThreadFilters): boolean {
   return filters.role !== null || filters.state !== null || filters.search !== '';
 }
 
-/** Диалог — в части списка: переписка продаж — в «Диалогах продаж», остальные — в «Диалогах». */
+/** Диалог — в части списка: своего этапа; без части — доноров и рекламодателей. */
 export function inPart(thread: ThreadCard, part: Part | null): boolean {
-  return (thread.stage === 'sales') === (part === 'sales');
+  return part === null ? thread.stage !== 'sales' : thread.stage === part;
+}
+
+/** Лиды файлом — ответы рекламодателей на оффер: у списка с рекламодателями. */
+export function hasLeads(part: Part | null): boolean {
+  return part === null || part === 'advertisers';
 }
 
 /** Диалог — той стороны, что выбрана: часть списка и «Кому писали». Одно правило у
@@ -113,6 +132,16 @@ export function threadMatches(thread: ThreadCard, filters: ThreadFilters): boole
   );
 }
 
+/** Где заводится переписка части: пустой список называет экран, где её начинают. */
+const STARTS: Record<Part | 'all', string> = {
+  donors: 'Диалог заводится вместе с письмом, когда собирают очередь на экране «Письма донорам».',
+  advertisers:
+    'Диалог заводится вместе с письмом, когда собирают очередь на экране «Письма рекламодателям».',
+  sales:
+    'Переписка продаж заводится с первым письмом лиду — очередь писем собирают в разделе «Продажи».',
+  all: 'Диалог заводится вместе с письмом, когда собирают очередь на экранах «Письма донорам» и «Письма рекламодателям».',
+};
+
 /** Почему под фильтром пусто — словами. Пустой экран объясняет, чего на нём
  *  нет: «ничего не нашлось» без условий читается как «диалогов нет вовсе». */
 export function threadEmptiness(
@@ -121,13 +150,7 @@ export function threadEmptiness(
   total: number,
 ): { title: string; detail: string } {
   if (total === 0) {
-    return {
-      title: 'Диалогов ещё нет.',
-      detail:
-        filters.part === 'sales'
-          ? 'Переписка продаж заводится с первым письмом лиду — очередь писем собирают в разделе «Продажи».'
-          : 'Диалог заводится вместе с письмом, когда собирают очередь на экране «Письма».',
-    };
+    return { title: 'Диалогов ещё нет.', detail: STARTS[filters.part ?? 'all'] };
   }
   if (filters.state !== null && (counts.get(filters.state) ?? 0) === 0) {
     return {

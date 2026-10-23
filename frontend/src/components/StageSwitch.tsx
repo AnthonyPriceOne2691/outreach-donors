@@ -10,6 +10,9 @@
  * около 360 px, а панели на телефоне достаётся 286: на 390 px третий этап
  * уходил за край экрана и срезался (проверка QA 10.10.2026, «Письма»). Столбик,
  * а не список: этапов два-три, и все видны и нажимаются сразу.
+ *
+ * **Выбрать из одного нечего** — переключателя нет, пояснение остаётся: «Письма донорам»
+ * (23.10.2026) — одни доноры, и экран называет их заголовком.
  */
 
 import { SegmentedControl, Stack, Text } from '@mantine/core';
@@ -54,17 +57,20 @@ export function StageSwitch<S extends string = LetterStage>({
   // Значение — с первой отрисовки: иначе телефон на миг рисовал бы ряд за краем
   // экрана и перестраивал его на глазах (как `layout/split`).
   const narrow = useMediaQuery(NARROW, false, { getInitialValueInEffect: false }) === true;
+  const options = stages ?? STAGES;
   return (
     <Stack gap={6}>
-      <SegmentedControl
-        aria-label={label}
-        value={value}
-        onChange={(picked) => onChange(picked as S)}
-        data={stages ?? STAGES}
-        orientation={narrow ? 'vertical' : 'horizontal'}
-        fullWidth={narrow}
-        style={{ alignSelf: narrow ? 'stretch' : 'flex-start' }}
-      />
+      {options.length > 1 && (
+        <SegmentedControl
+          aria-label={label}
+          value={value}
+          onChange={(picked) => onChange(picked as S)}
+          data={options}
+          orientation={narrow ? 'vertical' : 'horizontal'}
+          fullWidth={narrow}
+          style={{ alignSelf: narrow ? 'stretch' : 'flex-start' }}
+        />
+      )}
       <Text size="sm" c="dimmed" maw={680}>
         {lead}
       </Text>

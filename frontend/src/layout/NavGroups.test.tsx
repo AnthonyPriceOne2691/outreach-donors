@@ -4,8 +4,9 @@
  * продукт, и меню это показывает).
  *
  * Проверяется: состав и порядок групп; группа продаж — только с правом; части общих
- * экранов — тем же путём с `?stage=sales`; подсвечен пункт открытой части; число
- * ждущей работы — у своего пункта; место в разделе помнится у каждого пункта своё.
+ * экранов — тем же путём с `?stage=…` (продажи; с 23.10.2026 — и «Письма» с «Диалогами»
+ * доноров и рекламодателей); подсвечен пункт открытой части; число ждущей работы — у
+ * своего пункта; место в разделе помнится у каждого пункта своё.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -40,6 +41,7 @@ function thread(id: number, host: string, stage: string, state: string) {
 
 const THREADS = [
   thread(3, 'donor.example.test', 'donors', 'needs_review'),
+  thread(4, 'brand.example.test', 'advertisers', 'lead'),
   thread(7, 'lead.example.test', 'sales', 'sales_pending'),
 ];
 
@@ -64,7 +66,7 @@ function Where() {
   return <output data-testid="where">{`${location.pathname}${location.search}`}</output>;
 }
 
-/** Переход по ссылке извне — так ведут уведомления продаж (`/threads/{id}` без части). */
+/** Переход по ссылке извне — так ведут уведомления Telegram и Kommo (`/threads/{id}` без части). */
 function Go() {
   const navigate = useNavigate();
   const [params] = useState(() => ({ to: '' }));
@@ -111,22 +113,30 @@ async function items(group: string): Promise<string[]> {
     .map((link) => link.textContent ?? '');
 }
 
-/** Ссылка пункта по имени; строкой — точно: «Диалоги» — не «Диалоги продаж». */
+/** Ссылка пункта по имени; строкой — точно: «Диалоги с донорами» — не «… · 2 ждут человека». */
 const link = (name: string | RegExp) => menu().getByRole('link', { name });
+
+const DIALOGS = ['Диалоги с донорами', 'Диалоги с рекламодателями', 'Диалоги продаж'];
+
+/** Какие пункты диалогов подсвечены. */
+const lit = () => DIALOGS.filter((name) => link(name).hasAttribute('data-active'));
 
 describe('меню группами', () => {
   it('три группы, порядок внутри прежний, журнал действий — рядом с учётками', async () => {
     await open('/');
 
+    // Сначала работа с донорами, потом с рекламодателями (23.10.2026).
     expect(await items('Доноры и рекламодатели')).toEqual([
       'Обзор',
       'Прогон',
       'Доноры',
       'Отбор',
       'Формы',
+      'Письма донорам',
+      'Диалоги с донорами',
       'Рекламодатели',
-      'Письма',
-      'Диалоги',
+      'Письма рекламодателям',
+      'Диалоги с рекламодателями',
     ]);
     expect(await items('Продажи')).toEqual([
       'Продажи',
@@ -154,7 +164,7 @@ describe('меню группами', () => {
     expect(menu().queryByRole('link', { name: 'Диалоги продаж' })).not.toBeInTheDocument();
   });
 
-  it('части продаж — те же экраны с ?stage=sales', async () => {
+  it('части — те же экраны с ?stage=…: продажи, доноры, рекламодатели', async () => {
     await open('/');
 
     await menu().findByRole('group', { name: 'Продажи' });
@@ -162,49 +172,82 @@ describe('меню группами', () => {
     expect(link('Диалоги продаж')).toHaveAttribute('href', '/threads?stage=sales');
     expect(link('Агент продаж')).toHaveAttribute('href', '/agent?stage=sales');
     expect(link('Домены продаж')).toHaveAttribute('href', '/senders?stage=sales');
-    expect(link('Диалоги')).toHaveAttribute('href', '/threads');
+    expect(link('Письма донорам')).toHaveAttribute('href', '/letters?stage=donors');
+    expect(link('Диалоги с донорами')).toHaveAttribute('href', '/threads?stage=donors');
+    expect(link('Письма рекламодателям')).toHaveAttribute('href', '/letters?stage=advertisers');
+    expect(link('Диалоги с рекламодателями')).toHaveAttribute('href', '/threads?stage=advertisers');
   });
 
-  it('подсвечен пункт открытой части: «Диалоги» и «Диалоги продаж» — один путь', async () => {
+  it('подсвечен пункт открытой части: три пункта диалогов — один путь', async () => {
     await open('/threads?stage=sales');
 
     await screen.findByRole('heading', { name: 'Диалоги продаж' });
-    expect(link('Диалоги продаж')).toHaveAttribute('data-active');
-    expect(link('Диалоги')).not.toHaveAttribute('data-active');
+    expect(lit()).toEqual(['Диалоги продаж']);
   });
 
-  it('без части — «Диалоги», и в списке нет переписки продаж', async () => {
+  it('«Диалоги с рекламодателями» — только их переписки, без переключателя', async () => {
+    await open('/threads?stage=advertisers');
+
+    await screen.findByRole('heading', { name: 'Диалоги с рекламодателями' });
+    expect(lit()).toEqual(['Диалоги с рекламодателями']);
+    expect(await screen.findByText('brand.example.test')).toBeInTheDocument();
+    expect(screen.queryByText('donor.example.test')).not.toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: 'Кому писали' })).not.toBeInTheDocument();
+  });
+
+  it('прежний адрес без части — экран со всеми переключателями, пункт не подсвечен', async () => {
     await open('/threads');
 
     await screen.findByRole('heading', { name: 'Диалоги' });
-    expect(link('Диалоги')).toHaveAttribute('data-active');
-    expect(link('Диалоги продаж')).not.toHaveAttribute('data-active');
+    expect(lit()).toEqual([]);
+    expect(screen.getByRole('radiogroup', { name: 'Кому писали' })).toBeInTheDocument();
     expect(await screen.findByText('donor.example.test')).toBeInTheDocument();
+    expect(screen.getByText('brand.example.test')).toBeInTheDocument();
     expect(screen.queryByText('lead.example.test')).not.toBeInTheDocument();
   });
 
-  it('число ждущей работы — у своего пункта: продажи не в «Диалогах»', async () => {
+  it('число ждущей работы — у своего пункта: у каждого пункта диалогов своё', async () => {
     await open('/', ADMIN, {
       'GET /api/overview/work': {
-        body: { run: 0, threads: 2, forms: 0, advertisers: 0, sales_threads: 5 },
+        body: {
+          run: 0,
+          donor_threads: 2,
+          advertiser_threads: 4,
+          sales_threads: 5,
+          forms: 0,
+          advertisers: 0,
+        },
       },
     });
 
     await waitFor(() => expect(link(/^Диалоги продаж/)).toHaveTextContent('5 ждут человека'));
-    expect(menu().getByRole('link', { name: /^Диалоги(?! продаж)/ })).toHaveTextContent(
-      '2 ждут человека',
+    expect(link(/^Диалоги с донорами/)).toHaveTextContent('2 ждут человека');
+    expect(link(/^Диалоги с рекламодателями/)).toHaveTextContent('4 ждут человека');
+    // У писем ждущей работы не бывает — и места под число нет.
+    expect(link('Письма донорам')).not.toHaveTextContent('ждут человека');
+  });
+
+  it('ссылка без части — переписка открывается, подсвечен пункт её роли', async () => {
+    // Так ведут уведомления Telegram и Kommo: `/threads/{id}` без части.
+    await open('/threads/4');
+
+    await screen.findByRole('heading', { name: 'brand.example.test' });
+    await waitFor(() =>
+      expect(screen.getByTestId('where')).toHaveTextContent(/^\/threads\/4\?stage=advertisers$/),
     );
+    expect(lit()).toEqual(['Диалоги с рекламодателями']);
   });
 });
 
 describe('место в разделе — у каждого пункта своё', () => {
-  it('«Диалоги» возвращают к диалогу доноров, «Диалоги продаж» — к переписке продаж', async () => {
+  it('«Диалоги с донорами» возвращают к диалогу донора, «продаж» — к переписке продаж', async () => {
     const user = userEvent.setup();
-    await open('/threads?state=needs_review');
-    await screen.findByText('donor.example.test');
-    await user.click(screen.getByText('donor.example.test'));
+    await open('/threads?stage=donors&state=needs_review');
+    await user.click(await screen.findByText('donor.example.test'));
     await waitFor(() =>
-      expect(screen.getByTestId('where')).toHaveTextContent('/threads/3?state=needs_review'),
+      expect(screen.getByTestId('where')).toHaveTextContent(
+        '/threads/3?stage=donors&state=needs_review',
+      ),
     );
 
     await user.click(link('Диалоги продаж'));
@@ -214,15 +257,19 @@ describe('место в разделе — у каждого пункта сво
     );
     await user.click(link('Обзор'));
 
-    expect(link('Диалоги')).toHaveAttribute('href', '/threads/3?state=needs_review');
+    expect(link('Диалоги с донорами')).toHaveAttribute(
+      'href',
+      '/threads/3?stage=donors&state=needs_review',
+    );
     expect(link('Диалоги продаж')).toHaveAttribute('href', '/threads/7?stage=sales');
+    expect(link('Диалоги с рекламодателями')).toHaveAttribute('href', '/threads?stage=advertisers');
   });
 
-  it('ссылка без части на переписку продаж — «Диалоги» помнят свой диалог, а не её', async () => {
+  it('ссылка без части на переписку продаж — «Диалоги с донорами» помнят свой диалог', async () => {
     // Проверка ветки 12.10.2026: адрес `/threads/7` сперва доставался «Диалогам», потом
     // переписка дописывала `?stage=sales` — и «Диалоги» уводили в продажи.
     const user = userEvent.setup();
-    await open('/threads/3?state=needs_review');
+    await open('/threads/3?stage=donors&state=needs_review');
     await screen.findByRole('heading', { name: 'donor.example.test' });
 
     await follow('/threads/7');
@@ -231,10 +278,13 @@ describe('место в разделе — у каждого пункта сво
     );
     await user.click(link('Обзор'));
 
-    expect(link('Диалоги')).toHaveAttribute('href', '/threads/3?state=needs_review');
+    expect(link('Диалоги с донорами')).toHaveAttribute(
+      'href',
+      '/threads/3?stage=donors&state=needs_review',
+    );
     expect(link('Диалоги продаж')).toHaveAttribute('href', '/threads/7?stage=sales');
-    // Память вкладки «Диалоги» у части доноров — тоже своя.
-    expect(threadsPlace(null)).toBe('/threads/3?state=needs_review');
+    // Память вкладки «Диалоги» у каждой части — тоже своя.
+    expect(threadsPlace('donors')).toBe('/threads/3?stage=donors&state=needs_review');
     expect(threadsPlace('sales')).toBe('/threads/7?stage=sales');
   });
 
@@ -244,11 +294,13 @@ describe('место в разделе — у каждого пункта сво
     await screen.findByRole('heading', { name: 'lead.example.test' });
 
     await follow('/threads/3?stage=sales');
-    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/threads\/3$/));
+    await waitFor(() =>
+      expect(screen.getByTestId('where')).toHaveTextContent(/^\/threads\/3\?stage=donors$/),
+    );
     await user.click(link('Обзор'));
 
     expect(link('Диалоги продаж')).toHaveAttribute('href', '/threads/7?stage=sales');
-    expect(link('Диалоги')).toHaveAttribute('href', '/threads/3');
+    expect(link('Диалоги с донорами')).toHaveAttribute('href', '/threads/3?stage=donors');
     expect(threadsPlace('sales')).toBe('/threads/7?stage=sales');
   });
 });

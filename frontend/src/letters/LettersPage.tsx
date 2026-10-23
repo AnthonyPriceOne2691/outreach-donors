@@ -32,6 +32,13 @@
  * четырёх с половиной тысячах пикселей выше окна. На узком предпросмотр
  * стоит над очередью, и выбор письма прокручивает к нему — а не оставляет
  * его после семидесяти семи строк списка.
+ *
+ * **Этапы — своими пунктами меню** (23.10.2026, замечание тест-группы «разделить вкладки
+ * Письма и Диалог» у Этапа 1 и Этапа 2): «Письма донорам» — `?stage=donors`, без
+ * переключателя; «Письма рекламодателям» — `?stage=advertisers`, переключатель из двух
+ * аудиторий Этапа 2 (`targets.targetsOf`). Экран тот же, суженный адресом; без части —
+ * прежний, со всеми тремя. Смена части — другой экран: выбор письма, правка текста и
+ * прогоны одной части в другую не переезжают.
  */
 
 import { Alert, Badge, Button, Card, Grid, Group, Loader, Stack, Text, Title } from '@mantine/core';
@@ -39,11 +46,12 @@ import { useMediaQuery, useReducedMotion } from '@mantine/hooks';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { buildLetters, editLetter, listLetters, sendLetter, skipLetter } from '../api/letters';
 import { mailSettingsList, settingsInWords } from '../api/labels';
-import type { Corridor, LetterDraft, LettersView, QueuedLetter } from '../api/types';
+import type { Corridor, LetterDraft, LetterStage, LettersView, QueuedLetter } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { StageSwitch } from '../components/StageSwitch';
 import { formatNumber, formatPercent } from '../format';
@@ -57,7 +65,16 @@ import { uniquenessText } from './letterText';
 import { QueueHead } from './QueueHead';
 import { SendQueue } from './SendQueue';
 import type { LetterTarget } from './targets';
-import { ABOUT, TARGETS, audienceOf, poolHint, stageOf, targetOf } from './targets';
+import {
+  ABOUT,
+  LETTERS_TITLES,
+  audienceOf,
+  lettersPart,
+  poolHint,
+  stageOf,
+  targetOf,
+  targetsOf,
+} from './targets';
 import { UnknownOutcome } from './UnknownOutcome';
 import { remember, remembered } from '../storage';
 import { JobLine, jobRestarted } from '../jobs/JobLine';
@@ -84,9 +101,19 @@ function jobKeyOf(target: LetterTarget): string {
 }
 
 export function LettersPage() {
+  const [params] = useSearchParams();
+  const part = lettersPart(params);
+  return <LettersScreen key={part ?? 'all'} part={part} />;
+}
+
+/** `part` — часть из адреса: доноры, Этап 2 или `null` — все три. */
+function LettersScreen({ part }: { part: LetterStage | null }) {
   const { can } = useSession();
   const queryClient = useQueryClient();
-  const [target, setTarget] = useState<LetterTarget>(() => targetOf(remembered(STAGE_KEY)));
+  const options = targetsOf(part);
+  const [target, setTarget] = useState<LetterTarget>(() =>
+    targetOf(remembered(STAGE_KEY), options),
+  );
   const stage = stageOf(target);
   const [chosen, setChosen] = useState<number | null>(null);
   // После «Отправить» следующее письмо само не открывается (боевой прогон
@@ -277,12 +304,12 @@ export function LettersPage() {
               отказе: без переключателя с этапа, который не загрузился,
               было бы не уйти. */}
           <Stack gap={6}>
-            <Title order={3}>Письма</Title>
+            <Title order={3}>{part === null ? 'Письма' : LETTERS_TITLES[part]}</Title>
             <StageSwitch
               label="Кому письма"
               value={target}
               onChange={switchStage}
-              stages={TARGETS}
+              stages={options}
               lead={ABOUT[target].lead}
             />
           </Stack>
