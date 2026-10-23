@@ -1292,9 +1292,9 @@
       "worst": "_proxy:321"
     },
     "backend/features/crawl/findings.py": {
-      "lines": 165,
+      "lines": 161,
       "complexity": 5,
-      "worst": "_pages:114"
+      "worst": "_pages:110"
     },
     "backend/features/crawl/gate.py": {
       "lines": 274,

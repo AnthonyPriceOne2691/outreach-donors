@@ -1,11 +1,9 @@
 """Что нашёл обход донора — в приёмке по донорам (`crawl/findings.py`).
 
-Тест-группа 23.10.2026: «нет понимания, сколько с каждого сайта: сколько продажных
-ссылок, статей, сколько спорных». Проверяется то, чем эти числа могут соврать:
-«куплено» и «рекламодателей» расходятся без видимой причины; витрина с тремя
-рекламодателями считается трижды; ссылка через сеть партнёрок лежит в обходе с доменом
-сети — и соединение по домену ссылки её теряет; PDF, «не пишем» и «мимо» дают страницы;
-поставщик попадает в «вместе».
+Тест-группа 23.10.2026: «сколько с каждого сайта продажных ссылок, статей, спорных». Чем
+числа могут соврать: «куплено» и «рекламодателей» расходятся без причины; витрина с тремя
+рекламодателями считается трижды; ссылка через сеть партнёрок теряется; PDF, «не пишем» и
+«мимо» дают страницы; поставщик попадает в «вместе».
 """
 
 from __future__ import annotations
@@ -104,10 +102,16 @@ async def test_a_donor_counts_verdicts_decisions_and_pages(
     session: AsyncSession, alpha: CrawlRunModel
 ) -> None:
     """«Куплено» — без «не пишем»; спорных — все, решённых — среди них; страницы — те, где
-    есть ссылка на тех, кому пишем: витрина, обзор и две через сеть партнёрок."""
+    есть ссылка на тех, кому пишем: витрина, обзор и две через сеть партнёрок. Ссылка через
+    сеть лежит в обходе с доменом сети, а кандидат — у рекламодателя, которого сеть назвала:
+    соединение по домену ссылки потеряло бы обе её страницы."""
     found = await by_donor(session)
+    roots = await session.scalars(
+        select(OutLinkModel.target_root).where(OutLinkModel.page_url.endswith("/deal"))
+    )
 
     assert found[ALPHA] == Findings(bought=3, pending=3, decided=2, skipped=2, blocked=1, pages=4)
+    assert list(roots) == ["awin1.com"]
 
 
 async def test_advertisers_are_bought_plus_the_human_yes(
@@ -137,24 +141,6 @@ async def test_advertisers_are_bought_plus_the_human_yes(
     assert row.tally.found == row.findings.bought + beyond
     # «Мимо» — вердиктом скоринга, как в шапке очереди проверки: решение его не двигает.
     assert row.findings.skipped == 2
-
-
-async def test_a_link_through_an_affiliate_network_counts_for_its_advertiser(
-    session: AsyncSession,
-) -> None:
-    """Ссылка через сеть лежит в обходе с доменом сети, а кандидат — у рекламодателя,
-    которого сеть назвала: соединение по домену ссылки дало бы ноль страниц."""
-    run = await crawled(session, BETA)
-    await scored(session, run, "example.de")
-    await linked(session, run, "deal", AWIN)
-
-    stored = await session.scalar(
-        select(OutLinkModel.target_root).where(OutLinkModel.crawl_run_id == run.id)
-    )
-    found = await by_donor(session)
-
-    assert stored == "awin1.com"
-    assert found[BETA] == Findings(bought=1, pages=1)
 
 
 DONOR = "gamma-donor.test"

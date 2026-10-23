@@ -85,7 +85,8 @@ function report(overrides: Partial<AcceptanceView> = {}): AcceptanceView {
     ],
     total: 2,
     overall: { ...DONE, found: 160, accepted: true },
-    overall_findings: { ...FOUND, bought: 150, pending: 1250, decided: 1000, pages: 1057 },
+    // Спорных много, решённых нет — «решено 0»: «никто ещё не смотрел» — тоже ответ.
+    overall_findings: { ...FOUND, bought: 150, pending: 1250, decided: 0, pages: 1057 },
     target_with_address: 100,
     target_sent_share: 0.7,
     ...overrides,
@@ -142,7 +143,7 @@ describe('приёмка по донорам', () => {
     expect(within(row).getByText('без поставщиков')).toBeInTheDocument();
     expect(cellsOf(row)).toEqual({
       Куплено: '150',
-      Спорных: '1 250решено 1 000',
+      Спорных: '1 250решено 0',
       Мимо: '230',
       'Кому не пишем': '41',
       Страниц: '1 057',
@@ -161,13 +162,7 @@ describe('приёмка по донорам', () => {
       ...view,
       donors: [
         ...view.donors,
-        {
-          host: 'partner.example.test',
-          crawl: null,
-          tally: SHORT,
-          findings: NOTHING,
-          supplier: true,
-        },
+        { ...view.donors[1]!, host: 'partner.example.test', supplier: true },
       ],
       total: 3,
     });
@@ -258,18 +253,6 @@ describe('что нашёл обход', () => {
       Страниц: '0',
     });
     expect(within(row).queryByText(/решено/)).toBeNull();
-  });
-
-  it('спорные есть, решённых нет — «решено 0»: никто ещё не смотрел', async () => {
-    const view = report();
-    await openReport({
-      ...view,
-      donors: [{ ...view.donors[1]!, findings: { ...NOTHING, pending: 7 } }],
-      total: 1,
-    });
-
-    const row = screen.getByText('small.example.test').closest('tr')!;
-    expect(cellsOf(row)['Спорных']).toBe('7решено 0');
   });
 
   it('что значит каждая колонка — в «i» у заголовка экрана', async () => {
