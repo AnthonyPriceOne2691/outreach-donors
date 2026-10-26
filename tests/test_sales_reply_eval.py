@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,7 @@ class Oracle:
             contact_name=expect.get("contact_name"),
             project=expect.get("project"),
             services=tuple(expect.get("services") or ()),
+            phones=tuple(expect.get("phones") or ()),
             tokens=50,
         )
 
@@ -70,20 +72,66 @@ def oracle(monkeypatch: pytest.MonkeyPatch) -> Oracle:
 # --- синтетика --------------------------------------------------------------------------
 
 
-def test_synthetic_set_covers_every_kind_in_twenty_to_thirty_cases() -> None:
+def test_synthetic_set_covers_every_kind_in_sixty_to_ninety_cases() -> None:
     cases = ev.load(ev.SYNTHETIC)
 
-    assert 20 <= len(cases) <= 30
+    assert 60 <= len(cases) <= 90
     assert len({case["id"] for case in cases}) == len(cases)
     kinds = {case["expect"]["kind"] for case in cases}
     assert kinds == reply_kind.MODEL_KINDS
     assert any("injection" in case["tags"] for case in cases)
 
 
+#: Телефонные случаи v3 по видам из задания: телефон в теле и только в подписи, отказ и отписка
+#: с телефоном, реквизиты без телефона, номер другого человека, восточно-арабские цифры,
+#: «здравствуйте <номер> <имя>», письменности справа налево и номер без пробелов.
+PHONE_TAGS = frozenset(
+    {
+        "phone_body",
+        "phone_signature",
+        "refusal_phone",
+        "ids_no_phone",
+        "other_person",
+        "eastern_digits",
+        "greeting_number",
+        "rtl",
+        "no_spaces_number",
+        "quote_number",
+    }
+)
+
+
+def test_synthetic_set_has_thirty_phone_cases_of_every_sort_in_many_scripts() -> None:
+    cases = ev.load(ev.SYNTHETIC)
+    phone_cases = [case for case in cases if PHONE_TAGS & set(case["tags"])]
+
+    assert len(phone_cases) >= 30
+    assert {tag for case in phone_cases for tag in case["tags"]} >= PHONE_TAGS
+    numbers = [phone for case in cases for phone in case["expect"].get("phones", [])]
+    codes = ("+7 ", "8-7", "+49 30", "+44 20", "+1 (212)", "+971", "+86", "+380", "+48", "+90")
+    assert all(any(phone.startswith(code) for phone in numbers) for code in codes)
+    scripts = {unicodedata.name(char).split()[0] for phone in numbers for char in phone}
+    assert {"DIGIT", "ARABIC-INDIC", "EXTENDED"} <= scripts, "цифры трёх письменностей"
+    refusals = [case for case in phone_cases if "refusal_phone" in case["tags"]]
+    assert {case["expect"]["kind"] for case in refusals} == {
+        "not_interested",
+        "not_now",
+        "unsubscribe",
+    }
+
+
+def test_every_expected_phone_passes_the_code_check_on_its_own_text() -> None:
+    """Ожидаемый номер — дословно в тексте, целиком и в 7–15 цифр: его примет сверка кодом."""
+    for case in ev.load(ev.SYNTHETIC):
+        wanted = tuple(case["expect"].get("phones", []))
+        kept, notes = reply_kind.phones_of(wanted, reply_kind.own_words(case["text"]))
+        assert (kept, notes) == (wanted, ()), case["id"]
+
+
 def test_synthetic_set_has_only_made_up_addresses_found_in_the_text() -> None:
     for case in ev.load(ev.SYNTHETIC):
         for address in re.findall(r"[\w.+-]+@[\w-]+\.[\w.-]+", case["text"]):
-            assert address.endswith(".example"), case["id"]
+            assert address.rstrip(".").endswith((".example", ".example.test")), case["id"]
         contact = case["expect"].get("contact")
         if contact:
             assert case["expect"]["kind"] == "referral"
@@ -151,6 +199,16 @@ def test_spoiling_a_kind_the_prompt_does_not_define_is_refused() -> None:
         ev.without_kind("no kinds here", "wants_to_talk")
 
 
+@pytest.mark.parametrize("kind", [kind.value for kind in ev.GUARDED])
+def test_spoiled_prompt_keeps_no_trace_of_a_guarded_kind_name(kind: str) -> None:
+    """Порча снимает охраняемый вид целиком: имя вида, оставшееся в другом правиле промпта,
+    подсказало бы его модели, и обратный прогон остался бы зелёным. Так было на живом прогоне
+    v3, пока правило «ответ — один номер телефона» называло вид по имени."""
+    spoiled = ev.without_kind(reply_kind.load_prompt(), kind)
+
+    assert f'"{kind}"' not in spoiled
+
+
 # --- внешний набор: вне репозитория, сверка с манифестом ------------------------------------
 
 
@@ -177,7 +235,7 @@ def test_golden_set_must_match_the_manifest(
         ev.golden(str(tmp_path), manifest=spoiled)
     counted = tmp_path / "counted.json"
     counted.write_text(json.dumps({**manifest, "sha256": digest, "count": 3}), encoding="utf-8")
-    with pytest.raises(ev.SetError, match="примеров 28 ≠ 3"):
+    with pytest.raises(ev.SetError, match=f"примеров {len(ev.load(ev.SYNTHETIC))} ≠ 3"):
         ev.golden(str(tmp_path), manifest=counted)
 
 

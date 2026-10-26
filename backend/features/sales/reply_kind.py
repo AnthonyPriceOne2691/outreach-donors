@@ -23,6 +23,16 @@
 «услуга» базы знаний, их список модель видит рядом с письмом. Чего нет в письме или в базе,
 отбрасывается с пометкой в `notes`: в сделку и в нового лида выдумка не попадёт.
 
+**Телефон для связи (v3)** — тем же вызовом, необязательным полем `phones`: номера, которые
+человек даёт, чтобы с ним или с названным коллегой связались, в своём тексте или подписи, —
+дословно из письма. Модель номер выписывает, код проверяет («факты — кодом»): номер стоит в
+письме дословно и целиком (не кусок длинного числа), в нём 7–15 цифр (E.164), цифры любой
+письменности считаются; иначе отброшен с пометкой в `notes`. Что делать с номером, решает путь
+(`reply_routes.decide`): телефон — передача телемаркетологу.
+
+**Модель видит письмо с подписью, без цитаты** (`own_words`): номер часто только в подписи, а
+общий разбор (`quoting.written_by_hand`) подпись после «-- » отрезает.
+
 **Сбой разбора — `parse_failed`, а не догадка.** Отказ модели (сеть, 429
 после повторов, ключ) — не вид вовсе (`Unanswered`): ответ ждёт человека
 с причиной, и следующая попытка разберёт его заново.
@@ -33,6 +43,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -43,7 +54,7 @@ from typing import Any
 from backend.config import llm as llm_cfg
 from backend.features.letters import masking
 from backend.features.replies.inbound import MAX_TEXT_CHARS
-from backend.features.replies.quoting import written_by_hand
+from backend.features.replies.quoting import quote_starts_at
 from backend.shared.llm import (
     ModelClient,
     Refusal,
@@ -58,7 +69,7 @@ logger = logging.getLogger(__name__)
 TOPIC = "вид ответа продаж"
 #: Версия промпта. Меняется при КАЖДОЙ правке файла промпта: снимок ответа
 #: хранит её, и без метки правку было бы не отличить от смены писем.
-PROMPT_VERSION = "sales-reply-kind-v2"
+PROMPT_VERSION = "sales-reply-kind-v3"
 PROMPT_PATH = Path(__file__).with_name("prompts") / "reply_kind.md"
 #: Операция в журнале расхода (`core/usage.OPERATION_PROVIDERS`).
 OPERATION = "sales_reply_kind"
@@ -69,6 +80,18 @@ TOKENS_PLAIN = 400
 
 #: Сколько услуг из ответа модели читается: лиду интересны одна-две, список — уже пересказ базы.
 MAX_SERVICES = 5
+#: Сколько номеров из ответа модели читается: два-три на письмо, больше — уже вся подпись с факсами.
+MAX_PHONES = 5
+#: Цифр в номере телефона: по E.164 не больше 15 с кодом страны; меньше 7 — добавочный, индекс, код.
+PHONE_DIGITS = range(7, 16)
+#: Разделитель внутри номера: пробел, дефис или тире, точка, косая черта, скобка.
+_SEP = r"[\s\-‐‑‒–—./()\[\]]"
+#: Номер — цифры любой письменности, «+» в начале и разделители; слово или метка — уже не номер.
+_PHONE = re.compile(rf"\+?(?:\d|{_SEP})+")
+#: Края номера, которые модель могла прихватить из фразы: точка в конце предложения, тире.
+_EDGES = " -‐‑‒–—./"
+#: Письмо — только цитата нашего: номера из неё — не номера для связи.
+QUOTED_ONLY = "своего текста в письме нет, только цитата — номера из неё отброшены"
 
 #: Метки данных. Собеседник может написать их сам, чтобы «закрыть» письмо
 #: раньше времени: в его тексте они заменяются похожими знаками.
@@ -113,6 +136,8 @@ class KindFound:
     project: str | None = None
     #: Какие услуги ему интересны — названия записей вида «услуга» базы знаний.
     services: tuple[str, ...] = ()
+    #: Номера для связи (v3) — найденные в письме дословно и целиком, 7–15 цифр.
+    phones: tuple[str, ...] = ()
     #: Что снизило уверенность или что из ответа модели отброшено — словами, для человека.
     notes: tuple[str, ...] = ()
     tokens: int = 0
@@ -141,6 +166,27 @@ def load_prompt() -> str:
 def _quiet(text: str) -> str:
     """Метки данных в тексте собеседника — похожими знаками: закрыть письмо раньше он не сможет."""
     return text.replace("<<<", "‹‹‹").replace(">>>", "›››")
+
+
+def own_words(text: str) -> str:
+    """Что написал человек: письмо до цитаты нашего — с его подписью. Номер для связи часто
+    только в подписи, а `quoting.written_by_hand` подпись после «-- » отрезает. Цитата — по
+    тем же признакам, что у общего разбора; отрезать нечего — письмо целиком."""
+    return _before_quote(text) or text.strip()
+
+
+def _before_quote(text: str) -> str:
+    """Письмо до цитаты нашего; пусто — письмо начинается с цитаты, своего текста нет."""
+    at, _ = quote_starts_at(text)
+    return (text if at is None else text[:at]).strip()
+
+
+def _quoted_only(found: KindFound, text: str) -> KindFound:
+    """Своего текста нет — модель видела цитату целиком (`own_words`): номер оттуда наш или
+    чужой, а не для связи с человеком. Отброшен с пометкой; вид — как назвала модель."""
+    if not found.phones or _before_quote(text):
+        return found
+    return replace(found, phones=(), notes=(*found.notes, QUOTED_ONLY))
 
 
 def user_message(*, text: str, subject: str, services: Sequence[str] = ()) -> str:
@@ -172,9 +218,9 @@ def build_payload(model: str, *, user: str) -> dict[str, Any]:
 def parse_form(content: str) -> KindFound | None:
     """Ответ модели — строгая форма. `None` — формы нет: вид не разобран.
 
-    Читаются только `kind`, `confidence`, `quote`, `contact` и поля v2 — `contact_name`,
-    `project`, `services`: «нужен ли ответ», путь и прочие поля, которые модель решит
-    добавить, решает код.
+    Читаются только `kind`, `confidence`, `quote`, `contact`, поля v2 — `contact_name`,
+    `project`, `services` — и номера v3 (`phones`): «нужен ли ответ», путь и прочие поля,
+    которые модель решит добавить, решает код.
     """
     try:
         body = json.loads(content)
@@ -197,6 +243,7 @@ def parse_form(content: str) -> KindFound | None:
         contact_name=_text(body.get("contact_name"), 255),
         project=_text(body.get("project"), 300),
         services=_names(body.get("services")),
+        phones=_names(_listed(body.get("phones")), most=MAX_PHONES),
         notes=notes,
     )
 
@@ -214,12 +261,17 @@ def _text(raw: Any, limit: int) -> str | None:
     return raw.strip()[:limit] or None
 
 
-def _names(raw: Any) -> tuple[str, ...]:
-    """Список строк ответа модели — без пустых и не длиннее `MAX_SERVICES`."""
+def _names(raw: Any, *, most: int = MAX_SERVICES) -> tuple[str, ...]:
+    """Список строк ответа модели — без пустых и не длиннее `most`."""
     if not isinstance(raw, list):
         return ()
     found = (_text(item, 255) for item in raw)
-    return tuple(name for name in found if name)[:MAX_SERVICES]
+    return tuple(name for name in found if name)[:most]
+
+
+def _listed(raw: Any) -> Any:
+    """Один номер модель может отдать строкой, а не списком: номер не теряется из-за формы."""
+    return [raw] if isinstance(raw, str) else raw
 
 
 def _squeeze(value: str) -> str:
@@ -263,22 +315,73 @@ def temper(
 def told(
     found: KindFound, *, text: str, labels: dict[str, str], services: Sequence[str]
 ) -> KindFound:
-    """Поля v2 — только то, что есть в письме или в базе; выдумка отбрасывается с пометкой.
+    """Поля v2 и номера v3 — только то, что есть в письме или в базе; выдумка отбрасывается
+    с пометкой.
 
     Проект и имя названного — дословно из письма (имя — только у «пишите другому»), услуги —
-    названия записей «услуга» базы знаний, как они записаны в базе. Уверенность в виде поля не
-    трогают: вид от них не зависит."""
+    названия записей «услуга» базы знаний, как они записаны в базе, номера — `phones_of`.
+    Уверенность в виде поля не трогают: вид от них не зависит."""
     project, about_project = _project(found, text, labels)
     name, about_name = _named(found, text, labels)
     chosen, about_services = _services(found, services)
+    phones, about_phones = phones_of(found.phones, text)
     notes = tuple(note for note in (about_project, about_name, about_services) if note)
     return replace(
         found,
         project=project,
         contact_name=name,
         services=chosen,
-        notes=(*found.notes, *notes),
+        phones=phones,
+        notes=(*found.notes, *notes, *about_phones),
     )
+
+
+def phones_of(raw: Sequence[str], text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Номера модели, которые есть в письме дословно и целиком, в 7–15 цифр; вторым — почему
+    отброшены остальные, словами без повторов. Тот же номер (те же цифры) — один раз.
+
+    Сверка — с тем, что видела модель: пробелы любого вида — одним, невидимые знаки письма
+    (направление текста, нулевая ширина) — прочь; номер хранится так же — чистым."""
+    where = _visible(text)
+    kept: dict[str, str] = {}
+    notes: dict[str, None] = {}
+    for item in raw:
+        phone = _visible(item).strip(_EDGES)
+        why = _not_a_phone(phone, where)
+        if why is None:
+            kept.setdefault(phone_digits(phone), phone)
+        else:
+            notes.setdefault(why, None)
+    return tuple(kept.values()), tuple(notes)
+
+
+def _not_a_phone(phone: str, text: str) -> str | None:
+    """Почему это не номер для связи — словами; `None` — номер."""
+    if not _PHONE.fullmatch(phone) or len(phone_digits(phone)) not in PHONE_DIGITS:
+        return "номер модели — не телефон (цифры, «+» и разделители, 7–15 цифр) — отброшен"
+    if phone not in text:
+        return "номер модели в письме не найден — отброшен"
+    if not _whole(phone, text):
+        return "номер модели — кусок длинного числа из письма — отброшен"
+    return None
+
+
+def _whole(phone: str, text: str) -> bool:
+    """Номер стоит в письме целиком: рядом нет цифр ни вплотную, ни через разделитель, и «+»
+    перед ним не потерян. «30 1234 5678» из «+49 30 1234 5678» — не номер, а его кусок."""
+    pattern = rf"(?<![\d+])(?<![\d+]{_SEP}){re.escape(phone)}(?!\d)(?!{_SEP}\d)"
+    return re.search(pattern, text) is not None
+
+
+def _visible(value: str) -> str:
+    """Пробелы любого вида — одним обычным, невидимые знаки (Unicode Cf) — прочь."""
+    shown = "".join(char for char in value if unicodedata.category(char) != "Cf")
+    return " ".join(shown.split())
+
+
+def phone_digits(value: str) -> str:
+    """Цифры номера арабскими: «+٩٧١ ٥٠» и «+971 50» — один номер (повторы, сверка в eval)."""
+    return "".join(str(unicodedata.decimal(char)) for char in value if char.isdecimal())
 
 
 def _project(found: KindFound, text: str, labels: dict[str, str]) -> tuple[str | None, str | None]:
@@ -330,7 +433,7 @@ class KindClient(ModelClient):
     ) -> KindFound | Unanswered:
         """Вид ответа. `parse_failed` — форма не разобрана; `Unanswered` — модели нет.
         `services` — названия записей «услуга» базы знаний: из них модель выбирает услуги."""
-        written = written_by_hand(text[:MAX_TEXT_CHARS])
+        written = own_words(text[:MAX_TEXT_CHARS])
         if not written.strip():
             return KindFound(SalesKind.PARSE_FAILED, notes=("письмо пустое — разбирать нечего",))
         hidden = masking.mask(user_message(text=written, subject=subject, services=services))
@@ -351,15 +454,16 @@ class KindClient(ModelClient):
             return KindFound(
                 SalesKind.PARSE_FAILED, notes=("ответ модели не разобран",), tokens=tokens
             )
-        return temper(
+        tempered = temper(
             replace(found, tokens=tokens), text=written, labels=hidden.labels, services=services
         )
+        return _quoted_only(tempered, text[:MAX_TEXT_CHARS])
 
 
 def snapshot(found: KindFound, *, model: str) -> dict[str, Any]:
     """Что предложила модель — для калибровки: вид, уверенность после своих
-    проверок, цитата и адрес (только найденные в письме), поля v2 после сверки —
-    их читает сводка передачи лида (`handoff_card.py`), — версия промпта."""
+    проверок, цитата и адрес (только найденные в письме), поля v2 и номера v3 после
+    сверки — их читает карточка передачи лида (`handoff_card.py`), — версия промпта."""
     return {
         "stage": "sales",
         "kind": found.kind.value,
@@ -369,6 +473,7 @@ def snapshot(found: KindFound, *, model: str) -> dict[str, Any]:
         "contact_name": found.contact_name,
         "project": found.project,
         "services": list(found.services),
+        "phones": list(found.phones),
         "notes": list(found.notes),
         "prompt_version": PROMPT_VERSION,
         "model": model,

@@ -107,9 +107,12 @@ def _deal_url(row: SalesHandoffModel, deps: Deps) -> str | None:
 
 def _words(row: SalesHandoffModel, card: Card, deps: Deps, deal: str | None, *, again: bool) -> str:
     """Текст сообщения. Новое письмо переданного лида через шлюз Kommo в сделку не легло —
-    клиент примечаний не пишет (`can.add_notes`): к ссылке на сделку — ссылка на диалог."""
+    клиент примечаний не пишет (`can.add_notes`): к ссылке на сделку — ссылка на диалог.
+    Человек дал телефон — последней строкой «Телефон: …» (`handoff_text.phone_line`)."""
     unnoted = again and deps.kommo is not None and not deps.kommo.can.add_notes
-    return wording.message(deal, card.thread_id, row.kommo, again=again, unnoted=unnoted)
+    return wording.message(
+        deal, card.thread_id, row.kommo, again=again, unnoted=unnoted, phones=card.phones
+    )
 
 
 async def _personal(

@@ -2607,9 +2607,9 @@
       "worst": "lead_of:188"
     },
     "backend/features/sales/handoff_card.py": {
-      "lines": 118,
+      "lines": 140,
       "complexity": 13,
-      "worst": "card_of:49"
+      "worst": "card_of:54"
     },
     "backend/features/sales/handoff_console.py": {
       "lines": 278,
@@ -2627,14 +2627,14 @@
       "worst": "write:60"
     },
     "backend/features/sales/handoff_telegram.py": {
-      "lines": 233,
+      "lines": 236,
       "complexity": 8,
       "worst": "step:83"
     },
     "backend/features/sales/handoff_text.py": {
-      "lines": 169,
+      "lines": 186,
       "complexity": 8,
-      "worst": "note:134"
+      "worst": "note:150"
     },
     "backend/features/sales/hold_words.py": {
       "lines": 92,
@@ -2807,24 +2807,24 @@
       "worst": "refer:96"
     },
     "backend/features/sales/replies.py": {
-      "lines": 492,
+      "lines": 493,
       "complexity": 8,
       "worst": "handle:197"
     },
     "backend/features/sales/reply_handoff.py": {
-      "lines": 164,
+      "lines": 167,
       "complexity": 6,
-      "worst": "_refused:128"
+      "worst": "_refused:131"
     },
     "backend/features/sales/reply_kind.py": {
-      "lines": 376,
+      "lines": 481,
       "complexity": 9,
-      "worst": "temper:240"
+      "worst": "temper:292"
     },
     "backend/features/sales/reply_routes.py": {
-      "lines": 98,
-      "complexity": 4,
-      "worst": "decide:87"
+      "lines": 132,
+      "complexity": 5,
+      "worst": "decide:101"
     },
     "backend/features/sales/segment_again.py": {
       "lines": 90,
@@ -3412,9 +3412,9 @@
       "worst": "report:323"
     },
     "scripts/eval_sales_reply.py": {
-      "lines": 315,
+      "lines": 367,
       "complexity": 20,
-      "worst": "report:223"
+      "worst": "report:274"
     },
     "scripts/eval_sales_segment.py": {
       "lines": 452,

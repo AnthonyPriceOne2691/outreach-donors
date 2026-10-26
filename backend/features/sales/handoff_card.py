@@ -7,6 +7,10 @@ MQL (Ф5: в сводке — проект, услуги и ГЕО); их бер
 только последнего: «да, давайте созвонимся» об услугах не говорит, а прошлое письмо говорило.
 Проект — последний названный; услуги — все названные, в порядке, как их назвали.
 
+**Телефон — все номера для связи из ответов диалога** (`phones`, разбор v3): «да, звоните
+завтра» номера не повторяет, а прошлое письмо его давало. Один номер в разных записях (те же
+цифры) — один раз, в записи, где его дали впервые.
+
 **Последнее письмо — ответ человека или его отписка словами** (`FORWARDED`): автоответ
 телемаркетологу не нужен, а «больше не пишите» от лида, которому уже звонят, — нужно.
 """
@@ -29,6 +33,7 @@ from backend.features.sales.models import (
     SalesHypothesisModel,
     SalesLeadModel,
 )
+from backend.features.sales.reply_kind import phone_digits
 
 #: Какие письма человека уходят телемаркетологу: ответ и отписка словами — не автоответ.
 FORWARDED = (ReplyKind.HUMAN, ReplyKind.UNSUBSCRIBE)
@@ -47,8 +52,8 @@ async def latest_reply(session: AsyncSession, thread_id: int) -> ReplyModel | No
 
 
 async def card_of(session: AsyncSession, row: SalesHandoffModel) -> Card:
-    """Что известно о лиде и диалоге: лид, гипотеза, сайт, последний ответ, сводка, проект
-    и услуги."""
+    """Что известно о лиде и диалоге: лид, гипотеза, сайт, последний ответ, сводка, проект,
+    услуги и номера для связи."""
     found = await session.execute(
         select(SalesLeadModel, SalesHypothesisModel.name, DomainModel.host)
         .join(SalesHypothesisModel, SalesHypothesisModel.id == SalesLeadModel.hypothesis_id)
@@ -70,10 +75,12 @@ async def card_of(session: AsyncSession, row: SalesHandoffModel) -> Card:
         .select_from(ReplyModel)
         .where(ReplyModel.thread_id == row.thread_id, ReplyModel.kind == ReplyKind.HUMAN)
     )
-    snapshots = await session.scalars(
-        select(ReplyModel.model_parse)
-        .where(ReplyModel.thread_id == row.thread_id, ReplyModel.model_parse.is_not(None))
-        .order_by(ReplyModel.id)
+    snapshots = list(
+        await session.scalars(
+            select(ReplyModel.model_parse)
+            .where(ReplyModel.thread_id == row.thread_id, ReplyModel.model_parse.is_not(None))
+            .order_by(ReplyModel.id)
+        )
     )
     project, services = told(snapshots)
     return Card(
@@ -96,6 +103,7 @@ async def card_of(session: AsyncSession, row: SalesHandoffModel) -> Card:
         project=project,
         services=services,
         reply_from=(reply.from_email or "") if reply else "",
+        phones=phones(snapshots),
     )
 
 
@@ -115,3 +123,17 @@ def told(snapshots: Iterable[Mapping[str, Any] | None]) -> tuple[str, tuple[str,
             if isinstance(title, str) and title.strip():
                 services.setdefault(title.strip(), None)
     return project, tuple(services)
+
+
+def phones(snapshots: Iterable[Mapping[str, Any] | None]) -> tuple[str, ...]:
+    """Номера для связи из снимков разбора ответов продаж по порядку; тот же номер (те же цифры) —
+    один раз. Снимки других этапов и записки без номеров не в счёт."""
+    found: dict[str, str] = {}
+    for snap in snapshots:
+        if not snap or snap.get("stage") != Stage.SALES.value:
+            continue
+        listed = snap.get("phones")
+        for phone in listed if isinstance(listed, list) else []:
+            if isinstance(phone, str) and phone_digits(phone):
+                found.setdefault(phone_digits(phone), phone.strip())
+    return tuple(found.values())
