@@ -460,10 +460,15 @@ async def test_menu_and_overview_count_what_the_cards_say(session: AsyncSession)
     view = await overview(session, now=NOW, stages=EVERY_STAGE)
 
     states = [card.summary.state for card in cards.values()]
-    # «Диалоги» и «Диалоги продаж» — своими пунктами; вместе — все ждущие.
-    assert menu.threads + menu.sales_threads == WAITING_ALL
+    # Ждущие — у пункта своей части: цены доноров, лиды рекламодателей, ответы продаж;
+    # вместе — все ждущие.
+    assert (menu.donor_threads, menu.advertiser_threads, menu.sales_threads) == (
+        WAITING_PRICES,
+        WAITING_LEADS,
+        WAITING_SALES,
+    )
     assert sum(state in WAITS_FOR_PERSON for state in states) == WAITING_ALL
-    assert menu.sales_threads == WAITING_SALES
+    assert WAITING_PRICES + WAITING_LEADS + WAITING_SALES == WAITING_ALL
     assert view.waiting.prices == states.count(ThreadState.NEEDS_REVIEW) == WAITING_PRICES
     assert view.waiting.leads == states.count(ThreadState.LEAD) == WAITING_LEADS
     assert view.donors.replied == REPLIED_DONORS
@@ -495,10 +500,11 @@ async def test_screens_get_the_same_answers(
         assert one.json()["card"] == row
     assert menu == {
         "run": 0,
-        "threads": WAITING_ALL - WAITING_SALES,
+        "donor_threads": WAITING_PRICES,
+        "advertiser_threads": WAITING_LEADS,
+        "sales_threads": WAITING_SALES,
         "forms": 0,
         "advertisers": 0,
-        "sales_threads": WAITING_SALES,
     }
 
 
@@ -590,7 +596,8 @@ async def test_without_sales_the_list_and_the_numbers_are_the_rest_of_the_world(
     rest = [(row.thread.id, row.summary) for row in everyone if row.stage is not Stage.SALES]
     assert [(row.thread.id, row.summary) for row in listed] == rest
     assert {mark.thread_id for mark in marks} == {number for number, _ in rest}
-    assert menu.threads == WAITING_ALL - WAITING_SALES
+    assert (menu.donor_threads, menu.advertiser_threads) == (WAITING_PRICES, WAITING_LEADS)
+    assert menu.sales_threads == 0
     assert (view.waiting.prices, view.waiting.leads) == (WAITING_PRICES, WAITING_LEADS)
     assert view.donors.replied == REPLIED_DONORS
     assert set(view.letters) == NO_SALES

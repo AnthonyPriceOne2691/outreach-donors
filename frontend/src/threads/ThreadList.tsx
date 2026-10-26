@@ -19,8 +19,9 @@
  * **Донор или рекламодатель — видно в строке** (слово владельца 14.10.2026): строка
  * рекламодателя помечена тем же словом, что шапка переписки (`THREAD_STAGE_NOTES`), а
  * переключатель «Все · Доноры · Рекламодатели» над поиском сужает список (`?role=`). До
- * этого письмо рекламодателю в списке не отличалось от письма донору. У «Диалогов
- * продаж» переключателя и пометки нет: там одна сторона.
+ * этого письмо рекламодателю в списке не отличалось от письма донору. В части списка —
+ * «Диалогах с донорами», «с рекламодателями», «продаж» — переключателя и пометки нет: там
+ * одна сторона, и её называет заголовок.
  */
 
 import {
@@ -47,7 +48,7 @@ import { Seams } from '../components/Seams';
 import { formatMoney, formatNumber } from '../format';
 import { LeadsExport } from './LeadsExport';
 import { ThreadsTitle } from './ThreadsTitle';
-import { isThreadFiltered, THREAD_ROLES } from './threadFilters';
+import { hasLeads, isThreadFiltered, THREAD_ROLES } from './threadFilters';
 import { THREAD_TAB_KEYS, THREAD_TABS, useUnboundPage, writeThreadTab } from './threadTabs';
 import { useThreadList } from './useThreadList';
 import type { ThreadListState } from './useThreadList';
@@ -86,11 +87,19 @@ const ROLE_OPTIONS = [
   { value: 'advertisers', label: THREAD_ROLES.advertisers },
 ];
 
-function Row({ thread, to, active }: { thread: ThreadCard; to: string; active: boolean }) {
+interface RowProps {
+  thread: ThreadCard;
+  to: string;
+  active: boolean;
+  /** Пометить рекламодателя: список без части, доноры и рекламодатели вперемешку. */
+  noted: boolean;
+}
+
+function Row({ thread, to, active, noted }: RowProps) {
   const state = threadState(thread.state);
   const price = priceLine(thread);
   // Пометка — у рекламодателя: доноры — основной поток, а у продаж своя часть списка.
-  const note = thread.stage === 'sales' ? '' : THREAD_STAGE_NOTES[thread.stage];
+  const note = noted && thread.stage !== 'sales' ? THREAD_STAGE_NOTES[thread.stage] : '';
   return (
     <Card
       component={Link}
@@ -141,7 +150,7 @@ interface RowsProps {
   split: boolean;
 }
 
-/** «Кому писали» над поиском — только в «Диалогах»: у «Диалогов продаж» одна сторона. */
+/** «Кому писали» над поиском — только у списка без части: в части одна сторона. */
 function RoleSwitch({ list }: { list: ThreadListState }) {
   if (list.filters.part !== null) return null;
   return (
@@ -267,6 +276,7 @@ export function ThreadRows({ list, split }: RowsProps) {
             thread={thread}
             to={href(thread)}
             active={split && thread.id === selected}
+            noted={list.filters.part === null}
           />
         ))}
       </div>
@@ -283,7 +293,7 @@ export function ThreadList() {
   const switchTab = (next: string) => {
     if (next === 'threads') return;
     // У ответа без письма своей переписки нет: вкладка — на всю ширину, без диалога справа.
-    // Часть списка (`?stage=sales`) остаётся: человек — всё ещё в «Диалогах продаж».
+    // Часть списка (`?stage=…`) остаётся: человек — всё ещё в «Диалогах» своей части.
     void navigate({
       pathname: '/threads',
       search: writeThreadTab('unbound', list.filters.part).toString(),
@@ -292,15 +302,14 @@ export function ThreadList() {
 
   return (
     <Stack gap="sm" className="threadListColumn">
-      <Group justify="space-between" wrap="nowrap" gap="xs">
-        <ThreadsTitle
-          total={total}
-          found={isThreadFiltered(list.typed) ? list.shown.length : null}
-          sales={list.filters.part === 'sales'}
-        />
-        {/* Лиды файлом — ответы на оффер рекламодателю: у части продаж их нет. */}
-        {list.filters.part === null && <LeadsExport compact />}
-      </Group>
+      {/* Лиды файлом — ответы на оффер рекламодателю: у доноров и продаж их нет. */}
+      <ThreadsTitle
+        total={total}
+        found={isThreadFiltered(list.typed) ? list.shown.length : null}
+        part={list.filters.part}
+        compact
+        aside={hasLeads(list.filters.part) ? <LeadsExport compact /> : undefined}
+      />
       <SegmentedControl
         aria-label="Вкладки диалогов"
         fullWidth

@@ -1,7 +1,7 @@
 /**
- * Часть списка диалогов в адресе (`?stage=sales`): читается только с правом «Продажи»,
- * пишется первой, сбрасывается отдельно от фильтров, а переписка продаж стоит только
- * в своей части.
+ * Часть списка диалогов в адресе (`?stage=…`): продажи читаются только с правом «Продажи»,
+ * доноры и рекламодатели (23.10.2026) — у всех; часть пишется первой, сбрасывается отдельно
+ * от фильтров, а переписка стоит только в части своего этапа.
  *
  * Кому писали (`?role=`, слово владельца 14.10.2026): доноры или рекламодатели — фильтр
  * «Диалогов»; в части продаж он не сужает.
@@ -37,7 +37,16 @@ describe('часть списка диалогов', () => {
       state: null,
       search: '',
     });
-    expect(readThreadFilters(new URLSearchParams('stage=donors'), true).part).toBeNull();
+    expect(readThreadFilters(new URLSearchParams('stage=elsewhere'), true).part).toBeNull();
+  });
+
+  it('доноры и рекламодатели — части и без права «Продажи»; «Кому писали» в части не сужает', () => {
+    expect(readThreadFilters(new URLSearchParams('stage=donors'), false).part).toBe('donors');
+    const advertisers = readThreadFilters(
+      new URLSearchParams('stage=advertisers&role=donors'),
+      false,
+    );
+    expect(advertisers).toEqual({ part: 'advertisers', role: null, state: null, search: '' });
   });
 
   it('в адрес — первой, а «найдено N из M» её не считает: часть — сам список', () => {
@@ -52,6 +61,22 @@ describe('часть списка диалогов', () => {
     expect(inPart(card('donors'), null)).toBe(true);
     expect(inPart(card('advertisers'), null)).toBe(true);
     expect(inPart(card('advertisers'), 'sales')).toBe(false);
+  });
+
+  it('часть доноров — только доноры, часть рекламодателей — только рекламодатели', () => {
+    expect(inPart(card('donors'), 'donors')).toBe(true);
+    expect(inPart(card('advertisers'), 'donors')).toBe(false);
+    expect(inPart(card('sales'), 'donors')).toBe(false);
+    expect(inPart(card('advertisers'), 'advertisers')).toBe(true);
+    expect(inPart(card('donors'), 'advertisers')).toBe(false);
+  });
+
+  it('пустая часть называет экран писем, где заводится её переписка', () => {
+    const empty = (part: 'donors' | 'advertisers' | null) =>
+      threadEmptiness({ ...NO_THREAD_FILTERS, part }, new Map(), 0).detail;
+    expect(empty('donors')).toContain('«Письма донорам»');
+    expect(empty('advertisers')).toContain('«Письма рекламодателям»');
+    expect(empty(null)).toContain('«Письма донорам» и «Письма рекламодателям»');
   });
 });
 

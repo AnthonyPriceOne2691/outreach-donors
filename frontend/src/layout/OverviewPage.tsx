@@ -140,8 +140,9 @@ function WaitingSection({ waiting }: { waiting: OverviewWaiting }) {
           hint={waiting.prices > 0 ? 'цену подтверждает человек' : 'все ответы разобраны'}
           color={attention(waiting.prices)}
           // В тот же фильтр, которым плитка считается: весь список диалогов
-          // прятал нужные среди сотни остальных (аудит 25.09.2026, №25).
-          to="/threads?state=needs_review"
+          // прятал нужные среди сотни остальных (аудит 25.09.2026, №25). Цену
+          // разбирают только у доноров — и плитка ведёт в «Диалоги с донорами».
+          to="/threads?stage=donors&state=needs_review"
         />
         <Metric
           title="Заполнить формы"
@@ -155,7 +156,7 @@ function WaitingSection({ waiting }: { waiting: OverviewWaiting }) {
           value={formatNumber(waiting.leads)}
           hint={waiting.leads > 0 ? 'ответили на оффер' : 'новых лидов нет'}
           color={attention(waiting.leads)}
-          to="/threads?state=lead"
+          to="/threads?stage=advertisers&state=lead"
         />
         <Metric
           title="Кандидаты в рекламодатели"
@@ -300,7 +301,7 @@ function LettersSection({
   return (
     <Section
       title="Письма донорам"
-      to="/letters"
+      to="/letters?stage=donors"
       toTitle="К письмам"
       aside={
         // Слово то же, что в плитке «Почта» на экране писем (`mailTile`):

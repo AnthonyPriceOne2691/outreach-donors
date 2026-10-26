@@ -101,8 +101,15 @@ describe('сводка на главной', () => {
     expect(within(review).getByText('в очереди №18')).toBeInTheDocument();
 
     // В тот же фильтр, которым плитка посчитана, а не во весь список.
-    expect(await tile('Разобрать цены')).toHaveAttribute('href', '/threads?state=needs_review');
-    expect(await tile('Лиды рекламодателей')).toHaveAttribute('href', '/threads?state=lead');
+    // Цену разбирают у доноров, лид — у рекламодателей: плитка ведёт в диалоги своей части.
+    expect(await tile('Разобрать цены')).toHaveAttribute(
+      'href',
+      '/threads?stage=donors&state=needs_review',
+    );
+    expect(await tile('Лиды рекламодателей')).toHaveAttribute(
+      'href',
+      '/threads?stage=advertisers&state=lead',
+    );
     expect(await tile('Заполнить формы')).toHaveAttribute('href', '/forms');
     expect(await tile('Кандидаты в рекламодатели')).toHaveAttribute('href', '/advertisers');
   });

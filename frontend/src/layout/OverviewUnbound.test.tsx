@@ -23,7 +23,8 @@ async function openOverview(unbound: number): Promise<HTMLElement> {
     'GET /api/overview': { body: { ...OVERVIEW, unbound_replies: unbound } },
   });
   renderWith(<AppRoutes />, '/');
-  const title = await screen.findByText('Письма донорам');
+  // Заголовком раздела, а не текстом: «Письма донорам» — и пункт меню (23.10.2026).
+  const title = await screen.findByRole('heading', { name: 'Письма донорам' });
   return title.closest('.mantine-Card-root') as HTMLElement;
 }
 
