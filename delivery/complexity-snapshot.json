@@ -237,9 +237,9 @@
       "worst": "mailing_forecast:34"
     },
     "backend/api/letters/forecast_schemas.py": {
-      "lines": 256,
+      "lines": 257,
       "complexity": 8,
-      "worst": "of:228"
+      "worst": "of:229"
     },
     "backend/api/letters/once.py": {
       "lines": 102,
@@ -422,9 +422,9 @@
       "worst": "read_mailing:33"
     },
     "backend/api/sales/mailing_schemas.py": {
-      "lines": 94,
+      "lines": 99,
       "complexity": 3,
-      "worst": "of:55"
+      "worst": "of:59"
     },
     "backend/api/sales/queue.py": {
       "lines": 252,
@@ -1752,7 +1752,7 @@
       "worst": "_deliver:418"
     },
     "backend/features/letters/forecast.py": {
-      "lines": 290,
+      "lines": 292,
       "complexity": 8,
       "worst": "forecast:108"
     },
@@ -2032,7 +2032,7 @@
       "worst": "inbox_trace:229"
     },
     "backend/features/outreach/repository.py": {
-      "lines": 492,
+      "lines": 499,
       "complexity": 4,
       "worst": "sent_today:220"
     },
@@ -2567,9 +2567,9 @@
       "worst": "apply:163"
     },
     "backend/features/sales/chain_text.py": {
-      "lines": 486,
+      "lines": 491,
       "complexity": 8,
-      "worst": "zones_of:261"
+      "worst": "zones_of:266"
     },
     "backend/features/sales/clean_jobs.py": {
       "lines": 142,
@@ -2807,9 +2807,9 @@
       "worst": "colleague_of:182"
     },
     "backend/features/sales/mailing.py": {
-      "lines": 292,
+      "lines": 302,
       "complexity": 7,
-      "worst": "board:163"
+      "worst": "board:173"
     },
     "backend/features/sales/models.py": {
       "lines": 500,
@@ -2902,9 +2902,9 @@
       "worst": "next_at:62"
     },
     "backend/features/sales/segment_alphabets.py": {
-      "lines": 115,
-      "complexity": 0,
-      "worst": "—"
+      "lines": 124,
+      "complexity": 2,
+      "worst": "after_na:42"
     },
     "backend/features/sales/segment_cache.py": {
       "lines": 142,

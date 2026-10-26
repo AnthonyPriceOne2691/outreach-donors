@@ -46,6 +46,7 @@ from backend.features.letters.template import (
     Zone,
     ZoneKind,
 )
+from backend.features.sales import segment_alphabets
 from backend.features.sales.models import SUBJECT_LENGTH
 
 if TYPE_CHECKING:  # отправитель знает языки цепочек отсюда: импорт в ответ замкнул бы круг
@@ -60,8 +61,10 @@ STEP_TITLES = {1: "первое письмо", 2: "первая добивка",
 STEP_WORDS = {1: "первого письма", 2: "первой добивки", 3: "второй добивки"}
 #: Языки писем. Новый язык — код здесь: экран берёт список из ответа сервера.
 LANGUAGES = ("ru", "en")
-#: Язык письма словами — после «на»: «на английском». Языка нет здесь — «на языке <код>».
-IN_LANGUAGE = {"ru": "на русском", "en": "на английском"}
+#: Язык словами после «на» — у каждого языка, который знает модуль: имена — одна таблица языков
+#: (`segment_alphabets.LANGUAGES`), второй копии слов нет. «На русском», «на португальском», «на
+#: иврите»; языка нет в таблице — общими словами с кодом (`in_language`).
+IN_LANGUAGE = {found.code: f"на {found.after_na}" for found in segment_alphabets.LANGUAGES}
 #: Подстановка без значения: сырая `{{имя}}` или громкая метка сборки («… НЕ ЗАДАНО»). Одно правило
 #: у сверки готового письма (`letter.problem`) и у записи «Отправителя» (`sender._clean`): поле
 #: «Отправителя» уходит в письмо как есть, и подстановка в нём держала бы каждое письмо.
@@ -175,9 +178,11 @@ def language_code(value: str) -> str:
 
 
 def in_language(code: str) -> str:
-    """Язык письма словами после «на»: «на английском» — и у кода с регионом (`en-us`)."""
+    """Язык словами после «на»: «на английском», «на португальском» — и у кода с регионом
+    (`pt-br`). Коды людям не показываем: языка нет в таблице — общими словами с кодом в скобках,
+    как у незнакомой причины отказа лида (`mailing.rejected`): «на другом языке (xx)»."""
     base = code.partition("-")[0]
-    return IN_LANGUAGE.get(code) or IN_LANGUAGE.get(base) or f"на языке {code}"
+    return IN_LANGUAGE.get(code) or IN_LANGUAGE.get(base) or f"на другом языке ({code})"
 
 
 def _subject(step: int, value: str | None) -> str | None:

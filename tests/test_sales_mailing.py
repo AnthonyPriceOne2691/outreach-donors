@@ -4,8 +4,8 @@
 странные (диалог без первого письма, первое письмо снято не по правилу `again`, «новый» с письмом,
 добивка без первого письма). Затем все разом и случайный набор: итог гипотезы — число её лидов прямо
 из базы, а части — те же числа, что считают другие экраны: «в очереди» — очередь пачки и прогноза
-(`queued_count`), «ушло» — шаг «отправлено» воронки без периода и письма в полёте, «сборка
-напишет» — её счёт (`writable_counts`, запас прогноза), «не напишет» — её же слова о каждом лиде
+(`queued_count`), «ушло» — шаг «отправлено» воронки без периода и письма в полёте (сколько их —
+`in_flight`, и «ушло» без них — ровно воронка, до исхода письма и после), «сборка напишет» — её счёт (`writable_counts`, запас прогноза), «не напишет» — её же слова о каждом лиде
 (`queue._plan`). И счёт — партией: втрое больше лидов — столько же запросов. Мир — подключённые
 продажи (`tests/test_sales_send_world.py`); адреса, домены и тексты выдуманы.
 """
@@ -186,6 +186,8 @@ class State:
     part: Part
     words: str | None
     make: Make
+    #: «Ушло» только письмом в полёте — лид и в `in_flight`.
+    flying: bool = False
 
 
 async def _ready(book: Book) -> int:
@@ -307,6 +309,15 @@ async def _followups(book: Book) -> int:
     return lead.hypothesis_id
 
 
+async def _followup_sending(book: Book) -> int:
+    """Первое письмо дошло, добивка в полёте: письмо лиду уже ушло — воронка его считает, и в
+    `in_flight` его нет: исход неизвестен у добивки, а не у «ушло»."""
+    lead = await book.lead()
+    thread_id = await book.first(lead, MessageStatus.DELIVERED)
+    await book.letter(lead, thread_id, MessageStatus.SENDING, step=1)
+    return lead.hypothesis_id
+
+
 async def _handed_after_reply(book: Book) -> int:
     lead = await book.lead()
     thread_id = await book.first(lead, MessageStatus.DELIVERED)
@@ -377,7 +388,15 @@ STATES = [
     State("long_key", Part.WONT_WRITE, queue_plan.LONG_KEY, _long_key),
     State("incomplete", Part.WONT_WRITE, queue_plan.incomplete("en"), _incomplete),
     # Ушло — шаг «отправлено» воронки и письмо в полёте.
-    State("sending", Part.SENT, None, _with_first(MessageStatus.SENDING)),
+    State("sending", Part.SENT, None, _with_first(MessageStatus.SENDING), flying=True),
+    State(
+        "rejected_sending",
+        Part.SENT,
+        None,
+        _with_first(MessageStatus.SENDING, LeadStatus.REJECTED),
+        flying=True,
+    ),
+    State("followup_sending", Part.SENT, None, _followup_sending),
     State("sent", Part.SENT, None, _with_first(MessageStatus.SENT)),
     State("bounced", Part.SENT, None, _with_first(MessageStatus.BOUNCED)),
     State("followups", Part.SENT, None, _followups),
@@ -464,6 +483,7 @@ def _invariant(board: mailing.Board, leads: dict[int, int]) -> None:
         assert parts.total == sum(_counts(parts).values())
         assert sum(why.count for why in parts.wont_write_why) == parts.wont_write
         assert sum(why.count for why in parts.removed_why) == parts.removed
+        assert 0 <= parts.in_flight <= parts.sent
     assert {row.hypothesis_id: row.parts.total for row in board.rows} == {
         row.hypothesis_id: leads.get(row.hypothesis_id, 0) for row in board.rows
     }
@@ -471,7 +491,20 @@ def _invariant(board: mailing.Board, leads: dict[int, int]) -> None:
         assert getattr(board.total, part.value) == sum(
             getattr(row.parts, part.value) for row in board.rows
         )
+    assert board.total.in_flight == sum(row.parts.in_flight for row in board.rows)
     assert board.total.total == sum(leads.values())
+
+
+async def _funnel_sent(session: AsyncSession) -> dict[int, int]:
+    """Шаг «отправлено» воронки без периода — по гипотезам."""
+    found = await funnel.counts(session, funnel.Period())
+    return {hypothesis_id: numbers.sent for hypothesis_id, numbers in found.items() if numbers.sent}
+
+
+def _sent_without_flying(board: mailing.Board) -> dict[int, int]:
+    """«Ушло» без писем в полёте — по гипотезам."""
+    rows = ((row.hypothesis_id, row.parts.sent - row.parts.in_flight) for row in board.rows)
+    return {hypothesis_id: sent for hypothesis_id, sent in rows if sent}
 
 
 # --- каждое состояние — в своей части ----------------------------------------------------------
@@ -487,6 +520,7 @@ async def test_each_state_of_a_lead_lands_in_one_part_with_its_words(
 
     parts = _row(found, hypothesis_id)
     assert _counts(parts) == {state.part: 1}
+    assert parts.in_flight == int(state.flying)
     assert _whys(parts) == (Counter({state.words: 1}) if state.words else Counter())
     _invariant(found, await _leads_of(session))
 
@@ -506,6 +540,46 @@ async def test_a_gone_letter_wins_over_a_queued_first_letter(
 
     assert _counts(_row(found, world.hypothesis_id)) == {Part.SENT: 1}
     assert await LetterRepository(session).queued_count(stage=Stage.SALES) == 1
+
+
+# --- письмо в полёте: в «ушло», пока исход неизвестен ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("outcome", "part"),
+    [
+        (MessageStatus.SENT, Part.SENT),
+        (MessageStatus.BOUNCED, Part.SENT),
+        (MessageStatus.QUEUED, Part.QUEUED),
+    ],
+    ids=["ушло", "вернулось", "снова в очереди"],
+)
+async def test_a_letter_in_flight_is_sent_until_its_outcome_and_then_sent_is_the_funnel(
+    session: AsyncSession, world: w.World, outcome: MessageStatus, part: Part
+) -> None:
+    """Первое письмо «отправляется»: лид — в «ушло» и в `in_flight`, воронка его ещё не считает, и
+    «ушло» без писем в полёте — её шаг «отправлено». Исход решён — в полёте никого, «ушло» =
+    воронке: письмо ушло или вернулось — лид в «ушло», отправка вернула его в очередь — «в очереди»."""
+    book = Book(session, world.hypothesis_id)
+    await _with_first(MessageStatus.DELIVERED)(book)
+    lead = await book.lead()
+    flying = await book.letter(lead, await book.thread(lead), MessageStatus.SENDING)
+
+    before = _row(await mailing.board(session, now=NOW), world.hypothesis_id)
+
+    assert (before.sent, before.in_flight, before.queued) == (2, 1, 0)
+    assert await _funnel_sent(session) == {world.hypothesis_id: 1}
+    assert before.sent - before.in_flight == 1
+
+    flying.status = outcome
+    flying.sent_at = NOW - timedelta(minutes=1) if outcome in funnel.GONE else None
+    await session.flush()
+    after = await mailing.board(session, now=NOW)
+
+    assert _counts(_row(after, world.hypothesis_id)) == dict(Counter([Part.SENT, part]))
+    assert after.total.in_flight == 0
+    assert {world.hypothesis_id: after.total.sent} == await _funnel_sent(session)
+    _invariant(after, await _leads_of(session))
 
 
 # --- все состояния разом: части — числа других экранов ------------------------------------------
@@ -558,11 +632,9 @@ async def test_every_state_at_once_adds_up_and_agrees_with_the_other_screens(
         said = await _builder(session, row.hypothesis_id)
         wont = Counter({why.words: why.count for why in row.parts.wont_write_why})
         assert said == wont + Counter({"пишет": row.parts.will_write})
-    # «Ушло» — шаг «отправлено» воронки без периода и письма в полёте.
-    sent = await funnel.counts(session, funnel.Period())
-    for row in found.rows:
-        flying = 1 if row.hypothesis_id == world.hypothesis_id else 0
-        assert row.parts.sent == sent.get(row.hypothesis_id, funnel.Funnel()).sent + flying
+    # «Ушло» — шаг «отправлено» воронки без периода и письма в полёте: без них — ровно воронка.
+    assert found.total.in_flight == sum(state.flying for state in STATES) == 2
+    assert _sent_without_flying(found) == await _funnel_sent(session)
 
 
 async def test_reasons_are_ranked_by_count_then_by_words(
@@ -649,6 +721,7 @@ async def test_a_random_set_adds_up_by_hypothesis_and_in_total(
     found = await mailing.board(session, now=NOW)
 
     _invariant(found, await _leads_of(session))
+    assert _sent_without_flying(found) == await _funnel_sent(session)
     assert found.total.queued == await LetterRepository(session).queued_count(stage=Stage.SALES)
     counted = await queue_plan.writable_counts(session, now=NOW)
     assert {

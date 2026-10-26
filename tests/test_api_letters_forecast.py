@@ -29,7 +29,6 @@ from backend.features.core.stages import MailPolicy
 from backend.features.core.window import Pace, SendWindow
 from backend.features.letters import forecast as forecast_module
 from backend.features.outreach import capacity
-from backend.features.sales import weekly_counts
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
@@ -320,6 +319,28 @@ async def test_a_new_mailbox_warms_up_from_the_first_sending_day(
     assert (fresh["next_step_on"], fresh["next_step_allowance"]) == ("2026-10-23", 10)
 
 
+async def test_a_disabled_mailbox_has_no_next_step(
+    client: AsyncClient, session: AsyncSession, viewer: dict[str, str]
+) -> None:
+    """Выключенный ящик не пишет: следующей ступени разгона у него нет — ни у ещё не писавшего,
+    ни у того, чей разгон идёт. На стенде 26.10.2026 выключенный ящик показывал «ср 28.10 — до 10
+    в день» рядом со словом «выключен»: разгон нового ящика предполагался и ему."""
+    await _box(session, "fresh@mail-n.example.test", Stage.DONORS, wrote=None, enabled=False)
+    await _box(session, "young@mail-n.example.test", Stage.DONORS, wrote=1, enabled=False)
+    letters = await _letters(session, Stage.DONORS)
+    await letters.add()
+    await session.commit()
+
+    body = (await client.get(URL, params={"days": 5}, headers=viewer)).json()
+
+    assert [
+        (box["enabled"], box["next_step_on"], box["next_step_allowance"]) for box in body["senders"]
+    ] == [
+        (False, None, None),
+        (False, None, None),
+    ]
+
+
 # --- продажи: окно, автоотправка и ответы моста --------------------------------------------
 
 
@@ -456,18 +477,18 @@ async def test_the_week_plan_and_the_forecast_assume_the_same_first_letter_day(
     assert [day.letters for day in sending] == [shown[day.day].capacity for day in sending]
 
 
-async def test_without_projection_capacity_is_the_week_plan_of_the_report(
+async def test_without_projection_capacity_is_the_rule_of_the_screen(
     session: AsyncSession, sales_module: ForecastSales
 ) -> None:
-    """Без предположения — правило экрана, как «План» недельного отчёта продаж сейчас: ящик без
-    первого письма на первой ступени, у домена — свой лимит."""
+    """Без предположения — правило экрана «Домены рассылки»: ящик без первого письма на первой
+    ступени, у домена — свой лимит. «План» недельного отчёта продаж просит предположение, как
+    прогноз (`weekly_counts.runway`, `now`): их совпадение — `tests/test_sales_mailing_capacity.py`."""
     await _fresh_sales_box(session)
     await _box(session, "seasoned@mail-t.example.test", Stage.SALES)
     session.add(SendingDomainModel(domain="mail-t.example.test", stage=Stage.SALES, daily_limit=12))
     await session.commit()
 
     plain = await capacity.capacity(session, Stage.SALES, NEXT_WEEK[:5])
-    runway = await weekly_counts.runway(session, NEXT_WEEK[:5])
 
-    assert plain.boxes == runway.boxes == 2
-    assert [day.letters for day in plain.days] == [day.letters for day in runway.days] == [17] * 5
+    assert plain.boxes == 2
+    assert [day.letters for day in plain.days] == [17] * 5

@@ -4,7 +4,9 @@
 Части по старшинству — лид берёт первую, которая о нём верна:
 - **ушло** (`sent`) — правило шага «отправлено» воронки без периода (`funnel.sent`: письмо цепочки
   ушло, дошло или вернулось) и письмо цепочки в полёте (`sending`): его уже взяла отправка, а в
-  очереди пачки и прогноза его нет (`queued_count` считает только «в очереди»);
+  очереди пачки и прогноза его нет (`queued_count` считает только «в очереди»). Сколько из «ушло»
+  ушло пока только письмом в полёте — `in_flight`: исход ещё неизвестен, и воронка таких не
+  считает; «ушло» без них — ровно её шаг «отправлено». Той же веткой выражения, что «ушло»;
 - **в очереди** (`queued`) — первое письмо «в очереди» отбором очереди пачки и прогноза
   (`LetterRepository.queued_count(stage=Stage.SALES)`: первое письмо, «в очереди», рассылка
   продаж). Письма, которые не уйдут, пока их не поправят (`autosend_window.queue_stuck`), — здесь
@@ -36,7 +38,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import ColumnElement, Subquery, and_, case, func, literal, or_, select
+from sqlalchemy import ColumnElement, Subquery, and_, case, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import MessageStatus, Stage
@@ -71,6 +73,10 @@ STOPPED = "первое письмо снято и заново не пишет�
 #: Лид «готов», диалог есть, а первого письма в нём нет: сборка такому лиду не пишет (её лиды — без
 #: диалога, с письмом в очереди или снятым до отправки, `queue._leads`).
 NO_FIRST = "диалог есть, а первого письма в нём нет — сборка такому лиду не пишет"
+#: «Ушло» только письмом в полёте — строка счёта (`_rest`), а не своя часть: лид в «ушло», а это
+#: число — его `in_flight`. Письмо цепочки «отправляется», а ушедшего, дошедшего или вернувшегося у
+#: лида нет: воронка его ещё не считает.
+_FLYING = "in_flight"
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +92,8 @@ class Parts:
     """Адреса гипотезы (или всех) частями; причины — старшие по числу первыми, их сумма — часть."""
 
     sent: int = 0
+    #: Из «ушло» — только письмом в полёте: исход неизвестен, воронка их ещё не считает. Не часть.
+    in_flight: int = 0
     queued: int = 0
     will_write: int = 0
     wont_write: int = 0
@@ -138,9 +146,11 @@ class _Tally:
         self.removed.update(other.removed)
 
     def parts(self) -> Parts:
-        """Части; «не напишет» и «снят» — суммой своих причин: число и причины не расходятся."""
+        """Части; «не напишет» и «снят» — суммой своих причин: число и причины не расходятся;
+        «ушло» — со своими письмами в полёте."""
         return Parts(
-            sent=self.counts[Part.SENT],
+            sent=self.counts[Part.SENT] + self.counts[_FLYING],
+            in_flight=self.counts[_FLYING],
             queued=self.counts[Part.QUEUED],
             will_write=self.counts[Part.WILL_WRITE],
             wont_write=sum(self.wont.values()),
@@ -230,12 +240,12 @@ def _letters() -> Subquery:
 
 async def _rest(session: AsyncSession) -> Sequence[Any]:
     """Лиды, кроме лидов без письма (о них решает сборка), — числом по гипотезе и части одним
-    запросом; у снятых — и по тому, что называет причину: состояние и код отказа лида, есть ли
-    первое письмо и почему оно снято."""
+    запросом; «ушло» письмом в полёте — своей строкой (`_FLYING`), у снятых — и по тому, что
+    называет причину: состояние и код отказа лида, есть ли первое письмо и почему оно снято."""
     path, mine = funnel.journey(), _letters()
-    gone = or_(funnel.sent(path, funnel.Period()), mine.c.sending.is_(True))
     part = case(
-        (gone, literal(Part.SENT.value)),
+        (funnel.sent(path, funnel.Period()), literal(Part.SENT.value)),
+        (mine.c.sending.is_(True), literal(_FLYING)),
         (mine.c.queued.is_(True), literal(Part.QUEUED.value)),
         (SalesLeadModel.status == LeadStatus.NEW, literal(Part.NOT_READY.value)),
         else_=literal(Part.REMOVED.value),

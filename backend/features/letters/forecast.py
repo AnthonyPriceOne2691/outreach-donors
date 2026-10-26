@@ -185,7 +185,9 @@ def _idle(found: Today, unread: str | None) -> str:
 
 
 def _mailbox(box: BoxToday, now: datetime, first: date) -> Mailbox:
-    step = capacity.next_step(box.sender, now.date(), first=first)
+    """Ящик в прогнозе. Выключенный не пишет — следующей ступени разгона у него нет: на стенде
+    26.10.2026 он показывал «ср 28.10 — до 10 в день» рядом со словом «выключен»."""
+    step = capacity.next_step(box.sender, now.date(), first=first) if box.sender.enabled else None
     return Mailbox(box, warmup_state(box.sender, now=now), step)
 
 
