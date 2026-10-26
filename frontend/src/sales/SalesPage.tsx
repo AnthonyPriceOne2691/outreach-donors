@@ -54,6 +54,7 @@ import {
 } from './leadFilters';
 import type { LeadFilters, SalesTab } from './leadFilters';
 import { LeadsPane, pageBack, useLeads } from './LeadsPane';
+import { MailingPane } from './MailingPane';
 import { ModuleOff } from './ModuleOff';
 import { Pending } from './Pending';
 import { QueuePane } from './QueuePane';
@@ -107,15 +108,15 @@ function tabLabel(key: SalesTab, count: number | undefined): string {
  *  семь вкладок столбиком ставили таблицу на 204 px ниже (аудит экранов 09.10.2026), а на
  *  800–1024 px вкладки в ряд срезались краем панели — «Воронка» и настройки были
  *  недосягаемы. Порог — по снимкам стенда 12.10.2026 (ревью стыков), перемерен 20.10.2026 после
- *  переименования «Лиды» в «emails» (на 5 px шире): одиннадцати вкладкам в ряд нужно 1 206 px
- *  при «emails — 12 345», «Гипотезы — 3», «База знаний — 14» и 1 230 px при «123 456», «12» и
- *  «128»; строка панели уже окна на 362 px при развёрнутом меню (на 166 px — при свёрнутом).
- *  Ряд влезает с окна 1 567 px, с числами побольше — с 1 591; уже — «Стоп-лист» срезан краем
- *  панели (на 1 536 px — до «Стоп»). Список — до 100em (1 600 px): на 1 601 px у ряда с числами
- *  побольше 10 px запаса. Когда «Продажи» разойдутся на пункты меню, список здесь не
- *  понадобится. В списке рабочие вкладки, черта и настройки — порядок тот же, что у вкладок. */
+ *  переименования «Лиды» в «emails» и 26.10.2026 — с двенадцатой вкладкой «Рассылка» (круг 22):
+ *  двенадцати вкладкам в ряд нужно 1 268 px при «emails — 130», «Гипотезы — 3», «База знаний — 0»
+ *  и 1 319 px при «123 456», «12» и «128»; строка панели уже окна на 339 px при развёрнутом меню.
+ *  Ряд влезает с окна 1 607 px, с числами побольше — с 1 658; уже — правые вкладки срезаны краем
+ *  панели. Список — до 105em (1 680 px): на 1 681 px у ряда с числами побольше 23 px запаса.
+ *  Когда «Продажи» разойдутся на пункты меню, список здесь не понадобится. В списке рабочие
+ *  вкладки, черта и настройки — порядок тот же, что у вкладок. */
 function SalesTabs({ tab, counts, onTab }: TabsProps) {
-  const narrow = useMediaQuery('(max-width: 100em)');
+  const narrow = useMediaQuery('(max-width: 105em)');
   const pick = (value: string | null) => {
     const next = SALES_TAB_KEYS.find((key) => key === value);
     if (next !== undefined && next !== tab) onTab(next);
@@ -133,8 +134,9 @@ function SalesTabs({ tab, counts, onTab }: TabsProps) {
           ...SALES_TAB_KEYS.filter((key) => !SETTINGS_TABS.has(key)).map(item),
           { group: 'Настройки', items: settings.map(item) },
         ]}
-        // Все одиннадцать пунктов без прокрутки списка: на 390 px они с чертой «Настройки»
-        // занимают 401 px (снимок стенда 12.10.2026), поэтому предел списка — 440 px, а не 360.
+        // Все двенадцать пунктов без прокрутки списка: на 390 px они с чертой «Настройки»
+        // занимают 435 px (снимок стенда 26.10.2026; одиннадцать — 401 px 12.10.2026), поэтому
+        // предел списка — 440 px, а не 360.
         // На телефоне рядом в ряд встаёт «Загрузить базу», и поле уже пункта «База знаний — 3» —
         // список по содержимому, левым краем по полю; на окне пошире поле — по значению, не шире
         // 16rem, а не на весь ряд.
@@ -306,6 +308,7 @@ export function SalesPage() {
     stoplist: () => <StoplistPane />,
     chain: () => <ChainPane hypotheses={known} owner={chosen} onOwner={pick} />,
     queue: () => <QueuePane hypotheses={known} hypothesis={chosen} onHypothesis={pick} />,
+    mailing: () => <MailingPane />,
     funnel: () => (
       <FunnelPane
         hypotheses={known}

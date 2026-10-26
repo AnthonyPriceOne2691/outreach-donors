@@ -11,11 +11,15 @@
 Значение поля «Писем за раз» не меряется: короткое число в поле — малая доля вырезки
 (тот же класс, что у значения поля в `ui_screens.py`); стиль поля тот же, что у полей
 вкладки «Отправитель», где значение меряется длинной строкой. Пояснение поля — в «i».
+
+С экранами очереди — экраны соседней вкладки «Рассылка» и строки срока на очереди
+(`ui_screens_sales_mailing.py`, круг 22): каталог продаж у предела длины файла.
 """
 
 from typing import Any
 
 from ui_screens_sales_hints import hint_probe
+from ui_screens_sales_mailing import mailing_screens
 
 #: Узкое окно — телефон: вместо вкладок список «Раздел», плитки — в колонку.
 PHONE = {"width": 390, "height": 844}
@@ -48,6 +52,7 @@ def queue_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("строка автоотправки", ".queueAuto", norm),
     ]
     return {
+        **mailing_screens(norm, big),
         "sales-queue": {"path": path, "ready": ready, "probes": connected},
         "sales-queue-phone": {
             "path": path,

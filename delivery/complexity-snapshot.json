@@ -3641,15 +3641,20 @@
       "complexity": 1,
       "worst": "_edit:40"
     },
+    "scripts/ui_screens_sales_mailing.py": {
+      "lines": 159,
+      "complexity": 3,
+      "worst": "nothing_to_build:43"
+    },
     "scripts/ui_screens_sales_quality.py": {
       "lines": 57,
       "complexity": 1,
       "worst": "quality_screens:21"
     },
     "scripts/ui_screens_sales_queue.py": {
-      "lines": 71,
+      "lines": 76,
       "complexity": 1,
-      "worst": "queue_screens:24"
+      "worst": "queue_screens:28"
     },
     "scripts/ui_screens_sales_segment.py": {
       "lines": 309,
