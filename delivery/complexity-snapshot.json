@@ -2711,6 +2711,11 @@
       "complexity": 7,
       "worst": "asked_wait:117"
     },
+    "backend/features/sales/lead_addresses.py": {
+      "lines": 36,
+      "complexity": 2,
+      "worst": "by_thread:24"
+    },
     "backend/features/sales/lead_edit.py": {
       "lines": 176,
       "complexity": 7,
@@ -2737,9 +2742,9 @@
       "worst": "__call__:111"
     },
     "backend/features/sales/mail.py": {
-      "lines": 489,
+      "lines": 498,
       "complexity": 7,
-      "worst": "colleague_of:178"
+      "worst": "colleague_of:182"
     },
     "backend/features/sales/models.py": {
       "lines": 500,

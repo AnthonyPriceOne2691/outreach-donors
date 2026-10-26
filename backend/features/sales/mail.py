@@ -44,7 +44,9 @@
 - `threads_to` — переписки, чьи письма уходят на этот адрес: лида с ним и те, где ответ ушёл
   коллеге лида с ним. По ним стоп-лист снимает письма продаж адресу
   (`letters/stoplist.stop_pending`) — строки `contacts` у них нет, — а сверка событий доставки
-  узнаёт своё письмо (`letters/events`).
+  узнаёт своё письмо (`letters/events`);
+- `addresses` — адрес лида каждой переписки (`lead_addresses.py`): спискам «Диалогов» и писем —
+  строки `contacts` у переписки продаж нет, и без ответа модуля там стояло «адрес не определён».
 
 **Отказ — только словами почты** (договор моста): «писать больше нельзя» (лид снят,
 передан, в стоп-листе) — `LeadStoppedError`, наследник стоп-листа: цепочка кончается; лид в
@@ -60,6 +62,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
@@ -93,6 +96,7 @@ from backend.features.sales import (
     connection,
     followup_texts,
     handoff,
+    lead_addresses,
     letter,
     sender,
 )
@@ -476,6 +480,11 @@ async def threads_to(session: AsyncSession, email: str) -> list[int]:
     dialogs = (Linked(*row) for row in answered.tuples())
     colleague = {dialog.link.thread_id for dialog in dialogs if colleague_of(address, dialog)}
     return sorted({*leads, *colleague})
+
+
+async def addresses(session: AsyncSession, thread_ids: Sequence[int]) -> dict[int, str]:
+    """Адрес лида каждой переписки продаж (`core/stages.sales_addresses`) — `lead_addresses`."""
+    return await lead_addresses.by_thread(session, thread_ids)
 
 
 async def policy(session: AsyncSession) -> MailPolicy:
