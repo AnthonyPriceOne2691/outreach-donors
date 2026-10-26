@@ -2012,9 +2012,9 @@
       "worst": "pause_once:89"
     },
     "backend/features/outreach/capacity.py": {
-      "lines": 419,
+      "lines": 421,
       "complexity": 7,
-      "worst": "span_of:264"
+      "worst": "span_of:266"
     },
     "backend/features/outreach/health.py": {
       "lines": 257,
