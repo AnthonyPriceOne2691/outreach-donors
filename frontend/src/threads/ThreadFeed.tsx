@@ -135,10 +135,19 @@ function priceBadges(reply: IncomingCard): ReactNode[] {
 }
 
 /** Что разбор нашёл в ответе — рядом с текстом, а не вместо: видно, откуда взялось число. */
-function Parsed({ reply, active }: { reply: IncomingCard; active: boolean }) {
+function Parsed({
+  reply,
+  active,
+  sales,
+}: {
+  reply: IncomingCard;
+  active: boolean;
+  sales: boolean;
+}) {
   const badges = priceBadges(reply);
-  // Кто подтвердил — у разбора под лентой, когда он открыт; здесь — когда закрыт.
-  if (reply.reviewed_by !== null && !reply.lead && !active) {
+  // Кто подтвердил — у разбора под лентой, когда он открыт; здесь — когда закрыт. У ответа
+  // продаж цены нет: кто решил, говорит причина словами («передан телемаркетологу вручную: …»).
+  if (reply.reviewed_by !== null && !reply.lead && !sales && !active) {
     badges.push(
       <Badge key="confirmed" variant="light" color="green">
         подтвердил {reply.reviewed_by}
@@ -243,6 +252,11 @@ function answerWithoutPrice(reply: IncomingCard): string | null {
     : null;
 }
 
+/** Первая буква — заглавной: слова сервера — середина фразы, а здесь — начало строки. */
+function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /** Пометки под текстом: почему ответ продаж ждёт человека, кто ведёт взятый лид
  *  и почему перекрытый ответ не разбирают. */
 function ReplyNotes({
@@ -258,9 +272,12 @@ function ReplyNotes({
 }) {
   return (
     <>
+      {/* «Ждёт человека» — только у ждущего: у разобранного ответа продаж причина — итог
+          («не сейчас: диалог закрыт», «передан телемаркетологу вручную: …»). */}
       {sales && reply.review_reason ? (
         <Text size="sm" c="dimmed" mt="xs">
-          Ждёт человека: {reply.review_reason}.
+          {reply.needs_review ? 'Ждёт человека: ' : ''}
+          {reply.needs_review ? reply.review_reason : capitalized(reply.review_reason)}.
         </Text>
       ) : null}
       {superseded !== null ? (
@@ -307,7 +324,7 @@ function TheirBubble({ reply, active, reviewable, sales, superseded, onPick }: T
             выглядеть пустым. Файл скачивается, но не показывается внутри страницы —
             он пришёл снаружи (docs/SECURITY.md). */}
         <ReplyFiles replyId={reply.id} files={reply.attachments} />
-        <Parsed reply={reply} active={active} />
+        <Parsed reply={reply} active={active} sales={sales} />
         <Group justify="space-between" gap="xs" wrap="nowrap" className="bubbleMeta">
           {pick !== null ? (
             <Button variant="light" size="compact-xs" onClick={() => onPick(reply.id)}>

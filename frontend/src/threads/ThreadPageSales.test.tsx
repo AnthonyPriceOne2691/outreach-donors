@@ -141,6 +141,35 @@ describe('переписка продаж', () => {
     expect(await screen.findByText(said)).toBeInTheDocument();
   });
 
+  it('разобранный ответ продаж — итог словами, без «Ждёт человека» и без «подтвердил»', async () => {
+    // Стенд 26.10.2026: после «Передать телемаркетологу» пузырь говорил «Ждёт человека: передан
+    // телемаркетологу вручную: …» и значок «подтвердил …» — как у подтверждённой цены донора.
+    const handed = {
+      ...VIEW,
+      card: { ...VIEW.card, state: 'replied' },
+      incoming: [
+        {
+          ...VIEW.incoming[0],
+          needs_review: false,
+          review_reason: 'передан телемаркетологу вручную: seller@ours.example.test',
+          reviewed_by: 'seller@ours.example.test',
+          reviewed_at: '2026-10-05T11:00:00+00:00',
+        },
+      ],
+    };
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({ 'GET /api/auth/me': { body: ADMIN }, 'GET /api/threads/5': { body: handed } });
+
+    renderWith(<AppRoutes />, '/threads/5');
+    await screen.findByRole('heading', { name: 'lead.example.test' });
+
+    expect(
+      screen.getByText('Передан телемаркетологу вручную: seller@ours.example.test.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Ждёт человека:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/подтвердил/)).not.toBeInTheDocument();
+  });
+
   it('у донора пометки этапа нет, а пояснение у поля ответа на месте', async () => {
     const donor = {
       ...VIEW,
