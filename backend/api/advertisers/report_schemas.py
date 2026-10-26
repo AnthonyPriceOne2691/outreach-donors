@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -21,6 +22,7 @@ from backend.features.crawl.advertiser_list import (
     AdvertiserFilters,
     AdvertiserRow,
 )
+from backend.features.crawl.findings import Findings
 from backend.features.crawl.offer_state import OfferState
 
 
@@ -159,6 +161,23 @@ class TallyView(BaseModel):
         )
 
 
+class FindingsView(BaseModel):
+    """Что нашёл обход донора (`crawl/findings.py`): домены по вердиктам — «куплено» без «не
+    пишем», спорные и решённые из них, «мимо», «кому не пишем» — и страницы со ссылками на
+    рекламодателей, которым пишем."""
+
+    bought: int
+    pending: int
+    decided: int
+    skipped: int
+    blocked: int
+    pages: int
+
+    @classmethod
+    def of(cls, findings: Findings) -> FindingsView:
+        return cls(**asdict(findings))
+
+
 class DonorAcceptance(BaseModel):
     """Приёмка одного донора и его последний обход — тем же видом, что на панели
     «Обход доноров»: «обошли и не нашли никого» и «не обошли» читаются по-разному."""
@@ -166,6 +185,7 @@ class DonorAcceptance(BaseModel):
     host: str
     crawl: CrawlRow | None
     tally: TallyView
+    findings: FindingsView
     #: Донор-поставщик: его рекламодателей не трогаем, порог ему не задача.
     supplier: bool
 
@@ -173,10 +193,12 @@ class DonorAcceptance(BaseModel):
 class AcceptanceView(BaseModel):
     """Приёмка по донорам, все доноры вместе (по разным доменам, без поставщиков,
     справочно) и пороги ТЗ — от сервера, а не копией чисел в экране. `total` — сколько
-    обойдённых доноров всего: строк бывает меньше (`limit`)."""
+    обойдённых доноров всего: строк бывает меньше (`limit`). Что нашли обходы вместе —
+    суммой по донорам, без поставщиков (`overall_findings`)."""
 
     donors: list[DonorAcceptance]
     total: int
     overall: TallyView
+    overall_findings: FindingsView
     target_with_address: int
     target_sent_share: float
