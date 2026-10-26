@@ -1,8 +1,16 @@
-"""Автосборка очереди продаж: писем в очереди хватает на ближайшие сутки — без кнопки.
+"""Автосборка очереди продаж: писем в очереди хватает на ближайший день отправки — без кнопки.
 
-**Сколько нужно.** Сутки ящиков продаж — сумма их дневных капов с разгоном
-(`senders.warmup_state`): столько первых писем ящики отправят за день. В очереди меньше — не
-хватает разницы; столько и собирается, но не больше предела сборки (`LIMIT_MAX`).
+**Сколько нужно** — мощность ящиков продаж в ближайший день отправки, та же, что у прогноза
+рассылки на этот день (`outreach/capacity.capacity`): разгон ящиков, закрытый домен (пауза,
+выдержка, чужое направление) — ноль, лимиты домена и направления. День — первый, когда первые
+письма ещё уходят (`capacity.first_letter_day`: сегодня, если окно получателя сегодня не
+закрылось, иначе ближайший день окна); в него же новый ящик пишет первое письмо и начинает разгон.
+В очереди меньше — не хватает разницы; столько и собирается, но не больше предела сборки
+(`LIMIT_MAX`). Не сутки капов с разгоном, как прежде: закрытый домен и лимиты не пустят столько
+писем, а пишет их модель (свой дневной потолок продаж). Не сегодняшний день целиком: в выходной и
+после окна письма не уходят, и очередь собирается к ближайшему дню отправки — его мощностью.
+Снижение лимита ящика мягкими отказами здесь не в счёте, как и в прогнозе на дни вперёд: оно — на
+сутки, а очередь — на день вперёд, и лишнее уйдёт назавтра.
 
 **В очереди — только письма, которые уйдут** (`queued`, ревью стыков отправки). Письмо, собранное
 с прежними подписью и адресом «Отправителя» или до правки лида, отправка не пустит («соберите
@@ -50,7 +58,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from redis.exceptions import RedisError
 from rq import Queue
@@ -65,9 +73,9 @@ from backend.features.core import usage
 from backend.features.core.domain import AuditAction, MessageStatus, Stage
 from backend.features.core.models.access import AuditLogModel
 from backend.features.core.models.domain import DomainModel
-from backend.features.core.models.outreach import MessageModel, SenderModel
+from backend.features.core.models.outreach import MessageModel
 from backend.features.letters.chain import FIRST_STEP
-from backend.features.outreach.senders import warmup_state
+from backend.features.outreach.capacity import capacity, first_letter_day
 from backend.features.sales import (
     autobuild_alarm,
     autosend,
@@ -120,15 +128,17 @@ STREAK = Stuck(
 
 @dataclass(frozen=True, slots=True)
 class Plan:
-    """Хватает ли очереди на сутки и кого собрать — или почему не собирается."""
+    """Хватает ли очереди на ближайший день отправки и кого собрать — или почему не собирается."""
 
-    #: Сумма дневных капов ящиков продаж с разгоном.
+    #: Мощность ящиков продаж в ближайший день отправки (`needed`).
     need: int
     #: Первых писем продаж в очереди, которые уйдут как есть (`queued`).
     have: int
     hypothesis_id: int | None = None
     name: str = ""
     why: str | None = None
+    #: Ближайший день отправки — тот, на который собирается очередь (`needed`).
+    day: date | None = None
 
     @property
     def stuck(self) -> bool:
@@ -145,12 +155,12 @@ class Plan:
         return min(self.short, LIMIT_MAX)
 
 
-async def needed(session: AsyncSession, now: datetime) -> int:
-    """Сколько первых писем ящики продаж отправят за сутки: дневные капы с разгоном."""
-    boxes = await session.scalars(
-        select(SenderModel).where(SenderModel.stage == Stage.SALES, SenderModel.enabled.is_(True))
-    )
-    return sum(warmup_state(box, now=now).allowance for box in boxes)
+async def needed(session: AsyncSession, now: datetime) -> tuple[date, int]:
+    """Ближайший день отправки и сколько первых писем ящики продаж отправят в него — мощностью
+    прогноза рассылки на этот день (`capacity.capacity`, см. модуль)."""
+    day = await first_letter_day(session, Stage.SALES, now)
+    found = await capacity(session, Stage.SALES, [day], project_first_letter=True, now=now)
+    return day, found.days[0].letters
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,7 +321,8 @@ def _streak_stopped(jobs: Queue, hypothesis_id: int) -> bool:
 async def plan(session: AsyncSession, jobs: Queue, *, now: datetime) -> Plan:
     """Хватает ли очереди и кого собрать — без записи и без постановки."""
     queue = await queued(session)
-    base = Plan(await needed(session, now), queue.going)
+    day, need = await needed(session, now)
+    base = Plan(need, queue.going, day=day)
     if not base.short:
         return base
     found = await _choose(session, jobs, now, queue.stale)

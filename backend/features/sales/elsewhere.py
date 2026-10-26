@@ -29,7 +29,7 @@ from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.letters import attempts
 from backend.features.sales.models import LeadStatus, SalesLeadModel, SalesThreadModel
-from backend.features.sales.off_queue import unwritten
+from backend.features.sales.off_queue import ready_unwritten, unwritten
 
 
 def free(domain_id: InstrumentedAttribute[int]) -> ColumnElement[bool]:
@@ -39,13 +39,9 @@ def free(domain_id: InstrumentedAttribute[int]) -> ColumnElement[bool]:
 
 def writable() -> ColumnElement[bool]:
     """Лиду «готов» сборка напишет первое письмо сейчас: письма нет или оно снято до отправки
-    (`off_queue.unwritten`; связь лида — внешним соединением), а сайт свободен (`free`). Одно
-    условие у кандидатов автосборки, её поиска лида и счёта «лидов без письма»."""
-    return and_(
-        SalesLeadModel.status == LeadStatus.READY,
-        unwritten(SalesThreadModel),
-        free(SalesLeadModel.domain_id),
-    )
+    (`off_queue.ready_unwritten`; связь лида — внешним соединением), а сайт свободен (`free`).
+    Одно условие у кандидатов автосборки, её поиска лида и счёта «лидов без письма»."""
+    return and_(ready_unwritten(), free(SalesLeadModel.domain_id))
 
 
 def _first(stages: Iterable[Stage]) -> Stage:

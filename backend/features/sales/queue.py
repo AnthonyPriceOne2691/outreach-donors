@@ -53,7 +53,6 @@
 from __future__ import annotations
 
 import logging
-from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -84,7 +83,6 @@ from backend.features.sales.followup_texts import CAPPED, Built
 from backend.features.sales.followup_texts import build as build_followups
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.lead_edit import edited
-from backend.features.sales.lead_values import language_base
 from backend.features.sales.mail import stopped_by
 from backend.features.sales.models import (
     LeadStatus,
@@ -92,7 +90,14 @@ from backend.features.sales.models import (
     SalesLeadModel,
     SalesThreadModel,
 )
-from backend.features.sales.queue_plan import HANDED_OFF, LONG_KEY, STOPLIST, Plan, plan_of
+from backend.features.sales.queue_plan import (
+    HANDED_OFF,
+    LONG_KEY,
+    STOPLIST,
+    Plan,
+    decisions,
+    plan_of,
+)
 from backend.features.sales.queue_report import QueueReport
 from backend.features.sales.sender import Sender
 from backend.features.sales.usage_cap import sales_cap
@@ -430,8 +435,8 @@ class QueueState:
     missing: list[str]
     #: Цепочка гипотезы на каждом языке: своя или общая, полна ли.
     chains: list[chain.Chain]
-    #: Лидов `ready`, которым сборка напишет первое письмо сейчас (`elsewhere.writable`): письма
-    #: нет или оно снято до отправки, сайт не в работе у другого направления.
+    #: Лидов «готов» без письма (`off_queue.ready_unwritten`): кому сборка напишет и кто ждёт —
+    #: тем же счётом, что «без письма» вкладки «Рассылка» (`mailing.py`).
     unwritten: int
     #: Первых писем гипотезы в очереди — ждут отправки (их же пересобирает сборка).
     queued: int
@@ -439,29 +444,22 @@ class QueueState:
     #: очередь этапа целиком, и кнопка называет это число, а не число гипотезы. Как и у
     #: пачки, только первые письма: добивка в очереди ждёт свой ящик и проход добивок.
     stage_queued: int
-    #: Те же лиды без письма — по языку письма (основой кода, как у сборки): плашка «отправлять
-    #: нечего» называет неполную цепочку только того языка, лиды которого ждут.
-    unwritten_by_language: dict[str, int] = field(default_factory=dict)
+    #: Из лидов без письма — скольким сборка напишет первое письмо: «сборка напишет» вкладки.
+    will_write: int = 0
+    #: Лиды, которые ждут цепочку своего языка (её нет или она задана не целиком), — по языку
+    #: письма основой кода: плашка «отправлять нечего» называет неполную цепочку только того языка,
+    #: чьи лиды её ждут. Не «без письма» по языкам: лид, который ждёт другого, здесь не стоит.
+    chain_waiting: dict[str, int] = field(default_factory=dict)
 
 
 async def state(session: AsyncSession, hypothesis_id: int) -> QueueState:
-    """Очередь гипотезы для экрана и консоли — без записи."""
+    """Очередь гипотезы для экрана и консоли — без записи; лиды без письма — решением сборки
+    (`queue_plan.decisions`)."""
     chains = [
         await chain.resolve(session, hypothesis_id=hypothesis_id, language=code)
         for code in chain_text.LANGUAGES
     ]
-    # Язык — основой кода тем же правилом, что у сборки (`language_base`): разных записей языка
-    # у гипотезы — единицы, группа по ним дешевле правила в SQL.
-    written = await session.execute(
-        select(SalesLeadModel.language, func.count())
-        .select_from(SalesLeadModel)
-        .outerjoin(SalesThreadModel, SalesThreadModel.lead_id == SalesLeadModel.id)
-        .where(SalesLeadModel.hypothesis_id == hypothesis_id, elsewhere.writable())
-        .group_by(SalesLeadModel.language)
-    )
-    by_language: Counter[str] = Counter()
-    for language, count in written.tuples().all():
-        by_language[language_base(language)] += count
+    decided = await decisions(session, hypothesis_id=hypothesis_id)
     queued = await session.scalar(
         select(func.count())
         .select_from(MessageModel)
@@ -486,9 +484,9 @@ async def state(session: AsyncSession, hypothesis_id: int) -> QueueState:
     return QueueState(
         await connection.missing(session),
         chains,
-        sum(by_language.values()),
+        decided.unwritten(hypothesis_id),
         int(queued or 0),
         int(stage_queued or 0),
-        # Лид без языка — в общем числе, а не по языкам: цепочки у него нет ни на одном.
-        {code: count for code, count in by_language.items() if code},
+        decided.writes.get(hypothesis_id, 0),
+        dict(decided.chains.get(hypothesis_id, {})),
     )

@@ -66,6 +66,7 @@ const READY: SalesQueueView = {
     { language: 'en', source: 'own', missing: [], version: 'chain-en0000000000' },
   ],
   unwritten: 4,
+  will_write: 3,
   unwritten_languages: { ru: 3, en: 1 },
   queued: 2,
   stage_queued: 7,

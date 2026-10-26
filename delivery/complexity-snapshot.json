@@ -416,15 +416,25 @@
       "complexity": 4,
       "worst": "change_lead:57"
     },
-    "backend/api/sales/queue.py": {
-      "lines": 245,
+    "backend/api/sales/mailing.py": {
+      "lines": 46,
+      "complexity": 2,
+      "worst": "read_mailing:33"
+    },
+    "backend/api/sales/mailing_schemas.py": {
+      "lines": 94,
       "complexity": 3,
-      "worst": "build_queue:159"
+      "worst": "of:55"
+    },
+    "backend/api/sales/queue.py": {
+      "lines": 252,
+      "complexity": 3,
+      "worst": "build_queue:166"
     },
     "backend/api/sales/routes.py": {
-      "lines": 360,
+      "lines": 363,
       "complexity": 6,
-      "worst": "_found:129"
+      "worst": "_found:131"
     },
     "backend/api/sales/schemas.py": {
       "lines": 234,
@@ -2507,14 +2517,14 @@
       "worst": "beyond:88"
     },
     "backend/features/sales/auto_lines.py": {
-      "lines": 210,
+      "lines": 213,
       "complexity": 6,
-      "worst": "autosend_line:93"
+      "worst": "autosend_line:94"
     },
     "backend/features/sales/autobuild.py": {
-      "lines": 466,
+      "lines": 477,
       "complexity": 8,
-      "worst": "_choose:323"
+      "worst": "_choose:334"
     },
     "backend/features/sales/autobuild_alarm.py": {
       "lines": 113,
@@ -2622,9 +2632,9 @@
       "worst": "kept_words:61"
     },
     "backend/features/sales/elsewhere.py": {
-      "lines": 99,
+      "lines": 95,
       "complexity": 4,
-      "worst": "roles:57"
+      "worst": "roles:53"
     },
     "backend/features/sales/followup_texts.py": {
       "lines": 377,
@@ -2796,6 +2806,11 @@
       "complexity": 7,
       "worst": "colleague_of:182"
     },
+    "backend/features/sales/mailing.py": {
+      "lines": 292,
+      "complexity": 7,
+      "worst": "board:163"
+    },
     "backend/features/sales/models.py": {
       "lines": 500,
       "complexity": 2,
@@ -2812,7 +2827,7 @@
       "worst": "hosts_of:52"
     },
     "backend/features/sales/off_queue.py": {
-      "lines": 148,
+      "lines": 155,
       "complexity": 4,
       "worst": "of_leads:80"
     },
@@ -2832,9 +2847,9 @@
       "worst": "zones_of:49"
     },
     "backend/features/sales/queue.py": {
-      "lines": 495,
+      "lines": 493,
       "complexity": 7,
-      "worst": "build:152"
+      "worst": "build:157"
     },
     "backend/features/sales/queue_jobs.py": {
       "lines": 103,
@@ -2842,9 +2857,9 @@
       "worst": "build_sales_queue:83"
     },
     "backend/features/sales/queue_plan.py": {
-      "lines": 181,
+      "lines": 234,
       "complexity": 7,
-      "worst": "plan_of:77"
+      "worst": "plan_of:81"
     },
     "backend/features/sales/queue_report.py": {
       "lines": 118,
@@ -3162,9 +3177,9 @@
       "worst": "build:224"
     },
     "backend/features/sales/weekly_counts.py": {
-      "lines": 324,
+      "lines": 289,
       "complexity": 9,
-      "worst": "dialogs:130"
+      "worst": "dialogs:122"
     },
     "backend/features/sales/weekly_jobs.py": {
       "lines": 233,

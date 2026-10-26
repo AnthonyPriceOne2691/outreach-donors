@@ -8,12 +8,15 @@
 счёта «сколько первых писем сборка ещё напишет» (`writable_counts`) — партией: прогноз рассылки
 спрашивает его раз в минуту, и запрос на лида там стал бы тысячами запросов.
 
-**Счёт — партией** (`writable_counts`): кандидаты — одним запросом (лиды «готов», которым сборка
-напишет сейчас, `elsewhere.writable`, чей адрес письму не мешает, `unconfirmed.holds`; переданные
-телемаркетологу — тем же запросом, правилом шва цепочки `handoff.handed_off_rule`); стоп-листы и
-сайты в работе у другого направления — чтением на партию (`clean_known.load_known`, правило —
-очистки: `cleaning._stoplisted`, `_unsubscribed`, как у снятия лидов стоп-листом); цепочка — одна на
-пару «гипотеза, язык»; остальное — чистые функции.
+**Счёт — партией** (`decisions`, его число — `writable_counts`): кандидаты — одним запросом (лиды
+«готов» без письма, `off_queue.ready_unwritten`, — те же, что берёт сборка, кроме лидов с письмом в
+очереди; сайт в работе у другого направления и адрес, который держит очистка, судит само решение,
+как у сборки; переданные телемаркетологу — тем же запросом, правилом шва цепочки
+`handoff.handed_off_rule`); стоп-листы и сайты в работе у другого направления — чтением на партию
+(`clean_known.load_known`, правило — очистки: `cleaning._stoplisted`, `_unsubscribed`, как у снятия
+лидов стоп-листом); цепочка — одна на пару «гипотеза, язык»; остальное — чистые функции. Решение о
+каждом кандидате — «писать» или причина словами отчёта сборки: ими же вкладка «Рассылка» делит лидов
+без письма на тех, кому сборка напишет, и тех, кто ждёт (`mailing.py`).
 
 Сколько напишет — не сколько уйдёт в очередь: модель может не уложить письмо в коридор отличия, а
 потолок модели — встать посреди сборки; это знает только сама сборка.
@@ -40,8 +43,9 @@ from backend.features.sales.handoff import handed_off_rule
 from backend.features.sales.lead_values import language_base
 from backend.features.sales.models import SalesLeadModel, SalesThreadModel
 from backend.features.sales.not_writing import excluded
+from backend.features.sales.off_queue import ready_unwritten
 from backend.features.sales.queue_report import no_chain
-from backend.features.sales.unconfirmed import first_letter, holds
+from backend.features.sales.unconfirmed import first_letter
 
 #: Почему лид ждёт — словами отчёта сборки; одинаковые причины складываются.
 HANDED_OFF = "передан телемаркетологу"
@@ -86,14 +90,19 @@ async def plan_of(lead: SalesLeadModel, host: str, hypothesis_id: int, facts: Fa
         return no_chain(language)
     found = await facts.chain_of(hypothesis_id, language)
     if found.missing:
-        # Язык словами («на русском»), а не кодом: причину читает человек на экране очереди.
-        return f"цепочка {chain_text.in_language(language)} задана не целиком"
+        return incomplete(language)
     values = letter.values_of(lead, host)
     absent = letter.lacking(found.steps.values(), values)
     if absent:
         return f"у лида нет значения для {', '.join(absent)}"
     key = letter.key(host, lead.email, FIRST_STEP)
     return LONG_KEY if len(key) > letter.KEY_LENGTH else Plan(found, values, key)
+
+
+def incomplete(language: str) -> str:
+    """Почему лид ждёт, когда цепочка его языка задана не целиком: язык словами («на русском»), а не
+    кодом — причину читает человек на экране очереди."""
+    return f"цепочка {chain_text.in_language(language)} задана не целиком"
 
 
 async def _blocked(lead: SalesLeadModel, host: str, facts: Facts) -> str | None:
@@ -139,28 +148,70 @@ class _Batch:
         return self.chains[pair]
 
 
-async def writable_counts(session: AsyncSession, *, now: datetime | None = None) -> dict[int, int]:
-    """Сколько первых писем сборка ещё напишет — по гипотезам: лиды, которым она напишет сейчас,
-    решением сборки (`plan_of`) с фактами партией. Письма, уже стоящие в очереди, — не здесь: их
-    считает очередь. Без записи."""
-    rows = await _candidates(session)
+@dataclass(frozen=True, slots=True)
+class Decisions:
+    """Решение сборки о лидах «готов» без письма (`off_queue.ready_unwritten`) — по гипотезам:
+    скольким она напишет первое письмо, почему ждут остальные (слова отчёта сборки → лидов) и кто
+    из них ждёт цепочку своего языка (её нет или она задана не целиком; язык основой кода → лидов,
+    лид без языка — нигде)."""
+
+    writes: dict[int, int] = field(default_factory=dict)
+    waits: dict[int, Counter[str]] = field(default_factory=dict)
+    chains: dict[int, Counter[str]] = field(default_factory=dict)
+
+    def unwritten(self, hypothesis_id: int) -> int:
+        """Лидов гипотезы без письма: кому сборка напишет и кто ждёт."""
+        waiting = self.waits.get(hypothesis_id, Counter())
+        return self.writes.get(hypothesis_id, 0) + sum(waiting.values())
+
+
+async def decisions(
+    session: AsyncSession, *, now: datetime | None = None, hypothesis_id: int | None = None
+) -> Decisions:
+    """Решение сборки (`plan_of`) о каждом лиде без письма — с фактами партией; `hypothesis_id` —
+    только лиды этой гипотезы (экран её очереди). Без записи."""
+    rows = await _candidates(session, hypothesis_id)
     leads = [lead for lead, _, _ in rows]
     facts = _Batch(
         session,
         await load_known(session, leads, now or datetime.now(UTC)),
         frozenset(lead.id for lead, _, handed in rows if handed),
     )
-    counts: Counter[int] = Counter()
+    writes: Counter[int] = Counter()
+    waits: dict[int, Counter[str]] = {}
+    chains: dict[int, Counter[str]] = {}
     for lead, host, _ in rows:
-        if isinstance(await plan_of(lead, host, lead.hypothesis_id, facts), Plan):
-            counts[lead.hypothesis_id] += 1
-    return dict(counts)
+        found = await plan_of(lead, host, lead.hypothesis_id, facts)
+        if isinstance(found, Plan):
+            writes[lead.hypothesis_id] += 1
+            continue
+        waits.setdefault(lead.hypothesis_id, Counter())[found] += 1
+        language = _chain_language(lead, found)
+        if language is not None:
+            chains.setdefault(lead.hypothesis_id, Counter())[language] += 1
+    return Decisions(dict(writes), waits, chains)
 
 
-async def _candidates(session: AsyncSession) -> Sequence[tuple[SalesLeadModel, str, bool]]:
-    """Лиды «готов», которым сборка напишет первое письмо сейчас, чей адрес письму не мешает, — с
-    сайтом компании и тем, передан ли лид телемаркетологу. Одним запросом."""
-    rows = await session.execute(
+def _chain_language(lead: SalesLeadModel, why: str) -> str | None:
+    """Язык, цепочку которого ждёт лид: решение сборки — «цепочки на нём нет» или «задана не
+    целиком»; иначе — `None`. Лид без языка — нигде: цепочки у него нет ни на одном."""
+    language = language_base(lead.language)
+    return language if language and why in (no_chain(language), incomplete(language)) else None
+
+
+async def writable_counts(session: AsyncSession, *, now: datetime | None = None) -> dict[int, int]:
+    """Сколько первых писем сборка ещё напишет — по гипотезам: лиды без письма, о которых решение
+    сборки — писать (`decisions`). Письма, уже стоящие в очереди, — не здесь: их считает очередь.
+    Без записи."""
+    return (await decisions(session, now=now)).writes
+
+
+async def _candidates(
+    session: AsyncSession, hypothesis_id: int | None
+) -> Sequence[tuple[SalesLeadModel, str, bool]]:
+    """Лиды «готов» без письма (`off_queue.ready_unwritten`) — с сайтом компании и тем, передан ли
+    лид телемаркетологу. Одним запросом."""
+    query = (
         select(
             SalesLeadModel,
             DomainModel.host,
@@ -168,10 +219,12 @@ async def _candidates(session: AsyncSession) -> Sequence[tuple[SalesLeadModel, s
         )
         .join(DomainModel, DomainModel.id == SalesLeadModel.domain_id)
         .outerjoin(SalesThreadModel, SalesThreadModel.lead_id == SalesLeadModel.id)
-        .where(elsewhere.writable(), ~holds())
+        .where(ready_unwritten())
         .order_by(SalesLeadModel.id)
     )
-    return rows.tuples().all()
+    if hypothesis_id is not None:
+        query = query.where(SalesLeadModel.hypothesis_id == hypothesis_id)
+    return (await session.execute(query)).tuples().all()
 
 
 async def supply(session: AsyncSession) -> int:

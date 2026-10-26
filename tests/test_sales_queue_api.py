@@ -29,9 +29,17 @@ from backend.features.letters.rewrite import RewriteClient
 from backend.features.letters.sending import Sending
 from backend.features.letters.uniqueness import percent_text
 from backend.features.ops import job_outcome
-from backend.features.sales import chain, connection, corridor, queue, queue_jobs, sender
+from backend.features.sales import (
+    chain,
+    chain_text,
+    connection,
+    corridor,
+    queue,
+    queue_jobs,
+    sender,
+)
 from backend.features.sales.handoff import lead_of
-from backend.features.sales.models import SalesThreadModel
+from backend.features.sales.models import SalesStoplistModel, SalesThreadModel
 from backend.shared.queue import QUEUE_NAME, SALES_BULK_QUEUE_NAME, SALES_QUEUE_NAME
 from fastapi import FastAPI
 from httpx import AsyncClient, Response
@@ -98,6 +106,8 @@ async def test_queue_shows_connected_sales_chains_and_what_waits(
         1,
         1,
     )
+    # Лид без письма — тот, кому сборка напишет: в мире нет причин ждать.
+    assert body["will_write"] == 1
     # Пачка берёт очередь этапа целиком: кнопка называет письма всех гипотез.
     assert (body["stage_queued"], body["limit_max"]) == (3, 200)
     # Потолок пачки — тот же, что у экрана писем: окно подтверждения называет его.
@@ -112,26 +122,38 @@ async def test_queue_shows_connected_sales_chains_and_what_waits(
     }
 
 
-async def test_leads_without_a_letter_are_counted_by_language_like_the_build_takes_them(
+async def test_leads_waiting_for_the_chain_of_their_language_are_counted_by_language(
     session: AsyncSession, world: w.World, client: AsyncClient, headers: dict[str, str]
 ) -> None:
-    """Лиды без письма — и по языку письма, основой кода, тем же правилом, что у сборки
-    (`ru-RU` → `ru`): по этим числам плашка «отправлять нечего» называет неполную цепочку только
-    того языка, чьи лиды ждут. Лид без языка — в общем числе, а по языкам — нигде."""
+    """Лиды без письма — все «готов» без письма, а скольким сборка напишет — её решением; по языку
+    письма (основой кода, тем же правилом, что у сборки: `ru-RU` → `ru`) — только лиды, которые
+    ждут цепочку своего языка: по этим числам плашка «отправлять нечего» называет неполную цепочку
+    того языка, чьи лиды её ждут. Своя английская цепочка гипотезы задана одним шагом из трёх;
+    русская — общая, полная. Лид в стоп-листе ждёт не цепочку, лид без языка — не по языку."""
+    one_step = chain_text.step_template(step=1, language="en", subject=w.SUBJECT, body=w.FIRST_BODY)
+    await chain.save(
+        session, one_step, hypothesis_id=world.hypothesis_id, author="тест", author_id=None
+    )
     for email, language in [
         ("jane@acme.example.test", "ru-RU"),
         ("olga@beta.example.test", "RU"),
         ("ivan@gamma.example.test", "en"),
+        ("stop@epsilon.example.test", "en"),
         ("petr@delta.example.test", None),
     ]:
         await w.lead(session, world.hypothesis_id, email, language=language)
+    session.add(SalesStoplistModel(email="stop@epsilon.example.test"))
     await session.commit()
 
     response = await client.get(f"{QUEUE}?hypothesis={world.hypothesis_id}", headers=headers)
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert (body["unwritten"], body["unwritten_languages"]) == (4, {"ru": 2, "en": 1})
+    assert (body["unwritten"], body["will_write"], body["unwritten_languages"]) == (
+        5,
+        2,
+        {"en": 1},
+    )
 
 
 async def test_followup_stuck_in_the_queue_is_not_in_the_number_of_the_batch(

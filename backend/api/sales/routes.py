@@ -36,8 +36,9 @@
 **качество агента** (срез 6.4) — модулем `calibration.py`, **добивки лида** (какими уйдут) —
 модулем `queue.py`, **правка лида** — модулем `leads.py`, **стоп-лист продаж** — модулем
 `stoplist.py`, **сбор базы гипотезы** (срез 6.1) — модулем `segment.py`, **недельный отчёт**
-(срез 6.3) — модулем `weekly.py`, **«Передать телемаркетологу»** — модулем `handoff.py`; их
-маршруты входят в этот же роутер: у раздела один префикс.
+(срез 6.3) — модулем `weekly.py`, **«Передать телемаркетологу»** — модулем `handoff.py`,
+**рассылка** (адреса частями) — модулем `mailing.py`; их маршруты входят в этот же роутер: у
+раздела один префикс.
 Права — как в ядре: смотреть и заводить гипотезу — `sales`; очистка и сбор базы — `sales` и
 `run` (платная проверка адресов, как поиск адресов); запись цепочки, базы знаний, отправителя и
 стоп-листа, правка лида, сборка очереди и передача лида телемаркетологу — `sales` и `send`.
@@ -84,6 +85,7 @@ from backend.api.sales import funnel as funnel_routes
 from backend.api.sales import handoff as handoff_routes
 from backend.api.sales import kb as kb_routes
 from backend.api.sales import leads as lead_routes
+from backend.api.sales import mailing as mailing_routes
 from backend.api.sales import queue as queue_routes
 from backend.api.sales import segment as segment_routes
 from backend.api.sales import segment_again as segment_again_routes
@@ -347,6 +349,7 @@ router.include_router(kb_routes.router)
 router.include_router(chain_routes.router)
 router.include_router(queue_routes.router)
 router.include_router(funnel_routes.router)
+router.include_router(mailing_routes.router)
 router.include_router(clean_routes.router)
 router.include_router(calibration_routes.router)
 router.include_router(lead_routes.router)
