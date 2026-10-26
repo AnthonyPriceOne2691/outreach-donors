@@ -52,12 +52,14 @@
 **Переписки адресата** (`sales_threads_to`) — стоп-листу: письма продаж уходят адресу лида без
 строки `contacts`, и снять назначенное адресу (`letters/stoplist.stop_pending`) без вопроса модулю
 их не найти.
+
+**Адрес лида** (`sales_addresses`) — спискам «Диалогов» и писем, по той же причине.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol, assert_never, cast
 
@@ -268,6 +270,9 @@ class SalesMail(Protocol):
     async def threads_to(self, session: AsyncSession, email: str) -> Sequence[int]:
         """Переписки продаж, чьи письма уходят на этот адрес: лид с ним (`sales_threads_to`)."""
 
+    async def addresses(self, session: AsyncSession, thread_ids: Sequence[int]) -> dict[int, str]:
+        """Адрес лида каждой переписки из `thread_ids` (`sales_addresses`); без лида — нет."""
+
 
 class SalesLacking(Protocol):
     """Ответ модуля продаж «чего не хватает» (ревью стыков R1, A4): отказ пачке называет причину
@@ -443,6 +448,24 @@ async def _lead_threads(
         logger.info("мост продаж: %s — %s", unasked, exc)
         return None
     return list(found)
+
+
+async def sales_addresses(session: AsyncSession, thread_ids: Collection[int]) -> dict[int, str]:
+    """Адрес лида каждой переписки продаж из `thread_ids` — спискам «Диалогов» и писем, одним
+    вопросом на список. Модуль не подключён — пусто; упал — пусто и строка в журнал, как у
+    «переписок адресата»: список из-за модуля продаж не встаёт, у строки — «адрес не определён»."""
+    if not thread_ids or _SALES.load is None:
+        return {}
+    asked = sorted(set(thread_ids))  # без повторов и по порядку: модуль читает их пачками
+    what = "Адреса лидов переписок продаж"
+    try:
+        found = await _asked(
+            session, what, lambda mail: mail.addresses(session, asked), SalesNotConnectedError
+        )
+    except SalesNotConnectedError as exc:
+        logger.info("мост продаж: %s — %s", what, exc, extra={"why": str(exc)})
+        return {}
+    return dict(found)
 
 
 async def sales_followup(session: AsyncSession, thread_id: int | None, step: int) -> SalesFollowup:

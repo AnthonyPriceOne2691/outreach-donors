@@ -1207,9 +1207,9 @@
       "worst": "competitor_targets:118"
     },
     "backend/features/core/stages.py": {
-      "lines": 475,
+      "lines": 498,
       "complexity": 7,
-      "worst": "check_connected:126"
+      "worst": "check_connected:128"
     },
     "backend/features/core/usage.py": {
       "lines": 308,
@@ -1822,9 +1822,9 @@
       "worst": "message_id_from:121"
     },
     "backend/features/letters/repository.py": {
-      "lines": 350,
+      "lines": 387,
       "complexity": 6,
-      "worst": "candidates:97"
+      "worst": "letter_leads:70"
     },
     "backend/features/letters/review.py": {
       "lines": 156,
@@ -1897,9 +1897,9 @@
       "worst": "difference:48"
     },
     "backend/features/letters/unknown_outcome.py": {
-      "lines": 414,
+      "lines": 430,
       "complexity": 6,
-      "worst": "_back:325"
+      "worst": "_back:341"
     },
     "backend/features/letters/unsubscribe.py": {
       "lines": 165,
@@ -1982,9 +1982,9 @@
       "worst": "inbox_trace:229"
     },
     "backend/features/outreach/repository.py": {
-      "lines": 463,
+      "lines": 481,
       "complexity": 4,
-      "worst": "sent_today:196"
+      "worst": "sent_today:209"
     },
     "backend/features/outreach/senders.py": {
       "lines": 215,

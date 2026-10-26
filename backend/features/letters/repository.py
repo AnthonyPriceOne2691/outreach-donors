@@ -8,8 +8,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, replace
 from typing import Any, assert_never
 
 from sqlalchemy import Select, func, or_, select
@@ -26,7 +26,7 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.core.models.run import RunCandidateModel, RunModel
-from backend.features.core.stages import SALES_ELSEWHERE, SalesNotConnectedError
+from backend.features.core.stages import SALES_ELSEWHERE, SalesNotConnectedError, sales_addresses
 from backend.features.crawl.niche import LINKS, NICHE
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.compose import FoundLink
@@ -43,6 +43,7 @@ class QueuedLetter:
 
     message: MessageModel
     host: str
+    #: Кому: строка `contacts`, у письма цепочки продаж — адрес лида (`letter_leads`).
     email: str | None
     campaign: str
     #: Сроки добивок рассылки. Нужны экрану: согласуя первое письмо,
@@ -64,6 +65,29 @@ class QueuedLetter:
 
 class UnknownLetterError(ValueError):
     """Письма с таким номером нет."""
+
+
+async def letter_leads(
+    session: AsyncSession, letters: Iterable[tuple[MessageModel, Stage, str | None]]
+) -> dict[int, str]:
+    """Адрес лида у писем цепочки продаж без адреса из `contacts`: номер письма → адрес.
+
+    Строки `contacts` у письма продаж нет (решение 01.10), и списки писем отдавали письмо продаж
+    без адреса. Адрес лида переписки письма называет модуль продаж мостом
+    (`stages.sales_addresses`) — одним вопросом на список. Цепочка — первое письмо и добивки —
+    пишет лиду всегда. Ответ в переписке — нет: он уходит лиду или коллеге лида, который написал
+    со своего адреса (решение 13.10), — кому, решает модуль продаж при отправке, и адрес лида у
+    зависшего ответа увёл бы поиск письма в журнале платформы не туда (`unknown_outcome`)."""
+    threads = {
+        message.id: message.thread_id
+        for message, stage, email in letters
+        if stage is Stage.SALES
+        and email is None
+        and message.answers_reply_id is None
+        and message.thread_id is not None
+    }
+    leads = await sales_addresses(session, set(threads.values()))
+    return {letter: leads[thread] for letter, thread in threads.items() if thread in leads}
 
 
 class LetterRepository:
@@ -209,7 +233,7 @@ class LetterRepository:
         """
         statement = self._waiting(self._letters(), stage, audience)
         rows = await self._session.execute(statement.order_by(MessageModel.id).limit(limit))
-        return [self._queued_letter(row) for row in rows.all()]
+        return await self._addressed([self._queued_letter(row) for row in rows.all()])
 
     async def queued_count(self, *, stage: Stage, audience: str | None = None) -> int:
         """Сколько писем этапа (и аудитории) ждёт в очереди — всех, без потолка экрана
@@ -255,7 +279,20 @@ class LetterRepository:
         found = rows.first()
         if found is None:
             raise UnknownLetterError(f"Письма №{message_id} нет")
-        return self._queued_letter(found)
+        [letter] = await self._addressed([self._queued_letter(found)])
+        return letter
+
+    async def _addressed(self, letters: list[QueuedLetter]) -> list[QueuedLetter]:
+        """Письма цепочки продаж — с адресом лида (`letter_leads`), остальные — как были."""
+        leads = await letter_leads(
+            self._session, [(letter.message, letter.stage, letter.email) for letter in letters]
+        )
+        return [
+            replace(letter, email=leads[letter.message.id])
+            if letter.message.id in leads
+            else letter
+            for letter in letters
+        ]
 
     # --- запись ---
 
