@@ -1,7 +1,8 @@
 """Вкладка «Рассылка» продаж через API (`GET /api/sales/mailing`): режим и адреса частями.
 
 Форма ответа — поля, которые читает экран; строка на каждую гипотезу, и без лидов — с нулями; итог —
-сумма строк, а у каждой строки — сумма частей. Строки автоотправки и автосборки — те же слова, что у
+сумма строк, а у каждой строки — сумма частей; письма в полёте — внутри «ушло» (`in_flight`), не
+своей частью. Строки автоотправки и автосборки — те же слова, что у
 «Очереди писем». «Без письма» — одно число на трёх экранах: плитка «Очереди писем», «готовых лидов без
 письма» недельного отчёта и части вкладки; «сборка напишет» — то же число у очереди и вкладки. Право —
 «Продажи»: без него 403 словами. Адреса и тексты выдуманы (`*.example.test`).
@@ -47,6 +48,7 @@ NO_RIGHT = no_right(Permission.SALES)
 PARTS = {
     "total",
     "sent",
+    "in_flight",
     "queued",
     "will_write",
     "wont_write",
@@ -135,6 +137,24 @@ async def test_the_answer_has_every_part_and_rows_add_up_with_empty_hypotheses_a
     for parts in (ours["parts"], body["total"]):
         assert parts["total"] == _added(parts)
     assert body["total"] == ours["parts"]
+
+
+async def test_letters_in_flight_are_inside_sent_and_counted_apart(
+    session: AsyncSession, world: w.World, client: AsyncClient, headers: dict[str, str]
+) -> None:
+    """Первое письмо «отправляется»: лид — в «ушло», и сколько таких — `in_flight` у строки и итога;
+    «всего» — по-прежнему сумма частей, а «в полёте» в неё не входит отдельно."""
+    book = Book(session, world.hypothesis_id)
+    for make in (_with_first(MessageStatus.SENDING), _with_first(MessageStatus.DELIVERED), _ready):
+        await make(book)
+    await session.commit()
+
+    body = await _get(client, MAILING, headers)
+
+    [ours] = [row["parts"] for row in body["rows"] if row["hypothesis_id"] == world.hypothesis_id]
+    assert (ours["total"], ours["sent"], ours["in_flight"], ours["will_write"]) == (3, 2, 1, 1)
+    assert ours["total"] == _added(ours)
+    assert body["total"] == ours
 
 
 async def test_the_mode_lines_are_the_lines_of_the_letter_queue(
