@@ -33,12 +33,22 @@
  * уходят письма, сколько их сейчас в окне получателя и почему проход стоит; хватает ли очереди
  * на сутки, кого соберёт сама или почему нет. Экран слова не пересчитывает: их говорит тот же
  * снимок, каким судит проход по расписанию.
+ *
+ * **«Лидов без письма» — все готовые лиды гипотезы без письма**, а под числом — скольким из них
+ * сборка напишет (`will_write`, её же решением, тот же счёт, что «напишет» на «Рассылке»):
+ * остальных она пока ждёт, почему — там же. Обещание «напишет» — только про эту часть, и «собирать
+ * нечего» — по ней же: лидов, которым сборка напишет, и писем в очереди нет — «Собрать очередь»
+ * закрыта, даже если без письма кто-то есть (их число и вход в «Рассылку» — в той же строке).
+ *
+ * **Когда уйдёт очередь продаж — одной строкой под числами** (`QueueEtaLine`): день из прогноза
+ * рассылки и ссылка на вкладку «Рассылка», где план по дням, факт и ящики. Тот же ответ и тот же
+ * ключ кэша, что у вкладки: срок на двух вкладках — одно число.
  */
 
 import {
   Alert,
+  Anchor,
   Badge,
-  Box,
   Button,
   Group,
   List,
@@ -48,15 +58,15 @@ import {
   Stack,
   Text,
 } from '@mantine/core';
-import { useMediaQuery } from '@mantine/hooks';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Fragment, useState } from 'react';
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { fetchJob } from '../api/jobs';
 import { buildSalesQueue } from '../api/sales';
 import { chainLanguageTitle } from '../api/salesLabels';
-import type { ChainState, HypothesisCard, SalesAutoLine, SalesQueueView } from '../api/salesTypes';
+import type { ChainState, HypothesisCard, SalesQueueView } from '../api/salesTypes';
 import { useSession } from '../auth/AuthProvider';
 import { HintLabel } from '../components/HintLabel';
 import { InfoHint } from '../components/InfoHint';
@@ -69,7 +79,10 @@ import { JobLine, jobRestarted } from '../jobs/JobLine';
 import { SendQueue } from '../letters/SendQueue';
 import { notify } from '../notices';
 import { remember, remembered } from '../storage';
+import { AutoLines } from './AutoLines';
 import { BuildLetter } from './BuildLetter';
+import { salesTabLink } from './leadFilters';
+import { QueueEtaLine } from './QueueEtaLine';
 import { nothingToSend, QueueOutcome } from './QueueOutcome';
 import { buildJobKey, buildLetters, QUEUE_QUERY_KEY, queueLine, useSalesQueue } from './queueData';
 import { useMayWrite, WriteRight } from './WriteRight';
@@ -153,47 +166,6 @@ function Chains({ chains }: { chains: ChainState[] }) {
   );
 }
 
-/** Автоотправка и автосборка — значок «включена» или «выключена» и строка сервера. Сеткой
- *  «значок | строка»: значки разной ширины, а строки начинаются с одной кромки. На узком
- *  окне значок — над строкой: в колонке рядом с ним строка вставала в двадцать узких строк
- *  (снимок 390 px). */
-function AutoLines({ view }: { view: SalesQueueView }) {
-  const narrow = useMediaQuery('(max-width: 36em)');
-  const lines: [string, SalesAutoLine][] = [
-    ['автоотправка', view.autosend],
-    ['автосборка', view.autobuild],
-  ];
-  return (
-    <Box
-      px="md"
-      style={{
-        display: 'grid',
-        gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : 'max-content minmax(0, 1fr)',
-        columnGap: 'var(--mantine-spacing-xs)',
-        rowGap: 4,
-        alignItems: 'start',
-        justifyItems: 'start',
-      }}
-    >
-      {lines.map(([title, auto]) => (
-        <Fragment key={title}>
-          <Badge
-            variant="light"
-            color={auto.enabled ? 'green' : 'gray'}
-            className="queueAutoBadge"
-            title={auto.enabled ? `${title} включена` : `${title} выключена`}
-          >
-            {title}
-          </Badge>
-          <Text size="sm" className="queueAuto">
-            {auto.line}
-          </Text>
-        </Fragment>
-      ))}
-    </Box>
-  );
-}
-
 /** Письма сборки по одному — под строкой задачи, когда сборка кончилась: лид, отличие,
  *  принятые зоны, попыток, в очереди или ждёт. Исход задачи — из того же кэша, что у
  *  `JobLine`: второго опроса нет. */
@@ -230,6 +202,37 @@ function BuildLetters({ jobId }: { jobId: string }) {
   );
 }
 
+/** Собирать нечего: лидов, которым сборка напишет, и писем в очереди у гипотезы нет. Без письма могут
+ *  остаться те, кого сборка ждёт, — их число и вход в «Рассылку», где сказано почему. Подпись ссылки —
+ *  своя («почему, сказано…»), а не «подробнее в «Рассылке»», как у строки срока выше: две одинаковые
+ *  ссылки на одном экране читались бы повтором (снимок стенда 26.10.2026). */
+function NothingToBuild({ view }: { view: SalesQueueView }) {
+  return (
+    <Text size="sm" c="dimmed" className="queueNothing">
+      Лидов, которым сборка напишет, и писем в очереди у гипотезы нет — собирать нечего
+      {view.unwritten === 0 ? (
+        '.'
+      ) : (
+        <>
+          ; без письма {formatNumber(view.unwritten)} —{' '}
+          <Anchor
+            component={Link}
+            to={salesTabLink('mailing', view.hypothesis_id)}
+            size="sm"
+            fw={500}
+            c="var(--ink)"
+            underline="always"
+            className="inkLink"
+          >
+            почему, сказано в «Рассылке»
+          </Anchor>
+          .
+        </>
+      )}
+    </Text>
+  );
+}
+
 function BuildQueue({ view }: { view: SalesQueueView }) {
   const client = useQueryClient();
   const mayWrite = useMayWrite();
@@ -250,7 +253,9 @@ function BuildQueue({ view }: { view: SalesQueueView }) {
       notify({ message: 'Сборка очереди ушла в очередь задач', color: 'green' });
     },
   });
-  const empty = view.unwritten === 0 && view.queued === 0;
+  // Собирать нечего — по тем, кому сборка напишет (`will_write`), а не по всем без письма: лиды, которых
+  // она ждёт (сайт у другого направления, нет цепочки на языке), «Собрать очередь» не откроют.
+  const empty = view.will_write === 0 && view.queued === 0;
   return (
     <Stack gap={6} px="md">
       <Group align="flex-end" gap="md" wrap="wrap">
@@ -282,11 +287,7 @@ function BuildQueue({ view }: { view: SalesQueueView }) {
         </Button>
       </Group>
       {!mayWrite && <WriteRight what="Собирает очередь" />}
-      {empty ? (
-        <Text size="sm" c="dimmed">
-          Лидов без письма и писем в очереди у гипотезы нет — собирать нечего.
-        </Text>
-      ) : null}
+      {empty ? <NothingToBuild view={view} /> : null}
       {build.error !== null ? (
         <Alert color="red" title="Очередь не собрана">
           {refusalOf(build.error)}
@@ -326,11 +327,16 @@ function HypothesisQueue({ hypothesis }: { hypothesis: number }) {
       <Connection view={view} />
       <Chains chains={view.chains} />
       <SimpleGrid cols={{ base: 1, xs: 3 }} spacing="sm" px="md">
-        <Metric title="Лидов без письма" value={formatNumber(view.unwritten)} />
+        <Metric
+          title="Лидов без письма"
+          value={formatNumber(view.unwritten)}
+          hint={`сборка напишет ${formatNumber(view.will_write)}`}
+        />
         <Metric title="Писем гипотезы в очереди" value={formatNumber(view.queued)} />
         <Metric title="В очереди продаж — всех гипотез" value={formatNumber(view.stage_queued)} />
       </SimpleGrid>
-      <AutoLines view={view} />
+      <QueueEtaLine hypothesis={hypothesis} />
+      <AutoLines autosend={view.autosend} autobuild={view.autobuild} />
       <BuildQueue key={hypothesis} view={view} />
       {/* Без своей карточки: на телефоне её поля съедали ширину, и кнопка пачки
           резала своё число (снимок 390 px, 07.10.2026). Пока включена автоотправка, кнопки

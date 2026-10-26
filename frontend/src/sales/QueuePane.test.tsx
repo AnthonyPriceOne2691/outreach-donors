@@ -27,6 +27,7 @@ import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
+import { FORECAST, FORECAST_ROUTE } from './mailingFixtures';
 import { letterLine, queueLine } from './queueData';
 
 const SCREEN_WAIT = { timeout: 5000 };
@@ -189,6 +190,8 @@ async function openQueue(
     'GET /api/sales/hypotheses': { body: HYPOTHESES },
     'GET /api/sales/kb': { body: KB },
     [`GET ${QUEUE}?hypothesis=5`]: { body: view },
+    // Срок очереди строкой под числами — прогноз рассылки (`QueueEtaLine.test.tsx`).
+    [FORECAST_ROUTE]: { body: FORECAST },
     ...routes,
   });
   renderWith(<AppRoutes />, '/sales?tab=queue');
@@ -436,11 +439,13 @@ describe('очередь писем продаж', () => {
   });
 
   it('у гипотезы нечего собирать — кнопка закрыта и сказано почему', async () => {
-    await openQueue({}, { ...READY, unwritten: 0, queued: 0 });
+    await openQueue({}, { ...READY, unwritten: 0, will_write: 0, queued: 0 });
 
     expect(screen.getByRole('button', { name: 'Собрать очередь' })).toBeDisabled();
     expect(
-      screen.getByText('Лидов без письма и писем в очереди у гипотезы нет — собирать нечего.'),
+      screen.getByText(
+        'Лидов, которым сборка напишет, и писем в очереди у гипотезы нет — собирать нечего.',
+      ),
     ).toBeInTheDocument();
   });
 

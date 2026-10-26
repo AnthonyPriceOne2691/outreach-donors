@@ -250,7 +250,8 @@ function setDay(name: 'Добавлены с' | 'Добавлены по', value
 
 describe('продажи: вкладка «emails» (слово владельца 20.10.2026)', () => {
   it('вкладка в ряду — «emails» со счётом; прочие слова «лиды» на экране прежние', async () => {
-    windowOf(1680);
+    // Ряд вкладок — с окна шире 105em (`SalesTabs`: двенадцать вкладок с «Рассылкой»).
+    windowOf(1760);
     await openScreen();
 
     expect(screen.getByRole('radio', { name: 'emails — 5' })).toBeChecked();
