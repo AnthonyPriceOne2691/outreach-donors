@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import re
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -364,6 +365,46 @@ class TestMasking:
     def test_invented_label_is_a_failure(self) -> None:
         with pytest.raises(masking.UnmaskError, match="не выдавали"):
             masking.unmask("write to [address 9]", {})
+
+    def test_sentence_dot_is_not_part_of_the_address(self) -> None:
+        """С точкой конца предложения «пишите другому» заводил лида на адрес, письмо
+        которому вернётся (находка продаж 26.10.2026)."""
+        hidden = masking.mask("mail me at editor@site.example.test. Thanks")
+
+        assert hidden.labels == {"[address 1]": "editor@site.example.test"}
+        assert hidden.text == "mail me at [address 1]. Thanks"
+
+    @pytest.mark.parametrize(
+        ("text", "address"),
+        [
+            ("write to ads@site.test, please", "ads@site.test"),
+            ("write to ads@site.test-", "ads@site.test"),
+            ("write to ads@my-site.test.", "ads@my-site.test"),
+            ("пишите info@пекарня-пример.рф.", "info@пекарня-пример.рф"),
+            ("(ads@site.test)", "ads@site.test"),
+            ("write to x.ads@site.test", "x.ads@site.test"),
+        ],
+    )
+    def test_address_ends_with_a_letter_or_digit(self, text: str, address: str) -> None:
+        assert list(masking.mask(text).labels.values()) == [address]
+
+    def test_odd_domain_still_does_not_leave(self) -> None:
+        """Шире проверки адреса: метка домена с дефисом в конце годным адресом не бывает,
+        но и наружу не уходит."""
+        hidden = masking.mask("write to x@y-.test")
+
+        assert masking.leaked(hidden.text) is None
+        assert list(hidden.labels.values()) == ["x@y-.test"]
+
+    def test_long_token_without_at_is_fast(self) -> None:
+        """Поиск начинается только в начале прогона знаков: прежнее выражение пробовало
+        каждую позицию длинного токена без «@» (вложение base64 в тексте) — 30 тысяч
+        знаков стоили ~3,5 с на вызов, а маскирование зовут на каждое письмо."""
+        started = time.perf_counter()
+        hidden = masking.mask("a" * 30_000)
+
+        assert hidden.labels == {}
+        assert time.perf_counter() - started < 0.5
 
 
 class TestReplyAddress:

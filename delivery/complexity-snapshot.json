@@ -1742,9 +1742,9 @@
       "worst": "spent_words:167"
     },
     "backend/features/letters/masking.py": {
-      "lines": 260,
+      "lines": 266,
       "complexity": 7,
-      "worst": "_name_forms:147"
+      "worst": "_name_forms:153"
     },
     "backend/features/letters/niche_recipients.py": {
       "lines": 195,
