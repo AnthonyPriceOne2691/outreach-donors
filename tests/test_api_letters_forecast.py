@@ -67,6 +67,7 @@ class ForecastSales(FakeSalesMail):
     extra: int = 40
     queued_in: Mapping[str | None, int] | None = None
     stuck_in: Mapping[str, int] | None = None
+    stopped: str | None = None
 
     async def supply(self, _session: AsyncSession) -> int:
         self.asked.append("supply")
@@ -79,6 +80,10 @@ class ForecastSales(FakeSalesMail):
     async def queue_stuck(self, _session: AsyncSession) -> Mapping[str, int]:
         self.asked.append("queue_stuck")
         return self.stuck_in or {}
+
+    async def autosend_stop(self, _session: AsyncSession, _now: datetime) -> str | None:
+        self.asked.append("autosend_stop")
+        return self.stopped
 
 
 @pytest.fixture
@@ -380,7 +385,30 @@ async def test_sales_follow_the_recipient_window_and_the_autosend_pace(
     )
     eta = body["queue_eta"]
     assert (eta["day"], eta["sending_days"], eta["hours"]) == ("2026-10-21", 1, 0.8)
-    assert {"supply", "queue_zones", "queue_stuck"} <= set(sales_module.asked)
+    assert body["paused"] is None
+    assert {"supply", "queue_zones", "queue_stuck", "autosend_stop"} <= set(sales_module.asked)
+
+
+async def test_a_stopped_autosend_is_named_and_the_plan_stays(
+    client: AsyncClient, session: AsyncSession, viewer: dict[str, str], sales_module: ForecastSales
+) -> None:
+    """Автоотправка стоит — исход письма неизвестен: прогноз называет остановку словами модуля
+    продаж, а план и срок считает так, будто её сняли. На стенде круга 22 строка автоотправки
+    говорила «Стоит», а срок рядом обещал часы без оговорки. У доноров автоотправки нет — пусто."""
+    await _box(session, "sales1@mail-s.example.test", Stage.SALES)
+    letters = await _letters(session, Stage.SALES)
+    for _ in range(4):
+        await letters.add()
+    await session.commit()
+    running = (await client.get(URL, params={"stage": "sales"}, headers=viewer)).json()
+    sales_module.stopped = "исход письма №38 неизвестен"
+
+    stopped = (await client.get(URL, params={"stage": "sales"}, headers=viewer)).json()
+    donors = (await client.get(URL, params={"stage": "donors"}, headers=viewer)).json()
+
+    assert stopped["paused"] == "исход письма №38 неизвестен"
+    assert (stopped["days"], stopped["queue_eta"]) == (running["days"], running["queue_eta"])
+    assert donors["paused"] is None
 
 
 async def test_sales_not_connected_send_nothing_and_say_why(
