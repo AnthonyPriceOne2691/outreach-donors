@@ -260,15 +260,30 @@ def score_candidates(
     moment = today or datetime.now(UTC).date()
     resolved = [_advertiser_of(link) for link in links]
     pages = paid_pages(resolved)
-    by_root: defaultdict[str, list[OutLink]] = defaultdict(list)
-    for link in resolved:
-        by_root[link.target_root].append(link)
-
     out = [
-        _candidate(root, group, donor_root, moment, pages, topic) for root, group in by_root.items()
+        _candidate(root, group, donor_root, moment, pages, topic)
+        for root, group in _by_advertiser(resolved).items()
     ]
     out.sort(key=lambda c: (-c.points, c.target_root))
     return out
+
+
+def advertiser_pages(links: Sequence[OutLink]) -> dict[str, frozenset[str]]:
+    """Страницы донора у каждого получателя — те, что считает `pages` кандидата: ссылка через
+    сеть — у рекламодателя, документы не в счёт (`_documents_only`). Приёмке по донорам
+    (`acceptance.py`) нужны сами страницы, а у кандидата хранится только их число."""
+    return {
+        root: frozenset(link.page_url for link in _documents_only(group)[0])
+        for root, group in _by_advertiser([_advertiser_of(link) for link in links]).items()
+    }
+
+
+def _by_advertiser(resolved: list[OutLink]) -> dict[str, list[OutLink]]:
+    """Ссылки по получателю — уже после `_advertiser_of`: ссылка через сеть — у рекламодателя."""
+    by_root: defaultdict[str, list[OutLink]] = defaultdict(list)
+    for link in resolved:
+        by_root[link.target_root].append(link)
+    return by_root
 
 
 def _advertiser_of(link: OutLink) -> OutLink:

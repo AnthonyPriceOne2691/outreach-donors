@@ -7,7 +7,8 @@
 
 Мерится то, по чему решают: домен и слова строки — адрес и письмо значками,
 число найденных у заголовка, значение фильтра в поле; у приёмки — вердикт порога
-и чего не хватает до него; у форм — вкладка с числом и кнопки строки.
+и чего не хватает до него, что нашёл обход и сколько спорных решено; у форм — вкладка
+с числом и кнопки строки.
 
 Нормы передаются параметрами, а не импортируются из `ui_screens`: тот подключает
 этот модуль, и обратный импорт замкнул бы круг.
@@ -17,6 +18,8 @@ from typing import Any
 
 #: Переключатель вкладок — по своей подписи.
 SEGMENT = ".mantine-SegmentedControl-label"
+#: Строка донора в приёмке: первая строка таблицы — «Все доноры вместе».
+DONOR_ROW = "table tbody tr:not(:first-child)"
 
 
 def stage2_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
@@ -45,10 +48,14 @@ def stage2_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "probes": [
                 ("заголовок вида", "h3", big),
                 ("порог ТЗ", ".glassPanel p.mantine-Text-root", norm),
-                ("донор в строке", "table tbody td:first-child p", norm),
-                ("вердикт порога", "table tbody td:last-child .mantine-Badge-label", norm),
-                ("чего не хватает", "table tbody td:last-child p", norm),
-                ("числа приёмки", "table tbody td:nth-child(4)", norm),
+                # Первая строка — «Все доноры вместе», доноры — со второй (23.10.2026).
+                ("все доноры вместе", "table tbody tr:first-child td:first-child p", norm),
+                ("донор в строке", "table tbody tr:nth-child(2) td:first-child p", norm),
+                ("что нашёл обход", f"{DONOR_ROW} td[data-label='Куплено']", norm),
+                ("сколько спорных решено", f"{DONOR_ROW} td[data-label='Спорных'] p", norm),
+                ("вердикт порога", f"{DONOR_ROW} td:last-child .mantine-Badge-label", norm),
+                ("чего не хватает", f"{DONOR_ROW} td:last-child p", norm),
+                ("числа приёмки", f"{DONOR_ROW} td[data-label='С адресом']", norm),
                 ("пункт меню", "nav a", norm),
             ],
         },

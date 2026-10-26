@@ -28,12 +28,17 @@
 **Все доноры вместе — справочно, по разным доменам.** Критерий ТЗ — по донору; сумма
 отвечает на оговорку самого ТЗ («Арифметика», п. 6: сто рекламодателей с одного
 донора — на грани), и домен у двух доноров в ней один.
+
+**Что нашёл обход — рядом** (`findings.py`, тест-группа 23.10.2026): домены по вердиктам
+и страницы со ссылками на рекламодателей — по тем же строкам кандидатов. Рекламодателей
+донора ровно столько, сколько «куплено» без «не пишем», и ещё тех, кому человек сказал
+«пишем» сверх него; в строке «вместе» эти числа — суммой по донорам, без поставщиков.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import ColumnElement, Select, Subquery, and_, func, select
@@ -46,6 +51,7 @@ from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.crawl.advertiser_rules import in_work, writes_to
+from backend.features.crawl.findings import Findings, by_donor, together
 from backend.features.crawl.offer_state import OfferFlags
 from backend.features.crawl.suppliers import supplier_hosts
 
@@ -91,6 +97,8 @@ class DonorTally:
     tally: Tally
     #: Донор-поставщик: его рекламодателей не трогаем, порог ему не задача.
     supplier: bool = False
+    #: Что нашёл обход: домены по вердиктам и страницы со ссылками (`findings.py`).
+    findings: Findings = field(default_factory=Findings)
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +108,8 @@ class Acceptance:
     total: int
     #: Все доноры вместе, кроме поставщиков, — по разным доменам. Справочно.
     overall: Tally
+    #: Что нашли обходы всех доноров вместе, кроме поставщиков, — суммой по донорам.
+    overall_findings: Findings
 
 
 def _found() -> Select[tuple[str, str, int]]:
@@ -153,6 +163,7 @@ async def acceptance(session: AsyncSession, *, limit: int) -> Acceptance:
         ).group_by(rows.c.donor)
     )
     by_host = {str(line[0]): _tally(line[1:]) for line in per_donor.all()}
+    findings = await by_donor(session)
     suppliers = await supplier_hosts(session)
     crawled = (await session.scalars(select(CrawlRunModel.host).distinct())).all()
     hosts = sorted(
@@ -170,9 +181,11 @@ async def acceptance(session: AsyncSession, *, limit: int) -> Acceptance:
                 host=host,
                 tally=by_host.get(host, Tally()),
                 supplier=host.lower() in suppliers,
+                findings=findings.get(host, Findings()),
             )
             for host in hosts[:limit]
         ],
         total=len(hosts),
         overall=_tally(overall.one()),
+        overall_findings=together(findings, suppliers),
     )
