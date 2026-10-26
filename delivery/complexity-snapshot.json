@@ -2022,7 +2022,7 @@
       "worst": "inbox_trace:229"
     },
     "backend/features/outreach/repository.py": {
-      "lines": 492,
+      "lines": 499,
       "complexity": 4,
       "worst": "sent_today:220"
     },

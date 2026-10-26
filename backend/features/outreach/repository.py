@@ -230,13 +230,20 @@ class OutreachRepository:
         Сутки считаются по UTC, как и всё остальное время в базе.
         Отправители живут в разных часовых поясах только в воображении:
         почтовая платформа смотрит на скорость, а не на местный полдень.
+
+        Письмо «в полёте» (захвачено отправкой, исход неизвестен) — в счёте с минуты захвата:
+        «ушло» пишется задним числом (`letters/unknown_outcome.py`), и без этого лимиты пускали
+        лишнее письмо — «13 из 12» на стенде 26.10.2026.
         """
         moment = now or datetime.now(UTC)
         since = datetime.combine(moment.date(), time.min, tzinfo=UTC)
+        flying = and_(
+            MessageModel.status == MessageStatus.SENDING, MessageModel.updated_at >= since
+        )
         rows = await self._session.execute(
             select(MessageModel.sender_id, func.count())
             .where(MessageModel.sender_id.is_not(None))
-            .where(MessageModel.sent_at >= since)
+            .where(or_(MessageModel.sent_at >= since, flying))
             # `first_only` — счёт для дневного капа. Добивки в кап
             # не входят (решение 21.09.2026): у них свой часовой потолок,
             # иначе цепочки съедают квоту новых доноров. Перезапрос цены
