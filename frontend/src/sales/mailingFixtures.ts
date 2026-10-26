@@ -244,6 +244,7 @@ export const AUTOBUILD_OFF =
 const CAFES: MailingParts = {
   total: 180,
   sent: 70,
+  in_flight: 0,
   queued: 60,
   will_write: 25,
   wont_write: 10,
@@ -259,6 +260,7 @@ const CAFES: MailingParts = {
 const DENTISTS: MailingParts = {
   total: 120,
   sent: 40,
+  in_flight: 0,
   queued: 36,
   will_write: 15,
   wont_write: 8,
@@ -278,6 +280,7 @@ export const MAILING: SalesMailingView = {
   total: {
     total: 300,
     sent: 110,
+    in_flight: 0,
     queued: 96,
     will_write: 40,
     wont_write: 18,
@@ -289,6 +292,17 @@ export const MAILING: SalesMailingView = {
     ],
     removed_why: CAFES.removed_why,
   },
+};
+
+/** Два первых письма кофеен «отправляются»: исход неизвестен, они — в «ушло» строки и итога; у
+ *  стоматологий в полёте ничего. Части те же. */
+export const MAILING_IN_FLIGHT: SalesMailingView = {
+  ...MAILING,
+  rows: [
+    { hypothesis_id: 5, name: 'Кофейни Лиссабона', parts: { ...CAFES, in_flight: 2 } },
+    { hypothesis_id: 8, name: 'Dental clinics — Toronto', parts: DENTISTS },
+  ],
+  total: { ...MAILING.total, in_flight: 2 },
 };
 
 /** Вручную: автоотправка выключена — строкой сервера. */

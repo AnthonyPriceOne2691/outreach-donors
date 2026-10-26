@@ -74,7 +74,10 @@ function whyOf(key: NumberKey): WhyKey | null {
 
 const PARTS_HINT = (
   <Stack gap={6}>
-    <span>Ушло — первое письмо ушло: дошло, вернулось или уже в отправке.</span>
+    <span>
+      Ушло — первое письмо ушло: дошло, вернулось или уже в отправке; сколько из них ещё в полёте —
+      под числом.
+    </span>
     <span>В очереди — первое письмо ждёт отправки; тем же счётом, что пачка и срок очереди.</span>
     <span>Напишет — лид готов, письма нет, и сборка его напишет — своим же решением.</span>
     <span>Не напишет — лид готов, письма нет, а сборка ждёт; почему — по стрелке у числа.</span>
@@ -208,6 +211,17 @@ function reasonsWord(count: number): string {
   return plural(count, 'причина', 'причины', 'причин');
 }
 
+/** Под «ушло» — сколько из него ещё в полёте: отправка письмо взяла, исход неизвестен, и воронка
+ *  таких пока не считает. Приглушённо и только когда они есть — без своего столбца. */
+function InFlight({ parts }: { parts: Parts }) {
+  if (parts.in_flight === 0) return null;
+  return (
+    <Text size="xs" c="dimmed" className="mailingInFlight">
+      из них {formatNumber(parts.in_flight)} в полёте — исход ещё неизвестен
+    </Text>
+  );
+}
+
 function PartsRow({ row }: { row: Row }) {
   const [open, setOpen] = useState<ReadonlySet<WhyKey>>(() => new Set());
   const toggle = (part: WhyKey) =>
@@ -226,6 +240,7 @@ function PartsRow({ row }: { row: Row }) {
           return why === null ? (
             <Table.Td key={part.key} data-label={part.title}>
               {formatNumber(row.parts[part.key])}
+              {part.key === 'sent' ? <InFlight parts={row.parts} /> : null}
             </Table.Td>
           ) : (
             <WhyCell

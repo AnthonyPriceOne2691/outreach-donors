@@ -33,6 +33,7 @@ import {
   FORECAST_MANUAL,
   FORECAST_ROUTE,
   MAILING,
+  MAILING_IN_FLIGHT,
   MAILING_MANUAL,
   MAILING_MANY_REASONS,
   MAILING_NOW,
@@ -238,6 +239,39 @@ describe('рассылка: адреса по частям', () => {
       '26',
       '10',
     ]);
+  });
+
+  it('письма в полёте — под «ушло» строки и итога приглушённо; нет их — под числом пусто', async () => {
+    await openMailing({ [MAILING_ROUTE]: { body: MAILING_IN_FLIGHT } });
+    const parts = region('Адреса по гипотезам');
+    const flying = 'из них 2 в полёте — исход ещё неизвестен';
+    // «Ушло» — третья ячейка строки: число сервера, под ним — сколько из него в полёте.
+    const sentOf = (first: string) => rowOf(parts, first).querySelectorAll('td')[2];
+
+    for (const first of ['Кофейни Лиссабона', 'Все гипотезы']) {
+      const sent = sentOf(first);
+      expect(sent).toBeDefined();
+      expect(within(sent as HTMLElement).getByText(flying)).toHaveClass('mailingInFlight');
+    }
+    expect(cells(rowOf(parts, 'Кофейни Лиссабона'))).toEqual([
+      'Кофейни Лиссабона',
+      '180',
+      `70${flying}`,
+      '60',
+      '25',
+      '10',
+      '5',
+      '10',
+    ]);
+    expect(cells(rowOf(parts, 'Dental clinics — Toronto'))[2]).toBe('40');
+    expect(within(parts).getAllByText(flying)).toHaveLength(2);
+    expect(within(parts).getAllByRole('columnheader')).toHaveLength(8);
+  });
+
+  it('писем в полёте нет — под «ушло» ничего', async () => {
+    await openMailing();
+
+    expect(within(region('Адреса по гипотезам')).queryByText(/в полёте/)).toBeNull();
   });
 
   it('почему сборка не напишет и почему сняты — раскрытием под строкой своей гипотезы', async () => {
