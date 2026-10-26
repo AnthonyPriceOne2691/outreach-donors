@@ -32,7 +32,7 @@ from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.sales.handoff import HandoffError
 from backend.features.sales.models import SalesHandoffModel
-from backend.features.sales.reply_routes import Route
+from backend.features.sales.reply_routes import GAVE_PHONE, Route
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,8 @@ class Ask:
     route: Route | None = Route.HANDOFF
     waits: bool = True
     reason: str = ""
+    #: Передача по телефону — вид не «хочет говорить» (`reply_routes.decide`): итог это называет.
+    phone: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +117,8 @@ async def pass_on(session: AsyncSession, ask: Ask, start: HandOver) -> Said | No
 async def _settled(session: AsyncSession, ask: Ask) -> Said:
     """Передача заведена — что сказать. Письмо переданного лида: в сделку, если она есть."""
     if not ask.again:
-        return Said(False, f"{ask.words}{ask.joint}{HANDED_OVER}")
+        words = f"{ask.words}, {GAVE_PHONE}" if ask.phone else ask.words
+        return Said(False, f"{words}{ask.joint}{HANDED_OVER}")
     deal = await session.scalar(
         select(SalesHandoffModel.kommo_lead_id).where(SalesHandoffModel.thread_id == ask.thread_id)
     )

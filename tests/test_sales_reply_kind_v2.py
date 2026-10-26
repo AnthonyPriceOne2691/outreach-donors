@@ -172,14 +172,14 @@ async def test_client_shows_the_services_and_keeps_only_what_checks_out() -> Non
     assert '"SEO-аудит", "Ссылки на сайт"' in model.user, "модель видит услуги базы"
     assert model.user.index("Known services") < model.user.index("<<<EMAIL")
     assert (found.project, found.services) == ("интернет-магазин мебели", ("SEO-аудит",))
-    assert reply_kind.PROMPT_VERSION == "sales-reply-kind-v2"
+    assert reply_kind.PROMPT_VERSION == "sales-reply-kind-v3", "v3: номера для связи"
     snap = snapshot(found, model="m")
     assert (snap["project"], snap["services"], snap["contact_name"]) == (
         "интернет-магазин мебели",
         ["SEO-аудит"],
         None,
     )
-    assert snap["prompt_version"] == "sales-reply-kind-v2"
+    assert snap["prompt_version"] == "sales-reply-kind-v3"
 
 
 async def test_reply_job_gives_the_model_the_service_records_of_the_base(

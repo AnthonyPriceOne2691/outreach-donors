@@ -488,4 +488,5 @@ def _ask(handled: Handled) -> Ask:
         route=route,
         waits=handled.waits,
         reason=handled.reason or "",
+        phone=route is Route.HANDOFF and kind is not SalesKind.WANTS_TO_TALK,
     )

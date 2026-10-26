@@ -17,8 +17,11 @@
 **Ворота — предложение, решает владелец** (порог задаётся решением, а не
 ожиданием): полнота `wants_to_talk` не ниже 0,95; полнота `unsubscribe` — 1,0;
 опасных — 0. Опасный — «хочет говорить» или «просит не писать», ушедший
-не туда без человека: модель назвала другой вид с уверенностью не ниже
-порога (`SALES_REPLY_CONFIDENCE`). Ниже порога ответ ждёт человека — это
+без человека не тем путём, каким ушёл бы верно названный вид: модель назвала
+другой вид с уверенностью не ниже порога (`SALES_REPLY_CONFIDENCE`) — или с
+телефоном, который ведёт к передаче при любой уверенности (v3). «Хочет
+говорить», названное интересом, но с телефоном, уходит туда же — передачей, и
+опасным не считается. Ниже порога без телефона ответ ждёт человека — это
 минута человека, а не потеря. Отдельно — ложная отписка: чужой вид, принятый
 за «не пишите» без человека, закрыл бы адрес во всех направлениях.
 
@@ -31,6 +34,12 @@
 найден ли (слова — из письма, это держит код), услуги — те ли из списка базы. Список услуг
 синтетики — выдуманный (`SYNTHETIC_SERVICES`), у внешнего набора — `--services` (названия
 записей «услуга» базы через «;»). Прежние числа видов меряются как раньше.
+
+**Телефоны** (`sales-reply-kind-v3`: номер для связи — передача телемаркетологу) меряются рядом
+с воротами видов, вне ворот — пороги решит владелец: сколько ожидаемых номеров нашлось после
+сверки кодом, в скольких ответах номером принято то, что не телефон (ИНН, счёт, дата, факс,
+номер из нашей цитаты), передан ли лид, давший телефон, и не передан ли отказ. Номера
+сверяются цифрами: «+٩٧١ ٥٠» и «+971 50» — один номер.
 
 Модель зовётся по-настоящему — нужен `LLM_API_KEY`; запускает координатор
 по слову владельца.
@@ -51,8 +60,14 @@ from typing import Any
 
 from backend.config import sales as sales_cfg
 from backend.features.sales import reply_kind
-from backend.features.sales.reply_kind import KindClient, KindFound, SalesKind, Unanswered
-from backend.features.sales.reply_routes import Route, decide
+from backend.features.sales.reply_kind import (
+    KindClient,
+    KindFound,
+    SalesKind,
+    Unanswered,
+    phone_digits,
+)
+from backend.features.sales.reply_routes import NO_CALL, ROUTES, Route, decide
 
 DATA = Path(__file__).parent / "data"
 SYNTHETIC = DATA / "sales_reply_synthetic.jsonl"
@@ -93,15 +108,30 @@ class Result:
     got_project: str | None = None
     want_services: tuple[str, ...] = ()
     got_services: tuple[str, ...] = ()
+    #: Номера v3: чего ждали и что осталось после сверки кодом.
+    want_phones: tuple[str, ...] = ()
+    got_phones: tuple[str, ...] = ()
 
     @property
     def auto(self) -> bool:
-        """Ответ ушёл своим путём без человека (уверенность не ниже порога)."""
+        """Ответ ушёл своим путём без человека (уверенность не ниже порога или телефон)."""
         return self.route is not Route.MANUAL
 
     @property
     def dangerous(self) -> bool:
-        return self.want in GUARDED and self.got is not self.want and self.auto
+        """Охраняемый вид ушёл без человека не тем путём, каким ушёл бы верно названный."""
+        return self.want in GUARDED and self.auto and self.route is not ROUTES[self.want]
+
+    @property
+    def false_phones(self) -> tuple[str, ...]:
+        """Номера, которых в ответе не ждали: телефоном принято не то."""
+        wanted = {phone_digits(phone) for phone in self.want_phones}
+        return tuple(phone for phone in self.got_phones if phone_digits(phone) not in wanted)
+
+    @property
+    def phones_found(self) -> int:
+        got = {phone_digits(phone) for phone in self.got_phones}
+        return sum(phone_digits(phone) in got for phone in self.want_phones)
 
     @property
     def false_unsubscribe(self) -> bool:
@@ -152,6 +182,7 @@ def judged(case: dict[str, Any], found: KindFound | Unanswered, threshold: float
         "want_name": expect.get("contact_name"),
         "want_project": bool(expect.get("project")),
         "want_services": tuple(expect.get("services") or ()),
+        "want_phones": tuple(expect.get("phones") or ()),
     }
     if isinstance(found, Unanswered):
         return Result(
@@ -169,6 +200,7 @@ def judged(case: dict[str, Any], found: KindFound | Unanswered, threshold: float
         got_name=found.contact_name,
         got_project=found.project,
         got_services=found.services,
+        got_phones=found.phones,
         **wanted,
     )
 
@@ -215,6 +247,25 @@ def fields(results: list[Result]) -> list[str]:
     ]
 
 
+def phones(results: list[Result]) -> list[str]:
+    """Телефоны и путь «передача» словами — рядом с воротами видов, вне ворот."""
+    expected = sum(len(r.want_phones) for r in results)
+    found = sum(r.phones_found for r in results)
+    missed = [r.case_id for r in results if r.phones_found < len(r.want_phones)]
+    false = [r for r in results if r.false_phones]
+    calls = [r for r in results if r.want_phones and r.want not in NO_CALL]
+    unhanded = [r.case_id for r in calls if r.route is not Route.HANDOFF]
+    refusals = [r for r in results if r.want in NO_CALL]
+    handed = [r.case_id for r in refusals if r.route is Route.HANDOFF]
+    return [
+        f"Телефоны (вне ворот): номеров найдено {found}/{expected}, "
+        f"не найдены в {len(missed)} {missed or ''}",
+        f"  ложные номера в {len(false)} {[(r.case_id, *r.false_phones) for r in false] or ''}",
+        f"  передача при телефоне {len(calls) - len(unhanded)}/{len(calls)} {unhanded or ''}",
+        f"  не передача на отказах {len(refusals) - len(handed)}/{len(refusals)} {handed or ''}",
+    ]
+
+
 def recall(results: list[Result], kind: SalesKind) -> float | None:
     wanted = [r for r in results if r.want is kind]
     return sum(r.got is kind for r in wanted) / len(wanted) if wanted else None
@@ -235,6 +286,7 @@ def report(results: list[Result], tokens: int, gates: Gates) -> list[str]:
     ]
     print(f"Адрес «другого человека» не тот: {len(wrong_contacts)} {wrong_contacts or ''}")
     print(*fields(results), sep="\n")
+    print(*phones(results), sep="\n")
     print(f"Отказов модели: {sum(r.refusal is not None for r in results)}")
     print(
         f"По видам (ждали → назвала): {dict(Counter(f'{r.want}→{r.got}' for r in results if r.got is not r.want))}"
