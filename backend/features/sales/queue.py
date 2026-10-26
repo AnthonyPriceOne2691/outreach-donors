@@ -44,7 +44,8 @@
 **Лид, которому писать нельзя, вызова модели не стоит**: передан телемаркетологу, в
 стоп-листе, адрес проверен выдуманным проверяльщиком при живом (`verifier.unproven`) или не
 подтверждён (`unconfirmed.first_letter`), нет значения подстановки, нет цепочки на его языке —
-причина в отчёте.
+причина в отчёте. Решение — одно со счётом «сколько первых писем сборка ещё напишет»
+(`queue_plan.plan_of`): сборка даёт ему факты по лиду (`_PerLead`), счёт — партией.
 Лиды `referral` (коллега, которого назвали в ответе) получают тот же первый шаг: своего
 письма для них пока нет — открытый вопрос владельцу.
 """
@@ -91,11 +92,28 @@ from backend.features.sales.models import (
     SalesLeadModel,
     SalesThreadModel,
 )
-from backend.features.sales.not_writing import excluded
-from backend.features.sales.queue_report import QueueReport, no_chain
+from backend.features.sales.queue_plan import HANDED_OFF, LONG_KEY, STOPLIST, Plan, plan_of
+from backend.features.sales.queue_report import QueueReport
 from backend.features.sales.sender import Sender
-from backend.features.sales.unconfirmed import first_letter
 from backend.features.sales.usage_cap import sales_cap
+
+#: Решение «писать ли лиду» — общее со счётом прогноза и живёт в `queue_plan.py`; имена его причин
+#: — и отсюда, как до переезда.
+__all__ = [
+    "CHUNK",
+    "FOLLOWUP_DAYS",
+    "HANDED_OFF",
+    "LONG_KEY",
+    "OFF_CORRIDOR",
+    "SENT_MEANWHILE",
+    "STOPLIST",
+    "UP_TO_DATE",
+    "WHAT",
+    "QueueState",
+    "build",
+    "campaign_name",
+    "state",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -105,10 +123,8 @@ FOLLOWUP_DAYS = (3, 5)
 CHUNK = 200
 WHAT = "Очередь продаж не собрана"
 
-#: Почему лид ждёт — словами отчёта; одинаковые причины складываются.
-HANDED_OFF = "передан телемаркетологу"
-STOPLIST = "стоп-лист"
-LONG_KEY = "адрес и домен длиннее ключа письма"
+#: Почему лид ждёт — словами отчёта; одинаковые причины складываются. Причины решения «писать
+#: ли» (`HANDED_OFF`, `STOPLIST`, `LONG_KEY`) — у самого решения, в `queue_plan.py`.
 UP_TO_DATE = "письмо уже в очереди"
 #: Ключ сводки причин — без чисел: сто лидов вне коридора — одна строка; числа каждой попытки —
 #: в строке письма (`corridor.waiting_reason`), в журнале и на экране.
@@ -131,15 +147,6 @@ class _Lead:
     host: str
     link: SalesThreadModel | None
     queued: MessageModel | None
-
-
-@dataclass(frozen=True, slots=True)
-class _Plan:
-    """Что пишем лиду: цепочка его языка и значения подстановок."""
-
-    chain: chain.Chain
-    values: dict[str, str]
-    key: str
 
 
 async def build(
@@ -230,42 +237,32 @@ async def _within_cap(session: AsyncSession, report: QueueReport) -> bool:
     return True
 
 
-async def _blocked(session: AsyncSession, row: _Lead) -> str | None:
-    """Почему этому лиду писать нельзя: передан, в стоп-листе, в «кому не пишем» — или ждёт,
-    пока сайт в работе у другого направления (`elsewhere.py`)."""
-    if await handoff.handed_off(session, row.lead.id):
-        return HANDED_OFF
-    if await stopped_by(session, row.lead, row.host) is not None:
-        return STOPLIST
-    off = excluded(row.lead.email, row.host)
-    if off is not None:
-        return off.waiting
-    busy = await elsewhere.roles(session, [row.lead.domain_id])
-    return elsewhere.waiting(busy[row.lead.domain_id]) if busy else None
+@dataclass(frozen=True, slots=True)
+class _PerLead:
+    """Факты лида для решения сборки (`queue_plan.Facts`) — запросом на лида, как всегда у сборки:
+    лидов она пишет по одному, и между ними идёт модель."""
+
+    session: AsyncSession
+
+    async def handed(self, lead: SalesLeadModel) -> bool:
+        return await handoff.handed_off(self.session, lead.id)
+
+    async def stopped(self, lead: SalesLeadModel, host: str) -> bool:
+        return await stopped_by(self.session, lead, host) is not None
+
+    async def busy(self, lead: SalesLeadModel) -> Stage | None:
+        return (await elsewhere.roles(self.session, [lead.domain_id])).get(lead.domain_id)
+
+    async def chain_of(self, hypothesis_id: int, language: str) -> chain.Chain:
+        return await chain.resolve(self.session, hypothesis_id=hypothesis_id, language=language)
 
 
-async def _plan(session: AsyncSession, row: _Lead, hypothesis_id: int) -> _Plan | str:
+async def _plan(session: AsyncSession, row: _Lead, hypothesis_id: int) -> Plan | str:
     """Что писать лиду — или почему он ждёт (строкой отчёта). Без вызова модели."""
-    if (why := await _blocked(session, row) or first_letter(row.lead)) is not None:
-        return why
-    # Язык без цепочки — причина в отчёте, не ошибка; язык — основой кода: `ru-RU` → `ru`.
-    language = language_base(row.lead.language)
-    if language not in chain_text.LANGUAGES:
-        return no_chain(language)
-    found = await chain.resolve(session, hypothesis_id=hypothesis_id, language=language)
-    if found.missing:
-        # Язык словами («на русском»), а не кодом: причину читает человек на экране очереди.
-        said = chain_text.in_language(language)
-        return f"цепочка {said} задана не целиком"
-    values = letter.values_of(row.lead, row.host)
-    absent = letter.lacking(found.steps.values(), values)
-    if absent:
-        return f"у лида нет значения для {', '.join(absent)}"
-    key = letter.key(row.host, row.lead.email, FIRST_STEP)
-    return LONG_KEY if len(key) > letter.KEY_LENGTH else _Plan(found, values, key)
+    return await plan_of(row.lead, row.host, hypothesis_id, _PerLead(session))
 
 
-def _current(row: _Lead, plan: _Plan, found: Sender) -> bool:
+def _current(row: _Lead, plan: Plan, found: Sender) -> bool:
     """Письмо в очереди написано нынешней цепочкой, подписано нынешним «Отправителем» языка
     письма и после последней правки лида (`lead_edit.edited`). Снятое до отправки — не в очереди."""
     if row.queued is None or row.link is None or row.queued.status is not MessageStatus.QUEUED:
@@ -338,7 +335,7 @@ def _signed(tried: corridor.Tried, found: Sender) -> compose.Letter | str:
 async def _store(
     session: AsyncSession,
     row: _Lead,
-    plan: _Plan,
+    plan: Plan,
     written: compose.Letter,
     tried: corridor.Tried,
     later: Built,
@@ -359,7 +356,7 @@ async def _store(
 async def _write(
     session: AsyncSession,
     row: _Lead,
-    plan: _Plan,
+    plan: Plan,
     written: compose.Letter,
     uniqueness: float,
     texts: dict[str, Any] | None,

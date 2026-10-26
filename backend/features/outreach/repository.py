@@ -61,6 +61,17 @@ def in_hourly_lane() -> ColumnElement[bool]:
     )
 
 
+def followup_pending() -> tuple[ColumnElement[bool], ...]:
+    """Письмо ждёт добивки, и проход возьмёт её в срок: письмо ушло, срок есть, шаг не последний.
+    Ответ, отписка и отказ доставки гасят срок — такой цепочки здесь нет. Одно правило у прохода
+    добивок (`followups._due` — и срок наступил) и у прогноза рассылки (`letters/forecast.py`)."""
+    return (
+        MessageModel.status.in_(CHAINABLE),
+        MessageModel.next_action_at.is_not(None),
+        MessageModel.step < MAX_STEPS - 1,
+    )
+
+
 class UnknownSenderError(ValueError):
     """Отправителя с таким номером нет."""
 

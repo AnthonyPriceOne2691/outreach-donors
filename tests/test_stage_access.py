@@ -246,6 +246,7 @@ async def seller(make_user: MakeUser, sign_in: SignIn) -> dict[str, str]:
 SALES_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/letters?stage=sales", None, LETTERS),
     ("GET", "/api/letters/unknown?stage=sales", None, LETTERS),
+    ("GET", "/api/letters/forecast?stage=sales", None, LETTERS),
     ("POST", "/api/letters/build", {"campaign": "Продажи", "stage": "sales"}, LETTERS),
     ("POST", "/api/letters/send-queue", {"stage": "sales"}, LETTERS),
     ("PATCH", "/api/letters/{queued}", {"subject": "S", "body": "B"}, LETTERS),

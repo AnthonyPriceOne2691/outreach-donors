@@ -63,7 +63,6 @@ from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.stages import SALES_NOT_CONNECTED, SalesNotConnectedError
 from backend.features.letters import compose, guards, template, thread_first
 from backend.features.letters.building import attempt_of, followup_key, idempotency_key
-from backend.features.letters.chain import CHAINABLE, MAX_STEPS
 from backend.features.letters.sending import (
     NoSenderError,
     NotQueuedError,
@@ -72,7 +71,7 @@ from backend.features.letters.sending import (
     SuppressedError,
 )
 from backend.features.letters.transport import ByStage, MaybeSentError, Transport
-from backend.features.outreach.repository import in_hourly_lane
+from backend.features.outreach.repository import followup_pending, in_hourly_lane
 
 logger = logging.getLogger(__name__)
 
@@ -82,13 +81,8 @@ class FollowupError(RuntimeError):
 
 
 def _due(moment: datetime) -> tuple[ColumnElement[bool], ...]:
-    """Подошедшая добивка: письмо ушло, срок наступил, шаг не последний."""
-    return (
-        MessageModel.status.in_(CHAINABLE),
-        MessageModel.next_action_at.is_not(None),
-        MessageModel.next_action_at <= moment,
-        MessageModel.step < MAX_STEPS - 1,
-    )
+    """Подошедшая добивка: письмо ждёт добивки (`followup_pending`), и срок наступил."""
+    return (*followup_pending(), MessageModel.next_action_at <= moment)
 
 
 def _chained(chained: tuple[Stage, ...]) -> ColumnElement[bool]:
