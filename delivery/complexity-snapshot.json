@@ -122,9 +122,9 @@
       "worst": "_why_not:99"
     },
     "backend/api/crawls/schemas.py": {
-      "lines": 149,
+      "lines": 184,
       "complexity": 3,
-      "worst": "of:85"
+      "worst": "of:119"
     },
     "backend/api/deps.py": {
       "lines": 125,
@@ -1272,9 +1272,9 @@
       "worst": "apply_ratings:155"
     },
     "backend/features/crawl/board.py": {
-      "lines": 219,
+      "lines": 266,
       "complexity": 5,
-      "worst": "eligible:141"
+      "worst": "eligible:188"
     },
     "backend/features/crawl/contacts.py": {
       "lines": 128,

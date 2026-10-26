@@ -10,6 +10,12 @@
 их не показывал: «обойдён: 1 000 страниц» не отличал донора, отдавшего всё,
 от донора, закрывшего от нас треть запросов, — а от этой доли считается смета
 Этапа 2 (`okf/crawl-access.md`).
+
+**Почему обход кончился — тоже у строки** (23.10.2026): «обойдён: N страниц»
+не говорил, почему не 1 000 — кончилась карта сайта или час на донора при долгой
+паузе сайта. Откуда брались адреса, дочитана ли карта, какую паузу просит сайт и
+сколько шёл обход — из отчёта законченного обхода (`CrawlReport.as_dict`); у
+идущего и записанного до отчёта — пусто.
 """
 
 from __future__ import annotations
@@ -33,6 +39,11 @@ from backend.features.runs.reasons import readable
 
 #: Незаконченные обходы — их ход экран обновляет сам.
 ACTIVE = (CrawlStatus.QUEUED, CrawlStatus.RUNNING)
+
+#: Откуда обход брал адреса (`CrawlReport.source`): карта сайта, ссылки со страниц или
+#: карта, а после неё ссылки. «none» — обход не дошёл до списка адресов (robots.txt,
+#: главная не открылась): источника нет.
+SOURCES = frozenset({"sitemap", "links", "sitemap+links"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +78,20 @@ class CrawlLine:
     #: столько не набралось.
     failure_share: float | None = None
     window: int | None = None
+    #: Откуда брались адреса — значение из `SOURCES`; пусто — обход не дошёл до списка,
+    #: не кончился или записан до отчёта.
+    source: str | None = None
+    #: Дочитана ли карта сайта: `False` — «в карте больше адресов нет» сказано по
+    #: неполной карте (файл не открылся, упёрлись в потолок файлов или адресов карты).
+    sitemap_complete: bool | None = None
+    #: Пауза между страницами, которую просит robots.txt сайта, с; пусто — не просит.
+    #: Как есть: обход ждёт не меньше своей паузы и не больше своего потолка паузы.
+    crawl_delay: float | None = None
+    #: Сколько обход шёл, с, вместе с продолжениями.
+    elapsed_sec: float | None = None
+    #: Свой срок этого обхода, с, — если обход его записал (`time_budget_sec` отчёта).
+    #: Пусто — срок общий, из настроек.
+    time_budget_sec: float | None = None
 
     @classmethod
     def of(cls, run: CrawlRunModel) -> CrawlLine:
@@ -93,7 +118,29 @@ class CrawlLine:
             failure_share=failures,
             window=window,
             degradation={str(k): str(v) for k, v in (run.degradation or {}).items()},
+            source=_source(stats.get("source")),
+            sitemap_complete=_flag(stats.get("sitemap_complete")),
+            crawl_delay=_seconds(stats.get("crawl_delay")),
+            elapsed_sec=_seconds(stats.get("elapsed_sec")),
+            time_budget_sec=_seconds(stats.get("time_budget_sec")),
         )
+
+
+def _source(value: object) -> str | None:
+    """Источник адресов из отчёта; незнакомое значение и «none» — пусто, а не догадка."""
+    return value if isinstance(value, str) and value in SOURCES else None
+
+
+def _flag(value: object) -> bool | None:
+    """Да или нет из отчёта; чего нет или не то — пусто."""
+    return value if isinstance(value, bool) else None
+
+
+def _seconds(value: object) -> float | None:
+    """Секунды из отчёта. Флаг (`True` — тоже `int`) и отрицательное — не секунды."""
+    if isinstance(value, bool) or not isinstance(value, int | float) or value < 0:
+        return None
+    return float(value)
 
 
 def _window(stats: dict[str, Any], requests: int | None) -> tuple[float | None, int | None]:

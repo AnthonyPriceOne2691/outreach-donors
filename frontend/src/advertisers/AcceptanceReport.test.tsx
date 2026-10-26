@@ -97,7 +97,9 @@ describe('приёмка по донорам', () => {
 
     const row = screen.getByText('big.example.test').closest('tr')!;
     expect(within(row).getByText('пройдена')).toBeInTheDocument();
-    expect(within(row).getByText(/обойдён: 1\s000 страниц/)).toBeInTheDocument();
+    expect(within(row).getByText(/обойдён: 1\s000 из 1\s000 страниц/)).toBeInTheDocument();
+    // Почему кончился — под значком, как на панели обхода.
+    expect(within(row).getByText(/^потолок 1\s000 страниц на донора$/)).toBeInTheDocument();
     expect(within(row).getByText(/закрыто 5% из 1\s100 запросов/)).toBeInTheDocument();
     expect(within(row).getByText('90 · 75%')).toBeInTheDocument();
   });

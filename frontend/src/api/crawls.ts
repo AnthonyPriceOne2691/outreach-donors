@@ -10,14 +10,35 @@ import type { PriceSource } from './manualPrice';
 
 export type CrawlStatus = 'queued' | 'running' | 'done' | 'stopped';
 export type CrawlOutcome = 'ok' | 'partial' | 'forbidden' | 'blocked' | 'failed';
+/** Почему обход кончился — `StopReason` сервера. */
+export type CrawlStopReason =
+  | 'exhausted'
+  | 'max_pages'
+  | 'max_attempts'
+  | 'timeout'
+  | 'unhealthy'
+  | 'robots'
+  | 'no_start';
+/** Откуда обход брал адреса: карта сайта, ссылки со страниц или карта, а после неё ссылки. */
+export type CrawlSource = 'sitemap' | 'links' | 'sitemap+links';
+
+/** Потолки обхода донора, кроме страниц, — числами настроек сервера: попыток (запросов к
+ *  страницам), времени (с) и паузы между страницами — не меньше `delay_sec`, не больше
+ *  `max_delay_sec`, что бы ни просил сайт. Нет — сервер старше экрана. */
+export interface CrawlCeilings {
+  max_attempts?: number;
+  max_seconds?: number;
+  delay_sec?: number;
+  max_delay_sec?: number;
+}
 
 /** Один обход: где он и чем кончился. `max_pages` — потолок хода «340 из 1000». */
-export interface CrawlRow {
+export interface CrawlRow extends CrawlCeilings {
   id: number;
   host: string;
   status: CrawlStatus;
   outcome: CrawlOutcome | null;
-  stop_reason: string | null;
+  stop_reason: CrawlStopReason | null;
   pages: number;
   max_pages: number;
   articles: number;
@@ -39,6 +60,14 @@ export interface CrawlRow {
   /** Чего каскаду не хватило: уровень обхода → словами (прокси отказали подряд все, сервис
    *  рендеринга отключился, потолок Этапа 2 выбран). Нет у старых ответов — необязательное. */
   degradation?: Record<string, string>;
+  /** Почему кончился — из отчёта законченного обхода (у идущего и записанного до отчёта
+   *  пусто): откуда брались адреса, дочитана ли карта сайта, какую паузу просит robots.txt
+   *  сайта (с), сколько обход шёл (с) и свой срок обхода (с), если он его записал. */
+  source?: CrawlSource | null;
+  sitemap_complete?: boolean | null;
+  crawl_delay?: number | null;
+  elapsed_sec?: number | null;
+  time_budget_sec?: number | null;
 }
 
 /** Донор, которого можно обойти: цена — основание, обход — что о нём знаем. */
@@ -54,7 +83,7 @@ export interface CrawlTarget {
   crawl: CrawlRow | null;
 }
 
-export interface CrawlTargets {
+export interface CrawlTargets extends CrawlCeilings {
   donors: CrawlTarget[];
   no_price: number;
   stale_price: number;
@@ -67,6 +96,8 @@ export interface CrawlTargets {
   health_window?: number | null;
   slow_down_share?: number | null;
   stop_share?: number | null;
+  /** Потолок срока сайту с долгой паузой, с; нет — срок у всех общий (`max_seconds`). */
+  max_seconds_slow?: number | null;
 }
 
 export interface CrawlsView {
