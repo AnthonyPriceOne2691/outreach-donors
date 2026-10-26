@@ -30,6 +30,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -182,15 +183,15 @@ class Work:
 
     #: «Прогон» — доменов ждут решения в очередях прогонов («Рассмотреть домены»).
     run: int
-    #: «Диалоги» — диалогов доноров и рекламодателей ждут человека (`WAITS_FOR_PERSON`).
-    threads: int
+    #: Переписок ждут человека (`WAITS_FOR_PERSON`) — у пункта своей части, этапом: «Диалоги
+    #: с донорами», «Диалоги с рекламодателями» (23.10.2026) и «Диалоги продаж» (11.10.2026).
+    #: Без права «Продажи» у продаж ноль: этапа продаж в `stages` нет.
+    donor_threads: int
+    advertiser_threads: int
+    sales_threads: int
     forms: int
     #: «Рекламодатели» — ждут решения человека на их экране (`_advertisers`).
     advertisers: int
-    #: «Диалоги продаж» — переписок продаж ждут человека. Своим числом, а не в «Диалогах»:
-    #: продажи в меню — своей группой (просьба Anthony 11.10.2026), и число стоит у своего
-    #: пункта. Без права «Продажи» — ноль: этапа продаж в `stages` нет.
-    sales_threads: int = 0
 
 
 async def overview(
@@ -237,16 +238,16 @@ async def overview(
 
 async def work(session: AsyncSession, *, stages: Collection[Stage]) -> Work:
     """Числа меню — теми же правилами, что «Ждут человека» на главной, и тех же этапов.
-    Ждущие переписки — по группам меню: доноры и рекламодатели — у «Диалогов», продажи —
-    у «Диалогов продаж»."""
+    Ждущие переписки — этапом, у пункта своей части: доноры, рекламодатели, продажи."""
     threads = await OutreachRepository(session).states(stages=stages)
-    waiting = [mark for mark in threads if mark.state in WAITS_FOR_PERSON]
+    waiting = Counter(mark.stage for mark in threads if mark.state in WAITS_FOR_PERSON)
     return Work(
         run=(await standing.waiting(session)).domains,
-        threads=sum(1 for mark in waiting if mark.stage is not Stage.SALES),
+        donor_threads=waiting[Stage.DONORS],
+        advertiser_threads=waiting[Stage.ADVERTISERS],
+        sales_threads=waiting[Stage.SALES],
         forms=await forms.waiting(session),
         advertisers=(await _advertisers(session))[0],
-        sales_threads=sum(1 for mark in waiting if mark.stage is Stage.SALES),
     )
 
 

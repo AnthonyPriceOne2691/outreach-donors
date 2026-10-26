@@ -27,6 +27,9 @@ from playwright.sync_api import expect
 UNBOUND_TABS = "[aria-label='Вкладки диалогов']"
 UNBOUND_PAGER = "nav[aria-label='Страницы непривязанных ответов']"
 PHONE = {"width": 390, "height": 844}
+#: Пункт меню по имени ссылки (у двух «Писем» подпись одна) и его видимая подпись.
+NAMED = "nav a[aria-label^="
+LABEL = ".mantine-NavLink-label"
 
 
 def unbound_probes(norm: float, big: float, *, menu: bool) -> list[tuple[Any, ...]]:
@@ -102,8 +105,8 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         # Мерится то, по чему ищут диалог, — донор, состояние, цена, — и
         # значение фильтра в поле: его сверяют с текстом рядом.
         "threads": {
-            "path": "/threads",
-            "ready": ("heading", "Диалоги"),
+            "path": "/threads?stage=donors",
+            "ready": ("heading", "Диалоги с донорами"),
             "probes": [
                 ("заголовок раздела", "h3", big),
                 ("сколько найдено", ".glassPanel h3 + p", norm),
@@ -116,6 +119,24 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("цена", "table tbody td:nth-child(4) p", norm),
                 ("когда последнее событие", "table tbody td:nth-child(5) p", norm),
                 ("пункт меню", "nav a", norm),
+            ],
+        },
+        # Группы «Доноры» и «Рекламодатели» (23.10.2026) и их «Письма» и «Диалоги» — над
+        # разными местами полотна: подписи групп, пунктов (по имени ссылки — подпись у двух
+        # пунктов одна) и подсвеченный пункт; число ждущей работы — янтарным значком.
+        "menu-stages": {
+            "path": "/threads?stage=advertisers",
+            "ready": ("heading", "Диалоги с рекламодателями"),
+            "probes": [
+                ("подпись группы «Доноры»", "#nav-group-donors .navGroupName", norm),
+                ("подпись группы «Рекламодатели»", "#nav-group-advertisers .navGroupName", norm),
+                ("пункт «Письма» доноров", f"{NAMED}'Письма донорам'] {LABEL}", norm),
+                ("пункт «Диалоги» доноров", f"{NAMED}'Диалоги с донорами'] {LABEL}", norm),
+                ("пункт «Письма» рекламодателей", f"{NAMED}'Письма рекламодателям'] {LABEL}", norm),
+                ("подсвеченный пункт", "nav a[data-active] .mantine-NavLink-label", norm),
+                ("число ждущей работы", "nav a .mantine-Badge-label", norm),
+                # Имя части в колонке списка — на ступень меньше (`ThreadsTitle`, `compact`).
+                ("заголовок списка части", ".threadListColumn h4", norm),
             ],
         },
         "forms": {

@@ -132,19 +132,21 @@ class WorkView(BaseModel):
     """Числа у пунктов меню: сколько в разделе ждёт человека."""
 
     run: int
-    #: «Диалоги» — переписки доноров и рекламодателей; продажи — `sales_threads`.
-    threads: int
+    #: Ждут человека переписки — у пункта своей части: «Диалоги с донорами», «Диалоги
+    #: с рекламодателями», «Диалоги продаж» (в группе «Продажи»; без права — ноль).
+    donor_threads: int
+    advertiser_threads: int
+    sales_threads: int
     forms: int
     advertisers: int
-    #: «Диалоги продаж» — в группе меню «Продажи». Без права «Продажи» — ноль.
-    sales_threads: int
 
     @classmethod
     def of(cls, work: Work) -> WorkView:
         return cls(
             run=work.run,
-            threads=work.threads,
+            donor_threads=work.donor_threads,
+            advertiser_threads=work.advertiser_threads,
+            sales_threads=work.sales_threads,
             forms=work.forms,
             advertisers=work.advertisers,
-            sales_threads=work.sales_threads,
         )

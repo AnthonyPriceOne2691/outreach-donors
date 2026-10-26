@@ -71,14 +71,15 @@ describe('рама приложения', () => {
   });
 });
 
-/** Пункт меню целиком — с числом ждущей работы, если оно есть. */
+/** Пункт меню целиком — с числом ждущей работы, если оно есть. По ссылке, а не по тексту:
+ *  «Доноры» и «Рекламодатели» — ещё и подписи групп (23.10.2026). */
 function item(title: string): HTMLElement {
-  const link = within(screen.getByRole('navigation')).getByText(title).closest('a');
-  if (link === null) throw new Error(`пункта «${title}» нет`);
-  return link;
+  return within(screen.getByRole('navigation')).getByRole('link', {
+    name: new RegExp(`^${title}`),
+  });
 }
 
-const WORK = { run: 3, threads: 2, forms: 0, advertisers: 12 };
+const WORK = { run: 3, donor_threads: 2, advertiser_threads: 4, forms: 0, advertisers: 12 };
 
 describe('числа ждущей работы у пунктов меню', () => {
   it('стоят у своих разделов, ноль не рисуется', async () => {
@@ -91,7 +92,14 @@ describe('числа ждущей работы у пунктов меню', () =
     renderWith(<AppRoutes />, '/');
 
     await waitFor(() => expect(item('Прогон')).toHaveTextContent('3 ждут человека'));
-    expect(item('Диалоги')).toHaveTextContent('2 ждут человека');
+    // У двух «Диалогов» подпись одна — пункт по имени ссылки, а число — у каждого своё.
+    const menu = within(screen.getByRole('navigation'));
+    expect(menu.getByRole('link', { name: /^Диалоги с донорами/ })).toHaveTextContent(
+      '2 ждут человека',
+    );
+    expect(menu.getByRole('link', { name: /^Диалоги с рекламодателями/ })).toHaveTextContent(
+      '4 ждут человека',
+    );
     expect(item('Рекламодатели')).toHaveTextContent('12 ждут человека');
     expect(item('Формы')).not.toHaveTextContent('ждут человека');
     expect(item('Доноры')).not.toHaveTextContent('ждут человека');
