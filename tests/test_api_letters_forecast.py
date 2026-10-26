@@ -320,6 +320,28 @@ async def test_a_new_mailbox_warms_up_from_the_first_sending_day(
     assert (fresh["next_step_on"], fresh["next_step_allowance"]) == ("2026-10-23", 10)
 
 
+async def test_a_disabled_mailbox_has_no_next_step(
+    client: AsyncClient, session: AsyncSession, viewer: dict[str, str]
+) -> None:
+    """Выключенный ящик не пишет: следующей ступени разгона у него нет — ни у ещё не писавшего,
+    ни у того, чей разгон идёт. На стенде 26.10.2026 выключенный ящик показывал «ср 28.10 — до 10
+    в день» рядом со словом «выключен»: разгон нового ящика предполагался и ему."""
+    await _box(session, "fresh@mail-n.example.test", Stage.DONORS, wrote=None, enabled=False)
+    await _box(session, "young@mail-n.example.test", Stage.DONORS, wrote=1, enabled=False)
+    letters = await _letters(session, Stage.DONORS)
+    await letters.add()
+    await session.commit()
+
+    body = (await client.get(URL, params={"days": 5}, headers=viewer)).json()
+
+    assert [
+        (box["enabled"], box["next_step_on"], box["next_step_allowance"]) for box in body["senders"]
+    ] == [
+        (False, None, None),
+        (False, None, None),
+    ]
+
+
 # --- продажи: окно, автоотправка и ответы моста --------------------------------------------
 
 
