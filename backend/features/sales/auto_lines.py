@@ -106,7 +106,7 @@ async def autosend_line(session: AsyncSession, now: datetime) -> AutoLine:
     head = f"{SEND_ON}: {pace()}. В окне получателя сейчас {letters(len(seen.waiting.ids))}"
     if stop is not None:
         return AutoLine(enabled=True, line=f"{head}. Стоит: {stop[1]}.")
-    stands = await _none_goes(session, seen)
+    stands = await none_goes(session, seen)
     if stands is not None:
         return AutoLine(enabled=True, line=f"{head}. Стоит: {stands}.")
     return AutoLine(enabled=True, line=f"{head}. {await _going(session, seen, now)}.")
@@ -121,10 +121,11 @@ def batch_line() -> str | None:
     return f"{autosend.BATCH_OFF.capitalize()}: {autosend.BY_ITSELF}."
 
 
-async def _none_goes(session: AsyncSession, seen: autosend.Facts) -> str | None:
+async def none_goes(session: AsyncSession, seen: autosend.Facts) -> str | None:
     """Ни одно письмо в окне получателя не уйдёт как есть — почему и что делать; `None` — хоть
     одно уйдёт. Без этого строка писала «Письма уходят», пока проход отказывал каждому письму
-    окна (подпись «Отправителя» поправили — замер стенда, ревью стыков отправки)."""
+    окна (подпись «Отправителя» поправили — замер стенда, ревью стыков отправки). Те же слова —
+    у прогноза рассылки, почему автоотправка стоит (`forecast_answers.autosend_stop`)."""
     found = await autobuild.queued(session)
     window = set(seen.waiting.ids)
     if window & found.ready:

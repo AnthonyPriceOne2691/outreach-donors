@@ -2517,7 +2517,7 @@
       "worst": "beyond:88"
     },
     "backend/features/sales/auto_lines.py": {
-      "lines": 213,
+      "lines": 214,
       "complexity": 6,
       "worst": "autosend_line:94"
     },
@@ -2642,9 +2642,9 @@
       "worst": "build:137"
     },
     "backend/features/sales/forecast_answers.py": {
-      "lines": 13,
-      "complexity": 0,
-      "worst": "—"
+      "lines": 44,
+      "complexity": 6,
+      "worst": "autosend_stop:25"
     },
     "backend/features/sales/funnel.py": {
       "lines": 273,
