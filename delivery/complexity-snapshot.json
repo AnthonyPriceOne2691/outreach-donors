@@ -237,9 +237,9 @@
       "worst": "mailing_forecast:34"
     },
     "backend/api/letters/forecast_schemas.py": {
-      "lines": 256,
+      "lines": 257,
       "complexity": 8,
-      "worst": "of:228"
+      "worst": "of:229"
     },
     "backend/api/letters/once.py": {
       "lines": 102,
@@ -1742,7 +1742,7 @@
       "worst": "_deliver:418"
     },
     "backend/features/letters/forecast.py": {
-      "lines": 290,
+      "lines": 292,
       "complexity": 8,
       "worst": "forecast:108"
     },
