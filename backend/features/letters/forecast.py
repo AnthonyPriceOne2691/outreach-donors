@@ -31,7 +31,7 @@ from sqlalchemy import ColumnElement, Date, and_, cast, func, literal_column, se
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import outreach as cfg
-from backend.features.core import stage_forecast, stages, window
+from backend.features.core import stage_forecast, stages
 from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import (
     CampaignModel,
@@ -40,15 +40,7 @@ from backend.features.core.models.outreach import (
     SendingDomainModel,
 )
 from backend.features.letters.chain import FIRST_STEP, MAX_STEPS
-from backend.features.letters.forecast_plan import (
-    Clock,
-    Eta,
-    Mailboxes,
-    PlanDay,
-    Supply,
-    first_open,
-    plan,
-)
+from backend.features.letters.forecast_plan import Clock, Eta, Mailboxes, PlanDay, Supply, plan
 from backend.features.letters.mailbox import SILENT
 from backend.features.letters.repository import LetterRepository
 from backend.features.outreach import capacity, health, limits
@@ -133,7 +125,7 @@ async def forecast(
     queued = await LetterRepository(session).queued_count(stage=stage)
     answers = await _answers(session, stage, policy)
     clock = Clock(policy.window, answers.zone, policy.pace)
-    first = first_open(clock, moment)
+    first = await capacity.first_letter_day(session, stage, moment)
     unread = capacity.unread(stage)
     boxes = Mailboxes(
         left=found.left,
@@ -242,28 +234,20 @@ class _Answers:
 
 async def _answers(session: AsyncSession, stage: Stage, policy: stages.MailPolicy) -> _Answers:
     """Ответы модуля этапа прогнозу. У продаж — мостом (`core/stage_forecast.py`): сколько первых
-    писем ещё напишет сборка, пояса получателей очереди (только при окне) и письма, которые не
-    уйдут, пока их не поправят. У доноров и рекламодателей очередь собирает человек, окна нет."""
+    писем ещё напишет сборка, пояс получателей очереди (только при окне, `capacity.queue_zone`) и
+    письма, которые не уйдут, пока их не поправят. У доноров и рекламодателей очередь собирает
+    человек, окна нет."""
     match stage:
         case Stage.DONORS | Stage.ADVERTISERS:
             return _Answers()
         case Stage.SALES:
-            zones = await stage_forecast.sales_zones(session) if policy.window else None
             return _Answers(
                 await stage_forecast.sales_supply(session),
-                _common(zones or {}),
+                await capacity.queue_zone(session, stage) if policy.window else None,
                 await stage_forecast.sales_stuck(session),
             )
         case _:
             assert_never(stage)
-
-
-def _common(zones: Mapping[str | None, int]) -> ZoneInfo | None:
-    """Самый частый пояс получателей очереди — в нём прогноз считает часы окна; равные — по имени,
-    чтобы ответ не скакал; имени нет в базе поясов — следующий (`window.zone_of`). `None` — поясов
-    не знает никто."""
-    ranked = sorted(((count, name) for name, count in zones.items() if name), reverse=True)
-    return window.zone_of(name for _, name in ranked)
 
 
 async def _due(

@@ -20,7 +20,6 @@ from backend.features.letters.forecast_plan import (
     Mailboxes,
     PlanDay,
     Supply,
-    first_open,
     plan,
 )
 from backend.features.outreach import capacity
@@ -244,14 +243,13 @@ def test_a_queue_of_stuck_letters_only_has_no_date() -> None:
     assert eta.words == "в очереди только письма, которые не уйдут, пока их не поправят (3)"
 
 
-def test_the_first_open_day_is_today_unless_the_window_has_closed() -> None:
-    """В него прогноз кладёт первое письмо ящика, который ещё не писал."""
-    clock = Clock(WEEKDAYS_9_17, BERLIN)
+def test_the_opening_day_is_today_unless_the_window_has_closed() -> None:
+    """В него прогноз кладёт первое письмо ящика, который ещё не писал (`capacity.opening_day`)."""
     friday_evening = datetime(2026, 10, 23, 16, 0, tzinfo=UTC)
 
-    assert first_open(clock, NOW) == NOW.date()
-    assert first_open(clock, friday_evening) == date(2026, 10, 26)
-    assert first_open(Clock(), friday_evening) == date(2026, 10, 23)
+    assert capacity.opening_day(WEEKDAYS_9_17, BERLIN, NOW) == NOW.date()
+    assert capacity.opening_day(WEEKDAYS_9_17, BERLIN, friday_evening) == date(2026, 10, 26)
+    assert capacity.opening_day(None, None, friday_evening) == date(2026, 10, 23)
 
 
 def test_a_projected_first_letter_grows_a_new_mailbox_in_the_plan() -> None:

@@ -12,8 +12,15 @@
 **День — по UTC**, как дневной счёт писем (`OutreachRepository.sent_today`). Ступень разгона — от
 первого письма ящика: ящик, ещё не писавший, по правилу экрана стоит на первой ступени на все дни
 вперёд. Прогноз рассылки просит предположить первое письмо (`project_first_letter`): включённый ящик
-без него напишет его в первый день отправки (`first_sending`: дни окна получателя этапа), и разгон
-идёт оттуда; «План» недельного отчёта этого не просит и считает, как экран.
+без него напишет его в первый день, когда первые письма ещё уходят (`first_letter_day`), и разгон
+идёт оттуда. Правило дня одно — у прогноза и у мощности по дням, кто бы её ни спрашивал: от минуты
+вопроса (`now`), а не от первого из спрошенных дней, — иначе план недели и прогноз на те же даты
+расходились бы. «План» недельного отчёта первого письма не предполагает и считает, как экран.
+
+**Дни и часы отправки** — окно получателя из политики этапа (`stages.MailPolicy.window`) в самом
+частом поясе получателей очереди (`queue_zone`; у продаж — ответ моста `core/stage_forecast.py`):
+день окна, а сегодня — пока окно не закрылось (`span_of`). Пояс неизвестен — по дням недели, без
+часов; окна нет — каждый день целиком.
 
 **Сегодня — глазами выбора ящика первого письма** (`today`, как `letters/mailbox._free_box`): тот же
 фильтр лимитов (`limits.screen`) и остаток ящика от потолка разгона (`senders.available`). Лимит
@@ -31,11 +38,13 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
+from typing import assert_never
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import outreach as cfg
-from backend.features.core import stages
+from backend.features.core import stage_forecast, stages, window
 from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import SenderModel, SendingDomainModel
 from backend.features.core.window import SendWindow
@@ -186,17 +195,23 @@ async def capacity(
     days: Sequence[date],
     *,
     project_first_letter: bool = False,
+    now: datetime | None = None,
 ) -> Capacity:
     """Мощность ящиков этапа на дни `days` — правилом экрана «Домены рассылки» (см. модуль).
-    `project_first_letter` — ящик без первого письма напишет его в первый день отправки этих дней
-    (`first_sending` по окну этапа), и разгон пойдёт оттуда; без него — как экран и «План» отчёта."""
+    `project_first_letter` — ящик без первого письма напишет его в день `first_letter_day` от минуты
+    `now`, и разгон пойдёт оттуда; без него — как экран и «План» отчёта, и `now` не нужен."""
+    first = None
+    if project_first_letter:
+        if now is None:
+            raise ValueError(
+                "мощность с предположенным первым письмом считается от минуты вопроса: передайте "
+                "now — своих часов у правила нет, иначе план и прогноз на те же дни разойдутся"
+            )
+        first = await first_letter_day(session, stage, now)
     found = await OutreachRepository(session).senders(stages=(stage,))
     boxes = [box for box in found if box.enabled]
     domains = await limits.sending_domains(session)
     limit = cfg.direction_limit(stage.value)
-    first = None
-    if project_first_letter and days:
-        first = first_sending(min(days), await _window(session, stage))
     return Capacity(
         len(boxes),
         [
@@ -205,6 +220,73 @@ async def capacity(
         ],
         unread(stage),
     )
+
+
+async def first_letter_day(session: AsyncSession, stage: Stage, now: datetime) -> date:
+    """День, в который ящик этапа без первого письма, по предположению прогноза, его напишет:
+    первый день, когда первые письма ещё уходят (`opening_day`), — окно получателя из политики
+    этапа, часы — в самом частом поясе очереди (`queue_zone`). Одно правило у прогноза рассылки и у
+    мощности по дням (`capacity(project_first_letter=True)`)."""
+    frame = await _window(session, stage)
+    zone = None if frame is None else await queue_zone(session, stage)
+    return opening_day(frame, zone, now)
+
+
+async def queue_zone(session: AsyncSession, stage: Stage) -> ZoneInfo | None:
+    """Самый частый пояс получателей первых писем этапа в очереди: у продаж — ответом моста
+    (`stage_forecast.sales_zones`); у доноров и рекламодателей окна нет — и пояса не нужно."""
+    match stage:
+        case Stage.DONORS | Stage.ADVERTISERS:
+            return None
+        case Stage.SALES:
+            return common_zone(await stage_forecast.sales_zones(session) or {})
+        case _:
+            assert_never(stage)
+
+
+def common_zone(zones: Mapping[str | None, int]) -> ZoneInfo | None:
+    """Самый частый пояс из `zones` (пояс → писем); равные — по имени, чтобы ответ не скакал; имени
+    нет в базе поясов — следующий (`window.zone_of`). `None` — поясов не знает никто."""
+    ranked = sorted(((count, name) for name, count in zones.items() if name), reverse=True)
+    return window.zone_of(name for _, name in ranked)
+
+
+@dataclass(frozen=True, slots=True)
+class Span:
+    """Часы отправки первых писем в UTC-день: с какой минуты и до какой (пусто — часов не узнать:
+    пояс неизвестен); `closed` — почему в этот день они не уходят вовсе."""
+
+    start: datetime | None = None
+    end: datetime | None = None
+    closed: str | None = None
+
+
+def span_of(frame: SendWindow | None, zone: ZoneInfo | None, day: date, now: datetime) -> Span:
+    """Часы отправки дня `day` от минуты `now`: без окна — весь UTC-день; с окном — его часы в поясе
+    `zone`; день не окна или окно на сегодня закрылось — `closed` словами."""
+    if frame is None:
+        start = datetime.combine(day, time.min, tzinfo=UTC)
+        return Span(max(start, now), start + timedelta(days=1))
+    if day.weekday() not in frame.days:
+        return Span(closed=f"не день отправки: окно получателя — {frame.words} по его часам")
+    hours = None if zone is None else window.hours_of(frame, zone, day)
+    if zone is None or hours is None:
+        return Span()
+    opens, closes = hours
+    if now >= closes:
+        return Span(
+            closed=f"окно получателя на сегодня закрылось в {closes:%H:%M} UTC (пояс {zone.key})"
+        )
+    return Span(max(opens, now), closes)
+
+
+def opening_day(frame: SendWindow | None, zone: ZoneInfo | None, now: datetime) -> date:
+    """Первый день, когда первые письма ещё уйдут: сегодня, если окно сегодня есть и не закрылось
+    (`span_of`), иначе — следующий день окна (`first_sending`)."""
+    today = now.date()
+    if span_of(frame, zone, today, now).closed is None:
+        return today
+    return first_sending(today + timedelta(days=1), frame)
 
 
 async def _window(session: AsyncSession, stage: Stage) -> SendWindow | None:

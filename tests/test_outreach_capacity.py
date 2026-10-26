@@ -262,7 +262,8 @@ async def test_capacity_reads_the_stage_mailboxes_and_domains(
 
 async def test_capacity_projects_the_first_letter_only_when_asked(session: AsyncSession) -> None:
     """Без просьбы — как экран: ящик без первого письма на первой ступени; с просьбой — разгон от
-    первого дня отправки. У доноров окна нет: первый день отправки — первый из дней."""
+    дня, когда письма ещё уходят, считая от минуты вопроса: у доноров окна нет — от сегодня, а не от
+    первого из спрошенных дней."""
     session.add(
         SenderModel(
             domain="mail-n.example.test",
@@ -278,11 +279,22 @@ async def test_capacity_projects_the_first_letter_only_when_asked(session: Async
     start = datetime.now(UTC).date() + timedelta(days=1)
     days = [start + timedelta(days=n) for n in range(5)]
 
+    now = datetime.now(UTC)
     as_screen = await capacity.capacity(session, Stage.DONORS, days)
-    projected = await capacity.capacity(session, Stage.DONORS, days, project_first_letter=True)
+    projected = await capacity.capacity(
+        session, Stage.DONORS, days, project_first_letter=True, now=now
+    )
 
     assert [d.letters for d in as_screen.days] == [5, 5, 5, 5, 5]
-    assert [d.letters for d in projected.days] == [5, 5, 10, 10, 15]
+    assert [d.letters for d in projected.days] == [5, 10, 10, 15, 15]
+
+
+async def test_projecting_without_the_minute_of_the_question_is_refused_in_words(
+    session: AsyncSession,
+) -> None:
+    """Своих часов у правила нет: без `now` день первого письма не посчитать — отказ словами."""
+    with pytest.raises(ValueError, match="передайте now"):
+        await capacity.capacity(session, Stage.DONORS, [TODAY], project_first_letter=True)
 
 
 def test_a_day_is_asked_at_its_noon() -> None:

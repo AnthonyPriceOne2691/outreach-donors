@@ -19,10 +19,17 @@ from backend.features.core import stage_forecast, stages
 from backend.features.core.domain import MessageStatus, SenderStatus, Stage, UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
-from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
+from backend.features.core.models.outreach import (
+    CampaignModel,
+    MessageModel,
+    SenderModel,
+    SendingDomainModel,
+)
 from backend.features.core.stages import MailPolicy
 from backend.features.core.window import Pace, SendWindow
 from backend.features.letters import forecast as forecast_module
+from backend.features.outreach import capacity
+from backend.features.sales import weekly_counts
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
@@ -400,3 +407,67 @@ async def test_the_most_common_zone_wins_and_ties_go_by_name(
 def test_the_frozen_clock_is_a_wednesday() -> None:
     assert date(2026, 10, 21) == TODAY
     assert TODAY.weekday() == 2
+
+
+# --- день первого письма нового ящика: одно правило у мощности по дням и у прогноза --------
+
+#: Следующая неделя — пн 26.10–вс 01.11: её спрашивает «План» недельного отчёта.
+NEXT_WEEK = [date(2026, 10, 26) + timedelta(days=offset) for offset in range(7)]
+
+
+async def _fresh_sales_box(session: AsyncSession) -> None:
+    """Ящик продаж заведён, первого письма ещё нет; в очереди одно письмо."""
+    await _box(session, "fresh@mail-s.example.test", Stage.SALES, wrote=None)
+    await (await _letters(session, Stage.SALES)).add()
+    await session.commit()
+
+
+@pytest.mark.parametrize(
+    ("now", "anchor", "weekdays"),
+    [
+        (NOW, date(2026, 10, 21), [15, 20, 20, 20, 20]),  # среда, 10:00 UTC — окно открыто
+        (NOW.replace(hour=16), date(2026, 10, 22), [15, 15, 20, 20, 20]),  # окно закрылось
+        (datetime(2026, 10, 25, 10, 0, tzinfo=UTC), date(2026, 10, 26), [5, 5, 10, 10, 15]),
+    ],
+)
+async def test_the_week_plan_and_the_forecast_assume_the_same_first_letter_day(
+    session: AsyncSession,
+    sales_module: ForecastSales,
+    now: datetime,
+    anchor: date,
+    weekdays: list[int],
+) -> None:
+    """Среда в окне — первое письмо сегодня; среда после окна — в четверг; воскресенье — в
+    понедельник. Мощность по дням следующей недели с этим предположением — та же, что у прогноза на
+    те же даты: день первого письма считается от минуты вопроса, а не от первого спрошенного дня."""
+    await _fresh_sales_box(session)
+
+    found = await capacity.capacity(
+        session, Stage.SALES, NEXT_WEEK, project_first_letter=True, now=now
+    )
+    planned = await forecast_module.forecast(
+        session, Stage.SALES, days=(NEXT_WEEK[-1] - now.date()).days + 1, back=0, now=now
+    )
+
+    assert await capacity.first_letter_day(session, Stage.SALES, now) == anchor
+    shown = {day.day: day for day in planned.days}
+    sending = [day for day in found.days if shown[day.day].sending]
+    assert [day.letters for day in sending] == weekdays
+    assert [day.letters for day in sending] == [shown[day.day].capacity for day in sending]
+
+
+async def test_without_projection_capacity_is_the_week_plan_of_the_report(
+    session: AsyncSession, sales_module: ForecastSales
+) -> None:
+    """Без предположения — правило экрана, как «План» недельного отчёта продаж сейчас: ящик без
+    первого письма на первой ступени, у домена — свой лимит."""
+    await _fresh_sales_box(session)
+    await _box(session, "seasoned@mail-t.example.test", Stage.SALES)
+    session.add(SendingDomainModel(domain="mail-t.example.test", stage=Stage.SALES, daily_limit=12))
+    await session.commit()
+
+    plain = await capacity.capacity(session, Stage.SALES, NEXT_WEEK[:5])
+    runway = await weekly_counts.runway(session, NEXT_WEEK[:5])
+
+    assert plain.boxes == runway.boxes == 2
+    assert [day.letters for day in plain.days] == [day.letters for day in runway.days] == [17] * 5

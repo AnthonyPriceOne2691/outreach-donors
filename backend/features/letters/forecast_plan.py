@@ -2,8 +2,9 @@
 уйдёт в каждый день и когда уйдёт последнее письмо очереди.
 
 **День — по UTC**, как дневной лимит ящиков (`outreach/capacity.py`). День отправки — по окну
-получателя из политики этапа (`stages.MailPolicy.window`): у этапа без окна — каждый день; с окном —
-дни его недели, а часы — в самом частом поясе получателей очереди (`Clock.zone`). Это приближение:
+получателя из политики этапа (`stages.MailPolicy.window`) правилом мощности (`capacity.span_of`): у
+этапа без окна — каждый день; с окном — дни его недели, а часы — в самом частом поясе получателей
+очереди (`Clock.zone`, `capacity.queue_zone`). Это приближение:
 окно местного дня считается в UTC-дне той же даты, а письма в другие пояса уходят в свои часы. Пояс
 неизвестен — дни отправки по дням недели, а часов нет.
 
@@ -29,13 +30,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from backend.features.core import window
 from backend.features.core.window import WEEKDAYS, Pace, SendWindow
 from backend.features.letters.batch import BATCH_MAX
-from backend.features.outreach.capacity import Rooms, first_sending
+from backend.features.outreach.capacity import Rooms, Span, span_of
 
 DAY = timedelta(days=1)
 HOUR = timedelta(hours=1)
@@ -114,16 +114,6 @@ class Eta:
     words: str = ""
 
 
-@dataclass(frozen=True, slots=True)
-class _Span:
-    """Часы отправки дня в UTC: с какой минуты и до какой (пусто — часов не узнать: пояс
-    неизвестен); `closed` — почему в этот день письма не уходят вовсе."""
-
-    start: datetime | None = None
-    end: datetime | None = None
-    closed: str | None = None
-
-
 @dataclass(slots=True)
 class _Left:
     """Сколько осталось отправить: письма очереди уходят первыми — номер письма и есть порядок."""
@@ -176,16 +166,6 @@ def _followups(days: list[PlanDay], due: Mapping[date, int]) -> list[PlanDay]:
     return found
 
 
-def first_open(clock: Clock, now: datetime) -> date:
-    """Первый день, когда первые письма ещё уйдут: сегодня, если окно сегодня есть и не закрылось,
-    иначе — следующий день окна. В него, по предположению прогноза, ящик без первого письма его и
-    напишет (`capacity.rooms_on(first=…)`)."""
-    today = now.date()
-    if _span(clock, today, now).closed is None:
-        return today
-    return first_sending(today + DAY, clock.window)
-
-
 @dataclass(slots=True)
 class _Run:
     """Счёт день за днём: что осталось отправить, сколько дней уже уходили письма и срок очереди."""
@@ -203,7 +183,7 @@ class _Run:
         """День `offset` от сегодня: что уйдёт — из остатка; кончилась в нём очередь — её срок."""
         day = self.now.date() + offset * DAY
         rooms = self.boxes.left if offset == 0 else self.boxes.later(day)
-        span = _span(self.clock, day, self.now)
+        span = span_of(self.clock.window, self.clock.zone, day, self.now)
         found = _day(day, offset, rooms, span, self)
         queued = self.left.queued
         self.left.take(found.planned)
@@ -213,26 +193,7 @@ class _Run:
         return found
 
 
-def _span(clock: Clock, day: date, now: datetime) -> _Span:
-    """Часы отправки дня: без окна — весь UTC-день; с окном — его часы в поясе очереди."""
-    frame, zone = clock.window, clock.zone
-    if frame is None:
-        start = datetime.combine(day, time.min, tzinfo=UTC)
-        return _Span(max(start, now), start + DAY)
-    if day.weekday() not in frame.days:
-        return _Span(closed=f"не день отправки: окно получателя — {frame.words} по его часам")
-    hours = None if zone is None else window.hours_of(frame, zone, day)
-    if zone is None or hours is None:
-        return _Span()
-    opens, closes = hours
-    if now >= closes:
-        return _Span(
-            closed=f"окно получателя на сегодня закрылось в {closes:%H:%M} UTC (пояс {zone.key})"
-        )
-    return _Span(max(opens, now), closes)
-
-
-def _per_box(pace: Pace | None, span: _Span) -> int | None:
+def _per_box(pace: Pace | None, span: Span) -> int | None:
     """Сколько писем ящик успеет за часы дня при темпе автоотправки — по паузе на письмо; `None` —
     темпа нет или часов не узнать."""
     if pace is None or span.start is None or span.end is None:
@@ -240,7 +201,7 @@ def _per_box(pace: Pace | None, span: _Span) -> int | None:
     return max(0, int((span.end - span.start) / pace.gap))
 
 
-def _day(day: date, offset: int, rooms: Rooms, span: _Span, run: _Run) -> PlanDay:
+def _day(day: date, offset: int, rooms: Rooms, span: Span, run: _Run) -> PlanDay:
     """Один день: мощность, сколько уйдёт и почему меньше мощности."""
     boxes = run.boxes
     capacity = boxes.capacity if offset == 0 else rooms.total()
@@ -267,7 +228,7 @@ class _Day:
     planned: int
 
 
-def _why(found: _Day, span: _Span, run: _Run) -> str | None:
+def _why(found: _Day, span: Span, run: _Run) -> str | None:
     """Почему в день уйдёт меньше мощности — словами; `None` — уйдёт во всю мощность."""
     if found.capacity == 0:
         return _idle(found.offset, run.boxes)
@@ -287,7 +248,7 @@ def _exhausted(left: _Left) -> str:
     return "отправлять больше нечего: очередь кончилась — новые письма ставит сборка очереди"
 
 
-def _paced(clock: Clock, span: _Span, per_box: int) -> str:
+def _paced(clock: Clock, span: Span, per_box: int) -> str:
     pace, end = clock.pace, span.end
     gap = 0 if pace is None else round(pace.gap / timedelta(minutes=1))
     until = "" if end is None else f" — до {end:%H:%M} UTC"
@@ -323,7 +284,7 @@ def _early(boxes: Mailboxes, supply: Supply) -> Eta | None:
     return None
 
 
-def _done(day: date, went: int, rooms: Rooms, span: _Span, letters: int, run: _Run) -> Eta:
+def _done(day: date, went: int, rooms: Rooms, span: Span, letters: int, run: _Run) -> Eta:
     """Очередь кончилась в день `day`: в него ушло `letters` её писем."""
     pace, hours = run.clock.pace, None
     if pace is not None and span.start is not None:

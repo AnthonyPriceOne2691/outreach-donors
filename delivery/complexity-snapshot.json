@@ -1742,14 +1742,14 @@
       "worst": "_deliver:418"
     },
     "backend/features/letters/forecast.py": {
-      "lines": 306,
+      "lines": 290,
       "complexity": 8,
-      "worst": "forecast:116"
+      "worst": "forecast:108"
     },
     "backend/features/letters/forecast_plan.py": {
-      "lines": 362,
+      "lines": 323,
       "complexity": 7,
-      "worst": "_span:216"
+      "worst": "_why:231"
     },
     "backend/features/letters/form_letter.py": {
       "lines": 209,
@@ -2002,9 +2002,9 @@
       "worst": "pause_once:89"
     },
     "backend/features/outreach/capacity.py": {
-      "lines": 337,
+      "lines": 419,
       "complexity": 7,
-      "worst": "today:267"
+      "worst": "span_of:264"
     },
     "backend/features/outreach/health.py": {
       "lines": 257,
