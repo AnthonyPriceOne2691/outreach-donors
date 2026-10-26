@@ -42,7 +42,13 @@ from backend.features.donors.host import normalize_host
 
 #: Адрес в тексте. Нарочно шире, чем проверка адреса при сборе контактов:
 #: здесь задача не отобрать годные, а не выпустить наружу ни одного.
-_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+", re.UNICODE)
+#: Последняя метка домена кончается буквой или цифрой: точка конца предложения
+#: («пишите a@b.example.test.») и дефис адресу не принадлежат — с точкой «пишите
+#: другому» заводил лида на адрес, письмо которому вернётся (находка продаж 26.10.2026).
+#: Начало — только в начале прогона знаков локальной части, как у
+#: `contacts/extract.EMAIL_RE`: на длинном токене без «@» поиск иначе пробовал бы
+#: каждую его позицию. Одно выражение на всех, кто ищет адрес в тексте письма.
+EMAIL_RE = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.\w(?:[\w-]*\w)?", re.UNICODE)
 
 _ADDRESS = "address"
 _NAME = "name"
@@ -167,7 +173,7 @@ def _pattern(names: Iterable[str]) -> re.Pattern[str]:
     """Адрес — первым: «anna.petrova@site.test» уходит меткой адреса целиком, а не
     именем с хвостом. Имя целиком — без оглядки на регистр, слово — как написано."""
     phrases, words = _name_forms(names)
-    alternatives = [f"(?P<{_ADDRESS}>{_EMAIL_RE.pattern})"]
+    alternatives = [f"(?P<{_ADDRESS}>{EMAIL_RE.pattern})"]
     spelled = [f"(?i:{'|'.join(phrases)})"] if phrases else []
     if spelled or words:
         alternatives.append(f"(?P<{_NAME}>{_BEFORE}(?:{'|'.join(spelled + words)}){_AFTER})")
