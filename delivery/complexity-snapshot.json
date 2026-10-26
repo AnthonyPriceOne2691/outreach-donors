@@ -381,6 +381,16 @@
       "complexity": 5,
       "worst": "read_funnel:76"
     },
+    "backend/api/sales/handoff.py": {
+      "lines": 74,
+      "complexity": 3,
+      "worst": "hand_over:50"
+    },
+    "backend/api/sales/handoff_schemas.py": {
+      "lines": 62,
+      "complexity": 1,
+      "worst": "of:32"
+    },
     "backend/api/sales/kb.py": {
       "lines": 107,
       "complexity": 1,
@@ -402,9 +412,9 @@
       "worst": "build_queue:159"
     },
     "backend/api/sales/routes.py": {
-      "lines": 357,
+      "lines": 360,
       "complexity": 6,
-      "worst": "_found:127"
+      "worst": "_found:129"
     },
     "backend/api/sales/schemas.py": {
       "lines": 234,
@@ -532,14 +542,14 @@
       "worst": "upload:46"
     },
     "backend/api/threads/routes.py": {
-      "lines": 185,
+      "lines": 189,
       "complexity": 5,
-      "worst": "redraft:154"
+      "worst": "redraft:158"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 436,
+      "lines": 440,
       "complexity": 10,
-      "worst": "of:307"
+      "worst": "of:308"
     },
     "backend/api/topics/__init__.py": {
       "lines": 1,
@@ -2602,9 +2612,9 @@
       "worst": "_by_name:351"
     },
     "backend/features/sales/handoff.py": {
-      "lines": 478,
+      "lines": 485,
       "complexity": 9,
-      "worst": "lead_of:188"
+      "worst": "lead_of:191"
     },
     "backend/features/sales/handoff_card.py": {
       "lines": 140,
@@ -2625,6 +2635,11 @@
       "lines": 196,
       "complexity": 9,
       "worst": "write:60"
+    },
+    "backend/features/sales/handoff_manual.py": {
+      "lines": 241,
+      "complexity": 8,
+      "worst": "kommo_said:209"
     },
     "backend/features/sales/handoff_telegram.py": {
       "lines": 236,

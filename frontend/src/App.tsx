@@ -41,6 +41,7 @@ import { UsersPage } from './users/UsersPage';
 import { RunReviewPage } from './review/RunReviewPage';
 import { ReservePage } from './reserve/ReservePage';
 import { ImportWizard } from './sales/ImportWizard';
+import { SalesHandoff } from './sales/SalesHandoff';
 import { SalesPage } from './sales/SalesPage';
 import { SelectionPage } from './selection/SelectionPage';
 
@@ -182,7 +183,7 @@ export function AppRoutes() {
           }
         >
           <Route index element={<ThreadsIntro />} />
-          <Route path=":id" element={<ThreadPage />} />
+          <Route path=":id" element={<ThreadPage salesPart={SalesHandoff} />} />
         </Route>
         <Route
           path="/suppressions"

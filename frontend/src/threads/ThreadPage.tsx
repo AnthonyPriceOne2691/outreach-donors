@@ -29,6 +29,7 @@
 import { Alert, Badge, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import type { ComponentType } from 'react';
 import { useLocation, useOutletContext, useParams } from 'react-router-dom';
 
 import { ApiError, refusalOf } from '../api/client';
@@ -36,6 +37,7 @@ import { rowIdOf } from '../api/ids';
 import { threadState } from '../api/labels';
 import { answerReply, fetchThread, reviewReply, sendLead, takeLead } from '../api/outreach';
 import { THREAD_STAGE_NOTES } from '../api/stages';
+import type { ThreadView } from '../api/thread';
 import type { IncomingCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { BackLink, backTo } from '../components/BackLink';
@@ -65,7 +67,13 @@ function NoSuchThread({ back, said }: { back: string | null; said: string }) {
   );
 }
 
-export function ThreadPage() {
+/** Часть переписки продаж под лентой — её даёт сборка экранов (`App.tsx`): «Диалоги» не знают
+ *  экранов продаж (`.dependency-cruiser.cjs`, правило mail-does-not-know-sales). */
+interface Props {
+  salesPart?: ComponentType<{ thread: ThreadView }>;
+}
+
+export function ThreadPage({ salesPart: SalesPart }: Props = {}) {
   const raw = useParams<{ id: string }>().id;
   const id = rowIdOf(raw);
   const location = useLocation();
@@ -286,6 +294,8 @@ export function ThreadPage() {
           ) : null
         }
       />
+
+      {sales && SalesPart !== undefined ? <SalesPart thread={data} /> : null}
 
       {decided !== null && (
         <ReplyDecision

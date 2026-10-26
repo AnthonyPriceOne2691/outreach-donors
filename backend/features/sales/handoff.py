@@ -2,7 +2,8 @@
 
 **Одна точка входа — `start(session, thread_id)`.** Её зовут триггеры (`reply_handoff.py`):
 вид ответа «хочет пообщаться» (Ф2), ситуация агента «хочет говорить» (Ф3) и новое письмо лида,
-уже переданного. Она находит лида продаж диалога (`lead_of`), заводит передачу — одну на
+уже переданного, — и человек кнопкой «Передать телемаркетологу» у ответа, который ждёт человека
+(`handoff_manual.py`). Она находит лида продаж диалога (`lead_of`), заводит передачу — одну на
 диалог — и ставит задачу в очередь. Сама в Kommo и Telegram не ходит: чужие сервисы отвечают
 секундами, а вызывающий ждать не должен. Повтор без нового ответа — ничего; новый ответ —
 примечание к той же сделке (через шлюз агентства — сообщение со ссылкой на неё и на диалог,
@@ -156,8 +157,10 @@ async def start(
     *,
     enqueue: Enqueue = enqueue_handoff,
     now: Clock = _utcnow,
+    author_id: int | None = None,
 ) -> SalesHandoffModel:
-    """Передать лида диалога телемаркетологу. Идемпотентно; коммитит сессию.
+    """Передать лида диалога телемаркетологу. Идемпотентно; коммитит сессию. `author_id` — кто
+    передал кнопкой «Передать телемаркетологу» (`handoff_manual.py`): он — автор записи журнала.
 
     Задача не встала — не отказ, чем бы ни отказала очередь (Redis лежит, адрес очереди
     не разобран): строка уже закоммичена и ждёт прохода по расписанию (`due`), срок
@@ -170,7 +173,7 @@ async def start(
     row, made = await _handoff_of(session, thread_id, lead.id)
     latest = await latest_reply(session, thread_id)
     if made:
-        await _journaled(session, row, latest.id if latest else None)
+        await _journaled(session, row, latest.id if latest else None, author_id)
     if not _reopen(row, latest.id if latest else None):
         return row
     row.due_at = now() + timedelta(seconds=cfg.HANDOFF_RETRY_SEC)
@@ -278,12 +281,16 @@ async def _handoff_of(
     return row, made is not None
 
 
-async def _journaled(session: AsyncSession, row: SalesHandoffModel, reply_id: int | None) -> None:
-    """Передача — в журнал действий один раз на диалог, когда заведена: её начинают три пути и
+async def _journaled(
+    session: AsyncSession, row: SalesHandoffModel, reply_id: int | None, author_id: int | None
+) -> None:
+    """Передача — в журнал действий один раз на диалог, когда заведена: её начинают четыре пути и
     повторяет каждый новый ответ, а лид уходит телемаркетологу один раз. Без автора — её
-    начинает разбор ответа; этап — в записи: без права «Продажи» её не видно."""
+    начинает разбор ответа, с автором — человек кнопкой; этап — в записи: без права «Продажи»
+    её не видно."""
     await AccessRepository(session).record(
         AuditAction.LEAD_TAKEN,
+        author_id=author_id,
         target=f"sales_handoff:{row.id}",
         details={
             "действие": "лид передан телемаркетологу — сделка в Kommo и сообщение в Telegram",

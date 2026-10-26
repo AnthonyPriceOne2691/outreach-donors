@@ -88,6 +88,10 @@ ELSEWHERE = {
     # Помощник описания сегмента — `sales`, как правка описания: предложение на экране, в базу
     # пишется только его кэш; права держит `test_sales_segment_helper_api.py`.
     ("POST", "/api/sales/segment/helper"),
+    # «Передать телемаркетологу» — `sales` и `send`, как ответ в переписке продаж: лид уходит
+    # сделкой в Kommo и сообщением в Telegram; права и журнал с автором держит
+    # `test_api_sales_handoff.py`.
+    ("POST", "/api/sales/threads/{}/handoff"),
 }
 
 PRICE = {

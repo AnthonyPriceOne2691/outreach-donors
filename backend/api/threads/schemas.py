@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from backend.api.agent.schemas import DraftCard
 from backend.api.letters.schemas import Corridor
+from backend.api.sales.handoff_schemas import HandoffCard
 from backend.features.agent.drafts import ShownDraft
 from backend.features.core.domain import MessageStatus, ReplyKind, Stage
 from backend.features.core.models.attachment import ReplyAttachmentModel
@@ -398,6 +399,9 @@ class ThreadView(BaseModel):
     pending_files: list[LetterFileCard] = Field(default_factory=list)
     #: Правила файла к ответу — для проверки до загрузки и `accept` у кнопки.
     file_rules: FileRulesCard = Field(default_factory=FileRulesCard.current)
+    #: Передача лида продаж телемаркетологу и её состояние — у переписки продаж, где лид
+    #: передан (`api/sales/handoff.thread_handoff`); пусто — передачи нет или переписка не продаж.
+    handoff: HandoffCard | None = None
 
     @classmethod
     def of(

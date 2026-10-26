@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.agent.schemas import DraftCard
 from backend.api.deps import actor, db_session, needs
 from backend.api.letters.schemas import SendResult
+from backend.api.sales.handoff import thread_handoff
 from backend.api.stage_access import on_thread
 from backend.api.threads.schemas import AnswerBody, ThreadCard, ThreadView
 from backend.features.access.permissions import visible_stages
@@ -83,7 +84,7 @@ async def one_thread(
     # карточке нужны имена и размеры, а не мегабайты прайсов.
     files = await ReplyFiles(session).listed(reply.id for reply in detail.replies)
     drafts = await drafts_of(session, (reply.id for reply in detail.replies))
-    return ThreadView.of(
+    view = ThreadView.of(
         detail,
         files,
         await thread_mail(session, detail.messages),
@@ -95,6 +96,9 @@ async def one_thread(
         # Прежняя цена донора — только если в переписке был перезапрос цены: «Цена та же».
         prior=await prior_price(session, thread_id),
     )
+    # Передача лида телемаркетологу и её состояние — только у переписки продаж.
+    view.handoff = await thread_handoff(session, detail.row.stage, thread_id)
+    return view
 
 
 @router.post("/{thread_id}/answer", response_model=SendResult, summary="Ответить в переписке")
