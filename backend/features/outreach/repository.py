@@ -12,6 +12,11 @@ Anthony 10.10.2026, П2): без права «Продажи» переписо�
 **Этапы — без умолчания** (ревью продаж к #304): умолчание «все этапы» открывало бы
 продажи каждому новому вызову, забывшему их сузить. Теперь забытый вызов ловит mypy;
 кому видно всё — фоновым задачам — `EVERY_STAGE` передаётся явно.
+
+**Адрес диалога продаж — адрес лида.** Строки `contacts` у переписки продаж нет (решение
+01.10): адрес живёт у лида, и называет его модуль продаж мостом (`stages.sales_addresses`) —
+одним вопросом на список, а не на строку. Без него у каждого диалога продаж в списке и в
+карточке стояло «адрес не определён».
 """
 
 from __future__ import annotations
@@ -37,6 +42,7 @@ from backend.features.core.models.outreach import (
     SenderModel,
     ThreadModel,
 )
+from backend.features.core.stages import sales_addresses
 from backend.features.letters.chain import CHAINABLE, FIRST_STEP, MAX_STEPS, RECHECK_STEP
 from backend.features.outreach.threads import ThreadState, ThreadSummary, state_of, summarize
 from backend.features.replies.inbound import MAX_TEXT_CHARS
@@ -69,6 +75,7 @@ class ThreadRow:
 
     thread: ThreadModel
     host: str
+    #: С кем диалог: строка `contacts`, у продаж — адрес лида. Пусто — адрес не определён.
     contact_email: str | None
     campaign_name: str
     summary: ThreadSummary
@@ -152,6 +159,12 @@ def _snapshot() -> ColumnElement[Any]:
 #: Все этапы: так видит учётка с правом «Продажи» (`access.permissions.visible_stages`)
 #: и так считают фоновые задачи. Не умолчание — передаётся явно (ревью продаж к #304).
 EVERY_STAGE: frozenset[Stage] = frozenset(Stage)
+
+
+def _of_lead(stage: Stage, email: str | None) -> bool:
+    """Адрес диалога — у лида: диалог продаж без строки `contacts` (у переписки продаж её нет).
+    Адрес из `contacts` остаётся как есть — у доноров, рекламодателей и у продаж, где он есть."""
+    return stage is Stage.SALES and email is None
 
 
 def _seen(stages: Collection[Stage]) -> ColumnElement[bool]:
@@ -267,11 +280,15 @@ class OutreachRepository:
 
         letters = await self._listed_letters(stages=stages)
         replies = await self._listed_replies(stages=stages)
+        leads = await sales_addresses(
+            self._session,
+            [thread.id for thread, _, email, _, stage in found if _of_lead(stage, email)],
+        )
         return [
             ThreadRow(
                 thread=thread,
                 host=host,
-                contact_email=email,
+                contact_email=leads.get(thread.id, email),
                 campaign_name=campaign,
                 summary=summarize(letters.get(thread.id, []), replies.get(thread.id, []), stage),
                 stage=stage,
@@ -333,11 +350,12 @@ class OutreachRepository:
         messages = (await self._messages_by_thread([thread.id])).get(thread.id, [])
         # Письма и входящие идут вперемешку по времени — как в переписке.
         replies = sorted(thread.replies, key=lambda r: r.created_at)
+        leads = await sales_addresses(self._session, [thread.id] if _of_lead(stage, email) else [])
         return ThreadDetail(
             row=ThreadRow(
                 thread=thread,
                 host=host,
-                contact_email=email,
+                contact_email=leads.get(thread.id, email),
                 campaign_name=campaign,
                 summary=summarize(messages, replies, stage),
                 stage=stage,

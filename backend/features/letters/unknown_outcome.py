@@ -40,7 +40,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
@@ -68,7 +68,7 @@ from backend.features.letters.chain import (
     kind_of,
 )
 from backend.features.letters.draft import split_audience
-from backend.features.letters.repository import UnknownLetterError
+from backend.features.letters.repository import UnknownLetterError, letter_leads
 from backend.features.letters.sendgrid import SendGridTransport
 
 logger = logging.getLogger(__name__)
@@ -118,6 +118,7 @@ class StuckLetter:
 
     message: MessageModel
     host: str
+    #: Кому: строка `contacts`, у письма цепочки продаж в списке — адрес лида (`letter_leads`).
     email: str | None
     sender_email: str | None
     campaign: str
@@ -181,6 +182,10 @@ async def stuck(
     бизнеса ниши, на котором встала его пачка, ждёт решения на его вкладке, а не
     среди писем по найденной ссылке. Не названа или этап не второй — все письма
     этапа (`split_audience`).
+
+    «Кому» письма цепочки продаж — адрес лида (`letter_leads`): по нему письмо ищут в журнале
+    платформы, а строки `contacts` у письма продаж нет. Журнал решения по письму (`_one`) берёт
+    адрес, как прежде, из `contacts`.
     """
     edge = (now or datetime.now(UTC)) - STUCK_AFTER
     statement = _letters().where(
@@ -194,7 +199,18 @@ async def stuck(
     rows = await session.execute(
         statement.order_by(MessageModel.updated_at, MessageModel.id).limit(limit)
     )
-    return [_stuck_letter(row) for row in rows.all()]
+    return await _addressed(session, stage, [_stuck_letter(row) for row in rows.all()])
+
+
+async def _addressed(
+    session: AsyncSession, stage: Stage, letters: list[StuckLetter]
+) -> list[StuckLetter]:
+    """Письма цепочки продаж — с адресом лида (`letter_leads`), остальные — как были."""
+    leads = await letter_leads(session, [(found.message, stage, found.email) for found in letters])
+    return [
+        replace(found, email=leads[found.message.id]) if found.message.id in leads else found
+        for found in letters
+    ]
 
 
 async def _one(session: AsyncSession, letter_id: int) -> StuckLetter:

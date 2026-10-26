@@ -47,6 +47,10 @@ class _Module:
         self.asked.append(f"threads_to {email}")
         return (7,)
 
+    async def addresses(self, _session: AsyncSession, thread_ids: list[int]) -> dict[int, str]:
+        self.asked.append(f"addresses {thread_ids}")
+        return dict.fromkeys(thread_ids, "jane@lead.example.test")
+
 
 @pytest.fixture
 def module(monkeypatch: pytest.MonkeyPatch) -> _Module:
@@ -62,6 +66,7 @@ ENTRIES: dict[str, Ask] = {
     "connected": stages.sales_connected,
     "policy": lambda session: stages.mail_policy(session, Stage.SALES, "Сторож почты продаж"),
     "threads_to": lambda session: stages.sales_threads_to(session, "jane@lead.example.test"),
+    "addresses": lambda session: stages.sales_addresses(session, [7]),
 }
 
 
