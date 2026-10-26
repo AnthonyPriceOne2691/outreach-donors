@@ -52,6 +52,7 @@ LETTER_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("POST", "/api/letters/{letter}/send", None, "send"),
     ("POST", "/api/letters/send-queue", {"stage": "donors"}, "send"),
     ("GET", "/api/letters/unknown", None, "view"),
+    ("GET", "/api/letters/forecast", None, "view"),
     ("POST", "/api/letters/{letter}/resolve", {"outcome": "queued"}, "send"),
 ]
 

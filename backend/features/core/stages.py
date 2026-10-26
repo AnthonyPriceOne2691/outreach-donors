@@ -54,6 +54,9 @@
 их не найти.
 
 **Адрес лида** (`sales_addresses`) — спискам «Диалогов» и писем, по той же причине.
+
+**Вопросы прогноза рассылки** — в соседнем модуле (`stage_forecast.py`: этот у предела длины), тем
+же мостом: спросить не вышло — `None` (`quietly`), и прогноз говорит «не знаю», а не «ноль».
 """
 
 from __future__ import annotations
@@ -69,7 +72,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from backend.features.core.models.outreach import MessageModel
-    from backend.features.core.window import SendWindow
+    from backend.features.core.window import Pace, SendWindow
     from backend.features.outreach.health import SoftSignals
 
 logger = logging.getLogger(__name__)
@@ -221,6 +224,8 @@ class MailPolicy:
     soft: SoftSignals | None = None
     #: Сторож почты этапа (`ops/mail_watch.py`): ящик молчит, отправить некому, все на паузе.
     watch: bool = False
+    #: Темп автоотправки первых писем (`window.Pace`). Пусто — автоматической отправки нет.
+    pace: Pace | None = None
 
 
 #: Политика доноров и рекламодателей: всё как было до политик этапа.
@@ -392,18 +397,10 @@ async def sales_connected(session: AsyncSession) -> bool:
     ошибках модуля: ошибка модуля — «нет» с причиной в журнале (`_asked`), проход идёт без
     продаж, доноры уходят, пачка продаж встаёт словами. Ошибка собственных несохранённых
     изменений вызывающего и его прерванной транзакции всплывает как своя."""
-    if _SALES.load is None:
-        return False
-    try:
-        return await _asked(
-            session,
-            "Подключены ли продажи",
-            lambda mail: mail.connected(session),
-            SalesNotConnectedError,
-        )
-    except SalesNotConnectedError as exc:
-        logger.info("мост продаж: проход без продаж — %s", exc, extra={"why": str(exc)})
-        return False
+    ask = "Подключены ли продажи"
+    return bool(
+        await quietly(session, ask, lambda mail: mail.connected(session), "проход без продаж")
+    )
 
 
 async def sales_threads_to(session: AsyncSession, email: str) -> list[int]:
@@ -436,36 +433,36 @@ async def sales_lead_threads(session: AsyncSession, email: str) -> list[int] | N
 async def _lead_threads(
     session: AsyncSession, email: str, what: str, unasked: str
 ) -> list[int] | None:
-    """Ответ модуля продаж «переписки адресата» — или `None`, если спросить не вышло;
-    `unasked` — что это значит для вызывающего, строкой журнала."""
+    """Ответ модуля продаж «переписки адресата» — или `None`, если спросить не вышло (`quietly`)."""
+    found = await quietly(session, what, lambda mail: mail.threads_to(session, email), unasked)
+    return None if found is None else list(found)
+
+
+async def quietly[T](
+    session: AsyncSession, what: str, ask: Callable[[SalesMail], Awaitable[T]], unasked: str
+) -> T | None:
+    """Ответ модуля продаж — или `None`, если спросить не вышло: модуль не подключён или упал;
+    `unasked` — что это значит для вызывающего, строкой журнала. Для вопросов, где «не знаю» —
+    ответ, а не отказ: подключены ли, переписки и адреса лидов, прогноз (`stage_forecast.py`)."""
     if _SALES.load is None:
         return None
     try:
-        found = await _asked(
-            session, what, lambda mail: mail.threads_to(session, email), SalesNotConnectedError
-        )
+        return await _asked(session, what, ask, SalesNotConnectedError)
     except SalesNotConnectedError as exc:
-        logger.info("мост продаж: %s — %s", unasked, exc)
+        logger.info("мост продаж: %s — %s", unasked, exc, extra={"why": str(exc)})
         return None
-    return list(found)
 
 
 async def sales_addresses(session: AsyncSession, thread_ids: Collection[int]) -> dict[int, str]:
     """Адрес лида каждой переписки продаж из `thread_ids` — спискам «Диалогов» и писем, одним
     вопросом на список. Модуль не подключён — пусто; упал — пусто и строка в журнал, как у
     «переписок адресата»: список из-за модуля продаж не встаёт, у строки — «адрес не определён»."""
-    if not thread_ids or _SALES.load is None:
+    if not thread_ids:
         return {}
     asked = sorted(set(thread_ids))  # без повторов и по порядку: модуль читает их пачками
     what = "Адреса лидов переписок продаж"
-    try:
-        found = await _asked(
-            session, what, lambda mail: mail.addresses(session, asked), SalesNotConnectedError
-        )
-    except SalesNotConnectedError as exc:
-        logger.info("мост продаж: %s — %s", what, exc, extra={"why": str(exc)})
-        return {}
-    return dict(found)
+    found = await quietly(session, what, lambda mail: mail.addresses(session, asked), what)
+    return {} if found is None else dict(found)
 
 
 async def sales_followup(session: AsyncSession, thread_id: int | None, step: int) -> SalesFollowup:

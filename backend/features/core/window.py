@@ -10,6 +10,10 @@
 неизвестном поясе было бы окном наугад. Сутки и переходы часов — по базе поясов IANA:
 времени, которого нет, окно ждёт до первой существующей минуты; время, которое
 бывает дважды, — первое. Сдвиг — внедряемым генератором (`JITTER`): тест ставит свой.
+
+**Темп автоотправки** (`Pace`) — тоже о том, когда уходят письма: внутри окна ящик пишет
+не подряд, а письмом за проход с паузой между первыми письмами. Его задаёт политика этапа
+(`stages.MailPolicy.pace`), а читает прогноз рассылки (`letters/forecast.py`).
 """
 
 from __future__ import annotations
@@ -63,6 +67,24 @@ class SendWindow:
         if len(days) > 1 and days == list(range(days[0], days[-1] + 1)):
             named = f"{WEEKDAYS[days[0]]}–{WEEKDAYS[days[-1]]}"
         return f"{named} {self.start:%H:%M}–{self.end:%H:%M}"
+
+
+@dataclass(frozen=True, slots=True)
+class Pace:
+    """Темп автоотправки первых писем этапа (у продаж — `sales/autosend.py`): с ящика — письмо
+    за проход, между первыми письмами ящика — пауза `gap` с разбросом ±`spread` (доля паузы).
+    Политика этапа отдаёт его, только пока автоотправка включена; пусто — письма уходят пачкой."""
+
+    gap: timedelta
+    spread: float = 0.0
+
+
+def hours_of(window: SendWindow, zone: ZoneInfo, day: date) -> tuple[datetime, datetime] | None:
+    """Открытие и закрытие окна в местный день `day` получателя из пояса `zone` — в UTC; `None` —
+    день не окна. Переходы часов — тем же правилом, что у отправки (`_first_at_or_after`)."""
+    if day.weekday() not in window.days:
+        return None
+    return _first_at_or_after(day, window.start, zone), _first_at_or_after(day, window.end, zone)
 
 
 class DeferredError(Exception):

@@ -63,7 +63,9 @@ class Warmup:
     finished: bool
 
 
-def warmup_state(sender: SenderModel, *, now: datetime | None = None) -> Warmup:
+def warmup_state(
+    sender: SenderModel, *, now: datetime | None = None, assumed: datetime | None = None
+) -> Warmup:
     """День разгона и сегодняшний потолок.
 
     Разгон не хранится числом в базе, а считается от даты: иначе
@@ -72,12 +74,13 @@ def warmup_state(sender: SenderModel, *, now: datetime | None = None) -> Warmup:
 
     Дата — первого письма после старта (`first_letter`). Пока его нет, ящик
     на первом дне: сколько бы он ни стоял заведённым, писать он начнёт
-    с первой ступени.
+    с первой ступени. `assumed` — когда он его напишет, по предположению прогноза
+    рассылки (`outreach/capacity.py`); у ящика, который уже писал, оно ничего не меняет.
     """
     if sender.warmup_started_at is None:
         return Warmup(day=0, allowance=sender.daily_cap, finished=True)
 
-    first = first_letter(sender)
+    first = first_letter(sender) or assumed
     moment = now or datetime.now(UTC)
     day = 1 if first is None else max(1, (moment.date() - first.date()).days + 1)
     step = min((day - 1) // WARMUP_STEP_DAYS, len(WARMUP_STEPS) - 1)

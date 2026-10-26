@@ -88,8 +88,14 @@ def _direction_refusal(spent: int, limit: int, unread: str | None) -> str:
     """Почему направление сегодня не пишет: выбрало лимит — или его настройка не прочиталась,
     и лимит тогда ноль до правки `.env`."""
     if unread is not None:
-        return f"{DIRECTION_UNREAD}: {unread} — первых писем ноль, пока её не поправят в .env"
+        return unread_words(unread)
     return f"{DIRECTION_SPENT} ({spent} из {limit} первых писем)"
+
+
+def unread_words(name: str) -> str:
+    """Почему у направления ноль первых писем: настройка его лимита `name` не прочиталась. Одни
+    слова у отказа выбора ящика и у прогноза рассылки (`outreach/capacity.py`)."""
+    return f"{DIRECTION_UNREAD}: {name} — первых писем ноль, пока её не поправят в .env"
 
 
 def domain_shut(row: SendingDomainModel, stage: Stage, now: datetime) -> str | None:
