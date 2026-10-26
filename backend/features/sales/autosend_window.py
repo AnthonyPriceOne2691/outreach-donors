@@ -11,14 +11,20 @@
 очередь из одних них проход называет словами, что они ждут проверки адреса (`held`). Правило — то
 же, что у счёта очереди автосборки (`autobuild.queued`, `Queued.held`): одно у прохода, экрана и
 автосборки.
+
+**Прогнозу рассылки** (мост `core/stage_forecast.py`) — пояса очереди (`queue_zones`: тем же правилом
+пояса лида, что у прохода, группой по поясу и стране лида) и письма, которые не уйдут, пока их не
+поправят (`queue_stuck`: тем же счётом, что у прохода, — адрес держит проверка, пояса нет).
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core import window
@@ -56,18 +62,7 @@ async def in_window(session: AsyncSession, now: datetime) -> Waiting:
     """Первые письма продаж в очереди и те из них, у чьих получателей сейчас окно, — тем же
     правилом, что у отправки: окно политики продаж, пояса лида. Письма, которые держит адрес
     лида, — только счётом (`Waiting.held`)."""
-    rows = await session.execute(
-        select(MessageModel, SalesLeadModel)
-        .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
-        .join(SalesThreadModel, SalesThreadModel.thread_id == MessageModel.thread_id)
-        .join(SalesLeadModel, SalesLeadModel.id == SalesThreadModel.lead_id)
-        .where(
-            CampaignModel.stage == Stage.SALES,
-            MessageModel.status == MessageStatus.QUEUED,
-            MessageModel.step == FIRST_STEP,
-        )
-        .order_by(MessageModel.id)
-    )
+    rows = await session.execute(_queued(MessageModel, SalesLeadModel).order_by(MessageModel.id))
     frame = sales_policy().window
     found: list[MessageModel] = []
     queued = zoneless = held = 0
@@ -83,6 +78,53 @@ async def in_window(session: AsyncSession, now: datetime) -> Waiting:
             zoneless += 1
     first = found[0] if found else None
     return Waiting(queued, tuple(letter.id for letter in found), first, zoneless, held)
+
+
+def _queued(*columns: Any) -> Select[Any]:
+    """Первые письма продаж в очереди с их лидами — одно условие у прохода и у поясов очереди."""
+    return (
+        select(*columns)
+        .select_from(MessageModel)
+        .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
+        .join(SalesThreadModel, SalesThreadModel.thread_id == MessageModel.thread_id)
+        .join(SalesLeadModel, SalesLeadModel.id == SalesThreadModel.lead_id)
+        .where(
+            CampaignModel.stage == Stage.SALES,
+            MessageModel.status == MessageStatus.QUEUED,
+            MessageModel.step == FIRST_STEP,
+        )
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _Where:
+    """Где получатель — страна и пояс лида (`policy.Located`)."""
+
+    country: str | None
+    timezone: str | None
+
+
+async def queue_zones(session: AsyncSession) -> dict[str | None, int]:
+    """Пояса получателей первых писем продаж в очереди → писем: пояс — первый известный (лида, его
+    страны — `policy.zones_of`, `window.zone_of`), как у прохода; `None` — неизвестен."""
+    lead = SalesLeadModel
+    rows = await session.execute(
+        _queued(lead.timezone, lead.country, func.count()).group_by(lead.timezone, lead.country)
+    )
+    found: Counter[str | None] = Counter()
+    for timezone, country, letters in rows.tuples().all():
+        zone = window.zone_of(zones_of(_Where(country, timezone)))
+        found[None if zone is None else zone.key] += letters
+    return dict(found)
+
+
+async def queue_stuck(session: AsyncSession) -> dict[str, int]:
+    """Первые письма продаж в очереди, которые не уйдут, пока что-то не поправят, — счётом прохода
+    (`in_window`): адрес лида держит проверка (`held`) или пояса получателя не знает никто
+    (`window.NO_ZONE`). Слова причины → писем; причин без писем нет."""
+    waiting = await in_window(session, datetime.now(UTC))
+    found = {held(waiting): waiting.held, window.NO_ZONE: waiting.zoneless}
+    return {words: letters for words, letters in found.items() if letters}
 
 
 def outside(waiting: Waiting) -> str:

@@ -86,6 +86,7 @@ from backend.config import sales as sales_cfg
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.outreach import MessageModel, SenderModel
 from backend.features.core.stages import SalesNotConnectedError
+from backend.features.core.window import Pace
 from backend.features.letters import batch, mailbox, unknown_outcome
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.sending import NoSenderError, OtherRoleError, SendError, Sending
@@ -177,6 +178,13 @@ def switched_on() -> bool:
 def gap() -> timedelta:
     """Пауза между первыми письмами ящика до разброса."""
     return timedelta(minutes=sales_cfg.AUTOSEND_GAP_MIN)
+
+
+def pace() -> Pace | None:
+    """Темп прохода для политики почты продаж (`mail.policy`) — пауза между первыми письмами ящика
+    и её разброс, пока автоотправка включена (`switched_on`); выключена — пусто: письма уходят
+    пачкой по кнопке. По нему прогноз рассылки считает часы очереди."""
+    return Pace(gap(), SPREAD) if switched_on() else None
 
 
 def pause_of(box_id: int, letter_id: int) -> timedelta:

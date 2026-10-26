@@ -15,10 +15,12 @@
 модуль продаж и подключает себя к мосту почты (`core/stages.register_sales`): API,
 воркер и консоль спрашивают об адресе, проверке и добивке письма продаж его, а почта
 модуль продаж по-прежнему не импортирует. Загружается `mail.py` при первом письме
-продаж: он стоит на почте, и загрузка здесь замкнула бы круг.
+продаж: он стоит на почте, и загрузка здесь замкнула бы круг. Ответы прогнозу рассылки —
+так же, своим загрузчиком (`core/stage_forecast.register_forecast`, модуль `forecast_answers.py`).
 """
 
 import backend.features.core.models  # noqa: F401 — порядок импорта, см. выше
+from backend.features.core.stage_forecast import SalesForecast, register_forecast
 from backend.features.core.stages import SalesMail, register_sales
 
 
@@ -29,4 +31,12 @@ def _mail() -> SalesMail:
     return mail
 
 
+def _forecast() -> SalesForecast:
+    """Ответы модуля продаж прогнозу рассылки — модуль `forecast_answers.py`."""
+    from backend.features.sales import forecast_answers  # noqa: PLC0415 — круг импорта, см. выше
+
+    return forecast_answers
+
+
 register_sales(_mail)
+register_forecast(_forecast)

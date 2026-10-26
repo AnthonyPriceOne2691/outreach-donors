@@ -40,7 +40,7 @@
   сохранённый при сборке прежней версией цепочки; подпись и адрес — из «Отправителя». Модели
   здесь нет. Тему даёт первое письмо — у шаблона добивки её нет;
 - `policy` — политика почты продаж (`policy.sales_policy`): окно получателя, мягкие
-  сигналы ящика, сторож;
+  сигналы ящика, сторож и темп автоотправки (`autosend.pace`, пока она включена);
 - `threads_to` — переписки, чьи письма уходят на этот адрес: лида с ним и те, где ответ ушёл
   коллеге лида с ним. По ним стоп-лист снимает письма продаж адресу
   (`letters/stoplist.stop_pending`) — строки `contacts` у них нет, — а сверка событий доставки
@@ -488,10 +488,10 @@ async def addresses(session: AsyncSession, thread_ids: Sequence[int]) -> dict[in
 
 
 async def policy(session: AsyncSession) -> MailPolicy:
-    """Политика почты продаж (`core/stages.mail_policy`): окно, мягкие сигналы, сторож — из настроек.
+    """Политика почты продаж (`core/stages.mail_policy`): окно, сигналы, сторож, темп — из настроек.
 
     Сторож — только у подключённых продаж: выключенные продажи с ушедшими письмами и ящиками
     дали бы ложное «ящик молчит» или «отправить некому» — молчат они по выключателю.
     """
-    found = sales_policy()
+    found = replace(sales_policy(), pace=autosend.pace())
     return replace(found, watch=False) if await connection.missing(session) else found
