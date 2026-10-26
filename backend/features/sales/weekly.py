@@ -253,7 +253,7 @@ async def build(session: AsyncSession, week: Week, *, now: datetime) -> WeeklyRe
         mail=mail,
         leads=leads,
         problems=await _problems(session, period, now=now, mail=mail),
-        plan=Plan(week.next, await weekly_counts.runway(session, sending)),
+        plan=Plan(week.next, await weekly_counts.runway(session, sending, now=now)),
     )
 
 

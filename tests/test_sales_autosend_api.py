@@ -15,6 +15,7 @@ import pytest
 from backend.config import sales as sales_cfg
 from backend.features.core.domain import MessageStatus
 from backend.features.core.models.access import UserModel
+from backend.features.core.window import WEEKDAYS
 from backend.features.letters.sending import Sending
 from backend.features.letters.unknown_outcome import STUCK_AFTER
 from backend.features.sales import autobuild, autosend
@@ -153,6 +154,8 @@ async def test_autobuild_line_says_the_shortage_whom_it_builds_and_what_it_built
     await session.commit()
     monkeypatch.setattr(sales_cfg, "AUTOBUILD", True)
 
+    # Часы маршрута настоящие: окно мира открыто во все дни — ближайший день отправки сегодня.
+    day = datetime.now(UTC).date()
     before = await _lines(client, headers, world.hypothesis_id)
     await autobuild.run(session, jobs, now=datetime.now(UTC))
     running = await _lines(client, headers, world.hypothesis_id)
@@ -162,8 +165,8 @@ async def test_autobuild_line_says_the_shortage_whom_it_builds_and_what_it_built
     done = await _lines(client, headers, world.hypothesis_id)
 
     head = (
-        "Автосборка включена: очередь — на сутки вперёд, дневные капы ящиков продаж с разгоном — "
-        "20 писем, в очереди готовых к отправке — 0 писем"
+        f"Автосборка включена: очередь — на ближайший день отправки, {WEEKDAYS[day.weekday()]} "
+        f"{day:%d.%m}: мощность ящиков продаж — 20 писем, в очереди готовых к отправке — 0 писем"
     )
     assert before["autobuild"] == {
         "enabled": True,

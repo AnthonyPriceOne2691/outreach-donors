@@ -6,7 +6,8 @@
 по видам, диалоги отчёта, лиды, переданные за неделю, жалобы и паузы ящиков, сообщения бота
 продаж, которые не дошли, и разгон ящиков на неделю вперёд. Каждое — одной функцией, и зовёт
 её одна сборка (`weekly.build`): текст в группу продаж, экран отчёта и выгрузка — три вида
-одного отчёта и не расходятся.
+одного отчёта и не расходятся. Разгон — не свой счёт, а мощность ящиков прогноза рассылки
+(`outreach/capacity.capacity`): план недели и прогноз на те же дни — одно число.
 
 **Ответ — по своему времени в неделе**, вид — правилами приёма, а у ответа человека — видом
 модели продаж (`reply_kind.SalesKind`). Отказ доставки — не ответ лида: он в доставляемости.
@@ -23,7 +24,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -32,15 +33,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import outreach as outreach_cfg
 from backend.features.core.domain import ReplyKind, Stage
 from backend.features.core.models.domain import DomainModel
-from backend.features.core.models.outreach import (
-    ReplyModel,
-    SenderHealthModel,
-    SenderModel,
-    SendingDomainModel,
-)
-from backend.features.outreach import limits
+from backend.features.core.models.outreach import ReplyModel, SenderHealthModel, SenderModel
+from backend.features.outreach.capacity import capacity
 from backend.features.outreach.repository import OutreachRepository
-from backend.features.outreach.senders import warmup_state
 from backend.features.outreach.threads import ThreadState
 from backend.features.sales.funnel import Period
 from backend.features.sales.handoff_text import dialog_link
@@ -81,9 +76,6 @@ PAUSED = "paused"
 
 #: Состояния списка «Диалогов», в которых лид ответил человеком и адрес не закрыт.
 TALKING = frozenset({ThreadState.REPLIED, ThreadState.SALES_PENDING})
-
-#: Разгон ящика на день считается в полдень UTC: сутки разгона и лимитов — по UTC.
-NOON = time(12, 0)
 
 
 def kind_of(rule: ReplyKind, snapshot: Mapping[str, Any] | None) -> str | None:
@@ -281,43 +273,16 @@ class Runway:
     unread: str | None = None
 
 
-async def runway(session: AsyncSession, days: Sequence[date]) -> Runway:
-    """Потолок первых писем на каждый день — правилами экрана «Домены рассылки»: потолок
-    разгона ящика (`senders.warmup_state`), лимит и закрытость домена (`limits.domain_shut`),
-    дневной лимит направления. Выключенный ящик не пишет."""
-    boxes = [box for box in await OutreachRepository(session).senders(stages=SALES) if box.enabled]
-    domains = await limits.sending_domains(session)
-    cap = outreach_cfg.direction_limit(Stage.SALES.value)
+async def runway(session: AsyncSession, days: Sequence[date], *, now: datetime) -> Runway:
+    """Потолок первых писем на каждый день — мощностью ящиков прогноза рассылки
+    (`outreach/capacity.capacity`, правило экрана «Домены рассылки»): потолок разгона ящика, лимит и
+    закрытость домена, дневной лимит направления; выключенный ящик не пишет. Как у прогноза, ящик
+    без первого письма начинает разгон в первый день, когда письма ещё уходят, считая от момента
+    сборки отчёта `now` (`project_first_letter`, `capacity.first_letter_day`): иначе план недели и
+    прогноз на те же дни разошлись бы на новых ящиках."""
+    found = await capacity(session, Stage.SALES, days, project_first_letter=True, now=now)
     return Runway(
-        len(boxes),
-        [Day(day, _capacity(boxes, domains, cap, day)) for day in days],
+        found.boxes,
+        [Day(day.day, day.letters) for day in found.days],
         outreach_cfg.direction_unread(Stage.SALES.value),
     )
-
-
-def _capacity(
-    boxes: Sequence[SenderModel],
-    domains: Mapping[str, SendingDomainModel],
-    cap: int | None,
-    day: date,
-) -> int:
-    """Первых писем за день: потолки разгона ящиков, сложенные по домену и урезанные его
-    лимитом, затем лимитом направления."""
-    moment = datetime.combine(day, NOON, tzinfo=UTC)
-    by_domain: Counter[str] = Counter()
-    for box in boxes:
-        by_domain[box.domain] += warmup_state(box, now=moment).allowance
-    total = sum(
-        _room(domains.get(name), allowance, moment) for name, allowance in by_domain.items()
-    )
-    return total if cap is None else min(total, cap)
-
-
-def _room(row: SendingDomainModel | None, allowance: int, moment: datetime) -> int:
-    """Сколько домен пропустит: без строки домена — сколько могут ящики; закрыт (пауза,
-    выдержка, чужое направление) — ничего."""
-    if row is None:
-        return allowance
-    if limits.domain_shut(row, Stage.SALES, moment) is not None:
-        return 0
-    return min(allowance, row.daily_limit)

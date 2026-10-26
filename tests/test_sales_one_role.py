@@ -229,7 +229,7 @@ async def test_while_the_site_is_in_work_elsewhere_the_lead_waits_in_words_witho
 ) -> None:
     """Письмо Jane снято при отправке. Пока письмо доноров живо, лид ждёт: сборка кнопкой письма
     не пишет и модель не зовёт — причина в отчёте; автосборка его не берёт (гипотеза — не
-    кандидат), «лидов без письма» — ноль, на экране лида — почему он ждёт."""
+    кандидат), лид без письма — один, а сборка напишет — ноль; на экране лида — почему он ждёт."""
     [jane] = await _queued(session, world, JANE)
     await _other(session, jane.domain_id)
     await autosend.run(session, _transports(), now=NOW)
@@ -244,7 +244,7 @@ async def test_while_the_site_is_in_work_elsewhere_the_lead_waits_in_words_witho
     assert (report.prepared, report.refreshed, dict(report.waiting)) == (0, 0, {words: 1})
     assert rewriter.seen == []
     assert (found.hypothesis_id, found.why) == (None, autobuild.NO_CANDIDATES)
-    assert state.unwritten == 0
+    assert (state.unwritten, state.will_write) == (1, 0)
     assert [row.elsewhere for row in page.rows] == [words]
     await session.refresh(jane)
     assert jane.status is MessageStatus.STOPPED
@@ -273,7 +273,7 @@ async def test_once_the_other_letter_bounces_the_lead_is_written_again_in_the_sa
 
     assert found.hypothesis_id == world.hypothesis_id
     assert [row.elsewhere for row in page.rows] == [None]
-    assert state.unwritten == 1
+    assert (state.unwritten, state.will_write) == (1, 1)
     assert (report.prepared, report.refreshed) == (0, 1)
     assert len(rewriter.seen) == 1
     assert went.sent == {jane.id: w.SALES_BOX}

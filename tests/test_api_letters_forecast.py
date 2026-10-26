@@ -29,7 +29,6 @@ from backend.features.core.stages import MailPolicy
 from backend.features.core.window import Pace, SendWindow
 from backend.features.letters import forecast as forecast_module
 from backend.features.outreach import capacity
-from backend.features.sales import weekly_counts
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
@@ -478,18 +477,18 @@ async def test_the_week_plan_and_the_forecast_assume_the_same_first_letter_day(
     assert [day.letters for day in sending] == [shown[day.day].capacity for day in sending]
 
 
-async def test_without_projection_capacity_is_the_week_plan_of_the_report(
+async def test_without_projection_capacity_is_the_rule_of_the_screen(
     session: AsyncSession, sales_module: ForecastSales
 ) -> None:
-    """Без предположения — правило экрана, как «План» недельного отчёта продаж сейчас: ящик без
-    первого письма на первой ступени, у домена — свой лимит."""
+    """Без предположения — правило экрана «Домены рассылки»: ящик без первого письма на первой
+    ступени, у домена — свой лимит. «План» недельного отчёта продаж просит предположение, как
+    прогноз (`weekly_counts.runway`, `now`): их совпадение — `tests/test_sales_mailing_capacity.py`."""
     await _fresh_sales_box(session)
     await _box(session, "seasoned@mail-t.example.test", Stage.SALES)
     session.add(SendingDomainModel(domain="mail-t.example.test", stage=Stage.SALES, daily_limit=12))
     await session.commit()
 
     plain = await capacity.capacity(session, Stage.SALES, NEXT_WEEK[:5])
-    runway = await weekly_counts.runway(session, NEXT_WEEK[:5])
 
-    assert plain.boxes == runway.boxes == 2
-    assert [day.letters for day in plain.days] == [day.letters for day in runway.days] == [17] * 5
+    assert plain.boxes == 2
+    assert [day.letters for day in plain.days] == [17] * 5

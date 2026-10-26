@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import sales as sales_cfg
 from backend.features.core.domain import Stage
+from backend.features.core.window import WEEKDAYS
 from backend.features.letters import mailbox
 from backend.features.sales import autobuild, autobuild_alarm, autosend
 from backend.features.sales.autosend import SPREAD, Stop
@@ -150,14 +151,16 @@ async def _going(session: AsyncSession, seen: autosend.Facts, now: datetime) -> 
 
 
 async def autobuild_line(session: AsyncSession, jobs: Queue, now: datetime) -> AutoLine:
-    """Автосборка одной строкой: хватает ли очереди на сутки, кого соберёт или почему не
-    собирает, когда и сколько собрано само."""
+    """Автосборка одной строкой: хватает ли очереди на ближайший день отправки (мощность ящиков в
+    него — та же, что у прогноза рассылки на этот день), кого соберёт или почему не собирает, когда
+    и сколько собрано само."""
     if not sales_cfg.AUTOBUILD:
         return AutoLine(enabled=False, line=BUILD_OFF)
     found = await autobuild.plan(session, jobs, now=now)
+    day = f"{WEEKDAYS[found.day.weekday()]} {found.day:%d.%m}" if found.day else "—"
     parts = [
-        f"Автосборка включена: очередь — на сутки вперёд, дневные капы ящиков продаж с разгоном — "
-        f"{letters(found.need)}, в очереди готовых к отправке — {letters(found.have)}"
+        f"Автосборка включена: очередь — на ближайший день отправки, {day}: мощность ящиков "
+        f"продаж — {letters(found.need)}, в очереди готовых к отправке — {letters(found.have)}"
     ]
     if not found.short:
         parts.append("хватает")

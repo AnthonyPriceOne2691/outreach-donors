@@ -122,7 +122,8 @@ async def test_enough_letters_for_a_day_no_build(
 
     found = await autobuild.run(session, jobs, now=NOW)
 
-    assert found == Plan(need=0, have=0)
+    # Окно мира открыто во все дни: ближайший день отправки — сегодня.
+    assert found == Plan(need=0, have=0, day=NOW.date())
     assert jobs.enqueued == []
 
 

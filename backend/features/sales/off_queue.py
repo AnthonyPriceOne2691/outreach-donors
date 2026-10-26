@@ -145,3 +145,10 @@ def unwritten(link: type[SalesThreadModel]) -> ColumnElement[bool]:
     first = aliased(MessageModel)
     returned = select(first.id).where(first.thread_id == link.thread_id, again(first)).exists()
     return or_(link.thread_id.is_(None), returned)
+
+
+def ready_unwritten() -> ColumnElement[bool]:
+    """Лид «готов» без письма: диалога нет или первое письмо снято до отправки и пишется заново
+    (`unwritten`; связь лида `SalesThreadModel` — внешним соединением). О них решает сборка, кроме
+    лидов с письмом в очереди (`queue_plan.decisions`), — это и есть «без письма» рассылки."""
+    return and_(SalesLeadModel.status == LeadStatus.READY, unwritten(SalesThreadModel))
