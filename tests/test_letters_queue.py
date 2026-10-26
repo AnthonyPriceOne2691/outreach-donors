@@ -391,6 +391,32 @@ class TestSending:
         with pytest.raises(NoSenderError):
             await Sending(session, NullTransport(), now=NOW).send(letters[1].id)
 
+    async def test_letter_in_flight_holds_its_place_in_the_daily_cap(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Письмо «в полёте» — захвачено отправкой, исход неизвестен — входит в дневной счёт
+        с минуты захвата. Решённое потом «ушло» записывается временем начала передачи, задним
+        числом (`unknown_outcome`), а до решения счёт его не видел и пускал ещё одно письмо: на
+        стенде 26.10.2026 домен вышел на «13 из 12». Вчерашнее письмо в полёте сегодняшний счёт
+        не трогает: ушло оно — так вчера."""
+        await make_donor(session, "one.example.test", email="info@one.example.test")
+        await make_donor(session, "two.example.test", email="info@two.example.test")
+        sender = await make_sender(session, "outreach1@mail.example.test", cap=1)
+        await _build(session)
+        letters = (
+            (await session.execute(select(MessageModel).order_by(MessageModel.id))).scalars().all()
+        )
+        letters[0].status = MessageStatus.SENDING
+        letters[0].sender_id = sender.id
+        letters[0].updated_at = NOW
+        await session.flush()
+
+        repository = OutreachRepository(session)
+        assert await repository.sent_today(now=NOW, first_only=True) == {sender.id: 1}
+        assert await repository.sent_today(now=NOW + timedelta(days=1), first_only=True) == {}
+        with pytest.raises(NoSenderError):
+            await Sending(session, NullTransport(), now=NOW).send(letters[1].id)
+
     async def test_refusal_returns_the_letter_to_the_queue(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
