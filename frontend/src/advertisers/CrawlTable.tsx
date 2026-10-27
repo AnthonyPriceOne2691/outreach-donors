@@ -100,19 +100,10 @@ export function degradationText(degradation: Record<string, string> | undefined)
  *  ссылок; строка меры здоровья — на 28–34 px (замер 23.10.2026, 1440). */
 const WRAPS = { whiteSpace: 'normal', textWrap: 'balance' } as const;
 
-/** Состояние обхода значком; под ним — почему законченный обход кончился, и везде, где
- *  значок стоит. `share` — ещё и доля закрытых страниц строками ниже (в таблице доноров);
- *  строка последних обходов называет долю сама, в строке с датой. `align` — по центру
- *  колонки таблицы или от края значка в строке списка. */
-export function CrawlState({
-  crawl,
-  share = true,
-  align = 'center',
-}: {
-  crawl: CrawlRow | null;
-  share?: boolean;
-  align?: 'center' | 'start';
-}) {
+/** Состояние обхода значком; под ним — почему законченный обход кончился и числа здоровья.
+ *  Вид один везде, где значок стоит: таблица доноров, последние обходы (таблицей с
+ *  27.10.2026 — строкой списка числа уезжали в строку с датой) и «Приёмка по донорам». */
+export function CrawlState({ crawl }: { crawl: CrawlRow | null }) {
   if (crawl === null) {
     return (
       <Text size="sm" c="dimmed">
@@ -122,9 +113,7 @@ export function CrawlState({
   }
   const state = crawlState(crawl);
   // Причина — первой, до чисел здоровья: это ответ на «почему не 1 000».
-  const lines = [stopWords(crawl), ...(share ? healthLines(crawl) : [])].filter(
-    (said) => said !== null,
-  );
+  const lines = [stopWords(crawl), ...healthLines(crawl)].filter((said) => said !== null);
   // Причина и «не хватило» — одной запиской за одним значком: два «!» в ячейке читались бы
   // как две разные беды.
   const note = [crawl.reason, degradationText(crawl.degradation)].filter(Boolean).join('\n');
@@ -146,7 +135,7 @@ export function CrawlState({
   // Под значком, а не рядом: значок «обойдён: 1 000 страниц» с долей в одну строку
   // не помещается в колонку «Последний обход».
   return (
-    <Stack gap={2} align={align === 'center' ? 'center' : 'flex-start'}>
+    <Stack gap={2} align="center">
       {line}
       {lines.map((said) => (
         <Text key={said} size="xs" c="dimmed" style={WRAPS}>
@@ -209,6 +198,7 @@ export function TargetsTable({
         layout="fixed"
         tabularNums
         verticalSpacing="sm"
+        aria-label="Доноры для обхода"
       >
         <ColumnsHead columns={COLUMNS} lead={mayStart ? PICK_WIDTH : null} />
         <Table.Tbody>

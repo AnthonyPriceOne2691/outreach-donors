@@ -177,7 +177,8 @@ describe('ручная проверка рекламодателей', () => {
 describe('числа и текст сходятся', () => {
   const DECIDED = { ...CANDIDATE, confirmed: true, decided_by: 'админ@site.com' };
 
-  it('«спорно: 1» при решённом спорном — не «спорных нет», а сколько решено и где их видно', async () => {
+  /** Все спорные решены: в очереди пусто, решённый — только под «Показывать решённые». */
+  function openAllDecided() {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({
       ...CRAWL_ROUTES,
@@ -189,6 +190,10 @@ describe('числа и текст сходятся', () => {
       'GET /api/advertisers?include_decided=true': { body: { ...QUEUE, rows: [DECIDED] } },
     });
     renderWith(<AppRoutes />, '/advertisers');
+  }
+
+  it('«спорно: 1» при решённом спорном — не «спорных нет», а сколько решено и где их видно', async () => {
+    openAllDecided();
     const user = userEvent.setup();
 
     expect(await screen.findByText('Все спорные решены — 1.')).toBeInTheDocument();
@@ -200,6 +205,18 @@ describe('числа и текст сходятся', () => {
     expect(await screen.findByText('advertiser.example')).toBeInTheDocument();
     expect(screen.getByText(/пишем — админ@site.com/)).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: 'Показывать решённые' })).toBeChecked();
+  });
+
+  it('развёрнутые решённые сворачиваются там же, где развернули', async () => {
+    openAllDecided();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Показать решённые' }));
+    await user.click(await screen.findByRole('button', { name: 'Скрыть решённые' }));
+
+    expect(await screen.findByText('Все спорные решены — 1.')).toBeInTheDocument();
+    expect(screen.queryByText('advertiser.example')).not.toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Показывать решённые' })).not.toBeChecked();
   });
 
   it('причины — строками, без маркеров списка', async () => {
