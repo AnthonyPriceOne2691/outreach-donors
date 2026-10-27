@@ -32,11 +32,17 @@
 - не собирает гипотезу, чья прошлая сборка встала на серии писем вне коридора, пока человек не
   соберёт её кнопкой, поправив цепочку: иначе каждый проход тратил бы модель на те же лиды впустую.
 
-**Какие гипотезы.** Признака «активна» у гипотезы нет — собираются те, у кого есть полная
-цепочка хоть на одном языке и лиды `ready` без письма или письма в очереди, которые сборка
-соберёт заново. Без письма — и лид, чьё первое письмо снято до отправки (`off_queue.again`): лида
-снимали, а он снова «готов», или сайт был в работе у другого направления. Лид, чей сайт в работе
-у другого направления сейчас, ждёт (`elsewhere.writable`): письмо ему отправка сняла бы.
+**Какие гипотезы — тем же решением, что сама сборка.** Признака «активна» у гипотезы нет —
+собираются те, чьим лидам `ready` без письма сборка напишет первое письмо хоть одному, и те, у кого
+в очереди письма, которые сборка соберёт заново. «Напишет» — решение сборки о лиде
+(`queue_plan.plan_of`), партией и тем же числом, что «Напишет» вкладки «Рассылка»
+(`queue_plan.writable_counts`): лид передан телемаркетологу, в стоп-листе, в «кому не пишем», сайт
+в работе у другого направления, адрес держит очистка, цепочки его языка нет или она не целиком, нет
+значения подстановки — сборка ему не напишет, и гипотеза ради него к сборке не встаёт. Своё правило
+здесь разошлось бы с решением сборки: гипотеза, которой «Напишет» — ноль, оставалась бы кандидатом,
+проход каждые десять минут ставил бы сборку без единого письма, а строка автосборки обещала бы
+письма, которых не будет. Без письма — и лид, чьё первое письмо снято до отправки
+(`off_queue.again`): лида снимали, а он снова «готов», или сайт был в работе у другого направления.
 
 **Недостача — по очереди.** Проход отдаёт всю недостачу одной гипотезе: той, чья сборка (кнопкой
 или сама) начиналась давнее всех по журналу; ни разу не собранная — первой. Не хватило её лидов —
@@ -63,7 +69,7 @@ from datetime import UTC, date, datetime
 from redis.exceptions import RedisError
 from rq import Queue
 from rq.exceptions import DuplicateJobError
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import sales as sales_cfg
@@ -79,12 +85,10 @@ from backend.features.outreach.capacity import capacity, first_letter_day
 from backend.features.sales import (
     autobuild_alarm,
     autosend,
-    chain,
-    chain_text,
     connection,
     corridor,
-    elsewhere,
     letter,
+    queue_plan,
     sender,
 )
 from backend.features.sales.autobuild_alarm import Outcome, Watch
@@ -98,7 +102,7 @@ from backend.features.sales.models import (
 )
 from backend.features.sales.not_writing import excluded
 from backend.features.sales.queue_start import LIMIT_MAX, RUNNING, build_job_id, start
-from backend.features.sales.unconfirmed import first_letter, holds
+from backend.features.sales.unconfirmed import first_letter
 from backend.features.sales.usage_cap import sales_cap
 from backend.shared.queue import sales_bulk_queue
 
@@ -108,8 +112,6 @@ logger = logging.getLogger(__name__)
 AUTO = "автосборка очереди продаж"
 NO_CANDIDATES = "нет гипотезы с полной цепочкой и лидами, готовыми к письму"
 QUEUE_SILENT = "очередь задач не отвечает — идёт ли сборка, сейчас не узнать"
-#: Лидов без письма читать за раз, ища того, кому пишем (`_writable`).
-CHUNK = 500
 
 
 class Stuck(str):
@@ -221,68 +223,16 @@ def _closed(lead: SalesLeadModel, host: str) -> bool:
 
 
 async def candidates(
-    session: AsyncSession, stale: frozenset[int] = frozenset()
+    session: AsyncSession, stale: frozenset[int] = frozenset(), *, now: datetime
 ) -> list[tuple[int, str]]:
-    """Гипотезы с полной цепочкой хоть на одном языке и лидами `ready`, которым сборка напишет
-    первое письмо (`elsewhere.writable`), не из «кому не пишем», чей адрес письму не мешает
-    (`unconfirmed.holds`), — или с письмами в очереди, которые сборка соберёт заново (`stale`), —
-    по номеру."""
-    unwritten = (
-        select(SalesLeadModel.hypothesis_id)
-        .outerjoin(SalesThreadModel, SalesThreadModel.lead_id == SalesLeadModel.id)
-        .where(elsewhere.writable(), ~holds())
-    )
+    """Гипотезы, чьим лидам без письма сборка напишет первое письмо хоть одному, — решением самой
+    сборки, тем же числом, что «Напишет» вкладки «Рассылка» (`queue_plan.writable_counts`), — или с
+    письмами в очереди, которые сборка соберёт заново (`stale`), — по номеру."""
+    writes = await queue_plan.writable_counts(session, now=now)
     rows = await session.execute(
-        select(SalesHypothesisModel.id, SalesHypothesisModel.name)
-        .where(
-            or_(
-                SalesHypothesisModel.id.in_(unwritten),
-                SalesHypothesisModel.id.in_(sorted(stale)),
-            )
-        )
-        .order_by(SalesHypothesisModel.id)
+        select(SalesHypothesisModel.id, SalesHypothesisModel.name).order_by(SalesHypothesisModel.id)
     )
-    return [
-        item
-        for item in rows.tuples().all()
-        if (item[0] in stale or await _writable(session, item[0]))
-        and await _has_chain(session, item[0])
-    ]
-
-
-async def _writable(session: AsyncSession, hypothesis_id: int) -> bool:
-    """Есть ли у гипотезы лид, которому сборка напишет первое письмо (`elsewhere.writable`), не из
-    «кому не пишем» (`not_writing.py`), чей адрес письму не мешает (`unconfirmed.holds`): лиды —
-    пачками по номеру, до первого такого."""
-    after = 0
-    while True:
-        rows = await session.execute(
-            select(SalesLeadModel.id, SalesLeadModel.email, DomainModel.host)
-            .join(DomainModel, DomainModel.id == SalesLeadModel.domain_id)
-            .outerjoin(SalesThreadModel, SalesThreadModel.lead_id == SalesLeadModel.id)
-            .where(
-                SalesLeadModel.hypothesis_id == hypothesis_id,
-                elsewhere.writable(),
-                ~holds(),
-                SalesLeadModel.id > after,
-            )
-            .order_by(SalesLeadModel.id)
-            .limit(CHUNK)
-        )
-        leads = rows.tuples().all()
-        if not leads:
-            return False
-        if any(excluded(email, host) is None for _, email, host in leads):
-            return True
-        after = leads[-1][0]
-
-
-async def _has_chain(session: AsyncSession, hypothesis_id: int) -> bool:
-    for code in chain_text.LANGUAGES:
-        found = await chain.resolve(session, hypothesis_id=hypothesis_id, language=code)
-        if not found.missing:
-            return True
-    return False
+    return [item for item in rows.tuples().all() if writes.get(item[0], 0) > 0 or item[0] in stale]
 
 
 async def in_turn(session: AsyncSession, found: list[tuple[int, str]]) -> list[tuple[int, str]]:
@@ -338,7 +288,7 @@ async def _choose(
     why = await _blocked(session, now)
     if why is not None:
         return why
-    found = await candidates(session, stale)
+    found = await candidates(session, stale, now=now)
     if not found:
         return NO_CANDIDATES
     every = await session.execute(select(SalesHypothesisModel.id, SalesHypothesisModel.name))

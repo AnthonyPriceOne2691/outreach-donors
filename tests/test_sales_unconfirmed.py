@@ -35,6 +35,7 @@ from backend.features.sales import (
     autosend_window,
     clean_jobs,
     cleaning,
+    hypotheses,
     lead_edit,
     mail,
     queue,
@@ -527,26 +528,28 @@ async def test_ready_leads_without_a_letter_held_by_their_address_are_no_reason_
     assert one_writable.hypothesis_id == world.hypothesis_id
 
 
-async def test_the_sql_rule_holds_the_same_leads_as_the_first_letter_rule(
+async def test_the_autobuild_holds_the_same_leads_as_the_first_letter_rule(
     session: AsyncSession, world: w.World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Счёт автосборки (`unconfirmed.holds`, условием SQL) и сборка с отправкой
+    """Кандидаты автосборки (решение сборки, `queue_plan`) и сборка с отправкой
     (`unconfirmed.first_letter`) держат одних и тех же лидов — при живом проверяльщике и при
-    выдуманном."""
+    выдуманном: у каждого лида своя гипотеза, и она кандидат, только если письму адрес не мешает."""
     statuses = (None, "hunter:valid", "hunter:accept_all", "hunter:unknown")
-    leads = [
-        await w.lead(
-            session, world.hypothesis_id, f"lead{n}@firm{n}.example.test", verification_status=said
+    leads: dict[int, SalesLeadModel] = {}
+    for n, said in enumerate((*statuses, "fixture:valid", "fixture:unknown")):
+        own = (await hypotheses.add(session, f"Выдуманная гипотеза {n}", None)).id
+        leads[own] = await w.lead(
+            session, own, f"lead{n}@firm{n}.example.test", verification_status=said
         )
-        for n, said in enumerate((*statuses, "fixture:valid", "fixture:unknown"))
-    ]
     for provider in ("live", "fixture"):
         monkeypatch.setattr(sales_cfg, "VERIFIER_PROVIDER", provider)
 
-        by_sql = set(await session.scalars(select(SalesLeadModel.id).where(unconfirmed.holds())))
+        found = {
+            hypothesis_id for hypothesis_id, _ in await autobuild.candidates(session, now=w.NOW)
+        }
 
-        by_rule = {lead.id for lead in leads if unconfirmed.first_letter(lead) is not None}
-        assert (provider, by_sql) == (provider, by_rule)
+        by_rule = {own for own, lead in leads.items() if unconfirmed.first_letter(lead) is None}
+        assert (provider, found) == (provider, by_rule)
 
 
 async def test_the_cleaning_does_not_make_a_lead_edited_so_its_letter_is_not_rebuilt(

@@ -28,10 +28,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import ColumnElement, false, or_
-
 from backend.features.sales.models import LeadStatus, RejectionReason, SalesLeadModel
-from backend.features.sales.verifier import FIXTURE, RECHECK_DAYS, UNKNOWN, live, unproven
+from backend.features.sales.verifier import RECHECK_DAYS, UNKNOWN, unproven
 
 #: Второй `unknown` того же проверяльщика — причина отказа словами.
 TWICE = (
@@ -74,12 +72,3 @@ def first_letter(lead: SalesLeadModel) -> str | None:
     if (made_up := unproven(lead)) is not None:
         return made_up
     return FIRST_LETTER if (lead.verification_status or "").endswith(f":{UNKNOWN}") else None
-
-
-def holds() -> ColumnElement[bool]:
-    """Лиды, чьё первое письмо держит адрес, — то же правило, что `first_letter`, условием SQL:
-    по нему автосборка не берёт гипотезу ради лидов, которых сборка всё равно пропустит
-    (`autobuild.candidates`). Пустой вердикт — не держит."""
-    status = SalesLeadModel.verification_status
-    made_up = status.startswith(f"{FIXTURE}:") if live() else false()
-    return status.is_not(None) & or_(status.endswith(f":{UNKNOWN}"), made_up)
