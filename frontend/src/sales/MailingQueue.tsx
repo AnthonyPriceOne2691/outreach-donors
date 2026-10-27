@@ -13,6 +13,10 @@
  * **Письма, которые не уйдут, пока их не поправят** (`queued_stuck`: адрес держит проверка, пояс
  * получателя неизвестен), — янтарной плашкой с причинами и числами: срок и план — без них, и это
  * повод что-то сделать.
+ *
+ * **Автоотправка стоит** (`paused`: исход письма неизвестен, предохранитель, ни одно письмо окна не
+ * уйдёт как есть) — янтарной плашкой у срока, словами сервера: срок и план посчитаны так, будто
+ * остановку снимут, и это сказано рядом с ними, а не только в строке режима выше.
  */
 
 import { Alert, List, SimpleGrid, Text } from '@mantine/core';
@@ -68,6 +72,20 @@ function EtaTiles({ queued, eta }: { queued: number; eta: ForecastEta }) {
   );
 }
 
+/** Автоотправка стоит по причине, которой прогноз сам не видит, — слова сервера с заглавной буквы и
+ *  оговорка о сроке; идёт — плашки нет. */
+function Paused({ words }: { words: string | null }) {
+  if (words === null) return null;
+  return (
+    <Alert color="yellow" mx="md" className="mailingPaused">
+      <Text size="sm">
+        {words.charAt(0).toUpperCase() + words.slice(1)}. Пока это так, автоотправка стоит: срок и
+        план — при условии, что остановку снимут.
+      </Text>
+    </Alert>
+  );
+}
+
 /** «В очереди N, из них M не уйдут:» и причины с числами — словами сервера. */
 function Stuck({ queued, stuck }: { queued: number; stuck: ForecastStuck | null }) {
   if (stuck === null || stuck.letters === 0) return null;
@@ -103,6 +121,7 @@ export function MailingQueue({ query }: { query: UseQueryResult<MailingForecastV
         <>
           <NotRefreshed query={query} />
           <EtaTiles queued={view.queued_first} eta={view.queue_eta} />
+          <Paused words={view.paused} />
           <Stuck queued={view.queued_first} stuck={view.queued_stuck} />
           <Text size="sm" px="md" className="mailingEtaWords">
             {view.queue_eta.words}
