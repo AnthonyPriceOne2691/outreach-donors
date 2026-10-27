@@ -2522,9 +2522,9 @@
       "worst": "autosend_line:94"
     },
     "backend/features/sales/autobuild.py": {
-      "lines": 477,
+      "lines": 427,
       "complexity": 8,
-      "worst": "_choose:334"
+      "worst": "_choose:284"
     },
     "backend/features/sales/autobuild_alarm.py": {
       "lines": 113,
@@ -2632,9 +2632,9 @@
       "worst": "kept_words:61"
     },
     "backend/features/sales/elsewhere.py": {
-      "lines": 95,
+      "lines": 82,
       "complexity": 4,
-      "worst": "roles:53"
+      "worst": "roles:40"
     },
     "backend/features/sales/followup_texts.py": {
       "lines": 377,
@@ -3127,9 +3127,9 @@
       "worst": "trial_trace:100"
     },
     "backend/features/sales/unconfirmed.py": {
-      "lines": 86,
+      "lines": 75,
       "complexity": 4,
-      "worst": "first_letter:69"
+      "worst": "first_letter:67"
     },
     "backend/features/sales/unsubscribe.py": {
       "lines": 98,

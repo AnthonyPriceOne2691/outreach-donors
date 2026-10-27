@@ -10,8 +10,8 @@
 - сборка очереди — кнопкой и автосборкой — лиду «готов» на таком сайте письма не собирает:
   модель не платит за письмо, которое отправка снимет, а в отчёте сборки и на экране лида — почему
   он ждёт (`waiting`, `waiting_of`). Ни новое письмо, ни снятое до отправки (`off_queue.again`);
-- сайт освободился (письма того направления не дошли) — лид снова берётся сборкой (`free`), и
-  снятое письмо пишется заново на том же месте (`off_queue.py`).
+- сайт освободился (письма того направления не дошли) — лид снова берётся сборкой (`roles` сайт
+  не называет), и снятое письмо пишется заново на том же месте (`off_queue.py`).
 
 Направление словами — первое по порядку этапов, как у отправки: у сайта бывают живые письма и
 доноров, и рекламодателей разом.
@@ -21,27 +21,14 @@ from __future__ import annotations
 
 from collections.abc import Collection, Iterable
 
-from sqlalchemy import ColumnElement, and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute
 
 from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.letters import attempts
 from backend.features.sales.models import LeadStatus, SalesLeadModel, SalesThreadModel
-from backend.features.sales.off_queue import ready_unwritten, unwritten
-
-
-def free(domain_id: InstrumentedAttribute[int]) -> ColumnElement[bool]:
-    """Сайт не в работе у другого направления: первое письмо продаж ему уходит."""
-    return ~attempts.live_elsewhere(domain_id, Stage.SALES)
-
-
-def writable() -> ColumnElement[bool]:
-    """Лиду «готов» сборка напишет первое письмо сейчас: письма нет или оно снято до отправки
-    (`off_queue.ready_unwritten`; связь лида — внешним соединением), а сайт свободен (`free`).
-    Одно условие у кандидатов автосборки, её поиска лида и счёта «лидов без письма»."""
-    return and_(ready_unwritten(), free(SalesLeadModel.domain_id))
+from backend.features.sales.off_queue import unwritten
 
 
 def _first(stages: Iterable[Stage]) -> Stage:

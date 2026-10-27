@@ -2,7 +2,8 @@
 
 Очередь задач — подставная с правилами rq 2.12 (`test_sales_clean_api._Jobs`): номер задачи,
 `unique`, итог отдельно от задачи; плюс мета задачи — ею помечена сборка, поставленная сама.
-Сборку проход только ставит: модель в этих тестах не зовётся. Тексты и адреса выдуманы.
+Сборку проход только ставит: модель в этих тестах не зовётся — письмо к пересборке собирает
+подделка модели (`w.CorridorRewriter`). Тексты и адреса выдуманы.
 """
 
 from __future__ import annotations
@@ -14,10 +15,12 @@ import pytest
 from backend.config import llm as llm_cfg
 from backend.config import sales as sales_cfg
 from backend.features.core import usage
-from backend.features.core.domain import AuditAction
+from backend.features.core.domain import AuditAction, Stage
 from backend.features.core.models.access import AuditLogModel
-from backend.features.sales import autobuild, corridor, hypotheses, queue_start
+from backend.features.core.models.outreach import CampaignModel, ThreadModel
+from backend.features.sales import autobuild, corridor, hypotheses, queue, queue_plan, queue_start
 from backend.features.sales.autobuild import Plan
+from backend.features.sales.models import SalesHandoffModel, SalesStoplistModel
 from backend.features.sales.queue_jobs import QUEUE_JOB
 from backend.features.sales.queue_start import LIMIT_MAX, build_job_id
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -234,9 +237,9 @@ async def test_only_hypotheses_with_a_chain_and_ready_leads_without_a_letter(
     await _ready(session, no_chain, "olga@beta.example.test")
     await w.lead(session, no_chain, "ivan@gamma.example.test", language="de")
 
-    found = await autobuild.candidates(session)
+    found = await autobuild.candidates(session, now=NOW)
 
-    # Общая цепочка мира — на ru и en: у «без цепочки» есть и en-лид — значит, цепочка есть.
+    # Общая цепочка мира — на ru и en: en-лиду «без цепочки» сборка напишет, de-лиду — нет.
     assert [hypothesis_id for hypothesis_id, _ in found] == [no_chain]
     assert empty not in [hypothesis_id for hypothesis_id, _ in found]
     planned = await autobuild.plan(session, jobs, now=NOW)
@@ -250,6 +253,74 @@ async def test_without_a_candidate_it_says_so(
 
     assert (found.hypothesis_id, found.why) == (None, autobuild.NO_CANDIDATES)
     assert jobs.enqueued == []
+
+
+async def _no_chain(session: AsyncSession, hypothesis_id: int) -> None:
+    """Лид на языке, цепочки на котором нет (у мира — en и ru)."""
+    await w.lead(session, hypothesis_id, "jonas@fahrrad.example.test", language="de")
+
+
+async def _stoplisted(session: AsyncSession, hypothesis_id: int) -> None:
+    """Лид «готов», а его адрес — в стоп-листе продаж."""
+    await w.lead(session, hypothesis_id, "stop@two.example.test")
+    session.add(SalesStoplistModel(email="stop@two.example.test"))
+    await session.flush()
+
+
+async def _handed(session: AsyncSession, hypothesis_id: int) -> None:
+    """Лид «готов», а его передали телемаркетологу."""
+    lead = await w.lead(session, hypothesis_id, "handed@one.example.test")
+    campaign = CampaignModel(stage=Stage.SALES, name="Выдуманная рассылка", status="running")
+    session.add(campaign)
+    await session.flush()
+    thread = ThreadModel(domain_id=lead.domain_id, campaign_id=campaign.id)
+    session.add(thread)
+    await session.flush()
+    session.add(SalesHandoffModel(thread_id=thread.id, lead_id=lead.id))
+    await session.flush()
+
+
+@pytest.mark.parametrize("unwritten", [_no_chain, _stoplisted, _handed])
+async def test_a_hypothesis_whose_ready_leads_the_build_will_not_write_is_no_candidate(
+    session: AsyncSession, world: w.World, jobs: _AutoJobs, unwritten: Any
+) -> None:
+    """Лид «готов» без письма, но сборка ему не напишет — решение одно со сборкой и с «Напишет»
+    «Рассылки» (`queue_plan`): гипотеза не кандидат, проход не ставит пустую сборку каждые десять
+    минут. Лид, которому сборка напишет, — и гипотеза снова кандидат."""
+    await unwritten(session, world.hypothesis_id)
+
+    idle = await autobuild.run(session, jobs, now=NOW)
+    counted = await queue_plan.writable_counts(session, now=NOW)
+    await _ready(session, world.hypothesis_id, "jane@acme.example.test")
+    found = await autobuild.run(session, jobs, now=NOW)
+
+    assert counted == {}
+    assert (idle.hypothesis_id, idle.why) == (None, autobuild.NO_CANDIDATES)
+    assert await queue_plan.writable_counts(session, now=NOW) == {world.hypothesis_id: 1}
+    assert found.hypothesis_id == world.hypothesis_id
+    [(args, _)] = jobs.enqueued
+    assert args == (QUEUE_JOB, world.hypothesis_id, 20)
+    [record] = list(await _auto_builds(session))
+    assert record.target == f"job:{build_job_id(world.hypothesis_id)}"
+
+
+async def test_letters_to_rebuild_keep_the_hypothesis_a_candidate(
+    session: AsyncSession, world: w.World, jobs: _AutoJobs
+) -> None:
+    """Письмо в очереди собрано с прежней подписью — отправка его не пустит, а сборка соберёт
+    заново: гипотеза — кандидат, хотя лидов без письма у неё нет и «Напишет» — ноль."""
+    await _ready(session, world.hypothesis_id, "jane@acme.example.test")
+    await queue.build(session, w.CorridorRewriter(), hypothesis_id=world.hypothesis_id, limit=1)
+    built = await autobuild.plan(session, jobs, now=NOW)
+    await w.settings(session, signature="Mira Testova\nA renamed made-up agency")
+
+    found = await autobuild.run(session, jobs, now=NOW)
+
+    assert (built.have, built.hypothesis_id, built.why) == (1, None, autobuild.NO_CANDIDATES)
+    assert await queue_plan.writable_counts(session, now=NOW) == {}
+    assert (found.have, found.hypothesis_id) == (0, world.hypothesis_id)
+    [(args, _)] = jobs.enqueued
+    assert args == (QUEUE_JOB, world.hypothesis_id, 20)
 
 
 async def test_the_shortage_goes_to_hypotheses_in_turn(
