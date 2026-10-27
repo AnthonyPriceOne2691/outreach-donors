@@ -237,9 +237,9 @@
       "worst": "mailing_forecast:34"
     },
     "backend/api/letters/forecast_schemas.py": {
-      "lines": 257,
+      "lines": 262,
       "complexity": 8,
-      "worst": "of:229"
+      "worst": "of:233"
     },
     "backend/api/letters/once.py": {
       "lines": 102,
@@ -1237,9 +1237,9 @@
       "worst": "competitor_targets:118"
     },
     "backend/features/core/stage_forecast.py": {
-      "lines": 102,
+      "lines": 122,
       "complexity": 2,
-      "worst": "_ask:58"
+      "worst": "_ask:66"
     },
     "backend/features/core/stages.py": {
       "lines": 495,
@@ -1752,9 +1752,9 @@
       "worst": "_deliver:418"
     },
     "backend/features/letters/forecast.py": {
-      "lines": 292,
+      "lines": 300,
       "complexity": 8,
-      "worst": "forecast:108"
+      "worst": "forecast:110"
     },
     "backend/features/letters/forecast_plan.py": {
       "lines": 323,

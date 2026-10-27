@@ -214,6 +214,10 @@ class MailingForecastView(BaseModel):
     pace: ForecastPace | None
     #: Почему первые письма этапа сейчас не уходят вовсе — словами; пусто — уходят.
     blocked: str | None
+    #: Почему автоотправка продаж сейчас стоит — словами её строки («исход письма №38 неизвестен»);
+    #: пусто — идёт, выключена или стоит по тому, что прогноз считает сам (очередь пуста, вне окна,
+    #: дневные лимиты). План и срок очереди — при условии, что остановку снимут.
+    paused: str | None
     #: Лимит направления не прочитан из настроек — что поправить; пусто — прочитан.
     unread_limit: str | None
     today: ForecastToday
@@ -238,6 +242,7 @@ class MailingForecastView(BaseModel):
             zone=None if clock.zone is None else clock.zone.key,
             pace=None if clock.pace is None else ForecastPace.of(clock.pace),
             blocked=found.blocked,
+            paused=found.paused,
             unread_limit=found.unread,
             today=ForecastToday(
                 sent_first=found.sent_today.first,

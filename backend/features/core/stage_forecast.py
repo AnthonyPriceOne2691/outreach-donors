@@ -1,4 +1,5 @@
-"""Мост к модулю продаж для прогноза рассылки: запас первых писем, пояса и застрявшие письма очереди.
+"""Мост к модулю продаж для прогноза рассылки: запас первых писем, пояса и застрявшие письма очереди,
+остановка автоотправки.
 
 Своим модулем рядом с мостом (`stages.py`): мост стоит у предела длины файла, а вопросы прогноза
 — отдельная забота с теми же правилами. Почта модуль продаж не импортирует (контракт
@@ -21,6 +22,8 @@ from typing import TYPE_CHECKING, Protocol
 from backend.features.core.stages import quietly
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -38,6 +41,11 @@ class SalesForecast(Protocol):
     async def queue_stuck(self, session: AsyncSession) -> Mapping[str, int]:
         """Первые письма продаж в очереди, которые не уйдут, пока что-то не поправят, — причина
         словами → писем: адрес лида держит проверка, пояс получателя неизвестен."""
+
+    async def autosend_stop(self, session: AsyncSession, now: datetime) -> str | None:
+        """Почему проход автоотправки сейчас стоит — словами её строки («исход письма №38
+        неизвестен»); `None` — идёт, выключена или стоит по тому, что прогноз считает сам: очередь
+        пуста, вне окна получателя, ящики выбрали дневной лимит."""
 
 
 @dataclass(slots=True)
@@ -99,3 +107,15 @@ async def sales_stuck(session: AsyncSession) -> dict[str, int] | None:
         "прогноз рассылки считает очередь целиком",
     )
     return None if found is None else dict(found)
+
+
+async def sales_autosend_stop(session: AsyncSession, now: datetime) -> str | None:
+    """Почему автоотправка продаж стоит (`SalesForecast.autosend_stop`); `None` — идёт или спросить
+    не вышло: тогда план и срок — как будто идёт, а строка журнала говорит, что остановку не узнать
+    (находка стенда круга 22: строка автоотправки «Стоит», а срок рядом обещал часы)."""
+    return await _ask(
+        session,
+        "Остановка автоотправки продаж",
+        lambda answers: answers.autosend_stop(session, now),
+        "прогноз рассылки без остановки автоотправки",
+    )

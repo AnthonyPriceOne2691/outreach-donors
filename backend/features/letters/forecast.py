@@ -95,6 +95,8 @@ class Forecast:
     clock: Clock
     #: Почему первые письма этапа не уходят вовсе — словами моста; пусто — уходят.
     blocked: str | None
+    #: Почему стоит автоотправка (у продаж); план и срок — при условии, что остановку снимут.
+    paused: str | None
     #: Лимит направления не прочитан из настроек — что поправить; пусто — прочитан.
     unread: str | None
     today: Today
@@ -123,7 +125,7 @@ async def forecast(
         now=moment,
     )
     queued = await LetterRepository(session).queued_count(stage=stage)
-    answers = await _answers(session, stage, policy)
+    answers = await _answers(session, stage, policy, moment)
     clock = Clock(policy.window, answers.zone, policy.pace)
     first = await capacity.first_letter_day(session, stage, moment)
     unread = capacity.unread(stage)
@@ -149,6 +151,7 @@ async def forecast(
         stuck=answers.stuck,
         clock=clock,
         blocked=boxes.blocked,
+        paused=answers.paused,
         unread=unread,
         today=found,
         sent_today=by_day.get(first_day, Sent()),
@@ -227,14 +230,18 @@ async def _cuts(session: AsyncSession, stage: Stage, now: datetime) -> dict[int,
 
 @dataclass(frozen=True, slots=True)
 class _Answers:
-    """Что о письмах этапа знает его модуль: запас сборки, пояс очереди и застрявшие письма."""
+    """Что о письмах этапа знает его модуль: запас сборки, пояс очереди, застрявшие письма и
+    почему стоит автоотправка."""
 
     extra: int | None = None
     zone: ZoneInfo | None = None
     stuck: dict[str, int] | None = None
+    paused: str | None = None
 
 
-async def _answers(session: AsyncSession, stage: Stage, policy: stages.MailPolicy) -> _Answers:
+async def _answers(
+    session: AsyncSession, stage: Stage, policy: stages.MailPolicy, now: datetime
+) -> _Answers:
     """Ответы модуля этапа прогнозу. У продаж — мостом (`core/stage_forecast.py`): сколько первых
     писем ещё напишет сборка, пояс получателей очереди (только при окне, `capacity.queue_zone`) и
     письма, которые не уйдут, пока их не поправят. У доноров и рекламодателей очередь собирает
@@ -247,6 +254,7 @@ async def _answers(session: AsyncSession, stage: Stage, policy: stages.MailPolic
                 await stage_forecast.sales_supply(session),
                 await capacity.queue_zone(session, stage) if policy.window else None,
                 await stage_forecast.sales_stuck(session),
+                await stage_forecast.sales_autosend_stop(session, now),
             )
         case _:
             assert_never(stage)
