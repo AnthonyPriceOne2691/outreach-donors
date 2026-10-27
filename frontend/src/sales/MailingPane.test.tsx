@@ -31,6 +31,7 @@ import {
   FORECAST,
   FORECAST_BLOCKED,
   FORECAST_MANUAL,
+  FORECAST_PAUSED,
   FORECAST_ROUTE,
   MAILING,
   MAILING_IN_FLIGHT,
@@ -146,6 +147,21 @@ describe('рассылка: режим и срок очереди', () => {
     expect(eta.getByText('Дней отправки').nextElementSibling).toHaveTextContent('3');
     expect(eta.getByText('Часов').nextElementSibling).toHaveTextContent('≈ 54,3 ч');
     expect(eta.getByText('В очереди').nextElementSibling).toHaveTextContent('96');
+    expect(eta.getByText(AUTO_WORDS)).toBeInTheDocument();
+    expect(eta.queryByText(/автоотправка стоит/)).toBeNull();
+  });
+
+  it('автоотправка стоит — плашкой у срока словами сервера; срок тот же, при условии, что остановку снимут', async () => {
+    await openMailing({ [FORECAST_ROUTE]: { body: FORECAST_PAUSED } });
+    const eta = within(region('Когда уйдёт очередь'));
+
+    expect(
+      eta.getByText(
+        /^Исход письма №38 неизвестен: .* в блоке «Исход неизвестен»\. Пока это так, автоотправка стоит: срок и план — при условии, что остановку снимут\.$/,
+      ),
+    ).toBeInTheDocument();
+    expect(eta.getByText('Уйдёт к').nextElementSibling).toHaveTextContent('ср 04.11');
+    expect(eta.getByText('Часов').nextElementSibling).toHaveTextContent('≈ 54,3 ч');
     expect(eta.getByText(AUTO_WORDS)).toBeInTheDocument();
   });
 

@@ -52,6 +52,7 @@ export const FORECAST: MailingForecastView = {
   zone: 'America/Toronto',
   pace: { gap_minutes: 15, spread: 0.5 },
   blocked: null,
+  paused: null,
   unread_limit: null,
   today: {
     sent_first: 6,
@@ -229,6 +230,14 @@ export const FORECAST_BLOCKED: MailingForecastView = {
   blocked: BLOCKED,
   queue_eta: { day: null, sending_days: null, hours: null, words: `очередь не уходит: ${BLOCKED}` },
 };
+
+export const PAUSED =
+  'исход письма №38 неизвестен: оно «отправляется» с 02.11 09:40 UTC, и слать дальше вслепую ' +
+  'нельзя. Исход решит событие платформы или человек на экране «Письма», в блоке «Исход неизвестен»';
+
+/** Автоотправка стоит — исход письма неизвестен: срок и план те же, что у идущей, а остановка —
+ *  словами сервера рядом со сроком. */
+export const FORECAST_PAUSED: MailingForecastView = { ...FORECAST, paused: PAUSED };
 
 export const AUTOSEND_ON =
   'Автоотправка включена, список разрешённых адресатов почты продаж пуст — письма уходят всем ' +
