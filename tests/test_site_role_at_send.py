@@ -210,17 +210,17 @@ async def test_an_answer_goes_while_the_site_is_in_work_elsewhere(
     assert answer.status is MessageStatus.SENT
 
 
-async def test_live_elsewhere_sees_only_a_live_letter_of_another_stage(
+async def test_roles_elsewhere_sees_only_a_live_letter_of_another_stage(
     session: AsyncSession,
 ) -> None:
-    """Условие, которое возьмёт себе и модуль продаж: живое письмо другого этапа. Своё
+    """Правило отправки — живое письмо другого этапа (`attempts.roles_elsewhere`). Своё
     направление — не «другое»; не дошедшее письмо — не живое."""
     domain = await make_donor(session, HOST)
     sales = await _live(session, domain.id, Stage.SALES)
 
     def busy(stage: Stage) -> object:
         return select(DomainModel.id).where(
-            DomainModel.id == domain.id, attempts.live_elsewhere(DomainModel.id, stage)
+            DomainModel.id == domain.id, attempts.roles_elsewhere(DomainModel.id, stage).exists()
         )
 
     assert await session.scalar(busy(Stage.DONORS)) == domain.id
