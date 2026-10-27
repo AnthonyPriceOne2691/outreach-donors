@@ -1,0 +1,152 @@
+/**
+ * «Последние обходы» под «Доноры и обходы» (`CrawlPanel`) — таблицей и с «Переобойти».
+ *
+ * **Таблица, а не строки** (замечание Anthony 27.10.2026). Строкой «домен · значок · дата»
+ * значок вставал там, где кончился домен, — у каждой строки на своём месте, — а причина под
+ * ним («кончился час на донора; сайт просит паузу 8 с между страницами») раздвигала строку,
+ * и дата с числами здоровья уезжали ярусом ниже, от левого края. Теперь колонки как у
+ * таблицы доноров выше: донор слева, значок с причиной и числами — в своей колонке.
+ *
+ * **«Переобойти» — у последнего обхода донора, который стоит повторить** (там же): кончился
+ * частично, сайт закрылся, обход не начался или его остановил разбор зависших. Механизм —
+ * тот же запуск, что «Обойти отмеченных»: новый обход заменяет кандидатов прежнего, а решения
+ * человека и спрошенный DR переносит (`crawl/gate.py`). Кнопка — только донору со свежей ценой:
+ * другому сервер откажет, а почему — уже сказано строкой «Не обходим» выше.
+ */
+
+import { Button, Stack, Table, Text } from '@mantine/core';
+import type { UseMutationResult } from '@tanstack/react-query';
+
+import type { CrawlLaunch, CrawlRow, CrawlsView } from '../api/crawls';
+import type { Column } from '../components/ColumnsHead';
+import { ColumnsHead } from '../components/ColumnsHead';
+import { Seams } from '../components/Seams';
+import { formatDateTime } from '../format';
+import { CrawlState } from './CrawlTable';
+
+/** Строк в списке: последний обход и несколько до него, а вся история — в журнале. */
+const SHOWN = 5;
+
+/** «Обход» — та же ширина, что «Последний обход» у таблицы доноров: значок с потолком и
+ *  причина под ним. «Когда и кто» — по адресу автора в 27 знаков; длиннее — переносится. */
+const COLUMNS: Column[] = [
+  { title: 'Донор' },
+  { title: 'Обход', width: '17rem' },
+  { title: 'Когда и кто', width: '14rem' },
+];
+const AGAIN_WIDTH = '9rem';
+/** Уже — прокрутка: колонкам с шириной 31 rem (и 9 под кнопку), донору — 176 px, как
+ *  в таблице доноров выше. */
+const MIN_WIDTH = { plain: 672, again: 816 } as const;
+
+/** Исходы, после которых обойти ещё раз имеет смысл: взяли не всё (срок, попытки, здоровье),
+ *  сайт закрылся, обход не начался. «Обойдён» взял всё, а запрет robots.txt повтор не снимет. */
+const AGAIN_OUTCOMES: ReadonlySet<string> = new Set(['partial', 'blocked', 'failed']);
+
+export function worthAgain(crawl: CrawlRow): boolean {
+  if (crawl.status === 'stopped') return true;
+  return crawl.status === 'done' && crawl.outcome !== null && AGAIN_OUTCOMES.has(crawl.outcome);
+}
+
+/** Обходы, у которых стоит «Переобойти»: последний в списке у своего донора (строки — новые
+ *  сверху; у старой строки повтор уже есть) и донор в числе тех, кого можно обойти. */
+export function againRows(rows: readonly CrawlRow[], eligible: ReadonlySet<string>): Set<number> {
+  const seen = new Set<string>();
+  const again = new Set<number>();
+  for (const row of rows) {
+    if (seen.has(row.host)) continue;
+    seen.add(row.host);
+    if (eligible.has(row.host) && worthAgain(row)) again.add(row.id);
+  }
+  return again;
+}
+
+export type StartCrawls = UseMutationResult<CrawlLaunch, Error, string[]>;
+
+function When({ crawl }: { crawl: CrawlRow }) {
+  return (
+    <Stack gap={0} align="center">
+      <span>{formatDateTime(crawl.finished_at ?? crawl.created_at)}</span>
+      {crawl.requested_by ? (
+        <Text size="xs" c="dimmed" className="cellName">
+          {crawl.requested_by}
+        </Text>
+      ) : null}
+    </Stack>
+  );
+}
+
+function Again({ host, start }: { host: string; start: StartCrawls }) {
+  const mine = start.variables?.includes(host) ?? false;
+  return (
+    <Button
+      size="xs"
+      variant="light"
+      className="press"
+      aria-label={`Переобойти ${host}`}
+      loading={start.isPending && mine}
+      disabled={start.isPending && !mine}
+      onClick={() => start.mutate([host])}
+    >
+      Переобойти
+    </Button>
+  );
+}
+
+/** Последние обходы, новые сверху. `start` — запуск повтора; `null` — нет права запуска,
+ *  и колонки с кнопкой нет. */
+export function RecentCrawls({
+  view,
+  eligible,
+  start,
+}: {
+  view: CrawlsView | undefined;
+  eligible: ReadonlySet<string>;
+  start: StartCrawls | null;
+}) {
+  const rows = view?.rows.slice(0, SHOWN) ?? [];
+  if (rows.length === 0) return null;
+  const again = start === null ? new Set<number>() : againRows(rows, eligible);
+  return (
+    <Stack gap={4}>
+      <Text size="sm" fw={600}>
+        Последние обходы
+      </Text>
+      <Table.ScrollContainer
+        minWidth={start === null ? MIN_WIDTH.plain : MIN_WIDTH.again}
+        type="native"
+        className="scrollSlim"
+      >
+        <Table
+          className="dataTable fixedTable"
+          layout="fixed"
+          tabularNums
+          verticalSpacing="sm"
+          aria-label="Последние обходы"
+        >
+          <ColumnsHead columns={COLUMNS} tail={start === null ? null : AGAIN_WIDTH} />
+          <Table.Tbody>
+            {rows.map((row) => (
+              <Table.Tr key={row.id}>
+                <Table.Td className="wrapCell cellName">
+                  <Seams text={row.host} />
+                </Table.Td>
+                <Table.Td>
+                  <CrawlState crawl={row} />
+                </Table.Td>
+                <Table.Td className="wrapCell">
+                  <When crawl={row} />
+                </Table.Td>
+                {start === null ? null : (
+                  <Table.Td>
+                    {again.has(row.id) ? <Again host={row.host} start={start} /> : null}
+                  </Table.Td>
+                )}
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+      </Table.ScrollContainer>
+    </Stack>
+  );
+}

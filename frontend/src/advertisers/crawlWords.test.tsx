@@ -222,19 +222,4 @@ describe('причина — под значком, до чисел здоров
       'закрыто 0% из 412 запросов',
     ]);
   });
-
-  it('у строки списка — без чисел здоровья: их называет строка с датой', () => {
-    renderWith(
-      <CrawlState
-        crawl={done({ sitemap_complete: false, blocked_share: 0, requests: 380 })}
-        share={false}
-        align="start"
-      />,
-    );
-
-    expect(
-      screen.getByText('в карте сайта больше адресов нет, но карта прочитана не вся'),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/закрыто/)).toBeNull();
-  });
 });

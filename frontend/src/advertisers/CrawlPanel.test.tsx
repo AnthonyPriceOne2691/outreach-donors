@@ -19,6 +19,7 @@ import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import { closedShare, crawlState, failureShare } from './CrawlTable';
 import { enteredSummary } from './ManualDonor';
+import { againRows } from './RecentCrawls';
 
 function crawl(overrides: Partial<CrawlRow>): CrawlRow {
   return {
@@ -93,7 +94,7 @@ describe('обход доноров', () => {
   it('показывает, кого можно обойти, и почему остальных нельзя', async () => {
     open();
 
-    const table = await screen.findByRole('table');
+    const table = await screen.findByRole('table', { name: 'Доноры для обхода' });
     expect(within(table).getByText('fresh.example')).toBeInTheDocument();
     expect(within(table).getByText(/идёт: 340 из 1\s000/)).toBeInTheDocument();
     expect(within(table).getByText('не обходили')).toBeInTheDocument();
@@ -171,7 +172,7 @@ describe('обход доноров', () => {
   it('цена — с валютой, как её назвали; ручная — с пометкой «вручную»', async () => {
     open();
 
-    const table = await screen.findByRole('table');
+    const table = await screen.findByRole('table', { name: 'Доноры для обхода' });
     const fresh = within(table).getByText('fresh.example').closest('tr')!;
     const running = within(table).getByText('running.example').closest('tr')!;
     expect(plain(fresh.textContent ?? '')).toContain('150,00 $');
@@ -356,14 +357,14 @@ describe('панель в покое', () => {
 
     await user.click(toggle);
 
-    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'Доноры для обхода' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Обойти отмеченных · 0' })).toBeInTheDocument();
   });
 
   it('обход идёт — раскрыта сама, и сколько идёт — у заголовка', async () => {
     open();
 
-    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'Доноры для обхода' })).toBeInTheDocument();
     expect(screen.getByText('идёт: 1')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Доноры и обходы' })).toHaveAttribute(
       'aria-expanded',
@@ -443,7 +444,7 @@ describe('доля закрытых страниц у строки обхода'
 
     await user.click(await screen.findByRole('button', { name: 'Доноры и обходы' }));
 
-    const table = await screen.findByRole('table');
+    const table = await screen.findByRole('table', { name: 'Доноры для обхода' });
     expect(
       within(table).getByText('403/429/5xx/таймаут — 31% за последние 480 запросов'),
     ).toBeInTheDocument();
@@ -455,7 +456,7 @@ describe('доля закрытых страниц у строки обхода'
     ).toBeInTheDocument();
   });
 
-  it('в таблице доноров — под значком обхода, в последних обходах — в строке с датой', async () => {
+  it('в таблице доноров и в последних обходах — под значком обхода', async () => {
     open({
       'GET /api/crawls/targets': {
         body: { ...TARGETS, donors: [{ ...TARGETS.donors[0], crawl: DONE }] },
@@ -466,10 +467,10 @@ describe('доля закрытых страниц у строки обхода'
 
     await user.click(await screen.findByRole('button', { name: 'Доноры и обходы' }));
 
-    const table = await screen.findByRole('table');
+    const table = await screen.findByRole('table', { name: 'Доноры для обхода' });
     expect(within(table).getByText('закрыто 12,5% из 480 запросов')).toBeInTheDocument();
-    const recent = screen.getByText('Последние обходы').parentElement!;
-    expect(within(recent).getByText(/· закрыто 12,5% из 480 запросов$/)).toBeInTheDocument();
+    const recent = screen.getByRole('table', { name: 'Последние обходы' });
+    expect(within(recent).getByText('закрыто 12,5% из 480 запросов')).toBeInTheDocument();
   });
 });
 
@@ -498,10 +499,10 @@ describe('почему обход кончился', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Доноры и обходы' }));
 
-    const table = await screen.findByRole('table');
+    const table = await screen.findByRole('table', { name: 'Доноры для обхода' });
     expect(within(table).getByText(/^частично: 412 из 1\s000 страниц$/)).toBeInTheDocument();
     expect(within(table).getByText(SAID)).toBeInTheDocument();
-    const recent = screen.getByText('Последние обходы').parentElement!;
+    const recent = screen.getByRole('table', { name: 'Последние обходы' });
     expect(within(recent).getByText(SAID)).toBeInTheDocument();
   });
 
@@ -528,5 +529,75 @@ describe('почему обход кончился', () => {
         /с главной по карте сайта, свежие адреса первыми; карта кончилась или её нет — дальше по ссылкам сайта\. На донора — не больше 500 страниц, 1\s500 запросов и 30 мин \(сайту с долгой паузой — до 2 ч, чтобы успеть страницы\); пауза между страницами — та, что просит сайт в robots\.txt, но не меньше 2 с и не больше 5 с\. Что кончилось первым — под значком обхода\./,
       ),
     ).toBeInTheDocument();
+  });
+});
+
+describe('«Переобойти» в последних обходах', () => {
+  const PARTIAL = crawl({
+    id: 11,
+    host: 'fresh.example',
+    status: 'done',
+    outcome: 'partial',
+    stop_reason: 'timeout',
+    pages: 447,
+    finished_at: '2026-10-22T18:37:00Z',
+  });
+
+  function openPartial(who: unknown = ADMIN) {
+    return open(
+      {
+        'GET /api/crawls/targets': {
+          body: { ...TARGETS, donors: [{ ...TARGETS.donors[0], crawl: PARTIAL }] },
+        },
+        'GET /api/crawls': { body: { rows: [PARTIAL], active: 0, workers: 4 } },
+        'POST /api/crawls': {
+          body: { queued: { 'fresh.example': 12 }, busy: [], failed: [], refused: {}, workers: 4 },
+        },
+      },
+      who,
+    );
+  }
+
+  it('у частичного обхода — одним донором на сервер, и исход сказан словами', async () => {
+    const recorded = openPartial();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Доноры и обходы' }));
+    await user.click(await screen.findByRole('button', { name: 'Переобойти fresh.example' }));
+
+    await waitFor(() =>
+      expect(recorded.calls.find((call) => call.method === 'POST')?.body).toEqual({
+        hosts: ['fresh.example'],
+      }),
+    );
+    expect(await screen.findByText('Поставлено: 1.')).toBeInTheDocument();
+  });
+
+  it('без права запуска — колонки с кнопкой нет', async () => {
+    openPartial({ ...(OPERATOR as object), permissions: ['view'] });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Доноры и обходы' }));
+
+    expect(await screen.findByRole('table', { name: 'Последние обходы' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Переобойти/ })).toBeNull();
+  });
+
+  it('кнопка — у последнего обхода донора, который стоит повторить, и донору со свежей ценой', () => {
+    const rows = [
+      crawl({ id: 9, host: 'again.example', status: 'done', outcome: 'partial' }),
+      crawl({ id: 8, host: 'again.example', status: 'done', outcome: 'failed' }),
+      crawl({ id: 7, host: 'whole.example', status: 'done', outcome: 'ok' }),
+      crawl({ id: 6, host: 'robots.example', status: 'done', outcome: 'forbidden' }),
+      crawl({ id: 5, host: 'closed.example', status: 'done', outcome: 'blocked' }),
+      crawl({ id: 4, host: 'hung.example', status: 'stopped' }),
+      crawl({ id: 3, host: 'stale.example', status: 'done', outcome: 'partial' }),
+      crawl({ id: 2, host: 'busy.example', status: 'running' }),
+    ];
+    const eligible = new Set(
+      rows.map((row) => row.host).filter((host) => host !== 'stale.example'),
+    );
+
+    expect([...againRows(rows, eligible)]).toEqual([9, 5, 4]);
   });
 });

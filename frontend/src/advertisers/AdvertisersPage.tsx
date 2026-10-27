@@ -249,12 +249,28 @@ function ReviewView() {
             onShowDecided={includeDecided ? null : () => setIncludeDecided(true)}
           />
         ) : (
-          <CandidatesTable
-            rows={rows}
-            mayDecide={mayDecide}
-            deciding={decide.isPending ? (decide.variables?.row.id ?? null) : null}
-            onDecide={(row, confirmed) => decide.mutate({ row, confirmed })}
-          />
+          <Stack gap="sm">
+            {/* Свернуть — там же, где развернули (замечание Anthony 27.10.2026): «Показать
+                решённые» стоит в этой карточке, а переключатель — в карточке выше, у «Ждут
+                человека», и после развёртывания свернуть было будто бы нечем. */}
+            {includeDecided ? (
+              <Button
+                variant="subtle"
+                size="compact-sm"
+                className="press"
+                style={{ alignSelf: 'flex-start' }}
+                onClick={() => setIncludeDecided(false)}
+              >
+                Скрыть решённые
+              </Button>
+            ) : null}
+            <CandidatesTable
+              rows={rows}
+              mayDecide={mayDecide}
+              deciding={decide.isPending ? (decide.variables?.row.id ?? null) : null}
+              onDecide={(row, confirmed) => decide.mutate({ row, confirmed })}
+            />
+          </Stack>
         )}
       </Card>
       <NicheQueue />

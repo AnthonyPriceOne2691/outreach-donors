@@ -31,6 +31,10 @@
  *
  * **Протухшая цена — строкой с «Перезапросить цену»** (12.10.2026, `StalePrices`): ТЗ велит
  * сначала перезапросить цену у донора, и список с отметками — в окне, по одному и пачкой.
+ *
+ * **Последние обходы — таблицей, с «Переобойти»** (замечание Anthony 27.10.2026,
+ * `RecentCrawls`): повтор — своим запуском, а не отметками таблицы доноров — отмеченное там
+ * не сбрасывается и «Обойти отмеченных» не крутится, пока ставится повтор.
  */
 
 import {
@@ -53,13 +57,13 @@ import { refusalOf } from '../api/client';
 import type { CrawlLaunch, CrawlsView, CrawlTarget, CrawlTargets } from '../api/crawls';
 import { fetchCrawlTargets, fetchCrawls, startCrawls } from '../api/crawls';
 import { useSession } from '../auth/AuthProvider';
-import { formatDateTime, formatNumber, formatPercent } from '../format';
+import { formatNumber, formatPercent } from '../format';
 import { InfoHint } from '../components/InfoHint';
-import { Seams } from '../components/Seams';
 import { Unfold } from '../runs/Unfold';
-import { CrawlState, TargetsTable, healthLines, isActive } from './CrawlTable';
+import { TargetsTable, isActive } from './CrawlTable';
 import { crawlRule } from './crawlWords';
 import { ManualDonor } from './ManualDonor';
+import { RecentCrawls } from './RecentCrawls';
 import { StalePrices } from './StalePrices';
 import { notify } from '../notices';
 
@@ -103,40 +107,6 @@ function Skipped({
   );
 }
 
-function RecentCrawls({ view }: { view: CrawlsView | undefined }) {
-  const rows = view?.rows.slice(0, 5) ?? [];
-  if (rows.length === 0) return null;
-  return (
-    <Stack gap={4}>
-      <Text size="sm" fw={600}>
-        Последние обходы
-      </Text>
-      {/* На телефоне строка складывается в ярусы — домен, значок, дата, —
-          а не ужимает значок до «идё…» (06.10.2026). */}
-      {/* Доля закрытых страниц и мера здоровья ТЗ — в строке с датой (сверка ТЗ
-          11.10.2026): под значком они растягивали бы строку списка в ярусы. Почему обход
-          кончился — под значком, от его края (23.10.2026): по центру под значком строка
-          шире значка читалась отдельно от него. Домен, значок и дата — по первой строке. */}
-      {rows.map((row) => {
-        const health = healthLines(row);
-        return (
-          <Group key={row.id} gap="xs" align="baseline">
-            <Text size="sm" className="cellName">
-              <Seams text={row.host} />
-            </Text>
-            <CrawlState crawl={row} share={false} align="start" />
-            <Text size="xs" c="dimmed">
-              {formatDateTime(row.finished_at ?? row.created_at)}
-              {row.requested_by ? ` · ${row.requested_by}` : ''}
-              {health.map((said) => ` · ${said}`).join('')}
-            </Text>
-          </Group>
-        );
-      })}
-    </Stack>
-  );
-}
-
 /** Доноры и последние обходы — с опросом, пока что-то идёт. Кончился обход —
  *  кандидаты по нему считаются, и очередь рекламодателей ниже перечитывается,
  *  а не ждёт перезагрузки страницы. */
@@ -165,12 +135,12 @@ function useCrawlData() {
   return { targets, recent };
 }
 
-function useStartCrawls(onQueued: () => void) {
+function useStartCrawls(onQueued?: () => void) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (hosts: string[]) => startCrawls(hosts),
     onSuccess: async (done) => {
-      onQueued();
+      onQueued?.();
       await queryClient.invalidateQueries({ queryKey: CRAWL_TARGETS_KEY });
       await queryClient.invalidateQueries({ queryKey: CRAWLS_KEY });
       const clean = done.failed.length === 0 && Object.keys(done.refused).length === 0;
@@ -224,7 +194,10 @@ function about(data: CrawlTargets | undefined): string {
     'Этап 2 начинается здесь: обходим доноров с известной и свежей ценой и ищем, кому они ' +
     'ставят ссылки. Кандидаты в рекламодатели считаются сами, когда обход закончится.' +
     crawlRule(data) +
-    healthRule(data)
+    healthRule(data) +
+    ' Обход кончился частично, сайт закрылся или обход не начался — «Переобойти» в последних ' +
+    'обходах: новый обход заменит найденное прежним, а решения по спорным и спрошенный DR ' +
+    'перенесёт.'
   );
 }
 
@@ -371,6 +344,7 @@ function CrawlList({
   recent: CrawlsView | undefined;
 }) {
   const donors = data?.donors ?? [];
+  const again = useStartCrawls();
   return (
     <Stack gap="sm" id={LIST_ID}>
       {data && donors.length > 0 ? (
@@ -388,7 +362,11 @@ function CrawlList({
           </Button>
         </Group>
       ) : null}
-      <RecentCrawls view={recent} />
+      <RecentCrawls
+        view={recent}
+        eligible={new Set(donors.map((donor) => donor.host))}
+        start={mayStart ? again : null}
+      />
     </Stack>
   );
 }
