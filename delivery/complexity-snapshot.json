@@ -1707,7 +1707,7 @@
       "worst": "subject_for:91"
     },
     "backend/features/letters/attempts.py": {
-      "lines": 327,
+      "lines": 320,
       "complexity": 2,
       "worst": "next_address_note:159"
     },
