@@ -712,9 +712,9 @@
       "worst": "_print_build:107"
     },
     "backend/cli/mail_test.py": {
-      "lines": 255,
+      "lines": 273,
       "complexity": 6,
-      "worst": "_report:200"
+      "worst": "_report:218"
     },
     "backend/cli/main.py": {
       "lines": 499,
@@ -1837,9 +1837,9 @@
       "worst": "judge:173"
     },
     "backend/features/letters/probe.py": {
-      "lines": 173,
-      "complexity": 4,
-      "worst": "check_stoplist:125"
+      "lines": 199,
+      "complexity": 5,
+      "worst": "check_stoplist:138"
     },
     "backend/features/letters/recheck_answer.py": {
       "lines": 146,
@@ -1917,7 +1917,7 @@
       "worst": "check:48"
     },
     "backend/features/letters/stoplist.py": {
-      "lines": 496,
+      "lines": 500,
       "complexity": 7,
       "worst": "add:169"
     },

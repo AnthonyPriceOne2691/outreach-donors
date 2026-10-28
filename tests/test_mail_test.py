@@ -23,6 +23,7 @@ from backend.features.core.domain import SenderStatus, Stage, SuppressionReason
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import ReplyModel, SenderModel
+from backend.features.core.stages import SalesNotConnectedError
 from backend.features.letters import stoplist, unsubscribe
 from backend.features.letters.probe import PROBE_DOMAIN_ID, compose_probe
 from backend.features.letters.sendgrid import PROVIDER_ID_HEADER, SendGridTransport
@@ -74,6 +75,12 @@ async def _rows(session: AsyncSession) -> dict[str, int]:
     for table in Base.metadata.sorted_tables:
         counts[table.name] = int(await session.scalar(select(func.count()).select_from(table)) or 0)
     return counts
+
+
+async def _box(session: AsyncSession, stage: Stage) -> None:
+    """Включённый ящик этапа: без него проба откажет раньше стоп-листа."""
+    (await make_sender(session, SENDER)).stage = stage
+    await session.flush()
 
 
 class TestWhatGoesOut:
@@ -275,13 +282,14 @@ class TestTheStopList:
         capsys: pytest.CaptureFixture[str],
         *,
         to: str = TO,
+        stage: Stage = Stage.DONORS,
     ) -> str:
         """Проба не ушла: код отказа, платформа не звана, в базе ни строки. Что напечатано."""
         fake, transport = platform
-        await make_sender(session, SENDER)
+        await _box(session, stage)
         before = await _rows(session)
 
-        code = await run_mail_test(session, transport, to=to, sender=None, stage=Stage.DONORS)
+        code = await run_mail_test(session, transport, to=to, sender=None, stage=stage)
 
         assert code == EXIT_NOT_SENT
         assert fake.seen == []
@@ -372,22 +380,107 @@ class TestTheStopList:
         scope = "на всех этапах" if stage is None else "этапа donors"
         assert f"домен ours.test в стоп-листе {scope} (причина «supplier»)" in printed
 
+    @pytest.mark.parametrize(
+        "reason",
+        [SuppressionReason.MANUAL, SuppressionReason.UNSUBSCRIBED],
+        ids=["вручную", "отписка"],
+    )
     async def test_entry_of_another_stage_does_not_hold(
         self,
         session: AsyncSession,
         filled_legal: None,
         platform: tuple[Platform, SendGridTransport],
+        reason: SuppressionReason,
     ) -> None:
+        """Проба доноров — общим правилом отправки, как было: правило продаж только у продаж."""
         fake, transport = platform
         await make_sender(session, SENDER)
-        await stoplist.add(
-            session, TO, reason=SuppressionReason.MANUAL, stage=Stage.ADVERTISERS, author="тест"
+        session.add(
+            SuppressionModel(email=TO, stage=Stage.ADVERTISERS, reason=reason, created_by="тест")
         )
+        await session.flush()
 
         code = await run_mail_test(session, transport, to=TO, sender=None, stage=Stage.DONORS)
 
         assert code == EXIT_OK
         assert fake.seen[0]["personalizations"][0]["to"] == [{"email": TO}]
+
+    async def test_sales_probe_is_held_by_an_unsubscribe_of_another_stage(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Правило продаж (`holds_sales`): кто отписался от писем доноров, тому и продажи не
+        пишут — ни настоящим письмом, ни пробой."""
+        session.add(
+            SuppressionModel(
+                email=TO,
+                stage=Stage.DONORS,
+                reason=SuppressionReason.UNSUBSCRIBED,
+                created_by="приём ответов",
+            )
+        )
+        await session.flush()
+
+        printed = await self._refused(session, platform, capsys, stage=Stage.SALES)
+
+        assert (
+            f"адрес {TO} в стоп-листе этапа donors (причина «unsubscribed») — отписка и жалоба "
+            "держат и продажи: писать на него нельзя" in printed
+        )
+
+    async def test_sales_probe_is_held_by_a_complaint_on_the_domain(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        domain = DomainModel(host="ours.test")
+        session.add(domain)
+        await session.flush()
+        session.add(
+            SuppressionModel(
+                domain_id=domain.id,
+                stage=Stage.DONORS,
+                reason=SuppressionReason.COMPLAINED,
+                created_by="жалоба на спам",
+            )
+        )
+        await session.flush()
+
+        printed = await self._refused(session, platform, capsys, stage=Stage.SALES)
+
+        assert (
+            "домен ours.test в стоп-листе этапа donors (причина «complained») — отписка и жалоба "
+            "держат и продажи: запись на домен держит все его адреса" in printed
+        )
+
+    @pytest.mark.parametrize(
+        "reason",
+        [SuppressionReason.MANUAL, SuppressionReason.SUPPLIER],
+        ids=["вручную", "размещались"],
+    )
+    async def test_our_own_entry_of_another_stage_does_not_hold_sales(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+        reason: SuppressionReason,
+    ) -> None:
+        """Ручная запись и «размещались» этапа доноров — наше решение о сайте, а не просьба
+        человека: продажи они не держат. Проба проходит стоп-лист и доходит до сборки письма —
+        там и отказ: первое письмо продаж собирает модуль продаж, файлом его нет."""
+        fake, transport = platform
+        await _box(session, Stage.SALES)
+        await stoplist.add(session, TO, reason=reason, stage=Stage.DONORS, author="тест")
+
+        with pytest.raises(SalesNotConnectedError, match="Первое письмо этапа sales"):
+            await run_mail_test(session, transport, to=TO, sender=None, stage=Stage.SALES)
+
+        assert fake.seen == []
 
     async def test_expired_entry_holds_nobody(
         self,

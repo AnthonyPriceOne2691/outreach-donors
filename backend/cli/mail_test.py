@@ -24,8 +24,13 @@
 напрямую, и до этого дня адрес ограничивал только предохранитель. На боевой
 учётке его список пуст, и ничто не мешало послать пробу адресу из стоп-листа.
 Теперь адрес, который держит стоп-лист этапа пробы, — запись на сам адрес
-или на его домен, — отказ до отправки, тем же правилом, что у отправки
-(`probe.check_stoplist`, `stoplist.holding`). Проверка только читает.
+или на его домен, — отказ до отправки, тем же правилом, что у настоящего
+письма этапа (`probe.check_stoplist`, `stoplist.holding`). Проверка только читает.
+
+**У продаж правило — продаж** (ревью продаж к #499). Их письмо держат шире
+общего: и записи других этапов, где человек сам отписался или пожаловался
+(`sales/suppressions.holds_sales` — одно условие у очистки и отправки продаж).
+Почта продажи не импортирует, и правило пробе даёт консоль (`_stop_rule`).
 
 **Что проверить — печатается.** Заголовки полученного письма говорят
 о настройке домена больше любого ответа платформы: подпись DKIM с доменом
@@ -36,6 +41,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -46,10 +52,11 @@ from backend.config.startup_checks import check_storage
 from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import SenderModel
 from backend.features.letters import identity
-from backend.features.letters.probe import Probe, check_stoplist, compose_probe
+from backend.features.letters.probe import Probe, StopRule, check_stoplist, compose_probe
 from backend.features.letters.sending import SendError
 from backend.features.letters.transport import Transport, TransportError
 from backend.features.letters.transport_factory import build_transport, in_use
+from backend.features.sales.suppressions import holds_sales
 
 EXIT_OK = 0
 #: Тот же код, что у `letters-send`: письмо не ушло.
@@ -130,8 +137,8 @@ async def run_mail_test(
         await _check_known(session, sender_email, stage)
 
     try:
-        # Стоп-лист — до сборки и отправки: проба судится им, как настоящее письмо.
-        await check_stoplist(session, to=to, stage=stage)
+        # Стоп-лист — до сборки и отправки: проба судится им, как настоящее письмо этапа.
+        await check_stoplist(session, to=to, stage=stage, rule=_stop_rule(stage))
         probe = compose_probe(to=to, sender_email=sender_email, stage=stage, real=transport.real)
         provider_id = await transport.send(probe.outgoing)
     except (SendError, TransportError) as exc:
@@ -140,6 +147,17 @@ async def run_mail_test(
 
     _report(probe, provider_id, stage=stage, transport=transport)
     return EXIT_OK
+
+
+def _stop_rule(stage: Stage) -> StopRule | None:
+    """Своё правило стоп-листа у этапа пробы — то, которым судится его настоящее письмо.
+
+    У продаж — правило продаж (`holds_sales`): запись другого этапа, где человек сам отписался
+    или пожаловался, держит и их. Остальным этапам — общее правило отправки: `None`.
+    """
+    if stage is Stage.SALES:
+        return StopRule(holds_sales(datetime.now(UTC)), "отписка и жалоба держат и продажи")
+    return None
 
 
 def _announce(transport: Transport, stage: Stage) -> None:

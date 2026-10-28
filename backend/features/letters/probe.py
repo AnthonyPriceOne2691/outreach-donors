@@ -29,9 +29,10 @@
 Поэтому заголовок `List-Unsubscribe` в пробном письме есть — такой же,
 как у донора.
 
-**Адресат судится стоп-листом, как у настоящей отправки** (28.10.2026):
+**Адресат судится стоп-листом, как у настоящего письма этапа** (28.10.2026):
 проба уходит транспорту мимо `Sending.send`, и правило отправки проверяется
-здесь же, до сборки письма (`check_stoplist`).
+здесь же, до сборки письма (`check_stoplist`). У продаж правило своё, шире
+общего, — его даёт консоль (`StopRule`): почта модуль продаж не импортирует.
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import Stage
@@ -78,6 +79,18 @@ class Probe:
     #: Почему в письме нет заголовка отписки: имя недостающей настройки.
     #: Пусто — заголовок есть.
     missing_unsubscribe: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class StopRule:
+    """Своё правило стоп-листа у этапа, чьё письмо стоп-лист держит шире общего, — вместо
+    условия этапа (`stoplist.holding(rule=…)`). Даёт его консоль (`cli/mail_test.py`):
+    правило продаж живёт в модуле продаж, а почта его не импортирует."""
+
+    #: Какие записи держат письмо этапа — условием SQL, со сроком.
+    holds: ColumnElement[bool]
+    #: Почему держит запись другого этапа — словами отказа.
+    why: str
 
 
 def letter_for(stage: Stage) -> compose.Letter:
@@ -122,11 +135,15 @@ def compose_probe(*, to: str, sender_email: str, stage: Stage, real: bool) -> Pr
     )
 
 
-async def check_stoplist(session: AsyncSession, *, to: str, stage: Stage) -> None:
+async def check_stoplist(
+    session: AsyncSession, *, to: str, stage: Stage, rule: StopRule | None = None
+) -> None:
     """Пробное письмо — только адресу, которого не держит стоп-лист этапа `stage`.
 
-    Правило — отправки (`stoplist.holding`): держит запись на адрес и запись на его домен —
-    она держит все адреса домена; запись без этапа держит все этапы, истёкшая — никого.
+    Правило — настоящего письма этапа. Общее — отправки (`stoplist.holding`): держит запись
+    на адрес и запись на его домен — она держит все адреса домена; запись без этапа держит
+    все этапы, истёкшая — никого. Своё правило этапа (`rule`) заменяет условие этапа: у
+    продаж держат и записи других этапов, где человек сам отписался или пожаловался.
     Домен адреса — строка `domains` по хосту адреса, тем ключом, которым стоп-лист заводит
     домен (`stoplist.site_of`): поддомен почты и `www.` сводятся к корню сайта. Домена
     в базе нет — держать может только запись на адрес. Только читает: транзакция консоли
@@ -140,12 +157,16 @@ async def check_stoplist(session: AsyncSession, *, to: str, stage: Stage) -> Non
         else None
     )
     held = await stoplist.holding(
-        session, stage=stage, domain_ids=[] if domain_id is None else [domain_id], emails=[email]
+        session,
+        stage=stage,
+        domain_ids=[] if domain_id is None else [domain_id],
+        emails=[email],
+        rule=None if rule is None else rule.holds,
     )
     if held:
         # Запись на сам адрес — первой: она называет его, а не весь домен.
         row = min(held, key=lambda found: (found.email != email, found.id))
-        raise SuppressedError(_held_words(row, email=email, host=host))
+        raise SuppressedError(_held_words(row, email=email, host=host, stage=stage, rule=rule))
 
 
 def _site(email: str) -> str:
@@ -159,10 +180,15 @@ def _site(email: str) -> str:
         return ""
 
 
-def _held_words(row: SuppressionModel, *, email: str, host: str) -> str:
-    """Что держит пробу и почему — словами отказа: запись на адрес или на домен адреса."""
+def _held_words(
+    row: SuppressionModel, *, email: str, host: str, stage: Stage, rule: StopRule | None
+) -> str:
+    """Что держит пробу и почему — словами отказа: запись на адрес или на домен адреса.
+    Запись другого этапа держит только своим правилом этапа — и слова называют его."""
     scope = "на всех этапах" if row.stage is None else f"этапа {row.stage.value}"
     why = f"{scope} (причина «{row.reason.value}»)"
+    if rule is not None and row.stage not in (None, stage):
+        why = f"{why} — {rule.why}"
     held = (
         f"адрес {email} в стоп-листе {why}: писать на него нельзя"
         if row.email == email
