@@ -13,6 +13,9 @@
 называется «Демонстрация». Команда `--clear` убирает ровно эти записи
 и не трогает остальные: перепутать демонстрацию с боевыми данными
 нельзя ни на экране, ни в базе.
+
+**На боевой базе не заводится** (28.10.2026): при настоящей почте заводить —
+отказ, убирать — можно всегда; почему — `demo_guard.py`.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from decimal import Decimal
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from backend.cli import demo_guard
 from backend.cli.demo_content import (
     CONVERSATIONS,
     LETTER_BODY,
@@ -72,6 +76,8 @@ DEMO_CAMPAIGN_QUEUE = "Демонстрация: очередь"
 DEMO_CAMPAIGNS = (DEMO_CAMPAIGN, DEMO_CAMPAIGN_TODAY, DEMO_CAMPAIGN_QUEUE)
 
 EXIT_OK = 0
+#: Демонстрация не заведена: почта настоящая — это боевая база (`demo_guard.py`).
+EXIT_REFUSED = 2
 
 
 async def _clear(session: AsyncSession) -> int:
@@ -446,23 +452,32 @@ async def cmd_demo_seed(args: argparse.Namespace) -> int:
     """Набить базу выдуманными данными для показа экранов."""
     check_storage()
     engine = create_async_engine(storage.DSN)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    now = datetime.now(UTC)
     try:
-        async with factory() as session:
-            removed = await _clear(session)
-            if args.clear:
-                print(f"Демонстрационные данные убраны: доменов {removed}.")
-                return EXIT_OK
-
-            senders = await _seed_senders(session, now)
-            sent_today = await _seed_sent_today(session, senders, now)
-            queued = await _seed_queue(session, now)
-            threads = await _seed_threads(session, now)
-            await session.commit()
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            return await run_demo_seed(session, clear=args.clear, now=datetime.now(UTC))
     finally:
         await engine.dispose()
 
+
+async def run_demo_seed(session: AsyncSession, *, clear: bool, now: datetime) -> int:
+    """Демонстрация на готовой сессии — отдельно от команды ради теста: база в нём тестовая,
+    а путь тот же. Заводить — только при ненастоящей почте, убирать — всегда."""
+    if not clear:
+        try:
+            demo_guard.refuse_live_base()
+        except demo_guard.LiveBaseError as exc:
+            print(f"Демонстрация не заведена: {exc}")
+            return EXIT_REFUSED
+    removed = await _clear(session)
+    if clear:
+        print(f"Демонстрационные данные убраны: доменов {removed}.")
+        return EXIT_OK
+
+    senders = await _seed_senders(session, now)
+    sent_today = await _seed_sent_today(session, senders, now)
+    queued = await _seed_queue(session, now)
+    threads = await _seed_threads(session, now)
+    await session.commit()
     print(
         f"Заведено: ящиков рассылки {len(senders)}, писем за сегодня {sent_today}, "
         f"в очереди {queued}, диалогов {threads}."

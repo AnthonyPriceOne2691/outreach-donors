@@ -22,24 +22,44 @@ from backend.config import outreach as cfg
 from backend.features.letters.sendgrid import SendGridTransport
 from backend.features.letters.transport import NullTransport, Transport, TransportError
 
+#: Транспорты по имени в настройке. Признак `real` — у класса: настоящая ли отправка,
+#: видно без сборки (`sends_for_real`).
+_KINDS: dict[str, type[NullTransport] | type[SendGridTransport]] = {
+    "null": NullTransport,
+    "sendgrid": SendGridTransport,
+}
+
+
+def _kind(name: str | None) -> type[NullTransport] | type[SendGridTransport]:
+    """Какой транспорт выбран настройкой. Неизвестное имя — отказ, а не заглушка."""
+    chosen = (name or cfg.TRANSPORT).strip().lower()
+    if chosen not in _KINDS:
+        raise TransportError(
+            f"Транспорт «{chosen}» неизвестен. Бывают: null (ничего не шлёт), sendgrid"
+        )
+    return _KINDS[chosen]
+
 
 def build_transport(name: str | None = None, *, stage: str | None = None) -> Transport:
     """Транспорт по настройке — общей учётки или учётки этапа (`cfg.mail_account`).
 
     Неизвестное имя — отказ, а не заглушка.
     """
-    chosen = (name or cfg.TRANSPORT).strip().lower()
-
-    if chosen == "null":
-        return NullTransport()
-
-    if chosen == "sendgrid":
+    kind = _kind(name)
+    if kind is SendGridTransport:
         # Ключа может не быть — тогда транспорт сам скажет, чего ждёт.
         return SendGridTransport(account=cfg.mail_account(stage))
+    return kind()
 
-    raise TransportError(
-        f"Транспорт «{chosen}» неизвестен. Бывают: null (ничего не шлёт), sendgrid"
-    )
+
+def sends_for_real(name: str | None = None) -> bool:
+    """Настоящая ли почта выбрана настройкой — признак `real` транспорта, без его сборки.
+
+    Боевому для сборки нужны ключ платформы и HTTP-клиент, а здесь вопрос только в том,
+    какой транспорт выбран: так спрашивает консоль, которой почта не нужна вовсе
+    (`cli/demo_guard.py`). Неизвестное имя — отказ, как у сборки.
+    """
+    return _kind(name).real
 
 
 class Transports:

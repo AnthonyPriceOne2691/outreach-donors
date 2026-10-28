@@ -4,6 +4,7 @@
 и до 06.10.2026 их не заводил ни один тест: сломанная демонстрация видна была
 только на снимке экрана. Здесь — то, ради чего в неё добавлен список цен:
 под ценой ответа стоят все цены письма, и каждое число из текста письма.
+И то, что на боевой базе — при настоящей почте — она не заводится (`cli/demo_guard.py`).
 """
 
 from __future__ import annotations
@@ -11,13 +12,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
 from backend.cli import demo_data
 from backend.cli.demo_content import REPLIES, reply_text
+from backend.config import outreach as outreach_cfg
 from backend.features.core.models.domain import DomainModel
-from backend.features.core.models.outreach import ReplyModel
+from backend.features.core.models.outreach import ReplyModel, SenderModel
 from backend.features.replies.money import appears_in
+from backend.shared import demo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.test_mail_test import _rows
 
 NOW = datetime(2026, 10, 6, 12, 0, tzinfo=UTC)
 
@@ -103,3 +108,81 @@ async def test_clear_removes_only_the_demo(session: AsyncSession) -> None:
     assert removed > 0
     assert hosts == ["real-donor.invalid"]
     assert (await session.execute(select(ReplyModel))).scalars().all() == []
+
+
+class TestLiveBase:
+    """На боевой базе демонстрация не заводится (`cli/demo_guard.py`): демо-ящики доноров
+    без строки лимитов встали бы в рассылку первыми, и первые письма вставали бы отказом
+    платформы. Боевая — где почта настоящая; убирать выдуманное можно всегда."""
+
+    async def test_real_mail_refuses_and_writes_nothing(
+        self,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Ключ не нужен: признак настоящей почты — без сборки транспорта."""
+        monkeypatch.setattr(outreach_cfg, "TRANSPORT", "sendgrid")
+        monkeypatch.setattr(outreach_cfg, "SENDGRID_API_KEY", "")
+        before = await _rows(session)
+
+        code = await demo_data.run_demo_seed(session, clear=False, now=NOW)
+
+        assert code == demo_data.EXIT_REFUSED
+        assert (
+            "Демонстрация не заведена: это боевая база — почта уходит по-настоящему "
+            "(OUTREACH_TRANSPORT=sendgrid)" in capsys.readouterr().out
+        )
+        assert await _rows(session) == before
+
+    async def test_unknown_transport_is_refused_too(
+        self,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(outreach_cfg, "TRANSPORT", "carrier-pigeon")
+        before = await _rows(session)
+
+        code = await demo_data.run_demo_seed(session, clear=False, now=NOW)
+
+        assert code == demo_data.EXIT_REFUSED
+        printed = capsys.readouterr().out
+        assert "Демонстрация не заведена: боевая ли это база, не понять" in printed
+        assert "«carrier-pigeon» неизвестен" in printed
+        assert await _rows(session) == before
+
+    async def test_clear_works_with_real_mail(
+        self,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Демонстрацию, заведённую до включения почты, иначе было бы не убрать."""
+        session.add(DomainModel(host="real-donor.invalid"))
+        await _seed(session)
+        monkeypatch.setattr(outreach_cfg, "TRANSPORT", "sendgrid")
+
+        code = await demo_data.run_demo_seed(session, clear=True, now=NOW)
+
+        assert code == demo_data.EXIT_OK
+        assert "Демонстрационные данные убраны" in capsys.readouterr().out
+        hosts = (await session.execute(select(DomainModel.host))).scalars().all()
+        assert hosts == ["real-donor.invalid"]
+        assert (await session.execute(select(SenderModel))).scalars().all() == []
+
+    async def test_null_transport_seeds_as_before(
+        self,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(outreach_cfg, "TRANSPORT", "null")
+
+        code = await demo_data.run_demo_seed(session, clear=False, now=NOW)
+
+        assert code == demo_data.EXIT_OK
+        assert "Заведено: ящиков рассылки" in capsys.readouterr().out
+        senders = (await session.execute(select(SenderModel))).scalars().all()
+        assert senders
+        assert all(demo.is_demo(sender.domain) for sender in senders)

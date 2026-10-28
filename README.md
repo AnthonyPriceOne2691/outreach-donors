@@ -205,7 +205,9 @@ OUTREACH_ALLOWED_RECIPIENTS=anna@наш-домен.example   # предохра�
 на свои адреса — так проверяются формат письма, заголовки цепочки
 и кнопка отписки. Пустой список означает боевую рассылку, и каждое
 письмо говорит об этом строкой в логе: тихо перейти из проверки
-в рассылку нельзя.
+в рассылку нельзя. Пробное письмо себе (`outreach mail-test`) уходит
+мимо очереди, но стоп-лист судит и его, как настоящую отправку: адрес
+из стоп-листа или на домене из него — отказ.
 
 **Следы такой проверки на настоящих доменах убирает
 `outreach prune --test-traces`** — всё, что адресовано своим ящикам: ящик
@@ -273,10 +275,11 @@ OUTREACH_INBOUND_SECRET=$(openssl rand -hex 32)   # им подписана ме
 .venv/bin/outreach letters-build --campaign «Сентябрь» --stage advertisers  # офферы рекламодателям
 .venv/bin/outreach letters                 # что стоит в очереди и с каким отличием
 .venv/bin/outreach letters-send --id 42    # отправить одно письмо
-.venv/bin/outreach demo-seed              # выдуманные домены и переписка — посмотреть экраны
-.venv/bin/outreach demo-seed --clear      # убрать выдуманное
+.venv/bin/outreach demo-seed              # выдуманные домены и переписка — посмотреть экраны; при настоящей почте — отказ
+.venv/bin/outreach demo-seed --clear      # убрать выдуманное — всегда, и на боевой базе
 .venv/bin/outreach prune --runs 18,19 --replies 1        # что уйдёт с прогонами и пробными ответами
 .venv/bin/outreach prune --runs 18,19 --replies 1 --yes  # удалить одной транзакцией, с записью в журнал
+.venv/bin/outreach mail-test --to me@ours.example         # пробное письмо себе; адрес из стоп-листа или на его домене — отказ
 .venv/bin/outreach probe-donor --email me@ours.example     # липовый донор: проверить цепочку письмо → ответ → цена
 .venv/bin/outreach probe-advertiser --email me@ours.example --donor donor.example  # пробный рекламодатель: оффер Этапа 2 себе
 .venv/bin/outreach prune --probes --yes                   # убрать липовых доноров и пробных рекламодателей целиком, с перепиской
