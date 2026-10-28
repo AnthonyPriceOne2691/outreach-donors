@@ -34,6 +34,8 @@ EXPECTED_TABLES = {
     "crawl_runs",
     "outlinks",
     "advertiser_candidates",
+    # Память донора: решение человека и DR по паре «донор + домен» переживают повтор обхода.
+    "candidate_memory",
     "advertisers",
     "supplier_donors",
     # Прогон кончается очередью на рассмотрение: кандидаты прогона.

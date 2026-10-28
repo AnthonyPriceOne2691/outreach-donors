@@ -1162,7 +1162,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 99,
+      "lines": 100,
       "complexity": 0,
       "worst": "—"
     },
@@ -1177,7 +1177,7 @@
       "worst": "—"
     },
     "backend/features/core/models/advertiser.py": {
-      "lines": 80,
+      "lines": 125,
       "complexity": 0,
       "worst": "—"
     },
@@ -1337,9 +1337,9 @@
       "worst": "same_site_links:55"
     },
     "backend/features/crawl/gate.py": {
-      "lines": 274,
+      "lines": 336,
       "complexity": 8,
-      "worst": "judge_run:179"
+      "worst": "judge_run:221"
     },
     "backend/features/crawl/health.py": {
       "lines": 106,
