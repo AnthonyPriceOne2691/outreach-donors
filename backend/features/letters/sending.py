@@ -100,8 +100,8 @@ class StalePriceError(SendError):
 
 
 class UndecidedDonorError(SendError):
-    """Донора вернули в «предложен» после сборки письма: пока человек
-    решает, писать нельзя, но и обрывать разговор из-за этого нельзя."""
+    """Донора вернули в «предложен» или бизнес ниши снова ждёт решения после сборки письма:
+    пока человек решает, писать нельзя, но и обрывать разговор из-за этого нельзя."""
 
 
 class NotWritingError(SuppressedError):
@@ -113,8 +113,8 @@ class OtherRoleError(SuppressedError):
 
 
 #: Отказ при отправке (`donor_standing.py`, `offer_standing.py`) — классом: на отклонении,
-#: снятых рекламодателе или ссылке и «кому не пишем» цепочка кончается, а ждущему решения
-#: или перезапроса цены письмо ждёт.
+#: снятых рекламодателе или ссылке, «не пишем» бизнесу ниши и «кому не пишем» цепочка
+#: кончается, а ждущему решения человека или перезапроса цены письмо ждёт.
 _DONOR_REFUSED: dict[Refusal, type[SendError]] = {
     Refusal.REJECTED: RejectedDonorError,
     Refusal.UNDECIDED: UndecidedDonorError,
@@ -122,7 +122,9 @@ _DONOR_REFUSED: dict[Refusal, type[SendError]] = {
 }
 _OFFER_REFUSED: dict[OfferRefused, type[SendError]] = {
     OfferRefused.REMOVED: RemovedAdvertiserError,
+    OfferRefused.DECLINED: RemovedAdvertiserError,
     OfferRefused.NOT_WRITING: NotWritingError,
+    OfferRefused.UNDECIDED: UndecidedDonorError,
     OfferRefused.WITHDRAWN: WithdrawnLinkError,
     OfferRefused.SUPPLIER: WithdrawnLinkError,
     OfferRefused.EXAMPLE: NotWritingError,
@@ -347,11 +349,11 @@ class Sending:
     async def _check_review(self, target: _Target) -> None:
         """Решение человека проверяется при отправке, а не только при сборке.
 
-        Между сборкой и отправкой человек может передумать: принять, вернуть
-        в «предложен», отклонить (Anthony, 24.09.2026), а донору из «кому не пишем»
-        ТЗ не уходят ни письмо, ни добивка (`donor_standing.py`). Рекламодатели
-        Этапа 2 рассмотрения донора не проходят, у них своя проверка; можно ли
-        писать лиду продаж — проверка модуля продаж (`stages.check_sales`).
+        Между сборкой и отправкой человек может передумать: принять, вернуть в «предложен»,
+        отклонить (Anthony, 24.09.2026), а донору из «кому не пишем» ТЗ не уходят ни письмо,
+        ни добивка, ни перезапрос цены (`donor_standing.py`). Рекламодатели Этапа 2
+        рассмотрения донора не проходят, у них своя проверка; можно ли писать лиду продаж —
+        проверка модуля продаж (`stages.check_sales`).
         """
         if target.to.stage is Stage.ADVERTISERS:
             await self._check_advertiser(target)
@@ -365,8 +367,9 @@ class Sending:
             raise _DONOR_REFUSED[refused.reason](refused.words)
 
     async def _check_advertiser(self, target: _Target) -> None:
-        """Рекламодатель не снят, площадка не из «кому не пишем», ссылка и цена — в порядке
-        `offer_standing.py`. Письмо, которому ждать нечего, там же и останавливается."""
+        """Рекламодатель не снят (бизнес ниши — со «пишем» человека), площадка не из «кому
+        не пишем», ссылка и цена — в порядке `offer_standing.py`. Письмо, которому ждать
+        нечего, там же и останавливается."""
         refused = await check_offer(
             self._session, target.message, host=target.host, now=self._moment()
         )

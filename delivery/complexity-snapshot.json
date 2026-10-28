@@ -1282,9 +1282,9 @@
       "worst": "_row:237"
     },
     "backend/features/crawl/advertiser_rules.py": {
-      "lines": 49,
+      "lines": 50,
       "complexity": 1,
-      "worst": "writes_to:31"
+      "worst": "writes_to:32"
     },
     "backend/features/crawl/affiliate.py": {
       "lines": 170,
@@ -1372,7 +1372,7 @@
       "worst": "marker_reason:71"
     },
     "backend/features/crawl/niche.py": {
-      "lines": 301,
+      "lines": 304,
       "complexity": 9,
       "worst": "collect:68"
     },
@@ -1712,9 +1712,9 @@
       "worst": "next_address_note:159"
     },
     "backend/features/letters/batch.py": {
-      "lines": 228,
+      "lines": 231,
       "complexity": 5,
-      "worst": "_send_one:179"
+      "worst": "_send_one:182"
     },
     "backend/features/letters/building.py": {
       "lines": 471,
@@ -1802,9 +1802,9 @@
       "worst": "advertiser_addresses:20"
     },
     "backend/features/letters/offer_standing.py": {
-      "lines": 411,
+      "lines": 476,
       "complexity": 9,
-      "worst": "_niche_example:295"
+      "worst": "_niche_example:360"
     },
     "backend/features/letters/optout.py": {
       "lines": 247,
@@ -1897,9 +1897,9 @@
       "worst": "_post:174"
     },
     "backend/features/letters/sending.py": {
-      "lines": 496,
+      "lines": 499,
       "complexity": 5,
-      "worst": "_hand_over:420"
+      "worst": "_hand_over:423"
     },
     "backend/features/letters/settle.py": {
       "lines": 175,
