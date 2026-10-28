@@ -2027,9 +2027,9 @@
       "worst": "screen:48"
     },
     "backend/features/outreach/own_inboxes.py": {
-      "lines": 472,
+      "lines": 487,
       "complexity": 8,
-      "worst": "inbox_trace:229"
+      "worst": "inbox_trace:244"
     },
     "backend/features/outreach/repository.py": {
       "lines": 499,
