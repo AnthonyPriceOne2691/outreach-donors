@@ -34,7 +34,8 @@
 ниши — после «пишем». Вписанный адрес — тот же `manual.add`: строка в `contacts`
 домена, и сборка оффера берёт его, как найденный лестницей. Стоп-лист и одна роль на сайт —
 тем же правилом, что у доноров, своим этапом (`_form_allowed`, 28.10.2026): запись,
-держащая рекламодателей, и живое письмо доноров или продаж.
+держащая рекламодателей, и живое письмо доноров или продаж. Бизнес ниши — ещё и не из
+«кому не пишем» на самом сайте (`runs.exclusions.site_not_writing`), даже с «пишем».
 
 **Ориентир темпа — один на обе очереди** (`monthly_left`): он про руки, а руки одни;
 считаются только адреса, вписанные человеком, — доноров и рекламодателей.
@@ -61,7 +62,7 @@ from backend.features.crawl.advertiser_rules import in_work
 from backend.features.crawl.niche import NICHE
 from backend.features.donors.standing import is_donor
 from backend.features.letters import attempts
-from backend.features.runs.exclusions import not_writing, stoplisted
+from backend.features.runs.exclusions import domain_site_not_writing, not_writing, stoplisted
 from backend.shared.database.ids import storable
 
 logger = logging.getLogger(__name__)
@@ -316,12 +317,19 @@ def advertiser_in_queue() -> ColumnElement[bool]:
     """Кто из рекламодателей ждёт рук — одно условие для страницы, числа (вкладка, меню,
     главная) и строки под действие, как у доноров (`in_queue`): ему пишем (`in_work`),
     лестница нашла только форму, адреса в базе нет, и сайт открыт для формы — запись
-    стоп-листа рекламодателей его не держит, другое направление ему не пишет (`_form_allowed`)."""
+    стоп-листа рекламодателей его не держит, другое направление ему не пишет (`_form_allowed`).
+
+    Бизнес ниши — ещё и не из «кому не пишем» на самом сайте, правилом отправки
+    (`site_not_writing`, ТЗ: «кому не пишем» — на всех путях): письмо такому отправка
+    остановит, и «пишем» человека этого не перебивает (28.10.2026). У рекламодателя по ссылке
+    сайт так не судится и при отправке: его «кому не пишем» отсеивает гейт кандидатов обхода.
+    """
     return and_(
         in_work(),
         AdvertiserModel.contact_status == ContactStatus.FORM_ONLY,
         ~has_address(AdvertiserModel.domain_id),
         _form_allowed(AdvertiserModel.domain_id, Stage.ADVERTISERS),
+        or_(AdvertiserModel.source != NICHE, ~domain_site_not_writing(AdvertiserModel.domain_id)),
     )
 
 
@@ -390,8 +398,8 @@ async def _advertiser(session: AsyncSession, advertiser_id: int) -> AdvertiserFo
         raise UnknownFormError(
             f"Рекламодателя №{advertiser_id} нет в ручной очереди: либо адрес у него уже "
             "есть, либо ему не пишем: сайт в стоп-листе или в работе у другого направления, "
-            "а бизнесу ниши форму заполняют после «пишем», — либо очередь успел разобрать "
-            "кто-то другой"
+            "бизнес ниши — из «кому не пишем» или без «пишем» человека, — либо очередь успел "
+            "разобрать кто-то другой"
         )
     return _advertiser_row(*found._tuple())
 

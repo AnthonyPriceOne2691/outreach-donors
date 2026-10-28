@@ -273,6 +273,16 @@ def site_not_writing(domain_id: Any, host: Any) -> ColumnElement[bool]:
     return or_(_by_name_sql(host), domain_not_writing(domain_id))
 
 
+def domain_site_not_writing(domain_id: Any) -> ColumnElement[bool]:
+    """Сайт этого домена — в «кому не пишем» (`site_not_writing`), для запросов без строки
+    домена: число очереди «Форм» рекламодателей считается без `domains`
+    (`contacts/forms.advertiser_in_queue`, 28.10.2026). Хост — через свой псевдоним доменов:
+    подзапрос не цепляется за внешний запрос и годен и там, где домены в нём есть (`named`)."""
+    domain = aliased(DomainModel)
+    off = site_not_writing(domain.id, domain.host)
+    return select(domain.id).where(domain.id == domain_id, off).exists()
+
+
 async def site_not_writing_reason(session: AsyncSession, domain_id: int) -> str | None:
     """Почему этому сайту не пишем — словами, как `site_not_writing`; `None` — пишем."""
     off = await not_writing_reason(session, domain_id)

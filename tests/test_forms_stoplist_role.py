@@ -8,7 +8,9 @@
 письмо другого этапа (`attempts.roles_elsewhere`).
 
 Одним условием судят страница очереди, её число, меню, главная и строка под действие, у доноров —
-ещё и карточка: каждый случай сверяется со всеми сразу, на обеих очередях.
+ещё и карточка: каждый случай сверяется со всеми сразу, на обеих очередях. Бизнес ниши из «кому
+не пишем» — тоже не в очереди, и «пишем» человека этого не перебивает: ТЗ, «кому не пишем» — на
+всех путях; рекламодатель по ссылке так не судится — его отсеял гейт кандидатов.
 """
 
 from __future__ import annotations
@@ -31,6 +33,8 @@ from backend.features.core.models.access import UserModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
+from backend.features.crawl.denylist import MAJOR_MEDIA
+from backend.features.crawl.niche import NICHE
 from backend.features.letters import attempts
 from backend.features.ops.overview import overview, work
 from backend.features.outreach.repository import EVERY_STAGE
@@ -45,6 +49,8 @@ SignIn = Callable[..., Awaitable[str]]
 
 HOST = "held.example.test"
 FREE = "free.example.test"
+#: Крупное СМИ — из самого списка (`crawl/denylist.py`), а не вписанное здесь.
+MEDIA = sorted(MAJOR_MEDIA)[0]
 
 
 @pytest.fixture
@@ -333,8 +339,9 @@ class TestTheRowForAnAction:
         assert answer.status_code == 409
         assert answer.json()["detail"] == (
             f"Рекламодателя №{advertiser.id} нет в ручной очереди: либо адрес у него уже есть, "
-            "либо ему не пишем: сайт в стоп-листе или в работе у другого направления, а бизнесу "
-            "ниши форму заполняют после «пишем», — либо очередь успел разобрать кто-то другой"
+            "либо ему не пишем: сайт в стоп-листе или в работе у другого направления, бизнес "
+            "ниши — из «кому не пишем» или без «пишем» человека, — либо очередь успел разобрать "
+            "кто-то другой"
         )
         written = await session.scalar(
             select(func.count(ContactModel.id)).where(
@@ -356,6 +363,53 @@ class TestTheRowForAnAction:
 
         assert answer.status_code == 409
         assert "нет в ручной очереди" in answer.json()["detail"]
+
+
+async def _niche_business(session: AsyncSession, host: str) -> int:
+    """Бизнес ниши из выдачи с «пишем» человека — на сайте только форма; номер рекламодателя."""
+    business = await promoted(
+        session,
+        host,
+        source=NICHE,
+        confirmed=True,
+        decided=True,
+        contact_status=ContactStatus.FORM_ONLY,
+    )
+    return business.id
+
+
+async def _not_writing_site(session: AsyncSession, how: str) -> str:
+    """Сайт из «кому не пишем»: по имени — из списка крупных СМИ, по DR — замер прогона выше
+    порога (строка донора без решения человека). Возвращает его хост."""
+    if how == "по-имени":
+        return MEDIA
+    await make_donor(session, HOST, dr=88, review=None)
+    return HOST
+
+
+class TestNicheBusinessWeDoNotWriteTo:
+    @pytest.mark.parametrize("how", ["по-имени", "по-DR"])
+    async def test_is_neither_in_the_queue_nor_in_the_counts(
+        self, session: AsyncSession, how: str
+    ) -> None:
+        """Письмо такому бизнесу отправка остановит (`site_not_writing`) — и форма не нужна."""
+        host = await _not_writing_site(session, how)
+        held = await _niche_business(session, host)
+        await _niche_business(session, FREE)
+
+        assert await _advertisers_waiting(session) == [FREE]
+        with pytest.raises(UnknownFormError, match="нет в ручной очереди"):
+            await forms.advertiser_filled(session, held, email=f"ads@{host}")
+
+    @pytest.mark.parametrize("how", ["по-имени", "по-DR"])
+    async def test_advertiser_by_a_link_is_not_judged_so(
+        self, session: AsyncSession, how: str
+    ) -> None:
+        """По ссылке — как раньше: при отправке его сайт так не судится."""
+        host = await _not_writing_site(session, how)
+        await promoted(session, host, contact_status=ContactStatus.FORM_ONLY)
+
+        assert await _advertisers_waiting(session) == [host]
 
 
 async def test_card_says_whether_the_donor_waits_by_the_queue_condition(
