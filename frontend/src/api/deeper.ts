@@ -25,6 +25,8 @@ export type DonorCardWithReach = DonorFullCard & {
   contact_reason?: string | null;
   /** Страница с контактной формой сайта. */
   form_url?: string | null;
+  /** Стоит ли донор в очереди «Формы» — её условием на сервере (`forms.queued`). */
+  in_forms?: boolean;
   deeper?: DeeperCard;
 };
 

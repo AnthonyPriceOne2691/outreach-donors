@@ -34,6 +34,7 @@ from typing import Any
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.contacts import forms
 from backend.features.contacts.deeper import deeper_ready, deeper_refusal
 from backend.features.contacts.manual import removal_refusals
 from backend.features.contacts.preference import preferred_first
@@ -195,6 +196,8 @@ class DonorCard:
     price_reply_text: str | None = None
     #: Страница с контактной формой сайта (`domains.contact_form_url`).
     form_url: str | None = None
+    #: Стоит ли донор в очереди «Форм» — её условием (`forms.queued`).
+    in_forms: bool = False
     #: «Искать глубже»: почему нельзя сейчас (`None` — можно) — тем же правилом, что кнопка.
     deeper_refusal: str | None = None
 
@@ -432,6 +435,7 @@ class DonorBrowser:
             threads=await self._threads(donor.domain_id),
             price_stale=bool(stale),
             form_url=form_url,
+            in_forms=await forms.queued(self._session, donor.id),
             deeper_refusal=await deeper_refusal(self._session, donor),
             **await self._price_reply(donor.last_price_reply_id),
         )

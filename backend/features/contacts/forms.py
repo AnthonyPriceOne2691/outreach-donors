@@ -20,6 +20,13 @@
 искали до правила «ищем только принятым». Очередь их брала — первыми, по DR, —
 и меню с главной звали «Формы 5» рядом с «2 с формой» в воронке доноров.
 
+**Форма — тоже письмо: стоп-лист и одна роль на сайт** (28.10.2026). Очередь сверяла только
+«кому не пишем» ТЗ: домен, внесённый в стоп-лист уже после приёма донора, и сайт, которому
+пишут продажи или офферы, стояли в ней с готовым текстом письма, — а письмо им не ушло бы.
+Теперь условие то же, что у отправки: запись стоп-листа на домен, держащая этап доноров
+(`runs.exclusions.stoplisted`), и живое письмо другого этапа (`attempts.roles_elsewhere`). Им же
+карточка донора говорит, стоит ли он в очереди (`queued`): звала туда всякого принятого.
+
 **Рекламодатели — своей очередью рядом** (`advertiser_queue`, сверка ТЗ 11.10.2026):
 строка ТЗ «только форма, нет email — заполняем вручную» общая на оба этапа, а очередь
 была только у доноров, и рекламодатель с одной формой не получал оффера никогда.
@@ -43,14 +50,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import contacts as cfg
 from backend.features.contacts import manual
 from backend.features.contacts.repository import has_address
-from backend.features.core.domain import ContactStatus
+from backend.features.core.domain import ContactStatus, Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.crawl.advertiser_rules import in_work
 from backend.features.crawl.niche import NICHE
 from backend.features.donors.standing import is_donor
-from backend.features.runs.exclusions import not_writing
+from backend.features.letters import attempts
+from backend.features.runs.exclusions import not_writing, stoplisted
 from backend.shared.database.ids import storable
 
 logger = logging.getLogger(__name__)
@@ -89,20 +97,32 @@ class FormRow:
 
 def in_queue() -> ColumnElement[bool]:
     """Кто ждёт рук — одно условие для страницы очереди, её числа, строки под
-    действие и сводки главной: разойдись они, меню звало бы «Формы 5» над
-    очередью из двух.
+    действие, сводки главной и карточки донора: разойдись они, меню звало бы
+    «Формы 5» над очередью из двух.
 
     Донор — тем же правилом, что везде (`standing.is_donor`): форма кандидата —
     работа до решения «берём ли», и месячный потолок ушёл бы на домены, которые
     человек потом отклонит. И без адреса в базе (`has_address`): форма — вместо
     адреса, а исход «только форма» пишет и повторный поиск рядом с прежним адресом;
     на главной «и N с формой» стоит рядом с «С адресом» и с ним не пересекается.
+
+    Форма — тоже письмо, и кому письмо не ушло бы, того здесь нет: «кому не пишем» ТЗ
+    (`runs.exclusions`), стоп-лист — запись на домен, держащая этап доноров, — и сайт,
+    которому пишет другое направление: живое письмо другого этапа тем же правилом, что держит
+    первое письмо при отправке (`letters/site_role.py`). Живое — как там (`attempts.dead`):
+    письмо другой роли не дошло или снято при отправке — донор снова в очереди.
+
+    Срок записи стоп-листа судится «сейчас» самого условия, а не моментом-доводом: довод на
+    пяти путях разошёлся бы с первым же вызовом со своим моментом — главная, например,
+    считает цены на свой `now`, и меню судило бы о сроке записи не тем моментом, что страница.
     """
     return and_(
         is_donor(),
         DonorModel.contact_status == ContactStatus.FORM_ONLY,
         ~has_address(DonorModel.domain_id),
-        ~not_writing(),  # форма — тоже письмо: «кому не пишем» ТЗ (`runs.exclusions`)
+        ~not_writing(),
+        ~stoplisted(DonorModel.domain_id, Stage.DONORS),
+        ~attempts.roles_elsewhere(DonorModel.domain_id, Stage.DONORS).exists(),
     )
 
 
@@ -248,9 +268,17 @@ async def form_row(session: AsyncSession, donor_id: int) -> FormRow:
         raise UnknownFormError(
             f"Донора №{donor_id} нет в ручной очереди: либо адрес у него уже есть, "
             "либо его не принимал человек — форму заполняют только донору, — "
-            "либо очередь успел разобрать кто-то другой"
+            "либо ему не пишем: сайт в стоп-листе, в «кому не пишем» или в работе "
+            "у другого направления, — либо очередь успел разобрать кто-то другой"
         )
     return _form_row(*one)
+
+
+async def queued(session: AsyncSession, donor_id: int) -> bool:
+    """Стоит ли донор в очереди — её условием (`in_queue`): «стоит в очереди «Формы»»
+    карточка донора пишет только тогда, а не всякому принятому, как до 28.10.2026."""
+    found = await session.scalar(select(DonorModel.id).where(DonorModel.id == donor_id, in_queue()))
+    return found is not None
 
 
 # --- рекламодатели: та же ручная очередь Этапа 2 ---

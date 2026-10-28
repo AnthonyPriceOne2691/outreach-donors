@@ -232,6 +232,15 @@ def domain_not_writing(domain_id: Any) -> ColumnElement[bool]:
     return select(DonorModel.id).where(DonorModel.domain_id == domain_id, not_writing()).exists()
 
 
+def stoplisted(domain_id: Any, stage: Stage) -> ColumnElement[bool]:
+    """Домен держит запись стоп-листа для этапа `stage` сейчас — правилом проверки перед
+    отправкой (`SuppressionModel.holds`). Для выходов, где адреса ещё нет, — очередь «Форм»
+    (`contacts/forms.in_queue`, 28.10.2026). Только запись на домен: запись на адрес держит
+    адрес, а не сайт (`Exclusions._stoplisted`)."""
+    held = SuppressionModel.holds(stage, datetime.now(UTC))
+    return select(SuppressionModel.id).where(SuppressionModel.domain_id == domain_id, held).exists()
+
+
 async def not_writing_of(session: AsyncSession, domain_ids: Sequence[int]) -> dict[str, str]:
     """Домены из этих, которым не пишем: хост → почему, словами."""
     if not domain_ids:

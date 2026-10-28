@@ -425,7 +425,9 @@ class DonorFullCard(ReachCard):
             letter_blocked=card.letter.blocked,
             letter_note=card.letter.note,
             threads=list(card.threads),
-            **reach_fields(donor, form_url=card.form_url, refusal=card.deeper_refusal),
+            **reach_fields(
+                donor, form_url=card.form_url, refusal=card.deeper_refusal, in_forms=card.in_forms
+            ),
         )
 
 

@@ -15,6 +15,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    and_,
     func,
     or_,
 )
@@ -151,3 +152,14 @@ class SuppressionModel(TimestampedMixin, Base):
         либо молчание тому, кому уже можно.
         """
         return or_(cls.expires_at.is_(None), cls.expires_at > moment)
+
+    @classmethod
+    def holds(cls, stage: Stage, moment: datetime) -> ColumnElement[bool]:
+        """Условие «запись держит этап `stage` в момент `moment`»: без этапа — все этапы,
+        с этапом — только свой, истёкшая — никого (`in_force`).
+
+        Рядом с полем по той же причине, что срок: правило одно у проверки перед отправкой
+        (`letters/stoplist.holding`) и у очереди «Форм» (`runs/exclusions.stoplisted`, 28.10.2026).
+        Форма — тоже письмо, и сайт, которому письмо не ушло бы, рук на «Формах» не ждёт.
+        """
+        return and_(or_(cls.stage.is_(None), cls.stage == stage), cls.in_force(moment))
