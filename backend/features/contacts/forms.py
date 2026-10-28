@@ -32,7 +32,9 @@
 была только у доноров, и рекламодатель с одной формой не получал оффера никогда.
 В ней — те, кому пишем (`crawl/advertiser_rules.in_work`): по ссылке — всякий, бизнес
 ниши — после «пишем». Вписанный адрес — тот же `manual.add`: строка в `contacts`
-домена, и сборка оффера берёт его, как найденный лестницей.
+домена, и сборка оффера берёт его, как найденный лестницей. Стоп-лист и одна роль на сайт —
+тем же правилом, что у доноров, своим этапом (`_form_allowed`, 28.10.2026): запись,
+держащая рекламодателей, и живое письмо доноров или продаж.
 
 **Ориентир темпа — один на обе очереди** (`monthly_left`): он про руки, а руки одни;
 считаются только адреса, вписанные человеком, — доноров и рекламодателей.
@@ -46,6 +48,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import ColumnElement, Select, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from backend.config import contacts as cfg
 from backend.features.contacts import manual
@@ -108,9 +111,7 @@ def in_queue() -> ColumnElement[bool]:
 
     Форма — тоже письмо, и кому письмо не ушло бы, того здесь нет: «кому не пишем» ТЗ
     (`runs.exclusions`), стоп-лист — запись на домен, держащая этап доноров, — и сайт,
-    которому пишет другое направление: живое письмо другого этапа тем же правилом, что держит
-    первое письмо при отправке (`letters/site_role.py`). Живое — как там (`attempts.dead`):
-    письмо другой роли не дошло или снято при отправке — донор снова в очереди.
+    которому пишет другое направление (`_form_allowed`, общее с очередью рекламодателей).
 
     Срок записи стоп-листа судится «сейчас» самого условия, а не моментом-доводом: довод на
     пяти путях разошёлся бы с первым же вызовом со своим моментом — главная, например,
@@ -121,9 +122,17 @@ def in_queue() -> ColumnElement[bool]:
         DonorModel.contact_status == ContactStatus.FORM_ONLY,
         ~has_address(DonorModel.domain_id),
         ~not_writing(),
-        ~stoplisted(DonorModel.domain_id, Stage.DONORS),
-        ~attempts.roles_elsewhere(DonorModel.domain_id, Stage.DONORS).exists(),
+        _form_allowed(DonorModel.domain_id, Stage.DONORS),
     )
+
+
+def _form_allowed(domain_id: InstrumentedAttribute[int], stage: Stage) -> ColumnElement[bool]:
+    """Сайту можно писать формой этапа `stage` — форма тоже письмо: его домен не держит
+    запись стоп-листа этапа (`runs.exclusions.stoplisted`), и у него нет живого письма другого
+    этапа — тем же правилом, что держит первое письмо при отправке (`letters/site_role.py`).
+    Живое — как там (`attempts.dead`): письмо другой роли не дошло или снято при отправке —
+    сайт снова ждёт рук. Одно условие у очередей доноров и рекламодателей (28.10.2026)."""
+    return and_(~stoplisted(domain_id, stage), ~attempts.roles_elsewhere(domain_id, stage).exists())
 
 
 #: Колонки строки очереди — одни у страницы и у строки под действие.
@@ -304,13 +313,15 @@ class AdvertiserFormRow:
 
 
 def advertiser_in_queue() -> ColumnElement[bool]:
-    """Кто из рекламодателей ждёт рук — одно условие для страницы, числа и строки
-    под действие, как у доноров (`in_queue`): ему пишем (`in_work`), лестница нашла
-    только форму, адреса в базе нет."""
+    """Кто из рекламодателей ждёт рук — одно условие для страницы, числа (вкладка, меню,
+    главная) и строки под действие, как у доноров (`in_queue`): ему пишем (`in_work`),
+    лестница нашла только форму, адреса в базе нет, и сайт открыт для формы — запись
+    стоп-листа рекламодателей его не держит, другое направление ему не пишет (`_form_allowed`)."""
     return and_(
         in_work(),
         AdvertiserModel.contact_status == ContactStatus.FORM_ONLY,
         ~has_address(AdvertiserModel.domain_id),
+        _form_allowed(AdvertiserModel.domain_id, Stage.ADVERTISERS),
     )
 
 
@@ -378,8 +389,9 @@ async def _advertiser(session: AsyncSession, advertiser_id: int) -> AdvertiserFo
     if found is None:
         raise UnknownFormError(
             f"Рекламодателя №{advertiser_id} нет в ручной очереди: либо адрес у него уже "
-            "есть, либо ему не пишем — бизнесу ниши форму заполняют после «пишем», — "
-            "либо очередь успел разобрать кто-то другой"
+            "есть, либо ему не пишем: сайт в стоп-листе или в работе у другого направления, "
+            "а бизнесу ниши форму заполняют после «пишем», — либо очередь успел разобрать "
+            "кто-то другой"
         )
     return _advertiser_row(*found._tuple())
 
