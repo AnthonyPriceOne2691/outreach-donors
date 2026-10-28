@@ -12,6 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
+import type { DonorCardWithReach } from '../api/deeper';
 import type { DonorFullCard, JobCard, Me } from '../api/types';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
@@ -120,6 +121,29 @@ describe('карточка донора: решение человека и фо
     expect(
       within(section).getByText(/В очередь «Формы» встают только доноры, принятые человеком/),
     ).toBeInTheDocument();
+  });
+
+  it('принятый донор, которому не пишем, — очередь «Формы» его не берёт, и карточка не обещает', async () => {
+    // 28.10.2026: донора в стоп-листе и сайт в работе у другого направления очередь не берёт —
+    // стоит ли донор в ней, говорит сервер её условием (`in_forms`), а не решение человека.
+    const held: DonorCardWithReach = { ...CARD, contact_status: 'form_only', in_forms: false };
+    await openCard(held);
+
+    const section = addresses();
+    expect(within(section).getByText(/на сайте только форма/)).toBeInTheDocument();
+    expect(within(section).queryByText(/стоит в очереди/)).toBeNull();
+    expect(
+      within(section).getByText(
+        /В очередь «Формы» он не встаёт: форма — тоже письмо, а сайту в стоп-листе, в «кому не пишем» или в работе у другого направления не пишем/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('сервер говорит «в очереди» — карточка ведёт в «Формы»', async () => {
+    const queued: DonorCardWithReach = { ...CARD, contact_status: 'form_only', in_forms: true };
+    await openCard(queued);
+
+    expect(within(addresses()).getByText(/Донор стоит в очереди/)).toBeInTheDocument();
   });
 });
 

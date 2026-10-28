@@ -232,6 +232,15 @@ def domain_not_writing(domain_id: Any) -> ColumnElement[bool]:
     return select(DonorModel.id).where(DonorModel.domain_id == domain_id, not_writing()).exists()
 
 
+def stoplisted(domain_id: Any, stage: Stage) -> ColumnElement[bool]:
+    """Домен держит запись стоп-листа для этапа `stage` сейчас — правилом проверки перед
+    отправкой (`SuppressionModel.holds`). Для выходов, где адреса ещё нет, — очередь «Форм»
+    (`contacts/forms.in_queue`, 28.10.2026). Только запись на домен: запись на адрес держит
+    адрес, а не сайт (`Exclusions._stoplisted`)."""
+    held = SuppressionModel.holds(stage, datetime.now(UTC))
+    return select(SuppressionModel.id).where(SuppressionModel.domain_id == domain_id, held).exists()
+
+
 async def not_writing_of(session: AsyncSession, domain_ids: Sequence[int]) -> dict[str, str]:
     """Домены из этих, которым не пишем: хост → почему, словами."""
     if not domain_ids:
@@ -262,6 +271,16 @@ def site_not_writing(domain_id: Any, host: Any) -> ColumnElement[bool]:
     ниши из выдачи (`letters/niche_recipients.py`): судья мог отрезать его до Ahrefs,
     и строки донора тогда нет. Правило то же, что у доноров, — без своей копии."""
     return or_(_by_name_sql(host), domain_not_writing(domain_id))
+
+
+def domain_site_not_writing(domain_id: Any) -> ColumnElement[bool]:
+    """Сайт этого домена — в «кому не пишем» (`site_not_writing`), для запросов без строки
+    домена: число очереди «Форм» рекламодателей считается без `domains`
+    (`contacts/forms.advertiser_in_queue`, 28.10.2026). Хост — через свой псевдоним доменов:
+    подзапрос не цепляется за внешний запрос и годен и там, где домены в нём есть (`named`)."""
+    domain = aliased(DomainModel)
+    off = site_not_writing(domain.id, domain.host)
+    return select(domain.id).where(domain.id == domain_id, off).exists()
 
 
 async def site_not_writing_reason(session: AsyncSession, domain_id: int) -> str | None:

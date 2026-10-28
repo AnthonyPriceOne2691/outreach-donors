@@ -182,6 +182,21 @@ describe('формы: вкладка рекламодателей', () => {
     ).toBe(true);
   });
 
+  it('кого здесь нет — в «i» у заголовка: стоп-лист, другое направление, «кому не пишем»', async () => {
+    // 28.10.2026: форма — тоже письмо, и очередь рекламодателей судит их правилом отправки.
+    openForms({}, '/forms?queue=advertisers');
+    const user = userEvent.setup();
+    await screen.findByText('shop.example.test');
+
+    await user.hover(screen.getByRole('button', { name: 'Как устроен экран «Формы»' }));
+
+    expect(
+      await screen.findByText(
+        /Сайта в стоп-листе, в работе у другого направления и бизнеса ниши из «кому не пишем» здесь нет/,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('очередь рекламодателей пуста — кто сюда попадает', async () => {
     openForms(
       {

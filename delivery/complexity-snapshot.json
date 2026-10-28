@@ -92,9 +92,9 @@
       "worst": "build_letter:104"
     },
     "backend/api/contacts/reach.py": {
-      "lines": 46,
+      "lines": 53,
       "complexity": 1,
-      "worst": "reach_fields:37"
+      "worst": "reach_fields:41"
     },
     "backend/api/contacts/routes.py": {
       "lines": 285,
@@ -142,7 +142,7 @@
       "worst": "_file:121"
     },
     "backend/api/donors/schemas.py": {
-      "lines": 490,
+      "lines": 492,
       "complexity": 6,
       "worst": "of:236"
     },
@@ -1042,9 +1042,9 @@
       "worst": "_handle_columns:194"
     },
     "backend/features/contacts/forms.py": {
-      "lines": 387,
+      "lines": 435,
       "complexity": 3,
-      "worst": "monthly_left:171"
+      "worst": "monthly_left:201"
     },
     "backend/features/contacts/hidden.py": {
       "lines": 248,
@@ -1222,9 +1222,9 @@
       "worst": "—"
     },
     "backend/features/core/models/ops.py": {
-      "lines": 154,
-      "complexity": 1,
-      "worst": "in_force:145"
+      "lines": 170,
+      "complexity": 2,
+      "worst": "holds:157"
     },
     "backend/features/core/models/outgoing_attachment.py": {
       "lines": 64,
@@ -1517,9 +1517,9 @@
       "worst": "backfill:205"
     },
     "backend/features/donors/browse.py": {
-      "lines": 475,
+      "lines": 479,
       "complexity": 7,
-      "worst": "picked:286"
+      "worst": "picked:289"
     },
     "backend/features/donors/collect.py": {
       "lines": 389,
@@ -1917,7 +1917,7 @@
       "worst": "check:48"
     },
     "backend/features/letters/stoplist.py": {
-      "lines": 500,
+      "lines": 497,
       "complexity": 7,
       "worst": "add:169"
     },
@@ -2312,9 +2312,9 @@
       "worst": "cap_left:93"
     },
     "backend/features/runs/exclusions.py": {
-      "lines": 447,
+      "lines": 466,
       "complexity": 8,
-      "worst": "excluded_hosts:303"
+      "worst": "excluded_hosts:322"
     },
     "backend/features/runs/failures.py": {
       "lines": 37,
