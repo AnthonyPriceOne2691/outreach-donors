@@ -19,6 +19,14 @@
 уйдёт только на адрес из списка. Проверку и надо делать до снятия
 предохранителя — со своими ящиками в списке.
 
+**Стоп-лист судит пробу, как настоящую отправку** (28.10.2026). Команда —
+единственный путь к почте мимо `Sending.send`: письмо отдаётся транспорту
+напрямую, и до этого дня адрес ограничивал только предохранитель. На боевой
+учётке его список пуст, и ничто не мешало послать пробу адресу из стоп-листа.
+Теперь адрес, который держит стоп-лист этапа пробы, — запись на сам адрес
+или на его домен, — отказ до отправки, тем же правилом, что у отправки
+(`probe.check_stoplist`, `stoplist.holding`). Проверка только читает.
+
 **Что проверить — печатается.** Заголовки полученного письма говорят
 о настройке домена больше любого ответа платформы: подпись DKIM с доменом
 отправителя, SPF, DMARC, наш `Message-ID` без подмены, адрес ответа
@@ -38,7 +46,7 @@ from backend.config.startup_checks import check_storage
 from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import SenderModel
 from backend.features.letters import identity
-from backend.features.letters.probe import Probe, compose_probe
+from backend.features.letters.probe import Probe, check_stoplist, compose_probe
 from backend.features.letters.sending import SendError
 from backend.features.letters.transport import Transport, TransportError
 from backend.features.letters.transport_factory import build_transport, in_use
@@ -55,8 +63,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
     probe.add_argument(
         "--to",
         required=True,
-        help="свой ящик; пока предохранитель включён, он должен быть в списке этапа "
-        "(OUTREACH_ALLOWED_RECIPIENTS или свой — OUTREACH_<ЭТАП>_ALLOWED_RECIPIENTS)",
+        help="свой ящик, не из стоп-листа; пока предохранитель включён, он должен быть в списке "
+        "этапа (OUTREACH_ALLOWED_RECIPIENTS или свой — OUTREACH_<ЭТАП>_ALLOWED_RECIPIENTS)",
     )
     probe.add_argument(
         "--sender", help="с какого ящика рассылки; по умолчанию — первый включённый ящик этапа"
@@ -122,6 +130,8 @@ async def run_mail_test(
         await _check_known(session, sender_email, stage)
 
     try:
+        # Стоп-лист — до сборки и отправки: проба судится им, как настоящее письмо.
+        await check_stoplist(session, to=to, stage=stage)
         probe = compose_probe(to=to, sender_email=sender_email, stage=stage, real=transport.real)
         provider_id = await transport.send(probe.outgoing)
     except (SendError, TransportError) as exc:
@@ -154,7 +164,7 @@ def _announce(transport: Transport, stage: Stage) -> None:
     else:
         print(
             f"Предохранитель снят ({account.allowlist_setting} пуст): отправка идёт на любой "
-            "адрес. Пробное письмо — до снятия, со своими ящиками в списке"
+            "адрес вне стоп-листа. Пробное письмо — до снятия, со своими ящиками в списке"
         )
 
 

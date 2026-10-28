@@ -28,16 +28,28 @@
 ни при отписке в один клик из почтового клиента (`api/unsubscribe/routes.py`).
 Поэтому заголовок `List-Unsubscribe` в пробном письме есть — такой же,
 как у донора.
+
+**Адресат судится стоп-листом, как у настоящей отправки** (28.10.2026):
+проба уходит транспорту мимо `Sending.send`, и правило отправки проверяется
+здесь же, до сборки письма (`check_stoplist`).
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from backend.features.core.domain import Stage
-from backend.features.letters import compose, guards, template, unsubscribe
-from backend.features.letters.sending import check_ready, own_headers
+from backend.features.core.models.domain import DomainModel
+from backend.features.core.models.ops import SuppressionModel
+from backend.features.letters import compose, guards, stoplist, template, unsubscribe
+from backend.features.letters.sending import SuppressedError, check_ready, own_headers
 from backend.features.letters.transport import Outgoing
+
+logger = logging.getLogger(__name__)
 
 #: Номер письма в метке адреса ответа и в `Message-ID`. Писем с таким
 #: номером не бывает: последовательность номеров в базе начинается с единицы.
@@ -108,3 +120,53 @@ def compose_probe(*, to: str, sender_email: str, stage: Stage, real: bool) -> Pr
         ),
         missing_unsubscribe="" if link else unsubscribe.missing_setting(),
     )
+
+
+async def check_stoplist(session: AsyncSession, *, to: str, stage: Stage) -> None:
+    """Пробное письмо — только адресу, которого не держит стоп-лист этапа `stage`.
+
+    Правило — отправки (`stoplist.holding`): держит запись на адрес и запись на его домен —
+    она держит все адреса домена; запись без этапа держит все этапы, истёкшая — никого.
+    Домен адреса — строка `domains` по хосту адреса, тем ключом, которым стоп-лист заводит
+    домен (`stoplist.site_of`): поддомен почты и `www.` сводятся к корню сайта. Домена
+    в базе нет — держать может только запись на адрес. Только читает: транзакция консоли
+    открыта на чтение (`cli/mail_test.py`). Отказ — `SuppressedError`, как у отправки.
+    """
+    email = to.strip().lower()
+    host = _site(email)
+    domain_id = (
+        await session.scalar(select(DomainModel.id).where(DomainModel.host == host))
+        if host
+        else None
+    )
+    held = await stoplist.holding(
+        session, stage=stage, domain_ids=[] if domain_id is None else [domain_id], emails=[email]
+    )
+    if held:
+        # Запись на сам адрес — первой: она называет его, а не весь домен.
+        row = min(held, key=lambda found: (found.email != email, found.id))
+        raise SuppressedError(_held_words(row, email=email, host=host))
+
+
+def _site(email: str) -> str:
+    """Домен адреса тем ключом, которым его пишет база (`stoplist.site_of`). Не домен — пусто."""
+    try:
+        return stoplist.site_of(email.rpartition("@")[2])
+    except stoplist.StopListError:
+        # Хост длиннее предела DNS: такого домена в базе не бывает, и держать может только
+        # запись на адрес — как у строки файла поставщиков без домена (`supplier_import`).
+        logger.debug("пробное письмо: у адреса %.80r хост — не домен", email)
+        return ""
+
+
+def _held_words(row: SuppressionModel, *, email: str, host: str) -> str:
+    """Что держит пробу и почему — словами отказа: запись на адрес или на домен адреса."""
+    scope = "на всех этапах" if row.stage is None else f"этапа {row.stage.value}"
+    why = f"{scope} (причина «{row.reason.value}»)"
+    held = (
+        f"адрес {email} в стоп-листе {why}: писать на него нельзя"
+        if row.email == email
+        else f"домен {host} в стоп-листе {why}: запись на домен держит все его адреса, "
+        f"и {email} тоже"
+    )
+    return f"{held}. Пробное письмо — себе: на свой ящик, которого в списке нет"
