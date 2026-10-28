@@ -282,9 +282,9 @@
       "worst": "—"
     },
     "backend/api/rechecks/routes.py": {
-      "lines": 114,
+      "lines": 115,
       "complexity": 1,
-      "worst": "_sees_sales:49"
+      "worst": "_sees_sales:50"
     },
     "backend/api/rechecks/schemas.py": {
       "lines": 183,
@@ -1732,9 +1732,9 @@
       "worst": "unset_reason:268"
     },
     "backend/features/letters/donor_standing.py": {
-      "lines": 118,
-      "complexity": 5,
-      "worst": "donor_refusal:70"
+      "lines": 120,
+      "complexity": 6,
+      "worst": "donor_refusal:73"
     },
     "backend/features/letters/draft.py": {
       "lines": 195,
@@ -1842,14 +1842,14 @@
       "worst": "same_price:76"
     },
     "backend/features/letters/recheck_facts.py": {
-      "lines": 386,
+      "lines": 393,
       "complexity": 10,
-      "worst": "_talks:211"
+      "worst": "_talks:218"
     },
     "backend/features/letters/recheck_rules.py": {
-      "lines": 141,
+      "lines": 156,
       "complexity": 8,
-      "worst": "refusal:42"
+      "worst": "refusal:48"
     },
     "backend/features/letters/recheck_target.py": {
       "lines": 323,

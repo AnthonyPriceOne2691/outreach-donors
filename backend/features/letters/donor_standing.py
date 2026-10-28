@@ -5,7 +5,8 @@
 (Anthony, 24.09.2026), — и без проверки письмо, собранное для принятого, ушло бы
 отклонённому. А домен мог оказаться в «кому не пишем» ТЗ (решение владельца
 11.10.2026, `runs.exclusions`): крупный сайт (DR > 80), крупное СМИ, соцсеть,
-справочник — им не уходят ни первое письмо, ни добивка, даже принятым до правила.
+справочник — им не уходят ни первое письмо, ни добивка, ни перезапрос цены, даже
+принятым до правила.
 
 Здесь — ответ причиной и словами; класс отказа по причине выбирает отправка
 (`sending._DONOR_REFUSED`): отклонённому и «кому не пишем» — как стоп-лист, цепочка
@@ -13,7 +14,9 @@
 не пишем» `check_donor` к тому же останавливает с причиной (`stop_for_good`): в очереди
 оно ждало бы того, что не наступит; так же — письмо оффера с площадкой оттуда
 (`offer_standing.check_offer`). Ответ в переписке «кому не пишем» не держит: донор
-написал сам, и ответ ему — не рассылка.
+написал сам, и ответ ему — не рассылка. Перезапрос цены в переписку — держит (решение
+владельца 28.10.2026): шаг у него тоже вне цепочки (`chain.RECHECK_STEP`), но это наше
+письмо, а не ответ донору, — и он останавливается с причиной, как первое письмо.
 
 Отдельно от `sending.py`: тот упёрся в потолок длины файла.
 """
@@ -31,7 +34,7 @@ from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.donors.standing import decided_in
 from backend.features.letters import settle
-from backend.features.letters.chain import ANSWER_STEP
+from backend.features.letters.chain import ANSWER_STEP, RECHECK_STEP
 from backend.features.runs.exclusions import not_writing_reason
 
 
@@ -80,11 +83,10 @@ async def donor_refusal(
             f"Донора {host} отклонили после сборки письма №{message.id} — "
             "писать ему нельзя. Письмо стоит убрать из очереди",
         )
-    off = (
-        None
-        if message.step >= ANSWER_STEP
-        else await not_writing_reason(session, message.domain_id)
-    )
+    # Вне цепочки — и ответ, и перезапрос цены (`chain.kind_of`), но не держит «кому не пишем»
+    # только ответ: перезапрос пишем мы сами (решение владельца 28.10.2026).
+    answer = message.step >= ANSWER_STEP and message.step != RECHECK_STEP
+    off = None if answer else await not_writing_reason(session, message.domain_id)
     if off is not None:
         return DonorRefusal(
             Refusal.NOT_WRITING,
