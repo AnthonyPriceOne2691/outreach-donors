@@ -19,9 +19,20 @@
 
 **Кандидаты донора — по его последнему пригодному обходу**, а не сумма всех:
 обход стал кнопкой, и у донора их бывает несколько. Новый обход заменяет
-кандидатов прежнего, а решения человека и спрошенный DR переносит. Обход
-без открытых страниц (закрылся, не начался) и незаконченный не заменяет
-ничего: он не знает о сайте ничего нового.
+кандидатов прежнего. Обход без открытых страниц (закрылся, не начался)
+и незаконченный не заменяет ничего: он не знает о сайте ничего нового.
+
+**Решения человека и спрошенный DR — ещё и в памяти донора по паре «донор +
+домен»** (`CandidateMemoryModel`, решение владельца 28.10.2026). «Переобойти»
+стоит у последнего обхода каждого донора, и повтор стал обычным делом: сайт
+растёт, карта отдаёт адреса от новых к старым, потолок в 1 000 страниц срезает
+старые. Пока решение и DR жили только на строке кандидата, повтор, не нашедший
+домена, стирал их вместе с ней, а домен, найденный снова новой статьёй,
+возвращался без решения: «куплено» заводило рекламодателя, которому сказали
+«не пишем», и DR покупался второй раз. Теперь пересчёт пишет в память всё, что
+переносит, до того как стереть строки (`_remember`), и читает её раньше строк
+(`_previous`). Кандидатом память не становится: списки, перевод и проверки
+офферов видят только то, что нашёл последний обход.
 """
 
 from __future__ import annotations
@@ -29,13 +40,15 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import ColumnElement, func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.ahrefs.client import AhrefsError
 from backend.features.core.domain import CrawlOutcome, CrawlStatus
-from backend.features.core.models.advertiser import CandidateModel
+from backend.features.core.models.advertiser import CARRIED, CandidateMemoryModel, CandidateModel
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
 from backend.features.crawl.big_sites import (
     Ratings,
@@ -52,6 +65,9 @@ logger = logging.getLogger(__name__)
 
 #: Обход, по которому считаются кандидаты: законченный и с открытыми страницами.
 USABLE_OUTCOMES = (CrawlOutcome.OK, CrawlOutcome.PARTIAL)
+
+#: Строк памяти за один запрос: у запроса не больше 32 767 параметров, у строки их семь.
+MEMORY_CHUNK = 1000
 
 
 def _usable() -> ColumnElement[bool]:
@@ -116,7 +132,7 @@ async def donors_per_root(session: AsyncSession, roots: list[str]) -> dict[str, 
 
 @dataclass(slots=True)
 class _Previous:
-    """Что переносится через пересчёт: решения человека и спрошенный DR."""
+    """Что переносится через пересчёт и повтор обхода: решения человека и спрошенный DR."""
 
     decisions: dict[str, tuple[bool | None, str | None, datetime | None]] = field(
         default_factory=dict
@@ -124,28 +140,54 @@ class _Previous:
     ratings: dict[str, int | None] = field(default_factory=dict)
     rated_at: dict[str, datetime] = field(default_factory=dict)
 
+    def take(self, row: CandidateModel | CandidateMemoryModel) -> None:
+        """Решение и DR строки — поверх прочитанных раньше."""
+        if row.confirmed is not None:
+            self.decisions[row.target_root] = (row.confirmed, row.decided_by, row.decided_at)
+        if row.dr_checked_at is not None:
+            self.ratings[row.target_root] = row.dr
+            self.rated_at[row.target_root] = row.dr_checked_at
+
+    def roots(self) -> list[str]:
+        """Домены, которым есть что переносить."""
+        return sorted(set(self.decisions) | set(self.rated_at))
+
+    def carried(self, root: str) -> dict[str, Any]:
+        """Решение и DR домена — колонками кандидата и памяти (`CARRIED`)."""
+        confirmed, decided_by, decided_at = self.decisions.get(root, (None, None, None))
+        return {
+            "confirmed": confirmed,
+            "decided_by": decided_by,
+            "decided_at": decided_at,
+            "dr": self.ratings.get(root),
+            "dr_checked_at": self.rated_at.get(root),
+        }
+
 
 async def _previous(session: AsyncSession, host: str) -> _Previous:
-    """Решения и DR со всех обходов донора: последний обход заменяет кандидатов
-    прежнего, а решение человека и оплаченный DR переезжают к нему."""
-    rows = (
-        (
-            await session.execute(
-                select(CandidateModel)
-                .where(CandidateModel.donor_host == host)
-                .order_by(CandidateModel.crawl_run_id, CandidateModel.id)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    """Решения и DR донора: из памяти, а поверх — со строк кандидатов всех его обходов.
+
+    Строка сильнее памяти: решение могли переменить после пересчёта, который память
+    писал (`review.decide`, `force`). В памяти — и домены, которых последний обход
+    не нашёл: решение и оплаченный DR вернутся к ним, когда следующий найдёт.
+    """
     found = _Previous()
-    for row in rows:
-        if row.confirmed is not None:
-            found.decisions[row.target_root] = (row.confirmed, row.decided_by, row.decided_at)
-        if row.dr_checked_at is not None:
-            found.ratings[row.target_root] = row.dr
-            found.rated_at[row.target_root] = row.dr_checked_at
+    # Память пишется мимо сессии (`_remember`, ON CONFLICT): строка памяти, которую сессия
+    # уже держит (два пересчёта в одной сессии), без `populate_existing` осталась бы прежней.
+    remembered = await session.scalars(
+        select(CandidateMemoryModel)
+        .where(CandidateMemoryModel.donor_host == host)
+        .execution_options(populate_existing=True)
+    )
+    for memory in remembered.all():
+        found.take(memory)
+    rows = await session.scalars(
+        select(CandidateModel)
+        .where(CandidateModel.donor_host == host)
+        .order_by(CandidateModel.crawl_run_id, CandidateModel.id)
+    )
+    for row in rows.all():
+        found.take(row)
     return found
 
 
@@ -237,8 +279,10 @@ async def _replace_candidates(
 
     Решение человека при этом переносится: его подтверждение сильнее
     любого веса и теряться при пересчёте не должно. Спрошенный DR —
-    тоже: за него заплачено.
+    тоже: за него заплачено. Домену, которого новый обход не нашёл, их
+    хранит память донора (`_remember`) — он вернётся с ними.
     """
+    await _remember(session, run.host, previous)
     existing = (
         (await session.execute(select(CandidateModel).where(CandidateModel.donor_host == run.host)))
         .scalars()
@@ -249,8 +293,6 @@ async def _replace_candidates(
     await session.flush()
 
     for candidate in candidates:
-        root = candidate.target_root
-        confirmed, decided_by, decided_at = previous.decisions.get(root, (None, None, None))
         session.add(
             CandidateModel(
                 crawl_run_id=run.id,
@@ -263,11 +305,31 @@ async def _replace_candidates(
                 pages=candidate.pages,
                 best_page_url=candidate.best_link.page_url if candidate.best_link else None,
                 best_anchor=candidate.best_link.anchor if candidate.best_link else None,
-                confirmed=confirmed,
-                decided_by=decided_by,
-                decided_at=decided_at,
-                dr=previous.ratings.get(root),
-                dr_checked_at=previous.rated_at.get(root),
+                **previous.carried(candidate.target_root),
             )
         )
     await session.flush()
+
+
+async def _remember(session: AsyncSession, host: str, previous: _Previous) -> None:
+    """Решения и DR донора — в память, до того как строки кандидатов сотрут.
+
+    Пишется всё, что пересчёт переносит, а не только домены, которых новый обход
+    не нашёл: один путь записи, без учёта «ушёл — вернулся». Копия у нынешней строки
+    ничего не стоит — память читает один `_previous`, и строку он ставит поверх неё.
+    По той же причине запись не удаляется, когда домен вернулся. Решение, переменённое
+    после пересчёта, доходит до памяти следующим: он читает строку, а пишет прочитанное.
+    """
+    rows = [
+        {"donor_host": host, "target_root": root, **previous.carried(root)}
+        for root in previous.roots()
+    ]
+    for start in range(0, len(rows), MEMORY_CHUNK):
+        statement = insert(CandidateMemoryModel).values(rows[start : start + MEMORY_CHUNK])
+        fresh = {name: statement.excluded[name] for name in CARRIED}
+        await session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["donor_host", "target_root"],
+                set_={**fresh, "updated_at": func.now()},
+            )
+        )

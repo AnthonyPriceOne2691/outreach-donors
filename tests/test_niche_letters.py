@@ -346,7 +346,8 @@ class TestScreen:
 
 
 class TestNotWritingAfterTheBuild:
-    """Отправка решение человека не перепроверяет: «не пишем» после сборки снимает письма."""
+    """«Не пишем» после сборки снимает письма сразу, не дожидаясь отправки, которая решение
+    тоже перепроверяет (`test_niche_decision_at_send.py`)."""
 
     async def test_not_writing_stops_the_niche_letter_and_its_reminders(
         self, session: AsyncSession, filled_legal: None

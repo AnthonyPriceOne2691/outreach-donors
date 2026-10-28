@@ -8,6 +8,9 @@
 
 Что читается и почему так:
 
+- **«кому не пишем» ТЗ** — условием выходов (`runs.exclusions.not_writing_of`), одним
+  запросом на всех: крупный сайт и домен из списков, даже принятые до правила, — им
+  перезапрос не уходит ни одним путём (решение владельца 28.10.2026);
 - **переписки донора на Этапе 1** — с письмами и ответами: куда уйдёт письмо и не молчит
   ли донор;
 - **письма донору в очереди и в пути** на любом этапе — одно письмо адресату за раз;
@@ -51,6 +54,7 @@ from backend.features.outreach.threads import (
     donor_word,
     summarize,
 )
+from backend.features.runs.exclusions import not_writing_of
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +148,8 @@ class Facts:
     moment: datetime
     #: Донор по номеру — с доменом.
     donors: dict[int, tuple[DonorModel, str]]
+    #: Доноры из «кому не пишем» ТЗ: домен → почему, словами (`exclusions.not_writing_of`).
+    not_writing: dict[str, str]
     suppliers: frozenset[str]
     #: Домены, закрытые стоп-листом целиком, и закрытые адреса.
     stopped_domains: frozenset[int]
@@ -180,6 +186,7 @@ async def load(session: AsyncSession, donor_ids: Collection[int], moment: dateti
     return Facts(
         moment=moment,
         donors=donors,
+        not_writing=await not_writing_of(session, domain_ids),
         # Поставщики — правилом обхода (`crawl/suppliers.supplier_hosts`): обе записи
         # и только действующие, — список протухших и перезапрос говорят одно.
         suppliers=frozenset(await supplier_hosts(session, now=moment)),

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -18,9 +19,12 @@ import pytest
 from backend.api.unsubscribe import routes as unsubscribe_routes
 from backend.cli.mail_test import EXIT_NOT_SENT, EXIT_OK, run_mail_test
 from backend.config import outreach as outreach_cfg
-from backend.features.core.domain import SenderStatus, Stage
+from backend.features.core.domain import SenderStatus, Stage, SuppressionReason
+from backend.features.core.models.domain import DomainModel
+from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import ReplyModel, SenderModel
-from backend.features.letters import unsubscribe
+from backend.features.core.stages import SalesNotConnectedError
+from backend.features.letters import stoplist, unsubscribe
 from backend.features.letters.probe import PROBE_DOMAIN_ID, compose_probe
 from backend.features.letters.sendgrid import PROVIDER_ID_HEADER, SendGridTransport
 from backend.features.letters.transport import NullTransport
@@ -71,6 +75,12 @@ async def _rows(session: AsyncSession) -> dict[str, int]:
     for table in Base.metadata.sorted_tables:
         counts[table.name] = int(await session.scalar(select(func.count()).select_from(table)) or 0)
     return counts
+
+
+async def _box(session: AsyncSession, stage: Stage) -> None:
+    """Включённый ящик этапа: без него проба откажет раньше стоп-листа."""
+    (await make_sender(session, SENDER)).stage = stage
+    await session.flush()
 
 
 class TestWhatGoesOut:
@@ -255,6 +265,263 @@ class TestRefusals:
         assert "не отправлено: Адрес stranger@elsewhere.test не в списке разрешённых" in printed
         assert "Держите там свои ящики" in printed
         assert fake.seen == []
+
+
+class TestTheStopList:
+    """Проба судится стоп-листом, как настоящая отправка (`probe.check_stoplist`).
+
+    Команда — единственный путь к почте мимо `Sending.send`, и до 28.10.2026 адрес
+    ограничивал только предохранитель: на боевой учётке его список пуст, и проба ушла
+    бы адресу из стоп-листа. Здесь предохранитель включён и адрес в нём (`platform`) —
+    отказывает стоп-лист, а не он."""
+
+    async def _refused(
+        self,
+        session: AsyncSession,
+        platform: tuple[Platform, SendGridTransport],
+        capsys: pytest.CaptureFixture[str],
+        *,
+        to: str = TO,
+        stage: Stage = Stage.DONORS,
+    ) -> str:
+        """Проба не ушла: код отказа, платформа не звана, в базе ни строки. Что напечатано."""
+        fake, transport = platform
+        await _box(session, stage)
+        before = await _rows(session)
+
+        code = await run_mail_test(session, transport, to=to, sender=None, stage=stage)
+
+        assert code == EXIT_NOT_SENT
+        assert fake.seen == []
+        assert await _rows(session) == before
+        return capsys.readouterr().out
+
+    async def test_address_in_the_stoplist_is_refused(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Отписка ответом — запись на адрес без этапа (`replies/repository.suppress`)."""
+        session.add(
+            SuppressionModel(
+                email=TO, reason=SuppressionReason.UNSUBSCRIBED, created_by="приём ответов"
+            )
+        )
+        await session.flush()
+
+        printed = await self._refused(session, platform, capsys)
+
+        assert (
+            f"Пробное письмо не отправлено: адрес {TO} в стоп-листе на всех этапах "
+            "(причина «unsubscribed»): писать на него нельзя. Пробное письмо — себе" in printed
+        )
+
+    async def test_domain_entry_holds_every_address_of_the_domain(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Домен адреса — тем ключом, которым его заводит экран (`stoplist.site_of`): ссылка
+        на сайт заводит корень, и запись держит адрес на поддомене почты."""
+        await stoplist.add(
+            session,
+            "https://www.Example.org/contacts",
+            reason=SuppressionReason.MANUAL,
+            author="тест",
+        )
+        fake = Platform()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(fake)) as http:
+            # Адрес в списке транспорта: не пускает его стоп-лист, а не предохранитель.
+            allowed = SendGridTransport(
+                api_key="sg-test-key", http=http, allowlist=("@mail.example.org",)
+            )
+            printed = await self._refused(
+                session, (fake, allowed), capsys, to="Me@Mail.Example.org"
+            )
+
+        assert (
+            "домен example.org в стоп-листе на всех этапах (причина «manual»): запись на домен "
+            "держит все его адреса, и me@mail.example.org тоже" in printed
+        )
+
+    async def test_entry_on_the_address_is_named_before_the_domain(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        for target in ("ours.test", TO):
+            await stoplist.add(session, target, reason=SuppressionReason.MANUAL, author="тест")
+
+        printed = await self._refused(session, platform, capsys)
+
+        assert f"адрес {TO} в стоп-листе" in printed
+        assert "домен ours.test" not in printed
+
+    @pytest.mark.parametrize("stage", [None, Stage.DONORS], ids=["без-этапа", "этап-пробы"])
+    async def test_entry_without_stage_or_of_the_probe_stage_holds(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+        capsys: pytest.CaptureFixture[str],
+        stage: Stage | None,
+    ) -> None:
+        await stoplist.add(
+            session, "ours.test", reason=SuppressionReason.SUPPLIER, stage=stage, author="тест"
+        )
+
+        printed = await self._refused(session, platform, capsys)
+
+        scope = "на всех этапах" if stage is None else "этапа donors"
+        assert f"домен ours.test в стоп-листе {scope} (причина «supplier»)" in printed
+
+    @pytest.mark.parametrize(
+        "reason",
+        [SuppressionReason.MANUAL, SuppressionReason.UNSUBSCRIBED],
+        ids=["вручную", "отписка"],
+    )
+    async def test_entry_of_another_stage_does_not_hold(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+        reason: SuppressionReason,
+    ) -> None:
+        """Проба доноров — общим правилом отправки, как было: правило продаж только у продаж."""
+        fake, transport = platform
+        await make_sender(session, SENDER)
+        session.add(
+            SuppressionModel(email=TO, stage=Stage.ADVERTISERS, reason=reason, created_by="тест")
+        )
+        await session.flush()
+
+        code = await run_mail_test(session, transport, to=TO, sender=None, stage=Stage.DONORS)
+
+        assert code == EXIT_OK
+        assert fake.seen[0]["personalizations"][0]["to"] == [{"email": TO}]
+
+    async def test_sales_probe_is_held_by_an_unsubscribe_of_another_stage(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Правило продаж (`holds_sales`): кто отписался от писем доноров, тому и продажи не
+        пишут — ни настоящим письмом, ни пробой."""
+        session.add(
+            SuppressionModel(
+                email=TO,
+                stage=Stage.DONORS,
+                reason=SuppressionReason.UNSUBSCRIBED,
+                created_by="приём ответов",
+            )
+        )
+        await session.flush()
+
+        printed = await self._refused(session, platform, capsys, stage=Stage.SALES)
+
+        assert (
+            f"адрес {TO} в стоп-листе этапа donors (причина «unsubscribed») — отписка и жалоба "
+            "держат и продажи: писать на него нельзя" in printed
+        )
+
+    async def test_sales_probe_is_held_by_a_complaint_on_the_domain(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        domain = DomainModel(host="ours.test")
+        session.add(domain)
+        await session.flush()
+        session.add(
+            SuppressionModel(
+                domain_id=domain.id,
+                stage=Stage.DONORS,
+                reason=SuppressionReason.COMPLAINED,
+                created_by="жалоба на спам",
+            )
+        )
+        await session.flush()
+
+        printed = await self._refused(session, platform, capsys, stage=Stage.SALES)
+
+        assert (
+            "домен ours.test в стоп-листе этапа donors (причина «complained») — отписка и жалоба "
+            "держат и продажи: запись на домен держит все его адреса" in printed
+        )
+
+    @pytest.mark.parametrize(
+        "reason",
+        [SuppressionReason.MANUAL, SuppressionReason.SUPPLIER],
+        ids=["вручную", "размещались"],
+    )
+    async def test_our_own_entry_of_another_stage_does_not_hold_sales(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+        reason: SuppressionReason,
+    ) -> None:
+        """Ручная запись и «размещались» этапа доноров — наше решение о сайте, а не просьба
+        человека: продажи они не держат. Проба проходит стоп-лист и доходит до сборки письма —
+        там и отказ: первое письмо продаж собирает модуль продаж, файлом его нет."""
+        fake, transport = platform
+        await _box(session, Stage.SALES)
+        await stoplist.add(session, TO, reason=reason, stage=Stage.DONORS, author="тест")
+
+        with pytest.raises(SalesNotConnectedError, match="Первое письмо этапа sales"):
+            await run_mail_test(session, transport, to=TO, sender=None, stage=Stage.SALES)
+
+        assert fake.seen == []
+
+    async def test_expired_entry_holds_nobody(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+    ) -> None:
+        """Срок вышел — запись видна в списке, но письма не держит (`SuppressionModel.in_force`)."""
+        fake, transport = platform
+        await make_sender(session, SENDER)
+        domain = DomainModel(host="ours.test")
+        session.add(domain)
+        await session.flush()
+        session.add(
+            SuppressionModel(
+                domain_id=domain.id,
+                reason=SuppressionReason.SUPPLIER,
+                expires_at=datetime.now(UTC) - timedelta(days=1),
+                created_by="тест",
+            )
+        )
+        await session.flush()
+
+        code = await run_mail_test(session, transport, to=TO, sender=None, stage=Stage.DONORS)
+
+        assert code == EXIT_OK
+        assert fake.seen
+
+    async def test_host_beyond_the_dns_limit_is_judged_by_the_address_alone(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Домена с таким ключом в базе не бывает: команда не падает, а судит дальше — и
+        чужой адрес не пускает предохранитель."""
+        printed = await self._refused(session, platform, capsys, to=f"me@{'a' * 250}.test")
+
+        assert "не в списке разрешённых" in printed
+        assert "стоп-лист" not in printed
 
 
 class TestTheStageSafetyList:

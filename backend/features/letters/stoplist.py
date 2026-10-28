@@ -308,13 +308,16 @@ async def holding(
     domain_ids: Collection[int] = (),
     emails: Collection[str] = (),
     moment: datetime | None = None,
+    rule: ColumnElement[bool] | None = None,
 ) -> list[SuppressionModel]:
     """Записи, которые держат письма этапа `stage` сейчас: на эти домены или на эти адреса.
 
     Одно правило у отправки (`Sending._check_suppression`), у перезапроса цены, который
     проверяет то же ещё до заведения письма (`recheck_facts`), у проверки пробного
-    рекламодателя (`crawl/probe_advertiser.py`) и у очереди «Форм» (`SuppressionModel.holds`):
-    запись без этапа держит все этапы, истёкшая — никого. Запись на домен держит все его адреса.
+    рекламодателя (`crawl/probe_advertiser.py`), у пробного письма себе (`probe.py`) и у очереди
+    «Форм» — `SuppressionModel.holds`: запись без этапа держит все этапы, истёкшая — никого.
+    Запись на домен держит все его адреса. `rule` заменяет условие этапа своим — у пробы
+    продаж это правило продаж (`cli/mail_test.py`); срок судится всегда.
     """
     if not domain_ids and not emails:
         return []
@@ -324,7 +327,7 @@ async def holding(
                 SuppressionModel.domain_id.in_(list(domain_ids)),
                 SuppressionModel.email.in_(list(emails)),
             ),
-            SuppressionModel.holds(stage, moment or datetime.now(UTC)),
+            SuppressionModel.holds(stage, moment or datetime.now(UTC), rule),
         )
     )
     return list(found.all())

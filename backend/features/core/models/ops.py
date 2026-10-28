@@ -154,12 +154,16 @@ class SuppressionModel(TimestampedMixin, Base):
         return or_(cls.expires_at.is_(None), cls.expires_at > moment)
 
     @classmethod
-    def holds(cls, stage: Stage, moment: datetime) -> ColumnElement[bool]:
+    def holds(
+        cls, stage: Stage, moment: datetime, rule: ColumnElement[bool] | None = None
+    ) -> ColumnElement[bool]:
         """Условие «запись держит этап `stage` в момент `moment`»: без этапа — все этапы,
-        с этапом — только свой, истёкшая — никого (`in_force`).
+        с этапом — только свой, истёкшая — никого (`in_force`). `rule` заменяет условие этапа
+        своим (у пробы продаж — правило продаж, `cli/mail_test.py`); срок судится всегда.
 
         Рядом с полем по той же причине, что срок: правило одно у проверки перед отправкой
         (`letters/stoplist.holding`) и у очереди «Форм» (`runs/exclusions.stoplisted`, 28.10.2026).
         Форма — тоже письмо, и сайт, которому письмо не ушло бы, рук на «Формах» не ждёт.
         """
-        return and_(or_(cls.stage.is_(None), cls.stage == stage), cls.in_force(moment))
+        staged = or_(cls.stage.is_(None), cls.stage == stage) if rule is None else rule
+        return and_(staged, cls.in_force(moment))

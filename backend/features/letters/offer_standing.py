@@ -1,5 +1,6 @@
-"""Письмо рекламодателю перед отправкой: адресат ещё рекламодатель, площадка оффера —
-не из «кому не пишем» и не поставщик, ссылка письма — действующая, цена донора — свежая.
+"""Письмо рекламодателю перед отправкой: адресат ещё рекламодатель (бизнес ниши — после
+«пишем» человека), площадка оффера — не из «кому не пишем» и не поставщик, ссылка письма —
+действующая, цена донора — свежая.
 
 Проверки — при отправке, а не только при сборке (`recipients.py`): между сборкой
 и нажатием «Отправить» проходят часы, а то и дни, и за это время меняются и список
@@ -7,9 +8,9 @@
 письмо не уходит, — причиной (`OfferRefused`) и словами для экрана; класс отказа по
 причине выбирает отправка (`sending.Sending._check_advertiser`). Письмо, которому ждать
 в очереди нечего, — под снятую ссылку, на площадке из «кому не пишем» или поставщика,
-бизнесу ниши из «кому не пишем» или с примером оттуда, — `check_offer` останавливает
-своей фиксацией: иначе оно стояло бы в очереди готовым, и пачка спотыкалась бы о него
-каждый раз.
+бизнесу ниши из «кому не пишем», с примером оттуда или после «не пишем» человека о нём, —
+`check_offer` останавливает своей фиксацией: иначе оно стояло бы в очереди готовым,
+и пачка спотыкалась бы о него каждый раз.
 
 Порядок — от главного: снят рекламодатель → площадка из «кому не пишем» → площадка
 поставщика → снята или сменилась ссылка → цена донора.
@@ -74,13 +75,35 @@
 донор сильнее — письмо со своим примером уходит, а пример, потерявший цену или решение
 «принят», письмо держит. Письмо с примером из «кому не пишем» снимается, как под снятую
 ссылку (`attempts.EXAMPLE_WITHDRAWN`): оно не уходило, и следующая сборка напишет бизнесу
-с примером оттуда, где пишем. Решение человека о самом бизнесе держит `niche.decide`.
+с примером оттуда, где пишем.
 
 **Сам бизнес ниши — не из «кому не пишем»** (сверка ТЗ 12.10.2026: список действует на всех
 путях). Правило — сайта, а не ссылки (`runs.exclusions.site_not_writing`): имя домена и DR
 его замера в прогоне, где бизнес нашёлся. Первое письмо и добивка такому бизнесу
 останавливаются с причиной (`donor_standing.stop_for_good`) — его снова не напишут;
 ответ в переписке не держится: бизнес написал сам, как донор.
+
+**Бизнесу ниши — только после «пишем» человека** (28.10.2026), тем же условием, что у списка
+рекламодателей и поиска адреса (`advertiser_rules.in_work`). «Не пишем» снимает его письма
+из очереди и сроки добивок сразу (`niche.decide`), а письмо в «отправляется» не трогает — его
+исход решает человек. Отсюда щель: письмо или добивка висели в «отправляется» в минуту
+решения, человек не нашёл их в журнале платформы и вернул в очередь (`unknown_outcome.py`),
+и пачка или проход добивок отправили бы их бизнесу, о котором сказали «не пишем». Поэтому
+решение перепроверяет и отправка, как решение по донору (`donor_standing.py`):
+
+- **«не пишем»** — первое письмо и добивка останавливаются с причиной
+  (`donor_standing.stop_for_good`), для цепочки это снятый рекламодатель — она кончается;
+- **решения нет** — письмо ждёт его, разговор не рвётся, как у донора, вернувшегося
+  в «предложен». Без решения письмо не собирается (сборка берёт только «пишем»,
+  `niche_recipients.py`; перевод по ссылке решение бизнеса не переписывает,
+  `promote._write`), а у собранного решения нет, только если строку бизнеса после сборки
+  сняли (стоп-листы перевода, `promote._drop`) и сбор прогона завёл её заново: человек
+  решает о нём заново. Остановить письмо до его решения значило бы потерять бизнес молча —
+  остановленное письмо держит адрес как «писали», и после «пишем» новое не соберётся.
+
+Порядок у бизнеса ниши — от главного: «не пишем» человека → сам бизнес из «кому не пишем» →
+решения нет (бизнесу из списка ждать решения нечего) → пример площадки. Ответ в переписке
+ни решение, ни «кому не пишем» не держат: бизнес написал сам.
 """
 
 from __future__ import annotations
@@ -101,7 +124,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.models.run import RunModel
-from backend.features.crawl.advertiser_rules import writes_to
+from backend.features.crawl.advertiser_rules import in_work, writes_to
 from backend.features.crawl.niche import NICHE
 from backend.features.crawl.offer_stop import out_of_queue
 from backend.features.crawl.suppliers import supplier_hosts
@@ -118,8 +141,13 @@ class OfferRefused(StrEnum):
 
     #: Рекламодателя сняли — для цепочки это как стоп-лист.
     REMOVED = "removed"
+    #: Бизнесу ниши человек сказал «не пишем»: письмо остановлено с причиной, цепочка
+    #: кончается, как у снятого рекламодателя.
+    DECLINED = "declined"
     #: Площадка оффера — в «кому не пишем»: письмо остановлено с причиной, цепочка кончается.
     NOT_WRITING = "not_writing"
+    #: Бизнес ниши снова ждёт решения человека: письмо ждёт, разговор не рвётся.
+    UNDECIDED = "undecided"
     #: Письмо собрано под ссылку, которой у рекламодателя больше нет: оно останавливается
     #: со своей причиной, и следующее соберётся под действующую.
     WITHDRAWN = "withdrawn"
@@ -140,6 +168,8 @@ _NOT_SENT = {
     OfferRefused.EXAMPLE: attempts.EXAMPLE_WITHDRAWN,
     OfferRefused.SUPPLIER: attempts.SUPPLIER_WITHDRAWN,
 }
+#: Письма, которым ждать нечего и которых снова не напишут, — в «остановлено» с причиной.
+_FOR_GOOD = frozenset({OfferRefused.NOT_WRITING, OfferRefused.DECLINED})
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,20 +180,29 @@ class OfferRefusal:
     reason: OfferRefused
 
 
+@dataclass(frozen=True, slots=True)
+class _Decision:
+    """Решение человека о бизнесе ниши: `writes` — «пишем» (`advertiser_rules.in_work`),
+    `at` — когда решено; пусто — решения нет."""
+
+    writes: bool
+    at: datetime | None
+
+
 async def check_offer(
     session: AsyncSession, message: MessageModel, *, host: str, now: datetime
 ) -> OfferRefusal | None:
     """Проверка отправки: `offer_refusal`, а письмо, которому ждать нечего, — остановлено
     своей фиксацией: под снятую ссылку или на площадке поставщика —
-    `crawl/offer_stop.out_of_queue`, на площадке или бизнесу из «кому не пишем» —
-    с причиной (`donor_standing.stop_for_good`)."""
+    `crawl/offer_stop.out_of_queue`, на площадке или бизнесу из «кому не пишем» и бизнесу
+    после «не пишем» человека — с причиной (`donor_standing.stop_for_good`)."""
     refused = await offer_refusal(session, message, host=host, now=now)
     if refused is None:
         return None
     if refused.reason in _NOT_SENT:
         await out_of_queue(session, message, reason=_NOT_SENT[refused.reason])
         await session.commit()
-    elif refused.reason is OfferRefused.NOT_WRITING:
+    elif refused.reason in _FOR_GOOD:
         await stop_for_good(session, message, refused.words)
     return refused
 
@@ -174,9 +213,12 @@ async def offer_refusal(
     """Почему письмо `message` рекламодателю `host` уйти не может. `None` — может."""
     advertiser = (
         await session.execute(
-            select(AdvertiserModel.best_page_url, AdvertiserModel.best_donor_host).where(
-                AdvertiserModel.domain_id == message.domain_id
-            )
+            select(
+                AdvertiserModel.best_page_url,
+                AdvertiserModel.best_donor_host,
+                in_work().label("in_work"),
+                AdvertiserModel.decided_at,
+            ).where(AdvertiserModel.domain_id == message.domain_id)
         )
     ).first()
     if advertiser is None:
@@ -185,7 +227,8 @@ async def offer_refusal(
         select(CampaignModel.audience).where(CampaignModel.id == message.campaign_id)
     )
     if audience == NICHE:
-        return await _niche_offer(session, message, host=host, now=now)
+        decision = _Decision(writes=bool(advertiser.in_work), at=advertiser.decided_at)
+        return await _niche_offer(session, message, decision, host=host, now=now)
     return await _link_offer(
         session,
         message,
@@ -274,22 +317,44 @@ def _stale_offer(message: MessageModel, *, host: str, donor: str, stale: str) ->
 
 
 async def _niche_offer(
-    session: AsyncSession, message: MessageModel, *, host: str, now: datetime
+    session: AsyncSession, message: MessageModel, decision: _Decision, *, host: str, now: datetime
 ) -> OfferRefusal | None:
-    """Письмо бизнесу ниши: сам бизнес — не из «кому не пишем» (первое письмо и добивки;
-    ответ в переписке не держится — бизнес написал сам), дальше — пример площадки."""
-    off = (
-        None
-        if message.step >= ANSWER_STEP
-        else await site_not_writing_reason(session, message.domain_id)
-    )
+    """Письмо бизнесу ниши: сам бизнес (`_niche_business`) — у первого письма и добивок,
+    ответ в переписке его не держит — бизнес написал сам; дальше — пример площадки."""
+    if message.step < ANSWER_STEP:
+        refused = await _niche_business(session, message, decision, host=host)
+        if refused is not None:
+            return refused
+    return await _niche_example(session, message, host=host, now=now)
+
+
+async def _niche_business(
+    session: AsyncSession, message: MessageModel, decision: _Decision, *, host: str
+) -> OfferRefusal | None:
+    """Сам бизнес ниши — от главного (шапка модуля): человек сказал о нём «не пишем» —
+    письмо останавливается; бизнес из «кому не пишем» — тоже; решения о нём нет — письмо
+    ждёт его."""
+    if not decision.writes and decision.at is not None:
+        return OfferRefusal(
+            f"Письмо №{message.id} бизнесу ниши {host} остановлено: человек сказал о нём "
+            f"«не пишем» {decision.at:%d.%m.%Y}. Добивки не уйдут",
+            OfferRefused.DECLINED,
+        )
+    off = await site_not_writing_reason(session, message.domain_id)
     if off is not None:
         return OfferRefusal(
             f"Письмо №{message.id} бизнесу ниши {host} остановлено: {off}. Добивки не уйдут, "
             "и новое письмо ему не соберётся",
             OfferRefused.NOT_WRITING,
         )
-    return await _niche_example(session, message, host=host, now=now)
+    if decision.writes:
+        return None
+    return OfferRefusal(
+        f"Бизнес ниши {host} снова ждёт решения человека: пока о нём не скажут «пишем», "
+        f"письмо №{message.id} ждёт. Решить — на экране «Рекламодатели», карточка «Бизнесы "
+        "ниши из выдачи»",
+        OfferRefused.UNDECIDED,
+    )
 
 
 async def _niche_example(
