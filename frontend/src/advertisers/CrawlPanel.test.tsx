@@ -533,23 +533,25 @@ describe('почему обход кончился', () => {
 });
 
 describe('«Переобойти» в последних обходах', () => {
-  const PARTIAL = crawl({
+  /** Обойдён до потолка — с 28.10.2026 повтор и ему (решение Anthony): сайт растёт, а свежие
+   *  адреса карты идут первыми. До того кнопка была только у частичного и неудачного. */
+  const WHOLE = crawl({
     id: 11,
     host: 'fresh.example',
     status: 'done',
-    outcome: 'partial',
-    stop_reason: 'timeout',
-    pages: 447,
+    outcome: 'ok',
+    stop_reason: 'max_pages',
+    pages: 1000,
     finished_at: '2026-10-22T18:37:00Z',
   });
 
-  function openPartial(who: unknown = ADMIN) {
+  function openWhole(who: unknown = ADMIN) {
     return open(
       {
         'GET /api/crawls/targets': {
-          body: { ...TARGETS, donors: [{ ...TARGETS.donors[0], crawl: PARTIAL }] },
+          body: { ...TARGETS, donors: [{ ...TARGETS.donors[0], crawl: WHOLE }] },
         },
-        'GET /api/crawls': { body: { rows: [PARTIAL], active: 0, workers: 4 } },
+        'GET /api/crawls': { body: { rows: [WHOLE], active: 0, workers: 4 } },
         'POST /api/crawls': {
           body: { queued: { 'fresh.example': 12 }, busy: [], failed: [], refused: {}, workers: 4 },
         },
@@ -558,8 +560,8 @@ describe('«Переобойти» в последних обходах', () => 
     );
   }
 
-  it('у частичного обхода — одним донором на сервер, и исход сказан словами', async () => {
-    const recorded = openPartial();
+  it('у обойдённого до потолка — одним донором на сервер, и исход сказан словами', async () => {
+    const recorded = openWhole();
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Доноры и обходы' }));
@@ -574,7 +576,7 @@ describe('«Переобойти» в последних обходах', () => 
   });
 
   it('без права запуска — колонки с кнопкой нет', async () => {
-    openPartial({ ...(OPERATOR as object), permissions: ['view'] });
+    openWhole({ ...(OPERATOR as object), permissions: ['view'] });
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Доноры и обходы' }));
@@ -583,21 +585,32 @@ describe('«Переобойти» в последних обходах', () => 
     expect(screen.queryByRole('button', { name: /Переобойти/ })).toBeNull();
   });
 
-  it('кнопка — у последнего обхода донора, который стоит повторить, и донору со свежей ценой', () => {
+  it('кнопка — у последнего обхода донора, чем бы он ни кончился, и донору со свежей ценой', () => {
     const rows = [
       crawl({ id: 9, host: 'again.example', status: 'done', outcome: 'partial' }),
       crawl({ id: 8, host: 'again.example', status: 'done', outcome: 'failed' }),
       crawl({ id: 7, host: 'whole.example', status: 'done', outcome: 'ok' }),
       crawl({ id: 6, host: 'robots.example', status: 'done', outcome: 'forbidden' }),
       crawl({ id: 5, host: 'closed.example', status: 'done', outcome: 'blocked' }),
-      crawl({ id: 4, host: 'hung.example', status: 'stopped' }),
-      crawl({ id: 3, host: 'stale.example', status: 'done', outcome: 'partial' }),
-      crawl({ id: 2, host: 'busy.example', status: 'running' }),
+      crawl({ id: 4, host: 'broken.example', status: 'done', outcome: 'failed' }),
+      crawl({ id: 3, host: 'hung.example', status: 'stopped' }),
+      crawl({ id: 2, host: 'stale.example', status: 'done', outcome: 'ok' }),
     ];
     const eligible = new Set(
       rows.map((row) => row.host).filter((host) => host !== 'stale.example'),
     );
 
-    expect([...againRows(rows, eligible)]).toEqual([9, 5, 4]);
+    expect([...againRows(rows, eligible)]).toEqual([9, 7, 6, 5, 4, 3]);
+  });
+
+  it('пока переобход в очереди или идёт — кнопки нет, и у прежнего обхода донора тоже', () => {
+    const rows = [
+      crawl({ id: 4, host: 'busy.example', status: 'running' }),
+      crawl({ id: 3, host: 'waiting.example', status: 'queued' }),
+      crawl({ id: 2, host: 'busy.example', status: 'done', outcome: 'ok' }),
+      crawl({ id: 1, host: 'waiting.example', status: 'done', outcome: 'partial' }),
+    ];
+
+    expect([...againRows(rows, new Set(['busy.example', 'waiting.example']))]).toEqual([]);
   });
 });
