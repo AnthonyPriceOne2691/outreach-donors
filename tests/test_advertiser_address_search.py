@@ -3,28 +3,42 @@
 Тест-группа: из 180 бизнесов ниши, решённых «пишем», письма собрались трём — адрес был у восьми,
 а поиск после «пишем» никто не ставил (`api/advertisers/routes._search_after_yes`). Решения идут
 пачкой, задача поиска одна — решённых за время прохода берёт её добор (`crawl/address_search.py`).
+Письмо бизнеса, получившего адрес, встаёт в ту же очередь, которую уходит проход автоотправки.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from typing import Any
 
 import pytest
+from backend.config import outreach as outreach_cfg
 from backend.features.contacts.ladder import LadderResult
 from backend.features.contacts.search import SearchReport
-from backend.features.core.domain import ContactSource, ContactStatus, Stage, UserRole
+from backend.features.core.domain import (
+    ContactSource,
+    ContactStatus,
+    MessageStatus,
+    Stage,
+    UserRole,
+)
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.advertisers import AdvertiserModel
+from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.crawl import address_search, niche
+from backend.features.crawl.contacts import AdvertiserContactRepository
+from backend.features.letters import autosend
 from backend.features.letters.niche_recipients import NicheRecipients
+from backend.features.letters.transport import NullTransport
 from backend.shared.queue import CONTACTS_JOB
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests import test_niche_letters as niche_letters
 from tests.conftest import bearer
+from tests.test_letters_advertisers import build_offers, offers, priced_donor, stage_two_sender
 from tests.test_niche_advertisers import _domain, _run
 
 MakeUser = Callable[..., Awaitable[UserModel]]
@@ -321,3 +335,49 @@ async def test_letters_tabs_count_their_own_waiting(
         counted[audience] = said.json()["pending"]
 
     assert counted == {"niche": 1, "links": 1, None: 2}
+
+
+class TestTheLetterJoinsTheSelfSendingQueue:
+    """Адрес нашёлся, пока очередь бизнесов ниши уходит сама (`letters/autosend.py`): письмо
+    следующей сборки встаёт в ту же очередь — этап и аудиторию, — и его отдаёт проход."""
+
+    async def test_the_pass_sends_the_letter_of_a_business_that_got_its_address(
+        self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Окно получателя — круглые сутки: проверка не об окне, а о том, чья это очередь.
+        monkeypatch.setattr(outreach_cfg, "AUTOSEND_DAYS", frozenset(range(7)))
+        monkeypatch.setattr(outreach_cfg, "AUTOSEND_OPENS", time.min)
+        monkeypatch.setattr(outreach_cfg, "AUTOSEND_CLOSES", time.max)
+        await priced_donor(session, niche_letters.DONOR)
+        await niche_letters._business(session, contact=False)
+        await stage_two_sender(session)
+        now = datetime.now(UTC)
+        mode, fresh = await autosend.start(
+            session, Stage.ADVERTISERS, niche.NICHE, by=None, now=now
+        )
+        assert fresh
+        waiting = AdvertiserContactRepository(session)
+        assert await waiting.pending_count(niche=True) == 1
+
+        # Поиск нашёл адрес — строка `contacts` домена, как её пишет лестница.
+        domain = await session.scalar(
+            select(DomainModel).where(DomainModel.host == niche_letters.BOOKIE)
+        )
+        assert domain is not None
+        session.add(
+            ContactModel(
+                domain_id=domain.id,
+                email=f"partners@{niche_letters.BOOKIE}",
+                source=ContactSource.PAGE,
+            )
+        )
+        await session.flush()
+        assert await waiting.pending_count(niche=True) == 0
+        await build_offers(session, audience=niche.NICHE, campaign_name="Ниша")
+
+        passed = await autosend.run(session, NullTransport(), mode, now=now)
+
+        assert passed.state.startswith("ушло 1")
+        [letter] = await offers(session)
+        assert letter.status == MessageStatus.SENT
+        assert mode.stopped_at is None
