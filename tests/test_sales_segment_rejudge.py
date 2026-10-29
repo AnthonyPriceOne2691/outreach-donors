@@ -19,7 +19,7 @@ from backend.config import llm as llm_cfg
 from backend.config import sales as sales_cfg
 from backend.config import storage
 from backend.config.judge import JudgeMode
-from backend.features.core import usage
+from backend.features.core import llm_caps, usage
 from backend.features.core.domain import UsageProvider
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import UsageRecordModel
@@ -730,3 +730,21 @@ async def test_a_permanent_refusal_of_the_job_is_written_into_the_queued_rejudge
         STOPPED,
         "пересуд не выполнен: ключ модели не задан",
     )
+
+
+async def test_over_the_cap_the_rejudge_says_who_raises_it_and_when(
+    session: AsyncSession, owner: SalesHypothesisModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Выше остатка — не «пересудите завтра», а слова сторожа модели: кто поднимает потолок и
+    когда сброс (`usage_cap.after_spent`)."""
+    monkeypatch.setattr(sales_cfg, "ENABLED", True)
+    monkeypatch.setattr(llm_cfg, "API_KEY", MODEL_KEY)
+    monkeypatch.setattr(se, "tokens_left", _left(100))
+    run = await make_run(session, owner, mode=JudgeMode.ENFORCE)
+    await site(session, run, SHOP, lane=Lane.ACCEPT)
+    now = datetime.now(UTC)
+
+    found = await se.estimate(session, run, now=now)
+
+    assert found.refusal is not None
+    assert found.refusal.endswith(f"при остатке 100 — {llm_caps.after_cap(now)}")

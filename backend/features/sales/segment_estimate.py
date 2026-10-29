@@ -58,7 +58,7 @@ from backend.config import serp as serp_cfg
 from backend.config.judge import JudgeMode
 from backend.config.startup_checks import ConfigError
 from backend.features.ahrefs.client import AhrefsClient
-from backend.features.core import usage
+from backend.features.core import llm_caps, usage
 from backend.features.runs.estimate import RESULTS_PER_PAGE, UNIQUE_SHARE
 from backend.features.sales import chain_text, usage_cap, verifier, verify_cap
 from backend.features.sales.intake import UnknownHypothesisError
@@ -255,6 +255,8 @@ async def tokens_left(session: AsyncSession, now: datetime | None = None) -> int
     потолка продаж (`usage_cap.sales_cap`). `None` — ни того, ни другого нет. Свой потолок не
     прочитан из настроек — ноль (`CAP_UNREAD`), а не доля общего: вызовы модели продаж тогда
     отказывают все."""
+    # Блок «Расхода» — свежим чтением: остаток и совет отказа судят тот же лимит, что сторож.
+    await llm_caps.refresh(session)
     if _cap_unread():
         return 0
     moment = now or datetime.now(UTC)
@@ -422,7 +424,7 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
     if found.hunter_checks:
         found.month = await verify_cap.month(session, now=now)
     found.lines = lines_of(found, cap_unread=_cap_unread())
-    found.refusal = await _money_refusal(found)
+    found.refusal = await _money_refusal(found, now or datetime.now(UTC))
     return found
 
 
@@ -435,7 +437,7 @@ async def _tokens(session: AsyncSession, found: Estimate) -> None:
     found.tokens = 0 if found.mode == JudgeMode.OFF else found.sites * found.tokens_per_site
 
 
-async def _money_refusal(found: Estimate) -> str | None:
+async def _money_refusal(found: Estimate, now: datetime) -> str | None:
     """Отказ по деньгам и настройкам: модуль выключен, модель выше остатка потолка, нет ключа,
     нет выдачи, на счету выдачи не хватает денег, модель не ответила проверке."""
     if not sales_cfg.ENABLED:
@@ -450,7 +452,7 @@ async def _money_refusal(found: Estimate) -> str | None:
         return (
             f"смета модели выше остатка дневного потолка: ≈ {number(found.tokens)} токенов при "
             f"остатке {number(found.tokens_left)} — уменьшите число ключей или глубину, "
-            "или запустите завтра"
+            f"или {usage_cap.after_spent(now)}"
         )
     refused = await serp_refusal() or await _funds_refusal(found.serp_usd)
     return refused if refused is not None else await unready(JudgeMode(found.mode))

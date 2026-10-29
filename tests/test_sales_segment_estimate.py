@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 import pytest
 from backend.config import contacts as contacts_cfg
@@ -16,7 +17,7 @@ from backend.config import llm as llm_cfg
 from backend.config import sales as sales_cfg
 from backend.config import serp as serp_cfg
 from backend.config.judge import JudgeMode
-from backend.features.core import usage
+from backend.features.core import llm_caps, usage
 from backend.features.core.domain import UsageProvider
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import UsageRecordModel
@@ -193,12 +194,13 @@ async def test_estimate_above_the_model_cap_refuses_in_words(
     await session.flush()
     owner = await hypothesis(session)
 
-    found = await estimate(session, ask(owner.id))
+    now = datetime.now(UTC)
+    found = await estimate(session, ask(owner.id), now=now)
 
     assert found.tokens_left == 29113 - 2219
     assert found.refusal == (
         "смета модели выше остатка дневного потолка: ≈ 88\u00a0400 токенов при остатке 26\u00a0894 — "
-        "уменьшите число ключей или глубину, или запустите завтра"
+        f"уменьшите число ключей или глубину, или {llm_caps.after_cap(now)}"
     )
     # Слова сметы остаются: видно, сколько просили.
     assert found.lines[2] == (

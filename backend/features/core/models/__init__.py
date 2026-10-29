@@ -20,6 +20,7 @@ from backend.features.core.models.outgoing_attachment import OutgoingAttachmentM
 from backend.features.core.models.outreach import (
     CampaignModel,
     MessageModel,
+    QueueAutosendModel,
     ReplyModel,
     SenderHealthModel,
     SenderModel,
@@ -71,6 +72,7 @@ __all__ = [
     "MessageModel",
     "OutLinkModel",
     "OutgoingAttachmentModel",
+    "QueueAutosendModel",
     "ReplyAttachmentModel",
     "ReplyModel",
     "RunCandidateModel",

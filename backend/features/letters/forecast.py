@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from typing import assert_never
 from zoneinfo import ZoneInfo
@@ -39,6 +39,7 @@ from backend.features.core.models.outreach import (
     SenderModel,
     SendingDomainModel,
 )
+from backend.features.letters import autosend, autosend_window
 from backend.features.letters.chain import FIRST_STEP, MAX_STEPS
 from backend.features.letters.forecast_plan import Clock, Eta, Mailboxes, PlanDay, Supply, plan
 from backend.features.letters.mailbox import SILENT
@@ -196,7 +197,11 @@ def _mailbox(box: BoxToday, now: datetime, first: date) -> Mailbox:
 
 async def _policy(session: AsyncSession, stage: Stage) -> stages.MailPolicy:
     """Политика этапа — окно получателя и темп автоотправки. Модуль продаж не ответил — пустая:
-    письма продаж тогда не уходят вовсе, и это скажет `_blocked`."""
+    письма продаж тогда не уходят вовсе, и это скажет `_blocked`. У доноров и рекламодателей окна и
+    темпа нет, пока очередь этапа не уходит сама (`autosend.py`): тогда прогноз считает окном и
+    темпом её прохода — как у автоотправки продаж."""
+    if stage in autosend.STAGES and await autosend.stage_running(session, stage):
+        return replace(stages.CURRENT, window=autosend_window.frame(), pace=autosend.pace())
     try:
         return await stages.mail_policy(session, stage, WHAT)
     except stages.SalesNotConnectedError as exc:
@@ -245,10 +250,13 @@ async def _answers(
     """Ответы модуля этапа прогнозу. У продаж — мостом (`core/stage_forecast.py`): сколько первых
     писем ещё напишет сборка, пояс получателей очереди (только при окне, `capacity.queue_zone`) и
     письма, которые не уйдут, пока их не поправят. У доноров и рекламодателей очередь собирает
-    человек, окна нет."""
+    человек; пояс получателей — только когда очередь уходит сама и у её прохода есть окно
+    (`autosend_window.queue_zone`)."""
     match stage:
         case Stage.DONORS | Stage.ADVERTISERS:
-            return _Answers()
+            return _Answers(
+                zone=await autosend_window.queue_zone(session, stage) if policy.window else None
+            )
         case Stage.SALES:
             return _Answers(
                 await stage_forecast.sales_supply(session),

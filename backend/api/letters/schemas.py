@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
+from backend.api.letters.autosend_schemas import QueueAutosendView
 from backend.config import outreach as cfg
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.crawl.niche import LINKS
@@ -261,6 +262,8 @@ class LettersView(BaseModel):
     #: числа во фронте разошлась бы с пачкой при первой правке. Ставит маршрут — из того
     #: же места, что и число в ответе пачки (`SendQueueQueued.queued`).
     batch_max: int
+    #: Уходит ли очередь сама (`letters/autosend.py`): отметка в окне пачки и строка под кнопкой.
+    autosend: QueueAutosendView
 
 
 #: Писем за одну сборку — тот же потолок, что у поля «За раз» на экране. До проверки
@@ -344,9 +347,24 @@ class SendQueueBody(BaseModel):
     #: Чьи письма: по найденной ссылке или бизнесов ниши. Пачка одной аудитории
     #: письма другой не берёт; без аудитории — по ссылке, как до бизнесов ниши.
     audience: Audience = "links"
+    #: Дальше очередь уходит сама (`letters/autosend.py`) — отметка «дальше — сама» в окне.
+    #: Без поля — нет: прежний экран и консоль режима не включают. У продаж не действует.
+    keep_sending: bool = False
 
     @model_validator(mode="after")
     def _niche_is_stage_two(self) -> SendQueueBody:
+        stage_two_only(self.stage, self.audience)
+        return self
+
+
+class QueueAutosendBody(BaseModel):
+    """Какую очередь перестать отправлять самой: этап и, на Этапе 2, аудиторию."""
+
+    stage: Stage = Stage.DONORS
+    audience: Audience = "links"
+
+    @model_validator(mode="after")
+    def _niche_is_stage_two(self) -> QueueAutosendBody:
         stage_two_only(self.stage, self.audience)
         return self
 
@@ -359,6 +377,8 @@ class SendQueueQueued(BaseModel):
     #: число, что «Отправить N» в окне подтверждения. Уйдёт не больше, чем позволит
     #: дневной лимит ящиков, — итог скажет строка задачи.
     queued: int
+    #: Очередь уходит сама и дальше — после этой пачки (`letters/autosend.py`).
+    autosend: bool = False
 
 
 class EditRequestBody(BaseModel):

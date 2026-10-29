@@ -24,7 +24,12 @@
 с моделью: процесс живёт в тесном пределе памяти, и сломанный импорт выключенного прохода ронял
 бы каждый его цикл.
 
-Шестой — очередь загрузки обхода (`features/crawl/backlog.feed`): доноров, загруженных списком,
+Шестой — очереди доноров и рекламодателей, которые отправляются сами
+(`workers/send_jobs.autosend_pass`, `features/letters/autosend.py`): рубильник `OUTREACH_AUTOSEND`
+проход смотрит сам, а режим включает только человек кнопкой «Отправить очередь». Модуль отправки —
+лениво, при первом проходе, как у продаж: сломанный импорт роняет этот цикл, а не процесс.
+
+Седьмой — очередь загрузки обхода (`features/crawl/backlog.feed`): доноров, загруженных списком,
 он отдаёт обходчикам по мере того, как те освобождаются. Своего процесса ему не нужно — запрос
 к базе и постановка раз в минуту. Модуль очереди — при проходе: он тянет конфиг обхода, а опечатка
 в нём роняет только обходчик.
@@ -45,6 +50,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from backend.config import outreach as outreach_cfg
 from backend.config import sales as sales_cfg
 from backend.config import storage
 from backend.config.startup_checks import check_storage
@@ -293,6 +299,16 @@ async def autobuild() -> None:
     await tick()
 
 
+async def queue_autosend() -> None:
+    """Проход очередей доноров и рекламодателей, которые отправляются сами. Рубильник — до
+    импорта: выключенный проход не грузит ни отправку, ни почту."""
+    if not outreach_cfg.AUTOSEND:
+        return
+    from backend.workers.send_jobs import autosend_pass  # noqa: PLC0415 — лениво
+
+    await autosend_pass()
+
+
 async def _sales_loop(interval: float, work: Pass, name: str) -> None:
     """Цикл продаж: неудачи прохода — тревога продаж, а не здоровье процесса (`sales/loops.own`).
     Память цикла — модуль продаж, лениво, первым проходом и одна на цикл: сломан его импорт —
@@ -320,6 +336,7 @@ async def _loops() -> None:
         _sales_loop(sales_cfg.HANDOFF_PASS_SEC, retry_handoffs, "Повтор передачи лидов продаж"),
         _sales_loop(sales_cfg.AUTOSEND_PASS_SEC, autosend, "Автоотправка писем продаж"),
         _sales_loop(sales_cfg.AUTOBUILD_PASS_SEC, autobuild, "Автосборка очереди продаж"),
+        every(outreach_cfg.AUTOSEND_PASS_SEC, queue_autosend, name="Очередь писем уходит сама"),
     )
 
 

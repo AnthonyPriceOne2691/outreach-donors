@@ -230,3 +230,28 @@ async def test_an_empty_sales_cap_is_its_share_of_the_general_cap_in_the_loop(
         f"дневной потолок вызовов модели продаж выбран: {share} из {share} токенов"
     )
     assert writer.seen == []
+
+
+@pytest.mark.usefixtures("sales_on", "caps")
+async def test_the_situation_asks_the_caps_by_the_rule_of_the_sales_stage(
+    session: AsyncSession, llm: Plug, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ситуация письма — первый вызов модели черновика продаж: потолки она судит правилом петли
+    правки (`guarding.within_caps`) своим этапом — при сохранённых лимитах на «Расходе» лимит
+    агента переписки продажам не отказывает (`test_llm_caps`). Отказ правила — модель не звали."""
+    reply_id = await lead_replied(session)
+    model = llm(situation=[INFORM], judge=[ALLOW])
+    writer = Writer(GOOD)
+    asked: list[object] = []
+
+    async def within(_session: AsyncSession, stage: object) -> None:
+        asked.append(stage)
+        raise LlmCapExceededError("потолок выбран")
+
+    monkeypatch.setattr(guarding, "within_caps", within)
+
+    with pytest.raises(LlmCapExceededError):
+        await drafting.draft_answer(session, writer, reply_id)
+
+    assert asked == [SALES_STAGE]
+    assert (model.sent["situation"], writer.seen) == ([], [])
