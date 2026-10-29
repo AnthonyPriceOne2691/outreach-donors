@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import Query
 from pydantic import BaseModel, Field
 
-from backend.api.crawls.schemas import CrawlCeilings, DonorRow
+from backend.api.crawls.schemas import MAX_HOSTS, CrawlCeilings, DonorRow
 from backend.config import crawl as crawl_cfg
 from backend.features.crawl import donor_page
 from backend.features.crawl.board import QueueState
@@ -88,6 +88,9 @@ class DonorsView(CrawlCeilings):
     startable: int
     #: Сколько «Обойти всех по фильтру» ставит за раз: больше — «10 000 из 12 345» на кнопке.
     bulk_max: int = donor_page.BULK_MAX
+    #: Сколько ставится сразу в очередь обходов — «Обойти отмеченных» и «Обойти всех по фильтру»;
+    #: больше — в очередь загрузки.
+    launch_max: int = MAX_HOSTS
     #: Сколько обходчиков слушает очередь; `None` — не спросили.
     workers: int | None = None
     #: Сколько из них сторож нагрузки держит без работы и почему — как у `TargetsView`.
@@ -153,15 +156,15 @@ class BulkBody(DonorFilter):
 class BulkResult(BaseModel):
     """Что вышло: сколько доноров попало под фильтр и поставлено ли сразу.
 
-    Больше `routes.MAX_HOSTS` — ставится фоновой задачей (`workers/crawl_bulk.py`): строка
-    обхода на донора — своей транзакцией, и тысяча доноров в одном запросе держала бы экран
-    минуту. Тогда `queued` пусто, а ход виден по счётчику «в очереди»."""
+    Больше `routes.MAX_HOSTS` — в очередь загрузки (`crawl/backlog.py`): тысяча доноров разом в
+    очереди обходов заперла бы за собой каждый обход, поставленный кнопкой после. Тогда `queued`
+    пусто, `backlog` — сколько встало в очередь загрузки впервые, а ход виден её строкой."""
 
     asked: int
     deferred: bool
     queued: int | None = None
     busy: int | None = None
     failed: int | None = None
-    #: Номер фоновой задачи, если ставит она.
-    job_id: str | None = None
+    #: Сколько встало в очередь загрузки (уже стоявшие — не второй раз).
+    backlog: int | None = None
     workers: int | None = None

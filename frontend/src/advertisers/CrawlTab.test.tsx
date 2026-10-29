@@ -16,6 +16,7 @@ import { AppRoutes } from '../App';
 import type { CrawlDonorsView, CrawlRow, CrawlSummary, CrawlTarget } from '../api/crawls';
 import {
   ADMIN,
+  BACKLOG_ROUTES,
   EMPTY_CRAWL_SUMMARY,
   NO_NICHE,
   OPERATOR,
@@ -24,7 +25,7 @@ import {
 } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
-import { bulkCount, bulkTiming } from './BulkCrawl';
+import { bulkCount, bulkTiming, where } from './BulkCrawl';
 import { pickable } from './CrawlDonorsTable';
 import { closedShare, crawlState, failureShare } from './CrawlTable';
 import { crawlEta, readCrawlFilters, writeCrawlFilters } from './crawlFilters';
@@ -106,6 +107,7 @@ const PAGE: CrawlDonorsView = {
   counts: COUNTS,
   startable: 2,
   bulk_max: 10_000,
+  launch_max: 50,
   workers: 8,
   typical_crawl_sec: 1500,
   max_pages: 1000,
@@ -137,6 +139,7 @@ function open(
   const recorded = serve({
     'GET /api/auth/me': { body: who },
     ...PROMOTE_ROUTES,
+    ...BACKLOG_ROUTES,
     ...NO_NICHE,
     'GET /api/advertisers': { body: { rows: [], waiting: 0, counts: { bought: 1, pending: 0 } } },
     'GET /api/crawls/summary': { body: SUMMARY },
@@ -322,7 +325,6 @@ describe('вкладка «Обход доноров»', () => {
           queued: 2,
           busy: 0,
           failed: 0,
-          job_id: null,
           workers: 8,
         },
       },
@@ -337,6 +339,7 @@ describe('вкладка «Обход доноров»', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Обойти всех по фильтру?' });
     expect(dialog).toHaveTextContent('Встанут в очередь: 2 донора — не обходили.');
     expect(dialog).toHaveTextContent('При 8 обходчиках пройдут ≈ 25 мин');
+    expect(dialog).toHaveTextContent('Встанут сразу в очередь обходов, как «Обойти отмеченных».');
     await user.click(within(dialog).getByRole('button', { name: 'Поставить 2' }));
 
     await waitFor(() =>
@@ -351,7 +354,7 @@ describe('вкладка «Обход доноров»', () => {
     const recorded = open({
       'GET /api/crawls/donors': { body: { ...PAGE, startable: 12_345 } },
       'POST /api/crawls/donors/crawl': {
-        body: { asked: 10_000, deferred: true, job_id: 'bulk-1', workers: 8 },
+        body: { asked: 10_000, deferred: true, backlog: 9_990, workers: 8 },
       },
     });
     const user = userEvent.setup();
@@ -370,7 +373,9 @@ describe('вкладка «Обход доноров»', () => {
       ),
     );
     expect(
-      await screen.findByText(/^Ставим в очередь 10 000 доноров — фоном/, { normalizer: plain }),
+      await screen.findByText(/^В очередь загрузки — 9 990 доноров: обходчикам их отдают/, {
+        normalizer: plain,
+      }),
     ).toBeInTheDocument();
   });
 
@@ -734,13 +739,16 @@ describe('правила вкладки', () => {
       queued: 2,
       busy: 1,
       failed: 0,
-      job_id: null,
       workers: 8,
     };
     expect(bulkSummary(done)).toBe('Поставлено: 2 из 3. Уже шли: 1.');
-    expect(bulkSummary({ ...done, asked: 120, deferred: true, queued: null })).toBe(
-      'Ставим в очередь 120 доноров — фоном, ход виден по счётчику «в очереди».',
+    expect(bulkSummary({ ...done, asked: 120, deferred: true, queued: null, backlog: 118 })).toBe(
+      'В очередь загрузки — 118 доноров: обходчикам их отдают по мере, как освобождаются, а ' +
+        'обход, поставленный кнопкой, идёт первым.',
     );
+    expect(where(50, 50)).toBe('Встанут сразу в очередь обходов, как «Обойти отмеченных».');
+    expect(where(51, 50)).toMatch(/^Больше 50 — через очередь загрузки: .*«Снять очередь»/);
+    expect(where(51, undefined)).toBe('');
     expect(bulkSummary({ ...done, asked: 0 })).toMatch(/^Под фильтром обойти некого/);
     expect(plain(bulkCount(12_345, 10_000))).toBe('10 000 из 12 345');
     expect(bulkCount(12, 10_000)).toBe('12');

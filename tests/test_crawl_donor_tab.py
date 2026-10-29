@@ -11,18 +11,16 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from types import SimpleNamespace
 
 import pytest
 from backend.api.crawls import routes
 from backend.features.core.domain import AuditAction, CrawlOutcome, CrawlStatus, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.advertisers import SupplierDonorModel
-from backend.features.core.models.crawl import CrawlRunModel
+from backend.features.core.models.crawl import CrawlBacklogModel, CrawlRunModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.crawl import donor_page
 from backend.shared.crawl_marks import Held
-from backend.workers import crawl_bulk
 from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -201,6 +199,9 @@ async def test_crawl_all_by_filter_queues_only_who_may_be_crawled(
 
     body = reply.json()
     assert (body["asked"], body["queued"], body["deferred"]) == (4, 4, False)
+    # До полусотни — прямо в очередь обходов, как «Обойти отмеченных», а не в очередь загрузки.
+    assert body["backlog"] is None
+    assert (await session.scalars(select(CrawlBacklogModel.host))).all() == []
     started = (
         (
             await session.execute(
@@ -239,7 +240,7 @@ async def test_no_more_than_the_button_said(
     assert len(queue) == 1
 
 
-async def test_many_are_queued_in_the_background(
+async def test_many_go_to_the_import_queue_not_the_crawl_queue(
     client: AsyncClient,
     operator: str,
     tab: None,
@@ -247,63 +248,53 @@ async def test_many_are_queued_in_the_background(
     monkeypatch: pytest.MonkeyPatch,
     queue: list[tuple[int, str | None]],
 ) -> None:
-    deferred: list[tuple[list[str], str | None]] = []
-
-    def defer(hosts: list[str], by: str | None) -> str:
-        deferred.append((hosts, by))
-        return "bulk-1"
-
+    """Больше, чем ставится сразу, — в очередь загрузки: тысячи разом в очереди обходов заперли
+    бы за собой каждый обход, поставленный кнопкой после. Встали — больше не «можно обойти»."""
     monkeypatch.setattr(routes, "MAX_HOSTS", 2)
-    monkeypatch.setattr(routes, "_defer", defer)
 
     body = (
         await client.post(
             "/api/crawls/donors/crawl", json={"expected": 50}, headers=bearer(operator)
         )
     ).json()
+    after = (await client.get("/api/crawls/donors", headers=bearer(operator))).json()
 
-    assert (body["asked"], body["deferred"], body["job_id"], body["queued"]) == (
-        4,
-        True,
-        "bulk-1",
-        None,
-    )
-    assert deferred == [
-        (
-            [
-                "never.example.test",
-                "done.example.test",
-                "refused.example.test",
-                "partial.example.test",
-            ],
-            "оператор@site.com",
-        )
-    ]
+    assert (body["asked"], body["deferred"], body["backlog"], body["queued"]) == (4, True, 4, None)
     assert queue == []
+    waiting = (await session.scalars(select(CrawlBacklogModel.host))).all()
+    assert sorted(waiting) == [
+        "done.example.test",
+        "never.example.test",
+        "partial.example.test",
+        "refused.example.test",
+    ]
+    assert after["startable"] == 0
     record = (
-        await session.execute(
-            select(AuditLogModel).where(AuditLogModel.target == "crawl-bulk:bulk-1")
-        )
+        await session.execute(select(AuditLogModel).where(AuditLogModel.target == "crawl_backlog"))
     ).scalar_one()
     assert record.details["доноров"] == 4
 
 
-async def test_bulk_job_queues_through_the_same_launch(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[tuple[list[str], str | None]] = []
-    done = SimpleNamespace(queued={"a.example.test": 1}, busy=["b.example.test"], failed=[])
+async def test_drop_the_import_queue_drops_the_filtered_too(
+    client: AsyncClient,
+    operator: str,
+    tab: None,
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    queue: list[tuple[int, str | None]],
+) -> None:
+    """«Снять очередь» снимает и доноров «Обойти всех по фильтру»: очередь загрузки — одна, и
+    снятые снова «можно обойти»."""
+    monkeypatch.setattr(routes, "MAX_HOSTS", 2)
+    await client.post("/api/crawls/donors/crawl", json={"expected": 50}, headers=bearer(operator))
 
-    async def launch(
-        _session: object, hosts: list[str], *, by: str | None, **_: object
-    ) -> SimpleNamespace:
-        seen.append((list(hosts), by))
-        return done
+    dropped = await client.delete("/api/donors/import/backlog", headers=bearer(operator))
+    after = (await client.get("/api/crawls/donors", headers=bearer(operator))).json()
 
-    monkeypatch.setattr(crawl_bulk, "launch", launch)
-
-    said = await crawl_bulk._launch(["a.example.test", "b.example.test"], "оператор@site.com")
-
-    assert said == {"queued": 1, "busy": 1, "failed": 0}
-    assert seen == [(["a.example.test", "b.example.test"], "оператор@site.com")]
+    assert dropped.status_code == 200
+    assert (await session.scalars(select(CrawlBacklogModel.host))).all() == []
+    assert after["startable"] == 4
+    assert queue == []
 
 
 async def test_summary_for_the_review_view(client: AsyncClient, operator: str, tab: None) -> None:

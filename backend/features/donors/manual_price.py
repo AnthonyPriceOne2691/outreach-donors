@@ -49,12 +49,18 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.access.repository import AccessRepository
-from backend.features.core.domain import AuditAction, DonorStatus, PriceSource
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.host import normalize_host
-from backend.features.donors.price import PriceDetails, put_price, said_later
+from backend.features.donors.manual_record import (
+    accept_by_hand,
+    later_refusal,
+    record_price,
+    shown_price,
+    suitable,
+    write_price,
+)
+from backend.features.donors.price import said_later
 from backend.features.donors.price_refusal import price_refusal
 from backend.features.donors.standing import UnknownDonorError, donor_now
 from backend.features.replies.money import (
@@ -63,7 +69,6 @@ from backend.features.replies.money import (
     IMPLAUSIBLE_PRICE,
     normalize_currency,
 )
-from backend.features.review.candidates import Decision
 from backend.shared.database.ids import storable
 from backend.shared.numbers import spaced
 
@@ -282,10 +287,13 @@ async def enter_host(
     дальше общий путь `enter`. Без коммита."""
     host = normalize_host(raw_host)
     if not host:
-        raise ManualPriceError(
-            f"«{raw_host.strip()}» — не домен: впишите адрес сайта, например example.com."
-        )
+        raise ManualPriceError(not_a_domain(raw_host))
     return await enter(session, host, price, author_id=author_id, now=now)
+
+
+def not_a_domain(raw: str) -> str:
+    """Отказ «не домен» — одними словами у кнопки и у загрузки списком (`bulk_entry.py`)."""
+    return f"«{raw.strip()}» — не домен: впишите адрес сайта, например example.com."
 
 
 async def price_donor(
@@ -360,13 +368,7 @@ async def _accepted(
     if donor is None:
         donor = DonorModel(domain_id=domain.id)
         session.add(donor)
-    # «Годен» — слово человека, а не порогов: метрики платные, и ручной ввод
-    # их не покупает. Найдёт донора прогон — запишет вердикт своего замера
-    # (`measured_status`), а этот, для выходов, не тронет: принятого понижает только
-    # прогон, где его приняли, а этого приняли без прогона (`donors/held.py`).
-    donor.status = DonorStatus.SUITABLE
-    donor.review, donor.review_at, donor.review_by = Decision.ACCEPTED.value, at, by
-    donor.entered_by = by
+    accept_by_hand(donor, by=by, at=at)
     await session.flush()
     return donor
 
@@ -387,42 +389,13 @@ async def _priced(
     руками — слово минуты, когда её вписали, и обычно новее всего. Слово новее этой
     минуты — отказ словами, а не запись в журнал о цене, которой нет.
     """
-    before = _shown(donor)
+    before = shown_price(donor)
     if said_later(donor, await session.get(DomainModel, donor.domain_id), at):
-        raise DonorRefusedError(
-            f"Цену {host} не записали: у донора записано слово новее этой цены — ответ или "
-            "цена позже неё, а последнее слово сильнее. Обновите карточку и проверьте цену."
-        )
-    put_price(
-        donor,
-        amount=price.amount,
-        currency=price.currency,
-        at=at,
-        source=PriceSource.MANUAL,
-        details=PriceDetails(
-            white=price.amount,
-            grey=price.grey,
-            payment_methods=price.payment_methods,
-            note=price.note,
-            by=price.by,
-        ),
-    )
+        raise DonorRefusedError(later_refusal(host))
+    write_price(donor, price, at)
     await session.flush()
-    await AccessRepository(session).record(
-        AuditAction.PRICE_REVIEWED,
-        author_id=author_id,
-        target=f"donor:{donor.id}",
-        details={
-            "действие": "донор заведён вручную, с ценой" if created else "цена указана вручную",
-            "донор": host,
-            "цена": str(price.amount),
-            "валюта": price.currency,
-            "серая": None if price.grey is None else str(price.grey),
-            "оплата": list(price.payment_methods) or None,
-            "откуда цена": price.note,
-            "кто": price.by,
-            "прежняя цена": before,
-        },
+    await record_price(
+        session, donor, host, price, created=created, before=before, author_id=author_id
     )
     logger.info(
         "цена руками: донор №%s (%s) — %s %s, заведён сейчас: %s",
@@ -436,14 +409,5 @@ async def _priced(
         donor_id=donor.id,
         host=host,
         created=created,
-        suitable=donor.status is DonorStatus.SUITABLE,
+        suitable=suitable(donor),
     )
-
-
-def _shown(donor: DonorModel) -> str | None:
-    """Прежняя цена для журнала: «120.00 EUR, из ответа». Пусто — цены не было."""
-    if donor.last_price is None:
-        return None
-    source = "вручную" if donor.last_price_source == PriceSource.MANUAL else "из ответа"
-    amount = " ".join(part for part in (str(donor.last_price), donor.last_price_currency) if part)
-    return f"{amount}, {source}"

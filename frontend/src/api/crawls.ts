@@ -184,6 +184,8 @@ export interface CrawlDonorsView extends CrawlCeilings {
   startable: number;
   /** Сколько «Обойти всех по фильтру» ставит за раз; сервер старше — без предела. */
   bulk_max?: number;
+  /** Сколько ставится сразу в очередь обходов; больше — в очередь загрузки. */
+  launch_max?: number;
   workers: number | null;
   /** Как у `CrawlTargets`: сколько обходчиков держит сторож нагрузки и почему. */
   held?: number | null;
@@ -206,12 +208,13 @@ export interface CrawlSummary {
 
 export interface CrawlBulkResult {
   asked: number;
-  /** Многих ставит фоновая задача: тогда `queued` пусто, а ход — по счётчику «в очереди». */
+  /** Многих — в очередь загрузки: тогда `queued` пусто, а ход — строкой очереди загрузки. */
   deferred: boolean;
   queued: number | null;
   busy: number | null;
   failed: number | null;
-  job_id: string | null;
+  /** Сколько встало в очередь загрузки (уже стоявшие — не второй раз). */
+  backlog?: number | null;
   workers: number | null;
 }
 

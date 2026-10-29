@@ -15,6 +15,9 @@
  * - **«Переобойти» — в строке** у законченного обхода (`CrawlTable.LastCrawl`) и в журнале;
  * - **журнал обходов свёрнут** и листается страницами (`RecentCrawls journal`).
  *
+ * Доноров заводят здесь же: одного — «Завести донора вручную», списком из файла — «Загрузить
+ * списком» (`BulkDonors`); загруженные с галочкой обхода ждут в очереди загрузки (`CrawlBacklog`).
+ *
  * Обходят только доноров со свежей ценой — правило сервера (`routes._why_not`); на вкладке видны
  * и доноры с протухшей ценой и без цены — фильтром «Цена», с пометкой у цены и закрытой отметкой.
  * Опрос — только пока что-то идёт или ждёт, лёгкой сводкой (`crawlQueries.useCrawlSummary`).
@@ -36,6 +39,8 @@ import { usePagedQuery, useUrlFilters } from '../components/useUrlFilters';
 import { formatNumber, formatPercent } from '../format';
 import { Unfold } from '../runs/Unfold';
 import { BulkCrawl } from './BulkCrawl';
+import { BulkDonorsButton } from './BulkDonors';
+import { CrawlBacklog } from './CrawlBacklog';
 import { CrawlDonorsTable } from './CrawlDonorsTable';
 import type { Picks } from './CrawlDonorsTable';
 import { CrawlFilterRow, CrawlScope, StatusFacets } from './CrawlFilterBar';
@@ -63,7 +68,8 @@ import { ManualDonor } from './ManualDonor';
 import { RecentCrawls } from './RecentCrawls';
 import { StalePrices } from './StalePrices';
 
-/** Сколько отмеченных ставится одним нажатием — потолок сервера (`schemas.MAX_HOSTS`). */
+/** Сколько отмеченных ставится одним нажатием, если сервер старше и не прислал свой
+ *  (`launch_max`, `schemas.MAX_HOSTS`). */
 export const MAX_PICKED = 50;
 const MANUAL_FORM_ID = 'manual-donor';
 const JOURNAL_ID = 'crawl-journal';
@@ -146,11 +152,14 @@ function Head({
         </InfoHint>
         {summary ? <CrawlFacts summary={summary} /> : null}
       </Group>
-      {/* Место под «Загрузить списком» (загрузка доноров файлом) — рядом с ручным донором. */}
+      {/* Доноров заводят одного вручную или списком из файла — рядом, одним правилом формы. */}
       {onEnter !== null ? (
-        <Button variant="default" className="press" aria-haspopup="dialog" onClick={onEnter}>
-          Завести донора вручную
-        </Button>
+        <Group gap="xs" align="center">
+          <Button variant="default" className="press" aria-haspopup="dialog" onClick={onEnter}>
+            Завести донора вручную
+          </Button>
+          <BulkDonorsButton />
+        </Group>
       ) : null}
     </Group>
   );
@@ -169,7 +178,8 @@ function Actions({
   start: ReturnType<typeof useStartCrawls>;
 }) {
   const count = picks.picked.size;
-  const over = count > MAX_PICKED;
+  const most = data?.launch_max ?? MAX_PICKED;
+  const over = count > most;
   return (
     <Group gap="xs" align="center">
       <Button
@@ -185,6 +195,7 @@ function Actions({
           query={crawlQueryOf(filters)}
           startable={data.startable}
           most={data.bulk_max}
+          launchMax={data.launch_max}
           workers={data.workers}
           typicalSec={data.typical_crawl_sec}
           conditions={crawlConditions(filters)}
@@ -197,7 +208,7 @@ function Actions({
       ) : null}
       {over ? (
         <Text size="sm" c="yellow">
-          За раз — до {formatNumber(MAX_PICKED)}; для многих — «Обойти всех по фильтру».
+          За раз — до {formatNumber(most)}; для многих — «Обойти всех по фильтру».
         </Text>
       ) : null}
     </Group>
@@ -304,15 +315,19 @@ function emptinessOf(
 function Notices({
   data,
   summary,
+  mayDrop,
 }: {
   data: CrawlDonorsView | undefined;
   summary: CrawlSummary | undefined;
+  /** Можно ли снять очередь загрузки — право запуска. */
+  mayDrop: boolean;
 }) {
   const { can } = useSession();
   const queryClient = useQueryClient();
   return (
     <>
       <Troubles data={data} summary={summary} />
+      <CrawlBacklog mayDrop={mayDrop} />
       {summary ? (
         <StalePrices
           count={summary.counts.price.stale}
@@ -419,7 +434,7 @@ export function CrawlTab() {
           summary={summary.data}
           onEnter={runner !== null ? () => setEntering(true) : null}
         />
-        <Notices data={data} summary={summary.data} />
+        <Notices data={data} summary={summary.data} mayDrop={runner !== null} />
         <Group justify="space-between" align="center" gap="sm">
           <StatusFacets counts={data?.counts} filters={url.filters} onFilter={url.apply} />
           <CrawlScope filters={url.filters} onFilter={url.apply} />

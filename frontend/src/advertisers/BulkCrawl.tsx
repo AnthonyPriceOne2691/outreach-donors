@@ -9,8 +9,9 @@
  * человек читал окно (`expected`). Предел за раз — числом сервера в подписи: «10 000 из 12 345»
  * (`UI_RULES`: действие над списком говорит, что именно получится).
  *
- * **Многих сервер ставит фоном** (больше полусотни — `routes.MAX_HOSTS`): тогда уведомление
- * говорит «ставим», а ход виден по счётчику «в очереди».
+ * **Многих — в очередь загрузки** (больше `launch_max` сервера, полусотни — `routes.MAX_HOSTS`;
+ * `crawl/backlog.py`): она отдаёт доноров свободным обходчикам понемногу, и обход, поставленный
+ * кнопкой после, идёт первым, а не ждёт за тысячами. Окно говорит, куда встанут, до нажатия.
  */
 
 import { Button, Group, Modal, Stack, Text } from '@mantine/core';
@@ -31,6 +32,17 @@ export function bulkCount(startable: number, most: number | undefined): string {
   return `${formatNumber(most)} из ${formatNumber(startable)}`;
 }
 
+/** Куда встанут: до предела — сразу в очередь обходов, больше — в очередь загрузки. */
+export function where(count: number, launchMax: number | undefined): string {
+  if (launchMax === undefined) return '';
+  if (count <= launchMax) return 'Встанут сразу в очередь обходов, как «Обойти отмеченных».';
+  return (
+    `Больше ${formatNumber(launchMax)} — через очередь загрузки: обходчикам их отдают по мере, ` +
+    'как освобождаются, а обход, поставленный кнопкой, идёт первым; «Снять очередь» в её строке ' +
+    'снимает и их.'
+  );
+}
+
 /** Сколько займёт — словами окна. */
 export function bulkTiming(count: number, typicalSec: number, workers: number | null): string {
   const eta = crawlEta(count, typicalSec, workers);
@@ -45,6 +57,7 @@ export function BulkCrawl({
   query,
   startable,
   most,
+  launchMax,
   workers,
   typicalSec,
   conditions,
@@ -53,6 +66,9 @@ export function BulkCrawl({
   startable: number;
   /** Предел за раз (`bulk_max` сервера); нет — без предела. */
   most: number | undefined;
+  /** Сколько встаёт сразу в очередь обходов (`launch_max` сервера); больше — в очередь
+   *  загрузки. Нет — сервер старше: не сказано. */
+  launchMax: number | undefined;
   workers: number | null;
   typicalSec: number;
   /** Условия вкладки словами; пусто — все доноры. */
@@ -82,9 +98,9 @@ export function BulkCrawl({
             {bulkTiming(asked, typicalSec, workers)}
           </Text>
           <Text size="sm" c="dimmed">
-            Ставим только тех, у кого цена в сроке и обход не идёт и не ждёт. Очередь обходов общая:
-            обход, поставленный кнопкой после них, подождёт, пока они пройдут. Новые результаты
-            заменят прежние, решения по спорным сохранятся.
+            Ставим только тех, у кого цена в сроке и обход не идёт и не ждёт.{' '}
+            {where(asked, launchMax)} Новые результаты заменят прежние, решения по спорным
+            сохранятся.
           </Text>
           <Group justify="flex-end" gap="xs">
             <Button variant="default" className="press" onClick={() => setOpen(false)}>

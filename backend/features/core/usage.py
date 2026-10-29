@@ -25,6 +25,7 @@ from backend.config import llm as llm_cfg
 from backend.features.core import llm_caps
 from backend.features.core.domain import Stage, UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
+from backend.shared.numbers import spaced
 
 logger = logging.getLogger(__name__)
 
@@ -339,8 +340,8 @@ async def _within_part(
         extra={"part": part, "spent": spent[part], "cap": saved.limit(part)},
     )
     raise LlmCapExceededError(
-        f"лимит раздела «{llm_caps.TITLES[part]}» на сегодня выбран: {spent[part]} из "
-        f"{saved.limit(part)} токенов — {llm_caps.after_part(moment)}"
+        f"лимит раздела «{llm_caps.TITLES[part]}» на сегодня выбран: {spaced(spent[part])} из "
+        f"{spaced(saved.limit(part))} токенов — {llm_caps.after_part(moment)}"
     )
 
 
@@ -409,4 +410,4 @@ def _refused(
         if moment is None
         else llm_caps.after_cap(moment)
     )
-    return LlmCapExceededError(f"{words}: {spent} из {cap} токенов — {then}")
+    return LlmCapExceededError(f"{words}: {spaced(spent)} из {spaced(cap)} токенов — {then}")

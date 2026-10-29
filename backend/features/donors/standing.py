@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import ColumnElement, and_, func, select
@@ -113,18 +114,29 @@ async def decided_in(session: AsyncSession, domain_id: int, review: str | None) 
     и у `review.candidates._settle_donor`). Туда ведёт карточка кандидата:
     решение принимают в очереди прогона, а не в карточке.
     """
-    statement = select(RunCandidateModel.run_id).where(RunCandidateModel.domain_id == domain_id)
     if review is None:
-        statement = statement.where(RunCandidateModel.status == Decision.PENDING.value).order_by(
-            RunCandidateModel.run_id.desc()
-        )
-    else:
-        statement = (
-            statement.where(RunCandidateModel.status == review)
-            .where(RunCandidateModel.carried.is_(False))
-            .order_by(
-                RunCandidateModel.decided_at.desc().nullslast(), RunCandidateModel.run_id.desc()
-            )
-        )
+        return (await pending_in(session, [domain_id])).get(domain_id)
+    statement = (
+        select(RunCandidateModel.run_id)
+        .where(RunCandidateModel.domain_id == domain_id)
+        .where(RunCandidateModel.status == review)
+        .where(RunCandidateModel.carried.is_(False))
+        .order_by(RunCandidateModel.decided_at.desc().nullslast(), RunCandidateModel.run_id.desc())
+    )
     found = await session.scalar(statement.limit(1))
     return None if found is None else int(found)
+
+
+async def pending_in(session: AsyncSession, domain_ids: Sequence[int]) -> dict[int, int]:
+    """Самый новый прогон, в очереди которого домен ждёт решения, — каждому из этих доменов
+    одним запросом (`decided_in` без решения — один домен; загрузка доноров списком — тысячи,
+    `donors/bulk_entry.py`). Не ждёт нигде — домена в ответе нет."""
+    if not domain_ids:
+        return {}
+    rows = await session.execute(
+        select(RunCandidateModel.domain_id, func.max(RunCandidateModel.run_id))
+        .where(RunCandidateModel.domain_id.in_(list(domain_ids)))
+        .where(RunCandidateModel.status == Decision.PENDING.value)
+        .group_by(RunCandidateModel.domain_id)
+    )
+    return {int(domain): int(run) for domain, run in rows.tuples()}

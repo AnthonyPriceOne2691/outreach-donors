@@ -31,6 +31,7 @@ from backend.features.core.domain import DraftStatus, Stage
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.replies.pipeline import Parser
+from backend.shared.numbers import spaced
 from backend.workers import main as worker_main
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -146,7 +147,7 @@ def _stage_cap(tokens: int) -> usage.OwnCap:
 def _refused(spent: int, cap: int) -> str:
     """Начало отказа: что выбрано и кто поднимает; хвост — сколько до сброса — от минуты теста."""
     return (
-        f"дневной потолок этапа-заглушки выбран: {spent} из {cap} токенов — попросите "
+        f"дневной потолок этапа-заглушки выбран: {spaced(spent)} из {spaced(cap)} токенов — попросите "
         "администратора поднять потолок на экране «Расход» или дождитесь сброса — через "
     )
 

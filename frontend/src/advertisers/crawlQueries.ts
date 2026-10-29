@@ -16,6 +16,7 @@ import type { CrawlBulkResult, CrawlDonorQuery, CrawlLaunch } from '../api/crawl
 import { fetchCrawlSummary, startCrawls, startCrawlsByFilter } from '../api/crawls';
 import { formatNumber, plural } from '../format';
 import { notify } from '../notices';
+import { BACKLOG_KEY } from './CrawlBacklog';
 
 export const CRAWL_SUMMARY_KEY = ['crawl-summary'] as const;
 export const CRAWL_DONORS_KEY = ['crawl-donors'] as const;
@@ -43,24 +44,31 @@ function donorsWord(count: number): string {
 /** Что вышло — одной строкой уведомления. */
 export function bulkSummary(done: CrawlBulkResult): string {
   if (done.asked === 0)
-    return 'Под фильтром обойти некого: обходы уже идут или ждут, или цены нет.';
+    return 'Под фильтром обойти некого: обходы уже идут или ждут, доноры в очереди загрузки или цены нет.';
   if (done.deferred) {
-    return `Ставим в очередь ${donorsWord(done.asked)} — фоном, ход виден по счётчику «в очереди».`;
+    return (
+      `В очередь загрузки — ${donorsWord(done.backlog ?? done.asked)}: обходчикам их отдают по ` +
+      'мере, как освобождаются, а обход, поставленный кнопкой, идёт первым.'
+    );
   }
-  const parts = [`Поставлено: ${formatNumber(done.queued ?? 0)} из ${formatNumber(done.asked)}.`];
-  if ((done.busy ?? 0) > 0) parts.push(`Уже шли: ${formatNumber(done.busy ?? 0)}.`);
-  if ((done.failed ?? 0) > 0) {
-    parts.push(`Очередь не ответила: ${formatNumber(done.failed ?? 0)} — попробуйте ещё раз.`);
-  }
+  return queuedSummary(done.asked, done.queued ?? 0, done.busy ?? 0, done.failed ?? 0);
+}
+
+/** Поставлены сразу: сколько из скольких, сколько уже шли и скольких очередь не приняла. */
+function queuedSummary(asked: number, queued: number, busy: number, failed: number): string {
+  const parts = [`Поставлено: ${formatNumber(queued)} из ${formatNumber(asked)}.`];
+  if (busy > 0) parts.push(`Уже шли: ${formatNumber(busy)}.`);
+  if (failed > 0) parts.push(`Очередь не ответила: ${formatNumber(failed)} — попробуйте ещё раз.`);
   return parts.join(' ');
 }
 
-/** Перечитать всё, что показывает обход: сводку, доноров, журнал. */
+/** Перечитать всё, что показывает обход: сводку, доноров, журнал, очередь загрузки. */
 export function refreshCrawls(queryClient: ReturnType<typeof useQueryClient>): Promise<unknown> {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: CRAWL_SUMMARY_KEY }),
     queryClient.invalidateQueries({ queryKey: CRAWL_DONORS_KEY }),
     queryClient.invalidateQueries({ queryKey: CRAWLS_KEY }),
+    queryClient.invalidateQueries({ queryKey: BACKLOG_KEY }),
   ]);
 }
 

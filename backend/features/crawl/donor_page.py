@@ -27,14 +27,14 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import Select, and_, case, func, or_, select, true
+from sqlalchemy import Select, and_, case, exists, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from backend.config import filters as cfg
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, DonorStatus
-from backend.features.core.models.crawl import CrawlRunModel
+from backend.features.core.models.crawl import CrawlBacklogModel, CrawlRunModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.crawl.board import CrawlLine, DonorLine
@@ -216,9 +216,13 @@ def _where(
 
 
 def _can_start(border: datetime) -> ColumnElement[bool]:
-    """Можно ли поставить донора в обход сейчас: цена в сроке, обход не идёт и не ждёт."""
+    """Можно ли поставить донора в обход сейчас: цена в сроке, обход не идёт и не ждёт, и донор
+    не ждёт в очереди загрузки (`crawl/backlog.py`) — иначе «Обойти всех по фильтру» считало бы
+    его второй раз. Хост очереди загрузки — уже приведённый (`normalize_host`, `crawl_host`), и
+    сравнение идёт по её индексу, без выражения на её стороне."""
     idle = or_(_RUN.id.is_(None), _RUN.status.not_in(ACTIVE))
-    return and_(price_of(border) == Price.FRESH.value, idle)
+    waiting = exists().where(CrawlBacklogModel.host == _crawl_key())
+    return and_(price_of(border) == Price.FRESH.value, idle, ~waiting)
 
 
 def _order(sort: Sort) -> list[Any]:

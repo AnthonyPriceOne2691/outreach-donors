@@ -44,19 +44,16 @@ from backend.config import filters
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
-from backend.features.crawl import board, donor_page, targets
+from backend.features.crawl import backlog, board, donor_page, targets
 from backend.features.crawl.board import CrawlLine
 from backend.features.crawl.donor_page import DonorQuery
-from backend.features.crawl.launch import launch
+from backend.features.crawl.launch import crawl_host, launch
 from backend.shared.crawl_marks import Held, crawlers_held
 from backend.shared.queue import (
-    CRAWL_BULK_JOB,
     CRAWL_QUEUE_NAME,
     crawl_job_id,
     enqueue_crawl,
     job_positions,
-    quick_queue,
-    with_retries,
     workers_alive,
 )
 
@@ -65,9 +62,10 @@ router = APIRouter(prefix="/crawls", tags=["обходы"])
 _viewer = Depends(needs(Permission.VIEW))
 _runner = Depends(needs(Permission.RUN))
 
-#: Потолок отбора при проверке запуска: доноров со свежей ценой — единицы
-#: и десятки, а проверить надо каждого названного.
-_ALL = 10_000
+#: Отбор при проверке запуска — без потолка: проверить надо каждого названного, а с загрузкой
+#: доноров списком (29.10.2026) доноров со свежей ценой бывает и больше десяти тысяч — прежний
+#: потолок в 10 000 назвал бы донора из хвоста отбора «не принятым».
+_ALL = None
 
 
 async def _workers() -> int | None:
@@ -242,11 +240,6 @@ async def start(
     )
 
 
-def _defer(hosts: list[str], by: str | None) -> str:
-    """Постановка многих — фоновой задачей быстрой очереди (`workers/crawl_bulk.py`)."""
-    return str(quick_queue().enqueue(CRAWL_BULK_JOB, hosts, by, **with_retries()).id)
-
-
 @router.post("/donors/crawl", response_model=BulkResult, summary="Обойти всех доноров под фильтром")
 async def crawl_filtered(
     body: BulkBody,
@@ -254,19 +247,23 @@ async def crawl_filtered(
     session: AsyncSession = Depends(db_session),
 ) -> BulkResult:
     """Поставить в обход всех под условиями вкладки, кого можно обойти сейчас (свежая цена,
-    обход не идёт и не ждёт), — но не больше, чем человек видел на кнопке (`expected`).
-    До `MAX_HOSTS` — сразу, как «Обойти отмеченных»; больше — фоновой задачей."""
+    обход не идёт и не ждёт, не в очереди загрузки), — но не больше, чем человек видел на кнопке
+    (`expected`). До `MAX_HOSTS` — сразу, как «Обойти отмеченных»; больше — в очередь загрузки
+    (`crawl/backlog.py`): она отдаёт доноров свободным обходчикам понемногу, и обход, поставленный
+    кнопкой после, идёт первым, а не ждёт за тысячами."""
     hosts = await donor_page.startable_hosts(session, body.query(), limit=body.expected)
     if len(hosts) > MAX_HOSTS:
-        job_id = await asyncio.to_thread(_defer, hosts, author.email)
+        added = await backlog.add(
+            session, [crawl_host(host) for host in hosts], by=author.email, author_id=author.id
+        )
         await AccessRepository(session).record(
             AuditAction.RUN_STARTED,
             author_id=author.id,
-            target=f"crawl-bulk:{job_id}",
-            details={"этап": "2 — обход доноров по фильтру", "доноров": len(hosts)},
+            target="crawl_backlog",
+            details={"этап": "2 — обход доноров по фильтру", "доноров": added},
         )
         await session.commit()
-        return BulkResult(asked=len(hosts), deferred=True, job_id=job_id, workers=await _workers())
+        return BulkResult(asked=len(hosts), deferred=True, backlog=added, workers=await _workers())
     done = await launch(session, hosts, by=author.email, job_id=crawl_job_id, enqueue=enqueue_crawl)
     await _audit_runs(session, author, done.queued)
     await session.commit()

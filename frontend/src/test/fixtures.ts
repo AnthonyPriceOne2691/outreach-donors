@@ -125,10 +125,31 @@ export const EMPTY_CRAWL_SUMMARY = {
   workers: 4,
 };
 
+/** Страница вкладки «Обход доноров»: доноров нет, ничего не идёт. */
+export const EMPTY_CRAWL_PAGE = {
+  rows: [],
+  total: 0,
+  page: 1,
+  limit: 50,
+  counts: EMPTY_CRAWL_SUMMARY.counts,
+  startable: 0,
+  bulk_max: 10_000,
+  workers: 4,
+  typical_crawl_sec: 1500,
+  max_pages: 1000,
+};
+
+/** Очередь загрузки обхода на вкладке «Обход доноров» (`CrawlBacklog`): пусто — строки нет.
+ *  Вкладка спрашивает её сама, как и обходы. */
+export const BACKLOG_ROUTES: Record<string, Answer> = {
+  'GET /api/donors/import/backlog': { body: { waiting: 0, eta_sec: null, workers: 4 } },
+};
+
 /** Панели над очередью рекламодателей и под ней: доноров для обхода нет, обходов не было,
  *  переводить некого. Экран спрашивает их сам, и тест другой карточки записывает их пустыми. */
 export const CRAWL_ROUTES: Record<string, Answer> = {
   ...PROMOTE_ROUTES,
+  ...BACKLOG_ROUTES,
   'GET /api/crawls/targets': {
     body: {
       donors: [],
@@ -142,6 +163,7 @@ export const CRAWL_ROUTES: Record<string, Answer> = {
   },
   'GET /api/crawls': { body: { rows: [], active: 0, workers: 4 } },
   'GET /api/crawls/summary': { body: EMPTY_CRAWL_SUMMARY },
+  'GET /api/crawls/donors': { body: EMPTY_CRAWL_PAGE },
 };
 
 /** Карточка «Бизнесы ниши из выдачи» на «Рекламодателях»: решать некого. */

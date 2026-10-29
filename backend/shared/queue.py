@@ -69,8 +69,6 @@ CONTACTS_QUEUE_NAME = "contacts"
 RUN_JOB = "backend.workers.jobs.run_donor_search"
 BUILD_JOB = "backend.workers.jobs.build_letter_queue"
 SEND_QUEUE_JOB = "backend.workers.send_jobs.send_letter_queue"
-#: «Обойти всех по фильтру» вкладки «Обход доноров» — постановка многих обходов фоном.
-CRAWL_BULK_JOB = "backend.workers.crawl_bulk.launch_hosts"
 PARSE_JOB = "backend.workers.jobs.parse_reply"
 CONTACTS_JOB = "backend.workers.jobs.find_contacts"
 #: «Искать глубже» и текст письма для формы — по кнопке, по донору (`workers/contact_jobs.py`).

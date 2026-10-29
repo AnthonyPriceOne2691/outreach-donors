@@ -90,10 +90,11 @@ class PriceDetails:
 NO_DETAILS = PriceDetails()
 
 
-def said_later(donor: DonorModel, domain: DomainModel | None, at: datetime) -> bool:
+def said_later(donor: DonorModel | None, domain: DomainModel | None, at: datetime) -> bool:
     """Лежит ли слово новее `at`: цена — или «не продаём», «бесплатно» на домене.
-    Тогда цене, названной в `at`, в карточку не ложиться."""
-    if donor.last_price is not None and _after(donor.last_price_at, at):
+    Тогда цене, названной в `at`, в карточку не ложиться. Донора ещё нет — смотрится домен:
+    загрузка списком (`bulk_entry.py`) судит строку до того, как завести донора."""
+    if donor is not None and donor.last_price is not None and _after(donor.last_price_at, at):
         return True
     return (
         domain is not None
