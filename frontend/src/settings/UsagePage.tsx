@@ -29,6 +29,9 @@
  * **Два периода — подписаны оба** (16.10.2026): кап — в цикле ключа, со своего обнуления,
  * плитки, этапы и статьи — с первого числа. Без подписи два числа Ahrefs на одном экране
  * читались бы одним.
+ *
+ * **Потолки модели — здесь же** (`LlmCaps.tsx`, слово Anthony 29.10.2026): общий на весь сервис
+ * за сутки, лимиты разделов и свободный остаток, — и «Изменить потолки» у администратора.
  */
 
 import { Alert, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core';
@@ -41,6 +44,7 @@ import { SpendTable, tileOf } from '../components/SpendTable';
 import { fetchUsage } from '../api/settings';
 import { formatDay, formatUsd } from '../format';
 import { AhrefsCap } from './AhrefsCap';
+import { LlmCaps } from './LlmCaps';
 import { CrawlCap, StageBreakdown } from './UsageStages';
 import { shownWithoutSpend, SPEND_PROVIDERS } from './usageLabels';
 
@@ -81,6 +85,10 @@ export function UsagePage() {
           {/* Ключ и кап — размер ключа, цикл, сколько потрачено и осталось, кто и когда менял;
               менять — тому, у кого право «править пороги» (`AhrefsCap.tsx`). */}
           <AhrefsCap ahrefsKey={data.ahrefs_key} />
+
+          {/* Модель — общий потолок на сервис за сутки и лимиты разделов; менять — тому, у кого
+              право «менять потолки расхода» (`LlmCaps.tsx`). */}
+          {data.llm_caps !== null && <LlmCaps caps={data.llm_caps} />}
 
           {data.ahrefs_left === null && (
             <Alert color="yellow" title="Остаток у Ahrefs спросить не удалось">

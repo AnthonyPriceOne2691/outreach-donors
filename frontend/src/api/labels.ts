@@ -43,6 +43,7 @@ export const PERMISSION_TITLES: Record<Permission, string> = {
   senders: 'домены рассылки',
   users: 'заводить учётки',
   sales: 'Продажи',
+  spend: 'менять потолки расхода',
 };
 
 export const ROLE_TITLES: Record<Role, string> = {

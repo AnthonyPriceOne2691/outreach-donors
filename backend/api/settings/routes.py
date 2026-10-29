@@ -12,11 +12,16 @@
 решение владельца 16.10.2026): «весь лимит ключа» или «не больше N», смена — строкой
 истории и записью журнала. Сам кап — от ключа: экран спрашивает Ahrefs, и ответ ложится
 в снимок ключа, от которого кап, цикл и «осталось» (`runs/ahrefs_cap.key_cap`).
+
+Дневные потолки модели — там же, но своим правом «менять потолки расхода» (`spend`, слово
+Anthony 29.10.2026: их поднимает администратор): общий потолок сервиса и лимиты частей от него
+— продаж, агента переписки и аутрича, — строкой истории и записью журнала (`core/llm_caps.py`).
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends
@@ -24,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import actor, db_session, needs
 from backend.api.settings.cap_schemas import CapBody, CapChangeCard
+from backend.api.settings.llm_cap_schemas import LlmCapChangeCard, LlmCapsBody, llm_caps_card
 from backend.api.settings.schemas import (
     LIMITS,
     RULE_LIMITS,
@@ -37,10 +43,11 @@ from backend.api.settings.schemas import (
     share_percent,
 )
 from backend.config import crawl as crawl_cfg
-from backend.features.access.permissions import visible_stages
+from backend.features.access.permissions import require_stage, visible_stages
 from backend.features.access.repository import AccessRepository
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
+from backend.features.core import llm_caps
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import selection_settings
@@ -63,6 +70,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["настройки"])
 
 _settler = Depends(needs(Permission.SETTINGS))
+_spender = Depends(needs(Permission.SPEND))
 _viewer = Depends(needs(Permission.VIEW))
 
 
@@ -219,6 +227,7 @@ async def usage(
             cap_usd=None if crawl_cfg.MONTH_CAP_USD is None else _usd(crawl_cfg.MONTH_CAP_USD),
             spent_usd=crawl_spent,
         ),
+        llm_caps=await llm_caps_card(session, sales=Stage.SALES in stages, now=datetime.now(UTC)),
     )
     # Снимок ключа из ответа Ahrefs — в базу: больше экран ничего не пишет.
     await session.commit()
@@ -279,6 +288,47 @@ async def change_ahrefs_cap(
     )
     await session.commit()
     return CapChangeCard.of(done.change)
+
+
+@router.post(
+    "/usage/llm-caps",
+    response_model=LlmCapChangeCard,
+    summary="Сменить потолки модели: общий на сервис и лимиты частей от него",
+)
+async def change_llm_caps(
+    body: LlmCapsBody,
+    author: UserModel = _spender,
+    session: AsyncSession = Depends(db_session),
+) -> LlmCapChangeCard:
+    """Новый блок — с этой минуты, правом «менять потолки расхода» (слово Anthony 29.10.2026:
+    их поднимает администратор). Лимит продаж меняют ещё и с правом «Продажи» (П2б): без него
+    лимит продаж остаётся прежним.
+
+    Смена заводит строку и пишет в журнал «было → стало» той же транзакцией — и общий, и лимиты;
+    «без потолка» — тоже строкой журнала: кто снял потолок, видно. Не из списка, не шагом или
+    раздано больше 100 % — отказ словами до записи (`core/llm_caps.refusal`). После коммита память
+    API перечитывает блок — смета, посчитанная следом, видит новый лимит.
+    """
+    wanted = body.block()
+    await llm_caps.refresh(session)
+    current = llm_caps.block()
+    if current is None or current.sales != wanted.sales:
+        require_stage(actor(author), Stage.SALES, "Лимит продаж")
+    done = await llm_caps.set_llm_caps(session, wanted, author=author)
+    await AccessRepository(session).record(
+        AuditAction.LLM_CAP_CHANGED,
+        author_id=author.id,
+        target=f"llm_caps:{done.change.id}",
+        details={
+            "потолки модели": {
+                "было": llm_caps.block_words(done.was),
+                "стало": llm_caps.block_words(wanted),
+            }
+        },
+    )
+    await session.commit()
+    await llm_caps.refresh(session)
+    return LlmCapChangeCard.of(done.change)
 
 
 def _usd(value: float) -> Decimal:

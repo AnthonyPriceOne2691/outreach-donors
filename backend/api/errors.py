@@ -57,6 +57,7 @@ from backend.features.contacts.manual import (
     UnknownAddressError,
 )
 from backend.features.contacts.repository import SearchRefusedError
+from backend.features.core.llm_caps import LlmCapError
 from backend.features.core.stages import SalesNotConnectedError
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.crawl.niche import UnknownNicheAdvertiserError, UnknownNicheRunError
@@ -199,6 +200,8 @@ STATUSES: dict[type[Exception], int] = {
     # после ответа поможет (16.10.2026).
     CapRangeError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     CapUnknownError: status.HTTP_503_SERVICE_UNAVAILABLE,
+    # Потолки модели не из списка, не шагом или сверх 100 % — запрос: текст называет допустимое.
+    LlmCapError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     # Счёт выдачи меньше порога или сметы — состояние: поможет пополнение, а не правка
     # запроса (16.10.2026).
     FundsTooLowError: status.HTTP_409_CONFLICT,

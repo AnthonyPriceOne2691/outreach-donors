@@ -40,7 +40,7 @@ from backend.features.agent.stages import (
     agent_operations,
 )
 from backend.features.agent.writer import Request, Written
-from backend.features.core import usage
+from backend.features.core import llm_caps, usage
 from backend.features.core.domain import Stage
 
 logger = logging.getLogger(__name__)
@@ -106,8 +106,14 @@ async def compose(
 
 async def _within_caps(session: AsyncSession, stage: AgentStage, drafts: usage.OwnCap) -> None:
     """Потолки до вызова писателя: общий с потолком черновиков, затем свой потолок этапа.
-    Выбран любой — `LlmCapExceededError` словами того потолка, и писатель не зовётся."""
-    await usage.ensure_llm_within_cap(session, own=drafts)
+    Выбран любой — `LlmCapExceededError` словами того потолка, и писатель не зовётся.
+
+    Лимиты частей на «Расходе» сохранены (`core/llm_caps.py`) — черновик этапа со своим
+    потолком (продажи) судит лимит его части, а не лимит агента переписки: части не делят
+    расход, и черновики доноров не выбирают день у продаж."""
+    await llm_caps.refresh(session)
+    if stage.own_cap is None or llm_caps.block() is None:
+        await usage.ensure_llm_within_cap(session, own=drafts)
     if stage.own_cap is not None:
         await usage.ensure_llm_within_cap(session, own=stage.own_cap())
 

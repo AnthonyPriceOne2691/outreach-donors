@@ -19,7 +19,8 @@ export type Permission =
   | 'send'
   | 'senders'
   | 'users'
-  | 'sales';
+  | 'sales'
+  | 'spend';
 
 export interface Me {
   id: number;

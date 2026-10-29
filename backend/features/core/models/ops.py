@@ -1,5 +1,5 @@
-"""UsageRecordModel, AhrefsCapModel, AhrefsKeySnapshotModel и SuppressionModel — расход,
-кап Ahrefs, снимок ключа Ahrefs и стоп-лист."""
+"""UsageRecordModel, AhrefsCapModel, LlmCapModel, AhrefsKeySnapshotModel и SuppressionModel —
+расход, кап Ahrefs, потолки модели, снимок ключа Ahrefs и стоп-лист."""
 
 from __future__ import annotations
 
@@ -14,16 +14,16 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     and_,
-    func,
     or_,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.elements import ColumnElement
 
 from backend.features.core.domain import Stage, SuppressionReason, UsageProvider
-from backend.features.core.models._mixins import TimestampedMixin
+from backend.features.core.models._mixins import SetByMixin, TimestampedMixin
 from backend.features.core.models._mixins import sql_enum as _enum
 from backend.shared.database.base import Base
 
@@ -60,7 +60,7 @@ class UsageRecordModel(TimestampedMixin, Base):
     )
 
 
-class AhrefsCapModel(Base):
+class AhrefsCapModel(SetByMixin, Base):
     """Кап юнитов Ahrefs, заданный на экране «Расход»: строка на каждую смену.
 
     Действующая настройка — последняя строка; строк нет — «весь лимит ключа»
@@ -77,15 +77,42 @@ class AhrefsCapModel(Base):
     #: за ключом, когда его лимит двигают в Ahrefs (16.10.2026). Не больше лимита ключа
     #: на минуту смены — проверяет смена (`set_ahrefs_cap`).
     units_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    #: Кто поставил. Пусто — учётку удалили: строка истории остаётся и без неё.
-    set_by: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    set_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
 
     __table_args__ = (CheckConstraint("units_cap > 0", name="ck_ahrefs_caps_positive"),)
+
+
+class LlmCapModel(SetByMixin, Base):
+    """Блок потолков модели, сохранённый на экране «Расход»: строка на каждую смену.
+
+    Общий потолок сервиса за сутки и доли частей от него — продаж и агента переписки, аутрич —
+    остаток (`core/llm_caps.py`). Действует последняя строка; строк нет — потолки из `.env`, как
+    до 29.10.2026. Строка не правится и не удаляется: по строкам видно, кто, когда и что ставил, —
+    как у капа Ahrefs.
+    """
+
+    __tablename__ = "llm_caps"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Общий потолок сервиса, токены за сутки; пусто — без потолка: части тоже без потолка,
+    #: а их доли запомнены и встают обратно, когда общий снова число.
+    general_tokens: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    #: Доли частей от общего — гарантия каждой, проценты с шагом 5: продажи, агент переписки и
+    #: аутрич. В сумме не больше 100; остаток, если есть, — общий котёл частей.
+    sales_share: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    agent_share: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    outreach_share: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("general_tokens IS NULL OR general_tokens > 0", name="ck_llm_caps_general"),
+        # Доли — шагом 5, каждая от 0 до 100, в сумме не больше 100. Нижние пороги частей
+        # (аутричу — не меньше 20) держит смена (`llm_caps.refusal`), а не база.
+        CheckConstraint(
+            "sales_share % 5 = 0 AND agent_share % 5 = 0 AND outreach_share % 5 = 0 "
+            "AND sales_share >= 0 AND agent_share >= 0 AND outreach_share >= 0 "
+            "AND sales_share + agent_share + outreach_share <= 100",
+            name="ck_llm_caps_shares",
+        ),
+    )
 
 
 class AhrefsKeySnapshotModel(Base):

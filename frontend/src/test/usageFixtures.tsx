@@ -36,6 +36,52 @@ export const AHREFS_KEY = {
   changes: [] as unknown[],
 };
 
+/** Потолки модели до первого сохранения: как в настройках сервера — общего нет, продажи 10 млн. */
+export const LLM_CAPS = {
+  scheme: 'env' as 'env' | 'parts',
+  general: null as number | null,
+  free_share: null as number | null,
+  free: null as number | null,
+  parts: [
+    {
+      part: 'sales',
+      title: 'Продажи',
+      share: null,
+      limit: 10000000,
+      spent: 300,
+      left: 9999700,
+      used_percent: 0,
+    },
+    {
+      part: 'agent',
+      title: 'Агент переписки',
+      share: null,
+      limit: null,
+      spent: 200,
+      left: null,
+      used_percent: null,
+    },
+    {
+      part: 'outreach',
+      title: 'Аутрич',
+      share: null,
+      limit: null,
+      spent: 100,
+      left: null,
+      used_percent: null,
+    },
+  ] as unknown[],
+  spent: 600,
+  saved: null as unknown,
+  suggested: { general_tokens: 50000000, sales_share: 20, agent_share: 20, outreach_share: 30 },
+  general_presets: [10000000, 20000000, 30000000, 50000000, 100000000, 200000000],
+  share_step: 5,
+  day_start: '2026-10-29T00:00:00+00:00',
+  resets_at: '2026-10-30T00:00:00+00:00',
+  reset_in: 'через 5 ч 12 мин (в 03:00 по Москве)',
+  changes: [] as unknown[],
+};
+
 /** Расход с базы разработки: юниты Ahrefs и выдача доноров, кап — весь лимит ключа. */
 export const SPENDING = {
   since: '2026-09-01T00:00:00+00:00',
@@ -72,6 +118,7 @@ export const SPENDING = {
   total_amount: '0.3600',
   ahrefs_left: 35000,
   ahrefs_key: AHREFS_KEY,
+  llm_caps: LLM_CAPS,
   ahrefs_left_error: null,
   serp_left_usd: '51.90',
   serp_spent_by_us: '0.3600',

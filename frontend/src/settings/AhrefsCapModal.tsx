@@ -19,7 +19,7 @@
  * открытие (`AhrefsCap`), как «Больше не писать» на «Стоп-листе».
  */
 
-import { Alert, Button, Group, Modal, Radio, Stack, Text } from '@mantine/core';
+import { Alert, Modal, Radio, Stack, Text } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -27,8 +27,9 @@ import { refusalOf } from '../api/client';
 import { saveAhrefsCap } from '../api/settings';
 import type { AhrefsKey, CapChange } from '../api/settings';
 import type { ThresholdRange } from '../api/types';
-import { ACTIONS_GAP, FIELD_GAP } from '../components/formRhythm';
+import { FIELD_GAP } from '../components/formRhythm';
 import { NumberField } from '../components/NumberField';
+import { SaveActions } from '../components/SaveActions';
 import { numberRefusal, numberText, validNumber } from '../components/numberText';
 import type { NumberRule } from '../components/numberText';
 import { formatDateTime, formatNumber } from '../format';
@@ -40,8 +41,9 @@ const INPUT_WIDTH = '9rem';
 /** Выбор окна: весь лимит ключа или «не больше N». */
 type Kind = 'whole' | 'limit';
 
-/** Кто и когда сменил кап: «кап@site.com · 16.10.2026, 14:05»; учётку удалили — только когда. */
-export function changedBy(change: CapChange): string {
+/** Кто и когда сменил кап: «кап@site.com · 16.10.2026, 14:05»; учётку удалили — только когда.
+ *  Тем же словами — смены потолков модели (`LlmCaps.tsx`). */
+export function changedBy(change: Pick<CapChange, 'set_by' | 'set_at'>): string {
   const when = formatDateTime(change.set_at);
   return change.set_by === null ? when : `${change.set_by} · ${when}`;
 }
@@ -195,29 +197,14 @@ export function AhrefsCapModal({ ahrefsKey: key, onClose }: Props) {
           ) : null}
           <CapChoice ahrefsKey={key} choice={choice} onEdit={() => save.reset()} />
           {key.changes.length > 0 && <RecentChanges changes={key.changes} />}
-          <Stack gap={6} mt={ACTIONS_GAP}>
-            <Group justify="flex-end" gap="sm">
-              <Button variant="default" className="press" onClick={onClose}>
-                Отмена
-              </Button>
-              <Button
-                type="submit"
-                className="press"
-                loading={save.isPending}
-                disabled={!choice.ready || choice.same}
-              >
-                Сохранить
-              </Button>
-            </Group>
-            {/* Почему «Сохранить» заперта — строкой под кнопками (правило 10.10.2026), а не
-                в одном ряду с ними: в ряд окна 440 px они не вставали, и «Сохранить» уезжала
-                на вторую строку (снимок стенда). За границей причина — уже под полем. */}
-            {choice.same && (
-              <Text size="sm" c="dimmed" ta="right">
-                Это действующий кап — выберите другой
-              </Text>
-            )}
-          </Stack>
+          {/* Почему «Сохранить» заперта — строкой под кнопками; за границей причина — уже под
+              полем. */}
+          <SaveActions
+            onCancel={onClose}
+            saving={save.isPending}
+            disabled={!choice.ready}
+            locked={choice.same ? 'Это действующий кап — выберите другой' : null}
+          />
         </Stack>
       </form>
     </Modal>
