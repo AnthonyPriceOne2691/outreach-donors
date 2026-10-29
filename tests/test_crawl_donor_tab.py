@@ -21,6 +21,7 @@ from backend.features.core.models.advertisers import SupplierDonorModel
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.crawl import donor_page
+from backend.shared.crawl_marks import Held
 from backend.workers import crawl_bulk
 from httpx import AsyncClient
 from sqlalchemy import func, select
@@ -31,6 +32,10 @@ MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
 
 NOW = datetime.now(UTC)
+
+
+#: Почему сторож нагрузки держит копии — словами его отметки.
+HELD_WHY = "свободно 1,2 ядра, а новому обходу нужно 1,75"
 
 
 @pytest.fixture(autouse=True)
@@ -44,6 +49,7 @@ def queue(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, str | None]]:
     monkeypatch.setattr(routes, "enqueue_crawl", enqueue)
     monkeypatch.setattr(routes, "workers_alive", lambda **_: 8)
     monkeypatch.setattr(routes, "job_positions", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(routes, "crawlers_held", lambda **_: Held(2, HELD_WHY))
     return put
 
 
@@ -140,6 +146,8 @@ async def test_the_tab_lists_every_crawl_donor_with_status_and_price_counts(
     # Обойти можно со свежей ценой и без идущего или ждущего обхода: всех, кроме трёх.
     assert body["startable"] == 4
     assert (body["workers"], body["page"], body["limit"]) == (8, 1, donor_page.PAGE_SIZE)
+    # Сторож нагрузки держит копии — вкладка говорит, сколько и почему, как панель до неё.
+    assert (body["held"], body["held_reason"]) == (2, HELD_WHY)
     [partial] = [row for row in body["rows"] if row["host"] == "partial.example.test"]
     assert (partial["crawl"]["outcome"], partial["crawl"]["links"]) == ("partial", 7)
 

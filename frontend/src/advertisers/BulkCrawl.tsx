@@ -14,34 +14,15 @@
  */
 
 import { Button, Group, Modal, Stack, Text } from '@mantine/core';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
-import { refusalOf } from '../api/client';
-import type { CrawlBulkResult, CrawlDonorQuery } from '../api/crawls';
-import { startCrawlsByFilter } from '../api/crawls';
+import type { CrawlDonorQuery } from '../api/crawls';
 import { formatNumber, plural } from '../format';
-import { notify } from '../notices';
 import { crawlEta } from './crawlFilters';
-import { refreshCrawls } from './crawlQueries';
+import { useStartByFilter } from './crawlQueries';
 
 function donors(count: number): string {
   return `${formatNumber(count)} ${plural(count, 'донор', 'донора', 'доноров')}`;
-}
-
-/** Что вышло — одной строкой уведомления. */
-export function bulkSummary(done: CrawlBulkResult): string {
-  if (done.asked === 0)
-    return 'Под фильтром обойти некого: обходы уже идут или ждут, или цены нет.';
-  if (done.deferred) {
-    return `Ставим в очередь ${donors(done.asked)} — фоном, ход виден по счётчику «в очереди».`;
-  }
-  const parts = [`Поставлено: ${formatNumber(done.queued ?? 0)} из ${formatNumber(done.asked)}.`];
-  if ((done.busy ?? 0) > 0) parts.push(`Уже шли: ${formatNumber(done.busy ?? 0)}.`);
-  if ((done.failed ?? 0) > 0) {
-    parts.push(`Очередь не ответила: ${formatNumber(done.failed ?? 0)} — попробуйте ещё раз.`);
-  }
-  return parts.join(' ');
 }
 
 /** «12 345» или, сверх предела сервера, «10 000 из 12 345». */
@@ -77,19 +58,9 @@ export function BulkCrawl({
   /** Условия вкладки словами; пусто — все доноры. */
   conditions: string[];
 }) {
-  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const asked = most === undefined ? startable : Math.min(startable, most);
-  const run = useMutation({
-    mutationFn: () => startCrawlsByFilter(query, asked),
-    onSuccess: async (done) => {
-      setOpen(false);
-      await refreshCrawls(queryClient);
-      notify({ message: bulkSummary(done), color: done.asked > 0 ? 'green' : 'yellow' });
-    },
-    onError: (failure) =>
-      notify({ title: 'Не поставили', message: refusalOf(failure), color: 'red' }),
-  });
+  const run = useStartByFilter(() => setOpen(false));
   return (
     <>
       <Button
@@ -119,7 +90,11 @@ export function BulkCrawl({
             <Button variant="default" className="press" onClick={() => setOpen(false)}>
               Отмена
             </Button>
-            <Button className="press" loading={run.isPending} onClick={() => run.mutate()}>
+            <Button
+              className="press"
+              loading={run.isPending}
+              onClick={() => run.mutate({ query, expected: asked })}
+            >
               Поставить {formatNumber(asked)}
             </Button>
           </Group>

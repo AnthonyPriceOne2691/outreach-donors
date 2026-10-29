@@ -33,7 +33,9 @@ export function statusLine(summary: Summary): string {
     .join(' · ');
 }
 
-function Facts({ summary }: { summary: Summary }) {
+/** Что с обходом сейчас — у заголовка: идёт, ждёт, сколько можно обойти. Один вид у сводки
+ *  «Проверки» и у вкладки. */
+export function CrawlFacts({ summary }: { summary: Summary }) {
   const running = summary.counts.status.running;
   const waiting = summary.counts.status.queued;
   return (
@@ -71,7 +73,7 @@ export function CrawlSummary({ onOpen }: { onOpen: () => void }) {
             <InfoHint name="Как устроен обход доноров" width={360}>
               {ABOUT}
             </InfoHint>
-            {data ? <Facts summary={data} /> : null}
+            {data ? <CrawlFacts summary={data} /> : null}
           </Group>
           <Button variant="light" className="press" onClick={onOpen}>
             Открыть обход доноров

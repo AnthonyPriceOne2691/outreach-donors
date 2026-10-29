@@ -39,6 +39,7 @@ import { BulkCrawl } from './BulkCrawl';
 import { CrawlDonorsTable } from './CrawlDonorsTable';
 import type { Picks } from './CrawlDonorsTable';
 import { CrawlFilterRow, CrawlScope, StatusFacets } from './CrawlFilterBar';
+import { CrawlFacts } from './CrawlSummary';
 import type { CrawlFilters } from './crawlFilters';
 import {
   crawlConditions,
@@ -57,7 +58,7 @@ import {
   useCrawlSummary,
   useStartCrawls,
 } from './crawlQueries';
-import { crawlRule, queueRule } from './crawlWords';
+import { crawlRule, heldWords, queueRule } from './crawlWords';
 import { ManualDonor } from './ManualDonor';
 import { RecentCrawls } from './RecentCrawls';
 import { StalePrices } from './StalePrices';
@@ -97,35 +98,32 @@ export function about(data: CrawlRules | undefined): string {
   );
 }
 
-/** Чего вкладке не хватает: доноры не загрузились — в таблице; обходчиков нет — здесь. */
-function NoCrawlers({ workers }: { workers: number | null | undefined }) {
-  if (workers !== 0) return null;
+/** Чего вкладке не хватает: доноры не загрузились — в таблице; обходчиков нет и машина занята
+ *  — здесь. Сторож нагрузки (`workers/load_gate.py`) не даёт копии взять новый обход, пока машина
+ *  занята: иначе «в очереди» при свободных на вид обходчиках читалось бы поломкой. */
+function Troubles({
+  data,
+  summary,
+}: {
+  data: CrawlDonorsView | undefined;
+  summary: CrawlSummary | undefined;
+}) {
+  const workers = data?.workers ?? summary?.workers;
+  const held = data?.held ?? 0;
   return (
-    <Alert color="yellow" title="Обходы некому взять">
-      Поставленные обходы ждут в очереди: служба обхода не запущена. Запустить её может
-      администратор сервиса — сообщите ему, и обходы пойдут сами, по очереди.
-    </Alert>
-  );
-}
-
-/** Что с обходом сейчас — у заголовка: идёт, ждёт, сколько можно обойти. */
-function Facts({ summary }: { summary: CrawlSummary | undefined }) {
-  if (summary === undefined) return null;
-  const { running, queued } = summary.counts.status;
-  return (
-    <Group gap="xs" align="center">
-      {running > 0 ? <Text size="sm">идёт: {formatNumber(running)}</Text> : null}
-      {queued > 0 ? (
-        <Text size="sm" c="dimmed">
-          в очереди: {formatNumber(queued)}
-        </Text>
+    <>
+      {workers === 0 ? (
+        <Alert color="yellow" title="Обходы некому взять">
+          Поставленные обходы ждут в очереди: служба обхода не запущена. Запустить её может
+          администратор сервиса — сообщите ему, и обходы пойдут сами, по очереди.
+        </Alert>
       ) : null}
-      <Text size="sm" c="dimmed">
-        {summary.startable > 0
-          ? `можно обойти: ${formatNumber(summary.startable)}`
-          : 'обходить сейчас некого'}
-      </Text>
-    </Group>
+      {held > 0 ? (
+        <Alert color="yellow" title="Машина занята">
+          {heldWords(held, data?.held_reason ?? null)}
+        </Alert>
+      ) : null}
+    </>
   );
 }
 
@@ -146,7 +144,7 @@ function Head({
         <InfoHint name="Как устроен обход доноров" width={360}>
           {about(data)}
         </InfoHint>
-        <Facts summary={summary} />
+        {summary ? <CrawlFacts summary={summary} /> : null}
       </Group>
       {/* Место под «Загрузить списком» (загрузка доноров файлом) — рядом с ручным донором. */}
       {onEnter !== null ? (
@@ -314,7 +312,7 @@ function Notices({
   const queryClient = useQueryClient();
   return (
     <>
-      <NoCrawlers workers={data?.workers ?? summary?.workers} />
+      <Troubles data={data} summary={summary} />
       {summary ? (
         <StalePrices
           count={summary.counts.price.stale}

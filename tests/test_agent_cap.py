@@ -67,9 +67,9 @@ async def test_spent_drafts_cap_lets_the_parse_go_and_refuses_the_draft_in_words
     assert model.calls == 1  # разбор ответа донора прошёл: общий потолок не выбран
     assert agent.seen == []  # модель черновика не звали
     # 321 токен разбора — не в счёте черновиков: только 61 + 40.
-    assert str(refused.value) == (
-        "дневной потолок черновиков агента выбран: 101 из 83 токенов — продолжение завтра; "
-        "поднять потолок может администратор"
+    assert str(refused.value).startswith(
+        "дневной потолок черновиков агента выбран: 101 из 83 токенов — попросите администратора "
+        "поднять потолок на экране «Расход» или дождитесь сброса — через "
     )
 
 
@@ -144,9 +144,10 @@ def _stage_cap(tokens: int) -> usage.OwnCap:
 
 
 def _refused(spent: int, cap: int) -> str:
+    """Начало отказа: что выбрано и кто поднимает; хвост — сколько до сброса — от минуты теста."""
     return (
-        f"дневной потолок этапа-заглушки выбран: {spent} из {cap} токенов — продолжение "
-        "завтра; поднять потолок может администратор"
+        f"дневной потолок этапа-заглушки выбран: {spent} из {cap} токенов — попросите "
+        "администратора поднять потолок на экране «Расход» или дождитесь сброса — через "
     )
 
 
@@ -170,7 +171,7 @@ async def test_a_spent_stage_cap_refuses_the_draft_before_the_model(
         await drafting.draft_answer(session, agent, reply.id)
 
     assert agent.seen == []
-    assert str(refused.value) == _refused(WRITE, WRITE)
+    assert str(refused.value).startswith(_refused(WRITE, WRITE))
 
 
 @pytest.mark.usefixtures("only_the_stage_cap")
@@ -195,7 +196,7 @@ async def test_the_rewrite_loop_holds_the_stage_cap_before_every_writer_call(
 
     assert [request.previous for request in agent.seen] == [""]
     assert asked == ["own_cap", "own_cap"]
-    assert str(refused.value) == _refused(WRITE, WRITE)
+    assert str(refused.value).startswith(_refused(WRITE, WRITE))
 
 
 @pytest.mark.usefixtures("only_the_stage_cap")

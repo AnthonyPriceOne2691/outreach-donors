@@ -2035,6 +2035,12 @@ html:root .mantine-Pill-root {
     grid-column: auto;
   }
 
+  /* Отметка первой колонкой и короткие значения в строку (вкладка «Обход доноров»): имя —
+     во всю ширину рядом с отметкой, а не в треть карточки — домен рвался на три строки. */
+  .phoneCardsRow table.pickFirst tbody > tr > td:nth-child(2) {
+    grid-column: 2 / -1;
+  }
+
   /* Строка во всю ширину — ярус, пусто, отказ — остаётся строкой. */
   .phoneCards tbody > tr.tierRow,
   .phoneCards tbody > tr.wholeRow {

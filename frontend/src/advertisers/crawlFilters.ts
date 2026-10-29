@@ -17,6 +17,7 @@ import type {
   DonorPriceState,
 } from '../api/crawls';
 import type { PriceSource } from '../api/manualPrice';
+import { knownParam, pageParam } from '../components/useUrlFilters';
 import type { Emptiness } from '../components/WholeRow';
 import { formatNumber } from '../format';
 
@@ -67,6 +68,18 @@ export const PRICE_SOURCES: Record<PriceSource, string> = {
   manual: 'вручную',
 };
 
+/** Те же значения — коротко, для поля под колонкой: поле по самому длинному значению. */
+export const PRICE_SOURCES_SHORT: Record<PriceSource, string> = {
+  reply: 'из ответа',
+  manual: 'вручную',
+};
+
+export const PRICE_STATES_SHORT: Record<DonorPriceState, string> = {
+  fresh: 'в сроке',
+  stale: 'протухла',
+  none: 'нет',
+};
+
 export const CRAWL_SORTS: Record<DonorCrawlSort, string> = {
   priced: 'свежая цена сверху',
   crawled: 'давно не обходили',
@@ -80,28 +93,19 @@ export const PRICE_KEYS = Object.keys(PRICE_STATES) as DonorPriceState[];
 export const SOURCE_KEYS = Object.keys(PRICE_SOURCES) as PriceSource[];
 export const SORT_KEYS = Object.keys(CRAWL_SORTS) as DonorCrawlSort[];
 
-function known<T extends string>(raw: string | null, keys: readonly T[]): T | null {
-  return keys.find((key) => key === raw) ?? null;
-}
-
-function pageOf(raw: string | null): number {
-  if (raw === null || !/^\d{1,6}$/.test(raw)) return 1;
-  return Math.max(1, Number(raw));
-}
-
 function sizeOf(raw: string | null): number {
   return SIZES.find((size) => String(size) === raw) ?? DEFAULT_SIZE;
 }
 
 export function readCrawlFilters(params: URLSearchParams): CrawlFilters {
   return {
-    status: known(params.get('status'), STATUS_KEYS),
-    price: known(params.get('price'), PRICE_KEYS),
-    source: known(params.get('source'), SOURCE_KEYS),
+    status: knownParam(params.get('status'), STATUS_KEYS),
+    price: knownParam(params.get('price'), PRICE_KEYS),
+    source: knownParam(params.get('source'), SOURCE_KEYS),
     search: (params.get('search') ?? '').trim(),
-    sort: known(params.get('sort'), SORT_KEYS) ?? 'priced',
+    sort: knownParam(params.get('sort'), SORT_KEYS) ?? 'priced',
     size: sizeOf(params.get('size')),
-    page: pageOf(params.get('page')),
+    page: pageParam(params.get('page')),
   };
 }
 
@@ -150,6 +154,14 @@ export function crawlConditions(filters: CrawlFilters): string[] {
 /** Сколько доноров в счётчиках по статусу: у каждого донора статус один. */
 export function statusTotal(counts: CrawlCounts): number {
   return STATUS_KEYS.reduce((sum, key) => sum + counts.status[key], 0);
+}
+
+/** Счётчик пункта «Срок цены»: «все» — сумма по сроку (со всеми условиями, кроме срока). */
+export function priceCount(counts: CrawlCounts | undefined, key: DonorPriceState | 'all') {
+  if (counts === undefined) return undefined;
+  return key === 'all'
+    ? PRICE_KEYS.reduce((sum, one) => sum + counts.price[one], 0)
+    : counts.price[key];
 }
 
 /** Почему список пуст — словами: доноров нет вовсе или пусто под условиями. `all` — доноров

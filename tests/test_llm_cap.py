@@ -113,12 +113,14 @@ class TestCap:
         with pytest.raises(LlmCapExceededError) as refused:
             await usage.ensure_llm_within_cap(session)
 
-        # Человеку — числа и кто поднимет потолок; имя настройки — только журналу
-        # (находка QA продаж 10.10.2026: имя доходило до итога сборки).
-        assert str(refused.value) == (
-            "потолок расхода на модель за день достигнут: 1000 из 1000 токенов — "
-            "продолжение завтра; поднять потолок может администратор"
+        # Человеку — числа, кто и где поднимет потолок и когда сброс; имя настройки — только
+        # журналу (находка QA продаж 10.10.2026: имя доходило до итога сборки).
+        said = str(refused.value)
+        assert said.startswith(
+            "потолок расхода на модель за день достигнут: 1000 из 1000 токенов — попросите "
+            "администратора поднять потолок на экране «Расход» или дождитесь сброса — через "
         )
+        assert said.endswith("(в 03:00 по Москве)")
         assert [getattr(r, "setting", None) for r in caplog.records] == ["LLM_DAILY_TOKEN_CAP"]
 
     async def test_yesterday_does_not_count_today(

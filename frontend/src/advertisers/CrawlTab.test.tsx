@@ -24,11 +24,12 @@ import {
 } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
-import { bulkCount, bulkSummary, bulkTiming } from './BulkCrawl';
+import { bulkCount, bulkTiming } from './BulkCrawl';
 import { pickable } from './CrawlDonorsTable';
 import { closedShare, crawlState, failureShare } from './CrawlTable';
 import { crawlEta, readCrawlFilters, writeCrawlFilters } from './crawlFilters';
-import { launchSummary } from './crawlQueries';
+import { heldWords } from './crawlWords';
+import { bulkSummary, launchSummary } from './crawlQueries';
 import { enteredSummary } from './ManualDonor';
 import { againRows } from './RecentCrawls';
 
@@ -203,7 +204,7 @@ describe('вкладка «Обход доноров»', () => {
     const user = userEvent.setup();
 
     await screen.findByText('fresh.example');
-    await choose('Срок цены', 'цена протухла · 1');
+    await choose('Срок цены', 'протухла · 1');
     await waitFor(() => expect(paths(recorded, '/api/crawls/donors?price=stale')).toBe(1));
     await user.type(screen.getByRole('textbox', { name: 'Домен содержит' }), 'stale');
 
@@ -420,6 +421,24 @@ describe('вкладка «Обход доноров»', () => {
     const alert = (await screen.findByText('Обходы некому взять')).closest('[role="alert"]')!;
     expect(alert).toHaveTextContent('служба обхода не запущена');
     expect(alert).not.toHaveTextContent(/docker|compose|crawler/);
+  });
+
+  it('машина занята — сколько обходчиков ждут и почему, словами сервера', async () => {
+    const reason = 'нагрузка 0,93 на ядро при пороге 0,80';
+    open({
+      'GET /api/crawls/donors': { body: { ...PAGE, workers: 16, held: 2, held_reason: reason } },
+    });
+
+    const alert = (await screen.findByText('Машина занята')).closest('[role="alert"]')!;
+    expect(alert).toHaveTextContent(`2 обходчика ждут, пока спадёт нагрузка: ${reason}.`);
+    expect(alert).toHaveTextContent('поставленные начнутся сами, когда машина освободится');
+  });
+
+  it('сторож никого не держит или сервер старше — строки «Машина занята» нет', async () => {
+    open({ 'GET /api/crawls/donors': { body: { ...PAGE, workers: 16, held: 0 } } });
+
+    await screen.findByText('fresh.example');
+    expect(screen.queryByText('Машина занята')).not.toBeInTheDocument();
   });
 
   it('пусто под фильтром — сказано, под каким, и сброс возвращает всех', async () => {
@@ -689,6 +708,14 @@ describe('правила вкладки', () => {
     expect(readCrawlFilters(new URLSearchParams('status=all&size=7&sort=x&page=-2'))).toMatchObject(
       { status: null, size: 50, sort: 'priced', page: 1 },
     );
+  });
+
+  it('ждущие обходчики словами: число и слово согласованы, причины нет — без двоеточия', () => {
+    expect(heldWords(1, null)).toMatch(/^1 обходчик ждёт, пока спадёт нагрузка\. /);
+    expect(heldWords(3, 'свободно 6,2 ГБ памяти при пороге 8')).toMatch(
+      /^3 обходчика ждут, пока спадёт нагрузка: свободно 6,2 ГБ памяти при пороге 8\. /,
+    );
+    expect(heldWords(16, null)).toMatch(/^16 обходчиков ждут/);
   });
 
   it('сколько займёт — по числу обходчиков и обычной длине обхода', () => {

@@ -23,6 +23,7 @@ import type { AdvertiserCard, AdvertiserFacets } from '../api/advertiserList';
 import { CONTACT_STATUSES, NOT_SEARCHED } from '../api/labels';
 import type { Column } from '../components/ColumnsHead';
 import { DataTable } from '../components/DataTable';
+import { ARROW_WIDTH, counted, FilterSelect } from '../components/FilterSelect';
 import { InfoHint } from '../components/InfoHint';
 import { Seams } from '../components/Seams';
 import { NoRows } from '../components/WholeRow';
@@ -66,21 +67,6 @@ const COLUMNS: Column[] = [
 /** Уже — прокрутка: колонкам с шириной 61rem (976 px), причинам — от 220. */
 export const LIST_MIN_WIDTH = 1200;
 
-/** Стрелка списка в поле фильтра — уже умолчания, как у доноров. */
-const ARROW_WIDTH = 22;
-
-/** «ушло · 12»: счётчик — в пункте списка, в поле — только слово. */
-function counted(title: string, count: number | undefined): string {
-  return count === undefined ? title : `${title} · ${formatNumber(count)}`;
-}
-
-function options<T extends string>(keys: readonly T[], title: (key: T) => string) {
-  return [
-    { value: 'all', label: 'все' },
-    ...keys.map((key) => ({ value: key, label: title(key) })),
-  ];
-}
-
 interface FilterProps {
   filters: ListFilters;
   facets: AdvertiserFacets | null;
@@ -88,37 +74,6 @@ interface FilterProps {
   search: string;
   onSearch: (value: string) => void;
   onFilter: (patch: Partial<ListFilters>) => void;
-}
-
-function FilterSelect<T extends string>({
-  label,
-  value,
-  keys,
-  title,
-  count,
-  onPick,
-}: {
-  label: string;
-  value: T | null;
-  keys: readonly T[];
-  title: (key: T) => string;
-  count: (key: T | 'all') => number | undefined;
-  onPick: (value: T | null) => void;
-}) {
-  return (
-    <Select
-      size="xs"
-      aria-label={label}
-      rightSectionWidth={ARROW_WIDTH}
-      allowDeselect={false}
-      value={value ?? 'all'}
-      onChange={(picked) => onPick(keys.find((key) => key === picked) ?? null)}
-      data={options(keys, title)}
-      renderOption={({ option }) => (
-        <span>{counted(option.label, count(option.value as T | 'all'))}</span>
-      )}
-    />
-  );
 }
 
 function FilterRow({ filters, facets, search, onSearch, onFilter }: FilterProps) {

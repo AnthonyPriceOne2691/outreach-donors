@@ -66,6 +66,7 @@ PERMISSION_TITLES: dict[Permission, str] = {
     Permission.SENDERS: "домены рассылки",
     Permission.USERS: "заводить учётки",
     Permission.SALES: "Продажи",
+    Permission.SPEND: "менять потолки расхода",
 }
 
 

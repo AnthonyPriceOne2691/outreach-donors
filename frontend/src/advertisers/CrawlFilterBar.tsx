@@ -15,6 +15,7 @@ import { Button, Group, Select, Table, TextInput } from '@mantine/core';
 
 import type { CrawlCounts, DonorCrawlSort, DonorCrawlStatus, DonorPriceState } from '../api/crawls';
 import type { PriceSource } from '../api/manualPrice';
+import { FilterSelect } from '../components/FilterSelect';
 import { Labeled } from '../components/Labeled';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
@@ -23,19 +24,17 @@ import {
   CRAWL_SORTS,
   CRAWL_STATUSES,
   PRICE_KEYS,
-  PRICE_SOURCES,
-  PRICE_STATES,
+  PRICE_SOURCES_SHORT,
+  PRICE_STATES_SHORT,
   SIZES,
   SORT_KEYS,
   SOURCE_KEYS,
+  priceCount,
   STATUS_KEYS,
   statusTotal,
 } from './crawlFilters';
 
 type Apply = (patch: Partial<CrawlFilters>) => void;
-
-/** Стрелка списка в поле фильтра — уже умолчания, как у остальных таблиц с фильтрами. */
-const ARROW_WIDTH = 22;
 
 /** Счётчики по статусу последнего обхода — кнопками-фильтрами. */
 export function StatusFacets({
@@ -124,51 +123,6 @@ export function CrawlScope({ filters, onFilter }: { filters: CrawlFilters; onFil
   );
 }
 
-/** «протухла · 120»: счётчик — в пункте списка, в поле — только слово. */
-function counted(label: string, count: number | undefined): string {
-  return count === undefined ? label : `${label} · ${formatNumber(count)}`;
-}
-
-function options<T extends string>(keys: readonly T[], title: (key: T) => string) {
-  return [
-    { value: 'all', label: 'все' },
-    ...keys.map((key) => ({ value: key, label: title(key) })),
-  ];
-}
-
-function FilterSelect<T extends string>({
-  label,
-  value,
-  keys,
-  title,
-  count,
-  onPick,
-}: {
-  label: string;
-  value: T | null;
-  keys: readonly T[];
-  title: (key: T) => string;
-  count: (key: T) => number | undefined;
-  onPick: (value: T | null) => void;
-}) {
-  return (
-    <Select
-      size="xs"
-      aria-label={label}
-      rightSectionWidth={ARROW_WIDTH}
-      allowDeselect={false}
-      value={value ?? 'all'}
-      onChange={(picked) => onPick(keys.find((key) => key === picked) ?? null)}
-      data={options(keys, title)}
-      renderOption={({ option }) => (
-        <span>
-          {option.value === 'all' ? option.label : counted(option.label, count(option.value as T))}
-        </span>
-      )}
-    />
-  );
-}
-
 /** Набранный поиск совпадает с адресом без пробелов по краям. */
 const sameSearch = (draft: string, committed: string) => draft.trim() === committed;
 
@@ -208,7 +162,7 @@ export function CrawlFilterRow({
           label="Откуда цена"
           value={filters.source}
           keys={SOURCE_KEYS}
-          title={(key: PriceSource) => PRICE_SOURCES[key]}
+          title={(key: PriceSource) => PRICE_SOURCES_SHORT[key]}
           count={() => undefined}
           onPick={(source) => onFilter({ source })}
         />
@@ -218,8 +172,8 @@ export function CrawlFilterRow({
           label="Срок цены"
           value={filters.price}
           keys={PRICE_KEYS}
-          title={(key: DonorPriceState) => PRICE_STATES[key]}
-          count={(key) => counts?.price[key]}
+          title={(key: DonorPriceState) => PRICE_STATES_SHORT[key]}
+          count={(key) => priceCount(counts, key)}
           onPick={(price) => onFilter({ price })}
         />
       </Table.Th>

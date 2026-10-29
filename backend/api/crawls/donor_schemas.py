@@ -16,6 +16,7 @@ from backend.config import crawl as crawl_cfg
 from backend.features.crawl import donor_page
 from backend.features.crawl.board import QueueState
 from backend.features.crawl.donor_page import DonorQuery, Facets, Price, Sort, Status
+from backend.shared.crawl_marks import Held
 
 #: Откуда цена — значения `PriceSource`; файлом заведённые встанут сюда же своим словом.
 Source = Literal["reply", "manual"]
@@ -89,6 +90,9 @@ class DonorsView(CrawlCeilings):
     bulk_max: int = donor_page.BULK_MAX
     #: Сколько обходчиков слушает очередь; `None` — не спросили.
     workers: int | None = None
+    #: Сколько из них сторож нагрузки держит без работы и почему — как у `TargetsView`.
+    held: int | None = None
+    held_reason: str | None = None
     #: Сколько обычно идёт обход донора, с, — для «≈ N ч при K обходчиках».
     typical_crawl_sec: float
     max_pages: int
@@ -107,10 +111,11 @@ class DonorsView(CrawlCeilings):
         workers: int | None,
         typical: float,
         max_pages: int,
+        held: Held | None = None,
     ) -> DonorsView:
         return cls(
             rows=[
-                DonorRow.of(line, max_pages=max_pages, queue=queue, workers=workers)
+                DonorRow.of(line, max_pages=max_pages, queue=queue, workers=workers, held=held)
                 for line in found.rows
             ],
             total=found.total,
@@ -119,6 +124,8 @@ class DonorsView(CrawlCeilings):
             counts=CountsView.of(found.facets),
             startable=found.startable,
             workers=workers,
+            held=None if held is None else held.count,
+            held_reason=None if held is None else held.words,
             typical_crawl_sec=typical,
             max_pages=max_pages,
         )

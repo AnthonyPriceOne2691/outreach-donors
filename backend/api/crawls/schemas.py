@@ -11,11 +11,12 @@ from pydantic_core import PydanticCustomError
 from backend.config import crawl as crawl_cfg
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, PriceSource, StopReason
 from backend.features.crawl.board import CrawlLine, DonorLine, QueueState
+from backend.shared.crawl_marks import Held
 
 #: Сколько доноров ставится одним нажатием. У обходчика один донор, обход — до
 #: часа: полсотни доноров — это часы очереди, и больше за раз человек осознанно
-#: не выбирает. Число обходчиков — в ответе (`workers`), а не здесь: на проде их
-#: больше, чем копий по умолчанию (29.10.2026 — восемь).
+#: не выбирает. Число обходчиков — в ответе (`workers`), а не здесь: его задаёт
+#: выкатка (`CRAWL_WORKERS`), и экран не держит своей копии.
 MAX_HOSTS = 50
 
 
@@ -48,14 +49,29 @@ class QueuePlace(BaseModel):
     #: Ждущих обходов перед ним; `None` — места нет (его как раз берёт обходчик или очередь
     #: не спросили).
     ahead: int | None = None
+    #: Сколько свободных обходчиков держит сторож нагрузки — машина занята
+    #: (`workers/load_gate.py`) — и почему; `None` — не спросили. Иначе свободный обходчик
+    #: при занятой машине читался бы «вот-вот начнётся», а обход ждал бы нагрузку.
+    held: int | None = None
+    held_reason: str | None = None
 
     @classmethod
     def of(
-        cls, line: CrawlLine, queue: QueueState | None, workers: int | None
+        cls,
+        line: CrawlLine,
+        queue: QueueState | None,
+        workers: int | None,
+        held: Held | None = None,
     ) -> QueuePlace | None:
         if queue is None or line.status is not CrawlStatus.QUEUED:
             return None
-        return cls(busy=queue.busy, workers=workers, ahead=queue.ahead.get(line.id))
+        return cls(
+            busy=queue.busy,
+            workers=workers,
+            ahead=queue.ahead.get(line.id),
+            held=None if held is None else held.count,
+            held_reason=None if held is None else held.words,
+        )
 
 
 class CrawlRow(CrawlCeilings):
@@ -108,6 +124,7 @@ class CrawlRow(CrawlCeilings):
         max_pages: int,
         queue: QueueState | None = None,
         workers: int | None = None,
+        held: Held | None = None,
     ) -> CrawlRow:
         return cls(
             id=line.id,
@@ -134,7 +151,7 @@ class CrawlRow(CrawlCeilings):
             crawl_delay=line.crawl_delay,
             elapsed_sec=line.elapsed_sec,
             time_budget_sec=line.time_budget_sec,
-            place=QueuePlace.of(line, queue, workers),
+            place=QueuePlace.of(line, queue, workers, held),
         )
 
 
@@ -160,6 +177,7 @@ class DonorRow(BaseModel):
         max_pages: int,
         queue: QueueState | None = None,
         workers: int | None = None,
+        held: Held | None = None,
     ) -> DonorRow:
         crawl = line.crawl
         return cls(
@@ -167,7 +185,7 @@ class DonorRow(BaseModel):
             price=float(line.price) if line.price is not None else None,
             priced_at=line.priced_at,
             crawl=(
-                CrawlRow.of(crawl, max_pages=max_pages, queue=queue, workers=workers)
+                CrawlRow.of(crawl, max_pages=max_pages, queue=queue, workers=workers, held=held)
                 if crawl
                 else None
             ),
@@ -190,6 +208,10 @@ class TargetsView(CrawlCeilings):
     #: Сколько обходчиков слушает очередь. `None` — не спросили; 0 — поставленное
     #: никто не возьмёт.
     workers: int | None = None
+    #: Сколько из них сторож нагрузки держит без работы — машина занята
+    #: (`workers/load_gate.py`) — и почему, словами самой свежей отметки. `None` — не спросили.
+    held: int | None = None
+    held_reason: str | None = None
     #: Мера здоровья ТЗ — окно и пороги: экран называет их в пояснении панели, а не
     #: держит свою копию чисел.
     health_window: int | None = None
@@ -204,7 +226,10 @@ class CrawlsView(BaseModel):
     rows: list[CrawlRow]
     active: int
     workers: int | None = None
-    #: Обходов в журнале всего — для страниц «Последних обходов»; `None` — не считали.
+    #: Сколько обходчиков держит сторож нагрузки и почему — как у `TargetsView`.
+    held: int | None = None
+    held_reason: str | None = None
+    #: Обходов в журнале всего — для страниц журнала обходов; `None` — не считали.
     total: int | None = None
 
 

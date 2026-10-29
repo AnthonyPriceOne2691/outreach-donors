@@ -48,6 +48,7 @@ from backend.features.crawl import board, donor_page, targets
 from backend.features.crawl.board import CrawlLine
 from backend.features.crawl.donor_page import DonorQuery
 from backend.features.crawl.launch import launch
+from backend.shared.crawl_marks import Held, crawlers_held
 from backend.shared.queue import (
     CRAWL_BULK_JOB,
     CRAWL_QUEUE_NAME,
@@ -75,6 +76,12 @@ async def _workers() -> int | None:
     return await asyncio.to_thread(workers_alive, queue=CRAWL_QUEUE_NAME)
 
 
+async def _held() -> Held | None:
+    """Скольких обходчиков держит сторож нагрузки — тем же пулом потоков, что `_workers`.
+    Не спросили — `None`, а не ноль: экран тогда молчит, а не говорит «никого»."""
+    return await asyncio.to_thread(crawlers_held)
+
+
 async def _queue(session: AsyncSession, lines: list[CrawlLine | None]) -> board.QueueState:
     """Занятые обходчики и места показанных ждущих обходов — для строки «в очереди». Место
     спрашивается только у показанных задач (`job_positions`), а не всей очередью: при десяти
@@ -95,11 +102,11 @@ async def crawl_targets(
     числами и словами, что делать (цену перезапросить, прогон запустить)."""
     found = await board.eligible(session, limit=limit)
     pages = crawl_cfg.MAX_PAGES_PER_DONOR
-    workers = await _workers()
+    workers, held = await _workers(), await _held()
     queue = await _queue(session, [donor.crawl for donor in found.donors])
     return TargetsView(
         donors=[
-            DonorRow.of(line, max_pages=pages, queue=queue, workers=workers)
+            DonorRow.of(line, max_pages=pages, queue=queue, workers=workers, held=held)
             for line in found.donors
         ],
         no_price=len(found.chosen.no_price),
@@ -108,6 +115,8 @@ async def crawl_targets(
         notes=targets.explain(found.chosen),
         max_pages=pages,
         workers=workers,
+        held=None if held is None else held.count,
+        held_reason=None if held is None else held.words,
         health_window=crawl_cfg.HEALTH_WINDOW,
         slow_down_share=crawl_cfg.SLOW_DOWN_SHARE,
         stop_share=crawl_cfg.STOP_SHARE,
@@ -124,12 +133,17 @@ async def crawls(
 ) -> CrawlsView:
     pages = crawl_cfg.MAX_PAGES_PER_DONOR
     lines = await board.recent(session, limit=limit, offset=(page - 1) * limit)
-    workers = await _workers()
+    workers, held = await _workers(), await _held()
     queue = await _queue(session, list(lines))
     return CrawlsView(
-        rows=[CrawlRow.of(line, max_pages=pages, queue=queue, workers=workers) for line in lines],
+        rows=[
+            CrawlRow.of(line, max_pages=pages, queue=queue, workers=workers, held=held)
+            for line in lines
+        ],
         active=await board.active_count(session),
         workers=workers,
+        held=None if held is None else held.count,
+        held_reason=None if held is None else held.words,
         total=await board.total_count(session),
     )
 
@@ -143,12 +157,13 @@ async def donors(
     """Доноры страницей — с условиями, порядком и счётчиками по статусу и цене на сервере
     (`crawl/donor_page.py`): их тысячи, и вкладка не грузит их целиком."""
     found = await donor_page.page(session, query)
-    workers = await _workers()
+    workers, held = await _workers(), await _held()
     return DonorsView.of(
         found,
         query,
         queue=await _queue(session, [row.crawl for row in found.rows]),
         workers=workers,
+        held=held,
         typical=await donor_page.typical_seconds(session),
         max_pages=crawl_cfg.MAX_PAGES_PER_DONOR,
     )
@@ -186,6 +201,18 @@ def _why_not(host: str, chosen: targets.Targets) -> str | None:
     return "не принятый донор: Этап 2 — по донорам из базы Этапа 1 или заведённым вручную с ценой"
 
 
+async def _audit_runs(session: AsyncSession, author: UserModel, queued: dict[str, int]) -> None:
+    """Запуск — в журнал действий строкой на поставленный обход: кто, какого донора."""
+    audit = AccessRepository(session)
+    for host, run_id in queued.items():
+        await audit.record(
+            AuditAction.RUN_STARTED,
+            author_id=author.id,
+            target=f"crawl:{run_id}",
+            details={"этап": "2 — обход донора", "донор": host},
+        )
+
+
 @router.post("", response_model=LaunchResult, summary="Обойти доноров")
 async def start(
     body: LaunchBody,
@@ -204,14 +231,7 @@ async def start(
         job_id=crawl_job_id,
         enqueue=enqueue_crawl,
     )
-    audit = AccessRepository(session)
-    for host, run_id in done.queued.items():
-        await audit.record(
-            AuditAction.RUN_STARTED,
-            author_id=author.id,
-            target=f"crawl:{run_id}",
-            details={"этап": "2 — обход донора", "донор": host},
-        )
+    await _audit_runs(session, author, done.queued)
     await session.commit()
     return LaunchResult(
         queued=done.queued,
@@ -237,10 +257,9 @@ async def crawl_filtered(
     обход не идёт и не ждёт), — но не больше, чем человек видел на кнопке (`expected`).
     До `MAX_HOSTS` — сразу, как «Обойти отмеченных»; больше — фоновой задачей."""
     hosts = await donor_page.startable_hosts(session, body.query(), limit=body.expected)
-    audit = AccessRepository(session)
     if len(hosts) > MAX_HOSTS:
         job_id = await asyncio.to_thread(_defer, hosts, author.email)
-        await audit.record(
+        await AccessRepository(session).record(
             AuditAction.RUN_STARTED,
             author_id=author.id,
             target=f"crawl-bulk:{job_id}",
@@ -249,13 +268,7 @@ async def crawl_filtered(
         await session.commit()
         return BulkResult(asked=len(hosts), deferred=True, job_id=job_id, workers=await _workers())
     done = await launch(session, hosts, by=author.email, job_id=crawl_job_id, enqueue=enqueue_crawl)
-    for host, run_id in done.queued.items():
-        await audit.record(
-            AuditAction.RUN_STARTED,
-            author_id=author.id,
-            target=f"crawl:{run_id}",
-            details={"этап": "2 — обход донора", "донор": host},
-        )
+    await _audit_runs(session, author, done.queued)
     await session.commit()
     return BulkResult(
         asked=len(hosts),

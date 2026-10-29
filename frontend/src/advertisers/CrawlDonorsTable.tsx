@@ -29,19 +29,24 @@ import { LastCrawl, PriceCell, isActive } from './CrawlTable';
 
 const PICK = 'Отметить';
 
-/** «Цена» — по самой длинной: «99 999,99 USDT» и пометка под ней. */
+/** «Цена» — по самой длинной: «99 999,99 USDT» и пометка под ней; «Цена от» — дата и поле
+ *  «протухла» под ней. Донору — постоянная ширина (домен переносится по швам), а остаток — у
+ *  «Последнего обхода»: значок «обойдён: 1 000 из 1 000 страниц», «i» и «Переобойти» встают в
+ *  одну строку, где есть 344 px (1440 — есть), а уже — «Переобойти» уходит под значок. Наоборот
+ *  (остаток — донору) на 1280 домен рвался на три строки в каждой строке таблицы (замер
+ *  29.10.2026). */
 const COLUMNS: Column[] = [
-  { title: 'Донор' },
+  { title: 'Донор', width: '15rem' },
   { title: 'Цена', width: '8.5rem' },
-  { title: 'Цена от', width: '7rem' },
-  { title: 'Последний обход', width: '16rem' },
-  { title: 'Ссылок', width: '6rem' },
+  { title: 'Цена от', width: '8rem' },
+  { title: 'Последний обход' },
+  { title: 'Ссылок', width: '5.5rem' },
 ];
 const PICK_COLUMN: Column = { title: PICK, width: '3.25rem' };
 /** Строк заготовки до первого ответа — сколько видно без прокрутки. */
 const LOADING_ROWS = 6;
-/** Уже — прокрутка; донору остаётся 176 px, как в таблице панели (`CrawlTable`). */
-const MIN_WIDTH = 872;
+/** Уже — прокрутка: колонкам с шириной 40,25rem (644 px), обходу — от 240 px. */
+const MIN_WIDTH = 884;
 
 /** Можно ли отметить донора: обход не идёт и не ждёт, цена в сроке. У панели, где в списке
  *  только свежие, `price_state` нет — там решает только обход. */
@@ -112,7 +117,9 @@ function DonorRowCells({
         <PriceCell donor={donor} />
       </Table.Td>
       <Table.Td data-label="Цена от">{formatDate(donor.priced_at)}</Table.Td>
-      <Table.Td data-label="Последний обход">
+      {/* На телефоне — сразу под именем, во всю ширину карточки (`cellDecide`): значок обхода и
+          «Переобойти» — то, ради чего строка; цена, дата и ссылки — строкой ниже. */}
+      <Table.Td className="cellDecide" data-label="Последний обход">
         <LastCrawl donor={donor} again={again} compact />
       </Table.Td>
       <Table.Td data-label="Ссылок">
@@ -173,6 +180,7 @@ export function CrawlDonorsTable({
       heads={picks !== null ? { [PICK]: <PickAll rows={rows} picks={picks} /> } : undefined}
       head={filterRow}
       stale={stale || loading}
+      cardRow
       sticky
       label="Доноры для обхода"
     >

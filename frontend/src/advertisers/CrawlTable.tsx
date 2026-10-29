@@ -35,11 +35,20 @@ export type StartCrawls = UseMutationResult<CrawlLaunch, Error, string[]>;
 
 /** «Переобойти» донора — у законченного обхода с любым исходом (`RecentCrawls`, шапка). Пока
  *  ставится повтор одного, кнопки остальных ждут: запуск один на обе таблицы. */
-export function Again({ host, start }: { host: string; start: StartCrawls }) {
+export function Again({
+  host,
+  start,
+  compact = false,
+}: {
+  host: string;
+  start: StartCrawls;
+  /** Ниже ростом — рядом со значком в строке вкладки, а не под ним. */
+  compact?: boolean;
+}) {
   const mine = start.variables?.includes(host) ?? false;
   return (
     <Button
-      size="xs"
+      size={compact ? 'compact-xs' : 'xs'}
       variant="light"
       className="press"
       aria-label={`Переобойти ${host}`}
@@ -238,7 +247,7 @@ export function LastCrawl({
   return compact ? (
     <Group gap={6} justify="center">
       <CrawlState crawl={crawl} compact />
-      <Again host={donor.host} start={again} />
+      <Again host={donor.host} start={again} compact />
     </Group>
   ) : (
     <Stack gap={6} align="center">

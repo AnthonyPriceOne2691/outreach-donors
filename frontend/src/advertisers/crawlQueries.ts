@@ -12,9 +12,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
 import { refusalOf } from '../api/client';
-import type { CrawlLaunch } from '../api/crawls';
-import { fetchCrawlSummary, startCrawls } from '../api/crawls';
-import { formatNumber } from '../format';
+import type { CrawlBulkResult, CrawlDonorQuery, CrawlLaunch } from '../api/crawls';
+import { fetchCrawlSummary, startCrawls, startCrawlsByFilter } from '../api/crawls';
+import { formatNumber, plural } from '../format';
 import { notify } from '../notices';
 
 export const CRAWL_SUMMARY_KEY = ['crawl-summary'] as const;
@@ -32,6 +32,25 @@ export function launchSummary(done: CrawlLaunch): string {
   for (const [host, why] of Object.entries(done.refused)) parts.push(`${host}: ${why}.`);
   if (done.failed.length > 0) {
     parts.push(`Очередь не ответила: ${done.failed.join(', ')} — попробуйте ещё раз.`);
+  }
+  return parts.join(' ');
+}
+
+function donorsWord(count: number): string {
+  return `${formatNumber(count)} ${plural(count, 'донор', 'донора', 'доноров')}`;
+}
+
+/** Что вышло — одной строкой уведомления. */
+export function bulkSummary(done: CrawlBulkResult): string {
+  if (done.asked === 0)
+    return 'Под фильтром обойти некого: обходы уже идут или ждут, или цены нет.';
+  if (done.deferred) {
+    return `Ставим в очередь ${donorsWord(done.asked)} — фоном, ход виден по счётчику «в очереди».`;
+  }
+  const parts = [`Поставлено: ${formatNumber(done.queued ?? 0)} из ${formatNumber(done.asked)}.`];
+  if ((done.busy ?? 0) > 0) parts.push(`Уже шли: ${formatNumber(done.busy ?? 0)}.`);
+  if ((done.failed ?? 0) > 0) {
+    parts.push(`Очередь не ответила: ${formatNumber(done.failed ?? 0)} — попробуйте ещё раз.`);
   }
   return parts.join(' ');
 }
@@ -78,6 +97,23 @@ export function useStartCrawls(onQueued?: () => void) {
       await refreshCrawls(queryClient);
       const clean = done.failed.length === 0 && Object.keys(done.refused).length === 0;
       notify({ message: launchSummary(done), color: clean ? 'green' : 'yellow' });
+    },
+    onError: (failure) =>
+      notify({ title: 'Не поставили', message: refusalOf(failure), color: 'red' }),
+  });
+}
+
+/** «Обойти всех по фильтру»: условия вкладки и сколько человек видел на кнопке; исход — словами
+ *  уведомления (`bulkSummary`). */
+export function useStartByFilter(onDone: () => void) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ query, expected }: { query: CrawlDonorQuery; expected: number }) =>
+      startCrawlsByFilter(query, expected),
+    onSuccess: async (done) => {
+      onDone();
+      await refreshCrawls(queryClient);
+      notify({ message: bulkSummary(done), color: done.asked > 0 ? 'green' : 'yellow' });
     },
     onError: (failure) =>
       notify({ title: 'Не поставили', message: refusalOf(failure), color: 'red' }),

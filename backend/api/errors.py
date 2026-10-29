@@ -57,6 +57,7 @@ from backend.features.contacts.manual import (
     UnknownAddressError,
 )
 from backend.features.contacts.repository import SearchRefusedError
+from backend.features.core.llm_caps import LlmCapError
 from backend.features.core.stages import SalesNotConnectedError
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.crawl.niche import UnknownNicheAdvertiserError, UnknownNicheRunError
@@ -194,10 +195,11 @@ STATUSES: dict[type[Exception], int] = {
     NotWritingAcceptError: status.HTTP_409_CONFLICT,
     # Такой же прогон ещё в очереди или идёт: второй купил бы ту же выдачу — состояние.
     DuplicateRunError: status.HTTP_409_CONFLICT,
-    # Кап Ahrefs вне границ ключа — это запрос: текст называет, какой допустим. Размер
-    # ключа неизвестен (Ahrefs ещё не ответил) — «не больше N» задать не от чего, повтор
-    # после ответа поможет (16.10.2026).
+    # Кап Ahrefs вне границ ключа и потолки модели не из списка — запрос: текст называет
+    # допустимое. Размер ключа неизвестен (Ahrefs ещё не ответил) — «не больше N» задать не
+    # от чего, повтор после ответа поможет (16.10.2026).
     CapRangeError: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    LlmCapError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     CapUnknownError: status.HTTP_503_SERVICE_UNAVAILABLE,
     # Счёт выдачи меньше порога или сметы — состояние: поможет пополнение, а не правка
     # запроса (16.10.2026).

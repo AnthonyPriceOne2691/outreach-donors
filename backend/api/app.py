@@ -8,6 +8,9 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from backend.api.advertisers import routes as advertisers_routes
@@ -43,9 +46,18 @@ from backend.api.users import routes as users_routes
 from backend.api.watchdog import routes as watchdog_routes
 from backend.config.startup_checks import check_access, check_storage
 from backend.features.agent.guarding import said_at_start
+from backend.features.core import llm_caps
 from backend.shared.logs import setup_logging
 
 API_PREFIX = "/api"
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Потолки модели с экрана «Расход» — в память API до первого запроса (`core/llm_caps.py`):
+    смета сбора, посчитанная сразу после выкатки, видит потолок экрана, а не `.env`."""
+    await llm_caps.load()
+    yield
 
 
 def create_app() -> FastAPI:
@@ -69,6 +81,7 @@ def create_app() -> FastAPI:
         docs_url=f"{API_PREFIX}/docs",
         redoc_url=None,
         openapi_url=f"{API_PREFIX}/openapi.json",
+        lifespan=_lifespan,
     )
 
     install(app)
