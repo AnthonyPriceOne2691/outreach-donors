@@ -58,6 +58,13 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     # Цена руками — то же право, что у адреса руками: пишет в базу доноров.
     ("POST", "/api/donors", {"host": "example.com", "price": "150"}, "run"),
     ("POST", "/api/donors/{donor}/price", {"price": "150"}, "run"),
+    # Доноры списком: шаблон и очередь загрузки — смотреть; предпросмотр, запись и снятие
+    # очереди — право формы «Завести донора вручную».
+    ("GET", "/api/donors/import/template", None, "view"),
+    ("POST", "/api/donors/import/preview", None, "run"),
+    ("POST", "/api/donors/import", None, "run"),
+    ("GET", "/api/donors/import/backlog", None, "view"),
+    ("DELETE", "/api/donors/import/backlog", None, "run"),
 ]
 
 

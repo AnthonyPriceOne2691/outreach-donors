@@ -266,6 +266,9 @@ class AuditAction(StrEnum):
     # Дневной потолок расхода на модель сменён на экране «Расход»: какой, было → стало
     # (`core/llm_caps.py`). Потолок держит деньги за модель — по журналу видно, кто его поднял.
     LLM_CAP_CHANGED = "llm_cap_changed"
+    # Очередь загрузки обхода снята: доноры, загруженные списком, в обход больше не пойдут
+    # (`crawl/backlog.py`). По журналу видно, кто снял и сколько обходов вперёд.
+    CRAWL_BACKLOG_DROPPED = "crawl_backlog_dropped"
 
 
 class UsageProvider(StrEnum):

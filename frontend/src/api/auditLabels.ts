@@ -54,6 +54,8 @@ export const AUDIT_ACTIONS: Record<AuditAction, string> = {
   ahrefs_cap_changed: 'Кап Ahrefs изменён',
   // Дневной потолок модели сменён на экране «Расход» — какой, «было → стало».
   llm_cap_changed: 'Потолок модели изменён',
+  // Очередь загрузки обхода снята — доноры, загруженные списком, в обход не пойдут; сколько — в подробностях.
+  crawl_backlog_dropped: 'Очередь загрузки обхода снята',
 };
 
 /** Действия этапа продаж: без права «Продажи» их нет ни в журнале, ни в фильтре (П2). */
@@ -129,6 +131,7 @@ const WHOLE_TARGETS: Record<string, string> = {
   sales_settings: 'отправитель продаж',
   sales_stoplist: 'стоп-лист продаж',
   'advertisers:promote': 'перевод в рекламодатели',
+  crawl_backlog: 'очередь загрузки обхода',
 };
 
 export interface TargetPart {

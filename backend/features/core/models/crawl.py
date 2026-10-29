@@ -138,3 +138,24 @@ class OutLinkModel(TimestampedMixin, Base):
     )
 
     run: Mapped[CrawlRunModel] = relationship("CrawlRunModel", back_populates="links")
+
+
+class CrawlBacklogModel(TimestampedMixin, Base):
+    """Донор, загруженный списком и ждущий своего обхода, — строка «очереди загрузки».
+
+    Обход загруженных ставится не сразу весь (`features/crawl/backlog.py`): десять тысяч строк
+    «в очереди» закрыли бы последние обходы, а обход, запущенный человеком, ждал бы месяц за ними.
+    Проход разбора отдаёт отсюда доноров обходчикам по мере того, как те освобождаются; ушедший
+    в обход, уже идущий или ставший негодным — строку теряет. Домен — один раз: загруженный
+    дважды обходится раз.
+    """
+
+    __tablename__ = "crawl_backlog"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    host: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    #: Кто велел обойти — почта; от его имени и ставится обход (`requested_by` строки обхода).
+    requested_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    author_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )

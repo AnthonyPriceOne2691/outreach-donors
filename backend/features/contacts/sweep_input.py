@@ -151,10 +151,19 @@ def _locate(head: Sequence[str], wanted: str | None) -> tuple[int, bool]:
 
 
 def read_records(path: Path, *, delimiter: str | None = None) -> list[tuple[int, list[str]]]:
+    """Непустые записи файла с диска — `records_of` по его байтам и имени."""
+    return records_of(path.read_bytes(), path.name, delimiter=delimiter)
+
+
+def records_of(
+    data: bytes, name: str, *, delimiter: str | None = None
+) -> list[tuple[int, list[str]]]:
     """Непустые записи таблицы с номерами строк файла — начало любого чтения.
 
     Одно на всех читателей таблиц, пришедших из рук человека: кодировка,
     разделитель и номера строк проверяются в одном месте, а не в копиях.
+    Байты, а не путь: присланное с экрана (загрузка доноров списком,
+    `donors/bulk_file.py`) на диск не кладётся. `name` — имя файла для отказа.
 
     - Не UTF-8 — `ValueError` со словами, что делать: Excel на русской
       Windows пишет «CSV» в cp1251, и голое «'utf-8' codec can't decode
@@ -166,13 +175,13 @@ def read_records(path: Path, *, delimiter: str | None = None) -> list[tuple[int,
       разборщика: ячейка в кавычках бывает многострочной, и счёт записей
       разошёлся бы со строками файла.
     """
-    raw = path.read_bytes().removeprefix(codecs.BOM_UTF8)
+    raw = data.removeprefix(codecs.BOM_UTF8)
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         line = raw.count(b"\n", 0, exc.start) + 1
         raise ValueError(
-            f"файл {path.name} не в UTF-8 (строка {line}). Сохраните его как "
+            f"файл {name} не в UTF-8 (строка {line}). Сохраните его как "
             "«CSV UTF-8»: в Excel — «Сохранить как» → «CSV UTF-8 (разделитель — запятая)»"
         ) from exc
     handle = io.StringIO(text, newline="")

@@ -67,6 +67,8 @@ import { Unfold } from '../runs/Unfold';
 import type { StartCrawls } from './CrawlTable';
 import { TargetsTable, isActive } from './CrawlTable';
 import { crawlRule, heldWords, queueRule } from './crawlWords';
+import { BulkDonorsButton } from './BulkDonors';
+import { CrawlBacklog } from './CrawlBacklog';
 import { ManualDonor } from './ManualDonor';
 import { RecentCrawls } from './RecentCrawls';
 import { StalePrices } from './StalePrices';
@@ -354,6 +356,7 @@ function Head({
             Завести донора вручную
           </Button>
         ) : null}
+        {onEnter !== null ? <BulkDonorsButton /> : null}
       </Group>
     </Group>
   );
@@ -450,6 +453,7 @@ export function CrawlPanel() {
         />
         {targets.isLoading ? <Loader size="sm" aria-label="Загружаем доноров" /> : null}
         <Troubles error={targets.error} data={data} />
+        <CrawlBacklog mayDrop={mayStart} />
         {data ? (
           <StalePrices
             count={data.stale_price}

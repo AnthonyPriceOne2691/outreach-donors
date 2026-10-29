@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,13 +20,13 @@ from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import SenderModel
 from backend.features.core.models.run import RunVerdictModel
 from backend.features.donors.host import normalize_host
-from backend.features.donors.standing import decided_in, donor_now
+from backend.features.donors.standing import donor_now, pending_in
 from backend.features.donors.wording import region_refusal, reject_reason_text
 from backend.features.runs.exclusions import (
     ExclusionReason,
     Exclusions,
     by_name,
-    not_writing_reason,
+    not_writing_of,
 )
 from backend.features.runs.refusals import Threshold
 
@@ -64,30 +66,69 @@ async def price_refusal(session: AsyncSession, host: str, donor: DonorModel | No
     До 08.10.2026 о том, что принятый донор в стоп-листе, человек узнавал,
     только вписав цену и нажав кнопку.
     """
-    refusal = await refusal_for(session, host)
-    if refusal is not None or donor is None or donor_now(donor):
-        return refusal
-    return await _candidate_refusal(session, donor, host)
+    return (await price_refusals(session, {host: donor})).get(host)
+
+
+async def price_refusals(
+    session: AsyncSession, donors: Mapping[str, DonorModel | None]
+) -> dict[str, str]:
+    """`price_refusal` списком: домен → запись в `donors` или `None`; ответ — только те, кому
+    отказ. Те же правила теми же словами, но запросом на все домены, а не на каждый: загрузка
+    доноров таблицей (`donors/bulk_entry.py`, 29.10.2026) несёт до десяти тысяч строк, а
+    одна проверка — с десяток запросов."""
+    found = await refusals_for(session, list(donors))
+    candidates = {
+        host: donor
+        for host, donor in donors.items()
+        if host not in found and donor is not None and not donor_now(donor)
+    }
+    found.update(await _candidate_refusals(session, candidates))
+    return found
 
 
 async def refusal_for(session: AsyncSession, host: str) -> str | None:
-    """Почему домену цену вручную не записываем. `None` — записываем.
+    """Почему домену цену вручную не записываем. `None` — записываем."""
+    return (await refusals_for(session, [host])).get(host)
+
+
+async def refusals_for(session: AsyncSession, hosts: Sequence[str]) -> dict[str, str]:
+    """Почему этим доменам цену вручную не записываем: домен → слова; записываем — домена нет.
 
     Правила — те же, что не пускают домен в прогон (`runs/exclusions.py`):
-    второй экземпляр здесь разошёлся бы с ними на первой правке.
+    второй экземпляр здесь разошёлся бы с ними на первой правке. По имени —
+    раньше исключений прогона: гос. зона, которая ещё и в стоп-листе, названа зоной.
     """
-    if host in await _sending_roots(session):
-        return f"{host} — наш домен рассылки: донором он не бывает."
-    reason = by_name([host]).get(host) or (await Exclusions(session).excluded_hosts([host])).get(
-        host
-    )
-    template = None if reason is None else _REFUSED.get(reason)
-    if template is not None:
-        return template.format(host=host)
+    if not hosts:
+        return {}
+    roots = await _sending_roots(session)
+    named = by_name(hosts)
+    excluded = await Exclusions(session).excluded_hosts(hosts)
+    found: dict[str, str] = {}
+    rest: list[str] = []
+    for host in hosts:
+        reason = named.get(host) or excluded.get(host)
+        template = None if reason is None else _REFUSED.get(reason)
+        if host in roots:
+            found[host] = f"{host} — наш домен рассылки: донором он не бывает."
+        elif template is not None:
+            found[host] = template.format(host=host)
+        else:
+            rest.append(host)
     # DR выше порога версии — по последнему замеру, тем же условием, что у выходов.
-    domain_id = await session.scalar(select(DomainModel.id).where(DomainModel.host == host))
-    off = None if domain_id is None else await not_writing_reason(session, domain_id)
-    return None if off is None else f"У {host} {off}: донором с ценой его не заводим."
+    ids = (
+        await session.execute(select(DomainModel.id).where(DomainModel.host.in_(rest)))
+        if rest
+        else None
+    )
+    off = await not_writing_of(session, [] if ids is None else list(ids.scalars().all()))
+    found.update(
+        {
+            host: f"У {host} {off[host]}: донором с ценой его не заводим."
+            for host in rest
+            if host in off
+        }
+    )
+    return found
 
 
 async def _sending_roots(session: AsyncSession) -> set[str]:
@@ -96,7 +137,9 @@ async def _sending_roots(session: AsyncSession) -> set[str]:
     return {normalize_host(domain) or domain.strip().lower() for domain in domains.all()}
 
 
-async def _candidate_refusal(session: AsyncSession, donor: DonorModel, host: str) -> str | None:
+async def _candidate_refusals(
+    session: AsyncSession, donors: Mapping[str, DonorModel]
+) -> dict[str, str]:
     """Домен в базе, но не донор: ждёт решения в очереди прогона или не прошёл пороги.
 
     Решение о кандидате принимают в очереди прогона — там судья, выдача и
@@ -108,31 +151,46 @@ async def _candidate_refusal(session: AsyncSession, donor: DonorModel, host: str
     задававшему никакой страны, называл чужое требование, а новый домен та же форма заводит
     без порогов вовсе. Регион проверяется последним — остальные пороги такой домен прошёл.
     """
-    waits = await decided_in(session, donor.domain_id, None)
-    if waits is not None:
-        return (
-            f"{host} ждёт решения в очереди прогона №{waits}: решают там. Примете — "
-            "цену укажете на карточке донора."
-        )
-    if donor.status is DonorStatus.UNSUITABLE and not region_refusal(donor.reject_reason):
+    waits = await pending_in(session, [donor.domain_id for donor in donors.values()])
+    found: dict[str, str] = {}
+    unsuitable: dict[str, DonorModel] = {}
+    for host, donor in donors.items():
+        run = waits.get(donor.domain_id)
+        if run is not None:
+            found[host] = (
+                f"{host} ждёт решения в очереди прогона №{run}: решают там. Примете — "
+                "цену укажете на карточке донора."
+            )
+        elif donor.status is DonorStatus.UNSUITABLE and not region_refusal(donor.reject_reason):
+            unsuitable[host] = donor
+    reserves = await _reserves(session, [donor.domain_id for donor in unsuitable.values()])
+    for host, donor in unsuitable.items():
         why = reject_reason_text(donor.reject_reason)
-        return (
+        found[host] = (
             f"{host} не прошёл пороги отбора{f' ({why})' if why else ''}: Этап 2 обходит "
-            f"только годных доноров.{await _reserve_hint(session, donor.domain_id)}"
+            f"только годных доноров.{_reserve_hint(reserves.get(donor.domain_id))}"
         )
-    return None
+    return found
 
 
-async def _reserve_hint(session: AsyncSession, domain_id: int) -> str:
-    """Где не прошедший лежит в резерве — туда за ним и идти (резерв, 20.10.2026): взятый
-    оттуда на рассмотрение и принятый — донор, и цену ему укажут на карточке."""
-    run_id = await session.scalar(
-        select(func.max(RunVerdictModel.run_id))
-        .where(RunVerdictModel.domain_id == domain_id)
+async def _reserves(session: AsyncSession, domain_ids: Sequence[int]) -> dict[int, int]:
+    """Где не прошедший лежит в резерве — туда за ним и идти (резерв, 20.10.2026): домен →
+    последний прогон, где он не прошёл пороги. Крупного сайта резерв не берёт — туда за ним
+    не посылаем."""
+    if not domain_ids:
+        return {}
+    rows = await session.execute(
+        select(RunVerdictModel.domain_id, func.max(RunVerdictModel.run_id))
+        .where(RunVerdictModel.domain_id.in_(list(domain_ids)))
         .where(RunVerdictModel.status == DonorStatus.UNSUITABLE.value)
-        # Крупного сайта резерв не берёт — туда за ним не посылаем.
         .where(RunVerdictModel.cause.is_distinct_from(Threshold.BIG.value))
+        .group_by(RunVerdictModel.domain_id)
     )
+    return {int(domain): int(run) for domain, run in rows.tuples()}
+
+
+def _reserve_hint(run_id: int | None) -> str:
+    """Взятый из резерва на рассмотрение и принятый — донор, и цену ему укажут на карточке."""
     if run_id is None:
         return ""
     return (

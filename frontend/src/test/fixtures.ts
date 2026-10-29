@@ -114,10 +114,17 @@ export const PROMOTE_ROUTES: Record<string, Answer> = {
   },
 };
 
+/** Очередь загрузки обхода на панели «Обход доноров» (`CrawlBacklog`): пусто — строки нет.
+ *  Панель спрашивает её сама, как и обходы. */
+export const BACKLOG_ROUTES: Record<string, Answer> = {
+  'GET /api/donors/import/backlog': { body: { waiting: 0, eta_sec: null, workers: 4 } },
+};
+
 /** Панели над очередью рекламодателей и под ней: доноров для обхода нет, обходов не было,
  *  переводить некого. Экран спрашивает их сам, и тест другой карточки записывает их пустыми. */
 export const CRAWL_ROUTES: Record<string, Answer> = {
   ...PROMOTE_ROUTES,
+  ...BACKLOG_ROUTES,
   'GET /api/crawls/targets': {
     body: {
       donors: [],

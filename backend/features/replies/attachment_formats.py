@@ -161,14 +161,22 @@ def _pdf(data: bytes) -> FileText:
 # --- ZIP: XLSX и DOCX ---
 
 
-def _zip_refusal(data: bytes) -> str | None:
-    """Почему не распаковывать ZIP, словами; `None` — можно. По оглавлению,
-    до распаковки: бомба узнаётся по объявленным размерам."""
+def zip_size(data: bytes) -> tuple[int, int]:
+    """Частей в ZIP и сколько они займут распакованными, байт, — по оглавлению, до распаковки:
+    бомба узнаётся по объявленным размерам. Мера одна у вложений ответа и у загрузки доноров
+    таблицей (`donors/bulk_file.py`); пределы — `MAX_PARTS`, `MAX_UNPACKED`, слова — у каждого
+    свои."""
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         parts = archive.infolist()
-    if len(parts) > MAX_PARTS:
+    return len(parts), sum(part.file_size for part in parts)
+
+
+def _zip_refusal(data: bytes) -> str | None:
+    """Почему не распаковывать ZIP, словами; `None` — можно."""
+    parts, unpacked = zip_size(data)
+    if parts > MAX_PARTS:
         return f"в файле больше {MAX_PARTS} частей — так прайс не выглядит; файл можно скачать"
-    if sum(part.file_size for part in parts) > MAX_UNPACKED:
+    if unpacked > MAX_UNPACKED:
         return (
             f"распакованный файл больше {MAX_UNPACKED // _MB} МБ — так прайс не выглядит; "
             "файл можно скачать"
