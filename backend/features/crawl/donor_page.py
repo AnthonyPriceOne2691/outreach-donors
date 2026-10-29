@@ -27,7 +27,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import Select, case, func, or_, select
+from sqlalchemy import Select, and_, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
@@ -126,12 +126,6 @@ class DonorPage:
     startable: int
 
 
-#: Последний обход каждого хоста — самый новый номер.
-_LATEST = (
-    select(CrawlRunModel.host.label("host"), func.max(CrawlRunModel.id).label("run_id"))
-    .group_by(CrawlRunModel.host)
-    .subquery("latest")
-)
 _RUN = aliased(CrawlRunModel, name="last_run")
 
 
@@ -169,14 +163,30 @@ def _border(now: datetime) -> datetime:
     return now - timedelta(days=cfg.PRICE_TTL_DAYS)
 
 
+def _latest() -> Any:
+    """Номер последнего обхода донора — подзапросом на строку донора (`LATERAL`), по индексу
+    хоста обходов. Соединение со сводкой «хост → последний номер» база вела вложенным циклом:
+    хост донора сводится выражением (`_crawl_key`), и на 10 000 донорах счётчик статусов шёл
+    9 с — 42 млн сравнений (замер 29.10.2026); подзапрос на строку — десять тысяч поисков по
+    индексу."""
+    return (
+        select(CrawlRunModel.id.label("run_id"))
+        .where(CrawlRunModel.host == _crawl_key())
+        .order_by(CrawlRunModel.id.desc())
+        .limit(1)
+        .lateral("latest")
+    )
+
+
 def _base(columns: list[Any], suppliers: set[str]) -> Select[Any]:
     """Доноры отбора обхода с последним обходом каждого — без условий вкладки."""
+    latest = _latest()
     statement = (
         select(*columns)
         .select_from(DomainModel)
         .join(DonorModel, DonorModel.domain_id == DomainModel.id)
-        .outerjoin(_LATEST, _LATEST.c.host == _crawl_key())
-        .outerjoin(_RUN, _RUN.id == _LATEST.c.run_id)
+        .outerjoin(latest, true())
+        .outerjoin(_RUN, _RUN.id == latest.c.run_id)
         .where(is_donor(), DonorModel.status == DonorStatus.SUITABLE, ~not_writing())
     )
     if suppliers:
@@ -191,12 +201,12 @@ def _search(text: str) -> ColumnElement[bool]:
 
 
 def _where(
-    statement: Select[Any], query: DonorQuery, border: datetime, *, skip: str | None = None
+    statement: Select[Any], query: DonorQuery, border: datetime, *, counted: bool = False
 ) -> Select[Any]:
-    """Условия вкладки; `skip` — без условия своего счётчика."""
-    if query.status is not None and skip != "status":
+    """Условия вкладки; `counted` — без статуса и срока цены: их сводит таблица счётчиков."""
+    if query.status is not None and not counted:
         statement = statement.where(status_of() == query.status.value)
-    if query.price is not None and skip != "price":
+    if query.price is not None and not counted:
         statement = statement.where(price_of(border) == query.price.value)
     if query.source is not None:
         statement = statement.where(DonorModel.last_price_source == query.source)
@@ -205,10 +215,10 @@ def _where(
     return statement
 
 
-def _startable(statement: Select[Any], border: datetime) -> Select[Any]:
-    """Кого из выборки можно поставить в обход сейчас."""
+def _can_start(border: datetime) -> ColumnElement[bool]:
+    """Можно ли поставить донора в обход сейчас: цена в сроке, обход не идёт и не ждёт."""
     idle = or_(_RUN.id.is_(None), _RUN.status.not_in(ACTIVE))
-    return statement.where(price_of(border) == Price.FRESH.value, idle)
+    return and_(price_of(border) == Price.FRESH.value, idle)
 
 
 def _order(sort: Sort) -> list[Any]:
@@ -225,38 +235,63 @@ def _order(sort: Sort) -> list[Any]:
     return [DonorModel.last_price_at.desc().nullslast(), host]
 
 
-async def _counts(
-    session: AsyncSession, statement: Select[Any], bucket: ColumnElement[str]
-) -> dict[str, int]:
-    """Сколько строк выборки в каждом значении `bucket`."""
-    inner = statement.add_columns(bucket.label("bucket")).subquery()
-    grouped = select(inner.c.bucket, func.count()).group_by(inner.c.bucket)
-    return {str(name): int(count) for name, count in (await session.execute(grouped)).all()}
+@dataclass(frozen=True, slots=True)
+class _Cell:
+    """Сколько доноров в клетке «статус × срок цены × можно ли обойти»."""
+
+    status: str
+    price: str
+    startable: bool
+    count: int
 
 
-async def facets(
+async def _cells(
     session: AsyncSession, query: DonorQuery, *, suppliers: set[str], border: datetime
-) -> Facets:
-    """Счётчики по статусу и по цене, каждый — без своего условия."""
-    statuses = await _counts(
-        session,
-        _where(_base([DomainModel.id], suppliers), query, border, skip="status"),
-        status_of(),
+) -> list[_Cell]:
+    """Все числа вкладки одним запросом: доноры под условиями, кроме статуса и срока цены, —
+    по клеткам «статус × срок × можно обойти» (их не больше 42). Счётчики, «всего» и «можно
+    обойти» складываются из клеток (`_tally`): пять проходов по выборке стоили бы впятеро."""
+    inner = (
+        _where(_base([DomainModel.id], suppliers), query, border, counted=True)
+        .add_columns(
+            status_of().label("status"),
+            price_of(border).label("price"),
+            _can_start(border).label("startable"),
+        )
+        .subquery()
     )
-    prices = await _counts(
-        session,
-        _where(_base([DomainModel.id], suppliers), query, border, skip="price"),
-        price_of(border),
+    grouped = select(inner.c.status, inner.c.price, inner.c.startable, func.count()).group_by(
+        inner.c.status, inner.c.price, inner.c.startable
     )
-    return Facets(
-        status={status: statuses.get(status.value, 0) for status in Status},
-        price={price: prices.get(price.value, 0) for price in Price},
-    )
+    return [
+        _Cell(str(status), str(price), bool(startable), int(count))
+        for status, price, startable, count in (await session.execute(grouped)).all()
+    ]
 
 
-async def _count(session: AsyncSession, statement: Select[Any]) -> int:
-    total = select(func.count()).select_from(statement.subquery())
-    return int((await session.execute(total)).scalar_one())
+def _status_ok(cell: _Cell, query: DonorQuery) -> bool:
+    return query.status is None or cell.status == query.status.value
+
+
+def _price_ok(cell: _Cell, query: DonorQuery) -> bool:
+    return query.price is None or cell.price == query.price.value
+
+
+def _tally(cells: list[_Cell], query: DonorQuery) -> tuple[Facets, int, int]:
+    """Счётчики (каждый — без своего условия), «всего» и «можно обойти» — из клеток."""
+    facets = Facets(
+        status={
+            status: sum(c.count for c in cells if c.status == status.value and _price_ok(c, query))
+            for status in Status
+        },
+        price={
+            price: sum(c.count for c in cells if c.price == price.value and _status_ok(c, query))
+            for price in Price
+        },
+    )
+    chosen = [cell for cell in cells if _status_ok(cell, query) and _price_ok(cell, query)]
+    total = sum(cell.count for cell in chosen)
+    return facets, total, sum(cell.count for cell in chosen if cell.startable)
 
 
 def _line(row: Any) -> DonorLine:
@@ -295,12 +330,11 @@ async def page(
             .offset((query.page - 1) * query.size)
         )
     ).all()
-    ids = _where(_base([DomainModel.id], suppliers), query, border)
+    facets, total, startable = _tally(
+        await _cells(session, query, suppliers=suppliers, border=border), query
+    )
     return DonorPage(
-        rows=[_line(row) for row in rows],
-        total=await _count(session, ids),
-        facets=await facets(session, query, suppliers=suppliers, border=border),
-        startable=await _count(session, _startable(ids, border)),
+        rows=[_line(row) for row in rows], total=total, facets=facets, startable=startable
     )
 
 
@@ -309,9 +343,10 @@ async def summary(session: AsyncSession, *, now: datetime | None = None) -> tupl
     border = _border(now or datetime.now(UTC))
     suppliers = await supplier_hosts(session, now=now)
     every = DonorQuery()
-    counted = await facets(session, every, suppliers=suppliers, border=border)
-    startable = await _count(session, _startable(_base([DomainModel.id], suppliers), border))
-    return counted, startable
+    facets, _, startable = _tally(
+        await _cells(session, every, suppliers=suppliers, border=border), every
+    )
+    return facets, startable
 
 
 async def startable_hosts(
@@ -321,7 +356,7 @@ async def startable_hosts(
     больше `limit`: «Обойти всех по фильтру» ставит ровно их."""
     border = _border(now or datetime.now(UTC))
     suppliers = await supplier_hosts(session, now=now)
-    chosen = _startable(_where(_base([DomainModel.host], suppliers), query, border), border)
+    chosen = _where(_base([DomainModel.host], suppliers), query, border).where(_can_start(border))
     rows = await session.execute(chosen.order_by(*_order(query.sort)).limit(limit))
     return [str(host) for (host,) in rows.all()]
 
