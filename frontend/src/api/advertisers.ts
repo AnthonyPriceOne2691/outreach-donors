@@ -7,6 +7,7 @@
  */
 
 import { request } from './client';
+import type { LetterAudience } from './letters';
 import type { CandidateCard, CandidatesView, ContactsQueued, ContactsState } from './types';
 
 /** Над кнопкой «Перевести»: сколько переводить и сколько уже заведено. */
@@ -100,9 +101,11 @@ export function promoteAdvertisers(): Promise<PromoteResult> {
   return request<PromoteResult>('/advertisers/promote', { method: 'POST' });
 }
 
-/** Поиск адресов рекламодателям — то же состояние, что у доноров. */
-export function fetchAdvertiserContacts(): Promise<ContactsState> {
-  return request<ContactsState>('/advertisers/contacts');
+/** Поиск адресов рекламодателям — то же состояние, что у доноров. С аудиторией — ждущие своей
+ *  вкладки писем; задача поиска при этом одна на всех. */
+export function fetchAdvertiserContacts(audience?: LetterAudience): Promise<ContactsState> {
+  const scope = audience === undefined ? '' : `?audience=${audience}`;
+  return request<ContactsState>(`/advertisers/contacts${scope}`);
 }
 
 export function searchAdvertiserContacts(body: { limit: number }): Promise<ContactsQueued> {

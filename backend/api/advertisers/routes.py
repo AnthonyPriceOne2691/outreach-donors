@@ -21,12 +21,15 @@
 адресов ставится им сам, как у принятых доноров Этапа 1: человек, сказавший
 «переводим», собирается им писать. Поиск — задачей: лестница доходит до
 платной ступени и идёт минутами. Право на оба — `run`: тратятся деньги.
+Бизнесу ниши поиск ставит само «пишем» (29.10.2026, `_search_after_yes`) — тоже
+только у решившего с правом `run`.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from redis.exceptions import RedisError
@@ -47,7 +50,8 @@ from backend.api.advertisers.schemas import (
 )
 from backend.api.contacts.schemas import ContactsQueued, ContactsState, SearchBody
 from backend.api.contacts.search_state import search_state
-from backend.api.deps import db_session, needs
+from backend.api.deps import actor, db_session, needs
+from backend.features.access.permissions import has_permission
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage, Verdict
 from backend.features.core.models.access import UserModel
@@ -183,7 +187,7 @@ async def promote_candidates(
     await session.commit()
     pending = await AdvertiserContactRepository(session).pending_count()
     # Очередь — в пуле потоков: клиент Redis синхронный, а процесс API один (аудит 10.10.2026).
-    job_id = await asyncio.to_thread(_search_after_promotion, pending) if pending > 0 else None
+    job_id = await asyncio.to_thread(_search_soft, pending, "переведены") if pending > 0 else None
     logger.info(
         "рекламодатели: %s перевёл — заведено %s, ждут адреса %s",
         author.email,
@@ -197,11 +201,18 @@ async def promote_candidates(
 
 @router.get("/contacts", response_model=ContactsState, summary="Поиск адресов рекламодателям")
 async def contacts_state(
+    audience: Literal["links", "niche"] | None = None,
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> ContactsState:
-    """Сколько рекламодателей ждёт адреса и идёт ли поиск — как у доноров."""
-    pending = await AdvertiserContactRepository(session).pending_count()
+    """Сколько рекламодателей ждёт адреса и идёт ли поиск — как у доноров.
+
+    `audience` — ждущие своей вкладки писем (29.10.2026): «По найденной ссылке» (`links`) и
+    «Бизнесам ниши» (`niche`) считают своих, иначе число строки разошлось бы с воронкой той же
+    вкладки. Без него — все, как в «К письму». Задача поиска одна на всех: «идёт поиск», отчёт
+    прохода и «найти» — общие."""
+    niche = None if audience is None else audience == "niche"
+    pending = await AdvertiserContactRepository(session).pending_count(niche=niche)
     return await asyncio.to_thread(_queue_state, pending)
 
 
@@ -227,17 +238,16 @@ async def search_contacts(
     return ContactsQueued(job_id=job_id, pending=pending)
 
 
-def _search_after_promotion(pending: int) -> str | None:
-    """Поиск после перевода. Очередь не ответила — перевод всё равно сделан.
+def _search_soft(limit: int, done: str) -> str | None:
+    """Поиск после перевода или «пишем». Очередь не ответила — записанное всё равно записано.
 
-    Ответить отказом значило бы сказать «не перевели» о записанном
-    переводе. Строка «ждут адреса · найти» на экране остаётся — поиск
-    ставится ею, когда очередь вернётся.
+    Ответить отказом значило бы сказать «не перевели» («не решили») о записанном. Строка
+    «ждут адреса · найти» на экране остаётся — поиск ставится ею, когда очередь вернётся.
     """
     try:
-        return _search(pending)
+        return _search(limit)
     except RedisError as exc:
-        logger.warning("рекламодатели: переведены, поиск адресов не поставлен — %s", exc)
+        logger.warning("рекламодатели: %s, поиск адресов не поставлен — %s", done, exc)
         return None
 
 
@@ -305,8 +315,8 @@ async def niche_decide(
     author: UserModel = _reviewer,
     session: AsyncSession = Depends(db_session),
 ) -> NicheCard:
-    """«Пишем» открывает поиск адреса и письмо; «не пишем» запоминается и снимает
-    собранные ему письма — из очереди и со сроков добивок."""
+    """«Пишем» открывает письмо и ставит поиск адреса (`_search_after_yes`); «не пишем»
+    запоминается и снимает собранные ему письма — из очереди и со сроков добивок."""
     decided = await niche.decide(session, advertiser_id, write=body.write, by=author.email)
     row = await niche.row_of(session, advertiser_id)
     await AccessRepository(session).record(
@@ -321,7 +331,21 @@ async def niche_decide(
         },
     )
     await session.commit()
+    if body.write and has_permission(actor(author), Permission.RUN):
+        await _search_after_yes(session)
     return NicheCard.of(row)
+
+
+async def _search_after_yes(session: AsyncSession) -> None:
+    """«Пишем» у бизнеса ниши — поиск адреса сам (Anthony 29.10.2026; тест-группа: из 180 решённых
+    письма собрались трём — адреса после «пишем» никто не искал, а экран писем обещал «ищется сам»).
+
+    Только у решившего с правом `run`: поиск тратит платную ступень, а решать бизнес ниши может и
+    право «цены»; без `run` бизнес ждёт строки «ждут адреса · найти». Решения идут пачкой, а задача
+    поиска одна (`_search`): идёт — новый «пишем» её не ставит, его берёт добор той же задачи
+    (`crawl/address_search.py`). Ждущих нет (адрес у домена уже был) — задача не ставится."""
+    if await AdvertiserContactRepository(session).pending_count() > 0:
+        await asyncio.to_thread(_search_soft, SEARCH_MAX, "решение «пишем» записано")
 
 
 @router.post(

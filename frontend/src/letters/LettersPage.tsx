@@ -57,6 +57,7 @@ import { StageSwitch } from '../components/StageSwitch';
 import { formatNumber, formatPercent } from '../format';
 import { BuildForm, LIMIT_DEFAULT, followupDays } from './BuildForm';
 import type { BuildProps } from './BuildForm';
+import { AddressLine } from './AddressLine';
 import { EmptyQueue } from './EmptyQueue';
 import { draftOf, sameDraft } from './LetterDraftEditor';
 import { LetterPreview, toneOf } from './LetterPreview';
@@ -68,6 +69,7 @@ import type { LetterTarget } from './targets';
 import {
   ABOUT,
   LETTERS_TITLES,
+  addressHint,
   audienceOf,
   lettersPart,
   poolHint,
@@ -430,8 +432,10 @@ function QueueControls({ stale, canSend, buildJob, onBuildFinished, ...build }: 
         <Text size="sm">
           Ещё не писали <b>{formatNumber(view.funnel['ещё не писали'] ?? 0)}</b> ·{' '}
           {poolHint(view.funnel, target)}
+          {addressHint(view.funnel, target)}
         </Text>
       </Group>
+      {target !== 'donors' ? <AddressLine audience={audienceOf(target)} /> : null}
 
       {view.blocked_by.length > 0 ? (
         <Alert color="yellow" title="Отправка пока не подключена">

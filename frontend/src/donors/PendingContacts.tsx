@@ -20,7 +20,7 @@
 
 import { Alert, Button, Group, Text } from '@mantine/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { refusalOf } from '../api/client';
@@ -106,6 +106,7 @@ export function usePendingContacts(source: ContactsSource = DONOR_CONTACTS): Pen
     void queryClient.invalidateQueries({ queryKey: source.queryKey });
     for (const key of source.refresh) void queryClient.invalidateQueries({ queryKey: key });
   }, [queryClient, source]);
+  useFinishedElsewhere(data?.running, jobId !== null, finished);
 
   if (data === undefined) return { control: null, outcome: null, follow: setJobId };
 
@@ -163,6 +164,17 @@ export function usePendingContacts(source: ContactsSource = DONOR_CONTACTS): Pen
     );
   }
   return { control, outcome: lines.length > 0 ? lines : null, follow: setJobId };
+}
+
+/** Поиск, поставленный не этой строкой (автопоиск после «принять», перевода или «пишем»), сервер
+ *  показывает идущим. Кончился — перечитать то же, что после своего: иначе экран писем бизнесов
+ *  ниши стоял с числами до поиска (29.10.2026). Свой поиск доводит до конца `JobLine`. */
+function useFinishedElsewhere(running: boolean | undefined, own: boolean, finished: () => void) {
+  const was = useRef(false);
+  useEffect(() => {
+    if (was.current && running === false && !own) finished();
+    was.current = running === true;
+  }, [running, own, finished]);
 }
 
 /** Исходы прошлой задачи, о которых под шапкой говорить нечего: удачный

@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { funnelNotes, funnelSteps, stopOf } from './targets';
+import { addressHint, buildHint, funnelNotes, funnelSteps, stopOf } from './targets';
 
 const SKIPPED = {
   подходящих: 12,
@@ -56,5 +56,31 @@ describe('«кому не пишем» в воронке доноров', () => 
       'с адресом',
     ]);
     expect(funnelNotes(plain, 'donors')).toEqual([]);
+  });
+});
+
+describe('адрес есть не у всех решённых — бизнесы ниши (тест-группа 29.10.2026)', () => {
+  const funnel = {
+    'решено «пишем»': 180,
+    'из них с адресом': 8,
+    'ждут поиска адреса': 170,
+    'адреса не нашлось': 2,
+  };
+
+  it('шапка и подсказка у сборки называют, кому соберутся письма и что с остальными', () => {
+    expect(addressHint(funnel, 'niche')).toBe(' · адрес есть у 8 из 180 решённых');
+    expect(buildHint(funnel, 'niche')).toBe(
+      'Письма соберутся тем, у кого есть адрес: 8 из 180 решённых «пишем». ' +
+        'Ещё 170 ждут поиска адреса — когда он кончится, соберите очередь ещё раз. ' +
+        'У 2 адреса не нашлось — у кого на сайте есть форма, тот в очереди «Формы».',
+    );
+  });
+
+  it('адрес у всех решённых или вкладка не ниши — молчат', () => {
+    const everyone = { 'решено «пишем»': 3, 'из них с адресом': 3 };
+    expect(addressHint(everyone, 'niche')).toBe('');
+    expect(buildHint(everyone, 'niche')).toBeNull();
+    expect(addressHint(funnel, 'advertisers')).toBe('');
+    expect(buildHint(funnel, 'donors')).toBeNull();
   });
 });

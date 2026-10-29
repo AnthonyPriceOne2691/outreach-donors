@@ -20,28 +20,14 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import type { PromoteResult } from '../api/advertisers';
-import {
-  fetchAdvertiserContacts,
-  fetchPromotion,
-  promoteAdvertisers,
-  searchAdvertiserContacts,
-} from '../api/advertisers';
+import { fetchPromotion, promoteAdvertisers } from '../api/advertisers';
 import { refusalOf } from '../api/client';
 import { useSession } from '../auth/AuthProvider';
-import type { ContactsSource } from '../donors/PendingContacts';
 import { usePendingContacts } from '../donors/PendingContacts';
 import { formatNumber } from '../format';
 import { notify } from '../notices';
 import { InfoHint } from '../components/InfoHint';
-
-const PROMOTION_QUERY_KEY = ['advertisers-promotion'] as const;
-
-const ADVERTISER_CONTACTS: ContactsSource = {
-  queryKey: ['advertiser-contacts'],
-  fetchState: fetchAdvertiserContacts,
-  search: searchAdvertiserContacts,
-  refresh: [PROMOTION_QUERY_KEY],
-};
+import { ADVERTISER_CONTACTS, PROMOTION_QUERY_KEY } from './contactsSource';
 
 /** Итог перевода одной строкой: что завели, что отсеяли, ищем ли адреса. */
 export function promotedLine(result: PromoteResult): string {

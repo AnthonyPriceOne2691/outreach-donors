@@ -28,6 +28,7 @@ from backend.config.startup_checks import check_storage
 from backend.features.contacts.search import search_contacts
 from backend.features.core.domain import Stage
 from backend.features.core.usage import LlmCapExceededError
+from backend.features.crawl.address_search import search_with_followup
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
@@ -194,6 +195,13 @@ async def _search_contacts(
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
+            if queue_of is AdvertiserContactRepository:
+                # Рекламодателям — с добором: «пишем» у бизнесов ниши говорят пачкой, и
+                # решённые за время прохода берёт следующий круг (`crawl/address_search.py`).
+                found = await search_with_followup(
+                    session, limit=limit, use_browser=use_browser, paid_first=paid_first
+                )
+                return found.as_dict()
             report = await search_contacts(
                 session,
                 limit=limit,
