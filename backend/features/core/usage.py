@@ -25,6 +25,7 @@ from backend.config import llm as llm_cfg
 from backend.features.core import llm_caps
 from backend.features.core.domain import Stage, UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
+from backend.shared.numbers import spaced
 
 logger = logging.getLogger(__name__)
 
@@ -339,8 +340,8 @@ async def _within_part(
         extra={"part": part, "spent": spent[part], "cap": saved.limit(part)},
     )
     raise LlmCapExceededError(
-        f"лимит раздела «{llm_caps.TITLES[part]}» на сегодня выбран: {spent[part]} из "
-        f"{saved.limit(part)} токенов — {llm_caps.after_part(moment)}"
+        f"лимит раздела «{llm_caps.TITLES[part]}» на сегодня выбран: {spaced(spent[part])} из "
+        f"{spaced(saved.limit(part))} токенов — {llm_caps.after_part(moment)}"
     )
 
 
@@ -398,6 +399,9 @@ def _refused(
     Дневной потолок (`moment` — минута проверки) говорит, где его поднимают и когда сброс
     (`llm_caps.after_cap`, 29.10.2026): «продолжение завтра» в полночь по Москве значило ещё
     три часа. Потолок прогона — настройка сервера, и сброса у него нет.
+
+    Числа — с разрядами, как на экране (`shared/numbers.spaced`): «2 600 000 из 2 500 000»
+    читается сразу, «2600000 из 2500000» — пересчётом нулей.
     """
     logger.warning(
         "потолок модели выбран: %s",
@@ -409,4 +413,4 @@ def _refused(
         if moment is None
         else llm_caps.after_cap(moment)
     )
-    return LlmCapExceededError(f"{words}: {spent} из {cap} токенов — {then}")
+    return LlmCapExceededError(f"{words}: {spaced(spent)} из {spaced(cap)} токенов — {then}")

@@ -37,6 +37,7 @@ from backend.features.core.usage import LlmCapExceededError
 from backend.features.runs import competitor_estimate
 from backend.features.sales import segment_estimate
 from backend.features.sales.usage_cap import sales_cap
+from backend.shared.numbers import spaced
 from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.engine import Connection
@@ -108,7 +109,7 @@ class TestEnvUntilSaved:
             await usage.ensure_llm_within_cap(session, own=sales_cap(), now=EVENING)
 
         assert str(refused.value) == (
-            f"дневной потолок вызовов модели продаж выбран: {10 * M} из {10 * M} токенов — "
+            f"дневной потолок вызовов модели продаж выбран: {spaced(10 * M)} из {spaced(10 * M)} токенов — "
             "попросите администратора поднять потолок на экране «Расход» или дождитесь сброса — "
             "через 5 ч 12 мин (в 03:00 по Москве)"
         )
@@ -142,7 +143,7 @@ class TestParts:
             await usage.ensure_llm_within_cap(session, own=sales_cap(), now=EVENING)
 
         assert str(refused.value) == (
-            f"лимит раздела «Продажи» на сегодня выбран: {10 * M} из {10 * M} токенов — "
+            f"лимит раздела «Продажи» на сегодня выбран: {spaced(10 * M)} из {spaced(10 * M)} токенов — "
             "попросите администратора добавить разделу из свободного остатка или поднять общий "
             "потолок на экране «Расход», или дождитесь сброса — через 5 ч 12 мин (в 03:00 по "
             "Москве)"
