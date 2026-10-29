@@ -20,11 +20,18 @@
 
 Причина — те же слова, что на экране прогонов (`runs/reasons.py`): имя
 класса исключения нужно журналу, а в телефоне его читать некому.
+
+**Повод для беспокойства есть всегда** (пометка последней строкой, слово Anthony 29.10.2026,
+`ops/alarms.marked`): остановленный прогон сам не продолжится.
 """
 
 from __future__ import annotations
 
+from backend.features.ops.alarms import cause, marked
 from backend.shared.alerts import send_alert
+
+#: Пометка тревоги об остановке.
+STOPPED = cause("прогон сам не продолжится", "устранить причину и запустить прогон заново")
 
 
 async def tell_stopped(run_id: int, reason: str) -> bool:
@@ -33,4 +40,4 @@ async def tell_stopped(run_id: int, reason: str) -> bool:
     Не бросает: тревогу зовут из закрытия прогона, и её сбой не должен
     подменить собой причину остановки (`shared/alerts.py`).
     """
-    return await send_alert(f"прогон №{run_id} {reason}")
+    return await send_alert(marked(f"прогон №{run_id} {reason}", STOPPED))

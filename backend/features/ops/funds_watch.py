@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.features.ops.alarms import Alarm
+from backend.features.ops.alarms import Alarm, cause
 from backend.features.serp.funds import MIN_BALANCE_USD, dollars
 
 #: Код тревоги: лента помнит сказанное под ним, числа в словах её не будят.
@@ -47,4 +47,5 @@ def alarm() -> Alarm | None:
             f"На счету DataForSEO {dollars(balance)} — меньше {dollars(MIN_BALANCE_USD)}: "
             "прогоны не запускаются, пока счёт не пополнят"
         ),
+        concern=cause("прогоны не запускаются", "пополнить счёт DataForSEO"),
     )

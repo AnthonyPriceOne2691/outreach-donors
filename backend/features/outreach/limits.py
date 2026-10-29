@@ -102,7 +102,7 @@ def domain_shut(row: SendingDomainModel, stage: Stage, now: datetime) -> str | N
     """Чем домен закрыт для этапа помимо дневного счёта — или `None`, если открыт.
 
     Чужое направление, пауза, выдержка — одно правило у фильтра отправки и у сторожа
-    почты (`ops/mail_watch._able`): закрытый домен — поломка, исчерпанный на сегодня — нет.
+    почты (`ops/mail_watch._shut`): закрытый домен — поломка, исчерпанный на сегодня — нет.
     """
     if row.stage is not stage:
         return f"{DOMAIN_ELSEWHERE}: {row.domain} — {row.stage.value}"

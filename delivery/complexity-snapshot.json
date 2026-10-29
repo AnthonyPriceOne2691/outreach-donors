@@ -657,9 +657,9 @@
       "worst": "—"
     },
     "backend/api/watchdog/routes.py": {
-      "lines": 119,
+      "lines": 144,
       "complexity": 5,
-      "worst": "silence:92"
+      "worst": "silence:117"
     },
     "backend/cli/__init__.py": {
       "lines": 1,
@@ -1422,9 +1422,9 @@
       "worst": "launch:57"
     },
     "backend/features/crawl/lifecycle.py": {
-      "lines": 191,
+      "lines": 199,
       "complexity": 11,
-      "worst": "recover:112"
+      "worst": "recover:120"
     },
     "backend/features/crawl/limiter.py": {
       "lines": 125,
@@ -1807,9 +1807,9 @@
       "worst": "run:233"
     },
     "backend/features/letters/autosend_alarm.py": {
-      "lines": 89,
+      "lines": 101,
       "complexity": 8,
-      "worst": "see:63"
+      "worst": "see:73"
     },
     "backend/features/letters/autosend_window.py": {
       "lines": 200,
@@ -2072,17 +2072,17 @@
       "worst": "—"
     },
     "backend/features/ops/alarm_feed.py": {
-      "lines": 232,
+      "lines": 263,
       "complexity": 5,
-      "worst": "_gone:148"
+      "worst": "_gone:172"
     },
     "backend/features/ops/alarms.py": {
-      "lines": 38,
-      "complexity": 1,
-      "worst": "direction:23"
+      "lines": 107,
+      "complexity": 3,
+      "worst": "marked:93"
     },
     "backend/features/ops/funds_watch.py": {
-      "lines": 51,
+      "lines": 52,
       "complexity": 3,
       "worst": "alarm:37"
     },
@@ -2092,14 +2092,14 @@
       "worst": "_outcome:170"
     },
     "backend/features/ops/key_watch.py": {
-      "lines": 151,
+      "lines": 172,
       "complexity": 10,
-      "worst": "_binding:92"
+      "worst": "_binding:97"
     },
     "backend/features/ops/mail_watch.py": {
-      "lines": 286,
+      "lines": 338,
       "complexity": 8,
-      "worst": "_of_stage:117"
+      "worst": "_of_stage:139"
     },
     "backend/features/ops/overview.py": {
       "lines": 369,
@@ -2107,14 +2107,14 @@
       "worst": "_letters:336"
     },
     "backend/features/ops/silence.py": {
-      "lines": 442,
+      "lines": 476,
       "complexity": 7,
-      "worst": "_crawl_blocked:300"
+      "worst": "_crawl_blocked:322"
     },
     "backend/features/ops/stage_silence.py": {
-      "lines": 277,
+      "lines": 290,
       "complexity": 6,
-      "worst": "_pending_words:179"
+      "worst": "_pending_words:187"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,
@@ -2122,9 +2122,9 @@
       "worst": "—"
     },
     "backend/features/outreach/autopause.py": {
-      "lines": 108,
+      "lines": 117,
       "complexity": 2,
-      "worst": "pause_once:89"
+      "worst": "pause_once:90"
     },
     "backend/features/outreach/capacity.py": {
       "lines": 421,
@@ -2492,9 +2492,9 @@
       "worst": "by_stage:94"
     },
     "backend/features/runs/stopped.py": {
-      "lines": 37,
+      "lines": 44,
       "complexity": 1,
-      "worst": "tell_stopped:30"
+      "worst": "tell_stopped:37"
     },
     "backend/features/runs/thresholds.py": {
       "lines": 276,

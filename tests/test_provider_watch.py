@@ -334,7 +334,7 @@ async def test_silence_held_for_fifteen_minutes_is_said_once_and_then_over(world
         (
             confirmed,
             f"тревога: Провайдер не отвечает. Не отвечает: Ahrefs — {minutes} мин подряд "
-            f"({BLIP.reason}). {TAIL}",
+            f"({BLIP.reason}). {TAIL}\n{silence.OUTAGE.words}",
         ),
         (confirmed + reaper.QUIET_SEC, "прошло: Провайдер не отвечает"),
     ]

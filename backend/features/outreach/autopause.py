@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import SenderModel
+from backend.features.ops.alarms import cause, marked
 from backend.features.outreach.senders import disable
 from backend.shared.alerts import send_alert
 
@@ -100,8 +101,16 @@ async def pause_once(
     return True
 
 
+#: Пометка тревоги о паузе (слово Anthony 29.10.2026, `ops/alarms.marked`): ящик сам не
+#: включится — повод есть всегда.
+PAUSED = cause(
+    "ящик сам не включится, а письма его переписок ждут",
+    "разобрать отказы и жалобы и включить его на экране «Домены рассылки»",
+)
+
+
 async def tell(pauses: Sequence[AutoPause]) -> None:
-    """Тревога о каждой паузе. Не бросает (`shared/alerts.py`): не принял Telegram — строка
-    журнала «ТРЕВОГА НЕ ОТПРАВЛЕНА» с её текстом."""
+    """Тревога о каждой паузе, с пометкой последней строкой. Не бросает (`shared/alerts.py`):
+    не принял Telegram — строка журнала «ТРЕВОГА НЕ ОТПРАВЛЕНА» с её текстом."""
     for pause in pauses:
-        await send_alert(pause.words)
+        await send_alert(marked(pause.words, PAUSED))

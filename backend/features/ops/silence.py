@@ -46,7 +46,7 @@ from backend.features.core.domain import (
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.run import RunModel
 from backend.features.ops import funds_watch, key_watch, mail_watch, stage_silence
-from backend.features.ops.alarms import Alarm
+from backend.features.ops.alarms import Alarm, Concern, cause, no_cause
 from backend.features.runs.spending import crawl_spent_this_month
 from backend.features.serp.dataforseo import SerpError
 from backend.features.serp.factory import UnknownProviderError, build_provider
@@ -74,6 +74,17 @@ PROVIDER_RELAPSE_MINUTES = 30
 
 #: Имя источника выдачи в тревоге.
 SERP = "источник выдачи"
+
+#: Пометка «провайдер не отвечает»: прогоны при нём не запускаются — повод есть всегда; что
+#: делать — по отказу. Сам не пройдёт (ключ, права, адрес API, источник не настроен) — ключ и
+#: настройки; молчит долго — сеть сервера или сам провайдер.
+LASTING = cause(
+    "отказ сам не пройдёт, и прогоны не запускаются", "проверить ключ и настройки провайдера"
+)
+OUTAGE = cause(
+    "прогоны не запускаются, пока он молчит",
+    "проверить сеть сервера и страницу состояния провайдера",
+)
 
 
 async def alarms(
@@ -168,7 +179,14 @@ class ProviderWatch:
                 "не запускается вовсе — узнать об этом лучше здесь, чем отказом "
                 "посреди оплаченной работы"
             ),
+            concern=self._concern(),
         )
+
+    def _concern(self) -> Concern:
+        """Пометка тревоги: отказ того, кто в тревоге, сам не пройдёт — ключ и настройки; иначе
+        — сеть сервера и сам провайдер."""
+        lasting = any(found.down and found.last.permanent for found in self.silent.values())
+        return LASTING if lasting else OUTAGE
 
     @property
     def doubtful(self) -> bool:
@@ -294,6 +312,10 @@ async def _runs_stuck(session: AsyncSession, moment: datetime) -> Alarm | None:
             f"{RUN_SILENCE_MINUTES} минут. Их должен разобрать отдельный процесс; "
             "если тревога держится — он не запущен"
         ),
+        concern=cause(
+            "прогон не движется, а разбор мёртвых его не поднял",
+            "проверить, запущены ли воркер прогонов и процесс разбора",
+        ),
     )
 
 
@@ -338,6 +360,10 @@ async def _crawl_blocked(session: AsyncSession) -> Alarm | None:
             + ". Дальше это лечится не повтором, а следующим уровнем каскада: "
             "браузером (CRAWL_BROWSER_ENABLED) или резидентными прокси (CRAWL_PROXY_URLS)"
         ),
+        concern=cause(
+            "адреса закрытых сайтов не собираются",
+            "включить следующий уровень обхода — браузер или резидентные прокси",
+        ),
     )
 
 
@@ -371,6 +397,9 @@ async def _crawl_cap_reached(session: AsyncSession) -> Alarm | None:
                 f"В .env ошибка в настройках обхода ({names}): обходчик не стартует, "
                 "и свой потолок Этапа 2 не проверяется. Значение поправить и пересоздать контейнеры"
             ),
+            concern=cause(
+                "обходчик не стартует", "поправить настройку обхода и пересоздать контейнеры"
+            ),
         )
     cap = crawl_cfg.MONTH_CAP_USD
     if cap is None:
@@ -385,6 +414,11 @@ async def _crawl_cap_reached(session: AsyncSession) -> Alarm | None:
             f"Прокси и рендеринг обошлись в {spent:.2f} $ при своём потолке {cap:.2f} $. "
             "До первого числа или до поднятия потолка платные уровни обхода не зовутся, "
             "и закрытые сайты остаются необойдёнными — это не поломка, но выглядит одинаково"
+        ),
+        # Потолок держит деньги, а обход идёт бесплатными уровнями: устройство, а не поломка.
+        concern=no_cause(
+            "потолок сработал, как задуман: платные уровни обхода ждут первого числа, "
+            "бесплатные идут"
         ),
     )
 

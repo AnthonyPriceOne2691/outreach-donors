@@ -34,6 +34,18 @@
 **Прежний общий хэш не читается** (`outreach:watch:told:<канал>`; решение Anthony 12.10.2026:
 сервис ещё не работал в боевом режиме): ленты начинают со своего пустого хэша, и на первой
 выкатке действующие тревоги придут один раз заново.
+
+**Пометка — последней строкой, «прошло» — без неё** (слово Anthony 29.10.2026). «Тревога» кончается
+строкой «есть ли повод для беспокойства» (`alarms.told`); тревога продаж без пометки идёт, как
+шла. «Прошло» пометки не несёт: оно само говорит, что причины больше нет, а «повода больше нет»
+соврало бы о тревоге, у которой повода не было, и о прежнем уровне, пока действует следующий
+(«прошло» о 80 % капа приходит, когда идёт 95 %).
+
+**Повод появился — тревога ещё раз.** Где повод зависит от числа, правило решает его каждым
+проходом под тем же кодом. Сказанная «повода нет» тревога, у которой повод появился, приходит
+снова — с ним; обратно, когда повод ушёл, лента молчит до «прошло»: хорошая новость подождёт,
+а мигание не станет потоком сообщений. Сказанную прежним процессом тревогу первый проход только
+запоминает: каким был её повод, он не знает, а повтор после каждой выкатки приучил бы не читать.
 """
 
 from __future__ import annotations
@@ -48,7 +60,7 @@ from redis.exceptions import RedisError
 
 from backend.config import alerts as alerts_cfg
 from backend.config import storage
-from backend.features.ops.alarms import Alarm
+from backend.features.ops.alarms import Alarm, told
 from backend.shared.alerts import send_alert
 
 logger = logging.getLogger(__name__)
@@ -112,6 +124,9 @@ class Feed:
     #: Когда проход видел сказанную тревогу в последний раз (в памяти: после перезапуска срок
     #: идёт от первого прохода без неё).
     seen: dict[str, float] = field(default_factory=dict)
+    #: Был ли повод у сказанной тревоги: был «нет», а стал «есть» — она приходит ещё раз (в
+    #: памяти: тревогу, сказанную прежним процессом, судит первый проход, который её застал).
+    caused: dict[str, bool] = field(default_factory=dict)
     #: Прочитано ли сказанное прежним процессом. До того зеркало не пишется: затёрло бы его.
     recalled: bool = False
     #: Память разошлась с Redis (запись не удалась или ещё не читали) — дописать.
@@ -132,11 +147,20 @@ class Feed:
         await self._gone({*now, *unseen}, moment)
 
     async def _new(self, now: Mapping[str, Alarm]) -> None:
-        """Новая тревога — сразу."""
+        """Новая тревога — сразу; сказанная без повода, у которой он появился, — ещё раз."""
         for code, alarm in now.items():
-            if code not in self.told and await _said(f"тревога: {alarm.title}. {alarm.detail}"):
-                self.told[code] = alarm.title
+            if code in self.told:
+                await self._grown(code, alarm)
+            elif await _said(told(alarm)):
+                self.told[code], self.caused[code] = alarm.title, _caused(alarm)
                 self._save()
+
+    async def _grown(self, code: str, alarm: Alarm) -> None:
+        """Сказанная тревога: повод появился — сказать о ней ещё раз, с ним. Сказанную прежним
+        процессом первый проход только запоминает (`caused`)."""
+        now = _caused(alarm)
+        if not self.caused.setdefault(code, now) and now and await _said(told(alarm)):
+            self.caused[code] = True
 
     def _saw(self, codes: Iterable[str], moment: float) -> None:
         """Сказанные тревоги, которые проход видел: счёт и срок тишины — заново."""
@@ -151,6 +175,7 @@ class Feed:
         for code in [code for code in self.told if code not in kept]:
             if self._over(code, moment) and await _said(f"прошло: {self.told[code]}"):
                 del self.told[code], self.quiet[code], self.seen[code]
+                self.caused.pop(code, None)
                 self._save()
 
     def _over(self, code: str, moment: float) -> bool:
@@ -219,6 +244,12 @@ def _text(raw: object) -> str:
     """Строка из ответа Redis. Чужое значение не UTF-8 — со знаками замены: `UnicodeDecodeError`
     не `RedisError` и ронял бы каждый проход сторожа."""
     return raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+
+
+def _caused(alarm: Alarm) -> bool:
+    """Есть ли у тревоги повод для беспокойства. Без пометки (тревога продаж) — есть: такой
+    тревоге лента не говорит ни «повода нет», ни «повод появился»."""
+    return alarm.concern is None or alarm.concern.cause
 
 
 async def _said(text: str) -> bool:

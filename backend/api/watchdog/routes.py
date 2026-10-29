@@ -15,6 +15,10 @@ transaction» на время чужих ответов, как и у фонов
 правилу `silence.ProviderWatch` процесса сервера, как у фонового сторожа: неответ, прошедший
 сам, «Обзор» не красит. Ответ Ahrefs из опроса ложится в снимок ключа короткой транзакцией
 после сети (`ops/key_watch.keep_heard`, 16.10.2026).
+
+**Повод для беспокойства — у каждой тревоги** (слово Anthony 29.10.2026): есть ли он и строка
+пометки — те же слова, что последней строкой в Telegram (`ops/alarms.Concern`). Экран ставит по
+нему метку «есть повод» или «повода нет» у заголовка тревоги.
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ from backend.api.deps import actor, db_session, needs
 from backend.features.access.permissions import visible_stages
 from backend.features.core.domain import Permission, Stage
 from backend.features.core.models.access import UserModel
-from backend.features.ops.alarms import Alarm
+from backend.features.ops.alarms import Alarm, Concern
 from backend.features.ops.key_watch import keep_heard
 from backend.features.ops.silence import alarms, probe_providers
 
@@ -67,6 +71,18 @@ class Probes:
 PROBES = Probes()
 
 
+class ConcernCard(BaseModel):
+    """Стоит ли тревога внимания: есть ли повод для беспокойства и строка пометки целиком."""
+
+    cause: bool
+    #: «Есть повод для беспокойства — …: что сделать» или «Повода для беспокойства нет — …».
+    words: str
+
+    @classmethod
+    def of(cls, concern: Concern | None) -> ConcernCard | None:
+        return None if concern is None else cls(cause=concern.cause, words=concern.words)
+
+
 class AlarmCard(BaseModel):
     """Одна тревога: что молчит и что это значит."""
 
@@ -76,10 +92,19 @@ class AlarmCard(BaseModel):
     #: Этап, о почте которого тревога: экран не показывает тревогу продаж без права
     #: «Продажи», даже пришедшую раньше, чем право сняли. Общая тревога — без этапа.
     stage: Stage | None = None
+    #: Стоит ли тревога внимания. Пусто — у тревоги пометки нет (тревоге продаж она не
+    #: обязательна): экран показывает её без метки.
+    concern: ConcernCard | None = None
 
     @classmethod
     def of(cls, alarm: Alarm) -> AlarmCard:
-        return cls(code=alarm.code, title=alarm.title, detail=alarm.detail, stage=alarm.stage)
+        return cls(
+            code=alarm.code,
+            title=alarm.title,
+            detail=alarm.detail,
+            stage=alarm.stage,
+            concern=ConcernCard.of(alarm.concern),
+        )
 
 
 class WatchdogView(BaseModel):

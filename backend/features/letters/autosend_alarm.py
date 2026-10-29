@@ -10,6 +10,10 @@
 проход снова идёт, — по смене состояния: проход раз в минуту сказанного не повторяет. Telegram не
 принял — скажет следующий проход.
 
+**Повод для беспокойства есть всегда** (пометка последней строкой, слово Anthony 29.10.2026,
+`ops/alarms.marked`): стоит не по делу — значит, сама очередь не пойдёт, пока причину не уберут.
+«Прошло» пометки не несёт — оно само говорит, что причины больше нет.
+
 **Счёт 15 минут — от первого прохода, который стоит не по делу,** подряд: любой другой проход счёт
 обнуляет. Иначе пауза ящика копила бы минуты, и одна чужая отправка, застигнутая проходом, давала
 бы тревогу, а минутой позже — «прошло».
@@ -31,12 +35,18 @@ from datetime import datetime, timedelta
 
 from backend.features.core.domain import Stage
 from backend.features.crawl.niche import WHOM
+from backend.features.ops.alarms import cause, marked
 from backend.shared.alerts import send_alert
 
 logger = logging.getLogger(__name__)
 
 #: Сколько проход может стоять не по делу, прежде чем тревога.
 ALARM_AFTER = timedelta(minutes=15)
+
+#: Пометка тревоги: очередь стоит не по делу — причина под кнопкой пачки.
+STALLED = cause(
+    "очередь стоит не по делу", "разобрать причину под кнопкой «Отправить очередь» на «Письмах»"
+)
 
 
 def title_of(stage: Stage, audience: str) -> str:
@@ -74,7 +84,9 @@ class Watch:
         case.since = case.since or now
         if case.told is not None or now - case.since < ALARM_AFTER:
             return
-        if await send_alert(f"тревога: {title} не уходит сама дольше 15 минут — {stall}"):
+        if await send_alert(
+            marked(f"тревога: {title} не уходит сама дольше 15 минут — {stall}", STALLED)
+        ):
             case.told = stall
             logger.warning("письма: тревога по запуску №%s — %s", mode_id, stall)
 

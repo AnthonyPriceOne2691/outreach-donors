@@ -15,7 +15,9 @@
 сам: дописывает пачку и ставит себе продолжение (`workers/crawl_jobs.py`), и это
 не неудача. Разбор продолжает только умершие обходы — с чекпоинта, не открывая
 открытое (`crawl/progress.py`), — до `MAX_RESUMES` раз; дальше «остановлен» и
-тревога: третья смерть подряд — уже не случайность, а повод смотреть человеку.
+тревога: третья смерть подряд — уже не случайность, а повод смотреть человеку. Так тревога и
+кончается — пометкой «есть повод для беспокойства» последней строкой (слово Anthony 29.10.2026,
+`ops/alarms.marked`).
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.features.core.domain import CrawlStatus
 from backend.features.core.models.crawl import CrawlRunModel
+from backend.features.ops.alarms import cause, marked
 from backend.features.runs.lifecycle import (
     HEARTBEAT_INTERVAL_SEC,
     MAX_RESUMES,
@@ -51,6 +54,11 @@ FAILURE_KEY = "failure"
 
 #: Поставить обходу задачу заново. Номер задачи или `None` — очередь не ответила.
 Enqueue = Callable[[int], str | None]
+
+#: Пометка тревоги об остановленном обходе: сам он не продолжится.
+STOPPED = cause(
+    "обход сайта сам не продолжится", "найти причину в журнале обходчика и обойти сайт заново"
+)
 
 
 def _no_failure(_job_id: str | None) -> str | None:
@@ -186,5 +194,5 @@ async def recover(
     await session.commit()
     # Тревога — после фиксации: сообщить об остановке, которая откатится, — соврать.
     for text in stopped.values():
-        await send_alert(text)
+        await send_alert(marked(text, STOPPED))
     return Recovery(resumed=resumed, stopped=list(stopped), unknown=unknown)

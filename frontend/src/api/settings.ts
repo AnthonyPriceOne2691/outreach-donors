@@ -104,9 +104,18 @@ export interface UsageView extends Omit<SpendingView, 'articles'> {
   llm_caps: LlmCaps | null;
 }
 
-/** Тревога сторожа с этапом, о почте которого она: `null` — общая тревога (П2б). */
+/** Стоит ли тревога внимания (слово Anthony 29.10.2026): есть ли повод для беспокойства и
+ *  строка пометки целиком — та же, что последней строкой в Telegram. */
+export interface AlarmConcern {
+  cause: boolean;
+  words: string;
+}
+
+/** Тревога сторожа с этапом, о почте которого она: `null` — общая тревога (П2б). Пометки нет —
+ *  у тревоги её нет (тревоге продаж она не обязательна): экран показывает её без метки. */
 export interface StagedAlarm extends AlarmCard {
   stage: Stage | null;
+  concern?: AlarmConcern | null;
 }
 
 export interface StagedWatchdog extends WatchdogView {
