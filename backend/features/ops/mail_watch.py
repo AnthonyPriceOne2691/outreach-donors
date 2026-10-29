@@ -11,7 +11,8 @@
   прохода после того, как ящик выбыл;
 - **отправить некому:** первые письма этапа в очереди, а писать нечем — ни одного
   включённого ящика на домене, открытом для этапа (правило фильтра отправки: без паузы,
-  выдержки и строки за другим направлением);
+  выдержки и строки за другим направлением). Закрывает только выдержка домена — повода для
+  беспокойства нет: она кончится сама, и письма пойдут (пометка, `alarms.Concern`);
 - **все на паузе:** у направления ни одного пишущего ящика.
 
 **Срок — не позже 15 минут от минуты, когда ящик перестал отправлять** (ТЗ): ящик выбыл —
@@ -54,7 +55,7 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.letters import mailbox
 from backend.features.letters.chain import ANSWER_STEP, CHAINABLE, FIRST_STEP, MAX_STEPS
-from backend.features.ops.alarms import STAGE_GENITIVE, Alarm, direction
+from backend.features.ops.alarms import STAGE_GENITIVE, Alarm, Concern, cause, direction, no_cause
 from backend.features.outreach import limits
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,24 @@ logger = logging.getLogger(__name__)
 #: десять минут с поломкой её не путают. Срок тревоги по ТЗ — 15 минут: порог, проход сторожа
 #: и опрос провайдеров до их таймаутов — меньше 14 минут (`workers/reaper.WATCHDOG_INTERVAL_SEC`).
 QUIET_MINUTES = 10
+
+#: Пометки, общие у нескольких мест правила. Модуль продаж о политике не ответил — сторож этапа
+#: слеп. Ящик выбыл — письма его переписок с другого не уйдут; удалён — не уйдут никогда.
+#: Отправить некому — и не выдержка, которая кончится сама (`_nobody`).
+BLIND_POLICY = cause(
+    "сторож почты направления не видит его ящиков", "найти причину в журнале сервера"
+)
+RETIRED = cause(
+    "письма его переписок с другого ящика не уйдут", "включить ящик или снять его домен с паузы"
+)
+DELETED = cause(
+    "добивки переписок удалённого ящика не уйдут ни с какого другого",
+    "решить по этим перепискам вручную",
+)
+NOBODY = cause(
+    "первые письма направления не уходят",
+    "включить ящик или открыть его домен для направления на экране «Домены рассылки»",
+)
 
 
 async def alarms(session: AsyncSession, now: datetime, *, stages: Collection[Stage]) -> list[Alarm]:
@@ -80,7 +99,9 @@ async def alarms(session: AsyncSession, now: datetime, *, stages: Collection[Sta
             logger.info("сторож почты: %s", exc)
             title = f"Политика почты {whose} не получена"
             code = f"no-policy:{stage.value}"
-            found.append(Alarm(code=code, title=title, detail=str(exc), stage=stage))
+            found.append(
+                Alarm(code=code, title=title, detail=str(exc), stage=stage, concern=BLIND_POLICY)
+            )
             continue
         if policy.watch:
             found += await _counted(session, stage, now)
@@ -111,6 +132,7 @@ def _not_counted(stage: Stage, exc: SQLAlchemyError) -> Alarm:
             "трасса — в журнале"
         ),
         stage=stage,
+        concern=cause("почта направления осталась без сторожа", "найти трассу в журнале сервиса"),
     )
 
 
@@ -130,6 +152,10 @@ async def _of_stage(session: AsyncSession, stage: Stage, now: datetime) -> list[
                 title=f"Все ящики {STAGE_GENITIVE[stage]} на паузе",
                 detail=f"Ящиков {len(boxes)}, пишущих нет: письма направления стоят",
                 stage=stage,
+                concern=cause(
+                    "письма направления стоят",
+                    "разобрать причину пауз и включить ящик на экране «Домены рассылки»",
+                ),
             )
         )
     queued = await session.scalar(
@@ -141,7 +167,7 @@ async def _of_stage(session: AsyncSession, stage: Stage, now: datetime) -> list[
             MessageModel.step == FIRST_STEP,
         )
     )
-    if queued and not await _able(session, stage, writing, now):
+    if queued and (shut := await _shut(session, stage, writing, now)) is not None:
         found.append(
             Alarm(
                 code=f"nobody-to-send:{stage.value}",
@@ -152,23 +178,44 @@ async def _of_stage(session: AsyncSession, stage: Stage, now: datetime) -> list[
                     "направлением. Что с доменом — на экране «Домены рассылки»"
                 ),
                 stage=stage,
+                concern=_nobody(shut, stage, now),
             )
         )
     return found
 
 
-async def _able(
+async def _shut(
     session: AsyncSession, stage: Stage, writing: list[SenderModel], now: datetime
-) -> bool:
-    """Есть ли пишущий ящик на домене, открытом для этапа: правило фильтра отправки
-    (`limits.domain_shut` — чужое направление, пауза, выдержка; лимиты дня — не поломка)."""
+) -> list[SendingDomainModel] | None:
+    """Домены пишущих ящиков, закрытые для этапа, — или `None`, если есть пишущий ящик на
+    открытом домене: правило фильтра отправки (`limits.domain_shut` — чужое направление, пауза,
+    выдержка; лимиты дня — не поломка)."""
     rows = await session.scalars(
         select(SendingDomainModel).where(
             SendingDomainModel.domain.in_([box.domain for box in writing])
         )
     )
-    shut = {row.domain for row in rows if limits.domain_shut(row, stage, now) is not None}
-    return any(box.domain not in shut for box in writing)
+    shut = [row for row in rows if limits.domain_shut(row, stage, now) is not None]
+    closed = {row.domain for row in shut}
+    return None if any(box.domain not in closed for box in writing) else shut
+
+
+def _nobody(shut: list[SendingDomainModel], stage: Stage, now: datetime) -> Concern:
+    """Пометка «отправить некому»: домен пишущего ящика закрыт только выдержкой — она кончится
+    сама, и письма пойдут: повода нет. Иначе ящики выключены, домен на паузе или записан за
+    другим направлением — это само не пройдёт."""
+    young = [
+        row
+        for row in shut
+        if (limits.domain_shut(row, stage, now) or "").startswith(limits.DOMAIN_YOUNG)
+    ]
+    if not young:
+        return NOBODY
+    first = min(young, key=lambda row: row.young_until or now)
+    until = f"{first.young_until or now:%d.%m %H:%M} UTC"
+    return no_cause(
+        f"домен {first.domain} на выдержке до {until}, и письма пойдут, когда она кончится"
+    )
 
 
 async def _of_box(session: AsyncSession, box: SenderModel, now: datetime) -> Alarm | None:
@@ -209,6 +256,7 @@ async def _retired(
             f"наступил у {due}), ответов {answers}. {silent}"
         ),
         stage=stage,
+        concern=DELETED if box is None else RETIRED,
     )
 
 
@@ -282,4 +330,8 @@ async def _quiet(session: AsyncSession, box: SenderModel, now: datetime) -> Alar
             "не ушло ничего: проход добивок не идёт или ящик упёрся в отказы почты"
         ),
         stage=box.stage,
+        concern=cause(
+            "переписки ящика стоят",
+            "проверить, идёт ли проход добивок и не отказывает ли почта ящику",
+        ),
     )

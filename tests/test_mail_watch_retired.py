@@ -127,7 +127,10 @@ async def test_a_paused_box_with_waiting_followups_is_told_once_and_its_return_o
         detail,
         Stage.SALES,
     )
-    assert telegram == [f"тревога: Ящик {BOX} выбыл. {detail}", f"прошло: Ящик {BOX} выбыл"]
+    assert telegram == [
+        f"тревога: Ящик {BOX} выбыл. {detail}\n{mail_watch.RETIRED.words}",
+        f"прошло: Ящик {BOX} выбыл",
+    ]
 
 
 async def test_a_disabled_box_and_a_deleted_one_are_retired_too(session: AsyncSession) -> None:

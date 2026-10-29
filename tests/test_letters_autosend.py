@@ -454,7 +454,8 @@ class TestTheAlarm:
             await watch.see(1, title, None, WEDNESDAY_NOON + timedelta(minutes=minutes))
 
         assert said == [
-            f"тревога: очередь писем донорам не уходит сама дольше 15 минут — {stall}",
+            f"тревога: очередь писем донорам не уходит сама дольше 15 минут — {stall}\n"
+            f"{autosend_alarm.STALLED.words}",
             f"прошло: очередь писем донорам снова уходит сама (стояла: {stall})",
         ]
 

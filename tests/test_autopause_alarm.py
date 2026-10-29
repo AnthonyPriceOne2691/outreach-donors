@@ -67,11 +67,15 @@ def told(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 #: Совет правила мягких сигналов продаж — окно по умолчанию (`SoftSignals.window`).
 SALES_ADVICE = autopause.window_advice(SoftSignals().window)
 
+#: Пометка тревоги о паузе: ящик сам не включится — повод есть.
+MARK = f"\n{autopause.PAUSED.words}"
+
 
 def _alarm(email: str, stage: Stage, why: str, advice: str) -> str:
+    """Тревога о паузе — и пометка последней строкой (слово Anthony 29.10.2026)."""
     return (
         f"ящик {email} (направление «{stage.value}») встал на паузу сам: {why}. Новых писем с "
-        f"него нет, письма его переписок ждут. {advice}"
+        f"него нет, письма его переписок ждут. {advice}{MARK}"
     )
 
 
@@ -120,7 +124,7 @@ async def test_switched_on_and_paused_again_is_a_new_alarm(
     assert again.json()["paused"] == [box.email]
     assert len(told) == 2
     assert all(text.startswith(f"ящик {box.email} ") for text in told)
-    assert all(text.endswith(SALES_ADVICE) for text in told)
+    assert all(text.endswith(f"{SALES_ADVICE}{MARK}") for text in told)
 
 
 async def test_a_donor_box_parked_by_the_old_rule_is_told_too(
@@ -153,7 +157,7 @@ async def test_a_donor_box_switched_on_is_parked_again_by_an_old_letter(
 
     assert again.json()["paused"] == [box.email]
     assert len(told) == 2
-    assert all(text.endswith(autopause.LIFETIME_ADVICE) for text in told)
+    assert all(text.endswith(f"{autopause.LIFETIME_ADVICE}{MARK}") for text in told)
 
 
 def test_the_advice_is_the_one_of_the_rule_that_paused() -> None:

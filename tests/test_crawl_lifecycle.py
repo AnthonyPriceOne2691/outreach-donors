@@ -157,6 +157,8 @@ async def test_out_of_resumes_waits_then_stops_with_an_alert(
     assert "воркер умер" in run.stats["reason"]
     assert len(alerts.sent) == 1
     assert alerts.sent[0].startswith(f"обход hopeless.example.test (№{run.id}) остановлен")
+    # Последней строкой — пометка (слово Anthony 29.10.2026): сам обход не продолжится.
+    assert alerts.sent[0].endswith(f"\n{lifecycle.STOPPED.words}")
 
 
 async def test_finished_crawls_are_not_looked_at(session: AsyncSession, alerts: _Alerts) -> None:
