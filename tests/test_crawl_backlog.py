@@ -307,3 +307,20 @@ async def test_backlog_revision_goes_down_and_up(session: AsyncSession) -> None:
     connection = await session.connection()
 
     assert await connection.run_sync(_table_down_and_up) == (False, True)
+
+
+def _journal_values(connection: Connection) -> list[str]:
+    """Ревизия журнала ещё раз, в процессе: подъём сьюта идёт подпроцессом, и покрытие
+    его не видит. `ADD VALUE IF NOT EXISTS` делает повтор безвредным."""
+    migration = load_migration("409decc6a434_crawl_backlog_dropped_audit_action.py")
+    with Operations.context(MigrationContext.configure(connection)):
+        migration.upgrade()
+        migration.downgrade()
+    values = connection.execute(text("SELECT unnest(enum_range(NULL::auditaction))::text"))
+    return list(values.scalars())
+
+
+async def test_journal_value_is_there_once_and_survives_a_rerun(session: AsyncSession) -> None:
+    connection = await session.connection()
+
+    assert (await connection.run_sync(_journal_values)).count("crawl_backlog_dropped") == 1
