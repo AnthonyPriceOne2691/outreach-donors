@@ -48,9 +48,10 @@ __all__ = ["llm", "reply", "sales_on", "sent"]  # фикстуры — отсю�
 #: Свой потолок продаж — выдуманный, некруглый; потолок черновиков — заведомо больше.
 SALES_CAP = 4_391
 DRAFTS_CAP = 97_531
-REFUSED = (
+#: Начало отказа — продаж: чей потолок и сколько выбрано. Хвост (что делать и когда сброс) —
+#: общего сторожа модели, его слова проверяет `test_llm_cap.py`: здесь он не закрепляется.
+REFUSED_HEAD = (
     f"дневной потолок вызовов модели продаж выбран: {SALES_CAP} из {SALES_CAP} токенов — "
-    "продолжение завтра; поднять потолок может администратор"
 )
 
 
@@ -92,7 +93,7 @@ async def test_spent_sales_cap_leaves_the_lead_without_a_draft_in_words(
     with pytest.raises(LlmCapExceededError) as refused:
         await drafting.draft_answer(session, writer, reply_id)
 
-    assert str(refused.value) == REFUSED
+    assert str(refused.value).startswith(REFUSED_HEAD)
     assert (model.sent["situation"], model.sent["judge"], writer.seen) == ([], [], [])
     assert await _drafts(session, reply_id) == []
 
@@ -168,7 +169,7 @@ async def test_the_rewrite_loop_holds_the_sales_cap_before_every_writer_call(
     with pytest.raises(LlmCapExceededError) as refused:
         await guarding.compose(session, SALES_STAGE, writer, ASKED, incoming="Сколько стоит?")
 
-    assert str(refused.value) == REFUSED
+    assert str(refused.value).startswith(REFUSED_HEAD)
     assert writer.seen == []
 
 
