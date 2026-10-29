@@ -9,7 +9,7 @@
  * право запуска, — с вопросом, потому что это тысячи обходов вперёд.
  */
 
-import { Button, Group, Modal, Stack, Text } from '@mantine/core';
+import { Button, Flex, Group, Modal, Stack, Text } from '@mantine/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -69,14 +69,27 @@ export function CrawlBacklog({ mayDrop }: { mayDrop: boolean }) {
   const view = backlog.data;
   if (view === undefined || view.waiting === 0) return null;
   return (
-    <Group justify="space-between" align="center" gap="sm" wrap="nowrap">
+    // На телефоне кнопка — под строкой, а не сбоку: сбоку строке оставалась треть ширины.
+    <Flex
+      direction={{ base: 'column', xs: 'row' }}
+      justify="space-between"
+      align={{ base: 'flex-start', xs: 'center' }}
+      gap="sm"
+    >
       <Text size="sm">
         Очередь загрузки: {donorsWord(view.waiting)} {plural(view.waiting, 'ждёт', 'ждут', 'ждут')}{' '}
         обхода — {etaWords(view)}. Обходчики берут их по мере освобождения, обход, запущенный
         кнопкой, идёт первым.
       </Text>
+      {/* Кнопка не ужимается: в строке вкладки длинные слова очереди обрезали её до «Снять оче…». */}
       {mayDrop ? (
-        <Button variant="subtle" color="red" className="press" onClick={() => setAsking(true)}>
+        <Button
+          variant="subtle"
+          color="red"
+          className="press"
+          style={{ flexShrink: 0 }}
+          onClick={() => setAsking(true)}
+        >
           Снять очередь
         </Button>
       ) : null}
@@ -97,6 +110,6 @@ export function CrawlBacklog({ mayDrop }: { mayDrop: boolean }) {
           </Group>
         </Stack>
       </Modal>
-    </Group>
+    </Flex>
   );
 }
