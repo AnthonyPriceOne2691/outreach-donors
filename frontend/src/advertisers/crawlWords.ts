@@ -4,7 +4,7 @@
  * копией в экране: числа нет (сервер старше экрана) — нет и слов с ним.
  */
 
-import type { CrawlRow, CrawlSource, CrawlTargets } from '../api/crawls';
+import type { CrawlRow, CrawlSource, CrawlStopReason, CrawlTargets } from '../api/crawls';
 import { formatNumber, formatSeconds, plural } from '../format';
 
 /** «1 000 страниц» — родительный: после «из» и «не больше». */
@@ -74,26 +74,87 @@ function timeoutWords(crawl: CrawlRow): string {
   return pause === null ? spent : `${spent}; ${pause}`;
 }
 
-/** Почему законченный обход кончился — коротко. `null` — у идущего и остановленного разбором
- *  (причина за «!»); у robots.txt и неоткрывшейся главной исход значка говорит сам. */
-export function stopWords(crawl: CrawlRow): string | null {
-  if (crawl.status !== 'done') return null;
-  switch (crawl.stop_reason) {
-    case 'exhausted':
-      return runOutWords(crawl);
-    case 'max_pages':
-      return crawl.max_pages > 0 ? `потолок ${pagesOf(crawl.max_pages)} на донора` : null;
-    case 'max_attempts':
-      return crawl.max_attempts === undefined
-        ? 'кончились попытки'
-        : `кончились попытки — ${requestsOf(crawl.max_attempts)}`;
-    case 'timeout':
-      return timeoutWords(crawl);
-    case 'unhealthy':
-      return 'сайт стал отказывать — остановились';
-    default:
-      return null;
+/** Сайт не пустил с самого начала — robots.txt не дался или запрещает, главная закрылась или не
+ *  ответила. До 29.10.2026 значок «не открылся» стоял без причины и читался сбоем сервиса
+ *  (тест-группа: «2 были с ошибками»). Повтор такого сайта обычно кончается так же, но кнопка
+ *  «Переобойти» остаётся: правила и защита сайта меняются. */
+function refusedWords(crawl: CrawlRow): string | null {
+  if (crawl.stop_reason === 'robots') {
+    return crawl.outcome === 'forbidden'
+      ? 'правила сайта для роботов запрещают обход; повтор поможет, только если сайт их сменит'
+      : 'сайт не отдал правила для роботов — отказ, обрыв или сбой; без них не обходим, повтор обычно кончается так же';
   }
+  return crawl.outcome === 'blocked'
+    ? 'главная закрыта с первого запроса — защита от ботов; повтор обычно кончается так же'
+    : 'главная не ответила ни в одном виде — сайт недоступен; можно повторить позже';
+}
+
+/** Упёрся в потолок страниц: потолка в ответе нет (сервер старше экрана) — слов нет. */
+function pagesCapWords(crawl: CrawlRow): string | null {
+  return crawl.max_pages > 0 ? `потолок ${pagesOf(crawl.max_pages)} на донора` : null;
+}
+
+/** Кончились попытки — с потолком, если сервер его прислал. */
+function attemptsWords(crawl: CrawlRow): string {
+  return crawl.max_attempts === undefined
+    ? 'кончились попытки'
+    : `кончились попытки — ${requestsOf(crawl.max_attempts)}`;
+}
+
+/** Причина конца → слова. Причины нет в таблице — слов нет. */
+const STOP_WORDS: Partial<Record<CrawlStopReason, (crawl: CrawlRow) => string | null>> = {
+  exhausted: runOutWords,
+  max_pages: pagesCapWords,
+  max_attempts: attemptsWords,
+  timeout: timeoutWords,
+  unhealthy: () => 'сайт стал отказывать — остановились',
+  robots: refusedWords,
+  no_start: refusedWords,
+};
+
+/** Почему законченный обход кончился — коротко. `null` — у идущего и остановленного разбором
+ *  (причина за «!»). */
+export function stopWords(crawl: CrawlRow): string | null {
+  if (crawl.status !== 'done' || crawl.stop_reason === null) return null;
+  return STOP_WORDS[crawl.stop_reason]?.(crawl) ?? null;
+}
+
+/** Сколько ждущих перед обходом — хвостом строки: места нет — пусто. */
+function aheadWords(ahead: number | null): string {
+  if (ahead === null) return '';
+  if (ahead === 0) return '; он следующий';
+  return `; перед ним ${formatNumber(ahead)} ${plural(ahead, 'обход', 'обхода', 'обходов')}`;
+}
+
+/** Где ждёт обход в очереди — строкой под значком «в очереди» (тест-группа 29.10.2026: «в
+ *  очереди — когда она активируется?»). У обходчика один донор, остальные ждут и начинаются
+ *  сами. Идущих больше, чем обходчиков (обходчик упал, а строка ещё «идёт»), — заняты все. */
+export function queueWords(crawl: CrawlRow): string | null {
+  if (crawl.status !== 'queued') return null;
+  const place = crawl.place ?? null;
+  if (place === null || place.workers === null) return 'ждёт свободного обходчика — начнётся сам';
+  if (place.workers === 0) return 'обходчиков нет — обход никто не возьмёт';
+  const busy = Math.min(place.busy, place.workers);
+  if (busy < place.workers) return 'есть свободный обходчик — вот-вот начнётся';
+  const head = `ждёт свободного обходчика — заняты ${formatNumber(busy)} из ${formatNumber(place.workers)}`;
+  return head + aheadWords(place.ahead);
+}
+
+/** Очередь и отказы сайтов — для «i» панели: сколько обходов идёт сразу, что с остальными и
+ *  почему сайт не обходится. Обходчиков не спросили — без числа. */
+export function queueRule(data: CrawlTargets | undefined): string {
+  const workers = data?.workers ?? null;
+  const many =
+    workers !== null && workers > 0
+      ? ` — сейчас ${formatNumber(workers)} ${plural(workers, 'обходчик', 'обходчика', 'обходчиков')}`
+      : '';
+  return (
+    ` Сразу идёт столько обходов, сколько обходчиков${many}; остальные ждут в очереди и ` +
+    'начинаются сами, как только обходчик освобождается: у ждущего видно, сколько обходчиков ' +
+    'занято и сколько обходов перед ним. Сайт, не отдавший правила для роботов (robots.txt) ' +
+    'или запретивший в них обход, не обходим, как и закрывшийся от нас с первой страницы: ' +
+    'причина — под значком, и повтор такого сайта обычно кончается так же.'
+  );
 }
 
 /** Потолки на донора и пауза одной фразой: «не больше 1 000 страниц, 2 000 запросов и часа;

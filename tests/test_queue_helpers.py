@@ -40,6 +40,11 @@ class FakeRedis:
         self._check()
         return int(key in self.data)
 
+    def lrange(self, key: str, start: int, end: int) -> list[bytes]:
+        self._check()
+        items = self.data.get(key, [])
+        return items[start:] if end == -1 else items[start : end + 1]
+
 
 class FakeJob:
     def __init__(self, state: str, *, worker: str | None = None, trace: str | None = None) -> None:
@@ -214,3 +219,21 @@ class TestPlumbing:
     def test_last_line_of_an_empty_trace_is_none(self) -> None:
         assert queue.last_error_line(None) is None
         assert queue.last_error_line("  \n ") is None
+
+
+class TestWaitingJobs:
+    """Кто ждёт в очереди — по порядку самой очереди: место обхода на экране (29.10.2026)."""
+
+    def test_order_is_the_queues_own(self) -> None:
+        redis = FakeRedis()
+        redis.data["rq:queue:crawl"] = [b"crawl-9-b", b"crawl-3-a"]
+
+        assert queue.waiting_jobs(redis, queue=queue.CRAWL_QUEUE_NAME) == ["crawl-9-b", "crawl-3-a"]  # type: ignore[arg-type]
+
+    def test_empty_queue_is_an_empty_list(self) -> None:
+        assert queue.waiting_jobs(FakeRedis(), queue=queue.CRAWL_QUEUE_NAME) == []  # type: ignore[arg-type]
+
+    def test_silent_redis_is_none_not_a_crash(self) -> None:
+        broken = FakeRedis(broken=True)
+
+        assert queue.waiting_jobs(broken, queue=queue.CRAWL_QUEUE_NAME) is None  # type: ignore[arg-type]

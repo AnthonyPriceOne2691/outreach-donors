@@ -42,6 +42,7 @@ def queue(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, str | None]]:
 
     monkeypatch.setattr(routes, "enqueue_crawl", enqueue)
     monkeypatch.setattr(routes, "workers_alive", lambda **_: 4)
+    monkeypatch.setattr(routes, "waiting_jobs", lambda **_: [])
     return put
 
 
@@ -285,3 +286,59 @@ async def test_a_crawl_without_requests_has_no_share(
         (None, None),
         (None, None),
     ]
+
+
+async def test_a_waiting_crawl_says_how_many_crawlers_are_busy_and_who_is_ahead(
+    client: AsyncClient,
+    operator: str,
+    donors: None,
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Тест-группа 29.10.2026: десять доноров разом, восемь пошли, двое «в очереди» — «когда она
+    активируется?». У ждущего — сколько обходчиков занято из скольких и сколько обходов перед
+    ним. Место — по порядку очереди задач, а не номеров: продолжение после выкатки встаёт
+    в конец, хотя номер у него старый; чужая задача места не занимает."""
+    session.add_all(
+        [
+            CrawlRunModel(host=FRESH, status=CrawlStatus.QUEUED, job_id="crawl-old"),
+            CrawlRunModel(host=STALE, status=CrawlStatus.QUEUED, job_id="crawl-new"),
+            CrawlRunModel(host="busy.example.test", status=CrawlStatus.RUNNING, job_id="crawl-up"),
+        ]
+    )
+    await session.commit()
+    waiting = ["crawl-new", "crawl-gone", "crawl-old"]
+    monkeypatch.setattr(routes, "waiting_jobs", lambda **_: waiting)
+
+    listed = (await client.get("/api/crawls", headers=bearer(operator))).json()
+    targets = (await client.get("/api/crawls/targets", headers=bearer(operator))).json()
+
+    places = {row["host"]: row["place"] for row in listed["rows"]}
+    assert places == {
+        STALE: {"busy": 1, "workers": 4, "ahead": 0},
+        FRESH: {"busy": 1, "workers": 4, "ahead": 1},
+        "busy.example.test": None,
+    }
+    [fresh] = [donor for donor in targets["donors"] if donor["host"] == FRESH]
+    assert fresh["crawl"]["place"] == {"busy": 1, "workers": 4, "ahead": 1}
+
+
+async def test_a_silent_queue_leaves_the_place_but_not_the_busy_crawlers(
+    client: AsyncClient,
+    operator: str,
+    donors: None,
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Очередь не ответила — места нет, но занятые обходчики — из базы, и экран не падает."""
+    session.add(CrawlRunModel(host=FRESH, status=CrawlStatus.QUEUED, job_id="crawl-1"))
+    session.add(CrawlRunModel(host=STALE, status=CrawlStatus.DONE))
+    await session.commit()
+    monkeypatch.setattr(routes, "waiting_jobs", lambda **_: None)
+
+    rows = (await client.get("/api/crawls", headers=bearer(operator))).json()["rows"]
+
+    assert {row["host"]: row["place"] for row in rows} == {
+        FRESH: {"busy": 0, "workers": 4, "ahead": None},
+        STALE: None,
+    }
