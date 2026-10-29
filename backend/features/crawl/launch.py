@@ -49,6 +49,11 @@ class Launch:
     """Очередь не ответила — обход закрыт с причиной."""
 
 
+def crawl_host(host: str) -> str:
+    """Хост так, как его пишет обход: без пробелов по краям, строчными и без «www.»."""
+    return host.strip().lower().removeprefix("www.")
+
+
 async def launch(
     session: AsyncSession,
     hosts: Iterable[str],
@@ -60,7 +65,7 @@ async def launch(
     """Поставить обходы доноров. Каждый донор фиксируется отдельно: отказ
     очереди на третьем не должен откатывать первые два."""
     done = Launch()
-    for host in dict.fromkeys(h.strip().lower().removeprefix("www.") for h in hosts if h.strip()):
+    for host in dict.fromkeys(crawl_host(h) for h in hosts if h.strip()):
         try:
             run = await queue_crawl(session, host, by=by)
         except CrawlBusyError:

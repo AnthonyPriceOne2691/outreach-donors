@@ -44,7 +44,7 @@ def queue(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, str | None]]:
     monkeypatch.setattr(routes, "enqueue_crawl", enqueue)
     monkeypatch.setattr(routes, "workers_alive", lambda **_: 4)
     monkeypatch.setattr(routes, "crawlers_held", lambda **_: Held(0))
-    monkeypatch.setattr(routes, "waiting_jobs", lambda **_: [])
+    monkeypatch.setattr(routes, "job_positions", lambda *_args, **_kwargs: {})
     return put
 
 
@@ -112,7 +112,7 @@ async def test_copies_held_by_the_load_gate_are_named_with_the_reason(
     молчит (`None`), а не «никого не держит»."""
     session.add(CrawlRunModel(host=FRESH, status=CrawlStatus.QUEUED, job_id="crawl-1"))
     await session.commit()
-    monkeypatch.setattr(routes, "waiting_jobs", lambda **_: ["crawl-1"])
+    monkeypatch.setattr(routes, "job_positions", lambda *_args, **_kwargs: {"crawl-1": 0})
     why = "свободно 1,2 ядра, а новому обходу нужно 1,75 (0,75 на обход и 1 в запас)"
     monkeypatch.setattr(routes, "crawlers_held", lambda **_: Held(3, why))
 
@@ -331,7 +331,8 @@ async def test_a_waiting_crawl_says_how_many_crawlers_are_busy_and_who_is_ahead(
     """Тест-группа 29.10.2026: десять доноров разом, восемь пошли, двое «в очереди» — «когда она
     активируется?». У ждущего — сколько обходчиков занято из скольких и сколько обходов перед
     ним. Место — по порядку очереди задач, а не номеров: продолжение после выкатки встаёт
-    в конец, хотя номер у него старый; чужая задача места не занимает."""
+    в конец, хотя номер у него старый. Спрашивается место только показанных задач (29.10.2026);
+    задача закрытого обхода, ещё лежащая в очереди, место занимает — обходчик её сразу отпустит."""
     session.add_all(
         [
             CrawlRunModel(host=FRESH, status=CrawlStatus.QUEUED, job_id="crawl-old"),
@@ -341,7 +342,13 @@ async def test_a_waiting_crawl_says_how_many_crawlers_are_busy_and_who_is_ahead(
     )
     await session.commit()
     waiting = ["crawl-new", "crawl-gone", "crawl-old"]
-    monkeypatch.setattr(routes, "waiting_jobs", lambda **_: waiting)
+    asked: list[list[str]] = []
+
+    def positions(job_ids: list[str], **_: object) -> dict[str, int]:
+        asked.append(sorted(job_ids))
+        return {job: waiting.index(job) for job in job_ids if job in waiting}
+
+    monkeypatch.setattr(routes, "job_positions", positions)
 
     listed = (await client.get("/api/crawls", headers=bearer(operator))).json()
     targets = (await client.get("/api/crawls/targets", headers=bearer(operator))).json()
@@ -349,17 +356,18 @@ async def test_a_waiting_crawl_says_how_many_crawlers_are_busy_and_who_is_ahead(
     places = {row["host"]: row["place"] for row in listed["rows"]}
     assert places == {
         STALE: {"busy": 1, "workers": 4, "ahead": 0, "held": 0, "held_reason": None},
-        FRESH: {"busy": 1, "workers": 4, "ahead": 1, "held": 0, "held_reason": None},
+        FRESH: {"busy": 1, "workers": 4, "ahead": 2, "held": 0, "held_reason": None},
         "busy.example.test": None,
     }
     [fresh] = [donor for donor in targets["donors"] if donor["host"] == FRESH]
     assert fresh["crawl"]["place"] == {
         "busy": 1,
         "workers": 4,
-        "ahead": 1,
+        "ahead": 2,
         "held": 0,
         "held_reason": None,
     }
+    assert asked[0] == ["crawl-new", "crawl-old"]
 
 
 async def test_a_silent_queue_leaves_the_place_but_not_the_busy_crawlers(
@@ -373,7 +381,7 @@ async def test_a_silent_queue_leaves_the_place_but_not_the_busy_crawlers(
     session.add(CrawlRunModel(host=FRESH, status=CrawlStatus.QUEUED, job_id="crawl-1"))
     session.add(CrawlRunModel(host=STALE, status=CrawlStatus.DONE))
     await session.commit()
-    monkeypatch.setattr(routes, "waiting_jobs", lambda **_: None)
+    monkeypatch.setattr(routes, "job_positions", lambda *_args, **_kwargs: None)
 
     rows = (await client.get("/api/crawls", headers=bearer(operator))).json()["rows"]
 

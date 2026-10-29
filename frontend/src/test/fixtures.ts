@@ -114,8 +114,33 @@ export const PROMOTE_ROUTES: Record<string, Answer> = {
   },
 };
 
-/** Очередь загрузки обхода на панели «Обход доноров» (`CrawlBacklog`): пусто — строки нет.
- *  Панель спрашивает её сама, как и обходы. */
+/** Сводка обхода в «Проверке» (`CrawlSummary`): доноров нет, ничего не идёт. */
+export const EMPTY_CRAWL_SUMMARY = {
+  counts: {
+    status: { never: 0, queued: 0, running: 0, done: 0, partial: 0, refused: 0, stopped: 0 },
+    price: { fresh: 0, stale: 0, none: 0 },
+  },
+  startable: 0,
+  active: 0,
+  workers: 4,
+};
+
+/** Страница вкладки «Обход доноров»: доноров нет, ничего не идёт. */
+export const EMPTY_CRAWL_PAGE = {
+  rows: [],
+  total: 0,
+  page: 1,
+  limit: 50,
+  counts: EMPTY_CRAWL_SUMMARY.counts,
+  startable: 0,
+  bulk_max: 10_000,
+  workers: 4,
+  typical_crawl_sec: 1500,
+  max_pages: 1000,
+};
+
+/** Очередь загрузки обхода на вкладке «Обход доноров» (`CrawlBacklog`): пусто — строки нет.
+ *  Вкладка спрашивает её сама, как и обходы. */
 export const BACKLOG_ROUTES: Record<string, Answer> = {
   'GET /api/donors/import/backlog': { body: { waiting: 0, eta_sec: null, workers: 4 } },
 };
@@ -137,6 +162,8 @@ export const CRAWL_ROUTES: Record<string, Answer> = {
     },
   },
   'GET /api/crawls': { body: { rows: [], active: 0, workers: 4 } },
+  'GET /api/crawls/summary': { body: EMPTY_CRAWL_SUMMARY },
+  'GET /api/crawls/donors': { body: EMPTY_CRAWL_PAGE },
 };
 
 /** Карточка «Бизнесы ниши из выдачи» на «Рекламодателях»: решать некого. */

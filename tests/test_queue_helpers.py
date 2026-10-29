@@ -23,6 +23,8 @@ class FakeRedis:
     def __init__(self, *, broken: bool = False) -> None:
         self.broken = broken
         self.data: dict[str, Any] = {}
+        #: Сколько раз ходили в Redis конвейером.
+        self.round_trips = 0
 
     def _check(self) -> None:
         if self.broken:
@@ -40,10 +42,36 @@ class FakeRedis:
         self._check()
         return int(key in self.data)
 
+    def lpos(self, key: str, value: str) -> int | None:
+        self._check()
+        items = [
+            item.decode() if isinstance(item, bytes) else item for item in self.data.get(key, [])
+        ]
+        return items.index(value) if value in items else None
+
     def lrange(self, key: str, start: int, end: int) -> list[bytes]:
         self._check()
         items = self.data.get(key, [])
         return items[start:] if end == -1 else items[start : end + 1]
+
+    def pipeline(self, transaction: bool = True) -> FakePipeline:
+        return FakePipeline(self)
+
+
+class FakePipeline:
+    """Конвейер: команды копятся и уходят в Redis одним `execute`."""
+
+    def __init__(self, redis: FakeRedis) -> None:
+        self.redis = redis
+        self.calls: list[tuple[str, str]] = []
+
+    def lpos(self, key: str, value: str) -> FakePipeline:
+        self.calls.append((key, value))
+        return self
+
+    def execute(self) -> list[int | None]:
+        self.redis.round_trips += 1
+        return [self.redis.lpos(key, value) for key, value in self.calls]
 
 
 class FakeJob:
@@ -221,19 +249,26 @@ class TestPlumbing:
         assert queue.last_error_line("  \n ") is None
 
 
-class TestWaitingJobs:
-    """Кто ждёт в очереди — по порядку самой очереди: место обхода на экране (29.10.2026)."""
+class TestJobPositions:
+    """Место ждущих задач — по порядку самой очереди и только показанных (29.10.2026): экран
+    не читает очередь целиком."""
 
-    def test_order_is_the_queues_own(self) -> None:
+    def test_place_is_the_queues_own_order(self) -> None:
         redis = FakeRedis()
-        redis.data["rq:queue:crawl"] = [b"crawl-9-b", b"crawl-3-a"]
+        redis.data["rq:queue:crawl"] = [b"crawl-9-b", b"crawl-gone", b"crawl-3-a"]
 
-        assert queue.waiting_jobs(redis, queue=queue.CRAWL_QUEUE_NAME) == ["crawl-9-b", "crawl-3-a"]  # type: ignore[arg-type]
+        places = queue.job_positions(
+            ["crawl-3-a", "crawl-9-b", "crawl-taken"], redis, queue=queue.CRAWL_QUEUE_NAME
+        )  # type: ignore[arg-type]
 
-    def test_empty_queue_is_an_empty_list(self) -> None:
-        assert queue.waiting_jobs(FakeRedis(), queue=queue.CRAWL_QUEUE_NAME) == []  # type: ignore[arg-type]
+        assert places == {"crawl-9-b": 0, "crawl-3-a": 2}
+        # Три задачи — один заход в Redis, а не три: на странице их до сотни.
+        assert redis.round_trips == 1
+
+    def test_nothing_asked_is_nothing_read(self) -> None:
+        assert queue.job_positions([], FakeRedis(broken=True), queue=queue.CRAWL_QUEUE_NAME) == {}  # type: ignore[arg-type]
 
     def test_silent_redis_is_none_not_a_crash(self) -> None:
         broken = FakeRedis(broken=True)
 
-        assert queue.waiting_jobs(broken, queue=queue.CRAWL_QUEUE_NAME) is None  # type: ignore[arg-type]
+        assert queue.job_positions(["crawl-1"], broken, queue=queue.CRAWL_QUEUE_NAME) is None  # type: ignore[arg-type]
