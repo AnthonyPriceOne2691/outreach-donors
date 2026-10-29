@@ -49,6 +49,9 @@ from backend.features.replies.unbound import is_unbound
 #: не задержка, а обрыв.
 DELIVERY_SILENCE_HOURS = 6
 
+#: Сколько номеров висящих писем назвать в тревоге — остальные числом.
+SHOWN_LETTERS = 3
+
 #: Сколько дней можно не получать ни одного ответа при живой рассылке.
 #: Отвечают единицами процентов, поэтому порог считается
 #: не по одному письму, а по доставленной пачке.
@@ -90,10 +93,18 @@ def _of_stage(stage: Stage) -> ColumnElement[bool]:
 
 
 async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Alarm | None:
-    """Письма этапа ушли, а платформа не сказала о них ни слова."""
+    """Письма этапа ушли больше `DELIVERY_SILENCE_HOURS` назад, а исхода у них нет: ни доставки,
+    ни отказа.
+
+    Две разные поломки — разными словами (29.10.2026: одно письмо рекламодателю висело без исхода,
+    а тревога велела проверять вебхук, хотя письма того же дня доставлялись): после отправки самого
+    старого висящего платформа не сообщила доставки **ни одному** письму этапа — молчит вебхук
+    (`delivery-silence`); сообщила другим — вебхук жив, а висящие ждут сервера получателя:
+    платформа повторяет приём до 72 часов, и исход придёт сам (`delivery-pending`)."""
     edge = moment - timedelta(hours=DELIVERY_SILENCE_HOURS)
-    stale = await session.scalar(
-        select(func.count(MessageModel.id)).where(
+    rows = await session.execute(
+        select(MessageModel.id, MessageModel.sent_at)
+        .where(
             _of_stage(stage),
             MessageModel.status == MessageStatus.SENT,
             MessageModel.sent_at.is_not(None),
@@ -102,18 +113,58 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
             # не поломка, а его устройство.
             MessageModel.provider_message_id.not_like("null-%"),
         )
+        .order_by(MessageModel.sent_at, MessageModel.id)
     )
+    stale = list(rows.tuples().all())
     if not stale:
         return None
+    heard = await session.scalar(
+        select(func.count(MessageModel.id)).where(
+            _of_stage(stage), MessageModel.delivered_at >= stale[0][1]
+        )
+    )
+    numbers = _numbers([letter_id for letter_id, _ in stale])
+    if heard:
+        return Alarm(
+            code=f"delivery-pending:{stage.value}",
+            title=f"Письма без исхода доставки — {direction(stage)}",
+            detail=(
+                f"{_pending_words(len(stale), numbers)}. Другие письма направления после них "
+                "доставлены — вебхук событий работает. Обычно так тянет сервер получателя: "
+                "платформа повторяет доставку до 72 часов, и исход придёт сам. Что ответил сервер, "
+                "видно в журнале писем платформы (Activity)"
+            ),
+            stage=stage,
+        )
     return Alarm(
         code=f"delivery-silence:{stage.value}",
         title=f"Платформа молчит о доставке — {direction(stage)}",
         detail=(
-            f"{stale} писем направления отправлены больше {DELIVERY_SILENCE_HOURS} часов назад, "
-            "и ни по одному не пришло события: ни доставки, ни отказа. "
-            "Проверить адрес вебхука событий в кабинете платформы и его подпись"
+            f"Писем направления без единого события больше {DELIVERY_SILENCE_HOURS} часов: "
+            f"{len(stale)} ({numbers}), и после их отправки платформа не сообщила доставки ни одному "
+            "письму направления. Проверить адрес вебхука событий в кабинете платформы и его подпись"
         ),
         stage=stage,
+    )
+
+
+def _numbers(ids: list[int]) -> str:
+    """«№404, №405, №406 и ещё 2» — первые `SHOWN_LETTERS` номеров, остальные числом."""
+    shown = ", ".join(f"№{letter_id}" for letter_id in ids[:SHOWN_LETTERS])
+    more = len(ids) - SHOWN_LETTERS
+    return shown if more <= 0 else f"{shown} и ещё {more}"
+
+
+def _pending_words(count: int, numbers: str) -> str:
+    """Висящие письма словами: одно — «Письмо №404 ушло…», несколько — числом и номерами."""
+    if count == 1:
+        return (
+            f"Письмо {numbers} ушло больше {DELIVERY_SILENCE_HOURS} часов назад, а платформа ещё "
+            "не сказала, дошло ли оно"
+        )
+    return (
+        f"Писем без исхода больше {DELIVERY_SILENCE_HOURS} часов: {count} ({numbers}) — "
+        "платформа ещё не сказала, дошли ли они"
     )
 
 
