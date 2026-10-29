@@ -361,6 +361,36 @@ describe('панель в покое', () => {
     expect(screen.getByRole('button', { name: 'Обойти отмеченных · 0' })).toBeInTheDocument();
   });
 
+  it('ждущие — у заголовка отдельно от идущих, а у строки — место в очереди', async () => {
+    // Тест-группа 29.10.2026: «идёт: 10», когда обходчиков восемь, обещало обходы, которых нет.
+    const waiting = crawl({
+      id: 8,
+      host: 'waiting.example',
+      status: 'queued',
+      pages: 0,
+      place: { busy: 1, workers: 1, ahead: 0 },
+    });
+    open({
+      'GET /api/crawls/targets': {
+        body: {
+          ...TARGETS,
+          workers: 1,
+          donors: [
+            ...TARGETS.donors,
+            { ...TARGETS.donors[0], host: 'waiting.example', crawl: waiting },
+          ],
+        },
+      },
+    });
+
+    const table = await screen.findByRole('table', { name: 'Доноры для обхода' });
+    expect(screen.getByText('идёт: 1')).toBeInTheDocument();
+    expect(screen.getByText('в очереди: 1')).toBeInTheDocument();
+    expect(
+      within(table).getByText('ждёт свободного обходчика — заняты 1 из 1; он следующий'),
+    ).toBeInTheDocument();
+  });
+
   it('обход идёт — раскрыта сама, и сколько идёт — у заголовка', async () => {
     open();
 

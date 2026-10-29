@@ -117,14 +117,14 @@
       "worst": "—"
     },
     "backend/api/crawls/routes.py": {
-      "lines": 150,
+      "lines": 169,
       "complexity": 9,
-      "worst": "_why_not:99"
+      "worst": "_why_not:118"
     },
     "backend/api/crawls/schemas.py": {
-      "lines": 184,
+      "lines": 229,
       "complexity": 3,
-      "worst": "of:119"
+      "worst": "of:52"
     },
     "backend/api/deps.py": {
       "lines": 125,
@@ -1312,7 +1312,7 @@
       "worst": "apply_ratings:155"
     },
     "backend/features/crawl/board.py": {
-      "lines": 266,
+      "lines": 299,
       "complexity": 5,
       "worst": "eligible:188"
     },
@@ -3367,9 +3367,9 @@
       "worst": "spaced:15"
     },
     "backend/shared/queue.py": {
-      "lines": 395,
+      "lines": 409,
       "complexity": 7,
-      "worst": "job_alive:315"
+      "worst": "job_alive:329"
     },
     "backend/shared/sliding_window.py": {
       "lines": 75,

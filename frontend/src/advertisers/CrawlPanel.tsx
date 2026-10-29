@@ -63,7 +63,7 @@ import { formatNumber, formatPercent } from '../format';
 import { InfoHint } from '../components/InfoHint';
 import { Unfold } from '../runs/Unfold';
 import { TargetsTable, isActive } from './CrawlTable';
-import { crawlRule } from './crawlWords';
+import { crawlRule, queueRule } from './crawlWords';
 import { ManualDonor } from './ManualDonor';
 import { RecentCrawls } from './RecentCrawls';
 import { StalePrices } from './StalePrices';
@@ -197,21 +197,30 @@ function about(data: CrawlTargets | undefined): string {
     'ставят ссылки. Кандидаты в рекламодатели считаются сами, когда обход закончится.' +
     crawlRule(data) +
     healthRule(data) +
+    queueRule(data) +
     ' «Переобойти» в последних обходах — чем бы обход ни кончился: сайт растёт, свежие адреса ' +
     'карты идут первыми, и повтор через время возьмёт новые статьи. Новый обход заменит ' +
     'найденное прежним, а решения по спорным и спрошенный DR перенесёт.'
   );
 }
 
-/** Что с обходом сейчас — строкой у заголовка: идёт, остановлен, сколько можно обойти. */
+/** Что с обходом сейчас — строкой у заголовка: идёт, ждёт, остановлен, сколько можно обойти.
+ *  Идущие и ждущие — порознь (29.10.2026): «идёт: 10», когда обходчиков восемь, а двое ждут,
+ *  обещало обходы, которых ещё нет. */
 function Facts({ donors }: { donors: CrawlTarget[] }) {
-  const running = donors.filter((donor) => isActive(donor.crawl)).length;
+  const running = donors.filter((donor) => donor.crawl?.status === 'running').length;
+  const waiting = donors.filter((donor) => donor.crawl?.status === 'queued').length;
   const stopped = donors.filter((donor) => donor.crawl?.status === 'stopped').length;
   return (
     <Group gap="xs" align="center">
       {running > 0 && (
         <Badge variant="light" color="blue">
           идёт: {formatNumber(running)}
+        </Badge>
+      )}
+      {waiting > 0 && (
+        <Badge variant="light" color="gray">
+          в очереди: {formatNumber(waiting)}
         </Badge>
       )}
       {stopped > 0 && (

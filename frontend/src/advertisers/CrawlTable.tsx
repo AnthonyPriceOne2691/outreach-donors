@@ -9,7 +9,8 @@
  * здоровья ТЗ словами ТЗ: «403/429/5xx/таймаут — 4,2% за последние 500 запросов».
  *
  * **Значок — с потолком, под ним — почему обход кончился** (23.10.2026, `crawlWords`): один
- * вид в таблице доноров, последних обходах и «Приёмке по донорам».
+ * вид в таблице доноров, последних обходах и «Приёмке по донорам». У сайта, не пустившего с
+ * самого начала, — тоже причина, а у ждущего — его место в очереди (29.10.2026).
  */
 
 import { Badge, Checkbox, Group, Stack, Table, Text } from '@mantine/core';
@@ -20,7 +21,7 @@ import { ColumnsHead } from '../components/ColumnsHead';
 import { Seams } from '../components/Seams';
 import { formatDate, formatMoney, formatNumber, formatPercent } from '../format';
 import { RunReason } from '../runs/RunReason';
-import { pagesOutOf, requestsOf, stopWords } from './crawlWords';
+import { pagesOutOf, queueWords, requestsOf, stopWords } from './crawlWords';
 
 const ACTIVE = new Set(['queued', 'running']);
 
@@ -39,6 +40,11 @@ export function crawlState(crawl: CrawlRow): { label: string; color: string } {
     };
   }
   if (crawl.status === 'stopped') return { label: 'остановлен — смотрит человек', color: 'red' };
+  // robots.txt не дался (отказ, обрыв, сбой) — не «не открылся»: главную мы и не спрашивали,
+  // а без прочитанных правил не обходим (`crawl/robots.py`, 29.10.2026).
+  if (crawl.stop_reason === 'robots' && crawl.outcome !== 'forbidden') {
+    return { label: 'robots.txt не отдал', color: 'red' };
+  }
   switch (crawl.outcome) {
     case 'ok':
       return { label: `обойдён: ${pages}`, color: 'green' };
@@ -112,8 +118,10 @@ export function CrawlState({ crawl }: { crawl: CrawlRow | null }) {
     );
   }
   const state = crawlState(crawl);
-  // Причина — первой, до чисел здоровья: это ответ на «почему не 1 000».
-  const lines = [stopWords(crawl), ...healthLines(crawl)].filter((said) => said !== null);
+  // Причина — первой, до чисел здоровья: это ответ на «почему не 1 000»; у ждущего — его место.
+  const lines = [stopWords(crawl) ?? queueWords(crawl), ...healthLines(crawl)].filter(
+    (said) => said !== null,
+  );
   // Причина и «не хватило» — одной запиской за одним значком: два «!» в ячейке читались бы
   // как две разные беды.
   const note = [crawl.reason, degradationText(crawl.degradation)].filter(Boolean).join('\n');
