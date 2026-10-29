@@ -1753,7 +1753,7 @@
     },
     "backend/features/letters/autosend.py": {
       "lines": 386,
-      "complexity": 7,
+      "complexity": 6,
       "worst": "run:233"
     },
     "backend/features/letters/autosend_alarm.py": {
@@ -1762,9 +1762,9 @@
       "worst": "see:63"
     },
     "backend/features/letters/autosend_window.py": {
-      "lines": 219,
+      "lines": 200,
       "complexity": 8,
-      "worst": "countries:77"
+      "worst": "_places:86"
     },
     "backend/features/letters/batch.py": {
       "lines": 290,

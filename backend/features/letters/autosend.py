@@ -243,7 +243,7 @@ async def run(
     held = await _held(session, mode, now)
     if held is not None:
         return _noted(mode, now, Passed(held, stall=held))
-    found = await autosend_window.in_window(session, [row.message for row in queued], now)
+    found = await autosend_window.in_window(session, queued, now)
     if found.first is None:
         return _noted(mode, now, Passed(found.words))
     rest = Rest(await rests(session, mode.stage, now), now, found.ids)
@@ -251,7 +251,7 @@ async def run(
     # отдыхает минуты, и каждый проход иначе судил бы все письма очереди ради «писать некому».
     with mailbox.resting(rest.boxes()):
         free = await mailbox.choose(
-            session, found.first, stage=mode.stage, thread_sender_id=None, now=now
+            session, found.first.message, stage=mode.stage, thread_sender_id=None, now=now
         )
     if free.sender is None:
         said = _nobody(batch.nobody_words(free.refusal, automatic=True), rest)

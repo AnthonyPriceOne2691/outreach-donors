@@ -21,6 +21,8 @@ from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import MessageModel, QueueAutosendModel
 from backend.features.letters import autosend, autosend_alarm, autosend_window, batch, forecast
+from backend.features.letters.compose import FoundLink
+from backend.features.letters.repository import LetterRepository, QueuedLetter
 from backend.features.letters.transport import NullTransport
 from backend.workers import send_jobs
 from sqlalchemy import func, select, text, update
@@ -358,27 +360,45 @@ class TestTheWindow:
         letters = await _queue(session, 1)
         await _donor_in(session, None)
 
-        unknown = await autosend_window.zones(session, [letters[0].id])
+        queued = await LetterRepository(session).queued(stage=Stage.DONORS)
+        unknown = await autosend_window.zones(session, queued)
         await _donor_in(session, "bg")
-        known = await autosend_window.zones(session, [letters[0].id])
+        known = await autosend_window.zones(session, queued)
 
         assert unknown[letters[0].id].key == outreach_cfg.AUTOSEND_ZONE
         assert known[letters[0].id].key == "Europe/Sofia"
 
 
 def test_the_country_order_of_each_audience() -> None:
-    """Донор — страна его трафика, затем рынок прогона; рекламодатель по ссылке — страна донора, где
-    нашли ссылку, затем рынок прогона; бизнес ниши — рынок прогона, затем страна донора-примера."""
+    """Донор — страна его трафика, затем рынок прогона рассылки; рекламодатель по ссылке — страна
+    аудитории донора, где нашли ссылку; бизнес ниши — рынок прогона, где его нашли."""
     places = autosend_window._Places(
-        traffic={1: "us"},
-        found={2: ("donor.example.test", 7)},
-        hosts={"donor.example.test": "es"},
-        markets={5: "de", 7: "it"},
+        traffic={1: "us"}, campaigns={10: 5}, found={2: 7}, markets={5: "de", 7: "it"}
+    )
+    donor = QueuedLetter(
+        MessageModel(id=1, domain_id=1, campaign_id=10), "d.example.test", None, ""
+    )
+    link = FoundLink(donor_host="d.example.test", page_url="", anchor="", donor_geo="es")
+    linked = QueuedLetter(
+        MessageModel(id=2, domain_id=2),
+        "a.example.test",
+        None,
+        "",
+        stage=Stage.ADVERTISERS,
+        link=link,
+    )
+    niche = QueuedLetter(
+        MessageModel(id=3, domain_id=2),
+        "n.example.test",
+        None,
+        "",
+        stage=Stage.ADVERTISERS,
+        audience="niche",
     )
 
-    assert places.countries(Stage.DONORS, "links", 1, 5) == ["us", "de"]
-    assert places.countries(Stage.ADVERTISERS, "links", 2, None) == ["es", "it"]
-    assert places.countries(Stage.ADVERTISERS, "niche", 2, None) == ["it", "es"]
+    assert places.countries(donor) == ["us", "de"]
+    assert places.countries(linked) == ["es"]
+    assert places.countries(niche) == ["it"]
 
 
 class TestTheStall:
