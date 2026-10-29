@@ -14,7 +14,12 @@
 
 **Путь письма — тот же** (`batch.send_queue` → `Sending.send`): стоп-листы, решение по адресату,
 предохранитель, кап, разгон и лимиты домена; в журнал письмо пишется с тем, кто включил режим.
-Своей отправки у прохода нет: проход — пачка с паузами ящиков (`batch.Resting`).
+Своей отправки у прохода нет: проход — пачка с окном получателя и паузами ящиков (`batch.Paced`).
+
+**Окно получателя — только у прохода** (`autosend_window.py`): письмо уходит в рабочие часы
+получателя по его часам (по умолчанию пн–пт 09:00–18:00), пояс — по его стране. Кнопка окна не
+ждёт: когда слать, решил человек. Вне окна у всех — проход ждёт и говорит, когда откроется
+ближайшее.
 
 **Темп — по ящику с паузой, а не всплеском.** Кнопка по-прежнему шлёт сразу, сколько позволяет кап.
 Проход — нет: с ящика — не больше одного первого письма за проход, и между первыми письмами ящика —
@@ -44,7 +49,7 @@ from __future__ import annotations
 import logging
 import random
 from collections.abc import Collection
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, or_, select
@@ -60,7 +65,7 @@ from backend.features.core.models.outreach import (
     SenderModel,
 )
 from backend.features.crawl.niche import LINKS
-from backend.features.letters import batch, mailbox, unknown_outcome
+from backend.features.letters import autosend_window, batch, mailbox, unknown_outcome
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.transport import Mail
@@ -101,10 +106,12 @@ def pause_of(box_id: int, letter_id: int) -> timedelta:
 
 @dataclass(slots=True)
 class Rest:
-    """Паузы ящиков прохода (`batch.Resting`): номер ящика → до какой минуты."""
+    """Проход для пачки (`batch.Paced`): письма в окне получателя и паузы ящиков — номер ящика →
+    до какой минуты."""
 
     until: dict[int, datetime]
     now: datetime
+    only: list[int] = field(default_factory=list)
 
     def boxes(self) -> Collection[int]:
         return self.until.keys()
@@ -192,40 +199,63 @@ def finish(mode: QueueAutosendModel, *, by: int | None, reason: str, now: dateti
     )
 
 
+@dataclass(frozen=True, slots=True)
+class Passed:
+    """Итог прохода запуска: строка под кнопкой пачки и — если проход стоит не по делу — почему
+    (тревоге, `autosend_alarm.py`). Стоит по делу (кап, паузы ящиков, вне окна у всех, очередь
+    пуста) — `stall` пуст: так проход и должен ждать."""
+
+    state: str
+    stall: str | None = None
+
+
 async def run(
     session: AsyncSession, transports: Mail, mode: QueueAutosendModel, *, now: datetime
-) -> str:
-    """Один проход запуска `mode`: письма очереди по одному с ящика, пока есть кому писать. Итог —
-    словами строки под кнопкой пачки (и в `mode.state`); очередь кончилась — запуск остановлен.
-    Без коммита: проход фиксирует вызывающий."""
-    repository = LetterRepository(session)
-    first = await repository.queued(stage=mode.stage, audience=mode.audience, limit=1)
-    if not first:
+) -> Passed:
+    """Один проход запуска `mode`: письма очереди в окне получателя по одному с ящика, пока есть
+    кому писать. Итог — и в `mode.state`; очередь кончилась — запуск остановлен. Без коммита:
+    проход фиксирует вызывающий."""
+    queued = await LetterRepository(session).queued(stage=mode.stage, audience=mode.audience)
+    if not queued:
         finish(mode, by=None, reason=EMPTY, now=now)
-        return _noted(mode, now, EMPTY)
+        return _noted(mode, now, Passed(EMPTY))
     held = await _held(session, mode, now)
     if held is not None:
-        return _noted(mode, now, held)
-    rest = Rest(await rests(session, mode.stage, now), now)
+        return _noted(mode, now, Passed(held, stall=held))
+    found = await autosend_window.in_window(session, [row.message for row in queued], now)
+    if found.first is None:
+        return _noted(mode, now, Passed(found.words))
+    rest = Rest(await rests(session, mode.stage, now), now, found.ids)
     # Свободного ящика нет — очередь не перебирается: проход раз в минуту, а ящик после письма
     # отдыхает минуты, и каждый проход иначе судил бы все письма очереди ради «писать некому».
     with mailbox.resting(rest.boxes()):
         free = await mailbox.choose(
-            session, first[0].message, stage=mode.stage, thread_sender_id=None, now=now
+            session, found.first, stage=mode.stage, thread_sender_id=None, now=now
         )
     if free.sender is None:
-        return _noted(mode, now, _nobody(batch.nobody_words(free.refusal, automatic=True), rest))
+        said = _nobody(batch.nobody_words(free.refusal, automatic=True), rest)
+        return _noted(mode, now, Passed(said))
     report = await batch.send_queue(
         session,
         transports,
         stage=mode.stage,
         author_id=mode.started_by_id,
         audience=mode.audience,
-        rest=rest,
-        automatic=True,
+        paced=rest,
     )
     mode.unsure_id = report.unsure
-    return _noted(mode, now, _words(report, rest))
+    said = _words(report, rest)
+    return _noted(mode, now, Passed(said, stall=said if _stalled(report) else None))
+
+
+def _stalled(report: batch.BatchReport) -> bool:
+    """Проход стоит не по делу: почта отказала любому письму, не ответила (исход неизвестен) или
+    каждое письмо окна получило отказ, и ни одно не ушло."""
+    if report.unsure is not None:
+        return True
+    if report.stopped is not None:
+        return batch.EVERYONE_REFUSED in report.stopped
+    return report.sent == 0 and bool(report.refused)
 
 
 async def _held(session: AsyncSession, mode: QueueAutosendModel, now: datetime) -> str | None:
@@ -267,9 +297,9 @@ def _nobody(words: str, rest: Rest) -> str:
     return words
 
 
-def _noted(mode: QueueAutosendModel, now: datetime, state: str) -> str:
-    mode.passed_at, mode.state = now, state
-    return state
+def _noted(mode: QueueAutosendModel, now: datetime, passed: Passed) -> Passed:
+    mode.passed_at, mode.state = now, passed.state
+    return passed
 
 
 @dataclass(frozen=True, slots=True)

@@ -95,8 +95,9 @@ async def _launch_pass(session: AsyncSession, transports: Transports, mode_id: i
     # Слова строки журнала — до прохода: откат истекает объект, а дочитывать его после сбоя
     # значит снова идти в базу, которая, может быть, и упала.
     stage, audience = mode.stage.value, mode.audience
+    now = datetime.now(UTC)
     try:
-        said = await autosend.run(session, transports, mode, now=datetime.now(UTC))
+        passed = await autosend.run(session, transports, mode, now=now)
         await session.commit()
     except Exception:
         await session.rollback()
@@ -107,4 +108,4 @@ async def _launch_pass(session: AsyncSession, transports: Transports, mode_id: i
             audience,
         )
         return
-    logger.debug("письма: проход запуска №%s — %s", mode_id, said)
+    logger.debug("письма: проход запуска №%s — %s", mode_id, passed.state)

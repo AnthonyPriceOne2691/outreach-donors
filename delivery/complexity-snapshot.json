@@ -862,9 +862,9 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 324,
-      "complexity": 4,
-      "worst": "_own_account:235"
+      "lines": 376,
+      "complexity": 9,
+      "worst": "_weekdays:162"
     },
     "backend/config/sales.py": {
       "lines": 500,
@@ -1171,6 +1171,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/core/country_zones.py": {
+      "lines": 85,
+      "complexity": 2,
+      "worst": "zone_name:80"
+    },
     "backend/features/core/domain.py": {
       "lines": 322,
       "complexity": 0,
@@ -1267,7 +1272,7 @@
       "worst": "ensure_llm_within_cap:224"
     },
     "backend/features/core/window.py": {
-      "lines": 194,
+      "lines": 201,
       "complexity": 4,
       "worst": "zone_of:105"
     },
@@ -1727,14 +1732,24 @@
       "worst": "next_address_note:159"
     },
     "backend/features/letters/autosend.py": {
-      "lines": 335,
-      "complexity": 6,
-      "worst": "state:290"
+      "lines": 365,
+      "complexity": 7,
+      "worst": "run:212"
+    },
+    "backend/features/letters/autosend_alarm.py": {
+      "lines": 89,
+      "complexity": 8,
+      "worst": "see:63"
+    },
+    "backend/features/letters/autosend_window.py": {
+      "lines": 219,
+      "complexity": 8,
+      "worst": "countries:77"
     },
     "backend/features/letters/batch.py": {
-      "lines": 280,
-      "complexity": 9,
-      "worst": "send_queue:173"
+      "lines": 290,
+      "complexity": 11,
+      "worst": "send_queue:180"
     },
     "backend/features/letters/building.py": {
       "lines": 471,
@@ -3462,7 +3477,7 @@
       "worst": "handle:81"
     },
     "backend/workers/send_jobs.py": {
-      "lines": 111,
+      "lines": 112,
       "complexity": 5,
       "worst": "autosend_pass:67"
     },

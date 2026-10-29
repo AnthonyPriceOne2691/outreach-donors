@@ -18,7 +18,7 @@ Anthony выбрал пачку — «вся очередь» (06.10.2026): пи
 пачку снова (`_stop_words`). Без этого «завтра лимит откроется» читалось как
 «завтра уйдут сами» (замечание тест-группы 23.10.2026). Само остальное уходит,
 только если очередь отправляется сама (`autosend.py`, замечание тест-группы
-29.10.2026): её проход — эта же пачка, с паузами ящиков (`Resting`).
+29.10.2026): её проход — эта же пачка, с окном получателя и паузами ящиков (`Paced`).
 
 Связь с почтой оборвалась — ушло ли письмо,
 неизвестно, и слать дальше вслепую нельзя: письмо остаётся «отправляется»
@@ -120,15 +120,22 @@ _ALLOWLIST_MARK = "не в списке разрешённых получате�
 BY_HAND = "Сами письма не уйдут — очередь уходит только по нажатию"
 _AGAIN_TOMORROW = "завтра нажмите «Отправить очередь» ещё раз"
 _AGAIN_LATER = "нажмите «Отправить очередь» снова, когда ящики смогут писать"
+#: Начало остановки, когда почта отказала не письму, а любому (`PlatformRefusalError`).
+EVERYONE_REFUSED = "почта отказала любому письму"
 #: Та же остановка, когда очередь отправляется сама: остальное уйдёт без нажатия.
 BY_ITSELF = "Остальное уйдёт само — очередь отправляется сама"
 _ITSELF_TOMORROW = "продолжит завтра, когда лимит откроется"
 _ITSELF_LATER = "продолжит, когда ящики смогут писать"
 
 
-class Resting(Protocol):
-    """Паузы ящиков у прохода автоотправки (`autosend.Rest`): выбор ящика первого письма их не
-    берёт (`mailbox.resting`), а ящик, отдавший письмо, встаёт на паузу до конца прохода."""
+class Paced(Protocol):
+    """Проход автоотправки (`autosend.Rest`): какие письма очереди брать — у чьих получателей сейчас
+    рабочее время (`only`), — и паузы ящиков: выбор ящика первого письма их не берёт
+    (`mailbox.resting`), а ящик, отдавший письмо, встаёт на паузу до конца прохода."""
+
+    @property
+    def only(self) -> Collection[int]:
+        """Письма очереди, которые проход может слать сейчас."""
 
     def boxes(self) -> Collection[int]:
         """Ящики на паузе сейчас."""
@@ -178,29 +185,32 @@ async def send_queue(
     author_id: int | None = None,
     limit: int = BATCH_MAX,
     audience: str = LINKS,
-    rest: Resting | None = None,
     automatic: bool = False,
+    paced: Paced | None = None,
 ) -> BatchReport:
     """Отправить очередь этапа и аудитории по одному письму, пока у ящиков есть лимит.
 
-    `rest` — паузы ящиков прохода автоотправки: с ящика — письмо за пачку. `automatic` — очередь
-    отправляется сама (`autosend.py`): остановка на лимите говорит, что остальное уйдёт само."""
+    `automatic` — очередь отправляется сама (`autosend.py`): остановка на лимите говорит, что
+    остальное уйдёт само. `paced` — проход автоотправки: только письма в окне получателя, по
+    порядку очереди, и с ящика — письмо за проход (`Paced`)."""
     repository = LetterRepository(session)
     queued = await repository.queued(stage=stage, audience=audience, limit=limit)
-    ids = [row.message.id for row in queued]
+    ids = [row.message.id for row in queued if paced is None or row.message.id in paced.only]
     sending = Sending(session, transports)
     report = BatchReport()
     for letter_id in ids:
         sent = report.sent
-        with mailbox.resting(() if rest is None else rest.boxes()):
-            stop = await _send_one(sending, letter_id, author_id, report, automatic)
+        with mailbox.resting(() if paced is None else paced.boxes()):
+            stop = await _send_one(
+                sending, letter_id, author_id, report, automatic or paced is not None
+            )
         if stop is not None:
             report.stopped = stop
             break
-        if rest is not None and report.sent > sent:
+        if paced is not None and report.sent > sent:
             letter = await session.get(MessageModel, letter_id)
             if letter is not None and letter.sender_id is not None:
-                rest.took(letter.sender_id, letter_id)
+                paced.took(letter.sender_id, letter_id)
     # Вся очередь этапа и аудитории, а не её первые `limit`: остальное возьмёт следующая
     # пачка той же вкладки.
     report.left = await repository.queued_count(stage=stage, audience=audience)
@@ -273,7 +283,7 @@ def _refused_all(letter_id: int, refusal: PlatformRefusalError) -> str:
     """Почта отказала любому письму: причина остановки пачки словами, без ключа и адреса."""
     logger.warning("письма: пачка встала на письме №%s — %s", letter_id, refusal.reason)
     return (
-        f"почта отказала любому письму — {refusal.reason}: письмо №{letter_id} и остальные "
+        f"{EVERYONE_REFUSED} — {refusal.reason}: письмо №{letter_id} и остальные "
         "остались в очереди. Следующему письму ответ был бы тем же; пачку — заново, когда "
         "причина уйдёт"
     )

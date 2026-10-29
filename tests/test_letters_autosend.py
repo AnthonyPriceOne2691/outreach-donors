@@ -10,22 +10,32 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 
 import pytest
 from backend.config import outreach as outreach_cfg
 from backend.features.core.domain import AuditAction, MessageStatus, Stage, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
+from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import MessageModel, QueueAutosendModel
-from backend.features.letters import autosend, batch
+from backend.features.letters import autosend, autosend_window, batch
 from backend.features.letters.transport import NullTransport
 from backend.workers import send_jobs
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.conftest import make_sender
 from tests.test_letters_send_queue import RefusingAll, Silent, _Closable, _queue
 
 MakeUser = Callable[..., Awaitable[UserModel]]
+
+
+@pytest.fixture(autouse=True)
+def _always_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Окно получателя у прохода — круглые сутки всю неделю: проверки здесь — не об окне (о нём —
+    `TestTheWindow`), и время прогона тестов не должно их решать."""
+    monkeypatch.setattr(outreach_cfg, "AUTOSEND_DAYS", frozenset(range(7)))
+    monkeypatch.setattr(outreach_cfg, "AUTOSEND_OPENS", time.min)
+    monkeypatch.setattr(outreach_cfg, "AUTOSEND_CLOSES", time.max)
 
 
 def _now() -> datetime:
@@ -55,11 +65,11 @@ class TestThePass:
         await session.commit()
         mode = await _started(session)
 
-        first = await autosend.run(session, NullTransport(), mode, now=_now())
-        again = await autosend.run(session, NullTransport(), mode, now=_now())
-        later = await autosend.run(
-            session, NullTransport(), mode, now=_now() + autosend.gap() * 1.6
-        )
+        first = (await autosend.run(session, NullTransport(), mode, now=_now())).state
+        again = (await autosend.run(session, NullTransport(), mode, now=_now())).state
+        later = (
+            await autosend.run(session, NullTransport(), mode, now=_now() + autosend.gap() * 1.6)
+        ).state
 
         assert first.startswith("ушло 2. ящики на паузе между письмами — ближайший освободится в")
         # Свободного ящика нет — очередь не перебирается, сказано, когда освободится первый.
@@ -77,8 +87,8 @@ class TestThePass:
         await _queue(session, 1)
         mode = await _started(session)
 
-        sent = await autosend.run(session, NullTransport(), mode, now=_now())
-        empty = await autosend.run(session, NullTransport(), mode, now=_now())
+        sent = (await autosend.run(session, NullTransport(), mode, now=_now())).state
+        empty = (await autosend.run(session, NullTransport(), mode, now=_now())).state
 
         assert sent.startswith("ушло 1")
         assert empty == autosend.EMPTY
@@ -92,7 +102,7 @@ class TestThePass:
         await _queue(session, 2)
         mode = await _started(session)
 
-        said = await autosend.run(session, RefusingAll(), mode, now=_now())
+        said = (await autosend.run(session, RefusingAll(), mode, now=_now())).state
 
         assert "почта отказала любому письму" in said
         assert mode.stopped_at is None
@@ -106,8 +116,8 @@ class TestThePass:
         await _queue(session, 2)
         mode = await _started(session)
 
-        broken = await autosend.run(session, Silent(), mode, now=_now())
-        held = await autosend.run(session, NullTransport(), mode, now=_now())
+        broken = (await autosend.run(session, Silent(), mode, now=_now())).state
+        held = (await autosend.run(session, NullTransport(), mode, now=_now())).state
 
         assert "связь с почтой оборвалась" in broken
         assert mode.unsure_id is not None
@@ -121,7 +131,9 @@ class TestThePass:
         mode = await _started(session)
 
         await autosend.run(session, NullTransport(), mode, now=_now())
-        said = await autosend.run(session, NullTransport(), mode, now=_now() + autosend.gap() * 1.6)
+        said = (
+            await autosend.run(session, NullTransport(), mode, now=_now() + autosend.gap() * 1.6)
+        ).state
 
         assert said.startswith("Сегодня писать некому")
         assert f"{batch.BY_ITSELF}: продолжит завтра, когда лимит откроется" in said
@@ -293,3 +305,73 @@ def test_the_pause_of_a_box_stays_within_the_spread() -> None:
     assert len(pauses) > 1
     assert all(autosend.gap() * 0.5 <= pause <= autosend.gap() * 1.5 for pause in pauses)
     assert autosend.pause_of(1, 7) == autosend.pause_of(1, 7)
+
+
+#: Среда, 12:00 UTC: в Нью-Йорке 07:00 — до окна, в Берлине 13:00 — в окне.
+WEDNESDAY_NOON = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
+
+
+def _office_hours(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Окно по умолчанию: пн–пт 09:00–18:00 по часам получателя."""
+    monkeypatch.setattr(outreach_cfg, "AUTOSEND_DAYS", frozenset(range(5)))
+    monkeypatch.setattr(outreach_cfg, "AUTOSEND_OPENS", time(9))
+    monkeypatch.setattr(outreach_cfg, "AUTOSEND_CLOSES", time(18))
+
+
+async def _donor_in(session: AsyncSession, country: str | None) -> None:
+    await session.execute(update(DonorModel).values(geo=country))
+    await session.commit()
+
+
+class TestTheWindow:
+    async def test_the_pass_waits_for_the_recipients_office_hours(
+        self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Донор из США: в 12:00 UTC у него 07:00 — проход ждёт и говорит, когда откроется окно;
+        в 15:00 UTC у него 10:00 — письмо уходит. Кнопка окна не ждёт — она здесь не участвует."""
+        _office_hours(monkeypatch)
+        await _queue(session, 1)
+        await _donor_in(session, "us")
+        mode = await _started(session)
+
+        early = await autosend.run(session, NullTransport(), mode, now=WEDNESDAY_NOON)
+        statuses = await _statuses(session)
+        late = await autosend.run(
+            session, NullTransport(), mode, now=WEDNESDAY_NOON + timedelta(hours=3)
+        )
+
+        assert early.state == (
+            "ждёт рабочего времени получателей — ближайшее откроется в 09:00 по их времени "
+            "(ср 04.11, America/New_York)"
+        )
+        assert early.stall is None
+        assert statuses == [MessageStatus.QUEUED]
+        assert late.state.startswith("ушло 1")
+
+    async def test_unknown_country_falls_back_to_the_spare_zone(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        letters = await _queue(session, 1)
+        await _donor_in(session, None)
+
+        unknown = await autosend_window.zones(session, [letters[0].id])
+        await _donor_in(session, "bg")
+        known = await autosend_window.zones(session, [letters[0].id])
+
+        assert unknown[letters[0].id].key == outreach_cfg.AUTOSEND_ZONE
+        assert known[letters[0].id].key == "Europe/Sofia"
+
+
+def test_the_country_order_of_each_audience() -> None:
+    """Донор — страна его трафика, затем рынок прогона; рекламодатель по ссылке — страна донора, где
+    нашли ссылку, затем рынок прогона; бизнес ниши — рынок прогона, затем страна донора-примера."""
+    places = autosend_window._Places(
+        traffic={1: "us"},
+        found={2: ("donor.example.test", 7)},
+        hosts={"donor.example.test": "es"},
+        markets={5: "de", 7: "it"},
+    )
+
+    assert places.countries(Stage.DONORS, "links", 1, 5) == ["us", "de"]
+    assert places.countries(Stage.ADVERTISERS, "links", 2, None) == ["es", "it"]
+    assert places.countries(Stage.ADVERTISERS, "niche", 2, None) == ["it", "es"]
