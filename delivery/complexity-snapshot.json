@@ -1732,9 +1732,9 @@
       "worst": "next_address_note:159"
     },
     "backend/features/letters/autosend.py": {
-      "lines": 365,
+      "lines": 369,
       "complexity": 7,
-      "worst": "run:212"
+      "worst": "run:216"
     },
     "backend/features/letters/autosend_alarm.py": {
       "lines": 89,
@@ -3477,9 +3477,9 @@
       "worst": "handle:81"
     },
     "backend/workers/send_jobs.py": {
-      "lines": 112,
+      "lines": 117,
       "complexity": 5,
-      "worst": "autosend_pass:67"
+      "worst": "autosend_pass:68"
     },
     "backend/workers/ticker.py": {
       "lines": 69,

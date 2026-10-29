@@ -18,7 +18,7 @@ from backend.features.core.domain import AuditAction, MessageStatus, Stage, User
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import MessageModel, QueueAutosendModel
-from backend.features.letters import autosend, autosend_window, batch
+from backend.features.letters import autosend, autosend_alarm, autosend_window, batch
 from backend.features.letters.transport import NullTransport
 from backend.workers import send_jobs
 from sqlalchemy import func, select, update
@@ -375,3 +375,104 @@ def test_the_country_order_of_each_audience() -> None:
     assert places.countries(Stage.DONORS, "links", 1, 5) == ["us", "de"]
     assert places.countries(Stage.ADVERTISERS, "links", 2, None) == ["es", "it"]
     assert places.countries(Stage.ADVERTISERS, "niche", 2, None) == ["it", "es"]
+
+
+class TestTheStall:
+    async def test_refusing_everything_and_an_unknown_outcome_stall_the_pass(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        await _queue(session, 2)
+        mode = await _started(session)
+
+        refused = await autosend.run(session, RefusingAll(), mode, now=_now())
+        broken = await autosend.run(session, Silent(), mode, now=_now())
+        held = await autosend.run(session, NullTransport(), mode, now=_now())
+
+        assert refused.stall is not None
+        assert broken.stall is not None
+        assert held.stall == held.state
+
+    async def test_a_spent_cap_and_resting_boxes_are_no_stall(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        await _queue(session, 3, cap=1)
+        mode = await _started(session)
+
+        sent = await autosend.run(session, NullTransport(), mode, now=_now())
+        resting = await autosend.run(session, NullTransport(), mode, now=_now())
+        spent = await autosend.run(
+            session, NullTransport(), mode, now=_now() + autosend.gap() * 1.6
+        )
+
+        assert (sent.stall, resting.stall, spent.stall) == (None, None, None)
+
+
+class TestTheAlarm:
+    @pytest.fixture
+    def said(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        told: list[str] = []
+
+        async def alert(text: str) -> bool:
+            told.append(text)
+            return True
+
+        monkeypatch.setattr(autosend_alarm, "send_alert", alert)
+        return told
+
+    async def test_one_alarm_after_fifteen_minutes_and_one_all_clear(self, said: list[str]) -> None:
+        watch = autosend_alarm.Watch()
+        stall = "почта отказала любому письму — ключ платформы не принят (401)"
+        title = autosend_alarm.title_of(Stage.DONORS, "links")
+
+        for minutes in (0, 10, 15, 20):
+            await watch.see(1, title, stall, WEDNESDAY_NOON + timedelta(minutes=minutes))
+        for minutes in (21, 22):
+            await watch.see(1, title, None, WEDNESDAY_NOON + timedelta(minutes=minutes))
+
+        assert said == [
+            f"тревога: очередь писем донорам не уходит сама дольше 15 минут — {stall}",
+            f"прошло: очередь писем донорам снова уходит сама (стояла: {stall})",
+        ]
+
+    async def test_a_pass_by_design_restarts_the_count(self, said: list[str]) -> None:
+        """Ушло письмо или ящики на паузе — счёт сначала: тревоги нет и через 20 минут с первой
+        остановки."""
+        watch = autosend_alarm.Watch()
+        title = autosend_alarm.title_of(Stage.ADVERTISERS, "niche")
+
+        await watch.see(1, title, "исход неизвестен", WEDNESDAY_NOON)
+        await watch.see(1, title, None, WEDNESDAY_NOON + timedelta(minutes=10))
+        for minutes in (12, 20):
+            await watch.see(
+                1, title, "исход неизвестен", WEDNESDAY_NOON + timedelta(minutes=minutes)
+            )
+
+        assert said == []
+        assert title == "очередь писем бизнесам ниши"
+
+    async def test_the_worker_tells_the_alarm_a_failing_pass(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        monkeypatch: pytest.MonkeyPatch,
+        said: list[str],
+    ) -> None:
+        await _queue(session, 1)
+        mode = await _started(session)
+        mode_id = mode.id
+        TestTheWorkerPass._wired(TestTheWorkerPass(), session, monkeypatch)
+        seen: list[tuple[int, str | None]] = []
+
+        class Seen(autosend_alarm.Watch):
+            async def see(self, launch: int, title: str, stall: str | None, now: datetime) -> None:
+                seen.append((launch, stall))
+
+        async def boom(*_args: object, **_kw: object) -> autosend.Passed:
+            raise RuntimeError("база не ответила")
+
+        monkeypatch.setattr(autosend_alarm, "WATCH", Seen())
+        monkeypatch.setattr(autosend, "run", boom)
+
+        await send_jobs.autosend_pass()
+
+        assert seen == [(mode_id, "проход падает — база не ответила")]

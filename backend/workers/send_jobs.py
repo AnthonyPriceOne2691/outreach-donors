@@ -27,9 +27,10 @@ from backend.config.startup_checks import check_storage
 from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import QueueAutosendModel
 from backend.features.crawl.niche import LINKS
-from backend.features.letters import autosend
+from backend.features.letters import autosend, autosend_alarm
 from backend.features.letters.batch import send_queue
 from backend.features.letters.transport_factory import Transports, in_use
+from backend.features.runs.reasons import explained
 from backend.shared.logs import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ async def autosend_pass() -> None:
     try:
         async with factory() as session:
             ids = [mode.id for mode in await autosend.every_running(session)]
+        autosend_alarm.WATCH.keep(ids)
         if not ids:
             return
         async with in_use(Transports()) as transports:
@@ -95,11 +97,12 @@ async def _launch_pass(session: AsyncSession, transports: Transports, mode_id: i
     # Слова строки журнала — до прохода: откат истекает объект, а дочитывать его после сбоя
     # значит снова идти в базу, которая, может быть, и упала.
     stage, audience = mode.stage.value, mode.audience
+    title = autosend_alarm.title_of(mode.stage, audience)
     now = datetime.now(UTC)
     try:
         passed = await autosend.run(session, transports, mode, now=now)
         await session.commit()
-    except Exception:
+    except Exception as exc:
         await session.rollback()
         logger.exception(
             "письма: проход запуска №%s (этап %s, %s) упал — следующие запуски идут своим чередом",
@@ -107,5 +110,7 @@ async def _launch_pass(session: AsyncSession, transports: Transports, mode_id: i
             stage,
             audience,
         )
+        await autosend_alarm.WATCH.see(mode_id, title, f"проход падает — {explained(exc)}", now)
         return
+    await autosend_alarm.WATCH.see(mode_id, title, passed.stall, now)
     logger.debug("письма: проход запуска №%s — %s", mode_id, passed.state)
