@@ -57,9 +57,9 @@
       "worst": "to_settings:58"
     },
     "backend/api/app.py": {
-      "lines": 106,
+      "lines": 119,
       "complexity": 1,
-      "worst": "create_app:51"
+      "worst": "_lifespan:56"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -147,9 +147,9 @@
       "worst": "of:236"
     },
     "backend/api/errors.py": {
-      "lines": 498,
+      "lines": 500,
       "complexity": 7,
-      "worst": "_database_code:311"
+      "worst": "_database_code:313"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -521,15 +521,20 @@
       "complexity": 9,
       "worst": "of:104"
     },
+    "backend/api/settings/llm_cap_schemas.py": {
+      "lines": 183,
+      "complexity": 12,
+      "worst": "llm_caps_card:136"
+    },
     "backend/api/settings/routes.py": {
-      "lines": 318,
+      "lines": 368,
       "complexity": 5,
-      "worst": "_serp_balance:289"
+      "worst": "_serp_balance:339"
     },
     "backend/api/settings/schemas.py": {
-      "lines": 386,
+      "lines": 391,
       "complexity": 6,
-      "worst": "of:311"
+      "worst": "of:314"
     },
     "backend/api/stage_access.py": {
       "lines": 139,
@@ -917,9 +922,9 @@
       "worst": "verify_password:43"
     },
     "backend/features/access/permissions.py": {
-      "lines": 182,
+      "lines": 183,
       "complexity": 4,
-      "worst": "has_permission:136"
+      "worst": "has_permission:137"
     },
     "backend/features/access/repository.py": {
       "lines": 243,
@@ -957,7 +962,7 @@
       "worst": "reject_draft:253"
     },
     "backend/features/agent/guarding.py": {
-      "lines": 260,
+      "lines": 268,
       "complexity": 8,
       "worst": "compose:64"
     },
@@ -1162,17 +1167,22 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 322,
+      "lines": 328,
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/core/llm_caps.py": {
+      "lines": 352,
+      "complexity": 8,
+      "worst": "refusal:214"
+    },
     "backend/features/core/models/__init__.py": {
-      "lines": 100,
+      "lines": 102,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/core/models/_mixins.py": {
-      "lines": 65,
+      "lines": 81,
       "complexity": 2,
       "worst": "sql_enum:16"
     },
@@ -1222,9 +1232,9 @@
       "worst": "—"
     },
     "backend/features/core/models/ops.py": {
-      "lines": 170,
+      "lines": 197,
       "complexity": 2,
-      "worst": "holds:157"
+      "worst": "holds:184"
     },
     "backend/features/core/models/outgoing_attachment.py": {
       "lines": 64,
@@ -1252,9 +1262,9 @@
       "worst": "check_connected:131"
     },
     "backend/features/core/usage.py": {
-      "lines": 308,
-      "complexity": 10,
-      "worst": "ensure_llm_within_cap:224"
+      "lines": 413,
+      "complexity": 8,
+      "worst": "ensure_llm_within_cap:279"
     },
     "backend/features/core/window.py": {
       "lines": 194,
@@ -2292,9 +2302,9 @@
       "worst": "_words:104"
     },
     "backend/features/runs/competitor_estimate.py": {
-      "lines": 190,
-      "complexity": 8,
-      "worst": "judge_tokens_from:97"
+      "lines": 201,
+      "complexity": 10,
+      "worst": "llm_refusal:127"
     },
     "backend/features/runs/competitor_hosts.py": {
       "lines": 180,

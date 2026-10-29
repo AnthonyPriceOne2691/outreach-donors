@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from backend.api.settings.cap_schemas import AhrefsKeyCard
+from backend.api.settings.llm_cap_schemas import LlmCapsCard
 from backend.features.core.domain import Stage, UsageProvider
 from backend.features.core.models.run import RunSettingsModel
 from backend.features.crawl.selection_settings import InForce, Number
@@ -306,6 +307,8 @@ class SpendingView(BaseModel):
     #: Разбивка по этапам (требование ТЗ): этапы с тратами, трата без этапа — последней.
     stages: list[StageCard] = Field(default_factory=list)
     crawl: CrawlSpendCard = Field(default_factory=CrawlSpendCard)
+    #: Дневные потолки модели: общий и свои — действующий, потрачено, осталось, сброс, смены.
+    llm_caps: LlmCapsCard | None = None
 
     @classmethod
     def of(
@@ -318,6 +321,7 @@ class SpendingView(BaseModel):
         serp_balance: tuple[Decimal | None, str | None] = (None, None),
         sales_hidden: bool = False,
         crawl: CrawlSpendCard | None = None,
+        llm_caps: LlmCapsCard | None = None,
     ) -> SpendingView:
         """Остатки у провайдеров — парами «число или почему его нет»: ответ провайдера
         приходит одним из двух, и пара не даёт передать оба или ни одного по ошибке."""
@@ -343,6 +347,7 @@ class SpendingView(BaseModel):
             serp_spent_by_us=spending.amount_by_provider.get(UsageProvider.SERP, Decimal(0)),
             serp_left_error=serp_left_error,
             sales_hidden=sales_hidden,
+            llm_caps=llm_caps,
         )
 
 
