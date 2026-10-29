@@ -260,6 +260,9 @@ class AuditAction(StrEnum):
     # Месячный кап юнитов Ahrefs сменён на экране «Расход»: было → стало. Кап держит
     # деньги на ключе, общем с соседней системой, — по журналу видно, кто его поднял.
     AHREFS_CAP_CHANGED = "ahrefs_cap_changed"
+    # Очередь загрузки обхода снята: доноры, загруженные списком, в обход больше не пойдут
+    # (`crawl/backlog.py`). По журналу видно, кто снял и сколько обходов вперёд.
+    CRAWL_BACKLOG_DROPPED = "crawl_backlog_dropped"
 
 
 class UsageProvider(StrEnum):

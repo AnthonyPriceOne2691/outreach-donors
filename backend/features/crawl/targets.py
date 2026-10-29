@@ -66,14 +66,15 @@ class Targets:
 async def choose(
     session: AsyncSession,
     *,
-    limit: int = 10,
+    limit: int | None = 10,
     ttl_days: int = cfg.PRICE_TTL_DAYS,
     now: datetime | None = None,
 ) -> Targets:
     """Доноры, по которым можно искать рекламодателей: принятые человеком — то же условие,
     что у экрана «Доноры» (`is_donor`), — и годные по порогам. Одно «подходит» звало в
     обход и отклонённого с ценой (проверка QA 10.10.2026). Порядок — по свежести цены:
-    у самых свежих оффер «мы дешевле» опирается на самое надёжное число.
+    у самых свежих оффер «мы дешевле» опирается на самое надёжное число. `limit=None` — к обходу
+    все: очередь загрузки (`backlog.py`) сверяет с отбором тысячи загруженных.
     """
     moment = now or datetime.now(UTC)
     border = moment - timedelta(days=ttl_days)
@@ -101,7 +102,7 @@ async def choose(
             targets.no_price.append(host)
         elif priced_at < border:
             targets.stale_price.append(host)
-        elif len(targets.hosts) < limit:
+        elif limit is None or len(targets.hosts) < limit:
             targets.hosts.append(host)
 
     logger.info("обход: отбор доноров — %s", targets.as_dict())

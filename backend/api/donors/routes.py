@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import actor, db_session, needs
+from backend.api.donors import bulk
 from backend.api.donors.schemas import (
     DonorFullCard,
     DonorPageQuery,
@@ -47,6 +48,8 @@ from backend.features.donors.manual_price import enter_host, price_donor
 from backend.features.donors.standing import waiting
 
 router = APIRouter(prefix="/donors", tags=["доноры"])
+# Доноры списком — первыми: `/{donor_id}/price` поймал бы «/import/preview» номером донора.
+router.include_router(bulk.router)
 
 _viewer = Depends(needs(Permission.VIEW))
 _runner = Depends(needs(Permission.RUN))

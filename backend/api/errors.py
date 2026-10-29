@@ -60,6 +60,7 @@ from backend.features.contacts.repository import SearchRefusedError
 from backend.features.core.stages import SalesNotConnectedError
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.crawl.niche import UnknownNicheAdvertiserError, UnknownNicheRunError
+from backend.features.donors.bulk_file import BulkFileError
 from backend.features.donors.export import PickRefusedError
 from backend.features.donors.manual_price import DonorRefusedError, ManualPriceError
 from backend.features.donors.standing import UnknownDonorError
@@ -222,6 +223,7 @@ STATUSES: dict[type[Exception], int] = {
     # поставщик, отклонён, ждёт решения в очереди, не прошёл пороги — состояние.
     ManualPriceError: status.HTTP_400_BAD_REQUEST,
     DonorRefusedError: status.HTTP_409_CONFLICT,
+    BulkFileError: status.HTTP_400_BAD_REQUEST,  # доноры списком: файл не прочитать — запрос
     # Стоп-лист: уже там, такого нет, снятие отписки без причины.
     # Всё это про состояние списка и про то, что человек чинит сам.
     StopListError: status.HTTP_409_CONFLICT,

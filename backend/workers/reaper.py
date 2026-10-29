@@ -24,6 +24,10 @@
 с моделью: процесс живёт в тесном пределе памяти, и сломанный импорт выключенного прохода ронял
 бы каждый его цикл.
 
+Шестой — очередь загрузки обхода (`features/crawl/backlog.feed`): доноров, загруженных списком,
+он отдаёт обходчикам по мере того, как те освобождаются. Своего процесса ему не нужно — запрос
+к базе и постановка раз в минуту.
+
 Неудачи трёх проходов продаж — тревога продаж, а не здоровье процесса (`features/sales/loops.own`):
 иначе сломанная автосборка делала бы «нездоровым» процесс, где живёт сторож тишины. Зависший
 проход продаж по-прежнему виден по отметке своего цикла. Память циклов продаж — тоже модуль
@@ -43,6 +47,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import sales as sales_cfg
 from backend.config import storage
 from backend.config.startup_checks import check_storage
+from backend.features.crawl import backlog as crawl_backlog
 from backend.features.crawl.lifecycle import recover as recover_crawls
 from backend.features.ops import silence
 from backend.features.ops.alarm_feed import Feed
@@ -54,12 +59,15 @@ from backend.features.runs.lifecycle import Recovery, recover
 from backend.features.runs.repository import RunRepository
 from backend.shared.logs import setup_logging
 from backend.shared.queue import (
+    CRAWL_QUEUE_NAME,
     RUN_JOB,
     RUN_JOB_TIMEOUT,
+    crawl_job_id,
     enqueue_crawl,
     job_alive,
     job_failure,
     runs_queue,
+    workers_alive,
 )
 from backend.workers.ticker import Pass, every
 
@@ -137,6 +145,10 @@ class Providers:
         отвечает» ленте снимает только свежий опрос (`Feed.tell(…, unseen=…)`, ревью #337)."""
         return frozenset({silence.PROVIDERS_ALARM}) if self.stale else frozenset()
 
+
+#: Очередь загрузки обхода — раз в минуту: обход донора идёт до часа, а место у обходчика
+#: освобождается в любую минуту.
+BACKLOG_INTERVAL_SEC = 60.0
 
 #: Опрос провайдеров фонового сторожа — с ответом между опросами.
 PROVIDERS = Providers()
@@ -230,6 +242,27 @@ async def watch() -> None:
         await engine.dispose()
 
 
+async def feed_backlog() -> None:
+    """Проход очереди загрузки: свободным обходчикам — доноров, загруженных списком.
+
+    Обходчиков не знаем (очередь не ответила) или их нет — проход пропускается: поставить
+    некому, а постановка завела бы строки обходов, которых никто не возьмёт.
+    """
+    workers = await asyncio.to_thread(workers_alive, queue=CRAWL_QUEUE_NAME)
+    if not workers:
+        return
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            await crawl_backlog.feed(
+                session, workers=workers, enqueue=enqueue_crawl, job_id=crawl_job_id
+            )
+            await session.commit()
+    finally:
+        await engine.dispose()
+
+
 async def retry_handoffs() -> None:
     """Проход повторов передачи лидов продаж. Импорт модуля продаж — здесь, а не при
     загрузке процесса: упадёт он — упадёт этот цикл, а не весь разбор."""
@@ -281,6 +314,7 @@ async def _loops() -> None:
     await asyncio.gather(
         every(POLL_INTERVAL_SEC, sweep, name="Разбор мёртвых прогонов"),
         every(WATCHDOG_INTERVAL_SEC, watch, name="Сторож тишины"),
+        every(BACKLOG_INTERVAL_SEC, feed_backlog, name="Очередь загрузки обхода"),
         _sales_loop(sales_cfg.HANDOFF_PASS_SEC, retry_handoffs, "Повтор передачи лидов продаж"),
         _sales_loop(sales_cfg.AUTOSEND_PASS_SEC, autosend, "Автоотправка писем продаж"),
         _sales_loop(sales_cfg.AUTOBUILD_PASS_SEC, autobuild, "Автосборка очереди продаж"),

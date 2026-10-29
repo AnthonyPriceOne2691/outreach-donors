@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import insert, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -234,6 +234,23 @@ class AccessRepository:
                 details=details,
             )
         )
+
+    async def record_many(
+        self,
+        action: AuditAction,
+        events: Sequence[tuple[int | None, str | None, dict[str, Any] | None]],
+    ) -> None:
+        """Много событий одного вида — одной вставкой: (автор, на что, подробности). Загрузка
+        доноров списком пишет строку журнала о цене каждому донору (`donors/bulk_entry.py`), их
+        до десяти тысяч — объект на событие стоил бы секунды. Без коммита, как `record`."""
+        if events:
+            await self._session.execute(
+                insert(AuditLogModel),
+                [
+                    {"user_id": author, "action": action, "target": target, "details": details}
+                    for author, target, details in events
+                ],
+            )
 
     async def journal(self, *, limit: int = 100) -> Sequence[AuditLogModel]:
         rows = await self._session.execute(

@@ -117,9 +117,9 @@
       "worst": "—"
     },
     "backend/api/crawls/routes.py": {
-      "lines": 150,
+      "lines": 151,
       "complexity": 9,
-      "worst": "_why_not:99"
+      "worst": "_why_not:100"
     },
     "backend/api/crawls/schemas.py": {
       "lines": 184,
@@ -136,10 +136,15 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/api/donors/bulk.py": {
+      "lines": 195,
+      "complexity": 3,
+      "worst": "enter_list:161"
+    },
     "backend/api/donors/routes.py": {
-      "lines": 184,
+      "lines": 187,
       "complexity": 2,
-      "worst": "_file:121"
+      "worst": "_file:124"
     },
     "backend/api/donors/schemas.py": {
       "lines": 492,
@@ -147,9 +152,9 @@
       "worst": "of:236"
     },
     "backend/api/errors.py": {
-      "lines": 498,
+      "lines": 500,
       "complexity": 7,
-      "worst": "_database_code:311"
+      "worst": "_database_code:313"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -922,7 +927,7 @@
       "worst": "has_permission:136"
     },
     "backend/features/access/repository.py": {
-      "lines": 243,
+      "lines": 260,
       "complexity": 7,
       "worst": "update_access:168"
     },
@@ -1147,7 +1152,7 @@
       "worst": "records:56"
     },
     "backend/features/contacts/sweep_input.py": {
-      "lines": 224,
+      "lines": 233,
       "complexity": 9,
       "worst": "_is_domain:93"
     },
@@ -1162,12 +1167,12 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 322,
+      "lines": 325,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 100,
+      "lines": 101,
       "complexity": 0,
       "worst": "—"
     },
@@ -1202,7 +1207,7 @@
       "worst": "—"
     },
     "backend/features/core/models/crawl.py": {
-      "lines": 141,
+      "lines": 162,
       "complexity": 0,
       "worst": "—"
     },
@@ -1305,6 +1310,11 @@
       "lines": 316,
       "complexity": 9,
       "worst": "strip_structural_noise:176"
+    },
+    "backend/features/crawl/backlog.py": {
+      "lines": 213,
+      "complexity": 10,
+      "worst": "feed:132"
     },
     "backend/features/crawl/big_sites.py": {
       "lines": 184,
@@ -1487,8 +1497,8 @@
       "worst": "supplier_hosts:39"
     },
     "backend/features/crawl/targets.py": {
-      "lines": 143,
-      "complexity": 8,
+      "lines": 144,
+      "complexity": 9,
       "worst": "choose:66"
     },
     "backend/features/crawl/topic.py": {
@@ -1520,6 +1530,16 @@
       "lines": 479,
       "complexity": 7,
       "worst": "picked:289"
+    },
+    "backend/features/donors/bulk_entry.py": {
+      "lines": 344,
+      "complexity": 12,
+      "worst": "enter_many:138"
+    },
+    "backend/features/donors/bulk_file.py": {
+      "lines": 230,
+      "complexity": 13,
+      "worst": "_columns:207"
     },
     "backend/features/donors/collect.py": {
       "lines": 389,
@@ -1572,13 +1592,18 @@
       "worst": "judge_candidates:427"
     },
     "backend/features/donors/manual_price.py": {
-      "lines": 450,
+      "lines": 414,
       "complexity": 9,
-      "worst": "typed_payment:185"
+      "worst": "typed_payment:190"
+    },
+    "backend/features/donors/manual_record.py": {
+      "lines": 113,
+      "complexity": 5,
+      "worst": "price_details:85"
     },
     "backend/features/donors/price.py": {
-      "lines": 175,
-      "complexity": 5,
+      "lines": 176,
+      "complexity": 6,
       "worst": "said_later:93"
     },
     "backend/features/donors/price_freshness.py": {
@@ -1587,9 +1612,9 @@
       "worst": "price_is:50"
     },
     "backend/features/donors/price_refusal.py": {
-      "lines": 141,
-      "complexity": 7,
-      "worst": "refusal_for:73"
+      "lines": 199,
+      "complexity": 10,
+      "worst": "refusals_for:94"
     },
     "backend/features/donors/probe.py": {
       "lines": 339,
@@ -1627,9 +1652,9 @@
       "worst": "index_homes:47"
     },
     "backend/features/donors/standing.py": {
-      "lines": 131,
+      "lines": 143,
       "complexity": 3,
-      "worst": "waiting:70"
+      "worst": "waiting:71"
     },
     "backend/features/donors/table_filters.py": {
       "lines": 268,
@@ -2062,7 +2087,7 @@
       "worst": "—"
     },
     "backend/features/replies/attachment_formats.py": {
-      "lines": 474,
+      "lines": 482,
       "complexity": 7,
       "worst": "_pdf:139"
     },
@@ -3432,9 +3457,9 @@
       "worst": "main:52"
     },
     "backend/workers/reaper.py": {
-      "lines": 298,
+      "lines": 332,
       "complexity": 4,
-      "worst": "_told:193"
+      "worst": "_told:205"
     },
     "backend/workers/run_job.py": {
       "lines": 184,
