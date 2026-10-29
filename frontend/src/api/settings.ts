@@ -9,6 +9,7 @@ import type {
   WatchdogView,
 } from './types';
 import { request } from './client';
+import type { LlmCaps } from './llmCaps';
 import type { Stage } from './stages';
 
 /** Статья расхода с этапом: одна операция у двух этапов — две статьи (DR кандидатов
@@ -99,6 +100,8 @@ export interface UsageView extends Omit<SpendingView, 'articles'> {
   stages: StageSpending[];
   crawl: CrawlSpend;
   ahrefs_key: AhrefsKey;
+  /** Дневные потолки модели: общий и свои, разбивка сегодняшнего расхода, сброс. */
+  llm_caps: LlmCaps | null;
 }
 
 /** Тревога сторожа с этапом, о почте которого она: `null` — общая тревога (П2б). */

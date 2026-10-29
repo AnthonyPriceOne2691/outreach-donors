@@ -40,10 +40,19 @@ from backend.config import llm, outreach
 from backend.features.core import usage
 from backend.features.sales.usage_cap import sales_cap
 
-# Журнал расхода, где за день не потрачено ничего: годный потолок вызов пропускает.
+# Журнал расхода, где за день не потрачено ничего, а на экране «Расход» потолков не меняли:
+# годный потолок вызов пропускает.
+class NoRows:
+    def first(self):
+        return None
+
+
 class NothingSpent:
     async def scalar(self, _statement):
         return 0
+
+    async def execute(self, _statement):
+        return NoRows()
 
 
 print(llm.SALES_DAILY_TOKEN_CAP, sorted(llm.UNREAD_CAPS), llm.DAILY_TOKEN_CAP)

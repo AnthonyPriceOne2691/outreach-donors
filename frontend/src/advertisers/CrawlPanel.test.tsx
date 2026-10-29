@@ -18,6 +18,7 @@ import { ADMIN, NO_NICHE, OPERATOR, PROMOTE_ROUTES, TOKEN_KEY } from '../test/fi
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import { closedShare, crawlState, failureShare } from './CrawlTable';
+import { heldWords } from './crawlWords';
 import { enteredSummary } from './ManualDonor';
 import { againRows } from './RecentCrawls';
 
@@ -144,6 +145,26 @@ describe('обход доноров', () => {
     expect(alert).toHaveTextContent('служба обхода не запущена');
     expect(alert).toHaveTextContent('Запустить её может администратор сервиса');
     expect(alert).not.toHaveTextContent(/docker|compose|crawler/);
+  });
+
+  it('машина занята — сколько обходчиков ждут и почему, словами сервера', async () => {
+    const reason = 'нагрузка 0,93 на ядро при пороге 0,80';
+    open({
+      'GET /api/crawls/targets': {
+        body: { ...TARGETS, workers: 16, held: 2, held_reason: reason },
+      },
+    });
+
+    const alert = (await screen.findByText('Машина занята')).closest('[role="alert"]')!;
+    expect(alert).toHaveTextContent(`2 обходчика ждут, пока спадёт нагрузка: ${reason}.`);
+    expect(alert).toHaveTextContent('поставленные начнутся сами, когда машина освободится');
+  });
+
+  it('сторож никого не держит или сервер старше — строки «Машина занята» нет', async () => {
+    open({ 'GET /api/crawls/targets': { body: { ...TARGETS, workers: 16, held: 0 } } });
+
+    await screen.findByRole('table', { name: 'Доноры для обхода' });
+    expect(screen.queryByText('Машина занята')).not.toBeInTheDocument();
   });
 
   it('обходить некого — что делать сначала', async () => {
@@ -361,6 +382,36 @@ describe('панель в покое', () => {
     expect(screen.getByRole('button', { name: 'Обойти отмеченных · 0' })).toBeInTheDocument();
   });
 
+  it('ждущие — у заголовка отдельно от идущих, а у строки — место в очереди', async () => {
+    // Тест-группа 29.10.2026: «идёт: 10», когда обходчиков восемь, обещало обходы, которых нет.
+    const waiting = crawl({
+      id: 8,
+      host: 'waiting.example',
+      status: 'queued',
+      pages: 0,
+      place: { busy: 1, workers: 1, ahead: 0 },
+    });
+    open({
+      'GET /api/crawls/targets': {
+        body: {
+          ...TARGETS,
+          workers: 1,
+          donors: [
+            ...TARGETS.donors,
+            { ...TARGETS.donors[0], host: 'waiting.example', crawl: waiting },
+          ],
+        },
+      },
+    });
+
+    const table = await screen.findByRole('table', { name: 'Доноры для обхода' });
+    expect(screen.getByText('идёт: 1')).toBeInTheDocument();
+    expect(screen.getByText('в очереди: 1')).toBeInTheDocument();
+    expect(
+      within(table).getByText('ждёт свободного обходчика — заняты 1 из 1; он следующий'),
+    ).toBeInTheDocument();
+  });
+
   it('обход идёт — раскрыта сама, и сколько идёт — у заголовка', async () => {
     open();
 
@@ -565,7 +616,8 @@ describe('«Переобойти» в последних обходах', () => 
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Доноры и обходы' }));
-    await user.click(await screen.findByRole('button', { name: 'Переобойти fresh.example' }));
+    const recent = await screen.findByRole('table', { name: 'Последние обходы' });
+    await user.click(within(recent).getByRole('button', { name: 'Переобойти fresh.example' }));
 
     await waitFor(() =>
       expect(recorded.calls.find((call) => call.method === 'POST')?.body).toEqual({
@@ -573,6 +625,55 @@ describe('«Переобойти» в последних обходах', () => 
       }),
     );
     expect(await screen.findByText('Поставлено: 1.')).toBeInTheDocument();
+  });
+
+  it('и в строке таблицы доноров — тем же запуском, одним донором', async () => {
+    // Anthony 29.10.2026: в «Последних обходах» пять строк, и у остальных доноров повтора было
+    // не найти — галочка с «Обойти отмеченных» его ставит, но это неочевидно.
+    const recorded = openWhole();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Доноры и обходы' }));
+    const table = await screen.findByRole('table', { name: 'Доноры для обхода' });
+    await user.click(within(table).getByRole('button', { name: 'Переобойти fresh.example' }));
+
+    await waitFor(() =>
+      expect(recorded.calls.find((call) => call.method === 'POST')?.body).toEqual({
+        hosts: ['fresh.example'],
+      }),
+    );
+    expect(await screen.findByText('Поставлено: 1.')).toBeInTheDocument();
+  });
+
+  it('в таблице доноров — у каждого законченного, любым исходом; у ждущего, идущего и не обходившегося — нет', async () => {
+    const finished = {
+      'whole.example': crawl({ status: 'done', outcome: 'ok', stop_reason: 'max_pages' }),
+      'part.example': crawl({ status: 'done', outcome: 'partial', stop_reason: 'timeout' }),
+      'robots.example': crawl({ status: 'done', outcome: 'failed', stop_reason: 'robots' }),
+      'closed.example': crawl({ status: 'done', outcome: 'blocked', stop_reason: 'no_start' }),
+      'hung.example': crawl({ status: 'stopped' }),
+    };
+    const unfinished = {
+      'busy.example': crawl({ status: 'running' }),
+      'waiting.example': crawl({ status: 'queued', pages: 0 }),
+      'never.example': null,
+    };
+    const donors = Object.entries({ ...finished, ...unfinished }).map(([host, last]) => ({
+      ...TARGETS.donors[0],
+      host,
+      crawl: last === null ? null : { ...last, host },
+    }));
+    open({
+      'GET /api/crawls/targets': { body: { ...TARGETS, donors } },
+      'GET /api/crawls': { body: { rows: [], active: 2, workers: 4 } },
+    });
+
+    const table = await screen.findByRole('table', { name: 'Доноры для обхода' });
+
+    const again = within(table)
+      .getAllByRole('button', { name: /^Переобойти / })
+      .map((button) => button.getAttribute('aria-label'));
+    expect(again).toEqual(Object.keys(finished).map((host) => `Переобойти ${host}`));
   });
 
   it('без права запуска — колонки с кнопкой нет', async () => {
@@ -612,5 +713,15 @@ describe('«Переобойти» в последних обходах', () => 
     ];
 
     expect([...againRows(rows, new Set(['busy.example', 'waiting.example']))]).toEqual([]);
+  });
+});
+
+describe('ждущие обходчики словами', () => {
+  it('число и слово согласованы, причины нет — без двоеточия', () => {
+    expect(heldWords(1, null)).toMatch(/^1 обходчик ждёт, пока спадёт нагрузка\. /);
+    expect(heldWords(3, 'свободно 6,2 ГБ памяти при пороге 8')).toMatch(
+      /^3 обходчика ждут, пока спадёт нагрузка: свободно 6,2 ГБ памяти при пороге 8\. /,
+    );
+    expect(heldWords(16, null)).toMatch(/^16 обходчиков ждут/);
   });
 });

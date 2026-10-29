@@ -37,7 +37,7 @@ from backend.config import judge as judge_cfg
 from backend.config import llm as llm_cfg
 from backend.features.ahrefs import refdomains as links
 from backend.features.ahrefs.units import estimate_run
-from backend.features.core import usage
+from backend.features.core import llm_caps, usage
 from backend.features.core.domain import RunStatus
 from backend.features.core.models.run import RunModel
 from backend.features.runs.competitors import SOURCE_KIND, Ask
@@ -60,6 +60,8 @@ JUDGE_HISTORY = 10
 #: Что делать, когда смета не помещается: прогон по конкурентам режут конкуренты и глубина —
 #: те же слова, что у отказа точной сметы (`planning.Candidates.trim`).
 TRIM = SOURCE_TRIMS[SOURCE_KIND]
+#: Потолок модели на прогон — настройка сервера, сброса у него нет.
+RUN_CAP_ASK = "попросите администратора поднять потолок прогона"
 
 
 def lists_units(ask: Ask, per_row: int, *, skip: Sequence[str] = ()) -> int:
@@ -126,27 +128,36 @@ async def llm_refusal(
     session: AsyncSession, tokens: int, *, run_id: int | None = None
 ) -> str | None:
     """Поместятся ли суд и тематика сайтов списков в потолки модели
-    (`core/usage.ensure_llm_within_cap`): за прогон и в остаток дня UTC. Не помещается — слова отказа; помещается, судья выключен
-    или потолков нет — `None`. Имя настройки — журналу, человеку — слова, как у отказа потолка."""
+    (`core/usage.ensure_llm_within_cap`): за прогон и в остаток дня UTC. Не помещается — слова
+    отказа; помещается, судья выключен или потолков нет — `None`. Имя настройки — журналу,
+    человеку — слова, как у отказа потолка. Дневной — действующий (`core/llm_caps.py`): блок на
+    «Расходе» сохранён — лимит части «Аутрич», к которой относится суд прогона, не сохраняли —
+    общий из `.env`; отказ называет, где поднимают и когда сброс."""
     if tokens <= 0:
         return None
-    limits: list[tuple[str, int, str]] = []
+    now = datetime.now(UTC)
+    limits: list[tuple[str, int, str, str]] = []
     if llm_cfg.RUN_TOKEN_CAP:
         spent = 0 if run_id is None else await usage.llm_tokens_spent(session, run_id=run_id)
-        limits.append(
-            ("потолок модели на прогон", llm_cfg.RUN_TOKEN_CAP - spent, "LLM_RUN_TOKEN_CAP")
-        )
-    if llm_cfg.DAILY_TOKEN_CAP:
-        day = datetime.combine(datetime.now(UTC).date(), time.min, tzinfo=UTC)
+        left = llm_cfg.RUN_TOKEN_CAP - spent
+        limits.append(("потолок модели на прогон", left, "LLM_RUN_TOKEN_CAP", RUN_CAP_ASK))
+    await llm_caps.refresh(session)
+    day = datetime.combine(now.date(), time.min, tzinfo=UTC)
+    saved = llm_caps.block()
+    if saved is not None and saved.general is not None:
+        # Блок на «Расходе» сохранён: суд и тема прогона — часть «Аутрич», и её лимит жёсткий.
+        part = llm_caps.PART_OUTREACH
+        spent_parts = await usage.spent_by_part(session, since=day)
+        left = llm_caps.available(saved, part, spent_parts)
+        title = f"остаток лимита раздела «{llm_caps.TITLES[part]}»"
+        limits.append((title, left, part, llm_caps.after_part(now)))
+    elif saved is None and (general := llm_caps.daily_cap()):
         spent = await usage.llm_tokens_spent(session, since=day)
+        left = general - spent
         limits.append(
-            (
-                "остаток дневного потолка модели",
-                llm_cfg.DAILY_TOKEN_CAP - spent,
-                "LLM_DAILY_TOKEN_CAP",
-            )
+            ("остаток дневного потолка модели", left, llm_caps.GENERAL, llm_caps.after_cap(now))
         )
-    for what, left, setting in limits:
+    for what, left, setting, ask in limits:
         if tokens > left:
             logger.warning(
                 "сайты списков не помещаются в потолок модели: %s",
@@ -156,7 +167,7 @@ async def llm_refusal(
             return (
                 f"Сайты списков обойдутся модели до {spaced(tokens)} токенов, а {what} — "
                 f"{spaced(max(0, left))}: прогон встал бы посреди суда, когда списки уже оплачены. "
-                f"{TRIM} — или попросите администратора поднять потолок"
+                f"{TRIM} — или {ask}"
             )
     return None
 

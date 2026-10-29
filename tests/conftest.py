@@ -30,7 +30,7 @@ import os
 import socket
 import subprocess
 import sys
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +42,10 @@ from backend.config import outreach as outreach_cfg
 from backend.config.topics import TopicMode
 from backend.features.access.attempts import LoginAttempts
 from backend.features.access.repository import AccessRepository
-from backend.features.core import models  # noqa: F401  — регистрирует таблицы
+from backend.features.core import (
+    llm_caps,
+    models,  # noqa: F401  — регистрирует таблицы
+)
 from backend.features.core.domain import (
     ContactSource,
     DonorStatus,
@@ -410,6 +413,15 @@ def _no_real_redis(monkeypatch: pytest.MonkeyPatch) -> None:
     прогонов зависело бы от того, что на машине запущено. Закрытый порт — отказ сразу;
     объекты очереди `rq` собираются без сети, как и были. Тесты очереди подставляют свою."""
     monkeypatch.setattr("backend.config.storage.REDIS_URL", "redis://127.0.0.1:1/0")
+
+
+@pytest.fixture(autouse=True)
+def _no_screen_caps_from_another_test() -> Iterator[None]:
+    """Потолки модели с экрана «Расход» — память процесса (`core/llm_caps.py`): база теста
+    откатывается, а память нет, и потолок, заданный одним тестом, держал бы следующий."""
+    llm_caps.forget()
+    yield
+    llm_caps.forget()
 
 
 @pytest.fixture(autouse=True)

@@ -6,8 +6,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import SmallInteger, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import ForeignKey, SmallInteger, Text, func
+from sqlalchemy.orm import Mapped, declared_attr, mapped_column
 from sqlalchemy.types import DateTime
 
 from backend.features.core.domain import ContactStatus
@@ -33,6 +33,22 @@ class TimestampedMixin:
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SetByMixin:
+    """Кто и когда завёл строку истории смены: `set_by` — учётка (пусто — её удалили, а строка
+    истории осталась), `set_at` — минута смены. Одна пара у смен капа Ahrefs и потолков модели
+    на «Расходе»: по ним видно, кто, когда и что ставил.
+
+    Внешний ключ — через `declared_attr`: колонку с ним каждой модели заводят свою."""
+
+    @declared_attr
+    def set_by(cls) -> Mapped[int | None]:  # noqa: N805 — declared_attr зовётся на классе
+        return mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    set_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 

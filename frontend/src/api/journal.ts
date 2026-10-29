@@ -33,7 +33,8 @@ export type AuditAction =
   | 'probe_created'
   | 'sales_chain_changed'
   | 'agent_draft_decided'
-  | 'ahrefs_cap_changed';
+  | 'ahrefs_cap_changed'
+  | 'llm_cap_changed';
 
 export interface JournalEntry {
   id: number;

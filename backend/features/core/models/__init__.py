@@ -12,6 +12,7 @@ from backend.features.core.models.form_letter import FormLetterModel
 from backend.features.core.models.ops import (
     AhrefsCapModel,
     AhrefsKeySnapshotModel,
+    LlmCapModel,
     SuppressionModel,
     UsageRecordModel,
 )
@@ -66,6 +67,7 @@ __all__ = [
     "DomainModel",
     "DonorModel",
     "FormLetterModel",
+    "LlmCapModel",
     "MessageModel",
     "OutLinkModel",
     "OutgoingAttachmentModel",

@@ -1,7 +1,7 @@
 """очередь, которая уходит сама: запуски автоотправки очереди доноров и рекламодателей
 
 Revision ID: c4e1a7b20d93
-Revises: 77ff8a338610
+Revises: fdaa566c5a26
 Create Date: 2026-10-29 12:00:00.000000
 
 Замечание тест-группы 29.10.2026: «нужна автоматическая ежедневная отправка очереди, если её
@@ -23,7 +23,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "c4e1a7b20d93"  # pragma: allowlist secret
-down_revision: Union[str, Sequence[str], None] = "77ff8a338610"  # pragma: allowlist secret
+down_revision: Union[str, Sequence[str], None] = "fdaa566c5a26"  # pragma: allowlist secret
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
