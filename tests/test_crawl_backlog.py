@@ -263,7 +263,7 @@ async def test_the_reaper_pass_waits_while_nobody_crawls(
         return backlog.Fed()
 
     monkeypatch.setattr(reaper, "workers_alive", lambda **_: workers)
-    monkeypatch.setattr(reaper.crawl_backlog, "feed", feed)
+    monkeypatch.setattr(backlog, "feed", feed)
 
     await reaper.feed_backlog()
 
@@ -278,7 +278,7 @@ async def test_the_reaper_pass_feeds_the_crawlers_it_sees(monkeypatch: pytest.Mo
         return backlog.Fed()
 
     monkeypatch.setattr(reaper, "workers_alive", lambda **_: 8)
-    monkeypatch.setattr(reaper.crawl_backlog, "feed", feed)
+    monkeypatch.setattr(backlog, "feed", feed)
 
     async with committed_sessions():
         await reaper.feed_backlog()

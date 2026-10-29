@@ -3457,7 +3457,7 @@
       "worst": "main:52"
     },
     "backend/workers/reaper.py": {
-      "lines": 332,
+      "lines": 334,
       "complexity": 4,
       "worst": "_told:205"
     },

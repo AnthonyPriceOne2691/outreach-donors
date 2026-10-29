@@ -26,7 +26,8 @@
 
 Шестой — очередь загрузки обхода (`features/crawl/backlog.feed`): доноров, загруженных списком,
 он отдаёт обходчикам по мере того, как те освобождаются. Своего процесса ему не нужно — запрос
-к базе и постановка раз в минуту.
+к базе и постановка раз в минуту. Модуль очереди — при проходе: он тянет конфиг обхода, а опечатка
+в нём роняет только обходчик.
 
 Неудачи трёх проходов продаж — тревога продаж, а не здоровье процесса (`features/sales/loops.own`):
 иначе сломанная автосборка делала бы «нездоровым» процесс, где живёт сторож тишины. Зависший
@@ -47,7 +48,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import sales as sales_cfg
 from backend.config import storage
 from backend.config.startup_checks import check_storage
-from backend.features.crawl import backlog as crawl_backlog
 from backend.features.crawl.lifecycle import recover as recover_crawls
 from backend.features.ops import silence
 from backend.features.ops.alarm_feed import Feed
@@ -251,13 +251,15 @@ async def feed_backlog() -> None:
     workers = await asyncio.to_thread(workers_alive, queue=CRAWL_QUEUE_NAME)
     if not workers:
         return
+    # Лениво: очередь загрузки тянет конфиг обхода (`config/crawl.py`), а опечатка в нём роняет
+    # только обходчик (`tests/test_crawl_config_isolation.py`) — здесь только этот проход.
+    from backend.features.crawl import backlog  # noqa: PLC0415 — лениво, см. выше
+
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
-            await crawl_backlog.feed(
-                session, workers=workers, enqueue=enqueue_crawl, job_id=crawl_job_id
-            )
+            await backlog.feed(session, workers=workers, enqueue=enqueue_crawl, job_id=crawl_job_id)
             await session.commit()
     finally:
         await engine.dispose()

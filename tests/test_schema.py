@@ -32,6 +32,7 @@ EXPECTED_TABLES = {
     "audit_log",
     # Второй этап: обход донора, его исходящие ссылки и кандидаты.
     "crawl_runs",
+    "crawl_backlog",
     "outlinks",
     "advertiser_candidates",
     # Память донора: решение человека и DR по паре «донор + домен» переживают повтор обхода.
