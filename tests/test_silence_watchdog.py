@@ -110,6 +110,58 @@ class TestQuietIsNotAlwaysBroken:
         )
 
 
+class TestOneLetterIsNotTheWebhook:
+    """Висит одно письмо, а другие после него доставлены — вебхук жив: тревога говорит о письме
+    и сервере получателя, а не велит проверять вебхук (29.10.2026)."""
+
+    async def test_a_letter_waits_while_later_ones_are_delivered(
+        self, session: AsyncSession
+    ) -> None:
+        stuck = await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8))
+        later = await _letter(
+            session, status=MessageStatus.DELIVERED, sent_at=NOW - timedelta(hours=7), number=1
+        )
+        later.delivered_at = NOW - timedelta(hours=7)
+        await session.flush()
+
+        found = await alarms(session, stages=EVERY_STAGE, now=NOW)
+
+        assert "delivery-silence:donors" not in _codes(found)
+        pending = next(a for a in found if a.code == "delivery-pending:donors")
+        assert pending.title == "Письма без исхода доставки — направление доноров"
+        assert pending.detail.startswith(f"Письмо №{stuck.id} ушло больше 6 часов назад")
+        assert "вебхук событий работает" in pending.detail
+
+    async def test_deliveries_before_it_do_not_prove_the_webhook(
+        self, session: AsyncSession
+    ) -> None:
+        """Доставки только до висящего письма не говорят, что вебхук жив и сейчас."""
+        await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8))
+        earlier = await _letter(
+            session, status=MessageStatus.DELIVERED, sent_at=NOW - timedelta(hours=12), number=1
+        )
+        earlier.delivered_at = NOW - timedelta(hours=11)
+        await session.flush()
+
+        found = await alarms(session, stages=EVERY_STAGE, now=NOW)
+
+        assert "delivery-pending:donors" not in _codes(found)
+        assert "вебхук" in next(a.detail for a in found if a.code == "delivery-silence:donors")
+
+    async def test_many_letters_are_named_by_the_first_numbers(self, session: AsyncSession) -> None:
+        stuck = [
+            await _letter(
+                session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=12 - n), number=n
+            )
+            for n in range(5)
+        ]
+        found = await alarms(session, stages=EVERY_STAGE, now=NOW)
+
+        silence = next(a for a in found if a.code == "delivery-silence:donors")
+        first = ", ".join(f"№{letter.id}" for letter in stuck[:3])
+        assert f"больше 6 часов: 5 ({first} и ещё 2)" in silence.detail
+
+
 class TestSilenceThatMeansBroken:
     async def test_platform_says_nothing_about_delivery(self, session: AsyncSession) -> None:
         await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8))

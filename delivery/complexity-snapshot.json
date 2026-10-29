@@ -2092,9 +2092,9 @@
       "worst": "_crawl_blocked:300"
     },
     "backend/features/ops/stage_silence.py": {
-      "lines": 204,
+      "lines": 255,
       "complexity": 4,
-      "worst": "alarms:63"
+      "worst": "alarms:66"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,
