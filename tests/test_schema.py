@@ -16,6 +16,8 @@ EXPECTED_TABLES = {
     # Журнал здоровья ящика: мягкие сигналы и паузы (Ф4, 4.5b).
     "sender_health",
     "campaigns",
+    # Очередь, которая уходит сама (`letters/autosend.py`): запуски режима.
+    "queue_autosend",
     "threads",
     "messages",
     "replies",

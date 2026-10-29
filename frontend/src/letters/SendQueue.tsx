@@ -33,15 +33,24 @@
  * **Закрытая почтой кнопка говорит почему — строкой под собой** (проверка QA 10.10.2026):
  * причина была только в плашке наверху экрана, а у кнопки и по наведению — ничего.
  * Строкой, а не подсказкой: на телефоне наведения нет (`docs/UI_RULES.md`).
+ *
+ * **«Дальше — сама»** (замечание тест-группы 29.10.2026: «автоматическая ежедневная отправка
+ * очереди, если её запустил»). У доноров и рекламодателей окно предлагает отметку, и она
+ * стоит сразу: пачка уходит, как прежде, а остаток очередь отправит сама, по письму с ящика с
+ * паузой, пока не кончится или её не остановят (`QueueAutosend` под кнопкой). Окно говорит, что
+ * будет, до нажатия: с отметкой — «дальше уйдёт сама», без неё — прежнее «само не уйдёт».
+ * Очередь уже уходит сама — отметки нет: нажатие только отправляет пачку сейчас. У продаж
+ * режима нет (своя автоотправка) — окно прежнее.
  */
 
-import { Alert, Button, Group, Modal, Stack, Text } from '@mantine/core';
+import { Alert, Button, Checkbox, Group, Modal, Stack, Text } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useState } from 'react';
 
+import type { QueueAutosend } from '../api/autosend';
 import { refusalOf } from '../api/client';
 import { sendQueue } from '../api/letters';
-import type { LetterAudience } from '../api/letters';
+import type { LetterAudience, SendQueueQueued } from '../api/letters';
 import type { Stage } from '../api/stages';
 import { formatNumber, plural } from '../format';
 import { JobLine, jobRestarted } from '../jobs/JobLine';
@@ -85,7 +94,79 @@ interface Props {
   blocked: boolean;
   /** Почему закрыта — словами экрана; нет — общими (`BLOCKED_WHY`). */
   blockedWhy?: string;
+  /** Уходит ли очередь сама и можно ли включить: есть — окно предлагает «дальше — сама».
+   *  Нет (продажи, сервер старше режима) — окно прежнее. */
+  autosend?: QueueAutosend | undefined;
   onFinished: () => void;
+}
+
+/** Что окно говорит до нажатия: с отметкой «дальше — сама», без неё или когда очередь уже
+ *  уходит сама. */
+function windowText(queued: string, autosend: QueueAutosend | undefined, keep: boolean): string {
+  const path =
+    `${queued} уйдёт тем же путём, что по одному, — стоп-листы, решение по адресату, ` +
+    'предохранитель.';
+  if (autosend?.running) {
+    return (
+      `${path} Очередь уже уходит сама: это нажатие отправит сразу, сколько позволяет ` +
+      'дневной лимит ящиков, а остальное уйдёт само.'
+    );
+  }
+  if (autosend?.available && keep) {
+    return (
+      `${path} Сегодня уйдёт, сколько позволяет дневной лимит ящиков; дальше очередь будет ` +
+      'уходить сама каждый день — по письму с ящика с паузой, — пока не кончится или её не ' +
+      'остановят.'
+    );
+  }
+  return (
+    `${path} Сколько уйдёт сегодня, решает дневной лимит ящиков; остальное останется в ` +
+    'очереди и само не уйдёт — завтра отправьте очередь ещё раз.'
+  );
+}
+
+/** Предлагать ли «дальше — сама»: режим можно включить, а очередь сама ещё не уходит. */
+function offeredOf(autosend: QueueAutosend | undefined): boolean {
+  return autosend?.available === true && !autosend.running;
+}
+
+/** Потолок пачки, если очередь длиннее его: длинная очередь уходит несколькими нажатиями. */
+function capOf(count: number, batchMax: number | undefined): number | null {
+  return batchMax !== undefined && count > batchMax ? batchMax : null;
+}
+
+/** «В очереди N писем: каждое» — и потолок пачки, когда очередь длиннее. */
+function queuedWords(count: number, cap: number | null): string {
+  const letters = `${formatNumber(count)} ${plural(count, 'письмо', 'письма', 'писем')}`;
+  return cap === null
+    ? `В очереди ${letters}: каждое`
+    : `В очереди ${letters}; одна пачка берёт до ${formatNumber(cap)}, остальное — следующей. Каждое`;
+}
+
+/** Уведомление о поставленной пачке — и что очередь дальше уходит сама, если так. */
+function startedNotice(queued: SendQueueQueued): string {
+  const itself = queued.autosend === true ? '; дальше очередь уходит сама' : '';
+  return `Пачка ушла в очередь задач: писем ${formatNumber(queued.queued)}${itself}`;
+}
+
+/** Отметка «дальше — сама» — только когда её предлагают. */
+function KeepMark({
+  offered,
+  keep,
+  onChange,
+}: {
+  offered: boolean;
+  keep: boolean;
+  onChange: (keep: boolean) => void;
+}) {
+  if (!offered) return null;
+  return (
+    <Checkbox
+      checked={keep}
+      onChange={(event) => onChange(event.currentTarget.checked)}
+      label="Дальше — сама: каждый день, пока очередь не кончится"
+    />
+  );
 }
 
 /** Кнопка пачки и, у закрытой почтой, — почему: строкой под ней. Строка — и описание
@@ -129,24 +210,26 @@ export function SendQueue({
   batchMax,
   blocked,
   blockedWhy = BLOCKED_WHY,
+  autosend,
   onFinished,
 }: Props) {
   const client = useQueryClient();
   const [opened, setOpened] = useState(false);
+  // Отметка стоит сразу: ради неё окно и поменялось. Предлагается, только пока очередь сама
+  // не уходит, — у идущей нажатие отправляет пачку сейчас.
+  const [keep, setKeep] = useState(true);
+  const offered = offeredOf(autosend);
   const [jobId, setJobId] = useState<string | null>(() => remembered(keyOf(stage, audience)));
   useEffect(() => setJobId(remembered(keyOf(stage, audience))), [stage, audience]);
 
   const start = useMutation({
-    mutationFn: () => sendQueue(stage, audience),
+    mutationFn: () => sendQueue(stage, audience, offered ? keep : undefined),
     onSuccess: (queued) => {
       setOpened(false);
       setJobId(queued.job_id);
       remember(keyOf(stage, audience), queued.job_id);
       void jobRestarted(client, queued.job_id);
-      notify({
-        message: `Пачка ушла в очередь задач: писем ${formatNumber(queued.queued)}`,
-        color: 'green',
-      });
+      notify({ message: startedNotice(queued), color: 'green' });
     },
   });
   // Окно открывается и закрывается без отказа прежнего нажатия. Пока запрос идёт, окно
@@ -154,16 +237,13 @@ export function SendQueue({
   const toggle = (open: boolean) => {
     if (start.isPending) return;
     start.reset();
+    if (open) setKeep(true);
     setOpened(open);
   };
 
   // Пачка берёт не больше потолка сервера: длинная очередь уходит несколькими нажатиями.
-  const cap = batchMax !== undefined && count > batchMax ? batchMax : null;
-  const letters = `${formatNumber(count)} ${plural(count, 'письмо', 'письма', 'писем')}`;
-  const queued =
-    cap === null
-      ? `В очереди ${letters}: каждое`
-      : `В очереди ${letters}; одна пачка берёт до ${formatNumber(cap)}, остальное — следующей. Каждое`;
+  const cap = capOf(count, batchMax);
+  const queued = queuedWords(count, cap);
   return (
     <Stack gap={6}>
       <BatchButton count={count} why={blocked ? blockedWhy : null} onOpen={() => toggle(true)} />
@@ -172,11 +252,8 @@ export function SendQueue({
       ) : null}
       <Modal opened={opened} onClose={() => toggle(false)} title="Отправить всю очередь?">
         <Stack gap="sm">
-          <Text size="sm">
-            {queued} уйдёт тем же путём, что по одному, — стоп-листы, решение по адресату,
-            предохранитель. Сколько уйдёт сегодня, решает дневной лимит ящиков; остальное останется
-            в очереди и само не уйдёт — завтра отправьте очередь ещё раз.
-          </Text>
+          <Text size="sm">{windowText(queued, autosend, keep)}</Text>
+          <KeepMark offered={offered} keep={keep} onChange={setKeep} />
           <Text size="sm" c="dimmed">
             Отправленное письмо не отзывается.
           </Text>

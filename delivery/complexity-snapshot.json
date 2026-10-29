@@ -57,9 +57,9 @@
       "worst": "to_settings:58"
     },
     "backend/api/app.py": {
-      "lines": 119,
+      "lines": 121,
       "complexity": 1,
-      "worst": "_lifespan:56"
+      "worst": "_lifespan:57"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -231,6 +231,16 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/api/letters/autosend_routes.py": {
+      "lines": 58,
+      "complexity": 2,
+      "worst": "stop:39"
+    },
+    "backend/api/letters/autosend_schemas.py": {
+      "lines": 51,
+      "complexity": 2,
+      "worst": "of:34"
+    },
     "backend/api/letters/forecast.py": {
       "lines": 44,
       "complexity": 1,
@@ -247,14 +257,14 @@
       "worst": "enqueue_once:62"
     },
     "backend/api/letters/routes.py": {
-      "lines": 438,
+      "lines": 470,
       "complexity": 5,
-      "worst": "build:163"
+      "worst": "build:166"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 430,
+      "lines": 450,
       "complexity": 4,
-      "worst": "followups_for:102"
+      "worst": "followups_for:103"
     },
     "backend/api/main.py": {
       "lines": 13,
@@ -857,9 +867,9 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 308,
-      "complexity": 4,
-      "worst": "_own_account:219"
+      "lines": 376,
+      "complexity": 9,
+      "worst": "_weekdays:162"
     },
     "backend/config/sales.py": {
       "lines": 500,
@@ -1166,6 +1176,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/core/country_zones.py": {
+      "lines": 85,
+      "complexity": 2,
+      "worst": "zone_name:80"
+    },
     "backend/features/core/domain.py": {
       "lines": 328,
       "complexity": 0,
@@ -1177,7 +1192,7 @@
       "worst": "refusal:214"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 102,
+      "lines": 104,
       "complexity": 0,
       "worst": "—"
     },
@@ -1242,7 +1257,7 @@
       "worst": "—"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 406,
+      "lines": 450,
       "complexity": 0,
       "worst": "—"
     },
@@ -1267,7 +1282,7 @@
       "worst": "ensure_llm_within_cap:279"
     },
     "backend/features/core/window.py": {
-      "lines": 194,
+      "lines": 201,
       "complexity": 4,
       "worst": "zone_of:105"
     },
@@ -1736,10 +1751,25 @@
       "complexity": 2,
       "worst": "next_address_note:159"
     },
+    "backend/features/letters/autosend.py": {
+      "lines": 386,
+      "complexity": 6,
+      "worst": "run:233"
+    },
+    "backend/features/letters/autosend_alarm.py": {
+      "lines": 89,
+      "complexity": 8,
+      "worst": "see:63"
+    },
+    "backend/features/letters/autosend_window.py": {
+      "lines": 200,
+      "complexity": 8,
+      "worst": "_places:86"
+    },
     "backend/features/letters/batch.py": {
-      "lines": 231,
-      "complexity": 5,
-      "worst": "_send_one:182"
+      "lines": 290,
+      "complexity": 11,
+      "worst": "send_queue:180"
     },
     "backend/features/letters/building.py": {
       "lines": 471,
@@ -1777,9 +1807,9 @@
       "worst": "_deliver:418"
     },
     "backend/features/letters/forecast.py": {
-      "lines": 300,
+      "lines": 308,
       "complexity": 8,
-      "worst": "forecast:110"
+      "worst": "forecast:111"
     },
     "backend/features/letters/forecast_plan.py": {
       "lines": 323,
@@ -3462,9 +3492,9 @@
       "worst": "main:52"
     },
     "backend/workers/reaper.py": {
-      "lines": 298,
+      "lines": 315,
       "complexity": 4,
-      "worst": "_told:193"
+      "worst": "_told:199"
     },
     "backend/workers/run_job.py": {
       "lines": 184,
@@ -3477,9 +3507,9 @@
       "worst": "handle:81"
     },
     "backend/workers/send_jobs.py": {
-      "lines": 48,
-      "complexity": 1,
-      "worst": "send_letter_queue:27"
+      "lines": 117,
+      "complexity": 5,
+      "worst": "autosend_pass:68"
     },
     "backend/workers/ticker.py": {
       "lines": 69,

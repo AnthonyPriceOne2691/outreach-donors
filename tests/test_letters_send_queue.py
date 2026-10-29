@@ -288,7 +288,8 @@ class TestTheRoute:
         )
 
         assert response.status_code == 200, response.text
-        assert response.json() == {"job_id": "job-пачка", "queued": 2}
+        # Без отметки «дальше — сама» очередь сама не уходит (`letters/autosend.py`).
+        assert response.json() == {"job_id": "job-пачка", "queued": 2, "autosend": False}
         path, args = queue.calls[0]
         assert path == SEND_QUEUE_JOB
         bound = inspect.signature(send_jobs.send_letter_queue).bind(*args)
