@@ -135,6 +135,29 @@ class _Crawl(DomainSettings):
     # дал «куплено» бонусу банка 2007 года, которого давно нет.
     stale_years: int = Field(default=3, validation_alias="CRAWL_STALE_YEARS")
 
+    # --- Сторож нагрузки обходчика (`workers/load_gate.py`) ---
+    # Новый обход копия берёт, только если на машине сейчас свободно ядер не меньше
+    # «на обход» + «в запас» и памяти не меньше порога; идущий обход сторож не трогает.
+    # Правило Anthony 29.10.2026: сосед занял ядра — обходчики берут, сколько свободно;
+    # свободны все — все 16. На обход — 0,75 ядра: потолок копии в
+    # `docker-compose.prod.yml`, больше обход взять не может; в запас — ядро базе, API и
+    # соседу на всплеск; памяти — 8 ГБ: копии нужно до полутора. 0 — проверка выключена.
+    gate_cores_per_crawl: float = Field(
+        default=0.75, ge=0, validation_alias="CRAWL_GATE_CORES_PER_CRAWL"
+    )
+    gate_reserve_cores: float = Field(
+        default=1.0, ge=0, validation_alias="CRAWL_GATE_RESERVE_CORES"
+    )
+    gate_min_free_gb: float = Field(default=8.0, ge=0, validation_alias="CRAWL_GATE_MIN_FREE_GB")
+    # Как часто ждущая копия смотрит снова, с, и как часто пишет в журнал, что ещё ждёт.
+    gate_poll_sec: float = Field(default=15.0, gt=0, validation_alias="CRAWL_GATE_POLL_SEC")
+    gate_log_every_sec: float = Field(
+        default=300.0, gt=0, validation_alias="CRAWL_GATE_LOG_EVERY_SEC"
+    )
+    # После взятого обхода остальные копии столько секунд новых не берут: нагрузка начатого
+    # должна попасть в их замер, иначе по одному замеру стартовали бы все разом. 0 — разом.
+    gate_stagger_sec: float = Field(default=20.0, ge=0, validation_alias="CRAWL_GATE_STAGGER_SEC")
+
     @field_validator("proxy_usd_per_gb", "render_usd_per_1k", "month_cap_usd", mode="before")
     @classmethod
     def _unset_if_empty(cls, value: object) -> object:
@@ -250,3 +273,9 @@ SLOW_DOWN_SHARE: float = _s.slow_down_share
 STOP_SHARE: float = _s.stop_share
 HEALTH_MIN_REQUESTS: int = _s.health_min_requests
 STALE_YEARS: int = _s.stale_years
+GATE_CORES_PER_CRAWL: float = _s.gate_cores_per_crawl
+GATE_RESERVE_CORES: float = _s.gate_reserve_cores
+GATE_MIN_FREE_GB: float = _s.gate_min_free_gb
+GATE_POLL_SEC: float = _s.gate_poll_sec
+GATE_LOG_EVERY_SEC: float = _s.gate_log_every_sec
+GATE_STAGGER_SEC: float = _s.gate_stagger_sec

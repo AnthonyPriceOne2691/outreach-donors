@@ -59,7 +59,7 @@ import { refusalOf } from '../api/client';
 import type { CrawlLaunch, CrawlsView, CrawlTarget, CrawlTargets } from '../api/crawls';
 import { fetchCrawlTargets, fetchCrawls, startCrawls } from '../api/crawls';
 import { useSession } from '../auth/AuthProvider';
-import { formatNumber, formatPercent } from '../format';
+import { formatNumber, formatPercent, plural } from '../format';
 import { InfoHint } from '../components/InfoHint';
 import { Unfold } from '../runs/Unfold';
 import { TargetsTable, isActive } from './CrawlTable';
@@ -153,8 +153,10 @@ function useStartCrawls(onQueued?: () => void) {
   });
 }
 
-/** Чего панели не хватает: доноры не загрузились, обходчиков нет. */
-function Troubles({ error, workers }: { error: unknown; workers: number | null | undefined }) {
+/** Чего панели не хватает: доноры не загрузились, обходчиков нет, машина занята. */
+function Troubles({ error, data }: { error: unknown; data: CrawlTargets | undefined }) {
+  const workers = data?.workers;
+  const held = data?.held ?? 0;
   return (
     <>
       {error ? (
@@ -171,7 +173,23 @@ function Troubles({ error, workers }: { error: unknown; workers: number | null |
           администратор сервиса — сообщите ему, и обходы пойдут сами, по очереди.
         </Alert>
       ) : null}
+      {/* Сторож нагрузки (`workers/load_gate.py`): копия не берёт новый обход, пока машина
+          занята. Иначе «в очереди» при свободных на вид обходчиках читалось бы поломкой. */}
+      {held > 0 ? (
+        <Alert color="yellow" title="Машина занята">
+          {heldWords(held, data?.held_reason ?? null)}
+        </Alert>
+      ) : null}
     </>
+  );
+}
+
+/** «2 обходчика ждут, пока спадёт нагрузка: …» — идущие обходы идут, новые ждут. */
+export function heldWords(held: number, reason: string | null): string {
+  const who = `${formatNumber(held)} ${plural(held, 'обходчик ждёт', 'обходчика ждут', 'обходчиков ждут')}`;
+  return (
+    `${who}, пока спадёт нагрузка${reason ? `: ${reason}` : ''}. Идущие обходы идут как ` +
+    'шли, а поставленные начнутся сами, когда машина освободится.'
   );
 }
 
@@ -412,7 +430,7 @@ export function CrawlPanel() {
           onEnter={mayStart ? () => setEntering(true) : null}
         />
         {targets.isLoading ? <Loader size="sm" aria-label="Загружаем доноров" /> : null}
-        <Troubles error={targets.error} workers={data?.workers} />
+        <Troubles error={targets.error} data={data} />
         {data ? (
           <StalePrices
             count={data.stale_price}

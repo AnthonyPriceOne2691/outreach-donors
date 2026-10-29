@@ -11,8 +11,8 @@ from backend.config import crawl as crawl_cfg
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, PriceSource, StopReason
 from backend.features.crawl.board import CrawlLine, DonorLine
 
-#: Сколько доноров ставится одним нажатием. Обходчиков четыре, обход — до
-#: получаса: полсотни доноров — это уже шесть часов очереди, и больше за раз
+#: Сколько доноров ставится одним нажатием. Обходчиков шестнадцать, донор — до
+#: часа: полсотни доноров — это уже несколько часов очереди, и больше за раз
 #: человек осознанно не выбирает.
 MAX_HOSTS = 50
 
@@ -140,6 +140,10 @@ class TargetsView(CrawlCeilings):
     #: Сколько обходчиков слушает очередь. `None` — не спросили; 0 — поставленное
     #: никто не возьмёт.
     workers: int | None = None
+    #: Сколько из них сторож нагрузки держит без работы — машина занята
+    #: (`workers/load_gate.py`) — и почему, словами самой свежей отметки. `None` — не спросили.
+    held: int | None = None
+    held_reason: str | None = None
     #: Мера здоровья ТЗ — окно и пороги: экран называет их в пояснении панели, а не
     #: держит свою копию чисел.
     health_window: int | None = None
@@ -154,6 +158,9 @@ class CrawlsView(BaseModel):
     rows: list[CrawlRow]
     active: int
     workers: int | None = None
+    #: Сколько обходчиков держит сторож нагрузки и почему — как у `TargetsView`.
+    held: int | None = None
+    held_reason: str | None = None
 
 
 class LaunchBody(BaseModel):
@@ -168,7 +175,7 @@ class LaunchBody(BaseModel):
             raise PydanticCustomError(
                 "too_many_hosts",
                 f"За раз ставим не больше {MAX_HOSTS} доноров, выбрано {len(hosts)}: "
-                "обходчиков четыре, обход — до получаса",
+                "донор обходится до часа — остальных отметьте следующим нажатием",
             )
         return hosts
 

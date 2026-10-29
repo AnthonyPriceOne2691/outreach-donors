@@ -20,6 +20,7 @@ from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.manual_price import enter_host, manual_price
 from backend.features.replies.repository import ReplyRepository
+from backend.shared.queue import Held
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +43,7 @@ def queue(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, str | None]]:
 
     monkeypatch.setattr(routes, "enqueue_crawl", enqueue)
     monkeypatch.setattr(routes, "workers_alive", lambda **_: 4)
+    monkeypatch.setattr(routes, "crawlers_held", lambda **_: Held(0))
     return put
 
 
@@ -94,6 +96,25 @@ async def test_targets_are_fresh_priced_donors_with_their_last_crawl(
     assert (donor["crawl"]["pages"], donor["crawl"]["max_pages"]) == (340, body["max_pages"])
     assert (body["stale_price"], body["no_price"], body["supplier"]) == (1, 0, 0)
     assert body["workers"] == 4
+    assert (body["held"], body["held_reason"]) == (0, None)
+
+
+async def test_copies_held_by_the_load_gate_are_named_with_the_reason(
+    client: AsyncClient, operator: str, donors: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сторож нагрузки держит копии — экран говорит, сколько и почему; Redis не ответил —
+    молчит (`None`), а не «никого не держит»."""
+    why = "свободно 1,2 ядра, а новому обходу нужно 1,75 (0,75 на обход и 1 в запас)"
+    monkeypatch.setattr(routes, "crawlers_held", lambda **_: Held(3, why))
+
+    targets = (await client.get("/api/crawls/targets", headers=bearer(operator))).json()
+    recent = (await client.get("/api/crawls", headers=bearer(operator))).json()
+    monkeypatch.setattr(routes, "crawlers_held", lambda **_: None)
+    unknown = (await client.get("/api/crawls/targets", headers=bearer(operator))).json()
+
+    assert (targets["held"], targets["held_reason"]) == (3, why)
+    assert (recent["held"], recent["held_reason"]) == (3, why)
+    assert (unknown["held"], unknown["held_reason"]) == (None, None)
 
 
 async def test_a_domain_rejected_by_a_person_is_neither_offered_nor_queued(
