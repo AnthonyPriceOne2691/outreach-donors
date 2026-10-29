@@ -19,17 +19,20 @@
  * Механизм — тот же запуск, что «Обойти отмеченных»: новый обход заменяет кандидатов прежнего,
  * а решения человека и спрошенный DR переносит (`crawl/gate.py`). Кнопка — только донору со
  * свежей ценой: другому сервер откажет, а почему — уже сказано строкой «Не обходим» выше.
+ *
+ * С 29.10.2026 та же кнопка (`CrawlTable.Again`, тот же запуск) — и в строке таблицы доноров:
+ * здесь пять строк, и донору, чей обход ниже пятой, повтора было не найти (замечание Anthony).
  */
 
-import { Button, Stack, Table, Text } from '@mantine/core';
-import type { UseMutationResult } from '@tanstack/react-query';
+import { Stack, Table, Text } from '@mantine/core';
 
-import type { CrawlLaunch, CrawlRow, CrawlsView } from '../api/crawls';
+import type { CrawlRow, CrawlsView } from '../api/crawls';
 import type { Column } from '../components/ColumnsHead';
 import { ColumnsHead } from '../components/ColumnsHead';
 import { Seams } from '../components/Seams';
 import { formatDateTime } from '../format';
-import { CrawlState, isActive } from './CrawlTable';
+import type { StartCrawls } from './CrawlTable';
+import { Again, CrawlState, isActive } from './CrawlTable';
 
 /** Строк в списке: последний обход и несколько до него, а вся история — в журнале. */
 const SHOWN = 5;
@@ -61,8 +64,6 @@ export function againRows(rows: readonly CrawlRow[], eligible: ReadonlySet<strin
   return again;
 }
 
-export type StartCrawls = UseMutationResult<CrawlLaunch, Error, string[]>;
-
 function When({ crawl }: { crawl: CrawlRow }) {
   return (
     <Stack gap={0} align="center">
@@ -73,23 +74,6 @@ function When({ crawl }: { crawl: CrawlRow }) {
         </Text>
       ) : null}
     </Stack>
-  );
-}
-
-function Again({ host, start }: { host: string; start: StartCrawls }) {
-  const mine = start.variables?.includes(host) ?? false;
-  return (
-    <Button
-      size="xs"
-      variant="light"
-      className="press"
-      aria-label={`Переобойти ${host}`}
-      loading={start.isPending && mine}
-      disabled={start.isPending && !mine}
-      onClick={() => start.mutate([host])}
-    >
-      Переобойти
-    </Button>
   );
 }
 

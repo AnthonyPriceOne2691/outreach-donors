@@ -595,7 +595,8 @@ describe('«Переобойти» в последних обходах', () => 
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Доноры и обходы' }));
-    await user.click(await screen.findByRole('button', { name: 'Переобойти fresh.example' }));
+    const recent = await screen.findByRole('table', { name: 'Последние обходы' });
+    await user.click(within(recent).getByRole('button', { name: 'Переобойти fresh.example' }));
 
     await waitFor(() =>
       expect(recorded.calls.find((call) => call.method === 'POST')?.body).toEqual({
@@ -603,6 +604,55 @@ describe('«Переобойти» в последних обходах', () => 
       }),
     );
     expect(await screen.findByText('Поставлено: 1.')).toBeInTheDocument();
+  });
+
+  it('и в строке таблицы доноров — тем же запуском, одним донором', async () => {
+    // Anthony 29.10.2026: в «Последних обходах» пять строк, и у остальных доноров повтора было
+    // не найти — галочка с «Обойти отмеченных» его ставит, но это неочевидно.
+    const recorded = openWhole();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Доноры и обходы' }));
+    const table = await screen.findByRole('table', { name: 'Доноры для обхода' });
+    await user.click(within(table).getByRole('button', { name: 'Переобойти fresh.example' }));
+
+    await waitFor(() =>
+      expect(recorded.calls.find((call) => call.method === 'POST')?.body).toEqual({
+        hosts: ['fresh.example'],
+      }),
+    );
+    expect(await screen.findByText('Поставлено: 1.')).toBeInTheDocument();
+  });
+
+  it('в таблице доноров — у каждого законченного, любым исходом; у ждущего, идущего и не обходившегося — нет', async () => {
+    const finished = {
+      'whole.example': crawl({ status: 'done', outcome: 'ok', stop_reason: 'max_pages' }),
+      'part.example': crawl({ status: 'done', outcome: 'partial', stop_reason: 'timeout' }),
+      'robots.example': crawl({ status: 'done', outcome: 'failed', stop_reason: 'robots' }),
+      'closed.example': crawl({ status: 'done', outcome: 'blocked', stop_reason: 'no_start' }),
+      'hung.example': crawl({ status: 'stopped' }),
+    };
+    const unfinished = {
+      'busy.example': crawl({ status: 'running' }),
+      'waiting.example': crawl({ status: 'queued', pages: 0 }),
+      'never.example': null,
+    };
+    const donors = Object.entries({ ...finished, ...unfinished }).map(([host, last]) => ({
+      ...TARGETS.donors[0],
+      host,
+      crawl: last === null ? null : { ...last, host },
+    }));
+    open({
+      'GET /api/crawls/targets': { body: { ...TARGETS, donors } },
+      'GET /api/crawls': { body: { rows: [], active: 2, workers: 4 } },
+    });
+
+    const table = await screen.findByRole('table', { name: 'Доноры для обхода' });
+
+    const again = within(table)
+      .getAllByRole('button', { name: /^Переобойти / })
+      .map((button) => button.getAttribute('aria-label'));
+    expect(again).toEqual(Object.keys(finished).map((host) => `Переобойти ${host}`));
   });
 
   it('без права запуска — колонки с кнопкой нет', async () => {
