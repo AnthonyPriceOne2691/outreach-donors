@@ -150,6 +150,14 @@ export const NO_NICHE: Record<string, Answer> = {
  *  Экран спрашивает их на каждой вкладке сам, и тест, которому блок не нужен,
  *  записывает пустой список — промах мимо записанных роняет тест. */
 export const NO_STUCK_LETTERS: Record<string, Answer> = {
+  // Вкладки рекламодателей спрашивают и поиск адресов — строка «ждут адреса» своей вкладки
+  // (`AddressLine`).
+  'GET /api/advertisers/contacts?audience=links': {
+    body: { pending: 0, running: false, job_id: null, last: null, workers: 1 },
+  },
+  'GET /api/advertisers/contacts?audience=niche': {
+    body: { pending: 0, running: false, job_id: null, last: null, workers: 1 },
+  },
   'GET /api/letters/unknown': { body: { stage: 'donors', letters: [], after_minutes: 5 } },
   'GET /api/letters/unknown?stage=advertisers': {
     body: { stage: 'advertisers', letters: [], after_minutes: 5 },

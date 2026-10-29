@@ -32,9 +32,9 @@
       "worst": "accepted:105"
     },
     "backend/api/advertisers/routes.py": {
-      "lines": 346,
+      "lines": 370,
       "complexity": 5,
-      "worst": "decide:115"
+      "worst": "decide:119"
     },
     "backend/api/advertisers/schemas.py": {
       "lines": 220,
@@ -1306,6 +1306,11 @@
       "complexity": 5,
       "worst": "scoring_check:98"
     },
+    "backend/features/crawl/address_search.py": {
+      "lines": 97,
+      "complexity": 4,
+      "worst": "search_with_followup:78"
+    },
     "backend/features/crawl/advertiser_export.py": {
       "lines": 100,
       "complexity": 5,
@@ -1352,9 +1357,9 @@
       "worst": "eligible:188"
     },
     "backend/features/crawl/contacts.py": {
-      "lines": 128,
+      "lines": 139,
       "complexity": 5,
-      "worst": "save:95"
+      "worst": "pending_count:84"
     },
     "backend/features/crawl/denylist.py": {
       "lines": 171,
@@ -1872,9 +1877,9 @@
       "worst": "_name_forms:153"
     },
     "backend/features/letters/niche_recipients.py": {
-      "lines": 195,
+      "lines": 206,
       "complexity": 8,
-      "worst": "_offers_of:177"
+      "worst": "_offers_of:188"
     },
     "backend/features/letters/offer_addresses.py": {
       "lines": 35,
@@ -3502,9 +3507,9 @@
       "worst": "worker_problems:83"
     },
     "backend/workers/jobs.py": {
-      "lines": 359,
+      "lines": 365,
       "complexity": 6,
-      "worst": "_search_contacts:174"
+      "worst": "_contacts_what:263"
     },
     "backend/workers/load_gate.py": {
       "lines": 308,

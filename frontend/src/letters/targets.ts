@@ -10,7 +10,7 @@ import type { LetterAudience } from '../api/letters';
 import { partOf } from '../api/stages';
 import type { LetterStage } from '../api/types';
 import type { StageOption } from '../components/StageSwitch';
-import { plural } from '../format';
+import { formatNumber, plural } from '../format';
 
 export type LetterTarget = 'donors' | 'advertisers' | 'niche';
 
@@ -219,4 +219,43 @@ const POOL: Record<LetterTarget, string> = {
 /** Подпись под «Ещё не писали»: из скольких всего. */
 export function poolHint(funnel: Funnel, target: LetterTarget): string {
   return `${POOL[target]} ${funnel[POOL[target]] ?? 0}`;
+}
+
+/** Решённые «пишем» и сколько из них с адресом — у бизнесов ниши (тест-группа 29.10.2026: «из
+ *  180 сделало 3 письма» — адрес был у восьми, а экран этого не говорил). Пусто — адрес у всех. */
+function addressCounts(funnel: Funnel, target: LetterTarget): [number, number] | null {
+  if (target !== 'niche') return null;
+  const decided = funnel['решено «пишем»'] ?? 0;
+  const found = funnel['из них с адресом'] ?? 0;
+  return decided > found ? [found, decided] : null;
+}
+
+/** « · адрес есть у 8 из 180 решённых» — продолжение строки «Ещё не писали» у бизнесов ниши. */
+export function addressHint(funnel: Funnel, target: LetterTarget): string {
+  const counts = addressCounts(funnel, target);
+  if (counts === null) return '';
+  return ` · адрес есть у ${formatNumber(counts[0])} из ${formatNumber(counts[1])} решённых`;
+}
+
+/** Под «Собрать очередь»: письма соберутся только тем, у кого есть адрес, — сколько это и что
+ *  с остальными: ждут поиска (адрес ищется сам после «пишем») или его не нашлось. */
+export function buildHint(funnel: Funnel, target: LetterTarget): string | null {
+  const counts = addressCounts(funnel, target);
+  if (counts === null) return null;
+  const waiting = funnel['ждут поиска адреса'] ?? 0;
+  const missing = funnel['адреса не нашлось'] ?? 0;
+  const said = [
+    `Письма соберутся тем, у кого есть адрес: ${formatNumber(counts[0])} из ${formatNumber(counts[1])} решённых «пишем».`,
+  ];
+  if (waiting > 0) {
+    said.push(
+      `Ещё ${formatNumber(waiting)} ждут поиска адреса — когда он кончится, соберите очередь ещё раз.`,
+    );
+  }
+  if (missing > 0) {
+    said.push(
+      `У ${formatNumber(missing)} адреса не нашлось — у кого на сайте есть форма, тот в очереди «Формы».`,
+    );
+  }
+  return said.join(' ');
 }

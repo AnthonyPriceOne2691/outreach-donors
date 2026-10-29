@@ -28,7 +28,7 @@ import { CountInput } from './CountInput';
 import { LetterDraftEditor, draftOf } from './LetterDraftEditor';
 import { RunPicker, useAcceptedRuns } from './RunPicker';
 import type { LetterTarget } from './targets';
-import { ABOUT } from './targets';
+import { ABOUT, buildHint } from './targets';
 
 /** Писем за сборку, пока человек не поправил, и потолок — как у сервера (`LIMIT_MAX`). */
 export const LIMIT_DEFAULT = 50;
@@ -219,6 +219,7 @@ export function BuildForm({
           />
 
           <BuildButton building={building} blocked={blocked} onBuild={onBuild} />
+          <BuildHint text={buildHint(view.funnel, target)} />
         </Stack>
       </Collapse>
     </Stack>
@@ -255,5 +256,15 @@ function BuildButton({
         </Text>
       )}
     </Group>
+  );
+}
+
+/** Кому соберутся письма, если адрес есть не у всех решённых (`targets.buildHint`). */
+function BuildHint({ text }: { text: string | null }) {
+  if (text === null) return null;
+  return (
+    <Text size="sm" c="dimmed">
+      {text}
+    </Text>
   );
 }

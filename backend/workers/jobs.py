@@ -15,20 +15,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, time, timedelta
+from functools import partial
 from typing import Any, assert_never
 
 import httpx
 from rq import get_current_job
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import storage
 from backend.config.startup_checks import check_storage
-from backend.features.contacts.search import search_contacts
+from backend.features.contacts.search import SearchReport, search_contacts
 from backend.features.core.domain import Stage
 from backend.features.core.usage import LlmCapExceededError
-from backend.features.crawl.contacts import AdvertiserContactRepository
+from backend.features.crawl.address_search import search_with_followup
 from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
 from backend.features.replies import lead_handoff
@@ -180,12 +181,24 @@ async def _search_contacts(
 ) -> dict[str, Any]:
     # Этап — разбором целиком, как в почте (`core/stages.py`): с «иначе доноры» новый
     # этап молча шёл бы путём доноров и платил за их ступени, а так он — ошибка mypy.
-    queue_of: type[AdvertiserContactRepository] | None
+    search: Callable[[AsyncSession], Awaitable[SearchReport]]
     match stage:
         case Stage.DONORS:
-            queue_of = None  # очередь доноров — умолчание `search_contacts`
+            # Очередь доноров — умолчание `search_contacts`.
+            search = partial(
+                search_contacts,
+                limit=limit,
+                use_browser=use_browser,
+                paid_first=paid_first,
+                donor_id=donor_id,
+                queue=None,
+            )
         case Stage.ADVERTISERS:
-            queue_of = AdvertiserContactRepository
+            # Рекламодателям — с добором: «пишем» у бизнесов ниши говорят пачкой, и
+            # решённые за время прохода берёт следующий круг (`crawl/address_search.py`).
+            search = partial(
+                search_with_followup, limit=limit, use_browser=use_browser, paid_first=paid_first
+            )
         case Stage.SALES:
             raise StageWithoutContactsError(stage)
         case _:
@@ -194,14 +207,7 @@ async def _search_contacts(
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
-            report = await search_contacts(
-                session,
-                limit=limit,
-                use_browser=use_browser,
-                paid_first=paid_first,
-                donor_id=donor_id,
-                queue=None if queue_of is None else queue_of(session),
-            )
+            report = await search(session)
             await session.commit()
             return report.as_dict()
     finally:

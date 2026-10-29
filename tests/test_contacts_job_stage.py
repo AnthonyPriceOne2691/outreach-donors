@@ -55,11 +55,18 @@ def searched(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
         seen["search"].append(kwargs)
         return SimpleNamespace(as_dict=lambda: {"walked": 0})
 
+    async def followup(_session: object, **kwargs: Any) -> SimpleNamespace:
+        # Рекламодатели — поиском с добором (`crawl/address_search.py`): очередь он строит сам.
+        queue = AdvertiserContactRepository(_session)  # type: ignore[arg-type]
+        seen["search"].append({**kwargs, "queue": queue})
+        return SimpleNamespace(as_dict=lambda: {"walked": 0})
+
     def engine(dsn: str) -> _Engine:
         seen["engines"].append(dsn)
         return _Engine()
 
     monkeypatch.setattr(jobs, "search_contacts", search)
+    monkeypatch.setattr(jobs, "search_with_followup", followup)
     monkeypatch.setattr(jobs, "create_async_engine", engine)
     monkeypatch.setattr(jobs, "async_sessionmaker", lambda _engine, **_kw: _Session)
     monkeypatch.setattr(jobs, "check_storage", lambda: None)

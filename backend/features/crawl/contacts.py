@@ -82,13 +82,24 @@ class AdvertiserContactRepository:
         return list(rows.scalars().all())
 
     async def pending_count(
-        self, *, ttl_days: int = cfg.CONTACT_TTL_DAYS, now: datetime | None = None
+        self,
+        *,
+        ttl_days: int = cfg.CONTACT_TTL_DAYS,
+        now: datetime | None = None,
+        niche: bool | None = None,
     ) -> int:
+        """Сколько ждут поиска адреса; `niche` — только бизнесы ниши (`True`) или только
+        рекламодатели по ссылке (`False`): воронка вкладки писем считает своих."""
         moment = now or datetime.now(UTC)
+        where = self._pending(moment, ttl_days)
+        if niche is not None:
+            where = where & (
+                (AdvertiserModel.source == NICHE) if niche else (AdvertiserModel.source != NICHE)
+            )
         found = await self._session.execute(
             select(func.count(DomainModel.host))
             .join(AdvertiserModel, AdvertiserModel.domain_id == DomainModel.id)
-            .where(self._pending(moment, ttl_days))
+            .where(where)
         )
         return int(found.scalar_one() or 0)
 

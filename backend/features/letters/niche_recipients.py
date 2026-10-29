@@ -35,6 +35,7 @@ from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.run import RunModel
+from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.crawl.niche import NICHE, niche_funnel
 from backend.features.donors.price_freshness import PriceState, price_is
 from backend.features.letters.compose import NicheOffer
@@ -108,7 +109,17 @@ class NicheRecipients(Recipients):
         не пишем».
         """
         ready = await self.niche_candidates(limit=_EVERYONE)
-        return {**await niche_funnel(self._session), "ещё не писали": len(ready)}
+        funnel = await niche_funnel(self._session)
+        # Решённые без адреса — ждут поиска или уже искали и не нашли (тест-группа 29.10.2026:
+        # «из 180 — 3 письма» без этих чисел читалось сбоем сборки, а не адресами).
+        waiting = await AdvertiserContactRepository(self._session).pending_count(niche=True)
+        lacking = max(0, funnel["решено «пишем»"] - funnel["из них с адресом"])
+        return {
+            **funnel,
+            "ждут поиска адреса": waiting,
+            "адреса не нашлось": max(0, lacking - waiting),
+            "ещё не писали": len(ready),
+        }
 
     async def _offers(
         self, rows: Sequence[Any], moment: datetime
