@@ -19,10 +19,12 @@ from typing import Any
 import httpx
 import pytest
 from backend.features.core.domain import CrawlOutcome, StopReason
+from backend.features.crawl.feeds import FEED_PATHS
 from backend.features.crawl.fetch import CascadeLevel, PageCascade
 from backend.features.crawl.frontier import same_site_links
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.robots import RobotsStatus
+from backend.features.crawl.sitemap import COMMON_PATHS
 from backend.features.crawl.walk import DonorCrawler
 
 HOST = "donor.test"
@@ -87,8 +89,9 @@ class FakeSite:
 
     @property
     def opened(self) -> list[str]:
-        """Только страницы: robots и карта — служебные запросы."""
-        return [p for p in self.asked if p != "/robots.txt" and not p.endswith(".xml")]
+        """Только страницы: robots, карта и лента — служебные запросы."""
+        service = {"/robots.txt", *FEED_PATHS, *(p for p in COMMON_PATHS if not p.endswith(".xml"))}
+        return [p for p in self.asked if p not in service and not p.endswith(".xml")]
 
 
 class _SpyLimiter(DomainLimiter):

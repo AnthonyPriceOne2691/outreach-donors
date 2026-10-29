@@ -32,6 +32,19 @@ export interface CrawlCeilings {
   max_delay_sec?: number;
 }
 
+/** Где ждёт обход в очереди: занятые обходчики из скольких и сколько ждущих обходов перед ним.
+ *  `workers`: `null` — не спросили, 0 — некому взять; `ahead`: `null` — места нет (его как раз
+ *  берёт обходчик или очередь не спросили). */
+export interface CrawlPlace {
+  busy: number;
+  workers: number | null;
+  ahead: number | null;
+  /** Сколько свободных обходчиков держит сторож нагрузки — машина занята — и почему;
+   *  `null` или нет — не спросили (сервер старше). */
+  held?: number | null;
+  held_reason?: string | null;
+}
+
 /** Один обход: где он и чем кончился. `max_pages` — потолок хода «340 из 1000». */
 export interface CrawlRow extends CrawlCeilings {
   id: number;
@@ -68,6 +81,9 @@ export interface CrawlRow extends CrawlCeilings {
   crawl_delay?: number | null;
   elapsed_sec?: number | null;
   time_budget_sec?: number | null;
+  /** Место в очереди — у ждущего обхода; у идущего и законченного, у ответа старого сервера и
+   *  у «Приёмки по донорам» (очередь она не спрашивает) — пусто. */
+  place?: CrawlPlace | null;
 }
 
 /** Донор, которого можно обойти: цена — основание, обход — что о нём знаем. */

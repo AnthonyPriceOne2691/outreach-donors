@@ -263,3 +263,36 @@ async def recent(session: AsyncSession, *, limit: int) -> list[CrawlLine]:
 async def active_count(session: AsyncSession) -> int:
     query = select(func.count()).select_from(CrawlRunModel).where(CrawlRunModel.status.in_(ACTIVE))
     return int((await session.execute(query)).scalar_one())
+
+
+@dataclass(frozen=True, slots=True)
+class QueueState:
+    """Очередь обходов, как её видит человек у ждущего обхода (тест-группа 29.10.2026: «в
+    очереди — когда она активируется?»): сколько обходчиков занято и кто за кем ждёт."""
+
+    #: Обходов идёт — столько обходчиков занято: у копии обходчика один донор.
+    busy: int
+    #: Обход в очереди → сколько ждущих обходов перед ним. Задача, которой нет в очереди
+    #: (её как раз берёт обходчик или очередь не спросили), — без места.
+    ahead: dict[int, int]
+
+
+async def queue_state(session: AsyncSession, waiting: list[str] | None) -> QueueState:
+    """Занятые обходчики и места ждущих обходов. `waiting` — номера задач очереди по порядку
+    (`shared/queue.waiting_jobs`): чужие и устаревшие задачи места не занимают — обходчик,
+    взяв задачу закрытого обхода, сразу её отпускает."""
+    running = select(func.count()).select_from(CrawlRunModel)
+    running = running.where(CrawlRunModel.status == CrawlStatus.RUNNING)
+    busy = int((await session.execute(running)).scalar_one())
+    if not waiting:
+        return QueueState(busy=busy, ahead={})
+    queued = (
+        await session.execute(
+            select(CrawlRunModel.id, CrawlRunModel.job_id).where(
+                CrawlRunModel.status == CrawlStatus.QUEUED
+            )
+        )
+    ).all()
+    by_job = {job_id: run_id for run_id, job_id in queued if job_id}
+    order = [by_job[job] for job in waiting if job in by_job]
+    return QueueState(busy=busy, ahead={run_id: place for place, run_id in enumerate(order)})

@@ -9,23 +9,47 @@
  * здоровья ТЗ словами ТЗ: «403/429/5xx/таймаут — 4,2% за последние 500 запросов».
  *
  * **Значок — с потолком, под ним — почему обход кончился** (23.10.2026, `crawlWords`): один
- * вид в таблице доноров, последних обходах и «Приёмке по донорам».
+ * вид в таблице доноров, последних обходах и «Приёмке по донорам». У сайта, не пустившего с
+ * самого начала, — тоже причина, а у ждущего — его место в очереди (29.10.2026).
  */
 
-import { Badge, Checkbox, Group, Stack, Table, Text } from '@mantine/core';
+import { Badge, Button, Checkbox, Group, Stack, Table, Text } from '@mantine/core';
+import type { UseMutationResult } from '@tanstack/react-query';
 
-import type { CrawlRow, CrawlTarget } from '../api/crawls';
+import type { CrawlLaunch, CrawlRow, CrawlTarget } from '../api/crawls';
 import type { Column } from '../components/ColumnsHead';
 import { ColumnsHead } from '../components/ColumnsHead';
 import { Seams } from '../components/Seams';
 import { formatDate, formatMoney, formatNumber, formatPercent } from '../format';
 import { RunReason } from '../runs/RunReason';
-import { pagesOutOf, requestsOf, stopWords } from './crawlWords';
+import { pagesOutOf, queueWords, requestsOf, stopWords } from './crawlWords';
 
 const ACTIVE = new Set(['queued', 'running']);
 
 export function isActive(crawl: CrawlRow | null): boolean {
   return crawl !== null && ACTIVE.has(crawl.status);
+}
+
+/** Запуск повтора одного донора — общий у таблицы доноров и «Последних обходов». */
+export type StartCrawls = UseMutationResult<CrawlLaunch, Error, string[]>;
+
+/** «Переобойти» донора — у законченного обхода с любым исходом (`RecentCrawls`, шапка). Пока
+ *  ставится повтор одного, кнопки остальных ждут: запуск один на обе таблицы. */
+export function Again({ host, start }: { host: string; start: StartCrawls }) {
+  const mine = start.variables?.includes(host) ?? false;
+  return (
+    <Button
+      size="xs"
+      variant="light"
+      className="press"
+      aria-label={`Переобойти ${host}`}
+      loading={start.isPending && mine}
+      disabled={start.isPending && !mine}
+      onClick={() => start.mutate([host])}
+    >
+      Переобойти
+    </Button>
+  );
 }
 
 /** Что с обходом — словами и цветом; законченный — страницы против потолка (`pagesOutOf`). */
@@ -39,6 +63,11 @@ export function crawlState(crawl: CrawlRow): { label: string; color: string } {
     };
   }
   if (crawl.status === 'stopped') return { label: 'остановлен — смотрит человек', color: 'red' };
+  // robots.txt не дался (отказ, обрыв, сбой) — не «не открылся»: главную мы и не спрашивали,
+  // а без прочитанных правил не обходим (`crawl/robots.py`, 29.10.2026).
+  if (crawl.stop_reason === 'robots' && crawl.outcome !== 'forbidden') {
+    return { label: 'robots.txt не отдал', color: 'red' };
+  }
   switch (crawl.outcome) {
     case 'ok':
       return { label: `обойдён: ${pages}`, color: 'green' };
@@ -112,8 +141,10 @@ export function CrawlState({ crawl }: { crawl: CrawlRow | null }) {
     );
   }
   const state = crawlState(crawl);
-  // Причина — первой, до чисел здоровья: это ответ на «почему не 1 000».
-  const lines = [stopWords(crawl), ...healthLines(crawl)].filter((said) => said !== null);
+  // Причина — первой, до чисел здоровья: это ответ на «почему не 1 000»; у ждущего — его место.
+  const lines = [stopWords(crawl) ?? queueWords(crawl), ...healthLines(crawl)].filter(
+    (said) => said !== null,
+  );
   // Причина и «не хватило» — одной запиской за одним значком: два «!» в ячейке читались бы
   // как две разные беды.
   const note = [crawl.reason, degradationText(crawl.degradation)].filter(Boolean).join('\n');
@@ -178,16 +209,34 @@ function PriceCell({ donor }: { donor: CrawlTarget }) {
   );
 }
 
+/** Последний обход донора и, если он закончен любым исходом, — «Переобойти» под ним (Anthony
+ *  29.10.2026: в «Последних обходах» пять строк, и у остальных доноров повтора было не найти;
+ *  галочка и «Обойти отмеченных» ставят повтор тоже, но это неочевидно). Пока обход ждёт или
+ *  идёт — кнопки нет: второй незаконченный обход донора сервер не заводит. */
+function LastCrawl({ donor, again }: { donor: CrawlTarget; again: StartCrawls | null }) {
+  const crawl = donor.crawl;
+  if (again === null || crawl === null || isActive(crawl)) return <CrawlState crawl={crawl} />;
+  return (
+    <Stack gap={6} align="center">
+      <CrawlState crawl={crawl} />
+      <Again host={donor.host} start={again} />
+    </Stack>
+  );
+}
+
 export function TargetsTable({
   donors,
   picked,
   onPick,
   mayStart,
+  again = null,
 }: {
   donors: CrawlTarget[];
   picked: Set<string>;
   onPick: (host: string, on: boolean) => void;
   mayStart: boolean;
+  /** Запуск повтора; `null` — нет права запуска, и кнопки нет. */
+  again?: StartCrawls | null;
 }) {
   return (
     <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
@@ -228,7 +277,7 @@ export function TargetsTable({
               </Table.Td>
               <Table.Td>{formatDate(donor.priced_at)}</Table.Td>
               <Table.Td>
-                <CrawlState crawl={donor.crawl} />
+                <LastCrawl donor={donor} again={mayStart ? again : null} />
               </Table.Td>
               <Table.Td>
                 {donor.crawl?.links === null || donor.crawl === null
