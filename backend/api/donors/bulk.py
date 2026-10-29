@@ -20,7 +20,7 @@ import asyncio
 from decimal import Decimal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +29,13 @@ from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import backlog
 from backend.features.donors.bulk_entry import Outcome, Report, Row, enter_many
-from backend.features.donors.bulk_file import MAX_BYTES, Line, read_table, template_csv
+from backend.features.donors.bulk_file import (
+    MAX_BYTES,
+    BulkFileError,
+    Line,
+    read_table,
+    template_csv,
+)
 from backend.shared.queue import CRAWL_QUEUE_NAME, workers_alive
 
 #: Под маршрутами доноров (`routes.py` подключает его первым — до `/{donor_id}`): «/donors/import».
@@ -127,8 +133,13 @@ async def _line(session: AsyncSession, more: int = 0) -> BacklogView:
 
 
 async def _read(file: UploadFile) -> list[Line]:
+    """Строки файла; не прочитать целиком — 400 словами читателя (`BulkFileError`): человек
+    поправит файл. Здесь, а не в общей таблице отказов (`api/errors.py`): она у предела длины."""
     data = await file.read(MAX_BYTES + 1)
-    return await asyncio.to_thread(read_table, data, file.filename or "")
+    try:
+        return await asyncio.to_thread(read_table, data, file.filename or "")
+    except BulkFileError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 @router.get("/template", summary="Шаблон загрузки доноров списком")

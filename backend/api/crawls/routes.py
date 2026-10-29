@@ -37,6 +37,7 @@ from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import board, targets
 from backend.features.crawl.launch import launch
+from backend.shared.crawl_marks import Held, crawlers_held
 from backend.shared.queue import (
     CRAWL_QUEUE_NAME,
     crawl_job_id,
@@ -62,6 +63,12 @@ async def _workers() -> int | None:
     return await asyncio.to_thread(workers_alive, queue=CRAWL_QUEUE_NAME)
 
 
+async def _held() -> Held | None:
+    """Скольких обходчиков держит сторож нагрузки — тем же пулом потоков, что `_workers`.
+    Не спросили — `None`, а не ноль: экран тогда молчит, а не говорит «никого»."""
+    return await asyncio.to_thread(crawlers_held)
+
+
 async def _queue(session: AsyncSession) -> board.QueueState:
     """Занятые обходчики и места ждущих обходов — для строки «в очереди». Очередь — в пуле
     потоков, как `_workers`: не ответила — у ждущих нет места, а не ошибка экрана."""
@@ -79,10 +86,10 @@ async def crawl_targets(
     числами и словами, что делать (цену перезапросить, прогон запустить)."""
     found = await board.eligible(session, limit=limit)
     pages = crawl_cfg.MAX_PAGES_PER_DONOR
-    workers, queue = await _workers(), await _queue(session)
+    workers, queue, held = await _workers(), await _queue(session), await _held()
     return TargetsView(
         donors=[
-            DonorRow.of(line, max_pages=pages, queue=queue, workers=workers)
+            DonorRow.of(line, max_pages=pages, queue=queue, workers=workers, held=held)
             for line in found.donors
         ],
         no_price=len(found.chosen.no_price),
@@ -91,6 +98,8 @@ async def crawl_targets(
         notes=targets.explain(found.chosen),
         max_pages=pages,
         workers=workers,
+        held=None if held is None else held.count,
+        held_reason=None if held is None else held.words,
         health_window=crawl_cfg.HEALTH_WINDOW,
         slow_down_share=crawl_cfg.SLOW_DOWN_SHARE,
         stop_share=crawl_cfg.STOP_SHARE,
@@ -105,14 +114,16 @@ async def crawls(
     session: AsyncSession = Depends(db_session),
 ) -> CrawlsView:
     pages = crawl_cfg.MAX_PAGES_PER_DONOR
-    workers, queue = await _workers(), await _queue(session)
+    workers, queue, held = await _workers(), await _queue(session), await _held()
     return CrawlsView(
         rows=[
-            CrawlRow.of(line, max_pages=pages, queue=queue, workers=workers)
+            CrawlRow.of(line, max_pages=pages, queue=queue, workers=workers, held=held)
             for line in await board.recent(session, limit=limit)
         ],
         active=await board.active_count(session),
         workers=workers,
+        held=None if held is None else held.count,
+        held_reason=None if held is None else held.words,
     )
 
 

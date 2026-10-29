@@ -133,9 +133,10 @@ async def test_a_spent_cap_leaves_a_draft_for_the_human_without_calling_the_mode
 
     draft = await stored(session, reply.id)
     assert writer.seen == []
-    assert draft.reason == (
+    assert draft.reason is not None
+    assert draft.reason.startswith(
         "черновик не написан: дневной потолок черновиков агента выбран: 83 из 83 токенов — "
-        "продолжение завтра; поднять потолок может администратор"
+        "попросите администратора поднять потолок на экране «Расход» или дождитесь сброса"
     )
     assert _said(told) == [(draft.id, DraftStatus.ESCALATED, draft.reason)]
 

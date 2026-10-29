@@ -1,17 +1,20 @@
 """Очередь загрузки: доноры, загруженные списком, идут в обход по мере свободных обходчиков.
 
 Загрузка доноров таблицей (`donors/bulk_entry.py`, 29.10.2026) приносит до десяти тысяч доноров
-с ценами, и по галочке их обходят. Обходчиков восемь, донор — до часа (`config/crawl.py`): десять
-тысяч — недели обхода. **Ставить их в очередь обходов все сразу нельзя**: обход, запущенный
+с ценами, и по галочке их обходят. Обходчиков шестнадцать (`CRAWL_WORKERS`), донор — до часа
+(`config/crawl.py`): десять тысяч — недели обхода. **Ставить их в очередь обходов все сразу
+нельзя**: обход, запущенный
 человеком позже, встал бы за десятью тысячами и ждал бы месяц, а «Последние обходы» закрылись бы
 строками «в очереди». Кнопка «Обойти отмеченных» по той же причине ставит не больше пятидесяти
 за раз (`api/crawls/schemas.MAX_HOSTS`).
 
-**Загруженные ждут здесь, а выдача — по мере свободных мест.** Проход разбора раз в минуту
-(`workers/reaper.py`) отдаёт отсюда ровно столько доноров, сколько обходчиков свободно: в очереди
-обходов сверх работающих никого не стоит. Обход, запущенный человеком, встаёт в очередь обходов
-первым и берётся первым освободившимся обходчиком, а загруженные идут без перерыва, пока очередь
-загрузки не кончится. Порядок — порядок загрузки.
+**Загруженные ждут здесь, а выдача — в пустую очередь и понемногу.** Проход разбора раз в минуту
+(`workers/reaper.py`) отдаёт отсюда доноров, только когда в очереди обходов никто не ждёт, —
+не больше свободных обходчиков и не больше `PER_PASS` за раз. Сторож нагрузки обходчика
+(`workers/load_gate.py`) пускает новые обходы по одному за отрезок и только под свободные ядра
+машины: отданные разом стояли бы в очереди обходов, и обход, запущенный человеком позже, ждал
+бы за ними. Так впереди человека — не больше `PER_PASS` загруженных, а загруженные идут без
+перерыва, пока очередь загрузки не кончится. Порядок — порядок загрузки.
 
 **Выдача — той же постановкой и тем же отбором, что у кнопки** (`launch.py`, `targets.choose`).
 Донор, который к своему часу перестал подходить — цена протухла, попал в стоп-лист, отклонён, —
@@ -39,7 +42,6 @@ from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, CrawlOutcome, CrawlStatus
 from backend.features.core.models.crawl import CrawlBacklogModel, CrawlRunModel
 from backend.features.crawl import targets
-from backend.features.crawl.board import active_count
 from backend.features.crawl.launch import Enqueue, JobId, launch
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,10 @@ CHUNK = 2_000
 #: Сколько строк очереди смотреть за проход: свободных мест — единицы, но часть строк может
 #: оказаться негодной, и проход идёт дальше по очереди, а не ждёт минуту.
 SCAN = 200
+#: Сколько доноров отдавать за проход (раз в минуту): сторож нагрузки и так пускает новый обход
+#: не чаще раза в `CRAWL_GATE_STAGGER_SEC` (20 с), а шестнадцати обходчикам на смену при обходе
+#: в 20–60 минут нужно меньше одного старта в минуту.
+PER_PASS = 2
 #: Сколько последних законченных обходов берёт прогноз и сколько идёт донор, если их нет:
 #: «обход донора — до получаса» (`launch.py`).
 SAMPLE = 50
@@ -132,13 +138,14 @@ async def eta_sec(session: AsyncSession, ahead: int, workers: int | None) -> flo
 async def feed(session: AsyncSession, *, workers: int, enqueue: Enqueue, job_id: JobId) -> Fed:
     """Отдать свободным обходчикам доноров очереди загрузки — один проход.
 
-    Свободно — `workers` минус обходы в очереди и в работе: человек, поставивший обход раньше
-    прохода, занимает место первым. Коммит — у вызывающего: постановка фиксирует сама
-    (`launch`), запись журнала — после неё.
+    В очереди обходов кто-то ждёт — человек или отданные раньше — не отдаём никого: ждущий
+    уйдёт первым. Иначе — `workers` минус идущие, но не больше `PER_PASS`. Коммит — у
+    вызывающего: постановка фиксирует сама (`launch`), запись журнала — после неё.
     """
     fed = Fed()
-    free = workers - await active_count(session)
-    if free <= 0:
+    running, queued = await _counts(session)
+    free = min(workers - running, PER_PASS)
+    if queued or free <= 0:
         return fed
     rows = list(
         (
@@ -182,6 +189,17 @@ async def feed(session: AsyncSession, *, workers: int, enqueue: Enqueue, job_id:
             len(fed.failed),
         )
     return fed
+
+
+async def _counts(session: AsyncSession) -> tuple[int, int]:
+    """Обходов идёт и ждёт в очереди обходов."""
+    rows = await session.execute(
+        select(CrawlRunModel.status, func.count())
+        .where(CrawlRunModel.status.in_((CrawlStatus.RUNNING, CrawlStatus.QUEUED)))
+        .group_by(CrawlRunModel.status)
+    )
+    counts = dict(rows.tuples().all())
+    return int(counts.get(CrawlStatus.RUNNING, 0)), int(counts.get(CrawlStatus.QUEUED, 0))
 
 
 def _by_requester(

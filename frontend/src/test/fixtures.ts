@@ -8,7 +8,7 @@ export const ADMIN: Me = {
   id: 1,
   email: 'админ@site.com',
   role: 'admin',
-  permissions: ['prices', 'run', 'sales', 'send', 'senders', 'settings', 'users', 'view'],
+  permissions: ['prices', 'run', 'sales', 'send', 'senders', 'settings', 'spend', 'users', 'view'],
   must_change_password: false,
   last_login_at: '2026-09-19T10:24:00+00:00',
 };

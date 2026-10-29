@@ -149,7 +149,7 @@ async def test_a_donor_already_crawled_leaves_the_queue_without_a_second_crawl()
     async with committed_sessions() as factory:
         async with factory() as session:
             await _priced(session, "one.example")
-            session.add(CrawlRunModel(host="one.example", status=CrawlStatus.QUEUED))
+            session.add(CrawlRunModel(host="one.example", status=CrawlStatus.RUNNING))
             await backlog.add(session, ["one.example"], by=WHO, author_id=None)
             await session.commit()
         async with factory() as session:
@@ -158,6 +158,37 @@ async def test_a_donor_already_crawled_leaves_the_queue_without_a_second_crawl()
 
         assert (fed.queued, fed.busy) == ({}, ["one.example"])
         assert await _waiting(factory) == []
+
+
+async def test_nobody_is_given_while_someone_waits_in_the_crawl_queue() -> None:
+    """Ждущий в очереди обходов уходит первым: сторож нагрузки держит его — держит и выдачу."""
+    async with committed_sessions() as factory:
+        async with factory() as session:
+            await _priced(session, "one.example")
+            session.add(CrawlRunModel(host="human.example", status=CrawlStatus.QUEUED))
+            await backlog.add(session, ["one.example"], by=WHO, author_id=None)
+            await session.commit()
+        async with factory() as session:
+            fed = await backlog.feed(session, workers=16, enqueue=_Enqueue(), job_id=_ids)
+
+        assert not fed
+        assert await _waiting(factory) == ["one.example"]
+
+
+async def test_a_pass_gives_no_more_than_its_share() -> None:
+    async with committed_sessions() as factory:
+        hosts = [f"d{i}.example" for i in range(5)]
+        async with factory() as session:
+            for host in hosts:
+                await _priced(session, host)
+            await backlog.add(session, hosts, by=WHO, author_id=None)
+            await session.commit()
+        async with factory() as session:
+            fed = await backlog.feed(session, workers=16, enqueue=_Enqueue(), job_id=_ids)
+            await session.commit()
+
+        assert list(fed.queued) == hosts[: backlog.PER_PASS]
+        assert await _waiting(factory) == hosts[backlog.PER_PASS :]
 
 
 async def test_a_silent_crawl_queue_keeps_the_row_for_the_next_pass() -> None:

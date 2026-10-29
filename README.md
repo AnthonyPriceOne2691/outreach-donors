@@ -96,7 +96,7 @@ docker compose exec api outreach user-add --email ivan@site.com --role admin
 | `worker-contacts` | поиск адресов (rq), слушает `contacts`; одна копия — вторая прошла бы те же домены дважды |
 | `worker-sales` | ответы продаж (rq), слушает `sales` |
 | `worker-sales-bulk` | долгие задачи продаж (rq), слушает `sales-bulk`: сбор базы, очистка адресов, сборка очереди и пачка писем |
-| `crawler` | обходы доноров Этапа 2 (rq), слушает `crawl`; копий — `CRAWL_WORKERS` (8) |
+| `crawler` | обходы доноров Этапа 2 (rq), слушает `crawl`; копий — `CRAWL_WORKERS` (16), новый обход — при свободной машине (`workers/load_gate.py`) |
 | `reaper` | разбор мёртвых прогонов: продолжает осиротевших, закрывает безнадёжных |
 | `followups` | добивки: второе и третье письмо цепочки уходят по сроку |
 | `postgres`, `redis` | база и очередь, тома переживают пересоздание |

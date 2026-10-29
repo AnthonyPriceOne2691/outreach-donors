@@ -57,9 +57,9 @@
       "worst": "to_settings:58"
     },
     "backend/api/app.py": {
-      "lines": 106,
+      "lines": 119,
       "complexity": 1,
-      "worst": "create_app:51"
+      "worst": "_lifespan:56"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -117,14 +117,14 @@
       "worst": "—"
     },
     "backend/api/crawls/routes.py": {
-      "lines": 170,
+      "lines": 181,
       "complexity": 9,
-      "worst": "_why_not:119"
+      "worst": "_why_not:130"
     },
     "backend/api/crawls/schemas.py": {
-      "lines": 229,
-      "complexity": 3,
-      "worst": "of:52"
+      "lines": 254,
+      "complexity": 5,
+      "worst": "of:58"
     },
     "backend/api/deps.py": {
       "lines": 125,
@@ -137,9 +137,9 @@
       "worst": "—"
     },
     "backend/api/donors/bulk.py": {
-      "lines": 195,
+      "lines": 206,
       "complexity": 3,
-      "worst": "enter_list:161"
+      "worst": "_read:135"
     },
     "backend/api/donors/routes.py": {
       "lines": 187,
@@ -526,15 +526,20 @@
       "complexity": 9,
       "worst": "of:104"
     },
+    "backend/api/settings/llm_cap_schemas.py": {
+      "lines": 183,
+      "complexity": 12,
+      "worst": "llm_caps_card:136"
+    },
     "backend/api/settings/routes.py": {
-      "lines": 318,
+      "lines": 368,
       "complexity": 5,
-      "worst": "_serp_balance:289"
+      "worst": "_serp_balance:339"
     },
     "backend/api/settings/schemas.py": {
-      "lines": 386,
+      "lines": 391,
       "complexity": 6,
-      "worst": "of:311"
+      "worst": "of:314"
     },
     "backend/api/stage_access.py": {
       "lines": 139,
@@ -832,9 +837,9 @@
       "worst": "—"
     },
     "backend/config/crawl.py": {
-      "lines": 253,
+      "lines": 282,
       "complexity": 7,
-      "worst": "render_template_problem:202"
+      "worst": "render_template_problem:225"
     },
     "backend/config/filters.py": {
       "lines": 44,
@@ -922,9 +927,9 @@
       "worst": "verify_password:43"
     },
     "backend/features/access/permissions.py": {
-      "lines": 182,
+      "lines": 183,
       "complexity": 4,
-      "worst": "has_permission:136"
+      "worst": "has_permission:137"
     },
     "backend/features/access/repository.py": {
       "lines": 260,
@@ -962,7 +967,7 @@
       "worst": "reject_draft:253"
     },
     "backend/features/agent/guarding.py": {
-      "lines": 260,
+      "lines": 268,
       "complexity": 8,
       "worst": "compose:64"
     },
@@ -1167,17 +1172,22 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 325,
+      "lines": 331,
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/core/llm_caps.py": {
+      "lines": 352,
+      "complexity": 8,
+      "worst": "refusal:214"
+    },
     "backend/features/core/models/__init__.py": {
-      "lines": 101,
+      "lines": 103,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/core/models/_mixins.py": {
-      "lines": 65,
+      "lines": 81,
       "complexity": 2,
       "worst": "sql_enum:16"
     },
@@ -1227,9 +1237,9 @@
       "worst": "—"
     },
     "backend/features/core/models/ops.py": {
-      "lines": 170,
+      "lines": 197,
       "complexity": 2,
-      "worst": "holds:157"
+      "worst": "holds:184"
     },
     "backend/features/core/models/outgoing_attachment.py": {
       "lines": 64,
@@ -1257,9 +1267,9 @@
       "worst": "check_connected:131"
     },
     "backend/features/core/usage.py": {
-      "lines": 308,
-      "complexity": 10,
-      "worst": "ensure_llm_within_cap:224"
+      "lines": 413,
+      "complexity": 8,
+      "worst": "ensure_llm_within_cap:279"
     },
     "backend/features/core/window.py": {
       "lines": 194,
@@ -1312,9 +1322,9 @@
       "worst": "strip_structural_noise:176"
     },
     "backend/features/crawl/backlog.py": {
-      "lines": 213,
-      "complexity": 10,
-      "worst": "feed:132"
+      "lines": 231,
+      "complexity": 11,
+      "worst": "feed:138"
     },
     "backend/features/crawl/big_sites.py": {
       "lines": 184,
@@ -2317,9 +2327,9 @@
       "worst": "_words:104"
     },
     "backend/features/runs/competitor_estimate.py": {
-      "lines": 190,
-      "complexity": 8,
-      "worst": "judge_tokens_from:97"
+      "lines": 201,
+      "complexity": 10,
+      "worst": "llm_refusal:127"
     },
     "backend/features/runs/competitor_hosts.py": {
       "lines": 180,
@@ -3336,6 +3346,11 @@
       "complexity": 7,
       "worst": "filter:75"
     },
+    "backend/shared/crawl_marks.py": {
+      "lines": 112,
+      "complexity": 6,
+      "worst": "mark_held:53"
+    },
     "backend/shared/database/__init__.py": {
       "lines": 1,
       "complexity": 0,
@@ -3442,9 +3457,9 @@
       "worst": "_take:144"
     },
     "backend/workers/crawler.py": {
-      "lines": 69,
-      "complexity": 2,
-      "worst": "handle_warm_shutdown_request:48"
+      "lines": 110,
+      "complexity": 7,
+      "worst": "dequeue_job_and_maintain_ttl:67"
     },
     "backend/workers/followups.py": {
       "lines": 109,
@@ -3460,6 +3475,11 @@
       "lines": 359,
       "complexity": 6,
       "worst": "_search_contacts:174"
+    },
+    "backend/workers/load_gate.py": {
+      "lines": 308,
+      "complexity": 8,
+      "worst": "judge:120"
     },
     "backend/workers/main.py": {
       "lines": 67,

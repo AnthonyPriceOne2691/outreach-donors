@@ -66,7 +66,7 @@ import { InfoHint } from '../components/InfoHint';
 import { Unfold } from '../runs/Unfold';
 import type { StartCrawls } from './CrawlTable';
 import { TargetsTable, isActive } from './CrawlTable';
-import { crawlRule, queueRule } from './crawlWords';
+import { crawlRule, heldWords, queueRule } from './crawlWords';
 import { BulkDonorsButton } from './BulkDonors';
 import { CrawlBacklog } from './CrawlBacklog';
 import { ManualDonor } from './ManualDonor';
@@ -158,8 +158,10 @@ function useStartCrawls(onQueued?: () => void) {
   });
 }
 
-/** Чего панели не хватает: доноры не загрузились, обходчиков нет. */
-function Troubles({ error, workers }: { error: unknown; workers: number | null | undefined }) {
+/** Чего панели не хватает: доноры не загрузились, обходчиков нет, машина занята. */
+function Troubles({ error, data }: { error: unknown; data: CrawlTargets | undefined }) {
+  const workers = data?.workers;
+  const held = data?.held ?? 0;
   return (
     <>
       {error ? (
@@ -174,6 +176,13 @@ function Troubles({ error, workers }: { error: unknown; workers: number | null |
         <Alert color="yellow" title="Обходы некому взять">
           Поставленные обходы ждут в очереди: служба обхода не запущена. Запустить её может
           администратор сервиса — сообщите ему, и обходы пойдут сами, по очереди.
+        </Alert>
+      ) : null}
+      {/* Сторож нагрузки (`workers/load_gate.py`): копия не берёт новый обход, пока машина
+          занята. Иначе «в очереди» при свободных на вид обходчиках читалось бы поломкой. */}
+      {held > 0 ? (
+        <Alert color="yellow" title="Машина занята">
+          {heldWords(held, data?.held_reason ?? null)}
         </Alert>
       ) : null}
     </>
@@ -443,7 +452,7 @@ export function CrawlPanel() {
           onEnter={mayStart ? () => setEntering(true) : null}
         />
         {targets.isLoading ? <Loader size="sm" aria-label="Загружаем доноров" /> : null}
-        <Troubles error={targets.error} workers={data?.workers} />
+        <Troubles error={targets.error} data={data} />
         <CrawlBacklog mayDrop={mayStart} />
         {data ? (
           <StalePrices

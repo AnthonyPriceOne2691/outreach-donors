@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Collection
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, time
 from decimal import Decimal
 
@@ -22,6 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import llm as llm_cfg
+from backend.features.core import llm_caps
 from backend.features.core.domain import Stage, UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
 
@@ -98,6 +99,17 @@ OPERATION_PROVIDERS = {
 #: итогах (решение Anthony 10.10.2026, П2б; `runs/spending.py`). Отправка письма
 #: (`letter_send`) — общая на все этапы и в продажи не входит.
 SALES_OPERATIONS = frozenset(name for name in OPERATION_PROVIDERS if name.startswith("sales_"))
+
+#: Части дневного потолка модели (`core/llm_caps.py`) — по операциям, без пересечений: продажи —
+#: вызовы модели продаж, с агентом продаж (`sales_*`); агент переписки — черновики доноров и
+#: рекламодателей (`agent_*`); аутрич — все остальные операции модели: разбор ответов, судья,
+#: письма, ключи, тематика. Новая операция модели без приставки попадает в аутрич сама.
+_LLM = frozenset(name for name, kind in OPERATION_PROVIDERS.items() if kind is UsageProvider.LLM)
+PART_OPERATIONS: dict[str, frozenset[str]] = {
+    llm_caps.PART_SALES: frozenset(name for name in _LLM if name.startswith("sales_")),
+    llm_caps.PART_AGENT: frozenset(name for name in _LLM if name.startswith("agent_")),
+}
+PART_OPERATIONS[llm_caps.PART_OUTREACH] = _LLM.difference(*PART_OPERATIONS.values())
 
 #: Платный обход Этапа 2 — то, что держит свой потолок Этапа 2 (`CRAWL_MONTH_CAP_USD`).
 CRAWL_OPERATIONS = frozenset({"crawl_proxy", "crawl_render"})
@@ -179,12 +191,26 @@ class OwnCap:
 
     `tokens` 0 — своего потолка нет. `what` — слова отказа: чей потолок;
     `setting` — какой настройкой его поднять: для журнала, а не для отказа (`_refused`).
+
+    **Действующий — с экрана «Расход»** (`core/llm_caps.py`): вызывающий даёт потолок из
+    `.env`, а задан на экране свой у этой настройки — `tokens` он (`declared` — что дали). Так
+    свой потолок продаж и черновиков агента строят их модули, а число берут с экрана.
     """
 
     what: str
     operations: frozenset[str]
     tokens: int
     setting: str
+    #: Что дал вызывающий — из `.env`; `tokens` — действующий.
+    declared: int = field(default=0, init=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "declared", self.tokens)
+        object.__setattr__(self, "tokens", llm_caps.own_tokens(self.setting, self.tokens))
+
+    def fresh(self) -> OwnCap:
+        """Тот же потолок по свежему чтению экрана (`llm_caps.refresh`)."""
+        return OwnCap(self.what, self.operations, self.declared, self.setting)
 
 
 def share_cap(own: int | None, share: float) -> int:
@@ -192,12 +218,12 @@ def share_cap(own: int | None, share: float) -> int:
     доля общего. Общий 0 («потолка нет») при не заданной своей — потолка нет и у части.
 
     Одно правило на все части (черновики агента, вызовы модели продаж): своя доля не
-    съедает день у разбора цен доноров, судьи прогона, писем и ключей.
+    съедает день у разбора цен доноров, судьи прогона, писем и ключей. Общий — действующий:
+    с экрана «Расход», не меняли — из `.env` (`llm_caps.daily_cap`).
     """
     if own is not None:
         return own
-    general = llm_cfg.DAILY_TOKEN_CAP
-    return max(1, int(general * share)) if general else 0
+    return llm_caps.share_tokens(share)
 
 
 async def llm_tokens_spent(
@@ -221,6 +247,35 @@ async def llm_tokens_spent(
     return int(await session.scalar(statement) or 0)
 
 
+async def spent_by_part(session: AsyncSession, *, since: datetime) -> llm_caps.Spent:
+    """Токены модели частей потолка с момента `since` — одним запросом, по `PART_OPERATIONS`."""
+    rows = await session.execute(
+        select(UsageRecordModel.operation, func.coalesce(func.sum(UsageRecordModel.units), 0))
+        .where(
+            UsageRecordModel.system == SYSTEM,
+            UsageRecordModel.provider == UsageProvider.LLM,
+            UsageRecordModel.created_at >= since,
+        )
+        .group_by(UsageRecordModel.operation)
+    )
+    spent = dict.fromkeys(llm_caps.PARTS, 0)
+    for operation, units in rows.tuples().all():
+        part = next(
+            (name for name, names in PART_OPERATIONS.items() if operation in names),
+            llm_caps.PART_OUTREACH,
+        )
+        spent[part] += int(units or 0)
+    return spent
+
+
+def part_of(own: OwnCap | None) -> str | None:
+    """Чья часть блока у вызова: свой потолок продаж или черновиков — их часть, без своего —
+    аутрич; свой потолок с другим именем (этап-заглушка тестов) — `None`, он судится сам."""
+    if own is None:
+        return llm_caps.PART_OUTREACH
+    return llm_caps.PART_OF_SETTING.get(own.setting)
+
+
 async def ensure_llm_within_cap(
     session: AsyncSession,
     *,
@@ -240,19 +295,71 @@ async def ensure_llm_within_cap(
     `own` — ещё и свой дневной потолок части операций (черновики агента): тот же
     день и тот же журнал, только по своим операциям; общий проверяется всё равно.
     Настройка своего потолка не прочиталась (`llm_cfg.UNREAD_CAPS`) — потолок части ноль:
-    отказ сразу, до счёта.
+    отказ сразу, до счёта, — пока блок на «Расходе» не сохранён.
+
+    Перед счётом перечитывается блок «Расхода» (`llm_caps.refresh`), и `own`, построенный до
+    этого вызова, — тоже по свежему чтению. Блок сохранён — вызов судит лимит его части
+    (`part_of`: без своего потолка — аутрич), а не потолки `.env`.
     """
+    await llm_caps.refresh(session)
+    own = None if own is None else own.fresh()
     _readable(own)
     moment = now or datetime.now(UTC)
     day_start = datetime.combine(moment.date(), time.min, tzinfo=UTC)
-    if llm_cfg.DAILY_TOKEN_CAP:
+    saved = llm_caps.block()
+    part = part_of(own)
+    if saved is not None and part is not None:
+        await _within_part(session, saved, part, since=day_start, moment=moment)
+    else:
+        await _within_env(session, own, since=day_start, moment=moment)
+    if llm_cfg.RUN_TOKEN_CAP and run_id is not None:
+        spent = await llm_tokens_spent(session, run_id=run_id)
+        if spent >= llm_cfg.RUN_TOKEN_CAP:
+            raise _refused(
+                f"потолок расхода на модель за прогон №{run_id} достигнут",
+                spent=spent,
+                cap=llm_cfg.RUN_TOKEN_CAP,
+                setting="LLM_RUN_TOKEN_CAP",
+            )
+
+
+async def _within_part(
+    session: AsyncSession, saved: llm_caps.Block, part: str, *, since: datetime, moment: datetime
+) -> None:
+    """Блок сохранён на «Расходе»: лимит части вызова — жёсткий потолок её расхода за сутки
+    (`llm_caps.available`). Общий без потолка — и части без потолка: отказов нет, счёт не нужен."""
+    if saved.general is None:
+        return
+    spent = await spent_by_part(session, since=since)
+    if llm_caps.available(saved, part, spent) > 0:
+        return
+    logger.warning(
+        "лимит части потолка модели выбран: %s",
+        part,
+        extra={"part": part, "spent": spent[part], "cap": saved.limit(part)},
+    )
+    raise LlmCapExceededError(
+        f"лимит раздела «{llm_caps.TITLES[part]}» на сегодня выбран: {spent[part]} из "
+        f"{saved.limit(part)} токенов — {llm_caps.after_part(moment)}"
+    )
+
+
+async def _within_env(
+    session: AsyncSession, own: OwnCap | None, *, since: datetime, moment: datetime
+) -> None:
+    """Блок не сохраняли — потолки из `.env`, как до 29.10.2026: общий и свой потолок части.
+    Свой потолок с другим именем (этап-заглушка) — так же и при сохранённом блоке."""
+    day_start = since
+    general = llm_caps.daily_cap()
+    if general:
         spent = await llm_tokens_spent(session, since=day_start)
-        if spent >= llm_cfg.DAILY_TOKEN_CAP:
+        if spent >= general:
             raise _refused(
                 "потолок расхода на модель за день достигнут",
                 spent=spent,
-                cap=llm_cfg.DAILY_TOKEN_CAP,
-                setting="LLM_DAILY_TOKEN_CAP",
+                cap=general,
+                setting=llm_caps.GENERAL,
+                moment=moment,
             )
     if own is not None and own.tokens:
         spent = await llm_tokens_spent(session, since=day_start, operations=own.operations)
@@ -262,23 +369,15 @@ async def ensure_llm_within_cap(
                 spent=spent,
                 cap=own.tokens,
                 setting=own.setting,
-            )
-    if llm_cfg.RUN_TOKEN_CAP and run_id is not None:
-        spent = await llm_tokens_spent(session, run_id=run_id)
-        if spent >= llm_cfg.RUN_TOKEN_CAP:
-            raise _refused(
-                f"потолок расхода на модель за прогон №{run_id} достигнут",
-                spent=spent,
-                cap=llm_cfg.RUN_TOKEN_CAP,
-                setting="LLM_RUN_TOKEN_CAP",
-                tomorrow=False,
+                moment=moment,
             )
 
 
 def _readable(own: OwnCap | None) -> None:
     """Своя настройка потолка части с опечаткой (`config/_base.spared`) — потолок ноль, пока её
-    не поправят: отказ. Человеку — слова, журналу — имя настройки, как у `_refused`."""
-    if own is None or own.setting not in llm_cfg.UNREAD_CAPS:
+    не поправят: отказ. Блок на «Расходе» сохранён — действует лимит части, и опечатка в `.env`
+    ему не мешает. Человеку — слова, журналу — имя настройки, как у `_refused`."""
+    if own is None or own.setting not in llm_cfg.UNREAD_CAPS or llm_caps.block() is not None:
         return
     logger.warning("потолок модели не прочитан: %s", own.setting, extra={"setting": own.setting})
     raise LlmCapExceededError(
@@ -288,20 +387,26 @@ def _readable(own: OwnCap | None) -> None:
 
 
 def _refused(
-    words: str, *, spent: int, cap: int, setting: str, tomorrow: bool = True
+    words: str, *, spent: int, cap: int, setting: str, moment: datetime | None = None
 ) -> LlmCapExceededError:
     """Отказ потолка: человеку — слова, журналу — имя настройки, которой его поднять.
 
     До 10.10.2026 имя настройки стояло в самом отказе («…поднимите SALES_DAILY_TOKEN_CAP»),
     и его читал человек в итоге сборки очереди и разбора ответа (находка QA продаж на проде).
     Поднимает потолок администратор — ему имя и нужно, и оно в журнале.
+
+    Дневной потолок (`moment` — минута проверки) говорит, где его поднимают и когда сброс
+    (`llm_caps.after_cap`, 29.10.2026): «продолжение завтра» в полночь по Москве значило ещё
+    три часа. Потолок прогона — настройка сервера, и сброса у него нет.
     """
     logger.warning(
         "потолок модели выбран: %s",
         setting,
         extra={"setting": setting, "spent": spent, "cap": cap},
     )
-    later = "продолжение завтра; " if tomorrow else ""
-    return LlmCapExceededError(
-        f"{words}: {spent} из {cap} токенов — {later}поднять потолок может администратор"
+    then = (
+        "поднять потолок прогона может администратор"
+        if moment is None
+        else llm_caps.after_cap(moment)
     )
+    return LlmCapExceededError(f"{words}: {spent} из {cap} токенов — {then}")

@@ -1,7 +1,7 @@
 """очередь загрузки: доноры, загруженные списком и ждущие своего обхода
 
 Revision ID: 5649d5547a41
-Revises: 77ff8a338610
+Revises: fdaa566c5a26
 Create Date: 2026-10-29 13:00:00.000000
 
 Загрузка доноров таблицей (29.10.2026): до десяти тысяч доноров с ценами за раз, и по галочке —
@@ -21,7 +21,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "5649d5547a41"  # pragma: allowlist secret
-down_revision: Union[str, Sequence[str], None] = "77ff8a338610"  # pragma: allowlist secret
+down_revision: Union[str, Sequence[str], None] = "fdaa566c5a26"  # pragma: allowlist secret
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
