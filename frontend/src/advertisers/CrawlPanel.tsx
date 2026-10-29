@@ -36,7 +36,9 @@
  * `RecentCrawls`): повтор — своим запуском, а не отметками таблицы доноров — отмеченное там
  * не сбрасывается и «Обойти отмеченных» не крутится, пока ставится повтор. С 28.10.2026
  * (решение Anthony) кнопка — у законченного обхода с любым исходом, а не только у частичного
- * и неудачного; почему — в шапке `RecentCrawls`.
+ * и неудачного; почему — в шапке `RecentCrawls`. С 29.10.2026 — и в строке таблицы доноров
+ * (`CrawlTable.LastCrawl`): «Последних обходов» пять, и у остальных доноров повтора было не
+ * найти. Запуск повтора — один на обе таблицы.
  */
 
 import {
@@ -62,8 +64,9 @@ import { useSession } from '../auth/AuthProvider';
 import { formatNumber, formatPercent } from '../format';
 import { InfoHint } from '../components/InfoHint';
 import { Unfold } from '../runs/Unfold';
+import type { StartCrawls } from './CrawlTable';
 import { TargetsTable, isActive } from './CrawlTable';
-import { crawlRule } from './crawlWords';
+import { crawlRule, queueRule } from './crawlWords';
 import { BulkDonorsButton } from './BulkDonors';
 import { CrawlBacklog } from './CrawlBacklog';
 import { ManualDonor } from './ManualDonor';
@@ -199,21 +202,31 @@ function about(data: CrawlTargets | undefined): string {
     'ставят ссылки. Кандидаты в рекламодатели считаются сами, когда обход закончится.' +
     crawlRule(data) +
     healthRule(data) +
-    ' «Переобойти» в последних обходах — чем бы обход ни кончился: сайт растёт, свежие адреса ' +
-    'карты идут первыми, и повтор через время возьмёт новые статьи. Новый обход заменит ' +
-    'найденное прежним, а решения по спорным и спрошенный DR перенесёт.'
+    queueRule(data) +
+    ' «Переобойти» — у каждого донора, чей обход закончен, чем бы он ни кончился: в строке ' +
+    'таблицы доноров и в последних обходах. Сайт растёт, свежие адреса карты идут первыми, и ' +
+    'повтор через время возьмёт новые статьи. Новый обход заменит найденное прежним, а решения ' +
+    'по спорным и спрошенный DR перенесёт.'
   );
 }
 
-/** Что с обходом сейчас — строкой у заголовка: идёт, остановлен, сколько можно обойти. */
+/** Что с обходом сейчас — строкой у заголовка: идёт, ждёт, остановлен, сколько можно обойти.
+ *  Идущие и ждущие — порознь (29.10.2026): «идёт: 10», когда обходчиков восемь, а двое ждут,
+ *  обещало обходы, которых ещё нет. */
 function Facts({ donors }: { donors: CrawlTarget[] }) {
-  const running = donors.filter((donor) => isActive(donor.crawl)).length;
+  const running = donors.filter((donor) => donor.crawl?.status === 'running').length;
+  const waiting = donors.filter((donor) => donor.crawl?.status === 'queued').length;
   const stopped = donors.filter((donor) => donor.crawl?.status === 'stopped').length;
   return (
     <Group gap="xs" align="center">
       {running > 0 && (
         <Badge variant="light" color="blue">
           идёт: {formatNumber(running)}
+        </Badge>
+      )}
+      {waiting > 0 && (
+        <Badge variant="light" color="gray">
+          в очереди: {formatNumber(waiting)}
         </Badge>
       )}
       {stopped > 0 && (
@@ -239,11 +252,13 @@ function Targets({
   picked,
   onPick,
   mayStart,
+  again = null,
 }: {
   data: CrawlTargets;
   picked: Set<string>;
   onPick: (host: string, on: boolean) => void;
   mayStart: boolean;
+  again?: StartCrawls | null;
 }) {
   return (
     <>
@@ -257,7 +272,13 @@ function Targets({
           ))}
         </Stack>
       ) : (
-        <TargetsTable donors={data.donors} picked={picked} onPick={onPick} mayStart={mayStart} />
+        <TargetsTable
+          donors={data.donors}
+          picked={picked}
+          onPick={onPick}
+          mayStart={mayStart}
+          again={again}
+        />
       )}
     </>
   );
@@ -349,11 +370,18 @@ function CrawlList({
   recent: CrawlsView | undefined;
 }) {
   const donors = data?.donors ?? [];
+  // Один запуск повтора на обе таблицы: пока ставится один донор, кнопки остальных ждут.
   const again = useStartCrawls();
   return (
     <Stack gap="sm" id={LIST_ID}>
       {data && donors.length > 0 ? (
-        <Targets data={data} picked={picked} onPick={onPick} mayStart={mayStart} />
+        <Targets
+          data={data}
+          picked={picked}
+          onPick={onPick}
+          mayStart={mayStart}
+          again={mayStart ? again : null}
+        />
       ) : null}
       {mayStart && donors.length > 0 ? (
         <Group>

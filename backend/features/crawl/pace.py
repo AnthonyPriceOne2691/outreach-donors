@@ -9,16 +9,35 @@
 плюс среднее время ответа, на потолок страниц и файлы карты сайта. Не меньше общего срока и
 не больше потолка медленных (`CRAWL_MAX_SECONDS_SLOW`): один донор не держит обходчик сутки.
 
-**Считается раз** — когда пауза известна, после robots.txt и главной: среднее время ответа —
-по ним же, сделанным до этого запросам. Продолжение с чекпоинта берёт тот же срок, а время
-продолжает считать с прошлых попыток (`progress.Checkpoint`).
+**Первый раз — по первым ответам**, когда пауза известна, после robots.txt и главной: среднее
+время ответа — по ним же, сделанным до этого запросам. Продолжение с чекпоинта берёт срок из
+чекпоинта, а время продолжает считать с прошлых попыток (`progress.Checkpoint`).
+
+**Срок вышел — по фактическому темпу** (`replan`, 29.10.2026). Первые ответы обещают меньше,
+чем сайт держит потом: тест-группа — сайт кончился «частично» на 976 страницах из 1 000, он
+отвечал медленнее, чем на robots.txt и главной, а обходчик ещё и сбавляет темп сам, если
+сайт начал отказывать. Поэтому в миг, когда срок вышел, он пересчитывается по тому, сколько
+ушло на уже открытые страницы: тем же темпом — оставшиеся до потолка, и запас. Срок
+продлевается, но не дальше потолка медленных — на нём держится и таймаут задачи очереди
+(`shared/queue.crawl_job_timeout`), — и никогда не короче обещанного. Открыто меньше
+`REPLAN_MIN_PAGES` страниц — темп по ним не понять (продолжение, у которого срок вышел ещё
+в прошлой попытке, или сайт, отдающий страницу раз в минуты), срок прежний.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from backend.config import crawl as cfg
+
+logger = logging.getLogger(__name__)
+
+#: Меньше открытых страниц — темп по ним не понять, и срок по ним не продлевается.
+REPLAN_MIN_PAGES = 20
+#: Запас над темпом: последние страницы бывают медленнее средних, а второй пересчёт стоит
+#: ещё одного «срок вышел» посреди обхода.
+REPLAN_MARGIN = 1.1
 
 
 @dataclass(slots=True)
@@ -45,3 +64,35 @@ def time_budget(*, pause: float, response: float, pages: int, base: float, ceili
     срока срок не урезает: он про продление, а не про сам срок."""
     needed = (pages + cfg.MAX_SITEMAP_FILES) * (pause + response)
     return max(base, min(ceiling, needed))
+
+
+def replan(*, budget: float, elapsed: float, opened: int, pages: int, ceiling: float) -> float:
+    """Срок, когда прежний вышел: `elapsed` секунд ушло на `opened` открытых страниц — тем же
+    темпом оставшиеся до потолка `pages`, с запасом `REPLAN_MARGIN`. Не короче `budget` и не
+    длиннее потолка медленных `ceiling`; открытых меньше `REPLAN_MIN_PAGES` или потолок уже
+    набран — срок прежний."""
+    if opened < REPLAN_MIN_PAGES or opened >= pages:
+        return budget
+    needed = elapsed * pages / opened * REPLAN_MARGIN
+    return max(budget, min(ceiling, needed))
+
+
+def extended(
+    host: str, *, budget: float, elapsed: float, opened: int, pages: int, ceiling: float
+) -> float | None:
+    """Срок донора `host` вышел — продлённый по темпу (`replan`), целыми секундами, как
+    первый; `None` — продлевать некуда: темп не понять или потолок медленных уже достигнут."""
+    longer = round(
+        replan(budget=budget, elapsed=elapsed, opened=opened, pages=pages, ceiling=ceiling)
+    )
+    if longer <= elapsed:
+        return None
+    logger.info(
+        "обход %s: срок %.0f с вышел на %s страницах из %s — по темпу продлён до %s с",
+        host,
+        budget,
+        opened,
+        pages,
+        longer,
+    )
+    return longer

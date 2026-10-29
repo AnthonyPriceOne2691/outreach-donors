@@ -9,11 +9,12 @@ from pydantic_core import PydanticCustomError
 
 from backend.config import crawl as crawl_cfg
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, PriceSource, StopReason
-from backend.features.crawl.board import CrawlLine, DonorLine
+from backend.features.crawl.board import CrawlLine, DonorLine, QueueState
 
-#: Сколько доноров ставится одним нажатием. Обходчиков четыре, обход — до
-#: получаса: полсотни доноров — это уже шесть часов очереди, и больше за раз
-#: человек осознанно не выбирает.
+#: Сколько доноров ставится одним нажатием. У обходчика один донор, обход — до
+#: часа: полсотни доноров — это часы очереди, и больше за раз человек осознанно
+#: не выбирает. Число обходчиков — в ответе (`workers`), а не здесь: на проде их
+#: больше, чем копий по умолчанию (29.10.2026 — восемь).
 MAX_HOSTS = 50
 
 
@@ -32,6 +33,28 @@ class CrawlCeilings(BaseModel):
     delay_sec: float = Field(default_factory=lambda: crawl_cfg.DELAY_SEC)
     #: Больше этой паузы не ждём, даже если сайт просит.
     max_delay_sec: float = Field(default_factory=lambda: crawl_cfg.MAX_DELAY_SEC)
+
+
+class QueuePlace(BaseModel):
+    """Где ждёт обход в очереди: сколько обходчиков занято из скольких и сколько ждущих
+    обходов перед ним (тест-группа 29.10.2026: «в очереди» не говорило, когда обход начнётся).
+    Только у обхода в очереди; у идущего и законченного — пусто."""
+
+    #: Обходов идёт — занятых обходчиков.
+    busy: int
+    #: Сколько обходчиков слушает очередь; `None` — не спросили, 0 — некому взять.
+    workers: int | None = None
+    #: Ждущих обходов перед ним; `None` — места нет (его как раз берёт обходчик или очередь
+    #: не спросили).
+    ahead: int | None = None
+
+    @classmethod
+    def of(
+        cls, line: CrawlLine, queue: QueueState | None, workers: int | None
+    ) -> QueuePlace | None:
+        if queue is None or line.status is not CrawlStatus.QUEUED:
+            return None
+        return cls(busy=queue.busy, workers=workers, ahead=queue.ahead.get(line.id))
 
 
 class CrawlRow(CrawlCeilings):
@@ -73,9 +96,18 @@ class CrawlRow(CrawlCeilings):
     elapsed_sec: float | None = None
     #: Свой срок обхода, с, если он его записал; пусто — срок общий (`max_seconds`).
     time_budget_sec: float | None = None
+    #: Место в очереди — у ждущего обхода, если маршрут спросил очередь.
+    place: QueuePlace | None = None
 
     @classmethod
-    def of(cls, line: CrawlLine, *, max_pages: int) -> CrawlRow:
+    def of(
+        cls,
+        line: CrawlLine,
+        *,
+        max_pages: int,
+        queue: QueueState | None = None,
+        workers: int | None = None,
+    ) -> CrawlRow:
         return cls(
             id=line.id,
             host=line.host,
@@ -101,6 +133,7 @@ class CrawlRow(CrawlCeilings):
             crawl_delay=line.crawl_delay,
             elapsed_sec=line.elapsed_sec,
             time_budget_sec=line.time_budget_sec,
+            place=QueuePlace.of(line, queue, workers),
         )
 
 
@@ -116,12 +149,24 @@ class DonorRow(BaseModel):
     source: PriceSource | None = None
 
     @classmethod
-    def of(cls, line: DonorLine, *, max_pages: int) -> DonorRow:
+    def of(
+        cls,
+        line: DonorLine,
+        *,
+        max_pages: int,
+        queue: QueueState | None = None,
+        workers: int | None = None,
+    ) -> DonorRow:
+        crawl = line.crawl
         return cls(
             host=line.host,
             price=float(line.price) if line.price is not None else None,
             priced_at=line.priced_at,
-            crawl=CrawlRow.of(line.crawl, max_pages=max_pages) if line.crawl else None,
+            crawl=(
+                CrawlRow.of(crawl, max_pages=max_pages, queue=queue, workers=workers)
+                if crawl
+                else None
+            ),
             currency=line.currency,
             source=line.source,
         )
@@ -168,7 +213,7 @@ class LaunchBody(BaseModel):
             raise PydanticCustomError(
                 "too_many_hosts",
                 f"За раз ставим не больше {MAX_HOSTS} доноров, выбрано {len(hosts)}: "
-                "обходчиков четыре, обход — до получаса",
+                "у обходчика один донор, обход — до часа, остальные ждут в очереди",
             )
         return hosts
 
