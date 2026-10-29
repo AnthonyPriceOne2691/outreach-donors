@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from backend.features.core.domain import MessageStatus
 from backend.features.core.models.outreach import MessageModel
 from backend.features.letters.delivery_trouble import Trouble
+from backend.features.ops.alarms import Alarm
 from backend.features.ops.silence import alarms
 from backend.features.outreach.repository import EVERY_STAGE
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,10 +45,14 @@ async def _delivered_later(session: AsyncSession, number: int) -> None:
     later.delivered_at = NOW - timedelta(hours=7)
 
 
-async def _pending(session: AsyncSession) -> str:
+async def _pending_alarm(session: AsyncSession) -> Alarm:
     await session.flush()
     found = await alarms(session, stages=EVERY_STAGE, now=NOW)
-    return next(alarm.detail for alarm in found if alarm.code == "delivery-pending:donors")
+    return next(alarm for alarm in found if alarm.code == "delivery-pending:donors")
+
+
+async def _pending(session: AsyncSession) -> str:
+    return (await _pending_alarm(session)).detail
 
 
 async def test_the_404_case_names_its_reason(session: AsyncSession) -> None:
@@ -125,3 +130,83 @@ async def test_two_letters_are_both_named(session: AsyncSession) -> None:
         f"сообщила; №{second.id} — сбой шифрования связи с сервером получателя (TLS), "
         "3 попытки с 10:26 по Москве. "
     )
+
+
+class TestConcern:
+    """Повод у висящих писем — по возрасту и виду причины: платформа повторяет до 72 часов,
+    а у домена без почтового сервера и при отказе нашему адресу ждать нечего."""
+
+    async def test_a_waiting_server_is_no_cause(self, session: AsyncSession) -> None:
+        stuck = await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8))
+        _deferred(stuck, since=SINCE, attempts=14, reason=TIMEOUT, kind=Trouble.UNREACHABLE)
+        await _delivered_later(session, 1)
+
+        alarm = await _pending_alarm(session)
+
+        assert alarm.concern is not None
+        assert not alarm.concern.cause
+        assert "исход придёт сам" in alarm.concern.words
+        assert "исход придёт сам" not in alarm.detail  # фраза — в пометке, а не дважды
+
+    async def test_past_the_retry_window_is_a_cause(self, session: AsyncSession) -> None:
+        """Платформа повторяет 72 часа: письмо без исхода дольше — исход сам не придёт."""
+        stuck = await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=80))
+        _deferred(
+            stuck,
+            since=NOW - timedelta(hours=80),
+            attempts=30,
+            reason=TIMEOUT,
+            kind=Trouble.UNREACHABLE,
+        )
+        await _delivered_later(session, 1)
+
+        concern = (await _pending_alarm(session)).concern
+
+        assert concern is not None
+        assert concern.cause
+        assert concern.words == (
+            "Есть повод для беспокойства — письмо без исхода дольше 72 часов, платформа его уже "
+            "не повторяет и исход сам не придёт: посмотреть исход письма в журнале писем "
+            "платформы (Activity)."
+        )
+
+    async def test_a_domain_without_mail_server_is_a_cause(self, session: AsyncSession) -> None:
+        stuck = await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8))
+        _deferred(
+            stuck,
+            since=SINCE,
+            attempts=4,
+            reason="unable to get mx info: failed to get IPs from PTR record",
+            kind=Trouble.NO_MAIL_SERVER,
+        )
+        await _delivered_later(session, 1)
+
+        concern = (await _pending_alarm(session)).concern
+
+        assert concern is not None
+        assert concern.cause
+        assert "нет почтового сервера" in concern.words
+        assert "проверить адрес получателя" in concern.words
+
+    async def test_our_address_refused_is_a_cause(self, session: AsyncSession) -> None:
+        """Отказ нашему адресу или IP — у любого из висящих, не только у первых трёх."""
+        letters = [
+            await _letter(
+                session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=12 - n), number=n
+            )
+            for n in range(5)
+        ]
+        _deferred(
+            letters[4],
+            since=SINCE,
+            attempts=2,
+            reason="450 4.7.25 Client host rejected: cannot find your hostname",
+            kind=Trouble.BLOCKED,
+        )
+        await _delivered_later(session, 9)
+
+        concern = (await _pending_alarm(session)).concern
+
+        assert concern is not None
+        assert concern.cause
+        assert "отклоняет наш адрес или IP" in concern.words

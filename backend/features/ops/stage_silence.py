@@ -41,7 +41,8 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.letters import deferrals
-from backend.features.ops.alarms import Alarm, cause, direction, no_cause
+from backend.features.letters.delivery_trouble import Trouble
+from backend.features.ops.alarms import Alarm, Concern, cause, direction, no_cause
 from backend.features.replies import recipient_stage
 from backend.features.replies.unbound import is_unbound
 
@@ -55,6 +56,23 @@ SHOWN_LETTERS = 3
 
 #: Висящее письмо без единой отсрочки — причины платформа не назвала.
 UNHEARD = "платформа о нём ещё ничего не сообщила"
+
+#: Сколько платформа повторяет доставку: письмо без исхода дольше она уже не повторяет, и исход
+#: сам не придёт (документация платформы: 72 часа от первой отсрочки).
+PLATFORM_RETRY_HOURS = 72
+
+#: Вид причины, при котором ждать исхода не стоит, — повод и что сделать: домен без почтового
+#: сервера письмо не примет, сколько ни повторяй; отказ нашему адресу или IP — о нашей репутации.
+CAUSES: dict[Trouble, tuple[str, str]] = {
+    Trouble.NO_MAIL_SERVER: (
+        "у домена получателя нет почтового сервера, и письмо не дойдёт",
+        "проверить адрес получателя и писать на другой",
+    ),
+    Trouble.BLOCKED: (
+        "сервер получателя отклоняет наш адрес или IP",
+        "проверить репутацию домена и IP отправителя в кабинете платформы",
+    ),
+}
 
 #: Сколько дней можно не получать ни одного ответа при живой рассылке.
 #: Отвечают единицами процентов, поэтому порог считается
@@ -107,7 +125,7 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
     платформа повторяет приём до 72 часов, и исход придёт сам (`delivery-pending`)."""
     edge = moment - timedelta(hours=DELIVERY_SILENCE_HOURS)
     rows = await session.execute(
-        select(MessageModel.id, MessageModel.sent_at)
+        select(MessageModel.id, MessageModel.sent_at, MessageModel.deferred_kind)
         .where(
             _of_stage(stage),
             MessageModel.status == MessageStatus.SENT,
@@ -127,23 +145,19 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
             _of_stage(stage), MessageModel.delivered_at >= stale[0][1]
         )
     )
-    numbers = _numbers([letter_id for letter_id, _ in stale])
+    ids = [letter_id for letter_id, _, _ in stale]
+    numbers = _numbers(ids)
     if heard:
-        reasons = await _reasons(session, [letter_id for letter_id, _ in stale], moment)
         return Alarm(
             code=f"delivery-pending:{stage.value}",
             title=f"Письма без исхода доставки — {direction(stage)}",
             detail=(
-                f"{_pending_words(len(stale), reasons)}. Другие письма направления после них "
-                "доставлены — вебхук событий работает. Обычно так тянет сервер получателя: "
-                "платформа повторяет доставку до 72 часов, и исход придёт сам. Что ответил сервер, "
-                "видно в журнале писем платформы (Activity)"
+                f"{_pending_words(len(stale), await _reasons(session, ids, moment))}. Другие письма "
+                "направления после них доставлены — вебхук событий работает. Подробности — "
+                "в журнале писем платформы (Activity)"
             ),
             stage=stage,
-            concern=no_cause(
-                "сервер получателя тянет: платформа повторяет доставку до 72 часов, и исход "
-                "придёт сам"
-            ),
+            concern=_pending_concern(stale, moment),
         )
     return Alarm(
         code=f"delivery-silence:{stage.value}",
@@ -158,6 +172,29 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
             "ни одно письмо направления не получает статусов",
             "проверить адрес вебхука и подпись в кабинете платформы",
         ),
+    )
+
+
+def _pending_concern(
+    stale: list[tuple[int, datetime | None, str | None]], moment: datetime
+) -> Concern:
+    """Повод у висящих писем — по возрасту и виду причины (29.10.2026). Платформа повторяет
+    доставку до `PLATFORM_RETRY_HOURS`: письмо без исхода дольше она уже не повторяет; у вида из
+    `CAUSES` ждать нечего. Иначе сервер получателя тянет, и исход придёт сам. Повод сменился у той
+    же тревоги — лента скажет о ней ещё раз (`alarm_feed.Feed`)."""
+    oldest = stale[0][1]
+    if oldest is not None and oldest < moment - timedelta(hours=PLATFORM_RETRY_HOURS):
+        return cause(
+            f"письмо без исхода дольше {PLATFORM_RETRY_HOURS} часов, платформа его уже не "
+            "повторяет и исход сам не придёт",
+            "посмотреть исход письма в журнале писем платформы (Activity)",
+        )
+    kinds = {kind for _, _, kind in stale}
+    for kind, (why, todo) in CAUSES.items():
+        if kind.value in kinds:
+            return cause(why, todo)
+    return no_cause(
+        "сервер получателя тянет: платформа повторяет доставку до 72 часов, и исход придёт сам"
     )
 
 
