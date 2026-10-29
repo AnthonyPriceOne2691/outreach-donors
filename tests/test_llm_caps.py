@@ -27,8 +27,9 @@ from backend.api.settings import routes as settings_routes
 from backend.config import llm as llm_cfg
 from backend.features.agent import guarding
 from backend.features.agent.guarding import drafts_cap
+from backend.features.agent.stages import SALES_STAGE, agent_stage
 from backend.features.core import llm_caps, usage
-from backend.features.core.domain import AuditAction, UserRole
+from backend.features.core.domain import AuditAction, Stage, UserRole
 from backend.features.core.llm_caps import Block, LlmCapError
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.ops import LlmCapModel
@@ -251,11 +252,29 @@ class TestParts:
         monkeypatch.setattr(usage, "ensure_llm_within_cap", ensure)
         stage: Any = SimpleNamespace(own_cap=sales_cap)
 
-        await guarding._within_caps(session, stage, drafts_cap())
+        await guarding.within_caps(session, stage)
         await _save(session, admin, SUGGESTED)
-        await guarding._within_caps(session, stage, drafts_cap())
+        await guarding.within_caps(session, stage)
 
         assert seen == [llm_caps.AGENT, llm_caps.SALES, llm_caps.SALES]
+
+    async def test_a_spent_agent_limit_does_not_hold_the_sales_stage(
+        self, session: AsyncSession, admin: UserModel, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Находка продаж на стыке: разбор ситуации письма продаж зовёт `within_caps` своим
+        этапом. До сохранения блока — как раньше, держит и потолок черновиков; после — лимит
+        агента переписки держит только агента."""
+        monkeypatch.setattr(llm_cfg, "AGENT_DAILY_TOKEN_CAP", 1_000)
+        await _spend(session, "agent_draft", 1_000)
+        with pytest.raises(LlmCapExceededError, match="черновиков агента"):
+            await guarding.within_caps(session, SALES_STAGE)
+
+        await _save(session, admin, Block(10 * M, 20, 5, 30))  # агенту — 500 000
+        await _spend(session, "agent_draft", 499_000)
+
+        with pytest.raises(LlmCapExceededError, match="«Агент переписки»"):
+            await guarding.within_caps(session, agent_stage(Stage.DONORS))
+        await guarding.within_caps(session, SALES_STAGE)
 
     async def test_who_spends_today_is_counted_like_the_guard(self, session: AsyncSession) -> None:
         await _spend(session, "sales_draft", 300)

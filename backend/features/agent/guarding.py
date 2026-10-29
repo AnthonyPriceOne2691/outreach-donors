@@ -73,9 +73,8 @@ async def compose(
     attempts: list[dict[str, Any]] = []
     tokens = 0
     current = request
-    cap = drafts_cap()
     for attempt in range(max(stage.max_rewrites, 0) + 1):
-        await _within_caps(session, stage, cap)
+        await within_caps(session, stage)
         written = await writer.write(current)
         tokens += _spent(session, stage.usage_operation, written.tokens, request.stage)
         held = written.needs_human or not written.body.strip()
@@ -104,16 +103,19 @@ async def compose(
     return Composed(written.body, True, why, tokens, attempts)
 
 
-async def _within_caps(session: AsyncSession, stage: AgentStage, drafts: usage.OwnCap) -> None:
-    """Потолки до вызова писателя: общий с потолком черновиков, затем свой потолок этапа.
-    Выбран любой — `LlmCapExceededError` словами того потолка, и писатель не зовётся.
+async def within_caps(session: AsyncSession, stage: AgentStage) -> None:
+    """Потолки до вызова модели агента: общий с потолком черновиков (`drafts_cap`), затем свой
+    потолок этапа. Выбран любой — `LlmCapExceededError` словами того потолка, и модель не
+    зовётся. Петля правки (`compose`) зовёт это перед каждым вызовом писателя; продажи зовут то
+    же по своему этапу (`stages.SALES_STAGE`) перед разбором ситуации письма — одно правило у
+    всех, кто тратит модель агента.
 
-    Лимиты частей на «Расходе» сохранены (`core/llm_caps.py`) — черновик этапа со своим
-    потолком (продажи) судит лимит его части, а не лимит агента переписки: части не делят
-    расход, и черновики доноров не выбирают день у продаж."""
+    Лимиты разделов на «Расходе» сохранены (`core/llm_caps.py`) — этап со своим потолком
+    (продажи) судит лимит своего раздела, а не лимит агента переписки: разделы не делят расход,
+    и черновики доноров не выбирают день у продаж. До сохранения — как раньше, оба потолка."""
     await llm_caps.refresh(session)
     if stage.own_cap is None or llm_caps.block() is None:
-        await usage.ensure_llm_within_cap(session, own=drafts)
+        await usage.ensure_llm_within_cap(session, own=drafts_cap())
     if stage.own_cap is not None:
         await usage.ensure_llm_within_cap(session, own=stage.own_cap())
 
