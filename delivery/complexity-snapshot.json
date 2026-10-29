@@ -1277,9 +1277,9 @@
       "worst": "check_connected:131"
     },
     "backend/features/core/usage.py": {
-      "lines": 413,
+      "lines": 414,
       "complexity": 8,
-      "worst": "ensure_llm_within_cap:279"
+      "worst": "ensure_llm_within_cap:280"
     },
     "backend/features/core/window.py": {
       "lines": 201,
