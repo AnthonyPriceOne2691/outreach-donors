@@ -29,6 +29,7 @@ from backend.features.core.models.access import AuditLogModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.repository import LetterRepository
+from backend.features.ops.alarms import marked
 from backend.features.sales import (
     auto_lines,
     autobuild,
@@ -40,7 +41,7 @@ from backend.features.sales import (
     verifier,
 )
 from backend.features.sales.autosend import Pass, Stop
-from backend.features.sales.autosend_jobs import ALARM, RESUMED, Watch
+from backend.features.sales.autosend_jobs import ALARM, RESUMED, STALLED, Watch
 from backend.features.sales.models import SalesLeadModel, SalesStoplistModel, SalesThreadModel
 from backend.features.sales.queue_start import build_job_id
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -145,13 +146,13 @@ async def test_every_letter_of_the_window_refused_is_a_stall_with_an_alarm_after
     await autosend_jobs.tick(now=NOW + MINUTE * 31, watch=watch)
 
     assert quiet == []
-    [alarm] = alarmed
-    assert alarm == (
-        f"{ALARM}. ни одно письмо в окне получателя не ушло — письмо не готово к отправке: 2; "
+    stall = (
+        "ни одно письмо в окне получателя не ушло — письмо не готово к отправке: 2; "
         "причина каждого — в журнале разбора"
     )
+    assert alarmed == [marked(f"{ALARM}. {stall}", STALLED)]
     assert passes[0].stop is Stop.REFUSED_ALL
-    assert told[1:] == [f"{RESUMED} (стояла: {alarm.removeprefix(ALARM + '. ')})"]
+    assert told[1:] == [f"{RESUMED} (стояла: {stall})"]
     await session.refresh(letters[0])
     assert letters[0].status is MessageStatus.SENT
     journal = [record.getMessage() for record in caplog.records]
@@ -406,7 +407,7 @@ async def test_sales_on_but_not_connected_alarm_after_15_minutes_even_with_an_em
         "«Продажи» → «Отправитель»"
     )
     assert quiet == []
-    assert alarmed == [f"{autosend_jobs.OFFLINE}. {missing}"]
+    assert alarmed == [marked(f"{autosend_jobs.OFFLINE}. {missing}", STALLED)]
     assert told[1:] == [f"{RESUMED} (стояла: {missing})"]
     [line] = [r for r in caplog.records if "автоотправка стоит" in r.getMessage()][:1]
     assert line.levelno == logging.WARNING

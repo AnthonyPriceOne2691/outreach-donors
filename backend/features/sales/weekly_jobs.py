@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.config import sales as cfg
 from backend.config import storage
 from backend.config.startup_checks import check_storage
+from backend.features.ops.alarms import marked, no_cause
 from backend.features.runs.failures import described
 from backend.features.sales import weekly, weekly_text
 from backend.features.sales.telegram import SalesBot, TelegramError
@@ -65,6 +66,9 @@ SWITCHED_OFF = (
 
 Alert = Callable[[str], Awaitable[object]]
 Clock = Callable[[], datetime]
+
+#: Пометка тревоги о недоставке последней строкой (`ops/alarms.py`): работа не стоит.
+ON_SCREEN = no_cause("отчёт цел и открывается на экране по ссылке")
 
 
 def _utcnow() -> datetime:
@@ -162,7 +166,7 @@ async def send(
     row.tries, row.due_at = failed.tries, failed.due_at
     await session.commit()
     if failed.alarm:
-        await alert(_alarm(report, failed.spent, failure))
+        await alert(marked(_alarm(report, failed.spent, failure), ON_SCREEN))
     return {"report": report_id, "status": row.status, "error": row.error}
 
 

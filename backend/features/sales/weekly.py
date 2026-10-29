@@ -32,11 +32,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import sales as sales_cfg
 from backend.features.letters.chain import MAX_STEPS
 from backend.features.ops import mail_watch
+from backend.features.ops.alarms import Concern, cause, no_cause
+from backend.features.outreach import autopause
 from backend.features.sales import (
     browse,
     connection,
     funnel,
     handoff_console,
+    handoff_kommo,
     queue,
     weekly_counts,
 )
@@ -51,6 +54,13 @@ WEEK = timedelta(days=7)
 WEEKS_SHOWN = 12
 #: Виды ответа отчёта и автоответ — все названы, хоть и нулём.
 REPLY_KEYS: tuple[str, ...] = (*KINDS, AUTO)
+#: Пометки проблем (`ops/alarms.py`); у тревог сторожа, пауз ящиков и передач — их собственные.
+NOT_READY = cause("письма продаж не уходят", "подключить то, чего не хватает")
+BOX_BACK = no_cause("ящик снова пишет")
+LEADS_LOST = cause("телемаркетолог не получил этих лидов", "передать их телемаркетологу руками")
+DRAFTS_UNTOLD = cause(
+    "группа продаж не узнала об этих черновиках", "открыть переписку продаж и ответить лидам"
+)
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -166,6 +176,8 @@ class Problem:
 
     title: str
     detail: str
+    #: Стоит ли проблема внимания сейчас — те же слова, что у тревог (`ops/alarms.py`).
+    concern: Concern | None
     now: bool = False
 
 
@@ -263,16 +275,17 @@ async def _problems(
     """Тревоги и сбои: сторож почты продаж и подключение — на момент сборки, паузы ящиков и
     недоставленные сообщения — недели, передачи, где Kommo решает человек, — на сейчас."""
     found = [
-        Problem(alarm.title, alarm.detail, now=True)
+        Problem(alarm.title, alarm.detail, alarm.concern, now=True)
         for alarm in await mail_watch.alarms(session, now, stages=weekly_counts.SALES)
     ]
     missing = await connection.missing(session)
     if missing:
-        found.append(Problem("Отправка продаж не готова", "; ".join(missing), now=True))
+        found.append(Problem("Отправка продаж не готова", "; ".join(missing), NOT_READY, now=True))
     found += [
         Problem(
             f"Ящик {pause.box} встал на паузу {pause.at.astimezone(WEEK_ZONE):%d.%m %H:%M} по Москве",
             pause.reason,
+            BOX_BACK if pause.writing else autopause.PAUSED,
         )
         for pause in mail.pauses
     ]
@@ -281,6 +294,7 @@ async def _problems(
             f"Передача №{row.id} ждёт решения в Kommo",
             f"{row.email}: {handoff_console.KOMMO_WORDS[row.kommo]}"
             + (f" — {row.reason}" if row.reason else ""),
+            handoff_kommo.REFUSALS[row.kommo],
             now=True,
         )
         for row in await handoff_console.waiting(session)
@@ -291,6 +305,7 @@ async def _problems(
             Problem(
                 "Сообщения о лидах не доставлены",
                 f"{leads} — телемаркетолог их не получил; лиды ждут в переписке продаж",
+                LEADS_LOST,
             )
         )
     if drafts:
@@ -298,6 +313,7 @@ async def _problems(
             Problem(
                 "Сообщения о черновиках агента не доставлены",
                 f"{drafts}: черновики целы и ждут человека в переписке",
+                DRAFTS_UNTOLD,
             )
         )
     return found

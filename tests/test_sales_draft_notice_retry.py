@@ -182,6 +182,7 @@ async def test_the_pass_retries_with_a_growing_pause_and_the_last_try_is_an_alar
         "за 5 попыток — повторов больше нет"
     )
     assert f"Черновик цел: {APP}/threads/" in alarm
+    assert alarm.endswith(notify.UNTOLD.words)
     assert TOKEN not in alarm
     assert row.error is not None
     assert row.error.endswith("попыток — 5, повторов больше нет")

@@ -20,10 +20,11 @@ import pytest
 from backend.config import outreach as outreach_cfg
 from backend.config import sales as sales_cfg
 from backend.features.core.models.outreach import MessageModel
+from backend.features.ops.alarms import marked
 from backend.features.sales import auto_lines, autosend, autosend_jobs, policy, queue
 from backend.features.sales.auto_lines import AutoLine
 from backend.features.sales.autosend import Pass, Stop
-from backend.features.sales.autosend_jobs import OFFLINE, RESUMED, Watch
+from backend.features.sales.autosend_jobs import OFFLINE, RESUMED, STALLED, Watch
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
@@ -124,7 +125,7 @@ async def test_an_unread_limit_stops_the_pass_off_duty_with_an_alarm_after_15_mi
 
     assert (passes[0].stop, passes[0].stopped, passes[0].sent) == (Stop.UNREAD, WORDS, {})
     assert quiet == []
-    assert alarmed == [f"{OFFLINE}. {WORDS}"]
+    assert alarmed == [marked(f"{OFFLINE}. {WORDS}", STALLED)]
     assert told[1:] == [f"{RESUMED} (стояла: {WORDS})"]
     assert passes[-1].sent == {letter.id: w.SALES_BOX}
     [line] = [r for r in caplog.records if "автоотправка стоит" in r.getMessage()]
@@ -146,7 +147,7 @@ async def test_an_unread_limit_alarms_with_an_empty_queue_too(
     for minutes in (0, 15):
         await autosend_jobs.tick(now=NOW + MINUTE * minutes, watch=watch)
 
-    assert told == [f"{OFFLINE}. {WORDS}"]
+    assert told == [marked(f"{OFFLINE}. {WORDS}", STALLED)]
 
 
 @pytest.mark.usefixtures("unread")

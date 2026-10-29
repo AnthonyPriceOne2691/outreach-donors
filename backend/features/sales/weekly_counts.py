@@ -194,6 +194,8 @@ class Pause:
     box: str
     reason: str
     at: datetime
+    #: Ящик снова пишет — на момент сборки, как `Mail.idle`.
+    writing: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +213,7 @@ class Mail:
 async def mail(session: AsyncSession, period: Period) -> Mail:
     """Жалобы и паузы ящиков продаж за период и ящики на момент сборки."""
     boxes = await OutreachRepository(session).senders(stages=SALES)
+    writing = {box.email for box in boxes if box.enabled}
     rows = await session.execute(
         select(
             SenderHealthModel.kind,
@@ -231,7 +234,7 @@ async def mail(session: AsyncSession, period: Period) -> Mail:
         if kind == COMPLAINT:
             complaints += 1
         else:
-            pauses.append(Pause(email, detail or "причина не записана", at))
+            pauses.append(Pause(email, detail or "причина не записана", at, email in writing))
     return Mail(complaints, pauses, len(boxes), sum(1 for box in boxes if not box.enabled))
 
 

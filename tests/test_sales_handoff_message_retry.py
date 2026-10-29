@@ -150,6 +150,7 @@ async def test_last_try_is_an_alert_in_words_and_the_retries_end(
     [alert] = alerts
     assert "сообщение телемаркетологу не доставлено за 5 попыток" in alert
     assert "повторов больше нет" in alert
+    assert alert.endswith("передать лида телемаркетологу руками.")
     assert "HTTP 503" in alert
     assert "копия в группу тоже не ушла — группа о лиде не знает" in alert
     assert f"диалог №{row.thread_id}" in alert

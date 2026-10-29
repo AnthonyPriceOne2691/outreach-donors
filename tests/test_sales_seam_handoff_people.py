@@ -73,6 +73,8 @@ COLLEAGUE = "olga@acme.example.test"
 #: Как Telegram отвечает, когда телемаркетолог заблокировал бота и когда бота убрали из группы.
 BLOCKED = "Forbidden: bot was blocked by the user"
 KICKED = "Forbidden: bot was kicked from the group chat"
+#: Пометка тревоги, когда телемаркетолог лида не получил.
+LOST = handoff_telegram.CONCERNS[handoff_telegram.PERSONAL]
 
 
 # --- ответил не лид: «От:» — тот, кто написал ---------------------------------------------------
@@ -226,7 +228,7 @@ async def test_group_hears_of_the_lead_when_the_personal_message_did_not_go(
     )
     [alert] = alerts
     assert "сообщение телемаркетологу не доставлено — Telegram отказал (HTTP 403" in alert
-    assert alert.endswith(f"; {handoff_telegram.GROUP_TOLD}")
+    assert alert.endswith(f"; {handoff_telegram.GROUP_TOLD}\n{LOST.words}")
 
 
 async def test_group_hears_once_when_the_retries_end_and_not_on_each_failure(
@@ -253,7 +255,7 @@ async def test_group_hears_once_when_the_retries_end_and_not_on_each_failure(
     assert told.endswith(f"попыток — {telegram_series.MESSAGE_TRIES}, повторов больше нет")
     [alert] = alerts
     assert f"не доставлено за {telegram_series.MESSAGE_TRIES} попыток" in alert
-    assert alert.endswith(f"; {handoff_telegram.GROUP_TOLD}")
+    assert alert.endswith(f"; {handoff_telegram.GROUP_TOLD}\n{LOST.words}")
 
 
 @pytest.mark.parametrize(
@@ -283,7 +285,7 @@ async def test_without_the_group_copy_the_owner_hears_that_the_group_does_not_kn
     assert [to for to, _ in sent(api)] == [PERSONAL]
     [alert] = alerts
     assert "сообщение телемаркетологу не доставлено — Telegram отказал (HTTP 403" in alert
-    assert alert.endswith(f"; {said}")
+    assert alert.endswith(f"; {said}\n{LOST.words}")
 
 
 async def test_a_group_copy_that_did_not_go_either_is_told_and_leaves_the_series_alone(

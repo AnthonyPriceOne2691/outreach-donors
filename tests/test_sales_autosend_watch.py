@@ -23,9 +23,10 @@ from backend.config import alerts as alerts_cfg
 from backend.config import sales as sales_cfg
 from backend.features.core.domain import MessageStatus
 from backend.features.letters.unknown_outcome import STUCK_AFTER
+from backend.features.ops.alarms import marked
 from backend.features.sales import autobuild, autosend, autosend_jobs
 from backend.features.sales.autosend import Pass, Stop
-from backend.features.sales.autosend_jobs import ALARM, RESUMED, Watch
+from backend.features.sales.autosend_jobs import ALARM, RESUMED, STALLED, Watch
 from backend.workers import reaper
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
@@ -42,6 +43,11 @@ FAILED = "проход падает — техническая ошибка (Run
 OWN = "me@ours.example.test"
 #: Ещё получатели — чтобы писем в окне хватило на сорок минут пауз одного ящика.
 MORE = ("mia@delta.example.test", "leo@epsilon.example.test")
+
+
+def _stall(alarm: str) -> str:
+    """Почему стояла: слова тревоги без её начала и без пометки последней строкой."""
+    return alarm.removeprefix(f"{ALARM}. ").removesuffix(f"\n{STALLED.words}")
 
 
 @pytest.fixture
@@ -194,7 +200,7 @@ async def test_unknown_outcome_over_15_minutes_alarms_once_and_going_again_alarm
     assert alarm.startswith(ALARM)
     assert f"исход письма №{letters[0].id} неизвестен" in alarm
     # Пошла снова — вторая тревога, одна; письмо из очереди ушло.
-    assert told[1:] == [f"{RESUMED} (стояла: {alarm.removeprefix(ALARM + '. ')})"]
+    assert told[1:] == [f"{RESUMED} (стояла: {_stall(alarm)})"]
     await session.refresh(letters[1])
     assert letters[1].status is MessageStatus.SENT
 
@@ -234,7 +240,7 @@ async def test_platform_refusing_every_letter_alarms_after_15_minutes_and_then_r
     assert alarm.startswith(f"{ALARM}. платформа отказывает: ключ платформы не принят (401)")
     assert JANE not in alarm
     assert "made-up-sales-key" not in alarm
-    assert told[1:] == [f"{RESUMED} (стояла: {alarm.removeprefix(ALARM + '. ')})"]
+    assert told[1:] == [f"{RESUMED} (стояла: {_stall(alarm)})"]
     await session.refresh(letters[0])
     assert letters[0].status is MessageStatus.SENT
 
@@ -300,7 +306,7 @@ async def test_failing_pass_alarms_15_minutes_after_its_first_failure_by_the_las
     await watch.see(Pass(due=True, sent={7: "box@made-up.example.test"}), NOW + MINUTE * 51)
 
     assert quiet == []
-    assert told == [f"{ALARM}. {FAILED}", f"{RESUMED} (стояла: {FAILED})"]
+    assert told == [marked(f"{ALARM}. {FAILED}", STALLED), f"{RESUMED} (стояла: {FAILED})"]
 
 
 async def test_another_sending_caught_in_flight_on_every_pass_is_no_stop_and_no_alarm(

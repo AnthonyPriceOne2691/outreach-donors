@@ -26,6 +26,7 @@ from dataclasses import replace
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import sales as cfg
+from backend.features.ops.alarms import Concern, cause, marked, no_cause
 from backend.features.sales import handoff_text as wording
 from backend.features.sales.handoff_text import Card
 from backend.features.sales.kommo import (
@@ -41,6 +42,20 @@ from backend.features.sales.models import HandoffKommo, SalesHandoffModel
 logger = logging.getLogger(__name__)
 
 Alert = Callable[[str], Awaitable[bool]]
+#: Пометки тревог последней строкой (`ops/alarms.py`). Отказ — по состоянию передачи: не ответил —
+#: повторяет проход, и лид не теряется; остальное человек решает сам (`handoff_console.py`).
+REFUSALS: dict[HandoffKommo, Concern] = {
+    HandoffKommo.RETRY: no_cause("запись повторяется сама, и лид не теряется"),
+    HandoffKommo.UNCONFIRMED: cause(
+        "неизвестно, завелась ли сделка, а повтор вслепую задвоил бы её",
+        "проверить в Kommo, есть ли сделка",
+    ),
+    HandoffKommo.FAILED: cause(
+        "сделка не заведена, а повтор отказ не чинит", "проверить ключ, права и оплату Kommo"
+    ),
+}
+UNNOTED = no_cause("сделка есть, а о письме телемаркетолог узнает из сообщения")
+RECOVERED = no_cause("Kommo снова отвечает, и запись дошла")
 
 #: Kommo ждёт записи — задаче есть что делать.
 WORK = (HandoffKommo.PENDING, HandoffKommo.RETRY)
@@ -86,15 +101,17 @@ async def write(
             extra={"handoff_id": row.id, "kommo": row.kommo.value, "error": str(exc)},
         )
         if row.kommo is not before:
-            await alert(_kommo_alert(row, exc))
+            await alert(marked(_kommo_alert(row, exc), REFUSALS[row.kommo]))
         return
     row.kommo = HandoffKommo.DONE
     if warning:
         row.last_error = warning
-        await alert(f"{headline(row)}: {warning}")
+        await alert(marked(f"{headline(row)}: {warning}", UNNOTED))
     if before is HandoffKommo.RETRY:
         done = "сделка в Kommo заведена" if created else "примечание в Kommo записано"
-        await alert(f"{headline(row)}: {done} после повтора, попыток — {row.attempts}")
+        await alert(
+            marked(f"{headline(row)}: {done} после повтора, попыток — {row.attempts}", RECOVERED)
+        )
 
 
 async def _new_deal(kommo: KommoClient, row: SalesHandoffModel, card: Card) -> None:

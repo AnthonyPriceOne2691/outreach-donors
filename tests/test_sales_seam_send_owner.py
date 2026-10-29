@@ -33,6 +33,7 @@ from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.sendgrid import PROVIDER_ID_HEADER, SendGridTransport
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport import LetterRefusalError, Outgoing
+from backend.features.ops.alarms import marked
 from backend.features.sales import (
     autobuild,
     autobuild_alarm,
@@ -398,7 +399,7 @@ async def test_an_empty_queue_the_cap_keeps_empty_is_one_alarm_and_one_all_clear
 
     assert first.stuck
     assert first.why is not None
-    assert alarmed == [f"{autobuild_alarm.STUCK}: {first.why}"]
+    assert alarmed == [marked(f"{autobuild_alarm.STUCK}: {first.why}", autobuild_alarm.EMPTY)]
     assert "потолок расхода на модель за день достигнут" in alarmed[0]
     assert built.hypothesis_id == world.hypothesis_id
     assert told[1:] == [f"{autobuild_alarm.UNSTUCK} (стояла: {first.why})"]
@@ -420,7 +421,7 @@ async def test_a_streak_off_the_corridor_with_an_empty_queue_is_an_alarm(
 
     assert started.hypothesis_id == world.hypothesis_id
     assert found.why == autobuild.STREAK
-    assert told == [f"{autobuild_alarm.STUCK}: {autobuild.STREAK}"]
+    assert told == [marked(f"{autobuild_alarm.STUCK}: {autobuild.STREAK}", autobuild_alarm.EMPTY)]
 
 
 async def test_a_failing_build_is_one_alarm_until_a_build_ends_without_failing(
@@ -450,7 +451,7 @@ async def test_a_failing_build_is_one_alarm_until_a_build_ends_without_failing(
     assert again.hypothesis_id == world.hypothesis_id  # поставлена снова
     assert running.why is not None
     assert running.why.startswith("идёт сборка")
-    assert alarmed == [f"{autobuild_alarm.STUCK}: {failed}"]
+    assert alarmed == [marked(f"{autobuild_alarm.STUCK}: {failed}", autobuild_alarm.EMPTY)]
     assert told[1:] == [f"{autobuild_alarm.UNSTUCK} (стояла: {failed})"]
 
 

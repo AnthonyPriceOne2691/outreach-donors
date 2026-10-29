@@ -1,13 +1,13 @@
-"""Пометка тревоги outreach — стоит ли она внимания (слово Anthony 29.10.2026).
+"""Пометка тревоги — стоит ли она внимания (слово владельца 29.10.2026).
 
 «Тревога такая-то, повода для беспокойства нет или есть»: поводом стала «Платформа молчит о
 доставке», где вебхук работал, а одно письмо ждало сервер получателя. Здесь держится:
 
-- **защита:** тревога outreach без пометки краснит здесь, а не уходит без строки, — и
-  `Alarm(...)` без `concern=`, и `send_alert(...)` мимо ленты без `marked(...)`; сам поиск
-  проверен на тревоге без пометки. Код продаж не ищется: их тревогам пометка не обязательна;
-- **лента:** «тревога» кончается строкой пометки, «прошло» — без неё; тревога без пометки (у
-  продаж) идёт, как шла; повод появился у той же тревоги — она приходит ещё раз, ушёл — нет;
+- **защита:** тревога без пометки краснит здесь, а не уходит без строки, — и `Alarm(...)` без
+  `concern=`, и текст мимо ленты без `marked(...)`: и `send_alert(...)`, и подставленный
+  `alert(...)` продаж; сам поиск проверен на тревоге без пометки;
+- **лента:** «тревога» кончается строкой пометки, «прошло» — без неё; тревога без пометки идёт,
+  как шла; повод появился у той же тревоги — она приходит ещё раз, ушёл — нет;
   перезапуск повтора не даёт; длинная тревога пометку не теряет;
 - **каждое правило:** есть ли повод и почему; повод от числа — по числу (кап Ahrefs по
   уровням, «отправить некому» за выдержкой домена);
@@ -69,9 +69,6 @@ from tests.test_silence_watchdog import NOW, T, _letter
 #: Код сервиса — в нём ищутся тревоги.
 SERVICE = Path(__file__).resolve().parent.parent / "backend"
 
-#: Код продаж: их тревогам пометка не обязательна (решение 29.10.2026), и правят его продажи.
-SALES = ("features/sales/", "api/sales/")
-
 #: Где текст тревоги собирается сам: лента (`alarms.told`, «прошло» — без пометки) и отправка.
 OWN = ("features/ops/alarm_feed.py", "shared/alerts.py")
 
@@ -104,7 +101,7 @@ def _concern(found: Sequence[Alarm], code: str) -> Concern:
     return alarm.concern
 
 
-# --- защита: тревога outreach без пометки краснит здесь -------------------------------------
+# --- защита: тревога без пометки краснит здесь ----------------------------------------------
 
 
 def _callee(func: ast.expr) -> str | None:
@@ -137,10 +134,10 @@ def _starts(node: ast.expr, prefix: str) -> bool:
 
 
 def unmarked_alerts(name: str, tree: ast.AST) -> list[str]:
-    """Тревоги мимо ленты без пометки: текст `send_alert(...)` — не `marked(...)` и не «прошло»
-    (оно пометки не несёт: само говорит, что причины больше нет)."""
+    """Тревоги мимо ленты без пометки: текст `send_alert(...)` или подставленного `alert(...)` — не
+    `marked(...)` и не «прошло» (оно пометки не несёт: само говорит, что причины больше нет)."""
     found = []
-    for call in _calls(tree, "send_alert"):
+    for call in (*_calls(tree, "send_alert"), *_calls(tree, "alert")):
         said = call.args[0] if call.args else None
         marked_text = isinstance(said, ast.Call) and _callee(said.func) == "marked"
         if not marked_text and not (said is not None and _starts(said, "прошло: ")):
@@ -149,14 +146,14 @@ def unmarked_alerts(name: str, tree: ast.AST) -> list[str]:
 
 
 def _service() -> Iterator[tuple[str, ast.AST]]:
-    """Модули сервиса вне продаж и вне мест, где текст тревоги собирается сам."""
+    """Модули сервиса вне мест, где текст тревоги собирается сам."""
     for path in sorted(SERVICE.rglob("*.py")):
         name = path.relative_to(SERVICE).as_posix()
-        if not name.startswith(SALES) and name not in OWN:
+        if name not in OWN:
             yield name, ast.parse(path.read_text(encoding="utf-8"))
 
 
-def test_every_outreach_alarm_names_its_concern() -> None:
+def test_every_alarm_names_its_concern() -> None:
     modules = list(_service())
     alarms = [call for _, tree in modules for call in _calls(tree, "Alarm")]
 
@@ -164,11 +161,13 @@ def test_every_outreach_alarm_names_its_concern() -> None:
     assert [place for name, tree in modules for place in unmarked_alarms(name, tree)] == []
 
 
-def test_every_outreach_alert_past_the_feed_ends_with_its_concern() -> None:
+def test_every_alert_past_the_feed_ends_with_its_concern() -> None:
     modules = list(_service())
     sends = [call for _, tree in modules for call in _calls(tree, "send_alert")]
+    passed = [call for _, tree in modules for call in _calls(tree, "alert")]
 
     assert len(sends) >= 5, f"поиск не видит тревог мимо ленты: {len(sends)}"
+    assert len(passed) >= 7, f"поиск не видит подставленных тревог продаж: {len(passed)}"
     assert [place for name, tree in modules for place in unmarked_alerts(name, tree)] == []
 
 
@@ -183,10 +182,13 @@ def test_the_guard_sees_an_alarm_and_an_alert_without_a_mark() -> None:
         "send_alert(words)\n"
         'send_alert(marked("тревога: c", MARK))\n'
         'send_alert(f"прошло: {title}")\n'
+        'await alert("тревога: d")\n'
+        "await deps.alert(words)\n"
+        'await deps.alert(marked("тревога: e", MARK))\n'
     )
 
     assert unmarked_alarms("x.py", tree) == ["x.py:1", "x.py:2"]
-    assert unmarked_alerts("x.py", tree) == ["x.py:4", "x.py:5"]
+    assert sorted(unmarked_alerts("x.py", tree)) == ["x.py:4", "x.py:5", "x.py:8", "x.py:9"]
 
 
 # --- слова пометки -------------------------------------------------------------------------
@@ -271,7 +273,7 @@ async def test_the_alarm_ends_with_its_mark_and_the_all_clear_has_none(
 
 
 async def test_an_alarm_without_a_mark_goes_as_before(telegram: list[str]) -> None:
-    """Тревоге продаж пометка не обязательна: без неё — ни строки, ни «повод появился»."""
+    """Тревога без пометки — как шла: ни строки, ни «повод появился»."""
     bot = Alarm(code="sales-bot-token", title="Бот продаж без токена", detail="ждут 2")
     feed = Feed("concern-sales")
 

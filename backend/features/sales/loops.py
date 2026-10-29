@@ -37,6 +37,7 @@ from dataclasses import dataclass
 
 from backend.config import alerts as alerts_cfg
 from backend.config import sales as sales_cfg
+from backend.features.ops.alarms import Concern, cause, marked
 from backend.features.runs.reasons import explained
 from backend.shared.alerts import send_alert
 
@@ -65,6 +66,14 @@ def resumed(name: str) -> str:
     return f"прошло: цикл продаж «{name}» снова идёт"
 
 
+#: Пометки тревог последней строкой (`ops/alarms.py`).
+CRASHED = cause("работа этого цикла продаж стоит", "найти трассу в журнале процесса разбора")
+MISSET = cause(
+    "автоотправка, агент продаж и передача лида стоят",
+    "поправить настройку и пересоздать контейнеры",
+)
+
+
 def settings_alarm() -> str:
     """Тревога о негодной настройке продаж: имена, значения и что годится (`config/sales.BROKEN`)."""
     return (
@@ -88,7 +97,7 @@ class Settings:
             return
         self.sending = True
         try:
-            self.told = await _said(settings_alarm())
+            self.told = await _said(settings_alarm(), MISSET)
         finally:
             self.sending = False
 
@@ -121,10 +130,10 @@ class Own:
                 extra={"loop": self.name, "failures": self.failures},
             )
             if self.failures >= FAILURES_ALARM and not self.told:
-                self.told = await _said(alarm(self.name, self.failures, exc))
+                self.told = await _said(alarm(self.name, self.failures, exc), CRASHED)
             return
         self.failures = 0
-        if self.told and await _said(resumed(self.name)):
+        if self.told and await _said(resumed(self.name), None):
             self.told = False
 
 
@@ -133,8 +142,9 @@ def own(work: Pass, name: str) -> Own:
     return Own(work, name)
 
 
-async def _said(text: str) -> bool:
+async def _said(text: str, concern: Concern | None) -> bool:
     """Ушло ли слово: в Telegram — или громкой строкой журнала, если бот тревог не задан
-    (`send_alert` пишет её сам), как у тревоги автоотправки."""
-    sent = await send_alert(text)
+    (`send_alert` пишет её сам), как у тревоги автоотправки; пометка — последней строкой, у
+    «прошло» её нет."""
+    sent = await send_alert(marked(text, concern))
     return sent or not (alerts_cfg.TELEGRAM_BOT_TOKEN and alerts_cfg.TELEGRAM_CHAT_ID)
