@@ -62,6 +62,50 @@ describe('сторож тишины на обзоре', () => {
     expect(screen.getByText(/ни по одному не пришло события/)).toBeInTheDocument();
   });
 
+  it('у тревоги — метка, есть ли повод для беспокойства, и строка пометки сервера', async () => {
+    // Слово Anthony 29.10.2026: тревога о доставке встревожила человека, хотя исход письма
+    // пришёл бы сам. Метка — у заголовка, почему и что делать — словами сервера, как в Telegram.
+    const worry =
+      'Есть повод для беспокойства — ни одно письмо направления не получает статусов: проверить адрес вебхука и подпись в кабинете платформы.';
+    const calm =
+      'Повода для беспокойства нет — сервер получателя тянет: платформа повторяет доставку до 72 часов, и исход придёт сам.';
+    await openOverview([
+      {
+        code: 'delivery-silence:donors',
+        title: 'Платформа молчит о доставке — направление доноров',
+        detail: '…',
+        stage: 'donors',
+        concern: { cause: true, words: worry },
+      },
+      {
+        code: 'delivery-pending:advertisers',
+        title: 'Письма без исхода доставки — направление рекламодателей',
+        detail: '…',
+        stage: 'advertisers',
+        concern: { cause: false, words: calm },
+      },
+      { code: 'unmarked', title: 'Тревога без пометки', detail: '…', stage: null },
+    ]);
+
+    const alarmOf = async (title: string) => {
+      const alarm = (await screen.findByText(title)).closest<HTMLElement>('[role="alert"]');
+      if (alarm === null) throw new Error(`Тревога «${title}» не плашкой`);
+      return within(alarm);
+    };
+    const silence = await alarmOf('Платформа молчит о доставке — направление доноров');
+    expect(silence.getByText(worry)).toBeInTheDocument();
+    expect(silence.getByText('есть повод').closest('.mantine-Badge-root')).toHaveStyle({
+      '--badge-bg': 'var(--mantine-color-yellow-light)',
+    });
+    const pending = await alarmOf('Письма без исхода доставки — направление рекламодателей');
+    expect(pending.getByText(calm)).toBeInTheDocument();
+    expect(pending.getByText('повода нет').closest('.mantine-Badge-root')).toHaveStyle({
+      '--badge-bg': 'var(--mantine-color-green-light)',
+    });
+    const unmarked = await alarmOf('Тревога без пометки');
+    expect(unmarked.queryByText(/повод/)).not.toBeInTheDocument();
+  });
+
   it.each([
     ['без права «Продажи» тревоги о почте продаж нет — даже присланной сервером', false],
     ['с правом «Продажи» тревога о почте продаж на месте', true],

@@ -14,6 +14,11 @@
 уровнем в коде переход говорится сразу, а «прошло» о прежнем уровне — когда выйдет его
 тишина. Тревога одна за проход — самого высокого уровня.
 
+**Повод для беспокойства — по уровню** (слово Anthony 29.10.2026). 80 % — повода нет: прогоны
+запускаются, это предупреждение заранее. 95 % — есть: следующий прогон может не уложиться в
+остаток. Выбран — есть: новые прогоны стоят до обнуления. Уровень в коде — и пометка говорится
+вместе с ним.
+
 **Снимок ключа из опроса сторожа** (`heard`, `keep_heard`). Провайдеров сторож спрашивает
 без сессии (`silence.with_providers`): соединение не должно ждать чужих ответов. Ответ
 Ahrefs запоминается здесь, а в снимок его кладёт тот, у кого сессия: проход сторожа — после
@@ -31,7 +36,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.ahrefs.units import Quota
-from backend.features.ops.alarms import Alarm
+from backend.features.ops.alarms import Alarm, Concern, cause, no_cause
 from backend.features.runs.ahrefs_cap import KeyCap, key_cap
 from backend.features.runs.ahrefs_key import day_words, remember
 from backend.shared.numbers import spaced
@@ -137,6 +142,9 @@ async def alarm(session: AsyncSession, moment: datetime) -> Alarm | None:
                 f"Новые прогоны не запустятся до обнуления или {_UNTIL_RAISED[binding]} — "
                 "это не поломка, но выглядит одинаково"
             ),
+            concern=cause(
+                "новые прогоны не запускаются", f"ждать обнуления или {_HOW_TO_RAISE[binding]}"
+            ),
         )
     warn = percent < ALARM_PERCENT
     return Alarm(
@@ -147,4 +155,17 @@ async def alarm(session: AsyncSession, moment: datetime) -> Alarm | None:
             f"из {spaced(units_cap)} — выбрано {percent}%, {_until(cap)}. Упирается "
             f"{_binding(cap)}; {_HOW_TO_RAISE[binding]}"
         ),
+        concern=WARNED if warn else _short(binding),
+    )
+
+
+#: Пометка предупреждения: прогоны запускаются, остаток есть — повода нет.
+WARNED = no_cause("прогоны запускаются: это предупреждение заранее, остаток ещё есть")
+
+
+def _short(binding: str) -> Concern:
+    """Пометка тревоги 95 %: остатка может не хватить следующему прогону — что сдвинуть."""
+    return cause(
+        "следующий прогон может не уложиться в остаток",
+        f"{_HOW_TO_RAISE[binding]}, если прогоны нужны до обнуления",
     )

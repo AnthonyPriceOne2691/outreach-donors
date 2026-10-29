@@ -40,7 +40,7 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     ThreadModel,
 )
-from backend.features.ops.alarms import Alarm, direction
+from backend.features.ops.alarms import Alarm, cause, direction, no_cause
 from backend.features.replies import recipient_stage
 from backend.features.replies.unbound import is_unbound
 
@@ -135,6 +135,10 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
                 "видно в журнале писем платформы (Activity)"
             ),
             stage=stage,
+            concern=no_cause(
+                "сервер получателя тянет: платформа повторяет доставку до 72 часов, и исход "
+                "придёт сам"
+            ),
         )
     return Alarm(
         code=f"delivery-silence:{stage.value}",
@@ -145,6 +149,10 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
             "письму направления. Проверить адрес вебхука событий в кабинете платформы и его подпись"
         ),
         stage=stage,
+        concern=cause(
+            "ни одно письмо направления не получает статусов",
+            "проверить адрес вебхука и подпись в кабинете платформы",
+        ),
     )
 
 
@@ -195,6 +203,10 @@ async def _replies(session: AsyncSession, moment: datetime, stage: Stage) -> Ala
             "все промолчали"
         ),
         stage=stage,
+        concern=cause(
+            "ответы могли перестать доходить",
+            "проверить MX поддомена ответов и Inbound Parse в кабинете платформы",
+        ),
     )
 
 
@@ -251,4 +263,5 @@ async def _followups(session: AsyncSession, moment: datetime, stage: Stage) -> A
             "она просто не идёт: процесс добивок не запущен или падает"
         ),
         stage=stage,
+        concern=cause("цепочки писем стоят", "проверить, запущен ли процесс добивок"),
     )

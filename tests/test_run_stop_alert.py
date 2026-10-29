@@ -32,6 +32,7 @@ from backend.features.runs.lifecycle import (
 )
 from backend.features.runs.pipeline import RunRequest, execute_run
 from backend.features.runs.repository import RunRepository
+from backend.features.runs.stopped import STOPPED
 from backend.features.runs.thresholds import defaults
 from backend.shared import alerts
 from backend.workers import run_job as jobs
@@ -46,6 +47,9 @@ TOKEN = "123456:run-alert-test-token"
 #: ответ («batch_metrics: 403 forbidden») уходил в чат и на экран общими
 #: словами: «техническая ошибка (AhrefsError)».
 REFUSED = "batch_metrics: Ahrefs ответил 403: forbidden"
+
+#: Пометка последней строкой (слово Anthony 29.10.2026): остановленный прогон сам не продолжится.
+MARK = f"\n{STOPPED.words}"
 
 
 @pytest.fixture
@@ -169,7 +173,7 @@ async def test_refusal_mid_run_is_told_once(
 
     assert run.status is RunStatus.STOPPED
     assert result["refused"]
-    assert telegram == [f"outreach-donors: прогон №{run.id} остановлен: {REFUSED}"]
+    assert telegram == [f"outreach-donors: прогон №{run.id} остановлен: {REFUSED}{MARK}"]
 
 
 async def test_refusal_before_the_run_is_told_once(
@@ -192,7 +196,8 @@ async def test_refusal_before_the_run_is_told_once(
 
     assert run.status is RunStatus.STOPPED
     assert telegram == [
-        f"outreach-donors: прогон №{run.id} остановлен: SERP_LOGIN пуст — выдачу покупать не на что"
+        f"outreach-donors: прогон №{run.id} остановлен: SERP_LOGIN пуст — выдачу покупать не на "
+        f"что{MARK}"
     ]
 
 
@@ -219,7 +224,7 @@ async def test_a_refused_key_on_the_quota_stops_the_run_at_once(
     assert result["refused"]
     assert len(telegram) == 1
     assert telegram[0].endswith(
-        "Причина: Остаток квоты недоступен: Ahrefs ответил 401: invalid api key"
+        f"Причина: Остаток квоты недоступен: Ahrefs ответил 401: invalid api key{MARK}"
     )
 
 
@@ -280,7 +285,7 @@ async def test_console_run_is_told_too(session: AsyncSession, telegram: list[str
         await execute_run(deps, RunRequest(["crm"], "us", defaults(), settings.id))
 
     assert len(telegram) == 1
-    assert telegram[0].endswith(f"остановлен: {REFUSED}")
+    assert telegram[0].endswith(f"остановлен: {REFUSED}{MARK}")
 
 
 async def test_a_failing_alert_does_not_hide_the_stop(
