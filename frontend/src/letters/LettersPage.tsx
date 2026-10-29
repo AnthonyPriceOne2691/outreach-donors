@@ -64,6 +64,7 @@ import { LetterPreview, toneOf } from './LetterPreview';
 import { mailTile } from './mailTile';
 import { uniquenessText } from './letterText';
 import { QueueHead } from './QueueHead';
+import { QueueAutosendLine } from './QueueAutosend';
 import { SendQueue } from './SendQueue';
 import type { LetterTarget } from './targets';
 import {
@@ -362,17 +363,30 @@ function LettersScreen({ part }: { part: LetterStage | null }) {
           letters={letters}
           corridor={data.corridor}
           send={
-            can('send') && !stale ? (
-              <SendQueue
-                stage={stage}
-                audience={audienceOf(target)}
-                count={data.queued_total}
-                batchMax={data.batch_max}
-                blocked={data.blocked_by.length > 0}
-                blockedWhy={`Не нажимается, пока не задано ${mailSettingsList(data.blocked_by)}`}
-                onFinished={() => void refresh()}
-              />
-            ) : null
+            <Stack gap={6}>
+              {can('send') && !stale ? (
+                <SendQueue
+                  stage={stage}
+                  audience={audienceOf(target)}
+                  count={data.queued_total}
+                  batchMax={data.batch_max}
+                  blocked={data.blocked_by.length > 0}
+                  blockedWhy={`Не нажимается, пока не задано ${mailSettingsList(data.blocked_by)}`}
+                  autosend={data.autosend}
+                  onFinished={() => void refresh()}
+                />
+              ) : null}
+              {/* Очередь, которая уходит сама: строка и «Остановить» — под кнопкой пачки. */}
+              {data.autosend && !stale ? (
+                <QueueAutosendLine
+                  stage={stage}
+                  audience={audienceOf(target)}
+                  autosend={data.autosend}
+                  canStop={can('send')}
+                  onChanged={() => void refresh()}
+                />
+              ) : null}
+            </Stack>
           }
         />
       ) : null}

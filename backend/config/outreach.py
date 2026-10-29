@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import time
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
 
@@ -101,6 +103,23 @@ class _Outreach(DomainSettings):
     # письма ложатся по одному (`letters/building.py`). 1 — прежний порядок по одному;
     # больше — ближе к лимиту частоты провайдера модели, отказ по частоте повторяется.
     build_concurrency: int = Field(default=8, ge=1, validation_alias="OUTREACH_BUILD_CONCURRENCY")
+    # Очередь доноров и рекламодателей, запущенная человеком, уходит сама каждый день
+    # (`letters/autosend.py`). Рубильник, а не включатель: режим включает только человек
+    # кнопкой «Отправить очередь»; выключенный — все проходы стоят одной правкой .env.
+    autosend: bool = Field(default=True, validation_alias="OUTREACH_AUTOSEND")
+    autosend_pass_sec: int = Field(
+        default=60, ge=10, le=3600, validation_alias="OUTREACH_AUTOSEND_PASS_SEC"
+    )
+    # Пауза между первыми письмами ящика у прохода — с разбросом ±50%.
+    autosend_gap_min: int = Field(
+        default=10, ge=1, le=240, validation_alias="OUTREACH_AUTOSEND_GAP_MIN"
+    )
+    # Окно получателя у прохода: дни «1-5» или «1,3,5» (1 — понедельник) и часы «09:00-18:00»
+    # по часам получателя. Кнопка «Отправить очередь» окна не ждёт — решает человек.
+    autosend_days: str = Field(default="1-5", validation_alias="OUTREACH_AUTOSEND_DAYS")
+    autosend_hours: str = Field(default="09:00-18:00", validation_alias="OUTREACH_AUTOSEND_HOURS")
+    # Пояс получателя, когда страна неизвестна: доноры и рекламодатели — в основном в Европе.
+    autosend_zone: str = Field(default="Europe/Berlin", validation_alias="OUTREACH_AUTOSEND_ZONE")
 
 
 _s = _Outreach()
@@ -133,6 +152,55 @@ SILENCE_DAYS: int = _s.silence_days
 DECLINE_DAYS: int = _s.decline_days
 PRICE_RECHECK_DAYS: int = _s.price_recheck_days
 BUILD_CONCURRENCY: int = _s.build_concurrency
+#: Очередь, запущенная человеком, уходит сама (`letters/autosend.py`): рубильник, проход и пауза
+#: между первыми письмами ящика.
+AUTOSEND: bool = _s.autosend
+AUTOSEND_PASS_SEC: int = _s.autosend_pass_sec
+AUTOSEND_GAP_MIN: int = _s.autosend_gap_min
+
+
+def _weekdays(text: str) -> frozenset[int]:
+    """«1-5» или «1,3,5» (1 — понедельник) → дни недели с нуля, как `date.weekday()`."""
+    refusal = f"OUTREACH_AUTOSEND_DAYS «{text}»: дни — числа 1…7, например «1-5»"
+    found: set[int] = set()
+    for part in filter(None, (piece.strip() for piece in text.split(","))):
+        first, _, last = part.partition("-")
+        if not (first.isdigit() and (last or first).isdigit()):
+            raise ValueError(refusal)
+        found |= set(range(int(first) - 1, int(last or first)))
+    if not found or not found <= set(range(7)):
+        raise ValueError(refusal)
+    return frozenset(found)
+
+
+def _clock_span(text: str) -> tuple[time, time]:
+    """«09:00-18:00» (час и одной цифрой) → открытие и закрытие окна; закрытие позже открытия."""
+    refusal = f"OUTREACH_AUTOSEND_HOURS «{text}»: часы — «09:00-18:00», закрытие позже открытия"
+    try:
+        opens, closes = (time.fromisoformat(edge.strip().zfill(5)) for edge in text.split("-"))
+    except ValueError as exc:
+        raise ValueError(refusal) from exc
+    if opens >= closes:
+        raise ValueError(refusal)
+    return opens, closes
+
+
+def _zone(name: str) -> str:
+    """Запасной пояс: имя из базы поясов, иначе окна не посчитать ни одному письму."""
+    try:
+        ZoneInfo(name.strip())
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(
+            f"OUTREACH_AUTOSEND_ZONE «{name}»: пояс базы IANA, например «Europe/Berlin»"
+        ) from exc
+    return name.strip()
+
+
+#: Окно получателя у прохода и запасной пояс (`letters/autosend_window.py`): разбор при старте —
+#: опечатка в `.env` не ждёт первого прохода.
+AUTOSEND_DAYS: frozenset[int] = _weekdays(_s.autosend_days)
+AUTOSEND_OPENS, AUTOSEND_CLOSES = _clock_span(_s.autosend_hours)
+AUTOSEND_ZONE: str = _zone(_s.autosend_zone)
 
 
 class _OwnAccount(DomainSettings):

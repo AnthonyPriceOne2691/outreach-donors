@@ -148,6 +148,13 @@ def is_open(window: SendWindow, zone: ZoneInfo, at: datetime) -> bool:
     return opens <= at
 
 
+def opening(window: SendWindow, zone: ZoneInfo, at: datetime) -> datetime:
+    """Открытие ближайшего окна, которое ещё не закрылось к `at` (в UTC): у открытого — не позже
+    `at`. Строке «ближайшее окно откроется в …» у очереди, которая уходит сама."""
+    opens, _ = _next_open(window, zone, at)
+    return opens
+
+
 def defer_until(
     window: SendWindow, zone: ZoneInfo, at: datetime, jitter: random.Random | None = None
 ) -> datetime | None:

@@ -155,11 +155,13 @@ async def _to_model(
         found.model += int(by_text(SiteText.parse(candidate.site_text)) is None)
 
 
-def _refusal(found: RejudgeEstimate, run: SalesSegmentRunModel, segment: str) -> str | None:
+def _refusal(
+    found: RejudgeEstimate, run: SalesSegmentRunModel, segment: str, now: datetime
+) -> str | None:
     """Первый отказ по порядку: модуль, суть пересуда, ключ модели, потолок."""
     over = (
         f"смета пересуда выше остатка дневного потолка модели: ≈ {number(found.tokens)} токенов "
-        f"при остатке {number(found.tokens_left or 0)} — пересудите завтра"
+        f"при остатке {number(found.tokens_left or 0)} — {usage_cap.after_spent(now)}"
     )
     cap_unread = usage_cap.sales_cap().setting in llm_cfg.UNREAD_CAPS
     pointless = refusal_of(run, segment)
@@ -265,6 +267,6 @@ async def estimate(
     found.scope_calls = int(asks_model and not remembered)
     found.tokens = found.model * found.per_site + found.scope_calls * SCOPE_TOKENS
     found.tokens_left = await tokens_left(session, now)
-    found.refusal = _refusal(found, run, segment)
+    found.refusal = _refusal(found, run, segment, moment)
     found.lines = _lines(found)
     return found
