@@ -114,7 +114,9 @@ class TestOneLetterIsNotTheWebhook:
     """Висит одно письмо, а другие после него доставлены — вебхук жив: тревога говорит о письме
     и сервере получателя, а не велит проверять вебхук (29.10.2026)."""
 
-    async def test_a_letter_waits_while_later_ones_are_delivered(self, session: AsyncSession) -> None:
+    async def test_a_letter_waits_while_later_ones_are_delivered(
+        self, session: AsyncSession
+    ) -> None:
         stuck = await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8))
         later = await _letter(
             session, status=MessageStatus.DELIVERED, sent_at=NOW - timedelta(hours=7), number=1
@@ -130,7 +132,9 @@ class TestOneLetterIsNotTheWebhook:
         assert pending.detail.startswith(f"Письмо №{stuck.id} ушло больше 6 часов назад")
         assert "вебхук событий работает" in pending.detail
 
-    async def test_deliveries_before_it_do_not_prove_the_webhook(self, session: AsyncSession) -> None:
+    async def test_deliveries_before_it_do_not_prove_the_webhook(
+        self, session: AsyncSession
+    ) -> None:
         """Доставки только до висящего письма не говорят, что вебхук жив и сейчас."""
         await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8))
         earlier = await _letter(
