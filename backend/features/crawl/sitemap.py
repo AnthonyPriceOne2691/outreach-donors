@@ -28,6 +28,17 @@
 от новой к старой; без даты — после датированных, в порядке карты.
 Дата правки — не дата выхода: бывает, что сайт обновил её у всех
 статей разом. Настоящая дата статьи снимается со страницы (`page_facts`).
+
+**Где искать карту, если robots.txt молчит** (29.10.2026: «может, она есть, а мы не там
+смотрим»). Сначала — что говорит главная: `<link rel="sitemap">` и ссылки на карту в подвале
+(`declared_in_html`, страница уже скачана — поиск бесплатный). Потом типичные адреса движков
+(`COMMON_PATHS`): до первой настоящей карты — остальные адреса того же сайта дали бы то же.
+**Настоящая — это карта, а не любой ответ 200**: сайт, который на любой адрес отвечает
+страницей «не найдено» со статусом 200, раньше «находил карту» на первой же догадке, и
+поиск на этом кончался. Карта — XML с `<urlset>` или `<sitemapindex>` или текстовый файл
+(формат, который понимают поисковики: адрес на строку). Объявленные в robots.txt читаются,
+как прежде, все и как есть: сайт сам сказал, что это карта. Нет карты вовсе — свежие статьи
+даёт лента сайта (`feeds.py`).
 """
 
 from __future__ import annotations
@@ -36,35 +47,71 @@ import gzip
 import logging
 import re
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from urllib.parse import urljoin
 
 import httpx
+from selectolax.parser import HTMLParser
 
 from backend.config import crawl as cfg
 from backend.features.crawl.limiter import DomainLimiter
-from backend.shared.net.url_parts import parse_url
+from backend.shared.net.url_parts import join_url, parse_url
 
 logger = logging.getLogger(__name__)
 
-#: Где sitemap лежит, если robots.txt о нём молчит.
+#: Где sitemap лежит, если robots.txt о нём молчит, — от частых к редким: первая настоящая
+#: карта кончает поиск. Общие (WordPress с плагинами, Drupal, Shopify, Tilda, Wix, Ghost —
+#: `/sitemap.xml`; Yoast и Rank Math — индекс `/sitemap_index.xml`; WordPress без плагинов —
+#: `/wp-sitemap.xml`), затем генераторы с номерами и во множественном числе, каталог и
+#: текстовый формат поисковиков, затем новостные карты и карта записей Yoast и Rank Math —
+#: для сайта, у которого их индекс закрыт, а сами карты открыты.
 COMMON_PATHS: tuple[str, ...] = (
     "/sitemap.xml",
     "/sitemap_index.xml",
     "/sitemap-index.xml",
     "/wp-sitemap.xml",
     "/sitemap.xml.gz",
+    "/sitemap1.xml",
+    "/sitemaps.xml",
+    "/sitemap/",
+    "/sitemap.txt",
+    "/news-sitemap.xml",
+    "/sitemap-news.xml",
+    "/post-sitemap.xml",
 )
 
-_LOC = re.compile(r"<loc>\s*(?:<!\[CDATA\[)?\s*([^<\]\s]+)\s*(?:\]\]>)?\s*</loc>", re.IGNORECASE)
-_IS_INDEX = re.compile(r"<sitemapindex", re.IGNORECASE)
+#: Ссылка на карту с главной — только на файл карты: страница «Карта сайта» в HTML — обычная
+#: страница, её откроет обход по ссылкам.
+_MAP_SUFFIXES = (".xml", ".xml.gz", ".txt")
+#: Сколько карт, объявленных главной, пробуем: больше — это ссылки на карты разделов, их
+#: перечислит индекс.
+MAX_HTML_DECLARED = 5
+
+#: Префикс пространства имён у элемента карты: генераторы пишут и `<urlset>`, и
+#: `<ns0:urlset><ns0:url><ns0:loc>` (так XML выдаёт, например, стандартная библиотека Python),
+#: и `<sitemap:sitemapindex>`. Без него карта такого сайта не узнавалась бы картой, а её
+#: адреса и даты не читались бы вовсе.
+NS_PREFIX = r"(?:[\w.-]+:)?"
+_LOC = re.compile(
+    rf"<{NS_PREFIX}loc>\s*(?:<!\[CDATA\[)?\s*([^<\]\s]+)\s*(?:\]\]>)?\s*</{NS_PREFIX}loc>",
+    re.IGNORECASE,
+)
+_IS_INDEX = re.compile(rf"<{NS_PREFIX}sitemapindex\b", re.IGNORECASE)
+_IS_MAP = re.compile(rf"<{NS_PREFIX}(?:urlset|sitemapindex)\b", re.IGNORECASE)
+#: Строка текстовой карты — один адрес и ничего больше.
+_TEXT_LINE = re.compile(r"^https?://\S+$", re.IGNORECASE)
 #: Запись карты целиком — чтобы сопоставить адрес с его датой. Адреса
 #: по-прежнему берутся `_LOC`: запись с битой разметкой даты не даст,
-#: но адрес из неё не потеряется.
-_ENTRY = re.compile(r"<(?:url|sitemap)\b[^>]*>(.*?)</(?:url|sitemap)>", re.IGNORECASE | re.DOTALL)
+#: но адрес из неё не потеряется. Имя записи — целиком (`(?=[\s/>])`): иначе
+#: `<sitemap:sitemapindex>` читался бы записью `<sitemap>`.
+_ENTRY = re.compile(
+    rf"<{NS_PREFIX}(?:url|sitemap)(?=[\s/>])[^>]*>(.*?)</{NS_PREFIX}(?:url|sitemap)>",
+    re.IGNORECASE | re.DOTALL,
+)
 _DAY = re.compile(
-    r"<(?:lastmod|news:publication_date)>\s*(?:<!\[CDATA\[)?\s*(\d{4}-\d{2}-\d{2})", re.IGNORECASE
+    rf"<{NS_PREFIX}(?:lastmod|publication_date)>\s*(?:<!\[CDATA\[)?\s*(\d{{4}}-\d{{2}}-\d{{2}})",
+    re.IGNORECASE,
 )
 
 #: Сколько байт одного файла читаем. Карта на десятки мегабайт бывает,
@@ -125,9 +172,10 @@ def freshest_first(urls: list[str], days: dict[str, str]) -> list[str]:
     return sorted(urls, key=lambda url: (url in days, days.get(url, "")), reverse=True)
 
 
-def _same_site(url: str, host: str) -> bool:
+def same_site(url: str, host: str) -> bool:
     """Карта чужого сайта — либо ошибка, либо подстава: страницы чужого
-    домена нам не нужны, а ходить по ним по просьбе донора тем более."""
+    домена нам не нужны, а ходить по ним по просьбе донора тем более.
+    То же правило — у ленты (`feeds.py`): агрегатор в ленте донора — не донор."""
     parts = parse_url(url)
     # Схема — тоже признак чужого: `ftp://site.com/` и опечатка `hhttps://`
     # проходили сюда и отпадали только в очереди обхода (ревью #148).
@@ -137,6 +185,45 @@ def _same_site(url: str, host: str) -> bool:
     # Сравнение через `endswith(host)` было бы дырой: `notexample.com`
     # кончается на `example.com`, и карта чужого сайта прошла бы проверку.
     return netloc == host or netloc.endswith(f".{host}")
+
+
+def _text_urls(text: str) -> list[str]:
+    """Адреса текстовой карты — по адресу на строку. Разметка в начале файла — это HTML или
+    XML, а не текстовая карта: страница «не найдено» с сотней ссылок картой не станет."""
+    if "<" in text[:512]:
+        return []
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return [line for line in lines if _TEXT_LINE.match(line)]
+
+
+def looks_like_map(text: str) -> bool:
+    """Карта ли это, а не страница «не найдено» со статусом 200: XML карты или индекса — или
+    текстовая карта."""
+    return bool(_IS_MAP.search(text)) or bool(_text_urls(text))
+
+
+def declared_in_html(html: str, base: str, host: str) -> list[str]:
+    """Карты, на которые ссылается главная: `<link rel="sitemap">` и ссылки на файл карты
+    (`/sitemap.xml` в подвале и т. п.) — свои, без повторов, не больше `MAX_HTML_DECLARED`."""
+    out: list[str] = []
+    for node in HTMLParser(html).css("link[href], a[href]"):
+        url = _map_link(node.tag, node.attributes, base)
+        if url is not None and url not in out and same_site(url, host):
+            out.append(url)
+    return out[:MAX_HTML_DECLARED]
+
+
+def _map_link(tag: str, attributes: Mapping[str, str | None], base: str) -> str | None:
+    """Адрес карты из `<link rel="sitemap">` или из ссылки на файл карты; иначе `None`."""
+    href = (attributes.get("href") or "").strip()
+    if not href:
+        return None
+    url = join_url(base, href)
+    if tag == "link":
+        return url if "sitemap" in (attributes.get("rel") or "").lower().split() else None
+    parts = parse_url(url) if url is not None else None
+    path = parts.path.lower() if parts is not None else ""
+    return url if "sitemap" in path and path.endswith(_MAP_SUFFIXES) else None
 
 
 class SitemapReader:
@@ -164,9 +251,16 @@ class SitemapReader:
         self._max_urls = max_urls if max_urls is not None else cfg.MAX_SITEMAP_URLS
 
     async def scan(
-        self, host: str, base: str, declared: list[str], *, deadline: float | None = None
+        self,
+        host: str,
+        base: str,
+        declared: list[str],
+        *,
+        deadline: float | None = None,
+        hinted: Sequence[str] = (),
     ) -> SitemapScan:
-        """Карты из robots.txt, а если их нет — по типичным адресам.
+        """Карты из robots.txt, а если их нет — объявленные главной (`hinted`,
+        `declared_in_html`) и типичные адреса.
 
         `deadline` — общий срок на донора. Без него потолок времени
         не покрывал бы чтение карт вовсе: сайт с паузой в десять секунд
@@ -175,11 +269,14 @@ class SitemapReader:
         Найдено живым прогоном.
         """
         scan = SitemapScan()
-        queue = list(declared) or [urljoin(base, path) for path in COMMON_PATHS]
+        guesses = [urljoin(base, path) for path in COMMON_PATHS]
+        queue = list(declared) or list(dict.fromkeys([*hinted, *guesses]))
         seen: set[str] = set()
-        # Объявленные в robots.txt пробуем все; угаданные — до первой
-        # ответившей: остальные адреса того же сайта дадут то же самое.
-        stop_on_first = not declared
+        # Объявленные в robots.txt пробуем все и как есть; без них ищем — до первой
+        # настоящей карты: остальные догадки того же сайта дадут то же самое. Объявленные
+        # главной читаются все — снимаются только догадки.
+        searching = not declared
+        guessed = set(guesses) - set(hinted)
         # Потолок считает **попытки**, а не удачи. Найдено живым прогоном:
         # индекс настоящего сайта перечислял полсотни дочерних карт, и все
         # отвечали 404. Счётчик прочитанных не рос, потолок не срабатывал,
@@ -192,7 +289,7 @@ class SitemapReader:
                 logger.info("sitemap: срок на донора вышел, карты дочитаны не все")
                 break
             url = queue.pop(0)
-            if url in seen or not _same_site(url, host):
+            if url in seen or not same_site(url, host):
                 continue
             seen.add(url)
             tried += 1
@@ -200,14 +297,18 @@ class SitemapReader:
             text = await self._read(host, url, scan)
             if text is None:
                 continue
-            scan.files_read += 1
-            if stop_on_first:
+            if searching:
+                if not looks_like_map(text):
+                    # Ответ 200, но не карта — страница «не найдено» или HTML: ищем дальше.
+                    logger.info("sitemap: %s ответил, но это не карта — ищу дальше", url)
+                    continue
                 # Один раз: убираются только угаданные адреса. Найдено тестом
                 # 06.10: очередь чистилась после КАЖДОГО прочитанного файла,
                 # и из индекса читался только первый дочерний — у донора
                 # с 75 картами обход видел одну новостную.
-                queue.clear()
-                stop_on_first = False
+                queue[:] = [item for item in queue if item not in guessed]
+                searching = False
+            scan.files_read += 1
             self._absorb(text, scan, queue, host)
 
         # Прочитанный файл без адресов — это всё-таки прочитанная карта:
@@ -238,8 +339,9 @@ class SitemapReader:
         return _decode(response, url)
 
     def _absorb(self, text: str, scan: SitemapScan, queue: list[str], host: str) -> None:
-        """Разложить файл: индекс — в очередь файлов, карта — в адреса сайта."""
-        locations = [match.group(1).strip() for match in _LOC.finditer(text)]
+        """Разложить файл: индекс — в очередь файлов, карта — в адреса сайта. Текстовая
+        карта — адрес на строку, без дат."""
+        locations = [match.group(1).strip() for match in _LOC.finditer(text)] or _text_urls(text)
         if not locations:
             logger.info("sitemap: файл без единого <loc> — разметка не та, что ожидали")
             return
@@ -253,7 +355,7 @@ class SitemapReader:
         # обход ходил бы под слотом донора, а битый («[» без пары) ронял
         # разбор разрешений robots и с ним весь обход (ревью e6 #148).
         # Дочерние карты ту же проверку проходят в `scan`, выходя из очереди.
-        pages = [url for url in locations if _same_site(url, host)]
+        pages = [url for url in locations if same_site(url, host)]
         if len(pages) < len(locations):
             logger.info(
                 "sitemap: %s адресов не с сайта или не разбираются — пропущены",

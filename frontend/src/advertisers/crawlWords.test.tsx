@@ -7,10 +7,10 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import type { CrawlRow, CrawlTargets } from '../api/crawls';
+import type { CrawlPlace, CrawlRow, CrawlTargets } from '../api/crawls';
 import { renderWith } from '../test/render';
 import { CrawlState, crawlState } from './CrawlTable';
-import { crawlRule, spanWords, stopWords } from './crawlWords';
+import { crawlRule, queueRule, queueWords, spanWords, stopWords } from './crawlWords';
 
 /** Текст без неразрывных пробелов разрядов: «1 000». */
 function plain(text: string | null): string | null {
@@ -110,10 +110,41 @@ describe('почему обход кончился — словами', () => {
     expect(plain(stopWords(done(overrides)))).toBe(said);
   });
 
+  // Сайт не пустил с самого начала — причина словами, а не голый красный значок (тест-группа
+  // 29.10.2026: «2 были с ошибками»); и что повтор, скорее всего, кончится так же.
   it.each([
-    // Исход значка говорит сам: «robots.txt запрещает», «не открылся».
-    [{ stop_reason: 'robots', outcome: 'forbidden', pages: 0 }],
-    [{ stop_reason: 'no_start', outcome: 'failed', pages: 0 }],
+    [
+      { stop_reason: 'robots', outcome: 'forbidden', pages: 0 },
+      'robots.txt запрещает',
+      'правила сайта для роботов запрещают обход; повтор поможет, только если сайт их сменит',
+    ],
+    [
+      { stop_reason: 'robots', outcome: 'failed', pages: 0 },
+      'robots.txt не отдал',
+      'сайт не отдал правила для роботов — отказ, обрыв или сбой; без них не обходим, повтор обычно кончается так же',
+    ],
+    // Запрос правил счёлся закрытым (403 на robots.txt) — та же беда, тот же значок.
+    [
+      { stop_reason: 'robots', outcome: 'blocked', pages: 0 },
+      'robots.txt не отдал',
+      'сайт не отдал правила для роботов — отказ, обрыв или сбой; без них не обходим, повтор обычно кончается так же',
+    ],
+    [
+      { stop_reason: 'no_start', outcome: 'blocked', pages: 0 },
+      'закрылся от нас',
+      'главная закрыта с первого запроса — защита от ботов; повтор обычно кончается так же',
+    ],
+    [
+      { stop_reason: 'no_start', outcome: 'failed', pages: 0 },
+      'не открылся',
+      'главная не ответила ни в одном виде — сайт недоступен; можно повторить позже',
+    ],
+  ] as [Partial<CrawlRow>, string, string][])('не пустил: %o → %s', (overrides, label, said) => {
+    expect(crawlState(done(overrides)).label).toBe(label);
+    expect(stopWords(done(overrides))).toBe(said);
+  });
+
+  it.each([
     // Идёт — ещё не кончился; остановленный разбором — причина за «!».
     [{ status: 'running', outcome: null, stop_reason: null }],
     [{ status: 'stopped', outcome: null, stop_reason: null }],
@@ -221,5 +252,74 @@ describe('причина — под значком, до чисел здоров
       'кончился час на донора; сайт просит паузу 6 с между страницами',
       'закрыто 0% из 412 запросов',
     ]);
+  });
+});
+
+describe('в очереди — где ждёт и когда начнётся', () => {
+  const waiting = (place: CrawlPlace | null) =>
+    old({ status: 'queued', outcome: null, stop_reason: null, pages: 0, place });
+
+  // Тест-группа 29.10.2026: десять доноров разом, восемь пошли, двое «в очереди» — «когда она
+  // активируется?». Ответ — под значком: занятые обходчики и место; начнётся сам.
+  it.each([
+    [
+      { busy: 8, workers: 8, ahead: 1 },
+      'ждёт свободного обходчика — заняты 8 из 8; перед ним 1 обход',
+    ],
+    [
+      { busy: 8, workers: 8, ahead: 5 },
+      'ждёт свободного обходчика — заняты 8 из 8; перед ним 5 обходов',
+    ],
+    [{ busy: 8, workers: 8, ahead: 0 }, 'ждёт свободного обходчика — заняты 8 из 8; он следующий'],
+    // Места нет (задачу как раз берёт обходчик или очередь не ответила) — без места.
+    [{ busy: 8, workers: 8, ahead: null }, 'ждёт свободного обходчика — заняты 8 из 8'],
+    // Обходчик упал, а строка ещё «идёт» — занятых больше, чем обходчиков: заняты все.
+    [{ busy: 9, workers: 8, ahead: 0 }, 'ждёт свободного обходчика — заняты 8 из 8; он следующий'],
+    [{ busy: 3, workers: 8, ahead: 0 }, 'есть свободный обходчик — вот-вот начнётся'],
+    [{ busy: 0, workers: 0, ahead: 0 }, 'обходчиков нет — обход никто не возьмёт'],
+    [{ busy: 8, workers: null, ahead: 2 }, 'ждёт свободного обходчика — начнётся сам'],
+    // Сервер старше экрана или «Приёмка по донорам» (очередь она не спрашивает).
+    [null, 'ждёт свободного обходчика — начнётся сам'],
+  ] as [CrawlPlace | null, string][])('%o → %s', (place, said) => {
+    expect(queueWords(waiting(place))).toBe(said);
+  });
+
+  it('у идущего и законченного места нет', () => {
+    expect(queueWords(old({ status: 'running', outcome: null, stop_reason: null }))).toBeNull();
+    expect(queueWords(done())).toBeNull();
+  });
+
+  it('строкой под значком «в очереди»', () => {
+    renderWith(<CrawlState crawl={waiting({ busy: 8, workers: 8, ahead: 1 })} />);
+
+    const lines = screen
+      .getAllByText(/./, { selector: 'p, .mantine-Badge-label' })
+      .map((node) => node.textContent);
+    expect(lines).toEqual([
+      'в очереди',
+      'ждёт свободного обходчика — заняты 8 из 8; перед ним 1 обход',
+    ]);
+  });
+
+  it('«i» панели: сколько идёт сразу, остальные начинаются сами, почему сайт не обходится', () => {
+    const said = queueRule({
+      donors: [],
+      no_price: 0,
+      stale_price: 0,
+      supplier: 0,
+      notes: [],
+      max_pages: 1000,
+      workers: 8,
+    });
+
+    expect(said).toBe(
+      ' Сразу идёт столько обходов, сколько обходчиков — сейчас 8 обходчиков; остальные ждут в' +
+        ' очереди и начинаются сами, как только обходчик освобождается: у ждущего видно, сколько' +
+        ' обходчиков занято и сколько обходов перед ним. Сайт, не отдавший правила для роботов' +
+        ' (robots.txt) или запретивший в них обход, не обходим, как и закрывшийся от нас с первой' +
+        ' страницы: причина — под значком, и повтор такого сайта обычно кончается так же.',
+    );
+    // Обходчиков не спросили — без числа, а не «сейчас 0».
+    expect(queueRule(undefined)).toContain('сколько обходчиков; остальные ждут');
   });
 });

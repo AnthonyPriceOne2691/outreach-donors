@@ -17,7 +17,8 @@
 обойдённым наполовину.
 
 **Срок — по паузе сайта** (`pace.py`): час на всех не вмещал сайту с долгой
-паузой и половины потолка страниц.
+паузой и половины потолка страниц; вышел — продлевается по темпу обхода. Где брать
+адреса — карта, лента, ссылки главной — решает `sources.py`.
 
 **Сырой HTML не хранится** — это прямое требование. Страница живёт
 ровно столько,
@@ -39,16 +40,17 @@ from backend.features.core.domain import CrawlOutcome, StopReason
 from backend.features.crawl import robots as robots_rules
 from backend.features.crawl.article import extract_article
 from backend.features.crawl.fetch import CascadeLevel, FetchOutcome, FetchResult, PageCascade
-from backend.features.crawl.frontier import BOTH, LINKS, Frontier, crawlable, same_site_links
+from backend.features.crawl.frontier import Frontier, same_site_links
 from backend.features.crawl.health import CrawlHealth, HealthVerdict
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.links import OutLink, harvest
-from backend.features.crawl.pace import ResponseClock, time_budget
+from backend.features.crawl.pace import ResponseClock, extended, time_budget
 from backend.features.crawl.page_facts import read_page
 from backend.features.crawl.progress import Checkpoint, CrawlInterruptedError, Progress
 from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.robots import RobotsRules
-from backend.features.crawl.sitemap import SitemapReader, SitemapScan
+from backend.features.crawl.sitemap import SitemapScan
+from backend.features.crawl.sources import read_sources, start_frontier
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +96,8 @@ class DonorCrawler:
         self.share_links = 0
         self.pages_labeled = 0
         self.pages_dated = 0
+        # Сколько свежих адресов дала лента, когда карты нет (`feeds.py`) — отчёту.
+        self._feed_items = 0
         self._progress: Progress | None = None
         self._sent = 0
         self._started = time.monotonic()
@@ -131,8 +135,18 @@ class DonorCrawler:
         self._budget = point.time_budget_sec or self._time_budget(host, pause)
         # Срок общий на всего донора, а не на обход страниц: robots и карты
         # тоже запросы, и на сайте с длинной паузой они одни съедают минуты.
-        scan = await self._sitemap(host, home.url, rules, started + self._budget)
-        frontier, opened = self._frontier(home, host, scan, point)
+        found = await read_sources(
+            self._client,
+            self._limiter,
+            self._cascade.headers,
+            host=host,
+            home=home,
+            rules=rules,
+            point=point,
+            deadline=started + self._budget,
+        )
+        self._feed_items = len(found.fresh)
+        frontier, opened = start_frontier(home, host, found, point)
         pages, stop = await self._walk(host, rules, frontier, started, opened=opened)
         await self._send(pages, frontier)
         return self._report(
@@ -142,7 +156,7 @@ class DonorCrawler:
             rules,
             started,
             pages=pages,
-            scan=scan,
+            scan=found.scan,
             frontier=frontier,
         )
 
@@ -254,37 +268,6 @@ class DonorCrawler:
                 return result
         return None
 
-    async def _sitemap(
-        self, host: str, base: str, rules: RobotsRules, deadline: float
-    ) -> SitemapScan:
-        reader = SitemapReader(self._client, self._limiter, headers=self._cascade.headers)
-        return await reader.scan(host, base, rules.sitemaps, deadline=deadline)
-
-    def _frontier(
-        self, home: FetchResult, host: str, scan: SitemapScan, point: Checkpoint
-    ) -> tuple[Frontier, list[str]]:
-        """Очередь — сначала карта, потом ссылки (`frontier.py`) — и уже открытые страницы.
-
-        Адреса карты проходят те же правила, что ссылки: свой сайт, страница, а не файл.
-        Ссылки копятся с главной и с каждой открытой страницы; продолжение берёт их из
-        чекпоинта — собрать заново значило бы обойти сайт второй раз, — а карту читает снова.
-        """
-        # Главная открыта в любом случае — её качала проверка «сайт
-        # открывается». Она же и первая страница отчёта, откуда бы
-        # ни взялась очередь: иначе статей окажется больше, чем страниц.
-        opened = list(point.pages) or [home.url]
-        mapped = [] if point.source == LINKS else [u for u in scan.urls if crawlable(u, host)]
-        linked = point.queue if point.pages else same_site_links(home.html or "", home.url, host)
-        frontier = Frontier.start(
-            mapped,
-            linked,
-            opened,
-            has_map=bool(mapped) or point.source not in (LINKS, "none"),
-            took_links=point.source == BOTH,
-            counts=(point.from_map, point.from_links),
-        )
-        return frontier, opened
-
     async def _walk(
         self,
         host: str,
@@ -304,7 +287,7 @@ class DonorCrawler:
         visited: set[str] = set(opened)
 
         while frontier:
-            stop = self._limit_hit(pages, started)
+            stop = self._limit_hit(host, pages, started)
             if stop is not None:
                 return pages, stop
             await self._stop_if_asked(pages, frontier)
@@ -401,15 +384,27 @@ class DonorCrawler:
         if result.html is not None:
             frontier.add(same_site_links(result.html, result.url, host))
 
-    def _limit_hit(self, pages: list[str], started: float) -> StopReason | None:
+    def _limit_hit(self, host: str, pages: list[str], started: float) -> StopReason | None:
         """Какой потолок кончился первым. `None` — можно продолжать."""
         if len(pages) >= self._max_pages:
             return StopReason.MAX_PAGES
         if self._attempts >= self._max_attempts:
             return StopReason.MAX_ATTEMPTS
-        # Срок не меньше общего (`pace.time_budget`), так что до расчёта — общий.
-        if time.monotonic() - started >= (self._budget or self._max_seconds):
-            return StopReason.TIMEOUT
+        # Срок не меньше общего (`pace.time_budget`), так что до расчёта — общий. Вышел —
+        # продлевается по темпу (`pace.extended`): чекпоинт и отчёт видят продлённый.
+        elapsed, budget = time.monotonic() - started, self._budget or self._max_seconds
+        if elapsed >= budget:
+            longer = extended(
+                host,
+                budget=budget,
+                elapsed=elapsed,
+                opened=len(pages),
+                pages=self._max_pages,
+                ceiling=self._slow_cap,
+            )
+            if longer is None:
+                return StopReason.TIMEOUT
+            self._budget = longer
         if self._health.verdict is HealthVerdict.STOP:
             return StopReason.UNHEALTHY
         return None
@@ -477,6 +472,7 @@ class DonorCrawler:
             source=source,
             pages_from_sitemap=from_map,
             pages_from_links=from_links,
+            feed_items=self._feed_items,
             time_budget_sec=self._budget,
             elapsed_sec=time.monotonic() - started,
             slowed_down=self._slowed or self._was_slowed,
