@@ -8,6 +8,7 @@ import type {
 } from './types';
 import type { QueueAutosend, QueueEta } from './autosend';
 import { request } from './client';
+import type { DeferredLettersView } from './delivery';
 import type { Stage } from './stages';
 import type { ResolveOutcome, ResolvedLetter, UnknownLettersView } from './unknownOutcome';
 
@@ -103,6 +104,15 @@ export function listUnknownLetters(
   audience: LetterAudience = 'links',
 ): Promise<UnknownLettersView> {
   return request<UnknownLettersView>(`/letters/unknown${scopeOf(stage, audience)}`);
+}
+
+/** Письма этапа и аудитории, доставка которых откладывается: ушли без исхода, а платформа
+ *  повторяет — с причиной словами. */
+export function listDeferredLetters(
+  stage: LetterStage = 'donors',
+  audience: LetterAudience = 'links',
+): Promise<DeferredLettersView> {
+  return request<DeferredLettersView>(`/letters/deferred${scopeOf(stage, audience)}`);
 }
 
 /** Решение человека по журналу платформы: «ушло» или «вернуть в очередь». */

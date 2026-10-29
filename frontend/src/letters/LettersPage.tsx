@@ -56,6 +56,7 @@ import { useSession } from '../auth/AuthProvider';
 import { StageSwitch } from '../components/StageSwitch';
 import { formatNumber, formatPercent } from '../format';
 import { BuildForm, LIMIT_DEFAULT, followupDays } from './BuildForm';
+import { DeferredLetters } from './DeferredLetters';
 import type { BuildProps } from './BuildForm';
 import { AddressLine } from './AddressLine';
 import { EmptyQueue } from './EmptyQueue';
@@ -354,6 +355,8 @@ function LettersScreen({ part }: { part: LetterStage | null }) {
       {/* Зависшие письма — над пачкой: их исход решают до того, как слать дальше. У каждой
           вкладки свои: письмо бизнеса ниши решают там, откуда ушла его пачка. */}
       <UnknownOutcome stage={stage} audience={audienceOf(target)} canSend={can('send')} />
+      {/* Ушли, а сервер получателя не принимает: платформа повторяет, исход придёт сам. */}
+      <DeferredLetters stage={stage} audience={audienceOf(target)} />
 
       {/* Пачка — вкладки: на «Бизнесам ниши» уходят только их письма, на «Рекламодателям» —
           только письма по найденной ссылке; число на кнопке — очередь этой вкладки. */}

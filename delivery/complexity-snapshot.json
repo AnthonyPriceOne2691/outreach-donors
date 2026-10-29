@@ -57,9 +57,9 @@
       "worst": "to_settings:58"
     },
     "backend/api/app.py": {
-      "lines": 121,
+      "lines": 123,
       "complexity": 1,
-      "worst": "_lifespan:57"
+      "worst": "_lifespan:58"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -167,12 +167,12 @@
       "worst": "—"
     },
     "backend/api/events/routes.py": {
-      "lines": 161,
+      "lines": 181,
       "complexity": 7,
-      "worst": "take_events:53"
+      "worst": "take_events:54"
     },
     "backend/api/events/schemas.py": {
-      "lines": 21,
+      "lines": 23,
       "complexity": 0,
       "worst": "—"
     },
@@ -250,6 +250,16 @@
       "lines": 51,
       "complexity": 2,
       "worst": "of:34"
+    },
+    "backend/api/letters/deferred.py": {
+      "lines": 47,
+      "complexity": 2,
+      "worst": "deferred:33"
+    },
+    "backend/api/letters/delivery_schemas.py": {
+      "lines": 87,
+      "complexity": 3,
+      "worst": "of:84"
     },
     "backend/api/letters/forecast.py": {
       "lines": 44,
@@ -592,9 +602,9 @@
       "worst": "redraft:158"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 440,
+      "lines": 450,
       "complexity": 10,
-      "worst": "of:308"
+      "worst": "of:318"
     },
     "backend/api/topics/__init__.py": {
       "lines": 1,
@@ -1267,7 +1277,7 @@
       "worst": "—"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 450,
+      "lines": 460,
       "complexity": 0,
       "worst": "—"
     },
@@ -1826,6 +1836,16 @@
       "complexity": 4,
       "worst": "unset_reason:268"
     },
+    "backend/features/letters/deferrals.py": {
+      "lines": 221,
+      "complexity": 6,
+      "worst": "note:91"
+    },
+    "backend/features/letters/delivery_trouble.py": {
+      "lines": 412,
+      "complexity": 7,
+      "worst": "words_of:376"
+    },
     "backend/features/letters/donor_standing.py": {
       "lines": 120,
       "complexity": 6,
@@ -1837,9 +1857,9 @@
       "worst": "to_text:92"
     },
     "backend/features/letters/events.py": {
-      "lines": 416,
-      "complexity": 10,
-      "worst": "apply_events:164"
+      "lines": 444,
+      "complexity": 9,
+      "worst": "_addressed:260"
     },
     "backend/features/letters/followups.py": {
       "lines": 493,
@@ -2092,9 +2112,9 @@
       "worst": "_crawl_blocked:300"
     },
     "backend/features/ops/stage_silence.py": {
-      "lines": 255,
-      "complexity": 4,
-      "worst": "alarms:66"
+      "lines": 277,
+      "complexity": 6,
+      "worst": "_pending_words:179"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,

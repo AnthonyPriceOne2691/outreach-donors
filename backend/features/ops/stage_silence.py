@@ -40,6 +40,7 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     ThreadModel,
 )
+from backend.features.letters import deferrals
 from backend.features.ops.alarms import Alarm, direction
 from backend.features.replies import recipient_stage
 from backend.features.replies.unbound import is_unbound
@@ -51,6 +52,9 @@ DELIVERY_SILENCE_HOURS = 6
 
 #: Сколько номеров висящих писем назвать в тревоге — остальные числом.
 SHOWN_LETTERS = 3
+
+#: Висящее письмо без единой отсрочки — причины платформа не назвала.
+UNHEARD = "платформа о нём ещё ничего не сообщила"
 
 #: Сколько дней можно не получать ни одного ответа при живой рассылке.
 #: Отвечают единицами процентов, поэтому порог считается
@@ -125,11 +129,12 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
     )
     numbers = _numbers([letter_id for letter_id, _ in stale])
     if heard:
+        reasons = await _reasons(session, [letter_id for letter_id, _ in stale], moment)
         return Alarm(
             code=f"delivery-pending:{stage.value}",
             title=f"Письма без исхода доставки — {direction(stage)}",
             detail=(
-                f"{_pending_words(len(stale), numbers)}. Другие письма направления после них "
+                f"{_pending_words(len(stale), reasons)}. Другие письма направления после них "
                 "доставлены — вебхук событий работает. Обычно так тянет сервер получателя: "
                 "платформа повторяет доставку до 72 часов, и исход придёт сам. Что ответил сервер, "
                 "видно в журнале писем платформы (Activity)"
@@ -155,16 +160,33 @@ def _numbers(ids: list[int]) -> str:
     return shown if more <= 0 else f"{shown} и ещё {more}"
 
 
-def _pending_words(count: int, numbers: str) -> str:
-    """Висящие письма словами: одно — «Письмо №404 ушло…», несколько — числом и номерами."""
+async def _reasons(
+    session: AsyncSession, ids: list[int], moment: datetime
+) -> list[tuple[int, str | None]]:
+    """Первые `SHOWN_LETTERS` висящих писем — у каждого своя причина: его последняя отсрочка
+    словами (`letters/deferrals.said`), «сервер получателя не отвечает (порт 25, тайм-аут),
+    14 попыток с 10:26 по Москве». Отсрочек у письма не было — `None`."""
+    shown = ids[:SHOWN_LETTERS]
+    found = await session.scalars(select(MessageModel).where(MessageModel.id.in_(shown)))
+    letters = {letter.id: letter for letter in found}
+    reasons: list[tuple[int, str | None]] = []
+    for letter_id in shown:
+        letter = letters.get(letter_id)
+        reasons.append((letter_id, None if letter is None else deferrals.said(letter, moment)))
+    return reasons
+
+
+def _pending_words(count: int, reasons: list[tuple[int, str | None]]) -> str:
+    """Висящие письма словами — у каждого своя причина (29.10.2026): одно — «Письмо №404 ушло…»,
+    несколько — числом, первые номера с причинами, остальные числом."""
     if count == 1:
-        return (
-            f"Письмо {numbers} ушло больше {DELIVERY_SILENCE_HOURS} часов назад, а платформа ещё "
-            "не сказала, дошло ли оно"
-        )
-    return (
-        f"Писем без исхода больше {DELIVERY_SILENCE_HOURS} часов: {count} ({numbers}) — "
-        "платформа ещё не сказала, дошли ли они"
+        [(letter_id, why)] = reasons
+        tail = "а платформа ещё не сказала, дошло ли оно" if why is None else f"а исхода нет: {why}"
+        return f"Письмо №{letter_id} ушло больше {DELIVERY_SILENCE_HOURS} часов назад, {tail}"
+    listed = "; ".join(f"№{letter_id} — {why or UNHEARD}" for letter_id, why in reasons)
+    more = count - len(reasons)
+    return f"Писем без исхода больше {DELIVERY_SILENCE_HOURS} часов: {count}. {listed}" + (
+        f"; и ещё {more}" if more > 0 else ""
     )
 
 
