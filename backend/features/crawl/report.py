@@ -42,7 +42,11 @@ class CrawlReport:
     # Сколько страниц открыто с карты и сколько по ссылкам (главная — ни там, ни там).
     pages_from_sitemap: int = 0
     pages_from_links: int = 0
-    # Срок донора по паузе сайта (`pace.py`); пусто — обход кончился раньше расчёта.
+    # Сколько свежих адресов дала лента RSS или Atom, когда карты нет (`feeds.py`): лента —
+    # не карта, и «карта найдена» по ней не пишется.
+    feed_items: int = 0
+    # Срок донора по паузе сайта (`pace.py`), а если вышел — продлённый по темпу; пусто —
+    # обход кончился раньше расчёта.
     time_budget_sec: float | None = None
     elapsed_sec: float = 0.0
     slowed_down: bool = False
@@ -74,6 +78,7 @@ class CrawlReport:
             "source": self.source,
             "pages_from_sitemap": self.pages_from_sitemap,
             "pages_from_links": self.pages_from_links,
+            "feed_items": self.feed_items,
             "time_budget_sec": self.time_budget_sec,
             "elapsed_sec": round(self.elapsed_sec, 1),
             "slowed_down": self.slowed_down,
