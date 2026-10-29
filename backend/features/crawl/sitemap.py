@@ -159,9 +159,10 @@ def freshest_first(urls: list[str], days: dict[str, str]) -> list[str]:
     return sorted(urls, key=lambda url: (url in days, days.get(url, "")), reverse=True)
 
 
-def _same_site(url: str, host: str) -> bool:
+def same_site(url: str, host: str) -> bool:
     """Карта чужого сайта — либо ошибка, либо подстава: страницы чужого
-    домена нам не нужны, а ходить по ним по просьбе донора тем более."""
+    домена нам не нужны, а ходить по ним по просьбе донора тем более.
+    То же правило — у ленты (`feeds.py`): агрегатор в ленте донора — не донор."""
     parts = parse_url(url)
     # Схема — тоже признак чужого: `ftp://site.com/` и опечатка `hhttps://`
     # проходили сюда и отпадали только в очереди обхода (ревью #148).
@@ -194,7 +195,7 @@ def declared_in_html(html: str, base: str, host: str) -> list[str]:
     out: list[str] = []
     for node in HTMLParser(html).css("link[href], a[href]"):
         url = _map_link(node.tag, node.attributes, base)
-        if url is not None and url not in out and _same_site(url, host):
+        if url is not None and url not in out and same_site(url, host):
             out.append(url)
     return out[:MAX_HTML_DECLARED]
 
@@ -275,7 +276,7 @@ class SitemapReader:
                 logger.info("sitemap: срок на донора вышел, карты дочитаны не все")
                 break
             url = queue.pop(0)
-            if url in seen or not _same_site(url, host):
+            if url in seen or not same_site(url, host):
                 continue
             seen.add(url)
             tried += 1
@@ -341,7 +342,7 @@ class SitemapReader:
         # обход ходил бы под слотом донора, а битый («[» без пары) ронял
         # разбор разрешений robots и с ним весь обход (ревью e6 #148).
         # Дочерние карты ту же проверку проходят в `scan`, выходя из очереди.
-        pages = [url for url in locations if _same_site(url, host)]
+        pages = [url for url in locations if same_site(url, host)]
         if len(pages) < len(locations):
             logger.info(
                 "sitemap: %s адресов не с сайта или не разбираются — пропущены",

@@ -20,7 +20,7 @@ from backend.features.crawl.frontier import crawlable, same_site_links
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.links import harvest
 from backend.features.crawl.robots import absent, parse_robots
-from backend.features.crawl.sitemap import SitemapReader, _same_site
+from backend.features.crawl.sitemap import SitemapReader, same_site
 from backend.features.donors.author_door import author_door
 from backend.features.donors.backfill import _site_search
 from backend.features.donors.site_index import index_homes
@@ -79,7 +79,7 @@ class TestOnePageOneBrokenLink:
         "url", ["ftp://site.com/sitemap.xml", "hhttps://site.com/typo", "mailto:a@site.com"]
     )
     def test_map_entry_with_a_foreign_scheme_is_not_our_site(self, url: str) -> None:
-        assert not _same_site(url, "site.com")
+        assert not same_site(url, "site.com")
 
     def test_crawl_queue_survives(self) -> None:
         links = "".join(f'<a href="{url}">x</a>' for url in BROKEN)
@@ -88,7 +88,7 @@ class TestOnePageOneBrokenLink:
 
     @pytest.mark.parametrize("url", BROKEN)
     def test_sitemap_entry_is_not_our_site(self, url: str) -> None:
-        assert not _same_site(url, "site.com")
+        assert not same_site(url, "site.com")
 
     async def test_map_pages_off_the_site_or_broken_are_skipped(self) -> None:
         """Адреса страниц из карты шли в очередь без проверки: чужой повёл бы

@@ -32,7 +32,8 @@ import httpx
 from selectolax.parser import HTMLParser
 
 from backend.features.crawl.limiter import DomainLimiter
-from backend.shared.net.url_parts import join_url, parse_url
+from backend.features.crawl.sitemap import same_site
+from backend.shared.net.url_parts import join_url
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ def declared_feeds(html: str, base: str, host: str) -> list[str]:
         ):
             continue
         url = join_url(base, (node.attributes.get("href") or "").strip())
-        if url is not None and url not in out and _own(url, host):
+        if url is not None and url not in out and same_site(url, host):
             out.append(url)
     return out[:MAX_DECLARED]
 
@@ -75,7 +76,7 @@ def feed_urls(text: str, host: str) -> list[str]:
     out: list[str] = []
     for match in _ITEM.finditer(text):
         url = _entry_url(match.group(2))
-        if url is not None and url not in out and _own(url, host):
+        if url is not None and url not in out and same_site(url, host):
             out.append(url)
     return out
 
@@ -90,15 +91,6 @@ def _entry_url(entry: str) -> str | None:
         if attrs.get("href") and attrs.get("rel", "alternate").lower() == "alternate":
             return attrs["href"].strip()
     return None
-
-
-def _own(url: str, host: str) -> bool:
-    """Свой сайт или поддомен: чужие адреса ленты (агрегаторы, ленты партнёров) не наши."""
-    parts = parse_url(url)
-    if parts is None or parts.scheme not in ("http", "https"):
-        return False
-    netloc = (parts.hostname or "").lower()
-    return netloc == host or netloc.endswith(f".{host}")
 
 
 class FeedReader:
