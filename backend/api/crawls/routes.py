@@ -37,14 +37,8 @@ from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import board, targets
 from backend.features.crawl.launch import launch
-from backend.shared.queue import (
-    CRAWL_QUEUE_NAME,
-    Held,
-    crawl_job_id,
-    crawlers_held,
-    enqueue_crawl,
-    workers_alive,
-)
+from backend.shared.crawl_marks import Held, crawlers_held
+from backend.shared.queue import CRAWL_QUEUE_NAME, crawl_job_id, enqueue_crawl, workers_alive
 
 router = APIRouter(prefix="/crawls", tags=["обходы"])
 

@@ -20,7 +20,7 @@ from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.manual_price import enter_host, manual_price
 from backend.features.replies.repository import ReplyRepository
-from backend.shared.queue import Held
+from backend.shared.crawl_marks import Held
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

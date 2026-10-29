@@ -26,7 +26,7 @@
 **Старты разнесены.** Ждущие копии смотрят на одну и ту же машину: по одному замеру с
 пятью свободными ядрами стартовали бы все разом, и нагрузка их обходов появилась бы в
 замере уже после. Поэтому взявшая задачу копия ставит в Redis отметку «только что начала»
-на `CRAWL_GATE_STAGGER_SEC` (`shared/queue.mark_started`), и остальные до её конца не
+на `CRAWL_GATE_STAGGER_SEC` (`shared/crawl_marks.mark_started`), и остальные до её конца не
 берут — следующий замер уже видит новый обход.
 
 **Чего не прочитать — то не держит.** Нет `/proc` (машина разработчика) или файл не тот —
@@ -35,7 +35,7 @@
 
 **Ждущая копия жива и видна.** Опрос раз в `CRAWL_GATE_POLL_SEC` — с ударом о жизни
 воркера: проверка здоровья (`workers/health.py`) через восемь минут молчания сочла бы её
-зависшей. Отметка «ждёт» с причиной — в Redis (`shared/queue.mark_held`), её читает экран
+зависшей. Отметка «ждёт» с причиной — в Redis (`shared/crawl_marks.mark_held`), её читает экран
 «Обход доноров». Пустая очередь копию не держит и не отмечает: ждать нечего. Выкатка во
 время ожидания: просьба остановиться у rq поднимает исключение прямо из сна, и копия без
 задачи выходит сразу, сняв отметку.
@@ -54,7 +54,7 @@ from typing import Any, Protocol
 from redis.exceptions import RedisError
 
 from backend.config import crawl as cfg
-from backend.shared.queue import clear_held, mark_held, mark_started, started_recently
+from backend.shared.crawl_marks import clear_held, mark_held, mark_started, started_recently
 
 logger = logging.getLogger(__name__)
 

@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 from backend.config import crawl as crawl_cfg
-from backend.shared import queue
+from backend.shared import crawl_marks
 from backend.workers import crawler, load_gate
 from backend.workers.load_gate import CpuMeter, Machine, Room, judge, read_room, wait_for_room
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -299,7 +299,7 @@ class TestWaitForRoom:
         worker = FakeWorker(redis)
 
         def sleep(seconds: float) -> None:
-            seen.append(json.loads(redis.hashes[queue.CRAWL_HELD_KEY][worker.name]))
+            seen.append(json.loads(redis.hashes[crawl_marks.CRAWL_HELD_KEY][worker.name]))
             now[0] += seconds
 
         waited = wait_for_room(worker, read=lambda: next(rooms), sleep=sleep, clock=lambda: now[0])
@@ -307,7 +307,7 @@ class TestWaitForRoom:
         assert waited == 45.0
         assert worker.beats == 3  # удар о жизни на каждый опрос: здоровье не сочтёт зависшей
         assert [mark["words"] for mark in seen] == [busy.words] * 3
-        assert redis.hashes[queue.CRAWL_HELD_KEY] == {}  # дождалась — отметки нет
+        assert redis.hashes[crawl_marks.CRAWL_HELD_KEY] == {}  # дождалась — отметки нет
         said = [record.getMessage() for record in caplog.records]
         assert any("машина занята" in line and "не беру" in line for line in said)
         assert any("место нашлось через 45 с" in line for line in said)
@@ -346,7 +346,7 @@ class TestWaitForRoom:
         with pytest.raises(StopRequestedError):
             wait_for_room(FakeWorker(redis), read=lambda: busy, sleep=sleep, clock=lambda: 0.0)
 
-        assert redis.hashes[queue.CRAWL_HELD_KEY] == {}
+        assert redis.hashes[crawl_marks.CRAWL_HELD_KEY] == {}
 
     def test_redis_down_does_not_stop_the_wait(self, redis: FakeRedis) -> None:
         redis.down = True
@@ -361,38 +361,42 @@ class TestWaitForRoom:
 
 class TestMarks:
     def test_fresh_held_marks_are_counted_with_the_newest_reason(self, redis: FakeRedis) -> None:
-        queue.mark_held("crawler-1", "свободно 1 ядра…", redis=redis, now=100)
-        queue.mark_held("crawler-2", "свободно 0,5 ядра…", redis=redis, now=110)
+        crawl_marks.mark_held("crawler-1", "свободно 1 ядра…", redis=redis, now=100)
+        crawl_marks.mark_held("crawler-2", "свободно 0,5 ядра…", redis=redis, now=110)
 
-        assert queue.crawlers_held(redis, now=120) == queue.Held(2, "свободно 0,5 ядра…")
+        assert crawl_marks.crawlers_held(redis, now=120) == crawl_marks.Held(
+            2, "свободно 0,5 ядра…"
+        )
 
     def test_a_dead_copy_mark_stops_counting_and_is_swept_by_the_next_mark(
         self, redis: FakeRedis
     ) -> None:
-        queue.mark_held("crawler-dead", "свободно 1 ядра…", redis=redis, now=0)
-        late = queue.HELD_FRESH_SEC + 1
+        crawl_marks.mark_held("crawler-dead", "свободно 1 ядра…", redis=redis, now=0)
+        late = crawl_marks.HELD_FRESH_SEC + 1
 
-        assert queue.crawlers_held(redis, now=late) == queue.Held(0)
-        queue.mark_held("crawler-3", "свободно 5 ГБ памяти при пороге 8", redis=redis, now=late)
-        assert set(redis.hashes[queue.CRAWL_HELD_KEY]) == {"crawler-3"}
+        assert crawl_marks.crawlers_held(redis, now=late) == crawl_marks.Held(0)
+        crawl_marks.mark_held(
+            "crawler-3", "свободно 5 ГБ памяти при пороге 8", redis=redis, now=late
+        )
+        assert set(redis.hashes[crawl_marks.CRAWL_HELD_KEY]) == {"crawler-3"}
 
     def test_cleared_and_broken_marks_are_not_counted(self, redis: FakeRedis) -> None:
-        queue.mark_held("crawler-1", "свободно 1 ядра…", redis=redis, now=10)
-        queue.clear_held("crawler-1", redis=redis)
-        redis.hashes[queue.CRAWL_HELD_KEY]["crawler-broken"] = "{не json"
+        crawl_marks.mark_held("crawler-1", "свободно 1 ядра…", redis=redis, now=10)
+        crawl_marks.clear_held("crawler-1", redis=redis)
+        redis.hashes[crawl_marks.CRAWL_HELD_KEY]["crawler-broken"] = "{не json"
 
-        assert queue.crawlers_held(redis, now=20) == queue.Held(0)
+        assert crawl_marks.crawlers_held(redis, now=20) == crawl_marks.Held(0)
 
     def test_redis_down_is_not_zero_but_unknown_and_starts_are_not_held(
         self, redis: FakeRedis
     ) -> None:
         redis.down = True
 
-        queue.mark_held("crawler-1", "свободно 1 ядра…", redis=redis)
-        queue.clear_held("crawler-1", redis=redis)
-        queue.mark_started(20, redis=redis)
-        assert queue.crawlers_held(redis) is None
-        assert queue.started_recently(redis=redis) is False
+        crawl_marks.mark_held("crawler-1", "свободно 1 ядра…", redis=redis)
+        crawl_marks.clear_held("crawler-1", redis=redis)
+        crawl_marks.mark_started(20, redis=redis)
+        assert crawl_marks.crawlers_held(redis) is None
+        assert crawl_marks.started_recently(redis=redis) is False
 
     def test_a_start_mark_lives_the_stagger(self, redis: FakeRedis) -> None:
         worker = FakeWorker(redis)
@@ -400,14 +404,14 @@ class TestMarks:
         assert load_gate.just_started(worker) is False
         load_gate.took_work(worker)
 
-        assert redis.keys == {queue.CRAWL_STARTED_KEY: 20_000}
+        assert redis.keys == {crawl_marks.CRAWL_STARTED_KEY: 20_000}
         assert load_gate.just_started(worker) is True
 
     def test_no_stagger_means_no_mark_and_no_wait(
         self, redis: FakeRedis, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(crawl_cfg, "GATE_STAGGER_SEC", 0.0)
-        redis.keys[queue.CRAWL_STARTED_KEY] = 1
+        redis.keys[crawl_marks.CRAWL_STARTED_KEY] = 1
         worker = FakeWorker(redis)
 
         load_gate.took_work(worker)
