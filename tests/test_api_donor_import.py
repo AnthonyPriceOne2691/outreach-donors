@@ -141,7 +141,7 @@ async def test_a_file_without_a_price_column_is_refused_in_words(
     )
 
     assert answer.status_code == 400
-    assert "не нашлось колонки с ценой" in answer.json()["detail"]
+    assert "нет колонки «цена»" in answer.json()["detail"]
 
 
 @pytest.mark.parametrize(

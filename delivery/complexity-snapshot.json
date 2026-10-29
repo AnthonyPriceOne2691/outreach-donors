@@ -1557,9 +1557,9 @@
       "worst": "enter_many:138"
     },
     "backend/features/donors/bulk_file.py": {
-      "lines": 230,
-      "complexity": 13,
-      "worst": "_columns:207"
+      "lines": 284,
+      "complexity": 11,
+      "worst": "_columns:253"
     },
     "backend/features/donors/collect.py": {
       "lines": 389,

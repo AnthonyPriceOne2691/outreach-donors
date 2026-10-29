@@ -17,8 +17,11 @@ UTF-8 со словами, что делать, если файл в друго�
 цена, валюта, откуда цена. Пустая валюта — та же, что у формы по умолчанию.
 
 **Кривая строка стоит строки, а не файла** — её назовёт отчёт номером. Файл целиком не
-читается, только если не прочитать ничего: не та кодировка, не таблица, нет колонки домена или
-цены, строк больше `MAX_ROWS`.
+читается, только если не прочитать ничего, и отказ называет, что не совпало (доработка по слову
+Anthony 29.10.2026): не CSV и не XLSX, пуст, больше `MAX_BYTES`, не та кодировка, лист не
+читается или пуст, нет колонок домена и цены — каких именно, строк больше `MAX_ROWS`. Экран
+проверяет вид, размер и пустоту ещё до отправки (`frontend/src/advertisers/bulkFile.ts`) и
+показывает отказ сервера словами в окне.
 """
 
 from __future__ import annotations
@@ -33,7 +36,6 @@ from pathlib import PurePath
 from typing import Any
 
 import openpyxl
-from openpyxl.utils.exceptions import InvalidFileException
 
 from backend.features.contacts.sweep_input import HOST_COLUMNS, host_from_cell, records_of
 from backend.features.replies.attachment_formats import MAX_PARTS, MAX_UNPACKED, zip_size
@@ -45,6 +47,10 @@ MAX_ROWS = 10_000
 MAX_BYTES = 7 * 1024 * 1024
 #: Имя файла в словах отказа — не длиннее: имя приходит от клиента как есть.
 _NAME_CHARS = 80
+#: Первая строка в словах отказа — не длиннее: в ней бывает целый абзац.
+_HEAD_CHARS = 160
+#: Расширения, которые читаются; без расширения — по содержимому: ZIP — Excel, иначе CSV.
+_SUFFIXES = ("", ".csv", ".xlsx")
 
 
 class Column(StrEnum):
@@ -73,6 +79,9 @@ TEMPLATE = (
     ("домен", "цена", "валюта", "откуда цена"),
     ("example.com", "150", "USD", "прайс агентства"),
 )
+#: Без этих колонок строку не завести; в отказе — имена из шаблона.
+REQUIRED = (Column.HOST, Column.PRICE)
+LABELS = dict(zip(ORDER, TEMPLATE[0], strict=True))
 
 
 class BulkFileError(ValueError):
@@ -98,13 +107,17 @@ def template_csv() -> str:
 
 
 def read_table(data: bytes, name: str) -> list[Line]:
-    """Строки доноров из файла. Отказ целиком — `BulkFileError` словами."""
+    """Строки доноров из файла. Отказ целиком — `BulkFileError` словами: что не совпало и что
+    сделать."""
     shown = _shown_name(name)
     if len(data) > MAX_BYTES:
         raise BulkFileError(
             f"файл {shown} больше {MAX_BYTES // 2**20} МБ — разделите список на несколько файлов"
         )
-    records = _xlsx_records(data, shown) if _is_xlsx(data, name) else _csv_records(data, shown)
+    if not data:
+        raise BulkFileError(f"файл {shown} пуст — в нём нет ни одной строки")
+    xlsx = _is_xlsx(data, name, shown)
+    records = _xlsx_records(data, shown) if xlsx else _csv_records(data, shown)
     if not records:
         raise BulkFileError(f"в файле {shown} нет ни одной строки")
     columns, header = _columns(records[0][1])
@@ -112,9 +125,10 @@ def read_table(data: bytes, name: str) -> list[Line]:
     if not body:
         raise BulkFileError(f"в файле {shown} только заголовок — строк с донорами нет")
     if len(body) > MAX_ROWS:
+        # Лист Excel читается не дальше предела — сколько строк в нём всего, не знаем.
         raise BulkFileError(
-            f"в файле {shown} строк с донорами {len(body)} — за загрузку не больше {MAX_ROWS}: "
-            "разделите список на несколько файлов"
+            f"в файле {shown} строк с донорами больше {_grouped(MAX_ROWS)} — столько берёт одна "
+            "загрузка: разделите список на несколько файлов"
         )
     return [
         Line(number, {column: _cell(row, index) for column, index in columns.items()})
@@ -128,11 +142,22 @@ def _shown_name(name: str) -> str:
     return f"«{clean}»" if clean else "без имени"
 
 
-def _is_xlsx(data: bytes, name: str) -> bool:
+def _grouped(number: int) -> str:
+    """Число с разрядами, как на экране: 10 000 — с неразрывным пробелом."""
+    return f"{number:,}".replace(",", "\u00a0")
+
+
+def _is_xlsx(data: bytes, name: str, shown: str) -> bool:
+    """Excel ли это: по расширению, а без него — по содержимому. Не таблица — отказ."""
     suffix = PurePath(name or "").suffix.lower()
     if suffix == ".xls":
         raise BulkFileError(
             "старый формат Excel (.xls) не читается — сохраните файл как .xlsx или CSV UTF-8"
+        )
+    if suffix not in _SUFFIXES:
+        raise BulkFileError(
+            f"файл {shown} — не таблица CSV или Excel (.xlsx): сохраните список как .csv или "
+            ".xlsx, как в шаблоне"
         )
     return suffix == ".xlsx" or data.startswith(b"PK\x03\x04")
 
@@ -148,11 +173,19 @@ def _csv_records(data: bytes, shown: str) -> list[tuple[int, list[str]]]:
 
 def _xlsx_records(data: bytes, shown: str) -> list[tuple[int, list[str]]]:
     """Первый видимый лист: непустые строки с номерами строк листа. Читается не дальше
-    `MAX_ROWS + 2` непустых строк — заголовок и одна лишняя скажут «строк больше предела»."""
+    `MAX_ROWS + 2` непустых строк — заголовок и одна лишняя скажут «строк больше предела».
+
+    Разборщик чужого файла падает чем угодно (`attachment_formats`): битый XML листа —
+    `ParseError`, текст в числовой ячейке — `ValueError`. Любое его падение — отказ словами,
+    а не ответ 500."""
+    unreadable = (
+        f"файл {shown} не читается как таблица Excel (.xlsx) — сохраните его в Excel заново "
+        "или как CSV UTF-8"
+    )
     try:
         parts, unpacked = zip_size(data)
     except zipfile.BadZipFile as exc:
-        raise BulkFileError(f"файл {shown} не читается как таблица Excel (.xlsx)") from exc
+        raise BulkFileError(unreadable) from exc
     if parts > MAX_PARTS or unpacked > MAX_UNPACKED:
         raise BulkFileError(
             f"файл {shown} распаковывается в {unpacked // 2**20} МБ — так список доноров не "
@@ -162,28 +195,41 @@ def _xlsx_records(data: bytes, shown: str) -> list[tuple[int, list[str]]]:
         book = openpyxl.load_workbook(
             io.BytesIO(data), read_only=True, data_only=True, keep_links=False
         )
-    except (InvalidFileException, KeyError, OSError, zipfile.BadZipFile) as exc:
-        raise BulkFileError(f"файл {shown} не читается как таблица Excel (.xlsx)") from exc
+    except Exception as exc:
+        raise BulkFileError(unreadable) from exc
     try:
-        return _sheet_records(book)
+        return _sheet_records(book, shown)
     finally:
         book.close()
 
 
-def _sheet_records(book: Any) -> list[tuple[int, list[str]]]:
-    shown = [sheet for sheet in book.worksheets if sheet.sheet_state == "visible"]
-    if not shown:
-        return []
-    sheet = shown[0]
+def _sheet_records(book: Any, shown: str) -> list[tuple[int, list[str]]]:
+    sheet = next((sheet for sheet in book.worksheets if sheet.sheet_state == "visible"), None)
+    if sheet is None:
+        raise BulkFileError(
+            f"в файле {shown} нет видимого листа — список доноров читается с первого видимого листа"
+        )
+    title = "«" + " ".join(str(sheet.title).split())[:_NAME_CHARS] + "»"
     # Размеры листа, записанные в файле, бывают неверны (`attachment_formats._sheet`).
     sheet.reset_dimensions()
     records: list[tuple[int, list[str]]] = []
-    for number, row in enumerate(sheet.iter_rows(values_only=True), start=1):
-        cells = [_value(value) for value in row]
-        if any(cells):
-            records.append((number, cells))
-            if len(records) > MAX_ROWS + 1:
-                break
+    try:
+        for number, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+            cells = [_value(value) for value in row]
+            if any(cells):
+                records.append((number, cells))
+                if len(records) > MAX_ROWS + 1:
+                    break
+    except Exception as exc:
+        raise BulkFileError(
+            f"лист {title} в файле {shown} не читается — сохраните файл в Excel заново или как "
+            "CSV UTF-8"
+        ) from exc
+    if not records:
+        raise BulkFileError(
+            f"лист {title} в файле {shown} пуст — список доноров читается с первого видимого "
+            "листа: перенесите его туда"
+        )
     return records
 
 
@@ -215,14 +261,22 @@ def _columns(head: list[str]) -> tuple[dict[Column, int], bool]:
             found[column] = index
     if Column.HOST not in found and head and host_from_cell(head[0]):
         return {column: index for index, column in enumerate(ORDER)}, False
-    if Column.HOST not in found:
-        raise BulkFileError(
-            "не нашлось колонки с доменом: назовите её «домен» — как в шаблоне. "
-            f"В первой строке: {', '.join(cell for cell in head if cell.strip()) or 'пусто'}"
-        )
-    if Column.PRICE not in found:
-        raise BulkFileError("не нашлось колонки с ценой: назовите её «цена» — как в шаблоне")
+    missing = [LABELS[column] for column in REQUIRED if column not in found]
+    if missing:
+        raise BulkFileError(_missing(missing, head))
     return found, True
+
+
+def _missing(labels: list[str], head: list[str]) -> str:
+    """Каких колонок нет — все сразу, именами шаблона, и что сейчас в первой строке."""
+    what = "колонок" if len(labels) > 1 else "колонки"
+    now = ", ".join(cell.strip() for cell in head if cell.strip()) or "пусто"
+    if len(now) > _HEAD_CHARS:
+        now = now[: _HEAD_CHARS - 1] + "…"
+    return (
+        f"в первой строке нет {what} {' и '.join(f'«{label}»' for label in labels)} — назовите "
+        f"колонки, как в шаблоне: {', '.join(TEMPLATE[0])}. Сейчас в первой строке: {now}"
+    )
 
 
 def _cell(row: list[str], index: int) -> str:

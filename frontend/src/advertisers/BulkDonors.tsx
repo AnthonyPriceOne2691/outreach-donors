@@ -13,12 +13,20 @@
  * **Обход — галочкой, через очередь загрузки** (`CrawlBacklog`): десять тысяч обходов вперёд
  * не встают в очередь обходов разом, сервис отдаёт их обходчикам по мере освобождения. Окно
  * называет срок при нынешних обходчиках — по времени последних обходов.
+ *
+ * **Какой файл подойдёт — у «i»** (доработка по слову Anthony 29.10.2026): у кнопки и у поля
+ * файла — вид, колонки, валюта по умолчанию, пределы, пример и «Скачать шаблон». Файл не того
+ * вида, пустой или больше предела на сервер не уходит — причина под полем (`bulkFile.ts`).
+ * Отказ сервера — плашкой в окне, а не уведомлением: файл надо поправить, а уведомление
+ * закрыли бы, не дочитав.
  */
 
 import {
   Alert,
+  Anchor,
   Button,
   Checkbox,
+  Code,
   FileInput,
   Group,
   Modal,
@@ -32,14 +40,24 @@ import { useState } from 'react';
 
 import type { BulkReport, BulkRow } from '../api/bulkDonors';
 import { downloadDonorTemplate, enterDonorList, previewDonorList } from '../api/bulkDonors';
+import { refusalOf } from '../api/client';
 import { saveFile } from '../api/donors';
+import { InfoHint } from '../components/InfoHint';
 import { formatNumber, plural } from '../format';
-import { notify } from '../notices';
+import { notify, refuse, settle } from '../notices';
+import { FILE_LIMIT_MB, ROW_LIMIT, fileRefusal, refusalWords } from './bulkFile';
 import { donorsWord, etaWords } from './CrawlBacklog';
 
 /** Строк с причиной — в окне не больше; полный отчёт — файлом. */
 const SHOWN = 200;
 const TEMPLATE_NAME = 'доноры-шаблон.csv';
+const TEMPLATE_ACTION = 'donors-import-template';
+/** Пример в подсказке: заголовок шаблона и две строки — у второй валюта пустая. */
+const EXAMPLE = [
+  'домен,цена,валюта,откуда цена',
+  'example.com,150,USD,прайс агентства',
+  'example.org,90,,сайт донора',
+].join('\n');
 const OUTCOME: Record<BulkRow['outcome'], string> = {
   created: 'заведён',
   priced: 'цена обновлена',
@@ -119,12 +137,77 @@ function Problems({ report }: { report: BulkReport }) {
   );
 }
 
-function Refused({ error }: { error: unknown }) {
+/** Отказ сервера на файл `name` — плашкой в окне, словами: что не совпало. */
+function Refused({ error, title, name }: { error: unknown; title: string; name: string }) {
   if (error === null || error === undefined) return null;
   return (
-    <Alert color="red" title="Файл не прочитан">
-      {error instanceof Error ? error.message : 'сервер не ответил — попробуйте ещё раз'}
+    <Alert color="red" title={title}>
+      {refusalWords(error, name)}
     </Alert>
+  );
+}
+
+/** Шаблон загрузки — из подсказки и из окна. Не скачался — уведомлением: окно он не меняет. */
+function useTemplate() {
+  return useMutation({
+    mutationFn: downloadDonorTemplate,
+    onSuccess: (got) => {
+      settle(TEMPLATE_ACTION);
+      saveFile(got, TEMPLATE_NAME);
+    },
+    onError: (error) =>
+      refuse(TEMPLATE_ACTION, { title: 'Шаблон не скачан', message: refusalOf(error) }),
+  });
+}
+
+/** Какой файл подойдёт — у «Загрузить списком» и у поля файла: те же правила, что у
+ *  читателя на сервере (`donors/bulk_file.py`). */
+function FormatHint() {
+  const template = useTemplate();
+  return (
+    <InfoHint name="Какой файл подойдёт" width={340} interactive>
+      <Stack gap={6}>
+        <Text size="sm">Таблица CSV или Excel (XLSX) — из Excel читается первый лист.</Text>
+        <Text size="sm">
+          Колонки — по заголовку или, без заголовка, по порядку: домен, цена, валюта, откуда цена.
+          Серая цена и способы оплаты — колонками с такими заголовками, если они есть.
+        </Text>
+        <Text size="sm">
+          Пустая валюта — USD. До {formatNumber(ROW_LIMIT)} строк и {FILE_LIMIT_MB} МБ.
+        </Text>
+        <Code block className="glassQuiet" fz="xs">
+          {EXAMPLE}
+        </Code>
+        <Anchor component="button" type="button" size="sm" onClick={() => template.mutate()}>
+          Скачать шаблон
+        </Anchor>
+      </Stack>
+    </InfoHint>
+  );
+}
+
+/** Что выйдет с файлом: итог, строки с причиной и галочка обхода. */
+function Outcome({
+  report,
+  crawl,
+  onCrawl,
+}: {
+  report: BulkReport;
+  crawl: boolean;
+  onCrawl: (crawl: boolean) => void;
+}) {
+  return (
+    <>
+      <Text size="sm">{reportWords(report, false)}</Text>
+      <Problems report={report} />
+      <Checkbox
+        checked={crawl && report.crawlable > 0}
+        disabled={report.crawlable === 0}
+        onChange={(event) => onCrawl(event.currentTarget.checked)}
+        label={`Поставить в обход: ${donorsWord(report.crawlable)}`}
+        description={`Через очередь загрузки — ${etaWords(report.backlog)}, считая уже ждущих; обход, запущенный кнопкой, идёт первым.`}
+      />
+    </>
   );
 }
 
@@ -132,10 +215,7 @@ export function BulkDonors({ onDone, onCancel }: { onDone: () => void; onCancel:
   const [file, setFile] = useState<File | null>(null);
   const [crawl, setCrawl] = useState(true);
   const preview = useMutation({ mutationFn: (chosen: File) => previewDonorList(chosen) });
-  const template = useMutation({
-    mutationFn: downloadDonorTemplate,
-    onSuccess: (got) => saveFile(got, TEMPLATE_NAME),
-  });
+  const template = useTemplate();
   const enter = useMutation({
     mutationFn: (chosen: File) => enterDonorList(chosen, crawl),
     onSuccess: (report) => {
@@ -146,60 +226,58 @@ export function BulkDonors({ onDone, onCancel }: { onDone: () => void; onCancel:
   });
   const report = preview.data;
   const writes = report === undefined ? 0 : report.created + report.priced;
+  const name = file?.name ?? '';
   const choose = (chosen: File | null) => {
     setFile(chosen);
     enter.reset();
     preview.reset();
-    if (chosen !== null) preview.mutate(chosen);
+    if (chosen !== null && fileRefusal(chosen) === null) preview.mutate(chosen);
   };
   return (
     <Stack gap="sm">
       <Text size="sm" c="dimmed" maw={720}>
-        Таблица CSV или Excel (.xlsx), до 10 000 строк: домен, цена, валюта и откуда цена — как в
-        шаблоне. Каждую строку сервис проверит тем же правилом, что «Завести донора вручную», и до
-        записи покажет, кого заведёт, а кого нет и почему.
+        Таблица CSV или Excel (.xlsx), до {formatNumber(ROW_LIMIT)} строк и {FILE_LIMIT_MB} МБ:
+        домен, цена, валюта и откуда цена — как в шаблоне. Каждую строку сервис проверит тем же
+        правилом, что «Завести донора вручную», и до записи покажет, кого заведёт, а кого нет и
+        почему.
       </Text>
-      <Group align="flex-end" gap="sm">
-        <FileInput
-          label="Файл"
-          placeholder="выберите файл"
-          accept=".csv,.xlsx,text/csv"
-          leftSection={<IconUpload size={16} />}
-          value={file}
-          onChange={choose}
-          clearable
-          style={{ flex: '1 1 18rem' }}
-        />
-        <Button variant="default" loading={template.isPending} onClick={() => template.mutate()}>
+      <FileInput
+        labelProps={{ labelElement: 'div' }}
+        label={
+          <Group component="span" gap={4} wrap="nowrap">
+            Файл
+            <FormatHint />
+          </Group>
+        }
+        aria-label="Файл"
+        placeholder="выберите файл"
+        accept=".csv,.xlsx,text/csv"
+        leftSection={<IconUpload size={16} />}
+        value={file}
+        onChange={choose}
+        error={file === null ? null : fileRefusal(file)}
+        clearable
+      />
+      {preview.isPending ? <Text size="sm">Проверяем строки…</Text> : null}
+      <Refused error={preview.error} title="Файл не прочитан" name={name} />
+      <Refused error={enter.error} title="Доноры не заведены" name={name} />
+      {report ? <Outcome report={report} crawl={crawl} onCrawl={setCrawl} /> : null}
+      <Group justify="space-between" gap="sm">
+        <Button variant="subtle" loading={template.isPending} onClick={() => template.mutate()}>
           Скачать шаблон
         </Button>
-      </Group>
-      {preview.isPending ? <Text size="sm">Проверяем строки…</Text> : null}
-      <Refused error={preview.error ?? enter.error} />
-      {report ? (
-        <>
-          <Text size="sm">{reportWords(report, false)}</Text>
-          <Problems report={report} />
-          <Checkbox
-            checked={crawl && report.crawlable > 0}
-            disabled={report.crawlable === 0}
-            onChange={(event) => setCrawl(event.currentTarget.checked)}
-            label={`Поставить в обход: ${donorsWord(report.crawlable)}`}
-            description={`Через очередь загрузки — ${etaWords(report.backlog)}, считая уже ждущих; обход, запущенный кнопкой, идёт первым.`}
-          />
-        </>
-      ) : null}
-      <Group justify="flex-end" gap="sm">
-        <Button variant="default" onClick={onCancel}>
-          Отмена
-        </Button>
-        <Button
-          disabled={file === null || writes === 0 || preview.isPending}
-          loading={enter.isPending}
-          onClick={() => file !== null && enter.mutate(file)}
-        >
-          Завести · {formatNumber(writes)}
-        </Button>
+        <Group gap="sm">
+          <Button variant="default" onClick={onCancel}>
+            Отмена
+          </Button>
+          <Button
+            disabled={file === null || writes === 0 || preview.isPending}
+            loading={enter.isPending}
+            onClick={() => file !== null && enter.mutate(file)}
+          >
+            Завести · {formatNumber(writes)}
+          </Button>
+        </Group>
       </Group>
     </Stack>
   );
@@ -216,14 +294,17 @@ export function BulkDonorsButton() {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button
-        variant="default"
-        className="press"
-        aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
-      >
-        Загрузить списком
-      </Button>
+      <Group gap={4} wrap="nowrap">
+        <Button
+          variant="default"
+          className="press"
+          aria-haspopup="dialog"
+          onClick={() => setOpen(true)}
+        >
+          Загрузить списком
+        </Button>
+        <FormatHint />
+      </Group>
       <Modal
         opened={open}
         onClose={() => setOpen(false)}
