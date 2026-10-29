@@ -33,10 +33,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import llm as llm_cfg
 from backend.features.agent import guarding
-from backend.features.agent.stages import Conversation
+from backend.features.agent.stages import SALES_STAGE, Conversation
 from backend.features.agent.writer import DraftUnavailableError, Turn
 from backend.features.core import usage
-from backend.features.sales import usage_cap
 from backend.features.sales.agent import calling, parts
 from backend.features.sales.models import KbKind
 from backend.shared.llm import Refusal
@@ -233,14 +232,14 @@ async def classify(
     """Ситуация последнего письма собеседника. Расход — операцией ситуации.
 
     Отказ модели — `DraftUnavailableError`, как у писателя: задача черновика
-    повторит сбой сети и остановится с причиной на ключе; потолки расхода —
-    общий, свой потолок черновиков агента (`guarding.drafts_cap`, ситуация — его
-    операция брифа) и свой потолок продаж (`usage_cap.sales_cap`: агент продаж в нём) —
-    проверяются до вызова (`usage.ensure_llm_within_cap`). Ситуация — первый вызов модели
-    черновика: выбран потолок продаж — черновика нет, ни писателя, ни судьи.
+    повторит сбой сети и остановится с причиной на ключе. Потолки расхода проверяются до
+    вызова тем же правилом, что у петли правки, своим этапом (`guarding.within_caps`):
+    общий, свой потолок продаж (`usage_cap.sales_cap`: агент продаж в нём) и, пока лимиты
+    разделов на «Расходе» не сохранены, потолок черновиков агента — после сохранения лимит
+    агента переписки продажам не отказывает. Ситуация — первый вызов модели черновика:
+    выбран потолок — черновика нет, ни писателя, ни судьи.
     """
-    await usage.ensure_llm_within_cap(session, own=guarding.drafts_cap())
-    await usage.ensure_llm_within_cap(session, own=usage_cap.sales_cap())
+    await guarding.within_caps(session, SALES_STAGE)
     answer = await calling.ask(
         prompt=PROMPT,
         user=user_message(conversation.turns, tags=tags),

@@ -2532,9 +2532,9 @@
       "worst": "mixed_words:220"
     },
     "backend/features/sales/agent/situation.py": {
-      "lines": 263,
+      "lines": 262,
       "complexity": 10,
-      "worst": "parse:193"
+      "worst": "parse:192"
     },
     "backend/features/sales/agent_turns.py": {
       "lines": 105,
@@ -2947,9 +2947,9 @@
       "worst": "counts:21"
     },
     "backend/features/sales/segment_estimate.py": {
-      "lines": 469,
+      "lines": 471,
       "complexity": 12,
-      "worst": "_money_refusal:438"
+      "worst": "_money_refusal:440"
     },
     "backend/features/sales/segment_estimate_keys.py": {
       "lines": 111,
@@ -3037,9 +3037,9 @@
       "worst": "rejudge:278"
     },
     "backend/features/sales/segment_rejudge_estimate.py": {
-      "lines": 271,
+      "lines": 273,
       "complexity": 9,
-      "worst": "_lines:191"
+      "worst": "_lines:193"
     },
     "backend/features/sales/segment_rejudge_report.py": {
       "lines": 181,
@@ -3167,9 +3167,9 @@
       "worst": "file_name:28"
     },
     "backend/features/sales/usage_cap.py": {
-      "lines": 43,
-      "complexity": 1,
-      "worst": "sales_cap:39"
+      "lines": 55,
+      "complexity": 2,
+      "worst": "after_spent:48"
     },
     "backend/features/sales/verifier.py": {
       "lines": 407,
