@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -92,6 +93,8 @@ class CrawlLine:
     #: Свой срок этого обхода, с, — если обход его записал (`time_budget_sec` отчёта).
     #: Пусто — срок общий, из настроек.
     time_budget_sec: float | None = None
+    #: Номер задачи очереди — по нему место ждущего обхода (`queue_state`).
+    job_id: str | None = None
 
     @classmethod
     def of(cls, run: CrawlRunModel) -> CrawlLine:
@@ -123,6 +126,7 @@ class CrawlLine:
             crawl_delay=_seconds(stats.get("crawl_delay")),
             elapsed_sec=_seconds(stats.get("elapsed_sec")),
             time_budget_sec=_seconds(stats.get("time_budget_sec")),
+            job_id=run.job_id,
         )
 
 
@@ -177,6 +181,9 @@ class DonorLine:
     crawl: CrawlLine | None
     currency: str | None = None
     source: str | None = None
+    #: Цена в сроке, старше срока или нет (`donor_page.Price`) — у вкладки «Обход доноров»,
+    #: где в списке и доноры с протухшей ценой; у панели — пусто (там только свежие).
+    price_state: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,18 +253,25 @@ async def latest_by_host(session: AsyncSession, hosts: list[str]) -> dict[str, C
     return {row.host: CrawlLine.of(row) for row in rows}
 
 
-async def recent(session: AsyncSession, *, limit: int) -> list[CrawlLine]:
-    """Последние обходы, новые сверху."""
+async def recent(session: AsyncSession, *, limit: int, offset: int = 0) -> list[CrawlLine]:
+    """Последние обходы, новые сверху; `offset` — страница журнала обходов."""
     rows = (
         (
             await session.execute(
-                select(CrawlRunModel).order_by(CrawlRunModel.id.desc()).limit(limit)
+                select(CrawlRunModel).order_by(CrawlRunModel.id.desc()).limit(limit).offset(offset)
             )
         )
         .scalars()
         .all()
     )
     return [CrawlLine.of(row) for row in rows]
+
+
+async def total_count(session: AsyncSession) -> int:
+    """Сколько обходов в журнале всего — для страниц «Последних обходов»."""
+    return int(
+        (await session.execute(select(func.count()).select_from(CrawlRunModel))).scalar_one()
+    )
 
 
 async def active_count(session: AsyncSession) -> int:
@@ -277,22 +291,25 @@ class QueueState:
     ahead: dict[int, int]
 
 
-async def queue_state(session: AsyncSession, waiting: list[str] | None) -> QueueState:
-    """Занятые обходчики и места ждущих обходов. `waiting` — номера задач очереди по порядку
-    (`shared/queue.waiting_jobs`): чужие и устаревшие задачи места не занимают — обходчик,
-    взяв задачу закрытого обхода, сразу её отпускает."""
+async def running_count(session: AsyncSession) -> int:
+    """Сколько обходов идёт — столько обходчиков занято."""
     running = select(func.count()).select_from(CrawlRunModel)
     running = running.where(CrawlRunModel.status == CrawlStatus.RUNNING)
-    busy = int((await session.execute(running)).scalar_one())
-    if not waiting:
-        return QueueState(busy=busy, ahead={})
-    queued = (
-        await session.execute(
-            select(CrawlRunModel.id, CrawlRunModel.job_id).where(
-                CrawlRunModel.status == CrawlStatus.QUEUED
-            )
-        )
-    ).all()
-    by_job = {job_id: run_id for run_id, job_id in queued if job_id}
-    order = [by_job[job] for job in waiting if job in by_job]
-    return QueueState(busy=busy, ahead={run_id: place for place, run_id in enumerate(order)})
+    return int((await session.execute(running)).scalar_one())
+
+
+def waiting_jobs(lines: Iterable[CrawlLine]) -> dict[int, str]:
+    """Ждущие обходы среди показанных строк: номер обхода → номер его задачи."""
+    return {
+        line.id: line.job_id for line in lines if line.status is CrawlStatus.QUEUED and line.job_id
+    }
+
+
+def queue_state(busy: int, waiting: dict[int, str], places: dict[str, int] | None) -> QueueState:
+    """Занятые обходчики и места показанных ждущих обходов. `places` — место задачи в очереди
+    (`shared/queue.job_positions`, только показанных: при десяти тысячах в очереди экран не
+    читает её целиком); задачи, которой там нет, — без места, `None` — очередь не спросили."""
+    found = places or {}
+    return QueueState(
+        busy=busy, ahead={run_id: found[job] for run_id, job in waiting.items() if job in found}
+    )

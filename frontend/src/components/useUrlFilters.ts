@@ -20,6 +20,17 @@ import type { QueryKey } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+/** Значение из адреса — только из своего списка: адрес — чужой ввод, незнакомое не сужает. */
+export function knownParam<T extends string>(raw: string | null, keys: readonly T[]): T | null {
+  return keys.find((key) => key === raw) ?? null;
+}
+
+/** Номер страницы из адреса: не число или меньше единицы — первая. */
+export function pageParam(raw: string | null): number {
+  if (raw === null || !/^\d{1,6}$/.test(raw)) return 1;
+  return Math.max(1, Number(raw));
+}
+
 export function useUrlFilters<F extends { page: number }>(
   read: (params: URLSearchParams) => F,
   write: (filters: F) => URLSearchParams,

@@ -26,7 +26,7 @@
  *
  * **«Куплено» — тоже списком** (06.10.2026). Раньше это было число в шапке,
  * и ложного среди купленных снять было нечем, кроме консоли; письмо уходит
- * именно им. Сверху — обход доноров (`CrawlPanel`): откуда кандидаты берутся.
+ * именно им. Сверху — сводка обхода доноров (`CrawlSummary`): откуда кандидаты берутся.
  * Под очередью — бизнесы ниши из выдачи (`NicheQueue`), последним — «К письму»
  * (`PromotePanel`): перевод в рекламодатели и их адреса. Порядок блоков — порядок
  * работы (слово владельца 13.10.2026): перевод и поиск адресов — после всех решений выше.
@@ -36,7 +36,9 @@
  *
  * **Три вида — переключателем вверху** (`AdvertiserViews`): проверка (всё выше,
  * таблица очереди — `CandidatesTable`), все рекламодатели списком с выгрузкой
- * (`AdvertiserList`) и приёмка по донорам (`AcceptanceReport`).
+ * (`AdvertiserList`) и приёмка по донорам (`AcceptanceReport`). С 29.10.2026 четвёртый — обход
+ * доноров своей вкладкой (`CrawlTab`): доноров тысячи, и в «Проверке» осталась сводка
+ * (`CrawlSummary`).
  */
 
 import {
@@ -65,7 +67,8 @@ import { AcceptanceReport } from './AcceptanceReport';
 import { AdvertiserList } from './AdvertiserList';
 import { useAdvertiserView, ViewSwitch } from './AdvertiserViews';
 import { CandidatesTable, VERDICTS } from './CandidatesTable';
-import { CrawlPanel } from './CrawlPanel';
+import { CrawlSummary } from './CrawlSummary';
+import { CrawlTab } from './CrawlTab';
 import { FalseShare } from './FalseShare';
 import { NicheQueue } from './NicheQueue';
 import { PromotePanel } from './PromotePanel';
@@ -133,7 +136,7 @@ function EmptyQueue({
 }
 
 /** Вид «Проверка»: обход доноров, спорные и «куплено», перевод к письму, бизнесы ниши. */
-function ReviewView() {
+function ReviewView({ onOpenCrawl }: { onOpenCrawl: () => void }) {
   const { can } = useSession();
   const queryClient = useQueryClient();
   const [includeDecided, setIncludeDecided] = useState(false);
@@ -186,7 +189,7 @@ function ReviewView() {
 
   return (
     <Stack gap="lg">
-      <CrawlPanel />
+      <CrawlSummary onOpen={onOpenCrawl} />
       <Card className="glassPanel" p="xl">
         <Stack gap="sm">
           {/* Как устроен список — в «i» у заголовка, а не абзацем над таблицей: его
@@ -284,7 +287,8 @@ export function AdvertisersPage() {
   return (
     <Stack gap="lg">
       <ViewSwitch view={view} onView={setView} />
-      {view === 'review' ? <ReviewView /> : null}
+      {view === 'review' ? <ReviewView onOpenCrawl={() => setView('crawl')} /> : null}
+      {view === 'crawl' ? <CrawlTab /> : null}
       {view === 'list' ? <AdvertiserList /> : null}
       {view === 'acceptance' ? <AcceptanceReport /> : null}
     </Stack>

@@ -34,7 +34,7 @@ interface Props {
   /** Ширина безымянной колонки справа (кнопки действий). */
   tail?: string | null;
   /** Заголовок вместо слова — по названию колонки. */
-  heads?: Partial<Record<string, ReactNode>>;
+  heads?: Partial<Record<string, ReactNode>> | undefined;
   /** Строки шапки под заголовками — фильтры под своими колонками. */
   children?: ReactNode;
 }

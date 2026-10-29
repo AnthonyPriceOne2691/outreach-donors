@@ -16,6 +16,7 @@ import type {
   AdvertiserSource,
   OfferState,
 } from '../api/advertiserList';
+import { knownParam, pageParam } from '../components/useUrlFilters';
 import type { Emptiness } from '../components/WholeRow';
 import { formatNumber } from '../format';
 
@@ -67,24 +68,15 @@ export const OFFER_KEYS = Object.keys(OFFER_STATES) as OfferState[];
 export const ADDRESS_KEYS = Object.keys(ADDRESS_STATES) as AddressState[];
 export const SOURCE_KEYS = Object.keys(SOURCES) as AdvertiserSource[];
 
-function known<T extends string>(raw: string | null, keys: readonly T[]): T | null {
-  return keys.find((key) => key === raw) ?? null;
-}
-
-function pageOf(raw: string | null): number {
-  if (raw === null || !/^\d{1,6}$/.test(raw)) return 1;
-  return Math.max(1, Number(raw));
-}
-
 export function readListFilters(params: URLSearchParams): ListFilters {
   const donor = (params.get('donor') ?? '').trim().toLowerCase();
   return {
     search: (params.get('search') ?? '').trim(),
     donor: donor === '' ? null : donor,
-    source: known(params.get('source'), SOURCE_KEYS),
-    address: known(params.get('address'), ADDRESS_KEYS),
-    letter: known(params.get('letter'), OFFER_KEYS),
-    page: pageOf(params.get('page')),
+    source: knownParam(params.get('source'), SOURCE_KEYS),
+    address: knownParam(params.get('address'), ADDRESS_KEYS),
+    letter: knownParam(params.get('letter'), OFFER_KEYS),
+    page: pageParam(params.get('page')),
   };
 }
 

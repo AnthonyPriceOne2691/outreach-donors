@@ -4,7 +4,7 @@
  * копией в экране: числа нет (сервер старше экрана) — нет и слов с ним.
  */
 
-import type { CrawlRow, CrawlSource, CrawlStopReason, CrawlTargets } from '../api/crawls';
+import type { CrawlRow, CrawlSource, CrawlStopReason, CrawlRules } from '../api/crawls';
 import { formatNumber, formatSeconds, plural } from '../format';
 
 /** «1 000 страниц» — родительный: после «из» и «не больше». */
@@ -161,7 +161,7 @@ function heldQueueWords(reason: string | null): string {
 
 /** Очередь и отказы сайтов — для «i» панели: сколько обходов идёт сразу, что с остальными и
  *  почему сайт не обходится. Обходчиков не спросили — без числа. */
-export function queueRule(data: CrawlTargets | undefined): string {
+export function queueRule(data: CrawlRules | undefined): string {
   const workers = data?.workers ?? null;
   const many =
     workers !== null && workers > 0
@@ -180,7 +180,7 @@ export function queueRule(data: CrawlTargets | undefined): string {
 
 /** Потолки на донора и пауза одной фразой: «не больше 1 000 страниц, 2 000 запросов и часа;
  *  пауза … не меньше 1 с и не больше 10 с». Чисел нет — фразы нет. */
-function limitsWords(data: CrawlTargets): string | null {
+function limitsWords(data: CrawlRules): string | null {
   const { max_attempts: attempts, max_seconds: seconds, delay_sec: pause } = data;
   const most = data.max_delay_sec;
   if (attempts === undefined || seconds === undefined) return null;
@@ -195,7 +195,7 @@ function limitsWords(data: CrawlTargets): string | null {
 }
 
 /** Срок сайту с долгой паузой — если сервер его даёт: « (… — до 3 ч, чтобы успеть страницы)». */
-function slowWords(data: CrawlTargets, seconds: number): string {
+function slowWords(data: CrawlRules, seconds: number): string {
   const slow = data.max_seconds_slow ?? null;
   if (slow === null || slow <= seconds) return '';
   return ` (сайту с долгой паузой — до ${spanWords(slow)}, чтобы успеть страницы)`;
@@ -203,7 +203,7 @@ function slowWords(data: CrawlTargets, seconds: number): string {
 
 /** Как идёт обход и где он кончается — для «i» панели, числами сервера. Ответа ещё нет —
  *  только путь обхода: чисел, которых не прислал сервер, экран не выдумывает. */
-export function crawlRule(data: CrawlTargets | undefined): string {
+export function crawlRule(data: CrawlRules | undefined): string {
   const limits = data === undefined ? null : limitsWords(data);
   return (
     ' Обход — с главной по карте сайта, свежие адреса первыми; карта кончилась или её нет — дальше по ссылкам сайта.' +

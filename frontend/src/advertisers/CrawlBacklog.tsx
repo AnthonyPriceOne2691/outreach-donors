@@ -1,5 +1,6 @@
 /**
- * Очередь загрузки обхода — строкой на панели «Обход доноров» (29.10.2026).
+ * Очередь загрузки обхода — строкой на вкладке «Обход доноров» (29.10.2026). В неё же встают
+ * доноры «Обойти всех по фильтру» сверх полусотни, и «Снять очередь» снимает и их.
  *
  * Доноры, загруженные списком с галочкой «в обход», ждут не в очереди обходов, а здесь
  * (`crawl/backlog.py`): сервис отдаёт их обходчикам по мере того, как те освобождаются, и
@@ -8,7 +9,7 @@
  * право запуска, — с вопросом, потому что это тысячи обходов вперёд.
  */
 
-import { Button, Group, Modal, Stack, Text } from '@mantine/core';
+import { Button, Flex, Group, Modal, Stack, Text } from '@mantine/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -20,7 +21,7 @@ import { spanWords } from './crawlWords';
 
 export const BACKLOG_KEY = ['crawl-backlog'] as const;
 
-/** Как часто спрашивать очередь — как панель обхода: место освобождается в любую минуту. */
+/** Как часто спрашивать очередь — как сводка обхода: место освобождается в любую минуту. */
 const POLL_MS = 10_000;
 const DAY = 86_400;
 
@@ -68,14 +69,27 @@ export function CrawlBacklog({ mayDrop }: { mayDrop: boolean }) {
   const view = backlog.data;
   if (view === undefined || view.waiting === 0) return null;
   return (
-    <Group justify="space-between" align="center" gap="sm" wrap="nowrap">
+    // На телефоне кнопка — под строкой, а не сбоку: сбоку строке оставалась треть ширины.
+    <Flex
+      direction={{ base: 'column', xs: 'row' }}
+      justify="space-between"
+      align={{ base: 'flex-start', xs: 'center' }}
+      gap="sm"
+    >
       <Text size="sm">
         Очередь загрузки: {donorsWord(view.waiting)} {plural(view.waiting, 'ждёт', 'ждут', 'ждут')}{' '}
         обхода — {etaWords(view)}. Обходчики берут их по мере освобождения, обход, запущенный
         кнопкой, идёт первым.
       </Text>
+      {/* Кнопка не ужимается: в строке вкладки длинные слова очереди обрезали её до «Снять оче…». */}
       {mayDrop ? (
-        <Button variant="subtle" color="red" className="press" onClick={() => setAsking(true)}>
+        <Button
+          variant="subtle"
+          color="red"
+          className="press"
+          style={{ flexShrink: 0 }}
+          onClick={() => setAsking(true)}
+        >
           Снять очередь
         </Button>
       ) : null}
@@ -96,6 +110,6 @@ export function CrawlBacklog({ mayDrop }: { mayDrop: boolean }) {
           </Group>
         </Stack>
       </Modal>
-    </Group>
+    </Flex>
   );
 }
