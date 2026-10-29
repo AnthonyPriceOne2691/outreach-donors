@@ -13,6 +13,8 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, time, timedelta
 
 import pytest
+from alembic.operations import Operations
+from alembic.runtime.migration import MigrationContext
 from backend.config import outreach as outreach_cfg
 from backend.features.core.domain import AuditAction, MessageStatus, Stage, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
@@ -21,9 +23,11 @@ from backend.features.core.models.outreach import MessageModel, QueueAutosendMod
 from backend.features.letters import autosend, autosend_alarm, autosend_window, batch, forecast
 from backend.features.letters.transport import NullTransport
 from backend.workers import send_jobs
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.conftest import make_sender
+from tests.migration_helpers import load_migration
 from tests.test_letters_send_queue import RefusingAll, Silent, _Closable, _queue
 
 MakeUser = Callable[..., Awaitable[UserModel]]
@@ -493,3 +497,34 @@ class TestTheForecast:
         assert itself.clock.pace == autosend.pace()
         assert itself.clock.window == autosend_window.frame()
         assert "автоотправка, письмо с ящика раз в 10 мин" in itself.eta.words
+
+
+MIGRATION = "c4e1a7b20d93_queue_autosend.py"
+
+
+def _down_and_up(connection: Connection) -> tuple[bool, bool, set[str]]:
+    """Ревизия вниз и вверх на соединении теста: подъём сьюта идёт по моделям, и покрытие файла
+    ревизии иначе не видит. Откат снимает таблицу, подъём ставит её с частным уникальным индексом
+    идущего запуска."""
+
+    def present() -> bool:
+        return bool(connection.scalar(text("SELECT to_regclass('queue_autosend') IS NOT NULL")))
+
+    migration = load_migration(MIGRATION)
+    with Operations.context(MigrationContext.configure(connection)):
+        migration.downgrade()
+        down = present()
+        migration.upgrade()
+    indexes = connection.scalars(
+        text("SELECT indexname FROM pg_indexes WHERE tablename = 'queue_autosend'")
+    )
+    return down, present(), set(indexes)
+
+
+async def test_the_revision_goes_down_and_up(session: AsyncSession) -> None:
+    connection = await session.connection()
+
+    down, up, indexes = await connection.run_sync(_down_and_up)
+
+    assert (down, up) == (False, True)
+    assert "uq_queue_autosend_running" in indexes
