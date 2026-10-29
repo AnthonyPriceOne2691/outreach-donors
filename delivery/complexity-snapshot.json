@@ -57,9 +57,9 @@
       "worst": "to_settings:58"
     },
     "backend/api/app.py": {
-      "lines": 106,
+      "lines": 108,
       "complexity": 1,
-      "worst": "create_app:51"
+      "worst": "create_app:52"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -231,6 +231,16 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/api/letters/autosend_routes.py": {
+      "lines": 58,
+      "complexity": 2,
+      "worst": "stop:39"
+    },
+    "backend/api/letters/autosend_schemas.py": {
+      "lines": 51,
+      "complexity": 2,
+      "worst": "of:34"
+    },
     "backend/api/letters/forecast.py": {
       "lines": 44,
       "complexity": 1,
@@ -247,14 +257,14 @@
       "worst": "enqueue_once:62"
     },
     "backend/api/letters/routes.py": {
-      "lines": 438,
+      "lines": 470,
       "complexity": 5,
-      "worst": "build:163"
+      "worst": "build:166"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 430,
+      "lines": 450,
       "complexity": 4,
-      "worst": "followups_for:102"
+      "worst": "followups_for:103"
     },
     "backend/api/main.py": {
       "lines": 13,
@@ -852,9 +862,9 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 308,
+      "lines": 324,
       "complexity": 4,
-      "worst": "_own_account:219"
+      "worst": "_own_account:235"
     },
     "backend/config/sales.py": {
       "lines": 500,
@@ -1167,7 +1177,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 100,
+      "lines": 102,
       "complexity": 0,
       "worst": "—"
     },
@@ -1232,7 +1242,7 @@
       "worst": "—"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 406,
+      "lines": 450,
       "complexity": 0,
       "worst": "—"
     },
@@ -1716,10 +1726,15 @@
       "complexity": 2,
       "worst": "next_address_note:159"
     },
+    "backend/features/letters/autosend.py": {
+      "lines": 335,
+      "complexity": 6,
+      "worst": "state:290"
+    },
     "backend/features/letters/batch.py": {
-      "lines": 231,
-      "complexity": 5,
-      "worst": "_send_one:182"
+      "lines": 280,
+      "complexity": 9,
+      "worst": "send_queue:173"
     },
     "backend/features/letters/building.py": {
       "lines": 471,
@@ -3432,9 +3447,9 @@
       "worst": "main:52"
     },
     "backend/workers/reaper.py": {
-      "lines": 298,
+      "lines": 315,
       "complexity": 4,
-      "worst": "_told:193"
+      "worst": "_told:199"
     },
     "backend/workers/run_job.py": {
       "lines": 184,
@@ -3447,9 +3462,9 @@
       "worst": "handle:81"
     },
     "backend/workers/send_jobs.py": {
-      "lines": 48,
-      "complexity": 1,
-      "worst": "send_letter_queue:27"
+      "lines": 91,
+      "complexity": 7,
+      "worst": "autosend_pass:67"
     },
     "backend/workers/ticker.py": {
       "lines": 69,

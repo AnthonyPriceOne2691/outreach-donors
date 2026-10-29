@@ -23,6 +23,7 @@ from backend.api.inbound import routes as inbound_routes
 from backend.api.jobs import routes as jobs_routes
 from backend.api.journal import routes as journal_routes
 from backend.api.keywords import routes as keywords_routes
+from backend.api.letters import autosend_routes as letters_autosend
 from backend.api.letters import forecast as letters_forecast
 from backend.api.letters import routes as letters_routes
 from backend.api.overview import routes as overview_routes
@@ -93,6 +94,7 @@ def create_app() -> FastAPI:
     app.include_router(thread_files_routes.router, prefix=API_PREFIX)
     app.include_router(letters_routes.router, prefix=API_PREFIX)
     app.include_router(letters_forecast.router, prefix=API_PREFIX)
+    app.include_router(letters_autosend.router, prefix=API_PREFIX)
     app.include_router(suppressions_routes.router, prefix=API_PREFIX)
     app.include_router(inbound_routes.router, prefix=API_PREFIX)
     app.include_router(events_routes.router, prefix=API_PREFIX)

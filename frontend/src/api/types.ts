@@ -1,6 +1,7 @@
 /** Что отдаёт сервер. Имена полей повторяют схему API один в один:
  *  перевод на ходу — лишний слой, в котором опечатка видна не сразу. */
 
+import type { QueueAutosend } from './autosend';
 import type { ContactStatus } from './contactStatus';
 import type { PriceDetails, PriceFacets, RowPrice } from './donorPrice';
 import type { ForecastLimits } from './forecastLimits';
@@ -621,6 +622,9 @@ export interface LettersView {
   queued_total: number;
   /** Сколько писем берёт одна пачка «Отправить очередь»: число называет сервер. */
   batch_max: number;
+  /** Уходит ли очередь сама (`letters/autosend.py` на сервере): отметка в окне пачки и
+   *  строка под кнопкой. Нет поля — сервер старше режима: окно пачки — прежнее. */
+  autosend?: QueueAutosend;
 }
 
 export interface BuildLettersRequest {

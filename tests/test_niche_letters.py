@@ -646,7 +646,7 @@ class TestTheButtonOfTheNicheTab:
 
         assert (tab["queued_total"], links["queued_total"]) == (1, 2)
         assert sent.status_code == 200, sent.text
-        assert sent.json() == {"job_id": "job-ниша", "queued": 1}
+        assert sent.json() == {"job_id": "job-ниша", "queued": 1, "autosend": False}
         [(path, args, kwargs)] = jobs.calls
         assert path == SEND_QUEUE_JOB
         bound = inspect.signature(send_jobs.send_letter_queue).bind(*args, **kwargs)

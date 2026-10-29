@@ -101,6 +101,17 @@ class _Outreach(DomainSettings):
     # письма ложатся по одному (`letters/building.py`). 1 — прежний порядок по одному;
     # больше — ближе к лимиту частоты провайдера модели, отказ по частоте повторяется.
     build_concurrency: int = Field(default=8, ge=1, validation_alias="OUTREACH_BUILD_CONCURRENCY")
+    # Очередь доноров и рекламодателей, запущенная человеком, уходит сама каждый день
+    # (`letters/autosend.py`). Рубильник, а не включатель: режим включает только человек
+    # кнопкой «Отправить очередь»; выключенный — все проходы стоят одной правкой .env.
+    autosend: bool = Field(default=True, validation_alias="OUTREACH_AUTOSEND")
+    autosend_pass_sec: int = Field(
+        default=60, ge=10, le=3600, validation_alias="OUTREACH_AUTOSEND_PASS_SEC"
+    )
+    # Пауза между первыми письмами ящика у прохода — с разбросом ±50%.
+    autosend_gap_min: int = Field(
+        default=10, ge=1, le=240, validation_alias="OUTREACH_AUTOSEND_GAP_MIN"
+    )
 
 
 _s = _Outreach()
@@ -133,6 +144,11 @@ SILENCE_DAYS: int = _s.silence_days
 DECLINE_DAYS: int = _s.decline_days
 PRICE_RECHECK_DAYS: int = _s.price_recheck_days
 BUILD_CONCURRENCY: int = _s.build_concurrency
+#: Очередь, запущенная человеком, уходит сама (`letters/autosend.py`): рубильник, проход и пауза
+#: между первыми письмами ящика.
+AUTOSEND: bool = _s.autosend
+AUTOSEND_PASS_SEC: int = _s.autosend_pass_sec
+AUTOSEND_GAP_MIN: int = _s.autosend_gap_min
 
 
 class _OwnAccount(DomainSettings):

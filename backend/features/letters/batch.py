@@ -14,9 +14,13 @@ Anthony выбрал пачку — «вся очередь» (06.10.2026): пи
 добивка и ответ уходят своим путём и с ящика своей переписки (`mailbox.py`).
 
 **Когда пачка останавливается.** Ящики выбрали дневной лимит — остальное
-ждёт в очереди, но само не уйдёт: итог пачки так и говорит и называет, когда
-нажать её снова (`_stop_words`). Без этого «завтра лимит откроется» читалось
-как «завтра уйдут сами» (замечание тест-группы 23.10.2026). Связь с почтой оборвалась — ушло ли письмо,
+ждёт в очереди: итог пачки говорит, уйдёт ли оно само, и если нет — когда нажать
+пачку снова (`_stop_words`). Без этого «завтра лимит откроется» читалось как
+«завтра уйдут сами» (замечание тест-группы 23.10.2026). Само остальное уходит,
+только если очередь отправляется сама (`autosend.py`, замечание тест-группы
+29.10.2026): её проход — эта же пачка, с паузами ящиков (`Resting`).
+
+Связь с почтой оборвалась — ушло ли письмо,
 неизвестно, и слать дальше вслепую нельзя: письмо остаётся «отправляется»
 (`Sending._hand_over`), и его исход решает событие платформы или человек
 в блоке «Исход неизвестен» (`unknown_outcome.py`). Почта отказала не письму,
@@ -42,12 +46,14 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
+from collections.abc import Collection
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import Stage
+from backend.features.core.models.outreach import MessageModel
 from backend.features.core.stages import SalesNotConnectedError
 from backend.features.crawl.niche import LINKS
 from backend.features.letters import mailbox
@@ -108,11 +114,27 @@ _WHY: tuple[tuple[type[SendError], str], ...] = (
 #: письма уходят только на них.
 _ALLOWLIST_MARK = "не в списке разрешённых получателей"
 #: Пачка встала на лимите ящиков: письма остаются в очереди, но сами не уйдут. Первые письма
-#: доноров и рекламодателей уходят только пачкой или по одному; у продаж — так же, пока
-#: автоотправка выключена (включённая закрывает пачку вовсе, `sales/mail.py`).
+#: доноров и рекламодателей уходят пачкой, по одному или сами, пока их очередь отправляется сама
+#: (`autosend.py`); у продаж — пачкой, пока автоотправка выключена (включённая закрывает пачку
+#: вовсе, `sales/mail.py`).
 BY_HAND = "Сами письма не уйдут — очередь уходит только по нажатию"
 _AGAIN_TOMORROW = "завтра нажмите «Отправить очередь» ещё раз"
 _AGAIN_LATER = "нажмите «Отправить очередь» снова, когда ящики смогут писать"
+#: Та же остановка, когда очередь отправляется сама: остальное уйдёт без нажатия.
+BY_ITSELF = "Остальное уйдёт само — очередь отправляется сама"
+_ITSELF_TOMORROW = "продолжит завтра, когда лимит откроется"
+_ITSELF_LATER = "продолжит, когда ящики смогут писать"
+
+
+class Resting(Protocol):
+    """Паузы ящиков у прохода автоотправки (`autosend.Rest`): выбор ящика первого письма их не
+    берёт (`mailbox.resting`), а ящик, отдавший письмо, встаёт на паузу до конца прохода."""
+
+    def boxes(self) -> Collection[int]:
+        """Ящики на паузе сейчас."""
+
+    def took(self, box_id: int, letter_id: int) -> None:
+        """Ящик `box_id` отдал почте письмо `letter_id`."""
 
 
 @dataclass(slots=True)
@@ -125,6 +147,9 @@ class BatchReport:
     stopped: str | None = None
     #: Сколько писем этапа осталось в очереди — всех, без потолка пачки.
     left: int = 0
+    #: Письмо, на котором оборвалась связь с почтой: ушло ли оно, неизвестно (`autosend.py`
+    #: стоит на нём, пока оно «отправляется»). В итог задачи не идёт — его слова в `stopped`.
+    unsure: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -153,18 +178,29 @@ async def send_queue(
     author_id: int | None = None,
     limit: int = BATCH_MAX,
     audience: str = LINKS,
+    rest: Resting | None = None,
+    automatic: bool = False,
 ) -> BatchReport:
-    """Отправить очередь этапа и аудитории по одному письму, пока у ящиков есть лимит."""
+    """Отправить очередь этапа и аудитории по одному письму, пока у ящиков есть лимит.
+
+    `rest` — паузы ящиков прохода автоотправки: с ящика — письмо за пачку. `automatic` — очередь
+    отправляется сама (`autosend.py`): остановка на лимите говорит, что остальное уйдёт само."""
     repository = LetterRepository(session)
     queued = await repository.queued(stage=stage, audience=audience, limit=limit)
     ids = [row.message.id for row in queued]
     sending = Sending(session, transports)
     report = BatchReport()
     for letter_id in ids:
-        stop = await _send_one(sending, letter_id, author_id, report)
+        sent = report.sent
+        with mailbox.resting(() if rest is None else rest.boxes()):
+            stop = await _send_one(sending, letter_id, author_id, report, automatic)
         if stop is not None:
             report.stopped = stop
             break
+        if rest is not None and report.sent > sent:
+            letter = await session.get(MessageModel, letter_id)
+            if letter is not None and letter.sender_id is not None:
+                rest.took(letter.sender_id, letter_id)
     # Вся очередь этапа и аудитории, а не её первые `limit`: остальное возьмёт следующая
     # пачка той же вкладки.
     report.left = await repository.queued_count(stage=stage, audience=audience)
@@ -180,7 +216,11 @@ async def send_queue(
 
 
 async def _send_one(
-    sending: Sending, letter_id: int, author_id: int | None, report: BatchReport
+    sending: Sending,
+    letter_id: int,
+    author_id: int | None,
+    report: BatchReport,
+    automatic: bool = False,
 ) -> str | None:
     """Одно письмо пачки. Возвращает причину остановки пачки или `None`."""
     try:
@@ -190,7 +230,7 @@ async def _send_one(
         # следующее письмо упрётся в то же — пачка встаёт с причиной словами, а не
         # «связь с почтой оборвалась».
         logger.info("письма: пачка встала на письме №%s — %s", letter_id, exc)
-        return _stop_words(exc)
+        return _stop_words(exc, automatic)
     except SendError as exc:
         logger.info("письма: письмо №%s пачки не ушло — %s", letter_id, exc)
         report.refused[why(exc)] += 1
@@ -199,6 +239,7 @@ async def _send_one(
         return None
     except Exception:
         logger.exception("письма: пачка остановлена на письме №%s — связь с почтой", letter_id)
+        report.unsure = letter_id
         return (
             f"связь с почтой оборвалась на письме №{letter_id}: ушло ли оно, неизвестно, "
             "и дальше пачка не шла. Сообщит о нём платформа — исход решится сам; нет — "
@@ -209,15 +250,23 @@ async def _send_one(
     return None
 
 
-def _stop_words(exc: NoSenderError | SalesNotConnectedError) -> str:
-    """Почему пачка встала, словами отказа, — а когда писать некому, ещё и что письма сами не
-    уйдут и когда нажать пачку снова: завтра, если ящики выбрали дневной лимит (`mailbox.TOMORROW`),
-    иначе — когда ящики смогут писать (все выключены или отсеяны лимитами)."""
+def _stop_words(exc: NoSenderError | SalesNotConnectedError, automatic: bool = False) -> str:
+    """Почему пачка встала, словами отказа, — а когда писать некому, ещё и уйдёт ли остальное
+    само: у очереди, которая отправляется сама (`automatic`), — да, иначе — нет, и когда нажать
+    пачку снова: завтра, если ящики выбрали дневной лимит (`mailbox.TOMORROW`), иначе — когда
+    ящики смогут писать (все выключены или отсеяны лимитами)."""
     said = str(exc)
     if not isinstance(exc, NoSenderError):
         return said
-    again = _AGAIN_TOMORROW if said.endswith(mailbox.TOMORROW) else _AGAIN_LATER
-    return f"{said}. {BY_HAND}: {again}"
+    return nobody_words(said, automatic)
+
+
+def nobody_words(said: str, automatic: bool = False) -> str:
+    """Отказ выбора ящика «писать некому» — и уйдёт ли остальное само (`_stop_words`)."""
+    tomorrow = said.endswith(mailbox.TOMORROW)
+    if automatic:
+        return f"{said}. {BY_ITSELF}: {_ITSELF_TOMORROW if tomorrow else _ITSELF_LATER}"
+    return f"{said}. {BY_HAND}: {_AGAIN_TOMORROW if tomorrow else _AGAIN_LATER}"
 
 
 def _refused_all(letter_id: int, refusal: PlatformRefusalError) -> str:
