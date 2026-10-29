@@ -403,3 +403,47 @@ class ReplyModel(TimestampedMixin, Base):
     )
 
     thread: Mapped[ThreadModel | None] = relationship("ThreadModel", back_populates="replies")
+
+
+class QueueAutosendModel(TimestampedMixin, Base):
+    """Очередь этапа и аудитории, которая уходит сама (`letters/autosend.py`): строка на запуск.
+
+    Включает человек — «Отправить очередь» с отметкой «дальше — сама», — останавливает человек
+    или сам проход, когда очередь пуста. Строка остаётся и после остановки: кто, когда включил,
+    кто, когда и почему остановил. Идущий запуск у этапа и аудитории один — частный уникальный
+    индекс по незаконченным строкам.
+    """
+
+    __tablename__ = "queue_autosend"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    stage: Mapped[Stage] = mapped_column(_enum(Stage), nullable=False)
+    #: Аудитория Этапа 2 (`campaigns.audience`): у бизнесов ниши своя очередь и свой запуск.
+    audience: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="links", server_default="links"
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stopped_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    stop_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Последний проход — когда и чем кончился, словами для строки под кнопкой пачки.
+    passed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    state: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Письмо прохода, на которое почта не ответила: ушло ли — неизвестно, и пока оно
+    #: «отправляется», проход стоит.
+    unsure_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index(
+            "uq_queue_autosend_running",
+            "stage",
+            "audience",
+            unique=True,
+            postgresql_where=text("stopped_at IS NULL"),
+        ),
+    )

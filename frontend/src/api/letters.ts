@@ -6,6 +6,7 @@ import type {
   QueuedLetter,
   SendResult,
 } from './types';
+import type { QueueAutosend, QueueEta } from './autosend';
 import { request } from './client';
 import type { Stage } from './stages';
 import type { ResolveOutcome, ResolvedLetter, UnknownLettersView } from './unknownOutcome';
@@ -53,21 +54,46 @@ export function sendLetter(id: number): Promise<SendResult> {
   return request<SendResult>(`/letters/${id}/send`, { method: 'POST' });
 }
 
-/** Пачка ушла в очередь задач: сколько писем ждёт в очереди этапа. */
+/** Пачка ушла в очередь задач: сколько писем ждёт в очереди этапа и уходит ли очередь сама
+ *  и дальше. */
 export interface SendQueueQueued {
   job_id: string;
   queued: number;
+  autosend?: boolean;
 }
 
 /** Отправить всю очередь этапа пачкой (слово Anthony 06.10.2026) — одной аудитории: пачка
  *  бизнесов ниши письма по найденной ссылке не берёт, и наоборот. «По ссылке» — без поля,
- *  как до аудиторий. */
+ *  как до аудиторий. `keepSending` — отметка «дальше — сама»: остаток очередь отправит сама
+ *  (`letters/autosend.py`); не названа — поля нет, и режим не включается. */
 export function sendQueue(
   stage: Stage,
   audience: LetterAudience = 'links',
+  keepSending?: boolean,
 ): Promise<SendQueueQueued> {
-  const body = audience === 'links' ? { stage } : { stage, audience };
+  const body: Record<string, unknown> = audience === 'links' ? { stage } : { stage, audience };
+  if (keepSending !== undefined) body.keep_sending = keepSending;
   return request<SendQueueQueued>('/letters/send-queue', { method: 'POST', body });
+}
+
+/** Дней плана прогноза для срока очереди: потолок прогноза рассылки на сервере. */
+const ETA_DAYS = 31;
+
+/** Срок очереди этапа из прогноза рассылки — строке под режимом «уходит сама». */
+export async function queueEta(stage: Stage): Promise<QueueEta> {
+  const view = await request<{ queue_eta: QueueEta }>(
+    `/letters/forecast?stage=${stage}&days=${ETA_DAYS}&back=0`,
+  );
+  return view.queue_eta;
+}
+
+/** Очередь этапа и аудитории больше не уходит сама: письма остаются в очереди. */
+export function stopAutosend(
+  stage: Stage,
+  audience: LetterAudience = 'links',
+): Promise<QueueAutosend> {
+  const body = audience === 'links' ? { stage } : { stage, audience };
+  return request<QueueAutosend>('/letters/send-queue/stop', { method: 'POST', body });
 }
 
 /** Письма этапа и аудитории с неизвестным исходом: зависли в «отправляется» дольше пяти

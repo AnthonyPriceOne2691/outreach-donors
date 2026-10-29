@@ -16,7 +16,7 @@ from __future__ import annotations
 import pytest
 from backend.config import llm as llm_cfg
 from backend.features.agent.stages import agent_operations
-from backend.features.core import usage
+from backend.features.core import llm_caps, usage
 from backend.features.core.domain import UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.core.models.outreach import ReplyModel
@@ -153,3 +153,13 @@ def test_the_sales_cap_counts_exactly_the_model_calls_of_sales_and_its_agent() -
         assert OPERATION_PROVIDERS[operation] is UsageProvider.LLM
     # Операций агента доноров и рекламодателей в нём нет.
     assert usage_cap.OPERATIONS & agent_operations() <= agent
+
+
+def test_the_estimate_advice_follows_the_saved_spend_block(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Совет отказа сметы — словами сторожа модели: лимиты на «Расходе» не сохраняли — поднять
+    потолок; сохранили — добавить продажам из свободного остатка или поднять общий; и там и
+    там — когда сброс."""
+    assert usage_cap.after_spent(NOW) == llm_caps.after_cap(NOW)
+    monkeypatch.setattr(llm_caps, "block", lambda: llm_caps.Block(50_000_000, 20, 20, 30))
+    assert usage_cap.after_spent(NOW) == llm_caps.after_part(NOW)
+    assert "добавить разделу из свободного остатка" in usage_cap.after_spent(NOW)

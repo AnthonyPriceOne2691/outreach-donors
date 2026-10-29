@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from rq import Queue
@@ -43,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import actor, db_session, needs
 from backend.api.letters import once
+from backend.api.letters.autosend_schemas import QueueAutosendView
 from backend.api.letters.schemas import (
     Audience,
     BuildQueued,
@@ -70,7 +72,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import CampaignModel
 from backend.features.core.stages import check_batch
 from backend.features.crawl.niche import LINKS, NICHE, WHOM
-from backend.features.letters import batch, compose, draft, review, unknown_outcome
+from backend.features.letters import autosend, batch, compose, draft, review, unknown_outcome
 from backend.features.letters.chain import RECHECK_CAMPAIGN
 from backend.features.letters.compose import NicheOffer
 from backend.features.letters.niche_recipients import NicheRecipients
@@ -122,6 +124,7 @@ async def queue(
         letters=[QueuedLetterCard.of(row) for row in queued],
         queued_total=await repository.queued_count(stage=stage, audience=audience),
         batch_max=batch.BATCH_MAX,
+        autosend=QueueAutosendView.of(await autosend.state(session, stage, audience)),
         letter_default=LetterDraftView.of(draft.default_draft(stage, audience)),
         blocked_by=compose.missing_settings(),
         transport=Transport.current(stage.value),
@@ -401,7 +404,36 @@ async def send_queue(
         waiting,
         taken,
     )
-    return SendQueueQueued(job_id=str(job.id), queued=taken)
+    itself = await _keep_sending(body, author, session)
+    return SendQueueQueued(job_id=str(job.id), queued=taken, autosend=itself)
+
+
+async def _keep_sending(body: SendQueueBody, author: UserModel, session: AsyncSession) -> bool:
+    """Отметка «дальше — сама»: очередь уходит сама и после пачки (`letters/autosend.py`).
+    Включает режим только человек — этим нажатием; новый запуск — строкой журнала, с тем,
+    кто нажал. Рубильник выключен или этап продаж — режима нет. Уходит ли очередь сама теперь."""
+    if not (body.keep_sending and autosend.available(body.stage)):
+        return await autosend.running(session, body.stage, body.audience) is not None
+    mode, fresh = await autosend.start(
+        session, body.stage, body.audience, by=author.id, now=datetime.now(UTC)
+    )
+    if fresh:
+        await AccessRepository(session).record(
+            AuditAction.RUN_STARTED,
+            author_id=author.id,
+            target=f"queue_autosend:{mode.id}",
+            details=autosend_details("очередь уходит сама", body.stage, body.audience),
+        )
+    await session.commit()
+    return True
+
+
+def autosend_details(what: str, stage: Stage, audience: str) -> dict[str, str]:
+    """Подробности строки журнала о режиме очереди: что, этап и — у рекламодателей — кому."""
+    details = {"действие": what, "этап": _STAGE_TITLES[stage]}
+    if stage is Stage.ADVERTISERS:
+        details["кому"] = WHOM[audience]
+    return details
 
 
 @router.get("/unknown", response_model=UnknownLettersView, summary="Письма с неизвестным исходом")

@@ -5,9 +5,10 @@
 бы долю доноров. Шаг первый — наш: операции агента продаж (черновик, ситуация письма, судья)
 считает и проверяет свой потолок продаж (`sales/usage_cap.sales_cap`) — тем же журналом и тем
 же путём, что вид ответа, сборку писем и судью сегмента. Пока они считаются и в общем
-`drafts_cap`, потолок двойной — это безопасно. Шаг второй — соседней сессии: убрать продажи из
-`drafts_cap`. Ни в какой момент агент продаж не остаётся без потолка: проверка продаж стоит до
-первого вызова модели черновика (ситуация письма в брифе).
+`drafts_cap`, потолок двойной — это безопасно. Шаг второй — правило `guarding.within_caps`
+(29.10.2026): при сохранённых лимитах разделов на «Расходе» продажи судит лимит их раздела, а не
+агента переписки; до сохранения — оба потолка. Ни в какой момент агент продаж не остаётся без
+потолка: проверка продаж стоит до первого вызова модели черновика (ситуация письма в брифе).
 
 - выбран потолок продаж — черновика нет, модель не звали, отказ словами;
 - расход самого агента продаж — в счёте потолка продаж;
@@ -22,6 +23,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 
 import pytest
@@ -53,6 +55,12 @@ DRAFTS_CAP = 97_531
 REFUSED_HEAD = (
     f"дневной потолок вызовов модели продаж выбран: {SALES_CAP} из {SALES_CAP} токенов — "
 )
+
+
+def _ungrouped(text: str) -> str:
+    """Отказ без разрядов: сторож может разбить число неразрывным пробелом (`numbers.spaced`,
+    «4\u00a0391»), а начало сверяется с числом как есть — сверка держит оба вида."""
+    return re.sub(r"(?<=\d)[ \u00a0\u202f](?=\d)", "", text)
 
 
 @pytest.fixture
@@ -93,7 +101,7 @@ async def test_spent_sales_cap_leaves_the_lead_without_a_draft_in_words(
     with pytest.raises(LlmCapExceededError) as refused:
         await drafting.draft_answer(session, writer, reply_id)
 
-    assert str(refused.value).startswith(REFUSED_HEAD)
+    assert _ungrouped(str(refused.value)).startswith(REFUSED_HEAD)
     assert (model.sent["situation"], model.sent["judge"], writer.seen) == ([], [], [])
     assert await _drafts(session, reply_id) == []
 
@@ -169,7 +177,7 @@ async def test_the_rewrite_loop_holds_the_sales_cap_before_every_writer_call(
     with pytest.raises(LlmCapExceededError) as refused:
         await guarding.compose(session, SALES_STAGE, writer, ASKED, incoming="Сколько стоит?")
 
-    assert str(refused.value).startswith(REFUSED_HEAD)
+    assert _ungrouped(str(refused.value)).startswith(REFUSED_HEAD)
     assert writer.seen == []
 
 
@@ -226,7 +234,32 @@ async def test_an_empty_sales_cap_is_its_share_of_the_general_cap_in_the_loop(
     with pytest.raises(LlmCapExceededError) as refused:
         await guarding.compose(session, SALES_STAGE, writer, ASKED, incoming="Сколько стоит?")
 
-    assert str(refused.value).startswith(
+    assert _ungrouped(str(refused.value)).startswith(
         f"дневной потолок вызовов модели продаж выбран: {share} из {share} токенов"
     )
     assert writer.seen == []
+
+
+@pytest.mark.usefixtures("sales_on", "caps")
+async def test_the_situation_asks_the_caps_by_the_rule_of_the_sales_stage(
+    session: AsyncSession, llm: Plug, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ситуация письма — первый вызов модели черновика продаж: потолки она судит правилом петли
+    правки (`guarding.within_caps`) своим этапом — при сохранённых лимитах на «Расходе» лимит
+    агента переписки продажам не отказывает (`test_llm_caps`). Отказ правила — модель не звали."""
+    reply_id = await lead_replied(session)
+    model = llm(situation=[INFORM], judge=[ALLOW])
+    writer = Writer(GOOD)
+    asked: list[object] = []
+
+    async def within(_session: AsyncSession, stage: object) -> None:
+        asked.append(stage)
+        raise LlmCapExceededError("потолок выбран")
+
+    monkeypatch.setattr(guarding, "within_caps", within)
+
+    with pytest.raises(LlmCapExceededError):
+        await drafting.draft_answer(session, writer, reply_id)
+
+    assert asked == [SALES_STAGE]
+    assert (model.sent["situation"], writer.seen) == ([], [])

@@ -317,3 +317,152 @@ describe('пачка любого этапа (4.5a)', () => {
     });
   });
 });
+
+/** Очередь, которая уходит сама (замечание тест-группы 29.10.2026): отметка «дальше — сама»
+ *  в окне пачки, строка под кнопкой и «Остановить». */
+const AUTOSEND = {
+  available: true,
+  running: false,
+  since: null,
+  started_by: null,
+  sent: 0,
+  state: null,
+  passed_at: null,
+  off: null,
+  stopped_at: null,
+  stopped_by: null,
+  stop_reason: null,
+};
+
+const RUNNING = {
+  ...AUTOSEND,
+  running: true,
+  since: '2026-10-29T07:05:00Z',
+  started_by: 'отправитель@site.com',
+  sent: 3,
+  state: 'ушло 1. ящики на паузе между письмами — ближайший освободится в 07:20 UTC',
+  passed_at: '2026-10-29T07:10:00Z',
+};
+
+/** Срок очереди — прогнозом рассылки этапа: строка под режимом «уходит сама». */
+const ETA = 'GET /api/letters/forecast?stage=donors&days=31&back=0';
+
+describe('очередь уходит сама', () => {
+  it('с отметкой — остаток уйдёт сам, и сервер это слышит', async () => {
+    const recorded = open(
+      { autosend: AUTOSEND },
+      {
+        'POST /api/letters/send-queue': { body: { job_id: 'job-q', queued: 2, autosend: true } },
+        'GET /api/jobs/job-q': { body: DONE },
+      },
+    );
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Отправить очередь · 2' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('checkbox', { name: /Дальше — сама/ })).toBeChecked();
+    expect(
+      within(dialog).getByText(/дальше очередь будет уходить сама каждый день/),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Отправить 2' }));
+
+    await waitFor(() =>
+      expect(recorded.calls.find((call) => call.path === '/api/letters/send-queue')?.body).toEqual({
+        stage: 'donors',
+        keep_sending: true,
+      }),
+    );
+  });
+
+  it('без отметки — прежнее «само не уйдёт»', async () => {
+    const recorded = open(
+      { autosend: AUTOSEND },
+      {
+        'POST /api/letters/send-queue': { body: { job_id: 'job-q', queued: 2 } },
+        'GET /api/jobs/job-q': { body: DONE },
+      },
+    );
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Отправить очередь · 2' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('checkbox', { name: /Дальше — сама/ }));
+    expect(within(dialog).getByText(/само не уйдёт — завтра отправьте/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Отправить 2' }));
+
+    await waitFor(() =>
+      expect(recorded.calls.find((call) => call.path === '/api/letters/send-queue')?.body).toEqual({
+        stage: 'donors',
+        keep_sending: false,
+      }),
+    );
+  });
+
+  it('идёт — строка, срок, итог прохода и «Остановить»; в окне отметки нет', async () => {
+    const recorded = open(
+      { autosend: RUNNING },
+      {
+        'POST /api/letters/send-queue/stop': { body: { ...RUNNING, running: false } },
+        [ETA]: {
+          body: { queue_eta: { day: '2026-11-01', sending_days: 3, hours: 50, words: '' } },
+        },
+      },
+    );
+    const user = userEvent.setup();
+
+    expect(
+      await screen.findByText(/^Очередь уходит сама с .* · включил отправитель@site.com · ушло 3$/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/ящики на паузе между письмами/)).toBeInTheDocument();
+    expect(await screen.findByText('Остаток уйдёт ≈ за 3 дня, к 01.11')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Отправить очередь · 2' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/Очередь уже уходит сама/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+    await user.click(screen.getByRole('button', { name: 'Остановить' }));
+
+    await waitFor(() =>
+      expect(
+        recorded.calls.find((call) => call.path === '/api/letters/send-queue/stop')?.body,
+      ).toEqual({ stage: 'donors' }),
+    );
+  });
+
+  it('кончилась — одной строкой: когда и почему', async () => {
+    open({
+      autosend: {
+        ...AUTOSEND,
+        stopped_at: '2026-10-29T15:00:00Z',
+        stop_reason: 'очередь кончилась — новые письма уйдут, когда очередь снова отправят',
+      },
+    });
+
+    expect(
+      await screen.findByText(/^Сама больше не уходит с .*: очередь кончилась/),
+    ).toBeInTheDocument();
+  });
+
+  it('без права отправлять — строка есть, «Остановить» нет', async () => {
+    open(
+      { autosend: RUNNING },
+      {
+        [ETA]: {
+          body: {
+            queue_eta: {
+              day: null,
+              sending_days: null,
+              hours: null,
+              words: 'очередь пуста — отправлять нечего',
+            },
+          },
+        },
+      },
+      OPERATOR,
+    );
+
+    expect(await screen.findByText(/^Очередь уходит сама с/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Остановить' })).not.toBeInTheDocument();
+    expect(await screen.findByText('очередь пуста — отправлять нечего')).toBeInTheDocument();
+  });
+});
