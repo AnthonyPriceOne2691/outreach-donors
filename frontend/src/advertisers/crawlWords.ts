@@ -4,7 +4,7 @@
  * копией в экране: числа нет (сервер старше экрана) — нет и слов с ним.
  */
 
-import type { CrawlRow, CrawlSource, CrawlTargets } from '../api/crawls';
+import type { CrawlRow, CrawlSource, CrawlStopReason, CrawlTargets } from '../api/crawls';
 import { formatNumber, formatSeconds, plural } from '../format';
 
 /** «1 000 страниц» — родительный: после «из» и «не больше». */
@@ -89,29 +89,41 @@ function refusedWords(crawl: CrawlRow): string | null {
     : 'главная не ответила ни в одном виде — сайт недоступен; можно повторить позже';
 }
 
+/** Упёрся в потолок страниц: потолка в ответе нет (сервер старше экрана) — слов нет. */
+function pagesCapWords(crawl: CrawlRow): string | null {
+  return crawl.max_pages > 0 ? `потолок ${pagesOf(crawl.max_pages)} на донора` : null;
+}
+
+/** Кончились попытки — с потолком, если сервер его прислал. */
+function attemptsWords(crawl: CrawlRow): string {
+  return crawl.max_attempts === undefined
+    ? 'кончились попытки'
+    : `кончились попытки — ${requestsOf(crawl.max_attempts)}`;
+}
+
+/** Причина конца → слова. Причины нет в таблице — слов нет. */
+const STOP_WORDS: Partial<Record<CrawlStopReason, (crawl: CrawlRow) => string | null>> = {
+  exhausted: runOutWords,
+  max_pages: pagesCapWords,
+  max_attempts: attemptsWords,
+  timeout: timeoutWords,
+  unhealthy: () => 'сайт стал отказывать — остановились',
+  robots: refusedWords,
+  no_start: refusedWords,
+};
+
 /** Почему законченный обход кончился — коротко. `null` — у идущего и остановленного разбором
  *  (причина за «!»). */
 export function stopWords(crawl: CrawlRow): string | null {
-  if (crawl.status !== 'done') return null;
-  switch (crawl.stop_reason) {
-    case 'robots':
-    case 'no_start':
-      return refusedWords(crawl);
-    case 'exhausted':
-      return runOutWords(crawl);
-    case 'max_pages':
-      return crawl.max_pages > 0 ? `потолок ${pagesOf(crawl.max_pages)} на донора` : null;
-    case 'max_attempts':
-      return crawl.max_attempts === undefined
-        ? 'кончились попытки'
-        : `кончились попытки — ${requestsOf(crawl.max_attempts)}`;
-    case 'timeout':
-      return timeoutWords(crawl);
-    case 'unhealthy':
-      return 'сайт стал отказывать — остановились';
-    default:
-      return null;
-  }
+  if (crawl.status !== 'done' || crawl.stop_reason === null) return null;
+  return STOP_WORDS[crawl.stop_reason]?.(crawl) ?? null;
+}
+
+/** Сколько ждущих перед обходом — хвостом строки: места нет — пусто. */
+function aheadWords(ahead: number | null): string {
+  if (ahead === null) return '';
+  if (ahead === 0) return '; он следующий';
+  return `; перед ним ${formatNumber(ahead)} ${plural(ahead, 'обход', 'обхода', 'обходов')}`;
 }
 
 /** Где ждёт обход в очереди — строкой под значком «в очереди» (тест-группа 29.10.2026: «в
@@ -125,10 +137,7 @@ export function queueWords(crawl: CrawlRow): string | null {
   const busy = Math.min(place.busy, place.workers);
   if (busy < place.workers) return 'есть свободный обходчик — вот-вот начнётся';
   const head = `ждёт свободного обходчика — заняты ${formatNumber(busy)} из ${formatNumber(place.workers)}`;
-  if (place.ahead === null) return head;
-  if (place.ahead === 0) return `${head}; он следующий`;
-  const ahead = `${formatNumber(place.ahead)} ${plural(place.ahead, 'обход', 'обхода', 'обходов')}`;
-  return `${head}; перед ним ${ahead}`;
+  return head + aheadWords(place.ahead);
 }
 
 /** Очередь и отказы сайтов — для «i» панели: сколько обходов идёт сразу, что с остальными и
