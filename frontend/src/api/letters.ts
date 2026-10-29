@@ -6,7 +6,7 @@ import type {
   QueuedLetter,
   SendResult,
 } from './types';
-import type { QueueAutosend } from './autosend';
+import type { QueueAutosend, QueueEta } from './autosend';
 import { request } from './client';
 import type { Stage } from './stages';
 import type { ResolveOutcome, ResolvedLetter, UnknownLettersView } from './unknownOutcome';
@@ -74,6 +74,17 @@ export function sendQueue(
   const body: Record<string, unknown> = audience === 'links' ? { stage } : { stage, audience };
   if (keepSending !== undefined) body.keep_sending = keepSending;
   return request<SendQueueQueued>('/letters/send-queue', { method: 'POST', body });
+}
+
+/** Дней плана прогноза для срока очереди: потолок прогноза рассылки на сервере. */
+const ETA_DAYS = 31;
+
+/** Срок очереди этапа из прогноза рассылки — строке под режимом «уходит сама». */
+export async function queueEta(stage: Stage): Promise<QueueEta> {
+  const view = await request<{ queue_eta: QueueEta }>(
+    `/letters/forecast?stage=${stage}&days=${ETA_DAYS}&back=0`,
+  );
+  return view.queue_eta;
 }
 
 /** Очередь этапа и аудитории больше не уходит сама: письма остаются в очереди. */

@@ -344,6 +344,9 @@ const RUNNING = {
   passed_at: '2026-10-29T07:10:00Z',
 };
 
+/** Срок очереди — прогнозом рассылки этапа: строка под режимом «уходит сама». */
+const ETA = 'GET /api/letters/forecast?stage=donors&days=31&back=0';
+
 describe('очередь уходит сама', () => {
   it('с отметкой — остаток уйдёт сам, и сервер это слышит', async () => {
     const recorded = open(
@@ -395,10 +398,15 @@ describe('очередь уходит сама', () => {
     );
   });
 
-  it('идёт — строка, итог прохода и «Остановить»; в окне отметки нет', async () => {
+  it('идёт — строка, срок, итог прохода и «Остановить»; в окне отметки нет', async () => {
     const recorded = open(
       { autosend: RUNNING },
-      { 'POST /api/letters/send-queue/stop': { body: { ...RUNNING, running: false } } },
+      {
+        'POST /api/letters/send-queue/stop': { body: { ...RUNNING, running: false } },
+        [ETA]: {
+          body: { queue_eta: { day: '2026-11-01', sending_days: 3, hours: 50, words: '' } },
+        },
+      },
     );
     const user = userEvent.setup();
 
@@ -406,6 +414,7 @@ describe('очередь уходит сама', () => {
       await screen.findByText(/^Очередь уходит сама с .* · включил отправитель@site.com · ушло 3$/),
     ).toBeInTheDocument();
     expect(screen.getByText(/ящики на паузе между письмами/)).toBeInTheDocument();
+    expect(await screen.findByText('Остаток уйдёт ≈ за 3 дня, к 01.11')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Отправить очередь · 2' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument();
@@ -435,9 +444,25 @@ describe('очередь уходит сама', () => {
   });
 
   it('без права отправлять — строка есть, «Остановить» нет', async () => {
-    open({ autosend: RUNNING }, {}, OPERATOR);
+    open(
+      { autosend: RUNNING },
+      {
+        [ETA]: {
+          body: {
+            queue_eta: {
+              day: null,
+              sending_days: null,
+              hours: null,
+              words: 'очередь пуста — отправлять нечего',
+            },
+          },
+        },
+      },
+      OPERATOR,
+    );
 
     expect(await screen.findByText(/^Очередь уходит сама с/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Остановить' })).not.toBeInTheDocument();
+    expect(await screen.findByText('очередь пуста — отправлять нечего')).toBeInTheDocument();
   });
 });

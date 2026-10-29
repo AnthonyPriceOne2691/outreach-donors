@@ -1732,9 +1732,9 @@
       "worst": "next_address_note:159"
     },
     "backend/features/letters/autosend.py": {
-      "lines": 369,
+      "lines": 386,
       "complexity": 7,
-      "worst": "run:216"
+      "worst": "run:233"
     },
     "backend/features/letters/autosend_alarm.py": {
       "lines": 89,
@@ -1787,9 +1787,9 @@
       "worst": "_deliver:418"
     },
     "backend/features/letters/forecast.py": {
-      "lines": 300,
+      "lines": 308,
       "complexity": 8,
-      "worst": "forecast:110"
+      "worst": "forecast:111"
     },
     "backend/features/letters/forecast_plan.py": {
       "lines": 323,

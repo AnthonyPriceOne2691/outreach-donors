@@ -68,6 +68,7 @@ from backend.features.core.models.outreach import (
     QueueAutosendModel,
     SenderModel,
 )
+from backend.features.core.window import Pace
 from backend.features.crawl.niche import LINKS
 from backend.features.letters import autosend_window, batch, mailbox, unknown_outcome
 from backend.features.letters.chain import FIRST_STEP
@@ -99,6 +100,12 @@ def available(stage: Stage) -> bool:
 def gap() -> timedelta:
     """Пауза между первыми письмами ящика до разброса."""
     return timedelta(minutes=cfg.AUTOSEND_GAP_MIN)
+
+
+def pace() -> Pace:
+    """Темп прохода для прогноза рассылки (`forecast.py`): пауза между первыми письмами ящика и
+    её разброс."""
+    return Pace(gap(), SPREAD)
 
 
 def pause_of(box_id: int, letter_id: int) -> timedelta:
@@ -164,6 +171,16 @@ async def running(
         )
     )
     return found
+
+
+async def stage_running(session: AsyncSession, stage: Stage) -> bool:
+    """Уходит ли сама хоть одна очередь этапа — прогнозу рассылки: он считает этап целиком."""
+    found = await session.scalar(
+        select(QueueAutosendModel.id)
+        .where(QueueAutosendModel.stage == stage, QueueAutosendModel.stopped_at.is_(None))
+        .limit(1)
+    )
+    return found is not None
 
 
 async def every_running(session: AsyncSession) -> list[QueueAutosendModel]:

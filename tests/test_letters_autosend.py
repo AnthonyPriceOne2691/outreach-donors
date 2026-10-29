@@ -18,7 +18,7 @@ from backend.features.core.domain import AuditAction, MessageStatus, Stage, User
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import MessageModel, QueueAutosendModel
-from backend.features.letters import autosend, autosend_alarm, autosend_window, batch
+from backend.features.letters import autosend, autosend_alarm, autosend_window, batch, forecast
 from backend.features.letters.transport import NullTransport
 from backend.workers import send_jobs
 from sqlalchemy import func, select, update
@@ -476,3 +476,20 @@ class TestTheAlarm:
         await send_jobs.autosend_pass()
 
         assert seen == [(mode_id, "проход падает — база не ответила")]
+
+
+class TestTheForecast:
+    async def test_a_self_sending_queue_is_forecast_by_pace_and_window(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        await _queue(session, 3)
+
+        by_hand = await forecast.forecast(session, Stage.DONORS, days=7, back=0)
+        await _started(session)
+        itself = await forecast.forecast(session, Stage.DONORS, days=7, back=0)
+
+        assert by_hand.clock.pace is None
+        assert "вручную" in by_hand.eta.words
+        assert itself.clock.pace == autosend.pace()
+        assert itself.clock.window == autosend_window.frame()
+        assert "автоотправка, письмо с ящика раз в 10 мин" in itself.eta.words

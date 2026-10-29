@@ -10,17 +10,22 @@
  * разу — строки нет.
  *
  * Отказ остановки — строкой здесь же, как у пачки: уведомление внизу экрана не видели.
+ *
+ * **Срок — из прогноза рассылки** (`GET /letters/forecast`): пока очередь уходит сама, прогноз
+ * считает её паузой ящиков, их мощностью с разгоном и окном получателей — «остаток уйдёт ≈ за
+ * 3 дня, к 01.11». Прогноз — этапа целиком: у рекламодателей — обеих вкладок. Срока нет — слова
+ * прогноза, почему.
  */
 
 import { Button, Group, Stack, Text } from '@mantine/core';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 
-import type { QueueAutosend } from '../api/autosend';
+import type { QueueAutosend, QueueEta } from '../api/autosend';
 import { refusalOf } from '../api/client';
-import { stopAutosend } from '../api/letters';
+import { queueEta, stopAutosend } from '../api/letters';
 import type { LetterAudience } from '../api/letters';
 import type { Stage } from '../api/stages';
-import { formatDateTime, formatNumber } from '../format';
+import { formatDateTime, formatNumber, plural } from '../format';
 
 interface Props {
   stage: Stage;
@@ -43,6 +48,31 @@ export function stoppedLine(autosend: QueueAutosend): string {
   const who = autosend.stopped_by ? ` (${autosend.stopped_by})` : '';
   const why = autosend.stop_reason ? `: ${autosend.stop_reason}` : '';
   return `Сама больше не уходит с ${formatDateTime(autosend.stopped_at)}${why}${who}`;
+}
+
+/** «Остаток уйдёт ≈ за 3 дня, к 01.11» — или слова прогноза, почему срока нет. */
+export function etaLine(eta: QueueEta): string {
+  if (eta.day === null || eta.sending_days === null) return eta.words;
+  const days = eta.sending_days;
+  // День прогноза — дата без времени («2026-11-01»): число и месяц — из неё самой, без пояса.
+  const [, month, day] = eta.day.split('-');
+  const span = `${formatNumber(days)} ${plural(days, 'день', 'дня', 'дней')}`;
+  return `Остаток уйдёт ≈ за ${span}, к ${day}.${month}`;
+}
+
+/** Срок очереди, которая уходит сама, — раз в минуту, как прогноз у продаж. */
+function EtaLine({ stage }: { stage: Stage }) {
+  const eta = useQuery({
+    queryKey: ['letters', 'queue-eta', stage],
+    queryFn: () => queueEta(stage),
+    refetchInterval: 60_000,
+  });
+  if (!eta.data) return null;
+  return (
+    <Text size="sm" c="dimmed">
+      {etaLine(eta.data)}
+    </Text>
+  );
 }
 
 export function QueueAutosendLine({
@@ -79,6 +109,7 @@ export function QueueAutosendLine({
           </Button>
         ) : null}
       </Group>
+      <EtaLine stage={stage} />
       {state ? (
         <Text size="sm" c="dimmed">
           {autosend.passed_at && !autosend.off ? `${formatDateTime(autosend.passed_at)}: ` : ''}

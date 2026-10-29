@@ -19,3 +19,14 @@ export interface QueueAutosend {
   stopped_by: string | null;
   stop_reason: string | null;
 }
+
+/** Срок очереди из прогноза рассылки (`GET /letters/forecast`, `queue_eta`): когда уйдёт последнее
+ *  письмо, стоящее в очереди сейчас, — у очереди, которая уходит сама, по паузе ящиков и окну. */
+export interface QueueEta {
+  /** День ухода последнего письма; пусто — срока нет (почему — `words`). */
+  day: string | null;
+  /** Дней отправки до него, считая сегодня. */
+  sending_days: number | null;
+  hours: number | null;
+  words: string;
+}
