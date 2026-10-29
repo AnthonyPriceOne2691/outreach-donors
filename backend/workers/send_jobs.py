@@ -19,7 +19,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import outreach as outreach_cfg
 from backend.config import storage
@@ -66,8 +66,10 @@ async def _send(stage: Stage, author_id: int | None, audience: str = LINKS) -> d
 
 async def autosend_pass() -> None:
     """Проход очередей, которые отправляются сами: каждый идущий запуск — своим проходом и
-    своей транзакцией, чтобы сбой одного не держал остальные. Рубильник выключен или запусков
-    нет — ни транспортов, ни отправки."""
+    своей транзакцией. Сбой одного запуска — откат его сессии и строка журнала, а проход идёт к
+    следующему: запуски идут по порядку номеров, и упрямый сбой первого иначе держал бы
+    остальные каждую минуту (ревью #505). Рубильник выключен или запусков нет — ни
+    транспортов, ни отправки."""
     if not outreach_cfg.AUTOSEND:
         return
     engine = create_async_engine(storage.DSN)
@@ -80,11 +82,29 @@ async def autosend_pass() -> None:
         async with in_use(Transports()) as transports:
             for mode_id in ids:
                 async with factory() as session:
-                    mode = await session.get(QueueAutosendModel, mode_id)
-                    if mode is None or mode.stopped_at is not None:
-                        continue
-                    said = await autosend.run(session, transports, mode, now=datetime.now(UTC))
-                    await session.commit()
-                    logger.debug("письма: проход запуска №%s — %s", mode_id, said)
+                    await _launch_pass(session, transports, mode_id)
     finally:
         await engine.dispose()
+
+
+async def _launch_pass(session: AsyncSession, transports: Transports, mode_id: int) -> None:
+    """Проход одного запуска в своей сессии: упал — откат и строка журнала, без исключения."""
+    mode = await session.get(QueueAutosendModel, mode_id)
+    if mode is None or mode.stopped_at is not None:
+        return
+    # Слова строки журнала — до прохода: откат истекает объект, а дочитывать его после сбоя
+    # значит снова идти в базу, которая, может быть, и упала.
+    stage, audience = mode.stage.value, mode.audience
+    try:
+        said = await autosend.run(session, transports, mode, now=datetime.now(UTC))
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        logger.exception(
+            "письма: проход запуска №%s (этап %s, %s) упал — следующие запуски идут своим чередом",
+            mode_id,
+            stage,
+            audience,
+        )
+        return
+    logger.debug("письма: проход запуска №%s — %s", mode_id, said)

@@ -208,11 +208,15 @@ class TestTheBatchWords:
 
 class TestTheWorkerPass:
     def _wired(self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Сессии прохода — на соединении теста, каждая в своей точке сохранения: на бою у
+        каждой своё соединение, и откат упавшего запуска не трогает чужие данные."""
         monkeypatch.setattr(send_jobs, "create_async_engine", lambda _dsn: _Closable())
         monkeypatch.setattr(
             send_jobs,
             "async_sessionmaker",
-            lambda _engine, **_kw: async_sessionmaker(bind=session.bind, expire_on_commit=False),
+            lambda _engine, **_kw: async_sessionmaker(
+                bind=session.bind, expire_on_commit=False, join_transaction_mode="create_savepoint"
+            ),
         )
         monkeypatch.setattr(send_jobs, "Transports", NullTransport)
 
@@ -230,6 +234,42 @@ class TestTheWorkerPass:
         passed = await session.scalar(select(QueueAutosendModel.state))
         assert passed is not None
         assert passed.startswith("ушло 1")
+
+    async def test_a_failing_launch_does_not_hold_the_next_one(
+        self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Первый запуск падает каждый проход — второй всё равно проходит: сбой одного — откат
+        его сессии и строка журнала, а не конец прохода (ревью #505)."""
+        await _queue(session, 1)
+        broken, _ = await autosend.start(session, Stage.ADVERTISERS, "links", by=None, now=_now())
+        await session.commit()
+        working = await _started(session)
+        broken_id, working_id = broken.id, working.id
+        assert broken_id < working_id
+        self._wired(session, monkeypatch)
+        real = autosend.run
+
+        async def run(
+            run_session: AsyncSession,
+            transports: object,
+            mode: QueueAutosendModel,
+            *,
+            now: datetime,
+        ) -> str:
+            if mode.id == broken_id:
+                raise RuntimeError("сбой первого запуска")
+            return await real(run_session, transports, mode, now=now)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(autosend, "run", run)
+
+        await send_jobs.autosend_pass()
+
+        session.expire_all()
+        assert await _statuses(session) == [MessageStatus.SENT]
+        rows = await session.execute(select(QueueAutosendModel.id, QueueAutosendModel.state))
+        states = dict(list(rows.tuples()))
+        assert states[broken_id] is None
+        assert (states[working_id] or "").startswith("ушло 1")
 
     async def test_the_switched_off_service_sends_nothing(
         self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
