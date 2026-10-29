@@ -18,6 +18,7 @@ import { ADMIN, NO_NICHE, OPERATOR, PROMOTE_ROUTES, TOKEN_KEY } from '../test/fi
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import { closedShare, crawlState, failureShare } from './CrawlTable';
+import { heldWords } from './crawlWords';
 import { enteredSummary } from './ManualDonor';
 import { againRows } from './RecentCrawls';
 
@@ -144,6 +145,26 @@ describe('обход доноров', () => {
     expect(alert).toHaveTextContent('служба обхода не запущена');
     expect(alert).toHaveTextContent('Запустить её может администратор сервиса');
     expect(alert).not.toHaveTextContent(/docker|compose|crawler/);
+  });
+
+  it('машина занята — сколько обходчиков ждут и почему, словами сервера', async () => {
+    const reason = 'нагрузка 0,93 на ядро при пороге 0,80';
+    open({
+      'GET /api/crawls/targets': {
+        body: { ...TARGETS, workers: 16, held: 2, held_reason: reason },
+      },
+    });
+
+    const alert = (await screen.findByText('Машина занята')).closest('[role="alert"]')!;
+    expect(alert).toHaveTextContent(`2 обходчика ждут, пока спадёт нагрузка: ${reason}.`);
+    expect(alert).toHaveTextContent('поставленные начнутся сами, когда машина освободится');
+  });
+
+  it('сторож никого не держит или сервер старше — строки «Машина занята» нет', async () => {
+    open({ 'GET /api/crawls/targets': { body: { ...TARGETS, workers: 16, held: 0 } } });
+
+    await screen.findByRole('table', { name: 'Доноры для обхода' });
+    expect(screen.queryByText('Машина занята')).not.toBeInTheDocument();
   });
 
   it('обходить некого — что делать сначала', async () => {
@@ -692,5 +713,15 @@ describe('«Переобойти» в последних обходах', () => 
     ];
 
     expect([...againRows(rows, new Set(['busy.example', 'waiting.example']))]).toEqual([]);
+  });
+});
+
+describe('ждущие обходчики словами', () => {
+  it('число и слово согласованы, причины нет — без двоеточия', () => {
+    expect(heldWords(1, null)).toMatch(/^1 обходчик ждёт, пока спадёт нагрузка\. /);
+    expect(heldWords(3, 'свободно 6,2 ГБ памяти при пороге 8')).toMatch(
+      /^3 обходчика ждут, пока спадёт нагрузка: свободно 6,2 ГБ памяти при пороге 8\. /,
+    );
+    expect(heldWords(16, null)).toMatch(/^16 обходчиков ждут/);
   });
 });

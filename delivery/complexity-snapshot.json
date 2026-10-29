@@ -117,14 +117,14 @@
       "worst": "—"
     },
     "backend/api/crawls/routes.py": {
-      "lines": 169,
+      "lines": 180,
       "complexity": 9,
-      "worst": "_why_not:118"
+      "worst": "_why_not:129"
     },
     "backend/api/crawls/schemas.py": {
-      "lines": 229,
-      "complexity": 3,
-      "worst": "of:52"
+      "lines": 254,
+      "complexity": 5,
+      "worst": "of:58"
     },
     "backend/api/deps.py": {
       "lines": 125,
@@ -827,9 +827,9 @@
       "worst": "—"
     },
     "backend/config/crawl.py": {
-      "lines": 253,
+      "lines": 282,
       "complexity": 7,
-      "worst": "render_template_problem:202"
+      "worst": "render_template_problem:225"
     },
     "backend/config/filters.py": {
       "lines": 44,
@@ -3311,6 +3311,11 @@
       "complexity": 7,
       "worst": "filter:75"
     },
+    "backend/shared/crawl_marks.py": {
+      "lines": 112,
+      "complexity": 6,
+      "worst": "mark_held:53"
+    },
     "backend/shared/database/__init__.py": {
       "lines": 1,
       "complexity": 0,
@@ -3417,9 +3422,9 @@
       "worst": "_take:144"
     },
     "backend/workers/crawler.py": {
-      "lines": 69,
-      "complexity": 2,
-      "worst": "handle_warm_shutdown_request:48"
+      "lines": 110,
+      "complexity": 7,
+      "worst": "dequeue_job_and_maintain_ttl:67"
     },
     "backend/workers/followups.py": {
       "lines": 109,
@@ -3435,6 +3440,11 @@
       "lines": 359,
       "complexity": 6,
       "worst": "_search_contacts:174"
+    },
+    "backend/workers/load_gate.py": {
+      "lines": 308,
+      "complexity": 8,
+      "worst": "judge:120"
     },
     "backend/workers/main.py": {
       "lines": 67,
