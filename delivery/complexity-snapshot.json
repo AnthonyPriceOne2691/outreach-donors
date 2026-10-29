@@ -147,9 +147,9 @@
       "worst": "of:236"
     },
     "backend/api/errors.py": {
-      "lines": 502,
+      "lines": 500,
       "complexity": 7,
-      "worst": "_database_code:315"
+      "worst": "_database_code:313"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -1182,7 +1182,7 @@
       "worst": "—"
     },
     "backend/features/core/models/_mixins.py": {
-      "lines": 65,
+      "lines": 81,
       "complexity": 2,
       "worst": "sql_enum:16"
     },
@@ -1232,9 +1232,9 @@
       "worst": "—"
     },
     "backend/features/core/models/ops.py": {
-      "lines": 212,
+      "lines": 197,
       "complexity": 2,
-      "worst": "holds:199"
+      "worst": "holds:184"
     },
     "backend/features/core/models/outgoing_attachment.py": {
       "lines": 64,

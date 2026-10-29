@@ -439,9 +439,7 @@ class TestScreen:
     ) -> None:
         token = await sign_in(admin.email)
 
-        saved = await client.post(
-            URL, json=_body(Block(None, 20, 20, 30)), headers=bearer(token)
-        )
+        saved = await client.post(URL, json=_body(Block(None, 20, 20, 30)), headers=bearer(token))
 
         assert saved.status_code == 200, saved.text
         entry = await session.scalar(
