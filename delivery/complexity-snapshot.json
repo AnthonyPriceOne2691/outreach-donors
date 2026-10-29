@@ -1327,9 +1327,9 @@
       "worst": "_public_zone:126"
     },
     "backend/features/crawl/feeds.py": {
-      "lines": 141,
+      "lines": 145,
       "complexity": 10,
-      "worst": "declared_feeds:58"
+      "worst": "declared_feeds:62"
     },
     "backend/features/crawl/fetch.py": {
       "lines": 445,
@@ -1472,9 +1472,9 @@
       "worst": "snapshot:110"
     },
     "backend/features/crawl/sitemap.py": {
-      "lines": 361,
+      "lines": 374,
       "complexity": 17,
-      "worst": "scan:240"
+      "worst": "scan:253"
     },
     "backend/features/crawl/sources.py": {
       "lines": 93,

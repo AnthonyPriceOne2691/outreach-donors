@@ -177,3 +177,13 @@ async def test_a_resumed_crawl_does_not_read_the_feed_again() -> None:
 
     assert "/feed" not in site.asked
     assert not set(FEED_PATHS) & set(site.asked)
+
+
+def test_a_feed_with_a_namespace_prefix_gives_its_entries() -> None:
+    text = (
+        "<?xml version='1.0'?><atom:feed xmlns:atom='http://www.w3.org/2005/Atom'>"
+        f"<atom:entry><atom:link rel='alternate' href='{BASE}one'/></atom:entry>"
+        f"<atom:entry><atom:link href='{BASE}two'/></atom:entry></atom:feed>"
+    )
+
+    assert feed_urls(text, HOST) == [f"{BASE}one", f"{BASE}two"]

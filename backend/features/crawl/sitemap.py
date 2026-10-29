@@ -88,17 +88,30 @@ _MAP_SUFFIXES = (".xml", ".xml.gz", ".txt")
 #: перечислит индекс.
 MAX_HTML_DECLARED = 5
 
-_LOC = re.compile(r"<loc>\s*(?:<!\[CDATA\[)?\s*([^<\]\s]+)\s*(?:\]\]>)?\s*</loc>", re.IGNORECASE)
-_IS_INDEX = re.compile(r"<sitemapindex", re.IGNORECASE)
-_IS_MAP = re.compile(r"<(?:urlset|sitemapindex)\b", re.IGNORECASE)
+#: Префикс пространства имён у элемента карты: генераторы пишут и `<urlset>`, и
+#: `<ns0:urlset><ns0:url><ns0:loc>` (так XML выдаёт, например, стандартная библиотека Python),
+#: и `<sitemap:sitemapindex>`. Без него карта такого сайта не узнавалась бы картой, а её
+#: адреса и даты не читались бы вовсе.
+NS_PREFIX = r"(?:[\w.-]+:)?"
+_LOC = re.compile(
+    rf"<{NS_PREFIX}loc>\s*(?:<!\[CDATA\[)?\s*([^<\]\s]+)\s*(?:\]\]>)?\s*</{NS_PREFIX}loc>",
+    re.IGNORECASE,
+)
+_IS_INDEX = re.compile(rf"<{NS_PREFIX}sitemapindex\b", re.IGNORECASE)
+_IS_MAP = re.compile(rf"<{NS_PREFIX}(?:urlset|sitemapindex)\b", re.IGNORECASE)
 #: Строка текстовой карты — один адрес и ничего больше.
 _TEXT_LINE = re.compile(r"^https?://\S+$", re.IGNORECASE)
 #: Запись карты целиком — чтобы сопоставить адрес с его датой. Адреса
 #: по-прежнему берутся `_LOC`: запись с битой разметкой даты не даст,
-#: но адрес из неё не потеряется.
-_ENTRY = re.compile(r"<(?:url|sitemap)\b[^>]*>(.*?)</(?:url|sitemap)>", re.IGNORECASE | re.DOTALL)
+#: но адрес из неё не потеряется. Имя записи — целиком (`(?=[\s/>])`): иначе
+#: `<sitemap:sitemapindex>` читался бы записью `<sitemap>`.
+_ENTRY = re.compile(
+    rf"<{NS_PREFIX}(?:url|sitemap)(?=[\s/>])[^>]*>(.*?)</{NS_PREFIX}(?:url|sitemap)>",
+    re.IGNORECASE | re.DOTALL,
+)
 _DAY = re.compile(
-    r"<(?:lastmod|news:publication_date)>\s*(?:<!\[CDATA\[)?\s*(\d{4}-\d{2}-\d{2})", re.IGNORECASE
+    rf"<{NS_PREFIX}(?:lastmod|publication_date)>\s*(?:<!\[CDATA\[)?\s*(\d{{4}}-\d{{2}}-\d{{2}})",
+    re.IGNORECASE,
 )
 
 #: Сколько байт одного файла читаем. Карта на десятки мегабайт бывает,

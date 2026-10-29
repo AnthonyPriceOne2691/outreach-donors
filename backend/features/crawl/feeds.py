@@ -32,7 +32,7 @@ import httpx
 from selectolax.parser import HTMLParser
 
 from backend.features.crawl.limiter import DomainLimiter
-from backend.features.crawl.sitemap import same_site
+from backend.features.crawl.sitemap import NS_PREFIX, same_site
 from backend.shared.net.url_parts import join_url
 
 logger = logging.getLogger(__name__)
@@ -47,11 +47,15 @@ MAX_DECLARED = 3
 MAX_FEED_BYTES = 2 * 1024 * 1024
 
 _TYPES = ("application/rss+xml", "application/atom+xml")
-_IS_FEED = re.compile(r"<(?:rss|feed|rdf:RDF)\b", re.IGNORECASE)
-_ITEM = re.compile(r"<(item|entry)\b[^>]*>(.*?)</\1>", re.IGNORECASE | re.DOTALL)
+#: Префикс пространства имён — тот же, что у карты (`sitemap.NS_PREFIX`): `<atom:feed>`,
+#: `<rdf:RDF>`.
+_IS_FEED = re.compile(rf"<{NS_PREFIX}(?:rss|feed|RDF)\b", re.IGNORECASE)
+_ITEM = re.compile(
+    rf"<{NS_PREFIX}(item|entry)\b[^>]*>(.*?)</{NS_PREFIX}\1>", re.IGNORECASE | re.DOTALL
+)
 #: Адрес записи RSS — текст `<link>`; Atom — `href` у `<link>` без `rel` или с `alternate`.
-_RSS_LINK = re.compile(r"<link>\s*(?:<!\[CDATA\[)?\s*([^<\]\s]+)", re.IGNORECASE)
-_ATOM_LINK = re.compile(r"<link\b([^>]*)/?>", re.IGNORECASE)
+_RSS_LINK = re.compile(rf"<{NS_PREFIX}link>\s*(?:<!\[CDATA\[)?\s*([^<\]\s]+)", re.IGNORECASE)
+_ATOM_LINK = re.compile(rf"<{NS_PREFIX}link\b([^>]*)/?>", re.IGNORECASE)
 _ATTR = re.compile(r"""(\w+)\s*=\s*["']([^"']*)["']""")
 
 

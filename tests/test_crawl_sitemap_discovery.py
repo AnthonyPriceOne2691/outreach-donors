@@ -183,3 +183,62 @@ async def test_the_crawl_finds_the_map_the_home_page_names() -> None:
     assert report.source == "sitemap"
     assert report.sitemap_found is True
     assert "/sitemap.xml" not in site.asked
+
+
+def _prefixed_urlset(*entries: tuple[str, str]) -> str:
+    """Карта, где у каждого элемента префикс пространства имён — так её пишет, например,
+    стандартная библиотека Python."""
+    body = "".join(
+        f"<ns0:url><ns0:loc>{BASE}{path}</ns0:loc><ns0:lastmod>{day}</ns0:lastmod></ns0:url>"
+        for path, day in entries
+    )
+    ns = "http://www.sitemaps.org/schemas/sitemap/0.9"
+    return f"<?xml version='1.0'?><ns0:urlset xmlns:ns0='{ns}'>{body}</ns0:urlset>"
+
+
+async def test_a_map_with_a_namespace_prefix_is_a_map() -> None:
+    """Угаданная карта с префиксом — карта: и адреса, и даты (свежие первыми) читаются."""
+    body = _prefixed_urlset(("old", "2026-01-01"), ("new", "2026-10-01"))
+    handler, _ = _soft_404_except("/sitemap.xml", body)
+    reader, client = _reader(handler)
+    async with client:
+        scan = await reader.scan(HOST, BASE, [])
+
+    assert scan.found is True
+    assert scan.urls == [f"{BASE}new", f"{BASE}old"]
+    assert scan.days == {f"{BASE}new": "2026-10-01", f"{BASE}old": "2026-01-01"}
+
+
+async def test_an_index_with_a_namespace_prefix_leads_to_its_maps() -> None:
+    """Индекс `<sitemap:sitemapindex>` — индекс: дочерние карты читаются, а не идут в обход."""
+    ns = "http://www.sitemaps.org/schemas/sitemap/0.9"
+    index = (
+        f"<?xml version='1.0'?><sitemap:sitemapindex xmlns:sitemap='{ns}'><sitemap:sitemap>"
+        f"<sitemap:loc>{BASE}posts.xml</sitemap:loc></sitemap:sitemap></sitemap:sitemapindex>"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sitemap.xml":
+            return httpx.Response(200, text=index)
+        if request.url.path == "/posts.xml":
+            return httpx.Response(200, text=_prefixed_urlset(("a", "2026-10-01")))
+        return httpx.Response(200, text=NOT_FOUND)
+
+    reader, client = _reader(handler)
+    async with client:
+        scan = await reader.scan(HOST, BASE, [])
+
+    assert scan.urls == [f"{BASE}a"]
+    assert scan.files_read == 2
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        _prefixed_urlset(("a", "2026-10-01")),
+        "<x:sitemapindex xmlns:x='urn:x'><x:sitemap><x:loc>https://donor.test/m.xml</x:loc>"
+        "</x:sitemap></x:sitemapindex>",
+    ],
+)
+def test_a_prefixed_map_counts_as_a_map(text: str) -> None:
+    assert looks_like_map(text) is True
