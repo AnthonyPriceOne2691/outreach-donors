@@ -69,6 +69,8 @@ CONTACTS_QUEUE_NAME = "contacts"
 RUN_JOB = "backend.workers.jobs.run_donor_search"
 BUILD_JOB = "backend.workers.jobs.build_letter_queue"
 SEND_QUEUE_JOB = "backend.workers.send_jobs.send_letter_queue"
+#: «Обойти всех по фильтру» вкладки «Обход доноров» — постановка многих обходов фоном.
+CRAWL_BULK_JOB = "backend.workers.crawl_bulk.launch_hosts"
 PARSE_JOB = "backend.workers.jobs.parse_reply"
 CONTACTS_JOB = "backend.workers.jobs.find_contacts"
 #: «Искать глубже» и текст письма для формы — по кнопке, по донору (`workers/contact_jobs.py`).
@@ -271,18 +273,33 @@ def workers_alive(redis: Redis | None = None, queue: str = QUEUE_NAME) -> int | 
         return None
 
 
-def waiting_jobs(redis: Redis | None = None, queue: str = QUEUE_NAME) -> list[str] | None:
-    """Номера задач, ждущих в очереди, по порядку: первая уйдёт первой. `None` — не спросили.
+def job_positions(
+    job_ids: list[str], redis: Redis | None = None, queue: str = QUEUE_NAME
+) -> dict[str, int] | None:
+    """Место каждой из задач `job_ids` в очереди — сколько задач перед ней; задачи, которой в
+    очереди нет (её как раз берёт обходчик), в ответе нет. `None` — очередь не спросили.
 
     Нужно экрану обходов: «в очереди» без места не говорило, когда обход начнётся (тест-группа
     29.10.2026). Порядок — самой очереди, а не номеров обходов: продолжение после выкатки
-    встаёт в конец, хотя номер у него старый.
+    встаёт в конец, хотя номер у него старый. Спрашивается место только показанных задач
+    (`LPOS`), а не вся очередь: при десяти тысячах в очереди экран читал бы её целиком на
+    каждом опросе (вкладка «Обход доноров», 29.10.2026). Все места — одним заходом в Redis
+    (конвейер), а не заходом на задачу: на странице их до сотни. Задача обхода, закрытого, пока
+    она ждала, место тоже занимает: обходчик возьмёт её и сразу отпустит.
     """
+    if not job_ids:
+        return {}
     try:
-        return list(Queue(queue, connection=redis or connection()).job_ids)
+        client = redis or connection()
+        key = Queue(queue, connection=client).key
+        pipe = client.pipeline(transaction=False)
+        for job_id in job_ids:
+            pipe.lpos(key, job_id)
+        found = dict(zip(job_ids, pipe.execute(), strict=True))
     except RedisError as exc:
-        logger.warning("очередь: не удалось спросить, кто ждёт — %s", exc)
+        logger.warning("очередь: не удалось спросить место задач — %s", exc)
         return None
+    return {job_id: place for job_id, place in found.items() if place is not None}
 
 
 #: Где лежит номер последней задачи поиска контактов. Своей строки

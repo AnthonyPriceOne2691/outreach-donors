@@ -10,12 +10,13 @@
  * отвечает теми же строками в том же порядке.
  */
 
-import { Group, Select, Text } from '@mantine/core';
+import { Group, Select } from '@mantine/core';
 import type { ReactNode } from 'react';
 
 import type { PriceState, ReviewScope } from '../api/donorPrice';
 import type { TopicCount } from '../api/topics';
 import { InfoHint } from '../components/InfoHint';
+import { Labeled } from '../components/Labeled';
 import { formatNumber } from '../format';
 import { anyTopic } from '../topics/topicRows';
 import { TopicFilter } from '../topics/TopicFilter';
@@ -34,18 +35,6 @@ interface Props {
   /** Пункты «Тематики» со счётчиками; `null` — сводка не пришла. Тем нет — фильтра нет. */
   topics: readonly TopicCount[] | null;
   onFilter: (patch: Partial<DonorFilters>) => void;
-}
-
-/** Подпись поля — словом перед ним: значение «доноры» без неё читалось бы загадкой. */
-function Labeled({ label, children }: { label: ReactNode; children: ReactNode }) {
-  return (
-    <Group gap={6} wrap="nowrap">
-      <Text size="sm" c="dimmed" component="span">
-        {label}
-      </Text>
-      {children}
-    </Group>
-  );
 }
 
 /** «Значение · число» в пункте списка; числа нет — только значение. */

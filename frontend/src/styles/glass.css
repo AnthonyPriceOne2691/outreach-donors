@@ -2499,3 +2499,23 @@ html:root .mantine-Pill-root {
   color: var(--mantine-color-lagoon-text);
   font-weight: 600;
 }
+
+/* --- Таблица с закреплённой шапкой (`DataTable sticky`) ------------------
+ * Вкладка «Обход доноров» (29.10.2026): строк на странице до ста, и заголовки
+ * уезжали за край окна вместе с первыми строками. На широком экране строки
+ * прокручиваются под шапкой в высоту окна; шапка — плотным стеклом, чтобы строки
+ * под ней не просвечивали поверх подписей. На телефоне строки — карточками,
+ * шапки нет, и высота не ограничена. */
+@media (min-width: 48em) {
+  .stickyTable.mantine-TableScrollContainer-scrollContainer {
+    max-height: min(70vh, 760px);
+    overflow-y: auto;
+  }
+
+  .stickyTable thead {
+    background: var(--glass-fill-solid);
+    backdrop-filter: blur(var(--blur-glass)) saturate(185%);
+    -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(185%);
+    z-index: 2;
+  }
+}

@@ -12,10 +12,17 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
-import type { CrawlTargets } from '../api/crawls';
+import type { CrawlSummary } from '../api/crawls';
 import type { RecheckResult, RecheckRow, RechecksView } from '../api/priceRecheck';
 import { recheckSummary } from '../api/priceRecheck';
-import { ADMIN, CRAWL_ROUTES, NO_NICHE, OPERATOR, TOKEN_KEY } from '../test/fixtures';
+import {
+  ADMIN,
+  CRAWL_ROUTES,
+  EMPTY_CRAWL_SUMMARY,
+  NO_NICHE,
+  OPERATOR,
+  TOKEN_KEY,
+} from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer } from '../test/server';
@@ -67,15 +74,10 @@ const VIEW: RechecksView = {
   batch_max: 20,
 };
 
-/** Обходить некого, у троих цена протухла: строка панели и окно перезапроса. */
-const TARGETS: CrawlTargets = {
-  donors: [],
-  no_price: 0,
-  stale_price: 3,
-  supplier: 0,
-  notes: [],
-  max_pages: 1000,
-  workers: 4,
+/** Обходить некого, у троих цена протухла: строка сводки обхода и окно перезапроса. */
+const SUMMARY: CrawlSummary = {
+  ...EMPTY_CRAWL_SUMMARY,
+  counts: { ...EMPTY_CRAWL_SUMMARY.counts, price: { fresh: 0, stale: 3, none: 0 } },
 };
 
 function open(routes: Record<string, Answer> = {}, who: unknown = ADMIN) {
@@ -85,7 +87,7 @@ function open(routes: Record<string, Answer> = {}, who: unknown = ADMIN) {
     ...CRAWL_ROUTES,
     ...NO_NICHE,
     'GET /api/advertisers': { body: { rows: [], waiting: 0, counts: { bought: 0, pending: 0 } } },
-    'GET /api/crawls/targets': { body: TARGETS },
+    'GET /api/crawls/summary': { body: SUMMARY },
     'GET /api/price-rechecks': { body: VIEW },
     ...routes,
   });
@@ -223,7 +225,7 @@ describe('протухшие цены на панели обхода', () => {
   });
 
   it('протухших нет — строки нет, и сервер о них не спрашивают', async () => {
-    const recorded = open({ 'GET /api/crawls/targets': { body: { ...TARGETS, stale_price: 0 } } });
+    const recorded = open({ 'GET /api/crawls/summary': { body: EMPTY_CRAWL_SUMMARY } });
 
     expect(await screen.findByText('Обход доноров')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Перезапросить цену' })).toBeNull();

@@ -93,6 +93,8 @@ export interface CrawlTarget {
   source: PriceSource | null;
   priced_at: string | null;
   crawl: CrawlRow | null;
+  /** Цена в сроке, протухла или нет — у вкладки «Обход доноров»; у панели — нет. */
+  price_state?: DonorPriceState | null;
 }
 
 export interface CrawlTargets extends CrawlCeilings {
@@ -112,9 +114,89 @@ export interface CrawlTargets extends CrawlCeilings {
   max_seconds_slow?: number | null;
 }
 
+/** Что нужно «i» обхода: потолки, мера здоровья, число обходчиков — у панели и у вкладки. */
+export type CrawlRules = CrawlCeilings & {
+  max_pages: number;
+  workers: number | null;
+  health_window?: number | null;
+  slow_down_share?: number | null;
+  stop_share?: number | null;
+  max_seconds_slow?: number | null;
+};
+
 export interface CrawlsView {
   rows: CrawlRow[];
   active: number;
+  workers: number | null;
+  /** Обходов в журнале всего — для страниц «Последних обходов»; нет — сервер старше. */
+  total?: number | null;
+}
+
+/** Статус последнего обхода донора — фильтр и счётчик вкладки «Обход доноров»
+ *  (`crawl/donor_page.Status`): «не пустил» — robots.txt, защита от ботов, главная не открылась. */
+export type DonorCrawlStatus =
+  | 'never'
+  | 'queued'
+  | 'running'
+  | 'done'
+  | 'partial'
+  | 'refused'
+  | 'stopped';
+/** Цена донора: в сроке, старше срока, нет. */
+export type DonorPriceState = 'fresh' | 'stale' | 'none';
+/** Порядок строк вкладки; умолчание — свежая цена сверху. */
+export type DonorCrawlSort = 'priced' | 'crawled' | 'host' | 'price' | 'links';
+
+/** Условия вкладки — имена те же, что у сервера (`donor_schemas.DonorFilter`). */
+export interface CrawlDonorQuery {
+  status?: DonorCrawlStatus;
+  price?: DonorPriceState;
+  source?: PriceSource;
+  search?: string;
+  sort?: DonorCrawlSort;
+}
+
+export interface CrawlCounts {
+  status: Record<DonorCrawlStatus, number>;
+  price: Record<DonorPriceState, number>;
+}
+
+export interface CrawlDonorsView extends CrawlCeilings {
+  rows: CrawlTarget[];
+  /** Сколько доноров под условиями всего, а не на этой странице. */
+  total: number;
+  page: number;
+  limit: number;
+  counts: CrawlCounts;
+  /** Сколько под условиями можно поставить в обход сейчас. */
+  startable: number;
+  /** Сколько «Обойти всех по фильтру» ставит за раз; сервер старше — без предела. */
+  bulk_max?: number;
+  workers: number | null;
+  /** Сколько обычно идёт обход донора, с, — для «≈ N ч при K обходчиках». */
+  typical_crawl_sec: number;
+  max_pages: number;
+  health_window?: number | null;
+  slow_down_share?: number | null;
+  stop_share?: number | null;
+  max_seconds_slow?: number | null;
+}
+
+export interface CrawlSummary {
+  counts: CrawlCounts;
+  startable: number;
+  active: number;
+  workers: number | null;
+}
+
+export interface CrawlBulkResult {
+  asked: number;
+  /** Многих ставит фоновая задача: тогда `queued` пусто, а ход — по счётчику «в очереди». */
+  deferred: boolean;
+  queued: number | null;
+  busy: number | null;
+  failed: number | null;
+  job_id: string | null;
   workers: number | null;
 }
 
@@ -127,12 +209,44 @@ export interface CrawlLaunch {
   workers: number | null;
 }
 
-export function fetchCrawlTargets(): Promise<CrawlTargets> {
-  return request<CrawlTargets>('/crawls/targets');
+export function fetchCrawls(page = 1): Promise<CrawlsView> {
+  return request<CrawlsView>(page > 1 ? `/crawls?page=${page}` : '/crawls');
 }
 
-export function fetchCrawls(): Promise<CrawlsView> {
-  return request<CrawlsView>('/crawls');
+/** Условия → строка адреса: только заданные, в одном порядке — его ждут и тесты экрана. */
+function donorParams(query: CrawlDonorQuery, page = 1, size?: number): string {
+  const params = new URLSearchParams();
+  for (const key of ['status', 'price', 'source', 'search', 'sort'] as const) {
+    const value = query[key];
+    if (value !== undefined && value !== '') params.set(key, value);
+  }
+  if (page > 1) params.set('page', String(page));
+  if (size !== undefined) params.set('size', String(size));
+  const tail = params.toString();
+  return tail === '' ? '' : `?${tail}`;
+}
+
+export function fetchCrawlDonors(
+  query: CrawlDonorQuery,
+  page: number,
+  size?: number,
+): Promise<CrawlDonorsView> {
+  return request<CrawlDonorsView>(`/crawls/donors${donorParams(query, page, size)}`);
+}
+
+export function fetchCrawlSummary(): Promise<CrawlSummary> {
+  return request<CrawlSummary>('/crawls/summary');
+}
+
+/** «Обойти всех по фильтру»: те же условия и сколько человек видел на кнопке. */
+export function startCrawlsByFilter(
+  query: CrawlDonorQuery,
+  expected: number,
+): Promise<CrawlBulkResult> {
+  return request<CrawlBulkResult>('/crawls/donors/crawl', {
+    method: 'POST',
+    body: { ...query, expected },
+  });
 }
 
 export function startCrawls(hosts: string[]): Promise<CrawlLaunch> {

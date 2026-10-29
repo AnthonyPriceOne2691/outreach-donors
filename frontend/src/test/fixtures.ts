@@ -114,6 +114,17 @@ export const PROMOTE_ROUTES: Record<string, Answer> = {
   },
 };
 
+/** Сводка обхода в «Проверке» (`CrawlSummary`): доноров нет, ничего не идёт. */
+export const EMPTY_CRAWL_SUMMARY = {
+  counts: {
+    status: { never: 0, queued: 0, running: 0, done: 0, partial: 0, refused: 0, stopped: 0 },
+    price: { fresh: 0, stale: 0, none: 0 },
+  },
+  startable: 0,
+  active: 0,
+  workers: 4,
+};
+
 /** Панели над очередью рекламодателей и под ней: доноров для обхода нет, обходов не было,
  *  переводить некого. Экран спрашивает их сам, и тест другой карточки записывает их пустыми. */
 export const CRAWL_ROUTES: Record<string, Answer> = {
@@ -130,6 +141,7 @@ export const CRAWL_ROUTES: Record<string, Answer> = {
     },
   },
   'GET /api/crawls': { body: { rows: [], active: 0, workers: 4 } },
+  'GET /api/crawls/summary': { body: EMPTY_CRAWL_SUMMARY },
 };
 
 /** Карточка «Бизнесы ниши из выдачи» на «Рекламодателях»: решать некого. */

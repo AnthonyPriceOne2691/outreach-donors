@@ -21,7 +21,16 @@ import asyncio
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.api.crawls.donor_schemas import (
+    BulkBody,
+    BulkResult,
+    CountsView,
+    DonorsView,
+    SummaryView,
+    donor_params,
+)
 from backend.api.crawls.schemas import (
+    MAX_HOSTS,
     CrawlRow,
     CrawlsView,
     DonorRow,
@@ -35,13 +44,18 @@ from backend.config import filters
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
-from backend.features.crawl import board, targets
+from backend.features.crawl import board, donor_page, targets
+from backend.features.crawl.board import CrawlLine
+from backend.features.crawl.donor_page import DonorQuery
 from backend.features.crawl.launch import launch
 from backend.shared.queue import (
+    CRAWL_BULK_JOB,
     CRAWL_QUEUE_NAME,
     crawl_job_id,
     enqueue_crawl,
-    waiting_jobs,
+    job_positions,
+    quick_queue,
+    with_retries,
     workers_alive,
 )
 
@@ -61,11 +75,14 @@ async def _workers() -> int | None:
     return await asyncio.to_thread(workers_alive, queue=CRAWL_QUEUE_NAME)
 
 
-async def _queue(session: AsyncSession) -> board.QueueState:
-    """Занятые обходчики и места ждущих обходов — для строки «в очереди». Очередь — в пуле
-    потоков, как `_workers`: не ответила — у ждущих нет места, а не ошибка экрана."""
-    waiting = await asyncio.to_thread(waiting_jobs, queue=CRAWL_QUEUE_NAME)
-    return await board.queue_state(session, waiting)
+async def _queue(session: AsyncSession, lines: list[CrawlLine | None]) -> board.QueueState:
+    """Занятые обходчики и места показанных ждущих обходов — для строки «в очереди». Место
+    спрашивается только у показанных задач (`job_positions`), а не всей очередью: при десяти
+    тысячах в очереди экран читал бы её целиком на каждом опросе. Очередь — в пуле потоков, как
+    `_workers`: не ответила — у ждущих нет места, а не ошибка экрана."""
+    waiting = board.waiting_jobs(line for line in lines if line is not None)
+    places = await asyncio.to_thread(job_positions, list(waiting.values()), queue=CRAWL_QUEUE_NAME)
+    return board.queue_state(await board.running_count(session), waiting, places)
 
 
 @router.get("/targets", response_model=TargetsView, summary="Кого можно обойти")
@@ -78,7 +95,8 @@ async def crawl_targets(
     числами и словами, что делать (цену перезапросить, прогон запустить)."""
     found = await board.eligible(session, limit=limit)
     pages = crawl_cfg.MAX_PAGES_PER_DONOR
-    workers, queue = await _workers(), await _queue(session)
+    workers = await _workers()
+    queue = await _queue(session, [donor.crawl for donor in found.donors])
     return TargetsView(
         donors=[
             DonorRow.of(line, max_pages=pages, queue=queue, workers=workers)
@@ -100,18 +118,54 @@ async def crawl_targets(
 @router.get("", response_model=CrawlsView, summary="Последние обходы и их ход")
 async def crawls(
     limit: int = Query(default=20, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=100_000, description="страница журнала обходов"),
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> CrawlsView:
     pages = crawl_cfg.MAX_PAGES_PER_DONOR
-    workers, queue = await _workers(), await _queue(session)
+    lines = await board.recent(session, limit=limit, offset=(page - 1) * limit)
+    workers = await _workers()
+    queue = await _queue(session, list(lines))
     return CrawlsView(
-        rows=[
-            CrawlRow.of(line, max_pages=pages, queue=queue, workers=workers)
-            for line in await board.recent(session, limit=limit)
-        ],
+        rows=[CrawlRow.of(line, max_pages=pages, queue=queue, workers=workers) for line in lines],
         active=await board.active_count(session),
         workers=workers,
+        total=await board.total_count(session),
+    )
+
+
+@router.get("/donors", response_model=DonorsView, summary="Доноры вкладки «Обход доноров»")
+async def donors(
+    query: DonorQuery = Depends(donor_params),
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> DonorsView:
+    """Доноры страницей — с условиями, порядком и счётчиками по статусу и цене на сервере
+    (`crawl/donor_page.py`): их тысячи, и вкладка не грузит их целиком."""
+    found = await donor_page.page(session, query)
+    workers = await _workers()
+    return DonorsView.of(
+        found,
+        query,
+        queue=await _queue(session, [row.crawl for row in found.rows]),
+        workers=workers,
+        typical=await donor_page.typical_seconds(session),
+        max_pages=crawl_cfg.MAX_PAGES_PER_DONOR,
+    )
+
+
+@router.get("/summary", response_model=SummaryView, summary="Обход доноров одной строкой")
+async def summary(
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> SummaryView:
+    """Счётчики всей выборки и что идёт — для «Проверки», где вкладки нет, а сводка есть."""
+    counts, startable = await donor_page.summary(session)
+    return SummaryView(
+        counts=CountsView.of(counts),
+        startable=startable,
+        active=await board.active_count(session),
+        workers=await _workers(),
     )
 
 
@@ -164,5 +218,50 @@ async def start(
         busy=done.busy,
         failed=done.failed,
         refused=refused,
+        workers=await _workers(),
+    )
+
+
+def _defer(hosts: list[str], by: str | None) -> str:
+    """Постановка многих — фоновой задачей быстрой очереди (`workers/crawl_bulk.py`)."""
+    return str(quick_queue().enqueue(CRAWL_BULK_JOB, hosts, by, **with_retries()).id)
+
+
+@router.post("/donors/crawl", response_model=BulkResult, summary="Обойти всех доноров под фильтром")
+async def crawl_filtered(
+    body: BulkBody,
+    author: UserModel = _runner,
+    session: AsyncSession = Depends(db_session),
+) -> BulkResult:
+    """Поставить в обход всех под условиями вкладки, кого можно обойти сейчас (свежая цена,
+    обход не идёт и не ждёт), — но не больше, чем человек видел на кнопке (`expected`).
+    До `MAX_HOSTS` — сразу, как «Обойти отмеченных»; больше — фоновой задачей."""
+    hosts = await donor_page.startable_hosts(session, body.query(), limit=body.expected)
+    audit = AccessRepository(session)
+    if len(hosts) > MAX_HOSTS:
+        job_id = await asyncio.to_thread(_defer, hosts, author.email)
+        await audit.record(
+            AuditAction.RUN_STARTED,
+            author_id=author.id,
+            target=f"crawl-bulk:{job_id}",
+            details={"этап": "2 — обход доноров по фильтру", "доноров": len(hosts)},
+        )
+        await session.commit()
+        return BulkResult(asked=len(hosts), deferred=True, job_id=job_id, workers=await _workers())
+    done = await launch(session, hosts, by=author.email, job_id=crawl_job_id, enqueue=enqueue_crawl)
+    for host, run_id in done.queued.items():
+        await audit.record(
+            AuditAction.RUN_STARTED,
+            author_id=author.id,
+            target=f"crawl:{run_id}",
+            details={"этап": "2 — обход донора", "донор": host},
+        )
+    await session.commit()
+    return BulkResult(
+        asked=len(hosts),
+        deferred=False,
+        queued=len(done.queued),
+        busy=len(done.busy),
+        failed=len(done.failed),
         workers=await _workers(),
     )

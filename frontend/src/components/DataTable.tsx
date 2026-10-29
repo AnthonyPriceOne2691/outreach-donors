@@ -30,7 +30,21 @@ interface Props {
   head?: ReactNode;
   /** Строки прежнего запроса ждут замены — приглушены. */
   stale?: boolean;
+  /** Заголовок вместо слова — по названию колонки: флажок «все на этой странице». */
+  heads?: Partial<Record<string, ReactNode>> | undefined;
+  /** Шапка закреплена, строки прокручиваются под ней в высоту окна (`stickyTable`): у длинной
+   *  страницы заголовки не уезжают за край (вкладка «Обход доноров», 29.10.2026). */
+  sticky?: boolean;
+  /** Имя таблицы для читалки экрана. */
+  label?: string | undefined;
   children: ReactNode;
+}
+
+/** Классы прокрутки: карточки на телефоне, короткие значения в строку, закреплённая шапка. */
+function scrollClass(cardRow: boolean, sticky: boolean): string {
+  return ['scrollSlim phoneCards', cardRow ? 'phoneCardsRow' : '', sticky ? 'stickyTable' : '']
+    .filter(Boolean)
+    .join(' ');
 }
 
 export function DataTable({
@@ -41,24 +55,27 @@ export function DataTable({
   tail = null,
   head,
   stale = false,
+  heads,
+  sticky = false,
+  label,
   children,
 }: Props) {
   return (
     <Table.ScrollContainer
       minWidth={minWidth}
       type="native"
-      className={cardRow ? 'scrollSlim phoneCards phoneCardsRow' : 'scrollSlim phoneCards'}
+      className={scrollClass(cardRow, sticky)}
     >
       <Table
-        className={
-          className === undefined ? 'dataTable fixedTable' : `dataTable fixedTable ${className}`
-        }
+        className={`dataTable fixedTable ${className ?? ''}`.trim()}
         layout="fixed"
         tabularNums
-        verticalSpacing="sm"
+        verticalSpacing={sticky ? 'xs' : 'sm'}
         horizontalSpacing="md"
+        stickyHeader={sticky}
+        aria-label={label}
       >
-        <ColumnsHead columns={columns} tail={tail}>
+        <ColumnsHead columns={columns} tail={tail} heads={heads}>
           {head}
         </ColumnsHead>
         <Table.Tbody

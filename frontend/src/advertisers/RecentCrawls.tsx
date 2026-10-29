@@ -1,27 +1,26 @@
 /**
- * «Последние обходы» под «Доноры и обходы» (`CrawlPanel`) — таблицей и с «Переобойти».
+ * Журнал обходов вкладки «Обход доноров» — таблицей со страницами сервера и с «Переобойти».
+ * До 29.10.2026 — «Последние обходы», пять строк под панелью обхода (`CrawlPanel`).
  *
  * **Таблица, а не строки** (замечание Anthony 27.10.2026). Строкой «домен · значок · дата»
  * значок вставал там, где кончился домен, — у каждой строки на своём месте, — а причина под
- * ним («кончился час на донора; сайт просит паузу 8 с между страницами») раздвигала строку,
- * и дата с числами здоровья уезжали ярусом ниже, от левого края. Теперь колонки как у
- * таблицы доноров выше: донор слева, значок с причиной и числами — в своей колонке.
+ * ним раздвигала строку, и дата с числами здоровья уезжали ярусом ниже, от левого края. Теперь
+ * колонки как у таблицы доноров: донор слева, значок — в своей колонке, причина и числа — в «i»
+ * у значка (`CrawlState compact`): журнал, как и таблица доноров, — строка в одну высоту.
  *
- * **«Переобойти» — у последнего обхода каждого донора, чем бы обход ни кончился** (решение
- * Anthony 28.10.2026; с 27.10 кнопка стояла только у частичного, закрывшегося, не начавшегося
- * и остановленного). Сайт растёт: адреса карты сайта идут от новых к старым, а потолок страниц
- * срезает старые (`docs/CRAWL.md`, «Свежие — первыми»), так что повтор через время первыми
- * возьмёт новые статьи. «Обойдён» часто значит «упёрлись в потолок 1 000 страниц», а не «взяли
- * весь сайт», а запрет robots.txt со временем может смениться. Пока переобход идёт — в очереди
- * или на ходу, — кнопки нет: второй незаконченный обход донора сервер не заводит, ответ был бы
- * «уже идёт» (`crawl/launch.py`).
+ * **«Переобойти» — у последнего обхода каждого донора на странице, чем бы обход ни кончился**
+ * (решение Anthony 28.10.2026; с 27.10 кнопка стояла только у частичного, закрывшегося, не
+ * начавшегося и остановленного). Сайт растёт: адреса карты сайта идут от новых к старым, а
+ * потолок страниц срезает старые (`docs/CRAWL.md`, «Свежие — первыми»), так что повтор через
+ * время первыми возьмёт новые статьи. «Обойдён» часто значит «упёрлись в потолок 1 000
+ * страниц», а не «взяли весь сайт», а запрет robots.txt со временем может смениться. Пока
+ * переобход идёт — в очереди или на ходу, — кнопки нет: второй незаконченный обход донора
+ * сервер не заводит (`crawl/launch.py`). Со списком доноров кнопка не сверяется: вкладка грузит
+ * доноров страницами, а донору без свежей цены сервер откажет словами.
  *
- * Механизм — тот же запуск, что «Обойти отмеченных»: новый обход заменяет кандидатов прежнего,
- * а решения человека и спрошенный DR переносит (`crawl/gate.py`). Кнопка — только донору со
- * свежей ценой: другому сервер откажет, а почему — уже сказано строкой «Не обходим» выше.
- *
- * С 29.10.2026 та же кнопка (`CrawlTable.Again`, тот же запуск) — и в строке таблицы доноров:
- * здесь пять строк, и донору, чей обход ниже пятой, повтора было не найти (замечание Anthony).
+ * Механизм — тот же запуск, что «Обойти отмеченных» и кнопка в строке таблицы доноров
+ * (`CrawlTable.Again`): новый обход заменяет кандидатов прежнего, а решения человека и
+ * спрошенный DR переносит (`crawl/gate.py`).
  */
 
 import { Stack, Table, Text } from '@mantine/core';
@@ -33,9 +32,6 @@ import { Seams } from '../components/Seams';
 import { formatDateTime } from '../format';
 import type { StartCrawls } from './CrawlTable';
 import { Again, CrawlState, isActive } from './CrawlTable';
-
-/** Строк в списке: последний обход и несколько до него, а вся история — в журнале. */
-const SHOWN = 5;
 
 /** «Обход» — та же ширина, что «Последний обход» у таблицы доноров: значок с потолком и
  *  причина под ним. «Когда и кто» — по адресу автора в 27 знаков; длиннее — переносится. */
@@ -53,13 +49,16 @@ const MIN_WIDTH = { plain: 672, again: 816 } as const;
  *  сверху; у старой строки повтор уже есть), законченный — «готов» с любым исходом или
  *  остановлен, а не в очереди и не на ходу (`isActive` — те же статусы, что держат замок
  *  сервера «один незаконченный обход на донора»), — и донор в числе тех, кого можно обойти. */
-export function againRows(rows: readonly CrawlRow[], eligible: ReadonlySet<string>): Set<number> {
+export function againRows(
+  rows: readonly CrawlRow[],
+  eligible: ReadonlySet<string> | null,
+): Set<number> {
   const seen = new Set<string>();
   const again = new Set<number>();
   for (const row of rows) {
     if (seen.has(row.host)) continue;
     seen.add(row.host);
-    if (eligible.has(row.host) && !isActive(row)) again.add(row.id);
+    if ((eligible === null || eligible.has(row.host)) && !isActive(row)) again.add(row.id);
   }
   return again;
 }
@@ -77,60 +76,55 @@ function When({ crawl }: { crawl: CrawlRow }) {
   );
 }
 
-/** Последние обходы, новые сверху. `start` — запуск повтора; `null` — нет права запуска,
- *  и колонки с кнопкой нет. */
+/** Обходы страницы журнала, новые сверху. `start` — запуск повтора; `null` — нет права
+ *  запуска, и колонки с кнопкой нет. */
 export function RecentCrawls({
   view,
-  eligible,
   start,
 }: {
   view: CrawlsView | undefined;
-  eligible: ReadonlySet<string>;
   start: StartCrawls | null;
 }) {
-  const rows = view?.rows.slice(0, SHOWN) ?? [];
+  const rows = view?.rows ?? [];
   if (rows.length === 0) return null;
-  const again = start === null ? new Set<number>() : againRows(rows, eligible);
   return (
-    <Stack gap={4}>
-      <Text size="sm" fw={600}>
-        Последние обходы
-      </Text>
-      <Table.ScrollContainer
-        minWidth={start === null ? MIN_WIDTH.plain : MIN_WIDTH.again}
-        type="native"
-        className="scrollSlim"
+    <Table.ScrollContainer
+      minWidth={start === null ? MIN_WIDTH.plain : MIN_WIDTH.again}
+      type="native"
+      className="scrollSlim"
+    >
+      <Table
+        className="dataTable fixedTable"
+        layout="fixed"
+        tabularNums
+        verticalSpacing="xs"
+        aria-label="Последние обходы"
       >
-        <Table
-          className="dataTable fixedTable"
-          layout="fixed"
-          tabularNums
-          verticalSpacing="sm"
-          aria-label="Последние обходы"
-        >
-          <ColumnsHead columns={COLUMNS} tail={start === null ? null : AGAIN_WIDTH} />
-          <Table.Tbody>
-            {rows.map((row) => (
-              <Table.Tr key={row.id}>
-                <Table.Td className="wrapCell cellName">
-                  <Seams text={row.host} />
-                </Table.Td>
-                <Table.Td>
-                  <CrawlState crawl={row} />
-                </Table.Td>
-                <Table.Td className="wrapCell">
-                  <When crawl={row} />
-                </Table.Td>
-                {start === null ? null : (
-                  <Table.Td>
-                    {again.has(row.id) ? <Again host={row.host} start={start} /> : null}
-                  </Table.Td>
-                )}
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-      </Table.ScrollContainer>
-    </Stack>
+        <ColumnsHead columns={COLUMNS} tail={start === null ? null : AGAIN_WIDTH} />
+        <Table.Tbody>
+          <JournalRows rows={rows} start={start} />
+        </Table.Tbody>
+      </Table>
+    </Table.ScrollContainer>
   );
+}
+
+function JournalRows({ rows, start }: { rows: readonly CrawlRow[]; start: StartCrawls | null }) {
+  const again = start === null ? new Set<number>() : againRows(rows, null);
+  return rows.map((row) => (
+    <Table.Tr key={row.id}>
+      <Table.Td className="wrapCell cellName">
+        <Seams text={row.host} />
+      </Table.Td>
+      <Table.Td>
+        <CrawlState crawl={row} compact />
+      </Table.Td>
+      <Table.Td className="wrapCell">
+        <When crawl={row} />
+      </Table.Td>
+      {start === null ? null : (
+        <Table.Td>{again.has(row.id) ? <Again host={row.host} start={start} /> : null}</Table.Td>
+      )}
+    </Table.Tr>
+  ));
 }

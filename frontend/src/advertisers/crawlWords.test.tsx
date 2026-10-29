@@ -302,7 +302,7 @@ describe('в очереди — где ждёт и когда начнётся',
   });
 
   it('«i» панели: сколько идёт сразу, остальные начинаются сами, почему сайт не обходится', () => {
-    const said = queueRule({
+    const targets: CrawlTargets = {
       donors: [],
       no_price: 0,
       stale_price: 0,
@@ -310,7 +310,8 @@ describe('в очереди — где ждёт и когда начнётся',
       notes: [],
       max_pages: 1000,
       workers: 8,
-    });
+    };
+    const said = queueRule(targets);
 
     expect(said).toBe(
       ' Сразу идёт столько обходов, сколько обходчиков — сейчас 8 обходчиков; остальные ждут в' +

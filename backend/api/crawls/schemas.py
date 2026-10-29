@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_core import PydanticCustomError
@@ -147,6 +148,9 @@ class DonorRow(BaseModel):
     crawl: CrawlRow | None = None
     currency: str | None = None
     source: PriceSource | None = None
+    #: Цена в сроке (`fresh`), старше срока (`stale`) или нет (`none`) — у вкладки «Обход
+    #: доноров»; у панели — пусто: там только доноры со свежей ценой.
+    price_state: Literal["fresh", "stale", "none"] | None = None
 
     @classmethod
     def of(
@@ -169,6 +173,7 @@ class DonorRow(BaseModel):
             ),
             currency=line.currency,
             source=line.source,
+            price_state=line.price_state,
         )
 
 
@@ -199,6 +204,8 @@ class CrawlsView(BaseModel):
     rows: list[CrawlRow]
     active: int
     workers: int | None = None
+    #: Обходов в журнале всего — для страниц «Последних обходов»; `None` — не считали.
+    total: int | None = None
 
 
 class LaunchBody(BaseModel):
