@@ -49,7 +49,6 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.domain import DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.host import normalize_host
@@ -58,6 +57,7 @@ from backend.features.donors.manual_record import (
     later_refusal,
     record_price,
     shown_price,
+    suitable,
     write_price,
 )
 from backend.features.donors.price import said_later
@@ -409,5 +409,5 @@ async def _priced(
         donor_id=donor.id,
         host=host,
         created=created,
-        suitable=donor.status is DonorStatus.SUITABLE,
+        suitable=suitable(donor),
     )

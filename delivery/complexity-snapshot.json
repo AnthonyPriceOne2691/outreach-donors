@@ -137,9 +137,9 @@
       "worst": "—"
     },
     "backend/api/donors/bulk.py": {
-      "lines": 206,
+      "lines": 197,
       "complexity": 3,
-      "worst": "_read:135"
+      "worst": "enter_list:163"
     },
     "backend/api/donors/routes.py": {
       "lines": 187,
@@ -1552,14 +1552,14 @@
       "worst": "picked:289"
     },
     "backend/features/donors/bulk_entry.py": {
-      "lines": 344,
+      "lines": 343,
       "complexity": 12,
-      "worst": "enter_many:138"
+      "worst": "enter_many:139"
     },
     "backend/features/donors/bulk_file.py": {
-      "lines": 284,
+      "lines": 286,
       "complexity": 11,
-      "worst": "_columns:253"
+      "worst": "_columns:255"
     },
     "backend/features/donors/collect.py": {
       "lines": 389,
@@ -1617,9 +1617,9 @@
       "worst": "typed_payment:190"
     },
     "backend/features/donors/manual_record.py": {
-      "lines": 113,
+      "lines": 118,
       "complexity": 5,
-      "worst": "price_details:85"
+      "worst": "price_details:90"
     },
     "backend/features/donors/price.py": {
       "lines": 176,

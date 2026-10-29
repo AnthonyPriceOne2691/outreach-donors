@@ -37,6 +37,11 @@ def accept_by_hand(donor: DonorModel, *, by: str, at: datetime) -> None:
     donor.entered_by = by
 
 
+def suitable(donor: DonorModel) -> bool:
+    """Годен ли донор порогам: обход берёт только годного (`crawl/targets.choose`)."""
+    return donor.status is DonorStatus.SUITABLE
+
+
 def later_refusal(host: str) -> str:
     """Отказ, когда у донора слово новее вписанной цены (`price.said_later`)."""
     return (

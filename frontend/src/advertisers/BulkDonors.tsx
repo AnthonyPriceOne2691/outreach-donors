@@ -104,7 +104,13 @@ function Problems({ report }: { report: BulkReport }) {
   return (
     <Stack gap="xs">
       <Table.ScrollContainer minWidth={560} mah={320}>
-        <Table striped withTableBorder fz="sm" aria-label="Строки с причиной">
+        <Table
+          className="dataTable allCentered"
+          verticalSpacing="xs"
+          horizontalSpacing="sm"
+          fz="sm"
+          aria-label="Строки с причиной"
+        >
           <Table.Thead>
             <Table.Tr>
               <Table.Th w="5rem">Строка</Table.Th>

@@ -38,6 +38,7 @@ from typing import Any
 import openpyxl
 
 from backend.features.contacts.sweep_input import HOST_COLUMNS, host_from_cell, records_of
+from backend.features.donors.manual_price import ManualPriceError
 from backend.features.replies.attachment_formats import MAX_PARTS, MAX_UNPACKED, zip_size
 
 #: Строк с донорами за загрузку — так и просили: «до 10 000 за выгрузку».
@@ -84,8 +85,9 @@ REQUIRED = (Column.HOST, Column.PRICE)
 LABELS = dict(zip(ORDER, TEMPLATE[0], strict=True))
 
 
-class BulkFileError(ValueError):
-    """Файл не прочитать целиком: текст говорит почему и что сделать."""
+class BulkFileError(ManualPriceError):
+    """Файл не прочитать целиком: текст говорит почему и что сделать. Отказ ввода руками —
+    файлом: тот же ответ 400 словами (`api/errors.py`), без своей строки в таблице отказов."""
 
 
 @dataclass(frozen=True, slots=True)

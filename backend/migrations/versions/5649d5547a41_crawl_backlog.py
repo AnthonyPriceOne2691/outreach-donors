@@ -36,13 +36,13 @@ def upgrade() -> None:
         sa.Column("host", sa.String(255), nullable=False),
         sa.Column("requested_by", sa.String(255), nullable=True),
         sa.Column("author_id", sa.Integer(), nullable=True),
+        sa.ForeignKeyConstraint(["author_id"], ["users.id"], ondelete="SET NULL"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("host"),
         *(
             sa.Column(name, sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now())
             for name in ("created_at", "updated_at")
         ),
-        sa.ForeignKeyConstraint(["author_id"], ["users.id"], ondelete="SET NULL"),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("host"),
     )
 
 

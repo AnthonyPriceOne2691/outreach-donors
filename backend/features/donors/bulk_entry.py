@@ -45,7 +45,7 @@ from sqlalchemy import insert, inspect, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access.repository import AccessRepository
-from backend.features.core.domain import AuditAction, DonorStatus
+from backend.features.core.domain import AuditAction
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.bulk_file import Column, Line
@@ -62,6 +62,7 @@ from backend.features.donors.manual_record import (
     later_refusal,
     price_details,
     shown_price,
+    suitable,
     write_price,
 )
 from backend.features.donors.price import said_later
@@ -318,18 +319,16 @@ def _columns(donor: DonorModel) -> dict[str, Any]:
 
 def _entered(item: _Write) -> Row:
     """Строка записана (или будет записана в предпросмотре) — итогом и годностью к обходу."""
-    suitable = item.created or (
-        item.donor is not None and item.donor.status is DonorStatus.SUITABLE
-    )
+    crawlable = item.created or (item.donor is not None and suitable(item.donor))
     return Row(
         line=item.entry.line.number,
         given=item.entry.line.get(Column.HOST),
         outcome=Outcome.CREATED if item.created else Outcome.PRICED,
         host=item.entry.host,
-        reason=None if suitable else UNSUITABLE,
+        reason=None if crawlable else UNSUITABLE,
         amount=item.entry.price.amount,
         currency=item.entry.price.currency,
-        crawlable=suitable,
+        crawlable=crawlable,
     )
 
 
