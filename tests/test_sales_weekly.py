@@ -37,6 +37,7 @@ from backend.features.sales.models import HandoffKommo, HandoffTelegram, LeadSta
 from backend.features.sales.telegram import MAX_CHARS
 from backend.features.sales.weekly import Week, WeeklyReport
 from backend.features.sales.weekly_counts import AUTO, UNPARSED, Dialogs, kind_of
+from backend.shared.spreadsheet import FORMULA_START
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_weekly_rows import BUILT, SETTLED, WEEK, WeekRows, msk
@@ -397,16 +398,21 @@ async def test_csv_carries_the_same_numbers(session: AsyncSession, rows: WeekRow
     assert found[("доставляемость", "Всего", "жалоб на спам")] == "1"
 
 
+@pytest.mark.parametrize("start", FORMULA_START)
 async def test_csv_cell_that_looks_like_a_formula_is_inert(
-    session: AsyncSession, rows: WeekRows
+    session: AsyncSession, rows: WeekRows, start: str
 ) -> None:
+    """Любое начало из общего правила выгрузок: своя копия списка теряла перевод строки."""
     hypothesis = await rows.hypothesis("формулы")
-    lead = await rows.lead(hypothesis, "x@formula.example.test", at=msk(1), company="=HYPERLINK(1)")
+    company = f"{start}HYPERLINK(1)"
+    lead = await rows.lead(hypothesis, "x@formula.example.test", at=msk(1), company=company)
     await rows.hand_off(lead, at=msk(2))
 
     table = weekly_text.to_csv(await _report(session)).decode("utf-8-sig")
 
-    assert ";'=HYPERLINK(1) (formula.example.test)" in table
+    lines = csv.reader(io.StringIO(table), delimiter=";")
+    [cell] = [line[2] for line in lines if "formula.example.test" in line[2]]
+    assert cell.startswith(f"'{company} (formula.example.test)")
 
 
 # --- проблемы: стоит ли проблема внимания — словами тревог ---------------------------------

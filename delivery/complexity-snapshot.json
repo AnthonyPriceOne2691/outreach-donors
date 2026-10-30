@@ -3312,7 +3312,7 @@
       "worst": "—"
     },
     "backend/features/sales/weekly_text.py": {
-      "lines": 313,
+      "lines": 305,
       "complexity": 6,
       "worst": "runway_line:165"
     },
@@ -3497,9 +3497,9 @@
       "worst": "_sweep:56"
     },
     "backend/shared/spreadsheet.py": {
-      "lines": 28,
+      "lines": 29,
       "complexity": 3,
-      "worst": "inert:22"
+      "worst": "inert:23"
     },
     "backend/shared/webhook_signature.py": {
       "lines": 118,
