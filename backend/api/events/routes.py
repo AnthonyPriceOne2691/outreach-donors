@@ -11,8 +11,10 @@
 случаев: подпись не сошлась (это не наш корреспондент) и не смогли
 сохранить (повтор действительно нужен).
 
-**Тело читается сырым.** Подпись считается по байтам запроса, и разбор
-в модель до проверки означал бы проверку не того, что подписано.
+**Тело читается сырым и не больше потолка** (`api/body.py`). Подпись считается
+по байтам запроса, и разбор в модель до проверки означал бы проверку не того,
+что подписано; а без потолка у чтения тело без объявленного размера ложилось бы
+в память целиком ещё до подписи.
 
 **Ящик встал на паузу сам — тревога человеку** (`outreach/autopause.py`): после фиксации
 и после ответа платформе — Telegram, задумавшийся на свой таймаут, не держит её вебхук.
@@ -28,6 +30,7 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.api.body import body_within
 from backend.api.deps import db_session
 from backend.api.events.schemas import Taken
 from backend.config import outreach as cfg
@@ -60,9 +63,10 @@ async def take_events(
     session: AsyncSession = Depends(db_session),
 ) -> Taken:
     """Принять пачку событий."""
-    body = await request.body()
-    if len(body) > MAX_BODY_BYTES:
-        response.status_code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+    body = await body_within(request, MAX_BODY_BYTES)
+    if body is None:
+        logger.warning("события доставки: тело больше потолка — отказ до подписи")
+        response.status_code = status.HTTP_413_CONTENT_TOO_LARGE
         return Taken(accepted=False, reason="Пачка событий больше допустимого размера")
 
     try:

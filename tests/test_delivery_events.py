@@ -11,9 +11,11 @@ from __future__ import annotations
 import base64
 import json
 import time
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from backend.api.events import routes as events_routes
 from backend.features.core.domain import (
     MessageStatus,
     SenderStatus,
@@ -345,3 +347,31 @@ class TestTheRoute:
 
         assert response.status_code == 403
         assert sent.status is MessageStatus.SENT
+
+    async def test_body_above_the_ceiling_is_refused_before_reading(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(events_routes, "MAX_BODY_BYTES", 1000)
+
+        response = await client.post("/api/events/delivery", content=b"x" * 1001)
+
+        assert response.status_code == 413
+        assert "размера" in response.json()["reason"]
+
+    async def test_body_without_a_declared_size_is_not_read_past_the_ceiling(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Пачку читаем до подписи — подпись считается по её байтам, и потолок у чтения
+        обязан стоять раньше: иначе тело без размера ложилось бы в память целиком."""
+        monkeypatch.setattr(events_routes, "MAX_BODY_BYTES", 1000)
+        taken = []
+
+        async def chunks() -> AsyncIterator[bytes]:
+            for number in range(5):
+                taken.append(number)
+                yield b"x" * 600
+
+        response = await client.post("/api/events/delivery", content=chunks())
+
+        assert response.status_code == 413
+        assert len(taken) < 5
