@@ -22,21 +22,9 @@
  * его пачка, решают на вкладке «Бизнесам ниши», а не среди писем по ссылке.
  */
 
-import {
-  Alert,
-  Anchor,
-  Badge,
-  Button,
-  Card,
-  Group,
-  Modal,
-  Stack,
-  Text,
-  Title,
-} from '@mantine/core';
+import { Alert, Badge, Button, Card, Group, Modal, Stack, Text, Title } from '@mantine/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { listUnknownLetters, resolveLetter } from '../api/letters';
@@ -46,6 +34,7 @@ import type { ResolveOutcome, UnknownLetter } from '../api/unknownOutcome';
 import { Seams } from '../components/Seams';
 import { formatDateTime, formatNumber } from '../format';
 import { notify } from '../notices';
+import { ThreadLink } from './ThreadLink';
 
 /** Раз в минуту: письмо встаёт сюда спустя минуты после обрыва, и экран,
  *  открытый всё это время, должен показать его без перезагрузки. */
@@ -159,21 +148,7 @@ function StuckLetter({ letter, canSend, busy, onChoose }: LetterProps) {
             Кому {letter.email ?? 'адрес не определён'}, с ящика {letter.sender_email ?? '—'},
             отдано почте {formatDateTime(letter.since)} · {letter.campaign}
           </Text>
-          {/* Чернилами и с подчёркиванием, как ссылки посреди текста на главной:
-              бирюзовая на светлом месте стекла намерилась 4,23 : 1 (07.10.2026). */}
-          {letter.thread_id === null ? null : (
-            <Anchor
-              component={Link}
-              to={`/threads/${letter.thread_id}`}
-              size="sm"
-              fw={500}
-              c="var(--ink)"
-              underline="always"
-              className="inkLink"
-            >
-              Переписка
-            </Anchor>
-          )}
+          <ThreadLink threadId={letter.thread_id} />
         </Stack>
         {canSend ? (
           <Group gap="xs">

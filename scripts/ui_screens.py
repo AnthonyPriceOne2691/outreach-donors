@@ -17,6 +17,9 @@ PAGER = "nav[aria-label='Страницы истории прогонов']"
 SELECTION_TABS = "[aria-label='Вкладки отбора']"
 SELECTION_PAGER = "nav[aria-label='Страницы отбора']"
 
+#: Блок «Доставка откладывается» — по своему заголовку: рядом такие же панели.
+DEFERRED = ".glassPanel:has(h4:has-text('Доставка откладывается'))"
+
 #: Плашка «почта не подключена» на экране писем — по своему заголовку: рядом
 #: бывает вторая жёлтая («Почта не подключилась»).
 MAIL_OFF = ".mantine-Alert-root:has-text('Отправка пока не подключена')"
@@ -319,6 +322,29 @@ SCREENS: dict[str, dict] = {
             # принятые: без них на его месте пояснение, и точка — «не измерено».
             ("прогон рассылки", ".mantine-Checkbox-label", NORM),
             ("флажок прогона", ".mantine-Checkbox-input", BIG),
+        ],
+    },
+    # Доставка словами (30.10.2026): блок на экране писем и строка под письмом в переписке. Есть только
+    # у писем с отсрочкой или отказом: на базе без них блока нет, а точки честно печатают «не найден».
+    "letters-deferred": {
+        "path": "/letters?stage=donors",
+        "ready": ("heading", "Доставка откладывается"),
+        "probes": [
+            ("заголовок блока", f"{DEFERRED} h4", BIG),
+            ("пояснение блока", f"{DEFERRED} p", NORM),
+            ("сайт письма", f"{DEFERRED} .glassQuiet p:nth-child(1)", NORM),
+            ("причина с попытками", f"{DEFERRED} .glassQuiet p:nth-child(2)", NORM),
+            ("кому и рассылка", f"{DEFERRED} .glassQuiet p:nth-child(3)", NORM),
+            ("ссылка «Переписка»", f"{DEFERRED} .glassQuiet a", NORM),
+        ],
+    },
+    "thread-delivery": {
+        "path": "/threads?stage=donors",
+        "ready": ("heading", "Диалоги с донорами"),
+        "open_row_with": "ждём ответа",
+        "probes": [
+            ("строка доставки", ".bubbleOurs [data-delivery]", NORM),
+            ("отличие письма", ".bubbleOurs p[data-size='xs']", NORM),
         ],
     },
     # Рассмотрение прогона: главный экран отбора. Мерить то, по чему

@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from backend.api.agent.schemas import DraftCard
+from backend.api.letters.delivery_schemas import DeferralCard
 from backend.api.letters.schemas import Corridor
 from backend.api.sales.handoff_schemas import HandoffCard
 from backend.features.agent.drafts import ShownDraft
@@ -19,6 +20,7 @@ from backend.features.core.models.attachment import ReplyAttachmentModel
 from backend.features.core.models.outgoing_attachment import OutgoingAttachmentModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.letters import outgoing_files
+from backend.features.letters.deferrals import refusal_of
 from backend.features.letters.mailbox import ThreadMail
 from backend.features.letters.outgoing_store import NO_FILES, ThreadFiles
 from backend.features.outreach.repository import ThreadDetail, ThreadRow
@@ -151,6 +153,12 @@ class LetterCard(BaseModel):
     answers_reply_id: int | None = None
     #: Файлы письма — сведениями, без тел. Бывают только у ответа.
     attachments: list[LetterFileCard] = Field(default_factory=list)
+    #: Последняя отсрочка доставки — словами и попытками (`letters/deferrals.py`); остаётся и
+    #: после исхода. Пусто — платформа письмо не откладывала.
+    deferral: DeferralCard | None = None
+    #: Почему не доставлено — словами той же таблицы, что у отсрочки
+    #: (`letters/delivery_trouble.py`). Пусто — у письма нет отказа.
+    refusal: str | None = None
 
     @classmethod
     def of(cls, message: MessageModel, files: Sequence[OutgoingAttachmentModel] = ()) -> LetterCard:
@@ -164,6 +172,8 @@ class LetterCard(BaseModel):
             uniqueness=message.uniqueness_pct,
             answers_reply_id=message.answers_reply_id,
             attachments=list(map(LetterFileCard.of, files)),
+            deferral=DeferralCard.of(message),
+            refusal=refusal_of(message),
         )
 
 

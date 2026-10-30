@@ -35,6 +35,7 @@ from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import EVENT_ID_LENGTH
 from backend.features.letters.events import DeliveryEvent, apply_events
 from backend.features.outreach import autopause
+from backend.shared.database.ids import storable
 from backend.shared.webhook_signature import SignatureError, verify_any
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,7 @@ async def take_events(
         delivered=report.delivered,
         bounced=report.bounced,
         complained=report.complained,
+        deferred=report.deferred,
         unknown=report.unknown,
         paused=report.paused_domains,
     )
@@ -123,6 +125,8 @@ def _one(row: Any) -> DeliveryEvent | None:
         soft=str(row.get("type") or "").strip().lower() == SOFT_BOUNCE,
         at=_moment(row.get("timestamp")),
         event_id=_event_id(row.get("sg_event_id")),
+        attempt=_attempt(row.get("attempt")),
+        status=_code(row.get("status")),
     )
 
 
@@ -135,8 +139,8 @@ def _event_id(raw: Any) -> str | None:
 
 
 def _number(raw: Any) -> int | None:
-    """Наш номер письма из `custom_args`. Платформа возвращает его
-    строкой на верхнем уровне события.
+    """Целое из поля события: наш номер письма из `custom_args` или номер попытки отсрочки
+    (`attempt`). Платформа отдаёт их строкой на верхнем уровне события.
 
     Разбор без исключения намеренно: гейт `silent-except` прав —
     «не число» здесь не ошибка, а обычное дело (события приходят
@@ -145,6 +149,13 @@ def _number(raw: Any) -> int | None:
     """
     text = str(raw if raw is not None else "").strip()
     return int(text) if text.isdigit() else None
+
+
+def _attempt(raw: Any) -> int | None:
+    """Номер попытки отсрочки — в пределах колонки письма: больше `integer` — не номер, а ошибка,
+    и переполнение уронило бы всю пачку пятисоткой, которую платформа повторяла бы без конца."""
+    number = _number(raw)
+    return number if number is not None and storable(number) else None
 
 
 def _moment(raw: Any) -> datetime | None:
@@ -156,5 +167,14 @@ def _moment(raw: Any) -> datetime | None:
 
 
 def _reason(row: dict[str, Any]) -> str | None:
+    """Ответ почты: у отказа — `reason`, у отсрочки — `response` (таблица полей платформы
+    называет `reason` и у неё, пример события — `response`); нет слов — хотя бы код."""
     reason = row.get("reason") or row.get("response") or row.get("status")
     return str(reason) if reason else None
+
+
+def _code(raw: Any) -> str | None:
+    """Расширенный код SMTP события («4.4.1»): вид причины по нему, когда слов нет. Не строка
+    или пусто — `None`; длиннее десяти знаков — не код."""
+    text = raw.strip() if isinstance(raw, str) else ""
+    return text if 0 < len(text) <= 10 else None

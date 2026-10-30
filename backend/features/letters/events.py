@@ -53,6 +53,10 @@
 адрес жалобщика для всех направлений и компанию — для продаж (`optout.complained`), а доноров
 и рекламодателей того же сайта не трогает.
 
+**Отсрочка остаётся у письма** (29.10.2026, `deferrals.py`): статус «ушло» она не меняет, а
+когда, какая попытка, что ответил сервер и вид причины словами — пишет. До того отсрочки
+отбрасывались, и письмо без исхода выглядело просто «отправленным».
+
 **Домен паркуется по доле отказов, а не по их числу.** Один отказ
 из двух писем — это пятьдесят процентов и ничего не значит; поэтому
 доля считается только после того, как с домена ушло хоть сколько-то
@@ -77,7 +81,7 @@ from backend.features.core.domain import MessageStatus, Stage, SuppressionReason
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
-from backend.features.letters import optout, unknown_outcome
+from backend.features.letters import deferrals, optout, unknown_outcome
 from backend.features.outreach import health
 from backend.features.outreach.autopause import LIFETIME_ADVICE, AutoPause, pause_once
 
@@ -132,6 +136,10 @@ class DeliveryEvent:
     #: Номер события у платформы (`sg_event_id`): по нему журнал здоровья ящика узнаёт
     #: повтор пачки (`outreach/health.py`). Пусто — номера нет, событие идёт без отсева.
     event_id: str | None = None
+    #: Какая это попытка доставки по счёту платформы (`attempt` отсрочки). Пусто — не назван.
+    attempt: int | None = None
+    #: Расширенный код SMTP события («4.4.1», `status`): по нему вид причины, когда слов нет.
+    status: str | None = None
 
 
 @dataclass
@@ -142,6 +150,8 @@ class EventReport:
     bounced: int = 0
     complained: int = 0
     unknown: int = 0
+    #: Отсрочки, записанные у писем новой последней (повтор и запоздавшая не в счёт).
+    deferred: int = 0
     #: Письма из «отправляется» и из очереди, которые событие записало ушедшими.
     resolved: int = 0
     #: Ящики, вставшие на паузу сами: о каждой — тревога после фиксации (`autopause.tell`).
@@ -155,7 +165,7 @@ class EventReport:
     @property
     def as_report(self) -> str:
         return (
-            f"доставлено {self.delivered}, отказов {self.bounced}, "
+            f"доставлено {self.delivered}, отказов {self.bounced}, отсрочек {self.deferred}, "
             f"жалоб {self.complained}, без письма {self.unknown}, "
             f"исход выяснен {self.resolved}"
         )
@@ -176,14 +186,13 @@ async def apply_events(
             continue
         await _settle_if_pending(session, message, event, moment, report)
         await _apply_one(session, message, event, moment, report)
-        if message.sender_id is None:
-            continue
-        # Этап с мягкими сигналами судит ящик своей политикой (`outreach/health.py`).
-        heard = await health.listen(session, message.sender_id, event, moment)
-        if heard.paused is not None:
-            report.pauses.append(heard.paused)
-        if event.kind in BOUNCE_EVENTS and not heard.ruled:
-            checked.add(message.sender_id)
+        await _listen(session, message, event, moment, report, checked)
+        if event.kind == "deferred":
+            # После журнала ящика, а не до: две доставки одной пачки журнал разводит своим
+            # уникальным индексом (`health._written`), и строка письма, тронутая раньше, держала
+            # бы вторую доставку на своей блокировке ещё до этой проверки. Статус не трогается:
+            # письмо ушло, исход придёт доставкой или отказом.
+            report.deferred += deferrals.note(message, event, moment)
 
     for sender_id in checked:
         parked = await _park_if_burning(session, sender_id, moment)
@@ -192,6 +201,25 @@ async def apply_events(
 
     logger.info("события доставки: %s", report.as_report)
     return report
+
+
+async def _listen(
+    session: AsyncSession,
+    message: MessageModel,
+    event: DeliveryEvent,
+    moment: datetime,
+    report: EventReport,
+    checked: set[int],
+) -> None:
+    """Событие — ящику письма: этап с мягкими сигналами судит его своей политикой
+    (`outreach/health.py`), без политики отказ идёт в прежнее правило парковки (`checked`)."""
+    if message.sender_id is None:
+        return
+    heard = await health.listen(session, message.sender_id, event, moment)
+    if heard.paused is not None:
+        report.pauses.append(heard.paused)
+    if event.kind in BOUNCE_EVENTS and not heard.ruled:
+        checked.add(message.sender_id)
 
 
 async def _message_of(session: AsyncSession, event: DeliveryEvent) -> MessageModel | None:

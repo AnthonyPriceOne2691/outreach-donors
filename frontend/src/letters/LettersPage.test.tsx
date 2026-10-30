@@ -835,7 +835,9 @@ describe('смена этапа', () => {
       release = resolve;
     });
     vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
-      if (urlOf(input).includes('stage=advertisers')) {
+      // Держится только очередь: блоки вкладки («Исход неизвестен», «Доставка откладывается»)
+      // спрашивают свои адреса с тем же `stage=advertisers` и отвечают как обычно.
+      if (urlOf(input).endsWith('/letters?stage=advertisers')) {
         await gate;
         return new Response(JSON.stringify(OFFER_VIEW), {
           headers: { 'content-type': 'application/json' },

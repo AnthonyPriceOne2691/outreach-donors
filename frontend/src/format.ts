@@ -123,6 +123,11 @@ export function plural(count: number, one: string, few: string, many: string): s
   return many;
 }
 
+/** Первая буква — заглавной: слова сервера — середина фразы, а на экране бывают началом строки. */
+export function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /** Дата: «23.09.2026». */
 export function formatDate(moment: string | null | undefined): string {
   return moment === null || moment === undefined || moment === ''

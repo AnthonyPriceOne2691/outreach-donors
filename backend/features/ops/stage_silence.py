@@ -40,7 +40,9 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     ThreadModel,
 )
-from backend.features.ops.alarms import Alarm, cause, direction, no_cause
+from backend.features.letters import deferrals
+from backend.features.letters.delivery_trouble import Trouble
+from backend.features.ops.alarms import Alarm, Concern, cause, direction, no_cause
 from backend.features.replies import recipient_stage
 from backend.features.replies.unbound import is_unbound
 
@@ -51,6 +53,26 @@ DELIVERY_SILENCE_HOURS = 6
 
 #: Сколько номеров висящих писем назвать в тревоге — остальные числом.
 SHOWN_LETTERS = 3
+
+#: Висящее письмо без единой отсрочки — причины платформа не назвала.
+UNHEARD = "платформа о нём ещё ничего не сообщила"
+
+#: Сколько платформа повторяет доставку: письмо без исхода дольше она уже не повторяет, и исход
+#: сам не придёт (документация платформы: 72 часа от первой отсрочки).
+PLATFORM_RETRY_HOURS = 72
+
+#: Вид причины, при котором ждать исхода не стоит, — повод и что сделать: домен без почтового
+#: сервера письмо не примет, сколько ни повторяй; отказ нашему адресу или IP — о нашей репутации.
+CAUSES: dict[Trouble, tuple[str, str]] = {
+    Trouble.NO_MAIL_SERVER: (
+        "у домена получателя нет почтового сервера, и письмо не дойдёт",
+        "проверить адрес получателя и писать на другой",
+    ),
+    Trouble.BLOCKED: (
+        "сервер получателя отклоняет наш адрес или IP",
+        "проверить репутацию домена и IP отправителя в кабинете платформы",
+    ),
+}
 
 #: Сколько дней можно не получать ни одного ответа при живой рассылке.
 #: Отвечают единицами процентов, поэтому порог считается
@@ -97,13 +119,15 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
     ни отказа.
 
     Две разные поломки — разными словами (29.10.2026: одно письмо рекламодателю висело без исхода,
-    а тревога велела проверять вебхук, хотя письма того же дня доставлялись): после отправки самого
-    старого висящего платформа не сообщила доставки **ни одному** письму этапа — молчит вебхук
-    (`delivery-silence`); сообщила другим — вебхук жив, а висящие ждут сервера получателя:
-    платформа повторяет приём до 72 часов, и исход придёт сам (`delivery-pending`)."""
+    а тревога велела проверять вебхук, хотя письма того же дня доставлялись). После отправки самого
+    **нового** висящего платформа сообщила о любом письме этапа, доставку или отсрочку, — вебхук
+    жив, а висящие ждут сервера получателя (`delivery-pending`): отсрочка идёт тем же вебхуком,
+    и у письма, которое не принимают, других событий нет. Не сообщила — молчит вебхук
+    (`delivery-silence`). От самого старого считать нельзя (30.10.2026): одно застрявшее письмо
+    держало бы вебхук живым по событиям до поломки и прятало бы её у всех писем после."""
     edge = moment - timedelta(hours=DELIVERY_SILENCE_HOURS)
     rows = await session.execute(
-        select(MessageModel.id, MessageModel.sent_at)
+        select(MessageModel.id, MessageModel.sent_at, MessageModel.deferred_kind)
         .where(
             _of_stage(stage),
             MessageModel.status == MessageStatus.SENT,
@@ -118,41 +142,65 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
     stale = list(rows.tuples().all())
     if not stale:
         return None
+    newest = stale[-1][1]
     heard = await session.scalar(
         select(func.count(MessageModel.id)).where(
-            _of_stage(stage), MessageModel.delivered_at >= stale[0][1]
+            _of_stage(stage),
+            or_(MessageModel.delivered_at >= newest, MessageModel.deferred_at >= newest),
         )
     )
-    numbers = _numbers([letter_id for letter_id, _ in stale])
+    ids = [letter_id for letter_id, _, _ in stale]
+    numbers = _numbers(ids)
     if heard:
         return Alarm(
             code=f"delivery-pending:{stage.value}",
             title=f"Письма без исхода доставки — {direction(stage)}",
             detail=(
-                f"{_pending_words(len(stale), numbers)}. Другие письма направления после них "
-                "доставлены — вебхук событий работает. Обычно так тянет сервер получателя: "
-                "платформа повторяет доставку до 72 часов, и исход придёт сам. Что ответил сервер, "
-                "видно в журнале писем платформы (Activity)"
+                f"{_pending_words(len(stale), await _reasons(session, ids, moment))}. События "
+                "платформы приходят и после отправки — вебхук событий работает. Подробности — "
+                "в журнале писем платформы (Activity)"
             ),
             stage=stage,
-            concern=no_cause(
-                "сервер получателя тянет: платформа повторяет доставку до 72 часов, и исход "
-                "придёт сам"
-            ),
+            concern=_pending_concern(stale, moment),
         )
     return Alarm(
         code=f"delivery-silence:{stage.value}",
         title=f"Платформа молчит о доставке — {direction(stage)}",
         detail=(
-            f"Писем направления без единого события больше {DELIVERY_SILENCE_HOURS} часов: "
-            f"{len(stale)} ({numbers}), и после их отправки платформа не сообщила доставки ни одному "
-            "письму направления. Проверить адрес вебхука событий в кабинете платформы и его подпись"
+            f"Писем направления без исхода больше {DELIVERY_SILENCE_HOURS} часов: {len(stale)} "
+            f"({numbers}), и после отправки платформа не сообщила ни доставки, ни отсрочки ни по "
+            "одному письму направления. Проверить адрес вебхука событий в кабинете платформы и его "
+            "подпись"
         ),
         stage=stage,
         concern=cause(
             "ни одно письмо направления не получает статусов",
             "проверить адрес вебхука и подпись в кабинете платформы",
         ),
+    )
+
+
+def _pending_concern(
+    stale: list[tuple[int, datetime | None, str | None]], moment: datetime
+) -> Concern:
+    """Повод у висящих писем — по возрасту и виду причины (29.10.2026). Платформа повторяет
+    доставку до `PLATFORM_RETRY_HOURS`: письмо без исхода дольше она уже не повторяет; у вида из
+    `CAUSES` ждать нечего. Иначе сервер получателя тянет, и исход придёт сам. Повод сменился у той
+    же тревоги — лента скажет о ней ещё раз (`alarm_feed.Feed`)."""
+    oldest = stale[0][1]
+    if oldest is not None and oldest < moment - timedelta(hours=PLATFORM_RETRY_HOURS):
+        return cause(
+            f"письмо без исхода дольше {PLATFORM_RETRY_HOURS} часов, платформа его уже не "
+            "повторяет и исход сам не придёт",
+            "посмотреть исход письма в журнале писем платформы (Activity)",
+        )
+    for kind, (why, todo) in CAUSES.items():
+        found = [letter_id for letter_id, _, seen in stale if seen == kind.value]
+        if found:
+            # С номерами: тревога называет причины первых писем, а такое может быть и дальше.
+            return cause(f"{why} ({_numbers(found)})", todo)
+    return no_cause(
+        "сервер получателя тянет: платформа повторяет доставку до 72 часов, и исход придёт сам"
     )
 
 
@@ -163,16 +211,33 @@ def _numbers(ids: list[int]) -> str:
     return shown if more <= 0 else f"{shown} и ещё {more}"
 
 
-def _pending_words(count: int, numbers: str) -> str:
-    """Висящие письма словами: одно — «Письмо №404 ушло…», несколько — числом и номерами."""
+async def _reasons(
+    session: AsyncSession, ids: list[int], moment: datetime
+) -> list[tuple[int, str | None]]:
+    """Первые `SHOWN_LETTERS` висящих писем — у каждого своя причина: его последняя отсрочка
+    словами (`letters/deferrals.said`), «сервер получателя не отвечает (порт 25, тайм-аут),
+    14 попыток с 10:26 по Москве». Отсрочек у письма не было — `None`."""
+    shown = ids[:SHOWN_LETTERS]
+    found = await session.scalars(select(MessageModel).where(MessageModel.id.in_(shown)))
+    letters = {letter.id: letter for letter in found}
+    reasons: list[tuple[int, str | None]] = []
+    for letter_id in shown:
+        letter = letters.get(letter_id)
+        reasons.append((letter_id, None if letter is None else deferrals.said(letter, moment)))
+    return reasons
+
+
+def _pending_words(count: int, reasons: list[tuple[int, str | None]]) -> str:
+    """Висящие письма словами — у каждого своя причина (29.10.2026): одно — «Письмо №404 ушло…»,
+    несколько — числом, первые номера с причинами, остальные числом."""
     if count == 1:
-        return (
-            f"Письмо {numbers} ушло больше {DELIVERY_SILENCE_HOURS} часов назад, а платформа ещё "
-            "не сказала, дошло ли оно"
-        )
-    return (
-        f"Писем без исхода больше {DELIVERY_SILENCE_HOURS} часов: {count} ({numbers}) — "
-        "платформа ещё не сказала, дошли ли они"
+        [(letter_id, why)] = reasons
+        tail = "а платформа ещё не сказала, дошло ли оно" if why is None else f"а исхода нет: {why}"
+        return f"Письмо №{letter_id} ушло больше {DELIVERY_SILENCE_HOURS} часов назад, {tail}"
+    listed = "; ".join(f"№{letter_id} — {why or UNHEARD}" for letter_id, why in reasons)
+    more = count - len(reasons)
+    return f"Писем без исхода больше {DELIVERY_SILENCE_HOURS} часов: {count}. {listed}" + (
+        f"; и ещё {more}" if more > 0 else ""
     )
 
 

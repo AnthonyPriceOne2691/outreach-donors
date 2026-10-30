@@ -280,6 +280,16 @@ class MessageModel(TimestampedMixin, Base):
     # такое письмо не считает.
     # У ушедшего письма — и почему кончилась его цепочка: жалоба, добивка не собралась.
     failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    #: Отсрочка доставки (`letters/deferrals.py`, 29.10.2026): платформа не отдала письмо серверу
+    #: получателя и повторяет — до 72 часов. Статус она не меняет: письмо «ушло», исход придёт
+    #: доставкой или отказом. Время последней и первой отсрочки, сколько попыток, ответ сервера
+    #: (обрезанный) и вид причины (`letters/delivery_trouble.Trouble`). После исхода остаётся:
+    #: по нему читаются «доставлено после 14 попыток» и отказ, на котором платформа сдалась.
+    deferred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deferred_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deferred_attempts: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    deferred_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    deferred_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
     next_action_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Номер письма у платформы (`X-Message-Id`) — для её журнала Activity
     # и сторожа тишины. Получатель его не видит, и якорем цепочки он не годится.

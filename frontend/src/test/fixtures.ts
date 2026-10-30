@@ -173,9 +173,10 @@ export const NO_NICHE: Record<string, Answer> = {
   },
 };
 
-/** Блок «Исход неизвестен» на экране писем: зависших писем нет ни на одной вкладке.
- *  Экран спрашивает их на каждой вкладке сам, и тест, которому блок не нужен,
- *  записывает пустой список — промах мимо записанных роняет тест. */
+/** Блоки «Исход неизвестен» и «Доставка откладывается» на экране писем: зависших
+ *  и откладываемых писем нет ни на одной вкладке. Экран спрашивает их на каждой вкладке
+ *  сам, и тест, которому блоки не нужны, записывает пустые списки — промах мимо
+ *  записанных роняет тест. */
 export const NO_STUCK_LETTERS: Record<string, Answer> = {
   // Вкладки рекламодателей спрашивают и поиск адресов — строка «ждут адреса» своей вкладки
   // (`AddressLine`).
@@ -191,5 +192,12 @@ export const NO_STUCK_LETTERS: Record<string, Answer> = {
   },
   'GET /api/letters/unknown?stage=advertisers&audience=niche': {
     body: { stage: 'advertisers', letters: [], after_minutes: 5 },
+  },
+  'GET /api/letters/deferred': { body: { stage: 'donors', letters: [], total: 0 } },
+  'GET /api/letters/deferred?stage=advertisers': {
+    body: { stage: 'advertisers', letters: [], total: 0 },
+  },
+  'GET /api/letters/deferred?stage=advertisers&audience=niche': {
+    body: { stage: 'advertisers', letters: [], total: 0 },
   },
 };

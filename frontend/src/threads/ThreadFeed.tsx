@@ -20,6 +20,10 @@
  *
  * **Поле ответа выросло — лента держит нижний край** (`feedBottom.ts`, проверка QA
  * 10.10.2026): значки приложенных файлов закрывали низ последнего ответа.
+ *
+ * **Что почта сказала о доставке — строкой под письмом** (29.10.2026, `deliveryLine.ts`):
+ * «Доставка откладывается: сервер получателя не отвечает · 14 попыток с 10:26», отказ —
+ * словами причины. До этого письмо без исхода стояло одной галочкой «принято платформой».
  */
 
 import { Badge, Button, Card, Group, ScrollArea, Stack, Text } from '@mantine/core';
@@ -28,10 +32,12 @@ import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from '
 
 import { AgentDraftBanner } from '../agent/AgentDraftBanner';
 import { MESSAGE_STATUSES, REPLY_KINDS, SELLER_ANSWERS } from '../api/labels';
+import type { LetterDelivery } from '../api/delivery';
 import type { LetterWithFiles } from '../api/files';
 import { PRICE_RECHECK_STEP } from '../api/priceRecheck';
 import type { Corridor, IncomingCard, LetterCard, MessageStatus } from '../api/types';
-import { formatDateTime, formatMoney } from '../format';
+import { capitalized, formatDateTime, formatMoney } from '../format';
+import { deliveryLine } from '../letters/deliveryLine';
 import { corridorText, readable, uniquenessText } from '../letters/letterText';
 import { useBottomKept } from './feedBottom';
 import { LetterFiles } from './LetterFiles';
@@ -40,6 +46,9 @@ import { ReplyOffers } from './ReplyOffers';
 import { feedOf, freshOf, waitsForPerson } from './threadTimeline';
 
 const when = formatDateTime;
+
+/** Наше письмо в ленте: с файлами и с тем, что почта сказала о доставке. */
+type FeedLetter = LetterWithFiles & LetterDelivery;
 
 /** Одна галочка — принято платформой, две — доставлено; остальное — словами. */
 function DeliveryMark({ status }: { status: MessageStatus }) {
@@ -70,7 +79,18 @@ export function letterTitle(letter: LetterCard): string {
   return letter.step === 0 ? 'первое письмо' : `добивка ${letter.step}`;
 }
 
-function OurBubble({ letter, corridor }: { letter: LetterWithFiles; corridor: Corridor }) {
+/** Доставка словами — под письмом, над временем и галочками: отсрочка, отказ, «дошло не сразу». */
+function DeliveryNote({ letter }: { letter: FeedLetter }) {
+  const line = deliveryLine(letter);
+  if (line === null) return null;
+  return (
+    <Text size="xs" c="dimmed" mt={4} data-delivery={line.tone}>
+      {line.text}
+    </Text>
+  );
+}
+
+function OurBubble({ letter, corridor }: { letter: FeedLetter; corridor: Corridor }) {
   return (
     <div className="bubbleRow bubbleRowOurs">
       <article className="bubble bubbleOurs" aria-label={`Наше письмо: ${letterTitle(letter)}`}>
@@ -96,6 +116,7 @@ function OurBubble({ letter, corridor }: { letter: LetterWithFiles; corridor: Co
           </Text>
         ) : null}
         <LetterFiles messageId={letter.id} files={letter.attachments} />
+        <DeliveryNote letter={letter} />
         <Group gap={6} justify="flex-end" wrap="nowrap" className="bubbleMeta">
           <Text size="xs" c="dimmed">
             {when(letter.sent_at)}
@@ -252,11 +273,6 @@ function answerWithoutPrice(reply: IncomingCard): string | null {
     : null;
 }
 
-/** Первая буква — заглавной: слова сервера — середина фразы, а здесь — начало строки. */
-function capitalized(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
 /** Пометки под текстом: почему ответ продаж ждёт человека, кто ведёт взятый лид
  *  и почему перекрытый ответ не разбирают. */
 function ReplyNotes({
@@ -343,7 +359,7 @@ function TheirBubble({ reply, active, reviewable, sales, superseded, onPick }: T
 }
 
 interface FeedProps {
-  letters: LetterWithFiles[];
+  letters: FeedLetter[];
   incoming: IncomingCard[];
   corridor: Corridor;
   /** Ответ, который разбирают под лентой. */
