@@ -11,8 +11,8 @@
   клиент превращает в заголовок, и в строку запроса секрет не попадает;
 * сравнение секрета постоянное по времени;
 * тело ограничено по размеру **до** разбора, а не после, — и тогда, когда
-  размер не объявлен: читается не больше потолка;
-* частота ограничена.
+  размер не объявлен: читается не больше потолка (`api/body.py`);
+* частота ограничена, и считается раньше секрета: перебор секрета — тоже поток.
 
 **Форма читается по точным байтам, а не разбором веб-фреймворка**
 (`features/replies/form_data.py`): тот читает поля как UTF-8, не зная
@@ -58,6 +58,7 @@ from rq import Queue
 from rq.exceptions import DuplicateJobError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.api.body import body_within
 from backend.api.deps import db_session
 from backend.api.inbound.schemas import Taken
 from backend.config import outreach as cfg
@@ -116,7 +117,7 @@ def _check_secret(given: str | None) -> None:
         )
     # Байты, а не строки: `compare_digest` на строке вне ASCII бросает TypeError, и
     # кириллица в заголовке или в пароле Basic давала любому анониму пятисотку с
-    # трассировкой — раньше потолка частоты (аудит 10.10.2026). Это просто не тот секрет.
+    # трассировкой (аудит 10.10.2026). Это просто не тот секрет.
     if not given or not hmac.compare_digest(given.encode(), expected.encode()):
         raise InboundRefusedError("Секрет не совпал")
 
@@ -147,23 +148,8 @@ def _check_rate(client: str) -> None:
     _throttle.record(client)
 
 
-async def _body_within(request: Request, limit: int) -> bytes | None:
-    """Тело целиком, но не больше потолка. `None` — тело больше потолка.
-
-    Объявленный размер проверяется до чтения, но объявить его отправитель
-    не обязан: без этой проверки тело без `Content-Length` читалось бы
-    в память целиком, сколько бы его ни прислали.
-    """
-    body = bytearray()
-    async for chunk in request.stream():
-        body += chunk
-        if len(body) > limit:
-            return None
-    return bytes(body)
-
-
-def _too_large(response: Response, size: str) -> Taken:
-    logger.warning("приём: тело %s байт больше потолка — отказ до разбора", size)
+def _too_large(response: Response, declared: str | None) -> Taken:
+    logger.warning("приём: тело больше потолка (объявлено: %s) — отказ до разбора", declared)
     # Прежнее имя кода (`…_REQUEST_ENTITY_TOO_LARGE`) Starlette объявила
     # устаревшим: ветка отказа, не проверявшаяся ни одним тестом, упала бы
     # с его удалением пятисоткой — и платформа повторяла бы письмо без конца.
@@ -240,16 +226,10 @@ def _enqueue_once(queue: Callable[[], Queue], job: str, reply_id: int, job_id: s
 
 
 async def _letter_from(request: Request, response: Response) -> Incoming | Taken:
-    """Письмо из тела запроса — или отказ, если читать нечего.
-
-    Размер проверяется до чтения: объявленный — сразу, необъявленный — по ходу.
-    """
-    declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > MAX_REQUEST_BYTES:
-        return _too_large(response, declared)
-    body = await _body_within(request, MAX_REQUEST_BYTES)
+    """Письмо из тела запроса — или отказ, если читать нечего."""
+    body = await body_within(request, MAX_REQUEST_BYTES)
     if body is None:
-        return _too_large(response, f"больше {MAX_REQUEST_BYTES} (размер не объявлен)")
+        return _too_large(response, request.headers.get("content-length"))
     try:
         form = read_form(body, request.headers.get("content-type", ""))
     except FormError as exc:
@@ -275,8 +255,9 @@ async def take_reply(
     """Принять одно входящее письмо."""
     client = request.client.host if request.client else "неизвестно"
     try:
-        _check_secret(given_secret(secret, authorization))
+        # Частота — первой: неверный секрет тоже считается, иначе перебор шёл бы мимо счётчика.
         _check_rate(client)
+        _check_secret(given_secret(secret, authorization))
     except InboundRefusedError as exc:
         # Отказ в доступе — это не «повторите», это «не ходите сюда».
         logger.warning("приём: отказано %s — %s", client, exc)

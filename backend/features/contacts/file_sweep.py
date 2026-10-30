@@ -48,6 +48,7 @@ from backend.features.contacts.sweep_checkpoint import (
 from backend.features.contacts.sweep_input import DomainList, host_from_cell, read_hosts, read_list
 from backend.features.contacts.sweep_trace import TracedRenderer, traced, watch
 from backend.shared.net.url_guard import guarded_client
+from backend.shared.spreadsheet import inert
 
 # Чтение списка, чекпойнт и след обмена с сайтом живут в своих модулях
 # (`sweep_input.py`, `sweep_checkpoint.py`, `sweep_trace.py`), но входная
@@ -262,8 +263,11 @@ def _as_text(value: str) -> str:
     становится 7,92E+13. `="…"` остаётся текстом в Excel и в Google
     Таблицах; файл и так собран под Excel, а читающему его программой
     обёртку снять проще, чем вернуть потерянные цифры.
+
+    Остальное — слова с чужих страниц, и их держит общее правило формул. Номера с него
+    не трогаются: `messengers._number` оставляет только цифры, плюса в них нет.
     """
-    return f'="{value}"' if value.isascii() and value.isdigit() else value
+    return f'="{value}"' if value.isascii() and value.isdigit() else str(inert(value))
 
 
 def write_csv(rows: Iterable[dict[str, str]], path: Path) -> int:

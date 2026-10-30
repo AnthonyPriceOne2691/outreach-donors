@@ -3,7 +3,7 @@ type: policy
 title: Аудит отбора: ложно принятые и ложно отсеянные
 description: Две ошибки просева, почему воронка не видит их сама и чем каждая меряется
 tags: [filters, calibration, quality, review]
-status: proposed
+status: calibrating
 ---
 
 # Правило

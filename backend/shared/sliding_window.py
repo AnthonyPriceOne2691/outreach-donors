@@ -12,8 +12,10 @@
 на периметре (`docs/SECURITY.md`), а этот нужен, чтобы поток не был
 бесплатным и был виден в журнале.
 
-**Записи укорачиваются при каждом обращении.** Без этого словарь растёт
-на каждый новый ключ и живёт столько же, сколько процесс.
+**Записи укорачиваются при каждом обращении, а ключи выметаются раз в окно.**
+`fresh` чистит только спрошенный ключ, а разовый адрес второй раз не спросят: без
+уборки в `record` словарь рос бы на каждый новый ключ и жил столько же, сколько
+процесс, а ключ здесь может прислать кто угодно.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ class SlidingWindow:
     def __init__(self, *, window: timedelta = MINUTE) -> None:
         self._window = window
         self._events: defaultdict[str, list[datetime]] = defaultdict(list)
+        self._swept: datetime | None = None
 
     @property
     def window(self) -> timedelta:
@@ -46,7 +49,19 @@ class SlidingWindow:
         return kept
 
     def record(self, key: str, now: datetime | None = None) -> None:
-        self._events[key].append(now or datetime.now(UTC))
+        moment = now or datetime.now(UTC)
+        self._sweep(moment)
+        self._events[key].append(moment)
+
+    def _sweep(self, moment: datetime) -> None:
+        """Выбросить ключи без событий в окне — не чаще раза в окно: обход всего словаря
+        на каждую запись сделал бы защиту дороже потока, от которого она стоит."""
+        if self._swept is not None and moment - self._swept < self._window:
+            return
+        self._swept = moment
+        stale = [key for key, events in self._events.items() if moment - events[-1] >= self._window]
+        for key in stale:
+            del self._events[key]
 
     def count(self, key: str, now: datetime | None = None) -> int:
         return len(self.fresh(key, now))
