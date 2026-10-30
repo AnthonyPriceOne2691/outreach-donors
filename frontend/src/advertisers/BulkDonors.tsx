@@ -76,11 +76,15 @@ export function reportWords(report: BulkReport, done: boolean): string {
   );
 }
 
-/** Отчёт CSV для Excel: метка BOM, поля в кавычках по правилам CSV. */
+/** С чего начинается формула в таблице: то же правило, что `shared/spreadsheet.py`. */
+const FORMULA_START = /^[=+\-@\t\r\n]/;
+
+/** Отчёт CSV для Excel: метка BOM, поля в кавычках по правилам CSV, формула — с апострофом. */
 export function reportCsv(rows: BulkRow[]): string {
   const cell = (value: string | number | null) => {
-    const text = value === null ? '' : String(value);
-    return /[",\n;]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    const raw = value === null ? '' : String(value);
+    const text = FORMULA_START.test(raw) ? `'${raw}` : raw;
+    return /[",\r\n;]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
   const head = ['строка', 'домен в файле', 'итог', 'домен', 'почему'];
   const lines = rows.map((row) =>

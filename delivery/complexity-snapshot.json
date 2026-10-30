@@ -1077,9 +1077,9 @@
       "worst": "find_contact_links:369"
     },
     "backend/features/contacts/file_sweep.py": {
-      "lines": 379,
+      "lines": 383,
       "complexity": 8,
-      "worst": "_handle_columns:194"
+      "worst": "_handle_columns:195"
     },
     "backend/features/contacts/forms.py": {
       "lines": 435,
@@ -3492,14 +3492,14 @@
       "worst": "job_alive:344"
     },
     "backend/shared/sliding_window.py": {
-      "lines": 75,
-      "complexity": 4,
-      "worst": "fresh:38"
+      "lines": 90,
+      "complexity": 5,
+      "worst": "_sweep:56"
     },
     "backend/shared/spreadsheet.py": {
-      "lines": 26,
+      "lines": 28,
       "complexity": 3,
-      "worst": "inert:20"
+      "worst": "inert:22"
     },
     "backend/shared/webhook_signature.py": {
       "lines": 118,

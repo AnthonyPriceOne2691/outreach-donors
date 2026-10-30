@@ -7,8 +7,10 @@
 Табуляция и перевод строки в начале ячейки таблица тоже читает по-своему.
 
 Одно правило на все выгрузки: лидов (`replies/lead_handoff.py`), доноров
-(`donors/export.py`, 12.10.2026 — оплата и валюта там тоже слова из письма)
-и рекламодателей (`crawl/advertiser_export.py`).
+(`donors/export.py`, 12.10.2026 — оплата и валюта там тоже слова из письма),
+рекламодателей (`crawl/advertiser_export.py`) и поиска контактов по файлу
+(`contacts/file_sweep.py`). Отчёт загрузки доноров собирает браузер, и то же
+правило повторено там (`frontend/src/advertisers/BulkDonors.tsx`).
 """
 
 from __future__ import annotations

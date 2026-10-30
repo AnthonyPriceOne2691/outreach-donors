@@ -352,11 +352,19 @@ class TestTheRoute:
         self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(events_routes, "MAX_BODY_BYTES", 1000)
+        taken = []
 
-        response = await client.post("/api/events/delivery", content=b"x" * 1001)
+        async def chunks() -> AsyncIterator[bytes]:
+            taken.append(1)
+            yield b"x" * 1001
+
+        response = await client.post(
+            "/api/events/delivery", content=chunks(), headers={"content-length": "1001"}
+        )
 
         assert response.status_code == 413
         assert "размера" in response.json()["reason"]
+        assert taken == []
 
     async def test_body_without_a_declared_size_is_not_read_past_the_ceiling(
         self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
