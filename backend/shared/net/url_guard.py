@@ -213,9 +213,8 @@ class _PublicPeerOnly(httpcore.AnyIOBackend):
 
 def _public_only_transport() -> httpx.AsyncHTTPTransport:
     """Обычный транспорт, но соединения открывает `_PublicPeerOnly`. Своей настройки для этого
-    у httpx нет, а пул целиком пришлось бы собирать заново со всеми его умолчаниями. `httpcore`
-    приходит с httpx, своей строки в манифесте ему не нужно. Имена внутри библиотек сменятся —
-    упадёт тест на настоящем сокете (`tests/test_url_guard.py`)."""
+    у httpx нет, а пул целиком пришлось бы собирать заново со всеми его умолчаниями. Имена
+    внутри библиотек сменятся — упадёт тест на настоящем сокете (`tests/test_url_guard.py`)."""
     transport = httpx.AsyncHTTPTransport(verify=False)
     transport._pool._network_backend = _PublicPeerOnly()
     return transport
