@@ -148,6 +148,41 @@ class TestOneLetterIsNotTheWebhook:
         assert "delivery-pending:donors" not in _codes(found)
         assert "вебхук" in next(a.detail for a in found if a.code == "delivery-silence:donors")
 
+    async def test_a_deferral_proves_the_webhook(self, session: AsyncSession) -> None:
+        """Отсрочка идёт тем же вебхуком: у письма, которое не принимают, других событий нет,
+        а доставок у направления может не быть вовсе."""
+        stuck = await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8))
+        stuck.deferred_at = NOW - timedelta(hours=7)
+        await session.flush()
+
+        found = await alarms(session, stages=EVERY_STAGE, now=NOW)
+
+        assert "delivery-silence:donors" not in _codes(found)
+        assert "вебхук событий работает" in next(
+            a.detail for a in found if a.code == "delivery-pending:donors"
+        )
+
+    async def test_an_old_letter_does_not_hide_a_broken_webhook(
+        self, session: AsyncSession
+    ) -> None:
+        """Застрявшее письмо, его отсрочка и доставка после него — всё до новых писем: новые
+        молчат, значит вебхук сломался между ними, и тревога обязана сказать о нём (30.10.2026)."""
+        old = await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=40))
+        old.deferred_at = NOW - timedelta(hours=38)
+        delivered = await _letter(
+            session, status=MessageStatus.DELIVERED, sent_at=NOW - timedelta(hours=39), number=1
+        )
+        delivered.delivered_at = NOW - timedelta(hours=39)
+        await _letter(
+            session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8), number=2
+        )
+        await session.flush()
+
+        found = await alarms(session, stages=EVERY_STAGE, now=NOW)
+
+        assert "delivery-pending:donors" not in _codes(found)
+        assert "вебхук" in next(a.detail for a in found if a.code == "delivery-silence:donors")
+
     async def test_many_letters_are_named_by_the_first_numbers(self, session: AsyncSession) -> None:
         stuck = [
             await _letter(

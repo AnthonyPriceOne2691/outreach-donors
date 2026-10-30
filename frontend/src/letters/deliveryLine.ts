@@ -9,7 +9,8 @@
  * - ушло и откладывается — «Доставка откладывается: сервер получателя не отвечает (порт 25,
  *   тайм-аут) · 14 попыток с 10:26, последняя 16:22»;
  * - не доставлено — «Не доставлено: ящика получателя нет или он отключён (5.1.1)»; после
- *   отсрочек — ещё «· платформа перестала повторять: 14 попыток с …»;
+ *   отсрочек — ещё «· до этого откладывалась: 14 попыток с …»: и когда платформа сдалась, и когда
+ *   сервер отказал прямо;
  * - доставлено после отсрочек — «До доставки откладывалась: … · 3 попытки с …».
  *
  * Чистыми функциями, без отрисовки: строка одна у карточки переписки и у экрана писем, и
@@ -56,9 +57,9 @@ export function attemptsLine(deferral: LetterDeferral, now: Date = new Date()): 
 export function deliveryLine(letter: DeliveryFacts, now: Date = new Date()): DeliveryLine | null {
   const deferral = letter.deferral ?? null;
   if (letter.status === 'bounced' && letter.refusal) {
-    const gaveUp =
-      deferral === null ? '' : ` · платформа перестала повторять: ${attemptsLine(deferral, now)}`;
-    return { tone: 'refused', text: `Не доставлено: ${letter.refusal}${gaveUp}` };
+    const before =
+      deferral === null ? '' : ` · до этого откладывалась: ${attemptsLine(deferral, now)}`;
+    return { tone: 'refused', text: `Не доставлено: ${letter.refusal}${before}` };
   }
   if (deferral === null) return null;
   const tries = attemptsLine(deferral, now);

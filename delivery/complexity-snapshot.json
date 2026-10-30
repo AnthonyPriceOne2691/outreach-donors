@@ -1842,9 +1842,9 @@
       "worst": "note:91"
     },
     "backend/features/letters/delivery_trouble.py": {
-      "lines": 412,
+      "lines": 414,
       "complexity": 7,
-      "worst": "words_of:376"
+      "worst": "words_of:378"
     },
     "backend/features/letters/donor_standing.py": {
       "lines": 120,
@@ -2112,9 +2112,9 @@
       "worst": "_crawl_blocked:322"
     },
     "backend/features/ops/stage_silence.py": {
-      "lines": 327,
+      "lines": 332,
       "complexity": 6,
-      "worst": "_pending_concern:178"
+      "worst": "_pending_concern:183"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,

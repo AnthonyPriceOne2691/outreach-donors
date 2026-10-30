@@ -74,6 +74,10 @@ SAMPLES: list[tuple[Trouble, str]] = [
         "http://greylist.example.com/help/example.com.html",
     ),
     (Trouble.TRY_LATER, "451 4.7.1 Greylisting in action, please come back later"),
+    # Серый список чужими словами: не отказ адресу или IP, а просьба подождать.
+    (Trouble.TRY_LATER, "450 4.7.1 <user@example.com>: Sender address rejected: Greylisted"),
+    (Trouble.TRY_LATER, "451 4.7.1 Your IP 192.0.2.10 has been greylisted, try again soon"),
+    (Trouble.TRY_LATER, "450 You have been greylisted by the receiving server"),
     (Trouble.TRY_LATER, "451 Temporary local problem - please try later"),
     (Trouble.TRY_LATER, "451 4.7.500 Server busy. Please try again later from [192.0.2.1]."),
     (

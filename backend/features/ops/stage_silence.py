@@ -119,10 +119,12 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
     ни отказа.
 
     Две разные поломки — разными словами (29.10.2026: одно письмо рекламодателю висело без исхода,
-    а тревога велела проверять вебхук, хотя письма того же дня доставлялись): после отправки самого
-    старого висящего платформа не сообщила доставки **ни одному** письму этапа — молчит вебхук
-    (`delivery-silence`); сообщила другим — вебхук жив, а висящие ждут сервера получателя:
-    платформа повторяет приём до 72 часов, и исход придёт сам (`delivery-pending`)."""
+    а тревога велела проверять вебхук, хотя письма того же дня доставлялись). После отправки самого
+    **нового** висящего платформа сообщила о любом письме этапа, доставку или отсрочку, — вебхук
+    жив, а висящие ждут сервера получателя (`delivery-pending`): отсрочка идёт тем же вебхуком,
+    и у письма, которое не принимают, других событий нет. Не сообщила — молчит вебхук
+    (`delivery-silence`). От самого старого считать нельзя (30.10.2026): одно застрявшее письмо
+    держало бы вебхук живым по событиям до поломки и прятало бы её у всех писем после."""
     edge = moment - timedelta(hours=DELIVERY_SILENCE_HOURS)
     rows = await session.execute(
         select(MessageModel.id, MessageModel.sent_at, MessageModel.deferred_kind)
@@ -140,9 +142,11 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
     stale = list(rows.tuples().all())
     if not stale:
         return None
+    newest = stale[-1][1]
     heard = await session.scalar(
         select(func.count(MessageModel.id)).where(
-            _of_stage(stage), MessageModel.delivered_at >= stale[0][1]
+            _of_stage(stage),
+            or_(MessageModel.delivered_at >= newest, MessageModel.deferred_at >= newest),
         )
     )
     ids = [letter_id for letter_id, _, _ in stale]
@@ -152,8 +156,8 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
             code=f"delivery-pending:{stage.value}",
             title=f"Письма без исхода доставки — {direction(stage)}",
             detail=(
-                f"{_pending_words(len(stale), await _reasons(session, ids, moment))}. Другие письма "
-                "направления после них доставлены — вебхук событий работает. Подробности — "
+                f"{_pending_words(len(stale), await _reasons(session, ids, moment))}. События "
+                "платформы приходят и после отправки — вебхук событий работает. Подробности — "
                 "в журнале писем платформы (Activity)"
             ),
             stage=stage,
@@ -163,9 +167,10 @@ async def _delivery(session: AsyncSession, moment: datetime, stage: Stage) -> Al
         code=f"delivery-silence:{stage.value}",
         title=f"Платформа молчит о доставке — {direction(stage)}",
         detail=(
-            f"Писем направления без единого события больше {DELIVERY_SILENCE_HOURS} часов: "
-            f"{len(stale)} ({numbers}), и после их отправки платформа не сообщила доставки ни одному "
-            "письму направления. Проверить адрес вебхука событий в кабинете платформы и его подпись"
+            f"Писем направления без исхода больше {DELIVERY_SILENCE_HOURS} часов: {len(stale)} "
+            f"({numbers}), и после отправки платформа не сообщила ни доставки, ни отсрочки ни по "
+            "одному письму направления. Проверить адрес вебхука событий в кабинете платформы и его "
+            "подпись"
         ),
         stage=stage,
         concern=cause(

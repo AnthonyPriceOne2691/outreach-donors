@@ -82,6 +82,9 @@ RULES: tuple[tuple[Trouble, re.Pattern[str]], ...] = (
     (Trouble.SUPPRESSED, _rx(r"^(bounced|unsubscribed|spam reporting) address$")),
     # Тариф учётки платформы, а не ящик получателя: «quota» здесь — не «переполнен».
     (Trouble.UNKNOWN, _rx(r"package quota")),
+    # Серый список — раньше всех отказов: в его ответе бывают «Sender address rejected» и «your IP»,
+    # а просит он только подождать (30.10.2026).
+    (Trouble.TRY_LATER, _rx(r"gr[ae]y ?list")),
     # Шифрование — раньше «срок вышел»: «x509: certificate has expired» — о сертификате сервера.
     (Trouble.TLS, _rx(r"\btls\b", r"starttls", r"\bssl\b", r"x509", r"certificate", r"handshake")),
     (
@@ -194,7 +197,7 @@ RULES: tuple[tuple[Trouble, re.Pattern[str]], ...] = (
             r"spamhaus|spamcop|sorbs|barracuda|uceprotect",
             r"\bdnsbl\b|\brbl\b|blocked using",
             r"black ?list|block ?list|deny ?list|blacklisted|blocklisted",
-            r"listed (on|in|at|by)",
+            r"\blisted (on|in|at|by)",
             r"reputation",
             r"\bbanned\b",
             r"\byour ip\b|\bsending ip\b|ip address (is )?(blocked|banned|listed)",
@@ -220,7 +223,6 @@ RULES: tuple[tuple[Trouble, re.Pattern[str]], ...] = (
         Trouble.TRY_LATER,
         _rx(
             r"try (again )?later|try again|retry later|come back later|please retry",
-            r"gr[ae]y ?list",
             r"temporar(y|ily)|transient",
             r"(server|system) (is )?busy",
             r"service (is )?(currently |temporarily )?(unavailable|not available)",
