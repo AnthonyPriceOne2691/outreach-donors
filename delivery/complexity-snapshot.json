@@ -1022,9 +1022,9 @@
       "worst": "—"
     },
     "backend/features/ahrefs/client.py": {
-      "lines": 442,
+      "lines": 469,
       "complexity": 12,
-      "worst": "_rows:406"
+      "worst": "_rows:433"
     },
     "backend/features/ahrefs/refdomains.py": {
       "lines": 135,
@@ -1032,9 +1032,9 @@
       "worst": "nodes:101"
     },
     "backend/features/ahrefs/units.py": {
-      "lines": 309,
+      "lines": 310,
       "complexity": 5,
-      "worst": "_reset_moment:196"
+      "worst": "_reset_moment:197"
     },
     "backend/features/contacts/__init__.py": {
       "lines": 2,
@@ -2432,9 +2432,9 @@
       "worst": "excluded_hosts:322"
     },
     "backend/features/runs/failures.py": {
-      "lines": 37,
+      "lines": 39,
       "complexity": 2,
-      "worst": "is_permanent:29"
+      "worst": "is_permanent:31"
     },
     "backend/features/runs/handover.py": {
       "lines": 84,
@@ -3467,14 +3467,14 @@
       "worst": "—"
     },
     "backend/shared/net/retry.py": {
-      "lines": 172,
+      "lines": 176,
       "complexity": 7,
-      "worst": "with_retries:120"
+      "worst": "with_retries:124"
     },
     "backend/shared/net/url_guard.py": {
-      "lines": 211,
+      "lines": 263,
       "complexity": 10,
-      "worst": "assert_safe_url:105"
+      "worst": "assert_safe_url:115"
     },
     "backend/shared/net/url_parts.py": {
       "lines": 50,

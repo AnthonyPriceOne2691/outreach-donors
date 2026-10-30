@@ -64,7 +64,7 @@ from backend.features.letters.transport import (
     PlatformRefusalError,
     TransportError,
 )
-from backend.shared.net.retry import reason_of
+from backend.shared.net.retry import NO_CONNECTION, reason_of
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +214,7 @@ class SendGridTransport:
             # Не собран у нас — до платформы не дошёл точно. Без цепочки:
             # в тексте исключения заголовок с ключом.
             raise TransportError(f"Письмо не ушло: {reason_of(exc)}") from None
-        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+        except NO_CONNECTION as exc:
             # Соединения не было — письмо не ушло точно, повтор безопасен.
             if last:
                 raise PlatformRefusalError(

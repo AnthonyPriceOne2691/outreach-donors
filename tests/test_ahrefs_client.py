@@ -15,6 +15,7 @@ from backend.features.ahrefs.client import (
     _retry_delay,
 )
 from backend.features.ahrefs.units import MAX_BATCH_TARGETS, UnitsCost
+from backend.features.runs.failures import is_permanent
 from backend.features.runs.reasons import explained
 from backend.shared.net.retry import reason_of
 
@@ -174,15 +175,66 @@ class TestRetries:
         monkeypatch.setattr("backend.features.ahrefs.client.asyncio.sleep", _no_sleep)
 
         def handler(request: httpx.Request) -> httpx.Response:
-            raise httpx.ReadTimeout("", request=request)
+            raise httpx.ConnectTimeout("", request=request)
 
         with pytest.raises(AhrefsError) as caught:
             await _client(handler).metrics_by_country("example.com", "2026-09-01")
 
         assert str(caught.value).endswith(
-            f"попыток: {MAX_ATTEMPTS} — {reason_of(httpx.ReadTimeout(''))}"
+            f"попыток: {MAX_ATTEMPTS} — {reason_of(httpx.ConnectTimeout(''))}"
         )
-        assert isinstance(caught.value.__cause__, httpx.ReadTimeout)
+        assert isinstance(caught.value.__cause__, httpx.ConnectTimeout)
+
+    @pytest.mark.parametrize(
+        "lost",
+        [httpx.ReadTimeout, httpx.ReadError, httpx.WriteTimeout, httpx.RemoteProtocolError],
+    )
+    async def test_lost_response_is_not_bought_twice(
+        self,
+        lost: type[httpx.TransportError],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Замер 30.10.2026 по счётчику самого Ahrefs: запрос, ответ на который потерян,
+        списан целиком, а повтор пачки оплачивается заново. Повторять такой запрос — платить
+        до четырёх раз и ничего не получить: повтор остаётся задаче, поэтому отказ не постоянный."""
+        monkeypatch.setattr("backend.features.ahrefs.client.asyncio.sleep", _no_sleep)
+        sent: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            sent.append(request)
+            raise lost("", request=request)
+
+        with pytest.raises(AhrefsError) as caught:
+            await _client(handler).batch_metrics(["example.com"], ["domain_rating"])
+
+        assert len(sent) == 1
+        assert "ответ Ahrefs потерян" in str(caught.value)
+        assert not is_permanent(caught.value)
+        assert caught.value.status is None
+        assert isinstance(caught.value.__cause__, lost)
+        assert "трата не учтена" in caplog.text
+
+    @pytest.mark.parametrize(
+        "failed", [httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout]
+    )
+    async def test_request_that_never_left_is_repeated(
+        self, failed: type[httpx.TransportError], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Соединения не было: запрос не ушёл, и повтор его не оплатит."""
+        monkeypatch.setattr("backend.features.ahrefs.client.asyncio.sleep", _no_sleep)
+        sent: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            sent.append(request)
+            if len(sent) == 1:
+                raise failed("", request=request)
+            return httpx.Response(200, json={"metrics": []}, headers=COST_HEADERS)
+
+        response = await _client(handler).metrics_by_country("example.com", "2026-09-01")
+
+        assert len(sent) == 2
+        assert response.rows == []
 
     def test_retry_after_is_honoured_but_capped(self) -> None:
         """Провайдеру верим, но не безоговорочно: «подождите час» не должно
