@@ -51,7 +51,6 @@ from backend.features.sales.kommo_types import (
     wanted_email,
 )
 from backend.features.sales.kommo_wire import (
-    NOT_SENT,
     Pace,
     Peer,
     asked_wait,
@@ -61,7 +60,7 @@ from backend.features.sales.kommo_wire import (
     temporary,
     unreached,
 )
-from backend.shared.net.retry import MAX_DELAY_SEC, RETRY_STATUSES, delay_for
+from backend.shared.net.retry import MAX_DELAY_SEC, NO_CONNECTION, RETRY_STATUSES, delay_for
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +203,7 @@ def _resendable(exc: httpx.HTTPError, method: str) -> bool:
     Чтение — всегда. Запись — только если она точно не ушла."""
     if isinstance(exc, httpx.LocalProtocolError):
         return False
-    return method == "GET" or isinstance(exc, NOT_SENT)
+    return method == "GET" or isinstance(exc, NO_CONNECTION)
 
 
 def _pause(response: httpx.Response, attempt: int) -> float | None:

@@ -28,12 +28,9 @@ from backend.features.sales.kommo_types import (
     KommoUnavailableError,
     KommoUnconfirmedError,
 )
+from backend.shared.net.retry import NO_CONNECTION
 
 logger = logging.getLogger(__name__)
-
-#: Обрывы, при которых запрос точно не ушёл: соединения не было. Повтор такой записи
-#: не заведёт в CRM вторую сделку; дошедшей — завёл бы.
-NOT_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 
 
 class Pace:
@@ -90,7 +87,7 @@ def unreached(exc: httpx.HTTPError, method: str, peer: Peer) -> KommoError:
         return KommoRefusedError(
             f"запрос к {peer.to} не собран ({kind}) — проверить {peer.settings}; повтор не поможет"
         )
-    if method != "GET" and not isinstance(exc, NOT_SENT):
+    if method != "GET" and not isinstance(exc, NO_CONNECTION):
         return KommoUnconfirmedError(
             f"ответ {peer.whose} потерян после отправки ({kind}) — запись могла создаться; "
             "проверить в Kommo руками: повтор вслепую завёл бы вторую"

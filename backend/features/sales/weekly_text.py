@@ -9,7 +9,8 @@
 проблемы — первыми строками и «ещё N — на экране отчёта» со ссылкой на него.
 
 **Выгрузка — для Excel**, как выгрузки лидов и доноров: точка с запятой, UTF-8 с меткой.
-Ячейка, похожая на формулу (имя лида из чужого файла), начинается апострофом — по OWASP.
+Ячейка, похожая на формулу (имя лида из чужого файла), начинается апострофом — общим правилом
+выгрузок (`shared/spreadsheet.py`).
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from backend.config import sales as cfg
 from backend.features.sales.telegram import MAX_CHARS
 from backend.features.sales.weekly import Numbers, Plan, Problem, Week, WeeklyReport
 from backend.features.sales.weekly_counts import AUTO, KINDS, Handed, Mail
+from backend.shared.spreadsheet import inert
 
 #: Вид ответа — словами строки отчёта.
 KIND_WORDS: dict[str, str] = {
@@ -38,8 +40,6 @@ KIND_WORDS: dict[str, str] = {
 WEEKDAYS = ("пн", "вт", "ср", "чт", "пт", "сб", "вс")
 #: Сколько строк длинного списка уходит в группу; остальное — «ещё N — на экране отчёта».
 SHOWN = 10
-#: Начало ячейки, которую таблица исполнила бы формулой.
-_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 
 @dataclass(frozen=True, slots=True)
@@ -294,19 +294,11 @@ def _lines(report: WeeklyReport) -> Iterator[Line]:
     )
 
 
-def _inert(value: object) -> object:
-    """Ячейка, которую таблица не исполнит: имя или компания из чужого файла вида
-    `=HYPERLINK(...)` при открытии выгрузки вытащила бы соседние ячейки."""
-    if isinstance(value, str) and value.startswith(_FORMULA_START):
-        return f"'{value}"
-    return value
-
-
 def to_csv(report: WeeklyReport) -> bytes:
     """Выгрузка отчёта — для Excel: заголовки словами, точка с запятой, UTF-8 с меткой."""
     out = io.StringIO()
     writer = csv.writer(out, delimiter=";", lineterminator="\r\n")
     writer.writerow(CSV_HEAD)
     for line in _lines(report):
-        writer.writerow([_inert(value) for value in line])
+        writer.writerow([inert(value) for value in line])
     return out.getvalue().encode("utf-8-sig")

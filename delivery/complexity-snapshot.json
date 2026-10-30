@@ -2877,9 +2877,9 @@
       "worst": "_created:209"
     },
     "backend/features/sales/kommo_live.py": {
-      "lines": 349,
+      "lines": 348,
       "complexity": 9,
-      "worst": "_emails:286"
+      "worst": "_emails:285"
     },
     "backend/features/sales/kommo_types.py": {
       "lines": 158,
@@ -2887,9 +2887,9 @@
       "worst": "wanted_email:151"
     },
     "backend/features/sales/kommo_wire.py": {
-      "lines": 150,
+      "lines": 147,
       "complexity": 7,
-      "worst": "asked_wait:117"
+      "worst": "asked_wait:114"
     },
     "backend/features/sales/lead_addresses.py": {
       "lines": 36,
@@ -3312,7 +3312,7 @@
       "worst": "—"
     },
     "backend/features/sales/weekly_text.py": {
-      "lines": 313,
+      "lines": 305,
       "complexity": 6,
       "worst": "runway_line:165"
     },
@@ -3497,9 +3497,9 @@
       "worst": "_sweep:56"
     },
     "backend/shared/spreadsheet.py": {
-      "lines": 28,
+      "lines": 29,
       "complexity": 3,
-      "worst": "inert:22"
+      "worst": "inert:23"
     },
     "backend/shared/webhook_signature.py": {
       "lines": 118,
