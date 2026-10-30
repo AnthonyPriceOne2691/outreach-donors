@@ -1,6 +1,6 @@
 """Транспорт к Ahrefs: один запрос, его повторы и учёт расхода.
 
-Три вещи, которые этот модуль обязан делать, и каждая из них про деньги
+Четыре вещи, которые этот модуль обязан делать, и каждая из них про деньги
 или про доступность ключа.
 
 **Расход считается на каждом ответе.** Даже на неудачном: запрос, упавший
@@ -14,6 +14,12 @@
 **`limit` в запросе по странам подставляется всегда.** Не параметром, который
 можно забыть, а внутри метода: без него запрос возвращает все 150 стран и
 стоит 1650 юнитов вместо 55 (okf/unit-economy.md).
+
+**Запрос, который мог дойти, не повторяется.** Замер 30.10.2026 по счётчику самого
+Ahrefs: запрос, ответ на который потерян, списан целиком, а повтор пачки метрик
+оплачивается заново (okf/unit-economy.md). Сеть повторяется здесь, только если
+соединения не было; потерянное повторяет задача, одним слоем: прогон продолжает
+разбор мёртвых (`runs/lifecycle.py`), а запрос стран падает один, на своём доноре.
 """
 
 from __future__ import annotations
@@ -30,7 +36,7 @@ import httpx
 from backend.config import ahrefs as cfg
 from backend.features.ahrefs import refdomains as links
 from backend.features.ahrefs.units import MAX_BATCH_TARGETS, UnitsCost
-from backend.shared.net.retry import reason_of, unsent
+from backend.shared.net.retry import NO_CONNECTION, reason_of, unsent
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +56,7 @@ class AhrefsError(RuntimeError):
     """Запрос не удался. `permanent` — повтор не поможет: ключ, права,
     неверный запрос, переадресация (сменился адрес API), непонятная форма
     ответа. Без признака — повторы запроса кончились на временном сбое,
+    ответ потерян после отправки (`_lost`),
     провайдер ответил 5xx вне списка повторов (остаток квоты без повторов —
     ещё и 429 или 5xx из списка) или вместо данных пришла страница (ответ
     не JSON), и прогон стоит продолжить позже.
@@ -282,11 +289,7 @@ class AhrefsClient:
             await self._limiter.acquire()
             try:
                 response = await self._http.request(method, path, **kwargs)
-            except httpx.HTTPError as exc:
-                if unsent(exc):
-                    # Не собран у нас — повтор соберёт так же, а текст
-                    # исключения несёт заголовок с ключом.
-                    raise AhrefsError(f"{operation}: {reason_of(exc)}", permanent=True) from None
+            except NO_CONNECTION as exc:
                 last_error, last_reason = exc, reason_of(exc)
                 logger.debug(
                     "Ahrefs %s: сетевая ошибка на попытке %s из %s — %s",
@@ -299,6 +302,12 @@ class AhrefsClient:
                     break
                 await asyncio.sleep(_retry_delay(attempt, None))
                 continue
+            except httpx.HTTPError as exc:
+                if unsent(exc):
+                    # Не собран у нас — повтор соберёт так же, а текст
+                    # исключения несёт заголовок с ключом.
+                    raise AhrefsError(f"{operation}: {reason_of(exc)}", permanent=True) from None
+                raise _lost(operation, exc) from exc
 
             # Расход считаем до разбора тела: неудачный запрос тоже списывает.
             cost = UnitsCost.from_headers(response.headers)
@@ -307,8 +316,8 @@ class AhrefsClient:
                 # и однажды удивиться счёту: ключ общий с соседней системой.
                 logger.warning("Ahrefs %s не вернул заголовки расхода — трата не учтена", operation)
             if self.on_usage is not None and cost.known:
-                # Записываем и бесплатные запросы: Ahrefs отдаёт из кэша
-                # за ноль, и журнал без этих строк выглядит так, будто
+                # Записываем и бесплатные запросы: часть ответов Ahrefs отдаёт
+                # из кэша за ноль, и журнал без этих строк выглядит так, будто
                 # запросов не делали.
                 self.on_usage(operation, cost)
 
@@ -346,6 +355,24 @@ class AhrefsClient:
         raise AhrefsError(
             f"{operation}: не удалось, попыток: {MAX_ATTEMPTS} — {last_reason}", status=last_status
         ) from last_error
+
+
+def _lost(operation: str, exc: httpx.HTTPError) -> AhrefsError:
+    """Запрос мог дойти, а ответа нет: `AhrefsError` без повтора.
+
+    Заголовков цены нет, и записать в журнал нечего: остаток всё равно считает сам Ahrefs
+    (`limits_and_usage`), а строка лога говорит, откуда в нём разница с журналом.
+    """
+    reason = reason_of(exc)
+    logger.warning(
+        "Ahrefs %s: ответ потерян (%s) — запрос мог быть оплачен, трата не учтена",
+        operation,
+        reason,
+    )
+    return AhrefsError(
+        f"{operation}: ответ Ahrefs потерян, запрос мог быть оплачен, поэтому не повторён — "
+        f"{reason}"
+    )
 
 
 def _raise_for_status(response: httpx.Response, operation: str) -> None:

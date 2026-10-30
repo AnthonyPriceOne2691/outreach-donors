@@ -44,6 +44,10 @@ RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 #: и слепо ему подчиняться значит уснуть на полчаса внутри прогона.
 MAX_DELAY_SEC = 30.0
 
+#: Соединения не было: запрос точно не ушёл, и повтор его не оплатит и не задвоит. Остальные
+#: сбои связи случаются, когда запрос уже мог дойти, — там решает тот, кто платит за вызов.
+NO_CONNECTION = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+
 
 @dataclass(slots=True)
 class RateLimiter:
