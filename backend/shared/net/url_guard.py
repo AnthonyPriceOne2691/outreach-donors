@@ -24,6 +24,13 @@
 пропускаем: иначе временный сбой DNS остановил бы сбор по живым донорам.
 Настоящую атаку это не пропускает: в ней имя обязано разрешиться
 во внутренний адрес, иначе соединение не состоится.
+
+**Открытое соединение проверяется тоже.** Имя распознаётся дважды: проверкой
+и библиотекой при соединении, — и ответ DNS между ними может смениться: имя с нулевым
+сроком жизни отвечает проверке публичным адресом, а соединению внутренним. Поэтому
+адрес смотрится и у открытого соединения, до первого байта запроса (`_PublicPeerOnly`):
+подменять к этому моменту нечего. Через прокси адрес знает только сам прокси, а сеть
+за ним не наша: у него этой проверки нет.
 """
 
 from __future__ import annotations
@@ -32,9 +39,10 @@ import asyncio
 import ipaddress
 import logging
 import socket
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from urllib.parse import urlparse
 
+import httpcore
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -169,6 +177,47 @@ class _CappedStream(httpx.AsyncByteStream):
         await self._stream.aclose()
 
 
+class _PublicPeerOnly(httpcore.AnyIOBackend):
+    """Соединение отдаётся запросу, только если на том конце публичный адрес.
+
+    Выбор адреса и запасной путь между IPv6 и IPv4 остаются за библиотекой: проверяется то,
+    с чем она в итоге соединилась. Адрес не назван — отказ: проверить нечего.
+    """
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,  # noqa: ASYNC109 — подпись задаёт библиотека
+        local_address: str | None = None,
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.AsyncNetworkStream:
+        stream = await super().connect_tcp(
+            host,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+        peer = stream.get_extra_info("server_addr")
+        address = str(peer[0]) if peer else ""
+        if not _is_address(address) or _is_private(address):
+            await stream.aclose()
+            raise UnsafeUrlError(
+                f"имя {host} привело соединение на адрес {address or 'неизвестен'}"
+            )
+        return stream
+
+
+def _public_only_transport() -> httpx.AsyncHTTPTransport:
+    """Обычный транспорт, но соединения открывает `_PublicPeerOnly`. Своей настройки для этого
+    у httpx нет, а пул целиком пришлось бы собирать заново со всеми его умолчаниями. Имена внутри
+    библиотек сменятся — упадёт тест на настоящем сокете (`tests/test_url_guard.py`)."""
+    transport = httpx.AsyncHTTPTransport(verify=False)
+    transport._pool._network_backend = _PublicPeerOnly()
+    return transport
+
+
 class GuardedTransport(httpx.AsyncBaseTransport):
     """Транспорт, проверяющий КАЖДЫЙ запрос, включая шаги редиректа.
 
@@ -182,7 +231,7 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         *,
         max_response_bytes: int = MAX_RESPONSE_BYTES,
     ) -> None:
-        self._inner = inner or httpx.AsyncHTTPTransport(verify=False)
+        self._inner = inner or _public_only_transport()
         self._limit = max_response_bytes
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
