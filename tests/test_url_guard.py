@@ -62,6 +62,21 @@ class TestSingleUrl:
         with pytest.raises(UnsafeUrlError, match="схема"):
             assert_safe_url(url)
 
+    @pytest.mark.parametrize("host", ["100.64.0.1", "100.100.100.200", "carrier.example.test"])
+    async def test_shared_carrier_network_is_inner(
+        self, host: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`is_private` не считает 100.64.0.0/10 внутренней, а в ней живёт адрес метаданных
+        облака: буквальное имя он запрещал, а имя, ведущее на него, проходило."""
+
+        def carrier(_host: str, *_args: object, **_kw: object) -> list[object]:
+            return [(2, 1, 6, "", ("100.100.100.200", 0))]
+
+        monkeypatch.setattr("backend.shared.net.url_guard.socket.getaddrinfo", carrier)
+
+        with pytest.raises(UnsafeUrlError):
+            assert_safe_url(f"http://{host}/")
+
     async def test_ordinary_site_passes(self) -> None:
         assert_safe_url("https://example.com/contact/")
 

@@ -88,6 +88,8 @@ def _is_private(address: str) -> bool:
         or ip.is_reserved
         or ip.is_multicast
         or ip.is_unspecified
+        # Общая сеть операторов 100.64.0.0/10: `is_private` её не видит, а метаданные облака там.
+        or not ip.is_global
     )
 
 
