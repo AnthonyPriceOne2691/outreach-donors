@@ -179,7 +179,27 @@ async def test_the_alarm_stays_while_the_token_is_missing_though_nothing_waits(
 
     [told] = said
     assert told.startswith(ALARM)
+    assert told.endswith(notify.NO_BOT.words)
     assert notify.BOT_ALARM in feed.told
+
+
+async def test_the_cause_of_the_alarm_is_a_draft_waiting_without_a_message(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Повод — черновики, которые ждут человека без сообщения: разобрали их, токена всё нет, а
+    ждать некому — тревога держится, повода нет."""
+    monkeypatch.setattr(cfg, "TELEGRAM_BOT_TOKEN", "")
+    [draft] = await _drafts(session, 1, tag="waiting")
+
+    waiting = await notify.token_alarm(session)
+    draft.status = DraftStatus.REJECTED
+    await session.flush()
+    nobody = await notify.token_alarm(session, keep=True)
+
+    assert waiting is not None
+    assert waiting.concern is notify.NO_BOT
+    assert nobody is not None
+    assert nobody.concern is notify.NOBODY_WAITS
 
 
 async def test_the_sales_pass_of_the_reaper_tells_the_alarm(

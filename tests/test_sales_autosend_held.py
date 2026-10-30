@@ -23,6 +23,7 @@ from backend.config import sales as sales_cfg
 from backend.features.core import usage
 from backend.features.core.domain import MessageStatus
 from backend.features.core.models.outreach import MessageModel
+from backend.features.ops.alarms import marked
 from backend.features.sales import (
     auto_lines,
     autobuild,
@@ -170,4 +171,4 @@ async def test_a_queue_of_held_letters_the_cap_keeps_unbuilt_is_the_autobuild_al
     )
 
     assert found.stuck
-    assert told == [f"{autobuild_alarm.STUCK}: {found.why}"]
+    assert told == [marked(f"{autobuild_alarm.STUCK}: {found.why}", autobuild_alarm.EMPTY)]

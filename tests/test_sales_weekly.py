@@ -16,14 +16,28 @@ from datetime import UTC, date, datetime
 import pytest
 from backend.config import outreach as outreach_cfg
 from backend.config import sales as sales_cfg
-from backend.features.core.domain import MessageStatus, ReplyKind, Stage
-from backend.features.outreach import senders
-from backend.features.sales import browse, connection, funnel, queue, weekly, weekly_text
+from backend.features.core.domain import MessageStatus, ReplyKind, SenderStatus, Stage
+from backend.features.core.models.outreach import SenderModel
+from backend.features.ops import mail_watch
+from backend.features.ops.alarms import Alarm, cause, no_cause
+from backend.features.outreach import autopause, senders
+from backend.features.sales import (
+    browse,
+    connection,
+    funnel,
+    handoff_console,
+    handoff_kommo,
+    queue,
+    weekly,
+    weekly_counts,
+    weekly_text,
+)
 from backend.features.sales.funnel import Funnel
-from backend.features.sales.models import LeadStatus
+from backend.features.sales.models import HandoffKommo, HandoffTelegram, LeadStatus
 from backend.features.sales.telegram import MAX_CHARS
 from backend.features.sales.weekly import Week, WeeklyReport
 from backend.features.sales.weekly_counts import AUTO, UNPARSED, Dialogs, kind_of
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_weekly_rows import BUILT, SETTLED, WEEK, WeekRows, msk
 
@@ -393,3 +407,94 @@ async def test_csv_cell_that_looks_like_a_formula_is_inert(
     table = weekly_text.to_csv(await _report(session)).decode("utf-8-sig")
 
     assert ";'=HYPERLINK(1) (formula.example.test)" in table
+
+
+# --- проблемы: стоит ли проблема внимания — словами тревог ---------------------------------
+
+
+def _paused(report: WeeklyReport) -> weekly.Problem:
+    [problem] = [item for item in report.problems if "встал на паузу" in item.title]
+    return problem
+
+
+async def test_a_box_still_on_pause_is_a_cause_in_every_view(
+    session: AsyncSession, rows: WeekRows
+) -> None:
+    """Пауза недели, ящик всё ещё не пишет: пометка та же, что в тревоге аутрича, — на экране, в
+    сообщении группе и в выгрузке."""
+    await week_world(rows)
+
+    report = await _report(session)
+
+    assert _paused(report).concern is autopause.PAUSED
+    assert autopause.PAUSED.words in "\n".join(weekly_text.sections(report)[6].lines)
+    assert autopause.PAUSED.words in weekly_text.message(report)
+    assert autopause.PAUSED.words in weekly_text.to_csv(report).decode("utf-8-sig")
+
+
+async def test_a_box_that_writes_again_is_no_cause_any_more(
+    session: AsyncSession, rows: WeekRows
+) -> None:
+    """Событие недели остаётся в отчёте, а повода уже нет: ящик снова пишет."""
+    await week_world(rows)
+    box = await session.scalar(
+        select(SenderModel).where(SenderModel.email == "box2@sales-two.example.test")
+    )
+    assert box is not None
+    box.enabled, box.status = True, SenderStatus.FREE
+    await session.flush()
+
+    assert _paused(await _report(session)).concern is weekly.BOX_BACK
+
+
+async def test_every_kind_of_problem_has_its_mark(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Тревога сторожа — со своей пометкой, передача — с пометкой своего отказа, остальное — своими
+    словами: у каждой проблемы есть, что сказать о поводе."""
+    mark = no_cause("исход придёт сам")
+    seen = Alarm(code="a", title="Тревога", detail="подробности", concern=mark)
+
+    async def alarms(*_: object, **__: object) -> list[Alarm]:
+        return [seen]
+
+    async def missing(_: AsyncSession) -> list[str]:
+        return ["нет ящика"]
+
+    async def waiting(_: AsyncSession) -> list[handoff_console.Waiting]:
+        return [
+            handoff_console.Waiting(
+                7, 1, "a@b.example.test", "Acme", 3, state, "отказ", None, 1, HandoffTelegram.SENT
+            )
+            for state in (HandoffKommo.UNCONFIRMED, HandoffKommo.FAILED)
+        ]
+
+    async def undelivered(*_: object) -> tuple[int, int]:
+        return 2, 3
+
+    monkeypatch.setattr(mail_watch, "alarms", alarms)
+    monkeypatch.setattr(connection, "missing", missing)
+    monkeypatch.setattr(handoff_console, "waiting", waiting)
+    monkeypatch.setattr(weekly_counts, "undelivered", undelivered)
+    mail = weekly_counts.Mail(0, [], 0, 0)
+
+    found = await weekly._problems(session, WEEK.period, now=BUILT, mail=mail)
+
+    assert [problem.concern for problem in found] == [
+        mark,
+        weekly.NOT_READY,
+        handoff_kommo.REFUSALS[HandoffKommo.UNCONFIRMED],
+        handoff_kommo.REFUSALS[HandoffKommo.FAILED],
+        weekly.LEADS_LOST,
+        weekly.DRAFTS_UNTOLD,
+    ]
+
+
+def test_the_line_of_a_problem_ends_with_its_mark() -> None:
+    mark = cause("работа стоит", "сделать что-то")
+
+    with_dot = weekly.Problem("Стоит", "подробности.", mark, now=True)
+    without = weekly.Problem("Стоит", "подробности", None)
+
+    assert weekly_text.problem_line(with_dot) == f"Стоит (сейчас): подробности. {mark.words}"
+    assert weekly_text.problem_line(without) == "Стоит: подробности"

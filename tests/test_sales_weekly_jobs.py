@@ -220,6 +220,7 @@ async def test_a3_telegram_down_is_retried_by_the_pass_then_one_alarm(
     [alarm] = alarms
     assert f"не доставлен в группу продаж за {MESSAGE_TRIES} попыток" in alarm
     assert f"Отчёт на экране: {APP}/sales?tab=report&week=2027-03-01" in alarm
+    assert alarm.endswith(weekly_jobs.ON_SCREEN.words)
     assert await weekly_jobs.due(session, now=moment + timedelta(days=1)) == []
     assert switched_on, "бот пробовал с паузами — они не спят"
 
@@ -250,6 +251,7 @@ async def test_permanent_refusal_alarms_at_once_without_retry(
     assert "SALES_TELEGRAM_GROUP_CHAT_ID" in (row.error or "")
     [alarm] = alarms
     assert "недельный отчёт за 01.03–07.03 не доставлен в группу продаж — чат группы" in alarm
+    assert alarm.endswith(weekly_jobs.ON_SCREEN.words)
 
 
 async def test_stale_retry_is_not_sent(session: AsyncSession) -> None:

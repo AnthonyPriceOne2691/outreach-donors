@@ -657,9 +657,9 @@
       "worst": "—"
     },
     "backend/api/watchdog/routes.py": {
-      "lines": 144,
+      "lines": 143,
       "complexity": 5,
-      "worst": "silence:117"
+      "worst": "silence:116"
     },
     "backend/cli/__init__.py": {
       "lines": 1,
@@ -2077,9 +2077,9 @@
       "worst": "_gone:172"
     },
     "backend/features/ops/alarms.py": {
-      "lines": 107,
+      "lines": 106,
       "complexity": 3,
-      "worst": "marked:93"
+      "worst": "marked:92"
     },
     "backend/features/ops/funds_watch.py": {
       "lines": 52,
@@ -2572,9 +2572,9 @@
       "worst": "_move:116"
     },
     "backend/features/sales/agent/notify.py": {
-      "lines": 494,
+      "lines": 499,
       "complexity": 8,
-      "worst": "notify:158"
+      "worst": "notify:162"
     },
     "backend/features/sales/agent/notify_retry.py": {
       "lines": 156,
@@ -2642,9 +2642,9 @@
       "worst": "_choose:284"
     },
     "backend/features/sales/autobuild_alarm.py": {
-      "lines": 113,
+      "lines": 119,
       "complexity": 7,
-      "worst": "outcome_of:57"
+      "worst": "outcome_of:63"
     },
     "backend/features/sales/autosend.py": {
       "lines": 468,
@@ -2652,9 +2652,9 @@
       "worst": "stop:231"
     },
     "backend/features/sales/autosend_jobs.py": {
-      "lines": 229,
+      "lines": 234,
       "complexity": 8,
-      "worst": "_alarm:134"
+      "worst": "_alarm:138"
     },
     "backend/features/sales/autosend_refusals.py": {
       "lines": 85,
@@ -2792,9 +2792,9 @@
       "worst": "_queue_again:207"
     },
     "backend/features/sales/handoff_kommo.py": {
-      "lines": 196,
+      "lines": 213,
       "complexity": 9,
-      "worst": "write:60"
+      "worst": "write:75"
     },
     "backend/features/sales/handoff_manual.py": {
       "lines": 241,
@@ -2802,9 +2802,9 @@
       "worst": "kommo_said:209"
     },
     "backend/features/sales/handoff_telegram.py": {
-      "lines": 236,
+      "lines": 246,
       "complexity": 8,
-      "worst": "step:83"
+      "worst": "step:90"
     },
     "backend/features/sales/handoff_text.py": {
       "lines": 186,
@@ -2912,9 +2912,9 @@
       "worst": "problem:91"
     },
     "backend/features/sales/loops.py": {
-      "lines": 141,
+      "lines": 151,
       "complexity": 6,
-      "worst": "__call__:111"
+      "worst": "__call__:120"
     },
     "backend/features/sales/mail.py": {
       "lines": 498,
@@ -3287,19 +3287,19 @@
       "worst": "—"
     },
     "backend/features/sales/weekly.py": {
-      "lines": 304,
-      "complexity": 8,
-      "worst": "build:224"
+      "lines": 320,
+      "complexity": 9,
+      "worst": "_problems:272"
     },
     "backend/features/sales/weekly_counts.py": {
-      "lines": 289,
+      "lines": 292,
       "complexity": 9,
       "worst": "dialogs:122"
     },
     "backend/features/sales/weekly_jobs.py": {
-      "lines": 233,
+      "lines": 237,
       "complexity": 7,
-      "worst": "due:93"
+      "worst": "due:97"
     },
     "backend/features/sales/weekly_models.py": {
       "lines": 56,
@@ -3307,9 +3307,9 @@
       "worst": "—"
     },
     "backend/features/sales/weekly_text.py": {
-      "lines": 306,
+      "lines": 313,
       "complexity": 6,
-      "worst": "runway_line:159"
+      "worst": "runway_line:165"
     },
     "backend/features/sales/zone_country.py": {
       "lines": 70,

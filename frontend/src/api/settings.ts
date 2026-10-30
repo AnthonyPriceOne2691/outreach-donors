@@ -112,7 +112,7 @@ export interface AlarmConcern {
 }
 
 /** Тревога сторожа с этапом, о почте которого она: `null` — общая тревога (П2б). Пометки нет —
- *  у тревоги её нет (тревоге продаж она не обязательна): экран показывает её без метки. */
+ *  у тревоги её нет: экран показывает её без метки. */
 export interface StagedAlarm extends AlarmCard {
   stage: Stage | null;
   concern?: AlarmConcern | null;

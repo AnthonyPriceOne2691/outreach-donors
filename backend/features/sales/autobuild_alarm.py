@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 from rq import Queue
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.ops.alarms import cause
 from backend.features.sales import autosend, autosend_jobs, queue_start
 from backend.features.sales.job_holder import holder
 
@@ -44,6 +45,11 @@ STUCK = (
 )
 UNSTUCK = "прошло: автосборка снова может собрать очередь писем продаж"
 FAILED = "последняя автосборка (гипотеза «{name}») упала — причина в журнале задач"
+#: Пометка тревоги последней строкой (`ops/alarms.py`): что сделать, говорит причина в тревоге.
+EMPTY = cause(
+    "новые письма продаж не уходят, а очередь сама не соберётся",
+    "устранить причину, названную выше",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,11 +94,11 @@ class Watch:
         Telegram не принял — скажет следующий проход."""
         if stall is None:
             if self.told is not None and await autosend_jobs.say(
-                f"{UNSTUCK} (стояла: {self.told})"
+                f"{UNSTUCK} (стояла: {self.told})", None
             ):
                 self.told = None
             return
-        if self.told is None and await autosend_jobs.say(f"{STUCK}: {stall}"):
+        if self.told is None and await autosend_jobs.say(f"{STUCK}: {stall}", EMPTY):
             self.told = stall
 
 

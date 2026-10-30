@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 from backend.config import sales as cfg
-from backend.features.sales import handoff, telegram
+from backend.features.sales import handoff, handoff_kommo, handoff_telegram, telegram
 from backend.features.sales.handoff import Deps, HandoffBusyError, HandoffError
 from backend.features.sales.kommo import (
     CreatedLead,
@@ -311,6 +311,7 @@ async def test_a3_kommo_down_sends_dialog_link_alerts_and_waits_for_retry(
     assert "HTTP 503" in row.last_error
     [alert] = alerts
     assert "Kommo не ответил" in alert
+    assert alert.endswith(handoff_kommo.REFUSALS[HandoffKommo.RETRY].words)
     assert f"диалог №{dialog.thread.id}" in alert
     assert "ivan@" not in alert, "адрес лида не уходит в чат эксплуатации"
 
@@ -338,6 +339,7 @@ async def test_a3_retry_makes_the_deal_and_sends_its_link_once(
     assert (row.kommo, row.attempts, row.due_at) == (HandoffKommo.DONE, 3, None)
     assert len(alerts) == 2, "тревога — на входе в повтор и на выходе, не на каждом круге"
     assert "заведена" in alerts[1]
+    assert alerts[1].endswith(handoff_kommo.RECOVERED.words)
 
 
 async def test_a3_note_that_failed_is_written_later_once(
@@ -389,6 +391,7 @@ async def test_unconfirmed_write_with_contact_found_is_not_written_again(
     assert sent(api) == [(PERSONAL, message), (GROUP, message), (PERSONAL, again), (GROUP, again)]
     [alert] = alerts
     assert "проверить в Kommo руками" in alert
+    assert alert.endswith(handoff_kommo.REFUSALS[HandoffKommo.UNCONFIRMED].words)
 
 
 async def test_unconfirmed_write_without_contact_before_and_after_is_retried(
@@ -458,7 +461,8 @@ async def test_note_whose_answer_was_lost_is_not_repeated(
     assert (row.kommo, row.noted_reply_id) == (HandoffKommo.DONE, dialog.reply.id)
     assert row.last_error is not None
     assert "примечание" in row.last_error
-    assert len(alerts) == 1
+    [alert] = alerts
+    assert alert.endswith(handoff_kommo.UNNOTED.words)
 
 
 # --- Kommo отказал: ключ, права — человек ------------------------------------------------
@@ -476,6 +480,7 @@ async def test_refused_kommo_is_failed_with_alert_and_dialog_link(
     assert sent(api)[0] == (PERSONAL, message)
     [alert] = alerts
     assert "ключ Kommo отклонён" in alert
+    assert alert.endswith(handoff_kommo.REFUSALS[HandoffKommo.FAILED].words)
     queued: list[int] = []
     await answer(session, dialog.thread, dialog.message, "Алло?", at=NOW)
     await handoff.start(session, dialog.thread.id, enqueue=queued.append)
@@ -568,6 +573,8 @@ async def test_group_copy_refused_is_an_alert_not_undelivered(
     assert row.telegram is HandoffTelegram.SENT
     [alert] = alerts
     assert "копия в группу" in alert
+    assert alert.endswith(handoff_telegram.CONCERNS[handoff_telegram.GROUP].words)
+    assert "руками" not in alert, "телемаркетолог лида получил — передавать нечего"
 
 
 # --- A6: Kommo не подключён — ссылка на диалог, не тишина ----------------------------------

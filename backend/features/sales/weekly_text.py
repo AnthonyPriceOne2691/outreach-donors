@@ -137,8 +137,14 @@ def problem_title(problem: Problem) -> str:
     return f"{problem.title} (сейчас)" if problem.now else problem.title
 
 
+def problem_words(problem: Problem) -> str:
+    """Подробности проблемы и, есть ли повод для беспокойства, — теми же словами, что у тревог."""
+    concern = problem.concern
+    return problem.detail if concern is None else f"{problem.detail.rstrip('.')}. {concern.words}"
+
+
 def problem_line(problem: Problem) -> str:
-    return f"{problem_title(problem)}: {problem.detail}"
+    return f"{problem_title(problem)}: {problem_words(problem)}"
 
 
 def _problems(problems: list[Problem], shown: int | None) -> list[str]:
@@ -270,7 +276,8 @@ def _lines(report: WeeklyReport) -> Iterator[Line]:
         ("лиды поимённо", lead.hypothesis, lead_line(lead), lead.link) for lead in report.leads
     )
     yield from (
-        ("проблемы", "", problem_title(problem), problem.detail) for problem in report.problems
+        ("проблемы", "", problem_title(problem), problem_words(problem))
+        for problem in report.problems
     )
     runway = report.plan.runway
     if runway.unread is not None:

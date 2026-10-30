@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 from backend.config import alerts as alerts_cfg
 from backend.config import sales as sales_cfg
+from backend.features.ops.alarms import marked
 from backend.features.sales import autosend_jobs, loops
 from backend.workers import health, reaper, ticker
 
@@ -37,6 +38,22 @@ NAME = "Автосборка очереди продаж"
 AUTOSEND = "Автоотправка писем продаж"
 #: Негодная настройка продаж — как её называет `config/sales.BROKEN`.
 BROKEN = {"SALES_AUTOSEND_GAP_MIN": "SALES_AUTOSEND_GAP_MIN=«0» — нужно целое от 1 до 240"}
+
+
+@pytest.fixture(autouse=True)
+def mail_queue_pass_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Проход «Очередь писем уходит сама» здесь не судится, а идёт в базу своим движком: отмена
+    циклов обрывала его на запросе, и незакрытое соединение красило случайный следующий тест."""
+
+    async def nothing() -> None:
+        return None
+
+    monkeypatch.setattr(reaper, "queue_autosend", nothing)
+
+
+def _settings() -> str:
+    """Тревога о настройке, как она уходит: с пометкой последней строкой."""
+    return marked(loops.settings_alarm(), loops.MISSET)
 
 
 @pytest.fixture(autouse=True)
@@ -90,8 +107,11 @@ async def test_third_failure_in_a_row_is_one_sales_alarm_in_words(
 
     assert calls["pass"] == 6
     assert told == [
-        f"тревога: цикл продаж «{NAME}» падает 3-й проход подряд — Kommo не ответил; трассировка "
-        "— в журнале процесса разбора, разбор прогонов и сторож тишины идут"
+        marked(
+            f"тревога: цикл продаж «{NAME}» падает 3-й проход подряд — Kommo не ответил; трассировка "
+            "— в журнале процесса разбора, разбор прогонов и сторож тишины идут",
+            loops.CRASHED,
+        )
     ]
     # Каждая неудача — строкой журнала с трассировкой: тревога одна, журнал — о каждой.
     failed = [r for r in caplog.records if r.name == loops.logger.name]
@@ -217,8 +237,11 @@ async def test_a_silent_autosend_failure_is_told_by_its_loop(
 
     assert own_alarms == []
     assert told == [
-        f"тревога: цикл продаж «{AUTOSEND}» падает 3-й проход подряд — SendGrid не ответил; "
-        "трассировка — в журнале процесса разбора, разбор прогонов и сторож тишины идут"
+        marked(
+            f"тревога: цикл продаж «{AUTOSEND}» падает 3-й проход подряд — SendGrid не ответил; "
+            "трассировка — в журнале процесса разбора, разбор прогонов и сторож тишины идут",
+            loops.CRASHED,
+        )
     ]
 
 
@@ -241,9 +264,12 @@ async def test_a_broken_setting_is_one_alarm_in_words_for_all_sales_loops(
     await _passes(second, 3)
 
     assert told == [
-        "ПРОДАЖИ ВЫКЛЮЧЕНЫ — настройка с ошибкой: SALES_AUTOSEND_GAP_MIN=«0» — нужно целое от 1 "
-        "до 240. Автоотправка, агент продаж и передача лида стоят, пока администратор её не "
-        "поправит"
+        marked(
+            "ПРОДАЖИ ВЫКЛЮЧЕНЫ — настройка с ошибкой: SALES_AUTOSEND_GAP_MIN=«0» — нужно целое от 1 "
+            "до 240. Автоотправка, агент продаж и передача лида стоят, пока администратор её не "
+            "поправит",
+            loops.MISSET,
+        )
     ]
 
 
@@ -264,7 +290,7 @@ async def test_a_settings_alarm_telegram_did_not_take_is_told_by_the_next_pass(
 
     await _passes(loops.own(_good, NAME), 4)
 
-    assert said == [loops.settings_alarm(), loops.settings_alarm()]
+    assert said == [_settings(), _settings()]
 
 
 async def test_a_settings_alarm_without_the_bot_is_one_loud_line(
@@ -305,7 +331,7 @@ async def test_three_loops_starting_together_send_the_settings_alarm_once(
     await asyncio.gather(*(loop() for loop in first))
     await asyncio.gather(*(loop() for loop in first))
 
-    assert said == [loops.settings_alarm()]
+    assert said == [_settings()]
     assert loops.SETTINGS.told is True
 
 
@@ -332,7 +358,7 @@ async def test_a_refused_settings_alarm_is_sent_again_by_one_loop_only(
     for _ in range(3):
         await asyncio.gather(*(loop() for loop in first))
 
-    assert said == [loops.settings_alarm(), loops.settings_alarm()]
+    assert said == [_settings(), _settings()]
 
 
 async def test_read_settings_raise_no_alarm(
@@ -452,7 +478,7 @@ async def test_the_reaper_tells_a_broken_setting_once_for_its_three_sales_loops(
     running.cancel()
     with pytest.raises(asyncio.CancelledError):
         await running
-    assert told == [loops.settings_alarm()]
+    assert told == [_settings()]
 
 
 async def test_reaper_wraps_exactly_the_three_sales_loops_with_one_memory_each(

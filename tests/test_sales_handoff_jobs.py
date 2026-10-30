@@ -43,6 +43,17 @@ class _Closable:
         return None
 
 
+@pytest.fixture(autouse=True)
+def mail_queue_pass_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Проход «Очередь писем уходит сама» здесь не судится, а идёт в базу своим движком: отмена
+    циклов обрывала его на запросе, и незакрытое соединение красило случайный следующий тест."""
+
+    async def nothing() -> None:
+        return None
+
+    monkeypatch.setattr(reaper, "queue_autosend", nothing)
+
+
 @pytest.fixture
 def wired(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> Recorder:
     """Задача и проход работают в транзакции теста; Telegram — подставной."""

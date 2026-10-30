@@ -51,6 +51,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from backend.config import sales as cfg
+from backend.features.ops.alarms import cause, marked, no_cause
 from backend.features.sales import handoff_text as wording
 from backend.features.sales.handoff_kommo import headline
 from backend.features.sales.handoff_text import Card
@@ -66,6 +67,12 @@ logger = logging.getLogger(__name__)
 #: Что не ушло — словами тревоги.
 PERSONAL = "сообщение телемаркетологу не доставлено"
 GROUP = "копия в группу продаж не доставлена"
+#: Пометка тревоги последней строкой (`ops/alarms.py`): копия уходит после личного — значит,
+#: телемаркетолог лида получил.
+CONCERNS = {
+    PERSONAL: cause("телемаркетолог не получил лида", "передать лида телемаркетологу руками"),
+    GROUP: no_cause("телемаркетолог получил лида лично, не дошла только копия в группу"),
+}
 
 #: Что с группой, когда личное не дошло, — хвост тревоги владельцу (`_heads_up`).
 GROUP_TOLD = "группа продаж получила сообщение о лиде с пометкой «не доставлено»"
@@ -221,12 +228,15 @@ async def _not_delivered(
         return f"повтор не раньше {then}, попытка {failed.tries} из {MESSAGE_TRIES}"
     if failed.spent is not None:
         await deps.alert(
-            f"{headline(row)}: {what} за {failed.spent} попыток — повторов больше нет, передать "
-            f"лида телемаркетологу руками: {exc}{tail}"
+            marked(
+                f"{headline(row)}: {what} за {failed.spent} попыток — повторов больше нет: "
+                f"{exc}{tail}",
+                CONCERNS[what],
+            )
         )
         return f"попытки кончились ({failed.spent})"
     if failed.alarm:
-        await deps.alert(f"{headline(row)}: {what} — {exc}{tail}")
+        await deps.alert(marked(f"{headline(row)}: {what} — {exc}{tail}", CONCERNS[what]))
     return "без повтора"
 
 

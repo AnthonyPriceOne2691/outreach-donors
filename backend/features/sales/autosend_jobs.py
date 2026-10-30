@@ -56,6 +56,7 @@ from backend.config import sales as sales_cfg
 from backend.config import storage
 from backend.features.letters.transport_factory import Transports, in_use
 from backend.features.letters.unknown_outcome import STUCK_AFTER
+from backend.features.ops.alarms import Concern, cause, marked
 from backend.features.runs.reasons import explained
 from backend.features.sales import autosend, autosend_refusals
 from backend.features.sales.autosend import STALLS, Pass, Stop
@@ -73,6 +74,9 @@ ALARM = (
 RESUMED = "прошло: автоотправка писем продаж снова идёт"
 #: Тревога, когда продажи не подключены: писем в окне при этом может и не быть.
 OFFLINE = "тревога: автоотправка писем продаж включена, а не шлёт дольше 15 минут"
+#: Пометка тревоги последней строкой (`ops/alarms.py`): причину называет сама тревога, и у всех
+#: причин одно — письма не уходят, пока её не устранят.
+STALLED = cause("автоотправка писем продаж стоит не по делу", "устранить причину, названную выше")
 #: Стоит не по делу и без писем в окне: включённой автоотправке продажи нужны подключёнными, а
 #: лимит первых писем — прочитанным (`autosend.Facts.broken`).
 ALWAYS = frozenset({Stop.NOT_CONNECTED, Stop.UNREAD})
@@ -136,11 +140,11 @@ class Watch:
         в окне (или без них — `ALWAYS`); отбой — один раз, когда перестал. Telegram не принял —
         скажет следующий проход."""
         if stall is None:
-            if self.told is not None and await say(f"{RESUMED} (стояла: {self.told})"):
+            if self.told is not None and await say(f"{RESUMED} (стояла: {self.told})", None):
                 self.told = None
             return
         late = self.stalled_since is not None and now - self.stalled_since >= ALARM_AFTER
-        if late and self.told is None and await say(f"{head}. {stall}"):
+        if late and self.told is None and await say(f"{head}. {stall}", STALLED):
             self.told = stall
 
     def _journal(self, found: Pass) -> None:
@@ -182,11 +186,12 @@ def _detailed(why: str, detail: str | None) -> str:
     return f"{why} — {detail}" if detail else why
 
 
-async def say(text: str) -> bool:
+async def say(text: str, concern: Concern | None) -> bool:
     """Ушло ли слово: в Telegram — или громкой строкой журнала, если бот тревог не задан
     (`send_alert` пишет её сам), как у ленты сторожа (`ops/alarm_feed.py`). Тем же путём
-    говорит и тревога автосборки (`autobuild_alarm.py`)."""
-    sent = await send_alert(text)
+    говорит и тревога автосборки (`autobuild_alarm.py`). Пометка — последней строкой
+    (`ops/alarms.marked`); у «прошло» её нет: оно само говорит, что причины больше нет."""
+    sent = await send_alert(marked(text, concern))
     return sent or not (alerts_cfg.TELEGRAM_BOT_TOKEN and alerts_cfg.TELEGRAM_CHAT_ID)
 
 

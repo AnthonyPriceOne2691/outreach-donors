@@ -60,7 +60,7 @@ from backend.features.core.models.agent import AgentDraftModel, AgentSettingsMod
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import ReplyModel, ThreadModel
 from backend.features.ops.alarm_feed import Feed
-from backend.features.ops.alarms import Alarm
+from backend.features.ops.alarms import Alarm, cause, marked, no_cause
 from backend.features.runs.failures import described
 from backend.features.sales.models import NoticeStatus, SalesDraftNoticeModel
 from backend.features.sales.telegram import SalesBot, TelegramError
@@ -93,6 +93,10 @@ Clock = Callable[[], datetime]
 
 #: Сводная тревога «бот продаж без токена» — код в ленте тревог.
 BOT_ALARM = "sales-bot-unset"
+#: Пометки последней строкой (`ops/alarms.py`): повод сводной тревоги — от числа ждущих черновиков.
+NO_BOT = cause("черновики ждут человека, а группа о них не узнаёт", "задать токен бота продаж")
+NOBODY_WAITS = no_cause("сейчас ни один черновик не ждёт человека без сообщения")
+UNTOLD = cause("группа не узнала о черновике, а он ждёт человека", "открыть переписку по ссылке")
 #: Что о ней уже сказано человеку — лента процесса разбора, по смене состояния.
 BOT_FEED = Feed()
 
@@ -196,7 +200,7 @@ async def notify(
     await _journal(session, found, status, text, error, tries=failed.tries, due_at=failed.due_at)
     await session.commit()
     if failed.alarm and cfg.TELEGRAM_BOT_TOKEN:
-        await alert(_alarm(found, failed, failure))
+        await alert(marked(_alarm(found, failed, failure), UNTOLD))
     return Noticed(draft_id, status=status, error=error)
 
 
@@ -428,6 +432,7 @@ async def token_alarm(session: AsyncSession, *, keep: bool = False) -> Alarm | N
             "Задать SALES_TELEGRAM_BOT_TOKEN — о новых черновиках сообщения пойдут, прежние "
             "видны в переписке"
         ),
+        concern=NO_BOT if waiting else NOBODY_WAITS,
     )
 
 
