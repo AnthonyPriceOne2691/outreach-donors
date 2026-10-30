@@ -2112,7 +2112,7 @@
       "worst": "_crawl_blocked:322"
     },
     "backend/features/ops/stage_silence.py": {
-      "lines": 332,
+      "lines": 333,
       "complexity": 6,
       "worst": "_pending_concern:183"
     },
@@ -3707,9 +3707,9 @@
       "worst": "main:133"
     },
     "scripts/ui_screens.py": {
-      "lines": 436,
+      "lines": 462,
       "complexity": 2,
-      "worst": "open_reason:25"
+      "worst": "open_reason:28"
     },
     "scripts/ui_screens_donors.py": {
       "lines": 230,

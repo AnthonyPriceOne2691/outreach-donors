@@ -194,10 +194,11 @@ def _pending_concern(
             "повторяет и исход сам не придёт",
             "посмотреть исход письма в журнале писем платформы (Activity)",
         )
-    kinds = {kind for _, _, kind in stale}
     for kind, (why, todo) in CAUSES.items():
-        if kind.value in kinds:
-            return cause(why, todo)
+        found = [letter_id for letter_id, _, seen in stale if seen == kind.value]
+        if found:
+            # С номерами: тревога называет причины первых писем, а такое может быть и дальше.
+            return cause(f"{why} ({_numbers(found)})", todo)
     return no_cause(
         "сервер получателя тянет: платформа повторяет доставку до 72 часов, и исход придёт сам"
     )

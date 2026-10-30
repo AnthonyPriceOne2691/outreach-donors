@@ -210,3 +210,5 @@ class TestConcern:
         assert concern is not None
         assert concern.cause
         assert "отклоняет наш адрес или IP" in concern.words
+        # Письмо пятое, и причины в тревоге названы только у первых трёх: без номера не найти.
+        assert f"(№{letters[4].id})" in concern.words
