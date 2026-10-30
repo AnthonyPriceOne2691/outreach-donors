@@ -29,6 +29,7 @@ from backend.features.access.repository import AccessRepository, actor_of
 from backend.features.access.tokens import password_changed_since, read_token
 from backend.features.core.domain import Permission, UserRole
 from backend.features.core.models.access import UserModel
+from backend.shared.sliding_window import MINUTE, SlidingWindow
 from sqlalchemy.ext.asyncio import AsyncSession
 
 MakeUser = Callable[..., Awaitable[UserModel]]
@@ -82,6 +83,27 @@ class TestLoginAttempts:
             counter.check(f"email:{i}@site.com", now=later)
 
         assert counter.tracked == 0
+
+    def test_one_off_keys_do_not_stay_in_memory(self) -> None:
+        """Разовый адрес второй раз не спросят: `fresh` до него не дойдёт, и его
+        выметает запись следующего. Иначе адрес лежал бы до перезапуска процесса."""
+        window = SlidingWindow()
+        for number in range(100):
+            window.record(f"one-off-{number}", now=NOW)
+
+        window.record("next", now=NOW + 2 * MINUTE)
+
+        assert window.tracked == 1
+
+    def test_sweep_keeps_what_is_still_in_the_window(self) -> None:
+        window = SlidingWindow()
+        window.record("old", now=NOW)
+        window.record("recent", now=NOW + MINUTE / 2)
+
+        window.record("next", now=NOW + MINUTE)
+
+        assert window.tracked == 2
+        assert window.count("recent", now=NOW + MINUTE) == 1
 
 
 class TestAdministration:

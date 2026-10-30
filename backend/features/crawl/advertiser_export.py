@@ -8,7 +8,7 @@
 **Текст с чужих страниц в ячейке не исполняется.** Анкор и адрес страницы сняты с сайта
 донора, и анкор вида `=HYPERLINK(…)` таблица выполнила бы при открытии файла (OWASP
 «CSV Injection», как у выгрузки лидов, `replies/lead_handoff.py`): такой ячейке —
-ведущий апостроф.
+ведущий апостроф, правилом всех выгрузок (`shared/spreadsheet.py`).
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from backend.features.crawl.advertiser_list import AddressState, AdvertiserRow
 from backend.features.crawl.niche import NICHE
 from backend.features.crawl.offer_state import OFFER_TITLES
 from backend.features.donors.wording import CONTACT_STATUS_TITLES, NOT_SEARCHED
+from backend.shared.spreadsheet import inert
 
 #: Потолок строк файла. Экран получает его с сервера и не обещает больше.
 EXPORT_LIMIT = 10_000
@@ -39,9 +40,6 @@ COLUMNS = (
     "адрес",
     "письмо",
 )
-
-#: С чего начинается формула в Excel и Google Sheets (OWASP «CSV Injection»).
-_FORMULA = ("=", "+", "-", "@", "\t", "\r")
 
 
 def source_words(row: AdvertiserRow) -> str:
@@ -84,8 +82,7 @@ def _values(row: AdvertiserRow) -> tuple[object, ...]:
 
 def _cell(value: object) -> str:
     """Пусто — пустая ячейка; текст, похожий на формулу, — с апострофом впереди."""
-    text = "" if value is None else str(value)
-    return f"'{text}" if text.startswith(_FORMULA) else text
+    return "" if value is None else str(inert(str(value)))
 
 
 def to_csv(rows: Sequence[AdvertiserRow]) -> bytes:

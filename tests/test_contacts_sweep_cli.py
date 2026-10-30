@@ -313,3 +313,21 @@ class TestNumbersSurviveExcel:
         assert cells["whatsapp"] == '="79161234567890"'
         assert cells["viber"] == "79161234567; 79031234567"
         assert (cells["host"], cells["telegram"]) == ("site.com", "sitedesk")
+
+    def test_formula_from_a_foreign_page_does_not_run(self, tmp_path: Path) -> None:
+        """Обход кладёт сюда слова с чужих страниц, а файл открывают в Excel."""
+        out = tmp_path / "out.csv"
+        row = {
+            "host": "site.com",
+            "email_page": '=HYPERLINK("https://evil.example.test")',
+            "guessed": "\n=1+1",
+            "phone": "79161234567",
+        }
+
+        file_sweep.write_csv([row], out)
+
+        with out.open(encoding="utf-8-sig", newline="") as handle:
+            (cells,) = list(csv.DictReader(handle, delimiter=";"))
+        assert cells["email_page"] == """'=HYPERLINK("https://evil.example.test")"""
+        assert cells["guessed"] == "'\n=1+1"
+        assert cells["phone"] == '="79161234567"'

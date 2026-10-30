@@ -209,6 +209,26 @@ class TestWhoIsLetIn:
         assert codes[:2] == [200, 200]
         assert codes[2] == 403
 
+    async def test_guessing_the_secret_is_throttled_too(
+        self, client: AsyncClient, sent: MessageModel, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Неверный секрет считается: иначе перебор — единственный поток, которого счётчик
+        не видит. На пределе следующий секрет уже не сравнивается."""
+        monkeypatch.setattr(inbound_routes, "RATE_PER_MINUTE", 2)
+
+        said = []
+        for number in range(3):
+            response = await client.post(
+                "/api/inbound/replies",
+                data=form_for(sent, "250 EUR"),
+                headers=secret_header(f"guess-{number}"),
+            )
+            assert response.status_code == 403
+            said.append(response.json()["reason"])
+
+        assert said[:2] == ["Секрет не совпал", "Секрет не совпал"]
+        assert "Слишком часто" in said[2]
+
     async def test_table_covers_every_route(self, api_app: FastAPI) -> None:
         """Раздел без пропуска — это раздел, у которого защита своя,
         и список его маршрутов должен быть виден целиком."""
