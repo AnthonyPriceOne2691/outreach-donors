@@ -596,9 +596,9 @@ class TestStanding:
     @pytest.mark.parametrize(
         ("value", "said"),
         [
-            (Decimal("9291.5"), "9 291,5"),
+            (Decimal("1234.5"), "1 234,5"),
             (Decimal("10000.00"), "10 000"),
-            (Decimal("18583"), "18 583"),
+            (Decimal("7159"), "7 159"),
             (Decimal(0), "0"),
         ],
     )
