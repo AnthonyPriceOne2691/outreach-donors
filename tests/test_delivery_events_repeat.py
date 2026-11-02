@@ -38,7 +38,7 @@ from backend.features.core.models.outreach import MessageModel, SenderHealthMode
 from backend.features.core.stages import MailPolicy
 from backend.features.letters.events import DeliveryEvent
 from backend.features.outreach import health
-from backend.features.outreach.health import Heard, SoftSignals
+from backend.features.outreach.health import SoftSignals
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import Connection, event, select, text
@@ -316,27 +316,12 @@ async def test_4_without_numbers_a_repeat_goes_as_before(
 # --- 5: доноры ------------------------------------------------------------------------------
 
 
-async def test_5_donor_box_leaves_listen_before_the_journal(
-    session: AsyncSession, key: Any
-) -> None:
-    """Ящик доноров выходит из `listen` с `ruled=False` раньше журнала — даже с номером, который
-    журнал знает: его судит прежнее правило парковки, как судило."""
-    sales = await _box(session, Stage.SALES, total=1)
-    donors = await _box(session, Stage.DONORS, total=1)
-    session.add(SenderHealthModel(sender_id=sales.id, kind="deferred", at=NOW, event_id="sg-5"))
-    await session.flush()
-    bounce = DeliveryEvent("bounce", await _letter(session, donors), "x@y.z", event_id="sg-5")
-
-    assert await health.listen(session, donors.id, bounce, NOW) == Heard(ruled=False)
-
-
 @pytest.mark.parametrize("numbered", [True, False])
-async def test_5_donor_batch_twice_goes_the_old_way(
+async def test_5_donor_batch_twice_goes_the_same_way(
     client: AsyncClient, session: AsyncSession, key: Any, numbered: bool
 ) -> None:
-    """С номерами и без — одно и то же: журнала у доноров нет, парковка — прежним правилом по
-    доле отказов за всю жизнь ящика (4 из 60 — пауза с первой доставки)."""
-    box = await _box(session, Stage.DONORS, total=60, bounced=3)
+    """Правило одно у всех этапов: повтор пачки ящик доноров дважды не судит."""
+    box = await _box(session, Stage.DONORS, total=20, bounced=2)
     letter = await _letter(session, box)
     numbers = ("sg-5-1", "sg-5-2") if numbered else (MISSING, MISSING)
     batch = [_event("bounce", letter, numbers[0]), _event("deferred", letter, numbers[1])]
@@ -346,7 +331,7 @@ async def test_5_donor_batch_twice_goes_the_old_way(
     assert [answer.status_code for answer in answers] == [200, 200]
     said = [(answer.json()["bounced"], answer.json()["paused"]) for answer in answers]
     assert said == [(1, [box.email]), (0, [])]
-    assert await _journal(session, box) == []
+    assert (await _journal(session, box))[0] == "paused"
 
 
 # --- ревизия --------------------------------------------------------------------------------

@@ -65,6 +65,7 @@ from backend.features.letters.sending import (
     NotWritingError,
     OtherRoleError,
     OutsideWindowError,
+    RecipientDnsError,
     RejectedDonorError,
     RemovedAdvertiserError,
     SendError,
@@ -83,6 +84,10 @@ logger = logging.getLogger(__name__)
 #: Потолок одной пачки — столько же, сколько очередь показывает на экране
 #: (`LetterRepository.queued`): уходит ровно то, что человек мог увидеть.
 BATCH_MAX = 200
+
+#: DNS получателя молчит: письмо ждёт в очереди и уйдёт само (`recipient_dns.py`) — ожидание, а не
+#: отказ: проход автоотправки из-за него не «стоит не по делу» (`autosend._stalled`).
+DNS_WAITS = "DNS получателя не отвечает"
 
 #: Отказ — словами, одинаковыми для похожих: текст отказа называет адрес
 #: или донора, и по нему итог развалился бы на строку на каждое письмо.
@@ -109,6 +114,7 @@ _WHY: tuple[tuple[type[SendError], str], ...] = (
     # Окно получателя (`core/window.py`): письмо ждёт в очереди его рабочих часов.
     (OutsideWindowError, "вне окна получателя"),
     (UnknownZoneError, "пояс получателя неизвестен"),
+    (RecipientDnsError, DNS_WAITS),
 )
 #: Отказ предохранителя (`sendgrid.py`): пока список своих адресов не пуст,
 #: письма уходят только на них.

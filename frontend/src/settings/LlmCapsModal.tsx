@@ -17,17 +17,13 @@
  * Раздел, которого учётка не видит (продажи без права «Продажи»), в окне не меняется.
  */
 
-import { Alert, Button, Group, Modal, Select, Stack, Text } from '@mantine/core';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Alert, Button, Group, Select, Text } from '@mantine/core';
 import { useState } from 'react';
 
-import { refusalOf } from '../api/client';
 import { saveLlmCaps } from '../api/llmCaps';
 import type { LlmBlock, LlmCaps, LlmCapChange, LlmPart } from '../api/llmCaps';
-import { FIELD_GAP } from '../components/formRhythm';
-import { SaveActions } from '../components/SaveActions';
 import { formatNumber } from '../format';
-import { notify } from '../notices';
+import { CapDialog, useCapSave } from './CapDialog';
 
 /** «50 000 000 токенов в сутки». */
 export function tokensWords(tokens: number): string {
@@ -81,7 +77,6 @@ interface Props {
 }
 
 export function LlmCapsModal({ caps, onClose }: Props) {
-  const queryClient = useQueryClient();
   const start = caps.saved ?? caps.suggested;
   const [general, setGeneral] = useState<number | null>(start.general_tokens);
   const [shares, setShares] = useState<Shares>(() => sharesOf(start));
@@ -89,29 +84,18 @@ export function LlmCapsModal({ caps, onClose }: Props) {
   const free = 100 - shares.sales - shares.agent - shares.outreach;
   const wanted = blockOf(general, shares);
   const same = sameBlock(wanted, caps.saved);
-  const save = useMutation({
-    mutationFn: (block: LlmBlock) => saveLlmCaps(block),
-    onSuccess: async (change) => {
-      // Потолки читают «Расход» и сметы прогонов; смету человек считает заново сам.
-      await queryClient.invalidateQueries({ queryKey: ['usage'] });
-      notify({ message: savedWords(change), color: 'green' });
-      onClose();
-    },
-  });
+  // Потолки читают «Расход» и сметы прогонов; смету человек считает заново сам.
+  const save = useCapSave({ save: saveLlmCaps, words: savedWords, onClose });
   const move = (part: LlmPart, by: number) => {
     setShares((now) => ({ ...now, [part]: now[part] + by }));
     save.reset();
   };
 
   return (
-    <Modal opened onClose={onClose} title="Потолки модели">
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!same && !save.isPending) save.mutate(wanted);
-        }}
-      >
-        <Stack gap={FIELD_GAP}>
+    <CapDialog
+      title="Потолки модели"
+      intro={
+        <>
           <Text size="sm" c="dimmed">
             Общий держит расход модели на весь сервис за сутки. У каждого раздела — свой лимит
             процентом общего, жёсткий: потраченное другими он не берёт, а свободный остаток не
@@ -123,74 +107,71 @@ export function LlmCapsModal({ caps, onClose }: Props) {
               — предложенные значения.
             </Text>
           )}
-          {save.error ? (
-            <Alert color="red" title="Потолки не сменили">
-              {refusalOf(save.error)}
-            </Alert>
-          ) : null}
-          <Select
-            label="Общий потолок на весь сервис"
-            allowDeselect={false}
-            data={[
-              ...caps.general_presets.map((tokens) => ({
-                value: String(tokens),
-                label: `${formatNumber(tokens / 1_000_000)} млн токенов в сутки`,
-              })),
-              { value: NO_CAP, label: 'Без потолка' },
-            ]}
-            value={general === null ? NO_CAP : String(general)}
-            onChange={(next) => {
-              setGeneral(next === null || next === NO_CAP ? null : Number(next));
-              save.reset();
-            }}
-          />
-          {general === null && (
-            <Alert color="yellow" title="Без потолка — настройка с ответственностью">
-              Расход модели за сутки не держит ничто: ни разделы, ни общий. Лимиты разделов
-              запомнятся и встанут обратно, когда общий снова будет числом. Смена попадёт в журнал.
-            </Alert>
-          )}
+        </>
+      }
+      onClose={onClose}
+      onSave={() => save.mutate(wanted)}
+      error={save.error}
+      errorTitle="Потолки не сменили"
+      saving={save.isPending}
+      locked={same ? 'Это действующие потолки — измените общий или лимит раздела' : null}
+    >
+      <Select
+        label="Общий потолок на весь сервис"
+        allowDeselect={false}
+        data={[
+          ...caps.general_presets.map((tokens) => ({
+            value: String(tokens),
+            label: `${formatNumber(tokens / 1_000_000)} млн токенов в сутки`,
+          })),
+          { value: NO_CAP, label: 'Без потолка' },
+        ]}
+        value={general === null ? NO_CAP : String(general)}
+        onChange={(next) => {
+          setGeneral(next === null || next === NO_CAP ? null : Number(next));
+          save.reset();
+        }}
+      />
+      {general === null && (
+        <Alert color="yellow" title="Без потолка — настройка с ответственностью">
+          Расход модели за сутки не держит ничто: ни разделы, ни общий. Лимиты разделов запомнятся и
+          встанут обратно, когда общий снова будет числом. Смена попадёт в журнал.
+        </Alert>
+      )}
+      <Text size="sm">
+        Свободный остаток <b>{free}%</b>
+        {tokensOf(general, free)}
+      </Text>
+      {caps.parts.map((part) => (
+        <Group key={part.part} justify="space-between" gap="sm" wrap="wrap">
           <Text size="sm">
-            Свободный остаток <b>{free}%</b>
-            {tokensOf(general, free)}
+            {part.title} — <b>{shares[part.part]}%</b>
+            {tokensOf(general, shares[part.part])}
           </Text>
-          {caps.parts.map((part) => (
-            <Group key={part.part} justify="space-between" gap="sm" wrap="wrap">
-              <Text size="sm">
-                {part.title} — <b>{shares[part.part]}%</b>
-                {tokensOf(general, shares[part.part])}
-              </Text>
-              <Group gap="xs">
-                <Button
-                  size="compact-sm"
-                  variant="default"
-                  className="press"
-                  aria-label={`Убавить разделу «${part.title}»`}
-                  disabled={shares[part.part] <= step}
-                  onClick={() => move(part.part, -step)}
-                >
-                  Убавить
-                </Button>
-                <Button
-                  size="compact-sm"
-                  variant="default"
-                  className="press"
-                  aria-label={`Добавить разделу «${part.title}» из остатка`}
-                  disabled={free < step}
-                  onClick={() => move(part.part, step)}
-                >
-                  Добавить из остатка
-                </Button>
-              </Group>
-            </Group>
-          ))}
-          <SaveActions
-            onCancel={onClose}
-            saving={save.isPending}
-            locked={same ? 'Это действующие потолки — измените общий или лимит раздела' : null}
-          />
-        </Stack>
-      </form>
-    </Modal>
+          <Group gap="xs">
+            <Button
+              size="compact-sm"
+              variant="default"
+              className="press"
+              aria-label={`Убавить разделу «${part.title}»`}
+              disabled={shares[part.part] <= step}
+              onClick={() => move(part.part, -step)}
+            >
+              Убавить
+            </Button>
+            <Button
+              size="compact-sm"
+              variant="default"
+              className="press"
+              aria-label={`Добавить разделу «${part.title}» из остатка`}
+              disabled={free < step}
+              onClick={() => move(part.part, step)}
+            >
+              Добавить из остатка
+            </Button>
+          </Group>
+        </Group>
+      ))}
+    </CapDialog>
   );
 }

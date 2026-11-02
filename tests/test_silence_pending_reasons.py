@@ -176,7 +176,7 @@ class TestConcern:
             stuck,
             since=SINCE,
             attempts=4,
-            reason="unable to get mx info: failed to get IPs from PTR record",
+            reason="dial tcp: lookup mx.example.com: no such host",
             kind=Trouble.NO_MAIL_SERVER,
         )
         await _delivered_later(session, 1)

@@ -34,6 +34,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.letters.delivery_trouble import (
+    GAVE_UP,
     Trouble,
     kind_of,
     reason_of,
@@ -53,10 +54,6 @@ ATTEMPT_FORMS = {1: "попытка", 2: "попытки", 3: "попытки", 
 
 #: Сколько откладываемых писем показать на экране писем — остальные числом.
 WAITING_LIMIT = 50
-
-#: Отказ, в словах которого причины нет, — у письма с отсрочками его называет последняя отсрочка:
-#: платформа сдалась, а почему — сказала раньше.
-GAVE_UP = frozenset({Trouble.UNKNOWN, Trouble.EXPIRED})
 
 
 @dataclass(frozen=True, slots=True)

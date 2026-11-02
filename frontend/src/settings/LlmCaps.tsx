@@ -13,7 +13,7 @@
  * меткой; лимиты разделов запомнены.
  */
 
-import { Badge, Button, Group, Stack, Text } from '@mantine/core';
+import { Badge, Stack, Text } from '@mantine/core';
 import { useState } from 'react';
 
 import { permissionTitle } from '../api/labels';
@@ -21,14 +21,22 @@ import type { LlmCaps as Caps, LlmPartCard } from '../api/llmCaps';
 import { useSession } from '../auth/AuthProvider';
 import { Meter } from '../components/Meter';
 import { formatNumber } from '../format';
-import { changedBy } from './AhrefsCapModal';
+import { changedBy } from './CapDialog';
+import { LimitCard, LimitLine } from './LimitCard';
 import { LlmCapsModal, tokensWords } from './LlmCapsModal';
 
 /** Общий — словами строки: «50 000 000 токенов в сутки» или «без потолка». */
 function generalLine(caps: Caps): string {
   const what = caps.general === null ? 'без потолка' : tokensWords(caps.general);
   const from = caps.scheme === 'env' ? ' — как в настройках сервера' : '';
-  return `Модель — общий потолок на весь сервис: ${what}${from}`;
+  return `Общий потолок на весь сервис: ${what}${from}`;
+}
+
+/** Осталось от общего — только когда учётка видит весь расход: без права «Продажи» «потрачено»
+ *  идёт без продаж, и разность от общего потолка была бы неправдой. */
+function leftOfGeneral(caps: Caps): number | null {
+  if (caps.general === null || !caps.parts.some((part) => part.part === 'sales')) return null;
+  return Math.max(0, caps.general - caps.spent);
 }
 
 /** Роздано и свободный остаток — только у сохранённого блока с числом. */
@@ -37,7 +45,8 @@ function freeLine(caps: Caps): string | null {
   return `Роздано разделам ${100 - caps.free_share}% · свободный остаток ${caps.free_share}% — можно раздать ещё ${formatNumber(caps.free)} токенов`;
 }
 
-/** Лимит раздела словами: «лимит 20% · 10 000 000 токенов»; без лимита — чем он держится. */
+/** Лимит раздела словами: «лимит 20% · 10 000 000»; без лимита — чем он держится. Токены и сутки
+ *  названы в карточке выше. */
 function limitLine(part: LlmPartCard, caps: Caps): string {
   if (part.limit === null) {
     if (caps.scheme === 'parts')
@@ -46,24 +55,21 @@ function limitLine(part: LlmPartCard, caps: Caps): string {
   }
   const share = part.share === null ? '' : ` ${part.share}% ·`;
   const from = caps.scheme === 'env' ? ' — как в настройках сервера' : '';
-  return `${part.title} — лимит${share} ${tokensWords(part.limit)}${from}`;
+  return `${part.title} — лимит${share} ${formatNumber(part.limit)}${from}`;
 }
 
 function PartRow({ part, caps }: { part: LlmPartCard; caps: Caps }) {
   return (
     <Stack gap={4}>
-      <Text size="sm" fw={500} style={{ overflowWrap: 'anywhere' }}>
-        {limitLine(part, caps)}
-      </Text>
+      <LimitLine strong>{limitLine(part, caps)}</LimitLine>
       {part.limit === null || part.left === null ? (
         <Text size="sm" c="dimmed">
           Потрачено сегодня {formatNumber(part.spent)}
         </Text>
       ) : (
         <>
-          <Text size="sm">
-            Потрачено сегодня <b>{formatNumber(part.spent)}</b> · осталось{' '}
-            <b>{formatNumber(part.left)}</b> — выбрано {part.used_percent ?? 0}%
+          <Text size="sm" c="dimmed">
+            Осталось {formatNumber(part.left)} — выбрано {part.used_percent ?? 0}%
           </Text>
           <Meter
             spent={part.spent}
@@ -81,49 +87,46 @@ export function LlmCaps({ caps }: { caps: Caps }) {
   const [editing, setEditing] = useState(false);
   const free = freeLine(caps);
   const [last] = caps.changes;
+  const left = leftOfGeneral(caps);
   return (
-    <Stack gap="sm">
-      <Group gap="sm" wrap="wrap">
-        <Text size="sm" fw={500} style={{ overflowWrap: 'anywhere' }}>
-          {generalLine(caps)}
-        </Text>
+    <>
+      <LimitCard
+        title="Модель"
+        caption={left === null ? 'Потрачено сегодня' : 'Осталось сегодня'}
+        value={formatNumber(left ?? caps.spent)}
+        of={caps.general === null ? 'токенов' : `из ${formatNumber(caps.general)} токенов`}
+        gauge={
+          caps.general === null
+            ? undefined
+            : { spent: caps.spent, cap: caps.general, label: 'Выбрано от общего потолка за сутки' }
+        }
+        note={free ?? generalLine(caps)}
+        when={`Сброс ${caps.reset_in}`}
+        footer={
+          last === undefined
+            ? 'Потолки модели на экране не меняли — как в настройках сервера'
+            : `Изменены: ${changedBy(last)}`
+        }
+        action={{
+          label: 'Изменить потолки',
+          allowed: can('spend'),
+          who: `Потолки меняет учётка с правом «${permissionTitle('spend')}»`,
+          onClick: () => setEditing(true),
+        }}
+      >
         {caps.general === null && (
-          <Badge color="yellow" variant="light">
-            без потолка — расход модели ничем не ограничен
+          <Badge color="yellow" variant="light" style={{ alignSelf: 'flex-start' }}>
+            без потолка — расход ничем не ограничен
           </Badge>
         )}
-      </Group>
-      {free !== null && <Text size="sm">{free}</Text>}
-      {caps.parts.map((part) => (
-        <PartRow key={part.part} part={part} caps={caps} />
-      ))}
-      <Text size="sm" c="dimmed">
-        Потрачено моделью сегодня: {formatNumber(caps.spent)} · сброс {caps.reset_in}
-      </Text>
-      <Group gap="sm" wrap="wrap">
-        <Text size="sm" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
-          {last === undefined
-            ? 'Потолки модели на экране не меняли — как в настройках сервера'
-            : `Изменены: ${changedBy(last)}`}
-        </Text>
-        {can('spend') ? (
-          <Button
-            size="compact-sm"
-            variant="default"
-            className="press"
-            aria-haspopup="dialog"
-            onClick={() => setEditing(true)}
-          >
-            Изменить потолки
-          </Button>
-        ) : (
-          <Text size="sm" c="dimmed">
-            Потолки меняет учётка с правом «{permissionTitle('spend')}»
-          </Text>
-        )}
-      </Group>
+        <Stack gap="xs">
+          {caps.parts.map((part) => (
+            <PartRow key={part.part} part={part} caps={caps} />
+          ))}
+        </Stack>
+      </LimitCard>
       {/* Окно монтируется на каждое открытие — и открывается на сохранённом блоке. */}
       {editing && <LlmCapsModal caps={caps} onClose={() => setEditing(false)} />}
-    </Stack>
+    </>
   );
 }

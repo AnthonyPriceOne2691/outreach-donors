@@ -40,12 +40,29 @@ SAMPLES: list[tuple[Trouble, str]] = [
         '451 4.4.0 Primary target IP address responded with: "421 4.4.1 Connection timed out." '
         "Attempted failover to alternate host, but that did not succeed.",
     ),
-    # У домена нет почтового сервера.
+    # DNS получателя молчит: ответа нет, а не «домена нет».
     (
-        Trouble.NO_MAIL_SERVER,
+        Trouble.RECIPIENT_DNS,
         "unable to get mx info: failed to get IPs from PTR record: lookup <nil>: "
         "unrecognized address",
     ),
+    (
+        Trouble.RECIPIENT_DNS,
+        "Host or domain name not found. Name service error for name=example.com type=MX: "
+        "Host not found, try again",
+    ),
+    (Trouble.RECIPIENT_DNS, "dial tcp: lookup mx.example.com on 192.0.2.53:53: server misbehaving"),
+    (Trouble.RECIPIENT_DNS, "dial tcp: lookup mx.example.com on 192.0.2.53:53: i/o timeout"),
+    (Trouble.RECIPIENT_DNS, "lookup example.com: Temporary failure in name resolution"),
+    (Trouble.RECIPIENT_DNS, "451 4.4.0 DNS query failed. The error was: ErrorRetry"),
+    (
+        Trouble.RECIPIENT_DNS,
+        "DNS Error: DNS type 'mx' lookup of example.com responded with code SERVFAIL",
+    ),
+    (Trouble.RECIPIENT_DNS, "R=dnslookup defer (-1): host lookup did not complete"),
+    (Trouble.RECIPIENT_DNS, "451 Temporary DNS failure, nameserver not responding"),
+    (Trouble.RECIPIENT_DNS, "451 4.4.3 Temporary server error. Please try again later"),
+    # У домена нет почтового сервера: «домена нет» — ответ, а не молчание.
     (
         Trouble.NO_MAIL_SERVER,
         "dial tcp: lookup mail.example.com on 127.0.0.53:53: no such host",
@@ -53,7 +70,7 @@ SAMPLES: list[tuple[Trouble, str]] = [
     (
         Trouble.NO_MAIL_SERVER,
         "Host or domain name not found. Name service error for name=example.com type=MX: "
-        "Host not found, try again",
+        "Host not found",
     ),
     (
         Trouble.NO_MAIL_SERVER,
@@ -311,6 +328,7 @@ class TestWords:
         [
             ("5.1.1", Trouble.NO_MAILBOX),
             ("5.1.2", Trouble.NO_MAIL_SERVER),
+            ("4.4.3", Trouble.RECIPIENT_DNS),
             ("4.2.2", Trouble.MAILBOX_FULL),
             ("4.4.2", Trouble.UNREACHABLE),
             ("5.7.1", Trouble.BLOCKED),

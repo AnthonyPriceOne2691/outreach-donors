@@ -82,6 +82,35 @@ export const LLM_CAPS = {
   changes: [] as unknown[],
 };
 
+/** Учётка Hunter по снимку с общим счётом и наш потолок из настроек сервера. Числа выдуманные. */
+export const HUNTER = {
+  account: {
+    plan: 'Team plan',
+    reset_on: '2026-11-19',
+    asked_at: '2026-10-16T11:05:00+00:00',
+    credits: { used: 250.5, available: 1000, remaining: 749.5 } as {
+      used: number;
+      available: number;
+      remaining: number;
+    } | null,
+    searches: { used: 250, available: 1000, remaining: 749 },
+    verifications: { used: 501, available: 2000, remaining: 1499 },
+    used_percent: 25,
+  } as unknown,
+  unknown: null as string | null,
+  month: {
+    cap: 1500 as number | null,
+    problem: null as string | null,
+    source: 'env' as 'env' | 'setting',
+    spent: 300,
+    left: 1200 as number | null,
+    used_percent: 20 as number | null,
+    since: '2026-10-01T00:00:00+00:00',
+    most: 2000,
+    changes: [] as unknown[],
+  } as unknown,
+};
+
 /** Расход с базы разработки: юниты Ahrefs и выдача доноров, кап — весь лимит ключа. */
 export const SPENDING = {
   since: '2026-09-01T00:00:00+00:00',
@@ -119,6 +148,7 @@ export const SPENDING = {
   ahrefs_left: 35000,
   ahrefs_key: AHREFS_KEY,
   llm_caps: LLM_CAPS,
+  hunter: HUNTER,
   ahrefs_left_error: null,
   serp_left_usd: '51.90',
   serp_spent_by_us: '0.3600',
@@ -130,21 +160,38 @@ interface Opening {
   me?: Me;
   /** Свои ответы сервера поверх ответа экрана: смена капа, второе чтение расхода. */
   routes?: Parameters<typeof serve>[0];
+  /** Адрес экрана, если не обычный. */
+  path?: string;
 }
 
-/** Открыть «Расход» и дождаться строки нашего капа — она есть всегда, и по ней видно, что
- *  ответ пришёл. */
-export async function openUsage(
-  spending: unknown = SPENDING,
-  { me = ADMIN, routes = {} }: Opening = {},
-): Promise<Recorded> {
+function opened(spending: unknown, { me = ADMIN, routes = {} }: Opening, path: string): Recorded {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     'GET /api/auth/me': { body: me },
     'GET /api/usage': { body: spending },
     ...routes,
   });
-  renderWith(<AppRoutes />, '/usage');
+  renderWith(<AppRoutes />, path);
+  return recorded;
+}
+
+/** Открыть «Расход» и дождаться строки нашего капа — она есть всегда, и по ней видно, что
+ *  ответ пришёл. */
+export async function openUsage(
+  spending: unknown = SPENDING,
+  opening: Opening = {},
+): Promise<Recorded> {
+  const recorded = opened(spending, opening, opening.path ?? '/usage');
   await screen.findByText(/^Наш кап:/);
+  return recorded;
+}
+
+/** Открыть вкладку «Статьи расхода» адресом и дождаться строки периода над плитками. */
+export async function openArticles(
+  spending: unknown = SPENDING,
+  opening: Opening = {},
+): Promise<Recorded> {
+  const recorded = opened(spending, opening, '/usage?view=articles');
+  await screen.findByText(/календарный месяц: плитки, этапы и статьи/);
   return recorded;
 }

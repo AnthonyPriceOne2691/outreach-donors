@@ -66,14 +66,6 @@ class _Outreach(DomainSettings):
     # «дни от первого письма», а счёт шёл от предыдущего: вторая добивка уходила на 21-й
     # день (сверка ТЗ 12.10.2026). Стоп при любом ответе или отписке.
     followup_days: str = Field(default="7,7", validation_alias="OUTREACH_FOLLOWUP_DAYS")
-    # Доля отказов, после которой отправитель уходит на паузу, и минимум
-    # отправок, до которого доля не считается (иначе 2 отказа из 3 роняют домен).
-    bounce_pause_threshold: float = Field(
-        default=0.05, validation_alias="OUTREACH_BOUNCE_PAUSE_THRESHOLD"
-    )
-    bounce_pause_min_sent: int = Field(
-        default=50, validation_alias="OUTREACH_BOUNCE_PAUSE_MIN_SENT"
-    )
     # Уникализация письма: целевая доля изменённых слов.
     uniqueness_target_min: float = Field(default=0.15, validation_alias="OUTREACH_UNIQ_MIN")
     uniqueness_target_max: float = Field(default=0.25, validation_alias="OUTREACH_UNIQ_MAX")
@@ -143,8 +135,6 @@ WARMUP_DAILY_CAPS: tuple[int, ...] = tuple(int(x) for x in _s.warmup_daily_caps.
 WARMUP_STEP_DAYS: int = _s.warmup_step_days
 FOLLOWUP_DAYS: tuple[int, ...] = tuple(int(x) for x in _s.followup_days.split(","))
 FOLLOWUP_PER_SENDER_PER_HOUR: int = _s.followup_per_sender_per_hour
-BOUNCE_PAUSE_THRESHOLD: float = _s.bounce_pause_threshold
-BOUNCE_PAUSE_MIN_SENT: int = _s.bounce_pause_min_sent
 UNIQUENESS_TARGET_MIN: float = _s.uniqueness_target_min
 UNIQUENESS_TARGET_MAX: float = _s.uniqueness_target_max
 PRICE_CONFIDENCE_THRESHOLD: float = _s.price_confidence_threshold

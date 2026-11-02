@@ -31,6 +31,10 @@
 разберётся по журналу платформы. Вернуть его в очередь значило бы
 отправить второе.
 
+**DNS получателя молчит — письмо ждёт** (02.11.2026, `recipient_dns.py`). Отказ приходит
+через минуты, и к этому времени письмо уже потратило лимит ящика и погасило цепочку. Спрашивается
+до выбора ящика и захвата: письмо остаётся в очереди, ящик не занят, почта ничего не видела.
+
 **Ящик выбирается в момент отправки**, а не при сборке: очередь общая,
 и вставший ящик не должен блокировать свою часть. Это про первые письма:
 добивка и ответ уходят только с ящика своей переписки и только своим путём
@@ -55,6 +59,7 @@ from backend.features.letters import (
     compose,
     identity,
     mailbox,
+    recipient_dns,
     reply_to,
     settle,
     site_role,
@@ -65,52 +70,50 @@ from backend.features.letters.chain import ANSWER_STEP
 from backend.features.letters.donor_standing import Refusal, check_donor
 from backend.features.letters.offer_standing import OfferRefused, check_offer
 from backend.features.letters.outgoing_store import Files, OutgoingFiles
+from backend.features.letters.send_refusals import (
+    NoSenderError,
+    NotQueuedError,
+    NotReadyError,
+    NotWritingError,
+    OtherRoleError,
+    OutsideWindowError,
+    OwnPathError,
+    RecipientDnsError,
+    RejectedDonorError,
+    RemovedAdvertiserError,
+    SendError,
+    StalePriceError,
+    SuppressedError,
+    UndecidedDonorError,
+    UnknownZoneError,
+    WithdrawnLinkError,
+)
 from backend.features.letters.transport import Mail, Outgoing, Transport, TransportError, of_stage
 
 logger = logging.getLogger(__name__)
 
-
-class SendError(stages.MailRefusalError):
-    """Письмо не отправлено. Сообщение называет причину и что делать."""
-
-
-class NotQueuedError(SendError):
-    """Письмо не в очереди: уже ушло, остановлено или отправляется."""
-
-
-class SuppressedError(SendError):
-    """Донор или адрес в стоп-листе."""
-
-
-class RejectedDonorError(SuppressedError):
-    """Донора отклонили после сборки письма. Для цепочки — как стоп-лист:
-    писать ему больше не будем."""
-
-
-class RemovedAdvertiserError(SuppressedError):
-    """Рекламодателя сняли после сборки письма. Для цепочки — как стоп-лист."""
-
-
-class WithdrawnLinkError(SuppressedError):
-    """Оффер собран под ссылку, которой у рекламодателя больше нет: письмо остановлено."""
-
-
-class StalePriceError(SendError):
-    """Цена донора, под чью ссылку написан оффер, устарела или снята после сборки."""
-
-
-class UndecidedDonorError(SendError):
-    """Донора вернули в «предложен» или бизнес ниши снова ждёт решения после сборки письма:
-    пока человек решает, писать нельзя, но и обрывать разговор из-за этого нельзя."""
-
-
-class NotWritingError(SuppressedError):
-    """Донор или площадка оффера — в «кому не пишем» ТЗ (`runs.exclusions`): как стоп-лист."""
-
-
-class OtherRoleError(SuppressedError):
-    """Сайт в работе у другого направления: первое письмо снято (`site_role.py`)."""
-
+__all__ = [
+    "NoSenderError",
+    "NotQueuedError",
+    "NotReadyError",
+    "NotWritingError",
+    "OtherRoleError",
+    "OutsideWindowError",
+    "OwnPathError",
+    "RecipientDnsError",
+    "RejectedDonorError",
+    "RemovedAdvertiserError",
+    "SendError",
+    "SendOutcome",
+    "Sending",
+    "StalePriceError",
+    "SuppressedError",
+    "UndecidedDonorError",
+    "UnknownZoneError",
+    "WithdrawnLinkError",
+    "check_ready",
+    "own_headers",
+]
 
 #: Отказ при отправке (`donor_standing.py`, `offer_standing.py`) — классом: на отклонении,
 #: снятых рекламодателе или ссылке, «не пишем» бизнесу ниши и «кому не пишем» цепочка
@@ -130,27 +133,6 @@ _OFFER_REFUSED: dict[OfferRefused, type[SendError]] = {
     OfferRefused.EXAMPLE: NotWritingError,
     OfferRefused.STALE_PRICE: StalePriceError,
 }
-
-
-class NotReadyError(SendError):
-    """В письме остались незаполненные обязательные места."""
-
-
-class NoSenderError(SendError):
-    """Сегодня писать некому: все ящики выключены или выбрали дневной лимит.
-    У письма переписки — её ящик не пишет, и письмо ждёт его."""
-
-
-class OwnPathError(SendError):
-    """Добивка или ответ пришли не своим путём: без ящика переписки не уходят."""
-
-
-class OutsideWindowError(window.DeferredError, SendError):
-    """Вне окна получателя: первое письмо ждёт в очереди, добивка — открытия окна."""
-
-
-class UnknownZoneError(window.DeferredError, SendError):
-    """Окно этапа есть, а пояса получателя нет ни у лида, ни у страны, ни у гипотезы."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,6 +241,7 @@ class Sending:
         if (no_link := unsubscribe.refusal(target.message, target.to.stage)) is not None:
             raise NotReadyError(no_link)  # без ссылки отписки — как без адреса в подписи
         await self._check_window(target)
+        await self._check_recipient_dns(target, transport)
         sender = await self._sender(target, from_sender_id)
         own = own_headers(target.message.id, sender_email=sender.email, real=transport.real)
 
@@ -387,6 +370,19 @@ class Sending:
         if late is not None:
             kind = UnknownZoneError if late.delay is None else OutsideWindowError
             raise kind(f"{what}: {late.words}", delay=late.delay)
+
+    async def _check_recipient_dns(self, target: _Target, transport: Transport) -> None:
+        """DNS получателя молчит — письмо ждёт (`recipient_dns.py`). Нулевому транспорту спрашивать
+        незачем: он никуда не пишет. Ответ в переписке не ждёт: собеседник написал только что."""
+        if not transport.real or target.message.step >= ANSWER_STEP:
+            return
+        if await recipient_dns.holds(target.email, now=self._moment()):
+            domain = recipient_dns.domain_of(target.email)
+            raise RecipientDnsError(
+                f"Письмо №{target.message.id}: DNS домена {domain} не отвечает — отправка кончилась "
+                "бы отказом. Письмо ждёт и уйдёт, когда домен ответит",
+                delay=recipient_dns.WAIT,
+            )
 
     async def _check_suppression(self, target: _Target) -> None:
         """Стоп-лист на двух уровнях: адрес блокирует себя, донор — все свои
