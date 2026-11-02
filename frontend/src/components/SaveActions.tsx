@@ -17,9 +17,17 @@ interface Props {
   locked: string | null;
   /** Заперта без строки: причина уже названа у поля. */
   disabled?: boolean;
+  /** Слово на кнопке: «Подтвердить» у смены с просчётом. */
+  saveLabel?: string;
 }
 
-export function SaveActions({ onCancel, saving, locked, disabled = false }: Props) {
+export function SaveActions({
+  onCancel,
+  saving,
+  locked,
+  disabled = false,
+  saveLabel = 'Сохранить',
+}: Props) {
   return (
     <Stack gap={6} mt={ACTIONS_GAP}>
       <Group justify="flex-end" gap="sm">
@@ -32,7 +40,7 @@ export function SaveActions({ onCancel, saving, locked, disabled = false }: Prop
           loading={saving}
           disabled={disabled || locked !== null}
         >
-          Сохранить
+          {saveLabel}
         </Button>
       </Group>
       {locked !== null && (

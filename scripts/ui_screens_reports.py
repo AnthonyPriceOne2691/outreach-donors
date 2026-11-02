@@ -35,6 +35,24 @@ def _usage_limits(norm: float, big: float) -> list[tuple[str, str, float]]:
     ]
 
 
+def _limit_panel(norm: float, big: float) -> list[tuple[str, str, float]]:
+    """Точки панели лимитов (02.11.2026): по ним решают, какой лимит менять и почём."""
+    cell = ".limitTable tbody tr:not(.tierRow) td"
+    return [
+        ("заголовок экрана", "h3", big),
+        ("вкладка", USAGE_TAB, norm),
+        ("задача", ".limitTable .tierRow span", norm),
+        ("сервис", f"{cell}:nth-child(1) p:nth-child(1)", norm),
+        ("действие", f"{cell}:nth-child(1) p:nth-child(2)", norm),
+        ("охват", f"{cell}:nth-child(2) p", norm),
+        ("выбрано", f"{cell}:nth-child(6) p", norm),
+        ("стоимость", ".limitCost", norm),
+        ("текущее ограничение", f"{cell}:nth-child(8) p", norm),
+        ("откуда значение", ".limitSource", norm),
+        ("кнопка «Изменить»", ".limitTable .cellDecide button", big),
+    ]
+
+
 def report_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     """Экраны и точки. `norm` — норма обычного текста, `big` — крупного."""
     return {
@@ -51,6 +69,17 @@ def report_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "ready": ("heading", "Расход"),
             "viewport": {"width": 390, "height": 844},
             "probes": _usage_limits(norm, big),
+        },
+        "usage-panel": {
+            "path": "/usage?view=panel",
+            "ready": ("table", "Панель лимитов"),
+            "probes": _limit_panel(norm, big),
+        },
+        "usage-panel-phone": {
+            "path": "/usage?view=panel",
+            "ready": ("table", "Панель лимитов"),
+            "viewport": {"width": 390, "height": 844},
+            "probes": _limit_panel(norm, big),
         },
         "usage-articles": {
             "path": "/usage?view=articles",

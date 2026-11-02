@@ -67,9 +67,9 @@
       "worst": "to_settings:58"
     },
     "backend/api/app.py": {
-      "lines": 123,
+      "lines": 125,
       "complexity": 1,
-      "worst": "_lifespan:58"
+      "worst": "_lifespan:59"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -571,15 +571,30 @@
       "complexity": 7,
       "worst": "_month:153"
     },
+    "backend/api/settings/limit_panel.py": {
+      "lines": 137,
+      "complexity": 6,
+      "worst": "_owner:101"
+    },
+    "backend/api/settings/limit_routes.py": {
+      "lines": 81,
+      "complexity": 2,
+      "worst": "limit_rows:38"
+    },
+    "backend/api/settings/limit_schemas.py": {
+      "lines": 111,
+      "complexity": 3,
+      "worst": "_whole:29"
+    },
     "backend/api/settings/llm_cap_schemas.py": {
-      "lines": 183,
+      "lines": 181,
       "complexity": 12,
-      "worst": "llm_caps_card:136"
+      "worst": "llm_caps_card:135"
     },
     "backend/api/settings/routes.py": {
-      "lines": 423,
+      "lines": 393,
       "complexity": 5,
-      "worst": "_serp_balance:394"
+      "worst": "_serp_balance:364"
     },
     "backend/api/settings/schemas.py": {
       "lines": 396,
@@ -1240,6 +1255,11 @@
       "lines": 158,
       "complexity": 5,
       "worst": "refusal:103"
+    },
+    "backend/features/core/limit_rows.py": {
+      "lines": 109,
+      "complexity": 1,
+      "worst": "rows:87"
     },
     "backend/features/core/llm_caps.py": {
       "lines": 352,
@@ -2166,6 +2186,11 @@
       "complexity": 3,
       "worst": "marked:84"
     },
+    "backend/features/ops/cap_journal.py": {
+      "lines": 72,
+      "complexity": 2,
+      "worst": "ahrefs_cap:26"
+    },
     "backend/features/ops/crawl_watch.py": {
       "lines": 144,
       "complexity": 6,
@@ -2190,6 +2215,31 @@
       "lines": 172,
       "complexity": 10,
       "worst": "_binding:97"
+    },
+    "backend/features/ops/limit_ahrefs.py": {
+      "lines": 113,
+      "complexity": 5,
+      "worst": "_now:46"
+    },
+    "backend/features/ops/limit_fields.py": {
+      "lines": 68,
+      "complexity": 1,
+      "worst": "day_start:55"
+    },
+    "backend/features/ops/limit_mail.py": {
+      "lines": 270,
+      "complexity": 10,
+      "worst": "_domains_words:151"
+    },
+    "backend/features/ops/limit_model.py": {
+      "lines": 314,
+      "complexity": 6,
+      "worst": "part_row:135"
+    },
+    "backend/features/ops/limit_services.py": {
+      "lines": 233,
+      "complexity": 7,
+      "worst": "_paid_crawl_row:157"
     },
     "backend/features/ops/mail_watch.py": {
       "lines": 338,
@@ -3797,9 +3847,9 @@
       "worst": "ratio_of:82"
     },
     "scripts/ui_hover.py": {
-      "lines": 184,
+      "lines": 186,
       "complexity": 8,
-      "worst": "main:133"
+      "worst": "main:135"
     },
     "scripts/ui_screens.py": {
       "lines": 462,
@@ -3827,7 +3877,7 @@
       "worst": "unbound_probes:35"
     },
     "scripts/ui_screens_reports.py": {
-      "lines": 123,
+      "lines": 152,
       "complexity": 1,
       "worst": "_usage_limits:20"
     },

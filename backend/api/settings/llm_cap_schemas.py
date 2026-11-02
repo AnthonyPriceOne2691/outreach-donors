@@ -17,10 +17,9 @@ from pydantic import BaseModel, field_validator
 from pydantic_core import PydanticCustomError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.agent.guarding import drafts_cap
 from backend.features.core import llm_caps, usage
 from backend.features.core.llm_caps import Block, LlmCapChange
-from backend.features.sales.usage_cap import sales_cap
+from backend.features.ops.limit_model import env_limit
 
 
 class LlmCapsBody(BaseModel):
@@ -167,8 +166,7 @@ def _part(part: str, saved: Block | None, spent: llm_caps.Spent) -> PartCard:
         left = None if limit is None else llm_caps.available(saved, part, spent)
         share: int | None = saved.share(part)
     else:
-        env = {llm_caps.PART_SALES: sales_cap, llm_caps.PART_AGENT: drafts_cap}.get(part)
-        limit = None if env is None else env().tokens or None
+        limit = env_limit(part)
         left = None if limit is None else max(0, limit - spent[part])
         share = None
     return PartCard(
