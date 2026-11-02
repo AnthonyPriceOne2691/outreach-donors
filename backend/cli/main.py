@@ -60,7 +60,7 @@ from backend.cli.sales_commands import FAILURES as SALES_FAILURES
 from backend.cli.sales_commands import KEPT_ON_INTERRUPT as SALES_KEPT
 from backend.cli.sales_commands import add_parsers as add_sales_parsers
 from backend.cli.senders_admin import add_parser as add_senders_parser
-from backend.cli.senders_admin import cmd_sender_add, cmd_senders
+from backend.cli.senders_admin import cmd_sender_add, cmd_sender_resume, cmd_senders
 from backend.cli.sending_domains import add_parser as add_domains_parser
 from backend.cli.sending_domains import cmd_sending_domain
 from backend.config import storage
@@ -459,6 +459,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "letters": cmd_letters,
     "letters-send": cmd_letters_send,
     "sender-add": cmd_sender_add,
+    "sender-resume": cmd_sender_resume,
     "senders": cmd_senders,
     "sending-domain": cmd_sending_domain,
     "mail-test": cmd_mail_test,
