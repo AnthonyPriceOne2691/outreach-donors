@@ -29,9 +29,10 @@ class CrawlReport:
     pages: list[str] = field(default_factory=list)
     links: list[OutLink] = field(default_factory=list)
     articles: int = 0
-    # Выброшенные кнопки «поделиться», страницы с пометкой рекламы и с датой.
-    # Числом в отчёте: выброшенное молча и найденное молча одинаково не проверить.
+    # Выброшенные кнопки «поделиться» и адреса без доменного имени, страницы с пометкой
+    # рекламы и с датой. Числом в отчёте: выброшенное молча и найденное молча одинаково не проверить.
     share_links: int = 0
+    junk_links: int = 0
     pages_labeled: int = 0
     pages_dated: int = 0
     robots_status: RobotsStatus = RobotsStatus.UNREADABLE
@@ -66,6 +67,7 @@ class CrawlReport:
             "advertisers": len({link.target_root for link in self.links}),
             "links_in_body": sum(1 for link in self.links if link.in_body),
             "share_links": self.share_links,
+            "junk_links": self.junk_links,
             "pages_labeled": self.pages_labeled,
             "pages_dated": self.pages_dated,
             # Ссылки, у которых корень домена угадан: суффикс неизвестен

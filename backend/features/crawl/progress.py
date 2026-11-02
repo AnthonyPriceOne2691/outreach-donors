@@ -60,6 +60,7 @@ class Checkpoint:
     attempts: int = 0
     articles: int = 0
     share_links: int = 0
+    junk_links: int = 0
     pages_labeled: int = 0
     pages_dated: int = 0
     elapsed_sec: float = 0.0

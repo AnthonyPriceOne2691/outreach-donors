@@ -1437,9 +1437,9 @@
       "worst": "__init__:55"
     },
     "backend/features/crawl/links.py": {
-      "lines": 326,
+      "lines": 348,
       "complexity": 13,
-      "worst": "collect_links:222"
+      "worst": "collect_links:236"
     },
     "backend/features/crawl/markers.py": {
       "lines": 91,
@@ -1482,9 +1482,9 @@
       "worst": "_priced_donor:143"
     },
     "backend/features/crawl/progress.py": {
-      "lines": 145,
+      "lines": 146,
       "complexity": 5,
-      "worst": "of:79"
+      "worst": "of:80"
     },
     "backend/features/crawl/promote.py": {
       "lines": 485,
@@ -1502,9 +1502,9 @@
       "worst": "filter:76"
     },
     "backend/features/crawl/report.py": {
-      "lines": 89,
+      "lines": 91,
       "complexity": 4,
-      "worst": "as_dict:57"
+      "worst": "as_dict:58"
     },
     "backend/features/crawl/repository.py": {
       "lines": 176,
@@ -1572,7 +1572,7 @@
       "worst": "off_topic:148"
     },
     "backend/features/crawl/walk.py": {
-      "lines": 490,
+      "lines": 496,
       "complexity": 7,
       "worst": "__init__:66"
     },
@@ -1647,9 +1647,9 @@
       "worst": "_shop_marks:302"
     },
     "backend/features/donors/host.py": {
-      "lines": 73,
+      "lines": 105,
       "complexity": 9,
-      "worst": "normalize_host:37"
+      "worst": "normalize_host:46"
     },
     "backend/features/donors/judging.py": {
       "lines": 489,
@@ -2112,9 +2112,9 @@
       "worst": "_letters:336"
     },
     "backend/features/ops/silence.py": {
-      "lines": 476,
+      "lines": 488,
       "complexity": 7,
-      "worst": "_crawl_blocked:322"
+      "worst": "judge:163"
     },
     "backend/features/ops/stage_silence.py": {
       "lines": 333,

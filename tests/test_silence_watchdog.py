@@ -29,6 +29,7 @@ from backend.features.core.models.outreach import CampaignModel, MessageModel, R
 from backend.features.core.models.run import RunModel
 from backend.features.donors.verdict import Thresholds
 from backend.features.ops import silence as silence_module
+from backend.features.ops.alarms import Alarm
 from backend.features.ops.silence import alarms
 from backend.features.ops.stage_silence import REPLY_SILENCE_DAYS
 from backend.features.outreach.repository import EVERY_STAGE
@@ -291,10 +292,10 @@ class TestSilenceThatMeansBroken:
 
 
 class TestCrawlBlocked:
-    """Требование просит при доле отказов выше 30% «паузу и алерт».
+    """Серия обходов, упёршихся в защиту: 30 % последних, а не один из десяти.
 
-    Паузу обход ставит себе сам; тревоги не было — останов был виден
-    только в логе, а сторож про краул не знал вовсе.
+    Доля отказов выше 30 % в требовании — о страницах одного обхода: такой обход
+    останавливает себя сам, и это видно в его отчёте. Тревога зовёт человека к серии.
     """
 
     @staticmethod
@@ -317,12 +318,82 @@ class TestCrawlBlocked:
             )
         await session.flush()
 
-    async def test_a_stopped_crawl_raises_the_alarm(self, session: AsyncSession) -> None:
+    async def _blocked(self, session: AsyncSession) -> Alarm | None:
+        """Тревога обхода — или `None`: серии нет."""
+        found = await alarms(session, stages=EVERY_STAGE)
+        return next((alarm for alarm in found if alarm.code == "crawl-blocked"), None)
+
+    async def test_one_stopped_crawl_is_not_a_series(self, session: AsyncSession) -> None:
+        """Останов виден в отчёте обхода; один из десяти — случай, а не повод звать человека."""
+        await self._crawl(session, number=9)
+        await self._crawl(session, outcome=CrawlOutcome.PARTIAL, stop=StopReason.UNHEALTHY)
+
+        assert await self._blocked(session) is None
+
+    async def test_two_of_ten_stay_quiet(self, session: AsyncSession) -> None:
+        await self._crawl(session, number=8)
+        await self._crawl(session, outcome=CrawlOutcome.PARTIAL, stop=StopReason.UNHEALTHY)
+        await self._crawl(session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.NO_START)
+
+        assert await self._blocked(session) is None
+
+    async def test_three_of_ten_raise_the_alarm(self, session: AsyncSession) -> None:
+        await self._crawl(session, number=7)
+        await self._crawl(
+            session, outcome=CrawlOutcome.PARTIAL, stop=StopReason.UNHEALTHY, number=2
+        )
+        await self._crawl(session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.NO_START)
+
+        found = await self._blocked(session)
+
+        assert found is not None
+        assert "упёрлись в защиту 3: закрылись целиком 1, остановлены по доле отказов 2" in (
+            found.detail
+        )
+
+    async def test_closed_and_stopped_at_once_counts_once(self, session: AsyncSession) -> None:
+        """Обход и закрылся, и остановлен: один обход. Двойной счёт поднял бы тревогу на двух."""
+        await self._crawl(session, number=8)
+        await self._crawl(
+            session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.UNHEALTHY, number=2
+        )
+
+        assert await self._blocked(session) is None
+
+    async def test_the_words_count_what_the_threshold_counts(self, session: AsyncSession) -> None:
+        await self._crawl(session, number=7)
+        await self._crawl(
+            session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.UNHEALTHY, number=3
+        )
+
+        found = await self._blocked(session)
+
+        assert found is not None
+        assert "упёрлись в защиту 3: закрылись целиком 3, остановлены по доле отказов 0" in (
+            found.detail
+        )
+
+    async def test_only_the_last_ten_count(self, session: AsyncSession) -> None:
+        """Старая серия ушла за окно — тревоги больше нет: она про то, что происходит сейчас."""
+        await self._crawl(session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.NO_START, number=5)
+        await self._crawl(session, number=10)
+
+        assert await self._blocked(session) is None
+
+    async def test_a_lone_crawl_is_not_a_series(self, session: AsyncSession) -> None:
+        """В свежей базе один обход — уже 100 %: доля без нижней границы звала бы человека."""
         await self._crawl(session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.UNHEALTHY)
 
-        codes = {alarm.code for alarm in await alarms(session, stages=EVERY_STAGE)}
+        assert await self._blocked(session) is None
 
-        assert "crawl-blocked" in codes
+    async def test_two_of_a_few_are_a_series(self, session: AsyncSession) -> None:
+        """Обходов меньше десяти: два из трёх — серия и без полного окна."""
+        await self._crawl(session, number=1)
+        await self._crawl(
+            session, outcome=CrawlOutcome.PARTIAL, stop=StopReason.UNHEALTHY, number=2
+        )
+
+        assert await self._blocked(session) is not None
 
     async def test_most_donors_closing_raises_it_too(self, session: AsyncSession) -> None:
         await self._crawl(session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.NO_START, number=3)
@@ -348,12 +419,13 @@ class TestCrawlBlocked:
 
     async def test_the_alarm_says_what_to_do(self, session: AsyncSession) -> None:
         """«Обход упирается» без продолжения — полсообщения."""
-        await self._crawl(session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.UNHEALTHY)
-
-        found = next(
-            a for a in await alarms(session, stages=EVERY_STAGE) if a.code == "crawl-blocked"
+        await self._crawl(
+            session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.UNHEALTHY, number=2
         )
 
+        found = await self._blocked(session)
+
+        assert found is not None
         assert "каскада" in found.detail
 
 

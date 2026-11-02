@@ -59,6 +59,12 @@ RUN_SILENCE_MINUTES = 30
 #: За сколько последних обходов смотрим здоровье краула.
 CRAWL_RUNS_WATCHED = 10
 
+#: С какой доли последних обходов их проблемы — серия, а не случай (`_crawl_blocked`).
+CRAWL_SERIES_SHARE = 0.3
+
+#: Меньше стольких обходов — не серия при любой доле: в свежей базе один обход — уже 100 %.
+CRAWL_SERIES_MIN = 2
+
 #: Код тревоги «провайдер не отвечает» — единственной, которую проход узнаёт из сети.
 PROVIDERS_ALARM = "provider-unreachable"
 
@@ -320,12 +326,17 @@ async def _runs_stuck(session: AsyncSession, moment: datetime) -> Alarm | None:
 
 
 async def _crawl_blocked(session: AsyncSession) -> Alarm | None:
-    """Обход упирается в защиту сайтов.
+    """Обход упирается в защиту сайтов — серией, а не одним сайтом.
 
-    Требование просит при доле отказов выше 30% «паузу и алерт». Паузу
-    обход ставит себе сам и останавливается; тревоги до этого правила
-    не было — останов виден был только в логе, а сторож про краул
-    не знал вовсе.
+    Требование про долю отказов выше 30 % — о страницах внутри одного обхода
+    (`CRAWL_STOP_SHARE`): такой обход останавливает себя сам, и это видно в его отчёте.
+    Тревога говорит о другом — о серии: `CRAWL_SERIES_SHARE` и выше среди последних обходов
+    закрылись целиком или остановлены по доле отказов; обход, с которым случилось и то и
+    другое, считается один раз.
+
+    До 02.11.2026 тревогу поднимал один остановленный обход из десяти. За выходные она вышла
+    четыре раза от одного-двух обходов, а такие обходы обычно собрали сотни страниц: человеку
+    нечего было делать (слово Anthony: «шумная тревога, убираем»).
 
     Считается по последним обходам, а не за всё время: доля за всю
     историю прячет защиту, включившуюся вчера. Только законченным:
@@ -343,22 +354,23 @@ async def _crawl_blocked(session: AsyncSession) -> Alarm | None:
         .scalars()
         .all()
     )
-    if not rows:
-        return None
-
-    stopped = [row for row in rows if row.stop_reason is StopReason.UNHEALTHY]
-    blocked = [row for row in rows if row.outcome is CrawlOutcome.BLOCKED]
-    if not stopped and len(blocked) * 2 < len(rows):
+    closed = sum(1 for row in rows if row.outcome is CrawlOutcome.BLOCKED)
+    troubled = sum(
+        1
+        for row in rows
+        if row.outcome is CrawlOutcome.BLOCKED or row.stop_reason is StopReason.UNHEALTHY
+    )
+    if troubled < CRAWL_SERIES_MIN or troubled / len(rows) < CRAWL_SERIES_SHARE:
         return None
 
     return Alarm(
         code="crawl-blocked",
         title="Обход упирается в защиту",
         detail=(
-            f"Из последних {len(rows)} обходов {len(blocked)} закрылись целиком"
-            + (f", {len(stopped)} остановлены по доле отказов" if stopped else "")
-            + ". Дальше это лечится не повтором, а следующим уровнем каскада: "
-            "браузером (CRAWL_BROWSER_ENABLED) или резидентными прокси (CRAWL_PROXY_URLS)"
+            f"Из последних {len(rows)} обходов упёрлись в защиту {troubled}: закрылись целиком "
+            f"{closed}, остановлены по доле отказов {troubled - closed}. Дальше это лечится "
+            "не повтором, а следующим уровнем каскада: браузером (CRAWL_BROWSER_ENABLED) или "
+            "резидентными прокси (CRAWL_PROXY_URLS)"
         ),
         concern=cause(
             "адреса закрытых сайтов не собираются",

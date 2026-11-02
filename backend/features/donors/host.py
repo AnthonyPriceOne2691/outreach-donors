@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import unicodedata
+
 import tldextract
 
 from backend.shared.net.url_parts import split_url
@@ -32,6 +34,13 @@ from backend.shared.net.url_parts import split_url
 # и отсеются порогами; но если такие домены начнут попадаться в отчётах как
 # «подходящие», сюда нужен явный список исключений.
 _extract = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
+
+#: Потолки доменного имени (RFC 1035): метка и всё имя без завершающей точки.
+MAX_LABEL_CHARS = 63
+MAX_NAME_CHARS = 253
+
+#: Знаки метки, кроме букв и цифр. Подчёркивание — не по RFC, но в поддоменах оно живёт.
+_LABEL_MARKS = "-_"
 
 
 def normalize_host(raw: str | None) -> str:
@@ -60,6 +69,29 @@ def normalize_host(raw: str | None) -> str:
     if not parts.domain or not parts.suffix:
         return ""
     return f"{parts.domain}.{parts.suffix}"
+
+
+def domain_name(host: str) -> str | None:
+    """Хост как доменное имя, без завершающей точки; не имя — `None`.
+
+    Хост из ссылки чужой страницы — любая строка: шаблон на JavaScript, телефон, абзац текста.
+    Суффикс здесь не сверяется: новые зоны появляются каждый год, и снимок списка им не судья.
+    Проверяется форма. Буквы и цифры — любого алфавита, это категории Юникода, а не `isalnum`:
+    гласные деванагари и тайского — знаки, и `isalnum` потерял бы настоящие зоны вроде «.भारत».
+    Зона из одних цифр не бывает (RFC 3696): `v1.2` — номер версии, а не сайт.
+    """
+    name = host.removesuffix(".")
+    labels = name.split(".")
+    if len(labels) < 2 or len(name) > MAX_NAME_CHARS or labels[-1].isdigit():
+        return None
+    return name if all(_is_label(label) for label in labels) else None
+
+
+def _is_label(label: str) -> bool:
+    """Метка имени: 1–63 знака, буквы и цифры любого алфавита, дефис не с края."""
+    if not 1 <= len(label) <= MAX_LABEL_CHARS or label[0] == "-" or label[-1] == "-":
+        return False
+    return all(char in _LABEL_MARKS or unicodedata.category(char)[0] in "LMN" for char in label)
 
 
 def split_host(host: str) -> tuple[str, str, str]:

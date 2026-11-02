@@ -30,7 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, unquote
 
-from backend.features.donors.host import normalize_host
+from backend.features.donors.host import domain_name, normalize_host
 from backend.shared.net.url_parts import split_url
 
 #: Параметры, по которым партнёрская программа узнаёт, чей это клиент.
@@ -153,7 +153,8 @@ def _through_network(network: str, params: list[tuple[str, str]]) -> Affiliation
 
 
 def _host_of(value: str) -> str | None:
-    """Хост из адреса в параметре. Сети кодируют его один или два раза."""
+    """Домен из адреса в параметре. Сети кодируют его один или два раза. Не доменное имя —
+    `None`: шаблон или мусор в параметре сети не рекламодатель (`links.py`, грабли №6)."""
     text = value
     for _ in range(3):
         if text.lower().startswith(("http://", "https://")):
@@ -165,5 +166,4 @@ def _host_of(value: str) -> str | None:
     else:
         return None
     parts = split_url(text)
-    host = (parts.hostname or "").lower() if parts is not None else ""
-    return host or None
+    return domain_name((parts.hostname or "").lower()) if parts is not None else None
