@@ -49,7 +49,7 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/advertisers/pending/export", None, "view"),
     ("GET", "/api/advertisers/panel", None, "view"),
     ("GET", "/api/advertisers/panel/quality", None, "view"),
-    ("GET", "/api/advertisers/panel/quality/hosts", None, "view"),
+    ("GET", "/api/advertisers/panel/quality/hosts?day=2026-11-02", None, "view"),
     ("GET", "/api/advertisers/panel/mailing", None, "view"),
 ]
 
@@ -163,7 +163,8 @@ class TestWhoIsLetIn:
             for method in methods
         }
         in_table = {
-            (method, path.replace("{row}", "{candidate_id}")) for method, path, _, _ in ROUTES
+            (method, path.partition("?")[0].replace("{row}", "{candidate_id}"))
+            for method, path, _, _ in ROUTES
         }
 
         assert in_app == in_table
