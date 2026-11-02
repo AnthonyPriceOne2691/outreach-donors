@@ -19,34 +19,23 @@
  * открытие (`AhrefsCap`), как «Больше не писать» на «Стоп-листе».
  */
 
-import { Alert, Modal, Radio, Stack, Text } from '@mantine/core';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Radio, Stack, Text } from '@mantine/core';
 import { useState } from 'react';
 
-import { refusalOf } from '../api/client';
 import { saveAhrefsCap } from '../api/settings';
 import type { AhrefsKey, CapChange } from '../api/settings';
 import type { ThresholdRange } from '../api/types';
-import { FIELD_GAP } from '../components/formRhythm';
 import { NumberField } from '../components/NumberField';
-import { SaveActions } from '../components/SaveActions';
 import { numberRefusal, numberText, validNumber } from '../components/numberText';
 import type { NumberRule } from '../components/numberText';
-import { formatDateTime, formatNumber } from '../format';
-import { notify } from '../notices';
+import { formatNumber } from '../format';
+import { CapDialog, RecentChanges, useCapSave } from './CapDialog';
 
 /** Поле — по числу «1 000 000», а не на ширину окна. */
 const INPUT_WIDTH = '9rem';
 
 /** Выбор окна: весь лимит ключа или «не больше N». */
 type Kind = 'whole' | 'limit';
-
-/** Кто и когда сменил кап: «кап@site.com · 16.10.2026, 14:05»; учётку удалили — только когда.
- *  Тем же словами — смены потолков модели (`LlmCaps.tsx`). */
-export function changedBy(change: Pick<CapChange, 'set_by' | 'set_at'>): string {
-  const when = formatDateTime(change.set_at);
-  return change.set_by === null ? when : `${change.set_by} · ${when}`;
-}
 
 /** Что поставили — словами: число или «весь лимит ключа». */
 export function capWords(unitsCap: number | null): string {
@@ -161,68 +150,39 @@ interface Props {
 }
 
 export function AhrefsCapModal({ ahrefsKey: key, onClose }: Props) {
-  const queryClient = useQueryClient();
   const choice = useChoice(key);
-  const save = useMutation({
-    mutationFn: (unitsCap: number | null) => saveAhrefsCap(unitsCap),
-    onSuccess: async (change) => {
-      // Кап читают «Расход» и «Обзор»; смету прогона человек считает заново сам.
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['usage'] }),
-        queryClient.invalidateQueries({ queryKey: ['overview'] }),
-      ]);
-      notify({ message: savedWords(change), color: 'green' });
-      onClose();
-    },
+  // Кап читают «Расход» и «Обзор»; смету прогона человек считает заново сам.
+  const save = useCapSave({
+    save: saveAhrefsCap,
+    words: savedWords,
+    onClose,
+    readers: ['overview'],
   });
 
   return (
-    <Modal opened onClose={onClose} title="Кап Ahrefs">
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (choice.ready && !choice.same && !save.isPending) save.mutate(choice.wanted);
-        }}
-      >
-        <Stack gap={FIELD_GAP}>
-          <Text size="sm" c="dimmed">
-            Кап держит наш расход юнитов Ahrefs за цикл ключа: прогон, который не помещается в
-            остаток капа, не запускается, и обход Этапа 2 не покупает DR сверх него. Новый кап
-            действует сразу.
-          </Text>
-          {save.error ? (
-            <Alert color="red" title="Кап не сменили">
-              {refusalOf(save.error)}
-            </Alert>
-          ) : null}
-          <CapChoice ahrefsKey={key} choice={choice} onEdit={() => save.reset()} />
-          {key.changes.length > 0 && <RecentChanges changes={key.changes} />}
-          {/* Почему «Сохранить» заперта — строкой под кнопками; за границей причина — уже под
-              полем. */}
-          <SaveActions
-            onCancel={onClose}
-            saving={save.isPending}
-            disabled={!choice.ready}
-            locked={choice.same ? 'Это действующий кап — выберите другой' : null}
-          />
-        </Stack>
-      </form>
-    </Modal>
-  );
-}
-
-/** Последние смены — что ставили, кто и когда: решая, видно, откуда пришло нынешнее. */
-function RecentChanges({ changes }: { changes: CapChange[] }) {
-  return (
-    <Stack gap={4}>
-      <Text size="sm" fw={500}>
-        Последние смены
-      </Text>
-      {changes.map((change) => (
-        <Text key={change.id} size="sm" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
-          <b>{capWords(change.units_cap)}</b> — {changedBy(change)}
+    <CapDialog
+      title="Кап Ahrefs"
+      intro={
+        <Text size="sm" c="dimmed">
+          Кап держит наш расход юнитов Ahrefs за цикл ключа: прогон, который не помещается в остаток
+          капа, не запускается, и обход Этапа 2 не покупает DR сверх него. Новый кап действует
+          сразу.
         </Text>
-      ))}
-    </Stack>
+      }
+      onClose={onClose}
+      onSave={() => save.mutate(choice.wanted)}
+      error={save.error}
+      errorTitle="Кап не сменили"
+      saving={save.isPending}
+      disabled={!choice.ready}
+      locked={choice.same ? 'Это действующий кап — выберите другой' : null}
+    >
+      <CapChoice ahrefsKey={key} choice={choice} onEdit={() => save.reset()} />
+      {key.changes.length > 0 && (
+        <RecentChanges
+          changes={key.changes.map((change) => ({ ...change, what: capWords(change.units_cap) }))}
+        />
+      )}
+    </CapDialog>
   );
 }

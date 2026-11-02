@@ -90,24 +90,37 @@ describe('потолки модели на «Расходе»', () => {
     await openUsage();
 
     expect(
-      screen.getByText(
-        'Модель — общий потолок на весь сервис: без потолка — как в настройках сервера',
-      ),
+      screen.getByText('Общий потолок на весь сервис: без потолка — как в настройках сервера'),
     ).toBeInTheDocument();
-    expect(screen.getByText('без потолка — расход модели ничем не ограничен')).toBeInTheDocument();
+    expect(screen.getByText('без потолка — расход ничем не ограничен')).toBeInTheDocument();
     expect(
-      screen.getByText(
-        spaced('Продажи — лимит 10 000 000 токенов в сутки — как в настройках сервера'),
-      ),
+      screen.getByText(spaced('Продажи — лимит 10 000 000 — как в настройках сервера')),
     ).toBeInTheDocument();
     expect(
       screen.getByText('Агент переписки — своего потолка нет, держит общий'),
     ).toBeInTheDocument();
+    const card = screen.getByRole('group', { name: 'Модель' });
+    expect(card).toHaveTextContent('Потрачено сегодня600токенов');
     expect(
-      screen.getByText(
-        'Потрачено моделью сегодня: 600 · сброс через 5 ч 12 мин (в 03:00 по Москве)',
-      ),
+      within(card).getByText('Сброс через 5 ч 12 мин (в 03:00 по Москве)'),
     ).toBeInTheDocument();
+  });
+
+  it('с общим потолком крупно — сколько осталось сегодня', async () => {
+    await openUsage(SAVED);
+
+    expect(screen.getByRole('group', { name: 'Модель' })).toHaveTextContent(
+      spaced('Осталось сегодня49 999 400из 50 000 000 токенов'),
+    );
+  });
+
+  it('без права «Продажи» остаток от общего не считается: в «потрачено» нет продаж', async () => {
+    const parts = SAVED.llm_caps.parts.filter((part) => part.part !== 'sales');
+    await openUsage({ ...SAVED, llm_caps: { ...SAVED.llm_caps, parts } });
+
+    const card = screen.getByRole('group', { name: 'Модель' });
+    expect(card).toHaveTextContent(spaced('Потрачено сегодня600из 50 000 000 токенов'));
+    expect(within(card).queryByText('Осталось сегодня')).not.toBeInTheDocument();
   });
 
   it('окно — с предложенных значений; «добавить из остатка» — шагом, и уходит весь блок', async () => {
@@ -199,9 +212,7 @@ describe('потолки модели на «Расходе»', () => {
         ),
       ),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(spaced('Продажи — лимит 20% · 10 000 000 токенов в сутки')),
-    ).toBeInTheDocument();
+    expect(screen.getByText(spaced('Продажи — лимит 20% · 10 000 000'))).toBeInTheDocument();
     expect(screen.getByText(/^Изменены: потолок@team\.example\.test/)).toBeInTheDocument();
   });
 

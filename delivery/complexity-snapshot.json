@@ -3812,9 +3812,9 @@
       "worst": "unbound_probes:35"
     },
     "scripts/ui_screens_reports.py": {
-      "lines": 74,
+      "lines": 123,
       "complexity": 1,
-      "worst": "report_screens:15"
+      "worst": "_usage_limits:20"
     },
     "scripts/ui_screens_runs.py": {
       "lines": 144,

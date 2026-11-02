@@ -11,10 +11,59 @@
 
 from typing import Any
 
+#: Карточка лимита «Расхода» — по своему имени: рядом такие же (`settings/LimitCard.tsx`).
+HUNTER_CARD = "[role='group'][aria-label='Hunter']"
+#: Переключатель вкладок «Расхода»: мерится подпись, а не обёртка с подвижной подложкой.
+USAGE_TAB = "[aria-label='Что смотреть на экране «Расход»'] .mantine-SegmentedControl-innerLabel"
+
+
+def _usage_limits(norm: float, big: float) -> list[tuple[str, str, float]]:
+    """Точки вкладки «Лимиты»: по ним решают, сколько осталось и что менять."""
+    return [
+        ("заголовок экрана", "h3", big),
+        ("вкладка", USAGE_TAB, norm),
+        ("имя карточки", f"{HUNTER_CARD} p:text-is('Hunter')", norm),
+        ("подпись над числом", f"{HUNTER_CARD} p:text-is('Осталось на учётке')", norm),
+        ("крупное число", f"{HUNTER_CARD} .mantine-Group-root p:nth-child(1)", big),
+        ("из скольких", f"{HUNTER_CARD} .mantine-Group-root p:nth-child(2)", norm),
+        ("что значит число", f"{HUNTER_CARD} p:has-text('хватит на')", norm),
+        ("сброс", f"{HUNTER_CARD} p:has-text('Сброс')", norm),
+        ("подробности", f"{HUNTER_CARD} p:has-text('Тариф')", norm),
+        ("подвал", f"{HUNTER_CARD} p:has-text('Потолок:')", norm),
+        ("кнопка «Изменить»", "button[aria-label='Изменить потолок']", big),
+        ("метка «без потолка»", ".mantine-Badge-label:has-text('без потолка')", norm),
+    ]
+
 
 def report_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     """Экраны и точки. `norm` — норма обычного текста, `big` — крупного."""
     return {
+        # «Расход» (02.11.2026): вкладка лимитов — карточки на вложенном стекле, на широком окне и
+        # на телефоне: телефонная раскладка ставит их над другими местами полотна. Вкладка статей
+        # — плитки и таблица под шапкой.
+        "usage": {
+            "path": "/usage",
+            "ready": ("heading", "Расход"),
+            "probes": _usage_limits(norm, big),
+        },
+        "usage-phone": {
+            "path": "/usage",
+            "ready": ("heading", "Расход"),
+            "viewport": {"width": 390, "height": 844},
+            "probes": _usage_limits(norm, big),
+        },
+        "usage-articles": {
+            "path": "/usage?view=articles",
+            "ready": ("heading", "Расход"),
+            "probes": [
+                ("период над плитками", "p:has-text('календарный месяц')", norm),
+                ("подпись плитки", ".metricTile p:nth-child(1)", norm),
+                ("число в плитке", ".metricTile p:nth-child(2)", big),
+                ("единица под числом", ".metricTile p:nth-child(3)", norm),
+                ("заголовок «По этапам»", "p:text-is('По этапам')", norm),
+                ("статья в таблице", "table tbody tr td p", norm),
+            ],
+        },
         # Отчёт прогона (сверка ТЗ 11.10.2026): по нему решают, какой порог режет и во
         # что обошёлся прогон. Мерится шапка с плитками «подходит / не подходит / не
         # проверен», таблица порогов и расход. Номер — прогон базы разработки с итогом;

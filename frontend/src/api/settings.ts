@@ -9,6 +9,7 @@ import type {
   WatchdogView,
 } from './types';
 import { request } from './client';
+import type { HunterCard } from './hunter';
 import type { LlmCaps } from './llmCaps';
 import type { Stage } from './stages';
 
@@ -102,6 +103,8 @@ export interface UsageView extends Omit<SpendingView, 'articles'> {
   ahrefs_key: AhrefsKey;
   /** Дневные потолки модели: общий и свои, разбивка сегодняшнего расхода, сброс. */
   llm_caps: LlmCaps | null;
+  /** Hunter: общий остаток учётки и наш месячный потолок проверок адреса. */
+  hunter: HunterCard | null;
 }
 
 /** Стоит ли тревога внимания (слово Anthony 29.10.2026): есть ли повод для беспокойства и
