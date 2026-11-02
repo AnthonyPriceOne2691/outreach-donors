@@ -681,14 +681,15 @@ class TestAlarm:
     async def test_at_one_level_the_one_that_ends_first_is_named(
         self, session: AsyncSession
     ) -> None:
-        await self._spend(session, 850)  # месяц: осталось 150
-        await remember(session, _account(credits_left="150", verifications_left="300"), at=NOW)
+        await self._spend(session, 810)  # месяц: выбрано 81 %, осталось 190 проверок
+        await remember(session, _account(credits_left="100", verifications_left="200"), at=NOW)
 
         alarm = await self._alarm(session)
 
         assert alarm is not None
-        assert alarm.stage is Stage.SALES
-        assert "осталось 150 из 1 000" in alarm.detail
+        assert alarm.code == hunter_watch.WARN_CODE
+        assert alarm.stage is Stage.SALES, "учётка выбрана больше, но месяц кончится раньше"
+        assert "осталось 190 из 1 000" in alarm.detail
         assert "первого числа" in alarm.detail
         assert "учётка обнуляется 19 ноября" in alarm.detail, "две границы — словами"
 
