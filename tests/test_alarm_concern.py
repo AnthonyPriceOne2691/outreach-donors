@@ -439,15 +439,16 @@ async def test_a_low_serp_balance_is_a_cause(session: AsyncSession) -> None:
     assert mark.todo == "пополнить счёт DataForSEO"
 
 
-async def test_a_blocked_crawl_is_a_cause(session: AsyncSession) -> None:
-    session.add(
+async def test_a_series_of_blocked_crawls_is_a_cause(session: AsyncSession) -> None:
+    session.add_all(
         CrawlRunModel(
-            host="donor.example.test",
+            host=f"donor{index}.example.test",
             outcome=CrawlOutcome.BLOCKED,
             stop_reason=StopReason.UNHEALTHY,
             pages_opened=0,
             articles=0,
         )
+        for index in range(2)
     )
     await session.flush()
 
