@@ -6,7 +6,8 @@
  * 10.10.2026): уведомление в углу закрывало бы кнопки окна. Почему «Сохранить» заперта — строкой
  * под кнопками (`SaveActions`).
  *
- * Здесь же — «кто и когда менял» и последние смены: одни слова у всех лимитов.
+ * Здесь же — «кто и когда менял» и последние смены: одни слова у всех лимитов. Окно панели лимитов
+ * — на той же основе, со своим словом на кнопке (`LimitChangeModal.tsx`).
  */
 
 import { Alert, Modal, Stack, Text } from '@mantine/core';
@@ -71,6 +72,8 @@ interface Props {
   locked: string | null;
   /** Заперта без строки: причина уже названа у поля. */
   disabled?: boolean;
+  /** Слово на кнопке, если не «Сохранить». */
+  saveLabel?: string;
   children: ReactNode;
 }
 
@@ -84,6 +87,7 @@ export function CapDialog({
   saving,
   locked,
   disabled = false,
+  saveLabel,
   children,
 }: Props) {
   return (
@@ -104,7 +108,13 @@ export function CapDialog({
             </Alert>
           ) : null}
           {children}
-          <SaveActions onCancel={onClose} saving={saving} disabled={disabled} locked={locked} />
+          <SaveActions
+            onCancel={onClose}
+            saving={saving}
+            disabled={disabled}
+            locked={locked}
+            {...(saveLabel === undefined ? {} : { saveLabel })}
+          />
         </Stack>
       </form>
     </Modal>

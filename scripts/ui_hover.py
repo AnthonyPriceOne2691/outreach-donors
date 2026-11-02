@@ -54,6 +54,8 @@ PATHS = [
     "/suppressions",
     "/settings",
     "/usage",
+    # Панель лимитов — вкладка администратора: таблица и «Изменить» в строке (02.11.2026).
+    "/usage?view=panel",
     "/senders",
     "/users",
 ]

@@ -1909,6 +1909,36 @@ html:root .mantine-Pill-root {
   vertical-align: top;
 }
 
+/* Панель лимитов: десять колонок на панели в 1 046 px при открытом меню. Поля ячеек уже обычных:
+   числа токенов держат колонку, а текущее ограничение берёт остаток. */
+.limitTable th,
+.limitTable td {
+  padding-inline: 6px;
+}
+
+.limitTable th {
+  white-space: normal !important;
+}
+
+.limitTable tbody tr.tierRow td {
+  padding-block: 8px 6px;
+  background: transparent;
+  text-align: start;
+}
+
+/* Значок «i» держится рядом с числом стоимости и не падает на вторую строку. */
+.limitCost {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Имя настройки длиннее колонки: рвётся, а не вылезает. */
+.limitSource {
+  font-family: var(--mantine-font-family-monospace);
+  overflow-wrap: anywhere;
+}
+
 /* --- Таблица карточками на телефоне (`phoneCards`) -----------------------
  * Аудит экранов 09.10.2026: на телефоне таблицы «Отбора», «Рассмотрения»,
  * «Форм» и «Рекламодателей» прокручивались вбок («Отбор» — 982 px в окне
@@ -2033,6 +2063,16 @@ html:root .mantine-Pill-root {
 
   .phoneCardsRow tbody > tr > td:not(:first-child, .cellDecide) {
     grid-column: auto;
+  }
+
+  /* Панель лимитов: в ряд только короткое — числа лимитов, выбрано и стоимость, — длинное во всю
+     ширину карточки: иначе двадцать строк занимали бы девять окон телефона. */
+  .phoneCardsRow tbody > tr > td.limitWide {
+    grid-column: 1 / -1;
+  }
+
+  .phoneCardsRow tbody > tr > td.limitUsed {
+    grid-column: span 2;
   }
 
   /* Отметка первой колонкой и короткие значения в строку (вкладка «Обход доноров»): имя —

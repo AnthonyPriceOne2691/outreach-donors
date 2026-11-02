@@ -186,6 +186,13 @@ export async function openUsage(
   return recorded;
 }
 
+/** Открыть «Расход» адресом и дождаться таблицы панели лимитов. */
+export async function openLimitPanel(opening: Opening): Promise<Recorded> {
+  const recorded = opened(SPENDING, opening, '/usage?view=panel');
+  await screen.findByRole('table', { name: 'Панель лимитов' });
+  return recorded;
+}
+
 /** Открыть вкладку «Статьи расхода» адресом и дождаться строки периода над плитками. */
 export async function openArticles(
   spending: unknown = SPENDING,

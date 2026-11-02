@@ -39,13 +39,18 @@
  * лишним окна телефона, а вопросы у них разные. Вкладка живёт в адресе: «Расход» открывается на
  * лимитах, и ссылки сметы «поднимите кап на экране «Расход»» ведут сразу к ним. Вкладки заданы
  * списком (`TABS`): новая — ещё одна строка и ещё одна ветка.
+ *
+ * **«Панель лимитов» — только у учётки с правом «менять потолки расхода»** (`LimitPanel.tsx`): у
+ * других вкладки нет, адрес `?view=panel` открывает лимиты, а запроса к панели нет вовсе.
  */
 
 import { Alert, Card, Loader, SegmentedControl, SimpleGrid, Stack, Text } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import { useSession } from '../auth/AuthProvider';
 import { refusalOf } from '../api/client';
 import { Metric } from '../components/Metric';
 import { PageHead } from '../components/PageHead';
@@ -56,22 +61,27 @@ import { formatDay } from '../format';
 import { AhrefsCap } from './AhrefsCap';
 import { HunterLimit } from './HunterLimit';
 import { LimitGrid } from './LimitCard';
+import { LimitPanel } from './LimitPanel';
 import { LlmCaps } from './LlmCaps';
 import { CrawlCap, SerpFunds, StageBreakdown } from './UsageStages';
 import { shownWithoutSpend, SPEND_PROVIDERS } from './usageLabels';
 
-type UsageTab = 'limits' | 'articles';
+type UsageTab = 'limits' | 'articles' | 'panel';
 
 const TABS: { value: UsageTab; label: string }[] = [
   { value: 'limits', label: 'Лимиты' },
   { value: 'articles', label: 'Статьи расхода' },
 ];
+/** Панель лимитов — вкладка администратора: без права её нет в списке. */
+const PANEL_TAB: { value: UsageTab; label: string } = { value: 'panel', label: 'Панель лимитов' };
+/** На телефоне три подписи в ряд не входят: вкладки — столбиком, как на других экранах. */
+const NARROW = '(max-width: 36em)';
 
-/** Вкладка — из адреса; незнакомая или пустая — лимиты. */
-function useUsageTab(): [UsageTab, (tab: UsageTab) => void] {
+/** Вкладка — из адреса; незнакомая, пустая или недоступная учётке — лимиты. */
+function useUsageTab(tabs: typeof TABS): [UsageTab, (tab: UsageTab) => void] {
   const [params, setParams] = useSearchParams();
   const asked = params.get('view');
-  const tab = TABS.find((known) => known.value === asked)?.value ?? 'limits';
+  const tab = tabs.find((known) => known.value === asked)?.value ?? 'limits';
   const go = useCallback(
     (next: UsageTab) => {
       if (next === tab) return;
@@ -80,6 +90,28 @@ function useUsageTab(): [UsageTab, (tab: UsageTab) => void] {
     [tab, setParams],
   );
   return [tab, go];
+}
+
+interface TabsProps {
+  tabs: typeof TABS;
+  tab: UsageTab;
+  onTab: (tab: UsageTab) => void;
+}
+
+/** Вкладки экрана. На телефоне — столбиком: три подписи в ряд не входят. */
+function UsageTabs({ tabs, tab, onTab }: TabsProps) {
+  const narrow = useMediaQuery(NARROW, false, { getInitialValueInEffect: false }) === true;
+  return (
+    <SegmentedControl
+      aria-label="Что смотреть на экране «Расход»"
+      value={tab}
+      onChange={(picked) => onTab(tabs.find((known) => known.value === picked)?.value ?? tab)}
+      data={tabs}
+      orientation={narrow ? 'vertical' : 'horizontal'}
+      fullWidth={narrow}
+      style={{ alignSelf: narrow ? 'stretch' : 'flex-start' }}
+    />
+  );
 }
 
 /** Без права «Продажи» сервер считает расход без продаж (П2б): числа сходятся между собой,
@@ -170,7 +202,9 @@ function SpendArticles({ data }: { data: UsageView }) {
 
 export function UsagePage() {
   const { data, isLoading, error } = useQuery({ queryKey: ['usage'], queryFn: fetchUsage });
-  const [tab, setTab] = useUsageTab();
+  const { can } = useSession();
+  const tabs = can('spend') ? [...TABS, PANEL_TAB] : TABS;
+  const [tab, setTab] = useUsageTab(tabs);
 
   if (isLoading) return <Loader aria-label="Загружаем расход" m="md" />;
   if (error) {
@@ -190,19 +224,13 @@ export function UsagePage() {
             title="Расход"
             hint={`На вкладке лимитов кап Ahrefs — в цикле ключа, со своего обнуления, а статьи расхода — с ${formatDay(data.since)}, календарный месяц. Остаток спрашивается у провайдера, а не считается по своей таблице: ключ Ahrefs и учётка Hunter общие с соседней системой, и её траты нам не видны.`}
           />
-          <SegmentedControl
-            aria-label="Что смотреть на экране «Расход»"
-            value={tab}
-            onChange={(picked) =>
-              setTab(TABS.find((known) => known.value === picked)?.value ?? tab)
-            }
-            data={TABS}
-            style={{ alignSelf: 'flex-start' }}
-          />
-          {tab === 'limits' ? <Limits data={data} /> : <SpendTiles data={data} />}
+          <UsageTabs tabs={tabs} tab={tab} onTab={setTab} />
+          {tab === 'limits' && <Limits data={data} />}
+          {tab === 'articles' && <SpendTiles data={data} />}
         </Stack>
       </Card>
       {tab === 'articles' && <SpendArticles data={data} />}
+      {tab === 'panel' && <LimitPanel />}
     </Stack>
   );
 }
