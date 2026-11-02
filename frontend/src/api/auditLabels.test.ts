@@ -124,6 +124,10 @@ describe('подробности записи', () => {
     // «весь лимит ключа» сервер пишет словами — они и читаются.
     expect(actionTitle('ahrefs_cap_changed', 'ahrefs_cap:4')).toBe('Кап Ahrefs изменён');
     expect(targetParts('ahrefs_cap:4', EMAILS)).toEqual([{ text: 'кап Ahrefs' }]);
+    expect(actionTitle('hunter_cap_changed', 'hunter_cap:2')).toBe(
+      'Потолок проверок адреса изменён',
+    );
+    expect(targetParts('hunter_cap:2', EMAILS)).toEqual([{ text: 'потолок проверок адреса' }]);
     expect(
       detailLines({
         'кап Ahrefs': { было: 'весь лимит ключа', стало: 15_000 },
