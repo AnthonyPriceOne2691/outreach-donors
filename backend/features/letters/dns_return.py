@@ -103,10 +103,11 @@ async def _closed(session: AsyncSession, message: MessageModel) -> bool:
     пересоберёт сборка, а молчащие продажи отправка назовёт сама."""
     try:
         await stages.check_sales(session, message)
-    except SuppressedError:
+    except SuppressedError as exc:
+        logger.info("письмо №%s остаётся отказом: %s", message.id, exc)
         return True
-    except stages.MailRefusalError:
-        return False
+    except stages.MailRefusalError as exc:
+        logger.info("письмо №%s вернётся, отказ проверки ему не мешает: %s", message.id, exc)
     return False
 
 
