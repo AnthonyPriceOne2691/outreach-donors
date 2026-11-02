@@ -16,11 +16,13 @@ from typing import Any
 
 import httpx
 import pytest
+from alembic.operations import Operations
+from alembic.runtime.migration import MigrationContext
 from backend.config import ahrefs as ahrefs_cfg
 from backend.config import crawl as crawl_cfg
 from backend.config import storage
-from backend.features.core.domain import CrawlOutcome, CrawlStatus
-from backend.features.core.models.advertiser import CandidateModel
+from backend.features.core.domain import CrawlOutcome, CrawlStatus, Verdict
+from backend.features.core.models.advertiser import CandidateMemoryModel, CandidateModel
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
 from backend.features.crawl.affiliate import affiliation
 from backend.features.crawl.links import harvest
@@ -29,7 +31,10 @@ from backend.features.crawl.repository import queue_crawl
 from backend.features.donors.host import _extract, domain_name
 from backend.workers import crawl_jobs
 from sqlalchemy import select
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import TEST_DSN
+from tests.migration_helpers import load_migration
 from tests.test_advertisers_cli import _FakeAhrefs
 from tests.test_crawl_progress import MAP_ROBOTS, _article, _Sink
 from tests.test_crawl_progress import _crawl as _walk
@@ -324,3 +329,82 @@ async def test_junk_reaches_neither_the_record_nor_the_dr_batch(
     asked = [host for batch in _FakeAhrefs.asked for host in batch]
     assert "small-brand.example" in asked
     assert all("." in host for host in asked)
+
+
+MIGRATION = "c5d30109d388_drop_junk_link_hosts.py"
+
+#: Что миграция обязана оставить: настоящие формы, новая зона, ссылка с негодным хостом, но
+#: настоящим корнем — её кандидат не мусор.
+KEPT_ROOTS = {"adv.example", "пример.рф", "my_site.example.test", "brand.newzonetest"}
+
+
+async def _stored(session: AsyncSession) -> None:
+    """Обход донора с настоящими и мусорными строками во всех трёх таблицах."""
+    run = CrawlRunModel(host=HOST, status=CrawlStatus.DONE)
+    session.add(run)
+    await session.flush()
+    hosts = [(host, host) for host in sorted(KEPT_ROOTS)]
+    hosts += [("www.adv.example.", "adv.example"), ("bad char.adv.example", "adv.example")]
+    hosts += [(host, host) for host in ("tipster", "'+gw+'", "+70000000000", "x" * 200)]
+    session.add_all(
+        OutLinkModel(
+            crawl_run_id=run.id,
+            page_url=PAGE,
+            url=f"http://{host}/",
+            target_host=host,
+            target_root=root,
+        )
+        for host, root in hosts
+    )
+    for root in (*sorted(KEPT_ROOTS), "tipster", "https", "'+gw+'"):
+        session.add(
+            CandidateModel(
+                crawl_run_id=run.id, donor_host=HOST, target_root=root, verdict=Verdict.PENDING
+            )
+        )
+        session.add(CandidateMemoryModel(donor_host=HOST, target_root=root, confirmed=True))
+    await session.flush()
+
+
+def _run_migration(connection: Connection) -> None:
+    migration = load_migration(MIGRATION)
+    with Operations.context(MigrationContext.configure(connection)):
+        migration.downgrade()
+        migration.upgrade()
+        migration.upgrade()
+
+
+class TestCleanup:
+    async def test_the_revision_takes_junk_and_only_junk(self, session: AsyncSession) -> None:
+        await _stored(session)
+        connection = await session.connection()
+
+        await connection.run_sync(_run_migration)
+
+        hosts = set((await session.execute(select(OutLinkModel.target_host))).scalars())
+        roots = set((await session.execute(select(CandidateModel.target_root))).scalars())
+        memory = set((await session.execute(select(CandidateMemoryModel.target_root))).scalars())
+        assert hosts == KEPT_ROOTS | {"www.adv.example."}
+        assert roots == KEPT_ROOTS
+        assert memory == KEPT_ROOTS
+
+    async def test_batches_cover_a_long_list(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Имён бывает больше пачки: пачка в одно имя обязана удалить всё то же."""
+        await _stored(session)
+        migration = load_migration(MIGRATION)
+        monkeypatch.setattr(migration, "BATCH", 1)
+
+        def clean(connection: Connection) -> None:
+            migration._clean(connection, "outlinks", "target_host")
+
+        await (await session.connection()).run_sync(clean)
+
+        hosts = set((await session.execute(select(OutLinkModel.target_host))).scalars())
+        assert hosts == KEPT_ROOTS | {"www.adv.example."}
+
+    @pytest.mark.parametrize("host", [*NOT_NAMES, *NAMES, "example.test."])
+    def test_the_copy_of_the_rule_says_the_same(self, host: str) -> None:
+        """Копия в миграции — намеренно (шапка ревизии), и сегодня она обязана совпадать."""
+        assert load_migration(MIGRATION)._is_name(host) is (domain_name(host) is not None)
