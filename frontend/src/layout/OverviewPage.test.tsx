@@ -14,6 +14,7 @@
  */
 
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import type { Me, OverviewView } from '../api/types';
@@ -97,13 +98,36 @@ describe('сторож тишины на обзоре', () => {
     expect(silence.getByText('есть повод').closest('.mantine-Badge-root')).toHaveStyle({
       '--badge-bg': 'var(--mantine-color-yellow-light)',
     });
+    const unmarked = await alarmOf('Тревога без пометки');
+    expect(unmarked.queryByText(/повод/)).not.toBeInTheDocument();
+
+    // Слово Anthony 02.11.2026: без повода — тихой строкой, те же слова по нажатию.
+    expect(
+      screen.queryByText('Письма без исхода доставки — направление рекламодателей'),
+    ).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Без повода для беспокойства · 1' }));
     const pending = await alarmOf('Письма без исхода доставки — направление рекламодателей');
     expect(pending.getByText(calm)).toBeInTheDocument();
     expect(pending.getByText('повода нет').closest('.mantine-Badge-root')).toHaveStyle({
       '--badge-bg': 'var(--mantine-color-green-light)',
     });
-    const unmarked = await alarmOf('Тревога без пометки');
-    expect(unmarked.queryByText(/повод/)).not.toBeInTheDocument();
+  });
+
+  it('тревоги только без повода — красных полос нет, тихая строка одна', async () => {
+    await openOverview([
+      {
+        code: 'key-80',
+        title: 'Кап выбран на 80 % и больше',
+        detail: '…',
+        stage: null,
+        concern: { cause: false, words: 'Повода для беспокойства нет — остаток ещё есть.' },
+      },
+    ]);
+
+    expect(
+      await screen.findByRole('button', { name: 'Без повода для беспокойства · 1' }),
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it.each([
