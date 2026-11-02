@@ -45,6 +45,23 @@ export interface CrawlPlace {
   held_reason?: string | null;
 }
 
+/** Глубокий обход (`crawl/deep.py`) числами сервера — для окна «Обойти заново». */
+export interface CrawlDeepRules {
+  max_pages: number;
+  /** Сколько таких обходов идёт разом. */
+  max_running: number;
+  /** Идут и ждут обходчика сейчас. */
+  going: number;
+  /** Ждут в очереди загрузки. */
+  waiting: number;
+  /** Сколько обычно идёт один такой обход, с, и сколько может идти самое большее. */
+  typical_sec: number;
+  max_seconds: number;
+  /** Цена DR новых доменов, юнитов: за домен и самое меньшее за запрос. */
+  dr_units: number;
+  dr_min_units: number;
+}
+
 /** Один обход: где он и чем кончился. `max_pages` — потолок хода «340 из 1000». */
 export interface CrawlRow extends CrawlCeilings {
   id: number;
@@ -84,6 +101,8 @@ export interface CrawlRow extends CrawlCeilings {
   /** Место в очереди — у ждущего обхода; у идущего и законченного, у ответа старого сервера и
    *  у «Приёмки по донорам» (очередь она не спрашивает) — пусто. */
   place?: CrawlPlace | null;
+  /** Глубокий обход (`crawl/deep.py`): `max_pages` тогда — его свой потолок. */
+  deep?: boolean;
 }
 
 /** Донор, которого можно обойти: цена — основание, обход — что о нём знаем. */
@@ -197,6 +216,8 @@ export interface CrawlDonorsView extends CrawlCeilings {
   slow_down_share?: number | null;
   stop_share?: number | null;
   max_seconds_slow?: number | null;
+  /** Глубокий обход; нет — сервер старше экрана: кнопок «Обойти заново» нет. */
+  deep?: CrawlDeepRules;
 }
 
 export interface CrawlSummary {
@@ -225,6 +246,15 @@ export interface CrawlLaunch {
   /** Донор → почему его не обходим. */
   refused: Record<string, string>;
   workers: number | null;
+}
+
+/** Что вышло из «Обойти заново»: встали в очередь загрузки, уже шли, не приняты и почему. */
+export interface CrawlDeepResult {
+  asked: number;
+  backlog: number;
+  busy: string[];
+  refused: Record<string, string>;
+  rules: CrawlDeepRules;
 }
 
 export function fetchCrawls(page = 1): Promise<CrawlsView> {
@@ -260,11 +290,17 @@ export function fetchCrawlSummary(): Promise<CrawlSummary> {
 export function startCrawlsByFilter(
   query: CrawlDonorQuery,
   expected: number,
+  deep = false,
 ): Promise<CrawlBulkResult> {
   return request<CrawlBulkResult>('/crawls/donors/crawl', {
     method: 'POST',
-    body: { ...query, expected },
+    body: deep ? { ...query, expected, deep } : { ...query, expected },
   });
+}
+
+/** «Обойти заново»: названных доноров, глубоким обходом, через очередь загрузки. */
+export function startDeepCrawls(hosts: string[]): Promise<CrawlDeepResult> {
+  return request<CrawlDeepResult>('/crawls/deep', { method: 'POST', body: { hosts } });
 }
 
 export function startCrawls(hosts: string[]): Promise<CrawlLaunch> {

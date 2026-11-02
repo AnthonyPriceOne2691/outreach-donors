@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 from pydantic_core import PydanticCustomError
 
 from backend.config import crawl as crawl_cfg
+from backend.features.ahrefs.units import MIN_REQUEST_UNITS, UNITS_DR_SCREEN
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, PriceSource, StopReason
 from backend.features.crawl.board import CrawlLine, DonorLine, QueueState
 from backend.shared.crawl_marks import Held
@@ -276,6 +277,9 @@ class DeepRules(BaseModel):
     #: Сколько обычно идёт один такой обход, с, и сколько может идти самое большее.
     typical_sec: float
     max_seconds: float
+    #: Цена DR новых доменов, юнитов: за домен и самое меньшее за запрос (`crawl/big_sites.py`).
+    dr_units: int = UNITS_DR_SCREEN
+    dr_min_units: int = MIN_REQUEST_UNITS
 
 
 class DeepResult(BaseModel):

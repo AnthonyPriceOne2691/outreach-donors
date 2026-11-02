@@ -132,9 +132,9 @@
       "worst": "_why_not:200"
     },
     "backend/api/crawls/schemas.py": {
-      "lines": 289,
+      "lines": 293,
       "complexity": 5,
-      "worst": "of:59"
+      "worst": "of:60"
     },
     "backend/api/deps.py": {
       "lines": 125,

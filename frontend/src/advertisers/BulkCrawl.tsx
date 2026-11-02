@@ -12,15 +12,20 @@
  * **Многих — в очередь загрузки** (больше `launch_max` сервера, полусотни — `routes.MAX_HOSTS`;
  * `crawl/backlog.py`): она отдаёт доноров свободным обходчикам понемногу, и обход, поставленный
  * кнопкой после, идёт первым, а не ждёт за тысячами. Окно говорит, куда встанут, до нажатия.
+ *
+ * **Заново, глубоким обходом** (`deep`) — та же кнопка со своим окном (`DeepCrawl`): такие обходы
+ * идут часами и всегда через очередь загрузки, сколько бы доноров ни было.
  */
 
 import { Button, Group, Modal, Stack, Text } from '@mantine/core';
 import { useState } from 'react';
 
-import type { CrawlDonorQuery } from '../api/crawls';
+import type { CrawlDeepRules, CrawlDonorQuery, CrawlDonorsView } from '../api/crawls';
 import { formatNumber, plural } from '../format';
-import { crawlEta } from './crawlFilters';
+import type { CrawlFilters } from './crawlFilters';
+import { crawlConditions, crawlEta, crawlQueryOf } from './crawlFilters';
 import { useStartByFilter } from './crawlQueries';
+import { DeepConfirm, deepLabel } from './DeepCrawl';
 
 function donors(count: number): string {
   return `${formatNumber(count)} ${plural(count, 'донор', 'донора', 'доноров')}`;
@@ -51,6 +56,53 @@ export function bulkTiming(count: number, typicalSec: number, workers: number | 
   // «при 1 обходчике», «при 8 обходчиках» — предложный падеж.
   const crawlers = `${formatNumber(workers ?? 0)} ${plural(workers ?? 0, 'обходчике', 'обходчиках', 'обходчиках')}`;
   return `При ${crawlers} пройдут ${eta}: ${each}, разом идёт столько, сколько обходчиков.`;
+}
+
+/** Кого обойдём: число и условия вкладки — первой строкой окна. */
+function whoWords(count: number, conditions: string[]): string {
+  const who = conditions.length > 0 ? ` — ${conditions.join(', ')}` : ' — все, кого можно обойти';
+  return `Встанут в очередь: ${donors(count)}${who}.`;
+}
+
+/** «Заново всех по фильтру, 10 000 · N»: те же условия и то же «не больше, чем видел». */
+export function BulkDeep({
+  query,
+  startable,
+  most,
+  conditions,
+  rules,
+}: {
+  query: CrawlDonorQuery;
+  startable: number;
+  most: number | undefined;
+  conditions: string[];
+  rules: CrawlDeepRules;
+}) {
+  const [open, setOpen] = useState(false);
+  const asked = most === undefined ? startable : Math.min(startable, most);
+  const run = useStartByFilter(() => setOpen(false));
+  return (
+    <>
+      <Button
+        variant="light"
+        className="press"
+        disabled={startable === 0}
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+      >
+        {deepLabel(rules)} всех по фильтру · {bulkCount(startable, most)}
+      </Button>
+      <DeepConfirm
+        opened={open}
+        rules={rules}
+        who={whoWords(asked, conditions)}
+        count={asked}
+        loading={run.isPending}
+        onClose={() => setOpen(false)}
+        onConfirm={() => run.mutate({ query, expected: asked, deep: true })}
+      />
+    </>
+  );
 }
 
 export function BulkCrawl({
@@ -90,10 +142,7 @@ export function BulkCrawl({
       </Button>
       <Modal opened={open} onClose={() => setOpen(false)} title="Обойти всех по фильтру?">
         <Stack gap="sm">
-          <Text>
-            Встанут в очередь: {donors(asked)}
-            {conditions.length > 0 ? ` — ${conditions.join(', ')}` : ' — все, кого можно обойти'}.
-          </Text>
+          <Text>{whoWords(asked, conditions)}</Text>
           <Text size="sm" c="dimmed">
             {bulkTiming(asked, typicalSec, workers)}
           </Text>
@@ -116,6 +165,34 @@ export function BulkCrawl({
           </Group>
         </Stack>
       </Modal>
+    </>
+  );
+}
+
+/** «Обойти всех по фильтру» и то же заново, глубоким обходом. */
+export function ByFilter({ data, filters }: { data: CrawlDonorsView; filters: CrawlFilters }) {
+  const query = crawlQueryOf(filters);
+  const conditions = crawlConditions(filters);
+  return (
+    <>
+      <BulkCrawl
+        query={query}
+        startable={data.startable}
+        most={data.bulk_max}
+        launchMax={data.launch_max}
+        workers={data.workers}
+        typicalSec={data.typical_crawl_sec}
+        conditions={conditions}
+      />
+      {data.deep ? (
+        <BulkDeep
+          query={query}
+          startable={data.startable}
+          most={data.bulk_max}
+          conditions={conditions}
+          rules={data.deep}
+        />
+      ) : null}
     </>
   );
 }

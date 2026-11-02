@@ -47,6 +47,12 @@ export function etaWords(view: BacklogView): string {
   );
 }
 
+/** Сколько из ждущих — глубокие: срок очереди из-за них другой, и это надо видеть. */
+export function deepPart(view: BacklogView): string {
+  const deep = view.deep ?? 0;
+  return deep > 0 ? `, из них глубоких ${formatNumber(deep)}` : '';
+}
+
 export function CrawlBacklog({ mayDrop }: { mayDrop: boolean }) {
   const queryClient = useQueryClient();
   const [asking, setAsking] = useState(false);
@@ -78,8 +84,8 @@ export function CrawlBacklog({ mayDrop }: { mayDrop: boolean }) {
     >
       <Text size="sm">
         Очередь загрузки: {donorsWord(view.waiting)} {plural(view.waiting, 'ждёт', 'ждут', 'ждут')}{' '}
-        обхода — {etaWords(view)}. Обходчики берут их по мере освобождения, обход, запущенный
-        кнопкой, идёт первым.
+        обхода{deepPart(view)} — {etaWords(view)}. Обходчики берут их по мере освобождения, обход,
+        запущенный кнопкой, идёт первым.
       </Text>
       {/* Кнопка не ужимается: в строке вкладки длинные слова очереди обрезали её до «Снять оче…». */}
       {mayDrop ? (
