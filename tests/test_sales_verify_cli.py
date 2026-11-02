@@ -266,7 +266,7 @@ async def test_command_runs_on_its_own_session(monkeypatch: pytest.MonkeyPatch) 
 @pytest.mark.parametrize(
     ("cap", "spent", "words"),
     [
-        ("", 0, "потолок проверки адресов на месяц не задан — задайте SALES_VERIFIER_MONTH_CAP"),
+        ("", 0, "потолок проверки адресов на месяц не задан — задайте его на экране «Расход»"),
         ("5", 5, "потолок проверки адресов на месяц выбран: 5 из 5 — следующий месяц продолжит"),
     ],
 )

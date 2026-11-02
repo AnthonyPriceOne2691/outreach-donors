@@ -24,6 +24,9 @@ from backend.features.core.domain import UserRole
 EXIT_OK = 0
 EXIT_TAKEN = 3
 
+#: Роли для `user-add --role`: новая роль встаёт в команду сама.
+ROLE_NAMES = [role.value for role in UserRole]
+
 
 async def cmd_user_add(args: argparse.Namespace) -> int:
     """Завести учётку и показать разовый пароль."""

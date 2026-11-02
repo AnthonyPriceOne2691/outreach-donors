@@ -16,6 +16,7 @@ import pytest
 from backend.config import sales as sales_cfg
 from backend.features.contacts.provider import ProviderError
 from backend.features.core import usage
+from backend.features.core.models.ops import HunterCapModel
 from backend.features.sales import cleaning, verify_cap
 from backend.features.sales.models import LeadStatus, RejectionReason, SalesHypothesisModel
 from backend.features.sales.verifier import Verdict
@@ -121,7 +122,7 @@ async def test_spent_cap_asks_nothing_and_the_free_rules_still_run(
 @pytest.mark.parametrize(
     ("value", "words"),
     [
-        ("", "потолок проверки адресов на месяц не задан — задайте SALES_VERIFIER_MONTH_CAP"),
+        ("", "потолок проверки адресов на месяц не задан — задайте его на экране «Расход»"),
         (
             "1 500",
             "SALES_VERIFIER_MONTH_CAP «1 500» — нужно целое число проверок адреса в месяц, "
@@ -217,6 +218,42 @@ async def test_one_lead_cleaning_of_a_referral_or_a_collection_keeps_the_same_ca
     words = "потолок проверки адресов на месяц выбран: 1 из 1 — следующий месяц продолжит"
     assert (hunter.asked, report.stopped) == ([], words)
     assert await world.rows() == [_waiting(words)]
+
+
+async def test_the_cap_from_the_screen_holds_the_pass_instead_of_the_environment(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Потолок сохранён на «Расходе»: очистка и окно читают его, а не окружение, и опечатка в
+    окружении ничего не останавливает."""
+    monkeypatch.setattr(cleaning, "VERIFY_CONCURRENCY", 1)
+    _cap(monkeypatch, "1 500")
+    world.session.add(HunterCapModel(verify_cap=1))
+    hunter = Scripted()
+    await world.lead(IVAN)
+    await world.lead(MARIA)
+
+    report = await cleaning.clean(world.session, hunter, now=NOW)
+
+    assert hunter.asked == [IVAN]
+    assert report.stopped == verify_cap.reached(1, 1)
+    assert (await verify_cap.month(world.session, now=NOW)).words == "в этом месяце 1 из 1"
+
+
+async def test_zero_on_the_screen_stops_the_paid_part_whatever_the_environment_says(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ноль с «Расхода» — решение человека: ни одной платной проверки, лиды ждут `new`. Если бы
+    ноль читался как «не сохраняли», действовало бы число из окружения."""
+    _cap(monkeypatch, "100000")
+    world.session.add(HunterCapModel(verify_cap=0))
+    hunter = Scripted()
+    await world.lead(IVAN)
+
+    report = await cleaning.clean(world.session, hunter, now=NOW)
+
+    assert hunter.asked == []
+    assert await world.rows() == [_waiting(verify_cap.reached(0, 0))]
+    assert report.stopped == verify_cap.reached(0, 0)
 
 
 async def test_month_words_for_the_screens(world: World, monkeypatch: pytest.MonkeyPatch) -> None:

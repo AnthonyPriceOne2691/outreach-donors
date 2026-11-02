@@ -524,6 +524,9 @@ async def test_spend_leaves_stage_two_out_of_lines_totals_and_the_crawl_cap(
     assert hidden["advertisers_hidden"] is True
     assert hidden["sales_hidden"] is True
     assert hidden["crawl"] == {"cap_usd": None, "spent_usd": "0"}
+    # Hunter: учётка общая и с поиском адресов доноров, потолок проверок — расход продаж.
+    assert hidden["hunter"]["month"] is None
+    assert shown["hunter"]["month"] is not None
     assert shown["advertisers_hidden"] is False
     assert "advertisers" in [one["stage"] for one in shown["stages"]]
     assert float(shown["crawl"]["spent_usd"]) == 2.0

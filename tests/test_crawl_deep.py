@@ -254,9 +254,8 @@ async def test_a_hung_crawl_ends_by_its_own_limit_and_not_by_the_longest_one(
 
     monkeypatch.setattr(DonorCrawler, "crawl", hangs)
     monkeypatch.setattr(crawl_jobs, "CRAWL_JOB_MARGIN_SEC", 0.05)
-    # Срок обычного обхода — больший из двух настроек (`deep.ceilings_of`).
-    monkeypatch.setattr(crawl_cfg, "MAX_SECONDS_SLOW", 0.05)
     monkeypatch.setattr(crawl_cfg, "MAX_SECONDS_PER_DONOR", 0.05)
+    monkeypatch.setattr(crawl_cfg, "MAX_SECONDS_SLOW", 0.05)
     _site(monkeypatch, 1)
     async with committed_sessions() as factory:
         run_id = await _queued(factory, None)

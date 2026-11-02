@@ -88,6 +88,19 @@ OPEN_SECTIONS = {
     "watchdog",
 }
 
+#: Панель, партии загрузок, глубокий обход и ночной круг — поимённо: обход схемы держит их и так,
+#: а эта строка не даст им выпасть из раздела при переезде.
+NAMED_ROUTES = {
+    ("GET", "/api/advertisers/panel"),
+    ("GET", "/api/advertisers/panel/quality"),
+    ("GET", "/api/advertisers/panel/quality/hosts"),
+    ("GET", "/api/advertisers/panel/mailing"),
+    ("GET", "/api/advertisers/pending/export"),
+    ("POST", "/api/donors/import"),
+    ("POST", "/api/crawls/deep"),
+    ("GET", "/api/crawls/night"),
+}
+
 #: Сколько маршрутов закрыто на сегодня: снизу — чтобы сломанный обход схемы не прошёл молча.
 AT_LEAST = 37
 
@@ -165,7 +178,7 @@ def test_the_walk_finds_the_routes(api_app: FastAPI) -> None:
     walked = _walked(api_app)
 
     assert len(walked) >= AT_LEAST, walked
-    assert set(walked) >= SINGLE_ROUTES
+    assert set(walked) >= SINGLE_ROUTES | NAMED_ROUTES
     for section in SECTIONS:
         assert any(path.startswith(section) for _, path in walked), section
 

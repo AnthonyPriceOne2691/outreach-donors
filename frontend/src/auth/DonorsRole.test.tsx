@@ -19,7 +19,7 @@ import { ADMIN, card, DONORS_ONLY, OPERATOR, OVERVIEW, TOKEN_KEY } from '../test
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Recorded } from '../test/server';
-import { openUsage, SPENDING } from '../test/usageFixtures';
+import { HUNTER, openArticles, openUsage, SPENDING } from '../test/usageFixtures';
 
 /** Сводка так, как её отдаёт сервер без права «Рекламодатели»: этапа в письмах нет вовсе. */
 const ONLY_DONORS_OVERVIEW: OverviewView = {
@@ -202,22 +202,56 @@ describe('рабочие экраны роли: адрес Этапа 2 ведё
     expect(closedCalls(recorded)).toEqual([]);
   });
 
-  it('расход: потолка обхода нет, а что счёт не весь — сказано словами', async () => {
-    await openUsage(
+  it('«Лимиты»: карточки потолка обхода нет, остальные счета на месте', async () => {
+    const spending = { ...SPENDING, sales_hidden: true, advertisers_hidden: true };
+    const recorded = await openUsage(spending, { me: DONORS_ONLY });
+
+    for (const name of ['Ahrefs', 'Hunter', 'Модель', 'Выдача']) {
+      expect(screen.getByRole('group', { name })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole('group', { name: 'Прокси и рендеринг' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Этап 2/)).not.toBeInTheDocument();
+    expect(closedCalls(recorded)).toEqual([]);
+  });
+
+  it('«Лимиты»: Hunter — остаток общей учётки, потолок проверок закрыт правом продаж', async () => {
+    // Сервер без права «Продажи» отдаёт учётку без месяца (`hunter_schemas.hunter_card`): платная
+    // ступень поиска адресов доноров тратит те же кредиты, а потолок проверок — расход продаж.
+    const hunter = { ...HUNTER, month: null };
+    await openUsage({ ...SPENDING, hunter, advertisers_hidden: true }, { me: DONORS_ONLY });
+
+    const card = within(screen.getByRole('group', { name: 'Hunter' }));
+    expect(card.getByText('Осталось на учётке')).toBeInTheDocument();
+    expect(
+      card.getByText(/учётка общая с соседней системой и поиском адресов/),
+    ).toBeInTheDocument();
+    expect(card.getByText(/Потолок проверок адреса виден с правом «Продажи»/)).toBeInTheDocument();
+    expect(card.queryByRole('button', { name: 'Изменить потолок' })).not.toBeInTheDocument();
+    expect(card.queryByText(/Проверки адреса за месяц/)).not.toBeInTheDocument();
+  });
+
+  it('«Статьи расхода»: что счёт не весь — сказано словами', async () => {
+    await openArticles(
       { ...SPENDING, sales_hidden: true, advertisers_hidden: true },
       { me: DONORS_ONLY },
     );
 
-    expect(screen.queryByText(/прокси и рендеринг/)).not.toBeInTheDocument();
     expect(
       screen.getByText(/Расход продаж и рекламодателей не показан — его видно с правами/),
     ).toBeInTheDocument();
   });
 
-  it('расход без одних продаж говорит прежними словами и показывает потолок обхода', async () => {
-    await openUsage({ ...SPENDING, sales_hidden: true, advertisers_hidden: false });
+  it('без одних продаж — прежние слова, и карточка потолка обхода на месте', async () => {
+    const spending = { ...SPENDING, sales_hidden: true, advertisers_hidden: false };
+    await openUsage(spending);
 
-    expect(screen.getByText(/прокси и рендеринг с начала месяца/)).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Прокси и рендеринг' })).toBeInTheDocument();
+    expect(screen.queryByText(/Расход продаж/)).not.toBeInTheDocument();
+  });
+
+  it('статьи без одних продаж говорят прежними словами', async () => {
+    await openArticles({ ...SPENDING, sales_hidden: true, advertisers_hidden: false });
+
     expect(
       screen.getByText(/Расход продаж не показан — его видно с правом «Продажи»/),
     ).toBeInTheDocument();

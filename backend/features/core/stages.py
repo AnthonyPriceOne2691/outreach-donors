@@ -66,6 +66,7 @@ from collections.abc import Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol, assert_never, cast
 
+from backend.features.core.box_rules import SoftSignals
 from backend.features.core.domain import Stage
 
 if TYPE_CHECKING:
@@ -73,7 +74,6 @@ if TYPE_CHECKING:
 
     from backend.features.core.models.outreach import MessageModel
     from backend.features.core.window import Pace, SendWindow
-    from backend.features.outreach.health import SoftSignals
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +220,7 @@ class MailPolicy:
 
     #: Окно получателя (`window.py`): письмо уходит в его рабочие часы. Пусто — в любой час.
     window: SendWindow | None = None
-    #: Мягкие сигналы ящика (`outreach/health.py`). Пусто — прежнее правило парковки.
+    #: Как этап судит ящик (`outreach/health.py`). Пусто — не судит.
     soft: SoftSignals | None = None
     #: Сторож почты этапа (`ops/mail_watch.py`): ящик молчит, отправить некому, все на паузе.
     watch: bool = False
@@ -228,8 +228,9 @@ class MailPolicy:
     pace: Pace | None = None
 
 
-#: Политика доноров и рекламодателей: всё как было до политик этапа.
-CURRENT = MailPolicy()
+#: Политика доноров и рекламодателей: окна и темпа нет, ящик судят те же пороги, что у продаж
+#: (02.11.2026: доля за жизнь ящика от 50 писем не срабатывала ни разу, `outreach/health.py`).
+CURRENT = MailPolicy(soft=SoftSignals())
 
 
 @dataclass(frozen=True, slots=True)

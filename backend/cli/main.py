@@ -20,7 +20,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.cli import donor_add, geo_shares, geo_top5, topic_backfill
-from backend.cli.access_admin import cmd_user_add, cmd_user_reset
+from backend.cli.access_admin import ROLE_NAMES, cmd_user_add, cmd_user_reset
 from backend.cli.advertisers import add_parser as add_advertisers_parser
 from backend.cli.advertisers import (
     cmd_advertiser_decide,
@@ -60,14 +60,13 @@ from backend.cli.sales_commands import FAILURES as SALES_FAILURES
 from backend.cli.sales_commands import KEPT_ON_INTERRUPT as SALES_KEPT
 from backend.cli.sales_commands import add_parsers as add_sales_parsers
 from backend.cli.senders_admin import add_parser as add_senders_parser
-from backend.cli.senders_admin import cmd_sender_add, cmd_senders
+from backend.cli.senders_admin import cmd_sender_add, cmd_sender_resume, cmd_senders
 from backend.cli.sending_domains import add_parser as add_domains_parser
 from backend.cli.sending_domains import cmd_sending_domain
 from backend.config import storage
 from backend.config.startup_checks import ConfigError, check_collect, check_storage
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
-from backend.features.core.domain import UserRole
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.donors.doors import door_check
 from backend.features.donors.geo import assert_settings_allow_limited_fetch
@@ -342,7 +341,7 @@ def build_parser() -> argparse.ArgumentParser:
     user_add.add_argument(
         "--role",
         default="operator",
-        choices=[role.value for role in UserRole],
+        choices=ROLE_NAMES,
         help="роль: admin заводит учётки, operator работает с базой, donors — только Этап 1",
     )
 
@@ -460,6 +459,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "letters": cmd_letters,
     "letters-send": cmd_letters_send,
     "sender-add": cmd_sender_add,
+    "sender-resume": cmd_sender_resume,
     "senders": cmd_senders,
     "sending-domain": cmd_sending_domain,
     "mail-test": cmd_mail_test,

@@ -125,9 +125,10 @@ class TestEveryKindArrives:
         [
             (Trouble.UNREACHABLE, TIMEOUT),
             (
-                Trouble.NO_MAIL_SERVER,
+                Trouble.RECIPIENT_DNS,
                 "unable to get mx info: failed to get IPs from PTR record: lookup <nil>",
             ),
+            (Trouble.NO_MAIL_SERVER, "dial tcp: lookup mx.example.com: no such host"),
             (Trouble.TRY_LATER, "451 4.7.1 Greylisting in action, please come back later"),
             (Trouble.MAILBOX_FULL, "452 4.2.2 The email account that you tried to reach is full"),
             (

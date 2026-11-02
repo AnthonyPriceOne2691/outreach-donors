@@ -7,12 +7,13 @@
  * что выдача досталась даром.
  */
 
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { operationTitle } from '../api/labels';
 import { spendOperation } from './usageLabels';
-import { openUsage, SPENDING } from '../test/usageFixtures';
+import { openArticles, openUsage, SPENDING } from '../test/usageFixtures';
 
 describe('расход', () => {
   it.each([
@@ -21,7 +22,7 @@ describe('расход', () => {
   ])('%s', async (_, hidden) => {
     // Решение Anthony 10.10.2026 (П2б): без права сервер считает статьи, плитки и итог без
     // операций продаж — числа сходятся между собой, но это не весь счёт, и экран так и говорит.
-    await openUsage({ ...SPENDING, sales_hidden: hidden });
+    await openArticles({ ...SPENDING, sales_hidden: hidden });
 
     expect(screen.queryByText(/Расход продаж не показан/) !== null).toBe(hidden);
   });
@@ -30,20 +31,25 @@ describe('расход', () => {
     await openUsage();
 
     // Деньги и числа — по-русски: запятая в деньгах, разряды в больших числах. Остаток
-    // Ahrefs — своей строкой блока ключа (16.10.2026), счёт выдачи — своей.
-    expect(screen.getByText(/на счету источника выдачи 51,90 \$/)).toBeInTheDocument();
-    expect(screen.getByText(/^Осталось/)).toHaveTextContent(/Осталось 35\s000 из 50\s000/);
+    // Ahrefs — своей карточкой (16.10.2026), счёт выдачи — своей.
+    expect(screen.getByRole('group', { name: 'Выдача' })).toHaveTextContent(
+      'На счету источника выдачи51,90 $',
+    );
+    expect(screen.getByRole('group', { name: 'Ahrefs' })).toHaveTextContent(
+      /Осталось35\s000из 50\s000/,
+    );
   });
 
   it('трата на выдачу показана в деньгах', async () => {
     await openUsage();
 
-    expect(screen.getByText(/Выдача с начала месяца/)).toBeInTheDocument();
-    expect(screen.getAllByText(/0,36 \$/).length).toBeGreaterThan(0);
+    expect(screen.getByRole('group', { name: 'Выдача' })).toHaveTextContent(
+      'С начала месяца: 0,36 $',
+    );
   });
 
   it('статьи названы словами, а не кодами операций', async () => {
-    await openUsage({
+    await openArticles({
       ...SPENDING,
       articles: [
         ...SPENDING.articles,
@@ -91,7 +97,7 @@ describe('расход', () => {
   });
 
   it('там, где платят не деньгами, нулей в долларах нет', async () => {
-    await openUsage({
+    await openArticles({
       ...SPENDING,
       articles: [],
       units_by_provider: { ahrefs: 6416 },
@@ -119,9 +125,51 @@ describe('расход', () => {
   });
 });
 
+describe('вкладки «Лимиты» и «Статьи расхода»', () => {
+  it('экран открывается на лимитах: статей и плиток на вкладке нет', async () => {
+    await openUsage();
+
+    expect(screen.getByRole('radio', { name: 'Лимиты' })).toBeChecked();
+    for (const name of ['Ahrefs', 'Hunter', 'Модель', 'Выдача', 'Прокси и рендеринг']) {
+      expect(screen.getByRole('group', { name })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByText('По этапам')).not.toBeInTheDocument();
+  });
+
+  it('вкладка переключается и живёт в адресе: лимитов на статьях нет', async () => {
+    await openUsage();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Статьи расхода' }));
+
+    expect(await screen.findByText('По этапам')).toBeInTheDocument();
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Ahrefs' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: 'Лимиты' }));
+
+    await waitFor(() => expect(screen.getByRole('group', { name: 'Ahrefs' })).toBeInTheDocument());
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it('вкладка из адреса открывается сразу', async () => {
+    await openArticles();
+
+    expect(screen.getByRole('radio', { name: 'Статьи расхода' })).toBeChecked();
+    expect(screen.getByRole('table')).toBeInTheDocument();
+  });
+
+  it('незнакомая вкладка в адресе — лимиты, а не пустой экран', async () => {
+    await openUsage(SPENDING, { path: '/usage?view=нет-такой' });
+
+    expect(screen.getByRole('radio', { name: 'Лимиты' })).toBeChecked();
+  });
+});
+
 describe('плитки расхода', () => {
   it('единица — словом под числом, а не хвостом, который рвётся на телефоне', async () => {
-    await openUsage({
+    await openArticles({
       ...SPENDING,
       units_by_provider: { ahrefs: 6416, llm: 2180924, email: 4 },
     });
@@ -138,7 +186,7 @@ describe('плитки расхода', () => {
   });
 
   it('юниты и деньги у одного провайдера — одной подписью', async () => {
-    await openUsage({
+    await openArticles({
       ...SPENDING,
       units_by_provider: { ahrefs: 6416 },
       amount_by_provider: { ahrefs: '1.5' },
@@ -155,7 +203,7 @@ describe('провайдеры', () => {
   it('поиск адресов у Hunter — своей строкой и плиткой, а незнакомый провайдер не роняет экран', async () => {
     // До 05.10.2026 сервер уже писал расход под `hunter`, а экран о нём не знал:
     // значок провайдера брался из таблицы подписей, и страница падала целиком.
-    await openUsage({
+    await openArticles({
       ...SPENDING,
       articles: [
         ...SPENDING.articles,
@@ -222,7 +270,7 @@ describe('расход по этапам', () => {
   it('одна операция у двух этапов — две статьи, и у каждой свой этап', async () => {
     // DR кандидатов Этапа 2 и метрики прогона — обе «метрики доменов»: до этапа у строки
     // расхода они были одной строкой, и Этап 2 не считался отдельно.
-    await openUsage(STAGED);
+    await openArticles(STAGED);
 
     const rows = screen.getAllByText('метрики доменов').map((cell) => cell.closest('tr'));
     expect(rows).toHaveLength(2);
@@ -232,7 +280,7 @@ describe('расход по этапам', () => {
   });
 
   it('разбивка по этапам — каждый провайдер в своей валюте, деньги отдельно', async () => {
-    await openUsage(STAGED);
+    await openArticles(STAGED);
 
     const panel = screen.getByText('По этапам').closest('.mantine-Card-root') as HTMLElement;
     const second = within(panel).getByText('Этап 2 · рекламодатели').parentElement as HTMLElement;
@@ -243,7 +291,7 @@ describe('расход по этапам', () => {
   });
 
   it('трафик прокси — размером, и плитка прокси есть, только когда по нему тратили', async () => {
-    await openUsage(STAGED);
+    await openArticles(STAGED);
 
     const tile = screen
       .getByText('прокси обхода', { selector: 'p' })
@@ -255,8 +303,8 @@ describe('расход по этапам', () => {
   it('прокси и рендеринг — против своего потолка Этапа 2, отдельно от юнитов', async () => {
     await openUsage(STAGED);
 
-    expect(screen.getByText(/Этап 2 — прокси и рендеринг с начала месяца/).textContent).toMatch(
-      /0,01 \$ из 120,00 \$ по своему потолку/,
+    expect(screen.getByRole('group', { name: 'Прокси и рендеринг' }).textContent).toMatch(
+      /Этап 2 с начала месяца0,01 \$из 120,00 \$ по своему потолку/,
     );
     expect(
       screen.getByRole('progressbar', { name: 'Прокси и рендеринг Этапа 2 с начала месяца' }),
@@ -268,7 +316,7 @@ describe('расход по этапам', () => {
 
     expect(
       screen.getByText(
-        'своего потолка у Этапа 2 нет — прокси и рендеринг не зовутся, пока его не зададут',
+        'Своего потолка у Этапа 2 нет — прокси и рендеринг не зовутся, пока его не зададут',
       ),
     ).toBeInTheDocument();
     expect(
@@ -279,7 +327,7 @@ describe('расход по этапам', () => {
   it('потолок выбран — сказано, что платные уровни стоят до следующего месяца', async () => {
     await openUsage({ ...STAGED, crawl: { cap_usd: '10.00', spent_usd: '10.0000' } });
 
-    expect(screen.getByText(/потолок выбран/)).toBeInTheDocument();
+    expect(screen.getByText(/^Потолок выбран/)).toBeInTheDocument();
   });
 
   it('статьи обхода названы словами', () => {

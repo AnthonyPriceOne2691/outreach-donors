@@ -1,5 +1,5 @@
 /**
- * Расход по этапам и свой потолок Этапа 2 на экране «Расход».
+ * Расход по этапам, свой потолок Этапа 2 и счёт выдачи на экране «Расход».
  *
  * Расход Этапа 2 на обход и прокси считается отдельно от Этапа 1 и держится своим
  * потолком: иначе один донор за защитой съест месяц. До 12.10.2026 у строки расхода
@@ -18,43 +18,56 @@
 import { Card, Group, Stack, Text } from '@mantine/core';
 
 import type { CrawlSpend, StageSpending } from '../api/settings';
-import { Meter } from '../components/Meter';
 import { formatUsd } from '../format';
+import { LimitCard } from './LimitCard';
 import { spendProvider, stageTitle, unitsText } from './usageLabels';
 
-/** Платный обход Этапа 2 с начала месяца — против своего потолка, если он задан. Без права
- *  «Рекламодатели» (`hidden`) строки нет: сервер не называет ни потолка, ни расхода. */
-export function CrawlCap({ crawl, hidden }: { crawl: CrawlSpend; hidden: boolean }) {
-  if (hidden) return null;
+interface SerpProps {
+  left: string | null;
+  spent: string;
+  error: string | null;
+}
+
+/** Платный обход Этапа 2 с начала месяца — против своего потолка, если он задан. */
+export function CrawlCap({ crawl }: { crawl: CrawlSpend }) {
   const spent = Number(crawl.spent_usd);
   if (crawl.cap_usd === null) {
     return (
-      <Group justify="space-between">
-        <Text size="sm">
-          Этап 2 — прокси и рендеринг с начала месяца: <b>{formatUsd(spent)}</b>
-        </Text>
-        <Text size="sm" c="dimmed">
-          своего потолка у Этапа 2 нет — прокси и рендеринг не зовутся, пока его не зададут
-        </Text>
-      </Group>
+      <LimitCard
+        title="Прокси и рендеринг"
+        caption="Этап 2 с начала месяца"
+        value={formatUsd(spent)}
+        note="Своего потолка у Этапа 2 нет — прокси и рендеринг не зовутся, пока его не зададут"
+      />
     );
   }
   const cap = Number(crawl.cap_usd);
   return (
-    <Stack gap={6}>
-      <Group justify="space-between">
-        <Text size="sm">
-          Этап 2 — прокси и рендеринг с начала месяца: <b>{formatUsd(spent)}</b> из {formatUsd(cap)}{' '}
-          по своему потолку
-        </Text>
-        <Text size="sm" c="dimmed">
-          {spent >= cap
-            ? 'потолок выбран — платные уровни обхода не зовутся до следующего месяца'
-            : 'отдельно от юнитов Ahrefs'}
-        </Text>
-      </Group>
-      <Meter spent={spent} cap={cap} label="Прокси и рендеринг Этапа 2 с начала месяца" />
-    </Stack>
+    <LimitCard
+      title="Прокси и рендеринг"
+      caption="Этап 2 с начала месяца"
+      value={formatUsd(spent)}
+      of={`из ${formatUsd(cap)} по своему потолку`}
+      gauge={{ spent, cap, label: 'Прокси и рендеринг Этапа 2 с начала месяца' }}
+      note={
+        spent >= cap
+          ? 'Потолок выбран — платные уровни обхода не зовутся до следующего месяца'
+          : 'Отдельно от юнитов Ahrefs'
+      }
+    />
+  );
+}
+
+/** Счёт выдачи — в деньгах: ключ там свой, не общий, поэтому чужих трат в остатке нет. */
+export function SerpFunds({ left, spent, error }: SerpProps) {
+  return (
+    <LimitCard
+      title="Выдача"
+      caption="На счету источника выдачи"
+      value={left === null ? undefined : formatUsd(left)}
+      note={left === null ? (error ?? 'Остаток у источника выдачи неизвестен') : undefined}
+      when={`С начала месяца: ${formatUsd(spent)}`}
+    />
   );
 }
 
