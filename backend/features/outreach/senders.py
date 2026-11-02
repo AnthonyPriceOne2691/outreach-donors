@@ -136,11 +136,17 @@ def enable(sender: SenderModel, *, now: datetime | None = None) -> None:
     день разгона, в другую — сожжённая репутация домена. Отметка первого
     письма снимается: первая ступень — со следующего письма.
     """
-    moment = now or datetime.now(UTC)
+    resume(sender)
+    sender.warmup_started_at = now or datetime.now(UTC)
+    sender.warmup_first_sent_at = None
+
+
+def resume(sender: SenderModel) -> None:
+    """Снять паузу, не трогая разгон: ящик встал не по своей вине, например из-за чужого сбоя,
+    и ступени он не терял. Только из консоли (`cli/senders_admin.py`), а не кнопкой: у кнопки
+    цена ошибки — репутация домена, и она всегда начинает разгон заново (`enable`)."""
     sender.enabled = True
     sender.status = SenderStatus.FREE
-    sender.warmup_started_at = moment
-    sender.warmup_first_sent_at = None
     sender.paused_at = None
     sender.pause_reason = None
 

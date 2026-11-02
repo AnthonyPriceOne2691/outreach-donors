@@ -772,7 +772,7 @@
       "worst": "_report:218"
     },
     "backend/cli/main.py": {
-      "lines": 499,
+      "lines": 500,
       "complexity": 9,
       "worst": "_print_report:276"
     },
@@ -832,9 +832,9 @@
       "worst": "_verify_with:80"
     },
     "backend/cli/senders_admin.py": {
-      "lines": 136,
-      "complexity": 6,
-      "worst": "cmd_sender_add:44"
+      "lines": 191,
+      "complexity": 7,
+      "worst": "cmd_sender_resume:122"
     },
     "backend/cli/sending_domains.py": {
       "lines": 150,
@@ -907,9 +907,9 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 376,
+      "lines": 366,
       "complexity": 9,
-      "worst": "_weekdays:162"
+      "worst": "_weekdays:152"
     },
     "backend/config/sales.py": {
       "lines": 500,
@@ -1221,6 +1221,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/core/box_rules.py": {
+      "lines": 18,
+      "complexity": 0,
+      "worst": "—"
+    },
     "backend/features/core/country_zones.py": {
       "lines": 85,
       "complexity": 2,
@@ -1322,7 +1327,7 @@
       "worst": "_ask:66"
     },
     "backend/features/core/stages.py": {
-      "lines": 495,
+      "lines": 496,
       "complexity": 7,
       "worst": "check_connected:131"
     },
@@ -1917,9 +1922,9 @@
       "worst": "to_text:92"
     },
     "backend/features/letters/events.py": {
-      "lines": 448,
+      "lines": 384,
       "complexity": 9,
-      "worst": "_addressed:264"
+      "worst": "_addressed:251"
     },
     "backend/features/letters/followups.py": {
       "lines": 493,
@@ -2197,9 +2202,9 @@
       "worst": "—"
     },
     "backend/features/outreach/autopause.py": {
-      "lines": 117,
+      "lines": 107,
       "complexity": 2,
-      "worst": "pause_once:90"
+      "worst": "pause_once:80"
     },
     "backend/features/outreach/capacity.py": {
       "lines": 421,
@@ -2207,9 +2212,9 @@
       "worst": "span_of:266"
     },
     "backend/features/outreach/health.py": {
-      "lines": 280,
+      "lines": 269,
       "complexity": 9,
-      "worst": "listen:94"
+      "worst": "listen:82"
     },
     "backend/features/outreach/limits.py": {
       "lines": 133,
@@ -2227,7 +2232,7 @@
       "worst": "sent_today:220"
     },
     "backend/features/outreach/senders.py": {
-      "lines": 218,
+      "lines": 224,
       "complexity": 5,
       "worst": "warmup_state:66"
     },
