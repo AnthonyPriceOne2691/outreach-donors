@@ -6,6 +6,7 @@
 
 import { Stack } from '@mantine/core';
 
+import { PanelMailing } from './PanelMailing';
 import { PanelQuality } from './PanelQuality';
 import { PanelSteps } from './PanelSteps';
 
@@ -14,6 +15,7 @@ export function AdvertiserPanel() {
     <Stack gap="lg">
       <PanelSteps />
       <PanelQuality />
+      <PanelMailing />
     </Stack>
   );
 }

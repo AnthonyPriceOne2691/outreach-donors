@@ -331,3 +331,63 @@ describe('качество загрузок', () => {
     expect(await screen.findByText(/Загрузок и обходов ещё не было/)).toBeVisible();
   });
 });
+
+describe('рассылка на панели', () => {
+  it('показывает прогноз этапа, части по слову оффера и ящики — без слов продаж', async () => {
+    open();
+
+    expect(await screen.findByRole('heading', { name: 'Рассылка рекламодателям' })).toBeVisible();
+    expect(await screen.findByRole('region', { name: 'Когда уйдёт очередь' })).toBeVisible();
+    expect(await screen.findByRole('region', { name: 'Факт за 7 дней' })).toBeVisible();
+    const parts = await screen.findByRole('region', { name: 'Рекламодатели по письмам' });
+    expect(within(parts).getByText('Ушло')).toBeVisible();
+    expect(within(parts).getByText('Собрано')).toBeVisible();
+    // Части с нулём не показываются: «снято 0» ни о чём не говорит.
+    expect(within(parts).queryByText('Снято')).toBeNull();
+    expect(await screen.findByRole('region', { name: 'Ящики и разгон' })).toBeVisible();
+  });
+
+  it('очередь сама не уходит — так и сказано', async () => {
+    open();
+
+    expect(await screen.findByText(/Очередь сама не уходит/)).toBeVisible();
+  });
+
+  it('у очереди, которая уходит сама, — строка экрана писем', async () => {
+    open({
+      'GET /api/advertisers/panel/mailing': {
+        body: {
+          links: {
+            ...QUIET,
+            running: true,
+            since: '2026-11-02T09:00:00Z',
+            started_by: 'anna@site.com',
+            sent: 12,
+          },
+          niche: QUIET,
+        },
+      },
+      'GET /api/letters/forecast?stage=advertisers&days=31&back=0': {
+        body: { queue_eta: { day: null, sending_days: null, hours: null, words: 'очередь пуста' } },
+      },
+    });
+
+    expect(await screen.findByText(/Очередь уходит сама с/)).toBeVisible();
+    expect(screen.queryByText(/Очередь сама не уходит/)).toBeNull();
+  });
+
+  it('ящиков нет — словами этапа, а не продаж', async () => {
+    open({ [FORECAST_ROUTE]: { body: { ...FORECAST, stage: 'advertisers', senders: [] } } });
+
+    const boxes = await screen.findByRole('region', { name: 'Ящики и разгон' });
+    expect(within(boxes).getByText(/Ящиков этапа нет/)).toBeVisible();
+    expect(within(boxes).queryByText(/Домены продаж/)).toBeNull();
+  });
+
+  it('отказ прогноза — в его блоке, части и режим живут', async () => {
+    open({ [FORECAST_ROUTE]: { status: 503, body: { detail: 'Прогноз не ответил' } } });
+
+    expect(await screen.findByText('Прогноз рассылки не загрузился')).toBeVisible();
+    expect(await screen.findByRole('region', { name: 'Рекламодатели по письмам' })).toBeVisible();
+  });
+});
