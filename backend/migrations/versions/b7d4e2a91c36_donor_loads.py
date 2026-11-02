@@ -1,7 +1,7 @@
 """загрузки доноров: партия файлом или донор вручную — и домены загрузки
 
 Revision ID: b7d4e2a91c36
-Revises: 015f15107ded
+Revises: c5d30109d388
 Create Date: 2026-11-02 13:00:00.000000
 
 Очередь загрузки теряет строку, как только донор ушёл в обход, и от партии не оставалось ничего:
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b7d4e2a91c36"  # pragma: allowlist secret
-down_revision: Union[str, Sequence[str], None] = "015f15107ded"  # pragma: allowlist secret
+down_revision: Union[str, Sequence[str], None] = "c5d30109d388"  # pragma: allowlist secret
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
