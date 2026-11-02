@@ -1,5 +1,7 @@
-import { Alert, Badge, Box, Group, Stack } from '@mantine/core';
+import { Alert, Badge, Box, Button, Group, Stack } from '@mantine/core';
+import { IconChevronDown } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
+import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { fetchWatchdog } from '../api/settings';
@@ -7,6 +9,8 @@ import type { StagedAlarm } from '../api/settings';
 import { stageShown } from '../api/stageRights';
 import type { Stage } from '../api/stages';
 import { useSession } from '../auth/AuthProvider';
+import { formatNumber } from '../format';
+import { Unfold } from '../runs/Unfold';
 
 /** Заголовок тревоги — с меткой, есть ли повод для беспокойства. Слово метки — экрана, как у
  *  соседних значков; почему и что делать — строкой сервера под тревогой. Цвет — от смысла:
@@ -20,6 +24,54 @@ function alarmTitle({ title, concern }: StagedAlarm): ReactNode {
         {concern.cause ? 'есть повод' : 'повода нет'}
       </Badge>
     </Group>
+  );
+}
+
+function AlarmCard({ alarm, color }: { alarm: StagedAlarm; color: string }) {
+  return (
+    <Alert color={color} title={alarmTitle(alarm)}>
+      {alarm.detail}
+      {alarm.concern && (
+        <Box mt={6} fw={500}>
+          {alarm.concern.words}
+        </Box>
+      )}
+    </Alert>
+  );
+}
+
+/** Тревоги, о которых беспокоиться незачем: одной тихой строкой, подробности — по нажатию. */
+function QuietAlarms({ alarms }: { alarms: StagedAlarm[] }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <Stack gap="xs">
+      <Group>
+        <Button
+          variant="subtle"
+          size="compact-sm"
+          className="press"
+          // Строка лежит прямо на полотне, не на панели: цвет кнопки на бирюзе давал 3,84 : 1.
+          color="gray"
+          c="var(--mantine-color-text)"
+          aria-expanded={open}
+          aria-controls={id}
+          rightSection={
+            <IconChevronDown size={16} style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
+          }
+          onClick={() => setOpen(!open)}
+        >
+          Без повода для беспокойства · {formatNumber(alarms.length)}
+        </Button>
+      </Group>
+      <Unfold open={open}>
+        <Stack gap="sm" id={id}>
+          {alarms.map((alarm) => (
+            <AlarmCard key={alarm.code} alarm={alarm} color="gray" />
+          ))}
+        </Stack>
+      </Unfold>
+    </Stack>
   );
 }
 
@@ -46,6 +98,12 @@ function alarmTitle({ title, concern }: StagedAlarm): ReactNode {
  * у заголовка и строка пометки под подробностями — те же слова, что последней строкой в
  * Telegram (`ops/alarms.Concern`). Поводом стала тревога о доставке, которая встревожила
  * человека, хотя исход письма пришёл бы сам.
+ *
+ * **Красная полоса — только когда есть повод** (слово Anthony 02.11.2026: «чтобы не висели и не
+ * отвлекали взгляд»). Тревога считается сервером из состояния на сейчас: решённое уходит с экрана
+ * само, при следующем опросе. Но кап, выбранный на 84 %, или письмо, которое сервер получателя
+ * тянет трое суток, — не поломка, и красными полосами они стояли неделями, делать с ними нечего.
+ * Такие — одной тихой строкой с числом, а слова те же, по нажатию.
  */
 export function Watchdog({ stage }: { stage?: Stage }) {
   const { can } = useSession();
@@ -65,19 +123,16 @@ export function Watchdog({ stage }: { stage?: Stage }) {
       (stage === undefined || alarm.stage === stage),
   );
   if (!can('view') || alarms.length === 0) return null;
+  const quiet = alarms.filter((alarm) => alarm.concern?.cause === false);
 
   return (
     <Stack gap="sm">
-      {alarms.map((alarm) => (
-        <Alert key={alarm.code} color="red" title={alarmTitle(alarm)}>
-          {alarm.detail}
-          {alarm.concern && (
-            <Box mt={6} fw={500}>
-              {alarm.concern.words}
-            </Box>
-          )}
-        </Alert>
-      ))}
+      {alarms
+        .filter((alarm) => !quiet.includes(alarm))
+        .map((alarm) => (
+          <AlarmCard key={alarm.code} alarm={alarm} color="red" />
+        ))}
+      {quiet.length > 0 ? <QuietAlarms alarms={quiet} /> : null}
     </Stack>
   );
 }
