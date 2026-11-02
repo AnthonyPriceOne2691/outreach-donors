@@ -64,7 +64,7 @@ function whoWords(count: number, conditions: string[]): string {
   return `Встанут в очередь: ${donors(count)}${who}.`;
 }
 
-/** «Заново всех по фильтру, 10 000 · N»: те же условия и то же «не больше, чем видел». */
+/** «Заново всех, 10 000 · N» — всех под фильтром: те же условия и «не больше, чем видел». */
 export function BulkDeep({
   query,
   startable,
@@ -84,13 +84,13 @@ export function BulkDeep({
   return (
     <>
       <Button
-        variant="light"
+        variant="default"
         className="press"
         disabled={startable === 0}
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}
       >
-        {deepLabel(rules)} всех по фильтру · {bulkCount(startable, most)}
+        {deepLabel(rules, 'всех')} · {bulkCount(startable, most)}
       </Button>
       <DeepConfirm
         opened={open}

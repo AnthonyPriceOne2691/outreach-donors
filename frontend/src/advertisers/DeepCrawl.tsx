@@ -17,14 +17,15 @@ import { crawlEta } from './crawlFilters';
 import { useStartDeep } from './crawlQueries';
 import { spanWords } from './crawlWords';
 
-/** Подпись кнопки в строке: «Заново, 10 000». */
-export function deepLabel(rules: CrawlDeepRules): string {
-  return `Заново, ${formatNumber(rules.max_pages)}`;
+/** Подпись кнопки о ком-то: «Заново всех, 10 000». В подписи — потолок: им и отличается от
+ *  обычного обхода. */
+export function deepLabel(rules: CrawlDeepRules, who: string): string {
+  return `Заново ${who}, ${formatNumber(rules.max_pages)}`;
 }
 
-/** Заголовок окна: «Обойти заново, до 10 000 страниц?». */
+/** Что делает кнопка: «Обойти заново, до 10 000 страниц» — подсказка и заголовок окна. */
 export function deepTitle(rules: CrawlDeepRules): string {
-  return `Обойти заново, до ${formatNumber(rules.max_pages)} страниц?`;
+  return `Обойти заново, до ${formatNumber(rules.max_pages)} страниц`;
 }
 
 /** Сколько идёт один и все: срок одного и, если доноров много, всех при пределе разом. */
@@ -71,13 +72,13 @@ export function DeepPicked({
   if (rules === undefined) return null;
   return (
     <Button
-      variant="light"
+      variant="default"
       className="press"
       disabled={disabled}
       aria-haspopup="dialog"
       onClick={onAsk}
     >
-      {deepLabel(rules)} отмеченных · {formatNumber(count)}
+      {deepLabel(rules, 'отмеченных')} · {formatNumber(count)}
     </Button>
   );
 }
@@ -102,7 +103,7 @@ export function DeepConfirm({
 }) {
   const now = deepNow(rules);
   return (
-    <Modal opened={opened} onClose={onClose} title={deepTitle(rules)}>
+    <Modal opened={opened} onClose={onClose} title={`${deepTitle(rules)}?`}>
       <Stack gap="sm">
         <Text>{who}</Text>
         <Text size="sm" c="dimmed">
@@ -133,7 +134,7 @@ export function DeepConfirm({
 export function deepRule(deep: CrawlDeepRules | undefined): string {
   if (deep === undefined) return '';
   return (
-    ` «${deepLabel(deep)}» обходит донора с начала с потолком в ${formatNumber(deep.max_pages)} ` +
+    ` Кнопка «${formatNumber(deep.max_pages)}» в строке обходит донора заново с таким потолком ` +
     `страниц: такой обход идёт часами, разом их не больше ${formatNumber(deep.max_running)}, ` +
     'а остальные обходы идут мимо них.'
   );

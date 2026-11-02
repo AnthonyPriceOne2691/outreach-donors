@@ -17,8 +17,10 @@ export function requestsOf(count: number): string {
   return `${formatNumber(count)} ${plural(count, 'запроса', 'запросов', 'запросов')}`;
 }
 
-/** Страницы против потолка: «380 из 1 000 страниц»; потолка нет — как было: «380 страниц». */
-export function pagesOutOf({ pages, max_pages: ceiling }: CrawlRow): string {
+/** Страницы против потолка: «380 из 1 000 страниц»; потолка нет — как было: «380 страниц».
+ *  `short` — без слова «страниц»: рядом со значком в строке вкладки стоят ещё две кнопки. */
+export function pagesOutOf({ pages, max_pages: ceiling }: CrawlRow, short?: boolean): string {
+  if (short && ceiling > 0) return `${formatNumber(pages)} из ${formatNumber(ceiling)}`;
   if (ceiling > 0) return `${formatNumber(pages)} из ${pagesOf(ceiling)}`;
   return `${formatNumber(pages)} ${plural(pages, 'страница', 'страницы', 'страниц')}`;
 }

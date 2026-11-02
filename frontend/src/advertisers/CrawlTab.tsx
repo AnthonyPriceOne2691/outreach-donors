@@ -13,8 +13,8 @@
  * - **«Обойти отмеченных»** — как было, до полусотни за раз; **«Обойти всех по фильтру»** — всех,
  *   кого можно обойти под условиями, с подтверждением и оценкой времени (`BulkCrawl`);
  * - **«Переобойти» — в строке** у законченного обхода (`CrawlTable.LastCrawl`) и в журнале;
- * - **«Заново, 10 000» — там же, у отмеченных и по фильтру** (`DeepCrawl`): обход с начала с большим
- *   потолком, идёт часами, разом их не больше нескольких;
+ * - **«10 000» — там же, «Заново …, 10 000» — у отмеченных и по фильтру** (`DeepCrawl`): обход с
+ *   начала с большим потолком, идёт часами, разом их не больше нескольких;
  * - **журнал обходов свёрнут** и листается страницами (`RecentCrawls journal`).
  *
  * Доноров заводят здесь же: одного — «Завести донора вручную», списком из файла — «Загрузить
@@ -66,7 +66,7 @@ import {
   useStartCrawls,
 } from './crawlQueries';
 import { crawlRule, heldWords, queueRule } from './crawlWords';
-import { DeepModal, DeepPicked, deepLabel, deepRule } from './DeepCrawl';
+import { DeepModal, DeepPicked, deepRule, deepTitle } from './DeepCrawl';
 import { ManualDonor } from './ManualDonor';
 import { RecentCrawls } from './RecentCrawls';
 import { StalePrices } from './StalePrices';
@@ -363,7 +363,11 @@ function pageState({ query, data, settled }: ReturnType<typeof useDonorPage>) {
 /** Кнопка «Заново» в строке: нужны право запуска и числа сервера. */
 function deepAsk(runner: Runner | null, data: CrawlDonorsView | undefined): DeepAsk | null {
   if (runner === null || data?.deep === undefined) return null;
-  return { label: deepLabel(data.deep), onAsk: (host) => runner.onDeep([host]) };
+  return {
+    label: formatNumber(data.deep.max_pages),
+    title: deepTitle(data.deep),
+    onAsk: (host) => runner.onDeep([host]),
+  };
 }
 
 /** Доноры страницы: таблица с фильтрами под колонками и переключатель страниц. */

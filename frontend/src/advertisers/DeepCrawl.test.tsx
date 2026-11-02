@@ -143,8 +143,8 @@ function sent(recorded: ReturnType<typeof open>, path: string): unknown[] {
 
 describe('слова окна', () => {
   it('подпись и заголовок — числом сервера', () => {
-    expect(plain(deepLabel(RULES))).toBe('Заново, 10 000');
-    expect(plain(deepTitle(RULES))).toBe('Обойти заново, до 10 000 страниц?');
+    expect(plain(deepLabel(RULES, 'всех'))).toBe('Заново всех, 10 000');
+    expect(plain(deepTitle(RULES))).toBe('Обойти заново, до 10 000 страниц');
   });
 
   it('один донор: сколько идёт и сколько разом — часы, а не минуты', () => {
@@ -210,6 +210,12 @@ describe('строка обхода', () => {
     expect(plain(state.label)).toBe('идёт: 340 из 10 000');
   });
 
+  it('в строке вкладки — без слова «страниц»: рядом две кнопки, а строка одной высоты', () => {
+    const long = crawl({ deep: true, pages: 9870, max_pages: 10_000 });
+    expect(plain(crawlState(long, true).label)).toBe('обойдён: 9 870 из 10 000');
+    expect(plain(crawlState(long).label)).toBe('обойдён: 9 870 из 10 000 страниц');
+  });
+
   it('глубокий помечен, обычный — нет', () => {
     const { rerender } = render(
       <MantineProvider>
@@ -244,7 +250,7 @@ describe('вкладка', () => {
     const user = userEvent.setup();
 
     await user.click(
-      await screen.findByRole('button', { name: /Заново, .*обойти done\.example заново/ }),
+      await screen.findByRole('button', { name: /^Обойти заново, .*: done\.example$/ }),
     );
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('Донор done.example.')).toBeTruthy();
@@ -258,11 +264,22 @@ describe('вкладка', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
+  it('после глубокого обхода повтор только глубокий: обычный заменил бы найденное', async () => {
+    const deepRow = donor({
+      host: 'deep.example',
+      crawl: crawl({ host: 'deep.example', deep: true, max_pages: 10_000 }),
+    });
+    open({ ...PAGE, rows: [deepRow] });
+
+    await screen.findByRole('button', { name: /^Обойти заново, .*: deep\.example$/ });
+    expect(screen.queryByRole('button', { name: 'Переобойти deep.example' })).toBeNull();
+  });
+
   it('протухшая цена — кнопка выключена, причина видна до нажатия', async () => {
     open();
 
     const button = await screen.findByRole('button', {
-      name: /Заново, .*обойти stale\.example заново/,
+      name: /^Обойти заново, .*: stale\.example$/,
     });
     expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(button.getAttribute('title')).toContain('перезапрос');
@@ -273,7 +290,7 @@ describe('вкладка', () => {
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('checkbox', { name: 'Обойти done.example' }));
-    await user.click(screen.getByRole('button', { name: /^Заново, .* отмеченных · 1$/ }));
+    await user.click(screen.getByRole('button', { name: /^Заново отмеченных, .* · 1$/ }));
     const dialog = await screen.findByRole('dialog');
     await user.click(within(dialog).getByRole('button', { name: 'Обойти заново' }));
 
@@ -286,9 +303,7 @@ describe('вкладка', () => {
     const recorded = open();
     const user = userEvent.setup();
 
-    await user.click(
-      await screen.findByRole('button', { name: /^Заново, .* всех по фильтру · 7$/ }),
-    );
+    await user.click(await screen.findByRole('button', { name: /^Заново всех, .* · 7$/ }));
     const dialog = await screen.findByRole('dialog');
     expect(plain(dialog.textContent ?? '')).toContain('Встанут в очередь: 7 доноров');
     await user.click(within(dialog).getByRole('button', { name: 'Обойти заново' }));
@@ -304,6 +319,6 @@ describe('вкладка', () => {
     open(old);
 
     await screen.findByText('done.example');
-    expect(screen.queryByRole('button', { name: /Заново/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /[Зз]аново/ })).toBeNull();
   });
 });

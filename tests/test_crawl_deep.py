@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -258,11 +259,14 @@ async def test_a_hung_crawl_ends_by_its_own_limit_and_not_by_the_longest_one(
     async with committed_sessions() as factory:
         run_id = await _queued(factory, None)
 
+        began = time.monotonic()
         with pytest.raises(TimeoutError):
             await crawl_jobs._crawl(run_id)
+        spent = time.monotonic() - began
 
         run = await _row(factory, run_id)
 
+    assert spent < 2.0  # предел по сроку этого обхода, а не вшитый
     assert run.status is CrawlStatus.RUNNING  # разбор мёртвых продолжит с чекпоинта
     assert run.stats is not None
     assert "будет продолжен" in run.stats["reason"]

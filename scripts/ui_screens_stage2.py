@@ -82,6 +82,8 @@ def stage2_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                     norm,
                 ),
                 ("подпись поля над таблицей", "span:has-text('Порядок')", norm),
+                ("строка ночного обхода", "p:has-text('Ночной обход')", norm),
+                ("кнопка глубокого обхода", "button:has-text('Заново всех')", norm),
                 (
                     "домен в строке",
                     "table[aria-label='Доноры для обхода'] tbody td[data-label='Донор']",
