@@ -3057,9 +3057,9 @@
       "worst": "problem:91"
     },
     "backend/features/sales/limits.py": {
-      "lines": 270,
+      "lines": 274,
       "complexity": 4,
-      "worst": "_month_words:83"
+      "worst": "_month_words:88"
     },
     "backend/features/sales/loops.py": {
       "lines": 151,

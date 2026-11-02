@@ -211,7 +211,7 @@ class TestQuote:
         assert f"{spaced(1000)} проверок в месяц" in quoted["words"]
         assert "выбрано 100, останется 900" in quoted["words"]
         assert "50 % проверок тарифа" in quoted["words"]
-        assert "со следующего прохода очистки" in quoted["words"]
+        assert limits.RUNNING_KEEPS_OLD in quoted["words"]
         assert "кредита общего счёта" in quoted["words"]
 
     async def test_a_cap_below_the_chosen_is_allowed_and_warned(

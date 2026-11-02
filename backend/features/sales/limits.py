@@ -20,7 +20,8 @@
 **Просчёт не платит и не обещает денег.** Проверки платятся тарифом, цены проверки в коде нет, поэтому
 ответ — в проверках: сколько останется и какая это доля тарифа по снимку учётки. Потолок не выше уже
 выбранного — допустимый выбор, и слова говорят, что проверки встанут до конца месяца. Новое значение
-действует со следующего прохода очистки: идущий проход держит прочитанное на старте (`verify_cap`).
+встаёт сразу, но идущий проход очистки доходит со старым: он держит прочитанное на старте
+(`verify_cap`), и слова просчёта стоят рядом со словами окна «действует с этой минуты».
 """
 
 from __future__ import annotations
@@ -78,6 +79,10 @@ SEARCH_COST = "Платят тарифом Hunter: поиск — кредит �
 
 #: Что держит трату, когда месячного числа нет: смету запускает человек.
 BY_ESTIMATE = "каждый прогон идёт по смете, её подтверждает человек"
+
+#: Когда новый потолок доходит до очистки: окно панели говорит «с этой минуты», и это верно для
+#: всего, кроме прохода, который уже идёт.
+RUNNING_KEEPS_OLD = "Идущий проход очистки дойдёт со старым потолком, следующий возьмёт новый"
 
 
 def _month_words(month: verify_cap.Month) -> str:
@@ -167,9 +172,8 @@ async def _serp_row(session: AsyncSession, month: datetime) -> LimitRow:
         spent_month_usd=usd(paid),
         cost_note="Месячного лимита нет: цену прогона называет смета",
         now=(
-            f"Потолка денег нет: {BY_ESTIMATE}. Глубина до {serp_cfg.MAX_DEPTH_PAGES} страниц. На "
-            f"счету меньше {dollars(MIN_BALANCE_USD)} или выдача дороже остатка — прогон не "
-            f"запускается. {READ_ONLY}"
+            f"Потолка денег нет: {BY_ESTIMATE}. На счету меньше {dollars(MIN_BALANCE_USD)} или "
+            f"выдача дороже остатка — прогон не запускается. {READ_ONLY}"
         ),
         source=".env SERP_MAX_KEYWORDS_PER_RUN",
     )
@@ -251,7 +255,7 @@ async def quote(session: AsyncSession, _key: str, _field: str, value: int) -> Qu
         return refused(SAME)
     effect = _effect(value, await verify_cap.month_spent(session))
     parts = [effect, *([_share(value, tariff)] if value else [])]
-    words = ". ".join([*parts, "Действует со следующего прохода очистки", VERIFY_COST])
+    words = ". ".join([*parts, RUNNING_KEEPS_OLD, VERIFY_COST])
     return Quote(cost_usd=None, words=f"{words}.", refusal=None, accepted=value)
 
 
