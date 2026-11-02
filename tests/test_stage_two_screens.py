@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -68,6 +69,7 @@ from backend.shared.queue import (
     parse_job_id,
 )
 from backend.workers.agent_jobs import DRAFT_JOB, draft_job_id
+from fastapi import FastAPI
 from httpx import AsyncClient
 from rq.job import Job, JobStatus
 from sqlalchemy import select
@@ -595,6 +597,99 @@ async def test_crawl_alarms_are_counted_only_for_who_sees_the_stage(
 
     assert "crawl-blocked" not in {alarm.code for alarm in hidden}
     assert "crawl-blocked" in {alarm.code for alarm in background}
+
+
+# --- обход всех маршрутов чтения: имя строки Этапа 2 не встречается нигде -------------------
+
+#: Что в ответе значит «строка Этапа 2»: домены и тексты мира, у доноров таких нет.
+MARKS = ("brand-", "Interesting offer", "Let us talk", "Проверка advertisers")
+
+
+@pytest.fixture
+async def stage_two_rows(session: AsyncSession, world: World) -> None:
+    """Вокруг переписки мира — всё остальное, что бывает у этапа, с именами `MARKS`."""
+    await promoted(session, "brand-three.example.com", contact_status=ContactStatus.FORM_ONLY)
+    await sender(session, "offers@brand-box.example.com", Stage.ADVERTISERS)
+    session.add_all(
+        [
+            SuppressionModel(
+                email="ceo@brand-four.example.com",
+                reason=SuppressionReason.MANUAL,
+                stage=Stage.ADVERTISERS,
+            ),
+            CrawlRunModel(
+                host="brand-donor.example.com",
+                status=CrawlStatus.DONE,
+                outcome=CrawlOutcome.OK,
+                stop_reason=StopReason.EXHAUSTED,
+                pages_opened=10,
+                articles=1,
+            ),
+        ]
+    )
+    await AccessRepository(session).record(
+        AuditAction.ADVERTISER_REVIEWED,
+        target="candidate:1",
+        details={"рекламодатель": "brand-three.example.com"},
+    )
+    await session.commit()
+
+
+def _read_routes(paths: dict[str, Any]) -> list[str]:
+    """Маршруты чтения из схемы приложения: новый проверяется сам. Страницы отписки нет: она
+    открыта адресату по метке, а не учётке."""
+    return sorted(
+        path for path, methods in paths.items() if "get" in methods and "unsubscribe" not in path
+    )
+
+
+def _with_numbers(path: str, world: World) -> str:
+    """Адрес с номерами строк Этапа 2: остальные номера — «нет такой строки»."""
+    numbers = {
+        "thread_id": world.thread,
+        "reply_id": world.reply,
+        "message_id": world.sent,
+        "letter_id": world.sent,
+        "draft_id": world.draft,
+    }
+    return re.sub(r"\{([^}]*)\}", lambda found: str(numbers.get(found[1], 1)), path)
+
+
+@pytest.mark.usefixtures("stage_two_rows", "providers_quiet", "nobody_down")
+async def test_no_read_route_shows_a_stage_two_row(
+    api_app: FastAPI,
+    client: AsyncClient,
+    world: World,
+    donors_only: dict[str, str],
+    admin_out: dict[str, str],
+    admin_in: dict[str, str],
+) -> None:
+    """Страховка за списком мест: что бы ни отдал маршрут чтения — числа, список, файл, — имён
+    строк Этапа 2 в ответе нет. Админ со снятым правом видит и экраны, закрытые роли: ящики,
+    журнал. С правом те же имена на месте: обход видит их, если они есть."""
+    routes = _read_routes(api_app.openapi()["paths"])
+    seen_by_admin: set[str] = set()
+
+    for path in routes:
+        url = _with_numbers(path, world)
+        for headers in (donors_only, admin_out):
+            answer = await client.get(url, headers=headers)
+            found = [mark for mark in MARKS if mark in answer.text]
+            assert not found, f"{url}: {found} в ответе {answer.text[:300]}"
+        opened = await client.get(url, headers=admin_in)
+        if any(mark in opened.text for mark in MARKS):
+            seen_by_admin.add(path)
+
+    assert seen_by_admin >= {
+        "/api/threads",
+        "/api/threads/{thread_id}",
+        "/api/advertisers/list",
+        "/api/crawls",
+        "/api/suppressions",
+        "/api/senders",
+        "/api/journal",
+        "/api/agent/drafts",
+    }, seen_by_admin
 
 
 # --- журнал ---------------------------------------------------------------------------------
