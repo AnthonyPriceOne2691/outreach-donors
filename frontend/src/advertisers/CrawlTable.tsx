@@ -61,9 +61,45 @@ export function Again({
   );
 }
 
-/** Что с обходом — словами и цветом; законченный — страницы против потолка (`pagesOutOf`). */
-export function crawlState(crawl: CrawlRow): { label: string; color: string } {
-  const pages = pagesOutOf(crawl);
+/** «Заново, 10 000» в строке донора: что написать на кнопке и что сделать по нажатию — окно
+ *  подтверждения одно на вкладку (`DeepCrawl`). `null` — кнопки нет: нет права или сервер старше. */
+export interface DeepAsk {
+  /** Подпись кнопки — только потолок: строка вкладки в одну высоту, смысл — в подсказке. */
+  label: string;
+  /** Что кнопка делает — словами подсказки и читалки. */
+  title: string;
+  onAsk: (host: string) => void;
+}
+
+/** Почему донора нельзя обойти заново — до нажатия: у него нет свежей цены. Пусто — можно. */
+export function deepRefusal(donor: CrawlTarget): string | null {
+  if (donor.price_state === 'stale') return 'Цена протухла — сначала перезапрос цены';
+  if (donor.price_state === 'none') return 'Цены нет — сначала укажите её';
+  return null;
+}
+
+function AgainDeep({ donor, ask }: { donor: CrawlTarget; ask: DeepAsk }) {
+  const refusal = deepRefusal(donor);
+  return (
+    <Button
+      size="compact-xs"
+      variant="subtle"
+      className="press"
+      aria-label={`${ask.title}: ${donor.host}`}
+      title={refusal ?? ask.title}
+      disabled={refusal !== null}
+      aria-haspopup="dialog"
+      onClick={() => ask.onAsk(donor.host)}
+    >
+      {ask.label}
+    </Button>
+  );
+}
+
+/** Что с обходом — словами и цветом; законченный — страницы против потолка (`pagesOutOf`).
+ *  `short` — для строки вкладки в одну высоту. */
+export function crawlState(crawl: CrawlRow, short?: boolean): { label: string; color: string } {
+  const pages = pagesOutOf(crawl, short);
   if (crawl.status === 'queued') return { label: 'в очереди', color: 'gray' };
   if (crawl.status === 'running') {
     return {
@@ -138,6 +174,16 @@ export function degradationText(degradation: Record<string, string> | undefined)
  *  ссылок; строка меры здоровья — на 28–34 px (замер 23.10.2026, 1440). */
 const WRAPS = { whiteSpace: 'normal', textWrap: 'balance' } as const;
 
+/** Пометка глубокого обхода рядом со значком: страницы в значке — к его потолку. */
+function DeepMark({ crawl }: { crawl: CrawlRow }) {
+  if (!crawl.deep) return null;
+  return (
+    <Badge variant="outline" color="gray">
+      глубокий
+    </Badge>
+  );
+}
+
 /** Состояние обхода значком; под ним — почему законченный обход кончился и числа здоровья.
  *  Вид один везде, где значок стоит: таблица доноров, последние обходы (таблицей с
  *  27.10.2026 — строкой списка числа уезжали в строку с датой) и «Приёмка по донорам». */
@@ -157,7 +203,7 @@ export function CrawlState({
       </Text>
     );
   }
-  const state = crawlState(crawl);
+  const state = crawlState(crawl, compact);
   // Причина — первой, до чисел здоровья: это ответ на «почему не 1 000»; у ждущего — его место.
   const lines = [stopWords(crawl) ?? queueWords(crawl), ...healthLines(crawl)].filter(
     (said) => said !== null,
@@ -170,6 +216,7 @@ export function CrawlState({
       <Badge variant="light" color={state.color}>
         {state.label}
       </Badge>
+      <DeepMark crawl={crawl} />
       {note ? (
         <RunReason
           reason={note}
@@ -226,6 +273,26 @@ export function PriceCell({ donor }: { donor: CrawlTarget }) {
   );
 }
 
+/** Кнопки повтора в строке вкладки. После глубокого обхода повтор тоже глубокий: обычный заменил
+ *  бы найденное им на десяти тысячах страниц найденным на тысяче. */
+function RowRepeats({
+  donor,
+  again,
+  deep,
+}: {
+  donor: CrawlTarget;
+  again: StartCrawls;
+  deep: DeepAsk | null;
+}) {
+  if (deep === null) return <Again host={donor.host} start={again} compact />;
+  return (
+    <>
+      {donor.crawl?.deep ? null : <Again host={donor.host} start={again} compact />}
+      <AgainDeep donor={donor} ask={deep} />
+    </>
+  );
+}
+
 /** Последний обход донора и, если он закончен любым исходом, — «Переобойти» под ним (Anthony
  *  29.10.2026: в «Последних обходах» пять строк, и у остальных доноров повтора было не найти;
  *  галочка и «Обойти отмеченных» ставят повтор тоже, но это неочевидно). Пока обход ждёт или
@@ -234,10 +301,13 @@ export function LastCrawl({
   donor,
   again,
   compact = false,
+  deep = null,
 }: {
   donor: CrawlTarget;
   again: StartCrawls | null;
   compact?: boolean;
+  /** «Заново, 10 000» — на вкладке доноров; `null` — кнопки нет. */
+  deep?: DeepAsk | null;
 }) {
   const crawl = donor.crawl;
   if (again === null || crawl === null || isActive(crawl)) {
@@ -247,7 +317,7 @@ export function LastCrawl({
   return compact ? (
     <Group gap={6} justify="center">
       <CrawlState crawl={crawl} compact />
-      <Again host={donor.host} start={again} compact />
+      <RowRepeats donor={donor} again={again} deep={deep} />
     </Group>
   ) : (
     <Stack gap={6} align="center">

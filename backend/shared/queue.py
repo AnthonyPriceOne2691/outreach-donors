@@ -104,12 +104,17 @@ def crawl_job_timeout() -> int:
     посреди страницы, теряя пачку и попытку разбора мёртвых. Продолжение — новая задача с тем
     же потолком, а время обхода считается с прошлых попыток: срок донора не превысит.
 
+    Глубокий обход (`CRAWL_MAX_SECONDS_DEEP`) входит сюда же: продолжение ставит и разбор
+    мёртвых, а вида обхода он не знает. Обычному обходу прежний предел держит сама задача
+    (`workers/crawl_jobs._walk`), а не очередь.
+
     Конфиг обхода — здесь, а не при импорте: очередь импортируют все процессы, а опечатка
     в `CRAWL_*` роняет только обходчик (`tests/test_crawl_config_isolation.py`).
     """
     from backend.config import crawl  # noqa: PLC0415 — нужен только обходам, см. выше
 
-    return int(max(crawl.MAX_SECONDS_PER_DONOR, crawl.MAX_SECONDS_SLOW)) + CRAWL_JOB_MARGIN_SEC
+    longest = max(crawl.MAX_SECONDS_PER_DONOR, crawl.MAX_SECONDS_SLOW, crawl.MAX_SECONDS_DEEP)
+    return int(longest) + CRAWL_JOB_MARGIN_SEC
 
 
 #: Паузы перед повторами задачи, упавшей на временном сбое: сеть, 5xx,

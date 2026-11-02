@@ -58,6 +58,9 @@ class CrawlRunModel(TimestampedMixin, Base):
     # жив ли воркер. Кто поставил — для журнала и экрана.
     job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     requested_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Свой потолок страниц глубокого обхода (`crawl/deep.py`); пусто — обычный, из настроек.
+    # В строке, а не в задаче: продолжение после выкатки и разбор мёртвых читают его отсюда.
+    max_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Сколько раз обход продолжали после смерти воркера. Остановка выкаткой
     # сюда не считается — она штатная и сама ставит продолжение.
     resumes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
@@ -170,6 +173,38 @@ class CrawlBacklogModel(TimestampedMixin, Base):
     author_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    #: Потолок страниц глубокого обхода (`crawl/deep.py`); пусто — обычный обход.
+    max_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class CrawlNightModel(TimestampedMixin, Base):
+    """Ночной круг обхода (`features/crawl/night.py`): одна строка на дату.
+
+    Строка — и замок, и след: уникальная дата держит «один раз за ночь» при рестарте и двух
+    процессах, а расчёт и числа остаются, чтобы утром было видно, что считали и что вышло.
+    """
+
+    __tablename__ = "crawl_nights"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Дата начала круга по Москве.
+    night: Mapped[date] = mapped_column(Date, nullable=False, unique=True)
+    #: Значение `night.NightStatus`.
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: После этого часа новые ночные обходы не выдаются.
+    issue_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Когда снят остаток.
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Расчёт: из чего вышло, сколько доноров, по очередям. Пусто — расчёта ещё нет.
+    plan: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    #: Сколько поставлено, сколько ушло обходчикам и сколько снято по сроку.
+    taken: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    given: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    dropped: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    #: Почему круг не шёл — словами.
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class DonorLoadModel(TimestampedMixin, Base):

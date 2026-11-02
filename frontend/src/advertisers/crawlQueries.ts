@@ -12,8 +12,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
 import { refusalOf } from '../api/client';
-import type { CrawlBulkResult, CrawlDonorQuery, CrawlLaunch } from '../api/crawls';
-import { fetchCrawlSummary, startCrawls, startCrawlsByFilter } from '../api/crawls';
+import type { CrawlBulkResult, CrawlDeepResult, CrawlDonorQuery, CrawlLaunch } from '../api/crawls';
+import {
+  fetchCrawlSummary,
+  startCrawls,
+  startCrawlsByFilter,
+  startDeepCrawls,
+} from '../api/crawls';
 import { formatNumber, plural } from '../format';
 import { notify } from '../notices';
 import { BACKLOG_KEY } from './CrawlBacklog';
@@ -52,6 +57,22 @@ export function bulkSummary(done: CrawlBulkResult): string {
     );
   }
   return queuedSummary(done.asked, done.queued ?? 0, done.busy ?? 0, done.failed ?? 0);
+}
+
+/** Что вышло из «Обойти заново» — одной строкой: глубокие всегда ждут в очереди загрузки, и
+ *  ноль вставших без отказов значит, что они там уже стояли. */
+export function deepSummary(done: CrawlDeepResult): string {
+  const { backlog, busy, refused, rules } = done;
+  const parts =
+    backlog > 0
+      ? [
+          `В очередь загрузки — ${donorsWord(backlog)}: разом идёт не больше ` +
+            `${formatNumber(rules.max_running)}, начнётся само.`,
+        ]
+      : [];
+  if (busy.length > 0) parts.push(`Уже идут: ${busy.join(', ')}.`);
+  for (const [host, why] of Object.entries(refused)) parts.push(`${host}: ${why}.`);
+  return parts.length > 0 ? parts.join(' ') : 'Уже ждут в очереди загрузки.';
 }
 
 /** Поставлены сразу: сколько из скольких, сколько уже шли и скольких очередь не приняла. */
@@ -111,13 +132,36 @@ export function useStartCrawls(onQueued?: () => void) {
   });
 }
 
-/** «Обойти всех по фильтру»: условия вкладки и сколько человек видел на кнопке; исход — словами
- *  уведомления (`bulkSummary`). */
+/** «Обойти заново» названных доноров; исход — словами уведомления (`deepSummary`). */
+export function useStartDeep(onDone: () => void) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (hosts: string[]) => startDeepCrawls(hosts),
+    onSuccess: async (done) => {
+      onDone();
+      await refreshCrawls(queryClient);
+      const clean = Object.keys(done.refused).length === 0 && done.busy.length === 0;
+      notify({ message: deepSummary(done), color: clean ? 'green' : 'yellow' });
+    },
+    onError: (failure) =>
+      notify({ title: 'Не поставили', message: refusalOf(failure), color: 'red' }),
+  });
+}
+
+/** «Обойти всех по фильтру»: условия вкладки и сколько человек видел на кнопке; `deep` — заново,
+ *  глубоким обходом. Исход — словами уведомления (`bulkSummary`). */
 export function useStartByFilter(onDone: () => void) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ query, expected }: { query: CrawlDonorQuery; expected: number }) =>
-      startCrawlsByFilter(query, expected),
+    mutationFn: ({
+      query,
+      expected,
+      deep,
+    }: {
+      query: CrawlDonorQuery;
+      expected: number;
+      deep?: boolean;
+    }) => startCrawlsByFilter(query, expected, deep),
     onSuccess: async (done) => {
       onDone();
       await refreshCrawls(queryClient);

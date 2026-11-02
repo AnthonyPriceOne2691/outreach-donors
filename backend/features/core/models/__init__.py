@@ -7,6 +7,7 @@ from backend.features.core.models.agent import AgentDraftModel, AgentSettingsMod
 from backend.features.core.models.attachment import ReplyAttachmentModel
 from backend.features.core.models.crawl import (
     CrawlBacklogModel,
+    CrawlNightModel,
     CrawlRunModel,
     DonorLoadHostModel,
     DonorLoadModel,
@@ -72,6 +73,7 @@ __all__ = [
     "CandidateModel",
     "ContactModel",
     "CrawlBacklogModel",
+    "CrawlNightModel",
     "CrawlRunModel",
     "DomainModel",
     "DonorLoadHostModel",

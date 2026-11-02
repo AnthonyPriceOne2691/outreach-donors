@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import Query
 from pydantic import BaseModel, Field
 
-from backend.api.crawls.schemas import MAX_HOSTS, CrawlCeilings, DonorRow
+from backend.api.crawls.schemas import MAX_HOSTS, CrawlCeilings, DeepRules, DonorRow
 from backend.config import crawl as crawl_cfg
 from backend.features.crawl import donor_page
 from backend.features.crawl.board import QueueState
@@ -103,6 +103,8 @@ class DonorsView(CrawlCeilings):
     slow_down_share: float = Field(default_factory=lambda: crawl_cfg.SLOW_DOWN_SHARE)
     stop_share: float = Field(default_factory=lambda: crawl_cfg.STOP_SHARE)
     max_seconds_slow: float = Field(default_factory=lambda: crawl_cfg.MAX_SECONDS_SLOW)
+    #: Глубокий обход — для подтверждения кнопок «Обойти заново» (`crawl/deep.py`).
+    deep: DeepRules
 
     @classmethod
     def of(
@@ -114,6 +116,7 @@ class DonorsView(CrawlCeilings):
         workers: int | None,
         typical: float,
         max_pages: int,
+        deep: DeepRules,
         held: Held | None = None,
     ) -> DonorsView:
         return cls(
@@ -131,6 +134,7 @@ class DonorsView(CrawlCeilings):
             held_reason=None if held is None else held.words,
             typical_crawl_sec=typical,
             max_pages=max_pages,
+            deep=deep,
         )
 
 
@@ -148,9 +152,11 @@ class BulkBody(DonorFilter):
     """«Обойти всех по фильтру»: те же условия, что у страницы, и сколько человек видел.
 
     `expected` — число с кнопки, которое человек подтвердил: под фильтр могло попасть больше,
-    пока он думал, — встанет не больше, чем он видел."""
+    пока он думал, — встанет не больше, чем он видел. `deep` — обойти заново, глубоким обходом
+    (`crawl/deep.py`): все встают в очередь загрузки, сколько бы их ни было."""
 
     expected: int = Field(ge=1, le=donor_page.BULK_MAX)
+    deep: bool = False
 
 
 class BulkResult(BaseModel):

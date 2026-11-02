@@ -26,6 +26,7 @@ import type { Emptiness } from '../components/WholeRow';
 import { formatDate, formatNumber } from '../format';
 import type { StartCrawls } from './CrawlTable';
 import { LastCrawl, PriceCell, isActive } from './CrawlTable';
+import type { DeepAsk } from './CrawlTable';
 
 const PICK = 'Отметить';
 
@@ -91,10 +92,12 @@ function DonorRowCells({
   donor,
   picks,
   again,
+  deep,
 }: {
   donor: CrawlTarget;
   picks: Picks | null;
   again: StartCrawls | null;
+  deep: DeepAsk | null;
 }) {
   return (
     <Table.Tr>
@@ -120,7 +123,7 @@ function DonorRowCells({
       {/* На телефоне — сразу под именем, во всю ширину карточки (`cellDecide`): значок обхода и
           «Переобойти» — то, ради чего строка; цена, дата и ссылки — строкой ниже. */}
       <Table.Td className="cellDecide" data-label="Последний обход">
-        <LastCrawl donor={donor} again={again} compact />
+        <LastCrawl donor={donor} again={again} deep={deep} compact />
       </Table.Td>
       <Table.Td data-label="Ссылок">
         {donor.crawl?.links === null || donor.crawl === null
@@ -148,6 +151,7 @@ export function CrawlDonorsTable({
   rows,
   picks,
   again,
+  deep,
   filterRow,
   loading,
   stale,
@@ -159,6 +163,8 @@ export function CrawlDonorsTable({
   /** Отметки; `null` — нет права запуска: ни отметок, ни «Переобойти». */
   picks: Picks | null;
   again: StartCrawls | null;
+  /** «Заново, 10 000» в строке; `null` — кнопки нет. */
+  deep: DeepAsk | null;
   /** Строка фильтров под заголовками (`CrawlFilterRow`). */
   filterRow: ReactNode;
   /** Первого ответа ещё нет. */
@@ -195,7 +201,7 @@ export function CrawlDonorsTable({
       {loading && refusal === null ? <LoadingRows span={columns.length} /> : null}
       {refusal === null
         ? rows.map((donor) => (
-            <DonorRowCells key={donor.host} donor={donor} picks={picks} again={again} />
+            <DonorRowCells key={donor.host} donor={donor} picks={picks} again={again} deep={deep} />
           ))
         : null}
     </DataTable>

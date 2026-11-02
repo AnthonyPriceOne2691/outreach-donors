@@ -17,7 +17,7 @@ Create Date: 2026-11-02 13:00:00.000000
 в той транзакции, где оно добавлено.
 """
 
-from typing import Sequence, Union
+from typing import Any, Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
@@ -42,6 +42,13 @@ def _counter(prefix: str, *, nullable: bool) -> list[sa.Column]:
     ]
 
 
+def _stamp(name: str) -> sa.Column[Any]:
+    """Отметка времени строки: ставит база."""
+    return sa.Column(
+        name, sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+    )
+
+
 def upgrade() -> None:
     """Таблица смен потолка, снимок учётки и событие журнала о смене."""
     op.create_table(
@@ -49,9 +56,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("verify_cap", sa.Integer(), nullable=False),
         sa.Column("set_by", sa.Integer(), nullable=True),
-        sa.Column(
-            "set_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
-        ),
+        _stamp("set_at"),
         sa.CheckConstraint("verify_cap >= 0", name="ck_hunter_caps_not_negative"),
         sa.ForeignKeyConstraint(["set_by"], ["users.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),

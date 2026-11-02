@@ -31,6 +31,8 @@ export interface BulkRow {
 /** Очередь загрузки обхода: сколько ждёт и сколько это займёт. */
 export interface BacklogView {
   waiting: number;
+  /** Сколько из них — глубокие обходы; нет — сервер старше экрана. */
+  deep?: number;
   /** Срок обойти всех ждущих, с; `null` — обходчиков не знаем или их нет. */
   eta_sec: number | null;
   workers: number | null;

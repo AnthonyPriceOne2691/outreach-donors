@@ -13,7 +13,11 @@
  * - **«Обойти отмеченных»** — как было, до полусотни за раз; **«Обойти всех по фильтру»** — всех,
  *   кого можно обойти под условиями, с подтверждением и оценкой времени (`BulkCrawl`);
  * - **«Переобойти» — в строке** у законченного обхода (`CrawlTable.LastCrawl`) и в журнале;
+ * - **«10 000» — там же, «Заново …, 10 000» — у отмеченных и по фильтру** (`DeepCrawl`): обход с
+ *   начала с большим потолком, идёт часами, разом их не больше нескольких;
  * - **журнал обходов свёрнут** и листается страницами (`RecentCrawls journal`).
+ *
+ * Ночной обход — строкой над таблицей (`CrawlNight`): когда был, что считали, что осталось.
  *
  * Доноров заводят здесь же: одного — «Завести донора вручную», списком из файла — «Загрузить
  * списком» (`BulkDonors`); загруженные с галочкой обхода ждут в очереди загрузки (`CrawlBacklog`).
@@ -29,7 +33,7 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { useState } from 'react';
 
 import { refusalOf } from '../api/client';
-import type { CrawlDonorsView, CrawlRules, CrawlSummary } from '../api/crawls';
+import type { CrawlDeepRules, CrawlDonorsView, CrawlRules, CrawlSummary } from '../api/crawls';
 import { fetchCrawlDonors, fetchCrawls } from '../api/crawls';
 import { useSession } from '../auth/AuthProvider';
 import { InfoHint } from '../components/InfoHint';
@@ -38,16 +42,17 @@ import type { Emptiness } from '../components/WholeRow';
 import { usePagedQuery, useUrlFilters } from '../components/useUrlFilters';
 import { formatNumber, formatPercent } from '../format';
 import { Unfold } from '../runs/Unfold';
-import { BulkCrawl } from './BulkCrawl';
+import { ByFilter } from './BulkCrawl';
 import { BulkDonorsButton } from './BulkDonors';
 import { CrawlBacklog } from './CrawlBacklog';
 import { CrawlDonorsTable } from './CrawlDonorsTable';
 import type { Picks } from './CrawlDonorsTable';
+import type { DeepAsk } from './CrawlTable';
 import { CrawlFilterRow, CrawlScope, StatusFacets } from './CrawlFilterBar';
+import { CrawlNight } from './CrawlNight';
 import { CrawlFacts } from './CrawlSummary';
 import type { CrawlFilters } from './crawlFilters';
 import {
-  crawlConditions,
   crawlEmptiness,
   crawlQueryOf,
   DEFAULT_SIZE,
@@ -64,6 +69,7 @@ import {
   useStartCrawls,
 } from './crawlQueries';
 import { crawlRule, heldWords, queueRule } from './crawlWords';
+import { DeepModal, DeepPicked, deepRule, deepTitle } from './DeepCrawl';
 import { ManualDonor } from './ManualDonor';
 import { RecentCrawls } from './RecentCrawls';
 import { StalePrices } from './StalePrices';
@@ -89,7 +95,7 @@ function healthRule(data: CrawlRules | undefined): string {
 }
 
 /** Что вкладка делает — в «i» у заголовка, а не абзацем над таблицей. */
-export function about(data: CrawlRules | undefined): string {
+export function about(data: (CrawlRules & { deep?: CrawlDeepRules }) | undefined): string {
   return (
     'Этап 2 начинается здесь: обходим доноров с известной и свежей ценой и ищем, кому они ' +
     'ставят ссылки. Кандидаты в рекламодатели считаются сами, когда обход закончится.' +
@@ -100,7 +106,8 @@ export function about(data: CrawlRules | undefined): string {
     '«Обойти отмеченных» ставит до 50 доноров за раз, «Обойти всех по фильтру» — всех, кого ' +
     'можно обойти под условиями. «Переобойти» — у каждого донора, чей обход закончен: сайт ' +
     'растёт, свежие адреса карты идут первыми, и повтор через время возьмёт новые статьи. Новый ' +
-    'обход заменит найденное прежним, а решения по спорным и спрошенный DR перенесёт.'
+    'обход заменит найденное прежним, а решения по спорным и спрошенный DR перенесёт.' +
+    deepRule(data?.deep)
   );
 }
 
@@ -171,11 +178,14 @@ function Actions({
   filters,
   picks,
   start,
+  onDeep,
 }: {
   data: CrawlDonorsView | undefined;
   filters: CrawlFilters;
   picks: Picks & { clear: () => void };
   start: ReturnType<typeof useStartCrawls>;
+  /** Обойти отмеченных заново, глубоким обходом — через окно подтверждения. */
+  onDeep: (hosts: string[]) => void;
 }) {
   const count = picks.picked.size;
   const most = data?.launch_max ?? MAX_PICKED;
@@ -190,17 +200,13 @@ function Actions({
       >
         Обойти отмеченных · {formatNumber(count)}
       </Button>
-      {data ? (
-        <BulkCrawl
-          query={crawlQueryOf(filters)}
-          startable={data.startable}
-          most={data.bulk_max}
-          launchMax={data.launch_max}
-          workers={data.workers}
-          typicalSec={data.typical_crawl_sec}
-          conditions={crawlConditions(filters)}
-        />
-      ) : null}
+      <DeepPicked
+        rules={data?.deep}
+        count={count}
+        disabled={count === 0 || over}
+        onAsk={() => onDeep([...picks.picked])}
+      />
+      {data ? <ByFilter data={data} filters={filters} /> : null}
       {count > 0 ? (
         <Button variant="subtle" className="press" onClick={picks.clear}>
           Снять отметки
@@ -328,6 +334,7 @@ function Notices({
     <>
       <Troubles data={data} summary={summary} />
       <CrawlBacklog mayDrop={mayDrop} />
+      <CrawlNight />
       {summary ? (
         <StalePrices
           count={summary.counts.price.stale}
@@ -344,6 +351,8 @@ interface Runner {
   picks: Picks & { clear: () => void };
   start: ReturnType<typeof useStartCrawls>;
   again: ReturnType<typeof useStartCrawls>;
+  /** Спросить подтверждение «Обойти заново» у названных доноров. */
+  onDeep: (hosts: string[]) => void;
 }
 
 /** Что с ответом страницы: первого ещё нет, едет новый (прежние строки приглушены), отказ. */
@@ -352,6 +361,16 @@ function pageState({ query, data, settled }: ReturnType<typeof useDonorPage>) {
     loading: data === undefined && query.error === null,
     stale: !settled && data !== undefined,
     refusal: query.error ? refusalOf(query.error) : null,
+  };
+}
+
+/** Кнопка «Заново» в строке: нужны право запуска и числа сервера. */
+function deepAsk(runner: Runner | null, data: CrawlDonorsView | undefined): DeepAsk | null {
+  if (runner === null || data?.deep === undefined) return null;
+  return {
+    label: formatNumber(data.deep.max_pages),
+    title: deepTitle(data.deep),
+    onAsk: (host) => runner.onDeep([host]),
   };
 }
 
@@ -374,6 +393,7 @@ function Donors({
         rows={data?.rows ?? []}
         picks={runner?.picks ?? null}
         again={runner?.again ?? null}
+        deep={deepAsk(runner, data)}
         filterRow={
           <CrawlFilterRow
             counts={data?.counts}
@@ -417,13 +437,14 @@ function ManualDonorModal({ opened, onClose }: { opened: boolean; onClose: () =>
 export function CrawlTab() {
   const { can } = useSession();
   const [entering, setEntering] = useState(false);
+  const [deep, setDeep] = useState<string[]>([]);
   const url = useUrlFilters(readCrawlFilters, writeCrawlFilters);
   const page = useDonorPage(url.filters, url.turn);
   const summary = useCrawlSummary();
   const picks = usePicks();
   const start = useStartCrawls(picks.clear);
   const again = useStartCrawls();
-  const runner: Runner | null = can('run') ? { picks, start, again } : null;
+  const runner: Runner | null = can('run') ? { picks, start, again, onDeep: setDeep } : null;
   const data = page.data;
 
   return (
@@ -440,12 +461,21 @@ export function CrawlTab() {
           <CrawlScope filters={url.filters} onFilter={url.apply} />
         </Group>
         {runner !== null ? (
-          <Actions data={data} filters={url.filters} picks={picks} start={start} />
+          <Actions data={data} filters={url.filters} picks={picks} start={start} onDeep={setDeep} />
         ) : null}
         <Donors url={url} page={page} summary={summary.data} runner={runner} />
         <Journal again={runner?.again ?? null} />
       </Stack>
       <ManualDonorModal opened={entering} onClose={() => setEntering(false)} />
+      <DeepModal
+        hosts={deep}
+        rules={data?.deep}
+        onClose={() => setDeep([])}
+        onDone={() => {
+          setDeep([]);
+          picks.clear();
+        }}
+      />
     </Card>
   );
 }

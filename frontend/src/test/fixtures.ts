@@ -143,6 +143,7 @@ export const EMPTY_CRAWL_PAGE = {
  *  Вкладка спрашивает её сама, как и обходы. */
 export const BACKLOG_ROUTES: Record<string, Answer> = {
   'GET /api/donors/import/backlog': { body: { waiting: 0, eta_sec: null, workers: 4 } },
+  'GET /api/crawls/night': { body: { enabled: false, window_sec: 25_200, last: null } },
 };
 
 /** Панели над очередью рекламодателей и под ней: доноров для обхода нет, обходов не было,

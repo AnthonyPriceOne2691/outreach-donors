@@ -12,15 +12,21 @@
  * **Многих — в очередь загрузки** (больше `launch_max` сервера, полусотни — `routes.MAX_HOSTS`;
  * `crawl/backlog.py`): она отдаёт доноров свободным обходчикам понемногу, и обход, поставленный
  * кнопкой после, идёт первым, а не ждёт за тысячами. Окно говорит, куда встанут, до нажатия.
+ *
+ * **Заново, глубоким обходом** (`deep`) — та же кнопка со своим окном (`DeepCrawl`): такие обходы
+ * идут часами и всегда через очередь загрузки, сколько бы доноров ни было.
  */
 
 import { Button, Group, Modal, Stack, Text } from '@mantine/core';
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 
-import type { CrawlDonorQuery } from '../api/crawls';
+import type { CrawlDeepRules, CrawlDonorQuery, CrawlDonorsView } from '../api/crawls';
 import { formatNumber, plural } from '../format';
-import { crawlEta } from './crawlFilters';
+import type { CrawlFilters } from './crawlFilters';
+import { crawlConditions, crawlEta, crawlQueryOf } from './crawlFilters';
 import { useStartByFilter } from './crawlQueries';
+import { DeepConfirm, deepLabel } from './DeepCrawl';
 
 function donors(count: number): string {
   return `${formatNumber(count)} ${plural(count, 'донор', 'донора', 'доноров')}`;
@@ -53,6 +59,78 @@ export function bulkTiming(count: number, typicalSec: number, workers: number | 
   return `При ${crawlers} пройдут ${eta}: ${each}, разом идёт столько, сколько обходчиков.`;
 }
 
+/** Запуск по фильтру: окно, сколько встанет — не больше предела сервера — и сам запрос. */
+function useBulk(startable: number, most: number | undefined) {
+  const [open, setOpen] = useState(false);
+  const asked = most === undefined ? startable : Math.min(startable, most);
+  const run = useStartByFilter(() => setOpen(false));
+  return { open, setOpen, asked, run };
+}
+
+/** Кнопка, открывающая окно подтверждения. */
+function OpensWindow({
+  variant,
+  disabled,
+  onOpen,
+  children,
+}: {
+  variant: 'light' | 'default';
+  disabled: boolean;
+  onOpen: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Button
+      variant={variant}
+      className="press"
+      disabled={disabled}
+      aria-haspopup="dialog"
+      onClick={onOpen}
+    >
+      {children}
+    </Button>
+  );
+}
+
+/** Кого обойдём: число и условия вкладки — первой строкой окна. */
+function whoWords(count: number, conditions: string[]): string {
+  const who = conditions.length > 0 ? ` — ${conditions.join(', ')}` : ' — все, кого можно обойти';
+  return `Встанут в очередь: ${donors(count)}${who}.`;
+}
+
+/** «Заново всех, 10 000 · N» — всех под фильтром: те же условия и «не больше, чем видел». */
+export function BulkDeep({
+  query,
+  startable,
+  most,
+  conditions,
+  rules,
+}: {
+  query: CrawlDonorQuery;
+  startable: number;
+  most: number | undefined;
+  conditions: string[];
+  rules: CrawlDeepRules;
+}) {
+  const { open, setOpen, asked, run } = useBulk(startable, most);
+  return (
+    <>
+      <OpensWindow variant="default" disabled={startable === 0} onOpen={() => setOpen(true)}>
+        {deepLabel(rules, 'всех')} · {bulkCount(startable, most)}
+      </OpensWindow>
+      <DeepConfirm
+        opened={open}
+        rules={rules}
+        who={whoWords(asked, conditions)}
+        count={asked}
+        loading={run.isPending}
+        onClose={() => setOpen(false)}
+        onConfirm={() => run.mutate({ query, expected: asked, deep: true })}
+      />
+    </>
+  );
+}
+
 export function BulkCrawl({
   query,
   startable,
@@ -74,26 +152,15 @@ export function BulkCrawl({
   /** Условия вкладки словами; пусто — все доноры. */
   conditions: string[];
 }) {
-  const [open, setOpen] = useState(false);
-  const asked = most === undefined ? startable : Math.min(startable, most);
-  const run = useStartByFilter(() => setOpen(false));
+  const { open, setOpen, asked, run } = useBulk(startable, most);
   return (
     <>
-      <Button
-        variant="light"
-        className="press"
-        disabled={startable === 0}
-        aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
-      >
+      <OpensWindow variant="light" disabled={startable === 0} onOpen={() => setOpen(true)}>
         Обойти всех по фильтру · {bulkCount(startable, most)}
-      </Button>
+      </OpensWindow>
       <Modal opened={open} onClose={() => setOpen(false)} title="Обойти всех по фильтру?">
         <Stack gap="sm">
-          <Text>
-            Встанут в очередь: {donors(asked)}
-            {conditions.length > 0 ? ` — ${conditions.join(', ')}` : ' — все, кого можно обойти'}.
-          </Text>
+          <Text>{whoWords(asked, conditions)}</Text>
           <Text size="sm" c="dimmed">
             {bulkTiming(asked, typicalSec, workers)}
           </Text>
@@ -116,6 +183,34 @@ export function BulkCrawl({
           </Group>
         </Stack>
       </Modal>
+    </>
+  );
+}
+
+/** «Обойти всех по фильтру» и то же заново, глубоким обходом. */
+export function ByFilter({ data, filters }: { data: CrawlDonorsView; filters: CrawlFilters }) {
+  const query = crawlQueryOf(filters);
+  const conditions = crawlConditions(filters);
+  return (
+    <>
+      <BulkCrawl
+        query={query}
+        startable={data.startable}
+        most={data.bulk_max}
+        launchMax={data.launch_max}
+        workers={data.workers}
+        typicalSec={data.typical_crawl_sec}
+        conditions={conditions}
+      />
+      {data.deep ? (
+        <BulkDeep
+          query={query}
+          startable={data.startable}
+          most={data.bulk_max}
+          conditions={conditions}
+          rules={data.deep}
+        />
+      ) : null}
     </>
   );
 }

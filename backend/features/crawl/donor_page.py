@@ -365,19 +365,26 @@ async def startable_hosts(
     return [str(host) for (host,) in rows.all()]
 
 
-async def typical_seconds(session: AsyncSession) -> float:
-    """Сколько обычно идёт обход донора — медиана последних законченных, у которых было что
-    обходить; замера нет — `TYPICAL_FALLBACK_SEC`. Для «≈ N ч при K обходчиках»."""
+async def crawl_seconds(session: AsyncSession) -> list[float]:
+    """Сколько шли последние законченные обычные обходы, у которых было что обходить, с.
+    Глубокие не в счёт: у них свой срок (`deep.typical_deep_seconds`)."""
     elapsed = CrawlRunModel.stats["elapsed_sec"].as_float()
     rows = await session.execute(
         select(elapsed)
         .where(
             CrawlRunModel.status == CrawlStatus.DONE,
+            CrawlRunModel.max_pages.is_(None),
             CrawlRunModel.pages_opened >= TYPICAL_MIN_PAGES,
             elapsed.is_not(None),
         )
         .order_by(CrawlRunModel.id.desc())
         .limit(TYPICAL_SAMPLE)
     )
-    seconds = [float(value) for (value,) in rows.all() if value is not None and value > 0]
+    return [float(value) for (value,) in rows.all() if value is not None and value > 0]
+
+
+async def typical_seconds(session: AsyncSession) -> float:
+    """Сколько обычно идёт обход донора — медиана последних законченных; замера нет —
+    `TYPICAL_FALLBACK_SEC`. Для «≈ N ч при K обходчиках»."""
+    seconds = await crawl_seconds(session)
     return statistics.median(seconds) if seconds else TYPICAL_FALLBACK_SEC

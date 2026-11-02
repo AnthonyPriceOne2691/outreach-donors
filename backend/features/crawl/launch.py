@@ -61,13 +61,15 @@ async def launch(
     by: str | None,
     job_id: JobId,
     enqueue: Enqueue,
+    max_pages: int | None = None,
 ) -> Launch:
     """Поставить обходы доноров. Каждый донор фиксируется отдельно: отказ
-    очереди на третьем не должен откатывать первые два."""
+    очереди на третьем не должен откатывать первые два. `max_pages` — потолок
+    глубокого обхода (`deep.py`); пусто — обычный."""
     done = Launch()
     for host in dict.fromkeys(crawl_host(h) for h in hosts if h.strip()):
         try:
-            run = await queue_crawl(session, host, by=by)
+            run = await queue_crawl(session, host, by=by, max_pages=max_pages)
         except CrawlBusyError:
             logger.info("обход %s уже идёт или ждёт — второй не ставлю", host)
             done.busy.append(host)

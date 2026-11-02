@@ -9,7 +9,7 @@ Create Date: 2026-11-02 13:00:00.000000
 не трогаются. Загрузки до этой ревизии не восстанавливаются: панель показывает их обходы без партии.
 """
 
-from typing import Sequence, Union
+from typing import Any, Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
@@ -18,6 +18,11 @@ revision: str = "b7d4e2a91c36"  # pragma: allowlist secret
 down_revision: Union[str, Sequence[str], None] = "3b7e1c94d2a6"  # pragma: allowlist secret
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
+
+def _stamp(name: str) -> sa.Column[Any]:
+    """Отметка времени строки: ставит база."""
+    return sa.Column(name, sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False)
 
 
 def upgrade() -> None:
@@ -29,12 +34,7 @@ def upgrade() -> None:
         sa.Column("file_name", sa.String(length=255), nullable=True),
         sa.Column("requested_by", sa.String(length=255), nullable=True),
         sa.Column("crawl", sa.Boolean(), nullable=False),
-        sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
-        ),
-        sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
-        ),
+        *(_stamp(name) for name in ("created_at", "updated_at")),
         sa.CheckConstraint("kind IN ('bulk', 'manual')", name="ck_donor_loads_kind"),
     )
     op.create_index("idx_donor_loads_created_at", "donor_loads", ["created_at"])
