@@ -47,7 +47,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.ahrefs.client import AhrefsError
-from backend.features.core.domain import CrawlOutcome, CrawlStatus
+from backend.features.core.domain import CrawlOutcome, CrawlStatus, Verdict
 from backend.features.core.models.advertiser import CARRIED, CandidateMemoryModel, CandidateModel
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
 from backend.features.crawl.big_sites import (
@@ -57,7 +57,12 @@ from backend.features.crawl.big_sites import (
     needs_rating,
 )
 from backend.features.crawl.links import OutLink
-from backend.features.crawl.scoring import Candidate, boost_across_donors, score_candidates
+from backend.features.crawl.scoring import (
+    Candidate,
+    advertiser_pages,
+    boost_across_donors,
+    score_candidates,
+)
 from backend.features.crawl.selection_settings import snapshot
 from backend.features.crawl.topic import donor_topic
 
@@ -69,21 +74,25 @@ USABLE_OUTCOMES = (CrawlOutcome.OK, CrawlOutcome.PARTIAL)
 #: Строк памяти за один запрос: у запроса не больше 32 767 параметров, у строки их семь.
 MEMORY_CHUNK = 1000
 
+#: Ключ в `stats` обхода: страниц со ссылкой на домен «куплено» (`selling_pages`). У обхода,
+#: посчитанного раньше этого числа, ключа нет: его дополнит следующий пересчёт.
+SELLING_PAGES = "selling_pages"
 
-def _usable() -> ColumnElement[bool]:
+
+def usable() -> ColumnElement[bool]:
     return (CrawlRunModel.status == CrawlStatus.DONE) & CrawlRunModel.outcome.in_(USABLE_OUTCOMES)
 
 
 async def latest_crawls(session: AsyncSession) -> list[CrawlRunModel]:
     """Последний пригодный обход каждого донора — по ним и считаются кандидаты."""
-    newest = select(func.max(CrawlRunModel.id)).where(_usable()).group_by(CrawlRunModel.host)
+    newest = select(func.max(CrawlRunModel.id)).where(usable()).group_by(CrawlRunModel.host)
     query = select(CrawlRunModel).where(CrawlRunModel.id.in_(newest)).order_by(CrawlRunModel.id)
     return list((await session.execute(query)).scalars().all())
 
 
 async def _not_latest(session: AsyncSession, run: CrawlRunModel) -> str | None:
     """Почему по этому обходу кандидатов не считаем. `None` — он последний пригодный."""
-    query = select(func.max(CrawlRunModel.id)).where(_usable(), CrawlRunModel.host == run.host)
+    query = select(func.max(CrawlRunModel.id)).where(usable(), CrawlRunModel.host == run.host)
     latest = (await session.execute(query)).scalar_one_or_none()
     if latest == run.id:
         return None
@@ -124,7 +133,7 @@ async def donors_per_root(session: AsyncSession, roots: list[str]) -> dict[str, 
     query = (
         select(OutLinkModel.target_root, func.count(func.distinct(CrawlRunModel.host)))
         .join(CrawlRunModel, CrawlRunModel.id == OutLinkModel.crawl_run_id)
-        .where(OutLinkModel.target_root.in_(roots), _usable())
+        .where(OutLinkModel.target_root.in_(roots), usable())
         .group_by(OutLinkModel.target_root)
     )
     return dict((await session.execute(query)).all())  # type: ignore[arg-type]
@@ -218,6 +227,19 @@ async def _rate(candidates: list[Candidate], previous: _Previous, ratings: Ratin
         logger.info("кандидаты: крупных сайтов (DR > 80) отсеяно %s", blocked)
 
 
+def selling_pages(links: list[OutLink], candidates: list[Candidate]) -> int:
+    """Разных страниц обхода со ссылкой на домен с вердиктом «куплено»: витрина с пятью
+    рекламодателями — одна страница. Страницы — правилом скоринга (`advertiser_pages`): сеть
+    партнёрок — к рекламодателю, документы не в счёт. Решение человека числа не меняет: это
+    мера обхода, как и вердикт. Позже него — потому что «DR > 80» снимает «куплено»."""
+    pages = advertiser_pages(links)
+    found: set[str] = set()
+    for candidate in candidates:
+        if candidate.verdict is Verdict.BOUGHT:
+            found |= pages.get(candidate.target_root, frozenset())
+    return len(found)
+
+
 async def judge_run(
     session: AsyncSession, run_id: int, *, ratings: Ratings | None = None
 ) -> list[Candidate]:
@@ -243,8 +265,9 @@ async def judge_run(
         .scalars()
         .all()
     )
+    links = [_to_link(row) for row in rows]
     candidates = score_candidates(
-        [_to_link(row) for row in rows],
+        links,
         donor_root=run.host,
         topic=await donor_topic(session, run.host),
     )
@@ -254,8 +277,14 @@ async def judge_run(
     previous = await _previous(session, run.host)
     await _rate(candidates, previous, ratings)
     await _replace_candidates(session, run, candidates, previous)
-    # Каким порогом судили: веса меняются окружением, а пересчёт переписывает вердикт.
-    run.stats = {**(run.stats or {}), "scored_with": snapshot()}
+    # Каким порогом судили: веса меняются окружением, а пересчёт переписывает вердикт. Страницы
+    # с продающей ссылкой — здесь, где ссылки уже в памяти: панели читать их из `outlinks` на
+    # каждое открытие значило бы проходить таблицу в сотни тысяч строк.
+    run.stats = {
+        **(run.stats or {}),
+        "scored_with": snapshot(),
+        SELLING_PAGES: selling_pages(links, candidates),
+    }
     await session.flush()
     logger.info(
         "обход %s (%s): кандидатов %s, из них куплено %s, спорных %s",
