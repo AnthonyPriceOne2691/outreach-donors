@@ -46,7 +46,7 @@ async function decideNo(answer: Record<string, unknown>) {
     },
     'POST /api/advertisers/12/decide': { body: { ...CANDIDATE, confirmed: false, ...answer } },
   });
-  renderWith(<AppRoutes />, '/advertisers');
+  renderWith(<AppRoutes />, '/advertisers?view=review');
   await screen.findByText('advertiser.example.test');
   await userEvent.setup().click(screen.getByRole('button', { name: 'Не пишем' }));
   await screen.findByText('advertiser.example.test: не пишем');

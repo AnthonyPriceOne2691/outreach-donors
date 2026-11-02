@@ -80,7 +80,7 @@ async function openWith(scoring: ScoringCheck | undefined) {
       body: { rows: [], waiting: 0, counts: { bought: 400 }, ...(scoring ? { scoring } : {}) },
     },
   });
-  renderWith(<AppRoutes />, '/advertisers');
+  renderWith(<AppRoutes />, '/advertisers?view=review');
   await screen.findByText(/Спорных нет/);
 }
 

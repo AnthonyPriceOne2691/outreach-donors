@@ -54,6 +54,8 @@ export const AUDIT_ACTIONS: Record<AuditAction, string> = {
   ahrefs_cap_changed: 'Кап Ahrefs изменён',
   // Дневной потолок модели сменён на экране «Расход» — какой, «было → стало».
   llm_cap_changed: 'Потолок модели изменён',
+  // Месячный потолок проверок адреса Hunter сменён на экране «Расход» — «было → стало».
+  hunter_cap_changed: 'Потолок проверок адреса изменён',
   // Очередь загрузки обхода снята — доноры, загруженные списком, в обход не пойдут; сколько — в подробностях.
   crawl_backlog_dropped: 'Очередь загрузки обхода снята',
 };
@@ -113,6 +115,7 @@ const TARGETS: Record<string, { noun: string; path?: (id: string) => string; bar
   agent_settings: { noun: 'настройки агента', bare: true },
   // Номер строки смены человеку ничего не говорит: что стало с капом — в подробностях.
   ahrefs_cap: { noun: 'кап Ahrefs', bare: true },
+  hunter_cap: { noun: 'потолок проверок адреса', bare: true },
   agent_draft: { noun: 'черновик агента' },
   sales_hypothesis: { noun: 'гипотеза продаж' },
   sales_handoff: { noun: 'передача лида продаж' },

@@ -155,7 +155,10 @@ describe('сводка на главной', () => {
       '/threads?stage=advertisers&state=lead',
     );
     expect(await tile('Заполнить формы')).toHaveAttribute('href', '/forms');
-    expect(await tile('Кандидаты в рекламодатели')).toHaveAttribute('href', '/advertisers');
+    expect(await tile('Кандидаты в рекламодатели')).toHaveAttribute(
+      'href',
+      '/advertisers?view=review',
+    );
   });
 
   it('кандидаты в рекламодатели — числом меню, и бизнесы ниши в нём названы', async () => {
