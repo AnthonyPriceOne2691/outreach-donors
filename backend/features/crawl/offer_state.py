@@ -112,6 +112,7 @@ def _letters() -> Subquery:
             _status_in((MessageStatus.BOUNCED,)).label("bounced"),
             _status_in((MessageStatus.STOPPED,)).label("stopped"),
             _status_in(GONE_STATUSES).label("gone"),
+            _status_in((MessageStatus.DELIVERED,)).label("reached"),
         )
         .join(MessageModel, MessageModel.thread_id == thread.id)
         .subquery("offer_letters")
@@ -178,3 +179,8 @@ class OfferFlags:
         """Домену ушёл оффер: платформа приняла хоть одно письмо Этапа 2 (`GONE_STATUSES`
         — принято или не дошло)."""
         return self._flag(self.letters.c.gone)
+
+    def reached(self) -> ColumnElement[bool]:
+        """Оффер дошёл: платформа сообщила о доставке хоть одного письма Этапа 2. Уже, чем
+        `gone`: письмо, принятое без исхода, ещё не дошло, и панель различает эти шаги."""
+        return self._flag(self.letters.c.reached)

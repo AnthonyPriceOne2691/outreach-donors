@@ -37,7 +37,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -112,8 +112,9 @@ class Acceptance:
     overall_findings: Findings
 
 
-def _found() -> Select[tuple[str, str, int]]:
-    """Рекламодатели доноров: донор, домен, номер домена в базе (если завели)."""
+def found_rows(*narrowed: ColumnElement[bool]) -> Select[tuple[str, str, int]]:
+    """Рекламодатели доноров: донор, домен, номер домена в базе (если завели). `narrowed` —
+    условия на кандидата: панель спрашивает те же строки по обходам своей выборки."""
     domain = aliased(DomainModel)
     return (
         select(
@@ -122,31 +123,50 @@ def _found() -> Select[tuple[str, str, int]]:
             domain.id.label("domain_id"),
         )
         .outerjoin(domain, domain.host == CandidateModel.target_root)
-        .where(writes_to())
+        .where(writes_to(), *narrowed)
         .distinct()
     )
 
 
-def _counts(rows: Subquery, flags: OfferFlags) -> tuple[ColumnElement[int], ...]:
-    """Четыре числа приёмки над строками `rows` — счётом с условием, одним запросом.
-    Считаются домены, а не строки: у суммы по донорам домен двух доноров — один."""
-    domain_id = rows.c.domain_id
-    promoted = (
-        select(AdvertiserModel.id).where(AdvertiserModel.domain_id == domain_id, in_work()).exists()
+def distinct_domains(rows: Subquery) -> ColumnElement[int]:
+    """Счёт доменов, а не строк: у суммы по донорам домен двух доноров — один."""
+    return func.count(func.distinct(rows.c.root))
+
+
+def promoted_row(rows: Subquery) -> ColumnElement[bool]:
+    """Домен строки `rows` — рекламодатель, которому пишем: перевод его завёл."""
+    return (
+        select(AdvertiserModel.id)
+        .where(AdvertiserModel.domain_id == rows.c.domain_id, in_work())
+        .exists()
     )
-    addressed = and_(promoted, has_address(domain_id))
-    domains = func.count(func.distinct(rows.c.root))
+
+
+def addressed_row(rows: Subquery) -> ColumnElement[bool]:
+    """Из переведённых — с адресом в базе: шаг воронки считается только среди них."""
+    return and_(promoted_row(rows), has_address(rows.c.domain_id))
+
+
+def tally_columns(rows: Subquery, flags: OfferFlags) -> tuple[ColumnElement[int], ...]:
+    """Четыре числа приёмки над строками `rows` — счётом с условием, одним запросом."""
+    domains = distinct_domains(rows)
+    addressed = addressed_row(rows)
     return (
         domains,
-        domains.filter(promoted),
+        domains.filter(promoted_row(rows)),
         domains.filter(addressed),
         domains.filter(and_(addressed, flags.gone())),
     )
 
 
-def _tally(numbers: Sequence[Any]) -> Tally:
+def tally_of(numbers: Sequence[Any]) -> Tally:
     found, promoted, with_address, sent = (int(number or 0) for number in numbers)
     return Tally(found=found, promoted=promoted, with_address=with_address, sent=sent)
+
+
+def not_supplier(rows: Subquery, suppliers: Collection[str]) -> ColumnElement[bool]:
+    """Донор строки — не поставщик: его рекламодателей не трогаем, и в суммах их нет."""
+    return func.lower(rows.c.donor).not_in(suppliers) if suppliers else rows.c.donor.is_not(None)
 
 
 async def acceptance(session: AsyncSession, *, limit: int) -> Acceptance:
@@ -155,14 +175,14 @@ async def acceptance(session: AsyncSession, *, limit: int) -> Acceptance:
     Донор — каждый, у кого есть обход, в том числе без рекламодателей: «обошли
     и не нашли никого» — тоже ответ приёмке. Сверху — у кого найдено больше.
     """
-    rows = _found().subquery()
+    rows = found_rows().subquery()
     flags = OfferFlags.build()
     per_donor = await session.execute(
         flags.joined(
-            select(rows.c.donor, *_counts(rows, flags)).select_from(rows), rows.c.domain_id
+            select(rows.c.donor, *tally_columns(rows, flags)).select_from(rows), rows.c.domain_id
         ).group_by(rows.c.donor)
     )
-    by_host = {str(line[0]): _tally(line[1:]) for line in per_donor.all()}
+    by_host = {str(line[0]): tally_of(line[1:]) for line in per_donor.all()}
     findings = await by_donor(session)
     suppliers = await supplier_hosts(session)
     crawled = (await session.scalars(select(CrawlRunModel.host).distinct())).all()
@@ -171,8 +191,8 @@ async def acceptance(session: AsyncSession, *, limit: int) -> Acceptance:
         key=lambda host: (-by_host.get(host, Tally()).found, host),
     )
     overall = await session.execute(
-        flags.joined(select(*_counts(rows, flags)).select_from(rows), rows.c.domain_id).where(
-            func.lower(rows.c.donor).not_in(suppliers) if suppliers else rows.c.donor.is_not(None)
+        flags.joined(select(*tally_columns(rows, flags)).select_from(rows), rows.c.domain_id).where(
+            not_supplier(rows, suppliers)
         )
     )
     return Acceptance(
@@ -186,6 +206,6 @@ async def acceptance(session: AsyncSession, *, limit: int) -> Acceptance:
             for host in hosts[:limit]
         ],
         total=len(hosts),
-        overall=_tally(overall.one()),
+        overall=tally_of(overall.one()),
         overall_findings=together(findings, suppliers),
     )

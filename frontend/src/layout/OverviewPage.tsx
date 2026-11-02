@@ -163,7 +163,7 @@ function WaitingSection({ waiting }: { waiting: OverviewWaiting }) {
           value={formatNumber(waiting.advertisers)}
           hint={advertisersHint(waiting)}
           color={attention(waiting.advertisers)}
-          to="/advertisers"
+          to="/advertisers?view=review"
         />
       </SimpleGrid>
     </Section>

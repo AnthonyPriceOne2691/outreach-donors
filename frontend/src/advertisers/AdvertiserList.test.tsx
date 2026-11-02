@@ -269,7 +269,7 @@ describe('все рекламодатели списком', () => {
 });
 
 describe('переключатель видов', () => {
-  it('проверка — по умолчанию; «Все рекламодатели» — свой адрес', async () => {
+  it('смена вида — чистый адрес: страница бизнесов ниши за ним не едет', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({
       ...CRAWL_ROUTES,
@@ -290,7 +290,7 @@ describe('переключатель видов', () => {
         <AppRoutes />
         <Where />
       </>,
-      '/advertisers?niche_page=2',
+      '/advertisers?view=review&niche_page=2',
     );
     const user = userEvent.setup();
 

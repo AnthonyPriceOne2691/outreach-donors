@@ -42,6 +42,7 @@ from backend.api.topics.schemas import with_chosen
 from backend.features.access.permissions import sees_stage
 from backend.features.core.domain import Permission, Stage
 from backend.features.core.models.access import UserModel
+from backend.features.crawl import loads
 from backend.features.donors.browse import DonorBrowser, DonorRow
 from backend.features.donors.export import EXPORT_LIMIT, checked_picks, to_csv
 from backend.features.donors.manual_price import enter_host, price_donor
@@ -162,6 +163,7 @@ async def enter_donor(
     """
     price = body.checked(by=author.email)
     entered = await enter_host(session, body.host, price, author_id=author.id)
+    await loads.record(session, kind=loads.MANUAL, hosts=[entered.host], by=author.email)
     await session.commit()
     return EnteredDonor.of(entered, price)
 
