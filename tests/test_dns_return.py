@@ -81,6 +81,11 @@ async def _refused(
     await session.flush()
 
 
+async def _back(session: AsyncSession, *, now: datetime) -> int:
+    """Сколько писем вернул проход."""
+    return (await dns_return.return_letters(session, now=now)).back
+
+
 async def _followup(session: AsyncSession, talk: Conversation) -> MessageModel:
     """Добивка ушла проходом добивок; срок первого письма погашен её захватом."""
     assert talk.first.next_action_at is not None
@@ -101,7 +106,7 @@ class TestFirstLetter:
         letter = talk.first
         await _refused(session, letter)
 
-        returned = await dns_return.return_letters(session, now=NOW)
+        returned = await _back(session, now=NOW)
 
         assert returned == 1
         assert letter.status is MessageStatus.QUEUED
@@ -113,7 +118,7 @@ class TestFirstLetter:
     async def test_the_journal_says_why(self, session: AsyncSession, talk: Conversation) -> None:
         await _refused(session, talk.first)
 
-        await dns_return.return_letters(session, now=NOW)
+        await _back(session, now=NOW)
         await session.flush()
 
         row = await session.scalar(
@@ -136,7 +141,7 @@ class TestFirstLetter:
         await apply_events(session, [deferred], now=at)
         await _refused(session, letter)
 
-        await dns_return.return_letters(session, now=NOW)
+        await _back(session, now=NOW)
 
         assert (letter.deferred_at, letter.deferred_kind, letter.deferred_reason) == (None,) * 3
         assert letter.deferred_attempts is None
@@ -149,9 +154,7 @@ class TestFirstLetter:
         letter = talk.first
         await _refused(session, letter)
 
-        early = await dns_return.return_letters(
-            session, now=SENT + dns_return.SETTLE - timedelta(seconds=1)
-        )
+        early = await _back(session, now=SENT + dns_return.SETTLE - timedelta(seconds=1))
 
         assert early == 0
         assert letter.status is MessageStatus.BOUNCED
@@ -170,7 +173,7 @@ class TestFirstLetter:
     ) -> None:
         await _refused(session, talk.first, reason)
 
-        assert await dns_return.return_letters(session, now=NOW) == 0
+        assert await _back(session, now=NOW) == 0
         assert talk.first.status is MessageStatus.BOUNCED
 
     async def test_the_platform_giving_up_is_read_by_the_last_deferral(
@@ -182,7 +185,7 @@ class TestFirstLetter:
         await apply_events(session, [deferred], now=at)
         await _refused(session, letter, "550 4.4.7 QUEUE.Expired; message expired")
 
-        assert await dns_return.return_letters(session, now=NOW) == 1
+        assert await _back(session, now=NOW) == 1
 
     async def test_letters_refused_before_the_fix_come_back_too(
         self, session: AsyncSession, talk: Conversation
@@ -194,7 +197,7 @@ class TestFirstLetter:
         letter.deferred_since = SENT + timedelta(seconds=20)
         await session.flush()
 
-        assert await dns_return.return_letters(session, now=NOW) == 1
+        assert await _back(session, now=NOW) == 1
 
 
 class TestOnceAndNotForLong:
@@ -204,13 +207,13 @@ class TestOnceAndNotForLong:
         """DNS отвечает, а платформа отказывает снова: сломанная запись MX, письмо не ходит по кругу."""
         letter = talk.first
         await _refused(session, letter)
-        await dns_return.return_letters(session, now=NOW)
+        await _back(session, now=NOW)
         await session.commit()
         retry = NOW + timedelta(hours=1)
         await Sending(session, Postman(), now=retry).send(letter.id)
         await _refused(session, letter)
 
-        again = await dns_return.return_letters(session, now=retry + timedelta(hours=1))
+        again = await _back(session, now=retry + timedelta(hours=1))
 
         assert again == 0
         assert letter.status is MessageStatus.BOUNCED
@@ -221,10 +224,8 @@ class TestOnceAndNotForLong:
         letter = talk.first
         await _refused(session, letter)
 
-        late = await dns_return.return_letters(session, now=SENT + dns_return.WINDOW)
-        almost = await dns_return.return_letters(
-            session, now=SENT + dns_return.WINDOW - timedelta(minutes=1)
-        )
+        late = await _back(session, now=SENT + dns_return.WINDOW)
+        almost = await _back(session, now=SENT + dns_return.WINDOW - timedelta(minutes=1))
 
         assert (late, almost) == (0, 1)
 
@@ -239,7 +240,7 @@ class TestChain:
         assert followup.sent_at is not None
         moment = followup.sent_at + timedelta(hours=1)
 
-        returned = await dns_return.return_letters(session, now=moment)
+        returned = await _back(session, now=moment)
 
         assert returned == 1
         assert followup.status is MessageStatus.QUEUED
@@ -269,9 +270,7 @@ class TestChain:
         await session.flush()
         assert followup.sent_at is not None
 
-        returned = await dns_return.return_letters(
-            session, now=followup.sent_at + timedelta(hours=1)
-        )
+        returned = await _back(session, now=followup.sent_at + timedelta(hours=1))
 
         assert returned == 0
         assert followup.status is MessageStatus.BOUNCED
@@ -284,7 +283,7 @@ class TestChain:
         talk.first.step = step
         await _refused(session, talk.first)
 
-        assert await dns_return.return_letters(session, now=NOW) == 0
+        assert await _back(session, now=NOW) == 0
         assert talk.first.status is MessageStatus.BOUNCED
 
 
@@ -304,7 +303,7 @@ async def test_the_box_can_work_again_after_the_return(session: AsyncSession) ->
     await session.flush()
     senders.disable(box, "отказов 3 в окне 50 писем — порог 5.0%: пауза", now=NOW)
 
-    assert await dns_return.return_letters(session, now=NOW + timedelta(hours=10)) == 3
+    assert await _back(session, now=NOW + timedelta(hours=10)) == 3
 
     senders.enable(box, now=NOW)
     real = DeliveryEvent(
@@ -348,7 +347,7 @@ async def test_the_whole_way(
     await session.refresh(letter)
     assert letter.status is MessageStatus.BOUNCED
 
-    assert await dns_return.return_letters(session, now=NOW) == 1
+    assert await _back(session, now=NOW) == 1
     await session.commit()
     await session.refresh(letter)
     assert letter.status is MessageStatus.QUEUED
@@ -397,7 +396,7 @@ async def test_two_passes_at_once_return_the_letter_once(
 
         async def one_pass() -> int:
             async with factory() as session:
-                returned = await dns_return.return_letters(session, now=NOW)
+                returned = await _back(session, now=NOW)
                 await session.commit()
                 return returned
 
@@ -436,9 +435,9 @@ class TestThePass:
     ) -> None:
         calls: list[Any] = []
 
-        async def counted(_session: AsyncSession, *, now: Any) -> int:
+        async def counted(_session: AsyncSession, *, now: Any) -> dns_return.Returned:
             calls.append(now)
-            return 0
+            return dns_return.Returned()
 
         monkeypatch.setattr(dns_return, "return_letters", counted)
 
@@ -457,7 +456,7 @@ class TestThePass:
         clock: list[float],
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        async def falling(_session: AsyncSession, *, now: Any) -> int:
+        async def falling(_session: AsyncSession, *, now: Any) -> dns_return.Returned:
             raise RuntimeError("база не ответила")
 
         monkeypatch.setattr(dns_return, "return_letters", falling)

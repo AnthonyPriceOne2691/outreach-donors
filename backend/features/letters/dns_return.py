@@ -16,6 +16,16 @@
 событие доказывает приём), и запоздавшая отсрочка той же попытки сняла бы его с очереди. События
 одной попытки приходят минутами: `SETTLE` их пережидает.
 
+**Второе письмо получателю не уходит.** Отказ «писали» не считается (`attempts.py`): пока письмо
+лежит отказом, сборка могла написать сайту на следующий адрес — и в другой рассылке: отбор судит
+сайт, а не рассылку. Возврат поставил бы в очередь второе первое письмо, ровно то, от чего правило
+«одно письмо за раз». Поэтому условие то же, что у сборки: живое письмо сайта или его ответ
+(`attempts.live_letter`, `answered`). В переписке — живое письмо этого шага или дальше: добивка
+могла уйти, пока первое письмо откладывалось, и повтор пришёл бы после неё. У продаж получатель —
+переписка, а не сайт: два лида одной компании делят домен и законны оба, а второе письмо тому же
+лиду сборка не заводит (`sales/queue._leads`). Такие письма остаются отказом и считаются отдельным
+числом в журнале прохода: условие проверяется на каждом проходе, пока письмо в пределах срока.
+
 **Один раз и недолго.** Тот же текст отказа дают и домены со сломанной записью MX: DNS им отвечает,
 проверка письмо пропускает, платформа отказывает снова. Вторая попытка отличает одно от другого,
 третья — письмо по кругу. Что письмо уже возвращали, видно без отдельной колонки: его первая
@@ -26,16 +36,18 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from backend.features.access.repository import AccessRepository
-from backend.features.core.domain import AuditAction, MessageStatus
+from backend.features.core.domain import AuditAction, MessageStatus, Stage
 from backend.features.core.models.outreach import MessageModel
-from backend.features.letters import settle
-from backend.features.letters.chain import MAX_STEPS
+from backend.features.letters import attempts, settle
+from backend.features.letters.chain import FIRST_STEP, MAX_STEPS
 from backend.features.letters.delivery_trouble import Trouble, refused_kind
 from backend.features.letters.unknown_outcome import alive_link, is_followup
 
@@ -52,6 +64,14 @@ WINDOW = timedelta(days=3)
 RETURNED_BEFORE = timedelta(minutes=10)
 
 
+@dataclass(slots=True)
+class Returned:
+    """Итог прохода: вернулось писем и осталось отказом, потому что у получателя уже есть живое."""
+
+    back: int = 0
+    taken: int = 0
+
+
 def _returnable(message: MessageModel) -> bool:
     """Отказ — молчание DNS получателя, и это первая попытка письма."""
     kind = refused_kind(
@@ -63,6 +83,28 @@ def _returnable(message: MessageModel) -> bool:
         return False
     since = message.deferred_since
     return since is None or message.sent_at - since < RETURNED_BEFORE
+
+
+async def _taken(session: AsyncSession, message: MessageModel) -> bool:
+    """Возврат был бы вторым письмом получателю (шапка модуля): в переписке есть живое письмо этого
+    шага или дальше, а у первого письма доноров и рекламодателей — ещё и живое письмо сайта или
+    ответ с него. Само письмо лежит отказом и живым себя не считает."""
+    found: list[ColumnElement[bool]] = []
+    if message.thread_id is not None:  # `== None` стал бы `IS NULL` — чужие письма
+        later = aliased(MessageModel)
+        found.append(
+            select(later.id)
+            .where(
+                later.thread_id == message.thread_id,
+                later.step >= message.step,
+                ~attempts.dead(later),
+            )
+            .exists()
+        )
+    if message.step == FIRST_STEP and await settle.stage_of(session, message) is not Stage.SALES:
+        found.append(attempts.live_letter(message.domain_id))
+        found.append(attempts.answered(message.domain_id))
+    return bool(found) and bool(await session.scalar(select(or_(*found))))
 
 
 async def _return(session: AsyncSession, message: MessageModel, now: datetime) -> bool:
@@ -99,9 +141,9 @@ async def _return(session: AsyncSession, message: MessageModel, now: datetime) -
     return True
 
 
-async def return_letters(session: AsyncSession, *, now: datetime) -> int:
-    """Вернуть в работу письма, отбитые молчащим DNS получателя; сколько вернулось. Без
-    фиксации: её делает вызывающий."""
+async def return_letters(session: AsyncSession, *, now: datetime) -> Returned:
+    """Вернуть в работу письма, отбитые молчащим DNS получателя. Письма идут по одному: два отказа
+    одного сайта вернут одно, второе увидит вернувшееся живым. Без фиксации: её делает вызывающий."""
     rows = await session.scalars(
         select(MessageModel)
         .where(
@@ -112,9 +154,17 @@ async def return_letters(session: AsyncSession, *, now: datetime) -> int:
         )
         .order_by(MessageModel.id)
     )
-    returned = 0
+    report = Returned()
     for message in [found for found in rows.all() if _returnable(found)]:
-        returned += await _return(session, message, now)
-    if returned:
-        logger.info("письма: %s вернулись в работу — отказ из-за молчания DNS получателя", returned)
-    return returned
+        if await _taken(session, message):
+            report.taken += 1
+        elif await _return(session, message, now):
+            report.back += 1
+    if report.back or report.taken:
+        logger.info(
+            "письма: отказы из-за молчания DNS получателя — вернулось в работу %s, "
+            "осталось отказом %s: у получателя уже есть живое письмо",
+            report.back,
+            report.taken,
+        )
+    return report
