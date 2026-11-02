@@ -5,13 +5,10 @@
  */
 
 import { Button } from '@mantine/core';
-import { useMutation } from '@tanstack/react-query';
 
 import { exportPending } from '../api/advertiserPanel';
-import { refusalOf } from '../api/client';
-import { exportCounts, saveFile } from '../api/donors';
 import { formatNumber } from '../format';
-import { notify } from '../notices';
+import { useFileExport } from './useFileExport';
 
 /** Что легло в файл — словами: потолок сервера говорит о себе сам. */
 function exported(rows: number | null, asked: number | null): string {
@@ -21,16 +18,7 @@ function exported(rows: number | null, asked: number | null): string {
 }
 
 export function PendingExport({ total }: { total: number }) {
-  const save = useMutation({
-    mutationFn: exportPending,
-    onSuccess: (file) => {
-      saveFile(file, 'disputed.csv');
-      const counts = exportCounts(file);
-      notify({ message: exported(counts.rows, counts.asked) });
-    },
-    onError: (failure) =>
-      notify({ title: 'Выгрузка не удалась', message: refusalOf(failure), color: 'red' }),
-  });
+  const save = useFileExport(exportPending, 'disputed.csv', exported);
   return (
     <Button
       variant="default"

@@ -35,6 +35,7 @@ import type {
   PanelView,
 } from '../api/advertiserPanel';
 import { refusalOf } from '../api/client';
+import { HintLines } from '../components/HintLines';
 import { Metric } from '../components/Metric';
 import { PageHead } from '../components/PageHead';
 import { formatDateTime, formatNumber } from '../format';
@@ -57,13 +58,7 @@ const ABOUT_LINES = [
   'Письмо ушло — платформа приняла хоть одно письмо Этапа 2 этому домену, отказ доставки тоже. Письмо дошло — платформа сообщила о доставке. Домену письмо одно, поэтому у повторного оно могло уйти раньше выборки.',
 ];
 
-const ABOUT = (
-  <Stack gap={6}>
-    {ABOUT_LINES.map((line) => (
-      <span key={line}>{line}</span>
-    ))}
-  </Stack>
-);
+const ABOUT = <HintLines lines={ABOUT_LINES} />;
 
 /** Выборка из адреса; незнакомая или пустая — сегодня, партия без годного номера — без партии. */
 export function usePanelRange(): {

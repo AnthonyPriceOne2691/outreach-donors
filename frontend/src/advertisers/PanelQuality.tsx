@@ -17,6 +17,7 @@ import type { QualityRow } from '../api/advertiserPanel';
 import { refusalOf } from '../api/client';
 import type { Column } from '../components/ColumnsHead';
 import { DataTable } from '../components/DataTable';
+import { HintLines } from '../components/HintLines';
 import { InfoHint } from '../components/InfoHint';
 import { PageHead } from '../components/PageHead';
 import { PageSwitch, usePageParam } from '../components/PageSwitch';
@@ -32,13 +33,7 @@ const ABOUT_LINES = [
   'Продающая ссылка — ссылка на домен с вердиктом скоринга «куплено». Решение человека этих чисел не меняет: это мера обхода, а не очереди. Прочерк — обходы строки посчитаны раньше этих чисел.',
 ];
 
-const ABOUT = (
-  <Stack gap={6}>
-    {ABOUT_LINES.map((line) => (
-      <span key={line}>{line}</span>
-    ))}
-  </Stack>
-);
+const ABOUT = <HintLines lines={ABOUT_LINES} />;
 
 const SHARE_HINT = (
   <InfoHint name="Что значит «% страниц»" width={320}>

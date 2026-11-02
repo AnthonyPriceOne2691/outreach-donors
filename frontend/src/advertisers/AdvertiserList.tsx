@@ -15,7 +15,7 @@
  */
 
 import { Button, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 
 import {
   exportAdvertisers,
@@ -24,14 +24,12 @@ import {
 } from '../api/advertiserList';
 import type { AdvertiserFacets, AdvertiserListView } from '../api/advertiserList';
 import { refusalOf } from '../api/client';
-import { exportCounts, saveFile } from '../api/donors';
 import { InfoHint } from '../components/InfoHint';
 import { PageSwitch } from '../components/PageSwitch';
 import { usePagedQuery, useUrlFilters } from '../components/useUrlFilters';
 import { exportPlan } from '../donors/exporting';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber, plural } from '../format';
-import { notify } from '../notices';
 import { AdvertiserListTable } from './AdvertiserListTable';
 import {
   isListFiltered,
@@ -42,6 +40,7 @@ import {
   writeListFilters,
 } from './listFilters';
 import type { ListFilters } from './listFilters';
+import { useFileExport } from './useFileExport';
 
 export const ADVERTISER_LIST_KEY = ['advertisers', 'list'] as const;
 export const ADVERTISER_FACETS_KEY = ['advertisers', 'list-facets'] as const;
@@ -83,18 +82,9 @@ function useListPage(filters: ListFilters, turn: (page: number, replace?: boolea
   );
 }
 
-/** Выгрузка тем же фильтром; что легло в файл — уведомлением по заголовкам ответа. */
+/** Выгрузка тем же фильтром. */
 function useExport(filters: ListFilters) {
-  return useMutation({
-    mutationFn: () => exportAdvertisers(listQueryOf(filters)),
-    onSuccess: (file) => {
-      saveFile(file, 'advertisers.csv');
-      const counts = exportCounts(file);
-      notify({ message: exported(counts.rows, counts.asked) });
-    },
-    onError: (failure) =>
-      notify({ title: 'Выгрузка не удалась', message: refusalOf(failure), color: 'red' }),
-  });
+  return useFileExport(() => exportAdvertisers(listQueryOf(filters)), 'advertisers.csv', exported);
 }
 
 /** Почему список пуст — когда ответ улёгся и строк нет; иначе `null`. Всего — по
