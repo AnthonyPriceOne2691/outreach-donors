@@ -162,9 +162,9 @@
       "worst": "of:236"
     },
     "backend/api/errors.py": {
-      "lines": 501,
+      "lines": 500,
       "complexity": 7,
-      "worst": "_database_code:314"
+      "worst": "_database_code:313"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,

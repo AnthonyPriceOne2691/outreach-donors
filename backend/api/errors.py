@@ -196,8 +196,7 @@ STATUSES: dict[type[Exception], int] = {
     NotWritingAcceptError: status.HTTP_409_CONFLICT,
     # Такой же прогон ещё в очереди или идёт: второй купил бы ту же выдачу — состояние.
     DuplicateRunError: status.HTTP_409_CONFLICT,
-    # Кап Ahrefs, потолки модели и потолок проверок адреса вне границ — запрос: текст называет
-    # допустимое. Размер ключа неизвестен — «не больше N» задать не от чего (16.10.2026).
+    # Лимит вне границ — запрос: текст называет допустимое; размера ключа нет — ждём Ahrefs.
     CapRangeError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     LlmCapError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     HunterCapError: status.HTTP_422_UNPROCESSABLE_CONTENT,
