@@ -406,7 +406,7 @@ AGENT_ENABLED: bool = _s.agent_enabled and _FINE
 #: задача ответа (`features/sales/agent_turns.max_turns`).
 AGENT_MAX_TURNS: str = _s.agent_max_turns.strip()
 VERIFIER_PROVIDER: str = _s.verifier_provider
-#: Месячный потолок проверок адреса — текстом как есть: разбирает `sales/verify_cap.month_cap`.
+#: Месячный потолок проверок адреса — текстом как есть: разбирает `core/hunter_cap.env_cap`.
 VERIFIER_MONTH_CAP: str = _s.verifier_month_cap.strip()
 #: Перепроверка адреса, у которого Hunter «ещё проверяет»: через сколько минут и сколько таких
 #: перепроверок укладывается в окно от первого «ещё проверяет» (`features/sales/verify_again.py`).
