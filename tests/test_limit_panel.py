@@ -429,8 +429,9 @@ class TestRows:
         assert deep["session_hours"] == 16
         assert f"не больше {crawl_cfg.DEEP_MAX_RUNNING}" in deep["now"]
         assert rows["outreach.llm.run"]["per_session"] == 2 * M
+        changing = ("llm", "ahrefs", "sales.hunter.verify")
         assert all(
-            rows[key]["editable"] == [] for key in rows if "llm" not in key and "ahrefs" not in key
+            rows[key]["editable"] == [] for key in rows if not any(one in key for one in changing)
         )
 
     async def test_the_serp_balance_is_what_the_watch_heard(
@@ -865,7 +866,7 @@ class TestAssembly:
             async def change(self, _session: AsyncSession, *_args: object) -> None:
                 calls.append("change")
 
-        monkeypatch.setattr(limit_panel, "EDITABLE", (limit_panel.EDITABLE[0], _Sales()))
+        monkeypatch.setattr(limit_panel, "EDITABLE", (limit_model, _Sales()))
 
         found = await limit_panel.rows(session)
         done = await limit_panel.change(session, row.key, "per_month", 7, 7, _nobody())

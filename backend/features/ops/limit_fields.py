@@ -1,4 +1,4 @@
-"""Общее у строк панели лимитов (`core/limit_rows.py`): задачи, поля, пустая строка и сутки счёта.
+"""Общее у строк панели лимитов (`core/limit_rows.py`): задачи, поля, пустая строка, сутки и расход.
 
 Строка договора — восемнадцать обязательных полей, а у большинства строк половина их пуста: чего нет,
 то `None` (нет лимита, нет цены). Источники собирают строку из пустой (`BLANK`) и называют только то,
@@ -9,8 +9,16 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, time
 from decimal import ROUND_HALF_UP, Decimal
+from typing import TYPE_CHECKING
+
+from sqlalchemy import func, select
 
 from backend.features.core.limit_rows import LimitRow, Quote
+from backend.features.core.models.ops import UsageRecordModel
+
+if TYPE_CHECKING:
+    from sqlalchemy import ColumnElement
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 #: Задачи — группы панели.
 SALES, OUTREACH = "Продажи", "Аутрич"
@@ -55,6 +63,21 @@ BLANK = LimitRow(
 def day_start(moment: datetime) -> datetime:
     """Начало суток счёта — полночь UTC: тот же день, что у потолков и дневных лимитов писем."""
     return datetime.combine(moment.astimezone(UTC).date(), time.min, tzinfo=UTC)
+
+
+async def spent(
+    session: AsyncSession, since: datetime, *rule: ColumnElement[bool]
+) -> tuple[int, Decimal]:
+    """Единицы и деньги журнала расхода с `since` по правилу строки: источник называет, чьи записи."""
+    units, amount = (
+        await session.execute(
+            select(
+                func.coalesce(func.sum(UsageRecordModel.units), 0),
+                func.coalesce(func.sum(UsageRecordModel.amount_usd), 0),
+            ).where(UsageRecordModel.created_at >= since, *rule)
+        )
+    ).one()
+    return int(units or 0), Decimal(amount or 0)
 
 
 def usd(value: Decimal | float) -> Decimal:

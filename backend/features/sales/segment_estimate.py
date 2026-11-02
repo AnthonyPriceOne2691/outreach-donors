@@ -297,7 +297,7 @@ async def serp_refusal() -> str | None:
     return None
 
 
-def _paid_search_on() -> bool:
+def paid_search_on() -> bool:
     """Платный поиск адреса у сбора: ключ Hunter есть и флаг сбора включён — ключ общий с
     донорами, и без флага его включение для доноров платное сбору не включает."""
     return bool(contacts_cfg.HUNTER_API_KEY) and sales_cfg.SEGMENT_PAID_CONTACTS
@@ -414,7 +414,7 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
     found.usd_per_1m_tokens = usd_per_million(found.output_share)
     found.tokens_usd = tokens_usd(found.tokens, found.usd_per_1m_tokens)
     found.tokens_left = await tokens_left(session, now)
-    found.hunter_searches = found.sites if _paid_search_on() else 0
+    found.hunter_searches = found.sites if paid_search_on() else 0
     try:
         found.hunter_checks = found.sites if _verifier_paid() else 0
     except ConfigError as exc:
