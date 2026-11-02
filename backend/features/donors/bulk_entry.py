@@ -112,6 +112,15 @@ class Report:
         return sum(1 for row in self.rows if row.outcome is outcome)
 
     @property
+    def entered_hosts(self) -> list[str]:
+        """Домены, записанные загрузкой, — партия (`crawl/loads.py`): пропущенные в ней не лежат."""
+        return [
+            row.host
+            for row in self.rows
+            if row.outcome is not Outcome.SKIPPED and row.host is not None
+        ]
+
+    @property
     def crawl_hosts(self) -> list[str]:
         """Записанные доноры, которых возьмёт обход, — для очереди загрузки."""
         return [row.host for row in self.rows if row.crawlable and row.host is not None]

@@ -34,7 +34,7 @@ from backend.api.deps import db_session, needs
 from backend.config import crawl as crawl_cfg
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
-from backend.features.crawl import acceptance, advertiser_list, board
+from backend.features.crawl import acceptance, advertiser_list, board, disputed_export
 from backend.features.crawl.advertiser_export import EXPORT_LIMIT, to_csv
 
 router = APIRouter()
@@ -97,6 +97,26 @@ async def export(
             "Content-Disposition": f'attachment; filename="advertisers-{stamp}.csv"',
             "X-Export-Rows": str(len(found.rows)),
             "X-Export-Asked": str(found.total),
+        },
+    )
+
+
+@router.get("/pending/export", summary="Выгрузка спорных файлом")
+async def export_pending(
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> Response:
+    """Все спорные, решённые — с пометкой: файл специалисту. Сколько легло и сколько всего —
+    заголовками ответа, как у выгрузки списка: файл не обещает больше, чем в нём есть."""
+    rows, total = await disputed_export.disputed(session)
+    stamp = datetime.now(UTC).strftime("%Y-%m-%d")
+    return Response(
+        content=disputed_export.to_csv(rows),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="disputed-{stamp}.csv"',
+            "X-Export-Rows": str(len(rows)),
+            "X-Export-Asked": str(total),
         },
     )
 

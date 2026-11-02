@@ -64,7 +64,7 @@ def ceilings_of(max_pages: int | None) -> Ceilings:
         return Ceilings(
             pages=cfg.MAX_PAGES_PER_DONOR,
             attempts=cfg.MAX_ATTEMPTS_PER_DONOR,
-            seconds=cfg.MAX_SECONDS_SLOW,
+            seconds=max(cfg.MAX_SECONDS_PER_DONOR, cfg.MAX_SECONDS_SLOW),
             sitemap_files=cfg.MAX_SITEMAP_FILES,
             sitemap_urls=cfg.MAX_SITEMAP_URLS,
             batch_pages=BATCH_PAGES,

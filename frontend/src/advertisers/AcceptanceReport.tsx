@@ -25,6 +25,7 @@ import type { AcceptanceView, Findings, Tally } from '../api/acceptance';
 import { refusalOf } from '../api/client';
 import type { Column } from '../components/ColumnsHead';
 import { DataTable } from '../components/DataTable';
+import { HintLines } from '../components/HintLines';
 import { PageHead } from '../components/PageHead';
 import { Seams } from '../components/Seams';
 import { formatNumber, formatPercent } from '../format';
@@ -44,13 +45,7 @@ const ABOUT_LINES = [
   'Поставщик не считается: его рекламодателей не трогаем. «Все доноры вместе» — рекламодатели, адреса и письма по разным доменам, остальное — суммой.',
 ];
 
-const ABOUT = (
-  <Stack gap={6}>
-    {ABOUT_LINES.map((line) => (
-      <span key={line}>{line}</span>
-    ))}
-  </Stack>
-);
+const ABOUT = <HintLines lines={ABOUT_LINES} />;
 
 /** Колонки — по самому длинному содержимому (замер шрифтом экрана 23.10.2026): имя донора
  *  переносится по швам (`Seams`), обход — по значку «остановлен — смотрит человек», «Кому не

@@ -45,7 +45,7 @@ from backend.features.crawl.links import OutLink
 from backend.features.crawl.scoring import advertiser_pages
 
 #: Ссылка обхода — колонками с именами полей `OutLink`: у `outlinks` они те же (`gate._to_link`).
-_LINK_COLUMNS = tuple(OutLinkModel.__table__.c[field.name] for field in fields(OutLink))
+LINK_COLUMNS = tuple(OutLinkModel.__table__.c[field.name] for field in fields(OutLink))
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +121,7 @@ async def _pages(session: AsyncSession) -> dict[str, int]:
     if not chosen:
         return {}
     direct = (
-        select(OutLinkModel.crawl_run_id, *_LINK_COLUMNS)
+        select(OutLinkModel.crawl_run_id, *LINK_COLUMNS)
         .join(
             CandidateModel,
             (CandidateModel.crawl_run_id == OutLinkModel.crawl_run_id)
@@ -129,7 +129,7 @@ async def _pages(session: AsyncSession) -> dict[str, int]:
         )
         .where(writes_to())
     )
-    through = select(OutLinkModel.crawl_run_id, *_LINK_COLUMNS).where(
+    through = select(OutLinkModel.crawl_run_id, *LINK_COLUMNS).where(
         OutLinkModel.crawl_run_id.in_(sorted({run for run, _, _ in chosen})),
         OutLinkModel.target_root.in_(sorted(NETWORK_ROOTS)),
     )

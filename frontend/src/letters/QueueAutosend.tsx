@@ -96,8 +96,10 @@ export function QueueAutosendLine({
   const state = autosend.off ?? autosend.state;
   return (
     <Stack gap={4}>
-      <Group gap="sm" wrap="nowrap" justify="space-between">
-        <Text size="sm">{runningLine(autosend)}</Text>
+      <Group gap="sm" justify="space-between">
+        <Text size="sm" style={{ flex: '1 1 16rem', minWidth: 0 }}>
+          {runningLine(autosend)}
+        </Text>
         {canStop ? (
           <Button
             size="xs"

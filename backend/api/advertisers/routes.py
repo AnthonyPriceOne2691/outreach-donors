@@ -35,7 +35,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.advertisers import forms, reports
+from backend.api.advertisers import forms, panel, reports
 from backend.api.advertisers.schemas import (
     CandidateCard,
     CandidatesView,
@@ -366,4 +366,5 @@ async def niche_collect(
 # (`forms.py`) — тем же префиксом ---
 
 router.include_router(reports.router)
+router.include_router(panel.router)
 router.include_router(forms.router)

@@ -45,7 +45,7 @@ from backend.features.core.domain import (
 )
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.run import RunModel
-from backend.features.ops import funds_watch, key_watch, mail_watch, stage_silence
+from backend.features.ops import funds_watch, hunter_watch, key_watch, mail_watch, stage_silence
 from backend.features.ops.alarms import Alarm, Concern, cause, no_cause
 from backend.features.runs.spending import crawl_spent_this_month
 from backend.features.serp.dataforseo import SerpError
@@ -105,6 +105,8 @@ async def alarms(
         await _runs_stuck(session, moment),
         # Кап Ahrefs: 80 % — предупреждение, 95 % — тревога, весь — «кап выбран» (16.10.2026).
         await key_watch.alarm(session, moment),
+        # Hunter: наш потолок проверок или учётка выбраны на 80, 95 и 100 % (02.11.2026).
+        await hunter_watch.alarm(session, moment, stages=stages),
         # Счёт выдачи меньше порога — прогоны не запустятся, пока не пополнят (16.10.2026).
         funds_watch.alarm(),
         await _crawl_cap_reached(session),
@@ -238,7 +240,9 @@ async def ask_providers() -> list[Miss]:
     тревогу: строка журнала пропадает вместе с контейнером на выкатке (так было 15.10.2026).
 
     Ответ Ahrefs запоминается для снимка ключа (`key_watch.heard`): опрос идёт без сессии,
-    а в снимок его кладёт тот, у кого она есть, — после сети (16.10.2026)."""
+    а в снимок его кладёт тот, у кого она есть, — после сети (16.10.2026). Hunter спрашивается
+    тем же ходом и тем же путём ложится в снимок, но в неответивших его нет: от него прогоны не
+    зависят, и «провайдер не отвечает» было бы ложью (`hunter_watch.ask`, 02.11.2026)."""
     found: list[Miss] = []
     client = AhrefsClient()
     try:
@@ -257,7 +261,15 @@ async def ask_providers() -> list[Miss]:
     serp = await _serp_silent()
     if serp is not None:
         found.append(serp)
+    await hunter_watch.ask()
     return found
+
+
+async def keep_heard(session: AsyncSession) -> bool:
+    """Услышанное опросом — в снимки ключа Ahrefs и учётки Hunter транзакцией `session`; фиксирует
+    вызывающий. `False` — класть нечего. Оба снимка кладутся всегда: один не заслоняет другой."""
+    kept = [await key_watch.keep_heard(session), await hunter_watch.keep_heard(session)]
+    return any(kept)
 
 
 async def _serp_silent() -> Miss | None:

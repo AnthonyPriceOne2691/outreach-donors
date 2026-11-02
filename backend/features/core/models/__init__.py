@@ -5,13 +5,21 @@ from backend.features.core.models.advertiser import CandidateMemoryModel, Candid
 from backend.features.core.models.advertisers import AdvertiserModel, SupplierDonorModel
 from backend.features.core.models.agent import AgentDraftModel, AgentSettingsModel
 from backend.features.core.models.attachment import ReplyAttachmentModel
-from backend.features.core.models.crawl import CrawlBacklogModel, CrawlRunModel, OutLinkModel
+from backend.features.core.models.crawl import (
+    CrawlBacklogModel,
+    CrawlRunModel,
+    DonorLoadHostModel,
+    DonorLoadModel,
+    OutLinkModel,
+)
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.form_letter import FormLetterModel
 from backend.features.core.models.ops import (
     AhrefsCapModel,
     AhrefsKeySnapshotModel,
+    HunterAccountSnapshotModel,
+    HunterCapModel,
     LlmCapModel,
     SuppressionModel,
     UsageRecordModel,
@@ -66,8 +74,12 @@ __all__ = [
     "CrawlBacklogModel",
     "CrawlRunModel",
     "DomainModel",
+    "DonorLoadHostModel",
+    "DonorLoadModel",
     "DonorModel",
     "FormLetterModel",
+    "HunterAccountSnapshotModel",
+    "HunterCapModel",
     "LlmCapModel",
     "MessageModel",
     "OutLinkModel",

@@ -16,7 +16,18 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -164,3 +175,48 @@ class CrawlBacklogModel(TimestampedMixin, Base):
     )
     #: Потолок страниц глубокого обхода (`crawl/deep.py`); пусто — обычный обход.
     max_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class DonorLoadModel(TimestampedMixin, Base):
+    """Загрузка доноров: партия файлом или донор, заведённый вручную, — строка на загрузку.
+
+    Очередь загрузки теряет строку, как только донор ушёл в обход (`crawl/backlog.py`), и вопрос
+    «что дала эта партия» было не задать: от неё не оставалось ничего. Панель рекламодателей
+    считает по этой записи выборку «партия» и качество загрузок (`crawl/panel.py`,
+    `crawl/load_quality.py`). Загрузки до неё не записаны: их обходы панель показывает без
+    партии, а не выдумывает её.
+    """
+
+    __tablename__ = "donor_loads"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: `bulk` — файлом, `manual` — одним доменом вручную (`crawl/loads.py`).
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    #: Имя файла партии, как его назвал браузер; у ручной загрузки пусто.
+    file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: Кто загрузил — почта: учётку могут удалить, а строка истории останется.
+    requested_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: Поставили ли записанных в обход (галочка загрузки): без неё партия обхода не ждёт.
+    crawl: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('bulk', 'manual')", name="ck_donor_loads_kind"),
+        Index("idx_donor_loads_created_at", "created_at"),
+    )
+
+
+class DonorLoadHostModel(Base):
+    """Домен загрузки — как записан в доноры: корень, тем же словом, что у обхода (`host`).
+
+    Именем, а не номером донора: обход и его кандидаты держат донора именем, и партия читается
+    с ними одним условием. Пара уникальна: повтор домена в файле отсеивает загрузка.
+    """
+
+    __tablename__ = "donor_load_hosts"
+
+    load_id: Mapped[int] = mapped_column(
+        ForeignKey("donor_loads.id", ondelete="CASCADE"), primary_key=True
+    )
+    host: Mapped[str] = mapped_column(String(255), primary_key=True)
+
+    __table_args__ = (Index("idx_donor_load_hosts_host", "host"),)
