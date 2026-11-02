@@ -109,7 +109,7 @@ class Spending:
         return result
 
 
-def _month_start(now: datetime | None = None) -> datetime:
+def month_start(now: datetime | None = None) -> datetime:
     """Лимиты провайдеров месячные, и расход считается с первого числа:
     «за последние 30 дней» отвечало бы на другой вопрос."""
     moment = now or datetime.now(UTC)
@@ -136,7 +136,7 @@ class SpendingRepository:
     ) -> Spending:
         """Расход с первого числа — этапов, которые видит спрашивающий (`stages`). Умолчания
         у этапов нет (ревью продаж к #304): забытый вызов ловит mypy."""
-        since = _month_start(now)
+        since = month_start(now)
         articles = await self._articles(
             UsageRecordModel.created_at >= since, _seen(stages), by_stage=True
         )
@@ -216,6 +216,21 @@ async def ahrefs_spent_since(session: AsyncSession, since: datetime) -> int:
     return int(total or 0)
 
 
+async def units_this_month(
+    session: AsyncSession, operation: str, *, now: datetime | None = None
+) -> int:
+    """Сколько единиц операции ушло с первого числа — все этапы: потолок проверок адреса считает
+    весь расход (`ops/hunter_watch.py`), той же границей месяца, что статьи «Расхода». Запрос
+    узкий: сторож спрашивает раз в две минуты, а весь месяц по статьям ему не нужен."""
+    total = await session.scalar(
+        select(func.coalesce(func.sum(UsageRecordModel.units), 0)).where(
+            UsageRecordModel.operation == operation,
+            UsageRecordModel.created_at >= month_start(now),
+        )
+    )
+    return int(total or 0)
+
+
 async def crawl_spent_this_month(
     session: AsyncSession,
     *,
@@ -232,7 +247,7 @@ async def crawl_spent_this_month(
     total = await session.scalar(
         select(func.coalesce(func.sum(UsageRecordModel.amount_usd), 0)).where(
             UsageRecordModel.provider.in_(CRAWL_PROVIDERS),
-            UsageRecordModel.created_at >= _month_start(now),
+            UsageRecordModel.created_at >= month_start(now),
             _seen(stages),
         )
     )

@@ -64,7 +64,6 @@ from backend.features.crawl.lifecycle import recover as recover_crawls
 from backend.features.ops import silence
 from backend.features.ops.alarm_feed import Feed
 from backend.features.ops.alarms import Alarm
-from backend.features.ops.key_watch import keep_heard
 from backend.features.ops.silence import probe_providers
 from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.lifecycle import Recovery, recover
@@ -274,10 +273,10 @@ async def watch() -> None:
     (Telegram, Redis) идут после её закрытия: при открытой транзакции
     соединение висело бы «idle in transaction» на время чужих ответов.
 
-    Ответ Ahrefs из опроса ложится в снимок ключа второй, короткой сессией —
+    Ответы Ahrefs и Hunter из опроса ложатся в снимки второй, короткой сессией —
     после сети и после ленты: сказанное не ждёт записи, а сбой записи его не
-    съедает (`ops/key_watch.keep_heard`, 16.10.2026). Свежим снимок ключа
-    держит именно этот проход.
+    съедает (`ops/silence.keep_heard`, 16.10.2026). Свежими снимки держит
+    именно этот проход.
     """
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -289,7 +288,7 @@ async def watch() -> None:
         told = await silence.with_providers(found, probe=PROVIDERS.probe, journal=JOURNAL)
         await FEED.tell(told, unseen=PROVIDERS.unseen)
         async with factory() as session:
-            if await keep_heard(session):
+            if await silence.keep_heard(session):
                 await session.commit()
     finally:
         await engine.dispose()

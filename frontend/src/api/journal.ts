@@ -35,6 +35,7 @@ export type AuditAction =
   | 'agent_draft_decided'
   | 'ahrefs_cap_changed'
   | 'llm_cap_changed'
+  | 'hunter_cap_changed'
   | 'crawl_backlog_dropped';
 
 export interface JournalEntry {
