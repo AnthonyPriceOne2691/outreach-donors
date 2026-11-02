@@ -1,4 +1,4 @@
-"""Право «Рекламодатели» закрывает Этап 2 маршрутами — решение Anthony 02.11.2026.
+"""Право «Рекламодатели» закрывает Этап 2 маршрутами — решение 02.11.2026.
 
 Другая сторона просила оставить учётке только поиск аутрича. Закрыт не пункт меню, а этап: весь
 раздел, обходы, загрузка доноров в обход, лиды файлом и строки этапа на общих маршрутах — письма,
@@ -53,6 +53,39 @@ SINGLE_ROUTES = {
     ("POST", "/api/donors"),
     ("GET", "/api/replies/leads.csv"),
     ("GET", "/api/settings/advertisers"),
+}
+
+#: Разделы API, открытые роли: Этап 1 и общие; строки чужого этапа в них закрывает этап строки
+#: (`ROW_ROUTES`). Продажи закрывает своё право (`test_sales_rights_seams.py`).
+OPEN_SECTIONS = {
+    "agent",
+    "auth",
+    "contacts",
+    "docs",
+    "events",
+    "health",
+    "inbound",
+    "jobs",
+    "journal",
+    "keywords",
+    "letters",
+    "messages",
+    "openapi.json",
+    "overview",
+    "price-rechecks",
+    "replies",
+    "review",
+    "runs",
+    "sales",
+    "selection",
+    "senders",
+    "settings",
+    "suppressions",
+    "threads",
+    "unsubscribe",
+    "usage",
+    "users",
+    "watchdog",
 }
 
 #: Сколько маршрутов закрыто на сегодня: снизу — чтобы сломанный обход схемы не прошёл молча.
@@ -115,6 +148,16 @@ async def operator(make_user: MakeUser, sign_in: SignIn) -> dict[str, str]:
 
 
 # --- обход схемы: маршрут Этапа 2 без защиты роняет тест ----------------------------------
+
+
+def test_every_section_of_the_api_is_known(api_app: FastAPI) -> None:
+    """Новый раздел API объявляет, чей он: Этапа 2 — в `SECTIONS`, общий — в `OPEN_SECTIONS`.
+    Закрытые маршруты ищутся по разделам, и незнакомый раздел прошёл бы мимо обхода молча."""
+    known = {*OPEN_SECTIONS, *(section.split("/")[2] for section in SECTIONS)}
+
+    found = {path.split("/")[2] for path in api_app.openapi()["paths"]}
+
+    assert found <= known
 
 
 def test_the_walk_finds_the_routes(api_app: FastAPI) -> None:

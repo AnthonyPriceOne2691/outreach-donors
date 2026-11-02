@@ -264,6 +264,21 @@ describe('журнал действий', () => {
   });
 });
 
+describe('журнал без права «Рекламодатели»', () => {
+  it('строка о том, что журнал без них, и их действий нет в фильтре', async () => {
+    const permissions = ADMIN.permissions.filter((one) => one !== 'advertisers');
+    openJournal('/journal', { ...ADMIN, permissions }, { ...PAGE, advertisers_hidden: true });
+    const user = userEvent.setup();
+
+    expect(await screen.findByText(/Действия рекламодателей не показаны/)).toBeInTheDocument();
+    await user.click(screen.getByRole('textbox', { name: 'Действие' }));
+    expect(await screen.findByRole('option', { name: 'Вход', hidden: true })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('option', { name: 'Решение по рекламодателю', hidden: true }),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe('журнал в меню', () => {
   it('у того, кто заводит учётки, — рядом с «Учётками»; у оператора — нет', async () => {
     openJournal('/journal');

@@ -1,4 +1,4 @@
-"""Данные Этапа 2 не утекают через общие экраны — решение Anthony 02.11.2026.
+"""Данные Этапа 2 не утекают через общие экраны — решение 02.11.2026.
 
 Маршруты этапа закрыты (`test_stage_two_access.py`), но его строки живут и на общих экранах: числа
 «Обзора» и меню, письма в словах отказа у карточки донора, стоп-лист, ящики, исход задач, расход,
@@ -27,6 +27,7 @@ from backend.features.core.domain import (
     CrawlOutcome,
     CrawlStatus,
     ReplyKind,
+    RunStatus,
     Stage,
     StopReason,
     SuppressionReason,
@@ -40,14 +41,17 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     SendingDomainModel,
 )
+from backend.features.core.models.run import RunModel
 from backend.features.crawl import niche
 from backend.features.crawl import review as advertiser_review
+from backend.features.donors.verdict import Thresholds
 from backend.features.letters import other_role
 from backend.features.ops import job_outcome as outcome_module
 from backend.features.ops import silence
 from backend.features.ops.job_outcome import DRAFT_JOB as DRAFT_PATH
 from backend.features.ops.job_outcome import JobOutcome, advertisers_job, job_outcome
 from backend.features.outreach.repository import EVERY_STAGE
+from backend.features.runs.repository import RunRepository
 from backend.features.runs.spending import SpendingRepository
 from backend.shared.queue import (
     BUILD_JOB,
@@ -278,6 +282,37 @@ async def test_unbound_replies_to_a_stage_two_box_are_hidden(
     assert shown["total"] == 1
     assert refused.status_code == 403, refused.text
     assert refused.json()["detail"] == f"Ответы в переписках рекламодателей {CLOSED}"
+
+
+async def test_a_run_card_does_not_carry_the_niche_numbers(
+    client: AsyncClient, session: AsyncSession, donors_only: dict[str, str]
+) -> None:
+    """Бизнесы ниши из выдачи — кандидаты Этапа 2: их число лежит в отчёте прогона и остаётся
+    там, а в карточку прогона, которую видит роль, не идёт."""
+    settings = await RunRepository(session).create_settings(
+        Thresholds(min_dr=20, min_org_traffic=500, min_refdomains=100, min_keywords=300),
+        geo_top_n=5,
+        geo_min_share=0.2,
+        metrics_ttl_days=90,
+        price_ttl_days=150,
+        units_cap=100_000,
+    )
+    run = RunModel(
+        stage=Stage.DONORS,
+        settings_id=settings.id,
+        status=RunStatus.DONE,
+        keywords=["garden tools"],
+        country="de",
+        stats={"niche": {"found": 3, "added": 2}, "judge": {"accepted": 1}},
+    )
+    session.add(run)
+    await session.commit()
+
+    card = (await client.get(f"/api/runs/{run.id}", headers=donors_only)).json()
+
+    assert card["stats"] == {"judge": {"accepted": 1}}
+    assert run.stats is not None
+    assert run.stats["niche"] == {"found": 3, "added": 2}
 
 
 # --- письма Этапа 2 в словах об адресате --------------------------------------------------

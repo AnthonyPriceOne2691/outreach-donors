@@ -218,7 +218,7 @@
     },
     "backend/api/jobs/routes.py": {
       "lines": 82,
-      "complexity": 3,
+      "complexity": 4,
       "worst": "outcome:64"
     },
     "backend/api/journal/__init__.py": {
@@ -402,7 +402,7 @@
       "worst": "refuse_over_budget:125"
     },
     "backend/api/runs/schemas.py": {
-      "lines": 377,
+      "lines": 390,
       "complexity": 4,
       "worst": "_known_mode:66"
     },

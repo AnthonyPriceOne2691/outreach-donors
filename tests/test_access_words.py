@@ -44,15 +44,23 @@ class TestSameWordsAsTheScreen:
 
         assert screen == server
 
-    def test_sales_right_is_named_like_the_stage_refusal(self) -> None:
-        """Одно слово на право: «нет права» и отказ строки этапа продаж (`require_stage`)
-        называют право одинаково — «Продажи», как экран после #308."""
-        outsider = Actor(user_id=3, role=UserRole.OPERATOR, overrides={"sales": False})
+    @pytest.mark.parametrize(
+        ("stage", "right"),
+        [(Stage.SALES, Permission.SALES), (Stage.ADVERTISERS, Permission.ADVERTISERS)],
+        ids=["продажи", "рекламодатели"],
+    )
+    def test_a_stage_right_is_named_like_the_stage_refusal(
+        self, stage: Stage, right: Permission
+    ) -> None:
+        """Одно слово на право: «нет права» и отказ строки этапа (`require_stage`) называют
+        право одинаково — «Продажи», как экран после #308, и «Рекламодатели»."""
+        outsider = Actor(user_id=3, role=UserRole.DONORS)
 
         with pytest.raises(AccessDeniedError) as stage_refused:
-            require_stage(outsider, Stage.SALES, "Письма продаж")
+            require_stage(outsider, stage, "Письма {stage}")
 
-        assert f"«{PERMISSION_TITLES[Permission.SALES]}»" in str(stage_refused.value)
+        assert f"«{PERMISSION_TITLES[right]}»" in str(stage_refused.value)
+        assert f"«{PERMISSION_TITLES[right]}»" in no_right(right)
 
     def test_every_permission_has_words(self) -> None:
         """Право без слов ушло бы в отказ кодом — ровно то, что чинили."""
