@@ -105,7 +105,7 @@ class TestDomainName:
 
     def test_every_public_suffix_passes(self) -> None:
         """Потерянный настоящий домен не виден нигде, поэтому здесь весь список суффиксов: в нём
-        457 зон не латиницей, и в десятках слов гласная — знак (категория M), а не буква."""
+        сотни зон не латиницей, и в десятках слов гласная — знак (категория M), а не буква."""
         suffixes = [row.removeprefix("*.").removeprefix("!") for row in _extract.tlds]
 
         lost = [row for row in suffixes if domain_name(f"example.{row}") is None]
