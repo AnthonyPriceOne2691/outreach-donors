@@ -30,6 +30,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
+import { ROLE_TITLES, ROLES } from '../api/labels';
 import type { AccessPatch, OneTimePassword, Role, UserCard } from '../api/types';
 import { listUsers, patchUser, resetPassword } from '../api/users';
 import { useSession } from '../auth/AuthProvider';
@@ -176,17 +177,14 @@ export function UsersPage() {
       </Table.Td>
       <Table.Td>
         <Group justify="center">
-          {/* По слову «оператор», а не 140 px под одно слово. */}
+          {/* По самой длинной подписи — «Только доноры». */}
           <Select
             size="xs"
-            w="7.5rem"
+            w="9.5rem"
             allowDeselect={false}
             aria-label={`Роль ${user.email}`}
             value={user.role}
-            data={[
-              { value: 'operator', label: 'оператор' },
-              { value: 'admin', label: 'админ' },
-            ]}
+            data={ROLES.map((role) => ({ value: role, label: ROLE_TITLES[role] }))}
             onChange={(value) =>
               value !== null && change.mutate({ user, patch: { role: value as Role } })
             }

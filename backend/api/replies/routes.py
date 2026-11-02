@@ -32,7 +32,8 @@
 (`api/stage_access.py`). У ответа без письма этап — по нашему адресу, на который
 он пришёл (`replies/recipient_stage.py`, ревью стыков 12.10.2026): ответ на ящик
 продаж без права не виден в списке «Не привязаны» и не открывается по номеру;
-нашего адреса среди его адресов нет — этапа нет, и он виден, как был.
+нашего адреса среди его адресов нет — этапа нет, и он виден, как был. С 02.11.2026 так же
+ответы Этапа 2 и право «Рекламодатели»; лиды файлом — данные этого этапа целиком.
 """
 
 from __future__ import annotations
@@ -56,7 +57,7 @@ from backend.api.replies.schemas import (
     UnboundView,
     VersionCalibration,
 )
-from backend.api.stage_access import on_reply
+from backend.api.stage_access import STAGE_TWO, on_reply
 from backend.config import outreach as outreach_cfg
 from backend.features.access.permissions import visible_stages
 from backend.features.access.repository import AccessRepository
@@ -83,12 +84,12 @@ router = APIRouter(prefix="/replies", tags=["ответы"])
 
 _reviewer = Depends(needs(Permission.PRICES))
 _viewer = Depends(needs(Permission.VIEW))
-#: Ответ по номеру: у ответа в переписке продаж — ещё право «Продажи» (П2).
+#: Ответ по номеру: у ответа в переписке продаж и Этапа 2 — ещё право этапа (П2).
 _reply_reviewer = Depends(on_reply(Permission.PRICES))
 _reply_viewer = Depends(on_reply(Permission.VIEW))
 
 
-@router.get("/leads.csv", summary="Лиды файлом")
+@router.get("/leads.csv", summary="Лиды файлом", dependencies=[STAGE_TWO])
 async def export_leads(
     taken: bool | None = Query(None, description="только взятые (true) или ждущие (false)"),
     since: datetime | None = Query(None, description="получены не раньше"),

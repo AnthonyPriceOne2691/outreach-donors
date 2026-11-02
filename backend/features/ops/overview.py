@@ -25,7 +25,8 @@
 10.10.2026, П2): без права «Продажи» письма и ответы продаж не входят ни в
 сводку, ни в числа меню — считаются доноры и рекламодатели. С правом — как было.
 Этапы — без умолчания (ревью продаж к #304): забытый вызов ловит mypy, а не
-показывает продажи всем.
+показывает продажи всем. Без права «Рекламодатели» так же нет Этапа 2: его писем, ответов,
+решений и форм (`_stage_two`).
 """
 
 from __future__ import annotations
@@ -127,15 +128,25 @@ class Waiting:
     prices: int
     #: Ответов рекламодателей, ещё не взятых в работу.
     leads: int
-    #: Ждут рук на «Формах» — доноры и рекламодатели (`forms.waiting`): число меню.
+    #: Ждут рук на «Формах» — доноры и рекламодатели, если они видны: число меню.
     forms: int
-    #: Ждут «пишем / не пишем» на экране «Рекламодатели» (`_advertisers`) — число меню.
+    #: Ждут «пишем / не пишем» на экране «Рекламодатели» (`_stage_two`) — число меню.
     advertisers: int
     #: Из них — бизнесов ниши: на главной они названы, а не спрятаны в сумме.
     niche: int
     #: Из ждущих рук на «Формах» — рекламодателей (сверка ТЗ 11.10.2026): на главной
     #: они названы, а «и N с формой» воронки доноров — про доноров.
     advertiser_forms: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class StageTwoWork:
+    """Что ждёт человека на Этапе 2: решения на экране «Рекламодатели», из них бизнесов ниши,
+    и формы рекламодателей."""
+
+    decisions: int = 0
+    niche: int = 0
+    forms: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,12 +196,12 @@ class Work:
     run: int
     #: Переписок ждут человека (`WAITS_FOR_PERSON`) — у пункта своей части, этапом: «Диалоги
     #: с донорами», «Диалоги с рекламодателями» (23.10.2026) и «Диалоги продаж» (11.10.2026).
-    #: Без права «Продажи» у продаж ноль: этапа продаж в `stages` нет.
+    #: Без права этапа у него ноль: этапа нет в `stages`.
     donor_threads: int
     advertiser_threads: int
     sales_threads: int
     forms: int
-    #: «Рекламодатели» — ждут решения человека на их экране (`_advertisers`).
+    #: «Рекламодатели» — ждут решения человека на их экране (`_stage_two`).
     advertisers: int
 
 
@@ -211,8 +222,7 @@ async def overview(
     # Полоса Ahrefs — против капа, и наш расход в ней — за тот же цикл ключа, что у капа.
     cap = await key_cap(session, now=moment)
     decisions = await standing.waiting(session)
-    advertisers, in_niche = await _advertisers(session)
-    advertiser_forms = await forms.advertiser_total(session)
+    two = await _stage_two(session, stages)
     return Overview(
         donors=await _donors(session, threads, moment),
         waiting=Waiting(
@@ -220,10 +230,10 @@ async def overview(
             review_runs=decisions.runs,
             prices=_in_state(threads, ThreadState.NEEDS_REVIEW),
             leads=_in_state(threads, ThreadState.LEAD),
-            forms=await forms.total(session) + advertiser_forms,
-            advertisers=advertisers,
-            niche=in_niche,
-            advertiser_forms=advertiser_forms,
+            forms=await forms.total(session) + two.forms,
+            advertisers=two.decisions,
+            niche=two.niche,
+            advertiser_forms=two.forms,
         ),
         letters=await _letters(session, stages),
         last_run=await _last_run(session),
@@ -241,26 +251,34 @@ async def work(session: AsyncSession, *, stages: Collection[Stage]) -> Work:
     Ждущие переписки — этапом, у пункта своей части: доноры, рекламодатели, продажи."""
     threads = await OutreachRepository(session).states(stages=stages)
     waiting = Counter(mark.stage for mark in threads if mark.state in WAITS_FOR_PERSON)
+    two = await _stage_two(session, stages)
     return Work(
         run=(await standing.waiting(session)).domains,
         donor_threads=waiting[Stage.DONORS],
         advertiser_threads=waiting[Stage.ADVERTISERS],
         sales_threads=waiting[Stage.SALES],
-        forms=await forms.waiting(session),
-        advertisers=(await _advertisers(session))[0],
+        forms=await forms.total(session) + two.forms,
+        advertisers=two.decisions,
     )
 
 
-async def _advertisers(session: AsyncSession) -> tuple[int, int]:
-    """Сколько ждёт решения на экране «Рекламодатели» — всего и из них бизнесов ниши.
+async def _stage_two(session: AsyncSession, stages: Collection[Stage]) -> StageTwoWork:
+    """Что ждёт человека на Этапе 2 — нули, если этапа нет среди видимых (`stages`): без права
+    «Рекламодатели» его решений и форм нет ни в плитках, ни у пунктов меню.
 
-    Спорные кандидаты (`crawl/review.py`) и бизнесы ниши без решения — тем же числом,
+    Решения — спорные кандидаты (`crawl/review.py`) и бизнесы ниши без решения, тем же числом,
     что «Ждут решения» в списке ниши (`crawl/niche.py`): ниша тоже ждёт «пишем / не
     пишем». До проверки прода 10.10.2026 меню и главная считали только спорных —
     5 при 53 ждущих бизнесах ниши.
     """
+    if Stage.ADVERTISERS not in stages:
+        return StageTwoWork()
     in_niche = await niche.waiting(session)
-    return await advertiser_review.waiting(session) + in_niche, in_niche
+    return StageTwoWork(
+        decisions=await advertiser_review.waiting(session) + in_niche,
+        niche=in_niche,
+        forms=await forms.advertiser_total(session),
+    )
 
 
 async def _donors(

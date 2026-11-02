@@ -126,7 +126,7 @@ export const SECTIONS: Section[] = [
     title: 'Рекламодатели',
     group: 'advertisers',
     icon: IconSpeakerphone,
-    permission: 'view',
+    permission: 'advertisers',
     work: 'advertisers',
   },
   {

@@ -43,9 +43,10 @@ from backend.api.contacts.schemas import (
     SearchBody,
 )
 from backend.api.contacts.search_state import search_state
-from backend.api.deps import db_session, needs
+from backend.api.deps import actor, db_session, needs
 from backend.api.donors.schemas import DonorFullCard
 from backend.config import contacts as contacts_cfg
+from backend.features.access.permissions import sees_stage, visible_stages
 from backend.features.access.repository import AccessRepository
 from backend.features.contacts import forms, manual
 from backend.features.contacts.repository import (
@@ -53,7 +54,7 @@ from backend.features.contacts.repository import (
     SearchRefusedError,
     search_refusal,
 )
-from backend.features.core.domain import AuditAction, Permission
+from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.browse import DonorBrowser
@@ -178,7 +179,8 @@ async def add_address(
         },
     )
     await session.commit()
-    return DonorFullCard.of(await DonorBrowser(session).card(donor_id))
+    seen = visible_stages(actor(author))
+    return DonorFullCard.of(await DonorBrowser(session).card(donor_id, seen=seen))
 
 
 @router.delete(
@@ -208,12 +210,13 @@ async def remove_address(
         },
     )
     await session.commit()
-    return DonorFullCard.of(await DonorBrowser(session).card(donor_id))
+    seen = visible_stages(actor(author))
+    return DonorFullCard.of(await DonorBrowser(session).card(donor_id, seen=seen))
 
 
 @router.get("/forms", response_model=FormsView, summary="Ручная очередь форм, по странице")
 async def form_queue(
-    _: UserModel = _viewer,
+    user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
     page: int = Query(default=1, ge=1, le=1_000_000, description="страница очереди, с единицы"),
     limit: int = Query(
@@ -225,9 +228,11 @@ async def form_queue(
     Страница — номером, а не сдвигом: экран держит в адресе номер
     (`?page=2`), а размер страницы знает только сервер и называет его
     в ответе. До 28.09.2026 очередь приходила одним списком до двухсот
-    строк, и сто первый донор был недостижим.
+    строк, и сто первый донор был недостижим. Число соседней очереди — только с правом
+    «Рекламодатели»: её саму без него не открыть.
     """
     rows = await forms.queue(session, page=page, size=limit)
+    stage_two = sees_stage(actor(user), Stage.ADVERTISERS)
     return FormsView(
         rows=[FormCard.of(row) for row in rows],
         total=await forms.total(session),
@@ -235,7 +240,7 @@ async def form_queue(
         limit=limit,
         monthly_left=await forms.monthly_left(session),
         monthly_cap=contacts_cfg.MANUAL_QUEUE_MONTHLY_CAP,
-        advertisers_waiting=await forms.advertiser_total(session),
+        advertisers_waiting=await forms.advertiser_total(session) if stage_two else 0,
         retry_days=contacts_cfg.CONTACT_TTL_DAYS,
     )
 

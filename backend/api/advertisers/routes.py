@@ -23,6 +23,9 @@
 платной ступени и идёт минутами. Право на оба — `run`: тратятся деньги.
 Бизнесу ниши поиск ставит само «пишем» (29.10.2026, `_search_after_yes`) — тоже
 только у решившего с правом `run`.
+
+**Весь раздел — под правом «Рекламодатели»** (решение 02.11.2026): условие стоит на
+роутере (`stage_access.STAGE_TWO`) и держит и подключённые к нему отчёты, панель и формы.
 """
 
 from __future__ import annotations
@@ -51,6 +54,7 @@ from backend.api.advertisers.schemas import (
 from backend.api.contacts.schemas import ContactsQueued, ContactsState, SearchBody
 from backend.api.contacts.search_state import search_state
 from backend.api.deps import actor, db_session, needs
+from backend.api.stage_access import STAGE_TWO
 from backend.features.access.permissions import has_permission
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage, Verdict
@@ -71,7 +75,7 @@ from backend.shared.queue import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/advertisers", tags=["рекламодатели"])
+router = APIRouter(prefix="/advertisers", tags=["рекламодатели"], dependencies=[STAGE_TWO])
 
 _viewer = Depends(needs(Permission.VIEW))
 _reviewer = Depends(needs(Permission.PRICES))

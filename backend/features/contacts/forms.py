@@ -380,11 +380,6 @@ async def advertiser_total(session: AsyncSession) -> int:
     )
 
 
-async def waiting(session: AsyncSession) -> int:
-    """Сколько ждёт рук на «Формах» всего — доноры и рекламодатели: число меню."""
-    return await total(session) + await advertiser_total(session)
-
-
 async def _advertiser(session: AsyncSession, advertiser_id: int) -> AdvertiserFormRow:
     # Номер больше столбца — «нет в очереди», а не пятисотка базы (`storable`).
     found = (

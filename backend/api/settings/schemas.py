@@ -305,6 +305,8 @@ class SpendingView(BaseModel):
     #: П2б): статьи, суммы по провайдерам и итог — без него и сходятся между собой. Экран
     #: говорит это словами: итог без продаж — не весь счёт.
     sales_hidden: bool = False
+    #: Расход Этапа 2 не показан — у учётки нет права «Рекламодатели»: так же, как у продаж.
+    advertisers_hidden: bool = False
     #: Разбивка по этапам (требование ТЗ): этапы с тратами, трата без этапа — последней.
     stages: list[StageCard] = Field(default_factory=list)
     crawl: CrawlSpendCard = Field(default_factory=CrawlSpendCard)

@@ -152,7 +152,7 @@ describe('ручная проверка рекламодателей', () => {
   });
 
   it('без права решения видно только список', async () => {
-    await openScreen({}, { ...(OPERATOR as object), permissions: ['view'] });
+    await openScreen({}, { ...(OPERATOR as object), permissions: ['advertisers', 'view'] });
 
     expect(screen.getByText('advertiser.example')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Пишем' })).not.toBeInTheDocument();

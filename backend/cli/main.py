@@ -20,7 +20,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.cli import donor_add, geo_shares, geo_top5, topic_backfill
-from backend.cli.access_admin import cmd_user_add, cmd_user_reset
+from backend.cli.access_admin import ROLE_NAMES, cmd_user_add, cmd_user_reset
 from backend.cli.advertisers import add_parser as add_advertisers_parser
 from backend.cli.advertisers import (
     cmd_advertiser_decide,
@@ -341,8 +341,8 @@ def build_parser() -> argparse.ArgumentParser:
     user_add.add_argument(
         "--role",
         default="operator",
-        choices=["admin", "operator"],
-        help="роль: admin заводит учётки, operator работает с базой",
+        choices=ROLE_NAMES,
+        help="роль: admin заводит учётки, operator работает с базой, donors — только Этап 1",
     )
 
     user_reset = sub.add_parser("user-reset", help="выдать новый разовый пароль")

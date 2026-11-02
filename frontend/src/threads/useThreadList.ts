@@ -76,19 +76,18 @@ export type ThreadListState = ReturnType<typeof useThreadList>;
 
 export function useThreadList() {
   const [params, setParams] = useSearchParams();
-  // Без права «Продажи» состояние продаж из адреса не сужает (П2, `readThreadFilters`).
-  const sales = useSession().can('sales');
-  const filters = useMemo(() => readThreadFilters(params, sales), [params, sales]);
+  // Без права этапа его состояние из адреса не сужает (П2, `readThreadFilters`).
+  const { can } = useSession();
+  const filters = useMemo(() => readThreadFilters(params, can), [params, can]);
 
   // Смена фильтра — замена записи в истории, а не новая: «назад» ведёт туда,
   // откуда пришли, а не по буквам поиска.
   const apply = useCallback(
     (patch: Partial<ThreadFilters>) =>
-      setParams(
-        (current) => writeThreadFilters({ ...readThreadFilters(current, sales), ...patch }),
-        { replace: true },
-      ),
-    [setParams, sales],
+      setParams((current) => writeThreadFilters({ ...readThreadFilters(current, can), ...patch }), {
+        replace: true,
+      }),
+    [setParams, can],
   );
   // Поиск печатают: в адрес он уходит после паузы в наборе, а список
   // сужается сразу — фильтр здесь по уже пришедшим строкам, сервер не ждут.

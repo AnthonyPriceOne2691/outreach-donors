@@ -20,7 +20,8 @@
 П2б): почта считается по этапам, которые видит спрашивающий (`stages`). Доставка, ответы
 и добивки — у каждого этапа свои, с кодом и этапом тревоги (`stage_silence.py`, ревью
 стыков 12.10.2026): тишина одного направления больше не прячет поломку другого. Общие
-тревоги — о прогонах, капах и обходе — этапа не имеют и видны всем.
+тревоги — о прогонах и капах — этапа не имеют и видны всем. Тревоги об обходе — Этапа 2, только
+с правом «Рекламодатели» (`crawl_watch.py`, 02.11.2026).
 """
 
 from __future__ import annotations
@@ -30,24 +31,22 @@ import time
 from collections.abc import Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
-from backend.features.core.domain import (
-    CrawlOutcome,
-    CrawlStatus,
-    RunStatus,
-    Stage,
-    StopReason,
-)
-from backend.features.core.models.crawl import CrawlRunModel
+from backend.features.core.domain import RunStatus, Stage
 from backend.features.core.models.run import RunModel
-from backend.features.ops import funds_watch, hunter_watch, key_watch, mail_watch, stage_silence
-from backend.features.ops.alarms import Alarm, Concern, cause, no_cause
-from backend.features.runs.spending import crawl_spent_this_month
+from backend.features.ops import (
+    crawl_watch,
+    funds_watch,
+    hunter_watch,
+    key_watch,
+    mail_watch,
+    stage_silence,
+)
+from backend.features.ops.alarms import Alarm, Concern, cause
 from backend.features.serp.dataforseo import SerpError
 from backend.features.serp.factory import UnknownProviderError, build_provider
 
@@ -55,15 +54,6 @@ logger = logging.getLogger(__name__)
 
 #: Сколько прогон может «идти» без единой отметки о жизни.
 RUN_SILENCE_MINUTES = 30
-
-#: За сколько последних обходов смотрим здоровье краула.
-CRAWL_RUNS_WATCHED = 10
-
-#: С какой доли последних обходов их проблемы — серия, а не случай (`_crawl_blocked`).
-CRAWL_SERIES_SHARE = 0.3
-
-#: Меньше стольких обходов — не серия при любой доле: в свежей базе один обход — уже 100 %.
-CRAWL_SERIES_MIN = 2
 
 #: Код тревоги «провайдер не отвечает» — единственной, которую проход узнаёт из сети.
 PROVIDERS_ALARM = "provider-unreachable"
@@ -109,9 +99,9 @@ async def alarms(
         await hunter_watch.alarm(session, moment, stages=stages),
         # Счёт выдачи меньше порога — прогоны не запустятся, пока не пополнят (16.10.2026).
         funds_watch.alarm(),
-        await _crawl_cap_reached(session),
-        await _crawl_blocked(session),
     ]
+    if Stage.ADVERTISERS in stages:
+        found += [await crawl_watch.cap_reached(session), await crawl_watch.blocked(session)]
     # Почта этапов со сторожем в политике — видимых этапов (П2б).
     found += await mail_watch.alarms(session, moment, stages=stages)
     return [alarm for alarm in found if alarm is not None]
@@ -333,116 +323,6 @@ async def _runs_stuck(session: AsyncSession, moment: datetime) -> Alarm | None:
         concern=cause(
             "прогон не движется, а разбор мёртвых его не поднял",
             "проверить, запущены ли воркер прогонов и процесс разбора",
-        ),
-    )
-
-
-async def _crawl_blocked(session: AsyncSession) -> Alarm | None:
-    """Обход упирается в защиту сайтов — серией, а не одним сайтом.
-
-    Требование про долю отказов выше 30 % — о страницах внутри одного обхода
-    (`CRAWL_STOP_SHARE`): такой обход останавливает себя сам, и это видно в его отчёте.
-    Тревога говорит о другом — о серии: `CRAWL_SERIES_SHARE` и выше среди последних обходов
-    закрылись целиком или остановлены по доле отказов; обход, с которым случилось и то и
-    другое, считается один раз.
-
-    До 02.11.2026 тревогу поднимал один остановленный обход из десяти. За выходные она вышла
-    четыре раза от одного-двух обходов, а такие обходы обычно собрали сотни страниц: человеку
-    нечего было делать (слово Anthony: «шумная тревога, убираем»).
-
-    Считается по последним обходам, а не за всё время: доля за всю
-    историю прячет защиту, включившуюся вчера. Только законченным:
-    у идущего обхода исхода ещё нет, и он разбавлял бы долю закрытых.
-    """
-    rows = (
-        (
-            await session.execute(
-                select(CrawlRunModel)
-                .where(CrawlRunModel.status == CrawlStatus.DONE)
-                .order_by(CrawlRunModel.id.desc())
-                .limit(CRAWL_RUNS_WATCHED)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    closed = sum(1 for row in rows if row.outcome is CrawlOutcome.BLOCKED)
-    troubled = sum(
-        1
-        for row in rows
-        if row.outcome is CrawlOutcome.BLOCKED or row.stop_reason is StopReason.UNHEALTHY
-    )
-    if troubled < CRAWL_SERIES_MIN or troubled / len(rows) < CRAWL_SERIES_SHARE:
-        return None
-
-    return Alarm(
-        code="crawl-blocked",
-        title="Обход упирается в защиту",
-        detail=(
-            f"Из последних {len(rows)} обходов упёрлись в защиту {troubled}: закрылись целиком "
-            f"{closed}, остановлены по доле отказов {troubled - closed}. Дальше это лечится "
-            "не повтором, а следующим уровнем каскада: браузером (CRAWL_BROWSER_ENABLED) или "
-            "резидентными прокси (CRAWL_PROXY_URLS)"
-        ),
-        concern=cause(
-            "адреса закрытых сайтов не собираются",
-            "включить следующий уровень обхода — браузер или резидентные прокси",
-        ),
-    )
-
-
-def _setting_names(exc: ValueError) -> str:
-    """Имена настроек из отказа pydantic — без значений; не pydantic — «CRAWL_*»."""
-    errors = getattr(exc, "errors", None)
-    found = (
-        sorted({str(error["loc"][0]) for error in errors() if error.get("loc")})
-        if callable(errors)
-        else []
-    )
-    return ", ".join(found) or "CRAWL_*"
-
-
-async def _crawl_cap_reached(session: AsyncSession) -> Alarm | None:
-    """Свой потолок Этапа 2 выбран: прокси и рендеринг не зовутся до первого числа, и обходы
-    за защитой закрываются — не потому, что сломались (`crawl/spend.py`).
-
-    Конфиг обхода грузится здесь, а не при импорте: в процессе сторожа идёт и повтор
-    передачи лидов продаж, и опечатка в `CRAWL_*` роняла бы его целиком. Битый конфиг —
-    своя тревога с именами настроек, без значений: в значении бывает пароль прокси."""
-    try:
-        from backend.config import crawl as crawl_cfg  # noqa: PLC0415 — см. выше
-    except ValueError as exc:
-        names = _setting_names(exc)
-        logger.warning("сторож тишины: настройки обхода не читаются (%s)", names)
-        return Alarm(
-            code="crawl-config-broken",
-            title="Настройки обхода не читаются",
-            detail=(
-                f"В .env ошибка в настройках обхода ({names}): обходчик не стартует, "
-                "и свой потолок Этапа 2 не проверяется. Значение поправить и пересоздать контейнеры"
-            ),
-            concern=cause(
-                "обходчик не стартует", "поправить настройку обхода и пересоздать контейнеры"
-            ),
-        )
-    cap = crawl_cfg.MONTH_CAP_USD
-    if cap is None:
-        return None
-    spent = await crawl_spent_this_month(session)
-    if spent < Decimal(str(cap)):
-        return None
-    return Alarm(
-        code="crawl-cap-reached",
-        title="Потолок Этапа 2 на обход выбран",
-        detail=(
-            f"Прокси и рендеринг обошлись в {spent:.2f} $ при своём потолке {cap:.2f} $. "
-            "До первого числа или до поднятия потолка платные уровни обхода не зовутся, "
-            "и закрытые сайты остаются необойдёнными — это не поломка, но выглядит одинаково"
-        ),
-        # Потолок держит деньги, а обход идёт бесплатными уровнями: устройство, а не поломка.
-        concern=no_cause(
-            "потолок сработал, как задуман: платные уровни обхода ждут первого числа, "
-            "бесплатные идут"
         ),
     )
 

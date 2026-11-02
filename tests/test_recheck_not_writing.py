@@ -117,7 +117,7 @@ class TestTheCondition:
         facts, donor = _closed_on_every_count()
 
         def said() -> str | None:
-            return refusal(facts, donor, HOST, sales_visible=False)
+            return refusal(facts, donor, HOST, seen=(Stage.DONORS,))
 
         heard = [said()]
         facts = replace(facts, not_writing={})

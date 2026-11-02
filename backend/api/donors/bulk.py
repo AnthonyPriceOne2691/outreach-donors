@@ -12,6 +12,9 @@
 
 Разбор файла — в пуле потоков: десять тысяч строк XLSX не держат цикл событий, как у загрузки
 базы продаж (`api/sales/routes._found`).
+
+Экран загрузки — на панели обхода, и весь роутер — под правом «Рекламодатели»
+(`stage_access.STAGE_TWO`): файл кормит обход, а очередь загрузки — его данные.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
+from backend.api.stage_access import STAGE_TWO
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import backlog, deep, loads
@@ -33,7 +37,7 @@ from backend.features.donors.bulk_file import MAX_BYTES, Line, read_table, templ
 from backend.shared.queue import CRAWL_QUEUE_NAME, workers_alive
 
 #: Под маршрутами доноров (`routes.py` подключает его первым — до `/{donor_id}`): «/donors/import».
-router = APIRouter(prefix="/import", tags=["доноры"])
+router = APIRouter(prefix="/import", tags=["доноры"], dependencies=[STAGE_TWO])
 
 _viewer = Depends(needs(Permission.VIEW))
 _runner = Depends(needs(Permission.RUN))

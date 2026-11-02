@@ -3,6 +3,7 @@
  *
  * Читает тот, кто заводит учётки (право `users`). Без права «Продажи» сервер отдаёт журнал
  * без действий этапа продаж и говорит об этом (`sales_hidden`) — экран называет это словами.
+ * Без права «Рекламодатели» — так же без действий Этапа 2 (`advertisers_hidden`).
  */
 
 import { request } from './client';
@@ -60,6 +61,8 @@ export interface JournalView {
   limit: number;
   /** Действия этапа продаж не показаны: у учётки нет права «Продажи». */
   sales_hidden: boolean;
+  /** Действия Этапа 2 не показаны: у учётки нет права «Рекламодатели». */
+  advertisers_hidden: boolean;
 }
 
 export interface JournalQuery {

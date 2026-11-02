@@ -143,7 +143,7 @@ export function AppRoutes() {
         <Route
           path="/advertisers"
           element={
-            <RequireAccess permission="view">
+            <RequireAccess permission="advertisers">
               <AdvertisersPage />
             </RequireAccess>
           }

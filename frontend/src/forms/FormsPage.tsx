@@ -34,12 +34,14 @@
  * (`?queue=advertisers`), смена вкладки — первая страница; число соседней вкладки
  * приходит в ответе своей, без второго запроса. Ориентир темпа один на обе
  * очереди: он про руки, а руки одни. Таблица, окно адреса и «Не вышло» —
- * общие (`FormsQueue`), чья очередь — говорит её описание (`formQueues.tsx`).
+ * общие (`FormsQueue`), чья очередь — говорит её описание (`formQueues.tsx`). Без права
+ * «Рекламодатели» вкладок нет: очередь одна, и `?queue=advertisers` открывает доноров.
  */
 
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import { useSession } from '../auth/AuthProvider';
 import { ADVERTISER_FORMS, DONOR_FORMS } from './formQueues';
 import type { FormsTab } from './formQueues';
 import { FormsQueue } from './FormsQueue';
@@ -47,7 +49,9 @@ import { FormsQueue } from './FormsQueue';
 /** Вкладка — из адреса; незнакомая или пустая — доноры: адрес из меню тот же, что был. */
 function useFormsTab(): [FormsTab, (tab: FormsTab) => void] {
   const [params, setParams] = useSearchParams();
-  const tab: FormsTab = params.get('queue') === 'advertisers' ? 'advertisers' : 'donors';
+  const { can } = useSession();
+  const asked = params.get('queue') === 'advertisers' && can('advertisers');
+  const tab: FormsTab = asked ? 'advertisers' : 'donors';
   const go = useCallback(
     (next: FormsTab) => {
       if (next === tab) return;

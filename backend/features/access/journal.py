@@ -18,6 +18,9 @@
 узнаются по самой записи (`sales_entry`): действия, которые бывают только у продаж;
 цели модуля продаж («sales_…»); проба продаж в чистке; письмо, ответ (правилом ответа),
 черновик и настройки агента, ящик и запись стоп-листа этапа продаж — по своей строке.
+
+**Без права «Рекламодатели» — без действий Этапа 2**, тем же способом (`advertisers_entry`): этап
+в записи, действия Этапа 2, цели обхода и рекламодателей и строки этапа, на которые запись ссылается.
 """
 
 from __future__ import annotations
@@ -69,9 +72,21 @@ SALES_ACTIONS = frozenset(
     }
 )
 
+#: Действия, которые бывают только на Этапе 2.
+ADVERTISER_ACTIONS = frozenset({AuditAction.ADVERTISER_REVIEWED, AuditAction.CRAWL_BACKLOG_DROPPED})
+
 #: Этап продаж в подробностях записи — кодом (`AccessRepository.record`, настройки агента)
 #: или словом (сборка писем).
 SALES_STAGE_WORDS = (Stage.SALES.value, "продажи")
+
+#: То же у Этапа 2.
+ADVERTISER_STAGE_WORDS = (Stage.ADVERTISERS.value, "рекламодатели")
+
+#: Запуски обхода пишут этап строкой: «2 — обход донора» (`api/crawls`, `crawl/backlog.py`).
+CRAWL_STAGE_WORDS = "2 — %"
+
+#: Цели записей Этапа 2: кандидат, рекламодатель, перевод в рекламодатели, обход, очередь загрузки.
+ADVERTISER_TARGETS = ("candidate:", "advertiser:", "advertisers:", "crawl:", "crawl_backlog")
 
 #: Проба продаж в подробностях чистки (`sales/trials.TrialTrace.as_details`): в записях до
 #: того, как чистка стала класть этап, — единственный признак. Связь держит тест.
@@ -96,6 +111,8 @@ class JournalQuery:
     until: datetime | None = None
     #: Показывать действия этапа продаж — у читающего право «Продажи».
     with_sales: bool = True
+    #: Показывать действия Этапа 2 — у читающего право «Рекламодатели».
+    with_advertisers: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,30 +153,54 @@ def _numbered(prefix: str) -> ColumnElement[int]:
     )
 
 
-def _sales_message(message_id: ColumnElement[Any] | QueryableAttribute[Any]) -> ColumnElement[bool]:
-    """Письмо рассылки этапа продаж."""
+def _message_of(
+    stage: Stage, message_id: ColumnElement[Any] | QueryableAttribute[Any]
+) -> ColumnElement[bool]:
+    """Письмо рассылки этапа."""
     return exists().where(
         MessageModel.id == message_id,
         CampaignModel.id == MessageModel.campaign_id,
-        CampaignModel.stage == Stage.SALES,
+        CampaignModel.stage == stage,
     )
 
 
-def _sales_reply(reply_id: ColumnElement[Any]) -> ColumnElement[bool]:
-    """Ответ этапа продаж — правилом ответа (`replies.repository.stage_of`): по диалогу,
+def _reply_of(stage: Stage, reply_id: ColumnElement[Any]) -> ColumnElement[bool]:
+    """Ответ этапа — правилом ответа (`replies.repository.stage_of`): по диалогу,
     а без диалога — по письму. Диалог переживает удаление письма."""
     by_thread = exists().where(
         ReplyModel.id == reply_id,
         ThreadModel.id == ReplyModel.thread_id,
         CampaignModel.id == ThreadModel.campaign_id,
-        CampaignModel.stage == Stage.SALES,
+        CampaignModel.stage == stage,
     )
     by_letter = exists().where(
         ReplyModel.id == reply_id,
         ReplyModel.thread_id.is_(None),
-        _sales_message(ReplyModel.message_id),
+        _message_of(stage, ReplyModel.message_id),
     )
     return or_(by_thread, by_letter)
+
+
+def _rows_of(stage: Stage) -> list[ColumnElement[bool]]:
+    """Запись о строке этапа: письмо, ответ, ящик, черновик и настройки агента, запись стоп-листа."""
+    return [
+        _message_of(stage, _numbered("message")),
+        _reply_of(stage, _numbered("reply")),
+        exists().where(SenderModel.id == _numbered("sender"), SenderModel.stage == stage),
+        exists().where(
+            AgentDraftModel.id == _numbered("agent_draft"),
+            AgentSettingsModel.id == AgentDraftModel.settings_id,
+            AgentSettingsModel.stage == stage,
+        ),
+        exists().where(
+            AgentSettingsModel.id == _numbered("agent_settings"),
+            AgentSettingsModel.stage == stage,
+        ),
+        exists().where(
+            SuppressionModel.id == _numbered("suppression"),
+            SuppressionModel.stage == stage,
+        ),
+    ]
 
 
 def sales_entry() -> ColumnElement[bool]:
@@ -167,7 +208,6 @@ def sales_entry() -> ColumnElement[bool]:
     строкам, на которые она ссылается. Действие, которого здесь не узнать, — общее: его
     видят все."""
     details = AuditLogModel.details
-    draft = _numbered("agent_draft")
     return or_(
         details[STAGE_KEY].astext.in_(SALES_STAGE_WORDS),
         AuditLogModel.action.in_(sorted(SALES_ACTIONS)),
@@ -178,25 +218,20 @@ def sales_entry() -> ColumnElement[bool]:
             AuditLogModel.action == AuditAction.RUN_STARTED,
             details["действие"].astext.like("%продаж%"),
         ),
-        _sales_message(_numbered("message")),
-        _sales_reply(_numbered("reply")),
-        exists().where(
-            SenderModel.id == _numbered("sender"),
-            SenderModel.stage == Stage.SALES,
-        ),
-        exists().where(
-            AgentDraftModel.id == draft,
-            AgentSettingsModel.id == AgentDraftModel.settings_id,
-            AgentSettingsModel.stage == Stage.SALES,
-        ),
-        exists().where(
-            AgentSettingsModel.id == _numbered("agent_settings"),
-            AgentSettingsModel.stage == Stage.SALES,
-        ),
-        exists().where(
-            SuppressionModel.id == _numbered("suppression"),
-            SuppressionModel.stage == Stage.SALES,
-        ),
+        *_rows_of(Stage.SALES),
+    )
+
+
+def advertisers_entry() -> ColumnElement[bool]:
+    """Запись о действии Этапа 2 — правилом `sales_entry`: по этапу в ней самой, а у записей без
+    него — по действию, цели и строкам, на которые она ссылается."""
+    details, target = AuditLogModel.details, AuditLogModel.target
+    return or_(
+        details[STAGE_KEY].astext.in_(ADVERTISER_STAGE_WORDS),
+        details[STAGE_KEY].astext.like(CRAWL_STAGE_WORDS),
+        AuditLogModel.action.in_(sorted(ADVERTISER_ACTIONS)),
+        *(target.startswith(prefix, autoescape=True) for prefix in ADVERTISER_TARGETS),
+        *_rows_of(Stage.ADVERTISERS),
     )
 
 
@@ -227,6 +262,8 @@ def _filters(query: JournalQuery) -> list[ColumnElement[bool]]:
         # «Не истина», а не «ложь»: у записи без подробностей или без цели части условия —
         # пустота, и NOT от пустоты — пустота, то есть запись пропала бы молча.
         found.append(sales_entry().is_not(true()))
+    if not query.with_advertisers:
+        found.append(advertisers_entry().is_not(true()))
     return found
 
 

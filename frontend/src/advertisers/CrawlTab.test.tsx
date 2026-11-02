@@ -476,7 +476,7 @@ describe('вкладка «Обход доноров»', () => {
   });
 
   it('без права запуска — ни отметок, ни кнопок', async () => {
-    open({}, { ...(OPERATOR as object), permissions: ['view'] });
+    open({}, { ...(OPERATOR as object), permissions: ['advertisers', 'view'] });
 
     expect(await screen.findByText('fresh.example')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /Обойти|Отметить/ })).toBeNull();

@@ -40,7 +40,7 @@ function NextWaitingLink({ current }: { current: number }) {
   const [params] = useSearchParams();
   const { can } = useSession();
   const { threads } = useSortedThreads(false);
-  const filters = readThreadFilters(params, can('sales'));
+  const filters = readThreadFilters(params, can);
   const next = nextWaiting(
     threads.filter((thread) => threadMatches(thread, filters)),
     current,

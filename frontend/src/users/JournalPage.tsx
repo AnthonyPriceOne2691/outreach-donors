@@ -21,7 +21,12 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import { actionFilterTitle, AUDIT_ACTIONS, SALES_ACTIONS } from '../api/auditLabels';
+import {
+  actionFilterTitle,
+  ADVERTISER_ACTIONS,
+  AUDIT_ACTIONS,
+  SALES_ACTIONS,
+} from '../api/auditLabels';
 import { refusalOf } from '../api/client';
 import { fetchJournal } from '../api/journal';
 import type { AuditAction, JournalView } from '../api/journal';
@@ -44,18 +49,43 @@ const WIDTH = { action: 360, author: 260, day: 170 } as const;
 
 const ACTIONS = Object.keys(AUDIT_ACTIONS) as AuditAction[];
 
+/** Чего в журнале нет по праву — словами: без них он читался бы как весь. */
+function HiddenStages({ view }: { view: JournalView | null }) {
+  return (
+    <>
+      {view?.sales_hidden === true && (
+        <Text size="sm" c="dimmed">
+          Действия продаж не показаны — их видно с правом «Продажи». Журнал ниже — без них: это не
+          все записи.
+        </Text>
+      )}
+      {view?.advertisers_hidden === true && (
+        <Text size="sm" c="dimmed">
+          Действия рекламодателей не показаны — их видно с правом «Рекламодатели». Журнал ниже — без
+          них: это не все записи.
+        </Text>
+      )}
+    </>
+  );
+}
+
 interface FiltersProps {
   filters: JournalFilters;
   problem: string | null;
   users: UserCard[];
-  /** Без права «Продажи» действий продаж нет и в списке фильтра. */
+  /** Без права этапа его действий нет и в списке фильтра. */
   withSales: boolean;
+  withAdvertisers: boolean;
   onChange: (patch: Partial<JournalFilters>, replace?: boolean) => void;
 }
 
 /** Фильтры над журналом: действие, автор, первый и последний день. */
-function Filters({ filters, problem, users, withSales, onChange }: FiltersProps) {
-  const actions = ACTIONS.filter((action) => withSales || !SALES_ACTIONS.has(action));
+function Filters({ filters, problem, users, withSales, withAdvertisers, onChange }: FiltersProps) {
+  const actions = ACTIONS.filter(
+    (action) =>
+      (withSales || !SALES_ACTIONS.has(action)) &&
+      (withAdvertisers || !ADVERTISER_ACTIONS.has(action)),
+  );
   return (
     <Group align="flex-start" gap="md" className="fieldRow runFields">
       <Select
@@ -213,14 +243,10 @@ export function JournalPage() {
             problem={problem}
             users={userList}
             withSales={can('sales')}
+            withAdvertisers={can('advertisers')}
             onChange={change}
           />
-          {view?.sales_hidden === true && (
-            <Text size="sm" c="dimmed">
-              Действия продаж не показаны — их видно с правом «Продажи». Журнал ниже — без них: это
-              не все записи.
-            </Text>
-          )}
+          <HiddenStages view={view} />
         </Stack>
       </Card>
 

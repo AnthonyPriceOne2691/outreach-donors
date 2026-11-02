@@ -123,10 +123,17 @@ function advertisersHint({ advertisers, niche }: OverviewWaiting): string {
 }
 
 function WaitingSection({ waiting }: { waiting: OverviewWaiting }) {
+  const { can } = useSession();
   const newest = waiting.review_runs[0];
+  // Без права «Рекламодатели» плиток Этапа 2 нет: сервер считает их нулями, а не «ждут ноль».
+  const stageTwo = can('advertisers');
   return (
     <Section title="Ждут человека">
-      <SimpleGrid cols={{ base: 2, sm: 3, lg: 5 }} spacing="sm" className="metricGrid">
+      <SimpleGrid
+        cols={{ base: 2, sm: 3, lg: stageTwo ? 5 : 3 }}
+        spacing="sm"
+        className="metricGrid"
+      >
         <Metric
           title="Рассмотреть домены"
           value={formatNumber(waiting.review)}
@@ -151,20 +158,24 @@ function WaitingSection({ waiting }: { waiting: OverviewWaiting }) {
           color={attention(waiting.forms)}
           to="/forms"
         />
-        <Metric
-          title="Лиды рекламодателей"
-          value={formatNumber(waiting.leads)}
-          hint={waiting.leads > 0 ? 'ответили на оффер' : 'новых лидов нет'}
-          color={attention(waiting.leads)}
-          to="/threads?stage=advertisers&state=lead"
-        />
-        <Metric
-          title="Кандидаты в рекламодатели"
-          value={formatNumber(waiting.advertisers)}
-          hint={advertisersHint(waiting)}
-          color={attention(waiting.advertisers)}
-          to="/advertisers?view=review"
-        />
+        {stageTwo && (
+          <>
+            <Metric
+              title="Лиды рекламодателей"
+              value={formatNumber(waiting.leads)}
+              hint={waiting.leads > 0 ? 'ответили на оффер' : 'новых лидов нет'}
+              color={attention(waiting.leads)}
+              to="/threads?stage=advertisers&state=lead"
+            />
+            <Metric
+              title="Кандидаты в рекламодатели"
+              value={formatNumber(waiting.advertisers)}
+              hint={advertisersHint(waiting)}
+              color={attention(waiting.advertisers)}
+              to="/advertisers?view=review"
+            />
+          </>
+        )}
       </SimpleGrid>
     </Section>
   );
@@ -285,6 +296,18 @@ function UnboundLine({ count }: { count: number }) {
   );
 }
 
+/** Письма Этапа 2 строкой. Без права «Рекламодатели» этапа в сводке нет вовсе — и строки нет. */
+function StageTwoLine({ letters }: { letters: OverviewLetters | undefined }) {
+  if (letters === undefined) return null;
+  return (
+    <Text size="sm" c="dimmed">
+      {letters.queued === 0 && letters.sent === 0
+        ? 'Рекламодателям писем ещё не было.'
+        : `Рекламодателям: в очереди ${formatNumber(letters.queued)}, ушло ${formatNumber(letters.sent)}, дошло ${formatNumber(letters.delivered)}.`}
+    </Text>
+  );
+}
+
 function LettersSection({
   donors,
   advertisers,
@@ -292,11 +315,10 @@ function LettersSection({
   unbound,
 }: {
   donors: OverviewLetters;
-  advertisers: OverviewLetters;
+  advertisers: OverviewLetters | undefined;
   transport: LetterTransport;
   unbound: number;
 }) {
-  const quietStageTwo = advertisers.queued === 0 && advertisers.sent === 0;
   const mail = mailLine(transport);
   return (
     <Section
@@ -330,11 +352,7 @@ function LettersSection({
             {mail}
           </Text>
         )}
-        <Text size="sm" c="dimmed">
-          {quietStageTwo
-            ? 'Рекламодателям писем ещё не было.'
-            : `Рекламодателям: в очереди ${formatNumber(advertisers.queued)}, ушло ${formatNumber(advertisers.sent)}, дошло ${formatNumber(advertisers.delivered)}.`}
-        </Text>
+        <StageTwoLine letters={advertisers} />
       </Stack>
     </Section>
   );

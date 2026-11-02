@@ -24,10 +24,8 @@ from backend.api.advertisers.panel_schemas import (
     QualityRowView,
     QualityView,
 )
-from backend.api.deps import actor, db_session, needs
+from backend.api.deps import db_session, needs
 from backend.api.letters.autosend_schemas import QueueAutosendView
-from backend.api.stage_access import LETTERS
-from backend.features.access.permissions import require_stage
 from backend.features.core.domain import Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import load_quality, loads, panel
@@ -115,11 +113,10 @@ async def read_quality_hosts(
 
 @router.get("/mailing", response_model=PanelMailingView, summary="Режим очереди рекламодателей")
 async def read_mailing(
-    user: UserModel = _viewer,
+    _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> PanelMailingView:
     """Уходит ли очередь сама — у обеих очередей этапа, тем же, что экран писем."""
-    require_stage(actor(user), Stage.ADVERTISERS, LETTERS)
     return PanelMailingView(
         links=QueueAutosendView.of(await autosend.state(session, Stage.ADVERTISERS, LINKS)),
         niche=QueueAutosendView.of(await autosend.state(session, Stage.ADVERTISERS, NICHE)),

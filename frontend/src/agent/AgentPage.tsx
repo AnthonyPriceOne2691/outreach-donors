@@ -36,7 +36,8 @@ import { useSearchParams } from 'react-router-dom';
 import { fetchAgentSettings } from '../api/agent';
 import type { AgentStageView } from '../api/agent';
 import { refusalOf } from '../api/client';
-import { partOf, stageShown, withPart } from '../api/stages';
+import { stageShown } from '../api/stageRights';
+import { partOf, withPart } from '../api/stages';
 import { useSession } from '../auth/AuthProvider';
 import { LeaveGuard } from '../components/LeaveGuard';
 import { PageHead } from '../components/PageHead';
@@ -215,7 +216,7 @@ export function AgentPage() {
   const [drafts, setDrafts] = useState<Drafts>({});
   const { data, error } = useQuery({ queryKey: AGENT_KEY, queryFn: fetchAgentSettings });
   // Пока этап не выбран — первый в реестре из тех, что учётка видит.
-  const stages = (data?.stages ?? []).filter((one) => stageShown(one.stage, can('sales')));
+  const stages = (data?.stages ?? []).filter((one) => stageShown(one.stage, can));
   const view = shownStage(stages, picked, sales);
 
   const content = (

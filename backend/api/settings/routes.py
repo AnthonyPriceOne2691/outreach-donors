@@ -6,7 +6,8 @@
 показываются (`/settings/advertisers`): они — настройки окружения.
 
 Расход смотрят все: это то же содержимое базы, что и доноры. Расход продаж —
-только с правом «Продажи» (решение Anthony 10.10.2026, П2б, `runs/spending.py`).
+только с правом «Продажи» (решение Anthony 10.10.2026, П2б, `runs/spending.py`), расход Этапа 2 и
+его потолок — только с правом «Рекламодатели», как и веса Этапа 2.
 
 Кап юнитов Ahrefs меняют на экране «Расход» тем же правом, что пороги (`settings`,
 решение владельца 16.10.2026): «весь лимит ключа» или «не больше N», смена — строкой
@@ -25,6 +26,7 @@ Anthony 29.10.2026: их поднимает администратор): общ�
 from __future__ import annotations
 
 import logging
+from collections.abc import Collection
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -47,6 +49,7 @@ from backend.api.settings.schemas import (
     ThresholdsView,
     share_percent,
 )
+from backend.api.stage_access import STAGE_TWO
 from backend.config import crawl as crawl_cfg
 from backend.features.access.permissions import require_stage, visible_stages
 from backend.features.access.repository import AccessRepository
@@ -189,6 +192,7 @@ async def save_thresholds(
     "/settings/advertisers",
     response_model=AdvertiserSettingsView,
     summary="Веса, пороги и «кому не пишем» Этапа 2 — что действует",
+    dependencies=[STAGE_TWO],
 )
 async def advertiser_settings(_: UserModel = _viewer) -> AdvertiserSettingsView:
     """Чем обход судит ссылки сейчас. Только чтение: значения Этапа 2 — настройками
@@ -209,17 +213,17 @@ async def usage(
     неудача запроса остатка отдаётся отдельным полем, а не пятисоткой.
 
     Без права «Продажи» — расход без операций продаж, весь: статьи, суммы и итог
-    сходятся, а `sales_hidden` говорит экрану, что итог — без продаж (П2б).
+    сходятся, а `sales_hidden` говорит экрану, что итог — без продаж (П2б). Без права
+    «Рекламодатели» так же нет расхода Этапа 2 (`advertisers_hidden`).
 
     Платный обход Этапа 2 — своей строкой против своего потолка: потрачено тем же
-    числом, с которым потолок сравнивает сам обход.
+    числом, с которым потолок сравнивает сам обход. Без права этапа — пустой карточкой.
 
     Ответ Ahrefs ложится в снимок ключа до чтения капа: размер ключа, цикл и «осталось»
     экран показывает на эту минуту, а не по прошлому снимку (16.10.2026).
     """
     stages = visible_stages(actor(user))
     spending = await SpendingRepository(session).since_month_start(stages=stages)
-    crawl_spent = await crawl_spent_this_month(session, stages=stages)
     serp_balance = await _serp_balance()
     ahrefs_balance = await _ahrefs_balance(session)
     view = SpendingView.of(
@@ -230,16 +234,22 @@ async def usage(
         cap=await key_cap(session),
         cap_changes=await cap_changes(session),
         sales_hidden=Stage.SALES not in stages,
-        crawl=CrawlSpendCard(
-            cap_usd=None if crawl_cfg.MONTH_CAP_USD is None else _usd(crawl_cfg.MONTH_CAP_USD),
-            spent_usd=crawl_spent,
-        ),
+        crawl=await _crawl_card(session, stages) if Stage.ADVERTISERS in stages else None,
         llm_caps=await llm_caps_card(session, sales=Stage.SALES in stages, now=datetime.now(UTC)),
     )
+    view.advertisers_hidden = Stage.ADVERTISERS not in stages
     view.hunter = await hunter_card(session, sales=Stage.SALES in stages, now=datetime.now(UTC))
     # Снимок ключа из ответа Ahrefs — в базу: больше экран ничего не пишет.
     await session.commit()
     return view
+
+
+async def _crawl_card(session: AsyncSession, stages: Collection[Stage]) -> CrawlSpendCard:
+    """Платный обход Этапа 2 против своего потолка."""
+    return CrawlSpendCard(
+        cap_usd=None if crawl_cfg.MONTH_CAP_USD is None else _usd(crawl_cfg.MONTH_CAP_USD),
+        spent_usd=await crawl_spent_this_month(session, stages=stages),
+    )
 
 
 async def _ahrefs_balance(session: AsyncSession) -> tuple[int | None, str | None]:

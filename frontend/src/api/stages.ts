@@ -25,24 +25,6 @@ export const THREAD_STAGE_NOTES: Record<Stage, string> = {
 };
 
 /**
- * Этап на общих экранах — только тому, кто его видит: продажи — с правом «Продажи»
- * (решение Anthony 10.10.2026, П2). Сервер отказывает сам: в общих списках и числах
- * продаж без права нет, а письмо или переписка продаж по номеру — 403 словами. Экран
- * не предлагает того, в чём сервер откажет. `sales` — `can('sales')` сессии.
- */
-export function stageShown(stage: string, sales: boolean): boolean {
-  return stage !== 'sales' || sales;
-}
-
-/** Состояния диалога, которые бывают только у переписки продаж. */
-const SALES_STATES: ReadonlySet<string> = new Set(['sales_pending']);
-
-/** Состояние диалога на экране: состояния продаж — тоже только с правом «Продажи». */
-export function stateShown(state: string, sales: boolean): boolean {
-  return !SALES_STATES.has(state) || sales;
-}
-
-/**
  * Часть общего раздела в адресе: `?stage=sales` — только продажи (просьба Anthony
  * 11.10.2026: продажи — отдельный продукт, и меню показывает их своей группой). Так
  * открываются «Диалоги продаж», «Агент продаж» и «Домены продаж» — те же экраны, что
