@@ -26,6 +26,7 @@ from alembic.runtime.migration import MigrationContext
 from backend.api.settings import routes as settings_routes
 from backend.config import contacts as contacts_cfg
 from backend.config import sales as sales_cfg
+from backend.config import storage
 from backend.features.contacts.hunter_account import AccountSnapshot, remember, snapshot
 from backend.features.contacts.provider import (
     AccountCounter,
@@ -39,18 +40,22 @@ from backend.features.core import hunter_cap, usage
 from backend.features.core.domain import AuditAction, Stage, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.ops import HunterAccountSnapshotModel, HunterCapModel
-from backend.features.ops import hunter_watch, silence
+from backend.features.ops import hunter_watch, key_watch, silence
 from backend.features.ops.alarms import Alarm
 from backend.features.outreach.repository import EVERY_STAGE
+from backend.features.runs.ahrefs_key import snapshot as key_snapshot
 from backend.features.runs.spending import units_this_month
 from backend.features.sales import verify_cap
 from backend.features.sales.verifier import OPERATION
+from backend.workers import reaper
 from httpx import AsyncClient
 from sqlalchemy import func, select, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
-from tests.conftest import bearer
+from tests.conftest import TEST_DSN, bearer
 from tests.migration_helpers import load_migration
+from tests.test_ahrefs_key import PAYLOAD, _Answering, _no_serp
+from tests.test_send_race import committed_sessions
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -493,21 +498,12 @@ class TestAsk:
     ) -> None:
         """Отказ Hunter не идёт в «Провайдер не отвечает»: прогоны от него не зависят."""
 
-        class Answering:
-            async def limits_and_usage(self) -> dict[str, object]:
-                return {"limits_and_usage": {}}
-
-            async def aclose(self) -> None:
-                return None
-
-        async def no_serp() -> None:
-            return None
-
-        monkeypatch.setattr(silence, "AhrefsClient", Answering)
-        monkeypatch.setattr(silence, "_serp_silent", no_serp)
-        self._answers(monkeypatch, 503, {"errors": []})
+        monkeypatch.setattr(silence, "AhrefsClient", _Answering)
+        monkeypatch.setattr(silence, "_serp_silent", _no_serp)
+        asked = self._answers(monkeypatch, 503, {"errors": []})
 
         assert await silence.ask_providers() == []
+        assert asked, "опрос спрашивает и Hunter"
         assert silence.WATCH.silent == {}
 
     @pytest.mark.usefixtures("key")
@@ -516,10 +512,55 @@ class TestAsk:
     ) -> None:
         self._answers(monkeypatch, 200, WIRE)
         await hunter_watch.ask()
+        key_watch.heard(PAYLOAD)
 
         assert await silence.keep_heard(session)
+
         assert await snapshot(session) is not None
+        assert await key_snapshot(session) is not None
         assert not await silence.keep_heard(session)
+
+    @pytest.mark.usefixtures("key")
+    async def test_the_watch_pass_keeps_it_after_the_network(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(storage, "DSN", TEST_DSN)
+        monkeypatch.setattr(silence, "AhrefsClient", _Answering)
+        monkeypatch.setattr(silence, "_serp_silent", _no_serp)
+        monkeypatch.setattr(reaper, "PROVIDERS", reaper.Providers())
+        self._answers(monkeypatch, 200, WIRE)
+
+        async def tell(_: object, **__: object) -> None:
+            return None
+
+        monkeypatch.setattr(reaper.FEED, "tell", tell)
+        async with committed_sessions() as factory:
+            await reaper.watch()
+            async with factory() as reading:
+                found = await snapshot(reading)
+
+        assert found is not None
+        assert found.main.remaining == Decimal("749.5")
+
+    @pytest.mark.usefixtures("key")
+    async def test_the_watchdog_screen_keeps_it_too(
+        self,
+        client: AsyncClient,
+        session: AsyncSession,
+        make_user: MakeUser,
+        sign_in: SignIn,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(silence, "AhrefsClient", _Answering)
+        monkeypatch.setattr(silence, "_serp_silent", _no_serp)
+        self._answers(monkeypatch, 200, WIRE)
+        await make_user("смотрит-hunter@team.example.test")
+        headers = bearer(await sign_in("смотрит-hunter@team.example.test"))
+
+        response = await client.get("/api/watchdog", headers=headers)
+
+        assert response.status_code == 200, response.text
+        assert await snapshot(session) is not None
 
 
 class TestStanding:
