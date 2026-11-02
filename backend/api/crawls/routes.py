@@ -33,6 +33,8 @@ from backend.api.crawls.schemas import (
     MAX_HOSTS,
     CrawlRow,
     CrawlsView,
+    DeepResult,
+    DeepRules,
     DonorRow,
     LaunchBody,
     LaunchResult,
@@ -44,7 +46,7 @@ from backend.config import filters
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
-from backend.features.crawl import backlog, board, donor_page, targets
+from backend.features.crawl import backlog, board, deep, donor_page, targets
 from backend.features.crawl.board import CrawlLine
 from backend.features.crawl.donor_page import DonorQuery
 from backend.features.crawl.launch import crawl_host, launch
@@ -88,6 +90,18 @@ async def _queue(session: AsyncSession, lines: list[CrawlLine | None]) -> board.
     waiting = board.waiting_jobs(line for line in lines if line is not None)
     places = await asyncio.to_thread(job_positions, list(waiting.values()), queue=CRAWL_QUEUE_NAME)
     return board.queue_state(await board.running_count(session), waiting, places)
+
+
+async def _deep_rules(session: AsyncSession) -> DeepRules:
+    """Глубокий обход числами сервера — для окна подтверждения и ответа на запуск."""
+    return DeepRules(
+        max_pages=crawl_cfg.MAX_PAGES_DEEP,
+        max_running=crawl_cfg.DEEP_MAX_RUNNING,
+        going=await deep.going(session),
+        waiting=await deep.waiting(session),
+        typical_sec=await deep.typical_deep_seconds(session),
+        max_seconds=crawl_cfg.MAX_SECONDS_DEEP,
+    )
 
 
 @router.get("/targets", response_model=TargetsView, summary="Кого можно обойти")
@@ -164,6 +178,7 @@ async def donors(
         held=held,
         typical=await donor_page.typical_seconds(session),
         max_pages=crawl_cfg.MAX_PAGES_PER_DONOR,
+        deep=await _deep_rules(session),
     )
 
 
@@ -240,6 +255,51 @@ async def start(
     )
 
 
+@router.post("/deep", response_model=DeepResult, summary="Обойти доноров заново, глубоким обходом")
+async def start_deep(
+    body: LaunchBody,
+    author: UserModel = _runner,
+    session: AsyncSession = Depends(db_session),
+) -> DeepResult:
+    """Поставить глубокие обходы: те же условия, что у обычного, но всегда через очередь
+    загрузки — она держит предел разом (`crawl/deep.py`). Уже идущий донор называется сразу:
+    строка очереди иначе потерялась бы при выдаче."""
+    chosen = await targets.choose(session, limit=_ALL)
+    asked = list(dict.fromkeys(crawl_host(host) for host in body.hosts))
+    refused = {host: why for host in asked if (why := _why_not(host, chosen)) is not None}
+    allowed = [host for host in asked if host not in refused]
+    busy = await deep.busy_hosts(session, allowed)
+    added = await backlog.add(
+        session,
+        [host for host in allowed if host not in busy],
+        by=author.email,
+        author_id=author.id,
+        max_pages=crawl_cfg.MAX_PAGES_DEEP,
+    )
+    await _audit_deep(session, author, added)
+    await session.commit()
+    return DeepResult(
+        asked=len(asked),
+        backlog=added,
+        busy=busy,
+        refused=refused,
+        rules=await _deep_rules(session),
+    )
+
+
+async def _audit_deep(session: AsyncSession, author: UserModel, added: int) -> None:
+    """Глубокий запуск — в журнал действий: кто и сколько. Обходы заведёт выдача."""
+    await AccessRepository(session).record(
+        AuditAction.RUN_STARTED,
+        author_id=author.id,
+        target="crawl_backlog",
+        details={
+            "этап": f"2 — обход заново, до {crawl_cfg.MAX_PAGES_DEEP} страниц",
+            "доноров": added,
+        },
+    )
+
+
 @router.post("/donors/crawl", response_model=BulkResult, summary="Обойти всех доноров под фильтром")
 async def crawl_filtered(
     body: BulkBody,
@@ -250,8 +310,20 @@ async def crawl_filtered(
     обход не идёт и не ждёт, не в очереди загрузки), — но не больше, чем человек видел на кнопке
     (`expected`). До `MAX_HOSTS` — сразу, как «Обойти отмеченных»; больше — в очередь загрузки
     (`crawl/backlog.py`): она отдаёт доноров свободным обходчикам понемногу, и обход, поставленный
-    кнопкой после, идёт первым, а не ждёт за тысячами."""
+    кнопкой после, идёт первым, а не ждёт за тысячами. Глубокий обход (`deep`) — всегда туда же:
+    она держит предел разом (`crawl/deep.py`)."""
     hosts = await donor_page.startable_hosts(session, body.query(), limit=body.expected)
+    if body.deep:
+        added = await backlog.add(
+            session,
+            [crawl_host(host) for host in hosts],
+            by=author.email,
+            author_id=author.id,
+            max_pages=crawl_cfg.MAX_PAGES_DEEP,
+        )
+        await _audit_deep(session, author, added)
+        await session.commit()
+        return BulkResult(asked=len(hosts), deferred=True, backlog=added, workers=await _workers())
     if len(hosts) > MAX_HOSTS:
         added = await backlog.add(
             session, [crawl_host(host) for host in hosts], by=author.email, author_id=author.id

@@ -43,6 +43,7 @@ from backend.features.contacts.browser import PlaywrightRenderer
 from backend.features.core.domain import CrawlStatus
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.crawl.big_sites import capped_ratings, journal
+from backend.features.crawl.deep import Ceilings, ceilings_of
 from backend.features.crawl.fetch import PageCascade
 from backend.features.crawl.gate import judge_run
 from backend.features.crawl.lifecycle import FAILURE_KEY, REASON_KEY, heartbeat, noted
@@ -57,6 +58,7 @@ from backend.features.runs.reasons import explained
 from backend.shared.logs import setup_logging
 from backend.shared.net.url_guard import guarded_client
 from backend.shared.queue import (
+    CRAWL_JOB_MARGIN_SEC,
     JUDGE_CRAWL_JOB,
     crawl_job_id,
     enqueue_crawl,
@@ -102,9 +104,9 @@ async def _crawl(run_id: int) -> dict[str, Any]:
         taken = await _take(factory, run_id)
         if isinstance(taken, dict):
             return taken
-        host, point = taken
+        host, point, ceilings = taken
         try:
-            report = await _walk(factory, run_id, host, point)
+            report = await _walk(factory, run_id, host, point, ceilings)
         except CrawlInterruptedError as exc:
             logger.info("обход №%s (%s): %s", run_id, host, exc)
             return await _requeue(factory, run_id, exc.checkpoint)
@@ -143,8 +145,9 @@ def _judge_later(run_id: int) -> str | None:
 
 async def _take(
     factory: async_sessionmaker[AsyncSession], run_id: int
-) -> tuple[str, Checkpoint | None] | dict[str, Any]:
-    """Взять обход: «идёт», номер этой задачи. Законченный — не трогать."""
+) -> tuple[str, Checkpoint | None, Ceilings] | dict[str, Any]:
+    """Взять обход: «идёт», номер этой задачи. Законченный — не трогать. Потолки — из строки
+    обхода: продолжение глубокого обхода (`deep.py`) держит те же, что его начало."""
     async with factory() as session:
         run = await session.get(CrawlRunModel, run_id)
         if run is None:
@@ -156,21 +159,31 @@ async def _take(
         job = get_current_job()
         run.status = CrawlStatus.RUNNING
         run.job_id = job.id if job is not None else run.job_id
-        host, point = run.host, Checkpoint.of(run.checkpoint)
+        host, point, ceilings = run.host, Checkpoint.of(run.checkpoint), ceilings_of(run.max_pages)
         await session.commit()
     logger.info("обход №%s (%s): %s", run_id, host, "продолжение" if point else "начало")
-    return host, point
+    return host, point, ceilings
 
 
 async def _walk(
-    factory: async_sessionmaker[AsyncSession], run_id: int, host: str, point: Checkpoint | None
+    factory: async_sessionmaker[AsyncSession],
+    run_id: int,
+    host: str,
+    point: Checkpoint | None,
+    ceilings: Ceilings,
 ) -> CrawlReport:
     async def flush(batch: Batch) -> None:
         async with factory() as session:
             await save_batch(session, run_id, batch)
             await session.commit()
 
-    progress = Progress(flush=flush, resume=point, stop=stop_requested)
+    progress = Progress(
+        flush=flush,
+        resume=point,
+        stop=stop_requested,
+        every_pages=ceilings.batch_pages,
+        every_sec=ceilings.batch_sec,
+    )
     beat = asyncio.create_task(heartbeat(factory, run_id))
     try:
         async with contextlib.AsyncExitStack() as stack:
@@ -192,9 +205,21 @@ async def _walk(
                 render=RenderService.from_settings(client),
                 spending=JournalSpending(factory),
             )
-            crawler = DonorCrawler(client, cascade=cascade)
+            crawler = DonorCrawler(
+                client,
+                cascade=cascade,
+                max_pages=ceilings.pages,
+                max_attempts=ceilings.attempts,
+                max_seconds_slow=ceilings.seconds,
+                sitemap_ceilings=(ceilings.sitemap_files, ceilings.sitemap_urls),
+            )
             try:
-                return await crawler.crawl(host, progress)
+                # Предел зависания — по своему сроку, а не по таймауту очереди: он один на все
+                # задачи и по глубокому обходу (`shared/queue.crawl_job_timeout`) вышел бы
+                # обычному обходу на сутки вместо прежних часов. Вышел — как падение задачи:
+                # разбор мёртвых продолжит с чекпоинта.
+                async with asyncio.timeout(ceilings.seconds + CRAWL_JOB_MARGIN_SEC):
+                    return await crawler.crawl(host, progress)
             finally:
                 await crawler.aclose()
     finally:

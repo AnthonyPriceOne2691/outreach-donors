@@ -22,14 +22,15 @@ from tests.test_send_race import committed_sessions
 
 
 class _Enqueue:
-    """Очередь в памяти; `broken` — обходы, на которых она не отвечает."""
+    """Очередь в памяти; `broken` — она не отвечает. По вызову, а не по номеру обхода: номера
+    идут из последовательности базы, и откат теста её не возвращает."""
 
-    def __init__(self, *, broken: frozenset[int] = frozenset()) -> None:
+    def __init__(self, *, broken: bool = False) -> None:
         self.broken = broken
         self.queued: list[tuple[int, str]] = []
 
     def __call__(self, run_id: int, job_id: str) -> None:
-        if run_id in self.broken:
+        if self.broken:
             raise ConnectionError("Redis недоступен")
         self.queued.append((run_id, job_id))
 
@@ -89,14 +90,14 @@ async def test_silent_queue_closes_the_crawl_and_frees_the_donor() -> None:
             ["one.example"],
             by=None,
             job_id=_ids,
-            enqueue=_Enqueue(broken=frozenset({1})),
+            enqueue=_Enqueue(broken=True),
         )
         retried = await launch(session, ["one.example"], by=None, job_id=_ids, enqueue=_Enqueue())
         rows = await _rows(session)
 
     assert refused.failed == ["one.example"]
     assert refused.queued == {}
-    first = rows["one.example#1"]
+    first = min(rows.values(), key=lambda row: row.id)
     assert first.status is CrawlStatus.STOPPED
     assert first.stats is not None
     assert first.stats["reason"].startswith("не поставлен: очередь не ответила")
@@ -121,7 +122,7 @@ async def test_console_queue_uses_the_same_order(
     out = capsys.readouterr().out
     assert (first, second) == (0, crawl_probe.EXIT_NOTHING_CRAWLED)
     assert len(queued) == 1
-    assert "one.example: обход №1 в очереди" in out
+    assert f"one.example: обход №{queued[0][0]} в очереди" in out
     assert "обходчиков нет" in out
     assert "one.example: обход уже идёт или ждёт" in out
 

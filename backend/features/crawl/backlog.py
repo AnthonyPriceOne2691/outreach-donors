@@ -23,6 +23,11 @@
 и одной фиксацией с ней (`launch` фиксирует каждого донора): упади процесс между ними — донор
 обойдётся раз, а не дважды. Очередь не ответила — строка возвращается, проход ждёт следующего раза.
 
+**Глубокие обходы ждут здесь всегда** (`deep.py`): выдача держит их предел, и ни одна кнопка не
+ставит их мимо неё. Строка помнит потолок (`max_pages`). Предел выбран — их строки в проходе не
+видны, и обычные доноры за ними не стоят. Обычный донор, ставший глубоким, строку не удваивает:
+она становится глубокой.
+
 Снять очередь целиком — человеку с правом запуска (`api/donors/bulk.py`); снятое — в журнал.
 """
 
@@ -37,11 +42,12 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import crawl as crawl_cfg
 from backend.config import filters
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, CrawlOutcome, CrawlStatus
 from backend.features.core.models.crawl import CrawlBacklogModel, CrawlRunModel
-from backend.features.crawl import targets
+from backend.features.crawl import deep, targets
 from backend.features.crawl.launch import Enqueue, JobId, launch
 
 logger = logging.getLogger(__name__)
@@ -75,22 +81,34 @@ class Fed:
 
 
 async def add(
-    session: AsyncSession, hosts: Sequence[str], *, by: str | None, author_id: int | None
+    session: AsyncSession,
+    hosts: Sequence[str],
+    *,
+    by: str | None,
+    author_id: int | None,
+    max_pages: int | None = None,
 ) -> int:
     """Поставить доноров в очередь загрузки — сколько встало впервые. Уже стоящий — не второй
-    раз: загруженный дважды обходится раз. Без коммита."""
+    раз: загруженный дважды обходится раз. `max_pages` — потолок глубокого обхода (`deep.py`):
+    стоящий обычным становится глубоким и считается встал. Без коммита."""
     added = 0
     unique = list(dict.fromkeys(hosts))
     for start in range(0, len(unique), CHUNK):
         rows = [
-            {"host": host, "requested_by": by, "author_id": author_id}
+            {"host": host, "requested_by": by, "author_id": author_id, "max_pages": max_pages}
             for host in unique[start : start + CHUNK]
         ]
+        statement = insert(CrawlBacklogModel).values(rows)
         result = await session.execute(
-            insert(CrawlBacklogModel)
-            .values(rows)
-            .on_conflict_do_nothing(index_elements=["host"])
-            .returning(CrawlBacklogModel.id)
+            statement.on_conflict_do_nothing(index_elements=["host"]).returning(
+                CrawlBacklogModel.id
+            )
+            if max_pages is None
+            else statement.on_conflict_do_update(
+                index_elements=["host"],
+                set_={"max_pages": max_pages},
+                where=CrawlBacklogModel.max_pages.is_(None),
+            ).returning(CrawlBacklogModel.id)
         )
         added += len(result.scalars().all())
     return added
@@ -115,16 +133,27 @@ async def drop_all(session: AsyncSession, *, author_id: int | None) -> int:
     return dropped
 
 
-async def eta_sec(session: AsyncSession, ahead: int, workers: int | None) -> float | None:
+async def eta_sec(
+    session: AsyncSession, ahead: int, workers: int | None, *, deep_rows: int = 0
+) -> float | None:
     """Сколько секунд займёт обойти `ahead` доноров при `workers` обходчиках — по медиане
     последних законченных обходов, а без них — по получасу на донора. Обходчиков не знаем
-    или их нет — `None`: срок назвать нечем."""
+    или их нет — `None`: срок назвать нечем.
+
+    `deep_rows` из них — глубокие: идут не больше своего предела разом и бок о бок с обычными,
+    на занятых ими обходчиках; срок очереди — тот из двух, что дольше."""
     if not workers or ahead <= 0:
         return None
+    if deep_rows > 0:
+        slots = min(crawl_cfg.DEEP_MAX_RUNNING, workers)
+        rest = ahead - deep_rows
+        long = deep_rows * await deep.typical_deep_seconds(session) / slots
+        usual = await eta_sec(session, rest, max(workers - slots, 1)) or 0.0
+        return max(long, usual)
     elapsed = CrawlRunModel.stats["elapsed_sec"].as_float()
     rows = await session.scalars(
         select(elapsed)
-        .where(CrawlRunModel.status == CrawlStatus.DONE)
+        .where(CrawlRunModel.status == CrawlStatus.DONE, CrawlRunModel.max_pages.is_(None))
         .where(CrawlRunModel.outcome.in_((CrawlOutcome.OK, CrawlOutcome.PARTIAL)))
         .where(elapsed.is_not(None))
         .order_by(CrawlRunModel.finished_at.desc().nullslast())
@@ -139,47 +168,26 @@ async def feed(session: AsyncSession, *, workers: int, enqueue: Enqueue, job_id:
     """Отдать свободным обходчикам доноров очереди загрузки — один проход.
 
     В очереди обходов кто-то ждёт — человек или отданные раньше — не отдаём никого: ждущий
-    уйдёт первым. Иначе — `workers` минус идущие, но не больше `PER_PASS`. Коммит — у
-    вызывающего: постановка фиксирует сама (`launch`), запись журнала — после неё.
+    уйдёт первым. Иначе — `workers` минус идущие, но не больше `PER_PASS`; глубоких — и не
+    больше их предела (`deep.py`). Коммит — у вызывающего: постановка фиксирует сама
+    (`launch`), запись журнала — после неё.
     """
     fed = Fed()
     running, queued = await _counts(session)
     free = min(workers - running, PER_PASS)
     if queued or free <= 0:
         return fed
-    rows = list(
-        (
-            await session.scalars(
-                select(CrawlBacklogModel).order_by(CrawlBacklogModel.id).limit(SCAN)
-            )
-        ).all()
-    )
-    if not rows:
-        return fed
-    verdicts = _verdicts(await targets.choose(session, limit=None))
-    picks: list[CrawlBacklogModel] = []
-    for row in rows:
-        why = verdicts.get(row.host.lower(), _OTHER)
-        if why is not None:
-            fed.dropped[row.host] = why
-            await session.delete(row)
-        elif len(picks) < free:
-            picks.append(row)
-            await session.delete(row)
-    for (by, author_id), hosts in _by_requester(picks).items():
-        done = await launch(session, hosts, by=by, job_id=job_id, enqueue=enqueue)
+    room = crawl_cfg.DEEP_MAX_RUNNING - await deep.going(session)
+    picks = await _pick(session, free=free, room=room, fed=fed)
+    for (by, author_id, max_pages), hosts in _by_requester(picks).items():
+        done = await launch(
+            session, hosts, by=by, job_id=job_id, enqueue=enqueue, max_pages=max_pages
+        )
         fed.busy += done.busy
         fed.failed += done.failed
         if done.failed:  # очередь не ответила — вернуть строки, проход повторит позже
-            await add(session, done.failed, by=by, author_id=author_id)
-        for host, run_id in done.queued.items():
-            fed.queued[host] = run_id
-            await AccessRepository(session).record(
-                AuditAction.RUN_STARTED,
-                author_id=author_id,
-                target=f"crawl:{run_id}",
-                details={"этап": "2 — обход донора", "донор": host, "как": "очередь загрузки"},
-            )
+            await add(session, done.failed, by=by, author_id=author_id, max_pages=max_pages)
+        await _journal_queued(session, done.queued, fed, author_id=author_id)
     if fed:
         logger.info(
             "очередь загрузки: поставлено %s, уже шли %s, снято %s, очередь не ответила %s",
@@ -189,6 +197,46 @@ async def feed(session: AsyncSession, *, workers: int, enqueue: Enqueue, job_id:
             len(fed.failed),
         )
     return fed
+
+
+async def _pick(
+    session: AsyncSession, *, free: int, room: int, fed: Fed
+) -> list[CrawlBacklogModel]:
+    """Строки очереди на этот проход: снимает негодных (`fed.dropped`) и выбранных — не больше
+    `free`, глубоких — не больше `room`. Предел глубоких выбран — их строк в проходе нет:
+    обычные доноры за ними не ждут, сколько бы их ни стояло."""
+    listed = select(CrawlBacklogModel).order_by(CrawlBacklogModel.id).limit(SCAN)
+    if room <= 0:
+        listed = listed.where(CrawlBacklogModel.max_pages.is_(None))
+    rows = list((await session.scalars(listed)).all())
+    if not rows:
+        return []
+    verdicts = _verdicts(await targets.choose(session, limit=None))
+    picks: list[CrawlBacklogModel] = []
+    for row in rows:
+        why = verdicts.get(row.host.lower(), _OTHER)
+        if why is not None:
+            fed.dropped[row.host] = why
+            await session.delete(row)
+        elif len(picks) < free and (row.max_pages is None or room > 0):
+            room -= row.max_pages is not None
+            picks.append(row)
+            await session.delete(row)
+    return picks
+
+
+async def _journal_queued(
+    session: AsyncSession, queued: dict[str, int], fed: Fed, *, author_id: int | None
+) -> None:
+    """Поставленные — в отчёт прохода и в журнал действий: строка на обход."""
+    for host, run_id in queued.items():
+        fed.queued[host] = run_id
+        await AccessRepository(session).record(
+            AuditAction.RUN_STARTED,
+            author_id=author_id,
+            target=f"crawl:{run_id}",
+            details={"этап": "2 — обход донора", "донор": host, "как": "очередь загрузки"},
+        )
 
 
 async def _counts(session: AsyncSession) -> tuple[int, int]:
@@ -204,11 +252,12 @@ async def _counts(session: AsyncSession) -> tuple[int, int]:
 
 def _by_requester(
     rows: Sequence[CrawlBacklogModel],
-) -> dict[tuple[str | None, int | None], list[str]]:
-    """Постановка — от имени того, кто велел обойти: у загрузок разных людей — свои вызовы."""
-    groups: dict[tuple[str | None, int | None], list[str]] = {}
+) -> dict[tuple[str | None, int | None, int | None], list[str]]:
+    """Постановка — от имени того, кто велел обойти, и с его потолком: у загрузок разных людей и
+    у глубоких — свои вызовы."""
+    groups: dict[tuple[str | None, int | None, int | None], list[str]] = {}
     for row in rows:
-        groups.setdefault((row.requested_by, row.author_id), []).append(row.host)
+        groups.setdefault((row.requested_by, row.author_id, row.max_pages), []).append(row.host)
     return groups
 
 

@@ -49,6 +49,27 @@ class _Crawl(DomainSettings):
     max_page_bytes: int = Field(default=3_000_000, validation_alias="CRAWL_MAX_PAGE_BYTES")
     page_timeout_sec: float = Field(default=15.0, validation_alias="CRAWL_PAGE_TIMEOUT_SEC")
 
+    # --- Глубокий обход (`crawl/deep.py`, 02.11.2026) ---
+    # Обойти донора заново не с потолком в тысячу страниц. Потолки двигаются вместе, как и
+    # у обычного обхода: без попыток он кончился бы на отказах, без адресов карты упёрся бы
+    # в её пять тысяч, а без срока — в три часа. Вдесятеро всё, кроме срока.
+    max_pages_deep: int = Field(default=10_000, gt=0, validation_alias="CRAWL_MAX_PAGES_DEEP")
+    max_attempts_deep: int = Field(default=20_000, gt=0, validation_alias="CRAWL_MAX_ATTEMPTS_DEEP")
+    max_sitemap_files_deep: int = Field(
+        default=200, gt=0, validation_alias="CRAWL_MAX_SITEMAP_FILES_DEEP"
+    )
+    max_sitemap_urls_deep: int = Field(
+        default=50_000, gt=0, validation_alias="CRAWL_MAX_SITEMAP_URLS_DEEP"
+    )
+    # Потолок срока: 10 000 страниц при паузе до пяти секунд и обычном ответе. Сайт с паузой
+    # дольше кончится «частично»: один донор не держит обходчик дольше этого.
+    max_seconds_deep: float = Field(
+        default=57_600.0, gt=0, validation_alias="CRAWL_MAX_SECONDS_DEEP"
+    )
+    # Сколько таких обходов идёт и ждёт разом: остальные обходчики остаются обычным обходам
+    # и человеку, иначе массовый запуск занял бы всех на сутки. Слово Anthony 02.11.2026.
+    deep_max_running: int = Field(default=4, gt=0, validation_alias="CRAWL_DEEP_MAX_RUNNING")
+
     # --- Ограничитель на домен ---
     # Пауза между запросами к одному хосту, меряется от конца предыдущего.
     # Crawl-delay из robots.txt сильнее этого значения, если он больше.
@@ -251,6 +272,12 @@ MAX_PAGES_PER_DONOR: int = _s.max_pages_per_donor
 MAX_ATTEMPTS_PER_DONOR: int = _s.max_attempts_per_donor
 MAX_SECONDS_PER_DONOR: float = _s.max_seconds_per_donor
 MAX_SECONDS_SLOW: float = _s.max_seconds_slow
+MAX_PAGES_DEEP: int = _s.max_pages_deep
+MAX_ATTEMPTS_DEEP: int = _s.max_attempts_deep
+MAX_SITEMAP_FILES_DEEP: int = _s.max_sitemap_files_deep
+MAX_SITEMAP_URLS_DEEP: int = _s.max_sitemap_urls_deep
+MAX_SECONDS_DEEP: float = _s.max_seconds_deep
+DEEP_MAX_RUNNING: int = _s.deep_max_running
 MAX_PAGE_BYTES: int = _s.max_page_bytes
 PAGE_TIMEOUT_SEC: float = _s.page_timeout_sec
 DELAY_SEC: float = _s.delay_sec

@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps import db_session, needs
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
-from backend.features.crawl import backlog
+from backend.features.crawl import backlog, deep
 from backend.features.donors.bulk_entry import Outcome, Report, Row, enter_many
 from backend.features.donors.bulk_file import MAX_BYTES, Line, read_table, template_csv
 from backend.shared.queue import CRAWL_QUEUE_NAME, workers_alive
@@ -72,6 +72,8 @@ class BacklogView(BaseModel):
     """Очередь загрузки обхода: сколько ждёт, сколько это займёт, сколько обходчиков."""
 
     waiting: int
+    #: Сколько из них — глубокие обходы (`crawl/deep.py`).
+    deep: int = 0
     #: Срок обойти всех ждущих, с, — по медиане последних обходов; `null` — обходчиков
     #: не знаем или их нет.
     eta_sec: float | None = None
@@ -121,8 +123,12 @@ async def _workers() -> int | None:
 async def _line(session: AsyncSession, more: int = 0) -> BacklogView:
     """Очередь загрузки сейчас — или какой она станет, если добавить `more`."""
     waiting, workers = await backlog.waiting(session) + more, await _workers()
+    long = await deep.waiting(session)
     return BacklogView(
-        waiting=waiting, eta_sec=await backlog.eta_sec(session, waiting, workers), workers=workers
+        waiting=waiting,
+        deep=long,
+        eta_sec=await backlog.eta_sec(session, waiting, workers, deep_rows=long),
+        workers=workers,
     )
 
 

@@ -88,15 +88,21 @@ async def save_crawl(session: AsyncSession, report: CrawlReport) -> CrawlRunMode
     return run
 
 
-async def queue_crawl(session: AsyncSession, host: str, *, by: str | None) -> CrawlRunModel:
+async def queue_crawl(
+    session: AsyncSession, host: str, *, by: str | None, max_pages: int | None = None
+) -> CrawlRunModel:
     """Завести обход в очереди — строкой до задачи, как прогон Этапа 1.
 
     Замок «один обход донора за раз» держит база (уникальный индекс по хосту
     среди незаконченных): две кнопки, нажатые разом, иначе завели бы два
     обхода одного сайта — двойная нагрузка на чужую машину и двойные ссылки.
+    `max_pages` — потолок глубокого обхода (`deep.py`); пусто — обычный.
     """
     run = CrawlRunModel(
-        host=host.lower().removeprefix("www."), status=CrawlStatus.QUEUED, requested_by=by
+        host=host.lower().removeprefix("www."),
+        status=CrawlStatus.QUEUED,
+        requested_by=by,
+        max_pages=max_pages,
     )
     try:
         async with session.begin_nested():

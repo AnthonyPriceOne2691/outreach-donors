@@ -203,6 +203,7 @@ class TestPlumbing:
         обход посреди страницы."""
         monkeypatch.setattr("backend.config.crawl.MAX_SECONDS_PER_DONOR", 3_600.0)
         monkeypatch.setattr("backend.config.crawl.MAX_SECONDS_SLOW", 10_800.0)
+        monkeypatch.setattr("backend.config.crawl.MAX_SECONDS_DEEP", 600.0)
         assert queue.crawl_job_timeout() == 10_800 + queue.CRAWL_JOB_MARGIN_SEC
 
         monkeypatch.setattr("backend.config.crawl.MAX_SECONDS_SLOW", 20_000.0)

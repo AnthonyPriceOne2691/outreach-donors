@@ -50,7 +50,7 @@ from backend.features.crawl.progress import Checkpoint, CrawlInterruptedError, P
 from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.robots import RobotsRules
 from backend.features.crawl.sitemap import SitemapScan
-from backend.features.crawl.sources import read_sources, start_frontier
+from backend.features.crawl.sources import read_sources, readers, start_frontier
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,7 @@ class DonorCrawler:
         max_attempts: int | None = None,
         max_seconds: float | None = None,
         max_seconds_slow: float | None = None,
+        sitemap_ceilings: tuple[int, int] | None = None,
     ) -> None:
         self._client = client
         self._limiter = limiter or DomainLimiter()
@@ -86,6 +87,7 @@ class DonorCrawler:
         )
         self._max_seconds = max_seconds if max_seconds is not None else cfg.MAX_SECONDS_PER_DONOR
         self._slow_cap = max_seconds_slow if max_seconds_slow is not None else cfg.MAX_SECONDS_SLOW
+        self._sitemap_ceilings = sitemap_ceilings  # файлов и адресов; свои — у глубокого
         # Срок донора по паузе сайта (`pace.py`); пусто — ещё не посчитан.
         self._budget: float | None = None
         self._clock = ResponseClock()
@@ -137,9 +139,7 @@ class DonorCrawler:
         # Срок общий на всего донора, а не на обход страниц: robots и карты
         # тоже запросы, и на сайте с длинной паузой они одни съедают минуты.
         found = await read_sources(
-            self._client,
-            self._limiter,
-            self._cascade.headers,
+            *readers(self._client, self._limiter, self._cascade.headers, self._sitemap_ceilings),
             host=host,
             home=home,
             rules=rules,

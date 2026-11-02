@@ -95,6 +95,8 @@ class CrawlLine:
     time_budget_sec: float | None = None
     #: Номер задачи очереди — по нему место ждущего обхода (`queue_state`).
     job_id: str | None = None
+    #: Свой потолок страниц глубокого обхода (`deep.py`); пусто — обычный, из настроек.
+    max_pages: int | None = None
 
     @classmethod
     def of(cls, run: CrawlRunModel) -> CrawlLine:
@@ -127,6 +129,7 @@ class CrawlLine:
             elapsed_sec=_seconds(stats.get("elapsed_sec")),
             time_budget_sec=_seconds(stats.get("time_budget_sec")),
             job_id=run.job_id,
+            max_pages=run.max_pages,
         )
 
 

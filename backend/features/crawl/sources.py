@@ -35,10 +35,25 @@ class Sources:
     fresh: list[str]
 
 
-async def read_sources(
+def readers(
     client: httpx.AsyncClient,
     limiter: DomainLimiter,
     headers: Mapping[str, str],
+    ceilings: tuple[int, int] | None = None,
+) -> tuple[SitemapReader, FeedReader]:
+    """Читатели карты и ленты обхода: запросы — под слотом ограничителя сайта и тем же именем,
+    что у страниц. `ceilings` — потолки карты, файлов и адресов; пусто — из настроек, свои — у
+    глубокого обхода (`deep.py`)."""
+    files, urls = ceilings or (None, None)
+    return (
+        SitemapReader(client, limiter, headers=headers, max_files=files, max_urls=urls),
+        FeedReader(client, limiter, headers=headers),
+    )
+
+
+async def read_sources(
+    sitemaps: SitemapReader,
+    feeds: FeedReader,
     *,
     host: str,
     home: FetchResult,
@@ -46,16 +61,13 @@ async def read_sources(
     point: Checkpoint,
     deadline: float,
 ) -> Sources:
-    """Карты, а если они не дали адресов у первой попытки, — лента. Запросы — под слотом
-    ограничителя сайта и тем же именем, что у страниц (`headers`); `deadline` — общий срок
+    """Карты, а если они не дали адресов у первой попытки, — лента; `deadline` — общий срок
     на донора."""
     html = home.html or ""
-    sitemaps = SitemapReader(client, limiter, headers=headers)
     hinted = declared_in_html(html, home.url, host)
     scan = await sitemaps.scan(host, home.url, rules.sitemaps, deadline=deadline, hinted=hinted)
     if point.pages or scan.urls:
         return Sources(scan, [])
-    feeds = FeedReader(client, limiter, headers=headers)
     fresh = await feeds.read(
         host, home.url, declared_feeds(html, home.url, host), deadline=deadline
     )

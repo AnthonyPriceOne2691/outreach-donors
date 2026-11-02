@@ -115,6 +115,8 @@ class CrawlRow(CrawlCeilings):
     time_budget_sec: float | None = None
     #: Место в очереди — у ждущего обхода, если маршрут спросил очередь.
     place: QueuePlace | None = None
+    #: Глубокий обход (`crawl/deep.py`): `max_pages` тогда — его свой потолок.
+    deep: bool = False
 
     @classmethod
     def of(
@@ -133,7 +135,7 @@ class CrawlRow(CrawlCeilings):
             outcome=line.outcome,
             stop_reason=line.stop_reason,
             pages=line.pages,
-            max_pages=max_pages,
+            max_pages=line.max_pages or max_pages,
             articles=line.articles,
             links=line.links,
             resumes=line.resumes,
@@ -152,6 +154,7 @@ class CrawlRow(CrawlCeilings):
             elapsed_sec=line.elapsed_sec,
             time_budget_sec=line.time_budget_sec,
             place=QueuePlace.of(line, queue, workers, held),
+            deep=line.max_pages is not None,
         )
 
 
@@ -258,3 +261,28 @@ class LaunchResult(BaseModel):
     failed: list[str]
     refused: dict[str, str]
     workers: int | None = None
+
+
+class DeepRules(BaseModel):
+    """Глубокий обход (`crawl/deep.py`) числами сервера — для подтверждения и «i»: сколько
+    страниц, сколько разом, что уже идёт и ждёт, и сколько это обычно занимает."""
+
+    max_pages: int
+    max_running: int
+    #: Идут и ждут обходчика сейчас.
+    going: int
+    #: Ждут в очереди загрузки.
+    waiting: int
+    #: Сколько обычно идёт один такой обход, с, и сколько может идти самое большее.
+    typical_sec: float
+    max_seconds: float
+
+
+class DeepResult(BaseModel):
+    """Что вышло из «Обойти заново»: встали в очередь загрузки, уже шли, не приняты и почему."""
+
+    asked: int
+    backlog: int
+    busy: list[str]
+    refused: dict[str, str]
+    rules: DeepRules

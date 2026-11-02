@@ -47,6 +47,9 @@ class CrawlRunModel(TimestampedMixin, Base):
     # жив ли воркер. Кто поставил — для журнала и экрана.
     job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     requested_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Свой потолок страниц глубокого обхода (`crawl/deep.py`); пусто — обычный, из настроек.
+    # В строке, а не в задаче: продолжение после выкатки и разбор мёртвых читают его отсюда.
+    max_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Сколько раз обход продолжали после смерти воркера. Остановка выкаткой
     # сюда не считается — она штатная и сама ставит продолжение.
     resumes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
@@ -159,3 +162,5 @@ class CrawlBacklogModel(TimestampedMixin, Base):
     author_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    #: Потолок страниц глубокого обхода (`crawl/deep.py`); пусто — обычный обход.
+    max_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
