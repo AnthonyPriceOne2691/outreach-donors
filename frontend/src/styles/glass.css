@@ -1916,10 +1916,6 @@ html:root .mantine-Pill-root {
   padding-inline: 6px;
 }
 
-.limitTable th {
-  white-space: normal !important;
-}
-
 .limitTable tbody tr.tierRow td {
   padding-block: 8px 6px;
   background: transparent;

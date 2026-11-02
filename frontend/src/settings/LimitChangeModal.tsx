@@ -111,9 +111,10 @@ export function LimitChangeModal({ row, field, onClose }: Props) {
     }
   };
   const askOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Enter' || fresh !== null) return;
+    if (event.key !== 'Enter') return;
+    // Подтверждает только кнопка: два Enter подряд не должны менять лимит, не дав прочитать ответ.
     event.preventDefault();
-    if (!quote.isPending) run();
+    if (fresh === null && !quote.isPending) run();
   };
 
   return (

@@ -304,6 +304,19 @@ describe('панель лимитов: окно', () => {
     expect(recorded.calls.map((call) => call.path)).not.toContain('/api/usage/limits/change');
   });
 
+  it('второй Enter лимит не меняет: подтверждает только кнопка', async () => {
+    const recorded = await openPanel({ [QUOTE_URL]: { body: QUOTED } });
+    const user = userEvent.setup();
+    const { dialog, field } = await openDialog();
+
+    await user.type(field, '{Enter}');
+    await within(dialog).findByText(QUOTED.words);
+    await user.type(field, '{Enter}');
+
+    expect(recorded.calls.map((call) => call.path)).not.toContain('/api/usage/limits/change');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
   it('подтверждение уходит с тем, что видел человек, а панель перечитывается', async () => {
     let reads = 0;
     const recorded = await openPanel({

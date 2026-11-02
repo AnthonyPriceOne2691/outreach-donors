@@ -31,9 +31,9 @@ const COLUMNS = [
   { title: 'Сервис и действие', width: '10.5rem' },
   { title: 'Охват', width: '6.75rem' },
   { title: 'Сессия', width: '5rem' },
-  { title: 'День', width: '5.5rem' },
+  { title: 'День', width: '6rem' },
   { title: 'Месяц', width: '5rem' },
-  { title: 'Выбрано', width: '6.5rem' },
+  { title: 'Выбрано', width: '6.25rem' },
   { title: 'Стоимость', width: '6.25rem' },
   { title: 'Текущее ограничение' },
   { title: 'Откуда значение', width: '6.5rem' },
@@ -222,8 +222,9 @@ export function LimitPanel() {
       <DataTable
         columns={COLUMNS}
         minWidth={MIN_WIDTH}
-        className="allCentered limitTable"
+        className="allCentered headsWrap limitTable"
         cardRow
+        sticky
         tail={TAIL}
         label="Панель лимитов"
       >
