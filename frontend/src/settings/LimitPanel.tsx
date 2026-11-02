@@ -130,7 +130,7 @@ interface RowProps {
 function Row({ row, onChange }: RowProps) {
   return (
     <Table.Tr>
-      <Table.Td data-label="Сервис и действие">
+      <Table.Td>
         <Text size="sm" fw={500}>
           {row.unit === '$' ? row.service : `${row.service}, ${row.unit}`}
         </Text>

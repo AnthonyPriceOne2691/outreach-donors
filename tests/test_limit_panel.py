@@ -175,6 +175,27 @@ class TestAccess:
         assert refused.status_code == 403
         assert "«Продажи»" in refused.json()["detail"]
 
+    async def test_without_the_advertisers_right_the_panel_has_no_stage_two(
+        self, client: AsyncClient, make_user: MakeUser, sign_in: SignIn
+    ) -> None:
+        """Расход Этапа 2 и его потолок — только с правом «Рекламодатели», как на «Расходе»."""
+        admin = await make_user(
+            "без-этапа@team.example.test", role=UserRole.ADMIN, permissions={"advertisers": False}
+        )
+        token = await sign_in(admin.email)
+
+        rows = await _panel(client, token)
+        refused = await client.post(
+            QUOTE,
+            json={"key": "outreach.advertisers.crawl.paid", "field": "per_month", "value": 5},
+            headers=bearer(token),
+        )
+
+        assert not [key for key in rows if key.startswith("outreach.advertisers.")]
+        assert "outreach.donors.mail.first" in rows
+        assert refused.status_code == 403
+        assert "«Рекламодатели»" in refused.json()["detail"]
+
     async def test_the_ahrefs_cap_keeps_its_own_right(
         self, client: AsyncClient, session: AsyncSession, make_user: MakeUser, sign_in: SignIn
     ) -> None:

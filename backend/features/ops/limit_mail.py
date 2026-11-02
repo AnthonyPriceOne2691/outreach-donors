@@ -228,7 +228,13 @@ def _box_row(lane: _Lane, own: Sequence[SenderModel], facts: _Facts) -> LimitRow
         per_day=cfg.DAILY_CAP_PER_SENDER,
         used_day=max((facts.sent.get(box.id, 0) for box in own), default=0),
         cost_note=COST_NOTE,
-        now=_joined(_steps_words(own, facts), pace, "Выбрано — самый занятый ящик", NEVER),
+        now=_joined(
+            _steps_words(own, facts),
+            pace,
+            f"{lane.window_words} {lane.window.words}",
+            "Выбрано — самый занятый ящик",
+            NEVER,
+        ),
         source=f".env OUTREACH_DAILY_CAP_PER_SENDER, {lane.gap_setting}",
     )
 
