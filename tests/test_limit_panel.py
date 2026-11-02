@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -24,6 +25,7 @@ from backend.config import outreach as outreach_cfg
 from backend.config import sales as sales_cfg
 from backend.config import serp as serp_cfg
 from backend.features.access.permissions import no_right
+from backend.features.access.repository import AccessRepository
 from backend.features.core import llm_caps, usage
 from backend.features.core.domain import (
     AuditAction,
@@ -56,7 +58,8 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer, make_donor
-from tests.test_ahrefs_cap import KEY, known_key
+from tests.test_ahrefs_cap import KEY, _waiting_for_a_lock, known_key
+from tests.test_send_race import committed_sessions
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -800,6 +803,40 @@ class TestChange:
             "кап Ahrefs": {"было": "весь лимит ключа", "стало": 7000},
             "лимит ключа": KEY,
         }
+
+
+async def test_two_changes_at_once_do_not_overwrite_each_other() -> None:
+    """Панель меняет одно число, а сеттер пишет блок целиком: без замка вторая смена прочла бы блок
+    до фиксации первой и вернула бы её часть назад. Замок берётся до чтения блока."""
+    async with committed_sessions() as factory:
+        async with factory() as setup:
+            author = await AccessRepository(setup).create(
+                email="гонка@team.example.test", password="пароль-для-теста", role=UserRole.ADMIN
+            )
+            await llm_caps.set_llm_caps(setup, SAVED, author=author)
+            await setup.commit()
+
+        async with factory() as first, factory() as second:
+            await limit_model.change(first, "sales.llm", "per_day", 15 * M, author)
+            later = asyncio.create_task(
+                limit_model.change(second, "outreach.agent.llm", "per_day", 15 * M, author)
+            )
+            for _ in range(100):
+                if await _waiting_for_a_lock(factory):
+                    break
+                await asyncio.sleep(0.05)
+            else:
+                later.cancel()
+                pytest.fail("вторая смена не ждала замка первой")
+            assert not later.done()
+            await first.commit()
+            await asyncio.wait_for(later, timeout=10)
+            await second.commit()
+
+        async with factory() as check:
+            await llm_caps.refresh(check)
+
+    assert llm_caps.block() == Block(50 * M, 30, 30, 30)
 
 
 class TestAssembly:

@@ -41,7 +41,7 @@ def _limit_panel(norm: float, big: float) -> list[tuple[str, str, float]]:
     return [
         ("заголовок экрана", "h3", big),
         ("вкладка", USAGE_TAB, norm),
-        ("задача", ".limitTable .tierRow p", norm),
+        ("задача", ".limitTable .tierRow span", norm),
         ("сервис", f"{cell}:nth-child(1) p:nth-child(1)", norm),
         ("действие", f"{cell}:nth-child(1) p:nth-child(2)", norm),
         ("охват", f"{cell}:nth-child(2) p", norm),

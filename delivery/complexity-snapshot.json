@@ -2227,7 +2227,7 @@
       "worst": "day_start:55"
     },
     "backend/features/ops/limit_mail.py": {
-      "lines": 264,
+      "lines": 270,
       "complexity": 10,
       "worst": "_domains_words:151"
     },
