@@ -2,20 +2,17 @@
 
 Сеть подменена: тест решает, что ответил DNS, а путь письма настоящий — отправка, пачка, проход
 автоотправки, проход добивок, ручка. Держат три вещи: письмо не ушло и ящик не занят; домен не
-спрашивается на каждое письмо; молчание не держит письмо вечно и не держит очередь, когда спросить
-некого.
+спрашивается на каждое письмо; молчание не держит письмо вечно и не держит очередь, когда слепы мы
+сами (сверка контрольными именами — `tests/test_recipient_dns_sight.py`).
 """
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, time, timedelta
 
 import pytest
-from backend.config import contacts as contacts_cfg
 from backend.config import outreach as outreach_cfg
-from backend.features.contacts import mx
 from backend.features.contacts.mx import MailRoute
 from backend.features.core.domain import MessageStatus, Stage, UserRole
 from backend.features.core.models.access import UserModel
@@ -91,8 +88,8 @@ class TestTheQuestion:
     ) -> None:
         """«Домена нет» и «почты нет» — ответы: такому письму здесь не мешают."""
 
-        async def said(_host: str, *, dns_timeout_sec: float | None = None) -> MailRoute:
-            return route
+        async def said(host: str, *, dns_timeout_sec: float | None = None) -> MailRoute:
+            return route if host == HOST else MailRoute.MX
 
         monkeypatch.setattr(recipient_dns, "mail_route", said)
 
@@ -120,7 +117,7 @@ class TestTheQuestion:
 
         assert all(held)
         assert again
-        assert dns.asked == [HOST, HOST]
+        assert dns.asked.count(HOST) == 2
 
     async def test_the_domain_that_answered_is_forgotten(self, dns: Dns) -> None:
         dns.silent.add(HOST)
@@ -155,29 +152,6 @@ class TestTheQuestion:
         # И между проверками, и на следующем вопросе: срок один.
         assert await recipient_dns.holds(ADDRESS, now=over + timedelta(minutes=1)) is False
         assert await recipient_dns.holds(ADDRESS, now=over + recipient_dns.RECHECK) is False
-
-    async def test_nobody_to_ask_holds_nothing(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        dns: Dns,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Системный резолвер выключен на процесс, запасных нет: «молчит» — наша слепота, и держать
-        из-за неё очередь нельзя. Журнал говорит это раз на процесс, а не на письмо."""
-        dns.silent.add(HOST)
-        health = mx._ResolverHealth()
-        for _ in range(mx.SYSTEM_FAILURES_BEFORE_SKIP):
-            health.note_failure()
-        monkeypatch.setattr(mx, "health", health)
-        monkeypatch.setattr(contacts_cfg, "DNS_FALLBACK", " , ")
-
-        with caplog.at_level(logging.WARNING, logger=recipient_dns.__name__):
-            first = await recipient_dns.holds(ADDRESS, now=NOW)
-            second = await recipient_dns.holds(ADDRESS, now=NOW)
-
-        assert (first, second) == (False, False)
-        assert dns.asked == []
-        assert sum("спросить некого" in row.message for row in caplog.records) == 1
 
 
 class TestTheLetter:

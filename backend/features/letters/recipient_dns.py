@@ -20,10 +20,19 @@
 **Не держим вечно.** Домен молчит дольше `LONGEST` — он не лежит, а умер: письмо идёт обычным
 путём и получает свой отказ, а не стоит в начале очереди навсегда.
 
-**Слепым не судят.** Системный резолвер, отказавший трижды подряд, `mx.health` выключает на весь
-процесс, а запасные — настройка (`CONTACTS_DNS_FALLBACK`). Запасных нет — спросить некого, и
-«молчит» здесь значит только нашу слепоту: держать из-за неё всю очередь нельзя, письма идут
-обычным путём, журнал говорит почему.
+**Слепым не судят** (замечание ревью продаж). Упади наш собственный резолвер — молчать станут все
+домены разом: все письма ждут, отказов нет, тревоги нет, рассылка стоит молча. Поломка, которая
+выглядит как тишина. Поэтому молчащий домен сверяется контрольными именами (`CONTROLS`): большие
+домены с разными поставщиками DNS. Ответил хоть один — сбой чужой, письмо ждёт. Молчат оба — слепы
+мы: письма идут обычным путём, журнал говорит что проверить, раз на сбой, а молчание доменов не
+запоминается, и записанное раньше забывается: оно могло быть нашим.
+
+Ответ сверки живёт `RECHECK`: она стоит секунд, а письмо спрашивает о ней каждое. Пока мы слепы,
+письма и своего домена не спрашивают. Слепота кончается сама: срок ответа вышел — сверка спрашивает
+снова. Для этого слепой проход возвращает системный резолвер: отказавший трижды подряд, он выключен
+на весь процесс (`mx.health`) и сам не вернётся, потому что его больше не спрашивают, а запасные —
+настройка, и их может не быть (`CONTACTS_DNS_FALLBACK`). Системный выключен, а запасные отвечают —
+сверка отвечает честно: запасные слышат контрольные имена и не слышат домен в сбое.
 """
 
 from __future__ import annotations
@@ -32,7 +41,6 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from backend.config import contacts as contacts_cfg
 from backend.features.contacts import mx
 from backend.features.contacts.mx import MailRoute, mail_route
 
@@ -42,7 +50,11 @@ logger = logging.getLogger(__name__)
 #: за доли секунды. Умолчание ступени поиска адреса (5 с) рассчитано на прогон, а не на письмо.
 ASK_SEC = 2.0
 
-#: Как часто спрашивать о молчащем домене.
+#: Контрольные имена: большие домены с разными поставщиками DNS (Google и Azure). Молчат оба —
+#: дело не в них, а в нас.
+CONTROLS = ("gmail.com", "outlook.com")
+
+#: Как часто спрашивать о молчащем домене и сколько живёт ответ контрольных имён.
 RECHECK = timedelta(minutes=15)
 
 #: На сколько откладывается добивка: срок у неё один, и спрашивать раньше незачем.
@@ -60,12 +72,21 @@ class _Silence:
     next_check: datetime
 
 
+@dataclass(slots=True)
+class _Sight:
+    """Что сказала сверка контрольными именами и до какой минуты этому верить."""
+
+    sees: bool
+    until: datetime
+
+
 @dataclass
 class Memory:
-    """Молчащие домены этого процесса; тесты начинают с пустой (`tests/conftest.py`)."""
+    """Что знает этот процесс; тесты начинают с пустой (`tests/conftest.py`)."""
 
     silent: dict[str, _Silence] = field(default_factory=dict)
-    #: Журнал уже сказал, что спросить некого: говорится раз на процесс, а не на письмо.
+    sight: _Sight | None = None
+    #: Журнал уже сказал о слепоте: говорится раз на сбой, а не на письмо.
     told_blind: bool = False
 
 
@@ -77,23 +98,55 @@ def domain_of(email: str) -> str:
     return email.rpartition("@")[2].strip().lower()
 
 
-def _blind() -> bool:
-    """Спросить некого: системный резолвер выключен на процесс, запасных нет (шапка модуля)."""
-    if mx.health.system_is_trusted or contacts_cfg.DNS_FALLBACK.strip(" ,"):
-        return False
+def _blind(now: datetime) -> bool:
+    """Сверка сказала «слепы», и срок её ответа не вышел: спрашивать незачем."""
+    sight = MEMORY.sight
+    return sight is not None and not sight.sees and now < sight.until
+
+
+async def _control_answered() -> bool:
+    """Ответило ли контрольное имя: любой ответ DNS, а не только запись почты."""
+    for host in CONTROLS:
+        if await mail_route(host, dns_timeout_sec=ASK_SEC) is not MailRoute.UNKNOWN:
+            return True
+    return False
+
+
+def _heard(sees: bool) -> None:
+    """Свежий ответ сверки. Слепы — память о молчании не в счёт, системному резолверу новый шанс,
+    журнал — раз на сбой; прозрели — следующий сбой журнал скажет снова."""
+    if sees:
+        if MEMORY.told_blind:
+            MEMORY.told_blind = False
+            logger.info("письма: контрольные имена снова отвечают — DNS получателей проверяется")
+        return
+    MEMORY.silent.clear()
+    mx.health.reset()
     if not MEMORY.told_blind:
         MEMORY.told_blind = True
         logger.warning(
-            "письма: DNS получателей спросить некого — системный резолвер отключён, "
-            "CONTACTS_DNS_FALLBACK пуст: письма идут без проверки, проверить настройку и сеть"
+            "письма: DNS получателей спросить некого — молчат и контрольные имена (%s): письма "
+            "идут без проверки. Проверить сеть сервера, резолвер контейнера и "
+            "CONTACTS_DNS_FALLBACK",
+            ", ".join(CONTROLS),
         )
-    return True
+
+
+async def _we_see(now: datetime) -> bool:
+    """Отвечает ли DNS нам вообще: домен молчит, и надо знать — он или мы. Ответ живёт `RECHECK`."""
+    sight = MEMORY.sight
+    if sight is None or now >= sight.until:
+        sight = _Sight(sees=await _control_answered(), until=now + RECHECK)
+        MEMORY.sight = sight
+        _heard(sight.sees)
+    return sight.sees
 
 
 async def holds(email: str, *, now: datetime) -> bool:
-    """Держать ли письмо на адрес `email`: DNS его домена молчит, и не дольше `LONGEST`."""
+    """Держать ли письмо на адрес `email`: DNS его домена молчит, контрольные имена отвечают, и
+    не дольше `LONGEST`."""
     host = domain_of(email)
-    if not host or _blind():
+    if not host or _blind(now):
         return False
     known = MEMORY.silent.get(host)
     if known is not None and now < known.next_check:
@@ -101,6 +154,8 @@ async def holds(email: str, *, now: datetime) -> bool:
     route = await mail_route(host, dns_timeout_sec=ASK_SEC)
     if route is not MailRoute.UNKNOWN:
         MEMORY.silent.pop(host, None)
+        return False
+    if not await _we_see(now):
         return False
     since = now if known is None else known.since
     MEMORY.silent[host] = _Silence(since=since, next_check=now + RECHECK)
