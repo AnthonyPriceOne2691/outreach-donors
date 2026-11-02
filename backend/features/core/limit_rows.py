@@ -84,7 +84,7 @@ class LimitRefusedError(ValueError):
 class RowSource(Protocol):
     """Откуда панель берёт строки. Модуль подходит сам: функцией `rows`."""
 
-    async def rows(self, session: AsyncSession) -> list[LimitRow]:
+    async def rows(self, session: AsyncSession, /) -> list[LimitRow]:
         """Строки на эту минуту — по журналу расхода и снимкам, без вызовов провайдеров."""
         ...
 
@@ -96,12 +96,12 @@ class LimitSource(RowSource, Protocol):
     для поля из `LimitRow.editable`.
     """
 
-    async def quote(self, session: AsyncSession, key: str, field: str, value: int) -> Quote:
+    async def quote(self, session: AsyncSession, key: str, field: str, value: int, /) -> Quote:
         """Просчёт нового значения. Ничего не пишет."""
         ...
 
     async def change(
-        self, session: AsyncSession, key: str, field: str, value: int, author: UserModel
+        self, session: AsyncSession, key: str, field: str, value: int, author: UserModel, /
     ) -> None:
         """Смена: сама повторяет `quote` и бросает `LimitRefusedError` словами отказа. История и
         журнал — в существующих сеттерах; фиксирует вызывающий, одной транзакцией со сменой."""

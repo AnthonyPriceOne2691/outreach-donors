@@ -58,7 +58,8 @@ from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import selection_settings
 from backend.features.donors.geo import assert_settings_allow_limited_fetch
-from backend.features.runs.ahrefs_cap import cap_changes, cap_words, key_cap, set_ahrefs_cap
+from backend.features.ops import cap_journal
+from backend.features.runs.ahrefs_cap import cap_changes, key_cap, set_ahrefs_cap
 from backend.features.runs.ahrefs_key import remember
 from backend.features.runs.spending import SpendingRepository, crawl_spent_this_month
 from backend.features.runs.thresholds import (
@@ -282,17 +283,7 @@ async def change_ahrefs_cap(
     ключа — отказ словами до записи (`runs/ahrefs_cap.py`).
     """
     done = await set_ahrefs_cap(session, body.units_cap, author=author)
-    details: dict[str, object] = {
-        "кап Ahrefs": {"было": cap_words(done.was), "стало": cap_words(done.change.units_cap)}
-    }
-    if done.size is not None:
-        details["лимит ключа"] = done.size
-    await AccessRepository(session).record(
-        AuditAction.AHREFS_CAP_CHANGED,
-        author_id=author.id,
-        target=f"ahrefs_cap:{done.change.id}",
-        details=details,
-    )
+    await cap_journal.ahrefs_cap(session, done, author)
     await session.commit()
     return CapChangeCard.of(done.change)
 
@@ -322,17 +313,7 @@ async def change_llm_caps(
     if current is None or current.sales != wanted.sales:
         require_stage(actor(author), Stage.SALES, "Лимит продаж")
     done = await llm_caps.set_llm_caps(session, wanted, author=author)
-    await AccessRepository(session).record(
-        AuditAction.LLM_CAP_CHANGED,
-        author_id=author.id,
-        target=f"llm_caps:{done.change.id}",
-        details={
-            "потолки модели": {
-                "было": llm_caps.block_words(done.was),
-                "стало": llm_caps.block_words(wanted),
-            }
-        },
-    )
+    await cap_journal.llm_block(session, done, author)
     await session.commit()
     await llm_caps.refresh(session)
     return LlmCapChangeCard.of(done.change)
@@ -360,18 +341,7 @@ async def change_hunter_cap(
     found = await hunter_snapshot(session)
     ceiling = None if found is None else int(found.account.verifications.available)
     done = await hunter_cap.set_verify_cap(session, body.verify_cap, ceiling=ceiling, author=author)
-    await AccessRepository(session).record(
-        AuditAction.HUNTER_CAP_CHANGED,
-        author_id=author.id,
-        target=f"hunter_cap:{done.change.id}",
-        details={
-            "потолок проверок адреса": {
-                "было": hunter_cap.cap_words(done.was),
-                "стало": hunter_cap.cap_words(done.change.verify_cap),
-            }
-        },
-        stage=Stage.SALES,
-    )
+    await cap_journal.hunter_verify_cap(session, done, author)
     await session.commit()
     return HunterCapChangeCard.of(done.change)
 

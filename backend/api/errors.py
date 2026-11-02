@@ -1,13 +1,11 @@
 """Перевод отказов ядра в ответы HTTP.
 
-Зачем отдельно: обработчику иначе пришлось бы ловить каждое исключение
-руками, и однажды один из них забудут — маршрут ответит пятисоткой там,
-где отказ был предусмотрен. Ядро при этом остаётся без веба: коды
-знает только этот файл.
+Зачем отдельно: обработчику иначе пришлось бы ловить каждое исключение руками, и однажды один из
+них забудут — маршрут ответит пятисоткой там, где отказ был предусмотрен. Ядро при этом остаётся
+без веба: коды знает только этот файл.
 
-**Текст отказа доходит до человека целиком.** Сообщения ядра написаны
-так, чтобы говорить, что делать; заменять их на «Bad Request» значит
-выбрасывать ровно ту часть, ради которой они писались.
+**Текст отказа доходит до человека целиком.** Сообщения ядра написаны так, чтобы говорить, что
+делать; заменять их на «Bad Request» значит выбрасывать ровно ту часть, ради которой они писались.
 
 **Отказ разбора запроса (422) — тоже по-русски.** Экран показывает первую
 строку списка как есть, и умолчание FastAPI давало «Input should be a valid
@@ -58,6 +56,7 @@ from backend.features.contacts.manual import (
 )
 from backend.features.contacts.repository import SearchRefusedError
 from backend.features.core.hunter_cap import HunterCapError
+from backend.features.core.limit_rows import LimitRefusedError
 from backend.features.core.llm_caps import LlmCapError
 from backend.features.core.stages import SalesNotConnectedError
 from backend.features.core.usage import LlmCapExceededError
@@ -200,6 +199,7 @@ STATUSES: dict[type[Exception], int] = {
     CapRangeError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     LlmCapError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     HunterCapError: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    LimitRefusedError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     CapUnknownError: status.HTTP_503_SERVICE_UNAVAILABLE,
     # Счёт выдачи меньше порога или сметы — состояние: поможет пополнение, а не правка
     # запроса (16.10.2026).
