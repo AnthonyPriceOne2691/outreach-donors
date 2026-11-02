@@ -13,12 +13,15 @@
 здесь не считаются.
 
 **Продающая ссылка — ссылка на домен с вердиктом скоринга «куплено»**: это мера обхода, и решение
-человека её не меняет. Ссылок — сумма `links` кандидатов обхода. Доля — страницы с такой ссылкой
-от просканированных, а не ссылки от страниц: витрина с пятью офферами на каждой странице дала бы
-500 %. Страницы считает пересчёт кандидатов и кладёт в `stats` обхода (`gate.selling_pages`):
-читать их из `outlinks` на каждое открытие значило бы проходить сотни тысяч строк. У обхода,
-посчитанного раньше этого числа, его нет: доля идёт по тем, у кого есть, а таких нет — она пуста,
-а не ноль (ноль — «искали и не нашли»).
+человека её не меняет. Доля — страницы с такой ссылкой от просканированных, а не ссылки от страниц:
+витрина с пятью офферами на каждой странице дала бы 500 %.
+
+**Оба числа лежат на обходе** (`stats`, `gate.selling_stats`), их кладёт пересчёт кандидатов.
+Читать страницы из `outlinks` на каждое открытие значило бы проходить сотни тысяч строк, а брать
+ссылки у кандидатов нельзя: кандидатов заменит следующий обход донора, и у прошлого дня ссылки
+обнулились бы, а страницы остались. У обхода, посчитанного раньше этих чисел, их нет: итог идёт по
+тем, у кого есть, а таких нет — он пуст, а не ноль (ноль — «искали и не нашли»). Дополняет их
+бесплатно `outreach advertisers --pages-only` (`selling_backfill.py`).
 """
 
 from __future__ import annotations
@@ -44,7 +47,7 @@ from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.crawl import CrawlRunModel, DonorLoadHostModel, DonorLoadModel
 from backend.features.crawl import board
-from backend.features.crawl.gate import SELLING_PAGES, usable
+from backend.features.crawl.gate import SELLING_LINKS, SELLING_PAGES, usable
 from backend.features.crawl.panel import ZONE, load_hosts
 
 #: Строк качества и доменов строки на странице: размер называет сервер, экран берёт его из ответа.
@@ -72,8 +75,9 @@ class QualityRow:
     #: Доноров с пригодным обходом.
     scanned: int
     pages: int
-    selling_links: int
-    #: Страниц с продающей ссылкой — у обходов, где это число есть.
+    #: Продающих ссылок — у обходов, где это число есть; ни у одного нет — пусто.
+    selling_links: int | None
+    #: Страниц с продающей ссылкой — у тех же обходов.
     selling_pages: int
     #: Доля таких страниц от просканированных; нет числа ни у одного обхода — пусто.
     share: float | None
@@ -157,24 +161,18 @@ async def _row(
     runs = (
         await session.execute(
             select(
-                CrawlRunModel.id,
                 CrawlRunModel.pages_opened,
                 CrawlRunModel.stats[SELLING_PAGES].as_integer(),
+                CrawlRunModel.stats[SELLING_LINKS].as_integer(),
             )
             .where(*scope, usable())
             .distinct(CrawlRunModel.host)
             .order_by(CrawlRunModel.host, CrawlRunModel.id.desc())
         )
     ).all()
-    ids = [run for run, _, _ in runs]
-    links = await session.scalar(
-        select(func.coalesce(func.sum(CandidateModel.links), 0)).where(
-            CandidateModel.crawl_run_id.in_(ids), CandidateModel.verdict == Verdict.BOUGHT
-        )
-    )
-    known = [(pages, selling) for _, pages, selling in runs if selling is not None]
-    known_pages = sum(pages for pages, _ in known)
-    selling_pages = sum(selling for _, selling in known)
+    known = [line for line in runs if line[1] is not None and line[2] is not None]
+    known_pages = sum(pages for pages, _, _ in known)
+    selling_pages = sum(selling for _, selling, _ in known)
     if load is not None:
         hosts = select(DonorLoadHostModel.host).where(DonorLoadHostModel.load_id == load.id)
     else:
@@ -190,8 +188,8 @@ async def _row(
         donors=int(donors),
         host=first if donors == 1 else None,
         scanned=len(runs),
-        pages=sum(pages for _, pages, _ in runs),
-        selling_links=int(links or 0),
+        pages=sum(pages for pages, _, _ in runs),
+        selling_links=sum(links for _, _, links in known) if known else None,
         selling_pages=selling_pages,
         share=selling_pages / known_pages if known_pages else None,
     )

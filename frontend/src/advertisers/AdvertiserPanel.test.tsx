@@ -76,7 +76,7 @@ const HAND_ROW: QualityRow = {
   host: 'hand.example.test',
   scanned: 1,
   pages: 10,
-  selling_links: 0,
+  selling_links: null,
   selling_pages: 0,
   share: null,
 };
@@ -280,7 +280,8 @@ describe('качество загрузок', () => {
     expect(within(file).getByText('1%')).toBeVisible();
 
     const hand = screen.getByText('вручную: hand.example.test').closest('tr') as HTMLElement;
-    expect(within(hand).getByText('—')).toBeVisible();
+    // Чисел нет — прочерки: ноль сказал бы «искали и не нашли».
+    expect(within(hand).getAllByText('—')).toHaveLength(2);
     expect(within(hand).queryByRole('button')).toBeNull();
 
     const day = screen.getByText('обход без загрузки').closest('tr') as HTMLElement;

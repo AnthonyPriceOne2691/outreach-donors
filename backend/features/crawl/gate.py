@@ -38,6 +38,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -74,9 +75,11 @@ USABLE_OUTCOMES = (CrawlOutcome.OK, CrawlOutcome.PARTIAL)
 #: Строк памяти за один запрос: у запроса не больше 32 767 параметров, у строки их семь.
 MEMORY_CHUNK = 1000
 
-#: Ключ в `stats` обхода: страниц со ссылкой на домен «куплено» (`selling_pages`). У обхода,
-#: посчитанного раньше этого числа, ключа нет: его дополнит следующий пересчёт.
+#: Ключи в `stats` обхода: страниц со ссылкой на домен «куплено» и самих таких ссылок
+#: (`selling_stats`). У обхода, посчитанного раньше этих чисел, ключей нет: их дополнит
+#: `outreach advertisers --pages-only` (`crawl/selling_backfill.py`) или следующий пересчёт.
 SELLING_PAGES = "selling_pages"
+SELLING_LINKS = "selling_links"
 
 
 def usable() -> ColumnElement[bool]:
@@ -227,17 +230,17 @@ async def _rate(candidates: list[Candidate], previous: _Previous, ratings: Ratin
         logger.info("кандидаты: крупных сайтов (DR > 80) отсеяно %s", blocked)
 
 
-def selling_pages(links: list[OutLink], candidates: list[Candidate]) -> int:
-    """Разных страниц обхода со ссылкой на домен с вердиктом «куплено»: витрина с пятью
-    рекламодателями — одна страница. Страницы — правилом скоринга (`advertiser_pages`): сеть
-    партнёрок — к рекламодателю, документы не в счёт. Решение человека числа не меняет: это
-    мера обхода, как и вердикт. Позже него — потому что «DR > 80» снимает «куплено»."""
+def selling_stats(links: Sequence[OutLink], bought: Mapping[str, int]) -> dict[str, int]:
+    """Продающие ссылки обхода числами для `stats`: `bought` — домен с вердиктом «куплено» и
+    сколько у него ссылок. Страницы — разные: витрина с пятью рекламодателями — одна; правилом
+    скоринга (`advertiser_pages`): сеть партнёрок — к рекламодателю, документы не в счёт. Это мера
+    обхода, как и вердикт: решение человека чисел не меняет. Оба числа — на обходе, а не на
+    кандидатах: кандидатов заменит следующий обход, а итог этого должен остаться."""
     pages = advertiser_pages(links)
     found: set[str] = set()
-    for candidate in candidates:
-        if candidate.verdict is Verdict.BOUGHT:
-            found |= pages.get(candidate.target_root, frozenset())
-    return len(found)
+    for root in bought:
+        found |= pages.get(root, frozenset())
+    return {SELLING_PAGES: len(found), SELLING_LINKS: sum(bought.values())}
 
 
 async def judge_run(
@@ -277,13 +280,14 @@ async def judge_run(
     previous = await _previous(session, run.host)
     await _rate(candidates, previous, ratings)
     await _replace_candidates(session, run, candidates, previous)
-    # Каким порогом судили: веса меняются окружением, а пересчёт переписывает вердикт. Страницы
-    # с продающей ссылкой — здесь, где ссылки уже в памяти: панели читать их из `outlinks` на
-    # каждое открытие значило бы проходить таблицу в сотни тысяч строк.
+    # Каким порогом судили: веса меняются окружением, а пересчёт переписывает вердикт. Продающие
+    # ссылки — здесь, после «DR > 80», который снимает «куплено», и там, где ссылки уже в памяти:
+    # панели читать их из `outlinks` на каждое открытие значило бы проходить сотни тысяч строк.
+    bought = {c.target_root: c.links for c in candidates if c.verdict is Verdict.BOUGHT}
     run.stats = {
         **(run.stats or {}),
         "scored_with": snapshot(),
-        SELLING_PAGES: selling_pages(links, candidates),
+        **selling_stats(links, bought),
     }
     await session.flush()
     logger.info(

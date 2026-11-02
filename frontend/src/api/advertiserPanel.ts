@@ -65,9 +65,10 @@ export interface QualityRow {
   host: string | null;
   scanned: number;
   pages: number;
-  selling_links: number;
+  /** Продающих ссылок; пусто — у обходов строки этого числа ещё нет. */
+  selling_links: number | null;
   selling_pages: number;
-  /** Доля страниц с продающей ссылкой; пусто — у обходов строки этого числа ещё нет. */
+  /** Доля страниц с продающей ссылкой; пусто — по той же причине. */
   share: number | null;
 }
 

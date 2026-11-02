@@ -33,11 +33,10 @@ from backend.features.core.models.crawl import (
     OutLinkModel,
 )
 from backend.features.core.models.ops import SuppressionModel
-from backend.features.crawl import gate, load_quality, loads, panel
+from backend.features.crawl import gate, load_quality, loads, panel, selling_backfill
 from backend.features.crawl.acceptance import Tally
 from backend.features.crawl.links import OutLink
 from backend.features.crawl.panel import DonorSteps, Range, Window
-from backend.features.crawl.scoring import Candidate
 from backend.features.donors.bulk_entry import Outcome, Report, Row
 from httpx import AsyncClient
 from sqlalchemy import func, select, text
@@ -342,7 +341,7 @@ def _outlink(page: str, root: str) -> OutLink:
     )
 
 
-def test_selling_pages_count_a_showcase_once() -> None:
+def test_selling_numbers_count_a_showcase_once() -> None:
     """Витрина с двумя рекламодателями — одна страница; спорный страниц не добавляет."""
     links = [
         _outlink("https://donor.test/a", "one.test"),
@@ -350,13 +349,11 @@ def test_selling_pages_count_a_showcase_once() -> None:
         _outlink("https://donor.test/b", "two.test"),
         _outlink("https://donor.test/c", "maybe.test"),
     ]
-    candidates = [
-        Candidate("one.test", 5, Verdict.BOUGHT),
-        Candidate("two.test", 5, Verdict.BOUGHT),
-        Candidate("maybe.test", 2, Verdict.PENDING),
-    ]
 
-    assert gate.selling_pages(links, candidates) == 2
+    assert gate.selling_stats(links, {"one.test": 1, "two.test": 2}) == {
+        gate.SELLING_PAGES: 2,
+        gate.SELLING_LINKS: 3,
+    }
 
 
 async def test_judging_a_crawl_keeps_its_selling_pages(session: AsyncSession) -> None:
@@ -380,13 +377,17 @@ async def test_judging_a_crawl_keeps_its_selling_pages(session: AsyncSession) ->
     await gate.judge_run(session, run.id)
 
     assert (run.stats or {})[gate.SELLING_PAGES] == 2
+    assert (run.stats or {})[gate.SELLING_LINKS] == 2
 
 
 async def _quality_run(
     session: AsyncSession, host: str, moment: datetime, *, pages: int, selling: int | None
 ) -> CrawlRunModel:
+    """Обход с числами пересчёта: страниц с продающей ссылкой `selling`, ссылок — вдвое больше."""
     run = await _at(session, await crawled(session, host, pages=pages), moment)
-    run.stats = {} if selling is None else {gate.SELLING_PAGES: selling}
+    run.stats = (
+        {} if selling is None else {gate.SELLING_PAGES: selling, gate.SELLING_LINKS: selling * 2}
+    )
     await session.flush()
     return run
 
@@ -395,19 +396,16 @@ async def test_quality_of_a_load_is_by_the_last_usable_crawl(session: AsyncSessi
     """Повтор заменяет итог, неудачный повтор — нет, и два обхода не складываются."""
     await _load(session, [DONOR, OTHER, "idle.example.test"], TODAY)
     await _quality_run(session, DONOR, TODAY + timedelta(hours=1), pages=100, selling=1)
-    last = await _quality_run(session, DONOR, TODAY + timedelta(hours=2), pages=300, selling=30)
+    await _quality_run(session, DONOR, TODAY + timedelta(hours=2), pages=300, selling=30)
     await _refused(session, DONOR, TODAY + timedelta(hours=3))
-    other = await _quality_run(session, OTHER, TODAY + timedelta(hours=1), pages=100, selling=10)
-    await scored(session, last, "one.example.test")
-    await scored(session, other, "two.example.test")
-    await scored(session, other, "maybe.example.test", verdict=Verdict.PENDING)
+    await _quality_run(session, OTHER, TODAY + timedelta(hours=1), pages=100, selling=10)
 
     found = await load_quality.page(session, number=1)
 
     assert found.total == 1
     row = found.rows[0]
     assert (row.kind, row.donors, row.scanned) == (loads.BULK, 3, 2)
-    assert (row.pages, row.selling_links, row.selling_pages) == (400, 2, 40)
+    assert (row.pages, row.selling_links, row.selling_pages) == (400, 80, 40)
     assert row.share == pytest.approx(0.1)
     assert (row.file_name, row.host) == ("party.xlsx", None)
 
@@ -418,7 +416,7 @@ async def test_a_manual_load_shows_its_host(session: AsyncSession) -> None:
     row = (await load_quality.page(session, number=1)).rows[0]
 
     assert (row.kind, row.host, row.scanned, row.pages) == (loads.MANUAL, DONOR, 0, 0)
-    assert row.share is None
+    assert (row.selling_links, row.share) == (None, None)
 
 
 async def test_old_crawls_without_the_number_do_not_lie(session: AsyncSession) -> None:
@@ -429,7 +427,7 @@ async def test_old_crawls_without_the_number_do_not_lie(session: AsyncSession) -
 
     row = (await load_quality.page(session, number=1)).rows[0]
 
-    assert row.pages == 1100
+    assert (row.pages, row.selling_links) == (1100, 100)
     assert row.share == pytest.approx(0.5)
 
     await session.execute(
@@ -438,8 +436,63 @@ async def test_old_crawls_without_the_number_do_not_lie(session: AsyncSession) -
     found = await load_quality.page(session, number=1)
     row = next(row for row in found.rows if row.kind == loads.BULK)
 
-    # Числа нет ни у одного обхода партии: доля пуста, а ноль сказал бы «искали и не нашли».
-    assert (row.pages, row.share) == (1000, None)
+    # Чисел нет ни у одного обхода партии: итог пуст, а ноль сказал бы «искали и не нашли».
+    assert (row.pages, row.selling_links, row.share) == (1000, None, None)
+
+
+async def test_a_later_crawl_does_not_wipe_the_result_of_a_past_day(session: AsyncSession) -> None:
+    """Новый обход заменяет кандидатов донора: итог прошлого дня лежит на своём обходе и остаётся,
+    иначе ночной повтор обнулял бы вчерашние ссылки, оставляя страницы."""
+    old = await _quality_run(session, DONOR, YESTERDAY, pages=100, selling=10)
+    candidate = await scored(session, old, "one.example.test")
+    await session.delete(candidate)
+    await _quality_run(session, DONOR, TODAY + timedelta(hours=1), pages=50, selling=1)
+    await session.flush()
+
+    found = await load_quality.page(session, number=1)
+
+    assert [(row.pages, row.selling_links) for row in found.rows] == [(50, 2), (100, 20)]
+
+
+async def test_filling_gives_a_counted_crawl_its_numbers_and_touches_nothing_else(
+    session: AsyncSession,
+) -> None:
+    """Дополнение — по сохранённым кандидатам и ссылкам: вердикты и решения людей не меняются,
+    посчитанный обход не трогается, обход без кандидатов остаётся пустым, а не нулём."""
+    run = await crawled(session, DONOR)
+    run.stats = {"scored_with": {"порог": 4}}
+    await _link(session, run, "one.example.test")
+    await _link(session, run, "maybe.example.test")
+    bought = await scored(session, run, "one.example.test", confirmed=False)
+    bought.links = 3
+    disputed = await scored(session, run, "maybe.example.test", verdict=Verdict.PENDING)
+    known = await crawled(session, OTHER)
+    known.stats = {gate.SELLING_PAGES: 7, gate.SELLING_LINKS: 9}
+    empty = await crawled(session, "no-candidates.example.test")
+    await session.flush()
+
+    done = await selling_backfill.fill(session, [run, known, empty])
+
+    assert done == selling_backfill.Filled(filled=1, known=1, empty=1)
+    assert run.stats == {
+        "scored_with": {"порог": 4},
+        gate.SELLING_PAGES: 1,
+        gate.SELLING_LINKS: 3,
+    }
+    assert known.stats == {gate.SELLING_PAGES: 7, gate.SELLING_LINKS: 9}
+    assert empty.stats is None
+    assert (bought.verdict, bought.confirmed) == (Verdict.BOUGHT, False)
+    assert disputed.verdict is Verdict.PENDING
+
+
+async def test_filling_a_crawl_with_nothing_bought_is_a_zero(session: AsyncSession) -> None:
+    """Кандидаты есть, «куплено» нет: это ответ, ноль, а не пустое число."""
+    run = await crawled(session, DONOR)
+    await scored(session, run, "maybe.example.test", verdict=Verdict.PENDING)
+
+    await selling_backfill.fill(session, [run])
+
+    assert run.stats == {gate.SELLING_PAGES: 0, gate.SELLING_LINKS: 0}
 
 
 async def test_crawls_without_a_load_are_a_row_per_moscow_day(session: AsyncSession) -> None:

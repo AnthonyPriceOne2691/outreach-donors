@@ -98,7 +98,7 @@ class PanelView(BaseModel):
 
 
 class QualityRowView(BaseModel):
-    """Строка качества загрузок; пустая `share` — у обходов этого числа ещё нет."""
+    """Строка качества загрузок; пустые `selling_links` и `share` — у обходов этих чисел ещё нет."""
 
     at: datetime
     kind: str
@@ -109,7 +109,7 @@ class QualityRowView(BaseModel):
     host: str | None
     scanned: int
     pages: int
-    selling_links: int
+    selling_links: int | None
     selling_pages: int
     share: float | None
 

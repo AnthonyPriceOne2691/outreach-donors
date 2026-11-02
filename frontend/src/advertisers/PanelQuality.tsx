@@ -29,7 +29,7 @@ export const QUALITY_KEY = ['advertisers', 'panel', 'quality'] as const;
 const ABOUT_LINES = [
   'Строка — загрузка: партия файлом или донор, заведённый вручную. Обходы без записи о загрузке — обход кнопкой и загрузки раньше этого экрана — строкой на день, по Москве.',
   'Страниц — просканировано последним пригодным обходом каждого донора с минуты загрузки: повтор заменяет итог, а не прибавляется.',
-  'Продающая ссылка — ссылка на домен с вердиктом скоринга «куплено». Решение человека этих чисел не меняет: это мера обхода, а не очереди.',
+  'Продающая ссылка — ссылка на домен с вердиктом скоринга «куплено». Решение человека этих чисел не меняет: это мера обхода, а не очереди. Прочерк — обходы строки посчитаны раньше этих чисел.',
 ];
 
 const ABOUT = (
@@ -180,7 +180,9 @@ function Rows({ rows, onHosts }: { rows: QualityRow[]; onHosts: (row: QualityRow
             )}
           </Table.Td>
           <Table.Td data-label="Страниц">{formatNumber(row.pages)}</Table.Td>
-          <Table.Td data-label="Продающих ссылок">{formatNumber(row.selling_links)}</Table.Td>
+          <Table.Td data-label="Продающих ссылок">
+            {row.selling_links === null ? '—' : formatNumber(row.selling_links)}
+          </Table.Td>
           <Table.Td data-label="% страниц">{shareWords(row.share)}</Table.Td>
         </Table.Tr>
       ))}

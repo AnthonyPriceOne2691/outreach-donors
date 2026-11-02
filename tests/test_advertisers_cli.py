@@ -21,7 +21,9 @@ from backend.features.ahrefs.client import Response
 from backend.features.ahrefs.units import UnitsCost
 from backend.features.core.domain import CrawlOutcome, StopReason, Verdict
 from backend.features.core.models.advertiser import CandidateModel
+from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.ops import UsageRecordModel
+from backend.features.crawl.gate import SELLING_LINKS, SELLING_PAGES
 from backend.features.crawl.links import OutLink
 from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.repository import save_crawl
@@ -39,7 +41,13 @@ def _test_base(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _judge(**overrides: Any) -> argparse.Namespace:
-    values: dict[str, Any] = {"run": None, "verdict": None, "limit": 30, "no_dr": True}
+    values: dict[str, Any] = {
+        "run": None,
+        "verdict": None,
+        "limit": 30,
+        "no_dr": True,
+        "pages_only": False,
+    }
     values.update(overrides)
     return argparse.Namespace(**values)
 
@@ -116,12 +124,14 @@ def test_commands_and_their_arguments() -> None:
     advertisers.add_parser(parser.add_subparsers(dest="command"))
 
     judge = parser.parse_args(["advertisers", "--run", "3", "--no-dr"])
+    pages = parser.parse_args(["advertisers", "--pages-only"])
     promote = parser.parse_args(["advertisers-promote", "--contacts", "--no-paid"])
     decide = parser.parse_args(
         ["advertiser-decide", "--run", "3", "--domain", "a.com", "--by", "op@t.test", "--no"]
     )
 
     assert (judge.run, judge.no_dr, judge.limit) == (3, True, 30)
+    assert (judge.pages_only, pages.pages_only) == (False, True)
     assert (promote.contacts, promote.no_paid, promote.limit) == (True, True, 100)
     assert (decide.yes, decide.no) == (False, True)
 
@@ -179,6 +189,62 @@ async def test_big_site_is_asked_once_and_the_spend_is_written(
     assert verdicts["small-brand.example"] is Verdict.BOUGHT
     assert [(row.operation, row.units) for row in spent] == [("batch_metrics", 50)]
     assert "кому не пишем: DR 96 > 80" in capsys.readouterr().out
+
+
+async def test_pages_only_fills_numbers_without_dr_and_without_touching_candidates(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Числа панели — бесплатно: клиент Ahrefs не заводится, кандидаты те же строки с теми же
+    вердиктами, журнал расхода пуст. Обход, посчитанный до этих чисел, — обход без их ключей."""
+
+    def no_network(*_: object, **__: object) -> None:
+        raise AssertionError("--pages-only не ходит к Ahrefs")
+
+    monkeypatch.setattr(advertisers, "_ahrefs", no_network)
+    monkeypatch.setattr(advertisers, "judge_run", no_network)
+    async with committed_sessions() as factory:
+        run_id = await _crawl(factory)
+        async with factory() as session:
+            session.add(
+                CandidateModel(
+                    crawl_run_id=run_id,
+                    donor_host=DONOR,
+                    target_root="small-brand.example",
+                    points=5,
+                    verdict=Verdict.BOUGHT,
+                    links=1,
+                    pages=1,
+                )
+            )
+            await session.commit()
+
+        code = await advertisers.cmd_advertisers(_judge(pages_only=True))
+        again = await advertisers.cmd_advertisers(_judge(pages_only=True, run=run_id))
+
+        async with factory() as session:
+            run = await session.get(CrawlRunModel, run_id)
+            rows = (await session.scalars(select(CandidateModel))).all()
+            spent = (await session.scalars(select(UsageRecordModel))).all()
+
+    said = capsys.readouterr().out
+    assert (code, again) == (0, 0)
+    assert run is not None
+    assert (run.stats or {})[SELLING_PAGES] == 1
+    assert (run.stats or {})[SELLING_LINKS] == 1
+    assert [(row.target_root, row.verdict) for row in rows] == [
+        ("small-brand.example", Verdict.BOUGHT)
+    ]
+    assert spent == []
+    assert "Дополнено: 1" in said
+    assert "уже посчитано: 1" in said
+
+
+async def test_pages_only_without_crawls_says_so(capsys: pytest.CaptureFixture[str]) -> None:
+    async with committed_sessions():
+        code = await advertisers.cmd_advertisers(_judge(pages_only=True))
+
+    assert code == advertisers.EXIT_NOT_FOUND
+    assert "считать нечего" in capsys.readouterr().out
 
 
 async def test_decision_and_unknown_candidate(capsys: pytest.CaptureFixture[str]) -> None:
