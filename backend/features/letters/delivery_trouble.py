@@ -18,6 +18,16 @@ timeout», — а мы их принимали и отбрасывали. Сто
 
 **Неизвестное — исходным текстом**, обрезанным: человек видит, что сказала почта, а не «ошибка».
 Короткий код — в скобках после слов: «сервер получателя не отвечает (порт 25, тайм-аут)».
+
+**Молчание DNS — не «нет почтового сервера»** (02.11.2026). Хостинг получателей лёг, сервера имён
+перестали отвечать, и платформа через минуты отказала двум десяткам писем текстом «unable to get
+mx info». Вид «нет почтового сервера» говорил человеку неправду: домены живы, ответа «домена нет»
+никто не давал. «Домена нет» — ответ, «не ответил» — молчание, и последствия у них разные.
+
+**Что о ящике, а что нет** (`NOT_THE_BOX`). Письмо, не дошедшее до сервера получателя, ничего не
+говорит о нашей репутации: его никто не видел. Такие причины не считаются против ящика — ни в
+окне отказов, ни в мягких сигналах (`outreach/health.py`). Иначе чужой сбой ставил бы на паузу наши
+ящики: так и вышло, три встали, а лимит урезан у всех.
 """
 
 from __future__ import annotations
@@ -40,6 +50,7 @@ class Trouble(StrEnum):
     """Вид причины, по которой почта не отдаёт письмо получателю."""
 
     UNREACHABLE = "unreachable"
+    RECIPIENT_DNS = "recipient_dns"
     NO_MAIL_SERVER = "no_mail_server"
     TRY_LATER = "try_later"
     MAILBOX_FULL = "mailbox_full"
@@ -57,6 +68,7 @@ class Trouble(StrEnum):
 #: «Доставка откладывается: …», «Не доставлено: …».
 WORDS: dict[Trouble, str] = {
     Trouble.UNREACHABLE: "сервер получателя не отвечает",
+    Trouble.RECIPIENT_DNS: "DNS домена получателя не отвечает",
     Trouble.NO_MAIL_SERVER: "у домена получателя нет почтового сервера",
     Trouble.TRY_LATER: "сервер получателя просит повторить позже",
     Trouble.MAILBOX_FULL: "ящик получателя переполнен",
@@ -69,6 +81,12 @@ WORDS: dict[Trouble, str] = {
     Trouble.EXPIRED: "платформа перестала повторять доставку",
     Trouble.UNKNOWN: "ответ почты",
 }
+
+#: Причина на стороне получателя: письмо не дошло до его сервера, и о ящике это не говорит ничего.
+NOT_THE_BOX = frozenset({Trouble.RECIPIENT_DNS, Trouble.UNREACHABLE})
+
+#: Отказ, в словах которого причины нет: платформа сдалась, а почему — сказала отсрочками раньше.
+GAVE_UP = frozenset({Trouble.UNKNOWN, Trouble.EXPIRED})
 
 
 def _rx(*parts: str) -> re.Pattern[str]:
@@ -109,10 +127,30 @@ RULES: tuple[tuple[Trouble, re.Pattern[str]], ...] = (
             r"reverse (dns|lookup|hostname)",
         ),
     ),
+    # DNS получателя молчит — раньше «нет почтового сервера»: там ответ «домена нет» (`nxdomain`,
+    # «no such host»), а здесь ответа не было. «Host not found» без «try again» — постоянный ответ,
+    # с ним — временный. Адрес «SMTP address lookup» — поиск ящика у Microsoft, а не DNS.
+    (
+        Trouble.RECIPIENT_DNS,
+        _rx(
+            r"mx info",
+            r"failed to get ips?\b",
+            r"lookup <nil>",
+            r"servfail|server misbehaving",
+            r"temporary (failure|error) in name resolution",
+            r"host not found, try again",
+            r"host lookup did not complete",
+            r"dns query failed",
+            r"(?<!address )\blookup\b.{0,120}(time ?out|timed out|temporar|try again)",
+            r"\b(dns|name ?server|name service)\b.{0,80}"
+            r"(time ?out|timed out|temporar|not responding|no response|did not respond|try again)",
+            r"(temporary|transient) (dns|name service)",
+            r"(?<![\d.])[45]\.4\.3(?![\d.])",
+        ),
+    ),
     (
         Trouble.NO_MAIL_SERVER,
         _rx(
-            r"mx info",
             r"\bno (valid )?mx\b",
             r"null ?mx",
             r"mx records?",
@@ -279,6 +317,7 @@ CODES: dict[tuple[str, str], Trouble] = {
     ("2", "1"): Trouble.NO_MAILBOX,
     ("1", "2"): Trouble.NO_MAIL_SERVER,
     ("1", "10"): Trouble.NO_MAIL_SERVER,
+    ("4", "3"): Trouble.RECIPIENT_DNS,
     ("4", "4"): Trouble.NO_MAIL_SERVER,
     ("2", "2"): Trouble.MAILBOX_FULL,
     ("4", "1"): Trouble.UNREACHABLE,
@@ -334,6 +373,21 @@ def reason_of(text: str | None, *, status: str | None = None) -> Reason:
     said = clean(text)
     kind = kind_of(said, status=status)
     return Reason(kind=kind, words=words_of(kind, said, status=status), text=said[:STORED_TEXT])
+
+
+def refused_kind(
+    failure: str | None, *, deferred_kind: str | None = None, deferred_reason: str | None = None
+) -> Trouble:
+    """Вид отказа письма — по его тексту; платформа сдалась, не назвав причины (`GAVE_UP`), — по
+    его последней отсрочке. У отсрочки текст сильнее записанного вида: вид мог лечь по прежней
+    таблице, а текст — тот же. Текста нет — записанный вид, незнакомого вида — вид отказа."""
+    kind = kind_of(clean(failure))
+    if kind not in GAVE_UP:
+        return kind
+    said = kind_of(clean(deferred_reason))
+    if said is not Trouble.UNKNOWN:
+        return said
+    return next((found for found in Trouble if found.value == deferred_kind), kind)
 
 
 def clean(text: str | None) -> str:

@@ -53,6 +53,9 @@
 адрес жалобщика для всех направлений и компанию — для продаж (`optout.complained`), а доноров
 и рекламодателей того же сайта не трогает.
 
+**Молчание DNS получателя адрес не хоронит** (02.11.2026, `delivery_trouble.py`): платформа
+бывает называет его и обычным отказом, а адрес тут ни при чём — хостинг получателя лёг.
+
 **Отсрочка остаётся у письма** (29.10.2026, `deferrals.py`): статус «ушло» она не меняет, а
 когда, какая попытка, что ответил сервер и вид причины словами — пишет. До того отсрочки
 отбрасывались, и письмо без исхода выглядело просто «отправленным».
@@ -82,6 +85,7 @@ from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
 from backend.features.letters import deferrals, optout, unknown_outcome
+from backend.features.letters.delivery_trouble import Trouble, reason_of
 from backend.features.outreach import health
 from backend.features.outreach.autopause import LIFETIME_ADVICE, AutoPause, pause_once
 
@@ -343,7 +347,7 @@ async def _apply_one(
 async def _bounced(
     session: AsyncSession, message: MessageModel, event: DeliveryEvent, report: EventReport
 ) -> None:
-    """Письмо не дошло. Мягкий отказ адрес не хоронит."""
+    """Письмо не дошло. Мягкий отказ и молчание DNS получателя адрес не хоронят."""
     if message.status is not MessageStatus.BOUNCED:
         message.status = MessageStatus.BOUNCED
         report.bounced += 1
@@ -351,7 +355,7 @@ async def _bounced(
     # Добивку слать некуда: следующий шаг цепочки гасится вместе с адресом.
     message.next_action_at = None
 
-    if event.soft:
+    if event.soft or reason_of(event.reason, status=event.status).kind is Trouble.RECIPIENT_DNS:
         return
     if await _stage_of(session, message) is Stage.SALES:
         # Письмо продаж ушло лиду переписки (`stages.recipient`), а контакт письма — тот,

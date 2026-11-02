@@ -9,6 +9,13 @@
 (`autopause.py`). У этапа без политики и у продаж, пока модуль не ответил о ней (договор
 моста), — прежнее правило парковки (`letters/events._park_if_burning`).
 
+**Против ящика — только то, что о ящике** (02.11.2026). Письмо, не дошедшее до сервера получателя
+(`delivery_trouble.NOT_THE_BOX`: его DNS молчит или сервер не отвечает), о нашей репутации не
+говорит: его никто не видел. Сбой хостинга получателей дал одному письму три отсрочки и отказ —
+лимит ящика падал вдвое от одного чужого домена, а три таких отказа в окне ставили ящик на паузу.
+Такая отсрочка в журнал не пишется, такой отказ в окне не считается. Вид — по тексту письма,
+а не по записанному: письма, ушедшие до этой правки, судятся так же, без правки данных.
+
 Повтор события — не второй сигнал: платформа доставляет пачку «хотя бы один раз» и шлёт её
 снова на любой не-2xx. Строка самого события несёт его номер у платформы (`event_id`):
 событие, уже лежащее в журнале, слышано — ни второй строки, ни второго вердикта. Гонку двух
@@ -31,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core import stages
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.outreach import MessageModel, SenderHealthModel, SenderModel
+from backend.features.letters.delivery_trouble import NOT_THE_BOX, reason_of, refused_kind
 from backend.features.outreach.autopause import AutoPause, pause_once, window_advice
 from backend.features.outreach.senders import warmup_state
 
@@ -147,9 +155,12 @@ async def _noted(
 
 
 def _row(event: DeliveryEvent) -> tuple[str, str] | None:
-    """Строка журнала самого события — вид и подробность: мягкий сигнал или жалоба."""
+    """Строка журнала самого события — вид и подробность: мягкий сигнал или жалоба. Сигнал о
+    стороне получателя (`NOT_THE_BOX`) — не о ящике, строки нет; жалоба — всегда о нём."""
     signal = _signal(event.kind, event.soft)
     if signal is not None:
+        if reason_of(event.reason, status=event.status).kind in NOT_THE_BOX:
+            return None
         return signal, event.reason or signal
     return ("complaint", "жалоба на спам") if event.kind == "spamreport" else None
 
@@ -212,16 +223,28 @@ async def _soft_today(session: AsyncSession, sender_id: int, at: datetime) -> in
 async def _verdict(
     session: AsyncSession, sender: SenderModel, rules: SoftSignals, at: datetime
 ) -> str | None:
-    """Пауза по окну последних писем: причина словами или `None`."""
-    last = (
-        select(MessageModel.status, MessageModel.sent_at)
+    """Пауза по окну последних писем: причина словами или `None`. Отказы — только те, что о
+    ящике: вид судит Python по тексту письма, в окне не больше `window` строк."""
+    rows = await session.execute(
+        select(
+            MessageModel.status,
+            MessageModel.sent_at,
+            MessageModel.failure_reason,
+            MessageModel.deferred_kind,
+            MessageModel.deferred_reason,
+        )
         .where(MessageModel.sender_id == sender.id, MessageModel.sent_at.is_not(None))
         .order_by(MessageModel.sent_at.desc())
         .limit(rules.window)
-        .subquery()
     )
-    tally = func.count().filter(last.c.status == MessageStatus.BOUNCED)
-    bounced, since = (await session.execute(select(tally, func.min(last.c.sent_at)))).one()
+    last = rows.tuples().all()
+    bounced = sum(
+        1
+        for status, _, reason, kind, said in last
+        if status is MessageStatus.BOUNCED
+        and refused_kind(reason, deferred_kind=kind, deferred_reason=said) not in NOT_THE_BOX
+    )
+    since = min((sent_at for _, sent_at, _, _, _ in last if sent_at is not None), default=None)
     complaints = await session.scalar(
         select(func.count()).where(
             SenderHealthModel.sender_id == sender.id,
