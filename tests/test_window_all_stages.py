@@ -13,9 +13,9 @@ from datetime import timedelta
 
 import pytest
 from backend.features.core import stages
+from backend.features.core.box_rules import SoftSignals
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.outreach import MessageModel, SenderModel
-from backend.features.core.box_rules import SoftSignals
 from backend.features.core.stages import CURRENT, MailPolicy
 from backend.features.letters.events import DeliveryEvent, apply_events
 from backend.features.outreach import health, limits, senders
