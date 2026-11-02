@@ -11,7 +11,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
-import { ADMIN } from '../test/fixtures';
+import { ADMIN, DONORS_ONLY } from '../test/fixtures';
 import { FITS, openRun } from '../test/runFixtures';
 
 // Свободно у Ahrefs меньше остатка по капу — упор в лимит ключа.
@@ -155,6 +155,20 @@ describe('смета', () => {
     expect(alert).toHaveTextContent('По нашему капу осталось 50 из 100 000 до обнуления 21 ноября');
     expect(alert).toHaveTextContent(words);
     expect(within(alert).getByRole('link', { name: '«Расход»' })).toHaveAttribute('href', '/usage');
+  });
+
+  it('упор в кап без права «смотреть расход» — просьба к администратору, без отсылки к экрану', async () => {
+    await openRun({
+      'GET /api/auth/me': { body: DONORS_ONLY },
+      'POST /api/runs/estimate': { body: CAP_EATEN },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    expect(await screen.findByText(/попросите администратора поднять кап\./)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '«Расход»' })).not.toBeInTheDocument();
   });
 
   it('без даты обнуления — с первого числа, и сказано почему', async () => {

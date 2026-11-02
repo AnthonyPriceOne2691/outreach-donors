@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps import db_session, needs
 from backend.api.review.reserve_schemas import ReserveView, TakeBody, TakeResult
 from backend.api.review.schemas import AccuracyView, DecideBody, DecideResult, ReviewView
+from backend.api.stage_access import STAGE_ONE
 from backend.features.access.repository import AccessRepository
 from backend.features.contacts.repository import ContactRepository
 from backend.features.core.domain import AuditAction, Permission
@@ -41,7 +42,7 @@ from backend.shared.queue import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/review", tags=["рассмотрение"])
+router = APIRouter(prefix="/review", tags=["рассмотрение"], dependencies=[STAGE_ONE])
 
 _viewer = Depends(needs(Permission.VIEW))
 _reviewer = Depends(needs(Permission.PRICES))

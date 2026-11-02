@@ -32,7 +32,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import actor, db_session, needs
-from backend.features.access.permissions import visible_stages
+from backend.features.access.permissions import has_permission, visible_stages
 from backend.features.core.domain import Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.ops.alarms import Alarm, Concern
@@ -117,13 +117,18 @@ async def silence(
     user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> WatchdogView:
-    """Тревоги «Обзора» — или полосы этапа (`stage`)."""
+    """Тревоги «Обзора» — или полосы этапа (`stage`). Тревоги без этапа — ключи, балансы, опрос
+    провайдеров — служебные: только с правом «смотреть расход» (слово Anthony 02.11.2026).
+    Фоновый проход и Telegram видят их как раньше: это экран одной учётки."""
     seen = visible_stages(actor(user))
     if stage is not None:
         return await _strip(session, seen & {stage}, stage)
-    found = list(await alarms(session, stages=seen))
+    service = has_permission(actor(user), Permission.USAGE)
+    found = [one for one in await alarms(session, stages=seen) if _shown(one, seen, service)]
     # Тревоги базы посчитаны: транзакция закрывается до опроса — соединение не ждёт провайдеров.
     await session.commit()
+    if not service:
+        return WatchdogView(alarms=[AlarmCard.of(one) for one in found])
     # Два бесплатных запроса к провайдерам: «API недоступен» — то, ради чего «Обзор» и открывают.
     unreachable = await PROBES.probe()
     if unreachable is not None:
@@ -132,6 +137,11 @@ async def silence(
     if await keep_heard(session):
         await session.commit()
     return WatchdogView(alarms=[AlarmCard.of(alarm) for alarm in found])
+
+
+def _shown(alarm: Alarm, seen: frozenset[Stage], service: bool) -> bool:
+    """Тревога этапа — тому, кто его видит; без этапа — тому, кому открыт «Расход»."""
+    return service if alarm.stage is None else alarm.stage in seen
 
 
 async def _strip(session: AsyncSession, seen: frozenset[Stage], stage: Stage) -> WatchdogView:

@@ -35,7 +35,8 @@
  * приходит в ответе своей, без второго запроса. Ориентир темпа один на обе
  * очереди: он про руки, а руки одни. Таблица, окно адреса и «Не вышло» —
  * общие (`FormsQueue`), чья очередь — говорит её описание (`formQueues.tsx`). Без права
- * «Рекламодатели» вкладок нет: очередь одна, и `?queue=advertisers` открывает доноров.
+ * «Рекламодатели» вкладок нет: очередь одна, и `?queue=advertisers` открывает доноров; без
+ * «Доноров» — так же, очередь рекламодателей.
  */
 
 import { useCallback } from 'react';
@@ -50,7 +51,7 @@ import { FormsQueue } from './FormsQueue';
 function useFormsTab(): [FormsTab, (tab: FormsTab) => void] {
   const [params, setParams] = useSearchParams();
   const { can } = useSession();
-  const asked = params.get('queue') === 'advertisers' && can('advertisers');
+  const asked = (params.get('queue') === 'advertisers' || !can('donors')) && can('advertisers');
   const tab: FormsTab = asked ? 'advertisers' : 'donors';
   const go = useCallback(
     (next: FormsTab) => {

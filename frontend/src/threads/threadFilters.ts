@@ -79,12 +79,18 @@ export const NO_THREAD_FILTERS: ThreadFilters = { part: null, role: null, state:
 
 export const THREAD_STATE_KEYS = Object.keys(THREAD_STATES) as ThreadState[];
 
+/** Часть, когда адрес её не назвал: виден один этап почты — экран сразу в нём. */
+function soleStage(can: Can): Part | null {
+  if (!can('advertisers')) return 'donors';
+  return can('donors') ? null : 'advertisers';
+}
+
 /** Фильтры из адреса. `can` — права сессии: без права состояния и часть этапа не сужают. */
 export function readThreadFilters(params: URLSearchParams, can: Can): ThreadFilters {
   const state = params.get('state');
   const named = partOf(params);
   const shown = named !== null && stageShown(named, can) ? named : null;
-  const part = shown ?? (can('advertisers') ? null : 'donors');
+  const part = shown ?? soleStage(can);
   return {
     part,
     role: part === null ? roleOf(params.get(ROLE_PARAM)) : null,

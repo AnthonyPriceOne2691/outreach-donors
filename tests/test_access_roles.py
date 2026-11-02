@@ -48,7 +48,8 @@ SignIn = Callable[..., Awaitable[str]]
 FRONT = Path(__file__).resolve().parent.parent / "frontend" / "src" / "api"
 
 #: Роль Этапа 1: как оператор без продаж и рекламодателей, отправка — поимённо.
-STAGE_ONE = {Permission.VIEW, Permission.RUN, Permission.SETTINGS, Permission.PRICES}
+#: Общее у ролей этапа: смотреть базу, запускать, править, подтверждать цены.
+COMMON = {Permission.VIEW, Permission.RUN, Permission.SETTINGS, Permission.PRICES}
 
 
 def _keys_of(name: str) -> set[str]:
@@ -74,15 +75,35 @@ class TestMatrix:
         assert role in ROLE_PERMISSIONS
         assert Permission.VIEW in permissions_of(role)
 
-    def test_the_donors_role_is_stage_one_only(self) -> None:
-        assert permissions_of(UserRole.DONORS) == STAGE_ONE
+    def test_the_outreach_role_is_stage_one_only(self) -> None:
+        assert permissions_of(UserRole.DONORS) == {*COMMON, Permission.DONORS}
+
+    def test_the_advertisers_role_is_stage_two_only(self) -> None:
+        assert permissions_of(UserRole.ADVERTISERS) == {*COMMON, Permission.ADVERTISERS}
+
+    def test_the_stage_roles_do_not_overlap_in_their_stage_rights(self) -> None:
+        """Роли этапов — разные и обе отдельно от админской (слово Anthony 02.11.2026)."""
+        admin_only = {
+            Permission.SEND,
+            Permission.SENDERS,
+            Permission.USERS,
+            Permission.SPEND,
+            Permission.USAGE,
+            Permission.SALES,
+        }
+        for role in (UserRole.DONORS, UserRole.ADVERTISERS):
+            assert not permissions_of(role) & admin_only
+        assert visible_stages(Actor(user_id=1, role=UserRole.DONORS)) == {Stage.DONORS}
+        assert visible_stages(Actor(user_id=2, role=UserRole.ADVERTISERS)) == {Stage.ADVERTISERS}
 
     def test_the_operator_keeps_what_they_had_and_gets_the_new_right(self) -> None:
-        """Нынешние учётки не теряют ничего: без этой строки операторы потеряли бы Этап 2."""
+        """Нынешние учётки не теряют ничего: без этой строки операторы потеряли бы этапы и «Расход»."""
         assert permissions_of(UserRole.OPERATOR) == {
-            *STAGE_ONE,
+            *COMMON,
             Permission.SALES,
             Permission.ADVERTISERS,
+            Permission.DONORS,
+            Permission.USAGE,
         }
 
     def test_the_admin_has_every_right(self) -> None:
@@ -172,9 +193,16 @@ class TestStorage:
 
         assert {role.value for role in UserRole} <= set(rows)
 
-    async def test_the_migration_can_run_twice_and_step_down(self, session: AsyncSession) -> None:
+    @pytest.mark.parametrize(
+        "name",
+        ["c4f7a19e2d36_user_role_donors.py", "d8a2f6c31e47_user_role_advertisers.py"],
+        ids=["аутрич", "рекламодатели"],
+    )
+    async def test_the_migration_can_run_twice_and_step_down(
+        self, session: AsyncSession, name: str
+    ) -> None:
         """`ADD VALUE IF NOT EXISTS` делает повтор безвредным; значение не убирается вниз."""
-        migration = load_migration("c4f7a19e2d36_user_role_donors.py")
+        migration = load_migration(name)
 
         def both(connection: Connection) -> None:
             with Operations.context(MigrationContext.configure(connection)):
@@ -200,7 +228,13 @@ class TestAccountOfTheRole:
 
         assert made.status_code == 201, made.text
         assert made.json()["user"]["role"] == "donors"
-        assert made.json()["user"]["permissions"] == ["prices", "run", "settings", "view"]
+        assert made.json()["user"]["permissions"] == [
+            "donors",
+            "prices",
+            "run",
+            "settings",
+            "view",
+        ]
         assert changed.status_code == 200, changed.text
         assert "advertisers" in changed.json()["permissions"]
 

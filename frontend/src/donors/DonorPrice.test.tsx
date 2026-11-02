@@ -313,7 +313,7 @@ describe('карточка донора: «Указать цену»', () => {
   });
 
   it('без права — объяснение на месте, а не кнопка', async () => {
-    await openCard({ ...CARD, ...MANUAL }, {}, { ...OPERATOR, permissions: ['view'] });
+    await openCard({ ...CARD, ...MANUAL }, {}, { ...OPERATOR, permissions: ['donors', 'view'] });
 
     expect(
       within(priceCard()).getByText('Указать цену может сотрудник с правом «запускать прогоны».'),

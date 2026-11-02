@@ -177,7 +177,7 @@ export function UsersPage() {
       </Table.Td>
       <Table.Td>
         <Group justify="center">
-          {/* По самой длинной подписи — «Только доноры». */}
+          {/* По самой длинной подписи — «Рекламодатели». */}
           <Select
             size="xs"
             w="9.5rem"

@@ -425,7 +425,7 @@ describe('ждут адреса', () => {
   it('без права на запуск число видно, а кнопки нет', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({
-      'GET /api/auth/me': { body: { ...OPERATOR, permissions: ['view'] } },
+      'GET /api/auth/me': { body: { ...OPERATOR, permissions: ['donors', 'view'] } },
       'GET /api/contacts': { body: CONTACTS },
       [donorsAt('limit=20&offset=0')]: { body: PAGE },
     });

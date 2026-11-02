@@ -15,6 +15,7 @@ from backend.api.deps import db_session, needs
 from backend.api.runs.competitor_schemas import CompetitorForecast, CompetitorRunBody
 from backend.api.runs.routes import enqueue_run, refuse_over_budget, refuse_unready_model
 from backend.api.runs.schemas import RunQueued
+from backend.api.stage_access import STAGE_ONE
 from backend.config.startup_checks import check_collect
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.core.domain import Permission
@@ -33,7 +34,7 @@ from backend.features.runs.judge_stage import stage_models
 from backend.features.runs.thresholds import rules_in_force
 from backend.shared import llm
 
-router = APIRouter(prefix="/runs/competitors", tags=["прогоны"])
+router = APIRouter(prefix="/runs/competitors", tags=["прогоны"], dependencies=[STAGE_ONE])
 
 _runner = Depends(needs(Permission.RUN))
 

@@ -505,13 +505,17 @@ async def spent(session: AsyncSession) -> None:
 async def test_spend_leaves_stage_two_out_of_lines_totals_and_the_crawl_cap(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
-    donors_only: dict[str, str],
+    make_user: MakeUser,
+    sign_in: SignIn,
     operator: dict[str, str],
 ) -> None:
-    """Статьи, суммы и итог сходятся, потолок обхода не назван, что счёт не весь — признаком."""
+    """Статьи, суммы и итог сходятся, потолок обхода не назван, что счёт не весь — признаком.
+    Роли «Расход» закрыт: ей он выдан поимённо, этап в строках всё равно считается отдельно."""
     monkeypatch.setattr(crawl_cfg, "MONTH_CAP_USD", 50.0)
+    await make_user("usage@team.example.test", role=UserRole.DONORS, permissions={"usage": True})
+    with_usage = bearer(await sign_in("usage@team.example.test"))
 
-    hidden = (await client.get("/api/usage", headers=donors_only)).json()
+    hidden = (await client.get("/api/usage", headers=with_usage)).json()
     shown = (await client.get("/api/usage", headers=operator)).json()
 
     assert {(line["operation"], line["stage"]) for line in hidden["articles"]} == {

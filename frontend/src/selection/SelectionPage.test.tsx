@@ -277,7 +277,7 @@ describe('экран отбора', () => {
   });
 
   it('без права решения видно только отбор', async () => {
-    await openScreen({}, { ...(OPERATOR as object), permissions: ['view'] });
+    await openScreen({}, { ...(OPERATOR as object), permissions: ['donors', 'view'] });
 
     expect(screen.queryByRole('button', { name: 'Площадка' })).not.toBeInTheDocument();
     expect(within(rowOf('brand.test')).getByText('не смотрел')).toBeInTheDocument();

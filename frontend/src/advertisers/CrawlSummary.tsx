@@ -84,7 +84,7 @@ export function CrawlSummary({ onOpen }: { onOpen: () => void }) {
             {statusLine(data)}
           </Text>
         ) : null}
-        {data ? (
+        {data && can('donors') ? (
           <StalePrices
             count={data.counts.price.stale}
             maySend={can('send')}

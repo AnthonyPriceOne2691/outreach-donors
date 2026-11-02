@@ -49,7 +49,7 @@ from backend.api.settings.schemas import (
     ThresholdsView,
     share_percent,
 )
-from backend.api.stage_access import STAGE_TWO
+from backend.api.stage_access import STAGE_ONE, STAGE_TWO
 from backend.config import crawl as crawl_cfg
 from backend.features.access.permissions import require_stage, visible_stages
 from backend.features.access.repository import AccessRepository
@@ -82,6 +82,7 @@ router = APIRouter(tags=["настройки"])
 _settler = Depends(needs(Permission.SETTINGS))
 _spender = Depends(needs(Permission.SPEND))
 _viewer = Depends(needs(Permission.VIEW))
+_usage = Depends(needs(Permission.USAGE))
 
 
 def _clamped(name: str, value: int) -> int:
@@ -116,7 +117,12 @@ def _defaults_body() -> ThresholdsBody:
     )
 
 
-@router.get("/settings/thresholds", response_model=ThresholdsView, summary="Пороги и их версии")
+@router.get(
+    "/settings/thresholds",
+    response_model=ThresholdsView,
+    summary="Пороги и их версии",
+    dependencies=[STAGE_ONE],
+)
 async def current_thresholds(
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
@@ -134,6 +140,7 @@ async def current_thresholds(
     "/settings/preview",
     response_model=ConsequencesView,
     summary="Эти пороги против действующих — до сохранения",
+    dependencies=[STAGE_ONE],
 )
 async def preview(
     body: ThresholdsBody,
@@ -156,6 +163,7 @@ async def preview(
     "/settings/thresholds",
     response_model=ThresholdsVersion,
     summary="Новая версия порогов",
+    dependencies=[STAGE_ONE],
 )
 async def save_thresholds(
     body: ThresholdsBody,
@@ -203,7 +211,7 @@ async def advertiser_settings(_: UserModel = _viewer) -> AdvertiserSettingsView:
 
 @router.get("/usage", response_model=SpendingView, summary="Расход по статьям")
 async def usage(
-    user: UserModel = _viewer,
+    user: UserModel = _usage,
     session: AsyncSession = Depends(db_session),
 ) -> SpendingView:
     """Расход с начала месяца, остаток у провайдера и кап Ahrefs в цикле ключа.
@@ -279,6 +287,7 @@ async def _ahrefs_balance(session: AsyncSession) -> tuple[int | None, str | None
     "/usage/ahrefs-cap",
     response_model=CapChangeCard,
     summary="Сменить кап юнитов Ahrefs: весь лимит ключа или не больше N",
+    dependencies=[_usage],
 )
 async def change_ahrefs_cap(
     body: CapBody,
@@ -286,7 +295,8 @@ async def change_ahrefs_cap(
     session: AsyncSession = Depends(db_session),
 ) -> CapChangeCard:
     """Новый кап — с этой минуты, под тем же правом, что пороги (решение владельца
-    16.10.2026: кап меняют на экране «Расход», видно, кто, когда и что поставил).
+    16.10.2026: кап меняют на экране «Расход», видно, кто, когда и что поставил), и с правом видеть
+    сам экран: кап общий на все этапы, и роль этапа его не трогает (слово Anthony 02.11.2026).
 
     Смена заводит строку, а не правит прежнюю, и пишет в журнал «было → стало» той же
     транзакцией, с размером ключа на минуту смены. За границами ключа или без снимка

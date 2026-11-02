@@ -37,6 +37,17 @@
 его почте и обходе. Какой этап каким правом открыт — `STAGE_RIGHTS`, одной строкой на этап:
 `sees_stage`, `visible_stages` и `require_stage` читают её, а не знают этапы поимённо.
 
+**«Доноры» закрывают Этап 1 так же** (слово Anthony 02.11.2026: аутрич и рекламодатели — разные
+роли, обе отдельно от админской). С этим правом три этапа равны: у каждого своё право, и ни один
+не виден просто потому, что учётка видит базу. Закрыты прогоны, ключи, отбор, рассмотрение,
+перезапрос цен, формы и адреса доноров, таблица и карточка донора, пороги — `STAGE_ONE`.
+Загрузка доноров в обход и обход — вход Этапа 2: они остаются правом «Рекламодатели».
+
+**«Смотреть расход» — экран «Расход» и служебные тревоги** (слово Anthony 02.11.2026: явно
+админское скрывать и во вкладках). Тарифы, балансы, ключи и общий кап — не работа этапа: без
+права нет ни экрана, ни смены капа Ahrefs, ни тревог без этапа. Остаток юнитов такой учётке
+показывает смета прогона.
+
 **Новая роль — строка, а не правка обработчиков.** Значение в `UserRole` и строка
 `ROLE_PERMISSIONS` здесь, значение в `Role` и слова в `ROLE_TITLES` и `ROLE_ABOUT`
 экрана (`frontend/src/api/labels.ts`) и значение в перечислении базы (`ALTER TYPE userrole ADD
@@ -59,7 +70,8 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
     # а она не восстанавливается. Продажи — в роли: решение владельца 01.10,
     # раздел видят все. Снимается поимённо (`{"sales": false}`) и закрывает раздел,
     # маршруты модуля и данные этапа продаж на общих экранах (П2, `require_stage`);
-    # закрыть всем операторам — убрать отсюда. «Рекламодатели» — так же: оператор ведёт оба этапа.
+    # закрыть всем операторам — убрать отсюда. «Рекламодатели» и «Доноры» — так же: оператор ведёт
+    # оба этапа. «Смотреть расход» — как было до этого права: «Расход» был открыт всем, кто видит базу.
     UserRole.OPERATOR: frozenset(
         {
             Permission.VIEW,
@@ -68,17 +80,36 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.PRICES,
             Permission.SALES,
             Permission.ADVERTISERS,
+            Permission.DONORS,
+            Permission.USAGE,
         }
     ),
-    # Только Этап 1: поиск площадок, цены, письма донорам. Как оператор без продаж и рекламодателей;
-    # отправка писем выдаётся поимённо, как у оператора (шапка файла).
+    # Аутрич, только Этап 1: поиск площадок, цены, письма донорам. Как оператор без других этапов и
+    # расхода; отправка писем выдаётся поимённо, как у оператора (шапка файла).
     UserRole.DONORS: frozenset(
-        {Permission.VIEW, Permission.RUN, Permission.SETTINGS, Permission.PRICES}
+        {
+            Permission.VIEW,
+            Permission.RUN,
+            Permission.SETTINGS,
+            Permission.PRICES,
+            Permission.DONORS,
+        }
+    ),
+    # Только Этап 2: обход доноров, рекламодатели, письма им. Зеркало аутрича; письма — так же поимённо.
+    UserRole.ADVERTISERS: frozenset(
+        {
+            Permission.VIEW,
+            Permission.RUN,
+            Permission.SETTINGS,
+            Permission.PRICES,
+            Permission.ADVERTISERS,
+        }
     ),
 }
 
-#: Этап → право, которое его открывает. Этапа здесь нет — он виден всем, кто видит базу (доноры).
+#: Этап → право, которое его открывает: без него этапа нет ни в разделах, ни в общих списках.
 STAGE_RIGHTS: dict[Stage, Permission] = {
+    Stage.DONORS: Permission.DONORS,
     Stage.ADVERTISERS: Permission.ADVERTISERS,
     Stage.SALES: Permission.SALES,
 }
@@ -99,6 +130,8 @@ PERMISSION_TITLES: dict[Permission, str] = {
     Permission.USERS: "заводить учётки",
     Permission.SALES: "Продажи",
     Permission.ADVERTISERS: "Рекламодатели",
+    Permission.DONORS: "Доноры",
+    Permission.USAGE: "смотреть расход",
     Permission.SPEND: "менять потолки расхода",
 }
 
@@ -195,11 +228,8 @@ def require(actor: Actor | None, permission: Permission) -> None:
 
 
 def sees_stage(actor: Actor, stage: Stage) -> bool:
-    """Видит ли сотрудник данные этапа: продажи — только с правом «Продажи» (решение
-    Anthony 10.10.2026, П2), Этап 2 — с правом «Рекламодатели» (`STAGE_RIGHTS`). Доноры —
-    правом самого действия, как до П2."""
-    right = STAGE_RIGHTS.get(stage)
-    return right is None or has_permission(actor, right)
+    """Видит ли сотрудник данные этапа: право этапа открывает его целиком (`STAGE_RIGHTS`)."""
+    return has_permission(actor, STAGE_RIGHTS[stage])
 
 
 def visible_stages(actor: Actor) -> frozenset[Stage]:

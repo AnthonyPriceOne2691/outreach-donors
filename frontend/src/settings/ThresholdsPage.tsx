@@ -103,7 +103,22 @@ function same(left: ThresholdsFields, right: ThresholdsFields): boolean {
   return THRESHOLD_KEYS.every((key) => left[key] === right[key]);
 }
 
+/** Экран «Пороги»: пороги отбора — Этап 1, веса кандидатов — Этап 2. Без «Доноров» запроса порогов
+ *  нет вовсе: сервер отказал бы, а веса роли «Рекламодатели» нужны. */
 export function ThresholdsPage() {
+  const { can } = useSession();
+  if (can('donors')) return <DonorThresholds />;
+  return (
+    <Stack gap="lg">
+      <Card className="glassPanel" px="xl" py="lg">
+        <PageHead title="Пороги" />
+      </Card>
+      <AdvertiserScoring />
+    </Stack>
+  );
+}
+
+function DonorThresholds() {
   const queryClient = useQueryClient();
   const { can } = useSession();
   const canEdit = can('settings');
