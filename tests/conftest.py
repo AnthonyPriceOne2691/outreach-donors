@@ -42,6 +42,7 @@ from backend.config import outreach as outreach_cfg
 from backend.config.topics import TopicMode
 from backend.features.access.attempts import LoginAttempts
 from backend.features.access.repository import AccessRepository
+from backend.features.contacts.mx import MailRoute
 from backend.features.core import (
     llm_caps,
     models,  # noqa: F401  — регистрирует таблицы
@@ -57,6 +58,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import SenderModel
+from backend.features.letters import recipient_dns
 from backend.features.ops import funds_watch, hunter_watch, key_watch, silence
 from backend.features.serp import funds
 from fastapi import FastAPI
@@ -441,6 +443,18 @@ def _no_providers_answer_from_another_test(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(hunter_watch, "HEARD", hunter_watch.Heard())
     monkeypatch.setattr(funds_watch, "SEEN", funds_watch.Seen())
     monkeypatch.setattr(funds, "LAST", funds.Last())
+
+
+@pytest.fixture(autouse=True)
+def _recipient_dns_answers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Письмо с настоящим транспортом спрашивает DNS получателя (`letters/recipient_dns.py`): в
+    сеть тест не ходит, домен отвечает, а молчание, начатое соседним тестом, не в счёт этого."""
+
+    async def answers(_host: str, *, dns_timeout_sec: float | None = None) -> MailRoute:
+        return MailRoute.MX
+
+    monkeypatch.setattr(recipient_dns, "mail_route", answers)
+    monkeypatch.setattr(recipient_dns, "MEMORY", recipient_dns.Memory())
 
 
 @pytest.fixture(autouse=True)

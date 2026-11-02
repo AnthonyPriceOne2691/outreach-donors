@@ -276,7 +276,7 @@ async def _close_resend(session: AsyncSession, message: MessageModel) -> None:
     гасится, иначе проход добивок раз в час приходил бы за ушедшей добивкой.
     Следующий шаг цепочки считается уже от неё (`settle.record_sent`). У первого
     письма и ответа предыдущего шага цепочки нет — гасить нечего."""
-    if not _is_followup(message):
+    if not is_followup(message):
         return
     await session.execute(
         update(MessageModel)
@@ -352,11 +352,9 @@ async def _back(
     добивка не пойдёт вовсе.
     """
     message = letter.message
-    previous = await _alive_link(session, message) if _is_followup(message) else None
+    previous = await alive_link(session, message) if is_followup(message) else None
     status = (
-        MessageStatus.STOPPED
-        if _is_followup(message) and previous is None
-        else MessageStatus.QUEUED
+        MessageStatus.STOPPED if is_followup(message) and previous is None else MessageStatus.QUEUED
     )
     # Ящик и `Message-ID` попытки остаются в строке: если письмо всё же ушло,
     # событие платформы запишет его ушедшим с ними — с них идут добивка
@@ -381,11 +379,11 @@ async def _back(
     return status
 
 
-def _is_followup(message: MessageModel) -> bool:
+def is_followup(message: MessageModel) -> bool:
     return FIRST_STEP < message.step < MAX_STEPS
 
 
-async def _alive_link(session: AsyncSession, message: MessageModel) -> MessageModel | None:
+async def alive_link(session: AsyncSession, message: MessageModel) -> MessageModel | None:
     """Предыдущее письмо цепочки, если цепочка жива: ушло, не отбилось, переписка
     не кончилась ответом или отпиской. Проход добивок берёт срок с него."""
     if message.thread_id is None:
@@ -414,7 +412,7 @@ def _said(letter: StuckLetter, status: MessageStatus) -> str:
             "добивка не пойдёт: цепочка кончилась, пока письмо висело — адресат ответил, "
             "отписался или прежнее письмо не дошло"
         )
-    if _is_followup(letter.message):
+    if is_followup(letter.message):
         return "добивка вернулась в цепочку и уйдёт с ближайшим проходом добивок, с того же ящика"
     if letter.message.step == RECHECK_STEP:
         return (

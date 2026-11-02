@@ -1,4 +1,4 @@
-"""Мягкие сигналы ящика — у этапа, чья политика их слушает (Ф4, срез 4.5b; у продаж).
+"""Мягкие сигналы ящика и окно его последних писем (Ф4, срез 4.5b) — у всех этапов.
 
 `deferred` («приду позже») и мягкий отказ (`blocked`) говорят, что ящику пора сбавить ход,
 задолго до отказов. Каждый — строка журнала здоровья; набралось `events` за сутки — лимит
@@ -6,8 +6,21 @@
 
 Пауза — по окну последних писем ящика (`window`), а не за всю жизнь: доля отказов или жалоб
 не ниже порога от окна целиком — пауза с причиной словами, одна на ящик и с тревогой человеку
-(`autopause.py`). У этапа без политики и у продаж, пока модуль не ответил о ней (договор
-моста), — прежнее правило парковки (`letters/events._park_if_burning`).
+(`autopause.py`).
+
+**Правило одно у всех этапов** (02.11.2026). У доноров и рекламодателей стояла доля отказов за всю
+жизнь ящика от 50 писем: при их объёме до 50 не дошёл ни один из двадцати ящиков, и защиты не было
+при десяти процентах отказов. Доля за жизнь к тому же размывается: ящик с тысячей хороших писем не
+встал бы и после сотни отказов подряд. Окно этого лишено, а порог — число отказов в нём: три отказа
+ставят паузу и новому ящику. Продажи, пока модуль не ответил о политике (договор моста), не судятся:
+окно считается заново на каждом отказе, и следующий отказ осудит и этот.
+
+**Против ящика — только то, что о ящике** (02.11.2026). Письмо, не дошедшее до сервера получателя
+(`delivery_trouble.NOT_THE_BOX`: его DNS молчит или сервер не отвечает), о нашей репутации не
+говорит: его никто не видел. Сбой хостинга получателей дал одному письму три отсрочки и отказ —
+лимит ящика падал вдвое от одного чужого домена, а три таких отказа в окне ставили ящик на паузу.
+Такая отсрочка в журнал не пишется, такой отказ в окне не считается. Вид — по тексту письма,
+а не по записанному: письма, ушедшие до этой правки, судятся так же, без правки данных.
 
 Повтор события — не второй сигнал: платформа доставляет пачку «хотя бы один раз» и шлёт её
 снова на любой не-2xx. Строка самого события несёт его номер у платформы (`event_id`):
@@ -20,7 +33,6 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -29,8 +41,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core import stages
+from backend.features.core.box_rules import SoftSignals
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.outreach import MessageModel, SenderHealthModel, SenderModel
+from backend.features.letters.delivery_trouble import NOT_THE_BOX, reason_of, refused_kind
 from backend.features.outreach.autopause import AutoPause, pause_once, window_advice
 from backend.features.outreach.senders import warmup_state
 
@@ -39,6 +53,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+__all__ = ["JUDGED", "SOFT_KINDS", "SoftSignals", "cuts", "listen"]
+
 #: Мягкие сигналы: «приду позже» и мягкий отказ принимающего сервера.
 SOFT_KINDS = ("deferred", "blocked")
 #: События, после которых ящик судится по окну последних писем.
@@ -46,26 +62,6 @@ JUDGED = frozenset({"bounce", "dropped", "blocked", "spamreport"})
 DAY = timedelta(days=1)
 #: Уникальный индекс номера события (`SenderHealthModel`): его отказ — «событие уже записано».
 EVENT_INDEX = "uq_sender_health_event"
-
-
-@dataclass(frozen=True, slots=True)
-class SoftSignals:
-    """Пороги мягких сигналов этапа: их задаёт политика (у продаж — модуль продаж)."""
-
-    events: int = 3  # мягких отказов за сутки — и лимит ящика снижен
-    cut: float = 0.5  # во сколько раз
-    window: int = 50  # последних писем ящика в окне
-    bounces: float = 0.05
-    complaints: float = 0.001  # `SALES_COMPLAINT_PAUSE`
-
-
-@dataclass(frozen=True, slots=True)
-class Heard:
-    """Что событие сделало с ящиком: `ruled` — судит политика этапа, а не прежнее правило;
-    `paused` — пауза, которую поставило это событие (ящик, этап и почему)."""
-
-    ruled: bool
-    paused: AutoPause | None = None
 
 
 def _note(
@@ -85,23 +81,24 @@ def _note(
 
 async def listen(
     session: AsyncSession, box_id: int, event: DeliveryEvent, moment: datetime
-) -> Heard:
-    """Событие доставки письма с ящика `box_id` — глазами политики его этапа.
+) -> AutoPause | None:
+    """Событие доставки письма с ящика `box_id` — глазами политики его этапа: пауза, которую оно
+    поставило (ящик, этап и почему), или `None`.
 
-    Ящик без политики (доноры) выходит раньше журнала — прежним правилом. Событие, которое
-    журнал уже знает по номеру, слышано сразу, до записи: повтор пачки не судит ящик дважды."""
+    Событие, которое журнал уже знает по номеру, слышано сразу, до записи: повтор пачки не судит
+    ящик дважды."""
     sender = await session.get(SenderModel, box_id)
     rules = None if sender is None else await _rules(session, sender)
     if sender is None or rules is None:
-        return Heard(ruled=False)
+        return None
     if await _known(session, event.event_id):
-        return Heard(ruled=True)
+        return None
     at = event.at or moment
     if not await _noted(session, sender, rules, event, at):
-        return Heard(ruled=True)
+        return None
     judged = event.kind in JUDGED and sender.enabled
     why = await _verdict(session, sender, rules, at) if judged else None
-    return Heard(ruled=True, paused=await _paused(session, sender, rules, why, at))
+    return await _paused(session, sender, rules, why, at)
 
 
 async def _paused(
@@ -147,9 +144,12 @@ async def _noted(
 
 
 def _row(event: DeliveryEvent) -> tuple[str, str] | None:
-    """Строка журнала самого события — вид и подробность: мягкий сигнал или жалоба."""
+    """Строка журнала самого события — вид и подробность: мягкий сигнал или жалоба. Сигнал о
+    стороне получателя (`NOT_THE_BOX`) — не о ящике, строки нет; жалоба — всегда о нём."""
     signal = _signal(event.kind, event.soft)
     if signal is not None:
+        if reason_of(event.reason, status=event.status).kind in NOT_THE_BOX:
+            return None
         return signal, event.reason or signal
     return ("complaint", "жалоба на спам") if event.kind == "spamreport" else None
 
@@ -182,11 +182,11 @@ async def _written(
 
 
 async def _rules(session: AsyncSession, sender: SenderModel) -> SoftSignals | None:
-    """Пороги этапа ящика; модуль продаж не ответил — прежнее правило (мост сказал почему)."""
+    """Пороги этапа ящика; модуль продаж не ответил — ящик не судится (мост сказал почему)."""
     try:
         return (await stages.mail_policy(session, sender.stage, f"Ящик {sender.email}")).soft
     except stages.SalesNotConnectedError as exc:
-        logger.info("сигналы ящика: прежнее правило парковки — %s", exc)
+        logger.info("сигналы ящика: ящик не судится — %s", exc)
         return None
 
 
@@ -212,16 +212,28 @@ async def _soft_today(session: AsyncSession, sender_id: int, at: datetime) -> in
 async def _verdict(
     session: AsyncSession, sender: SenderModel, rules: SoftSignals, at: datetime
 ) -> str | None:
-    """Пауза по окну последних писем: причина словами или `None`."""
-    last = (
-        select(MessageModel.status, MessageModel.sent_at)
+    """Пауза по окну последних писем: причина словами или `None`. Отказы — только те, что о
+    ящике: вид судит Python по тексту письма, в окне не больше `window` строк."""
+    rows = await session.execute(
+        select(
+            MessageModel.status,
+            MessageModel.sent_at,
+            MessageModel.failure_reason,
+            MessageModel.deferred_kind,
+            MessageModel.deferred_reason,
+        )
         .where(MessageModel.sender_id == sender.id, MessageModel.sent_at.is_not(None))
         .order_by(MessageModel.sent_at.desc())
         .limit(rules.window)
-        .subquery()
     )
-    tally = func.count().filter(last.c.status == MessageStatus.BOUNCED)
-    bounced, since = (await session.execute(select(tally, func.min(last.c.sent_at)))).one()
+    last = rows.tuples().all()
+    bounced = sum(
+        1
+        for status, _, reason, kind, said in last
+        if status is MessageStatus.BOUNCED
+        and refused_kind(reason, deferred_kind=kind, deferred_reason=said) not in NOT_THE_BOX
+    )
+    since = min((sent_at for _, sent_at, _, _, _ in last if sent_at is not None), default=None)
     complaints = await session.scalar(
         select(func.count()).where(
             SenderHealthModel.sender_id == sender.id,
