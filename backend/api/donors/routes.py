@@ -13,9 +13,12 @@
 (`donors/manual_price.py`), право то же, что у адреса руками, — `run`, в
 журнале — кто, сколько и откуда цена.
 
-**Письмо продаж в карточке — подробно только с правом «Продажи»** (П2): причина, почему
+**Письмо чужого этапа в карточке — подробно только с правом этапа** (П2): причина, почему
 письмо донору не уходит, называет письмо сайту в другой роли словами перезапроса цены
 (`letters/other_role.py`), а без права — без номера и роли.
+
+**«Завести донора вручную» и доноры списком — на панели обхода**: они кормят Этап 2 и закрыты
+правом «Рекламодатели» (`stage_access.STAGE_TWO`). Цена с карточки донора — Этап 1 и открыта.
 """
 
 from __future__ import annotations
@@ -38,9 +41,10 @@ from backend.api.donors.schemas import (
     PickedBody,
     PriceBody,
 )
+from backend.api.stage_access import STAGE_TWO
 from backend.api.topics.schemas import with_chosen
-from backend.features.access.permissions import sees_stage
-from backend.features.core.domain import Permission, Stage
+from backend.features.access.permissions import visible_stages
+from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import loads
 from backend.features.donors.browse import DonorBrowser, DonorRow
@@ -141,15 +145,16 @@ async def one_donor(
     user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> DonorFullCard:
-    return DonorFullCard.of(await DonorBrowser(session).card(donor_id, sales_visible=_sales(user)))
+    seen = visible_stages(actor(user))
+    return DonorFullCard.of(await DonorBrowser(session).card(donor_id, seen=seen))
 
 
-def _sales(user: UserModel) -> bool:
-    """Видит ли смотрящий продажи — письмо продаж в карточке подробно (П2)."""
-    return sees_stage(actor(user), Stage.SALES)
-
-
-@router.post("", response_model=EnteredDonor, summary="Завести донора вручную, с ценой")
+@router.post(
+    "",
+    response_model=EnteredDonor,
+    summary="Завести донора вручную, с ценой",
+    dependencies=[STAGE_TWO],
+)
 async def enter_donor(
     body: ManualDonorBody,
     author: UserModel = _runner,
@@ -183,6 +188,5 @@ async def set_price(
     price = body.checked(by=author.email)
     await price_donor(session, donor_id, price, author_id=author.id)
     await session.commit()
-    return DonorFullCard.of(
-        await DonorBrowser(session).card(donor_id, sales_visible=_sales(author))
-    )
+    seen = visible_stages(actor(author))
+    return DonorFullCard.of(await DonorBrowser(session).card(donor_id, seen=seen))

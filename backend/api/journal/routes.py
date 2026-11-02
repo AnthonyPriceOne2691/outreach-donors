@@ -4,7 +4,8 @@
 входы и отказы входа с почтами, выданные права и сброшенные пароли. Проверка — по
 действию, а не по роли: появится третья роль, и матрица прав ответит за неё сама.
 
-Без права «Продажи» — без действий этапа продаж (П2, `access/journal.sales_entry`).
+Без права «Продажи» — без действий этапа продаж (П2, `access/journal.sales_entry`), без права
+«Рекламодатели» — без действий Этапа 2 (`access/journal.advertisers_entry`).
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ async def journal(
     и сутки по UTC сдвинули бы вечер в завтра. Начало дня в его поясе считает экран.
     """
     with_sales = sees_stage(actor(user), Stage.SALES)
+    with_advertisers = sees_stage(actor(user), Stage.ADVERTISERS)
     found = await read_journal(
         session,
         JournalQuery(
@@ -58,6 +60,13 @@ async def journal(
             since=since,
             until=until,
             with_sales=with_sales,
+            with_advertisers=with_advertisers,
         ),
     )
-    return JournalView.of(found, page=page, limit=limit, sales_hidden=not with_sales)
+    return JournalView.of(
+        found,
+        page=page,
+        limit=limit,
+        sales_hidden=not with_sales,
+        advertisers_hidden=not with_advertisers,
+    )

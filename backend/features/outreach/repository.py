@@ -167,7 +167,7 @@ def _snapshot() -> ColumnElement[Any]:
     return case((CampaignModel.stage == Stage.SALES, ReplyModel.model_parse))
 
 
-#: Все этапы: так видит учётка с правом «Продажи» (`access.permissions.visible_stages`)
+#: Все этапы: так видит учётка с правами всех этапов (`access.permissions.visible_stages`)
 #: и так считают фоновые задачи. Не умолчание — передаётся явно (ревью продаж к #304).
 EVERY_STAGE: frozenset[Stage] = frozenset(Stage)
 

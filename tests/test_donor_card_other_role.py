@@ -28,6 +28,8 @@ MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
 
 HOST = "other-role.example.test"
+#: Этапы учётки без права «Продажи».
+NO_SALES = {Stage.DONORS, Stage.ADVERTISERS}
 HIDDEN = "уже писали в другой роли: одному адресату письмо в другой роли не уходит."
 
 
@@ -61,8 +63,8 @@ async def _letter(session: AsyncSession, donor: DonorModel, stage: Stage, *, ans
     return letter.id
 
 
-async def _blocked(session: AsyncSession, donor: DonorModel, *, sales_visible: bool) -> str | None:
-    found = await Recipients(session).letter_address(donor.domain_id, sales_visible=sales_visible)
+async def _blocked(session: AsyncSession, donor: DonorModel, *, seen: set[Stage]) -> str | None:
+    found = await Recipients(session).letter_address(donor.domain_id, seen=seen)
     return found.blocked
 
 
@@ -73,8 +75,8 @@ async def test_a_sales_letter_is_named_as_the_recheck_names_it(
     donor = await _donor(session, HOST, [{"email": f"info@{HOST}"}])
     letter = await _letter(session, donor, Stage.SALES, answered=answered)
 
-    hidden = await _blocked(session, donor, sales_visible=False)
-    shown = await _blocked(session, donor, sales_visible=True)
+    hidden = await _blocked(session, donor, seen=NO_SALES)
+    shown = await _blocked(session, donor, seen=set(Stage))
 
     assert hidden == HIDDEN
     assert shown == (
@@ -88,7 +90,7 @@ async def test_an_offer_to_the_site_is_named_to_everyone(session: AsyncSession) 
     donor = await _donor(session, HOST, [{"email": f"info@{HOST}"}])
     letter = await _letter(session, donor, Stage.ADVERTISERS, answered=False)
 
-    blocked = await _blocked(session, donor, sales_visible=False)
+    blocked = await _blocked(session, donor, seen=NO_SALES)
 
     assert blocked is not None
     assert blocked.startswith(f"уже писали как рекламодателю (письмо №{letter})")
@@ -98,7 +100,7 @@ async def test_the_donors_own_letter_keeps_the_donor_words(session: AsyncSession
     donor = await _donor(session, HOST, [{"email": f"info@{HOST}"}])
     await _letter(session, donor, Stage.DONORS, answered=True)
 
-    assert await _blocked(session, donor, sales_visible=False) == attempts.ANSWERED
+    assert await _blocked(session, donor, seen=NO_SALES) == attempts.ANSWERED
 
 
 async def test_the_card_names_it_by_the_right_of_who_looks(

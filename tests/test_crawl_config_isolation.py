@@ -28,9 +28,9 @@ for name in ("backend.workers.send_jobs", "backend.workers.sales_jobs",
     importlib.import_module(name)
 print("imported")
 
-from backend.features.ops import silence
+from backend.features.ops import crawl_watch, silence  # noqa: F401 — и сторож импортируется
 
-alarm = asyncio.run(silence._crawl_cap_reached(None))
+alarm = asyncio.run(crawl_watch.cap_reached(None))
 print(alarm.code)
 print(alarm.detail)
 

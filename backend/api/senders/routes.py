@@ -7,7 +7,7 @@
 
 **Ящики продаж — только с правом «Продажи»** (решение Anthony 10.10.2026, П2б):
 без права их нет в списке, в числах и в направлениях экрана, а включить или
-выключить ящик продаж — 403 словами.
+выключить ящик продаж — 403 словами. Ящики Этапа 2 — так же, с правом «Рекламодатели».
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from backend.features.outreach.repository import OutreachRepository
 router = APIRouter(prefix="/senders", tags=["рассылка"])
 
 _admin = Depends(needs(Permission.SENDERS))
-#: Ящик по номеру: у ящика продаж — ещё право «Продажи» (П2б).
+#: Ящик по номеру: ещё право этапа ящика (П2б).
 _box_admin = Depends(on_sender(Permission.SENDERS))
 
 

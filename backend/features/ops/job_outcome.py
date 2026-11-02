@@ -22,12 +22,15 @@
 
 **Исход задачи продаж — только с правом «Продажи»** (решение Anthony 10.10.2026, П2б):
 какая задача — продаж, решает `sales_job` по тому, что она такое, а не по строкам базы;
-отказывает маршрут (`api/jobs`).
+отказывает маршрут (`api/jobs`). Задача Этапа 2 — так же, с правом «Рекламодатели»
+(`advertisers_job`). Разбор и черновик ответа — задачи общего пути и общей очереди: этап у них
+знает только ответ, и маршрут спрашивает его по `JobOutcome.reply_id`.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -44,8 +47,10 @@ from backend.features.runs.reasons import explained_line
 from backend.shared.queue import (
     BUILD_JOB,
     CONTACTS_JOB,
+    CRAWL_QUEUE_NAME,
     DEEPER_JOB,
     FORM_LETTER_JOB,
+    LEAD_JOB,
     PARSE_JOB,
     RUN_JOB,
     SALES_BULK_QUEUE_NAME,
@@ -58,6 +63,9 @@ from backend.shared.queue import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: Черновик ответа агентом — путь строкой: задача живёт у воркера (`workers/agent_jobs.py`).
+DRAFT_JOB = "backend.workers.agent_jobs.draft_answer"
 
 #: Задача по пути — словами человека.
 KINDS = {
@@ -79,7 +87,7 @@ KINDS = {
     FORM_LETTER_JOB: "текст письма для формы",
     PARSE_JOB: "разбор ответа",
     # Задача агента переписки живёт в своём модуле (`workers/agent_jobs.py`).
-    "backend.workers.agent_jobs.draft_answer": "черновик ответа",
+    DRAFT_JOB: "черновик ответа",
     SALES_REPLY_JOB: "разбор ответа продаж",
 }
 
@@ -100,6 +108,27 @@ def sales_job(job_id: str, path: str | None, queue: str | None) -> bool:
         (path or "").startswith(SALES_PATHS)
         or job_id.startswith(SALES_IDS)
         or queue in (SALES_QUEUE_NAME, SALES_BULK_QUEUE_NAME)
+    )
+
+
+#: Задача Этапа 2 (`advertisers_job`) — по пути функции: обход и суд обхода
+#: (`workers/crawl_jobs.py`), передача лида рекламодателя в CRM.
+ADVERTISER_PATHS = ("backend.workers.crawl_jobs.", LEAD_JOB)
+#: …по номеру: как у продаж, этап общей задачи писем — в номере (`api/letters/once.py`).
+ADVERTISER_IDS = ("letters-build-advertisers-", "letters-send-advertisers-")
+#: Над ответом: первый довод задачи — номер ответа, а этап — у него (`JobOutcome.reply_id`).
+REPLY_PATHS = (PARSE_JOB, DRAFT_JOB)
+
+
+def advertisers_job(job_id: str, path: str | None, queue: str | None, args: Sequence[Any]) -> bool:
+    """Задача ли это Этапа 2 — по тому же, что `sales_job`: путь функции, номер общей задачи писем
+    или очередь обходов. Поиск адресов у этапов общий, и рекламодателей он ищет с этапом в доводах
+    (`api/advertisers/routes._search`)."""
+    return (
+        (path or "").startswith(ADVERTISER_PATHS)
+        or job_id.startswith(ADVERTISER_IDS)
+        or queue == CRAWL_QUEUE_NAME
+        or (path == CONTACTS_JOB and Stage.ADVERTISERS.value in args)
     )
 
 
@@ -131,9 +160,11 @@ class JobOutcome:
     retries_left: int | None = None
     next_try_at: datetime | None = None
     ended_at: datetime | None = None
-    #: Этап, который закрывает исход правом: продажи (`sales_job`). У остальных задач — `None`:
-    #: их исход смотрит право `view`, как до П2б.
+    #: Этап, который закрывает исход правом: продажи (`sales_job`), Этап 2 (`advertisers_job`).
+    #: У остальных задач — `None`: их исход смотрит право `view`, как до П2б.
     stage: Stage | None = None
+    #: Номер ответа у задачи над ответом: этап такой задачи — у него, а не в Redis (`api/jobs`).
+    reply_id: int | None = None
 
     @property
     def title(self) -> str:
@@ -189,12 +220,17 @@ def _outcome(job: Job, conn: Redis) -> JobOutcome:
         next_try_at=_next_try(job, conn) if state == "retry_wait" else None,
         ended_at=job.ended_at,
         stage=_stage(job),
+        reply_id=job.args[0] if job.func_name in REPLY_PATHS and job.args else None,
     )
 
 
 def _stage(job: Job) -> Stage | None:
-    """Этап, который закрывает исход правом: продажи (`sales_job`) — или `None`."""
-    return Stage.SALES if sales_job(job.id, job.func_name, job.origin) else None
+    """Этап, который закрывает исход правом — или `None`, если задача его не называет."""
+    if sales_job(job.id, job.func_name, job.origin):
+        return Stage.SALES
+    if advertisers_job(job.id, job.func_name, job.origin, job.args):
+        return Stage.ADVERTISERS
+    return None
 
 
 def _error_of(

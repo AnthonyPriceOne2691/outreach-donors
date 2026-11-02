@@ -3,9 +3,9 @@
 Экран, поставивший задачу, спрашивает здесь по её номеру — вместо того чтобы
 ждать, появится ли результат. Смотрят все, у кого есть доступ к базе: итог
 сборки писем или поиска контактов касается того, кто ждёт писем и адресов.
-Исход задачи продаж — ещё и с правом «Продажи» (решение Anthony 10.10.2026, П2б):
-какая задача — продаж, решает `ops/job_outcome.sales_job`; задачи, которой нет, —
-«не найдено», как и раньше.
+Исход задачи продаж — ещё и с правом «Продажи» (решение Anthony 10.10.2026, П2б), задачи Этапа 2 —
+с правом «Рекламодатели»: какая задача какого этапа, решает `ops/job_outcome`, а у разбора и
+черновика ответа — этап самого ответа. Задачи, которой нет, — «не найдено», как и раньше.
 """
 
 from __future__ import annotations
@@ -16,13 +16,15 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.deps import actor, needs
+from backend.api.deps import actor, db_session, needs
 from backend.api.stage_access import JOBS
 from backend.features.access.permissions import require_stage
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.ops.job_outcome import JobOutcome, job_outcome
+from backend.features.outreach import stage_of
 
 router = APIRouter(prefix="/jobs", tags=["задачи"])
 
@@ -59,7 +61,11 @@ class JobCard(BaseModel):
 
 
 @router.get("/{job_id}", response_model=JobCard, summary="Исход фоновой задачи")
-async def outcome(job_id: str, user: UserModel = _viewer) -> JobCard:
+async def outcome(
+    job_id: str,
+    user: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> JobCard:
     # Исход читается из Redis синхронным клиентом — в пуле потоков, а не в цикле событий
     # единственного процесса API (аудит 10.10.2026).
     found = await asyncio.to_thread(job_outcome, job_id)
@@ -68,5 +74,8 @@ async def outcome(job_id: str, user: UserModel = _viewer) -> JobCard:
             status.HTTP_404_NOT_FOUND,
             "Задачи с таким номером очередь не знает: итог хранится неделю, номер мог устареть",
         )
-    require_stage(actor(user), found.stage, JOBS)
+    stage = found.stage
+    if found.reply_id is not None:
+        stage = await stage_of.of_reply(session, found.reply_id)
+    require_stage(actor(user), stage, JOBS)
     return JobCard.of(found)

@@ -9,7 +9,7 @@
 
 **Переписка продаж — ещё и с правом «Продажи»** (решение Anthony 10.10.2026, П2):
 без него её нет в списке, а карточка, ответ и черновик — 403 словами
-(`api/stage_access.py`).
+(`api/stage_access.py`). Переписка Этапа 2 — так же, с правом «Рекламодатели».
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/threads", tags=["диалоги"])
 
 _viewer = Depends(needs(Permission.VIEW))
-#: Переписка по номеру: у переписки продаж — ещё право «Продажи» (П2).
+#: Переписка по номеру: ещё право этапа переписки (П2).
 _thread_viewer = Depends(on_thread(Permission.VIEW))
 _thread_sender = Depends(on_thread(Permission.SEND))
 
@@ -68,7 +68,7 @@ async def all_threads(
     user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> list[ThreadCard]:
-    """Диалоги этапов, которые видит учётка: без права «Продажи» — без переписок продаж."""
+    """Диалоги этапов, которые видит учётка: без права этапа — без его переписок."""
     rows = await OutreachRepository(session).threads(stages=visible_stages(actor(user)))
     return [ThreadCard.of(row) for row in rows]
 

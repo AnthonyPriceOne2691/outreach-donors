@@ -32,7 +32,7 @@ from backend.features.letters.followups import Chain
 from backend.features.letters.price_recheck import RecheckRefusedError, Way
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import Sending
-from backend.features.outreach.repository import OutreachRepository
+from backend.features.outreach.repository import EVERY_STAGE, OutreachRepository
 from httpx import AsyncClient
 from pydantic import ValidationError
 from sqlalchemy import event
@@ -41,6 +41,9 @@ from tests.conftest import bearer, make_sender
 from tests.recheck_world import BOX, HOST, Recording, World, manual_stale, stale_conversation
 
 pytestmark = pytest.mark.usefixtures("filled_legal")
+
+#: Этапы учётки без права «Продажи».
+NO_SALES = frozenset({Stage.DONORS, Stage.ADVERTISERS})
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -210,8 +213,8 @@ class TestOtherStage:
         await make_sender(session, BOX)
         letter_id = await _sales_letter(session, donor.domain_id, moment)
 
-        hidden = await price_recheck.look(session, donor.id, now=moment, sales_visible=False)
-        shown = await price_recheck.look(session, donor.id, now=moment, sales_visible=True)
+        hidden = await price_recheck.look(session, donor.id, now=moment, seen=NO_SALES)
+        shown = await price_recheck.look(session, donor.id, now=moment, seen=EVERY_STAGE)
 
         assert hidden.refusal == (
             "manual.example.test уже писали в другой роли: одному адресату письмо в другой "

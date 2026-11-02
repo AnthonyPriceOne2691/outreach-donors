@@ -51,13 +51,24 @@ class JournalView(BaseModel):
     #: Действия этапа продаж не показаны: у учётки нет права «Продажи» (П2). Экран
     #: говорит это словами — иначе журнал без них читался бы как весь.
     sales_hidden: bool
+    #: То же о действиях Этапа 2: у учётки нет права «Рекламодатели».
+    advertisers_hidden: bool = False
 
     @classmethod
-    def of(cls, found: JournalPage, *, page: int, limit: int, sales_hidden: bool) -> JournalView:
+    def of(
+        cls,
+        found: JournalPage,
+        *,
+        page: int,
+        limit: int,
+        sales_hidden: bool,
+        advertisers_hidden: bool = False,
+    ) -> JournalView:
         return cls(
             entries=[JournalEntryCard.of(entry) for entry in found.entries],
             total=found.total,
             page=page,
             limit=limit,
             sales_hidden=sales_hidden,
+            advertisers_hidden=advertisers_hidden,
         )

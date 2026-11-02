@@ -24,7 +24,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -57,6 +57,7 @@ from backend.features.donors.table_filters import (
     ordered,
     top_country_counts,
 )
+from backend.features.letters import other_role
 from backend.features.letters.recipients import LetterAddress, Recipients
 from backend.features.replies.extract import WITHOUT_PRICE
 from backend.features.replies.quoting import written_by_hand
@@ -383,9 +384,11 @@ class DonorBrowser:
         ).one()
         return {state: int(count) for state, count in zip(states, row, strict=True)}
 
-    async def card(self, donor_id: int, *, sales_visible: bool = False) -> DonorCard:
-        """Карточка донора. `sales_visible` — смотрящий видит продажи: письмо продаж в причине,
-        почему письмо донору не уходит, — номером и ролью (`letters/other_role.py`)."""
+    async def card(
+        self, donor_id: int, *, seen: Collection[Stage] = other_role.ONLY_DONORS
+    ) -> DonorCard:
+        """Карточка донора. `seen` — этапы смотрящего: письмо его этапа в причине, почему письмо
+        донору не уходит, — номером и ролью (`letters/other_role.py`)."""
         if not storable(donor_id):
             raise UnknownDonorError(f"Донора №{donor_id} нет")
         moment = datetime.now(UTC)
@@ -428,9 +431,7 @@ class DonorBrowser:
             contact_refusal=await search_refusal(self._session, donor),
             price_refusal=await price_refusal(self._session, host, donor),
             review_run=await decided_in(self._session, donor.domain_id, donor.review),
-            letter=await Recipients(self._session).letter_address(
-                donor.domain_id, sales_visible=sales_visible
-            ),
+            letter=await Recipients(self._session).letter_address(donor.domain_id, seen=seen),
             removal=await removal_refusals(self._session, contacts),
             threads=await self._threads(donor.domain_id),
             price_stale=bool(stale),

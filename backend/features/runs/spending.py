@@ -13,7 +13,8 @@
 **Расход продаж — только с правом «Продажи»** (решение Anthony 10.10.2026, П2б).
 Без права операций продаж (`usage.SALES_OPERATIONS`) нет ни в статьях, ни в суммах
 по провайдерам, ни в итоге: суммы сходятся со статьями, и расход продаж не
-вычитается из итога. Что итог — без продаж, экран говорит словами. Кап Ahrefs и
+вычитается из итога. Что итог — без продаж, экран говорит словами. Так же расход Этапа 2 и
+право «Рекламодатели» (02.11.2026): правило одно на этап (`_seen`). Кап Ahrefs и
 потолки считают весь расход (`EVERY_STAGE`): этапы видимости — про экран, а не про деньги.
 
 **Этап — у каждой статьи**: расход Этапа 2 считается отдельно от Этапа 1. Одна
@@ -30,13 +31,13 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import ColumnElement, func, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy import true as sa_true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import Stage, UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
-from backend.features.core.usage import SALES_OPERATIONS
+from backend.features.core.usage import OPERATION_STAGES
 from backend.features.outreach.repository import EVERY_STAGE
 
 #: Провайдеры платного обхода Этапа 2 — то, что держит свой потолок Этапа 2.
@@ -117,14 +118,16 @@ def month_start(now: datetime | None = None) -> datetime:
 
 
 def _seen(stages: Collection[Stage]) -> ColumnElement[bool]:
-    """Расход видимых этапов: без права «Продажи» — без операций продаж и без строк, которые
-    вызов назвал тратой продаж (П2б). Строка без этапа продажам не принадлежит: отправка
-    письма — общая на все этапы."""
-    if Stage.SALES in stages:
+    """Расход видимых этапов: без права этапа — без операций этого этапа (`OPERATION_STAGES`) и
+    без строк, которые вызов назвал его тратой (П2б). Строка без этапа скрытому этапу не
+    принадлежит: отправка письма — общая на все этапы."""
+    hidden = EVERY_STAGE - frozenset(stages)
+    if not hidden:
         return sa_true()
-    return UsageRecordModel.operation.not_in(
-        sorted(SALES_OPERATIONS)
-    ) & UsageRecordModel.stage.is_distinct_from(Stage.SALES)
+    operations = sorted(name for name, stage in OPERATION_STAGES.items() if stage in hidden)
+    return UsageRecordModel.operation.not_in(operations) & or_(
+        UsageRecordModel.stage.is_(None), UsageRecordModel.stage.not_in(sorted(hidden))
+    )
 
 
 class SpendingRepository:
