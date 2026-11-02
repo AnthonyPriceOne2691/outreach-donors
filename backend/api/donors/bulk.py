@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps import db_session, needs
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
-from backend.features.crawl import backlog
+from backend.features.crawl import backlog, loads
 from backend.features.donors.bulk_entry import Outcome, Report, Row, enter_many
 from backend.features.donors.bulk_file import MAX_BYTES, Line, read_table, template_csv
 from backend.shared.queue import CRAWL_QUEUE_NAME, workers_alive
@@ -174,6 +174,14 @@ async def enter_list(
         await backlog.add(session, report.crawl_hosts, by=author.email, author_id=author.id)
         if crawl
         else 0
+    )
+    await loads.record(
+        session,
+        kind=loads.BULK,
+        hosts=report.entered_hosts,
+        by=author.email,
+        file_name=file.filename,
+        crawl=crawl,
     )
     await session.commit()
     return BulkReport.of(file.filename or "", report, queued=queued, line=await _line(session))

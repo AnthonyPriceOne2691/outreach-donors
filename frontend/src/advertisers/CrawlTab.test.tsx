@@ -585,7 +585,7 @@ describe('донор, заведённый вручную', () => {
 
 describe('сводка обхода в «Проверке»', () => {
   it('одной строкой — что идёт и сколько можно обойти; кнопка ведёт на вкладку', async () => {
-    const recorded = open({}, ADMIN, '/advertisers');
+    const recorded = open({}, ADMIN, '/advertisers?view=review');
     const user = userEvent.setup();
 
     expect(await screen.findByText('можно обойти: 2')).toBeInTheDocument();
@@ -600,7 +600,11 @@ describe('сводка обхода в «Проверке»', () => {
   });
 
   it('ничего не идёт — без значков хода', async () => {
-    open({ 'GET /api/crawls/summary': { body: EMPTY_CRAWL_SUMMARY } }, ADMIN, '/advertisers');
+    open(
+      { 'GET /api/crawls/summary': { body: EMPTY_CRAWL_SUMMARY } },
+      ADMIN,
+      '/advertisers?view=review',
+    );
 
     expect(await screen.findByText('обходить сейчас некого')).toBeInTheDocument();
     expect(screen.queryByText(/идёт:/)).toBeNull();

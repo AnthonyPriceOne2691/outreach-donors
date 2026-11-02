@@ -56,7 +56,7 @@ async function openScreen(routes: Record<string, unknown> = {}, who: unknown = A
     'GET /api/advertisers': { body: QUEUE },
     ...(routes as Record<string, never>),
   });
-  renderWith(<AppRoutes />, '/advertisers');
+  renderWith(<AppRoutes />, '/advertisers?view=review');
   await screen.findByText('advertiser.example');
   return recorded;
 }
@@ -168,7 +168,7 @@ describe('ручная проверка рекламодателей', () => {
       },
       'GET /api/advertisers': { body: { rows: [], waiting: 0, counts: {} } },
     });
-    renderWith(<AppRoutes />, '/advertisers');
+    renderWith(<AppRoutes />, '/advertisers?view=review');
 
     expect(await screen.findByText(/Спорных нет/)).toBeInTheDocument();
   });
@@ -189,7 +189,7 @@ describe('числа и текст сходятся', () => {
       'GET /api/advertisers': { body: { ...QUEUE, rows: [], waiting: 0 } },
       'GET /api/advertisers?include_decided=true': { body: { ...QUEUE, rows: [DECIDED] } },
     });
-    renderWith(<AppRoutes />, '/advertisers');
+    renderWith(<AppRoutes />, '/advertisers?view=review');
   }
 
   it('«спорно: 1» при решённом спорном — не «спорных нет», а сколько решено и где их видно', async () => {
@@ -272,7 +272,7 @@ describe('слова при числах', () => {
         body: { ...QUEUE, rows: [{ ...CANDIDATE, links: 1, pages: 1 }] },
       },
     });
-    renderWith(<AppRoutes />, '/advertisers');
+    renderWith(<AppRoutes />, '/advertisers?view=review');
 
     expect(await screen.findByText('1 ссылка с 1 страницы')).toBeInTheDocument();
   });
