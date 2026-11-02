@@ -19,6 +19,7 @@
 
 import { Button, Group, Modal, Stack, Text } from '@mantine/core';
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 
 import type { CrawlDeepRules, CrawlDonorQuery, CrawlDonorsView } from '../api/crawls';
 import { formatNumber, plural } from '../format';
@@ -58,6 +59,39 @@ export function bulkTiming(count: number, typicalSec: number, workers: number | 
   return `При ${crawlers} пройдут ${eta}: ${each}, разом идёт столько, сколько обходчиков.`;
 }
 
+/** Запуск по фильтру: окно, сколько встанет — не больше предела сервера — и сам запрос. */
+function useBulk(startable: number, most: number | undefined) {
+  const [open, setOpen] = useState(false);
+  const asked = most === undefined ? startable : Math.min(startable, most);
+  const run = useStartByFilter(() => setOpen(false));
+  return { open, setOpen, asked, run };
+}
+
+/** Кнопка, открывающая окно подтверждения. */
+function OpensWindow({
+  variant,
+  disabled,
+  onOpen,
+  children,
+}: {
+  variant: 'light' | 'default';
+  disabled: boolean;
+  onOpen: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Button
+      variant={variant}
+      className="press"
+      disabled={disabled}
+      aria-haspopup="dialog"
+      onClick={onOpen}
+    >
+      {children}
+    </Button>
+  );
+}
+
 /** Кого обойдём: число и условия вкладки — первой строкой окна. */
 function whoWords(count: number, conditions: string[]): string {
   const who = conditions.length > 0 ? ` — ${conditions.join(', ')}` : ' — все, кого можно обойти';
@@ -78,20 +112,12 @@ export function BulkDeep({
   conditions: string[];
   rules: CrawlDeepRules;
 }) {
-  const [open, setOpen] = useState(false);
-  const asked = most === undefined ? startable : Math.min(startable, most);
-  const run = useStartByFilter(() => setOpen(false));
+  const { open, setOpen, asked, run } = useBulk(startable, most);
   return (
     <>
-      <Button
-        variant="default"
-        className="press"
-        disabled={startable === 0}
-        aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
-      >
+      <OpensWindow variant="default" disabled={startable === 0} onOpen={() => setOpen(true)}>
         {deepLabel(rules, 'всех')} · {bulkCount(startable, most)}
-      </Button>
+      </OpensWindow>
       <DeepConfirm
         opened={open}
         rules={rules}
@@ -126,20 +152,12 @@ export function BulkCrawl({
   /** Условия вкладки словами; пусто — все доноры. */
   conditions: string[];
 }) {
-  const [open, setOpen] = useState(false);
-  const asked = most === undefined ? startable : Math.min(startable, most);
-  const run = useStartByFilter(() => setOpen(false));
+  const { open, setOpen, asked, run } = useBulk(startable, most);
   return (
     <>
-      <Button
-        variant="light"
-        className="press"
-        disabled={startable === 0}
-        aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
-      >
+      <OpensWindow variant="light" disabled={startable === 0} onOpen={() => setOpen(true)}>
         Обойти всех по фильтру · {bulkCount(startable, most)}
-      </Button>
+      </OpensWindow>
       <Modal opened={open} onClose={() => setOpen(false)} title="Обойти всех по фильтру?">
         <Stack gap="sm">
           <Text>{whoWords(asked, conditions)}</Text>
