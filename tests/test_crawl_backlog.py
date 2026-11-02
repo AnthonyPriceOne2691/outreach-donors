@@ -276,6 +276,16 @@ async def test_without_recent_crawls_the_term_is_half_an_hour_a_donor(
     assert await backlog.eta_sec(session, 8, 4) == pytest.approx(2 * backlog.TYPICAL_SEC)
 
 
+async def test_a_donor_is_not_faster_than_its_own_term(session: AsyncSession) -> None:
+    """Живой обход 02.11.2026: свободные обходчики не ускоряют того, кто идёт один."""
+    session.add(_done("a.example", 1200))
+    await session.flush()
+
+    assert await backlog.eta_sec(session, 1, 16) == pytest.approx(1200)
+    assert await backlog.eta_sec(session, 16, 16) == pytest.approx(1200)
+    assert await backlog.eta_sec(session, 17, 16) == pytest.approx(2 * 1200)
+
+
 @pytest.mark.parametrize("workers", [None, 0])
 async def test_without_crawlers_there_is_no_term(
     session: AsyncSession, workers: int | None
