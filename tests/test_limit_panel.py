@@ -395,6 +395,8 @@ class TestRows:
 
         assert rows["sales.mail.box"]["per_session"] is None
         assert "Автоотправка выключена" in rows["sales.mail.box"]["now"]
+        # Включённых ящиков нет: сокращение не дописывает к точке предложения вторую.
+        assert ".." not in rows["sales.mail.box"]["now"]
 
     async def test_services_are_read_only_and_real(
         self,

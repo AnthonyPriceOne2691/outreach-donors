@@ -204,7 +204,7 @@ def _steps_words(own: Sequence[SenderModel], facts: _Facts) -> str:
         {rules.warmup_state(box, now=facts.moment).allowance for box in own if box.enabled}
     )
     today = "" if not now else f", сегодня {now[0]}" + (f"–{now[-1]}" if len(now) > 1 else "")
-    return f"Разгон {steps} шагом {rules.WARMUP_STEP_DAYS} дн.{today}"
+    return f"Разгон шагом {rules.WARMUP_STEP_DAYS} дн.: {steps}{today}"
 
 
 def _box_row(lane: _Lane, own: Sequence[SenderModel], facts: _Facts) -> LimitRow:
