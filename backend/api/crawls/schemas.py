@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -12,6 +12,7 @@ from backend.config import crawl as crawl_cfg
 from backend.features.ahrefs.units import MIN_REQUEST_UNITS, UNITS_DR_SCREEN
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, PriceSource, StopReason
 from backend.features.crawl.board import CrawlLine, DonorLine, QueueState
+from backend.features.crawl.night import NightLine
 from backend.shared.crawl_marks import Held
 
 #: Сколько доноров ставится одним нажатием. У обходчика один донор, обход — до
@@ -290,3 +291,68 @@ class DeepResult(BaseModel):
     busy: list[str]
     refused: dict[str, str]
     rules: DeepRules
+
+
+class NightRow(BaseModel):
+    """Последний ночной круг (`crawl/night.py`): что считали, что вышло и что осталось."""
+
+    night: date
+    #: `running`, `done`, `missed` или `failed`.
+    status: str
+    started_at: datetime | None = None
+    #: После этого часа новые обходы круга не выдаются.
+    issue_until: datetime | None = None
+    finished_at: datetime | None = None
+    #: Почему круг не шёл — словами.
+    note: str | None = None
+    #: Поставлено в круг, ушло обходчикам, снято по сроку.
+    taken: int
+    given: int
+    dropped: int
+    #: Идут и ждут сейчас: у законченного круга — ноль.
+    going: int
+    waiting: int
+    #: Расчёт: из чего вышло и сколько не поместилось. Нет — расчёта не было.
+    workers: int | None = None
+    slots: int | None = None
+    typical_sec: float | None = None
+    longest_sec: float | None = None
+    estimate_sec: float | None = None
+    donors: int | None = None
+    left_out: int | None = None
+    rested: int | None = None
+    ranks: dict[str, int] = Field(default_factory=dict)
+
+    @classmethod
+    def of(cls, line: NightLine) -> NightRow:
+        row, facts = line.row, line.row.plan or {}
+        return cls(
+            night=row.night,
+            status=row.status,
+            started_at=row.started_at,
+            issue_until=row.issue_until,
+            finished_at=row.finished_at,
+            note=row.note,
+            taken=row.taken,
+            given=line.given,
+            dropped=row.dropped,
+            going=line.going,
+            waiting=line.waiting,
+            workers=facts.get("workers"),
+            slots=facts.get("slots"),
+            typical_sec=facts.get("typical_sec"),
+            longest_sec=facts.get("longest_sec"),
+            estimate_sec=facts.get("estimate_sec"),
+            donors=facts.get("donors"),
+            left_out=facts.get("left_out"),
+            rested=facts.get("rested"),
+            ranks=facts.get("ranks", {}),
+        )
+
+
+class NightView(BaseModel):
+    """Ночной обход одной строкой вкладки: включён ли, какое окно и последний круг."""
+
+    enabled: bool
+    window_sec: float
+    last: NightRow | None = None

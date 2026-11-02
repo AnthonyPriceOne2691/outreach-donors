@@ -127,14 +127,14 @@
       "worst": "of:110"
     },
     "backend/api/crawls/routes.py": {
-      "lines": 350,
+      "lines": 366,
       "complexity": 9,
-      "worst": "_why_not:200"
+      "worst": "_why_not:216"
     },
     "backend/api/crawls/schemas.py": {
-      "lines": 293,
+      "lines": 359,
       "complexity": 5,
-      "worst": "of:60"
+      "worst": "of:61"
     },
     "backend/api/deps.py": {
       "lines": 125,
@@ -867,9 +867,9 @@
       "worst": "—"
     },
     "backend/config/crawl.py": {
-      "lines": 309,
+      "lines": 319,
       "complexity": 7,
-      "worst": "render_template_problem:246"
+      "worst": "render_template_problem:254"
     },
     "backend/config/filters.py": {
       "lines": 44,
@@ -1252,7 +1252,7 @@
       "worst": "—"
     },
     "backend/features/core/models/crawl.py": {
-      "lines": 167,
+      "lines": 197,
       "complexity": 0,
       "worst": "—"
     },
@@ -1362,9 +1362,9 @@
       "worst": "strip_structural_noise:176"
     },
     "backend/features/crawl/backlog.py": {
-      "lines": 280,
+      "lines": 313,
       "complexity": 8,
-      "worst": "eta_sec:136"
+      "worst": "eta_sec:158"
     },
     "backend/features/crawl/big_sites.py": {
       "lines": 184,
@@ -1392,7 +1392,7 @@
       "worst": "_public_zone:126"
     },
     "backend/features/crawl/donor_page.py": {
-      "lines": 386,
+      "lines": 391,
       "complexity": 11,
       "worst": "_tally:284"
     },
@@ -1455,6 +1455,11 @@
       "lines": 304,
       "complexity": 9,
       "worst": "collect:68"
+    },
+    "backend/features/crawl/night.py": {
+      "lines": 498,
+      "complexity": 7,
+      "worst": "order:193"
     },
     "backend/features/crawl/offer_state.py": {
       "lines": 181,

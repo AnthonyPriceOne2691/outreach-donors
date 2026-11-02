@@ -28,6 +28,10 @@
 видны, и обычные доноры за ними не стоят. Обычный донор, ставший глубоким, строку не удваивает:
 она становится глубокой.
 
+**Ночной круг живёт здесь же** (`night.py`): проход начинает его и закрывает, а строки круга
+идут последними — загруженные и поставленные человеком важнее. Его строку забирает любая
+постановка: иначе донора, которого человек велел обойти, снял бы срок круга.
+
 Снять очередь целиком — человеку с правом запуска (`api/donors/bulk.py`); снятое — в журнал.
 """
 
@@ -37,8 +41,10 @@ import logging
 import statistics
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,7 +53,7 @@ from backend.config import filters
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, CrawlOutcome, CrawlStatus
 from backend.features.core.models.crawl import CrawlBacklogModel, CrawlRunModel
-from backend.features.crawl import deep, targets
+from backend.features.crawl import deep, night, targets
 from backend.features.crawl.launch import Enqueue, JobId, launch
 
 logger = logging.getLogger(__name__)
@@ -98,20 +104,36 @@ async def add(
             {"host": host, "requested_by": by, "author_id": author_id, "max_pages": max_pages}
             for host in unique[start : start + CHUNK]
         ]
-        statement = insert(CrawlBacklogModel).values(rows)
-        result = await session.execute(
-            statement.on_conflict_do_nothing(index_elements=["host"]).returning(
-                CrawlBacklogModel.id
-            )
-            if max_pages is None
-            else statement.on_conflict_do_update(
-                index_elements=["host"],
-                set_={"max_pages": max_pages},
-                where=CrawlBacklogModel.max_pages.is_(None),
-            ).returning(CrawlBacklogModel.id)
-        )
+        result = await session.execute(_upsert(rows, by=by, max_pages=max_pages))
         added += len(result.scalars().all())
     return added
+
+
+def _upsert(rows: list[dict[str, Any]], *, by: str | None, max_pages: int | None) -> Any:
+    """Вставка строк очереди. Уже стоящая меняется только в двух случаях: глубокий забирает
+    обычную, а человек — строку ночного круга (`night.py`): её снял бы срок круга."""
+    statement = insert(CrawlBacklogModel).values(rows)
+    if by == night.NIGHT_BY:
+        return statement.on_conflict_do_nothing(index_elements=["host"]).returning(
+            CrawlBacklogModel.id
+        )
+    takes_night = CrawlBacklogModel.requested_by == night.NIGHT_BY
+    excluded = statement.excluded
+    if max_pages is None:
+        return statement.on_conflict_do_update(
+            index_elements=["host"],
+            set_={"requested_by": excluded.requested_by, "author_id": excluded.author_id},
+            where=takes_night,
+        ).returning(CrawlBacklogModel.id)
+    return statement.on_conflict_do_update(
+        index_elements=["host"],
+        set_={
+            "max_pages": excluded.max_pages,
+            "requested_by": excluded.requested_by,
+            "author_id": excluded.author_id,
+        },
+        where=or_(takes_night, CrawlBacklogModel.max_pages.is_(None)),
+    ).returning(CrawlBacklogModel.id)
 
 
 async def waiting(session: AsyncSession) -> int:
@@ -164,14 +186,23 @@ async def eta_sec(
     return ahead * typical / workers
 
 
-async def feed(session: AsyncSession, *, workers: int, enqueue: Enqueue, job_id: JobId) -> Fed:
-    """Отдать свободным обходчикам доноров очереди загрузки — один проход.
+async def feed(
+    session: AsyncSession,
+    *,
+    workers: int,
+    enqueue: Enqueue,
+    job_id: JobId,
+    now: datetime | None = None,
+) -> Fed:
+    """Отдать свободным обходчикам доноров очереди загрузки — один проход. Сначала — шаг
+    ночного круга (`night.py`): он сам кладёт сюда строки и сам снимает их по сроку.
 
     В очереди обходов кто-то ждёт — человек или отданные раньше — не отдаём никого: ждущий
     уйдёт первым. Иначе — `workers` минус идущие, но не больше `PER_PASS`; глубоких — и не
     больше их предела (`deep.py`). Коммит — у вызывающего: постановка фиксирует сама
     (`launch`), запись журнала — после неё.
     """
+    await night.tick(session, workers=workers, per_minute=PER_PASS, add=add, now=now)
     fed = Fed()
     running, queued = await _counts(session)
     free = min(workers - running, PER_PASS)
@@ -205,7 +236,9 @@ async def _pick(
     """Строки очереди на этот проход: снимает негодных (`fed.dropped`) и выбранных — не больше
     `free`, глубоких — не больше `room`. Предел глубоких выбран — их строк в проходе нет:
     обычные доноры за ними не ждут, сколько бы их ни стояло."""
-    listed = select(CrawlBacklogModel).order_by(CrawlBacklogModel.id).limit(SCAN)
+    # Строки ночного круга — последними: `IS TRUE`, потому что поле бывает пустым.
+    last = CrawlBacklogModel.requested_by.is_not_distinct_from(night.NIGHT_BY)
+    listed = select(CrawlBacklogModel).order_by(last, CrawlBacklogModel.id).limit(SCAN)
     if room <= 0:
         listed = listed.where(CrawlBacklogModel.max_pages.is_(None))
     rows = list((await session.scalars(listed)).all())

@@ -38,6 +38,8 @@ from backend.api.crawls.schemas import (
     DonorRow,
     LaunchBody,
     LaunchResult,
+    NightRow,
+    NightView,
     TargetsView,
 )
 from backend.api.deps import db_session, needs
@@ -46,7 +48,7 @@ from backend.config import filters
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
-from backend.features.crawl import backlog, board, deep, donor_page, targets
+from backend.features.crawl import backlog, board, deep, donor_page, night, targets
 from backend.features.crawl.board import CrawlLine
 from backend.features.crawl.donor_page import DonorQuery
 from backend.features.crawl.launch import crawl_host, launch
@@ -194,6 +196,20 @@ async def summary(
         startable=startable,
         active=await board.active_count(session),
         workers=await _workers(),
+    )
+
+
+@router.get("/night", response_model=NightView, summary="Ночной обход одной строкой")
+async def night_round(
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> NightView:
+    """Включён ли круг и что с последним: что считали, что вышло, что осталось."""
+    line = await night.latest(session)
+    return NightView(
+        enabled=crawl_cfg.NIGHT_ROUND_ENABLED,
+        window_sec=crawl_cfg.NIGHT_WINDOW_SEC,
+        last=None if line is None else NightRow.of(line),
     )
 
 

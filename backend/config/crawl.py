@@ -70,6 +70,14 @@ class _Crawl(DomainSettings):
     # и человеку, иначе массовый запуск занял бы всех на сутки. Слово Anthony 02.11.2026.
     deep_max_running: int = Field(default=4, gt=0, validation_alias="CRAWL_DEEP_MAX_RUNNING")
 
+    # --- Ночной обход (`crawl/night.py`, 02.11.2026) ---
+    # Выключен, пока не скажет Anthony: круг тратит юниты Ahrefs на DR новых доменов каждую ночь.
+    night_round_enabled: bool = Field(default=False, validation_alias="CRAWL_NIGHT_ROUND_ENABLED")
+    # Окно круга, с: в полночь по Москве начинается и к семи утра заканчивается.
+    night_window_sec: float = Field(
+        default=25_200.0, gt=0, validation_alias="CRAWL_NIGHT_WINDOW_SEC"
+    )
+
     # --- Ограничитель на домен ---
     # Пауза между запросами к одному хосту, меряется от конца предыдущего.
     # Crawl-delay из robots.txt сильнее этого значения, если он больше.
@@ -278,6 +286,8 @@ MAX_SITEMAP_FILES_DEEP: int = _s.max_sitemap_files_deep
 MAX_SITEMAP_URLS_DEEP: int = _s.max_sitemap_urls_deep
 MAX_SECONDS_DEEP: float = _s.max_seconds_deep
 DEEP_MAX_RUNNING: int = _s.deep_max_running
+NIGHT_ROUND_ENABLED: bool = _s.night_round_enabled
+NIGHT_WINDOW_SEC: float = _s.night_window_sec
 MAX_PAGE_BYTES: int = _s.max_page_bytes
 PAGE_TIMEOUT_SEC: float = _s.page_timeout_sec
 DELAY_SEC: float = _s.delay_sec
