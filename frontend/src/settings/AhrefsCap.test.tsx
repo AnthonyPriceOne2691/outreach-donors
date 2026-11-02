@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import type { Me } from '../api/types';
 import { formatDateTime } from '../format';
 import { ADMIN } from '../test/fixtures';
-import { AHREFS_KEY, openUsage, SPENDING } from '../test/usageFixtures';
+import { AHREFS_KEY, openArticles, openUsage, SPENDING } from '../test/usageFixtures';
 
 const LAST = {
   id: 2,
@@ -91,21 +91,25 @@ describe('ключ и кап на «Расходе»', () => {
   it('ключ, цикл, наш расход и всего на ключе, осталось и доля — числами сервера', async () => {
     await openUsage();
 
-    expect(screen.getByText(/^Ключ Ahrefs:/)).toHaveTextContent(
-      spaced('Ключ Ahrefs: 50 000 юнитов за цикл · проверено'),
-    );
-    expect(screen.getByText('Цикл ключа: с 21 октября, обнуление 21 ноября')).toBeInTheDocument();
+    const card = screen.getByRole('group', { name: 'Ahrefs' });
+    // Крупно — сколько осталось, из скольких; своего лимита ключа отдельной строкой не повторяем.
+    expect(card).toHaveTextContent(spaced('Осталось35 000из 50 000 юнитов'));
+    expect(screen.queryByText(/^Ключ Ahrefs:/)).not.toBeInTheDocument();
+    expect(screen.getByText('Цикл ключа: с 21 октября')).toBeInTheDocument();
+    expect(within(card).getByText(/^Сброс 21 ноября · проверено/)).toBeInTheDocument();
     expect(screen.getByText(/^Потрачено нами за цикл/)).toHaveTextContent(
       spaced(
         'Потрачено нами за цикл: 6 416 · выбрано на ключе всего 15 000 — вместе с соседней системой на общем ключе',
       ),
     );
-    expect(screen.getByText(/^Осталось/)).toHaveTextContent(
-      spaced('Осталось 35 000 из 50 000 — выбрано 30%, упирается в лимит ключа'),
-    );
+    expect(within(card).getByText('Выбрано 30%, упирается в лимит ключа')).toBeInTheDocument();
     expect(screen.getByText('Наш кап: весь лимит ключа')).toBeInTheDocument();
     expect(screen.getByText('Кап на экране ещё не меняли — весь лимит ключа')).toBeInTheDocument();
-    // Плитки и статьи — за другой период, и он назван.
+  });
+
+  it('статьи — за другой период, и он назван', async () => {
+    await openArticles();
+
     expect(
       screen.getByText('Расход с 1 сентября — календарный месяц: плитки, этапы и статьи'),
     ).toBeInTheDocument();
@@ -117,8 +121,8 @@ describe('ключ и кап на «Расходе»', () => {
       ahrefs_key: { ...AHREFS_KEY, own_limit: false, size: 500_000, key_used: 1_000 },
     });
 
-    expect(screen.getByText(/^Ключ Ahrefs:/)).toHaveTextContent(
-      spaced('своего лимита нет — действует лимит пространства, 500 000 юнитов за цикл'),
+    expect(screen.getByText(/^Своего лимита у ключа нет/)).toHaveTextContent(
+      spaced('Своего лимита у ключа нет — действует лимит пространства, 500 000 юнитов за цикл'),
     );
     expect(screen.getByText(/^Потрачено нами за цикл/)).toHaveTextContent(
       spaced('выбрано в пространстве Ahrefs всего 120 000 — всеми его ключами'),
@@ -142,13 +146,15 @@ describe('ключ и кап на «Расходе»', () => {
     expect(screen.getByText('Ahrefs ещё не ответил — размер ключа неизвестен')).toBeInTheDocument();
     expect(
       screen.getByText(
-        'Цикл — календарный месяц, с 1 октября до 1 ноября: Ahrefs не назвал даты обнуления ключа',
+        'Цикл — календарный месяц, с 1 октября: Ahrefs не назвал даты обнуления ключа',
       ),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/Кап неизвестен, и прогоны не запустятся, пока Ahrefs не ответит/),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/^Осталось/)).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole('group', { name: 'Ahrefs' })).queryByText('Осталось'),
+    ).not.toBeInTheDocument();
   });
 
   it('кто и когда менял — строкой, «не больше N» — числом', async () => {
@@ -160,9 +166,9 @@ describe('ключ и кап на «Расходе»', () => {
     expect(screen.getByText(/^Наш кап:/)).toHaveTextContent(
       spaced('Наш кап: не больше 20 000 юнитов за цикл'),
     );
-    expect(screen.getByText(/^Осталось/)).toHaveTextContent(
-      spaced('Осталось 13 584 из 20 000 — выбрано 32%, упирается в наш кап'),
-    );
+    const card = screen.getByRole('group', { name: 'Ahrefs' });
+    expect(card).toHaveTextContent(spaced('Осталось13 584из 20 000 юнитов'));
+    expect(within(card).getByText('Выбрано 32%, упирается в наш кап')).toBeInTheDocument();
   });
 
   it('без права — только чтение, и сказано, у кого это право', async () => {
