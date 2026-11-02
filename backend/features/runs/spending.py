@@ -216,6 +216,21 @@ async def ahrefs_spent_since(session: AsyncSession, since: datetime) -> int:
     return int(total or 0)
 
 
+async def units_this_month(
+    session: AsyncSession, operation: str, *, now: datetime | None = None
+) -> int:
+    """Сколько единиц операции ушло с первого числа — все этапы: потолок проверок адреса считает
+    весь расход (`ops/hunter_watch.py`), той же границей месяца, что статьи «Расхода». Запрос
+    узкий: сторож спрашивает раз в две минуты, а весь месяц по статьям ему не нужен."""
+    total = await session.scalar(
+        select(func.coalesce(func.sum(UsageRecordModel.units), 0)).where(
+            UsageRecordModel.operation == operation,
+            UsageRecordModel.created_at >= _month_start(now),
+        )
+    )
+    return int(total or 0)
+
+
 async def crawl_spent_this_month(
     session: AsyncSession,
     *,

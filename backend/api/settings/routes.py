@@ -16,6 +16,10 @@
 Дневные потолки модели — там же, но своим правом «менять потолки расхода» (`spend`, слово
 Anthony 29.10.2026: их поднимает администратор): общий потолок сервиса и лимиты частей от него
 — продаж, агента переписки и аутрича, — строкой истории и записью журнала (`core/llm_caps.py`).
+
+Потолок проверок адреса Hunter — тем же правом и с правом «Продажи»: это их расход (слово Anthony
+02.11.2026, `core/hunter_cap.py`). Остаток учётки экран берёт из снимка сторожа, а не спрашивает
+сам: учётка общая, ответ годен минуты, и Hunter недоступен — снимок остаётся со своим временем.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import actor, db_session, needs
 from backend.api.settings.cap_schemas import CapBody, CapChangeCard
+from backend.api.settings.hunter_schemas import HunterCapBody, HunterCapChangeCard, hunter_card
 from backend.api.settings.llm_cap_schemas import LlmCapChangeCard, LlmCapsBody, llm_caps_card
 from backend.api.settings.schemas import (
     LIMITS,
@@ -47,7 +52,8 @@ from backend.features.access.permissions import require_stage, visible_stages
 from backend.features.access.repository import AccessRepository
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
-from backend.features.core import llm_caps
+from backend.features.contacts.hunter_account import snapshot as hunter_snapshot
+from backend.features.core import hunter_cap, llm_caps
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import selection_settings
@@ -229,6 +235,7 @@ async def usage(
         ),
         llm_caps=await llm_caps_card(session, sales=Stage.SALES in stages, now=datetime.now(UTC)),
     )
+    view.hunter = await hunter_card(session, sales=Stage.SALES in stages, now=datetime.now(UTC))
     # Снимок ключа из ответа Ahrefs — в базу: больше экран ничего не пишет.
     await session.commit()
     return view
@@ -329,6 +336,44 @@ async def change_llm_caps(
     await session.commit()
     await llm_caps.refresh(session)
     return LlmCapChangeCard.of(done.change)
+
+
+@router.post(
+    "/usage/hunter-cap",
+    response_model=HunterCapChangeCard,
+    summary="Сменить месячный потолок проверок адреса Hunter",
+)
+async def change_hunter_cap(
+    body: HunterCapBody,
+    author: UserModel = _spender,
+    session: AsyncSession = Depends(db_session),
+) -> HunterCapChangeCard:
+    """Новый потолок — с этой минуты, правом «менять потолки расхода» и правом «Продажи»: проверки
+    адреса — их расход (слово Anthony 02.11.2026). Проход очистки читает потолок на старте: идущий
+    доходит со старым, следующий берёт новый.
+
+    Смена заводит строку и пишет в журнал «было → стало» той же транзакцией. Выше проверок тарифа
+    или меньше нуля — отказ словами до записи (`core/hunter_cap.refusal`); снимка учётки ещё нет —
+    граница только от опечатки.
+    """
+    require_stage(actor(author), Stage.SALES, "Потолок проверок адреса")
+    found = await hunter_snapshot(session)
+    ceiling = None if found is None else int(found.account.verifications.available)
+    done = await hunter_cap.set_verify_cap(session, body.verify_cap, ceiling=ceiling, author=author)
+    await AccessRepository(session).record(
+        AuditAction.HUNTER_CAP_CHANGED,
+        author_id=author.id,
+        target=f"hunter_cap:{done.change.id}",
+        details={
+            "потолок проверок адреса": {
+                "было": hunter_cap.cap_words(done.was),
+                "стало": hunter_cap.cap_words(done.change.verify_cap),
+            }
+        },
+        stage=Stage.SALES,
+    )
+    await session.commit()
+    return HunterCapChangeCard.of(done.change)
 
 
 def _usd(value: float) -> Decimal:
