@@ -32,6 +32,7 @@ from backend.features.core.limit_rows import (
     RowSource,
 )
 from backend.features.ops import limit_ahrefs, limit_mail, limit_model, limit_services
+from backend.features.sales import limits as sales_limits
 from backend.shared.numbers import spaced
 
 if TYPE_CHECKING:
@@ -44,9 +45,8 @@ if TYPE_CHECKING:
 #: Порядок групп на экране: задача, которой здесь нет, встаёт за ними.
 TASKS = ("Продажи", "Аутрич")
 
-#: Источники со сменой с экрана — по порядку на экране. Модуль продаж (`features/sales/limits.py`)
-#: встаёт первой строкой: `from backend.features.sales import limits as sales_limits`.
-EDITABLE: tuple[LimitSource, ...] = (limit_model, limit_ahrefs)
+#: Источники со сменой с экрана — по порядку на экране: модуль продаж первым.
+EDITABLE: tuple[LimitSource, ...] = (sales_limits, limit_model, limit_ahrefs)
 
 #: Источники только для чтения: у модуля одна функция `rows`.
 READ_ONLY: tuple[RowSource, ...] = (limit_mail, limit_services)

@@ -26,8 +26,6 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
-
 from backend.config import contacts as contacts_cfg
 from backend.config import crawl as crawl_cfg
 from backend.config import serp as serp_cfg
@@ -37,7 +35,7 @@ from backend.features.core.domain import Stage
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.crawl import deep
 from backend.features.ops import funds_watch
-from backend.features.ops.limit_fields import BLANK, HOUR_SEC, day_start, usd
+from backend.features.ops.limit_fields import BLANK, HOUR_SEC, day_start, spent, usd
 from backend.features.runs.spending import crawl_spent_this_month, month_start
 from backend.features.serp.funds import MIN_BALANCE_USD, dollars
 from backend.features.serp.modes import UnknownModeError, mode_of, serp_cost_usd
@@ -62,19 +60,12 @@ CRAWL_COST = "Обход идёт своими обходчиками; DR нов
 
 async def _spent(session: AsyncSession, operation: str, since: datetime) -> tuple[int, Decimal]:
     """Единицы и деньги операции с `since` — без этапа продаж: у него свои строки."""
-    units, amount = (
-        await session.execute(
-            select(
-                func.coalesce(func.sum(UsageRecordModel.units), 0),
-                func.coalesce(func.sum(UsageRecordModel.amount_usd), 0),
-            ).where(
-                UsageRecordModel.operation == operation,
-                UsageRecordModel.created_at >= since,
-                UsageRecordModel.stage.is_distinct_from(Stage.SALES),
-            )
-        )
-    ).one()
-    return int(units or 0), Decimal(amount or 0)
+    return await spent(
+        session,
+        since,
+        UsageRecordModel.operation == operation,
+        UsageRecordModel.stage.is_distinct_from(Stage.SALES),
+    )
 
 
 async def _hunter_now(session: AsyncSession) -> str:
