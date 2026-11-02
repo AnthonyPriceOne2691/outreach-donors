@@ -1412,9 +1412,9 @@
       "worst": "strip_structural_noise:176"
     },
     "backend/features/crawl/backlog.py": {
-      "lines": 313,
+      "lines": 323,
       "complexity": 8,
-      "worst": "eta_sec:158"
+      "worst": "eta_sec:165"
     },
     "backend/features/crawl/big_sites.py": {
       "lines": 184,

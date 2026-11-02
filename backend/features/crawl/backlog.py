@@ -38,6 +38,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import statistics
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -155,12 +156,21 @@ async def drop_all(session: AsyncSession, *, author_id: int | None) -> int:
     return dropped
 
 
+def _rounds(count: int, places: int) -> int:
+    """Сколько сроков идут `count` доноров на `places` местах разом — то же правило, что у экрана
+    (`crawlEta`)."""
+    return math.ceil(count / places)
+
+
 async def eta_sec(
     session: AsyncSession, ahead: int, workers: int | None, *, deep_rows: int = 0
 ) -> float | None:
     """Сколько секунд займёт обойти `ahead` доноров при `workers` обходчиках — по медиане
     последних законченных обходов, а без них — по получасу на донора. Обходчиков не знаем
     или их нет — `None`: срок назвать нечем.
+
+    Срок — целыми кругами (`_rounds`): донор не идёт быстрее своего срока, сколько бы обходчиков
+    ни стояло без дела. Деление без круга обещало бы одного глубокого донора за четверть срока.
 
     `deep_rows` из них — глубокие: идут не больше своего предела разом и бок о бок с обычными,
     на занятых ими обходчиках; срок очереди — тот из двух, что дольше."""
@@ -169,7 +179,7 @@ async def eta_sec(
     if deep_rows > 0:
         slots = min(crawl_cfg.DEEP_MAX_RUNNING, workers)
         rest = ahead - deep_rows
-        long = deep_rows * await deep.typical_deep_seconds(session) / slots
+        long = _rounds(deep_rows, slots) * await deep.typical_deep_seconds(session)
         usual = await eta_sec(session, rest, max(workers - slots, 1)) or 0.0
         return max(long, usual)
     elapsed = CrawlRunModel.stats["elapsed_sec"].as_float()
@@ -183,7 +193,7 @@ async def eta_sec(
     )
     spent = [value for value in rows.all() if value is not None and value > 0]
     typical = statistics.median(spent) if spent else TYPICAL_SEC
-    return ahead * typical / workers
+    return _rounds(ahead, workers) * typical
 
 
 async def feed(

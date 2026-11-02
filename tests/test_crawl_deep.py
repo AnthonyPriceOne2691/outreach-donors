@@ -466,6 +466,17 @@ async def test_the_term_of_the_backlog_counts_the_few_deep_slots(
     assert await backlog.eta_sec(session, 40, 16, deep_rows=40) == 100_000.0
 
 
+async def test_one_deep_crawl_takes_its_whole_term_not_a_share_of_the_slots(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Экран 02.11.2026 писал «≈ 52 мин» рядом с окном «около 3 ч 29 мин» — об одном доноре."""
+    monkeypatch.setattr(crawl_cfg, "DEEP_MAX_RUNNING", 4)
+    await _finished(session, "usual.example", 1_000.0)
+
+    assert await backlog.eta_sec(session, 1, 16, deep_rows=1) == 10_000.0
+    assert await backlog.eta_sec(session, 5, 16, deep_rows=5) == 20_000.0
+
+
 async def test_the_term_of_the_backlog_with_both_kinds_is_the_longer_one(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
