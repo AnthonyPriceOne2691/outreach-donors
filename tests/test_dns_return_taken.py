@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
+from backend.features.core import stages
 from backend.features.core.domain import MessageStatus, ReplyKind, Stage, ThreadStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
@@ -26,11 +27,13 @@ from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.chain import ANSWER_STEP
 from backend.features.letters.events import DeliveryEvent, apply_events
 from backend.features.letters.followups import send_due
+from backend.features.letters.send_refusals import NotReadyError, SuppressedError
 from backend.features.letters.transport import NullTransport
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_next_address import TemplateOnly, _donor
 from tests.test_sales_soft_signals import NOW
+from tests.test_sales_stage_bridge import FakeSalesMail
 from tests.thread_letters import conversation
 
 OUTAGE = (
@@ -407,3 +410,67 @@ async def test_a_thread_that_ended_is_not_counted_as_taken(
     report = await dns_return.return_letters(session, now=at + timedelta(hours=1))
 
     assert (report.back, report.taken) == (0, 0)
+
+
+class TestClosedLead:
+    """Продажи спрашиваются той же проверкой, что перед отправкой: снять письмо очереди, вернувшееся
+    закрытому лиду, некому, а отказ проверки «не готово» письму не мешает."""
+
+    @pytest.fixture
+    def sales(self, monkeypatch: pytest.MonkeyPatch) -> FakeSalesMail:
+        monkeypatch.setattr(stages._SALES, "load", None)
+        found = FakeSalesMail()
+        stages.register_sales(lambda: found)
+        return found
+
+    async def _company(self, session: AsyncSession) -> DomainModel:
+        domain = DomainModel(host="company.example.test")
+        session.add(domain)
+        await session.flush()
+        return domain
+
+    async def test_a_closed_lead_keeps_the_refusal(
+        self, session: AsyncSession, sales: FakeSalesMail
+    ) -> None:
+        sales.refusal = SuppressedError("лид закрыт стоп-листом")
+        letter = await _refused(session, await self._company(session), None, stage=Stage.SALES)
+
+        report = await dns_return.return_letters(session, now=LATER)
+
+        assert (report.back, report.taken) == (0, 1)
+        assert letter.status is MessageStatus.BOUNCED
+
+    async def test_a_letter_built_before_the_edit_comes_back_for_the_builder(
+        self, session: AsyncSession, sales: FakeSalesMail
+    ) -> None:
+        sales.refusal = NotReadyError("собрано до правки лида")
+        letter = await _refused(session, await self._company(session), None, stage=Stage.SALES)
+
+        report = await dns_return.return_letters(session, now=LATER)
+
+        assert (report.back, report.taken) == (1, 0)
+        assert letter.status is MessageStatus.QUEUED
+
+    async def test_other_stages_do_not_ask_the_sales(
+        self, session: AsyncSession, sales: FakeSalesMail
+    ) -> None:
+        letter = await _refused(session, await self._company(session), None)
+
+        report = await dns_return.return_letters(session, now=LATER)
+
+        assert (report.back, sales.asked) == (1, [])
+        assert letter.status is MessageStatus.QUEUED
+
+
+async def test_the_return_leaves_the_letter_mark_at_the_sending(session: AsyncSession) -> None:
+    """Правку лида узнают по отметке письма: возврат её не двигает."""
+    domain = DomainModel(host="company.example.test")
+    session.add(domain)
+    await session.flush()
+    letter = await _refused(session, domain, None)
+
+    await dns_return.return_letters(session, now=LATER)
+
+    await session.refresh(letter)
+    assert letter.status is MessageStatus.QUEUED
+    assert letter.updated_at == SENT

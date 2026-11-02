@@ -26,6 +26,16 @@
 лиду сборка не заводит (`sales/queue._leads`). Такие письма остаются отказом и считаются отдельным
 числом в журнале прохода: условие проверяется на каждом проходе, пока письмо в пределах срока.
 
+**Лиду, которого закрыли, письмо не возвращается.** Стоп-лист и очистка снимают письма очереди
+(`sales/off_queue`), а отказ не трогают. Вернувшееся письмо стояло бы в очереди до конца: проверка
+перед отправкой его не пускает, а снять его некому, и одно в окне оно звало бы ложную тревогу.
+Поэтому продажи спрашиваются той же проверкой (`stages.check_sales`). «Не готово» письму не мешает:
+собранное до правки лида пересоберёт сборка.
+
+**Отметка письма стоит на месте** (`updated_at`). Правку лида продажи узнают сравнением с ней
+(`sales/lead_edit.edited`): двинь её возврат, и письмо, собранное со старыми данными, выглядело бы
+собранным после правки и ушло бы как есть.
+
 **Один раз и недолго.** Тот же текст отказа дают и домены со сломанной записью MX: DNS им отвечает,
 проверка письмо пропускает, платформа отказывает снова. Вторая попытка отличает одно от другого,
 третья — письмо по кругу. Что письмо уже возвращали, видно без отдельной колонки: его первая
@@ -44,11 +54,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from backend.features.access.repository import AccessRepository
+from backend.features.core import stages
 from backend.features.core.domain import AuditAction, MessageStatus, Stage
 from backend.features.core.models.outreach import MessageModel
 from backend.features.letters import attempts, settle
 from backend.features.letters.chain import FIRST_STEP, MAX_STEPS
 from backend.features.letters.delivery_trouble import Trouble, refused_kind
+from backend.features.letters.send_refusals import SuppressedError
 from backend.features.letters.unknown_outcome import alive_link, is_followup
 
 logger = logging.getLogger(__name__)
@@ -66,7 +78,8 @@ RETURNED_BEFORE = timedelta(minutes=10)
 
 @dataclass(slots=True)
 class Returned:
-    """Итог прохода: вернулось писем и осталось отказом, потому что у получателя уже есть живое."""
+    """Итог прохода: вернулось писем и осталось отказом: писать нельзя или у получателя уже есть
+    живое письмо."""
 
     back: int = 0
     taken: int = 0
@@ -85,10 +98,22 @@ def _returnable(message: MessageModel) -> bool:
     return since is None or message.sent_at - since < RETURNED_BEFORE
 
 
-async def _taken(session: AsyncSession, message: MessageModel) -> bool:
+async def _closed(session: AsyncSession, message: MessageModel) -> bool:
+    """Лиду больше нельзя писать (шапка модуля). Другой отказ проверки письму не мешает: «не готово»
+    пересоберёт сборка, а молчащие продажи отправка назовёт сама."""
+    try:
+        await stages.check_sales(session, message)
+    except SuppressedError:
+        return True
+    except stages.MailRefusalError:
+        return False
+    return False
+
+
+async def _taken(session: AsyncSession, message: MessageModel, *, site: bool) -> bool:
     """Возврат был бы вторым письмом получателю (шапка модуля): в переписке есть живое письмо этого
-    шага или дальше, а у первого письма доноров и рекламодателей — ещё и живое письмо сайта или
-    ответ с него. Само письмо лежит отказом и живым себя не считает."""
+    шага или дальше, а по сайту (`site`) — ещё и живое письмо сайта или ответ с него. Само письмо
+    лежит отказом и живым себя не считает."""
     found: list[ColumnElement[bool]] = []
     if message.thread_id is not None:  # `== None` стал бы `IS NULL` — чужие письма
         later = aliased(MessageModel)
@@ -101,10 +126,19 @@ async def _taken(session: AsyncSession, message: MessageModel) -> bool:
             )
             .exists()
         )
-    if message.step == FIRST_STEP and await settle.stage_of(session, message) is not Stage.SALES:
+    if site:
         found.append(attempts.live_letter(message.domain_id))
         found.append(attempts.answered(message.domain_id))
     return bool(found) and bool(await session.scalar(select(or_(*found))))
+
+
+async def _kept(session: AsyncSession, message: MessageModel) -> bool:
+    """Письмо остаётся отказом: лида закрыли или получателю уже идёт живое письмо. Получатель у
+    продаж — переписка, у первого письма остальных этапов — сайт."""
+    sales = await settle.stage_of(session, message) is Stage.SALES
+    if sales and await _closed(session, message):
+        return True
+    return await _taken(session, message, site=not sales and message.step == FIRST_STEP)
 
 
 async def _return(session: AsyncSession, message: MessageModel, now: datetime) -> bool:
@@ -126,6 +160,8 @@ async def _return(session: AsyncSession, message: MessageModel, now: datetime) -
         deferred_kind=None,
         # Остаётся: по ней видно, что письмо уже возвращали (шапка модуля).
         deferred_since=message.deferred_since or message.sent_at,
+        # Иначе возврат спрятал бы правку лида (шапка модуля).
+        updated_at=message.sent_at,
     )
     if not returned:
         return False
@@ -156,14 +192,14 @@ async def return_letters(session: AsyncSession, *, now: datetime) -> Returned:
     )
     report = Returned()
     for message in [found for found in rows.all() if _returnable(found)]:
-        if await _taken(session, message):
+        if await _kept(session, message):
             report.taken += 1
         elif await _return(session, message, now):
             report.back += 1
     if report.back or report.taken:
         logger.info(
             "письма: отказы из-за молчания DNS получателя — вернулось в работу %s, "
-            "осталось отказом %s: у получателя уже есть живое письмо",
+            "осталось отказом %s: писать нельзя или у получателя уже есть живое письмо",
             report.back,
             report.taken,
         )
