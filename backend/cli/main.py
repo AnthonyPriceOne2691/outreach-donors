@@ -67,6 +67,7 @@ from backend.config import storage
 from backend.config.startup_checks import ConfigError, check_collect, check_storage
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
+from backend.features.core.domain import UserRole
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.donors.doors import door_check
 from backend.features.donors.geo import assert_settings_allow_limited_fetch
@@ -341,8 +342,8 @@ def build_parser() -> argparse.ArgumentParser:
     user_add.add_argument(
         "--role",
         default="operator",
-        choices=["admin", "operator"],
-        help="роль: admin заводит учётки, operator работает с базой",
+        choices=[role.value for role in UserRole],
+        help="роль: admin заводит учётки, operator работает с базой, donors — только Этап 1",
     )
 
     user_reset = sub.add_parser("user-reset", help="выдать новый разовый пароль")
