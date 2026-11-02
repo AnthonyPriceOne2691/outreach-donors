@@ -269,6 +269,12 @@ class Forecast(BaseModel):
         )
 
 
+#: Ключ отчёта прогона о бизнесах ниши: числа Этапа 2, а карточку читает и учётка без права
+#: «Рекламодатели». Экран прогонов их не показывает, и в карточку они не идут ни у кого: числа
+#: живут на «Рекламодателях», а сам отчёт в базе остаётся целым.
+_NICHE_STATS = "niche"
+
+
 class RunCard(BaseModel):
     """Прогон в списке: что запускали, где он сейчас и чем кончился."""
 
@@ -318,7 +324,7 @@ class RunCard(BaseModel):
             estimated_units=row.run.estimated_units,
             actual_units=row.run.actual_units,
             estimate_error=row.estimate_error,
-            stats=row.run.stats,
+            stats=_shown_stats(row.run.stats),
             started_at=row.run.created_at,
             alive_at=row.run.updated_at,
             hosts=len(candidates["hosts"]) if candidates.get("hosts") is not None else None,
@@ -329,6 +335,13 @@ class RunCard(BaseModel):
             started_by=row.started_by,
             competitors=row.run.competitor_targets,
         )
+
+
+def _shown_stats(stats: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Отчёт прогона для карточки: без чисел Этапа 2."""
+    if stats is None:
+        return None
+    return {key: value for key, value in stats.items() if key != _NICHE_STATS}
 
 
 class RunsView(BaseModel):

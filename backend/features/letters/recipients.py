@@ -283,22 +283,23 @@ class Recipients:
         inner = self._not_suppressed(inner, Stage.DONORS)
         return self._not_written(inner)
 
-    async def letter_address(self, domain_id: int, *, sales_visible: bool = False) -> LetterAddress:
-        """На какой адрес ушло бы первое письмо донору, если собрать очередь
-        сейчас, — или почему не ушло бы никакое.
+    async def letter_address(
+        self, domain_id: int, *, seen: Collection[Stage] = other_role.ONLY_DONORS
+    ) -> LetterAddress:
+        """На какой адрес ушло бы первое письмо донору, если собрать очередь сейчас, — или почему
+        не ушло бы никакое.
 
-        Адрес — тот же запрос, что у сборки (`_donor_picks`), суженный
-        до донора; и та же перепроверка адреса, что у сборки перед письмом
-        (`building._bad_address`): не прошедший её адрес сборка пропускает
-        вместе с донором, а не переходит к следующему. Причина отказа нужна
-        экрану, только когда адреса нет: называется первое невыполненное
-        условие сборки (письмо продаж в нём — подробно при `sales_visible`).
+        Адрес — тот же запрос, что у сборки (`_donor_picks`), суженный до донора; и та же
+        перепроверка адреса, что у сборки перед письмом (`building._bad_address`): не прошедший её
+        адрес сборка пропускает вместе с донором, а не переходит к следующему. Причина отказа нужна
+        экрану, только когда адреса нет: называется первое невыполненное условие сборки (письмо
+        чужого этапа в нём — подробно, если этап в `seen`).
         """
         picked = (
             await self._session.execute(self._donor_picks().where(DomainModel.id == domain_id))
         ).first()
         if picked is None:
-            return LetterAddress(blocked=await self._why_not(domain_id, sales_visible))
+            return LetterAddress(blocked=await self._why_not(domain_id, seen))
         bad = rejection_reason(picked.email)
         if bad is not None:
             return LetterAddress(
@@ -316,7 +317,7 @@ class Recipients:
             note=attempts.next_address_note(int(earlier)) if earlier else None,
         )
 
-    async def _why_not(self, domain_id: int, sales_visible: bool) -> str | None:
+    async def _why_not(self, domain_id: int, seen: Collection[Stage]) -> str | None:
         """Первое условие сборки, которое донор не прошёл. `None` — адресов нет.
 
         Условия — списком в порядке сборки: первое невыполненное и есть
@@ -328,7 +329,7 @@ class Recipients:
         if not await self._exists(self._has_contact(one)):
             return None
         if (other := await other_role.letter_to(self._session, domain_id)) is not None:
-            return other_role.words(other, sales_visible=sales_visible)
+            return other_role.words(other, seen=seen)
         donor = one.join(DonorModel, DonorModel.domain_id == DomainModel.id)
         domain = DomainModel.id
         off = await not_writing_reason(self._session, domain_id)

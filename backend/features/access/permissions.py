@@ -28,6 +28,20 @@
 `settings`), и «Продаж». С П2б (решение Anthony 10.10.2026) — ещё записи
 стоп-листа этапа продаж, ящики продаж на экране доменов, исход задач продаж,
 расход операций продаж и тревоги сторожа о почте продаж.
+
+**«Рекламодатели» закрывают Этап 2 так же, как «Продажи» — свой этап** (решение 02.11.2026;
+другая сторона просила либо учётку без раздела, либо два сервиса — вышла роль).
+Закрыты раздел, маршруты рекламодателей, обходов и загрузки доноров в обход, лиды файлом и всё
+то же на общих экранах: письма и переписки этапа с файлами, ответы, черновики и настройки агента
+этапа, счета на «Обзоре» и у пунктов меню, стоп-лист, ящики, исход задач, расход этапа, тревоги о
+его почте и обходе. Какой этап каким правом открыт — `STAGE_RIGHTS`, одной строкой на этап:
+`sees_stage`, `visible_stages` и `require_stage` читают её, а не знают этапы поимённо.
+
+**Новая роль — строка, а не правка обработчиков.** Значение в `UserRole` и строка
+`ROLE_PERMISSIONS` здесь, значение в `Role` и слова в `ROLE_TITLES` и `ROLE_ABOUT`
+экрана (`frontend/src/api/labels.ts`) и значение в перечислении базы (`ALTER TYPE userrole ADD
+VALUE`, миграцией). Забытое из этого краснит `tests/test_access_roles.py`: роль без строки матрицы молча
+не могла бы ничего. Выбор роли на экране учёток и в консоли строится из этих списков.
 """
 
 from __future__ import annotations
@@ -35,7 +49,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from backend.features.core.domain import Permission, Stage, UserRole
+from backend.features.core.domain import STAGE_GENITIVE, Permission, Stage, UserRole
 
 #: Что даёт роль сама по себе.
 ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
@@ -45,10 +59,28 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
     # а она не восстанавливается. Продажи — в роли: решение владельца 01.10,
     # раздел видят все. Снимается поимённо (`{"sales": false}`) и закрывает раздел,
     # маршруты модуля и данные этапа продаж на общих экранах (П2, `require_stage`);
-    # закрыть всем операторам — убрать отсюда.
+    # закрыть всем операторам — убрать отсюда. «Рекламодатели» — так же: оператор ведёт оба этапа.
     UserRole.OPERATOR: frozenset(
-        {Permission.VIEW, Permission.RUN, Permission.SETTINGS, Permission.PRICES, Permission.SALES}
+        {
+            Permission.VIEW,
+            Permission.RUN,
+            Permission.SETTINGS,
+            Permission.PRICES,
+            Permission.SALES,
+            Permission.ADVERTISERS,
+        }
     ),
+    # Только Этап 1: поиск площадок, цены, письма донорам. Как оператор без продаж и рекламодателей;
+    # отправка писем выдаётся поимённо, как у оператора (шапка файла).
+    UserRole.DONORS: frozenset(
+        {Permission.VIEW, Permission.RUN, Permission.SETTINGS, Permission.PRICES}
+    ),
+}
+
+#: Этап → право, которое его открывает. Этапа здесь нет — он виден всем, кто видит базу (доноры).
+STAGE_RIGHTS: dict[Stage, Permission] = {
+    Stage.ADVERTISERS: Permission.ADVERTISERS,
+    Stage.SALES: Permission.SALES,
 }
 
 
@@ -66,6 +98,7 @@ PERMISSION_TITLES: dict[Permission, str] = {
     Permission.SENDERS: "домены рассылки",
     Permission.USERS: "заводить учётки",
     Permission.SALES: "Продажи",
+    Permission.ADVERTISERS: "Рекламодатели",
     Permission.SPEND: "менять потолки расхода",
 }
 
@@ -163,8 +196,10 @@ def require(actor: Actor | None, permission: Permission) -> None:
 
 def sees_stage(actor: Actor, stage: Stage) -> bool:
     """Видит ли сотрудник данные этапа: продажи — только с правом «Продажи» (решение
-    Anthony 10.10.2026, П2). Доноры и рекламодатели — правом самого действия, как до П2."""
-    return stage is not Stage.SALES or has_permission(actor, Permission.SALES)
+    Anthony 10.10.2026, П2), Этап 2 — с правом «Рекламодатели» (`STAGE_RIGHTS`). Доноры —
+    правом самого действия, как до П2."""
+    right = STAGE_RIGHTS.get(stage)
+    return right is None or has_permission(actor, right)
 
 
 def visible_stages(actor: Actor) -> frozenset[Stage]:
@@ -173,10 +208,12 @@ def visible_stages(actor: Actor) -> frozenset[Stage]:
 
 
 def require_stage(actor: Actor, stage: Stage | None, what: str) -> None:
-    """Пропустить к строке этапа или отказать словами: `what` — что закрыто, «Письма продаж».
+    """Пропустить к строке этапа или отказать словами: `what` — что закрыто, «Письма {stage}»;
+    на место `{stage}` встаёт этап строки в родительном падеже: «Письма рекламодателей».
 
     `None` — у строки этапа нет (ответ без письма не на наш адрес) или строки нет вовсе:
     «не найдено» скажет тот, кто её ищет, как и без этой проверки.
     """
     if stage is not None and not sees_stage(actor, stage):
-        raise AccessDeniedError(f"{what} — только с правом «{PERMISSION_TITLES[Permission.SALES]}»")
+        closed, right = what.format(stage=STAGE_GENITIVE[stage]), STAGE_RIGHTS[stage]
+        raise AccessDeniedError(f"{closed} — только с правом «{PERMISSION_TITLES[right]}»")

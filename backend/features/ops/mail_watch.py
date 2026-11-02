@@ -46,7 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Мост к модулю продаж — под своим именем: `stages` здесь — этапы, которые видит спрашивающий.
 from backend.features.core import stages as mail_bridge
-from backend.features.core.domain import MessageStatus, SenderStatus, Stage
+from backend.features.core.domain import STAGE_GENITIVE, MessageStatus, SenderStatus, Stage
 from backend.features.core.models.outreach import (
     CampaignModel,
     MessageModel,
@@ -55,7 +55,7 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.letters import mailbox
 from backend.features.letters.chain import ANSWER_STEP, CHAINABLE, FIRST_STEP, MAX_STEPS
-from backend.features.ops.alarms import STAGE_GENITIVE, Alarm, Concern, cause, direction, no_cause
+from backend.features.ops.alarms import Alarm, Concern, cause, direction, no_cause
 from backend.features.outreach import limits
 
 logger = logging.getLogger(__name__)

@@ -16,7 +16,8 @@
  *
  * **Без права «Продажи» — расход без продаж** (решение Anthony 10.10.2026, П2б):
  * статьи, плитки и итог считает сервер без операций продаж, и сходятся они между
- * собой. Что это не весь счёт, экран говорит строкой под плитками.
+ * собой. Что это не весь счёт, экран говорит строкой под плитками. Без права «Рекламодатели»
+ * так же нет расхода Этапа 2, и карточки потолка обхода среди лимитов нет вовсе.
  *
  * **Этап — у каждой статьи, разбивка — отдельной панелью** (`UsageStages.tsx`):
  * DR кандидатов Этапа 2 и метрики прогона — одна операция, но две статьи; платный
@@ -82,14 +83,23 @@ function useUsageTab(): [UsageTab, (tab: UsageTab) => void] {
   return [tab, go];
 }
 
-/** Без права «Продажи» сервер считает расход без продаж (П2б): числа сходятся между собой,
- *  но это не весь счёт — и экран так и говорит. */
-function SalesHidden({ hidden }: { hidden: boolean }) {
-  if (!hidden) return null;
+/** Этапы, которых без права нет в расходе: признак ответа, чей расход и какое право. */
+const HIDDEN_STAGES = [
+  { key: 'sales_hidden', whose: 'продаж', right: '«Продажи»' },
+  { key: 'advertisers_hidden', whose: 'рекламодателей', right: '«Рекламодатели»' },
+] as const;
+
+/** Без права этапа сервер считает расход без него (П2б): числа сходятся между собой, но это не
+ *  весь счёт — и экран так и говорит. */
+function HiddenStages({ view }: { view: UsageView }) {
+  const hidden = HIDDEN_STAGES.filter(({ key }) => view[key]);
+  if (hidden.length === 0) return null;
+  const whose = hidden.map((one) => one.whose).join(' и ');
+  const rights = hidden.map((one) => one.right).join(' и ');
   return (
     <Text size="sm" c="dimmed">
-      Расход продаж не показан — его видно с правом «Продажи». Плитки и статьи — без него: это не
-      весь счёт.
+      Расход {whose} не показан — его видно с {hidden.length > 1 ? 'правами' : 'правом'} {rights}.
+      Плитки и статьи — без него: это не весь счёт.
     </Text>
   );
 }
@@ -117,8 +127,9 @@ function Limits({ data }: { data: UsageView }) {
           spent={data.serp_spent_by_us}
           error={data.serp_left_error}
         />
-        {/* Платный обход Этапа 2 — в деньгах и со своим потолком, отдельно от юнитов Ahrefs. */}
-        <CrawlCap crawl={data.crawl} />
+        {/* Платный обход Этапа 2 — в деньгах и со своим потолком, отдельно от юнитов Ahrefs.
+            Без права «Рекламодатели» карточки нет: сервер не называет ни потолка, ни расхода. */}
+        {!data.advertisers_hidden && <CrawlCap crawl={data.crawl} />}
       </LimitGrid>
     </>
   );
@@ -142,7 +153,7 @@ function SpendTiles({ data }: { data: UsageView }) {
           return <Metric key={key} title={provider.title} value={tile.value} hint={tile.hint} />;
         })}
       </SimpleGrid>
-      <SalesHidden hidden={data.sales_hidden} />
+      <HiddenStages view={data} />
     </>
   );
 }

@@ -14,7 +14,8 @@
 import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import { partOf, stageShown, withPart } from '../api/stages';
+import { stageShown } from '../api/stageRights';
+import { partOf, withPart } from '../api/stages';
 import type { Stage } from '../api/stages';
 import { useSession } from '../auth/AuthProvider';
 import { ROLE_PARAM } from './threadFilters';
@@ -22,9 +23,9 @@ import { ROLE_PARAM } from './threadFilters';
 /** `stage` — этап открытой переписки; `undefined` — она ещё не пришла. */
 export function useFollowThreadPart(stage: Stage | undefined): void {
   const [params, setParams] = useSearchParams();
-  // Без права «Продажи» части продаж нет (П2): переписку продаж сервер и не отдаст.
-  const sales = useSession().can('sales');
-  const wanted = stage !== undefined && stageShown(stage, sales) ? stage : null;
+  // Без права этапа его части нет (П2): его переписку сервер и не отдаст.
+  const { can } = useSession();
+  const wanted = stage !== undefined && stageShown(stage, can) ? stage : null;
   const stray = wanted !== null && partOf(params) !== wanted;
   useEffect(() => {
     if (!stray) return;

@@ -183,7 +183,7 @@ describe('бизнесы ниши из выдачи', () => {
   });
 
   it('без права решать кнопок и сбора нет', async () => {
-    await openAdvertisers({}, { ...OPERATOR, permissions: ['view'] });
+    await openAdvertisers({}, { ...OPERATOR, permissions: ['advertisers', 'view'] });
 
     expect(screen.queryByRole('button', { name: 'Пишем' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Собрать из прогона №')).not.toBeInTheDocument();

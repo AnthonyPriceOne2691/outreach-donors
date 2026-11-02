@@ -7,12 +7,15 @@
 слова, что у перезапроса цены (`recheck_target`): он ставит перед словами имя сайта, карточка —
 нет.
 
-**Письмо продаж — номером и ролью только с правом «Продажи»** (решение Anthony 10.10.2026, П2):
-без него — «писали в другой роли», без этапа и номера.
+**Письмо чужого этапа — номером и ролью только тому, кто этот этап видит** (решение Anthony
+10.10.2026, П2; с 02.11.2026 — и рекламодателя): без права этапа — «писали в другой роли», без
+этапа и номера. `seen` — этапы смотрящего (`access.permissions.visible_stages`); не сказано —
+только доноры (`ONLY_DONORS`): забытый довод ничего не открывает.
 """
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Protocol, assert_never
 
@@ -22,6 +25,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.letters import attempts
+
+#: Этапы смотрящего, пока он не назван: свои письма доноров он видит всегда.
+ONLY_DONORS: frozenset[Stage] = frozenset({Stage.DONORS})
 
 
 class Letter(Protocol):
@@ -63,9 +69,10 @@ async def letter_to(session: AsyncSession, domain_id: int) -> Written | None:
     return None if row is None else Written(id=row[0], stage=row[1])
 
 
-def words(letter: Letter, *, sales_visible: bool) -> str:
-    """Почему письмо донору не уходит — без имени сайта. Продажи подробно — только с их правом."""
-    if letter.stage is Stage.SALES and not sales_visible:
+def words(letter: Letter, *, seen: Collection[Stage]) -> str:
+    """Почему письмо донору не уходит — без имени сайта. Чужой этап подробно — только с его правом
+    (`seen`)."""
+    if letter.stage not in seen:
         return "уже писали в другой роли: одному адресату письмо в другой роли не уходит."
     return (
         f"уже писали как {_role(letter.stage)} (письмо №{letter.id}): одному адресату "

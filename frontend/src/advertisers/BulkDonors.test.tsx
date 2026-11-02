@@ -257,7 +257,7 @@ describe('доноры списком', () => {
   });
 
   it('без права запуска кнопки нет', async () => {
-    open({}, { ...ADMIN, permissions: ['view'] });
+    open({}, { ...ADMIN, permissions: ['advertisers', 'view'] });
 
     await screen.findByRole('heading', { name: 'Обход доноров' });
     expect(screen.queryByRole('button', { name: 'Загрузить списком' })).toBeNull();

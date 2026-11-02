@@ -295,7 +295,7 @@ class TestWhere:
         )
         await session.commit()
 
-        found = await price_recheck.look(session, donor.id, now=moment)
+        found = await price_recheck.look(session, donor.id, now=moment, seen=EVERY_STAGE)
 
         assert found.refusal is not None
         assert "уже писали как рекламодателю" in found.refusal

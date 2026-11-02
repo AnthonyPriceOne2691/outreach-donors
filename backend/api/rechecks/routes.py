@@ -5,8 +5,8 @@
 очереди и ответа в переписке (`send`). Этап — доноров: письмо уходит только в переписку
 рассылки доноров или первым письмом своей рассылки доноров, и только донору, которого
 обходит Этап 2 (не из «кому не пишем», принят, годен, не поставщик), — это проверяет
-ядро, а не экран. Письма продаж в словах отказа называются только тому, у кого право
-«Продажи» (П2).
+ядро, а не экран. Письма чужого этапа в словах отказа называются только тому, у кого право
+этапа (П2): «Продажи», «Рекламодатели».
 
 **Письма уходят сразу, а не задачей:** нажатие человека и есть согласование, а доноров
 за раз — не больше потолка (`BATCH_MAX`). Итог — по каждому донору: что ушло и почему
@@ -32,8 +32,8 @@ from backend.api.rechecks.schemas import (
 from backend.api.stage_access import on_reply
 from backend.config import filters
 from backend.config import outreach as outreach_cfg
-from backend.features.access.permissions import sees_stage
-from backend.features.core.domain import Permission, Stage
+from backend.features.access.permissions import visible_stages
+from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.letters import price_recheck, recheck_answer
 from backend.features.letters.sending import Sending
@@ -47,11 +47,6 @@ _sender = Depends(needs(Permission.SEND))
 _reply_reviewer = Depends(on_reply(Permission.PRICES))
 
 
-def _sees_sales(user: UserModel) -> bool:
-    """Письма продаж в словах отказа — только тому, кто видит продажи (П2)."""
-    return sees_stage(actor(user), Stage.SALES)
-
-
 @router.get("", response_model=RechecksView, summary="Доноры с протухшей ценой")
 async def stale(
     limit: int = Query(default=100, ge=1, le=500),
@@ -60,7 +55,7 @@ async def stale(
 ) -> RechecksView:
     """Доноры, по которым обход не идёт из-за цены старше срока, — и можно ли перезапросить
     каждого сейчас, а если нет — почему."""
-    found = await price_recheck.stale(session, limit=limit, sales_visible=_sees_sales(user))
+    found = await price_recheck.stale(session, limit=limit, seen=visible_stages(actor(user)))
     return RechecksView.of(
         found, ttl_days=filters.PRICE_TTL_DAYS, every_days=outreach_cfg.PRICE_RECHECK_DAYS
     )
@@ -74,7 +69,7 @@ async def one(
 ) -> RecheckCard:
     """Можно ли перезапросить цену донора, куда и каким текстом уйдёт письмо — ничего
     не отправляя."""
-    found = await price_recheck.look(session, donor_id, sales_visible=_sees_sales(user))
+    found = await price_recheck.look(session, donor_id, seen=visible_stages(actor(user)))
     return RecheckCard.of(found)
 
 
@@ -92,7 +87,7 @@ async def ask(
             Sending(session, transports),
             body.donor_ids,
             author_id=author.id,
-            sales_visible=_sees_sales(author),
+            seen=visible_stages(actor(author)),
         )
     return RecheckResult.of(done)
 

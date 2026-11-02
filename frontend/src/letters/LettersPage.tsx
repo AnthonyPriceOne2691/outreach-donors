@@ -106,7 +106,7 @@ function jobKeyOf(target: LetterTarget): string {
 
 export function LettersPage() {
   const [params] = useSearchParams();
-  const part = lettersPart(params);
+  const part = lettersPart(params, useSession().can);
   return <LettersScreen key={part ?? 'all'} part={part} />;
 }
 

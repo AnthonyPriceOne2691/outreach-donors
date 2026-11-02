@@ -9,7 +9,7 @@ import type { PriceOrigin, PriceRefusal } from './manualPrice';
 import type { Offer } from './offers';
 import type { SamePrice } from './priceRecheck';
 import type { Stage } from './stages';
-export type Role = 'admin' | 'operator';
+export type Role = 'admin' | 'operator' | 'donors';
 
 /** Именованные действия. Ровно те же, что в матрице прав на сервере. */
 export type Permission =
@@ -21,6 +21,7 @@ export type Permission =
   | 'senders'
   | 'users'
   | 'sales'
+  | 'advertisers'
   | 'spend';
 
 export interface Me {
@@ -746,7 +747,7 @@ export interface OverviewLetters {
 export interface OverviewView {
   donors: OverviewDonors;
   waiting: OverviewWaiting;
-  letters: Record<LetterStage, OverviewLetters>;
+  letters: { donors: OverviewLetters; advertisers?: OverviewLetters };
   /** Последний прогон — той же карточкой, что строка истории прогонов. */
   last_run: RunCard | null;
   /** Юниты Ahrefs, потраченные нами в цикле ключа (с `ahrefs_since`), против капа; кап `null`

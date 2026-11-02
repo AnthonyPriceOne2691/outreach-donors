@@ -21,7 +21,7 @@ export function ThreadsIntro() {
   // Ждущие — той стороны, что и список рядом: в «Диалогах продаж» — переписки продаж,
   // при «Кому писали: рекламодатели» — рекламодатели (`onSide`). Состояние и поиск —
   // нет: кнопка ведёт к работе, а не к фильтру.
-  const side = readThreadFilters(params, useSession().can('sales'));
+  const side = readThreadFilters(params, useSession().can);
   const { threads } = useSortedThreads();
   const waiting = threads.filter((thread) => onSide(thread, side) && waitsForPerson(thread.state));
   const first = waiting[0];

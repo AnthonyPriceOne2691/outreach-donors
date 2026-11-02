@@ -16,6 +16,7 @@ import { Alert, Button, Group, Modal, Select, Stack, TextInput } from '@mantine/
 import { useForm } from '@mantine/form';
 import { useState } from 'react';
 
+import { ROLE_ABOUT, ROLES } from '../api/labels';
 import type { OneTimePassword, Role } from '../api/types';
 import { createUser } from '../api/users';
 import { ACTIONS_GAP, FIELD_GAP } from '../components/formRhythm';
@@ -81,11 +82,7 @@ export function CreateUserModal({ opened, onClose, onCreated }: Props) {
           <Select
             label="Роль"
             allowDeselect={false}
-            data={[
-              // Права ролей — как на сервере (`access/permissions.py`, ROLE_PERMISSIONS).
-              { value: 'operator', label: 'Оператор — база, прогоны, пороги, цены, продажи' },
-              { value: 'admin', label: 'Админ — всё: ещё письма, домены рассылки, учётки' },
-            ]}
+            data={ROLES.map((role) => ({ value: role, label: ROLE_ABOUT[role] }))}
             {...form.getInputProps('role')}
           />
           <Group justify="flex-end" mt={ACTIONS_GAP}>

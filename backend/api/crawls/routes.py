@@ -11,7 +11,8 @@
 сдержать, отклонённый человеком — не донор, и мимо экрана это не обойти.
 
 Смотреть — под правом `view`, запускать — под `run`: это то же «запустить
-работу, которая идёт сама», что и прогон Этапа 1.
+работу, которая идёт сама», что и прогон Этапа 1. Весь роутер — ещё и под правом
+«Рекламодатели»: обход — начало Этапа 2 (`stage_access.STAGE_TWO`).
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ from backend.api.crawls.schemas import (
     TargetsView,
 )
 from backend.api.deps import db_session, needs
+from backend.api.stage_access import STAGE_TWO
 from backend.config import crawl as crawl_cfg
 from backend.config import filters
 from backend.features.access.repository import AccessRepository
@@ -61,7 +63,7 @@ from backend.shared.queue import (
     workers_alive,
 )
 
-router = APIRouter(prefix="/crawls", tags=["обходы"])
+router = APIRouter(prefix="/crawls", tags=["обходы"], dependencies=[STAGE_TWO])
 
 _viewer = Depends(needs(Permission.VIEW))
 _runner = Depends(needs(Permission.RUN))

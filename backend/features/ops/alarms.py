@@ -20,16 +20,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.features.core.domain import Stage
+from backend.features.core.domain import STAGE_GENITIVE, Stage
 from backend.shared.alerts import MAX_CHARS, SOURCE
-
-#: Этап в заголовке тревоги — словом в родительном падеже: «Очередь продаж есть — отправить
-#: некому», «Добивки стоят — направление доноров». Каждый этап — держит тест.
-STAGE_GENITIVE: dict[Stage, str] = {
-    Stage.DONORS: "доноров",
-    Stage.ADVERTISERS: "рекламодателей",
-    Stage.SALES: "продаж",
-}
 
 #: Сколько знаков сообщения остаётся тексту после имени сервиса: отправка ставит его первым и
 #: режет сообщение по потолку Telegram (`shared/alerts.send_alert`).
@@ -80,8 +72,8 @@ class Alarm:
     code: str
     title: str
     detail: str
-    #: Этап, о почте которого тревога (сторож почты этапов): тревога о почте продаж — только
-    #: с правом «Продажи» (решение Anthony 10.10.2026, П2б). Общая тревога — без этапа.
+    #: Этап, о почте или обходе которого тревога: тревога продаж — только с правом «Продажи»
+    #: (решение Anthony 10.10.2026, П2б), Этапа 2 — с правом «Рекламодатели». Общая — без этапа.
     stage: Stage | None = None
     #: Стоит ли тревога внимания — последней строкой в Telegram и меткой на «Обзоре». У каждой
     #: тревоги сервиса обязательна (`tests/test_alarm_concern.py`). Повод сменился у той же

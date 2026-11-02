@@ -32,7 +32,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -83,7 +83,9 @@ class Plan:
     subject: str | None = None
 
 
-def plan(facts: Facts, donor: DonorModel, host: str, subject: str, *, sales_visible: bool) -> Plan:
+def plan(
+    facts: Facts, donor: DonorModel, host: str, subject: str, *, seen: Collection[Stage]
+) -> Plan:
     """Куда уйдёт перезапрос — или отказ словами. `subject` — тема шаблона: ею уходит
     новое письмо, и она же запасная у ответа в переписку без темы."""
     found = facts.talks.get(donor.domain_id, [])
@@ -93,7 +95,7 @@ def plan(facts: Facts, donor: DonorModel, host: str, subject: str, *, sales_visi
         # Собранный раньше и не ушедший — в свою переписку.
         talk = next((one for one in found if one.thread.id == queued.thread_id), talk)
     if talk is None:
-        return first_letter(facts, donor, host, sales_visible=sales_visible)
+        return first_letter(facts, donor, host, seen=seen)
     return in_thread(facts, host, talk, subject)
 
 
@@ -235,11 +237,11 @@ def _answering(facts: Facts, talk: Talk, word: ReplyModel) -> ContactModel | Non
     return answered or next((c for c in alive if c.id == talk.thread.contact_id), None)
 
 
-def first_letter(facts: Facts, donor: DonorModel, host: str, *, sales_visible: bool) -> Plan:
+def first_letter(facts: Facts, donor: DonorModel, host: str, *, seen: Collection[Stage]) -> Plan:
     """Перезапрос новым первым письмом — на лучший живой адрес, куда ещё не писали."""
     other = facts.elsewhere.get(donor.domain_id)
     if other is not None:
-        raise RecheckRefusedError(_elsewhere_words(host, other, sales_visible=sales_visible))
+        raise RecheckRefusedError(_elsewhere_words(host, other, seen=seen))
     if facts.firsts.get(donor.domain_id, 0) >= attempts.MAX_ADDRESSES:
         raise RecheckRefusedError(f"{host}: {attempts.CAPPED}.")
     contacts = facts.contacts.get(donor.domain_id, [])
@@ -302,11 +304,11 @@ def _nobody(screened: limits.Screened, now: datetime) -> str:
     )
 
 
-def _elsewhere_words(host: str, other: Waiting, *, sales_visible: bool) -> str:
+def _elsewhere_words(host: str, other: Waiting, *, seen: Collection[Stage]) -> str:
     """Сайту писали в другой роли — отказ: одному адресату не пишут и как донору, и как
     рекламодателю (`recipients._not_written`). Слова — те же, что у карточки донора
-    (`other_role`), с именем сайта; продажи — подробно только с их правом."""
-    return f"{host} {other_role.words(other, sales_visible=sales_visible)}"
+    (`other_role`), с именем сайта; чужой этап — подробно только с его правом."""
+    return f"{host} {other_role.words(other, seen=seen)}"
 
 
 def _no_address(host: str, *, known: bool) -> str:

@@ -22,13 +22,14 @@
    перезапрос, любым путём.
 
 **Чужой этап — без подробностей тому, кто его не видит** (проверка 12.10.2026): письмо
-лиду продаж называется номером и этапом только с правом «Продажи» (`sales_visible`).
+лиду продаж или рекламодателю называется номером и этапом только с правом этапа (`seen`).
 
 Куда уйдёт письмо и что ещё может ему помешать — `recheck_target.py`.
 """
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import datetime, timedelta
 
 from backend.config import filters as filters_cfg
@@ -45,7 +46,7 @@ from backend.features.letters.recheck_facts import Facts, Waiting
 CAMPAIGN_TEMPLATE = RECHECK_CAMPAIGN
 
 
-def refusal(facts: Facts, donor: DonorModel, host: str, *, sales_visible: bool) -> str | None:
+def refusal(facts: Facts, donor: DonorModel, host: str, *, seen: Collection[Stage]) -> str | None:
     """Первое невыполненное условие перезапроса — словами; `None` — все выполнены."""
     said = _standing(facts, donor, host) or _not_stale(donor, host, facts.moment)
     if said is None and host.lower() in facts.suppliers:
@@ -60,7 +61,7 @@ def refusal(facts: Facts, donor: DonorModel, host: str, *, sales_visible: bool) 
         said = (
             _too_soon(host, facts.asked.get(donor.domain_id), facts.moment)
             if pending is None
-            else _pending_words(host, pending, sales_visible=sales_visible)
+            else _pending_words(host, pending, seen=seen)
         )
     return said
 
@@ -113,9 +114,9 @@ def _pending(facts: Facts, domain_id: int) -> Waiting | None:
     )
 
 
-def _pending_words(host: str, letter: Waiting, *, sales_visible: bool) -> str:
+def _pending_words(host: str, letter: Waiting, *, seen: Collection[Stage]) -> str:
     """Письмо донору уже в пути или в очереди — второе не уходит, словами о нём."""
-    if letter.stage is Stage.SALES and not sales_visible:
+    if letter.stage not in seen:
         return f"Сайту {host} сейчас идёт другое письмо: второе не уходит, пока не уйдёт оно."
     what = f"Письмо {host} №{letter.id} ({kind_of(letter.step)})"
     if letter.status is MessageStatus.SENDING:

@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 
 import { fetchWatchdog } from '../api/settings';
 import type { StagedAlarm } from '../api/settings';
-import { stageShown } from '../api/stages';
+import { stageShown } from '../api/stageRights';
 import type { Stage } from '../api/stages';
 import { useSession } from '../auth/AuthProvider';
 import { formatNumber } from '../format';
@@ -115,11 +115,11 @@ export function Watchdog({ stage }: { stage?: Stage }) {
     refetchInterval: 5 * 60 * 1000,
   });
 
-  // Тревога о почте продаж — только с правом «Продажи» (П2б), даже пришедшая раньше,
-  // чем право сняли; общая тревога (`stage: null`) — всем.
+  // Тревога этапа — только с его правом (П2б), даже пришедшая раньше, чем право сняли;
+  // общая тревога (`stage: null`) — всем.
   const alarms = (data?.alarms ?? []).filter(
     (alarm) =>
-      (alarm.stage === null || stageShown(alarm.stage, can('sales'))) &&
+      (alarm.stage === null || stageShown(alarm.stage, can)) &&
       (stage === undefined || alarm.stage === stage),
   );
   if (!can('view') || alarms.length === 0) return null;

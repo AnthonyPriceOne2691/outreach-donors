@@ -124,7 +124,7 @@ class TestWhoWaits:
         assert (await work(session, stages=EVERY_STAGE)).forms == view.waiting.forms == 2
         assert view.waiting.advertiser_forms == 1
         assert view.donors.form_only == 1
-        assert await forms.waiting(session) == 2
+        assert await forms.total(session) + await forms.advertiser_total(session) == 2
 
 
 class TestTabs:

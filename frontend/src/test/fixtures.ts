@@ -1,5 +1,5 @@
 /** Ответы сервера, снятые с живого прогона 19.09.2026. Право `sales` — с 1.5:
- *  у админа всё, у оператора — в роли (решение владельца 01.10). */
+ *  у админа всё, у оператора — в роли (решение владельца 01.10); `advertisers` — так же. */
 
 import type { Me, OverviewView, SignedIn, UserCard } from '../api/types';
 import type { Answer } from './server';
@@ -8,7 +8,18 @@ export const ADMIN: Me = {
   id: 1,
   email: 'админ@site.com',
   role: 'admin',
-  permissions: ['prices', 'run', 'sales', 'send', 'senders', 'settings', 'spend', 'users', 'view'],
+  permissions: [
+    'advertisers',
+    'prices',
+    'run',
+    'sales',
+    'send',
+    'senders',
+    'settings',
+    'spend',
+    'users',
+    'view',
+  ],
   must_change_password: false,
   last_login_at: '2026-09-19T10:24:00+00:00',
 };
@@ -17,9 +28,18 @@ export const OPERATOR: Me = {
   id: 2,
   email: 'оператор@site.com',
   role: 'operator',
-  permissions: ['prices', 'run', 'sales', 'settings', 'view'],
+  permissions: ['advertisers', 'prices', 'run', 'sales', 'settings', 'view'],
   must_change_password: false,
   last_login_at: null,
+};
+
+/** Роль «Только доноры»: Этап 1, без рекламодателей и продаж. */
+export const DONORS_ONLY: Me = {
+  ...OPERATOR,
+  id: 4,
+  email: 'доноры@site.com',
+  role: 'donors',
+  permissions: ['prices', 'run', 'settings', 'view'],
 };
 
 export const NEWCOMER: Me = {

@@ -9,14 +9,15 @@
  *
  * **Адрес — чужой ввод.** Его правят руками и присылают устаревшим, поэтому
  * незнакомое состояние — «не сужать», а не пустой экран без объяснения.
- * Правило то же, что у доноров (`donors/donorFilters.ts`). Состояние продаж
- * без права «Продажи» — тоже «не сужать» (решение Anthony 10.10.2026, П2):
- * переписок продаж в таком списке нет, и фильтр их словами не называет.
+ * Правило то же, что у доноров (`donors/donorFilters.ts`). Состояние этапа
+ * без его права — тоже «не сужать» (решение Anthony 10.10.2026, П2):
+ * переписок этапа в таком списке нет, и фильтр их словами не называет.
  *
  * **Часть списка — тоже в адресе** (просьба Anthony 11.10.2026): «Диалоги» — переписки
  * доноров и рекламодателей, «Диалоги продаж» — тот же экран с `?stage=sales`. Часть — не
  * фильтр, а сам список: «найдено N из M» и «всего» считаются внутри неё. Без права
- * «Продажи» часть продаж из адреса не сужает — её переписок сервер и не отдаёт.
+ * «Продажи» часть продаж из адреса не сужает — её переписок сервер и не отдаёт. Без права
+ * «Рекламодатели» сторона одна, и список — всегда часть доноров.
  *
  * **Кому писали — тоже в адресе** (`?role=advertisers`, слово владельца 14.10.2026): в
  * «Диалогах» доноры и рекламодатели шли вперемешку, и письмо рекламодателю в списке не
@@ -31,7 +32,9 @@
  */
 
 import { THREAD_STATES } from '../api/labels';
-import { PART_PARAM, partOf, stageShown, stateShown } from '../api/stages';
+import { stageShown, stateShown } from '../api/stageRights';
+import type { Can } from '../api/stageRights';
+import { PART_PARAM, partOf } from '../api/stages';
 import type { Part, Stage } from '../api/stages';
 import type { ThreadCard, ThreadState } from '../api/types';
 
@@ -76,15 +79,16 @@ export const NO_THREAD_FILTERS: ThreadFilters = { part: null, role: null, state:
 
 export const THREAD_STATE_KEYS = Object.keys(THREAD_STATES) as ThreadState[];
 
-/** Фильтры из адреса. `sales` — `can('sales')`: без права состояния и часть продаж не сужают. */
-export function readThreadFilters(params: URLSearchParams, sales: boolean): ThreadFilters {
+/** Фильтры из адреса. `can` — права сессии: без права состояния и часть этапа не сужают. */
+export function readThreadFilters(params: URLSearchParams, can: Can): ThreadFilters {
   const state = params.get('state');
   const named = partOf(params);
-  const part = named !== null && stageShown(named, sales) ? named : null;
+  const shown = named !== null && stageShown(named, can) ? named : null;
+  const part = shown ?? (can('advertisers') ? null : 'donors');
   return {
     part,
     role: part === null ? roleOf(params.get(ROLE_PARAM)) : null,
-    state: THREAD_STATE_KEYS.find((known) => known === state && stateShown(known, sales)) ?? null,
+    state: THREAD_STATE_KEYS.find((known) => known === state && stateShown(known, can)) ?? null,
     search: (params.get('search') ?? '').trim(),
   };
 }

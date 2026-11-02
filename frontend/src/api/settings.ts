@@ -98,6 +98,8 @@ export interface AhrefsKey {
 export interface UsageView extends Omit<SpendingView, 'articles'> {
   articles: StagedArticle[];
   sales_hidden: boolean;
+  /** Расход Этапа 2 не показан: у учётки нет права «Рекламодатели». */
+  advertisers_hidden: boolean;
   stages: StageSpending[];
   crawl: CrawlSpend;
   ahrefs_key: AhrefsKey;

@@ -44,7 +44,7 @@ export function LeadsExport({ compact = false }: { compact?: boolean }) {
       }),
   });
   // Файл отдаётся под правом prices — без него кнопки нет, а не отказ после нажатия.
-  if (!can('prices')) return null;
+  if (!can('prices') || !can('advertisers')) return null;
   if (compact) {
     return (
       <Tooltip label={TITLE} withArrow>

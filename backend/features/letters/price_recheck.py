@@ -40,7 +40,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -55,7 +55,14 @@ from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.crawl import targets
 from backend.features.donors.standing import UnknownDonorError
-from backend.features.letters import compose, recheck_facts, recheck_rules, recheck_target, settle
+from backend.features.letters import (
+    compose,
+    other_role,
+    recheck_facts,
+    recheck_rules,
+    recheck_target,
+    settle,
+)
 from backend.features.letters import template as templates
 from backend.features.letters.building import idempotency_key
 from backend.features.letters.chain import FIRST_STEP, RECHECK_STEP
@@ -156,27 +163,27 @@ async def look(
     donor_id: int,
     *,
     now: datetime | None = None,
-    sales_visible: bool = False,
+    seen: Collection[Stage] = other_role.ONLY_DONORS,
 ) -> Recheck:
     """Можно ли перезапросить цену донора сейчас и куда уйдёт письмо — ничего не меняя.
 
     Одни слова у списка до нажатия и у отказа после: экран показывает ровно то, что
-    скажет сервер. Донора нет — `UnknownDonorError`. `sales_visible` — смотрящий видит
-    продажи: без права «Продажи» письма продаж в словах отказа не называются.
+    скажет сервер. Донора нет — `UnknownDonorError`. `seen` — этапы смотрящего: письмо этапа
+    без его права (продажи, рекламодатели) в словах отказа не называется.
     """
     if not storable(donor_id):
         raise UnknownDonorError(f"Донора №{donor_id} нет")
     facts = await recheck_facts.load(session, [donor_id], now or datetime.now(UTC))
-    return judge(facts, donor_id, sales_visible=sales_visible)
+    return judge(facts, donor_id, seen=seen)
 
 
-def judge(facts: Facts, donor_id: int, *, sales_visible: bool) -> Recheck:
+def judge(facts: Facts, donor_id: int, *, seen: Collection[Stage]) -> Recheck:
     """Решение по одному донору — по фактам, без базы."""
     found = facts.donors.get(donor_id)
     if found is None:
         raise UnknownDonorError(f"Донора №{donor_id} нет")
     donor, host = found
-    seen = Recheck(
+    told = Recheck(
         donor_id=donor.id,
         domain_id=donor.domain_id,
         host=host,
@@ -186,18 +193,18 @@ def judge(facts: Facts, donor_id: int, *, sales_visible: bool) -> Recheck:
         source=donor.last_price_source,
         asked_at=facts.asked.get(donor.domain_id),
     )
-    refusal = recheck_rules.refusal(facts, donor, host, sales_visible=sales_visible)
+    refusal = recheck_rules.refusal(facts, donor, host, seen=seen)
     if refusal is not None:
-        return replace(seen, refusal=refusal)
+        return replace(told, refusal=refusal)
     try:
-        subject, body = _text(seen)
-        plan = recheck_target.plan(facts, donor, host, subject, sales_visible=sales_visible)
+        subject, body = _text(told)
+        plan = recheck_target.plan(facts, donor, host, subject, seen=seen)
     except RecheckRefusedError as exc:
         logger.debug("перезапрос цены: %s сейчас не уйдёт — %s", host, exc)
-        return replace(seen, refusal=str(exc))
+        return replace(told, refusal=str(exc))
     queued = facts.queued.get(donor.domain_id)
     return replace(
-        seen,
+        told,
         plan=plan,
         subject=plan.subject or subject,
         body=body,
@@ -212,7 +219,7 @@ async def ask(
     *,
     author_id: int | None,
     now: datetime | None = None,
-    sales_visible: bool = False,
+    seen: Collection[Stage] = other_role.ONLY_DONORS,
 ) -> Asked:
     """Перезапросить цену донора — и отправить сразу: нажатие человека и есть согласование.
 
@@ -224,7 +231,7 @@ async def ask(
         await session.execute(
             select(DonorModel.id).where(DonorModel.id == donor_id).with_for_update()
         )
-    found = await look(session, donor_id, now=now, sales_visible=sales_visible)
+    found = await look(session, donor_id, now=now, seen=seen)
     plan = found.plan
     if plan is None or found.subject is None or found.body is None:
         raise RecheckRefusedError(found.refusal or f"Перезапрос цены {found.host} не собрался.")
@@ -257,7 +264,7 @@ async def ask_many(
     *,
     author_id: int | None,
     now: datetime | None = None,
-    sales_visible: bool = False,
+    seen: Collection[Stage] = other_role.ONLY_DONORS,
 ) -> list[Asked | Refused]:
     """Перезапросить цену у нескольких доноров — по одному, тем же путём, что одного.
 
@@ -277,7 +284,7 @@ async def ask_many(
                     donor_id,
                     author_id=author_id,
                     now=now,
-                    sales_visible=sales_visible,
+                    seen=seen,
                 )
             )
         except (SendError, UnknownDonorError) as exc:
@@ -307,7 +314,7 @@ async def stale(
     *,
     limit: int,
     now: datetime | None = None,
-    sales_visible: bool = False,
+    seen: Collection[Stage] = other_role.ONLY_DONORS,
 ) -> Stale:
     """Доноры с протухшей ценой — тем же отбором, что у обхода (`targets.choose`), — и
     можно ли перезапросить каждого. Факты — разом на весь список (`recheck_facts.load`)."""
@@ -326,7 +333,7 @@ async def stale(
         .all()
     )
     facts = await recheck_facts.load(session, ids.values(), moment)
-    rows = [judge(facts, ids[host], sales_visible=sales_visible) for host in hosts if host in ids]
+    rows = [judge(facts, ids[host], seen=seen) for host in hosts if host in ids]
     return Stale(rows=rows, total=len(chosen.stale_price))
 
 
