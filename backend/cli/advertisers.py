@@ -10,6 +10,9 @@
 ходит за одним — DR новых «куплено» и «спорно» для «DR > 80 — не пишем»:
 пакетом, только ещё не спрошенный, юниты — в журнал расхода (`--no-dr` —
 не спрашивать).
+
+**`--pages-only` — только числа панели** (`crawl/selling_backfill.py`): продающие ссылки и страницы
+обходов, посчитанных раньше этих чисел, по сохранённым ссылкам. Без сети и без записи кандидатов.
 """
 
 from __future__ import annotations
@@ -31,7 +34,7 @@ from backend.features.contacts.search import search_contacts
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.crawl import CrawlRunModel
-from backend.features.crawl import review, supplier_import, suppliers
+from backend.features.crawl import review, selling_backfill, supplier_import, suppliers
 from backend.features.crawl.big_sites import Ratings, capped_ratings, journal
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.crawl.gate import judge_run, latest_crawls
@@ -66,6 +69,12 @@ def add_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
         action="store_true",
         help="не спрашивать DR у Ahrefs (без юнитов): «DR > 80 — не пишем» не проверяется, "
         "и в причинах кандидатов так и будет написано",
+    )
+    judge.add_argument(
+        "--pages-only",
+        action="store_true",
+        help="только числа продающих ссылок панели у обходов без них: бесплатно, по сохранённым "
+        "ссылкам, без DR и без записи кандидатов",
     )
 
     promote = sub.add_parser(
@@ -130,9 +139,32 @@ def _ahrefs(args: argparse.Namespace, spent: UsageCollector) -> AhrefsClient | N
     return AhrefsClient(on_usage=spent)
 
 
+async def _pages_only(run_id: int | None) -> int:
+    """Числа продающих ссылок у обходов без них: бесплатно, кандидаты не меняются."""
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            runs = await _runs(session, run_id)
+            if not runs:
+                print("Обходов в базе нет — считать нечего.")
+                return EXIT_NOT_FOUND
+            done = await selling_backfill.fill(session, runs)
+            await session.commit()
+    finally:
+        await engine.dispose()
+    print(
+        f"Обходов: {len(runs)}. Дополнено: {done.filled}, уже посчитано: {done.known}, "
+        f"без кандидатов: {done.empty}. Сеть и юниты не тратились, кандидаты не менялись."
+    )
+    return 0
+
+
 async def cmd_advertisers(args: argparse.Namespace) -> int:
     """Пересчитать вердикты и показать кандидатов."""
     check_storage()
+    if args.pages_only:
+        return await _pages_only(args.run)
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     spent = UsageCollector()

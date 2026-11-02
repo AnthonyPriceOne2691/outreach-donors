@@ -91,7 +91,7 @@ function open(routes: Record<string, Answer> = {}, who: unknown = ADMIN) {
     'GET /api/price-rechecks': { body: VIEW },
     ...routes,
   });
-  renderWith(<AppRoutes />, '/advertisers');
+  renderWith(<AppRoutes />, '/advertisers?view=review');
   return recorded;
 }
 

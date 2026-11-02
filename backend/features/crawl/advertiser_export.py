@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import csv
 import io
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 from backend.features.core.domain import ContactStatus
 from backend.features.crawl.advertiser_list import AddressState, AdvertiserRow
@@ -85,12 +85,17 @@ def _cell(value: object) -> str:
     return "" if value is None else str(inert(str(value)))
 
 
-def to_csv(rows: Sequence[AdvertiserRow]) -> bytes:
-    """Строки списка рекламодателей одним файлом."""
+def table_csv(columns: Sequence[str], lines: Iterable[Sequence[object]]) -> bytes:
+    """Таблица файлом — одним форматом у всех выгрузок Этапа 2 (`disputed_export.py`)."""
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
-    writer.writerow(COLUMNS)
-    for row in rows:
-        writer.writerow([_cell(value) for value in _values(row)])
+    writer.writerow(columns)
+    for line in lines:
+        writer.writerow([_cell(value) for value in line])
     # Метка порядка байтов — ради Excel, см. модуль.
     return buffer.getvalue().encode("utf-8-sig")
+
+
+def to_csv(rows: Sequence[AdvertiserRow]) -> bytes:
+    """Строки списка рекламодателей одним файлом."""
+    return table_csv(COLUMNS, [_values(row) for row in rows])
