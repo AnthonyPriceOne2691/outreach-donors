@@ -1,8 +1,7 @@
 """Мягкие сигналы ящика продаж (Ф4, срез 4.5b): модуль продаж подставной.
 
 `deferred` и мягкий отказ — строки журнала здоровья, три за сутки — лимит ящика снижен
-вдвое; пауза — по окну последних 50 писем (отказы от 5%, жалобы от порога). У доноров
-политики нет: следов в журнале нет, парковка — прежним правилом за всю жизнь ящика.
+вдвое; пауза — по окну последних 50 писем (отказы от 5%, жалобы от порога).
 """
 
 from __future__ import annotations
@@ -115,26 +114,14 @@ async def test_a2_three_soft_signals_cut_the_box_for_a_day(session: AsyncSession
     assert box.enabled
 
 
-async def test_donors_soft_signals_leave_no_trace(session: AsyncSession) -> None:
-    box = await _box(session, Stage.DONORS, total=1)
-
-    await _events(session, box, "deferred", "deferred", "deferred")
-
-    assert await _journal(session, box) == []
-    assert await health.cuts(session, Stage.DONORS, NOW) == {}
-
-
-@pytest.mark.parametrize(
-    ("stage", "broken", "paused"),
-    [(Stage.SALES, None, True), (Stage.DONORS, None, False), (Stage.SALES, "policy", False)],
-)
-async def test_three_bounces_in_twenty_pause_sales_by_the_window_and_not_donors(
-    session: AsyncSession, ruled: FakeSalesMail, stage: Stage, broken: str | None, paused: bool
+@pytest.mark.parametrize(("broken", "paused"), [(None, True), ("policy", False)])
+async def test_three_bounces_in_twenty_pause_sales_by_the_window(
+    session: AsyncSession, ruled: FakeSalesMail, broken: str | None, paused: bool
 ) -> None:
-    """У доноров доля отказов судится после 50 писем за всю жизнь ящика — 3 из 20 ждут; так же
-    у продаж, пока модуль не ответил о политике: событие записано, вебхук не упал."""
+    """Три отказа из двадцати — пауза по окну. Пока модуль не ответил о политике, окна нет и
+    паузы тоже: событие записано, вебхук не упал."""
     ruled.broken = broken
-    box = await _box(session, stage, total=20, bounced=2)
+    box = await _box(session, Stage.SALES, total=20, bounced=2)
 
     said = await _events(session, box, "bounce")
 
