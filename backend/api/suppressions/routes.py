@@ -11,8 +11,7 @@
 
 **Запись этапа продаж — только с правом «Продажи»** (решение Anthony 10.10.2026,
 П2б): без права её нет ни в списке, ни в числах над ним, а снять или завести её —
-403 словами. Запись без этапа держит все этапы: её видят и правят, как раньше. Запись Этапа 2 —
-так же, с правом «Рекламодатели».
+403 словами. Запись без этапа держит все этапы: её видят и правят, как раньше.
 """
 
 from __future__ import annotations
@@ -44,7 +43,7 @@ router = APIRouter(prefix="/suppressions", tags=["стоп-лист"])
 
 _viewer = Depends(needs(Permission.VIEW))
 _sender = Depends(needs(Permission.SEND))
-#: Запись по номеру: ещё право этапа записи (П2б).
+#: Запись по номеру: у записи этапа продаж — ещё право «Продажи» (П2б).
 _row_sender = Depends(on_suppression(Permission.SEND))
 
 
@@ -53,7 +52,7 @@ async def all_rows(
     user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> StopListView:
-    # Записи и числа шапки — видимых этапов: без права этапа — без его записей.
+    # Записи и числа шапки — видимых этапов: без права «Продажи» — без записей продаж.
     rows = await stoplist.rows(session, stages=visible_stages(actor(user)))
     moment = datetime.now(UTC)
     return StopListView(
@@ -74,7 +73,7 @@ async def add_row(
 
     Домен приходит любым написанием — ссылкой, с `www.`, поддоменом — и ложится
     на корень сайта, как его пишет база; не было его там — ответ так и скажет.
-    Запись этапа — с правом этого этапа (П2б).
+    Запись этапа продаж — с правом «Продажи» (П2б).
     """
     require_stage(actor(author), body.stage, SUPPRESSIONS)
     row = await stoplist.add(

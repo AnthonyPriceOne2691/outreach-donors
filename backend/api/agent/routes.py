@@ -9,7 +9,7 @@
 **Агент продаж — ещё и с правом «Продажи»** (решение Anthony 10.10.2026, П2):
 без него этапа продаж нет в настройках, его черновиков — в списке, а правка
 настроек этапа, черновик продаж и решение по нему — 403 словами
-(`api/stage_access.py`). Агент Этапа 2 — так же, с правом «Рекламодатели».
+(`api/stage_access.py`).
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ router = APIRouter(prefix="/agent", tags=["агент переписки"])
 
 _settler = Depends(needs(Permission.SETTINGS))
 _viewer = Depends(needs(Permission.VIEW))
-#: Черновик по номеру: ещё право этапа черновика (П2).
+#: Черновик по номеру: у черновика продаж — ещё право «Продажи» (П2).
 _draft_viewer = Depends(on_draft(Permission.VIEW))
 _draft_sender = Depends(on_draft(Permission.SEND))
 
@@ -63,7 +63,7 @@ async def agent_settings(
     shown = visible_stages(actor(user))
     for stage, parts in AGENT_STAGES.items():
         if stage not in shown:
-            continue  # этап без его права (П2): его настроек на экране нет
+            continue  # этап продаж без права «Продажи» (П2): его настроек на экране нет
         current = await repository.current(stage)
         refused = autopilot.refusal(stage)
         stages.append(
@@ -134,7 +134,7 @@ async def drafts_in(
     session: AsyncSession = Depends(db_session),
 ) -> list[DraftCard]:
     """По умолчанию — отданные человеку: их никто, кроме человека, не решит. Без права
-    этапа — без его черновиков."""
+    «Продажи» — без черновиков продаж."""
     found = await drafts.waiting(session, status, limit=limit, stages=visible_stages(actor(user)))
     return [DraftCard.of(shown) for shown in found]
 
