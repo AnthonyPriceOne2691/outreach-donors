@@ -2737,14 +2737,14 @@
       "worst": "outcome_of:63"
     },
     "backend/features/sales/autosend.py": {
-      "lines": 468,
+      "lines": 471,
       "complexity": 8,
-      "worst": "stop:231"
+      "worst": "stop:233"
     },
     "backend/features/sales/autosend_jobs.py": {
-      "lines": 234,
+      "lines": 235,
       "complexity": 8,
-      "worst": "_alarm:138"
+      "worst": "_alarm:139"
     },
     "backend/features/sales/autosend_refusals.py": {
       "lines": 85,
