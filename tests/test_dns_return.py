@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -425,12 +424,12 @@ class TestThePass:
         monkeypatch.setattr(reaper, "job_failure", lambda _job: None)
 
     @pytest.fixture
-    def clock(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[list[float]]:
+    def clock(self, monkeypatch: pytest.MonkeyPatch) -> list[float]:
         moment = [1000.0]
         monkeypatch.setattr(
             reaper, "DNS_RETURN", reaper.Sparse(reaper.DNS_RETURN_INTERVAL_SEC, lambda: moment[0])
         )
-        yield moment
+        return moment
 
     async def test_the_sweep_returns_letters_once_in_a_while(
         self, monkeypatch: pytest.MonkeyPatch, clock: list[float]
