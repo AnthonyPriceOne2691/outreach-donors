@@ -687,9 +687,9 @@
       "worst": "cmd_user_add:28"
     },
     "backend/cli/advertisers.py": {
-      "lines": 361,
-      "complexity": 8,
-      "worst": "cmd_advertisers:133"
+      "lines": 393,
+      "complexity": 9,
+      "worst": "cmd_advertisers:163"
     },
     "backend/cli/contact_refind.py": {
       "lines": 95,
@@ -1427,9 +1427,9 @@
       "worst": "same_site_links:55"
     },
     "backend/features/crawl/gate.py": {
-      "lines": 365,
-      "complexity": 8,
-      "worst": "judge_run:243"
+      "lines": 369,
+      "complexity": 9,
+      "worst": "judge_run:246"
     },
     "backend/features/crawl/health.py": {
       "lines": 106,
@@ -1457,9 +1457,9 @@
       "worst": "collect_links:236"
     },
     "backend/features/crawl/load_quality.py": {
-      "lines": 262,
-      "complexity": 13,
-      "worst": "_row:152"
+      "lines": 260,
+      "complexity": 14,
+      "worst": "_row:156"
     },
     "backend/features/crawl/loads.py": {
       "lines": 72,
@@ -1565,6 +1565,11 @@
       "lines": 119,
       "complexity": 3,
       "worst": "snapshot:110"
+    },
+    "backend/features/crawl/selling_backfill.py": {
+      "lines": 77,
+      "complexity": 6,
+      "worst": "fill:61"
     },
     "backend/features/crawl/sitemap.py": {
       "lines": 374,
