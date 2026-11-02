@@ -45,7 +45,6 @@ from backend.features.ops.alarms import Alarm
 from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.ahrefs_key import snapshot as key_snapshot
 from backend.features.runs.spending import units_this_month
-from backend.features.sales import verify_cap
 from backend.features.sales.verifier import OPERATION
 from backend.workers import reaper
 from httpx import AsyncClient
@@ -310,16 +309,16 @@ class TestCap:
             "потолок проверки адресов на месяц не задан — задайте его на экране «Расход»"
         )
 
-    async def test_a_typo_in_env_is_said_with_the_same_words_as_the_sales_module(
+    async def test_a_typo_in_env_is_said_with_the_words_the_sales_module_used(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Текст — договор с продажами: их разбор переезжает сюда со своими словами."""
         monkeypatch.setattr(sales_cfg, "VERIFIER_MONTH_CAP", "полторы тысячи")
 
-        said = await hunter_cap.verify_month_cap(session)
-
-        assert said == verify_cap.month_cap()
-        assert isinstance(said, str)
-        assert "SALES_VERIFIER_MONTH_CAP" in said
+        assert await hunter_cap.verify_month_cap(session) == (
+            "SALES_VERIFIER_MONTH_CAP «полторы тысячи» — нужно целое число проверок адреса в "
+            "месяц, не меньше нуля"
+        )
 
     async def test_the_last_saved_row_wins_and_zero_is_a_value(
         self,
