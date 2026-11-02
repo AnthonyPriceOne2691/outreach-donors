@@ -257,6 +257,42 @@ export interface CrawlDeepResult {
   rules: CrawlDeepRules;
 }
 
+/** Последний ночной круг: что считали, что вышло, что осталось (`crawl/night.py`). */
+export interface CrawlNightRow {
+  night: string;
+  status: 'running' | 'done' | 'missed' | 'failed';
+  started_at: string | null;
+  /** После этого часа новые обходы круга не выдаются. */
+  issue_until: string | null;
+  finished_at: string | null;
+  /** Почему круг не шёл — словами сервера. */
+  note: string | null;
+  taken: number;
+  given: number;
+  dropped: number;
+  going: number;
+  waiting: number;
+  workers: number | null;
+  slots: number | null;
+  typical_sec: number | null;
+  longest_sec: number | null;
+  estimate_sec: number | null;
+  donors: number | null;
+  left_out: number | null;
+  rested: number | null;
+  ranks: Record<string, number>;
+}
+
+export interface CrawlNightView {
+  enabled: boolean;
+  window_sec: number;
+  last: CrawlNightRow | null;
+}
+
+export function fetchCrawlNight(): Promise<CrawlNightView> {
+  return request<CrawlNightView>('/crawls/night');
+}
+
 export function fetchCrawls(page = 1): Promise<CrawlsView> {
   return request<CrawlsView>(page > 1 ? `/crawls?page=${page}` : '/crawls');
 }

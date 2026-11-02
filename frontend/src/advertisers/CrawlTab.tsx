@@ -17,6 +17,8 @@
  *   начала с большим потолком, идёт часами, разом их не больше нескольких;
  * - **журнал обходов свёрнут** и листается страницами (`RecentCrawls journal`).
  *
+ * Ночной обход — строкой над таблицей (`CrawlNight`): когда был, что считали, что осталось.
+ *
  * Доноров заводят здесь же: одного — «Завести донора вручную», списком из файла — «Загрузить
  * списком» (`BulkDonors`); загруженные с галочкой обхода ждут в очереди загрузки (`CrawlBacklog`).
  *
@@ -47,6 +49,7 @@ import { CrawlDonorsTable } from './CrawlDonorsTable';
 import type { Picks } from './CrawlDonorsTable';
 import type { DeepAsk } from './CrawlTable';
 import { CrawlFilterRow, CrawlScope, StatusFacets } from './CrawlFilterBar';
+import { CrawlNight } from './CrawlNight';
 import { CrawlFacts } from './CrawlSummary';
 import type { CrawlFilters } from './crawlFilters';
 import {
@@ -331,6 +334,7 @@ function Notices({
     <>
       <Troubles data={data} summary={summary} />
       <CrawlBacklog mayDrop={mayDrop} />
+      <CrawlNight />
       {summary ? (
         <StalePrices
           count={summary.counts.price.stale}
