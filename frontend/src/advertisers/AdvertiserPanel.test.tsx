@@ -8,7 +8,7 @@
 
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type {
@@ -149,6 +149,21 @@ function open(extra: Record<string, unknown> = {}, path = '/advertisers') {
   const recorded = serve(routes(extra));
   renderWith(<AppRoutes />, path);
   return recorded;
+}
+
+/** Текст файла. Два разных `Blob` у двух реализаций: из Node его читает `text()`, из jsdom —
+ *  `FileReader` (как в `donors/DonorsPage.test.tsx`). */
+function textOf(file: Blob): Promise<string> {
+  if (typeof file.text === 'function') return file.text();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () =>
+      typeof reader.result === 'string'
+        ? resolve(reader.result)
+        : reject(new Error('файл прочитан не текстом'));
+    reader.onerror = () => reject(new Error('файл не прочитался'));
+    reader.readAsText(file);
+  });
 }
 
 function panelCalls(recorded: { calls: Call[] }): string[] {
@@ -389,5 +404,89 @@ describe('рассылка на панели', () => {
 
     expect(await screen.findByText('Прогноз рассылки не загрузился')).toBeVisible();
     expect(await screen.findByRole('region', { name: 'Рекламодатели по письмам' })).toBeVisible();
+  });
+});
+
+describe('выгрузка спорных', () => {
+  const REVIEW = {
+    'GET /api/advertisers/niche?page=1': {
+      body: { rows: [], waiting: 0, total: 0, page: 1, limit: 20 },
+    },
+    'GET /api/advertisers': {
+      body: { rows: [], waiting: 3, counts: { pending: 5, bought: 1 } },
+    },
+  };
+
+  it('кнопка называет число, а файл сохраняется из ответа', async () => {
+    const save = vi.fn(() => 'blob:файл');
+    URL.createObjectURL = save;
+    URL.revokeObjectURL = vi.fn();
+    const recorded = open(
+      {
+        ...REVIEW,
+        'GET /api/advertisers/pending/export': {
+          raw: 'донор;домен\r\ndonor.example.test;one.example.test\r\n',
+          headers: {
+            'content-type': 'text/csv; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="disputed-2026-11-02.csv"',
+            'X-Export-Rows': '5',
+            'X-Export-Asked': '5',
+          },
+        },
+      },
+      '/advertisers?view=review',
+    );
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Выгрузить спорные · 5' }));
+
+    expect(await screen.findByText('Выгружено спорных: 5.')).toBeVisible();
+    expect(recorded.calls.map((call: Call) => call.path)).toContain(
+      '/api/advertisers/pending/export',
+    );
+    const blob = save.mock.calls[0]?.[0 as never] as unknown as Blob;
+    expect(await textOf(blob)).toContain('donor.example.test;one.example.test');
+  });
+
+  it('потолок файла сказан словами', async () => {
+    URL.createObjectURL = vi.fn(() => 'blob:файл');
+    URL.revokeObjectURL = vi.fn();
+    open(
+      {
+        ...REVIEW,
+        'GET /api/advertisers/pending/export': {
+          raw: 'донор',
+          headers: {
+            'content-type': 'text/csv; charset=utf-8',
+            'X-Export-Rows': '10000',
+            'X-Export-Asked': '12000',
+          },
+        },
+      },
+      '/advertisers?view=review',
+    );
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Выгрузить спорные · 5' }));
+
+    expect(await screen.findByText(/В файле 10 000 из 12 000/)).toBeVisible();
+  });
+
+  it('на вкладке «Куплено» кнопки нет', async () => {
+    open(
+      {
+        ...REVIEW,
+        'GET /api/advertisers?verdict=bought': { body: { rows: [], waiting: 0, counts: {} } },
+      },
+      '/advertisers?view=review',
+    );
+    const user = userEvent.setup();
+    await screen.findByRole('button', { name: 'Выгрузить спорные · 5' });
+
+    await user.click(screen.getByText(/Куплено · 1/));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Выгрузить спорные/ })).toBeNull(),
+    );
   });
 });

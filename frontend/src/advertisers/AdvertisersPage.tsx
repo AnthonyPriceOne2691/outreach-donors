@@ -39,6 +39,8 @@
  * рекламодатели списком с выгрузкой (`AdvertiserList`) и приёмка по донорам (`AcceptanceReport`).
  * С 29.10.2026 — ещё обход доноров своей вкладкой (`CrawlTab`): доноров тысячи, и в «Проверке»
  * осталась сводка (`CrawlSummary`).
+ *
+ * **Спорные — файлом** (`PendingExport`, тест-группа 31.10.2026): специалист проходит их таблицей.
  */
 
 import {
@@ -72,6 +74,7 @@ import { CrawlSummary } from './CrawlSummary';
 import { CrawlTab } from './CrawlTab';
 import { FalseShare } from './FalseShare';
 import { NicheQueue } from './NicheQueue';
+import { PendingExport } from './PendingExport';
 import { PromotePanel } from './PromotePanel';
 import { notify } from '../notices';
 
@@ -214,6 +217,11 @@ function ReviewView({ onOpenCrawl }: { onOpenCrawl: () => void }) {
             ))}
           </Group>
           {data?.scoring !== undefined ? <FalseShare check={data.scoring} /> : null}
+          {verdict === 'pending' ? (
+            <Group>
+              <PendingExport total={counts['pending'] ?? 0} />
+            </Group>
+          ) : null}
           <Group justify="space-between" align="center">
             <Text size="sm">
               Ждут человека: <b>{formatNumber(waiting)}</b>

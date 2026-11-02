@@ -97,6 +97,7 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("причина балла", "table tbody td:nth-child(4) p", norm),
                 ("балл значком", "table tbody .mantine-Badge-label", norm),
                 ("счётчик вердиктов", ".mantine-Badge-label", norm),
+                ("выгрузка спорных", "button:has-text('Выгрузить спорные')", big),
                 ("кнопка «Пишем»", "table tbody button", big),
                 ("пункт меню", "nav a", norm),
             ],
