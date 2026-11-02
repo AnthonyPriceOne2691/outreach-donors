@@ -16,7 +16,8 @@
  *
  * **Без права «Продажи» — расход без продаж** (решение Anthony 10.10.2026, П2б):
  * статьи, плитки и итог считает сервер без операций продаж, и сходятся они между
- * собой. Что это не весь счёт, экран говорит строкой под плитками.
+ * собой. Что это не весь счёт, экран говорит строкой под плитками. Без права «Рекламодатели»
+ * так же нет расхода Этапа 2, и потолка обхода на экране нет вовсе.
  *
  * **Этап — у каждой статьи, разбивка — отдельной панелью** (`UsageStages.tsx`):
  * DR кандидатов Этапа 2 и метрики прогона — одна операция, но две статьи; платный
@@ -42,20 +43,30 @@ import { Metric } from '../components/Metric';
 import { PageHead } from '../components/PageHead';
 import { SpendTable, tileOf } from '../components/SpendTable';
 import { fetchUsage } from '../api/settings';
+import type { UsageView } from '../api/settings';
 import { formatDay, formatUsd } from '../format';
 import { AhrefsCap } from './AhrefsCap';
 import { LlmCaps } from './LlmCaps';
 import { CrawlCap, StageBreakdown } from './UsageStages';
 import { shownWithoutSpend, SPEND_PROVIDERS } from './usageLabels';
 
-/** Без права «Продажи» сервер считает расход без продаж (П2б): числа сходятся между собой,
- *  но это не весь счёт — и экран так и говорит. */
-function SalesHidden({ hidden }: { hidden: boolean }) {
-  if (!hidden) return null;
+/** Этапы, которых без права нет в расходе: признак ответа, чей расход и какое право. */
+const HIDDEN_STAGES = [
+  { key: 'sales_hidden', whose: 'продаж', right: '«Продажи»' },
+  { key: 'advertisers_hidden', whose: 'рекламодателей', right: '«Рекламодатели»' },
+] as const;
+
+/** Без права этапа сервер считает расход без него (П2б): числа сходятся между собой, но это не
+ *  весь счёт — и экран так и говорит. */
+function HiddenStages({ view }: { view: UsageView }) {
+  const hidden = HIDDEN_STAGES.filter(({ key }) => view[key]);
+  if (hidden.length === 0) return null;
+  const whose = hidden.map((one) => one.whose).join(' и ');
+  const rights = hidden.map((one) => one.right).join(' и ');
   return (
     <Text size="sm" c="dimmed">
-      Расход продаж не показан — его видно с правом «Продажи». Плитки и статьи — без него: это не
-      весь счёт.
+      Расход {whose} не показан — его видно с {hidden.length > 1 ? 'правами' : 'правом'} {rights}.
+      Плитки и статьи — без него: это не весь счёт.
     </Text>
   );
 }
@@ -112,7 +123,7 @@ export function UsagePage() {
 
           {/* Платный обход Этапа 2 — третий счёт, в деньгах и со своим потолком:
               отдельно от юнитов Ahrefs, как того требует ТЗ. */}
-          <CrawlCap crawl={data.crawl} />
+          <CrawlCap crawl={data.crawl} hidden={data.advertisers_hidden} />
 
           {/* Плитки — внутри шапки, как на «Отборе» и «Продажах»: на полотне они
               стояли отдельным рядом и в тёмной теме читались провалами (аудит
@@ -131,7 +142,7 @@ export function UsagePage() {
               );
             })}
           </SimpleGrid>
-          <SalesHidden hidden={data.sales_hidden} />
+          <HiddenStages view={data} />
         </Stack>
       </Card>
 

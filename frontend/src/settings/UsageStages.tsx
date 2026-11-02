@@ -22,8 +22,10 @@ import { Meter } from '../components/Meter';
 import { formatUsd } from '../format';
 import { spendProvider, stageTitle, unitsText } from './usageLabels';
 
-/** Платный обход Этапа 2 с начала месяца — против своего потолка, если он задан. */
-export function CrawlCap({ crawl }: { crawl: CrawlSpend }) {
+/** Платный обход Этапа 2 с начала месяца — против своего потолка, если он задан. Без права
+ *  «Рекламодатели» (`hidden`) строки нет: сервер не называет ни потолка, ни расхода. */
+export function CrawlCap({ crawl, hidden }: { crawl: CrawlSpend; hidden: boolean }) {
+  if (hidden) return null;
   const spent = Number(crawl.spent_usd);
   if (crawl.cap_usd === null) {
     return (

@@ -1,7 +1,7 @@
 /**
  * Часть списка диалогов в адресе (`?stage=…`): продажи читаются только с правом «Продажи»,
- * доноры и рекламодатели (23.10.2026) — у всех; часть пишется первой, сбрасывается отдельно
- * от фильтров, а переписка стоит только в части своего этапа.
+ * рекламодатели — с правом «Рекламодатели», доноры (23.10.2026) — у всех; часть пишется первой,
+ * сбрасывается отдельно от фильтров, а переписка стоит только в части своего этапа.
  *
  * Кому писали (`?role=`, слово владельца 14.10.2026): доноры или рекламодатели — фильтр
  * «Диалогов»; в части продаж он не сужает.
@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 
+import type { Can } from '../api/stageRights';
 import type { ThreadCard } from '../api/types';
 import {
   inPart,
@@ -22,31 +23,51 @@ import {
 
 const card = (stage: ThreadCard['stage']) => ({ stage }) as ThreadCard;
 
+/** Права сессии: всё, без «Продаж» и роль «Только доноры» — без обоих этапов. */
+const ALL: Can = () => true;
+const NO_SALES: Can = (right) => right !== 'sales';
+const DONORS_ONLY: Can = (right) => right !== 'sales' && right !== 'advertisers';
+
 describe('часть списка диалогов', () => {
   it('из адреса — с правом «Продажи»; без права и незнакомая — без части', () => {
     const asked = new URLSearchParams('stage=sales&state=sales_pending');
-    expect(readThreadFilters(asked, true)).toEqual({
+    expect(readThreadFilters(asked, ALL)).toEqual({
       part: 'sales',
       role: null,
       state: 'sales_pending',
       search: '',
     });
-    expect(readThreadFilters(asked, false)).toEqual({
+    expect(readThreadFilters(asked, NO_SALES)).toEqual({
       part: null,
       role: null,
       state: null,
       search: '',
     });
-    expect(readThreadFilters(new URLSearchParams('stage=elsewhere'), true).part).toBeNull();
+    expect(readThreadFilters(new URLSearchParams('stage=elsewhere'), ALL).part).toBeNull();
   });
 
   it('доноры и рекламодатели — части и без права «Продажи»; «Кому писали» в части не сужает', () => {
-    expect(readThreadFilters(new URLSearchParams('stage=donors'), false).part).toBe('donors');
+    expect(readThreadFilters(new URLSearchParams('stage=donors'), NO_SALES).part).toBe('donors');
     const advertisers = readThreadFilters(
       new URLSearchParams('stage=advertisers&role=donors'),
-      false,
+      NO_SALES,
     );
     expect(advertisers).toEqual({ part: 'advertisers', role: null, state: null, search: '' });
+  });
+
+  it('без права «Рекламодатели» сторона одна: список — всегда часть доноров', () => {
+    for (const asked of ['', 'stage=advertisers', 'stage=sales', 'role=advertisers']) {
+      const filters = readThreadFilters(new URLSearchParams(asked), DONORS_ONLY);
+
+      expect(filters).toEqual({ part: 'donors', role: null, state: null, search: '' });
+    }
+  });
+
+  it('состояния Этапа 2 из адреса — только с правом «Рекламодатели»', () => {
+    const asked = new URLSearchParams('stage=donors&state=lead');
+
+    expect(readThreadFilters(asked, NO_SALES).state).toBe('lead');
+    expect(readThreadFilters(asked, DONORS_ONLY).state).toBeNull();
   });
 
   it('в адрес — первой, а «найдено N из M» её не считает: часть — сам список', () => {
@@ -82,12 +103,12 @@ describe('часть списка диалогов', () => {
 
 describe('кому писали: доноры или рекламодатели', () => {
   it('из адреса — в «Диалогах»; в части продаж и незнакомое — не сужать', () => {
-    expect(readThreadFilters(new URLSearchParams('role=advertisers'), true).role).toBe(
+    expect(readThreadFilters(new URLSearchParams('role=advertisers'), ALL).role).toBe(
       'advertisers',
     );
-    expect(readThreadFilters(new URLSearchParams('role=donors'), false).role).toBe('donors');
-    expect(readThreadFilters(new URLSearchParams('stage=sales&role=donors'), true).role).toBeNull();
-    expect(readThreadFilters(new URLSearchParams('role=sales'), true).role).toBeNull();
+    expect(readThreadFilters(new URLSearchParams('role=donors'), NO_SALES).role).toBe('donors');
+    expect(readThreadFilters(new URLSearchParams('stage=sales&role=donors'), ALL).role).toBeNull();
+    expect(readThreadFilters(new URLSearchParams('role=sales'), ALL).role).toBeNull();
   });
 
   it('в адрес — после части; это фильтр: «найдено N из M» и сброс его видят', () => {

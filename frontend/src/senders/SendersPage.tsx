@@ -27,8 +27,10 @@ import { refusalOf } from '../api/client';
 import { disableSender, enableSender } from '../api/outreach';
 import { STAGE_TITLES, listSendersByStage } from '../api/senders';
 import type { DirectionLimit, DomainLimit, StagedSender } from '../api/senders';
+import { stageShown } from '../api/stageRights';
+import type { Can } from '../api/stageRights';
 import type { Stage } from '../api/stages';
-import { partOf, stageShown } from '../api/stages';
+import { partOf } from '../api/stages';
 import { useSession } from '../auth/AuthProvider';
 import { formatNumber, plural } from '../format';
 import { SenderCard as DomainCard, domainShut } from './SenderCard';
@@ -118,11 +120,9 @@ function Standing({ groups, sales }: { groups: DomainGroup[]; sales: boolean }) 
   );
 }
 
-/** Ящики на экране: без права «Продажи» — без ящиков продаж, в части продаж — только они. */
-function shownBoxes(boxes: StagedSender[], canSales: boolean, sales: boolean): StagedSender[] {
-  return boxes.filter(
-    (box) => stageShown(box.stage, canSales) && (!sales || box.stage === 'sales'),
-  );
+/** Ящики на экране: без права этапа — без его ящиков, в части продаж — только они. */
+function shownBoxes(boxes: StagedSender[], can: Can, sales: boolean): StagedSender[] {
+  return boxes.filter((box) => stageShown(box.stage, can) && (!sales || box.stage === 'sales'));
 }
 
 export function SendersPage() {
@@ -165,7 +165,7 @@ export function SendersPage() {
     );
   }
 
-  const boxes = shownBoxes(data?.senders ?? [], can('sales'), sales);
+  const boxes = shownBoxes(data?.senders ?? [], can, sales);
   const groups = groupByDomain(boxes, data?.domains ?? []);
   // Разделы по этапу — только когда этапов больше одного: у одних доноров экран прежний.
   const sections = STAGES.map((stage) => ({

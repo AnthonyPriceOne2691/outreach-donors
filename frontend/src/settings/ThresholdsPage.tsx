@@ -308,7 +308,7 @@ export function ThresholdsPage() {
         )}
       </Card>
 
-      <AdvertiserScoring />
+      {can('advertisers') && <AdvertiserScoring />}
     </Stack>
   );
 }

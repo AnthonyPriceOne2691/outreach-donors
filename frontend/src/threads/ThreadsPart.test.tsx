@@ -174,7 +174,10 @@ describe('части списка диалогов', () => {
   });
 
   it('без права «Продажи» часть продаж из адреса не сужает — список без неё', async () => {
-    const noSales: Me = { ...OPERATOR, permissions: ['prices', 'run', 'settings', 'view'] };
+    const noSales: Me = {
+      ...OPERATOR,
+      permissions: ['advertisers', 'prices', 'run', 'settings', 'view'],
+    };
     await open('/threads?stage=sales', noSales, THREADS.slice(0, 2));
 
     expect(await screen.findByRole('heading', { name: 'Диалоги' })).toBeInTheDocument();

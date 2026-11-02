@@ -43,13 +43,27 @@ export const PERMISSION_TITLES: Record<Permission, string> = {
   senders: 'домены рассылки',
   users: 'заводить учётки',
   sales: 'Продажи',
+  advertisers: 'Рекламодатели',
   spend: 'менять потолки расхода',
 };
 
+/** Роль словами. Порядок записей — порядок в списках выбора. Новая роль — строка здесь и в
+ *  `ROLE_ABOUT`: выбор роли строится из них, порядок на сервере — шапка `access/permissions.py`. */
 export const ROLE_TITLES: Record<Role, string> = {
-  admin: 'админ',
   operator: 'оператор',
+  donors: 'Только доноры',
+  admin: 'админ',
 };
+
+/** Что даёт роль — подпись в окне новой учётки; права — как на сервере (`ROLE_PERMISSIONS`). */
+export const ROLE_ABOUT: Record<Role, string> = {
+  operator: 'Оператор — доноры, рекламодатели и продажи',
+  donors: 'Только доноры — без рекламодателей и продаж',
+  admin: 'Админ — всё: ещё письма, домены рассылки, учётки',
+};
+
+/** Роли в порядке списков выбора. */
+export const ROLES = Object.keys(ROLE_TITLES) as Role[];
 
 export function permissionTitle(permission: string): string {
   return PERMISSION_TITLES[permission as Permission] ?? permission;

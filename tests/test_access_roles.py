@@ -156,7 +156,7 @@ class TestTheScreenKnowsEveryRole:
 
     def test_stage_rights_are_the_same_on_the_screen(self) -> None:
         """Копия правила: разойдись она — экран спрашивал бы то, в чём сервер откажет."""
-        source = (FRONT / "stages.ts").read_text(encoding="utf-8")
+        source = (FRONT / "stageRights.ts").read_text(encoding="utf-8")
         found = re.search(r"const STAGE_RIGHTS\b[^=]*=\s*\{(.*?)\n\};", source, re.S)
         assert found is not None
 

@@ -67,6 +67,12 @@ export const SALES_ACTIONS: ReadonlySet<string> = new Set<AuditAction>([
   'sales_chain_changed',
 ]);
 
+/** Действия Этапа 2: без права «Рекламодатели» их нет ни в журнале, ни в фильтре. */
+export const ADVERTISER_ACTIONS: ReadonlySet<string> = new Set<AuditAction>([
+  'advertiser_reviewed',
+  'crawl_backlog_dropped',
+]);
+
 /** Подпись действия в фильтре: у общих «Правки» и «Запуска» — что под ними бывает. */
 const FILTER_TITLES: Partial<Record<AuditAction, string>> = {
   user_updated: 'Правка — доступ, письмо, ящик, рассмотрение',

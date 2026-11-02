@@ -7,6 +7,7 @@
  */
 
 import type { LetterAudience } from '../api/letters';
+import type { Can } from '../api/stageRights';
 import { partOf } from '../api/stages';
 import type { LetterStage } from '../api/types';
 import type { StageOption } from '../components/StageSwitch';
@@ -38,8 +39,10 @@ const STAGE_TWO: StageOption<LetterTarget>[] = [
   { value: 'niche', label: 'Бизнесам ниши' },
 ];
 
-/** Часть из адреса; продаж и незнакомого у экрана писем нет — без части. */
-export function lettersPart(params: URLSearchParams): LetterStage | null {
+/** Часть из адреса; продаж и незнакомого у экрана писем нет — без части. Без права
+ *  «Рекламодатели» адресат один — экран всегда «Письма донорам». */
+export function lettersPart(params: URLSearchParams, can: Can): LetterStage | null {
+  if (!can('advertisers')) return 'donors';
   const part = partOf(params);
   return part === 'donors' || part === 'advertisers' ? part : null;
 }

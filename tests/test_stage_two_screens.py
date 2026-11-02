@@ -420,16 +420,26 @@ async def test_a_stage_two_job_outcome_is_read_only_with_the_right(
         "draft-reply": JobOutcome(
             job_id="draft-reply", kind="черновик ответа", state="done", reply_id=world.reply
         ),
+        # Этап задачи сильнее её ответа: черновик в очереди продаж, а ответа уже нет.
+        "draft-gone": JobOutcome(
+            job_id="draft-gone",
+            kind="черновик ответа",
+            state="done",
+            stage=Stage.SALES,
+            reply_id=999_999,
+        ),
         "run-42": JobOutcome(job_id="run-42", kind="прогон", state="running"),
     }
     monkeypatch.setattr("backend.api.jobs.routes.job_outcome", known.get)
 
+    gone = await client.get("/api/jobs/draft-gone", headers=donors_only)
     refused = await client.get("/api/jobs/crawl-5", headers=donors_only)
     read = await client.get("/api/jobs/crawl-5", headers=operator)
     of_reply = await client.get("/api/jobs/draft-reply", headers=donors_only)
     of_reply_read = await client.get("/api/jobs/draft-reply", headers=operator)
     run = await client.get("/api/jobs/run-42", headers=donors_only)
 
+    assert gone.status_code == 403, gone.text
     assert refused.status_code == 403, refused.text
     assert refused.json()["detail"] == f"Задачи рекламодателей {CLOSED}"
     assert read.status_code == 200, read.text

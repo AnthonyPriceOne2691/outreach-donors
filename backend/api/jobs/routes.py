@@ -75,7 +75,7 @@ async def outcome(
             "Задачи с таким номером очередь не знает: итог хранится неделю, номер мог устареть",
         )
     stage = found.stage
-    if found.reply_id is not None:
+    if stage is None and found.reply_id is not None:
         stage = await stage_of.of_reply(session, found.reply_id)
     require_stage(actor(user), stage, JOBS)
     return JobCard.of(found)

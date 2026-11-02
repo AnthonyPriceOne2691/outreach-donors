@@ -71,6 +71,7 @@ const PAGE: JournalView = {
   page: 1,
   limit: 50,
   sales_hidden: false,
+  advertisers_hidden: false,
 };
 
 const USERS = [card(ADMIN), card(OPERATOR)];

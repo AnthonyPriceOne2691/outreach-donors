@@ -91,7 +91,7 @@ describe('к письму', () => {
           body: { pending: 3, running: false, job_id: null, last: null, workers: 1 },
         },
       },
-      { ...OPERATOR, permissions: ['view'] },
+      { ...OPERATOR, permissions: ['advertisers', 'view'] },
     );
 
     expect(await screen.findByText(/к переводу: 2/)).toBeInTheDocument();
