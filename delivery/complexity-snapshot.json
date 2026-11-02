@@ -292,9 +292,9 @@
       "worst": "enqueue_once:62"
     },
     "backend/api/letters/routes.py": {
-      "lines": 471,
+      "lines": 470,
       "complexity": 5,
-      "worst": "build:167"
+      "worst": "build:166"
     },
     "backend/api/letters/schemas.py": {
       "lines": 450,
@@ -597,9 +597,9 @@
       "worst": "—"
     },
     "backend/api/suppressions/routes.py": {
-      "lines": 135,
+      "lines": 134,
       "complexity": 4,
-      "worst": "all_rows:52"
+      "worst": "all_rows:51"
     },
     "backend/api/suppressions/schemas.py": {
       "lines": 104,
@@ -677,9 +677,9 @@
       "worst": "—"
     },
     "backend/api/watchdog/routes.py": {
-      "lines": 143,
+      "lines": 142,
       "complexity": 5,
-      "worst": "silence:116"
+      "worst": "silence:115"
     },
     "backend/cli/__init__.py": {
       "lines": 1,
