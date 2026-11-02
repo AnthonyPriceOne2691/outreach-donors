@@ -21,6 +21,13 @@
    площадок такие кнопки дали ~2 000 ссылок из 4 177, и все — «в теле»:
    кандидатов-соцсетей больше, чем всех остальных вместе. Выбрасываются
    при сборе, число — в отчёт обхода (`is_share_button`).
+6. **Адрес со страницы бывает любой строкой.** Шаблон на JavaScript
+   (`http://'+gw+'/`), телефон, абзац текста, имя без точки (`http://tipster/`).
+   Хост длиннее колонки ронял запись посреди обхода, и донор не кончался
+   никогда. Короткий становился рекламодателем: 5 494 такие строки на боевом
+   обходе, а одно такое имя в пакете DR получало отказ Ahrefs на весь пакет —
+   без DR оставались настоящие домены. Поэтому дальше идёт только доменное
+   имя (`donors/host.domain_name`), остальное — числом в отчёт обхода.
 
 **Считаем внешними ссылки на чужой корневой домен.** Поддомен донора —
 это он сам; ссылка с `blog.donor.test` на `donor.test` рекламодателя
@@ -46,7 +53,7 @@ from urllib.parse import unquote, urldefrag
 from selectolax.parser import HTMLParser, Node
 
 from backend.features.crawl.article import extract_article, strip_structural_noise
-from backend.features.donors.host import normalize_host
+from backend.features.donors.host import domain_name, normalize_host
 from backend.shared.net.url_parts import join_url, parse_url, split_url
 
 logger = logging.getLogger(__name__)
@@ -162,13 +169,14 @@ def _is_external(target_root: str, target_host: str, site_root: str) -> bool:
     return not (target_host == site_root or target_host.endswith(f".{site_root}"))
 
 
-def _resolve(page_url: str, href: str) -> tuple[str, str] | None:
-    """Ссылка со страницы → абсолютный адрес http(s) без якоря и его хост.
+def _resolve(page_url: str, href: str, junk: set[str] | None = None) -> tuple[str, str] | None:
+    """Ссылка со страницы → абсолютный адрес http(s) без якоря и его домен.
 
     Чужая схема и битая ссылка — `None`: «[» без пары или полноширинная «／»
     в адресе роняли разбор всей страницы (`shared.net.url_parts`). Адрес
     по IP (`http://[::1]/`, `http://10.0.0.1/`) — тоже `None`: домена у него
-    нет, и рекламодателя за ним не бывает (ревью #148).
+    нет, и рекламодателя за ним не бывает (ревью #148). Хост не доменное имя —
+    `None` и адрес в `junk`: выброшенное видно числом (грабли №6).
     """
     joined = join_url(page_url, href)
     if joined is None:
@@ -179,7 +187,13 @@ def _resolve(page_url: str, href: str) -> tuple[str, str] | None:
         return None
     if not parts.hostname or _is_ip_literal(parts.hostname):
         return None
-    return absolute, parts.hostname.lower()
+    host = domain_name(parts.hostname.lower())
+    if host is None:
+        logger.debug("обход: ссылка без доменного имени: %r", absolute[:200])
+        if junk is not None:
+            junk.add(absolute)
+        return None
+    return absolute, host
 
 
 def _is_ip_literal(host: str) -> bool:
@@ -226,6 +240,7 @@ def collect_links(
     *,
     in_body: bool = True,
     shares: set[str] | None = None,
+    junk: set[str] | None = None,
 ) -> list[OutLink]:
     """Внешние ссылки из тела статьи, по одной на адрес.
 
@@ -234,7 +249,8 @@ def collect_links(
     на всём доноре, считается уровнем выше.
 
     Кнопки «поделиться» не попадают в ссылки, а складываются в `shares`,
-    если его передали: выброшенное должно быть видно в отчёте числом.
+    адреса без доменного имени — в `junk`, если их передали: выброшенное
+    должно быть видно в отчёте числом.
     """
     site_root = normalize_host(site_host) or site_host.lower().removeprefix("www.")
     seen: set[str] = set()
@@ -245,7 +261,7 @@ def collect_links(
         if not href or href.startswith("#") or href.lower().startswith(_SKIP_SCHEMES):
             continue
 
-        resolved = _resolve(page_url, href)
+        resolved = _resolve(page_url, href, junk)
         if resolved is None:
             continue
 
@@ -284,12 +300,18 @@ def collect_links(
 
 
 def harvest(
-    html: str, page_url: str, site_host: str, *, shares: set[str] | None = None
+    html: str,
+    page_url: str,
+    site_host: str,
+    *,
+    shares: set[str] | None = None,
+    junk: set[str] | None = None,
 ) -> list[OutLink]:
     """Все внешние ссылки страницы, с пометкой «в теле статьи или вне».
 
     Кнопки «поделиться» выбрасываются в обоих проходах и складываются
     в `shares` — одним множеством, чтобы кнопка не считалась дважды.
+    Так же и адреса без доменного имени — в `junk`.
 
     **Почему не только из тела, хотя требование говорит именно так.**
     Требование объясняет себя: ссылки навигации и подвала дают ложных
@@ -310,7 +332,7 @@ def harvest(
     body_urls: set[str] = set()
     out: list[OutLink] = []
     if article is not None:
-        out = collect_links(article.node, page_url, site_host, shares=shares)
+        out = collect_links(article.node, page_url, site_host, shares=shares, junk=junk)
         body_urls = {link.url for link in out}
 
     tree = HTMLParser(html)
@@ -319,7 +341,7 @@ def harvest(
     if root is None:
         return out
 
-    for link in collect_links(root, page_url, site_host, in_body=False, shares=shares):
+    for link in collect_links(root, page_url, site_host, in_body=False, shares=shares, junk=junk):
         if link.url not in body_urls:
             out.append(link)
     return out

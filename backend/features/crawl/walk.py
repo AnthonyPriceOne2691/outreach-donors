@@ -94,6 +94,7 @@ class DonorCrawler:
         self.articles = 0
         self.links: list[OutLink] = []
         self.share_links = 0
+        self.junk_links = 0
         self.pages_labeled = 0
         self.pages_dated = 0
         # Сколько свежих адресов дала лента, когда карты нет (`feeds.py`) — отчёту.
@@ -189,6 +190,7 @@ class DonorCrawler:
         point = (progress.resume if progress is not None else None) or Checkpoint("none")
         self._attempts, self._was_slowed = point.attempts, point.slowed
         self.articles, self.share_links = point.articles, point.share_links
+        self.junk_links = point.junk_links
         self.pages_labeled, self.pages_dated = point.pages_labeled, point.pages_dated
         return point
 
@@ -336,6 +338,7 @@ class DonorCrawler:
             attempts=self._attempts,
             articles=self.articles,
             share_links=self.share_links,
+            junk_links=self.junk_links,
             pages_labeled=self.pages_labeled,
             pages_dated=self.pages_dated,
             elapsed_sec=round(time.monotonic() - self._started, 1),
@@ -373,11 +376,13 @@ class DonorCrawler:
         self.pages_labeled += facts.label is not None
         self.pages_dated += facts.published is not None
         shares: set[str] = set()
+        junk: set[str] = set()
         self.links.extend(
             replace(link, page_label=facts.label, page_published=facts.published)
-            for link in harvest(html, page_url, host, shares=shares)
+            for link in harvest(html, page_url, host, shares=shares, junk=junk)
         )
         self.share_links += len(shares)
+        self.junk_links += len(junk)
 
     def _follow(self, result: FetchResult, host: str, frontier: Frontier) -> None:
         """Ссылки со страницы — в очередь, и с картой тоже: после карты обход идёт по ним."""
@@ -463,6 +468,7 @@ class DonorCrawler:
             links=list(self.links),
             articles=self.articles,
             share_links=self.share_links,
+            junk_links=self.junk_links,
             pages_labeled=self.pages_labeled,
             pages_dated=self.pages_dated,
             robots_status=rules.status,
