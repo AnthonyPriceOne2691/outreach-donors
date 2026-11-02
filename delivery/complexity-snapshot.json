@@ -566,20 +566,25 @@
       "complexity": 9,
       "worst": "of:104"
     },
+    "backend/api/settings/hunter_schemas.py": {
+      "lines": 184,
+      "complexity": 7,
+      "worst": "_month:153"
+    },
     "backend/api/settings/llm_cap_schemas.py": {
       "lines": 183,
       "complexity": 12,
       "worst": "llm_caps_card:136"
     },
     "backend/api/settings/routes.py": {
-      "lines": 368,
+      "lines": 413,
       "complexity": 5,
-      "worst": "_serp_balance:339"
+      "worst": "_serp_balance:384"
     },
     "backend/api/settings/schemas.py": {
-      "lines": 391,
+      "lines": 394,
       "complexity": 6,
-      "worst": "of:314"
+      "worst": "of:317"
     },
     "backend/api/stage_access.py": {
       "lines": 139,
@@ -672,9 +677,9 @@
       "worst": "—"
     },
     "backend/api/watchdog/routes.py": {
-      "lines": 143,
+      "lines": 142,
       "complexity": 5,
-      "worst": "silence:116"
+      "worst": "silence:115"
     },
     "backend/cli/__init__.py": {
       "lines": 1,
@@ -1101,6 +1106,11 @@
       "complexity": 16,
       "worst": "_attribute_pairs:174"
     },
+    "backend/features/contacts/hunter_account.py": {
+      "lines": 103,
+      "complexity": 3,
+      "worst": "_columns:49"
+    },
     "backend/features/contacts/known_addresses.py": {
       "lines": 67,
       "complexity": 0,
@@ -1137,9 +1147,9 @@
       "worst": "preferred_first:47"
     },
     "backend/features/contacts/provider.py": {
-      "lines": 334,
+      "lines": 424,
       "complexity": 9,
-      "worst": "_call:236"
+      "worst": "_call:322"
     },
     "backend/features/contacts/provider_step.py": {
       "lines": 154,
@@ -1217,9 +1227,14 @@
       "worst": "zone_name:80"
     },
     "backend/features/core/domain.py": {
-      "lines": 331,
+      "lines": 334,
       "complexity": 0,
       "worst": "—"
+    },
+    "backend/features/core/hunter_cap.py": {
+      "lines": 158,
+      "complexity": 5,
+      "worst": "refusal:103"
     },
     "backend/features/core/llm_caps.py": {
       "lines": 352,
@@ -1227,7 +1242,7 @@
       "worst": "refusal:214"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 113,
+      "lines": 117,
       "complexity": 0,
       "worst": "—"
     },
@@ -1282,9 +1297,9 @@
       "worst": "—"
     },
     "backend/features/core/models/ops.py": {
-      "lines": 197,
+      "lines": 248,
       "complexity": 2,
-      "worst": "holds:184"
+      "worst": "holds:235"
     },
     "backend/features/core/models/outgoing_attachment.py": {
       "lines": 64,
@@ -2126,6 +2141,11 @@
       "complexity": 3,
       "worst": "alarm:37"
     },
+    "backend/features/ops/hunter_watch.py": {
+      "lines": 287,
+      "complexity": 8,
+      "worst": "alarm:261"
+    },
     "backend/features/ops/job_outcome.py": {
       "lines": 236,
       "complexity": 10,
@@ -2147,9 +2167,9 @@
       "worst": "_letters:336"
     },
     "backend/features/ops/silence.py": {
-      "lines": 488,
+      "lines": 500,
       "complexity": 7,
-      "worst": "judge:163"
+      "worst": "judge:165"
     },
     "backend/features/ops/stage_silence.py": {
       "lines": 333,
@@ -2527,7 +2547,7 @@
       "worst": "unique_share_from:152"
     },
     "backend/features/runs/spending.py": {
-      "lines": 254,
+      "lines": 269,
       "complexity": 6,
       "worst": "by_stage:94"
     },
@@ -3592,9 +3612,9 @@
       "worst": "main:52"
     },
     "backend/workers/reaper.py": {
-      "lines": 351,
+      "lines": 350,
       "complexity": 4,
-      "worst": "_told:211"
+      "worst": "_told:210"
     },
     "backend/workers/run_job.py": {
       "lines": 184,

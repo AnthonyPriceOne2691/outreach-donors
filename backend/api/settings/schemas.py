@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from backend.api.settings.cap_schemas import AhrefsKeyCard
+from backend.api.settings.hunter_schemas import HunterCard
 from backend.api.settings.llm_cap_schemas import LlmCapsCard
 from backend.features.core.domain import Stage, UsageProvider
 from backend.features.core.models.run import RunSettingsModel
@@ -309,6 +310,8 @@ class SpendingView(BaseModel):
     crawl: CrawlSpendCard = Field(default_factory=CrawlSpendCard)
     #: Дневные потолки модели: общий и свои — действующий, потрачено, осталось, сброс, смены.
     llm_caps: LlmCapsCard | None = None
+    #: Hunter: общий остаток учётки и наш месячный потолок проверок адреса.
+    hunter: HunterCard | None = None
 
     @classmethod
     def of(

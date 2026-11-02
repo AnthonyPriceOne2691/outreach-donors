@@ -19,12 +19,21 @@
 в тот же лимит. Повторяется только частота и перегрузка — маркер решает раньше кода
 (`transient`): закрытая учётка и квота приезжают тем же 429, и повтор их не лечит.
 Не отпустило — `ProviderRateLimitError`, и проход встаёт (`ladder.py`, `search.py`).
+
+**Учётка — целиком** (`HunterProvider.account`, 02.11.2026): тот же бесплатный `/account` отдаёт
+тариф, дату сброса и счётчики. Разбор строгий (`parse_account`): чужое поле, пришедшее не числом,
+— громкий отказ, а не «остаток ноль». По документации Hunter `requests.credits` есть только у
+учётки с одним общим счётом: тогда поиск стоит кредит, проверка адреса — половину, а `searches` и
+`verifications` — тот же счёт в других единицах, и смотреть надо на него (`credits.remaining`).
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
 import httpx
@@ -118,6 +127,37 @@ class Quota:
     @property
     def left(self) -> int:
         return max(self.available - self.used, 0)
+
+
+@dataclass(frozen=True, slots=True)
+class AccountCounter:
+    """Счётчик учётки за её цикл: выбрано, всего и сколько осталось — числами Hunter. Дробный у
+    кредитов: проверка адреса стоит половину. «Всего» включает докупленные пакеты, поэтому
+    остаток берётся готовым, а не считается вычитанием."""
+
+    used: Decimal
+    available: Decimal
+    remaining: Decimal
+
+    @property
+    def used_percent(self) -> int:
+        """Выбрано от всего — целыми процентами вниз: то же округление, что у капа Ahrefs. Всего
+        ноль — считать не от чего, а брать нечего: выбрано всё."""
+        if self.available <= 0:
+            return 100
+        return min(100, max(0, int((self.available - self.remaining) * 100 // self.available)))
+
+
+@dataclass(frozen=True, slots=True)
+class HunterAccount:
+    """Учётка Hunter на минуту ответа. `credits` — общий счёт; `None` — у тарифа его нет, и поиск
+    с проверкой считаются каждый своим счётчиком."""
+
+    plan: str
+    reset_on: date
+    credits: AccountCounter | None
+    searches: AccountCounter
+    verifications: AccountCounter
 
 
 @runtime_checkable
@@ -223,6 +263,52 @@ def _raise_refusal(body: dict[str, Any], status: int) -> None:
     raise ProviderError(f"провайдер отказал ({status}, {marker}): {details}")
 
 
+def _number(block: dict[str, Any], name: str) -> Decimal:
+    """Число счётчика. Строкой, «да/нет» и бесконечностью оно быть не должно: такой ответ — смена
+    формата, и остаток из него не вычитают."""
+    value = block.get(name)
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        raise ProviderError(f"счётчик учётки пришёл не числом ({name}): {block!r}")
+    return Decimal(str(value))
+
+
+def _counter(requests: dict[str, Any], name: str) -> AccountCounter:
+    block = requests.get(name)
+    if not isinstance(block, dict):
+        raise ProviderError(f"в ответе учётки нет счётчика {name} — формат поменялся")
+    return AccountCounter(
+        used=_number(block, "used"),
+        available=_number(block, "available"),
+        remaining=_number(block, "remaining"),
+    )
+
+
+def parse_account(data: dict[str, Any]) -> HunterAccount:
+    """Учётка из `data` ответа `/account`. Непонятое — `ProviderError` с тем, что пришло: имя и
+    почта владельца в сообщение не попадают, текст берётся только из разобранных полей."""
+    plan = data.get("plan_name")
+    if not isinstance(plan, str) or not plan.strip():
+        raise ProviderError(f"в ответе учётки нет имени тарифа: {plan!r}")
+    reset = data.get("reset_date")
+    try:
+        reset_on = date.fromisoformat(reset) if isinstance(reset, str) else None
+    except ValueError as exc:
+        raise ProviderError(f"дата сброса учётки не разобрана: {reset!r}") from exc
+    if reset_on is None:
+        raise ProviderError(f"в ответе учётки нет даты сброса: {reset!r}")
+    requests = data.get("requests")
+    if not isinstance(requests, dict):
+        raise ProviderError("в ответе учётки нет блока счётчиков — формат поменялся")
+    return HunterAccount(
+        plan=plan.strip(),
+        reset_on=reset_on,
+        # Общий счёт — только у учётки с одним счётом: его отсутствие не отказ.
+        credits=_counter(requests, "credits") if "credits" in requests else None,
+        searches=_counter(requests, "searches"),
+        verifications=_counter(requests, "verifications"),
+    )
+
+
 class HunterProvider:
     """Hunter.io. Разбор ответа защитный: чужой формат однажды поменяется,
     и молчать об этом нельзя."""
@@ -294,6 +380,10 @@ class HunterProvider:
         if not isinstance(used, int) or not isinstance(available, int):
             raise ProviderError(f"остаток пришёл не числами: {searches!r}")
         return Quota(used=used, available=available)
+
+    async def account(self) -> HunterAccount:
+        """Учётка целиком: тариф, сброс и счётчики. Бесплатный вызов (`parse_account`)."""
+        return parse_account(await self._call("/account", {}))
 
     async def find_emails(self, host: str) -> list[Candidate]:
         data = await self._call("/domain-search", {"domain": host, "limit": 10})

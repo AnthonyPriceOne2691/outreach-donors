@@ -1,15 +1,17 @@
-"""UsageRecordModel, AhrefsCapModel, LlmCapModel, AhrefsKeySnapshotModel и SuppressionModel —
-расход, кап Ahrefs, потолки модели, снимок ключа Ahrefs и стоп-лист."""
+"""UsageRecordModel, AhrefsCapModel, LlmCapModel, HunterCapModel, снимки ключа Ahrefs и учётки
+Hunter и SuppressionModel — расход, кап Ahrefs, потолки модели и проверок адреса, снимки и
+стоп-лист."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     DECIMAL,
     BigInteger,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -139,6 +141,55 @@ class AhrefsKeySnapshotModel(Base):
     asked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (CheckConstraint("id = 1", name="ck_ahrefs_key_snapshot_single"),)
+
+
+class HunterCapModel(SetByMixin, Base):
+    """Месячный потолок проверок адреса, заданный на экране «Расход»: строка на каждую смену.
+
+    Действует последняя строка; строк нет — `SALES_VERIFIER_MONTH_CAP` (`core/hunter_cap.py`).
+    Снять настройку с экрана нельзя: пустого значения у строки нет, а ноль — решение человека,
+    «проверки адресов остановлены». Строка не правится и не удаляется: по строкам видно, кто,
+    когда и что ставил, — как у капа Ahrefs. Выбранное полем не хранится: оно считается по
+    журналу расхода с первого числа.
+    """
+
+    __tablename__ = "hunter_caps"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    verify_cap: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    __table_args__ = (CheckConstraint("verify_cap >= 0", name="ck_hunter_caps_not_negative"),)
+
+
+class HunterAccountSnapshotModel(Base):
+    """Снимок учётки Hunter — последний удачный ответ `/account`: одна строка.
+
+    Держит его сторож (`ops/hunter_watch.py`, опрос раз в десять минут), читают экран «Расход» и
+    правила тревог: экрану незачем ждать чужой сервис, а сторожу — ходить в сеть под сессией.
+    Строка переписывается каждым ответом, но не старшим (`asked_at`). Кредиты дробные: проверка
+    адреса стоит половину кредита. Кредитов нет — у тарифа нет общего счёта (`contacts/provider`).
+    """
+
+    __tablename__ = "hunter_account_snapshot"
+
+    #: Всегда 1: снимок один, новый ответ ложится на его место.
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    plan: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: Когда учётка обнулится — день, как его называет Hunter.
+    reset_on: Mapped[date] = mapped_column(Date, nullable=False)
+    credits_used: Mapped[Decimal | None] = mapped_column(DECIMAL(14, 2), nullable=True)
+    credits_available: Mapped[Decimal | None] = mapped_column(DECIMAL(14, 2), nullable=True)
+    credits_remaining: Mapped[Decimal | None] = mapped_column(DECIMAL(14, 2), nullable=True)
+    searches_used: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
+    searches_available: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
+    searches_remaining: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
+    verifications_used: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
+    verifications_available: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
+    verifications_remaining: Mapped[Decimal] = mapped_column(DECIMAL(14, 2), nullable=False)
+    #: Когда спросили — по нему экран пишет «проверено в», а запись не затирает новое старым.
+    asked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (CheckConstraint("id = 1", name="ck_hunter_account_snapshot_single"),)
 
 
 class SuppressionModel(TimestampedMixin, Base):
