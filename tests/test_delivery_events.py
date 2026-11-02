@@ -1,4 +1,4 @@
-"""События доставки: подпись, монотонность, последствия, парковка.
+"""События доставки: подпись, монотонность, последствия, пауза ящика.
 
 Это ручка, чужой запрос к которой останавливает нашу рассылку:
 событие о недоставке двигает статус письма, а серия таких снимает
@@ -253,8 +253,7 @@ class TestWhatEventsDo:
 
 
 class TestParking:
-    """Домен с высокой долей отказов снимается с отправки. Доля, а не
-    число: один отказ из двух писем — это 50% и ничего не значит."""
+    """Ящик судит окно его последних писем: три отказа в нём — пауза (`outreach/health.py`)."""
 
     async def _fill(
         self, session: AsyncSession, sent: MessageModel, *, total: int, bounced: int
@@ -275,10 +274,10 @@ class TestParking:
             )
         await session.flush()
 
-    async def test_few_letters_do_not_park_anyone(
+    async def test_two_refusals_do_not_park_anyone(
         self, session: AsyncSession, sent: MessageModel
     ) -> None:
-        await self._fill(session, sent, total=5, bounced=5)
+        await self._fill(session, sent, total=5, bounced=1)
 
         report = await apply_events(session, [DeliveryEvent("bounce", sent.id, TO)], now=NOW)
 
@@ -287,10 +286,10 @@ class TestParking:
         assert sender is not None
         assert sender.enabled
 
-    async def test_high_share_parks_the_box(
+    async def test_the_third_refusal_parks_the_box(
         self, session: AsyncSession, sent: MessageModel
     ) -> None:
-        await self._fill(session, sent, total=99, bounced=10)
+        await self._fill(session, sent, total=20, bounced=2)
 
         report = await apply_events(session, [DeliveryEvent("bounce", sent.id, TO)], now=NOW)
 

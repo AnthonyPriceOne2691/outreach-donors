@@ -60,11 +60,9 @@
 когда, какая попытка, что ответил сервер и вид причины словами — пишет. До того отсрочки
 отбрасывались, и письмо без исхода выглядело просто «отправленным».
 
-**Домен паркуется по доле отказов, а не по их числу.** Один отказ
-из двух писем — это пятьдесят процентов и ничего не значит; поэтому
-доля считается только после того, как с домена ушло хоть сколько-то
-писем (`OUTREACH_BOUNCE_PAUSE_MIN_SENT`). Пауза — одна на ящик, и о ней
-одна тревога человеку после фиксации (`outreach/autopause.py`, `EventReport.pauses`).
+**Ящик судит окно его последних писем** (`outreach/health.py`, правило одно у всех этапов).
+Пауза — одна на ящик, и о ней одна тревога человеку после фиксации (`outreach/autopause.py`,
+`EventReport.pauses`).
 """
 
 from __future__ import annotations
@@ -74,20 +72,19 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import assert_never
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import outreach as cfg
 from backend.features.contacts.dead import bury, bury_address
 from backend.features.core import stages
 from backend.features.core.domain import MessageStatus, Stage, SuppressionReason
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
-from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
+from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.letters import deferrals, optout, unknown_outcome
 from backend.features.letters.delivery_trouble import Trouble, reason_of
 from backend.features.outreach import health
-from backend.features.outreach.autopause import LIFETIME_ADVICE, AutoPause, pause_once
+from backend.features.outreach.autopause import AutoPause
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +178,6 @@ async def apply_events(
     """Применить пачку событий. Возвращает отчёт, ничего не коммитит."""
     moment = now or datetime.now(UTC)
     report = EventReport()
-    checked: set[int] = set()
 
     for event in events:
         message = await _message_of(session, event)
@@ -190,18 +186,13 @@ async def apply_events(
             continue
         await _settle_if_pending(session, message, event, moment, report)
         await _apply_one(session, message, event, moment, report)
-        await _listen(session, message, event, moment, report, checked)
+        await _listen(session, message, event, moment, report)
         if event.kind == "deferred":
             # После журнала ящика, а не до: две доставки одной пачки журнал разводит своим
             # уникальным индексом (`health._written`), и строка письма, тронутая раньше, держала
             # бы вторую доставку на своей блокировке ещё до этой проверки. Статус не трогается:
             # письмо ушло, исход придёт доставкой или отказом.
             report.deferred += deferrals.note(message, event, moment)
-
-    for sender_id in checked:
-        parked = await _park_if_burning(session, sender_id, moment)
-        if parked is not None:
-            report.pauses.append(parked)
 
     logger.info("события доставки: %s", report.as_report)
     return report
@@ -213,17 +204,13 @@ async def _listen(
     event: DeliveryEvent,
     moment: datetime,
     report: EventReport,
-    checked: set[int],
 ) -> None:
-    """Событие — ящику письма: этап с мягкими сигналами судит его своей политикой
-    (`outreach/health.py`), без политики отказ идёт в прежнее правило парковки (`checked`)."""
+    """Событие — ящику письма: его судит политика этапа (`outreach/health.py`)."""
     if message.sender_id is None:
         return
-    heard = await health.listen(session, message.sender_id, event, moment)
-    if heard.paused is not None:
-        report.pauses.append(heard.paused)
-    if event.kind in BOUNCE_EVENTS and not heard.ruled:
-        checked.add(message.sender_id)
+    paused = await health.listen(session, message.sender_id, event, moment)
+    if paused is not None:
+        report.pauses.append(paused)
 
 
 async def _message_of(session: AsyncSession, event: DeliveryEvent) -> MessageModel | None:
@@ -394,54 +381,3 @@ async def _complained(
             created_by=optout.COMPLAINT,
         )
     )
-
-
-async def _park_if_burning(
-    session: AsyncSession, sender_id: int, moment: datetime
-) -> AutoPause | None:
-    """Домен с высокой долей отказов — на паузу. Возвращает паузу: ящик и почему, с числами."""
-    sent, bounced = await _delivery_stats(session, sender_id)
-    if sent < cfg.BOUNCE_PAUSE_MIN_SENT:
-        return None
-    rate = bounced / sent
-    if rate < cfg.BOUNCE_PAUSE_THRESHOLD:
-        return None
-
-    sender = await session.get(SenderModel, sender_id)
-    if sender is None or not sender.enabled:
-        return None
-
-    if not await pause_once(session, sender, f"доля отказов {rate:.0%} — парковка", now=moment):
-        return None
-    logger.warning(
-        "события доставки: %s снят с отправки — отказов %s из %s (%.0f%%)",
-        sender.email,
-        bounced,
-        sent,
-        rate * 100,
-    )
-    why = (
-        f"доля отказов {rate:.0%} — {bounced} из {sent} писем за всё время ящика, "
-        f"порог {cfg.BOUNCE_PAUSE_THRESHOLD:.0%}"
-    )
-    return AutoPause(sender.email, sender.stage, why, LIFETIME_ADVICE)
-
-
-async def _delivery_stats(session: AsyncSession, sender_id: int) -> tuple[int, int]:
-    """Сколько писем ушло с ящика и сколько из них не дошло.
-
-    Считается по письмам, а не хранимым счётчиком: счётчик, который
-    некому обнулять, однажды застревает — этот урок уже стоил дневного
-    лимита ящиков (`SenderModel`).
-    """
-    rows = await session.execute(
-        select(
-            func.count(MessageModel.id),
-            func.count(MessageModel.id).filter(MessageModel.status == MessageStatus.BOUNCED),
-        ).where(
-            MessageModel.sender_id == sender_id,
-            MessageModel.sent_at.is_not(None),
-        )
-    )
-    sent, bounced = rows.one()
-    return int(sent or 0), int(bounced or 0)
