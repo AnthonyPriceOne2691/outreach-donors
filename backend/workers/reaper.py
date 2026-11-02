@@ -34,6 +34,10 @@
 к базе и постановка раз в минуту. Модуль очереди — при проходе: он тянет конфиг обхода, а опечатка
 в нём роняет только обходчик.
 
+Письма, отбитые молчащим DNS получателя (`features/letters/dns_return.py`), возвращаются проходом
+разбора мёртвых, а не своим циклом: разбор — это он и есть, нужна сессия раз в несколько минут. Реже
+прохода, раз в десять минут (`Sparse`); упал возврат — разбор прогонов это не задевает.
+
 Неудачи трёх проходов продаж — тревога продаж, а не здоровье процесса (`features/sales/loops.own`):
 иначе сломанная автосборка делала бы «нездоровым» процесс, где живёт сторож тишины. Зависший
 проход продаж по-прежнему виден по отметке своего цикла. Память циклов продаж — тоже модуль
@@ -47,6 +51,8 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -159,6 +165,30 @@ BACKLOG_INTERVAL_SEC = 60.0
 #: Опрос провайдеров фонового сторожа — с ответом между опросами.
 PROVIDERS = Providers()
 
+#: Как часто возвращать письма, отбитые молчащим DNS получателя: запрос к базе, а письмо ждёт
+#: полчаса и без того (`dns_return.SETTLE`).
+DNS_RETURN_INTERVAL_SEC = 600.0
+
+
+@dataclass
+class Sparse:
+    """Дело реже прохода, в котором живёт: не чаще раза в `every` секунд. Часы монотонные."""
+
+    every: float
+    clock: Callable[[], float] = time.monotonic
+    done_at: float | None = None
+
+    def due(self) -> bool:
+        moment = self.clock()
+        if self.done_at is not None and moment - self.done_at < self.every:
+            return False
+        self.done_at = moment
+        return True
+
+
+#: Возврат писем, отбитых молчащим DNS, — в проходе разбора.
+DNS_RETURN = Sparse(DNS_RETURN_INTERVAL_SEC)
+
 
 def _enqueue(run_id: int) -> str | None:
     """Поставить прогону новую задачу. `None` — очередь не ответила.
@@ -204,8 +234,25 @@ async def sweep() -> None:
                     session, alive=job_alive, enqueue=_enqueue_crawl, failure=job_failure
                 ),
             )
+        await _return_dns_letters(factory)
     finally:
         await engine.dispose()
+
+
+async def _return_dns_letters(factory: async_sessionmaker[Any]) -> None:
+    """Письма, отбитые молчащим DNS получателя, — обратно в работу. Модуль отправки — лениво, как
+    у очереди писем: разбор живёт в тесном пределе памяти. Упавший возврат — строка журнала, а не
+    неудача разбора: прогоны и обходы он не задевает, следующий проход повторит."""
+    if not DNS_RETURN.due():
+        return
+    try:
+        from backend.features.letters import dns_return  # noqa: PLC0415 — лениво, см. выше
+
+        async with factory() as session:
+            await dns_return.return_letters(session, now=datetime.now(UTC))
+            await session.commit()
+    except Exception:
+        logger.exception("Разбор: письма с отказом DNS не вернулись — следующий проход повторит")
 
 
 def _told(what: str, outcome: Recovery) -> None:
