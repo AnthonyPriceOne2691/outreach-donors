@@ -38,6 +38,7 @@ from backend.features.crawl.acceptance import Tally
 from backend.features.crawl.links import OutLink
 from backend.features.crawl.panel import DonorSteps, Range, Window
 from backend.features.crawl.scoring import Candidate
+from backend.features.donors.bulk_entry import Outcome, Report, Row
 from httpx import AsyncClient
 from sqlalchemy import func, select, text
 from sqlalchemy.engine import Connection
@@ -310,9 +311,21 @@ async def test_a_load_is_written_once_per_host_and_nothing_empty(session: AsyncS
     )
     assert sorted(hosts.all()) == sorted([DONOR, OTHER])
     assert await loads.record(session, kind=loads.MANUAL, hosts=[DONOR], by=None) is not None
-    assert [(row.kind, hosts_count) for row, hosts_count in await loads.recent(session, limit=5)][
-        0
-    ] == (loads.MANUAL, 1)
+    newest, count = (await loads.recent(session, limit=5))[0]
+    assert (newest.kind, count) == (loads.MANUAL, 1)
+
+
+def test_a_skipped_line_with_a_domain_is_not_in_the_load() -> None:
+    """Отказ стоп-листа знает домен, но донором он не стал: партии о нём сказать нечего."""
+    report = Report(
+        (
+            Row(line=1, given="x", outcome=Outcome.CREATED, host=DONOR),
+            Row(line=2, given="y", outcome=Outcome.SKIPPED, host=OTHER),
+            Row(line=3, given="z", outcome=Outcome.PRICED, host="priced.example.test"),
+        )
+    )
+
+    assert report.entered_hosts == [DONOR, "priced.example.test"]
 
 
 def _outlink(page: str, root: str) -> OutLink:

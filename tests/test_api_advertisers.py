@@ -46,6 +46,11 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/advertisers/list/export", None, "view"),
     ("GET", "/api/advertisers/list/facets", None, "view"),
     ("GET", "/api/advertisers/acceptance", None, "view"),
+    ("GET", "/api/advertisers/pending/export", None, "view"),
+    ("GET", "/api/advertisers/panel", None, "view"),
+    ("GET", "/api/advertisers/panel/quality", None, "view"),
+    ("GET", "/api/advertisers/panel/quality/hosts", None, "view"),
+    ("GET", "/api/advertisers/panel/mailing", None, "view"),
 ]
 
 

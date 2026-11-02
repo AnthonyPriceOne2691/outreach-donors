@@ -41,7 +41,7 @@ function page(size: number, { from = 1, total = size, number = 1 } = {}) {
 async function openAdvertisers(
   routes: Record<string, unknown> = {},
   user: unknown = ADMIN,
-  path = '/advertisers',
+  path = '/advertisers?view=review',
   first = 'bookie.example.test',
 ) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
@@ -130,7 +130,7 @@ describe('бизнесы ниши из выдачи', () => {
         'GET /api/advertisers/niche?page=2': page(20, { from: 21, total: 53, number: 2 }),
       },
       ADMIN,
-      '/advertisers',
+      '/advertisers?view=review',
       'niche-1.example.test',
     );
     const user = userEvent.setup();
@@ -152,7 +152,7 @@ describe('бизнесы ниши из выдачи', () => {
     const recorded = await openAdvertisers(
       { 'GET /api/advertisers/niche?page=2': page(13, { from: 21, total: 33, number: 2 }) },
       ADMIN,
-      '/advertisers?niche_page=2',
+      '/advertisers?view=review&niche_page=2',
       'niche-21.example.test',
     );
 
@@ -174,7 +174,7 @@ describe('бизнесы ниши из выдачи', () => {
         'GET /api/advertisers/niche?page=2': page(20, { from: 21, total: 40, number: 2 }),
       },
       ADMIN,
-      '/advertisers?niche_page=3',
+      '/advertisers?view=review&niche_page=3',
       'niche-21.example.test',
     );
 

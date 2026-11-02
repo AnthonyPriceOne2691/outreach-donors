@@ -83,7 +83,7 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             ],
         },
         "advertisers": {
-            "path": "/advertisers",
+            "path": "/advertisers?view=review",
             # Готовность — по заголовку, а не по кнопке строки: очередь спорных
             # бывает пустой, и тогда кнопки нет вовсе. Замер 22.09.2026 на этом
             # и встал: экран был исправен, а измерить его было нечем. Строки

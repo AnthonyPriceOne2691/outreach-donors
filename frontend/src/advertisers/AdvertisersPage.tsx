@@ -34,11 +34,11 @@
  * **Доля ложных — в шапке очереди, с допуском ТЗ** (`FalseShare`, сверка ТЗ
  * 11.10.2026): ради неё экран и сделан, а до этого её не было нигде.
  *
- * **Три вида — переключателем вверху** (`AdvertiserViews`): проверка (всё выше,
- * таблица очереди — `CandidatesTable`), все рекламодатели списком с выгрузкой
- * (`AdvertiserList`) и приёмка по донорам (`AcceptanceReport`). С 29.10.2026 четвёртый — обход
- * доноров своей вкладкой (`CrawlTab`): доноров тысячи, и в «Проверке» осталась сводка
- * (`CrawlSummary`).
+ * **Виды — переключателем вверху** (`AdvertiserViews`): панель (`AdvertiserPanel`, вид по
+ * умолчанию с 02.11.2026), проверка (всё выше, таблица очереди — `CandidatesTable`), все
+ * рекламодатели списком с выгрузкой (`AdvertiserList`) и приёмка по донорам (`AcceptanceReport`).
+ * С 29.10.2026 — ещё обход доноров своей вкладкой (`CrawlTab`): доноров тысячи, и в «Проверке»
+ * осталась сводка (`CrawlSummary`).
  */
 
 import {
@@ -65,6 +65,7 @@ import { formatNumber } from '../format';
 import { PageHead } from '../components/PageHead';
 import { AcceptanceReport } from './AcceptanceReport';
 import { AdvertiserList } from './AdvertiserList';
+import { AdvertiserPanel } from './AdvertiserPanel';
 import { useAdvertiserView, ViewSwitch } from './AdvertiserViews';
 import { CandidatesTable, VERDICTS } from './CandidatesTable';
 import { CrawlSummary } from './CrawlSummary';
@@ -287,6 +288,7 @@ export function AdvertisersPage() {
   return (
     <Stack gap="lg">
       <ViewSwitch view={view} onView={setView} />
+      {view === 'panel' ? <AdvertiserPanel /> : null}
       {view === 'review' ? <ReviewView onOpenCrawl={() => setView('crawl')} /> : null}
       {view === 'crawl' ? <CrawlTab /> : null}
       {view === 'list' ? <AdvertiserList /> : null}
