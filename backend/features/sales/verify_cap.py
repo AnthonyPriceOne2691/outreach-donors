@@ -1,19 +1,24 @@
 """Месячный потолок проверки адресов продаж — в пределах месячных проверок тарифа Hunter.
 
-Ключ Hunter общий с донорами, а счётчик проверок у Hunter свой, отдельный от поисков адресов
-доноров (живой замер): поиски доноров потолок не трогают. Без потолка большая очистка или сбор
-базы выбрали бы проверки месяца целиком, и проверка адресов встала бы до следующего месяца.
-Потолок — настройкой (`SALES_VERIFIER_MONTH_CAP`), числа в коде нет: у живого проверяльщика он
-обязателен, у выдуманного (`fixture`) не нужен — тот не платит.
+Учётка Hunter общая с донорами и соседней системой: у тарифа с общим счётом поиск и проверка
+тратят одни кредиты (`okf/unit-economy.md`). Потолок считает только проверки продаж, поиски его не
+трогают. Без потолка большая очистка или сбор базы выбрали бы счёт учётки целиком, и вместе с
+проверкой адресов встал бы и поиск.
+Потолок задаёт человек на экране «Расход» (`core/hunter_cap.py`, там же запасной путь из
+окружения), числа в коде нет: у живого проверяльщика он обязателен, у выдуманного (`fixture`)
+не нужен — тот не платит.
 
-**Разбор — при чтении, как у `SALES_AGENT_MAX_TURNS`**: опечатка в настройке не роняет общий
-старт процессов, а останавливает платную часть очистки словами — лиды ждут следующей очистки
-в прежнем статусе с причиной, бесплатные правила очистки им применены.
+**Потолка нет — слова, а не падение**: негодное значение не роняет общий старт процессов, а
+останавливает платную часть очистки — лиды ждут следующей очистки в прежнем статусе с причиной,
+бесплатные правила очистки им применены.
 
-**Счёт — по журналу расхода**: единицы `sales_verify` с первого числа месяца — той же границей
-и тем же чтением, что у капа Ahrefs (`runs/spending.SpendingRepository.since_month_start`).
+**Счёт — по журналу расхода**: единицы `sales_verify` с первого числа месяца — тем же чтением,
+что у сторожа Hunter (`runs/spending.units_this_month`).
 Проход бронирует место до запроса (он идёт в несколько потоков) и возвращает его, если
 вердикта нет: отказ провайдера единиц не стоит.
+
+**Проход держит потолок, прочитанный на старте** (`capped`): новое значение с «Расхода» действует
+со следующего прохода.
 
 **Потолок выбран** — `MonthCapError` (квота: повтор следующим адресом не поможет), платная часть
 прохода встаёт словами «потолок проверки адресов на месяц выбран: N из M», лиды ждут в
@@ -27,34 +32,19 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import sales as cfg
 from backend.features.contacts.provider import ProviderError, ProviderQuotaError
-from backend.features.outreach.repository import EVERY_STAGE
-from backend.features.runs.spending import SpendingRepository
+from backend.features.core.hunter_cap import verify_month_cap
+from backend.features.runs.spending import units_this_month
 from backend.features.sales.verifier import FIXTURE, OPERATION, EmailVerifier, Verdict
-
-SETTING = "SALES_VERIFIER_MONTH_CAP"
-NOT_SET = f"потолок проверки адресов на месяц не задан — задайте {SETTING}"
 
 
 class MonthCapError(ProviderQuotaError):
     """Свой месячный потолок проверок выбран или не задан: платная часть прохода встаёт."""
 
 
-def month_cap() -> int | str:
-    """Потолок проверок на месяц — числом, или почему его нет — словами."""
-    raw = cfg.VERIFIER_MONTH_CAP
-    if not raw:
-        return NOT_SET
-    if not raw.isdigit():
-        return f"{SETTING} «{raw}» — нужно целое число проверок адреса в месяц, не меньше нуля"
-    return int(raw)
-
-
 async def month_spent(session: AsyncSession, *, now: datetime | None = None) -> int:
     """Проверок адреса (единиц `sales_verify`) с первого числа месяца — по журналу расхода."""
-    spending = await SpendingRepository(session).since_month_start(stages=EVERY_STAGE, now=now)
-    return sum(article.units for article in spending.articles if article.operation == OPERATION)
+    return await units_this_month(session, OPERATION, now=now)
 
 
 def reached(used: int, cap: int) -> str:
@@ -84,7 +74,7 @@ class Month:
 
 
 async def month(session: AsyncSession, *, now: datetime | None = None) -> Month:
-    return Month(await month_spent(session, now=now), month_cap())
+    return Month(await month_spent(session, now=now), await verify_month_cap(session))
 
 
 class MonthCapped:
@@ -122,4 +112,5 @@ async def capped(
     """Живой проверяльщик — под месячным потолком по журналу; выдуманный — как есть."""
     if verifier.name == FIXTURE or isinstance(verifier, MonthCapped):
         return verifier
-    return MonthCapped(verifier, cap=month_cap(), spent=await month_spent(session, now=now))
+    cap = await verify_month_cap(session)
+    return MonthCapped(verifier, cap=cap, spent=await month_spent(session, now=now))

@@ -149,7 +149,7 @@ async def test_a_live_check_without_a_month_cap_refuses_the_run(
     found = await estimate(session, ask(owner.id))
 
     assert found.refusal == (
-        "потолок проверки адресов на месяц не задан — задайте SALES_VERIFIER_MONTH_CAP"
+        "потолок проверки адресов на месяц не задан — задайте его на экране «Расход»"
     )
 
 

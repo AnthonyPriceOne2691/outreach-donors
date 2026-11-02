@@ -299,7 +299,7 @@ async def test_live_check_without_a_month_cap_says_so_in_the_window(
 
     assert response.status_code == 200, response.text
     assert response.json()["month"] == (
-        "Потолок проверки адресов на месяц не задан — задайте SALES_VERIFIER_MONTH_CAP"
+        "Потолок проверки адресов на месяц не задан — задайте его на экране «Расход»"
     )
 
 

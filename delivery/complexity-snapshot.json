@@ -3302,9 +3302,9 @@
       "worst": "_sum:175"
     },
     "backend/features/sales/verify_cap.py": {
-      "lines": 126,
+      "lines": 117,
       "complexity": 4,
-      "worst": "verify:99"
+      "worst": "verify:89"
     },
     "backend/features/sales/verify_columns.py": {
       "lines": 35,
