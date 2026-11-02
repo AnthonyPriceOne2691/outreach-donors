@@ -271,12 +271,13 @@ async def run(
 
 def _stalled(report: batch.BatchReport) -> bool:
     """Проход стоит не по делу: почта отказала любому письму, не ответила (исход неизвестен) или
-    каждое письмо окна получило отказ, и ни одно не ушло."""
+    каждое письмо окна получило отказ, и ни одно не ушло. DNS получателя молчит — письмо ждёт, как
+    ждёт окно получателя: чужой сбой пройдёт сам, и тревоги о нём нет."""
     if report.unsure is not None:
         return True
     if report.stopped is not None:
         return batch.EVERYONE_REFUSED in report.stopped
-    return report.sent == 0 and bool(report.refused)
+    return report.sent == 0 and bool(set(report.refused) - {batch.DNS_WAITS})
 
 
 async def _held(session: AsyncSession, mode: QueueAutosendModel, now: datetime) -> str | None:

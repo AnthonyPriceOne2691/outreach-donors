@@ -71,3 +71,7 @@ class OutsideWindowError(window.DeferredError, SendError):
 
 class UnknownZoneError(window.DeferredError, SendError):
     """Окно этапа есть, а пояса получателя нет ни у лида, ни у страны, ни у гипотезы."""
+
+
+class RecipientDnsError(window.DeferredError, SendError):
+    """DNS домена получателя молчит: первое письмо ждёт в очереди, добивка — следующей проверки."""

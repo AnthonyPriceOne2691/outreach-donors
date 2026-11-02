@@ -31,6 +31,10 @@
 разберётся по журналу платформы. Вернуть его в очередь значило бы
 отправить второе.
 
+**DNS получателя молчит — письмо ждёт** (02.11.2026, `recipient_dns.py`). Отказ приходит
+через минуты, и к этому времени письмо уже потратило лимит ящика и погасило цепочку. Спрашивается
+до выбора ящика и захвата: письмо остаётся в очереди, ящик не занят, почта ничего не видела.
+
 **Ящик выбирается в момент отправки**, а не при сборке: очередь общая,
 и вставший ящик не должен блокировать свою часть. Это про первые письма:
 добивка и ответ уходят только с ящика своей переписки и только своим путём
@@ -55,6 +59,7 @@ from backend.features.letters import (
     compose,
     identity,
     mailbox,
+    recipient_dns,
     reply_to,
     settle,
     site_role,
@@ -73,6 +78,7 @@ from backend.features.letters.send_refusals import (
     OtherRoleError,
     OutsideWindowError,
     OwnPathError,
+    RecipientDnsError,
     RejectedDonorError,
     RemovedAdvertiserError,
     SendError,
@@ -94,6 +100,7 @@ __all__ = [
     "OtherRoleError",
     "OutsideWindowError",
     "OwnPathError",
+    "RecipientDnsError",
     "RejectedDonorError",
     "RemovedAdvertiserError",
     "SendError",
@@ -234,6 +241,7 @@ class Sending:
         if (no_link := unsubscribe.refusal(target.message, target.to.stage)) is not None:
             raise NotReadyError(no_link)  # без ссылки отписки — как без адреса в подписи
         await self._check_window(target)
+        await self._check_recipient_dns(target, transport)
         sender = await self._sender(target, from_sender_id)
         own = own_headers(target.message.id, sender_email=sender.email, real=transport.real)
 
@@ -362,6 +370,19 @@ class Sending:
         if late is not None:
             kind = UnknownZoneError if late.delay is None else OutsideWindowError
             raise kind(f"{what}: {late.words}", delay=late.delay)
+
+    async def _check_recipient_dns(self, target: _Target, transport: Transport) -> None:
+        """DNS получателя молчит — письмо ждёт (`recipient_dns.py`). Нулевому транспорту спрашивать
+        незачем: он никуда не пишет. Ответ в переписке не ждёт: собеседник написал только что."""
+        if not transport.real or target.message.step >= ANSWER_STEP:
+            return
+        if await recipient_dns.holds(target.email, now=self._moment()):
+            domain = recipient_dns.domain_of(target.email)
+            raise RecipientDnsError(
+                f"Письмо №{target.message.id}: DNS домена {domain} не отвечает — отправка кончилась "
+                "бы отказом. Письмо ждёт и уйдёт, когда домен ответит",
+                delay=recipient_dns.WAIT,
+            )
 
     async def _check_suppression(self, target: _Target) -> None:
         """Стоп-лист на двух уровнях: адрес блокирует себя, донор — все свои
