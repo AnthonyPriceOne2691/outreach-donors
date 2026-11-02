@@ -134,7 +134,7 @@ async def keep_heard(session: AsyncSession) -> bool:
 class Standing:
     """Hunter на эту минуту: снимок учётки, действующий потолок проверок и выбрано за месяц."""
 
-    account: AccountSnapshot | None
+    snapshot: AccountSnapshot | None
     #: Потолок месяца; строка — почему числа нет.
     cap: int | str
     #: Проверок адреса с первого числа — по журналу расхода.
@@ -156,13 +156,13 @@ class Standing:
     @property
     def account_percent(self) -> int | None:
         """Выбрано от счёта учётки; снимка нет — `None`."""
-        return None if self.account is None else self.account.main.used_percent
+        return None if self.snapshot is None else self.snapshot.main.used_percent
 
 
 async def standing(session: AsyncSession, moment: datetime) -> Standing:
     """Hunter на эту минуту — одно чтение у экрана и у тревоги: числа не разойдутся."""
     return Standing(
-        account=await snapshot(session),
+        snapshot=await snapshot(session),
         cap=await verify_month_cap(session),
         spent=await units_this_month(session, VERIFY_OPERATION, now=moment),
     )
@@ -183,8 +183,8 @@ def _top(found: Standing, *, sales: bool) -> tuple[str, int] | None:
     percents: dict[str, int] = {}
     if sales and found.month_percent is not None and found.month_left is not None:
         left[MONTH], percents[MONTH] = Decimal(found.month_left), found.month_percent
-    if found.account is not None and found.account_percent is not None:
-        left[ACCOUNT] = found.account.account.verifications.remaining
+    if found.snapshot is not None and found.account_percent is not None:
+        left[ACCOUNT] = found.snapshot.account.verifications.remaining
         percents[ACCOUNT] = found.account_percent
     if not percents:
         return None
@@ -210,9 +210,9 @@ def _month_words(found: Standing) -> str:
         f"проверок адреса в этом месяце осталось {spaced(found.month_left or 0)} из {spaced(cap)} "
         f"— выбрано {found.month_percent or 0}%. Потолок считается с первого числа"
     )
-    if found.account is None:
+    if found.snapshot is None:
         return line
-    return f"{line}, а учётка обнуляется {reset_words(found.account)} — это разные границы"
+    return f"{line}, а учётка обнуляется {reset_words(found.snapshot)} — это разные границы"
 
 
 def _account_words(found: AccountSnapshot) -> str:
@@ -234,8 +234,8 @@ def _account_words(found: AccountSnapshot) -> str:
 
 
 def _words(found: Standing, binding: str) -> str:
-    if binding == ACCOUNT and found.account is not None:
-        return _account_words(found.account)
+    if binding == ACCOUNT and found.snapshot is not None:
+        return _account_words(found.snapshot)
     return _month_words(found)
 
 

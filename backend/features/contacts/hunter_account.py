@@ -26,6 +26,9 @@ from backend.features.core.models.ops import HunterAccountSnapshotModel
 #: Номер единственной строки снимка.
 SNAPSHOT_ID = 1
 
+#: Сколько знаков имени тарифа держит снимок: длинное имя — не повод ронять запись снимка.
+PLAN_CHARS = 64
+
 #: Части счётчика — окончания колонок снимка.
 PARTS = ("used", "available", "remaining")
 
@@ -54,7 +57,7 @@ async def remember(session: AsyncSession, account: HunterAccount, *, at: datetim
     """Ответ Hunter — снимком учётки. Без фиксации: снимок ложится транзакцией вызывающего.
     Ответ старше записанного строку не трогает: прошлое не возвращается."""
     values = {
-        "plan": account.plan,
+        "plan": account.plan[:PLAN_CHARS],
         "reset_on": account.reset_on,
         **_columns("credits", account.credits),
         **_columns("searches", account.searches),

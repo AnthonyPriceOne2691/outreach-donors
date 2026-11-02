@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, field_validator
@@ -27,6 +27,7 @@ from backend.features.contacts.provider import AccountCounter
 from backend.features.core import hunter_cap
 from backend.features.core.hunter_cap import HunterCapChange
 from backend.features.ops.hunter_watch import Standing, standing
+from backend.features.runs.spending import month_start
 
 #: Почему остатка учётки на экране нет — ключа нет или Hunter ещё не отвечал.
 NO_KEY = "Ключ Hunter на сервере не задан — остаток учётки спросить не у кого"
@@ -135,23 +136,23 @@ class HunterCard(BaseModel):
 
 
 def _account(found: Standing) -> HunterAccountCard | None:
-    if found.account is None:
+    if found.snapshot is None:
         return None
-    account = found.account.account
+    account = found.snapshot.account
     return HunterAccountCard(
         plan=account.plan,
         reset_on=account.reset_on,
-        asked_at=found.account.asked_at,
+        asked_at=found.snapshot.asked_at,
         credits=None if account.credits is None else CounterCard.of(account.credits),
         searches=CounterCard.of(account.searches),
         verifications=CounterCard.of(account.verifications),
-        used_percent=found.account.main.used_percent,
+        used_percent=found.snapshot.main.used_percent,
     )
 
 
 async def _month(session: AsyncSession, found: Standing, now: datetime) -> HunterMonthCard:
     stored = await hunter_cap.stored_verify_cap(session)
-    tariff = None if found.account is None else found.account.account.verifications.available
+    tariff = None if found.snapshot is None else found.snapshot.account.verifications.available
     number = found.cap if isinstance(found.cap, int) else None
     return HunterMonthCard(
         cap=number,
@@ -160,7 +161,7 @@ async def _month(session: AsyncSession, found: Standing, now: datetime) -> Hunte
         spent=found.spent,
         left=found.month_left,
         used_percent=found.month_percent,
-        since=now.astimezone(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0),
+        since=month_start(now),
         most=hunter_cap.MOST if tariff is None else min(hunter_cap.MOST, int(tariff)),
         changes=[
             HunterCapChangeCard.of(change) for change in await hunter_cap.cap_changes(session)
@@ -173,7 +174,7 @@ async def hunter_card(session: AsyncSession, *, sales: bool, now: datetime) -> H
     нет, а учётка остаётся."""
     found = await standing(session, now)
     unknown = None
-    if found.account is None:
+    if found.snapshot is None:
         unknown = NOT_ASKED if contacts_cfg.HUNTER_API_KEY else NO_KEY
     return HunterCard(
         account=_account(found),

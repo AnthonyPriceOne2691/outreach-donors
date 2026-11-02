@@ -264,6 +264,14 @@ class TestSnapshot:
         assert found.main.remaining == 100
         assert found.asked_at == NOW
 
+    async def test_a_long_plan_name_does_not_break_the_write(self, session: AsyncSession) -> None:
+        await remember(session, _account(plan="Т" * 200), at=NOW)
+
+        found = await snapshot(session)
+
+        assert found is not None
+        assert len(found.account.plan) == 64
+
     async def test_no_personal_data_is_in_the_row(self, session: AsyncSession) -> None:
         """В снимок идут только разобранные поля: имя и почта владельца остаются в ответе."""
         await remember(session, parse_account(WIRE["data"]), at=NOW)
@@ -566,7 +574,7 @@ class TestAsk:
 class TestStanding:
     @staticmethod
     def _found(cap: int | str, spent: int, account: AccountSnapshot | None = None) -> Any:
-        return hunter_watch.Standing(account=account, cap=cap, spent=spent)
+        return hunter_watch.Standing(snapshot=account, cap=cap, spent=spent)
 
     def test_zero_is_not_chosen_it_is_stopped(self) -> None:
         found = self._found(0, 5)
