@@ -46,6 +46,8 @@ def _now(cap: int) -> str:
 
 async def rows(session: AsyncSession) -> list[LimitRow]:
     """Строка судьи на эту минуту. Менять нечего: настройка сервера."""
+    # Блок «Расхода» — свежим чтением, а не тем, что оставила в памяти строка модели перед этой.
+    await llm_caps.refresh(session)
     moment = datetime.now(UTC)
     rule = (UsageRecordModel.system == SYSTEM, UsageRecordModel.operation == JUDGE_OPERATION)
     day, _ = await spent(session, day_start(moment), *rule)

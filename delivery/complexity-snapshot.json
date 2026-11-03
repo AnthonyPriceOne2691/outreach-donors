@@ -2277,7 +2277,7 @@
       "worst": "spent:68"
     },
     "backend/features/ops/limit_judge.py": {
-      "lines": 70,
+      "lines": 72,
       "complexity": 4,
       "worst": "_now:32"
     },
