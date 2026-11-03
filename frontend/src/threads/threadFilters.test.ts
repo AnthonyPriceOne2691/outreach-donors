@@ -63,6 +63,18 @@ describe('часть списка диалогов', () => {
     }
   });
 
+  it('без права «Доноры» — часть рекламодателей, без обоих этапов — часть продаж', () => {
+    const advertisersOnly: Can = (right) => right !== 'sales' && right !== 'donors';
+    const salesOnly: Can = (right) => right !== 'donors' && right !== 'advertisers';
+    for (const asked of ['', 'stage=donors', 'role=donors']) {
+      const filters = readThreadFilters(new URLSearchParams(asked), advertisersOnly);
+
+      expect(filters).toEqual({ part: 'advertisers', role: null, state: null, search: '' });
+    }
+    expect(readThreadFilters(new URLSearchParams(''), salesOnly).part).toBe('sales');
+    expect(readThreadFilters(new URLSearchParams('stage=donors'), salesOnly).part).toBe('sales');
+  });
+
   it('состояния Этапа 2 из адреса — только с правом «Рекламодатели»', () => {
     const asked = new URLSearchParams('stage=donors&state=lead');
 
