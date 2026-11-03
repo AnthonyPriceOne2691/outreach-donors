@@ -247,7 +247,7 @@ describe('карточка донора: адреса', () => {
   });
 
   it('без права на запуск — объяснение на месте, а не кнопка', async () => {
-    await openCard(CARD, {}, { ...OPERATOR, permissions: ['view'] });
+    await openCard(CARD, {}, { ...OPERATOR, permissions: ['donors', 'view'] });
 
     expect(
       within(addresses()).getByText(

@@ -1,5 +1,5 @@
 /**
- * Роль «Только доноры» на экранах: Этап 1 — целиком, Этапа 2 и продаж нет.
+ * Роль «Аутрич» на экранах: Этап 1 — целиком, Этапа 2, продаж и «Расхода» нет.
  *
  * Сервер закрывает маршруты сам (`access/permissions.py`), а экран не предлагает того, в чём он
  * откажет: без права нет группы меню, плиток, вкладок и строк Этапа 2, и нет запросов, на которые
@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import { ROLE_TITLES } from '../api/labels';
-import type { OverviewView } from '../api/types';
+import type { Me, OverviewView } from '../api/types';
 import { ADMIN, card, DONORS_ONLY, OPERATOR, OVERVIEW, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -64,7 +64,10 @@ function open(path: string, routes: Record<string, unknown> = {}): Recorded {
 
 const menu = async () => within(await screen.findByRole('navigation', { name: 'Разделы' }));
 
-describe('меню и «Обзор» роли «Только доноры»', () => {
+/** Учётка роли с правом «смотреть расход», выданным поимённо: экран «Расход» открыт и ей. */
+const WITH_USAGE: Me = { ...DONORS_ONLY, permissions: [...DONORS_ONLY.permissions, 'usage'] };
+
+describe('меню и «Обзор» роли «Аутрич»', () => {
   it('в меню — доноры и настройки, групп рекламодателей и продаж нет', async () => {
     const recorded = open('/');
 
@@ -91,6 +94,23 @@ describe('меню и «Обзор» роли «Только доноры»', ()
     expect(screen.queryByText(/^Рекламодателям/)).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(closedCalls(recorded)).toEqual([]);
+  });
+
+  it('«Расхода» нет ни в меню, ни на «Обзоре», а адрес объясняет, какого права нет', async () => {
+    const recorded = open('/');
+
+    await screen.findByText('Заполнить формы');
+    expect((await menu()).queryByRole('link', { name: /^Расход/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'расхода' })).not.toBeInTheDocument();
+    expect(recorded.calls.some((call) => call.path.startsWith('/api/usage'))).toBe(false);
+  });
+
+  it('адрес «Расхода» объясняет, какого права нет, и ничего не спрашивает у сервера', async () => {
+    const recorded = open('/usage');
+
+    expect(await screen.findByText('Раздел недоступен')).toBeInTheDocument();
+    expect(screen.getByText(/Действие «смотреть расход» не выдано/)).toBeInTheDocument();
+    expect(recorded.calls.some((call) => call.path.startsWith('/api/usage'))).toBe(false);
   });
 
   it('адрес раздела объясняет, какого права нет, а не ломится на сервер', async () => {
@@ -204,7 +224,7 @@ describe('рабочие экраны роли: адрес Этапа 2 ведё
 
   it('«Лимиты»: карточки потолка обхода нет, остальные счета на месте', async () => {
     const spending = { ...SPENDING, sales_hidden: true, advertisers_hidden: true };
-    const recorded = await openUsage(spending, { me: DONORS_ONLY });
+    const recorded = await openUsage(spending, { me: WITH_USAGE });
 
     for (const name of ['Ahrefs', 'Hunter', 'Модель', 'Выдача']) {
       expect(screen.getByRole('group', { name })).toBeInTheDocument();
@@ -218,7 +238,7 @@ describe('рабочие экраны роли: адрес Этапа 2 ведё
     // Сервер без права «Продажи» отдаёт учётку без месяца (`hunter_schemas.hunter_card`): платная
     // ступень поиска адресов доноров тратит те же кредиты, а потолок проверок — расход продаж.
     const hunter = { ...HUNTER, month: null };
-    await openUsage({ ...SPENDING, hunter, advertisers_hidden: true }, { me: DONORS_ONLY });
+    await openUsage({ ...SPENDING, hunter, advertisers_hidden: true }, { me: WITH_USAGE });
 
     const card = within(screen.getByRole('group', { name: 'Hunter' }));
     expect(card.getByText('Осталось на учётке')).toBeInTheDocument();
@@ -233,7 +253,7 @@ describe('рабочие экраны роли: адрес Этапа 2 ведё
   it('«Статьи расхода»: что счёт не весь — сказано словами', async () => {
     await openArticles(
       { ...SPENDING, sales_hidden: true, advertisers_hidden: true },
-      { me: DONORS_ONLY },
+      { me: WITH_USAGE },
     );
 
     expect(
@@ -298,7 +318,7 @@ describe('роль на экране учёток', () => {
     await user.click(screen.getByRole('button', { name: 'Завести учётку' }));
     await user.type(await screen.findByLabelText('Почта'), 'новый@site.com');
     await user.click(screen.getByRole('textbox', { name: 'Роль' }));
-    await user.click(await screen.findByRole('option', { name: /^Только доноры/ }));
+    await user.click(await screen.findByRole('option', { name: /^Аутрич/ }));
     await user.click(screen.getByRole('button', { name: 'Завести' }));
 
     await screen.findByText('SrSoH3WhmVXhaGxw');
@@ -308,7 +328,7 @@ describe('роль на экране учёток', () => {
 
   it.each([
     ['у оператора включено', OPERATOR, true],
-    ['у роли «Только доноры» выключено', DONORS_ONLY, false],
+    ['у роли «Аутрич» выключено', DONORS_ONLY, false],
   ])('право видно в окне прав: %s', async (_, who, granted) => {
     await openUsers();
     const row = screen.getByText(who.email).closest('tr') as HTMLElement;

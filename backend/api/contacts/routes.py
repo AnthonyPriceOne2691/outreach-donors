@@ -45,6 +45,7 @@ from backend.api.contacts.schemas import (
 from backend.api.contacts.search_state import search_state
 from backend.api.deps import actor, db_session, needs
 from backend.api.donors.schemas import DonorFullCard
+from backend.api.stage_access import STAGE_ONE
 from backend.config import contacts as contacts_cfg
 from backend.features.access.permissions import sees_stage, visible_stages
 from backend.features.access.repository import AccessRepository
@@ -72,7 +73,7 @@ from backend.shared.queue import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/contacts", tags=["контакты"])
+router = APIRouter(prefix="/contacts", tags=["контакты"], dependencies=[STAGE_ONE])
 
 _runner = Depends(needs(Permission.RUN))
 _viewer = Depends(needs(Permission.VIEW))

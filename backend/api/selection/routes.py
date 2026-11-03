@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
 from backend.api.selection.schemas import DecisionBody, SelectionCard, SelectionView
+from backend.api.stage_access import STAGE_ONE
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
@@ -35,7 +36,7 @@ from backend.features.donors.selection import (
     UnknownDomainError,
 )
 
-router = APIRouter(prefix="/selection", tags=["отбор"])
+router = APIRouter(prefix="/selection", tags=["отбор"], dependencies=[STAGE_ONE])
 
 _viewer = Depends(needs(Permission.VIEW))
 _reviewer = Depends(needs(Permission.PRICES))

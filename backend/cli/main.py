@@ -342,7 +342,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--role",
         default="operator",
         choices=ROLE_NAMES,
-        help="роль: admin заводит учётки, operator работает с базой, donors — только Этап 1",
+        help="роль: admin — всё, operator — все этапы, donors — Этап 1, advertisers — Этап 2",
     )
 
     user_reset = sub.add_parser("user-reset", help="выдать новый разовый пароль")

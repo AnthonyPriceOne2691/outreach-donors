@@ -35,6 +35,7 @@ from backend.api.runs.schemas import (
     RunRequestBody,
     RunsView,
 )
+from backend.api.stage_access import STAGE_ONE
 from backend.config.startup_checks import check_collect
 from backend.features.access.permissions import visible_stages
 from backend.features.access.repository import AccessRepository
@@ -62,7 +63,7 @@ from backend.features.topics.cost import runs_classify
 from backend.shared import llm
 from backend.shared.queue import RUN_JOB, RUN_JOB_TIMEOUT, runs_queue, workers_alive
 
-router = APIRouter(prefix="/runs", tags=["прогоны"])
+router = APIRouter(prefix="/runs", tags=["прогоны"], dependencies=[STAGE_ONE])
 
 _runner = Depends(needs(Permission.RUN))
 _viewer = Depends(needs(Permission.VIEW))

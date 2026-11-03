@@ -227,9 +227,12 @@ describe('агент переписки', () => {
   it.each([
     [
       'без права «Продажи» этапа продаж нет — даже присланного сервером',
-      ['advertisers', 'settings', 'view'],
+      ['advertisers', 'donors', 'settings', 'view'],
     ],
-    ['с правом «Продажи» этап продаж на месте', ['advertisers', 'sales', 'settings', 'view']],
+    [
+      'с правом «Продажи» этап продаж на месте',
+      ['advertisers', 'donors', 'sales', 'settings', 'view'],
+    ],
   ])('%s', async (_, permissions) => {
     // Решение Anthony 10.10.2026 (П2): сервер без права этап продаж не отдаёт, а экран
     // не показывает его и сам — ответ в кэше мог прийти до того, как право сняли.
@@ -272,7 +275,11 @@ describe('агент переписки', () => {
   });
 
   it('без права на настройки правка закрыта, а действующие видны', async () => {
-    await openAgent(CONFIGURED, {}, { ...OPERATOR, permissions: ['advertisers', 'view'] });
+    await openAgent(
+      CONFIGURED,
+      {},
+      { ...OPERATOR, permissions: ['advertisers', 'donors', 'view'] },
+    );
 
     expect(screen.getByText('Править настройки агента не разрешено')).toBeInTheDocument();
     expect(screen.getByLabelText('Цель разговора')).toBeDisabled();

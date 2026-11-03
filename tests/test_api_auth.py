@@ -61,10 +61,12 @@ class TestLogin:
         # матрицу прав и не разъезжается с ней.
         assert body["user"]["permissions"] == [
             "advertisers",
+            "donors",
             "prices",
             "run",
             "sales",
             "settings",
+            "usage",
             "view",
         ]
 

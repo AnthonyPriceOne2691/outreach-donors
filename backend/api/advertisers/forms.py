@@ -19,11 +19,12 @@ from backend.api.contacts.schemas import (
     FilledBody,
     GiveUpBody,
 )
-from backend.api.deps import db_session, needs
+from backend.api.deps import actor, db_session, needs
 from backend.config import contacts as contacts_cfg
+from backend.features.access.permissions import sees_stage
 from backend.features.access.repository import AccessRepository
 from backend.features.contacts import forms
-from backend.features.core.domain import AuditAction, Permission
+from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 
 router = APIRouter()
@@ -38,11 +39,13 @@ async def form_queue(
     limit: int = Query(
         default=forms.PAGE_SIZE, ge=1, le=forms.MAX_PAGE_SIZE, description="строк на странице"
     ),
-    _: UserModel = _viewer,
+    user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> AdvertiserFormsView:
-    """Рекламодатели, у которых форма вместо адреса, — по странице, как у доноров."""
+    """Рекламодатели, у которых форма вместо адреса, — по странице, как у доноров. Число соседней
+    очереди — только с правом «Доноры»: её саму без него не открыть."""
     rows = await forms.advertiser_queue(session, page=page, size=limit)
+    donors = sees_stage(actor(user), Stage.DONORS)
     return AdvertiserFormsView(
         rows=[AdvertiserFormCard.of(row) for row in rows],
         total=await forms.advertiser_total(session),
@@ -50,7 +53,7 @@ async def form_queue(
         limit=limit,
         monthly_left=await forms.monthly_left(session),
         monthly_cap=contacts_cfg.MANUAL_QUEUE_MONTHLY_CAP,
-        donors_waiting=await forms.total(session),
+        donors_waiting=await forms.total(session) if donors else 0,
         retry_days=contacts_cfg.CONTACT_TTL_DAYS,
     )
 

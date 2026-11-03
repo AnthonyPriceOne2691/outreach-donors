@@ -176,7 +176,7 @@ describe('части списка диалогов', () => {
   it('без права «Продажи» часть продаж из адреса не сужает — список без неё', async () => {
     const noSales: Me = {
       ...OPERATOR,
-      permissions: ['advertisers', 'prices', 'run', 'settings', 'view'],
+      permissions: ['advertisers', 'donors', 'prices', 'run', 'settings', 'view'],
     };
     await open('/threads?stage=sales', noSales, THREADS.slice(0, 2));
 

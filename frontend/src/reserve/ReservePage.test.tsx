@@ -243,7 +243,7 @@ describe('резерв', () => {
   it('без права решать в очереди — кнопки нет, сказано, какое право нужно', async () => {
     open({ 'GET /api/review/reserve': { body: VIEW } }, '/donors/reserve', {
       ...OPERATOR,
-      permissions: ['view'],
+      permissions: ['donors', 'view'],
     });
 
     const row = await screen.findByRole('link', { name: 'quiet-blog.example' });

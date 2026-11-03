@@ -57,7 +57,7 @@ from backend.api.replies.schemas import (
     UnboundView,
     VersionCalibration,
 )
-from backend.api.stage_access import STAGE_TWO, on_reply
+from backend.api.stage_access import STAGE_ONE, STAGE_TWO, on_reply
 from backend.config import outreach as outreach_cfg
 from backend.features.access.permissions import visible_stages
 from backend.features.access.repository import AccessRepository
@@ -125,7 +125,12 @@ async def export_leads(
     )
 
 
-@router.get("/calibration", response_model=Calibration, summary="Калибровка разбора")
+@router.get(
+    "/calibration",
+    response_model=Calibration,
+    summary="Калибровка разбора",
+    dependencies=[STAGE_ONE],
+)
 async def calibration(
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),

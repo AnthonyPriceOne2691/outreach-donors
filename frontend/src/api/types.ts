@@ -9,7 +9,7 @@ import type { PriceOrigin, PriceRefusal } from './manualPrice';
 import type { Offer } from './offers';
 import type { SamePrice } from './priceRecheck';
 import type { Stage } from './stages';
-export type Role = 'admin' | 'operator' | 'donors';
+export type Role = 'admin' | 'operator' | 'donors' | 'advertisers';
 
 /** Именованные действия. Ровно те же, что в матрице прав на сервере. */
 export type Permission =
@@ -22,6 +22,8 @@ export type Permission =
   | 'users'
   | 'sales'
   | 'advertisers'
+  | 'donors'
+  | 'usage'
   | 'spend';
 
 export interface Me {
@@ -260,10 +262,8 @@ export interface Reviewed {
 export type DonorStatus = 'suitable' | 'unsuitable' | 'unchecked';
 // Исход поиска адреса — своим файлом вместе со словами (`contactStatus.ts`).
 export type { ContactStatus };
-/** Ступень лестницы, давшая адрес, — значения сервера (`ContactSource`).
- *  До 25.09.2026 здесь стояли `mx`, `rdap`, `paid`, `form`, которых сервер
- *  не отдаёт, а `whois` и `provider` не было: колонка «Откуда» в карточке
- *  у адресов платного сервиса была пустой. Сверку держит тест сервера. */
+/** Ступень лестницы, давшая адрес, — значения сервера (`ContactSource`): чужое значение
+ *  оставляло колонку «Откуда» пустой. Сверку держит тест сервера. */
 export type ContactSource = 'page' | 'whois' | 'provider' | 'manual';
 export type RunStatus = 'queued' | 'estimating' | 'running' | 'done' | 'stopped';
 
@@ -747,7 +747,7 @@ export interface OverviewLetters {
 export interface OverviewView {
   donors: OverviewDonors;
   waiting: OverviewWaiting;
-  letters: { donors: OverviewLetters; advertisers?: OverviewLetters };
+  letters: { donors?: OverviewLetters; advertisers?: OverviewLetters };
   /** Последний прогон — той же карточкой, что строка истории прогонов. */
   last_run: RunCard | null;
   /** Юниты Ahrefs, потраченные нами в цикле ключа (с `ahrefs_since`), против капа; кап `null`

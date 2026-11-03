@@ -44,6 +44,8 @@ export const PERMISSION_TITLES: Record<Permission, string> = {
   users: 'заводить учётки',
   sales: 'Продажи',
   advertisers: 'Рекламодатели',
+  donors: 'Доноры',
+  usage: 'смотреть расход',
   spend: 'менять потолки расхода',
 };
 
@@ -51,14 +53,16 @@ export const PERMISSION_TITLES: Record<Permission, string> = {
  *  `ROLE_ABOUT`: выбор роли строится из них, порядок на сервере — шапка `access/permissions.py`. */
 export const ROLE_TITLES: Record<Role, string> = {
   operator: 'оператор',
-  donors: 'Только доноры',
+  donors: 'Аутрич',
+  advertisers: 'Рекламодатели',
   admin: 'админ',
 };
 
 /** Что даёт роль — подпись в окне новой учётки; права — как на сервере (`ROLE_PERMISSIONS`). */
 export const ROLE_ABOUT: Record<Role, string> = {
   operator: 'Оператор — доноры, рекламодатели и продажи',
-  donors: 'Только доноры — без рекламодателей и продаж',
+  donors: 'Аутрич — только доноры, без рекламодателей',
+  advertisers: 'Рекламодатели — только Этап 2, без доноров',
   admin: 'Админ — всё: ещё письма, домены рассылки, учётки',
 };
 

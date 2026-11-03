@@ -259,7 +259,7 @@ describe('рассмотрение прогона', () => {
   });
 
   it('без права решать кнопок нет, а очередь видна', async () => {
-    const viewer = { ...ADMIN, permissions: ['view'] };
+    const viewer = { ...ADMIN, permissions: ['donors', 'view'] };
     await openReview({}, viewer as typeof ADMIN);
 
     expect(screen.queryByRole('button', { name: 'Принять' })).not.toBeInTheDocument();
@@ -287,7 +287,7 @@ describe('шапка очереди', () => {
   });
 
   it('без права решать — ни флажка, ни его колонки', async () => {
-    const viewer = { ...ADMIN, permissions: ['view'] };
+    const viewer = { ...ADMIN, permissions: ['donors', 'view'] };
     await openReview({}, viewer as typeof ADMIN);
 
     expect(heads()).toEqual(['Домен', 'Нашёлся по ключам', 'Судья', 'Решение']);

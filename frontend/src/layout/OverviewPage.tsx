@@ -9,20 +9,8 @@
  * экране: своё правило на фронте разошлось бы с экраном при первой правке.
  */
 
-import {
-  Alert,
-  Anchor,
-  Badge,
-  Card,
-  Group,
-  Loader,
-  SimpleGrid,
-  Stack,
-  Text,
-  Title,
-} from '@mantine/core';
+import { Alert, Anchor, Badge, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
@@ -33,7 +21,6 @@ import type {
   OverviewDonors,
   OverviewLetters,
   OverviewView,
-  OverviewWaiting,
   RunCard,
 } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
@@ -42,144 +29,8 @@ import { PageHead } from '../components/PageHead';
 import { Metric } from '../components/Metric';
 import { formatDateTime, formatDay, formatNumber, formatShare, formatUsd, plural } from '../format';
 import { mailLine } from '../letters/mailTile';
+import { attention, Section, WaitingSection } from './OverviewWaiting';
 import { Watchdog } from './Watchdog';
-
-/** Карточка раздела сводки: заголовок, ссылка на экран и содержимое. */
-function Section({
-  title,
-  to,
-  toTitle,
-  aside,
-  children,
-}: {
-  title: string;
-  to?: string;
-  toTitle?: string;
-  aside?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <Card className="glass" p="lg">
-      {/* Ссылка раздела всегда в первой строке справа: на телефоне заголовок
-          со значком переносится сам, а «К письмам» уезжала под заголовок
-          и читалась подписью значка (аудит 25.09.2026, №28). */}
-      <Group justify="space-between" align="flex-start" mb="md" gap="xs" wrap="nowrap">
-        <Group gap="sm" align="center" style={{ minWidth: 0 }}>
-          <Title order={5}>{title}</Title>
-          {aside}
-        </Group>
-        {/* Средний вес, а не обычный: тонкие бирюзовые штрихи на ярком месте
-            стекла читались бледнее цвета, которым написаны, — замер дал
-            4,03 : 1 при ядре буквы 6,3 : 1 (25.09.2026). */}
-        {to !== undefined && (
-          <Anchor
-            component={Link}
-            to={to}
-            size="sm"
-            fw={500}
-            style={{
-              whiteSpace: 'nowrap',
-              flexShrink: 0,
-              lineHeight: 'var(--mantine-h5-line-height)',
-            }}
-          >
-            {toTitle}
-          </Anchor>
-        )}
-      </Group>
-      {children}
-    </Card>
-  );
-}
-
-/** «в очереди №18», «в очередях №24, №21 и №18», «… и ещё 2». */
-function runsHint(runs: number[]): string {
-  const named = runs.slice(0, 3).map((id) => `№${id}`);
-  if (runs.length === 1) return `в очереди ${named[0]}`;
-  if (runs.length <= 3) return `в очередях ${named.slice(0, -1).join(', ')} и ${named.at(-1)}`;
-  return `в очередях ${named.join(', ')} и ещё ${runs.length - 3}`;
-}
-
-/** Работа есть — число янтарное: мята здесь не нужна, «ноль» и так тихий. */
-function attention(count: number): string | undefined {
-  return count > 0 ? 'yellow' : undefined;
-}
-
-/** Формы ждут у доноров и рекламодателей (сверка ТЗ 11.10.2026): рекламодатели названы,
- *  чтобы «и N с формой» в воронке доноров сходилось с донорской частью числа. */
-function formsHint({ forms, advertiser_forms: advertisers = 0 }: OverviewWaiting): string {
-  if (forms === 0) return 'форм в очереди нет';
-  if (advertisers === 0) return 'у сайта форма вместо адреса';
-  return `доноров ${formatNumber(forms - advertisers)} · рекламодателей ${formatNumber(advertisers)}`;
-}
-
-/** Части числа меню: спорные и бизнесы ниши ждут «пишем / не пишем» (проверка прода 10.10.2026). */
-function advertisersHint({ advertisers, niche }: OverviewWaiting): string {
-  const parts = [
-    advertisers > niche ? `спорных ${formatNumber(advertisers - niche)}` : '',
-    niche > 0 ? `бизнесов ниши ${formatNumber(niche)}` : '',
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join(' · ') : 'решений не ждут';
-}
-
-function WaitingSection({ waiting }: { waiting: OverviewWaiting }) {
-  const { can } = useSession();
-  const newest = waiting.review_runs[0];
-  // Без права «Рекламодатели» плиток Этапа 2 нет: сервер считает их нулями, а не «ждут ноль».
-  const stageTwo = can('advertisers');
-  return (
-    <Section title="Ждут человека">
-      <SimpleGrid
-        cols={{ base: 2, sm: 3, lg: stageTwo ? 5 : 3 }}
-        spacing="sm"
-        className="metricGrid"
-      >
-        <Metric
-          title="Рассмотреть домены"
-          value={formatNumber(waiting.review)}
-          hint={waiting.review > 0 ? runsHint(waiting.review_runs) : 'очереди разобраны'}
-          color={attention(waiting.review)}
-          to={newest !== undefined ? `/runs/${newest}/review` : '/run'}
-        />
-        <Metric
-          title="Разобрать цены"
-          value={formatNumber(waiting.prices)}
-          hint={waiting.prices > 0 ? 'цену подтверждает человек' : 'все ответы разобраны'}
-          color={attention(waiting.prices)}
-          // В тот же фильтр, которым плитка считается: весь список диалогов
-          // прятал нужные среди сотни остальных (аудит 25.09.2026, №25). Цену
-          // разбирают только у доноров — и плитка ведёт в «Диалоги с донорами».
-          to="/threads?stage=donors&state=needs_review"
-        />
-        <Metric
-          title="Заполнить формы"
-          value={formatNumber(waiting.forms)}
-          hint={formsHint(waiting)}
-          color={attention(waiting.forms)}
-          to="/forms"
-        />
-        {stageTwo && (
-          <>
-            <Metric
-              title="Лиды рекламодателей"
-              value={formatNumber(waiting.leads)}
-              hint={waiting.leads > 0 ? 'ответили на оффер' : 'новых лидов нет'}
-              color={attention(waiting.leads)}
-              to="/threads?stage=advertisers&state=lead"
-            />
-            <Metric
-              title="Кандидаты в рекламодатели"
-              value={formatNumber(waiting.advertisers)}
-              hint={advertisersHint(waiting)}
-              color={attention(waiting.advertisers)}
-              to="/advertisers?view=review"
-            />
-          </>
-        )}
-      </SimpleGrid>
-    </Section>
-  );
-}
 
 function priceHint(donors: OverviewDonors): string {
   if (donors.priced === 0) return 'цен ещё нет';
@@ -309,21 +160,26 @@ function StageTwoLine({ letters }: { letters: OverviewLetters | undefined }) {
 }
 
 function LettersSection({
-  donors,
+  title,
+  to,
+  letters,
   advertisers,
   transport,
   unbound,
 }: {
-  donors: OverviewLetters;
-  advertisers: OverviewLetters | undefined;
+  title: string;
+  to: string;
+  letters: OverviewLetters;
+  /** Строка Этапа 2 под письмами донорам; у роли «Рекламодатели» он сам в плитках. */
+  advertisers?: OverviewLetters | undefined;
   transport: LetterTransport;
   unbound: number;
 }) {
   const mail = mailLine(transport);
   return (
     <Section
-      title="Письма донорам"
-      to="/letters?stage=donors"
+      title={title}
+      to={to}
       toTitle="К письмам"
       aside={
         // Слово то же, что в плитке «Почта» на экране писем (`mailTile`):
@@ -335,15 +191,15 @@ function LettersSection({
     >
       <Stack gap="sm">
         <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
-          <Metric title="В очереди" value={formatNumber(donors.queued)} />
-          <Metric title="Ушло" value={formatNumber(donors.sent)} />
-          <Metric title="Дошло" value={formatNumber(donors.delivered)} />
+          <Metric title="В очереди" value={formatNumber(letters.queued)} />
+          <Metric title="Ушло" value={formatNumber(letters.sent)} />
+          <Metric title="Дошло" value={formatNumber(letters.delivered)} />
           {/* Слово и цвет — как у состояния диалога: отказ доставки требует
               внимания (адрес выбыл), но это не отказ донора. */}
           <Metric
             title="Отказ доставки"
-            value={formatNumber(donors.bounced)}
-            color={attention(donors.bounced)}
+            value={formatNumber(letters.bounced)}
+            color={attention(letters.bounced)}
           />
         </SimpleGrid>
         <UnboundLine count={unbound} />
@@ -387,6 +243,7 @@ function LastRunLine({ run }: { run: RunCard | null }) {
 }
 
 function RunSection({ data }: { data: OverviewView }) {
+  const { can } = useSession();
   return (
     <Section title="Прогон и расход" to="/run" toTitle="К прогонам">
       <Stack gap="md">
@@ -412,13 +269,15 @@ function RunSection({ data }: { data: OverviewView }) {
               label="Юниты Ahrefs за цикл ключа"
             />
           )}
-          <Text size="sm" c="dimmed">
-            По нашему капу — он от ключа Ahrefs. Ключ, его цикл и остаток у провайдера — на экране{' '}
-            <Anchor component={Link} to="/usage" size="sm">
-              расхода
-            </Anchor>
-            .
-          </Text>
+          {can('usage') ? (
+            <Text size="sm" c="dimmed">
+              По нашему капу — он от ключа Ahrefs. Ключ, его цикл и остаток у провайдера — на экране{' '}
+              <Anchor component={Link} to="/usage" size="sm">
+                расхода
+              </Anchor>
+              .
+            </Text>
+          ) : null}
         </Stack>
         <Text size="sm">
           Выдача с начала месяца: <b>{formatUsd(data.serp_usd)}</b>
@@ -457,19 +316,35 @@ function Dashboard() {
   }
   if (data === undefined) return null;
 
+  // Этапа без права в ответе нет вовсе: без него нет воронки, писем донорам и прогонов.
+  const { donors, advertisers } = data.letters;
   return (
     <>
       <WaitingSection waiting={data.waiting} />
-      <DonorsSection donors={data.donors} sent={data.letters.donors.sent} />
-      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+      {donors !== undefined ? (
+        <>
+          <DonorsSection donors={data.donors} sent={donors.sent} />
+          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+            <LettersSection
+              title="Письма донорам"
+              to="/letters?stage=donors"
+              letters={donors}
+              advertisers={advertisers}
+              transport={data.transport}
+              unbound={data.unbound_replies}
+            />
+            <RunSection data={data} />
+          </SimpleGrid>
+        </>
+      ) : advertisers !== undefined ? (
         <LettersSection
-          donors={data.letters.donors}
-          advertisers={data.letters.advertisers}
+          title="Письма рекламодателям"
+          to="/letters?stage=advertisers"
+          letters={advertisers}
           transport={data.transport}
           unbound={data.unbound_replies}
         />
-        <RunSection data={data} />
-      </SimpleGrid>
+      ) : null}
     </>
   );
 }
@@ -477,6 +352,10 @@ function Dashboard() {
 /** Подсказка «i» у заголовка — как читать экран. */
 const OVERVIEW_HINT =
   'Сверху — работа, которая ждёт человека: те же числа стоят у пунктов меню. Ниже — воронка доноров, письма и расход. Каждое число посчитано тем же правилом, что на экране раздела.';
+
+/** То же без Этапа 1: воронки и расхода на экране нет. */
+const OVERVIEW_HINT_NO_DONORS =
+  'Сверху — работа, которая ждёт человека: те же числа стоят у пунктов меню. Ниже — письма. Каждое число посчитано тем же правилом, что на экране раздела.';
 
 export function OverviewPage() {
   const { can } = useSession();
@@ -487,7 +366,7 @@ export function OverviewPage() {
           у почты в шапке рамы, на любом экране (`AccountMenu`); до 09.10.2026 они
           стояли здесь строкой над «Ждут человека» (аудит экранов 09.10.2026). */}
       <Card className="glassPanel" px="xl" py="lg">
-        <PageHead title="Обзор" hint={OVERVIEW_HINT} />
+        <PageHead title="Обзор" hint={can('donors') ? OVERVIEW_HINT : OVERVIEW_HINT_NO_DONORS} />
       </Card>
 
       <Watchdog />

@@ -17,9 +17,9 @@
       "worst": "—"
     },
     "backend/api/advertisers/forms.py": {
-      "lines": 102,
-      "complexity": 2,
-      "worst": "form_queue:36"
+      "lines": 105,
+      "complexity": 3,
+      "worst": "form_queue:37"
     },
     "backend/api/advertisers/panel.py": {
       "lines": 124,
@@ -112,9 +112,9 @@
       "worst": "reach_fields:41"
     },
     "backend/api/contacts/routes.py": {
-      "lines": 290,
+      "lines": 291,
       "complexity": 3,
-      "worst": "_donor:148"
+      "worst": "_donor:149"
     },
     "backend/api/contacts/schemas.py": {
       "lines": 214,
@@ -162,7 +162,7 @@
       "worst": "enter_list:173"
     },
     "backend/api/donors/routes.py": {
-      "lines": 193,
+      "lines": 203,
       "complexity": 2,
       "worst": "_file:129"
     },
@@ -242,9 +242,9 @@
       "worst": "—"
     },
     "backend/api/keywords/routes.py": {
-      "lines": 225,
+      "lines": 226,
       "complexity": 3,
-      "worst": "build_pool:101"
+      "worst": "build_pool:102"
     },
     "backend/api/keywords/schemas.py": {
       "lines": 98,
@@ -347,9 +347,9 @@
       "worst": "_ascii_name:28"
     },
     "backend/api/replies/routes.py": {
-      "lines": 386,
+      "lines": 391,
       "complexity": 7,
-      "worst": "review:295"
+      "worst": "review:300"
     },
     "backend/api/replies/schemas.py": {
       "lines": 166,
@@ -367,9 +367,9 @@
       "worst": "of:65"
     },
     "backend/api/review/routes.py": {
-      "lines": 173,
+      "lines": 174,
       "complexity": 3,
-      "worst": "take:143"
+      "worst": "take:144"
     },
     "backend/api/review/schemas.py": {
       "lines": 216,
@@ -387,9 +387,9 @@
       "worst": "of:156"
     },
     "backend/api/runs/competitors.py": {
-      "lines": 138,
+      "lines": 139,
       "complexity": 2,
-      "worst": "start:97"
+      "worst": "start:98"
     },
     "backend/api/runs/report_schemas.py": {
       "lines": 137,
@@ -397,9 +397,9 @@
       "worst": "of:117"
     },
     "backend/api/runs/routes.py": {
-      "lines": 383,
+      "lines": 384,
       "complexity": 4,
-      "worst": "refuse_over_budget:125"
+      "worst": "refuse_over_budget:126"
     },
     "backend/api/runs/schemas.py": {
       "lines": 390,
@@ -532,9 +532,9 @@
       "worst": "—"
     },
     "backend/api/selection/routes.py": {
-      "lines": 124,
+      "lines": 125,
       "complexity": 3,
-      "worst": "decide:91"
+      "worst": "decide:92"
     },
     "backend/api/selection/schemas.py": {
       "lines": 161,
@@ -592,9 +592,9 @@
       "worst": "llm_caps_card:135"
     },
     "backend/api/settings/routes.py": {
-      "lines": 393,
+      "lines": 403,
       "complexity": 5,
-      "worst": "_serp_balance:364"
+      "worst": "_serp_balance:374"
     },
     "backend/api/settings/schemas.py": {
       "lines": 396,
@@ -602,9 +602,9 @@
       "worst": "of:319"
     },
     "backend/api/stage_access.py": {
-      "lines": 147,
+      "lines": 150,
       "complexity": 1,
-      "worst": "_passed:51"
+      "worst": "_passed:54"
     },
     "backend/api/suppressions/__init__.py": {
       "lines": 1,
@@ -692,8 +692,8 @@
       "worst": "—"
     },
     "backend/api/watchdog/routes.py": {
-      "lines": 142,
-      "complexity": 5,
+      "lines": 152,
+      "complexity": 8,
       "worst": "silence:115"
     },
     "backend/cli/__init__.py": {
@@ -987,9 +987,9 @@
       "worst": "verify_password:43"
     },
     "backend/features/access/permissions.py": {
-      "lines": 220,
+      "lines": 250,
       "complexity": 4,
-      "worst": "has_permission:170"
+      "worst": "has_permission:203"
     },
     "backend/features/access/repository.py": {
       "lines": 260,
@@ -1247,7 +1247,7 @@
       "worst": "zone_name:80"
     },
     "backend/features/core/domain.py": {
-      "lines": 346,
+      "lines": 349,
       "complexity": 0,
       "worst": "—"
     },
@@ -2252,12 +2252,12 @@
       "worst": "_of_stage:139"
     },
     "backend/features/ops/overview.py": {
-      "lines": 387,
+      "lines": 427,
       "complexity": 5,
-      "worst": "_letters:354"
+      "worst": "overview:225"
     },
     "backend/features/ops/silence.py": {
-      "lines": 380,
+      "lines": 381,
       "complexity": 7,
       "worst": "judge:155"
     },

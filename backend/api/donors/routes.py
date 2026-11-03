@@ -41,7 +41,7 @@ from backend.api.donors.schemas import (
     PickedBody,
     PriceBody,
 )
-from backend.api.stage_access import STAGE_TWO
+from backend.api.stage_access import STAGE_ONE, STAGE_TWO
 from backend.api.topics.schemas import with_chosen
 from backend.features.access.permissions import visible_stages
 from backend.features.core.domain import Permission
@@ -60,7 +60,7 @@ _viewer = Depends(needs(Permission.VIEW))
 _runner = Depends(needs(Permission.RUN))
 
 
-@router.get("", response_model=DonorsPage, summary="Таблица доноров")
+@router.get("", response_model=DonorsPage, summary="Таблица доноров", dependencies=[STAGE_ONE])
 async def all_donors(
     query: Annotated[DonorPageQuery, Query()],
     _: UserModel = _viewer,
@@ -80,7 +80,7 @@ async def all_donors(
     return made
 
 
-@router.get("/export", summary="Выгрузка найденных доноров")
+@router.get("/export", summary="Выгрузка найденных доноров", dependencies=[STAGE_ONE])
 async def export(
     query: Annotated[DonorQuery, Query()],
     _: UserModel = _viewer,
@@ -101,7 +101,7 @@ async def export(
     return _file(page.rows, {"X-Export-Asked": page.total})
 
 
-@router.post("/export", summary="Выгрузка отмеченных доноров")
+@router.post("/export", summary="Выгрузка отмеченных доноров", dependencies=[STAGE_ONE])
 async def export_picked(
     body: PickedBody,
     _: UserModel = _viewer,
@@ -139,7 +139,12 @@ def _file(rows: list[DonorRow], counts: dict[str, int]) -> Response:
     )
 
 
-@router.get("/{donor_id}", response_model=DonorFullCard, summary="Карточка донора")
+@router.get(
+    "/{donor_id}",
+    response_model=DonorFullCard,
+    summary="Карточка донора",
+    dependencies=[STAGE_ONE],
+)
 async def one_donor(
     donor_id: int,
     user: UserModel = _viewer,
@@ -173,7 +178,12 @@ async def enter_donor(
     return EnteredDonor.of(entered, price)
 
 
-@router.post("/{donor_id}/price", response_model=DonorFullCard, summary="Указать цену донору")
+@router.post(
+    "/{donor_id}/price",
+    response_model=DonorFullCard,
+    summary="Указать цену донору",
+    dependencies=[STAGE_ONE],
+)
 async def set_price(
     donor_id: int,
     body: PriceBody,
