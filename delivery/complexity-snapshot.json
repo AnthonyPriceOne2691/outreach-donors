@@ -1487,7 +1487,7 @@
       "worst": "judge_seen:128"
     },
     "backend/features/crawl/judge_client.py": {
-      "lines": 292,
+      "lines": 294,
       "complexity": 6,
       "worst": "marks_of:112"
     },
@@ -1507,9 +1507,9 @@
       "worst": "known:77"
     },
     "backend/features/crawl/judge_text.py": {
-      "lines": 305,
+      "lines": 307,
       "complexity": 7,
-      "worst": "gather:284"
+      "worst": "gather:286"
     },
     "backend/features/crawl/launch.py": {
       "lines": 96,

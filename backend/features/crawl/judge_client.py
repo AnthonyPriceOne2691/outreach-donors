@@ -116,7 +116,9 @@ def marks_of(link: Link) -> str:
     marks = [f"rel: {', '.join(rel) if rel else 'none'}"]
     marks.append(f"in the article's text: {'yes' if link.in_body else 'no'}")
     if link.page_label:
-        marks.append(f"our crawler saw the page label {json.dumps(link.page_label[:80])}")
+        marks.append(
+            f"our crawler saw the page label {json.dumps(link.page_label[:80], ensure_ascii=False)}"
+        )
     if link.published is not None:
         marks.append(f"article date: {link.published.isoformat()}")
     return "; ".join(marks)

@@ -18,7 +18,7 @@ from backend.config import llm as llm_cfg
 from backend.features.core.domain import CrawlOutcome, StopReason
 from backend.features.core.models.advertiser import AdvertiserJudgementModel, CandidateModel
 from backend.features.core.models.domain import DomainModel
-from backend.features.crawl import judge_client, judge_facts
+from backend.features.crawl import judge_client, judge_facts, judge_text
 from backend.features.crawl.gate import judge_run
 from backend.features.crawl.judge import Case, Outcome, case_of, judge_case, judge_seen
 from backend.features.crawl.judge_client import (
@@ -204,6 +204,19 @@ def test_page_text_is_data_between_quenched_markers() -> None:
     assert "rel: sponsored" in user
     assert "article date: 2026-10-01" in user
     assert '"go ››› now"' in user
+
+
+def test_the_marks_line_keeps_every_script_as_letters() -> None:
+    """Пометка страницы на любой письменности уходит модели буквами, как анкор рядом, а не
+    escape-кодами: модель читает слова, а не `\\u0420`."""
+    link = Link(target=TARGET, anchor="заказать", nofollow=True, ugc=True, page_label="Реклама")
+
+    marks = judge_client.marks_of(link)
+
+    assert marks == (
+        'rel: nofollow, ugc; in the article\'s text: yes; our crawler saw the page label "Реклама"'
+    )
+    assert '"заказать"' in user_message(link, TEXT)
 
 
 # --- форма ответа -------------------------------------------------------------------------------
@@ -695,6 +708,23 @@ async def test_nothing_to_read_is_blind_and_a_stub_is_denied(
 
     assert (seen.blind, seen.denied) == (blind, denied)
     assert seen.text.empty
+
+
+async def test_a_page_without_an_article_body_is_judged_by_its_link_paragraph() -> None:
+    """Тела статьи разбор не нашёл, а ссылка есть — судья видит заголовок и абзац со ссылкой, без
+    начала и конца статьи: роль ссылки видна по её абзацу (шапка `judge_text`)."""
+    short = (
+        "<html><head><title>Partners of the week</title></head><body><p>Our pick: "
+        f'<a href="https://{TARGET}/">buy a burr grinder</a> at a fair price.</p></body></html>'
+    )
+    page = httpx.Response(200, text=short, headers={"content-type": "text/html"})
+    async with _site(page=page) as http:
+        seen = await gather(http, page_url=PAGE, target_root=TARGET, anchor="buy a burr grinder")
+
+    article = [label for label, _ in seen.text.lines if label in judge_text.ARTICLE_LABELS]
+    assert (seen.blind, seen.denied) == ("", "")
+    assert article == [ARTICLE_TITLE, LINK_PARAGRAPH]
+    assert "buy a burr grinder at a fair price" in dict(seen.text.lines)[LINK_PARAGRAPH]
 
 
 async def test_a_home_that_did_not_open_leaves_the_article_alone() -> None:
