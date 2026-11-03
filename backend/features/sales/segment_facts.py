@@ -30,8 +30,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.features.sales.hypothesis_countries import known_codes
-from backend.features.sales.segment_quote import MIN_QUOTE_WORDS, quote_words, unlabeled
 from backend.features.sales.segment_text import HOME_LABELS, LABELS, SiteText, excerpt
+from backend.shared.quote import MIN_QUOTE_WORDS, quote_words, unlabeled
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ CORES = ("yes", "adjacent", "no", "unsure")
 WORLD = "*"
 #: Ключи ответа — все обязательны.
 KEYS = ("kind", "home", "home_quote", "served", "only", "network", "local", "core", "quote", "why")
-#: Слова — вместе с числом (`segment_quote.MIN_QUOTE_WORDS`).
+#: Слова — вместе с числом (`shared/quote.MIN_QUOTE_WORDS`).
 SHORT_QUOTE = "цитата короче трёх слов — не доказательство"
 NO_QUOTE = "модель не дала цитаты"
 #: Начало слов причины, когда цитаты вида сайта нет в тексте; целиком — с цитатой (`made_up`).
