@@ -24,6 +24,7 @@ from backend.features.crawl.advertiser_list import (
 )
 from backend.features.crawl.findings import Findings
 from backend.features.crawl.offer_state import OfferState
+from backend.features.crawl.strata import Strata, Stratum
 
 
 class AdvertiserQuery(BaseModel):
@@ -202,3 +203,44 @@ class AcceptanceView(BaseModel):
     overall_findings: FindingsView
     target_with_address: int
     target_sent_share: float
+
+
+class StratumView(BaseModel):
+    """Срез выборки спорных (`crawl/strata.py`): строк в нём и решения по ним. Ключ балла — сам
+    балл, признака и ниши — код; слова — `title`."""
+
+    key: str
+    title: str
+    total: int
+    decided: int
+    write: int
+    skip: int
+
+    @classmethod
+    def of(cls, stratum: Stratum) -> StratumView:
+        decisions = stratum.decisions
+        return cls(
+            key=stratum.key,
+            title=stratum.title,
+            total=decisions.total,
+            decided=decisions.decided,
+            write=decisions.write,
+            skip=decisions.skip,
+        )
+
+
+class StrataView(BaseModel):
+    """Выборка спорных по баллу, признаку скоринга и нише донора. У строки признаков бывает
+    несколько, и суммы признаков больше числа строк."""
+
+    points: list[StratumView]
+    features: list[StratumView]
+    niches: list[StratumView]
+
+    @classmethod
+    def of(cls, strata: Strata) -> StrataView:
+        return cls(
+            points=[StratumView.of(one) for one in strata.points],
+            features=[StratumView.of(one) for one in strata.features],
+            niches=[StratumView.of(one) for one in strata.niches],
+        )
