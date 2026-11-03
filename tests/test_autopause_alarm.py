@@ -7,9 +7,9 @@
 фиксация, тревога после ответа. Гонка двух пачек — на двух настоящих соединениях со встречей
 перед решением (как `tests/test_send_race.py`). Telegram подставной.
 
-Что делать — по правилу, которое поставило паузу (ревью #337): включение не очищает окно, и отказ
-по старому письму после включения ставит паузу снова — тревога говорит это словами правила, тесты
-держат и слова, и само поведение.
+Что делать — по правилу, которое поставило паузу (ревью #337): включение начинает окно с этой паузы
+(слово Anthony 03.11.2026), и отказ по старому письму после включения паузы больше не ставит, а три
+новых — ставят снова. Тревога говорит это словами правила, тесты держат и слова, и само поведение.
 Замок паузы не держит отправку по ящику до фиксации вебхука — на двух настоящих соединениях.
 """
 
@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -108,18 +109,48 @@ async def test_a_sales_box_pausing_itself_is_told_once(
     assert told == [_alarm(box.email, Stage.SALES, why, WINDOW_ADVICE)]
 
 
-async def test_switched_on_and_paused_again_is_a_new_alarm(
+async def _sent_after_pause(session: AsyncSession, box: SenderModel, minutes: int) -> int:
+    """Письмо, ушедшее после паузы: тот же ящик, та же кампания, через `minutes` минут."""
+    first = await session.get(MessageModel, await _oldest(session, box))
+    assert first is not None
+    letter = MessageModel(
+        campaign_id=first.campaign_id,
+        domain_id=first.domain_id,
+        sender_id=box.id,
+        step=0,
+        status=MessageStatus.DELIVERED,
+        sent_at=NOW + timedelta(minutes=minutes),
+        idempotency_key=f"after-pause:{box.id}:{minutes}",
+    )
+    session.add(letter)
+    await session.flush()
+    return letter.id
+
+
+async def test_switched_on_the_window_starts_again(
     client: AsyncClient, session: AsyncSession, signed: Any, told: list[str]
 ) -> None:
-    """Совет сбывается: включение окна не очищает, и отказ по старому письму, пока
-    прежние отказы в окне, снова ставит ящик на паузу — новая тревога с тем же советом."""
+    """Совет сбывается (слово Anthony 03.11.2026): после включения отказ по старому письму паузы
+    не ставит и тревоги нет; три отказа писем, ушедших после паузы, — новая пауза и новая
+    тревога с тем же советом."""
     box = await _box(session, Stage.SALES, total=20, bounced=2)
     letter = await _letter(session, box)
     await _deliver(client, signed, [_event("bounce", letter, "sg-b1")])
 
     senders.enable(box, now=NOW)
+    fresh = [await _sent_after_pause(session, box, minutes) for minutes in (1, 2, 3)]
     await session.commit()
-    again = await _deliver(client, signed, [_event("bounce", await _oldest(session, box), "sg-b2")])
+    old = await _deliver(client, signed, [_event("bounce", await _oldest(session, box), "sg-b2")])
+
+    assert old.json()["paused"] == []
+    assert len(told) == 1
+
+    later = int((NOW + timedelta(minutes=10)).timestamp())
+    again = await _deliver(
+        client,
+        signed,
+        [_event("bounce", one, f"sg-b{3 + n}", timestamp=later) for n, one in enumerate(fresh)],
+    )
 
     assert again.json()["paused"] == [box.email]
     assert len(told) == 2
@@ -147,11 +178,12 @@ async def test_a_box_of_any_stage_is_told_the_same_words(
 
 
 def test_the_advice_says_what_switching_on_does() -> None:
-    """Что делать — словами правила: разгон заново, а окно то же."""
+    """Что делать — словами правила: разгон заново, и окно — заново, с этой паузы."""
     assert WINDOW_ADVICE.startswith(autopause.REVIEW)
     assert "«Включить заново»: разгон начнётся заново" in WINDOW_ADVICE
-    assert "Окно последних 50 писем ящика включение не очищает" in WINDOW_ADVICE
-    assert "даже по старому письму, снова поставят ящик на паузу" in WINDOW_ADVICE
+    assert "Окно последних 50 писем ящика начнётся с этой паузы" in WINDOW_ADVICE
+    assert "прежние отказы и жалобы больше не в счёт" in WINDOW_ADVICE
+    assert "не очищает" not in WINDOW_ADVICE
 
 
 async def test_a_pause_by_a_human_is_no_alarm(

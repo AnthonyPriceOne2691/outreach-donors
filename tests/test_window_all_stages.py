@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import timedelta
 
 import pytest
@@ -164,3 +165,73 @@ async def test_a_letter_of_another_box_does_not_judge_this_one(session: AsyncSes
     )
 
     assert (report.paused_domains, one.enabled, other.enabled) == ([], True, True)
+
+
+async def _after_pause(session: AsyncSession, box: SenderModel, minutes: int) -> int:
+    """Письмо, ушедшее после паузы: тот же ящик, та же кампания, через `minutes` минут."""
+    first = await session.scalar(select(MessageModel).where(MessageModel.sender_id == box.id))
+    assert first is not None
+    letter = MessageModel(
+        campaign_id=first.campaign_id,
+        domain_id=first.domain_id,
+        sender_id=box.id,
+        step=0,
+        status=MessageStatus.DELIVERED,
+        sent_at=NOW + timedelta(minutes=minutes),
+        idempotency_key=f"after-pause:{box.id}:{minutes}",
+    )
+    session.add(letter)
+    await session.flush()
+    return letter.id
+
+
+async def _bounce(session: AsyncSession, letter: int, minutes: int) -> list[str]:
+    """Отказ по письму `letter` через `minutes` минут; ответ — ящики, вставшие на паузу."""
+    at = NOW + timedelta(minutes=minutes)
+    found = [DeliveryEvent("bounce", letter, "x@to.example.test", at=at)]
+    return (await apply_events(session, found, now=at)).paused_domains
+
+
+@pytest.mark.parametrize(
+    "switch_on",
+    [lambda box: senders.enable(box, now=NOW), senders.resume],
+    ids=["кнопкой, разгон заново", "из консоли, разгон на месте"],
+)
+async def test_after_a_pause_the_window_starts_again(
+    session: AsyncSession, switch_on: Callable[[SenderModel], None]
+) -> None:
+    """Слово Anthony 03.11.2026: ящик включили — прежние отказы не в счёт. Отказ по старому
+    письму паузы больше не ставит, два новых — тоже; третий отказ писем после паузы — ставит."""
+    box = await _box(session, Stage.DONORS, total=20, bounced=2)
+    assert await _events(session, box, "bounce") == [box.email]
+    switch_on(box)
+    oldest = await session.scalar(
+        select(MessageModel.id)
+        .where(MessageModel.sender_id == box.id)
+        .order_by(MessageModel.sent_at)
+    )
+    assert oldest is not None
+    fresh = [await _after_pause(session, box, minutes) for minutes in (1, 2, 3)]
+
+    assert await _bounce(session, oldest, 5) == []
+    assert await _bounce(session, fresh[0], 6) == []
+    assert await _bounce(session, fresh[1], 7) == []
+    assert box.enabled
+    assert await _bounce(session, fresh[2], 8) == [box.email]
+    assert box.pause_reason == "отказов 3 в окне 50 писем — порог 5.0%: пауза"
+    assert await _journal(session, box) == ["paused", "paused"]
+
+
+async def test_a_complaint_before_the_pause_does_not_count_after_it(session: AsyncSession) -> None:
+    """Жалоба — тоже с последней паузы: прежняя после включения паузы не ставит, новая — ставит."""
+    box = await _box(session, Stage.ADVERTISERS, total=30)
+    assert await _events(session, box, "spamreport") == [box.email]
+    senders.resume(box)
+    fresh = await _after_pause(session, box, 1)
+
+    assert await _bounce(session, fresh, 2) == []
+    assert box.enabled
+    again = [DeliveryEvent("spamreport", fresh, "x@to.example.test", at=NOW + timedelta(minutes=3))]
+    found = await apply_events(session, again, now=NOW + timedelta(minutes=3))
+    assert found.paused_domains == [box.email]
+    assert box.pause_reason == "жалоб 1 в окне 50 писем — порог 0.1%: пауза"

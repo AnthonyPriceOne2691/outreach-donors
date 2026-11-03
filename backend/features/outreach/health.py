@@ -17,6 +17,14 @@
 донорам и рекламодателям вместе с окном: сигналов о ящике у них единицы на сотню писем, и порог в
 три за сутки срабатывает только на настоящей беде.
 
+**Окно — с последней автопаузы** (слово Anthony 03.11.2026). Ящик встал, человек разобрал и
+снял паузу — прежние отказы и жалобы больше не в счёт: до этого окно их помнило, и первый же
+отказ после включения, даже по старому письму, снова ставил ящик на паузу, — вторая тревога о
+том, что человек уже разобрал. Пока ящик стоит, он не пишет, поэтому граница — строка паузы в
+журнале (`paused`), а не минута включения: так же и для включения кнопкой (разгон заново), и
+для снятия из консоли (разгон на месте), и для ящиков, включённых до этой правки. Паузу снова
+ставят только новые: три отказа писем, ушедших после неё, или жалоба после неё.
+
 **Против ящика — только то, что о ящике** (02.11.2026). Письмо, не дошедшее до сервера получателя
 (`delivery_trouble.NOT_THE_BOX`: его DNS молчит или сервер не отвечает), о нашей репутации не
 говорит: его никто не видел. Сбой хостинга получателей дал одному письму три отсрочки и отказ —
@@ -64,6 +72,8 @@ JUDGED = frozenset({"bounce", "dropped", "blocked", "spamreport"})
 DAY = timedelta(days=1)
 #: Уникальный индекс номера события (`SenderHealthModel`): его отказ — «событие уже записано».
 EVENT_INDEX = "uq_sender_health_event"
+#: Строка журнала автопаузы: с неё окно ящика начинается заново (`_window_start`).
+PAUSED = "paused"
 
 
 def _note(
@@ -110,7 +120,7 @@ async def _paused(
     окну правила. `None` — вердикта нет или ящик уже остановили рядом."""
     if why is None or not await pause_once(session, sender, why, now=at):
         return None
-    _note(session, sender, "paused", why, at)
+    _note(session, sender, PAUSED, why, at)
     return AutoPause(sender.email, sender.stage, why, window_advice(rules.window))
 
 
@@ -215,19 +225,20 @@ async def _verdict(
     session: AsyncSession, sender: SenderModel, rules: SoftSignals, at: datetime
 ) -> str | None:
     """Пауза по окну последних писем: причина словами или `None`. Отказы — только те, что о
-    ящике: вид судит Python по тексту письма, в окне не больше `window` строк."""
-    rows = await session.execute(
-        select(
-            MessageModel.status,
-            MessageModel.sent_at,
-            MessageModel.failure_reason,
-            MessageModel.deferred_kind,
-            MessageModel.deferred_reason,
-        )
-        .where(MessageModel.sender_id == sender.id, MessageModel.sent_at.is_not(None))
-        .order_by(MessageModel.sent_at.desc())
-        .limit(rules.window)
-    )
+    ящике: вид судит Python по тексту письма, в окне не больше `window` строк, и только письма,
+    ушедшие после последней автопаузы (`_window_start`). Жалобы — с первого письма окна, то есть
+    тоже после неё."""
+    letters = select(
+        MessageModel.status,
+        MessageModel.sent_at,
+        MessageModel.failure_reason,
+        MessageModel.deferred_kind,
+        MessageModel.deferred_reason,
+    ).where(MessageModel.sender_id == sender.id, MessageModel.sent_at.is_not(None))
+    start = await _window_start(session, sender.id)
+    if start is not None:
+        letters = letters.where(MessageModel.sent_at > start)
+    rows = await session.execute(letters.order_by(MessageModel.sent_at.desc()).limit(rules.window))
     last = rows.tuples().all()
     bounced = sum(
         1
@@ -250,6 +261,18 @@ async def _verdict(
         if count and count >= math.ceil(round(rate * rules.window, 9)):
             return f"{what} {count} в окне {rules.window} писем — порог {rate:.1%}: пауза"
     return None
+
+
+async def _window_start(session: AsyncSession, sender_id: int) -> datetime | None:
+    """С какой минуты окно ящика: его последняя автопауза — строка `paused` журнала. Пока ящик
+    стоит, он не пишет: всё, что ушло после неё, ушло уже после того, как паузу снял человек.
+    Паузы не было — `None`, окно от первого письма."""
+    found: datetime | None = await session.scalar(
+        select(func.max(SenderHealthModel.at)).where(
+            SenderHealthModel.sender_id == sender_id, SenderHealthModel.kind == PAUSED
+        )
+    )
+    return found
 
 
 async def cuts(session: AsyncSession, stage: Stage, now: datetime) -> dict[int, int]:
