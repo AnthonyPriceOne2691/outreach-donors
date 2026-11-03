@@ -164,6 +164,8 @@ def _to_target(href: str, page_url: str, target_root: str) -> bool:
     try:
         host = urlsplit(urljoin(page_url, href)).hostname or ""
     except ValueError:
+        # Битый адрес ссылки («http://[::1», чужой мусор в href) — не наш домен; страниц таких мало.
+        logger.debug("судья рекламодателей: адрес ссылки не разобран", extra={"href": href[:120]})
         return False
     host = _root_of(host)
     return host == target_root or host.endswith(f".{target_root}")
