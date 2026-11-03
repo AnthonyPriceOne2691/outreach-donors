@@ -81,13 +81,16 @@ class ShareView(BaseModel):
     """Доля «не пишем» среди решённых строк случайной выборки (`crawl/accuracy.Share`): границы
     и вывод против допуска — от сервера, экран их не пересчитывает. `share`, `low` и `high`
     пусты — решений нет. `to_go` — сколько решений без «не пишем» ещё нужно для «в допуске»;
-    пусто, когда вывод уже есть. `left` — нерешённых строк выборки: больше них не решить."""
+    пусто, когда вывод уже есть. `decided` — решения подряд в порядке выборки, только они в доле;
+    `aside` — решённые дальше первой нерешённой, вне доли (`accuracy.in_turn`). `left` — строк
+    выборки вне замера: больше них не решить."""
 
     total: int
     decided: int
     write: int
     skip: int
     left: int
+    aside: int
     share: float | None
     low: float | None
     high: float | None
@@ -103,6 +106,7 @@ class ShareView(BaseModel):
             write=decisions.write,
             skip=decisions.skip,
             left=decisions.left,
+            aside=share.aside,
             share=share.share,
             low=share.low,
             high=share.high,

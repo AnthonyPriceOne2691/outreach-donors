@@ -30,6 +30,7 @@ from backend.features.crawl.accuracy import (
     FALSE_LIMIT,
     Decisions,
     Within,
+    in_turn,
     scoring_check,
     share_of,
 )
@@ -54,6 +55,13 @@ def hosts(*, in_sample: bool, number: int, prefix: str = "site") -> list[str]:
         if len(found) == number:
             return found
     raise AssertionError("недостижимо")
+
+
+def turn_order(roots: list[str]) -> list[str]:
+    """Домены в порядке выборки — md5 имени, как у очереди и у доли (`accuracy.in_turn`)."""
+    return sorted(
+        roots, key=lambda root: hashlib.md5(root.encode(), usedforsecurity=False).hexdigest()
+    )
 
 
 async def _bought(
@@ -198,7 +206,7 @@ class TestTheShare:
     async def test_the_share_is_counted_on_the_sample_alone(self, session: AsyncSession) -> None:
         """Решения вне выборки — сильные, решённые первыми, — в долю не идут."""
         outside = hosts(in_sample=False, number=4, prefix="out")
-        inside = hosts(in_sample=True, number=4, prefix="in")
+        inside = turn_order(hosts(in_sample=True, number=4, prefix="in"))
         await _bought(session, outside, answers=[True, True, True, True])
         await _bought(session, inside, answers=[True, True, False, None])
 
@@ -208,6 +216,33 @@ class TestTheShare:
         assert check.of(Verdict.BOUGHT).decided == 7
         assert check.false_share == pytest.approx(1 / 3)
         assert check.within_limit is Within.UNPROVEN
+
+    async def test_decisions_out_of_turn_are_counted_aside(self, session: AsyncSession) -> None:
+        """Решения до подмешивания выборки легли на верх очереди: строки выборки, решённые не по
+        её порядку, в долю не идут — их видно числом, а вывод их не берёт (03.11.2026). Иначе
+        три «пишем» сверху дали бы «писать всем спорным» по выбору человека, а не жребия."""
+        roots = turn_order(hosts(in_sample=True, number=4, prefix="late"))
+        await _bought(session, roots, answers=[None, True, True, True], verdict=Verdict.PENDING)
+
+        check = await scoring_check(session)
+
+        assert (check.disputed.decisions.decided, check.disputed.aside) == (0, 3)
+        assert check.disputed.within is Within.UNMEASURED
+        assert check.disputed.to_go == 29
+
+    async def test_the_turn_reaches_the_decided_ones(self, session: AsyncSession) -> None:
+        """Решённое не по порядку входит в долю, как только решены строки выборки перед ним."""
+        roots = turn_order(hosts(in_sample=True, number=3, prefix="gap"))
+        rows = await _bought(session, roots, answers=[True, None, False])
+
+        before = await scoring_check(session)
+        rows[1].confirmed = True
+        await session.flush()
+        after = await scoring_check(session)
+
+        assert (before.bought.decisions.decided, before.bought.aside) == (1, 1)
+        assert (after.bought.decisions.decided, after.bought.aside) == (3, 0)
+        assert after.bought.decisions.skip == 1
 
     async def test_no_decisions_in_the_sample_is_no_share(self, session: AsyncSession) -> None:
         """«Ложных нет» и «не смотрели ни одного» — разные новости."""
@@ -223,7 +258,7 @@ class TestTheShare:
     ) -> None:
         """До 03.11.2026 вывода не было до 200 решений выборки — у «куплено» их не набралось бы
         никогда. Теперь 29 решений без «не пишем» — уже «в допуске», 28 — ещё нет."""
-        roots = hosts(in_sample=True, number=29, prefix="clean")
+        roots = turn_order(hosts(in_sample=True, number=29, prefix="clean"))
         rows = await _bought(session, roots, answers=[*([True] * 28), None])
 
         before = await scoring_check(session)
@@ -260,6 +295,14 @@ class TestTheShare:
         assert check.within_limit is Within.NO
         assert check.bought.low == pytest.approx(stats.lower_bound(8, 30))
         assert check.bought.to_go is None
+
+
+def test_in_turn_takes_the_run_up_to_the_first_gap() -> None:
+    decisions, aside = in_turn([True, False, None, True, None, False])
+
+    assert (decisions.total, decisions.write, decisions.skip, aside) == (6, 1, 1, 2)
+    assert in_turn([]) == (Decisions(), 0)
+    assert in_turn([True, True]) == (Decisions(total=2, write=2), 0)
 
 
 class TestShareOf:
@@ -305,7 +348,7 @@ class TestDisputedSample:
         """База «писать всем спорным» ошибается на доле «не пишем» выборки спорных: решения
         вне выборки — верх очереди — в неё не идут, «куплено» — тоже."""
         outside = hosts(in_sample=False, number=3, prefix="top")
-        inside = hosts(in_sample=True, number=4, prefix="rand")
+        inside = turn_order(hosts(in_sample=True, number=4, prefix="rand"))
         await _bought(session, outside, answers=[True, True, True], verdict=Verdict.PENDING)
         await _bought(session, inside, answers=[True, False, False, None], verdict=Verdict.PENDING)
         await _bought(
@@ -352,6 +395,7 @@ async def test_the_queue_carries_the_sample_share_and_the_limit(
         "write": 0,
         "skip": 1,
         "left": 0,
+        "aside": 0,
         "share": 1.0,
         "low": pytest.approx(0.05),
         "high": 1.0,
@@ -364,6 +408,7 @@ async def test_the_queue_carries_the_sample_share_and_the_limit(
         "write": 0,
         "skip": 0,
         "left": 0,
+        "aside": 0,
         "share": None,
         "low": None,
         "high": None,

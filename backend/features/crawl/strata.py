@@ -11,6 +11,10 @@
 несколько, и она входит в каждый: суммы признаков больше числа строк.
 
 **Ниша — тема сайта донора** (`domains.site_topic`); темы нет — «неизвестна».
+
+**Решения — подряд в порядке выборки**, как у самой доли (`accuracy.in_turn`, 03.11.2026): решённые
+дальше первой нерешённой строки выбрал человек, а не жребий, и в «пишем» и «не пишем» срезов они
+не идут — строка выборки остаётся в срезе нерешённой.
 """
 
 from __future__ import annotations
@@ -21,13 +25,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.domain import DomainModel
-from backend.features.crawl.accuracy import Decisions
+from backend.features.crawl.accuracy import Decisions, in_turn
 from backend.features.crawl.sample import in_sample
 from backend.features.topics.taxonomy import label_of
 
@@ -140,5 +144,11 @@ async def disputed_strata(session: AsyncSession) -> Strata:
         )
         .outerjoin(DomainModel, DomainModel.host == CandidateModel.donor_host)
         .where(CandidateModel.verdict == Verdict.PENDING, in_sample())
+        .order_by(func.md5(CandidateModel.target_root), CandidateModel.id)
     )
-    return strata(rows.tuples().all())
+    found = rows.tuples().all()
+    head, _ = in_turn([confirmed for _, _, confirmed, _ in found])
+    return strata(
+        (points, reasons, confirmed if index < head.decided else None, topic)
+        for index, (points, reasons, confirmed, topic) in enumerate(found)
+    )

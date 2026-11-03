@@ -52,7 +52,10 @@ export type Within = 'within' | 'outside' | 'unproven' | 'unmeasured';
  *  `low` и `high` пусты — решений нет. `to_go` — сколько решений без «не пишем» ещё нужно для
  *  «в допуске»; пусто, когда вывод уже есть. `left` — нерешённых строк выборки. */
 export interface SampleShare extends VerdictDecisions {
+  /** Строк выборки вне замера: нерешённые и решённые не по порядку. */
   left: number;
+  /** Решены дальше первой нерешённой строки выборки — в долю не идут (`accuracy.in_turn`). */
+  aside: number;
   share: number | null;
   /** Нижняя граница доли, односторонняя 95 %. */
   low: number | null;
