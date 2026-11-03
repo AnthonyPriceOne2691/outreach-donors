@@ -18,11 +18,13 @@ import type { Recorded } from '../test/server';
 
 const LETTERS_SENT = { queued: 29, sent: 141, delivered: 129, bounced: 12 };
 
-/** Сводка так, как её отдаёт сервер без права «Доноры»: этапа в письмах нет, чисел Этапа 1 — тоже. */
+/** Сводка так, как её отдаёт сервер без права «Доноры»: этапа в письмах нет, чисел Этапа 1 — тоже,
+ *  а формы — только рекламодателей. */
 const ONLY_ADVERTISERS_OVERVIEW: OverviewView = {
   ...OVERVIEW,
   last_run: null,
   letters: { advertisers: LETTERS_SENT },
+  waiting: { ...OVERVIEW.waiting, forms: 12, advertiser_forms: 12 },
 };
 
 const LETTERS = {
@@ -91,7 +93,14 @@ describe('меню и «Обзор» роли «Рекламодатели»', (
 
     expect(await screen.findByText('Лиды рекламодателей')).toBeInTheDocument();
     expect(screen.getByText('Кандидаты в рекламодатели')).toBeInTheDocument();
-    expect(screen.getByText('Заполнить формы')).toBeInTheDocument();
+    // Формы — только этапа роли: без частей, донорской «доноров 0» у неё нет (живая проверка 03.11).
+    const forms = screen.getByText('Заполнить формы').closest('a');
+    expect(forms).not.toBeNull();
+    expect(within(forms as HTMLElement).getByText('12')).toBeInTheDocument();
+    expect(
+      within(forms as HTMLElement).getByText('у сайта форма вместо адреса'),
+    ).toBeInTheDocument();
+    expect(within(forms as HTMLElement).queryByText(/доноров/)).not.toBeInTheDocument();
     expect(screen.getByText('Письма рекламодателям')).toBeInTheDocument();
     for (const gone of [
       'Рассмотреть домены',
