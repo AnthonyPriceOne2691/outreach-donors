@@ -99,7 +99,8 @@ class JudgePlan:
     #: Из них — строки случайной выборки.
     sampled: int
     by_verdict: dict[str, int]
-    #: Пропущены: свежий суд той же когорты у пары.
+    #: Уже судимы: у пары свежая строка суда нынешней когорты (`JUDGEMENT_TTL_DAYS`) — страницы не
+    #: открываются; перечитываются по сроку, по смене когорты или по «заново».
     fresh: int
     #: Пропущены: у кандидата нет лучшей страницы — судить нечего.
     without_page: int
@@ -221,6 +222,8 @@ class PassReport:
     gone: int = 0
     #: Не спрошены: проход встал раньше.
     left: int = 0
+    #: Уже судимы: свежий суд нынешней когорты, страницы не открывались (`JudgePlan.fresh`).
+    judged_before: int = 0
     stopped: str = ""
 
     def add(self, judged: Judged) -> None:
@@ -305,7 +308,7 @@ async def run_pass(
 ) -> PassReport:
     """Суд по плану — пачками; каждый суд — в базу сразу, со строкой журнала расхода."""
     await ensure_model(client.model)
-    report = PassReport()
+    report = PassReport(judged_before=plan.fresh)
     polite = Polite(crawl_cfg.DELAY_SEC if delay is None else delay)
     for start in range(0, len(plan.ids), CHUNK):
         chunk = plan.ids[start : start + CHUNK]
@@ -363,6 +366,7 @@ def _log(report: PassReport) -> None:
             "retry_held": report.retry_held,
             "gone": report.gone,
             "left": report.left,
+            "judged_before": report.judged_before,
             "stopped": report.stopped,
             "judged": report.outcomes.get(Outcome.JUDGED.value, 0),
         },

@@ -9,7 +9,36 @@ from pydantic import BaseModel, Field
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.crawl.accuracy import FALSE_LIMIT, Decisions, ScoringCheck, Share, Within
+from backend.features.crawl.judge_advice import JudgeAdvice
 from backend.features.crawl.niche import NicheRow
+
+
+class JudgeAdviceView(BaseModel):
+    """Совет судьи рекламодателей — только у строки, по которой человек уже решил
+    (`crawl/judge_advice.py`): до решения совет тянул бы решение за собой."""
+
+    advice: str
+    #: Правило таблицы словами.
+    words: str
+    link_quote: str
+    target_quote: str
+    disclosure: str
+    prompt_version: str
+    model: str
+    judged_at: datetime
+
+    @classmethod
+    def of(cls, said: JudgeAdvice) -> JudgeAdviceView:
+        return cls(
+            advice=said.advice.value,
+            words=said.words,
+            link_quote=said.link_quote,
+            target_quote=said.target_quote,
+            disclosure=said.disclosure,
+            prompt_version=said.prompt_version,
+            model=said.model,
+            judged_at=said.judged_at,
+        )
 
 
 class CandidateCard(BaseModel):
@@ -38,9 +67,17 @@ class CandidateCard(BaseModel):
     decided_at: datetime | None = None
     #: Ответ на решение: что сказать человеку рядом с ним — «рекламодатель уже ответил».
     warning: str | None = None
+    #: Совет судьи — только после решения человека; до решения — пусто.
+    judge: JudgeAdviceView | None = None
 
     @classmethod
-    def of(cls, row: CandidateModel, *, published: date | None = None) -> CandidateCard:
+    def of(
+        cls,
+        row: CandidateModel,
+        *,
+        published: date | None = None,
+        judge: JudgeAdvice | None = None,
+    ) -> CandidateCard:
         return cls(
             id=row.id,
             donor_host=row.donor_host,
@@ -56,6 +93,9 @@ class CandidateCard(BaseModel):
             confirmed=row.confirmed,
             decided_by=row.decided_by,
             decided_at=row.decided_at,
+            judge=JudgeAdviceView.of(judge)
+            if judge is not None and row.confirmed is not None
+            else None,
         )
 
 

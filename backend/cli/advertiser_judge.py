@@ -120,7 +120,9 @@ def print_plan(plan: JudgePlan) -> None:
         f"  к суду: {spaced(len(plan.ids))} ({verdicts or 'никого'}), из них в выборке {spaced(plan.sampled)}"
     )
     if plan.fresh:
-        print(f"  пропущено со свежим судом той же когорты: {spaced(plan.fresh)}")
+        print(
+            f"  уже судимы (свежий суд нынешней когорты), страницы не открываем: {spaced(plan.fresh)}"
+        )
     if plan.without_page:
         print(f"  пропущено без лучшей страницы: {spaced(plan.without_page)}")
     source = "по истории когорты" if plan.from_history else "запасное число, истории ещё нет"
@@ -147,6 +149,8 @@ def print_report(report: PassReport) -> None:
         print(
             f"  второй вопрос цитате: {spaced(report.retried)}, помог {spaced(report.retry_held)}"
         )
+    if report.judged_before:
+        print(f"  уже судимы раньше, без скачивания: {spaced(report.judged_before)}")
     if report.gone:
         print(f"  кандидата к суду уже не было: {spaced(report.gone)}")
     if report.stopped:

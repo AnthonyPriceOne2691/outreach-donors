@@ -98,6 +98,40 @@ describe('ручная проверка рекламодателей', () => {
     expect(screen.getByText(/Bet now/)).toBeInTheDocument();
   });
 
+  it('совет судьи — только под решением человека', async () => {
+    // Сервер даёт совет только решённой строке (`crawl/judge_advice.py`): до решения он тянул
+    // бы решение за собой, а по решениям меряется и скоринг, и сам судья.
+    const said = {
+      advice: 'skip' as const,
+      words: 'ссылка — источник факта, раскрытия рекламы нет',
+      link_quote: 'according to the report by the agency',
+      target_quote: '',
+      disclosure: '',
+      prompt_version: 'advertiser-judge-v1',
+      model: 'gpt-5-mini',
+      judged_at: '2026-11-03T12:00:00Z',
+    };
+    const decided = { ...CANDIDATE, confirmed: false, decided_by: 'оператор@site.com' };
+    await openScreen({
+      'GET /api/advertisers': {
+        body: {
+          ...QUEUE,
+          rows: [
+            { ...decided, judge: said },
+            { ...CANDIDATE, id: 13, target_root: 'open.example', judge: null },
+          ],
+        },
+      },
+    });
+
+    expect(
+      screen.getByText(
+        'судья: не пишем — ссылка — источник факта, раскрытия рекламы нет · «according to the report by the agency»',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/^судья:/)).toHaveLength(1);
+  });
+
   it('счётчики показывают и отсеянных', async () => {
     await openScreen();
 
