@@ -122,7 +122,7 @@ describe('карточка донора: адрес руками', () => {
     await openCard(
       { ...CARD, contacts: [contact(1, 'ads@card.example.test')] },
       {},
-      { ...OPERATOR, permissions: ['view'] },
+      { ...OPERATOR, permissions: ['donors', 'view'] },
     );
 
     expect(

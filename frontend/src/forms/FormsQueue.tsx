@@ -64,8 +64,8 @@ function Tabs({
   onTab: (tab: FormsTab) => void;
 }) {
   const { can } = useSession();
-  // Без права «Рекламодатели» очередь одна — выбирать не из чего.
-  if (!can('advertisers')) return null;
+  // Без права одного из этапов очередь одна — выбирать не из чего.
+  if (!can('advertisers') || !can('donors')) return null;
   const counts: Record<FormsTab, number | undefined> =
     tab === 'donors' ? { donors: own, advertisers: other } : { donors: other, advertisers: own };
   return (

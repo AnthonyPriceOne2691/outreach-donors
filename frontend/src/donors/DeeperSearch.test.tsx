@@ -137,7 +137,7 @@ describe('карточка донора: «адреса нет» и поиск �
   });
 
   it('без права «запускать прогоны» кнопки нет', async () => {
-    await openCard(NOT_FOUND, {}, { ...OPERATOR, permissions: ['view'] });
+    await openCard(NOT_FOUND, {}, { ...OPERATOR, permissions: ['donors', 'view'] });
 
     expect(screen.queryByRole('button', { name: 'Искать глубже' })).toBeNull();
   });

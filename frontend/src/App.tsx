@@ -79,7 +79,7 @@ export function AppRoutes() {
         <Route
           path="/run"
           element={
-            <RequireAccess permission="view">
+            <RequireAccess permission="donors">
               <RunPage />
             </RequireAccess>
           }
@@ -87,7 +87,7 @@ export function AppRoutes() {
         <Route
           path="/donors"
           element={
-            <RequireAccess permission="view">
+            <RequireAccess permission="donors">
               <DonorsPage />
             </RequireAccess>
           }
@@ -95,7 +95,7 @@ export function AppRoutes() {
         <Route
           path="/donors/reserve"
           element={
-            <RequireAccess permission="view">
+            <RequireAccess permission="donors">
               <ReservePage />
             </RequireAccess>
           }
@@ -103,7 +103,7 @@ export function AppRoutes() {
         <Route
           path="/donors/:id"
           element={
-            <RequireAccess permission="view">
+            <RequireAccess permission="donors">
               <DonorPage />
             </RequireAccess>
           }
@@ -111,7 +111,7 @@ export function AppRoutes() {
         <Route
           path="/runs/:id"
           element={
-            <RequireAccess permission="view">
+            <RequireAccess permission="donors">
               <RunReportPage />
             </RequireAccess>
           }
@@ -119,7 +119,7 @@ export function AppRoutes() {
         <Route
           path="/runs/:id/review"
           element={
-            <RequireAccess permission="view">
+            <RequireAccess permission="donors">
               <RunReviewPage />
             </RequireAccess>
           }
@@ -127,7 +127,7 @@ export function AppRoutes() {
         <Route
           path="/selection"
           element={
-            <RequireAccess permission="view">
+            <RequireAccess permission="donors">
               <SelectionPage />
             </RequireAccess>
           }
@@ -212,7 +212,7 @@ export function AppRoutes() {
         <Route
           path="/usage"
           element={
-            <RequireAccess permission="view">
+            <RequireAccess permission="usage">
               <UsagePage />
             </RequireAccess>
           }

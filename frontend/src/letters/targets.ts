@@ -39,10 +39,12 @@ const STAGE_TWO: StageOption<LetterTarget>[] = [
   { value: 'niche', label: 'Бизнесам ниши' },
 ];
 
-/** Часть из адреса; продаж и незнакомого у экрана писем нет — без части. Без права
- *  «Рекламодатели» адресат один — экран всегда «Письма донорам». */
+/** Часть из адреса; продаж и незнакомого у экрана писем нет — без части. Виден один этап —
+ *  адресат один: без «Рекламодателей» экран всегда «Письма донорам», без «Доноров» — «Письма
+ *  рекламодателям». */
 export function lettersPart(params: URLSearchParams, can: Can): LetterStage | null {
   if (!can('advertisers')) return 'donors';
+  if (!can('donors')) return 'advertisers';
   const part = partOf(params);
   return part === 'donors' || part === 'advertisers' ? part : null;
 }

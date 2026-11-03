@@ -168,7 +168,10 @@ describe('меню группами', () => {
   });
 
   it('без права «Продажи» группы продаж нет вовсе — ни подписи, ни пунктов', async () => {
-    const noSales: Me = { ...OPERATOR, permissions: ['prices', 'run', 'settings', 'view'] };
+    const noSales: Me = {
+      ...OPERATOR,
+      permissions: ['donors', 'prices', 'run', 'settings', 'view'],
+    };
     await open('/', noSales);
 
     await menu().findByRole('group', { name: 'Доноры' });

@@ -26,6 +26,7 @@ from backend.api.keywords.schemas import (
     PoolView,
 )
 from backend.api.review.schemas import KeywordYieldView
+from backend.api.stage_access import STAGE_ONE
 from backend.config import llm as llm_cfg
 from backend.features.core import usage
 from backend.features.core.domain import Permission
@@ -45,7 +46,7 @@ from backend.features.review.keyword_yield import country_yield
 from backend.features.serp import markets
 from backend.shared.net.url_guard import guarded_client
 
-router = APIRouter(prefix="/keywords", tags=["ключи"])
+router = APIRouter(prefix="/keywords", tags=["ключи"], dependencies=[STAGE_ONE])
 
 _runner = Depends(needs(Permission.RUN))
 

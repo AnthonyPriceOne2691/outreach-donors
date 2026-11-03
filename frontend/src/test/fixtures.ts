@@ -1,7 +1,7 @@
 /** Ответы сервера, снятые с живого прогона 19.09.2026. Право `sales` — с 1.5:
  *  у админа всё, у оператора — в роли (решение владельца 01.10); `advertisers` — так же. */
 
-import type { Me, OverviewView, SignedIn, UserCard } from '../api/types';
+import type { Me, OverviewLetters, OverviewView, SignedIn, UserCard } from '../api/types';
 import type { Answer } from './server';
 
 export const ADMIN: Me = {
@@ -10,6 +10,7 @@ export const ADMIN: Me = {
   role: 'admin',
   permissions: [
     'advertisers',
+    'donors',
     'prices',
     'run',
     'sales',
@@ -17,6 +18,7 @@ export const ADMIN: Me = {
     'senders',
     'settings',
     'spend',
+    'usage',
     'users',
     'view',
   ],
@@ -28,18 +30,27 @@ export const OPERATOR: Me = {
   id: 2,
   email: 'оператор@site.com',
   role: 'operator',
-  permissions: ['advertisers', 'prices', 'run', 'sales', 'settings', 'view'],
+  permissions: ['advertisers', 'donors', 'prices', 'run', 'sales', 'settings', 'usage', 'view'],
   must_change_password: false,
   last_login_at: null,
 };
 
-/** Роль «Только доноры»: Этап 1, без рекламодателей и продаж. */
+/** Роль «Аутрич»: Этап 1, без рекламодателей, продаж и расхода. */
 export const DONORS_ONLY: Me = {
   ...OPERATOR,
   id: 4,
   email: 'доноры@site.com',
   role: 'donors',
-  permissions: ['prices', 'run', 'settings', 'view'],
+  permissions: ['donors', 'prices', 'run', 'settings', 'view'],
+};
+
+/** Роль «Рекламодатели»: Этап 2, без доноров, продаж и расхода. */
+export const ADVERTISERS_ONLY: Me = {
+  ...OPERATOR,
+  id: 5,
+  email: 'рекламодатели@site.com',
+  role: 'advertisers',
+  permissions: ['advertisers', 'prices', 'run', 'settings', 'view'],
 };
 
 export const NEWCOMER: Me = {
@@ -60,7 +71,7 @@ export function signedIn(user: Me): SignedIn {
 export const TOKEN_KEY = 'outreach_donors_token';
 
 /** Сводка главной — числа с базы разработки 25.09.2026. */
-export const OVERVIEW: OverviewView = {
+export const OVERVIEW: OverviewView & { letters: { donors: OverviewLetters } } = {
   donors: {
     total: 1065,
     unchecked: 0,

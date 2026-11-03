@@ -28,7 +28,7 @@ export interface NavGroupSpec {
 }
 
 export const NAV_GROUPS: NavGroupSpec[] = [
-  { key: 'donors', title: 'Доноры' },
+  { key: 'donors', title: 'Доноры', permission: 'donors' },
   { key: 'advertisers', title: 'Рекламодатели', permission: 'advertisers' },
   { key: 'sales', title: 'Продажи', permission: 'sales' },
   { key: 'settings', title: 'Настройки' },

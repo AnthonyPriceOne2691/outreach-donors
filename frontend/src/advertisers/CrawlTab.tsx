@@ -335,7 +335,7 @@ function Notices({
       <Troubles data={data} summary={summary} />
       <CrawlBacklog mayDrop={mayDrop} />
       <CrawlNight />
-      {summary ? (
+      {summary && can('donors') ? (
         <StalePrices
           count={summary.counts.price.stale}
           maySend={can('send')}

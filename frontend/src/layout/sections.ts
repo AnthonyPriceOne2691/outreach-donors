@@ -49,7 +49,7 @@ import type { Part } from '../api/stages';
 import type { Permission } from '../api/types';
 import { LETTERS_TITLES } from '../letters/targets';
 import { THREADS_TITLES } from '../threads/threadFilters';
-import type { NavGroupKey } from './NavGroup';
+import type { NavGroupKey, NavGroupSpec } from './NavGroup';
 import type { WorkSection } from './work';
 
 export interface Section {
@@ -198,7 +198,7 @@ export const SECTIONS: Section[] = [
     icon: IconRobot,
     permission: 'view',
   },
-  { path: '/usage', title: 'Расход', group: 'settings', icon: IconReceipt2, permission: 'view' },
+  { path: '/usage', title: 'Расход', group: 'settings', icon: IconReceipt2, permission: 'usage' },
   {
     path: '/senders',
     title: 'Домены рассылки',
@@ -219,6 +219,23 @@ export const SECTIONS: Section[] = [
 
 /** Ключ пункта — его адрес: путь, у части — с `?stage=…`. Он же — адрес пункта, пока
  *  память места пуста, и ключ этой памяти. */
+/**
+ * Пункты при видимых группах (`groups`). Группа «Доноры» есть — всё на своих местах, меню как было.
+ * Без неё (роль «Рекламодатели», 02.11.2026) уходят её пункты, но два общие: «Обзор» встаёт первым
+ * в первую видимую группу, а «Формы» — в группу рекламодателей: в них и очередь Этапа 2.
+ */
+export function placedSections(groups: readonly NavGroupSpec[]): Section[] {
+  const keys = groups.map((group) => group.key);
+  if (keys.includes('donors')) return SECTIONS;
+  return SECTIONS.map((section) => {
+    if (section.path === '/') return { ...section, group: keys[0] ?? section.group };
+    if (section.path === '/forms' && keys.includes('advertisers')) {
+      return { ...section, group: 'advertisers' };
+    }
+    return section;
+  });
+}
+
 export function sectionKey(section: Pick<Section, 'path' | 'part'>): string {
   return section.part === undefined
     ? section.path

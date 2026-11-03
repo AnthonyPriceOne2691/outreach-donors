@@ -139,6 +139,23 @@ class Waiting:
     advertiser_forms: int = 0
 
 
+#: Этапа нет среди видимых: нули, а не ложные «доноров нет» — экран этих блоков не показывает.
+NO_DONORS = DonorCounts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+NO_DECISIONS = standing.Waiting(0, [], 0)
+
+
+@dataclass(frozen=True, slots=True)
+class StageOneWork:
+    """Числа Этапа 1 на главной: воронка, решения в очередях прогонов, формы доноров, последний
+    прогон. По умолчанию — пусто: этапа нет среди видимых."""
+
+    shown: bool = False
+    donors: DonorCounts = NO_DONORS
+    decisions: standing.Waiting = NO_DECISIONS
+    forms: int = 0
+    last_run: RunRow | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class StageTwoWork:
     """Что ждёт человека на Этапе 2: решения на экране «Рекламодатели», из них бизнесов ниши,
@@ -221,27 +238,30 @@ async def overview(
     spending = await SpendingRepository(session).since_month_start(stages=stages, now=moment)
     # Полоса Ahrefs — против капа, и наш расход в ней — за тот же цикл ключа, что у капа.
     cap = await key_cap(session, now=moment)
-    decisions = await standing.waiting(session)
+    # Без права «Доноры» чисел Этапа 1 нет: `_stage_one` не зовёт их правила вовсе.
+    one = await _stage_one(session, threads, stages, moment)
     two = await _stage_two(session, stages)
     return Overview(
-        donors=await _donors(session, threads, moment),
+        donors=one.donors,
         waiting=Waiting(
-            review=decisions.domains,
-            review_runs=decisions.runs,
+            review=one.decisions.domains,
+            review_runs=one.decisions.runs,
             prices=_in_state(threads, ThreadState.NEEDS_REVIEW),
             leads=_in_state(threads, ThreadState.LEAD),
-            forms=await forms.total(session) + two.forms,
+            forms=one.forms + two.forms,
             advertisers=two.decisions,
             niche=two.niche,
             advertiser_forms=two.forms,
         ),
         letters=await _letters(session, stages),
-        last_run=await _last_run(session),
-        ahrefs_units=cap.spent,
-        ahrefs_cap=cap.units_cap,
+        last_run=one.last_run,
+        ahrefs_units=cap.spent if one.shown else 0,
+        ahrefs_cap=cap.units_cap if one.shown else None,
         ahrefs_since=cap.cycle.start,
         ahrefs_by_key=cap.cycle.by_key,
-        serp_usd=spending.amount_by_provider.get(UsageProvider.SERP, Decimal(0)),
+        serp_usd=spending.amount_by_provider.get(UsageProvider.SERP, Decimal(0))
+        if one.shown
+        else Decimal(0),
         unbound_replies=await unbound.total(session, stages=stages),
     )
 
@@ -252,13 +272,33 @@ async def work(session: AsyncSession, *, stages: Collection[Stage]) -> Work:
     threads = await OutreachRepository(session).states(stages=stages)
     waiting = Counter(mark.stage for mark in threads if mark.state in WAITS_FOR_PERSON)
     two = await _stage_two(session, stages)
+    seen = Stage.DONORS in stages
     return Work(
-        run=(await standing.waiting(session)).domains,
+        run=(await standing.waiting(session)).domains if seen else 0,
         donor_threads=waiting[Stage.DONORS],
         advertiser_threads=waiting[Stage.ADVERTISERS],
         sales_threads=waiting[Stage.SALES],
-        forms=await forms.total(session) + two.forms,
+        forms=(await forms.total(session) if seen else 0) + two.forms,
         advertisers=two.decisions,
+    )
+
+
+async def _stage_one(
+    session: AsyncSession,
+    threads: Sequence[ThreadMark],
+    stages: Collection[Stage],
+    now: datetime,
+) -> StageOneWork:
+    """Числа Этапа 1 на главной — пусто, если этапа нет среди видимых (`stages`): без права
+    «Доноры» нет ни воронки, ни очередей прогонов, ни форм доноров, ни последнего прогона."""
+    if Stage.DONORS not in stages:
+        return StageOneWork()
+    return StageOneWork(
+        shown=True,
+        donors=await _donors(session, threads, now),
+        decisions=await standing.waiting(session),
+        forms=await forms.total(session),
+        last_run=await _last_run(session),
     )
 
 

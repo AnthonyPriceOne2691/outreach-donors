@@ -29,7 +29,7 @@ from backend.api.rechecks.schemas import (
     RechecksView,
     SamePriceCard,
 )
-from backend.api.stage_access import on_reply
+from backend.api.stage_access import STAGE_ONE, on_reply
 from backend.config import filters
 from backend.config import outreach as outreach_cfg
 from backend.features.access.permissions import visible_stages
@@ -39,7 +39,7 @@ from backend.features.letters import price_recheck, recheck_answer
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport_factory import Transports, in_use
 
-router = APIRouter(prefix="/price-rechecks", tags=["перезапрос цены"])
+router = APIRouter(prefix="/price-rechecks", tags=["перезапрос цены"], dependencies=[STAGE_ONE])
 
 _viewer = Depends(needs(Permission.VIEW))
 _sender = Depends(needs(Permission.SEND))

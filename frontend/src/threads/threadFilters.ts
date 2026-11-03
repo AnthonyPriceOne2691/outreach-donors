@@ -79,12 +79,21 @@ export const NO_THREAD_FILTERS: ThreadFilters = { part: null, role: null, state:
 
 export const THREAD_STATE_KEYS = Object.keys(THREAD_STATES) as ThreadState[];
 
+/** Часть, когда адрес её не назвал: видны доноры и рекламодатели — оба вместе, без части; виден
+ *  один из них — экран сразу в нём; ни одного — в продажах. Учётка с одними продажами иначе
+ *  открывала бы пустые «Диалоги с донорами» (сверка продаж 03.11.2026). */
+function soleStage(can: Can): Part | null {
+  const mail = (['donors', 'advertisers'] as const).filter((part) => stageShown(part, can));
+  if (mail.length === 1) return mail[0] ?? null;
+  return mail.length === 0 && stageShown('sales', can) ? 'sales' : null;
+}
+
 /** Фильтры из адреса. `can` — права сессии: без права состояния и часть этапа не сужают. */
 export function readThreadFilters(params: URLSearchParams, can: Can): ThreadFilters {
   const state = params.get('state');
   const named = partOf(params);
   const shown = named !== null && stageShown(named, can) ? named : null;
-  const part = shown ?? (can('advertisers') ? null : 'donors');
+  const part = shown ?? soleStage(can);
   return {
     part,
     role: part === null ? roleOf(params.get(ROLE_PARAM)) : null,

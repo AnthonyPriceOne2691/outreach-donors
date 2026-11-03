@@ -315,6 +315,7 @@ async def _runs_stuck(session: AsyncSession, moment: datetime) -> Alarm | None:
     return Alarm(
         code="runs-stuck",
         title="Прогон идёт, но молчит",
+        stage=Stage.DONORS,
         detail=(
             f"{stuck} прогонов не подавали признаков жизни дольше "
             f"{RUN_SILENCE_MINUTES} минут. Их должен разобрать отдельный процесс; "

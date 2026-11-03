@@ -20,6 +20,7 @@ import { Box, Group, Stack, Text, Title } from '@mantine/core';
 import type { ReactNode } from 'react';
 
 import type { Part } from '../api/stages';
+import { useSession } from '../auth/AuthProvider';
 import { InfoHint } from '../components/InfoHint';
 import { formatNumber } from '../format';
 import { ParseCalibration } from './ParseCalibration';
@@ -39,6 +40,7 @@ interface Props {
 }
 
 export function ThreadsTitle({ total, found, part, compact = false, aside }: Props) {
+  const { can } = useSession();
   return (
     <Group gap="sm" align="center" style={{ rowGap: 4 }}>
       <Title order={compact ? 4 : 3}>{part === null ? 'Диалоги' : THREADS_TITLES[part]}</Title>
@@ -58,7 +60,7 @@ export function ThreadsTitle({ total, found, part, compact = false, aside }: Pro
               Состояние диалога считается по последнему событию: автоответчик ответом не считается,
               а отказ доставки останавливает цепочку и метит контакт.
             </Text>
-            <ParseCalibration inherit />
+            {can('donors') ? <ParseCalibration inherit /> : null}
           </Stack>
         </InfoHint>
       </Group>

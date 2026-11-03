@@ -47,7 +47,7 @@ import { FOLDED_WIDTH, useNavFold } from './navFold';
 import { NavMenu } from './NavMenu';
 import { navbarWidth } from './navWidth';
 import { NAV_GROUPS } from './NavGroup';
-import { SECTIONS } from './sections';
+import { placedSections } from './sections';
 import { useSectionPlaces } from './sectionPlace';
 import { followScroll } from './shellLift';
 import { useSplit, workKey } from './split';
@@ -97,11 +97,12 @@ export function Shell() {
   // рисовалось бы развёрнутым и сворачивалось на глазах (как `useSplit`).
   const beside = useMediaQuery(BESIDE, false, { getInitialValueInEffect: false }) === true;
   const folded = foldedChoice && beside;
-  // Группа без права — без своих пунктов (продажи без «Продаж», Этап 2 без «Рекламодателей»).
+  // Группа без права — без своих пунктов (продажи без «Продаж», Этап 2 без «Рекламодателей»,
+  // Этап 1 без «Доноров»); общие пункты её группы встают в видимую (`placedSections`).
   const groups = NAV_GROUPS.filter(
     (group) => group.permission === undefined || can(group.permission),
   );
-  const sections = SECTIONS.filter(
+  const sections = placedSections(groups).filter(
     (section) =>
       (section.permission === undefined || can(section.permission)) &&
       groups.some((group) => group.key === section.group),

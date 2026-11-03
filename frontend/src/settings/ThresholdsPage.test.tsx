@@ -257,7 +257,7 @@ describe('пороги', () => {
   it('без права на пороги правка закрыта, а история видна', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({
-      'GET /api/auth/me': { body: { ...OPERATOR, permissions: ['view'] } },
+      'GET /api/auth/me': { body: { ...OPERATOR, permissions: ['donors', 'view'] } },
       'GET /api/settings/thresholds': { body: VIEW },
     });
     renderWith(<AppRoutes />, '/settings');
