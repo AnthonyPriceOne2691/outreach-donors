@@ -74,10 +74,15 @@ export function attention(count: number): string | undefined {
 }
 
 /** Формы ждут у доноров и рекламодателей (сверка ТЗ 11.10.2026): рекламодатели названы,
- *  чтобы «и N с формой» в воронке доноров сходилось с донорской частью числа. */
-function formsHint({ forms, advertiser_forms: advertisers = 0 }: OverviewWaiting): string {
+ *  чтобы «и N с формой» в воронке доноров сходилось с донорской частью числа. Части — только
+ *  тому, кто видит оба этапа: роли одного этапа сервер считает лишь его формы, и «доноров 0»
+ *  у роли «Рекламодатели» читалось бы как пустая очередь доноров, а не как закрытая (03.11.2026). */
+function formsHint(
+  { forms, advertiser_forms: advertisers = 0 }: OverviewWaiting,
+  bothStages: boolean,
+): string {
   if (forms === 0) return 'форм в очереди нет';
-  if (advertisers === 0) return 'у сайта форма вместо адреса';
+  if (!bothStages || advertisers === 0) return 'у сайта форма вместо адреса';
   return `доноров ${formatNumber(forms - advertisers)} · рекламодателей ${formatNumber(advertisers)}`;
 }
 
@@ -127,7 +132,7 @@ export function WaitingSection({ waiting }: { waiting: OverviewWaiting }) {
         <Metric
           title="Заполнить формы"
           value={formatNumber(waiting.forms)}
-          hint={formsHint(waiting)}
+          hint={formsHint(waiting, stageOne && stageTwo)}
           color={attention(waiting.forms)}
           to="/forms"
         />
