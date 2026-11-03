@@ -1507,9 +1507,9 @@
       "worst": "known:79"
     },
     "backend/features/crawl/judge_text.py": {
-      "lines": 307,
+      "lines": 309,
       "complexity": 7,
-      "worst": "gather:286"
+      "worst": "gather:288"
     },
     "backend/features/crawl/launch.py": {
       "lines": 96,
