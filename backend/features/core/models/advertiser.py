@@ -122,3 +122,57 @@ class CandidateMemoryModel(TimestampedMixin, CarriedMixin, Base):
     __table_args__ = (
         UniqueConstraint("donor_host", "target_root", name="uq_candidate_memory_pair"),
     )
+
+
+class AdvertiserJudgementModel(TimestampedMixin, Base):
+    """Суд модели о спорном кандидате: факты с цитатами и совет таблицы правил (`crawl/judge.py`).
+
+    **Без внешних ключей**, как память донора: суд — о паре «донор + домен», а пересчёт весов и
+    повтор обхода стирают и заводят строки кандидатов заново (`crawl/gate.py`). Ключ кандидата
+    терял бы суд на каждом пересчёте, и модель спрашивали бы второй раз за то же.
+
+    **Ключ — пара, что видел судья, и когорта фактов**: отпечаток контекста (`context_print`) —
+    правка статьи или главной даёт новый вопрос; когорта — версия и отпечаток подсказки, отпечаток
+    примеров и модель. Таблица правил в ключ не входит: совет ставит код по фактам, и правка
+    таблицы пересчитывает его без модели (`judge_store.relabel`) — `rules_version` говорит, какой
+    таблицей поставлен нынешний совет.
+
+    Отказ модели, обрезанный ответ, не та форма и ненайденная цитата строки не создают: это не суд,
+    и следующий проход спросит снова.
+    """
+
+    __tablename__ = "advertiser_judgements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    donor_host: Mapped[str] = mapped_column(String(255), nullable=False)
+    target_root: Mapped[str] = mapped_column(String(255), nullable=False)
+    context_print: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_print: Mapped[str] = mapped_column(String(16), nullable=False)
+    examples_print: Mapped[str] = mapped_column(String(16), nullable=False)
+    model: Mapped[str] = mapped_column(String(64), nullable=False)
+    rules_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Факты после проверки кодом: только доказанное цитатой (`judge_facts.LinkFacts.as_json`).
+    facts: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    advice: Mapped[str] = mapped_column(String(16), nullable=False)
+    rule: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Что видела модель — строками с подписями (`judge_text.JudgeText.for_model`).
+    seen: Mapped[str] = mapped_column(Text, nullable=False)
+    language: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    donor_niche: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retried: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # Индекса по паре нет: пара — начало уникального ключа, выборку по ней база ведёт им.
+    __table_args__ = (
+        UniqueConstraint(
+            "donor_host",
+            "target_root",
+            "context_print",
+            "prompt_version",
+            "prompt_print",
+            "examples_print",
+            "model",
+            name="uq_advertiser_judgements_key",
+        ),
+    )
