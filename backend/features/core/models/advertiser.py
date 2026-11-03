@@ -163,6 +163,7 @@ class AdvertiserJudgementModel(TimestampedMixin, Base):
     tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     retried: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    # Индекса по паре нет: пара — начало уникального ключа, выборку по ней база ведёт им.
     __table_args__ = (
         UniqueConstraint(
             "donor_host",
@@ -174,5 +175,4 @@ class AdvertiserJudgementModel(TimestampedMixin, Base):
             "model",
             name="uq_advertiser_judgements_key",
         ),
-        Index("idx_advertiser_judgements_pair", "donor_host", "target_root"),
     )

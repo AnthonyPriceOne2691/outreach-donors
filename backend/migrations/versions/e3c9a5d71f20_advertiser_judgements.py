@@ -66,12 +66,11 @@ def upgrade() -> None:
         sa.Column("retried", sa.Boolean(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), **stamp),
         sa.Column("updated_at", sa.DateTime(timezone=True), **stamp),
+        # Пара — начало ключа: выборку по ней база обслуживает уникальным индексом, своего не нужно.
         sa.UniqueConstraint(*KEY, name="uq_advertiser_judgements_key"),
     )
-    op.create_index("idx_advertiser_judgements_pair", TABLE, list(KEY[:2]))
 
 
 def downgrade() -> None:
     """Снять суд: прежний код его не читает."""
-    op.drop_index("idx_advertiser_judgements_pair", table_name=TABLE)
     op.drop_table(TABLE)
