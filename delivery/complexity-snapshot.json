@@ -42,14 +42,14 @@
       "worst": "accepted:137"
     },
     "backend/api/advertisers/routes.py": {
-      "lines": 375,
+      "lines": 381,
       "complexity": 5,
-      "worst": "decide:123"
+      "worst": "decide:128"
     },
     "backend/api/advertisers/schemas.py": {
-      "lines": 253,
-      "complexity": 3,
-      "worst": "of:43"
+      "lines": 293,
+      "complexity": 5,
+      "worst": "of:74"
     },
     "backend/api/agent/__init__.py": {
       "lines": 1,
@@ -706,10 +706,15 @@
       "complexity": 3,
       "worst": "cmd_user_add:31"
     },
+    "backend/cli/advertiser_judge.py": {
+      "lines": 191,
+      "complexity": 11,
+      "worst": "print_report:133"
+    },
     "backend/cli/advertisers.py": {
-      "lines": 393,
+      "lines": 410,
       "complexity": 9,
-      "worst": "cmd_advertisers:163"
+      "worst": "cmd_advertisers:167"
     },
     "backend/cli/contact_refind.py": {
       "lines": 95,
@@ -787,9 +792,9 @@
       "worst": "_report:218"
     },
     "backend/cli/main.py": {
-      "lines": 500,
+      "lines": 494,
       "complexity": 9,
-      "worst": "_print_report:276"
+      "worst": "_print_report:272"
     },
     "backend/cli/probe_advertiser.py": {
       "lines": 93,
@@ -912,9 +917,9 @@
       "worst": "—"
     },
     "backend/config/llm.py": {
-      "lines": 147,
+      "lines": 158,
       "complexity": 2,
-      "worst": "_unset_if_empty:95"
+      "worst": "_unset_if_empty:100"
     },
     "backend/config/observability.py": {
       "lines": 21,
@@ -1352,9 +1357,9 @@
       "worst": "check_connected:131"
     },
     "backend/features/core/usage.py": {
-      "lines": 414,
+      "lines": 418,
       "complexity": 8,
-      "worst": "ensure_llm_within_cap:280"
+      "worst": "ensure_llm_within_cap:284"
     },
     "backend/features/core/window.py": {
       "lines": 201,
@@ -1486,6 +1491,11 @@
       "complexity": 9,
       "worst": "judge_seen:128"
     },
+    "backend/features/crawl/judge_advice.py": {
+      "lines": 85,
+      "complexity": 8,
+      "worst": "after_decision:62"
+    },
     "backend/features/crawl/judge_client.py": {
       "lines": 294,
       "complexity": 6,
@@ -1495,6 +1505,11 @@
       "lines": 256,
       "complexity": 9,
       "worst": "_broken:132"
+    },
+    "backend/features/crawl/judge_pass.py": {
+      "lines": 377,
+      "complexity": 9,
+      "worst": "plan_pass:172"
     },
     "backend/features/crawl/judge_rules.py": {
       "lines": 107,
@@ -2260,6 +2275,11 @@
       "lines": 91,
       "complexity": 3,
       "worst": "spent:68"
+    },
+    "backend/features/ops/limit_judge.py": {
+      "lines": 63,
+      "complexity": 2,
+      "worst": "_now:31"
     },
     "backend/features/ops/limit_mail.py": {
       "lines": 270,

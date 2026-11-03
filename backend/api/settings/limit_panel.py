@@ -31,7 +31,7 @@ from backend.features.core.limit_rows import (
     Quote,
     RowSource,
 )
-from backend.features.ops import limit_ahrefs, limit_mail, limit_model, limit_services
+from backend.features.ops import limit_ahrefs, limit_judge, limit_mail, limit_model, limit_services
 from backend.features.sales import limits as sales_limits
 from backend.shared.numbers import spaced
 
@@ -49,7 +49,7 @@ TASKS = ("Продажи", "Аутрич")
 EDITABLE: tuple[LimitSource, ...] = (sales_limits, limit_model, limit_ahrefs)
 
 #: Источники только для чтения: у модуля одна функция `rows`.
-READ_ONLY: tuple[RowSource, ...] = (limit_mail, limit_services)
+READ_ONLY: tuple[RowSource, ...] = (limit_mail, limit_services, limit_judge)
 
 #: Этап строки — по началу ключа; не названо — строка общая. Общий потолок модели — этапом продаж:
 #: его выбранное — сумма всех частей, и расход продаж виден был бы вычитанием.

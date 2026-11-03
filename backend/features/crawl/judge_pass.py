@@ -335,6 +335,9 @@ async def _chunk(
     try:
         await within_caps(session)
     except LlmCapExceededError as exc:
+        logger.warning(
+            "судья рекламодателей: потолок модели — проход встаёт", extra={"why": str(exc)}
+        )
         report.stopped = str(exc)
         report.left += len(ids)
         return
