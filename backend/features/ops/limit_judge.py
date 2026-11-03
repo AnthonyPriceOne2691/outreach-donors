@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from backend.config import llm as llm_cfg
+from backend.features.core import llm_caps
 from backend.features.core.limit_rows import LimitRow
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.core.usage import SYSTEM
@@ -29,6 +30,12 @@ SETTING = "ADVERTISER_JUDGE_DAILY_TOKEN_CAP"
 
 
 def _now(cap: int) -> str:
+    # Опечатка в настройке: без сохранённого блока проход отказывает (`usage._readable`), с ним —
+    # держит лимит части. Строка говорит то же, что проход, — как строки модели (`limit_model`).
+    if SETTING in llm_cfg.UNREAD_CAPS:
+        if llm_caps.block() is None:
+            return "Настройка потолка не прочитана: проход отказывает, пока её не поправят"
+        return "Настройка потолка не прочитана: своего потолка нет, проход держит лимит «Аутрич»"
     if not cap:
         return "Своего потолка нет: проход держат лимит части «Аутрич» и общий потолок модели"
     return (
