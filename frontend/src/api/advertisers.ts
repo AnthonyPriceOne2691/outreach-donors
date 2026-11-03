@@ -44,19 +44,53 @@ export interface VerdictDecisions {
   skip: number;
 }
 
+/** Вывод о доле против допуска — по её границам (`crawl/accuracy.Within`): в допуске, вне
+ *  допуска, не доказано или решений нет. */
+export type Within = 'within' | 'outside' | 'unproven' | 'unmeasured';
+
+/** Доля «не пишем» среди решённых строк случайной выборки (`crawl/accuracy.Share`). `share`,
+ *  `low` и `high` пусты — решений нет. `to_go` — сколько решений без «не пишем» ещё нужно для
+ *  «в допуске»; пусто, когда вывод уже есть. `left` — нерешённых строк выборки. */
+export interface SampleShare extends VerdictDecisions {
+  left: number;
+  share: number | null;
+  /** Нижняя граница доли, односторонняя 95 %. */
+  low: number | null;
+  /** Верхняя граница доли, односторонняя 95 %. */
+  high: number | null;
+  within: Within;
+  to_go: number | null;
+}
+
 /** Скоринг против человека (`crawl/accuracy.py`): доля ложных среди решённых «куплено»
- *  случайной выборки и допуск ТЗ — от сервера, а не копией числа в экране. `false_share`
- *  пусто — решённых в выборке нет; `within_limit` пусто — решений меньше `min_decisions`
- *  и вывода нет. Какие строки очереди в выборке, сервер не говорит. */
+ *  случайной выборки, ошибка базы «писать всем спорным» по выборке спорных и допуск ТЗ — от
+ *  сервера, а не копией числа в экране. Какие строки очереди в выборке, сервер не говорит. */
 export interface ScoringCheck {
   bought: VerdictDecisions;
   pending: VerdictDecisions;
-  sample: VerdictDecisions;
-  false_share: number | null;
+  /** «Куплено» случайной выборки — доля ложных рекламодателей. */
+  bought_sample: SampleShare;
+  /** Спорные случайной выборки — доля «не пишем», ошибка базы «писать всем спорным». */
+  pending_sample: SampleShare;
   false_limit: number;
-  within_limit: boolean | null;
-  /** С какой выборки доле верят — та же, что у точности судьи Этапа 1. */
-  min_decisions: number;
+}
+
+/** Срез выборки спорных: строк в нём и решения по ним. Ключ балла — сам балл. */
+export interface Stratum extends VerdictDecisions {
+  key: string;
+  title: string;
+}
+
+/** Выборка спорных по баллу, признаку скоринга и нише донора (`crawl/strata.py`). */
+export interface DisputedStrata {
+  points: Stratum[];
+  features: Stratum[];
+  niches: Stratum[];
+}
+
+/** Разбивка выборки спорных — своим запросом: экран спрашивает её, когда её раскрыли. */
+export function fetchDisputedStrata(): Promise<DisputedStrata> {
+  return request<DisputedStrata>('/advertisers/pending/strata');
 }
 
 /** Очередь проверки с долей ложных (сверка ТЗ 11.10.2026). Нет поля — сервер старше экрана. */

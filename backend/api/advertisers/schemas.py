@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
-from backend.features.crawl.accuracy import FALSE_LIMIT, MIN_DECISIONS, Decisions, ScoringCheck
+from backend.features.crawl.accuracy import FALSE_LIMIT, Decisions, ScoringCheck, Share, Within
 from backend.features.crawl.niche import NicheRow
 
 
@@ -77,33 +77,62 @@ class VerdictDecisions(BaseModel):
         )
 
 
+class ShareView(BaseModel):
+    """Доля «не пишем» среди решённых строк случайной выборки (`crawl/accuracy.Share`): границы
+    и вывод против допуска — от сервера, экран их не пересчитывает. `share`, `low` и `high`
+    пусты — решений нет. `to_go` — сколько решений без «не пишем» ещё нужно для «в допуске»;
+    пусто, когда вывод уже есть. `left` — нерешённых строк выборки: больше них не решить."""
+
+    total: int
+    decided: int
+    write: int
+    skip: int
+    left: int
+    share: float | None
+    low: float | None
+    high: float | None
+    within: Within
+    to_go: int | None
+
+    @classmethod
+    def of(cls, share: Share) -> ShareView:
+        decisions = share.decisions
+        return cls(
+            total=decisions.total,
+            decided=decisions.decided,
+            write=decisions.write,
+            skip=decisions.skip,
+            left=decisions.left,
+            share=share.share,
+            low=share.low,
+            high=share.high,
+            within=share.within,
+            to_go=share.to_go,
+        )
+
+
 class ScoringCheckView(BaseModel):
-    """Скоринг против человека (`crawl/accuracy.py`): доля ложных среди решённых
-    «куплено» случайной выборки (`sample`) и допуск требования рядом — экран сравнивает
-    их, а не держит свою копию десяти процентов. `false_share` пусто — решённых в
-    выборке нет, мерить нечем. Какие кандидаты в выборке, ответ не говорит: человек
-    их не отличает."""
+    """Скоринг против человека (`crawl/accuracy.py`): доля ложных среди решённых «куплено»
+    случайной выборки, ошибка базы «писать всем спорным» по выборке спорных и допуск
+    требования рядом — экран сравнивает их, а не держит свою копию десяти процентов. Какие
+    кандидаты в выборке, ответ не говорит: человек их не отличает."""
 
     bought: VerdictDecisions
     pending: VerdictDecisions
-    sample: VerdictDecisions
-    false_share: float | None
+    #: «Куплено» случайной выборки — доля ложных рекламодателей.
+    bought_sample: ShareView
+    #: Спорные случайной выборки — доля «не пишем», ошибка базы «писать всем спорным».
+    pending_sample: ShareView
     false_limit: float
-    #: В допуске ли доля; пусто — решений меньше `min_decisions` и вывода нет.
-    within_limit: bool | None
-    #: С какой выборки доле верят — та же, что у точности судьи Этапа 1.
-    min_decisions: int
 
     @classmethod
     def of(cls, check: ScoringCheck) -> ScoringCheckView:
         return cls(
             bought=VerdictDecisions.of(check.of(Verdict.BOUGHT)),
             pending=VerdictDecisions.of(check.of(Verdict.PENDING)),
-            sample=VerdictDecisions.of(check.sample),
-            false_share=check.false_share,
+            bought_sample=ShareView.of(check.bought),
+            pending_sample=ShareView.of(check.disputed),
             false_limit=FALSE_LIMIT,
-            within_limit=check.within_limit,
-            min_decisions=MIN_DECISIONS,
         )
 
 

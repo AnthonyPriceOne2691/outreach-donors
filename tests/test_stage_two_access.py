@@ -96,6 +96,7 @@ NAMED_ROUTES = {
     ("GET", "/api/advertisers/panel/quality/hosts"),
     ("GET", "/api/advertisers/panel/mailing"),
     ("GET", "/api/advertisers/pending/export"),
+    ("GET", "/api/advertisers/pending/strata"),
     ("POST", "/api/donors/import"),
     ("POST", "/api/crawls/deep"),
     ("GET", "/api/crawls/night"),

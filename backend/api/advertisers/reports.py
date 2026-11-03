@@ -27,6 +27,7 @@ from backend.api.advertisers.report_schemas import (
     AdvertiserQuery,
     DonorAcceptance,
     FindingsView,
+    StrataView,
     TallyView,
 )
 from backend.api.crawls.schemas import CrawlRow
@@ -34,7 +35,7 @@ from backend.api.deps import db_session, needs
 from backend.config import crawl as crawl_cfg
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
-from backend.features.crawl import acceptance, advertiser_list, board, disputed_export
+from backend.features.crawl import acceptance, advertiser_list, board, disputed_export, strata
 from backend.features.crawl.advertiser_export import EXPORT_LIMIT, to_csv
 
 router = APIRouter()
@@ -119,6 +120,17 @@ async def export_pending(
             "X-Export-Asked": str(total),
         },
     )
+
+
+@router.get("/pending/strata", response_model=StrataView, summary="Выборка спорных по срезам")
+async def pending_strata(
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> StrataView:
+    """Спорные случайной выборки по баллу, признаку скоринга и нише донора: где база «писать
+    всем спорным» ошибается. Своим маршрутом, а не в ответе очереди: экран спрашивает её,
+    когда человек раскрыл разбивку, а не на каждое решение."""
+    return StrataView.of(await strata.disputed_strata(session))
 
 
 @router.get("/acceptance", response_model=AcceptanceView, summary="Приёмка по донорам")

@@ -32,7 +32,9 @@
  * работы (слово владельца 13.10.2026): перевод и поиск адресов — после всех решений выше.
  *
  * **Доля ложных — в шапке очереди, с допуском ТЗ** (`FalseShare`, сверка ТЗ
- * 11.10.2026): ради неё экран и сделан, а до этого её не было нигде.
+ * 11.10.2026): ради неё экран и сделан, а до этого её не было нигде. Рядом — доля «не пишем»
+ * среди спорных выборки, ошибка базы «писать всем спорным», и под спорными — её разбивка по
+ * баллу, признаку и нише (`DisputedStrata`, замер спорных 02.11.2026).
  *
  * **Виды — переключателем вверху** (`AdvertiserViews`): панель (`AdvertiserPanel`, вид по
  * умолчанию с 02.11.2026), проверка (всё выше, таблица очереди — `CandidatesTable`), все
@@ -72,6 +74,7 @@ import { useAdvertiserView, ViewSwitch } from './AdvertiserViews';
 import { CandidatesTable, VERDICTS } from './CandidatesTable';
 import { CrawlSummary } from './CrawlSummary';
 import { CrawlTab } from './CrawlTab';
+import { DisputedStrata } from './DisputedStrata';
 import { FalseShare } from './FalseShare';
 import { NicheQueue } from './NicheQueue';
 import { PendingExport } from './PendingExport';
@@ -218,9 +221,12 @@ function ReviewView({ onOpenCrawl }: { onOpenCrawl: () => void }) {
           </Group>
           {data?.scoring !== undefined ? <FalseShare check={data.scoring} /> : null}
           {verdict === 'pending' ? (
-            <Group>
-              <PendingExport total={counts['pending'] ?? 0} />
-            </Group>
+            <>
+              <Group>
+                <PendingExport total={counts['pending'] ?? 0} />
+              </Group>
+              <DisputedStrata />
+            </>
           ) : null}
           <Group justify="space-between" align="center">
             <Text size="sm">
