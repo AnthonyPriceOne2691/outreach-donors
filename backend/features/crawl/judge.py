@@ -114,9 +114,14 @@ def judged_of(said: Said) -> Judged:
     )
 
 
-async def decide(client: JudgeClient, link: Link, text: JudgeText) -> Judged:
-    """Суд по готовому тексту — без базы и без кэша: так его меряет eval на наборе."""
-    said = await client.judge(user=user_message(link, text), text=text, host=link.target)
+async def decide(
+    client: JudgeClient, link: Link, text: JudgeText, *, system: str | None = None
+) -> Judged:
+    """Суд по готовому тексту — без базы и без кэша: так его меряет eval на наборе (`system` —
+    подсказка порчи)."""
+    said = await client.judge(
+        user=user_message(link, text), text=text, host=link.target, system=system
+    )
     return judged_of(said)
 
 
@@ -128,7 +133,12 @@ async def judge_seen(
     client: JudgeClient,
     now: datetime | None = None,
 ) -> Judged:
-    """Суд по тому, что судья увидел: факты из кэша — совет заново таблицей; нет — модель."""
+    """Суд по тому, что судья увидел: судить нечем — почему; факты из кэша — совет заново
+    таблицей; нет — модель."""
+    if seen.denied:
+        return Judged(Outcome.DENIED, words=seen.denied)
+    if seen.blind or seen.text.empty:
+        return Judged(Outcome.BLIND, words=seen.blind or "читать нечего")
     moment = now or datetime.now(UTC)
     user = user_message(case_.link, seen.text)
     context = fingerprint(user)
@@ -171,10 +181,6 @@ async def judge_case(
     seen = await gather(
         http, page_url=case_.page_url, target_root=case_.link.target, anchor=case_.link.anchor
     )
-    if seen.denied:
-        return Judged(Outcome.DENIED, words=seen.denied)
-    if seen.blind:
-        return Judged(Outcome.BLIND, words=seen.blind)
     return await judge_seen(session, case_, seen, client=client, now=now)
 
 

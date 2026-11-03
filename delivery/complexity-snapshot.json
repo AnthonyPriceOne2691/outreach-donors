@@ -912,9 +912,9 @@
       "worst": "—"
     },
     "backend/config/llm.py": {
-      "lines": 140,
+      "lines": 147,
       "complexity": 2,
-      "worst": "_unset_if_empty:89"
+      "worst": "_unset_if_empty:95"
     },
     "backend/config/observability.py": {
       "lines": 21,
@@ -1267,7 +1267,7 @@
       "worst": "refusal:214"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 119,
+      "lines": 124,
       "complexity": 0,
       "worst": "—"
     },
@@ -1282,7 +1282,7 @@
       "worst": "—"
     },
     "backend/features/core/models/advertiser.py": {
-      "lines": 125,
+      "lines": 179,
       "complexity": 0,
       "worst": "—"
     },
@@ -1480,6 +1480,36 @@
       "lines": 106,
       "complexity": 4,
       "worst": "verdict:85"
+    },
+    "backend/features/crawl/judge.py": {
+      "lines": 219,
+      "complexity": 9,
+      "worst": "judge_seen:128"
+    },
+    "backend/features/crawl/judge_client.py": {
+      "lines": 296,
+      "complexity": 6,
+      "worst": "marks_of:112"
+    },
+    "backend/features/crawl/judge_facts.py": {
+      "lines": 256,
+      "complexity": 9,
+      "worst": "_broken:132"
+    },
+    "backend/features/crawl/judge_rules.py": {
+      "lines": 107,
+      "complexity": 5,
+      "worst": "_paid:66"
+    },
+    "backend/features/crawl/judge_store.py": {
+      "lines": 191,
+      "complexity": 4,
+      "worst": "known:79"
+    },
+    "backend/features/crawl/judge_text.py": {
+      "lines": 307,
+      "complexity": 7,
+      "worst": "gather:286"
     },
     "backend/features/crawl/launch.py": {
       "lines": 96,
@@ -3755,6 +3785,11 @@
       "lines": 491,
       "complexity": 14,
       "worst": "collect:404"
+    },
+    "scripts/eval_advertiser_judge.py": {
+      "lines": 270,
+      "complexity": 19,
+      "worst": "total:188"
     },
     "scripts/eval_judge.py": {
       "lines": 170,

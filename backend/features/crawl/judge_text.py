@@ -4,7 +4,7 @@
 02.11.2026). В `outlinks` есть адрес, анкор и пометки ссылки, но нет текста вокруг неё: хранить его
 у сотен тысяч ссылок ради малой доли спорных — сотни мегабайт рядом с правилом «сырой HTML не
 храним», а у собранных спорных текста нет всё равно. Поэтому судья открывает лучшую страницу
-кандидата сам — только бесплатными уровнями каскада (`fetch.PageCascade` без журнала расхода,
+кандидата сам — только обычным запросом каскада (`fetch.PageCascade` без журнала расхода, браузера,
 прокси и сервиса рендеринга), — и главную домена общим разбором главной (`donors/home_signals`):
 два запроса на строку, денег ноль.
 
@@ -266,9 +266,12 @@ def home_lines(home: HomeSignals | None) -> list[Line]:
 
 
 async def _page(http: httpx.AsyncClient, page_url: str) -> tuple[str | None, Page | None]:
-    """Страница донора только бесплатными уровнями каскада: без журнала расхода платные уровни не
-    зовутся (`fetch.PageCascade._allowed`), прокси и сервиса рендеринга у него нет вовсе."""
-    cascade = PageCascade(http, proxies=ProxyPool(()), render=None, spending=None)
+    """Страница донора только обычным запросом каскада: без журнала расхода платные уровни не
+    зовутся (`fetch.PageCascade._allowed`), прокси и сервиса рендеринга у него нет вовсе, браузера —
+    тоже: страница, закрытая от обычного запроса, — `denied`, её решает человек."""
+    cascade = PageCascade(
+        http, browser_enabled=False, proxies=ProxyPool(()), render=None, spending=None
+    )
     try:
         result = await cascade.get(page_url)
     finally:
