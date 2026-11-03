@@ -3807,9 +3807,9 @@
       "worst": "_checked:39"
     },
     "scripts/eval_sales_segment_stats.py": {
-      "lines": 72,
+      "lines": 58,
       "complexity": 7,
-      "worst": "paired:53"
+      "worst": "paired:39"
     },
     "scripts/eval_topic.py": {
       "lines": 377,
