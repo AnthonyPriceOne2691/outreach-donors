@@ -1,7 +1,11 @@
 """Модели. Импортируются здесь все — иначе Alembic не увидит часть таблиц."""
 
 from backend.features.core.models.access import AuditLogModel, UserModel
-from backend.features.core.models.advertiser import CandidateMemoryModel, CandidateModel
+from backend.features.core.models.advertiser import (
+    AdvertiserJudgementModel,
+    CandidateMemoryModel,
+    CandidateModel,
+)
 from backend.features.core.models.advertisers import AdvertiserModel, SupplierDonorModel
 from backend.features.core.models.agent import AgentDraftModel, AgentSettingsModel
 from backend.features.core.models.attachment import ReplyAttachmentModel
@@ -62,6 +66,7 @@ from backend.features.sales.segment_models import (
 from backend.features.sales.weekly_models import SalesWeeklyReportModel
 
 __all__ = [
+    "AdvertiserJudgementModel",
     "AdvertiserModel",
     "AgentDraftModel",
     "AgentSettingsModel",

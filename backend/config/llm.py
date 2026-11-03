@@ -55,6 +55,12 @@ class _Llm(DomainSettings):
     sales_segment_model: str = Field(
         default="gpt-5-mini", validation_alias="LLM_SALES_SEGMENT_MODEL"
     )
+    # Судья рекламодателей (`features/crawl/judge*.py`): дешёвая, как судья площадки, — прочесть
+    # абзац со ссылкой и главную домена, назвать факты и процитировать; совет ставит код. Не замерено —
+    # меряет eval на наборе (`scripts/eval_advertiser_judge.py`).
+    advertiser_judge_model: str = Field(
+        default="gpt-5-mini", validation_alias="LLM_ADVERTISER_JUDGE_MODEL"
+    )
     # Тематика сайта (`features/topics/`): дешёвая, как у судьи площадки — выбрать тему
     # из списка по тексту сайта. Точность меряет eval на наборе (`scripts/eval_topic.py`).
     topic_model: str = Field(default="gpt-5-mini", validation_alias="LLM_TOPIC_MODEL")
@@ -115,6 +121,7 @@ SALES_DRAFT_MODEL: str = _s.sales_draft_model.strip()
 SALES_SITUATION_MODEL: str = _s.sales_situation_model.strip()
 SALES_JUDGE_MODEL: str = _s.sales_judge_model.strip()
 SALES_SEGMENT_MODEL: str = _s.sales_segment_model.strip()
+ADVERTISER_JUDGE_MODEL: str = _s.advertiser_judge_model.strip()
 TOPIC_MODEL: str = _s.topic_model.strip()
 TIMEOUT_S: float = _s.timeout_s
 MAX_PHRASES_PER_CALL: int = _s.max_phrases_per_call
