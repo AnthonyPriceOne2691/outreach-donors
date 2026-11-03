@@ -47,7 +47,7 @@
       "worst": "decide:123"
     },
     "backend/api/advertisers/schemas.py": {
-      "lines": 249,
+      "lines": 253,
       "complexity": 3,
       "worst": "of:43"
     },
@@ -1372,9 +1372,9 @@
       "worst": "tally_of:162"
     },
     "backend/features/crawl/accuracy.py": {
-      "lines": 187,
+      "lines": 220,
       "complexity": 5,
-      "worst": "share_of:106"
+      "worst": "share_of:116"
     },
     "backend/features/crawl/address_search.py": {
       "lines": 97,
@@ -1637,9 +1637,9 @@
       "worst": "cost_of:68"
     },
     "backend/features/crawl/strata.py": {
-      "lines": 145,
+      "lines": 155,
       "complexity": 9,
-      "worst": "strata:102"
+      "worst": "strata:106"
     },
     "backend/features/crawl/supplier_import.py": {
       "lines": 252,

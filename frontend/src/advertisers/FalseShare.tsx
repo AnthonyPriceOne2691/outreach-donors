@@ -36,7 +36,9 @@ const ABOUT =
   'Доля — по случайной выборке: около пятой части доменов, постоянной. Очередь ставит их ' +
   'среди остальных, и решать их — как любую строку. «С запасом на случай» — граница, за ' +
   'которую доля выходит не чаще раза из двадцати: на горстке решений она широка, и вывода ' +
-  'нет, пока граница не легла по одну сторону допуска. «Не пишем» среди спорных — сколько ' +
+  'нет, пока граница не легла по одну сторону допуска. В долю идут только решения подряд, в ' +
+  'порядке выборки: какие строки решены раньше, выбирал человек, а не жребий, — они видны ' +
+  'числом и войдут в долю, когда до них дойдёт очередь. «Не пишем» среди спорных — сколько ' +
   'ложных дало бы правило «писать всем спорным». Балл решением не переписывается.';
 
 const COLORS: Record<Within, string> = {
@@ -55,14 +57,20 @@ function toGoWords(sample: SampleShare): string {
   if (sample.to_go === null) return '';
   const need = `для «в допуске» нужно ещё ${decisionsWord(sample.to_go)} без «не пишем»`;
   if (sample.to_go <= sample.left) return need;
-  return `${need}, а нерешённых в выборке ${formatNumber(sample.left)}: вывод придёт с новыми обходами`;
+  return `${need}, а в выборке осталось строк ${formatNumber(sample.left)}: вывод придёт с новыми обходами`;
+}
+
+/** Решённые не по порядку выборки — числом: в долю они войдут, когда до них дойдёт очередь. */
+function asideWords(sample: SampleShare): string {
+  if (sample.aside === 0) return '';
+  return `; ещё ${decisionsWord(sample.aside)} — не по порядку выборки, в долю войдут, когда до них дойдёт очередь`;
 }
 
 /** Слова строки одной выборки: чья она и что значит каждый вывод. */
 interface LineWords {
   /** Выборка пуста: «в случайной выборке «куплено» пока нет». */
   empty: string;
-  /** Строки есть, решений нет: «по выборке решений пока нет». */
+  /** Строки есть, решений по порядку нет: «по выборке решений по порядку пока нет». */
   undecided: string;
   /** Начало строки: «по случайной выборке». */
   head: string;
@@ -90,23 +98,23 @@ function sampleLine(sample: SampleShare, words: LineWords): string {
   if (sample.within === 'unmeasured') {
     return sample.total === 0
       ? `мерить нечем: ${words.empty}`
-      : `мерить нечем: ${words.undecided}; ${toGoWords(sample)}`;
+      : `мерить нечем: ${words.undecided}; ${toGoWords(sample)}${asideWords(sample)}`;
   }
   const bound = boundWords(sample, words.outcomes);
   const toGo = sample.within === 'unproven' ? `; ${toGoWords(sample)}` : '';
-  return `${words.head}: ${decided(sample)}; ${bound}${toGo}`;
+  return `${words.head}: ${decided(sample)}; ${bound}${toGo}${asideWords(sample)}`;
 }
 
 const BOUGHT_WORDS: LineWords = {
   empty: 'в случайной выборке «куплено» пока нет',
-  undecided: 'по выборке решений пока нет',
+  undecided: 'по выборке решений по порядку пока нет',
   head: 'по случайной выборке',
   outcomes: { within: 'в допуске', outside: 'вне допуска', unproven: 'вывода нет' },
 };
 
 const DISPUTED_WORDS: LineWords = {
   empty: 'в случайной выборке спорных пока нет',
-  undecided: 'по выборке спорных решений пока нет',
+  undecided: 'по выборке спорных решений по порядку пока нет',
   head: 'по случайной выборке спорных',
   outcomes: {
     within: 'писать всем спорным можно было бы в допуске',

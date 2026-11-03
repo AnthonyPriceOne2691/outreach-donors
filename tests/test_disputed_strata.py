@@ -21,7 +21,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
 from tests.stage2_rows import crawled, scored
-from tests.test_scoring_accuracy import hosts
+from tests.test_scoring_accuracy import hosts, turn_order
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -185,7 +185,7 @@ async def test_the_strata_route_counts_the_disputed_sample_alone(
     тема сайта донора по его имени."""
     session.add(DomainModel(host=DONOR, site_topic="finance"))
     run = await crawled(session, DONOR)
-    inside = hosts(in_sample=True, number=3, prefix="cut")
+    inside = turn_order(hosts(in_sample=True, number=3, prefix="cut"))
     for root, points, answer in zip(inside, (2, 3, 3), (True, False, None), strict=True):
         await scored(session, run, root, verdict=Verdict.PENDING, points=points, confirmed=answer)
     for root in hosts(in_sample=False, number=2, prefix="top"):
@@ -214,6 +214,24 @@ async def test_the_strata_route_counts_the_disputed_sample_alone(
     ]
     assert body["niches"] == [
         {"key": "finance", "title": "Финансы", "total": 3, "decided": 2, "write": 1, "skip": 1}
+    ]
+
+
+async def test_the_strata_take_decisions_in_turn(
+    client: AsyncClient, token: str, session: AsyncSession
+) -> None:
+    """Срезы берут решения, как доля: подряд в порядке выборки. Решённые дальше первой
+    нерешённой строки в «пишем» и «не пишем» не идут — строка остаётся в срезе нерешённой."""
+    run = await crawled(session, DONOR)
+    inside = turn_order(hosts(in_sample=True, number=3, prefix="turn"))
+    for root, answer in zip(inside, (None, True, False), strict=True):
+        await scored(session, run, root, verdict=Verdict.PENDING, points=3, confirmed=answer)
+    await session.commit()
+
+    body = (await client.get("/api/advertisers/pending/strata", headers=bearer(token))).json()
+
+    assert body["points"] == [
+        {"key": "3", "title": "3", "total": 3, "decided": 0, "write": 0, "skip": 0}
     ]
 
 
