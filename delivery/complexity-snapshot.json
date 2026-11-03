@@ -707,9 +707,9 @@
       "worst": "cmd_user_add:31"
     },
     "backend/cli/advertiser_judge.py": {
-      "lines": 191,
+      "lines": 177,
       "complexity": 11,
-      "worst": "print_report:133"
+      "worst": "print_report:119"
     },
     "backend/cli/advertisers.py": {
       "lines": 410,
@@ -796,6 +796,11 @@
       "complexity": 9,
       "worst": "_print_report:272"
     },
+    "backend/cli/model_clients.py": {
+      "lines": 41,
+      "complexity": 1,
+      "worst": "model_and_sites:25"
+    },
     "backend/cli/probe_advertiser.py": {
       "lines": 93,
       "complexity": 2,
@@ -862,9 +867,9 @@
       "worst": "cmd_sending_domain:35"
     },
     "backend/cli/topic_backfill.py": {
-      "lines": 238,
+      "lines": 224,
       "complexity": 9,
-      "worst": "print_plan:133"
+      "worst": "print_plan:119"
     },
     "backend/config/__init__.py": {
       "lines": 1,

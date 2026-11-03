@@ -16,17 +16,13 @@ from __future__ import annotations
 import argparse
 
 import httpx
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import llm as llm_cfg
-from backend.config import storage
-from backend.config.startup_checks import check_storage
+from backend.cli.model_clients import model_and_sites
 from backend.features.core.domain import Verdict
 from backend.features.crawl.judge_client import JudgeClient
 from backend.features.crawl.judge_pass import JUDGED, JudgePlan, PassReport, plan_pass, run_pass
 from backend.features.crawl.judge_rules import ADVICE_WORDS, Advice
-from backend.features.donors.home_signals import home_timeout
-from backend.shared.net.url_guard import guarded_client
 from backend.shared.numbers import spaced
 
 EXIT_OK = 0
@@ -61,19 +57,9 @@ def _confirm() -> bool:
 
 
 async def cmd_advertisers_judge(args: argparse.Namespace) -> int:
-    check_storage()
-    engine = create_async_engine(storage.DSN)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    try:
-        async with (
-            factory() as session,
-            httpx.AsyncClient(timeout=llm_cfg.TIMEOUT_S) as model_http,
-            guarded_client(timeout=home_timeout()) as site_http,
-        ):
-            client = JudgeClient(model_http)
-            return await run_advertisers_judge(session, args, client=client, http=site_http)
-    finally:
-        await engine.dispose()
+    async with model_and_sites() as (session, model_http, site_http):
+        client = JudgeClient(model_http)
+        return await run_advertisers_judge(session, args, client=client, http=site_http)
 
 
 async def run_advertisers_judge(
