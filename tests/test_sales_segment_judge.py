@@ -194,7 +194,7 @@ def test_the_name_rule_is_the_shared_whom_we_do_not_write_rule() -> None:
         (facts("yes", served="Европа"), "ответ модели не той формы"),
         (facts("yes", why="магазин"), "модель не дала цитаты"),
         (facts("yes", "Велосипеды и"), "цитата короче трёх слов"),
-        # Подпись снимается (`segment_quote.unlabeled`), а без неё слов два — не доказательство.
+        # Подпись снимается (`shared/quote.unlabeled`), а без неё слов два — не доказательство.
         (facts("yes", f"{sj.PAGE_TITLE}: Велосипеды и"), "цитата короче трёх слов"),
         # Одна подпись — пустая цитата.
         (facts("yes", f"«{sj.HOME_MENU}:»"), "модель не дала цитаты"),

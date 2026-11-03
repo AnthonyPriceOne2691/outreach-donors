@@ -36,7 +36,6 @@ from backend.features.sales.segment_facts import (
     made_up,
 )
 from backend.features.sales.segment_models import Decider, Lane
-from backend.features.sales.segment_quote import MIN_QUOTE_WORDS, quote_words
 from backend.features.sales.segment_rules import BY_LANGUAGE, BY_RULE, RULES, Case, Rule, first
 from backend.features.sales.segment_scope import Scope
 from backend.features.sales.segment_text import (
@@ -52,6 +51,7 @@ from backend.features.sales.segment_text import (
     site_language,
     site_text,
 )
+from backend.shared.quote import MIN_QUOTE_WORDS, quote_words
 
 #: Что судья отдаёт наружу. Вызов модели — `segment_client.py`, текст сайта — `segment_text.py`,
 #: факты — `segment_facts.py`, правила — `segment_rules.py`; окно, eval и тесты берут имена и отсюда.

@@ -1,9 +1,9 @@
-"""Проверка цитаты судьи сегмента (`segment_quote.py`): типографика, наша подпись строки и
+"""Проверка цитаты судьи сегмента (`shared/quote.py`): типографика, наша подпись строки и
 опечатка переписывания не в счёт, выдумка и пересказ — по-прежнему «на проверку».
 
 Тест прогона: три сайта ушли человеку с «модель не прочла, а сочинила», хотя цитата на
 сайте была — сайт и модель ставили разные кавычки и пробелы. Сверка теперь поверх общего
-`keywords/hygiene.normalize`: двойные кавычки, многоточие-пропуск, знаки по краям, мягкий
+`shared/text.normalize`: двойные кавычки, многоточие-пропуск, знаки по краям, мягкий
 перенос и нулевой ширины, ё/е, `casefold`; слова — по порядку внутри ОДНОЙ строки. Ложные «цитаты
 нет», записанные в кэш вердиктов прежней сверкой, кэш больше не отдаёт. Калибровка 15.10: модель
 пишет в цитату нашу подпись («Заголовок в выдаче: …») и переписывает длинное слово капсом с
@@ -20,7 +20,6 @@ from pathlib import Path
 import pytest
 from backend.config.judge import JudgeMode
 from backend.features.sales import segment_judge as sj
-from backend.features.sales import segment_quote as sq
 from backend.features.sales.segment_facts import SiteFacts
 from backend.features.sales.segment_judge import SiteText
 from backend.features.sales.segment_judging import judge_run
@@ -29,6 +28,7 @@ from backend.features.sales.segment_models import (
     Lane,
     SalesSegmentVerdictModel,
 )
+from backend.shared import quote as sq
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.segment_facts_fakes import facts

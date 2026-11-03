@@ -1,7 +1,7 @@
 """Текст сайта для судьи сегмента: строки с подписями — выдача, шапка главной, отрывок её текста.
 
 Строка — кусок текста сайта со своей подписью (`Заголовок в выдаче: …`). Подписи — наши слова, а
-не сайта: цитировать их нельзя (`segment_quote.unlabeled` снимает их из цитаты), по ним же строки
+не сайта: цитировать их нельзя (`shared/quote.unlabeled` снимает их из цитаты), по ним же строки
 выдачи и главной различаются (`SiteText.without_stub`) и текст хранится у кандидата (`site_text`) —
 пересуд и заведение лида читают его обратно (`SiteText.parse`). Сюда же — язык текста против языка
 писем (`site_language`): тем же решением, по тем же строкам, в вердикте судьи, при пересуде, при
@@ -25,7 +25,7 @@ import httpx
 from backend.config import sales as sales_cfg
 from backend.features.donors.home_signals import HomeSignals, check_home, looks_denied
 from backend.features.sales import segment_language
-from backend.features.sales.segment_quote import quote_holds
+from backend.shared.quote import quote_holds
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 #: (`SALES_SEGMENT_HOME_TEXT_CHARS`).
 MAX_TEXT_CHARS = 2000
 #: Подписи строк текста сайта: свои слова, не сайта — цитировать их нельзя (модель цитирует —
-#: подпись снимается, `segment_quote.unlabeled`). Строки выдачи и главной различаются по ним же.
+#: подпись снимается, `shared/quote.unlabeled`). Строки выдачи и главной различаются по ним же.
 PAGE_TITLE = "Заголовок в выдаче"
 PAGE_DESCRIPTION = "Описание в выдаче"
 HOME_TITLE = "Заголовок главной"
@@ -71,7 +71,7 @@ class SiteText:
 
     def holds(self, quote: str) -> bool:
         """Цитата — внутри одной строки сайта, с точностью до типографики и опечатки
-        переписывания (`segment_quote.quote_holds`): модель переносит строки и ставит знаки
+        переписывания (`shared/quote.quote_holds`): модель переносит строки и ставит знаки
         иначе, чем сайт, и честная цитата иначе не прошла бы."""
         return any(quote_holds(quote, words) for _, words in self.lines)
 

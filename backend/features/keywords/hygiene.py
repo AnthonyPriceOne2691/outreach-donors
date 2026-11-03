@@ -19,13 +19,13 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+# Канонизация — общая с цитатами судей сайта (`shared/text`): здесь то же имя, что было до
+# переезда 03.11.2026, — вызовы `hygiene.normalize` и импорты по имени не менялись (`__all__`).
+from backend.shared.text import normalize
+
 logger = logging.getLogger(__name__)
 
-#: Виды тире и апострофов, которые модель ставит вперемешку. Для поиска
-#: это разные символы, а для человека один и тот же.
-_DASHES = "‐‑‒–—―−"
-_APOSTROPHES = "‘’‛`"
-_TRANSLATION = {ord(c): "-" for c in _DASHES} | {ord(c): "'" for c in _APOSTROPHES}
+__all__ = ["clean", "normalize", "parse_phrases", "rejection_reason", "same_script"]
 
 _SEARCH_OPERATORS = ("site:", "intitle:", "inurl:", "intext:", "inanchor:", "filetype:")
 _PLACEHOLDERS = (
@@ -45,16 +45,6 @@ MAX_LENGTH = 256
 #: «KATAKANA-HIRAGANA», и при сверке по равенству он оказывался третьей
 #: письменностью — законные японские запросы шли в отсев.
 _EAST_ASIAN = ("CJK", "HIRAGANA", "KATAKANA", "HANGUL", "BOPOMOFO", "IDEOGRAPHIC")
-
-
-def normalize(phrase: str) -> str:
-    """Привести фразу к единому виду.
-
-    Диакритика сохраняется: `mañana` и `piñol` — законные слова, а не
-    мусор. Складывать их в латиницу значит ломать язык рынка.
-    """
-    text = unicodedata.normalize("NFKC", phrase or "").translate(_TRANSLATION)
-    return " ".join(text.split()).strip().lower()
 
 
 def _script_families(text: str) -> set[str]:

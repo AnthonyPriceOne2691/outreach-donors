@@ -30,7 +30,6 @@ from backend.features.core.models.ops import UsageRecordModel
 from backend.features.sales import segment_client as sc
 from backend.features.sales import segment_estimate as se
 from backend.features.sales import segment_judge as sj
-from backend.features.sales import segment_quote as sq
 from backend.features.sales import segment_rejudge as sr
 from backend.features.sales.hypothesis_countries import CountryPolicy
 from backend.features.sales.segment_facts import SiteFacts, made_up, read
@@ -49,6 +48,7 @@ from backend.features.sales.segment_text import (
     SiteText,
     page_home,
 )
+from backend.shared import quote as sq
 from scripts.eval_sales_segment_stats import cp_upper
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -1877,9 +1877,9 @@
       "worst": "_backfill:438"
     },
     "backend/features/keywords/hygiene.py": {
-      "lines": 205,
+      "lines": 195,
       "complexity": 12,
-      "worst": "parse_phrases:171"
+      "worst": "parse_phrases:161"
     },
     "backend/features/letters/__init__.py": {
       "lines": 1,
@@ -3271,11 +3271,6 @@
       "complexity": 6,
       "worst": "_due:177"
     },
-    "backend/features/sales/segment_quote.py": {
-      "lines": 268,
-      "complexity": 8,
-      "worst": "_glued:202"
-    },
     "backend/features/sales/segment_rejudge.py": {
       "lines": 382,
       "complexity": 11,
@@ -3641,6 +3636,11 @@
       "complexity": 7,
       "worst": "job_alive:349"
     },
+    "backend/shared/quote.py": {
+      "lines": 271,
+      "complexity": 8,
+      "worst": "_glued:205"
+    },
     "backend/shared/sliding_window.py": {
       "lines": 90,
       "complexity": 5,
@@ -3655,6 +3655,11 @@
       "lines": 113,
       "complexity": 6,
       "worst": "binom_cdf:31"
+    },
+    "backend/shared/text.py": {
+      "lines": 27,
+      "complexity": 2,
+      "worst": "normalize:19"
     },
     "backend/shared/webhook_signature.py": {
       "lines": 118,
