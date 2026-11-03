@@ -92,6 +92,9 @@ OPERATION_PROVIDERS = {
     # Деньги — по цене из настроек; не задана — строка без денег, но с единицами.
     "crawl_proxy": UsageProvider.PROXY,
     "crawl_render": UsageProvider.RENDER,
+    # Судья рекламодателей (`crawl/judge_pass.py`): факты о спорной ссылке, единица — токен обоих
+    # вопросов случая. Без приставки — часть «Аутрич» потолка модели.
+    "advertiser_judge": UsageProvider.LLM,
 }
 
 
@@ -120,6 +123,7 @@ CRAWL_OPERATIONS = frozenset({"crawl_proxy", "crawl_render"})
 #: адресов, письма), и этап называет вызов; не назвал — строка без этапа, а не «доноры»:
 #: догадка разошлась бы со счётом молча. Отправка письма — общая на все этапы нарочно (П2б).
 OPERATION_STAGES: dict[str, Stage] = {
+    "advertiser_judge": Stage.ADVERTISERS,
     "by_country": Stage.DONORS,
     "refdomains": Stage.DONORS,
     "serp": Stage.DONORS,

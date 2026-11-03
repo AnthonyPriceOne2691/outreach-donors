@@ -89,6 +89,11 @@ class _Llm(DomainSettings):
     sales_daily_token_cap: int | None = Field(
         default=None, ge=0, validation_alias="SALES_DAILY_TOKEN_CAP"
     )
+    # Свой дневной потолок судьи рекламодателей (`crawl/judge_pass.py`) — внутри общего: проход
+    # по тысяче спорных не выберет день разбору цен и письмам. 0 — своего потолка нет.
+    advertiser_judge_daily_token_cap: int = Field(
+        default=2_000_000, ge=0, validation_alias="ADVERTISER_JUDGE_DAILY_TOKEN_CAP"
+    )
 
     @field_validator("agent_daily_token_cap", "sales_daily_token_cap", mode="before")
     @classmethod
@@ -107,7 +112,12 @@ _s, _unread = spared(
             None,
             wants="целое число не меньше нуля или пусто",
             means="ноль токенов продажам — вызовы модели продаж отказывают, пока её не поправят",
-        )
+        ),
+        "ADVERTISER_JUDGE_DAILY_TOKEN_CAP": Fallback(
+            0,
+            wants="целое число не меньше нуля",
+            means="ноль токенов судье рекламодателей — проход отказывает, пока её не поправят",
+        ),
     },
 )
 
@@ -136,6 +146,7 @@ AGENT_DAILY_TOKEN_CAP: int | None = _s.agent_daily_token_cap
 #: кнопки «написать заново».
 AGENT_CAP_SHARE = 0.3
 SALES_DAILY_TOKEN_CAP: int | None = _s.sales_daily_token_cap
+ADVERTISER_JUDGE_DAILY_TOKEN_CAP: int = _s.advertiser_judge_daily_token_cap
 #: Свои потолки, чья настройка не прочиталась (имя переменной): потолок такой части — ноль, её
 #: вызовы модели отказывают (`usage.ensure_llm_within_cap`). Само значение тогда — «не задан».
 UNREAD_CAPS: frozenset[str] = frozenset(_unread)
