@@ -104,12 +104,8 @@ class JudgeText:
     @classmethod
     def parse(cls, stored: str) -> JudgeText:
         """Текст, сохранённый в строке суда, — обратно в строки: по нему сверяется цитата."""
-        lines: list[Line] = []
-        for line in stored.splitlines():
-            label, _, words = line.partition(": ")
-            if label in LABELS and words:
-                lines.append((label, words))
-        return cls(tuple(lines))
+        split = (line.partition(": ") for line in stored.splitlines())
+        return cls(tuple((label, words) for label, _, words in split if label in LABELS and words))
 
 
 def holds(quote: str, lines: Sequence[str]) -> bool:

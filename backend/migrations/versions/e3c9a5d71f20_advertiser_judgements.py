@@ -26,48 +26,49 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 TABLE = "advertiser_judgements"
+#: Ключ строки: пара, отпечаток контекста и когорта фактов.
+KEY = (
+    "donor_host",
+    "target_root",
+    "context_print",
+    "prompt_version",
+    "prompt_print",
+    "examples_print",
+    "model",
+)
+#: Строковые колонки ключа и совета: имя → длина, все обязательные.
+NAMES = {
+    "donor_host": 255,
+    "target_root": 255,
+    "context_print": 64,
+    "prompt_version": 64,
+    "prompt_print": 16,
+    "examples_print": 16,
+    "model": 64,
+    "rules_version": 64,
+    "advice": 16,
+    "rule": 32,
+}
 
 
 def upgrade() -> None:
     """Суд о паре «донор + домен»: ключ — пара, отпечаток контекста и когорта фактов."""
+    stamp = {"server_default": sa.func.now(), "nullable": False}
     op.create_table(
         TABLE,
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("donor_host", sa.String(255), nullable=False),
-        sa.Column("target_root", sa.String(255), nullable=False),
-        sa.Column("context_print", sa.String(64), nullable=False),
-        sa.Column("prompt_version", sa.String(64), nullable=False),
-        sa.Column("prompt_print", sa.String(16), nullable=False),
-        sa.Column("examples_print", sa.String(16), nullable=False),
-        sa.Column("model", sa.String(64), nullable=False),
-        sa.Column("rules_version", sa.String(64), nullable=False),
+        sa.Column("id", sa.Integer(), primary_key=True),
+        *(sa.Column(name, sa.String(length=size), nullable=False) for name, size in NAMES.items()),
         sa.Column("facts", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("advice", sa.String(16), nullable=False),
-        sa.Column("rule", sa.String(32), nullable=False),
         sa.Column("seen", sa.Text(), nullable=False),
-        sa.Column("language", sa.String(16), nullable=True),
-        sa.Column("donor_niche", sa.String(32), nullable=True),
+        sa.Column("language", sa.String(length=16)),
+        sa.Column("donor_niche", sa.String(length=32)),
         sa.Column("tokens", sa.Integer(), nullable=False),
         sa.Column("retried", sa.Boolean(), nullable=False),
-        *(
-            sa.Column(
-                name, sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
-            )
-            for name in ("created_at", "updated_at")
-        ),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint(
-            "donor_host",
-            "target_root",
-            "context_print",
-            "prompt_version",
-            "prompt_print",
-            "examples_print",
-            "model",
-            name="uq_advertiser_judgements_key",
-        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), **stamp),
+        sa.Column("updated_at", sa.DateTime(timezone=True), **stamp),
+        sa.UniqueConstraint(*KEY, name="uq_advertiser_judgements_key"),
     )
-    op.create_index("idx_advertiser_judgements_pair", TABLE, ["donor_host", "target_root"])
+    op.create_index("idx_advertiser_judgements_pair", TABLE, list(KEY[:2]))
 
 
 def downgrade() -> None:

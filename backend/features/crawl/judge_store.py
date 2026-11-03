@@ -14,10 +14,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -126,7 +124,7 @@ async def remember(
 ) -> None:
     """Суд — в строку: новый ключ — строка, тот же — поверх (два прохода разом сходятся на одной)."""
     ruled = advise(row.facts)
-    values: dict[str, Any] = {
+    values: dict[str, object] = {
         "donor_host": donor_host,
         "target_root": target_root,
         "context_print": context_print,
@@ -160,13 +158,13 @@ async def relabel(
     *,
     rules: tuple[Rule, ...] = RULES,
     version: str = RULES_VERSION,
-    ids: Sequence[int] | None = None,
+    ids: list[int] | None = None,
 ) -> int:
     """Совет строк, поставленный другой таблицей, — заново по их фактам, без модели. Факты, их цена
     и срок — те, что заплачены: вызова модели у такого совета нет. Сколько строк переписано."""
     query = select(Judgement).where(Judgement.rules_version != version)
     if ids is not None:
-        query = query.where(Judgement.id.in_(list(ids)))
+        query = query.where(Judgement.id.in_(ids))
     rows = (await session.scalars(query)).all()
     changed = 0
     for row in rows:

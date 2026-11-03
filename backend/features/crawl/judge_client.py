@@ -145,30 +145,26 @@ def again_message(user: str, missing: tuple[str, ...]) -> str:
     return f"{user}\n{load_again().replace('{quote}', words)}"
 
 
+def _room(model: str) -> dict[str, Any]:
+    """Потолок вывода по семейству модели: у модели с рассуждением оно входит в потолок."""
+    if is_reasoning(model):
+        return {"reasoning_effort": REASONING_EFFORT, "max_completion_tokens": TOKENS_REASONING}
+    return {"temperature": 0, "max_tokens": TOKENS_PLAIN}
+
+
 def build_payload(model: str, *, user: str, system: str) -> dict[str, Any]:
-    """Тело запроса: строгая форма фактов у провайдера, потолок вывода — по семейству модели."""
-    limits: dict[str, Any] = (
-        {"max_completion_tokens": TOKENS_REASONING, "reasoning_effort": REASONING_EFFORT}
-        if is_reasoning(model)
-        else {"max_tokens": TOKENS_PLAIN, "temperature": 0}
-    )
-    return {
-        "model": model,
-        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {**judge_facts.SCHEMA, "strict": True},
-        },
-        **limits,
-    }
+    """Тело запроса: строгая форма фактов у провайдера и потолок вывода по модели."""
+    form = {"type": "json_schema", "json_schema": {**judge_facts.SCHEMA, "strict": True}}
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    return {"model": model, "messages": messages, "response_format": form, **_room(model)}
 
 
-def finish_of(body: dict[str, Any]) -> str | None:
-    """Почему модель закончила ответ (`finish_reason` первой альтернативы); не названо — `None`."""
+def cut_by_room(body: dict[str, Any]) -> bool:
+    """Ответ оборван потолком вывода: первая альтернатива кончилась на `length`."""
     choices = body.get("choices")
-    first = choices[0] if isinstance(choices, list) and choices else None
-    reason = first.get("finish_reason") if isinstance(first, dict) else None
-    return reason if isinstance(reason, str) else None
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        return False
+    return choices[0].get("finish_reason") == "length"
 
 
 def out_of_room(refusal: Refusal) -> bool:
@@ -257,7 +253,7 @@ class JudgeClient(ModelClient):
             )
         tokens = tokens_of(body)
         content = content_of(body, topic=TOPIC)
-        if finish_of(body) == "length":
+        if cut_by_room(body):
             # Пустой или обрезанный посередине JSON — одно и то же: ответа нет, оплачен весь вывод.
             logger.warning(
                 "%s: ответ обрезан потолком вывода", TOPIC, extra={"host": host, "tokens": tokens}
