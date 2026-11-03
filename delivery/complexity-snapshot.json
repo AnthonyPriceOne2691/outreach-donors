@@ -32,14 +32,14 @@
       "worst": "of:149"
     },
     "backend/api/advertisers/report_schemas.py": {
-      "lines": 205,
-      "complexity": 1,
-      "worst": "filters:49"
+      "lines": 247,
+      "complexity": 4,
+      "worst": "of:241"
     },
     "backend/api/advertisers/reports.py": {
-      "lines": 155,
+      "lines": 167,
       "complexity": 4,
-      "worst": "accepted:125"
+      "worst": "accepted:137"
     },
     "backend/api/advertisers/routes.py": {
       "lines": 375,
@@ -47,7 +47,7 @@
       "worst": "decide:123"
     },
     "backend/api/advertisers/schemas.py": {
-      "lines": 220,
+      "lines": 253,
       "complexity": 3,
       "worst": "of:43"
     },
@@ -1372,9 +1372,9 @@
       "worst": "tally_of:162"
     },
     "backend/features/crawl/accuracy.py": {
-      "lines": 123,
+      "lines": 220,
       "complexity": 5,
-      "worst": "scoring_check:98"
+      "worst": "share_of:116"
     },
     "backend/features/crawl/address_search.py": {
       "lines": 97,
@@ -1602,9 +1602,9 @@
       "worst": "_collect_groups:199"
     },
     "backend/features/crawl/sample.py": {
-      "lines": 95,
+      "lines": 103,
       "complexity": 7,
-      "worst": "mixed:57"
+      "worst": "mixed:64"
     },
     "backend/features/crawl/scoring.py": {
       "lines": 488,
@@ -1635,6 +1635,11 @@
       "lines": 193,
       "complexity": 5,
       "worst": "cost_of:68"
+    },
+    "backend/features/crawl/strata.py": {
+      "lines": 155,
+      "complexity": 9,
+      "worst": "strata:106"
     },
     "backend/features/crawl/supplier_import.py": {
       "lines": 252,
@@ -2277,9 +2282,9 @@
       "worst": "span_of:266"
     },
     "backend/features/outreach/health.py": {
-      "lines": 271,
+      "lines": 294,
       "complexity": 9,
-      "worst": "listen:84"
+      "worst": "listen:94"
     },
     "backend/features/outreach/limits.py": {
       "lines": 133,
@@ -3645,6 +3650,11 @@
       "lines": 29,
       "complexity": 3,
       "worst": "inert:23"
+    },
+    "backend/shared/stats.py": {
+      "lines": 113,
+      "complexity": 6,
+      "worst": "binom_cdf:31"
     },
     "backend/shared/text.py": {
       "lines": 27,
