@@ -2282,9 +2282,9 @@
       "worst": "span_of:266"
     },
     "backend/features/outreach/health.py": {
-      "lines": 271,
+      "lines": 294,
       "complexity": 9,
-      "worst": "listen:84"
+      "worst": "listen:94"
     },
     "backend/features/outreach/limits.py": {
       "lines": 133,
