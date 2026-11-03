@@ -50,6 +50,8 @@ EXPECTED_TABLES = {
     "advertiser_candidates",
     # Память донора: решение человека и DR по паре «донор + домен» переживают повтор обхода.
     "candidate_memory",
+    # Суд модели о спорных кандидатах (`crawl/judge.py`): факты с цитатами и совет таблицы правил.
+    "advertiser_judgements",
     "advertisers",
     "supplier_donors",
     # Прогон кончается очередью на рассмотрение: кандидаты прогона.
