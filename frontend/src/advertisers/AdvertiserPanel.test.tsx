@@ -363,6 +363,22 @@ describe('рассылка на панели', () => {
     expect(await screen.findByRole('region', { name: 'Ящики и разгон' })).toBeVisible();
   });
 
+  it('план на 7 дней — со словами рекламодателей, а не продаж', async () => {
+    open();
+
+    expect(await screen.findByRole('region', { name: 'План на 7 дней' })).toBeVisible();
+    await userEvent
+      .setup()
+      .hover(screen.getByRole('button', { name: 'Как считается «План на 7 дней»' }));
+    // Подсказка ещё в переходе появления — читаем её текст, а не видимость (как
+    // `sales/MailingDays.test`). Только подсказку: причины в строках дня — слова сервера.
+    const first = await screen.findByText(/^Мощность ящиков — /);
+    const hint = first.parentElement?.textContent ?? '';
+    expect(hint).toContain('могут отправить ящики рекламодателей в этот день');
+    expect(hint).toContain('не больше, чем есть: письма в очереди рекламодателям.');
+    expect(hint).not.toMatch(/ящики продаж|лиды, которым сборка напишет/);
+  });
+
   it('очередь сама не уходит — так и сказано', async () => {
     open();
 

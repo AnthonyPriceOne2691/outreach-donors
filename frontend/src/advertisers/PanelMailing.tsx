@@ -8,8 +8,9 @@
  * (`QueueAutosendLine`), части — счётчиками списка рекламодателей (`/advertisers/list/facets`):
  * каждый рекламодатель — ровно в одной, той же, что в колонке «Письмо».
  *
- * **Плана по дням здесь пока нет**: подсказка блока плана говорит о ящиках продаж и лидах, а его
- * правят в разделе продаж. Подключается одной строкой, когда слова станут общими.
+ * **План по дням — блок вкладки продаж со словами этапа** (`PlanWords`): в подсказке — ящики
+ * рекламодателей и письма их очереди, а разгон, окно, добивки и дни по UTC — общие правила прогноза,
+ * одним текстом в `sales/MailingDays.tsx`. Лидов, которым напишет сборка, у рекламодателей нет.
  *
  * **Отказ одной ручки — в её блоке**, остальные живут: как на вкладке продаж.
  */
@@ -28,7 +29,8 @@ import { capitalized, formatNumber } from '../format';
 import { QueueAutosendLine } from '../letters/QueueAutosend';
 import { Block, NoAnswer, NotRefreshed } from '../sales/MailingBlock';
 import { MailingBoxes } from '../sales/MailingBoxes';
-import { MailingPast } from '../sales/MailingDays';
+import { MailingPast, MailingPlan } from '../sales/MailingDays';
+import type { PlanWords } from '../sales/MailingDays';
 import { MailingBlocked, MailingQueue } from '../sales/MailingQueue';
 import { MAILING_REFRESH_MS } from '../sales/mailingData';
 import type { MailingForecastView } from '../sales/mailingTypes';
@@ -36,6 +38,11 @@ import { ADVERTISER_FACETS_KEY } from './AdvertiserList';
 import { OFFER_KEYS, OFFER_STATES } from './listFilters';
 
 const FORECAST_KEY = ['letters', 'forecast', 'advertisers', 'panel'] as const;
+/** Слова этапа в подсказке плана: чьи ящики и что ждёт отправки. */
+const PLAN_WORDS: PlanWords = {
+  boxes: 'ящики рекламодателей',
+  supply: 'письма в очереди рекламодателям',
+};
 const MODES_KEY = ['advertisers', 'panel', 'mailing'] as const;
 
 /** Уходит ли очередь сама — у ссылок и у бизнесов ниши: очереди у них разные. */
@@ -143,6 +150,7 @@ export function PanelMailing() {
         <Parts query={facets} />
         {view === undefined ? null : (
           <>
+            <MailingPlan view={view} words={PLAN_WORDS} />
             <MailingPast view={view} />
             <Boxes view={view} />
           </>
