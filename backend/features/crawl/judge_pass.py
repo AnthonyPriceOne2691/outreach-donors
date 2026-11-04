@@ -10,7 +10,10 @@
 **План — до траты** (`plan_pass`): кого судить и сколько это токенов — по истории той же когорты,
 а нет истории — запасным числом, и оно названо. Кого: спорные и «куплено», сначала строки
 случайной выборки в её порядке (md5 домена, как `accuracy.sample_turns`) — по ним идёт калибровка,
-затем остальные, сильные первыми. Пара со свежей строкой суда той же когорты пропускается: повтор
+затем остальные, сильные первыми. **Набор по донорам** (`per_donor`) — не больше N случаев на донора,
+по всем донорам, в том же порядке md5 домена: у одного донора бывают сотни спорных, и выборка по
+домену может отдать ему большую часть случаев, а калибровка должна видеть все площадки и их ниши, а
+не тех, у кого спорных больше всего. Пара со свежей строкой суда той же когорты пропускается: повтор
 после обрыва продолжает с места и страниц заново не открывает. «Заново» (`again`) открывает их
 снова, но тот же текст модель второй раз не спросит: кэш ядра — по отпечатку текста.
 
@@ -50,7 +53,7 @@ from backend.features.crawl.judge import Case, Judged, Outcome, case_of, judge_s
 from backend.features.crawl.judge_client import JudgeClient
 from backend.features.crawl.judge_store import JUDGEMENT_TTL_DAYS, Cohort, cohort_of
 from backend.features.crawl.judge_text import Seen, gather
-from backend.features.crawl.sample import in_sample
+from backend.features.crawl.sample import in_sample, sampled
 from backend.shared.llm import ensure_model
 
 logger = logging.getLogger(__name__)
@@ -104,6 +107,8 @@ class JudgePlan:
     fresh: int
     #: Пропущены: у кандидата нет лучшей страницы — судить нечего.
     without_page: int
+    #: Разных доноров среди тех, кого судим.
+    donors: int
     per_case: int
     #: `per_case` — по истории когорты; иначе — запасное число `FALLBACK_TOKENS`.
     from_history: bool
@@ -146,9 +151,10 @@ async def _fresh_pairs(
 
 
 async def _candidates(
-    session: AsyncSession, verdicts: Sequence[Verdict], *, sample_only: bool
+    session: AsyncSession, verdicts: Sequence[Verdict], *, sample_only: bool, spread: bool = False
 ) -> list[tuple[int, Verdict, str, str, str | None, bool]]:
-    """Кандидаты по порядку прохода: выборка — в её порядке, затем остальные, сильные первыми."""
+    """Кандидаты по порядку прохода: выборка — в её порядке, затем остальные, сильные первыми.
+    Набор по донорам (`spread`) — все разом в порядке md5 домена: потолок на донора ставит план."""
     columns = (
         CandidateModel.id,
         CandidateModel.verdict,
@@ -157,6 +163,13 @@ async def _candidates(
         CandidateModel.best_page_url,
     )
     base = select(*columns).where(CandidateModel.verdict.in_(verdicts))
+    if spread:
+        if sample_only:
+            base = base.where(in_sample())
+        found = await session.execute(
+            base.order_by(func.md5(CandidateModel.target_root), CandidateModel.id)
+        )
+        return [(*row, sampled(row[3])) for row in found.tuples()]
     sample = await session.execute(
         base.where(in_sample()).order_by(func.md5(CandidateModel.target_root), CandidateModel.id)
     )
@@ -175,18 +188,21 @@ async def plan_pass(
     verdicts: Sequence[Verdict] = JUDGED,
     sample_only: bool = False,
     limit: int | None = None,
+    per_donor: int | None = None,
     again: bool = False,
     model: str | None = None,
     now: datetime | None = None,
 ) -> JudgePlan:
-    """План прохода: кого, по порядку, сколько пропущено и почему, токены на случай."""
+    """План прохода: кого, по порядку, сколько пропущено и почему, токены на случай. `per_donor` —
+    набор по донорам: не больше стольких новых случаев на донора (уже судимые не в счёт)."""
     cohort = cohort_of(model or llm_cfg.ADVERTISER_JUDGE_MODEL)
     fresh = set() if again else await _fresh_pairs(session, cohort, now or datetime.now(UTC))
     ids: list[int] = []
-    sampled = skipped = without_page = 0
+    in_sample_count = skipped = without_page = 0
     by_verdict: Counter[str] = Counter()
+    by_donor: Counter[str] = Counter()
     for candidate_id, verdict, donor, target, page, in_turn in await _candidates(
-        session, verdicts, sample_only=sample_only
+        session, verdicts, sample_only=sample_only, spread=per_donor is not None
     ):
         if (donor, target) in fresh:
             skipped += 1
@@ -194,14 +210,25 @@ async def plan_pass(
         if not page:
             without_page += 1
             continue
+        if per_donor is not None and by_donor[donor] >= per_donor:
+            continue
         if limit is not None and len(ids) >= limit:
             continue
         ids.append(candidate_id)
-        sampled += in_turn
+        in_sample_count += in_turn
         by_verdict[Verdict(verdict).value] += 1
+        by_donor[donor] += 1
     per_case, from_history = await _per_case(session, cohort)
     return JudgePlan(
-        ids, sampled, dict(by_verdict), skipped, without_page, per_case, from_history, cohort
+        ids,
+        in_sample_count,
+        dict(by_verdict),
+        skipped,
+        without_page,
+        len(by_donor),
+        per_case,
+        from_history,
+        cohort,
     )
 
 
