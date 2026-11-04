@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from backend.api.settings import limit_panel
 from backend.config import llm as llm_cfg
@@ -45,6 +47,40 @@ async def test_no_own_cap_is_said_in_words(
     assert row.per_day is None
     assert row.now is not None
     assert "Своего потолка нет" in row.now
+
+
+@pytest.mark.parametrize(
+    ("cap", "general", "saved", "words"),
+    [
+        (2_000_000, 0, None, "токенов в сутки: выбран"),
+        (2_000_000, 5_000_000, None, "в пределах общего потолка модели: выбран"),
+        (2_000_000, 0, 50_000_000, "в пределах лимита части «Аутрич»: выбран"),
+        (0, 0, None, "общего потолка модели тоже: проход ничем не ограничен"),
+        (0, 5_000_000, None, "проход держится в пределах общего потолка модели"),
+        (0, 0, 50_000_000, "проход держится в пределах лимита части «Аутрич»"),
+    ],
+)
+async def test_the_row_names_only_the_limits_that_hold_the_pass(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    cap: int,
+    general: int,
+    saved: int | None,
+    words: str,
+) -> None:
+    # Блок «Расхода» не сохранён (так решено 03.11) — лимита части нет, и строка его не называет:
+    # проход держат свой потолок и общий из `.env`, если он задан.
+    monkeypatch.setattr(llm_cfg, "ADVERTISER_JUDGE_DAILY_TOKEN_CAP", cap)
+    monkeypatch.setattr(llm_cfg, "DAILY_TOKEN_CAP", general)
+    block = None if saved is None else SimpleNamespace(general=saved)
+    monkeypatch.setattr(llm_caps, "block", lambda: block)
+
+    [row] = await limit_judge.rows(session)
+
+    assert row.now is not None
+    assert words in row.now
+    if saved is None:
+        assert "Аутрич" not in row.now
 
 
 @pytest.mark.parametrize(
