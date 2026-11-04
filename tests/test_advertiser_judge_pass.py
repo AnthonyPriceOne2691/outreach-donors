@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 from collections import Counter
 
 import httpx
@@ -32,6 +33,7 @@ from backend.features.crawl.judge_pass import (
 )
 from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.repository import save_crawl
+from backend.features.crawl.sample import sampled
 from backend.shared.llm import ModelUnreadyError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -93,21 +95,24 @@ def model_ready(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 async def _candidates(
-    session: AsyncSession, *specs: tuple[str, Verdict, int], page: bool = True
+    session: AsyncSession,
+    *specs: tuple[str, Verdict, int],
+    page: bool = True,
+    donor: str = DONOR,
 ) -> list[int]:
     report = CrawlReport(
-        host=DONOR, outcome=CrawlOutcome.OK, stop_reason=StopReason.EXHAUSTED, pages=[], links=[]
+        host=donor, outcome=CrawlOutcome.OK, stop_reason=StopReason.EXHAUSTED, pages=[], links=[]
     )
     run = await save_crawl(session, report)
     await session.flush()
     made = [
         CandidateModel(
             crawl_run_id=run.id,
-            donor_host=DONOR,
+            donor_host=donor,
             target_root=target,
             points=points,
             verdict=verdict,
-            best_page_url=f"https://{DONOR}/post/{target}" if page else None,
+            best_page_url=f"https://{donor}/post/{target}" if page else None,
             best_anchor="buy a burr grinder",
         )
         for target, verdict, points in specs
@@ -115,6 +120,10 @@ async def _candidates(
     session.add_all(made)
     await session.flush()
     return [candidate.id for candidate in made]
+
+
+def _md5(host: str) -> str:
+    return hashlib.md5(host.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 def _pending(*targets: str, points: int = 3) -> list[tuple[str, Verdict, int]]:
@@ -167,6 +176,39 @@ async def test_the_plan_narrows_to_the_sample_a_verdict_and_a_limit(session: Asy
     assert (await plan_pass(session, verdicts=(Verdict.BOUGHT,))).by_verdict == {"bought": 1}
     limited = await plan_pass(session, limit=2)
     assert (len(limited.ids), limited.sampled) == (2, 2)
+
+
+async def test_the_set_by_donors_caps_each_donor_and_reaches_every_one(
+    session: AsyncSession,
+) -> None:
+    # Один донор с десятком спорных не забирает набор: калибровка видит все площадки.
+    big = await _candidates(session, *_pending(*SAMPLE, *OUTSIDE), donor="big-blog.example")
+    small = await _candidates(session, *_pending("shop7.example"), donor="small-news.example")
+    await _candidates(session, *_pending("shop8.example"), donor="no-page.example", page=False)
+
+    plan = await plan_pass(session, per_donor=2)
+
+    assert (plan.donors, len(plan.ids), plan.without_page) == (2, 3, 1)
+    assert set(small) <= set(plan.ids)
+    # Внутри донора — первые по md5 домена, а не по баллу: случай берётся жребием, как выборка.
+    by_target = dict(zip((*SAMPLE, *OUTSIDE), big, strict=True))
+    first_two = sorted(by_target, key=_md5)[:2]
+    assert set(plan.ids) & set(big) == {by_target[target] for target in first_two}
+    assert plan.sampled == sum(sampled(target) for target in (*first_two, "shop7.example"))
+
+
+async def test_the_set_by_donors_counts_only_new_cases(session: AsyncSession) -> None:
+    # Уже судимые свежим судом в потолок донора не идут: повтор набора берёт следующих.
+    await _candidates(session, *_pending(*SAMPLE, *OUTSIDE))
+    model = Model(facts_answer(tokens=120))
+    async with Site().client() as http:
+        first = await plan_pass(session, per_donor=3)
+        await run_pass(session, first, client=client_of(model), http=http, delay=0)
+
+    second = await plan_pass(session, per_donor=3)
+
+    assert (second.fresh, len(second.ids)) == (3, 3)
+    assert set(second.ids).isdisjoint(first.ids)
 
 
 # --- проход ----------------------------------------------------------------------------------------
@@ -337,6 +379,7 @@ def _args(**changes: object) -> argparse.Namespace:
         "sample": False,
         "verdict": None,
         "limit": None,
+        "per_donor": None,
         "again": False,
         "dry_run": False,
         "yes": True,
@@ -358,7 +401,7 @@ async def test_the_command_prints_the_plan_and_a_dry_run_spends_nothing(
 
     printed = capsys.readouterr().out
     assert code == cli.EXIT_OK
-    assert "к суду: 2 (pending 2), из них в выборке 2" in printed
+    assert "к суду: 2 (pending 2), из них в выборке 2, доноров 1" in printed
     assert "запасное число, истории ещё нет" in printed
     assert "Это план" in printed
     assert (model.requests, site.hits) == ([], [])

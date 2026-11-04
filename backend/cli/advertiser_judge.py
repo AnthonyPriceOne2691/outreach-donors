@@ -6,7 +6,9 @@
 зовётся, страницы не открываются, в базе ничего не меняется.
 
 Проход в тени: пишет только строки суда, решение человека и очередь не трогает. `--sample` — только
-строки случайной выборки: на них калибровка судьи (по слову владельца, расход — в журнале). Прерванный
+строки случайной выборки: на них калибровка судьи (по слову владельца, расход — в журнале).
+`--per-donor N` — набор по донорам: не больше N новых случаев на донора, по всем донорам, — чтобы
+калибровка видела все площадки и ниши, а не одного донора с сотнями спорных. Прерванный
 проход продолжается повтором той же команды: каждый суд записан сразу со строкой журнала расхода, и
 пары со свежим судом той же когорты план уже не берёт.
 """
@@ -72,6 +74,7 @@ async def run_advertisers_judge(
         verdicts=verdicts,
         sample_only=args.sample,
         limit=args.limit,
+        per_donor=args.per_donor,
         again=args.again,
         model=client.model,
     )
@@ -103,7 +106,8 @@ def print_plan(plan: JudgePlan) -> None:
         f"Судья рекламодателей, модель {plan.cohort.model}, подсказка {plan.cohort.prompt_version}"
     )
     print(
-        f"  к суду: {spaced(len(plan.ids))} ({verdicts or 'никого'}), из них в выборке {spaced(plan.sampled)}"
+        f"  к суду: {spaced(len(plan.ids))} ({verdicts or 'никого'}), из них в выборке "
+        f"{spaced(plan.sampled)}, доноров {spaced(plan.donors)}"
     )
     if plan.fresh:
         print(
@@ -166,6 +170,12 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
     )
     parser.add_argument(
         "--limit", type=_positive, default=None, help="сколько случаев, выборка первой"
+    )
+    parser.add_argument(
+        "--per-donor",
+        type=_positive,
+        default=None,
+        help="набор по донорам: не больше N новых случаев на донора, по всем донорам",
     )
     parser.add_argument(
         "--again", action="store_true", help="заново и тем, у кого свежий суд той же когорты"
