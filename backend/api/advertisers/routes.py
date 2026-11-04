@@ -59,7 +59,7 @@ from backend.features.access.permissions import has_permission
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage, Verdict
 from backend.features.core.models.access import UserModel
-from backend.features.crawl import accuracy, niche, promote, review, sample
+from backend.features.crawl import accuracy, judge_advice, niche, promote, review, sample
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.shared.queue import (
     ADVERTISER_CONTACTS_JOB_KEY,
@@ -111,8 +111,13 @@ async def queue(
         session, limit=limit, include_decided=include_decided, verdict=verdict
     )
     dates = await review.article_dates(session, rows)
+    # Совет судьи — только под решением человека (`crawl/judge_advice.py`).
+    advice = await judge_advice.after_decision(session, rows)
     return CandidatesView(
-        rows=[CandidateCard.of(row, published=dates.get(row.id)) for row in rows],
+        rows=[
+            CandidateCard.of(row, published=dates.get(row.id), judge=advice.get(row.id))
+            for row in rows
+        ],
         waiting=await review.waiting(session),
         counts=await review.counts(session),
         scoring=ScoringCheckView.of(await accuracy.scoring_check(session)),
@@ -157,7 +162,8 @@ async def decide(
         },
     )
     await session.commit()
-    return CandidateCard.of(row).model_copy(update={"warning": decided.warning})
+    said = (await judge_advice.after_decision(session, [row])).get(row.id)
+    return CandidateCard.of(row, judge=said).model_copy(update={"warning": decided.warning})
 
 
 @router.get("/promotion", response_model=PromotionView, summary="Сколько переводить")

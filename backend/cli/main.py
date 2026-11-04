@@ -21,13 +21,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.cli import donor_add, geo_shares, geo_top5, topic_backfill
 from backend.cli.access_admin import ROLE_NAMES, cmd_user_add, cmd_user_reset
+from backend.cli.advertisers import COMMANDS as ADVERTISERS_COMMANDS
+from backend.cli.advertisers import KEPT_ON_INTERRUPT as ADVERTISERS_KEPT
 from backend.cli.advertisers import add_parser as add_advertisers_parser
-from backend.cli.advertisers import (
-    cmd_advertiser_decide,
-    cmd_advertisers,
-    cmd_advertisers_promote,
-    cmd_suppliers_import,
-)
 from backend.cli.contact_refind import add_parser as add_contact_refind_parser
 from backend.cli.contact_refind import cmd_contacts_refind
 from backend.cli.contact_search import cmd_contacts
@@ -431,6 +427,7 @@ _KEPT_ON_INTERRUPT: dict[str, str] = {
     "probe-donor": "Липовый донор заводится одной транзакцией: в базе ничего не изменилось.",
     "probe-advertiser": "Пробный заводится одной транзакцией: в базе ничего не изменилось.",
     "topic-backfill": topic_backfill.KEPT_ON_INTERRUPT,
+    **ADVERTISERS_KEPT,
     **SALES_KEPT,
 }
 
@@ -444,10 +441,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "contacts-file": cmd_contacts_file,
     "contacts-refind": cmd_contacts_refind,
     "crawl": cmd_crawl,
-    "advertisers": cmd_advertisers,
-    "advertiser-decide": cmd_advertiser_decide,
-    "advertisers-promote": cmd_advertisers_promote,
-    "suppliers-import": cmd_suppliers_import,
+    **ADVERTISERS_COMMANDS,
     "user-add": cmd_user_add,
     "user-reset": cmd_user_reset,
     "keywords": cmd_keywords,

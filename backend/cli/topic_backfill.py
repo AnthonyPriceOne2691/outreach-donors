@@ -17,12 +17,9 @@ import argparse
 from datetime import UTC, datetime
 
 import httpx
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import llm as llm_cfg
-from backend.config import storage
-from backend.config.startup_checks import check_storage
-from backend.features.donors.home_signals import home_timeout
+from backend.cli.model_clients import model_and_sites
 from backend.features.topics.backfill import (
     TopicBackfillReport,
     TopicPlan,
@@ -30,7 +27,6 @@ from backend.features.topics.backfill import (
     plan_topics,
 )
 from backend.features.topics.taxonomy import label_of
-from backend.shared.net.url_guard import guarded_client
 from backend.shared.numbers import spaced
 
 EXIT_OK = 0
@@ -62,20 +58,10 @@ def _confirm() -> bool:
 
 
 async def cmd_topic_backfill(args: argparse.Namespace) -> int:
-    check_storage()
-    engine = create_async_engine(storage.DSN)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    try:
-        async with (
-            factory() as session,
-            httpx.AsyncClient(timeout=llm_cfg.TIMEOUT_S) as http,
-            guarded_client(timeout=home_timeout()) as home,
-        ):
-            return await run_topic_backfill(
-                session, args, http=http, home_client=None if args.no_home else home
-            )
-    finally:
-        await engine.dispose()
+    async with model_and_sites() as (session, http, home):
+        return await run_topic_backfill(
+            session, args, http=http, home_client=None if args.no_home else home
+        )
 
 
 def again_before(args: argparse.Namespace) -> datetime | None:

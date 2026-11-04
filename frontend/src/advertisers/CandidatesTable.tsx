@@ -9,6 +9,7 @@
 
 import { Anchor, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
 
+import type { JudgeAdvice, ReviewRow } from '../api/advertisers';
 import type { CandidateCard } from '../api/types';
 import type { Column } from '../components/ColumnsHead';
 import { DataTable } from '../components/DataTable';
@@ -78,8 +79,27 @@ function Decide({
   );
 }
 
+/** Совет судьи словами. */
+const ADVICE: Record<JudgeAdvice['advice'], string> = {
+  write: 'пишем',
+  skip: 'не пишем',
+  unclear: 'не понять',
+};
+
+/** Совет судьи под решением человека — для сверки глазами: что сказал, каким правилом и по какой
+ *  цитате. Сервер даёт его только решённой строке. */
+function JudgeLine({ said }: { said: JudgeAdvice }) {
+  const quote = said.link_quote || said.target_quote;
+  return (
+    <Text size="xs" c="dimmed" className="cellName">
+      судья: {ADVICE[said.advice]} — {said.words}
+      {quote ? ` · «${quote}»` : ''}
+    </Text>
+  );
+}
+
 /** Ячейки строки до кнопок решения. */
-function Cells({ row }: { row: CandidateCard }) {
+function Cells({ row }: { row: ReviewRow }) {
   return (
     <>
       <Table.Td>
@@ -101,6 +121,7 @@ function Cells({ row }: { row: CandidateCard }) {
             {row.confirmed ? 'пишем' : 'не пишем'} — {row.decided_by}
           </Text>
         ) : null}
+        {row.confirmed !== null && row.judge ? <JudgeLine said={row.judge} /> : null}
       </Table.Td>
       <Table.Td className="wrapCell cellName" data-label="Донор">
         <Seams text={row.donor_host} />
@@ -146,7 +167,7 @@ function Cells({ row }: { row: CandidateCard }) {
 }
 
 interface Props {
-  rows: CandidateCard[];
+  rows: ReviewRow[];
   /** Право решать: без него нет ни кнопок, ни их колонки. */
   mayDecide: boolean;
   /** Строка, чьё «Пишем» сейчас уходит на сервер. */

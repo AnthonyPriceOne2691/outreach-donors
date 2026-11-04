@@ -19,11 +19,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+from collections.abc import Callable, Coroutine
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from backend.cli import advertiser_judge
 from backend.config import advertisers as suppliers_cfg
 from backend.config import ahrefs as ahrefs_cfg
 from backend.config import storage
@@ -114,6 +117,7 @@ def add_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
     group = decide.add_mutually_exclusive_group(required=True)
     group.add_argument("--yes", action="store_true", help="это рекламодатель, пишем")
     group.add_argument("--no", action="store_true", help="не рекламодатель")
+    advertiser_judge.add_parser(sub)
 
 
 def _print_candidate(row: CandidateModel) -> None:
@@ -390,3 +394,16 @@ def _print_import(report: supplier_import.SupplierImport, *, forever: bool, tota
         f"Поставщиков действует: {total}. Они видны на экране «Стоп-лист»; обход, перевод "
         "и отбор прогона отсеивают их сами."
     )
+
+
+#: Команды раздела рекламодателей — таблицей для `cli/main._COMMANDS`, как у продаж: новая
+#: команда раздела — строка здесь, а не правка главного файла консоли.
+COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] = {
+    "advertisers": cmd_advertisers,
+    "advertiser-decide": cmd_advertiser_decide,
+    "advertisers-promote": cmd_advertisers_promote,
+    "suppliers-import": cmd_suppliers_import,
+    "advertisers-judge": advertiser_judge.cmd_advertisers_judge,
+}
+#: Что осталось после прерывания (`cli/main._KEPT_ON_INTERRUPT`).
+KEPT_ON_INTERRUPT = {"advertisers-judge": advertiser_judge.KEPT_ON_INTERRUPT}

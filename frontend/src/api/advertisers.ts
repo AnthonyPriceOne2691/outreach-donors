@@ -96,8 +96,28 @@ export function fetchDisputedStrata(): Promise<DisputedStrata> {
   return request<DisputedStrata>('/advertisers/pending/strata');
 }
 
+/** Совет судьи рекламодателей — только у строки, по которой человек уже решил
+ *  (`crawl/judge_advice.py`): до решения он тянул бы решение за собой. */
+export interface JudgeAdvice {
+  advice: 'write' | 'skip' | 'unclear';
+  /** Правило таблицы словами. */
+  words: string;
+  link_quote: string;
+  target_quote: string;
+  disclosure: string;
+  prompt_version: string;
+  model: string;
+  judged_at: string;
+}
+
+/** Строка очереди проверки: кандидат и, после решения человека, совет судьи. */
+export interface ReviewRow extends CandidateCard {
+  judge?: JudgeAdvice | null;
+}
+
 /** Очередь проверки с долей ложных (сверка ТЗ 11.10.2026). Нет поля — сервер старше экрана. */
 export interface ReviewQueue extends CandidatesView {
+  rows: ReviewRow[];
   scoring?: ScoringCheck;
 }
 
