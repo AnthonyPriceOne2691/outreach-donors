@@ -41,7 +41,7 @@ def _judgement(target: str, *, context: str = "c", at: datetime = NOW, **facts: 
         rules_version=RULES_VERSION,
         facts=facts_body(**facts),
         advice="write",
-        rule="paid",
+        rule="promoted",
         seen="Абзац со ссылкой: …",
         tokens=100,
         retried=False,
@@ -97,7 +97,13 @@ async def test_the_latest_judgement_gives_the_advice_by_the_rules_in_force(
     candidate = await scored(session, run, "seller.example.test", verdict=Verdict.PENDING)
     candidate.confirmed = True
     old = _judgement("seller.example.test", context="a", at=NOW - timedelta(days=3))
-    new = _judgement("seller.example.test", context="b", link_role="cites")
+    new = _judgement(
+        "seller.example.test",
+        context="b",
+        source_of_fact=True,
+        money_anchor=False,
+        calls_to_buy=False,
+    )
     # Совет строки записан старой таблицей — показывается совет нынешней по фактам.
     new.advice, new.rules_version = "write", "advertiser-rules-v0"
     session.add_all([old, new])

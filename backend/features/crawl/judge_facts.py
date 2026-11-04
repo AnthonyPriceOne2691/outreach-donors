@@ -1,28 +1,38 @@
 """Факты судьи рекламодателей: строгая форма ответа модели и проверка цитат кодом.
 
-Модель не решает, писать ли домену, — она называет факты о ссылке и о домене (`prompts/
-advertiser_judge.md`): что ссылка делает в статье (`link_role`), о домене ли статья целиком
-(`article_about_target`), слова раскрытия рекламы на любом языке (`disclosure`) и что за сайт у
-домена (`target_kind`). Совет ставит код по таблице правил (`judge_rules.py`): правка таблицы
-пересчитывает совет по сохранённым фактам без модели. Так судья продаж развёл факты и политику
-(#440): модель, ставящая полосу, смешивала одно с другим, а правка политики стоила токенов.
+Модель не решает, писать ли домену, — она отвечает на простые вопросы «да/нет» о ссылке и о домене
+(`prompts/advertiser_judge.md`): что за анкор (денежные слова, поисковая фраза, имя), что ссылка
+делает на странице (призыв, выбор, подборка, источник факта, «не по теме», «как пример», карточка
+каталога, рекламное место, навигация, статья о домене, пресс-релиз по пометке), слова раскрытия
+рекламы на любом языке и что за сайт у домена (продаёт своё, отправляет к другим, переадресация,
+некоммерческий, издание, приметы партнёрского сайта). Совет ставит код по таблице правил
+(`judge_rules.py`): правка таблицы пересчитывает совет по сохранённым фактам без модели. Признаки
+вместо одной «роли ссылки» и одного «вида сайта» — по стенду 04.11.2026: крупный признак склеивал
+разные случаи, мелкие модели читают согласнее, и правила по ним реже ошибаются.
 
 **Форма — у провайдера** (`json_schema`, `strict`), и код всё равно сверяет её: подставная модель и
-провайдер без строгой формы её не держат. Нет поля, лишнее поле, не тот тип, значение не из списка,
-не JSON — ответ не разобран (`Read.broken`): это не факты и не суд, модель спросят снова.
+провайдер без строгой формы её не держат. Нет поля, лишнее поле, не тот тип, не JSON — ответ не
+разобран (`Read.broken`): это не факты и не суд, модель спросят снова.
 
 **Цитаты проверяет код** (`shared/quote.quote_holds`), каждую — в строках своей стороны: слова о
-ссылке — в статье, о домене — на главной, раскрытие рекламы — в статье. Цитаты нет или она короче
-трёх слов — факт её стороны не доказан, и таблица правил на него не опирается. Цитата есть, а в
-тексте её нет — модель её сочинила (`Read.missing`): по ней модель спрашивают второй раз, а не
-судят по выдумке. Раскрытие — обычно одно-два слова («Реклама», «Anzeige»), и вхождение строкой
-нашло бы «Ad» внутри «Address»: короткое раскрытие ищется целыми словами.
+ссылке — в статье, о домене — на главной, раскрытие рекламы — в статье. Цитаты нет — признаки её
+стороны не доказаны и считаются «нет»; признаки анкора от цитаты статьи не зависят: анкор — наша
+строка над статьёй, модель только называет его вид. Цитата короче трёх слов засчитывается, только
+если это строка целиком («Visit Website»): длиннее строки на странице нет. Цитата есть, а в тексте её
+нет — модель её сочинила (`Read.missing`): по ней модель спрашивают второй раз, а не судят по
+выдумке. Раскрытие — обычно одно-два слова («Реклама», «Anzeige»), и вхождение строкой нашло бы «Ad»
+внутри «Address»: короткое раскрытие ищется целыми словами.
+
+**Признаки кода** (`sponsored` — пометка ссылки, `same_owner` — имя донора на главной домена) модель
+не спрашивают: их ставит проход (`with_code_facts`).
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
+import re
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -34,26 +44,51 @@ from backend.shared.text import normalize
 
 logger = logging.getLogger(__name__)
 
-#: Что ссылка делает в статье: рекламирует, источник факта, строка подборки предложений, меню или
-#: блок ссылок, не понять.
-LINK_ROLES = ("promotes", "cites", "listing", "navigation", "unclear")
-#: Что за сайт у домена: продаёт своё, посредник, издание, госорган или некоммерческая организация,
-#: личная страница, не понять.
-TARGET_KINDS = ("sells", "intermediary", "media", "public", "personal", "unclear")
-#: Ключи ответа — все обязательны, других нет.
-KEYS = (
-    "link_role",
+#: Признаки анкора — по нашей строке анкора: цитата статьи им не нужна.
+ANCHOR_FLAGS = ("money_anchor", "keyword_anchor", "brand_anchor")
+#: Признаки ссылки на странице — стоят на цитате статьи (`link_quote`).
+LINK_FLAGS = (
+    "calls_to_buy",
+    "visit_button",
+    "recommends",
+    "offer_list",
+    "source_of_fact",
+    "off_topic",
+    "named_as_example",
+    "directory_entry",
+    "ad_slot",
+    "site_navigation",
     "article_about_target",
+    "press_release",
+)
+#: Признаки сайта домена — стоят на цитате главной (`target_quote`).
+TARGET_FLAGS = (
+    "target_sells",
+    "target_refers",
+    "target_redirect",
+    "target_noncommercial",
+    "target_media",
+    "target_affiliate_signs",
+)
+FLAGS = (*ANCHOR_FLAGS, *LINK_FLAGS, *TARGET_FLAGS)
+#: Ключи ответа в порядке подсказки — все обязательны, других нет.
+KEYS = (
+    *ANCHOR_FLAGS,
+    *LINK_FLAGS,
     "disclosure",
-    "target_kind",
+    *TARGET_FLAGS,
     "link_quote",
     "target_quote",
     "why",
 )
+#: Признаки кода — в строке суда рядом с фактами модели, у модели их не спрашивают.
+CODE_FLAGS = ("sponsored", "same_owner")
 #: Короче — раскрытие ищется целыми словами: вхождение строкой нашло бы его внутри другого слова.
 WORDS_FOR_SUBSTRING = 3
 #: Слова «почему» модели — для человека, не для кода: столько знаков, дальше срез.
 WHY_CHARS = 300
+#: Имя донора короче — не признак «того же владельца»: «news», «info» стоят на любой главной.
+OWNER_NAME_CHARS = 5
 
 _TEXT = {"type": "string"}
 #: Строгая форма ответа у провайдера.
@@ -61,43 +96,47 @@ SCHEMA: dict[str, Any] = {
     "name": "advertiser_facts",
     "schema": {
         "type": "object",
-        "properties": {
-            "link_role": {"type": "string", "enum": list(LINK_ROLES)},
-            "article_about_target": {"type": "boolean"},
-            "disclosure": _TEXT,
-            "target_kind": {"type": "string", "enum": list(TARGET_KINDS)},
-            "link_quote": _TEXT,
-            "target_quote": _TEXT,
-            "why": _TEXT,
-        },
+        "properties": {key: {"type": "boolean"} if key in FLAGS else _TEXT for key in KEYS},
         "required": list(KEYS),
         "additionalProperties": False,
     },
 }
 #: Типы полей для своей сверки формы.
-_TYPES: dict[str, type] = {
-    "link_role": str,
-    "article_about_target": bool,
-    "disclosure": str,
-    "target_kind": str,
-    "link_quote": str,
-    "target_quote": str,
-    "why": str,
-}
+_TYPES: dict[str, type] = {key: bool if key in FLAGS else str for key in KEYS}
 
 
 @dataclass(frozen=True, slots=True)
 class LinkFacts:
-    """Факты после проверки кодом. Цитата пуста — факт её стороны не доказан: роль ссылки и «статья
-    о домене» стоят на `link_quote`, вид сайта — на `target_quote`; раскрытие — само цитата."""
+    """Факты после проверки кодом: признаки «да/нет», раскрытие и цитаты. Цитата пуста — признаки
+    её стороны «нет» (кроме признаков анкора); раскрытие — само цитата."""
 
-    link_role: str
-    article_about_target: bool
-    disclosure: str
-    target_kind: str
-    link_quote: str
-    target_quote: str
+    money_anchor: bool = False
+    keyword_anchor: bool = False
+    brand_anchor: bool = False
+    calls_to_buy: bool = False
+    visit_button: bool = False
+    recommends: bool = False
+    offer_list: bool = False
+    source_of_fact: bool = False
+    off_topic: bool = False
+    named_as_example: bool = False
+    directory_entry: bool = False
+    ad_slot: bool = False
+    site_navigation: bool = False
+    article_about_target: bool = False
+    press_release: bool = False
+    disclosure: str = ""
+    target_sells: bool = False
+    target_refers: bool = False
+    target_redirect: bool = False
+    target_noncommercial: bool = False
+    target_media: bool = False
+    target_affiliate_signs: bool = False
+    link_quote: str = ""
+    target_quote: str = ""
     why: str = ""
+    sponsored: bool = False
+    same_owner: bool = False
 
     @property
     def link_proven(self) -> bool:
@@ -109,24 +148,37 @@ class LinkFacts:
 
     def as_json(self) -> dict[str, Any]:
         """Для строки суда: читается обратно `from_json`."""
-        return {
-            "link_role": self.link_role,
-            "article_about_target": self.article_about_target,
-            "disclosure": self.disclosure,
-            "target_kind": self.target_kind,
-            "link_quote": self.link_quote,
-            "target_quote": self.target_quote,
-            "why": self.why,
-        }
+        return dataclasses.asdict(self)
 
     @classmethod
     def from_json(cls, data: object) -> LinkFacts | None:
-        """Факты из строки суда; не той формы (правили руками) — `None`, громко в лог: модель
-        спросят снова, а не решат по обломку."""
-        if not isinstance(data, dict) or _broken(data) is not None:
+        """Факты из строки суда; не той формы (правили руками, старая версия фактов) — `None`, громко
+        в лог: модель спросят снова, а не решат по обломку."""
+        if not isinstance(data, dict):
             logger.warning("судья рекламодателей: факты строки суда не той формы")
             return None
-        return cls(**{key: data[key] for key in KEYS})
+        said = {key: value for key, value in data.items() if key not in CODE_FLAGS}
+        if _broken(said) is not None:
+            logger.warning("судья рекламодателей: факты строки суда не той формы")
+            return None
+        code: dict[str, Any] = {key: bool(data.get(key)) for key in CODE_FLAGS}
+        return cls(**{key: said[key] for key in KEYS}, **code)
+
+
+def with_code_facts(
+    facts: LinkFacts, *, sponsored: bool, donor_host: str, home: Sequence[str]
+) -> LinkFacts:
+    """Признаки кода к фактам модели: пометка `sponsored` ссылки и «тот же владелец» — имя донора
+    (первая метка домена, от пяти знаков) отдельным словом на главной домена."""
+    return dataclasses.replace(facts, sponsored=sponsored, same_owner=_same_owner(donor_host, home))
+
+
+def _same_owner(donor_host: str, home: Sequence[str]) -> bool:
+    name = donor_host.lower().removeprefix("www.").split(".")[0]
+    if len(name) < OWNER_NAME_CHARS:
+        return False
+    text = " ".join(home).lower()
+    return re.search(rf"(?<![a-z0-9]){re.escape(name)}(?![a-z0-9])", text) is not None
 
 
 def _broken(body: dict[str, Any]) -> str | None:
@@ -138,10 +190,6 @@ def _broken(body: dict[str, Any]) -> str | None:
     for key, kind in _TYPES.items():
         if not isinstance(body[key], kind):
             return f"в ответе модели поле «{key}» не того типа"
-    if body["link_role"] not in LINK_ROLES or body["target_kind"] not in TARGET_KINDS:
-        return (
-            f"ответ модели не из списка: {body['link_role'][:20]!r}, {body['target_kind'][:20]!r}"
-        )
     return None
 
 
@@ -211,10 +259,14 @@ class _Checked:
         self.missing: list[str] = []
 
     def quote(self, raw: str, lines: Sequence[str]) -> str:
-        """Цитата, найденная в строках своей стороны; короткая или пустая — пусто."""
+        """Цитата, найденная в строках своей стороны; пустая — пусто; короткая — только строка
+        целиком («Visit Website»), иначе пусто."""
         words = _bare(raw)
-        if not words or quote_words(words) < MIN_QUOTE_WORDS:
+        if not words:
             return ""
+        if quote_words(words) < MIN_QUOTE_WORDS:
+            wanted = _words_of(words)
+            return words if wanted and any(_words_of(line) == wanted for line in lines) else ""
         if holds(words, lines):
             return words
         self.missing.append(words)
@@ -240,13 +292,17 @@ def read(content: str, text: JudgeText) -> Read:
     if isinstance(form, str):
         return Read(None, form, broken=True)
     check = _Checked(text)
+    link_quote = check.quote(form["link_quote"], text.article)
+    target_quote = check.quote(form["target_quote"], text.home)
+    # Признак без цитаты своей стороны не доказан — «нет»; признаки анкора цитаты статьи не ждут.
+    flags = {key: form[key] for key in ANCHOR_FLAGS}
+    flags |= {key: form[key] and bool(link_quote) for key in LINK_FLAGS}
+    flags |= {key: form[key] and bool(target_quote) for key in TARGET_FLAGS}
     facts = LinkFacts(
-        link_role=form["link_role"],
-        article_about_target=form["article_about_target"],
+        **flags,
         disclosure=check.disclosure(form["disclosure"]),
-        target_kind=form["target_kind"],
-        link_quote=check.quote(form["link_quote"], text.article),
-        target_quote=check.quote(form["target_quote"], text.home),
+        link_quote=link_quote,
+        target_quote=target_quote,
         why=" ".join(form["why"].split())[:WHY_CHARS],
     )
     if check.missing:

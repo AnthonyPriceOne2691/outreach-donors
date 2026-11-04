@@ -21,7 +21,7 @@ import httpx
 import pytest
 from backend.features.crawl import judge_client
 from backend.features.crawl.judge_client import JudgeClient
-from backend.features.crawl.judge_facts import LinkFacts
+from backend.features.crawl.judge_facts import FLAGS, KEYS, LinkFacts
 from backend.features.crawl.judge_rules import advise
 from backend.features.crawl.judge_text import JudgeText, holds
 from backend.shared.quote import MIN_QUOTE_WORDS, quote_words
@@ -73,15 +73,38 @@ class Oracle:
             disclosure = ""  # без правила видит только английские пометки
         if ev.RULES["quote"] not in system:
             link, target = _reversed(link), _reversed(target)  # пересказ, а не цитата
-        return {
-            "link_role": role,
-            "article_about_target": truth["article_about_target"],
-            "disclosure": disclosure,
-            "target_kind": kind,
-            "link_quote": link,
-            "target_quote": target,
-            "why": "по тексту статьи и главной",
-        }
+        return said_of(role, kind, truth["article_about_target"], disclosure, link, target)
+
+
+#: Эталон синтетики — крупными словами (что ссылка делает, что за сайт); ответ модели — признаками.
+ROLE_FLAGS = {
+    "promotes": ("money_anchor", "calls_to_buy"),
+    "cites": ("source_of_fact",),
+    "listing": ("offer_list",),
+    "navigation": ("site_navigation",),
+    "partners": ("ad_slot",),  # блок «наши партнёры» — рекламное место, а не меню (стенд 04.11)
+    "unclear": (),
+}
+KIND_FLAGS = {
+    "sells": ("target_sells",),
+    "intermediary": ("target_refers",),
+    "media": ("target_media",),
+    "public": ("target_noncommercial",),
+    "personal": ("target_noncommercial",),
+    "unclear": (),
+}
+
+
+def said_of(
+    role: str, kind: str, about: bool, disclosure: str, link: str, target: str
+) -> dict[str, Any]:
+    """Ответ модели по эталону случая: признаки роли ссылки и вида сайта — «да», остальные — «нет»."""
+    flags = dict.fromkeys(FLAGS, False) | dict.fromkeys(
+        (*ROLE_FLAGS[role], *KIND_FLAGS[kind]), True
+    )
+    flags["article_about_target"] = about
+    body = flags | {"disclosure": disclosure, "link_quote": link, "target_quote": target}
+    return {key: body[key] for key in KEYS if key != "why"} | {"why": "по тексту статьи и главной"}
 
 
 def use(monkeypatch: pytest.MonkeyPatch, oracle: Oracle) -> None:
@@ -138,14 +161,15 @@ def test_the_rules_give_the_human_decision_on_the_true_facts() -> None:
     """Набор и таблица правил согласны: по фактам случая совет — решение человека."""
     for case in SYNTHETIC:
         truth = case["truth"]
-        facts = LinkFacts(
+        said = said_of(
             truth["link_role"],
+            truth["target_kind"],
             truth["article_about_target"],
             truth["disclosure"],
-            truth["target_kind"],
             truth["link_evidence"],
             truth["target_evidence"],
         )
+        facts = LinkFacts(**{key: value for key, value in said.items() if key != "why"})
         assert advise(facts).advice.value in case["expect"].split("|"), case["id"]
 
 
@@ -213,13 +237,13 @@ def test_a_spoil_that_lets_false_writes_in_closes_the_gates(
 
 
 def test_a_spoiled_disclosure_rule_loses_foreign_labels(oracle: Oracle, capsys: Capture) -> None:
-    """Без правила «на любом языке» пометка «Anzeige» или «Artykuł sponsorowany» теряется: продавец
-    под раскрытием и издание, оплатившее статью, уходят в «не пишем» — ворота закрыты."""
+    """Без правила «на любом языке» пометка «Artykuł sponsorowany» или «Reklam» теряется: продавец под
+    раскрытием, на которого ссылка опирается как на источник, уходит в «не пишем» — ворота закрыты."""
     assert ev.main(["--spoil", "disclosure"]) == 1
 
     out = capsys.readouterr().out
     assert "ПОРЧА ПОЙМАНА: без правила «раскрытие рекламы на любом языке»" in out
-    assert "ЛОЖНЫХ «НЕ ПИШЕМ»: 2 ['pl-disclosure-garden', 'de-media-disclosure']" in out
+    assert "ЛОЖНЫХ «НЕ ПИШЕМ»: 2 ['pl-disclosure-garden', 'tr-disclosure-tiles']" in out
     assert "ложных «не пишем»" in out.split("ВОРОТА ЗАКРЫТЫ:")[1]
 
 
