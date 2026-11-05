@@ -22,6 +22,7 @@ import {
   NO_NICHE,
   OPERATOR,
   TOKEN_KEY,
+  reviewQueue,
 } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -86,7 +87,7 @@ function open(routes: Record<string, Answer> = {}, who: unknown = ADMIN) {
     'GET /api/auth/me': { body: who },
     ...CRAWL_ROUTES,
     ...NO_NICHE,
-    'GET /api/advertisers': { body: { rows: [], waiting: 0, counts: { bought: 0, pending: 0 } } },
+    'GET /api/advertisers': { body: reviewQueue({ counts: { bought: 0, pending: 0 } }) },
     'GET /api/crawls/summary': { body: SUMMARY },
     'GET /api/price-rechecks': { body: VIEW },
     ...routes,

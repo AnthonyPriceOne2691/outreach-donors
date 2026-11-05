@@ -49,9 +49,12 @@ export interface DonorAcceptance {
 }
 
 export interface AcceptanceView {
+  /** Доноры этой страницы. */
   donors: DonorAcceptance[];
-  /** Сколько обойдённых доноров всего: строк бывает меньше. */
+  /** Сколько обойдённых доноров всего; `limit` — на странице: по ним считаются страницы. */
   total: number;
+  page: number;
+  limit: number;
   /** Все доноры вместе, без поставщиков, — по разным доменам. Справочно: критерий ТЗ —
    *  по донору. */
   overall: Tally;
@@ -62,6 +65,7 @@ export interface AcceptanceView {
   target_sent_share: number;
 }
 
-export function fetchAcceptance(): Promise<AcceptanceView> {
-  return request<AcceptanceView>('/advertisers/acceptance');
+export function fetchAcceptance(page = 1): Promise<AcceptanceView> {
+  const tail = page > 1 ? `?page=${page}` : '';
+  return request<AcceptanceView>(`/advertisers/acceptance${tail}`);
 }

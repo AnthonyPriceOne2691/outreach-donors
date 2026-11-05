@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { NicheCard } from '../api/niche';
-import { ADMIN, CRAWL_ROUTES, OPERATOR, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, CRAWL_ROUTES, OPERATOR, reviewQueue, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 
@@ -49,7 +49,7 @@ async function openAdvertisers(
     // Панели обхода и перевода на том же экране — пустые: проверяется карточка ниши.
     ...CRAWL_ROUTES,
     'GET /api/auth/me': { body: user },
-    'GET /api/advertisers': { body: { rows: [], waiting: 0, counts: {} } },
+    'GET /api/advertisers': { body: reviewQueue() },
     'GET /api/advertisers/niche?page=1': {
       body: { rows: [BOOKIE], waiting: 1, total: 1, page: 1, limit: 20 },
     },

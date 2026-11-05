@@ -115,22 +115,53 @@ export interface ReviewRow extends CandidateCard {
   judge?: JudgeAdvice | null;
 }
 
-/** Очередь проверки с долей ложных (сверка ТЗ 11.10.2026). Нет поля — сервер старше экрана. */
+/** Вариант фильтра очереди: значение, слова экрана и сколько строк с ним. */
+export interface FacetChoice {
+  key: string;
+  title: string;
+  count: number;
+}
+
+/** Варианты фильтра колонки. `total` — сколько строк, когда он не сужает («все»). */
+export interface QueueFacet {
+  total: number;
+  choices: FacetChoice[];
+}
+
+/** Счётчики под фильтрами: у каждого — со всеми условиями, кроме своего (`crawl/review.py`).
+ *  `listed` — строк списка без фильтров. */
+export interface QueueFacets {
+  listed: number;
+  points: QueueFacet;
+  features: QueueFacet;
+}
+
+/** Страница очереди проверки. `total` и `limit` — по ним считаются страницы, `total` — под
+ *  фильтром; `waiting`, `counts` и доля ложных (сверка ТЗ 11.10.2026) — по всем, от страницы и
+ *  фильтра не меняются. Нет `scoring` — сервер старше экрана. */
 export interface ReviewQueue extends CandidatesView {
   rows: ReviewRow[];
+  total: number;
+  page: number;
+  limit: number;
+  facets: QueueFacets;
   scoring?: ScoringCheck;
 }
 
-/** Кандидаты с вердиктом. С `includeDecided` — и те, по которым решили. */
-export function fetchCandidates(
-  includeDecided = false,
-  verdict: ReviewedVerdict = 'pending',
-): Promise<ReviewQueue> {
-  const params = new URLSearchParams();
-  if (includeDecided) params.set('include_decided', 'true');
-  if (verdict !== 'pending') params.set('verdict', verdict);
-  const query = params.size > 0 ? `?${params.toString()}` : '';
-  return request<ReviewQueue>(`/advertisers${query}`);
+/** Какие строки спрашивает очередь — именами адреса экрана и сервера (`reviewFilters.ts`). */
+export interface ReviewQuery {
+  include_decided?: 'true';
+  verdict?: ReviewedVerdict;
+  points?: string;
+  feature?: string;
+}
+
+/** Страница очереди: кандидаты с вердиктом под фильтром. */
+export function fetchCandidates(query: ReviewQuery = {}, page = 1): Promise<ReviewQueue> {
+  const params = new URLSearchParams(query as Record<string, string>);
+  if (page > 1) params.set('page', String(page));
+  const tail = params.size > 0 ? `?${params.toString()}` : '';
+  return request<ReviewQueue>(`/advertisers${tail}`);
 }
 
 /**

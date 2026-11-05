@@ -32,24 +32,24 @@
       "worst": "of:149"
     },
     "backend/api/advertisers/report_schemas.py": {
-      "lines": 247,
+      "lines": 249,
       "complexity": 4,
-      "worst": "of:241"
+      "worst": "of:243"
     },
     "backend/api/advertisers/reports.py": {
-      "lines": 167,
+      "lines": 176,
       "complexity": 4,
       "worst": "accepted:137"
     },
     "backend/api/advertisers/routes.py": {
-      "lines": 381,
+      "lines": 387,
       "complexity": 5,
-      "worst": "decide:128"
+      "worst": "decide:134"
     },
     "backend/api/advertisers/schemas.py": {
-      "lines": 293,
+      "lines": 356,
       "complexity": 5,
-      "worst": "of:74"
+      "worst": "of:76"
     },
     "backend/api/agent/__init__.py": {
       "lines": 1,
@@ -1377,9 +1377,9 @@
       "worst": "—"
     },
     "backend/features/crawl/acceptance.py": {
-      "lines": 212,
+      "lines": 219,
       "complexity": 3,
-      "worst": "tally_of:162"
+      "worst": "tally_of:167"
     },
     "backend/features/crawl/accuracy.py": {
       "lines": 220,
@@ -1642,9 +1642,9 @@
       "worst": "save_crawl:59"
     },
     "backend/features/crawl/review.py": {
-      "lines": 214,
+      "lines": 364,
       "complexity": 8,
-      "worst": "decide:158"
+      "worst": "decide:308"
     },
     "backend/features/crawl/robots.py": {
       "lines": 279,
@@ -1652,9 +1652,9 @@
       "worst": "_collect_groups:199"
     },
     "backend/features/crawl/sample.py": {
-      "lines": 103,
-      "complexity": 7,
-      "worst": "mixed:64"
+      "lines": 75,
+      "complexity": 6,
+      "worst": "mixed:65"
     },
     "backend/features/crawl/scoring.py": {
       "lines": 488,
@@ -3952,7 +3952,7 @@
       "worst": "open_letter_draft:36"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 403,
+      "lines": 411,
       "complexity": 2,
       "worst": "unbound_probes:35"
     },
@@ -4027,7 +4027,7 @@
       "worst": "weekly_screens:21"
     },
     "scripts/ui_screens_stage2.py": {
-      "lines": 150,
+      "lines": 156,
       "complexity": 1,
       "worst": "stage2_screens:26"
     }

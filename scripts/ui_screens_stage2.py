@@ -75,6 +75,12 @@ def stage2_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("вердикт порога", f"{DONOR_ROW} td:last-child .mantine-Badge-label", norm),
                 ("чего не хватает", f"{DONOR_ROW} td:last-child p", norm),
                 ("числа приёмки", f"{DONOR_ROW} td[data-label='С адресом']", norm),
+                (
+                    "номер страницы приёмки",
+                    "nav[aria-label='Страницы приёмки'] "
+                    "button[aria-current='page'] [data-page-number]",
+                    norm,
+                ),
                 ("пункт меню", "nav a", norm),
             ],
         },

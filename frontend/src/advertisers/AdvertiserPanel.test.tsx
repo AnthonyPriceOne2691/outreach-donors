@@ -21,7 +21,7 @@ import type {
 import type { AdvertiserFacets } from '../api/advertiserList';
 import type { QueueAutosend } from '../api/autosend';
 import { FORECAST } from '../sales/mailingFixtures';
-import { ADMIN, CRAWL_ROUTES, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, CRAWL_ROUTES, reviewQueue, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import type { Call } from '../test/server';
 import { serve } from '../test/server';
@@ -196,7 +196,7 @@ describe('панель рекламодателей', () => {
         'GET /api/advertisers/niche?page=1': {
           body: { rows: [], waiting: 0, total: 0, page: 1, limit: 20 },
         },
-        'GET /api/advertisers': { body: { rows: [], waiting: 0, counts: {} } },
+        'GET /api/advertisers': { body: reviewQueue() },
       },
       '/advertisers?view=review',
     );
@@ -422,7 +422,7 @@ describe('выгрузка спорных', () => {
       body: { rows: [], waiting: 0, total: 0, page: 1, limit: 20 },
     },
     'GET /api/advertisers': {
-      body: { rows: [], waiting: 3, counts: { pending: 5, bought: 1 } },
+      body: reviewQueue({ waiting: 3, counts: { pending: 5, bought: 1 } }),
     },
   };
 
@@ -485,7 +485,7 @@ describe('выгрузка спорных', () => {
     open(
       {
         ...REVIEW,
-        'GET /api/advertisers?verdict=bought': { body: { rows: [], waiting: 0, counts: {} } },
+        'GET /api/advertisers?verdict=bought': { body: reviewQueue() },
       },
       '/advertisers?view=review',
     );

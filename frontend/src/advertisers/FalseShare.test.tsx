@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { SampleShare, ScoringCheck } from '../api/advertisers';
-import { ADMIN, CRAWL_ROUTES, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, CRAWL_ROUTES, reviewQueue, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import { disputedLine, falseShareLine } from './FalseShare';
@@ -210,7 +210,7 @@ async function openWith(scoring: ScoringCheck | undefined) {
       body: { rows: [], waiting: 0, total: 0, page: 1, limit: 20 },
     },
     'GET /api/advertisers': {
-      body: { rows: [], waiting: 0, counts: { bought: 400 }, ...(scoring ? { scoring } : {}) },
+      body: reviewQueue({ counts: { bought: 400 }, ...(scoring ? { scoring } : {}) }),
     },
     'GET /api/advertisers/pending/strata': { body: STRATA },
   });

@@ -17,13 +17,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { BulkReport, BulkRow } from '../api/bulkDonors';
-import { ADMIN, CRAWL_ROUTES, NO_NICHE, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, CRAWL_ROUTES, NO_NICHE, reviewQueue, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import { reportCsv, reportWords } from './BulkDonors';
 import { etaWords, termWords } from './CrawlBacklog';
 
-const QUEUE = { rows: [], waiting: 0, counts: { bought: 1, pending: 0 } };
+const QUEUE = reviewQueue({ counts: { bought: 1, pending: 0 } });
 
 function row(overrides: Partial<BulkRow>): BulkRow {
   return {

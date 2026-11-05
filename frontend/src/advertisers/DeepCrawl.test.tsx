@@ -20,7 +20,14 @@ import type {
   CrawlSummary,
   CrawlTarget,
 } from '../api/crawls';
-import { BACKLOG_ROUTES, NO_NICHE, OPERATOR, PROMOTE_ROUTES, TOKEN_KEY } from '../test/fixtures';
+import {
+  BACKLOG_ROUTES,
+  NO_NICHE,
+  OPERATOR,
+  PROMOTE_ROUTES,
+  reviewQueue,
+  TOKEN_KEY,
+} from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import { deepPart } from './CrawlBacklog';
@@ -117,7 +124,7 @@ function open(page: CrawlDonorsView = PAGE) {
     ...PROMOTE_ROUTES,
     ...BACKLOG_ROUTES,
     ...NO_NICHE,
-    'GET /api/advertisers': { body: { rows: [], waiting: 0, counts: { bought: 1, pending: 0 } } },
+    'GET /api/advertisers': { body: reviewQueue({ counts: { bought: 1, pending: 0 } }) },
     'GET /api/crawls/summary': { body: SUMMARY },
     'GET /api/crawls/donors': { body: page },
     'POST /api/crawls/deep': { body: STARTED },

@@ -194,11 +194,13 @@ class DonorAcceptance(BaseModel):
 class AcceptanceView(BaseModel):
     """Приёмка по донорам, все доноры вместе (по разным доменам, без поставщиков,
     справочно) и пороги ТЗ — от сервера, а не копией чисел в экране. `total` — сколько
-    обойдённых доноров всего: строк бывает меньше (`limit`). Что нашли обходы вместе —
-    суммой по донорам, без поставщиков (`overall_findings`)."""
+    обойдённых доноров всего, `page` и `limit` — какая это страница: по ним экран считает
+    страницы. Что нашли обходы вместе — суммой по донорам, без поставщиков (`overall_findings`)."""
 
     donors: list[DonorAcceptance]
     total: int
+    page: int
+    limit: int
     overall: TallyView
     overall_findings: FindingsView
     target_with_address: int

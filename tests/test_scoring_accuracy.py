@@ -25,7 +25,7 @@ import pytest
 from backend.features.core.domain import UserRole, Verdict
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.advertiser import CandidateModel
-from backend.features.crawl import sample
+from backend.features.crawl import review, sample
 from backend.features.crawl.accuracy import (
     FALSE_LIMIT,
     Decisions,
@@ -137,7 +137,7 @@ class TestTheQueue:
         for root in weak:
             await scored(session, run, root, points=4)
 
-        rows = await sample.queue(session, limit=10, verdict=Verdict.BOUGHT)
+        rows = (await review.queue(session, limit=10, verdict=Verdict.BOUGHT)).rows
 
         roots = [row.target_root for row in rows]
         assert {roots[4], roots[9]} == set(weak)
@@ -149,7 +149,7 @@ class TestTheQueue:
         strong = hosts(in_sample=False, number=6, prefix="only")
         await _bought(session, strong)
 
-        rows = await sample.queue(session, limit=5, verdict=Verdict.BOUGHT)
+        rows = (await review.queue(session, limit=5, verdict=Verdict.BOUGHT)).rows
 
         assert len(rows) == 5
         assert all(not sample.sampled(row.target_root) for row in rows)
@@ -168,7 +168,7 @@ class TestTheQueue:
         for root in weak:
             await scored(session, run, root, verdict=Verdict.PENDING, points=2)
 
-        rows = await sample.queue(session, limit=10, verdict=Verdict.PENDING)
+        rows = (await review.queue(session, limit=10, verdict=Verdict.PENDING)).rows
 
         roots = [row.target_root for row in rows]
         assert {roots[4], roots[9]} == set(weak)
@@ -183,7 +183,7 @@ class TestTheQueue:
         for points, root in zip((2, 3, 2), picked, strict=True):
             await scored(session, run, root, verdict=Verdict.PENDING, points=points)
 
-        rows = await sample.queue(session, limit=10, verdict=Verdict.PENDING)
+        rows = (await review.queue(session, limit=10, verdict=Verdict.PENDING)).rows
 
         assert [row.target_root for row in rows] == sorted(
             picked, key=lambda host: hashlib.md5(host.encode(), usedforsecurity=False).hexdigest()
@@ -193,10 +193,10 @@ class TestTheQueue:
         picked = hosts(in_sample=True, number=2, prefix="done")
         await _bought(session, picked, answers=[True, None], verdict=Verdict.PENDING)
 
-        rows = await sample.queue(session, limit=10, verdict=Verdict.PENDING)
-        everything = await sample.queue(
-            session, limit=10, verdict=Verdict.PENDING, include_decided=True
-        )
+        rows = (await review.queue(session, limit=10, verdict=Verdict.PENDING)).rows
+        everything = (
+            await review.queue(session, limit=10, verdict=Verdict.PENDING, include_decided=True)
+        ).rows
 
         assert [row.target_root for row in rows] == [picked[1]]
         assert {row.target_root for row in everything} == set(picked)

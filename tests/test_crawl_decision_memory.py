@@ -26,7 +26,7 @@ from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import UsageRecordModel
-from backend.features.crawl import gate, review, sample
+from backend.features.crawl import gate, review
 from backend.features.crawl.big_sites import ahrefs_ratings, journal
 from backend.features.crawl.links import OutLink
 from backend.features.crawl.promote import promote, standing
@@ -220,7 +220,7 @@ class TestTheDecisionComesBack:
 
         back = await _candidate(session, MAYBE)
         assert (back.verdict, back.confirmed, back.decided_by) == (Verdict.PENDING, True, BY)
-        assert await review.queue(session) == []
+        assert (await review.queue(session)).rows == []
         report = await promote(session)
         assert (report.considered, report.updated, report.by_human) == (1, 1, 1)
         advertiser = await _advertiser(session, MAYBE)
@@ -310,8 +310,10 @@ class TestTheMemoryIsNotACandidate:
         await _crawl(session, provider, [SOURCE], article=2)
 
         assert set(await _candidates(session)) == {(DONOR, SOURCE)}
-        assert await sample.queue(session, verdict=Verdict.BOUGHT, include_decided=True) == []
-        assert await review.queue(session, include_decided=True) == []
+        assert (
+            await review.queue(session, verdict=Verdict.BOUGHT, include_decided=True)
+        ).rows == []
+        assert (await review.queue(session, include_decided=True)).rows == []
         assert (await standing(session)).ready == 0
         # Рекламодателя «не пишем» сняло само решение, и проверке оффера здесь держать нечего.
         assert not await _only_rejected(session, BRAND)

@@ -9,7 +9,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
-import { ADMIN, CRAWL_ROUTES, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, CRAWL_ROUTES, reviewQueue, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 
@@ -42,7 +42,7 @@ async function decideNo(answer: Record<string, unknown>) {
       body: { rows: [], waiting: 0, total: 0, page: 1, limit: 20 },
     },
     'GET /api/advertisers': {
-      body: { rows: [CANDIDATE], waiting: 1, counts: { pending: 1 } },
+      body: reviewQueue({ rows: [CANDIDATE], waiting: 1, counts: { pending: 1 } }),
     },
     'POST /api/advertisers/12/decide': { body: { ...CANDIDATE, confirmed: false, ...answer } },
   });

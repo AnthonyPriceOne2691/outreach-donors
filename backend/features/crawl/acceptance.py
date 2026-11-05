@@ -55,6 +55,11 @@ from backend.features.crawl.findings import Findings, by_donor, together
 from backend.features.crawl.offer_state import OfferFlags
 from backend.features.crawl.suppliers import supplier_hosts
 
+#: Доноров на странице приёмки (слово Anthony 05.11.2026): двести строк одной таблицей были
+#: простынёй. Размер называет сервер.
+PAGE_SIZE = 15
+#: Больше за раз не отдаётся: без границы ответ рос бы вместе с базой.
+MAX_PAGE_SIZE = 200
 #: Порог ТЗ: рекламодателей с контактами у донора.
 TARGET_WITH_ADDRESS = 100
 #: Порог ТЗ: доля рекламодателей с контактами, которым ушло письмо.
@@ -104,7 +109,7 @@ class DonorTally:
 @dataclass(frozen=True, slots=True)
 class Acceptance:
     donors: list[DonorTally]
-    #: Сколько обойдённых доноров всего — строк может быть меньше (`limit`).
+    #: Сколько обойдённых доноров всего — строк может быть меньше (страница).
     total: int
     #: Все доноры вместе, кроме поставщиков, — по разным доменам. Справочно.
     overall: Tally
@@ -169,11 +174,13 @@ def not_supplier(rows: Subquery, suppliers: Collection[str]) -> ColumnElement[bo
     return func.lower(rows.c.donor).not_in(suppliers) if suppliers else rows.c.donor.is_not(None)
 
 
-async def acceptance(session: AsyncSession, *, limit: int) -> Acceptance:
-    """Приёмка по каждому обойдённому донору (не больше `limit`) и всех вместе.
+async def acceptance(session: AsyncSession, *, limit: int, offset: int = 0) -> Acceptance:
+    """Приёмка по обойдённым донорам страницей (`limit` строк с `offset`) и всех вместе:
+    итог считается по всем донорам, а не по странице.
 
     Донор — каждый, у кого есть обход, в том числе без рекламодателей: «обошли
-    и не нашли никого» — тоже ответ приёмке. Сверху — у кого найдено больше.
+    и не нашли никого» — тоже ответ приёмке. Сверху — у кого найдено больше; порядок
+    полный, до имени донора: строка со стыка страниц не теряется и не задваивается.
     """
     rows = found_rows().subquery()
     flags = OfferFlags.build()
@@ -203,7 +210,7 @@ async def acceptance(session: AsyncSession, *, limit: int) -> Acceptance:
                 supplier=host.lower() in suppliers,
                 findings=findings.get(host, Findings()),
             )
-            for host in hosts[:limit]
+            for host in hosts[offset : offset + limit]
         ],
         total=len(hosts),
         overall=tally_of(overall.one()),
