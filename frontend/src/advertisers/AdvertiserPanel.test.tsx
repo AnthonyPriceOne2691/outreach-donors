@@ -349,7 +349,7 @@ describe('качество загрузок', () => {
 });
 
 describe('рассылка на панели', () => {
-  it('показывает прогноз этапа, части по слову оффера и ящики — без слов продаж', async () => {
+  it('показывает прогноз этапа и части по слову оффера; ящики — на своём экране', async () => {
     open();
 
     expect(await screen.findByRole('heading', { name: 'Рассылка рекламодателям' })).toBeVisible();
@@ -360,7 +360,7 @@ describe('рассылка на панели', () => {
     expect(within(parts).getByText('Собрано')).toBeVisible();
     // Части с нулём не показываются: «снято 0» ни о чём не говорит.
     expect(within(parts).queryByText('Снято')).toBeNull();
-    expect(await screen.findByRole('region', { name: 'Ящики и разгон' })).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Ящики и разгон' })).toBeNull();
   });
 
   it('план на 7 дней — со словами рекламодателей, а не продаж', async () => {
@@ -406,14 +406,6 @@ describe('рассылка на панели', () => {
 
     expect(await screen.findByText(/Очередь уходит сама с/)).toBeVisible();
     expect(screen.queryByText(/Очередь сама не уходит/)).toBeNull();
-  });
-
-  it('ящиков нет — словами этапа, а не продаж', async () => {
-    open({ [FORECAST_ROUTE]: { body: { ...FORECAST, stage: 'advertisers', senders: [] } } });
-
-    const boxes = await screen.findByRole('region', { name: 'Ящики и разгон' });
-    expect(within(boxes).getByText(/Ящиков этапа нет/)).toBeVisible();
-    expect(within(boxes).queryByText(/Домены продаж/)).toBeNull();
   });
 
   it('отказ прогноза — в его блоке, части и режим живут', async () => {

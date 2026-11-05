@@ -1,6 +1,7 @@
 /**
  * Блок «Рассылка» панели: то же, что вкладка «Рассылка» в продажах, для рекламодателей — почему
- * письма не уходят, уходит ли очередь сама, когда она уйдёт, что с письмами, факт и ящики.
+ * письма не уходят, уходит ли очередь сама, когда она уйдёт, что с письмами и факт. Ящики и разгон —
+ * на своём экране, пункт меню «Домены рассылки» (`senders/StageBoxes`, просьба Anthony 05.11.2026).
  *
  * **Экран своего счёта не ведёт, и блоки те же.** Прогноз — общая ручка почты
  * (`GET /letters/forecast?stage=advertisers`), блоки вкладки продаж принимают её ответ как есть:
@@ -27,13 +28,11 @@ import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
 import { capitalized, formatNumber } from '../format';
 import { QueueAutosendLine } from '../letters/QueueAutosend';
-import { Block, NoAnswer, NotRefreshed } from '../sales/MailingBlock';
-import { MailingBoxes } from '../sales/MailingBoxes';
+import { Block, NoAnswer, NotRefreshed } from '../components/MailingBlock';
 import { MailingPast, MailingPlan } from '../sales/MailingDays';
 import type { PlanWords } from '../sales/MailingDays';
 import { MailingBlocked, MailingQueue } from '../sales/MailingQueue';
 import { MAILING_REFRESH_MS } from '../sales/mailingData';
-import type { MailingForecastView } from '../sales/mailingTypes';
 import { ADVERTISER_FACETS_KEY } from './AdvertiserList';
 import { OFFER_KEYS, OFFER_STATES } from './listFilters';
 
@@ -113,18 +112,6 @@ function Parts({ query }: { query: UseQueryResult<AdvertiserFacets> }) {
   );
 }
 
-/** Ящиков нет — своими словами: блок вкладки продаж говорит о своих доменах. */
-function Boxes({ view }: { view: MailingForecastView }) {
-  if (view.senders.length > 0) return <MailingBoxes view={view} />;
-  return (
-    <Block title="Ящики и разгон" className="mailingBoxesBlock">
-      <Text size="sm" c="dimmed" px="md">
-        Ящиков этапа нет — первые письма не уйдут. Ящики заводят на экране «Домены рассылки».
-      </Text>
-    </Block>
-  );
-}
-
 export function PanelMailing() {
   const forecast = useQuery({
     queryKey: FORECAST_KEY,
@@ -152,7 +139,6 @@ export function PanelMailing() {
           <>
             <MailingPlan view={view} words={PLAN_WORDS} />
             <MailingPast view={view} />
-            <Boxes view={view} />
           </>
         )}
       </Stack>

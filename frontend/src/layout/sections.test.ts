@@ -33,7 +33,9 @@ describe('ключ пункта', () => {
     expect(sectionKey(titled('Диалоги с рекламодателями'))).toBe('/threads?stage=advertisers');
     expect(sectionKey(titled('Диалоги продаж'))).toBe('/threads?stage=sales');
     expect(sectionKey(titled('Агент продаж'))).toBe('/agent?stage=sales');
-    expect(sectionKey(titled('Домены продаж'))).toBe('/senders?stage=sales');
+    expect(sectionKey(titled('Домены рассылки продаж'))).toBe('/senders?stage=sales');
+    expect(sectionKey(titled('Домены рассылки доноров'))).toBe('/senders?stage=donors');
+    expect(sectionKey(titled('Домены рассылки рекламодателей'))).toBe('/senders?stage=advertisers');
   });
 
   it('у каждого пункта свой: двух пунктов с одним ключом нет', () => {

@@ -304,6 +304,17 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("пункт меню", "nav a", norm),
             ],
         },
+        # Часть экрана со своим блоком: под доменами этапа — ящики и разгон (05.11.2026).
+        "senders-advertisers": {
+            "path": "/senders?stage=advertisers",
+            "ready": ("heading", "Домены рассылки рекламодателей"),
+            "probes": [
+                ("заголовок раздела", "h3", big),
+                ("домен", ".mantine-Card-root.glass p", norm),
+                ("ящик в таблице", ".mailingBoxes td[data-label='Пишет ли'] p", norm),
+                ("пункт меню", "nav a", norm),
+            ],
+        },
     }
 
 

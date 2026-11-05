@@ -21,9 +21,9 @@ import { useQuery } from '@tanstack/react-query';
 import type { UseQueryResult } from '@tanstack/react-query';
 
 import { request } from '../api/client';
-import { formatNumber } from '../format';
-import type { ForecastSender, MailingForecastView, SalesMailingView } from './mailingTypes';
-import { dayWords } from './weeklyData';
+import type { MailingForecastView, SalesMailingView } from './mailingTypes';
+
+export { dayLabel } from '../format';
 
 /** Обе ручки вкладки перечитываются раз в минуту. */
 export const MAILING_REFRESH_MS = 60_000;
@@ -72,44 +72,9 @@ export function updatedAt(...answers: { data: unknown; dataUpdatedAt: number }[]
   return moments.length === 0 ? null : Math.min(...moments);
 }
 
-const WEEKDAYS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
-
-/** День сервера (`YYYY-MM-DD`, сутки по UTC) — «пн 26.10», как в словах срока сервера. */
-export function dayLabel(iso: string): string {
-  const weekday = WEEKDAYS[new Date(`${iso}T00:00:00Z`).getUTCDay()] ?? '';
-  return `${weekday} ${dayWords(iso).slice(0, 5)}`;
-}
-
 const tenths = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
 
 /** Часы до последнего письма очереди — с десятой, как их считает сервер: «≈ 26,5 ч». */
 export function hoursLabel(hours: number): string {
   return `≈ ${tenths.format(hours)} ч`;
-}
-
-/** Ступень разгона ящика сейчас — словами: день разгона и потолок дня из капа ящика. */
-export function stepNow(box: ForecastSender): string {
-  const cap = formatNumber(box.daily_cap);
-  if (box.warmup_day === 0) return `без разгона: до ${cap} в день`;
-  if (box.warmup_finished) return `разгон окончен: до ${cap} в день`;
-  const fresh = box.first_letter_at === null ? ' — ещё не писал, разгон с первого письма' : '';
-  return `день ${box.warmup_day}: до ${formatNumber(box.allowance_today)} из ${cap} в день${fresh}`;
-}
-
-/** Следующая ступень: день и потолок с него; разгон кончился — так и сказано. */
-export function stepNext(box: ForecastSender): string {
-  if (box.next_step_on !== null && box.next_step_allowance !== null) {
-    return `${dayLabel(box.next_step_on)} — до ${formatNumber(box.next_step_allowance)} в день`;
-  }
-  return box.warmup_finished ? 'выше нет' : '—';
-}
-
-/** Пишет ли ящик сегодня — словами: выключен, отказ фильтра лимитов (его словами), сниженный на
- *  сутки лимит. Ничего из этого — «пишет». */
-export function boxState(box: ForecastSender): string[] {
-  if (!box.enabled) return ['выключен — первых писем не берёт'];
-  const said: string[] = [];
-  if (box.refused !== null) said.push(box.refused);
-  if (box.cut) said.push('лимит на сутки снижен мягкими отказами');
-  return said.length === 0 ? ['пишет'] : said;
 }
