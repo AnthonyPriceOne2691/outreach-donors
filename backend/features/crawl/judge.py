@@ -30,7 +30,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.crawl import OutLinkModel
 from backend.features.core.models.domain import DomainModel
-from backend.features.crawl.judge_client import JudgeClient, Link, Said, user_message
+from backend.features.crawl.judge_client import (
+    JudgeClient,
+    Link,
+    Said,
+    steady_message,
+    user_message,
+)
 from backend.features.crawl.judge_facts import LinkFacts, with_code_facts
 from backend.features.crawl.judge_rules import RULES_VERSION, Advice, advise
 from backend.features.crawl.judge_store import Row, cohort_of, known, relabel, remember
@@ -151,8 +157,7 @@ async def judge_seen(
     if seen.blind or seen.text.empty:
         return Judged(Outcome.BLIND, words=seen.blind or "читать нечего")
     moment = now or datetime.now(UTC)
-    user = user_message(case_.link, seen.text)
-    context = fingerprint(user)
+    context = fingerprint(steady_message(case_.link, seen.text))
     cohort = cohort_of(client.model)
     pair = {"donor_host": case_.donor_host, "target_root": case_.link.target}
     found = await known(session, **pair, context_print=context, cohort=cohort, now=moment)
@@ -163,6 +168,7 @@ async def judge_seen(
         return Judged(
             Outcome.JUDGED, ruled.advice, ruled.rule, ruled.words, found.facts, cached=True
         )
+    user = user_message(case_.link, seen.text)
     said = await client.judge(user=user, text=seen.text, host=case_.link.target)
     result = judged_of(marked(said, case_.link, donor_host=case_.donor_host, text=seen.text))
     if result.facts is not None:
@@ -214,7 +220,8 @@ async def case_of(session: AsyncSession, candidate: CandidateModel) -> Case | No
     niche = await session.scalar(
         select(DomainModel.site_topic).where(DomainModel.host == candidate.donor_host)
     )
-    link = Link(target=candidate.target_root, anchor=anchor)
+    links, pages = candidate.links, candidate.pages
+    link = Link(target=candidate.target_root, anchor=anchor, links=links, pages=pages)
     if outlink is not None:
         link = Link(
             target=candidate.target_root,
@@ -225,5 +232,8 @@ async def case_of(session: AsyncSession, candidate: CandidateModel) -> Case | No
             in_body=outlink.in_body,
             page_label=outlink.page_label,
             published=outlink.page_published,
+            href=outlink.url,
+            links=links,
+            pages=pages,
         )
     return Case(candidate.donor_host, candidate.best_page_url, link, niche)

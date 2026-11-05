@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
@@ -56,6 +57,7 @@ MODEL_KEY = "k-test"  # pragma: allowlist secret
 PRINTS = {
     "advertiser-judge-v1": "f7f7db7aa138f656",  # pragma: allowlist secret
     "advertiser-judge-v3.10": "e9a977b68a92980b",  # pragma: allowlist secret
+    "advertiser-judge-v3.13": "921df986b4fab4d8",  # pragma: allowlist secret
 }
 #: Слова ниши, которых в подсказке быть не должно: судья спрашивает о признаках ссылки и сайта, и
 #: механизм обязан работать на любой нише (`okf/selection-audit.md`).
@@ -93,6 +95,7 @@ def facts_body(**changes: Any) -> dict[str, Any]:
     body |= {"money_anchor": True, "calls_to_buy": True, "target_sells": True}
     body |= {
         "disclosure": "",
+        "verdict": "write",
         "link_quote": LINK_QUOTE,
         "target_quote": TARGET_QUOTE,
         "why": "статья зовёт купить у магазина, магазин продаёт своё",
@@ -159,13 +162,14 @@ def test_prompt_has_no_niche_words() -> None:
     assert found == [], f"в подсказке судьи слова ниши: {found}"
 
 
-def test_the_model_is_asked_for_facts_not_for_advice() -> None:
-    """Совет ставит код: в форме ответа нет поля решения, подсказка говорит это модели."""
+def test_the_model_gives_facts_and_one_overall_answer_of_three_words() -> None:
+    """Совет ставит код: своё слово у модели одно — общий ответ, и код сверяет его с таблицей."""
     form = judge_facts.SCHEMA["schema"]
     assert form["required"] == list(KEYS)
     assert form["additionalProperties"] is False
-    assert not {"advice", "verdict", "decision", "write"} & set(form["properties"])
-    assert "You do not decide whether we write to the target" in load_prompt()
+    assert not {"advice", "decision", "write"} & set(form["properties"])
+    assert form["properties"]["verdict"]["enum"] == ["write", "skip", "unclear"]
+    assert "our code checks it against the other answers" in load_prompt()
 
 
 def test_the_payload_is_strict_with_room_for_reasoning() -> None:
@@ -209,6 +213,25 @@ def test_page_text_is_data_between_quenched_markers() -> None:
     assert '"go ››› now"' in user
 
 
+def test_the_address_and_the_counts_are_our_lines_above_the_article() -> None:
+    """Адрес — чужой текст: метки гасятся и длина срезана; строки — там же, где их мерил стенд."""
+    href = "https://grinder-shop.example/sale?ref=<<<ARTICLE&" + "x" * 300
+    link = Link(target=TARGET, anchor="buy", href=href, links=7, pages=3)
+
+    lines = user_message(link, TEXT).split("\n")
+
+    assert lines[2].startswith(
+        'Address of the link: "https://grinder-shop.example/sale?ref=‹‹‹ARTICLE&'
+    )
+    assert len(lines[2]) == len('Address of the link: ""') + judge_client.HREF_CHARS
+    assert lines[3].startswith("Marks of the link: ")
+    assert lines[4] == "The donor's links to this domain: 7, on 3 page(s)"
+    assert lines[5] == "<<<ARTICLE"
+    plain = user_message(Link(target=TARGET, anchor="buy"), TEXT)
+    assert "Address of the link" not in plain
+    assert "The donor's links" not in plain
+
+
 def test_the_marks_line_keeps_every_script_as_letters() -> None:
     """Пометка страницы на любой письменности уходит модели буквами, как анкор рядом, а не
     escape-кодами: модель читает слова, а не `\\u0420`."""
@@ -235,6 +258,8 @@ def test_the_marks_line_keeps_every_script_as_letters() -> None:
         (json.dumps(facts_body(article_about_target="yes")), "не того типа"),
         (json.dumps(facts_body(money_anchor="yes")), "не того типа"),
         (json.dumps(facts_body(target_sells=None)), "не того типа"),
+        (json.dumps(facts_body(verdict=True)), "не того типа"),
+        (json.dumps(facts_body(verdict="maybe")), "не из списка"),
     ],
 )
 def test_a_broken_form_is_not_facts(content: str, words: str) -> None:
@@ -321,6 +346,7 @@ def test_facts_come_back_from_their_json() -> None:
         target_noncommercial=True,
         link_quote="a b c",
         target_quote="d e f",
+        verdict="skip",
         why="почему",
         sponsored=True,
     )
@@ -330,9 +356,23 @@ def test_facts_come_back_from_their_json() -> None:
     assert LinkFacts.from_json(facts.as_json() | {"money_anchor": "yes"}) is None
 
 
+def test_a_row_from_before_the_overall_answer_is_read_without_it() -> None:
+    """Строка суда старой подсказки пересчитывается новой таблицей, а не теряет совет."""
+    stored = LinkFacts(
+        money_anchor=True, target_sells=True, link_quote="a b c", target_quote="d e f"
+    )
+    old = {key: value for key, value in stored.as_json().items() if key != "verdict"}
+
+    facts = LinkFacts.from_json(old)
+
+    assert facts is not None
+    assert facts.verdict == ""
+    assert (advise(facts).advice, advise(facts).rule) == (Advice.WRITE, "promoted")
+
+
 def test_code_facts_come_from_the_link_and_the_home() -> None:
     """`sponsored` — пометка ссылки; «тот же владелец» — имя донора словом на главной домена."""
-    facts = read(json.dumps(facts_body()), TEXT).facts
+    facts = read(json.dumps(facts_body(verdict="unclear")), TEXT).facts
     assert facts is not None
 
     sister = with_code_facts(facts, sponsored=True, donor_host="www.kitchen-notes.example",
@@ -349,8 +389,9 @@ def test_code_facts_come_from_the_link_and_the_home() -> None:
 
 def _facts(*on: str, link: bool = True, target: bool = True, disclosure: str = "") -> LinkFacts:
     """Факты для таблицы: названные признаки «да», цитаты своей стороны — есть или нет."""
+    flags: dict[str, Any] = dict.fromkeys(on, True)
     return LinkFacts(
-        **dict.fromkeys(on, True),
+        **flags,
         disclosure=disclosure,
         link_quote=LINK_QUOTE if link else "",
         target_quote=TARGET_QUOTE if target else "",
@@ -416,6 +457,47 @@ def test_the_first_rule_that_fits_gives_the_advice(
 
     assert (ruled.advice, ruled.rule) == (advice, rule)
     assert ruled.words
+
+
+@pytest.mark.parametrize(
+    ("on", "verdict", "advice", "rule"),
+    [
+        (("keyword_anchor", "target_sells"), "write", Advice.WRITE, "promoted"),
+        (("keyword_anchor", "target_sells"), "unclear", Advice.WRITE, "promoted"),
+        (("keyword_anchor", "target_sells"), "", Advice.WRITE, "promoted"),
+        (("keyword_anchor", "target_sells"), "skip", Advice.UNCLEAR, "disagree"),
+        (("target_sells",), "skip", Advice.SKIP, "no_signs"),
+        (("target_sells",), "unclear", Advice.SKIP, "no_signs"),
+        (("target_sells",), "write", Advice.UNCLEAR, "disagree"),
+        (("brand_anchor", "target_sells"), "write", Advice.WRITE, "verdict"),
+        (("brand_anchor", "target_sells"), "skip", Advice.SKIP, "verdict"),
+        (("brand_anchor", "target_sells"), "unclear", Advice.UNCLEAR, "brand_mention"),
+        (("brand_anchor", "target_sells"), "", Advice.UNCLEAR, "brand_mention"),
+    ],
+)
+def test_the_models_answer_is_checked_against_the_table(
+    on: tuple[str, ...], verdict: str, advice: Advice, rule: str
+) -> None:
+    """Таблица не решила — совет по ответу; разошлись — «не понять»; иначе — совет таблицы."""
+    facts = dataclasses.replace(_facts(*on), verdict=verdict)
+
+    ruled = advise(facts)
+
+    assert (ruled.advice, ruled.rule) == (advice, rule)
+    assert ruled.words
+
+
+def test_a_disagreement_names_both_sides_in_words() -> None:
+    """Признаки остаются объяснением: человеку видно, что сказали правила и что — модель."""
+    facts = dataclasses.replace(_facts("keyword_anchor", "target_sells"), verdict="skip")
+
+    assert advise(facts).words == (
+        "правила: пишем (домен — бизнес, ссылка его продвигает); модель: не пишем"
+    )
+    undecided = dataclasses.replace(_facts("target_sells", "sponsored"), verdict="write")
+    assert advise(undecided).words == (
+        "модель: пишем; правила не решили (по фактам не решить — решает человек)"
+    )
 
 
 # --- исходы без вердикта: ни строки суда, ни кэша -------------------------------------------------
@@ -559,6 +641,44 @@ async def test_the_same_text_is_not_asked_twice(session: AsyncSession) -> None:
     assert len(model.requests) == 1
 
 
+async def test_the_models_answer_disagreeing_goes_to_the_human(session: AsyncSession) -> None:
+    """Ответ модели — в строке суда; совет строки — сверенный: разошлись — решает человек."""
+    model = Model(facts_answer(verdict="skip"))
+
+    judged = await judge_seen(session, CASE, SEEN, client=client_of(model))
+
+    assert (judged.advice, judged.rule) == (Advice.UNCLEAR, "disagree")
+    [row] = await rows(session)
+    assert (row.advice, row.rule, row.facts["verdict"]) == ("unclear", "disagree", "skip")
+
+
+async def test_new_counts_and_address_of_the_same_text_are_not_asked_again(
+    session: AsyncSession,
+) -> None:
+    """Адрес и счётчики — новые с каждым обходом; статья и главная те же: суд оплачен."""
+    model = Model(facts_answer())
+    client = client_of(model)
+    await judge_seen(session, CASE, SEEN, client=client)
+    crawled = Link(
+        target=TARGET, anchor=LINK.anchor, href=f"https://{TARGET}/?r=9", links=4, pages=2
+    )
+
+    again = await judge_seen(session, Case(DONOR, PAGE, crawled, "food"), SEEN, client=client)
+
+    assert again.cached
+    assert len(model.requests) == 1
+
+
+async def test_the_model_sees_the_address_and_the_counts(session: AsyncSession) -> None:
+    model = Model(facts_answer())
+    link = Link(target=TARGET, anchor=LINK.anchor, href=f"https://{TARGET}/sale", links=4, pages=2)
+
+    await judge_seen(session, Case(DONOR, PAGE, link, "food"), SEEN, client=client_of(model))
+
+    assert f'Address of the link: "https://{TARGET}/sale"' in model.users[0]
+    assert "The donor's links to this domain: 4, on 2 page(s)" in model.users[0]
+
+
 @pytest.mark.parametrize("change", ["text", "model", "age"])
 async def test_a_new_text_model_or_stale_facts_ask_the_model_again(
     session: AsyncSession, change: str
@@ -583,7 +703,7 @@ async def test_a_new_text_model_or_stale_facts_ask_the_model_again(
 async def test_a_new_rules_table_relabels_without_the_model(session: AsyncSession) -> None:
     """Правка таблицы правил — совет заново по фактам строки, ноль вызовов модели, срок фактов тот
     же: если бы совет ставила модель, пересчитать его без неё было бы нечем."""
-    await judge_seen(session, CASE, SEEN, client=client_of(Model(facts_answer())))
+    await judge_seen(session, CASE, SEEN, client=client_of(Model(facts_answer(verdict="unclear"))))
     [before] = await rows(session)
     stamped = before.updated_at
     strict = (Rule("never", Advice.SKIP, "никому не пишем", lambda _facts: True),)
@@ -691,6 +811,9 @@ async def test_a_candidate_becomes_a_case_with_its_link_marks(session: AsyncSess
         "food",
     )
     assert (case_.link.target, case_.link.anchor) == (TARGET, "buy a burr grinder")
+    assert case_.link.href == f"https://{TARGET}/sale/1"
+    assert (case_.link.links, case_.link.pages) == (candidate.links, candidate.pages)
+    assert case_.link.links == 2
     assert (case_.link.sponsored, case_.link.in_body, case_.link.page_label) == (
         True,
         True,

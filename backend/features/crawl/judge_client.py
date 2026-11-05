@@ -5,9 +5,11 @@
 обрезанный и пустой ответ — признаками ответа (`Said`), с токенами, если они оплачены. Ответ без
 вердикта строки суда не создаёт — это решает вызывающий (`judge.py`).
 
-**Что видит модель.** Наши строки — домен, анкор и пометки ссылки, — затем текст статьи и текст
-главной, каждый между своими метками. Чужой текст — данные: метки внутри него гасятся похожими
-знаками (`_quiet`), и закрыть данные раньше времени или сойти за наше правило он не может.
+**Что видит модель.** Наши строки — домен, анкор, адрес и пометки ссылки, сколько ссылок на домен у
+донора, — затем текст статьи и текст главной, каждый между своими метками. Чужой текст — данные: метки
+внутри него гасятся похожими знаками (`_quiet`), и закрыть данные раньше времени или сойти за наше
+правило он не может. Адрес и счётчики меняются от обхода к обходу, а статья и главная те же: отпечаток
+того, что видел судья, считается без них (`steady_message`), и повторный обход токенов не стоит.
 
 **Второй шанс цитате** (как у судьи продаж, #464): цитата не нашлась в тексте — модель спрашивают
 ещё раз по тому же тексту с короткой подсказкой (`prompts/advertiser_judge_again.md`): какие слова не
@@ -20,6 +22,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import logging
@@ -51,11 +54,13 @@ TOPIC = "судья рекламодателей"
 #: Версия подсказки. Меняется при КАЖДОЙ правке файлов подсказки: факты помнят её, и точность против
 #: человека считается по когорте; отпечаток файлов (`prompt_print`) держит тест — правка файла без
 #: смены версии краснит его.
-PROMPT_VERSION = "advertiser-judge-v3.10"
+PROMPT_VERSION = "advertiser-judge-v3.13"
 PROMPT_PATH = Path(__file__).with_name("prompts") / "advertiser_judge.md"
 AGAIN_PATH = Path(__file__).with_name("prompts") / "advertiser_judge_again.md"
 #: Сколько знаков ненайденных цитат уходит во второй вопрос: цитата — до 30 слов.
 AGAIN_QUOTE_CHARS = 300
+#: Сколько знаков адреса ссылки видит модель.
+HREF_CHARS = 200
 #: Усилие рассуждения — как у судей площадки и продаж: на `minimal` модель читает только буквы.
 REASONING_EFFORT = "low"
 #: Потолки вывода: рассуждение входит в потолок, и обрезанный ответ пришёл бы пустым.
@@ -107,6 +112,10 @@ class Link:
     #: Пометка статьи, которую нашёл обход (`page_facts`), — её слова.
     page_label: str | None = None
     published: date | None = None
+    #: Адрес ссылки и сколько ссылок на домен у донора на скольких страницах.
+    href: str = ""
+    links: int = 0
+    pages: int = 0
 
 
 def marks_of(link: Link) -> str:
@@ -131,13 +140,24 @@ def _block(text: JudgeText, labels: tuple[str, ...]) -> str:
 def user_message(link: Link, text: JudgeText) -> str:
     """Наши строки о ссылке — над метками; статья и главная — данными между своими метками."""
     anchor = json.dumps(_quiet(link.anchor.strip()[:200]), ensure_ascii=False)
-    return (
-        f"Domain of the link: {_quiet(link.target)}\n"
-        f"Anchor of the link: {anchor}\n"
-        f"Marks of the link: {_quiet(marks_of(link))}\n"
-        f"{ARTICLE_OPEN}\n{_quiet(_block(text, ARTICLE_LABELS))}\n{ARTICLE_CLOSE}\n"
-        f"{HOME_OPEN}\n{_quiet(_block(text, HOME_LABELS))}\n{HOME_CLOSE}"
+    address = json.dumps(_quiet(link.href[:HREF_CHARS]), ensure_ascii=False)
+    counted = f"The donor's links to this domain: {link.links}, on {link.pages} page(s)"
+    return "\n".join(
+        (
+            f"Domain of the link: {_quiet(link.target)}",
+            f"Anchor of the link: {anchor}",
+            *([f"Address of the link: {address}"] if link.href else []),
+            f"Marks of the link: {_quiet(marks_of(link))}",
+            *([counted] if link.links else []),
+            f"{ARTICLE_OPEN}\n{_quiet(_block(text, ARTICLE_LABELS))}\n{ARTICLE_CLOSE}",
+            f"{HOME_OPEN}\n{_quiet(_block(text, HOME_LABELS))}\n{HOME_CLOSE}",
+        )
     )
+
+
+def steady_message(link: Link, text: JudgeText) -> str:
+    """То же сообщение без адреса и счётчиков: по нему считается отпечаток (шапка модуля)."""
+    return user_message(dataclasses.replace(link, href="", links=0, pages=0), text)
 
 
 def again_message(user: str, missing: tuple[str, ...]) -> str:

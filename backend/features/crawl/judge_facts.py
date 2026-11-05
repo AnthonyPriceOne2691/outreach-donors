@@ -1,7 +1,7 @@
 """Факты судьи рекламодателей: строгая форма ответа модели и проверка цитат кодом.
 
-Модель не решает, писать ли домену, — она отвечает на простые вопросы «да/нет» о ссылке и о домене
-(`prompts/advertiser_judge.md`): что за анкор (денежные слова, поисковая фраза, имя), что ссылка
+Модель отвечает на простые вопросы «да/нет» о ссылке и о домене (`prompts/advertiser_judge.md`): что
+за анкор (денежные слова, поисковая фраза, имя), что ссылка
 делает на странице (призыв, выбор, подборка, источник факта, «не по теме», «как пример», карточка
 каталога, рекламное место, навигация, статья о домене, пресс-релиз по пометке), слова раскрытия
 рекламы на любом языке и что за сайт у домена (продаёт своё, отправляет к другим, переадресация,
@@ -25,6 +25,11 @@
 
 **Признаки кода** (`sponsored` — пометка ссылки, `same_owner` — имя донора на главной домена) модель
 не спрашивают: их ставит проход (`with_code_facts`).
+
+**Общий ответ модели — последним вопросом того же вызова** (`verdict`, стенд 05.11.2026): стоит ли
+писать этому домену — «write», «skip» или «unclear». Сам совета он не ставит: код сверяет его с
+таблицей (`judge_rules.advise`). Отдельным вызовом он на тех же парах не держался лучше, а стоил почти
+половину токенов сверху. В строках суда до него этого поля нет: по ним совет ставит одна таблица.
 """
 
 from __future__ import annotations
@@ -71,12 +76,15 @@ TARGET_FLAGS = (
     "target_affiliate_signs",
 )
 FLAGS = (*ANCHOR_FLAGS, *LINK_FLAGS, *TARGET_FLAGS)
+#: Что может сказать модель на общий вопрос.
+VERDICTS = ("write", "skip", "unclear")
 #: Ключи ответа в порядке подсказки — все обязательны, других нет.
 KEYS = (
     *ANCHOR_FLAGS,
     *LINK_FLAGS,
     "disclosure",
     *TARGET_FLAGS,
+    "verdict",
     "link_quote",
     "target_quote",
     "why",
@@ -91,12 +99,16 @@ WHY_CHARS = 300
 OWNER_NAME_CHARS = 5
 
 _TEXT = {"type": "string"}
+_VERDICT = {"type": "string", "enum": list(VERDICTS)}
 #: Строгая форма ответа у провайдера.
 SCHEMA: dict[str, Any] = {
     "name": "advertiser_facts",
     "schema": {
         "type": "object",
-        "properties": {key: {"type": "boolean"} if key in FLAGS else _TEXT for key in KEYS},
+        "properties": {
+            key: {"type": "boolean"} if key in FLAGS else _VERDICT if key == "verdict" else _TEXT
+            for key in KEYS
+        },
         "required": list(KEYS),
         "additionalProperties": False,
     },
@@ -132,6 +144,7 @@ class LinkFacts:
     target_noncommercial: bool = False
     target_media: bool = False
     target_affiliate_signs: bool = False
+    verdict: str = ""
     link_quote: str = ""
     target_quote: str = ""
     why: str = ""
@@ -157,7 +170,8 @@ class LinkFacts:
         if not isinstance(data, dict):
             logger.warning("судья рекламодателей: факты строки суда не той формы")
             return None
-        said = {key: value for key, value in data.items() if key not in CODE_FLAGS}
+        # Строка суда до общего ответа модели — без него: совет по ней ставит одна таблица.
+        said = {"verdict": ""} | {k: v for k, v in data.items() if k not in CODE_FLAGS}
         if _broken(said) is not None:
             logger.warning("судья рекламодателей: факты строки суда не той формы")
             return None
@@ -203,6 +217,8 @@ def form_of(content: str) -> dict[str, Any] | str:
     if not isinstance(body, dict):
         return "ответ модели не объект"
     broken = _broken(body)
+    if broken is None and body["verdict"] not in VERDICTS:
+        broken = "в ответе модели поле «verdict» не из списка"
     return broken if broken is not None else body
 
 
@@ -301,6 +317,7 @@ def read(content: str, text: JudgeText) -> Read:
     facts = LinkFacts(
         **flags,
         disclosure=check.disclosure(form["disclosure"]),
+        verdict=form["verdict"],
         link_quote=link_quote,
         target_quote=target_quote,
         why=" ".join(form["why"].split())[:WHY_CHARS],

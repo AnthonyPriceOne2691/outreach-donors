@@ -1492,9 +1492,9 @@
       "worst": "verdict:85"
     },
     "backend/features/crawl/judge.py": {
-      "lines": 230,
+      "lines": 240,
       "complexity": 9,
-      "worst": "judge_seen:139"
+      "worst": "judge_seen:145"
     },
     "backend/features/crawl/judge_advice.py": {
       "lines": 85,
@@ -1502,14 +1502,14 @@
       "worst": "after_decision:62"
     },
     "backend/features/crawl/judge_client.py": {
-      "lines": 294,
+      "lines": 314,
       "complexity": 6,
-      "worst": "marks_of:112"
+      "worst": "marks_of:121"
     },
     "backend/features/crawl/judge_facts.py": {
-      "lines": 312,
+      "lines": 329,
       "complexity": 8,
-      "worst": "read:289"
+      "worst": "read:305"
     },
     "backend/features/crawl/judge_pass.py": {
       "lines": 404,
@@ -1517,9 +1517,9 @@
       "worst": "plan_pass:185"
     },
     "backend/features/crawl/judge_rules.py": {
-      "lines": 232,
+      "lines": 254,
       "complexity": 6,
-      "worst": "_media:141"
+      "worst": "_media:147"
     },
     "backend/features/crawl/judge_store.py": {
       "lines": 189,
