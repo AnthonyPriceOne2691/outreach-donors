@@ -2247,9 +2247,9 @@
       "worst": "ahrefs_cap:26"
     },
     "backend/features/ops/crawl_watch.py": {
-      "lines": 144,
+      "lines": 168,
       "complexity": 6,
-      "worst": "blocked:33"
+      "worst": "blocked:41"
     },
     "backend/features/ops/funds_watch.py": {
       "lines": 52,

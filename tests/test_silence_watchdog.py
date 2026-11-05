@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -291,6 +292,10 @@ class TestSilenceThatMeansBroken:
         assert "cap-reached" in _codes(found)
 
 
+#: Номер сайта обхода: сайты в тестах разные, если тест не называет их сам (`hosts`).
+_DONOR = itertools.count()
+
+
 class TestCrawlBlocked:
     """Серия обходов, упёршихся в защиту: 30 % последних, а не один из десяти.
 
@@ -305,11 +310,13 @@ class TestCrawlBlocked:
         outcome: CrawlOutcome = CrawlOutcome.OK,
         stop: StopReason = StopReason.EXHAUSTED,
         number: int = 1,
+        hosts: tuple[str, ...] = (),
     ) -> None:
-        for index in range(number):
+        """Обходы разных сайтов; `hosts` — обойти заново эти: счёт зависит от прошлого обхода."""
+        for host in hosts or tuple(f"donor{next(_DONOR)}.example.test" for _ in range(number)):
             session.add(
                 CrawlRunModel(
-                    host=f"donor{index}.example.test",
+                    host=host,
                     outcome=outcome,
                     stop_reason=stop,
                     pages_opened=0 if outcome is CrawlOutcome.BLOCKED else 10,
@@ -402,6 +409,30 @@ class TestCrawlBlocked:
         codes = {alarm.code for alarm in await alarms(session, stages=EVERY_STAGE)}
 
         assert "crawl-blocked" in codes
+
+    async def test_sites_closed_last_time_are_not_news(self, session: AsyncSession) -> None:
+        """Ночной круг ставит таких последними: хвост круга не серия, сколько бы их там ни было."""
+        closed = tuple(f"closed{index}.example.test" for index in range(5))
+        await self._crawl(
+            session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.NO_START, hosts=closed
+        )
+        await self._crawl(session, number=10)
+        await self._crawl(
+            session, outcome=CrawlOutcome.PARTIAL, stop=StopReason.UNHEALTHY, hosts=closed
+        )
+
+        assert await self._blocked(session) is None
+
+    async def test_a_site_that_opened_last_time_counts(self, session: AsyncSession) -> None:
+        """Сайт открывался и упёрся: защита включилась сейчас, это и есть новость."""
+        opened = tuple(f"opened{index}.example.test" for index in range(3))
+        await self._crawl(session, hosts=opened)
+        await self._crawl(session, number=7)
+        await self._crawl(
+            session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.NO_START, hosts=opened
+        )
+
+        assert await self._blocked(session) is not None
 
     async def test_a_healthy_crawl_is_silent(self, session: AsyncSession) -> None:
         await self._crawl(session, number=5)
