@@ -203,6 +203,7 @@ export function SendersPage() {
               group={group}
               busy={switchDomain.isPending && switchDomain.variables?.group.domain === group.domain}
               onSwitch={(on) => switchDomain.mutate({ group, on })}
+              stageInTitle={part !== null}
             />
           ))}
         </Stack>
