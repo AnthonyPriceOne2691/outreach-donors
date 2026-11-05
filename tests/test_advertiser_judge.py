@@ -30,7 +30,7 @@ from backend.features.crawl.judge_client import (
     prompt_print,
     user_message,
 )
-from backend.features.crawl.judge_facts import KEYS, LinkFacts, read
+from backend.features.crawl.judge_facts import KEYS, LinkFacts, read, with_code_facts
 from backend.features.crawl.judge_rules import RULES_VERSION, Advice, Rule, advise
 from backend.features.crawl.judge_store import JUDGEMENT_TTL_DAYS, relabel
 from backend.features.crawl.judge_text import (
@@ -53,8 +53,11 @@ from tests.migration_helpers import columns_down_and_up
 MODEL_KEY = "k-test"  # pragma: allowlist secret
 #: Отпечаток файлов подсказки по версии. Правка файла без смены `PROMPT_VERSION` краснит тест:
 #: факты прежней версии смешались бы с новыми, и точность по когорте врала бы.
-PRINTS = {"advertiser-judge-v1": "f7f7db7aa138f656"}  # pragma: allowlist secret
-#: Слова ниши, которых в подсказке быть не должно: судья спрашивает о роли ссылки и виде сайта, и
+PRINTS = {
+    "advertiser-judge-v1": "f7f7db7aa138f656",  # pragma: allowlist secret
+    "advertiser-judge-v3.10": "e9a977b68a92980b",  # pragma: allowlist secret
+}
+#: Слова ниши, которых в подсказке быть не должно: судья спрашивает о признаках ссылки и сайта, и
 #: механизм обязан работать на любой нише (`okf/selection-audit.md`).
 NICHE_WORDS = (
     "букмекер", "ставк", "казино", "betting", "casino", "bookmaker", "sportsbook", "крипт",
@@ -85,16 +88,16 @@ TARGET_QUOTE = "We sell our own burr grinders with a two year warranty"
 
 
 def facts_body(**changes: Any) -> dict[str, Any]:
-    body: dict[str, Any] = {
-        "link_role": "promotes",
-        "article_about_target": False,
+    """Ответ модели: анкор с денежным словом, призыв купить, магазин продаёт своё."""
+    body: dict[str, Any] = dict.fromkeys(judge_facts.FLAGS, False)
+    body |= {"money_anchor": True, "calls_to_buy": True, "target_sells": True}
+    body |= {
         "disclosure": "",
-        "target_kind": "sells",
         "link_quote": LINK_QUOTE,
         "target_quote": TARGET_QUOTE,
         "why": "статья зовёт купить у магазина, магазин продаёт своё",
     }
-    return body | changes
+    return {key: body[key] for key in KEYS} | changes
 
 
 def answer(content: str, *, tokens: int = 100, finish: str = "stop") -> httpx.Response:
@@ -230,8 +233,8 @@ def test_the_marks_line_keeps_every_script_as_letters() -> None:
         (json.dumps({k: v for k, v in facts_body().items() if k != "why"}), "нет поля «why»"),
         (json.dumps(facts_body(advice="write")), "лишнее поле «advice»"),
         (json.dumps(facts_body(article_about_target="yes")), "не того типа"),
-        (json.dumps(facts_body(link_role="sponsored")), "не из списка"),
-        (json.dumps(facts_body(target_kind=None)), "не того типа"),
+        (json.dumps(facts_body(money_anchor="yes")), "не того типа"),
+        (json.dumps(facts_body(target_sells=None)), "не того типа"),
     ],
 )
 def test_a_broken_form_is_not_facts(content: str, words: str) -> None:
@@ -270,11 +273,26 @@ def test_a_made_up_quote_is_missing_not_facts(changes: dict[str, str]) -> None:
 
 
 def test_a_short_or_empty_quote_leaves_its_side_unproven() -> None:
+    """Без цитаты своей стороны признаки ссылки и сайта — «нет»; признаки анкора остаются: анкор —
+    наша строка, не слова статьи."""
     found = read(json.dumps(facts_body(link_quote="buy a", target_quote="")), TEXT)
 
     assert found.facts is not None
     assert not found.facts.link_proven
     assert not found.facts.target_proven
+    assert (found.facts.calls_to_buy, found.facts.target_sells) == (False, False)
+    assert found.facts.money_anchor
+
+
+def test_a_short_quote_counts_when_it_is_the_whole_line() -> None:
+    """Кнопка «Visit Website» — строка целиком: короче строки на странице нет, цитата не сочинена."""
+    text = JudgeText(((LINK_PARAGRAPH, "Visit Website"), *TEXT.lines[1:]))
+
+    found = read(json.dumps(facts_body(link_quote="Visit Website", visit_button=True)), text)
+
+    assert found.facts is not None
+    assert found.facts.link_quote == "Visit Website"
+    assert found.facts.visit_button
 
 
 def test_our_label_is_taken_off_the_quote() -> None:
@@ -297,43 +315,98 @@ def test_a_short_disclosure_counts_only_as_whole_words() -> None:
 
 
 def test_facts_come_back_from_their_json() -> None:
-    facts = LinkFacts("cites", True, "Anzeige", "public", "a b c", "d e f", "почему")
+    facts = LinkFacts(
+        source_of_fact=True,
+        disclosure="Anzeige",
+        target_noncommercial=True,
+        link_quote="a b c",
+        target_quote="d e f",
+        why="почему",
+        sponsored=True,
+    )
 
     assert LinkFacts.from_json(facts.as_json()) == facts
-    assert LinkFacts.from_json({"link_role": "cites"}) is None
-    assert LinkFacts.from_json(facts.as_json() | {"link_role": "sponsored"}) is None
+    assert LinkFacts.from_json({"link_role": "cites"}) is None  # факты прежней версии — суд заново
+    assert LinkFacts.from_json(facts.as_json() | {"money_anchor": "yes"}) is None
+
+
+def test_code_facts_come_from_the_link_and_the_home() -> None:
+    """`sponsored` — пометка ссылки; «тот же владелец» — имя донора словом на главной домена."""
+    facts = read(json.dumps(facts_body()), TEXT).facts
+    assert facts is not None
+
+    sister = with_code_facts(facts, sponsored=True, donor_host="www.kitchen-notes.example",
+                             home=("Kitchen-notes family of sites: grinders and parts",))  # fmt: skip
+    other = with_code_facts(facts, sponsored=False, donor_host=DONOR, home=TEXT.home)
+
+    assert (sister.sponsored, sister.same_owner) == (True, True)
+    assert (other.sponsored, other.same_owner) == (False, False)
+    assert advise(sister).rule == "same_owner"
 
 
 # --- таблица правил -------------------------------------------------------------------------------
 
 
-def _facts(
-    role: str, kind: str, *, link: bool = True, target: bool = True, disclosure: str = ""
-) -> LinkFacts:
+def _facts(*on: str, link: bool = True, target: bool = True, disclosure: str = "") -> LinkFacts:
+    """Факты для таблицы: названные признаки «да», цитаты своей стороны — есть или нет."""
     return LinkFacts(
-        role, False, disclosure, kind, LINK_QUOTE if link else "", TARGET_QUOTE if target else ""
+        **dict.fromkeys(on, True),
+        disclosure=disclosure,
+        link_quote=LINK_QUOTE if link else "",
+        target_quote=TARGET_QUOTE if target else "",
     )
 
 
 @pytest.mark.parametrize(
     ("facts", "advice", "rule"),
     [
-        (_facts("promotes", "sells", link=False, target=False), Advice.UNCLEAR, "unproven"),
-        (_facts("promotes", "public"), Advice.SKIP, "not_a_business"),
-        (_facts("cites", "media"), Advice.SKIP, "not_a_business"),
-        (_facts("promotes", "personal"), Advice.SKIP, "not_a_business"),
-        (_facts("cites", "sells"), Advice.SKIP, "citation"),
-        (_facts("cites", "unclear", target=False), Advice.SKIP, "citation"),
-        (_facts("promotes", "sells"), Advice.WRITE, "paid"),
-        (_facts("listing", "sells"), Advice.WRITE, "paid"),
-        (_facts("navigation", "sells", disclosure="Anzeige"), Advice.WRITE, "paid"),
-        (_facts("cites", "sells", disclosure="Реклама"), Advice.WRITE, "paid"),
-        (_facts("promotes", "sells", link=False, disclosure="Anzeige"), Advice.WRITE, "paid"),
-        (_facts("promotes", "intermediary"), Advice.UNCLEAR, "rest"),
-        (_facts("promotes", "media", disclosure="Anzeige"), Advice.UNCLEAR, "rest"),
-        (_facts("navigation", "sells"), Advice.UNCLEAR, "rest"),
-        (_facts("promotes", "sells", target=False), Advice.UNCLEAR, "rest"),
-        (_facts("promotes", "sells", link=False), Advice.UNCLEAR, "rest"),
+        (
+            _facts("money_anchor", "target_sells", link=False, target=False),
+            Advice.UNCLEAR,
+            "unproven",
+        ),
+        (_facts("money_anchor", "target_redirect"), Advice.SKIP, "redirect"),
+        (
+            _facts("money_anchor", "calls_to_buy", "target_noncommercial", "target_sells"),
+            Advice.SKIP,
+            "noncommercial",
+        ),
+        (_facts("press_release", "brand_anchor", "target_sells"), Advice.WRITE, "press_release"),
+        (
+            _facts("site_navigation", "target_sells", disclosure="Anzeige"),
+            Advice.SKIP,
+            "navigation",
+        ),
+        (
+            _facts("site_navigation", "keyword_anchor", "target_refers", disclosure="Werbung"),
+            Advice.WRITE,
+            "paid_or_ad",
+        ),
+        (
+            _facts("directory_entry", "recommends", "target_sells"),
+            Advice.UNCLEAR,
+            "ranked_directory",
+        ),
+        (_facts("directory_entry", "visit_button", "target_sells"), Advice.SKIP, "free_directory"),
+        (_facts("directory_entry", "money_anchor", "target_sells"), Advice.WRITE, "promoted"),
+        (_facts("source_of_fact", "brand_anchor", "target_media"), Advice.SKIP, "citation"),
+        (_facts("source_of_fact", "money_anchor", "target_refers"), Advice.WRITE, "promoted"),
+        (_facts("ad_slot", "target_sells", "sponsored"), Advice.WRITE, "paid_or_ad"),
+        (_facts("brand_anchor", "target_sells", disclosure="Реклама"), Advice.WRITE, "paid_or_ad"),
+        (_facts("keyword_anchor", "target_sells"), Advice.WRITE, "promoted"),
+        (_facts("brand_anchor", "named_as_example", "target_sells"), Advice.WRITE, "promoted"),
+        (_facts("brand_anchor", "off_topic", "target_affiliate_signs"), Advice.WRITE, "promoted"),
+        (_facts("money_anchor", target=False), Advice.WRITE, "selling_anchor"),
+        (
+            _facts("brand_anchor", "article_about_target", "target_sells"),
+            Advice.WRITE,
+            "about_business",
+        ),
+        (_facts("brand_anchor", "target_media"), Advice.SKIP, "media"),
+        (_facts("brand_anchor", "target_sells"), Advice.UNCLEAR, "brand_mention"),
+        (_facts("target_sells"), Advice.SKIP, "no_signs"),
+        (_facts("target_sells", "sponsored"), Advice.UNCLEAR, "rest"),
+        (_facts("money_anchor", "target_media"), Advice.UNCLEAR, "rest"),
     ],
 )
 def test_the_first_rule_that_fits_gives_the_advice(
@@ -363,7 +436,7 @@ def _network(request: httpx.Request) -> httpx.Response:
         (httpx.Response(500, json={"error": {"message": "boom"}}), Outcome.UNANSWERED, "отказ"),
         (_network, Outcome.UNANSWERED, "сеть"),
         (answer(""), Outcome.UNANSWERED, "пустой ответ"),
-        (answer('{"link_role": "prom', finish="length"), Outcome.CUT_OFF, None),
+        (answer('{"money_anchor": tr', finish="length"), Outcome.CUT_OFF, None),
         (
             httpx.Response(
                 400,
@@ -379,7 +452,7 @@ def _network(request: httpx.Request) -> httpx.Response:
         ),
         (answer("не json"), Outcome.FORM_BROKEN, None),
         (answer(json.dumps(facts_body(lane="accept"))), Outcome.FORM_BROKEN, None),
-        (answer(json.dumps({"link_role": "promotes"})), Outcome.FORM_BROKEN, None),
+        (answer(json.dumps({"money_anchor": True})), Outcome.FORM_BROKEN, None),
         (answer(json.dumps(facts_body(article_about_target=1))), Outcome.FORM_BROKEN, None),
     ],
 )
@@ -446,7 +519,11 @@ async def test_no_credits_on_the_second_question_stops_the_pass(session: AsyncSe
 async def test_a_verdict_is_written_with_its_cohort(session: AsyncSession) -> None:
     judged = await judge_seen(session, CASE, SEEN, client=client_of(Model(facts_answer(150))))
 
-    assert (judged.outcome, judged.advice, judged.rule) == (Outcome.JUDGED, Advice.WRITE, "paid")
+    assert (judged.outcome, judged.advice, judged.rule) == (
+        Outcome.JUDGED,
+        Advice.WRITE,
+        "promoted",
+    )
     [row] = await rows(session)
     assert (row.donor_host, row.target_root) == (DONOR, TARGET)
     assert (row.prompt_version, row.prompt_print, row.examples_print) == (
@@ -458,7 +535,7 @@ async def test_a_verdict_is_written_with_its_cohort(session: AsyncSession) -> No
         "gpt-5-mini",
         RULES_VERSION,
         "write",
-        "paid",
+        "promoted",
     )
     assert row.facts == judged.facts.as_json() if judged.facts else False
     assert row.seen == TEXT.for_model()

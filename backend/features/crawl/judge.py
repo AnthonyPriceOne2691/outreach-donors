@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -30,7 +31,7 @@ from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.crawl import OutLinkModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.crawl.judge_client import JudgeClient, Link, Said, user_message
-from backend.features.crawl.judge_facts import LinkFacts
+from backend.features.crawl.judge_facts import LinkFacts, with_code_facts
 from backend.features.crawl.judge_rules import RULES_VERSION, Advice, advise
 from backend.features.crawl.judge_store import Row, cohort_of, known, relabel, remember
 from backend.features.crawl.judge_text import JudgeText, Seen, fingerprint, gather
@@ -114,6 +115,16 @@ def judged_of(said: Said) -> Judged:
     )
 
 
+def marked(said: Said, link: Link, *, donor_host: str, text: JudgeText) -> Said:
+    """Признаки кода к фактам модели: пометка `sponsored` ссылки и «тот же владелец» по главной."""
+    if said.facts is None:
+        return said
+    facts = with_code_facts(
+        said.facts, sponsored=link.sponsored, donor_host=donor_host, home=text.home
+    )
+    return dataclasses.replace(said, facts=facts)
+
+
 async def decide(
     client: JudgeClient, link: Link, text: JudgeText, *, system: str | None = None
 ) -> Judged:
@@ -122,7 +133,7 @@ async def decide(
     said = await client.judge(
         user=user_message(link, text), text=text, host=link.target, system=system
     )
-    return judged_of(said)
+    return judged_of(marked(said, link, donor_host="", text=text))
 
 
 async def judge_seen(
@@ -153,7 +164,7 @@ async def judge_seen(
             Outcome.JUDGED, ruled.advice, ruled.rule, ruled.words, found.facts, cached=True
         )
     said = await client.judge(user=user, text=seen.text, host=case_.link.target)
-    result = judged_of(said)
+    result = judged_of(marked(said, case_.link, donor_host=case_.donor_host, text=seen.text))
     if result.facts is not None:
         row = Row(
             result.facts,
