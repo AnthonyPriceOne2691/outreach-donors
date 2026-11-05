@@ -97,6 +97,14 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("причина балла", "table tbody td:nth-child(4) p", norm),
                 ("балл значком", "table tbody .mantine-Badge-label", norm),
                 ("счётчик вердиктов", ".mantine-Badge-label", norm),
+                ("значение фильтра балла", "input[aria-label='Балл']", norm),
+                ("значение фильтра причин", "input[aria-label='За что']", norm),
+                (
+                    "номер страницы очереди",
+                    "nav[aria-label='Страницы очереди проверки'] "
+                    "button[aria-current='page'] [data-page-number]",
+                    norm,
+                ),
                 ("выгрузка спорных", "button:has-text('Выгрузить спорные')", big),
                 ("кнопка «Пишем»", "table tbody button", big),
                 ("пункт меню", "nav a", norm),

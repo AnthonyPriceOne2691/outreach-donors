@@ -43,11 +43,18 @@
  * осталась сводка (`CrawlSummary`).
  *
  * **Спорные — файлом** (`PendingExport`, тест-группа 31.10.2026): специалист проходит их таблицей.
+ *
+ * **Очередь — страницами по десять, с фильтрами «Балл» и «За что» под колонками** (слово Anthony
+ * 05.11.2026): сервер отдавал первые полсотни, и остальных не было видно вовсе. Список, фильтры и
+ * страница — в адресе (`reviewFilters.ts`), смена любого из них — первая страница; решена последняя
+ * строка последней страницы — экран уходит на новую последнюю (`usePagedQuery`). Числа в шапке — по
+ * всем, от страницы и фильтра не меняются.
  */
 
 import {
   Alert,
   Badge,
+  Box,
   Button,
   Card,
   Group,
@@ -57,8 +64,7 @@ import {
   Switch,
   Text,
 } from '@mantine/core';
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
 import type { ReviewedVerdict } from '../api/advertisers';
@@ -67,6 +73,8 @@ import type { CandidateCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatNumber } from '../format';
 import { PageHead } from '../components/PageHead';
+import { PageSwitch, useTurnToTop } from '../components/PageSwitch';
+import { usePagedQuery, useUrlFilters } from '../components/useUrlFilters';
 import { AcceptanceReport } from './AcceptanceReport';
 import { AdvertiserList } from './AdvertiserList';
 import { AdvertiserPanel } from './AdvertiserPanel';
@@ -79,6 +87,13 @@ import { FalseShare } from './FalseShare';
 import { NicheQueue } from './NicheQueue';
 import { PendingExport } from './PendingExport';
 import { PromotePanel } from './PromotePanel';
+import {
+  isReviewFiltered,
+  readReviewFilters,
+  reviewEmptiness,
+  reviewQueryOf,
+  writeReviewFilters,
+} from './reviewFilters';
 import { notify } from '../notices';
 
 const QUERY_KEY = ['advertisers'] as const;
@@ -146,19 +161,22 @@ function EmptyQueue({
 function ReviewView({ onOpenCrawl }: { onOpenCrawl: () => void }) {
   const { can } = useSession();
   const queryClient = useQueryClient();
-  const [includeDecided, setIncludeDecided] = useState(false);
-  const [verdict, setVerdict] = useState<ReviewedVerdict>('pending');
+  const { filters, apply, turn } = useUrlFilters(readReviewFilters, writeReviewFilters);
+  const { verdict, includeDecided } = filters;
+  const asked = reviewQueryOf(filters);
 
-  const query = useQuery({
-    queryKey: [...QUERY_KEY, includeDecided, verdict],
-    queryFn: () => fetchCandidates(includeDecided, verdict),
-    // Переключатель не перерисовывает экран: прежняя таблица стоит
-    // приглушённой, пока не придёт новая. Раньше экран целиком сменялся
-    // значком загрузки — «как будто страница загружается заново».
-    placeholderData: keepPreviousData,
-  });
-  const { data, isLoading, error } = query;
+  // Переключатель, фильтр и страница не перерисовывают экран: прежняя таблица стоит
+  // приглушённой, пока не придёт новая. Раньше экран целиком сменялся значком
+  // загрузки — «как будто страница загружается заново».
+  const { query, data, settled, pages } = usePagedQuery(
+    [...QUERY_KEY, 'queue', asked, filters.page],
+    () => fetchCandidates(asked, filters.page),
+    filters.page,
+    turn,
+  );
+  const { isLoading, error } = query;
   const stale = query.isPlaceholderData;
+  const { top, turnToTop } = useTurnToTop<HTMLDivElement>(turn);
 
   const decide = useMutation({
     mutationFn: ({ row, confirmed }: { row: CandidateCard; confirmed: boolean }) =>
@@ -193,6 +211,11 @@ function ReviewView({ onOpenCrawl }: { onOpenCrawl: () => void }) {
   // «ждут человека» — только нерешённых.
   const decided = Math.max(0, (counts['pending'] ?? 0) - waiting);
   const mayDecide = can('prices');
+  const filtered = isReviewFiltered(filters);
+  // В списке никого — объяснение вместо таблицы; по числу всего списка, а не строк: пустая страница
+  // за концом и прежний пустой ответ, пока едет сброс фильтра, — ещё не «никого». Под фильтром шапка
+  // с полями остаётся: поправить условие можно тут же.
+  const nothing = !filtered && data?.facets.listed === 0;
 
   return (
     <Stack gap="lg">
@@ -205,7 +228,9 @@ function ReviewView({ onOpenCrawl }: { onOpenCrawl: () => void }) {
           <SegmentedControl
             aria-label="Какой список смотреть"
             value={verdict}
-            onChange={(picked) => setVerdict(picked as ReviewedVerdict)}
+            onChange={(picked) =>
+              apply({ verdict: picked as ReviewedVerdict, points: null, feature: null })
+            }
             data={[
               { value: 'pending', label: `Спорные · ${formatNumber(counts['pending'] ?? 0)}` },
               { value: 'bought', label: `Куплено · ${formatNumber(counts['bought'] ?? 0)}` },
@@ -241,7 +266,7 @@ function ReviewView({ onOpenCrawl }: { onOpenCrawl: () => void }) {
               size="sm"
               label="Показывать решённые"
               checked={includeDecided}
-              onChange={(event) => setIncludeDecided(event.currentTarget.checked)}
+              onChange={(event) => apply({ includeDecided: event.currentTarget.checked })}
             />
           </Group>
         </Stack>
@@ -249,44 +274,65 @@ function ReviewView({ onOpenCrawl }: { onOpenCrawl: () => void }) {
 
       {/* Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что
           у панели сверху: текст соседних карточек начинается с одного места. */}
-      <Card
-        className="glassPanel staleRows"
-        p={rows.length === 0 ? 'xl' : 'md'}
-        data-stale={stale || undefined}
-        aria-busy={stale || undefined}
-        inert={stale}
-      >
+      <Card className="glassPanel" p={nothing ? 'xl' : 'md'} ref={top}>
         {error ? (
           <Alert color="red" title="Очередь не загрузилась">
             {refusalOf(error)}
           </Alert>
-        ) : rows.length === 0 ? (
-          <EmptyQueue
-            verdict={verdict}
-            decided={decided}
-            onShowDecided={includeDecided ? null : () => setIncludeDecided(true)}
-          />
+        ) : nothing || data === undefined ? (
+          <Box className="staleRows" data-stale={stale || undefined} aria-busy={stale || undefined}>
+            <EmptyQueue
+              verdict={verdict}
+              decided={decided}
+              onShowDecided={includeDecided ? null : () => apply({ includeDecided: true })}
+            />
+          </Box>
         ) : (
           <Stack gap="sm">
             {/* Свернуть — там же, где развернули (замечание Anthony 27.10.2026): «Показать
                 решённые» стоит в этой карточке, а переключатель — в карточке выше, у «Ждут
                 человека», и после развёртывания свернуть было будто бы нечем. */}
-            {includeDecided ? (
-              <Button
-                variant="subtle"
-                size="compact-sm"
-                className="press"
-                style={{ alignSelf: 'flex-start' }}
-                onClick={() => setIncludeDecided(false)}
-              >
-                Скрыть решённые
-              </Button>
+            {includeDecided || filtered ? (
+              <Group gap="sm">
+                {includeDecided ? (
+                  <Button
+                    variant="subtle"
+                    size="compact-sm"
+                    className="press"
+                    onClick={() => apply({ includeDecided: false })}
+                  >
+                    Скрыть решённые
+                  </Button>
+                ) : null}
+                {filtered ? (
+                  // Одно на строке — с края текста колонок: поле карточки и поле ячейки.
+                  <Text size="sm" pl={includeDecided ? 0 : 'md'}>
+                    найдено {formatNumber(data.total)} из {formatNumber(data.facets.listed)}
+                  </Text>
+                ) : null}
+              </Group>
             ) : null}
             <CandidatesTable
               rows={rows}
+              stale={stale}
+              empty={
+                settled && filtered && data.total === 0
+                  ? reviewEmptiness(filters, data.facets)
+                  : null
+              }
+              onReset={() => apply({ points: null, feature: null })}
+              filters={filters}
+              facets={data.facets}
+              onFilter={apply}
               mayDecide={mayDecide}
               deciding={decide.isPending ? (decide.variables?.row.id ?? null) : null}
               onDecide={(row, confirmed) => decide.mutate({ row, confirmed })}
+            />
+            <PageSwitch
+              label="Страницы очереди проверки"
+              page={filters.page}
+              pages={pages}
+              onChange={turnToTop}
             />
           </Stack>
         )}

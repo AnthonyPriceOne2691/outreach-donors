@@ -13,8 +13,7 @@
  */
 
 import { Badge, Button, Card, Group, Stack, Text, Title } from '@mantine/core';
-import { useReducedMotion } from '@mantine/hooks';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import type { NicheCard } from '../api/niche';
@@ -22,9 +21,10 @@ import { useSession } from '../auth/AuthProvider';
 import { useNicheCollect, useNicheQueue } from './useNiche';
 import { InfoHint } from '../components/InfoHint';
 import { NumberField } from '../components/NumberField';
-import { PageSwitch, usePageParam } from '../components/PageSwitch';
+import { PageSwitch, usePageParam, useTurnToTop } from '../components/PageSwitch';
 import { numberRefusal, validNumber } from '../components/numberText';
 import type { NumberRule } from '../components/numberText';
+import { NICHE_PAGE_PARAM } from './reviewFilters';
 
 /** Номер прогона — целое с единицы. Набранное стоит в поле как есть: «1.5» не
  *  склеивается в 15, на которое сервер честно отвечал «Прогона №15 нет», а
@@ -120,34 +120,13 @@ function Collect() {
   );
 }
 
-/** Имя страницы в адресе: листает карточка, а не весь экран рекламодателей. */
-const PAGE_PARAM = 'niche_page';
-
 export function NicheQueue() {
   const { can } = useSession();
-  const [page, goToPage] = usePageParam(PAGE_PARAM);
-  const { queue, decide } = useNicheQueue(page);
-  const { data, error, isPlaceholderData } = queue;
+  const [page, goToPage] = usePageParam(NICHE_PAGE_PARAM);
+  const { queue, pages, decide } = useNicheQueue(page, goToPage);
+  const { data, error } = queue;
   const rows = data?.rows ?? [];
-  const pages = data === undefined ? 1 : Math.max(1, Math.ceil(data.total / data.limit));
-  const settled = data !== undefined && !isPlaceholderData;
-  const top = useRef<HTMLDivElement>(null);
-  const calm = useReducedMotion();
-
-  // Страница за концом — решён последний бизнес последней страницы или открыта старая
-  // ссылка: сервер отдаёт её пустой и называет, сколько всего, — экран уходит на последнюю,
-  // заменяя адрес, а не добавляя.
-  useEffect(() => {
-    if (settled && page > pages) goToPage(pages, true);
-  }, [settled, page, pages, goToPage]);
-
-  // Переключатель — под двадцатью строками: новая страница начинается с заголовка
-  // карточки, а не с её низа, где человек нажал номер. Плавно — кроме тех, кто
-  // просил систему обходиться без движения.
-  const turn = (next: number) => {
-    goToPage(next);
-    top.current?.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' });
-  };
+  const { top, turnToTop } = useTurnToTop<HTMLDivElement>(goToPage);
 
   return (
     <Card className="glass" p="xl" ref={top}>
@@ -187,7 +166,7 @@ export function NicheQueue() {
               label="Страницы бизнесов ниши"
               page={page}
               pages={pages}
-              onChange={turn}
+              onChange={turnToTop}
               pt="xs"
             />
           </Stack>

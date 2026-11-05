@@ -207,7 +207,7 @@ async def scoring_check(session: AsyncSession) -> ScoringCheck:
 
 async def sample_turns(session: AsyncSession) -> dict[Verdict, list[bool | None]]:
     """Решения строк выборки «куплено» и спорных — в порядке выборки, тем же, что у очереди
-    (`sample.queue`: md5 домена, затем номер строки)."""
+    (`review.queue`: md5 домена, затем номер строки)."""
     rows = await session.execute(
         select(CandidateModel.verdict, CandidateModel.confirmed)
         .where(CandidateModel.verdict.in_(SAMPLED), in_sample())

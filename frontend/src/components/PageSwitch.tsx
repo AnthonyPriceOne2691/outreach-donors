@@ -21,8 +21,8 @@
 
 import { Box, Group, Pagination } from '@mantine/core';
 import type { BoxProps } from '@mantine/core';
-import { useMediaQuery } from '@mantine/hooks';
-import { useCallback } from 'react';
+import { useMediaQuery, useReducedMotion } from '@mantine/hooks';
+import { useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 /** Стрелки — значки без текста; имя им даёт подпись. */
@@ -95,4 +95,17 @@ export function usePageParam(name = 'page'): [number, (next: number, replace?: b
     [name, page, setParams],
   );
   return [page, goTo];
+}
+
+/** Листать и вернуться к началу карточки: переключатель — под строками, а новая страница начинается
+ *  с заголовка, а не с её низа, где человек нажал номер. Плавно — кроме тех, кто просил систему
+ *  обходиться без движения. Вернёт, куда поставить `ref`, и что отдать переключателю. */
+export function useTurnToTop<Top extends HTMLElement>(turn: (page: number) => void) {
+  const top = useRef<Top>(null);
+  const calm = useReducedMotion();
+  const turnToTop = (next: number) => {
+    turn(next);
+    top.current?.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' });
+  };
+  return { top, turnToTop };
 }

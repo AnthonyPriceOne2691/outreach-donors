@@ -5,17 +5,25 @@
  * Своим файлом, как таблицы списка (`AdvertiserListTable`) и обхода (`CrawlTable`):
  * на экране рекламодателей три вида, и очередь — часть одного из них. Зачем проверка
  * и как устроен её вид — в `AdvertisersPage.tsx`.
+ *
+ * **Фильтры — под заголовками своих колонок** (слово Anthony 05.11.2026): «Балл» — точным значением,
+ * «За что» — признаком скоринга, теми же словами, что у разбивки спорных (`DisputedStrata`). Варианты
+ * и числа — от сервера, тем же ответом, что строки.
  */
 
 import { Anchor, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
 
-import type { JudgeAdvice, ReviewRow } from '../api/advertisers';
+import type { JudgeAdvice, QueueFacet, QueueFacets, ReviewRow } from '../api/advertisers';
 import type { CandidateCard } from '../api/types';
 import type { Column } from '../components/ColumnsHead';
 import { DataTable } from '../components/DataTable';
+import { FilterSelect } from '../components/FilterSelect';
 import { Seams } from '../components/Seams';
+import { NoRows } from '../components/WholeRow';
+import type { Emptiness } from '../components/WholeRow';
 import { formatDate, formatNumber, plural } from '../format';
 import { LinkAnchor } from './LinkAnchor';
+import type { ReviewFilters } from './reviewFilters';
 
 /** Как называется каждый исход скоринга на человеческом языке. */
 export const VERDICTS: Record<CandidateCard['verdict'], { label: string; color: string }> = {
@@ -30,26 +38,35 @@ export const VERDICTS: Record<CandidateCard['verdict'], { label: string; color: 
  *  таблицы росла до 130–160 px, пока «Кому ссылается» держала ~300 px под короткий
  *  домен (аудит экранов 09.10.2026). Домену — 13rem, он переносится по швам; «Ссылка» —
  *  текст; остальные — по самому длинному шрифтом экрана (25.09.2026): кнопки «Пишем» и
- *  «Не пишем» с зазором — около 154 px. Плюс 32 px полей ячейки и запас. */
+ *  «Не пишем» с зазором — около 154 px. Плюс 32 px полей ячейки и запас. «Балл» — по полю
+ *  фильтра со словом «все» (замер 05.11.2026: 21 px текста, 34 px полей и стрелки). */
 const COLUMNS: Column[] = [
   { title: 'Кому ссылается', width: '13rem' },
   { title: 'Донор', width: '11rem' },
-  { title: 'Балл', width: '4.75rem' },
+  { title: 'Балл', width: '5.5rem' },
   { title: 'За что' },
-  { title: 'Ссылка', width: '12rem' },
+  { title: 'Ссылка', width: '11.75rem' },
 ];
 const ACTIONS_WIDTH = '12.5rem';
-const TABLE_MIN_WIDTH = 1080;
+/** Уже — прокрутка: колонкам с шириной 53,75rem (860 px), «За что» — от поля фильтра с полями
+ *  ячейки. На 1440 с открытым меню таблице есть 1 101 px, и прокрутки нет. */
+const TABLE_MIN_WIDTH = 1100;
+/** Поле «За что» — по самому длинному признаку (замер 05.11.2026: 172 px текста, 34 px полей и
+ *  стрелки), а не во всю широкую колонку: посередине неё. */
+const FEATURE_FIELD = '13rem';
 
 /** «Пишем» и «Не пишем» — у кого есть право решать. */
 function Decide({
   row,
   busy,
+  stale,
   onDecide,
 }: {
   row: CandidateCard;
   /** «Пишем» этой строки уходит на сервер. */
   busy: boolean;
+  /** Строка прежнего запроса: решать по ней нельзя — она не того списка. */
+  stale: boolean;
   onDecide: (row: CandidateCard, confirmed: boolean) => void;
 }) {
   return (
@@ -62,6 +79,7 @@ function Decide({
           variant="light"
           className="press"
           loading={busy}
+          disabled={stale}
           onClick={() => onDecide(row, true)}
         >
           Пишем
@@ -70,6 +88,7 @@ function Decide({
           size="compact-sm"
           variant="default"
           className="press"
+          disabled={stale}
           onClick={() => onDecide(row, false)}
         >
           Не пишем
@@ -166,8 +185,82 @@ function Cells({ row }: { row: ReviewRow }) {
   );
 }
 
-interface Props {
+/** Поле фильтра: варианты и числа — от сервера. Значение из адреса, которого в списке нет, — всё
+ *  равно вариант: иначе поле показало бы «все», а строки были бы сужены до него. */
+function FacetFilter({
+  label,
+  facet,
+  value,
+  width,
+  onPick,
+}: {
+  label: string;
+  facet: QueueFacet;
+  value: string | null;
+  width?: string;
+  onPick: (value: string | null) => void;
+}) {
+  const choiceOf = (key: string) => facet.choices.find((choice) => choice.key === key);
+  const keys = facet.choices.map((choice) => choice.key);
+  if (value !== null && !keys.includes(value)) keys.push(value);
+  return (
+    <FilterSelect
+      label={label}
+      value={value}
+      keys={keys}
+      title={(key) => choiceOf(key)?.title ?? key}
+      count={(key) => (key === 'all' ? facet.total : (choiceOf(key)?.count ?? 0))}
+      onPick={onPick}
+      contentList
+      {...(width !== undefined ? { width } : {})}
+    />
+  );
+}
+
+interface FilterProps {
+  filters: ReviewFilters;
+  facets: QueueFacets;
+  onFilter: (patch: Partial<ReviewFilters>) => void;
+}
+
+/** Фильтры под заголовками: «Балл» и «За что»; у домена, донора и ссылки своего поля нет. */
+function FilterRow({ filters, facets, onFilter, tail }: FilterProps & { tail: boolean }) {
+  return (
+    <Table.Tr className="filterRow">
+      <Table.Th />
+      <Table.Th />
+      <Table.Th data-label="Балл">
+        <FacetFilter
+          label="Балл"
+          facet={facets.points}
+          value={filters.points}
+          onPick={(points) => onFilter({ points })}
+        />
+      </Table.Th>
+      <Table.Th data-label="За что">
+        <Group justify="center">
+          <FacetFilter
+            label="За что"
+            facet={facets.features}
+            value={filters.feature}
+            width={FEATURE_FIELD}
+            onPick={(feature) => onFilter({ feature })}
+          />
+        </Group>
+      </Table.Th>
+      <Table.Th />
+      {tail ? <Table.Th /> : null}
+    </Table.Tr>
+  );
+}
+
+interface Props extends FilterProps {
   rows: ReviewRow[];
+  /** Едет новая страница — прежние строки приглушены, решать по ним нельзя. */
+  stale: boolean;
+  /** Почему строк нет — под фильтром пусто; строки есть или едут — `null`. */
+  empty: Emptiness | null;
+  onReset: () => void;
   /** Право решать: без него нет ни кнопок, ни их колонки. */
   mayDecide: boolean;
   /** Строка, чьё «Пишем» сейчас уходит на сервер. */
@@ -175,13 +268,38 @@ interface Props {
   onDecide: (row: CandidateCard, confirmed: boolean) => void;
 }
 
-export function CandidatesTable({ rows, mayDecide, deciding, onDecide }: Props) {
+export function CandidatesTable({
+  rows,
+  stale,
+  empty,
+  onReset,
+  mayDecide,
+  deciding,
+  onDecide,
+  ...filters
+}: Props) {
   return (
-    <DataTable columns={COLUMNS} minWidth={TABLE_MIN_WIDTH} tail={mayDecide ? ACTIONS_WIDTH : null}>
+    <DataTable
+      columns={COLUMNS}
+      minWidth={TABLE_MIN_WIDTH}
+      className="filteredTable"
+      tail={mayDecide ? ACTIONS_WIDTH : null}
+      head={<FilterRow {...filters} tail={mayDecide} />}
+      stale={stale}
+    >
+      <NoRows
+        span={COLUMNS.length + (mayDecide ? 1 : 0)}
+        refusal={null}
+        failTitle="Очередь не загрузилась"
+        empty={empty}
+        onReset={onReset}
+      />
       {rows.map((row) => (
         <Table.Tr key={row.id}>
           <Cells row={row} />
-          {mayDecide ? <Decide row={row} busy={deciding === row.id} onDecide={onDecide} /> : null}
+          {mayDecide ? (
+            <Decide row={row} busy={deciding === row.id} stale={stale} onDecide={onDecide} />
+          ) : null}
         </Table.Tr>
       ))}
     </DataTable>

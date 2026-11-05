@@ -16,7 +16,9 @@
 
 **Очередь подмешивает выборку между сильными — каждой пятой строкой**, в порядке хэша,
 а не балла: иначе выборка решалась бы опять от сильных к слабым. Остальные строки — как
-были, сильные первыми (`crawl/review.queue`).
+были, сильные первыми (`crawl/review.queue`). **Порядок сквозной** (05.11.2026): смешиваются
+обе части целиком, а страница — кусок этого списка: иначе строка со стыка страниц терялась
+бы или показывалась дважды, а пятая строка второй страницы не была бы пятой во всём списке.
 
 **Человек выборки не отличает**: в очереди её строки обычные, и ответ сервера их не
 помечает — решение не должно зависеть от того, что идёт в замер.
@@ -25,15 +27,14 @@
 from __future__ import annotations
 
 import hashlib
+from collections import deque
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import ColumnElement, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import ColumnElement, func
 
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
-from backend.features.crawl import review
 
 #: Граница выборки: первые две цифры md5 домена меньше неё — 0x33 = 51 из 256, ≈ 20%.
 SAMPLE_BELOW = "33"
@@ -61,42 +62,13 @@ def sampled(host: str) -> bool:
     return digest[: len(SAMPLE_BELOW)] < SAMPLE_BELOW
 
 
-def mixed[Row](strong: Sequence[Row], sample: Sequence[Row], *, limit: int) -> list[Row]:
-    """Каждая пятая строка — из выборки, остальные — сильные по порядку. Кончилась
-    одна очередь — добирается другой: пустых мест нет."""
+def mixed[Row](strong: Sequence[Row], sample: Sequence[Row]) -> list[Row]:
+    """Обе части очереди одним списком: каждая пятая строка — из выборки, остальные — сильные
+    по порядку. Кончилась одна часть — добирается другой: пустых мест нет."""
     rows: list[Row] = []
-    strong_left, sample_left = list(strong), list(sample)
-    while len(rows) < limit and (strong_left or sample_left):
+    strong_left, sample_left = deque(strong), deque(sample)
+    while strong_left or sample_left:
         take_sample = (len(rows) + 1) % EVERY == 0
         source = sample_left if (take_sample and sample_left) or not strong_left else strong_left
-        rows.append(source.pop(0))
+        rows.append(source.popleft())
     return rows
-
-
-async def queue(
-    session: AsyncSession,
-    *,
-    limit: int = review.PAGE_SIZE,
-    include_decided: bool = False,
-    verdict: Verdict = Verdict.PENDING,
-) -> list[CandidateModel]:
-    """Очередь ручной проверки: «куплено» и спорные — с выборкой вперемешку, прочие — как
-    были."""
-    if verdict not in SAMPLED:
-        return await review.queue(
-            session, limit=limit, include_decided=include_decided, verdict=verdict
-        )
-    base = select(CandidateModel).where(CandidateModel.verdict == verdict)
-    if not include_decided:
-        base = base.where(CandidateModel.confirmed.is_(None))
-    strong = await session.scalars(
-        base.where(~in_sample())
-        .order_by(CandidateModel.points.desc(), CandidateModel.id)
-        .limit(limit)
-    )
-    sample = await session.scalars(
-        base.where(in_sample())
-        .order_by(func.md5(CandidateModel.target_root), CandidateModel.id)
-        .limit(limit)
-    )
-    return mixed(list(strong.all()), list(sample.all()), limit=limit)

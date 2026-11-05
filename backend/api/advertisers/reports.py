@@ -135,14 +135,21 @@ async def pending_strata(
 
 @router.get("/acceptance", response_model=AcceptanceView, summary="Приёмка по донорам")
 async def accepted(
-    limit: int = Query(default=200, ge=1, le=1000, description="доноров за раз"),
+    page: int = Query(default=1, ge=1, le=1_000_000, description="страница, с единицы"),
+    limit: int = Query(
+        default=acceptance.PAGE_SIZE,
+        ge=1,
+        le=acceptance.MAX_PAGE_SIZE,
+        description="доноров на странице",
+    ),
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> AcceptanceView:
-    """Каждый обойдённый донор: что нашёл обход (домены по вердиктам и страницы со
+    """Обойдённые доноры страницей: что нашёл обход (домены по вердиктам и страницы со
     ссылками), сколько рекламодателей, сколько с адресом, какой доле ушло письмо — и все
-    доноры вместе: рекламодатели — по разным доменам, найденное обходом — суммой."""
-    report = await acceptance.acceptance(session, limit=limit)
+    доноры вместе, на каждой странице и по всем донорам: рекламодатели — по разным доменам,
+    найденное обходом — суммой. Страница за концом — без доноров: экран уходит на последнюю."""
+    report = await acceptance.acceptance(session, limit=limit, offset=(page - 1) * limit)
     crawls = await board.latest_by_host(session, [row.host for row in report.donors])
     pages = crawl_cfg.MAX_PAGES_PER_DONOR
     return AcceptanceView(
@@ -159,6 +166,8 @@ async def accepted(
             for row in report.donors
         ],
         total=report.total,
+        page=page,
+        limit=limit,
         overall=TallyView.of(report.overall),
         overall_findings=FindingsView.of(report.overall_findings),
         target_with_address=acceptance.TARGET_WITH_ADDRESS,

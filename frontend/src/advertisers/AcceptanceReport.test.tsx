@@ -10,6 +10,7 @@
 
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useLocation } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
@@ -84,6 +85,8 @@ function report(overrides: Partial<AcceptanceView> = {}): AcceptanceView {
       },
     ],
     total: 2,
+    page: 1,
+    limit: 15,
     overall: { ...DONE, found: 160, accepted: true },
     // Спорных много, решённых нет — «решено 0»: «никто ещё не смотрел» — тоже ответ.
     overall_findings: { ...FOUND, bought: 150, pending: 1250, decided: 0, pages: 1057 },
@@ -177,14 +180,6 @@ describe('приёмка по донорам', () => {
     expect(within(row).queryByText('не пройдена')).toBeNull();
   });
 
-  it('доноров больше, чем строк, — «показано N из M»', async () => {
-    await openReport(report({ total: 315 }));
-
-    expect(
-      screen.getByText('Показано 2 из 315: сверху — у кого рекламодателей больше.'),
-    ).toBeInTheDocument();
-  });
-
   it('обойдённых нет — где обход начинается', async () => {
     await openReport(
       report({
@@ -197,6 +192,96 @@ describe('приёмка по донорам', () => {
 
     expect(screen.getByText(/Обойдённых доноров нет/)).toBeInTheDocument();
     expect(screen.queryByText(/Все доноры вместе/)).toBeNull();
+  });
+});
+
+/** Где сейчас экран: адрес целиком. */
+function Where() {
+  const location = useLocation();
+  return <output data-testid="where">{`${location.pathname}${location.search}`}</output>;
+}
+
+const PAGER = 'Страницы приёмки';
+
+/** Доноры страницы по именам — с тем же обходом, что у первого в `report`. */
+function donorsOf(...hosts: string[]): AcceptanceView['donors'] {
+  return hosts.map((host) => ({ ...report().donors[1]!, host }));
+}
+
+function openPages(routes: Record<string, { body: AcceptanceView }>, path: string, first: string) {
+  localStorage.setItem(TOKEN_KEY, 'пропуск');
+  const recorded = serve({ 'GET /api/auth/me': { body: ADMIN }, ...routes });
+  renderWith(
+    <>
+      <AppRoutes />
+      <Where />
+    </>,
+    path,
+  );
+  return screen.findByText(first).then(() => recorded);
+}
+
+describe('страницы приёмки', () => {
+  const FIRST = report({ donors: donorsOf('first.example.test'), total: 16 });
+  const SECOND = report({ donors: donorsOf('second.example.test'), total: 16, page: 2 });
+
+  it('одна страница — переключателя нет', async () => {
+    await openReport();
+
+    expect(screen.queryByRole('navigation', { name: PAGER })).not.toBeInTheDocument();
+  });
+
+  it('доноров больше страницы — переключатель вместо «показано N из M»', async () => {
+    await openReport(report({ total: 40 }));
+
+    const pager = screen.getByRole('navigation', { name: PAGER });
+    // Страниц три — по размеру, который назвал сервер.
+    expect(within(pager).getByRole('button', { name: 'Страница 3' })).toBeInTheDocument();
+    expect(screen.queryByText(/Показано/)).toBeNull();
+  });
+
+  it('вторая страница — у сервера, в адресе, и «все доноры вместе» снова первой строкой', async () => {
+    const recorded = await openPages(
+      {
+        'GET /api/advertisers/acceptance': { body: FIRST },
+        'GET /api/advertisers/acceptance?page=2': { body: SECOND },
+      },
+      '/advertisers?view=acceptance',
+      'first.example.test',
+    );
+    const user = userEvent.setup();
+
+    await user.click(
+      within(screen.getByRole('navigation', { name: PAGER })).getByRole('button', {
+        name: 'Страница 2',
+      }),
+    );
+
+    await screen.findByText('second.example.test');
+    expect(screen.queryByText('first.example.test')).toBeNull();
+    expect(recorded.calls.at(-1)?.path).toBe('/api/advertisers/acceptance?page=2');
+    expect(screen.getByTestId('where')).toHaveTextContent('/advertisers?view=acceptance&page=2');
+    const together = screen.getByText('Все доноры вместе').closest('tr')!;
+    expect(together.parentElement!.firstElementChild).toBe(together);
+    // Итог — тот же: по всем донорам, а не по строкам страницы.
+    expect(cellsOf(together)).toMatchObject({ Рекламодателей: '160переведено 130' });
+  });
+
+  it('страница за концом — на последнюю настоящую, а не «обойдённых нет»', async () => {
+    const recorded = await openPages(
+      {
+        'GET /api/advertisers/acceptance?page=9': {
+          body: report({ donors: [], total: 16, page: 9 }),
+        },
+        'GET /api/advertisers/acceptance?page=2': { body: SECOND },
+      },
+      '/advertisers?view=acceptance&page=9',
+      'second.example.test',
+    );
+
+    expect(recorded.calls.map((call) => call.path)).toContain('/api/advertisers/acceptance?page=2');
+    expect(screen.getByTestId('where')).toHaveTextContent('/advertisers?view=acceptance&page=2');
+    expect(screen.queryByText(/Обойдённых доноров нет/)).toBeNull();
   });
 });
 

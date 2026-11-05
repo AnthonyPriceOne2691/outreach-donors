@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import date, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.crawl.accuracy import FALSE_LIMIT, Decisions, ScoringCheck, Share, Within
 from backend.features.crawl.judge_advice import JudgeAdvice
 from backend.features.crawl.niche import NicheRow
+from backend.features.crawl.review import MAX_PAGE_SIZE, PAGE_SIZE, QueueFacets, QueueFilter
 
 
 class JudgeAdviceView(BaseModel):
@@ -180,16 +182,77 @@ class ScoringCheckView(BaseModel):
         )
 
 
-class CandidatesView(BaseModel):
-    """Очередь ручной проверки и что вокруг неё.
+class ReviewQuery(BaseModel):
+    """Какой кусок очереди спрашивают. Страница — номером, размер называет сервер; лишний
+    параметр — отказ словами: фильтр с опечаткой не должен молча показать всю очередь.
 
-    Счётчики по всем вердиктам, а не только по спорным: по отсеянным
-    видно, что список «кому не пишем» работает, а не молчит. Рядом — доля
-    ложных среди «куплено» (сверка ТЗ 11.10.2026): решения человека, по которым
-    она считается, принимаются в этой же очереди.
+    Имена те же, что в адресе экрана (`frontend/src/advertisers/reviewFilters.ts`). FastAPI
+    разворачивает модель в параметры адреса, только когда других параметров у маршрута нет.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    include_decided: bool = Field(
+        default=False, description="показывать и те, по которым решение уже принято"
+    )
+    verdict: Verdict = Field(
+        default=Verdict.PENDING, description="спорные (pending) или «куплено» (bought)"
+    )
+    points: int | None = Field(default=None, description="балл — точным значением")
+    feature: str | None = Field(
+        default=None, max_length=64, description="признак скоринга: ключ из `crawl/strata.py`"
+    )
+    page: int = Field(default=1, ge=1, le=1_000_000, description="страница, с единицы")
+    limit: int = Field(default=PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="строк на странице")
+
+    def chosen(self) -> QueueFilter:
+        return QueueFilter(points=self.points, feature=self.feature)
+
+
+class FacetChoiceView(BaseModel):
+    """Вариант фильтра: значение, слова экрана и сколько строк с ним."""
+
+    key: str
+    title: str
+    count: int
+
+
+class FacetView(BaseModel):
+    """Варианты одного фильтра. `total` — сколько строк, когда он не сужает («все»)."""
+
+    total: int
+    choices: list[FacetChoiceView]
+
+
+class QueueFacetsView(BaseModel):
+    """Счётчики под фильтрами очереди: у каждого — со всеми условиями, кроме своего
+    (`crawl/review._facets`). `listed` — строк списка без фильтров."""
+
+    listed: int
+    points: FacetView
+    features: FacetView
+
+    @classmethod
+    def of(cls, facets: QueueFacets) -> QueueFacetsView:
+        return cls(**asdict(facets))
+
+
+class CandidatesView(BaseModel):
+    """Страница очереди ручной проверки и что вокруг неё.
+
+    `total` — строк под фильтром на всех страницах, `limit` — размер страницы: по ним экран
+    считает страницы. **Всё остальное — по всем, а не по странице и не по фильтру**: числа в
+    шапке экрана от них не меняются. Счётчики по всем вердиктам, а не только по спорным: по
+    отсеянным видно, что список «кому не пишем» работает, а не молчит. Рядом — доля ложных
+    среди «куплено» (сверка ТЗ 11.10.2026): решения человека, по которым она считается,
+    принимаются в этой же очереди.
     """
 
     rows: list[CandidateCard]
+    total: int
+    page: int
+    limit: int
+    facets: QueueFacetsView
     waiting: int
     counts: dict[str, int] = Field(default_factory=dict)
     scoring: ScoringCheckView | None = None

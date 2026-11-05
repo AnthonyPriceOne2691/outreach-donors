@@ -13,12 +13,14 @@
  *
  * **С адресом и «ушло» — среди переведённых** (проверка ветки 12.10.2026): домен, снятый
  * стоп-листом, с адресом от Этапа 1 приёмку не украшает. **Поставщик — помечен**: его
- * рекламодателей не трогаем, порог ему не задача. Доноров больше, чем строк, —
- * «показано N из M». Пороги — от сервера.
+ * рекламодателей не трогаем, порог ему не задача. Пороги — от сервера.
+ *
+ * **По пятнадцать доноров на странице** (слово Anthony 05.11.2026: «огромная простыня»): считает
+ * сервер, номер — в адресе (`?page=2`), порядок прежний — сверху у кого рекламодателей больше.
+ * «Все доноры вместе» — первой строкой каждой страницы, по всем донорам, а не по её строкам.
  */
 
 import { Alert, Badge, Card, Loader, Stack, Table, Text } from '@mantine/core';
-import { useQuery } from '@tanstack/react-query';
 
 import { fetchAcceptance } from '../api/acceptance';
 import type { AcceptanceView, Findings, Tally } from '../api/acceptance';
@@ -27,7 +29,9 @@ import type { Column } from '../components/ColumnsHead';
 import { DataTable } from '../components/DataTable';
 import { HintLines } from '../components/HintLines';
 import { PageHead } from '../components/PageHead';
+import { PageSwitch, usePageParam, useTurnToTop } from '../components/PageSwitch';
 import { Seams } from '../components/Seams';
+import { usePagedQuery } from '../components/useUrlFilters';
 import { formatNumber, formatPercent } from '../format';
 import { CrawlState } from './CrawlTable';
 
@@ -205,24 +209,14 @@ function Together({ view }: { view: AcceptanceView }) {
   );
 }
 
-/** «Показано 200 из 315» — когда доноров больше, чем строк. */
-function Shown({ view }: { view: AcceptanceView }) {
-  if (view.total <= view.donors.length) return null;
-  return (
-    <Text size="sm" c="dimmed">
-      Показано {formatNumber(view.donors.length)} из {formatNumber(view.total)}: сверху — у кого
-      рекламодателей больше.
-    </Text>
-  );
-}
-
-function Rows({ view }: { view: AcceptanceView }) {
+function Rows({ view, stale }: { view: AcceptanceView; stale: boolean }) {
   return (
     <DataTable
       columns={COLUMNS}
       minWidth={TABLE_MIN_WIDTH}
       className="stickyName headsWrap"
       cardRow
+      stale={stale}
     >
       <Together view={view} />
       {view.donors.map((row) => (
@@ -250,33 +244,43 @@ function Rows({ view }: { view: AcceptanceView }) {
 }
 
 export function AcceptanceReport() {
-  const { data, error } = useQuery({ queryKey: ACCEPTANCE_KEY, queryFn: fetchAcceptance });
+  const [page, goToPage] = usePageParam();
+  const { query, data, pages } = usePagedQuery(
+    [...ACCEPTANCE_KEY, page],
+    // Страницы считает общий хук — по `rows`; строки приёмки — доноры.
+    () => fetchAcceptance(page).then((view) => ({ ...view, rows: view.donors })),
+    page,
+    goToPage,
+  );
+  const { top, turnToTop } = useTurnToTop<HTMLDivElement>(goToPage);
   if (data === undefined) {
-    return error ? (
+    return query.error ? (
       <Alert color="red" title="Приёмка не загрузилась">
-        {refusalOf(error)}
+        {refusalOf(query.error)}
       </Alert>
     ) : (
       <Loader aria-label="Считаем приёмку" m="md" />
     );
   }
   return (
-    <Card className="glassPanel" p="lg">
+    <Card className="glassPanel" p="lg" ref={top}>
       <Stack gap="sm">
         <PageHead title="Приёмка по донорам" hint={ABOUT} />
         <Text size="sm">
           Порог ТЗ: у донора {formatNumber(data.target_with_address)} рекламодателей с адресом, и
           письмо ушло {formatPercent(data.target_sent_share)} из них.
         </Text>
-        {data.donors.length === 0 ? (
+        {/* «Нет» — по числу сервера, а не по пустой странице: страница за концом пуста, хотя
+            доноры есть, и экран сейчас уйдёт на последнюю. */}
+        {data.total === 0 ? (
           <Text size="sm" c="dimmed">
             Обойдённых доноров нет: приёмка считается по обходу, а он начинается на вкладке
             «Проверка», в панели «Обход доноров».
           </Text>
         ) : (
           <>
-            <Rows view={data} />
-            <Shown view={data} />
+            <Rows view={data} stale={query.isPlaceholderData} />
+            <PageSwitch label="Страницы приёмки" page={page} pages={pages} onChange={turnToTop} />
           </>
         )}
       </Stack>

@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { AdvertiserCard, AdvertiserFacets, AdvertiserListView } from '../api/advertiserList';
-import { ADMIN, CRAWL_ROUTES, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, CRAWL_ROUTES, reviewQueue, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
@@ -281,7 +281,7 @@ describe('переключатель видов', () => {
       'GET /api/advertisers/niche?page=1': {
         body: { rows: [], waiting: 0, total: 0, page: 1, limit: 20 },
       },
-      'GET /api/advertisers': { body: { rows: [], waiting: 0, counts: {} } },
+      'GET /api/advertisers': { body: reviewQueue() },
       'GET /api/advertisers/list': { body: listOf() },
       'GET /api/advertisers/list/facets': { body: FACETS },
     });

@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from redis.exceptions import RedisError
@@ -49,6 +49,8 @@ from backend.api.advertisers.schemas import (
     NicheView,
     PromoteResult,
     PromotionView,
+    QueueFacetsView,
+    ReviewQuery,
     ScoringCheckView,
 )
 from backend.api.contacts.schemas import ContactsQueued, ContactsState, SearchBody
@@ -57,9 +59,9 @@ from backend.api.deps import actor, db_session, needs
 from backend.api.stage_access import STAGE_TWO
 from backend.features.access.permissions import has_permission
 from backend.features.access.repository import AccessRepository
-from backend.features.core.domain import AuditAction, Permission, Stage, Verdict
+from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
-from backend.features.crawl import accuracy, judge_advice, niche, promote, review, sample
+from backend.features.crawl import accuracy, judge_advice, niche, promote, review
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.shared.queue import (
     ADVERTISER_CONTACTS_JOB_KEY,
@@ -87,37 +89,41 @@ SEARCH_MAX = 1000
 
 @router.get("", response_model=CandidatesView, summary="Очередь ручной проверки")
 async def queue(
-    include_decided: bool = Query(
-        default=False, description="показывать и те, по которым решение уже принято"
-    ),
-    verdict: Verdict = Query(
-        default=Verdict.PENDING, description="спорные (pending) или «куплено» (bought)"
-    ),
-    limit: int = Query(default=review.PAGE_SIZE, ge=1, le=200),
+    query: Annotated[ReviewQuery, Query()],
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> CandidatesView:
-    """Кандидаты, которых смотрит человек: спорные — решить, «куплено» —
-    проверить перед письмом и снять ложного."""
-    if verdict not in review.REVIEWED:
+    """Кандидаты, которых смотрит человек: спорные — решить, «куплено» — проверить перед
+    письмом и снять ложного. Страницей, с фильтрами под колонками «Балл» и «За что»; страница
+    за концом — пустая, а не отказ: число страниц экран узнаёт по `total`."""
+    if query.verdict not in review.REVIEWED:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Списком смотрят спорных (pending) и «куплено» (bought): «мимо» и «кому не пишем» "
             "видны числами в шапке",
         )
-    # «Куплено» — со случайной выборкой вперемешку (`crawl/sample.py`): по ней одной
-    # считается доля ложных, и решать её нужно не после сильных, а среди них.
-    rows = await sample.queue(
-        session, limit=limit, include_decided=include_decided, verdict=verdict
+    # Случайная выборка — вперемешку с сильными (`crawl/sample.py`): по ней одной считается
+    # доля ложных, и решать её нужно не после сильных, а среди них.
+    found = await review.queue(
+        session,
+        page=query.page,
+        limit=query.limit,
+        include_decided=query.include_decided,
+        verdict=query.verdict,
+        chosen=query.chosen(),
     )
-    dates = await review.article_dates(session, rows)
+    dates = await review.article_dates(session, found.rows)
     # Совет судьи — только под решением человека (`crawl/judge_advice.py`).
-    advice = await judge_advice.after_decision(session, rows)
+    advice = await judge_advice.after_decision(session, found.rows)
     return CandidatesView(
         rows=[
             CandidateCard.of(row, published=dates.get(row.id), judge=advice.get(row.id))
-            for row in rows
+            for row in found.rows
         ],
+        total=found.total,
+        page=query.page,
+        limit=query.limit,
+        facets=QueueFacetsView.of(found.facets),
         waiting=await review.waiting(session),
         counts=await review.counts(session),
         scoring=ScoringCheckView.of(await accuracy.scoring_check(session)),

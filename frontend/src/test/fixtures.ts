@@ -205,6 +205,26 @@ export const NO_NICHE: Record<string, Answer> = {
   },
 };
 
+/** Ответ очереди проверки рекламодателей (`GET /api/advertisers`): без вариантов фильтров,
+ *  `total` — по строкам. Что тесту важно — называет сам. */
+export function reviewQueue(overrides: Record<string, unknown> = {}) {
+  const rows = (overrides['rows'] ?? []) as readonly unknown[];
+  return {
+    rows,
+    total: rows.length,
+    page: 1,
+    limit: 10,
+    facets: {
+      listed: rows.length,
+      points: { total: rows.length, choices: [] },
+      features: { total: rows.length, choices: [] },
+    },
+    waiting: 0,
+    counts: {},
+    ...overrides,
+  };
+}
+
 /** Блоки «Исход неизвестен» и «Доставка откладывается» на экране писем: зависших
  *  и откладываемых писем нет ни на одной вкладке. Экран спрашивает их на каждой вкладке
  *  сам, и тест, которому блоки не нужны, записывает пустые списки — промах мимо

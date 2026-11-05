@@ -22,6 +22,7 @@ import {
   OPERATOR,
   PROMOTE_ROUTES,
   TOKEN_KEY,
+  reviewQueue,
 } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -141,7 +142,7 @@ function open(
     ...PROMOTE_ROUTES,
     ...BACKLOG_ROUTES,
     ...NO_NICHE,
-    'GET /api/advertisers': { body: { rows: [], waiting: 0, counts: { bought: 1, pending: 0 } } },
+    'GET /api/advertisers': { body: reviewQueue({ counts: { bought: 1, pending: 0 } }) },
     'GET /api/crawls/summary': { body: SUMMARY },
     'GET /api/crawls/donors': { body: PAGE },
     'GET /api/crawls': { body: { rows: [crawl({})], active: 1, workers: 8, total: 1 } },

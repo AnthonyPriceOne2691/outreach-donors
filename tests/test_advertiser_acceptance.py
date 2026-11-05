@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 import pytest
 from backend.features.core.domain import MessageStatus, SuppressionReason, UserRole, Verdict
@@ -94,9 +95,26 @@ async def test_the_limit_keeps_the_strongest(session: AsyncSession, donors: None
     report = await acceptance(session, limit=1)
 
     assert [row.host for row in report.donors] == [ALPHA]
-    # Сколько доноров всего — от сервера: экран пишет «показано 1 из 3».
+    # Сколько доноров всего — от сервера: по этому числу экран считает страницы.
     assert report.total == 3
     assert report.overall.found == 3
+
+
+async def test_pages_go_on_in_the_same_order_and_the_sum_is_over_all_donors(
+    session: AsyncSession, donors: None
+) -> None:
+    """Вторая страница — продолжение первой, порядок прежний; «Все доноры вместе» на каждой
+    странице считается по всем донорам, а не по её строкам."""
+    whole = await acceptance(session, limit=50)
+    first = await acceptance(session, limit=2)
+    second = await acceptance(session, limit=2, offset=2)
+
+    assert [row.host for row in first.donors] == [ALPHA, BETA]
+    assert [row.host for row in second.donors] == [EMPTY]
+    assert first.total == second.total == whole.total == 3
+    assert first.overall == second.overall == whole.overall
+    assert first.overall_findings == second.overall_findings == whole.overall_findings
+    assert second.overall.found == 3
 
 
 async def test_address_and_letters_count_only_promoted_advertisers(
@@ -193,3 +211,50 @@ async def test_the_screen_gets_rows_crawls_and_targets(
     assert first["supplier"] is False
     assert (body["overall"]["found"], body["total"]) == (3, 3)
     assert (body["target_with_address"], body["target_sent_share"]) == (100, 0.7)
+
+
+async def test_the_screen_turns_pages_of_fifteen(
+    client: AsyncClient, token: str, session: AsyncSession, donors: None
+) -> None:
+    """Страницы — на сервере, по пятнадцать доноров, а итог и пороги — на каждой. Страница за
+    концом — без доноров, но с итогом и числом: экран уходит на последнюю."""
+    for number in range(14):
+        await crawled(session, f"donor-{number:02}.example.test")
+    await session.commit()
+
+    async def page(number: int) -> dict[str, Any]:
+        answer = await client.get(
+            f"/api/advertisers/acceptance?page={number}", headers=bearer(token)
+        )
+        assert answer.status_code == 200, answer.text
+        body: dict[str, Any] = answer.json()
+        return body
+
+    first, second, past = await page(1), await page(2), await page(3)
+
+    assert [row["host"] for row in first["donors"]][:3] == [ALPHA, BETA, "donor-00.example.test"]
+    assert len(first["donors"]) == 15
+    assert [row["host"] for row in second["donors"]] == [
+        "donor-13.example.test",
+        EMPTY,
+    ]
+    assert second["donors"][0]["crawl"]["host"] == "donor-13.example.test"
+    assert [(body["page"], body["limit"], body["total"]) for body in (first, second, past)] == [
+        (1, 15, 17),
+        (2, 15, 17),
+        (3, 15, 17),
+    ]
+    assert past["donors"] == []
+    assert first["overall"] == second["overall"] == past["overall"]
+    assert first["overall_findings"] == second["overall_findings"] == past["overall_findings"]
+    assert second["overall"]["found"] == 3
+
+
+@pytest.mark.parametrize("query", ["limit=0", "limit=201", "page=0", "page=1000001", "page=abc"])
+async def test_a_crooked_page_is_refused_in_words(
+    client: AsyncClient, token: str, query: str
+) -> None:
+    answer = await client.get(f"/api/advertisers/acceptance?{query}", headers=bearer(token))
+
+    assert answer.status_code == 422, answer.text
+    assert any("а" <= letter.lower() <= "я" for letter in answer.json()["detail"][0]["msg"])
