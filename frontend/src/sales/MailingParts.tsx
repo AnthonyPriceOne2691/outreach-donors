@@ -212,11 +212,12 @@ function reasonsWord(count: number): string {
 }
 
 /** Под «ушло» — сколько из него ещё в полёте: отправка письмо взяла, исход неизвестен, и воронка
- *  таких пока не считает. Приглушённо и только когда они есть — без своего столбца. */
+ *  таких пока не считает. Приглушённо и только когда они есть — без своего столбца. Переносится
+ *  внутри ячейки: одной строкой слова ложились на числа соседних колонок (снимок стенда 05.11.2026). */
 function InFlight({ parts }: { parts: Parts }) {
   if (parts.in_flight === 0) return null;
   return (
-    <Text size="xs" c="dimmed" className="mailingInFlight">
+    <Text size="xs" c="dimmed" className="mailingInFlight" style={{ whiteSpace: 'normal' }}>
       из них {formatNumber(parts.in_flight)} в полёте — исход ещё неизвестен
     </Text>
   );

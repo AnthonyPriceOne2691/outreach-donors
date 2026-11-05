@@ -1,18 +1,19 @@
 /**
  * Вкладка «Рассылка» — прогноз отправки продаж: в каком режиме уходят письма, когда уйдёт очередь,
- * сколько адресов на каком шаге, план на семь дней, факт семи прошлых и ящики с разгоном.
+ * сколько адресов на каком шаге, план на семь дней и факт семи прошлых.
  *
  * **Экран своего счёта не ведёт.** Две ручки — два источника, и каждое число — функцией сервера:
  * части адресов и строки режима — `GET /sales/mailing` (решение сборки, счёт очереди пачки), срок,
- * план, факт и ящики — прогноз рассылки `GET /letters/forecast?stage=sales` (мощность ящиков с
+ * план и факт — прогноз рассылки `GET /letters/forecast?stage=sales` (мощность ящиков с
  * разгоном, окно получателя, темп автоотправки). Одно число на двух экранах — одна функция: «в
  * очереди» — тот же счёт, что у пачки, «план» — тот же, что у недельного отчёта.
  *
  * **Блоки — в порядке вопросов человека** (`docs/UI_RULES.md`: исход, после которого действие
  * невозможно, — плашкой; главное — на виду, подробности — раскрытием): почему письма не уходят
  * вовсе — плашкой первой; режим — одной строкой на тумблер, словами сервера; когда уйдёт очередь;
- * что за очередью — адреса по частям, причины по нажатию; план по дням; факт; ящики — справкой,
- * откуда мощность плана.
+ * что за очередью — адреса по частям, причины по нажатию; план и факт по дням — вкладками одного
+ * блока (`MailingDaysTabs`). Ящики с разгоном — на экране «Домены рассылки», где их заводят и включают:
+ * второй копии здесь нет.
  *
  * **Обе ручки — раз в минуту**, и видно, когда обновлено (старшее из двух). Отказ одной — словами в
  * её блоке, блоки другой живут; отказ очередного обновления — строкой над прежними числами.
@@ -25,8 +26,7 @@ import { InfoHint } from '../components/InfoHint';
 import { formatTime } from '../format';
 import { AutoLines } from './AutoLines';
 import { NoAnswer, NotRefreshed } from './MailingBlock';
-import { MailingBoxes } from '../senders/MailingBoxes';
-import { MailingPast, MailingPlan } from './MailingDays';
+import { MailingDaysTabs } from './MailingDays';
 import { MailingParts } from './MailingParts';
 import { MailingBlocked, MailingQueue } from './MailingQueue';
 import { updatedAt, useSalesForecast, useSalesMailing } from './mailingData';
@@ -88,13 +88,7 @@ export function MailingPane() {
       <Mode query={mailing} />
       <MailingQueue query={forecast} />
       {mailing.data === undefined ? null : <MailingParts view={mailing.data} />}
-      {view === undefined ? null : (
-        <>
-          <MailingPlan view={view} />
-          <MailingPast view={view} />
-          <MailingBoxes view={view} />
-        </>
-      )}
+      {view === undefined ? null : <MailingDaysTabs view={view} />}
     </Stack>
   );
 }

@@ -13,6 +13,12 @@
  * подсказке плана — только чьи ящики и что ждёт отправки. Панель рекламодателей берёт план со своими
  * словами, а не копией подсказки: разгон, окно, добивки и дни по UTC живут здесь одним текстом.
  *
+ * **План и факт — вкладками, одним блоком** (`MailingDaysTabs`): две таблицы подряд растягивали экран
+ * простынёй, а смотрят их по очереди. Первым — план: он отвечает на главный вопрос экрана. Выбор — в
+ * состоянии блока, а не в адресе: блок общий у двух экранов со своими адресами, и обновление раз в
+ * минуту выбор не сбрасывает. Переключатель стоит вне содержимого вкладок: смена не пересоздаёт его,
+ * и клавиатура остаётся на нём.
+ *
  * **Сегодня — строкой над планом**: сколько уже ушло, сколько ещё пустят лимиты ящиков и чьи лимиты
  * снижены мягкими отказами. Первая строка плана — тоже сегодня: мощность дня целиком и сколько ещё
  * уйдёт с окном получателя и темпом.
@@ -21,14 +27,20 @@
  * ширину (`DataTable`, `phoneCardsRow`).
  */
 
-import { Alert, Stack, Table, Text } from '@mantine/core';
+import { Alert, Group, SegmentedControl, Stack, Table, Text } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
+import { useState } from 'react';
 
 import type { Column } from '../components/ColumnsHead';
 import { DataTable } from '../components/DataTable';
+import { InfoHint } from '../components/InfoHint';
 import { formatNumber } from '../format';
-import { Block, Cards } from './MailingBlock';
+import { Cards } from './MailingBlock';
 import { dayLabel, PAST_DAYS, PLAN_DAYS } from './mailingData';
 import type { ForecastDay, ForecastToday, MailingForecastView } from './mailingTypes';
+
+const PLAN_TITLE = `План на ${PLAN_DAYS} дней`;
+const PAST_TITLE = `Факт за ${PAST_DAYS} дней`;
 
 const PLAN_COLUMNS: Column[] = [
   { title: 'День', width: '8rem' },
@@ -86,6 +98,9 @@ function PlanHint({ words }: { words: PlanWords }) {
     </Stack>
   );
 }
+
+const PAST_HINT =
+  'Сколько писем ушло на самом деле — первых и добивок, старые дни первыми. Сегодня здесь нет: оно на вкладке плана. Дни — по UTC, как дневной лимит ящиков.';
 
 /** Сегодня: ушло и сколько ещё пустят лимиты ящиков; сниженные лимиты — словами сервера, янтарной
  *  плашкой, как другие «нужно внимание» вкладки: мощность дня меньше обычной, и это не сбой. */
@@ -158,13 +173,9 @@ interface PlanProps {
 }
 
 /** План на семь дней: сегодня, окно получателя и строка на день. */
-export function MailingPlan({ view, words = SALES_WORDS }: PlanProps) {
+function PlanDays({ view }: { view: MailingForecastView }) {
   return (
-    <Block
-      title={`План на ${PLAN_DAYS} дней`}
-      hint={<PlanHint words={words} />}
-      className="mailingPlanBlock"
-    >
+    <>
       <Today today={view.today} />
       <Text size="sm" c="dimmed" px="md" className="mailingWindow">
         {windowLine(view)}
@@ -176,26 +187,64 @@ export function MailingPlan({ view, words = SALES_WORDS }: PlanProps) {
           ))}
         </DataTable>
       </Cards>
-    </Block>
+    </>
   );
 }
 
 /** Факт семи прошлых дней: сколько ушло на самом деле — старые первыми, без сегодня. */
-export function MailingPast({ view }: { view: MailingForecastView }) {
+function PastDays({ view }: { view: MailingForecastView }) {
   return (
-    <Block title={`Факт за ${PAST_DAYS} дней`} className="mailingPastBlock">
-      {/* Три колонки во всю панель стояли бы на полэкрана друг от друга — таблица по колонкам. */}
-      <Cards width={`${PAST_MIN_WIDTH / 16}rem`}>
-        <DataTable columns={PAST_COLUMNS} minWidth={PAST_MIN_WIDTH} className="mailingPast" cardRow>
-          {view.past.map((day) => (
-            <Table.Tr key={day.day}>
-              <DayCell day={day.day} today={false} inRow />
-              <Table.Td data-label="Ушло первых">{formatNumber(day.sent_first)}</Table.Td>
-              <Table.Td data-label="Добивок">{formatNumber(day.sent_followups)}</Table.Td>
-            </Table.Tr>
-          ))}
-        </DataTable>
-      </Cards>
-    </Block>
+    // Три колонки во всю панель стояли бы на полэкрана друг от друга — таблица по колонкам.
+    <Cards width={`${PAST_MIN_WIDTH / 16}rem`}>
+      <DataTable columns={PAST_COLUMNS} minWidth={PAST_MIN_WIDTH} className="mailingPast" cardRow>
+        {view.past.map((day) => (
+          <Table.Tr key={day.day}>
+            <DayCell day={day.day} today={false} inRow />
+            <Table.Td data-label="Ушло первых">{formatNumber(day.sent_first)}</Table.Td>
+            <Table.Td data-label="Добивок">{formatNumber(day.sent_followups)}</Table.Td>
+          </Table.Tr>
+        ))}
+      </DataTable>
+    </Cards>
+  );
+}
+
+const DAYS_TABS = [
+  { value: 'plan', label: PLAN_TITLE },
+  { value: 'past', label: PAST_TITLE },
+];
+
+/** Узкое окно — то же, что у вкладок других экранов. В ряд с «i» на 360 px подпись срезалась. */
+const NARROW = '(max-width: 36em)';
+
+/** План и факт — вкладками: заголовок блока — переключатель, «как считается» — у каждой вкладки. */
+export function MailingDaysTabs({ view, words = SALES_WORDS }: PlanProps) {
+  const narrow = useMediaQuery(NARROW, false, { getInitialValueInEffect: false }) === true;
+  const [tab, setTab] = useState<'plan' | 'past'>('plan');
+  const plan = tab === 'plan';
+  const title = plan ? PLAN_TITLE : PAST_TITLE;
+  return (
+    <Stack
+      gap="sm"
+      component="section"
+      aria-label={title}
+      className={plan ? 'mailingPlanBlock' : 'mailingPastBlock'}
+    >
+      <Group gap={4} wrap="nowrap" px="md" align="center">
+        <SegmentedControl
+          aria-label="План или факт по дням"
+          value={tab}
+          onChange={(picked) => setTab(picked === 'past' ? 'past' : 'plan')}
+          data={DAYS_TABS}
+          orientation={narrow ? 'vertical' : 'horizontal'}
+          fullWidth={narrow}
+          style={narrow ? { flex: 1 } : undefined}
+        />
+        <InfoHint name={`Как считается «${title}»`} width={360}>
+          {plan ? <PlanHint words={words} /> : PAST_HINT}
+        </InfoHint>
+      </Group>
+      {plan ? <PlanDays view={view} /> : <PastDays view={view} />}
+    </Stack>
   );
 }
