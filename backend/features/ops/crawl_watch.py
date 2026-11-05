@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import Boolean, ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, Stage, StopReason
@@ -30,6 +30,14 @@ SERIES_SHARE = 0.3
 SERIES_MIN = 2
 
 
+def _stuck() -> ColumnElement[bool]:
+    """Обход упёрся в защиту: закрылся целиком или остановлен по доле отказов."""
+    return or_(
+        CrawlRunModel.outcome == CrawlOutcome.BLOCKED,
+        CrawlRunModel.stop_reason == StopReason.UNHEALTHY,
+    )
+
+
 async def blocked(session: AsyncSession) -> Alarm | None:
     """Обход упирается в защиту сайтов — серией, а не одним сайтом.
 
@@ -46,12 +54,27 @@ async def blocked(session: AsyncSession) -> Alarm | None:
     Считается по последним обходам, а не за всё время: доля за всю
     историю прячет защиту, включившуюся вчера. Только законченным:
     у идущего обхода исхода ещё нет, и он разбавлял бы долю закрытых.
+
+    Сайт, упёршийся и в прошлый свой обход, — не новость и в счёт не идёт (05.11.2026). Ночной
+    круг ставит таких последними (`crawl/night.py`, ранги «частично» и «не начинался»), и хвост
+    круга поднимал тревогу каждое утро: она стояла до следующей ночи, хотя доля за круг не
+    менялась и человеку нечего было делать. Считаются упёршиеся впервые и те, кто в прошлый раз
+    открылся: это и есть защита, включившаяся вчера.
     """
+    before = func.lag(_stuck(), type_=Boolean).over(
+        partition_by=CrawlRunModel.host, order_by=CrawlRunModel.id
+    )
+    done = (
+        select(CrawlRunModel.id, before.label("before"))
+        .where(CrawlRunModel.status == CrawlStatus.DONE)
+        .subquery()
+    )
     rows = (
         (
             await session.execute(
                 select(CrawlRunModel)
-                .where(CrawlRunModel.status == CrawlStatus.DONE)
+                .join(done, done.c.id == CrawlRunModel.id)
+                .where(done.c.before.is_not(True))
                 .order_by(CrawlRunModel.id.desc())
                 .limit(RUNS_WATCHED)
             )
@@ -72,8 +95,9 @@ async def blocked(session: AsyncSession) -> Alarm | None:
         code="crawl-blocked",
         title="Обход упирается в защиту",
         detail=(
-            f"Из последних {len(rows)} обходов упёрлись в защиту {troubled}: закрылись целиком "
-            f"{closed}, остановлены по доле отказов {troubled - closed}. Дальше это лечится "
+            f"Из последних {len(rows)} обходов, не считая сайтов, закрытых и в прошлый раз, "
+            f"упёрлись в защиту {troubled}: закрылись целиком {closed}, остановлены по доле "
+            f"отказов {troubled - closed}. Дальше это лечится "
             "не повтором, а следующим уровнем каскада: браузером (CRAWL_BROWSER_ENABLED) или "
             "резидентными прокси (CRAWL_PROXY_URLS)"
         ),
