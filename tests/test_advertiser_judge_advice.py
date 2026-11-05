@@ -103,6 +103,7 @@ async def test_the_latest_judgement_gives_the_advice_by_the_rules_in_force(
         source_of_fact=True,
         money_anchor=False,
         calls_to_buy=False,
+        verdict="skip",
     )
     # Совет строки записан старой таблицей — показывается совет нынешней по фактам.
     new.advice, new.rules_version = "write", "advertiser-rules-v0"

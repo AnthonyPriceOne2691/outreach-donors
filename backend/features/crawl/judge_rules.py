@@ -1,4 +1,4 @@
-"""Совет судьи рекламодателей — таблицей правил по фактам, а не словом модели.
+"""Совет судьи рекламодателей — таблицей правил по фактам, сверенной с общим ответом модели.
 
 Модель отвечает на простые вопросы «да/нет» с цитатами (`judge_facts.py`), а совет «пишем», «не
 пишем» или «не понять» ставит код: первое правило таблицы, которое подошло. Так правка политики —
@@ -12,6 +12,12 @@
 факта, издание без продвижения, ссылка без единого признака рекламы. Остальное — «не понять»:
 человек. Таблица откалибрована на стенде (размеченные пары, подбор и проверка — на разных донорах,
 свежая проверка на парах, которых правила не видели): каждое правило держится на многих донорах.
+
+**Общий ответ модели сверяется с таблицей** (`judge_facts.py`, стенд 05.11.2026): таблица не решила —
+совет по ответу модели; решили по-разному — «не понять», решает человек; совпали или модель сама не
+решила — совет таблицы. Ни таблица, ни ответ поодиночке так не держатся на парах, которых не видели:
+таблица теряет рекламодателей и мало что отсеивает, ответ чаще ошибается в обе стороны. Строка суда
+без ответа (суд до него) судится одной таблицей.
 """
 
 from __future__ import annotations
@@ -24,7 +30,7 @@ from backend.features.crawl.judge_facts import LinkFacts
 
 #: Версия таблицы. Меняется при КАЖДОЙ правке правил: совет строки суда помнит её, и пересчёт
 #: (`judge_store.relabel`) ставит совет заново по фактам строки.
-RULES_VERSION = "advertiser-rules-v3.8"
+RULES_VERSION = "advertiser-rules-v4"
 
 
 class Advice(StrEnum):
@@ -223,9 +229,25 @@ class Ruled:
     words: str
 
 
-def advise(facts: LinkFacts, rules: tuple[Rule, ...] = RULES) -> Ruled:
+def _by_table(facts: LinkFacts, rules: tuple[Rule, ...]) -> Ruled:
     """Первое правило таблицы, которое подошло к фактам."""
     for rule in rules:
         if rule.applies(facts):
             return Ruled(rule.advice, rule.key, rule.words)
     raise AssertionError("последнее правило таблицы подходит всегда")  # pragma: no cover
+
+
+def advise(facts: LinkFacts, rules: tuple[Rule, ...] = RULES) -> Ruled:
+    """Совет таблицы, сверенный с общим ответом модели (шапка модуля)."""
+    ruled = _by_table(facts, rules)
+    if facts.verdict not in (Advice.WRITE, Advice.SKIP):
+        return ruled
+    said = Advice(facts.verdict)
+    if ruled.advice is said:
+        return ruled
+    if ruled.advice is Advice.UNCLEAR:
+        return Ruled(
+            said, "verdict", f"модель: {ADVICE_WORDS[said]}; правила не решили ({ruled.words})"
+        )
+    table = f"правила: {ADVICE_WORDS[ruled.advice]} ({ruled.words})"
+    return Ruled(Advice.UNCLEAR, "disagree", f"{table}; модель: {ADVICE_WORDS[said]}")
