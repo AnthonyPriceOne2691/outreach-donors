@@ -13,7 +13,7 @@
  */
 
 import { Badge, Button, Card, Group, Stack, Text, Title } from '@mantine/core';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import type { NicheCard } from '../api/niche';
@@ -123,19 +123,10 @@ function Collect() {
 export function NicheQueue() {
   const { can } = useSession();
   const [page, goToPage] = usePageParam(NICHE_PAGE_PARAM);
-  const { queue, decide } = useNicheQueue(page);
-  const { data, error, isPlaceholderData } = queue;
+  const { queue, pages, decide } = useNicheQueue(page, goToPage);
+  const { data, error } = queue;
   const rows = data?.rows ?? [];
-  const pages = data === undefined ? 1 : Math.max(1, Math.ceil(data.total / data.limit));
-  const settled = data !== undefined && !isPlaceholderData;
   const { top, turnToTop } = useTurnToTop<HTMLDivElement>(goToPage);
-
-  // Страница за концом — решён последний бизнес последней страницы или открыта старая
-  // ссылка: сервер отдаёт её пустой и называет, сколько всего, — экран уходит на последнюю,
-  // заменяя адрес, а не добавляя.
-  useEffect(() => {
-    if (settled && page > pages) goToPage(pages, true);
-  }, [settled, page, pages, goToPage]);
 
   return (
     <Card className="glass" p="xl" ref={top}>
