@@ -133,20 +133,25 @@ describe('меню группами', () => {
       'Формы',
       'Письма',
       'Диалоги',
+      'Домены рассылки',
     ]);
-    expect(await items('Рекламодатели')).toEqual(['Рекламодатели', 'Письма', 'Диалоги']);
+    expect(await items('Рекламодатели')).toEqual([
+      'Рекламодатели',
+      'Письма',
+      'Диалоги',
+      'Домены рассылки',
+    ]);
     expect(await items('Продажи')).toEqual([
       'Продажи',
       'Диалоги продаж',
       'Агент продаж',
-      'Домены продаж',
+      'Домены рассылки',
     ]);
     expect(await items('Настройки')).toEqual([
       'Стоп-лист',
       'Пороги',
       'Агент переписки',
       'Расход',
-      'Домены рассылки',
       'Учётки',
       'Журнал действий',
     ]);
@@ -186,7 +191,12 @@ describe('меню группами', () => {
     expect(link('Продажи')).toHaveAttribute('href', '/sales');
     expect(link('Диалоги продаж')).toHaveAttribute('href', '/threads?stage=sales');
     expect(link('Агент продаж')).toHaveAttribute('href', '/agent?stage=sales');
-    expect(link('Домены продаж')).toHaveAttribute('href', '/senders?stage=sales');
+    expect(link('Домены рассылки продаж')).toHaveAttribute('href', '/senders?stage=sales');
+    expect(link('Домены рассылки доноров')).toHaveAttribute('href', '/senders?stage=donors');
+    expect(link('Домены рассылки рекламодателей')).toHaveAttribute(
+      'href',
+      '/senders?stage=advertisers',
+    );
     expect(link('Письма донорам')).toHaveAttribute('href', '/letters?stage=donors');
     expect(link('Диалоги с донорами')).toHaveAttribute('href', '/threads?stage=donors');
     expect(link('Письма рекламодателям')).toHaveAttribute('href', '/letters?stage=advertisers');

@@ -14,9 +14,10 @@
  * сервер без права их не отдаёт и переключить не даст, а экран не показывает их и сам —
  * ответ в кэше мог прийти до того, как право сняли.
  *
- * **«Домены продаж» — тот же экран частью продаж** (`?stage=sales`, группа меню
- * «Продажи», 11.10.2026): только домены продаж и их лимит. «Домены рассылки» в
- * «Настройках» — общие, на них все этапы, как было.
+ * **У каждого этапа — своя часть экрана** (`?stage=…`): пункт «Домены рассылки» в группах меню
+ * «Доноры», «Рекламодатели» и «Продажи» (просьба Anthony 05.11.2026, продажи — с 11.10.2026):
+ * только домены этапа, его лимит и ящики с разгоном (`StageBoxes`). Без части (`/senders`, пункта
+ * меню нет) — все этапы, как было.
  */
 
 import { Alert, Card, Loader, Stack, Text, Title } from '@mantine/core';
@@ -25,16 +26,17 @@ import { useSearchParams } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { disableSender, enableSender } from '../api/outreach';
-import { STAGE_TITLES, listSendersByStage } from '../api/senders';
+import { SENDERS_TITLES, STAGE_TITLES, listSendersByStage } from '../api/senders';
 import type { DirectionLimit, DomainLimit, StagedSender } from '../api/senders';
 import { stageShown } from '../api/stageRights';
 import type { Can } from '../api/stageRights';
-import type { Stage } from '../api/stages';
+import type { Part, Stage } from '../api/stages';
 import { partOf } from '../api/stages';
 import { useSession } from '../auth/AuthProvider';
 import { formatNumber, plural } from '../format';
 import { SenderCard as DomainCard, domainShut } from './SenderCard';
 import type { DomainGroup } from './SenderCard';
+import { StageBoxes } from './StageBoxes';
 import { notify } from '../notices';
 import { PageHead } from '../components/PageHead';
 
@@ -46,6 +48,12 @@ const ALL_OFF =
   'Все домены выключены. Новые письма не уйдут, пока хотя бы один не включат — и он начнёт с начала разгона.';
 const ALL_SHUT =
   'Включённые домены закрыты: на паузе, на выдержке или записаны за другим направлением — что именно, сказано на карточке домена. Новые письма не уйдут, пока хотя бы один не откроется.';
+/** Части этапа без единого домена: это не «все выключены», а ещё не заведены. */
+const NO_DOMAINS: Record<Part, string> = {
+  donors: 'Доменов доноров пока нет: письма донорам не уйдут.',
+  advertisers: 'Доменов рекламодателей пока нет: письма рекламодателям не уйдут.',
+  sales: 'Доменов продаж пока нет: ящики продаж заводятся, когда подключают почту продаж.',
+};
 
 function groupByDomain(senders: StagedSender[], limits: DomainLimit[]): DomainGroup[] {
   const groups = new Map<string, StagedSender[]>();
@@ -93,18 +101,12 @@ function DirectionLine({ direction }: { direction: DirectionLimit | undefined })
 }
 
 /** Сколько доменов может писать — или почему ни один: все выключены, закрыты строкой
- *  домена или, в части продаж, доменов продаж ещё нет. */
-function Standing({ groups, sales }: { groups: DomainGroup[]; sales: boolean }) {
+ *  домена или, в части этапа, его доменов ещё нет. */
+function Standing({ groups, part }: { groups: DomainGroup[]; part: Part | null }) {
   // Пишет домен, у которого включён ящик и который строка домена не закрыла: тот же
   // отбор, что у фильтра отправки, — иначе «могут» считал бы и тех, кого фильтр отсеет.
   const writing = groups.filter((group) => group.enabled && group.shut === null).length;
-  if (sales && groups.length === 0) {
-    return (
-      <Text size="sm">
-        Доменов продаж пока нет: ящики продаж заводятся, когда подключают почту продаж.
-      </Text>
-    );
-  }
+  if (part !== null && groups.length === 0) return <Text size="sm">{NO_DOMAINS[part]}</Text>;
   if (writing === 0) {
     return (
       <Alert color="yellow" title="Отправлять нечем">
@@ -120,16 +122,21 @@ function Standing({ groups, sales }: { groups: DomainGroup[]; sales: boolean }) 
   );
 }
 
-/** Ящики на экране: без права этапа — без его ящиков, в части продаж — только они. */
-function shownBoxes(boxes: StagedSender[], can: Can, sales: boolean): StagedSender[] {
-  return boxes.filter((box) => stageShown(box.stage, can) && (!sales || box.stage === 'sales'));
+/** Ящики на экране: без права этапа — без его ящиков, в части этапа — только они. */
+function shownBoxes(boxes: StagedSender[], can: Can, part: Part | null): StagedSender[] {
+  return boxes.filter((box) => stageShown(box.stage, can) && (part === null || box.stage === part));
+}
+
+/** Часть этапа из адреса — только с его правом: без него ящиков этапа на экране нет и так (П2б). */
+function shownPart(params: URLSearchParams, can: Can): Part | null {
+  const named = partOf(params);
+  return named !== null && stageShown(named, can) ? named : null;
 }
 
 export function SendersPage() {
   const { can } = useSession();
   const [params] = useSearchParams();
-  // Часть продаж — только с правом: без него ящиков продаж на экране нет и так (П2б).
-  const sales = can('sales') && partOf(params) === 'sales';
+  const part = shownPart(params, can);
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: SENDERS_QUERY_KEY,
@@ -165,7 +172,7 @@ export function SendersPage() {
     );
   }
 
-  const boxes = shownBoxes(data?.senders ?? [], can, sales);
+  const boxes = shownBoxes(data?.senders ?? [], can, part);
   const groups = groupByDomain(boxes, data?.domains ?? []);
   // Разделы по этапу — только когда этапов больше одного: у одних доноров экран прежний.
   const sections = STAGES.map((stage) => ({
@@ -179,10 +186,10 @@ export function SendersPage() {
       <Card className="glassPanel" p="xl">
         <Stack gap="sm">
           <PageHead
-            title={sales ? 'Домены продаж' : 'Домены рассылки'}
+            title={part === null ? 'Домены рассылки' : SENDERS_TITLES[part]}
             hint="Репутация живёт у домена, поэтому включают и выключают домен целиком. Выключенный не получает новых писем, но начатые цепочки не рвутся: письмо, отправленное вчера, ждёт ответа."
           />
-          <Standing groups={groups} sales={sales} />
+          <Standing groups={groups} part={part} />
         </Stack>
       </Card>
 
@@ -200,6 +207,8 @@ export function SendersPage() {
           ))}
         </Stack>
       ))}
+
+      {part !== null && <StageBoxes stage={part} />}
     </Stack>
   );
 }

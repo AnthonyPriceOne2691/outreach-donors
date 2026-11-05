@@ -4,9 +4,12 @@
  * Своим файлом: `types.ts` у потолка длины.
  */
 
+import type { MailingForecastView } from '../sales/mailingTypes';
 import { request } from './client';
 import type { Stage } from './stages';
 import type { SenderCard, SendersView } from './types';
+
+export type { ForecastSender, MailingForecastView } from '../sales/mailingTypes';
 
 export interface StagedSender extends SenderCard {
   stage: Stage;
@@ -37,6 +40,14 @@ export interface SendersByStage extends SendersView {
   directions: DirectionLimit[];
 }
 
+/** Полное имя части экрана: заголовок, имя пункта меню для диктора и подсказка свёрнутого меню.
+ *  Подпись пункта одна — «Домены рассылки»: чьи они, говорит группа меню. */
+export const SENDERS_TITLES: Record<Stage, string> = {
+  donors: 'Домены рассылки доноров',
+  advertisers: 'Домены рассылки рекламодателей',
+  sales: 'Домены рассылки продаж',
+};
+
 /** Порядок разделов экрана и их заголовки. */
 export const STAGE_TITLES: Record<Stage, string> = {
   donors: 'Доноры',
@@ -46,4 +57,9 @@ export const STAGE_TITLES: Record<Stage, string> = {
 
 export function listSendersByStage(): Promise<SendersByStage> {
   return request<SendersByStage>('/senders');
+}
+
+/** Ящики этапа со ступенями разгона — из общего прогноза почты. Плана и факта блоку не нужно. */
+export function fetchStageBoxes(stage: Stage): Promise<MailingForecastView> {
+  return request<MailingForecastView>(`/letters/forecast?stage=${stage}&days=1&back=0`);
 }

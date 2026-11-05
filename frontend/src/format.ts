@@ -180,3 +180,12 @@ export function formatBytes(size: number | null | undefined): string {
   if (size < 1024 * 1024) return `${bytesFormat.format(size / 1024)} КБ`;
   return `${bytesFormat.format(size / (1024 * 1024))} МБ`;
 }
+
+const WEEKDAYS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+
+/** День сервера (`YYYY-MM-DD`, сутки по UTC) — «пн 26.10», как в словах срока сервера. */
+export function dayLabel(iso: string): string {
+  const weekday = WEEKDAYS[new Date(`${iso}T00:00:00Z`).getUTCDay()] ?? '';
+  const [, month, day] = iso.split('-');
+  return `${weekday} ${day}.${month}`;
+}

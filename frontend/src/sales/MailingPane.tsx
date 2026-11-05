@@ -25,7 +25,7 @@ import { InfoHint } from '../components/InfoHint';
 import { formatTime } from '../format';
 import { AutoLines } from './AutoLines';
 import { NoAnswer, NotRefreshed } from './MailingBlock';
-import { MailingBoxes } from './MailingBoxes';
+import { MailingBoxes } from '../senders/MailingBoxes';
 import { MailingPast, MailingPlan } from './MailingDays';
 import { MailingParts } from './MailingParts';
 import { MailingBlocked, MailingQueue } from './MailingQueue';

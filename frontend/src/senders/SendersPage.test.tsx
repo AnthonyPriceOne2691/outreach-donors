@@ -216,12 +216,18 @@ describe('домены по этапу (4.5a)', () => {
     expect(screen.queryByText(/лимит домена/)).not.toBeInTheDocument();
   });
 
-  describe('«Домены продаж» — часть экрана для группы меню «Продажи» (11.10.2026)', () => {
+  describe('часть продаж — группа меню «Продажи» (11.10.2026)', () => {
     async function openPart(body: unknown) {
       localStorage.setItem(TOKEN_KEY, 'пропуск');
-      serve({ 'GET /api/auth/me': { body: ADMIN }, 'GET /api/senders': { body } });
+      serve({
+        'GET /api/auth/me': { body: ADMIN },
+        'GET /api/senders': { body },
+        'GET /api/letters/forecast?stage=sales&days=1&back=0': {
+          body: { stage: 'sales', senders: [] },
+        },
+      });
       renderWith(<AppRoutes />, '/senders?stage=sales');
-      return screen.findByRole('heading', { name: 'Домены продаж' });
+      return screen.findByRole('heading', { name: 'Домены рассылки продаж' });
     }
 
     it('только домены продаж и их лимит, без донорских', async () => {
@@ -239,6 +245,92 @@ describe('домены по этапу (4.5a)', () => {
 
       expect(screen.getByText(/Доменов продаж пока нет/)).toBeInTheDocument();
       expect(screen.queryByText('Отправлять нечем')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('части этапов: ящики — под доменами (просьба Anthony 05.11.2026)', () => {
+    const ADVERTISER_DOMAIN = 'mail-adv.example.test';
+    const STAGES_BODY = {
+      senders: [
+        { ...SENDERS.senders[0], stage: 'donors' },
+        {
+          ...SENDERS.senders[0],
+          id: 4,
+          domain: ADVERTISER_DOMAIN,
+          email: `hi@${ADVERTISER_DOMAIN}`,
+          stage: 'advertisers',
+        },
+        SALES_BOX,
+      ],
+      enabled_domains: 3,
+      domains: [],
+      directions: [],
+    };
+    const FORECAST_OF = (stage: string) => `GET /api/letters/forecast?stage=${stage}&days=1&back=0`;
+    const BOX = {
+      id: 4,
+      email: `hi@${ADVERTISER_DOMAIN}`,
+      domain: ADVERTISER_DOMAIN,
+      enabled: true,
+      warmup_day: 3,
+      warmup_finished: false,
+      first_letter_at: '2026-11-02T09:00:00+00:00',
+      daily_cap: 20,
+      allowance_today: 12,
+      sent_today: 5,
+      cut: false,
+      refused: null,
+      next_step_on: null,
+      next_step_allowance: null,
+    };
+
+    function openStage(stage: string, forecast: unknown) {
+      localStorage.setItem(TOKEN_KEY, 'пропуск');
+      serve({
+        'GET /api/auth/me': { body: ADMIN },
+        'GET /api/senders': { body: STAGES_BODY },
+        [FORECAST_OF(stage)]: forecast as never,
+      });
+      renderWith(<AppRoutes />, `/senders?stage=${stage}`);
+    }
+
+    it('рекламодатели: свой заголовок, только их домены, ниже — ящики и разгон', async () => {
+      openStage('advertisers', { body: { stage: 'advertisers', senders: [BOX] } });
+
+      await screen.findByRole('heading', { name: 'Домены рассылки рекламодателей' });
+      expect(await screen.findByText(ADVERTISER_DOMAIN)).toBeInTheDocument();
+      expect(screen.queryByText('mail-alpha.example.test')).toBeNull();
+      expect(screen.queryByText(domain)).toBeNull();
+      expect(await screen.findByRole('region', { name: 'Ящики и разгон' })).toBeInTheDocument();
+    });
+
+    it('доноры: свой заголовок и только их домены', async () => {
+      openStage('donors', { body: { stage: 'donors', senders: [] } });
+
+      await screen.findByRole('heading', { name: 'Домены рассылки доноров' });
+      expect(await screen.findByText('mail-alpha.example.test')).toBeInTheDocument();
+      expect(screen.queryByText(ADVERTISER_DOMAIN)).toBeNull();
+    });
+
+    it('ящиков этапа нет — блока нет, а строка экрана называет этап', async () => {
+      localStorage.setItem(TOKEN_KEY, 'пропуск');
+      serve({
+        'GET /api/auth/me': { body: ADMIN },
+        'GET /api/senders': { body: { ...STAGES_BODY, senders: [SALES_BOX] } },
+        [FORECAST_OF('advertisers')]: { body: { stage: 'advertisers', senders: [] } },
+      });
+      renderWith(<AppRoutes />, '/senders?stage=advertisers');
+
+      expect(await screen.findByText(/Доменов рекламодателей пока нет/)).toBeInTheDocument();
+      expect(screen.queryByText('Отправлять нечем')).toBeNull();
+      expect(screen.queryByRole('region', { name: 'Ящики и разгон' })).toBeNull();
+    });
+
+    it('отказ прогноза — в блоке ящиков, домены выше живут', async () => {
+      openStage('advertisers', { status: 503, body: { detail: 'Прогноз не ответил' } });
+
+      expect(await screen.findByText('Ящики не загрузились')).toBeInTheDocument();
+      expect(screen.getByText(ADVERTISER_DOMAIN)).toBeInTheDocument();
     });
   });
 });

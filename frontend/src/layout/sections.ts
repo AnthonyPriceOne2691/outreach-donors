@@ -6,9 +6,9 @@
  * меню развёрнуто, а не угадывает потом.
  *
  * **Продажи — своей группой** (просьба Anthony 11.10.2026). В неё же — вход в часть
- * продаж общих экранов: «Диалоги продаж», «Агент продаж», «Домены продаж» — те же
- * экраны, суженные адресом (`?stage=sales`, `api/stages.ts`). Два пункта одного пути
- * различаются частью: она — в ключе пункта, в его подсветке и в памяти места.
+ * продаж общих экранов: «Диалоги продаж», «Агент продаж» — те же экраны, суженные адресом
+ * (`?stage=sales`, `api/stages.ts`). Два пункта одного пути различаются частью: она — в ключе
+ * пункта, в его подсветке и в памяти места.
  *
  * **Доноры и рекламодатели — двумя группами, «Письма» и «Диалоги» — в каждой** (23.10.2026,
  * замечание тест-группы «разделить вкладки Письма и Диалог» у Этапа 1 и Этапа 2): в группе
@@ -19,6 +19,11 @@
  * прежние адреса `/letters` и `/threads` открывают экран со всеми переключателями, а
  * подсвеченного пункта у них нет. Значки пары различает знак: вопрос — донору
  * (спрашиваем цену), доллар — рекламодателю (оффер).
+ *
+ * **«Домены рассылки» — в каждой из трёх групп, в «Настройках» их нет** (просьба Anthony
+ * 05.11.2026): домены у этапов свои, и смотрят их из раздела этапа. Подпись одна, полное имя —
+ * в `name`, значки различает тот же знак, что у «Писем». Прежний адрес `/senders` открывает экран
+ * со всеми этапами, пункта у него нет.
  */
 
 import {
@@ -40,6 +45,8 @@ import {
   IconRobot,
   IconSpeakerphone,
   IconUsers,
+  IconWorldDollar,
+  IconWorldQuestion,
   IconWorldWww,
 } from '@tabler/icons-react';
 import type { Icon } from '@tabler/icons-react';
@@ -47,6 +54,7 @@ import type { Icon } from '@tabler/icons-react';
 import { PART_PARAM } from '../api/stages';
 import type { Part } from '../api/stages';
 import type { Permission } from '../api/types';
+import { SENDERS_TITLES } from '../api/senders';
 import { LETTERS_TITLES } from '../letters/targets';
 import { THREADS_TITLES } from '../threads/threadFilters';
 import type { NavGroupKey, NavGroupSpec } from './NavGroup';
@@ -58,7 +66,7 @@ export interface Section {
    *  Пункт без части на том же пути — экран без неё: «Агент переписки» — все этапы. */
   part?: Part;
   title: string;
-  /** Полное имя, когда подпись одна у двух пунктов («Письма» доноров и рекламодателей):
+  /** Полное имя, когда подпись одна у нескольких пунктов («Письма» доноров и рекламодателей):
    *  его называет ссылка диктору и подсказка свёрнутого меню, им же озаглавлен экран. */
   name?: string;
   group: NavGroupKey;
@@ -122,6 +130,15 @@ export const SECTIONS: Section[] = [
     remember: true,
   },
   {
+    path: '/senders',
+    part: 'donors',
+    title: 'Домены рассылки',
+    name: SENDERS_TITLES.donors,
+    group: 'donors',
+    icon: IconWorldQuestion,
+    permission: 'senders',
+  },
+  {
     path: '/advertisers',
     title: 'Рекламодатели',
     group: 'advertisers',
@@ -149,6 +166,15 @@ export const SECTIONS: Section[] = [
     work: 'advertiser_threads',
     remember: true,
   },
+  {
+    path: '/senders',
+    part: 'advertisers',
+    title: 'Домены рассылки',
+    name: SENDERS_TITLES.advertisers,
+    group: 'advertisers',
+    icon: IconWorldDollar,
+    permission: 'senders',
+  },
   // Своё право, а не `view`: раздел снимается с учётки поимённо (решение владельца 01.10).
   { path: '/sales', title: 'Продажи', group: 'sales', icon: IconBriefcase, permission: 'sales' },
   {
@@ -172,7 +198,8 @@ export const SECTIONS: Section[] = [
   {
     path: '/senders',
     part: 'sales',
-    title: 'Домены продаж',
+    title: 'Домены рассылки',
+    name: SENDERS_TITLES.sales,
     group: 'sales',
     icon: IconAt,
     permission: 'senders',
@@ -199,13 +226,6 @@ export const SECTIONS: Section[] = [
     permission: 'view',
   },
   { path: '/usage', title: 'Расход', group: 'settings', icon: IconReceipt2, permission: 'usage' },
-  {
-    path: '/senders',
-    title: 'Домены рассылки',
-    group: 'settings',
-    icon: IconAt,
-    permission: 'senders',
-  },
   { path: '/users', title: 'Учётки', group: 'settings', icon: IconUsers, permission: 'users' },
   // Рядом с «Учётками» и под тем же правом: в журнале входы, права и пароли (11.10.2026).
   {
