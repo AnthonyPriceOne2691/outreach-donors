@@ -108,13 +108,21 @@ describe('домены рассылки', () => {
     expect(calls[0]?.path).toBe('/api/senders/2/enable');
   });
 
-  it('оператору раздел не открывается', async () => {
+  it('оператор смотрит, но не переключает: кнопок нет, экран говорит, почему', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
-    serve({ 'GET /api/auth/me': { body: OPERATOR } });
+    serve({ 'GET /api/auth/me': { body: OPERATOR }, 'GET /api/senders': { body: SENDERS } });
     renderWith(<AppRoutes />, '/senders');
 
-    expect(await screen.findByText('Раздел недоступен')).toBeInTheDocument();
-    expect(screen.getByText(/«домены рассылки»/)).toBeInTheDocument();
+    expect(await screen.findByText('mail-alpha.example.test')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Выключить' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Включить заново' })).toBeNull();
+    expect(screen.getByText(/Только просмотр/)).toBeInTheDocument();
+  });
+
+  it('с правом «Домены рассылки» строки про просмотр нет', async () => {
+    await openSenders();
+
+    expect(screen.queryByText(/Только просмотр/)).toBeNull();
   });
 });
 

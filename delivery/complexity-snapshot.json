@@ -547,9 +547,9 @@
       "worst": "—"
     },
     "backend/api/senders/routes.py": {
-      "lines": 136,
+      "lines": 138,
       "complexity": 6,
-      "worst": "all_senders:47"
+      "worst": "all_senders:49"
     },
     "backend/api/senders/schemas.py": {
       "lines": 106,

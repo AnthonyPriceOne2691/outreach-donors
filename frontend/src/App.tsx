@@ -220,7 +220,7 @@ export function AppRoutes() {
         <Route
           path="/senders"
           element={
-            <RequireAccess permission="senders">
+            <RequireAccess permission="view">
               <SendersPage />
             </RequireAccess>
           }

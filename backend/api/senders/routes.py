@@ -1,9 +1,11 @@
 """Домены и ящики рассылки: посмотреть, включить, выключить.
 
-Раздел закрыт именованным действием `senders`, и оно есть только
-у админа. Причина не в иерархии: включённый заново домен начинает разгон
-с начала, и ошибка здесь стоит репутации домена — а она не
-восстанавливается, в отличие от юнитов.
+**Смотреть может каждый, кто видит базу**, своими этапами (`visible_stages`; слово Anthony 05.11.2026):
+ящики и разгон отвечают оператору, почему писем уходит меньше мощности.
+
+**Включать и выключать — именованное действие `senders`**: оно есть только у админа и у учётки, которой
+его выдали. Причина не в иерархии: включённый заново домен начинает разгон с начала, и ошибка здесь
+стоит репутации домена — а она не восстанавливается, в отличие от юнитов.
 
 **Ящики продаж — только с правом «Продажи»** (решение Anthony 10.10.2026, П2б):
 без права их нет в списке, в числах и в направлениях экрана, а включить или
@@ -38,14 +40,14 @@ from backend.features.outreach.repository import OutreachRepository
 
 router = APIRouter(prefix="/senders", tags=["рассылка"])
 
-_admin = Depends(needs(Permission.SENDERS))
+_viewer = Depends(needs(Permission.VIEW))
 #: Ящик по номеру: у ящика продаж — ещё право «Продажи» (П2б).
 _box_admin = Depends(on_sender(Permission.SENDERS))
 
 
 @router.get("", response_model=SendersView, summary="Домены и ящики рассылки")
 async def all_senders(
-    user: UserModel = _admin,
+    user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> SendersView:
     stages = visible_stages(actor(user))

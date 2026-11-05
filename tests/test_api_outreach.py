@@ -45,7 +45,7 @@ SignIn = Callable[..., Awaitable[str]]
 NOW = datetime.now(UTC)
 
 OUTREACH_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
-    ("GET", "/api/senders", None, "senders"),
+    ("GET", "/api/senders", None, "view"),
     ("POST", "/api/senders/{sender}/enable", None, "senders"),
     ("POST", "/api/senders/{sender}/disable", {"reason": "проверка"}, "senders"),
     ("GET", "/api/threads", None, "view"),
@@ -197,8 +197,8 @@ class TestWhoIsLetIn:
         body: dict[str, Any] | None,
         permission: str,
     ) -> None:
-        """Диалоги оператору положены, домены рассылки — нет: включённый
-        заново домен начинает разгон, и ошибка стоит репутации. Ответ в
+        """Диалоги и просмотр доменов оператору положены, переключать домены — нет:
+        включённый заново домен начинает разгон, и ошибка стоит репутации. Ответ в
         переписке — письмо наружу, и право на него то же, что у отправки."""
         response = await client.request(
             method, _path(path, sender, thread), json=body, headers=bearer(operator_token)
@@ -250,6 +250,22 @@ class TestWhoIsLetIn:
 
 
 class TestSenders:
+    async def test_operator_sees_the_screen_but_cannot_switch(
+        self, client: AsyncClient, operator_token: str, sender: SenderModel
+    ) -> None:
+        """Смотреть — каждому, кто видит базу; включить и выключить — только с правом `senders`."""
+        shown = await client.get("/api/senders", headers=bearer(operator_token))
+        off = await client.post(
+            f"/api/senders/{sender.id}/disable",
+            json={"reason": "проверка"},
+            headers=bearer(operator_token),
+        )
+        on = await client.post(f"/api/senders/{sender.id}/enable", headers=bearer(operator_token))
+
+        assert shown.status_code == 200, shown.text
+        assert [box["id"] for box in shown.json()["senders"]] == [sender.id]
+        assert (off.status_code, on.status_code) == (403, 403)
+
     async def test_warmup_is_shown_with_both_numbers(
         self,
         client: AsyncClient,
