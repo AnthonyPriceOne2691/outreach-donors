@@ -55,7 +55,7 @@ MODEL_KEY = "k-test"  # pragma: allowlist secret
 #: факты прежней версии смешались бы с новыми, и точность по когорте врала бы.
 PRINTS = {
     "advertiser-judge-v1": "f7f7db7aa138f656",  # pragma: allowlist secret
-    "advertiser-judge-v3.9": "54d9f0ea8d898c7e",  # pragma: allowlist secret
+    "advertiser-judge-v3.10": "e9a977b68a92980b",  # pragma: allowlist secret
 }
 #: Слова ниши, которых в подсказке быть не должно: судья спрашивает о признаках ссылки и сайта, и
 #: механизм обязан работать на любой нише (`okf/selection-audit.md`).

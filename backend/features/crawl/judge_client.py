@@ -51,7 +51,7 @@ TOPIC = "судья рекламодателей"
 #: Версия подсказки. Меняется при КАЖДОЙ правке файлов подсказки: факты помнят её, и точность против
 #: человека считается по когорте; отпечаток файлов (`prompt_print`) держит тест — правка файла без
 #: смены версии краснит его.
-PROMPT_VERSION = "advertiser-judge-v3.9"
+PROMPT_VERSION = "advertiser-judge-v3.10"
 PROMPT_PATH = Path(__file__).with_name("prompts") / "advertiser_judge.md"
 AGAIN_PATH = Path(__file__).with_name("prompts") / "advertiser_judge_again.md"
 #: Сколько знаков ненайденных цитат уходит во второй вопрос: цитата — до 30 слов.
