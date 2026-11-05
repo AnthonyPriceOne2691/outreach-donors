@@ -3952,7 +3952,7 @@
       "worst": "open_letter_draft:36"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 392,
+      "lines": 403,
       "complexity": 2,
       "worst": "unbound_probes:35"
     },
@@ -4027,7 +4027,7 @@
       "worst": "weekly_screens:21"
     },
     "scripts/ui_screens_stage2.py": {
-      "lines": 151,
+      "lines": 150,
       "complexity": 1,
       "worst": "stage2_screens:26"
     }
