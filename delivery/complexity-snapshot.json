@@ -3992,9 +3992,9 @@
       "worst": "_edit:40"
     },
     "scripts/ui_screens_sales_mailing.py": {
-      "lines": 159,
+      "lines": 176,
       "complexity": 3,
-      "worst": "nothing_to_build:43"
+      "worst": "nothing_to_build:50"
     },
     "scripts/ui_screens_sales_quality.py": {
       "lines": 57,

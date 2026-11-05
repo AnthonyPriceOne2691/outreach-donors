@@ -1,5 +1,5 @@
 /**
- * Вкладка «Рассылка»: режим, срок очереди, адреса по частям, план и факт по дням, ящики — числами и
+ * Вкладка «Рассылка»: режим, срок очереди, адреса по частям, план и факт по дням — числами и
  * словами двух ручек сервера; отказ одной ручки — словами в её блоке, другая живёт; обе — раз в
  * минуту, и видно, когда обновлено. Ответы сервера — записанные (`serve()`), незаписанный запрос
  * роняет тест; гипотезы, ящики и домены выдуманы.
@@ -13,6 +13,7 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { HypothesesView } from '../api/salesTypes';
@@ -118,6 +119,13 @@ function cells(row: HTMLElement): string[] {
 
 function calls(recorded: Recorded, path: string): Call[] {
   return recorded.calls.filter((call) => call.path === path.replace(/^GET /, ''));
+}
+
+/** Интервалы в минуту, которые поставили запросы: их вызов — это и есть «прошла минута». */
+function minuteTicks(intervals: MockInstance<typeof setInterval>): (() => void)[] {
+  return intervals.mock.calls
+    .filter(([, delay]) => delay === MINUTE)
+    .map(([callback]) => callback as () => void);
 }
 
 beforeEach(() => {
@@ -267,7 +275,10 @@ describe('рассылка: адреса по частям', () => {
     for (const first of ['Кофейни Лиссабона', 'Все гипотезы']) {
       const sent = sentOf(first);
       expect(sent).toBeDefined();
-      expect(within(sent as HTMLElement).getByText(flying)).toHaveClass('mailingInFlight');
+      const note = within(sent as HTMLElement).getByText(flying);
+      expect(note).toHaveClass('mailingInFlight');
+      // Ячейка таблицы — в одну строку: без переноса слова ложатся на числа соседних колонок.
+      expect(note).toHaveStyle({ whiteSpace: 'normal' });
     }
     expect(cells(rowOf(parts, 'Кофейни Лиссабона'))).toEqual([
       'Кофейни Лиссабона',
@@ -359,7 +370,7 @@ describe('рассылка: адреса по частям', () => {
   });
 });
 
-describe('рассылка: план, факт и ящики', () => {
+describe('рассылка: план и факт', () => {
   it('план на 7 дней: мощность, уйдёт первых, добивки и почему меньше мощности — по датам', async () => {
     await openMailing();
     const plan = region('План на 7 дней');
@@ -404,8 +415,9 @@ describe('рассылка: план, факт и ящики', () => {
     ).toBeInTheDocument();
   });
 
-  it('факт прошлых 7 дней по датам: старые первыми, без сегодня', async () => {
+  it('факт прошлых 7 дней — по нажатию вкладки, по датам: старые первыми, без сегодня', async () => {
     await openMailing();
+    await userEvent.setup().click(screen.getByRole('radio', { name: 'Факт за 7 дней' }));
     const past = region('Факт за 7 дней');
 
     const days = within(past)
@@ -423,28 +435,11 @@ describe('рассылка: план, факт и ящики', () => {
     ]);
   });
 
-  it('ящики: ступень разгона сейчас, ушло сегодня, следующая ступень и пишет ли — словами', async () => {
+  it('ящиков с разгоном на вкладке нет: они на экране «Домены рассылки»', async () => {
     await openMailing();
-    const boxes = region('Ящики и разгон');
 
-    expect(cells(rowOf(boxes, 'hello@mail-a'))).toEqual([
-      'hello@mail-a.example.test',
-      'разгон окончен: до 20 в день',
-      '4 из 20',
-      'выше нет',
-      'пишет',
-    ]);
-    expect(cells(rowOf(boxes, 'hello@mail-b')).slice(1)).toEqual([
-      'день 9: до 5 из 20 в день',
-      '2 из 5',
-      'чт 05.11 — до 15 в день',
-      'лимит на сутки снижен мягкими отказами',
-    ]);
-    expect(cells(rowOf(boxes, 'team@mail-c'))[1]).toBe(
-      'день 1: до 5 из 20 в день — ещё не писал, разгон с первого письма',
-    );
-    expect(cells(rowOf(boxes, 'office@mail-d'))[4]).toBe('домен на паузе до 06.11');
-    expect(cells(rowOf(boxes, 'sales@mail-e'))[4]).toBe('выключен — первых писем не берёт');
+    expect(screen.queryByRole('region', { name: 'Ящики и разгон' })).toBeNull();
+    expect(screen.queryByText(/hello@mail-a/)).toBeNull();
   });
 });
 
@@ -461,7 +456,6 @@ describe('рассылка: отказ ручки и обновление', () =
       within(region('Когда уйдёт очередь')).getByText('Уйдёт к').nextElementSibling,
     ).toHaveTextContent('ср 04.11');
     expect(region('План на 7 дней')).toBeInTheDocument();
-    expect(region('Ящики и разгон')).toBeInTheDocument();
   });
 
   it('прогноз отказал — словами в его блоке, режим и адреса живут', async () => {
@@ -475,7 +469,7 @@ describe('рассылка: отказ ручки и обновление', () =
     expect(screen.getByText(plain(AUTOSEND_ON))).toBeInTheDocument();
     expect(region('Адреса по гипотезам')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'План на 7 дней' })).toBeNull();
-    expect(screen.queryByRole('region', { name: 'Ящики и разгон' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'Факт за 7 дней' })).toBeNull();
   });
 
   it('обе ручки — раз в минуту; видно, когда обновлено', async () => {
@@ -517,6 +511,33 @@ describe('рассылка: отказ ручки и обновление', () =
     ).toBeInTheDocument();
   });
 
+  it('обновление раз в минуту не сбрасывает вкладку: факт остаётся, числа новые', async () => {
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    let asked = 0;
+    const [first, ...rest] = FORECAST.past;
+    if (first === undefined) throw new Error('в записанном прогнозе нет прошлых дней');
+    await openMailing({
+      [FORECAST_ROUTE]: () => {
+        asked += 1;
+        const past = [{ ...first, sent_first: 77 }, ...rest];
+        return { body: asked === 1 ? FORECAST : { ...FORECAST, past } };
+      },
+    });
+    await userEvent.setup().click(screen.getByRole('radio', { name: 'Факт за 7 дней' }));
+    const minute = minuteTicks(intervals);
+    vi.setSystemTime(new Date(MAILING_NOW.getTime() + MINUTE));
+    act(() => {
+      for (const tick of minute) tick();
+    });
+
+    await waitFor(() => expect(asked).toBe(2), SCREEN_WAIT);
+    await waitFor(
+      () => expect(cells(rowOf(region('Факт за 7 дней'), 'пн 26.10'))[1]).toBe('77'),
+      SCREEN_WAIT,
+    );
+    expect(screen.getByRole('radio', { name: 'Факт за 7 дней' })).toBeChecked();
+  });
+
   it('обновление отказало — прежние числа стоят, и сказано, на какое время они', async () => {
     const intervals = vi.spyOn(globalThis, 'setInterval');
     let asked = 0;
@@ -526,9 +547,7 @@ describe('рассылка: отказ ручки и обновление', () =
         return asked === 1 ? { body: FORECAST } : REFUSED;
       },
     });
-    const minute = intervals.mock.calls
-      .filter(([, delay]) => delay === MINUTE)
-      .map(([callback]) => callback as () => void);
+    const minute = minuteTicks(intervals);
     const later = new Date(MAILING_NOW.getTime() + MINUTE);
     vi.setSystemTime(later);
     act(() => {

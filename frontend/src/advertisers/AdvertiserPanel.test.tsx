@@ -354,7 +354,12 @@ describe('рассылка на панели', () => {
 
     expect(await screen.findByRole('heading', { name: 'Рассылка рекламодателям' })).toBeVisible();
     expect(await screen.findByRole('region', { name: 'Когда уйдёт очередь' })).toBeVisible();
-    expect(await screen.findByRole('region', { name: 'Факт за 7 дней' })).toBeVisible();
+    // План и факт — вкладками одного блока: сначала план, факт — по нажатию.
+    expect(await screen.findByRole('region', { name: 'План на 7 дней' })).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Факт за 7 дней' })).toBeNull();
+    await userEvent.setup().click(screen.getByRole('radio', { name: 'Факт за 7 дней' }));
+    expect(screen.getByRole('region', { name: 'Факт за 7 дней' })).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'План на 7 дней' })).toBeNull();
     const parts = await screen.findByRole('region', { name: 'Рекламодатели по письмам' });
     expect(within(parts).getByText('Ушло')).toBeVisible();
     expect(within(parts).getByText('Собрано')).toBeVisible();

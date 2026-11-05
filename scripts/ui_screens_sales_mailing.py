@@ -6,8 +6,8 @@
 
 Пять экранов. Вкладка на 1440 — вступление и «обновлено», режим строками сервера, плитки срока,
 плашка писем, которые не уйдут, слова срока, адреса по гипотезам, сегодня (у ящика стенда три
-мягких отказа за сутки — плашка сниженных лимитов) и окно получателя, план и факт по дням, ящики;
-на 390 — плитки в две колонки, таблицы карточками. Причины «не напишет» и «сняты» появляются только
+мягких отказа за сутки — плашка сниженных лимитов) и окно получателя, план по дням, факт — по
+нажатию вкладки; на 390 — плитки в две колонки, таблицы карточками. Причины «не напишет» и «сняты» появляются только
 по стрелке — свой экран. Строка «очередь уйдёт к …» и «собирать нечего» у гипотезы, которой сборка
 не напишет никому, — экраны «Очереди писем». Очередь, письма, ящики и лиды — в базе стенда; как
 считается прогноз и план — в «i» у заголовков: меряется в открытой подсказке.
@@ -28,9 +28,16 @@ WIDE_ONLY = frozenset({"шапка адресов", "шапка плана"})
 
 
 def settled(page: Any) -> None:
-    """Обе ручки ответили: плитки срока и ящики — прогноза, таблица адресов — частей адресов."""
-    for selector in (".mailingEtaTiles", ".mailingParts", ".mailingBoxes"):
+    """Обе ручки ответили: плитки срока и план — прогноза, таблица адресов — частей адресов."""
+    for selector in (".mailingEtaTiles", ".mailingParts", ".mailingPlan"):
         page.locator(selector).first.wait_for()
+    page.wait_for_timeout(300)
+
+
+def open_past(page: Any) -> None:
+    """Вкладка факта открыта: план и факт — вкладками одного блока, факт — по нажатию."""
+    page.locator(".mantine-SegmentedControl-label", has_text="Факт за 7 дней").click()
+    page.locator(".mailingPast").first.wait_for()
     page.wait_for_timeout(300)
 
 
@@ -67,8 +74,20 @@ def open_reasons(page: Any) -> None:
     page.wait_for_timeout(300)
 
 
+def _past(norm: float) -> list[tuple[Any, ...]]:
+    """Вкладка факта — последней на экране: после нажатия точек плана на нём уже нет."""
+    label = ".mailingPastBlock .mantine-SegmentedControl-label"
+    inner = ".mantine-SegmentedControl-innerLabel"
+    return [
+        ("вкладка выбрана", f"{label}[data-active] {inner}", norm, open_past),
+        ("вкладка не выбрана", f"{label}:not([data-active]) {inner}", norm),
+        ("день факта", ".mailingPast tbody td.cellName p", norm),
+        ("число факта", ".mailingPast tbody tr:last-child td:nth-child(2)", norm),
+    ]
+
+
 def _tables(norm: float) -> list[tuple[str, str, float]]:
-    """Адреса по гипотезам, сегодня, план, факт и ящики."""
+    """Адреса по гипотезам, сегодня и план."""
     return [
         ("из чего складывается «всего»", ".mailingPartsSum", norm),
         ("шапка адресов", ".mailingParts thead th:text-is('В очереди')", norm),
@@ -82,10 +101,6 @@ def _tables(norm: float) -> list[tuple[str, str, float]]:
         ("пометка «сегодня»", ".mailingPlan tbody td.cellName p:nth-child(2)", norm),
         ("число плана", ".mailingPlan tbody tr:first-child td:nth-child(3)", norm),
         ("почему меньше мощности", ".mailingWhyNot p", norm),
-        ("день факта", ".mailingPast tbody td.cellName p", norm),
-        ("число факта", ".mailingPast tbody tr:last-child td:nth-child(2)", norm),
-        ("адрес ящика", ".mailingBoxes tbody td.cellName p", norm),
-        ("ступень ящика", ".mailingBoxes tbody tr:first-child td:nth-child(2)", norm),
     ]
 
 
@@ -112,8 +127,9 @@ def mailing_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         hint_probe("как считается прогноз", "Как считается прогноз рассылки", norm),
         hint_probe("как считается план", "Как считается «План на 7 дней»", norm),
     ]
+    past = _past(norm)
     return {
-        "sales-mailing": {"path": path, "ready": ready, "probes": [*top, *tables, *hints]},
+        "sales-mailing": {"path": path, "ready": ready, "probes": [*top, *tables, *hints, *past]},
         "sales-mailing-phone": {
             "path": path,
             "ready": ready,
@@ -126,6 +142,7 @@ def mailing_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 *top[5:],
                 *[probe for probe in tables if probe[0] not in WIDE_ONLY],
                 hints[1],
+                *past,
             ],
         },
         "sales-mailing-reasons": {

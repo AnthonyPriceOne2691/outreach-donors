@@ -9,9 +9,10 @@
  * (`QueueAutosendLine`), части — счётчиками списка рекламодателей (`/advertisers/list/facets`):
  * каждый рекламодатель — ровно в одной, той же, что в колонке «Письмо».
  *
- * **План по дням — блок вкладки продаж со словами этапа** (`PlanWords`): в подсказке — ящики
- * рекламодателей и письма их очереди, а разгон, окно, добивки и дни по UTC — общие правила прогноза,
- * одним текстом в `sales/MailingDays.tsx`. Лидов, которым напишет сборка, у рекламодателей нет.
+ * **План и факт — блок вкладки продаж со словами этапа** (`MailingDaysTabs`, `PlanWords`): те же
+ * вкладки, в подсказке — ящики рекламодателей и письма их очереди, а разгон, окно, добивки и дни по
+ * UTC — общие правила прогноза, одним текстом в `sales/MailingDays.tsx`. Лидов, которым напишет
+ * сборка, у рекламодателей нет.
  *
  * **Отказ одной ручки — в её блоке**, остальные живут: как на вкладке продаж.
  */
@@ -29,7 +30,7 @@ import { Metric } from '../components/Metric';
 import { capitalized, formatNumber } from '../format';
 import { QueueAutosendLine } from '../letters/QueueAutosend';
 import { Block, NoAnswer, NotRefreshed } from '../components/MailingBlock';
-import { MailingPast, MailingPlan } from '../sales/MailingDays';
+import { MailingDaysTabs } from '../sales/MailingDays';
 import type { PlanWords } from '../sales/MailingDays';
 import { MailingBlocked, MailingQueue } from '../sales/MailingQueue';
 import { MAILING_REFRESH_MS } from '../sales/mailingData';
@@ -135,12 +136,7 @@ export function PanelMailing() {
         <Modes query={modes} />
         <MailingQueue query={forecast} />
         <Parts query={facets} />
-        {view === undefined ? null : (
-          <>
-            <MailingPlan view={view} words={PLAN_WORDS} />
-            <MailingPast view={view} />
-          </>
-        )}
+        {view === undefined ? null : <MailingDaysTabs view={view} words={PLAN_WORDS} />}
       </Stack>
     </Card>
   );
