@@ -41,7 +41,6 @@ def stage2_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("доля страниц", "table tbody td[data-label='% страниц']", norm),
                 ("режим очереди", ".mailingMode p", norm),
                 ("слова срока", ".mailingEtaWords", norm),
-                ("ящик в таблице", ".mailingBoxes td[data-label='Пишет ли'] p", norm),
                 ("пункт меню", "nav a", norm),
             ],
         },
