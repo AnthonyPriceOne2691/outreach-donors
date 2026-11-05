@@ -302,6 +302,8 @@ describe('домены по этапу (4.5a)', () => {
       expect(screen.queryByText('mail-alpha.example.test')).toBeNull();
       expect(screen.queryByText(domain)).toBeNull();
       expect(await screen.findByRole('region', { name: 'Ящики и разгон' })).toBeInTheDocument();
+      // Этап уже в заголовке экрана: пометки у каждой карточки нет.
+      expect(screen.queryByText('рекламодатель')).toBeNull();
     });
 
     it('доноры: свой заголовок и только их домены', async () => {

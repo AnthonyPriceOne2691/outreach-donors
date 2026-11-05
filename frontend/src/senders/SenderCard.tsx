@@ -83,9 +83,11 @@ interface Props {
   group: DomainGroup;
   busy: boolean;
   onSwitch: (on: boolean) => void;
+  /** Экран одной части: этап уже в заголовке, и пометка у каждой карточки была бы шумом. */
+  stageInTitle?: boolean;
 }
 
-export function SenderCard({ group, busy, onSwitch }: Props) {
+export function SenderCard({ group, busy, onSwitch, stageInTitle = false }: Props) {
   const [open, setOpen] = useState(false);
   const detailsId = `sender-details-${group.domain}`;
   const warmupDay = Math.max(...group.boxes.map((box) => box.warmup_day));
@@ -164,7 +166,7 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
             <Badge variant="light" color={state.color} style={{ maxWidth: '100%' }}>
               {state.label}
             </Badge>
-            {THREAD_STAGE_NOTES[group.stage] !== '' && (
+            {!stageInTitle && THREAD_STAGE_NOTES[group.stage] !== '' && (
               <Badge variant="outline" color="gray">
                 {THREAD_STAGE_NOTES[group.stage]}
               </Badge>
