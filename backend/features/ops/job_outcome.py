@@ -50,6 +50,7 @@ from backend.shared.queue import (
     CRAWL_QUEUE_NAME,
     DEEPER_JOB,
     FORM_LETTER_JOB,
+    JUDGE_DISPUTED_JOB,
     LEAD_JOB,
     PARSE_JOB,
     RUN_JOB,
@@ -85,6 +86,7 @@ KINDS = {
     CONTACTS_JOB: "поиск контактов",
     DEEPER_JOB: "поиск адреса глубже",
     FORM_LETTER_JOB: "текст письма для формы",
+    JUDGE_DISPUTED_JOB: "разбор спорных судьёй",
     PARSE_JOB: "разбор ответа",
     # Задача агента переписки живёт в своём модуле (`workers/agent_jobs.py`).
     DRAFT_JOB: "черновик ответа",

@@ -21,6 +21,11 @@
       "complexity": 3,
       "worst": "form_queue:37"
     },
+    "backend/api/advertisers/judge_pass.py": {
+      "lines": 208,
+      "complexity": 6,
+      "worst": "_job_state:127"
+    },
     "backend/api/advertisers/panel.py": {
       "lines": 124,
       "complexity": 6,
@@ -42,9 +47,9 @@
       "worst": "accepted:137"
     },
     "backend/api/advertisers/routes.py": {
-      "lines": 388,
+      "lines": 391,
       "complexity": 5,
-      "worst": "decide:134"
+      "worst": "decide:136"
     },
     "backend/api/advertisers/schemas.py": {
       "lines": 358,
@@ -287,7 +292,7 @@
       "worst": "of:233"
     },
     "backend/api/letters/once.py": {
-      "lines": 102,
+      "lines": 114,
       "complexity": 5,
       "worst": "enqueue_once:62"
     },
@@ -592,9 +597,9 @@
       "worst": "llm_caps_card:135"
     },
     "backend/api/settings/routes.py": {
-      "lines": 403,
+      "lines": 410,
       "complexity": 5,
-      "worst": "_serp_balance:374"
+      "worst": "_serp_balance:381"
     },
     "backend/api/settings/schemas.py": {
       "lines": 396,
@@ -707,9 +712,9 @@
       "worst": "cmd_user_add:31"
     },
     "backend/cli/advertiser_judge.py": {
-      "lines": 228,
-      "complexity": 11,
-      "worst": "print_report:159"
+      "lines": 207,
+      "complexity": 6,
+      "worst": "run_advertisers_judge:99"
     },
     "backend/cli/advertisers.py": {
       "lines": 410,
@@ -1506,15 +1511,20 @@
       "complexity": 6,
       "worst": "marks_of:121"
     },
+    "backend/features/crawl/judge_estimate.py": {
+      "lines": 98,
+      "complexity": 6,
+      "worst": "_lines:76"
+    },
     "backend/features/crawl/judge_facts.py": {
       "lines": 329,
       "complexity": 8,
       "worst": "read:305"
     },
     "backend/features/crawl/judge_pass.py": {
-      "lines": 404,
+      "lines": 451,
       "complexity": 11,
-      "worst": "plan_pass:185"
+      "worst": "plan_pass:202"
     },
     "backend/features/crawl/judge_rules.py": {
       "lines": 266,
@@ -2267,9 +2277,9 @@
       "worst": "alarm:261"
     },
     "backend/features/ops/job_outcome.py": {
-      "lines": 272,
+      "lines": 274,
       "complexity": 12,
-      "worst": "_outcome:201"
+      "worst": "_outcome:203"
     },
     "backend/features/ops/key_watch.py": {
       "lines": 172,
@@ -3692,9 +3702,9 @@
       "worst": "spaced:15"
     },
     "backend/shared/queue.py": {
-      "lines": 430,
+      "lines": 448,
       "complexity": 7,
-      "worst": "job_alive:349"
+      "worst": "job_alive:367"
     },
     "backend/shared/quote.py": {
       "lines": 271,
@@ -3765,6 +3775,11 @@
       "lines": 365,
       "complexity": 6,
       "worst": "_contacts_what:263"
+    },
+    "backend/workers/judge_jobs.py": {
+      "lines": 96,
+      "complexity": 3,
+      "worst": "_note_progress:48"
     },
     "backend/workers/load_gate.py": {
       "lines": 308,

@@ -104,10 +104,18 @@ function same(left: ThresholdsFields, right: ThresholdsFields): boolean {
 }
 
 /** Экран «Пороги»: пороги отбора — Этап 1, веса кандидатов — Этап 2. Без «Доноров» запроса порогов
- *  нет вовсе: сервер отказал бы, а веса роли «Рекламодатели» нужны. */
+ *  нет вовсе: сервер отказал бы, а веса роли «Рекламодатели» нужны. Без обоих прав пункта в меню нет
+ *  (`layout/sections.ts`), а по прямому адресу — отказ словами, а не пустой экран с ошибкой весов. */
 export function ThresholdsPage() {
   const { can } = useSession();
   if (can('donors')) return <DonorThresholds />;
+  if (!can('advertisers')) {
+    return (
+      <Alert color="yellow" title="Раздел недоступен" m="md">
+        Пороги есть у доноров и рекламодателей: этой учётке эти разделы не выданы.
+      </Alert>
+    );
+  }
   return (
     <Stack gap="lg">
       <Card className="glassPanel" px="xl" py="lg">

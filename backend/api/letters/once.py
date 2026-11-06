@@ -76,8 +76,7 @@ def enqueue_once(
     if previous is not None:
         if previous.get_status() in RUNNING:
             return None
-        Result.delete_all(previous)
-        previous.delete()
+        _erase(previous)
     try:
         return jobs.enqueue(path, *args, job_id=job_id, unique=True, **options)
     except DuplicateJobError:
@@ -86,6 +85,19 @@ def enqueue_once(
             "письма: задачу поставило второе нажатие — эта не ставится", extra={"job_id": job_id}
         )
         return None
+
+
+def forget_job(jobs: Queue, job_id: str) -> None:
+    """Убрать задачу с этим номером вместе с итогом: воркер умер вместе с ней, а статус «идёт» rq
+    снимет не сразу и держит номер занятым. Живость вызывающий проверяет сам (`queue.job_alive`)."""
+    previous = _previous(jobs, job_id)
+    if previous is not None:
+        _erase(previous)
+
+
+def _erase(job: Job) -> None:
+    Result.delete_all(job)
+    job.delete()
 
 
 def _previous(jobs: Queue, job_id: str) -> Job | None:

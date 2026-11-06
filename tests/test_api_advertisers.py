@@ -42,6 +42,8 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("POST", "/api/advertisers/promote", None, "run"),
     ("GET", "/api/advertisers/contacts", None, "view"),
     ("POST", "/api/advertisers/contacts", {"limit": 10}, "run"),
+    ("GET", "/api/advertisers/judge-pass", None, "view"),
+    ("POST", "/api/advertisers/judge-pass", {"cases": 1}, "run"),
     ("GET", "/api/advertisers/list", None, "view"),
     ("GET", "/api/advertisers/list/export", None, "view"),
     ("GET", "/api/advertisers/list/facets", None, "view"),
@@ -70,6 +72,13 @@ def quiet_queue(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(f"{routes}.remember_contacts_job", lambda *_a, **_k: None)
     monkeypatch.setattr(f"{routes}.contacts_job_id", lambda **_k: None)
     monkeypatch.setattr(f"{routes}.workers_alive", lambda **_: 1)
+    judge = "backend.api.advertisers.judge_pass"
+    monkeypatch.setattr(f"{judge}.crawl_queue", _Queue)
+    monkeypatch.setattr(f"{judge}.enqueue_once", lambda *_a, **_k: object())
+    monkeypatch.setattr(f"{judge}.job_alive", lambda _id: None)
+    monkeypatch.setattr(f"{judge}.job_outcome", lambda _id: None)
+    monkeypatch.setattr(f"{judge}.job_meta", lambda _id: {})
+    monkeypatch.setattr(f"{judge}.workers_alive", lambda **_: 1)
 
 
 @pytest.fixture

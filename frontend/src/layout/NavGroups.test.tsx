@@ -184,6 +184,32 @@ describe('меню группами', () => {
     expect(menu().queryByRole('link', { name: 'Диалоги продаж' })).not.toBeInTheDocument();
   });
 
+  it('учётке только продаж — без «Порогов» и второго агента: смотреть в них нечего', async () => {
+    const onlySales: Me = {
+      ...OPERATOR,
+      permissions: ['prices', 'run', 'sales', 'send', 'settings', 'usage', 'view'],
+    };
+    await open('/', onlySales);
+
+    await menu().findByRole('group', { name: 'Продажи' });
+    expect(menu().getByRole('link', { name: 'Агент продаж' })).toBeInTheDocument();
+    expect(menu().getByRole('link', { name: 'Стоп-лист' })).toBeInTheDocument();
+    expect(menu().queryByRole('link', { name: 'Пороги' })).not.toBeInTheDocument();
+    expect(menu().queryByRole('link', { name: 'Агент переписки' })).not.toBeInTheDocument();
+  });
+
+  it('с одним из этапов аутрича «Пороги» и «Агент переписки» на месте', async () => {
+    const onlyAdvertisers: Me = {
+      ...OPERATOR,
+      permissions: ['advertisers', 'prices', 'run', 'send', 'settings', 'view'],
+    };
+    await open('/', onlyAdvertisers);
+
+    await menu().findByRole('group', { name: 'Рекламодатели' });
+    expect(menu().getByRole('link', { name: 'Пороги' })).toBeInTheDocument();
+    expect(menu().getByRole('link', { name: 'Агент переписки' })).toBeInTheDocument();
+  });
+
   it('части — те же экраны с ?stage=…: продажи, доноры, рекламодатели', async () => {
     await open('/');
 

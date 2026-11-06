@@ -177,6 +177,19 @@ describe('ключ и кап на «Расходе»', () => {
     expect(screen.queryByRole('button', { name: 'Изменить кап' })).not.toBeInTheDocument();
     expect(screen.getByText('Кап меняет учётка с правом «править пороги»')).toBeInTheDocument();
   });
+
+  it('учётке только продаж — без кнопки: они ключом не пользуются', async () => {
+    const onlySales: Me = {
+      ...ADMIN,
+      permissions: ADMIN.permissions.filter(
+        (right) => right !== 'donors' && right !== 'advertisers',
+      ),
+    };
+    await openUsage(SPENDING, { me: onlySales });
+
+    expect(screen.queryByRole('button', { name: 'Изменить кап' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Кап меняет учётка доноров или рекламодателей/)).toBeInTheDocument();
+  });
 });
 
 describe('окно «Изменить кап»', () => {
