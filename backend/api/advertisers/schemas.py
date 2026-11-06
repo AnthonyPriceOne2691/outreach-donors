@@ -277,6 +277,8 @@ class PromotionView(BaseModel):
     fresh: int
     advertisers: int
     with_address: int
+    #: Домены без DR: в `ready` не входят и ждут, пока обход его спросит.
+    waiting_dr: int = 0
 
 
 class PromoteResult(BaseModel):

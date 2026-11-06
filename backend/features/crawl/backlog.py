@@ -32,6 +32,9 @@
 идут последними — загруженные и поставленные человеком важнее. Его строку забирает любая
 постановка: иначе донора, которого человек велел обойти, снял бы срок круга.
 
+**Кончились юниты Ahrefs — выдачи нет** (`units_stop.py`): DR новых кандидатов спросить не на что.
+Строки ждут здесь и не теряются: снимется стоп — пойдут сами, а ночные снимет срок их круга.
+
 Снять очередь целиком — человеку с правом запуска (`api/donors/bulk.py`); снятое — в журнал.
 """
 
@@ -56,6 +59,7 @@ from backend.features.core.domain import AuditAction, CrawlOutcome, CrawlStatus
 from backend.features.core.models.crawl import CrawlBacklogModel, CrawlRunModel
 from backend.features.crawl import deep, night, targets
 from backend.features.crawl.launch import Enqueue, JobId, launch
+from backend.features.crawl.units_stop import units_stop
 
 logger = logging.getLogger(__name__)
 
@@ -208,15 +212,17 @@ async def feed(
     ночного круга (`night.py`): он сам кладёт сюда строки и сам снимает их по сроку.
 
     В очереди обходов кто-то ждёт — человек или отданные раньше — не отдаём никого: ждущий
-    уйдёт первым. Иначе — `workers` минус идущие, но не больше `PER_PASS`; глубоких — и не
-    больше их предела (`deep.py`). Коммит — у вызывающего: постановка фиксирует сама
+    уйдёт первым. Юнитов Ahrefs нет — тоже никого (`units_stop.py`). Иначе — `workers` минус
+    идущие, но не больше `PER_PASS`; глубоких — и не больше их предела (`deep.py`). Коммит — у вызывающего: постановка фиксирует сама
     (`launch`), запись журнала — после неё.
     """
-    await night.tick(session, workers=workers, per_minute=PER_PASS, add=add, now=now)
+    stop = await units_stop(session)
+    why = None if stop is None else stop.why
+    await night.tick(session, workers=workers, per_minute=PER_PASS, add=add, now=now, stop=why)
     fed = Fed()
     running, queued = await _counts(session)
     free = min(workers - running, PER_PASS)
-    if queued or free <= 0:
+    if queued or free <= 0 or stop is not None:
         return fed
     room = crawl_cfg.DEEP_MAX_RUNNING - await deep.going(session)
     picks = await _pick(session, free=free, room=room, fed=fed)

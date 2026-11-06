@@ -17,7 +17,7 @@ import { useSession } from '../auth/AuthProvider';
 import { InfoHint } from '../components/InfoHint';
 import { formatNumber } from '../format';
 import { CRAWL_STATUSES, STATUS_KEYS } from './crawlFilters';
-import { CRAWL_SUMMARY_KEY, useCrawlSummary } from './crawlQueries';
+import { CRAWL_SUMMARY_KEY, useCrawlSummary, useUnitsStop } from './crawlQueries';
 import { StalePrices } from './StalePrices';
 
 const ABOUT =
@@ -35,7 +35,14 @@ export function statusLine(summary: Summary): string {
 
 /** Что с обходом сейчас — у заголовка: идёт, ждёт, сколько можно обойти. Один вид у сводки
  *  «Проверки» и у вкладки. */
+/** Кого можно обойти прямо сейчас; обходы стоят — никого, сколько бы доноров ни подходило. */
+function startWords(startable: number, stopped: boolean): string {
+  if (stopped) return 'обходы стоят';
+  return startable > 0 ? `можно обойти: ${formatNumber(startable)}` : 'обходить сейчас некого';
+}
+
 export function CrawlFacts({ summary }: { summary: Summary }) {
+  const stopped = useUnitsStop() !== null;
   const running = summary.counts.status.running;
   const waiting = summary.counts.status.queued;
   return (
@@ -51,9 +58,7 @@ export function CrawlFacts({ summary }: { summary: Summary }) {
         </Badge>
       ) : null}
       <Text size="sm" c="dimmed">
-        {summary.startable > 0
-          ? `можно обойти: ${formatNumber(summary.startable)}`
-          : 'обходить сейчас некого'}
+        {startWords(summary.startable, stopped)}
       </Text>
     </Group>
   );

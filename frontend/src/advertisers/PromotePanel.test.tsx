@@ -83,6 +83,13 @@ describe('к письму', () => {
     expect(screen.getByText(/Переводить некого: в «куплено» пусто/)).toBeInTheDocument();
   });
 
+  it('кандидаты без DR ждут — сказано сколько и почему', async () => {
+    open({ 'GET /api/advertisers/promotion': { body: { ...READY, waiting_dr: 3 } } });
+
+    expect(await screen.findByText(/Ждут проверки DR: 3/)).toBeInTheDocument();
+    expect(screen.getByText(/DR спросит следующий обход донора/)).toBeInTheDocument();
+  });
+
   it('без права на запуск — без кнопок: поиск адресов тратит деньги', async () => {
     open(
       {
@@ -153,6 +160,18 @@ describe('итог перевода словами', () => {
     expect(line).toBe(
       'Перевод: заведено 2, обновлено 0, отсеяно стоп-листами 3, снято с заведённых 1; адреса есть у всех.',
     );
+  });
+
+  it('все ждут DR — так и сказано, а не «переводить некого» без причины', () => {
+    const report = { рассмотрено: 0, 'ждут проверки DR': 4 };
+
+    expect(promotedLine({ ...PROMOTED, report })).toBe('Переводить некого: ждут проверки DR 4.');
+  });
+
+  it('часть ждёт DR — число в итоге перевода', () => {
+    const report = { рассмотрено: 2, заведено: 2, обновлено: 0, 'ждут проверки DR': 1 };
+
+    expect(promotedLine({ ...PROMOTED, report })).toContain('ждут проверки DR 1');
   });
 
   it('пустой перевод — «переводить некого», а не нули', () => {

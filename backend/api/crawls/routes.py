@@ -28,6 +28,7 @@ from backend.api.crawls.donor_schemas import (
     CountsView,
     DonorsView,
     SummaryView,
+    UnitsStopView,
     donor_params,
 )
 from backend.api.crawls.schemas import (
@@ -54,6 +55,7 @@ from backend.features.crawl import backlog, board, deep, donor_page, night, targ
 from backend.features.crawl.board import CrawlLine
 from backend.features.crawl.donor_page import DonorQuery
 from backend.features.crawl.launch import crawl_host, launch
+from backend.features.crawl.units_stop import ensure_units, units_stop
 from backend.shared.crawl_marks import Held, crawlers_held
 from backend.shared.queue import (
     CRAWL_QUEUE_NAME,
@@ -201,6 +203,17 @@ async def summary(
     )
 
 
+@router.get("/units-stop", response_model=UnitsStopView | None, summary="Стоят ли обходы")
+async def crawl_units_stop(
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> UnitsStopView | None:
+    """Стоят ли обходы без юнитов Ahrefs (`crawl/units_stop.py`) — плашкой над всем разделом:
+    читает снимок ключа и журнал, Ahrefs не спрашивает. `null` — обходы идут."""
+    stop = await units_stop(session)
+    return None if stop is None else UnitsStopView(title=stop.title, detail=stop.detail)
+
+
 @router.get("/night", response_model=NightView, summary="Ночной обход одной строкой")
 async def night_round(
     _: UserModel = _viewer,
@@ -251,7 +264,8 @@ async def start(
     session: AsyncSession = Depends(db_session),
 ) -> LaunchResult:
     """Поставить обходы. Каждый донор — отдельной строкой и задачей; занятый
-    и не подходящий называются, а не пропадают молча."""
+    и не подходящий называются, а не пропадают молча. Юнитов Ahrefs нет — отказ словами."""
+    await ensure_units(session)
     chosen = await targets.choose(session, limit=_ALL)
     asked = list(dict.fromkeys(h.strip().lower().removeprefix("www.") for h in body.hosts))
     refused = {host: why for host in asked if (why := _why_not(host, chosen)) is not None}
@@ -281,7 +295,8 @@ async def start_deep(
 ) -> DeepResult:
     """Поставить глубокие обходы: те же условия, что у обычного, но всегда через очередь
     загрузки — она держит предел разом (`crawl/deep.py`). Уже идущий донор называется сразу:
-    строка очереди иначе потерялась бы при выдаче."""
+    строка очереди иначе потерялась бы при выдаче. Юнитов Ahrefs нет — отказ словами."""
+    await ensure_units(session)
     chosen = await targets.choose(session, limit=_ALL)
     asked = list(dict.fromkeys(crawl_host(host) for host in body.hosts))
     refused = {host: why for host in asked if (why := _why_not(host, chosen)) is not None}
@@ -329,7 +344,8 @@ async def crawl_filtered(
     (`expected`). До `MAX_HOSTS` — сразу, как «Обойти отмеченных»; больше — в очередь загрузки
     (`crawl/backlog.py`): она отдаёт доноров свободным обходчикам понемногу, и обход, поставленный
     кнопкой после, идёт первым, а не ждёт за тысячами. Глубокий обход (`deep`) — всегда туда же:
-    она держит предел разом (`crawl/deep.py`)."""
+    она держит предел разом (`crawl/deep.py`). Юнитов Ahrefs нет — отказ словами."""
+    await ensure_units(session)
     hosts = await donor_page.startable_hosts(session, body.query(), limit=body.expected)
     if body.deep:
         added = await backlog.add(

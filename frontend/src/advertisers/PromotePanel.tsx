@@ -32,7 +32,12 @@ import { ADVERTISER_CONTACTS, PROMOTION_QUERY_KEY } from './contactsSource';
 /** Итог перевода одной строкой: что завели, что отсеяли, ищем ли адреса. */
 export function promotedLine(result: PromoteResult): string {
   const count = (key: string) => result.report[key] ?? 0;
-  if ((result.report['рассмотрено'] ?? 0) === 0) return 'Переводить некого.';
+  const waiting = count('ждут проверки DR');
+  if ((result.report['рассмотрено'] ?? 0) === 0) {
+    return waiting > 0
+      ? `Переводить некого: ждут проверки DR ${formatNumber(waiting)}.`
+      : 'Переводить некого.';
+  }
   const parts = [
     `заведено ${formatNumber(count('заведено'))}`,
     `обновлено ${formatNumber(count('обновлено'))}`,
@@ -41,6 +46,7 @@ export function promotedLine(result: PromoteResult): string {
   if (dropped > 0) parts.push(`отсеяно стоп-листами ${formatNumber(dropped)}`);
   const removed = count('снято с уже заведённых');
   if (removed > 0) parts.push(`снято с заведённых ${formatNumber(removed)}`);
+  if (waiting > 0) parts.push(`ждут проверки DR ${formatNumber(waiting)}`);
   const tail =
     result.pending > 0 ? `ищем адреса: ${formatNumber(result.pending)}` : 'адреса есть у всех';
   return `Перевод: ${parts.join(', ')}; ${tail}.`;
@@ -79,6 +85,7 @@ export function PromotePanel() {
       </Alert>
     ) : null;
   }
+  const waiting = data.waiting_dr ?? 0;
 
   return (
     <Card className="glassPanel" p="xl">
@@ -118,9 +125,15 @@ export function PromotePanel() {
           ) : null}
           {contacts.control}
         </Group>
-        {data.ready === 0 ? (
+        {data.ready === 0 && waiting === 0 ? (
           <Text size="sm" c="dimmed">
             Переводить некого: в «куплено» пусто, и «Пишем» спорным пока никто не сказал.
+          </Text>
+        ) : null}
+        {waiting > 0 ? (
+          <Text size="sm" c="dimmed">
+            Ждут проверки DR: {formatNumber(waiting)}. Крупный ли это сайт, пока неизвестно, поэтому
+            к письму они не идут; DR спросит следующий обход донора.
           </Text>
         ) : null}
         {outcome !== null ? <Text size="sm">{promotedLine(outcome)}</Text> : null}

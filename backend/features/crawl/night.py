@@ -20,8 +20,7 @@
 
 **Кто** — те же условия, что у кнопки (`targets.choose`), кроме идущих и уже ждущих. Глубоко
 обойдённый недавно не ставится (`DEEP_REST_DAYS`): кандидаты донора — по последнему обходу
-(`gate.py`), и обычный ночной обход заменил бы найденное на десяти тысячах страниц найденным на
-тысяче.
+(`gate.py`), и обычный ночной обход заменил бы найденное глубоким найденным на тысяче страниц.
 
 **Живёт внутри прохода очереди загрузки** (`backlog.feed`): новый цикл в `workers/reaper` пошёл
 бы живым в чужих тестах, а строки круга — обычные строки очереди, и выдача у них общая. Обходы
@@ -30,6 +29,7 @@
 **Один раз за ночь держит база**: уникальная строка круга на дату. Процесс лежал в полночь —
 круг начнётся при подъёме, но не позже `CATCH_UP_UNTIL`: начатому позже уже не хватит окна. Дальше
 ночь записывается пропущенной. Тревога — только если круг не смог начаться.
+Юнитов Ahrefs нет (`units_stop.py`) — круг так же ждёт до конца окна начала, а о них говорит сторож.
 """
 
 from __future__ import annotations
@@ -313,6 +313,7 @@ async def tick(
     per_minute: int,
     add: Add,
     now: datetime | None = None,
+    stop: str | None = None,
 ) -> None:
     """Шаг круга — из прохода очереди загрузки: закрыть, что пора, и начать ночь, если настала."""
     moment = now or datetime.now(UTC)
@@ -326,9 +327,10 @@ async def tick(
     if known is not None:
         return
     if local.time() >= CATCH_UP_UNTIL:
-        await _note_missed(session, local.date(), moment)
+        await _note_missed(session, local.date(), moment, stop)
         return
-    await _start(session, local.date(), moment, workers=workers, per_minute=per_minute, add=add)
+    if stop is None:
+        await _start(session, local.date(), moment, workers=workers, per_minute=per_minute, add=add)
 
 
 async def _claim(session: AsyncSession, night: date, moment: datetime) -> int | None:
@@ -392,27 +394,27 @@ async def _failed(
     await send_alert(marked(f"Ночной обход {night:%d.%m} не начался: {why}", NOT_STARTED))
 
 
-async def _note_missed(session: AsyncSession, night: date, moment: datetime) -> None:
-    """Окно начала вышло, а круга нет. Круг шёл и прошлой ночью — значит, процесс лежал: об этом
-    тревога. Прошлой строки нет — круг только включили, и пропускать было нечего."""
+async def _note_missed(session: AsyncSession, day: date, moment: datetime, why: str | None) -> None:
+    """Окно начала вышло, а круга нет. `why` — стоп обходов: о нём говорит сторож. Иначе круг шёл и
+    прошлой ночью — значит, процесс лежал: об этом тревога. Прошлой строки нет — только включили."""
     yesterday = await session.scalar(
-        select(CrawlNightModel.id).where(CrawlNightModel.night == night - timedelta(days=1))
+        select(CrawlNightModel.id).where(CrawlNightModel.night == day - timedelta(days=1))
     )
-    note = (
+    note = why or (
         f"процесс не работал до {CATCH_UP_UNTIL:%H:%M}"
         if yesterday is not None
         else "круг включён после окна начала"
     )
     found = await session.execute(
         insert(CrawlNightModel)
-        .values(night=night, status=NightStatus.MISSED.value, note=note, finished_at=moment)
+        .values(night=day, status=NightStatus.MISSED.value, note=note, finished_at=moment)
         .on_conflict_do_nothing(index_elements=["night"])
         .returning(CrawlNightModel.id)
     )
     first = found.scalar_one_or_none() is not None
     await session.commit()
-    if first and yesterday is not None:
-        await send_alert(marked(f"Ночной обход {night:%d.%m} пропущен: {note}", NOT_STARTED))
+    if first and yesterday is not None and why is None:
+        await send_alert(marked(f"Ночной обход {day:%d.%m} пропущен: {note}", NOT_STARTED))
 
 
 async def _close(session: AsyncSession, moment: datetime) -> None:

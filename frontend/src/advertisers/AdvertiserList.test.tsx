@@ -87,6 +87,7 @@ async function openList(
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     'GET /api/auth/me': { body: ADMIN },
+    'GET /api/crawls/units-stop': { body: null },
     'GET /api/advertisers/list': { body: listOf() },
     'GET /api/advertisers/list/facets': { body: FACETS },
     ...routes,
@@ -274,6 +275,7 @@ describe('переключатель видов', () => {
     serve({
       ...CRAWL_ROUTES,
       'GET /api/auth/me': { body: ADMIN },
+      'GET /api/crawls/units-stop': { body: null },
       // Вторая страница бизнесов ниши за концом — экран уходит на первую сам.
       'GET /api/advertisers/niche?page=2': {
         body: { rows: [], waiting: 0, total: 0, page: 2, limit: 20 },

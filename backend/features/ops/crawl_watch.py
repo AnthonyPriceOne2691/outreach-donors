@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, Stage, StopReason
 from backend.features.core.models.crawl import CrawlRunModel
+from backend.features.crawl.units_stop import units_stop
 from backend.features.ops.alarms import Alarm, cause, no_cause
 from backend.features.runs.spending import crawl_spent_this_month
 
@@ -118,6 +119,21 @@ def _setting_names(exc: ValueError) -> str:
         else []
     )
     return ", ".join(found) or "CRAWL_*"
+
+
+async def units_stopped(session: AsyncSession) -> Alarm | None:
+    """Обходы стоят: юнитов Ahrefs не хватает на DR новых кандидатов (`crawl/units_stop.py`).
+    Сторож ключа говорит о капе всех этапов, а эта тревога — о том, что встало здесь."""
+    stop = await units_stop(session)
+    if stop is None:
+        return None
+    return Alarm(
+        code="crawl-no-units",
+        title=stop.title,
+        detail=stop.detail,
+        stage=Stage.ADVERTISERS,
+        concern=cause("новые обходы и ночной обход стоят, новых кандидатов нет", stop.todo),
+    )
 
 
 async def cap_reached(session: AsyncSession) -> Alarm | None:

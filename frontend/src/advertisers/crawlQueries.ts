@@ -15,6 +15,7 @@ import { refusalOf } from '../api/client';
 import type { CrawlBulkResult, CrawlDeepResult, CrawlDonorQuery, CrawlLaunch } from '../api/crawls';
 import {
   fetchCrawlSummary,
+  fetchUnitsStop,
   startCrawls,
   startCrawlsByFilter,
   startDeepCrawls,
@@ -26,10 +27,14 @@ import { BACKLOG_KEY } from './CrawlBacklog';
 export const CRAWL_SUMMARY_KEY = ['crawl-summary'] as const;
 export const CRAWL_DONORS_KEY = ['crawl-donors'] as const;
 export const CRAWLS_KEY = ['crawls'] as const;
+export const UNITS_STOP_KEY = ['crawl-units-stop'] as const;
 
 /** Пока обход идёт, сервер спрашивается раз в десять секунд: страница донора — около
  *  полутора секунд, за десять их набегает пачка. */
 export const POLL_MS = 10_000;
+
+/** Стоп снимается сам — обнулением ключа или поднятым лимитом, — и плашка уходит сама. */
+const UNITS_STOP_POLL_MS = 60_000;
 
 /** Что вышло из нажатия — одной строкой, с причинами по каждому непоставленному. */
 export function launchSummary(done: CrawlLaunch): string {
@@ -114,6 +119,16 @@ export function useCrawlSummary() {
     before.current = active;
   }, [active, stamp, queryClient]);
   return summary;
+}
+
+/** Почему обходы стоят без юнитов Ahrefs; `null` — идут или ответа ещё нет. */
+export function useUnitsStop() {
+  const stop = useQuery({
+    queryKey: UNITS_STOP_KEY,
+    queryFn: fetchUnitsStop,
+    refetchInterval: UNITS_STOP_POLL_MS,
+  });
+  return stop.data ?? null;
 }
 
 /** Запуск обходов названных доноров; исход — словами уведомления. */

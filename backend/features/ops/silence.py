@@ -101,7 +101,11 @@ async def alarms(
         funds_watch.alarm(),
     ]
     if Stage.ADVERTISERS in stages:
-        found += [await crawl_watch.cap_reached(session), await crawl_watch.blocked(session)]
+        found += [
+            await crawl_watch.cap_reached(session),
+            await crawl_watch.blocked(session),
+            await crawl_watch.units_stopped(session),
+        ]
     # Почта этапов со сторожем в политике — видимых этапов (П2б).
     found += await mail_watch.alarms(session, moment, stages=stages)
     return [alarm for alarm in found if alarm is not None]

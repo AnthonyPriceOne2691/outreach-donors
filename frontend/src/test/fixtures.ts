@@ -137,6 +137,7 @@ export const HOME_ROUTES: Record<string, Answer> = {
 
 /** Панель «К письму» под рекламодателями: переводить некого, адресов не ждут. */
 export const PROMOTE_ROUTES: Record<string, Answer> = {
+  'GET /api/crawls/units-stop': { body: null },
   'GET /api/advertisers/promotion': {
     body: { ready: 0, fresh: 0, advertisers: 0, with_address: 0 },
   },

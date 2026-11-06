@@ -29,6 +29,7 @@ from pathlib import Path
 import backend.config
 import pytest
 from backend.api.watchdog import routes
+from backend.config import ahrefs as ahrefs_cfg
 from backend.config import crawl as crawl_cfg
 from backend.features.core import stages, usage
 from backend.features.core.domain import (
@@ -58,7 +59,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
-from tests.test_ahrefs_cap import known_key
+from tests.test_ahrefs_cap import KEY, known_key
 from tests.test_mail_watch import _letter as _mail_letter
 from tests.test_mail_watch_seams import FakeRedis
 from tests.test_sales_stage_bridge import FakeSalesMail
@@ -469,6 +470,19 @@ async def test_the_crawl_ceiling_reached_is_no_cause(
 
     assert not mark.cause
     assert "как задуман" in mark.why
+
+
+async def test_crawls_stopped_without_ahrefs_units_are_a_cause(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Новые кандидаты не появляются, а что сделать — ждать обнуления или поднять лимит."""
+    monkeypatch.setattr(ahrefs_cfg, "API_KEY", "ключ")
+    await known_key(session, key_used=KEY)
+
+    mark = _concern(await silence.alarms(session, stages=EVERY_STAGE), "crawl-no-units")
+
+    assert mark.cause
+    assert "обходы" in mark.why
 
 
 async def test_broken_crawl_settings_are_a_cause(

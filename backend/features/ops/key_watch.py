@@ -86,7 +86,7 @@ async def keep_heard(session: AsyncSession) -> bool:
     return await remember(session, quota, at=at)
 
 
-def _until(cap: KeyCap) -> str:
+def until_words(cap: KeyCap) -> str:
     """До какого дня — словами: обнуление ключа, а без его даты — первое число по календарю."""
     day = day_words(cap.cycle.next_reset)
     if cap.cycle.by_key:
@@ -94,7 +94,7 @@ def _until(cap: KeyCap) -> str:
     return f"цикл по календарю — до {day}: Ahrefs не назвал даты обнуления"
 
 
-def _binding(cap: KeyCap) -> str:
+def binding_words(cap: KeyCap) -> str:
     """Во что упирается — словами и с числами: наш кап, лимит ключа или пространства."""
     quota = None if cap.key is None else cap.key.quota
     if cap.binding == "key" and quota is not None and quota.key_limit is not None:
@@ -112,7 +112,7 @@ def _binding(cap: KeyCap) -> str:
 
 #: Где сдвигают упор — по тому, во что упирается (`KeyCap.binding`): наш кап — на экране,
 #: лимиты ключа и пространства — в самом Ahrefs.
-_HOW_TO_RAISE = {
+HOW_TO_RAISE = {
     "cap": "поднять кап — на экране «Расход»",
     "key": "поднять лимит ключа — в Ahrefs",
     "workspace": "поднять лимит пространства — в Ahrefs",
@@ -138,12 +138,12 @@ async def alarm(session: AsyncSession, moment: datetime) -> Alarm | None:
             code=REACHED_CODE,
             title="Кап Ahrefs выбран",
             detail=(
-                f"Кап {spaced(units_cap)} юнитов, {_until(cap)}. Упирается {_binding(cap)}. "
+                f"Кап {spaced(units_cap)} юнитов, {until_words(cap)}. Упирается {binding_words(cap)}. "
                 f"Новые прогоны не запустятся до обнуления или {_UNTIL_RAISED[binding]} — "
                 "это не поломка, но выглядит одинаково"
             ),
             concern=cause(
-                "новые прогоны не запускаются", f"ждать обнуления или {_HOW_TO_RAISE[binding]}"
+                "новые прогоны не запускаются", f"ждать обнуления или {HOW_TO_RAISE[binding]}"
             ),
         )
     warn = percent < ALARM_PERCENT
@@ -152,8 +152,8 @@ async def alarm(session: AsyncSession, moment: datetime) -> Alarm | None:
         title=f"Кап Ahrefs выбран на {WARN_PERCENT if warn else ALARM_PERCENT}% и больше",
         detail=(
             f"{'Предупреждение' if warn else 'Тревога'}: осталось {spaced(cap.left)} юнитов "
-            f"из {spaced(units_cap)} — выбрано {percent}%, {_until(cap)}. Упирается "
-            f"{_binding(cap)}; {_HOW_TO_RAISE[binding]}"
+            f"из {spaced(units_cap)} — выбрано {percent}%, {until_words(cap)}. Упирается "
+            f"{binding_words(cap)}; {HOW_TO_RAISE[binding]}"
         ),
         concern=WARNED if warn else _short(binding),
     )
@@ -167,5 +167,5 @@ def _short(binding: str) -> Concern:
     """Пометка тревоги 95 %: остатка может не хватить следующему прогону — что сдвинуть."""
     return cause(
         "следующий прогон может не уложиться в остаток",
-        f"{_HOW_TO_RAISE[binding]}, если прогоны нужны до обнуления",
+        f"{HOW_TO_RAISE[binding]}, если прогоны нужны до обнуления",
     )

@@ -152,7 +152,13 @@ class TestNumbersAboveTheButton:
         response = await client.get("/api/advertisers/promotion", headers=bearer(operator_token))
 
         assert response.status_code == 200, response.text
-        assert response.json() == {"ready": 2, "fresh": 2, "advertisers": 0, "with_address": 0}
+        assert response.json() == {
+            "ready": 2,
+            "fresh": 2,
+            "advertisers": 0,
+            "with_address": 0,
+            "waiting_dr": 0,
+        }
 
     async def test_already_promoted_are_not_fresh(
         self, client: AsyncClient, operator_token: str, mixed: None, session: AsyncSession
@@ -164,7 +170,13 @@ class TestNumbersAboveTheButton:
             await client.get("/api/advertisers/promotion", headers=bearer(operator_token))
         ).json()
 
-        assert body == {"ready": 2, "fresh": 1, "advertisers": 1, "with_address": 1}
+        assert body == {
+            "ready": 2,
+            "fresh": 1,
+            "advertisers": 1,
+            "with_address": 1,
+            "waiting_dr": 0,
+        }
 
     async def test_two_links_to_one_domain_count_once(
         self,

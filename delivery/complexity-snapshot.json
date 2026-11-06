@@ -42,12 +42,12 @@
       "worst": "accepted:137"
     },
     "backend/api/advertisers/routes.py": {
-      "lines": 387,
+      "lines": 388,
       "complexity": 5,
       "worst": "decide:134"
     },
     "backend/api/advertisers/schemas.py": {
-      "lines": 356,
+      "lines": 358,
       "complexity": 5,
       "worst": "of:76"
     },
@@ -132,14 +132,14 @@
       "worst": "—"
     },
     "backend/api/crawls/donor_schemas.py": {
-      "lines": 177,
+      "lines": 184,
       "complexity": 4,
       "worst": "of:110"
     },
     "backend/api/crawls/routes.py": {
-      "lines": 368,
+      "lines": 384,
       "complexity": 9,
-      "worst": "_why_not:218"
+      "worst": "_why_not:231"
     },
     "backend/api/crawls/schemas.py": {
       "lines": 359,
@@ -1422,14 +1422,14 @@
       "worst": "strip_structural_noise:176"
     },
     "backend/features/crawl/backlog.py": {
-      "lines": 323,
+      "lines": 329,
       "complexity": 8,
-      "worst": "eta_sec:165"
+      "worst": "eta_sec:169"
     },
     "backend/features/crawl/big_sites.py": {
-      "lines": 184,
+      "lines": 185,
       "complexity": 7,
-      "worst": "apply_ratings:155"
+      "worst": "apply_ratings:156"
     },
     "backend/features/crawl/board.py": {
       "lines": 319,
@@ -1572,7 +1572,7 @@
       "worst": "collect:68"
     },
     "backend/features/crawl/night.py": {
-      "lines": 498,
+      "lines": 500,
       "complexity": 7,
       "worst": "order:193"
     },
@@ -1617,9 +1617,9 @@
       "worst": "of:80"
     },
     "backend/features/crawl/promote.py": {
-      "lines": 485,
-      "complexity": 9,
-      "worst": "promote:184"
+      "lines": 498,
+      "complexity": 10,
+      "worst": "promote:194"
     },
     "backend/features/crawl/proxies.py": {
       "lines": 248,
@@ -1710,6 +1710,11 @@
       "lines": 193,
       "complexity": 8,
       "worst": "off_topic:148"
+    },
+    "backend/features/crawl/units_stop.py": {
+      "lines": 111,
+      "complexity": 4,
+      "worst": "units_stop:87"
     },
     "backend/features/crawl/walk.py": {
       "lines": 496,
@@ -2247,9 +2252,9 @@
       "worst": "ahrefs_cap:26"
     },
     "backend/features/ops/crawl_watch.py": {
-      "lines": 168,
+      "lines": 184,
       "complexity": 6,
-      "worst": "blocked:41"
+      "worst": "blocked:42"
     },
     "backend/features/ops/funds_watch.py": {
       "lines": 52,
@@ -2269,7 +2274,7 @@
     "backend/features/ops/key_watch.py": {
       "lines": 172,
       "complexity": 10,
-      "worst": "_binding:97"
+      "worst": "binding_words:97"
     },
     "backend/features/ops/limit_ahrefs.py": {
       "lines": 113,
@@ -2312,9 +2317,9 @@
       "worst": "overview:225"
     },
     "backend/features/ops/silence.py": {
-      "lines": 381,
+      "lines": 385,
       "complexity": 7,
-      "worst": "judge:155"
+      "worst": "judge:159"
     },
     "backend/features/ops/stage_silence.py": {
       "lines": 333,

@@ -318,6 +318,17 @@ export function fetchCrawlDonors(
   return request<CrawlDonorsView>(`/crawls/donors${donorParams(query, page, size)}`);
 }
 
+/** Обходы стоят без юнитов Ahrefs (`crawl/units_stop.py`): заголовок и слова — сервера. */
+export interface CrawlUnitsStop {
+  title: string;
+  detail: string;
+}
+
+/** Стоят ли обходы; `null` — идут. */
+export function fetchUnitsStop(): Promise<CrawlUnitsStop | null> {
+  return request<CrawlUnitsStop | null>('/crawls/units-stop');
+}
+
 export function fetchCrawlSummary(): Promise<CrawlSummary> {
   return request<CrawlSummary>('/crawls/summary');
 }
