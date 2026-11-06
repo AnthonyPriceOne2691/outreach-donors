@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from backend.features.serp.google_redirect import destination
 from backend.features.serp.protocol import SerpProgress, SerpResult, SerpWatch
 
 logger = logging.getLogger(__name__)
@@ -44,11 +45,16 @@ def organic_results(items: Sequence[Any], wanted: int) -> list[SerpResult]:
     не считается ошибкой, это устройство выдачи.
     """
     out: list[SerpResult] = []
+    hidden = 0
     for item in items:
         if not isinstance(item, dict) or item.get("type") != "organic":
             continue
-        url, position = item.get("url"), item.get("rank_absolute")
-        if not isinstance(url, str) or not isinstance(position, int):
+        raw, position = item.get("url"), item.get("rank_absolute")
+        if not isinstance(raw, str) or not isinstance(position, int):
+            continue
+        url = destination(raw, item.get("breadcrumb"))
+        if url is None:
+            hidden += 1
             continue
         # Заголовок и описание берём здесь же: провайдер отдаёт их в каждой
         # органической позиции, отдельного запроса они не стоят, а без них
@@ -67,6 +73,8 @@ def organic_results(items: Sequence[Any], wanted: int) -> list[SerpResult]:
         )
         if len(out) >= wanted:
             break
+    if hidden:
+        logger.warning("выдача: редирект Google без адреса сайта, пропущено позиций: %d", hidden)
     return out
 
 
