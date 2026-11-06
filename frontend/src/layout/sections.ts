@@ -23,7 +23,8 @@
  * **«Домены рассылки» — в каждой из трёх групп, в «Настройках» их нет** (просьба Anthony
  * 05.11.2026): домены у этапов свои, и смотрят их из раздела этапа. Подпись одна, полное имя —
  * в `name`, значки различает тот же знак, что у «Писем». Прежний адрес `/senders` открывает экран
- * со всеми этапами, пункта у него нет.
+ * со всеми этапами, пункта у него нет. Смотреть может каждый, кто видит базу (своими этапами),
+ * включать и выключать — только с правом `senders` (слово Anthony 05.11.2026).
  */
 
 import {
@@ -136,7 +137,7 @@ export const SECTIONS: Section[] = [
     name: SENDERS_TITLES.donors,
     group: 'donors',
     icon: IconWorldQuestion,
-    permission: 'senders',
+    permission: 'view',
   },
   {
     path: '/advertisers',
@@ -173,7 +174,7 @@ export const SECTIONS: Section[] = [
     name: SENDERS_TITLES.advertisers,
     group: 'advertisers',
     icon: IconWorldDollar,
-    permission: 'senders',
+    permission: 'view',
   },
   // Своё право, а не `view`: раздел снимается с учётки поимённо (решение владельца 01.10).
   { path: '/sales', title: 'Продажи', group: 'sales', icon: IconBriefcase, permission: 'sales' },
@@ -202,7 +203,7 @@ export const SECTIONS: Section[] = [
     name: SENDERS_TITLES.sales,
     group: 'sales',
     icon: IconAt,
-    permission: 'senders',
+    permission: 'view',
   },
   {
     path: '/suppressions',

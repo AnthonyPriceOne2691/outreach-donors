@@ -190,6 +190,12 @@ export function SendersPage() {
             hint="Репутация живёт у домена, поэтому включают и выключают домен целиком. Выключенный не получает новых писем, но начатые цепочки не рвутся: письмо, отправленное вчера, ждёт ответа."
           />
           <Standing groups={groups} part={part} />
+          {can('senders') ? null : (
+            <Text size="sm" c="dimmed">
+              Только просмотр: включать и выключать домены может администратор или учётка с правом
+              «Домены рассылки».
+            </Text>
+          )}
         </Stack>
       </Card>
 
@@ -203,6 +209,7 @@ export function SendersPage() {
               group={group}
               busy={switchDomain.isPending && switchDomain.variables?.group.domain === group.domain}
               onSwitch={(on) => switchDomain.mutate({ group, on })}
+              mayEdit={can('senders')}
               stageInTitle={part !== null}
             />
           ))}

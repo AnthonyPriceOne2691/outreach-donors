@@ -83,11 +83,13 @@ interface Props {
   group: DomainGroup;
   busy: boolean;
   onSwitch: (on: boolean) => void;
+  /** Право включать и выключать; без него карточка только для чтения, кнопки нет. */
+  mayEdit: boolean;
   /** Экран одной части: этап уже в заголовке, и пометка у каждой карточки была бы шумом. */
   stageInTitle?: boolean;
 }
 
-export function SenderCard({ group, busy, onSwitch, stageInTitle = false }: Props) {
+export function SenderCard({ group, busy, onSwitch, mayEdit, stageInTitle = false }: Props) {
   const [open, setOpen] = useState(false);
   const detailsId = `sender-details-${group.domain}`;
   const warmupDay = Math.max(...group.boxes.map((box) => box.warmup_day));
@@ -98,7 +100,7 @@ export function SenderCard({ group, busy, onSwitch, stageInTitle = false }: Prop
   // На телефоне кнопка уходит под карточку: рядом с ней имя домена
   // рвалось на «mail-» и остаток.
   const narrow = useMediaQuery('(max-width: 36em)') ?? false;
-  const toggle = (
+  const toggle = mayEdit && (
     <Tooltip
       label={
         group.enabled
@@ -210,7 +212,7 @@ export function SenderCard({ group, busy, onSwitch, stageInTitle = false }: Prop
             />
           </Box>
 
-          {narrow && <Group justify="flex-end">{toggle}</Group>}
+          {narrow && toggle && <Group justify="flex-end">{toggle}</Group>}
         </Stack>
       </Group>
 
