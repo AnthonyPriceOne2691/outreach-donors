@@ -3552,9 +3552,9 @@
       "worst": "_post:245"
     },
     "backend/features/serp/dataforseo_answers.py": {
-      "lines": 181,
-      "complexity": 11,
-      "worst": "organic_results:39"
+      "lines": 189,
+      "complexity": 13,
+      "worst": "organic_results:40"
     },
     "backend/features/serp/factory.py": {
       "lines": 66,
@@ -3565,6 +3565,11 @@
       "lines": 153,
       "complexity": 4,
       "worst": "refusal:73"
+    },
+    "backend/features/serp/google_redirect.py": {
+      "lines": 72,
+      "complexity": 10,
+      "worst": "_shown_site:48"
     },
     "backend/features/serp/markets.py": {
       "lines": 102,
