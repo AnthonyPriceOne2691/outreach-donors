@@ -3147,9 +3147,9 @@
       "worst": "_enum:82"
     },
     "backend/features/sales/no_draft.py": {
-      "lines": 55,
+      "lines": 58,
       "complexity": 7,
-      "worst": "absent:43"
+      "worst": "absent:46"
     },
     "backend/features/sales/not_writing.py": {
       "lines": 67,
