@@ -100,6 +100,7 @@ async function openReport(view: AcceptanceView = report()) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   serve({
     'GET /api/auth/me': { body: ADMIN },
+    'GET /api/crawls/units-stop': { body: null },
     'GET /api/advertisers/acceptance': { body: view },
   });
   renderWith(<AppRoutes />, '/advertisers?view=acceptance');
@@ -210,7 +211,11 @@ function donorsOf(...hosts: string[]): AcceptanceView['donors'] {
 
 function openPages(routes: Record<string, { body: AcceptanceView }>, path: string, first: string) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
-  const recorded = serve({ 'GET /api/auth/me': { body: ADMIN }, ...routes });
+  const recorded = serve({
+    'GET /api/auth/me': { body: ADMIN },
+    'GET /api/crawls/units-stop': { body: null },
+    ...routes,
+  });
   renderWith(
     <>
       <AppRoutes />

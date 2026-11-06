@@ -18,6 +18,8 @@ export interface PromotionView {
   fresh: number;
   advertisers: number;
   with_address: number;
+  /** Домены без DR: в `ready` не входят и ждут, пока обход его спросит. */
+  waiting_dr?: number;
 }
 
 /** Чем кончился перевод — числами по причинам, как в консоли. */

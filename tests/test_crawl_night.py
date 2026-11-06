@@ -18,6 +18,7 @@ import pytest
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
 from backend.api.crawls import routes
+from backend.config import ahrefs as ahrefs_cfg
 from backend.config import crawl as crawl_cfg
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, StopReason, UserRole
 from backend.features.core.models.access import UserModel
@@ -25,6 +26,7 @@ from backend.features.core.models.crawl import CrawlBacklogModel, CrawlNightMode
 from backend.features.core.models.donor import DonorModel
 from backend.features.crawl import backlog, night
 from backend.features.crawl.night import LastRun, NightStatus, Power, Rank, longest_of
+from backend.features.crawl.units_stop import NO_UNITS
 from backend.shared.crawl_marks import Held
 from httpx import AsyncClient
 from sqlalchemy import select, text
@@ -32,6 +34,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.conftest import bearer, make_donor
 from tests.migration_helpers import load_migration
+from tests.test_ahrefs_cap import KEY, known_key
 from tests.test_send_race import committed_sessions
 
 MakeUser = Callable[..., Awaitable[UserModel]]
@@ -357,6 +360,81 @@ async def test_two_o_clock_is_too_late_and_the_alarm_says_so(alerts: list[str]) 
     assert waiting == []
     assert len(alerts) == 1
     assert "пропущен" in alerts[0]
+
+
+async def _key(
+    factory: async_sessionmaker[AsyncSession], *, used: int, at: datetime = MIDNIGHT
+) -> None:
+    """Снимок ключа: сколько выбрано к этой минуте."""
+    async with factory() as session:
+        await known_key(session, key_used=used, asked_at=at)
+        await session.commit()
+
+
+async def test_without_units_the_round_waits_and_starts_when_they_return(
+    alerts: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Строка ночи не заводится: поднятый до конца окна начала лимит ещё успевает начать круг."""
+    monkeypatch.setattr(ahrefs_cfg, "API_KEY", "ключ")
+    async with committed_sessions() as factory:
+        async with factory() as session:
+            await _priced(session, "one.example")
+            await session.commit()
+        await _key(factory, used=KEY)
+
+        await _feed(factory)
+        before = await _rounds(factory), await _waiting(factory)
+
+        await _key(factory, used=0, at=MIDNIGHT + timedelta(minutes=29))
+        fed = await _feed(factory, MIDNIGHT + timedelta(minutes=30))
+        rounds = await _rounds(factory)
+    assert before == ([], [])
+    assert [row.status for row in rounds] == [NightStatus.RUNNING.value]
+    assert list(fed.queued) == ["one.example"]
+    assert alerts == []
+
+
+async def test_without_units_till_two_the_night_is_missed_and_says_why(
+    alerts: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """О стопе говорит тревога сторожа: совет «проверьте процесс разбора» здесь был бы неправдой."""
+    monkeypatch.setattr(ahrefs_cfg, "API_KEY", "ключ")
+    async with committed_sessions() as factory:
+        async with factory() as session:
+            await _priced(session, "one.example")
+            session.add(CrawlNightModel(night=date(2026, 11, 2), status="done"))
+            await session.commit()
+        await _key(factory, used=KEY)
+
+        await _feed(factory, MIDNIGHT + timedelta(hours=2))
+
+        rounds = {row.night: row for row in await _rounds(factory)}
+    assert rounds[NIGHT].status == NightStatus.MISSED.value
+    assert rounds[NIGHT].note == NO_UNITS
+    assert alerts == []
+
+
+async def test_without_units_the_queue_gives_nobody_and_keeps_its_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Строки ждут, а появятся юниты — пойдут сами: снимать их незачем."""
+    monkeypatch.setattr(ahrefs_cfg, "API_KEY", "ключ")
+    day = MIDNIGHT + timedelta(hours=12)
+    async with committed_sessions() as factory:
+        async with factory() as session:
+            await _priced(session, "one.example")
+            await backlog.add(session, ["one.example"], by=WHO, author_id=None)
+            await session.commit()
+        await _key(factory, used=KEY)
+
+        stopped = await _feed(factory, day)
+        kept = await _waiting(factory)
+
+        await _key(factory, used=0, at=day + timedelta(minutes=1))
+        went = await _feed(factory, day + timedelta(minutes=2))
+    assert list(stopped.queued) == []
+    assert kept == ["one.example"]
+    assert list(went.queued) == ["one.example"]
 
 
 async def test_switched_on_by_day_it_is_quiet_until_the_next_midnight(alerts: list[str]) -> None:

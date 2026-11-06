@@ -10,7 +10,9 @@
 человеком. Отклонённый человеком не попадает, даже если баллов у него
 много: решение человека сильнее вердикта скоринга. Крупные сайты
 (DR > 80) сюда не доходят — их отсевает пересчёт (`big_sites.py`),
-если только человек не сказал «пишем» сам.
+если только человек не сказал «пишем» сам. **Кандидат без DR ждёт** (`dr_settled`, 06.11.2026):
+крупный ли это сайт, неизвестно, и письмо ему могло бы уйти в пустоту. DR спросит следующий
+обход донора, когда будут юниты (`units_stop.py`).
 
 **Кого отсеиваем до того, как искать контакт.** Доноров из стоп-листа
 поставщиков — их рекламодатели это чужие клиенты и свои же размещения;
@@ -59,6 +61,7 @@ from backend.features.crawl.advertiser_rules import writes_to
 from backend.features.crawl.niche import NICHE
 from backend.features.crawl.offer_stop import stop_offers
 from backend.features.crawl.suppliers import supplier_hosts
+from backend.features.crawl.units_stop import dr_settled
 from backend.features.letters import attempts
 
 logger = logging.getLogger(__name__)
@@ -80,6 +83,8 @@ class PromotionReport:
     skipped_suppressed: int = 0
     removed: int = 0
     by_human: int = 0
+    #: Домены, ждущие DR: к переводу готовы, но крупный ли сайт, неизвестно.
+    waiting_dr: int = 0
     hosts: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, int]:
@@ -91,6 +96,7 @@ class PromotionReport:
             "адресат в общем стоп-листе": self.skipped_suppressed,
             "снято с уже заведённых": self.removed,
             "подтверждено человеком": self.by_human,
+            "ждут проверки DR": self.waiting_dr,
         }
 
 
@@ -107,6 +113,8 @@ class Standing:
     fresh: int
     advertisers: int
     with_address: int
+    #: Домены, которые ждут DR и в `ready` не входят.
+    waiting_dr: int = 0
 
 
 async def standing(session: AsyncSession) -> Standing:
@@ -118,8 +126,9 @@ async def standing(session: AsyncSession) -> Standing:
         .exists()
     )
     roots = func.count(func.distinct(CandidateModel.target_root))
-    ready = await session.scalar(select(roots).where(writes_to()))
-    fresh = await session.scalar(select(roots).where(writes_to(), ~known))
+    every = await session.scalar(select(roots).where(writes_to()))
+    ready = await session.scalar(select(roots).where(writes_to(), dr_settled()))
+    fresh = await session.scalar(select(roots).where(writes_to(), dr_settled(), ~known))
     addressed = select(ContactModel.id).where(ContactModel.domain_id == AdvertiserModel.domain_id)
     total = await session.scalar(select(func.count(AdvertiserModel.id)))
     with_address = await session.scalar(
@@ -130,6 +139,7 @@ async def standing(session: AsyncSession) -> Standing:
         fresh=int(fresh or 0),
         advertisers=int(total or 0),
         with_address=int(with_address or 0),
+        waiting_dr=int(every or 0) - int(ready or 0),
     )
 
 
@@ -185,8 +195,11 @@ async def promote(session: AsyncSession) -> PromotionReport:
     """Перевести подходящих кандидатов в рекламодателей."""
     report = PromotionReport()
     report.removed += await apply_rejections(session)
-    rows = list((await session.execute(select(CandidateModel).where(writes_to()))).scalars().all())
+    wanted = select(CandidateModel).where(writes_to(), dr_settled())
+    rows = list((await session.execute(wanted)).scalars().all())
     report.considered = len({row.target_root for row in rows})
+    every = select(func.count(func.distinct(CandidateModel.target_root))).where(writes_to())
+    report.waiting_dr = int(await session.scalar(every) or 0) - report.considered
     if not rows:
         return report
 

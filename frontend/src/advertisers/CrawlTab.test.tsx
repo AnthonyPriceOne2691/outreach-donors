@@ -165,6 +165,50 @@ async function choose(fieldName: string, option: string) {
   await user.click(await list.findByRole('option', { name: option, hidden: true }));
 }
 
+const UNITS_STOP = {
+  'GET /api/crawls/units-stop': {
+    body: {
+      title: 'Обходы остановлены: закончились юниты Ahrefs',
+      detail: 'Свободно 12, а самый дешёвый запрос DR стоит 50 юнитов.',
+    },
+  },
+};
+
+describe('обходы стоят без юнитов Ahrefs', () => {
+  it('плашка со словами сервера, кнопок обхода нет, а завести донора можно', async () => {
+    open(UNITS_STOP);
+
+    expect(
+      await screen.findByText('Обходы остановлены: закончились юниты Ahrefs'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Свободно 12/)).toBeInTheDocument();
+    await screen.findByText('fresh.example');
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Обойти отмеченных/ })).toBeNull(),
+    );
+    expect(screen.queryByRole('button', { name: /Обойти всех/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Переобойти' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: 'Обойти fresh.example' })).toBeNull();
+    // Донор заведётся и подождёт: обход начнётся, когда юниты появятся.
+    expect(screen.getByRole('button', { name: 'Завести донора вручную' })).toBeInTheDocument();
+  });
+
+  it('плашка видна и в «Проверке»: новых кандидатов не будет и там', async () => {
+    open(UNITS_STOP, ADMIN, '/advertisers?view=review');
+
+    expect(
+      await screen.findByText('Обходы остановлены: закончились юниты Ahrefs'),
+    ).toBeInTheDocument();
+  });
+
+  it('юниты есть — плашки нет, кнопки на месте', async () => {
+    open();
+
+    expect(await screen.findByRole('button', { name: /Обойти отмеченных/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Обходы остановлены/)).toBeNull();
+  });
+});
+
 describe('вкладка «Обход доноров»', () => {
   it('доноры — страницей с сервера; счётчики статусов — кнопками с числами', async () => {
     open();

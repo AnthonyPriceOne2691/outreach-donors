@@ -184,6 +184,7 @@ async def promotion(
         fresh=found.fresh,
         advertisers=found.advertisers,
         with_address=found.with_address,
+        waiting_dr=found.waiting_dr,
     )
 
 

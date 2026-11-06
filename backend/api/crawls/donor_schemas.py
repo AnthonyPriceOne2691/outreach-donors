@@ -138,6 +138,13 @@ class DonorsView(CrawlCeilings):
         )
 
 
+class UnitsStopView(BaseModel):
+    """Обходы стоят: не хватает юнитов Ahrefs на DR (`crawl/units_stop.py`). Слова — сервера."""
+
+    title: str
+    detail: str
+
+
 class SummaryView(BaseModel):
     """Обход доноров одной строкой — для «Проверки»: счётчики без условий и что идёт."""
 

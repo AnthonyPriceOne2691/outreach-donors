@@ -49,6 +49,9 @@
  * страница — в адресе (`reviewFilters.ts`), смена любого из них — первая страница; решена последняя
  * строка последней страницы — экран уходит на новую последнюю (`usePagedQuery`). Числа в шапке — по
  * всем, от страницы и фильтра не меняются.
+ *
+ * **Обходы стоят без юнитов Ahrefs — плашка над всеми видами** (`UnitsStopAlert`, слово Anthony
+ * 06.11.2026).
  */
 
 import {
@@ -81,6 +84,7 @@ import { AdvertiserPanel } from './AdvertiserPanel';
 import { useAdvertiserView, ViewSwitch } from './AdvertiserViews';
 import { CandidatesTable, VERDICTS } from './CandidatesTable';
 import { CrawlSummary } from './CrawlSummary';
+import { UnitsStopAlert } from './UnitsStopAlert';
 import { CrawlTab } from './CrawlTab';
 import { DisputedStrata } from './DisputedStrata';
 import { FalseShare } from './FalseShare';
@@ -348,6 +352,7 @@ export function AdvertisersPage() {
   return (
     <Stack gap="lg">
       <ViewSwitch view={view} onView={setView} />
+      <UnitsStopAlert />
       {view === 'panel' ? <AdvertiserPanel /> : null}
       {view === 'review' ? <ReviewView onOpenCrawl={() => setView('crawl')} /> : null}
       {view === 'crawl' ? <CrawlTab /> : null}

@@ -67,6 +67,7 @@ import {
   refreshCrawls,
   useCrawlSummary,
   useStartCrawls,
+  useUnitsStop,
 } from './crawlQueries';
 import { crawlRule, heldWords, queueRule } from './crawlWords';
 import { DeepModal, DeepPicked, deepRule, deepTitle } from './DeepCrawl';
@@ -444,7 +445,11 @@ export function CrawlTab() {
   const picks = usePicks();
   const start = useStartCrawls(picks.clear);
   const again = useStartCrawls();
-  const runner: Runner | null = can('run') ? { picks, start, again, onDeep: setDeep } : null;
+  // Обходы стоят без юнитов Ahrefs: кнопок обхода нет, почему — плашкой над разделом.
+  const stopped = useUnitsStop() !== null;
+  const mayRun = can('run');
+  const runner: Runner | null =
+    mayRun && !stopped ? { picks, start, again, onDeep: setDeep } : null;
   const data = page.data;
 
   return (
@@ -453,9 +458,9 @@ export function CrawlTab() {
         <Head
           data={data}
           summary={summary.data}
-          onEnter={runner !== null ? () => setEntering(true) : null}
+          onEnter={mayRun ? () => setEntering(true) : null}
         />
-        <Notices data={data} summary={summary.data} mayDrop={runner !== null} />
+        <Notices data={data} summary={summary.data} mayDrop={mayRun} />
         <Group justify="space-between" align="center" gap="sm">
           <StatusFacets counts={data?.counts} filters={url.filters} onFilter={url.apply} />
           <CrawlScope filters={url.filters} onFilter={url.apply} />
