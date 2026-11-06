@@ -597,9 +597,9 @@
       "worst": "llm_caps_card:135"
     },
     "backend/api/settings/routes.py": {
-      "lines": 403,
+      "lines": 410,
       "complexity": 5,
-      "worst": "_serp_balance:374"
+      "worst": "_serp_balance:381"
     },
     "backend/api/settings/schemas.py": {
       "lines": 396,

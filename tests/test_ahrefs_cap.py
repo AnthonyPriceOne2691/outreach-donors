@@ -196,6 +196,23 @@ class TestWithoutTheKey:
         assert UNKNOWN in response.json()["detail"]
         assert await session.scalar(select(func.count()).select_from(AhrefsCapModel)) == 0
 
+    async def test_an_account_of_sales_only_may_not_change_it(
+        self, client: AsyncClient, session: AsyncSession, make_user: MakeUser, sign_in: SignIn
+    ) -> None:
+        """Право настроек и экран расхода есть, а ключом Ahrefs продажи не пользуются."""
+        await make_user(
+            "продажи@team.example.test",
+            role=UserRole.OPERATOR,
+            permissions={"usage": True, "settings": True, "donors": False, "advertisers": False},
+        )
+        token = await sign_in("продажи@team.example.test")
+
+        response = await client.post(CAP_URL, json={"units_cap": None}, headers=bearer(token))
+
+        assert response.status_code == 403, response.text
+        assert "продажи им не пользуются" in response.json()["detail"]
+        assert await session.scalar(select(func.count()).select_from(AhrefsCapModel)) == 0
+
 
 class TestTheCapIsTheKey:
     async def test_the_whole_key_by_default(self, session: AsyncSession) -> None:

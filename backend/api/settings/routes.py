@@ -30,7 +30,7 @@ from collections.abc import Collection
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import actor, db_session, needs
@@ -51,7 +51,7 @@ from backend.api.settings.schemas import (
 )
 from backend.api.stage_access import STAGE_ONE, STAGE_TWO
 from backend.config import crawl as crawl_cfg
-from backend.features.access.permissions import require_stage, visible_stages
+from backend.features.access.permissions import has_permission, require_stage, visible_stages
 from backend.features.access.repository import AccessRepository
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
@@ -80,6 +80,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["настройки"])
 
 _settler = Depends(needs(Permission.SETTINGS))
+
+#: Кто пользуется ключом Ahrefs: прогоны доноров и DR кандидатов в рекламодатели.
+AHREFS_STAGES = (Permission.DONORS, Permission.ADVERTISERS)
+AHREFS_NOT_YOURS = "Кап Ahrefs меняет учётка доноров или рекламодателей: продажи им не пользуются"
 _spender = Depends(needs(Permission.SPEND))
 _viewer = Depends(needs(Permission.VIEW))
 _usage = Depends(needs(Permission.USAGE))
@@ -296,12 +300,15 @@ async def change_ahrefs_cap(
 ) -> CapChangeCard:
     """Новый кап — с этой минуты, под тем же правом, что пороги (решение владельца
     16.10.2026: кап меняют на экране «Расход», видно, кто, когда и что поставил), и с правом видеть
-    сам экран: кап общий на все этапы, и роль этапа его не трогает (слово Anthony 02.11.2026).
+    сам экран: кап общий на все этапы, и роль этапа его не трогает (слово Anthony 02.11.2026). Учётке
+    без доноров и рекламодателей менять нечего: продажи ключом не пользуются (слово Anthony 06.11.2026).
 
     Смена заводит строку, а не правит прежнюю, и пишет в журнал «было → стало» той же
     транзакцией, с размером ключа на минуту смены. За границами ключа или без снимка
     ключа — отказ словами до записи (`runs/ahrefs_cap.py`).
     """
+    if not any(has_permission(actor(author), right) for right in AHREFS_STAGES):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, AHREFS_NOT_YOURS)
     done = await set_ahrefs_cap(session, body.units_cap, author=author)
     await cap_journal.ahrefs_cap(session, done, author)
     await session.commit()

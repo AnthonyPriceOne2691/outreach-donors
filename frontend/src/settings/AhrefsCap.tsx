@@ -79,8 +79,20 @@ function changedLine(key: AhrefsKey): string {
     : `Кап изменён: ${changedBy(last)}`;
 }
 
-export function AhrefsCap({ ahrefsKey: key }: { ahrefsKey: AhrefsKey }) {
+/** Можно ли менять кап и кто меняет, если нельзя. Продажи ключом не пользуются (слово Anthony 06.11.2026). */
+function useCapRight(): { allowed: boolean; who: string } {
   const { can } = useSession();
+  const inOutreach = can('donors') || can('advertisers');
+  return {
+    allowed: can('settings') && inOutreach,
+    who: inOutreach
+      ? `Кап меняет учётка с правом «${permissionTitle('settings')}»`
+      : 'Кап меняет учётка доноров или рекламодателей: продажи им не пользуются',
+  };
+}
+
+export function AhrefsCap({ ahrefsKey: key }: { ahrefsKey: AhrefsKey }) {
+  const right = useCapRight();
   const [editing, setEditing] = useState(false);
   const known = key.cap !== null;
   const size = keyLine(key);
@@ -110,8 +122,7 @@ export function AhrefsCap({ ahrefsKey: key }: { ahrefsKey: AhrefsKey }) {
         footer={chosenLine(key)}
         action={{
           label: 'Изменить кап',
-          allowed: can('settings'),
-          who: `Кап меняет учётка с правом «${permissionTitle('settings')}»`,
+          ...right,
           onClick: () => setEditing(true),
         }}
       >
