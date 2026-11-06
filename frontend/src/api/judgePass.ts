@@ -41,3 +41,15 @@ export function fetchJudgePass(): Promise<JudgePassView> {
 export function startJudgePass(cases: number): Promise<JudgePassView> {
   return request<JudgePassView>('/advertisers/judge-pass', { method: 'POST', body: { cases } });
 }
+
+export const JUDGE_PASS_KEY = ['advertisers-judge-pass'] as const;
+
+/** Разбор ещё идёт: опрашиваем ход, второй не запускаем. */
+export function passMoving(view: JudgePassView | undefined): boolean {
+  return view?.state === 'queued' || view?.state === 'running';
+}
+
+/** Разбор встал или оборвался: следующий запуск продолжает с места. */
+export function passResumes(view: JudgePassView | undefined): boolean {
+  return view?.state === 'stopped' || view?.state === 'failed';
+}
