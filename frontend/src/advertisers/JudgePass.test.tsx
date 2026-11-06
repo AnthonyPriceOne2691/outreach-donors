@@ -47,10 +47,7 @@ function open(view: JudgePassView, routes: Record<string, unknown> = {}, who: un
 describe('переобойти спорные', () => {
   it('сначала смета, запуск — числом из неё', async () => {
     const recorded = open(IDLE, {
-      'POST /api/advertisers/judge-pass': {
-        status: 202,
-        body: { ...IDLE, state: 'queued', total: 12 },
-      },
+      'POST /api/advertisers/judge-pass': { body: { ...IDLE, state: 'queued', total: 12 } },
     });
     const user = userEvent.setup();
 

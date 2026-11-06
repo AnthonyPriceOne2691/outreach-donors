@@ -182,12 +182,7 @@ def _enqueue(cases: int, by: str) -> bool:
     return job is not None
 
 
-@router.post(
-    "",
-    response_model=JudgePassView,
-    status_code=status.HTTP_202_ACCEPTED,
-    summary="Переобойти спорные по смете",
-)
+@router.post("", response_model=JudgePassView, summary="Переобойти спорные по смете")
 async def start_judge_pass(
     body: JudgePassBody,
     author: UserModel = _runner,

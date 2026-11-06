@@ -183,7 +183,7 @@ async def test_the_start_takes_no_more_than_the_seen_estimate_and_goes_to_the_jo
 
     answer = await client.post(URL, json={"cases": 2}, headers=operator)
 
-    assert answer.status_code == 202, answer.text
+    assert answer.status_code == 200, answer.text
     body = answer.json()
     assert body["state"] == "queued"
     assert (body["total"], body["by"]) == (2, "оператор@site.example.test")
@@ -211,7 +211,7 @@ async def test_a_larger_number_than_the_estimate_is_cut_to_it(
 
     answer = await client.post(URL, json={"cases": 500}, headers=operator)
 
-    assert answer.status_code == 202, answer.text
+    assert answer.status_code == 200, answer.text
     assert jobs.enqueued[0][0] == (JUDGE_DISPUTED_JOB, 1)
 
 
@@ -245,7 +245,7 @@ async def test_a_job_whose_crawler_died_does_not_hold_the_next_start(
 
     answer = await client.post(URL, json={"cases": 1}, headers=operator)
 
-    assert answer.status_code == 202, answer.text
+    assert answer.status_code == 200, answer.text
     assert len(jobs.enqueued) == 2
 
 
