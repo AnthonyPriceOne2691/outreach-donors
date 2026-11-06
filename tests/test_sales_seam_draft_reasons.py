@@ -147,6 +147,15 @@ async def test_switched_on_agent_without_its_settings_says_so_at_the_answer(
     assert await _snapshot_reason(session, reply_id) == reason
 
 
+def test_words_name_the_screen_every_sales_account_has() -> None:
+    """Слова ведут на экран «Агент продаж»: вкладки «Лидам» у учётки с одним этапом нет, а пункта
+    «Агент переписки» нет у учётки без доноров и рекламодателей."""
+    for words in (no_draft.NOT_SET, no_draft.OFF_ON_SCREEN):
+        assert "«Агент продаж»" in words
+        assert "Лидам" not in words
+        assert "Агент переписки" not in words
+
+
 @pytest.mark.usefixtures("sales_on")
 async def test_configured_agent_in_an_open_dialog_keeps_the_draft_and_the_words(
     queues: Queues, replied: Replied
