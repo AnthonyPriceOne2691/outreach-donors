@@ -13,11 +13,16 @@
 человек. Таблица откалибрована на стенде (размеченные пары, подбор и проверка — на разных донорах,
 свежая проверка на парах, которых правила не видели): каждое правило держится на многих донорах.
 
-**Общий ответ модели сверяется с таблицей** (`judge_facts.py`, стенд 05.11.2026): таблица не решила —
-совет по ответу модели; решили по-разному — «не понять», решает человек; совпали или модель сама не
-решила — совет таблицы. Ни таблица, ни ответ поодиночке так не держатся на парах, которых не видели:
-таблица теряет рекламодателей и мало что отсеивает, ответ чаще ошибается в обе стороны. Строка суда
-без ответа (суд до него) судится одной таблицей.
+**Общий ответ модели сверяется с таблицей** (`judge_facts.py`, стенд 05.11.2026): таблица не решила, а
+модель говорит «пишем» — совет по ответу; решили по-разному — «не понять», решает человек; совпали или
+модель сама не решила — совет таблицы. Ни таблица, ни ответ поодиночке так не держатся на парах, которых
+не видели: таблица теряет рекламодателей и мало что отсеивает, ответ чаще ошибается в обе стороны. Строка
+суда без ответа (суд до него) судится одной таблицей.
+
+**«Не пишем» ставит только таблица** (суд всей очереди, 06.11.2026). Там, где она не решила, ответ «не
+пишем» на живой модели верен через раз: сайт домена похож на издание, а ссылка его продаёт. Такая строка
+остаётся человеку: так теряется меньше рекламодателей, а цена — несколько лишних строк в очереди.
+Три правила ответ вообще не отменяет (`FIRM`).
 """
 
 from __future__ import annotations
@@ -30,7 +35,7 @@ from backend.features.crawl.judge_facts import LinkFacts
 
 #: Версия таблицы. Меняется при КАЖДОЙ правке правил: совет строки суда помнит её, и пересчёт
 #: (`judge_store.relabel`) ставит совет заново по фактам строки.
-RULES_VERSION = "advertiser-rules-v4"
+RULES_VERSION = "advertiser-rules-v5"
 
 
 class Advice(StrEnum):
@@ -219,6 +224,11 @@ RULES: tuple[Rule, ...] = (
     Rule("rest", Advice.UNCLEAR, "по фактам не решить — решает человек", lambda _facts: True),
 )
 
+#: Правила, которые общий ответ модели не отменяет. Бесплатная карточка каталога: ответ видит бизнес за
+#: карточкой, а платит ли он за неё, из текста не видно. Подборка и недоказанное: таблица сама сказала,
+#: что по тексту не решить, и ответ по тому же тексту этого не решает.
+FIRM = frozenset({"free_directory", "ranked_directory", "unproven"})
+
 
 @dataclass(frozen=True, slots=True)
 class Ruled:
@@ -240,14 +250,16 @@ def _by_table(facts: LinkFacts, rules: tuple[Rule, ...]) -> Ruled:
 def advise(facts: LinkFacts, rules: tuple[Rule, ...] = RULES) -> Ruled:
     """Совет таблицы, сверенный с общим ответом модели (шапка модуля)."""
     ruled = _by_table(facts, rules)
-    if facts.verdict not in (Advice.WRITE, Advice.SKIP):
+    if facts.verdict not in (Advice.WRITE, Advice.SKIP) or ruled.rule in FIRM:
         return ruled
     said = Advice(facts.verdict)
     if ruled.advice is said:
         return ruled
-    if ruled.advice is Advice.UNCLEAR:
-        return Ruled(
-            said, "verdict", f"модель: {ADVICE_WORDS[said]}; правила не решили ({ruled.words})"
-        )
-    table = f"правила: {ADVICE_WORDS[ruled.advice]} ({ruled.words})"
-    return Ruled(Advice.UNCLEAR, "disagree", f"{table}; модель: {ADVICE_WORDS[said]}")
+    if ruled.advice is not Advice.UNCLEAR:
+        table = f"правила: {ADVICE_WORDS[ruled.advice]} ({ruled.words})"
+        return Ruled(Advice.UNCLEAR, "disagree", f"{table}; модель: {ADVICE_WORDS[said]}")
+    if said is Advice.SKIP:
+        return Ruled(Advice.UNCLEAR, ruled.rule, f"{ruled.words}; модель: {ADVICE_WORDS[said]}")
+    return Ruled(
+        said, "verdict", f"модель: {ADVICE_WORDS[said]}; правила не решили ({ruled.words})"
+    )

@@ -11,11 +11,15 @@
 калибровка видела все площадки и ниши, а не одного донора с сотнями спорных. Прерванный
 проход продолжается повтором той же команды: каждый суд записан сразу со строкой журнала расхода, и
 пары со свежим судом той же когорты план уже не берёт.
+
+`--relabel` — совет строк суда заново нынешней таблицей по их сохранённым фактам, после правки таблицы:
+модель и страницы не нужны, план тот же порядком — что изменится, подтверждение, запись.
 """
 
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +28,8 @@ from backend.cli.model_clients import model_and_sites
 from backend.features.core.domain import Verdict
 from backend.features.crawl.judge_client import JudgeClient
 from backend.features.crawl.judge_pass import JUDGED, JudgePlan, PassReport, plan_pass, run_pass
-from backend.features.crawl.judge_rules import ADVICE_WORDS, Advice
+from backend.features.crawl.judge_rules import ADVICE_WORDS, RULES_VERSION, Advice
+from backend.features.crawl.judge_store import relabel, relabel_moves
 from backend.shared.numbers import spaced
 
 EXIT_OK = 0
@@ -48,9 +53,9 @@ KEPT_ON_INTERRUPT = (
 )
 
 
-def _confirm() -> bool:
+def _confirm(question: str = "Запустить проход судьи?") -> bool:
     try:
-        answer = input("\nЗапустить проход судьи? [y/N] ").strip().lower()
+        answer = input(f"\n{question} [y/N] ").strip().lower()
     except EOFError:
         # Неинтерактивный запуск без --yes: молча потратить нельзя.
         print("\nНет терминала для подтверждения. Для автоматического запуска — --yes.")
@@ -60,8 +65,39 @@ def _confirm() -> bool:
 
 async def cmd_advertisers_judge(args: argparse.Namespace) -> int:
     async with model_and_sites() as (session, model_http, site_http):
+        if args.relabel:
+            return await run_relabel(session, args)
         client = JudgeClient(model_http)
         return await run_advertisers_judge(session, args, client=client, http=site_http)
+
+
+async def run_relabel(session: AsyncSession, args: argparse.Namespace) -> int:
+    """Совет строк заново нынешней таблицей: что изменится, подтверждение, запись. Без модели."""
+    moves = await relabel_moves(session)
+    print_moves(moves)
+    if args.dry_run:
+        print("\nЭто план: в базе ничего не изменилось.")
+        return EXIT_OK
+    if not moves:
+        return EXIT_OK
+    if not args.yes and not _confirm("Пересчитать советы?"):
+        print("Не пересчитывали.")
+        return EXIT_DECLINED
+    changed = await relabel(session)
+    await session.commit()
+    print(f"Пересчитано строк: {spaced(changed)}, токенов: 0")
+    return EXIT_OK
+
+
+def print_moves(moves: Counter[tuple[str, str]]) -> None:
+    print(f"Пересчёт советов таблицей {RULES_VERSION}: строк {spaced(sum(moves.values()))}")
+    for (was, now), count in sorted(moves.items()):
+        if was != now:
+            print(f"  {ADVICE_WORDS[Advice(was)]} → {ADVICE_WORDS[Advice(now)]}: {spaced(count)}")
+    same = sum(count for (was, now), count in moves.items() if was == now)
+    if same:
+        print(f"  совет тот же: {spaced(same)}")
+    print("  в тени: пишутся только строки суда, решения человека не трогаются")
 
 
 async def run_advertisers_judge(
@@ -179,6 +215,11 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
     )
     parser.add_argument(
         "--again", action="store_true", help="заново и тем, у кого свежий суд той же когорты"
+    )
+    parser.add_argument(
+        "--relabel",
+        action="store_true",
+        help="совет заново нынешней таблицей по сохранённым фактам: без модели и страниц",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="только план: сколько и токены; без траты"

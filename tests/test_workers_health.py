@@ -67,19 +67,24 @@ class TestBeats:
 
 
 class TestLoopWritesBeats:
+    """Ждут само событие: настоящее время на занятой машине CI числа проходов цикла не обещает."""
+
     async def test_loop_beats_and_counts_failures_in_a_row(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(ticker, "BEATS_DIR", tmp_path)
         calls = 0
+        enough = asyncio.Event()
 
         async def failing() -> None:
             nonlocal calls
             calls += 1
+            if calls >= health.FAILURES_UNHEALTHY:
+                enough.set()
             raise RuntimeError("база легла")
 
         task = asyncio.create_task(ticker.every(0.01, failing, name="Проба"))
-        await asyncio.sleep(0.2)
+        await asyncio.wait_for(enough.wait(), timeout=10)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
@@ -96,14 +101,16 @@ class TestLoopWritesBeats:
     ) -> None:
         monkeypatch.setattr(ticker, "BEATS_DIR", tmp_path)
         outcomes = iter([RuntimeError("раз"), RuntimeError("два"), None, None, None, None])
+        recovered = asyncio.Event()
 
         async def flaky() -> None:
             outcome = next(outcomes, None)
             if outcome is not None:
                 raise outcome
+            recovered.set()
 
         task = asyncio.create_task(ticker.every(0.01, flaky, name="Проба"))
-        await asyncio.sleep(0.2)
+        await asyncio.wait_for(recovered.wait(), timeout=10)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
