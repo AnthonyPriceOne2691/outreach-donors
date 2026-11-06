@@ -183,6 +183,8 @@ describe('обходы стоят без юнитов Ahrefs', () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/Свободно 12/)).toBeInTheDocument();
     await screen.findByText('fresh.example');
+    expect(await screen.findByText('обходы стоят')).toBeInTheDocument();
+    expect(screen.queryByText(/можно обойти/)).toBeNull();
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /Обойти отмеченных/ })).toBeNull(),
     );
