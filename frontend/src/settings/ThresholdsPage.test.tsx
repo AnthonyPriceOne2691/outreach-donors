@@ -15,6 +15,7 @@ import { AppRoutes } from '../App';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
+import { ThresholdsPage } from './ThresholdsPage';
 
 /** Адрес запроса из того, что отдали в `fetch`. */
 function urlOf(input: RequestInfo | URL): string {
@@ -265,6 +266,19 @@ describe('пороги', () => {
     expect(await screen.findByText('Править пороги не разрешено')).toBeInTheDocument();
     expect(screen.getByLabelText('DR не ниже')).toBeDisabled();
     expect(screen.getByText('№2')).toBeInTheDocument();
+  });
+});
+
+describe('учётка без доноров', () => {
+  it('без обоих этапов аутрича — отказ словами и ни одного запроса порогов и весов', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    const recorded = serve({
+      'GET /api/auth/me': { body: { ...OPERATOR, permissions: ['sales', 'settings', 'view'] } },
+    });
+    renderWith(<ThresholdsPage />);
+
+    expect(await screen.findByText('Раздел недоступен')).toBeInTheDocument();
+    expect(recorded.calls.some((call) => call.path.startsWith('/api/settings'))).toBe(false);
   });
 });
 

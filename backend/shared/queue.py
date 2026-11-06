@@ -78,6 +78,10 @@ LEAD_JOB = "backend.workers.jobs.send_lead"
 CRAWL_JOB = "backend.workers.crawl_jobs.crawl_donor"
 JUDGE_CRAWL_JOB = "backend.workers.crawl_jobs.judge_crawl"
 SALES_REPLY_JOB = "backend.workers.sales_jobs.sales_reply"
+#: «Переобойти спорные» — кнопкой, в очереди обходов (`workers/judge_jobs.py`).
+JUDGE_DISPUTED_JOB = "backend.workers.judge_jobs.judge_disputed"
+#: Номер один на сервис: второй разбор взял бы тех же спорных и заплатил модели второй раз.
+JUDGE_DISPUTED_JOB_ID = "advertiser-judge-pass"
 
 #: Прогон идёт минутами и может упереться в ожидание провайдера.
 #: Час — потолок, после которого задача считается зависшей: без него
@@ -90,6 +94,10 @@ JOB_TIMEOUT = 3600
 #: начинало суд заново. Вердикты теперь сохраняются пачками, и запас нужен, чтобы
 #: большой прогон кончался сам, а не по таймауту очереди.
 RUN_JOB_TIMEOUT = 3 * 3600
+
+#: Потолок задачи разбора спорных. Держит его дневной потолок судьи, а не очередь: это страховка от
+#: зависания. Прерванный разбор ничего не теряет: следующий запуск продолжает с места.
+JUDGE_DISPUTED_TIMEOUT = 12 * 3600
 
 #: Запас задачи обхода сверх его срока: после проверки срока ещё идут страница с каскадом
 #: уровней (до минуты), последняя пачка и запись итога.
@@ -150,6 +158,16 @@ def job_error(job_id: str, redis: Redis | None = None) -> str | None:
     """Последняя запомненная причина сбоя задачи."""
     raw = (redis or connection()).get(JOB_ERROR_KEY.format(job_id=job_id))
     return raw.decode("utf-8") if isinstance(raw, bytes) else raw
+
+
+def job_meta(job_id: str, redis: Redis | None = None) -> dict[str, Any]:
+    """Что задача пишет о себе: ход и кто поставил. Задачи нет или очередь молчит — пусто: ход на
+    экране подождёт, а судьбу задачи говорит `job_outcome`."""
+    try:
+        return dict(Job.fetch(job_id, connection=redis or connection()).meta)
+    except (NoSuchJobError, RedisError, ValueError) as exc:
+        logger.info("очередь: о себе задача %s не сказала — %s", job_id, exc)
+        return {}
 
 
 def parse_job_id(reply_id: int, message_id: str | None = None) -> str:

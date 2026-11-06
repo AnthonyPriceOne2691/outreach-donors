@@ -27,24 +27,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.cli.model_clients import model_and_sites
 from backend.features.core.domain import Verdict
 from backend.features.crawl.judge_client import JudgeClient
-from backend.features.crawl.judge_pass import JUDGED, JudgePlan, PassReport, plan_pass, run_pass
+from backend.features.crawl.judge_pass import (
+    JUDGED,
+    JudgePlan,
+    PassReport,
+    plan_pass,
+    report_lines,
+    run_pass,
+)
 from backend.features.crawl.judge_rules import ADVICE_WORDS, RULES_VERSION, Advice
 from backend.features.crawl.judge_store import relabel, relabel_moves
 from backend.shared.numbers import spaced
 
 EXIT_OK = 0
 EXIT_DECLINED = 1
-
-#: Исходы ядра словами (`crawl/judge.Outcome`).
-OUTCOMES = {
-    "judged": "рассужены",
-    "blind": "судить нечем (страница не открылась или ссылки на ней нет)",
-    "denied": "заглушка защиты вместо страницы",
-    "unanswered": "модель не ответила",
-    "cut_off": "ответ обрезан потолком вывода",
-    "form_broken": "ответ не строгой формы",
-    "quote_missing": "цитата не нашлась и после второго вопроса",
-}
 
 #: Строка на прерывание (`cli/main._KEPT_ON_INTERRUPT`).
 KEPT_ON_INTERRUPT = (
@@ -158,27 +154,10 @@ def print_plan(plan: JudgePlan) -> None:
 
 def print_report(report: PassReport) -> None:
     print(f"\nИтог: случаев {spaced(report.done)}, токенов {spaced(report.tokens)}")
-    for name, words in OUTCOMES.items():
-        if count := report.outcomes.get(name, 0):
-            print(f"  {words}: {spaced(count)}")
+    for line in report_lines(report):
+        print(f"  {line}")
     for kind, count in sorted(report.refusals.items()):
-        print(f"    отказ «{kind}»: {spaced(count)}")
-    advice = ", ".join(
-        f"{ADVICE_WORDS[Advice(name)]} {spaced(count)}"
-        for name, count in sorted(report.advice.items())
-    )
-    if advice:
-        print(f"  советы: {advice}")
-    if report.cached:
-        print(f"  из кэша, без модели: {spaced(report.cached)}")
-    if report.retried:
-        print(
-            f"  второй вопрос цитате: {spaced(report.retried)}, помог {spaced(report.retry_held)}"
-        )
-    if report.judged_before:
-        print(f"  уже судимы раньше, без скачивания: {spaced(report.judged_before)}")
-    if report.gone:
-        print(f"  кандидата к суду уже не было: {spaced(report.gone)}")
+        print(f"  отказ «{kind}»: {spaced(count)}")
     if report.stopped:
         print(f"\nОстановлено: {report.stopped}. Не спрошены: {spaced(report.left)}.")
 

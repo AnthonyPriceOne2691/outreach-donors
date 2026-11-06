@@ -23,6 +23,10 @@
 следующие пачки модель не зовут. Каждый суд — строка журнала расхода `advertiser_judge` сразу,
 короткой фиксацией: оборванный проход теряет только случай, который летел.
 
+**Кнопка.** «Переобойти спорные» идёт этим же проходом: смета — `judge_estimate.py`, задача —
+`workers/judge_jobs.py`. Обходчик перезапускают — проход встаёт на границе пачки (`stop`), следующий
+запуск продолжает с места.
+
 **Сеть.** Клиент — с защитой адресов (`shared/net/url_guard.guarded_client`, его даёт вызывающий):
 страницы и главные чужие, и адрес из данных обхода не уведёт запрос во внутреннюю сеть. Страницы
 пачки открываются разом, но к одному донору — по одной и с паузой обходчика (`CRAWL_DELAY_SEC`):
@@ -51,10 +55,12 @@ from backend.features.core.usage import LlmCapExceededError, OwnCap, ensure_llm_
 from backend.features.core.usage import record as record_usage
 from backend.features.crawl.judge import Case, Judged, Outcome, case_of, judge_seen
 from backend.features.crawl.judge_client import JudgeClient
+from backend.features.crawl.judge_rules import ADVICE_WORDS, Advice
 from backend.features.crawl.judge_store import JUDGEMENT_TTL_DAYS, Cohort, cohort_of
 from backend.features.crawl.judge_text import Seen, gather
 from backend.features.crawl.sample import in_sample, sampled
 from backend.shared.llm import ensure_model
+from backend.shared.numbers import spaced
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +78,17 @@ FETCH_CONCURRENCY = 4
 #: спорных плюс общий вопрос, адрес и счётчики. Настоящее число даст первый проход — дальше история.
 FALLBACK_TOKENS = 4200
 NO_CREDITS = "у ключа модели нет кредитов — пополните счёт, затем повторите проход"
+RESTARTING = "сервис перезапускался"
+#: Исходы ядра словами (`crawl/judge.Outcome`) — одни у консоли и у экрана.
+OUTCOMES = {
+    "judged": "рассужены",
+    "blind": "судить нечем (страница не открылась или ссылки на ней нет)",
+    "denied": "заглушка защиты вместо страницы",
+    "unanswered": "модель не ответила",
+    "cut_off": "ответ обрезан потолком вывода",
+    "form_broken": "ответ не строгой формы",
+    "quote_missing": "цитата не нашлась и после второго вопроса",
+}
 
 Progress = Callable[[int, int], None]
 
@@ -269,6 +286,32 @@ class PassReport:
         return sum(self.outcomes.values())
 
 
+def report_lines(report: PassReport) -> list[str]:
+    """Итог словами — одними у консоли и у экрана: исходы, советы и что обошлось без модели."""
+    lines = [
+        f"{words}: {spaced(report.outcomes[name])}"
+        for name, words in OUTCOMES.items()
+        if report.outcomes.get(name, 0)
+    ]
+    advice = ", ".join(
+        f"{ADVICE_WORDS[Advice(name)]} {spaced(count)}"
+        for name, count in sorted(report.advice.items())
+    )
+    if advice:
+        lines.append(f"советы: {advice}")
+    if report.cached:
+        lines.append(f"из кэша, без модели: {spaced(report.cached)}")
+    if report.retried:
+        lines.append(
+            f"второй вопрос цитате: {spaced(report.retried)}, помог {spaced(report.retry_held)}"
+        )
+    if report.judged_before:
+        lines.append(f"уже судимы раньше, без скачивания: {spaced(report.judged_before)}")
+    if report.gone:
+        lines.append(f"кандидата к суду уже не было: {spaced(report.gone)}")
+    return lines
+
+
 class Polite:
     """К одному донору — по одной странице и с паузой от конца прошлого запроса, как у обходчика."""
 
@@ -332,13 +375,17 @@ async def run_pass(
     http: httpx.AsyncClient,
     progress: Progress | None = None,
     delay: float | None = None,
+    stop: Callable[[], bool] | None = None,
 ) -> PassReport:
-    """Суд по плану — пачками; каждый суд — в базу сразу, со строкой журнала расхода."""
+    """Суд по плану — пачками; каждый суд — в базу сразу, со строкой журнала расхода. `stop` —
+    просьба встать: спрашивается перед каждой пачкой."""
     await ensure_model(client.model)
     report = PassReport(judged_before=plan.fresh)
     polite = Polite(crawl_cfg.DELAY_SEC if delay is None else delay)
     for start in range(0, len(plan.ids), CHUNK):
         chunk = plan.ids[start : start + CHUNK]
+        if not report.stopped and stop is not None and stop():
+            report.stopped = RESTARTING
         if not report.stopped:
             await _chunk(session, chunk, client=client, http=http, polite=polite, report=report)
         else:

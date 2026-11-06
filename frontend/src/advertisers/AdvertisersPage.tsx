@@ -43,6 +43,7 @@
  * осталась сводка (`CrawlSummary`).
  *
  * **Спорные — файлом** (`PendingExport`, тест-группа 31.10.2026): специалист проходит их таблицей.
+ * Рядом — «Переобойти спорные» (`JudgePass`, 06.11.2026): совет судьи новым спорным кнопкой.
  *
  * **Очередь — страницами по десять, с фильтрами «Балл» и «За что» под колонками** (слово Anthony
  * 05.11.2026): сервер отдавал первые полсотни, и остальных не было видно вовсе. Список, фильтры и
@@ -88,6 +89,7 @@ import { UnitsStopAlert } from './UnitsStopAlert';
 import { CrawlTab } from './CrawlTab';
 import { DisputedStrata } from './DisputedStrata';
 import { FalseShare } from './FalseShare';
+import { JudgePassButton, JudgePassStatus } from './JudgePass';
 import { NicheQueue } from './NicheQueue';
 import { PendingExport } from './PendingExport';
 import { PromotePanel } from './PromotePanel';
@@ -253,7 +255,9 @@ function ReviewView({ onOpenCrawl }: { onOpenCrawl: () => void }) {
             <>
               <Group>
                 <PendingExport total={counts['pending'] ?? 0} />
+                <JudgePassButton />
               </Group>
+              <JudgePassStatus />
               <DisputedStrata />
             </>
           ) : null}

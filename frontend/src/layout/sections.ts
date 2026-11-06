@@ -25,6 +25,10 @@
  * в `name`, значки различает тот же знак, что у «Писем». Прежний адрес `/senders` открывает экран
  * со всеми этапами, пункта у него нет. Смотреть может каждый, кто видит базу (своими этапами),
  * включать и выключать — только с правом `senders` (слово Anthony 05.11.2026).
+ *
+ * **«Пороги» и «Агент переписки» — у тех, кому в них есть что смотреть** (`anyOf`, сверка учётки продаж
+ * 06.11.2026): без «Доноров» и «Рекламодателей» пороги — пустой экран с отказом сервера, а агент
+ * переписки — тот же «Агент продаж» вторым пунктом.
  */
 
 import {
@@ -61,6 +65,9 @@ import { THREADS_TITLES } from '../threads/threadFilters';
 import type { NavGroupKey, NavGroupSpec } from './NavGroup';
 import type { WorkSection } from './work';
 
+/** Экран общий у доноров и рекламодателей, а у продаж свой. */
+const OUTREACH_STAGES = ['donors', 'advertisers'] as const;
+
 export interface Section {
   path: string;
   /** Часть общего экрана — один этап (`?stage=…`): «Диалоги продаж» — только продажи.
@@ -73,6 +80,8 @@ export interface Section {
   group: NavGroupKey;
   icon: Icon;
   permission?: Permission;
+  /** Нужно ещё хотя бы одно из этих прав: иначе в разделе нечего смотреть. */
+  anyOf?: readonly Permission[];
   /** Какое число ждущей работы стоит у пункта. */
   work?: WorkSection;
   /** Пункт ведёт туда, откуда из раздела ушли (`sectionPlace.ts`): список и запись —
@@ -218,6 +227,7 @@ export const SECTIONS: Section[] = [
     group: 'settings',
     icon: IconAdjustmentsHorizontal,
     permission: 'view',
+    anyOf: OUTREACH_STAGES,
   },
   {
     path: '/agent',
@@ -225,6 +235,7 @@ export const SECTIONS: Section[] = [
     group: 'settings',
     icon: IconRobot,
     permission: 'view',
+    anyOf: OUTREACH_STAGES,
   },
   { path: '/usage', title: 'Расход', group: 'settings', icon: IconReceipt2, permission: 'usage' },
   { path: '/users', title: 'Учётки', group: 'settings', icon: IconUsers, permission: 'users' },

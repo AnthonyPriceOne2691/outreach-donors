@@ -105,6 +105,7 @@ export function Shell() {
   const sections = placedSections(groups).filter(
     (section) =>
       (section.permission === undefined || can(section.permission)) &&
+      (section.anyOf === undefined || section.anyOf.some(can)) &&
       groups.some((group) => group.key === section.group),
   );
   const work = useWork(can('view'));
