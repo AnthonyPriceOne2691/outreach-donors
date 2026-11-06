@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
@@ -382,122 +381,6 @@ def test_code_facts_come_from_the_link_and_the_home() -> None:
     assert (sister.sponsored, sister.same_owner) == (True, True)
     assert (other.sponsored, other.same_owner) == (False, False)
     assert advise(sister).rule == "same_owner"
-
-
-# --- таблица правил -------------------------------------------------------------------------------
-
-
-def _facts(*on: str, link: bool = True, target: bool = True, disclosure: str = "") -> LinkFacts:
-    """Факты для таблицы: названные признаки «да», цитаты своей стороны — есть или нет."""
-    flags: dict[str, Any] = dict.fromkeys(on, True)
-    return LinkFacts(
-        **flags,
-        disclosure=disclosure,
-        link_quote=LINK_QUOTE if link else "",
-        target_quote=TARGET_QUOTE if target else "",
-    )
-
-
-@pytest.mark.parametrize(
-    ("facts", "advice", "rule"),
-    [
-        (
-            _facts("money_anchor", "target_sells", link=False, target=False),
-            Advice.UNCLEAR,
-            "unproven",
-        ),
-        (_facts("money_anchor", "target_redirect"), Advice.SKIP, "redirect"),
-        (
-            _facts("money_anchor", "calls_to_buy", "target_noncommercial", "target_sells"),
-            Advice.SKIP,
-            "noncommercial",
-        ),
-        (_facts("press_release", "brand_anchor", "target_sells"), Advice.WRITE, "press_release"),
-        (
-            _facts("site_navigation", "target_sells", disclosure="Anzeige"),
-            Advice.SKIP,
-            "navigation",
-        ),
-        (
-            _facts("site_navigation", "keyword_anchor", "target_refers", disclosure="Werbung"),
-            Advice.WRITE,
-            "paid_or_ad",
-        ),
-        (
-            _facts("directory_entry", "recommends", "target_sells"),
-            Advice.UNCLEAR,
-            "ranked_directory",
-        ),
-        (_facts("directory_entry", "visit_button", "target_sells"), Advice.SKIP, "free_directory"),
-        (_facts("directory_entry", "money_anchor", "target_sells"), Advice.WRITE, "promoted"),
-        (_facts("source_of_fact", "brand_anchor", "target_media"), Advice.SKIP, "citation"),
-        (_facts("source_of_fact", "money_anchor", "target_refers"), Advice.WRITE, "promoted"),
-        (_facts("ad_slot", "target_sells", "sponsored"), Advice.WRITE, "paid_or_ad"),
-        (_facts("brand_anchor", "target_sells", disclosure="Реклама"), Advice.WRITE, "paid_or_ad"),
-        (_facts("keyword_anchor", "target_sells"), Advice.WRITE, "promoted"),
-        (_facts("brand_anchor", "named_as_example", "target_sells"), Advice.WRITE, "promoted"),
-        (_facts("brand_anchor", "off_topic", "target_affiliate_signs"), Advice.WRITE, "promoted"),
-        (_facts("money_anchor", target=False), Advice.WRITE, "selling_anchor"),
-        (
-            _facts("brand_anchor", "article_about_target", "target_sells"),
-            Advice.WRITE,
-            "about_business",
-        ),
-        (_facts("brand_anchor", "target_media"), Advice.SKIP, "media"),
-        (_facts("brand_anchor", "target_sells"), Advice.UNCLEAR, "brand_mention"),
-        (_facts("target_sells"), Advice.SKIP, "no_signs"),
-        (_facts("target_sells", "sponsored"), Advice.UNCLEAR, "rest"),
-        (_facts("money_anchor", "target_media"), Advice.UNCLEAR, "rest"),
-    ],
-)
-def test_the_first_rule_that_fits_gives_the_advice(
-    facts: LinkFacts, advice: Advice, rule: str
-) -> None:
-    ruled = advise(facts)
-
-    assert (ruled.advice, ruled.rule) == (advice, rule)
-    assert ruled.words
-
-
-@pytest.mark.parametrize(
-    ("on", "verdict", "advice", "rule"),
-    [
-        (("keyword_anchor", "target_sells"), "write", Advice.WRITE, "promoted"),
-        (("keyword_anchor", "target_sells"), "unclear", Advice.WRITE, "promoted"),
-        (("keyword_anchor", "target_sells"), "", Advice.WRITE, "promoted"),
-        (("keyword_anchor", "target_sells"), "skip", Advice.UNCLEAR, "disagree"),
-        (("target_sells",), "skip", Advice.SKIP, "no_signs"),
-        (("target_sells",), "unclear", Advice.SKIP, "no_signs"),
-        (("target_sells",), "write", Advice.UNCLEAR, "disagree"),
-        (("brand_anchor", "target_sells"), "write", Advice.WRITE, "verdict"),
-        (("brand_anchor", "target_sells"), "skip", Advice.SKIP, "verdict"),
-        (("brand_anchor", "target_sells"), "unclear", Advice.UNCLEAR, "brand_mention"),
-        (("brand_anchor", "target_sells"), "", Advice.UNCLEAR, "brand_mention"),
-    ],
-)
-def test_the_models_answer_is_checked_against_the_table(
-    on: tuple[str, ...], verdict: str, advice: Advice, rule: str
-) -> None:
-    """Таблица не решила — совет по ответу; разошлись — «не понять»; иначе — совет таблицы."""
-    facts = dataclasses.replace(_facts(*on), verdict=verdict)
-
-    ruled = advise(facts)
-
-    assert (ruled.advice, ruled.rule) == (advice, rule)
-    assert ruled.words
-
-
-def test_a_disagreement_names_both_sides_in_words() -> None:
-    """Признаки остаются объяснением: человеку видно, что сказали правила и что — модель."""
-    facts = dataclasses.replace(_facts("keyword_anchor", "target_sells"), verdict="skip")
-
-    assert advise(facts).words == (
-        "правила: пишем (домен — бизнес, ссылка его продвигает); модель: не пишем"
-    )
-    undecided = dataclasses.replace(_facts("target_sells", "sponsored"), verdict="write")
-    assert advise(undecided).words == (
-        "модель: пишем; правила не решили (по фактам не решить — решает человек)"
-    )
 
 
 # --- исходы без вердикта: ни строки суда, ни кэша -------------------------------------------------

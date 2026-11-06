@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -153,6 +154,27 @@ async def remember(
     )
 
 
+async def _by_other_table(
+    session: AsyncSession, version: str, ids: list[int] | None = None
+) -> list[tuple[AdvertiserJudgementModel, LinkFacts]]:
+    """Строки, чей совет поставлен другой таблицей, с их фактами; факты не той формы — мимо."""
+    query = select(Judgement).where(Judgement.rules_version != version)
+    if ids is not None:
+        query = query.where(Judgement.id.in_(ids))
+    read = [(row, LinkFacts.from_json(row.facts)) for row in await session.scalars(query)]
+    return [(row, facts) for row, facts in read if facts is not None]
+
+
+async def relabel_moves(
+    session: AsyncSession, *, rules: tuple[Rule, ...] = RULES, version: str = RULES_VERSION
+) -> Counter[tuple[str, str]]:
+    """Что сделает пересчёт, без записи: сколько строк с каким советом получат какой."""
+    return Counter(
+        (row.advice, advise(facts, rules).advice.value)
+        for row, facts in await _by_other_table(session, version)
+    )
+
+
 async def relabel(
     session: AsyncSession,
     *,
@@ -162,15 +184,8 @@ async def relabel(
 ) -> int:
     """Совет строк, поставленный другой таблицей, — заново по их фактам, без модели. Факты, их цена
     и срок — те, что заплачены: вызова модели у такого совета нет. Сколько строк переписано."""
-    query = select(Judgement).where(Judgement.rules_version != version)
-    if ids is not None:
-        query = query.where(Judgement.id.in_(ids))
-    rows = (await session.scalars(query)).all()
     changed = 0
-    for row in rows:
-        facts = LinkFacts.from_json(row.facts)
-        if facts is None:
-            continue
+    for row, facts in await _by_other_table(session, version, ids):
         ruled = advise(facts, rules)
         await session.execute(
             update(Judgement)

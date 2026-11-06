@@ -31,13 +31,14 @@ from backend.features.crawl.judge_pass import (
     run_pass,
     within_caps,
 )
+from backend.features.crawl.judge_rules import RULES_VERSION
 from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.repository import save_crawl
 from backend.features.crawl.sample import sampled
 from backend.shared.llm import ModelUnreadyError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from tests.test_advertiser_judge import HOME_HTML, Model, client_of, facts_answer
+from tests.test_advertiser_judge import HOME_HTML, Model, client_of, facts_answer, facts_body
 
 DONOR = "kitchen-notes.example"
 #: Домены случайной выборки (md5 домена < «33») — в её порядке; и вне выборки.
@@ -423,3 +424,89 @@ async def test_the_command_runs_and_names_every_outcome(
     assert "Итог: случаев 2, токенов 240" in printed
     assert "рассужены: 2" in printed
     assert "советы: пишем 2" in printed
+
+
+def _by_old_table(target: str, advice: str) -> AdvertiserJudgementModel:
+    """Строка суда, чей совет поставила прежняя таблица; по фактам — «пишем»."""
+    return AdvertiserJudgementModel(
+        donor_host=DONOR,
+        target_root=target,
+        context_print="c" * 64,
+        prompt_version="advertiser-judge-test",
+        prompt_print="p" * 16,
+        examples_print="",
+        model="gpt-5-mini",
+        rules_version="advertiser-rules-v0",
+        facts=facts_body(),
+        advice=advice,
+        rule="verdict",
+        seen="Абзац со ссылкой: …",
+        tokens=100,
+        retried=False,
+    )
+
+
+async def _advice_and_tables(session: AsyncSession) -> list[tuple[str, str]]:
+    found = await session.execute(
+        select(AdvertiserJudgementModel.advice, AdvertiserJudgementModel.rules_version).order_by(
+            AdvertiserJudgementModel.target_root
+        )
+    )
+    return [(advice, version) for advice, version in found.tuples()]
+
+
+async def test_the_relabel_shows_the_moves_first_and_writes_without_tokens(
+    session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    session.add_all([_by_old_table("one.example", "skip"), _by_old_table("two.example", "write")])
+    await session.commit()
+    before = [("skip", "advertiser-rules-v0"), ("write", "advertiser-rules-v0")]
+
+    code = await cli.run_relabel(session, _args(dry_run=True))
+
+    printed = capsys.readouterr().out
+    assert code == cli.EXIT_OK
+    assert f"таблицей {RULES_VERSION}: строк 2" in printed
+    assert "не пишем → пишем: 1" in printed
+    assert "совет тот же: 1" in printed
+    assert "Это план" in printed
+    assert await _advice_and_tables(session) == before
+
+    code = await cli.run_relabel(session, _args())
+
+    assert code == cli.EXIT_OK
+    assert "Пересчитано строк: 2, токенов: 0" in capsys.readouterr().out
+    assert await _advice_and_tables(session) == [("write", RULES_VERSION)] * 2
+
+
+async def test_the_relabel_has_nothing_to_do_on_rows_of_this_table(
+    session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    row = _by_old_table("one.example", "write")
+    row.rules_version = RULES_VERSION
+    session.add(row)
+    await session.commit()
+
+    code = await cli.run_relabel(session, _args())
+
+    printed = capsys.readouterr().out
+    assert code == cli.EXIT_OK
+    assert "строк 0" in printed
+    assert "Пересчитано" not in printed
+
+
+async def test_the_relabel_without_a_terminal_writes_nothing(
+    session: AsyncSession, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_terminal(_question: str) -> str:
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", no_terminal)
+    session.add(_by_old_table("one.example", "skip"))
+    await session.commit()
+
+    code = await cli.run_relabel(session, _args(yes=False))
+
+    assert code == cli.EXIT_DECLINED
+    assert "Не пересчитывали" in capsys.readouterr().out
+    assert await _advice_and_tables(session) == [("skip", "advertiser-rules-v0")]

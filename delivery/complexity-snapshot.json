@@ -707,9 +707,9 @@
       "worst": "cmd_user_add:31"
     },
     "backend/cli/advertiser_judge.py": {
-      "lines": 187,
+      "lines": 228,
       "complexity": 11,
-      "worst": "print_report:123"
+      "worst": "print_report:159"
     },
     "backend/cli/advertisers.py": {
       "lines": 410,
@@ -1517,14 +1517,14 @@
       "worst": "plan_pass:185"
     },
     "backend/features/crawl/judge_rules.py": {
-      "lines": 254,
+      "lines": 266,
       "complexity": 6,
-      "worst": "_media:147"
+      "worst": "_media:152"
     },
     "backend/features/crawl/judge_store.py": {
-      "lines": 189,
+      "lines": 204,
       "complexity": 4,
-      "worst": "known:77"
+      "worst": "known:78"
     },
     "backend/features/crawl/judge_text.py": {
       "lines": 307,
