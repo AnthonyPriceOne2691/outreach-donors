@@ -22,7 +22,7 @@
       "worst": "form_queue:37"
     },
     "backend/api/advertisers/judge_pass.py": {
-      "lines": 213,
+      "lines": 208,
       "complexity": 6,
       "worst": "_job_state:127"
     },
