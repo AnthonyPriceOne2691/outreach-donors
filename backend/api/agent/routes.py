@@ -29,6 +29,7 @@ from backend.api.agent.schemas import (
 )
 from backend.api.deps import actor, db_session, needs
 from backend.api.letters.schemas import SendResult
+from backend.api.sales.close import release_answered
 from backend.api.stage_access import AGENT, on_draft
 from backend.features.access.permissions import require, require_stage, visible_stages
 from backend.features.access.repository import AccessRepository
@@ -158,6 +159,10 @@ async def send_draft(
     session: AsyncSession = Depends(db_session),
 ) -> SendResult:
     """Без текста — как есть (у отданного человеку — 409), с текстом — с правкой."""
+    # Чей ответ закрывает черновик — до отправки: после неё сбой чтения отменил бы ушедшее письмо
+    # словами «не отправили». Нет черновика — тот же отказ, что у отправки.
+    shown = await drafts.one(session, draft_id)
+    thread_id, reply_id = shown.thread_id, shown.draft.reply_id
     async with in_use(Transports()) as transports:
         outcome = await drafts.send_draft(
             session,
@@ -167,6 +172,10 @@ async def send_draft(
             by=Decider.of(author),
         )
     await session.commit()
+    # Ответ продаж, на который ушёл черновик, больше не ждёт человека — как ответ из поля
+    # (`api/sales/close.py`): письмо уже записано, сбой снятия его не отменяет. Не продаж — ничего.
+    if thread_id is not None:
+        await release_answered(session, thread_id, reply_id, author)
     return SendResult(id=outcome.message_id, sender_email=outcome.sender_email, real=outcome.real)
 
 

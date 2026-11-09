@@ -161,12 +161,14 @@ describe('«Передать телемаркетологу» у ответа п
     const user = userEvent.setup();
     await opened();
 
-    const card = screen.getByRole('region', { name: 'Передача телемаркетологу' });
+    // Карточка — по ответу: рядом с передачей — «Закрыть без ответа» (`SalesClose`).
+    const card = screen.getByRole('region', { name: 'Ответ ждёт человека' });
     expect(
       within(card).getByText(
-        `Передача телемаркетологу · ответ deniz@liman.example.test, ${formatDateTime(REPLY.received_at)}`,
+        `Ждёт человека · ответ deniz@liman.example.test, ${formatDateTime(REPLY.received_at)}`,
       ),
     ).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Закрыть без ответа' })).toBeEnabled();
     await user.click(within(card).getByRole('button', { name: BUTTON }));
     // Подтверждение у кнопки называет последствие: лид уходит наружу.
     const ask = await screen.findByRole('dialog');
@@ -196,7 +198,7 @@ describe('«Передать телемаркетологу» у ответа п
     );
 
     await waitFor(() => expect(screen.getAllByText(said)).toHaveLength(2));
-    const card = screen.getByRole('region', { name: 'Передача телемаркетологу' });
+    const card = screen.getByRole('region', { name: 'Ответ ждёт человека' });
     expect(within(card).getByText(said)).toBeInTheDocument();
     expect(within(card).getByRole('button', { name: BUTTON })).toBeEnabled();
   });
@@ -298,6 +300,7 @@ describe('«Передать телемаркетологу» у ответа п
     expect(
       screen.queryByRole('region', { name: 'Передача телемаркетологу' }),
     ).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Ответ ждёт человека' })).not.toBeInTheDocument();
   });
 
   it('у переписки доноров карточки нет', async () => {
@@ -317,9 +320,11 @@ describe('«Передать телемаркетологу» у ответа п
     await opened();
 
     expect(screen.getByRole('button', { name: BUTTON })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Закрыть без ответа' })).toBeDisabled();
     expect(
       screen.getByText(
-        'Передаёт лида телемаркетологу тот, у кого есть право отправки писем. Смотреть можно всем.',
+        'Передаёт лида телемаркетологу или закрывает ответ без ответа тот, у кого есть право ' +
+          'отправки писем. Смотреть можно всем.',
       ),
     ).toBeInTheDocument();
   });

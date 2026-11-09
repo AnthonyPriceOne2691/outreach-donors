@@ -62,9 +62,9 @@
       "worst": "—"
     },
     "backend/api/agent/routes.py": {
-      "lines": 184,
+      "lines": 193,
       "complexity": 6,
-      "worst": "agent_settings:57"
+      "worst": "agent_settings:58"
     },
     "backend/api/agent/schemas.py": {
       "lines": 239,
@@ -436,6 +436,11 @@
       "complexity": 4,
       "worst": "start_clean:148"
     },
+    "backend/api/sales/close.py": {
+      "lines": 107,
+      "complexity": 3,
+      "worst": "close:64"
+    },
     "backend/api/sales/funnel.py": {
       "lines": 99,
       "complexity": 5,
@@ -482,9 +487,9 @@
       "worst": "build_queue:166"
     },
     "backend/api/sales/routes.py": {
-      "lines": 363,
+      "lines": 365,
       "complexity": 6,
-      "worst": "_found:131"
+      "worst": "_found:132"
     },
     "backend/api/sales/schemas.py": {
       "lines": 234,
@@ -637,9 +642,9 @@
       "worst": "upload:46"
     },
     "backend/api/threads/routes.py": {
-      "lines": 189,
+      "lines": 193,
       "complexity": 5,
-      "worst": "redraft:158"
+      "worst": "redraft:162"
     },
     "backend/api/threads/schemas.py": {
       "lines": 450,
@@ -2936,6 +2941,11 @@
       "complexity": 8,
       "worst": "_clean_batch:329"
     },
+    "backend/features/sales/close_manual.py": {
+      "lines": 158,
+      "complexity": 8,
+      "worst": "close:70"
+    },
     "backend/features/sales/columns.py": {
       "lines": 80,
       "complexity": 3,
@@ -3022,9 +3032,9 @@
       "worst": "write:75"
     },
     "backend/features/sales/handoff_manual.py": {
-      "lines": 241,
+      "lines": 244,
       "complexity": 8,
-      "worst": "kommo_said:209"
+      "worst": "kommo_said:212"
     },
     "backend/features/sales/handoff_telegram.py": {
       "lines": 246,

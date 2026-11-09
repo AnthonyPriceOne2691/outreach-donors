@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.agent.schemas import DraftCard
 from backend.api.deps import actor, db_session, needs
 from backend.api.letters.schemas import SendResult
+from backend.api.sales.close import release_answered
 from backend.api.sales.handoff import thread_handoff
 from backend.api.stage_access import on_thread
 from backend.api.threads.schemas import AnswerBody, ThreadCard, ThreadView
@@ -147,6 +148,9 @@ async def answer(
             outcome.message_id,
             exc_info=exc,
         )
+    # Ответ продаж, на который человек ответил, больше не ждёт человека — своей точкой
+    # сохранения: сбой снятия письма не отменяет (`api/sales/close.py`). Не продаж — ничего.
+    await release_answered(session, thread_id, body.reply_id, author)
     return SendResult(id=outcome.message_id, sender_email=outcome.sender_email, real=outcome.real)
 
 
