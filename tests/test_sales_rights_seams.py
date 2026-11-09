@@ -85,6 +85,8 @@ TELEMARKETER_WRITES: dict[tuple[str, str], Permission | None] = {
     # «Передать телемаркетологу» — как ответ в переписке продаж: лид уходит наружу, сделкой в
     # Kommo и сообщением в Telegram. Телемаркетолог лида получает, а не передаёт.
     ("POST", "/api/sales/threads/{}/handoff"): Permission.SEND,
+    # «Закрыть без ответа» — решение по переписке продаж, как передача: право ответа в ней.
+    ("POST", "/api/sales/threads/{}/close"): Permission.SEND,
 }
 
 

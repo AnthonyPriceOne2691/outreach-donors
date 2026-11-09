@@ -92,6 +92,9 @@ ELSEWHERE = {
     # сделкой в Kommo и сообщением в Telegram; права и журнал с автором держит
     # `test_api_sales_handoff.py`.
     ("POST", "/api/sales/threads/{}/handoff"),
+    # «Закрыть без ответа» — `sales` и `send`, как передача: решение по переписке продаж, наружу
+    # ничего не уходит; права держит `test_sales_close_without_answer.py`.
+    ("POST", "/api/sales/threads/{}/close"),
 }
 
 PRICE = {

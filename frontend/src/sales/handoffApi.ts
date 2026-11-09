@@ -1,7 +1,8 @@
 /**
- * Передача лида продаж телемаркетологу: кнопка `POST /api/sales/threads/{N}/handoff` и поле
- * `handoff` выдачи переписки (`GET /api/threads/{N}`). Типы — здесь, у компонента: `types.ts`
- * и `thread.ts` — общие файлы «Диалогов».
+ * Решения по ответу продаж, который ждёт человека: передача лида телемаркетологу — кнопка
+ * `POST /api/sales/threads/{N}/handoff` и поле `handoff` выдачи переписки (`GET /api/threads/{N}`), —
+ * и «Закрыть без ответа» — `POST /api/sales/threads/{N}/close`. Типы — здесь, у компонента:
+ * `types.ts` и `thread.ts` — общие файлы «Диалогов».
  */
 
 import { request } from '../api/client';
@@ -40,4 +41,25 @@ export interface ThreadHandoff {
 
 export function handOver(threadId: number): Promise<HandedOver> {
   return request<HandedOver>(`/sales/threads/${threadId}/handoff`, { method: 'POST' });
+}
+
+/** Итог «Закрыть без ответа». */
+export interface ClosedWithoutAnswer {
+  /** Ответы переписки, снятые с ожидания человека. */
+  released: number[];
+  /** Сколько ответов лида пришли позже и ждут человека дальше. */
+  later: number;
+  /** Итог словами — под кнопками и в уведомлении. */
+  said: string;
+}
+
+/** Закрыть без ответа ответ `replyId`, который человек видит, и пришедшие раньше. */
+export function closeWithoutAnswer(
+  threadId: number,
+  replyId: number,
+): Promise<ClosedWithoutAnswer> {
+  return request<ClosedWithoutAnswer>(`/sales/threads/${threadId}/close`, {
+    method: 'POST',
+    body: { reply_id: replyId },
+  });
 }

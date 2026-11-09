@@ -7,6 +7,10 @@
  * вид «хочет говорить»: сделка в Kommo и сообщение в Telegram уходят задачей очереди, ответы
  * переписки снимаются с ожидания словами решения.
  *
+ * **Рядом — «Закрыть без ответа»** (`SalesClose.tsx`, слово владельца 09.11.2026): автоответ
+ * службы поддержки, принятый ответом человека, и пустой ответ передавать некому. Карточка поэтому
+ * называется по ответу — «Ждёт человека · ответ …», а не по передаче.
+ *
  * **Где и когда.** Карточкой под лентой, как форма решения доноров (`ReplyDecision`): одна на
  * переписку и только у ответа, который ждёт человека. У переписки без ожидания кнопки нет: ответ
  * уже разобран путём вида — отписка (звонить тому, кто просил не писать, нельзя), «не сейчас»,
@@ -30,7 +34,7 @@
  */
 
 import { Alert, Button, Card, Group, Stack, Text } from '@mantine/core';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
 import { fetchThread } from '../api/outreach';
@@ -42,6 +46,7 @@ import { notify, refuse, settle } from '../notices';
 import { activeReply } from '../threads/threadTimeline';
 import { handOver } from './handoffApi';
 import type { SalesHandoff as Handoff, ThreadHandoff } from './handoffApi';
+import { CloseButton, closedOn, useCloseWithoutAnswer, useRereadThread } from './SalesClose';
 import { useMayWrite, WriteRight } from './WriteRight';
 
 /** Пока Kommo или Telegram ждут задачи, переписка перечитывается так часто… */
@@ -79,12 +84,7 @@ const actionOf = (threadId: number) => `thread-handoff-${threadId}`;
 /** Передать — с перечитыванием переписки, списка и чисел меню: ответ перестал ждать человека.
  *  Всё — по номеру переписки из нажатия: ответ может прийти, когда открыта уже соседняя. */
 function useHandOver() {
-  const queryClient = useQueryClient();
-  async function reread(threadId: number) {
-    await queryClient.invalidateQueries({ queryKey: ['thread', String(threadId)] });
-    await queryClient.invalidateQueries({ queryKey: ['threads'] });
-    await queryClient.invalidateQueries({ queryKey: ['overview'] });
-  }
+  const reread = useRereadThread();
   return useMutation({
     mutationFn: (threadId: number) => handOver(threadId),
     onSuccess: async (done, threadId) => {
@@ -116,16 +116,19 @@ function HandoffLine({ handoff }: { handoff: Handoff }) {
 
 interface AskProps {
   reply: IncomingCard;
+  /** Идёт передача / идёт закрытие: пока одно в пути, второе не нажать. */
   busy: boolean;
+  closing: boolean;
   onConfirm: () => void;
+  onClose: () => void;
 }
 
-function HandoffAsk({ reply, busy, onConfirm }: AskProps) {
+function HandoffAsk({ reply, busy, closing, onConfirm, onClose }: AskProps) {
   const mayWrite = useMayWrite();
   return (
     <>
       <Text size="sm" fw={600}>
-        Передача телемаркетологу · ответ {reply.from_email ?? 'собеседника'},{' '}
+        Ждёт человека · ответ {reply.from_email ?? 'собеседника'},{' '}
         {formatDateTime(reply.received_at)}
       </Text>
       <Group>
@@ -135,15 +138,18 @@ function HandoffAsk({ reply, busy, onConfirm }: AskProps) {
               color="lagoon"
               className="press"
               loading={busy}
-              disabled={!mayWrite}
+              disabled={!mayWrite || closing}
               onClick={ask}
             >
               Передать телемаркетологу
             </Button>
           )}
         </ConfirmPopover>
+        <CloseButton busy={closing} disabled={!mayWrite || busy} onConfirm={onClose} />
       </Group>
-      {mayWrite ? null : <WriteRight what="Передаёт лида телемаркетологу" />}
+      {mayWrite ? null : (
+        <WriteRight what="Передаёт лида телемаркетологу или закрывает переписку без ответа" />
+      )}
     </>
   );
 }
@@ -185,7 +191,9 @@ export function pressedOn(hand: HandMutation, threadId: number) {
 export function SalesHandoff({ thread }: { thread: ThreadView }) {
   const threadId = thread.card.id;
   const hand = useHandOver();
+  const close = useCloseWithoutAnswer();
   const pressed = pressedOn(hand, threadId);
+  const closed = closedOn(close, threadId);
   // Передача — из переписки; пока она не перечитана после нажатия — из ответа на нажатие.
   const handoff = (thread as ThreadView & ThreadHandoff).handoff ?? pressed.handoff;
   useSettling(threadId, handoff);
@@ -194,7 +202,13 @@ export function SalesHandoff({ thread }: { thread: ThreadView }) {
     handoff !== null ? (
       <HandoffLine handoff={handoff} />
     ) : waiting !== null ? (
-      <HandoffAsk reply={waiting} busy={pressed.busy} onConfirm={() => hand.mutate(threadId)} />
+      <HandoffAsk
+        reply={waiting}
+        busy={pressed.busy}
+        closing={closed.busy}
+        onConfirm={() => hand.mutate(threadId)}
+        onClose={() => close.mutate({ threadId, replyId: waiting.id })}
+      />
     ) : null;
   if (body === null) return null;
   return (
@@ -203,11 +217,11 @@ export function SalesHandoff({ thread }: { thread: ThreadView }) {
       className="glass"
       px="md"
       py="sm"
-      aria-label="Передача телемаркетологу"
+      aria-label={handoff !== null ? 'Передача телемаркетологу' : 'Ответ ждёт человека'}
     >
       <Stack gap={8} align="flex-start">
         {body}
-        <Outcome said={pressed.said} refusal={pressed.refusal} />
+        <Outcome said={pressed.said ?? closed.said} refusal={pressed.refusal ?? closed.refusal} />
       </Stack>
     </Card>
   );

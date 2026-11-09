@@ -81,6 +81,7 @@ from backend.api.deps import db_session, needs
 from backend.api.sales import calibration as calibration_routes
 from backend.api.sales import chain as chain_routes
 from backend.api.sales import clean as clean_routes
+from backend.api.sales import close as close_routes
 from backend.api.sales import funnel as funnel_routes
 from backend.api.sales import handoff as handoff_routes
 from backend.api.sales import kb as kb_routes
@@ -360,3 +361,4 @@ router.include_router(segment_helper_routes.router)
 router.include_router(segment_sites_routes.router)
 router.include_router(weekly_routes.router)
 router.include_router(handoff_routes.router)
+router.include_router(close_routes.router)

@@ -129,6 +129,17 @@ describe('плашка черновика агента', () => {
         decide();
         return { body: SENT };
       },
+      // Сводку рамки тест объявляет сам: так её запросы видны в `calls` (`test/server.ts`).
+      'GET /api/overview/work': {
+        body: {
+          run: 0,
+          donor_threads: 0,
+          advertiser_threads: 0,
+          forms: 0,
+          advertisers: 0,
+          sales_threads: 1,
+        },
+      },
     }));
     const user = userEvent.setup();
 
@@ -136,10 +147,14 @@ describe('плашка черновика агента', () => {
     expect(within(banner()).getByText('ход 1')).toBeInTheDocument();
     expect(within(banner()).getByText('судья: пропустил')).toBeInTheDocument();
     expect(within(banner()).getByText('попыток: 1')).toBeInTheDocument();
+    const counts = () => recorded.calls.filter((call) => call.path === '/api/overview/work').length;
+    const before = counts();
     await user.click(within(banner()).getByRole('button', { name: 'Подходит · отправить' }));
 
     expect(await screen.findByText('Ответ отправлен с anna@mail.example')).toBeInTheDocument();
     expect(posted(recorded.calls, '/api/agent/drafts/11/send')?.body).toEqual({});
+    // Ответ продаж перестаёт ждать человека — числа меню перечитываются сразу (стенд 09.11).
+    await waitFor(() => expect(counts()).toBeGreaterThan(before));
     await waitFor(() => {
       expect(screen.queryByRole('region', { name: 'Черновик агента' })).not.toBeInTheDocument();
     });

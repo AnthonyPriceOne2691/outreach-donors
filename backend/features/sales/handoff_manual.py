@@ -89,7 +89,8 @@ async def hand_over(
     """Передать лида диалога телемаркетологу и снять ответы диалога с ожидания. Коммитит сессию."""
     replies = await _ready(session, thread_id)
     at = now or datetime.now(UTC)
-    released = tuple(reply.id for reply in replies if _release(reply, by, at))
+    words = f"{MANUAL}: {by}"
+    released = tuple(reply.id for reply in replies if release(reply, words, by=by, at=at))
     asked: list[int] = []
     row = await handoff.start(
         session, thread_id, enqueue=asked.append, now=lambda: at, author_id=author_id
@@ -173,14 +174,16 @@ def already(row: SalesHandoffModel) -> str:
     )
 
 
-def _release(reply: ReplyModel, by: str, at: datetime) -> bool:
+def release(reply: ReplyModel, words: str, *, by: str, at: datetime) -> bool:
     """Снять ответ с ожидания словами решения, если он ждёт человека. Отказ прошлой передачи
-    (`handoff_error`) снимается: итог — этой."""
+    (`handoff_error`) снимается: итог — этого решения. Решения человека — передача, «Закрыть без
+    ответа» и ответ в переписке (`close_manual`) — снимают одним снимком: что сказала модель,
+    остаётся в нём, по нему меряют разбор."""
     if not review_of(reply, Stage.SALES).waiting:
         return False
     base = reply.model_parse or {"stage": Stage.SALES.value, "kind": None}
     kept = {key: value for key, value in base.items() if key != "handoff_error"}
-    reply.model_parse = {**kept, "waits": False, "reason": f"{MANUAL}: {by}"}
+    reply.model_parse = {**kept, "waits": False, "reason": words}
     reply.reviewed_by, reply.reviewed_at = by[:128], at
     return True
 
