@@ -2002,9 +2002,9 @@
       "worst": "note:88"
     },
     "backend/features/letters/delivery_trouble.py": {
-      "lines": 468,
+      "lines": 490,
       "complexity": 7,
-      "worst": "words_of:432"
+      "worst": "words_of:454"
     },
     "backend/features/letters/dns_return.py": {
       "lines": 208,
@@ -2352,9 +2352,9 @@
       "worst": "span_of:266"
     },
     "backend/features/outreach/health.py": {
-      "lines": 294,
+      "lines": 296,
       "complexity": 9,
-      "worst": "listen:94"
+      "worst": "listen:96"
     },
     "backend/features/outreach/limits.py": {
       "lines": 133,

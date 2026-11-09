@@ -45,6 +45,7 @@ OUTAGE = (
 )
 TIMEOUT = "error dialing remote address: dial tcp 192.0.2.10:25: i/o timeout"
 NO_USER = "550 5.1.1 The email account that you tried to reach does not exist"
+AUTH = "530 5.7.1 Authentication required"
 EVENT_TIME = NOW - timedelta(hours=1)
 
 
@@ -106,7 +107,15 @@ def test_the_outage_text_is_silence_and_not_a_missing_server() -> None:
 
 
 def test_only_the_recipient_side_is_not_the_box() -> None:
-    assert {Trouble.RECIPIENT_DNS, Trouble.UNREACHABLE} == NOT_THE_BOX
+    assert {Trouble.RECIPIENT_DNS, Trouble.UNREACHABLE, Trouble.AUTH_REQUIRED} == NOT_THE_BOX
+
+
+def test_a_server_that_wants_a_login_is_the_recipient_side() -> None:
+    """«530 5.7.1 Authentication required» — настройка сервера получателя, а не отказ нашему IP."""
+    said = reason_of(AUTH)
+
+    assert said.kind is Trouble.AUTH_REQUIRED
+    assert said.words.startswith("сервер получателя не берёт почту извне")
 
 
 @pytest.mark.parametrize(
@@ -186,7 +195,7 @@ async def test_a_code_alone_names_the_recipient_side(session: AsyncSession) -> N
 # --- окно отказов ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("reason", [OUTAGE, TIMEOUT])
+@pytest.mark.parametrize("reason", [OUTAGE, TIMEOUT, AUTH])
 async def test_three_recipient_side_refusals_do_not_pause_the_box(
     session: AsyncSession, reason: str
 ) -> None:
