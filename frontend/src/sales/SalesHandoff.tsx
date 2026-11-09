@@ -148,7 +148,7 @@ function HandoffAsk({ reply, busy, closing, onConfirm, onClose }: AskProps) {
         <CloseButton busy={closing} disabled={!mayWrite || busy} onConfirm={onClose} />
       </Group>
       {mayWrite ? null : (
-        <WriteRight what="Передаёт лида телемаркетологу или закрывает ответ без ответа" />
+        <WriteRight what="Передаёт лида телемаркетологу или закрывает переписку без ответа" />
       )}
     </>
   );

@@ -178,6 +178,8 @@ export function ThreadPage({ salesPart: SalesPart }: Props = {}) {
     onSuccess: async (sent) => {
       await queryClient.invalidateQueries({ queryKey: ['thread', String(id)] });
       await queryClient.invalidateQueries({ queryKey: ['threads'] });
+      // Ответ продаж перестаёт ждать человека — числа меню сразу, а не опросом сводки.
+      await queryClient.invalidateQueries({ queryKey: ['overview'] });
       notify({
         message: sent.real
           ? `Ответ отправлен с ${sent.sender_email}`

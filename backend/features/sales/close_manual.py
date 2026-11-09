@@ -120,13 +120,13 @@ async def answered(
 def said(done: Closed) -> str:
     """Итог нажатия словами — строкой под кнопкой и уведомлением."""
     count = len(done.released)
-    head = "Закрыто без ответа" if count == 1 else f"Закрыто без ответа, ответов: {count}"
+    head = "Закрыто без ответа" if count == 1 else f"Закрыто без ответа (ответов — {count})"
     if done.later == 0:
         tail = "переписка больше не ждёт человека"
     elif done.later == 1:
         tail = "новый ответ лида пришёл позже и ждёт человека"
     else:
-        tail = f"новые ответы лида пришли позже и ждут человека: {done.later}"
+        tail = f"пришедшие позже ответы лида ждут человека — {done.later}"
     return f"{head}: {tail}."
 
 

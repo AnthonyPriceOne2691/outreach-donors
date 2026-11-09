@@ -8,7 +8,7 @@
  * продаж — плашкой черновика; отказ моста почты — словами сервера.
  */
 
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -101,6 +101,17 @@ describe('переписка продаж', () => {
       'POST /api/threads/5/answer': {
         body: { id: 12, sender_email: 'sales@mail.example.test', real: true },
       },
+      // Сводку рамки тест объявляет сам: так её запросы видны в `calls` (`test/server.ts`).
+      'GET /api/overview/work': {
+        body: {
+          run: 0,
+          donor_threads: 0,
+          advertiser_threads: 0,
+          forms: 0,
+          advertisers: 0,
+          sales_threads: 1,
+        },
+      },
     });
     const user = userEvent.setup();
 
@@ -112,6 +123,8 @@ describe('переписка продаж', () => {
       /Подпись и физический адрес из настроек «Отправителя» допишутся сами/,
     );
     await user.type(field, 'Sure, tomorrow at 10 works.');
+    const counts = () => recorded.calls.filter((sent) => sent.path === '/api/overview/work').length;
+    const before = counts();
     await user.click(screen.getByRole('button', { name: 'Отправить' }));
 
     expect(
@@ -119,6 +132,9 @@ describe('переписка продаж', () => {
     ).toBeInTheDocument();
     const call = recorded.calls.find((sent: Call) => sent.path === '/api/threads/5/answer');
     expect(call?.body).toEqual({ reply_id: 21, body: 'Sure, tomorrow at 10 works.', file_ids: [] });
+    // Ответ снимает ожидание — число «Диалоги продаж» перечитывается сразу, а не опросом
+    // сводки раз в минуту (стенд 09.11.2026).
+    await waitFor(() => expect(counts()).toBeGreaterThan(before));
   });
 
   it('отказ моста почты — словами сервера, а не «что-то пошло не так»', async () => {

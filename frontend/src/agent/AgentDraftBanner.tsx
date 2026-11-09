@@ -99,9 +99,10 @@ function sentWords(sent: SendResult): string {
 function useDecision(threadId: number, draft: DraftCard) {
   const queryClient = useQueryClient();
   async function settled(message: string, color: string) {
-    // Список диалогов тоже меняется: переписка перестаёт ждать человека.
+    // Список диалогов и числа меню тоже меняются: переписка перестаёт ждать человека.
     await queryClient.invalidateQueries({ queryKey: ['thread', String(threadId)] });
     await queryClient.invalidateQueries({ queryKey: ['threads'] });
+    await queryClient.invalidateQueries({ queryKey: ['overview'] });
     notify({ message, color });
   }
   const send = useMutation({

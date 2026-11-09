@@ -383,6 +383,27 @@ async def test_someone_elses_right_is_403_in_words(
     assert (reply.model_parse, reply.reviewed_at) == (UNSURE, None)
 
 
+@pytest.mark.parametrize(
+    ("released", "later", "words"),
+    [
+        ((1,), 0, "Закрыто без ответа: переписка больше не ждёт человека."),
+        ((1, 2), 0, "Закрыто без ответа (ответов — 2): переписка больше не ждёт человека."),
+        (
+            (1, 2),
+            1,
+            "Закрыто без ответа (ответов — 2): новый ответ лида пришёл позже и ждёт человека.",
+        ),
+        ((1,), 3, "Закрыто без ответа: пришедшие позже ответы лида ждут человека — 3."),
+    ],
+)
+def test_summary_has_one_colon_whatever_the_counts(
+    released: tuple[int, ...], later: int, words: str
+) -> None:
+    """Стенд 09.11.2026: при двух снятых ответах строка была «…, ответов: 2: …» — два двоеточия
+    подряд под кнопками и в уведомлении."""
+    assert close_manual.said(close_manual.Closed(released, later)) == words
+
+
 # --- ответ в переписке --------------------------------------------------------------------------
 
 
