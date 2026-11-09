@@ -38,6 +38,15 @@
 файл перевешивают адрес, как фразу: прайс от робота тикет-системы — цена
 донора, и её разбирает модель.
 
+**Подтверждение заявки системой поддержки** — автоответчик, с какого бы
+адреса оно ни пришло: служба пишет и с `support@`, а не только с noreply
+(проверка прода 06–09.11.2026: три подтверждения служб поддержки с `support@`
+стояли ответом человека и ждали его на экране, добивки по ним оборвались). Нужны
+оба признака сразу — фраза о приёме обращения (`ticket_phrases.TICKET_RECEIPT`) и
+номер заявки в теме или тексте (`ticket_phrases.TICKET_NUMBER_RE`): «письмо получили,
+передал коллеге» пишет и человек, а в заявку с номером отвечает и живой
+сотрудник. Сумма и файл перевешивают, как у робота.
+
 Правила лежат списком и разбираются по порядку, а не цепочкой `if`:
 список видно целиком, и переставить в нём строку — значит изменить
 правило осознанно. Каждое правило называет себя, и название попадает
@@ -56,7 +65,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from backend.features.core.domain import ReplyKind
-from backend.features.replies import phrases, robots
+from backend.features.replies import phrases, robots, ticket_phrases
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.money import amounts_in
 from backend.features.replies.quoting import written_by_hand
@@ -217,11 +226,26 @@ def _absent_in_text(_incoming: Incoming, body: str) -> bool:
     return bool(phrases.ABSENCE_RE.search(body))
 
 
+def _ticket_receipt(incoming: Incoming, body: str) -> bool:
+    """Подтверждение заявки: фраза о приёме обращения и номер заявки — в теме или в тексте.
+
+    Файл перевешивает: прайс приходит и в заявку, и его разбирает модель."""
+    numbered = ticket_phrases.TICKET_NUMBER_RE.search(_subject(incoming)) or (
+        ticket_phrases.TICKET_NUMBER_RE.search(body)
+    )
+    return (
+        bool(numbered)
+        and bool(ticket_phrases.TICKET_RECEIPT_RE.search(body))
+        and not incoming.has_price_file
+    )
+
+
 def _service_phrase(incoming: Incoming, body: str) -> bool:
     return (
         _asks_to_unsubscribe(incoming, body)
         or _auto_subject(incoming)
         or _absent_in_text(incoming, body)
+        or _ticket_receipt(incoming, body)
     )
 
 
@@ -269,6 +293,8 @@ def _robot_without_file(incoming: Incoming, _body: str) -> bool:
 #: Отписка раньше автоответчика: требование «больше не пишите», присланное
 #: автоматом, остаётся требованием, и последствие у него сильнее.
 #:
+#: Подтверждение заявки — после фраз автоответчика: те узнаются без номера.
+#:
 #: Адрес робота — последним: всё, что он мог бы перебить, уже решено выше.
 RULES: tuple[tuple[str, ReplyKind, _Check], ...] = (
     ("отказ доставки по заголовкам", ReplyKind.BOUNCE, _bounce_by_headers),
@@ -284,6 +310,7 @@ RULES: tuple[tuple[str, ReplyKind, _Check], ...] = (
     ("автоответчик по заголовкам", ReplyKind.AUTO_REPLY, _signed_by_machine),
     ("автоответчик по теме", ReplyKind.AUTO_REPLY, _auto_subject),
     ("автоответчик по тексту", ReplyKind.AUTO_REPLY, _absent_in_text),
+    ("подтверждение заявки", ReplyKind.AUTO_REPLY, _ticket_receipt),
     ("письмо робота без суммы и файла", ReplyKind.AUTO_REPLY, _robot_without_file),
 )
 
