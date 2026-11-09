@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from backend.features.core.domain import ReplyKind, Stage
 from backend.features.replies import classify, outcome, phrases, ticket_phrases
 from backend.features.replies.inbound import Attachment, Incoming
+from backend.features.replies.money import amounts_in
 
 OUR_SUBJECT = "Re: Guest article on donor.test"
 RULE = "подтверждение заявки"
@@ -46,7 +48,9 @@ PROD_LIKE = {
         "#300000417 Заявка закрыта: ${Тема}",
         "\u200b\u200bЗдравствуйте.\n\nБлагодарим за интерес проявленный к нашей компании, ваше обращение было\n"
         "передано в ответственный отдел. В случае заинтересованности с вами свяжутся.\n\n"
-        "Пожалуйста, оцените качество обслуживания\n1\n<https://rate.test/1>",
+        "Пожалуйста, оцените качество обслуживания\n1\n"
+        "<https://rate.test/ru/rate-us/2300001/900000001/1?token=abc>\n2\n"
+        "<https://rate.test/ru/rate-us/2300001/900000001/2?token=abc>",
     ),
     "номер в квадратных скобках": (
         "[#48213] Re: Кто отвечает за продвижение donor.test?",
@@ -207,3 +211,18 @@ def test_every_ticket_dictionary_knows_every_language(table: dict[str, tuple[str
     """Язык, забытый в словаре, — рынок, где подтверждение заявки снова ждёт человека."""
     assert set(table) == set(phrases.LANGUAGES)
     assert all(table[lang] for lang in phrases.LANGUAGES)
+
+
+@pytest.mark.parametrize(
+    ("text", "sums"),
+    [
+        ("<https://rate.test/ru/rate-us/2300001/900000001/1?token=abc>", set()),
+        ("Оцените: https://rate.test/rate-us/2300001/1", set()),
+        ("Статья — 150 USD, прайс: https://donor.test/about-us/2024", {Decimal(150)}),
+        ("$90 per post, see www.donor.test/us/77", {Decimal(90)}),
+    ],
+)
+def test_number_inside_a_link_is_not_a_sum(text: str, sums: set[Decimal]) -> None:
+    """Проверка прода 09.11.2026: «…/rate-us/2352416/…» читалось суммой в долларах,
+    и подтверждение со ссылками «оцените качество» шло правилом суммы как живой ответ."""
+    assert amounts_in(text) == sums

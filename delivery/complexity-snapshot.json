@@ -2467,9 +2467,9 @@
       "worst": "from_form:298"
     },
     "backend/features/replies/money.py": {
-      "lines": 325,
+      "lines": 342,
       "complexity": 8,
-      "worst": "_plain_number:217"
+      "worst": "_plain_number:223"
     },
     "backend/features/replies/offers.py": {
       "lines": 151,
