@@ -60,6 +60,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests import test_sales_send_world as w
 from tests.segment_facts_fakes import facts
+from tests.test_sales_hypothesis_edit import _waits_on_a_lock
 from tests.test_sales_segment_undo import (
     CLINIC,
     PORTAL,
@@ -594,7 +595,7 @@ async def test_an_assembly_arriving_in_the_middle_of_an_undo_waits_and_writes_no
                 assert found is not None
                 assert not found.repeated
                 release.set()
-                await asyncio.sleep(0.3)  # сборке — время упереться в строку лида
+                assert await _waits_on_a_lock(factory), "сборка не встала на строку лида"
                 assert not assembly.done()
                 await undoing.commit()
         finally:
@@ -624,7 +625,7 @@ async def test_an_undo_in_the_middle_of_writing_the_letter_waits_for_it_and_take
             await asyncio.wait_for(stored.wait(), MEETING)
             async with factory() as undoing:
                 task = asyncio.ensure_future(su.undo(undoing, site_id))
-                await asyncio.sleep(0.3)  # отмене — время упереться в строку лида
+                assert await _waits_on_a_lock(factory), "отмена не встала на строку лида"
                 assert not task.done()
                 release.set()
                 found = await asyncio.wait_for(task, MEETING)
@@ -661,7 +662,7 @@ async def test_a_sending_in_the_middle_of_an_undo_finds_the_letter_taken_off(
             assert found is not None
             task = asyncio.ensure_future(sending())
             try:
-                await asyncio.sleep(0.3)  # отправке — время упереться в строку письма
+                assert await _waits_on_a_lock(factory), "отправка не встала на строку письма"
                 assert not task.done()
                 await undoing.commit()
             finally:
