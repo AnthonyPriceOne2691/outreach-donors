@@ -2422,9 +2422,9 @@
       "worst": "decode:92"
     },
     "backend/features/replies/classify.py": {
-      "lines": 316,
-      "complexity": 3,
-      "worst": "_header_says:104"
+      "lines": 343,
+      "complexity": 4,
+      "worst": "_ticket_receipt:229"
     },
     "backend/features/replies/confirmation.py": {
       "lines": 122,
@@ -2467,9 +2467,9 @@
       "worst": "from_form:298"
     },
     "backend/features/replies/money.py": {
-      "lines": 325,
+      "lines": 342,
       "complexity": 8,
-      "worst": "_plain_number:217"
+      "worst": "_plain_number:223"
     },
     "backend/features/replies/offers.py": {
       "lines": 151,
@@ -2530,6 +2530,11 @@
       "lines": 65,
       "complexity": 5,
       "worst": "price_confirmable:29"
+    },
+    "backend/features/replies/ticket_phrases.py": {
+      "lines": 139,
+      "complexity": 0,
+      "worst": "—"
     },
     "backend/features/replies/unbound.py": {
       "lines": 181,
