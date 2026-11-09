@@ -2981,6 +2981,11 @@
       "complexity": 7,
       "worst": "kept_words:61"
     },
+    "backend/features/sales/earlier_replies.py": {
+      "lines": 60,
+      "complexity": 4,
+      "worst": "settle_earlier:33"
+    },
     "backend/features/sales/elsewhere.py": {
       "lines": 82,
       "complexity": 4,
@@ -3232,14 +3237,14 @@
       "worst": "refer:96"
     },
     "backend/features/sales/replies.py": {
-      "lines": 493,
-      "complexity": 8,
-      "worst": "handle:197"
+      "lines": 496,
+      "complexity": 9,
+      "worst": "handle:198"
     },
     "backend/features/sales/reply_handoff.py": {
-      "lines": 167,
+      "lines": 189,
       "complexity": 6,
-      "worst": "_refused:131"
+      "worst": "_refused:153"
     },
     "backend/features/sales/reply_kind.py": {
       "lines": 481,
