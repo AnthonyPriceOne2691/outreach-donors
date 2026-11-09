@@ -223,6 +223,6 @@ def test_every_ticket_dictionary_knows_every_language(table: dict[str, tuple[str
     ],
 )
 def test_number_inside_a_link_is_not_a_sum(text: str, sums: set[Decimal]) -> None:
-    """Проверка прода 09.11.2026: «…/rate-us/2352416/…» читалось суммой в долларах,
+    """Проверка прода 09.11.2026: «…/rate-us/<номер>/…» читалось суммой в долларах,
     и подтверждение со ссылками «оцените качество» шло правилом суммы как живой ответ."""
     assert amounts_in(text) == sums
