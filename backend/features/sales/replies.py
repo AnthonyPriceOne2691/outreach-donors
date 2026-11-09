@@ -74,6 +74,7 @@ from backend.features.replies.repository import ReplyRepository
 from backend.features.sales import agent_turns, handoff, kb, ooo, queue_jobs, reply_handoff
 from backend.features.sales.connection import MODULE_OFF
 from backend.features.sales.dead_mailbox import KIND, colleague
+from backend.features.sales.earlier_replies import settle_earlier
 from backend.features.sales.mail import linked, unwritable
 from backend.features.sales.no_draft import absent as agent_absent
 from backend.features.sales.referral import Referred, from_answer
@@ -224,6 +225,8 @@ class SalesReplies:
         decision, no_draft = await self._no_draft(reply, found, decision)
         reply.model_parse = self._record(snapshot(found, model=self._classifier.model), decision)
         reply.confidence = found.confidence
+        if not decision.waits:  # решён без человека — ранние ответы диалога тоже не ждут
+            await settle_earlier(self._session, reply, KIND_WORDS[found.kind])
         logger.info(
             "продажи: вид ответа разобран",
             extra={"reply": reply.id, "kind": found.kind.value, "route": decision.route.value},

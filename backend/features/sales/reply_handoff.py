@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import ReplyModel
+from backend.features.sales.earlier_replies import settle_earlier
 from backend.features.sales.handoff import HandoffError
 from backend.features.sales.models import SalesHandoffModel
 from backend.features.sales.reply_routes import GAVE_PHONE, Route
@@ -110,8 +111,29 @@ async def pass_on(session: AsyncSession, ask: Ask, start: HandOver) -> Said | No
             extra={"reply": ask.reply_id, "thread_id": ask.thread_id},
         )
         return await _refused(session, ask, exc)
+    if not said.waits and reply is not None:
+        await _settle_earlier(session, reply, ask.words)
     await session.commit()  # передача без новой работы (`handoff._reopen`) сама не коммитит
     return said
+
+
+async def _settle_earlier(session: AsyncSession, reply: ReplyModel, words: str) -> None:
+    """Лид передан — ранние ждущие ответы диалога тоже решены (`earlier_replies`). Только после
+    удачной передачи: отказ коммитит свой снимок (`_refused`), и снятые до него ранние ответы ушли
+    бы в базу без передачи. Сбой снятия передачу не отменяет — ранние ответы ждут, причина в журнале.
+
+    Снятие — в точке сохранения: ошибка базы прерывает транзакцию, и без отката к точке итоговый
+    коммит передачи упал бы следом. Свой снимок позднего ответа уходит в базу до точки: его сбой —
+    не сбой снятия, он идёт к вызывающему, как шёл."""
+    where = {"reply": reply.id, "thread_id": reply.thread_id}
+    await session.flush()
+    try:
+        async with session.begin_nested():
+            await settle_earlier(session, reply, words)
+    except SQLAlchemyError:
+        logger.exception(
+            "продажи: лид передан, а ранние ответы диалога с ожидания не сняты", extra=where
+        )
 
 
 async def _settled(session: AsyncSession, ask: Ask) -> Said:
