@@ -374,15 +374,30 @@ async def _committed_hypothesis(factory: async_sessionmaker[AsyncSession], name:
         return made.id
 
 
-async def _waits_on_a_lock(factory: async_sessionmaker[AsyncSession], pid: int) -> bool:
-    """Ждёт ли соединение `pid` блокировку — по `pg_stat_activity`, до `MEETING` секунд."""
+#: Ждёт ли блокировку соединение `pid`.
+_PID_WAITS = text(
+    "SELECT count(*) FROM pg_stat_activity WHERE pid = :pid AND wait_event_type = 'Lock'"
+)
+#: Ждёт ли блокировку любое соединение базы теста (у каждого процесса xdist база своя).
+_ANY_WAITS = text(
+    "SELECT count(*) FROM pg_stat_activity"
+    " WHERE datname = current_database() AND wait_event_type = 'Lock'"
+)
+
+
+async def _waits_on_a_lock(
+    factory: async_sessionmaker[AsyncSession], pid: int | None = None
+) -> bool:
+    """Ждёт ли блокировку соединение `pid` — без него любое соединение базы теста — по
+    `pg_stat_activity`, до `MEETING` секунд. Не таймингом: на медленном раннере 0,3 с не хватало
+    (CI 09.11.2026). Сведения `pg_stat_activity` Postgres собирает один раз на транзакцию, поэтому
+    каждый опрос — своей транзакцией: иначе блокировка, вставшая после первого опроса, не видна."""
+    query, params = (_ANY_WAITS, {}) if pid is None else (_PID_WAITS, {"pid": pid})
     async with factory() as watcher:
         for _ in range(MEETING * 20):
-            state = await watcher.scalar(
-                text("SELECT wait_event_type FROM pg_stat_activity WHERE pid = :pid"),
-                {"pid": pid},
-            )
-            if state == "Lock":
+            waiting = await watcher.scalar(query, params)
+            await watcher.rollback()
+            if waiting:
                 return True
             await asyncio.sleep(0.05)
     return False
