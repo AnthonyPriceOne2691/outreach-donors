@@ -28,6 +28,13 @@ mx info». Вид «нет почтового сервера» говорил ч
 говорит о нашей репутации: его никто не видел. Такие причины не считаются против ящика — ни в
 окне отказов, ни в мягких сигналах (`outreach/health.py`). Иначе чужой сбой ставил бы на паузу наши
 ящики: так и вышло, три встали, а лимит урезан у всех.
+
+**Сервер получателя просит вход — не про нас** (09.11.2026). «530 5.7.1 Authentication required» шёл
+по коду темы 7 в «отклоняет наш адрес или IP», и человек искал беду с репутацией. Так отвечает
+сервер, который письма снаружи не принимает вовсе: почта домена смотрит в сервер отправки, а не в
+приёмный, или анонимная доставка выключена. Это настройка на стороне получателя: письмо не дойдёт,
+сколько ни повторяй, но о нашем ящике оно не говорит. «Unauthenticated» и «not authenticated» — про
+подпись нашего письма (SPF, DKIM, DMARC) и остаются отказом нашему адресу.
 """
 
 from __future__ import annotations
@@ -56,6 +63,7 @@ class Trouble(StrEnum):
     MAILBOX_FULL = "mailbox_full"
     RATE_LIMITED = "rate_limited"
     BLOCKED = "blocked"
+    AUTH_REQUIRED = "auth_required"
     TLS = "tls"
     NO_MAILBOX = "no_mailbox"
     SPAM = "spam"
@@ -74,6 +82,7 @@ WORDS: dict[Trouble, str] = {
     Trouble.MAILBOX_FULL: "ящик получателя переполнен",
     Trouble.RATE_LIMITED: "сервер получателя ограничил частоту писем от нас",
     Trouble.BLOCKED: "сервер получателя отклоняет наш адрес или IP",
+    Trouble.AUTH_REQUIRED: "сервер получателя не берёт почту извне: просит вход",
     Trouble.TLS: "сбой шифрования связи с сервером получателя",
     Trouble.NO_MAILBOX: "ящика получателя нет или он отключён",
     Trouble.SPAM: "сервер получателя счёл письмо спамом",
@@ -82,8 +91,9 @@ WORDS: dict[Trouble, str] = {
     Trouble.UNKNOWN: "ответ почты",
 }
 
-#: Причина на стороне получателя: письмо не дошло до его сервера, и о ящике это не говорит ничего.
-NOT_THE_BOX = frozenset({Trouble.RECIPIENT_DNS, Trouble.UNREACHABLE})
+#: Причина на стороне получателя: письмо не дошло до его сервера или сервер не берёт почту извне, и о
+#: ящике это не говорит ничего.
+NOT_THE_BOX = frozenset({Trouble.RECIPIENT_DNS, Trouble.UNREACHABLE, Trouble.AUTH_REQUIRED})
 
 #: Отказ, в словах которого причины нет: платформа сдалась, а почему — сказала отсрочками раньше.
 GAVE_UP = frozenset({Trouble.UNKNOWN, Trouble.EXPIRED})
@@ -113,6 +123,18 @@ RULES: tuple[tuple[Trouble, re.Pattern[str]], ...] = (
             r"too long in (the )?queue",
             r"giving up|gave up",
             r"max(imum)? (number of )?(retries|attempts|delivery attempts)",
+        ),
+    ),
+    # Сервер получателя просит вход — раньше отказов нашему адресу: у «Relaying denied. Proper
+    # authentication required» и «Client was not authenticated» дело в настройке получателя, а
+    # «unauthenticated» и «must authenticate with SPF or DKIM» ниже — подпись нашего письма.
+    (
+        Trouble.AUTH_REQUIRED,
+        _rx(
+            r"\bauthentication (is )?required\b",
+            r"\bclient (was )?not authenticated\b",
+            r"\bsmtp auth\w* (is )?required\b",
+            r"требуется (авторизация|аутентификация)",
         ),
     ),
     # Наш адрес или IP — раньше «нет домена»: «Sender address rejected: Domain not found» — о домене

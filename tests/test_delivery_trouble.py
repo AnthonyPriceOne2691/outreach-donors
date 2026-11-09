@@ -178,6 +178,20 @@ SAMPLES: list[tuple[Trouble, str]] = [
         "550 5.7.26 This mail has been blocked because the sender is unauthenticated. All "
         "senders must authenticate with either SPF or DKIM.",
     ),
+    (
+        Trouble.BLOCKED,
+        "550 5.7.26 Unauthenticated email from example.com is not accepted due to domain's DMARC "
+        "policy.",
+    ),
+    # Сервер получателя не берёт почту извне и просит вход: настройка на его стороне.
+    (Trouble.AUTH_REQUIRED, "530 5.7.1 Authentication required"),
+    (
+        Trouble.AUTH_REQUIRED,
+        "530 5.7.57 Client was not authenticated to send anonymous mail during MAIL FROM",
+    ),
+    (Trouble.AUTH_REQUIRED, "550 5.7.1 Relaying denied. Proper authentication required."),
+    (Trouble.AUTH_REQUIRED, "530 SMTP authentication is required."),
+    (Trouble.AUTH_REQUIRED, "530 5.7.0 Требуется авторизация"),
     (Trouble.BLOCKED, "450 4.7.25 Client host rejected: cannot find your hostname, [192.0.2.1]"),
     (
         Trouble.BLOCKED,
