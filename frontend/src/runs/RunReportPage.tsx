@@ -14,6 +14,11 @@
  * **У идущего прогона чисел доменов нет, а не нули.** Отчёт пишется в конце попытки,
  * журнал расхода — на каждом чекпоинте: идущий прогон уже потратил, а итога у него ещё
  * нет. Ноль читался бы как «проверил и никого не нашёл».
+ *
+ * **На виду — факты, пояснения — в «i»** (слово владельца 10.11.2026; было решение
+ * 20.10.2026 держать их абзацами — четыре подряд, 114 слов). Путь доменов и числа стоят
+ * строкой и плитками; почему «Рассмотреть» не равно «Подходит» — в «i» у кнопки, что
+ * за пороги и кто исключён — в «i» у заголовков карточек (`RejectionsCard`, `ReasonsCard`).
  */
 
 import { Alert, Badge, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core';
@@ -25,6 +30,7 @@ import { countryTitle, DONOR_STATUSES, RUN_STATUSES } from '../api/labels';
 import { fetchRunReport } from '../api/runReport';
 import type { RunDomains, RunReportView } from '../api/runReport';
 import type { RunCard, RunStatus } from '../api/types';
+import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
 import { formatDateTime, formatNumber, plural } from '../format';
 import { CompetitorJournal } from './CompetitorJournal';
@@ -87,20 +93,23 @@ function NotReached({ domains, status }: { domains: RunDomains; status: RunStatu
 
 /** Почему «Рассмотреть» у прогона не равно «Подходит» (ревью 20.10.2026): «Подходит» — вердикт
  *  прогона, а «Рассмотреть» — кто ждёт решения сейчас. Решённые туда не входят, «кому не пишем»
- *  в очередь не кладут, а взятые из резерва — сверх «Подходит». Числа сходятся — строки нет. */
-function QueueNote({ run, domains }: { run: RunCard; domains: RunDomains }) {
-  const pending = run.queue.pending ?? 0;
-  if (pending === domains.suitable) return null;
+ *  в очередь не кладут, а взятые из резерва — сверх «Подходит». В «i» у кнопки «Рассмотреть», а
+ *  не строкой под плитками (слово владельца 10.11.2026: четыре абзаца подряд — итог строкой
+ *  и «i»). Числа сходятся — значка нет. */
+function QueueNote({ run, domains }: { run: RunCard; domains: RunDomains | null }) {
+  if (domains === null || (run.queue.pending ?? 0) === domains.suitable) return null;
   return (
-    <Text size="sm" c="dimmed">
-      «Рассмотреть» — кто ждёт решения сейчас, поэтому не равно «Подходит»: решённые человеком в
-      него не входят, «кому не пишем» в очередь не кладут, а взятые из резерва — сверх.
-    </Text>
+    <InfoHint name="Почему «Рассмотреть» не равно «Подходит»" width={300} interactive>
+      <Text size="sm">
+        «Рассмотреть» — кто ждёт решения сейчас, поэтому не равно «Подходит»: решённые человеком в
+        него не входят, «кому не пишем» в очередь не кладут, а взятые из резерва — сверх.
+      </Text>
+    </InfoHint>
   );
 }
 
 /** Факты прогона строкой: состояние, страна, ключи, когда запущен — и вход в рассмотрение. */
-function Facts({ run, from }: { run: RunCard; from: string }) {
+function Facts({ run, from, domains }: { run: RunCard; from: string; domains: RunDomains | null }) {
   const pending = run.queue.pending ?? 0;
   const queued = pending + (run.queue.accepted ?? 0) + (run.queue.rejected ?? 0);
   return (
@@ -116,9 +125,12 @@ function Facts({ run, from }: { run: RunCard; from: string }) {
         {run.started_by ? `, запустил ${run.started_by}` : ' — кто запустил, не записано'}
       </Text>
       {queued > 0 && (
-        <ReviewLink run={run} from={from}>
-          {pending > 0 ? `Рассмотреть ${formatNumber(pending)}` : 'Рассмотрение'}
-        </ReviewLink>
+        <Group gap={4} wrap="nowrap">
+          <ReviewLink run={run} from={from}>
+            {pending > 0 ? `Рассмотреть ${formatNumber(pending)}` : 'Рассмотрение'}
+          </ReviewLink>
+          <QueueNote run={run} domains={domains} />
+        </Group>
       )}
     </Group>
   );
@@ -165,7 +177,6 @@ function DomainsBlock({ run, domains }: { run: RunCard; domains: RunDomains }) {
         />
       </SimpleGrid>
       <NotReached domains={domains} status={run.status} />
-      <QueueNote run={run} domains={domains} />
       {domains.resumes > 0 && (
         <Text size="sm" c="dimmed">
           Прогон продолжали после сбоя ({formatNumber(domains.resumes)}{' '}
@@ -185,7 +196,7 @@ function Head({ report, address }: { report: RunReportView; address: RunAddress 
     <Card className="glassPanel" p="xl">
       <Stack gap="md">
         <RunHead back={address.back} title={`Отчёт прогона №${run.id}`} hint={HINT}>
-          <Facts run={run} from={address.from} />
+          <Facts run={run} from={address.from} domains={domains} />
         </RunHead>
         {domains === null ? (
           <Text size="sm" c="dimmed" maw={720}>

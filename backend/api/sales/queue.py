@@ -71,14 +71,16 @@ _sender = Depends(needs(Permission.SEND))
 
 
 class AutoLineView(BaseModel):
-    """Автоотправка или автосборка: включена ли и что сейчас — строкой словами."""
+    """Автоотправка или автосборка: включена ли и что сейчас — строкой словами: коротко у значка,
+    целиком — в «i» рядом (`auto_lines`)."""
 
     enabled: bool
     line: str
+    short: str
 
     @classmethod
     def of(cls, found: auto_lines.AutoLine) -> AutoLineView:
-        return cls(enabled=found.enabled, line=found.line)
+        return cls(enabled=found.enabled, line=found.line, short=found.short)
 
 
 class SalesQueueView(BaseModel):

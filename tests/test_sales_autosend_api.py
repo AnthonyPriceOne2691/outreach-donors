@@ -19,7 +19,14 @@ from backend.features.core.window import WEEKDAYS
 from backend.features.letters.sending import Sending
 from backend.features.letters.unknown_outcome import STUCK_AFTER
 from backend.features.sales import autobuild, autosend
-from backend.features.sales.auto_lines import BUILD_OFF, SEND_OFF, SEND_ON, pace
+from backend.features.sales.auto_lines import (
+    BUILD_OFF,
+    BUILD_OFF_SHORT,
+    SEND_OFF,
+    SEND_OFF_SHORT,
+    SEND_ON,
+    pace,
+)
 from backend.features.sales.queue_start import build_job_id
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,10 +75,13 @@ async def test_switched_off_both_lines_say_so_with_the_setting(
     lines = await _lines(client, headers, world.hypothesis_id)
 
     assert lines == {
-        "autosend": {"enabled": False, "line": SEND_OFF},
-        "autobuild": {"enabled": False, "line": BUILD_OFF},
+        "autosend": {"enabled": False, "line": SEND_OFF, "short": SEND_OFF_SHORT},
+        "autobuild": {"enabled": False, "line": BUILD_OFF, "short": BUILD_OFF_SHORT},
     }
     assert "включается настройкой SALES_AUTOSEND" in SEND_OFF
+    # Имя настройки — администратору, в «i»; на экране — чем слать без неё.
+    assert "SALES_AUTOSEND" not in SEND_OFF_SHORT
+    assert "SALES_AUTOBUILD" not in BUILD_OFF_SHORT
 
 
 async def test_unknown_outcome_is_said_on_the_screen_with_the_letters_in_the_window(
@@ -94,6 +104,11 @@ async def test_unknown_outcome_is_said_on_the_screen_with_the_letters_in_the_win
     assert lines["autosend"]["enabled"] is True
     assert line.startswith(f"{SEND_ON}: {pace()}. В окне получателя сейчас 1 письмо.")
     assert f"Стоит: исход письма №{letters[0].id} неизвестен" in line
+    # Остановка — и в короткой строке у значка: по ней действуют, не раскрывая «i».
+    short = str(lines["autosend"]["short"])
+    assert short.startswith(f"Включена, стоит: исход письма №{letters[0].id} неизвестен")
+    assert short.endswith("; в окне получателя 1 письмо.")
+    assert pace() not in short
 
 
 async def test_a_set_allowlist_keeps_autosend_off_on_the_screen_in_words(
@@ -109,11 +124,14 @@ async def test_a_set_allowlist_keeps_autosend_off_on_the_screen_in_words(
 
     lines = await _lines(client, headers, world.hypothesis_id)
 
+    why = (
+        "список разрешённых адресатов почты продаж не пуст (OUTREACH_SALES_ALLOWED_RECIPIENTS) — "
+        "письма уходят только на свои адреса, кнопкой «Отправить очередь» или по одному"
+    )
     assert lines["autosend"] == {
         "enabled": False,
-        "line": "Автоотправка не включается: список разрешённых адресатов почты продаж не пуст "
-        "(OUTREACH_SALES_ALLOWED_RECIPIENTS) — письма уходят только на свои адреса, кнопкой "
-        "«Отправить очередь» или по одному.",
+        "line": f"Автоотправка не включается: {why}.",
+        "short": f"Не включается: {why}.",
     }
 
 
@@ -139,6 +157,11 @@ async def test_going_and_then_waiting_for_the_box_pause(
     assert str(resting["autosend"]["line"]).endswith(
         f"В окне получателя сейчас 1 письмо. Ящики на паузе — ближайший освободится в "
         f"{until:%H:%M} UTC."
+    )
+    assert going["autosend"]["short"] == "Включена, письма уходят; в окне получателя 2 письма."
+    assert resting["autosend"]["short"] == (
+        f"Включена, ящики на паузе — ближайший освободится в {until:%H:%M} UTC; в окне "
+        "получателя 1 письмо."
     )
 
 
@@ -168,15 +191,22 @@ async def test_autobuild_line_says_the_shortage_whom_it_builds_and_what_it_built
         f"Автосборка включена: очередь — на ближайший день отправки, {WEEKDAYS[day.weekday()]} "
         f"{day:%d.%m}: мощность ящиков продаж — 20 писем, в очереди готовых к отправке — 0 писем"
     )
+    ready = f"Включена: очередь на {WEEKDAYS[day.weekday()]} {day:%d.%m} — готово 0 из 20 писем"
     assert before["autobuild"] == {
         "enabled": True,
         "line": f"{head}; не хватает 20 писем — ближайший проход соберёт гипотезу "
         "«Выдуманная гипотеза», до 20 писем.",
+        "short": f"{ready}; ближайший проход соберёт «Выдуманная гипотеза», до 20 писем.",
     }
     assert str(running["autobuild"]["line"]).startswith(
         f"{head}; не хватает 20 писем, но не собирается: идёт сборка гипотезы «Выдуманная гипотеза»"
     )
     assert str(running["autobuild"]["line"]).endswith("«Выдуманная гипотеза», до 20 писем: идёт.")
+    # Почему не собирает — у значка; последняя автосборка — только в «i».
+    assert str(running["autobuild"]["short"]).startswith(
+        f"{ready}; не хватает 20 писем, но не собирается: идёт сборка гипотезы"
+    )
+    assert "последняя автосборка" not in str(running["autobuild"]["short"])
     assert str(done["autobuild"]["line"]).endswith(
         "«Выдуманная гипотеза», до 20 писем: собрано 3 письма."
     )

@@ -4,12 +4,23 @@
  * Своим файлом: `types.ts` у потолка длины.
  */
 
-import type { MailingForecastView } from '../sales/mailingTypes';
+import type { ForecastSender, MailingForecastView } from '../sales/mailingTypes';
 import { request } from './client';
 import type { Stage } from './stages';
 import type { SenderCard, SendersView } from './types';
 
 export type { ForecastSender, MailingForecastView } from '../sales/mailingTypes';
+
+/** Ящик этапа на экране доменов: почему не берёт писем — ещё и коротко, значком строки
+ *  (`outreach/limits.short`); слова целиком — `refused`, по нажатию. */
+export interface StageBox extends ForecastSender {
+  refused_short: string | null;
+}
+
+/** Прогноз этапа глазами экрана доменов: из него нужны только ящики. */
+export interface StageBoxesView extends MailingForecastView {
+  senders: StageBox[];
+}
 
 export interface StagedSender extends SenderCard {
   stage: Stage;
@@ -60,6 +71,6 @@ export function listSendersByStage(): Promise<SendersByStage> {
 }
 
 /** Ящики этапа со ступенями разгона — из общего прогноза почты. Плана и факта блоку не нужно. */
-export function fetchStageBoxes(stage: Stage): Promise<MailingForecastView> {
-  return request<MailingForecastView>(`/letters/forecast?stage=${stage}&days=1&back=0`);
+export function fetchStageBoxes(stage: Stage): Promise<StageBoxesView> {
+  return request<StageBoxesView>(`/letters/forecast?stage=${stage}&days=1&back=0`);
 }

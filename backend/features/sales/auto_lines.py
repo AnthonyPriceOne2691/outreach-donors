@@ -11,6 +11,12 @@
 (`autosend.guard`): строка говорит это тем же правилом, что у прохода, значок — «выключена».
 Включена — значит, список разрешённых адресатов пуст, и строка говорит это прямо: письма уходят
 всем лидам очереди, а не только своим адресам.
+
+**Строка — двумя длинами** (замечание владельца 10.11.2026: строки режима «простынями» — под
+подсказки). Короткая (`short`) стоит на экране у значка: что сейчас и сколько писем в окне, хватает
+ли очереди и кого соберёт. Целиком (`line`) — в «i» рядом: темп прохода, кому уходят письма,
+последняя автосборка. То, по чему действуют сразу, — стоит, не включается, не шлёт, не собирается —
+короткая говорит теми же словами, что целая: прятать причину остановки под значок нельзя.
 """
 
 from __future__ import annotations
@@ -51,6 +57,9 @@ BUILD_OFF = (
     "Автосборка выключена — очередь собирают кнопкой «Собрать очередь»; включается настройкой "
     "SALES_AUTOBUILD."
 )
+#: Коротко о выключенных: чем слать и собирать; имя настройки — в целой строке, в «i».
+SEND_OFF_SHORT = "Выключена — первые письма уходят кнопкой «Отправить очередь» или по одному."
+BUILD_OFF_SHORT = "Выключена — очередь собирают кнопкой «Собрать очередь»."
 #: Письма в окне есть и ящик свободен, а как есть не уйдёт ни одно — проход стоит, отказывая
 #: каждому (`autosend.Stop.REFUSED_ALL`). Правило — счёт очереди автосборки (`autobuild.queued`).
 STALE = (
@@ -67,10 +76,12 @@ CLOSED = (
 
 @dataclass(frozen=True, slots=True)
 class AutoLine:
-    """Включено ли и что сейчас — одной строкой словами."""
+    """Включено ли и что сейчас — словами: коротко на экран, целиком в «i»."""
 
     enabled: bool
     line: str
+    #: Что сейчас — строкой у значка; причина остановки в ней та же, что в `line`.
+    short: str
 
 
 def letters(count: int) -> str:
@@ -94,22 +105,41 @@ def pace() -> str:
 async def autosend_line(session: AsyncSession, now: datetime) -> AutoLine:
     """Автоотправка одной строкой: включена ли, как часто, сколько в окне, почему стоит."""
     if not sales_cfg.AUTOSEND:
-        return AutoLine(enabled=False, line=SEND_OFF)
+        return AutoLine(enabled=False, line=SEND_OFF, short=SEND_OFF_SHORT)
     guarded = autosend.guard()
     if guarded is not None:
-        return AutoLine(enabled=False, line=f"Автоотправка не включается: {guarded}.")
+        return AutoLine(
+            enabled=False,
+            line=f"Автоотправка не включается: {guarded}.",
+            short=f"Не включается: {guarded}.",
+        )
     seen = await autosend.facts(session, now)
     broken = seen.broken()
     if broken is not None:
-        return AutoLine(enabled=True, line=f"{SEND_STOPPED}: {broken[1]}.")
+        return AutoLine(
+            enabled=True,
+            line=f"{SEND_STOPPED}: {broken[1]}.",
+            short=f"Включена, а не шлёт ничего: {broken[1]}.",
+        )
     stop = seen.stop()
-    head = f"{SEND_ON}: {pace()}. В окне получателя сейчас {letters(len(seen.waiting.ids))}"
+    window = letters(len(seen.waiting.ids))
     if stop is not None:
-        return AutoLine(enabled=True, line=f"{head}. Стоит: {stop[1]}.")
+        return _sending(window, f"Стоит: {stop[1]}")
     stands = await none_goes(session, seen)
     if stands is not None:
-        return AutoLine(enabled=True, line=f"{head}. Стоит: {stands}.")
-    return AutoLine(enabled=True, line=f"{head}. {await _going(session, seen, now)}.")
+        return _sending(window, f"Стоит: {stands}")
+    return _sending(window, await _going(session, seen, now))
+
+
+def _sending(window: str, state: str) -> AutoLine:
+    """Включена и решает проход: целиком — кому уходят письма и темп; коротко — что сейчас и
+    сколько писем в окне получателя."""
+    head = f"{SEND_ON}: {pace()}. В окне получателя сейчас {window}"
+    return AutoLine(
+        enabled=True,
+        line=f"{head}. {state}.",
+        short=f"Включена, {state[:1].lower()}{state[1:]}; в окне получателя {window}.",
+    )
 
 
 def batch_line() -> str | None:
@@ -156,26 +186,32 @@ async def autobuild_line(session: AsyncSession, jobs: Queue, now: datetime) -> A
     него — та же, что у прогноза рассылки на этот день), кого соберёт или почему не собирает, когда
     и сколько собрано само."""
     if not sales_cfg.AUTOBUILD:
-        return AutoLine(enabled=False, line=BUILD_OFF)
+        return AutoLine(enabled=False, line=BUILD_OFF, short=BUILD_OFF_SHORT)
     found = await autobuild.plan(session, jobs, now=now)
     day = f"{WEEKDAYS[found.day.weekday()]} {found.day:%d.%m}" if found.day else "—"
     parts = [
         f"Автосборка включена: очередь — на ближайший день отправки, {day}: мощность ящиков "
         f"продаж — {letters(found.need)}, в очереди готовых к отправке — {letters(found.have)}"
     ]
+    # Коротко — сколько готово из нужного и что дальше; последняя автосборка — только в «i».
+    on = f"на {day}" if found.day else "на ближайший день отправки"
+    ready = f"очередь {on} — готово {found.have} из {letters(found.need)}"
     if not found.short:
         parts.append("хватает")
+        short = f"{ready}, хватает"
     elif found.hypothesis_id is not None:
         parts.append(
             f"не хватает {letters(found.short)} — ближайший проход соберёт гипотезу "
             f"«{found.name}», до {letters(found.limit)}"
         )
+        short = f"{ready}; ближайший проход соберёт «{found.name}», до {letters(found.limit)}"
     else:
         parts.append(f"не хватает {letters(found.short)}, но не собирается: {found.why}")
+        short = f"{ready}; не хватает {letters(found.short)}, но не собирается: {found.why}"
     last = await _last(session, jobs)
     if last is not None:
         parts.append(last)
-    return AutoLine(enabled=True, line="; ".join(parts) + ".")
+    return AutoLine(enabled=True, line="; ".join(parts) + ".", short=f"Включена: {short}.")
 
 
 async def _last(session: AsyncSession, jobs: Queue) -> str | None:

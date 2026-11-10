@@ -9,6 +9,7 @@
 модуль, и обратный импорт замкнул бы круг.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 #: Карточка лимита «Расхода» — по своему имени: рядом такие же (`settings/LimitCard.tsx`).
@@ -17,6 +18,34 @@ HUNTER_CARD = "[role='group'][aria-label='Hunter']"
 USAGE_TAB = "[aria-label='Что смотреть на экране «Расход»'] .mantine-SegmentedControl-innerLabel"
 #: «Подробнее» карточки Hunter: подробности свёрнуты и не отрисованы (10.11.2026).
 HUNTER_MORE = f"{HUNTER_CARD} button[aria-expanded]"
+
+
+#: «i» у кнопки «Рассмотреть» в отчёте прогона: почему очередь не равна «Подходит».
+REVIEW_HINT = "Почему «Рассмотреть» не равно «Подходит»"
+
+
+def _open_card(name: str) -> Callable[[Any], None]:
+    """Шаг перед точкой: окошко «i» с этим именем открыто нажатием, прежнее закрыто Esc.
+
+    Значка нет (числа очереди и «Подходит» сошлись, причин нет) — ничего не делать: точка
+    честно печатает «не измерено», а не роняет весь замер ожиданием, как `open_reason`.
+    """
+
+    def show(page: Any) -> None:
+        page.keyboard.press("Escape")
+        hint = page.get_by_role("button", name=name)
+        if hint.count() == 0:
+            return
+        hint.first.click()
+        page.locator(".mantine-Popover-dropdown").first.wait_for()
+        page.wait_for_timeout(300)
+
+    return show
+
+
+def _card_probe(what: str, name: str, text: str, norm: float) -> tuple[Any, ...]:
+    """Точка текста в окошке «i»: имя точки, вырезка, норма и шаг, который его открывает."""
+    return (what, f".mantine-Popover-dropdown p:has-text('{text}')", norm, _open_card(name))
 
 
 def open_hunter_details(page: Any) -> None:
@@ -130,21 +159,22 @@ def report_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("подпись плитки", ".glassQuiet p:nth-child(1)", norm),
                 ("число в плитке", ".glassQuiet p:nth-child(2)", big),
                 ("пояснение под числом", ".glassQuiet p:nth-child(3)", norm),
-                ("пояснение порогов", "p:has-text('Пороги этого прогона')", norm),
                 ("порог в строке", "table tbody td:first-child", norm),
                 # Каждая причина «не предложен» — словами (20.10.2026): крупный сайт — своей
                 # строкой порогов, исключённые и «не проверен» — карточкой под порогами.
                 ("крупный сайт в порогах", "table tbody td:has-text('слишком крупный')", norm),
                 ("заголовок причин", "h5:has-text('Исключены и не проверены')", norm),
-                ("пояснение причин", "p:has-text('Исключённых гейт снял')", norm),
                 ("группа причин", "p:has-text('Исключено до Ahrefs')", norm),
                 ("причина в строке", "table tbody td:has-text('Кому не пишем')", norm),
-                # «Рассмотреть» не равно «Подходит» — почему, строкой под плитками (ревью 20.10.2026).
-                ("очередь и «Подходит»", "p:has-text('кто ждёт решения сейчас')", norm),
                 ("ссылка на резерв прогона", "a:has-text('в резерве прогона')", norm),
                 ("статья расхода", "table tbody .cellName", norm),
                 ("провайдер статьи", "table tbody .mantine-Badge-label", norm),
                 ("пункт меню", "nav a", norm),
+                # Пояснения — в «i» (слово владельца 10.11.2026): у кнопки «Рассмотреть» и у
+                # заголовков карточек. Окошко ложится поверх экрана — эти точки последние.
+                _card_probe("очередь и «Подходит»", REVIEW_HINT, "кто ждёт решения", norm),
+                _card_probe("пояснение порогов", "Какие пороги в отчёте", "Пороги этого", norm),
+                _card_probe("пояснение причин", "Кто исключён и кто не проверен", "гейт", norm),
             ],
         },
         # Журнал действий (11.10.2026): по нему разбирают доступ — кто, что и когда.

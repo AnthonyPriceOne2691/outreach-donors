@@ -18,6 +18,7 @@
 в ярусы, и её тексты встают над другими местами полотна.
 """
 
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -299,32 +300,39 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "viewport": PHONE,
             "probes": unbound_probes(norm, big, menu=False),
         },
-        # Пробы — внутри карточки домена: шапка тоже `.glass`, и проба
-        # `.glass p` первой брала почту в шапке (25.09.2026).
+        # Пробы — внутри таблицы доменов: шапка тоже `.glass`, и проба
+        # `.glass p` первой брала почту в шапке (25.09.2026). С 10.11.2026
+        # домены — строками таблицы (`domainTable`), а не карточками.
         "senders": {
             "path": "/senders",
             "ready": ("heading", "Домены рассылки"),
             "probes": [
                 ("заголовок раздела", "h3", big),
-                ("домен", ".mantine-Card-root.glass p", norm),
-                ("значок состояния", ".mantine-Card-root.glass .mantine-Badge-label", norm),
-                ("сколько ушло сегодня", ".mantine-Card-root.glass p[data-size='xs']", norm),
+                ("домен", ".domainTable .domainName", norm),
                 (
-                    "кнопка «Выключить»",
-                    ".mantine-Card-root.glass button:has-text('Выключить')",
-                    big,
+                    "значок состояния",
+                    ".domainTable td[data-label='Состояние'] .mantine-Badge-label",
+                    norm,
                 ),
+                (
+                    "сколько ушло сегодня",
+                    ".domainTable td[data-label='Первых писем сегодня'] p",
+                    norm,
+                ),
+                ("кнопка «Выключить»", ".domainTable button:has-text('Выключить')", big),
                 ("пункт меню", "nav a", norm),
             ],
         },
-        # Часть экрана со своим блоком: под доменами этапа — ящики и разгон (05.11.2026).
+        # Часть экрана со своим блоком: под доменами этапа — ящики и разгон (05.11.2026),
+        # с 10.11.2026 свёрнуты с итогом в подписи; подготовка раскрывает (`open_boxes`).
         "senders-advertisers": {
             "path": "/senders?stage=advertisers",
             "ready": ("heading", "Домены рассылки рекламодателей"),
             "probes": [
                 ("заголовок раздела", "h3", big),
-                ("домен", ".mantine-Card-root.glass p", norm),
-                ("ящик в таблице", ".mailingBoxes td[data-label='Пишет ли'] p", norm),
+                ("домен", ".domainTable .domainName", norm),
+                ("итог ящиков", ".boxesFold button[aria-expanded] .mantine-Button-label", norm),
+                ("ящик в таблице", ".mailingBoxes td[data-label='Ушло сегодня']", norm),
                 ("пункт меню", "nav a", norm),
             ],
         },
@@ -402,6 +410,15 @@ def open_unbound_reply(page: Any) -> None:
     page.wait_for_timeout(900)
 
 
+def open_boxes(page: Any) -> None:
+    """Раскрыть «Ящики и разгон»: свёрнутые, они оставляют на экране одну подпись, а мерить надо
+    и таблицу ящиков. Раскрытие идёт кадром анимации — мерить по улёгшемуся."""
+    fold = page.get_by_role("button", name=re.compile("^Ящики и разгон"))
+    fold.click()
+    expect(page.locator(".mailingBoxes")).to_be_visible()
+    page.wait_for_timeout(900)
+
+
 def mail_prepare() -> dict[str, Callable[[Any], None]]:
     """Что сделать на экране до замера — там, где без этого мерить нечего."""
     return {
@@ -412,4 +429,5 @@ def mail_prepare() -> dict[str, Callable[[Any], None]]:
         "thresholds-refused": refuse_thresholds,
         "unbound": open_unbound_reply,
         "unbound-phone": open_unbound_reply,
+        "senders-advertisers": open_boxes,
     }

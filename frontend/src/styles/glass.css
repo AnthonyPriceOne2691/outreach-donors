@@ -1517,6 +1517,20 @@ html:root .mantine-Pill-root {
   --meter-fill: var(--rose-warm);
 }
 
+/* Свёрнутые ящики на экране доменов (`senders/StageBoxes`): подпись кнопки — итог одной строкой, и
+   на телефоне она длиннее кнопки. Кнопка растёт в высоту, подпись переносится, а не режется краем. */
+.boxesFold .mantine-Card-root > .mantine-Group-root > .mantine-Button-root {
+  height: auto;
+  min-height: var(--button-height);
+  max-width: 100%;
+  padding-block: 4px;
+}
+
+.boxesFold .mantine-Card-root > .mantine-Group-root .mantine-Button-label {
+  white-space: normal;
+  text-align: start;
+}
+
 /* Переключатель страниц. Умолчание Mantine — белые кнопки с серой рамкой
    (в темноте — тёмно-серые) и заливка у текущей: на стекле это плашки
    из чужого макета. Кнопки — подложка вложенного блока с кромкой (в тёмной
@@ -1776,6 +1790,16 @@ html:root .mantine-Pill-root {
   vertical-align: middle;
 }
 
+/* Список очереди рассмотрения — не ниже окна под шапкой рамы, как «Диалоги»
+   (`threadsSplit`). Разведка 10.11.2026: короткая вкладка («Отклонены — 0»)
+   укорачивала страницу с 1 302 до 900 px, браузер поджимал прокрутку, и вкладки
+   уезжали вверх на 115–170 px. Смена вкладки двигает только содержимое списка. */
+.reviewQueue {
+  min-height: calc(
+    100dvh - var(--app-shell-header-offset, 0rem) - 2 * var(--app-shell-padding, 0rem)
+  );
+}
+
 /* Ярус очереди — разделителем над своей группой, а не значком в каждой строке
    (аудит экранов 09.10.2026). Строка тише данных: без подсветки под курсором. */
 .reviewTable tbody tr.tierRow td {
@@ -1794,8 +1818,8 @@ html:root .mantine-Pill-root {
 
 /* Домен в колонке заданной ширины переносится где угодно, а не распирает
    её: длинный поддомен иначе уезжал бы под соседнюю колонку. У «Отбора»
-   домен не переносится вовсе — одна строка с DR и многоточие (`SelectionRow`,
-   проверка QA 10.10.2026). */
+   домен не переносится вовсе — многоточие (`SelectionRow`, проверка QA
+   10.10.2026); DR — в его строке, а с «Порогами» — под ним (10.11.2026). */
 .reviewTable td a {
   overflow-wrap: anywhere;
 }
@@ -2107,6 +2131,17 @@ html:root .mantine-Pill-root {
 
   .phoneCardsRow tbody > tr > td.limitUsed {
     grid-column: span 2;
+  }
+
+  /* Домены рассылки и их ящики (`senders/`): короткие значения — двумя половинами карточки; в трети
+     значки «отправляет» и «ещё не писал» резались многоточием (снимок 390 px, 10.11.2026). Длинное —
+     состояние закрытого или выключенного домена, «пишет ли» ящика — во всю ширину (`phoneWide`). */
+  .phoneCardsRow :is(.domainTable, .mailingBoxes) tbody > tr {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .phoneCardsRow tbody > tr > td.phoneWide {
+    grid-column: 1 / -1;
   }
 
   /* Отметка первой колонкой и короткие значения в строку (вкладка «Обход доноров»): имя —

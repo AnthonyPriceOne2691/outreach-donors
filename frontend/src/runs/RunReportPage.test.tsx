@@ -85,6 +85,9 @@ const REPORT: RunReportView = {
   unchecked: [{ said: 'Не проверен: Ahrefs не знает домен', count: 6, not_writing: false }],
 };
 
+/** Имя «i» у кнопки «Рассмотреть»: почему число очереди не равно «Подходит». */
+const QUEUE_HINT = 'Почему «Рассмотреть» не равно «Подходит»';
+
 function openReport(report: unknown, path = '/runs/27') {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
@@ -117,19 +120,50 @@ describe('отчёт прогона', () => {
     }
   });
 
-  it('«Рассмотреть» не равно «Подходит» — и сказано почему; сошлись — строки нет', async () => {
+  it('«Рассмотреть» не равно «Подходит» — почему, в «i» у кнопки «Рассмотреть»', async () => {
+    // Слово владельца 10.11.2026: четыре абзаца подряд — итог строкой и «i».
     openReport(REPORT);
+    const user = userEvent.setup();
 
-    expect(await screen.findByText(/«Рассмотреть» — кто ждёт решения сейчас/)).toBeInTheDocument();
-    expect(screen.getByText(/«кому не пишем» в очередь не кладут/)).toBeInTheDocument();
-    expect(screen.getByText(/взятые из резерва — сверх/)).toBeInTheDocument();
+    const review = await screen.findByRole('link', { name: 'Рассмотреть 9' });
+    expect(screen.queryByText(/кто ждёт решения сейчас/)).toBeNull();
+    const hint = screen.getByRole('button', { name: QUEUE_HINT });
+    expect(review.parentElement).toContainElement(hint);
+    await user.click(hint);
+
+    const said = await screen.findByRole('dialog', { name: QUEUE_HINT });
+    expect(said).toHaveTextContent('«Рассмотреть» — кто ждёт решения сейчас');
+    expect(said).toHaveTextContent('«кому не пишем» в очередь не кладут');
+    expect(said).toHaveTextContent('взятые из резерва — сверх');
   });
 
-  it('«Рассмотреть» равно «Подходит» — пояснения нет', async () => {
+  it('«Рассмотреть» равно «Подходит» — значка нет', async () => {
     openReport({ ...REPORT, run: { ...RUN, queue: { pending: 30 } } });
 
-    expect(await screen.findByRole('heading', { name: 'Отчёт прогона №27' })).toBeInTheDocument();
-    expect(screen.queryByText(/«Рассмотреть» — кто ждёт решения сейчас/)).not.toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Рассмотреть 30' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: QUEUE_HINT })).toBeNull();
+  });
+
+  it('путь доменов — на виду, пояснения карточек — в «i» у заголовков, резерв — ссылкой', async () => {
+    openReport(REPORT);
+    const user = userEvent.setup();
+
+    expect(await screen.findByText(/Из выдачи — 120 доменов/)).toBeVisible();
+    expect(screen.queryByText(/Пороги этого прогона/)).toBeNull();
+    expect(screen.queryByText(/Исключённых гейт снял/)).toBeNull();
+    expect(screen.getByRole('link', { name: 'Не прошедшие — в резерве прогона' })).toBeVisible();
+    // Заголовок — словом, без имени значка: «i» стоит рядом, а не внутри.
+    expect(screen.getByRole('heading', { name: 'Отсеяно по порогам' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Какие пороги в отчёте' }));
+    expect(await screen.findByRole('dialog', { name: 'Какие пороги в отчёте' })).toHaveTextContent(
+      'Пороги этого прогона — версия на момент запуска.',
+    );
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: 'Кто исключён и кто не проверен' }));
+    expect(
+      await screen.findByRole('dialog', { name: 'Кто исключён и кто не проверен' }),
+    ).toHaveTextContent('Исключённых гейт снял до Ahrefs — за них не платили.');
   });
 
   it('каждый порог — со значением этого прогона и числом отсеянных, незнакомая причина — как записана', async () => {
@@ -201,14 +235,18 @@ describe('отчёт прогона', () => {
     expect(screen.queryByText('Исключены и не проверены')).not.toBeInTheDocument();
   });
 
-  it('свежих прогон судил сам — так и сказано в пути доменов и над порогами', async () => {
+  it('свежих прогон судил сам — так и сказано в пути доменов и в «i» у порогов', async () => {
     openReport({ ...REPORT, domains: { ...REPORT.domains!, fresh_judged: true } });
+    const user = userEvent.setup();
 
     expect(
       await screen.findByText(/проверены раньше 40 — метрики в сроке: вердикт этого прогона/),
     ).toBeInTheDocument();
-    expect(screen.getByText(/В числах и проверенные раньше/)).toBeInTheDocument();
     expect(screen.getByText('новых, с любым вердиктом')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Какие пороги в отчёте' }));
+    expect(await screen.findByRole('dialog', { name: 'Какие пороги в отчёте' })).toHaveTextContent(
+      'В числах и проверенные раньше',
+    );
   });
 
   it('расход — единицей своего провайдера: Ahrefs юнитами со сметой, выдача деньгами, модель токенами', async () => {

@@ -9,11 +9,12 @@
  * Нет ни исключённых, ни «не проверен» — карточки нет: пустая не объясняет ничего.
  */
 
-import { Card, Stack, Table, Text, Title } from '@mantine/core';
+import { Card, Group, Stack, Table, Text, Title } from '@mantine/core';
 
 import type { NamedCard } from '../api/runReport';
 import { ColumnsHead } from '../components/ColumnsHead';
 import type { Column } from '../components/ColumnsHead';
+import { InfoHint } from '../components/InfoHint';
 import { formatNumber } from '../format';
 
 /** Причине — остаток: «Кому не пишем: справочник или исследования» — самая длинная. */
@@ -50,13 +51,17 @@ export function ReasonsCard({ excluded, unchecked }: Props) {
   return (
     <Card className="glass" p="md">
       <Stack gap="md">
-        <Stack gap={4} px="md" pt="xs">
+        {/* Что значат обе группы — в «i» у заголовка, а не абзацем под ним (слово владельца
+            10.11.2026): причины словами стоят в таблицах ниже. */}
+        <Group gap={4} wrap="nowrap" px="md" pt="xs">
           <Title order={5}>Исключены и не проверены</Title>
-          <Text size="sm" c="dimmed">
-            Исключённых гейт снял до Ahrefs — за них не платили. «Не проверен» — Ahrefs не дал
-            данных или их не хватило порогам прогона.
-          </Text>
-        </Stack>
+          <InfoHint name="Кто исключён и кто не проверен" width={300} interactive>
+            <Text size="sm">
+              Исключённых гейт снял до Ahrefs — за них не платили. «Не проверен» — Ahrefs не дал
+              данных или их не хватило порогам прогона.
+            </Text>
+          </InfoHint>
+        </Group>
         {excluded.length > 0 && <Reasons title="Исключено до Ahrefs" rows={excluded} />}
         {unchecked.length > 0 && <Reasons title="Не проверены" rows={unchecked} />}
       </Stack>

@@ -287,9 +287,9 @@
       "worst": "mailing_forecast:34"
     },
     "backend/api/letters/forecast_schemas.py": {
-      "lines": 262,
+      "lines": 267,
       "complexity": 8,
-      "worst": "of:233"
+      "worst": "of:238"
     },
     "backend/api/letters/once.py": {
       "lines": 114,
@@ -482,9 +482,9 @@
       "worst": "of:59"
     },
     "backend/api/sales/queue.py": {
-      "lines": 252,
+      "lines": 254,
       "complexity": 3,
-      "worst": "build_queue:166"
+      "worst": "build_queue:168"
     },
     "backend/api/sales/routes.py": {
       "lines": 365,
@@ -2362,9 +2362,9 @@
       "worst": "listen:96"
     },
     "backend/features/outreach/limits.py": {
-      "lines": 133,
+      "lines": 153,
       "complexity": 13,
-      "worst": "screen:48"
+      "worst": "screen:63"
     },
     "backend/features/outreach/own_inboxes.py": {
       "lines": 487,
@@ -2862,9 +2862,9 @@
       "worst": "beyond:88"
     },
     "backend/features/sales/auto_lines.py": {
-      "lines": 214,
-      "complexity": 6,
-      "worst": "autosend_line:94"
+      "lines": 250,
+      "complexity": 7,
+      "worst": "autobuild_line:184"
     },
     "backend/features/sales/autobuild.py": {
       "lines": 427,
@@ -3977,7 +3977,7 @@
       "worst": "main:135"
     },
     "scripts/ui_screens.py": {
-      "lines": 462,
+      "lines": 463,
       "complexity": 2,
       "worst": "open_reason:28"
     },
@@ -3997,17 +3997,17 @@
       "worst": "open_letter_draft:36"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 416,
+      "lines": 434,
       "complexity": 2,
-      "worst": "unbound_probes:35"
+      "worst": "unbound_probes:36"
     },
     "scripts/ui_screens_reports.py": {
-      "lines": 173,
+      "lines": 203,
       "complexity": 2,
-      "worst": "open_hunter_details:22"
+      "worst": "open_hunter_details:51"
     },
     "scripts/ui_screens_runs.py": {
-      "lines": 144,
+      "lines": 165,
       "complexity": 2,
       "worst": "_estimate:65"
     },
@@ -4037,9 +4037,9 @@
       "worst": "_edit:40"
     },
     "scripts/ui_screens_sales_mailing.py": {
-      "lines": 176,
+      "lines": 179,
       "complexity": 3,
-      "worst": "nothing_to_build:50"
+      "worst": "nothing_to_build:52"
     },
     "scripts/ui_screens_sales_quality.py": {
       "lines": 57,
