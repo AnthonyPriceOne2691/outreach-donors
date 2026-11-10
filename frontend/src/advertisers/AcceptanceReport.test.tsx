@@ -8,7 +8,7 @@
  * статей, сколько спорных»); все доноры вместе — первой строкой таблицы.
  */
 
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
@@ -317,6 +317,21 @@ describe('что нашёл обход', () => {
       'Письмо ушло',
       'Приёмка',
     ]);
+  });
+
+  it('донор залит, только пока таблица уехала вбок (замечание 10.11: «выделяется чёрным»)', async () => {
+    await openReport();
+    const area = screen.getByRole('table').parentElement as HTMLElement;
+    const filled = () => screen.getByRole('table').closest('.stickyScrolled');
+    expect(filled()).toBeNull();
+
+    Object.defineProperty(area, 'scrollLeft', { configurable: true, value: 120 });
+    fireEvent.scroll(area);
+    expect(filled()).not.toBeNull();
+
+    Object.defineProperty(area, 'scrollLeft', { configurable: true, value: 0 });
+    fireEvent.scroll(area);
+    expect(filled()).toBeNull();
   });
 
   it('у донора — куплено, спорные и сколько из них решено, мимо, кому не пишем, страницы', async () => {

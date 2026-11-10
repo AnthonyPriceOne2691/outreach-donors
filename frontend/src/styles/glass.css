@@ -1840,12 +1840,18 @@ html:root .mantine-Pill-root {
 }
 
 /* Имя строки на месте, пока таблица едет вбок (`stickyName`, приёмка 23.10.2026). Заливка
-   карточки тремя слоями: одним уехавшие под ячейку буквы читались на 16 %; углов нет. */
+   карточки тремя слоями: одним уехавшие под ячейку буквы читались на 16 %.
+   Заливка — только когда таблица уехала вбок (`stickyScrolled` у обёртки, замечание Anthony
+   10.11.2026): в тёмной теме три слоя стекла — почти чёрная полоса, и с острыми углами она
+   стояла на таблице, которая никуда не ехала. Без прокрутки колонка прозрачна, как карточка;
+   при прокрутке — круглые углы колонки и тень справа: видно, что под неё уехали строки. */
 @media (min-width: 48em) {
   .stickyName {
     --sticky-fill:
       linear-gradient(var(--glass-fill-content) 0 0),
       linear-gradient(var(--glass-fill-content) 0 0), var(--glass-fill-content);
+    --sticky-radius: var(--mantine-radius-md);
+    --sticky-edge: 8px 0 10px -8px rgb(0 0 0 / 35%);
   }
 
   .stickyName.dataTable :is(th, td):first-child {
@@ -1853,15 +1859,31 @@ html:root .mantine-Pill-root {
     left: 0;
     z-index: 1;
     border-radius: 0;
+  }
+
+  .stickyScrolled .stickyName.dataTable :is(th, td):first-child {
     background: var(--sticky-fill);
+    box-shadow: var(--sticky-edge);
   }
 
   /* Линия строки у липкой ячейки — тенью: рамку таблицы заливка ячейки закрывает. */
-  .stickyName :is(thead th, tbody tr:not(:last-child) td):first-child {
-    box-shadow: inset 0 -1px var(--hairline);
+  .stickyScrolled .stickyName :is(thead th, tbody tr:not(:last-child) td):first-child {
+    box-shadow:
+      inset 0 -1px var(--hairline),
+      var(--sticky-edge);
   }
 
-  .stickyName tbody tr:hover td:first-child {
+  .stickyScrolled .stickyName.dataTable thead th:first-child {
+    border-start-start-radius: var(--sticky-radius);
+    border-start-end-radius: var(--sticky-radius);
+  }
+
+  .stickyScrolled .stickyName.dataTable tbody tr:last-child td:first-child {
+    border-end-start-radius: var(--sticky-radius);
+    border-end-end-radius: var(--sticky-radius);
+  }
+
+  .stickyScrolled .stickyName tbody tr:hover td:first-child {
     background:
       linear-gradient(color-mix(in oklab, var(--accent) 12%, transparent) 0 0), var(--sticky-fill);
   }
