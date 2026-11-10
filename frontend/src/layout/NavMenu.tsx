@@ -19,14 +19,15 @@ import { Link, useLocation } from 'react-router-dom';
 import type { WorkView } from '../api/overview';
 import { formatNumber } from '../format';
 import { NAV_GROUPS, NavGroup } from './NavGroup';
+import { useNavScroll } from './navScroll';
+import { COUNT_CAP, COUNT_OVER } from './navWidth';
 import { activeKey, sectionKey } from './sections';
 import type { Section } from './sections';
 import { ThemeToggle } from './ThemeToggle';
 
-/** Больше значок не показывает: место под число у пункта — на три цифры (`navWidth.ts`). */
-const COUNT_CAP = 999;
-
-const capped = (count: number) => (count > COUNT_CAP ? `${COUNT_CAP}+` : formatNumber(count));
+/** Больше потолка значок не показывает: место под число у пункта держит `navWidth.ts` — по самому
+ *  широкому значку, «999+». */
+const capped = (count: number) => (count > COUNT_CAP ? COUNT_OVER : formatNumber(count));
 
 /** Число у пункта — только когда работа ждёт (`NavItem`), ноль не рисуется. Точное
  *  число сверх потолка — на «Обзоре» и на экране раздела. */
@@ -107,6 +108,7 @@ interface Props {
 export function NavMenu({ sections, work, placeOf, folded }: Props) {
   const location = useLocation();
   const active = activeKey(sections, location.pathname, location.search);
+  const scroll = useNavScroll(active, sections.map(sectionKey).join(' '));
   return (
     <Stack
       h="100%"
@@ -118,27 +120,35 @@ export function NavMenu({ sections, work, placeOf, folded }: Props) {
     >
       {/* Пункты — своей прокруткой, переключатель темы — внизу рамы всегда: с
           подписями групп пятнадцать пунктов не помещались в колонку на 1280 × 800,
-          и переключатель уходил под край (аудит экранов 09.10.2026). */}
-      <Stack gap="md" className="navScroll">
-        {NAV_GROUPS.map((group) => {
-          const items = sections.filter((section) => section.group === group.key);
-          if (items.length === 0) return null;
-          return (
-            <NavGroup key={group.key} group={group} folded={folded}>
-              {items.map((section) => (
-                <NavItem
-                  key={sectionKey(section)}
-                  section={section}
-                  count={section.work === undefined ? undefined : work?.[section.work]}
-                  to={placeOf(section)}
-                  active={sectionKey(section) === active}
-                  folded={folded}
-                />
-              ))}
-            </NavGroup>
-          );
-        })}
-      </Stack>
+          и переключатель уходил под край (аудит экранов 09.10.2026). Подсвеченный
+          пункт приезжает в видимую часть, у края — тень, пока за ним есть пункты
+          (`navScroll.ts`, разбор экранов 10.11.2026). */}
+      <div
+        className="navScrollBox"
+        data-more-above={scroll.edges.above || undefined}
+        data-more-below={scroll.edges.below || undefined}
+      >
+        <Stack gap="md" className="navScroll" ref={scroll.ref}>
+          {NAV_GROUPS.map((group) => {
+            const items = sections.filter((section) => section.group === group.key);
+            if (items.length === 0) return null;
+            return (
+              <NavGroup key={group.key} group={group} folded={folded}>
+                {items.map((section) => (
+                  <NavItem
+                    key={sectionKey(section)}
+                    section={section}
+                    count={section.work === undefined ? undefined : work?.[section.work]}
+                    to={placeOf(section)}
+                    active={sectionKey(section) === active}
+                    folded={folded}
+                  />
+                ))}
+              </NavGroup>
+            );
+          })}
+        </Stack>
+      </div>
 
       {/* Переключатель темы отделён линией: без неё он читается ещё
           одним пунктом меню. В свёрнутом меню — столбиком: в строку три значка

@@ -717,6 +717,51 @@ html:root[data-mantine-color-scheme='dark'] .navGroupTitle {
   padding: 2px 4px;
 }
 
+/* Тень у края колонки пунктов — пока за ним есть пункты (`layout/navScroll.ts`, разбор экранов
+   10.11.2026: у админа 22 пункта, на 1440 × 900 видно 15, и признака, что ниже есть ещё, не было).
+   Тень — над пунктами и мимо указателя; живёт на обёртке, которая не прокручивается. Высота —
+   `EDGE_ROOM`: с этим запасом подсвеченный пункт приезжает в видимую часть. Тон — тот же, что у
+   теней стекла: на свету тёмная бирюза, в темноте чёрный. */
+.navScrollBox {
+  --nav-edge-shadow: rgb(12 40 50 / 0.16);
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+html:root[data-mantine-color-scheme='dark'] .navScrollBox {
+  --nav-edge-shadow: rgb(0 0 0 / 0.45);
+}
+
+.navScrollBox::before,
+.navScrollBox::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  z-index: 1;
+  height: 16px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.navScrollBox::before {
+  top: 0;
+  background: linear-gradient(to bottom, var(--nav-edge-shadow), transparent);
+}
+
+.navScrollBox::after {
+  bottom: 0;
+  background: linear-gradient(to top, var(--nav-edge-shadow), transparent);
+}
+
+.navScrollBox[data-more-above]::before,
+.navScrollBox[data-more-below]::after {
+  opacity: 1;
+}
+
 /* Колонка меню меняет ширину тем же ходом, что рабочая область — свой отступ
    (Mantine ведёт `padding` у main за `--app-shell-transition-duration`): иначе при
    разворачивании колонка вставала на место сразу и на 200 мс накрывала содержимое. */
