@@ -44,8 +44,13 @@ async def list_entries(
     _: UserModel = _seller, session: AsyncSession = Depends(db_session)
 ) -> KbView:
     seen = await kb.facts(session)  # что видит агент: из этого версия и пустые разделы
-    gaps = KbGapCard.listed(kb_gaps.gaps(seen))
-    return KbView.of(await kb.entries(session), version=kb.version_of(seen), gaps=gaps)
+    found = kb_gaps.gaps(seen)
+    return KbView.of(
+        await kb.entries(session),
+        version=kb.version_of(seen),
+        gaps=KbGapCard.listed(found),
+        gap_lines=kb_gaps.lines(found),
+    )
 
 
 @router.get("/kb/preview", response_model=AgentView, summary="Что увидит агент")

@@ -4,7 +4,8 @@
 Правило — агента (`agent/facts.py`): нет записей вида на языке письма — берутся записи на любом
 и переводятся. Поэтому пустой раздел называется двумя словами: «возьмёт на другом и переведёт»
 и «не приведёт ни одного примера». Выключенную запись агент не видит — и раздел с ней пуст.
-Тексты записей выдуманы.
+Плашка экрана (`kb_gaps.lines`, замечание владельца 10.11.2026) говорит одинаковый исход один раз:
+разделы, которые агент переведёт с тех же языков, — одной строкой. Тексты записей выдуманы.
 """
 
 from __future__ import annotations
@@ -76,6 +77,50 @@ def test_a_section_with_no_entry_in_any_language_says_what_the_agent_will_not_do
     assert len(found) == 2 * len(KbKind) - 1
 
 
+#: Исход раздела, записи которого агент возьмёт на русском и переведёт, — конец строки плашки.
+FROM_RUSSIAN = "агент возьмёт записи на русском и переведёт"
+
+
+def test_sections_with_one_outcome_are_said_in_one_line_and_the_ending_once() -> None:
+    """Замечание владельца 10.11.2026: строки плашки кончались одними словами — теперь разделы с
+    одним исходом одной строкой, а раздел, которого нет нигде, — строкой на все языки сразу."""
+    in_russian = [KbKind.BRIEF, KbKind.SERVICE, KbKind.CASE, KbKind.OBJECTION, KbKind.FORBIDDEN]
+    found = kb_gaps.gaps([_fact(n, kind, "ru") for n, kind in enumerate(in_russian)])
+
+    said = kb_gaps.lines(found)
+
+    assert said == [
+        "Пусто на всех языках: цены — агент цен не назовёт и позовёт на созвон",
+        "Пусто на всех языках: призыв — агент позовёт по ссылке из «Отправителя» своими словами",
+        f"Пусто на английском: «о компании», услуги, кейсы, возражения, «нельзя» — {FROM_RUSSIAN}",
+    ]
+    assert sum(line.count(FROM_RUSSIAN) for line in said) == 1
+    # Строка у каждого раздела — как была: её читают и другие клиенты.
+    assert len(found) == 2 + len(KbKind)
+    assert sum(gap.words.endswith(FROM_RUSSIAN) for gap in found) == len(in_russian)
+
+
+def test_sections_translated_from_other_languages_get_a_line_of_their_own() -> None:
+    """«О компании» есть только на `en-us` — тоже английский: пусто лишь на русском. Цены есть на
+    немецком и русском — у них своя строка: исход другой, чем у услуг."""
+    facts = [_fact(n, kind, "ru") for n, kind in enumerate(KbKind) if kind is not KbKind.BRIEF]
+    facts += [_fact(20, KbKind.BRIEF, "en-us"), _fact(21, KbKind.PRICE_POLICY, "de")]
+    in_english = (KbKind.CASE, KbKind.OBJECTION, KbKind.FORBIDDEN, KbKind.CTA)
+    facts += [_fact(30 + n, kind, "en") for n, kind in enumerate(in_english)]
+
+    assert kb_gaps.lines(kb_gaps.gaps(facts)) == [
+        "Пусто на русском: «о компании» — агент возьмёт записи на английском и переведёт",
+        f"Пусто на английском: услуги — {FROM_RUSSIAN}",
+        "Пусто на английском: цены — агент возьмёт записи на немецком, русском и переведёт",
+    ]
+
+
+def test_a_full_base_has_no_lines() -> None:
+    every = [_fact(n, kind, code) for n, kind in enumerate(KbKind) for code in ("ru", "en")]
+
+    assert kb_gaps.lines(kb_gaps.gaps(every)) == []
+
+
 async def test_screen_reads_the_gaps_and_a_switched_off_entry_does_not_fill_its_section(
     client: httpx.AsyncClient, session: AsyncSession, make_user: MakeUser, sign_in: SignIn
 ) -> None:
@@ -103,4 +148,5 @@ async def test_screen_reads_the_gaps_and_a_switched_off_entry_does_not_fill_its_
             "words": "Кейсов на английском нет — агент возьмёт записи на русском и переведёт",
         }
     ]
+    assert body["gap_lines"] == [f"Пусто на английском: кейсы — {FROM_RUSSIAN}"]
     assert (body["total"], body["active"]) == (2 * len(KbKind), 2 * len(KbKind) - 1)

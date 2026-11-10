@@ -15,7 +15,9 @@
 выдача не пришла; описание сегмента — длиннее трёх строк). Что ждёт повтора (20.10.2026,
 `sales-collect-waits`): у последнего прогона стенда — сайт, не ответивший поиску адреса, и лиды,
 ждущие очистки («Hunter ещё проверяет», первый `unknown`, сбой сети), — строки, «Повторить сейчас» и
-что она возьмёт.
+что она возьмёт. Как устроен прогон — режим судьи, как он понял описание, второй шанс цитате, «уже в
+сборе» — с 10.11.2026 в «i» у заголовка прогона (`RUN_HINT`): меряется открытой подсказкой, последней
+точкой экрана; строка лидов — без числа плитки, причины отказа очистки — в том же свёрнутом «почему».
 """
 
 import re
@@ -32,6 +34,8 @@ PHONE = {"width": 390, "height": 844}
 #: снимает галочку (`DROPPED`) — виден и снятый.
 KEYWORDS = "buy mountain bike online\nbike parts store\nsite:example.com bikes"
 DROPPED = "bike parts store"
+#: «i» у заголовка прогона — имя кнопки, как у экрана (`SegmentRunHint.tsx`, `RUN_HINT`).
+RUN_HINT = "Как судья решал прогон"
 #: Блоки вкладки: форма нового прогона и прогоны гипотезы.
 FORM = "section[aria-label='Новый прогон']"
 RUNS = "section[aria-label='Прогоны гипотезы']"
@@ -123,8 +127,6 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("этап прогона", ".mantine-Badge-label:text-is('готово')", norm),
         ("ссылка «Сайты прогона · N»", "a:has-text('Сайты прогона ·')", norm),
         ("кнопка «Расход и смета»", "button:has-text('Расход и смета')", norm),
-        ("режим судьи", "p:has-text('судья в наблюдении')", norm),
-        ("как судья понял описание", "p:has-text('Как судья понял описание')", norm),
         ("подпись плитки", ".metricTile p:nth-child(1)", norm),
         ("число в плитке", ".metricTile p:nth-child(2)", big),
         ("подпись плитки-ссылки", "a.metricTile p:nth-child(1)", norm),
@@ -134,10 +136,13 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("причина отсева", "ul[aria-label='Отсечены — почему'] li", norm, open_why),
         *_keys_probes(norm),
     ]
+    # Подсказки — последними: открытый слой лёг бы поверх следующих точек (`ui_screens_sales_hints`).
+    run_hint = hint_probe("как судья решал прогон", RUN_HINT, norm)
     probes = [
         ("вступление вкладки", ".salesTabs + div p", norm),
         *report,
         hint_probe("как идёт прогон", "Как идёт прогон", norm),
+        run_hint,
     ]
     going = [
         ("значок «в очереди задач»", ".mantine-Badge-label:text-is('в очереди задач')", norm),
@@ -156,7 +161,7 @@ def segment_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "path": path,
             "ready": ready,
             "viewport": PHONE,
-            "probes": report,
+            "probes": [*report, run_hint],
         },
         # Ход прогона (волна 14): последний прогон стенда стоит в очереди, воркеров нет —
         # «в очереди задач · поставлен …» и плашка «Задачу некому взять».
@@ -243,7 +248,7 @@ def _waits_probes(norm: float, big: float) -> list[tuple[str, str, float]]:
     и строка лидов над ними; кнопка «Найти адреса ещё N из M принятых» и под ней — принятые по
     частям и строка о принятых вручную (приглушённым текстом, 22.10.2026)."""
     return [
-        ("строка лидов", "p:has-text('Лидов заведено')", norm),
+        ("строка лидов", "p:has-text('Лиды: готовы к письмам')", norm),
         ("группа «Ждут адреса»", "p:has-text('Ждут адреса —')", norm),
         ("строка «ждут адреса»", "ul[aria-label='Ждут адреса'] li", norm),
         ("группа «Ждут очистки»", "p:has-text('Ждут очистки —')", norm),

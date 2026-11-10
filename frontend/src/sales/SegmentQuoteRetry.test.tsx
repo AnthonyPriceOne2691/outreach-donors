@@ -4,13 +4,15 @@
  * сервера: у прогона — `report.judge`, у пересуда — его итог из маршрута пересуда. Ответы сервера —
  * записанные (`serve()`), незаписанный запрос роняет тест; домены и описания выдуманы.
  *
- * Проверяется то, ради чего правка: числа отчёта — строкой под режимом и разбором описания, числа
+ * Проверяется то, ради чего правка: числа отчёта — строкой в «i» у заголовка прогона, под режимом и
+ * разбором описания (замечание владельца 10.11.2026: пояснения — не простынёй, а в «i»), числа
  * пересуда — в его итоге рядом с токенами; второго вопроса не было (нули) или итог записан до v5
  * (полей нет) — строки нет и ошибки нет; слова одни в обоих местах, сайты — с верным склонением.
  */
 
 import { MantineProvider } from '@mantine/core';
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
@@ -21,7 +23,7 @@ import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { SegmentHome, SegmentRunDetail, SegmentRunRow } from './segmentApi';
 import { quoteRetries, quoteRetryWords } from './segmentData';
-import { SegmentQuoteRetry } from './SegmentQuoteRetry';
+import { RUN_HINT, runHintLines } from './SegmentRunHint';
 import type { RejudgeLast, RejudgeView } from './SegmentSitesApi';
 import { RejudgeStatus } from './SegmentSitesRejudge';
 
@@ -81,33 +83,6 @@ describe('числа второго шанса из итога судьи', () =
     'не объект',
   ])('второго вопроса не было или итог до v5 — строки нет: %j', (tally) => {
     expect(quoteRetries(tally)).toBeNull();
-  });
-});
-
-function line(report: Record<string, unknown>) {
-  return render(
-    <MantineProvider>
-      <SegmentQuoteRetry report={report} />
-    </MantineProvider>,
-  );
-}
-
-describe('строка отчёта прогона', () => {
-  it('числа `report.judge` — строкой с заглавной и точкой', () => {
-    line({ judge: { judged: 40, quote_retried: 3, quote_retry_held: 2 } });
-
-    expect(screen.getByText(LINE)).toBeInTheDocument();
-  });
-
-  it.each([
-    { judge: { judged: 40, quote_retried: 0, quote_retry_held: 0 } },
-    { judge: { judged: 40, tokens: 21000 } },
-    { judge: null },
-    {},
-  ])('нули, прогон до v5 или судья не судил — строки нет: %j', (report) => {
-    line(report);
-
-    expect(screen.queryByText(/переспросили/)).not.toBeInTheDocument();
   });
 });
 
@@ -193,6 +168,27 @@ function detailOf(report: Record<string, unknown>): SegmentRunDetail {
   };
 }
 
+describe('строка в «i» отчёта прогона', () => {
+  it('числа `report.judge` — строкой с заглавной и точкой', () => {
+    const lines = runHintLines(
+      detailOf({ judge: { judged: 40, quote_retried: 3, quote_retry_held: 2 } }),
+    );
+
+    expect(lines).toContain(LINE);
+  });
+
+  it.each([
+    { judge: { judged: 40, quote_retried: 0, quote_retry_held: 0 } },
+    { judge: { judged: 40, tokens: 21000 } },
+    { judge: null },
+    {},
+  ])('нули, прогон до v5 или судья не судил — строки нет: %j', (report) => {
+    const lines = runHintLines(detailOf(report));
+
+    expect(lines.filter((line) => line.includes('переспросили'))).toEqual([]);
+  });
+});
+
 async function openReport(report: Record<string, unknown>): Promise<void> {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   serve({
@@ -206,25 +202,37 @@ async function openReport(report: Record<string, unknown>): Promise<void> {
   await screen.findByText(`Прогон №${RUN_ID}`, {}, WAIT);
 }
 
+/** Открыть «i» у заголовка прогона — наведением, как мышью. */
+async function openHint(): Promise<void> {
+  await userEvent.setup().hover(screen.getByRole('button', { name: RUN_HINT }));
+}
+
 describe('отчёт прогона на экране', () => {
-  it('строка — под режимом судьи и разбором описания', async () => {
+  it('строка — в «i» у заголовка, под режимом судьи и разбором описания; на экране её нет', async () => {
     await openReport({
       scope: { words: SCOPE },
       judge: { judged: 12, tokens: 26_000, quote_retried: 3, quote_retry_held: 2 },
     });
 
+    expect(screen.queryByText(LINE)).toBeNull();
+    expect(screen.queryByText(/судья в наблюдении/i)).toBeNull();
+    await openHint();
+
     const shown = await screen.findByText(LINE, {}, WAIT);
     const scope = screen.getByText(`Как судья понял описание: ${SCOPE}.`);
-    const mode = screen.getByText(/^судья в наблюдении/);
-    // Порядок в документе: режим → разбор описания → второй вопрос.
+    const mode = screen.getByText(/^Судья в наблюдении/);
+    // Порядок в «i»: режим → разбор описания → второй вопрос.
     expect(mode.compareDocumentPosition(scope) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(scope.compareDocumentPosition(shown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('прогон до судьи v5 — строки нет, отчёт целиком', async () => {
+  it('прогон до судьи v5 — строки нет, «i» целиком', async () => {
     await openReport({ scope: { words: SCOPE }, judge: { judged: 12, tokens: 26_000 } });
+    await openHint();
 
-    expect(await screen.findByText(`Как судья понял описание: ${SCOPE}.`, {}, WAIT)).toBeVisible();
+    expect(
+      await screen.findByText(`Как судья понял описание: ${SCOPE}.`, {}, WAIT),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/переспросили/)).not.toBeInTheDocument();
   });
 });

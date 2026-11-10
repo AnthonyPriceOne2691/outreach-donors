@@ -15,7 +15,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
-import type { AgentView, HypothesesView, KbEntryCard, KbView } from '../api/salesTypes';
+import type { AgentView, HypothesesView, KbEntryCard, KbGap, KbView } from '../api/salesTypes';
 import type { Me } from '../api/types';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
@@ -402,6 +402,47 @@ describe('база знаний: пустые разделы', () => {
     const alert = screen.getByText('Пустые разделы').closest('[role="alert"]');
     expect(alert).toHaveTextContent(`${CASES_EN}.`);
     expect(alert).toHaveTextContent(`${PRICES_EN}.`);
+  });
+
+  it('одинаковый исход — одной строкой сервера, «и переведёт» — один раз (замечание 10.11.2026)', async () => {
+    const FROM_RU = 'агент возьмёт записи на русском и переведёт';
+    const sections: [KbGap['kind'], string][] = [
+      ['brief', 'Записей «о компании»'],
+      ['service', 'Услуг'],
+      ['case', 'Кейсов'],
+      ['objection', 'Возражений'],
+    ];
+    const LINES = [
+      'Пусто на всех языках: призыв — агент позовёт по ссылке из «Отправителя» своими словами',
+      `Пусто на английском: «о компании», услуги, кейсы, возражения — ${FROM_RU}`,
+    ];
+    await openKb({
+      'GET /api/sales/kb': {
+        body: {
+          ...KB,
+          gaps: [
+            ...sections.map(([kind, what]) => ({
+              kind,
+              language: 'en',
+              elsewhere: ['ru'],
+              words: `${what} на английском нет — ${FROM_RU}`,
+            })),
+            { kind: 'cta', language: 'ru', elsewhere: [], words: 'Призыва на русском нет — …' },
+            { kind: 'cta', language: 'en', elsewhere: [], words: 'Призыва на английском нет — …' },
+          ],
+          gap_lines: LINES,
+        },
+      },
+    });
+
+    const list = screen.getByRole('list', { name: 'Пустые разделы' });
+    expect(
+      within(list)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(LINES.map((line) => `${line}.`));
+    expect(list.textContent?.split(FROM_RU)).toHaveLength(2);
+    expect(within(list).queryByText(/на английском нет/)).toBeNull();
   });
 
   it('заполненные разделы — без строк', async () => {
