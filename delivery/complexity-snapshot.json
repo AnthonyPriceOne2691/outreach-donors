@@ -4072,9 +4072,9 @@
       "worst": "weekly_screens:21"
     },
     "scripts/ui_screens_stage2.py": {
-      "lines": 156,
+      "lines": 164,
       "complexity": 1,
-      "worst": "stage2_screens:26"
+      "worst": "stage2_screens:29"
     }
   }
 }
