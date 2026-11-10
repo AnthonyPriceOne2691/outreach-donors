@@ -13,7 +13,8 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { renderWith } from '../test/render';
-import { MailingDaysTabs, oneReason, reasonHead } from './MailingDays';
+import { MailingDaysTabs, oneReason } from './MailingDays';
+import { reasonHead } from './mailingData';
 import { FORECAST, NOTHING_LEFT } from './mailingFixtures';
 
 const PLAN = 'План на 7 дней';

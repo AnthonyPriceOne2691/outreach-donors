@@ -517,7 +517,8 @@ class TestTheForecast:
         assert "вручную" in by_hand.eta.words
         assert itself.clock.pace == autosend.pace()
         assert itself.clock.window == autosend_window.frame()
-        assert "автоотправка, письмо с ящика раз в 10 мин" in itself.eta.words
+        # Темп — паузой между письмами ящика, как в строке режима продаж (`forecast_plan._how`).
+        assert "автоотправка, пауза 5–15 мин между письмами ящика" in itself.eta.words
 
 
 MIGRATION = "c4e1a7b20d93_queue_autosend.py"

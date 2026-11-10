@@ -2047,7 +2047,7 @@
       "worst": "forecast:111"
     },
     "backend/features/letters/forecast_plan.py": {
-      "lines": 323,
+      "lines": 328,
       "complexity": 7,
       "worst": "_why:231"
     },
@@ -4042,7 +4042,7 @@
       "worst": "_edit:40"
     },
     "scripts/ui_screens_sales_mailing.py": {
-      "lines": 179,
+      "lines": 180,
       "complexity": 3,
       "worst": "nothing_to_build:52"
     },
@@ -4077,9 +4077,9 @@
       "worst": "open_text:29"
     },
     "scripts/ui_screens_stage2.py": {
-      "lines": 164,
+      "lines": 167,
       "complexity": 1,
-      "worst": "stage2_screens:29"
+      "worst": "stage2_screens:31"
     }
   }
 }

@@ -120,7 +120,6 @@ def mailing_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("пояснение плитки", f"{tiles} p:nth-child(3)", norm),
         ("плашка «не уйдут»", ".mailingStuck .mantine-Alert-message > p", norm),
         ("причина «не уйдут»", ".mailingStuck li", norm),
-        ("слова срока сервера", ".mailingEtaWords", norm),
     ]
     tables = _tables(norm)
     hints = [
@@ -129,6 +128,8 @@ def mailing_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         hint_probe("режим целиком", "Подробно: автоотправка", norm),
         hint_probe("из чего складывается «всего»", "Как считается «Адреса по гипотезам»", norm),
         hint_probe("причина дня целиком", "Почему меньше мощности — ", norm),
+        # Срок плитками дня и часов — слова сервера в «i» заголовка, а не строкой (разведка 10.11).
+        hint_probe("слова срока сервера", "Как считается «Когда уйдёт очередь»", norm),
     ]
     past = _past(norm)
     return {
