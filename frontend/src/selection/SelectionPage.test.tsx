@@ -158,6 +158,24 @@ describe('экран отбора', () => {
     expect(within(line).getByText('DR 46')).toHaveStyle({ whiteSpace: 'nowrap', flexShrink: '0' });
   });
 
+  it('с «Порогами» DR — под доменом: домену вся колонка, многоточие — только длинному', async () => {
+    // Разведка 10.11.2026: на «К разбору» и «Отклонены» колонке домена 12rem, и DR в той же
+    // строке оставлял домену ~125 px — обычный домен в 15 знаков резался многоточием.
+    // Строку там держат два ряда кнопок «Человека»: домен с DR под ним её не растит.
+    await openScreen({ [REJECTED]: { body: view([WEAK, CUT]) } });
+    await userEvent.setup().click(screen.getByText('Отклонены — 3'));
+    await screen.findByText('weak.test');
+
+    const name = screen.getByRole('link', { name: 'weak.test' });
+    expect(name).toHaveAttribute('data-truncate', 'end');
+    expect(name).toHaveStyle({ maxWidth: '100%' });
+    const stack = name.parentElement!;
+    expect(stack).toHaveClass('mantine-Stack-root');
+    expect(within(stack).getByText('DR 55')).toBeInTheDocument();
+    // Без DR (до Ahrefs не дошёл) — только домен.
+    expect(screen.getByRole('link', { name: 'cut.test' }).parentElement!.children).toHaveLength(1);
+  });
+
   it('у отказа судьи видны автор, цитата и главная', async () => {
     await openScreen();
 
@@ -196,6 +214,22 @@ describe('экран отбора', () => {
     expect(within(rowOf('cut.test')).getByText('до Ahrefs не дошёл')).toBeInTheDocument();
   });
 
+  it('шапка с фильтрами закреплена: строки прокручиваются под ней в высоту окна', async () => {
+    // Разведка 10.11.2026: страница в двадцать строк — 2 250–2 347 px, заголовки и фильтры
+    // колонок уходили за край с первой прокруткой (правило `DataTable sticky`).
+    await openScreen();
+
+    const head = screen.getByRole('columnheader', { name: 'Судья' }).closest('thead');
+    expect(head).toHaveAttribute('data-sticky');
+    expect(
+      within(head as HTMLElement).getByRole('textbox', { name: 'Кто вынес вердикт' }),
+    ).toBeVisible();
+    expect(head!.closest('.mantine-TableScrollContainer-scrollContainer')).toHaveClass(
+      'stickyTable',
+      'phoneCards',
+    );
+  });
+
   it('у принятых колонки «Пороги» нет: там у всех одно и то же «подходит»', async () => {
     await openScreen();
 
@@ -203,12 +237,48 @@ describe('экран отбора', () => {
     expect(screen.getByRole('columnheader', { name: 'Судья' })).toBeInTheDocument();
   });
 
-  it('сводка показывает сходимость по слоям судьи', async () => {
+  it('сверка судьи — одной строкой и только слоями с данными', async () => {
+    // Разведка 10.11.2026: две строки, 27–47 слов, из шести значений пять — «ответов нет»
+    // и «не проверяли».
     await openScreen();
 
-    expect(screen.getByText(/Сходится с человеком/)).toHaveTextContent(
-      'правило 2 из 2 · модель 1 из 2 · арбитр — не проверяли',
+    const line = screen.getByText(/^Судья по ответам доноров/);
+    expect(line).toHaveTextContent(
+      'Судья по ответам доноров: правило 1 из 1 · модель 1 из 2; ' +
+        'с человеком: правило 2 из 2 · модель 1 из 2',
     );
+    // Слоя без сверки (арбитра) в сводке нет вовсе — ни словом, ни «не проверяли».
+    const summary = line.closest('.mantine-Card-root') as HTMLElement;
+    expect(within(summary).queryByText(/не проверяли|ответов нет|арбитр/)).toBeNull();
+  });
+
+  it('с человеком не сверяли — так и сказано, слоёв без данных в строке нет', async () => {
+    await openScreen({
+      [ACCEPTED]: {
+        body: view([BRAND, WEAK, CUT], {
+          layers: {},
+          answer_layers: { arbiter: { checked: 3, agreed: 3 } },
+        }),
+      },
+    });
+
+    expect(screen.getByText(/^Судья по ответам доноров/)).toHaveTextContent(
+      'Судья по ответам доноров: арбитр 3 из 3; с человеком — не сверяли',
+    );
+    expect(screen.queryByRole('button', { name: 'Сверка судьи' })).toBeNull();
+  });
+
+  it('сверки нет совсем — строки нет, это говорит «i» у фактов', async () => {
+    await openScreen({
+      [ACCEPTED]: { body: view([BRAND, WEAK, CUT], { layers: {}, answer_layers: {} }) },
+    });
+    const user = userEvent.setup();
+
+    expect(screen.queryByText(/^Судья по ответам доноров/)).toBeNull();
+    await user.hover(screen.getByRole('button', { name: 'Сверка судьи' }));
+    expect(
+      await screen.findByText('Сверки судьи ещё нет — ни по ответам доноров, ни с человеком.'),
+    ).toBeInTheDocument();
   });
 
   it('решение человека уходит на сервер типом сайта', async () => {
@@ -317,8 +387,8 @@ describe('экран отбора', () => {
     // Деньги — общей функцией, как на остальных экранах, а не сырой строкой
     // сервера «250.00 EUR».
     expect(within(rowOf('weak.test')).getByText('250,00 €')).toBeInTheDocument();
-    expect(screen.getByText(/Судья угадал по ответам доноров/)).toHaveTextContent(
-      'правило 1 из 1 · модель 1 из 2 · арбитр — ответов нет',
+    expect(screen.getByText(/^Судья по ответам доноров/)).toHaveTextContent(
+      'Судья по ответам доноров: правило 1 из 1 · модель 1 из 2;',
     );
   });
 });

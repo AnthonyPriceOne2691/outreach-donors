@@ -306,6 +306,30 @@ async def test_donor_mailboxes_show_their_warmup_and_the_next_step(
     assert senders["outreach3@mail-e.example.test"]["enabled"] is False
 
 
+async def test_a_refused_mailbox_is_named_shortly_and_in_full_words(
+    client: AsyncClient, session: AsyncSession, viewer: dict[str, str], donors: SenderModel
+) -> None:
+    """Домен ящика на паузе: строка ящика на экране доменов говорит коротко — значком, слова фильтра
+    целиком — по нажатию (`limits.short`). У ящика, который берёт письма, нет ни того, ни другого."""
+    paused = {"paused_at": NOW, "pause_reason": "выдуманная жалоба"}
+    session.add(
+        SendingDomainModel(
+            domain="mail-d.example.test", stage=Stage.DONORS, daily_limit=30, **paused
+        )
+    )
+    await session.commit()
+
+    body = (await client.get(URL, headers=viewer)).json()
+
+    senders = {box["email"]: box for box in body["senders"]}
+    assert (
+        senders["outreach1@mail-d.example.test"]["refused_short"],
+        senders["outreach1@mail-d.example.test"]["refused"],
+    ) == ("домен на паузе", "домен на паузе: mail-d.example.test — выдуманная жалоба")
+    young = senders[donors.email]
+    assert (young["refused_short"], young["refused"]) == (None, None)
+
+
 async def test_a_new_mailbox_warms_up_from_the_first_sending_day(
     client: AsyncClient, session: AsyncSession, viewer: dict[str, str]
 ) -> None:

@@ -24,8 +24,10 @@ import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
 import {
   AUTOBUILD_OFF,
-  AUTOSEND_OFF,
+  AUTOBUILD_OFF_SHORT,
+  AUTOSEND_OFF_SHORT,
   AUTOSEND_ON,
+  AUTOSEND_ON_SHORT,
   AUTO_WORDS,
   BLOCKED,
   CUT_WORDS,
@@ -138,13 +140,22 @@ afterEach(() => {
 });
 
 describe('рассылка: режим и срок очереди', () => {
-  it('режим — строками сервера: автоотправка и автосборка, значок — включена ли', async () => {
+  it('режим — короткими строками сервера у значков, целиком — в «i» (замечание 10.11.2026)', async () => {
     await openMailing();
 
-    expect(screen.getByText(plain(AUTOSEND_ON))).toBeInTheDocument();
-    expect(screen.getByText(AUTOBUILD_OFF)).toBeInTheDocument();
+    expect(screen.getByText(AUTOSEND_ON_SHORT)).toBeInTheDocument();
+    expect(screen.getByText(AUTOBUILD_OFF_SHORT)).toBeInTheDocument();
     expect(screen.getByTitle('автоотправка включена')).toBeInTheDocument();
     expect(screen.getByTitle('автосборка выключена')).toBeInTheDocument();
+    // Темп прохода, кому уходят письма и имя настройки — не на экране, а в «i».
+    expect(screen.queryByText(plain(AUTOSEND_ON))).toBeNull();
+    expect(screen.queryByText(AUTOBUILD_OFF)).toBeNull();
+
+    const user = userEvent.setup();
+    await user.hover(screen.getByRole('button', { name: 'Подробно: автоотправка' }));
+    expect(await screen.findByText(plain(AUTOSEND_ON))).toBeInTheDocument();
+    await user.hover(screen.getByRole('button', { name: 'Подробно: автосборка' }));
+    expect(await screen.findByText(AUTOBUILD_OFF)).toBeInTheDocument();
   });
 
   it('когда уйдёт очередь: день, дней отправки, часы автоотправки и слова срока сервера', async () => {
@@ -191,7 +202,7 @@ describe('рассылка: режим и срок очереди', () => {
     });
     const eta = within(region('Когда уйдёт очередь'));
 
-    expect(screen.getByText(AUTOSEND_OFF)).toBeInTheDocument();
+    expect(screen.getByText(AUTOSEND_OFF_SHORT)).toBeInTheDocument();
     expect(screen.getByTitle('автоотправка выключена')).toBeInTheDocument();
     expect(eta.queryByText('Часов')).toBeNull();
     expect(eta.queryByText(/≈ .* ч$/)).toBeNull();
@@ -204,7 +215,7 @@ describe('рассылка: режим и срок очереди', () => {
     const eta = within(region('Когда уйдёт очередь'));
 
     const plaque = screen.getByText(BLOCKED);
-    const mode = screen.getByText(plain(AUTOSEND_ON));
+    const mode = screen.getByText(AUTOSEND_ON_SHORT);
     expect(plaque.compareDocumentPosition(mode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(eta.queryByText('Уйдёт к')).toBeNull();
     expect(eta.queryByText('Дней отправки')).toBeNull();
@@ -213,15 +224,18 @@ describe('рассылка: режим и срок очереди', () => {
 });
 
 describe('рассылка: адреса по частям', () => {
-  it('части по гипотезам и итог — числами сервера; из чего складывается «всего» — словами', async () => {
+  it('части по гипотезам и итог — числами сервера; из чего складывается «всего» — в «i»', async () => {
     await openMailing();
     const parts = region('Адреса по гипотезам');
+    const formula =
+      'Всего = ушло + в очереди + без письма (напишет и не напишет) + не готовы + сняты: каждый адрес — ровно в одной части.';
 
-    expect(
-      within(parts).getByText(
-        'Всего = ушло + в очереди + без письма (напишет и не напишет) + не готовы + сняты: каждый адрес — ровно в одной части.',
-      ),
-    ).toBeInTheDocument();
+    // Формулу читают раз — она в «i» заголовка, а не строкой над таблицей.
+    expect(within(parts).queryByText(formula)).toBeNull();
+    await userEvent
+      .setup()
+      .hover(within(parts).getByRole('button', { name: 'Как считается «Адреса по гипотезам»' }));
+    expect(await screen.findByText(formula)).toBeInTheDocument();
     const headers = within(parts)
       .getAllByRole('columnheader')
       .map((cell) => cell.textContent);
@@ -376,12 +390,13 @@ describe('рассылка: план и факт', () => {
     const plan = region('План на 7 дней');
 
     expect(within(plan).getAllByRole('row')).toHaveLength(8);
+    // Причина — головой (слова сервера до первого «: », « — » или «; »), целиком — в «i» ячейки.
     expect(cells(rowOf(plan, 'пн 02.11'))).toEqual([
       'пн 02.11сегодня',
       '30',
       '24',
       '5',
-      'сегодня уже ушло 6 первых писем — остаток дня 24',
+      'сегодня уже ушло 6 первых писем',
     ]);
     expect(cells(rowOf(plan, 'вт 03.11'))).toEqual([
       'вт 03.11',
@@ -390,14 +405,21 @@ describe('рассылка: план и факт', () => {
       '3',
       'во всю мощность',
     ]);
-    expect(cells(rowOf(plan, 'пт 06.11'))).toEqual(['пт 06.11', '40', '0', '2', NOTHING_LEFT]);
-    expect(cells(rowOf(plan, 'сб 07.11'))).toEqual([
-      'сб 07.11',
+    expect(cells(rowOf(plan, 'пт 06.11'))).toEqual([
+      'пт 06.11',
+      '40',
       '0',
-      '0',
-      '0',
-      'не день отправки: окно получателя — пн–пт 09:00–17:00 по его часам',
+      '2',
+      'отправлять больше нечего',
     ]);
+    expect(cells(rowOf(plan, 'сб 07.11'))).toEqual(['сб 07.11', '0', '0', '0', 'не день отправки']);
+
+    await userEvent.setup().hover(
+      within(rowOf(plan, 'пт 06.11')).getByRole('button', {
+        name: 'Почему меньше мощности — пт 06.11',
+      }),
+    );
+    expect(await screen.findByText(NOTHING_LEFT)).toBeInTheDocument();
   });
 
   it('сегодня — строкой над планом: ушло, сколько ещё пустят лимиты, сниженные лимиты словами', async () => {
@@ -408,11 +430,14 @@ describe('рассылка: план и факт', () => {
       plan.getByText('Сегодня ушло первых — 6, добивок — 2; лимиты ящиков пустят ещё 24 первых.'),
     ).toBeInTheDocument();
     expect(plan.getByText(CUT_WORDS)).toBeInTheDocument();
-    expect(
-      plan.getByText(
-        'Окно получателя — пн–пт 09:00–17:00 по его часам; часы дня — по поясу America/Toronto, самому частому в очереди.',
-      ),
-    ).toBeInTheDocument();
+    // Окно получателя и пояс — «как считается»: в «i» плана, а не строкой над таблицей.
+    const window =
+      'Окно получателя — пн–пт 09:00–17:00 по его часам; часы дня — по поясу America/Toronto, самому частому в очереди.';
+    expect(plan.queryByText(window)).toBeNull();
+    await userEvent
+      .setup()
+      .hover(screen.getByRole('button', { name: 'Как считается «План на 7 дней»' }));
+    expect(await screen.findByText(window)).toBeInTheDocument();
   });
 
   it('факт прошлых 7 дней — по нажатию вкладки, по датам: старые первыми, без сегодня', async () => {
@@ -466,7 +491,7 @@ describe('рассылка: отказ ручки и обновление', () =
       await eta.findByText('Прогноз рассылки не загрузился', {}, SCREEN_WAIT),
     ).toBeInTheDocument();
     expect(eta.getByText('выдуманный отказ теста')).toBeInTheDocument();
-    expect(screen.getByText(plain(AUTOSEND_ON))).toBeInTheDocument();
+    expect(screen.getByText(AUTOSEND_ON_SHORT)).toBeInTheDocument();
     expect(region('Адреса по гипотезам')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'План на 7 дней' })).toBeNull();
     expect(screen.queryByRole('radio', { name: 'Факт за 7 дней' })).toBeNull();

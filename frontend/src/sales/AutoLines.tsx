@@ -6,18 +6,30 @@
  *
  * Сеткой «значок | строка»: значки разной ширины, а строки начинаются с одной кромки. На узком окне
  * значок — над строкой: в колонке рядом с ним строка вставала в двадцать узких строк (снимок 390 px).
+ *
+ * **Коротко у значка, целиком — в «i»** (замечание владельца 10.11.2026: строки режима — простынями
+ * по три строки на 1440 и по десять на 390). Короткую пишет сервер (`short`): что сейчас, сколько
+ * писем в окне, хватает ли очереди и кого соберёт; причина остановки — в ней же. Темп прохода, кому
+ * уходят письма и последняя автосборка — в «i» целой строкой. Совпали — «i» нет: пояснять нечего.
  */
 
-import { Badge, Box, Text } from '@mantine/core';
+import { Badge, Box, Group, Text } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { Fragment } from 'react';
 
 import type { SalesAutoLine } from '../api/salesTypes';
+import { InfoHint } from '../components/InfoHint';
 
 interface Props {
   autosend: SalesAutoLine;
   autobuild: SalesAutoLine;
 }
+
+/** Ширина «i» с целой строкой: на широком — 420 px, строка в шесть-семь строк подсказки; на телефоне —
+ *  в пределах окна 360 px. 420 px на 390 вылезали за край: текст срезан, у страницы — прокрутка вбок
+ *  (стенд 10.11.2026). */
+const HINT_WIDE = 420;
+const HINT_PHONE = 300;
 
 export function AutoLines({ autosend, autobuild }: Props) {
   const narrow = useMediaQuery('(max-width: 36em)');
@@ -47,9 +59,16 @@ export function AutoLines({ autosend, autobuild }: Props) {
           >
             {title}
           </Badge>
-          <Text size="sm" className="queueAuto">
-            {auto.line}
-          </Text>
+          <Group gap={4} wrap="nowrap" align="flex-start" style={{ minWidth: 0 }}>
+            <Text size="sm" className="queueAuto">
+              {auto.short}
+            </Text>
+            {auto.short === auto.line ? null : (
+              <InfoHint name={`Подробно: ${title}`} width={narrow ? HINT_PHONE : HINT_WIDE}>
+                {auto.line}
+              </InfoHint>
+            )}
+          </Group>
         </Fragment>
       ))}
     </Box>
