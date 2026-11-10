@@ -93,14 +93,29 @@ def rivals_model_capped(page: Page) -> None:
     _estimate(page, MODEL_CAPPED)
 
 
-def _probes(norm: float, big: float) -> list[tuple[str, str, float]]:
+def open_rivals_hint(page: Page) -> None:
+    """Шаг перед точкой: окошко «i» у подписи поля конкурентов открыто нажатием.
+
+    Что возьмём и чем платится — с 10.11.2026 в «i», а не строкой под полем; окошко ложится
+    поверх экрана, поэтому его точка — последней.
+    """
+    page.get_by_role("button", name="Что возьмём у конкурентов").click()
+    page.locator(".mantine-Popover-dropdown").first.wait_for()
+    page.wait_for_timeout(300)
+
+
+def _probes(norm: float, big: float) -> list[tuple[Any, ...]]:
     return [
         ("выбранный вход", ".mantine-SegmentedControl-innerLabel:has-text('Конкуренты')", norm),
         ("невыбранный вход", ".mantine-SegmentedControl-innerLabel:has-text('Собрать')", norm),
-        ("подпись поля конкурентов", "label:has-text('Сайты конкурентов')", norm),
+        # Подпись — не `<label>`: в ней «i», а кнопка внутри подписи вошла бы в имя поля.
+        (
+            "подпись поля конкурентов",
+            ".mantine-TagsInput-label:has-text('Сайты конкурентов')",
+            norm,
+        ),
         ("пояснение поля", "p:has-text('Enter или запятая')", norm),
         ("домен в поле", ".mantine-TagsInput-pill", norm),
-        ("строка о списках", "p:has-text('Возьмём сайты')", norm),
         ("пояснение глубины", "p:has-text('Сильнейшие по DR')", norm),
         ("подпись плитки сметы", ".metricTitle:has-text('Списки конкурентов')", norm),
         ("число плитки", ".metricTile:has-text('Списки конкурентов') .metricTitle + p", big),
@@ -108,6 +123,12 @@ def _probes(norm: float, big: float) -> list[tuple[str, str, float]]:
         ("строка модели", "p:has-text('Судья площадок')", norm),
         ("плашка сметы", ".mantine-Alert-body", norm),
         ("кнопка «Запустить»", "button:has-text('Запустить')", big),
+        (
+            "о списках — в «i»",
+            ".mantine-Popover-dropdown p:has-text('Возьмём сайты')",
+            norm,
+            open_rivals_hint,
+        ),
     ]
 
 

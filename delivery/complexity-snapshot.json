@@ -3977,7 +3977,7 @@
       "worst": "main:135"
     },
     "scripts/ui_screens.py": {
-      "lines": 462,
+      "lines": 463,
       "complexity": 2,
       "worst": "open_reason:28"
     },
@@ -4002,12 +4002,12 @@
       "worst": "unbound_probes:35"
     },
     "scripts/ui_screens_reports.py": {
-      "lines": 152,
-      "complexity": 1,
-      "worst": "_usage_limits:20"
+      "lines": 182,
+      "complexity": 2,
+      "worst": "show:32"
     },
     "scripts/ui_screens_runs.py": {
-      "lines": 144,
+      "lines": 165,
       "complexity": 2,
       "worst": "_estimate:65"
     },

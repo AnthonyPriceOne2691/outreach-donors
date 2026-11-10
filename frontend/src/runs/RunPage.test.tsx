@@ -432,6 +432,26 @@ describe('прогон', () => {
     );
   });
 
+  it('«судить нечем» и «модель не ответила» — каждый своей строкой, не в ряд с «расходится»', async () => {
+    // Разведка 10.11.2026: в ряд — ~255 px в колонке ~190, второй заходил на «Рассмотрение».
+    const blind = {
+      ...QUEUED,
+      id: 41,
+      status: 'done',
+      stats: { judge: { mode: 'shadow', would_cut: 7, no_text: 12, unanswered: 2 } },
+      reviewed: 9,
+    };
+    await openRun({ 'GET /api/runs?page=1': history([blind]) });
+
+    const agreed = (await screen.findByText(/расходится 0 из 9/)).closest('.mantine-Badge-root');
+    for (const label of ['судить нечем: 12', 'модель не ответила: 2']) {
+      // Значок — в своём блоке внутри ячейки, а не строчным соседом другого значка.
+      const line = screen.getByText(label).closest('.mantine-Badge-root')!.parentElement!;
+      expect(line.closest('td'), label).toContainElement(agreed as HTMLElement);
+      expect(line, label).not.toContainElement(agreed as HTMLElement);
+    }
+  });
+
   it('ключи, выдачу по которым провайдер не отдал, — меткой, а не «ничего не нашлось»', async () => {
     // Выдача оплачена, а не пришла: провайдер не успел. Без метки прогон
     // выглядел прогоном по неудачным ключам.
@@ -542,6 +562,9 @@ describe('история прогонов по страницам', () => {
   });
 });
 
+/** Имя «i» у заголовка «Рассмотрение»: почему в строках больше, чем у «Прогона» в меню. */
+const SHARED_HINT = 'Почему в строках больше, чем в меню';
+
 describe('рассмотрение прогона', () => {
   it('прогон с очередью ведёт к рассмотрению и говорит, сколько ждёт решения', async () => {
     const queued = { ...QUEUED, id: 18, status: 'done', queue: { pending: 394, accepted: 3 } };
@@ -566,25 +589,30 @@ describe('рассмотрение прогона', () => {
     await openRun({
       'GET /api/runs?page=1': history([newer, older], { review_waiting: 89, review_shared: 7 }),
     });
+    const user = userEvent.setup();
 
     await screen.findByRole('link', { name: 'Рассмотреть 55' });
-    expect(
-      screen.getByText(
-        'Решения ждут 89 доменов — это число у «Прогона» в меню. 7 из них стоят в очередях ' +
-          'нескольких прогонов: в строках выше такой домен посчитан в каждой своей очереди, ' +
-          'в меню — один раз.',
-      ),
-    ).toBeInTheDocument();
+    // В «i» у заголовка «Рассмотрение», а не абзацем под таблицей (разведка 10.11.2026).
+    expect(screen.queryByText(/в очередях нескольких прогонов/)).toBeNull();
+    const head = screen.getByRole('columnheader', { name: /^Рассмотрение/ });
+    await user.click(within(head).getByRole('button', { name: SHARED_HINT }));
+
+    const said = await screen.findByRole('dialog', { name: SHARED_HINT });
+    expect(said).toHaveTextContent(
+      'Решения ждут 89 доменов — это число у «Прогона» в меню. 7 из них стоят в очередях ' +
+        'нескольких прогонов: в строках такой домен посчитан в каждой своей очереди, ' +
+        'в меню — один раз.',
+    );
   });
 
-  it('общих доменов нет — и строки о них нет', async () => {
+  it('общих доменов нет — и «i» о них нет', async () => {
     const queued = { ...QUEUED, id: 18, status: 'done', queue: { pending: 394 } };
     await openRun({
       'GET /api/runs?page=1': history([queued], { review_waiting: 394, review_shared: 0 }),
     });
 
     await screen.findByRole('link', { name: 'Рассмотреть 394' });
-    expect(screen.queryByText(/в очередях нескольких прогонов/)).toBeNull();
+    expect(screen.queryByRole('button', { name: SHARED_HINT })).toBeNull();
   });
 });
 
@@ -867,7 +895,25 @@ describe('режим сборки моделью', () => {
 
     await waitFor(() => expect(document.querySelector('[data-unfold]')).not.toBeInTheDocument());
     expect(screen.queryByLabelText('Набор углов', { selector: 'input' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Что делает сборка' })).toBeNull();
+  });
+
+  it('что делает сборка — в «i» у кнопки «Собрать», а не абзацем над секцией', async () => {
+    // Разведка 10.11.2026: 26 слов над полями; платного сборка не тратит — трату называет смета.
+    await openRun(MODEL);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Собрать моделью' }));
+    const build = await screen.findByRole('button', { name: 'Собрать' });
     expect(screen.queryByText(/Сборка ничего платного не тратит/)).toBeNull();
+    const hint = screen.getByRole('button', { name: 'Что делает сборка' });
+    // «i» — рядом с кнопкой, одной группой: на телефоне не уезжает строкой ниже.
+    expect(build.parentElement).toContainElement(hint);
+    await user.click(hint);
+
+    expect(await screen.findByRole('dialog', { name: 'Что делает сборка' })).toHaveTextContent(
+      /^Сборка ничего платного не тратит — только модель\..+последним рубежом перед тратой\.$/,
+    );
   });
 });
 

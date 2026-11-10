@@ -91,6 +91,22 @@ describe('вход «Конкуренты»', () => {
     expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
   });
 
+  it('что возьмём и чем платится — в «i» у подписи поля, а не строкой под ним', async () => {
+    // Разведка 10.11.2026: 22 слова во всю ширину под полем. Трату на виду называет смета —
+    // «Запустить» без неё не нажимается, — а здесь её основание.
+    await openRun();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Конкуренты' }));
+    expect(await rivalsField()).toBeInTheDocument();
+    expect(screen.queryByText(/Возьмём сайты/)).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Что возьмём у конкурентов' }));
+
+    const said = await screen.findByRole('dialog', { name: 'Что возьмём у конкурентов' });
+    expect(said).toHaveTextContent('проходят пороги DR и трафика');
+    expect(said).toHaveTextContent('Списки платятся юнитами Ahrefs — того же ключа, что метрики.');
+  });
+
   it('цена — до кнопки: списки отдельно от метрик, всё в юнитах Ahrefs и модель словами', async () => {
     const { recorded, user } = await openRivals({
       'POST /api/runs/competitors/estimate': { body: FITS },
