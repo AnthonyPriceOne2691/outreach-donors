@@ -28,20 +28,27 @@
  * в настройках прогона»). Поля под порогами (`RunRulesFields`), сохраняются той же
  * кнопкой; несогласованное правило — отказ под полями, сохранять нечего. Сравнение
  * с действующими их не касается: оно о четырёх порогах и метриках базы.
+ *
+ * **Сравнение — только у изменённых порогов, история — последними версиями** (разведка
+ * 10.11.2026). Карточка сравнения стояла всегда ради фразы «пороги совпадают»; теперь
+ * она появляется с правкой, а до неё под кнопкой — тихая строка, почему сохранять нечего.
+ * История растёт с каждой версией: на виду действующая и ещё три, остальные — «Показать
+ * ещё N», и «Свернуть» — та же кнопка.
  */
 
 import { Alert, Badge, Button, Card, Group, Loader, Stack, Table, Text } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { fetchThresholds, previewThresholds, saveThresholds } from '../api/settings';
-import type { RunRules, ThresholdsFields, VersionBody } from '../api/settings';
+import type { RulesVersion, RunRules, ThresholdsFields, VersionBody } from '../api/settings';
 import { ColumnsHead } from '../components/ColumnsHead';
 import type { Column } from '../components/ColumnsHead';
 import { PageHead } from '../components/PageHead';
 import { SaveVersionButton } from '../components/SaveVersionButton';
+import { Seams } from '../components/Seams';
 import { useSession } from '../auth/AuthProvider';
 import { formatDateTime, formatNumber } from '../format';
 import { LimitField } from './LimitField';
@@ -76,23 +83,30 @@ const FIELDS: Record<ThresholdKey, { label: string; hint: string }> = {
   },
 };
 
-/** Колонки истории. Первая — номер со значком «действует» (124 px шрифтом
- *  экрана, замер 25.09.2026), последняя — адрес автора и время. Числа — по шесть
- *  знаков с разрядами, заголовок «Реф. домены» — 85 px. Плюс 32 px полей ячейки.
+/** Колонки истории. Первая — номер со значком «действует» («№999 действует» — 138 px
+ *  шрифтом экрана, замер 10.11.2026), «Регион · срок» — «топ-5 или 100% · 365 дн.»,
+ *  169 px; числа — «10 000 000» 75 px, заголовки «Реф. домены» и «Крупный, DR >» — 93 и
+ *  104 px. Плюс 32 px полей ячейки. Последняя — адрес автора по швам и время второй
+ *  строкой («10.10.2026, 20:48» — 117 px).
  *  **Ширина задана у всех**, и запас панели делится между ними пропорционально: до
  *  09.10.2026 «Кто и когда» была остатком и забирала ~570 px, числа жались к левой
- *  половине, а между «Ключи» и датой зиял провал (аудит экранов 09.10.2026). */
+ *  половине, а между «Ключи» и датой зиял провал (аудит экранов 09.10.2026).
+ *  **Сумма — не шире карточки на 1440 с открытым меню** (1 101 px): до 10.11.2026 колонки
+ *  давали 1 192 px, и «Кто и когда» срезалась краем карточки во всех строках. */
 const COLUMNS: Column[] = [
-  { title: 'Версия', width: '11rem' },
+  { title: 'Версия', width: '10rem' },
   { title: 'DR', width: '5rem' },
-  { title: 'Трафик', width: '7.5rem' },
+  { title: 'Трафик', width: '7rem' },
   { title: 'Реф. домены', width: '8rem' },
-  { title: 'Ключи', width: '7rem' },
+  { title: 'Ключи', width: '6.5rem' },
   { title: 'Крупный, DR >', width: '8rem' },
   { title: 'Регион · срок', width: '11rem' },
-  { title: 'Кто и когда', width: '17rem' },
+  { title: 'Кто и когда', width: '12.5rem' },
 ];
-const TABLE_MIN_WIDTH = 1184;
+/** Сумма колонок: 68rem. */
+const TABLE_MIN_WIDTH = 1088;
+/** Версий на виду: действующая и ещё три; остальные — по «Показать ещё». */
+const VERSIONS_SHOWN = 4;
 
 /** Правило версии строкой истории: «топ-5 или 20% · 90 дн.». */
 function rulesText(rules: RunRules): string {
@@ -101,6 +115,90 @@ function rulesText(rules: RunRules): string {
 
 function same(left: ThresholdsFields, right: ThresholdsFields): boolean {
   return THRESHOLD_KEYS.every((key) => left[key] === right[key]);
+}
+
+/** Строка истории: номер со значком «действует», пороги, правило, кто и когда. Автор — адресом
+ *  по швам (после «@» и перед точкой), время — второй строкой: в одну строку адрес с датой не
+ *  входил в колонку и резался. Автор неизвестен у версий, заведённых до учёток, — тогда только
+ *  время, без слова «неизвестно» в каждой строке. */
+function VersionRow({ version, current }: { version: RulesVersion; current: boolean }) {
+  return (
+    <Table.Tr>
+      <Table.Td>
+        <Group gap="xs" wrap="nowrap">
+          <Text size="sm" fw={500}>
+            №{version.version}
+          </Text>
+          {current && (
+            <Badge variant="light" color="green">
+              действует
+            </Badge>
+          )}
+        </Group>
+      </Table.Td>
+      <Table.Td>{formatNumber(version.min_dr)}</Table.Td>
+      <Table.Td>{formatNumber(version.min_org_traffic)}</Table.Td>
+      <Table.Td>{formatNumber(version.min_refdomains)}</Table.Td>
+      <Table.Td>{formatNumber(version.min_keywords)}</Table.Td>
+      <Table.Td>{formatNumber(version.max_dr)}</Table.Td>
+      <Table.Td>{rulesText(version)}</Table.Td>
+      <Table.Td className="wrapCell">
+        {version.created_by !== null && (
+          <Text size="sm" c="dimmed" className="cellName">
+            <Seams text={version.created_by} address />
+          </Text>
+        )}
+        <Text size="sm" c="dimmed">
+          {formatDateTime(version.created_at)}
+        </Text>
+      </Table.Td>
+    </Table.Tr>
+  );
+}
+
+/** История версий: последние — на виду, остальные — по «Показать ещё N», и «Свернуть» — та же
+ *  кнопка под таблицей. Скрытые строки не отрисованы. */
+function History({ history, current }: { history: RulesVersion[]; current: number | null }) {
+  const [all, setAll] = useState(false);
+  const restId = useId();
+  const shown = history.slice(0, VERSIONS_SHOWN);
+  const rest = history.slice(VERSIONS_SHOWN);
+  const row = (version: RulesVersion) => (
+    <VersionRow key={version.version} version={version} current={version.version === current} />
+  );
+  return (
+    <>
+      <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
+        <Table
+          className="dataTable fixedTable"
+          layout="fixed"
+          tabularNums
+          verticalSpacing="sm"
+          horizontalSpacing="md"
+        >
+          <ColumnsHead columns={COLUMNS} />
+          <Table.Tbody>{shown.map(row)}</Table.Tbody>
+          {all && <Table.Tbody id={restId}>{rest.map(row)}</Table.Tbody>}
+        </Table>
+      </Table.ScrollContainer>
+      {rest.length > 0 && (
+        <Group px="md" pt="xs">
+          <Button
+            variant="subtle"
+            size="compact-sm"
+            px={6}
+            ml={-6}
+            className="press"
+            aria-expanded={all}
+            aria-controls={restId}
+            onClick={() => setAll((was) => !was)}
+          >
+            {all ? 'Свернуть' : `Показать ещё\u00a0${formatNumber(rest.length)}`}
+          </Button>
+        </Group>
+      )}
+    </>
+  );
 }
 
 /** Экран «Пороги»: пороги отбора — Этап 1, веса кандидатов — Этап 2. Без «Доноров» запроса порогов
@@ -263,12 +361,18 @@ function DonorThresholds() {
               </Button>
             )}
           </Group>
+          {/* Почему «Сохранить» заперта и сравнения нет — тихой строкой под кнопкой, а не
+              карточкой ради одной фразы: сравнение встаёт ниже с первой правкой порога. */}
+          {canEdit && !changed && !rulesChanged && (
+            <Text size="sm" c="dimmed" className="thresholdsSame">
+              Пороги совпадают с действующими — сохранять и сравнивать нечего.
+            </Text>
+          )}
         </Stack>
       </Card>
 
-      {canEdit && (
+      {canEdit && changed && (
         <ThresholdsComparison
-          changed={changed}
           refused={refused === null ? null : FIELDS[refused].label}
           data={preview.data}
           fetching={preview.isFetching}
@@ -279,50 +383,7 @@ function DonorThresholds() {
       {/* Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что
           у карточек выше. */}
       <Card className="glass" p="md">
-        <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
-          <Table
-            className="dataTable fixedTable"
-            layout="fixed"
-            tabularNums
-            verticalSpacing="sm"
-            horizontalSpacing="md"
-          >
-            <ColumnsHead columns={COLUMNS} />
-            <Table.Tbody>
-              {data.history.map((version) => (
-                <Table.Tr key={version.version}>
-                  <Table.Td>
-                    <Group gap="xs" wrap="nowrap">
-                      <Text size="sm" fw={500}>
-                        №{version.version}
-                      </Text>
-                      {version.version === data.current?.version && (
-                        <Badge variant="light" color="green">
-                          действует
-                        </Badge>
-                      )}
-                    </Group>
-                  </Table.Td>
-                  <Table.Td>{formatNumber(version.min_dr)}</Table.Td>
-                  <Table.Td>{formatNumber(version.min_org_traffic)}</Table.Td>
-                  <Table.Td>{formatNumber(version.min_refdomains)}</Table.Td>
-                  <Table.Td>{formatNumber(version.min_keywords)}</Table.Td>
-                  <Table.Td>{formatNumber(version.max_dr)}</Table.Td>
-                  <Table.Td>{rulesText(version)}</Table.Td>
-                  <Table.Td className="wrapCell">
-                    {/* Автор неизвестен у версий, заведённых до учёток, —
-                        тогда только дата, без слова «неизвестно» в каждой строке. */}
-                    <Text size="sm" c="dimmed" className="cellName">
-                      {version.created_by === null
-                        ? formatDateTime(version.created_at)
-                        : `${version.created_by} · ${formatDateTime(version.created_at)}`}
-                    </Text>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </Table.ScrollContainer>
+        <History history={data.history} current={data.current?.version ?? null} />
         {data.history.length === 0 && (
           <Text size="sm" c="dimmed" p="md">
             Версий ещё нет — действуют умолчания. Первая появится здесь после сохранения, вместе с

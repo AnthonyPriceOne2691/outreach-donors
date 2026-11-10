@@ -4002,14 +4002,14 @@
       "worst": "open_choice_hint:51"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 433,
+      "lines": 438,
       "complexity": 2,
       "worst": "unbound_probes:37"
     },
     "scripts/ui_screens_reports.py": {
-      "lines": 182,
+      "lines": 203,
       "complexity": 2,
-      "worst": "show:32"
+      "worst": "open_hunter_details:51"
     },
     "scripts/ui_screens_runs.py": {
       "lines": 165,

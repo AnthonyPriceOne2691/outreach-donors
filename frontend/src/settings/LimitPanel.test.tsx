@@ -3,12 +3,13 @@
  * ни вкладки, ни запроса. Строки — по задачам, чего нет — прочерк, а не ноль; у строки только для
  * чтения кнопки нет, причина — в текущем ограничении. Окно: «Подтвердить» — только после просчёта
  * именно этого значения, смена числа сбрасывает просчёт, отказ остаётся словами, а смена уходит с тем,
- * что человек видел. Числа — выдуманные.
+ * что человек видел. Числа — выдуманные. Задачи — свёрнутыми группами с числом, в ячейке ограничения
+ * — первое предложение, целиком — окошком по «i»; до ответа — заготовка строк (разведка 10.11.2026).
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { LimitQuote, LimitRow } from '../api/limitPanel';
 import type { Me } from '../api/types';
@@ -88,12 +89,22 @@ const QUOTED: LimitQuote = {
   accepted: 15000000,
 };
 
+/** Кнопки задач панели: «Продажи · 2». */
+function taskButtons(): HTMLElement[] {
+  const table = screen.getByRole('table', { name: 'Панель лимитов' });
+  return within(table)
+    .getAllByRole('button')
+    .filter((button) => button.closest('tr')?.classList.contains('tierRow'));
+}
+
+/** Открыть панель и раскрыть все задачи: строки свёрнутых не отрисованы. */
 async function openPanel(routes: Record<string, Answer | (() => Answer)> = {}) {
   const recorded = await openUsage(undefined, {
     routes: { [PANEL_URL]: { body: { rows: ROWS } }, ...routes },
   });
   await userEvent.click(screen.getByRole('radio', { name: 'Панель лимитов' }));
   await screen.findByRole('table', { name: 'Панель лимитов' });
+  for (const button of taskButtons()) await userEvent.click(button);
   return recorded;
 }
 
@@ -162,13 +173,105 @@ describe('панель лимитов: таблица', () => {
     const table = screen.getByRole('table', { name: 'Панель лимитов' });
     const lines = within(table)
       .getAllByRole('row')
-      .map((row) => row.textContent ?? '');
+      .map((row) => (row.textContent ?? '').replace(/\s/g, ' '));
 
-    expect(lines[1]).toBe('Продажи 2');
+    expect(lines[1]).toBe('Продажи · 2');
     expect(lines[2]).toContain('Модель, токенов');
     expect(lines[3]).toContain('Почта, писем');
-    expect(lines[4]).toBe('Аутрич 1');
+    expect(lines[4]).toBe('Аутрич · 1');
     expect(lines[5]).toContain('Выдача, ключей');
+  });
+
+  it('задачи свёрнуты с числом, строки — по нажатию; «Свернуть» — та же кнопка', async () => {
+    await openUsage(undefined, { routes: { [PANEL_URL]: { body: { rows: ROWS } } } });
+    await userEvent.click(screen.getByRole('radio', { name: 'Панель лимитов' }));
+    const table = await screen.findByRole('table', { name: 'Панель лимитов' });
+    const [sales, outreach] = taskButtons();
+
+    // Число не отрывается от подписи: неразрывный пробел.
+    expect(sales?.textContent).toBe('Продажи ·\u00a02');
+    expect(outreach?.textContent).toBe('Аутрич ·\u00a01');
+    expect(sales).toHaveAttribute('aria-expanded', 'false');
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
+
+    await userEvent.click(sales!);
+
+    expect(sales).toHaveAttribute('aria-expanded', 'true');
+    const model = screen.getByRole('row', { name: /Все вызовы продаж/ });
+    expect(sales!.getAttribute('aria-controls')?.split(' ')).toContain(model.id);
+    expect(screen.queryByRole('row', { name: /Покупка выдачи/ })).not.toBeInTheDocument();
+
+    await userEvent.click(sales!);
+
+    expect(screen.queryByRole('row', { name: /Все вызовы продаж/ })).not.toBeInTheDocument();
+  });
+
+  it('одна задача — раскрыта сразу: нажатие ничего бы не прятало', async () => {
+    await openUsage(undefined, { routes: { [PANEL_URL]: { body: { rows: [SERP] } } } });
+    await userEvent.click(screen.getByRole('radio', { name: 'Панель лимитов' }));
+    await screen.findByRole('table', { name: 'Панель лимитов' });
+
+    expect(taskButtons()[0]).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('row', { name: /Покупка выдачи/ })).toBeInTheDocument();
+  });
+
+  it('до ответа — заготовка строк в таблице, а не крутилка', async () => {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await openUsage(undefined, { routes: { [PANEL_URL]: { body: { rows: ROWS } } } });
+    const answered = vi.mocked(globalThis.fetch).getMockImplementation()!;
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      if (typeof input === 'string' && input.endsWith('/usage/limits')) await gate;
+      return answered(input, init);
+    });
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Панель лимитов' }));
+
+    const table = await screen.findByRole('table', { name: 'Панель лимитов' });
+    const body = table.querySelector('tbody')!;
+    expect(body).toHaveAttribute('aria-busy', 'true');
+    expect(body.querySelectorAll('tr[aria-hidden="true"]')).toHaveLength(2);
+    expect(screen.queryByLabelText('Загружаем панель лимитов')).not.toBeInTheDocument();
+
+    release();
+
+    await waitFor(() => expect(taskButtons()).toHaveLength(2));
+    expect(table.querySelector('tbody')).not.toHaveAttribute('aria-busy');
+  });
+
+  it('длинное ограничение — первое предложение в ячейке, целиком — окошком по «i»', async () => {
+    const words =
+      'Своего потолка нет: каждый прогон идёт по смете, её подтверждает человек. ' +
+      'Платный поиск сбора выключен. Меняется настройкой сервера';
+    await openPanel({ [PANEL_URL]: { body: { rows: [MODEL, { ...SERP, now: words }] } } });
+    const serp = screen.getByRole('row', { name: /Покупка выдачи/ });
+
+    expect(
+      within(serp).getByText(
+        'Своего потолка нет: каждый прогон идёт по смете, её подтверждает человек',
+      ),
+    ).toBeInTheDocument();
+    expect(within(serp).queryByText(/Платный поиск сбора выключен/)).not.toBeInTheDocument();
+
+    await userEvent.click(
+      within(serp).getByRole('button', {
+        name: 'Текущее ограничение: Выдача, Покупка выдачи в прогоне',
+      }),
+    );
+
+    expect(await screen.findByText(words)).toBeInTheDocument();
+  });
+
+  it('ограничение в одно предложение — целиком, без «i»', async () => {
+    await openPanel();
+    const box = screen.getByRole('row', { name: /Добивки с ящика/ });
+
+    expect(within(box).getByText('Не меняется: это репутация доменов')).toBeInTheDocument();
+    expect(
+      within(box).queryByRole('button', { name: /^Текущее ограничение/ }),
+    ).not.toBeInTheDocument();
   });
 
   it('числа и слова сервера: сессия, день, выбрано, стоимость, откуда', async () => {

@@ -2100,11 +2100,27 @@ html:root .mantine-Pill-root {
   text-align: start;
 }
 
-/* Значок «i» держится рядом с числом стоимости и не падает на вторую строку. */
-.limitCost {
+/* Значок «i» держится рядом с числом стоимости и не падает на вторую строку; у ограничения — рядом
+   с последним словом первого предложения, а не один на новой строке. */
+.limitCost,
+.limitNow {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+}
+
+/* Метка «без потолка» у модели длиннее строки телефона: переносится внутри себя, а не режется
+   многоточием на «…не огр…» (снимок 390 px, 10.11.2026) — как ключи прогона (`provenKeywords`). */
+.limitBadge.mantine-Badge-root {
+  height: auto;
+  min-height: var(--badge-height);
+  max-width: 100%;
+}
+
+.limitBadge .mantine-Badge-label {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 /* Имя настройки длиннее колонки: рвётся, а не вылезает. */
