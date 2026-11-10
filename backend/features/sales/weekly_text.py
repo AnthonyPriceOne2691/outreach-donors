@@ -8,6 +8,17 @@
 **Сообщение — в пределах Telegram** (`telegram.MAX_CHARS`): длинные списки — лиды поимённо и
 проблемы — первыми строками и «ещё N — на экране отчёта» со ссылкой на него.
 
+**На экране похожие проблемы — одной строкой** (замечание владельца 10.11.2026 об экранах продаж:
+«пояснения — не простынёй, а свёрнуто или в «i»»; на проде в «Проблемах» стояли шесть почти
+одинаковых строк о паузах ящиков — 162 слова). Складывает сервер, а не экран: строку «Паузы ящиков
+— 6» и строки каждой паузы под ней называет он (`Section.details`), экран показывает их по
+«показать 6» и слов не разбирает. Складываются проблемы одного вида (`Problem.group`) с одной
+пометкой и только те, о которых беспокоиться незачем, — как тихие тревоги над вкладками (слово
+владельца 02.11.2026). Проблема с поводом для беспокойства — всегда своей строкой, и экран держит её
+на виду, когда текст отчёта свёрнут (`Section.cause_lines`). В сообщении группе и в CSV — каждая
+проблема своей строкой, как прежде: в Telegram нет «показать», и сложенная строка потеряла бы время
+и причину каждой паузы. Поэтому складывание — только по `sections(fold=True)`, его зовёт экран.
+
 **Выгрузка — для Excel**, как выгрузки лидов и доноров: точка с запятой, UTF-8 с меткой.
 Ячейка, похожая на формулу (имя лида из чужого файла), начинается апострофом — общим правилом
 выгрузок (`shared/spreadsheet.py`).
@@ -18,9 +29,10 @@ from __future__ import annotations
 import csv
 import io
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from backend.config import sales as cfg
+from backend.features.ops.alarms import Concern
 from backend.features.sales.telegram import MAX_CHARS
 from backend.features.sales.weekly import Numbers, Plan, Problem, Week, WeeklyReport
 from backend.features.sales.weekly_counts import AUTO, KINDS, Handed, Mail
@@ -49,6 +61,12 @@ class Section:
     key: str
     title: str
     lines: list[str]
+    #: Строки, сложенные в строку `lines[i]`, — `details[i]`: экран показывает их по «показать N».
+    #: Список короче `lines` или пуст — у остальных строк подробностей нет.
+    details: list[list[str]] = field(default_factory=list)
+    #: Номера строк `lines` с поводом для беспокойства: экран держит их на виду, пока текст
+    #: отчёта свёрнут.
+    cause_lines: list[int] = field(default_factory=list)
 
 
 def _pairs(*pairs: tuple[str, int]) -> str:
@@ -62,9 +80,12 @@ def _list(items: list[str], shown: int | None) -> list[str]:
     return [*items[:shown], f"ещё {len(items) - shown} — на экране отчёта"]
 
 
-def sections(report: WeeklyReport, *, shown: int | None = None) -> list[Section]:
+def sections(
+    report: WeeklyReport, *, shown: int | None = None, fold: bool = False
+) -> list[Section]:
     """Восемь разделов в порядке формата подрядчика. `shown` — потолок длинных списков
-    (сообщение в группу); `None` — целиком (экран)."""
+    (сообщение в группу); `None` — целиком (экран). `fold` — экран: похожие проблемы без повода
+    для беспокойства — одной строкой, их строки — в `Section.details`."""
     total = report.total
     return [
         Section("contacts", "Контакты", [_contacts(total)]),
@@ -73,7 +94,7 @@ def sections(report: WeeklyReport, *, shown: int | None = None) -> list[Section]
         Section("replies", "Ответы", _replies(total)),
         Section("dialogs", "Диалоги", [_dialogs(total)]),
         Section("leads", "Лиды поимённо", _leads(report.leads, shown)),
-        Section("problems", "Проблемы", _problems(report.problems, shown)),
+        _problems(report.problems, shown, fold=fold),
         Section("plan", "План", _plan(total, report.plan)),
     ]
 
@@ -132,9 +153,14 @@ def _leads(leads: list[Handed], shown: int | None) -> list[str]:
     return [head, *_list([lead_line(lead) for lead in leads], shown)]
 
 
+def _at_report(words: str, *, now: bool) -> str:
+    """Состояние на момент отчёта, а не событие недели, — с пометкой."""
+    return f"{words} (сейчас)" if now else words
+
+
 def problem_title(problem: Problem) -> str:
     """Что за проблема; состояние на момент отчёта, а не событие недели, — с пометкой."""
-    return f"{problem.title} (сейчас)" if problem.now else problem.title
+    return _at_report(problem.title, now=problem.now)
 
 
 def problem_words(problem: Problem) -> str:
@@ -147,11 +173,59 @@ def problem_line(problem: Problem) -> str:
     return f"{problem_title(problem)}: {problem_words(problem)}"
 
 
-def _problems(problems: list[Problem], shown: int | None) -> list[str]:
+def _cause(problem: Problem) -> bool:
+    return problem.concern is not None and problem.concern.cause
+
+
+def _alike(problems: list[Problem], *, fold: bool) -> list[list[Problem]]:
+    """Проблемы по строкам раздела: каждая своей. С `fold` похожие — один вид, одна пометка и
+    `now` — без повода для беспокойства идут одной строкой, на месте первой из них."""
+    rows: list[list[Problem]] = []
+    together: dict[tuple[str, bool, Concern | None], list[Problem]] = {}
+    for problem in problems:
+        if not fold or problem.group is None or _cause(problem):
+            rows.append([problem])
+            continue
+        key = (problem.group, problem.now, problem.concern)
+        row = together.get(key)
+        if row is None:
+            row = together[key] = []
+            rows.append(row)
+        row.append(problem)
+    return rows
+
+
+def _row(alike: list[Problem]) -> tuple[str, list[str]]:
+    """Строка раздела и строки, сложенные в неё. Одна проблема — её строка; похожие — их вид,
+    сколько их и общая пометка («Паузы ящиков — 6. Повода для беспокойства нет — ящик снова
+    пишет.»), а строка каждой — подробностями: ни время, ни причина паузы не теряются."""
+    first = alike[0]
+    if len(alike) == 1:
+        return problem_line(first), []
+    head = f"{_at_report(first.group or first.title, now=first.now)} — {len(alike)}"
+    concern = first.concern
+    line = head if concern is None else f"{head}. {concern.words}"
+    return line, [problem_line(problem) for problem in alike]
+
+
+def _problems(problems: list[Problem], shown: int | None, *, fold: bool) -> Section:
+    """Раздел «Проблемы»: итог и строки — с `fold` похожие сложены (`_alike`); для экрана —
+    сложенные строки и номера строк с поводом для беспокойства."""
     if not problems:
-        return ["проблем — 0: тревог и сбоев нет"]
-    lines = [problem_line(problem) for problem in problems]
-    return [f"проблем — {len(problems)}", *_list(lines, shown)]
+        return Section("problems", "Проблемы", ["проблем — 0: тревог и сбоев нет"])
+    rows = _alike(problems, fold=fold)
+    said = [_row(row) for row in rows]
+    lines = [f"проблем — {len(problems)}", *_list([line for line, _ in said], shown)]
+    # Строка за потолком («ещё N — на экране отчёта») — без подробностей и без пометки.
+    kept = rows if shown is None else rows[:shown]
+    details: list[list[str]] = [[], *(more for _, more in said[: len(kept)])]
+    return Section(
+        "problems",
+        "Проблемы",
+        lines,
+        details=details if any(details) else [],
+        cause_lines=[at for at, row in enumerate(kept, start=1) if _cause(row[0])],
+    )
 
 
 #: Лимит направления продаж не прочитан из настроек (`weekly_counts.Runway.unread`) — словами, без

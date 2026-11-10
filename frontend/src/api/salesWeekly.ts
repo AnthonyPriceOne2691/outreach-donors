@@ -50,6 +50,11 @@ export interface WeeklySection {
   key: string;
   title: string;
   lines: string[];
+  /** Строки, сложенные сервером в строку `lines[i]`, — `details[i]` («Паузы ящиков — 6» и
+   *  шесть строк пауз); короче `lines` — у остальных строк их нет. */
+  details: string[][];
+  /** Номера строк `lines` с поводом для беспокойства — на виду, пока текст отчёта свёрнут. */
+  cause_lines: number[];
 }
 
 /** Как отчёт недели ушёл в группу продаж. */

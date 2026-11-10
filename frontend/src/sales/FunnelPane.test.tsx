@@ -174,6 +174,21 @@ describe('воронка продаж', () => {
     ]);
   });
 
+  it('одна гипотеза — строки итога нет: она повторяла бы строку гипотезы', async () => {
+    // Аудит экранов продаж 10.11.2026: «Пилот Основная» и «Всего» стояли с теми же числами.
+    const only = { hypothesis_id: 5, name: 'тестовая гипотеза', counts: FIRST };
+    await openFunnel({}, { ...ALL_VIEW, rows: [only], total: FIRST });
+
+    const table = screen.getByRole('table', { name: 'Воронка по гипотезам' });
+    const rows = within(table).getAllByRole('row');
+    const texts = rows.slice(1).map((row) => within(row).getAllByRole('cell').map(cellText));
+    expect(texts).toEqual([
+      ['тестовая гипотеза', '3', '13', '11 / 84,6%', '2 / 15,4%', '4 / 30,8%', '1 / 25%'],
+    ]);
+    // Плитки — те же числа, что у единственной строки: итог на виду и без неё.
+    expect(tile('Отправлено')).toEqual(['Отправлено', '13', 'лидов, не писем']);
+  });
+
   it('гипотеза — запрос с её номером, строк по гипотезам нет', async () => {
     const recorded = await openFunnel({
       [`GET ${FUNNEL}?hypothesis=8`]: {

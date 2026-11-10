@@ -78,9 +78,17 @@ async def test_screen_shows_the_report_that_goes_to_the_group(
     body = response.json()
     report = await weekly.build(session, WEEK, now=BUILT)
     assert body["sections"] == [
-        {"key": part.key, "title": part.title, "lines": part.lines}
-        for part in weekly_text.sections(report)
+        {
+            "key": part.key,
+            "title": part.title,
+            "lines": part.lines,
+            "details": part.details,
+            "cause_lines": part.cause_lines,
+        }
+        for part in weekly_text.sections(report, fold=True)
     ]
+    problems = next(part for part in body["sections"] if part["key"] == "problems")
+    assert problems["cause_lines"], "ящик всё ещё на паузе — повод на виду"
     assert body["total"] == WeeklyNumbers.of(report.total).model_dump()
     assert [(row["name"], row["numbers"]) for row in body["rows"]] == [
         (row.name, WeeklyNumbers.of(row.numbers).model_dump()) for row in report.rows
@@ -101,6 +109,33 @@ async def test_without_a_week_the_screen_shows_the_last_one(
 
     assert response.status_code == 200, response.text
     assert response.json()["week"] == "2027-03-01"
+
+
+async def test_screen_folds_alike_problems_the_group_message_keeps_each(
+    session: AsyncSession, client: AsyncClient, headers: dict[str, str]
+) -> None:
+    """Аудит «Отчёта» 10.11.2026: паузы, о которых беспокоиться незачем, на экране — одной строкой,
+    строка каждой — в `details` под ней; в группу — каждая своей строкой, как прежде."""
+    rows = WeekRows(session)
+    await week_world(rows)
+    back = await rows.box("back@sales-three.example.test")
+    for day in (2, 5):
+        await rows.health(back, "paused", at=msk(day), detail="отказов 3 в окне 50 писем: пауза")
+    await session.commit()
+
+    response = await client.get(WEEKLY, params={"week": "2027-03-01"}, headers=headers)
+
+    assert response.status_code == 200, response.text
+    [problems] = [part for part in response.json()["sections"] if part["key"] == "problems"]
+    folded = f"{weekly.PAUSES} — 2. {weekly.BOX_BACK.words}"
+    at = problems["lines"].index(folded)
+    first, second = problems["details"][at]
+    assert first.startswith("Ящик back@sales-three.example.test встал на паузу 02.03 12:00 по ")
+    assert second.startswith("Ящик back@sales-three.example.test встал на паузу 05.03 12:00 по ")
+    assert at not in problems["cause_lines"]
+    message = weekly_text.message(await weekly.build(session, WEEK, now=BUILT))
+    assert folded not in message
+    assert message.count("Ящик back@sales-three.example.test встал на паузу") == 2
 
 
 async def test_csv_carries_the_numbers_of_the_screen(
