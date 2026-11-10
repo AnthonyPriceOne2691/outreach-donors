@@ -3,6 +3,7 @@
  * проверок хватит, сброс и когда Hunter ответил; ниже наш потолок месяца, и две границы названы
  * словами. Нет снимка, ключа или права — экран говорит словами. Окно: пусто не принимается, ноль —
  * «проверки остановлены», границы — сервера, новое значение — со следующего прохода. Числа — выдуманные.
+ * Тариф, выбрано за месяц и кто менял — под «Подробнее»; месяц у предела раскрывает их сразу.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -12,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import type { Me } from '../api/types';
 import { formatDateTime } from '../format';
 import { ADMIN, OPERATOR } from '../test/fixtures';
-import { HUNTER, openUsage, SPENDING } from '../test/usageFixtures';
+import { HUNTER, openDetails, openUsage, SPENDING } from '../test/usageFixtures';
 
 /** Числа экрана — с неразрывным пробелом разрядов (`format.ts`); в тексте теста — обычный. */
 function spaced(words: string): RegExp {
@@ -77,6 +78,7 @@ describe('Hunter: учётка', () => {
 
   it('тариф и что учётка общая', async () => {
     await openUsage();
+    await openDetails('Hunter');
 
     expect(
       within(card()).getByText(
@@ -109,8 +111,35 @@ describe('Hunter: учётка', () => {
 });
 
 describe('Hunter: потолок проверок', () => {
+  it('на виду — подвал с потолком, выбрано за месяц — под «Подробнее»', async () => {
+    await openUsage();
+
+    expect(
+      within(card()).getByText(spaced('Потолок: 1 500 в месяц — пока из настроек сервера')),
+    ).toBeInTheDocument();
+    expect(within(card()).getByRole('button', { name: 'Подробнее' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(within(card()).queryByText(/^Выбрано с 1 октября/)).not.toBeInTheDocument();
+    expect(within(card()).queryByText(/^Тариф/)).not.toBeInTheDocument();
+  });
+
+  it('месяц у предела — подробности раскрыты сразу: полоса янтарём не прячется', async () => {
+    await openUsage(withHunter({ month: { ...MONTH, spent: 1300, left: 200, used_percent: 87 } }));
+
+    expect(within(card()).getByRole('button', { name: 'Свернуть' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(
+      within(card()).getByRole('progressbar', { name: 'Выбрано от потолка проверок за месяц' }),
+    ).toBeInTheDocument();
+  });
+
   it('выбрано за месяц числами сервера, и две границы названы словами', async () => {
     await openUsage();
+    await openDetails('Hunter');
 
     expect(
       within(card()).getByText(spaced('Выбрано с 1 октября: 300 из 1 500 — 20%, осталось 1 200')),
@@ -129,6 +158,7 @@ describe('Hunter: потолок проверок', () => {
     expect(
       within(card()).getByText(spaced('Потолок: 1 500 в месяц — пока из настроек сервера')),
     ).toBeInTheDocument();
+    await openDetails('Hunter');
     expect(within(card()).getByText('Потолок на экране ещё не меняли')).toBeInTheDocument();
   });
 
@@ -136,6 +166,7 @@ describe('Hunter: потолок проверок', () => {
     await openUsage(withHunter({ month: { ...MONTH, source: 'setting', changes: [LAST] } }));
 
     expect(within(card()).getByText(spaced('Потолок: 1 500 в месяц'))).toBeInTheDocument();
+    await openDetails('Hunter');
     expect(
       within(card()).getByText(
         `Потолок изменён: потолок@team.example.test · ${formatDateTime(LAST.set_at)}`,
@@ -153,6 +184,7 @@ describe('Hunter: потолок проверок', () => {
     expect(
       within(card()).getByText('Потолок: 0 — проверки адресов остановлены'),
     ).toBeInTheDocument();
+    await openDetails('Hunter');
     expect(within(card()).getByText('Выбрано с 1 октября: 300')).toBeInTheDocument();
     expect(
       within(card()).queryByRole('progressbar', { name: 'Выбрано от потолка проверок за месяц' }),
@@ -170,6 +202,7 @@ describe('Hunter: потолок проверок', () => {
         'Потолок проверки адресов на месяц не задан — задайте его на экране «Расход»',
       ),
     ).toBeInTheDocument();
+    await openDetails('Hunter');
     expect(within(card()).getByText('Выбрано с 1 октября: 300')).toBeInTheDocument();
   });
 
