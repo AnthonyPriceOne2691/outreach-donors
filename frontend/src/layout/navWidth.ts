@@ -39,14 +39,20 @@ const MIN_WIDTH = 170;
 /** Холста нет (тесты в jsdom) — прежняя ширина. */
 export const FALLBACK_WIDTH = 232;
 
-/** Место под число ждущей работы справа от подписи (`layout/work.ts`): значок
- *  на три цифры — 38–40 px, и зазор 9–11 до подписи. Замерено в браузере у
- *  «Рекламодателей», самого длинного пункта с числом: при 40 px трёхзначное
- *  вставало в 3 px от подписи, четырёхзначное наезжало на неё. Поэтому больше
- *  999 значок не показывает: «999+» — 47 px, в 2 px от подписи, но не на ней.
- *  Держится у такого пункта всегда, а не когда число пришло: иначе колонка
- *  дёргалась бы с ответом. */
-export const COUNT_ROOM = 48;
+/** Больше значок числа ждущей работы не показывает (`NavMenu`): четырёхзначное наезжало на
+ *  подпись. Точное число — на «Обзоре» и на экране раздела. */
+export const COUNT_CAP = 999;
+
+/** Самый широкий значок числа — сверх потолка. */
+export const COUNT_OVER = `${COUNT_CAP}+`;
+
+/** Значок числа — `Badge size="sm"` Mantine: 10 px жирным, разрядка 0,25 px на знак. */
+const COUNT_FONT = `700 10px ${FONT_STACK}`;
+const COUNT_SPACING = 0.25;
+
+/** Вокруг подписи значка — поля по 8 px и кромка по 1 px, от подписи пункта его отделяет поле
+ *  правой части `NavLink`, 12 px. */
+export const COUNT_FRAME = 2 * (8 + 1) + 12;
 
 /** Подпись группы — `.navGroupTitle` в glass.css: 11 px жирным, заглавными, разрядка
  *  0,08em на каждую букву. */
@@ -79,13 +85,25 @@ export function navbarWidth(
   return Math.max(MIN_WIDTH, byItems, groups.length > 0 ? byGroups : 0);
 }
 
+/**
+ * Место под число справа от подписи (`layout/work.ts`) — по самому широкому значку, «999+», тем же
+ * холстом, что подписи. Держится у такого пункта всегда, а не когда число пришло: иначе колонка
+ * дёргалась бы с ответом. До 10.11.2026 место было числом — 48 px, а значку с полем нужно 59:
+ * «Рекламодатели» рядом с «999+» резались до «Рекламодате…» (разбор экранов 10.11.2026).
+ */
+function countRoom(context: CanvasRenderingContext2D): number {
+  context.font = COUNT_FONT;
+  return context.measureText(COUNT_OVER).width + COUNT_OVER.length * COUNT_SPACING + COUNT_FRAME;
+}
+
 function widestLabel(
   context: CanvasRenderingContext2D,
   labels: readonly string[],
   counted: readonly string[],
 ): number {
+  const count = countRoom(context);
   context.font = LABEL_FONT;
-  const room = (label: string) => (counted.includes(label) ? COUNT_ROOM : 0);
+  const room = (label: string) => (counted.includes(label) ? count : 0);
   return Math.max(...labels.map((label) => context.measureText(label).width + room(label)));
 }
 
