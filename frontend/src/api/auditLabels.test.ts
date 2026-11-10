@@ -23,6 +23,18 @@ describe('цель записи', () => {
     expect(targetParts('job:3f2a-b', EMAILS)).toEqual([{ text: 'задача в очереди' }]);
   });
 
+  it('очередь, которая уходит сама, и потолки модели — словами, без служебного номера', () => {
+    // Проверка прода 10.11.2026: «Над чем» у запуска очереди стояло кодом «queue_autosend:2».
+    expect(targetParts('queue_autosend:2', EMAILS)).toEqual([{ text: 'очередь писем' }]);
+    expect(targetParts('llm_caps:7', EMAILS)).toEqual([{ text: 'потолки модели' }]);
+    expect(targetParts('advertisers:judge-pass', EMAILS)).toEqual([
+      { text: 'спорные рекламодатели' },
+    ]);
+    expect(targetParts('sales_segment_run:12', EMAILS)).toEqual([
+      { text: 'прогон сбора продаж №12' },
+    ]);
+  });
+
   it('перечень чистки — каждой частью, незнакомое — как записано', () => {
     expect(targetParts('run:1, reply:5, probes:2', EMAILS)).toEqual([
       { text: 'прогон №1', to: '/runs/1' },
@@ -79,7 +91,7 @@ describe('подробности записи', () => {
         причина: 'supplier',
       }),
     ).toEqual([
-      { label: 'роль', value: 'оператор' },
+      { label: 'роль', value: 'Оператор' },
       { label: 'учётка', value: 'включена' },
       { label: 'права', value: 'отправлять письма — выдано' },
       { label: 'решение', value: 'отклонён' },

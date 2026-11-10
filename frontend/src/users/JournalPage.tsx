@@ -14,9 +14,13 @@
  *
  * **Без права «Продажи» — без действий продаж**, и экран говорит это строкой: иначе
  * журнал без них читался бы как весь (П2).
+ *
+ * **Страницы — и над таблицей, и под ней** (проверка прода 10.11.2026: переключатель стоял
+ * только под пятьюдесятью строками). Верхний — в строке числа записей; строка держит его
+ * высоту и тогда, когда страница одна, — таблица не прыгает от фильтра к фильтру.
  */
 
-import { Alert, Card, Group, Loader, Select, Stack, Text, TextInput } from '@mantine/core';
+import { Alert, Box, Card, Group, Loader, Select, Stack, Text, TextInput } from '@mantine/core';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -151,13 +155,29 @@ interface ResultsProps {
   error: Error | null;
   filtered: boolean;
   stale: boolean;
+  /** Какой запрос на экране: сменился — таблица открывается с первой строки. */
+  query: string;
   page: number;
   pages: number;
   emails: ReadonlyMap<number, string>;
   onPage: (page: number) => void;
 }
 
-function Results({ view, error, filtered, stale, page, pages, emails, onPage }: ResultsProps) {
+/** Высота строки числа записей — по переключателю страниц (кнопка 2rem): без него строка не
+ *  ниже, и таблица под ней не прыгает, когда страница остаётся одна. */
+const COUNT_ROW = '2rem';
+
+function Results({
+  view,
+  error,
+  filtered,
+  stale,
+  query,
+  page,
+  pages,
+  emails,
+  onPage,
+}: ResultsProps) {
   return (
     <>
       {error !== null && (
@@ -165,14 +185,21 @@ function Results({ view, error, filtered, stale, page, pages, emails, onPage }: 
           {refusalOf(error)}
         </Alert>
       )}
-      <Text size="sm" c="dimmed" px="md" pt="xs" pb="sm">
-        {countLine(view, filtered)}
-      </Text>
+      {/* Поле — у текста (кромка ячеек таблицы), а не у строки: переключателю на телефоне
+          нужна вся ширина карточки, с полем он переносил «›» на вторую строку. */}
+      <Box pt="xs" pb="sm">
+        <Group justify="space-between" gap="sm" mih={COUNT_ROW}>
+          <Text size="sm" c="dimmed" px="md">
+            {countLine(view, filtered)}
+          </Text>
+          <PageSwitch label="Страницы журнала" page={page} pages={pages} onChange={onPage} />
+        </Group>
+      </Box>
       {view.entries.length > 0 && (
-        <JournalTable entries={view.entries} emails={emails} stale={stale} />
+        <JournalTable key={query} entries={view.entries} emails={emails} stale={stale} />
       )}
       <PageSwitch
-        label="Страницы журнала"
+        label="Страницы журнала внизу"
         page={page}
         pages={pages}
         onChange={onPage}
@@ -211,8 +238,9 @@ export function JournalPage() {
 
   // Тот же ключ, что у «Учёток»: список учёток один, и в кэше он один.
   const users = useQuery({ queryKey: ['users'], queryFn: listUsers });
+  const queryKey = ['journal', filters.page, filters.action, filters.author, since, until];
   const journal = useQuery({
-    queryKey: ['journal', filters.page, filters.action, filters.author, since, until],
+    queryKey,
     queryFn: () => fetchJournal({ ...filters, since, until }),
     enabled: problem === null,
     placeholderData: keepPreviousData,
@@ -260,6 +288,7 @@ export function JournalPage() {
             error={journal.error}
             filtered={[filters.action, filters.author, since, until].some((one) => one !== null)}
             stale={journal.isPlaceholderData}
+            query={JSON.stringify(queryKey)}
             page={filters.page}
             pages={pages}
             emails={new Map(userList.map((user) => [user.id, user.email]))}

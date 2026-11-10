@@ -42,6 +42,20 @@ from backend.features.outreach import senders
 
 logger = logging.getLogger(__name__)
 
+#: Чей домен у письма — словом его этапа: у писем рекламодателям журнал называл домен
+#: «донор» (проверка прода 10.11.2026). У продаж домен — сайт лида, словом продаж («Сайт»).
+HOST_KEYS: dict[Stage, str] = {
+    Stage.DONORS: "донор",
+    Stage.ADVERTISERS: "рекламодатель",
+    Stage.SALES: "сайт",
+}
+
+
+def host_key(stage: Stage | None) -> str:
+    """Подпись домена письма в журнале — по этапу письма. Без этапа (рассылки уже нет) —
+    «донор»: так подписаны письма до этапов."""
+    return HOST_KEYS[stage or Stage.DONORS]
+
 
 @dataclass(frozen=True, slots=True)
 class Witness:
@@ -121,8 +135,9 @@ async def record_sent(
     # Расход пишется и у нулевого транспорта: иначе по журналу
     # не отличить «не отправляли» от «отправили даром».
     usage.record(session, operation="letter_send", units=1)
+    stage = await stage_of(session, message)
     details: dict[str, Any] = {
-        "донор": witness.host,
+        host_key(stage): witness.host,
         "кому": witness.email,
         "от кого": witness.sender_email,
         "транспорт": witness.transport,
@@ -136,7 +151,7 @@ async def record_sent(
         author_id=author_id,
         target=f"message:{message.id}",
         details=details,
-        stage=await stage_of(session, message),
+        stage=stage,
     )
     return True
 

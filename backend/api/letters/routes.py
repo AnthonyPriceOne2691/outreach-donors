@@ -79,6 +79,7 @@ from backend.features.letters.niche_recipients import NicheRecipients
 from backend.features.letters.repository import LetterRepository, QueuedLetter
 from backend.features.letters.scope import run_scope
 from backend.features.letters.sending import Sending
+from backend.features.letters.settle import host_key
 from backend.features.letters.template import Template, of_campaign
 from backend.features.letters.transport_factory import Transports, in_use
 from backend.shared.queue import (
@@ -273,7 +274,7 @@ async def edit(
         AuditAction.USER_UPDATED,
         author_id=author.id,
         target=f"message:{letter_id}",
-        details={"действие": "письмо поправлено руками", "донор": row.host},
+        details={"действие": "письмо поправлено руками", host_key(row.stage): row.host},
         stage=row.stage,
     )
     await session.commit()
@@ -326,7 +327,7 @@ async def skip(
         AuditAction.USER_UPDATED,
         author_id=author.id,
         target=f"message:{letter_id}",
-        details={"действие": "решено не писать", "донор": row.host},
+        details={"действие": "решено не писать", host_key(row.stage): row.host},
         stage=row.stage,
     )
     await session.commit()

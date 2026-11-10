@@ -5,6 +5,10 @@
 запись с адресом лида всплывала бы на общем экране. Поэтому общие писатели кладут этап
 в саму запись (`AccessRepository.record`, ключ «этап»), а признаки по строкам остаются
 для прежних записей.
+
+Тот же этап называет и домен письма: у письма донору — «донор», у письма рекламодателю —
+«рекламодатель», у письма продаж — «сайт» (проверка прода 10.11.2026: у писем рекламодателям
+журнал называл домен «донор»).
 """
 
 from __future__ import annotations
@@ -33,7 +37,7 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     ThreadModel,
 )
-from backend.features.letters.settle import Witness, record_sent
+from backend.features.letters.settle import Witness, host_key, record_sent
 from backend.features.outreach.own_inboxes import OwnInboxes
 from backend.features.sales.trials import TrialTrace
 from httpx import AsyncClient
@@ -46,6 +50,8 @@ SignIn = Callable[..., Awaitable[str]]
 
 ADMIN = "админ@team.example.test"
 OUTSIDER = "без-продаж@team.example.test"
+#: Домен письма в записи «Письмо отправлено».
+HOST = "site.example.test"
 
 
 @pytest.fixture
@@ -242,6 +248,55 @@ class TestRecordsBeforeTheStageWasWritten:
         shown = await _targets(client, tokens[1])
         assert f"sender:{box.id}" not in shown
         assert "probes:1" not in shown
+
+
+class TestLetterHostByStage:
+    """Домен письма в записи «Письмо отправлено» — словом этапа письма, а не «донор» у всех."""
+
+    @pytest.mark.parametrize(
+        ("stage", "word"),
+        [(Stage.DONORS, "донор"), (Stage.ADVERTISERS, "рекламодатель"), (Stage.SALES, "сайт")],
+        ids=["доноры", "рекламодатели", "продажи"],
+    )
+    async def test_sent_letter_names_the_host_by_its_stage(
+        self, session: AsyncSession, stage: Stage, word: str
+    ) -> None:
+        campaign_id, domain_id = await _campaign(session, stage, HOST)
+        message = MessageModel(
+            campaign_id=campaign_id,
+            domain_id=domain_id,
+            idempotency_key=f"{stage.value}:{HOST}:0",
+            status=MessageStatus.SENDING,
+        )
+        session.add(message)
+        await session.flush()
+        witness = Witness(
+            host=HOST, email=f"editor@{HOST}", sender_email=None, transport="null", real=False
+        )
+
+        assert await record_sent(
+            session,
+            message,
+            moment=datetime.now(UTC),
+            provider_id=None,
+            author_id=None,
+            witness=witness,
+        )
+        await session.commit()
+
+        record = await session.scalar(
+            select(AuditLogModel).where(AuditLogModel.target == f"message:{message.id}")
+        )
+        assert record is not None
+        assert record.details is not None
+        named = {key for key, value in record.details.items() if value == HOST}
+        assert named == {word}
+        assert record.details[STAGE_KEY] == stage.value
+
+    def test_letter_without_a_stage_names_a_donor(self) -> None:
+        """Рассылки уже нет — домен подписан, как до этапов."""
+        assert host_key(None) == "донор"
+        assert {host_key(stage) for stage in Stage} == {"донор", "рекламодатель", "сайт"}
 
 
 def test_trial_key_is_the_one_the_prune_writes() -> None:

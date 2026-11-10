@@ -17,17 +17,35 @@
  *
  * **«Действие» подробностей — под названием**, а не строкой среди прочих: у общих
  * «Правки» и «Запуска» именно оно говорит, что случилось.
+ *
+ * **Подробности — итог одной строкой, остальное раскрытием строки** («+N ещё» и «Свернуть» на
+ * том же месте; что на виду — `journalDetails.ts`). Проверка прода 10.11.2026: шесть-семь строк
+ * подробностей у каждого письма растили страницу журнала до 7 016 px. Свёрнутое ищется поиском
+ * браузера (`hidden="until-found"`, правило 10.11.2026): адрес и домен в нём — данные, а не
+ * настройка за переключателем, и найденная строка раскрывается сама.
+ *
+ * **Шапка закреплена** (`stickyTable`, как у `DataTable sticky`): строки прокручиваются под ней
+ * в высоту окна. Смена страницы или фильтра открывает таблицу сначала — её перерисовывает экран
+ * (`key` в `JournalPage`).
+ *
+ * **Почта и домен переносятся по швам** (`Seams`): почта учётки в 14,5rem рвалась на три
+ * строки по дефису и посреди зоны — в последней оставалась одна буква.
  */
 
-import { Anchor, Table, Text } from '@mantine/core';
-import { Fragment } from 'react';
+import { Anchor, Button, Group, Table, Text } from '@mantine/core';
+import { IconChevronDown, IconChevronUp } from '@tabler/icons-react';
+import { Fragment, useCallback, useId, useLayoutEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
-import { actionTitle, detailLines, targetParts } from '../api/auditLabels';
+import { actionTitle, targetParts } from '../api/auditLabels';
+import type { DetailLine } from '../api/auditLabels';
 import type { JournalEntry } from '../api/journal';
 import { ColumnsHead } from '../components/ColumnsHead';
 import type { Column } from '../components/ColumnsHead';
+import { Seams } from '../components/Seams';
 import { formatDateTime } from '../format';
+import { detailView } from './journalDetails';
 
 const COLUMNS: Column[] = [
   { title: 'Когда', width: '10rem' },
@@ -42,6 +60,144 @@ const COLUMNS: Column[] = [
  *  страницы там, где она занимает место (Windows, мышь на маке), и шрифт шире SF. */
 export const JOURNAL_MIN_WIDTH = 1040;
 
+/** Значение подробности: почта — по швам почты (после «@»), домен — по швам домена, прочее —
+ *  как есть. Без швов адрес «от кого» рвался посреди имени домена. */
+const ADDRESS = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const HOST = /^[^\s@/]+\.[a-z]{2,}$/i;
+
+function Value({ text }: { text: string }) {
+  if (ADDRESS.test(text)) return <Seams text={text} address />;
+  if (HOST.test(text)) return <Seams text={text} />;
+  return <>{text}</>;
+}
+
+/** Строка подробностей: пары «ключ: значение» через точку; ключ — приглушённо. `children` —
+ *  продолжение строки: кнопка «+N ещё» у итога. */
+function DetailText({ lines, children }: { lines: DetailLine[]; children?: ReactNode }) {
+  return (
+    <Text size="xs" className="journalDetail">
+      {lines.map((line, index) => (
+        <Fragment key={line.label}>
+          {index > 0 && (
+            <Text span size="xs" c="dimmed">
+              {' · '}
+            </Text>
+          )}
+          <Text span size="xs" c="dimmed">
+            {line.label}:
+          </Text>{' '}
+          <Value text={line.value} />
+        </Fragment>
+      ))}
+      {children}
+    </Text>
+  );
+}
+
+interface ToggleProps {
+  /** Сколько строк в раскрытии. */
+  count: number;
+  open: boolean;
+  /** Чем кнопка управляет — раскрытое под итогом. */
+  restId: string;
+  onToggle: () => void;
+}
+
+/** «+N ещё» и «Свернуть» — одна кнопка на одном месте: раскрытое встаёт под итогом. */
+function MoreToggle({ count, open, restId, onToggle }: ToggleProps) {
+  const Chevron = open ? IconChevronUp : IconChevronDown;
+  return (
+    <Button
+      variant="subtle"
+      size="compact-xs"
+      className="press journalMore"
+      aria-expanded={open}
+      aria-controls={restId}
+      rightSection={<Chevron size={12} />}
+      onClick={onToggle}
+    >
+      {open ? 'Свернуть' : `+${count}\u00a0ещё`}
+    </Button>
+  );
+}
+
+interface FoldedProps {
+  id: string;
+  open: boolean;
+  /** Поиск браузера нашёл текст в свёрнутом — строка раскрывается. */
+  onFound: () => void;
+  children: ReactNode;
+}
+
+/** Свёрнутые строки — в документе, но скрыты «до находки» (`hidden="until-found"`): поиск
+ *  браузера находит в них адрес и раскрывает сам, событием `beforematch`. React пишет `hidden`
+ *  только пустым (булев атрибут), поэтому значение ставится здесь. Браузер без «до находки»
+ *  читает атрибут как обычный `hidden` — свёрнутое просто скрыто. */
+function Folded({ id, open, onFound, children }: FoldedProps) {
+  const box = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const node = box.current;
+    if (node === null) return undefined;
+    if (open) {
+      node.removeAttribute('hidden');
+      return undefined;
+    }
+    node.setAttribute('hidden', 'until-found');
+    node.addEventListener('beforematch', onFound);
+    return () => node.removeEventListener('beforematch', onFound);
+  }, [open, onFound]);
+  return (
+    <div id={id} ref={box}>
+      {children}
+    </div>
+  );
+}
+
+/** Подробности записи: отклонение и итог — на виду, остальное — «+N ещё» продолжением итога. */
+function Details({ entry, skip }: { entry: JournalEntry; skip: ReadonlySet<string> }) {
+  const [open, setOpen] = useState(false);
+  const found = useCallback(() => setOpen(true), []);
+  const restId = useId();
+  const { alerts, face, more, folded } = detailView(entry.details, skip);
+  if (alerts.length + face.length + more.length + folded.length === 0) {
+    return (
+      <Text size="sm" c="dimmed">
+        —
+      </Text>
+    );
+  }
+  const toggle = folded.length > 0 && (
+    <MoreToggle
+      count={folded.length}
+      open={open}
+      restId={restId}
+      onToggle={() => setOpen((was) => !was)}
+    />
+  );
+  return (
+    <>
+      {alerts.map((line) => (
+        <DetailText key={line.label} lines={[line]} />
+      ))}
+      {face.length > 0 ? (
+        <DetailText lines={face}>{toggle && <> {toggle}</>}</DetailText>
+      ) : (
+        toggle && <Group justify="center">{toggle}</Group>
+      )}
+      {more.map((line) => (
+        <DetailText key={line.label} lines={[line]} />
+      ))}
+      {folded.length > 0 && (
+        <Folded id={restId} open={open} onFound={found}>
+          {folded.map((line) => (
+            <DetailText key={line.label} lines={[line]} />
+          ))}
+        </Folded>
+      )}
+    </>
+  );
+}
+
 /** Кто: почта учётки, а без автора — кто назван в подробностях (загрузка из консоли). */
 function whoOf(entry: JournalEntry): { said: string | null; fromDetails: boolean } {
   if (entry.author_email !== null) return { said: entry.author_email, fromDetails: false };
@@ -54,7 +210,6 @@ function Row({ entry, emails }: { entry: JournalEntry; emails: ReadonlyMap<numbe
   const who = whoOf(entry);
   const what = entry.details?.['действие'];
   const skip = new Set(['действие', ...(who.fromDetails ? ['кто'] : [])]);
-  const lines = detailLines(entry.details, skip);
   const target = targetParts(entry.target, emails);
   return (
     <Table.Tr>
@@ -68,7 +223,7 @@ function Row({ entry, emails }: { entry: JournalEntry; emails: ReadonlyMap<numbe
           </Text>
         ) : (
           <Text size="sm" className="cellName">
-            {who.said}
+            <Seams text={who.said} address />
           </Text>
         )}
       </Table.Td>
@@ -93,10 +248,10 @@ function Row({ entry, emails }: { entry: JournalEntry; emails: ReadonlyMap<numbe
               <Fragment key={`${part.text}-${index}`}>
                 {index > 0 && ', '}
                 {part.to === undefined ? (
-                  part.text
+                  <Seams text={part.text} address />
                 ) : (
                   <Anchor component={Link} to={part.to} c="var(--ink)" underline="always">
-                    {part.text}
+                    <Seams text={part.text} address />
                   </Anchor>
                 )}
               </Fragment>
@@ -105,20 +260,7 @@ function Row({ entry, emails }: { entry: JournalEntry; emails: ReadonlyMap<numbe
         )}
       </Table.Td>
       <Table.Td>
-        {lines.length === 0 ? (
-          <Text size="sm" c="dimmed">
-            —
-          </Text>
-        ) : (
-          lines.map((line) => (
-            <Text key={line.label} size="xs" lineClamp={3} className="journalDetail">
-              <Text span size="xs" c="dimmed">
-                {line.label}:
-              </Text>{' '}
-              {line.value}
-            </Text>
-          ))
-        )}
+        <Details entry={entry} skip={skip} />
       </Table.Td>
     </Table.Tr>
   );
@@ -134,12 +276,18 @@ interface Props {
 
 export function JournalTable({ entries, emails, stale }: Props) {
   return (
-    <Table.ScrollContainer minWidth={JOURNAL_MIN_WIDTH} type="native" className="scrollSlim">
+    <Table.ScrollContainer
+      minWidth={JOURNAL_MIN_WIDTH}
+      type="native"
+      className="scrollSlim stickyTable"
+    >
       <Table
         className="dataTable journalTable"
         layout="fixed"
         verticalSpacing="sm"
         horizontalSpacing="md"
+        stickyHeader
+        aria-label="Записи журнала"
       >
         <ColumnsHead columns={COLUMNS} />
         <Table.Tbody className="staleRows" data-stale={stale || undefined}>

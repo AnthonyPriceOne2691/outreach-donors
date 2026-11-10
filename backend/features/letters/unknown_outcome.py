@@ -363,18 +363,19 @@ async def _back(
         return None
     if previous is not None:
         previous.next_action_at = moment
+    stage = await settle.stage_of(session, message)
     await AccessRepository(session).record(
         AuditAction.USER_UPDATED,
         author_id=author_id,
         target=f"message:{message.id}",
         details={
             "действие": "исход неизвестен — письмо не нашлось в журнале платформы",
-            "донор": letter.host,
+            settle.host_key(stage): letter.host,
             "кому": letter.email,
             "письмо": letter.what,
             "стало": _STATUS_WORDS[status],
         },
-        stage=await settle.stage_of(session, message),
+        stage=stage,
     )
     return status
 
