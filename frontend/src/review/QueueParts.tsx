@@ -1,12 +1,33 @@
 /**
  * Части очереди рассмотрения, вынесенные из экрана (`RunReviewPage`): разделитель
- * яруса и панель решения по отмеченным (аудит экранов 09.10.2026).
+ * яруса и панель решения по отмеченным (аудит экранов 09.10.2026), место ряда
+ * «Тематика» (разведка 10.11.2026).
  */
 
 import { Badge, Button, Card, Group, Table, Text } from '@mantine/core';
+import { useState } from 'react';
 
 import { REVIEW_TIERS } from '../api/labels';
 import type { ReviewDecision, ReviewTier } from '../api/types';
+import { TopicFilter } from '../topics/TopicFilter';
+
+/** Держать ли место ряда «Тематика», когда фильтровать нечего (пустая «Отклонены — 0»): ряд
+ *  пропадал, и всё ниже поднималось на ~50 px. Место держится, как только у этого прогона хоть
+ *  одна вкладка показала тематику, — до смены прогона. */
+export function useTopicPlace(runId: number | null, filtering: boolean): boolean {
+  const [topicRun, setTopicRun] = useState<number | null>(null);
+  if (filtering && topicRun !== runId) setTopicRun(runId);
+  return !filtering && topicRun !== null && topicRun === runId;
+}
+
+/** Место ряда «Тематика» — тем же полем, невидимым и недоступным: высота та же до пикселя. */
+export function TopicPlace() {
+  return (
+    <div style={{ visibility: 'hidden' }} inert aria-hidden="true" data-topic-place>
+      <TopicFilter value={null} items={[]} onChange={() => undefined} />
+    </div>
+  );
+}
 
 /** Разделитель яруса над его группой строк: «вероятно донор · 12». */
 export function TierRow({ tier, count, span }: { tier: ReviewTier; count: number; span: number }) {

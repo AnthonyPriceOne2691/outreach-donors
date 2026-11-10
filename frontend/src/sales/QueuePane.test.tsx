@@ -76,10 +76,12 @@ const READY: SalesQueueView = {
   autosend: {
     enabled: false,
     line: 'Автоотправка выключена — первые письма уходят кнопкой «Отправить очередь» или по одному; включается настройкой SALES_AUTOSEND.',
+    short: 'Выключена — первые письма уходят кнопкой «Отправить очередь» или по одному.',
   },
   autobuild: {
     enabled: false,
     line: 'Автосборка выключена — очередь собирают кнопкой «Собрать очередь»; включается настройкой SALES_AUTOBUILD.',
+    short: 'Выключена — очередь собирают кнопкой «Собрать очередь».',
   },
   batch_off: null,
 };
@@ -257,16 +259,20 @@ describe('очередь писем продаж', () => {
     expect(screen.getByRole('button', { name: 'Отправить очередь · 7' })).toBeEnabled();
   });
 
-  it('автоотправка и автосборка выключены — так и сказано словами сервера, с настройкой', async () => {
+  it('автоотправка и автосборка выключены — коротко словами сервера, с настройкой — в «i»', async () => {
     await openQueue();
 
-    expect(screen.getByText(READY.autosend.line)).toBeInTheDocument();
-    expect(screen.getByText(READY.autobuild.line)).toBeInTheDocument();
+    expect(screen.getByText(READY.autosend.short)).toBeInTheDocument();
+    expect(screen.getByText(READY.autobuild.short)).toBeInTheDocument();
     expect(screen.getByTitle('автоотправка выключена')).toHaveTextContent('автоотправка');
     expect(screen.getByTitle('автосборка выключена')).toHaveTextContent('автосборка');
+    // Имя настройки — администратору: в «i» строки, целиком, словами сервера.
+    expect(screen.queryByText(READY.autosend.line)).toBeNull();
+    await userEvent.setup().hover(screen.getByRole('button', { name: 'Подробно: автоотправка' }));
+    expect(await screen.findByText(READY.autosend.line)).toBeInTheDocument();
   });
 
-  it('автоотправка включена: как часто, сколько в окне и почему стоит — строкой сервера', async () => {
+  it('автоотправка включена: почему стоит и сколько в окне — у значка, как часто — в «i»', async () => {
     const sending =
       'Автоотправка включена: проход раз в 60 с, с ящика — не больше письма за проход и пауза ' +
       '8–22 мин между его первыми письмами. В окне получателя сейчас 3 письма. Стоит: исход ' +
@@ -275,18 +281,31 @@ describe('очередь писем продаж', () => {
       'Автосборка включена: очередь — на сутки вперёд, дневные капы ящиков продаж с разгоном — ' +
       '37 писем, в очереди 2 письма; не хватает 35 писем — ближайший проход соберёт гипотезу ' +
       '«тестовая гипотеза», до 35 писем';
+    // Короткие — что сейчас: остановка видна без «i», по ней действуют сразу.
+    const stands =
+      'Включена, стоит: исход письма №41 неизвестен: оно «отправляется» с 17.03 09:13 UTC, и ' +
+      'слать дальше вслепую нельзя; в окне получателя 3 письма.';
+    const builds =
+      'Включена: очередь на вт 17.03 — готово 2 из 37 писем; ближайший проход соберёт ' +
+      '«тестовая гипотеза», до 35 писем.';
     await openQueue(
       {},
       {
         ...READY,
-        autosend: { enabled: true, line: sending },
-        autobuild: { enabled: true, line: building },
+        autosend: { enabled: true, line: sending, short: stands },
+        autobuild: { enabled: true, line: building, short: builds },
         batch_off: BATCH_OFF,
       },
     );
 
-    expect(screen.getByText(sending)).toBeInTheDocument();
-    expect(screen.getByText(building)).toBeInTheDocument();
+    expect(screen.getByText(stands)).toBeInTheDocument();
+    expect(screen.getByText(builds)).toBeInTheDocument();
+    expect(screen.queryByText(sending)).toBeNull();
+    const user = userEvent.setup();
+    await user.hover(screen.getByRole('button', { name: 'Подробно: автоотправка' }));
+    expect(await screen.findByText(sending)).toBeInTheDocument();
+    await user.hover(screen.getByRole('button', { name: 'Подробно: автосборка' }));
+    expect(await screen.findByText(building)).toBeInTheDocument();
     expect(screen.getByTitle('автоотправка включена')).toBeInTheDocument();
     expect(screen.getByTitle('автосборка включена')).toBeInTheDocument();
     // Сборка остаётся: очередь пополняют и руками.
@@ -296,7 +315,7 @@ describe('очередь писем продаж', () => {
   it('автоотправка включена — кнопки пачки нет, вместо неё строка сервера (решение владельца 13.10)', async () => {
     await openQueue(
       {},
-      { ...READY, autosend: { enabled: true, line: 'идёт' }, batch_off: BATCH_OFF },
+      { ...READY, autosend: { enabled: true, line: 'идёт', short: 'идёт' }, batch_off: BATCH_OFF },
     );
 
     expect(screen.queryByRole('button', { name: /Отправить очередь/ })).not.toBeInTheDocument();

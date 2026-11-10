@@ -18,6 +18,11 @@
  * «Доноры», «Рекламодатели» и «Продажи» (просьба Anthony 05.11.2026, продажи — с 11.10.2026):
  * только домены этапа, его лимит и ящики с разгоном (`StageBoxes`). Без части (`/senders`, пункта
  * меню нет) — все этапы, как было.
+ *
+ * **Домены — строками одной таблицы, а не карточками** (разведка 10.11.2026): карточки доменов по
+ * 112 px, блок ящиков под ними и раскрытие карточки показывали одни и те же ящики и «N из M» трижды,
+ * и страница уходила за три тысячи пикселей. Строка домена (`DomainRow`) — состояние, первые письма
+ * сегодня с полосой и кнопка, ящики — раскрытием строки, блок «Ящики и разгон» — свёрнут с итогом.
  */
 
 import { Alert, Card, Loader, Stack, Text, Title } from '@mantine/core';
@@ -27,15 +32,18 @@ import { useSearchParams } from 'react-router-dom';
 import { refusalOf } from '../api/client';
 import { disableSender, enableSender } from '../api/outreach';
 import { SENDERS_TITLES, STAGE_TITLES, listSendersByStage } from '../api/senders';
-import type { DirectionLimit, DomainLimit, StagedSender } from '../api/senders';
+import type { DirectionLimit, DomainLimit, SendersByStage, StagedSender } from '../api/senders';
 import { stageShown } from '../api/stageRights';
 import type { Can } from '../api/stageRights';
 import type { Part, Stage } from '../api/stages';
 import { partOf } from '../api/stages';
 import { useSession } from '../auth/AuthProvider';
+import type { Column } from '../components/ColumnsHead';
+import { DataTable } from '../components/DataTable';
+import { Cards } from '../components/MailingBlock';
 import { formatNumber, plural } from '../format';
-import { SenderCard as DomainCard, domainShut } from './SenderCard';
-import type { DomainGroup } from './SenderCard';
+import { DomainRow, domainShut, plainState } from './DomainRow';
+import type { DomainGroup } from './DomainRow';
 import { StageBoxes } from './StageBoxes';
 import { notify } from '../notices';
 import { PageHead } from '../components/PageHead';
@@ -43,11 +51,20 @@ import { PageHead } from '../components/PageHead';
 const SENDERS_QUERY_KEY = ['senders'] as const;
 const STAGES = Object.keys(STAGE_TITLES) as Stage[];
 
+/** Колонки таблицы доменов: имя берёт остаток (не уже 14rem — уже таблица уезжает в прокрутку), у
+ *  кнопки — своя безымянная колонка справа. Счёт — первые письма, как у капа и разгона: так и
+ *  сказано в заголовке, а не в каждой строке. */
+const NAME_REM = 14;
+const STATE_REM = 17;
+const SENT_REM = 13;
+/** По «Включить заново» с подписью под ней. */
+const SWITCH_REM = 11;
+
 /** Почему писать нечем: все выключены — или включённые закрыты строкой домена. */
 const ALL_OFF =
   'Все домены выключены. Новые письма не уйдут, пока хотя бы один не включат — и он начнёт с начала разгона.';
 const ALL_SHUT =
-  'Включённые домены закрыты: на паузе, на выдержке или записаны за другим направлением — что именно, сказано на карточке домена. Новые письма не уйдут, пока хотя бы один не откроется.';
+  'Включённые домены закрыты: на паузе, на выдержке или записаны за другим направлением — что именно, сказано в строке домена. Новые письма не уйдут, пока хотя бы один не откроется.';
 /** Части этапа без единого домена: это не «все выключены», а ещё не заведены. */
 const NO_DOMAINS: Record<Part, string> = {
   donors: 'Доменов доноров пока нет: письма донорам не уйдут.',
@@ -77,13 +94,14 @@ function groupByDomain(senders: StagedSender[], limits: DomainLimit[]): DomainGr
   });
 }
 
-/** Лимит направления строкой; своего лимита у направления нет — строки нет. Настройка лимита
- *  не прочиталась — строка называет её, по смыслу как отказ отправки (`outreach/limits.py`):
- *  лимит тогда ноль, и «0 из 0» читался бы как выбранный лимит, а не как опечатка в .env. */
+/** Лимит направления строкой над таблицей доменов — с кромки текста таблицы; своего лимита у
+ *  направления нет — строки нет. Настройка лимита не прочиталась — строка называет её, по смыслу как
+ *  отказ отправки (`outreach/limits.py`): лимит тогда ноль, и «0 из 0» читался бы как выбранный
+ *  лимит, а не как опечатка в .env. */
 function DirectionLine({ direction }: { direction: DirectionLimit | undefined }) {
   if (direction?.unread != null) {
     return (
-      <Text size="sm">
+      <Text size="sm" px="md">
         Лимит направления: настройка{' '}
         <Text span size="xs" ff="monospace">
           {direction.unread}
@@ -94,9 +112,81 @@ function DirectionLine({ direction }: { direction: DirectionLimit | undefined })
   }
   if (direction?.daily_limit == null) return null;
   return (
-    <Text size="sm">
+    <Text size="sm" px="md">
       {`Лимит направления: ${formatNumber(direction.sent_today)} из ${formatNumber(direction.daily_limit)} первых писем сегодня`}
     </Text>
+  );
+}
+
+interface SectionProps {
+  groups: DomainGroup[];
+  direction: DirectionLimit | undefined;
+  /** Имя таблицы для читалки экрана — какие это домены. */
+  label: string;
+  mayEdit: boolean;
+  stageInTitle: boolean;
+  /** Колонка состояния — одна на все разделы экрана, чтобы колонки разделов стояли друг под другом. */
+  withState: boolean;
+  /** Какой домен сейчас переключается — у его кнопки крутилка. */
+  busy: string | null;
+  onSwitch: (group: DomainGroup, on: boolean) => void;
+}
+
+/** Колонки таблицы доменов; колонки состояния нет, когда она одинакова во всех строках. */
+function domainColumns(withState: boolean): Column[] {
+  const state: Column[] = withState ? [{ title: 'Состояние', width: `${STATE_REM}rem` }] : [];
+  return [{ title: 'Домен' }, ...state, { title: 'Первых писем сегодня', width: `${SENT_REM}rem` }];
+}
+
+/** Колонка, одинаковая во всех строках, не рисуется: у всех одно «отправляет» — колонки состояния
+ *  нет, это уже сказала строка «Отправлять могут N из N» над таблицей (`plainState`). */
+function stateShown(groups: DomainGroup[], stageInTitle: boolean): boolean {
+  return !(groups.length > 1 && groups.every((one) => plainState(one, stageInTitle)));
+}
+
+/** Домены этапа одной таблицей: строка лимита направления над ней, строка домена — `DomainRow`. */
+function DomainTable({
+  groups,
+  direction,
+  label,
+  mayEdit,
+  stageInTitle,
+  withState,
+  busy,
+  onSwitch,
+}: SectionProps) {
+  const columns = domainColumns(withState);
+  const span = columns.length + (mayEdit ? 1 : 0);
+  const rem = NAME_REM + (withState ? STATE_REM : 0) + SENT_REM + (mayEdit ? SWITCH_REM : 0);
+  return (
+    <Card className="glassPanel" p="md">
+      <Stack gap="sm">
+        <DirectionLine direction={direction} />
+        <Cards>
+          <DataTable
+            columns={columns}
+            minWidth={rem * 16}
+            tail={mayEdit ? `${SWITCH_REM}rem` : null}
+            className="domainTable"
+            label={label}
+            cardRow
+          >
+            {groups.map((group) => (
+              <DomainRow
+                key={group.domain}
+                group={group}
+                busy={busy === group.domain}
+                onSwitch={(on) => onSwitch(group, on)}
+                mayEdit={mayEdit}
+                stageInTitle={stageInTitle}
+                withState={withState}
+                span={span}
+              />
+            ))}
+          </DataTable>
+        </Cards>
+      </Stack>
+    </Card>
   );
 }
 
@@ -120,6 +210,39 @@ function Standing({ groups, part }: { groups: DomainGroup[]; part: Part | null }
       {plural(groups.length, 'домена', 'доменов', 'доменов')}.
     </Text>
   );
+}
+
+interface Section {
+  stage: Stage;
+  groups: DomainGroup[];
+  direction: DirectionLimit | undefined;
+}
+
+/** Разделы по этапу — этапы, у которых есть домены. Заголовком раздел встаёт, только когда этапов
+ *  больше одного: у одних доноров экран прежний. */
+function sectionsOf(groups: DomainGroup[], directions: DirectionLimit[] | undefined): Section[] {
+  return STAGES.map((stage) => ({
+    stage,
+    groups: groups.filter((group) => group.stage === stage),
+    direction: directions?.find((direction) => direction.stage === stage),
+  })).filter((section) => section.groups.length > 0);
+}
+
+/** Что на экране: домены, разделы по этапу и какие колонки у их таблиц. */
+interface Layout {
+  groups: DomainGroup[];
+  sections: Section[];
+  /** Этап назван заголовком — экрана части или раздела: пометки у каждой строки нет. */
+  stageInTitle: boolean;
+  /** Колонка состояния — одна на все разделы: колонки разделов стоят друг под другом. */
+  withState: boolean;
+}
+
+function layoutOf(data: SendersByStage | undefined, can: Can, part: Part | null): Layout {
+  const groups = groupByDomain(shownBoxes(data?.senders ?? [], can, part), data?.domains ?? []);
+  const sections = sectionsOf(groups, data?.directions);
+  const stageInTitle = part !== null || sections.length > 1;
+  return { groups, sections, stageInTitle, withState: stateShown(groups, stageInTitle) };
 }
 
 /** Ящики на экране: без права этапа — без его ящиков, в части этапа — только они. */
@@ -172,14 +295,7 @@ export function SendersPage() {
     );
   }
 
-  const boxes = shownBoxes(data?.senders ?? [], can, part);
-  const groups = groupByDomain(boxes, data?.domains ?? []);
-  // Разделы по этапу — только когда этапов больше одного: у одних доноров экран прежний.
-  const sections = STAGES.map((stage) => ({
-    stage,
-    groups: groups.filter((group) => group.stage === stage),
-    direction: data?.directions?.find((direction) => direction.stage === stage),
-  })).filter((section) => section.groups.length > 0);
+  const { groups, sections, stageInTitle, withState } = layoutOf(data, can, part);
 
   return (
     <Stack gap="lg">
@@ -202,17 +318,16 @@ export function SendersPage() {
       {sections.map((section) => (
         <Stack gap="sm" key={section.stage}>
           {sections.length > 1 && <Title order={4}>{STAGE_TITLES[section.stage]}</Title>}
-          <DirectionLine direction={section.direction} />
-          {section.groups.map((group) => (
-            <DomainCard
-              key={group.domain}
-              group={group}
-              busy={switchDomain.isPending && switchDomain.variables?.group.domain === group.domain}
-              onSwitch={(on) => switchDomain.mutate({ group, on })}
-              mayEdit={can('senders')}
-              stageInTitle={part !== null}
-            />
-          ))}
+          <DomainTable
+            groups={section.groups}
+            direction={section.direction}
+            label={SENDERS_TITLES[section.stage]}
+            mayEdit={can('senders')}
+            stageInTitle={stageInTitle}
+            withState={withState}
+            busy={switchDomain.isPending ? (switchDomain.variables?.group.domain ?? null) : null}
+            onSwitch={(group, on) => switchDomain.mutate({ group, on })}
+          />
         </Stack>
       ))}
 

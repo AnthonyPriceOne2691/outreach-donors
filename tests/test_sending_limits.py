@@ -108,6 +108,39 @@ def test_paused_young_or_foreign_domain_is_named(
     assert [box.id for box in found.fit] == ([2] if words else [1, 2])
 
 
+def test_every_refusal_is_named_shortly_by_its_own_words() -> None:
+    """Значок ящика на экране доменов — коротко, по словам самого фильтра (`limits.short`): адрес
+    и счёт строка ящика показывает своими колонками. Слова, которых фильтр не пишет, — «не пишет»,
+    а не абзац в значке."""
+    names = ("cut", "spent", "paused", "young", "foreign")
+    boxes = [_box(n, f"{name}.example.test") for n, name in enumerate(names, start=1)]
+    domains = _screen(
+        boxes,
+        {1: 2, 2: 3},
+        _row("spent.example.test"),
+        _row("paused.example.test", paused_at=NOW, pause_reason="жалоба"),
+        _row("young.example.test", young_until=NOW + timedelta(days=2)),
+        _row("foreign.example.test", stage=Stage.DONORS),
+        cuts={1: 2},
+    )
+    spent = _screen(boxes[:1], {1: 3}, direction_limit=3)
+    unread = _screen(boxes[:1], {}, direction_limit=0, direction_unread="OUTREACH_X_DAILY_LIMIT")
+
+    said = [*domains.refused.values(), *spent.refused.values(), *unread.refused.values()]
+    assert [limits.short(words) for words in said] == [
+        "лимит ящика выбран",
+        "домен исчерпан",
+        "домен на паузе",
+        "домен на выдержке",
+        "другое направление",
+        "направление исчерпано",
+        "лимит не прочитан",
+    ]
+    # Значок — два-три слова: колонка «Пишет ли» по самому длинному из них.
+    assert max(len(label) for label in limits.SHORT.values()) <= 21
+    assert limits.short("выдуманная причина") == "не пишет"
+
+
 async def _queue(session: AsyncSession, letters: int, boxes: list[str], cap: int = 20) -> None:
     """Очередь доноров и ящики Этапа 1 — на одном домене или на разных."""
     for n in range(letters):

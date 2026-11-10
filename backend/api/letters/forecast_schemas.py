@@ -19,6 +19,7 @@ from backend.features.core.domain import Stage
 from backend.features.core.window import Pace
 from backend.features.letters.forecast import Forecast, Mailbox
 from backend.features.letters.forecast_plan import Eta, PlanDay
+from backend.features.outreach import limits
 from backend.features.outreach.senders import first_letter
 
 
@@ -159,6 +160,9 @@ class ForecastSender(BaseModel):
     #: Почему первых писем ящик сегодня не берёт — словами фильтра лимитов; пусто — берёт (или
     #: выключен: `enabled`).
     refused: str | None
+    #: То же коротко — значком строки ящика на экране доменов (`limits.short`): адрес и счёт строка
+    #: показывает своими колонками, а слова целиком — по нажатию. Пусто — берёт.
+    refused_short: str | None
     #: Когда ящик поднимется на следующую ступень разгона; пусто — не поднимется: разгон кончился
     #: или ящик выключен.
     #: У ящика, ещё не писавшего, — от первого письма, которое прогноз ему предполагает в первый
@@ -183,6 +187,7 @@ class ForecastSender(BaseModel):
             sent_today=box.sent,
             cut=box.cut,
             refused=box.refused,
+            refused_short=None if box.refused is None else limits.short(box.refused),
             next_step_on=None if step is None else step[0],
             next_step_allowance=None if step is None else step[1],
         )
