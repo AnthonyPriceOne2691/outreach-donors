@@ -19,6 +19,13 @@
 остаток. Выбран — есть: новые прогоны стоят до обнуления. Уровень в коде — и пометка говорится
 вместе с ним.
 
+**Что сделать — в пометке, каждое число — один раз** (разбор экранов 10.11.2026: в полосе
+над «Обзором» «поднять лимит ключа — в Ahrefs» стояло дважды, а «осталось N из M» и «на ключе
+выбрано M − N из M» говорили одно). Пометка — строкой под заголовком полосы и последней строкой
+в Telegram, подробности — по «Подробнее»: «что сделать» в них — только у предупреждения, чья
+пометка его не говорит. Упор с лимитом, равным капу, назван словом (`named_binding`): его
+числа — те же «осталось N из M».
+
 **Снимок ключа из опроса сторожа** (`heard`, `keep_heard`). Провайдеров сторож спрашивает
 без сессии (`silence.with_providers`): соединение не должно ждать чужих ответов. Ответ
 Ahrefs запоминается здесь, а в снимок его кладёт тот, у кого сессия: проход сторожа — после
@@ -110,17 +117,41 @@ def binding_words(cap: KeyCap) -> str:
     return f"в наш кап: потрачено нами {spaced(cap.spent)} за цикл"
 
 
+#: Во что упирается — словом, когда числа упора повторили бы «осталось N из M» (`named_binding`).
+_BINDING_NAMES = {
+    "cap": "в наш кап",
+    "key": "в лимит ключа — он общий с соседней системой",
+    "workspace": "в лимит пространства Ahrefs — он общий для всех его ключей",
+}
+
+
+def _binding_numbers(cap: KeyCap) -> tuple[int, int | None]:
+    """Выбрано и из скольких у того, во что упирается, — числа `binding_words`."""
+    quota = None if cap.key is None else cap.key.quota
+    if cap.binding == "key" and quota is not None:
+        return quota.key_used or 0, quota.key_limit
+    if cap.binding == "workspace" and quota is not None:
+        return quota.workspace_used or 0, quota.workspace_limit
+    return cap.spent, cap.units_cap
+
+
+def named_binding(cap: KeyCap) -> str:
+    """Во что упирается — в тревоге, где кап и остаток уже названы числами. Числа упора те же,
+    что «осталось N из M» (лимит упора равен капу), — упор назван словом; кап задан ниже лимита
+    упора — у того свои числа, они и объясняют, почему осталось меньше (`binding_words`)."""
+    units_cap = cap.units_cap
+    used = None if units_cap is None else units_cap - cap.left
+    if _binding_numbers(cap) == (used, units_cap):
+        return _BINDING_NAMES[cap.binding or "cap"]
+    return binding_words(cap)
+
+
 #: Где сдвигают упор — по тому, во что упирается (`KeyCap.binding`): наш кап — на экране,
 #: лимиты ключа и пространства — в самом Ahrefs.
 HOW_TO_RAISE = {
     "cap": "поднять кап — на экране «Расход»",
     "key": "поднять лимит ключа — в Ahrefs",
     "workspace": "поднять лимит пространства — в Ahrefs",
-}
-_UNTIL_RAISED = {
-    "cap": "пока кап не поднимут на экране «Расход»",
-    "key": "пока лимит ключа не поднимут в Ahrefs",
-    "workspace": "пока лимит пространства не поднимут в Ahrefs",
 }
 
 
@@ -138,22 +169,23 @@ async def alarm(session: AsyncSession, moment: datetime) -> Alarm | None:
             code=REACHED_CODE,
             title="Кап Ahrefs выбран",
             detail=(
-                f"Кап {spaced(units_cap)} юнитов, {until_words(cap)}. Упирается {binding_words(cap)}. "
-                f"Новые прогоны не запустятся до обнуления или {_UNTIL_RAISED[binding]} — "
-                "это не поломка, но выглядит одинаково"
+                f"Кап {spaced(units_cap)} юнитов, {until_words(cap)}. Упирается "
+                f"{named_binding(cap)}. Это не поломка, но выглядит одинаково"
             ),
             concern=cause(
                 "новые прогоны не запускаются", f"ждать обнуления или {HOW_TO_RAISE[binding]}"
             ),
         )
     warn = percent < ALARM_PERCENT
+    # Что сделать — в пометке тревоги; у предупреждения пометка его не говорит (`WARNED`).
+    todo = f"; {HOW_TO_RAISE[binding]}" if warn else ""
     return Alarm(
         code=WARN_CODE if warn else ALARM_CODE,
         title=f"Кап Ahrefs выбран на {WARN_PERCENT if warn else ALARM_PERCENT}% и больше",
         detail=(
             f"{'Предупреждение' if warn else 'Тревога'}: осталось {spaced(cap.left)} юнитов "
             f"из {spaced(units_cap)} — выбрано {percent}%, {until_words(cap)}. Упирается "
-            f"{binding_words(cap)}; {HOW_TO_RAISE[binding]}"
+            f"{named_binding(cap)}{todo}"
         ),
         concern=WARNED if warn else _short(binding),
     )

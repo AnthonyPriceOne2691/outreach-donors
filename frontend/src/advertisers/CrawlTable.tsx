@@ -13,6 +13,10 @@
  * **Значок — с потолком, под ним — почему обход кончился** (23.10.2026, `crawlWords`): один
  * вид в таблице доноров, последних обходах и «Приёмке по донорам». У сайта, не пустившего с
  * самого начала, — тоже причина, а у ждущего — его место в очереди (29.10.2026).
+ *
+ * **Значок в строке — постоянной ширины, в блоке постоянной ширины** (`crawlSlot`, разведка
+ * 10.11.2026): у короткого «robots.txt не отдал» «i», «Переобойти» и «10 000» стояли на 17 px
+ * левее, чем у «обойдён: 1 000 из 1 000», — лесенкой. Место под значок держится в каждой строке.
  */
 
 import { Badge, Button, Group, Stack, Text } from '@mantine/core';
@@ -127,6 +131,14 @@ export function crawlState(crawl: CrawlRow, short?: boolean): { label: string; c
   }
 }
 
+/** Доля процентами с десятой, а больше нуля — не «0%»: знаков столько, чтобы число не встало
+ *  на ноль (одна закрытая страница из 25 000 — «0,004%»). */
+function sharePercent(share: number): string {
+  let digits = 1;
+  while (digits < 4 && share > 0 && Math.round(share * 100 * 10 ** digits) === 0) digits += 1;
+  return formatPercent(share, digits);
+}
+
 /** «закрыто 12,5% из 480 запросов» — или `null`, если доли нет: обход идёт (числа пишет
  *  его конец), не сделал ни одного запроса или записан до замера. Десятая — как в замере
  *  доступности доноров (`okf/crawl-access.md`: 8,3%), а не целые проценты. */
@@ -134,7 +146,7 @@ export function closedShare(crawl: CrawlRow): string | null {
   const share = crawl.blocked_share ?? null;
   const requests = crawl.requests ?? null;
   if (share === null || requests === null) return null;
-  return `закрыто ${formatPercent(share)} из ${requestsOf(requests)}`;
+  return `закрыто ${sharePercent(share)} из ${requestsOf(requests)}`;
 }
 
 /** Мера здоровья ТЗ — «доля 403/429/5xx/timeout за последние 500 запросов» — на конец
@@ -144,12 +156,25 @@ export function failureShare(crawl: CrawlRow): string | null {
   const share = crawl.failure_share ?? null;
   const window = crawl.window ?? null;
   if (share === null || window === null) return null;
-  return `403/429/5xx/таймаут — ${formatPercent(share)} за последние ${requestsOf(window)}`;
+  return `403/429/5xx/таймаут — ${sharePercent(share)} за последние ${requestsOf(window)}`;
 }
 
 /** Числа здоровья обхода строками: закрытые страницы и мера ТЗ. */
 export function healthLines(crawl: CrawlRow): string[] {
   return [closedShare(crawl), failureShare(crawl)].filter((line) => line !== null);
+}
+
+/** Отклонения обхода, по которым решают, — коротко и только больше нуля: «закрыто 12,5%»,
+ *  «403/429/5xx/таймаут — 8,3%» («Приёмка по донорам», 10.11.2026: у почти всех доноров там
+ *  нули, и четыре строки чисел под каждым значком были простынёй). Целиком, с запросами за
+ *  долей, и нули — в «i» у значка. */
+export function deviationLines(crawl: CrawlRow | null): string[] {
+  const closed = crawl?.blocked_share ?? 0;
+  const failed = crawl?.failure_share ?? 0;
+  return [
+    closed > 0 ? `закрыто ${sharePercent(closed)}` : null,
+    failed > 0 ? `403/429/5xx/таймаут — ${sharePercent(failed)}` : null,
+  ].filter((line) => line !== null);
 }
 
 /** Уровни обхода словами — для записки «чего не хватило». */
@@ -213,7 +238,8 @@ export function CrawlState({
   const note = [crawl.reason, degradationText(crawl.degradation)].filter(Boolean).join('\n');
   const line = (
     <Group gap={6} justify="center" wrap="nowrap">
-      <Badge variant="light" color={state.color}>
+      {/* В строке таблицы — постоянной ширины (`crawlSlot`): «i» и кнопки не встают лесенкой. */}
+      <Badge variant="light" color={state.color} className="crawlBadge">
         {state.label}
       </Badge>
       <DeepMark crawl={crawl} />
@@ -310,19 +336,24 @@ export function LastCrawl({
   deep?: DeepAsk | null;
 }) {
   const crawl = donor.crawl;
-  if (again === null || crawl === null || isActive(crawl)) {
-    return <CrawlState crawl={crawl} compact={compact} />;
+  // Повтор — только у законченного: второй незаконченный обход донора сервер не заводит.
+  const start = crawl !== null && !isActive(crawl) ? again : null;
+  // На вкладке — рядом со значком, пока помещается: строка остаётся в одну высоту. Блок — одной
+  // ширины в каждой строке, с левого края блока (`crawlSlot`): и у строки без кнопок, и у той, где
+  // обход ждёт, значок стоит там же, где у соседних.
+  if (compact) {
+    return (
+      <div className="crawlSlot">
+        <CrawlState crawl={crawl} compact />
+        {start === null ? null : <RowRepeats donor={donor} again={start} deep={deep} />}
+      </div>
+    );
   }
-  // На вкладке — рядом со значком, пока помещается: строка остаётся в одну высоту.
-  return compact ? (
-    <Group gap={6} justify="center">
-      <CrawlState crawl={crawl} compact />
-      <RowRepeats donor={donor} again={again} deep={deep} />
-    </Group>
-  ) : (
+  if (start === null) return <CrawlState crawl={crawl} />;
+  return (
     <Stack gap={6} align="center">
       <CrawlState crawl={crawl} />
-      <Again host={donor.host} start={again} />
+      <Again host={donor.host} start={start} />
     </Stack>
   );
 }

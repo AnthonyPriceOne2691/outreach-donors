@@ -648,6 +648,8 @@ class TestAlarm:
         assert alarm.stage is Stage.SALES
         assert alarm.concern is not None
         assert alarm.concern.cause is caused
+        # Что сделать — в пометке; в подробностях — только у предупреждения: его пометка молчит.
+        assert ("поднять потолок" in alarm.detail) is (code == hunter_watch.WARN_CODE)
 
     @pytest.mark.parametrize(
         ("credits_left", "code", "caused"),

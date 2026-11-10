@@ -3,9 +3,10 @@
  * письма ушли 70% из них»).
  *
  * Проверяется то, ради чего вид: у каждого донора видно, пройден ли порог, а если нет —
- * чего не хватает, словами и с десятой у доли; обход — тем же видом, что на панели
- * обхода; что нашёл обход — колонками (тест-группа 23.10.2026: «сколько продажных ссылок,
- * статей, сколько спорных»); все доноры вместе — первой строкой таблицы.
+ * чего не хватает, словами и с десятой у доли; обход — тем же значком с «i», что на вкладке
+ * обхода, а на виду под ним — только доля больше нуля; что нашёл обход — одной колонкой
+ * (тест-группа 23.10.2026: «сколько продажных ссылок, статей, сколько спорных»); все доноры
+ * вместе — первой строкой таблицы; таблица — в карточку на 1440 с открытым меню (10.11.2026).
  */
 
 import { fireEvent, screen, within } from '@testing-library/react';
@@ -18,7 +19,7 @@ import type { AcceptanceView, Findings, Tally } from '../api/acceptance';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
-import { shortOf } from './AcceptanceReport';
+import { COLUMNS, TABLE_MIN_WIDTH, shortOf } from './AcceptanceReport';
 
 const SHORT: Tally = {
   found: 40,
@@ -118,24 +119,57 @@ describe('приёмка по донорам', () => {
     ).toBeInTheDocument();
   });
 
-  it('пройденный — мятой; обход — тем же видом, что на панели, с долей закрытых', async () => {
+  it('пройденный — мятой; обход — значком с «i», как на вкладке обхода', async () => {
+    const user = userEvent.setup();
     await openReport();
 
     const row = screen.getByText('big.example.test').closest('tr')!;
     expect(within(row).getByText('пройдена')).toBeInTheDocument();
-    expect(within(row).getByText(/обойдён: 1\s000 из 1\s000 страниц/)).toBeInTheDocument();
-    // Почему кончился — под значком, как на панели обхода.
-    expect(within(row).getByText(/^потолок 1\s000 страниц на донора$/)).toBeInTheDocument();
-    expect(within(row).getByText(/закрыто 5% из 1\s100 запросов/)).toBeInTheDocument();
+    // Значок — короткий, как на вкладке: «страниц» и почему кончился — в «i», а не под значком.
+    expect(within(row).getByText(/^обойдён: 1\s000 из 1\s000$/)).toBeInTheDocument();
+    expect(within(row).queryByText(/потолок/)).toBeNull();
     expect(within(row).getByText('90 · 75%')).toBeInTheDocument();
+
+    await user.hover(within(row).getByRole('button', { name: /^Подробнее: обойдён/ }));
+
+    expect(await screen.findByText(/^потолок 1\s000 страниц на донора$/)).toBeInTheDocument();
+    expect(screen.getByText(/^закрыто 5% из 1\s100 запросов$/)).toBeInTheDocument();
   });
 
-  it('не пройденный — чего не хватает, с десятой у доли', async () => {
+  it('доля закрытых и отказов на виду — только больше нуля, коротко', async () => {
+    const view = report();
+    const big = view.donors[0]!;
+    const crawl = { ...big.crawl!, blocked_share: 0, failure_share: 0, window: 500 };
+    await openReport({
+      ...view,
+      donors: [
+        { ...big, crawl },
+        {
+          ...big,
+          host: 'closing.example.test',
+          crawl: { ...crawl, blocked_share: 0.125, failure_share: 0.083 },
+        },
+      ],
+    });
+
+    // Нули — только в «i»: четыре строки нулей под каждым значком были простынёй.
+    const calm = screen.getByText('big.example.test').closest('tr')!;
+    expect(within(calm).queryByText(/закрыто/)).toBeNull();
+    expect(within(calm).queryByText(/403\/429/)).toBeNull();
+    const closing = screen.getByText('closing.example.test').closest('tr')!;
+    expect(within(closing).getByText('закрыто 12,5%')).toBeInTheDocument();
+    expect(within(closing).getByText('403/429/5xx/таймаут — 8,3%')).toBeInTheDocument();
+    // Число запросов за долей — в «i», на виду его нет.
+    expect(within(closing).queryByText(/запросов/)).toBeNull();
+  });
+
+  it('не пройденный — чего не хватает, по строке на условие, с десятой у доли', async () => {
     await openReport();
 
     const row = screen.getByText('small.example.test').closest('tr')!;
     expect(within(row).getByText('не пройдена')).toBeInTheDocument();
-    expect(within(row).getByText('с адресом 34 из 100; ушло 58,8% из 70%')).toBeInTheDocument();
+    expect(within(row).getByText('с адресом 34 из 100')).toBeInTheDocument();
+    expect(within(row).getByText('ушло 58,8% из 70%')).toBeInTheDocument();
     // Не переведённые адреса не получат — это видно у числа найденных.
     expect(within(row).getByText('переведено 38')).toBeInTheDocument();
     expect(within(row).getByText('не обходили')).toBeInTheDocument();
@@ -147,18 +181,23 @@ describe('приёмка по донорам', () => {
     const row = screen.getByText('Все доноры вместе').closest('tr')!;
     expect(row.parentElement!.firstElementChild).toBe(row);
     expect(within(row).getByText('без поставщиков')).toBeInTheDocument();
-    expect(cellsOf(row)).toEqual({
-      Куплено: '150',
-      Спорных: '1 250решено 0',
-      Мимо: '230',
-      'Кому не пишем': '41',
-      Страниц: '1 057',
+    expect(cellsOf(row)).toMatchObject({
+      Приёмка: 'справочно, не критерий',
       // Рекламодатели «вместе» — по разным доменам, и непереведённые видны так же, как у донора.
       Рекламодателей: '160переведено 130',
       'С адресом': '120',
       'Письмо ушло': '90 · 75%',
-      Приёмка: 'справочно, не критерий',
     });
+    // Обхода у суммы нет — и ячейки с подписью «Обход» тоже.
+    expect(cellsOf(row)).not.toHaveProperty('Обход');
+    expect(foundOf(row)).toEqual([
+      'куплено 150',
+      'мимо 230',
+      'спорных 1 250',
+      'не пишем 41',
+      'решено 0',
+      'страниц 1 057',
+    ]);
     expect(within(row).queryByText(/пройдена/)).toBeNull();
   });
 
@@ -175,9 +214,8 @@ describe('приёмка по донорам', () => {
 
     const row = screen.getByText('partner.example.test').closest('tr')!;
     expect(within(row).getByText('поставщик')).toBeInTheDocument();
-    expect(
-      within(row).getByText('его рекламодателей не трогаем — не считается'),
-    ).toBeInTheDocument();
+    // Почему не считается — в «i» вида: строка вердикта — в две строки, а не в четыре.
+    expect(within(row).getByText('не считается')).toBeInTheDocument();
     expect(within(row).queryByText('не пройдена')).toBeNull();
   });
 
@@ -191,7 +229,10 @@ describe('приёмка по донорам', () => {
       }),
     );
 
-    expect(screen.getByText(/Обойдённых доноров нет/)).toBeInTheDocument();
+    // Обход — на своей вкладке с 29.10.2026, а не панелью в «Проверке».
+    expect(screen.getByText(/Обойдённых доноров нет/)).toHaveTextContent(
+      'приёмка считается по обходу, а он — на вкладке «Обход доноров».',
+    );
     expect(screen.queryByText(/Все доноры вместе/)).toBeNull();
   });
 });
@@ -299,24 +340,36 @@ function cellsOf(row: HTMLElement): Record<string, string> {
   return cells;
 }
 
+/** Что нашёл обход — подписи с числами по порядку сетки: слева направо, сверху вниз. */
+function foundOf(row: HTMLElement): string[] {
+  const cell = row.querySelector<HTMLElement>("td[data-label='Что нашёл обход']")!;
+  return [...cell.querySelectorAll('.foundItem')].map((item) =>
+    (item.textContent ?? '').replace(/\s/g, ' '),
+  );
+}
+
 describe('что нашёл обход', () => {
-  it('колонки — между обходом и рекламодателями, по порядку; донор — липкой колонкой', async () => {
+  it('вердикт — второй колонкой, сразу за донором; что нашёл обход — одной колонкой', async () => {
     await openReport();
 
     expect(screen.getByRole('table')).toHaveClass('stickyName');
-    expect(screen.getAllByRole('columnheader').map((head) => head.textContent)).toEqual([
+    expect(
+      screen.getAllByRole('columnheader').map((head) => head.textContent?.replace('\u00ad', '')),
+    ).toEqual([
       'Донор',
+      'Приёмка',
       'Обход',
-      'Куплено',
-      'Спорных',
-      'Мимо',
-      'Кому не пишем',
-      'Страниц',
+      'Что нашёл обход',
       'Рекламодателей',
       'С адресом',
       'Письмо ушло',
-      'Приёмка',
     ]);
+  });
+
+  it('таблица — в карточку на 1440 с открытым меню (1 093 px), без прокрутки вбок', () => {
+    const widths = COLUMNS.map((column) => parseFloat(column.width ?? '0') * 16);
+    expect(widths.reduce((sum, width) => sum + width, 0)).toBe(TABLE_MIN_WIDTH);
+    expect(TABLE_MIN_WIDTH).toBeLessThanOrEqual(1093);
   });
 
   it('донор залит, только пока таблица уехала вбок (замечание 10.11: «выделяется чёрным»)', async () => {
@@ -334,33 +387,43 @@ describe('что нашёл обход', () => {
     expect(filled()).toBeNull();
   });
 
-  it('у донора — куплено, спорные и сколько из них решено, мимо, кому не пишем, страницы', async () => {
+  it('у донора — куплено, мимо, спорные, кому не пишем, сколько спорных решено, страницы', async () => {
     await openReport();
 
     const row = screen.getByText('big.example.test').closest('tr')!;
-    expect(cellsOf(row)).toMatchObject({
-      Куплено: '118',
-      Спорных: '40решено 12',
-      Мимо: '230',
-      'Кому не пишем': '41',
-      Страниц: '57',
-      Рекламодателей: '130',
-    });
-    expect(within(row).getByText('решено 12')).toBeInTheDocument();
+    expect(foundOf(row)).toEqual([
+      'куплено 118',
+      'мимо 230',
+      'спорных 40',
+      'не пишем 41',
+      'решено 12',
+      'страниц 57',
+    ]);
+    expect(cellsOf(row)).toMatchObject({ Рекламодателей: '130' });
   });
 
-  it('пусто — нули, а «решено» без спорных не пишется', async () => {
+  it('пусто — нули, а «решено» без спорных не пишется, и страницы стоят на своём месте', async () => {
     await openReport();
 
     const row = screen.getByText('small.example.test').closest('tr')!;
-    expect(cellsOf(row)).toMatchObject({
-      Куплено: '0',
-      Спорных: '0',
-      Мимо: '0',
-      'Кому не пишем': '0',
-      Страниц: '0',
-    });
+    expect(foundOf(row)).toEqual(['куплено 0', 'мимо 0', 'спорных 0', 'не пишем 0', 'страниц 0']);
     expect(within(row).queryByText(/решено/)).toBeNull();
+    // Под спорными — пустое место, а не страницы: сетка у всех строк одна.
+    const grid = row.querySelector('.foundGrid')!;
+    expect(grid.children).toHaveLength(6);
+    expect(grid.children[4]).toBeEmptyDOMElement();
+  });
+
+  it('обход — в блоке одной ширины у каждой строки: «i» соседних строк — на одной линии', async () => {
+    await openReport();
+
+    for (const host of ['big.example.test', 'small.example.test']) {
+      const cell = screen
+        .getByText(host)
+        .closest('tr')!
+        .querySelector<HTMLElement>("td[data-label='Обход']")!;
+      expect(cell.querySelector('.crawlSlot')).not.toBeNull();
+    }
   });
 
   it('что значит каждая колонка — в «i» у заголовка экрана', async () => {
