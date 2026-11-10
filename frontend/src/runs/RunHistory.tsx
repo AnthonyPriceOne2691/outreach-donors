@@ -31,6 +31,7 @@ import type { RunsPage } from '../api/runs';
 import type { RunCard, RunsView, RunStatus } from '../api/types';
 import { ColumnsHead } from '../components/ColumnsHead';
 import type { Column } from '../components/ColumnsHead';
+import { InfoHint } from '../components/InfoHint';
 import { PageSwitch } from '../components/PageSwitch';
 import { formatDateTime, formatNumber, plural } from '../format';
 import { TopicSilence } from '../topics/TopicNotes';
@@ -102,15 +103,19 @@ function JudgeSilence({ run }: { run: { stats: Record<string, unknown> | null } 
   if (typeof judge !== 'object' || judge === null) return null;
   const { unanswered, unanswered_reason: reason } = judge as Record<string, unknown>;
   if (typeof unanswered !== 'number' || unanswered === 0) return null;
+  // Своей строкой, как «тематика: нет ответа»: в ряд с соседним значком ячейка судьи
+  // вылезала за колонку (разведка 10.11.2026).
   return (
-    <Badge
-      variant="light"
-      size="sm"
-      color="red"
-      title={typeof reason === 'string' ? reason : undefined}
-    >
-      модель не ответила: {unanswered}
-    </Badge>
+    <div>
+      <Badge
+        variant="light"
+        size="sm"
+        color="red"
+        title={typeof reason === 'string' ? reason : undefined}
+      >
+        модель не ответила: {unanswered}
+      </Badge>
+    </div>
   );
 }
 
@@ -122,15 +127,19 @@ function JudgeBlind({ run }: { run: { stats: Record<string, unknown> | null } })
   if (typeof judge !== 'object' || judge === null) return null;
   const blind = (judge as Record<string, unknown>)['no_text'];
   if (typeof blind !== 'number' || blind === 0) return null;
+  // Своей строкой: «судить нечем» и «расходится … · …%» в ряд — ~255 px в колонке ~190, и
+  // второй значок заходил на «Рассмотрение» (разведка 10.11.2026, прогон по конкурентам).
   return (
-    <Badge
-      variant="light"
-      size="sm"
-      color="red"
-      title="Ни текста выдачи, ни главной — вердикта нет, следующий прогон судит снова"
-    >
-      судить нечем: {blind}
-    </Badge>
+    <div>
+      <Badge
+        variant="light"
+        size="sm"
+        color="red"
+        title="Ни текста выдачи, ни главной — вердикта нет, следующий прогон судит снова"
+      >
+        судить нечем: {blind}
+      </Badge>
+    </div>
   );
 }
 
@@ -325,17 +334,26 @@ function HistoryRow({ run, from }: { run: RunCard; from: string }) {
 
 /** Почему сумма «Рассмотреть» по строкам больше числа у «Прогона» в меню (проверка прода
  *  10.10.2026: 55 + 41 при 89): домен, ждущий в нескольких очередях, — в каждой строке,
- *  а меню считает его один раз. Таких нет — строки нет. */
-function SharedQueues({ view }: { view: RunsPage | null }) {
-  if (view === null || !(view.review_shared > 0)) return null;
-  const { review_waiting: waiting, review_shared: shared } = view;
+ *  а меню считает его один раз. Таких нет — подсказки нет. В «i» у заголовка «Рассмотрение»,
+ *  а не абзацем под таблицей (разведка 10.11.2026): 32 слова во всю ширину, а число ждущих
+ *  и так стоит у «Прогона» в меню — на экране оно один раз. */
+function SharedQueues({ waiting, shared }: { waiting: number; shared: number }) {
   return (
-    <Text size="sm" c="dimmed" px="xs" pt="sm">
-      Решения ждут {formatNumber(waiting)} {plural(waiting, 'домен', 'домена', 'доменов')} — это
-      число у «Прогона» в меню. {formatNumber(shared)} из них стоят в очередях нескольких прогонов:
-      в строках выше такой домен посчитан в каждой своей очереди, в меню — один раз.
-    </Text>
+    <InfoHint name="Почему в строках больше, чем в меню" width={320} interactive>
+      <Text size="sm">
+        Решения ждут {formatNumber(waiting)} {plural(waiting, 'домен', 'домена', 'доменов')} — это
+        число у «Прогона» в меню. {formatNumber(shared)} из них стоят в очередях нескольких
+        прогонов: в строках такой домен посчитан в каждой своей очереди, в меню — один раз.
+      </Text>
+    </InfoHint>
   );
+}
+
+/** Колонки страницы: у «Рассмотрения» — «i» про общие очереди, когда они есть. */
+function columnsOf(view: RunsPage | null): Column[] {
+  if (view === null || !(view.review_shared > 0)) return COLUMNS;
+  const hint = <SharedQueues waiting={view.review_waiting} shared={view.review_shared} />;
+  return COLUMNS.map((column) => (column.title === 'Рассмотрение' ? { ...column, hint } : column));
 }
 
 interface Props {
@@ -360,7 +378,7 @@ export function RunHistory({ view, page, onPage }: Props) {
           verticalSpacing="sm"
           horizontalSpacing="xs"
         >
-          <ColumnsHead columns={COLUMNS} />
+          <ColumnsHead columns={columnsOf(view)} />
           <Table.Tbody>
             {rows.map((run) => (
               <HistoryRow key={run.id} run={run} from={search} />
@@ -368,7 +386,6 @@ export function RunHistory({ view, page, onPage }: Props) {
           </Table.Tbody>
         </Table>
       </Table.ScrollContainer>
-      <SharedQueues view={view} />
       {view !== null && view.total === 0 && (
         <Text size="sm" c="dimmed" p="lg">
           Прогонов ещё не было. Первый появится здесь сразу после запуска — вместе со сметой, с

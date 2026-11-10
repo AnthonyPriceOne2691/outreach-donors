@@ -243,12 +243,17 @@ export const AUTOSEND_ON =
   'Автоотправка включена, список разрешённых адресатов почты продаж пуст — письма уходят всем ' +
   'лидам очереди: проход раз в 60 с, с ящика — не больше письма за проход и пауза 8–22 мин ' +
   'между его первыми письмами. В окне получателя сейчас 12 писем. Письма уходят.';
+/** Коротко у значка — что сейчас и сколько писем в окне; целиком — в «i». */
+export const AUTOSEND_ON_SHORT = 'Включена, письма уходят; в окне получателя 12 писем.';
 export const AUTOSEND_OFF =
   'Автоотправка выключена — первые письма уходят кнопкой «Отправить очередь» или по одному; ' +
   'включается настройкой SALES_AUTOSEND.';
+export const AUTOSEND_OFF_SHORT =
+  'Выключена — первые письма уходят кнопкой «Отправить очередь» или по одному.';
 export const AUTOBUILD_OFF =
   'Автосборка выключена — очередь собирают кнопкой «Собрать очередь»; включается настройкой ' +
   'SALES_AUTOBUILD.';
+export const AUTOBUILD_OFF_SHORT = 'Выключена — очередь собирают кнопкой «Собрать очередь».';
 
 const CAFES: MailingParts = {
   total: 180,
@@ -280,8 +285,8 @@ const DENTISTS: MailingParts = {
 };
 
 export const MAILING: SalesMailingView = {
-  autosend: { enabled: true, line: AUTOSEND_ON },
-  autobuild: { enabled: false, line: AUTOBUILD_OFF },
+  autosend: { enabled: true, line: AUTOSEND_ON, short: AUTOSEND_ON_SHORT },
+  autobuild: { enabled: false, line: AUTOBUILD_OFF, short: AUTOBUILD_OFF_SHORT },
   rows: [
     { hypothesis_id: 5, name: 'Кофейни Лиссабона', parts: CAFES },
     { hypothesis_id: 8, name: 'Dental clinics — Toronto', parts: DENTISTS },
@@ -317,7 +322,7 @@ export const MAILING_IN_FLIGHT: SalesMailingView = {
 /** Вручную: автоотправка выключена — строкой сервера. */
 export const MAILING_MANUAL: SalesMailingView = {
   ...MAILING,
-  autosend: { enabled: false, line: AUTOSEND_OFF },
+  autosend: { enabled: false, line: AUTOSEND_OFF, short: AUTOSEND_OFF_SHORT },
 };
 
 /** Причин снятых писем больше пяти: слова платформы у каждого письма свои (выдуманные). */

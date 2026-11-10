@@ -6,10 +6,14 @@
  * ключом, а таблица — в ширину карточки: нижней границы ширины нет, длинное слово переносится где
  * угодно; у сервера без сайтов по ключу колонок чисел нет, а не нули.
  *
+ * Ключи — по двадцать на странице (замечание владельца 10.11.2026: семьдесят ключей вставали
+ * простынёй); ключ с почти повторами на страницах не рвётся.
+ *
  * Ответы сервера — записанные (`serve()`); ключи — немецкой и финской ниш, домены выдуманы.
  */
 
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
@@ -18,7 +22,9 @@ import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import { HELP_QUIET } from './segmentHelpFixtures';
+import { keyPages } from './SegmentRunKeywords';
 import type { SegmentHome, SegmentRunDetail, SegmentRunRow } from './segmentApi';
+import type { RunKeyRow } from './segmentKeys';
 
 const SCREEN_WAIT = { timeout: 5000 };
 const OPERATOR = 'поисковый оператор: так пользователи не ищут';
@@ -276,5 +282,114 @@ describe('ключи прогона таблицей в отчёте', () => {
       ),
     ).toBeVisible();
     expect(within(block).queryByText(/Новые сайты —/)).toBeNull();
+  });
+});
+
+/** Прогон из `count` выдуманных ключей; у ключа номер `head` — два почти повтора следом. */
+function manyKeys(count: number, head?: number): SegmentRunDetail {
+  const plain = Array.from({ length: count }, (_, index) => `zahnarzt bezirk ${index + 1}`);
+  const lead = head === undefined ? undefined : plain[head - 1];
+  const twins = lead === undefined ? {} : { [`${lead} nord`]: lead, [`${lead} süd`]: lead };
+  const taken = plain.flatMap((phrase) =>
+    phrase === lead ? [phrase, `${phrase} nord`, `${phrase} süd`] : [phrase],
+  );
+  return {
+    ...DETAIL,
+    keywords: taken,
+    spend: {
+      rows: [],
+      keywords: {
+        taken,
+        notes: {},
+        rejected: {},
+        lost: [],
+        empty: [],
+        excluded: [],
+        twins,
+        remarks: {},
+        sites: Object.fromEntries(taken.map((phrase, index) => [phrase, index + 1])),
+        accepted: {},
+      },
+    },
+  };
+}
+
+/** Первые ячейки строк — ключи и строки групп. */
+function firstCells(block: HTMLElement): string[] {
+  return rowsOf(block).map((cells) => cells[0] ?? '');
+}
+
+describe('ключи прогона — по двадцать на странице', () => {
+  it('семьдесят ключей — тремя страницами по порядку сервера; показано сколько из скольких', async () => {
+    const block = await openReport(manyKeys(45));
+    const user = userEvent.setup();
+
+    expect(firstCells(block)).toHaveLength(20);
+    expect(firstCells(block)[0]).toBe('zahnarzt bezirk 1');
+    expect(within(block).getByText('Показаны 1–20 из 45.')).toBeVisible();
+    const pages = within(block).getByRole('navigation', { name: 'Страницы ключей прогона' });
+
+    await user.click(within(pages).getByRole('button', { name: 'Страница 3' }));
+
+    expect(firstCells(block)).toEqual([
+      'zahnarzt bezirk 41',
+      'zahnarzt bezirk 42',
+      'zahnarzt bezirk 43',
+      'zahnarzt bezirk 44',
+      'zahnarzt bezirk 45',
+    ]);
+    expect(within(block).getByText('Показаны 41–45 из 45.')).toBeVisible();
+    // Шапка — о всём прогоне, а не о странице.
+    expect(within(block).getByText('· взято 45 из 45')).toBeVisible();
+  });
+
+  it('ключ с почти повторами не рвётся: группа, не влезшая в страницу, — целиком на следующей', async () => {
+    // Девятнадцатый ключ с двумя повторами: 18 + 3 > 20 — группа уходит на вторую страницу.
+    const block = await openReport(manyKeys(25, 19));
+
+    expect(firstCells(block)).toHaveLength(18);
+    expect(within(block).queryByText(/^Похожи на/)).toBeNull();
+    expect(within(block).getByText('Показаны 1–18 из 27.')).toBeVisible();
+
+    await userEvent
+      .setup()
+      .click(
+        within(
+          within(block).getByRole('navigation', { name: 'Страницы ключей прогона' }),
+        ).getByRole('button', { name: 'Страница 2' }),
+      );
+
+    expect(firstCells(block).slice(0, 4)).toEqual([
+      'zahnarzt bezirk 19',
+      'Похожи на «zahnarzt bezirk 19»: выдача может частично совпасть.',
+      'zahnarzt bezirk 19 nord',
+      'zahnarzt bezirk 19 süd',
+    ]);
+  });
+
+  it('двадцать и меньше — одной страницей: ни листалки, ни «показаны»', async () => {
+    const block = await openReport(manyKeys(20));
+
+    expect(firstCells(block)).toHaveLength(20);
+    expect(within(block).queryByRole('navigation', { name: 'Страницы ключей прогона' })).toBeNull();
+    expect(within(block).queryByText(/^Показаны/)).toBeNull();
+  });
+
+  it('страницы: группа больше страницы — своей страницей, а не обрывком', () => {
+    const row = (phrase: string, twin?: string): RunKeyRow => ({
+      phrase,
+      twin,
+      marks: [],
+      sites: 0,
+      accepted: 0,
+    });
+    const rows = [row('a'), row('b'), row('b 1', 'b'), row('b 2', 'b'), row('b 3', 'b'), row('c')];
+
+    expect(keyPages(rows, 2).map((page) => page.map((each) => each.phrase))).toEqual([
+      ['a'],
+      ['b', 'b 1', 'b 2', 'b 3'],
+      ['c'],
+    ]);
+    expect(keyPages([], 20)).toEqual([]);
   });
 });

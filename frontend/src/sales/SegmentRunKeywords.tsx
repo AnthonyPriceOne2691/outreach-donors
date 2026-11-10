@@ -20,12 +20,20 @@
  * ключом), нижней границы ширины нет, длинное слово переносится где угодно. Граница колонок чисел
  * оставалась и в одной колонке: на 390 px таблица в 300 px стояла в карточке 282 px, уезжала в
  * свою прокрутку, и значки и строка группы обрезались по правому краю (стенд, 22.10.2026).
+ *
+ * **По двадцать ключей на странице** (замечание владельца 10.11.2026: семьдесят ключей прогона
+ * вставали простынёй — страница «Сбора базы» в 4,6 тыс. px на 1440 и 7,5 тыс. на 390). Листалка —
+ * общая (`PageSwitch`), под таблицей, с «Показаны 1–20 из 70»; пометки под таблицей — о всех
+ * ключах прогона, а не о странице. Группа почти повторов не рвётся: не влезла в страницу — целиком
+ * открывает следующую, и предыдущая короче двадцати; длиннее двадцати страница бывает, только если
+ * больше двадцати сама группа. Страница — у своего прогона: другой прогон открывается с первой.
  */
 
 import { Badge, Stack, Table, Text } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import { Fragment } from 'react';
+import { Fragment, useState } from 'react';
 
+import { PageSwitch } from '../components/PageSwitch';
 import { formatNumber } from '../format';
 import { FixedTable } from './FixedTable';
 import type { Column } from './FixedTable';
@@ -148,6 +156,58 @@ function Rows({ rows, counts }: { rows: RunKeyRow[]; counts: Counts }) {
   );
 }
 
+/** Ключей на странице — как строк у других списков. */
+export const KEYS_PAGE = 20;
+
+/** Страницы ключей по порядку сервера: ключ с почти повторами — на одной странице целиком. */
+export function keyPages(rows: RunKeyRow[], size = KEYS_PAGE): RunKeyRow[][] {
+  const units: RunKeyRow[][] = [];
+  for (const row of rows) {
+    const unit = units.at(-1);
+    if (row.twin !== undefined && unit !== undefined && unit[0]?.phrase === row.twin) {
+      unit.push(row);
+    } else {
+      units.push([row]);
+    }
+  }
+  const pages: RunKeyRow[][] = [];
+  for (const unit of units) {
+    const page = pages.at(-1);
+    if (page !== undefined && page.length + unit.length <= size) page.push(...unit);
+    else pages.push([...unit]);
+  }
+  return pages;
+}
+
+/** Сколько ключей показано из скольких — и листалка; одна страница — ни того, ни другого. */
+function Footer({
+  pages,
+  page,
+  onPage,
+}: {
+  pages: RunKeyRow[][];
+  page: number;
+  onPage: (next: number) => void;
+}) {
+  if (pages.length <= 1) return null;
+  const first = pages.slice(0, page - 1).reduce((sum, each) => sum + each.length, 0) + 1;
+  const last = first + (pages[page - 1]?.length ?? 0) - 1;
+  const total = pages.reduce((sum, each) => sum + each.length, 0);
+  return (
+    <>
+      <Text size="sm" c="dimmed" className="runKeysShown">
+        Показаны {formatNumber(first)}–{formatNumber(last)} из {formatNumber(total)}.
+      </Text>
+      <PageSwitch
+        label="Страницы ключей прогона"
+        page={page}
+        pages={pages.length}
+        onChange={onPage}
+      />
+    </>
+  );
+}
+
 /** Под таблицей — что значат числа и значки, прочие пометки, снятые и отсеянные ключи. */
 function Notes({ found, rows }: { found: SegmentRunKeywords; rows: RunKeyRow[] }) {
   const lines: string[] = [];
@@ -175,12 +235,23 @@ function Notes({ found, rows }: { found: SegmentRunKeywords; rows: RunKeyRow[] }
   );
 }
 
-/** Ключи прогона: шапка с числами, таблица ключей и сайтов по ним, под ней — пометки. */
+/** Открытая страница ключей — у своего прогона. */
+interface KeysAt {
+  run: number;
+  page: number;
+}
+
+/** Ключи прогона: шапка с числами, таблица ключей и сайтов по ним страницами, под ней — пометки. */
 export function RunKeywords({ detail }: { detail: SegmentRunDetail }) {
   const narrow = useMediaQuery(NARROW);
+  const [at, setAt] = useState<KeysAt>({ run: detail.run.id, page: 1 });
   const found = detail.spend?.keywords;
   if (found === undefined) return null;
   const rows = runRows(found);
+  const pages = keyPages(rows);
+  // Другой прогон — с первой страницы; страница за концом (ключей стало меньше) — последняя.
+  const asked = at.run === detail.run.id ? at.page : 1;
+  const page = Math.min(asked, Math.max(1, pages.length));
   const counts: Counts = found.sites === undefined ? 'none' : narrow ? 'inline' : 'columns';
   const columns = counts === 'columns';
   return (
@@ -202,9 +273,14 @@ export function RunKeywords({ detail }: { detail: SegmentRunDetail }) {
           label="Ключи прогона и сайты по ним"
           verticalSpacing="xs"
           tabularNums
-          rows={<Rows rows={rows} counts={counts} />}
+          rows={<Rows rows={pages[page - 1] ?? []} counts={counts} />}
         />
       )}
+      <Footer
+        pages={pages}
+        page={page}
+        onPage={(next) => setAt({ run: detail.run.id, page: next })}
+      />
       <Notes found={found} rows={rows} />
     </Stack>
   );

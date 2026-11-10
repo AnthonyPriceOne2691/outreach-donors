@@ -21,6 +21,7 @@ import { refusalOf } from '../api/client';
 import { buildPool, fetchMarketLanguages, fetchPresets } from '../api/keywords';
 import { presetTitle } from '../api/labels';
 import { languageTitle } from '../api/languageLabels';
+import { InfoHint } from '../components/InfoHint';
 import { NumberField } from '../components/NumberField';
 import { numberRefusal, validNumber } from '../components/numberText';
 import type { NumberRule } from '../components/numberText';
@@ -169,7 +170,21 @@ function blockedBy(state: ModelPoolState, examplesProblem: string | null, sites:
   return state.basis === 'examples' && (examplesProblem !== null || sites === 0);
 }
 
-/** Содержимое секции «Собрать моделью»: пояснение, языки рынка, основа сборки и ряд полей. */
+/** Что делает сборка — в «i» у её кнопки, а не абзацем над секцией (разведка 10.11.2026:
+ *  26 слов во всю ширину над полями). Платного сборка не тратит — предупреждать на виду не
+ *  о чем; трату называет смета, до кнопки «Запустить». */
+function BuildHint() {
+  return (
+    <InfoHint name="Что делает сборка" width={300} interactive>
+      <Text size="sm">
+        Сборка ничего платного не тратит — только модель. Фразы попадут в поле ключей ниже, и до
+        сметы их можно править: смета и кап остаются последним рубежом перед тратой.
+      </Text>
+    </InfoHint>
+  );
+}
+
+/** Содержимое секции «Собрать моделью»: языки рынка, основа сборки и ряд полей. */
 export function ModelPool({ state, canRun }: Props) {
   const byExamples = state.basis === 'examples';
   const examplesProblem = byExamples ? examplesRefusal(state.examples) : null;
@@ -177,10 +192,6 @@ export function ModelPool({ state, canRun }: Props) {
 
   return (
     <Stack gap="sm">
-      <Text size="sm" c="dimmed">
-        Сборка ничего платного не тратит — только модель. Фразы попадут в поле ниже, и до сметы их
-        можно править: смета и кап остаются последним рубежом перед тратой.
-      </Text>
       <MarketLanguages query={state.marketLanguages} />
       {/* По содержимому, как переключатель режима над секцией: во всю ширину два
           слова читались бы полосой, а не выбором (аудит экранов 09.10.2026). */}
@@ -225,11 +236,16 @@ export function ModelPool({ state, canRun }: Props) {
           onChange={state.setPoolCap}
           w={{ base: '100%', xs: WIDTH.poolCap }}
         />
-        <BuildButton
-          state={state}
-          canRun={canRun}
-          blocked={blockedBy(state, examplesProblem, sites)}
-        />
+        {/* Кнопка и «i» — одной группой: на телефоне кнопка во всю ширину (`runActions`),
+            а значок не уезжает строкой ниже. */}
+        <Group gap={4} wrap="nowrap" className="runActions">
+          <BuildButton
+            state={state}
+            canRun={canRun}
+            blocked={blockedBy(state, examplesProblem, sites)}
+          />
+          <BuildHint />
+        </Group>
       </Group>
       {byExamples ? (
         <ExamplesOutcome

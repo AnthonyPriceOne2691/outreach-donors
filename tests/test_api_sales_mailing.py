@@ -120,7 +120,7 @@ async def test_the_answer_has_every_part_and_rows_add_up_with_empty_hypotheses_a
     body = await _get(client, MAILING, headers)
 
     assert set(body) == {"autosend", "autobuild", "rows", "total"}
-    assert set(body["autosend"]) == set(body["autobuild"]) == {"enabled", "line"}
+    assert set(body["autosend"]) == set(body["autobuild"]) == {"enabled", "line", "short"}
     assert [row["hypothesis_id"] for row in body["rows"]] == [world.hypothesis_id, empty]
     ours, nothing = body["rows"]
     assert set(ours) == {"hypothesis_id", "name", "parts"}
