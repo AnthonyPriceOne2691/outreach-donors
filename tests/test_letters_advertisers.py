@@ -37,7 +37,7 @@ from backend.features.core.models.outreach import (
     SenderModel,
     ThreadModel,
 )
-from backend.features.crawl import advertiser_list, niche
+from backend.features.crawl import advertiser_list, niche, promote
 from backend.features.donors.price import put_answer
 from backend.features.letters import batch, reply_to
 from backend.features.letters.building import BuildRequest, LetterScopeError, QueueBuilder
@@ -277,6 +277,8 @@ class TestWhoGetsAnOffer:
 
         listed = await advertiser_list.facets(session)
         assert report.funnel["рекламодателей"] == sum(listed.sources.values()) == 2  # type: ignore[attr-defined]
+        # «К письму» считает тем же условием: бизнес ниши без «пишем» — не рекламодатель.
+        assert (await promote.standing(session)).advertisers == 2
         assert report.funnel["со ссылкой"] == 1  # type: ignore[attr-defined]
         assert [letter.idempotency_key for letter in await offers(session)] == [
             "advertisers:brand.example.test:0"

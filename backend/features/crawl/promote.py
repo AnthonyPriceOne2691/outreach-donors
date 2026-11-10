@@ -57,7 +57,7 @@ from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
-from backend.features.crawl.advertiser_rules import writes_to
+from backend.features.crawl.advertiser_rules import in_work, writes_to
 from backend.features.crawl.niche import NICHE
 from backend.features.crawl.offer_stop import stop_offers
 from backend.features.crawl.suppliers import supplier_hosts
@@ -130,9 +130,11 @@ async def standing(session: AsyncSession) -> Standing:
     ready = await session.scalar(select(roots).where(writes_to(), dr_settled()))
     fresh = await session.scalar(select(roots).where(writes_to(), dr_settled(), ~known))
     addressed = select(ContactModel.id).where(ContactModel.domain_id == AdvertiserModel.domain_id)
-    total = await session.scalar(select(func.count(AdvertiserModel.id)))
+    # Рекламодатели — те, кому пишем (`in_work`), как «всего» списка и первая ступень «Писем»:
+    # бизнес ниши без «пишем» человека в число «К письму» не входит (разведка 10.11.2026).
+    total = await session.scalar(select(func.count(AdvertiserModel.id)).where(in_work()))
     with_address = await session.scalar(
-        select(func.count(AdvertiserModel.id)).where(addressed.exists())
+        select(func.count(AdvertiserModel.id)).where(in_work(), addressed.exists())
     )
     return Standing(
         ready=int(ready or 0),
