@@ -69,8 +69,8 @@ const QUEUE_VIEW: SalesQueueView = {
   stage_queued: 96,
   limit_max: 200,
   batch_max: 200,
-  autosend: { enabled: false, line: 'Автоотправка выключена.' },
-  autobuild: { enabled: false, line: 'Автосборка выключена.' },
+  autosend: { enabled: false, line: 'Автоотправка выключена.', short: 'Выключена — кнопкой.' },
+  autobuild: { enabled: false, line: 'Автосборка выключена.', short: 'Выключена — вручную.' },
   batch_off: null,
 };
 
