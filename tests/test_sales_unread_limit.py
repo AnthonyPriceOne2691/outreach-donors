@@ -160,7 +160,11 @@ async def test_the_screen_line_says_which_setting_to_fix_and_how(
 
     line = await auto_lines.autosend_line(session, NOW)
 
-    assert line == AutoLine(enabled=True, line=f"{auto_lines.SEND_STOPPED}: {WORDS}.")
+    assert line == AutoLine(
+        enabled=True,
+        line=f"{auto_lines.SEND_STOPPED}: {WORDS}.",
+        short=f"Включена, а не шлёт ничего: {WORDS}.",
+    )
 
 
 async def test_a_read_zero_limit_is_the_spent_limit_with_no_alarm(

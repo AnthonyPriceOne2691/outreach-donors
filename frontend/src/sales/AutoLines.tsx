@@ -6,13 +6,19 @@
  *
  * Сеткой «значок | строка»: значки разной ширины, а строки начинаются с одной кромки. На узком окне
  * значок — над строкой: в колонке рядом с ним строка вставала в двадцать узких строк (снимок 390 px).
+ *
+ * **Коротко у значка, целиком — в «i»** (замечание владельца 10.11.2026: строки режима — простынями
+ * по три строки на 1440 и по десять на 390). Короткую пишет сервер (`short`): что сейчас, сколько
+ * писем в окне, хватает ли очереди и кого соберёт; причина остановки — в ней же. Темп прохода, кому
+ * уходят письма и последняя автосборка — в «i» целой строкой. Совпали — «i» нет: пояснять нечего.
  */
 
-import { Badge, Box, Text } from '@mantine/core';
+import { Badge, Box, Group, Text } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { Fragment } from 'react';
 
 import type { SalesAutoLine } from '../api/salesTypes';
+import { InfoHint } from '../components/InfoHint';
 
 interface Props {
   autosend: SalesAutoLine;
@@ -47,9 +53,16 @@ export function AutoLines({ autosend, autobuild }: Props) {
           >
             {title}
           </Badge>
-          <Text size="sm" className="queueAuto">
-            {auto.line}
-          </Text>
+          <Group gap={4} wrap="nowrap" align="flex-start" style={{ minWidth: 0 }}>
+            <Text size="sm" className="queueAuto">
+              {auto.short}
+            </Text>
+            {auto.short === auto.line ? null : (
+              <InfoHint name={`Подробно: ${title}`} width={420}>
+                {auto.line}
+              </InfoHint>
+            )}
+          </Group>
         </Fragment>
       ))}
     </Box>
