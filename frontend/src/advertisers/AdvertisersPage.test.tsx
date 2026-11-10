@@ -89,6 +89,22 @@ describe('ручная проверка рекламодателей', () => {
     expect(screen.getByText('коммерческий анкор +1')).toBeInTheDocument();
   });
 
+  it('пояснение причины — в «i» у неё, а не тремя строками ячейки', async () => {
+    // Разведка экранов 10.11.2026: «зона .org — чаще фонд или сообщество…» у каждого домена .org.
+    const fund = {
+      ...CANDIDATE,
+      reasons: ['rel=sponsored +5', 'зона .org'],
+      reason_notes: { 'зона .org': 'Чаще фонд или сообщество, чем рекламодатель: решает человек' },
+    };
+    await openScreen({ 'GET /api/advertisers': { body: { ...QUEUE, rows: [fund] } } });
+
+    const cell = screen.getByText('зона .org').closest('td')!;
+    expect(cell).toHaveAttribute('data-label', 'За что');
+    expect(
+      within(cell).getByRole('button', { name: 'Что значит «зона .org»' }),
+    ).toBeInTheDocument();
+  });
+
   it('ссылка, под которую напишут письмо, видна рядом с решением', async () => {
     await openScreen();
 
@@ -134,12 +150,18 @@ describe('ручная проверка рекламодателей', () => {
     expect(screen.getAllByText(/^судья:/)).toHaveLength(1);
   });
 
-  it('счётчики показывают и отсеянных', async () => {
+  it('счётчики показывают и отсеянных, и каждое число — один раз', async () => {
     await openScreen();
 
     // По отсеянным видно, что список «кому не пишем» работает, а не молчит.
-    expect(screen.getByText(/кому не пишем: 12/)).toBeInTheDocument();
-    expect(screen.getByText(/куплена: 6/)).toBeInTheDocument();
+    expect(screen.getByText('кому не пишем: 12')).toBeInTheDocument();
+    expect(screen.getByText('мимо: 14')).toBeInTheDocument();
+    // Спорные и «куплено» — в переключателе списков; значками под ним они стояли вторым разом
+    // (разведка экранов 10.11.2026), да ещё «куплена» против «Куплено».
+    expect(screen.getByRole('radio', { name: 'Спорные · 1' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Куплено · 6' })).toBeInTheDocument();
+    expect(screen.queryByText(/^куплен/)).toBeNull();
+    expect(screen.queryByText(/^спорно: /)).toBeNull();
   });
 
   it('«пишем» уходит на сервер', async () => {
@@ -228,13 +250,13 @@ describe('числа и текст сходятся', () => {
     renderWith(<AppRoutes />, '/advertisers?view=review');
   }
 
-  it('«спорно: 1» при решённом спорном — не «спорных нет», а сколько решено и где их видно', async () => {
+  it('«Спорные · 1» при решённом спорном — не «спорных нет», а сколько решено и где их видно', async () => {
     openAllDecided();
     const user = userEvent.setup();
 
     expect(await screen.findByText('Все спорные решены — 1.')).toBeInTheDocument();
     expect(screen.queryByText(/Спорных нет/)).not.toBeInTheDocument();
-    expect(screen.getByText(/спорно: 1/)).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Спорные · 1' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Показать решённые' }));
 
@@ -674,7 +696,7 @@ describe('фильтры под колонками', () => {
 
     expect(await screen.findByText('найдено 12 из 40')).toBeInTheDocument();
     expect(screen.getByText(/Ждут человека/)).toHaveTextContent('Ждут человека: 40');
-    expect(screen.getByText(/куплена: 6/)).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Куплено · 6' })).toBeInTheDocument();
   });
 
   it('под фильтром пусто — поля на месте, сказано почему и как сбросить', async () => {

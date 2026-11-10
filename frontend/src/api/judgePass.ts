@@ -30,6 +30,9 @@ export interface JudgePassView {
   by: string | null;
   ended_at: string | null;
   lines: string[];
+  /** Советы итога числами: пишем, не пишем, не понять. Нет или `null` — итог старше этих чисел,
+   *  советы — только в `lines`. */
+  advice?: Partial<Record<'write' | 'skip' | 'unclear', number>> | null;
   why: string | null;
 }
 

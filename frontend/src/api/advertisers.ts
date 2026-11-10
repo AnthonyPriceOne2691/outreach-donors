@@ -115,6 +115,8 @@ export interface JudgeAdvice {
 /** Строка очереди проверки: кандидат и, после решения человека, совет судьи. */
 export interface ReviewRow extends CandidateCard {
   judge?: JudgeAdvice | null;
+  /** Пояснение причины по её словам («зона .org» — почему решает человек); нет — сервер старше. */
+  reason_notes?: Record<string, string>;
 }
 
 /** Вариант фильтра очереди: значение, слова экрана и сколько строк с ним. */

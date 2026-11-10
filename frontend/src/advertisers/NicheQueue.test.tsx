@@ -26,6 +26,23 @@ const BOOKIE: NicheCard = {
   decided_at: null,
 };
 
+/** Строка очереди проверки над бизнесами ниши: решение у неё — той же парой кнопок. */
+const QUEUED = {
+  id: 12,
+  donor_host: 'donor.example.test',
+  target_root: 'advertiser.example',
+  points: 3,
+  verdict: 'pending' as const,
+  reasons: ['коммерческий анкор +1'],
+  links: 1,
+  pages: 1,
+  best_page_url: null,
+  best_anchor: null,
+  confirmed: null,
+  decided_by: null,
+  decided_at: null,
+};
+
 const PAGER = 'Страницы бизнесов ниши';
 
 /** Страница ниши, какой её отдаёт сервер: `size` строк с номера `from`, всего `total`. */
@@ -82,6 +99,26 @@ describe('бизнесы ниши из выдачи', () => {
       const sent = recorded.calls.find((call) => call.path === '/api/advertisers/niche/7/decide');
       expect(sent?.body).toEqual({ write: true });
     });
+  });
+
+  it('«Пишем» и «Не пишем» — того же вида, что в очереди проверки над ними', async () => {
+    // Разведка экранов 10.11.2026: здесь «Пишем» была залита, а «Не пишем» стояла текстом, в
+    // очереди над ними — светлая и с кромкой: одно решение на экране выглядело двумя.
+    await openAdvertisers({
+      'GET /api/advertisers': {
+        body: reviewQueue({ rows: [QUEUED], waiting: 1, counts: { pending: 1 } }),
+      },
+    });
+
+    const write = screen.getAllByRole('button', { name: 'Пишем' });
+    const skip = screen.getAllByRole('button', { name: 'Не пишем' });
+    expect(write).toHaveLength(2);
+    expect(skip).toHaveLength(2);
+    expect(write.map((button) => button.getAttribute('data-variant'))).toEqual(['light', 'light']);
+    expect(skip.map((button) => button.getAttribute('data-variant'))).toEqual([
+      'default',
+      'default',
+    ]);
   });
 
   it('сбор из старого прогона говорит, сколько нашлось', async () => {

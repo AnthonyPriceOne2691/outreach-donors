@@ -378,6 +378,20 @@ def test_the_end_gives_the_lines_of_the_report() -> None:
     assert state["lines"] == ["рассужены: 90", "токенов: 9 000"]
     assert state["why"] is None
     assert state["ended_at"] == AT
+    # Итог, записанный до чисел советов: советы — только в строках, а не «советов нет».
+    assert state["advice"] is None
+
+
+def test_the_end_gives_the_advice_by_numbers_for_the_short_line() -> None:
+    """Разведка экранов 10.11.2026: итог стоял двумя строками мелкого текста — на виду советы
+    числами, строки — в «i»."""
+    report = {"done": 23, "total": 23, "stopped": "", "lines": ["рассужены: 23"]}
+    counted = {**report, "advice": {"write": 13, "skip": 5, "unclear": 5}}
+
+    state = api._job_state(_seen("done", report=counted))
+
+    assert state["advice"] == {"write": 13, "skip": 5, "unclear": 5}
+    assert state["lines"] == ["рассужены: 23"]
 
 
 def test_a_stop_keeps_its_reason() -> None:
@@ -441,6 +455,9 @@ async def test_the_job_judges_no_more_than_confirmed_and_leaves_the_decision(
     assert report["tokens"] > 0
     assert report["lines"][0] == "рассужены: 2"
     assert report["lines"][-1].startswith("токенов: ")
+    # Советы числами — тем же счётом, что строка «советы: …».
+    assert sum(report["advice"].values()) == 2
+    assert set(report["advice"]) <= {"write", "skip", "unclear"}
     session.expire_all()
     rows = await session.scalars(select(AdvertiserJudgementModel))
     assert len(rows.all()) == 2

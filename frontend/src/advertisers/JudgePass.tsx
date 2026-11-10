@@ -10,9 +10,14 @@
  * кнопка говорит «Продолжить разбор», а смета — сколько осталось.
  *
  * Разбор тратит модель — кнопка только с правом «запускать прогоны», без него — кто запускает.
+ *
+ * **Итог — одной строкой, отчёт — в «i»** (разведка экранов 10.11.2026: две строки мелкого текста
+ * с исходами, кто запускал и токенами): на виду — когда и что посоветовал судья, «Разбор
+ * 03.11.2026, 12:00: советов 12 (пишем 7 · не пишем 3 · не понять 2)»; строки сервера и кто
+ * запускал — по нажатию. Итог, записанный до чисел советов, — «Разбор окончен» и те же строки в «i».
  */
 
-import { Alert, Button, Group, Loader, Text } from '@mantine/core';
+import { Alert, Button, Group, Loader, Stack, Text } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 
@@ -20,7 +25,9 @@ import { fetchJudgePass, JUDGE_PASS_KEY, passMoving, passResumes } from '../api/
 import type { JudgePassView } from '../api/judgePass';
 import { PERMISSION_TITLES } from '../api/labels';
 import { useSession } from '../auth/AuthProvider';
+import { InfoHint } from '../components/InfoHint';
 import { formatDateTime, formatNumber } from '../format';
+import { ADVICE } from './CandidatesTable';
 import { JudgePassModal } from './JudgePassModal';
 
 /** Очередь проверки: совет судьи виден в ней под решением. */
@@ -92,14 +99,46 @@ function Going({ view }: { view: JudgePassView }) {
   );
 }
 
+/** Порядок советов в строке итога — от «пишем» к «не понять». */
+const ADVICE_ORDER = ['write', 'skip', 'unclear'] as const;
+
+/** «советов 23 (пишем 13 · не пишем 5 · не понять 5)»: нулевой совет не называется. */
+function adviceWords(advice: NonNullable<JudgePassView['advice']>): string {
+  const total = ADVICE_ORDER.reduce((sum, key) => sum + (advice[key] ?? 0), 0);
+  if (total === 0) return 'советов нет';
+  const parts = ADVICE_ORDER.filter((key) => (advice[key] ?? 0) > 0).map(
+    (key) => `${ADVICE[key]}\u00a0${formatNumber(advice[key] ?? 0)}`,
+  );
+  return `советов ${formatNumber(total)} (${parts.join(' · ')})`;
+}
+
 function Done({ view }: { view: JudgePassView }) {
   const when = view.ended_at !== null ? ` ${formatDateTime(view.ended_at)}` : '';
-  const who = view.by !== null ? ` · ${view.by}` : '';
+  if (view.lines.length === 0) {
+    return (
+      <Text size="sm" c="dimmed" role="status">
+        Разбор{when}: разбирать было некого
+      </Text>
+    );
+  }
+  const said =
+    view.advice == null ? `Разбор окончен${when}` : `Разбор${when}: ${adviceWords(view.advice)}`;
   return (
-    <Text size="sm" c="dimmed" role="status">
-      Разбор окончен{when}
-      {who}: {view.lines.join(' · ') || 'разбирать было некого'}
-    </Text>
+    <Group gap={4} align="center" wrap="nowrap">
+      <Text size="sm" c="dimmed" role="status">
+        {said}
+      </Text>
+      <InfoHint name="Итог разбора целиком" width={340} interactive>
+        <Stack gap={4}>
+          {view.by !== null ? <Text size="sm">Запускал: {view.by}</Text> : null}
+          {view.lines.map((line) => (
+            <Text key={line} size="sm">
+              {line}
+            </Text>
+          ))}
+        </Stack>
+      </InfoHint>
+    </Group>
   );
 }
 

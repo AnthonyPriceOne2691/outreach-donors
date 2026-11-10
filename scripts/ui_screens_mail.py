@@ -108,7 +108,9 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                     norm,
                 ),
                 ("выгрузка спорных", "button:has-text('Выгрузить спорные')", big),
-                ("кнопка «Пишем»", "table tbody button", big),
+                # По ячейке решения: у причины с пояснением в «За что» своя кнопка «i» (10.11.2026),
+                # и первой кнопкой строки была бы она.
+                ("кнопка «Пишем»", "table tbody td.cellDecide button", big),
                 ("пункт меню", "nav a", norm),
             ],
         },

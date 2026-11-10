@@ -103,7 +103,9 @@ describe('переобойти спорные', () => {
     expect(await screen.findByRole('button', { name: 'Переобойти спорные' })).toBeDisabled();
   });
 
-  it('итог — словами сервера и кто запускал', async () => {
+  it('итог — строкой советов, отчёт сервера и кто запускал — в «i»', async () => {
+    // Разведка экранов 10.11.2026: итог стоял двумя строками мелкого текста — исходы, кто
+    // запускал, токены. На виду — что посоветовал судья, остальное — по нажатию.
     open({
       ...IDLE,
       state: 'done',
@@ -111,12 +113,39 @@ describe('переобойти спорные', () => {
       total: 90,
       by: 'оператор@site.com',
       ended_at: '2026-11-06T12:00:00+00:00',
-      lines: ['рассужены: 88', 'токенов: 340 000'],
+      lines: ['рассужены: 88', 'советы: не пишем 5, пишем 13', 'токенов: 340 000'],
+      advice: { write: 13, skip: 5, unclear: 0 },
+    });
+    const user = userEvent.setup();
+
+    const line = await screen.findByRole('status');
+    expect(line).toHaveTextContent(/^Разбор .+: советов 18 \(пишем 13 · не пишем 5\)$/);
+    expect(line).not.toHaveTextContent('оператор@site.com');
+    expect(screen.queryByText('токенов: 340 000')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Итог разбора целиком' }));
+
+    const report = await screen.findByRole('dialog', { name: 'Итог разбора целиком' });
+    expect(within(report).getByText('Запускал: оператор@site.com')).toBeInTheDocument();
+    expect(within(report).getByText('рассужены: 88')).toBeInTheDocument();
+    expect(within(report).getByText('токенов: 340 000')).toBeInTheDocument();
+  });
+
+  it('итог старше чисел советов — «Разбор окончен», строки — в «i», а не «советов нет»', async () => {
+    open({
+      ...IDLE,
+      state: 'done',
+      done: 90,
+      total: 90,
+      by: 'оператор@site.com',
+      ended_at: '2026-11-06T12:00:00+00:00',
+      lines: ['рассужены: 88', 'советы: пишем 88'],
     });
 
-    const line = await screen.findByText(/Разбор окончен/);
-    expect(line).toHaveTextContent('оператор@site.com');
-    expect(line).toHaveTextContent('рассужены: 88 · токенов: 340 000');
+    const line = await screen.findByRole('status');
+    expect(line).toHaveTextContent(/^Разбор окончен /);
+    expect(line).not.toHaveTextContent('советов');
+    expect(screen.getByRole('button', { name: 'Итог разбора целиком' })).toBeInTheDocument();
   });
 
   it('остановка — причина, сколько сделано и как продолжить', async () => {

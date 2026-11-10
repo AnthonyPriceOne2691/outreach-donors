@@ -12,6 +12,7 @@ from backend.features.core.models.advertiser import CandidateModel
 from backend.features.crawl.accuracy import FALSE_LIMIT, Decisions, ScoringCheck, Share, Within
 from backend.features.crawl.judge_advice import JudgeAdvice
 from backend.features.crawl.niche import NicheRow
+from backend.features.crawl.reason_words import shown_reasons
 from backend.features.crawl.review import MAX_PAGE_SIZE, PAGE_SIZE, QueueFacets, QueueFilter
 
 
@@ -48,7 +49,8 @@ class CandidateCard(BaseModel):
 
     Причины приходят строками, а не кодами: человек читает их глазами,
     и превращать «ссылки с 20 страниц донора +3» в ключ ради
-    аккуратности значит переводить их обратно на экране.
+    аккуратности значит переводить их обратно на экране. Длинное пояснение
+    причины — не в строке, а в `reason_notes` по её словам (`crawl/reason_words.py`).
     """
 
     id: int
@@ -57,6 +59,8 @@ class CandidateCard(BaseModel):
     points: int
     verdict: Verdict
     reasons: list[str] = Field(default_factory=list)
+    #: Пояснение причины по её словам в `reasons`: «зона .org» — почему решает человек.
+    reason_notes: dict[str, str] = Field(default_factory=dict)
     links: int
     pages: int
     #: Страница и анкор, под которые будет написано письмо.
@@ -80,13 +84,15 @@ class CandidateCard(BaseModel):
         published: date | None = None,
         judge: JudgeAdvice | None = None,
     ) -> CandidateCard:
+        shown = shown_reasons(row.reasons)
         return cls(
             id=row.id,
             donor_host=row.donor_host,
             target_root=row.target_root,
             points=row.points,
             verdict=row.verdict,
-            reasons=[str(reason) for reason in row.reasons or []],
+            reasons=shown.words,
+            reason_notes=shown.notes,
             links=row.links,
             pages=row.pages,
             best_page_url=row.best_page_url,

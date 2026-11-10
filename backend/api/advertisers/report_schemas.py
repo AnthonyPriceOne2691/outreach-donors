@@ -24,6 +24,7 @@ from backend.features.crawl.advertiser_list import (
 )
 from backend.features.crawl.findings import Findings
 from backend.features.crawl.offer_state import OfferState
+from backend.features.crawl.reason_words import shown_reasons
 from backend.features.crawl.strata import Strata, Stratum
 
 
@@ -81,6 +82,8 @@ class AdvertiserCard(BaseModel):
     points: int
     #: За что балл — причины скоринга словами: «rel=sponsored +5».
     reasons: list[str]
+    #: Пояснение причины по её словам в `reasons` — как у очереди проверки (`crawl/reason_words.py`).
+    reason_notes: dict[str, str]
     #: Балл той же ссылки после пересчёта весов, если он не тот, с которым перевели.
     rescored: int | None
     donors: int
@@ -90,6 +93,7 @@ class AdvertiserCard(BaseModel):
 
     @classmethod
     def of(cls, row: AdvertiserRow) -> AdvertiserCard:
+        shown = shown_reasons(row.reasons)
         return cls(
             id=row.id,
             host=row.host,
@@ -99,7 +103,8 @@ class AdvertiserCard(BaseModel):
             page_url=row.page_url,
             anchor=row.anchor,
             points=row.points,
-            reasons=row.reasons,
+            reasons=shown.words,
+            reason_notes=shown.notes,
             rescored=row.rescored,
             donors=row.donors,
             contact_status=row.contact_status,
