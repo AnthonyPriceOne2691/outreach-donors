@@ -284,7 +284,7 @@ class TestApi:
         body = (await client.get("/api/advertisers/list", headers=bearer(token))).json()
         exported = (await client.get("/api/advertisers/list/export", headers=bearer(token))).content
 
-        assert body["rows"][0]["reasons"] == ["rel=sponsored +5", "зона .org"]
+        assert body["rows"][0]["reasons"] == ["rel=sponsored\u00a0+5", "зона .org"]
         assert body["rows"][0]["reason_notes"] == {"зона .org": NONPROFIT_NOTE}
         lines = list(csv.reader(io.StringIO(exported.decode("utf-8-sig")), delimiter=";"))
         assert lines[1][6] == f"rel=sponsored +5; {nonprofit_reason('.org')}"

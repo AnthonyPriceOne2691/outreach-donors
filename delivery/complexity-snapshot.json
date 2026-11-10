@@ -1642,9 +1642,9 @@
       "worst": "__init__:160"
     },
     "backend/features/crawl/reason_words.py": {
-      "lines": 53,
+      "lines": 73,
       "complexity": 4,
-      "worst": "shown_reasons:40"
+      "worst": "shown_reasons:60"
     },
     "backend/features/crawl/render.py": {
       "lines": 153,
@@ -2357,7 +2357,7 @@
       "worst": "pause_once:80"
     },
     "backend/features/outreach/capacity.py": {
-      "lines": 421,
+      "lines": 436,
       "complexity": 7,
       "worst": "span_of:266"
     },
@@ -4077,7 +4077,7 @@
       "worst": "open_text:29"
     },
     "scripts/ui_screens_stage2.py": {
-      "lines": 167,
+      "lines": 169,
       "complexity": 1,
       "worst": "stage2_screens:31"
     }

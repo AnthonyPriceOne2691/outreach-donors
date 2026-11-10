@@ -192,7 +192,7 @@ class TestSeeing:
         row = body["rows"][0]
         assert row["target_root"] == "advertiser.example"
         assert row["points"] == 3
-        assert "коммерческий анкор под nofollow +2" in row["reasons"]
+        assert "коммерческий анкор под nofollow\u00a0+2" in row["reasons"]
         assert row["reason_notes"] == {}
 
     async def test_the_zone_reason_is_short_and_its_why_is_a_note(
@@ -210,7 +210,7 @@ class TestSeeing:
         response = await client.get("/api/advertisers", headers=bearer(admin_token))
 
         row = response.json()["rows"][0]
-        assert row["reasons"] == ["rel=sponsored +5", "зона .org"]
+        assert row["reasons"] == ["rel=sponsored\u00a0+5", "зона .org"]
         assert row["reason_notes"] == {"зона .org": NONPROFIT_NOTE}
 
     async def test_letter_gets_the_page_and_the_anchor(
