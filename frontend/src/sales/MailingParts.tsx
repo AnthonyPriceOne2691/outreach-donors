@@ -101,16 +101,17 @@ interface Row {
   total: boolean;
 }
 
+/** Строки гипотез и итог; при одной гипотезе итога нет — он повторил бы её строку теми же
+ *  числами (разведка экранов 10.11.2026: «Пилот Основная» и «Все гипотезы» — одно и то же). */
 function rowsOf(view: SalesMailingView): Row[] {
-  return [
-    ...view.rows.map((row) => ({
-      key: String(row.hypothesis_id),
-      name: row.name,
-      parts: row.parts,
-      total: false,
-    })),
-    { key: 'total', name: 'Все гипотезы', parts: view.total, total: true },
-  ];
+  const rows = view.rows.map((row) => ({
+    key: String(row.hypothesis_id),
+    name: row.name,
+    parts: row.parts,
+    total: false,
+  }));
+  if (rows.length === 1) return rows;
+  return [...rows, { key: 'total', name: 'Все гипотезы', parts: view.total, total: true }];
 }
 
 function whose(row: Row): string {

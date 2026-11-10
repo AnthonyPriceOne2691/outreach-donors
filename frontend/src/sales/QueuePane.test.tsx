@@ -319,9 +319,22 @@ describe('очередь писем продаж', () => {
     );
 
     expect(screen.queryByRole('button', { name: /Отправить очередь/ })).not.toBeInTheDocument();
-    expect(screen.getByText(BATCH_OFF)).toBeInTheDocument();
+    // Голова слов сервера — строкой; как слать вручную и какая настройка — в «i» (разведка 10.11).
+    expect(
+      screen.getByText('Пачкой письма продаж не уходят, пока включена автоотправка.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(BATCH_OFF)).not.toBeInTheDocument();
+    await userEvent.setup().hover(screen.getByRole('button', { name: 'Почему пачки нет' }));
+    expect(await screen.findByText(BATCH_OFF)).toBeInTheDocument();
     // Слова о пачке «берёт очередь целиком» — о кнопке, которой нет: их тоже нет.
     expect(screen.queryByText(/Пачка берёт очередь продаж целиком/)).not.toBeInTheDocument();
+  });
+
+  it('другие гипотезы ничего не ждут — плитки «всех гипотез» нет: число было бы дважды', async () => {
+    await openQueue({}, { ...READY, queued: 7, stage_queued: 7 });
+
+    expect(screen.getByText('Писем гипотезы в очереди')).toBeInTheDocument();
+    expect(screen.queryByText('В очереди продаж — всех гипотез')).not.toBeInTheDocument();
   });
 
   it('автоотправка выключена — кнопка пачки как была, строки вместо неё нет', async () => {

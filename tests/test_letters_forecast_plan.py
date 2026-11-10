@@ -279,8 +279,8 @@ def test_a_queue_that_fits_today_goes_today_with_hours_by_pace() -> None:
 
     assert (eta.day, eta.sending_days, eta.hours) == (NOW.date(), 1, 0.8)
     assert eta.words == (
-        "последнее письмо очереди уйдёт ср 21.10, дней отправки: 1, ≈ через 0.8 ч: "
-        "автоотправка, письмо с ящика раз в 15 мин (±50%), окно — по часам Europe/Berlin"
+        "последнее письмо очереди уйдёт ср 21.10, дней отправки: 1, ≈ через 0,8\u00a0ч: "
+        "автоотправка, пауза 8–22\u00a0мин между письмами ящика, окно — по часам Europe/Berlin"
     )
 
 

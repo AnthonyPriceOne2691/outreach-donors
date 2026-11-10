@@ -49,7 +49,7 @@ import { DataTable } from '../components/DataTable';
 import { InfoHint } from '../components/InfoHint';
 import { formatNumber } from '../format';
 import { Cards } from './MailingBlock';
-import { dayLabel, PAST_DAYS, PLAN_DAYS } from './mailingData';
+import { dayLabel, PAST_DAYS, PLAN_DAYS, reasonHead } from './mailingData';
 import type { ForecastDay, ForecastToday, MailingForecastView } from './mailingTypes';
 
 const PLAN_TITLE = `План на ${PLAN_DAYS} дней`;
@@ -158,15 +158,6 @@ function DayCell({ day, today, inRow = false }: { day: string; today: boolean; i
       ) : null}
     </Table.Td>
   );
-}
-
-/** Где причина делится: голова — до первого из них. */
-const REASON_CUTS = [': ', ' — ', '; '];
-
-/** Голова причины — слова сервера до первого «: », « — » или «; »; без них — причина целиком. */
-export function reasonHead(words: string): string {
-  const cuts = REASON_CUTS.map((cut) => words.indexOf(cut)).filter((at) => at > 0);
-  return cuts.length === 0 ? words : words.slice(0, Math.min(...cuts));
 }
 
 /** Строкой — по ячейке: в таблице по центру, в карточке телефона — с левого края. */

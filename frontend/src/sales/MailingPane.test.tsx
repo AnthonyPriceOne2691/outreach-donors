@@ -166,8 +166,13 @@ describe('рассылка: режим и срок очереди', () => {
     expect(eta.getByText('Дней отправки').nextElementSibling).toHaveTextContent('3');
     expect(eta.getByText('Часов').nextElementSibling).toHaveTextContent('≈ 54,3 ч');
     expect(eta.getByText('В очереди').nextElementSibling).toHaveTextContent('96');
-    expect(eta.getByText(AUTO_WORDS)).toBeInTheDocument();
     expect(eta.queryByText(/автоотправка стоит/)).toBeNull();
+    // Плитки дня и часов сказали срок числами — слова сервера в «i» заголовка (разведка 10.11).
+    expect(eta.queryByText(plain(AUTO_WORDS))).toBeNull();
+    await userEvent
+      .setup()
+      .hover(eta.getByRole('button', { name: 'Как считается «Когда уйдёт очередь»' }));
+    expect(await screen.findByText(plain(AUTO_WORDS))).toBeInTheDocument();
   });
 
   it('автоотправка стоит — плашкой у срока словами сервера; срок тот же, при условии, что остановку снимут', async () => {
@@ -181,7 +186,7 @@ describe('рассылка: режим и срок очереди', () => {
     ).toBeInTheDocument();
     expect(eta.getByText('Уйдёт к').nextElementSibling).toHaveTextContent('ср 04.11');
     expect(eta.getByText('Часов').nextElementSibling).toHaveTextContent('≈ 54,3 ч');
-    expect(eta.getByText(AUTO_WORDS)).toBeInTheDocument();
+    expect(eta.queryByText(plain(AUTO_WORDS))).toBeNull();
   });
 
   it('письма, которые не уйдут, пока их не поправят, — плашкой с причинами и числами', async () => {
@@ -381,6 +386,22 @@ describe('рассылка: адреса по частям', () => {
         name: 'Почему сборка не напишет: «Dental clinics — Toronto» — 8',
       }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('рассылка: одна гипотеза — без итога', () => {
+  it('итог при одной гипотезе не повторяет её строку теми же числами', async () => {
+    await openMailing({
+      [MAILING_ROUTE]: { body: { ...MAILING, rows: MAILING.rows.slice(0, 1) } },
+    });
+    const parts = region('Адреса по гипотезам');
+
+    const names = within(parts)
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => row.querySelector('td')?.textContent);
+    expect(names).toEqual(['Кофейни Лиссабона']);
+    expect(within(parts).queryByText('Все гипотезы')).toBeNull();
   });
 });
 

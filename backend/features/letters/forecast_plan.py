@@ -307,11 +307,16 @@ def _how(when: str, hours: float | None, clock: Clock) -> str:
         )
     if hours is None:
         return f"{when}; часов не посчитать: пояс получателей очереди неизвестен"
-    gap = round(clock.pace.gap / timedelta(minutes=1))
+    # Часы — с запятой, как на плитке «Часов»; темп — паузой между письмами ящика, как в строке
+    # режима продаж (`sales.auto_lines.pace`): «раз в 15 мин (±50%)» рядом с «пауза 8–22 мин» читалось
+    # двумя разными темпами (разведка экранов 10.11.2026).
+    gap = clock.pace.gap / timedelta(minutes=1)
+    shortest, longest = round(gap * (1 - clock.pace.spread)), round(gap * (1 + clock.pace.spread))
     zone = "" if clock.zone is None else f", окно — по часам {clock.zone.key}"
+    said = f"{hours:.1f}".replace(".", ",")
     return (
-        f"{when}, ≈ через {hours} ч: автоотправка, письмо с ящика раз в {gap} мин "
-        f"(±{clock.pace.spread:.0%}){zone}"
+        f"{when}, ≈ через {said}\u00a0ч: автоотправка, пауза {shortest}–{longest}\u00a0мин между "
+        f"письмами ящика{zone}"
     )
 
 

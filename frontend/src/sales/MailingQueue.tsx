@@ -17,9 +17,14 @@
  * **Автоотправка стоит** (`paused`: исход письма неизвестен, предохранитель, ни одно письмо окна не
  * уйдёт как есть) — янтарной плашкой у срока, словами сервера: срок и план посчитаны так, будто
  * остановку снимут, и это сказано рядом с ними, а не только в строке режима выше.
+ *
+ * **Слова срока — в «i», когда плитки уже сказали их числами** (разведка экранов 10.11.2026: строка
+ * повторяла день, дни отправки и часы плиток). Есть плитки дня и часов — слова сервера уходят в «i»
+ * заголовка блока, к «как считается». Нет — слова на виду, как были: вручную они говорят, при каком
+ * условии срок верен, без пояса — почему нет часов, без срока — почему очередь не уходит.
  */
 
-import { Alert, List, SimpleGrid, Text } from '@mantine/core';
+import { Alert, List, SimpleGrid, Stack, Text } from '@mantine/core';
 import type { UseQueryResult } from '@tanstack/react-query';
 
 import { Metric } from '../components/Metric';
@@ -106,11 +111,27 @@ function Stuck({ queued, stuck }: { queued: number; stuck: ForecastStuck | null 
   );
 }
 
+/** Плитки дня и часов уже сказали срок числами — слова сервера только поясняют, как он посчитан. */
+function saidByTiles(eta: ForecastEta): boolean {
+  return eta.day !== null && eta.hours !== null;
+}
+
+/** «Как считается» — и слова срока сервера, когда плитки уже сказали его числами. */
+function etaHint(view: MailingForecastView | undefined) {
+  if (view === undefined || !saidByTiles(view.queue_eta)) return ETA_HINT;
+  return (
+    <Stack gap={6}>
+      <span>{ETA_HINT}</span>
+      <span>{view.queue_eta.words}</span>
+    </Stack>
+  );
+}
+
 /** Когда уйдёт очередь: плитки, застрявшие письма и слова срока сервера. */
 export function MailingQueue({ query }: { query: UseQueryResult<MailingForecastView> }) {
   const view = query.data;
   return (
-    <Block title="Когда уйдёт очередь" hint={ETA_HINT} className="mailingEta">
+    <Block title="Когда уйдёт очередь" hint={etaHint(view)} className="mailingEta">
       {view === undefined ? (
         <NoAnswer
           query={query}
@@ -123,9 +144,11 @@ export function MailingQueue({ query }: { query: UseQueryResult<MailingForecastV
           <EtaTiles queued={view.queued_first} eta={view.queue_eta} />
           <Paused words={view.paused} />
           <Stuck queued={view.queued_first} stuck={view.queued_stuck} />
-          <Text size="sm" px="md" className="mailingEtaWords">
-            {view.queue_eta.words}
-          </Text>
+          {saidByTiles(view.queue_eta) ? null : (
+            <Text size="sm" px="md" className="mailingEtaWords">
+              {view.queue_eta.words}
+            </Text>
+          )}
         </>
       )}
     </Block>

@@ -17,6 +17,8 @@
 
 from typing import Any
 
+from ui_screens_sales_hints import hint_probe
+
 #: Переключатель вкладок — по своей подписи.
 SEGMENT = ".mantine-SegmentedControl-label"
 #: Строка донора в приёмке: первая строка таблицы — «Все доноры вместе».
@@ -40,7 +42,8 @@ def stage2_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("список доменов", "table tbody td[data-label='Доменов'] button", norm),
                 ("доля страниц", "table tbody td[data-label='% страниц']", norm),
                 ("режим очереди", ".mailingMode p", norm),
-                ("слова срока", ".mailingEtaWords", norm),
+                # Срок плитками дня и часов — слова сервера в «i» заголовка, а не строкой (10.11.2026).
+                hint_probe("слова срока", "Как считается «Когда уйдёт очередь»", norm),
                 ("пункт меню", "nav a", norm),
             ],
         },

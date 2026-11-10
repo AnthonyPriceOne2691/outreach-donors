@@ -43,6 +43,11 @@
  * **Когда уйдёт очередь продаж — одной строкой под числами** (`QueueEtaLine`): день из прогноза
  * рассылки и ссылка на вкладку «Рассылка», где план по дням, факт и ящики. Тот же ответ и тот же
  * ключ кэша, что у вкладки: срок на двух вкладках — одно число.
+ *
+ * **Одно число — один раз** (разведка экранов 10.11.2026): «В очереди продаж — всех гипотез» не
+ * плиткой, когда оно равно очереди гипотезы — другие гипотезы ничего не ждут, и вторая плитка
+ * повторила бы первую. Пачки нет, пока включена автоотправка, — строкой: головой слов сервера, а
+ * целиком (как слать вручную и какая настройка) — в «i» рядом; темп уже сказан строкой режима.
  */
 
 import {
@@ -84,6 +89,7 @@ import { BuildLetter } from './BuildLetter';
 import { salesTabLink } from './leadFilters';
 import { QueueEtaLine } from './QueueEtaLine';
 import { nothingToSend, QueueOutcome } from './QueueOutcome';
+import { reasonHead } from './mailingData';
 import { buildJobKey, buildLetters, QUEUE_QUERY_KEY, queueLine, useSalesQueue } from './queueData';
 import { useMayWrite, WriteRight } from './WriteRight';
 
@@ -326,15 +332,7 @@ function HypothesisQueue({ hypothesis }: { hypothesis: number }) {
     <Stack gap="md">
       <Connection view={view} />
       <Chains chains={view.chains} />
-      <SimpleGrid cols={{ base: 1, xs: 3 }} spacing="sm" px="md">
-        <Metric
-          title="Лидов без письма"
-          value={formatNumber(view.unwritten)}
-          hint={`сборка напишет ${formatNumber(view.will_write)}`}
-        />
-        <Metric title="Писем гипотезы в очереди" value={formatNumber(view.queued)} />
-        <Metric title="В очереди продаж — всех гипотез" value={formatNumber(view.stage_queued)} />
-      </SimpleGrid>
+      <QueueTiles view={view} />
       <QueueEtaLine hypothesis={hypothesis} />
       <AutoLines autosend={view.autosend} autobuild={view.autobuild} />
       <BuildQueue key={hypothesis} view={view} />
@@ -344,9 +342,7 @@ function HypothesisQueue({ hypothesis }: { hypothesis: number }) {
       {can('send') ? (
         <Stack gap={6} px="md">
           {view.batch_off !== null ? (
-            <Text size="sm" c="dimmed" className="queueBatchOff">
-              {view.batch_off}
-            </Text>
+            <BatchOff words={view.batch_off} />
           ) : (
             <>
               <Text size="sm" c="dimmed">
@@ -364,6 +360,41 @@ function HypothesisQueue({ hypothesis }: { hypothesis: number }) {
         </Stack>
       ) : null}
     </Stack>
+  );
+}
+
+/** Числа очереди плитками; «всех гипотез» — только когда в очереди ждут письма и других гипотез. */
+function QueueTiles({ view }: { view: SalesQueueView }) {
+  const others = view.stage_queued !== view.queued;
+  return (
+    <SimpleGrid cols={{ base: 1, xs: others ? 3 : 2 }} spacing="sm" px="md">
+      <Metric
+        title="Лидов без письма"
+        value={formatNumber(view.unwritten)}
+        hint={`сборка напишет ${formatNumber(view.will_write)}`}
+      />
+      <Metric title="Писем гипотезы в очереди" value={formatNumber(view.queued)} />
+      {others ? (
+        <Metric title="В очереди продаж — всех гипотез" value={formatNumber(view.stage_queued)} />
+      ) : null}
+    </SimpleGrid>
+  );
+}
+
+/** Пачки нет, пока включена автоотправка: голова слов сервера — строкой, целиком — в «i». */
+function BatchOff({ words }: { words: string }) {
+  const head = reasonHead(words);
+  return (
+    <Group gap={4} wrap="nowrap" align="flex-start">
+      <Text size="sm" c="dimmed" className="queueBatchOff">
+        {head === words ? words : `${head}.`}
+      </Text>
+      {head === words ? null : (
+        <InfoHint name="Почему пачки нет" width={360}>
+          {words}
+        </InfoHint>
+      )}
+    </Group>
   );
 }
 

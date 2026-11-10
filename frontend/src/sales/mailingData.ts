@@ -75,6 +75,16 @@ export function updatedAt(...answers: { data: unknown; dataUpdatedAt: number }[]
 const tenths = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
 
 /** Часы до последнего письма очереди — с десятой, как их считает сервер: «≈ 26,5 ч». */
+/** Где слова сервера делятся на голову и подробности: голова — до первого из них. */
+const HEAD_CUTS = [': ', ' — ', '; '];
+
+/** Голова слов сервера — до первого «: », « — » или «; »; без них — слова целиком. Экран их не
+ *  сочиняет, а делит: голова — на виду, целиком — в «i» рядом (причина дня плана, строка пачки). */
+export function reasonHead(words: string): string {
+  const cuts = HEAD_CUTS.map((cut) => words.indexOf(cut)).filter((at) => at > 0);
+  return cuts.length === 0 ? words : words.slice(0, Math.min(...cuts));
+}
+
 export function hoursLabel(hours: number): string {
   return `≈ ${tenths.format(hours)} ч`;
 }
