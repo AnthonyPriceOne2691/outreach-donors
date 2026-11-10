@@ -28,7 +28,7 @@ import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import { bulkCount, bulkTiming, where } from './BulkCrawl';
 import { pickable } from './CrawlDonorsTable';
-import { closedShare, crawlState, failureShare } from './CrawlTable';
+import { closedShare, crawlState, deviationLines, failureShare } from './CrawlTable';
 import { crawlEta, readCrawlFilters, writeCrawlFilters } from './crawlFilters';
 import { heldWords } from './crawlWords';
 import { bulkSummary, launchSummary } from './crawlQueries';
@@ -437,6 +437,19 @@ describe('вкладка «Обход доноров»', () => {
     expect(within(table).queryByText(/защита от ботов/)).toBeNull();
   });
 
+  it('значок обхода — в блоке одной ширины у каждой строки, с кнопками и без (разведка 10.11.2026)', async () => {
+    open();
+
+    const table = await screen.findByRole('table', { name: 'Доноры для обхода' });
+    await within(table).findByText('закрылся от нас');
+    const cells = table.querySelectorAll<HTMLElement>("td[data-label='Последний обход']");
+    expect(cells).toHaveLength(ROWS.length);
+    // Не обходили, идёт, закрылся с «Переобойти» — блок один: значок, «i» и кнопки соседних
+    // строк встают на одни места, а не лесенкой от ширины значка.
+    for (const cell of cells) expect(cell.firstElementChild).toHaveClass('crawlSlot');
+    expect(within(table).getByText('закрылся от нас').closest('.crawlBadge')).not.toBeNull();
+  });
+
   it('цена — с валютой; ручная и протухшая — с пометкой', async () => {
     open();
 
@@ -685,6 +698,8 @@ describe('доля закрытых страниц у строки обхода'
     [{ blocked_share: 0.083, requests: 48 }, 'закрыто 8,3% из 48 запросов'],
     [{ blocked_share: 1, requests: 21 }, 'закрыто 100% из 21 запроса'],
     [{ blocked_share: 0, requests: 1000 }, 'закрыто 0% из 1\u00a0000 запросов'],
+    // Больше нуля — не «0%»: одна закрытая страница из 25 000.
+    [{ blocked_share: 0.00004, requests: 25_000 }, 'закрыто 0,004% из 25\u00a0000 запросов'],
   ])('%o → %s', (overrides, said) => {
     expect(closedShare(crawl(overrides))).toBe(said);
   });
@@ -701,6 +716,29 @@ describe('доля закрытых страниц у строки обхода'
     [{ failure_share: 0.1, window: 21 }, '403/429/5xx/таймаут — 10% за последние 21 запроса'],
   ])('мера здоровья ТЗ словами ТЗ: %o → %s', (overrides, said) => {
     expect(failureShare(crawl(overrides))).toBe(said);
+  });
+});
+
+describe('отклонения обхода на виду — только больше нуля и коротко («Приёмка», 10.11.2026)', () => {
+  it.each([
+    // Идущий: долей ещё нет.
+    [{}, []],
+    [{ blocked_share: 0, requests: 1000, failure_share: 0, window: 500 }, []],
+    [
+      { blocked_share: 0.125, requests: 480, failure_share: 0.083, window: 480 },
+      ['закрыто 12,5%', '403/429/5xx/таймаут — 8,3%'],
+    ],
+    [
+      { blocked_share: 0, requests: 600, failure_share: 0.006, window: 500 },
+      ['403/429/5xx/таймаут — 0,6%'],
+    ],
+    [{ blocked_share: 0.00004, requests: 25_000 }, ['закрыто 0,004%']],
+  ])('%o → %o', (overrides, said) => {
+    expect(deviationLines(crawl(overrides))).toEqual(said);
+  });
+
+  it('обхода не было — строк нет', () => {
+    expect(deviationLines(null)).toEqual([]);
   });
 });
 
