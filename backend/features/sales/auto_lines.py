@@ -16,7 +16,9 @@
 подсказки). Короткая (`short`) стоит на экране у значка: что сейчас и сколько писем в окне, хватает
 ли очереди и кого соберёт. Целиком (`line`) — в «i» рядом: темп прохода, кому уходят письма,
 последняя автосборка. То, по чему действуют сразу, — стоит, не включается, не шлёт, не собирается —
-короткая говорит теми же словами, что целая: прятать причину остановки под значок нельзя.
+короткая называет головой причины (`reason_head`: «стоит: сегодня писать некому»): причина на виду,
+а подробности — какие ящики, какой домен, что делать — в «i». Причина целиком в короткой стояла
+на телефоне десятью строками у значка (стенд 10.11.2026).
 """
 
 from __future__ import annotations
@@ -72,6 +74,9 @@ CLOSED = (
     "ни одно письмо в окне получателя не уйдёт — их лидов сняли (стоп-лист продаж, отказ) или "
     "лиды в «кому не пишем»; причина каждого — в журнале разбора"
 )
+#: Где кончается голова причины — то же правило, что у экрана «Рассылки» для причин дня плана
+#: (`reasonHead`).
+HEAD_CUTS = (": ", " — ", "; ")
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,8 +85,20 @@ class AutoLine:
 
     enabled: bool
     line: str
-    #: Что сейчас — строкой у значка; причина остановки в ней та же, что в `line`.
+    #: Что сейчас — строкой у значка; причина остановки — головой (`reason_head`), целиком — в `line`.
     short: str
+
+
+def reason_head(words: str) -> str:
+    """Голова причины — до первого «: », « — » или «; », со строчной буквы: что случилось, без
+    подробностей. Слова без разрыва — целиком."""
+    found = [at for at in (words.find(cut) for cut in HEAD_CUTS) if at > 0]
+    return _lower(words[: min(found)] if found else words)
+
+
+def _lower(words: str) -> str:
+    """Со строчной буквы — после «стоит: » или «Включена, »."""
+    return words[:1].lower() + words[1:]
 
 
 def letters(count: int) -> str:
@@ -111,7 +128,7 @@ async def autosend_line(session: AsyncSession, now: datetime) -> AutoLine:
         return AutoLine(
             enabled=False,
             line=f"Автоотправка не включается: {guarded}.",
-            short=f"Не включается: {guarded}.",
+            short=f"Не включается: {reason_head(guarded)}.",
         )
     seen = await autosend.facts(session, now)
     broken = seen.broken()
@@ -119,26 +136,27 @@ async def autosend_line(session: AsyncSession, now: datetime) -> AutoLine:
         return AutoLine(
             enabled=True,
             line=f"{SEND_STOPPED}: {broken[1]}.",
-            short=f"Включена, а не шлёт ничего: {broken[1]}.",
+            short=f"Включена, а не шлёт ничего: {reason_head(broken[1])}.",
         )
     stop = seen.stop()
     window = letters(len(seen.waiting.ids))
     if stop is not None:
-        return _sending(window, f"Стоит: {stop[1]}")
+        return _sending(window, f"Стоит: {stop[1]}", f"стоит: {reason_head(stop[1])}")
     stands = await none_goes(session, seen)
     if stands is not None:
-        return _sending(window, f"Стоит: {stands}")
-    return _sending(window, await _going(session, seen, now))
+        return _sending(window, f"Стоит: {stands}", f"стоит: {reason_head(stands)}")
+    going = await _going(session, seen, now)
+    return _sending(window, going, _lower(going))
 
 
-def _sending(window: str, state: str) -> AutoLine:
-    """Включена и решает проход: целиком — кому уходят письма и темп; коротко — что сейчас и
-    сколько писем в окне получателя."""
+def _sending(window: str, state: str, now_short: str) -> AutoLine:
+    """Включена и решает проход: целиком — кому уходят письма, темп и что сейчас; коротко — что
+    сейчас (`now_short`) и сколько писем в окне получателя."""
     head = f"{SEND_ON}: {pace()}. В окне получателя сейчас {window}"
     return AutoLine(
         enabled=True,
         line=f"{head}. {state}.",
-        short=f"Включена, {state[:1].lower()}{state[1:]}; в окне получателя {window}.",
+        short=f"Включена, {now_short}; в окне получателя {window}.",
     )
 
 
@@ -207,7 +225,10 @@ async def autobuild_line(session: AsyncSession, jobs: Queue, now: datetime) -> A
         short = f"{ready}; ближайший проход соберёт «{found.name}», до {letters(found.limit)}"
     else:
         parts.append(f"не хватает {letters(found.short)}, но не собирается: {found.why}")
-        short = f"{ready}; не хватает {letters(found.short)}, но не собирается: {found.why}"
+        short = (
+            f"{ready}; не хватает {letters(found.short)}, но не собирается: "
+            f"{reason_head(str(found.why))}"
+        )
     last = await _last(session, jobs)
     if last is not None:
         parts.append(last)
