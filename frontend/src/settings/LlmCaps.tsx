@@ -11,6 +11,11 @@
  *
  * **«Без потолка» — заметно**: расход модели тогда не держит ничто, и строка говорит это жёлтой
  * меткой; лимиты разделов запомнены.
+ *
+ * **Разделы — под «Подробнее», «как в настройках сервера» — один раз** (разведка 10.11.2026:
+ * оговорка стояла трижды). Оговорка — у строки общего, как решено 29.10.2026: она о всём блоке,
+ * и в строке раздела и в подвале её больше нет. Раздел у предела раскрывает подробности сразу;
+ * метка «без потолка» — на виду, над раскрытием.
  */
 
 import { Badge, Stack, Text } from '@mantine/core';
@@ -22,7 +27,7 @@ import { useSession } from '../auth/AuthProvider';
 import { Meter } from '../components/Meter';
 import { formatNumber } from '../format';
 import { changedBy } from './CapDialog';
-import { LimitCard, LimitLine } from './LimitCard';
+import { LimitCard, LimitLine, nearCap } from './LimitCard';
 import { LlmCapsModal, tokensWords } from './LlmCapsModal';
 
 /** Общий — словами строки: «50 000 000 токенов в сутки» или «без потолка». */
@@ -54,8 +59,7 @@ function limitLine(part: LlmPartCard, caps: Caps): string {
     return `${part.title} — своего потолка нет, держит общий`;
   }
   const share = part.share === null ? '' : ` ${part.share}% ·`;
-  const from = caps.scheme === 'env' ? ' — как в настройках сервера' : '';
-  return `${part.title} — лимит${share} ${formatNumber(part.limit)}${from}`;
+  return `${part.title} — лимит${share} ${formatNumber(part.limit)}`;
 }
 
 function PartRow({ part, caps }: { part: LlmPartCard; caps: Caps }) {
@@ -102,10 +106,21 @@ export function LlmCaps({ caps }: { caps: Caps }) {
         }
         note={free ?? generalLine(caps)}
         when={`Сброс ${caps.reset_in}`}
+        notice={
+          caps.general === null ? (
+            <Badge
+              color="yellow"
+              variant="light"
+              className="limitBadge"
+              style={{ alignSelf: 'flex-start' }}
+            >
+              без потолка — расход ничем не ограничен
+            </Badge>
+          ) : undefined
+        }
+        unfolded={caps.parts.some((part) => nearCap(part.spent, part.limit))}
         footer={
-          last === undefined
-            ? 'Потолки модели на экране не меняли — как в настройках сервера'
-            : `Изменены: ${changedBy(last)}`
+          last === undefined ? 'Потолки модели на экране не меняли' : `Изменены: ${changedBy(last)}`
         }
         action={{
           label: 'Изменить потолки',
@@ -114,11 +129,6 @@ export function LlmCaps({ caps }: { caps: Caps }) {
           onClick: () => setEditing(true),
         }}
       >
-        {caps.general === null && (
-          <Badge color="yellow" variant="light" style={{ alignSelf: 'flex-start' }}>
-            без потолка — расход ничем не ограничен
-          </Badge>
-        )}
         <Stack gap="xs">
           {caps.parts.map((part) => (
             <PartRow key={part.part} part={part} caps={caps} />

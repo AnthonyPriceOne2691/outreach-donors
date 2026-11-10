@@ -3,7 +3,8 @@
  * спросили, цикл от обнуления ключа, потрачено нами и выбрано на ключе всего, осталось и доля —
  * числами сервера; наш кап — «весь лимит ключа» или «не больше N», выше ключа — действует ключ.
  * Кто и когда менял — строкой, «Изменить кап» — только с правом «править пороги». Поле «не
- * больше N» проверяется границами ключа до нажатия; ключ неизвестен — так и сказано.
+ * больше N» проверяется границами ключа до нажатия; ключ неизвестен — так и сказано. Цикл,
+ * потрачено нами и кто менял — под «Подробнее» (разведка 10.11.2026), какой лимит действует — на виду.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -13,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 import type { Me } from '../api/types';
 import { formatDateTime } from '../format';
 import { ADMIN } from '../test/fixtures';
-import { AHREFS_KEY, openArticles, openUsage, SPENDING } from '../test/usageFixtures';
+import { AHREFS_KEY, openArticles, openDetails, openUsage, SPENDING } from '../test/usageFixtures';
 
 const LAST = {
   id: 2,
@@ -95,16 +96,43 @@ describe('ключ и кап на «Расходе»', () => {
     // Крупно — сколько осталось, из скольких; своего лимита ключа отдельной строкой не повторяем.
     expect(card).toHaveTextContent(spaced('Осталось35 000из 50 000 юнитов'));
     expect(screen.queryByText(/^Ключ Ahrefs:/)).not.toBeInTheDocument();
-    expect(screen.getByText('Цикл ключа: с 21 октября')).toBeInTheDocument();
     expect(within(card).getByText(/^Сброс 21 ноября · проверено/)).toBeInTheDocument();
+    expect(within(card).getByText('Выбрано 30%, упирается в лимит ключа')).toBeInTheDocument();
+    expect(screen.getByText('Наш кап: весь лимит ключа')).toBeInTheDocument();
+
+    await openDetails('Ahrefs');
+
+    expect(screen.getByText('Цикл ключа: с 21 октября')).toBeInTheDocument();
     expect(screen.getByText(/^Потрачено нами за цикл/)).toHaveTextContent(
       spaced(
         'Потрачено нами за цикл: 6 416 · выбрано на ключе всего 15 000 — вместе с соседней системой на общем ключе',
       ),
     );
-    expect(within(card).getByText('Выбрано 30%, упирается в лимит ключа')).toBeInTheDocument();
-    expect(screen.getByText('Наш кап: весь лимит ключа')).toBeInTheDocument();
-    expect(screen.getByText('Кап на экране ещё не меняли — весь лимит ключа')).toBeInTheDocument();
+    // Что задано, называет подвал — строка смен его не повторяет.
+    expect(screen.getByText('Кап на экране ещё не меняли')).toBeInTheDocument();
+    expect(within(card).getAllByText(/весь лимит ключа/)).toHaveLength(1);
+  });
+
+  it('цикл, расход и смены — под «Подробнее»: свёрнутые не отрисованы, кнопка говорит, открыто ли', async () => {
+    await openUsage();
+    const card = screen.getByRole('group', { name: 'Ahrefs' });
+    const more = within(card).getByRole('button', { name: 'Подробнее' });
+
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    expect(within(card).queryByText(/^Цикл ключа/)).not.toBeInTheDocument();
+    expect(within(card).queryByText(/^Потрачено нами за цикл/)).not.toBeInTheDocument();
+
+    await userEvent.click(more);
+
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(more).toHaveTextContent('Свернуть');
+    const body = document.getElementById(more.getAttribute('aria-controls') ?? '');
+    expect(body).toHaveTextContent('Цикл ключа: с 21 октября');
+
+    await userEvent.click(more);
+
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    expect(within(card).queryByText(/^Цикл ключа/)).not.toBeInTheDocument();
   });
 
   it('статьи — за другой период, и он назван', async () => {
@@ -121,9 +149,11 @@ describe('ключ и кап на «Расходе»', () => {
       ahrefs_key: { ...AHREFS_KEY, own_limit: false, size: 500_000, key_used: 1_000 },
     });
 
+    // Какой лимит действует — на виду: по нему решают.
     expect(screen.getByText(/^Своего лимита у ключа нет/)).toHaveTextContent(
       spaced('Своего лимита у ключа нет — действует лимит пространства, 500 000 юнитов за цикл'),
     );
+    await openDetails('Ahrefs');
     expect(screen.getByText(/^Потрачено нами за цикл/)).toHaveTextContent(
       spaced('выбрано в пространстве Ahrefs всего 120 000 — всеми его ключами'),
     );
@@ -145,12 +175,13 @@ describe('ключ и кап на «Расходе»', () => {
 
     expect(screen.getByText('Ahrefs ещё не ответил — размер ключа неизвестен')).toBeInTheDocument();
     expect(
+      screen.getByText(/Кап неизвестен, и прогоны не запустятся, пока Ahrefs не ответит/),
+    ).toBeInTheDocument();
+    await openDetails('Ahrefs');
+    expect(
       screen.getByText(
         'Цикл — календарный месяц, с 1 октября: Ahrefs не назвал даты обнуления ключа',
       ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Кап неизвестен, и прогоны не запустятся, пока Ahrefs не ответит/),
     ).toBeInTheDocument();
     expect(
       within(screen.getByRole('group', { name: 'Ahrefs' })).queryByText('Осталось'),
@@ -159,6 +190,7 @@ describe('ключ и кап на «Расходе»', () => {
 
   it('кто и когда менял — строкой, «не больше N» — числом', async () => {
     await openUsage(LIMITED);
+    await openDetails('Ahrefs');
 
     expect(
       screen.getByText(`Кап изменён: кап@team.example.test · ${formatDateTime(LAST.set_at)}`),
@@ -275,13 +307,15 @@ describe('окно «Изменить кап»', () => {
     expect(recorded.calls.find((call) => call.method === 'POST')?.body).toEqual({
       units_cap: 20_000,
     });
-    expect(
-      await screen.findByText(
-        `Кап изменён: кап@team.example.test · ${formatDateTime(LAST.set_at)}`,
-      ),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/^Наш кап: не больше/)).toHaveTextContent(
+      spaced('Наш кап: не больше 20 000 юнитов за цикл'),
+    );
     expect(
       screen.getByText(spaced('Кап — не больше 20 000 юнитов за цикл ключа')),
+    ).toBeInTheDocument();
+    await openDetails('Ahrefs');
+    expect(
+      screen.getByText(`Кап изменён: кап@team.example.test · ${formatDateTime(LAST.set_at)}`),
     ).toBeInTheDocument();
   });
 

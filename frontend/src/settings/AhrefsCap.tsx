@@ -17,6 +17,11 @@
  *
  * **Право — «править пороги»**, то же, что у порогов. Без него — только чтение и строка,
  * у кого это право: отсутствие права объясняется на месте (правило экранов).
+ *
+ * **На виду — остаток, сброс и наш кап; цикл, потрачено нами и кто менял — под «Подробнее»**
+ * (разведка 10.11.2026). Какой лимит действует, когда он не свой или неизвестен, — на виду: по
+ * нему решают. Смен на экране не было — строка подробностей так и говорит, без «весь лимит
+ * ключа»: его называет подвал.
  */
 
 import { useState } from 'react';
@@ -71,12 +76,10 @@ function chosenLine(key: AhrefsKey): string {
   return `Наш кап: не больше ${formatNumber(key.chosen)} юнитов за цикл`;
 }
 
-/** Кто и когда поставил то, что задано; смен нет — весь лимит ключа по умолчанию. */
+/** Кто и когда поставил то, что задано; смен нет — так и сказано, а что задано — в подвале. */
 function changedLine(key: AhrefsKey): string {
   const [last] = key.changes;
-  return last === undefined
-    ? 'Кап на экране ещё не меняли — весь лимит ключа'
-    : `Кап изменён: ${changedBy(last)}`;
+  return last === undefined ? 'Кап на экране ещё не меняли' : `Кап изменён: ${changedBy(last)}`;
 }
 
 /** Можно ли менять кап и кто меняет, если нельзя. Продажи ключом не пользуются (слово Anthony 06.11.2026). */
@@ -119,6 +122,7 @@ export function AhrefsCap({ ahrefsKey: key }: { ahrefsKey: AhrefsKey }) {
             : 'Кап неизвестен, и прогоны не запустятся, пока Ahrefs не ответит: тратить не от чего.'
         }
         when={`Сброс ${formatDay(key.next_reset)}${asked}`}
+        notice={size === null ? undefined : <LimitLine strong>{size}</LimitLine>}
         footer={chosenLine(key)}
         action={{
           label: 'Изменить кап',
@@ -126,7 +130,6 @@ export function AhrefsCap({ ahrefsKey: key }: { ahrefsKey: AhrefsKey }) {
           onClick: () => setEditing(true),
         }}
       >
-        {size !== null && <LimitLine strong>{size}</LimitLine>}
         <LimitLine>{cycleLine(key)}</LimitLine>
         <LimitLine>{spentLine(key)}</LimitLine>
         <LimitLine>{changedLine(key)}</LimitLine>
