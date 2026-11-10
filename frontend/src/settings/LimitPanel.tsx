@@ -13,11 +13,24 @@
  * а текущее ограничение берёт остаток. На телефоне строка — карточкой, без прокрутки вбок: короткие
  * значения в ряд, длинные — во всю ширину (`limitWide`). Откуда значение — именем настройки,
  * моноширинным мелким: «меняет администратор сервера вот этим» (правило 12.10.2026).
+ *
+ * **В ячейке ограничения — первое предложение, целиком — «i» окошком по нажатию** (разведка
+ * 10.11.2026: самая длинная простыня сервиса, до девяти строк в ячейке). Сервер пишет ограничение
+ * предложениями, итогом вперёд («Своего потолка нет: каждый прогон идёт по смете…»), и соединяет их
+ * точкой с пробелом. Первое предложение — законченная мысль: оговорка внутри него не теряется, как
+ * потерялась бы, если резать по двоеточию («Потолка нет: платные уровни не зовутся»).
+ *
+ * **Задачи — свёрнутыми группами с числом** («Продажи · 8»): строка задачи — кнопка, строки под ней
+ * — по нажатию. Задач несколько — все свёрнуты; одна — раскрыта: нажатие ради единственной группы
+ * ничего бы не прятало. До ответа — заготовка тех же строк, а не крутилка над пустым местом:
+ * таблица встаёт сразу, и ответ не сдвигает экран.
  */
 
-import { Alert, Button, Card, Loader, Stack, Table, Text } from '@mantine/core';
+import { Alert, Button, Card, Skeleton, Stack, Table, Text } from '@mantine/core';
+import { IconChevronDown } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
-import { Fragment, useState } from 'react';
+import { Fragment, useId, useState } from 'react';
+import type { ReactNode } from 'react';
 
 import { refusalOf } from '../api/client';
 import { fetchLimitPanel } from '../api/limitPanel';
@@ -46,6 +59,8 @@ const SPAN = COLUMNS.length + 1;
 const MIN_WIDTH = 1040;
 
 const NOTHING = '—';
+/** Строк заготовки до ответа: столько групп у учётки со всеми задачами, и все свёрнуты. */
+const LOADING_ROWS = 2;
 
 /** Лимит числом: деньги — деньгами, остальное — разрядами; чего нет — прочерк. */
 function amount(value: number | null, unit: string): string {
@@ -98,6 +113,32 @@ function Cost({ row }: { row: LimitRow }) {
   );
 }
 
+/** Первое предложение ограничения: предложения сервер соединяет точкой с пробелом. */
+function headOf(now: string): string {
+  return now.split('. ')[0] ?? now;
+}
+
+/** Текущее ограничение: первое предложение — в ячейке, целиком — «i» окошком по нажатию (длинное, а
+ *  на телефоне наведения нет). Значок держится рядом с последним словом (`limitNow`). */
+function Now({ row }: { row: LimitRow }) {
+  if (row.now === null) return <Text size="xs">{NOTHING}</Text>;
+  const head = headOf(row.now);
+  return (
+    <Text size="xs" className="limitNow">
+      <span>{head}</span>
+      {head !== row.now && (
+        <InfoHint
+          name={`Текущее ограничение: ${row.service}, ${row.action}`}
+          width={300}
+          interactive
+        >
+          <Text size="sm">{row.now}</Text>
+        </InfoHint>
+      )}
+    </Text>
+  );
+}
+
 /** Откуда значение: имя настройки длиннее колонки и переносится по своим частям, а не посреди
  *  слова. */
 function Source({ text }: { text: string }) {
@@ -124,12 +165,14 @@ function fieldOf(row: LimitRow): LimitField | undefined {
 
 interface RowProps {
   row: LimitRow;
+  /** Номер строки для кнопки её задачи (`aria-controls`). */
+  id: string;
   onChange: (row: LimitRow) => void;
 }
 
-function Row({ row, onChange }: RowProps) {
+function Row({ row, id, onChange }: RowProps) {
   return (
-    <Table.Tr>
+    <Table.Tr id={id}>
       <Table.Td>
         <Text size="sm" fw={500}>
           {row.unit === '$' ? row.service : `${row.service}, ${row.unit}`}
@@ -153,7 +196,7 @@ function Row({ row, onChange }: RowProps) {
         <Cost row={row} />
       </Table.Td>
       <Table.Td data-label="Текущее ограничение" className="wrapCell limitWide">
-        <Text size="xs">{row.now ?? NOTHING}</Text>
+        <Now row={row} />
       </Table.Td>
       <Table.Td data-label="Откуда значение" className="wrapCell limitWide">
         <Source text={row.source} />
@@ -176,17 +219,39 @@ function Row({ row, onChange }: RowProps) {
   );
 }
 
-/** Разделитель задачи над её строками: «Продажи · 8». */
-function TaskRow({ task, count }: { task: string; count: number }) {
+interface TaskProps {
+  task: string;
+  count: number;
+  open: boolean;
+  /** Номера строк задачи — что раскрывает кнопка. */
+  controls: string;
+  onToggle: () => void;
+}
+
+/** Строка задачи над её строками — кнопкой «Продажи · 8»: строки под ней — по нажатию. Число не
+ *  отрывается от подписи (неразрывный пробел). */
+function TaskRow({ task, count, open, controls, onToggle }: TaskProps) {
   return (
     <Table.Tr className="tierRow">
       <Table.Td colSpan={SPAN}>
-        <Text size="sm" fw={600} span>
-          {task}
-        </Text>{' '}
-        <Text size="xs" c="dimmed" span>
-          {count}
-        </Text>
+        <Button
+          variant="subtle"
+          size="compact-sm"
+          px={6}
+          className="press"
+          aria-expanded={open}
+          aria-controls={controls}
+          leftSection={
+            <IconChevronDown
+              size={16}
+              style={{ transform: open ? 'rotate(180deg)' : 'none' }}
+              aria-hidden
+            />
+          }
+          onClick={onToggle}
+        >
+          {`${task} ·\u00a0${formatNumber(count)}`}
+        </Button>
       </Table.Td>
     </Table.Tr>
   );
@@ -199,15 +264,56 @@ function byTask(rows: LimitRow[]): [string, LimitRow[]][] {
   return [...groups];
 }
 
+/** Заготовка до ответа — строки задач: такими таблица и встанет, свёрнутой. Читалке — «занято»
+ *  у тела таблицы (`stale`), сами полосы ей не нужны. */
+function LoadingRows() {
+  return Array.from({ length: LOADING_ROWS }, (_, line) => (
+    <Table.Tr key={line} className="tierRow" aria-hidden="true">
+      <Table.Td colSpan={SPAN}>
+        <Skeleton height={26} width="9rem" radius="xl" />
+      </Table.Td>
+    </Table.Tr>
+  ));
+}
+
+/** Каркас панели: карточка и таблица — одни у заготовки и у ответа. */
+function PanelTable({ loading = false, children }: { loading?: boolean; children: ReactNode }) {
+  return (
+    <Card className="glass" p="md">
+      <DataTable
+        columns={COLUMNS}
+        minWidth={MIN_WIDTH}
+        className="allCentered headsWrap limitTable"
+        cardRow
+        sticky
+        stale={loading}
+        tail={TAIL}
+        label="Панель лимитов"
+      >
+        {children}
+      </DataTable>
+    </Card>
+  );
+}
+
 export function LimitPanel() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['limit-panel'],
     queryFn: fetchLimitPanel,
   });
   const [changing, setChanging] = useState<LimitRow | null>(null);
+  // Раскрытые и свёрнутые нажатием — по задаче; не трогали — по умолчанию (`openAtFirst`).
+  const [toggled, setToggled] = useState<Record<string, boolean>>({});
+  const rowId = useId();
   const field = changing === null ? undefined : fieldOf(changing);
 
-  if (isLoading) return <Loader aria-label="Загружаем панель лимитов" m="md" />;
+  if (isLoading) {
+    return (
+      <PanelTable loading>
+        <LoadingRows />
+      </PanelTable>
+    );
+  }
   if (error) {
     return (
       <Alert color="red" title="Панель лимитов не загрузилась">
@@ -217,25 +323,34 @@ export function LimitPanel() {
   }
   if (data === undefined) return null;
 
+  const groups = byTask(data.rows);
+  const openAtFirst = groups.length === 1;
   return (
-    <Card className="glass" p="md">
-      <DataTable
-        columns={COLUMNS}
-        minWidth={MIN_WIDTH}
-        className="allCentered headsWrap limitTable"
-        cardRow
-        sticky
-        tail={TAIL}
-        label="Панель лимитов"
-      >
-        {byTask(data.rows).flatMap(([task, rows]) => [
-          <TaskRow key={task} task={task} count={rows.length} />,
-          ...rows.map((row) => <Row key={row.key} row={row} onChange={setChanging} />),
-        ])}
-      </DataTable>
+    <>
+      <PanelTable>
+        {groups.flatMap(([task, rows], group) => {
+          const open = toggled[task] ?? openAtFirst;
+          const ids = rows.map((_, index) => `${rowId}-${group}-${index}`);
+          return [
+            <TaskRow
+              key={task}
+              task={task}
+              count={rows.length}
+              open={open}
+              controls={ids.join(' ')}
+              onToggle={() => setToggled((was) => ({ ...was, [task]: !open }))}
+            />,
+            ...(open
+              ? rows.map((row, index) => (
+                  <Row key={row.key} row={row} id={ids[index] ?? row.key} onChange={setChanging} />
+                ))
+              : []),
+          ];
+        })}
+      </PanelTable>
       {changing !== null && field !== undefined && (
         <LimitChangeModal row={changing} field={field} onClose={() => setChanging(null)} />
       )}
-    </Card>
+    </>
   );
 }

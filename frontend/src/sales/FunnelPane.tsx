@@ -38,7 +38,7 @@ import type { FunnelCounts, FunnelRow, SalesFunnelView } from '../api/salesFunne
 import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
 import { formatNumber } from '../format';
-import { FixedTable, NameCell } from './FixedTable';
+import { FixedTable, NameCell, withTotal } from './FixedTable';
 import type { Column } from './FixedTable';
 import {
   funnelQuery,
@@ -201,12 +201,11 @@ function ByHypothesis({ view, stale }: { view: SalesFunnelView; stale: boolean }
         tabularNums
         stale={stale}
         label="Воронка по гипотезам"
-        rows={[
-          ...view.rows.map((row: FunnelRow) =>
-            line(String(row.hypothesis_id), row.name, row.counts),
-          ),
+        // Итог — у двух гипотез и больше: у одной он повторял бы её строку (`withTotal`).
+        rows={withTotal(
+          view.rows.map((row: FunnelRow) => line(String(row.hypothesis_id), row.name, row.counts)),
           line('total', 'Всего', view.total, true),
-        ]}
+        )}
       />
     </Stack>
   );

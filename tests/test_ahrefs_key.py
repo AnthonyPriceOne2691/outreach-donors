@@ -243,22 +243,45 @@ class TestTheWatch:
             f"Предупреждение: осталось 10{NBSP}000 юнитов из 50{NBSP}000 — выбрано 80%, "
             f"обнуление ключа {day_words(reset)}."
         )
-        assert "поднять кап — на экране «Расход»" in alarm.detail
+        # Пометка предупреждения не говорит, что сделать, — это говорят подробности. Наш расход
+        # 40 000 — те же «осталось 10 000 из 50 000»: второй раз он не назван.
+        assert alarm.detail.endswith("Упирается в наш кап; поднять кап — на экране «Расход»")
 
     async def test_ninety_five_by_the_neighbour_on_the_key(self, session: AsyncSession) -> None:
         """Упираемся в лимит ключа, а не в свой кап: соседняя система выбрала ключ — и слова
-        об этом, и куда идти: лимит ключа поднимают в Ahrefs, а не наш кап."""
-        await known_key(session, key_used=48_000, reset_at=_soon())
+        об этом, и куда идти: лимит ключа поднимают в Ahrefs, а не наш кап.
+
+        Куда идти — в пометке, а не второй раз в подробностях; лимит ключа равен капу, и его
+        числа — те же «осталось 2 000 из 50 000» (разбор экранов 10.11.2026: в полосе над
+        «Обзором» одно число стояло дважды — остатком и «выбрано на ключе»)."""
+        reset = _soon()
+        await known_key(session, key_used=48_000, reset_at=reset)
         await _spent(session, 5_000)
 
         alarm = (await self._found(session))[key_watch.ALARM_CODE]
 
         assert alarm.title == "Кап Ahrefs выбран на 95% и больше"
-        assert alarm.detail.startswith(f"Тревога: осталось 2{NBSP}000 юнитов из 50{NBSP}000")
-        assert f"в лимит ключа: на нём выбрано 48{NBSP}000 из 50{NBSP}000 вместе с соседней" in (
-            alarm.detail
+        assert alarm.detail == (
+            f"Тревога: осталось 2{NBSP}000 юнитов из 50{NBSP}000 — выбрано 96%, обнуление ключа "
+            f"{day_words(reset)}. Упирается в лимит ключа — он общий с соседней системой"
         )
-        assert alarm.detail.endswith("поднять лимит ключа — в Ahrefs")
+        assert alarm.concern is not None
+        assert alarm.concern.todo.startswith("поднять лимит ключа — в Ahrefs")
+
+    async def test_a_cap_below_the_key_names_the_key_numbers(self, session: AsyncSession) -> None:
+        """Кап задан ниже ключа, а упираемся в ключ: его числа свои — они и объясняют, почему
+        от капа 40 000 при нашем расходе 5 000 осталось 2 000."""
+        await known_key(session, key_used=48_000, reset_at=_soon())
+        session.add(AhrefsCapModel(units_cap=40_000))
+        await _spent(session, 5_000)
+
+        alarm = (await self._found(session))[key_watch.ALARM_CODE]
+
+        assert alarm.detail.startswith(f"Тревога: осталось 2{NBSP}000 юнитов из 40{NBSP}000")
+        assert alarm.detail.endswith(
+            f"Упирается в лимит ключа: на нём выбрано 48{NBSP}000 из 50{NBSP}000 вместе с "
+            "соседней системой на общем ключе"
+        )
 
     async def test_all_of_it_is_the_cap_reached_until_the_reset(
         self, session: AsyncSession
@@ -273,8 +296,16 @@ class TestTheWatch:
 
         assert not {key_watch.WARN_CODE, key_watch.ALARM_CODE} & set(found)
         assert alarm.title == "Кап Ahrefs выбран"
-        assert f"Кап 30{NBSP}000 юнитов, обнуление ключа {day_words(reset)}" in alarm.detail
-        assert "до обнуления или пока кап не поднимут на экране «Расход»" in alarm.detail
+        assert alarm.detail == (
+            f"Кап 30{NBSP}000 юнитов, обнуление ключа {day_words(reset)}. Упирается в наш кап. "
+            "Это не поломка, но выглядит одинаково"
+        )
+        # Что стоит и что сделать — пометкой, а не второй раз в подробностях.
+        assert alarm.concern is not None
+        assert alarm.concern.words == (
+            "Есть повод для беспокойства — новые прогоны не запускаются: ждать обнуления или "
+            "поднять кап — на экране «Расход»."
+        )
 
     async def test_without_a_reset_date_the_calendar_is_named(self, session: AsyncSession) -> None:
         await known_key(session, key_used=0)

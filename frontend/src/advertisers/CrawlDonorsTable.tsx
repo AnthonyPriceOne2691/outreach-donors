@@ -121,7 +121,8 @@ function DonorRowCells({
       </Table.Td>
       <Table.Td data-label="Цена от">{formatDate(donor.priced_at)}</Table.Td>
       {/* На телефоне — сразу под именем, во всю ширину карточки (`cellDecide`): значок обхода и
-          «Переобойти» — то, ради чего строка; цена, дата и ссылки — строкой ниже. */}
+          «Переобойти» — то, ради чего строка; цена, дата и ссылки — строкой ниже. На широком —
+          блоком одной ширины в каждой строке (`crawlSlot`): значки, «i» и кнопки — столбиками. */}
       <Table.Td className="cellDecide" data-label="Последний обход">
         <LastCrawl donor={donor} again={again} deep={deep} compact />
       </Table.Td>

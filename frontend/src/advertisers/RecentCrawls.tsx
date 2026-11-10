@@ -117,7 +117,11 @@ function JournalRows({ rows, start }: { rows: readonly CrawlRow[]; start: StartC
         <Seams text={row.host} />
       </Table.Td>
       <Table.Td>
-        <CrawlState crawl={row} compact />
+        {/* Значок — в блоке одной ширины (`crawlSlot`), как в таблице доноров выше: «i» соседних
+            строк — на одной линии, а не лесенкой. */}
+        <div className="crawlSlot crawlSlotBare">
+          <CrawlState crawl={row} compact />
+        </div>
       </Table.Td>
       <Table.Td className="wrapCell">
         <When crawl={row} />

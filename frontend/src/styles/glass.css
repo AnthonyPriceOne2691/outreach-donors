@@ -383,6 +383,34 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* Место под полосу прокрутки страницы держится всегда (разбор экранов 10.11.2026). Страница,
+   ставшая короче окна, теряла полосу, и рама уезжала вбок на её ширину — на Windows и на маке
+   с мышью; замер с полосой в 15 px: правый край рабочей области 1 405 на длинной странице и
+   1 420 на короткой. Там, где полоса поверх содержимого (мак с трекпадом, телефон), места под
+   неё нет — и правило ничего не меняет. */
+html {
+  scrollbar-gutter: stable;
+}
+
+/* Окно запирает прокрутку страницы, и Mantine (`react-remove-scroll`) возмещает пропавшую
+   полосу: телу — поле справа на её ширину, шапке рамы — отступ от края. Место под полосу и так
+   держится (правило выше), и возмещение стало бы вторым: рама на время окна съезжала бы влево.
+   Шапка ужималась на 15 px и до этого правила — она стоит в теле, а не у края окна. Браузер без
+   `scrollbar-gutter` места не держит — ему возмещение оставлено. */
+@supports (scrollbar-gutter: stable) {
+  html body[data-scroll-locked] {
+    margin-right: 0 !important;
+  }
+
+  html body[data-scroll-locked] .right-scroll-bar-position {
+    right: 0 !important;
+  }
+
+  html body[data-scroll-locked] .width-before-scroll-bar {
+    margin-right: 0 !important;
+  }
+}
+
 body {
   margin: 0;
   /* Ровный тон под слоями полотна: он виден только в момент, когда оба
@@ -715,6 +743,51 @@ html:root[data-mantine-color-scheme='dark'] .navGroupTitle {
   scrollbar-width: thin;
   margin-inline: -4px;
   padding: 2px 4px;
+}
+
+/* Тень у края колонки пунктов — пока за ним есть пункты (`layout/navScroll.ts`, разбор экранов
+   10.11.2026: у админа 22 пункта, на 1440 × 900 видно 15, и признака, что ниже есть ещё, не было).
+   Тень — над пунктами и мимо указателя; живёт на обёртке, которая не прокручивается. Высота —
+   `EDGE_ROOM`: с этим запасом подсвеченный пункт приезжает в видимую часть. Тон — тот же, что у
+   теней стекла: на свету тёмная бирюза, в темноте чёрный. */
+.navScrollBox {
+  --nav-edge-shadow: rgb(12 40 50 / 0.16);
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+html:root[data-mantine-color-scheme='dark'] .navScrollBox {
+  --nav-edge-shadow: rgb(0 0 0 / 0.45);
+}
+
+.navScrollBox::before,
+.navScrollBox::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  z-index: 1;
+  height: 16px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.navScrollBox::before {
+  top: 0;
+  background: linear-gradient(to bottom, var(--nav-edge-shadow), transparent);
+}
+
+.navScrollBox::after {
+  bottom: 0;
+  background: linear-gradient(to top, var(--nav-edge-shadow), transparent);
+}
+
+.navScrollBox[data-more-above]::before,
+.navScrollBox[data-more-below]::after {
+  opacity: 1;
 }
 
 /* Колонка меню меняет ширину тем же ходом, что рабочая область — свой отступ
@@ -1918,9 +1991,68 @@ html:root .mantine-Pill-root {
   white-space: normal;
 }
 
+/* «Приёмка по донорам» (разведка 10.11.2026): семь колонок — в карточку 1 093 px при открытом меню на
+   1440, без прокрутки вбок; было одиннадцать на 1 480 px, и порог ТЗ считался по колонкам за краем.
+   Поле ячейки — 6 px, как у панели лимитов (`limitTable`); у донора слева — обычное: текст соседних
+   карточек начинается с одной кромки. */
+@media (min-width: 48em) {
+  .acceptanceTable :is(th, td) {
+    padding-inline: 0.375rem;
+  }
+
+  .acceptanceTable :is(th, td):first-child {
+    padding-inline-start: var(--mantine-spacing-md);
+  }
+}
+
+/* Что нашёл обход — сеткой в две колонки (`foundGrid`): подпись и число, «решено» — под спорными.
+   Колонки сетки — по четырёхзначным числам («спорных 9 999», «не пишем 9 999»: 94 и 100 px шрифтом
+   экрана): сетка в каждой строке стоит на одном месте. */
+.foundGrid {
+  display: inline-grid;
+  grid-template-columns: minmax(5.875rem, auto) minmax(6.25rem, auto);
+  column-gap: 0.5rem;
+  line-height: 1.4;
+  text-align: start;
+}
+
 /* «!» у длинного значка обхода — строкой ниже, а не многоточием в значке (`crawlCell`). */
 .crawlCell .mantine-Group-root {
   flex-wrap: wrap;
+}
+
+/* Значок обхода в строке таблицы — постоянной ширины, а значок с «i» и кнопками — блоком одной
+   ширины в каждой строке, по центру колонки (`crawlSlot`, разведка 10.11.2026): у короткого
+   «robots.txt не отдал» «i», «Переобойти» и «10 000» стояли на 17 px левее, чем у «обойдён: 1 000 из
+   1 000», а значок ждущего обхода без кнопок — на 124 px правее. Значок — по самому длинному
+   обычному, «обойдён: 1 000 из 1 000» (169 px шрифтом экрана); длиннее — «остановлен — смотрит
+   человек» и глубокий — растёт сам. Блок — значок, «i», «Переобойти» и «10 000» (359 px) с запасом на
+   шрифт; уже колонки — переносом: кнопки под значком, с той же кромки. */
+.crawlSlot {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 23.25rem;
+  max-width: 100%;
+  text-align: start;
+}
+
+.crawlSlot .crawlBadge {
+  min-width: 10.625rem;
+}
+
+/* Значок с «глубокий», «!» и «i» шире блока — переносом с той же левой кромки, а не за край:
+   на телефоне глубокий обход выталкивал «i» за карточку, и таблица уезжала вбок на 12 px. */
+.crawlSlot .mantine-Group-root {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+/* В приёмке и журнале обходов кнопок в ячейке нет: блок — по самому длинному значку, «остановлен —
+   смотрит человек» (211 px); обычный значок с «i» — 198 px. */
+.crawlSlot.crawlSlotBare {
+  width: 13.25rem;
 }
 
 /* Таблица с фильтром под заголовком колонки (доноры, диалоги, отбор).
@@ -1968,11 +2100,27 @@ html:root .mantine-Pill-root {
   text-align: start;
 }
 
-/* Значок «i» держится рядом с числом стоимости и не падает на вторую строку. */
-.limitCost {
+/* Значок «i» держится рядом с числом стоимости и не падает на вторую строку; у ограничения — рядом
+   с последним словом первого предложения, а не один на новой строке. */
+.limitCost,
+.limitNow {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+}
+
+/* Метка «без потолка» у модели длиннее строки телефона: переносится внутри себя, а не режется
+   многоточием на «…не огр…» (снимок 390 px, 10.11.2026) — как ключи прогона (`provenKeywords`). */
+.limitBadge.mantine-Badge-root {
+  height: auto;
+  min-height: var(--badge-height);
+  max-width: 100%;
+}
+
+.limitBadge .mantine-Badge-label {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 /* Имя настройки длиннее колонки: рвётся, а не вылезает. */

@@ -532,9 +532,9 @@
       "worst": "_entries:146"
     },
     "backend/api/sales/weekly.py": {
-      "lines": 234,
+      "lines": 246,
       "complexity": 5,
-      "worst": "delivery:159"
+      "worst": "delivery:164"
     },
     "backend/api/selection/__init__.py": {
       "lines": 1,
@@ -2277,8 +2277,8 @@
       "worst": "alarm:37"
     },
     "backend/features/ops/hunter_watch.py": {
-      "lines": 287,
-      "complexity": 8,
+      "lines": 290,
+      "complexity": 9,
       "worst": "alarm:261"
     },
     "backend/features/ops/job_outcome.py": {
@@ -2287,9 +2287,9 @@
       "worst": "_outcome:203"
     },
     "backend/features/ops/key_watch.py": {
-      "lines": 172,
-      "complexity": 10,
-      "worst": "binding_words:97"
+      "lines": 204,
+      "complexity": 11,
+      "worst": "alarm:158"
     },
     "backend/features/ops/limit_ahrefs.py": {
       "lines": 113,
@@ -3527,9 +3527,9 @@
       "worst": "—"
     },
     "backend/features/sales/weekly.py": {
-      "lines": 320,
+      "lines": 328,
       "complexity": 9,
-      "worst": "_problems:272"
+      "worst": "_problems:279"
     },
     "backend/features/sales/weekly_counts.py": {
       "lines": 292,
@@ -3547,9 +3547,9 @@
       "worst": "—"
     },
     "backend/features/sales/weekly_text.py": {
-      "lines": 305,
-      "complexity": 6,
-      "worst": "runway_line:165"
+      "lines": 379,
+      "complexity": 8,
+      "worst": "_problems:211"
     },
     "backend/features/sales/zone_country.py": {
       "lines": 70,
@@ -3997,14 +3997,14 @@
       "worst": "open_letter_draft:36"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 429,
+      "lines": 434,
       "complexity": 2,
       "worst": "unbound_probes:36"
     },
     "scripts/ui_screens_reports.py": {
-      "lines": 182,
+      "lines": 203,
       "complexity": 2,
-      "worst": "show:32"
+      "worst": "open_hunter_details:51"
     },
     "scripts/ui_screens_runs.py": {
       "lines": 165,
@@ -4067,14 +4067,14 @@
       "worst": "open_add:22"
     },
     "scripts/ui_screens_sales_weekly.py": {
-      "lines": 52,
+      "lines": 86,
       "complexity": 1,
-      "worst": "weekly_screens:21"
+      "worst": "open_text:29"
     },
     "scripts/ui_screens_stage2.py": {
-      "lines": 156,
+      "lines": 164,
       "complexity": 1,
-      "worst": "stage2_screens:26"
+      "worst": "stage2_screens:29"
     }
   }
 }

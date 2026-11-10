@@ -7,6 +7,11 @@
  * неделя уходит на сервер понедельником и живёт в адресе; не доставленный в группу отчёт
  * назван словами — с причиной и сроком повтора — и всё равно стоит на экране; файл уходит
  * с пропуском; отказ сервера — словами.
+ *
+ * С замечания владельца 10.11.2026 («пояснения — не простынёй, а свёрнуто или в «i»»): разделы
+ * словами — свёрнуты, по нажатию; строки с поводом для беспокойства — на виду плашкой; похожие
+ * проблемы — одной строкой сервера, их строки — по «показать N»; строка итога таблицы — только у
+ * двух гипотез и больше.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -16,7 +21,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { HypothesesView } from '../api/salesTypes';
-import type { SalesWeeklyView, WeeklyDelivery, WeeklyNumbers } from '../api/salesWeekly';
+import type {
+  SalesWeeklyView,
+  WeeklyDelivery,
+  WeeklyNumbers,
+  WeeklySection,
+} from '../api/salesWeekly';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -97,28 +107,61 @@ const SENT: WeeklyDelivery = {
   schedule: 'в понедельник в 09:00 по Москве, за прошлую неделю',
 };
 
+/** Раздел без сложенных строк и без повода для беспокойства. */
+function section(key: string, title: string, lines: string[]): WeeklySection {
+  return { key, title, lines, details: [], cause_lines: [] };
+}
+
+const SECTIONS: WeeklySection[] = [
+  section('contacts', 'Контакты', ['загружено за неделю — 41: готово — 37']),
+  section('replies', 'Ответы', ['ответов за неделю — 3', 'автоответов — 4']),
+  section('leads', 'Лиды поимённо', [
+    'передано телемаркетологу за неделю — 1',
+    'Warm Ltd (warm.example.test) · jane@warm.example.test — https://crm.example.test/1',
+  ]),
+];
+
+/** Выдуманные строки проблем: пауз ящиков три, о них беспокоиться незачем — сервер сложил их в
+ *  одну строку; у передачи повод есть — она своей строкой и в `cause_lines`. */
+const KOMMO =
+  'Передача №7 ждёт решения в Kommo (сейчас): anna@lead.example.test: запись в Kommo не ' +
+  'подтверждена. Есть повод для беспокойства — неизвестно, завелась ли сделка: проверить в Kommo.';
+const PAUSES = 'Паузы ящиков — 3. Повода для беспокойства нет — ящик снова пишет.';
+const PAUSE_LINES = [1, 2, 3].map(
+  (day) =>
+    `Ящик box${day}@sales.example.test встал на паузу 0${day}.03 10:00 по Москве: отказов 3 ` +
+    'в окне 50 писем: пауза. Повода для беспокойства нет — ящик снова пишет.',
+);
+const PROBLEMS: WeeklySection = {
+  key: 'problems',
+  title: 'Проблемы',
+  lines: ['проблем — 4', KOMMO, PAUSES],
+  details: [[], [], PAUSE_LINES],
+  cause_lines: [1],
+};
+
 function view(week: string, delivery: WeeklyDelivery = SENT): SalesWeeklyView {
   return {
     week,
     last_day: week === '2027-03-01' ? '2027-03-07' : '2027-02-28',
     weeks: ['2027-03-01', '2027-02-22'],
     built_at: '2027-03-08T06:13:00Z',
-    sections: [
-      { key: 'contacts', title: 'Контакты', lines: ['загружено за неделю — 41: готово — 37'] },
-      { key: 'replies', title: 'Ответы', lines: ['ответов за неделю — 3', 'автоответов — 4'] },
-      {
-        key: 'leads',
-        title: 'Лиды поимённо',
-        lines: [
-          'передано телемаркетологу за неделю — 1',
-          'Warm Ltd (warm.example.test) · jane@warm.example.test — https://crm.example.test/1',
-        ],
-      },
-    ],
+    sections: SECTIONS,
     rows: [{ hypothesis_id: 5, name: 'тестовая гипотеза', numbers: FIRST }],
     total: FIRST,
     delivery,
   };
+}
+
+const TEXT = 'Текст отчёта для группы продаж';
+
+/** Раскрыть текст отчёта — разделы словами свёрнуты. */
+async function openText(user: ReturnType<typeof userEvent.setup>): Promise<HTMLElement> {
+  const toggle = screen.getByRole('button', { name: TEXT });
+  await user.click(toggle);
+  const body = document.getElementById(toggle.getAttribute('aria-controls') ?? '');
+  if (body === null) throw new Error('раскрытый текст отчёта не найден по aria-controls');
+  return body;
 }
 
 type Routes = Record<string, Answer | ((call: Call) => Answer)>;
@@ -161,11 +204,42 @@ function tile(title: string): string[] {
   return Array.from(card.children).map((child) => child.textContent ?? '');
 }
 
-describe('недельный отчёт продаж', () => {
-  it('разделы — строками сервера по порядку, первая строка — итог, дальше — список', async () => {
-    await openReport();
+/** Тексты строк списка — по порядку. */
+function items(list: HTMLElement): (string | null)[] {
+  return within(list)
+    .getAllByRole('listitem')
+    .map((item) => item.textContent);
+}
 
-    const sections = Array.from(document.querySelectorAll('.weeklySection'));
+/** Ячейки строк таблицы по гипотезам — без шапки. */
+function tableRows(): (string | null)[][] {
+  const table = screen.getByRole('table', { name: 'Недельный отчёт по гипотезам' });
+  return within(table)
+    .getAllByRole('row')
+    .slice(1)
+    .map((row) =>
+      within(row)
+        .getAllByRole('cell')
+        .map((cell) => cell.textContent),
+    );
+}
+
+const WITH_PROBLEMS = { body: { ...view('2027-03-01'), sections: [...SECTIONS, PROBLEMS] } };
+
+describe('недельный отчёт продаж', () => {
+  it('разделы свёрнуты; по нажатию — строками сервера по порядку, итог и список', async () => {
+    await openReport();
+    const user = userEvent.setup();
+    const toggle = screen.getByRole('button', { name: TEXT });
+
+    // Свёрнутое не отрисовывается (`Unfold`): разделов в документе нет, пока не нажали.
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelectorAll('.weeklySection')).toHaveLength(0);
+
+    const body = await openText(user);
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const sections = Array.from(body.querySelectorAll('.weeklySection'));
     expect(sections.map((section) => section.querySelector('p')?.textContent)).toEqual([
       '1. Контакты',
       '2. Ответы',
@@ -173,16 +247,75 @@ describe('недельный отчёт продаж', () => {
     ]);
     const leads = sections[2] as HTMLElement;
     expect(within(leads).getByText('передано телемаркетологу за неделю — 1')).toBeInTheDocument();
-    expect(
-      within(leads)
-        .getAllByRole('listitem')
-        .map((item) => item.textContent),
-    ).toEqual([
+    expect(items(leads)).toEqual([
       'Warm Ltd (warm.example.test) · jane@warm.example.test — https://crm.example.test/1',
+    ]);
+
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await waitFor(() => expect(document.querySelectorAll('.weeklySection')).toHaveLength(0));
+  });
+
+  it('похожие проблемы — одной строкой сервера, их строки — по «показать 3»', async () => {
+    await openReport({ [`GET ${WEEKLY}`]: WITH_PROBLEMS });
+    const user = userEvent.setup();
+    const problems = (await openText(user)).querySelectorAll('.weeklySection')[3] as HTMLElement;
+    const more = within(problems).getByRole('button', { name: 'показать 3' });
+
+    expect(items(problems)).toEqual([KOMMO, `${PAUSES} показать 3`]);
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(more);
+
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(more).toHaveTextContent('свернуть');
+    const shown = document.getElementById(more.getAttribute('aria-controls') ?? '');
+    expect(items(shown as HTMLElement)).toEqual(PAUSE_LINES);
+  });
+
+  it('строка с поводом для беспокойства — на виду плашкой, пока текст свёрнут', async () => {
+    await openReport({ [`GET ${WEEKLY}`]: WITH_PROBLEMS });
+
+    const now = document.querySelector('.weeklyNow') as HTMLElement;
+    expect(now).toHaveAttribute('role', 'alert');
+    expect(within(now).getByText('Ждут действия — 1')).toBeInTheDocument();
+    expect(items(now)).toEqual([KOMMO]);
+    // Сложенные паузы — без повода: на виду их нет, они в свёрнутом тексте отчёта.
+    expect(screen.queryByText(PAUSES)).toBeNull();
+    expect(screen.getByRole('button', { name: TEXT })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('повода для беспокойства нет — плашки нет', async () => {
+    await openReport();
+
+    expect(document.querySelector('.weeklyNow')).toBeNull();
+  });
+
+  it('итог таблицы — у двух гипотез и больше: числа сервера как есть', async () => {
+    const second = numbers({ loaded: 4, ready: 4, sent: 2, delivered: 2, letters_queued: 1 });
+    const total = numbers({ ...FIRST, loaded: 45, sent: 25, delivered: 23, letters_queued: 10 });
+    await openReport({
+      [`GET ${WEEKLY}`]: {
+        body: {
+          ...view('2027-03-01'),
+          rows: [
+            { hypothesis_id: 5, name: 'тестовая гипотеза', numbers: FIRST },
+            { hypothesis_id: 8, name: 'вторая тестовая', numbers: second },
+          ],
+          total,
+        },
+      },
+    });
+
+    expect(tableRows()).toEqual([
+      ['тестовая гипотеза', '41', '23', '21', '3', '3', '1', '9'],
+      ['вторая тестовая', '4', '2', '2', '0', '0', '0', '1'],
+      ['Всего', '45', '25', '23', '3', '3', '1', '10'],
     ]);
   });
 
-  it('плитки и таблица — числа сервера как есть', async () => {
+  it('плитки и таблица — числа сервера как есть; одна гипотеза — без строки итога', async () => {
     await openReport();
 
     expect(tile('Загружено')).toEqual(['Загружено', '41', 'готово к письмам — 37']);
@@ -191,18 +324,8 @@ describe('недельный отчёт продаж', () => {
     expect(tile('Ответов')).toEqual(['Ответов', '3', 'автоответов — 4']);
     expect(tile('В диалоге')).toEqual(['В диалоге', '3', 'молчащих — 1']);
     expect(tile('Передано')).toEqual(['Передано', '1', 'телемаркетологу']);
-    const table = screen.getByRole('table', { name: 'Недельный отчёт по гипотезам' });
-    const rows = within(table).getAllByRole('row');
-    expect(
-      rows.slice(1).map((row) =>
-        within(row)
-          .getAllByRole('cell')
-          .map((cell) => cell.textContent),
-      ),
-    ).toEqual([
-      ['тестовая гипотеза', '41', '23', '21', '3', '3', '1', '9'],
-      ['Всего', '41', '23', '21', '3', '3', '1', '9'],
-    ]);
+    // Итог повторял бы строку гипотезы теми же числами (аудит «Отчёта» 10.11.2026).
+    expect(tableRows()).toEqual([['тестовая гипотеза', '41', '23', '21', '3', '3', '1', '9']]);
   });
 
   it('неделя — понедельником в запросе и в адресе раздела', async () => {
@@ -250,7 +373,9 @@ describe('недельный отчёт продаж', () => {
     );
     expect(line?.closest('[role="alert"]')).toBeNull();
     expect(tile('Загружено')[1]).toBe('41');
-    expect(document.querySelectorAll('.weeklySection')).toHaveLength(3);
+    // Текст тот же и без отправки — потому надпись «для группы», а не «как ушёл в группу».
+    const body = await openText(userEvent.setup());
+    expect(body.querySelectorAll('.weeklySection')).toHaveLength(3);
   });
 
   it('не доставлен в группу — плашкой с причиной и сроком повтора, отчёт на месте', async () => {
