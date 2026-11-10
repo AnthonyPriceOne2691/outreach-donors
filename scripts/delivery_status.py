@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import re
 
-from delivery_base import (ACTIVE, ActiveCtx, field,
-                           is_placeholder, read)
+from delivery_base import (ACTIVE, ROOT, ActiveCtx, field, git,
+                           is_placeholder, merge_base_of, read)
 from delivery_decisions import signature_verdict
 from delivery_diff import diff_identifiers, diff_stats
 from delivery_risk import risk_review_gaps, risky_classes
@@ -99,6 +99,40 @@ def check_verify_report(status: str, phase: str, verify,
             )
 
 
+#: Заметки ревью рисковых мест — своя у каждой ветки (адаптация проекта 10.11.2026,
+#: `scripts/lint/adapted.json`): `delivery/active/reviews/<ветка, «/» → «-»>.md`.
+REVIEWS = ACTIVE / "reviews"
+_REVIEW_HEAD = re.compile(r"(?im)^#{1,4}\s*(?:ревью\s+рисковых|risk\s+review)\b")
+
+
+def pick_review(verify_text: str, notes: list[str]) -> str:
+    """Текст, в котором маячок ищет ревью рисковых мест (§12.5).
+
+    Заметки, которые добавил или правил сам дифф, — его ревью. Общий блок в
+    `verify-report.md` один на всех: параллельные PR правили бы одно место и
+    конфликтовали, а не тронутый с октября блок поднимал маячок на каждом
+    рисковом PR (находка 10.11.2026) — на `handoff` это стало бы отказом каждому.
+    Нет заметок — канон как есть: блок `verify-report.md`. Заметка без своего
+    заголовка получает его здесь — писать нужно содержание, а не шапку.
+    """
+    if not notes:
+        return verify_text
+    body = "\n\n".join(note.strip() for note in notes)
+    return body if _REVIEW_HEAD.search(body) else f"## Ревью рисковых мест\n\n{body}"
+
+
+def review_notes(base: str) -> list[str]:
+    """Заметки `active/reviews/*.md`, добавленные или правленные в окне `merge_base..HEAD`.
+
+    Только тронутые диффом: прежние заметки лежат в папке после слияния, и их
+    имена совпадали бы с новым диффом случайно — цитата чужого чтения.
+    """
+    merge_base = merge_base_of(base) or base
+    names = git("-C", str(ROOT), "diff", "--name-only", "--diff-filter=AM",
+                f"{merge_base}..HEAD", "--", REVIEWS.relative_to(ROOT).as_posix()).splitlines()
+    return [read(ROOT / name) for name in names if name.endswith(".md")]
+
+
 def check_risky_diff(status: str, args, phase: str, verify,
                      errors: list[str], warnings: list[str]) -> None:
     """Маячок на рисковый дифф (§12.5) и пути, проверяемые исполнением (§12.6).
@@ -112,7 +146,7 @@ def check_risky_diff(status: str, args, phase: str, verify,
         rstats = diff_stats(rbase)
         if rstats and rstats[4]:
             gaps = risk_review_gaps(
-                read(verify),
+                pick_review(read(verify), review_notes(rbase)),
                 risky_classes(rstats[4], rbase),
                 diff_identifiers(rstats[4], rbase),
             )
