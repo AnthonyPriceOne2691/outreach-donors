@@ -30,6 +30,14 @@
  *
  * **Что ждёт повтора — строками под лидами** (`SegmentWaits`, разбор прогона сбора 20.10.2026):
  * почему словами, когда повтор пойдёт сам и «Повторить сейчас».
+ *
+ * **Пояснения — не простынёй** (замечание владельца 10.11.2026: «свёрнуто или в «i»»; аудит того же
+ * дня — семь абзацев, ~165 слов, до таблицы ключей). Шапка прогона — одной строкой фактов; режим
+ * судьи, как он понял описание, второй шанс цитате и «уже в сборе гипотезы» — в «i» у заголовка
+ * (`SegmentRunHint`): это устройство прогона, его читают раз. Лиды — строкой без чисел, которые уже
+ * есть в плитке и у группы «Ждут очистки», причины отказа очистки — в свёрнутом «почему» рядом с
+ * причинами отсева. На виду — всё, по чему решают сейчас: «На проверку N — решить», «Ждут очистки —
+ * N» с «Повторить сейчас», продолжение прогона, сбой разбора описания и отказы сервера.
  */
 
 import {
@@ -61,9 +69,8 @@ import { resumeRun } from './segmentApi';
 import type { SegmentCount, SegmentRunDetail } from './segmentApi';
 import { AcceptedParts } from './SegmentAcceptedParts';
 import {
-  knownSites,
+  leadReasons,
   leadsLine,
-  MODE_WORDS,
   runFacts,
   runJobLine,
   SEGMENT_QUERY_KEY,
@@ -72,7 +79,7 @@ import {
 } from './segmentData';
 import { RunKeywords } from './SegmentRunKeywords';
 import { SegmentProgress } from './SegmentProgress';
-import { SegmentQuoteRetry } from './SegmentQuoteRetry';
+import { SegmentRunHint } from './SegmentRunHint';
 import { SegmentScopeLine } from './SegmentScopeLine';
 import { SegmentSitesWindow } from './SegmentSites';
 import { RejudgeStatus, useRejudgeWatch } from './SegmentSitesRejudge';
@@ -134,16 +141,10 @@ function ReviewLine({ detail, href }: { detail: SegmentRunDetail; href: Href }) 
   );
 }
 
-/** Сайты, которые гипотеза уже собирала: их не судят и не ищут снова. */
-function Known({ detail }: { detail: SegmentRunDetail }) {
-  const known = knownSites(detail);
-  if (known === 0) return null;
-  return (
-    <Text size="sm" c="dimmed">
-      Уже в сборе гипотезы: {formatNumber(known)} — эти сайты нашли её прошлые прогоны, их не судим
-      и не ищем снова.
-    </Text>
-  );
+/** Лиды прогона после очистки — строкой под плитками (`leadsLine`); лидов нет — строки нет. */
+function LeadsLine({ detail }: { detail: SegmentRunDetail }) {
+  const line = leadsLine(detail);
+  return line === null ? null : <Text size="sm">{line}</Text>;
 }
 
 function Counts({ title, rows }: { title: string; rows: SegmentCount[] }) {
@@ -164,18 +165,28 @@ function Counts({ title, rows }: { title: string; rows: SegmentCount[] }) {
   );
 }
 
-/** Подпись свёрнутой строки — по тому, что в ней есть: обещать пустой список нельзя. */
+/** Подпись свёрнутой строки — по тому, что в ней есть: обещать пустой список нельзя. Лиды,
+ *  отклонённые очисткой, — третьей частью (10.11.2026): их причины стояли скобками в строке лидов. */
 function whyTitle(detail: SegmentRunDetail): string | null {
-  const cut = detail.rejected.length > 0;
-  const lost = detail.no_address.length > 0;
-  if (cut && lost) return 'Почему отсечены и без адреса';
-  if (cut) return 'Почему отсечены';
-  return lost ? 'Почему без адреса' : null;
+  const parts = [
+    detail.rejected.length > 0 && 'отсечены',
+    detail.no_address.length > 0 && 'без адреса',
+    leadReasons(detail).length > 0 && 'отклонены очисткой',
+  ].filter((part): part is string => part !== false);
+  const last = parts.pop();
+  if (last === undefined) return null;
+  return `Почему ${parts.length > 0 ? `${parts.join(', ')} и ` : ''}${last}`;
 }
 
-/** Причины отсева и «без адреса» — одной свёрнутой строкой, раскрываются по нажатию в два такта
- *  (`runs/Unfold`; свёрнутое не отрисовывается). Не в подсказке по наведению: на телефоне её не
- *  открыть, а прочесть нужно. */
+/** Подпись «почему» переносится по словам: с отклонёнными очисткой она шире телефона, а одной
+ *  строкой подпись кнопки обрезается, как было у «Найти адреса ещё …» (`WRAPPED`). */
+const WHY_WRAPPED = {
+  label: { whiteSpace: 'normal', textAlign: 'left', lineHeight: 1.3 },
+} as const;
+
+/** Причины отсева, «без адреса» и отказа очистки — одной свёрнутой строкой, раскрываются по нажатию
+ *  в два такта (`runs/Unfold`; свёрнутое не отрисовывается). Не в подсказке по наведению: на
+ *  телефоне её не открыть, а прочесть нужно. */
 function Why({ detail }: { detail: SegmentRunDetail }) {
   const [open, setOpen] = useState(false);
   const panel = useId();
@@ -187,6 +198,9 @@ function Why({ detail }: { detail: SegmentRunDetail }) {
         <Button
           variant="subtle"
           size="compact-sm"
+          h="auto"
+          py={4}
+          styles={WHY_WRAPPED}
           className="press"
           aria-expanded={open}
           aria-controls={panel}
@@ -206,6 +220,7 @@ function Why({ detail }: { detail: SegmentRunDetail }) {
         <Stack gap="xs" id={panel}>
           <Counts title="Отсечены — почему" rows={detail.rejected} />
           <Counts title="Без адреса — почему" rows={detail.no_address} />
+          <Counts title="Отклонены очисткой — почему" rows={leadReasons(detail)} />
         </Stack>
       </Unfold>
     </Stack>
@@ -302,7 +317,11 @@ function Report({ detail }: { detail: SegmentRunDetail }) {
     <Stack gap="sm">
       {/* Кнопки окон — сразу за заголовком, а не в правом краю строки (правило 10.10.2026). */}
       <Group gap="xs" wrap="wrap">
-        <Title order={5}>Прогон №{run.id}</Title>
+        {/* «i» — вплотную к заголовку и на телефоне: как устроен прогон (10.11.2026). */}
+        <Group gap={4} wrap="nowrap">
+          <Title order={5}>Прогон №{run.id}</Title>
+          <SegmentRunHint detail={detail} />
+        </Group>
         <StageBadge detail={detail} />
         <Button
           component={Link}
@@ -319,11 +338,7 @@ function Report({ detail }: { detail: SegmentRunDetail }) {
       <Text size="sm" c="dimmed">
         {runFacts(run)}
       </Text>
-      <Text size="sm" c="dimmed">
-        {MODE_WORDS[run.mode]}.
-      </Text>
       <SegmentScopeLine report={detail.report} />
-      <SegmentQuoteRetry report={detail.report} />
       <SegmentProgress run={run} />
       {run.job_id !== null && jobLineShown(run) && (
         <JobLine
@@ -334,8 +349,7 @@ function Report({ detail }: { detail: SegmentRunDetail }) {
       )}
       <Tiles detail={detail} href={sites.href} />
       <ReviewLine detail={detail} href={sites.href} />
-      <Known detail={detail} />
-      <Text size="sm">{leadsLine(detail)}</Text>
+      <LeadsLine detail={detail} />
       <SegmentWaits detail={detail} />
       <Resume detail={detail} />
       <RejudgeStatus view={rejudge.view} />

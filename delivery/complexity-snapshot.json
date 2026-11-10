@@ -457,14 +457,14 @@
       "worst": "of:32"
     },
     "backend/api/sales/kb.py": {
-      "lines": 107,
+      "lines": 112,
       "complexity": 1,
       "worst": "list_entries:43"
     },
     "backend/api/sales/kb_schemas.py": {
-      "lines": 242,
+      "lines": 252,
       "complexity": 3,
-      "worst": "of:112"
+      "worst": "of:114"
     },
     "backend/api/sales/leads.py": {
       "lines": 77,
@@ -3097,9 +3097,9 @@
       "worst": "change:340"
     },
     "backend/features/sales/kb_gaps.py": {
-      "lines": 65,
+      "lines": 106,
       "complexity": 6,
-      "worst": "gaps:56"
+      "worst": "gaps:81"
     },
     "backend/features/sales/kb_load.py": {
       "lines": 183,
@@ -4057,9 +4057,9 @@
       "worst": "queue_screens:28"
     },
     "scripts/ui_screens_sales_segment.py": {
-      "lines": 309,
+      "lines": 314,
       "complexity": 2,
-      "worst": "collect_prepare:48"
+      "worst": "collect_prepare:52"
     },
     "scripts/ui_screens_sales_sites.py": {
       "lines": 193,

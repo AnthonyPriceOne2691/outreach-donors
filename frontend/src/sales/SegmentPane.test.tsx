@@ -17,11 +17,13 @@ import { AppRoutes } from '../App';
 import { PERMISSION_TITLES } from '../api/labels';
 import type { HypothesesView } from '../api/salesTypes';
 import type { Me } from '../api/types';
+import { capitalized } from '../format';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
 import { MODE_WORDS } from './segmentData';
+import { RUN_HINT } from './SegmentRunHint';
 import { HELP_QUIET } from './segmentHelpFixtures';
 import type {
   SegmentCandidate,
@@ -210,12 +212,18 @@ describe('сбор базы: прогон гипотезы', () => {
 
     expect(screen.getByText(SEGMENT_TEXT)).toBeInTheDocument();
     expect(await screen.findByText('Прогон №12', {}, SCREEN_WAIT)).toBeInTheDocument();
+    const user = userEvent.setup();
+    // Режим судьи — в «i» у заголовка прогона, а не строкой отчёта (замечание 10.11.2026).
+    expect(screen.queryByText(/судья в наблюдении/i)).toBeNull();
+    await user.hover(screen.getByRole('button', { name: RUN_HINT }));
     // Неразрывный пробел в словах («отказал бы») поиск по тексту сводит к обычному — и здесь так же.
-    expect(screen.getByText(`${MODE_WORDS.shadow.replace(/\s+/g, ' ')}.`)).toBeInTheDocument();
-    // Причины — одной свёрнутой строкой, раскрываются по нажатию.
-    await userEvent
-      .setup()
-      .click(screen.getByRole('button', { name: 'Почему отсечены и без адреса' }));
+    const mode = `${capitalized(MODE_WORDS.shadow).replace(/\s+/g, ' ')}.`;
+    expect(await screen.findByText(mode, {}, SCREEN_WAIT)).toBeInTheDocument();
+    // Причины — одной свёрнутой строкой, раскрываются по нажатию; с ними — почему очистка
+    // отклонила лидов: в строке лидов их больше нет.
+    await user.click(
+      screen.getByRole('button', { name: 'Почему отсечены, без адреса и отклонены очисткой' }),
+    );
     const rejected = await screen.findByRole('list', { name: 'Отсечены — почему' });
     expect(
       within(rejected)
@@ -227,10 +235,11 @@ describe('сбор базы: прогон гипотезы', () => {
     ]);
     const noAddress = screen.getByRole('list', { name: 'Без адреса — почему' });
     expect(within(noAddress).getByRole('listitem')).toHaveTextContent('адреса на сайте нет — 1');
+    const refused = screen.getByRole('list', { name: 'Отклонены очисткой — почему' });
+    expect(within(refused).getByRole('listitem')).toHaveTextContent('дубль — 1');
+    // Лиды — строкой без числа плитки «Лидов создано» и без скобок причин.
     expect(
-      screen.getByText(
-        'Лидов заведено 2: готовы к письмам 1, отклонены очисткой 1 (дубль — 1), ждут очистки 0.',
-      ),
+      screen.getByText('Лиды: готовы к письмам — 1, отклонены очисткой — 1.'),
     ).toBeInTheDocument();
     // «На проверку» — строкой со ссылкой на вкладку решений в окне сайтов, а не таблицей.
     expect(screen.getByRole('link', { name: 'На проверку 1 — решить' })).toBeInTheDocument();

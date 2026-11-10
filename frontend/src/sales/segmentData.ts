@@ -19,7 +19,13 @@ import { leadReasonTitle } from '../api/salesLabels';
 import { formatDateTime, formatNumber, plural } from '../format';
 import { HYPOTHESES_QUERY_KEY } from './hypothesisData';
 import { readRun, readSegment } from './segmentApi';
-import type { SegmentHome, SegmentMode, SegmentRunDetail, SegmentRunRow } from './segmentApi';
+import type {
+  SegmentCount,
+  SegmentHome,
+  SegmentMode,
+  SegmentRunDetail,
+  SegmentRunRow,
+} from './segmentApi';
 import { isActive } from './segmentStage';
 
 export { STAGE_WORDS } from './segmentStage';
@@ -90,7 +96,8 @@ export function rereadLeads(client: QueryClient): void {
   void client.invalidateQueries({ queryKey: LEADS_QUERY_KEY });
 }
 
-/** Режим судьи словами — так, как он влияет на сайты. */
+/** Режим судьи словами — так, как он влияет на сайты; стоит в «i» у заголовка прогона
+ *  (`SegmentRunHint`). */
 export const MODE_WORDS: Record<SegmentMode, string> = {
   shadow:
     'судья в наблюдении: его «отказ» не отсекает сайт — сайт в «Судья отказал\u00a0бы», лид из него — только после «Принять» человека',
@@ -139,20 +146,35 @@ export function runFacts(run: SegmentRunRow): string {
   return `${line.charAt(0).toUpperCase()}${line.slice(1)}.`;
 }
 
-/** Лиды прогона и что с ними сделала очистка — одной строкой. */
-export function leadsLine(detail: SegmentRunDetail): string {
-  const { leads, lead_reasons: reasons } = detail;
-  const total = Object.values(leads).reduce((sum, count) => sum + count, 0);
-  if (total === 0) return 'Лидов из прогона пока нет.';
-  const rejected = Object.entries(reasons)
+/** Ждущих очистки уже назвала группа «Ждут очистки» с «Повторить сейчас» (`SegmentWaits`). */
+function cleaningSaid(detail: SegmentRunDetail): boolean {
+  return (detail.waits ?? []).some((wait) => wait.kind === 'cleaning');
+}
+
+/**
+ * Лиды прогона после очистки — строкой под плитками: сколько готовы к письмам и сколько отклонила
+ * очистка; почему отклонила — в свёрнутом «почему» отчёта (`leadReasons`).
+ *
+ * **Каждое число — один раз** (замечание владельца 10.11.2026: «пояснения — не простынёй»; правило
+ * 09.10.2026): всех лидов называет плитка «Лидов создано», ждущих очистки — группа «Ждут очистки» с
+ * «Повторить сейчас», где по ним действуют; здесь ждущие — только когда группы нет. Лидов нет —
+ * строки нет: ноль уже в плитке.
+ */
+export function leadsLine(detail: SegmentRunDetail): string | null {
+  const { ready = 0, rejected = 0, new: waiting = 0 } = detail.leads;
+  if (ready + rejected + waiting === 0) return null;
+  const parts = [`готовы к письмам — ${formatNumber(ready)}`];
+  if (rejected > 0) parts.push(`отклонены очисткой — ${formatNumber(rejected)}`);
+  if (waiting > 0 && !cleaningSaid(detail)) parts.push(`ждут очистки — ${formatNumber(waiting)}`);
+  return `Лиды: ${parts.join(', ')}.`;
+}
+
+/** Почему очистка отклонила лидов прогона — строками свёрнутого «почему» отчёта: причина словами
+ *  вкладки лидов (`leadReasonTitle`), частая — выше. */
+export function leadReasons(detail: SegmentRunDetail): SegmentCount[] {
+  return Object.entries(detail.lead_reasons)
     .sort(([, a], [, b]) => b - a)
-    .map(([code, count]) => `${leadReasonTitle(code)} — ${formatNumber(count)}`);
-  const why = rejected.length > 0 ? ` (${rejected.join(', ')})` : '';
-  return (
-    `Лидов заведено ${formatNumber(total)}: готовы к письмам ${formatNumber(leads.ready ?? 0)}, ` +
-    `отклонены очисткой ${formatNumber(leads.rejected ?? 0)}${why}, ` +
-    `ждут очистки ${formatNumber(leads.new ?? 0)}.`
-  );
+    .map(([code, count]) => ({ words: leadReasonTitle(code), count }));
 }
 
 /** Итог задачи прогона одной строкой — для строки задачи. Лиды прохода — из его хода

@@ -21,6 +21,7 @@ import { NO_LEAD_FILTERS, readLeadFilters, writeLeadFilters } from './leadFilter
 import type { SegmentCandidate, SegmentHome, SegmentRunDetail, SegmentRunRow } from './segmentApi';
 import type { SegmentSite, SegmentSitesPage } from './SegmentSitesApi';
 import { listPoll, runFacts, runPoll } from './segmentData';
+import { RUN_HINT } from './SegmentRunHint';
 import { ago, lasting, pulse, runState, stageBadge, stageLine, stoppedAt } from './segmentStage';
 
 const SCREEN_WAIT = { timeout: 5000 };
@@ -499,11 +500,17 @@ describe('сбор базы: ход прогона — экран', () => {
       [REVIEW_TAB]: { body: reviewPage([SITE], 234) },
     });
     const user = userEvent.setup();
-
-    await user.click(
-      await screen.findByRole('link', { name: 'На проверку 234 — решить' }, SCREEN_WAIT),
+    const decide = await screen.findByRole(
+      'link',
+      { name: 'На проверку 234 — решить' },
+      SCREEN_WAIT,
     );
-    expect(screen.getByText(/Уже в сборе гипотезы: 9/)).toBeInTheDocument();
+    // «Уже в сборе гипотезы» — в «i» у заголовка прогона, а не строкой отчёта (10.11.2026).
+    expect(screen.queryByText(/Уже в сборе гипотезы/)).toBeNull();
+    await user.hover(screen.getByRole('button', { name: RUN_HINT }));
+    expect(await screen.findByText(/Уже в сборе гипотезы: 9/, {}, SCREEN_WAIT)).toBeInTheDocument();
+
+    await user.click(decide);
     expect(await screen.findByText('Показаны 1–1 из 234.', {}, SCREEN_WAIT)).toBeInTheDocument();
   });
 

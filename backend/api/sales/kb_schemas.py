@@ -107,9 +107,18 @@ class KbView(BaseModel):
     limits: dict[str, int]
     #: Пустые разделы на языках писем — словами (`kb_gaps.py`): что агент сделает без них.
     gaps: list[KbGapCard]
+    #: Те же разделы строками плашки экрана (`kb_gaps.lines`): с одним исходом — одной строкой.
+    gap_lines: list[str]
 
     @classmethod
-    def of(cls, rows: list[SalesKbEntryModel], *, version: str, gaps: list[KbGapCard]) -> KbView:
+    def of(
+        cls,
+        rows: list[SalesKbEntryModel],
+        *,
+        version: str,
+        gaps: list[KbGapCard],
+        gap_lines: list[str],
+    ) -> KbView:
         return cls(
             rows=[KbEntryCard.of(row) for row in rows],
             total=len(rows),
@@ -118,6 +127,7 @@ class KbView(BaseModel):
             kinds=list(KbKind),
             limits=KB_LIMITS,
             gaps=gaps,
+            gap_lines=gap_lines,
         )
 
 
