@@ -18,9 +18,16 @@
  * **По пятнадцать доноров на странице** (слово Anthony 05.11.2026: «огромная простыня»): считает
  * сервер, номер — в адресе (`?page=2`), порядок прежний — сверху у кого рекламодателей больше.
  * «Все доноры вместе» — первой строкой каждой страницы, по всем донорам, а не по её строкам.
+ *
+ * **Колонка донора залита, только пока таблица уехала вбок** (`stickyScrolled`, замечание Anthony
+ * 10.11.2026: «выделяется чёрным»): заливка нужна, чтобы под донором не читались уехавшие буквы, а в
+ * тёмной теме три слоя стекла дали чёрную полосу с острыми углами на таблице, которая никуда не ехала.
+ * Без прокрутки колонка прозрачна, как вся карточка; при прокрутке — заливка с круглыми углами и тенью.
  */
 
 import { Alert, Badge, Card, Loader, Stack, Table, Text } from '@mantine/core';
+import { useState } from 'react';
+import type { UIEvent } from 'react';
 
 import { fetchAcceptance } from '../api/acceptance';
 import type { AcceptanceView, Findings, Tally } from '../api/acceptance';
@@ -210,6 +217,20 @@ function Together({ view }: { view: AcceptanceView }) {
 }
 
 function Rows({ view, stale }: { view: AcceptanceView; stale: boolean }) {
+  // Прокрутка вбок — событие самой области таблицы; оно не всплывает, поэтому ловится на погружении.
+  const [scrolled, setScrolled] = useState(false);
+  const onScroll = (event: UIEvent<HTMLDivElement>) => {
+    const area = event.target as HTMLElement;
+    setScrolled(area.scrollLeft > 0);
+  };
+  return (
+    <div className={scrolled ? 'stickyScrolled' : undefined} onScrollCapture={onScroll}>
+      <RowsTable view={view} stale={stale} />
+    </div>
+  );
+}
+
+function RowsTable({ view, stale }: { view: AcceptanceView; stale: boolean }) {
   return (
     <DataTable
       columns={COLUMNS}
