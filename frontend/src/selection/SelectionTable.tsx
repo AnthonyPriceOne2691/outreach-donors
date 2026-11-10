@@ -92,10 +92,11 @@ const WITHOUT_THRESHOLDS: Column[] = [
 
 /** **С «Порогами» кнопки встают в два ряда**: строка там и так выше — значок
  *  порогов и причина под ним, — и два ряда кнопок её не растят. Домену — те же
- *  192 px, что и до правки. Судье — весь остаток: на 1280 его 194 px, и значки
- *  переносятся, а на 1440 — 354, и строки не выше, чем были до правки. Делить
- *  запас по долям значило бы оставить судье ~240 px и на 1440 — строки с цитатой
- *  вырастали со 103 до 144 px. */
+ *  192 px, что и до правки, а DR — под доменом (`SelectionRow`, 10.11.2026): в одну
+ *  строку с ним домен в 15 знаков резался многоточием. Судье — весь остаток: на 1280
+ *  его 194 px, и значки переносятся, а на 1440 — 354, и строки не выше, чем были
+ *  до правки. Делить запас по долям значило бы оставить судье ~240 px и на 1440 —
+ *  строки с цитатой вырастали со 103 до 144 px. */
 const WITH_THRESHOLDS: Column[] = [
   { title: 'Домен', width: '12rem' },
   { title: 'Пороги', width: '11.5rem' },
@@ -301,17 +302,22 @@ export function SelectionTable({
 }: Props) {
   const columns = columnsOn(filters.filters.tab);
   const withThresholds = columns === WITH_THRESHOLDS;
+  // Шапка с фильтрами закреплена, строки прокручиваются под ней в высоту окна (`stickyTable`,
+  // как `DataTable sticky`): страница в двадцать строк — 2 250–2 347 px, и заголовки с
+  // фильтрами уходили за край с первой прокруткой, а страницы — только внизу (разведка
+  // 10.11.2026). На телефоне строки — карточками, и высота не ограничена.
   return (
     <Table.ScrollContainer
       minWidth={TABLE_MIN_WIDTH}
       type="native"
-      className="scrollSlim phoneCards"
+      className="scrollSlim phoneCards stickyTable"
     >
       <Table
         className="dataTable filteredTable selectionTable allCentered"
         layout="fixed"
         verticalSpacing="sm"
         horizontalSpacing="xs"
+        stickyHeader
       >
         <ColumnsHead columns={columns}>
           <FilterRow {...filters} />

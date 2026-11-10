@@ -6,9 +6,13 @@
  *
  * Правка — PR «общее» (экран доменов и ящиков): `domainShut` — то же правило, что у фильтра
  * (`outreach/limits.domain_shut`); пометки `it.fails` сняты.
+ *
+ * С 10.11.2026 домен — строка таблицы: что его закрыло — значком, строка лимита целиком — в «i»;
+ * у всех строк одно «отправляет» — колонки состояния нет (это сказала строка «Отправлять могут»).
  */
 
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
@@ -70,19 +74,24 @@ async function openWith(shut: Record<string, unknown>) {
   });
 }
 
-function cardOf(domain: string): HTMLElement {
-  const card = screen.getByText(domain).closest<HTMLElement>('.mantine-Card-root');
-  if (card === null) throw new Error(`карточки ${domain} нет`);
-  return card;
+function rowOf(domain: string): HTMLElement {
+  const row = screen.getByText(domain).closest<HTMLElement>('tr');
+  if (row === null) throw new Error(`строки ${domain} нет`);
+  return row;
+}
+
+/** Колонка состояния на экране — или её нет: у всех строк одно «отправляет». */
+function stateColumn(): HTMLElement | null {
+  return screen.queryByRole('columnheader', { name: 'Состояние' });
 }
 
 describe('домен, который не пишет (A8)', () => {
   for (const [why, shut] of Object.entries(SHUT_BY)) {
-    it(`${why}: карточка не говорит «отправляет»`, async () => {
+    it(`${why}: строка не говорит «отправляет»`, async () => {
       await openWith(shut);
 
-      expect(within(cardOf(SHUT)).queryByText('отправляет')).not.toBeInTheDocument();
-      expect(within(cardOf(OPEN)).getByText('отправляет')).toBeInTheDocument();
+      expect(within(rowOf(SHUT)).queryByText('отправляет')).not.toBeInTheDocument();
+      expect(within(rowOf(OPEN)).getByText('отправляет')).toBeInTheDocument();
     });
 
     it(`${why}: «Отправлять могут» его не считает`, async () => {
@@ -108,18 +117,20 @@ describe('чем закрыт домен — словами (A8)', () => {
     it(`${why}: вместо «отправляет» — «${says}»`, async () => {
       await openWith(SHUT_BY[why] ?? {});
 
-      expect(within(cardOf(SHUT)).getByText(says)).toBeInTheDocument();
+      expect(within(rowOf(SHUT)).getByText(says)).toBeInTheDocument();
     });
   }
 
-  it('строка лимита называет направление, за которым записан домен', async () => {
+  it('строка лимита называет направление, за которым записан домен — по нажатию «i»', async () => {
     await openWith(SHUT_BY['чужое направление'] ?? {});
 
-    expect(
-      within(cardOf(SHUT)).getByText(
-        'лимит домена: 0 из 30 первых писем сегодня · записан за направлением «Доноры»',
-      ),
-    ).toBeInTheDocument();
+    await userEvent
+      .setup()
+      .click(within(rowOf(SHUT)).getByRole('button', { name: `Чем закрыт ${SHUT}` }));
+
+    expect(await screen.findByRole('dialog', { name: `Чем закрыт ${SHUT}` })).toHaveTextContent(
+      'лимит домена: 0 из 30 первых писем сегодня · записан за направлением «Доноры»',
+    );
   });
 
   it('все включённые закрыты — «Отправлять нечем» говорит почему, а не «все выключены»', async () => {
@@ -141,13 +152,15 @@ describe('чем закрыт домен — словами (A8)', () => {
   it('строка своего направления, выдержка прошла, лимит дня выбран — домен пишет', async () => {
     await openWith({ young_until: '2026-01-05T09:00:00+00:00', sent_today: 30 });
 
-    expect(within(cardOf(SHUT)).getByText('отправляет')).toBeInTheDocument();
+    // На экране всех этапов у строки продаж — пометка этапа, и колонка состояния на месте.
+    expect(within(rowOf(SHUT)).getByText('отправляет')).toBeInTheDocument();
+    expect(within(rowOf(SHUT)).queryByText('домен на выдержке')).toBeNull();
     expect(screen.getByText(/Отправлять могут/)).toHaveTextContent(
       'Отправлять могут 2 из 2 доменов.',
     );
   });
 
-  it('доноры: своя строка домена и домен без строки — «отправляет», счёт как было', async () => {
+  it('доноры: своя строка домена и домен без строки — пишут, колонки состояния нет', async () => {
     await open({
       senders: [
         { ...box(1, SHUT), stage: 'donors' },
@@ -158,8 +171,8 @@ describe('чем закрыт домен — словами (A8)', () => {
       directions: [{ stage: 'donors', daily_limit: null, sent_today: 0 }],
     });
 
-    expect(within(cardOf(SHUT)).getByText('отправляет')).toBeInTheDocument();
-    expect(within(cardOf(OPEN)).getByText('отправляет')).toBeInTheDocument();
+    expect(stateColumn()).toBeNull();
+    expect(screen.queryByText(/^домен (на|другого)/)).toBeNull();
     expect(screen.getByText(/Отправлять могут/)).toHaveTextContent(
       'Отправлять могут 2 из 2 доменов.',
     );

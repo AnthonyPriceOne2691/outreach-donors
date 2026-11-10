@@ -230,9 +230,10 @@ describe('рассмотрение прогона', () => {
     await openReview();
 
     expect(await screen.findByText('рано')).toBeInTheDocument();
-    expect(
-      screen.getByText('по всем прогонам решений нет; нужно ≥ 95% на ≥ 200'),
-    ).toBeInTheDocument();
+    const need = screen.getByText('по всем прогонам решений нет; нужно ≥ 95% на ≥ 200');
+    // После «≥» — неразрывный пробел: строка рвалась «нужно ≥ | 95% на ≥ 200» (разведка
+    // 10.11.2026). Сравнение по тексту выше пробелы не различает — сверяем сам текст.
+    expect(need.textContent).toBe('по всем прогонам решений нет; нужно ≥\u00a095% на ≥\u00a0200');
   });
 
   it('плитки судьи — про этот прогон, автоприём — по всем прогонам', async () => {
@@ -572,6 +573,47 @@ describe('смена вкладки — не перезагрузка', () => {
     expect(screen.queryByText('martech.example.test')).toBeNull();
     expect(document.querySelector('[data-stale]')).toBeNull();
     expect(screen.getByRole('radio', { name: 'Приняты — 1' })).toBeInTheDocument();
+  });
+});
+
+describe('смена вкладки не двигает вкладки', () => {
+  // Разведка 10.11.2026: «Отклонены — 0» укорачивала страницу с 1 302 до 900 px — браузер
+  // поджимал прокрутку, и вкладки уезжали вверх на 115–170 px; ряд «Тематика» на пустой
+  // вкладке пропадал, и всё ниже поднималось ещё на ~50 px. Высоту в jsdom не измерить —
+  // проверяется, что список держит высоту окна (`reviewQueue`), а ряд — своё место.
+  const FINANCE = { topic: { code: 'finance', label: 'Финансы' } };
+  const REJECTED = 'GET /api/review/runs/18?status=rejected';
+
+  it('на пустой вкладке место ряда «Тематика» держится, а список — не ниже окна', async () => {
+    await openReview({
+      [PENDING]: { body: { ...VIEW, rows: [card(1, 'martech.example.test', FINANCE)] } },
+      [REJECTED]: { body: { ...VIEW, rows: [] } },
+    });
+    const user = userEvent.setup();
+    expect(screen.getByRole('textbox', { name: 'Тематика' })).toBeInTheDocument();
+    expect(screen.getByRole('table').closest('.mantine-Card-root')).toHaveClass('reviewQueue');
+
+    await user.click(screen.getByText('Отклонены — 0'));
+    const empty = await screen.findByText('Отклонённых нет.');
+
+    // Поля не видно, и до него не дойти ни мышью, ни клавиатурой; место — то же поле.
+    expect(screen.queryByRole('textbox', { name: 'Тематика' })).toBeNull();
+    const place = document.querySelector('[data-topic-place]');
+    expect(place).not.toBeNull();
+    expect(place).toHaveStyle({ visibility: 'hidden' });
+    expect(place).toHaveAttribute('inert');
+    expect(place).toHaveAttribute('aria-hidden', 'true');
+    expect(empty.closest('.mantine-Card-root')).toHaveClass('reviewQueue');
+  });
+
+  it('у прогона без тематики места под фильтр нет ни на одной вкладке', async () => {
+    await openReview({ [REJECTED]: { body: { ...VIEW, rows: [] } } });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText('Отклонены — 0'));
+    await screen.findByText('Отклонённых нет.');
+
+    expect(document.querySelector('[data-topic-place]')).toBeNull();
   });
 });
 

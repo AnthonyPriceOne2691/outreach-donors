@@ -35,6 +35,7 @@ import { refusalOf } from '../api/client';
 import { estimateCompetitors, startCompetitors } from '../api/competitors';
 import type { CompetitorForecast, CompetitorRunBody } from '../api/competitors';
 import { countryTitle } from '../api/labels';
+import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
 import { NumberField } from '../components/NumberField';
 import { numberRefusal, validNumber } from '../components/numberText';
@@ -55,6 +56,8 @@ const DEFAULT_RIVAL_DEPTH = 100;
 const CAP: NumberRule = { decimals: 0, min: 1, max: 1_000_000 };
 /** Ширины — по самому длинному значению: «Саудовская Аравия», «500 сайтов на конкурента». */
 const WIDTH = { country: 200, depth: 240, cap: 190 } as const;
+/** Подпись поля конкурентов — словом и именем поля для читалки экрана. */
+const RIVALS_LABEL = 'Сайты конкурентов';
 
 function sitesTitle(count: number): string {
   return `${formatNumber(count)} ${plural(count, 'сайт', 'сайта', 'сайтов')}`;
@@ -160,6 +163,24 @@ interface FieldsProps {
   canRun: boolean;
 }
 
+/** Подпись поля конкурентов со значком «i»: что возьмём и чем платится — в окошке, а не
+ *  строкой под полем (разведка 10.11.2026: 22 слова во всю ширину). Трату на виду называет
+ *  смета: «Запустить» не нажимается без неё, и цена в юнитах стоит над кнопкой. Подпись —
+ *  не `<label>` (`labelElement: 'div'`): кнопка внутри подписи вошла бы в имя поля. */
+function RivalsLabel() {
+  return (
+    <Group component="span" gap={4} wrap="nowrap">
+      {RIVALS_LABEL}
+      <InfoHint name="Что возьмём у конкурентов" width={300} interactive>
+        <Text size="sm">
+          Возьмём сайты, которые ссылаются на этих конкурентов и проходят пороги DR и трафика.
+          Списки платятся юнитами Ahrefs — того же ключа, что метрики.
+        </Text>
+      </InfoHint>
+    </Group>
+  );
+}
+
 /** Поля входа «Конкуренты» и кнопки: без сметы, с устаревшей или непомещающейся — не
  *  запускается, как у ключей. */
 export function CompetitorFields({ run, country, onCountry, countries, canRun }: FieldsProps) {
@@ -168,7 +189,9 @@ export function CompetitorFields({ run, country, onCountry, countries, canRun }:
   return (
     <Stack gap="xs">
       <TagsInput
-        label="Сайты конкурентов"
+        label={<RivalsLabel />}
+        labelProps={{ labelElement: 'div' }}
+        aria-label={RIVALS_LABEL}
         description={`До ${MAX_RIVALS} доменов — Enter или запятая после каждого`}
         placeholder={run.rivals.length === 0 ? 'example.com' : ''}
         value={run.rivals}
@@ -177,10 +200,6 @@ export function CompetitorFields({ run, country, onCountry, countries, canRun }:
         splitChars={[',', ' ', ';', '\n']}
         clearable
       />
-      <Text size="sm" c="dimmed">
-        Возьмём сайты, которые ссылаются на этих конкурентов и проходят пороги DR и трафика. Списки
-        платятся юнитами Ahrefs — того же ключа, что метрики.
-      </Text>
       <Group align="flex-end" gap="md" className="fieldRow runFields">
         <Select
           label="Страна прогона"

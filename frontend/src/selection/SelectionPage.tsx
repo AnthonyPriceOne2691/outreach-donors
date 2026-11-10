@@ -41,6 +41,7 @@ import { JUDGE_DECIDERS, SELECTION_TABS } from '../api/labels';
 import { listSelection } from '../api/selection';
 import type { JudgeDecider, SelectionView } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { InfoHint } from '../components/InfoHint';
 import { PageHead } from '../components/PageHead';
 import { PageSwitch } from '../components/PageSwitch';
 import { useLastPage, useUrlFilters } from '../components/useUrlFilters';
@@ -65,21 +66,34 @@ const sameSearch = (draft: string, committed: string) => draft.trim() === commit
 
 type Score = Partial<Record<JudgeDecider, { checked: number; agreed: number }>>;
 
-/** «правило 2 из 2 · модель 1 из 2 · арбитр — не проверяли». */
-function scoreLine(score: Score, missing: string): string {
-  return DECIDERS.map((who) => {
+/** Слои с данными: «правило 2 из 2 · модель 1 из 2»; слоя без сверки в строке нет. */
+function scoreLine(score: Score): string {
+  return DECIDERS.flatMap((who) => {
     const layer = score[who];
-    return `${JUDGE_DECIDERS[who].title} ${
-      layer === undefined
-        ? `— ${missing}`
-        : `${formatNumber(layer.agreed)} из ${formatNumber(layer.checked)}`
-    }`;
+    return layer === undefined
+      ? []
+      : [
+          `${JUDGE_DECIDERS[who].title} ${formatNumber(layer.agreed)} из ${formatNumber(layer.checked)}`,
+        ];
   }).join(' · ');
+}
+
+/** Сверка судьи одной строкой и только слоями с данными (разведка 10.11.2026: две строки,
+ *  27–47 слов, из шести значений пять — «ответов нет» и «не проверяли»): «Судья по ответам
+ *  доноров: арбитр 3 из 3; с человеком — не сверяли». Сверки нет совсем — строки нет, это
+ *  говорит «i» у фактов. */
+function judgeLine(data: SelectionView): string | null {
+  const answers = scoreLine(data.answer_layers);
+  const human = scoreLine(data.layers);
+  if (answers === '' && human === '') return null;
+  const said = (line: string) => (line === '' ? ' — не сверяли' : `: ${line}`);
+  return `Судья по ответам доноров${said(answers)}; с человеком${said(human)}`;
 }
 
 /** Сводка по всему отбору, а не по странице: она отвечает на вопрос «насколько
  *  верить машине», и фильтры таблицы её не трогают. */
 function Summary({ data }: { data: SelectionView }) {
+  const judge = judgeLine(data);
   return (
     <Card className="glassPanel" p="xl">
       <Stack gap="md">
@@ -104,18 +118,18 @@ function Summary({ data }: { data: SelectionView }) {
             <Badge variant="light" color={data.disagreements > 0 ? 'yellow' : 'gray'}>
               {formatNumber(data.disagreements)}
             </Badge>
+            {judge === null && (
+              <InfoHint name="Сверка судьи" width={280}>
+                Сверки судьи ещё нет — ни по ответам доноров, ни с человеком.
+              </InfoHint>
+            )}
           </Group>
         </Group>
 
         {/* Главное число для гест-постинга: угадал ли судья, продаёт ли сайт
-            размещение, — по ответам самих сайтов. Сходимость с человеком
-            отвечает на другой вопрос: «издание или продавец своего». */}
-        <Text size="sm">
-          Судья угадал по ответам доноров: {scoreLine(data.answer_layers, 'ответов нет')}
-        </Text>
-        <Text size="sm" c="dimmed">
-          Сходится с человеком: {scoreLine(data.layers, 'не проверяли')}
-        </Text>
+            размещение, — по ответам самих сайтов; сходимость с человеком отвечает
+            на другой вопрос: «издание или продавец своего». */}
+        {judge !== null && <Text size="sm">{judge}</Text>}
       </Stack>
     </Card>
   );

@@ -138,35 +138,59 @@ function Human({ row, mayDecide, busy, gone, onDecide, onUndo }: Props) {
   );
 }
 
+/** Домен и DR. Не влез домен — многоточие, а не перенос; целиком — в подсказке и в имени
+ *  ссылки.
+ *
+ *  У принятых — одной строкой: строка таблицы ~48 px, а не 67 при двадцати строках на
+ *  странице (аудит экранов 09.10.2026). Обещание держит только строка без переноса: со швами
+ *  и переносом ряда на 1440 с раскрытым меню (колонка 217 px) DR уходил под домен, а длинный
+ *  домен ломался по точкам в три строки — 91 px (проверка QA 10.10.2026).
+ *
+ *  С «Порогами» — DR под доменом (разведка 10.11.2026): в одну строку с DR колонке в 12rem
+ *  на 1440 оставалось ~125 px, и обычный домен в 15 знаков резался многоточием. Выше строка
+ *  не становится: её держат два ряда кнопок «Человека» и значок порогов (`SelectionTable`),
+ *  а домену с DR под ним нужно ~44 px. Ширина домена — не больше колонки (`maw`): в столбике
+ *  без неё строка без переносов шире колонки, и многоточия бы не было. */
+function Domain({ row, withThresholds }: Pick<Props, 'row' | 'withThresholds'>) {
+  const name = (
+    <Anchor
+      href={`https://${row.host}`}
+      target="_blank"
+      rel="noreferrer"
+      fw={500}
+      truncate="end"
+      maw="100%"
+      title={row.host}
+      className="cellName"
+    >
+      {row.host}
+    </Anchor>
+  );
+  const dr =
+    row.dr === null ? null : (
+      <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
+        DR {row.dr}
+      </Text>
+    );
+  return withThresholds ? (
+    <Stack gap={0} align="center">
+      {name}
+      {dr}
+    </Stack>
+  ) : (
+    <Group gap={8} justify="center" wrap="nowrap">
+      {name}
+      {dr}
+    </Group>
+  );
+}
+
 export function SelectionRow(props: Props) {
   const { row, withThresholds } = props;
   return (
     <Table.Tr>
       <Table.Td>
-        {/* Домен и DR — одной строкой: строка таблицы ~48 px, а не 67 при двадцати
-            строках на странице (аудит экранов 09.10.2026). Обещание держит только
-            строка без переноса: со швами и переносом ряда на 1440 с раскрытым
-            меню (колонка 217 px) DR уходил под домен, а длинный домен ломался по
-            точкам в три строки — 91 px (проверка QA 10.10.2026). Не влезло —
-            многоточие; целиком домен — в подсказке и в имени ссылки. */}
-        <Group gap={8} justify="center" wrap="nowrap">
-          <Anchor
-            href={`https://${row.host}`}
-            target="_blank"
-            rel="noreferrer"
-            fw={500}
-            truncate="end"
-            title={row.host}
-            className="cellName"
-          >
-            {row.host}
-          </Anchor>
-          {row.dr !== null && (
-            <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
-              DR {row.dr}
-            </Text>
-          )}
-        </Group>
+        <Domain row={row} withThresholds={withThresholds} />
       </Table.Td>
       {withThresholds && (
         <Table.Td data-label="Пороги">
