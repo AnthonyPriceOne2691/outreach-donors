@@ -1632,9 +1632,9 @@
       "worst": "of:80"
     },
     "backend/features/crawl/promote.py": {
-      "lines": 498,
+      "lines": 499,
       "complexity": 10,
-      "worst": "promote:194"
+      "worst": "promote:195"
     },
     "backend/features/crawl/proxies.py": {
       "lines": 248,

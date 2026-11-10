@@ -130,8 +130,7 @@ async def standing(session: AsyncSession) -> Standing:
     ready = await session.scalar(select(roots).where(writes_to(), dr_settled()))
     fresh = await session.scalar(select(roots).where(writes_to(), dr_settled(), ~known))
     addressed = select(ContactModel.id).where(ContactModel.domain_id == AdvertiserModel.domain_id)
-    # Рекламодатели — те, кому пишем (`in_work`), как «всего» списка и первая ступень «Писем»:
-    # бизнес ниши без «пишем» человека в число «К письму» не входит (разведка 10.11.2026).
+    # Те, кому пишем (`in_work`), — как «всего» списка и «Письма» (разведка 10.11.2026).
     total = await session.scalar(select(func.count(AdvertiserModel.id)).where(in_work()))
     with_address = await session.scalar(
         select(func.count(AdvertiserModel.id)).where(in_work(), addressed.exists())
