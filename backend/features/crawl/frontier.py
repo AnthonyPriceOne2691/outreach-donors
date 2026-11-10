@@ -19,11 +19,11 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from urllib.parse import urldefrag
 
-from selectolax.parser import HTMLParser
+from selectolax.parser import HTMLParser, Node
 
 from backend.shared.net.url_parts import join_url, parse_url
 
@@ -35,6 +35,9 @@ SKIP_SUFFIXES: tuple[str, ...] = (
     ".zip", ".gz", ".rar", ".7z", ".tar",
     ".mp3", ".mp4", ".avi", ".mov", ".webm", ".woff", ".woff2", ".ttf",
 )  # fmt: skip
+
+#: Начала адреса ссылки, за которой страницы нет: почта, телефон, скрипт, якорь.
+_NOT_PAGES = ("mailto:", "tel:", "javascript:", "#")
 
 #: Откуда обход брал адреса — `CrawlReport.source` и чекпоинт: карта, ссылки или карта, а
 #: после неё ссылки.
@@ -52,6 +55,16 @@ def crawlable(url: str, host: str) -> bool:
     return not parts.path.lower().endswith(SKIP_SUFFIXES)
 
 
+def page_hrefs(html: str) -> Iterator[tuple[Node, str]]:
+    """Ссылки страницы, за которыми может быть страница: узел и адрес как вписан, без
+    пробелов по краям. Пустой адрес, почта, телефон, скрипт и якорь пропускаются — одним
+    правилом у очереди обхода и у поиска раздела контактов (`contacts/extract.py`)."""
+    for node in HTMLParser(html).css("a[href]"):
+        href = (node.attributes.get("href") or "").strip()
+        if href and not href.startswith(_NOT_PAGES):
+            yield node, href
+
+
 def same_site_links(html: str, page_url: str, host: str) -> list[str]:
     """Ссылки со страницы на свой же сайт, без якорей и дублей.
 
@@ -61,10 +74,7 @@ def same_site_links(html: str, page_url: str, host: str) -> list[str]:
     """
     out: list[str] = []
     seen: set[str] = set()
-    for node in HTMLParser(html).css("a[href]"):
-        href = (node.attributes.get("href") or "").strip()
-        if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
-            continue
+    for _, href in page_hrefs(html):
         joined = join_url(page_url, href)
         if joined is None:
             continue

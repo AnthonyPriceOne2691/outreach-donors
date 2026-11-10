@@ -157,6 +157,50 @@ async def _seed_senders(session: AsyncSession, now: datetime) -> list[SenderMode
     return made
 
 
+async def _seed_donor(
+    session: AsyncSession,
+    host: str,
+    *,
+    email: str,
+    dr: int,
+    org_traffic: int,
+    refreshed_at: datetime,
+) -> tuple[DomainModel, ContactModel]:
+    """Домен демонстрации: годный донор и его адрес со страницы сайта."""
+    domain = DomainModel(host=host)
+    session.add(domain)
+    await session.flush()
+
+    session.add(
+        DonorModel(
+            domain_id=domain.id,
+            status=DonorStatus.SUITABLE,
+            dr=dr,
+            org_traffic=org_traffic,
+            metrics_refreshed_at=refreshed_at,
+        )
+    )
+    contact = ContactModel(domain_id=domain.id, email=email, source=ContactSource.PAGE)
+    session.add(contact)
+    await session.flush()
+    return domain, contact
+
+
+async def _open_thread(
+    session: AsyncSession, campaign: CampaignModel, domain: DomainModel, contact: ContactModel
+) -> ThreadModel:
+    """Открытый диалог кампании с адресом донора."""
+    thread = ThreadModel(
+        domain_id=domain.id,
+        campaign_id=campaign.id,
+        contact_id=contact.id,
+        status=ThreadStatus.OPEN,
+    )
+    session.add(thread)
+    await session.flush()
+    return thread
+
+
 async def _seed_sent_today(session: AsyncSession, senders: list[SenderModel], now: datetime) -> int:
     """Письма, ушедшие сегодня.
 
@@ -176,33 +220,15 @@ async def _seed_sent_today(session: AsyncSession, senders: list[SenderModel], no
         allowance = warmup_state(sender, now=now).allowance
         for number in range(min(SENT_TODAY_PER_BOX, allowance)):
             host = f"sent-{sender.id}-{number + 1}{DEMO_SUFFIX}"
-            domain = DomainModel(host=host)
-            session.add(domain)
-            await session.flush()
-
-            session.add(
-                DonorModel(
-                    domain_id=domain.id,
-                    status=DonorStatus.SUITABLE,
-                    dr=22 + number,
-                    org_traffic=800 + number * 250,
-                    metrics_refreshed_at=now,
-                )
+            domain, contact = await _seed_donor(
+                session,
+                host,
+                email=f"info@{host}",
+                dr=22 + number,
+                org_traffic=800 + number * 250,
+                refreshed_at=now,
             )
-            contact = ContactModel(
-                domain_id=domain.id, email=f"info@{host}", source=ContactSource.PAGE
-            )
-            session.add(contact)
-            await session.flush()
-
-            thread = ThreadModel(
-                domain_id=domain.id,
-                campaign_id=campaign.id,
-                contact_id=contact.id,
-                status=ThreadStatus.OPEN,
-            )
-            session.add(thread)
-            await session.flush()
+            thread = await _open_thread(session, campaign, domain, contact)
 
             session.add(
                 MessageModel(
@@ -243,24 +269,14 @@ async def _seed_queue(session: AsyncSession, now: datetime) -> int:
     made = 0
     for order, (name, rewrites) in enumerate(QUEUE):
         host = f"{name}{DEMO_SUFFIX}"
-        domain = DomainModel(host=host)
-        session.add(domain)
-        await session.flush()
-
-        session.add(
-            DonorModel(
-                domain_id=domain.id,
-                status=DonorStatus.SUITABLE,
-                dr=31 + order * 4,
-                org_traffic=2400 + order * 1100,
-                metrics_refreshed_at=now - timedelta(days=order),
-            )
+        domain, contact = await _seed_donor(
+            session,
+            host,
+            email=f"editor@{host}",
+            dr=31 + order * 4,
+            org_traffic=2400 + order * 1100,
+            refreshed_at=now - timedelta(days=order),
         )
-        contact = ContactModel(
-            domain_id=domain.id, email=f"editor@{host}", source=ContactSource.PAGE
-        )
-        session.add(contact)
-        await session.flush()
 
         letter = compose.assemble(
             compose.render(template, compose.values_for(host=host, domain_id=domain.id)),
@@ -268,14 +284,7 @@ async def _seed_queue(session: AsyncSession, now: datetime) -> int:
         )
         # Число считается по тексту, а не назначается ему.
         uniqueness = difference(letter.plain_body, letter.body)
-        thread = ThreadModel(
-            domain_id=domain.id,
-            campaign_id=campaign.id,
-            contact_id=contact.id,
-            status=ThreadStatus.OPEN,
-        )
-        session.add(thread)
-        await session.flush()
+        thread = await _open_thread(session, campaign, domain, contact)
 
         session.add(
             MessageModel(
@@ -360,31 +369,15 @@ async def _seed_threads(session: AsyncSession, now: datetime) -> int:
 
     made = 0
     for order, (host, email, outcome, white, grey) in enumerate(CONVERSATIONS):
-        domain = DomainModel(host=host)
-        session.add(domain)
-        await session.flush()
-
-        session.add(
-            DonorModel(
-                domain_id=domain.id,
-                status=DonorStatus.SUITABLE,
-                dr=25 + order * 3,
-                org_traffic=1200 + order * 900,
-                metrics_refreshed_at=now - timedelta(days=order),
-            )
+        domain, contact = await _seed_donor(
+            session,
+            host,
+            email=email,
+            dr=25 + order * 3,
+            org_traffic=1200 + order * 900,
+            refreshed_at=now - timedelta(days=order),
         )
-        contact = ContactModel(domain_id=domain.id, email=email, source=ContactSource.PAGE)
-        session.add(contact)
-        await session.flush()
-
-        thread = ThreadModel(
-            domain_id=domain.id,
-            campaign_id=campaign.id,
-            contact_id=contact.id,
-            status=ThreadStatus.OPEN,
-        )
-        session.add(thread)
-        await session.flush()
+        thread = await _open_thread(session, campaign, domain, contact)
 
         # Отсчёт от двух недель назад: добивка уходит через семь дней после
         # первого письма, и при более близкой дате она оказывалась бы в

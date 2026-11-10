@@ -5,7 +5,7 @@
  * рекламодателей, а `types.ts` у потолка длины.
  */
 
-import { download, request } from './client';
+import { download, request, withQuery } from './client';
 import type { Downloaded } from './client';
 import type { ContactStatus } from './types';
 
@@ -76,21 +76,14 @@ export interface AdvertiserQuery {
   letter?: OfferState;
 }
 
-function paramsOf(query: AdvertiserQuery, page?: number): string {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(query)) {
-    if (value !== undefined && value !== '') params.set(key, String(value));
-  }
-  if (page !== undefined && page > 1) params.set('page', String(page));
-  const tail = params.toString();
-  return tail === '' ? '' : `?${tail}`;
-}
-
 export function fetchAdvertiserList(
   query: AdvertiserQuery,
   page: number,
 ): Promise<AdvertiserListView> {
-  return request<AdvertiserListView>(`/advertisers/list${paramsOf(query, page)}`);
+  // Страница — после фильтров; первая — без номера в адресе.
+  return request<AdvertiserListView>(
+    withQuery('/advertisers/list', page > 1 ? { ...query, page } : query),
+  );
 }
 
 export function fetchAdvertiserFacets(): Promise<AdvertiserFacets> {
@@ -99,5 +92,5 @@ export function fetchAdvertiserFacets(): Promise<AdvertiserFacets> {
 
 /** Те же строки, что в списке под тем же фильтром, — файлом CSV. */
 export function exportAdvertisers(query: AdvertiserQuery): Promise<Downloaded> {
-  return download(`/advertisers/list/export${paramsOf(query)}`);
+  return download(withQuery('/advertisers/list/export', query));
 }
