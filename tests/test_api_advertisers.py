@@ -24,6 +24,7 @@ from backend.features.core.domain import (
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.crawl import CrawlRunModel
+from backend.features.crawl.reason_words import NONPROFIT_NOTE, NONPROFIT_WHY
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -192,6 +193,25 @@ class TestSeeing:
         assert row["target_root"] == "advertiser.example"
         assert row["points"] == 3
         assert "коммерческий анкор под nofollow +2" in row["reasons"]
+        assert row["reason_notes"] == {}
+
+    async def test_the_zone_reason_is_short_and_its_why_is_a_note(
+        self,
+        client: AsyncClient,
+        admin_token: str,
+        candidate: CandidateModel,
+        session: AsyncSession,
+    ) -> None:
+        """Разведка экранов 10.11.2026: одиннадцать слов зоны у каждого домена .org растили строку
+        таблицы — в строке «зона .org», почему решает человек — в «i» у неё."""
+        candidate.reasons = ["rel=sponsored +5", f"зона .org — {NONPROFIT_WHY}"]
+        await session.commit()
+
+        response = await client.get("/api/advertisers", headers=bearer(admin_token))
+
+        row = response.json()["rows"][0]
+        assert row["reasons"] == ["rel=sponsored +5", "зона .org"]
+        assert row["reason_notes"] == {"зона .org": NONPROFIT_NOTE}
 
     async def test_letter_gets_the_page_and_the_anchor(
         self, client: AsyncClient, admin_token: str, candidate: CandidateModel

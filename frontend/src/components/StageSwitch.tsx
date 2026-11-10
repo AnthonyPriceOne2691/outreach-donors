@@ -2,8 +2,7 @@
  * Переключатель этапа: донорам или рекламодателям.
  *
  * Один на все экраны, где этап выбирают (письма, агент переписки): подписи
- * этапов и вид переключателя не расходятся между экранами. Под ним — что
- * экран делает на выбранном этапе, словами человека.
+ * этапов и вид переключателя не расходятся между экранами.
  *
  * **На телефоне — столбиком во всю ширину**, как период воронки продаж
  * (`sales/FunnelPane`). В ряд «Донорам · Рекламодателям · Бизнесам ниши» —
@@ -11,15 +10,22 @@
  * уходил за край экрана и срезался (проверка QA 10.10.2026, «Письма»). Столбик,
  * а не список: этапов два-три, и все видны и нажимаются сразу.
  *
- * **Выбрать из одного нечего** — переключателя нет, пояснение остаётся: «Письма донорам»
- * (23.10.2026) — одни доноры, и экран называет их заголовком.
+ * **Что экран делает на выбранном этапе — в «i» рядом с переключателем** (слово владельца
+ * 10.11.2026): абзац под ним в три строки отодвигал то, по чему решают. Пояснения длиннее
+ * подсказки в строку, поэтому «i» — окошком по нажатию. На виду остаются состояние и поля
+ * экрана — их ставит сам экран, а не этот компонент.
+ *
+ * **Выбрать из одного нечего** — переключателя нет, и пояснение — в «i» у заголовка экрана:
+ * его ставит экран (`PageHead`, `hint`), здесь не рисуется ничего. До 10.11.2026 оно стояло
+ * под заголовком строкой («Письма донорам», 23.10.2026).
  */
 
-import { SegmentedControl, Stack, Text } from '@mantine/core';
+import { Group, SegmentedControl } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import type { ReactNode } from 'react';
 
 import type { LetterStage } from '../api/types';
+import { InfoHint } from './InfoHint';
 
 /** Этап на выбор: значение и подпись. */
 export interface StageOption<S extends string> {
@@ -40,7 +46,7 @@ interface StageSwitchProps<S extends string> {
   label: string;
   value: S;
   onChange: (stage: S) => void;
-  /** Пояснение к выбранному этапу. */
+  /** Пояснение к выбранному этапу — в «i» рядом с переключателем. */
   lead: ReactNode;
   /** Этапы на выбор; нет — доноры и рекламодатели. Экран агента берёт их из
    *  реестра сервера: новый этап встаёт на него без правки экрана. */
@@ -58,22 +64,22 @@ export function StageSwitch<S extends string = LetterStage>({
   // экрана и перестраивал его на глазах (как `layout/split`).
   const narrow = useMediaQuery(NARROW, false, { getInitialValueInEffect: false }) === true;
   const options = stages ?? STAGES;
+  if (options.length < 2) return null;
+  const chosen = options.find((one) => one.value === value)?.label ?? label;
   return (
-    <Stack gap={6}>
-      {options.length > 1 && (
-        <SegmentedControl
-          aria-label={label}
-          value={value}
-          onChange={(picked) => onChange(picked as S)}
-          data={options}
-          orientation={narrow ? 'vertical' : 'horizontal'}
-          fullWidth={narrow}
-          style={{ alignSelf: narrow ? 'stretch' : 'flex-start' }}
-        />
-      )}
-      <Text size="sm" c="dimmed" maw={680}>
+    <Group gap={4} wrap="nowrap" align="center">
+      <SegmentedControl
+        aria-label={label}
+        value={value}
+        onChange={(picked) => onChange(picked as S)}
+        data={options}
+        orientation={narrow ? 'vertical' : 'horizontal'}
+        fullWidth={narrow}
+        style={{ flex: narrow ? '1 1 auto' : '0 0 auto', minWidth: 0 }}
+      />
+      <InfoHint name={`Пояснение к «${chosen}»`} width={360} interactive>
         {lead}
-      </Text>
-    </Stack>
+      </InfoHint>
+    </Group>
   );
 }

@@ -122,6 +122,11 @@ const QUIET: QueueAutosend = {
 
 const MODES: PanelMailing = { links: QUIET, niche: QUIET };
 
+/** Слова сервера: почему запуск кончился и срок пустой очереди (`letters/autosend.py`,
+ *  `letters/forecast_plan.py`). */
+const STOP_EMPTY = 'очередь кончилась — новые письма уйдут, когда очередь снова отправят';
+const EMPTY_WORDS = 'очередь пуста — отправлять нечего';
+
 const FACETS: AdvertiserFacets = {
   sources: { links: 5 },
   addresses: { found: 3, form: 1, none: 1 },
@@ -188,6 +193,23 @@ describe('панель рекламодателей', () => {
     expect(within(tile('С адресом')).getByText('переведено 35')).toBeVisible();
     expect(within(tile('Письмо ушло')).getByText('12')).toBeVisible();
     expect(within(tile('Письмо дошло')).getByText('9')).toBeVisible();
+  });
+
+  it('число в пояснении плитки не отрывается от подписи — неразрывным пробелом', async () => {
+    open();
+
+    await screen.findByText('Рекламодателей получено');
+    const tile = (title: string) => screen.getByText(title).closest('.metricTile') as HTMLElement;
+    // Узкая плитка рвала «новых 2 · повторных / 324» (разведка 10.11.2026).
+    expect(within(tile('Рекламодателей получено')).getByText(/^новых/).textContent).toBe(
+      'новых\u00a030 · повторных\u00a010',
+    );
+    expect(within(tile('Обход начался')).getByText(/^идёт/).textContent).toBe(
+      'идёт\u00a03 · не открылись\u00a02',
+    );
+    expect(within(tile('С адресом')).getByText(/^переведено/).textContent).toBe(
+      'переведено\u00a035',
+    );
   });
 
   it('проверка открывается своим адресом, а переход на панель чистит его', async () => {
@@ -286,6 +308,52 @@ describe('качество загрузок', () => {
 
     const day = screen.getByText('обход без загрузки').closest('tr') as HTMLElement;
     expect(within(day).getByText('31.10.2026')).toBeVisible();
+    // Способы разные — колонка способа на месте, строки над таблицей нет.
+    expect(screen.getByRole('columnheader', { name: 'Способ загрузки' })).toBeVisible();
+    expect(screen.queryByText(/во всех строках/)).not.toBeInTheDocument();
+  });
+
+  it('способ один у всех строк — строкой над таблицей, без колонки; один домен — в «Доменов»', async () => {
+    const lone: QualityRow = {
+      ...DAY_ROW,
+      day: '2026-10-30',
+      at: '2026-10-30T09:00:00Z',
+      donors: 1,
+      host: 'lone.example.test',
+    };
+    open({
+      'GET /api/advertisers/panel/quality?page=1': {
+        body: { ...QUALITY, rows: [DAY_ROW, lone], total: 2 },
+      },
+    });
+
+    // Разведка 10.11.2026: самая широкая колонка во всех строках говорила «обход без загрузки».
+    expect(
+      await screen.findByText('Способ загрузки во всех строках: обход без загрузки'),
+    ).toBeVisible();
+    const table = screen.getByRole('table', { name: 'Качество загрузок' });
+    expect(within(table).queryByRole('columnheader', { name: 'Способ загрузки' })).toBeNull();
+    expect(within(table).queryByText(/обход без загрузки/)).toBeNull();
+    // Домен строки виден на месте «1», а не пропал вместе с колонкой способа.
+    const row = within(table).getByText('30.10.2026').closest('tr') as HTMLElement;
+    expect(row).toHaveTextContent('lone.example.test');
+    // Список доменов строки дня — по-прежнему окном.
+    expect(
+      within(table).getByRole('button', { name: 'Домены строки: обход без загрузки' }),
+    ).toBeVisible();
+  });
+
+  it('у страницы из нескольких — сказано, что способ один у строк страницы', async () => {
+    const earlier: QualityRow = { ...DAY_ROW, day: '2026-10-29', at: '2026-10-29T09:00:00Z' };
+    open({
+      'GET /api/advertisers/panel/quality?page=1': {
+        body: { ...QUALITY, rows: [DAY_ROW, earlier], total: 40 },
+      },
+    });
+
+    expect(
+      await screen.findByText('Способ загрузки во всех строках страницы: обход без загрузки'),
+    ).toBeVisible();
   });
 
   it('все домены партии — окном, по её номеру', async () => {
@@ -409,8 +477,88 @@ describe('рассылка на панели', () => {
       },
     });
 
-    expect(await screen.findByText(/Очередь уходит сама с/)).toBeVisible();
+    expect(await screen.findByText(/^По найденной ссылке: очередь уходит сама с/)).toBeVisible();
     expect(screen.queryByText(/Очередь сама не уходит/)).toBeNull();
+  });
+
+  it('две остановленные очереди — каждая со своей подписью, а не два одинаковых «сама больше не уходит»', async () => {
+    open({
+      'GET /api/advertisers/panel/mailing': {
+        body: {
+          links: { ...QUIET, stopped_at: '2026-10-31T11:27:00Z', stop_reason: STOP_EMPTY },
+          niche: { ...QUIET, stopped_at: '2026-11-10T10:09:00Z', stop_reason: STOP_EMPTY },
+        },
+      },
+    });
+
+    expect(
+      await screen.findByText(/^По найденной ссылке: сама больше не уходит с .*очередь кончилась/),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/^Бизнесам ниши: сама больше не уходит с .*очередь кончилась/),
+    ).toBeVisible();
+  });
+
+  it('очередь пуста — одной строкой со ссылкой на «Письма», без повторов «пусто» рядом', async () => {
+    open({
+      'GET /api/advertisers/panel/mailing': {
+        body: {
+          links: { ...QUIET, stopped_at: '2026-10-31T11:27:00Z', stop_reason: STOP_EMPTY },
+          niche: { ...QUIET, stopped_at: '2026-11-10T10:09:00Z', stop_reason: STOP_EMPTY },
+        },
+      },
+      [FORECAST_ROUTE]: {
+        body: {
+          ...FORECAST,
+          stage: 'advertisers',
+          queued_first: 0,
+          queued_stuck: null,
+          queue_eta: { day: null, sending_days: null, hours: null, words: EMPTY_WORDS },
+        },
+      },
+    });
+
+    const line = await screen.findByText(/^Очередь пуста: новые письма собирают и отправляют/);
+    expect(line).toBeVisible();
+    expect(within(line).getByRole('link', { name: '«Письмах» рекламодателей' })).toHaveAttribute(
+      'href',
+      '/letters?stage=advertisers',
+    );
+    // Разведка 10.11.2026: «пусто» звучало в двух строках режима и в блоке срока.
+    expect(screen.queryByText(/сама больше не уходит/)).toBeNull();
+    expect(screen.queryByText(/Очередь сама не уходит/)).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Когда уйдёт очередь' })).toBeNull();
+    expect(screen.queryByText(EMPTY_WORDS)).toBeNull();
+    // Части и план — как были.
+    expect(screen.getByRole('region', { name: 'Рекламодатели по письмам' })).toBeVisible();
+    expect(await screen.findByRole('region', { name: 'План на 7 дней' })).toBeVisible();
+  });
+
+  it('очередь пуста, а запуск ещё идёт — его строка с «Остановить» остаётся', async () => {
+    open({
+      'GET /api/advertisers/panel/mailing': {
+        body: {
+          links: QUIET,
+          niche: {
+            ...QUIET,
+            running: true,
+            since: '2026-11-02T09:00:00Z',
+            started_by: 'anna@site.com',
+            sent: 3,
+          },
+        },
+      },
+      [FORECAST_ROUTE]: {
+        body: { ...FORECAST, stage: 'advertisers', queued_first: 0, queued_stuck: null },
+      },
+      'GET /api/letters/forecast?stage=advertisers&days=31&back=0': {
+        body: { queue_eta: { day: null, sending_days: null, hours: null, words: EMPTY_WORDS } },
+      },
+    });
+
+    expect(await screen.findByText(/^Бизнесам ниши: очередь уходит сама с/)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Остановить' })).toBeVisible();
+    expect(screen.getByText(/^Очередь пуста: новые письма/)).toBeVisible();
   });
 
   it('отказ прогноза — в его блоке, части и режим живут', async () => {

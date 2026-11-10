@@ -7,7 +7,12 @@
  * он («найденные рекламодатели со скорингом и причиной»), страница и анкор найденной
  * ссылки, есть ли адрес, что с письмом. У бизнеса ниши ссылки и балла нет — вместо донора
  * сказано, откуда он: «бизнес ниши, прогон №N». Остаток ширины — «За что», как в очереди
- * проверки: причины по строке на причину.
+ * проверки: причины по строке на причину, тем же компонентом (`Reasons`).
+ *
+ * **Таблица — в карточку на 1440 с открытым меню** (разведка экранов 10.11.2026): при
+ * наименьшей ширине 1200 px у таблицы ~1 090 px, «Письмо» срезалось краем карточки, а
+ * полосы прокрутки не видно. Домену и ссылке — уже, балл после пересчёта — «→ N» под
+ * значком, а не фразой шире колонки.
  *
  * **Донор в строке — лучшей ссылки, фильтр — любой**: под лучшую ссылку пишется письмо,
  * а найти рекламодателя по донору нужно у любого, кто на него ссылается, — как считает
@@ -30,6 +35,7 @@ import { NoRows } from '../components/WholeRow';
 import type { Emptiness } from '../components/WholeRow';
 import { formatNumber } from '../format';
 import { LinkAnchor } from './LinkAnchor';
+import { Reasons } from './Reasons';
 import {
   ADDRESS_KEYS,
   ADDRESS_STATES,
@@ -50,22 +56,32 @@ function DonorHint() {
   );
 }
 
-/** Колонки слева направо — как в очереди проверки: домену 13rem (переносится по швам),
- *  донору 11rem, баллу — значок и «после пересчёта — 3» под ним, остаток — «За что»,
- *  ссылке 12rem; адресу — значок «предел запросов» и поле «только форма», письму —
- *  значок «не собрано» и поле «отписался». */
+/** «i» у «Балла»: что значит «→ N» под значком. */
+function PointsHint() {
+  return (
+    <InfoHint name="Что значит «→» у балла" width={260}>
+      «→ N» — балл после пересчёта весов: причины в строке — нынешние.
+    </InfoHint>
+  );
+}
+
+/** Колонки слева направо — как в очереди проверки: домену 11rem (переносится по швам),
+ *  донору 11rem, баллу — значок и «→ 3» под ним, остаток — «За что», ссылке 10rem — под
+ *  «страница», анкор в три строки и поле «Откуда»; адресу — значок «предел запросов» и
+ *  поле «только форма», письму — значок «не собрано» и поле «отписался». */
 const COLUMNS: Column[] = [
-  { title: 'Рекламодатель', width: '13rem' },
+  { title: 'Рекламодатель', width: '11rem' },
   { title: 'Донор', width: '11rem', hint: <DonorHint /> },
-  { title: 'Балл', width: '6.5rem' },
+  { title: 'Балл', width: '5.5rem', hint: <PointsHint /> },
   { title: 'За что' },
-  { title: 'Ссылка', width: '12rem' },
+  { title: 'Ссылка', width: '10rem' },
   { title: 'Адрес', width: '9.5rem' },
   { title: 'Письмо', width: '9rem' },
 ];
 
-/** Уже — прокрутка: колонкам с шириной 61rem (976 px), причинам — от 220. */
-export const LIST_MIN_WIDTH = 1200;
+/** Уже — прокрутка: колонкам с шириной 56rem (896 px), причинам — от 192. На 1440 с открытым
+ *  меню у таблицы в карточке 1 093 px (замер 10.11.2026, меню всех групп), и прокрутки нет. */
+export const LIST_MIN_WIDTH = 1088;
 
 interface FilterProps {
   filters: ListFilters;
@@ -76,6 +92,9 @@ interface FilterProps {
   onFilter: (patch: Partial<ListFilters>) => void;
 }
 
+/** Пункты «Откуда», «Адреса» и «Письма» — списком по содержимому, как в очереди проверки: в поле
+ *  уже пункта со счётчиком «адрес найден · 400» рвался на две-три строки, а «Откуда» — и после
+ *  того, как «Ссылка» стала уже (10.11.2026). */
 function FilterRow({ filters, facets, search, onSearch, onFilter }: FilterProps) {
   const all =
     facets === null ? undefined : Object.values(facets.sources).reduce((sum, n) => sum + n, 0);
@@ -143,6 +162,7 @@ function FilterRow({ filters, facets, search, onSearch, onFilter }: FilterProps)
           title={(key) => SOURCES[key]}
           count={of(facets?.sources)}
           onPick={(source) => onFilter({ source })}
+          contentList
         />
       </Table.Th>
       <Table.Th data-label="Адрес">
@@ -153,6 +173,7 @@ function FilterRow({ filters, facets, search, onSearch, onFilter }: FilterProps)
           title={(key) => ADDRESS_STATES[key]}
           count={of(facets?.addresses)}
           onPick={(address) => onFilter({ address })}
+          contentList
         />
       </Table.Th>
       <Table.Th data-label="Письмо">
@@ -163,6 +184,7 @@ function FilterRow({ filters, facets, search, onSearch, onFilter }: FilterProps)
           title={(key) => OFFER_STATES[key].title}
           count={of(facets?.letters)}
           onPick={(letter) => onFilter({ letter })}
+          contentList
         />
       </Table.Th>
     </Table.Tr>
@@ -206,16 +228,18 @@ function Where({ row }: { row: AdvertiserCard }) {
   );
 }
 
-/** Балл, с которым перевели, и — если веса с тех пор пересчитали — нынешний под ним:
- *  причины в строке — нынешние. У бизнеса ниши балла нет. */
+/** Балл, с которым перевели, и — если веса с тех пор пересчитали — нынешний под ним
+ *  стрелкой, «→ 11»: причины в строке — нынешние, что значит стрелка — в «i» у заголовка.
+ *  Фразой «после пересчёта — 11» он был шире колонки и сливался с «За что» в одну строку
+ *  (разведка экранов 10.11.2026). У бизнеса ниши балла нет. */
 function Points({ row }: { row: AdvertiserCard }) {
   if (row.source === 'niche') return <>—</>;
   return (
     <Stack gap={2} align="center">
       <Badge variant="light">{row.points}</Badge>
       {row.rescored !== null ? (
-        <Text size="xs" c="dimmed">
-          после пересчёта — {row.rescored}
+        <Text size="xs" c="dimmed" title={`после пересчёта весов — ${row.rescored}`}>
+          {`→\u00a0${row.rescored}`}
         </Text>
       ) : null}
     </Stack>
@@ -253,13 +277,7 @@ function Row({ row }: { row: AdvertiserCard }) {
         {row.reasons.length === 0 ? (
           '—'
         ) : (
-          <Stack gap={2}>
-            {row.reasons.map((reason) => (
-              <Text key={reason} size="xs">
-                {reason}
-              </Text>
-            ))}
-          </Stack>
+          <Reasons reasons={row.reasons} notes={row.reason_notes} />
         )}
       </Table.Td>
       <Table.Td className="wrapCell" data-label="Ссылка">

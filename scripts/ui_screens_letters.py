@@ -16,10 +16,15 @@
   корзиной — «не измерено: одна краска», после — 2,54 на свету и 1,60 в темноте (перемер
   продаж 20.10.2026). Правка закрытием окна не теряется (`LetterDraftEditor.tsx`).
 
+Пояснение адресата — в «i» (слово владельца 10.11.2026): у переключателя — окошком по нажатию,
+без переключателя — подсказкой у заголовка. Мерится открытым, последней точкой экрана: слой лёг
+бы поверх следующих точек. Шаги открытия — здесь же, их берут и «Письма донорам», и агент.
+
 Нормы передаются параметрами, а не импортируются из `ui_screens`: тот подключает этот
 модуль, и обратный импорт замкнул бы круг.
 """
 
+import re
 from typing import Any
 
 from playwright.sync_api import expect
@@ -31,6 +36,30 @@ BADGE = "[data-letter-draft] .mantine-Badge-root"
 #: Переключатель адресата и его подпись — без подвижной подложки.
 SWITCH = "[aria-label='Кому письма']"
 INNER = ".mantine-SegmentedControl-innerLabel"
+#: «i» у заголовка — всплывающая подсказка, «i» у переключателя — окошко (`StageSwitch`).
+TOOLTIP = ".mantine-Tooltip-tooltip"
+DROPDOWN = ".mantine-Popover-dropdown"
+
+
+def open_title_hint(page: Any) -> None:
+    """Шаг перед точкой: «i» у заголовка в фокусе — подсказка с пояснением экрана открыта."""
+    page.get_by_role("button", name=re.compile("^Как устроен экран «")).first.focus()
+    page.locator(TOOLTIP).first.wait_for()
+    page.wait_for_timeout(300)
+
+
+def open_choice_hint(page: Any) -> None:
+    """Шаг перед точкой: «i» у переключателя нажат — пояснение выбранного в окошке.
+
+    Переключателя нет (учётке виден один этап) — ничего: точка честно печатает «не найден»,
+    а не роняет весь замер ожиданием.
+    """
+    hint = page.get_by_role("button", name=re.compile("^Пояснение к «"))
+    if hint.count() == 0:
+        return
+    hint.first.click()
+    page.locator(DROPDOWN).first.wait_for()
+    page.wait_for_timeout(300)
 
 
 def open_letter_draft(page: Any) -> None:
@@ -97,8 +126,8 @@ def letters_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("заголовок раздела", "h3", big),
                 ("аудитория, выбранная", f"{SWITCH} label[data-active] {INNER}", norm),
                 ("аудитория, другая", f"{SWITCH} label:not([data-active]) {INNER}", norm),
-                ("пояснение под ним", "p.mantine-Text-root", norm),
                 ("пункт меню части", "nav a[data-active]", norm),
+                ("пояснение аудитории в «i»", DROPDOWN, norm, open_choice_hint),
             ],
         },
     }

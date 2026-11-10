@@ -11,6 +11,11 @@
  *
  * Отказ остановки — строкой здесь же, как у пачки: уведомление внизу экрана не видели.
  *
+ * **Две очереди на одном экране — каждая со своей подписью** (`label`): на панели рекламодателей
+ * строки ссылок и бизнесов ниши стоят рядом, и две «Сама больше не уходит с …» без подписи
+ * читались дублем (разведка 10.11.2026). На экране писем очередь одна — та, что выбрана, и
+ * подписи нет.
+ *
  * **Срок — из прогноза рассылки** (`GET /letters/forecast`): пока очередь уходит сама, прогноз
  * считает её паузой ящиков, их мощностью с разгоном и окном получателей — «остаток уйдёт ≈ за
  * 3 дня, к 01.11». Прогноз — этапа целиком: у рекламодателей — обеих вкладок. Срока нет — слова
@@ -30,24 +35,37 @@ import { formatDateTime, formatNumber, plural } from '../format';
 interface Props {
   stage: Stage;
   audience?: LetterAudience;
+  /** Чья очередь — подписью в начале строки, когда их на экране две; нет — строка без подписи. */
+  label?: string;
   autosend: QueueAutosend;
   /** Право «отправлять письма»: без него кнопки «Остановить» нет, строка — есть. */
   canStop: boolean;
   onChanged: () => void;
 }
 
+/** Строка с подписью очереди: «Бизнесам ниши: сама больше не уходит с …». */
+function labeled(line: string, label: string | undefined): string {
+  return label === undefined ? line : `${label}: ${line.charAt(0).toLowerCase()}${line.slice(1)}`;
+}
+
 /** «Очередь уходит сама с 29.10, 10:05 · включил … · ушло 12». */
-export function runningLine(autosend: QueueAutosend): string {
+export function runningLine(autosend: QueueAutosend, label?: string): string {
   const who = autosend.started_by ? ` · включил ${autosend.started_by}` : '';
   const sent = formatNumber(autosend.sent);
-  return `Очередь уходит сама с ${formatDateTime(autosend.since)}${who} · ушло ${sent}`;
+  return labeled(
+    `Очередь уходит сама с ${formatDateTime(autosend.since)}${who} · ушло ${sent}`,
+    label,
+  );
 }
 
 /** «Сама больше не уходит с 29.10, 18:00: остановлено кнопкой … (кем)». */
-export function stoppedLine(autosend: QueueAutosend): string {
+export function stoppedLine(autosend: QueueAutosend, label?: string): string {
   const who = autosend.stopped_by ? ` (${autosend.stopped_by})` : '';
   const why = autosend.stop_reason ? `: ${autosend.stop_reason}` : '';
-  return `Сама больше не уходит с ${formatDateTime(autosend.stopped_at)}${why}${who}`;
+  return labeled(
+    `Сама больше не уходит с ${formatDateTime(autosend.stopped_at)}${why}${who}`,
+    label,
+  );
 }
 
 /** «Остаток уйдёт ≈ за 3 дня, к 01.11» — или слова прогноза, почему срока нет. */
@@ -78,6 +96,7 @@ function EtaLine({ stage }: { stage: Stage }) {
 export function QueueAutosendLine({
   stage,
   audience = 'links',
+  label,
   autosend,
   canStop,
   onChanged,
@@ -89,7 +108,7 @@ export function QueueAutosendLine({
   if (!autosend.running) {
     return autosend.stopped_at ? (
       <Text size="sm" c="dimmed">
-        {stoppedLine(autosend)}
+        {stoppedLine(autosend, label)}
       </Text>
     ) : null;
   }
@@ -98,7 +117,7 @@ export function QueueAutosendLine({
     <Stack gap={4}>
       <Group gap="sm" justify="space-between">
         <Text size="sm" style={{ flex: '1 1 16rem', minWidth: 0 }}>
-          {runningLine(autosend)}
+          {runningLine(autosend, label)}
         </Text>
         {canStop ? (
           <Button

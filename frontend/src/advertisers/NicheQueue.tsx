@@ -10,6 +10,9 @@
  * «пишем / не пишем» одним списком были простынёй, а пятьдесят первый бизнес —
  * недостижим. Номер страницы — в адресе (`?niche_page=2`), размер называет сервер;
  * решённый бизнес уходит из очереди, и страница добирает следующий.
+ *
+ * **«Пишем» и «Не пишем» — той же парой, что в очереди проверки над ними** (`DecideButtons`,
+ * разведка экранов 10.11.2026): здесь «Пишем» стояла залитой, а «Не пишем» — текстом.
  */
 
 import { Badge, Button, Card, Group, Stack, Text, Title } from '@mantine/core';
@@ -18,6 +21,7 @@ import { useState } from 'react';
 import { refusalOf } from '../api/client';
 import type { NicheCard } from '../api/niche';
 import { useSession } from '../auth/AuthProvider';
+import { DecideButtons } from './DecideButtons';
 import { useNicheCollect, useNicheQueue } from './useNiche';
 import { InfoHint } from '../components/InfoHint';
 import { NumberField } from '../components/NumberField';
@@ -53,28 +57,7 @@ function NicheRow({
     <Stack gap={4} className="nicheRow">
       <Group justify="space-between" gap="xs">
         <Text fw={500}>{card.host}</Text>
-        {canDecide && (
-          <Group gap="xs">
-            <Button
-              size="compact-sm"
-              className="press"
-              loading={busy}
-              onClick={() => onDecide(true)}
-            >
-              Пишем
-            </Button>
-            <Button
-              size="compact-sm"
-              variant="subtle"
-              color="gray"
-              className="press"
-              disabled={busy}
-              onClick={() => onDecide(false)}
-            >
-              Не пишем
-            </Button>
-          </Group>
-        )}
+        {canDecide && <DecideButtons busy={busy} onDecide={onDecide} />}
       </Group>
       <Text size="sm" c="dimmed">
         {whereFrom(card)}

@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { addressHint, buildHint, funnelNotes, funnelSteps, stopOf } from './targets';
+import { addressHint, buildHint, buildLine, funnelNotes, funnelSteps, stopOf } from './targets';
 
 const SKIPPED = {
   подходящих: 12,
@@ -80,7 +80,17 @@ describe('адрес есть не у всех решённых — бизнес
     const everyone = { 'решено «пишем»': 3, 'из них с адресом': 3 };
     expect(addressHint(everyone, 'niche')).toBe('');
     expect(buildHint(everyone, 'niche')).toBeNull();
+    expect(buildLine(everyone, 'niche')).toBeNull();
     expect(addressHint(funnel, 'advertisers')).toBe('');
     expect(buildHint(funnel, 'donors')).toBeNull();
+    expect(buildLine(funnel, 'donors')).toBeNull();
+  });
+
+  it('строка под кнопкой — последствие и число, которого выше нет; число — с подписью', () => {
+    expect(buildLine(funnel, 'niche')).toBe(
+      'Соберутся только те, у кого есть адрес · адреса не нашлось у\u00a02',
+    );
+    const searching = { ...funnel, 'адреса не нашлось': 0 };
+    expect(buildLine(searching, 'niche')).toBe('Соберутся только те, у кого есть адрес');
   });
 });

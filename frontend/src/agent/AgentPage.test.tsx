@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { AgentSettingsBody, AgentStageView, AgentView } from '../api/agent';
-import type { LetterStage } from '../api/types';
+import type { LetterStage, Me } from '../api/types';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -215,7 +215,12 @@ describe('агент переписки', () => {
 
     await user.click(screen.getByText('Лидам'));
 
-    expect(screen.getByText('Лидам мы отвечаем фактами из базы знаний.')).toBeInTheDocument();
+    // Пояснение этапа — из реестра, в «i» у переключателя (слово владельца 10.11.2026).
+    await user.click(screen.getByRole('button', { name: 'Пояснение к «Лидам»' }));
+    expect(
+      await screen.findByText('Лидам мы отвечаем фактами из базы знаний.'),
+    ).toBeInTheDocument();
+    await user.keyboard('{Escape}');
     expect(screen.getByLabelText('Цель разговора')).toHaveValue('Довести разговор до созвона');
     expect(screen.getByLabelText('Не дешевле, $')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Сохранить новой версией/ }));
@@ -415,7 +420,12 @@ describe('«Агент продаж» — этап продаж в адресе 
     await openPart('/agent?stage=sales');
 
     expect(screen.getByRole('heading', { name: 'Агент продаж' })).toBeInTheDocument();
-    expect(screen.getByText('Лидам мы отвечаем фактами из базы знаний.')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Лидам' })).toBeChecked();
+    // Пояснение этапа — в «i» у переключателя (слово владельца 10.11.2026).
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Пояснение к «Лидам»' }));
+    expect(
+      await screen.findByText('Лидам мы отвечаем фактами из базы знаний.'),
+    ).toBeInTheDocument();
     const menu = within(screen.getByRole('navigation', { name: 'Разделы' }));
     expect(menu.getByRole('link', { name: 'Агент продаж' })).toHaveAttribute('data-active');
     expect(menu.getByRole('link', { name: 'Агент переписки' })).not.toHaveAttribute('data-active');
@@ -445,7 +455,40 @@ describe('«Агент продаж» — этап продаж в адресе 
       }),
     );
 
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Донорам' })).toBeChecked());
+    expect(screen.getByRole('heading', { name: 'Агент переписки' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Пояснение к «Донорам»' }));
     expect(await screen.findByText('Донорам мы покупаем размещение.')).toBeInTheDocument();
     expect(screen.queryByText('Лидам мы отвечаем фактами из базы знаний.')).not.toBeInTheDocument();
+  });
+
+  it('учётке виден один этап — пояснение в «i» у заголовка, а состояние агента и поля — на виду', async () => {
+    // Только продажи: переключателя нет, и пояснение этапа уходит в «i» заголовка, а не в
+    // абзац под ним (слово владельца 10.11.2026). В «i» — только как этап устроен: действует
+    // ли агент и поля настроек остаются на виду — по ним видно, почему черновиков нет.
+    const salesOnly: Me = { ...OPERATOR, id: 7, permissions: ['sales', 'settings', 'view'] };
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: salesOnly },
+      'GET /api/agent/settings': { body: { stages: [...BLANK.stages, SALES] } },
+    });
+    renderWith(<AppRoutes />, '/agent?stage=sales');
+    await screen.findByLabelText('Цель разговора');
+
+    expect(screen.getByRole('heading', { name: 'Агент продаж' })).toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: 'Этап' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Лидам мы отвечаем фактами из базы знаний.')).not.toBeInTheDocument();
+    expect(screen.getByText(/Этап не настроен — агент на нём не пишет/)).toBeVisible();
+    for (const field of ['Цель разговора', 'Тон', 'Доводы и вопросы', 'Темы — человеку']) {
+      expect(screen.getByLabelText(field)).toBeVisible();
+    }
+
+    await userEvent
+      .setup()
+      .hover(screen.getByRole('button', { name: 'Как устроен экран «Агент продаж»' }));
+    expect(
+      await screen.findByText('Лидам мы отвечаем фактами из базы знаний.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Агент готовит черновик ответа собеседнику/)).toBeInTheDocument();
   });
 });

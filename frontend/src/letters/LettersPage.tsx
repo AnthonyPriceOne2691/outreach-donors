@@ -39,9 +39,13 @@
  * аудиторий Этапа 2 (`targets.targetsOf`). Экран тот же, суженный адресом; без части —
  * прежний, со всеми тремя. Смена части — другой экран: выбор письма, правка текста и
  * прогоны одной части в другую не переезжают.
+ *
+ * **Как устроены письма адресата — в «i»** (слово владельца 10.11.2026): у переключателя
+ * адресата, а где его нет («Письма донорам») — у заголовка. Под заголовком — только факты:
+ * почта, «Ещё не писали», ждущие адреса.
  */
 
-import { Alert, Badge, Button, Card, Grid, Group, Loader, Stack, Text, Title } from '@mantine/core';
+import { Alert, Badge, Button, Card, Grid, Group, Loader, Stack, Text } from '@mantine/core';
 import { useMediaQuery, useReducedMotion } from '@mantine/hooks';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -53,6 +57,7 @@ import { buildLetters, editLetter, listLetters, sendLetter, skipLetter } from '.
 import { mailSettingsList, settingsInWords } from '../api/labels';
 import type { Corridor, LetterDraft, LetterStage, LettersView, QueuedLetter } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { PageHead } from '../components/PageHead';
 import { StageSwitch } from '../components/StageSwitch';
 import { formatNumber, formatPercent } from '../format';
 import { BuildForm, LIMIT_DEFAULT, followupDays } from './BuildForm';
@@ -308,7 +313,11 @@ function LettersScreen({ part }: { part: LetterStage | null }) {
               отказе: без переключателя с этапа, который не загрузился,
               было бы не уйти. */}
           <Stack gap={6}>
-            <Title order={3}>{part === null ? 'Письма' : LETTERS_TITLES[part]}</Title>
+            {/* Выбрать не из чего — переключателя нет, и пояснение — в «i» у заголовка. */}
+            <PageHead
+              title={part === null ? 'Письма' : LETTERS_TITLES[part]}
+              {...(options.length > 1 ? {} : { hint: ABOUT[target].lead })}
+            />
             <StageSwitch
               label="Кому письма"
               value={target}

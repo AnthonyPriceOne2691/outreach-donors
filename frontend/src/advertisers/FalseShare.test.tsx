@@ -7,7 +7,8 @@
  * «сколько ещё решить» больше нерешённых в выборке — так и сказано; цвет значка — от вывода.
  */
 
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
@@ -15,7 +16,7 @@ import type { SampleShare, ScoringCheck } from '../api/advertisers';
 import { ADMIN, CRAWL_ROUTES, reviewQueue, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
-import { disputedLine, falseShareLine } from './FalseShare';
+import { disputedLine, falseShareLine, shareVerdict } from './FalseShare';
 
 function share(overrides: Partial<SampleShare> = {}): SampleShare {
   return {
@@ -190,6 +191,31 @@ describe('база «писать всем спорным» словами', () 
   });
 });
 
+describe('вывод на виду — два-четыре слова', () => {
+  // Разведка экранов 10.11.2026: шапка очереди — 158 слов; строки выборки целиком ушли в «i».
+  it('вывода нет — сколько ещё решить, число не отрывается от слова', () => {
+    expect(shareVerdict(share())).toBe('вывода нет, нужно ещё 34\u00a0решения');
+    expect(shareVerdict({ ...EMPTY, total: 35, left: 35 })).toBe(
+      'вывода нет, нужно ещё 29\u00a0решений',
+    );
+  });
+
+  it('в допуске и вне допуска — словами вывода', () => {
+    expect(shareVerdict(share({ within: 'within', to_go: null }))).toBe('в допуске');
+    expect(shareVerdict(share({ within: 'outside', to_go: null }))).toBe('вне допуска');
+  });
+
+  it('для вывода нужно больше, чем осталось в выборке, — так и сказано, а не обещание', () => {
+    expect(shareVerdict(share({ total: 30, decided: 3, left: 27, to_go: 43 }))).toBe(
+      'вывода нет: нужно ещё 43\u00a0решения, в выборке осталось 27',
+    );
+  });
+
+  it('выборка пуста — так и сказано', () => {
+    expect(shareVerdict(EMPTY)).toBe('вывода нет: выборка пуста');
+  });
+});
+
 const STRATA = {
   points: [
     { key: '2', title: '2', total: 10, decided: 4, write: 3, skip: 1 },
@@ -247,6 +273,27 @@ describe('доля ложных в шапке очереди', () => {
 
     const badge = screen.getByText('50%').closest('.mantine-Badge-root');
     expect(badge?.getAttribute('style')).toContain('gray');
+  });
+
+  it('на виду — вывод коротко; выборка, граница и допуск — в «i»', async () => {
+    await openWith(check({ pending_sample: { ...EMPTY, total: 150, left: 150, aside: 30 } }));
+    const user = userEvent.setup();
+
+    expect(screen.getByText('вывода нет, нужно ещё 34 решения')).toBeInTheDocument();
+    expect(screen.getByText('вывода нет, нужно ещё 29 решений')).toBeInTheDocument();
+    expect(screen.queryByText(/мерить нечем/)).toBeNull();
+    expect(screen.queryByText(/допуск ТЗ/)).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Как считается доля ложных' }));
+
+    const about = await screen.findByRole('dialog', { name: 'Как считается доля ложных' });
+    expect(within(about).getByText(/^Ложных в «куплено» — по случайной выборке/)).toHaveTextContent(
+      'допуск ТЗ — не больше 10%',
+    );
+    expect(within(about).getByText(/^«Не пишем» среди спорных — мерить нечем/)).toHaveTextContent(
+      'ещё 30 решений — не по порядку выборки',
+    );
+    expect(within(about).getByText(/^Ложный рекламодатель/)).toBeInTheDocument();
   });
 
   it('сервер старше экрана — строки нет, очередь на месте', async () => {

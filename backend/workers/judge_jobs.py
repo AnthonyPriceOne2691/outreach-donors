@@ -85,6 +85,8 @@ async def _pass(cases: int) -> dict[str, Any]:
         "left": report.left,
         "stopped": report.stopped,
         "lines": [*report_lines(report), f"токенов: {spaced(report.tokens)}"],
+        # Советы числами — для строки итога на экране; слова строк — для «i» и консоли.
+        "advice": dict(report.advice),
     }
 
 

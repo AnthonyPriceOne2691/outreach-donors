@@ -21,9 +21,15 @@
  *
  * **Строкой, а не плитками** (как замеры судьи на «Отборе», 10.10.2026): действуют здесь
  * по одному числу — значок с долей: мята — в допуске, роза — за ним, серый — вывода нет.
+ *
+ * **На виду — значок и вывод в два-четыре слова** (разведка экранов 10.11.2026: шапка очереди —
+ * 158 слов и 419 px): «вывода нет, нужно ещё 29 решений», «в допуске», «вне допуска». Решения
+ * выборки, граница, допуск ТЗ и решённые не по порядку — строками в «i» у первой строки, над
+ * тем, как считается доля. «Сколько ещё» больше нерешённых в выборке — так и сказано на виду,
+ * а не обещание.
  */
 
-import { Badge, Group, Stack, Text } from '@mantine/core';
+import { Badge, Group, ScrollArea, Stack, Text } from '@mantine/core';
 import type { ReactNode } from 'react';
 
 import type { SampleShare, ScoringCheck, Within } from '../api/advertisers';
@@ -48,8 +54,9 @@ const COLORS: Record<Within, string> = {
   unmeasured: 'gray',
 };
 
-function decisionsWord(count: number): string {
-  return `${formatNumber(count)} ${plural(count, 'решение', 'решения', 'решений')}`;
+/** «29 решений»; на виду — с неразрывным пробелом: число не отрывается от слова. */
+function decisionsWord(count: number, space = ' '): string {
+  return `${formatNumber(count)}${space}${plural(count, 'решение', 'решения', 'решений')}`;
 }
 
 /** Сколько ещё решить — и честно, когда нынешней выборкой этого не набрать. */
@@ -134,15 +141,25 @@ export function disputedLine(check: ScoringCheck): string {
   return sampleLine(check.pending_sample, DISPUTED_WORDS);
 }
 
+/** Вывод на виду — коротко: «в допуске», «вне допуска», «вывода нет, нужно ещё N решений».
+ *  Число держится за слово неразрывным пробелом. */
+export function shareVerdict(sample: SampleShare): string {
+  if (sample.within === 'within') return 'в допуске';
+  if (sample.within === 'outside') return 'вне допуска';
+  if (sample.total === 0) return 'вывода нет: выборка пуста';
+  if (sample.to_go === null) return 'вывода нет';
+  const need = `нужно ещё ${decisionsWord(sample.to_go, '\u00a0')}`;
+  if (sample.to_go <= sample.left) return `вывода нет, ${need}`;
+  return `вывода нет: ${need}, в выборке осталось ${formatNumber(sample.left)}`;
+}
+
 function ShareLine({
   title,
   sample,
-  words,
   children,
 }: {
   title: string;
   sample: SampleShare;
-  words: string;
   children?: ReactNode;
 }) {
   return (
@@ -152,30 +169,39 @@ function ShareLine({
         {formatPercent(sample.share)}
       </Badge>
       <Text size="sm" c="dimmed">
-        {words}
+        {shareVerdict(sample)}
       </Text>
       {children}
     </Group>
   );
 }
 
+/** «i» у доли: что за обеими строками — числами выборки, — и как считается доля. Длинное —
+ *  окошком по нажатию, а не всплывающей подсказкой; в окошке — прокрутка не выше полэкрана:
+ *  целиком оно выше экрана, и верх уходил за край. Ширина — в телефон 390 px с полями. */
+function ShareDetails({ check }: { check: ScoringCheck }) {
+  return (
+    <InfoHint name="Как считается доля ложных" width={340} interactive>
+      <ScrollArea.Autosize mah="50vh" type="auto" offsetScrollbars viewportProps={{ tabIndex: 0 }}>
+        <Stack gap={6}>
+          <Text size="sm">Ложных в «куплено» — {falseShareLine(check)}.</Text>
+          <Text size="sm">«Не пишем» среди спорных — {disputedLine(check)}.</Text>
+          <Text size="sm" c="dimmed">
+            {ABOUT}
+          </Text>
+        </Stack>
+      </ScrollArea.Autosize>
+    </InfoHint>
+  );
+}
+
 export function FalseShare({ check }: { check: ScoringCheck }) {
   return (
     <Stack gap={6}>
-      <ShareLine
-        title="Ложных в «куплено»:"
-        sample={check.bought_sample}
-        words={falseShareLine(check)}
-      >
-        <InfoHint name="Как считается доля ложных" width={360}>
-          {ABOUT}
-        </InfoHint>
+      <ShareLine title="Ложных в «куплено»:" sample={check.bought_sample}>
+        <ShareDetails check={check} />
       </ShareLine>
-      <ShareLine
-        title="«Не пишем» среди спорных:"
-        sample={check.pending_sample}
-        words={disputedLine(check)}
-      />
+      <ShareLine title="«Не пишем» среди спорных:" sample={check.pending_sample} />
     </Stack>
   );
 }
