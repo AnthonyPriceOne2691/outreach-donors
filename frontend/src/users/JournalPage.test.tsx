@@ -2,6 +2,8 @@
  * Журнал действий на экране: кто, что, когда, над чем и подробности — словами, а не
  * кодами журнала; фильтры — в адресе и в запросе; отрезок с концом раньше начала не
  * уходит на сервер; без права «Продажи» — без действий продаж и со словами об этом.
+ * Подробности — итог одной строкой и «+N ещё» на месте; шапка закреплена; страницы —
+ * и над таблицей, и под ней (проверка прода 10.11.2026).
  */
 
 import { readFileSync } from 'node:fs';
@@ -76,6 +78,46 @@ const PAGE: JournalView = {
 
 const USERS = [card(ADMIN), card(OPERATOR)];
 
+/** Письма в журнале: ушедшее по-настоящему и ушедшее нулевой почтой. */
+const LETTERS: JournalView = {
+  ...PAGE,
+  entries: [
+    {
+      id: 41,
+      created_at: '2026-10-11T10:00:00Z',
+      action: 'letter_sent',
+      author_id: 2,
+      author_email: 'оператор@site.com',
+      target: 'message:41',
+      details: {
+        кому: 'editor@ads.example.test',
+        этап: 'advertisers',
+        рекламодатель: 'ads.example.test',
+        'от кого': 'hello@mail.example.test',
+        транспорт: 'sendgrid',
+        'ушло на самом деле': true,
+      },
+    },
+    {
+      id: 40,
+      created_at: '2026-10-11T09:30:00Z',
+      action: 'letter_sent',
+      author_id: null,
+      author_email: null,
+      target: 'message:40',
+      details: {
+        кому: 'ceo@lead.example.test',
+        этап: 'donors',
+        донор: 'lead.example.test',
+        'от кого': 'hi@mail.example.test',
+        транспорт: 'null',
+        'ушло на самом деле': false,
+      },
+    },
+  ],
+  total: 2,
+};
+
 function openJournal(path = '/journal', me: Me = ADMIN, view: JournalView = PAGE) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
@@ -115,7 +157,8 @@ describe('журнал действий', () => {
     // Правка учётки: роль, учётка и права — словами окна прав, учётка — почтой.
     const access = await rowOf('Доступ учётки изменён');
     expect(within(access).getByText('учётка оператор@site.com')).toBeInTheDocument();
-    expect(within(access).getByText(/админ$/)).toBeInTheDocument();
+    // Роль — с заглавной, как все роли (`ROLE_TITLES`).
+    expect(within(access).getByText(/Админ/)).toBeInTheDocument();
     expect(within(access).getByText(/отключена/)).toBeInTheDocument();
     expect(
       within(access).getByText(/отправлять письма — выдано, Продажи — снято/),
@@ -261,6 +304,128 @@ describe('журнал действий', () => {
     expect(
       screen.queryByRole('option', { name: 'База лидов загружена', hidden: true }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('подробности: итог одной строкой, остальное — на месте', () => {
+  it('у письма на виду кому и от кого, этап и домен — «+2 ещё», норма отправки не видна', async () => {
+    openJournal('/journal', ADMIN, LETTERS);
+    const user = userEvent.setup();
+
+    const sent = await rowOf('письмо №41');
+    expect(
+      within(sent).getByText(/editor@ads\.example\.test.*hello@mail\.example\.test/),
+    ).toBeInTheDocument();
+    // Ушло по-настоящему — «как» не показывается вовсе: ни транспорта, ни «ушло: да».
+    expect(within(sent).queryByText(/транспорт/)).not.toBeInTheDocument();
+    expect(within(sent).queryByText(/ушло на самом деле/)).not.toBeInTheDocument();
+    // Этап и домен — в документе (их находит поиск браузера), но скрыты до раскрытия.
+    expect(within(sent).getByText('рекламодатель:')).not.toBeVisible();
+
+    const more = within(sent).getByRole('button', { name: '+2\u00a0ещё' });
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    const folded = document.getElementById(more.getAttribute('aria-controls') ?? '');
+    expect(folded).toHaveAttribute('hidden', 'until-found');
+    await user.click(more);
+
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(more).toHaveTextContent('Свернуть');
+    expect(folded).not.toHaveAttribute('hidden');
+    expect(within(folded as HTMLElement).getByText('рекламодатель:')).toBeVisible();
+    expect(within(folded as HTMLElement).getByText(/рекламодатели/)).toBeVisible();
+    expect(within(sent).queryByText(/транспорт/)).not.toBeInTheDocument();
+
+    await user.click(more);
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    expect(within(sent).getByText('рекламодатель:')).not.toBeVisible();
+  });
+
+  it('поиск браузера нашёл текст в свёрнутом — строка раскрывается сама', async () => {
+    // Правило 10.11.2026: свёрнутые данные находятся поиском (`hidden="until-found"`);
+    // браузер шлёт `beforematch` и снимает `hidden`, экран отвечает «Свернуть».
+    openJournal('/journal', ADMIN, LETTERS);
+
+    const sent = await rowOf('письмо №41');
+    const more = within(sent).getByRole('button', { name: '+2\u00a0ещё' });
+    const folded = document.getElementById(more.getAttribute('aria-controls') ?? '');
+    fireEvent(folded as HTMLElement, new Event('beforematch'));
+
+    await waitFor(() => expect(more).toHaveAttribute('aria-expanded', 'true'));
+    expect(folded).not.toHaveAttribute('hidden');
+    expect(within(sent).getByText('рекламодатель:')).toBeVisible();
+  });
+
+  it('не ушло на самом деле — на виду без раскрытия, транспорт — в раскрытии', async () => {
+    openJournal('/journal', ADMIN, LETTERS);
+
+    const stub = await rowOf('письмо №40');
+    expect(within(stub).getByText('ушло на самом деле:')).toBeVisible();
+    expect(within(stub).getByText(/^нет$/)).toBeVisible();
+    expect(within(stub).getByText('транспорт:')).not.toBeVisible();
+    expect(within(stub).getByRole('button', { name: '+3\u00a0ещё' })).toBeInTheDocument();
+  });
+
+  it('почта и домен переносятся по швам, а не по дефису и посреди зоны', async () => {
+    openJournal('/journal', ADMIN, LETTERS);
+
+    const sent = await rowOf('письмо №41');
+    const author = within(sent).getByText('оператор@site.com');
+    expect(author.innerHTML).toContain('оператор@<wbr>site<wbr>.com');
+    const to = within(sent).getByText(/editor@ads/);
+    expect(to.innerHTML).toContain('editor@<wbr>ads<wbr>.example<wbr>.test');
+  });
+
+  it('одну строку сверх итога не прячут: кнопка заняла бы её место', async () => {
+    openJournal();
+
+    // Роль и учётка — итог, права — строкой под ним, без «+1 ещё».
+    const access = await rowOf('Доступ учётки изменён');
+    expect(within(access).getByText(/отправлять письма — выдано/)).toBeInTheDocument();
+    expect(within(access).queryByRole('button', { name: /ещё/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('длинный журнал', () => {
+  const LONG: JournalView = { ...PAGE, total: 120 };
+
+  it('шапка закреплена: строки прокручиваются под ней в высоту окна', async () => {
+    openJournal('/journal', ADMIN, LONG);
+
+    const table = await screen.findByRole('table', { name: 'Записи журнала' });
+    expect(table.querySelector('thead')).toHaveAttribute('data-sticky');
+    expect(table.closest('.mantine-TableScrollContainer-scrollContainer')).toHaveClass(
+      'stickyTable',
+    );
+    // Высоту прокрутки держит общее правило закреплённых таблиц (`DataTable sticky`).
+    const glass = readFileSync(resolve(process.cwd(), 'src/styles/glass.css'), 'utf8');
+    expect(glass).toMatch(
+      /\.stickyTable\.mantine-TableScrollContainer-scrollContainer \{\s*max-height:/,
+    );
+  });
+
+  it('страницы — и над таблицей, и под ней; новая страница — таблица сначала', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    const recorded = serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'GET /api/users': { body: USERS },
+      'GET /api/journal?page=1': { body: LONG },
+      'GET /api/journal?page=2': { body: { ...LONG, page: 2 } },
+    });
+    renderWith(<AppRoutes />, '/journal');
+    const user = userEvent.setup();
+
+    const top = await screen.findByRole('navigation', { name: 'Страницы журнала' });
+    expect(screen.getByRole('navigation', { name: 'Страницы журнала внизу' })).toBeInTheDocument();
+    const before = screen.getByRole('table', { name: 'Записи журнала' });
+    await user.click(within(top).getByRole('button', { name: 'Страница 2' }));
+
+    await waitFor(() =>
+      expect(recorded.calls.map((call) => call.path)).toContain('/api/journal?page=2'),
+    );
+    // Прокрутка таблицы — своя: новая страница открывает её с первой строки.
+    await waitFor(() =>
+      expect(screen.getByRole('table', { name: 'Записи журнала' })).not.toBe(before),
+    );
   });
 });
 

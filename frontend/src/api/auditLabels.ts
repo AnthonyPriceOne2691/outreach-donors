@@ -122,6 +122,10 @@ const TARGETS: Record<string, { noun: string; path?: (id: string) => string; bar
   // Номер строки смены человеку ничего не говорит: что стало с капом — в подробностях.
   ahrefs_cap: { noun: 'кап Ahrefs', bare: true },
   hunter_cap: { noun: 'потолок проверок адреса', bare: true },
+  llm_caps: { noun: 'потолки модели', bare: true },
+  // Очередь писем, которая уходит сама (`letters/autosend.py`): номер — строка запуска режима,
+  // этап и кому — в подробностях. Без слов «Над чем» стояло кодом (проверка прода 10.11.2026).
+  queue_autosend: { noun: 'очередь писем', bare: true },
   agent_draft: { noun: 'черновик агента' },
   sales_hypothesis: { noun: 'гипотеза продаж' },
   sales_handoff: { noun: 'передача лида продаж' },
@@ -131,6 +135,7 @@ const TARGETS: Record<string, { noun: string; path?: (id: string) => string; bar
   // Без номера — весь стоп-лист продаж (`WHOLE_TARGETS`), с номером — снятая запись.
   sales_stoplist: { noun: 'запись стоп-листа продаж' },
   sales_segment_candidate: { noun: 'сайт сбора продаж' },
+  sales_segment_run: { noun: 'прогон сбора продаж' },
 };
 
 /** Цели без номера — целиком. */
@@ -140,6 +145,7 @@ const WHOLE_TARGETS: Record<string, string> = {
   sales_settings: 'отправитель продаж',
   sales_stoplist: 'стоп-лист продаж',
   'advertisers:promote': 'перевод в рекламодатели',
+  'advertisers:judge-pass': 'спорные рекламодатели',
   crawl_backlog: 'очередь загрузки обхода',
 };
 

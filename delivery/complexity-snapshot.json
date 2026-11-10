@@ -297,9 +297,9 @@
       "worst": "enqueue_once:62"
     },
     "backend/api/letters/routes.py": {
-      "lines": 470,
+      "lines": 471,
       "complexity": 5,
-      "worst": "build:166"
+      "worst": "build:167"
     },
     "backend/api/letters/schemas.py": {
       "lines": 450,
@@ -2197,9 +2197,9 @@
       "worst": "_hand_over:419"
     },
     "backend/features/letters/settle.py": {
-      "lines": 175,
+      "lines": 190,
       "complexity": 6,
-      "worst": "record_sent:79"
+      "worst": "record_sent:93"
     },
     "backend/features/letters/site_role.py": {
       "lines": 80,
@@ -2237,7 +2237,7 @@
       "worst": "difference:48"
     },
     "backend/features/letters/unknown_outcome.py": {
-      "lines": 428,
+      "lines": 429,
       "complexity": 6,
       "worst": "_back:341"
     },
@@ -4002,7 +4002,7 @@
       "worst": "unbound_probes:35"
     },
     "scripts/ui_screens_reports.py": {
-      "lines": 152,
+      "lines": 155,
       "complexity": 1,
       "worst": "_usage_limits:20"
     },
