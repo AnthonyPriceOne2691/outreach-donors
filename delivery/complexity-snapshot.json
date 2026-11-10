@@ -2867,9 +2867,9 @@
       "worst": "beyond:88"
     },
     "backend/features/sales/auto_lines.py": {
-      "lines": 250,
+      "lines": 271,
       "complexity": 7,
-      "worst": "autobuild_line:184"
+      "worst": "autobuild_line:202"
     },
     "backend/features/sales/autobuild.py": {
       "lines": 427,

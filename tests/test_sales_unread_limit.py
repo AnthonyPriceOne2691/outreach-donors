@@ -163,7 +163,28 @@ async def test_the_screen_line_says_which_setting_to_fix_and_how(
     assert line == AutoLine(
         enabled=True,
         line=f"{auto_lines.SEND_STOPPED}: {WORDS}.",
-        short=f"Включена, а не шлёт ничего: {WORDS}.",
+        short=(
+            "Включена, а не шлёт ничего: настройка лимита первых писем продаж не прочитана "
+            "(OUTREACH_SALES_DAILY_LIMIT)."
+        ),
+    )
+
+
+async def test_the_screen_line_names_a_stop_by_its_head(
+    session: AsyncSession, world: w.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Проход стоит — короткая строка у значка называет причину головой, со строчной; целиком
+    причина — в строке для «i» (стенд 10.11.2026: целиком у значка — десять строк на телефоне)."""
+    monkeypatch.setitem(outreach_cfg.DIRECTION_LIMITS, "sales", 0)
+    monkeypatch.setattr(outreach_cfg, "UNREAD_LIMITS", frozenset())
+    await _queued(session, world)
+
+    line = await auto_lines.autosend_line(session, NOW)
+
+    assert line.short == "Включена, стоит: сегодня писать некому; в окне получателя 1 письмо."
+    assert line.line.endswith(
+        "Стоит: Сегодня писать некому: у направления кончился дневной лимит (0 из 0 первых "
+        "писем). Письмо остаётся в очереди."
     )
 
 

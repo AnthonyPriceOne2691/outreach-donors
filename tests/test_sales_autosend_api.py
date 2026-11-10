@@ -26,6 +26,7 @@ from backend.features.sales.auto_lines import (
     SEND_OFF_SHORT,
     SEND_ON,
     pace,
+    reason_head,
 )
 from backend.features.sales.queue_start import build_job_id
 from httpx import AsyncClient
@@ -104,11 +105,11 @@ async def test_unknown_outcome_is_said_on_the_screen_with_the_letters_in_the_win
     assert lines["autosend"]["enabled"] is True
     assert line.startswith(f"{SEND_ON}: {pace()}. В окне получателя сейчас 1 письмо.")
     assert f"Стоит: исход письма №{letters[0].id} неизвестен" in line
-    # Остановка — и в короткой строке у значка: по ней действуют, не раскрывая «i».
-    short = str(lines["autosend"]["short"])
-    assert short.startswith(f"Включена, стоит: исход письма №{letters[0].id} неизвестен")
-    assert short.endswith("; в окне получателя 1 письмо.")
-    assert pace() not in short
+    # Остановка — и в короткой строке у значка, головой причины: по ней действуют, не раскрывая
+    # «i»; что решит исход и где — в «i».
+    assert lines["autosend"]["short"] == (
+        f"Включена, стоит: исход письма №{letters[0].id} неизвестен; в окне получателя 1 письмо."
+    )
 
 
 async def test_a_set_allowlist_keeps_autosend_off_on_the_screen_in_words(
@@ -131,7 +132,10 @@ async def test_a_set_allowlist_keeps_autosend_off_on_the_screen_in_words(
     assert lines["autosend"] == {
         "enabled": False,
         "line": f"Автоотправка не включается: {why}.",
-        "short": f"Не включается: {why}.",
+        "short": (
+            "Не включается: список разрешённых адресатов почты продаж не пуст "
+            "(OUTREACH_SALES_ALLOWED_RECIPIENTS)."
+        ),
     }
 
 
@@ -210,3 +214,21 @@ async def test_autobuild_line_says_the_shortage_whom_it_builds_and_what_it_built
     assert str(done["autobuild"]["line"]).endswith(
         "«Выдуманная гипотеза», до 20 писем: собрано 3 письма."
     )
+
+
+@pytest.mark.parametrize(
+    ("words", "head"),
+    [
+        ("Сегодня писать некому: 1 ящик выбрал дневной лимит — 5 писем", "сегодня писать некому"),
+        ("в очереди продаж писем нет — их собирает сборка очереди", "в очереди продаж писем нет"),
+        (
+            "письма ждут проверки адреса (2); пересборка не поможет",
+            "письма ждут проверки адреса (2)",
+        ),
+        ("сборка «Выдуманная гипотеза» уже идёт", "сборка «Выдуманная гипотеза» уже идёт"),
+        (" — разрыв в самом начале не голова", " — разрыв в самом начале не голова"),
+    ],
+)
+def test_reason_head_is_the_words_before_the_first_cut(words: str, head: str) -> None:
+    """Голова причины — до первого «: », « — » или «; », со строчной; без разрыва — целиком."""
+    assert reason_head(words) == head
