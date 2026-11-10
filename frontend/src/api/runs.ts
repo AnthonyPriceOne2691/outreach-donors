@@ -8,7 +8,7 @@ import type {
   RunsView,
 } from './types';
 import type { EnteredDonor, ManualDonorBody, PriceBody } from './manualPrice';
-import { request } from './client';
+import { request, withQuery } from './client';
 
 export function fetchCountries(): Promise<string[]> {
   return request<string[]>('/runs/countries');
@@ -62,12 +62,7 @@ export interface DonorQuery {
 }
 
 export function listDonors(query: DonorQuery = {}): Promise<DonorsPage> {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(query)) {
-    if (value !== undefined && value !== '') params.set(key, String(value));
-  }
-  const tail = params.toString();
-  return request<DonorsPage>(`/donors${tail === '' ? '' : `?${tail}`}`);
+  return request<DonorsPage>(withQuery('/donors', query));
 }
 
 export function fetchDonor(id: number): Promise<DonorFullCard> {

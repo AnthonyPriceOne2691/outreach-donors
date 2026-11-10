@@ -241,9 +241,7 @@ async def settle(
             verdict, reason=f"{verdict.reason} · главная: {marks}", decided_by=Decider.RULE
         )
 
-    serp = source_text(text.title, text.description) if text else ""
-    ruling = await arbitrate(http, host=host, serp=serp, home=home)
-    ruling = replace(ruling, tokens=ruling.tokens + verdict.tokens)
+    ruling = await _arbitrated(http, host, text, verdict, home)
     if ruling.recommendation is Recommendation.REJECT and not home.sells:
         ruling = replace(
             ruling,
@@ -251,6 +249,15 @@ async def settle(
             reason=f"{ruling.reason} · на главной не видно продажи — посмотри",
         )
     return ruling
+
+
+async def _arbitrated(
+    http: httpx.AsyncClient, host: str, text: SerpText | None, verdict: Judgement, home: HomeSignals
+) -> Judgement:
+    """Арбитр по выдаче и главной; токены вердикта модели — в счёт арбитра."""
+    serp = source_text(text.title, text.description) if text else ""
+    ruling = await arbitrate(http, host=host, serp=serp, home=home)
+    return replace(ruling, tokens=ruling.tokens + verdict.tokens)
 
 
 def page_of(home: HomeSignals) -> SerpText | None:
@@ -325,10 +332,7 @@ async def through_index(
     homes, cost = await index_homes(index, blind)
     for host, home in homes.items():
         verdict, _ = results[host]
-        text = texts.get(host)
-        serp = source_text(text.title, text.description) if text else ""
-        ruling = await arbitrate(http, host=host, serp=serp, home=home)
-        ruling = replace(ruling, tokens=ruling.tokens + verdict.tokens)
+        ruling = await _arbitrated(http, host, texts.get(host), verdict, home)
         if ruling.no_credits:
             return cost, NO_CREDITS_WORDS
         if ruling.recommendation is Recommendation.REJECT:

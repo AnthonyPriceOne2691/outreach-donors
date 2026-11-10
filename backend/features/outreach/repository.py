@@ -27,7 +27,7 @@ from datetime import UTC, datetime, time
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import ColumnElement, Text, and_, case, func, or_, select
+from sqlalchemy import ColumnElement, Select, Text, and_, case, func, or_, select
 from sqlalchemy import true as sa_true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -183,6 +183,23 @@ def _seen(stages: Collection[Stage]) -> ColumnElement[bool]:
     return sa_true() if set(stages) >= EVERY_STAGE else CampaignModel.stage.in_(stages)
 
 
+def _thread_rows() -> Select[tuple[ThreadModel, str, str, str, Stage]]:
+    """Диалог с доменом, адресом и рассылкой — строке списка и карточке. Адрес — внешним
+    соединением: у переписки продаж строки `contacts` нет (`_of_lead`)."""
+    return (
+        select(
+            ThreadModel,
+            DomainModel.host,
+            ContactModel.email,
+            CampaignModel.name,
+            CampaignModel.stage,
+        )
+        .join(DomainModel, DomainModel.id == ThreadModel.domain_id)
+        .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
+        .outerjoin(ContactModel, ContactModel.id == ThreadModel.contact_id)
+    )
+
+
 def _seen_letters(stages: Collection[Stage]) -> ColumnElement[bool]:
     """Письмо — из диалога видимого этапа. Без соединения запроса писем с рассылкой: её
     этап спрашивает подзапрос по диалогам, и только когда видны не все."""
@@ -279,18 +296,7 @@ class OutreachRepository:
         мегабайт на каждый показ в процессе с потолком в гигабайт.
         """
         rows = await self._session.execute(
-            select(
-                ThreadModel,
-                DomainModel.host,
-                ContactModel.email,
-                CampaignModel.name,
-                CampaignModel.stage,
-            )
-            .join(DomainModel, DomainModel.id == ThreadModel.domain_id)
-            .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
-            .outerjoin(ContactModel, ContactModel.id == ThreadModel.contact_id)
-            .where(_seen(stages))
-            .order_by(ThreadModel.id.desc())
+            _thread_rows().where(_seen(stages)).order_by(ThreadModel.id.desc())
         )
         found = rows.all()
         if not found:
@@ -347,16 +353,7 @@ class OutreachRepository:
 
     async def thread(self, thread_id: int) -> ThreadDetail:
         rows = await self._session.execute(
-            select(
-                ThreadModel,
-                DomainModel.host,
-                ContactModel.email,
-                CampaignModel.name,
-                CampaignModel.stage,
-            )
-            .join(DomainModel, DomainModel.id == ThreadModel.domain_id)
-            .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
-            .outerjoin(ContactModel, ContactModel.id == ThreadModel.contact_id)
+            _thread_rows()
             .options(selectinload(ThreadModel.replies))
             .where(ThreadModel.id == thread_id)
         )

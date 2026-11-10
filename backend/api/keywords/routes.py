@@ -41,7 +41,7 @@ from backend.features.keywords.by_examples import (
 from backend.features.keywords.client import KeygenClient, LlmError
 from backend.features.keywords.example_pages import PageReader
 from backend.features.keywords.examples import ExamplesError
-from backend.features.keywords.generator import PoolBuilder
+from backend.features.keywords.generator import Pool, PoolBuilder
 from backend.features.review.keyword_yield import country_yield
 from backend.features.serp import markets
 from backend.shared.net.url_guard import guarded_client
@@ -127,21 +127,8 @@ async def build_pool(
     finally:
         await client.aclose()
 
-    # Поля берём у отчёта напрямую, а не через `as_dict()`: тот отдаёт
-    # словарь для журнала, и типы там уже не видны.
-    report = pool.report
-    await _record_tokens(session, report.tokens)
-    return PoolView(
-        keywords=pool.keywords,
-        languages=list(languages),
-        asked=report.asked,
-        received=report.received,
-        rejected=len(report.rejected),
-        near_duplicates=report.near_duplicates,
-        refusals=list(report.refusals),
-        tokens=report.tokens,
-        model=llm_cfg.KEYGEN_MODEL,
-    )
+    await _record_tokens(session, pool.report.tokens)
+    return _pool_view(PoolView, pool, languages)
 
 
 @router.post(
@@ -186,12 +173,18 @@ async def build_examples_pool(
     return _examples_view(made, languages)
 
 
-def _examples_view(made: ExamplesPool, languages: tuple[str, ...]) -> ExamplesPoolView:
-    """Ответ сборки по примерам: отчёт генератора, тема и каждый пример с исходом."""
-    report = made.pool.report
-    off = set(made.theme.off_theme)
-    return ExamplesPoolView(
-        keywords=made.pool.keywords,
+def _pool_view[V: PoolView](
+    view: type[V], pool: Pool, languages: tuple[str, ...], **extra: object
+) -> V:
+    """Пул и отчёт генератора ответом — одни поля у сборки по теме и по примерам;
+    свои поля сборки по примерам приходят в `extra`.
+
+    Поля берём у отчёта напрямую, а не через `as_dict()`: тот отдаёт
+    словарь для журнала, и типы там уже не видны.
+    """
+    report = pool.report
+    return view(
+        keywords=pool.keywords,
         languages=list(languages),
         asked=report.asked,
         received=report.received,
@@ -200,6 +193,17 @@ def _examples_view(made: ExamplesPool, languages: tuple[str, ...]) -> ExamplesPo
         refusals=list(report.refusals),
         tokens=report.tokens,
         model=llm_cfg.KEYGEN_MODEL,
+        **extra,
+    )
+
+
+def _examples_view(made: ExamplesPool, languages: tuple[str, ...]) -> ExamplesPoolView:
+    """Ответ сборки по примерам: отчёт генератора, тема и каждый пример с исходом."""
+    off = set(made.theme.off_theme)
+    return _pool_view(
+        ExamplesPoolView,
+        made.pool,
+        languages,
         theme=made.theme.theme,
         topics=made.theme.topics,
         sites=[

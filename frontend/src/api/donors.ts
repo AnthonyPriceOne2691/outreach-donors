@@ -11,7 +11,7 @@
  * в предел строки запроса у прокси.
  */
 
-import { download } from './client';
+import { download, withQuery } from './client';
 import type { Downloaded } from './client';
 import type { DonorSort, ReviewScope } from './donorPrice';
 import type { DonorQuery } from './runs';
@@ -19,12 +19,7 @@ import type { DonorQuery } from './runs';
 export type DonorFilterQuery = Omit<DonorQuery, 'limit' | 'offset'>;
 
 export function exportDonors(query: DonorFilterQuery): Promise<Downloaded> {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(query)) {
-    if (value !== undefined && value !== '') params.set(key, String(value));
-  }
-  const tail = params.toString();
-  return download(`/donors/export${tail === '' ? '' : `?${tail}`}`);
+  return download(withQuery('/donors/export', query));
 }
 
 /** Отмеченные — под решением человека экрана, где их отметили, и в его порядке:

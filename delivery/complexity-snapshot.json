@@ -247,7 +247,7 @@
       "worst": "—"
     },
     "backend/api/keywords/routes.py": {
-      "lines": 226,
+      "lines": 230,
       "complexity": 3,
       "worst": "build_pool:102"
     },
@@ -752,7 +752,7 @@
       "worst": "reply_text:91"
     },
     "backend/cli/demo_data.py": {
-      "lines": 488,
+      "lines": 481,
       "complexity": 6,
       "worst": "_seed_senders:135"
     },
@@ -1122,9 +1122,9 @@
       "worst": "deeper_words:172"
     },
     "backend/features/contacts/extract.py": {
-      "lines": 391,
-      "complexity": 9,
-      "worst": "find_contact_links:369"
+      "lines": 389,
+      "complexity": 7,
+      "worst": "_from_cloudflare:258"
     },
     "backend/features/contacts/file_sweep.py": {
       "lines": 383,
@@ -1487,9 +1487,9 @@
       "worst": "_pages:108"
     },
     "backend/features/crawl/frontier.py": {
-      "lines": 153,
-      "complexity": 8,
-      "worst": "same_site_links:55"
+      "lines": 163,
+      "complexity": 5,
+      "worst": "crawlable:47"
     },
     "backend/features/crawl/gate.py": {
       "lines": 369,
@@ -1812,9 +1812,9 @@
       "worst": "normalize_host:46"
     },
     "backend/features/donors/judging.py": {
-      "lines": 489,
+      "lines": 493,
       "complexity": 14,
-      "worst": "judge_candidates:427"
+      "worst": "judge_candidates:431"
     },
     "backend/features/donors/manual_price.py": {
       "lines": 414,
@@ -2372,9 +2372,9 @@
       "worst": "inbox_trace:244"
     },
     "backend/features/outreach/repository.py": {
-      "lines": 499,
+      "lines": 496,
       "complexity": 4,
-      "worst": "sent_today:220"
+      "worst": "sent_today:237"
     },
     "backend/features/outreach/senders.py": {
       "lines": 224,

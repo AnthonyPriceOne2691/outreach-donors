@@ -29,6 +29,7 @@ from selectolax.parser import HTMLParser
 
 from backend.features.contacts.known_addresses import MAIL_ONLY_DOMAINS
 from backend.features.contacts.slugs import link_text_names_section, url_names_section
+from backend.features.crawl.frontier import page_hrefs
 
 logger = logging.getLogger(__name__)
 
@@ -381,10 +382,7 @@ def find_contact_links(html: str, *, slugs: frozenset[str]) -> set[str]:
         return set()
 
     links: set[str] = set()
-    for node in HTMLParser(html).css("a[href]"):
-        href = (node.attributes.get("href") or "").strip()
-        if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
-            continue
+    for node, href in page_hrefs(html):
         if url_names_section(href, slugs) or link_text_names_section(node.text() or "", slugs):
             links.add(href)
     return links

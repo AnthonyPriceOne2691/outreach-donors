@@ -45,9 +45,11 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
+import type { PopoverProps } from '@mantine/core';
 import { IconLock, IconTrash } from '@tabler/icons-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
+import type { ReactNode } from 'react';
 
 import { refusalOf } from '../api/client';
 import { addDonorAddress, removeDonorAddress, searchDonorContact } from '../api/contacts';
@@ -74,11 +76,20 @@ function sentence(text: string): string {
   return said.endsWith('.') ? said : `${said}.`;
 }
 
-/** Почему адрес не удалить — за значком, целиком по нажатию: текст длинный,
- *  а наведения на телефоне нет. */
-function KeptReason({ contact }: { contact: ContactCard }) {
+interface RowPopoverProps extends Pick<PopoverProps, 'opened' | 'onChange'> {
+  /** Подпись значка для читалки экрана. */
+  label: string;
+  icon: ReactNode;
+  onIconClick?: () => void;
+  children: ReactNode;
+}
+
+/** Значок в строке адреса и окошко под ним — один вид у «почему не удалить» и «удалить?».
+ *  Окошком удаления правит само удаление (`opened`, `onChange`): его закрывает «Отмена». */
+function RowPopover({ label, icon, onIconClick, children, ...control }: RowPopoverProps) {
   return (
     <Popover
+      {...control}
       position="bottom-end"
       withArrow
       width={300}
@@ -93,15 +104,24 @@ function KeptReason({ contact }: { contact: ContactCard }) {
           variant="subtle"
           color="gray"
           radius="xl"
-          aria-label={`Почему не удалить ${contact.email}`}
+          aria-label={label}
+          onClick={onIconClick}
         >
-          <IconLock size={16} />
+          {icon}
         </ActionIcon>
       </Popover.Target>
-      <Popover.Dropdown className="glassSolid">
-        <Text size="sm">{contact.removal_refusal}</Text>
-      </Popover.Dropdown>
+      <Popover.Dropdown className="glassSolid">{children}</Popover.Dropdown>
     </Popover>
+  );
+}
+
+/** Почему адрес не удалить — за значком, целиком по нажатию: текст длинный,
+ *  а наведения на телефоне нет. */
+function KeptReason({ contact }: { contact: ContactCard }) {
+  return (
+    <RowPopover label={`Почему не удалить ${contact.email}`} icon={<IconLock size={16} />}>
+      <Text size="sm">{contact.removal_refusal}</Text>
+    </RowPopover>
   );
 }
 
@@ -116,52 +136,34 @@ interface RemoveProps {
 function RemoveAddress({ contact, pending, onRemove }: RemoveProps) {
   const [opened, setOpened] = useState(false);
   return (
-    <Popover
+    <RowPopover
       opened={opened}
       onChange={setOpened}
-      position="bottom-end"
-      withArrow
-      width={300}
-      radius="lg"
-      shadow="md"
-      trapFocus
-      returnFocus
-      middlewares={{ shift: { padding: 16 } }}
+      label={`Удалить ${contact.email}`}
+      icon={<IconTrash size={16} />}
+      onIconClick={() => setOpened((was) => !was)}
     >
-      <Popover.Target>
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          radius="xl"
-          aria-label={`Удалить ${contact.email}`}
-          onClick={() => setOpened((was) => !was)}
-        >
-          <IconTrash size={16} />
-        </ActionIcon>
-      </Popover.Target>
-      <Popover.Dropdown className="glassSolid">
-        <Stack gap="sm">
-          <Text size="sm">
-            Удалить {contact.email}? Вернуть адрес можно, только вписав его заново
-            {contact.source === 'manual' ? '' : ' или новым поиском'}.
-          </Text>
-          <Group gap="xs" justify="flex-end">
-            <Button variant="default" size="compact-sm" onClick={() => setOpened(false)}>
-              Отмена
-            </Button>
-            <Button
-              color="red"
-              size="compact-sm"
-              className="press"
-              loading={pending}
-              onClick={() => onRemove(contact)}
-            >
-              Удалить
-            </Button>
-          </Group>
-        </Stack>
-      </Popover.Dropdown>
-    </Popover>
+      <Stack gap="sm">
+        <Text size="sm">
+          Удалить {contact.email}? Вернуть адрес можно, только вписав его заново
+          {contact.source === 'manual' ? '' : ' или новым поиском'}.
+        </Text>
+        <Group gap="xs" justify="flex-end">
+          <Button variant="default" size="compact-sm" onClick={() => setOpened(false)}>
+            Отмена
+          </Button>
+          <Button
+            color="red"
+            size="compact-sm"
+            className="press"
+            loading={pending}
+            onClick={() => onRemove(contact)}
+          >
+            Удалить
+          </Button>
+        </Group>
+      </Stack>
+    </RowPopover>
   );
 }
 

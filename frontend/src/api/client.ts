@@ -220,8 +220,14 @@ function withPass(headers: Record<string, string>): string | null {
   return token;
 }
 
-export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, anonymous = false } = options;
+/** Запрос с телом JSON, если оно есть, и с пропуском, если это не вход (`anonymous`):
+ *  одно правило у `request` и `download`. Отказ — исключением `raise`. */
+async function sendJson(
+  path: string,
+  method: string,
+  body: unknown,
+  anonymous = false,
+): Promise<Response> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['content-type'] = 'application/json';
   const sent = anonymous ? null : withPass(headers);
@@ -233,8 +239,25 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   });
 
   if (!response.ok) await raise(response, sent);
+  return response;
+}
+
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { method = 'GET', body, anonymous = false } = options;
+  const response = await sendJson(path, method, body, anonymous);
   if (response.status === 204) return undefined as T;
   return (await arrived(() => response.json())) as T;
+}
+
+/** Адрес с полями запроса: пустая строка и `undefined` в адрес не идут; полей нет — адрес
+ *  как есть, без «?». */
+export function withQuery(path: string, query: object): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value));
+  }
+  const tail = params.toString();
+  return tail === '' ? path : `${path}?${tail}`;
 }
 
 /**
@@ -294,15 +317,7 @@ export async function download(
   const { method = 'GET', body } = options;
   // Тело — JSON и только у POST: номера отмеченных доноров едут телом,
   // потому что тысячи номеров в адресе упёрлись бы в предел строки у прокси.
-  const headers: Record<string, string> =
-    body === undefined ? {} : { 'content-type': 'application/json' };
-  const sent = withPass(headers);
-  const response = await send(path, {
-    method,
-    headers,
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  if (!response.ok) await raise(response, sent);
+  const response = await sendJson(path, method, body);
   return {
     blob: await arrived(() => response.blob()),
     filename: filenameOf(response),

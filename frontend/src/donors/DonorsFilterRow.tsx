@@ -8,6 +8,7 @@
  */
 
 import { Select, Table, TextInput } from '@mantine/core';
+import type { ComboboxItem, ComboboxLikeRenderOptionInput } from '@mantine/core';
 
 import { countryTitle, DONOR_FRESHNESS, DONOR_STATUSES } from '../api/labels';
 import type { DonorFreshness, DonorStatus } from '../api/types';
@@ -93,8 +94,22 @@ export function FilterRow({
   if (geo !== null && !countries.some((option) => option.value === geo)) {
     countries.push({ value: geo, label: countryTitle(geo) });
   }
-  const countryCount = (code: string) =>
-    facets === null ? undefined : code === 'all' ? all : (facets.countries[code] ?? 0);
+  // Число у пункта списка — из своей части сводки: у «все» — итог, у прочих — своё или ноль;
+  // сводки ещё нет — без чисел.
+  const countedIn =
+    (part: (sum: Facets) => Partial<Record<string, number>>) =>
+    ({ option }: ComboboxLikeRenderOptionInput<ComboboxItem>) => (
+      <span>
+        {counted(
+          option.label,
+          option.value === 'all'
+            ? all
+            : facets === null
+              ? undefined
+              : (part(facets)[option.value] ?? 0),
+        )}
+      </span>
+    );
   return (
     <Table.Tr className="filterRow">
       <Table.Th />
@@ -124,18 +139,7 @@ export function FilterRow({
             { value: 'all', label: 'все' },
             ...STATUSES.map((status) => ({ value: status, label: DONOR_STATUSES[status].title })),
           ]}
-          renderOption={({ option }) => (
-            <span>
-              {counted(
-                option.label,
-                option.value === 'all'
-                  ? all
-                  : facets === null
-                    ? undefined
-                    : (facets.counts[option.value] ?? 0),
-              )}
-            </span>
-          )}
+          renderOption={countedIn((sum) => sum.counts)}
         />
       </Table.Th>
       <Table.Th>
@@ -177,9 +181,7 @@ export function FilterRow({
           value={geo ?? 'all'}
           onChange={(value) => onFilter({ geo: value === null || value === 'all' ? null : value })}
           data={[{ value: 'all', label: 'все' }, ...countries]}
-          renderOption={({ option }) => (
-            <span>{counted(option.label, countryCount(option.value))}</span>
-          )}
+          renderOption={countedIn((sum) => sum.countries)}
         />
       </Table.Th>
       <Table.Th>
@@ -209,18 +211,7 @@ export function FilterRow({
             { value: 'all', label: 'все' },
             ...FRESHNESS.map((state) => ({ value: state, label: DONOR_FRESHNESS[state].title })),
           ]}
-          renderOption={({ option }) => (
-            <span>
-              {counted(
-                option.label,
-                option.value === 'all'
-                  ? all
-                  : facets === null
-                    ? undefined
-                    : (facets.freshness[option.value as DonorFreshness] ?? 0),
-              )}
-            </span>
-          )}
+          renderOption={countedIn((sum) => sum.freshness)}
         />
       </Table.Th>
     </Table.Tr>
