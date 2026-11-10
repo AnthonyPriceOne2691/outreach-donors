@@ -165,9 +165,24 @@ def test_today_halves_a_cut_mailbox_and_subtracts_what_went() -> None:
     ]
     assert (found.capacity, found.left.total(), found.sent) == (30, 22, 8)
     assert found.cut == (
-        "мягкие отказы: лимит на сутки снижен вдвое у box1@mail-a.example.test — сегодняшняя "
-        "мощность считает сниженный, как выбор ящика"
+        "Мягкие отказы: у ящика box1@mail-a.example.test лимит на сутки снижен вдвое — мощность на "
+        "сегодня посчитана по сниженному"
     )
+
+
+def test_several_cut_mailboxes_are_counted_not_listed() -> None:
+    """Четыре адреса подряд вставали плашкой в две строки (QA прода 10.11.2026): у нескольких
+    ящиков — число и где их видно, а не список."""
+    boxes = [_box(1), _box(2), _box(3), _box(4)]
+    found = capacity.today(
+        boxes, stage=Stage.SALES, sent={}, domains={}, cuts={1: 10, 2: 10, 3: 10, 4: 10}, now=NOW
+    )
+
+    assert found.cut == (
+        "Мягкие отказы: у 4\u00a0ящиков лимит на сутки снижен вдвое — мощность на сегодня "
+        "посчитана по сниженному; какие — в «Доменах рассылки»"
+    )
+    assert "@" not in (found.cut or "")
 
 
 def test_a_cut_mailbox_that_used_its_halved_limit_is_refused_in_words() -> None:

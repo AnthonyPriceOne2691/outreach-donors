@@ -1986,6 +1986,14 @@ html:root .mantine-Pill-root {
   }
 }
 
+/* Закреплённая шапка таблицы (`Table stickyHeader`: «Отбор», «Журнал», «Обход», «Панель лимитов») —
+   плотным тоном карточки, а не фоном страницы: Mantine красит её `--mantine-color-body`, и в тёмной
+   теме это серая полоса #242424 поверх бирюзового стекла (QA прода 10.11.2026). Плотный — чтобы
+   строки, уехавшие под шапку, не просвечивали; на свету он белый, как был. */
+.mantine-Table-thead[data-sticky] .mantine-Table-th {
+  background-color: var(--glass-fill-solid);
+}
+
 /* Заголовок шире своей колонки — в две строки (`headsWrap`): «Кому не пишем» — не 144 px. */
 .headsWrap thead th:not(:first-child) {
   white-space: normal;
