@@ -25,6 +25,12 @@ interface Props {
   autobuild: SalesAutoLine;
 }
 
+/** Ширина «i» с целой строкой: на широком — 420 px, строка в шесть-семь строк подсказки; на телефоне —
+ *  в пределах окна 360 px. 420 px на 390 вылезали за край: текст срезан, у страницы — прокрутка вбок
+ *  (стенд 10.11.2026). */
+const HINT_WIDE = 420;
+const HINT_PHONE = 300;
+
 export function AutoLines({ autosend, autobuild }: Props) {
   const narrow = useMediaQuery('(max-width: 36em)');
   const lines: [string, SalesAutoLine][] = [
@@ -58,7 +64,7 @@ export function AutoLines({ autosend, autobuild }: Props) {
               {auto.short}
             </Text>
             {auto.short === auto.line ? null : (
-              <InfoHint name={`Подробно: ${title}`} width={420}>
+              <InfoHint name={`Подробно: ${title}`} width={narrow ? HINT_PHONE : HINT_WIDE}>
                 {auto.line}
               </InfoHint>
             )}
