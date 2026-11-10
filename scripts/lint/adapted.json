@@ -43,5 +43,10 @@
     "reason": "граница модуля «Продажи» (волна В1, #146, 03.10.2026): экраны почты не импортируют экраны продаж — пара контракту .importlinter того же имени. Правило дописано без объявления; замок payload'а (cqg@2.44) назвал расхождение при накате cqg@2.47",
     "changed": "правило mail-does-not-know-sales: from ^frontend/src/(letters|threads|suppressions|senders)/ → to ^frontend/src/sales/; каталог синхронен SALES_PATHS в scripts/contour_waves.py",
     "kind": "adaptation"
+  },
+  "scripts/delivery_status.py": {
+    "reason": "маячок §12.5 читал ревью рисковых мест из одного общего блока verify-report.md: его не правили с 08.10, и маячок поднимался на каждом рисковом PR (даже на чисто тестовом), а на handoff стал бы отказом каждому; правка общего блока каждым PR — конфликты параллельных PR в одном файле",
+    "changed": "check_risky_diff берёт ревью из заметок delivery/reviews/*.md, которые добавил или правил сам дифф (pick_review, review_notes; имя — ветка, «/» → «-»); заметок нет — блок verify-report.md, как в каноне; заметке без заголовка «## Ревью рисковых мест» он подставляется",
+    "kind": "adaptation"
   }
 }
