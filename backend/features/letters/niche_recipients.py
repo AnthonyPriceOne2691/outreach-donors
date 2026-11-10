@@ -38,6 +38,7 @@ from backend.features.core.models.run import RunModel
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.crawl.niche import NICHE, niche_funnel
 from backend.features.donors.price_freshness import PriceState, price_is
+from backend.features.keywords.footprints import niche_topic
 from backend.features.letters.compose import NicheOffer
 from backend.features.letters.offer_addresses import advertiser_addresses
 from backend.features.letters.recipients import Candidate, Recipients
@@ -188,7 +189,9 @@ def _examples(run: RunModel, moment: datetime) -> Select[tuple[str]]:
 def _offers_of(
     rows: Sequence[Any], runs: dict[int, RunModel], examples: dict[int, str | None]
 ) -> dict[tuple[int, str], NicheOffer]:
-    """Тема — первый ключ, по которому бизнес нашёлся; нет — первый ключ прогона."""
+    """Тема — ниша ключей, по которым бизнес нашёлся (нет их — ключей прогона), без слов
+    футпринта (`keywords.footprints.niche_topic`): «budgeting write for us» — запрос поиска
+    гостевых площадок, а письму бизнесу нужна ниша «budgeting»."""
     offers: dict[tuple[int, str], NicheOffer] = {}
     for row in rows:
         run = runs.get(row.run_id)
@@ -200,6 +203,6 @@ def _offers_of(
         if not keys:
             continue
         offers[(row.run_id, row.host)] = NicheOffer(
-            example_host=example, niche=str(keys[0]), donor_geo=run.country
+            example_host=example, niche=niche_topic(keys), donor_geo=run.country
         )
     return offers

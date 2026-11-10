@@ -23,6 +23,7 @@ write for us», «<тема> guest post»: сайт сам зовёт автор
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from backend.features.keywords.hygiene import normalize, rejection_reason, same_script
@@ -120,6 +121,41 @@ def with_niche(topic: str, asked: Sequence[str], templates: Sequence[str]) -> li
     if rejection_reason(templates[0].format(topic=niche)) is not None:
         return list(asked)
     return [niche, *asked]
+
+
+#: Слова футпринтов всех языков без темы — как их ставит `expand` после темы. Длинные первыми:
+#: «submit a guest post» снимается целиком, а не одним «guest post».
+_TAILS = sorted(
+    {
+        template.format(topic="").strip()
+        for templates in FOOTPRINTS.values()
+        for template in templates
+    },
+    key=len,
+    reverse=True,
+)
+_TAIL = re.compile(rf"(?:^|\s+)(?:{'|'.join(map(re.escape, _TAILS))})$", re.IGNORECASE)
+
+
+def topic_of(keyword: str) -> str:
+    """Тема ключа без слов футпринта: «budgeting write for us» → «budgeting»,
+    «garten gastbeitrag» → «garten». Ключ без футпринта — как есть; один футпринт
+    без темы — пусто.
+
+    Ключ становится словами письма у бизнеса ниши (`letters/niche_recipients`): «write for
+    us» — слова поиска гостевых площадок, а не ниша, и в теме письма бизнесу они читались
+    ошибкой шаблона: «Sponsored articles on budgeting write for us sites» (10.11.2026).
+    """
+    return _TAIL.sub("", " ".join(keyword.split())).strip()
+
+
+def niche_topic(keys: Sequence[str]) -> str:
+    """Тема для слов письма из ключей, по которым сайт нашёлся: первая непустая тема.
+    Все ключи — одни футпринты — первый ключ как есть: слова у письма будут, хоть и поисковые."""
+    for key in keys:
+        if topic := topic_of(str(key)):
+            return topic
+    return str(keys[0]).strip() if keys else ""
 
 
 def expand(topics: Sequence[str], templates: Sequence[str]) -> list[str]:
