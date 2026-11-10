@@ -16,9 +16,15 @@
  *
  * **Потолок — только с правом «Продажи»**: проверки адреса — их расход. Меняет учётка с правом
  * «менять потолки расхода» (`HunterCapModal.tsx`). Нет числа — слова сервера, почему.
+ *
+ * **На виду — остаток учётки, сброс и наш потолок подвалом; тариф, выбрано за месяц и кто менял —
+ * под «Подробнее»** (разведка 10.11.2026). Месяц у предела — подробности раскрыты сразу: полоса
+ * янтарём или розой не прячется. Без права «Продажи» строка, каким правом виден потолок, — на виду:
+ * отсутствие права объясняется на месте.
  */
 
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 
 import { permissionTitle } from '../api/labels';
 import type { HunterAccount, HunterCard, HunterMonth } from '../api/hunter';
@@ -27,7 +33,7 @@ import { Meter } from '../components/Meter';
 import { capitalized, formatDay, formatNumber } from '../format';
 import { changedBy } from './CapDialog';
 import { HunterCapModal, STOPPED } from './HunterCapModal';
-import { checked, LimitCard, LimitLine } from './LimitCard';
+import { checked, LimitCard, LimitLine, nearCap } from './LimitCard';
 
 /** Кредиты бывают дробными: проверка стоит половину, и «9 292» вместо «9 291,5» было бы неправдой. */
 const CREDITS = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
@@ -112,8 +118,9 @@ function accountProps({ account, unknown }: HunterCard) {
   };
 }
 
-/** Под чертой: что за учётка и наш потолок; потолок виден только с правом «Продажи». */
-function Details({ account, month }: HunterCard) {
+/** Под «Подробнее»: что за учётка и наш потолок за месяц. Ни учётки, ни потолка — подробностей нет. */
+function detailsOf({ account, month }: HunterCard): ReactNode {
+  if (account === null && month === null) return undefined;
   return (
     <>
       {account !== null && (
@@ -121,11 +128,7 @@ function Details({ account, month }: HunterCard) {
           Тариф {account.plan} · учётка общая с соседней системой и поиском адресов
         </LimitLine>
       )}
-      {month === null ? (
-        <LimitLine>Потолок проверок адреса виден с правом «{permissionTitle('sales')}»</LimitLine>
-      ) : (
-        <MonthCap month={month} resetOn={account?.reset_on ?? null} />
-      )}
+      {month !== null && <MonthCap month={month} resetOn={account?.reset_on ?? null} />}
     </>
   );
 }
@@ -140,6 +143,14 @@ export function HunterLimit({ hunter }: { hunter: HunterCard }) {
         title="Hunter"
         caption="Осталось на учётке"
         {...accountProps(hunter)}
+        notice={
+          month === null ? (
+            <LimitLine>
+              Потолок проверок адреса виден с правом «{permissionTitle('sales')}»
+            </LimitLine>
+          ) : undefined
+        }
+        unfolded={month !== null && nearCap(month.spent, month.cap)}
         footer={month === null ? undefined : capLine(month)}
         action={{
           label: 'Изменить потолок',
@@ -148,7 +159,7 @@ export function HunterLimit({ hunter }: { hunter: HunterCard }) {
           onClick: () => setEditing(true),
         }}
       >
-        <Details {...hunter} />
+        {detailsOf(hunter)}
       </LimitCard>
       {/* Окно монтируется на каждое открытие — и открывается на действующем потолке. */}
       {editing && month !== null && (

@@ -3,7 +3,8 @@
  * (`settings/UsagePage.test.tsx`) и капа Ahrefs (`settings/AhrefsCap.test.tsx`).
  */
 
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import { AppRoutes } from '../App';
 import type { Me } from '../api/types';
@@ -201,4 +202,12 @@ export async function openArticles(
   const recorded = opened(spending, opening, '/usage?view=articles');
   await screen.findByText(/календарный месяц: плитки, этапы и статьи/);
   return recorded;
+}
+
+/** Раскрыть подробности карточки лимита («Подробнее»): свёрнутые не отрисованы. Карточка — по
+ *  имени: «Ahrefs», «Hunter», «Модель». */
+export async function openDetails(card: string): Promise<HTMLElement> {
+  const group = screen.getByRole('group', { name: card });
+  await userEvent.click(within(group).getByRole('button', { name: 'Подробнее' }));
+  return group;
 }

@@ -16,6 +16,8 @@ from typing import Any
 HUNTER_CARD = "[role='group'][aria-label='Hunter']"
 #: Переключатель вкладок «Расхода»: мерится подпись, а не обёртка с подвижной подложкой.
 USAGE_TAB = "[aria-label='Что смотреть на экране «Расход»'] .mantine-SegmentedControl-innerLabel"
+#: «Подробнее» карточки Hunter: подробности свёрнуты и не отрисованы (10.11.2026).
+HUNTER_MORE = f"{HUNTER_CARD} button[aria-expanded]"
 
 
 #: «i» у кнопки «Рассмотреть» в отчёте прогона: почему очередь не равна «Подходит».
@@ -46,7 +48,24 @@ def _card_probe(what: str, name: str, text: str, norm: float) -> tuple[Any, ...]
     return (what, f".mantine-Popover-dropdown p:has-text('{text}')", norm, _open_card(name))
 
 
-def _usage_limits(norm: float, big: float) -> list[tuple[str, str, float]]:
+def open_hunter_details(page: Any) -> None:
+    """Раскрыть подробности карточки Hunter, если свёрнуты: тариф и потолок месяца — под
+    «Подробнее». Раскрытие — два такта, мерить по улёгшемуся."""
+    more = page.locator(HUNTER_MORE)
+    if more.get_attribute("aria-expanded") == "false":
+        more.click()
+        page.wait_for_timeout(900)
+
+
+def open_tasks(page: Any) -> None:
+    """Раскрыть свёрнутые задачи панели лимитов: строки под ними не отрисованы (10.11.2026)."""
+    closed = page.locator(".limitTable tr.tierRow button[aria-expanded='false']")
+    while closed.count() > 0:
+        closed.first.click()
+    page.wait_for_timeout(500)
+
+
+def _usage_limits(norm: float, big: float) -> list[tuple[Any, ...]]:
     """Точки вкладки «Лимиты»: по ним решают, сколько осталось и что менять."""
     return [
         ("заголовок экрана", "h3", big),
@@ -57,21 +76,23 @@ def _usage_limits(norm: float, big: float) -> list[tuple[str, str, float]]:
         ("из скольких", f"{HUNTER_CARD} .mantine-Group-root p:nth-child(2)", norm),
         ("что значит число", f"{HUNTER_CARD} p:has-text('хватит на')", norm),
         ("сброс", f"{HUNTER_CARD} p:has-text('Сброс')", norm),
-        ("подробности", f"{HUNTER_CARD} p:has-text('Тариф')", norm),
+        ("«Подробнее»", f"{HUNTER_MORE} .mantine-Button-label", norm),
+        ("подробности", f"{HUNTER_CARD} p:has-text('Тариф')", norm, open_hunter_details),
         ("подвал", f"{HUNTER_CARD} p:has-text('Потолок:')", norm),
         ("кнопка «Изменить»", "button[aria-label='Изменить потолок']", big),
         ("метка «без потолка»", ".mantine-Badge-label:has-text('без потолка')", norm),
     ]
 
 
-def _limit_panel(norm: float, big: float) -> list[tuple[str, str, float]]:
-    """Точки панели лимитов (02.11.2026): по ним решают, какой лимит менять и почём."""
+def _limit_panel(norm: float, big: float) -> list[tuple[Any, ...]]:
+    """Точки панели лимитов (02.11.2026): по ним решают, какой лимит менять и почём. Задачи
+    свёрнуты (10.11.2026) — строки мерятся после раскрытия."""
     cell = ".limitTable tbody tr:not(.tierRow) td"
     return [
         ("заголовок экрана", "h3", big),
         ("вкладка", USAGE_TAB, norm),
-        ("задача", ".limitTable .tierRow span", norm),
-        ("сервис", f"{cell}:nth-child(1) p:nth-child(1)", norm),
+        ("задача", ".limitTable .tierRow .mantine-Button-label", norm),
+        ("сервис", f"{cell}:nth-child(1) p:nth-child(1)", norm, open_tasks),
         ("действие", f"{cell}:nth-child(1) p:nth-child(2)", norm),
         ("охват", f"{cell}:nth-child(2) p", norm),
         ("выбрано", f"{cell}:nth-child(6) p", norm),

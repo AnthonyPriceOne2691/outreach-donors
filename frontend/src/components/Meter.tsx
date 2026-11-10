@@ -16,8 +16,9 @@
 
 import { Progress } from '@mantine/core';
 
-/** С этой доли полоса янтарная: до лимита осталась пятая часть. */
-const WARN_SHARE = 0.8;
+/** С этой доли полоса янтарная: до лимита осталась пятая часть. Карточки «Расхода» тем же порогом
+ *  раскрывают подробности с такой полосой (`settings/LimitCard`). */
+export const WARN_SHARE = 0.8;
 
 interface Props {
   spent: number;
