@@ -29,6 +29,8 @@ def stage2_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         "advertisers-panel": {
             # Панель рекламодателей (02.11.2026): шаги выборки плитками, качество загрузок, блоки
             # рассылки. Мерится то, по чему судят: числа шагов, способ загрузки, доля, режим очереди.
+            # С 10.11.2026 способ, одинаковый у всех строк, — строкой над таблицей, а пустая
+            # очередь — одной строкой вместо режима и срока: точки берут то, что есть на экране.
             "path": "/advertisers",
             "ready": ("heading", "Панель рекламодателей"),
             "probes": [
@@ -36,11 +38,11 @@ def stage2_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("выбранная выборка", f"{SEGMENT}[data-active]", norm),
                 ("подпись плитки", ".metricTile .metricTitle", norm),
                 ("пояснение плитки", ".metricTile .metricHint", norm),
-                ("способ загрузки", "table tbody td[data-label='Способ'] p", norm),
+                ("способ загрузки", ".qualityMethod", norm),
                 ("список доменов", "table tbody td[data-label='Доменов'] button", norm),
                 ("доля страниц", "table tbody td[data-label='% страниц']", norm),
-                ("режим очереди", ".mailingMode p", norm),
-                ("слова срока", ".mailingEtaWords", norm),
+                ("режим очереди", ".mailingMode p, .mailingEmpty p", norm),
+                ("слова срока", ".mailingEtaWords, .mailingEmpty p", norm),
                 ("пункт меню", "nav a", norm),
             ],
         },

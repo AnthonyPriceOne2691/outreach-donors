@@ -6,6 +6,11 @@
  * ставят кнопкой, и прежние загрузки партиями не записаны. Страница считается на сервере и живёт
  * в адресе (`?quality_page=2`), не задевая выборку окна сверху. Все домены строки — окном по кнопке:
  * у партии их бывает десять тысяч, и раскрывать их в таблице значило бы терять саму таблицу.
+ *
+ * **Способ один у всех строк — строкой над таблицей, колонки нет** (разведка 10.11.2026: самая широкая
+ * колонка во всех строках говорила «обход без загрузки»). Один домен строки, который виден в способе
+ * загрузки, тогда встаёт в «Доменов» — на место «1». Считается по строкам страницы: других страниц
+ * экран не знает, и над таблицей тогда сказано «строк страницы».
  */
 
 import { Alert, Button, Card, Modal, Skeleton, Stack, Table, Text } from '@mantine/core';
@@ -13,7 +18,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { fetchQuality, fetchQualityHosts } from '../api/advertiserPanel';
-import type { QualityRow } from '../api/advertiserPanel';
+import type { QualityRow, QualityView } from '../api/advertiserPanel';
 import { refusalOf } from '../api/client';
 import type { Column } from '../components/ColumnsHead';
 import { DataTable } from '../components/DataTable';
@@ -43,17 +48,22 @@ const SHARE_HINT = (
   </InfoHint>
 );
 
+const METHOD = 'Способ загрузки';
+
 /** Способ — по самому длинному: «обход без загрузки: имя-файла…» режется многоточием. */
 const COLUMNS: Column[] = [
   { title: 'Дата', width: '7rem' },
-  { title: 'Способ загрузки' },
+  { title: METHOD },
   { title: 'Доменов', width: '8.5rem' },
   { title: 'Страниц', width: '6rem' },
   { title: 'Продающих ссылок', width: '7.5rem' },
   { title: '% страниц', width: '7.5rem', hint: SHARE_HINT },
 ];
-/** Уже — прокрутка: способ загрузки не уже 14rem и пять колонок чисел. */
+/** Способ один у всех строк — без его колонки. */
+const NUMBER_COLUMNS = COLUMNS.filter((column) => column.title !== METHOD);
+/** Уже — прокрутка: способ загрузки не уже 14rem и пять колонок чисел; без способа — пять чисел. */
 const TABLE_MIN_WIDTH = 760;
+const NUMBERS_MIN_WIDTH = 600;
 
 /** Обход — ширина «Последнего обхода» у таблицы доноров: значок и «i» в одну строку. */
 const HOST_COLUMNS: Column[] = [
@@ -70,11 +80,26 @@ const WHOLE_LINE = { gridColumn: '1 / -1' } as const;
 /** Сколько строк-заготовок держит высоту таблицы до первого ответа. */
 const SKELETON_ROWS = 5;
 
+/** Способ без домена строки: домен — её подробность, а не способ. */
+function methodWords(row: QualityRow): string {
+  if (row.kind === 'bulk') return `файлом: ${row.file_name ?? 'без имени'}`;
+  return row.kind === 'manual' ? 'вручную' : 'обход без загрузки';
+}
+
 /** Способ загрузки словами: файл называется по имени, ручной домен виден сразу. */
 function kindWords(row: QualityRow): string {
-  if (row.kind === 'bulk') return `файлом: ${row.file_name ?? 'без имени'}`;
+  if (row.kind === 'bulk') return methodWords(row);
   if (row.kind === 'manual') return `вручную: ${row.host ?? 'домен'}`;
-  return row.host === null ? 'обход без загрузки' : `обход без загрузки: ${row.host}`;
+  return row.host === null ? methodWords(row) : `${methodWords(row)}: ${row.host}`;
+}
+
+/** Способ, одинаковый у всех строк, — или `null`, когда строки загружены по-разному. У одной
+ *  строки «одинаковое у всех» — любая колонка: такой таблице колонка остаётся. */
+function sharedMethod(rows: QualityRow[]): string | null {
+  const [first, ...rest] = rows;
+  if (first === undefined || rest.length === 0) return null;
+  const method = methodWords(first);
+  return rest.every((row) => methodWords(row) === method) ? method : null;
 }
 
 function shareWords(share: number | null): string {
@@ -148,31 +173,54 @@ function HostsWindow({ row, onClose }: { row: QualityRow; onClose: () => void })
   );
 }
 
-function Rows({ rows, onHosts }: { rows: QualityRow[]; onHosts: (row: QualityRow) => void }) {
+interface RowsProps {
+  rows: QualityRow[];
+  /** Способ один у всех строк: его колонки нет, и один домен строки — в «Доменов». */
+  shared: boolean;
+  onHosts: (row: QualityRow) => void;
+}
+
+/** «Доменов»: все — окном по кнопке; один — им самим, когда колонки способа нет (иначе он виден в
+ *  способе загрузки) и переносится по швам, а не режется; иначе — число. */
+function Domains({ row, shared, onHosts }: { row: QualityRow } & Omit<RowsProps, 'rows'>) {
+  if (row.donors > 1) {
+    return (
+      <Button
+        variant="subtle"
+        size="compact-sm"
+        className="press"
+        aria-label={`Домены строки: ${kindWords(row)}`}
+        onClick={() => onHosts(row)}
+      >
+        {formatNumber(row.donors)} · список
+      </Button>
+    );
+  }
+  if (shared && row.host !== null) {
+    return (
+      <Text size="sm" className="cellName">
+        <Seams text={row.host} />
+      </Text>
+    );
+  }
+  return formatNumber(row.donors);
+}
+
+function Rows({ rows, shared, onHosts }: RowsProps) {
   return (
     <>
       {rows.map((row) => (
         <Table.Tr key={row.load_id === null ? `day-${row.day}` : `load-${row.load_id}`}>
           <Table.Td className="cellName">{dateWords(row)}</Table.Td>
-          <Table.Td data-label="Способ" className="wrapCell" style={WHOLE_LINE}>
-            <Text size="sm" truncate="end" title={kindWords(row)}>
-              {kindWords(row)}
-            </Text>
-          </Table.Td>
-          <Table.Td data-label="Доменов">
-            {row.donors > 1 ? (
-              <Button
-                variant="subtle"
-                size="compact-sm"
-                className="press"
-                aria-label={`Домены строки: ${kindWords(row)}`}
-                onClick={() => onHosts(row)}
-              >
-                {formatNumber(row.donors)} · список
-              </Button>
-            ) : (
-              formatNumber(row.donors)
-            )}
+          {shared ? null : (
+            <Table.Td data-label="Способ" className="wrapCell" style={WHOLE_LINE}>
+              <Text size="sm" truncate="end" title={kindWords(row)} className="qualityMethod">
+                {kindWords(row)}
+              </Text>
+            </Table.Td>
+          )}
+          <Table.Td data-label="Доменов" className="wrapCell">
+            <Domains row={row} shared={shared} onHosts={onHosts} />
           </Table.Td>
           <Table.Td data-label="Страниц">{formatNumber(row.pages)}</Table.Td>
           <Table.Td data-label="Продающих ссылок">
@@ -201,6 +249,48 @@ function Placeholder() {
   );
 }
 
+/** Способ, одинаковый у всех строк, — строкой над таблицей; у страницы из нескольких — «строк
+ *  страницы»: других страниц экран не знает. */
+function MethodLine({ method, paged }: { method: string | null; paged: boolean }) {
+  if (method === null) return null;
+  return (
+    <Text size="sm" className="qualityMethod">
+      {METHOD} во всех строках{paged ? ' страницы' : ''}: {method}
+    </Text>
+  );
+}
+
+interface TableProps {
+  data: QualityView | undefined;
+  stale: boolean;
+  onHosts: (row: QualityRow) => void;
+}
+
+/** Таблица: до первого ответа — заготовка строк; способ один у всех строк — без его колонки. */
+function QualityTable({ data, stale, onHosts }: TableProps) {
+  const method = data === undefined ? null : sharedMethod(data.rows);
+  const shared = method !== null;
+  return (
+    <>
+      <MethodLine method={method} paged={data !== undefined && data.total > data.limit} />
+      <DataTable
+        columns={shared ? NUMBER_COLUMNS : COLUMNS}
+        minWidth={shared ? NUMBERS_MIN_WIDTH : TABLE_MIN_WIDTH}
+        className="allCentered headsWrap"
+        cardRow
+        stale={stale}
+        label="Качество загрузок"
+      >
+        {data === undefined ? (
+          <Placeholder />
+        ) : (
+          <Rows rows={data.rows} shared={shared} onHosts={onHosts} />
+        )}
+      </DataTable>
+    </>
+  );
+}
+
 export function PanelQuality() {
   const [page, setPage] = usePageParam('quality_page');
   const [opened, setOpened] = useState<QualityRow | null>(null);
@@ -224,16 +314,7 @@ export function PanelQuality() {
             Загрузок и обходов ещё не было: доноров заводят на вкладке «Обход доноров».
           </Text>
         ) : (
-          <DataTable
-            columns={COLUMNS}
-            minWidth={TABLE_MIN_WIDTH}
-            className="allCentered headsWrap"
-            cardRow
-            stale={query.isPlaceholderData}
-            label="Качество загрузок"
-          >
-            {data === undefined ? <Placeholder /> : <Rows rows={data.rows} onHosts={setOpened} />}
-          </DataTable>
+          <QualityTable data={data} stale={query.isPlaceholderData} onHosts={setOpened} />
         )}
         {data === undefined ? null : (
           <PageSwitch

@@ -709,7 +709,10 @@ describe('бизнесы ниши', () => {
 
     expect(await screen.findAllByText('bookie.example.test')).not.toHaveLength(0);
     expect(recorded.calls.some((call: Call) => call.path === NICHE_PATH)).toBe(true);
-    expect(screen.getByText(/пример нашей площадки той же темы/)).toBeInTheDocument();
+    // Как устроен оффер бизнесу — в «i» у переключателя (слово владельца 10.11.2026).
+    await user.click(screen.getByRole('button', { name: 'Пояснение к «Бизнесам ниши»' }));
+    expect(await screen.findByText(/пример нашей площадки той же темы/)).toBeInTheDocument();
+    await user.keyboard('{Escape}');
     expect(localStorage.getItem('letters:stage')).toBe('niche');
     await openBuild(user);
     await user.click(screen.getByRole('button', { name: 'Текст первого письма' }));

@@ -1,8 +1,9 @@
 /**
  * «Письма донорам» и «Письма рекламодателям» — экран писем, суженный адресом (`?stage=…`,
  * замечание тест-группы 23.10.2026 «разделить вкладки Письма и Диалог» у Этапа 1 и
- * Этапа 2). Проверяется: заголовок части — её пункт меню; у доноров переключателя нет; у
- * Этапа 2 — две аудитории; запомненный выбор не уводит в чужую часть; прежний адрес без
+ * Этапа 2). Проверяется: заголовок части — её пункт меню; у доноров переключателя нет, и
+ * пояснение — в «i» у заголовка; у Этапа 2 — две аудитории, пояснение — в «i» у переключателя
+ * (слово владельца 10.11.2026); запомненный выбор не уводит в чужую часть; прежний адрес без
  * части — экран со всеми тремя адресатами.
  */
 
@@ -76,7 +77,7 @@ const options = () =>
     .map((radio) => radio.labels?.[0]?.textContent);
 
 describe('письма по частям', () => {
-  it('«Письма донорам» — одни доноры: переключателя нет, пояснение есть', async () => {
+  it('«Письма донорам» — одни доноры: переключателя нет, пояснение — в «i» у заголовка', async () => {
     // Выбор, запомненный на прежнем экране, в чужую часть не уводит.
     localStorage.setItem('letters:stage', 'niche');
     const recorded = await openLetters('/letters?stage=donors');
@@ -84,9 +85,36 @@ describe('письма по частям', () => {
     expect(await screen.findByRole('heading', { name: 'Письма донорам' })).toBeInTheDocument();
     expect(await screen.findAllByText('digest.example.test')).not.toHaveLength(0);
     expect(screen.queryByRole('radiogroup', { name: 'Кому письма' })).not.toBeInTheDocument();
-    expect(screen.getByText(/Очередь на отправку/)).toBeInTheDocument();
+    // Слово владельца 10.11.2026: абзац под заголовком — в «i» у него, под заголовком — факты.
+    expect(screen.queryByText(/Очередь на отправку/)).not.toBeInTheDocument();
+    await userEvent
+      .setup()
+      .hover(screen.getByRole('button', { name: 'Как устроен экран «Письма донорам»' }));
+    expect(await screen.findByText(/Очередь на отправку/)).toBeInTheDocument();
     expect(asked(recorded).map((call) => call.path)).toEqual([DONORS]);
     expect(menuLink('Письма донорам')).toHaveAttribute('data-active');
+  });
+
+  it('«Письма рекламодателям» — пояснение аудитории в «i» у переключателя, своё у каждой', async () => {
+    localStorage.setItem('letters:stage', 'advertisers');
+    await openLetters('/letters?stage=advertisers');
+    const user = userEvent.setup();
+    await screen.findAllByText('brand.example.test');
+
+    expect(screen.queryByText(/^Оффер рекламодателям под найденную ссылку/)).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: /^Как устроен экран «Письма рекламодателям»/ }),
+    ).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Пояснение к «По найденной ссылке»' }));
+    // Окошко ещё в переходе появления — читаем его текст, а не видимость.
+    expect(
+      await screen.findByText(/^Оффер рекламодателям под найденную ссылку/),
+    ).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('radio', { name: 'Бизнесам ниши' }));
+    await user.click(screen.getByRole('button', { name: 'Пояснение к «Бизнесам ниши»' }));
+    expect(await screen.findByText(/^Оффер бизнесам ниши из выдачи/)).toBeInTheDocument();
   });
 
   it('«Письма рекламодателям» — две аудитории Этапа 2, выбор помнится', async () => {

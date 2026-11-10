@@ -2,10 +2,12 @@
  * Экран писем бизнесов ниши: у скольких решённых «пишем» есть адрес и идёт ли поиск
  * (тест-группа 29.10.2026: «из 180 сделало 3 письма» — адрес был у восьми, а экран молчал).
  *
- * Очередь пуста — сборка раскрыта, и подсказка у «Собрать очередь» видна без нажатия.
+ * Очередь пуста — сборка раскрыта, и строка у «Собрать очередь» видна без нажатия; что с
+ * остальными и что делать — в её «i».
  */
 
 import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
@@ -73,8 +75,15 @@ describe('адрес есть не у всех решённых «пишем»',
     expect(await screen.findByText(/адрес есть у 8 из 180 решённых/)).toBeInTheDocument();
     expect(await screen.findByText(/ждут адреса:/)).toHaveTextContent('ждут адреса: 170');
     expect(screen.getByText('· идёт поиск')).toBeInTheDocument();
+    // Под кнопкой — строка: последствие и число, которого выше нет; «8 из 180» и «170» уже
+    // сказаны шапкой и строкой поиска (разведка 10.11.2026: абзац повторял оба).
     expect(
-      screen.getByText(/Письма соберутся тем, у кого есть адрес: 8 из 180 решённых «пишем»/),
+      screen.getByText('Соберутся только те, у кого есть адрес · адреса не нашлось у 2'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Письма соберутся тем/)).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Кому соберутся письма' }));
+    expect(
+      await screen.findByText(/Письма соберутся тем, у кого есть адрес: 8 из 180 решённых «пишем»/),
     ).toHaveTextContent(/Ещё 170 ждут поиска адреса.*У 2 адреса не нашлось/);
   });
 

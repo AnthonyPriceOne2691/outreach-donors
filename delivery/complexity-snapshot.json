@@ -3977,9 +3977,9 @@
       "worst": "main:135"
     },
     "scripts/ui_screens.py": {
-      "lines": 462,
+      "lines": 464,
       "complexity": 2,
-      "worst": "open_reason:28"
+      "worst": "open_reason:29"
     },
     "scripts/ui_screens_donors.py": {
       "lines": 230,
@@ -3992,14 +3992,14 @@
       "worst": "build_from_examples:52"
     },
     "scripts/ui_screens_letters.py": {
-      "lines": 110,
-      "complexity": 1,
-      "worst": "open_letter_draft:36"
+      "lines": 139,
+      "complexity": 2,
+      "worst": "open_choice_hint:51"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 411,
+      "lines": 413,
       "complexity": 2,
-      "worst": "unbound_probes:35"
+      "worst": "unbound_probes:36"
     },
     "scripts/ui_screens_reports.py": {
       "lines": 152,
@@ -4072,7 +4072,7 @@
       "worst": "weekly_screens:21"
     },
     "scripts/ui_screens_stage2.py": {
-      "lines": 156,
+      "lines": 158,
       "complexity": 1,
       "worst": "stage2_screens:26"
     }

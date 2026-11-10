@@ -25,6 +25,11 @@
  * **Этап продаж — в адресе** (`?stage=sales`, 11.10.2026): так экран открывает пункт
  * «Агент продаж» группы меню «Продажи», и выбор продаж в переключателе пишет его туда же —
  * подсвечен пункт того этапа, что на экране. Прочие этапы выбираются, как раньше.
+ *
+ * **Пояснение этапа — в «i»** (слово владельца 10.11.2026): у переключателя этапов, а когда
+ * учётке виден один этап и переключателя нет — у заголовка, первым абзацем. В «i» уходит только
+ * то, как этап устроен; действует ли агент (`Standing`) и поля настроек — на виду: по ним видно,
+ * почему черновиков нет.
  */
 
 import { Alert, Badge, Card, Group, Loader, Stack, Text } from '@mantine/core';
@@ -39,6 +44,7 @@ import { refusalOf } from '../api/client';
 import { stageShown } from '../api/stageRights';
 import { partOf, withPart } from '../api/stages';
 import { useSession } from '../auth/AuthProvider';
+import { HintLines } from '../components/HintLines';
 import { LeaveGuard } from '../components/LeaveGuard';
 import { PageHead } from '../components/PageHead';
 import { StageSwitch } from '../components/StageSwitch';
@@ -56,6 +62,18 @@ const LIMIT: Record<AgentStageView['price_side'], { price: string; limit: string
 };
 
 type Drafts = Partial<Record<string, AgentDraft>>;
+
+/** Как устроен экран — в «i» у заголовка. */
+const SCREEN_HINT =
+  'Агент готовит черновик ответа собеседнику по этим настройкам, человек правит его и отправляет. ' +
+  'Сохранение заводит новую версию: черновик объясняется той, по которой написан.';
+
+/** «i» у заголовка: как устроен экран, а когда этап один и переключателя нет, — первым абзацем
+ *  пояснение этапа: у переключателя его «i» стоит рядом с ним. */
+function headHint(view: AgentStageView | undefined, stages: AgentStageView[]): ReactNode {
+  if (view === undefined || stages.length > 1) return SCREEN_HINT;
+  return <HintLines lines={[view.lead, SCREEN_HINT]} />;
+}
 
 function without(drafts: Drafts, stage: string): Drafts {
   const rest = { ...drafts };
@@ -246,7 +264,7 @@ export function AgentPage() {
               переключатель — с ответом сервера: этапы знает его реестр. */}
           <PageHead
             title={sales ? 'Агент продаж' : 'Агент переписки'}
-            hint="Агент готовит черновик ответа собеседнику по этим настройкам, человек правит его и отправляет. Сохранение заводит новую версию: черновик объясняется той, по которой написан."
+            hint={headHint(view, stages)}
           />
           {view !== undefined && (
             <StageSwitch

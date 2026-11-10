@@ -97,11 +97,17 @@ function loadLabel(load: PanelLoad): string {
   return `${formatDateTime(load.at)} · ${name} · ${formatNumber(load.hosts)}`;
 }
 
+/** «новых 2» — число не отрывается от своей подписи: неразрывным пробелом. В узкой плитке
+ *  пояснение рвалось «новых 2 · повторных / 324», и число читалось чужим (разведка 10.11.2026). */
+function counted(words: string, number: number): string {
+  return `${words}\u00a0${formatNumber(number)}`;
+}
+
 /** Где доноры сейчас — словами под числом: нули не называются. */
 function donorsHint(donors: PanelDonors): string | undefined {
   const said = [
-    donors.running > 0 ? `идёт ${formatNumber(donors.running)}` : '',
-    donors.refused > 0 ? `не открылись ${formatNumber(donors.refused)}` : '',
+    donors.running > 0 ? counted('идёт', donors.running) : '',
+    donors.refused > 0 ? counted('не открылись', donors.refused) : '',
   ].filter(Boolean);
   return said.length > 0 ? said.join(' · ') : undefined;
 }
@@ -109,8 +115,8 @@ function donorsHint(donors: PanelDonors): string | undefined {
 /** Кто ещё не в обходе — словами под числом поставленных. */
 function waitingHint(donors: PanelDonors): string | undefined {
   const said = [
-    donors.waiting > 0 ? `ждут очереди ${formatNumber(donors.waiting)}` : '',
-    donors.idle > 0 ? `без обхода ${formatNumber(donors.idle)}` : '',
+    donors.waiting > 0 ? counted('ждут очереди', donors.waiting) : '',
+    donors.idle > 0 ? counted('без обхода', donors.idle) : '',
   ].filter(Boolean);
   return said.length > 0 ? said.join(' · ') : undefined;
 }
@@ -131,12 +137,12 @@ function Steps({ donors, advertisers }: { donors: PanelDonors; advertisers: Pane
       <Metric
         title="Рекламодателей получено"
         value={formatNumber(advertisers.found)}
-        hint={`новых ${formatNumber(advertisers.fresh)} · повторных ${formatNumber(advertisers.repeat)}`}
+        hint={`${counted('новых', advertisers.fresh)} · ${counted('повторных', advertisers.repeat)}`}
       />
       <Metric
         title="С адресом"
         value={formatNumber(advertisers.with_address)}
-        hint={`переведено ${formatNumber(advertisers.promoted)}`}
+        hint={counted('переведено', advertisers.promoted)}
       />
       <Metric title="Письмо ушло" value={formatNumber(advertisers.sent)} />
       <Metric title="Письмо дошло" value={formatNumber(advertisers.delivered)} />

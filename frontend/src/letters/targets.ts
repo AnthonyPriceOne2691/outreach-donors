@@ -32,11 +32,19 @@ export const LETTERS_TITLES: Record<LetterStage, string> = {
   advertisers: 'Письма рекламодателям',
 };
 
+/** Аудитории Этапа 2 словами переключателя «Письма рекламодателям». Ими же подписаны две строки
+ *  режима очереди на панели рекламодателей (`advertisers/PanelMailing`): без подписи две «Сама
+ *  больше не уходит с …» читались дублем (разведка 10.11.2026). */
+export const AUDIENCE_NAMES: Record<LetterAudience, string> = {
+  links: 'По найденной ссылке',
+  niche: 'Бизнесам ниши',
+};
+
 /** Аудитории Этапа 2 под заголовком «Письма рекламодателям»: «Рекламодателям» там
  *  читалось бы всеми письмами экрана, поэтому — чем аудитории различаются. */
 const STAGE_TWO: StageOption<LetterTarget>[] = [
-  { value: 'advertisers', label: 'По найденной ссылке' },
-  { value: 'niche', label: 'Бизнесам ниши' },
+  { value: 'advertisers', label: AUDIENCE_NAMES.links },
+  { value: 'niche', label: AUDIENCE_NAMES.niche },
 ];
 
 /** Часть из адреса; продаж и незнакомого у экрана писем нет — без части. Виден один этап —
@@ -68,7 +76,9 @@ export function targetOf(saved: string | null, options = TARGETS): LetterTarget 
   return options.find((one) => one.value === saved)?.value ?? options[0]?.value ?? 'donors';
 }
 
-/** Что экран говорит об адресатах — словами человека. */
+/** Что экран говорит об адресатах — словами человека. `lead` — как устроены их письма: в «i» у
+ *  переключателя, а где его нет («Письма донорам») — в «i» у заголовка (слово владельца
+ *  10.11.2026: абзац под заголовком в три строки отодвигал то, по чему решают). */
 export const ABOUT: Record<LetterTarget, { lead: string; placeholder: string; who: string }> = {
   donors: {
     lead:
@@ -242,8 +252,19 @@ export function addressHint(funnel: Funnel, target: LetterTarget): string {
   return ` · адрес есть у ${formatNumber(counts[0])} из ${formatNumber(counts[1])} решённых`;
 }
 
-/** Под «Собрать очередь»: письма соберутся только тем, у кого есть адрес, — сколько это и что
- *  с остальными: ждут поиска (адрес ищется сам после «пишем») или его не нашлось. */
+/** Под «Собрать очередь» — строкой: письма соберутся только тем, у кого есть адрес, и у скольких
+ *  его не нашлось. У скольких решённых он есть, говорит шапка (`addressHint`), сколько ждут поиска —
+ *  строка «ждут адреса» над формой: одно число на экране — один раз (разведка 10.11.2026: под
+ *  кнопкой стоял абзац, повторявший оба). Подробности — в «i» рядом (`buildHint`). */
+export function buildLine(funnel: Funnel, target: LetterTarget): string | null {
+  if (addressCounts(funnel, target) === null) return null;
+  const missing = funnel['адреса не нашлось'] ?? 0;
+  const tail = missing > 0 ? ` · адреса не нашлось у\u00a0${formatNumber(missing)}` : '';
+  return `Соберутся только те, у кого есть адрес${tail}`;
+}
+
+/** В «i» у строки под «Собрать очередь»: письма соберутся только тем, у кого есть адрес, —
+ *  сколько это и что с остальными: ждут поиска (адрес ищется сам после «пишем») или его не нашлось. */
 export function buildHint(funnel: Funnel, target: LetterTarget): string | null {
   const counts = addressCounts(funnel, target);
   if (counts === null) return null;

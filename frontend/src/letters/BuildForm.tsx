@@ -24,11 +24,12 @@ import type { Dispatch, SetStateAction } from 'react';
 
 import type { LetterDraft, LettersView } from '../api/types';
 import { HintLabel } from '../components/HintLabel';
+import { InfoHint } from '../components/InfoHint';
 import { CountInput } from './CountInput';
 import { LetterDraftEditor, draftOf } from './LetterDraftEditor';
 import { RunPicker, useAcceptedRuns } from './RunPicker';
 import type { LetterTarget } from './targets';
-import { ABOUT, buildHint } from './targets';
+import { ABOUT, buildHint, buildLine } from './targets';
 
 /** Писем за сборку, пока человек не поправил, и потолок — как у сервера (`LIMIT_MAX`). */
 export const LIMIT_DEFAULT = 50;
@@ -219,7 +220,7 @@ export function BuildForm({
           />
 
           <BuildButton building={building} blocked={blocked} onBuild={onBuild} />
-          <BuildHint text={buildHint(view.funnel, target)} />
+          <BuildHint line={buildLine(view.funnel, target)} more={buildHint(view.funnel, target)} />
         </Stack>
       </Collapse>
     </Stack>
@@ -259,12 +260,19 @@ function BuildButton({
   );
 }
 
-/** Кому соберутся письма, если адрес есть не у всех решённых (`targets.buildHint`). */
-function BuildHint({ text }: { text: string | null }) {
-  if (text === null) return null;
+/** Кому соберутся письма, если адрес есть не у всех решённых: строкой — последствие и число,
+ *  которого выше нет (`targets.buildLine`), что с остальными и что делать — в «i»
+ *  (`targets.buildHint`; разведка 10.11.2026: под кнопкой стоял абзац на сорок слов). */
+function BuildHint({ line, more }: { line: string | null; more: string | null }) {
+  if (line === null || more === null) return null;
   return (
-    <Text size="sm" c="dimmed">
-      {text}
-    </Text>
+    <Group gap={4} wrap="nowrap" align="center">
+      <Text size="sm" c="dimmed" style={{ minWidth: 0 }}>
+        {line}
+      </Text>
+      <InfoHint name="Кому соберутся письма" width={360} interactive>
+        {more}
+      </InfoHint>
+    </Group>
   );
 }

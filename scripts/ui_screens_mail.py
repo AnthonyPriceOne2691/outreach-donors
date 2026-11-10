@@ -22,6 +22,7 @@ from collections.abc import Callable
 from typing import Any
 
 from playwright.sync_api import expect
+from ui_screens_letters import DROPDOWN, open_choice_hint
 
 #: Вкладки и страницы непривязанных ответов — по своим подписям.
 UNBOUND_TABS = "[aria-label='Вкладки диалогов']"
@@ -201,7 +202,6 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "ready": ("heading", "Агент переписки"),
             "probes": [
                 ("заголовок раздела", "h3", big),
-                ("пояснение под ним", "p.mantine-Text-root", norm),
                 ("этап", ".mantine-SegmentedControl-innerLabel", norm),
                 ("действует ли агент", ".agentStanding", norm),
                 ("подпись поля", ".mantine-InputWrapper-label:has-text('Цель разговора')", norm),
@@ -211,6 +211,8 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("версия", ".agentVersion p", norm),
                 ("кто и когда", ".agentVersionWho", norm),
                 ("пункт меню", "nav a", norm),
+                # Пояснение этапа — в «i» у переключателя (10.11.2026): мерится открытым, последним.
+                ("пояснение этапа в «i»", DROPDOWN, norm, open_choice_hint),
             ],
         },
         # Порог вне границ: под полем — почему так нельзя, розой отказа.

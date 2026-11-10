@@ -1,5 +1,6 @@
 /**
- * Переключатель этапа: на узком окне — столбиком во всю ширину, на широком — в ряд.
+ * Переключатель этапа: на узком окне — столбиком во всю ширину, на широком — в ряд; пояснение
+ * выбранного — в «i» рядом (слово владельца 10.11.2026).
  *
  * Проверка QA 10.10.2026: на 390 px «Донорам · Рекламодателям · Бизнесам ниши» в ряд
  * выходил за край экрана на 22 px, и третий этап срезался. Раскладку jsdom не считает —
@@ -64,5 +65,31 @@ describe('переключатель этапа', () => {
 
     expect(stages).not.toHaveAttribute('data-orientation', 'vertical');
     expect(stages).not.toHaveAttribute('data-full-width');
+  });
+
+  it('пояснение выбранного — в «i» рядом с переключателем, а не абзацем под ним', async () => {
+    renderSwitch();
+
+    // Слово владельца 10.11.2026: абзац под переключателем отодвигал то, по чему решают.
+    expect(screen.queryByText('Очередь на отправку.')).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Пояснение к «Донорам»' }));
+    // Окошко ещё в переходе появления — читаем его текст, а не видимость (как у подсказок).
+    expect(await screen.findByText('Очередь на отправку.')).toBeInTheDocument();
+  });
+
+  it('выбрать из одного нечего — ни переключателя, ни пояснения: его «i» — у заголовка экрана', () => {
+    renderWith(
+      <StageSwitch
+        label="Кому письма"
+        value="donors"
+        onChange={() => {}}
+        stages={TARGETS.slice(0, 1)}
+        lead="Очередь на отправку."
+      />,
+    );
+
+    expect(screen.queryByRole('radiogroup', { name: 'Кому письма' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Пояснение к/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Очередь на отправку.')).not.toBeInTheDocument();
   });
 });
