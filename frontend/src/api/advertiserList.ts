@@ -38,6 +38,8 @@ export interface AdvertiserCard {
   points: number;
   /** За что балл — причины скоринга словами: «rel=sponsored +5». У бизнеса ниши — пусто. */
   reasons: string[];
+  /** Пояснение причины по её словам — как у очереди проверки; нет поля — сервер старше экрана. */
+  reason_notes?: Record<string, string>;
   /** Балл той же ссылки после пересчёта весов, если он не тот, с которым перевели. */
   rescored: number | null;
   donors: number;

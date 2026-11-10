@@ -11,7 +11,7 @@
  * и числа — от сервера, тем же ответом, что строки.
  */
 
-import { Anchor, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
+import { Anchor, Badge, Group, Table, Text } from '@mantine/core';
 
 import type { JudgeAdvice, QueueFacet, QueueFacets, ReviewRow } from '../api/advertisers';
 import type { CandidateCard } from '../api/types';
@@ -22,12 +22,14 @@ import { Seams } from '../components/Seams';
 import { NoRows } from '../components/WholeRow';
 import type { Emptiness } from '../components/WholeRow';
 import { formatDate, formatNumber, plural } from '../format';
+import { DecideButtons } from './DecideButtons';
 import { LinkAnchor } from './LinkAnchor';
+import { Reasons } from './Reasons';
 import type { ReviewFilters } from './reviewFilters';
 
 /** Как называется каждый исход скоринга на человеческом языке. */
 export const VERDICTS: Record<CandidateCard['verdict'], { label: string; color: string }> = {
-  bought: { label: 'куплена', color: 'green' },
+  bought: { label: 'куплено', color: 'green' },
   pending: { label: 'спорно', color: 'yellow' },
   skipped: { label: 'мимо', color: 'gray' },
   blocked: { label: 'кому не пишем', color: 'gray' },
@@ -36,21 +38,23 @@ export const VERDICTS: Record<CandidateCard['verdict'], { label: string; color: 
 /** Колонки слева направо. **Остаток — «За что»**: в ней причины скоринга, по строке
  *  на причину, и в 15rem они переносились, а «+2» вставало на свою строку — строка
  *  таблицы росла до 130–160 px, пока «Кому ссылается» держала ~300 px под короткий
- *  домен (аудит экранов 09.10.2026). Домену — 13rem, он переносится по швам; «Ссылка» —
+ *  домен (аудит экранов 09.10.2026). Домену — 10rem, он переносится по швам: в 13rem
+ *  «За что» оставалось ~208 px текста, и «+2» вставало строкой снова (разведка экранов
+ *  10.11.2026); от отрыва балл держит и неразрывный пробел (`Reasons`). «Ссылка» —
  *  текст; остальные — по самому длинному шрифтом экрана (25.09.2026): кнопки «Пишем» и
  *  «Не пишем» с зазором — около 154 px. Плюс 32 px полей ячейки и запас. «Балл» — по полю
  *  фильтра со словом «все» (замер 05.11.2026: 21 px текста, 34 px полей и стрелки). */
 const COLUMNS: Column[] = [
-  { title: 'Кому ссылается', width: '13rem' },
+  { title: 'Кому ссылается', width: '10rem' },
   { title: 'Донор', width: '11rem' },
   { title: 'Балл', width: '5.5rem' },
   { title: 'За что' },
   { title: 'Ссылка', width: '11.75rem' },
 ];
 const ACTIONS_WIDTH = '12.5rem';
-/** Уже — прокрутка: колонкам с шириной 53,75rem (860 px), «За что» — от поля фильтра с полями
- *  ячейки. На 1440 с открытым меню таблице есть 1 101 px, и прокрутки нет. */
-const TABLE_MIN_WIDTH = 1100;
+/** Уже — прокрутка: колонкам с шириной 50,75rem (812 px), «За что» — от поля фильтра с полями
+ *  ячейки (240 px). На 1440 с открытым меню таблице есть 1 101 px, и прокрутки нет. */
+const TABLE_MIN_WIDTH = 1052;
 /** Поле «За что» — по самому длинному признаку (замер 05.11.2026: 172 px текста, 34 px полей и
  *  стрелки), а не во всю широкую колонку: посередине неё. */
 const FEATURE_FIELD = '13rem';
@@ -71,35 +75,14 @@ function Decide({
 }) {
   return (
     <Table.Td className="cellDecide">
-      {/* Обе кнопки — одного веса: экран меряет ошибки скоринга, и залитая «Пишем»
-          в каждой строке подталкивала соглашаться с ним (аудит экранов 09.10.2026). */}
-      <Group gap="xs" justify="center" wrap="nowrap">
-        <Button
-          size="compact-sm"
-          variant="light"
-          className="press"
-          loading={busy}
-          disabled={stale}
-          onClick={() => onDecide(row, true)}
-        >
-          Пишем
-        </Button>
-        <Button
-          size="compact-sm"
-          variant="default"
-          className="press"
-          disabled={stale}
-          onClick={() => onDecide(row, false)}
-        >
-          Не пишем
-        </Button>
-      </Group>
+      {/* Обе кнопки — одного веса и того же вида, что у бизнесов ниши (`DecideButtons`). */}
+      <DecideButtons busy={busy} disabled={stale} onDecide={(write) => onDecide(row, write)} />
     </Table.Td>
   );
 }
 
-/** Совет судьи словами. */
-const ADVICE: Record<JudgeAdvice['advice'], string> = {
+/** Совет судьи словами — под решением строки и в итоге разбора спорных (`JudgePass`). */
+export const ADVICE: Record<JudgeAdvice['advice'], string> = {
   write: 'пишем',
   skip: 'не пишем',
   unclear: 'не понять',
@@ -154,17 +137,12 @@ function Cells({ row }: { row: ReviewRow }) {
           маркеры стояли у левого края, а текст посередине, и строки читались
           оторванными от них. */}
       <Table.Td className="wrapCell" data-label="За что">
-        <Stack gap={2}>
-          {row.reasons.map((reason) => (
-            <Text key={reason} size="xs">
-              {reason}
-            </Text>
-          ))}
+        <Reasons reasons={row.reasons} notes={row.reason_notes}>
           <Text size="xs" c="dimmed">
             {formatNumber(row.links)} {plural(row.links, 'ссылка', 'ссылки', 'ссылок')} с{' '}
             {formatNumber(row.pages)} {plural(row.pages, 'страницы', 'страниц', 'страниц')}
           </Text>
-        </Stack>
+        </Reasons>
       </Table.Td>
       <Table.Td className="wrapCell" data-label="Ссылка">
         {row.best_page_url ? (

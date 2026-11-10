@@ -69,7 +69,11 @@ class JudgePassEstimate(BaseModel):
 class JudgePassView(BaseModel):
     """Смета и последний разбор. `state`: idle — разбора не было или итог истёк; queued и running —
     идёт; done — окончен; stopped — встал с причиной (`why`); failed — упал или оборвался; unknown —
-    очередь не отвечает. Кроме done, следующий запуск продолжает с места."""
+    очередь не отвечает. Кроме done, следующий запуск продолжает с места.
+
+    Итог на экране — строкой «советов N (пишем · не пишем · не понять)» по `advice`, остальное —
+    в «i» строками `lines` (разведка экранов 10.11.2026: отчёт стоял двумя строками мелкого текста).
+    `advice` — `None` у итога, записанного до этих чисел: советы тогда только в `lines`."""
 
     estimate: JudgePassEstimate
     state: State
@@ -78,6 +82,8 @@ class JudgePassView(BaseModel):
     by: str | None = None
     ended_at: datetime | None = None
     lines: list[str] = Field(default_factory=list)
+    #: Советы судьи числами: `write`, `skip`, `unclear` (`crawl/judge_rules.Advice`).
+    advice: dict[str, int] | None = None
     why: str | None = None
 
 
@@ -107,6 +113,14 @@ def _ask_queue() -> _Seen:
     )
 
 
+def _advice(report: dict[str, Any]) -> dict[str, int] | None:
+    """Советы итога числами; итог старше них — `None`: советы тогда только в его строках."""
+    counted = report.get("advice")
+    if not isinstance(counted, dict):
+        return None
+    return {str(advice): int(count) for advice, count in counted.items()}
+
+
 def _ended(outcome: JobOutcome, said: dict[str, Any]) -> dict[str, Any]:
     """Разбор кончился: итог, остановка с причиной или падение."""
     ended = {**said, "ended_at": outcome.ended_at}
@@ -120,6 +134,7 @@ def _ended(outcome: JobOutcome, said: dict[str, Any]) -> dict[str, Any]:
         "done": int(report.get("done", 0)),
         "total": int(report.get("total", 0)),
         "lines": list(report.get("lines", [])),
+        "advice": _advice(report),
         "why": stopped,
     }
 

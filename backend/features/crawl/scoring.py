@@ -79,6 +79,7 @@ from backend.features.crawl.denylist import (
 from backend.features.crawl.links import OutLink
 from backend.features.crawl.markers import marker_reason
 from backend.features.crawl.paid_pages import paid_pages
+from backend.features.crawl.reason_words import nonprofit_reason
 from backend.features.crawl.topic import off_topic
 
 logger = logging.getLogger(__name__)
@@ -404,7 +405,7 @@ def _capped(
     zone = next((zone for zone in NONPROFIT_SUFFIXES if root.endswith(zone)), None)
     if verdict is Verdict.BOUGHT and zone is not None:
         verdict = Verdict.PENDING
-        said = f"зона {zone} — чаще фонд или сообщество, чем рекламодатель: решает человек"
+        said = nonprofit_reason(zone)
         if said not in reasons:
             reasons.append(said)
     return verdict

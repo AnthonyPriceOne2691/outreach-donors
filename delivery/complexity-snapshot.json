@@ -22,9 +22,9 @@
       "worst": "form_queue:37"
     },
     "backend/api/advertisers/judge_pass.py": {
-      "lines": 208,
+      "lines": 223,
       "complexity": 6,
-      "worst": "_job_state:127"
+      "worst": "_job_state:142"
     },
     "backend/api/advertisers/panel.py": {
       "lines": 124,
@@ -37,9 +37,9 @@
       "worst": "of:149"
     },
     "backend/api/advertisers/report_schemas.py": {
-      "lines": 249,
+      "lines": 254,
       "complexity": 4,
-      "worst": "of:243"
+      "worst": "of:248"
     },
     "backend/api/advertisers/reports.py": {
       "lines": 176,
@@ -52,9 +52,9 @@
       "worst": "decide:136"
     },
     "backend/api/advertisers/schemas.py": {
-      "lines": 358,
-      "complexity": 5,
-      "worst": "of:76"
+      "lines": 364,
+      "complexity": 3,
+      "worst": "of:80"
     },
     "backend/api/agent/__init__.py": {
       "lines": 1,
@@ -1641,6 +1641,11 @@
       "complexity": 5,
       "worst": "__init__:160"
     },
+    "backend/features/crawl/reason_words.py": {
+      "lines": 53,
+      "complexity": 4,
+      "worst": "shown_reasons:40"
+    },
     "backend/features/crawl/render.py": {
       "lines": 153,
       "complexity": 5,
@@ -1672,9 +1677,9 @@
       "worst": "mixed:65"
     },
     "backend/features/crawl/scoring.py": {
-      "lines": 488,
+      "lines": 489,
       "complexity": 17,
-      "worst": "score_link:176"
+      "worst": "score_link:177"
     },
     "backend/features/crawl/selection_settings.py": {
       "lines": 119,
@@ -3802,7 +3807,7 @@
       "worst": "_contacts_what:263"
     },
     "backend/workers/judge_jobs.py": {
-      "lines": 96,
+      "lines": 98,
       "complexity": 3,
       "worst": "_note_progress:48"
     },
@@ -3997,7 +4002,7 @@
       "worst": "open_letter_draft:36"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 411,
+      "lines": 413,
       "complexity": 2,
       "worst": "unbound_probes:35"
     },

@@ -137,11 +137,30 @@ describe('все рекламодатели списком', () => {
     const row = screen.getByText('shop.example.test').closest('tr')!;
     expect(within(row).getByText('rel=sponsored +5')).toBeInTheDocument();
     expect(within(row).getByText('коммерческий анкор +1')).toBeInTheDocument();
-    expect(within(row).getByText('после пересчёта — 6')).toBeInTheDocument();
+    // Фразой «после пересчёта — 6» балл был шире колонки и сливался с «За что» (разведка
+    // экранов 10.11.2026): под значком — стрелкой, словами — в подсказке и в «i» заголовка.
+    expect(within(row).getByText('→ 6')).toHaveAttribute('title', 'после пересчёта весов — 6');
+    expect(screen.getByRole('button', { name: 'Что значит «→» у балла' })).toBeInTheDocument();
     const labels = [...row.querySelectorAll('td[data-label]')].map((cell) =>
       cell.getAttribute('data-label'),
     );
     expect(labels).toEqual(['Донор', 'Балл', 'За что', 'Ссылка', 'Адрес', 'Письмо']);
+  });
+
+  it('причина с пояснением сервера — коротко и с «i», как в очереди проверки', async () => {
+    const fund: AdvertiserCard = {
+      ...LINKED,
+      host: 'fund.example.test',
+      reasons: ['rel=sponsored +5', 'зона .org'],
+      reason_notes: { 'зона .org': 'Чаще фонд или сообщество, чем рекламодатель: решает человек' },
+    };
+    await openList({ 'GET /api/advertisers/list': { body: listOf({ rows: [fund], total: 1 }) } });
+
+    const cell = screen.getByText('зона .org').closest('td')!;
+    expect(cell).toHaveAttribute('data-label', 'За что');
+    expect(
+      within(cell).getByRole('button', { name: 'Что значит «зона .org»' }),
+    ).toBeInTheDocument();
   });
 
   it('счётчики фильтров спрашиваются раз — не на каждую страницу и фильтр', async () => {

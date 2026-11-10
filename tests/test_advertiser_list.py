@@ -26,6 +26,7 @@ from backend.features.crawl import advertiser_list
 from backend.features.crawl.advertiser_export import to_csv
 from backend.features.crawl.advertiser_list import AddressState, AdvertiserFilters, AdvertiserRow
 from backend.features.crawl.offer_state import OfferState
+from backend.features.crawl.reason_words import NONPROFIT_NOTE, nonprofit_reason
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
@@ -269,6 +270,24 @@ class TestApi:
 
         assert facets["sources"] == {"links": 3}
         assert facets["letters"] == {"none": 3}
+
+    async def test_the_zone_reason_is_short_on_screen_and_whole_in_the_file(
+        self, client: AsyncClient, token: str, session: AsyncSession
+    ) -> None:
+        """Причина зоны — как в очереди проверки: на экране «зона .org» и пояснение рядом; в файле
+        «i» нет — там причина целиком."""
+        await promoted(session, "fund.example.org", donor_host="one.example.test")
+        fund = await scored(session, await crawled(session, "one.example.test"), "fund.example.org")
+        fund.reasons = ["rel=sponsored +5", nonprofit_reason(".org")]
+        await session.commit()
+
+        body = (await client.get("/api/advertisers/list", headers=bearer(token))).json()
+        exported = (await client.get("/api/advertisers/list/export", headers=bearer(token))).content
+
+        assert body["rows"][0]["reasons"] == ["rel=sponsored +5", "зона .org"]
+        assert body["rows"][0]["reason_notes"] == {"зона .org": NONPROFIT_NOTE}
+        lines = list(csv.reader(io.StringIO(exported.decode("utf-8-sig")), delimiter=";"))
+        assert lines[1][6] == f"rel=sponsored +5; {nonprofit_reason('.org')}"
 
     async def test_a_page_past_the_end_still_says_how_many(
         self, client: AsyncClient, token: str, session: AsyncSession
