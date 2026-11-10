@@ -287,9 +287,9 @@
       "worst": "mailing_forecast:34"
     },
     "backend/api/letters/forecast_schemas.py": {
-      "lines": 262,
+      "lines": 267,
       "complexity": 8,
-      "worst": "of:233"
+      "worst": "of:238"
     },
     "backend/api/letters/once.py": {
       "lines": 114,
@@ -2362,9 +2362,9 @@
       "worst": "listen:96"
     },
     "backend/features/outreach/limits.py": {
-      "lines": 133,
+      "lines": 153,
       "complexity": 13,
-      "worst": "screen:48"
+      "worst": "screen:63"
     },
     "backend/features/outreach/own_inboxes.py": {
       "lines": 487,
@@ -3997,9 +3997,9 @@
       "worst": "open_letter_draft:36"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 411,
+      "lines": 429,
       "complexity": 2,
-      "worst": "unbound_probes:35"
+      "worst": "unbound_probes:36"
     },
     "scripts/ui_screens_reports.py": {
       "lines": 182,

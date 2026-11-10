@@ -4,9 +4,12 @@
  * Главное здесь — что включение обещает разгон с начала. Обещание
  * на кнопке важнее строчки в документации: тот, кто включает домен
  * после жалобы, документацию в этот момент не читает.
+ *
+ * С 10.11.2026 домены — строками одной таблицы, ящики — раскрытием строки, блок «Ящики и
+ * разгон» — свёрнут с итогом в подписи (разведка прода: те же ящики и «N из M» трижды).
  */
 
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -63,14 +66,27 @@ async function openSenders(routes: Record<string, unknown> = {}) {
 }
 
 describe('домены рассылки', () => {
-  it('карточка выключенного домена обещает разгон с начала', async () => {
+  it('строка выключенного домена обещает разгон с начала', async () => {
     await openSenders();
 
     expect(screen.getByRole('button', { name: 'Включить заново' })).toBeInTheDocument();
-    expect(screen.getByText(/начинает разгон с начала/)).toBeInTheDocument();
+    expect(screen.getByText('начнёт разгон с начала')).toBeInTheDocument();
   });
 
-  it('причина парковки видна без раскрытия карточки', async () => {
+  it('домены — строками одной таблицы, а не карточками', async () => {
+    await openSenders();
+
+    const table = screen.getByRole('table', { name: 'Домены рассылки доноров' });
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((head) => head.textContent),
+    ).toEqual(['Домен', 'Состояние', 'Первых писем сегодня', '']);
+    expect(within(table).getByText('mail-alpha.example.test').closest('tr')).not.toBeNull();
+    expect(within(table).getByText('mail-delta.example.test').closest('tr')).not.toBeNull();
+  });
+
+  it('причина парковки видна без раскрытия строки', async () => {
     await openSenders();
 
     // По ней решают, включать домен обратно, — прятать её за раскрытием
@@ -78,20 +94,24 @@ describe('домены рассылки', () => {
     expect(screen.getByText('доля отказов 7% — парковка')).toBeInTheDocument();
   });
 
-  it('ящики домена прячутся за раскрытием', async () => {
+  it('ящики домена прячутся за раскрытием строки, и его имя говорит, сколько их', async () => {
     await openSenders();
     const user = userEvent.setup();
 
-    const toggle = screen.getByLabelText('Подробности mail-alpha.example.test');
+    const toggle = screen.getByRole('button', {
+      name: /^Ящики mail-alpha\.example\.test · 1\sящик$/,
+    });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('outreach1@mail-alpha.example.test')).toBeNull();
 
     await user.click(toggle);
 
-    expect(screen.getByLabelText('Свернуть mail-alpha.example.test')).toHaveAttribute(
-      'aria-expanded',
-      'true',
-    );
-    expect(screen.getByText('outreach1@mail-alpha.example.test')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Свернуть ящики mail-alpha.example.test' }),
+    ).toHaveAttribute('aria-expanded', 'true');
+    // У единственного ящика счёт тот же, что у строки домена: второй раз его нет.
+    const boxes = document.getElementById('sender-boxes-mail-alpha.example.test');
+    expect(boxes).toHaveTextContent(/^outreach1@mail-alpha\.example\.test$/);
   });
 
   it('включение уходит на сервер по каждому ящику домена', async () => {
@@ -139,9 +159,12 @@ describe('отправлено сегодня', () => {
   it('счёт ящика — первые письма, как у капа: подпись так и говорит (A7)', async () => {
     await openSenders();
 
-    // Сервер считает карточке первые письма — тем же счётом, что кап и разгон; добивки
-    // в него не входят (свой часовой потолок), и «25 из 20» на экране не бывает.
-    expect(screen.getByText('1 ящ. · 6 из 20 первых писем сегодня')).toBeInTheDocument();
+    // Сервер считает строке первые письма — тем же счётом, что кап и разгон; добивки
+    // в него не входят (свой часовой потолок), и «25 из 20» на экране не бывает. Что это
+    // первые письма, говорит заголовок колонки — один раз, а не в каждой строке.
+    expect(screen.getByRole('columnheader', { name: 'Первых писем сегодня' })).toBeInTheDocument();
+    const row = screen.getByText('mail-alpha.example.test').closest('tr');
+    expect(within(row as HTMLElement).getByText('6 из 20')).toBeInTheDocument();
   });
 });
 
@@ -168,16 +191,25 @@ describe('домены по этапу (4.5a)', () => {
     ],
   };
 
-  it('разделы этапов, пометка продаж, лимит домена и направления', async () => {
+  it('разделы этапов, лимит домена и направления; этап — заголовком раздела, а не в строке', async () => {
     await openSenders({ 'GET /api/senders': { body: BY_STAGE } });
+    const user = userEvent.setup();
 
     expect(screen.getByRole('heading', { name: 'Доноры' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Продажи' })).toBeInTheDocument();
-    expect(screen.getByText('продажи')).toBeInTheDocument();
-    expect(
-      screen.getByText(/лимит домена: 4 из 30 первых писем сегодня · на выдержке до 14\.10\.2099/),
-    ).toBeInTheDocument();
+    // Пометка, общая для всех строк раздела, — его заголовком, а не значком у каждой строки.
+    expect(screen.queryByText('продажи')).toBeNull();
     expect(screen.getByText('Лимит направления: 4 из 50 первых писем сегодня')).toBeInTheDocument();
+    // Под полосой — лимит домена; его счёт — только когда он не тот, что у строки (здесь на
+    // домене писали и другие ящики). Что закрыло домен — значком, строка целиком — в «i».
+    expect(screen.getByText('лимит домена: 4 из 30')).toBeInTheDocument();
+    expect(screen.getByText('домен на выдержке')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: `Чем закрыт ${domain}` }));
+
+    expect(await screen.findByRole('dialog', { name: `Чем закрыт ${domain}` })).toHaveTextContent(
+      /^лимит домена: 4 из 30 первых писем сегодня · на выдержке до 14\.10\.2099$/,
+    );
   });
 
   it('настройка лимита направления не прочитана — строка называет её, а не «0 из 0»', async () => {
@@ -309,9 +341,36 @@ describe('домены по этапу (4.5a)', () => {
       expect(await screen.findByText(ADVERTISER_DOMAIN)).toBeInTheDocument();
       expect(screen.queryByText('mail-alpha.example.test')).toBeNull();
       expect(screen.queryByText(domain)).toBeNull();
-      expect(await screen.findByRole('region', { name: 'Ящики и разгон' })).toBeInTheDocument();
-      // Этап уже в заголовке экрана: пометки у каждой карточки нет.
+      expect(await screen.findByRole('button', { name: /^Ящики и разгон/ })).toBeInTheDocument();
+      // Этап уже в заголовке экрана: пометки у каждой строки нет.
       expect(screen.queryByText('рекламодатель')).toBeNull();
+    });
+
+    it('ящики и разгон свёрнуты, итог — в подписи: сколько, на разгоне ли, кто не пишет', async () => {
+      const silent = {
+        ...BOX,
+        id: 5,
+        email: `two@${ADVERTISER_DOMAIN}`,
+        warmup_day: 30,
+        warmup_finished: true,
+        refused: `домен исчерпан на сегодня: ${ADVERTISER_DOMAIN} — 30 из 30`,
+        refused_short: 'домен исчерпан',
+      };
+      openStage('advertisers', { body: { stage: 'advertisers', senders: [BOX, silent] } });
+      const user = userEvent.setup();
+
+      const fold = await screen.findByRole('button', { name: /^Ящики и разгон/ });
+      expect(fold).toHaveAttribute('aria-expanded', 'false');
+      expect(fold.textContent?.replace(/\s+/g, ' ')).toBe(
+        'Ящики и разгон · 2 ящика: 1 на разгоне, 1 — до 20 в день · 1 сегодня не пишет',
+      );
+
+      await user.click(fold);
+
+      expect(fold).toHaveAttribute('aria-expanded', 'true');
+      // Раскрытие идёт кадром анимации: ждём, пока таблица станет видна.
+      const table = await screen.findByRole('table', { name: 'Ящики и разгон' });
+      expect(within(table).getByText('домен исчерпан')).toBeInTheDocument();
     });
 
     it('доноры: свой заголовок и только их домены', async () => {
@@ -333,7 +392,7 @@ describe('домены по этапу (4.5a)', () => {
 
       expect(await screen.findByText(/Доменов рекламодателей пока нет/)).toBeInTheDocument();
       expect(screen.queryByText('Отправлять нечем')).toBeNull();
-      expect(screen.queryByRole('region', { name: 'Ящики и разгон' })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^Ящики и разгон/ })).toBeNull();
     });
 
     it('отказ прогноза — в блоке ящиков, домены выше живут', async () => {

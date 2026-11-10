@@ -1,0 +1,8 @@
+## Ревью рисковых мест
+
+- деньги: класс подняло слово «счёт» в комментариях и тестах (`DomainRow.tsx`, `MailingBoxes.tsx`, `limits.py`) — это число первых писем ящика и домена за сутки, денег дифф не трогает; риска нет.
+- безопасность: `auth` — заголовок ханка `SendersPage.tsx` (импорт `useSession` из `auth/AuthProvider`). Права не тронуты: кнопка строки домена — только при `can('senders')` (`mayEdit` → `DomainSwitch`), ящики этапа без его права экран по-прежнему отсеивает (`shownBoxes`, `stageShown`), запись закрыта правом на сервере; риска нет.
+- транзакция БД: `commit` — `await session.commit()` только в тесте `test_a_refused_mailbox_is_named_shortly_and_in_full_words` (строка `SendingDomainModel` фикстурой). Продовый код транзакций не открывает: `limits.short` и `refused_short` в `ForecastSender.of` — чистые функции над уже посчитанными словами фильтра; слова отказа целиком (`refused`, `Screened.why`) не менялись, их читают отказ «писать некому» и план дня.
+- производительность: `re.compile` — шаблон имени кнопки в `open_boxes` (`scripts/ui_screens_mail.py`), раз на замер; `limits.short` — проход по семи началам `SHORT` на отказанный ящик прогноза; риска нет.
+- цепочка гейтов: `scripts/lint/complexity_baseline.txt` — снята строка удалённого `frontend/src/senders/SenderCard.tsx`: файл ушёл в `DomainRow.tsx`, функций сверх порога в нём нет (`check_complexity_gate.sh` — OK), снимок только тает (`check_baseline_ratchet.sh` — OK). Пороги и сами гейты дифф не меняет.
+- новый модуль: `DomainRow.tsx` — бывший `SenderCard.tsx` строкой таблицы (`domainShut`, `limitLine` — без изменений правила); `StageBoxes.test.tsx` — тесты подписи `boxesSummary`.
