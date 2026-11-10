@@ -547,6 +547,81 @@ async def test_release_after_the_letter_commits_by_itself(
     assert at_commit == [SELLER]
 
 
+async def _no_release(*_args: object, **_kwargs: object) -> tuple[int, ...]:
+    """Снятие не должно зваться: позовут — упадёт, и запись «продажи: …» выдаст это."""
+    raise AssertionError("снятие ожидания у переписки, где этап не продажи или не прочитан")
+
+
+@pytest.mark.parametrize(
+    "stage",
+    [Stage.DONORS, Stage.ADVERTISERS, None],
+    ids=["donors", "advertisers", "thread-gone"],
+)
+async def test_an_answer_outside_sales_releases_nothing_and_stays_quiet(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    stage: Stage | None,
+) -> None:
+    """Переписка не продаж — снятие не зовётся, коммита нет, журнал молчит."""
+    dialog = await _waiting(session)
+
+    async def other(*_args: object) -> Stage | None:
+        return stage
+
+    commits: list[None] = []
+
+    async def counted() -> None:
+        commits.append(None)
+
+    monkeypatch.setattr(close_routes.stage_of, "of_thread", other)
+    monkeypatch.setattr(close_manual, "answered", _no_release)
+    monkeypatch.setattr(session, "commit", counted)
+
+    with caplog.at_level(logging.INFO, logger=close_routes.__name__):
+        await close_routes.release_answered(
+            session, dialog.thread.id, dialog.reply.id, UserModel(email=SELLER)
+        )
+
+    assert [r for r in caplog.records if r.name == close_routes.__name__] == []
+    assert commits == []
+    reply = await _reply(session, dialog.reply.id)
+    assert (reply.model_parse, reply.reviewed_at) == (UNSURE, None)
+
+
+async def test_an_unreadable_stage_is_a_warning_without_the_word_sales(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Сессию сломал упавший коммит закрытия черновика в маршруте ответа — этап не прочитать: чья
+    это переписка, неизвестно, поэтому запись без слова «продажи», а снятие не зовётся."""
+    dialog = await _waiting(session)
+
+    async def broken(*_args: object) -> Stage | None:
+        raise RuntimeError(f"сессия сломана на диалоге №{dialog.thread.id}")
+
+    monkeypatch.setattr(close_routes.stage_of, "of_thread", broken)
+    monkeypatch.setattr(close_manual, "answered", _no_release)
+
+    with caplog.at_level(logging.WARNING, logger=close_routes.__name__):
+        await close_routes.release_answered(
+            session, dialog.thread.id, dialog.reply.id, UserModel(email=SELLER)
+        )
+
+    [record] = [r for r in caplog.records if r.name == close_routes.__name__]
+    assert record.levelno == logging.WARNING
+    assert record.getMessage() == (
+        "ответ в переписке ушёл, а этап переписки не прочитан — ожидание не снималось"
+    )
+    assert (record.__dict__["thread_id"], record.__dict__["reply_id"]) == (
+        dialog.thread.id,
+        dialog.reply.id,
+    )
+    assert record.exc_info is not None
+    assert isinstance(record.exc_info[1], RuntimeError)
+
+
 # --- ответ по черновику агента ------------------------------------------------------------------
 
 
