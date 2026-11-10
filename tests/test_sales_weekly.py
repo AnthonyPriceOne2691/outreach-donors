@@ -19,7 +19,7 @@ from backend.config import sales as sales_cfg
 from backend.features.core.domain import MessageStatus, ReplyKind, SenderStatus, Stage
 from backend.features.core.models.outreach import SenderModel
 from backend.features.ops import mail_watch
-from backend.features.ops.alarms import Alarm, cause, no_cause
+from backend.features.ops.alarms import Alarm, Concern, cause, no_cause
 from backend.features.outreach import autopause, senders
 from backend.features.sales import (
     browse,
@@ -504,3 +504,101 @@ def test_the_line_of_a_problem_ends_with_its_mark() -> None:
 
     assert weekly_text.problem_line(with_dot) == f"Стоит (сейчас): подробности. {mark.words}"
     assert weekly_text.problem_line(without) == "Стоит: подробности"
+
+
+# --- похожие проблемы: на экране — одной строкой, в группе и в CSV — каждая своей -----------------
+
+
+def _pause(day: int, concern: Concern, *, now: bool = False) -> weekly.Problem:
+    """Выдуманная пауза ящика — того вида, что складывает экран."""
+    title = f"Ящик box{day}@sales.example.test встал на паузу 0{day}.03 10:00 по Москве"
+    return weekly.Problem(title, "отказов 3 в окне 50 писем: пауза", concern, now, weekly.PAUSES)
+
+
+def test_the_screen_folds_only_alike_problems_without_a_cause() -> None:
+    """Аудит «Отчёта» 10.11.2026: шесть почти одинаковых строк о паузах. Складываются один вид, одна
+    пометка, одно «сейчас» и без повода — на месте первой; повод, другая пометка и проблема без вида
+    — каждая своей строкой. Строки сложенных — подробностями, ничего не теряется."""
+    lifted = [_pause(day, weekly.BOX_BACK) for day in (1, 3)]
+    stuck = _pause(2, autopause.PAUSED)
+    other = _pause(4, no_cause("другая пометка"))
+    current = [_pause(day, weekly.BOX_BACK, now=True) for day in (5, 6)]
+    ready = weekly.Problem("Отправка продаж не готова", "нет ящика", weekly.NOT_READY, now=True)
+    plain = weekly.Problem("Без вида", "подробности", weekly.BOX_BACK)
+    problems = [ready, lifted[0], stuck, *current, lifted[1], other, plain]
+
+    said = weekly_text._problems(problems, None, fold=True)
+
+    lines = [weekly_text.problem_line(problem) for problem in problems]
+    assert said.lines == [
+        "проблем — 8",
+        lines[0],
+        f"Паузы ящиков — 2. {weekly.BOX_BACK.words}",
+        lines[2],
+        f"Паузы ящиков (сейчас) — 2. {weekly.BOX_BACK.words}",
+        lines[6],
+        lines[7],
+    ]
+    assert said.details == [[], [], [lines[1], lines[5]], [], [lines[3], lines[4]], [], []]
+    assert said.cause_lines == [1, 3]
+
+
+def test_the_group_message_keeps_each_problem_on_its_own_line() -> None:
+    lifted = [_pause(day, weekly.BOX_BACK) for day in (1, 2)]
+
+    said = weekly_text._problems(lifted, None, fold=False)
+
+    assert said.lines == ["проблем — 2", *(weekly_text.problem_line(item) for item in lifted)]
+    assert (said.details, said.cause_lines) == ([], [])
+
+
+def test_a_capped_list_marks_only_the_lines_it_shows() -> None:
+    """Под потолком строка «ещё N» — без подробностей и без пометки, даже если за ней повод."""
+    lifted = [_pause(day, weekly.BOX_BACK) for day in (1, 2)]
+    first = weekly.Problem("Первая", "подробности", weekly.NOT_READY, now=True)
+    last = weekly.Problem("Последняя", "подробности", weekly.LEADS_LOST)
+
+    said = weekly_text._problems([first, *lifted, last], 2, fold=True)
+
+    assert said.lines == [
+        "проблем — 4",
+        weekly_text.problem_line(first),
+        f"Паузы ящиков — 2. {weekly.BOX_BACK.words}",
+        "ещё 1 — на экране отчёта",
+    ]
+    assert said.details == [[], [], [weekly_text.problem_line(item) for item in lifted]]
+    assert said.cause_lines == [1]
+
+
+async def test_the_screen_folds_lifted_pauses_the_message_and_csv_keep_each(
+    session: AsyncSession, rows: WeekRows
+) -> None:
+    """Неделя с базой: снятые паузы ящика — одной строкой экрана, пауза ящика, который всё ещё
+    стоит, — своей и в `cause_lines`; в сообщении группе и в CSV — каждая пауза своей строкой."""
+    await week_world(rows)
+    back = await rows.box("back@sales-three.example.test")
+    for day in (2, 3, 5):
+        await rows.health(back, "paused", at=msk(day), detail="отказов 3 в окне 50 писем: пауза")
+
+    report = await _report(session)
+
+    lifted = [item for item in report.problems if "back@sales-three" in item.title]
+    [stuck] = [item for item in report.problems if "box2@sales-two" in item.title]
+    screen = weekly_text.sections(report, fold=True)[6]
+    folded = f"{weekly.PAUSES} — 3. {weekly.BOX_BACK.words}"
+    at = screen.lines.index(folded)
+    assert screen.details[at] == [weekly_text.problem_line(item) for item in lifted]
+    assert screen.lines[0] == f"проблем — {len(report.problems)}"
+    assert screen.lines.index(weekly_text.problem_line(stuck)) in screen.cause_lines
+    marked = {index for index, line in enumerate(screen.lines) if "Есть повод" in line}
+    assert set(screen.cause_lines) == marked, "на виду — ровно строки с поводом"
+    flat = weekly_text.sections(report)[6]
+    message = weekly_text.message(report)
+    assert flat.details == []
+    assert folded not in flat.lines
+    assert folded not in message
+    for item in lifted:
+        assert weekly_text.problem_line(item) in flat.lines
+        assert weekly_text.problem_line(item) in message
+    table = weekly_text.to_csv(report).decode("utf-8-sig")
+    assert table.count("Ящик back@sales-three.example.test встал на паузу") == 3

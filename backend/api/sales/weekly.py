@@ -105,6 +105,11 @@ class WeeklySection(BaseModel):
     key: str
     title: str
     lines: list[str]
+    #: Строки, сложенные в строку `lines[i]`, — `details[i]` («Паузы ящиков — 6» и шесть строк
+    #: пауз); короче `lines` — у остальных строк их нет (`weekly_text.Section`).
+    details: list[list[str]]
+    #: Номера строк `lines` с поводом для беспокойства — экран держит их на виду.
+    cause_lines: list[int]
 
 
 class WeeklyDelivery(BaseModel):
@@ -199,8 +204,15 @@ async def read_weekly(
         weeks=[one.start for one in weekly.recent(report.built_at)],
         built_at=report.built_at,
         sections=[
-            WeeklySection(key=part.key, title=part.title, lines=part.lines)
-            for part in weekly_text.sections(report)
+            WeeklySection(
+                key=part.key,
+                title=part.title,
+                lines=part.lines,
+                details=part.details,
+                cause_lines=part.cause_lines,
+            )
+            # Экран: похожие проблемы — одной строкой, их строки — в `details` (`weekly_text`).
+            for part in weekly_text.sections(report, fold=True)
         ],
         rows=[
             WeeklyRow(

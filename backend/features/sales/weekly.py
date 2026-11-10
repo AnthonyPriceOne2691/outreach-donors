@@ -61,6 +61,10 @@ LEADS_LOST = cause("телемаркетолог не получил этих л
 DRAFTS_UNTOLD = cause(
     "группа продаж не узнала об этих черновиках", "открыть переписку продаж и ответить лидам"
 )
+#: Похожие проблемы недели — паузы ящиков: за неделю их бывает по шесть почти одинаковых строк
+#: (аудит экрана «Отчёт» 10.11.2026). Экран складывает те, о которых беспокоиться незачем, в одну
+#: строку с этим словом (`weekly_text.sections(fold=True)`).
+PAUSES = "Паузы ящиков"
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -179,6 +183,9 @@ class Problem:
     #: Стоит ли проблема внимания сейчас — те же слова, что у тревог (`ops/alarms.py`).
     concern: Concern | None
     now: bool = False
+    #: Вид похожих проблем — слово строки, которой экран их складывает («Паузы ящиков»); пусто —
+    #: у проблемы всегда своя строка.
+    group: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,6 +293,7 @@ async def _problems(
             f"Ящик {pause.box} встал на паузу {pause.at.astimezone(WEEK_ZONE):%d.%m %H:%M} по Москве",
             pause.reason,
             BOX_BACK if pause.writing else autopause.PAUSED,
+            group=PAUSES,
         )
         for pause in mail.pauses
     ]
