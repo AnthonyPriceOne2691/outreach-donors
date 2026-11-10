@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from delivery_base import (ACTIVE, ROOT, ActiveCtx, field, git,
+from delivery_base import (ACTIVE, DELIVERY, ROOT, ActiveCtx, field, git,
                            is_placeholder, merge_base_of, read)
 from delivery_decisions import signature_verdict
 from delivery_diff import diff_identifiers, diff_stats
@@ -100,8 +100,9 @@ def check_verify_report(status: str, phase: str, verify,
 
 
 #: Заметки ревью рисковых мест — своя у каждой ветки (адаптация проекта 10.11.2026,
-#: `scripts/lint/adapted.json`): `delivery/active/reviews/<ветка, «/» → «-»>.md`.
-REVIEWS = ACTIVE / "reviews"
+#: `scripts/lint/adapted.json`): `delivery/reviews/<ветка, «/» → «-»>.md` — вне `active/`: файлы
+#: `active/` гейт волн продаж считает работой среза продаж (`contour_waves.sales_work`).
+REVIEWS = DELIVERY / "reviews"
 _REVIEW_HEAD = re.compile(r"(?im)^#{1,4}\s*(?:ревью\s+рисковых|risk\s+review)\b")
 
 
@@ -122,7 +123,7 @@ def pick_review(verify_text: str, notes: list[str]) -> str:
 
 
 def review_notes(base: str) -> list[str]:
-    """Заметки `active/reviews/*.md`, добавленные или правленные в окне `merge_base..HEAD`.
+    """Заметки `delivery/reviews/*.md`, добавленные или правленные в окне `merge_base..HEAD`.
 
     Только тронутые диффом: прежние заметки лежат в папке после слияния, и их
     имена совпадали бы с новым диффом случайно — цитата чужого чтения.

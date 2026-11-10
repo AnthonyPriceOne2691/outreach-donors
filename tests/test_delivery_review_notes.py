@@ -2,7 +2,7 @@
 
 Маячок §12.5 искал ревью в одном блоке `verify-report.md`: блок не правили с 08.10, и маячок
 поднимался на каждом рисковом PR, а на `handoff` стал бы отказом каждому. Правка общего блока
-каждым PR — конфликты параллельных PR. Теперь ревью — заметки `delivery/active/reviews/*.md`,
+каждым PR — конфликты параллельных PR. Теперь ревью — заметки `delivery/reviews/*.md`,
 которые добавил сам дифф; нет их — канон как есть.
 """
 
@@ -60,7 +60,7 @@ def test_only_notes_touched_by_the_diff_are_read(
 ) -> None:
     """Заметки прежних веток лежат в папке после слияния — читаются только тронутые окном."""
     repo = tmp_path / "repo"
-    reviews = repo / "delivery" / "active" / "reviews"
+    reviews = repo / "delivery" / "reviews"
     reviews.mkdir(parents=True)
     _git(repo, "init", "-q", "-b", "main")
     _git(repo, "config", "user.email", "test@example.test")
