@@ -12,6 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
+import { formatDateTime } from '../format';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -104,6 +105,32 @@ describe('пороги', () => {
     expect(screen.getByText(/Пороги совпадают с действующими/)).toBeInTheDocument();
     expect(screen.queryByText('Отсекут сверх действующих')).not.toBeInTheDocument();
     expect(screen.queryByText(/база не изменится/)).not.toBeInTheDocument();
+  });
+
+  // Разведка 10.11.2026: карточка сравнения стояла всегда ради фразы «пороги совпадают».
+  it('карточка сравнения — только с правкой, а до неё — тихая строка под «Сохранить»', async () => {
+    await openThresholds();
+
+    expect(
+      screen.queryByRole('heading', { name: 'Эти пороги против действующих' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText('Пороги совпадают с действующими — сохранять и сравнивать нечего.'),
+    ).toBeInTheDocument();
+
+    await touchDr();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Эти пороги против действующих' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Пороги совпадают с действующими/)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Вернуть действующие' }));
+
+    expect(
+      screen.queryByRole('heading', { name: 'Эти пороги против действующих' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/Пороги совпадают с действующими/)).toBeInTheDocument();
   });
 
   it('сравнивает с действующими до сохранения и говорит, что посчитано', async () => {
@@ -563,5 +590,63 @@ describe('правило региона и срок метрик — часть�
     await openThresholds();
 
     expect(screen.getByText('топ-5 или 20% · 90 дн.')).toBeInTheDocument();
+  });
+});
+
+describe('история версий', () => {
+  /** Шесть версий, новые первыми: №7 действует, у старых автор неизвестен. */
+  const HISTORY = [7, 6, 5, 4, 3, 2].map((version) => ({
+    ...CURRENT,
+    version,
+    created_by: version > 4 ? 'ivan@site.com' : null,
+  }));
+  const LONG = { ...VIEW, current: HISTORY[0], history: HISTORY };
+
+  /** Номера версий в строках таблицы — по порядку, из первой ячейки. */
+  const versions = () =>
+    screen
+      .getAllByRole('row')
+      .map((row) => /^№(\d+)/.exec(row.querySelector('td')?.textContent ?? '')?.[1])
+      .filter((number) => number !== undefined);
+
+  // Разведка 10.11.2026: каждая версия добавляла строку, а свернуть историю было нельзя.
+  it('на виду — действующая и ещё три, остальные — «Показать ещё N», «Свернуть» — та же кнопка', async () => {
+    await openThresholds({}, LONG);
+    const more = screen.getByRole('button', { name: /^Показать ещё/ });
+
+    expect(versions()).toEqual(['7', '6', '5', '4']);
+    expect(more.textContent).toBe('Показать ещё\u00a02');
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+
+    await userEvent.click(more);
+
+    expect(versions()).toEqual(['7', '6', '5', '4', '3', '2']);
+    expect(more).toHaveTextContent('Свернуть');
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(more.getAttribute('aria-controls') ?? '')).toHaveTextContent(
+      '№3',
+    );
+
+    await userEvent.click(more);
+
+    expect(versions()).toEqual(['7', '6', '5', '4']);
+  });
+
+  it('версий не больше четырёх — кнопки нет', async () => {
+    await openThresholds();
+
+    expect(screen.queryByRole('button', { name: /^Показать ещё/ })).not.toBeInTheDocument();
+  });
+
+  // Разведка 10.11.2026: адрес с датой одной строкой не входил в колонку и резался краем.
+  it('кто и когда — адрес по швам, время — своей строкой; без автора — только время', async () => {
+    await openThresholds({}, LONG);
+    const [, newest, , , oldest] = screen.getAllByRole('row');
+    const who = newest!.lastElementChild!;
+
+    expect(who.querySelectorAll('p')).toHaveLength(2);
+    expect(who.querySelector('p')?.innerHTML).toContain('ivan@<wbr>site<wbr>.com');
+    expect(who.querySelectorAll('p')[1]).toHaveTextContent(formatDateTime(CURRENT.created_at));
+    expect(oldest!.lastElementChild!.querySelectorAll('p')).toHaveLength(1);
   });
 });

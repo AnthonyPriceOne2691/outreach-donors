@@ -186,10 +186,14 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("значок подсказки", "button[aria-label^='Допустимые значения'] svg", big),
                 ("пояснение поля", ".mantine-InputWrapper-description", norm),
                 ("значение в поле", ".mantine-NumberInput-input", norm),
-                ("заголовок «Что станет с базой»", "h5", norm),
+                # Карточки сравнения у нетронутых порогов нет (10.11.2026): почему сохранять
+                # нечего — тихой строкой под кнопкой; заголовок сравнения — у порогов с отказом.
+                ("почему сохранять нечего", ".thresholdsSame", norm),
                 ("номер версии", "table tbody td p", norm),
                 ("значок «действует»", "table tbody .mantine-Badge-label", norm),
-                ("кто и когда", "table tbody td:nth-child(6) p", norm),
+                # Автор по швам и время второй строкой — последняя колонка (10.11.2026).
+                ("кто и когда", "table tbody td:last-child p", norm),
+                ("«Показать ещё» версий", "button:has-text('Показать ещё')", norm),
                 ("пункт меню", "nav a", norm),
             ],
         },
@@ -225,6 +229,7 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             # которые читаются чисто (28.09.2026).
             "probes": [
                 ("отказ под полем", ".mantine-InputWrapper-error", norm),
+                ("заголовок сравнения", "h5", norm),
                 ("почему нет последствий", "h5 + p", norm),
                 # Подсказка открыта фокусом, а не наведением: замер прокручивает
                 # к точке, мышь уходит со значка, и подсказка по наведению

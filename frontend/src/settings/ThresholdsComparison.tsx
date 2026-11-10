@@ -18,6 +18,10 @@
  * **Пересчёт не перерисовывает блок.** Пока идёт новый расчёт, прежние числа стоят
  * приглушёнными: значок загрузки на месте блока на каждое изменение порога
  * заставлял экран прыгать под рукой.
+ *
+ * **Карточка — только у изменённых порогов** (разведка 10.11.2026): у нетронутых она стояла
+ * ради фразы «пороги совпадают» на сотню пикселей. Её ставит экран (`ThresholdsPage`), а
+ * почему сохранять нечего, говорит тихая строка под кнопкой.
  */
 
 import { Alert, Card, Loader, SimpleGrid, Stack, Text, Title } from '@mantine/core';
@@ -28,8 +32,6 @@ import { Metric } from '../components/Metric';
 import { formatNumber, plural } from '../format';
 
 interface Props {
-  /** Черновик отличается от действующих порогов. */
-  changed: boolean;
   /** Подпись первого поля с отказом; `null` — годятся все. */
   refused: string | null;
   data: ConsequencesView | undefined;
@@ -48,17 +50,7 @@ export function ThresholdsComparison(props: Props) {
   );
 }
 
-function ComparisonBody({ changed, refused, data, fetching, error }: Props) {
-  // Пороги, равные действующим, сервер сравнил бы с нулём перемен — тем же правилом
-  // с обеих сторон; спрашивать его незачем.
-  if (!changed) {
-    return (
-      <Text size="sm" c="dimmed">
-        Пороги совпадают с действующими. Измените порог — здесь появится, скольких доменов базы
-        новые отсекут и скольких пропустят сверх действующих.
-      </Text>
-    );
-  }
+function ComparisonBody({ refused, data, fetching, error }: Props) {
   // Причину называет отказ под полем — здесь только какое поле: своя причина у
   // блока разошлась с ней («вне границ» над «только целое число», 10.10.2026).
   if (refused !== null) {
