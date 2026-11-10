@@ -11,15 +11,16 @@
  *
  * **Крупный сайт — «кому не пишем», а не «другая причина»** (аудит 20.10.2026: отчёт
  * прогона показывал 39 таких строкой «Другая причина: «DR > 80»»). **Свежие домены — в тех
- * же числах**: прогон судит их сам, по сохранённым метрикам, и это сказано под заголовком.
+ * же числах**: прогон судит их сам, по сохранённым метрикам, и это сказано в «i» у заголовка.
  */
 
-import { Card, Stack, Table, Text, Title } from '@mantine/core';
+import { Card, Group, Stack, Table, Text, Title } from '@mantine/core';
 
 import { countryTitle } from '../api/labels';
 import type { RejectionCard, RunThresholds } from '../api/runReport';
 import { ColumnsHead } from '../components/ColumnsHead';
 import type { Column } from '../components/ColumnsHead';
+import { InfoHint } from '../components/InfoHint';
 import { formatNumber, formatShare } from '../format';
 import { ReserveLink } from '../reserve/ReserveLink';
 
@@ -63,19 +64,31 @@ interface Props {
   runId: number;
 }
 
+/** Чьи это пороги и как домен их проходит — в «i» у заголовка, а не абзацем под ним (слово
+ *  владельца 10.11.2026): на виду — таблица и ссылка на резерв. */
+function ThresholdsHint({ freshJudged }: { freshJudged: boolean }) {
+  return (
+    <InfoHint name="Какие пороги в отчёте" width={320} interactive>
+      <Text size="sm">
+        Пороги этого прогона — версия на момент запуска. Домен проходит, если не ниже каждого и не
+        выше DR крупного сайта.
+        {freshJudged &&
+          ' В числах и проверенные раньше: их прогон судил своими порогами и страной по сохранённым метрикам, без Ahrefs.'}
+      </Text>
+    </InfoHint>
+  );
+}
+
 export function RejectionsCard({ rejected, thresholds, country, freshJudged, runId }: Props) {
   return (
     // Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что у шапки:
     // текст соседних карточек начинается с одной кромки.
     <Card className="glass" p="md">
       <Stack gap={4} px="md" pt="xs">
-        <Title order={5}>Отсеяно по порогам</Title>
-        <Text size="sm" c="dimmed">
-          Пороги этого прогона — версия на момент запуска. Домен проходит, если не ниже каждого и не
-          выше DR крупного сайта.
-          {freshJudged &&
-            ' В числах и проверенные раньше: их прогон судил своими порогами и страной по сохранённым метрикам, без Ahrefs.'}
-        </Text>
+        <Group gap={4} wrap="nowrap">
+          <Title order={5}>Отсеяно по порогам</Title>
+          <ThresholdsHint freshJudged={freshJudged} />
+        </Group>
         <ReserveLink runId={runId}>Не прошедшие — в резерве прогона</ReserveLink>
       </Stack>
       <Table className="dataTable" layout="fixed" verticalSpacing="sm" horizontalSpacing="md">
