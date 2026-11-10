@@ -24,6 +24,7 @@ import type {
   RunCard,
 } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { InfoHint } from '../components/InfoHint';
 import { Meter } from '../components/Meter';
 import { PageHead } from '../components/PageHead';
 import { Metric } from '../components/Metric';
@@ -242,10 +243,28 @@ function LastRunLine({ run }: { run: RunCard | null }) {
   );
 }
 
-function RunSection({ data }: { data: OverviewView }) {
+/** Чей кап у полосы юнитов и где о ключе подробнее — в «i» у заголовка карточки (разбор экранов
+ *  10.11.2026: строкой под полосой пояснение стояло на каждом заходе). Со ссылкой — окошком:
+ *  до ссылки во всплывающей подсказке не дотянуться. Без права «Расход» вести некуда — значка нет. */
+function CapHint() {
   const { can } = useSession();
+  if (!can('usage')) return null;
   return (
-    <Section title="Прогон и расход" to="/run" toTitle="К прогонам">
+    <InfoHint name="Чей кап у полосы юнитов" interactive width={280}>
+      <Text size="sm">
+        По нашему капу — он от ключа Ahrefs. Ключ, его цикл и остаток у провайдера — на экране{' '}
+        <Anchor component={Link} to="/usage" size="sm">
+          расхода
+        </Anchor>
+        .
+      </Text>
+    </InfoHint>
+  );
+}
+
+function RunSection({ data }: { data: OverviewView }) {
+  return (
+    <Section title="Прогон и расход" to="/run" toTitle="К прогонам" aside={<CapHint />}>
       <Stack gap="md">
         <LastRunLine run={data.last_run} />
         <Stack gap={6} className="hairline" pt="md">
@@ -269,15 +288,6 @@ function RunSection({ data }: { data: OverviewView }) {
               label="Юниты Ahrefs за цикл ключа"
             />
           )}
-          {can('usage') ? (
-            <Text size="sm" c="dimmed">
-              По нашему капу — он от ключа Ahrefs. Ключ, его цикл и остаток у провайдера — на экране{' '}
-              <Anchor component={Link} to="/usage" size="sm">
-                расхода
-              </Anchor>
-              .
-            </Text>
-          ) : null}
         </Stack>
         <Text size="sm">
           Выдача с начала месяца: <b>{formatUsd(data.serp_usd)}</b>

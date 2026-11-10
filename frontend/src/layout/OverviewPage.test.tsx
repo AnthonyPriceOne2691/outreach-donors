@@ -41,6 +41,13 @@ async function openOverview(
   return recorded;
 }
 
+/** Плашка тревоги по её заголовку. */
+async function alarmOf(title: string) {
+  const alarm = (await screen.findByText(title)).closest<HTMLElement>('[role="alert"]');
+  if (alarm === null) throw new Error(`Тревога «${title}» не плашкой`);
+  return within(alarm);
+}
+
 /** Плитка сводки по её подписи — она же ссылка целиком. */
 async function tile(title: string): Promise<HTMLElement> {
   const label = await screen.findByText(title);
@@ -88,11 +95,6 @@ describe('сторож тишины на обзоре', () => {
       { code: 'unmarked', title: 'Тревога без пометки', detail: '…', stage: null },
     ]);
 
-    const alarmOf = async (title: string) => {
-      const alarm = (await screen.findByText(title)).closest<HTMLElement>('[role="alert"]');
-      if (alarm === null) throw new Error(`Тревога «${title}» не плашкой`);
-      return within(alarm);
-    };
     const silence = await alarmOf('Платформа молчит о доставке — направление доноров');
     expect(silence.getByText(worry)).toBeInTheDocument();
     expect(silence.getByText('есть повод').closest('.mantine-Badge-root')).toHaveStyle({
@@ -111,6 +113,35 @@ describe('сторож тишины на обзоре', () => {
     expect(pending.getByText('повода нет').closest('.mantine-Badge-root')).toHaveStyle({
       '--badge-bg': 'var(--mantine-color-green-light)',
     });
+  });
+
+  it('в полосе — заголовок и что делать, подробности — по «Подробнее» у места', async () => {
+    // Разбор экранов 10.11.2026: тревога капа стояла над «Обзором» абзацем в 62 слова. Что
+    // делать — на виду, остальное по нажатию; закрытое не отрисовано.
+    const todo =
+      'Есть повод для беспокойства — следующий прогон может не уложиться в остаток: поднять лимит ключа — в Ahrefs, если прогоны нужны до обнуления.';
+    const detail =
+      'Тревога: осталось 2 000 юнитов из 50 000 — выбрано 96%, обнуление ключа 21 ноября. Упирается в лимит ключа — он общий с соседней системой';
+    await openOverview([
+      {
+        code: 'ahrefs-key-95',
+        title: 'Кап Ahrefs выбран на 95% и больше',
+        detail,
+        stage: null,
+        concern: { cause: true, words: todo },
+      },
+    ]);
+
+    const alarm = await alarmOf('Кап Ahrefs выбран на 95% и больше');
+    expect(alarm.getByText(todo)).toBeInTheDocument();
+    const more = alarm.getByRole('button', { name: 'Подробнее' });
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    expect(alarm.queryByText(detail)).not.toBeInTheDocument();
+
+    await userEvent.click(more);
+
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(alarm.getByText(detail)).toBeInTheDocument();
   });
 
   it('тревоги только без повода — красных полос нет, тихая строка одна', async () => {
@@ -290,6 +321,28 @@ describe('сводка на главной', () => {
     expect(meter).toHaveAttribute('aria-valuenow', String((42716 / 100000) * 100));
     expect(screen.getByText('42 716')).toBeInTheDocument();
     expect(screen.getByText(/Юниты Ahrefs за цикл ключа, с 21 октября/)).toBeInTheDocument();
+  });
+
+  it('чей кап у полосы и где о ключе подробнее — в «i» у заголовка, со ссылкой на расход', async () => {
+    // Разбор экранов 10.11.2026: строкой под полосой пояснение стояло на каждом заходе.
+    await openOverview();
+    await screen.findByRole('progressbar', { name: 'Юниты Ahrefs за цикл ключа' });
+    expect(screen.queryByText(/По нашему капу/)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Чей кап у полосы юнитов' }));
+
+    expect(await screen.findByText(/По нашему капу — он от ключа Ahrefs/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'расхода' })).toHaveAttribute('href', '/usage');
+  });
+
+  it('без права «Расход» значка у заголовка нет: вести некуда', async () => {
+    const permissions = ADMIN.permissions.filter((one) => one !== 'usage');
+    await openOverview([], { body: OVERVIEW }, { ...ADMIN, permissions });
+
+    await screen.findByRole('progressbar', { name: 'Юниты Ahrefs за цикл ключа' });
+    expect(
+      screen.queryByRole('button', { name: 'Чей кап у полосы юнитов' }),
+    ).not.toBeInTheDocument();
   });
 
   it('кап неизвестен — без полосы и словами', async () => {
