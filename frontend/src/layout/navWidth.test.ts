@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  COUNT_ROOM,
+  COUNT_FRAME,
   FALLBACK_WIDTH,
   GROUP_INSET,
   GROUP_LINE,
@@ -48,11 +48,30 @@ describe('ширина боковой колонки', () => {
     expect(operator).toBeLessThan(admin);
   });
 
-  it('пункту, у которого бывает число ждущей работы, — место под число всегда', () => {
+  it('пункту, у которого бывает число ждущей работы, — место под самый широкий значок всегда', () => {
     measureByLength();
-    // «Рекламодатели» — 104 px и место под число: шире «Доменов рассылки» (120).
+    // «Рекламодатели» — 104 px и значок «999+»: четыре знака по 8 px с разрядкой 0,25 px, поля
+    // и кромка значка, зазор до подписи. Вместе шире «Доменов рассылки» (120).
     expect(navbarWidth(['Рекламодатели', 'Домены рассылки'], ['Рекламодатели'])).toBe(
-      104 + COUNT_ROOM + ICON_ROOM + 2 * (24 + 12),
+      104 + (4 * 8 + 4 * 0.25 + COUNT_FRAME) + ICON_ROOM + 2 * (24 + 12),
+    );
+  });
+
+  it('значок числа меряется своим шрифтом — жирным в 10 px, а не шрифтом подписи', () => {
+    // Разбор экранов 10.11.2026: место под число было числом (48 px), а «999+» с полем занимал
+    // 59 — «Рекламодатели» резались до «Рекламодате…». Здесь буква подписи — 8 px, знак значка — 6.
+    const context = {
+      font: '',
+      measureText(text: string) {
+        return { width: text.length * (this.font.startsWith('700 10px') ? 6 : 8) };
+      },
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context as unknown as CanvasRenderingContext2D,
+    );
+
+    expect(navbarWidth(['Рекламодатели'], ['Рекламодатели'])).toBe(
+      104 + (4 * 6 + 4 * 0.25 + COUNT_FRAME) + ICON_ROOM + 2 * (24 + 12),
     );
   });
 

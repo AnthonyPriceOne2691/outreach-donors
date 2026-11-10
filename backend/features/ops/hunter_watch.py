@@ -277,10 +277,13 @@ async def alarm(
     if level == FULL_PERCENT:
         return _reached(binding, words, stage)
     warn = level == WARN_PERCENT
+    # Что сделать — в пометке тревоги, как у ключа Ahrefs (`key_watch.py`): в подробностях оно
+    # стояло бы второй раз. У предупреждения пометка его не говорит (`WARNED`).
+    todo = f"; {_HOW_TO_RAISE[binding]}" if warn else ""
     return Alarm(
         code=WARN_CODE if warn else ALARM_CODE,
         title=f"Hunter выбран на {level}% и больше",
-        detail=f"{'Предупреждение' if warn else 'Тревога'}: {words}; {_HOW_TO_RAISE[binding]}",
+        detail=f"{'Предупреждение' if warn else 'Тревога'}: {words}{todo}",
         stage=stage,
         concern=WARNED if warn else _short(binding),
     )

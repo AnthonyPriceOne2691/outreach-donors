@@ -27,31 +27,29 @@ function alarmTitle({ title, concern }: StagedAlarm): ReactNode {
   );
 }
 
-function AlarmCard({ alarm, color }: { alarm: StagedAlarm; color: string }) {
-  return (
-    <Alert color={color} title={alarmTitle(alarm)}>
-      {alarm.detail}
-      {alarm.concern && (
-        <Box mt={6} fw={500}>
-          {alarm.concern.words}
-        </Box>
-      )}
-    </Alert>
-  );
-}
-
-/** Тревоги, о которых беспокоиться незачем: одной тихой строкой, подробности — по нажатию. */
-function QuietAlarms({ alarms }: { alarms: StagedAlarm[] }) {
+/** Раскрытие у места: кнопка с шевроном, под ней — то, что она раскрывает. Закрытое не
+ *  отрисовано (`Unfold`). Подпись кнопки — чернилами: строка тихих тревог лежит прямо на
+ *  полотне, и цвет кнопки на бирюзе давал 3,84 : 1; в плашке тревоги — те же чернила, что её
+ *  текст. `flush` — подпись кнопки с той же кромки, что текст над ней: кнопка выдвигается на своё
+ *  поле влево, а раскрытое остаётся на кромке текста. */
+function Unfolding({
+  label,
+  flush = false,
+  children,
+}: {
+  label: string;
+  flush?: boolean;
+  children: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const id = useId();
   return (
     <Stack gap="xs">
-      <Group>
+      <Group ml={flush ? -8 : 0}>
         <Button
           variant="subtle"
           size="compact-sm"
           className="press"
-          // Строка лежит прямо на полотне, не на панели: цвет кнопки на бирюзе давал 3,84 : 1.
           color="gray"
           c="var(--mantine-color-text)"
           aria-expanded={open}
@@ -61,17 +59,50 @@ function QuietAlarms({ alarms }: { alarms: StagedAlarm[] }) {
           }
           onClick={() => setOpen(!open)}
         >
-          Без повода для беспокойства · {formatNumber(alarms.length)}
+          {label}
         </Button>
       </Group>
       <Unfold open={open}>
-        <Stack gap="sm" id={id}>
-          {alarms.map((alarm) => (
-            <AlarmCard key={alarm.code} alarm={alarm} color="gray" />
-          ))}
-        </Stack>
+        <Box id={id}>{children}</Box>
       </Unfold>
     </Stack>
+  );
+}
+
+/**
+ * Плашка тревоги: заголовок с меткой, под ним — строка пометки, что делать; подробности —
+ * по «Подробнее» (разбор экранов 10.11.2026: тревога капа Ahrefs стояла над «Обзором» абзацем
+ * в 62 слова). Тревога без пометки — подробностями на виду: другой строки, что случилось,
+ * у неё нет.
+ */
+function AlarmCard({ alarm, color }: { alarm: StagedAlarm; color: string }) {
+  const { concern, detail } = alarm;
+  return (
+    <Alert color={color} title={alarmTitle(alarm)}>
+      {concern ? (
+        <Stack gap={6}>
+          <Box fw={500}>{concern.words}</Box>
+          <Unfolding label="Подробнее" flush>
+            {detail}
+          </Unfolding>
+        </Stack>
+      ) : (
+        detail
+      )}
+    </Alert>
+  );
+}
+
+/** Тревоги, о которых беспокоиться незачем: одной тихой строкой, подробности — по нажатию. */
+function QuietAlarms({ alarms }: { alarms: StagedAlarm[] }) {
+  return (
+    <Unfolding label={`Без повода для беспокойства · ${formatNumber(alarms.length)}`}>
+      <Stack gap="sm">
+        {alarms.map((alarm) => (
+          <AlarmCard key={alarm.code} alarm={alarm} color="gray" />
+        ))}
+      </Stack>
+    </Unfolding>
   );
 }
 
@@ -95,9 +126,10 @@ function QuietAlarms({ alarms }: { alarms: StagedAlarm[] }) {
  * тот идёт десятки секунд, а полоса спрашивает при открытии раздела и каждые пять минут.
  *
  * **Стоит ли тревога внимания** (слово Anthony 29.10.2026): метка «есть повод» или «повода нет»
- * у заголовка и строка пометки под подробностями — те же слова, что последней строкой в
- * Telegram (`ops/alarms.Concern`). Поводом стала тревога о доставке, которая встревожила
- * человека, хотя исход письма пришёл бы сам.
+ * у заголовка и строка пометки — те же слова, что последней строкой в Telegram
+ * (`ops/alarms.Concern`). Поводом стала тревога о доставке, которая встревожила человека, хотя
+ * исход письма пришёл бы сам. С 10.11.2026 строка пометки — сразу под заголовком, подробности —
+ * по «Подробнее» (`AlarmCard`).
  *
  * **Красная полоса — только когда есть повод** (слово Anthony 02.11.2026: «чтобы не висели и не
  * отвлекали взгляд»). Тревога считается сервером из состояния на сейчас: решённое уходит с экрана

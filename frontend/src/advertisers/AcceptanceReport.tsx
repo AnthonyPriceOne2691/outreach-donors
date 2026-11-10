@@ -2,14 +2,15 @@
  * «Приёмка по донорам» — порог ТЗ Этапа 2 по каждому обойдённому донору и что нашёл его обход.
  *
  * Сверка ТЗ 11.10.2026: «по донору 100 рекламодателей с контактами, дедуплицировано,
- * письма ушли 70% из них» — этих чисел не было нигде. Строка — донор, его последний
- * обход (тем же видом, что на панели «Обход доноров», с долей закрытых страниц),
- * сколько у него рекламодателей, сколько из них с адресом, скольким ушло письмо
- * и пройден ли порог. Чего не хватает — словами: «с адресом 34 из 100».
+ * письма ушли 70% из них» — этих чисел не было нигде. Строка — донор, пройден ли порог, его
+ * последний обход (тем же видом, что на вкладке «Обход доноров», с долей закрытых страниц),
+ * сколько у него рекламодателей, сколько из них с адресом и скольким ушло письмо. Чего не
+ * хватает — словами: «с адресом 34 из 100».
  *
- * **Что нашёл обход — колонками между обходом и рекламодателями** (тест-группа 23.10.2026):
- * «куплено», спорные и сколько решено, «мимо», «кому не пишем», страницы со ссылками — числа
- * сервера (`crawl/findings.py`). **Все доноры вместе — первой строкой таблицы**, справочно.
+ * **Что нашёл обход — между обходом и рекламодателями** (тест-группа 23.10.2026; одной колонкой —
+ * с 10.11.2026): «куплено», спорные и сколько решено, «мимо», «кому не пишем», страницы со
+ * ссылками — числа сервера (`crawl/findings.py`). **Все доноры вместе — первой строкой таблицы**,
+ * справочно.
  *
  * **С адресом и «ушло» — среди переведённых** (проверка ветки 12.10.2026): домен, снятый
  * стоп-листом, с адресом от Этапа 1 приёмку не украшает. **Поставщик — помечен**: его
@@ -23,6 +24,13 @@
  * 10.11.2026: «выделяется чёрным»): заливка нужна, чтобы под донором не читались уехавшие буквы, а в
  * тёмной теме три слоя стекла дали чёрную полосу с острыми углами на таблице, которая никуда не ехала.
  * Без прокрутки колонка прозрачна, как вся карточка; при прокрутке — заливка с круглыми углами и тенью.
+ *
+ * **Таблица — в карточку на 1440 с открытым меню** (разведка 10.11.2026): одиннадцать колонок на
+ * 1 480 px в карточке 1 093 px прятали за краем «С адресом», «Письмо ушло» и «Приёмку» — то, по чему
+ * считается порог над таблицей. Теперь семь колонок на 1 070 px: вердикт — второй, сразу за
+ * донором; обход — значком с «i», как на вкладке «Обход доноров», а на виду под ним — только
+ * отклонение больше нуля (было четыре строки чисел, почти везде нулей, и значок резался
+ * многоточием); что нашёл обход — одной колонкой, сеткой «подпись число» (`foundGrid`).
  */
 
 import { Alert, Badge, Card, Loader, Stack, Table, Text } from '@mantine/core';
@@ -32,6 +40,7 @@ import type { UIEvent } from 'react';
 import { fetchAcceptance } from '../api/acceptance';
 import type { AcceptanceView, Findings, Tally } from '../api/acceptance';
 import { refusalOf } from '../api/client';
+import type { CrawlRow } from '../api/crawls';
 import type { Column } from '../components/ColumnsHead';
 import { DataTable } from '../components/DataTable';
 import { HintLines } from '../components/HintLines';
@@ -40,7 +49,7 @@ import { PageSwitch, usePageParam, useTurnToTop } from '../components/PageSwitch
 import { Seams } from '../components/Seams';
 import { usePagedQuery } from '../components/useUrlFilters';
 import { formatNumber, formatPercent } from '../format';
-import { CrawlState } from './CrawlTable';
+import { CrawlState, deviationLines } from './CrawlTable';
 
 export const ACCEPTANCE_KEY = ['advertisers', 'acceptance'] as const;
 
@@ -49,7 +58,7 @@ const ABOUT_LINES = [
   'Числа — по последнему обходу донора; домен у донора — один раз.',
   'Куплено — скоринг уверен, что это купленное размещение, и человек не сказал «не пишем».',
   'Спорных — решает человек; «решено» — сколько он уже решил.',
-  'Мимо — не реклама. Кому не пишем — домен из списка: соцсеть, СМИ, гос. сайт, крупный сайт.',
+  'Мимо — не реклама. Не пишем — домен из списка «Кому не пишем»: соцсеть, СМИ, гос. сайт, крупный сайт.',
   'Страниц — страниц донора со ссылкой на его рекламодателей; витрина с пятью — одна.',
   'Рекламодателей — «куплено» и все, кому человек сказал «пишем»: их переводит «Перевести в рекламодатели».',
   'С адресом — из переведённых. Письмо ушло — платформа приняла хоть одно, отказ доставки тоже; доля — от тех, что с адресом.',
@@ -58,27 +67,27 @@ const ABOUT_LINES = [
 
 const ABOUT = <HintLines lines={ABOUT_LINES} />;
 
-/** Колонки — по самому длинному содержимому (замер шрифтом экрана 23.10.2026): имя донора
- *  переносится по швам (`Seams`), обход — по значку «остановлен — смотрит человек», «Кому не
- *  пишем» — в две строки, спорные — по «решено 1 000», длинный текст обхода и приёмки — переносом. */
-const COLUMNS: Column[] = [
-  { title: 'Донор', width: '11rem' },
-  { title: 'Обход', width: '15.25rem' },
-  { title: 'Куплено', width: '6rem' },
-  { title: 'Спорных', width: '7.25rem' },
-  { title: 'Мимо', width: '5.5rem' },
-  { title: 'Кому не пишем', width: '6rem' },
-  { title: 'Страниц', width: '6rem' },
-  { title: 'Рекламодателей', width: '9.5rem' },
-  { title: 'С адресом', width: '7rem' },
-  { title: 'Письмо ушло', width: '8rem' },
-  { title: 'Приёмка', width: '11rem' },
+/** Колонки — по самому длинному содержимому, замер шрифтом экрана 10.11.2026 (поле ячейки — 6 px,
+ *  `acceptanceTable`): имя донора переносится по швам (`Seams`); чего не хватает — по «с адресом 99
+ *  из 100»; обход — по значку «остановлен — смотрит человек» (`crawlSlot`), «i» и «!» при нём —
+ *  строкой ниже; что нашёл обход — по сетке с четырёхзначными числами («не пишем 9 999»);
+ *  «Рекламодателей» и «Письмо ушло» — заголовком в две строки (`headsWrap`), по «переведено 9 999»
+ *  и «9 999 · 99,9%». */
+export const COLUMNS: Column[] = [
+  { title: 'Донор', width: '10rem' },
+  { title: 'Приёмка', width: '8.75rem' },
+  { title: 'Обход', width: '14.125rem' },
+  { title: 'Что нашёл обход', width: '13.5rem' },
+  { title: 'Рекламо\u00adдателей', width: '7.75rem' },
+  { title: 'С адресом', width: '5.75rem' },
+  { title: 'Письмо ушло', width: '7rem' },
 ];
-/** Уже — прокрутка таблицы, а донор стоит на месте (`stickyName`): сумма ширин колонок. */
-const TABLE_MIN_WIDTH = 1480;
+/** Уже — прокрутка таблицы, а донор стоит на месте (`stickyName`): сумма ширин колонок. В карточке
+ *  на 1440 с открытым меню — 1 093 px, и таблица встаёт без прокрутки. */
+export const TABLE_MIN_WIDTH = 1070;
 
-/** На телефоне строка — карточкой, числа — по три в ряд (`phoneCardsRow`); обход и приёмка —
- *  во всю ширину карточки. В таблице сетки нет, и правило ни на что не действует. */
+/** На телефоне строка — карточкой, числа — по три в ряд (`phoneCardsRow`); приёмка, обход и что
+ *  нашёл обход — во всю ширину карточки. В таблице сетки нет, и правило ни на что не действует. */
 const WHOLE_LINE = { gridColumn: '1 / -1' } as const;
 
 /** Чего не хватает до порога — словами; порог пройден — пусто. */
@@ -102,6 +111,8 @@ function sentLine(tally: Tally): string {
   return `${formatNumber(tally.sent)}${share}`;
 }
 
+/** Вердикт и под ним — чего не хватает, по строке на условие: «с адресом 34 из 100», «ушло 58,8%
+ *  из 70%». У поставщика — что он не считается; почему — в «i» вида. */
 function Verdict({
   tally,
   view,
@@ -111,33 +122,24 @@ function Verdict({
   view: AcceptanceView;
   supplier: boolean;
 }) {
-  if (supplier) {
-    return (
-      <Stack gap={2} align="center">
-        <Badge variant="light" color="gray">
-          поставщик
-        </Badge>
-        <Text size="xs" c="dimmed">
-          его рекламодателей не трогаем — не считается
-        </Text>
-      </Stack>
-    );
-  }
-  if (tally.accepted) {
+  if (tally.accepted && !supplier) {
     return (
       <Badge variant="light" color="green">
         пройдена
       </Badge>
     );
   }
+  const notes = supplier ? ['не считается'] : shortOf(tally, view);
   return (
     <Stack gap={2} align="center">
       <Badge variant="light" color="gray">
-        не пройдена
+        {supplier ? 'поставщик' : 'не пройдена'}
       </Badge>
-      <Text size="xs" c="dimmed">
-        {shortOf(tally, view).join('; ')}
-      </Text>
+      {notes.map((note) => (
+        <Text key={note} size="xs" c="dimmed">
+          {note}
+        </Text>
+      ))}
     </Stack>
   );
 }
@@ -156,22 +158,34 @@ function WithNote({ value, note }: { value: number; note: string | null }) {
   );
 }
 
-/** Что нашёл обход: «куплено», спорные и сколько из них решено, «мимо», «кому не пишем», страницы.
- *  «Решено» — у каждого числа спорных, и нулём: «никто ещё не смотрел» — тоже ответ. */
-function FoundCells({ found }: { found: Findings }) {
+/** «куплено 118» — подпись тихо, число — как в соседних колонках; неразрывно. */
+function Found({ label, value }: { label: string; value: number }) {
   return (
-    <>
-      <Table.Td data-label="Куплено">{formatNumber(found.bought)}</Table.Td>
-      <Table.Td data-label="Спорных">
-        <WithNote
-          value={found.pending}
-          note={found.pending > 0 ? `решено\u00a0${formatNumber(found.decided)}` : null}
-        />
-      </Table.Td>
-      <Table.Td data-label="Мимо">{formatNumber(found.skipped)}</Table.Td>
-      <Table.Td data-label="Кому не пишем">{formatNumber(found.blocked)}</Table.Td>
-      <Table.Td data-label="Страниц">{formatNumber(found.pages)}</Table.Td>
-    </>
+    <span className="foundItem">
+      <Text span size="xs" c="dimmed">
+        {label}
+      </Text>
+      {'\u00a0'}
+      <span>{formatNumber(value)}</span>
+    </span>
+  );
+}
+
+/** Что нашёл обход — одной колонкой, сеткой в две: «куплено» и «мимо», спорные и «не пишем»,
+ *  «решено» — под спорными, и страницы. «Решено» — у каждого числа спорных, и нулём: «никто ещё не
+ *  смотрел» — тоже ответ; спорных нет — места под ним пусто, и страницы стоят на своём. */
+function FoundCell({ found }: { found: Findings }) {
+  return (
+    <Table.Td data-label="Что нашёл обход" style={WHOLE_LINE}>
+      <span className="foundGrid">
+        <Found label="куплено" value={found.bought} />
+        <Found label="мимо" value={found.skipped} />
+        <Found label="спорных" value={found.pending} />
+        <Found label={'не\u00a0пишем'} value={found.blocked} />
+        {found.pending > 0 ? <Found label="решено" value={found.decided} /> : <span />}
+        <Found label="страниц" value={found.pages} />
+      </span>
+    </Table.Td>
   );
 }
 
@@ -194,6 +208,23 @@ function TallyCells({ tally }: { tally: Tally }) {
   );
 }
 
+/** Обход — значком с «i», как на вкладке «Обход доноров» (`CrawlState compact`): почему кончился и
+ *  доли закрытых и отказов — в «i». На виду под значком — только доля больше нуля: по ней решают. */
+function CrawlCell({ crawl }: { crawl: CrawlRow | null }) {
+  return (
+    <Stack gap={2} align="center">
+      <div className="crawlSlot crawlSlotBare">
+        <CrawlState crawl={crawl} compact />
+      </div>
+      {deviationLines(crawl).map((line) => (
+        <Text key={line} size="xs" c="dimmed">
+          {line}
+        </Text>
+      ))}
+    </Stack>
+  );
+}
+
 /** Все доноры вместе — над донорами, теми же колонками; обхода у суммы нет. */
 function Together({ view }: { view: AcceptanceView }) {
   return (
@@ -204,14 +235,14 @@ function Together({ view }: { view: AcceptanceView }) {
           без поставщиков
         </Text>
       </Table.Td>
-      <Table.Td style={WHOLE_LINE} />
-      <FoundCells found={view.overall_findings} />
-      <TallyCells tally={view.overall} />
       <Table.Td data-label="Приёмка" className="wrapCell" style={WHOLE_LINE}>
         <Text size="xs" c="dimmed">
-          справочно, не критерий
+          справочно, не{'\u00a0'}критерий
         </Text>
       </Table.Td>
+      <Table.Td style={WHOLE_LINE} />
+      <FoundCell found={view.overall_findings} />
+      <TallyCells tally={view.overall} />
     </Table.Tr>
   );
 }
@@ -235,7 +266,7 @@ function RowsTable({ view, stale }: { view: AcceptanceView; stale: boolean }) {
     <DataTable
       columns={COLUMNS}
       minWidth={TABLE_MIN_WIDTH}
-      className="stickyName headsWrap"
+      className="stickyName headsWrap acceptanceTable"
       cardRow
       stale={stale}
     >
@@ -247,17 +278,17 @@ function RowsTable({ view, stale }: { view: AcceptanceView; stale: boolean }) {
               <Seams text={row.host} />
             </Text>
           </Table.Td>
-          {/* Мера здоровья обхода шире колонки — переносом, а не поверх соседней колонки. */}
-          <Table.Td data-label="Обход" className="wrapCell crawlCell" style={WHOLE_LINE}>
-            <CrawlState crawl={row.crawl} />
-          </Table.Td>
-          <FoundCells found={row.findings} />
-          <TallyCells tally={row.tally} />
-          {/* Чего не хватает и почему поставщик не считается — переносом: в одну строку
-              не помещаются ни в колонку, ни в карточку телефона. */}
+          {/* Вердикт — сразу за донором: по нему и смотрят. Чего не хватает — переносом: в одну
+              строку не помещается ни в колонку, ни в карточку телефона. */}
           <Table.Td data-label="Приёмка" className="wrapCell" style={WHOLE_LINE}>
             <Verdict tally={row.tally} view={view} supplier={row.supplier} />
           </Table.Td>
+          {/* Значок с «!» и «глубокий» шире колонки — переносом, а не поверх соседней колонки. */}
+          <Table.Td data-label="Обход" className="wrapCell crawlCell" style={WHOLE_LINE}>
+            <CrawlCell crawl={row.crawl} />
+          </Table.Td>
+          <FoundCell found={row.findings} />
+          <TallyCells tally={row.tally} />
         </Table.Tr>
       ))}
     </DataTable>
@@ -295,8 +326,7 @@ export function AcceptanceReport() {
             доноры есть, и экран сейчас уйдёт на последнюю. */}
         {data.total === 0 ? (
           <Text size="sm" c="dimmed">
-            Обойдённых доноров нет: приёмка считается по обходу, а он начинается на вкладке
-            «Проверка», в панели «Обход доноров».
+            Обойдённых доноров нет: приёмка считается по обходу, а он — на вкладке «Обход доноров».
           </Text>
         ) : (
           <>

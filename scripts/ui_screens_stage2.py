@@ -21,6 +21,9 @@ from typing import Any
 SEGMENT = ".mantine-SegmentedControl-label"
 #: Строка донора в приёмке: первая строка таблицы — «Все доноры вместе».
 DONOR_ROW = "table tbody tr:not(:first-child)"
+#: Ячейки приёмки по подписям колонок, а не по месту: вердикт с 10.11.2026 — второй колонкой.
+FOUND = f"{DONOR_ROW} td[data-label='Что нашёл обход']"
+VERDICT = f"{DONOR_ROW} td[data-label='Приёмка']"
 
 
 def stage2_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
@@ -72,10 +75,15 @@ def stage2_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 # Первая строка — «Все доноры вместе», доноры — со второй (23.10.2026).
                 ("все доноры вместе", "table tbody tr:first-child td:first-child p", norm),
                 ("донор в строке", "table tbody tr:nth-child(2) td:first-child p", norm),
-                ("что нашёл обход", f"{DONOR_ROW} td[data-label='Куплено']", norm),
-                ("сколько спорных решено", f"{DONOR_ROW} td[data-label='Спорных'] p", norm),
-                ("вердикт порога", f"{DONOR_ROW} td:last-child .mantine-Badge-label", norm),
-                ("чего не хватает", f"{DONOR_ROW} td:last-child p", norm),
+                # С 10.11.2026 вердикт — второй колонкой, что нашёл обход — одной, сеткой.
+                ("что нашёл обход", f"{FOUND} .foundItem > span:last-child", norm),
+                (
+                    "сколько спорных решено",
+                    f"{FOUND} .foundItem:has-text('решено') .mantine-Text-root",
+                    norm,
+                ),
+                ("вердикт порога", f"{VERDICT} .mantine-Badge-label", norm),
+                ("чего не хватает", f"{VERDICT} p", norm),
                 ("числа приёмки", f"{DONOR_ROW} td[data-label='С адресом']", norm),
                 (
                     "номер страницы приёмки",
