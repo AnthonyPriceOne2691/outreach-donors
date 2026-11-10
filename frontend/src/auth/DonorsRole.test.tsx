@@ -19,7 +19,7 @@ import { ADMIN, card, DONORS_ONLY, OPERATOR, OVERVIEW, TOKEN_KEY } from '../test
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Recorded } from '../test/server';
-import { HUNTER, openArticles, openUsage, SPENDING } from '../test/usageFixtures';
+import { HUNTER, openArticles, openDetails, openUsage, SPENDING } from '../test/usageFixtures';
 
 /** Сводка так, как её отдаёт сервер без права «Рекламодатели»: этапа в письмах нет вовсе. */
 const ONLY_DONORS_OVERVIEW: OverviewView = {
@@ -242,11 +242,13 @@ describe('рабочие экраны роли: адрес Этапа 2 ведё
 
     const card = within(screen.getByRole('group', { name: 'Hunter' }));
     expect(card.getByText('Осталось на учётке')).toBeInTheDocument();
+    // Чего нет по праву — на виду, а тариф и учётка — под «Подробнее» (10.11.2026).
+    expect(card.getByText(/Потолок проверок адреса виден с правом «Продажи»/)).toBeInTheDocument();
+    expect(card.queryByRole('button', { name: 'Изменить потолок' })).not.toBeInTheDocument();
+    await openDetails('Hunter');
     expect(
       card.getByText(/учётка общая с соседней системой и поиском адресов/),
     ).toBeInTheDocument();
-    expect(card.getByText(/Потолок проверок адреса виден с правом «Продажи»/)).toBeInTheDocument();
-    expect(card.queryByRole('button', { name: 'Изменить потолок' })).not.toBeInTheDocument();
     expect(card.queryByText(/Проверки адреса за месяц/)).not.toBeInTheDocument();
   });
 

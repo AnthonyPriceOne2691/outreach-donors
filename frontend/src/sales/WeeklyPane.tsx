@@ -4,12 +4,18 @@
  * проблемы, план, — числа по гипотезам и выгрузка CSV.
  *
  * **Экран ничего не считает сам.** Разделы приходят словами — теми же строками, что уходят в
- * группу продаж в Telegram (`GET /sales/weekly`), числа по гипотезам и итог считает сервер
+ * группу продаж в Telegram (`GET /sales/weekly`; похожие проблемы сервер складывает для экрана в
+ * одну строку, а их строки — те же, что в группе), числа по гипотезам и итог считает сервер
  * функциями экранов: воронки, гипотез, очереди. CSV — те же числа строками таблицы. Отчёт,
  * сообщение в группу и выгрузка не расходятся.
  *
- * **Как отчёт ушёл в группу — строкой над разделами:** ушёл, отправляется, не доставлен (с
+ * **Как отчёт ушёл в группу — строкой над плитками:** ушёл, отправляется, не доставлен (с
  * причиной и сроком повтора) или не уходит вовсе. Не доставлен — отчёт всё равно здесь.
+ *
+ * **На виду — плитки, что ждёт действия и таблица; разделы словами — свёрнуто под таблицей**
+ * (замечание владельца 10.11.2026 об экранах продаж: «пояснения — не простынёй, а свёрнуто или в
+ * «i»»; как и почему — `WeeklyText.tsx`). Строка итога таблицы — у двух гипотез и больше
+ * (`withTotal`): у одной она повторяла её строку.
  *
  * **Неделя — в адресе раздела** (`?tab=report&week=…`): переживает перезагрузку и ссылку
  * коллеге; пусто — прошлая неделя. Смена недели — не перезагрузка: прежний отчёт стоит
@@ -18,10 +24,8 @@
 
 import {
   Alert,
-  Box,
   Button,
   Group,
-  List,
   Loader,
   Select,
   SimpleGrid,
@@ -34,14 +38,15 @@ import { useMutation } from '@tanstack/react-query';
 import { refusalOf } from '../api/client';
 import { saveFile } from '../api/donors';
 import { downloadSalesWeekly } from '../api/salesWeekly';
-import type { SalesWeeklyView, WeeklyNumbers, WeeklyRow, WeeklySection } from '../api/salesWeekly';
+import type { SalesWeeklyView, WeeklyNumbers, WeeklyRow } from '../api/salesWeekly';
 import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
 import { formatNumber } from '../format';
 import { notify } from '../notices';
-import { FixedTable, NameCell } from './FixedTable';
+import { FixedTable, NameCell, withTotal } from './FixedTable';
 import type { Column } from './FixedTable';
 import { deliveryWords, useSalesWeekly, weekWords } from './weeklyData';
+import { ReportText, WeeklyNow } from './WeeklyText';
 
 /** Числа таблицы по гипотезам — заголовок колонки и число из ответа сервера. Списки (письма по
  *  шагам, ответы по видам, лиды) — в разделах словами. */
@@ -142,34 +147,6 @@ function Tiles({ total }: { total: WeeklyNumbers }) {
   );
 }
 
-/** Разделы — теми же словами, что в группе: первая строка — итог, дальше — список. */
-function Sections({ sections }: { sections: WeeklySection[] }) {
-  return (
-    <Stack gap="sm" px="md" className="weeklySections">
-      {sections.map((section, index) => {
-        const [first, ...rest] = section.lines;
-        return (
-          <Box key={section.key} className="weeklySection">
-            <Text size="sm" fw={600}>
-              {index + 1}. {section.title}
-            </Text>
-            <Text size="sm" className="wrapCell">
-              {first}
-            </Text>
-            {rest.length > 0 ? (
-              <List size="sm" spacing={2} mt={4} className="wrapCell">
-                {rest.map((line, at) => (
-                  <List.Item key={at}>{line}</List.Item>
-                ))}
-              </List>
-            ) : null}
-          </Box>
-        );
-      })}
-    </Stack>
-  );
-}
-
 function ByHypothesis({ view, stale }: { view: SalesWeeklyView; stale: boolean }) {
   const line = (key: string, name: string, numbers: WeeklyNumbers, total = false) => (
     <Table.Tr key={key}>
@@ -193,12 +170,11 @@ function ByHypothesis({ view, stale }: { view: SalesWeeklyView; stale: boolean }
         tabularNums
         stale={stale}
         label="Недельный отчёт по гипотезам"
-        rows={[
-          ...view.rows.map((row: WeeklyRow) =>
-            line(String(row.hypothesis_id), row.name, row.numbers),
-          ),
+        // Итог — у двух гипотез и больше: у одной он повторял бы её строку (`withTotal`).
+        rows={withTotal(
+          view.rows.map((row: WeeklyRow) => line(String(row.hypothesis_id), row.name, row.numbers)),
           line('total', 'Всего', view.total, true),
-        ]}
+        )}
       />
     </Stack>
   );
@@ -258,8 +234,9 @@ export function WeeklyPane({ week, onWeek }: PaneProps) {
       >
         <Delivery view={view} />
         <Tiles total={view.total} />
-        <Sections sections={view.sections} />
+        <WeeklyNow sections={view.sections} />
         <ByHypothesis view={view} stale={stale} />
+        <ReportText sections={view.sections} />
       </Stack>
     </Stack>
   );

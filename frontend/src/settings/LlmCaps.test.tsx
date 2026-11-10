@@ -3,7 +3,7 @@
  * процентами общего, свободный остаток, потрачено сегодня и сброс — числами сервера. До первого
  * сохранения — «как в настройках сервера», окно открывается с предложенных значений; «добавить
  * из остатка» и «убавить» — шагом; «Без потолка» — с предупреждением; менять — только с правом
- * «менять потолки расхода».
+ * «менять потолки расхода». Разделы — под «Подробнее», «как в настройках сервера» — один раз.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Me } from '../api/types';
 import { ADMIN, OPERATOR } from '../test/fixtures';
-import { LLM_CAPS, openUsage, SPENDING } from '../test/usageFixtures';
+import { LLM_CAPS, openDetails, openUsage, SPENDING } from '../test/usageFixtures';
 
 /** Числа экрана — с неразрывным пробелом разрядов (`format.ts`); в тексте теста — обычный. */
 function spaced(words: string): RegExp {
@@ -93,16 +93,47 @@ describe('потолки модели на «Расходе»', () => {
       screen.getByText('Общий потолок на весь сервис: без потолка — как в настройках сервера'),
     ).toBeInTheDocument();
     expect(screen.getByText('без потолка — расход ничем не ограничен')).toBeInTheDocument();
-    expect(
-      screen.getByText(spaced('Продажи — лимит 10 000 000 — как в настройках сервера')),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('Агент переписки — своего потолка нет, держит общий'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Потолки модели на экране не меняли')).toBeInTheDocument();
     const card = screen.getByRole('group', { name: 'Модель' });
     expect(card).toHaveTextContent('Потрачено сегодня600токенов');
     expect(
       within(card).getByText('Сброс через 5 ч 12 мин (в 03:00 по Москве)'),
+    ).toBeInTheDocument();
+
+    await openDetails('Модель');
+
+    expect(screen.getByText(spaced('Продажи — лимит 10 000 000'))).toBeInTheDocument();
+    expect(
+      screen.getByText('Агент переписки — своего потолка нет, держит общий'),
+    ).toBeInTheDocument();
+    // Оговорка — о всём блоке: у строки общего, а не в каждой строке и подвале.
+    expect(within(card).getAllByText(/как в настройках сервера/)).toHaveLength(1);
+  });
+
+  it('разделы — под «Подробнее», метка «без потолка» — на виду', async () => {
+    await openUsage();
+    const card = screen.getByRole('group', { name: 'Модель' });
+
+    expect(within(card).getByRole('button', { name: 'Подробнее' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(within(card).queryByText(/^Продажи —/)).not.toBeInTheDocument();
+    expect(within(card).getByText('без потолка — расход ничем не ограничен')).toBeVisible();
+  });
+
+  it('раздел у предела — подробности раскрыты сразу', async () => {
+    const [sales, ...others] = SAVED.llm_caps.parts;
+    const near = { ...sales, spent: 9_000_000, left: 1_000_000, used_percent: 90 };
+    await openUsage({ ...SAVED, llm_caps: { ...SAVED.llm_caps, parts: [near, ...others] } });
+    const card = screen.getByRole('group', { name: 'Модель' });
+
+    expect(within(card).getByRole('button', { name: 'Свернуть' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(
+      within(card).getByRole('progressbar', { name: 'Выбрано от лимита раздела «Продажи»' }),
     ).toBeInTheDocument();
   });
 
@@ -204,6 +235,7 @@ describe('потолки модели на «Расходе»', () => {
 
   it('сохранённый блок: роздано, свободный остаток и лимиты разделов', async () => {
     await openUsage(SAVED);
+    await openDetails('Модель');
 
     expect(
       screen.getByText(
