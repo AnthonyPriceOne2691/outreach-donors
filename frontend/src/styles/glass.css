@@ -1517,6 +1517,20 @@ html:root .mantine-Pill-root {
   --meter-fill: var(--rose-warm);
 }
 
+/* Свёрнутые ящики на экране доменов (`senders/StageBoxes`): подпись кнопки — итог одной строкой, и
+   на телефоне она длиннее кнопки. Кнопка растёт в высоту, подпись переносится, а не режется краем. */
+.boxesFold .mantine-Card-root > .mantine-Group-root > .mantine-Button-root {
+  height: auto;
+  min-height: var(--button-height);
+  max-width: 100%;
+  padding-block: 4px;
+}
+
+.boxesFold .mantine-Card-root > .mantine-Group-root .mantine-Button-label {
+  white-space: normal;
+  text-align: start;
+}
+
 /* Переключатель страниц. Умолчание Mantine — белые кнопки с серой рамкой
    (в темноте — тёмно-серые) и заливка у текущей: на стекле это плашки
    из чужого макета. Кнопки — подложка вложенного блока с кромкой (в тёмной
@@ -2091,6 +2105,17 @@ html:root .mantine-Pill-root {
 
   .phoneCardsRow tbody > tr > td.limitUsed {
     grid-column: span 2;
+  }
+
+  /* Домены рассылки и их ящики (`senders/`): короткие значения — двумя половинами карточки; в трети
+     значки «отправляет» и «ещё не писал» резались многоточием (снимок 390 px, 10.11.2026). Длинное —
+     состояние закрытого или выключенного домена, «пишет ли» ящика — во всю ширину (`phoneWide`). */
+  .phoneCardsRow :is(.domainTable, .mailingBoxes) tbody > tr {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .phoneCardsRow tbody > tr > td.phoneWide {
+    grid-column: 1 / -1;
   }
 
   /* Отметка первой колонкой и короткие значения в строку (вкладка «Обход доноров»): имя —

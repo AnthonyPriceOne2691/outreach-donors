@@ -20,7 +20,6 @@
 1:frontend/src/runs/RunPage.tsx
 1:frontend/src/runs/Unfold.tsx
 1:frontend/src/selection/SelectionPage.tsx
-1:frontend/src/senders/SenderCard.tsx
 1:frontend/src/settings/ThresholdsPage.tsx
 1:frontend/src/suppressions/SuppressionsPage.tsx
 1:frontend/src/test/server.ts

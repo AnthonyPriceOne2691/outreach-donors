@@ -31,6 +31,21 @@ DOMAIN_PAUSED = "домен на паузе"
 DOMAIN_YOUNG = "домен на выдержке"
 DOMAIN_ELSEWHERE = "домен записан за другим направлением"
 BOX_CUT = "ящику снижен лимит на сутки (мягкие отказы)"
+#: Отказ коротко — значком у ящика на экране доменов (`api/letters/forecast_schemas`): адрес ящика
+#: и счёт там стоят своими колонками, а слова целиком — по нажатию. Ключ — начало слов отказа.
+#: Не длиннее двух-трёх слов: колонка значка — по самому длинному. Сниженный лимит — «выбран», а не
+#: «снижен»: что он снижен, строка говорит у счёта.
+SHORT = {
+    BOX_CUT: "лимит ящика выбран",
+    DOMAIN_SPENT: "домен исчерпан",
+    DOMAIN_PAUSED: "домен на паузе",
+    DOMAIN_YOUNG: "домен на выдержке",
+    DOMAIN_ELSEWHERE: "другое направление",
+    DIRECTION_SPENT: "направление исчерпано",
+    DIRECTION_UNREAD: "лимит не прочитан",
+}
+#: Отказ, начала которого `SHORT` не знает: значок не выдумывает причину и не растёт в абзац.
+SHORT_UNKNOWN = "не пишет"
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +105,11 @@ def _direction_refusal(spent: int, limit: int, unread: str | None) -> str:
     if unread is not None:
         return unread_words(unread)
     return f"{DIRECTION_SPENT} ({spent} из {limit} первых писем)"
+
+
+def short(words: str) -> str:
+    """Отказ коротко — по началу слов: фильтр строит их из постоянных выше (`SHORT`)."""
+    return next((label for kind, label in SHORT.items() if words.startswith(kind)), SHORT_UNKNOWN)
 
 
 def unread_words(name: str) -> str:
