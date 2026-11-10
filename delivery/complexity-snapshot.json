@@ -2357,7 +2357,7 @@
       "worst": "pause_once:80"
     },
     "backend/features/outreach/capacity.py": {
-      "lines": 432,
+      "lines": 436,
       "complexity": 7,
       "worst": "span_of:266"
     },
