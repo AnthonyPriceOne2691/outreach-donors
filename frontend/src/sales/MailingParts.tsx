@@ -72,8 +72,14 @@ function whyOf(key: NumberKey): WhyKey | null {
   return WHY_KEYS.find((part) => part === key) ?? null;
 }
 
+/** Из чего складывается «всего» и что значит каждая часть — в «i» заголовка: формулу читают раз,
+ *  а таблицу — каждый день (замечание владельца 10.11.2026: «много текста» на «Рассылке»). */
 const PARTS_HINT = (
   <Stack gap={6}>
+    <span>
+      Всего = ушло + в очереди + без письма (напишет и не напишет) + не готовы + сняты: каждый адрес
+      — ровно в одной части.
+    </span>
     <span>
       Ушло — первое письмо ушло: дошло, вернулось или уже в отправке; сколько из них ещё в полёте —
       под числом.
@@ -272,10 +278,6 @@ function PartsRow({ row }: { row: Row }) {
 export function MailingParts({ view }: { view: SalesMailingView }) {
   return (
     <Block title="Адреса по гипотезам" hint={PARTS_HINT} className="mailingPartsBlock">
-      <Text size="sm" px="md" className="mailingPartsSum">
-        Всего = ушло + в очереди + без письма (напишет и не напишет) + не готовы + сняты: каждый
-        адрес — ровно в одной части.
-      </Text>
       <Cards>
         <DataTable columns={COLUMNS} minWidth={PARTS_MIN_WIDTH} className="mailingParts" cardRow>
           {rowsOf(view).map((row) => (

@@ -56,7 +56,7 @@ import { ReserveLink } from '../reserve/ReserveLink';
 import { missingRun, NoSuchRun, RunHead, useRunAddress } from '../runs/runAddress';
 import { CandidateRow } from './CandidateRow';
 import { DoubtfulNote, ShowDoubtful } from './DoubtfulNote';
-import { BulkBar, TierRow } from './QueueParts';
+import { BulkBar, TierRow, TopicPlace, useTopicPlace } from './QueueParts';
 import { TopicFilter } from '../topics/TopicFilter';
 import { anyTopic, topicWords, useTopicFilter } from '../topics/topicRows';
 import { notify } from '../notices';
@@ -142,7 +142,8 @@ function agreedOf(agreement: AgreementView | undefined): string {
 function JudgeScore({ run, overall }: { run: AccuracyView; overall: AccuracyView }) {
   const accept = run.by_advice.accept;
   const reject = run.by_advice.reject;
-  const need = `≥ ${Math.round(overall.auto_accept_precision * 100)}% на ≥ ${overall.auto_accept_min_decisions}`;
+  // После «≥» — неразрывный пробел: строка рвалась «нужно ≥ | 95%» (разведка 10.11.2026).
+  const need = `≥\u00a0${Math.round(overall.auto_accept_precision * 100)}% на ≥\u00a0${overall.auto_accept_min_decisions}`;
   return (
     <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
       <Metric
@@ -204,8 +205,12 @@ export function RunReviewPage() {
     queryFn: () => loadAccuracy(),
     enabled: runId !== null,
   });
-  // Тематика — по строкам вкладки: очередь приходит целиком (`topics/topicRows.ts`).
+  // Тематика — по строкам вкладки: очередь приходит целиком (`topics/topicRows.ts`); где
+  // фильтровать нечего, ряд держит место (`useTopicPlace`).
   const topics = useTopicFilter(review.data?.view.rows);
+  const filtering =
+    review.data?.view.run.id === runId && (anyTopic(topics.items) || topics.topic !== null);
+  const holdTopic = useTopicPlace(runId, filtering);
 
   const decide = useMutation({
     mutationFn: ({ ids, decision }: { ids: number[]; decision: ReviewDecision }) =>
@@ -368,14 +373,16 @@ export function RunReviewPage() {
               onShow={showDoubtfulRows}
             />
           )}
-          {(anyTopic(topics.items) || topics.topic !== null) && (
+          {filtering && (
             <TopicFilter value={topics.topic} items={topics.items} onChange={showTopic} />
           )}
+          {holdTopic && <TopicPlace />}
         </Stack>
       </Card>
 
+      {/* Список — не ниже окна (`reviewQueue`): короткая вкладка не поджимает прокрутку. */}
       <Card
-        className="glass staleRows"
+        className="glass staleRows reviewQueue"
         p="xs"
         data-stale={stale || undefined}
         aria-busy={stale || undefined}
