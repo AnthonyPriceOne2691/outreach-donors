@@ -3997,14 +3997,14 @@
       "worst": "open_letter_draft:36"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 411,
+      "lines": 416,
       "complexity": 2,
       "worst": "unbound_probes:35"
     },
     "scripts/ui_screens_reports.py": {
-      "lines": 152,
-      "complexity": 1,
-      "worst": "_usage_limits:20"
+      "lines": 173,
+      "complexity": 2,
+      "worst": "open_hunter_details:22"
     },
     "scripts/ui_screens_runs.py": {
       "lines": 144,
