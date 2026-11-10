@@ -37,6 +37,7 @@ from backend.features.core.models.outreach import (
     SenderModel,
     ThreadModel,
 )
+from backend.features.crawl import advertiser_list, niche
 from backend.features.donors.price import put_answer
 from backend.features.letters import batch, reply_to
 from backend.features.letters.building import BuildRequest, LetterScopeError, QueueBuilder
@@ -128,6 +129,18 @@ async def make_advertiser(
         session.add(ContactModel(domain_id=domain.id, email=address, source=ContactSource.PAGE))
     await session.flush()
     return domain
+
+
+async def as_niche(session: AsyncSession, domain: DomainModel, *, write: bool | None) -> None:
+    """Строка рекламодателя — бизнес ниши: `write` — решение человека, `None` — ждёт его."""
+    row = await session.scalar(
+        select(AdvertiserModel).where(AdvertiserModel.domain_id == domain.id)
+    )
+    assert row is not None
+    row.source = niche.NICHE
+    row.confirmed_by_human = write is True
+    row.decided_at = None if write is None else NOW
+    await session.flush()
 
 
 async def stage_two_sender(session: AsyncSession, email: str = "max@offers.test") -> SenderModel:
@@ -241,6 +254,32 @@ class TestWhoGetsAnOffer:
         }
         assert [letter.idempotency_key for letter in await offers(session)] == [
             "advertisers:ok.example.test:0"
+        ]
+
+    async def test_pool_is_who_the_list_calls_advertisers(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Первая ступень — рекламодатели, которым пишем (`in_work`), тем же условием, что «всего»
+        списка «Все рекламодатели»: до 10.11.2026 воронка считала все строки `advertisers`, и
+        число «Писем» было больше числа списка на бизнесы ниши без решения. Бизнес ниши без
+        «пишем» человека — не рекламодатель, даже когда обход нашёл и его ссылку: письма по
+        ссылке ему не собираются."""
+        await priced_donor(session)
+        await make_advertiser(session, "brand.example.test")
+        waiting = await make_advertiser(session, "waiting.example.test")
+        refused = await make_advertiser(session, "refused.example.test")
+        decided = await make_advertiser(session, "decided.example.test", page_url=None, anchor=None)
+        await as_niche(session, waiting, write=None)
+        await as_niche(session, refused, write=False)
+        await as_niche(session, decided, write=True)
+
+        report = await build_offers(session)
+
+        listed = await advertiser_list.facets(session)
+        assert report.funnel["рекламодателей"] == sum(listed.sources.values()) == 2  # type: ignore[attr-defined]
+        assert report.funnel["со ссылкой"] == 1  # type: ignore[attr-defined]
+        assert [letter.idempotency_key for letter in await offers(session)] == [
+            "advertisers:brand.example.test:0"
         ]
 
     async def test_most_convincing_go_first(
@@ -703,4 +742,4 @@ class TestAudienceCountry:
         assert queued.link is not None
         assert queued.link.donor_geo == "de"
         [letter] = await offers(session)
-        assert "Its readers are mostly in Germany." in letter.body
+        assert "Its readers are mostly in Germany." in (letter.body or "")

@@ -2082,9 +2082,9 @@
       "worst": "_offers_of:189"
     },
     "backend/features/letters/offer_addresses.py": {
-      "lines": 35,
+      "lines": 52,
       "complexity": 1,
-      "worst": "advertiser_addresses:20"
+      "worst": "advertiser_domains:28"
     },
     "backend/features/letters/offer_standing.py": {
       "lines": 476,
@@ -2147,7 +2147,7 @@
       "worst": "holds:145"
     },
     "backend/features/letters/recipients.py": {
-      "lines": 500,
+      "lines": 495,
       "complexity": 6,
       "worst": "_why_not:320"
     },

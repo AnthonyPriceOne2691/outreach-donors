@@ -50,7 +50,7 @@ from backend.features.letters import attempts, other_role
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.compose import FoundLink, NicheOffer
 from backend.features.letters.funnel import AdvertiserFunnel, Funnel
-from backend.features.letters.offer_addresses import advertiser_addresses
+from backend.features.letters.offer_addresses import advertiser_addresses, advertiser_domains
 from backend.features.runs.exclusions import not_writing, not_writing_reason, writable
 
 
@@ -392,11 +392,6 @@ class Recipients:
 
     # --- рекламодатели (Этап 2) ---
 
-    def _advertisers(self) -> Select[tuple[int]]:
-        return select(DomainModel.id).join(
-            AdvertiserModel, AdvertiserModel.domain_id == DomainModel.id
-        )
-
     @staticmethod
     def _with_link(statement: _Query) -> _Query:
         """Есть под что писать: площадка, страница и анкор найденной ссылки. Письмо
@@ -432,7 +427,7 @@ class Recipients:
 
     async def advertiser_funnel(self, *, now: datetime | None = None) -> AdvertiserFunnel:
         moment = now or datetime.now(UTC)
-        base = self._advertisers()
+        base = advertiser_domains()
         with_link = self._with_link(base)
         fresh_price = self._fresh_price(with_link, moment, await supplier_hosts(self._session))
         with_contact = self._has_contact(fresh_price)
