@@ -25,8 +25,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
 from backend.api.stage_access import on_thread
-from backend.features.core.domain import Permission
+from backend.features.core.domain import Permission, Stage
 from backend.features.core.models.access import UserModel
+from backend.features.outreach import stage_of
 from backend.features.sales import close_manual
 
 logger = logging.getLogger(__name__)
@@ -82,8 +83,23 @@ async def release_answered(
 ) -> None:
     """Человек ответил в переписке на `reply_id`: ответы продаж по него перестают ждать человека.
 
-    Переписка не продаж — ничего (`close_manual.answered`). Своя точка сохранения: сбой откатывает
-    только снятие — письмо уже ушло и записано."""
+    Своя точка сохранения: сбой откатывает только снятие — письмо уже ушло и записано.
+
+    **Этап — до точки сохранения, отдельно.** Переписка не продаж — ничего, и без записи в журнал.
+    Этап не прочитать — сессию сломал упавший коммит закрытия черновика в маршруте ответа — запись
+    в журнал без слова «продажи»: чья это переписка, неизвестно, а у доноров ждать нечему."""
+    where = {"thread_id": thread_id, "reply_id": reply_id}
+    try:
+        sales = await stage_of.of_thread(session, thread_id) is Stage.SALES
+    except Exception as exc:
+        logger.warning(
+            "ответ в переписке ушёл, а этап переписки не прочитан — ожидание не снималось",
+            extra=where,
+            exc_info=exc,
+        )
+        return
+    if not sales:
+        return
     try:
         async with session.begin_nested():
             released = await close_manual.answered(
@@ -95,7 +111,7 @@ async def release_answered(
         # сессию закроет зависимость.
         logger.warning(
             "продажи: ответ в переписке ушёл, а ответы с ожидания человека не сняты",
-            extra={"thread_id": thread_id, "reply_id": reply_id},
+            extra=where,
             exc_info=exc,
         )
         return

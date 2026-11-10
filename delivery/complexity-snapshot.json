@@ -437,9 +437,9 @@
       "worst": "start_clean:148"
     },
     "backend/api/sales/close.py": {
-      "lines": 107,
-      "complexity": 3,
-      "worst": "close:64"
+      "lines": 123,
+      "complexity": 5,
+      "worst": "release_answered:81"
     },
     "backend/api/sales/funnel.py": {
       "lines": 99,
