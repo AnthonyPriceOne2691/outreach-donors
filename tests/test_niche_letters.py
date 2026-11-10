@@ -67,7 +67,7 @@ MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
 
 
-async def _run(session: AsyncSession) -> int:
+async def _run(session: AsyncSession, found: list[str] | None = None) -> int:
     settings = await RunRepository(session).create_settings(
         Thresholds(min_dr=20, min_org_traffic=500, min_refdomains=100, min_keywords=300),
         geo_top_n=5,
@@ -82,19 +82,28 @@ async def _run(session: AsyncSession) -> int:
         status=RunStatus.DONE,
         keywords=["betting tips"],
         country="de",
-        candidates={"hosts": [BOOKIE, DONOR], "found_by": {BOOKIE: ["sports betting"]}},
+        candidates={
+            "hosts": [BOOKIE, DONOR],
+            "found_by": {BOOKIE: found or ["sports betting"]},
+        },
     )
     session.add(run)
     await session.flush()
     return run.id
 
 
-async def _business(session: AsyncSession, *, write: bool = True, contact: bool = True) -> int:
+async def _business(
+    session: AsyncSession,
+    *,
+    write: bool = True,
+    contact: bool = True,
+    found: list[str] | None = None,
+) -> int:
     """Бизнес ниши из прогона, решение человека и адрес."""
     domain = DomainModel(host=BOOKIE, site_intent=niche.SELLS_OWN)
     session.add(domain)
     await session.flush()
-    run_id = await _run(session)
+    run_id = await _run(session, found)
     await niche.collect(session, run_id)
     advertiser = await session.scalar(
         select(AdvertiserModel).where(AdvertiserModel.domain_id == domain.id)
@@ -144,6 +153,24 @@ class TestWhoAndWhat:
         assert candidate.niche.niche == "sports betting"  # ключ, по которому он нашёлся
         assert candidate.niche.donor_geo == "de"
         assert (funnel["решено «пишем»"], funnel["ещё не писали"]) == (1, 1)
+
+    async def test_the_topic_is_the_niche_without_the_search_footprint(
+        self, session: AsyncSession
+    ) -> None:
+        """Бизнес нашёлся по запросу поиска гостевых площадок — тема письма без его слов:
+        не «Sponsored articles on sports betting write for us sites» (очередь 29.10)."""
+        await priced_donor(session, DONOR)
+        await _business(session, found=["write for us", "sports betting write for us"])
+
+        [candidate] = await NicheRecipients(session).niche_candidates(limit=10)
+
+        assert candidate.niche is not None
+        assert candidate.niche.niche == "sports betting"
+        subject = compose.render(
+            template.for_stage(Stage.ADVERTISERS, niche.NICHE),
+            compose.values_for(host=candidate.host, niche=candidate.niche),
+        ).subject
+        assert subject == "Sponsored articles on sports betting sites"
 
     @pytest.mark.parametrize(
         ("write", "price_days", "why"),

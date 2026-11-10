@@ -1937,9 +1937,9 @@
       "worst": "site_host:130"
     },
     "backend/features/keywords/footprints.py": {
-      "lines": 131,
+      "lines": 167,
       "complexity": 4,
-      "worst": "with_niche:106"
+      "worst": "with_niche:107"
     },
     "backend/features/keywords/generator.py": {
       "lines": 473,
@@ -2077,9 +2077,9 @@
       "worst": "_name_forms:153"
     },
     "backend/features/letters/niche_recipients.py": {
-      "lines": 206,
+      "lines": 209,
       "complexity": 8,
-      "worst": "_offers_of:188"
+      "worst": "_offers_of:189"
     },
     "backend/features/letters/offer_addresses.py": {
       "lines": 35,
