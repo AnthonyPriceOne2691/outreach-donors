@@ -7,7 +7,9 @@ PR 6).
 совет — для сверки глазами: что судья увидел и почему сказал так.
 
 Совет — по последней строке суда пары, таблицей правил нынешней версии: правка таблицы меняет его
-сразу, без модели (`judge_rules.advise`). Строка не той формы совета не даёт.
+сразу, без модели (`judge_rules.advise`). Признак «донор — каталог» — тоже нынешний, по судам
+донора в когорте строки (`judge_store.Catalogs`): человек видит тот же совет, что поставит пересчёт.
+Строка не той формы совета не даёт.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core.models.advertiser import AdvertiserJudgementModel, CandidateModel
 from backend.features.crawl.judge_facts import LinkFacts
 from backend.features.crawl.judge_rules import Advice, advise
+from backend.features.crawl.judge_store import Catalogs
 
 Judgement = AdvertiserJudgementModel
 
@@ -41,11 +44,11 @@ class JudgeAdvice:
     judged_at: datetime
 
 
-def _advice_of(row: AdvertiserJudgementModel) -> JudgeAdvice | None:
+def _advice_of(row: AdvertiserJudgementModel, *, catalog_donor: bool) -> JudgeAdvice | None:
     facts = LinkFacts.from_json(row.facts)
     if facts is None:
         return None
-    ruled = advise(facts)
+    ruled = advise(facts, catalog_donor=catalog_donor)
     return JudgeAdvice(
         ruled.advice,
         ruled.rule,
@@ -75,10 +78,13 @@ async def after_decision(
     latest: dict[tuple[str, str], AdvertiserJudgementModel] = {}
     for row in found.all():
         latest[(row.donor_host, row.target_root)] = row
+    catalogs = Catalogs(session)
     advice: dict[int, JudgeAdvice] = {}
     for candidate in decided:
         found_row = latest.get((candidate.donor_host, candidate.target_root))
-        said = _advice_of(found_row) if found_row is not None else None
+        if found_row is None:
+            continue
+        said = _advice_of(found_row, catalog_donor=await catalogs.has(found_row))
         if said is not None:
             advice[candidate.id] = said
     return advice

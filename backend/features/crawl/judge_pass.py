@@ -61,7 +61,7 @@ from backend.features.crawl import judge_second
 from backend.features.crawl.judge import Case, Judged, Outcome, case_of, judge_seen
 from backend.features.crawl.judge_client import JudgeClient
 from backend.features.crawl.judge_rules import ADVICE_WORDS, Advice
-from backend.features.crawl.judge_store import JUDGEMENT_TTL_DAYS, Cohort, cohort_of
+from backend.features.crawl.judge_store import JUDGEMENT_TTL_DAYS, Cohort, catalog_donors, cohort_of
 from backend.features.crawl.judge_text import Seen, gather
 from backend.features.crawl.sample import in_sample, sampled
 from backend.shared.llm import ensure_model
@@ -449,11 +449,15 @@ async def _chunk(
         return
     cases = await _cases(session, ids, report)
     seen = await _seen_all(http, cases, polite)
+    # Доноры-каталоги (`judge_rules.is_catalog`) — одним запросом на пачку, а не на пару: донор,
+    # набравший пары в этом же проходе, получает признак со следующей пачки, а не со следующего прохода.
+    catalogs = await catalog_donors(session, cohort_of(client.model))
     for at, (case_, view) in enumerate(zip(cases, seen, strict=True)):
-        judged = await judge_seen(session, case_, view, client=client)
+        catalog = case_.donor_host in catalogs
+        judged = await judge_seen(session, case_, view, client=client, catalog_donor=catalog)
         await _spend(session, judged.tokens)
         if again is not None:
-            judged = await again.settle(session, case_, view, judged, report.second)
+            judged = await again.settle(session, case_, view, judged, report.second, catalog)
         report.add(judged)
         stopped = NO_CREDITS if judged.no_credits else again.stopped if again else ""
         if stopped:

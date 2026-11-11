@@ -283,10 +283,12 @@ async def _first_row(
     return None if row is None else (row[0], row[1])
 
 
-async def _note(session: AsyncSession, row_id: int, facts: LinkFacts) -> Ruled:
+async def _note(
+    session: AsyncSession, row_id: int, facts: LinkFacts, *, catalog_donor: bool
+) -> Ruled:
     """Исход второго круга — в строку первой когорты одной записью: факты с ним, итоговый совет и
     правило — в колонки, таблица — нынешняя. Срок строки — прежний (шапка модуля)."""
-    ruled = advise(facts)
+    ruled = advise(facts, catalog_donor=catalog_donor)
     await session.execute(
         update(Judgement)
         .where(Judgement.id == row_id)
@@ -320,7 +322,13 @@ class SecondRound:
         return self.client.model
 
     async def settle(
-        self, session: AsyncSession, case_: Case, seen: Seen, first: Judged, tally: Tally
+        self,
+        session: AsyncSession,
+        case_: Case,
+        seen: Seen,
+        first: Judged,
+        tally: Tally,
+        catalog_donor: bool = False,
     ) -> Judged:
         """Суд пары после первого круга: «не понять» — тот же текст судит вторая модель, её исход —
         в строку первой когорты, совет пары — итоговый. Остальным — совет первого круга как есть."""
@@ -345,7 +353,10 @@ class SecondRound:
         number, judged_at = row
         # Срок суда второй модели — срок фактов первой, на микросекунду раньше (шапка модуля).
         term = judged_at - timedelta(microseconds=1)
-        again = await judge_seen(session, case_, seen, client=self.client, now=term)
+        # Признак донора-каталога — тот же, что у первого круга: он о доноре, а не о модели.
+        again = await judge_seen(
+            session, case_, seen, client=self.client, now=term, catalog_donor=catalog_donor
+        )
         tally.add(self.model, again)
         spent = first.tokens + again.tokens
         if again.advice is None:
@@ -357,7 +368,7 @@ class SecondRound:
             second_words=again.words,
             second_model=self.model,
         )
-        ruled = await _note(session, number, facts)
+        ruled = await _note(session, number, facts, catalog_donor=catalog_donor)
         await self.spend(session, again.tokens)
         return dataclasses.replace(
             first,

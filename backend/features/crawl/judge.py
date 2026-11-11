@@ -38,8 +38,16 @@ from backend.features.crawl.judge_client import (
     user_message,
 )
 from backend.features.crawl.judge_facts import LinkFacts, with_code_facts
-from backend.features.crawl.judge_rules import RULES_VERSION, Advice, advise
-from backend.features.crawl.judge_store import Row, cohort_of, known, relabel, remember
+from backend.features.crawl.judge_rules import Advice, advise
+from backend.features.crawl.judge_store import (
+    Known,
+    Row,
+    catalog_donors,
+    cohort_of,
+    known,
+    remember,
+    restamp,
+)
 from backend.features.crawl.judge_text import JudgeText, Seen, fingerprint, gather
 
 logger = logging.getLogger(__name__)
@@ -86,10 +94,11 @@ class Judged:
     cached: bool = False
 
 
-def judged_of(said: Said) -> Judged:
-    """Ответ модели → исход: факты — совет таблицей правил; иначе — почему нет."""
+def judged_of(said: Said, *, catalog_donor: bool = False) -> Judged:
+    """Ответ модели → исход: факты — совет таблицей правил (`catalog_donor` — донор пары — каталог,
+    `judge_rules.advise`); иначе — почему нет."""
     if said.facts is not None:
-        ruled = advise(said.facts)
+        ruled = advise(said.facts, catalog_donor=catalog_donor)
         return Judged(
             Outcome.JUDGED,
             ruled.advice,
@@ -142,6 +151,15 @@ async def decide(
     return judged_of(marked(said, link, donor_host="", text=text))
 
 
+async def _from_cache(session: AsyncSession, found: Known, *, catalog_donor: bool) -> Judged:
+    """Факты из кэша — совет заново нынешней таблицей и признаком донора, без модели; совет строки
+    отстал (прежняя таблица, донор с тех пор стал каталогом) — строка поправлена."""
+    ruled = advise(found.facts, catalog_donor=catalog_donor)
+    if found.stale(ruled):
+        await restamp(session, found.id, ruled)
+    return Judged(Outcome.JUDGED, ruled.advice, ruled.rule, ruled.words, found.facts, cached=True)
+
+
 async def judge_seen(
     session: AsyncSession,
     case_: Case,
@@ -149,9 +167,12 @@ async def judge_seen(
     *,
     client: JudgeClient,
     now: datetime | None = None,
+    catalog_donor: bool | None = None,
 ) -> Judged:
     """Суд по тому, что судья увидел: судить нечем — почему; факты из кэша — совет заново
-    таблицей; нет — модель."""
+    таблицей; нет — модель. `catalog_donor` — донор случая — каталог по уже сохранённым судам
+    (`judge_store.catalog_donors`): проход считает признак разом на пачку, без него — запрос здесь.
+    У нового донора признака ещё нет: его совет поправит пересчёт (`judge_store.relabel`)."""
     if seen.denied:
         return Judged(Outcome.DENIED, words=seen.denied)
     if seen.blind or seen.text.empty:
@@ -159,18 +180,18 @@ async def judge_seen(
     moment = now or datetime.now(UTC)
     context = fingerprint(steady_message(case_.link, seen.text))
     cohort = cohort_of(client.model)
+    if catalog_donor is None:
+        catalog_donor = case_.donor_host in await catalog_donors(session, cohort)
     pair = {"donor_host": case_.donor_host, "target_root": case_.link.target}
     found = await known(session, **pair, context_print=context, cohort=cohort, now=moment)
     if found is not None:
-        if found.rules_version != RULES_VERSION:
-            await relabel(session, ids=[found.id])
-        ruled = advise(found.facts)
-        return Judged(
-            Outcome.JUDGED, ruled.advice, ruled.rule, ruled.words, found.facts, cached=True
-        )
+        return await _from_cache(session, found, catalog_donor=catalog_donor)
     user = user_message(case_.link, seen.text)
     said = await client.judge(user=user, text=seen.text, host=case_.link.target)
-    result = judged_of(marked(said, case_.link, donor_host=case_.donor_host, text=seen.text))
+    result = judged_of(
+        marked(said, case_.link, donor_host=case_.donor_host, text=seen.text),
+        catalog_donor=catalog_donor,
+    )
     if result.facts is not None:
         row = Row(
             result.facts,
@@ -181,7 +202,13 @@ async def judge_seen(
             result.retried,
         )
         await remember(
-            session, **pair, context_print=context, cohort=cohort, row=row, moment=moment
+            session,
+            **pair,
+            context_print=context,
+            cohort=cohort,
+            row=row,
+            moment=moment,
+            catalog_donor=catalog_donor,
         )
     return result
 

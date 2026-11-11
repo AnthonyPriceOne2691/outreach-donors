@@ -30,19 +30,28 @@ from backend.features.crawl.judge_pass import (
     report_lines,
     run_pass,
 )
-from backend.features.crawl.judge_rules import RULES_VERSION, SECOND_RULE, Advice, advise
+from backend.features.crawl.judge_rules import (
+    CATALOG_RULE,
+    RULES_VERSION,
+    SECOND_RULE,
+    Advice,
+    advise,
+)
 from backend.features.crawl.judge_second import SECOND_EFFORT, SECOND_ROOM, SecondPlan
 from backend.features.crawl.judge_store import relabel
 from backend.shared.numbers import NBSP
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests import test_advertiser_judge_catalog as catalog_tests
 from tests import test_advertiser_judge_pass as pass_tests
 from tests.test_advertiser_judge import MODEL_KEY, Model, answer, facts_answer
 from tests.test_advertiser_judge_pass import (
+    CARD_PAGE,
     OUTSIDE,
     SAMPLE,
     Site,
     _candidates,
+    _judged_card,
     _judgements,
     _pending,
     _spend,
@@ -519,3 +528,75 @@ async def test_a_second_model_without_facts_leaves_the_pair_waiting(session: Asy
     assert [row.model for row in await _judgements(session)] == [FIRST]
     plan = await plan_pass(session)
     assert (len(plan.ids), plan.second and plan.second.waiting) == (1, 1)
+
+
+# --- донор-каталог -------------------------------------------------------------------------------
+
+
+async def test_at_a_catalog_donor_the_first_round_settles_the_dispute_itself(
+    session: AsyncSession,
+) -> None:
+    """У донора-каталога спор «таблица — пишем, модель — не пишем» решает первый круг — «не пишем»
+    (`catalog_card`): «не понять» нет, и вторую модель спрашивать не о чем."""
+    session.add_all([_judged_card(f"card{number}.example") for number in range(24)])
+    await _candidates(session, *_pending(SAMPLE[0]))
+    models = Two(Model(facts_answer(100, **CARD_PAGE)), Model(sure()))
+
+    report = await _run(session, models)
+
+    assert models.calls == (1, 0)
+    assert (report.advice, report.second.sent) == ({"skip": 1}, 0)
+    first = (await _rows(session))[(SAMPLE[0], FIRST)]
+    assert (first.advice, first.rule) == ("skip", CATALOG_RULE)
+
+
+async def test_the_second_round_judges_by_the_same_sign_of_the_donor(session: AsyncSession) -> None:
+    """Признак донора-каталога — о доноре, а не о модели: второй круг судит с тем же признаком, что
+    первый, хотя в когорте второй модели у донора пар ещё нет."""
+    session.add_all([_judged_card(f"card{number}.example") for number in range(24)])
+    await _candidates(session, *_pending(SAMPLE[0]))
+    # Первый круг: таблица не решила, модель — «не пишем». Второй: страница карточки, прочитанная
+    # статьёй о домене, — у каталога это «не пишем».
+    undecided = {"money_anchor": False, "calls_to_buy": False, "target_sells": False}
+    first_said = facts_answer(100, **undecided, recommends=True, verdict="skip")
+    models = Two(Model(first_said), Model(facts_answer(300, **CARD_PAGE)))
+
+    report = await _run(session, models)
+
+    assert models.calls == (1, 1)
+    assert (report.advice, dict(report.second.advice)) == ({"skip": 1}, {"skip": 1})
+    rows = await _rows(session)
+    first, second = rows[(SAMPLE[0], FIRST)], rows[(SAMPLE[0], SECOND)]
+    assert (second.advice, second.rule) == ("skip", CATALOG_RULE)
+    assert (first.advice, first.rule, first.facts["second_advice"]) == ("skip", SECOND_RULE, "skip")
+
+
+async def test_a_second_round_row_follows_the_donor_that_became_a_catalog(
+    session: AsyncSession,
+) -> None:
+    """Спор решил второй круг («пишем»), а донор с тех пор стал каталогом: у каталога спор решает
+    первый круг сам — «не пишем», и пересчёт ставит это и строке нынешней таблицы."""
+    row = catalog_tests._row(
+        catalog_tests.CATALOG,
+        "disputed.example.test",
+        catalog_tests.DISPUTE,
+        said=("write", SECOND_RULE),
+    )
+    row.facts = row.facts | {
+        "second_advice": "write",
+        "second_words": PROMOTED,
+        "second_model": SECOND,
+    }
+    session.add(row)
+    session.add_all(catalog_tests._pairs(catalog_tests.CATALOG, catalog_tests.CARD, 24))
+    await session.commit()
+
+    changed = await relabel(session)
+    await session.commit()
+
+    assert changed == 1
+    assert await catalog_tests._stamps(session, catalog_tests.CATALOG, "disputed.example.test") == (
+        "skip",
+        CATALOG_RULE,
+        RULES_VERSION,
+    )
