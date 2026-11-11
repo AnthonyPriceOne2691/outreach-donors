@@ -11,7 +11,7 @@
 
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import { PERMISSION_TITLES } from '../api/labels';
@@ -22,7 +22,7 @@ import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
-import { MODE_WORDS } from './segmentData';
+import { MODE_WORDS, runShortTitle, runTitle } from './segmentData';
 import { RUN_HINT } from './SegmentRunHint';
 import { HELP_QUIET } from './segmentHelpFixtures';
 import type {
@@ -497,5 +497,45 @@ describe('сбор базы: прогон гипотезы', () => {
     expect(calls(recorded, 'PATCH', '/api/sales/hypotheses/5')[0]?.body).toEqual({
       description: 'Магазины.',
     });
+  });
+});
+
+describe('сбор базы: подпись прогона в поле выбора (проверка прода 10.11.2026)', () => {
+  // На 390 px поле (234 px под текст) срезало подпись в 319 px посреди числа ключей. Ширин в jsdom
+  // нет — проверяется, что в поле и что под ним; сами ширины мерит браузер на подменённых ответах.
+  const REST = 'ключей 3 · США';
+
+  it('широкое окно: подпись в поле целиком — номер, когда, ключи и рынок', async () => {
+    await openTab();
+
+    expect(runTitle(RUN)).toBe(`${runShortTitle(RUN)} · ${REST}`);
+    expect(screen.getByRole('textbox', { name: 'Прогон' })).toHaveValue(runTitle(RUN));
+    // Под полем строки нет: всё сказано в нём.
+    expect(screen.queryByText(REST)).toBeNull();
+  });
+
+  it('узкое окно: в поле — номер и когда, ключи и рынок — строкой под полем; в списке — целиком', async () => {
+    // Заглушку снимает `restoreAllMocks` после теста (`test/setup.ts`).
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query) =>
+        ({
+          matches: query.includes('36em'),
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }) as unknown as MediaQueryList,
+    );
+    await openTab();
+
+    const field = screen.getByRole('textbox', { name: 'Прогон' });
+    expect(runShortTitle(RUN)).toMatch(/^№12 · [^·]+$/);
+    expect(field).toHaveValue(runShortTitle(RUN));
+    // Остаток подписи — под полем и привязан к нему: вместе они — подпись целиком.
+    expect(field).toHaveAccessibleDescription(REST);
+
+    await userEvent.setup().click(field);
+    const options = await screen.findAllByRole('option', {}, SCREEN_WAIT);
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveTextContent(runTitle(RUN));
   });
 });

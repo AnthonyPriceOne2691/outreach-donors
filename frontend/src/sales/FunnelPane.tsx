@@ -16,6 +16,12 @@
  * негодные свои даты на сервер не уходят — что не так, сказано под полем. Гипотеза и период
  * живут в адресе раздела (`leadFilters.ts`): переживают перезагрузку, гипотеза — и смену
  * вкладки.
+ *
+ * **«По гипотезам» на телефоне — карточкой** (`DataTable`, `phoneCardsRow`; проверка прода
+ * 10.11.2026): таблица в 1 008 px прокручивалась внутри блока в 316 px — видна была одна колонка
+ * имён, чисел гипотезы не видно, а полосы прокрутки на телефоне нет. Уже 48em строка гипотезы —
+ * карточка: имя, под ним шесть чисел по три в ряд с подписью шага; на широком окне таблица прежняя.
+ * Так же сложены «Адреса по гипотезам» «Рассылки» (`MailingParts`).
  */
 
 import {
@@ -35,11 +41,13 @@ import { useMediaQuery } from '@mantine/hooks';
 import { refusalOf } from '../api/client';
 import type { HypothesisCard } from '../api/salesTypes';
 import type { FunnelCounts, FunnelRow, SalesFunnelView } from '../api/salesFunnelTypes';
+import type { Column } from '../components/ColumnsHead';
+import { DataTable } from '../components/DataTable';
 import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
 import { formatNumber } from '../format';
-import { FixedTable, NameCell, withTotal } from './FixedTable';
-import type { Column } from './FixedTable';
+import { NameCell, withTotal } from './FixedTable';
+import { Cards } from './MailingBlock';
 import {
   funnelQuery,
   PERIOD_KEYS,
@@ -50,7 +58,7 @@ import {
   STEPS,
   useSalesFunnel,
 } from './funnelData';
-import type { FunnelFilters, PeriodKey } from './funnelData';
+import type { FunnelFilters, PeriodKey, StepView } from './funnelData';
 
 const ALL = 'all';
 
@@ -165,11 +173,13 @@ function Tiles({ counts, stale }: { counts: FunnelCounts; stale: boolean }) {
   );
 }
 
-function Cell({ counts, step }: { counts: FunnelCounts; step: keyof FunnelCounts }) {
-  const share = stepShare(counts, step);
+/** Число шага и доля под ним. Подпись шага (`data-label`) — для карточки телефона: шапки таблицы в
+ *  ней нет, и без подписи шесть чисел не отличить. */
+function Cell({ counts, step }: { counts: FunnelCounts; step: StepView }) {
+  const share = stepShare(counts, step.key);
   return (
-    <Table.Td>
-      <Text size="sm">{formatNumber(counts[step])}</Text>
+    <Table.Td data-label={step.column}>
+      <Text size="sm">{formatNumber(counts[step.key])}</Text>
       {share !== null ? (
         <Text size="xs" c="dimmed" className="funnelShare">
           {share}
@@ -184,7 +194,7 @@ function ByHypothesis({ view, stale }: { view: SalesFunnelView; stale: boolean }
     <Table.Tr key={key}>
       <NameCell name={name} total={total} />
       {STEPS.map((step) => (
-        <Cell key={step.key} counts={counts} step={step.key} />
+        <Cell key={step.key} counts={counts} step={step} />
       ))}
     </Table.Tr>
   );
@@ -193,20 +203,25 @@ function ByHypothesis({ view, stale }: { view: SalesFunnelView; stale: boolean }
       <Text size="sm" px="md" className="funnelTableNote">
         По гипотезам: доли доставки, отказа и ответа — от отправленных, передачи — от ответивших.
       </Text>
-      <FixedTable
-        columns={COLUMNS}
-        minWidth={FUNNEL_MIN_WIDTH}
-        className="funnelTable"
-        horizontalSpacing="md"
-        tabularNums
-        stale={stale}
-        label="Воронка по гипотезам"
-        // Итог — у двух гипотез и больше: у одной он повторял бы её строку (`withTotal`).
-        rows={withTotal(
-          view.rows.map((row: FunnelRow) => line(String(row.hypothesis_id), row.name, row.counts)),
-          line('total', 'Всего', view.total, true),
-        )}
-      />
+      {/* На телефоне строка — карточкой: полей ячеек у карточек нет, поле — у обёртки (`Cards`). */}
+      <Cards>
+        <DataTable
+          columns={COLUMNS}
+          minWidth={FUNNEL_MIN_WIDTH}
+          className="funnelTable"
+          cardRow
+          stale={stale}
+          label="Воронка по гипотезам"
+        >
+          {/* Итог — у двух гипотез и больше: у одной он повторял бы её строку (`withTotal`). */}
+          {withTotal(
+            view.rows.map((row: FunnelRow) =>
+              line(String(row.hypothesis_id), row.name, row.counts),
+            ),
+            line('total', 'Всего', view.total, true),
+          )}
+        </DataTable>
+      </Cards>
     </Stack>
   );
 }

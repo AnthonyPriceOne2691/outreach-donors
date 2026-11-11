@@ -109,7 +109,26 @@ describe('база знаний: список', () => {
     ).toBeInTheDocument();
   });
 
-  it('строка называет запись, вид, язык, теги и кто правил; над таблицей — версия', async () => {
+  it('номер версии базы — не на виду: в «i» у строки «Агент видит N из M», окошком по нажатию', async () => {
+    // Проверка прода 10.11.2026: «Версия базы kb-…» стояла строкой над таблицей.
+    await openKb();
+    const user = userEvent.setup();
+
+    expect(screen.getByText('Агент видит 1 из 2')).toBeInTheDocument();
+    expect(screen.queryByText(/Версия базы/)).toBeNull();
+    expect(screen.queryByText('kb-3f2a9c1d0b7e')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Версия базы' }));
+
+    const line = await screen.findByText(/^Версия базы — /, {}, SCREEN_WAIT);
+    expect(line).toHaveTextContent(
+      'Версия базы — kb-3f2a9c1d0b7e. Её запишет черновик агента; правка включённой записи её меняет.',
+    );
+    // Номер — моноширинным кодом: его копируют разработчику.
+    expect(within(line).getByText('kb-3f2a9c1d0b7e').tagName).toBe('CODE');
+  });
+
+  it('строка называет запись, вид, язык, теги и кто правил; над таблицей — сколько видит агент', async () => {
     await openKb();
 
     const price = within(rowOf('Цена аудита'));
@@ -124,8 +143,7 @@ describe('база знаний: список', () => {
     expect(old.getByText('кейс')).toBeInTheDocument();
     expect(old.getByRole('switch', { name: 'Агент видит «Made-up shop»' })).not.toBeChecked();
 
-    expect(screen.getByText('kb-3f2a9c1d0b7e')).toBeInTheDocument();
-    expect(screen.getByText(/агент видит 1 из 2/)).toBeInTheDocument();
+    expect(screen.getByText('Агент видит 1 из 2')).toBeInTheDocument();
     expect(screen.getByText('База знаний — 2')).toBeInTheDocument();
   });
 
@@ -310,10 +328,27 @@ describe('база знаний: что увидит агент', () => {
     expect(await dialog.findByText('цены · ru', {}, SCREEN_WAIT)).toBeInTheDocument();
     expect(dialog.getByText('Цена аудита')).toBeInTheDocument();
     expect(dialog.getByText('теги: цена')).toBeInTheDocument();
-    expect(dialog.getByText(/Выключенных здесь нет/)).toBeInTheDocument();
+    expect(
+      dialog.getByText('Записей 1. Выключенных здесь нет — агент их не видит.'),
+    ).toBeInTheDocument();
     // Выключенной записи в окне нет: её нет в ответе — экран своего фильтра не держит.
     expect(dialog.queryByText('Made-up shop')).not.toBeInTheDocument();
     expect(calls(recorded, 'GET', '/api/sales/kb/preview')).toHaveLength(1);
+  });
+
+  it('номер версии в окне — не на виду: в «i» у строки с числом записей', async () => {
+    await openKb({ 'GET /api/sales/kb/preview': { body: SEEN } });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Что увидит агент' }));
+    const dialog = within(await screen.findByRole('dialog', {}, SCREEN_WAIT));
+    await dialog.findByText(/Выключенных здесь нет/, {}, SCREEN_WAIT);
+
+    expect(screen.queryByText(/kb-3f2a9c1d0b7e/)).toBeNull();
+    await user.click(dialog.getByRole('button', { name: 'Версия базы' }));
+
+    expect(await screen.findByText(/^Версия базы — /, {}, SCREEN_WAIT)).toHaveTextContent(
+      'Версия базы — kb-3f2a9c1d0b7e. Её запишет черновик агента.',
+    );
   });
 
   it('включённых нет — сказано, что агенту не из чего писать', async () => {

@@ -123,12 +123,21 @@ export function depthTitle(pages: number): string {
 /** Язык писем: пусто — язык рынка выдачи. */
 export const LANGUAGE_TITLES: Record<string, string> = { ru: 'русский', en: 'английский' };
 
+/** Прогон в поле выбора на узком окне — номер и когда: на 390 px полная подпись (319 px) не
+ *  помещалась в поле (234 px), и край срезал её посреди числа ключей (проверка прода
+ *  10.11.2026). */
+export function runShortTitle(run: SegmentRunRow): string {
+  return `№${run.id} · ${formatDateTime(run.created_at)}`;
+}
+
+/** Остаток подписи прогона — сколько ключей и рынок: на узком окне он строкой под полем. */
+export function runRestTitle(run: SegmentRunRow): string {
+  return `ключей ${formatNumber(run.keywords)} · ${countryTitle(run.country)}`;
+}
+
 /** Прогон одной строкой списка: номер, когда, сколько ключей, рынок. */
 export function runTitle(run: SegmentRunRow): string {
-  return (
-    `№${run.id} · ${formatDateTime(run.created_at)} · ключей ${formatNumber(run.keywords)} · ` +
-    `${countryTitle(run.country)}`
-  );
+  return `${runShortTitle(run)} · ${runRestTitle(run)}`;
 }
 
 /** Шапка отчёта: язык писем, глубина выдачи, кто и когда запустил, когда кончился проход. */

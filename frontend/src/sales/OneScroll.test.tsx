@@ -310,7 +310,7 @@ describe('окна продаж — одна прокрутка', () => {
     const fact = await within(dialog).findByText('Кто мы', {}, SCREEN_WAIT);
     const middle = onlyScroll(dialog, [], []);
     expect(middle).toContainElement(fact);
-    expect(middle).toContainElement(within(dialog).getByText(/^Версия базы/));
+    expect(middle).toContainElement(within(dialog).getByText(/^Записей 1\./));
   });
 
   it('поля окон — без потолка строк: поле длиннее потолка прокручивалось бы само', () => {

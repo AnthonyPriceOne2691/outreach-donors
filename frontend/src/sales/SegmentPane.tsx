@@ -31,6 +31,7 @@ import {
   Textarea,
   Title,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 
@@ -42,7 +43,13 @@ import { ClampText } from './ClampText';
 import { HYPOTHESES_QUERY_KEY } from './hypothesisData';
 import { writeSegment } from './segmentApi';
 import type { SegmentHome, SegmentRunRow } from './segmentApi';
-import { runTitle, SEGMENT_QUERY_KEY, useSegment } from './segmentData';
+import {
+  runRestTitle,
+  runShortTitle,
+  runTitle,
+  SEGMENT_QUERY_KEY,
+  useSegment,
+} from './segmentData';
 import { SegmentForm } from './SegmentForm';
 import { SegmentHelper } from './SegmentHelper';
 import { SegmentHint } from './SegmentHint';
@@ -150,17 +157,63 @@ function Segment({
   );
 }
 
-/** Прогон в списке: номер, когда, ключи, рынок — и под ним где он сейчас. */
+/** Прогон в списке: номер, когда, ключи, рынок — и под ним где он сейчас. Подпись — полная и на
+ *  узком окне: в списке она переносится, а не срезается краем. */
 function RunOption({ label, row }: { label: string; row: SegmentRunRow | undefined }) {
   return (
     <Stack gap={0}>
-      <Text size="sm">{label}</Text>
+      <Text size="sm">{row === undefined ? label : runTitle(row)}</Text>
       {row !== undefined && (
         <Text size="xs" c="dimmed">
           {runState(row)}
         </Text>
       )}
     </Stack>
+  );
+}
+
+/** Узкое окно — то же, что у вкладок раздела: поле выбора там во всю ширину панели. */
+const NARROW = '(max-width: 36em)';
+
+/** Под полем — после него, а не между подписью и полем: строка продолжает подпись в поле. */
+const REST_BELOW = ['label', 'input', 'description', 'error'] as const;
+
+interface RunPickProps {
+  runs: SegmentRunRow[];
+  /** Открытый прогон; по ссылке он бывает и не из последних двадцати. */
+  run: number | null;
+  onChoose: (run: number) => void;
+}
+
+/** Выбор прогона. Подпись в поле — номер, когда, ключи и рынок. На узком окне поле уже подписи
+ *  (390 px: 234 px под 319 px текста, край срезал её посреди числа ключей — проверка прода
+ *  10.11.2026): в поле — номер и когда, ключи и рынок — строкой под полем, и подпись читается
+ *  целиком. */
+function RunPick({ runs, run, onChoose }: RunPickProps) {
+  const narrow = useMediaQuery(NARROW, false, { getInitialValueInEffect: false }) === true;
+  const rows = new Map(runs.map((row) => [String(row.id), row]));
+  const data = runs.map((row) => ({
+    value: String(row.id),
+    label: narrow ? runShortTitle(row) : runTitle(row),
+  }));
+  // Прогон по ссылке — не из последних двадцати: его отчёт открывается всё равно.
+  if (run !== null && !rows.has(String(run))) data.push({ value: String(run), label: `№${run}` });
+  const current = run === null ? undefined : rows.get(String(run));
+  return (
+    <Select
+      label="Прогон"
+      description={narrow && current !== undefined ? runRestTitle(current) : undefined}
+      inputWrapperOrder={[...REST_BELOW]}
+      allowDeselect={false}
+      data={data}
+      value={run === null ? null : String(run)}
+      onChange={(value) => {
+        if (value !== null) onChoose(Number(value));
+      }}
+      renderOption={({ option }) => <RunOption label={option.label} row={rows.get(option.value)} />}
+      comboboxProps={dropdownBelow}
+      w={{ base: '100%', xs: 420 }}
+    />
   );
 }
 
@@ -181,26 +234,9 @@ function Runs({
     );
   }
   const run = chosen ?? home.runs[0]?.id ?? null;
-  const rows = new Map(home.runs.map((row) => [String(row.id), row]));
-  const data = home.runs.map((row) => ({ value: String(row.id), label: runTitle(row) }));
-  // Прогон по ссылке — не из последних двадцати: его отчёт открывается всё равно.
-  if (run !== null && !rows.has(String(run))) data.push({ value: String(run), label: `№${run}` });
   return (
     <Stack gap="sm">
-      <Select
-        label="Прогон"
-        allowDeselect={false}
-        data={data}
-        value={run === null ? null : String(run)}
-        onChange={(value) => {
-          if (value !== null) onChoose(Number(value));
-        }}
-        renderOption={({ option }) => (
-          <RunOption label={option.label} row={rows.get(option.value)} />
-        )}
-        comboboxProps={dropdownBelow}
-        w={{ base: '100%', xs: 420 }}
-      />
+      <RunPick runs={home.runs} run={run} onChoose={onChoose} />
       {run !== null && <SegmentReport run={run} />}
     </Stack>
   );

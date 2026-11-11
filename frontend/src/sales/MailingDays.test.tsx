@@ -6,23 +6,37 @@
  * Смена вкладки страницу не двигает (замечание владельца 10.11.2026): обе таблицы в одной ячейке
  * сетки, скрытая держит место. Высоты в jsdom нет — проверяется устройство: обе вкладки в ячейке,
  * скрытая — `visibility: hidden`, `inert` и `aria-hidden`; сам прыжок мерит снимок стенда.
+ *
+ * Часы закреплены на «сейчас» записанного прогноза (`vi.useFakeTimers({ toFake: ['Date'] })`): пояс
+ * на виду — смещением от UTC на сегодня, а оно у пояса с летним временем зависит от дня.
  */
 
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderWith } from '../test/render';
 import { MailingDaysTabs, oneReason } from './MailingDays';
 import { reasonHead } from './mailingData';
-import { FORECAST, NOTHING_LEFT } from './mailingFixtures';
+import { FORECAST, MAILING_NOW, NOTHING_LEFT } from './mailingFixtures';
+import type { MailingForecastView } from './mailingTypes';
 
 const PLAN = 'План на 7 дней';
 const PAST = 'Факт за 7 дней';
 const PLAN_HINT = `Как считается «${PLAN}»`;
-/** Окно получателя записанного прогноза — абзацем подсказки плана, а не строкой над таблицей. */
+/** Окно получателя записанного прогноза — абзацем подсказки плана, а не строкой над таблицей. В
+ *  подсказке пояс — и смещением, и именем из базы поясов: 2 ноября в Торонто зимнее время. */
 const WINDOW =
-  'Окно получателя — пн–пт 09:00–17:00 по его часам; часы дня — по поясу America/Toronto, самому частому в очереди.';
+  'Окно получателя — пн–пт 09:00–17:00 по его часам; часы дня — по поясу UTC−5 (America/Toronto), самому частому в очереди.';
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(MAILING_NOW);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 /** Подсказка плана словами этапа — по абзацам; своё у этапа только в двух местах. */
 function hint(boxes: string, supply: string): string[] {
@@ -215,6 +229,62 @@ describe('рассылка: почему меньше мощности — го�
     expect(
       await screen.findByText('сегодня уже ушло 6 первых писем — остаток дня 24'),
     ).toBeInTheDocument();
+  });
+});
+
+describe('рассылка: пояс на виду — смещением от UTC, имя из базы поясов — в «i»', () => {
+  // Проверка прода 10.11.2026: в причине дня стояло имя пояса из базы поясов — код, а не слова.
+  const CLOSED = 'окно получателя на сегодня закрылось в 12:00 UTC (пояс America/Toronto)';
+  const TODAY_HINT = /^Почему меньше мощности — пн 02\.11/;
+
+  /** Прогноз, у которого окно сегодня уже закрылось: причина дня — слова сервера с именем пояса. */
+  function closedToday(words: string, zone: string | null): MailingForecastView {
+    const days = FORECAST.days.map((day, index) =>
+      index === 0 ? { ...day, why_not: words } : day,
+    );
+    return { ...FORECAST, zone, days };
+  }
+
+  it('в причине дня имя пояса — смещением; слова сервера с именем — в «i» той же ячейки', async () => {
+    renderWith(<MailingDaysTabs view={closedToday(CLOSED, 'America/Toronto')} />);
+    const plan = within(screen.getByRole('region', { name: PLAN }));
+
+    expect(
+      plan.getByText('окно получателя на сегодня закрылось в 12:00 UTC (пояс UTC−5)'),
+    ).toBeInTheDocument();
+    expect(plan.queryByText(/America\/Toronto/)).toBeNull();
+
+    await userEvent.setup().hover(plan.getByRole('button', { name: TODAY_HINT }));
+    expect(await screen.findByText(CLOSED)).toBeInTheDocument();
+  });
+
+  it('смещение — на сегодня: летом у того же пояса оно другое', () => {
+    vi.setSystemTime(new Date('2026-07-06T10:00:00Z'));
+    renderWith(<MailingDaysTabs view={closedToday(CLOSED, 'America/Toronto')} />);
+
+    expect(
+      screen.getByText('окно получателя на сегодня закрылось в 12:00 UTC (пояс UTC−4)'),
+    ).toBeInTheDocument();
+  });
+
+  it('браузер пояса не знает — слова сервера как есть, без «i»; в подсказке плана — одно имя', async () => {
+    const odd = 'окно получателя на сегодня закрылось в 12:00 UTC (пояс Mars/Olympus)';
+    renderWith(<MailingDaysTabs view={closedToday(odd, 'Mars/Olympus')} />);
+    const plan = within(screen.getByRole('region', { name: PLAN }));
+
+    expect(plan.getByText(odd)).toBeInTheDocument();
+    expect(plan.queryByRole('button', { name: TODAY_HINT })).toBeNull();
+    expect((await shownHint()).at(-1)).toBe(
+      'Окно получателя — пн–пт 09:00–17:00 по его часам; часы дня — по поясу Mars/Olympus, самому частому в очереди.',
+    );
+  });
+
+  it('пояса у прогноза нет — причина как есть, подсказка плана — без пояса', async () => {
+    renderWith(<MailingDaysTabs view={closedToday(CLOSED, null)} />);
+    const plan = within(screen.getByRole('region', { name: PLAN }));
+
+    expect(plan.getByText(CLOSED)).toBeInTheDocument();
+    expect((await shownHint()).at(-1)).toBe('Окно получателя — пн–пт 09:00–17:00 по его часам.');
   });
 });
 

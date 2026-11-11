@@ -19,8 +19,11 @@
  *
  * **Ширины колонок — по самому длинному, что в них бывает**; узкому окну —
  * прокрутка (`FixedTable`). Строка не переносится, кроме колонок с текстом без
- * предела длины — компании и гипотезы (`wrapCell`); пояс — одной строкой, целиком
- * в подсказке по наведению. Первая колонка слева — в ней имя.
+ * предела длины — компании и гипотезы (`wrapCell`). Первая колонка слева — в ней имя.
+ *
+ * **Пояс лида — смещением от UTC** («UTC+5», `zoneOffset.ts`): имя из базы поясов
+ * («Europe/Berlin») стояло кодом в каждой строке (проверка прода 10.11.2026). Имя — в
+ * подсказке у значения и в окне правки лида, где его и вписывают.
  *
  * **Правка лида — значком у имени** (`LeadEditModal`): имя, должность, компания, язык,
  * страна и пояс. Без права отправки — «Открыть»: окно смотреть, как у базы знаний.
@@ -56,6 +59,7 @@ import { LEAD_STATE_KEYS, reasonOn } from './leadFilters';
 import type { Emptiness, LeadFilters } from './leadFilters';
 import { AddedCell, AddedFilter } from './LeadsAdded';
 import { LeadNote, NOTE_SLOT } from './LeadNote';
+import { zoneOffset } from './zoneOffset';
 
 /** Ширины полей фильтра — по самому длинному значению: «отклонён» — узкое поле,
  *  причина «домен в работе у другого направления» не влезает ни в какое разумное
@@ -291,6 +295,17 @@ function EditLead({ row, mayWrite, onEdit }: RowProps) {
   );
 }
 
+/** Пояс лида под страной: смещение от UTC сейчас — «UTC+5», имя из базы поясов — в подсказке у
+ *  значения. Браузер пояса не знает — имя как есть: одной строкой с многоточием
+ *  («America/Argentina/ComodRivadavia» шире колонки), целиком — в той же подсказке. */
+function LeadZone({ zone }: { zone: string }) {
+  return (
+    <Text size="xs" c="dimmed" lineClamp={1} title={zone} className="leadZone">
+      {zoneOffset(zone) ?? zone}
+    </Text>
+  );
+}
+
 function LeadRow({ row, mayWrite, onEdit }: RowProps) {
   const who = [row.name, row.position].filter((part) => part !== null).join(' · ');
   return (
@@ -330,13 +345,7 @@ function LeadRow({ row, mayWrite, onEdit }: RowProps) {
       <AddedCell row={row} />
       <Table.Td>
         <Text size="sm">{countryTitle(row.country)}</Text>
-        {/* «America/Argentina/ComodRivadavia» шире колонки: одной строкой с многоточием,
-            целиком — в подсказке по наведению. */}
-        {row.timezone !== null && (
-          <Text size="xs" c="dimmed" lineClamp={1} title={row.timezone}>
-            {row.timezone}
-          </Text>
-        )}
+        {row.timezone !== null && <LeadZone zone={row.timezone} />}
       </Table.Td>
       <Table.Td>
         <StateBadge state={row.status} />

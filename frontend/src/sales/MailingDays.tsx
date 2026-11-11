@@ -35,6 +35,11 @@
  * **Одна причина у всех дней** — строкой над таблицей, а колонки нет: семь одинаковых строк читались
  * простынёй (панель рекламодателей с пустой очередью, разведка экранов 10.11.2026).
  *
+ * **Пояс на виду — смещением от UTC, имя из базы поясов — в «i»** (проверка прода 10.11.2026: в
+ * причине дня стояло имя вида «(пояс Europe/Berlin)»). Сервер называет пояс именем — и в причине
+ * дня, и в ответе (`zone`); на виду это имя заменено смещением («UTC+1», `zoneOffset.ts`), а слова
+ * сервера целиком, с именем, — в «i» той же ячейки. В подсказке плана — и смещение, и имя.
+ *
  * На телефоне строка дня — карточкой: день первым, числа — в ряд с подписью, причина — во всю
  * ширину (`DataTable`, `phoneCardsRow`).
  */
@@ -51,6 +56,7 @@ import { formatNumber } from '../format';
 import { Cards } from './MailingBlock';
 import { dayLabel, PAST_DAYS, PLAN_DAYS, reasonHead } from './mailingData';
 import type { ForecastDay, ForecastToday, MailingForecastView } from './mailingTypes';
+import { offsetWords, zoneOffset } from './zoneOffset';
 
 const PLAN_TITLE = `План на ${PLAN_DAYS} дней`;
 const PAST_TITLE = `Факт за ${PAST_DAYS} дней`;
@@ -138,11 +144,20 @@ function Today({ today }: { today: ForecastToday }) {
   );
 }
 
+/** Пояс в подсказке: смещением от UTC и именем из базы поясов в скобках — «UTC+1 (Europe/Berlin)»;
+ *  браузер пояса не знает — одним именем. */
+function zoneWords(zone: string): string {
+  const offset = zoneOffset(zone);
+  return offset === null ? zone : `${offset} (${zone})`;
+}
+
 /** Окно получателя и пояс, в котором посчитаны его часы, — словами прогноза. */
 function windowLine(view: MailingForecastView): string {
   if (view.window === null) return 'Окна получателя нет — письма уходят в любой час.';
   const zone =
-    view.zone === null ? '' : `; часы дня — по поясу ${view.zone}, самому частому в очереди`;
+    view.zone === null
+      ? ''
+      : `; часы дня — по поясу ${zoneWords(view.zone)}, самому частому в очереди`;
   return `Окно получателя — ${view.window} по его часам${zone}.`;
 }
 
@@ -164,9 +179,11 @@ function DayCell({ day, today, inRow = false }: { day: string; today: boolean; i
 /** Строкой — по ячейке: в таблице по центру, в карточке телефона — с левого края. */
 const INLINE = { display: 'inline-flex', maxWidth: '100%' } as const;
 
-/** Почему меньше мощности: голова — на виду, целиком — в «i» с этим именем; короткая — как есть. */
-function Reason({ words, name }: { words: string; name: string }) {
-  const head = reasonHead(words);
+/** Почему меньше мощности: голова — на виду, целиком — в «i» с этим именем; короткая — как есть.
+ *  Имя пояса прогноза (`zone`) на виду — смещением от UTC, слова сервера с именем — в том же «i».
+ */
+function Reason({ words, name, zone }: { words: string; name: string; zone: string | null }) {
+  const head = reasonHead(offsetWords(words, zone));
   if (head === words) return <Text size="sm">{words}</Text>;
   return (
     <Group component="span" gap={4} wrap="nowrap" align="flex-start" style={INLINE}>
@@ -187,7 +204,16 @@ export function oneReason(days: readonly ForecastDay[]): string | null {
   return days.every((day) => day.why_not === first) ? first : null;
 }
 
-function PlanRow({ day, today, reason }: { day: ForecastDay; today: boolean; reason: boolean }) {
+interface PlanRowProps {
+  day: ForecastDay;
+  today: boolean;
+  /** Колонка причины есть: причины у дней разные. */
+  reason: boolean;
+  /** Пояс прогноза — имя, которым сервер называет его в причине дня. */
+  zone: string | null;
+}
+
+function PlanRow({ day, today, reason, zone }: PlanRowProps) {
   return (
     <Table.Tr>
       <DayCell day={day.day} today={today} />
@@ -203,7 +229,11 @@ function PlanRow({ day, today, reason }: { day: ForecastDay; today: boolean; rea
               во всю мощность
             </Text>
           ) : (
-            <Reason words={day.why_not} name={`Почему меньше мощности — ${dayLabel(day.day)}`} />
+            <Reason
+              words={day.why_not}
+              name={`Почему меньше мощности — ${dayLabel(day.day)}`}
+              zone={zone}
+            />
           )}
         </Table.Td>
       )}
@@ -227,7 +257,7 @@ function PlanDays({ view }: { view: MailingForecastView }) {
       {one === null ? null : (
         <Group gap={4} px="md" wrap="nowrap" align="flex-start" className="mailingWhyAll">
           <Text size="sm">Во все дни меньше мощности:</Text>
-          <Reason words={one} name="Почему меньше мощности — во все дни" />
+          <Reason words={one} name="Почему меньше мощности — во все дни" zone={view.zone} />
         </Group>
       )}
       <Cards>
@@ -238,7 +268,13 @@ function PlanDays({ view }: { view: MailingForecastView }) {
           cardRow
         >
           {view.days.map((day, index) => (
-            <PlanRow key={day.day} day={day} today={index === 0} reason={one === null} />
+            <PlanRow
+              key={day.day}
+              day={day}
+              today={index === 0}
+              reason={one === null}
+              zone={view.zone}
+            />
           ))}
         </DataTable>
       </Cards>

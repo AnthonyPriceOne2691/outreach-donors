@@ -304,7 +304,7 @@ def kb_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     ready = ("heading", "Продажи")
     kb_list = [
         ("пояснение над таблицей", ".salesTabs + div p", norm),
-        ("версия базы", ".kbVersion", norm),
+        ("сколько записей видит агент", ".kbVersion", norm),
         ("кнопка «Что увидит агент»", "button:has-text('Что увидит агент')", big),
         ("кнопка «Добавить запись»", "button:has-text('Добавить запись')", big),
         ("выбранная вкладка", ".glassPanel .mantine-SegmentedControl-innerLabel", norm),
@@ -365,7 +365,7 @@ def kb_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "ready": ready,
             "probes": [
                 ("заголовок окна", f"{dialog} .mantine-Modal-title", norm),
-                ("версия и число", f"{dialog} .mantine-Modal-body > div > p", norm),
+                ("число записей", f"{dialog} .oneScrollArea p:has-text('Записей')", norm),
                 ("вид и язык группы", f"{dialog} .agentGroup h5", big),
                 ("заголовок факта", f"{dialog} .agentFact p:nth-child(1)", norm),
                 ("текст факта", f"{dialog} .agentFact p:nth-child(2)", norm),
