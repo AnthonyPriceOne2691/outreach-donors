@@ -14,6 +14,10 @@
  * перепиской (20rem) и на телефоне «Диалоги с рекламодателями» крупным заголовком рвались
  * на «Диалоги с / рекламодателями», а выгрузка лидов уезжала за край колонки. Имя части
  * стоит одной строкой; число, «i» и выгрузка не влезают — переносятся под него вместе.
+ *
+ * **«i» поясняет открытую вкладку** (11.11.2026): на «Диалогах» — как считается состояние, на
+ * «Не привязаны» — что туда попадает (`UnboundAbout`). Значок один и стоит на том же месте:
+ * смена вкладки шапку не двигает.
  */
 
 import { Box, Group, Stack, Text, Title } from '@mantine/core';
@@ -25,6 +29,8 @@ import { InfoHint } from '../components/InfoHint';
 import { formatNumber } from '../format';
 import { ParseCalibration } from './ParseCalibration';
 import { THREADS_TITLES } from './threadFilters';
+import type { ThreadTab } from './threadTabs';
+import { UnboundAbout } from './UnboundAbout';
 
 interface Props {
   /** Всего диалогов; `undefined` — список ещё не пришёл. */
@@ -37,10 +43,27 @@ interface Props {
   compact?: boolean;
   /** Выгрузка лидов — в конце строки, у правого края. */
   aside?: ReactNode;
+  /** Открытая вкладка: её и поясняет «i». Не названа — диалоги. */
+  tab?: ThreadTab;
 }
 
-export function ThreadsTitle({ total, found, part, compact = false, aside }: Props) {
+/** «i» вкладки «Диалоги»: как считается состояние и — с правом доноров — калибровка разбора. */
+function StateAbout() {
   const { can } = useSession();
+  return (
+    <InfoHint name="Как считается состояние диалога" width={340}>
+      <Stack gap={6}>
+        <Text size="sm" c="inherit">
+          Состояние диалога считается по последнему событию: автоответчик ответом не считается, а
+          отказ доставки останавливает цепочку и метит контакт.
+        </Text>
+        {can('donors') ? <ParseCalibration inherit /> : null}
+      </Stack>
+    </InfoHint>
+  );
+}
+
+export function ThreadsTitle({ total, found, part, compact = false, aside, tab }: Props) {
   return (
     <Group gap="sm" align="center" style={{ rowGap: 4 }}>
       <Title order={compact ? 4 : 3}>{part === null ? 'Диалоги' : THREADS_TITLES[part]}</Title>
@@ -54,15 +77,7 @@ export function ThreadsTitle({ total, found, part, compact = false, aside }: Pro
               : `найдено ${formatNumber(found)} из ${formatNumber(total)}`}
           </Text>
         )}
-        <InfoHint name="Как считается состояние диалога" width={340}>
-          <Stack gap={6}>
-            <Text size="sm" c="inherit">
-              Состояние диалога считается по последнему событию: автоответчик ответом не считается,
-              а отказ доставки останавливает цепочку и метит контакт.
-            </Text>
-            {can('donors') ? <ParseCalibration inherit /> : null}
-          </Stack>
-        </InfoHint>
+        {tab === 'unbound' ? <UnboundAbout /> : <StateAbout />}
       </Group>
       {aside ? <Box ml="auto">{aside}</Box> : null}
     </Group>

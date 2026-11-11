@@ -22,6 +22,13 @@
  * который переписка поправила заменой (`threadPart.ts`: ссылка без части или с чужой
  * частью), чужой части не достаётся: её место возвращается прежним, как у пунктов меню
  * (`layout/sectionPlace.ts`, проверка ветки 12.10.2026).
+ *
+ * **Смена вкладки двигает только то, что под переключателем** (11.11.2026). До этого
+ * «Не привязаны» на широком окне рисовала страница списка (`ThreadsPage`): заголовок — своей
+ * карточкой, переключатель — в карточке ниже, и под указателем он уезжал на 21–55 px
+ * (разведка экранов 10.11.2026). Теперь у обеих вкладок одна сетка и одна карточка с одной
+ * шапкой (`ThreadList`): на «Не привязаны» карточка занимает обе колонки, а шапка остаётся в
+ * первой — той же ширины, на том же месте (`glass.css`, `threadsSplit[data-whole]`).
  */
 
 import { Card, Stack } from '@mantine/core';
@@ -78,15 +85,18 @@ export function ThreadsScreen() {
     rememberThreadsPlace(here, part);
   }, [tab, here, part, navigation, location.pathname]);
   if (!split) return opened ? <Outlet context={PAGE} /> : <ThreadsPage />;
-  if (!opened && tab === 'unbound') return <ThreadsPage />;
+  // Открытая переписка сильнее вкладки из адреса: `/threads/42?tab=unbound` — переписка.
+  const whole = !opened && tab === 'unbound';
   return (
-    <div className="threadsSplit">
+    <div className="threadsSplit" data-whole={whole || undefined}>
       <Card className="glassPanel threadsSplitList" p="md">
-        <ThreadList />
+        <ThreadList tab={whole ? 'unbound' : 'threads'} />
       </Card>
-      <Stack className="threadsSplitPane" gap="md">
-        <Outlet context={SPLIT} />
-      </Stack>
+      {whole ? null : (
+        <Stack className="threadsSplitPane" gap="md">
+          <Outlet context={SPLIT} />
+        </Stack>
+      )}
     </div>
   );
 }

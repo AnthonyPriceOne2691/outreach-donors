@@ -167,7 +167,9 @@ async def unbound_replies(
 ) -> UnboundView:
     """Ответы, которые не привязались ни к одному нашему письму, — новые первыми.
 
-    У каждого — почему не привязан, словами, и вложения сведениями: сам
+    У каждого — почему не привязан: меткой в несколько слов и словами целиком, где сказано,
+    кого по ответу искать — донора, рекламодателя или лида, по нашему адресу, на который он
+    пришёл, — и вложения сведениями: сам
     файл скачивается тем же маршрутом, что у ответа в переписке. Страница —
     номером, размер называет сервер, как у очереди форм. Ответы на ящики продаж —
     только с правом «Продажи» (П2): страница и число — видимых этапов.
@@ -176,8 +178,13 @@ async def unbound_replies(
     rows = await unbound.page(session, stages=stages, page=page, size=limit)
     # Вложения — одним запросом на страницу и без самих файлов.
     files = await ReplyFiles(session).listed(reply.id for reply in rows)
+    # Направление ответа — кого по нему ищут — одним вопросом о доменах на страницу.
+    directions = await unbound.stages_of(session, rows)
     return UnboundView(
-        rows=[UnboundCard.of(reply, files.get(reply.id, ())) for reply in rows],
+        rows=[
+            UnboundCard.of(reply, files.get(reply.id, ()), directions.get(reply.id))
+            for reply in rows
+        ],
         total=await unbound.total(session, stages=stages),
         page=page,
         limit=limit,

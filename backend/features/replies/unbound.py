@@ -12,7 +12,9 @@
 **Причина — словами сервера, одним местом.** Экран, вебхук приёма и всё, что
 появится потом, говорят о ней одинаково: второй экземпляр слов разошёлся бы
 с первым на первой же правке. Код причины лежит у ответа (`unbound_reason`),
-номер письма из метки — в адресах, на которые он пришёл.
+номер письма из метки — в адресах, на которые он пришёл. Слов два вида, и оба
+здесь: метка в несколько слов для строки списка (`explain_short`) и слова
+целиком — что случилось и что с ответом делать (`explain`).
 
 **Ответ на ящик продаж — только с правом «Продажи»** (решение Anthony 10.10.2026,
 П2; ревью стыков 12.10.2026). Этап у такого ответа — по нашему адресу, на который
@@ -48,8 +50,20 @@ MAX_PAGE_SIZE = 100
 #: Начало текста в строке списка. Полный текст — в раскрытой строке.
 PREVIEW_CHARS = 160
 
-#: Донора такого ответа ищут глазами — по отправителю и тексту.
-_BY_HAND = "Донора ищут по отправителю и тексту."
+#: Кого ищут по ответу без письма — словом его направления: на ящик продаж отвечает лид,
+#: на ящик Этапа 2 — рекламодатель (11.11.2026; до этого у всех стояло «донора»).
+_WHOM: dict[Stage, str] = {
+    Stage.DONORS: "Донора",
+    Stage.ADVERTISERS: "Рекламодателя",
+    Stage.SALES: "Лида",
+}
+
+#: Направление неизвестно: нашего адреса среди адресов ответа нет — или причину говорит
+#: приём, который направления не спрашивает (`pipeline`). Слово прежнее.
+_WHOM_UNKNOWN = "Донора"
+
+#: Отправителя такого ответа ищут глазами — по отправителю и тексту. `{whom}` — кого именно.
+_BY_HAND = "{whom} ищут по отправителю и тексту."
 
 
 def is_unbound() -> ColumnElement[bool]:
@@ -109,6 +123,18 @@ async def _shown(session: AsyncSession, stages: Collection[Stage]) -> list[int]:
     ]
 
 
+async def stages_of(
+    session: AsyncSession, replies: Sequence[ReplyModel]
+) -> dict[int, Stage | None]:
+    """Направление каждого ответа страницы — по нашему адресу, на который он пришёл: тем же
+    правилом, каким страница прячет чужой этап (`_shown`). Один вопрос о доменах на страницу,
+    а не на строку; пустой странице он не нужен. `None` — нашего адреса среди адресов нет."""
+    if not replies:
+        return {}
+    domains = await recipient_stage.known_domains(session)
+    return {reply.id: recipient_stage.stage_of(reply.to_addresses, domains) for reply in replies}
+
+
 def preview(text: str) -> str:
     """Начало того, что написал человек, — одной строкой.
 
@@ -134,7 +160,8 @@ def labelled(addresses: Sequence[str] | None) -> int | None:
     return None
 
 
-#: Причина → слова. `{number}` — « №417», если номер из метки известен.
+#: Причина → слова. `{number}` — « №417», если номер из метки известен; `{whom}` —
+#: кого ищут по ответу (`_WHOM`).
 #: Каждая причина говорит, что с ответом делать, а не только что случилось:
 #: «подпись не сошлась» у одного ответа — случайность, у всех подряд —
 #: сменённый секрет, и разбираться надо с ним, а не с ответами.
@@ -167,14 +194,46 @@ _PROBE = (
 )
 
 
-def explain(reason: str | None, addresses: Sequence[str] | None) -> str:
-    """Почему ответ не привязан — словами для человека."""
+#: Причина → метка в несколько слов для строки списка: продолжает «Почему не привязан: …».
+#: Говорит, что случилось; что с таким ответом делать — в словах целиком (`_WORDS`). До
+#: 11.11.2026 строка несла слова целиком — два десятка слов, почти у всех ответов одни и те же.
+_SHORT: dict[str, str] = {
+    Unbound.NO_SUCH_LETTER: "письма из метки нет в базе",
+    Unbound.BAD_SIGNATURE: "подпись метки не сошлась",
+    Unbound.FOREIGN_THREAD: "ответ на чужое или пересланное письмо",
+    Unbound.NO_LABEL: "написано заново, не ответом на наше письмо",
+}
+
+
+def _answers_probe(reason: str | None, number: int | None) -> bool:
+    """Ответ на пробное письмо: метка верная, а письма с её номером не бывает."""
+    return reason == Unbound.NO_SUCH_LETTER and number == PROBE_MESSAGE_ID
+
+
+def explain(reason: str | None, addresses: Sequence[str] | None, stage: Stage | None = None) -> str:
+    """Почему ответ не привязан — словами для человека.
+
+    `stage` — направление ответа по нашему адресу (`stages_of`): кого по нему ищут. Без
+    направления — донора: так говорит и приём, который его не спрашивает."""
     number = labelled(addresses)
-    if reason == Unbound.NO_SUCH_LETTER and number == PROBE_MESSAGE_ID:
+    if _answers_probe(reason, number):
         return _PROBE
     if reason is None:
         return "Причина не записана: ответ принят до того, как её стали сохранять."
     words = _WORDS.get(reason)
     if words is None:
         return f"Причина записана кодом, которого этот сервер не знает ({reason})."
-    return words.format(number=f" №{number}" if number is not None else "")
+    whom = _WHOM_UNKNOWN if stage is None else _WHOM.get(stage, _WHOM_UNKNOWN)
+    return words.format(number=f" №{number}" if number is not None else "", whom=whom)
+
+
+def explain_short(reason: str | None, addresses: Sequence[str] | None) -> str:
+    """Почему ответ не привязан — меткой в несколько слов, по тому же коду, что `explain`.
+
+    Причина остаётся на виду в каждой строке списка, а слова целиком экран показывает по
+    запросу. Код неизвестной причины метка не называет: он стоит в словах целиком."""
+    if _answers_probe(reason, labelled(addresses)):
+        return "ответ на пробное письмо"
+    if reason is None:
+        return "причина не записана"
+    return _SHORT.get(reason, "неизвестная причина")

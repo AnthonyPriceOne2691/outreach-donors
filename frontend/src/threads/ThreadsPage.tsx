@@ -1,6 +1,7 @@
 /**
- * Диалоги: список переписок с донорами — на узком окне и вкладка «Не привязаны».
- * На широком окне список стоит колонкой рядом с перепиской (`ThreadsScreen`).
+ * Диалоги: список переписок с донорами и вкладка «Не привязаны» — на узком окне.
+ * На широком окне список стоит колонкой рядом с перепиской, а «Не привязаны» — той же
+ * карточкой на всю ширину (`ThreadsScreen`, `ThreadList`).
  *
  * **Строка — это донор, а не адрес.** У сайта несколько адресов —
  * `info@`, `editor@`, `advertising@`, — и за ними одна редакция. Иначе
@@ -20,45 +21,37 @@
  *
  * **Вторая вкладка — «Не привязаны»** (28.09.2026): ответы, которые приём
  * сохранил, но не соотнёс ни с одним нашим письмом (`UnboundReplies`).
- * Вкладки — шапкой панели со строками, со счётчиками; вкладка и её страница —
- * в адресе (`threadTabs.ts`). Число непривязанных спрашивается и на первой
- * вкладке: без него вкладку, в которой что-то лежит, не отличить от пустой,
- * а первая её страница из кэша открывает вкладку сразу.
+ * Вкладки — шапкой панели со строками, со счётчиками (`ThreadsTabs`); вкладка и её
+ * страница — в адресе (`threadTabs.ts`).
  */
 
-import { Alert, Card, Loader, SegmentedControl, Stack } from '@mantine/core';
+import { Alert, Card, Loader, Stack } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { usePageParam } from '../components/PageSwitch';
-import { formatNumber } from '../format';
 import { LeadsExport } from './LeadsExport';
 import { ThreadRows } from './ThreadList';
 import { hasLeads, isThreadFiltered } from './threadFilters';
+import { ThreadsTabs } from './ThreadsTabs';
 import { ThreadsTitle } from './ThreadsTitle';
-import {
-  readThreadTab,
-  THREAD_TAB_KEYS,
-  THREAD_TABS,
-  threadsPlace,
-  useUnboundPage,
-  writeThreadTab,
-} from './threadTabs';
+import { readThreadTab, useUnboundPage } from './threadTabs';
 import type { ThreadTab } from './threadTabs';
 import { UnboundReplies } from './UnboundReplies';
 import { useThreadList } from './useThreadList';
 import type { ThreadListState } from './useThreadList';
 
-/** «Не привязаны — 2», как у вкладок «Отбора»; пока числа нет — одно имя. */
-function tabLabel(tab: ThreadTab, count: number | undefined): string {
-  return count === undefined ? THREAD_TABS[tab] : `${THREAD_TABS[tab]} — ${formatNumber(count)}`;
+interface HeadProps {
+  list: ThreadListState;
+  narrow: boolean;
+  tab: ThreadTab;
 }
 
 /** Шапка: заголовок части, число и выгрузка лидов. Лиды файлом — ответы на оффер
  *  рекламодателю: у частей доноров и продаж их нет, и кнопки там нет. На телефоне
- *  заголовок на ступень меньше (`ThreadsTitle`, `compact`). */
-function Head({ list, narrow }: { list: ThreadListState; narrow: boolean }) {
+ *  заголовок на ступень меньше (`ThreadsTitle`, `compact`). «i» поясняет открытую вкладку. */
+function Head({ list, narrow, tab }: HeadProps) {
   const part = list.filters.part;
   return (
     <Card className="glassPanel" px="xl" py="lg">
@@ -68,19 +61,20 @@ function Head({ list, narrow }: { list: ThreadListState; narrow: boolean }) {
         part={part}
         compact={narrow}
         aside={hasLeads(part) ? <LeadsExport /> : undefined}
+        tab={tab}
       />
     </Card>
   );
 }
 
 export function ThreadsPage() {
-  const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const tab = readThreadTab(params);
   const [page, goToPage] = usePageParam();
-  // На первой вкладке — ради числа во вкладке: первая страница, та же, что
-  // откроется на второй.
-  const unbound = useUnboundPage(tab === 'unbound' ? page : 1);
+  // Число непривязанных спрашивается сразу, не дожидаясь списка диалогов: без него вкладку, в
+  // которой что-то лежит, не отличить от пустой, а её первая страница из кэша открывает вкладку
+  // сразу. Тот же ключ кэша, что у переключателя (`ThreadsTabs`) и самой вкладки.
+  useUnboundPage(tab === 'unbound' ? page : 1);
   // На узком окне вкладки — во всю ширину, поровну, а заголовок — на ступень меньше.
   // Значение — с первой отрисовки: иначе телефон на миг рисовал бы крупный заголовок.
   const narrow =
@@ -100,42 +94,14 @@ export function ThreadsPage() {
     );
   }
 
-  const tabCounts: Record<ThreadTab, number | undefined> = {
-    threads: list.total,
-    unbound: unbound.data?.total,
-  };
-  const part = list.filters.part;
-  // Смена вкладки — замена записи в истории, как у «Отбора»; недонабранный
-  // поиск сбрасывается, чтобы не догнать новую вкладку своей записью в адрес.
-  // «Диалоги» — туда, где на этой вкладке были: к открытому диалогу и фильтру.
-  // Часть списка (`?stage=…`) вкладки переживает (`threadTabs.ts`).
-  const switchTab = (next: ThreadTab) => {
-    list.setSearch('');
-    if (next === 'threads') void navigate(threadsPlace(part), { replace: true });
-    else setParams(writeThreadTab(next, part), { replace: true });
-  };
-
   return (
     <Stack gap="lg">
-      <Head list={list} narrow={narrow} />
+      <Head list={list} narrow={narrow} tab={tab} />
 
       <Card className="glass tableCard" p="md">
         <Stack gap="sm">
-          {/* По содержимому, а не во всю ширину: `Stack` растягивает и `inline-flex`. */}
-          <SegmentedControl
-            aria-label="Вкладки диалогов"
-            fullWidth={narrow}
-            style={narrow ? undefined : { alignSelf: 'flex-start' }}
-            value={tab}
-            onChange={(value) => {
-              const next = THREAD_TAB_KEYS.find((key) => key === value);
-              if (next !== undefined && next !== tab) switchTab(next);
-            }}
-            data={THREAD_TAB_KEYS.map((key) => ({
-              value: key,
-              label: tabLabel(key, tabCounts[key]),
-            }))}
-          />
+          {/* Смена вкладки — замена записи в истории, как у «Отбора» (`ThreadsTabs`). */}
+          <ThreadsTabs tab={tab} list={list} phone={narrow} />
           {tab === 'unbound' ? (
             <UnboundReplies page={page} onPage={goToPage} />
           ) : (

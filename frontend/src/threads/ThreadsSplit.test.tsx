@@ -12,6 +12,9 @@
  * после замены адреса отличались бы.
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router-dom';
@@ -123,6 +126,58 @@ async function openWide(path: string, threads = THREADS, extra: Record<string, u
 }
 
 const where = () => screen.getByTestId('where');
+
+/** Ответ без письма — выдуманный, словами сервера (`replies/unbound.py`). */
+const STRAY = {
+  id: 8,
+  received_at: '2026-09-28T15:40:00+00:00',
+  from_email: 'elena@donor.example.test',
+  to: ['team@donor.example.test'],
+  subject: 'Rates',
+  kind: 'human',
+  preview: 'Our rate card is attached.',
+  text: 'Our rate card is attached.',
+  attachments: [],
+  reason: 'no_label',
+  reason_text:
+    'Метки в адресе нет, и заголовков цепочки тоже: письмо написано заново, а не ответом на наше. Донора ищут по отправителю и тексту.',
+  reason_short: 'написано заново, не ответом на наше письмо',
+};
+const ONE_UNBOUND = {
+  'GET /api/replies/unbound?page=1': { body: { rows: [STRAY], total: 1, page: 1, limit: 20 } },
+};
+
+/** Открывающий тег узла — имя, классы, стили и признаки, без содержимого. */
+const shell = (node: Element) => (node.cloneNode(false) as Element).outerHTML;
+
+/**
+ * Шапка колонки, как её видит раскладка: сами узлы заголовка и переключателя, чем нарисован
+ * переключатель и что стоит от него до корня раскладки. Пикселей в jsdom нет — сверяется
+ * то, из чего они получаются: одна карточка, те же поля и размер, тот же порядок над ним.
+ */
+function headOf(part: string) {
+  const tabs = screen.getByRole('radiogroup', { name: 'Вкладки диалогов' });
+  const title = screen.getByRole('heading', { name: part });
+  const head = tabs.closest('.threadsHead')!;
+  const card = head.closest('.threadsSplitList')!;
+  const path: string[] = [];
+  for (let node: Element | null = tabs; node !== null && node !== card.parentElement; ) {
+    path.push(shell(node));
+    node = node.parentElement;
+  }
+  return {
+    tabs,
+    title,
+    card,
+    root: card.parentElement!,
+    // От переключателя вверх до карточки: каждый узел — тем же тегом, классами и стилями.
+    path,
+    // Над переключателем — только строка заголовка, и шапка стоит в колонке первой.
+    above: [...head.children].map((child) => child.contains(title) || child === tabs),
+    first: head.previousElementSibling === null && head.contains(title),
+    level: title.tagName,
+  };
+}
 
 describe('диалоги на широком окне: список и переписка рядом', () => {
   it('открытый диалог — справа, его строка выбрана, «К списку» нет: список рядом', async () => {
@@ -316,6 +371,106 @@ describe('диалоги на широком окне: список и пере�
 
     expect(where()).toHaveTextContent('/threads?stage=donors&tab=unbound');
     expect(screen.queryByRole('navigation', { name: 'Список диалогов' })).not.toBeInTheDocument();
+  });
+
+  it('шапка — заголовок части и вкладки — та же и на том же месте в обеих вкладках', async () => {
+    // Разведка экранов 10.11.2026: «Не привязаны» рисовала страница списка со своей шапкой, и
+    // переключатель под указателем уезжал — у продаж на 55 px вниз, у рекламодателей на 21 px
+    // вниз и на 30 влево. Теперь шапка одна: смена вкладки её не пересоздаёт и не перестраивает.
+    const user = userEvent.setup();
+    await openWide('/threads/3?stage=donors', THREADS, ONE_UNBOUND);
+    const toUnbound = await screen.findByRole('radio', { name: 'Не привязаны — 1' });
+    const threads = headOf('Диалоги с донорами');
+    expect(threads.root).toHaveClass('threadsSplit');
+    expect(threads.root).not.toHaveAttribute('data-whole');
+    expect(threads).toMatchObject({ above: [true, true], first: true, level: 'H4' });
+
+    await user.click(toUnbound);
+    const replies = await screen.findByRole('list', { name: 'Непривязанные ответы' });
+
+    const unbound = headOf('Диалоги с донорами');
+    // Те же узлы — буквально: заголовок, переключатель и карточка остались на месте.
+    expect(unbound.tabs).toBe(threads.tabs);
+    expect(unbound.title).toBe(threads.title);
+    expect(unbound.card).toBe(threads.card);
+    expect(unbound.root).toBe(threads.root);
+    // И нарисованы так же: теги, классы, размер и поля от переключателя до карточки.
+    expect(unbound.path).toEqual(threads.path);
+    expect(unbound).toMatchObject({ above: [true, true], first: true, level: 'H4' });
+    // Меняется только то, что под переключателем: ответы — в той же карточке, на обе колонки.
+    expect(unbound.root).toHaveAttribute('data-whole');
+    expect(unbound.card).toContainElement(replies);
+    expect(unbound.root.querySelector('.threadsSplitPane')).toBeNull();
+    expect(within(replies).getByText('elena@donor.example.test')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: /^Диалоги/ }));
+    await screen.findByRole('navigation', { name: 'Список диалогов' });
+    const back = headOf('Диалоги с донорами');
+    expect(back.tabs).toBe(threads.tabs);
+    expect(back.path).toEqual(threads.path);
+    expect(back.root).not.toHaveAttribute('data-whole');
+  });
+
+  it('«Не привязаны» по ссылке: та же шапка, страницы ответов — в адресе и в запросе', async () => {
+    // Вкладку на широком окне рисует колонка списка: страница из адреса доходит до ответов,
+    // а число во вкладке — всех ответов, а не этой страницы.
+    const user = userEvent.setup();
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    served = serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'GET /api/threads': { body: THREADS },
+      'GET /api/replies/unbound?page=1': {
+        body: { rows: [STRAY], total: 25, page: 1, limit: 20 },
+      },
+      'GET /api/replies/unbound?page=2': {
+        body: {
+          rows: [{ ...STRAY, id: 30, from_email: 'late@donor.example.test' }],
+          total: 25,
+          page: 2,
+          limit: 20,
+        },
+      },
+    });
+    renderWith(
+      <>
+        <AppRoutes />
+        <Where />
+      </>,
+      '/threads?stage=donors&tab=unbound',
+    );
+
+    expect(await screen.findByText('elena@donor.example.test')).toBeInTheDocument();
+    expect(headOf('Диалоги с донорами')).toMatchObject({ first: true, level: 'H4' });
+    expect(screen.getByRole('radio', { name: 'Не привязаны — 25' })).toBeChecked();
+    expect(screen.queryByRole('navigation', { name: 'Список диалогов' })).toBeNull();
+
+    const pager = screen.getByRole('navigation', { name: 'Страницы непривязанных ответов' });
+    await user.click(within(pager).getByRole('button', { name: 'Страница 2' }));
+
+    expect(await screen.findByText('late@donor.example.test')).toBeInTheDocument();
+    expect(where()).toHaveTextContent('/threads?stage=donors&tab=unbound&page=2');
+    expect(served.calls.map((call) => call.path)).toContain('/api/replies/unbound?page=2');
+    expect(screen.getByRole('radio', { name: 'Не привязаны — 25' })).toBeChecked();
+  });
+
+  it('правила раскладки: карточка «Не привязаны» берёт колонки сетки, шапка — в первой', () => {
+    // Ширину шапки держит сетка, а не число: на обеих вкладках это первая колонка той же
+    // сетки за вычетом поля и кромки карточки. Пиксели меряются в браузере, не здесь.
+    const glass = readFileSync(resolve(process.cwd(), 'src/styles/glass.css'), 'utf8');
+
+    expect(glass).toMatch(
+      /\.threadsSplit\[data-whole\] > \.threadsSplitList \{\s*grid-column: 1 \/ -1;\s*display: grid;\s*grid-template-columns: subgrid;/,
+    );
+    expect(glass).toMatch(
+      /\.threadsSplit\[data-whole\] \.threadListColumn \{\s*display: contents;/,
+    );
+    expect(glass).toMatch(
+      /\.threadsSplit\[data-whole\] \.threadsHead \{\s*grid-column: 1;\s*margin-inline-end: calc\(var\(--mantine-spacing-md\) \+ 1px\);/,
+    );
+    // Страница на «Не привязаны» не становится короче окна: прокрутку не поджимает.
+    expect(glass).toMatch(
+      /\.threadsSplit\[data-whole\] \{\s*height: auto;\s*min-height: max\(32rem, var\(--threads-height\)\);/,
+    );
   });
 
   it('с «Не привязаны» обратно на «Диалоги» — открыт тот же диалог с тем же фильтром', async () => {

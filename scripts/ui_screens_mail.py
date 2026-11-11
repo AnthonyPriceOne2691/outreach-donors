@@ -38,13 +38,13 @@ def unbound_probes(norm: float, big: float, *, menu: bool) -> list[tuple[Any, ..
     """Точки вкладки «Не привязаны». Мерится то, по чему ищут донора:
     от кого, куда, о чём, почему не привязан, — и раскрытое письмо с файлами
     (подготовка раскрывает строку, `open_unbound_reply`). Меню на телефоне
-    спрятано за кнопкой, и мерить его там нечего."""
+    спрятано за кнопкой, и мерить его там нечего. Пояснения над списком с 11.11.2026
+    нет: оно в «i» у заголовка, окошком по нажатию."""
     label = ".mantine-SegmentedControl-label"
     inner = ".mantine-SegmentedControl-innerLabel"
     probes: list[tuple[Any, ...]] = [
         ("выбранная вкладка", f"{UNBOUND_TABS} {label}[data-active] {inner}", norm),
         ("невыбранная вкладка", f"{UNBOUND_TABS} {label}:not([data-active]) {inner}", norm),
-        ("пояснение над списком", ".unboundNote", norm),
         ("отправитель", ".unboundFrom", norm),
         ("когда пришёл", ".unboundWhen", norm),
         ("на какой адрес", ".unboundTo", norm),
