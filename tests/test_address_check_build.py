@@ -549,6 +549,30 @@ class TestQueuedLetters:
         assert dict(report.refused) == {"адрес не проверен — провайдер не ответил (HTTP 503)": 2}
         assert (report.sent, report.left) == (0, 2)
 
+    async def test_still_checking_holds_its_own_letter_and_the_next_one_goes(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """«Ещё проверяет» — про один адрес, а не про сервис: его письмо ждёт, следующее
+        спрашивается и уходит. Иначе вечно проверяемый адрес первым в очереди держал бы за
+        собой все непроверенные письма в каждом проходе."""
+        await make_donor(session, "a.example.test", email="a@a.example.test", dr=70)
+        await make_donor(session, "b.example.test", email="b@b.example.test", dr=60)
+        await self._queued_unchecked(session, monkeypatch)
+        waiting = StillCheckingError("провайдер ещё проверяет адрес")
+        verifier = self._hunter(monkeypatch, FakeVerifier({"a@a.example.test": waiting}))
+
+        report = await batch.send_queue(session, NullTransport(), stage=Stage.DONORS)
+
+        assert verifier.asked == ["a@a.example.test", "b@b.example.test"]
+        assert dict(report.refused) == {"адрес не проверен — провайдер ещё проверяет адрес": 1}
+        assert (report.sent, report.left) == (1, 1)
+        sent = await session.scalars(
+            select(ContactModel.email)
+            .join(MessageModel, MessageModel.contact_id == ContactModel.id)
+            .where(MessageModel.status != MessageStatus.QUEUED)
+        )
+        assert list(sent) == ["b@b.example.test"]
+
     async def test_a_letter_built_with_the_check_goes_without_a_second_call(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:

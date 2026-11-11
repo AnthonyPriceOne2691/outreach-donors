@@ -79,6 +79,7 @@ from backend.features.contacts.verifier import (
     WEBMAIL,
     EmailVerifier,
     NoKeyError,
+    StillCheckingError,
     Verdict,
 )
 from backend.features.core import usage
@@ -154,6 +155,9 @@ class Checked:
     kind: Kind
     #: Почему проверка не состоялась — словами (`Kind.HELD`).
     said: str = ""
+    #: Проверка не состоялась у одного этого адреса, а не у сервиса: «ещё проверяет» (202).
+    #: Следующий адрес спрашивать можно — пачка отправки из-за него не встаёт.
+    lone: bool = False
 
     @property
     def passes(self) -> bool:
@@ -322,4 +326,4 @@ class Checker:
         if isinstance(exc, STOPS) and self.stopped is None:
             self.stopped = said
         logger.warning("проверка адреса: адрес №%s не проверен — %s", contact.id, said)
-        return Checked(Kind.HELD, said)
+        return Checked(Kind.HELD, said, lone=isinstance(exc, StillCheckingError))

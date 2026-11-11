@@ -1107,9 +1107,9 @@
       "worst": "—"
     },
     "backend/features/contacts/address_check.py": {
-      "lines": 326,
+      "lines": 330,
       "complexity": 16,
-      "worst": "check:240"
+      "worst": "check:244"
     },
     "backend/features/contacts/attempts.py": {
       "lines": 260,
@@ -2042,9 +2042,9 @@
       "worst": "—"
     },
     "backend/features/letters/address_gate.py": {
-      "lines": 314,
+      "lines": 317,
       "complexity": 10,
-      "worst": "_next_round:198"
+      "worst": "queued_refusal:104"
     },
     "backend/features/letters/answers.py": {
       "lines": 247,
