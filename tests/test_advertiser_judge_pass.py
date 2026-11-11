@@ -547,7 +547,8 @@ async def test_the_relabel_has_nothing_to_do_on_rows_of_this_table(
     session: AsyncSession, capsys: pytest.CaptureFixture[str]
 ) -> None:
     row = _by_old_table("one.example", "write")
-    row.rules_version = RULES_VERSION
+    # Строка нынешней таблицы — с её же советом и правилом: пересчёт сверяет и то, и другое.
+    row.rules_version, row.rule = RULES_VERSION, "promoted"
     session.add(row)
     await session.commit()
 

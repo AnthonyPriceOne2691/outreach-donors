@@ -61,7 +61,7 @@ from backend.features.outreach.repository import OutreachRepository, ThreadMark
 from backend.features.outreach.threads import ThreadState
 from backend.features.replies import unbound
 from backend.features.review.candidates import Decision
-from backend.features.runs.ahrefs_cap import key_cap
+from backend.features.runs.ahrefs_cap import KeyCap, key_cap
 from backend.features.runs.browse import RunBrowser, RunRow
 from backend.features.runs.spending import SpendingRepository
 
@@ -178,6 +178,34 @@ class LetterCounts:
 
 
 @dataclass(frozen=True, slots=True)
+class Wall:
+    """Во что наш расход Ahrefs упрётся раньше и сколько до этого осталось — числами того же
+    счётчика (проверка прода 10.11.2026). «Потрачено нами из капа» на главной читалось остатком
+    «кап минус наше», а на «Расходе» осталось меньше: ключ общий с соседней системой, и её траты
+    видны только в счётчике самого ключа. Поэтому остаток называется там, где он кончится раньше,
+    и вместе со своим пределом: лимит ключа и пространства считает Ahrefs, наш кап — мы."""
+
+    #: «cap», «key» или «workspace» — как `KeyCap.binding`.
+    binding: str
+    #: Осталось до упора — то же число, что «Осталось» на «Расходе» (`KeyCap.left`).
+    left: int
+    #: Предел того, во что упрёмся: наш кап, лимит ключа или лимит пространства.
+    limit: int
+
+
+def wall_of(cap: KeyCap) -> Wall | None:
+    """Упор капа числами своего счётчика; кап неизвестен — `None`: упираться не во что."""
+    binding = cap.binding
+    if binding is None:
+        return None
+    limits = {"cap": cap.units_cap}
+    if cap.key is not None:
+        limits |= {"key": cap.key.quota.key_limit, "workspace": cap.key.quota.workspace_limit}
+    limit = limits.get(binding)
+    return None if limit is None else Wall(binding=binding, left=cap.left, limit=limit)
+
+
+@dataclass(frozen=True, slots=True)
 class Overview:
     donors: DonorCounts
     waiting: Waiting
@@ -189,6 +217,9 @@ class Overview:
     ahrefs_units: int
     #: Действующий кап — от ключа (`runs/ahrefs_cap.key_cap`); `None` — размер неизвестен.
     ahrefs_cap: int | None
+    #: Во что упрёмся раньше и сколько до этого осталось (`Wall`); `None` — кап неизвестен или
+    #: Этапа 1 нет среди видимых.
+    ahrefs_wall: Wall | None
     #: С какого момента считается цикл и от ключа ли он: `False` — календарный месяц.
     ahrefs_since: datetime
     ahrefs_by_key: bool
@@ -257,6 +288,7 @@ async def overview(
         last_run=one.last_run,
         ahrefs_units=cap.spent if one.shown else 0,
         ahrefs_cap=cap.units_cap if one.shown else None,
+        ahrefs_wall=wall_of(cap) if one.shown else None,
         ahrefs_since=cap.cycle.start,
         ahrefs_by_key=cap.cycle.by_key,
         serp_usd=spending.amount_by_provider.get(UsageProvider.SERP, Decimal(0))

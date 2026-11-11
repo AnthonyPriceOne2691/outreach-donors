@@ -17,8 +17,9 @@
 скольких из них последний суд назвал ссылку карточкой каталога. Считается одним запросом на всех
 доноров когорты (`catalog_donors`), а не запросом на пару, и по когорте самой строки: факты другой
 подсказки или модели — другие факты. Признак живой — донор набирает пары и становится каталогом,
-— поэтому пересчёт ставит совет заново и строкам нынешней таблицы, у которых он от признака
-зависит (`judge_rules.BY_DONOR`).
+— а у каталога от него зависит совет почти любой строки (`judge_rules.advise`). Поэтому пересчёт
+смотрит не на одну версию таблицы: он ставит совет заново каждой строке, которой нынешние таблица
+и признак дают другой.
 """
 
 from __future__ import annotations
@@ -35,7 +36,6 @@ from backend.features.core.models.advertiser import AdvertiserJudgementModel
 from backend.features.crawl.judge_client import PROMPT_VERSION, prompt_print
 from backend.features.crawl.judge_facts import LinkFacts
 from backend.features.crawl.judge_rules import (
-    BY_DONOR,
     CARD_FACT,
     RULES,
     RULES_VERSION,
@@ -244,9 +244,11 @@ async def _outdated(
     session: AsyncSession, rules: tuple[Rule, ...], version: str, ids: list[int] | None = None
 ) -> list[tuple[int, str, Ruled]]:
     """Строки, чей совет надо поставить заново, — номер, прежний совет и новый: поставленный другой
-    таблицей — и нынешней, если у донора с тех пор сменился признак каталога
-    (`judge_rules.BY_DONOR`). Факты не той формы — мимо. Колонками и без текста, который видел
-    судья: строк тысячи, а объект сессии помнил бы совет, уже переписанный мимо неё (`restamp`)."""
+    таблицей — и нынешней, если у донора с тех пор сменился признак каталога. По ключу правила
+    такие строки не выбрать: у каталога от признака зависит и «пишем», и «не понять» любого
+    правила — поэтому читаются все строки (или названные) и сверяются с тем, что таблица и признак
+    дают сейчас. Факты не той формы — мимо. Колонками и без текста, который видел судья: строк
+    тысячи, а объект сессии помнил бы совет, уже переписанный мимо неё (`restamp`)."""
     query = select(
         Judgement.id,
         Judgement.donor_host,
@@ -258,7 +260,7 @@ async def _outdated(
         Judgement.advice,
         Judgement.rule,
         Judgement.facts,
-    ).where((Judgement.rules_version != version) | Judgement.rule.in_(BY_DONOR))
+    )
     if ids is not None:
         query = query.where(Judgement.id.in_(ids))
     rows = (await session.execute(query.order_by(Judgement.id))).tuples().all()

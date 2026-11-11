@@ -105,6 +105,13 @@ class OverviewView(BaseModel):
     ahrefs_cap: int | None
     ahrefs_since: datetime
     ahrefs_by_key: bool
+    #: Во что расход упрётся раньше — «cap», «key» или «workspace» — и сколько до этого осталось
+    #: из скольких, числами этого счётчика (`ops/overview.Wall`): ключ общий с соседней системой,
+    #: и «осталось» на нём меньше, чем кап минус наш расход. Все три `None` — кап неизвестен или
+    #: Этапа 1 нет среди видимых.
+    ahrefs_binding: str | None
+    ahrefs_left: int | None
+    ahrefs_left_of: int | None
     serp_usd: Decimal
     #: Почта: «не подключена» — не поломка, а состояние до рабочего сервера.
     transport: Transport
@@ -113,6 +120,10 @@ class OverviewView(BaseModel):
 
     @classmethod
     def of(cls, overview: Overview, *, transport: Transport) -> OverviewView:
+        wall = overview.ahrefs_wall
+        binding, left, left_of = (
+            (None, None, None) if wall is None else (wall.binding, wall.left, wall.limit)
+        )
         return cls(
             donors=DonorsCard.of(overview.donors),
             waiting=WaitingCard.of(overview.waiting),
@@ -122,6 +133,9 @@ class OverviewView(BaseModel):
             ahrefs_cap=overview.ahrefs_cap,
             ahrefs_since=overview.ahrefs_since,
             ahrefs_by_key=overview.ahrefs_by_key,
+            ahrefs_binding=binding,
+            ahrefs_left=left,
+            ahrefs_left_of=left_of,
             serp_usd=overview.serp_usd,
             transport=transport,
             unbound_replies=overview.unbound_replies,

@@ -18,6 +18,13 @@
 обязательно: у первой есть что перезапросить, у второй нет. Поэтому
 у отбора два исхода, а не один. Перезапрашивает человек нажатием
 (`letters/price_recheck.py`, 12.10.2026) — тот же список протухших.
+
+**Донора-каталога ночной круг не обходит** (решение владельца 11.11.2026, `skip_catalogs`). Карточки
+каталога — не рекламодатели, и судья им не пишет (`judge_rules.advise`): обходить такого донора
+каждую ночь — трафик и место в круге ни за что. Каталог — признак по судам самого донора
+(`judge_store.catalog_donors`), без списка доменов; у донора, чьих пар рассужено мало, признака
+нет, и он обходится как все. Кнопка человека, загрузки и глубокие обходы каталог берут как
+раньше: откладывает его только тот, кто попросил.
 """
 
 from __future__ import annotations
@@ -30,9 +37,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import filters as cfg
+from backend.config import llm as llm_cfg
 from backend.features.core.domain import DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
+from backend.features.crawl.judge_store import catalog_donors, cohort_of
+from backend.features.crawl.launch import crawl_host
 from backend.features.crawl.suppliers import supplier_hosts
 from backend.features.donors.standing import is_donor
 from backend.features.runs.exclusions import not_writing
@@ -53,6 +63,8 @@ class Targets:
     no_price: list[str] = field(default_factory=list)
     stale_price: list[str] = field(default_factory=list)
     supplier: list[str] = field(default_factory=list)
+    #: Доноры-каталоги, которых отбор отложил по просьбе (`skip_catalogs`); без неё список пуст.
+    catalog: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -69,12 +81,14 @@ async def choose(
     limit: int | None = 10,
     ttl_days: int = cfg.PRICE_TTL_DAYS,
     now: datetime | None = None,
+    skip_catalogs: bool = False,
 ) -> Targets:
     """Доноры, по которым можно искать рекламодателей: принятые человеком — то же условие,
     что у экрана «Доноры» (`is_donor`), — и годные по порогам. Одно «подходит» звало в
     обход и отклонённого с ценой (проверка QA 10.10.2026). Порядок — по свежести цены:
     у самых свежих оффер «мы дешевле» опирается на самое надёжное число. `limit=None` — к обходу
-    все: очередь загрузки (`backlog.py`) сверяет с отбором тысячи загруженных.
+    все: очередь загрузки (`backlog.py`) сверяет с отбором тысячи загруженных. `skip_catalogs` —
+    отложить доноров-каталоги (шапка): так зовёт только ночной круг.
     """
     moment = now or datetime.now(UTC)
     border = moment - timedelta(days=ttl_days)
@@ -83,6 +97,7 @@ async def choose(
     # Поставщики — общим правилом с переводом: обе таблицы и только действующие записи.
     # До сверки ТЗ 11.10.2026 здесь читалась одна `supplier_donors`, и целиком — с истёкшими.
     suppliers = await supplier_hosts(session, now=moment)
+    catalogs = await _catalogs(session) if skip_catalogs else frozenset()
 
     rows = (
         await session.execute(
@@ -102,11 +117,20 @@ async def choose(
             targets.no_price.append(host)
         elif priced_at < border:
             targets.stale_price.append(host)
+        elif crawl_host(host) in catalogs:
+            targets.catalog.append(host)
         elif limit is None or len(targets.hosts) < limit:
             targets.hosts.append(host)
 
     logger.info("обход: отбор доноров — %s", targets.as_dict())
     return targets
+
+
+async def _catalogs(session: AsyncSession) -> frozenset[str]:
+    """Доноры-каталоги по их судам в нынешней когорте судьи рекламодателей — хостами, как их пишет
+    обход: суд хранит донора именем обхода, а отбор читает его из таблицы доменов."""
+    found = await catalog_donors(session, cohort_of(llm_cfg.ADVERTISER_JUDGE_MODEL))
+    return frozenset(crawl_host(host) for host in found)
 
 
 def explain(targets: Targets) -> list[str]:

@@ -88,6 +88,9 @@ const REPORT: RunReportView = {
 /** Имя «i» у кнопки «Рассмотреть»: почему число очереди не равно «Подходит». */
 const QUEUE_HINT = 'Почему «Рассмотреть» не равно «Подходит»';
 
+/** Имя «i» у строки пути доменов: кто из найденных до проверки Ahrefs не дошёл. */
+const FUNNEL_HINT = 'Путь доменов: исключённые и проверенные раньше';
+
 function openReport(report: unknown, path = '/runs/27') {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
@@ -103,9 +106,11 @@ describe('отчёт прогона', () => {
     openReport(REPORT);
 
     expect(await screen.findByRole('heading', { name: 'Отчёт прогона №27' })).toBeInTheDocument();
+    // Путь — итогом: сколько из выдачи и сколько новых ушло в проверку; разбивка — в «i».
     expect(
-      screen.getByText(/Из выдачи — 120 доменов: исключено 3, проверены раньше 40/),
+      screen.getByText('Из выдачи — 120 доменов, новых в проверку Ahrefs — 77'),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/исключено 3/)).toBeNull();
     // Кто, когда, сколько — ТЗ: кто запустил, по записи журнала о запуске.
     expect(screen.getByText(/запустил ivan@team\.example\.test/)).toBeInTheDocument();
     for (const [title, value] of [
@@ -118,6 +123,36 @@ describe('отчёт прогона', () => {
       expect(tile, title).not.toBeNull();
       expect(within(tile as HTMLElement).getByText(value)).toBeInTheDocument();
     }
+  });
+
+  it('путь доменов — итог одной строкой, разбивка — в «i» у строки теми же числами', async () => {
+    // Проверка прода 10.11.2026: строка с разбивкой стояла абзацем — две строки на 1440 и пять
+    // на 390. На виду — сколько из выдачи и сколько новых ушло в проверку.
+    openReport(REPORT);
+    const user = userEvent.setup();
+
+    const line = await screen.findByText('Из выдачи — 120 доменов, новых в проверку Ahrefs — 77');
+    // Число не отрывается ни от слова, ни от тире: перенос строки их не разводит.
+    expect(line.textContent).toContain('120\u00a0доменов');
+    expect(line.textContent).toContain('—\u00a077');
+    const hint = screen.getByRole('button', { name: FUNNEL_HINT });
+    expect(line.parentElement).toContainElement(hint);
+    await user.click(hint);
+
+    expect(await screen.findByRole('dialog', { name: FUNNEL_HINT })).toHaveTextContent(
+      'Из выдачи — 120 доменов: исключено 3, проверены раньше 40 — метрики в сроке, платить не пришлось; новых в проверку Ahrefs — 77.',
+    );
+  });
+
+  it('отчёт записан до числа найденных — итог без него, разбивка та же', async () => {
+    openReport({ ...REPORT, domains: { ...REPORT.domains!, found: null } });
+    const user = userEvent.setup();
+
+    expect(await screen.findByText('Из выдачи: новых в проверку Ahrefs — 77')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: FUNNEL_HINT }));
+    expect(await screen.findByRole('dialog', { name: FUNNEL_HINT })).toHaveTextContent(
+      'Из выдачи: исключено 3, проверены раньше 40',
+    );
   });
 
   it('«Рассмотреть» не равно «Подходит» — почему, в «i» у кнопки «Рассмотреть»', async () => {
@@ -239,9 +274,11 @@ describe('отчёт прогона', () => {
     openReport({ ...REPORT, domains: { ...REPORT.domains!, fresh_judged: true } });
     const user = userEvent.setup();
 
-    expect(
-      await screen.findByText(/проверены раньше 40 — метрики в сроке: вердикт этого прогона/),
-    ).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: FUNNEL_HINT }));
+    expect(await screen.findByRole('dialog', { name: FUNNEL_HINT })).toHaveTextContent(
+      'проверены раньше 40 — метрики в сроке: вердикт этого прогона по сохранённым, платить не пришлось',
+    );
+    await user.keyboard('{Escape}');
     expect(screen.getByText('новых, с любым вердиктом')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Какие пороги в отчёте' }));
     expect(await screen.findByRole('dialog', { name: 'Какие пороги в отчёте' })).toHaveTextContent(
