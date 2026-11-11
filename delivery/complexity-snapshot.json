@@ -22,14 +22,19 @@
       "worst": "form_queue:37"
     },
     "backend/api/advertisers/judge_apply.py": {
-      "lines": 150,
+      "lines": 151,
       "complexity": 12,
-      "worst": "apply_advice:83"
+      "worst": "apply_advice:84"
     },
     "backend/api/advertisers/judge_apply_schemas.py": {
       "lines": 174,
       "complexity": 4,
       "worst": "of:78"
+    },
+    "backend/api/advertisers/judge_night.py": {
+      "lines": 133,
+      "complexity": 3,
+      "worst": "of:81"
     },
     "backend/api/advertisers/judge_pass.py": {
       "lines": 223,
@@ -57,9 +62,9 @@
       "worst": "accepted:137"
     },
     "backend/api/advertisers/routes.py": {
-      "lines": 393,
+      "lines": 396,
       "complexity": 5,
-      "worst": "decide:137"
+      "worst": "decide:138"
     },
     "backend/api/advertisers/schemas.py": {
       "lines": 369,
@@ -1565,6 +1570,11 @@
       "lines": 155,
       "complexity": 6,
       "worst": "seen:88"
+    },
+    "backend/features/crawl/judge_night_view.py": {
+      "lines": 140,
+      "complexity": 7,
+      "worst": "summary_of:109"
     },
     "backend/features/crawl/judge_pass.py": {
       "lines": 456,

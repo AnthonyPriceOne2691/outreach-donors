@@ -48,11 +48,12 @@ NOTHING_TO_APPLY = "Применять нечего: пар с таким сов
 REVERTED = "Партия откатана и не продолжается: начните новую"
 
 
-async def _applier(
+async def applier(
     user: UserModel = Depends(needs(Permission.RUN)),
     _decides: UserModel = Depends(needs(Permission.PRICES)),
 ) -> UserModel:
-    """Кто применяет и откатывает: право запуска и право решения разом (шапка модуля)."""
+    """Кто применяет и откатывает — и кто включает ночное автоприменение (`judge_night.py`): право
+    запуска и право решения разом (шапка модуля)."""
     return user
 
 
@@ -70,7 +71,7 @@ async def read_standing(
 @router.get("/plan", response_model=PlanView, summary="План полосы: кого и что это тронет")
 async def read_plan(
     band: Band = Query(description="полоса: не пишем (skip) или пишем (write)"),
-    _: UserModel = Depends(_applier),
+    _: UserModel = Depends(applier),
     session: AsyncSession = Depends(db_session),
 ) -> PlanView:
     """Сколько пар и доноров, какими правилами, примеры и последствия. Решений не пишет."""
@@ -82,7 +83,7 @@ async def read_plan(
 @router.post("", response_model=AppliedView, summary="Применить порцию полосы")
 async def apply_advice(
     body: ApplyBody,
-    author: UserModel = Depends(_applier),
+    author: UserModel = Depends(applier),
     session: AsyncSession = Depends(db_session),
 ) -> AppliedView:
     """Порция решений по советам полосы — тем же путём, что решение человека. Отказ — словами."""
@@ -128,7 +129,7 @@ async def read_batches(
 )
 async def revert_batch(
     batch: str = Path(pattern=BATCH.pattern, max_length=64, description="имя партии"),
-    author: UserModel = Depends(_applier),
+    author: UserModel = Depends(applier),
     session: AsyncSession = Depends(db_session),
 ) -> RevertedView:
     """Решения партии, которые не менял человек, — обратно в очередь. Вернуть нечего — 409."""
