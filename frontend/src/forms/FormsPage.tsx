@@ -37,12 +37,20 @@
  * общие (`FormsQueue`), чья очередь — говорит её описание (`formQueues.tsx`). Без права
  * «Рекламодатели» вкладок нет: очередь одна, и `?queue=advertisers` открывает доноров; без
  * «Доноров» — так же, очередь рекламодателей.
+ *
+ * **Без обоих этапов — отказ раздела** (проверка прода 10.11.2026): учётка только продаж по
+ * прямой ссылке получала красное «Очередь не загрузилась» с отказом сервера. Очередей этих этапов
+ * у неё нет — экран говорит это тем же «Раздел недоступен», что закрытый раздел (`RequireAccess`),
+ * называет право очереди из адреса и ничего не спрашивает.
  */
 
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import type { Can } from '../api/stageRights';
+import type { Permission } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { RequireAccess } from '../auth/RequireAccess';
 import { ADVERTISER_FORMS, DONOR_FORMS } from './formQueues';
 import type { FormsTab } from './formQueues';
 import { FormsQueue } from './FormsQueue';
@@ -63,8 +71,19 @@ function useFormsTab(): [FormsTab, (tab: FormsTab) => void] {
   return [tab, go];
 }
 
+/** Право, которого «Формам» не хватает целиком: ни «Доноров», ни «Рекламодателей». Называется
+ *  право очереди из адреса; `null` — хоть одна очередь учётке видна. */
+function formsClosed(params: URLSearchParams, can: Can): Permission | null {
+  if (can('donors') || can('advertisers')) return null;
+  return params.get('queue') === 'advertisers' ? 'advertisers' : 'donors';
+}
+
 export function FormsPage() {
+  const [params] = useSearchParams();
+  const { can } = useSession();
   const [tab, setTab] = useFormsTab();
+  const closed = formsClosed(params, can);
+  if (closed !== null) return <RequireAccess permission={closed}>{null}</RequireAccess>;
   // Ключ — вкладка: окно адреса и строка «закрываем» одной очереди не переезжают в другую.
   return tab === 'advertisers' ? (
     <FormsQueue key={tab} queue={ADVERTISER_FORMS} onTab={setTab} />
