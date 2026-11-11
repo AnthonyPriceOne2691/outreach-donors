@@ -22,6 +22,8 @@ HUNTER_MORE = f"{HUNTER_CARD} button[aria-expanded]"
 
 #: «i» у кнопки «Рассмотреть» в отчёте прогона: почему очередь не равна «Подходит».
 REVIEW_HINT = "Почему «Рассмотреть» не равно «Подходит»"
+#: «i» у строки пути доменов (11.11.2026): на виду — итог, разбивка — в окошке.
+FUNNEL_HINT = "Путь доменов: исключённые и проверенные раньше"
 
 
 def _open_card(name: str) -> Callable[[Any], None]:
@@ -103,6 +105,28 @@ def _limit_panel(norm: float, big: float) -> list[tuple[Any, ...]]:
     ]
 
 
+def _journal(norm: float, big: float, *, cards: bool = False) -> list[tuple[Any, ...]]:
+    """Точки журнала действий. `cards` — телефон: запись карточкой (11.11.2026), закреплённой
+    шапки с подписями колонок там нет — нет и её точки."""
+    head = [("подпись закреплённой шапки", "table thead th:text-is('Подробности')", norm)]
+    return [
+        ("заголовок экрана", "h3", big),
+        ("подпись поля фильтра", ".mantine-InputWrapper-label", norm),
+        ("пояснение под полем", ".mantine-InputWrapper-description", norm),
+        ("сколько записей", "p:has-text('новые сверху')", norm),
+        ("время записи", "table tbody td:first-child p", norm),
+        ("автор", "table tbody td:nth-child(2) p", norm),
+        ("действие", "table tbody td:nth-child(3) p", norm),
+        ("что сделано под действием", "table tbody td:nth-child(3) p + p", norm),
+        ("цель-ссылка", "table tbody td a", norm),
+        ("подробность", "table tbody .journalDetail", norm),
+        ("ключ подробности", "table tbody .journalDetail span", norm),
+        *([] if cards else head),
+        ("раскрытие подробностей", "table tbody button.journalMore", norm),
+        ("пункт меню", "nav a", norm),
+    ]
+
+
 def report_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     """Экраны и точки. `norm` — норма обычного текста, `big` — крупного."""
     return {
@@ -170,9 +194,11 @@ def report_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("статья расхода", "table tbody .cellName", norm),
                 ("провайдер статьи", "table tbody .mantine-Badge-label", norm),
                 ("пункт меню", "nav a", norm),
-                # Пояснения — в «i» (слово владельца 10.11.2026): у кнопки «Рассмотреть» и у
-                # заголовков карточек. Окошко ложится поверх экрана — эти точки последние.
+                # Пояснения — в «i» (слово владельца 10.11.2026): у кнопки «Рассмотреть», у
+                # строки пути доменов и у заголовков карточек. Окошко ложится поверх экрана —
+                # эти точки последние.
                 _card_probe("очередь и «Подходит»", REVIEW_HINT, "кто ждёт решения", norm),
+                _card_probe("разбивка пути доменов", FUNNEL_HINT, "исключено", norm),
                 _card_probe("пояснение порогов", "Какие пороги в отчёте", "Пороги этого", norm),
                 _card_probe("пояснение причин", "Кто исключён и кто не проверен", "гейт", norm),
             ],
@@ -185,21 +211,14 @@ def report_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         "journal": {
             "path": "/journal",
             "ready": ("heading", "Журнал действий"),
-            "probes": [
-                ("заголовок экрана", "h3", big),
-                ("подпись поля фильтра", ".mantine-InputWrapper-label", norm),
-                ("пояснение под полем", ".mantine-InputWrapper-description", norm),
-                ("сколько записей", "p:has-text('новые сверху')", norm),
-                ("время записи", "table tbody td:first-child p", norm),
-                ("автор", "table tbody td:nth-child(2) p", norm),
-                ("действие", "table tbody td:nth-child(3) p", norm),
-                ("что сделано под действием", "table tbody td:nth-child(3) p + p", norm),
-                ("цель-ссылка", "table tbody td a", norm),
-                ("подробность", "table tbody .journalDetail", norm),
-                ("ключ подробности", "table tbody .journalDetail span", norm),
-                ("подпись закреплённой шапки", "table thead th:text-is('Подробности')", norm),
-                ("раскрытие подробностей", "table tbody button.journalMore", norm),
-                ("пункт меню", "nav a", norm),
-            ],
+            "probes": _journal(norm, big),
+        },
+        # На телефоне запись — карточкой (11.11.2026): когда и кто строкой, под ними действие,
+        # цель и подробности — текст ложится на другие места полотна, чем в таблице.
+        "journal-phone": {
+            "path": "/journal",
+            "ready": ("heading", "Журнал действий"),
+            "viewport": {"width": 390, "height": 844},
+            "probes": _journal(norm, big, cards=True),
         },
     }

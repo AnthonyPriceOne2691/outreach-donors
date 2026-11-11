@@ -332,9 +332,9 @@
       "worst": "summary:34"
     },
     "backend/api/overview/schemas.py": {
-      "lines": 153,
-      "complexity": 3,
-      "worst": "of:115"
+      "lines": 167,
+      "complexity": 4,
+      "worst": "of:122"
     },
     "backend/api/rechecks/__init__.py": {
       "lines": 1,
@@ -412,9 +412,9 @@
       "worst": "of:117"
     },
     "backend/api/runs/routes.py": {
-      "lines": 384,
+      "lines": 389,
       "complexity": 4,
-      "worst": "refuse_over_budget:126"
+      "worst": "refuse_over_budget:131"
     },
     "backend/api/runs/schemas.py": {
       "lines": 390,
@@ -1522,9 +1522,9 @@
       "worst": "after_decision:65"
     },
     "backend/features/crawl/judge_apply.py": {
-      "lines": 408,
+      "lines": 427,
       "complexity": 9,
-      "worst": "apply:346"
+      "worst": "apply:365"
     },
     "backend/features/crawl/judge_bands.py": {
       "lines": 68,
@@ -1582,12 +1582,12 @@
       "worst": "revert:159"
     },
     "backend/features/crawl/judge_rules.py": {
-      "lines": 331,
+      "lines": 360,
       "complexity": 6,
-      "worst": "_media:171"
+      "worst": "_media:182"
     },
     "backend/features/crawl/judge_store.py": {
-      "lines": 317,
+      "lines": 319,
       "complexity": 6,
       "worst": "_outdated:243"
     },
@@ -1637,9 +1637,9 @@
       "worst": "collect:68"
     },
     "backend/features/crawl/night.py": {
-      "lines": 500,
+      "lines": 497,
       "complexity": 7,
-      "worst": "order:193"
+      "worst": "order:189"
     },
     "backend/features/crawl/offer_state.py": {
       "lines": 187,
@@ -1772,9 +1772,9 @@
       "worst": "supplier_hosts:39"
     },
     "backend/features/crawl/targets.py": {
-      "lines": 144,
-      "complexity": 9,
-      "worst": "choose:66"
+      "lines": 168,
+      "complexity": 11,
+      "worst": "choose:78"
     },
     "backend/features/crawl/topic.py": {
       "lines": 193,
@@ -2382,9 +2382,9 @@
       "worst": "_of_stage:139"
     },
     "backend/features/ops/overview.py": {
-      "lines": 427,
-      "complexity": 5,
-      "worst": "overview:225"
+      "lines": 459,
+      "complexity": 6,
+      "worst": "overview:256"
     },
     "backend/features/ops/silence.py": {
       "lines": 385,
@@ -4057,9 +4057,9 @@
       "worst": "unbound_probes:37"
     },
     "scripts/ui_screens_reports.py": {
-      "lines": 206,
+      "lines": 225,
       "complexity": 2,
-      "worst": "open_hunter_details:51"
+      "worst": "open_hunter_details:53"
     },
     "scripts/ui_screens_runs.py": {
       "lines": 165,

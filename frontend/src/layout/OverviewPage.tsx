@@ -16,13 +16,9 @@ import { Link } from 'react-router-dom';
 import { refusalOf } from '../api/client';
 import { countryTitle, RUN_STATUSES } from '../api/labels';
 import { fetchOverview } from '../api/overview';
-import type {
-  LetterTransport,
-  OverviewDonors,
-  OverviewLetters,
-  OverviewView,
-  RunCard,
-} from '../api/types';
+import type { Overview } from '../api/overview';
+import type { CapBinding } from '../api/settings';
+import type { LetterTransport, OverviewDonors, OverviewLetters, RunCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { InfoHint } from '../components/InfoHint';
 import { Meter } from '../components/Meter';
@@ -243,50 +239,125 @@ function LastRunLine({ run }: { run: RunCard | null }) {
   );
 }
 
-/** Чей кап у полосы юнитов и где о ключе подробнее — в «i» у заголовка карточки (разбор экранов
- *  10.11.2026: строкой под полосой пояснение стояло на каждом заходе). Со ссылкой — окошком:
- *  до ссылки во всплывающей подсказке не дотянуться. Без права «Расход» вести некуда — значка нет. */
-function CapHint() {
+/** Упор юнитов: во что расход упрётся раньше и сколько до этого осталось — числами того же
+ *  счётчика, как их отдал сервер. */
+interface Wall {
+  binding: CapBinding;
+  left: number;
+  of: number;
+}
+
+/** Где осталось — начало строки: слова те же, что у сметы прогона («На ключе Ahrefs свободно…»,
+ *  «По нашему капу осталось…», `runs/BudgetVerdict`). */
+const LEFT_AT: Record<CapBinding, string> = {
+  key: 'На ключе осталось',
+  workspace: 'В пространстве Ahrefs осталось',
+  cap: 'По нашему капу осталось',
+};
+
+/** Что считает полоса — тот же счётчик, что в строке над ней. */
+const METER: Record<CapBinding, string> = {
+  key: 'Выбрано на ключе Ahrefs',
+  workspace: 'Выбрано в пространстве Ahrefs',
+  cap: 'Выбрано от нашего капа Ahrefs',
+};
+
+/** Чей это остаток и почему он не «кап минус наше» — в «i». Счётчики Ahrefs — по его последнему
+ *  ответу: главная провайдера не спрашивает, снимок ключа держат свежим сторож и «Расход». */
+const WALL_WHY: Record<CapBinding, string> = {
+  key:
+    '«На ключе осталось» — по счётчику самого ключа у Ahrefs, из его последнего ответа. Ключ ' +
+    'общий с соседней системой, её траты видны только в нём — поэтому осталось меньше, чем ' +
+    'лимит ключа минус наше.',
+  workspace:
+    '«В пространстве Ahrefs осталось» — по счётчику пространства, из последнего ответа Ahrefs: ' +
+    'он общий для всех его ключей, и раньше кончится он.',
+  cap:
+    '«По нашему капу осталось» — кап минус потраченное нами: раньше кончится он, а не лимит ' +
+    'ключа или пространства.',
+};
+
+/** Упор из ответа сводки; `null` — кап неизвестен, сервер старше экрана или назвал упор,
+ *  которого экран не знает: строки остатка и полосы тогда нет, а не «undefined осталось». */
+function wallOf(data: Overview): Wall | null {
+  const binding = data.ahrefs_binding ?? null;
+  const left = data.ahrefs_left ?? null;
+  const of = data.ahrefs_left_of ?? null;
+  if (binding === null || left === null || of === null || !(binding in LEFT_AT)) return null;
+  return { binding, left, of };
+}
+
+/** Чьи числа у юнитов — в «i» у заголовка карточки (разбор экранов 10.11.2026: строкой под
+ *  полосой пояснение стояло на каждом заходе). «Потрачено нами» — наш журнал, остаток — счётчик
+ *  того, во что упрёмся раньше; ключ общий с соседней системой, и без этих слов два числа
+ *  читались противоречием «Расходу» (проверка прода 10.11.2026). Окошком: текст длиннее
+ *  подсказки, а со ссылкой до неё во всплывающей не дотянуться. Ссылка — только с правом «Расход». */
+function UnitsHint({ wall }: { wall: Wall | null }) {
   const { can } = useSession();
-  if (!can('usage')) return null;
   return (
-    <InfoHint name="Чей кап у полосы юнитов" interactive width={280}>
-      <Text size="sm">
-        По нашему капу — он от ключа Ahrefs. Ключ, его цикл и остаток у провайдера — на экране{' '}
-        <Anchor component={Link} to="/usage" size="sm">
-          расхода
-        </Anchor>
-        .
-      </Text>
+    <InfoHint name="Чьи числа у юнитов Ahrefs" interactive width={300}>
+      <Stack gap={6}>
+        <Text size="sm">
+          «Потрачено нами» — по нашему журналу расхода: что списали запросы сервиса с начала цикла.
+        </Text>
+        {wall !== null && (
+          <Text size="sm">{WALL_WHY[wall.binding]} Полоса — сколько там выбрано.</Text>
+        )}
+        {can('usage') && (
+          <Text size="sm">
+            Ключ, его цикл и кап — на экране{' '}
+            <Anchor component={Link} to="/usage" size="sm">
+              расхода
+            </Anchor>
+            .
+          </Text>
+        )}
+      </Stack>
     </InfoHint>
   );
 }
 
-function RunSection({ data }: { data: OverviewView }) {
+/** Сколько осталось там, где кончится раньше, и полоса тех же двух чисел: «осталось M из L» —
+ *  выбрано L − M из L. Полоса не про наш расход: наше — строкой выше, а кончатся юниты там,
+ *  где выбрали все, кто делит счётчик. */
+function WallLine({ wall }: { wall: Wall }) {
   return (
-    <Section title="Прогон и расход" to="/run" toTitle="К прогонам" aside={<CapHint />}>
+    <>
+      {/* «Осталось из предела» — одна единица смысла: на телефоне строка не рвётся между ними. */}
+      <Text size="sm">
+        {LEFT_AT[wall.binding]}{' '}
+        <span style={{ whiteSpace: 'nowrap' }}>
+          <b>{formatNumber(wall.left)}</b> из {formatNumber(wall.of)}
+        </span>
+      </Text>
+      <Meter spent={wall.of - wall.left} cap={wall.of} label={METER[wall.binding]} />
+    </>
+  );
+}
+
+function RunSection({ data }: { data: Overview }) {
+  const wall = wallOf(data);
+  return (
+    <Section
+      title="Прогон и расход"
+      to="/run"
+      toTitle="К прогонам"
+      aside={<UnitsHint wall={wall} />}
+    >
       <Stack gap="md">
         <LastRunLine run={data.last_run} />
         <Stack gap={6} className="hairline" pt="md">
-          {/* «Потрачено из потолка» — одна единица смысла: на телефоне строка
-              рвалась между «из» и потолком (аудит 25.09.2026, №28). Период — цикл ключа
-              (16.10.2026): кап считает его, а не месяц, и выдача ниже — с первого числа. */}
+          {/* Наш расход — своим числом, без «из капа» (проверка прода 10.11.2026): «N из капа»
+              читалось остатком «кап минус N», а ключ общий, и осталось на нём меньше. Период —
+              цикл ключа (16.10.2026): кап считает его, а не месяц, и выдача ниже — с первого числа. */}
           <Text size="sm">
-            Юниты Ahrefs {data.ahrefs_by_key ? 'за цикл ключа, ' : ''}с{' '}
-            {formatDay(data.ahrefs_since)}:{' '}
-            <span style={{ whiteSpace: 'nowrap' }}>
-              <b>{formatNumber(data.ahrefs_units)}</b>
-              {data.ahrefs_cap === null
-                ? ' — кап неизвестен'
-                : ` из ${formatNumber(data.ahrefs_cap)}`}
-            </span>
+            Юниты Ahrefs — потрачено нами {data.ahrefs_by_key ? 'за цикл ключа, ' : ''}с{' '}
+            {formatDay(data.ahrefs_since)}: <b>{formatNumber(data.ahrefs_units)}</b>
           </Text>
-          {data.ahrefs_cap !== null && (
-            <Meter
-              spent={data.ahrefs_units}
-              cap={data.ahrefs_cap}
-              label="Юниты Ahrefs за цикл ключа"
-            />
+          {wall !== null && <WallLine wall={wall} />}
+          {/* Размер ключа неизвестен — ни остатка, ни полосы: своей строкой, а не хвостом числа. */}
+          {data.ahrefs_cap === null && (
+            <Text size="sm">Кап неизвестен: остаток считать не от чего</Text>
           )}
         </Stack>
         <Text size="sm">

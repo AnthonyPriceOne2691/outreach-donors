@@ -30,6 +30,13 @@
  *
  * **Почта и домен переносятся по швам** (`Seams`): почта учётки в 14,5rem рвалась на три
  * строки по дефису и посреди зоны — в последней оставалась одна буква.
+ *
+ * **На телефоне запись — карточкой** (`phoneCards`, проверка прода 10.11.2026: в окне 390 px от
+ * таблицы в 1 040 px были видны «Когда» и обрезанное «Кто», остальное — за краем, строки —
+ * высокие и пустые). Когда и кто — одной строкой, под ними действие, над чем и подробности с тем
+ * же «+N ещё». Подписей колонок в карточке нет: дата, почта, «прогон №27» и пары «ключ: значение»
+ * называют себя сами, а подпись над каждой растила бы карточку на треть. Ячейки, где в колонке
+ * стоит прочерк (`data-blank`), в карточке нет вовсе. Раскладка — в `glass.css` у `journalTable`.
  */
 
 import { Anchor, Button, Group, Table, Text } from '@mantine/core';
@@ -46,6 +53,7 @@ import type { Column } from '../components/ColumnsHead';
 import { Seams } from '../components/Seams';
 import { formatDateTime } from '../format';
 import { detailView } from './journalDetails';
+import type { DetailView } from './journalDetails';
 
 const COLUMNS: Column[] = [
   { title: 'Когда', width: '10rem' },
@@ -153,19 +161,28 @@ function Folded({ id, open, onFound, children }: FoldedProps) {
   );
 }
 
+/** Показать нечего — прочерк в колонке. В карточке телефона такой ячейки нет (`data-blank`):
+ *  прочерк под действием — строка пустого места на каждую запись. */
+function Dash() {
+  return (
+    <Text size="sm" c="dimmed">
+      —
+    </Text>
+  );
+}
+
+/** Подробностей нет: ни отклонения, ни итога, ни строк по запросу. */
+function noDetails({ alerts, face, more, folded }: DetailView): boolean {
+  return alerts.length + face.length + more.length + folded.length === 0;
+}
+
 /** Подробности записи: отклонение и итог — на виду, остальное — «+N ещё» продолжением итога. */
-function Details({ entry, skip }: { entry: JournalEntry; skip: ReadonlySet<string> }) {
+function Details({ view }: { view: DetailView }) {
   const [open, setOpen] = useState(false);
   const found = useCallback(() => setOpen(true), []);
   const restId = useId();
-  const { alerts, face, more, folded } = detailView(entry.details, skip);
-  if (alerts.length + face.length + more.length + folded.length === 0) {
-    return (
-      <Text size="sm" c="dimmed">
-        —
-      </Text>
-    );
-  }
+  const { alerts, face, more, folded } = view;
+  if (noDetails(view)) return <Dash />;
   const toggle = folded.length > 0 && (
     <MoreToggle
       count={folded.length}
@@ -211,6 +228,7 @@ function Row({ entry, emails }: { entry: JournalEntry; emails: ReadonlyMap<numbe
   const what = entry.details?.['действие'];
   const skip = new Set(['действие', ...(who.fromDetails ? ['кто'] : [])]);
   const target = targetParts(entry.target, emails);
+  const details = detailView(entry.details, skip);
   return (
     <Table.Tr>
       <Table.Td>
@@ -237,11 +255,9 @@ function Row({ entry, emails }: { entry: JournalEntry; emails: ReadonlyMap<numbe
           </Text>
         )}
       </Table.Td>
-      <Table.Td>
+      <Table.Td data-blank={target.length === 0 || undefined}>
         {target.length === 0 ? (
-          <Text size="sm" c="dimmed">
-            —
-          </Text>
+          <Dash />
         ) : (
           <Text size="sm">
             {target.map((part, index) => (
@@ -259,8 +275,8 @@ function Row({ entry, emails }: { entry: JournalEntry; emails: ReadonlyMap<numbe
           </Text>
         )}
       </Table.Td>
-      <Table.Td>
-        <Details entry={entry} skip={skip} />
+      <Table.Td data-blank={noDetails(details) || undefined}>
+        <Details view={details} />
       </Table.Td>
     </Table.Tr>
   );
@@ -279,7 +295,7 @@ export function JournalTable({ entries, emails, stale }: Props) {
     <Table.ScrollContainer
       minWidth={JOURNAL_MIN_WIDTH}
       type="native"
-      className="scrollSlim stickyTable"
+      className="scrollSlim stickyTable phoneCards"
     >
       <Table
         className="dataTable journalTable"

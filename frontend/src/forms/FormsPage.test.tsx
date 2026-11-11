@@ -154,7 +154,8 @@ describe('ручная очередь форм', () => {
   });
 
   it('оператор без права видит очередь, но не правит её', async () => {
-    await openForms({}, { ...(OPERATOR as object), permissions: ['view'] });
+    // Очередь доноров видна с правом этапа; без обоих этапов экрана нет вовсе (10.11.2026).
+    await openForms({}, { ...(OPERATOR as object), permissions: ['donors', 'view'] });
 
     expect(screen.getByText('form.example.test')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Вписать адрес' })).not.toBeInTheDocument();
@@ -173,7 +174,7 @@ describe('очередь форм: колонки и страницы', () => {
   });
 
   it('без права работать с очередью нет ни кнопок, ни их колонки', async () => {
-    await openForms({}, { ...(OPERATOR as object), permissions: ['view'] });
+    await openForms({}, { ...(OPERATOR as object), permissions: ['donors', 'view'] });
 
     expect(screen.queryByRole('columnheader', { name: 'Действия' })).not.toBeInTheDocument();
   });

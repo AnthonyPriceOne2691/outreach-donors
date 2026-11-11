@@ -138,9 +138,6 @@ async def test_the_advice_follows_the_donors_catalog_sign(session: AsyncSession)
     said = await after_decision(session, list(decided.values()))
 
     catalog, plain = said[decided[DONOR].id], said[decided[paper].id]
-    assert (catalog.advice, catalog.rule, catalog.words) == (
-        Advice.SKIP,
-        CATALOG_RULE,
-        CATALOG_WORDS,
-    )
+    assert (catalog.advice, catalog.rule) == (Advice.SKIP, CATALOG_RULE)
+    assert catalog.words == f"{CATALOG_WORDS}; правила: пишем, модель: не пишем"
     assert (plain.advice, plain.rule) == (Advice.UNCLEAR, "disagree")

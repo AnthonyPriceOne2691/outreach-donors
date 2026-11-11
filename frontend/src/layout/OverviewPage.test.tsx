@@ -41,6 +41,17 @@ async function openOverview(
   return recorded;
 }
 
+/** Сводка с упором юнитов: на ключе выбрано больше нашего — соседняя система на общем ключе. */
+const ON_KEY = {
+  ...OVERVIEW,
+  ahrefs_binding: 'key',
+  ahrefs_left: 39_000,
+  ahrefs_left_of: 100_000,
+};
+
+/** Имя «i» у заголовка «Прогон и расход». */
+const UNITS_HINT = 'Чьи числа у юнитов Ahrefs';
+
 /** Плашка тревоги по её заголовку. */
 async function alarmOf(title: string) {
   const alarm = (await screen.findByText(title)).closest<HTMLElement>('[role="alert"]');
@@ -313,45 +324,100 @@ describe('сводка на главной', () => {
     expect(screen.getAllByRole('link', { name: /^Рассмотреть/ })).toHaveLength(1);
   });
 
-  it('расход юнитов — полосой и словами, за цикл ключа', async () => {
-    await openOverview();
+  it('наш расход — своим числом, остаток — у того, во что упрёмся, и полоса — его же', async () => {
+    // Проверка прода 10.11.2026: «потрачено N из капа» читалось остатком «кап минус N», а на
+    // «Расходе» осталось меньше — ключ общий с соседней системой. Числа выдуманные.
+    await openOverview([], { body: ON_KEY });
 
-    // Кап — от ключа Ahrefs и на его цикл (16.10.2026): период назван, выдача — с первого.
-    const meter = await screen.findByRole('progressbar', { name: 'Юниты Ahrefs за цикл ключа' });
-    expect(meter).toHaveAttribute('aria-valuenow', String((42716 / 100000) * 100));
-    expect(screen.getByText('42 716')).toBeInTheDocument();
-    expect(screen.getByText(/Юниты Ahrefs за цикл ключа, с 21 октября/)).toBeInTheDocument();
+    // Период — цикл ключа (16.10.2026), выдача — с первого числа.
+    // Строка — из частей (число — жирным): ищется по началу, сверяется целиком.
+    expect(await screen.findByText(/^Юниты Ahrefs — потрачено нами/)).toHaveTextContent(
+      /^Юниты Ahrefs — потрачено нами за цикл ключа, с 21 октября: 42 716$/,
+    );
+    expect(screen.getByText(/^На ключе осталось/)).toHaveTextContent(
+      /^На ключе осталось 39 000 из 100 000$/,
+    );
+    // Полоса — те же два числа: выбрано на ключе 61 000 из 100 000, а не наши 42 716.
+    const meter = screen.getByRole('progressbar', { name: 'Выбрано на ключе Ahrefs' });
+    expect(meter).toHaveAttribute('aria-valuenow', '61');
+    expect(screen.queryByText(/42 716 из/)).toBeNull();
   });
 
-  it('чей кап у полосы и где о ключе подробнее — в «i» у заголовка, со ссылкой на расход', async () => {
+  it.each([
+    ['cap', 'По нашему капу осталось 3 000 из 15 000', 'Выбрано от нашего капа Ahrefs', '80'],
+    [
+      'workspace',
+      'В пространстве Ahrefs осталось 20 000 из 500 000',
+      'Выбрано в пространстве Ahrefs',
+      '96',
+    ],
+  ] as const)(
+    'упор «%s» назван своими словами и своими числами',
+    async (binding, said, name, at) => {
+      const [left, of] = binding === 'cap' ? [3_000, 15_000] : [20_000, 500_000];
+      await openOverview([], {
+        body: { ...ON_KEY, ahrefs_binding: binding, ahrefs_left: left, ahrefs_left_of: of },
+      });
+
+      expect(await screen.findByText(/осталось$/)).toHaveTextContent(said);
+      expect(screen.getByRole('progressbar', { name })).toHaveAttribute('aria-valuenow', at);
+    },
+  );
+
+  it('чьи числа у юнитов — в «i» у заголовка: наш журнал, счётчик ключа и общий ключ', async () => {
     // Разбор экранов 10.11.2026: строкой под полосой пояснение стояло на каждом заходе.
-    await openOverview();
-    await screen.findByRole('progressbar', { name: 'Юниты Ahrefs за цикл ключа' });
-    expect(screen.queryByText(/По нашему капу/)).not.toBeInTheDocument();
+    await openOverview([], { body: ON_KEY });
+    await screen.findByRole('progressbar', { name: 'Выбрано на ключе Ahrefs' });
+    expect(screen.queryByText(/соседней системой/)).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Чей кап у полосы юнитов' }));
+    await userEvent.click(screen.getByRole('button', { name: UNITS_HINT }));
 
-    expect(await screen.findByText(/По нашему капу — он от ключа Ahrefs/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'расхода' })).toHaveAttribute('href', '/usage');
+    const said = await screen.findByRole('dialog', { name: UNITS_HINT });
+    expect(said).toHaveTextContent('«Потрачено нами» — по нашему журналу расхода');
+    expect(said).toHaveTextContent(
+      '«На ключе осталось» — по счётчику самого ключа у Ahrefs, из его последнего ответа. Ключ общий с соседней системой',
+    );
+    expect(said).toHaveTextContent('Полоса — сколько там выбрано.');
+    expect(within(said).getByRole('link', { name: 'расхода' })).toHaveAttribute('href', '/usage');
   });
 
-  it('без права «Расход» значка у заголовка нет: вести некуда', async () => {
+  it('без права «Расход» пояснение то же, а ссылки нет: вести некуда', async () => {
     const permissions = ADMIN.permissions.filter((one) => one !== 'usage');
-    await openOverview([], { body: OVERVIEW }, { ...ADMIN, permissions });
+    await openOverview([], { body: ON_KEY }, { ...ADMIN, permissions });
 
-    await screen.findByRole('progressbar', { name: 'Юниты Ahrefs за цикл ключа' });
-    expect(
-      screen.queryByRole('button', { name: 'Чей кап у полосы юнитов' }),
-    ).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: UNITS_HINT }));
+
+    const said = await screen.findByRole('dialog', { name: UNITS_HINT });
+    expect(said).toHaveTextContent('Ключ общий с соседней системой');
+    expect(within(said).queryByRole('link')).toBeNull();
   });
 
-  it('кап неизвестен — без полосы и словами', async () => {
-    await openOverview([], { body: { ...OVERVIEW, ahrefs_cap: null } });
+  it('кап неизвестен — своей строкой, без остатка и полосы', async () => {
+    await openOverview([], {
+      body: { ...OVERVIEW, ahrefs_cap: null, ahrefs_binding: null, ahrefs_left: null },
+    });
 
-    expect(await screen.findByText(/— кап неизвестен/)).toBeInTheDocument();
     expect(
-      screen.queryByRole('progressbar', { name: 'Юниты Ahrefs за цикл ключа' }),
-    ).not.toBeInTheDocument();
+      await screen.findByText('Кап неизвестен: остаток считать не от чего'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/^Юниты Ahrefs — потрачено нами/)).toHaveTextContent(
+      /с 21 октября: 42 716$/,
+    );
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.queryByText(/осталось/)).toBeNull();
+  });
+
+  it.each([
+    // Поля упора появились 11.11.2026: сервер старше экрана их не шлёт.
+    ['полей упора в ответе нет', OVERVIEW],
+    ['упор назван словом, которого экран не знает', { ...ON_KEY, ahrefs_binding: 'ceiling' }],
+  ])('%s — наш расход без остатка и полосы, а не «undefined осталось»', async (_, body) => {
+    await openOverview([], { body });
+
+    expect(await screen.findByText(/потрачено нами за цикл ключа/)).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.queryByText(/осталось/)).toBeNull();
+    expect(screen.queryByText(/Кап неизвестен/)).toBeNull();
   });
 
   it('отказ сервера показан целиком, а не пустой главной', async () => {
