@@ -245,7 +245,7 @@ async def test_the_outcome_lands_in_the_first_row_and_changes_the_advice(
 async def test_unclear_twice_stays_with_the_human_and_is_not_asked_again(
     session: AsyncSession,
 ) -> None:
-    await _candidates(session, *_pending(SAMPLE[0]))
+    [candidate_id] = await _candidates(session, *_pending(SAMPLE[0]))
     models = Two(Model(unsure()), Model(unsure(300)))
 
     report = await _run(session, models)
@@ -257,9 +257,6 @@ async def test_unclear_twice_stays_with_the_human_and_is_not_asked_again(
         "disagree",
         "unclear",
     )
-    facts = LinkFacts.from_json(first.facts)
-    assert facts is not None
-    assert advise(facts).words.endswith(f"; второй круг (модель gpt-5): не понять — {DISPUTE}")
     # Нынешняя вторая модель пару уже судила: ни план, ни повтор «заново» её не спрашивают.
     plan = await plan_pass(session)
     assert (plan.ids, plan.fresh, plan.second) == (
@@ -269,6 +266,14 @@ async def test_unclear_twice_stays_with_the_human_and_is_not_asked_again(
     )
     await _run(session, models, again=True)
     assert models.calls == (1, 1)
+    # Под своим решением человек видит, что второй круг был и чем кончил.
+    candidate = await session.get(CandidateModel, candidate_id)
+    assert candidate is not None
+    candidate.confirmed = False
+    await session.flush()
+    said = (await judge_advice.after_decision(session, [candidate]))[candidate_id]
+    assert (said.advice, said.rule, said.model) == (Advice.UNCLEAR, "disagree", FIRST)
+    assert said.words == f"{DISPUTE}; второй круг (модель gpt-5): не понять — {DISPUTE}"
 
 
 async def test_the_same_text_is_not_paid_twice_by_the_second_model(session: AsyncSession) -> None:

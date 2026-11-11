@@ -932,9 +932,9 @@
       "worst": "—"
     },
     "backend/config/llm.py": {
-      "lines": 167,
+      "lines": 168,
       "complexity": 2,
-      "worst": "_unset_if_empty:108"
+      "worst": "_unset_if_empty:109"
     },
     "backend/config/observability.py": {
       "lines": 21,
@@ -1537,9 +1537,9 @@
       "worst": "_media:158"
     },
     "backend/features/crawl/judge_second.py": {
-      "lines": 384,
+      "lines": 386,
       "complexity": 7,
-      "worst": "settle:320"
+      "worst": "settle:322"
     },
     "backend/features/crawl/judge_store.py": {
       "lines": 204,
