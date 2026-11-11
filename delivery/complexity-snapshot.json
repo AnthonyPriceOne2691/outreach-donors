@@ -4007,7 +4007,7 @@
       "worst": "unbound_probes:37"
     },
     "scripts/ui_screens_reports.py": {
-      "lines": 210,
+      "lines": 225,
       "complexity": 2,
       "worst": "open_hunter_details:53"
     },

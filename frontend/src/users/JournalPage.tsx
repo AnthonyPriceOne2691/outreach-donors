@@ -186,10 +186,11 @@ function Results({
         </Alert>
       )}
       {/* Поле — у текста (кромка ячеек таблицы), а не у строки: переключателю на телефоне
-          нужна вся ширина карточки, с полем он переносил «›» на вторую строку. */}
+          нужна вся ширина карточки, с полем он переносил «›» на вторую строку. На телефоне
+          записи — карточками без поля ячейки (`phoneCards`, уже 48em), и текст встаёт с их края. */}
       <Box pt="xs" pb="sm">
         <Group justify="space-between" gap="sm" mih={COUNT_ROW}>
-          <Text size="sm" c="dimmed" px="md">
+          <Text size="sm" c="dimmed" px={{ base: 0, sm: 'md' }}>
             {countLine(view, filtered)}
           </Text>
           <PageSwitch label="Страницы журнала" page={page} pages={pages} onChange={onPage} />

@@ -1186,6 +1186,32 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
   overflow-wrap: anywhere;
 }
 
+/* Журнал на телефоне — карточкой (`phoneCards`, проверка прода 10.11.2026): в окне 390 px от
+   таблицы в 1 040 px были видны «Когда» и обрезанное «Кто», остальное — за краем, строки — в
+   высоту невидимых подробностей. Когда и кто — одной строкой карточки: дата — по своей ширине,
+   почта — остаток и переносится по швам. Под ними — действие, над чем и подробности. Ячейки с
+   прочерком (`data-blank`) в карточке нет: у входа и смены пароля нет ни цели, ни подробностей, и
+   два прочерка под действием — две пустые строки на запись. Двойной зазор подробностей нужен
+   колонке, в карточке его нет. Вес правил — выше общих у `phoneCards` ниже по файлу. */
+@media (max-width: 47.99em) {
+  .phoneCards table.journalTable tbody > tr > td:first-child {
+    grid-column: 1;
+  }
+
+  .phoneCards table.journalTable tbody > tr > td:nth-child(2) {
+    grid-column: 2;
+    order: 0;
+  }
+
+  .phoneCards table.journalTable tbody > tr > td:last-child {
+    padding-inline-start: 0;
+  }
+
+  .phoneCards table.journalTable tbody > tr > td[data-blank] {
+    display: none;
+  }
+}
+
 /* Кликабельная строка списка по умолчанию прозрачна: у карточки Mantine
    своя непрозрачная заливка, и строки очереди писем стояли белыми
    плашками поверх стекла (серыми в тёмной теме). */

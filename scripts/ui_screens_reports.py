@@ -105,6 +105,28 @@ def _limit_panel(norm: float, big: float) -> list[tuple[Any, ...]]:
     ]
 
 
+def _journal(norm: float, big: float, *, cards: bool = False) -> list[tuple[Any, ...]]:
+    """Точки журнала действий. `cards` — телефон: запись карточкой (11.11.2026), закреплённой
+    шапки с подписями колонок там нет — нет и её точки."""
+    head = [("подпись закреплённой шапки", "table thead th:text-is('Подробности')", norm)]
+    return [
+        ("заголовок экрана", "h3", big),
+        ("подпись поля фильтра", ".mantine-InputWrapper-label", norm),
+        ("пояснение под полем", ".mantine-InputWrapper-description", norm),
+        ("сколько записей", "p:has-text('новые сверху')", norm),
+        ("время записи", "table tbody td:first-child p", norm),
+        ("автор", "table tbody td:nth-child(2) p", norm),
+        ("действие", "table tbody td:nth-child(3) p", norm),
+        ("что сделано под действием", "table tbody td:nth-child(3) p + p", norm),
+        ("цель-ссылка", "table tbody td a", norm),
+        ("подробность", "table tbody .journalDetail", norm),
+        ("ключ подробности", "table tbody .journalDetail span", norm),
+        *([] if cards else head),
+        ("раскрытие подробностей", "table tbody button.journalMore", norm),
+        ("пункт меню", "nav a", norm),
+    ]
+
+
 def report_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     """Экраны и точки. `norm` — норма обычного текста, `big` — крупного."""
     return {
@@ -189,21 +211,14 @@ def report_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         "journal": {
             "path": "/journal",
             "ready": ("heading", "Журнал действий"),
-            "probes": [
-                ("заголовок экрана", "h3", big),
-                ("подпись поля фильтра", ".mantine-InputWrapper-label", norm),
-                ("пояснение под полем", ".mantine-InputWrapper-description", norm),
-                ("сколько записей", "p:has-text('новые сверху')", norm),
-                ("время записи", "table tbody td:first-child p", norm),
-                ("автор", "table tbody td:nth-child(2) p", norm),
-                ("действие", "table tbody td:nth-child(3) p", norm),
-                ("что сделано под действием", "table tbody td:nth-child(3) p + p", norm),
-                ("цель-ссылка", "table tbody td a", norm),
-                ("подробность", "table tbody .journalDetail", norm),
-                ("ключ подробности", "table tbody .journalDetail span", norm),
-                ("подпись закреплённой шапки", "table thead th:text-is('Подробности')", norm),
-                ("раскрытие подробностей", "table tbody button.journalMore", norm),
-                ("пункт меню", "nav a", norm),
-            ],
+            "probes": _journal(norm, big),
+        },
+        # На телефоне запись — карточкой (11.11.2026): когда и кто строкой, под ними действие,
+        # цель и подробности — текст ложится на другие места полотна, чем в таблице.
+        "journal-phone": {
+            "path": "/journal",
+            "ready": ("heading", "Журнал действий"),
+            "viewport": {"width": 390, "height": 844},
+            "probes": _journal(norm, big, cards=True),
         },
     }
