@@ -56,7 +56,7 @@ from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import MessageModel
 from backend.features.core.stages import SalesNotConnectedError
 from backend.features.crawl.niche import LINKS
-from backend.features.letters import mailbox
+from backend.features.letters import address_gate, mailbox
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import (
     NoSenderError,
@@ -198,25 +198,32 @@ async def send_queue(
 
     `automatic` — очередь отправляется сама (`autosend.py`): остановка на лимите говорит, что
     остальное уйдёт само. `paced` — проход автоотправки: только письма в окне получателя, по
-    порядку очереди, и с ящика — письмо за проход (`Paced`)."""
+    порядку очереди, и с ящика — письмо за проход (`Paced`). Адрес письма, собранного до
+    проверки адресов, спрашивается перед ним (`address_gate.queued_refusal`)."""
     repository = LetterRepository(session)
     queued = await repository.queued(stage=stage, audience=audience, limit=limit)
     ids = [row.message.id for row in queued if paced is None or row.message.id in paced.only]
     sending = Sending(session, transports)
     report = BatchReport()
-    for letter_id in ids:
-        sent = report.sent
-        with mailbox.resting(() if paced is None else paced.boxes()):
-            stop = await _send_one(
-                sending, letter_id, author_id, report, automatic or paced is not None
-            )
-        if stop is not None:
-            report.stopped = stop
-            break
-        if paced is not None and report.sent > sent:
-            letter = await session.get(MessageModel, letter_id)
-            if letter is not None and letter.sender_id is not None:
-                paced.took(letter.sender_id, letter_id)
+    async with address_gate.checker_of(session, stage) as checker:
+        for letter_id in ids:
+            sent = report.sent
+            # Очередь, собранная до проверки адресов: адрес спрашивается перед письмом.
+            held = checker and await address_gate.queued_refusal(session, checker, letter_id)
+            if held:
+                report.refused[held] += 1
+                continue
+            with mailbox.resting(() if paced is None else paced.boxes()):
+                stop = await _send_one(
+                    sending, letter_id, author_id, report, automatic or paced is not None
+                )
+            if stop is not None:
+                report.stopped = stop
+                break
+            if paced is not None and report.sent > sent:
+                letter = await session.get(MessageModel, letter_id)
+                if letter is not None and letter.sender_id is not None:
+                    paced.took(letter.sender_id, letter_id)
     # Вся очередь этапа и аудитории, а не её первые `limit`: остальное возьмёт следующая
     # пачка той же вкладки.
     report.left = await repository.queued_count(stage=stage, audience=audience)

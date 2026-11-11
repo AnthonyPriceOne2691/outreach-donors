@@ -15,14 +15,31 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
+from sqlalchemy.orm import aliased
 
 from backend.features.core.domain import Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
-from backend.features.core.models.donor import ContactModel
+from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.crawl.advertiser_rules import in_work
 from backend.features.letters import attempts
+
+
+def donor_geo_of(donor_host: Any) -> Any:
+    """Гео донора, на чьей площадке нашли ссылку, — колонкой к строке рекламодателя.
+
+    Площадка записана именем хоста, а не номером: ищем донора по домену.
+    Нет донора или гео — пусто, и письмо обходится без фразы про аудиторию.
+    """
+    donor_domain = aliased(DomainModel)
+    return (
+        select(DonorModel.geo)
+        .join(donor_domain, donor_domain.id == DonorModel.domain_id)
+        .where(donor_domain.host == func.lower(donor_host))
+        .limit(1)
+        .scalar_subquery()
+    )
 
 
 def advertiser_domains() -> Select[tuple[int]]:

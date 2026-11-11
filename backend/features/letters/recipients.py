@@ -50,7 +50,11 @@ from backend.features.letters import attempts, other_role
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.compose import FoundLink, NicheOffer
 from backend.features.letters.funnel import AdvertiserFunnel, Funnel
-from backend.features.letters.offer_addresses import advertiser_addresses, advertiser_domains
+from backend.features.letters.offer_addresses import (
+    advertiser_addresses,
+    advertiser_domains,
+    donor_geo_of,
+)
 from backend.features.runs.exclusions import not_writing, not_writing_reason, writable
 
 
@@ -95,22 +99,6 @@ def _filled(column: Any) -> ColumnElement[bool]:
 #: Любой запрос отбора: ступени стоп-листа и «уже писали» дописывают
 #: условия и не трогают набор колонок, поэтому тип сохраняется.
 _Query = TypeVar("_Query", bound=Select[Any])
-
-
-def donor_geo_of(donor_host: Any) -> Any:
-    """Гео донора, на чьей площадке нашли ссылку, — колонкой к строке рекламодателя.
-
-    Площадка записана именем хоста, а не номером: ищем донора по домену.
-    Нет донора или гео — пусто, и письмо обходится без фразы про аудиторию.
-    """
-    donor_domain = aliased(DomainModel)
-    return (
-        select(DonorModel.geo)
-        .join(donor_domain, donor_domain.id == DonorModel.domain_id)
-        .where(donor_domain.host == func.lower(donor_host))
-        .limit(1)
-        .scalar_subquery()
-    )
 
 
 class Recipients:
@@ -442,15 +430,15 @@ class Recipients:
             **await self._last_steps(not_suppressed, Stage.ADVERTISERS),
         )
 
-    async def advertiser_candidates(
-        self, *, limit: int, now: datetime | None = None
-    ) -> list[Candidate]:
-        """Рекламодатели, которым можно написать, по одному адресу на домен.
+    async def picks(self, stage: Stage, run_ids: Sequence[int] = ()) -> Select[Any]:
+        """Адрес первого письма на каждого адресата этапа — выбор сборки: по нему экран
+        считает проверку адресов перед письмом (`address_gate.funnel_counts`)."""
+        if stage is Stage.DONORS:
+            return self._donor_picks(run_ids)
+        return await self._advertiser_picks()
 
-        Сначала самые доказательные: балл, потом число наших доноров,
-        на которых он размещается. Если письма за раз кончатся на середине,
-        они кончатся на сомнительных, а не на случайных.
-        """
+    async def _advertiser_picks(self, now: datetime | None = None) -> Select[Any]:
+        """Один адрес на рекламодателя, которому можно писать, — как `_donor_picks`."""
         inner = (
             advertiser_addresses(
                 AdvertiserModel.points.label("points"),
@@ -467,9 +455,18 @@ class Recipients:
         suppliers = await supplier_hosts(self._session)
         inner = self._fresh_price(inner, now or datetime.now(UTC), suppliers)
         inner = self._not_suppressed(inner, Stage.ADVERTISERS)
-        inner = self._not_written(inner)
+        return self._not_written(inner)
 
-        picked = inner.subquery()
+    async def advertiser_candidates(
+        self, *, limit: int, now: datetime | None = None
+    ) -> list[Candidate]:
+        """Рекламодатели, которым можно написать, по одному адресу на домен.
+
+        Сначала самые доказательные: балл, потом число наших доноров,
+        на которых он размещается. Если письма за раз кончатся на середине,
+        они кончатся на сомнительных, а не на случайных.
+        """
+        picked = (await self._advertiser_picks(now)).subquery()
         rows = await self._session.execute(
             select(picked)
             .order_by(picked.c.points.desc(), picked.c.donors.desc(), picked.c.domain_id)

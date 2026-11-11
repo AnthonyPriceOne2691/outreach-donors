@@ -396,6 +396,16 @@ def _no_topic_model_unasked(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_address_check_unasked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Сборка писем в тестах не проверяет адреса у Hunter, пока тест сам этого не попросил:
+    рубильник проверки перед первым письмом включён по умолчанию (`config/contacts.py`), и без
+    этой строки каждая сборка в тестах шла бы к проверяльщику — в CI без ключа это отказ «ключ
+    не задан» и ни одного письма, а с ключом из `.env` разработчика — платный вызов. Тесты
+    проверки включают её сами и подставляют проверяльщика (`tests/test_address_check*.py`)."""
+    monkeypatch.setattr("backend.config.contacts.VERIFY_BEFORE_LETTER", {})
+
+
+@pytest.fixture(autouse=True)
 def _no_sales_notice_in_a_real_queue(monkeypatch: pytest.MonkeyPatch) -> None:
     """Сообщение о черновике продаж из теста не встаёт в очередь из настроек: Redis
     по умолчанию — общий, и чужой воркер отправил бы его своим ботом по своей базе.

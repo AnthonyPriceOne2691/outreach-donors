@@ -28,13 +28,14 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Protocol
 
-from sqlalchemy import ColumnElement, and_, func, select, update
+from sqlalchemy import ColumnElement, and_, case, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from backend.config import contacts as cfg
 from backend.features.contacts import attempts
+from backend.features.contacts.address_check import found_mark
 from backend.features.contacts.ladder import LadderResult
 from backend.features.core.domain import ContactSource, ContactStatus, DonorStatus, Stage
 from backend.features.core.models.domain import DomainModel
@@ -242,7 +243,12 @@ async def save_addresses(
     """Записать найденные адреса. Общее у обеих очередей: адрес
     принадлежит домену, а не роли, в которой он выступает."""
     payload = [
-        {"domain_id": ids[r.host], "email": r.contact.email, "source": r.contact.source}
+        {
+            "domain_id": ids[r.host],
+            "email": r.contact.email,
+            "source": r.contact.source,
+            **found_mark(r.contact),
+        }
         for r in results
         if r.contact is not None and r.host in ids
     ]
@@ -251,11 +257,17 @@ async def save_addresses(
 
     statement = insert(ContactModel).values(payload)
     # Тот же адрес на том же домене — не ошибка: его мог найти прошлый
-    # прогон. Обновляем источник: он мог стать дешевле.
+    # прогон. Обновляем источник: он мог стать дешевле. Отметка проверки платного поиска
+    # ложится, только если у адреса отметки нет: мёртвый адрес она не воскрешает.
+    unmarked = ContactModel.verification_status.is_(None)
+    kept = {
+        name: case((unmarked, statement.excluded[name]), else_=getattr(ContactModel, name))
+        for name in ("verification_status", "verified_at")
+    }
     await session.execute(
         statement.on_conflict_do_update(
             index_elements=["domain_id", "email"],
-            set_={"source": statement.excluded["source"]},
+            set_={"source": statement.excluded["source"], **kept},
         )
     )
     return len(payload)

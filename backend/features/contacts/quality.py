@@ -17,6 +17,7 @@ import re
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 
 from backend.features.contacts.extract import EMAIL_RE, ascii_domain
 from backend.features.contacts.known_addresses import FREE_MAILBOX_DOMAINS, ROLE_LOCAL_PARTS
@@ -190,6 +191,9 @@ class Candidate:
     #: прямо. Такой адрес бывает обычной фразой, сложившейся в правдоподобный
     #: адрес, и прямой адрес побеждает его всегда (`best`).
     guessed: bool = False
+    #: Проверка адреса, которую платный сервис сделал сам и отдал вместе с адресом: слово и
+    #: день. По ней адрес перед первым письмом повторно не проверяется (`address_check.py`).
+    verified: tuple[str, date] | None = None
 
     @property
     def local_part(self) -> str:
