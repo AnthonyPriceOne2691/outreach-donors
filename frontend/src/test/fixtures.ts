@@ -150,6 +150,10 @@ export const PROMOTE_ROUTES: Record<string, Answer> = {
       why: null,
     },
   },
+  // Числа советов судьи над очередью спорных (`JudgeApply`): очередь пуста — строки нет.
+  'GET /api/advertisers/judge-apply': {
+    body: { waiting: 0, skip: 0, write: 0, waiting_dr: 0, unclear: 0, stale: 0, without: 0 },
+  },
   'GET /api/advertisers/promotion': {
     body: { ready: 0, fresh: 0, advertisers: 0, with_address: 0 },
   },

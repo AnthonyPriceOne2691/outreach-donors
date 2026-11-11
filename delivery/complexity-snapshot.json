@@ -21,6 +21,16 @@
       "complexity": 3,
       "worst": "form_queue:37"
     },
+    "backend/api/advertisers/judge_apply.py": {
+      "lines": 150,
+      "complexity": 12,
+      "worst": "apply_advice:83"
+    },
+    "backend/api/advertisers/judge_apply_schemas.py": {
+      "lines": 174,
+      "complexity": 4,
+      "worst": "of:78"
+    },
     "backend/api/advertisers/judge_pass.py": {
       "lines": 223,
       "complexity": 6,
@@ -47,14 +57,14 @@
       "worst": "accepted:137"
     },
     "backend/api/advertisers/routes.py": {
-      "lines": 391,
+      "lines": 393,
       "complexity": 5,
-      "worst": "decide:136"
+      "worst": "decide:137"
     },
     "backend/api/advertisers/schemas.py": {
-      "lines": 364,
+      "lines": 369,
       "complexity": 3,
-      "worst": "of:80"
+      "worst": "of:84"
     },
     "backend/api/agent/__init__.py": {
       "lines": 1,
@@ -992,9 +1002,9 @@
       "worst": "check:51"
     },
     "backend/features/access/journal.py": {
-      "lines": 299,
+      "lines": 306,
       "complexity": 10,
-      "worst": "_filters:246"
+      "worst": "_filters:253"
     },
     "backend/features/access/login.py": {
       "lines": 104,
@@ -1267,7 +1277,7 @@
       "worst": "zone_name:80"
     },
     "backend/features/core/domain.py": {
-      "lines": 349,
+      "lines": 354,
       "complexity": 0,
       "worst": "—"
     },
@@ -1392,9 +1402,9 @@
       "worst": "tally_of:167"
     },
     "backend/features/crawl/accuracy.py": {
-      "lines": 220,
+      "lines": 236,
       "complexity": 5,
-      "worst": "share_of:116"
+      "worst": "share_of:123"
     },
     "backend/features/crawl/address_search.py": {
       "lines": 97,
@@ -1511,6 +1521,16 @@
       "complexity": 8,
       "worst": "after_decision:65"
     },
+    "backend/features/crawl/judge_apply.py": {
+      "lines": 411,
+      "complexity": 8,
+      "worst": "_by_table_in_force:240"
+    },
+    "backend/features/crawl/judge_batches.py": {
+      "lines": 189,
+      "complexity": 6,
+      "worst": "_fold:122"
+    },
     "backend/features/crawl/judge_client.py": {
       "lines": 314,
       "complexity": 6,
@@ -1526,18 +1546,33 @@
       "complexity": 8,
       "worst": "read:305"
     },
+    "backend/features/crawl/judge_mark.py": {
+      "lines": 64,
+      "complexity": 3,
+      "worst": "batch_of:42"
+    },
     "backend/features/crawl/judge_pass.py": {
       "lines": 456,
       "complexity": 11,
       "worst": "plan_pass:202"
     },
+    "backend/features/crawl/judge_plan.py": {
+      "lines": 244,
+      "complexity": 8,
+      "worst": "plan:228"
+    },
+    "backend/features/crawl/judge_revert.py": {
+      "lines": 217,
+      "complexity": 13,
+      "worst": "revert:159"
+    },
     "backend/features/crawl/judge_rules.py": {
-      "lines": 331,
+      "lines": 360,
       "complexity": 6,
-      "worst": "_media:171"
+      "worst": "_media:182"
     },
     "backend/features/crawl/judge_store.py": {
-      "lines": 317,
+      "lines": 319,
       "complexity": 6,
       "worst": "_outdated:243"
     },
@@ -1587,9 +1622,9 @@
       "worst": "collect:68"
     },
     "backend/features/crawl/night.py": {
-      "lines": 500,
+      "lines": 497,
       "complexity": 7,
-      "worst": "order:193"
+      "worst": "order:189"
     },
     "backend/features/crawl/offer_state.py": {
       "lines": 187,
@@ -1707,9 +1742,9 @@
       "worst": "cost_of:68"
     },
     "backend/features/crawl/strata.py": {
-      "lines": 155,
+      "lines": 156,
       "complexity": 9,
-      "worst": "strata:106"
+      "worst": "strata:107"
     },
     "backend/features/crawl/supplier_import.py": {
       "lines": 252,
@@ -1722,9 +1757,9 @@
       "worst": "supplier_hosts:39"
     },
     "backend/features/crawl/targets.py": {
-      "lines": 144,
-      "complexity": 9,
-      "worst": "choose:66"
+      "lines": 168,
+      "complexity": 11,
+      "worst": "choose:78"
     },
     "backend/features/crawl/topic.py": {
       "lines": 193,

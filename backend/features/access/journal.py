@@ -73,7 +73,14 @@ SALES_ACTIONS = frozenset(
 )
 
 #: Действия, которые бывают только на Этапе 2.
-ADVERTISER_ACTIONS = frozenset({AuditAction.ADVERTISER_REVIEWED, AuditAction.CRAWL_BACKLOG_DROPPED})
+ADVERTISER_ACTIONS = frozenset(
+    {
+        AuditAction.ADVERTISER_REVIEWED,
+        AuditAction.CRAWL_BACKLOG_DROPPED,
+        AuditAction.ADVERTISER_JUDGE_APPLIED,
+        AuditAction.ADVERTISER_JUDGE_REVERTED,
+    }
+)
 
 #: Этап продаж в подробностях записи — кодом (`AccessRepository.record`, настройки агента)
 #: или словом (сборка писем).

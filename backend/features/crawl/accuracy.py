@@ -37,6 +37,12 @@
 в очереди строкой, и пересчёт весов переносит решение на новую строку
 (`crawl/gate.py`). Доля поэтому меряет нынешние веса против решений человека:
 правка весов, снявшая ложного с «куплено», снимает его и из доли.
+
+**Решение судьи — не решение человека** (`human_answer`, 11.11.2026). Советы судьи применяются
+решениями в те же колонки (`crawl/judge_apply.py`), и в замере такая строка — нерешённая: её не
+смотрел человек. Иначе судья мерил бы сам себя: доля «не пишем» выросла бы на его же отказах, а
+порядок выборки дошёл бы до строк, которых никто не видел. Человек переиграл решение судьи —
+оно его, и в замер идёт как любое.
 """
 
 from __future__ import annotations
@@ -45,11 +51,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, case, func, null, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
+from backend.features.crawl.judge_mark import by_judge
 from backend.features.crawl.sample import SAMPLED, in_sample
 from backend.shared import stats
 
@@ -179,37 +186,46 @@ class ScoringCheck:
         return self.bought.within
 
 
-def _decisions(by: dict[bool | None, int]) -> Decisions:
-    return Decisions(total=sum(by.values()), write=by.get(True, 0), skip=by.get(False, 0))
+def human_answer() -> ColumnElement[bool | None]:
+    """Решение человека по строке кандидата — колонкой запроса: решение судьи (`judge_mark.py`) —
+    не его, и строка для замера не решена (шапка модуля)."""
+    result: ColumnElement[bool | None] = case((by_judge(), null()), else_=CandidateModel.confirmed)
+    return result
 
 
 async def scoring_check(session: AsyncSession) -> ScoringCheck:
-    """Решения человека по всем кандидатам — одним запросом по вердикту и решению; выборка
-    «куплено» и спорных — вторым, строками в её порядке (`in_turn`)."""
+    """Решения человека по всем кандидатам — одним запросом по вердикту; выборка «куплено» и
+    спорных — вторым, строками в её порядке (`in_turn`). Счёт — с условием, а не группой по
+    решению: решение человека — выражение, и группу по нему база сверяла бы с колонкой выдачи
+    по тексту с параметрами."""
+    human = ~by_judge()
     counted = await session.execute(
-        select(CandidateModel.verdict, CandidateModel.confirmed, func.count()).group_by(
-            CandidateModel.verdict, CandidateModel.confirmed
-        )
+        select(
+            CandidateModel.verdict,
+            func.count(),
+            func.count().filter(human, CandidateModel.confirmed.is_(True)),
+            func.count().filter(human, CandidateModel.confirmed.is_(False)),
+        ).group_by(CandidateModel.verdict)
     )
-    by_verdict: dict[Verdict, dict[bool | None, int]] = {}
-    for verdict, confirmed, number in counted.tuples():
-        by = by_verdict.setdefault(verdict, {})
-        by[confirmed] = by.get(confirmed, 0) + int(number)
+    by_verdict = {
+        verdict: Decisions(total=int(total), write=int(write), skip=int(skip))
+        for verdict, total, write, skip in counted.tuples()
+    }
     turns = await sample_turns(session)
     bought, bought_aside = in_turn(turns.get(Verdict.BOUGHT, []))
     disputed, disputed_aside = in_turn(turns.get(Verdict.PENDING, []))
     return ScoringCheck(
-        by_verdict={verdict: _decisions(by) for verdict, by in by_verdict.items()},
+        by_verdict=by_verdict,
         bought=share_of(bought, aside=bought_aside),
         disputed=share_of(disputed, aside=disputed_aside),
     )
 
 
 async def sample_turns(session: AsyncSession) -> dict[Verdict, list[bool | None]]:
-    """Решения строк выборки «куплено» и спорных — в порядке выборки, тем же, что у очереди
-    (`review.queue`: md5 домена, затем номер строки)."""
+    """Решения человека по строкам выборки «куплено» и спорных — в порядке выборки, тем же, что у
+    очереди (`review.queue`: md5 домена, затем номер строки). Строка, решённая судьёй, — `None`."""
     rows = await session.execute(
-        select(CandidateModel.verdict, CandidateModel.confirmed)
+        select(CandidateModel.verdict, human_answer())
         .where(CandidateModel.verdict.in_(SAMPLED), in_sample())
         .order_by(func.md5(CandidateModel.target_root), CandidateModel.id)
     )

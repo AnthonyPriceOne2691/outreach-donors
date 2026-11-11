@@ -58,6 +58,10 @@ export const AUDIT_ACTIONS: Record<AuditAction, string> = {
   hunter_cap_changed: 'Потолок проверок адреса изменён',
   // Очередь загрузки обхода снята — доноры, загруженные списком, в обход не пойдут; сколько — в подробностях.
   crawl_backlog_dropped: 'Очередь загрузки обхода снята',
+  // Советы судьи рекламодателей легли решениями — порция партии: полоса и сколько пар, в подробностях.
+  advertiser_judge_applied: 'Советы судьи применены',
+  // Партия советов судьи откатана: сколько пар вернулось в очередь проверки — в подробностях.
+  advertiser_judge_reverted: 'Партия советов судьи откатана',
 };
 
 /** Действия этапа продаж: без права «Продажи» их нет ни в журнале, ни в фильтре (П2). */
@@ -71,6 +75,8 @@ export const SALES_ACTIONS: ReadonlySet<string> = new Set<AuditAction>([
 export const ADVERTISER_ACTIONS: ReadonlySet<string> = new Set<AuditAction>([
   'advertiser_reviewed',
   'crawl_backlog_dropped',
+  'advertiser_judge_applied',
+  'advertiser_judge_reverted',
 ]);
 
 /** Подпись действия в фильтре: у общих «Правки» и «Запуска» — что под ними бывает. */
@@ -113,6 +119,8 @@ const TARGETS: Record<string, { noun: string; path?: (id: string) => string; bar
   job: { noun: 'задача в очереди', bare: true },
   crawl: { noun: 'обход' },
   candidate: { noun: 'кандидат в рекламодатели' },
+  // Партия решений по советам судьи (`crawl/judge_batches.py`): имя партии — полоса и время начала.
+  judge_batch: { noun: 'партия советов судьи' },
   advertiser: { noun: 'рекламодатель' },
   domain: { noun: 'домен' },
   suppression: { noun: 'запись стоп-листа' },
@@ -232,6 +240,8 @@ const VALUE_WORDS: Record<string, Record<string, string>> = {
     Object.entries(JUDGE_ADVICE).map(([code, advice]) => [code, advice.title]),
   ),
   этап: { donors: 'доноры', advertisers: 'рекламодатели', sales: 'продажи' },
+  // Полоса партии советов судьи: какой совет лёг решением.
+  полоса: { skip: 'не пишем', write: 'пишем' },
   причина: SUPPRESSION_WORDS,
   'была причина': SUPPRESSION_WORDS,
   role: ROLE_TITLES,

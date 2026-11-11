@@ -11,6 +11,7 @@ from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.crawl.accuracy import FALSE_LIMIT, Decisions, ScoringCheck, Share, Within
 from backend.features.crawl.judge_advice import JudgeAdvice
+from backend.features.crawl.judge_mark import batch_of
 from backend.features.crawl.niche import NicheRow
 from backend.features.crawl.reason_words import shown_reasons
 from backend.features.crawl.review import MAX_PAGE_SIZE, PAGE_SIZE, QueueFacets, QueueFilter
@@ -71,6 +72,9 @@ class CandidateCard(BaseModel):
     confirmed: bool | None = None
     decided_by: str | None = None
     decided_at: datetime | None = None
+    #: Решение поставлено по совету судьи, а не человеком (`crawl/judge_apply.py`): экран говорит
+    #: «решил судья», а метку партии из `decided_by` не разбирает.
+    by_judge: bool = False
     #: Ответ на решение: что сказать человеку рядом с ним — «рекламодатель уже ответил».
     warning: str | None = None
     #: Совет судьи — только после решения человека; до решения — пусто.
@@ -101,6 +105,7 @@ class CandidateCard(BaseModel):
             confirmed=row.confirmed,
             decided_by=row.decided_by,
             decided_at=row.decided_at,
+            by_judge=batch_of(row.decided_by) is not None,
             judge=JudgeAdviceView.of(judge)
             if judge is not None and row.confirmed is not None
             else None,

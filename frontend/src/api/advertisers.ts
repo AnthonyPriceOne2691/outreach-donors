@@ -115,6 +115,8 @@ export interface JudgeAdvice {
 /** Строка очереди проверки: кандидат и, после решения человека, совет судьи. */
 export interface ReviewRow extends CandidateCard {
   judge?: JudgeAdvice | null;
+  /** Решение поставлено по совету судьи, а не человеком; нет поля — сервер старше. */
+  by_judge?: boolean;
   /** Пояснение причины по её словам («зона .org» — почему решает человек); нет — сервер старше. */
   reason_notes?: Record<string, string>;
 }

@@ -1,7 +1,7 @@
 """Донор-каталог у судьи рекламодателей: признак по сохранённым судам донора, пересчёт и новый суд.
 
-Решение владельца 11.11.2026: карточки донора-каталога — не рекламодатели, и спор «таблица — пишем,
-модель — не пишем» у такого донора — «не пишем». Каталог — не список доменов, а признак, который код
+Решение владельца 11.11.2026: карточки донора-каталога — не рекламодатели, и «пишем» у такого донора
+остаётся только явной рекламе на странице. Каталог — не список доменов, а признак, который код
 считает по судам донора: не меньше двадцати рассуженных пар когорты и не меньше 70 % карточек
 каталога среди них. Модель здесь — подставной транспорт: пересчёт её не зовёт вовсе.
 """
@@ -60,8 +60,12 @@ RANKED: dict[str, Any] = {
     "recommends": True,
     "verdict": "write",
 }
-#: Рекламная статья: таблица и модель согласны — «пишем».
+#: Статья зовёт купить у магазина: таблица и модель согласны — «пишем», раскрытия рекламы нет.
 AD: dict[str, Any] = {}
+#: Та же статья под раскрытием рекламы — явная реклама на странице.
+MARKED: dict[str, Any] = {"disclosure": "Sponsored by Grinder Shop"}
+#: Ссылка без признаков рекламы, а модель говорит «пишем»: у обычного издания — спор.
+PLAIN_LINK: dict[str, Any] = {"money_anchor": False, "calls_to_buy": False, "verdict": "write"}
 
 
 def _row(
@@ -219,21 +223,24 @@ async def test_the_sign_is_counted_inside_one_cohort(
 async def test_the_relabel_moves_rows_of_the_old_table_by_the_donors_sign(
     session: AsyncSession,
 ) -> None:
-    """Суды прежней таблицы — в новую без модели: спор у каталога и подборка уходят из «не понять»
-    в «не пишем», согласное «пишем» каталога остаётся, спор обычного издания — человеку."""
+    """Суды прежней таблицы — в новую без модели: у каталога «не понять» и «пишем» без явной рекламы
+    уходят в «не пишем», подборка — «не пишем» у любого донора, обычное издание — как было."""
     stamped = NOW - timedelta(days=5)
     old: dict[str, Any] = {"table": V5, "at": stamped}
+    unclear, write = ("unclear", "disagree"), ("write", "promoted")
     session.add_all(
         [
-            *_pairs(CATALOG, CARD, 17, **old),
-            _row(CATALOG, "disputed.example.test", DISPUTE, said=("unclear", "disagree"), **old),
+            *_pairs(CATALOG, CARD, 16, **old),
+            _row(CATALOG, "disputed.example.test", DISPUTE, said=unclear, **old),
             _row(
                 CATALOG, "ranked.example.test", RANKED, said=("unclear", "ranked_directory"), **old
             ),
-            _row(CATALOG, "advert.example.test", AD, said=("write", "promoted"), **old),
-            _row(PAPER, "disputed.example.test", DISPUTE, said=("unclear", "disagree"), **old),
+            _row(CATALOG, "advert.example.test", AD, said=write, **old),
+            _row(CATALOG, "marked.example.test", MARKED, said=("write", "paid_or_ad"), **old),
+            _row(PAPER, "disputed.example.test", DISPUTE, said=unclear, **old),
             _row(PAPER, "ranked.example.test", RANKED, said=("unclear", "ranked_directory"), **old),
-            _row(PAPER, "advert.example.test", AD, said=("write", "promoted"), **old),
+            _row(PAPER, "advert.example.test", AD, said=write, **old),
+            _row(PAPER, "marked.example.test", MARKED, said=("write", "paid_or_ad"), **old),
         ]
     )
     await session.flush()
@@ -241,37 +248,29 @@ async def test_the_relabel_moves_rows_of_the_old_table_by_the_donors_sign(
     moves = await relabel_moves(session)
 
     assert moves == {
-        ("skip", "skip"): 17,
+        ("skip", "skip"): 16,
         ("unclear", "skip"): 3,  # спор каталога и обе подборки
         ("unclear", "unclear"): 1,  # спор обычного издания
-        ("write", "write"): 2,
+        ("write", "skip"): 1,  # «пишем» каталога без явной рекламы
+        ("write", "write"): 3,  # явная реклама каталога и оба «пишем» обычного издания
     }
     assert await _stamps(session, CATALOG, "disputed.example.test") == ("unclear", "disagree", V5)
 
     changed = await relabel(session)
 
-    assert changed == 23
-    assert await _stamps(session, CATALOG, "disputed.example.test") == (
-        "skip",
-        CATALOG_RULE,
-        RULES_VERSION,
-    )
-    for donor in (CATALOG, PAPER):
-        assert await _stamps(session, donor, "ranked.example.test") == (
-            "skip",
-            "ranked_directory",
-            RULES_VERSION,
-        )
-        assert await _stamps(session, donor, "advert.example.test") == (
-            "write",
-            "promoted",
-            RULES_VERSION,
-        )
-    assert await _stamps(session, PAPER, "disputed.example.test") == (
-        "unclear",
-        "disagree",
-        RULES_VERSION,
-    )
+    now = {
+        (CATALOG, "disputed.example.test"): ("skip", CATALOG_RULE),
+        (CATALOG, "advert.example.test"): ("skip", CATALOG_RULE),
+        (CATALOG, "marked.example.test"): ("write", "paid_or_ad"),
+        (CATALOG, "ranked.example.test"): ("skip", "ranked_directory"),
+        (PAPER, "disputed.example.test"): ("unclear", "disagree"),
+        (PAPER, "advert.example.test"): ("write", "promoted"),
+        (PAPER, "marked.example.test"): ("write", "paid_or_ad"),
+        (PAPER, "ranked.example.test"): ("skip", "ranked_directory"),
+    }
+    assert changed == 24
+    for (donor, target), said in now.items():
+        assert await _stamps(session, donor, target) == (*said, RULES_VERSION), (donor, target)
     # Срок фактов — их, а не пересчёта; второй пересчёт переписывать нечего.
     ages = await session.scalars(select(AdvertiserJudgementModel.updated_at).distinct())
     assert ages.all() == [stamped]
@@ -281,14 +280,18 @@ async def test_the_relabel_moves_rows_of_the_old_table_by_the_donors_sign(
 
 async def test_the_relabel_follows_the_sign_on_rows_of_this_table(session: AsyncSession) -> None:
     """Признак живой: донор набрал пары и стал каталогом — совет, поставленный до этого нынешней же
-    таблицей, пересчёт ставит заново; перестал им быть — спор возвращается человеку."""
-    session.add_all(
-        [
-            *_pairs(CATALOG, CARD, 18),
-            _row(CATALOG, "disputed.example.test", DISPUTE, said=("unclear", "disagree")),
-            _row(PAPER, "disputed.example.test", DISPUTE, said=("unclear", "disagree")),
-        ]
-    )
+    таблицей, пересчёт ставит заново, и не только спору: «пишем» без явной рекламы и «не понять»
+    каталогу не положены. Перестал быть каталогом — советы возвращаются."""
+    plain = {
+        "disputed.example.test": (DISPUTE, ("unclear", "disagree")),
+        "advert.example.test": (AD, ("write", "promoted")),
+        "plain-link.example.test": (PLAIN_LINK, ("unclear", "disagree")),
+    }
+    for donor in (CATALOG, PAPER):
+        session.add_all(
+            _row(donor, target, facts, said=said) for target, (facts, said) in plain.items()
+        )
+    session.add_all(_pairs(CATALOG, CARD, 16))
     await session.flush()
     # Девятнадцать пар — признака ещё нет: строки нынешней таблицы на месте.
     assert await relabel_moves(session) == {}
@@ -297,31 +300,27 @@ async def test_the_relabel_follows_the_sign_on_rows_of_this_table(session: Async
     session.add(_row(CATALOG, "twentieth.example.test", CARD))
     await session.flush()
 
-    assert await relabel_moves(session) == {("unclear", "skip"): 1}
-    assert await relabel(session) == 1
-    assert await _stamps(session, CATALOG, "disputed.example.test") == (
-        "skip",
-        CATALOG_RULE,
-        RULES_VERSION,
-    )
-    assert await _stamps(session, PAPER, "disputed.example.test") == (
-        "unclear",
-        "disagree",
-        RULES_VERSION,
-    )
+    assert await relabel_moves(session) == {("unclear", "skip"): 2, ("write", "skip"): 1}
+    assert await relabel(session) == 3
+    at_catalog = {
+        "disputed.example.test": ("skip", CATALOG_RULE),
+        "advert.example.test": ("skip", CATALOG_RULE),
+        "plain-link.example.test": ("skip", "no_signs"),  # «не пишем» таблицы — её правилом
+    }
+    for target, said in at_catalog.items():
+        assert await _stamps(session, CATALOG, target) == (*said, RULES_VERSION), target
+    for target, (_, said) in plain.items():
+        assert await _stamps(session, PAPER, target) == (*said, RULES_VERSION), target
     assert await relabel(session) == 0
 
-    # Карточек стало меньше 70 %: 19 из 28.
-    session.add_all(_pairs(CATALOG, AD, 8, name="ad"))
+    # Карточек стало меньше 70 %: 17 из 29.
+    session.add_all(_pairs(CATALOG, AD, 9, name="ad"))
     await session.flush()
 
-    assert await relabel_moves(session) == {("skip", "unclear"): 1}
-    assert await relabel(session) == 1
-    assert await _stamps(session, CATALOG, "disputed.example.test") == (
-        "unclear",
-        "disagree",
-        RULES_VERSION,
-    )
+    assert await relabel_moves(session) == {("skip", "unclear"): 2, ("skip", "write"): 1}
+    assert await relabel(session) == 3
+    for target, (_, said) in plain.items():
+        assert await _stamps(session, CATALOG, target) == (*said, RULES_VERSION), target
 
 
 async def test_the_relabel_of_named_rows_counts_the_sign_over_all_the_donors_rows(
@@ -372,11 +371,22 @@ async def test_a_new_judgement_at_a_catalog_donor_gets_the_advice_by_the_sign(
     assert await _stamps(session, CATALOG, LINK.target) == ("skip", CATALOG_RULE, RULES_VERSION)
 
 
-@pytest.mark.parametrize("answer", [AD, RANKED])
-async def test_a_catalog_donor_keeps_an_agreed_write_and_skips_a_ranked_card(
-    session: AsyncSession, answer: dict[str, Any]
+@pytest.mark.parametrize(
+    ("answer", "advice", "rule"),
+    [
+        (
+            AD,
+            Advice.SKIP,
+            CATALOG_RULE,
+        ),  # и согласное «пишем» — «не пишем»: рекламы на странице нет
+        (MARKED, Advice.WRITE, "paid_or_ad"),  # раскрытие рекламы — явная реклама
+        (RANKED, Advice.SKIP, "ranked_directory"),
+    ],
+)
+async def test_a_catalog_donor_is_written_to_only_for_an_explicit_ad(
+    session: AsyncSession, answer: dict[str, Any], advice: Advice, rule: str
 ) -> None:
-    """Рекламная статья бывает и у каталога: согласное «пишем» остаётся. Подборка — «не пишем»."""
+    """У каталога «пишем» — только явной рекламе на странице; подборка — «не пишем» своим правилом."""
     session.add_all(_pairs(CATALOG, CARD, 20))
     await session.flush()
 
@@ -384,8 +394,8 @@ async def test_a_catalog_donor_keeps_an_agreed_write_and_skips_a_ranked_card(
         session, _case(CATALOG), SEEN, client=client_of(Model(facts_answer(**answer)))
     )
 
-    expected = (Advice.WRITE, "promoted") if answer is AD else (Advice.SKIP, "ranked_directory")
-    assert (judged.advice, judged.rule) == expected
+    assert (judged.advice, judged.rule) == (advice, rule)
+    assert await _stamps(session, CATALOG, LINK.target) == (advice.value, rule, RULES_VERSION)
 
 
 async def test_a_donor_without_enough_judgements_has_no_sign_yet(session: AsyncSession) -> None:
