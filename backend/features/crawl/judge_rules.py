@@ -23,6 +23,12 @@
 пишем» на живой модели верен через раз: сайт домена похож на издание, а ссылка его продаёт. Такая строка
 остаётся человеку: так теряется меньше рекламодателей, а цена — несколько лишних строк в очереди.
 Три правила ответ вообще не отменяет (`FIRM`).
+
+**Второй круг — последним шагом** (11.11.2026, `judge_second.py`). «Не понять» первого круга
+перепроверяет вторая, более сильная модель: тот же текст, та же подсказка, эта же таблица. Её исход
+лежит в фактах строки первой модели (`judge_facts.SECOND_KEYS`): решила — совет её (`SECOND_RULE`),
+тоже не решила — «не понять» остаётся человеку, и в словах видно, что второй круг был. Первый круг
+решил сам — исход второго не нужен.
 """
 
 from __future__ import annotations
@@ -230,6 +236,10 @@ RULES: tuple[Rule, ...] = (
 FIRM = frozenset({"free_directory", "ranked_directory", "unproven"})
 
 
+#: Правило совета, который поставил второй круг: ключ строки суда, в таблице его нет.
+SECOND_RULE = "second_round"
+
+
 @dataclass(frozen=True, slots=True)
 class Ruled:
     """Совет по фактам: какое правило его поставило и его слова."""
@@ -247,8 +257,29 @@ def _by_table(facts: LinkFacts, rules: tuple[Rule, ...]) -> Ruled:
     raise AssertionError("последнее правило таблицы подходит всегда")  # pragma: no cover
 
 
+def _second(ruled: Ruled, facts: LinkFacts) -> Ruled:
+    """Последний шаг совета — исход второго круга (шапка модуля): первый круг не решил, а вторая
+    модель эту пару судила. Решила — совет её, словами обоих кругов; тоже не решила — «не понять»,
+    и видно, что второй круг был."""
+    if ruled.advice is not Advice.UNCLEAR or facts.second_advice not in tuple(Advice):
+        return ruled
+    again = Advice(facts.second_advice)
+    said = (
+        f"второй круг (модель {facts.second_model}): {ADVICE_WORDS[again]} — {facts.second_words}"
+    )
+    if again is Advice.UNCLEAR:
+        return Ruled(Advice.UNCLEAR, ruled.rule, f"{ruled.words}; {said}")
+    return Ruled(again, SECOND_RULE, f"{said}; первый круг: {ruled.words}")
+
+
 def advise(facts: LinkFacts, rules: tuple[Rule, ...] = RULES) -> Ruled:
-    """Совет таблицы, сверенный с общим ответом модели (шапка модуля)."""
+    """Совет по фактам строки суда: первый круг (`_first`) и последним шагом — исход второго круга,
+    если он у строки есть (`_second`)."""
+    return _second(_first(facts, rules), facts)
+
+
+def _first(facts: LinkFacts, rules: tuple[Rule, ...]) -> Ruled:
+    """Совет первого круга: таблица, сверенная с общим ответом модели (шапка модуля)."""
     ruled = _by_table(facts, rules)
     if facts.verdict not in (Advice.WRITE, Advice.SKIP) or ruled.rule in FIRM:
         return ruled

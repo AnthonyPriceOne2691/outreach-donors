@@ -23,6 +23,10 @@
 следующие пачки модель не зовут. Каждый суд — строка журнала расхода `advertiser_judge` сразу,
 короткой фиксацией: оборванный проход теряет только случай, который летел.
 
+**Второй круг** (`judge_second.py`, 11.11.2026). Задана вторая модель — «не понять» первого круга
+она перепроверяет тут же, по тому же тексту; пары, которым «не понять» сказано раньше, план берёт
+снова — только ради неё. В плане, смете и итоге второй круг — своей строкой.
+
 **Кнопка.** «Переобойти спорные» идёт этим же проходом: смета — `judge_estimate.py`, задача —
 `workers/judge_jobs.py`. Обходчик перезапускают — проход встаёт на границе пачки (`stop`), следующий
 запуск продолжает с места.
@@ -53,6 +57,7 @@ from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import AdvertiserJudgementModel, CandidateModel
 from backend.features.core.usage import LlmCapExceededError, OwnCap, ensure_llm_within_cap
 from backend.features.core.usage import record as record_usage
+from backend.features.crawl import judge_second
 from backend.features.crawl.judge import Case, Judged, Outcome, case_of, judge_seen
 from backend.features.crawl.judge_client import JudgeClient
 from backend.features.crawl.judge_rules import ADVICE_WORDS, Advice
@@ -130,11 +135,16 @@ class JudgePlan:
     #: `per_case` — по истории когорты; иначе — запасное число `FALLBACK_TOKENS`.
     from_history: bool
     cohort: Cohort
+    #: Второй круг для «не понять» (`judge_second.planned`); `None` — второй модели нет.
+    second: judge_second.SecondPlan | None = None
 
     @property
     def tokens(self) -> int:
-        """Верхняя граница: часть страниц не откроется, часть ответов — из кэша."""
-        return len(self.ids) * self.per_case
+        """Верхняя граница: часть страниц не откроется, часть ответов — из кэша. Пары, которые
+        ждут второго круга, первую модель не спрашивают: их суд — в кэше."""
+        if self.second is None:
+            return len(self.ids) * self.per_case
+        return (len(self.ids) - self.second.waiting) * self.per_case + self.second.tokens
 
 
 async def _per_case(session: AsyncSession, cohort: Cohort) -> tuple[int, bool]:
@@ -211,17 +221,20 @@ async def plan_pass(
     now: datetime | None = None,
 ) -> JudgePlan:
     """План прохода: кого, по порядку, сколько пропущено и почему, токены на случай. `per_donor` —
-    набор по донорам: не больше стольких новых случаев на донора (уже судимые не в счёт)."""
+    набор по донорам: не больше стольких новых случаев на донора (уже судимые не в счёт). Уже
+    судимая пара, которая ждёт второго круга (`judge_second.waiting`), — снова в плане."""
     cohort = cohort_of(model or llm_cfg.ADVERTISER_JUDGE_MODEL)
-    fresh = set() if again else await _fresh_pairs(session, cohort, now or datetime.now(UTC))
+    moment = now or datetime.now(UTC)
+    fresh = set() if again else await _fresh_pairs(session, cohort, moment)
+    waiting = await judge_second.waiting(session, cohort, moment)
     ids: list[int] = []
-    in_sample_count = skipped = without_page = 0
+    in_sample_count = skipped = without_page = for_second = 0
     by_verdict: Counter[str] = Counter()
     by_donor: Counter[str] = Counter()
     for candidate_id, verdict, donor, target, page, in_turn in await _candidates(
         session, verdicts, sample_only=sample_only, spread=per_donor is not None
     ):
-        if (donor, target) in fresh:
+        if (donor, target) in fresh and (donor, target) not in waiting:
             skipped += 1
             continue
         if not page:
@@ -232,10 +245,14 @@ async def plan_pass(
         if limit is not None and len(ids) >= limit:
             continue
         ids.append(candidate_id)
+        for_second += (donor, target) in waiting
         in_sample_count += in_turn
         by_verdict[Verdict(verdict).value] += 1
         by_donor[donor] += 1
     per_case, from_history = await _per_case(session, cohort)
+    second = await judge_second.planned(
+        session, cohort, waiting=for_second, new=len(ids) - for_second
+    )
     return JudgePlan(
         ids,
         in_sample_count,
@@ -246,6 +263,7 @@ async def plan_pass(
         per_case,
         from_history,
         cohort,
+        second,
     )
 
 
@@ -269,6 +287,8 @@ class PassReport:
     #: Уже судимы: свежий суд нынешней когорты, страницы не открывались (`JudgePlan.fresh`).
     judged_before: int = 0
     stopped: str = ""
+    #: Второй круг: сколько «не понять» ушло второй модели и что она решила.
+    second: judge_second.Tally = field(default_factory=judge_second.Tally)
 
     def add(self, judged: Judged) -> None:
         self.outcomes[judged.outcome.value] += 1
@@ -299,6 +319,7 @@ def report_lines(report: PassReport) -> list[str]:
     )
     if advice:
         lines.append(f"советы: {advice}")
+    lines += report.second.lines()
     if report.cached:
         lines.append(f"из кэша, без модели: {spaced(report.cached)}")
     if report.retried:
@@ -379,7 +400,8 @@ async def run_pass(
 ) -> PassReport:
     """Суд по плану — пачками; каждый суд — в базу сразу, со строкой журнала расхода. `stop` —
     просьба встать: спрашивается перед каждой пачкой."""
-    await ensure_model(client.model)
+    again = judge_second.of_pass(client, caps=within_caps, spend=_spend)
+    await ensure_model(client.model, *([again.model] if again is not None else []))
     report = PassReport(judged_before=plan.fresh)
     polite = Polite(crawl_cfg.DELAY_SEC if delay is None else delay)
     for start in range(0, len(plan.ids), CHUNK):
@@ -387,7 +409,7 @@ async def run_pass(
         if not report.stopped and stop is not None and stop():
             report.stopped = RESTARTING
         if not report.stopped:
-            await _chunk(session, chunk, client=client, http=http, polite=polite, report=report)
+            await _chunk(session, chunk, report, (client, again), http=http, polite=polite)
         else:
             report.left += len(chunk)
         if progress is not None:
@@ -396,16 +418,26 @@ async def run_pass(
     return report
 
 
+async def _spend(session: AsyncSession, tokens: int) -> None:
+    """Расход — строкой журнала сразу, короткой фиксацией вместе с судом: оборванный проход теряет
+    только вызов, который летел."""
+    if tokens:
+        record_usage(session, operation=JUDGE_OPERATION, units=tokens)
+    await session.commit()
+
+
 async def _chunk(
     session: AsyncSession,
     ids: Sequence[int],
+    report: PassReport,
+    judges: tuple[JudgeClient, judge_second.SecondRound | None],
     *,
-    client: JudgeClient,
     http: httpx.AsyncClient,
     polite: Polite,
-    report: PassReport,
 ) -> None:
-    """Пачка: потолки, страницы разом, затем суд по одному случаю с фиксацией каждого."""
+    """Пачка: потолки, страницы разом, затем суд по одному случаю с фиксацией каждого; «не понять»
+    — тут же второй модели, если она задана (`judge_second.SecondRound.settle`)."""
+    client, again = judges
     try:
         await within_caps(session)
     except LlmCapExceededError as exc:
@@ -419,12 +451,13 @@ async def _chunk(
     seen = await _seen_all(http, cases, polite)
     for at, (case_, view) in enumerate(zip(cases, seen, strict=True)):
         judged = await judge_seen(session, case_, view, client=client)
-        if judged.tokens:
-            record_usage(session, operation=JUDGE_OPERATION, units=judged.tokens)
-        await session.commit()
+        await _spend(session, judged.tokens)
+        if again is not None:
+            judged = await again.settle(session, case_, view, judged, report.second)
         report.add(judged)
-        if judged.no_credits:
-            report.stopped = NO_CREDITS
+        stopped = NO_CREDITS if judged.no_credits else again.stopped if again else ""
+        if stopped:
+            report.stopped = stopped
             report.left += len(cases) - at - 1
             return
 
@@ -445,6 +478,7 @@ def _log(report: PassReport) -> None:
             "left": report.left,
             "judged_before": report.judged_before,
             "stopped": report.stopped,
+            "second": report.second.fields(),
             "judged": report.outcomes.get(Outcome.JUDGED.value, 0),
         },
     )
