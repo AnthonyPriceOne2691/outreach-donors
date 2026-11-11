@@ -25,6 +25,7 @@
 только у решившего с правом `run`.
 
 **«Переобойти спорные»** (06.11.2026) — кнопкой, раньше только консоль: `judge_pass.py`.
+**«Применить советы судьи»** (11.11.2026) — полосами, с планом и откатом партии: `judge_apply.py`.
 
 **Весь раздел — под правом «Рекламодатели»** (решение 02.11.2026): условие стоит на
 роутере (`stage_access.STAGE_TWO`) и держит и подключённые к нему отчёты, панель и формы.
@@ -40,7 +41,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.advertisers import forms, judge_pass, panel, reports
+from backend.api.advertisers import forms, judge_apply, judge_pass, panel, reports
 from backend.api.advertisers.schemas import (
     CandidateCard,
     CandidatesView,
@@ -381,10 +382,11 @@ async def niche_collect(
     return NicheCollected(run_id=report.run_id, found=report.found, added=report.added)
 
 
-# --- список рекламодателей, отчёты (`reports.py`), ручная очередь форм (`forms.py`) и переобход
-# спорных (`judge_pass.py`) — тем же префиксом ---
+# --- список рекламодателей, отчёты (`reports.py`), ручная очередь форм (`forms.py`), переобход
+# спорных (`judge_pass.py`) и применение советов судьи (`judge_apply.py`) — тем же префиксом ---
 
 router.include_router(reports.router)
 router.include_router(judge_pass.router)
+router.include_router(judge_apply.router)
 router.include_router(panel.router)
 router.include_router(forms.router)

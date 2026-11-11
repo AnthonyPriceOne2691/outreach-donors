@@ -168,9 +168,16 @@ class TestWhoIsLetIn:
             for path, methods in api_app.openapi()["paths"].items()
             # Бизнесам ниши нужен свой рекламодатель и прогон — их таблица
             # маршрутов в tests/test_niche_advertisers.py; формам — рекламодатель
-            # с формой, их таблица в tests/test_advertiser_forms.py.
+            # с формой, их таблица в tests/test_advertiser_forms.py. Применению советов
+            # судьи нужны строки суда и два права разом — tests/test_api_advertiser_judge_apply.py.
             if path.startswith("/api/advertisers")
-            and not path.startswith(("/api/advertisers/niche", "/api/advertisers/forms"))
+            and not path.startswith(
+                (
+                    "/api/advertisers/niche",
+                    "/api/advertisers/forms",
+                    "/api/advertisers/judge-apply",
+                )
+            )
             for method in methods
         }
         in_table = {

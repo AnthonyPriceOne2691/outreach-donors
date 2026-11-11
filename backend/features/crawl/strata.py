@@ -14,7 +14,8 @@
 
 **Решения — подряд в порядке выборки**, как у самой доли (`accuracy.in_turn`, 03.11.2026): решённые
 дальше первой нерешённой строки выбрал человек, а не жребий, и в «пишем» и «не пишем» срезов они
-не идут — строка выборки остаётся в срезе нерешённой.
+не идут — строка выборки остаётся в срезе нерешённой. Решённая судьёй — так же: срез меряет решения
+человека (`accuracy.human_answer`, 11.11.2026).
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.domain import DomainModel
-from backend.features.crawl.accuracy import Decisions, in_turn
+from backend.features.crawl.accuracy import Decisions, human_answer, in_turn
 from backend.features.crawl.sample import in_sample
 from backend.features.topics.taxonomy import label_of
 
@@ -139,7 +140,7 @@ async def disputed_strata(session: AsyncSession) -> Strata:
         select(
             CandidateModel.points,
             CandidateModel.reasons,
-            CandidateModel.confirmed,
+            human_answer(),
             DomainModel.site_topic,
         )
         .outerjoin(DomainModel, DomainModel.host == CandidateModel.donor_host)
