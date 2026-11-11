@@ -14,6 +14,8 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
+from alembic.operations import Operations
+from alembic.runtime.migration import MigrationContext
 from backend.config import llm as llm_cfg
 from backend.features.core.domain import AuditAction, Verdict
 from backend.features.core.models.access import AuditLogModel
@@ -39,10 +41,15 @@ from backend.features.crawl.judge_night_queue import PassSeen
 from backend.features.crawl.judge_pass import JUDGE_OPERATION, RESTARTING
 from backend.features.crawl.judge_rules import RULES_VERSION
 from backend.features.crawl.night import NIGHT_BY, NightStatus
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.migration_helpers import load_migration
 from tests.stage2_rows import crawled, promoted, scored
 from tests.test_advertiser_judge_apply import disputed, judged
+
+MIGRATION = "5fcbc5aa3951_advertiser_judge_night.py"
+TABLES = ("advertiser_judge_bands", "advertiser_judge_nights")
 
 #: Утро по Москве после круга обходов: 08:00 5 ноября. В прошлом: имя партии — от этой минуты, а
 #: партию «из будущего» применение не принимает.
@@ -740,3 +747,51 @@ async def test_the_tick_is_quiet_when_there_is_nothing_to_do(
     assert night is not None
     assert night.status == Phase.DONE.value
     assert queue.started == []
+
+
+# --- ревизия базы ----------------------------------------------------------------------------------
+
+
+def _tables(connection: Connection) -> set[str]:
+    rows = connection.execute(
+        text("SELECT table_name FROM information_schema.tables WHERE table_name = ANY(:names)"),
+        {"names": list(TABLES)},
+    )
+    return set(rows.scalars())
+
+
+def _down_and_up(connection: Connection) -> tuple[set[str], set[str], list[str]]:
+    """Ревизия вниз и вверх на соединении теста: схема тестов собирается по моделям, и без этого
+    файл ревизии впервые исполнился бы на выкатке."""
+    migration = load_migration(MIGRATION)
+    with Operations.context(MigrationContext.configure(connection)):
+        migration.downgrade()
+        down = _tables(connection)
+        migration.upgrade()
+        up = _tables(connection)
+    values = connection.execute(text("SELECT unnest(enum_range(NULL::auditaction))::text"))
+    return down, up, list(values.scalars())
+
+
+async def test_the_revision_goes_down_and_up_and_the_step_runs_on_its_tables(
+    session: AsyncSession,
+) -> None:
+    """Откат снимает обе таблицы, подъём возвращает их такими, что шаг на них идёт: полоса
+    включается строкой истории, а дата шага держится уникальной строкой (`on conflict`)."""
+    await disputed(session, ("skip.example.test", "skip"))
+    connection = await session.connection()
+
+    down, up, values = await connection.run_sync(_down_and_up)
+
+    assert down == set()
+    assert up == set(TABLES)
+    assert values.count("advertiser_judge_bands_changed") == 1
+
+    await _on(session, Band.SKIP)
+    await _tick(session, FakePass())
+    await _tick(session, FakePass(), MORNING + timedelta(minutes=1))
+
+    night = await _night(session)
+    assert night is not None
+    assert night.status == Phase.DONE.value
+    assert (await _decisions(session))["skip.example.test"][0] is False
