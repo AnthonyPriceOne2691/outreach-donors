@@ -19,6 +19,8 @@
  * 20.10.2026 держать их абзацами — четыре подряд, 114 слов). Путь доменов и числа стоят
  * строкой и плитками; почему «Рассмотреть» не равно «Подходит» — в «i» у кнопки, что
  * за пороги и кто исключён — в «i» у заголовков карточек (`RejectionsCard`, `ReasonsCard`).
+ * Путь доменов — тоже итог строкой, «из выдачи N, новых в проверку M», а кого по дороге
+ * исключили и кто проверен раньше — в «i» у строки (`Funnel`, проверка прода 10.11.2026).
  */
 
 import { Alert, Badge, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core';
@@ -50,23 +52,35 @@ const domainsWord = (count: number) => plural(count, 'домен', 'домена
 /** Слово вердикта с заглавной — подписью плитки: слова те же, что у доноров. */
 const titled = (word: string) => word.charAt(0).toUpperCase() + word.slice(1);
 
-/** Путь домена до вердикта одной строкой: из выдачи (или ссылок конкурентов) — мимо гейта
- *  и свежих — в Ahrefs. Свежих прогон с 20.10.2026 судит сам — своей страной и порогами, без
- *  Ahrefs. */
+/** Путь домена до вердикта: из выдачи (или ссылок конкурентов) — мимо гейта и свежих — в
+ *  Ahrefs. На виду — итог одной строкой: сколько пришло и сколько новых ушло в проверку;
+ *  разбивка — исключённые и проверенные раньше — в «i» окошком, теми же словами и числами
+ *  (проверка прода 10.11.2026: строка с разбивкой стояла абзацем — две строки на 1440 и пять
+ *  на 390). Отчёт записан до числа найденных — итог без него. Число не отрывается от слова
+ *  и от тире — неразрывные пробелы. Свежих прогон с 20.10.2026 судит сам — своей страной и
+ *  порогами, без Ahrefs. */
 function Funnel({ domains, from }: { domains: RunDomains; from: string }) {
+  const count = domains.found;
   const found =
-    domains.found === null
-      ? from
-      : `${from} — ${formatNumber(domains.found)} ${domainsWord(domains.found)}`;
+    count === null ? from : `${from} — ${formatNumber(count)}\u00a0${domainsWord(count)}`;
   const fresh = domains.fresh_judged
     ? 'метрики в сроке: вердикт этого прогона по сохранённым, платить не пришлось'
     : 'метрики в сроке, платить не пришлось';
+  const toCheck = `новых в проверку Ahrefs —\u00a0${formatNumber(domains.to_check)}`;
   return (
-    <Text size="sm">
-      {found}: исключено {formatNumber(domains.excluded)}, проверены раньше{' '}
-      {formatNumber(domains.fresh)} — {fresh}; новых в проверку Ahrefs —{' '}
-      {formatNumber(domains.to_check)}.
-    </Text>
+    <Group gap={4} wrap="nowrap" align="center">
+      <Text size="sm" style={{ minWidth: 0 }}>
+        {found}
+        {count === null ? ': ' : ', '}
+        {toCheck}
+      </Text>
+      <InfoHint name="Путь доменов: исключённые и проверенные раньше" width={320} interactive>
+        <Text size="sm">
+          {found}: исключено {formatNumber(domains.excluded)}, проверены раньше{' '}
+          {formatNumber(domains.fresh)} — {fresh}; {toCheck}.
+        </Text>
+      </InfoHint>
+    </Group>
   );
 }
 

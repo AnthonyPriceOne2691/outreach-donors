@@ -9,7 +9,7 @@
 import type { LetterAudience } from '../api/letters';
 import type { Can } from '../api/stageRights';
 import { partOf } from '../api/stages';
-import type { LetterStage } from '../api/types';
+import type { LetterStage, Permission } from '../api/types';
 import type { StageOption } from '../components/StageSwitch';
 import { formatNumber, plural } from '../format';
 
@@ -55,6 +55,15 @@ export function lettersPart(params: URLSearchParams, can: Can): LetterStage | nu
   if (!can('donors')) return 'advertisers';
   const part = partOf(params);
   return part === 'donors' || part === 'advertisers' ? part : null;
+}
+
+/** Право, которого экрану писем не хватает целиком: у учётки нет ни «Доноров», ни
+ *  «Рекламодателей» — писем этих этапов для неё нет вовсе (учётка только продаж по прямой
+ *  ссылке, проверка прода 10.11.2026). Называется право части из адреса: `?stage=advertisers` —
+ *  «Рекламодатели», иначе — «Доноры». `null` — хоть один этап виден, экран открывается. */
+export function lettersClosed(params: URLSearchParams, can: Can): Permission | null {
+  if (can('donors') || can('advertisers')) return null;
+  return partOf(params) === 'advertisers' ? 'advertisers' : 'donors';
 }
 
 /** Варианты части: у доноров один — переключателя нет; без части — все три. */

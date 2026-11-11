@@ -41,7 +41,8 @@ RUN_BODY = {"keywords": ["ремонт квартир"], "country": "us", "depth
 RIVALS_BODY = {"competitors": ["example.com"], "country": "us", "depth": 100}
 
 ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
-    ("GET", "/api/runs/countries", None, "run"),
+    # Список стран — справочник экрана: его читают все, кому открыт экран «Прогон» (10.11.2026).
+    ("GET", "/api/runs/countries", None, "view"),
     ("POST", "/api/runs/estimate", RUN_BODY, "run"),
     ("POST", "/api/runs", RUN_BODY, "run"),
     ("POST", "/api/runs/competitors/estimate", RIVALS_BODY, "run"),
@@ -187,6 +188,33 @@ class TestCountriesOfTheSource:
 
         assert response.json() == sorted(COUNTRY_CODES)
         assert {"kz", "uz"} <= set(response.json())
+
+    async def test_without_the_launch_right_the_list_is_open_and_the_launch_is_not(
+        self, client: AsyncClient, viewer_token: str
+    ) -> None:
+        """Список стран — справочник экрана, а не трата: учётке без права запуска он открыт,
+        как история прогонов на том же экране. Проверка прода 10.11.2026: список отвечал ей 403,
+        и поле «Страна выдачи» стояло пустым. Смета и запуск ей по-прежнему закрыты."""
+        listed = await client.get("/api/runs/countries", headers=bearer(viewer_token))
+
+        assert listed.status_code == 200, listed.text
+        assert listed.json() == sorted(COUNTRY_CODES)
+        for path in ("/api/runs/estimate", "/api/runs"):
+            refused = await client.post(path, json=RUN_BODY, headers=bearer(viewer_token))
+            assert refused.status_code == 403, path
+            assert "«запускать прогоны»" in refused.json()["detail"]
+
+    async def test_without_the_stage_the_list_is_closed_like_the_screen(
+        self, client: AsyncClient, make_user: MakeUser, sign_in: SignIn
+    ) -> None:
+        """Экран «Прогон» — Этап 1: без права «Доноры» списка нет, как и самого экрана."""
+        await make_user("этап-два@site.com", role=UserRole.ADVERTISERS)
+        token = await sign_in("этап-два@site.com")
+
+        response = await client.get("/api/runs/countries", headers=bearer(token))
+
+        assert response.status_code == 403
+        assert "«Доноры»" in response.json()["detail"]
 
 
 class TestDonorsTable:

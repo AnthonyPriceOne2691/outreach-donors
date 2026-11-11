@@ -220,7 +220,7 @@ describe('«Формы»: окно «Форма и письмо»', () => {
   });
 
   it('без права «запускать прогоны» строки без кнопок — и окна нет', async () => {
-    await openForms({}, { ...OPERATOR, permissions: ['view'] });
+    await openForms({}, { ...OPERATOR, permissions: ['donors', 'view'] });
 
     expect(screen.queryByRole('button', { name: 'Форма и письмо' })).toBeNull();
   });

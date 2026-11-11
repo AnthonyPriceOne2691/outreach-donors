@@ -359,7 +359,10 @@ export function RunPage() {
                   className="press"
                   leftSection={<IconCalculator size={18} />}
                   loading={estimate.isPending}
-                  disabled={list.length === 0 || capRefusal !== null}
+                  // Смета закрыта сервером тем же правом, что запуск (`api/runs/routes.py`): она
+                  // зовёт модель и пишет снимок ключа. Без права кнопка не обещает того, в чём
+                  // сервер откажет (проверка прода 10.11.2026).
+                  disabled={!canRun || list.length === 0 || capRefusal !== null}
                   onClick={() => estimate.mutate(body)}
                 >
                   Посчитать смету
@@ -386,7 +389,8 @@ export function RunPage() {
           )}
           {!canRun && (
             <Alert color="yellow" title="Запускать прогоны не разрешено">
-              Смету посмотреть можно, запуск тратит юниты и выдан отдельным правом.
+              Смета и запуск выданы отдельным правом: они тратят юниты и токены. Историю и отчёты
+              прогонов смотреть можно.
             </Alert>
           )}
         </Stack>

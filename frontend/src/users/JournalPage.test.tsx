@@ -385,6 +385,82 @@ describe('подробности: итог одной строкой, остал
   });
 });
 
+describe('журнал на телефоне — карточками', () => {
+  it('складывается в карточки, как остальные таблицы: когда и кто — одной строкой', async () => {
+    // Проверка прода 10.11.2026, окно 390 px: от таблицы в 1 040 px были видны «Когда» и
+    // обрезанное «Кто», остальное — за краем. Раскладку jsdom не считает — проверяется договор
+    // с `glass.css`: общий класс карточек у прокрутки и правила журнала в границах телефона
+    // (замер в браузере: прокрутки вбок нет, дата и почта — на одной высоте).
+    openJournal();
+
+    const table = await screen.findByRole('table', { name: 'Записи журнала' });
+    expect(table.closest('.mantine-TableScrollContainer-scrollContainer')).toHaveClass(
+      'phoneCards',
+      'stickyTable',
+    );
+    const glass = readFileSync(resolve(process.cwd(), 'src/styles/glass.css'), 'utf8');
+    const cell = String.raw`\.phoneCards table\.journalTable tbody > tr > td`;
+    // Когда и кто — две колонки одной строки карточки; остальное общим правилом — под ними.
+    expect(glass).toMatch(
+      new RegExp(
+        String.raw`@media \(max-width: 47\.99em\) \{\s*${cell}:first-child \{\s*grid-column: 1;\s*\}` +
+          String.raw`\s*${cell}:nth-child\(2\) \{\s*grid-column: 2;\s*order: 0;\s*\}`,
+      ),
+    );
+    // Двойной зазор подробностей — колонке; ячейки с прочерком в карточке нет.
+    expect(glass).toMatch(
+      new RegExp(String.raw`${cell}:last-child \{\s*padding-inline-start: 0;\s*\}`),
+    );
+    expect(glass).toMatch(new RegExp(String.raw`${cell}\[data-blank\] \{\s*display: none;\s*\}`));
+  });
+
+  it('ячейки записи — по порядку карточки; прочерк помечен, и карточка его не показывает', async () => {
+    const quiet: JournalView = {
+      ...PAGE,
+      entries: [
+        ...PAGE.entries,
+        {
+          id: 25,
+          created_at: '2026-10-10T16:00:00Z',
+          action: 'login',
+          author_id: 1,
+          author_email: 'админ@site.com',
+          target: null,
+          details: null,
+        },
+      ],
+    };
+    openJournal('/journal', ADMIN, quiet);
+
+    // Когда, кто, что, над чем, подробности — в этом порядке ячейки и встают в карточку.
+    const run = within(await rowOf('Прогон запущен')).getAllByRole('cell');
+    expect(run.map((one) => one.textContent?.slice(0, 6))).toEqual([
+      '11.10.',
+      'операт',
+      'Прогон',
+      'прогон',
+      'ключей',
+    ]);
+    for (const one of run) expect(one).not.toHaveAttribute('data-blank');
+    // Цели нет — прочерк остаётся в колонке, а в карточке такой ячейки нет.
+    const failed = within(await rowOf('Вход не удался')).getAllByRole('cell');
+    expect(failed[3]).toHaveTextContent('—');
+    expect(failed[3]).toHaveAttribute('data-blank');
+    expect(failed[4]).not.toHaveAttribute('data-blank');
+    // Ни цели, ни подробностей — в карточке остаются когда, кто и действие.
+    const login = (await screen.findAllByRole('row')).at(-1) as HTMLElement;
+    const cells = within(login).getAllByRole('cell');
+    expect(cells[2]).toHaveTextContent('Вход');
+    expect(cells.map((one) => one.hasAttribute('data-blank'))).toEqual([
+      false,
+      false,
+      false,
+      true,
+      true,
+    ]);
+  });
+});
+
 describe('длинный журнал', () => {
   const LONG: JournalView = { ...PAGE, total: 120 };
 

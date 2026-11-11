@@ -43,6 +43,11 @@
  * **Как устроены письма адресата — в «i»** (слово владельца 10.11.2026): у переключателя
  * адресата, а где его нет («Письма донорам») — у заголовка. Под заголовком — только факты:
  * почта, «Ещё не писали», ждущие адреса.
+ *
+ * **Без обоих этапов — один отказ раздела, а не три отказа сервера** (проверка прода 10.11.2026):
+ * учётка только продаж по прямой ссылке видела «Очередь не загрузилась» и два красных блока над
+ * ней — каждый запрос экрана получал свой 403. Писем этих этапов у неё нет: экран говорит это
+ * тем же «Раздел недоступен», что закрытый раздел (`RequireAccess`), и ничего не спрашивает.
  */
 
 import { Alert, Badge, Button, Card, Grid, Group, Loader, Stack, Text } from '@mantine/core';
@@ -57,6 +62,7 @@ import { buildLetters, editLetter, listLetters, sendLetter, skipLetter } from '.
 import { mailSettingsList, settingsInWords } from '../api/labels';
 import type { Corridor, LetterDraft, LetterStage, LettersView, QueuedLetter } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { RequireAccess } from '../auth/RequireAccess';
 import { PageHead } from '../components/PageHead';
 import { StageSwitch } from '../components/StageSwitch';
 import { formatNumber, formatPercent } from '../format';
@@ -78,6 +84,7 @@ import {
   LETTERS_TITLES,
   addressHint,
   audienceOf,
+  lettersClosed,
   lettersPart,
   poolHint,
   stageOf,
@@ -111,7 +118,12 @@ function jobKeyOf(target: LetterTarget): string {
 
 export function LettersPage() {
   const [params] = useSearchParams();
-  const part = lettersPart(params, useSession().can);
+  const { can } = useSession();
+  // Ни одного этапа писем у учётки нет — отказ раздела с названием права; экран не
+  // монтируется, и запросов, на которые сервер ответил бы 403, нет.
+  const closed = lettersClosed(params, can);
+  if (closed !== null) return <RequireAccess permission={closed}>{null}</RequireAccess>;
+  const part = lettersPart(params, can);
   return <LettersScreen key={part ?? 'all'} part={part} />;
 }
 
