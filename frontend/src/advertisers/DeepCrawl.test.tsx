@@ -6,6 +6,9 @@
  * выбрали; исход — словами; обход помечен глубоким и идёт к своему потолку.
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MantineProvider } from '@mantine/core';
@@ -280,6 +283,37 @@ describe('вкладка', () => {
 
     await screen.findByRole('button', { name: /^Обойти заново, .*: deep\.example$/ });
     expect(screen.queryByRole('button', { name: 'Переобойти deep.example' })).toBeNull();
+  });
+
+  it('глубокий обход на телефоне — парой строк: значок, «глубокий», «i» и «10 000» — один поток переноса', async () => {
+    // Проверка прода 10.11.2026 (390 px, карточка 284 px): группа значка с «глубокий» и «i» —
+    // 296 px — переносила «i» внутри себя и занимала всю ширину: «i» вставал второй строкой, а
+    // «10 000» — третьей, лесенкой. Раскладку jsdom не считает — проверяется договор с `glass.css`:
+    // своего ряда у группы в блоке нет, и значок, «i» и кнопка переносятся одним потоком (замер в
+    // браузере: второй строкой — «i» и «10 000» рядом).
+    const deepRow = donor({
+      host: 'deep.example',
+      crawl: crawl({ host: 'deep.example', deep: true, pages: 10_000, max_pages: 10_000 }),
+    });
+    open({ ...PAGE, rows: [deepRow] });
+
+    const again = await screen.findByRole('button', {
+      name: /^Обойти заново, .*: deep\.example$/,
+    });
+    const slot = again.closest<HTMLElement>('.crawlSlot');
+    expect(slot).not.toBeNull();
+    const group = slot?.querySelector<HTMLElement>(':scope > .mantine-Group-root');
+    expect(group?.querySelector('.crawlBadge')).toHaveTextContent(/^обойдён: 10.000 из 10.000$/);
+    expect(within(group as HTMLElement).getByText('глубокий')).toBeInTheDocument();
+    expect(
+      within(group as HTMLElement).getByRole('button', { name: /^Подробнее: обойдён/ }),
+    ).toBeInTheDocument();
+    // Кнопка — сосед группы в том же блоке, а не строка под ней.
+    expect(again.parentElement).toBe(slot);
+
+    const glass = readFileSync(resolve(process.cwd(), 'src/styles/glass.css'), 'utf8');
+    expect(/\.crawlSlot \{([^}]*)\}/.exec(glass)?.[1]).toMatch(/flex-wrap: wrap;/);
+    expect(glass).toMatch(/\.crawlSlot \.mantine-Group-root \{\s*display: contents;\s*\}/);
   });
 
   it('протухшая цена — кнопка выключена, причина видна до нажатия', async () => {
