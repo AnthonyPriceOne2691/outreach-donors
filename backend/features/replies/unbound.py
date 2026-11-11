@@ -58,8 +58,7 @@ _WHOM: dict[Stage, str] = {
     Stage.SALES: "Лида",
 }
 
-#: Направление неизвестно: нашего адреса среди адресов ответа нет — или причину говорит
-#: приём, который направления не спрашивает (`pipeline`). Слово прежнее.
+#: Направление неизвестно: нашего адреса среди адресов ответа нет. Слово прежнее.
 _WHOM_UNKNOWN = "Донора"
 
 #: Отправителя такого ответа ищут глазами — по отправителю и тексту. `{whom}` — кого именно.
@@ -214,7 +213,7 @@ def explain(reason: str | None, addresses: Sequence[str] | None, stage: Stage | 
     """Почему ответ не привязан — словами для человека.
 
     `stage` — направление ответа по нашему адресу (`stages_of`): кого по нему ищут. Без
-    направления — донора: так говорит и приём, который его не спрашивает."""
+    направления — донора."""
     number = labelled(addresses)
     if _answers_probe(reason, number):
         return _PROBE
@@ -225,6 +224,17 @@ def explain(reason: str | None, addresses: Sequence[str] | None, stage: Stage | 
         return f"Причина записана кодом, которого этот сервер не знает ({reason})."
     whom = _WHOM_UNKNOWN if stage is None else _WHOM.get(stage, _WHOM_UNKNOWN)
     return words.format(number=f" №{number}" if number is not None else "", whom=whom)
+
+
+async def intake_words(
+    session: AsyncSession, reason: str | None, addresses: Sequence[str] | None
+) -> str:
+    """Что приём говорит о непривязанном ответе тому, кто разбирает его вебхук: те же слова,
+    что на экране, — и кого искать, по нашему адресу ответа. До 11.11.2026 приём говорил
+    «Донора…» и об ответе на ящик продаж, а экран — «Лида…». Один вопрос о доменах на ответ
+    без письма: такие ответы редки."""
+    stage = await recipient_stage.of_addresses(session, addresses)
+    return f"ответ не привязан к письму: {explain(reason, addresses, stage)}"
 
 
 def explain_short(reason: str | None, addresses: Sequence[str] | None) -> str:
