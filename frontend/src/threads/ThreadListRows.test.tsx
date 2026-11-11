@@ -27,6 +27,10 @@ import { serve } from '../test/server';
 import { LIST_STEP, listScope, windowSize } from './listWindow';
 import { NO_THREAD_FILTERS } from './threadFilters';
 
+// Сотни строк рисуются по-настоящему, по нескольку раз за тест: на раннере проверок это в
+// пять-шесть раз дольше, чем на машине разработчика, и обычных пяти секунд тесту впритык.
+vi.setConfig({ testTimeout: 15_000 });
+
 /** Короткая дата строки зависит от «сегодня» (`shortWhen`): часы закреплены. */
 const NOW = new Date('2026-11-11T12:00:00+03:00');
 
@@ -106,12 +110,38 @@ function wide() {
   );
 }
 
-const list = () => screen.findByRole('navigation', { name: 'Список диалогов' });
+/**
+ * Список, его строки и кнопка под ними ищутся по разметке, а не по ролям: запрос по роли обходит
+ * дерево и считает имя каждой ссылки, а строк здесь сотни — на раннере проверок тест с двумя
+ * сотнями строк не укладывался в пять секунд. Роли и имена сверяются там, где строка одна.
+ */
+const list = () =>
+  waitFor(() => {
+    const found = document.querySelector<HTMLElement>(
+      '[role="navigation"][aria-label="Список диалогов"]',
+    );
+    expect(found).not.toBeNull();
+    return found!;
+  });
 /** Нарисованные строки — ссылки на переписки. */
-const drawn = async () => within(await list()).queryAllByRole('link');
+const drawn = async () => Array.from((await list()).querySelectorAll<HTMLElement>('a[href]'));
+/** Строка диалога по его номеру; нет в нарисованном — `null`. */
+const row = (id: number) =>
+  document.querySelector<HTMLElement>(
+    `[role="navigation"][aria-label="Список диалогов"] a[href^="/threads/${id}?"]`,
+  );
 /** Кнопка под строками. Число держится при слове неразрывным пробелом, и имя кнопки — с ним. */
-const more = (count: number) =>
-  screen.queryByRole('button', { name: `Показать ещё\u00a0${count}` });
+const more = (count: number) => {
+  const button = document.querySelector<HTMLElement>('.threadListMore button');
+  return button?.textContent === `Показать ещё\u00a0${count}` ? button : null;
+};
+/** Выбранная строка — открытый диалог. */
+const current = () =>
+  waitFor(async () => {
+    const found = (await list()).querySelector<HTMLElement>('a[aria-current="page"]');
+    expect(found).not.toBeNull();
+    return found!;
+  });
 const where = () => screen.getByTestId('where');
 
 beforeEach(() => {
@@ -247,12 +277,12 @@ describe('длинный список диалогов: первые сто и �
     await waitFor(async () => expect(await drawn()).toHaveLength(100));
     await user.click(more(100)!);
 
-    await user.click(screen.getByRole('link', { name: /sales-site-180\.example\.test/ }));
+    await user.click(row(180)!);
     await screen.findByRole('heading', { name: 'sales-site-180.example.test' });
     await user.click(screen.getByRole('link', { name: 'К списку' }));
 
     await waitFor(async () => expect(await drawn()).toHaveLength(200));
-    expect(screen.getByRole('link', { name: /sales-site-180\.example\.test/ })).toBeInTheDocument();
+    expect(row(180)).toHaveTextContent('sales-site-180.example.test');
   });
 });
 
@@ -261,7 +291,7 @@ describe('открытый диалог виден в списке и за пе�
     wide();
     open('/threads/180?stage=sales');
 
-    const selected = await within(await list()).findByRole('link', { current: 'page' });
+    const selected = await current();
     expect(selected).toHaveAttribute('href', '/threads/180?stage=sales');
     // Сто восьмидесятый — во второй сотне: окно выросло до неё целиком, дальше — по кнопке.
     expect(await drawn()).toHaveLength(200);
@@ -272,16 +302,13 @@ describe('открытый диалог виден в списке и за пе�
     wide();
     const user = userEvent.setup();
     open('/threads/100?stage=sales');
-    await within(await list()).findByRole('link', { current: 'page' });
+    await current();
     expect(await drawn()).toHaveLength(100);
 
     await user.keyboard('j');
 
     await waitFor(() => expect(where()).toHaveTextContent('/threads/101?stage=sales'));
-    expect(await within(await list()).findByRole('link', { current: 'page' })).toHaveAttribute(
-      'href',
-      '/threads/101?stage=sales',
-    );
+    expect(await current()).toHaveAttribute('href', '/threads/101?stage=sales');
     expect(await drawn()).toHaveLength(200);
   });
 
@@ -294,7 +321,7 @@ describe('открытый диалог виден в списке и за пе�
       '/threads/101?stage=sales',
     );
     expect(await drawn()).toHaveLength(100);
-    expect(within(await list()).queryByRole('link', { name: /sales-site-101\./ })).toBeNull();
+    expect(row(101)).toBeNull();
   });
 });
 
