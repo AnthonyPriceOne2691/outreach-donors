@@ -11,7 +11,10 @@
 появляются новые спорные. Круг выключен или строки у него ещё нет — не раньше `LATEST_START` по
 Москве. Один раз за дату держит база (уникальная строка `advertiser_judge_nights`, как у круга);
 процесс лежал — шаг догоняет в тот же день. Включили полосу днём, а шаг сегодня не шёл — он
-начнётся со следующим проходом: «сегодня» для него ещё не кончилось.
+начнётся со следующим проходом: «сегодня» для него ещё не кончилось. Дата шага — московская дата
+его начала: дневной шаг ночного шага следующей даты не съедает, а не кончившийся до полуночи
+доходит под своей датой, и шаг новой даты начинается после него (`_open`). Потолок ночи — на шаг:
+полосу включили вечером — до `NIGHT_CAP` пар вечером и до `NIGHT_CAP` следующей ночью.
 
 **Шаг — четыре дела по порядку, и каждое переживает выкатку.**
 
@@ -57,7 +60,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -348,29 +351,55 @@ async def _note_missed(session: AsyncSession, day: date, moment: datetime) -> No
         await send_alert(marked(f"Судья ночью {yesterday:%d.%m} не начинал: {why}", NOT_DONE))
 
 
-async def _step(
-    session: AsyncSession, moment: datetime, queue: PassQueue
-) -> tuple[JudgeNightModel | None, date]:
-    """Один проход шага; строка ночи — чтобы сбой было куда записать."""
+async def _open(session: AsyncSession, day: date) -> JudgeNightModel | None:
+    """Строка, с которой шаг работает: незаконченная — самая ранняя, пусть и вчерашняя, — иначе
+    сегодняшняя.
+
+    Дата шага — московская дата его начала. Полосу включили вечером — шаг начался под сегодняшней
+    датой и может кончиться после полуночи: он доходит до конца под своей датой, а шаг новой даты
+    начинается после него, своей строкой. Шаг, начатый днём, ночного шага следующей даты не съедает.
+    """
+    found: JudgeNightModel | None = await session.scalar(
+        select(JudgeNightModel)
+        .where(
+            JudgeNightModel.night <= day,
+            or_(JudgeNightModel.night == day, JudgeNightModel.status.not_in(OVER)),
+        )
+        .order_by(JudgeNightModel.night)
+        .limit(1)
+    )
+    return found
+
+
+async def _step(session: AsyncSession, moment: datetime, queue: PassQueue) -> None:
+    """Один проход шага."""
     day = moment.astimezone(MOSCOW).date()
-    row = await session.scalar(select(JudgeNightModel).where(JudgeNightModel.night == day))
+    row = await _open(session, day)
     if row is not None and row.status in OVER:
-        return row, day
+        return
     bands = await judge_bands.enabled(session)
     if row is None:
         if not bands:
-            return None, day
+            return
         await _note_missed(session, day, moment)
         if not await _round_over(session, moment):
-            return None, day
+            return
         row = await _claim(session, day, moment)
         if row is None:
-            return None, day
+            return
     if row.status == Phase.JUDGING.value:
         await _judge(session, row, moment, queue, on=bool(bands))
     if row.status == Phase.APPLYING.value:
         await _apply(session, row, bands, moment)
-    return row, day
+
+
+async def _fail_open(session: AsyncSession, day: date, why: str, moment: datetime) -> None:
+    """Сбой — в строку шага, который шёл: причина и тревога один раз. Шаг ещё не начинался или
+    уже кончился — помечать нечего: о сбое говорит строка журнала процесса."""
+    await session.rollback()
+    row = await _open(session, day)
+    if row is not None and row.status not in OVER:
+        await _failed(session, row.id, row.night, why, moment)
 
 
 async def tick(
@@ -380,24 +409,11 @@ async def tick(
     идёт дальше, а причина — в строке ночи и тревогой один раз."""
     moment = now or datetime.now(UTC)
     day = moment.astimezone(MOSCOW).date()
-    row_id: int | None = None
     try:
-        row, day = await _step(session, moment, queue or RqPass())
-        row_id = None if row is None else row.id
+        await _step(session, moment, queue or RqPass())
     except NightStoppedError as exc:
         logger.warning("судья ночью: шаг встал", extra={"night": str(day), "why": str(exc)})
-        await session.rollback()
-        row_id = await _known(session, day)
-        if row_id is not None:
-            await _failed(session, row_id, day, str(exc), moment)
+        await _fail_open(session, day, str(exc), moment)
     except Exception as exc:
         logger.exception("судья ночью: шаг упал", extra={"night": str(day)})
-        await session.rollback()
-        row_id = await _known(session, day)
-        if row_id is not None:
-            await _failed(session, row_id, day, f"шаг упал: {exc}"[:500], moment)
-
-
-async def _known(session: AsyncSession, day: date) -> int | None:
-    found = await session.scalar(select(JudgeNightModel.id).where(JudgeNightModel.night == day))
-    return None if found is None else int(found)
+        await _fail_open(session, day, f"шаг упал: {exc}"[:500], moment)

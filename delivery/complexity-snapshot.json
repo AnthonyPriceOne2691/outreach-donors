@@ -1562,9 +1562,9 @@
       "worst": "batch_of:42"
     },
     "backend/features/crawl/judge_night.py": {
-      "lines": 404,
+      "lines": 420,
       "complexity": 9,
-      "worst": "_step:351"
+      "worst": "_step:374"
     },
     "backend/features/crawl/judge_night_queue.py": {
       "lines": 155,

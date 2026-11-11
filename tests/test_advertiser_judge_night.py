@@ -224,6 +224,104 @@ async def test_one_night_is_one_step(session: AsyncSession) -> None:
     assert len(ids) == 1
 
 
+async def test_a_step_started_in_the_daytime_does_not_eat_the_next_night(
+    session: AsyncSession,
+) -> None:
+    """Полосу включили вечером — шаг идёт сразу, под сегодняшней датой. Ночной шаг следующей даты
+    это не отменяет: он ждёт свой круг обходов и идёт своей строкой и своей партией."""
+    await disputed(session, ("evening.example.test", "skip"))
+    await _on(session, Band.SKIP)
+    queue = FakePass()
+    await _tick(session, queue, datetime(2026, 11, 5, 16, 30, tzinfo=UTC))  # 19:30 по Москве
+
+    first = await _night(session)
+    assert first is not None
+    assert first.status == Phase.DONE.value
+    assert (await _decisions(session))["evening.example.test"][0] is False
+
+    # Ночь принесла новую спорную пару; круг обходов следующей даты ещё идёт — шаг ждёт его.
+    tomorrow = DAY + timedelta(days=1)
+    run = await crawled(session, "second-donor.example.test")
+    await scored(session, run, "night.example.test", verdict=Verdict.PENDING)
+    session.add(judged("night.example.test", "skip", donor=run.host))
+    round_ = CrawlNightModel(night=tomorrow, status=NightStatus.RUNNING.value)
+    session.add(round_)
+    await _tick(session, queue, datetime(2026, 11, 5, 22, 0, tzinfo=UTC))  # 01:00 следующей даты
+
+    assert await _night(session, tomorrow) is None
+    assert (await _decisions(session))["night.example.test"] == (None, None)
+
+    round_.status = NightStatus.DONE.value
+    await _tick(session, queue, datetime(2026, 11, 6, 1, 0, tzinfo=UTC))  # 04:00 по Москве
+
+    second = await _night(session, tomorrow)
+    assert second is not None, "вечерний шаг ночного не съел"
+    assert second.status == Phase.DONE.value
+    decided = await _decisions(session)
+    assert decided["night.example.test"][0] is False
+    assert decided["night.example.test"][1] != decided["evening.example.test"][1], "партия своя"
+
+
+async def test_a_step_that_crosses_midnight_ends_under_its_own_date_and_the_next_one_still_runs(
+    session: AsyncSession,
+) -> None:
+    """Шаг начат поздно вечером, а разбор кончился после полуночи: шаг доходит под датой начала —
+    не брошен на полпути, — и шаг новой даты начинается после него в свой час."""
+    await disputed(session, ("judged.example.test", "skip"), ("new.example.test", None))
+    await _on(session, Band.SKIP)
+    queue = FakePass()
+    late = datetime(2026, 11, 5, 20, 30, tzinfo=UTC)  # 23:30 по Москве
+    tomorrow = DAY + timedelta(days=1)
+    await _tick(session, queue, late)
+    await _tick(session, queue, late + timedelta(minutes=40))  # 00:10 следующей даты: разбор идёт
+
+    night = await _night(session)
+    assert night is not None
+    assert night.status == Phase.JUDGING.value
+    assert await _night(session, tomorrow) is None
+    assert len(queue.started) == 1
+
+    queue.finish(late + timedelta(minutes=50))
+    await _tick(session, queue, late + timedelta(minutes=51))
+
+    night = await _night(session)
+    assert night is not None
+    assert night.status == Phase.DONE.value, "шаг кончился под датой начала"
+    assert (await _decisions(session))["judged.example.test"][0] is False
+    assert await _night(session, tomorrow) is None, "шаг новой даты ждёт свой час"
+
+    await _tick(session, queue, datetime(2026, 11, 6, 4, 30, tzinfo=UTC))  # 07:30 по Москве
+
+    following = await _night(session, tomorrow)
+    assert following is not None, "вчерашний шаг ночного не съел"
+    assert len(queue.started) == 2
+
+
+async def test_a_step_fallen_after_midnight_is_said_under_its_own_date(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, alerts: list[str]
+) -> None:
+    await disputed(session, ("judged.example.test", "skip"), ("new.example.test", None))
+    await _on(session, Band.SKIP)
+    queue = FakePass()
+    late = datetime(2026, 11, 5, 20, 30, tzinfo=UTC)  # 23:30 по Москве
+    await _tick(session, queue, late)
+
+    async def broken(*_args: Any, **_kwargs: Any) -> int:
+        raise RuntimeError("пересчёт сломан")
+
+    monkeypatch.setattr(judge_night, "relabel", broken)
+    queue.finish(late + timedelta(minutes=50))
+    await _tick(session, queue, late + timedelta(minutes=51))  # 00:21 следующей даты
+    await _tick(session, queue, late + timedelta(minutes=52))
+
+    night = await _night(session)
+    assert night is not None
+    assert night.status == Phase.FAILED.value
+    assert len(alerts) == 1
+    assert "05.11" in alerts[0], "тревога называет дату шага, а не дату прохода"
+    assert await _night(session, DAY + timedelta(days=1)) is None
+
+
 # --- разбор спорных --------------------------------------------------------------------------------
 
 
