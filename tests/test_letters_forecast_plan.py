@@ -16,6 +16,7 @@ from backend.features.core.domain import SenderStatus, Stage
 from backend.features.core.models.outreach import SenderModel, SendingDomainModel
 from backend.features.core.window import Pace, SendWindow
 from backend.features.letters.forecast_plan import (
+    Chains,
     Clock,
     Mailboxes,
     PlanDay,
@@ -76,7 +77,7 @@ def _by_day(days: list[PlanDay]) -> list[tuple[str, int, int]]:
 def test_capacity_grows_with_warmup_day_by_day() -> None:
     """Ступень — каждые два дня от первого письма ящика: 5, 5, 10, 10, 15, 15, 20 — и план
     повторяет мощность, пока есть что отправить. У этапа без окна пишут все дни."""
-    days, _ = plan(NOW, 7, Clock(), _boxes(_box(1)), Supply(queued=500), {})
+    days, _ = plan(NOW, 7, Clock(), _boxes(_box(1)), Supply(queued=500), Chains())
 
     assert [day.capacity for day in days] == [5, 5, 10, 10, 15, 15, 20]
     assert [day.planned for day in days] == [5, 5, 10, 10, 15, 15, 20]
@@ -84,7 +85,7 @@ def test_capacity_grows_with_warmup_day_by_day() -> None:
 
 
 def test_a_finished_warmup_stays_at_the_mailbox_cap() -> None:
-    days, _ = plan(NOW, 3, Clock(), _boxes(_box(1, cap=12, wrote=40)), Supply(queued=500), {})
+    days, _ = plan(NOW, 3, Clock(), _boxes(_box(1, cap=12, wrote=40)), Supply(queued=500), Chains())
 
     assert [day.capacity for day in days] == [12, 12, 12]
 
@@ -92,7 +93,7 @@ def test_a_finished_warmup_stays_at_the_mailbox_cap() -> None:
 def test_weekend_of_a_weekday_window_is_zero_with_the_reason() -> None:
     """Сб и вс окна пн–пт — ноль с причиной словами, а не мощность ящиков: письма в эти дни не уйдут."""
     clock = Clock(WEEKDAYS_9_17, BERLIN)
-    days, _ = plan(NOW, 7, clock, _boxes(_box(1, wrote=40)), Supply(queued=500), {})
+    days, _ = plan(NOW, 7, clock, _boxes(_box(1, wrote=40)), Supply(queued=500), Chains())
 
     assert _by_day(days) == [
         ("Wed", 20, 20),
@@ -110,7 +111,9 @@ def test_weekend_of_a_weekday_window_is_zero_with_the_reason() -> None:
 
 def test_today_after_the_window_closed_is_zero_with_the_hour() -> None:
     late = NOW.replace(hour=16)  # окно в Берлине закрылось в 15:00 UTC
-    days, _ = plan(late, 2, Clock(WEEKDAYS_9_17, BERLIN), _boxes(_box(1)), Supply(queued=50), {})
+    days, _ = plan(
+        late, 2, Clock(WEEKDAYS_9_17, BERLIN), _boxes(_box(1)), Supply(queued=50), Chains()
+    )
 
     assert (days[0].sending, days[0].planned) == (False, 0)
     assert (
@@ -125,7 +128,7 @@ def test_today_after_the_window_closed_is_zero_with_the_hour() -> None:
 def test_supply_running_out_mid_week_caps_the_plan() -> None:
     """Очередь и запас сборки кончаются в пятницу: дальше мощность есть, а отправлять нечего."""
     boxes = _boxes(_box(1, cap=10, wrote=40))
-    days, eta = plan(NOW, 5, Clock(), boxes, Supply(queued=15, extra=10), {})
+    days, eta = plan(NOW, 5, Clock(), boxes, Supply(queued=15, extra=10), Chains())
 
     assert [day.planned for day in days] == [10, 10, 5, 0, 0]
     assert days[2].why_not == (
@@ -135,7 +138,7 @@ def test_supply_running_out_mid_week_caps_the_plan() -> None:
 
 
 def test_without_a_known_supply_only_the_queue_goes() -> None:
-    days, _ = plan(NOW, 2, Clock(), _boxes(_box(1, cap=10, wrote=40)), Supply(queued=4), {})
+    days, _ = plan(NOW, 2, Clock(), _boxes(_box(1, cap=10, wrote=40)), Supply(queued=4), Chains())
 
     assert [day.planned for day in days] == [4, 0]
     assert days[1].why_not == (
@@ -146,7 +149,7 @@ def test_without_a_known_supply_only_the_queue_goes() -> None:
 def test_today_uses_what_is_left_of_the_day() -> None:
     """Сегодня уже ушло по три с ящика: уйдёт остаток, а мощность дня — целиком."""
     boxes = _boxes(_box(1, wrote=40), _box(2, wrote=40), sent=3)
-    days, _ = plan(NOW, 2, Clock(), boxes, Supply(queued=500), {})
+    days, _ = plan(NOW, 2, Clock(), boxes, Supply(queued=500), Chains())
 
     assert (days[0].capacity, days[0].planned) == (40, 34)
     assert days[0].why_not == "сегодня уже ушло 6 первых писем — остаток дня 34"
@@ -170,7 +173,7 @@ def test_a_domain_shared_with_another_direction_is_named_as_the_reason() -> None
         left=found.left, capacity=found.capacity, later=lambda _day: found.left, sent=found.sent
     )
 
-    days, _ = plan(NOW, 1, Clock(), boxes, Supply(queued=50), {})
+    days, _ = plan(NOW, 1, Clock(), boxes, Supply(queued=50), Chains())
 
     assert (days[0].capacity, days[0].planned) == (10, 2)
     assert days[0].why_not == (
@@ -180,14 +183,14 @@ def test_a_domain_shared_with_another_direction_is_named_as_the_reason() -> None
 
 def test_today_without_capacity_says_what_the_filter_said() -> None:
     boxes = Mailboxes(
-        left=Rooms({}, {}),
+        left=Rooms({}, Chains()),
         capacity=0,
-        later=lambda _day: Rooms({}, {}),
+        later=lambda _day: Rooms({}, Chains()),
         idle="ящики этапа не пишут",
         refused="домен на паузе: mail-a.example.test — жалоба",
     )
 
-    days, _ = plan(NOW, 2, Clock(), boxes, Supply(queued=5), {})
+    days, _ = plan(NOW, 2, Clock(), boxes, Supply(queued=5), Chains())
 
     assert [day.why_not for day in days] == [
         "домен на паузе: mail-a.example.test — жалоба",
@@ -197,7 +200,8 @@ def test_today_without_capacity_says_what_the_filter_said() -> None:
 
 def test_followups_are_shown_on_their_day_and_not_counted_in_the_cap() -> None:
     due = {NOW.date(): 7, NOW.date() + timedelta(days=2): 3}
-    days, _ = plan(NOW, 3, Clock(), _boxes(_box(1, wrote=40)), Supply(queued=500), due)
+    chains = Chains.flat(due)
+    days, _ = plan(NOW, 3, Clock(), _boxes(_box(1, wrote=40)), Supply(queued=500), chains)
 
     assert [day.followups for day in days] == [7, 0, 3]
     assert [day.planned for day in days] == [20, 20, 20]
@@ -207,7 +211,7 @@ def test_followups_due_on_a_closed_day_move_to_the_next_sending_day() -> None:
     """Окно судит и добивки: срок субботы и воскресенья ждёт понедельника, а у этапа без окна —
     остаётся на своём дне."""
     saturday, sunday, monday = (NOW.date() + timedelta(days=n) for n in (3, 4, 5))
-    due = {saturday: 4, sunday: 2, monday: 1}
+    due = Chains.flat({saturday: 4, sunday: 2, monday: 1})
     boxes = _boxes(_box(1, wrote=40))
 
     windowed, _ = plan(NOW, 7, Clock(WEEKDAYS_9_17, BERLIN), boxes, Supply(queued=5), due)
@@ -220,16 +224,56 @@ def test_followups_due_on_a_closed_day_move_to_the_next_sending_day() -> None:
 def test_a_closed_window_today_sends_todays_followups_to_the_next_sending_day() -> None:
     late = NOW.replace(hour=16)
     days, _ = plan(
-        late, 2, Clock(WEEKDAYS_9_17, BERLIN), _boxes(_box(1)), Supply(5), {late.date(): 3}
+        late,
+        2,
+        Clock(WEEKDAYS_9_17, BERLIN),
+        _boxes(_box(1)),
+        Supply(5),
+        Chains.flat({late.date(): 3}),
     )
 
     assert [day.followups for day in days] == [0, 3]
 
 
+def test_followups_over_a_box_daily_cap_spill_into_the_next_sending_days() -> None:
+    """Суточный потолок добивок — у каждого ящика свой: завал выходных не уходит весь в понедельник,
+    а растекается по дням отправки. Ящик 1 отдаёт по 20 три дня, ящик 2 укладывается в день."""
+    saturday, sunday, monday = (NOW.date() + timedelta(days=n) for n in (3, 4, 5))
+    due = {saturday: {1: 30, 2: 5}, sunday: {1: 15}, monday: {1: 10, 2: 10}}
+    boxes = _boxes(_box(1, wrote=40))
+
+    days, _ = plan(NOW, 9, Clock(WEEKDAYS_9_17, BERLIN), boxes, Supply(5), Chains(due, cap=20))
+
+    assert [day.followups for day in days] == [0, 0, 0, 0, 0, 20 + 15, 20, 15, 0]
+    assert sum(day.followups for day in days) == 70
+
+
+def test_followups_sent_today_take_room_in_todays_cap_only() -> None:
+    """Сегодня ящик уже отдал 15 добивок из 20: уйдёт ещё 5, остальное — завтра, где потолок целый."""
+    due = {NOW.date(): {1: 30}}
+    chains = Chains(due, cap=20, sent={1: 15})
+
+    days, _ = plan(NOW, 3, Clock(), _boxes(_box(1, wrote=40)), Supply(0), chains)
+
+    assert [day.followups for day in days] == [5, 20, 5]
+
+
+def test_a_zero_cap_sends_no_followups_and_no_cap_sends_them_all() -> None:
+    """Потолок ноль — добивки стоят (так их и останавливают настройкой), потолка нет — уходят в срок."""
+    due = {NOW.date(): {1: 30}}
+    boxes = _boxes(_box(1, wrote=40))
+
+    stopped, _ = plan(NOW, 2, Clock(), boxes, Supply(0), Chains(due, cap=0))
+    free, _ = plan(NOW, 2, Clock(), boxes, Supply(0), Chains(due))
+
+    assert [day.followups for day in stopped] == [0, 0]
+    assert [day.followups for day in free] == [30, 0]
+
+
 def test_stuck_letters_stay_out_of_the_plan_and_the_queue_date() -> None:
     """Десять писем в очереди, четыре не уйдут, пока их не поправят: план и срок — по шести."""
     boxes = _boxes(_box(1, cap=4, wrote=40))
-    days, eta = plan(NOW, 3, Clock(), boxes, Supply(queued=10, stuck=4), {})
+    days, eta = plan(NOW, 3, Clock(), boxes, Supply(queued=10, stuck=4), Chains())
 
     assert [day.planned for day in days] == [4, 2, 0]
     assert (eta.day, eta.sending_days) == (NOW.date() + timedelta(days=1), 2)
@@ -237,7 +281,7 @@ def test_stuck_letters_stay_out_of_the_plan_and_the_queue_date() -> None:
 
 
 def test_a_queue_of_stuck_letters_only_has_no_date() -> None:
-    _, eta = plan(NOW, 3, Clock(), _boxes(_box(1)), Supply(queued=3, stuck=3), {})
+    _, eta = plan(NOW, 3, Clock(), _boxes(_box(1)), Supply(queued=3, stuck=3), Chains())
 
     assert eta.day is None
     assert eta.words == "в очереди только письма, которые не уйдут, пока их не поправят (3)"
@@ -262,7 +306,7 @@ def test_a_projected_first_letter_grows_a_new_mailbox_in_the_plan() -> None:
         later=lambda day: capacity.rooms_on([new], {}, Stage.SALES, None, day, first=NOW.date()),
     )
 
-    days, _ = plan(NOW, 4, Clock(), boxes, Supply(queued=500), {})
+    days, _ = plan(NOW, 4, Clock(), boxes, Supply(queued=500), Chains())
 
     assert [day.capacity for day in days] == [5, 5, 10, 10]
 
@@ -275,7 +319,7 @@ def test_a_queue_that_fits_today_goes_today_with_hours_by_pace() -> None:
     через три паузы от сейчас (окно открыто)."""
     clock = Clock(WEEKDAYS_9_17, BERLIN, PACE)
     boxes = _boxes(_box(1, wrote=40), _box(2, wrote=40), _box(3, wrote=40))
-    _, eta = plan(NOW, 7, clock, boxes, Supply(queued=9), {})
+    _, eta = plan(NOW, 7, clock, boxes, Supply(queued=9), Chains())
 
     assert (eta.day, eta.sending_days, eta.hours) == (NOW.date(), 1, 0.8)
     assert eta.words == (
@@ -288,7 +332,7 @@ def test_a_queue_over_several_days_skips_the_weekend_and_counts_from_the_window(
     """60 писем по 20 в день: ср, чт, пт — и последнее письмо пятницы уходит через 20 пауз от
     открытия окна (07:00 UTC): в 12:00 UTC пятницы — 50 часов от среды, 10:00."""
     clock = Clock(WEEKDAYS_9_17, BERLIN, PACE)
-    _, eta = plan(NOW, 7, clock, _boxes(_box(1, wrote=40)), Supply(queued=60), {})
+    _, eta = plan(NOW, 7, clock, _boxes(_box(1, wrote=40)), Supply(queued=60), Chains())
 
     assert (eta.day, eta.sending_days, eta.hours) == (date(2026, 10, 23), 3, 50.0)
 
@@ -297,7 +341,7 @@ def test_pace_caps_what_a_mailbox_sends_before_the_window_closes() -> None:
     """Час до закрытия окна, пауза 15 минут: ящик успеет четыре письма, хоть лимит и двадцать."""
     late = NOW.replace(hour=14)
     clock = Clock(WEEKDAYS_9_17, BERLIN, PACE)
-    days, _ = plan(late, 2, clock, _boxes(_box(1, wrote=40)), Supply(queued=500), {})
+    days, _ = plan(late, 2, clock, _boxes(_box(1, wrote=40)), Supply(queued=500), Chains())
 
     assert (days[0].capacity, days[0].planned) == (20, 4)
     assert days[0].why_not == (
@@ -307,7 +351,9 @@ def test_pace_caps_what_a_mailbox_sends_before_the_window_closes() -> None:
 
 
 def test_by_hand_there_are_no_hours_and_the_words_say_when_the_date_holds() -> None:
-    _, eta = plan(NOW, 7, Clock(WEEKDAYS_9_17, BERLIN), _boxes(_box(1, wrote=40)), Supply(60), {})
+    _, eta = plan(
+        NOW, 7, Clock(WEEKDAYS_9_17, BERLIN), _boxes(_box(1, wrote=40)), Supply(60), Chains()
+    )
 
     assert (eta.day, eta.hours) == (date(2026, 10, 23), None)
     assert "вручную: пачка выбирает дневной лимит за секунды (до 200 писем за нажатие)" in eta.words
@@ -316,7 +362,7 @@ def test_by_hand_there_are_no_hours_and_the_words_say_when_the_date_holds() -> N
 
 def test_an_unknown_zone_keeps_the_days_and_drops_the_hours() -> None:
     clock = Clock(WEEKDAYS_9_17, None, PACE)
-    days, eta = plan(NOW, 7, clock, _boxes(_box(1, wrote=40)), Supply(60), {})
+    days, eta = plan(NOW, 7, clock, _boxes(_box(1, wrote=40)), Supply(60), Chains())
 
     assert [day.sending for day in days] == [True, True, True, False, False, True, True]
     assert (eta.day, eta.hours) == (date(2026, 10, 23), None)
@@ -325,12 +371,12 @@ def test_an_unknown_zone_keeps_the_days_and_drops_the_hours() -> None:
 
 def test_without_mailboxes_the_queue_has_no_date_and_says_why() -> None:
     boxes = Mailboxes(
-        left=Rooms({}, {}),
+        left=Rooms({}, Chains()),
         capacity=0,
-        later=lambda _day: Rooms({}, {}),
+        later=lambda _day: Rooms({}, Chains()),
         idle="ящиков, которые пишут, нет: все выключены или на паузе",
     )
-    days, eta = plan(NOW, 3, Clock(), boxes, Supply(queued=12), {})
+    days, eta = plan(NOW, 3, Clock(), boxes, Supply(queued=12), Chains())
 
     assert [day.planned for day in days] == [0, 0, 0]
     assert days[0].why_not == "ящиков, которые пишут, нет: все выключены или на паузе"
@@ -339,7 +385,7 @@ def test_without_mailboxes_the_queue_has_no_date_and_says_why() -> None:
 
 
 def test_an_empty_queue_has_no_date() -> None:
-    _, eta = plan(NOW, 3, Clock(), _boxes(_box(1)), Supply(queued=0, extra=40), {})
+    _, eta = plan(NOW, 3, Clock(), _boxes(_box(1)), Supply(queued=0, extra=40), Chains())
 
     assert eta.day is None
     assert eta.words == "очередь пуста — отправлять нечего"
@@ -347,7 +393,7 @@ def test_an_empty_queue_has_no_date() -> None:
 
 def test_a_blocked_stage_sends_nothing_and_says_why() -> None:
     words = "Первые письма этапа не уходят: продажи к почте ещё не подключены"
-    days, eta = plan(NOW, 2, Clock(), _boxes(_box(1), blocked=words), Supply(queued=30), {})
+    days, eta = plan(NOW, 2, Clock(), _boxes(_box(1), blocked=words), Supply(queued=30), Chains())
 
     assert [(day.capacity, day.planned, day.why_not) for day in days] == [
         (5, 0, words),
@@ -357,7 +403,7 @@ def test_a_blocked_stage_sends_nothing_and_says_why() -> None:
 
 
 def test_a_queue_longer_than_a_year_says_so() -> None:
-    _, eta = plan(NOW, 1, Clock(), _boxes(_box(1, cap=1, wrote=40)), Supply(queued=1000), {})
+    _, eta = plan(NOW, 1, Clock(), _boxes(_box(1, cap=1, wrote=40)), Supply(queued=1000), Chains())
 
     assert eta.day is None
     assert eta.words == "очередь не уйдёт и за 366 дней при нынешней мощности ящиков"
@@ -365,6 +411,6 @@ def test_a_queue_longer_than_a_year_says_so() -> None:
 
 def test_a_new_mailbox_stays_on_the_first_step_until_its_first_letter() -> None:
     """Ступень — от первого письма: ящик, ещё не писавший, на первой ступени на все дни вперёд."""
-    days, _ = plan(NOW, 4, Clock(), _boxes(_box(1, wrote=None)), Supply(queued=500), {})
+    days, _ = plan(NOW, 4, Clock(), _boxes(_box(1, wrote=None)), Supply(queued=500), Chains())
 
     assert [day.capacity for day in days] == [5, 5, 5, 5]

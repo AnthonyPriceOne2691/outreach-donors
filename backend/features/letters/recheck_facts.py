@@ -47,7 +47,8 @@ from backend.features.crawl.suppliers import supplier_hosts
 from backend.features.letters import attempts, other_role, stoplist
 from backend.features.letters.chain import CHAINABLE, FIRST_STEP, RECHECK_CAMPAIGN, RECHECK_STEP
 from backend.features.outreach import health, limits
-from backend.features.outreach.repository import OutreachRepository, in_hourly_lane
+from backend.features.outreach.followup_caps import in_hourly_lane
+from backend.features.outreach.repository import OutreachRepository
 from backend.features.outreach.threads import (
     ThreadState,
     asked_again_at,
