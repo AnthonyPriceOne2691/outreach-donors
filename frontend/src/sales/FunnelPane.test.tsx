@@ -189,6 +189,32 @@ describe('воронка продаж', () => {
     expect(tile('Отправлено')).toEqual(['Отправлено', '13', 'лидов, не писем']);
   });
 
+  it('на телефоне строка гипотезы — карточкой: у каждого числа подпись шага, прокрутки вбок нет', async () => {
+    // Проверка прода 10.11.2026: на 390 px таблица в 1 008 px прокручивалась внутри блока в
+    // 316 px — видна была одна колонка имён. Раскладки в jsdom нет — проверяется устройство:
+    // классы карточек у обёртки таблицы (стили — `glass.css`) и подпись шага у каждого числа.
+    await openFunnel();
+
+    const table = screen.getByRole('table', { name: 'Воронка по гипотезам' });
+    const scroll = table.closest('.mantine-TableScrollContainer-scrollContainer');
+    expect(scroll).toHaveClass('phoneCards', 'phoneCardsRow');
+    const labels = within(table)
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) =>
+        within(row)
+          .getAllByRole('cell')
+          .map((cell) => cell.getAttribute('data-label')),
+      );
+    const steps = ['В очереди', 'Отправлено', 'Доставлено', 'Отказ', 'Ответ', 'Передан'];
+    // Имя гипотезы — без подписи: в карточке оно первой строкой и называет себя само.
+    expect(labels).toEqual([
+      [null, ...steps],
+      [null, ...steps],
+      [null, ...steps],
+    ]);
+  });
+
   it('гипотеза — запрос с её номером, строк по гипотезам нет', async () => {
     const recorded = await openFunnel({
       [`GET ${FUNNEL}?hypothesis=8`]: {

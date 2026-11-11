@@ -678,7 +678,7 @@ describe('продажи: текст лида не вылезает из яче�
     expect(waiting.queryByText(/проверка не выполнена/)).toBeNull();
   });
 
-  it('компания и гипотеза переносятся по словам; пояс — одной строкой, целиком в подсказке', async () => {
+  it('компания и гипотеза переносятся по словам; пояс — одной строкой, имя — в подсказке', async () => {
     const zone = 'America/Argentina/ComodRivadavia';
     const company = 'International Association of Independent Online Publishers';
     await openScreen({ [LEADS]: { body: view([{ ...IVAN, timezone: zone, company }]) } });
@@ -686,9 +686,9 @@ describe('продажи: текст лида не вылезает из яче�
     const row = within(rowOf('ivan@acme.example.test'));
     expect(row.getByText(company).closest('td')).toHaveClass('wrapCell');
     expect(row.getByText('сайты EN').closest('td')).toHaveClass('wrapCell');
-    const belt = row.getByText(zone);
-    expect(belt).toHaveAttribute('title', zone);
-    expect(belt).toHaveAttribute('data-line-clamp');
+    // Что на виду вместо имени пояса — `LeadZone.test.tsx`, с закреплёнными часами.
+    expect(row.queryByText(zone)).toBeNull();
+    expect(row.getByTitle(zone)).toHaveAttribute('data-line-clamp');
   });
 });
 

@@ -201,15 +201,28 @@ describe('цепочка писем: языки и шаги', () => {
     expect(
       english.getByText('Нет второй добивки — письма продаж на этом языке не соберутся.'),
     ).toBeInTheDocument();
+    // Версия — у полной цепочки: по неполной письма не собираются, и «i» с номером у неё нет.
+    expect(english.queryByRole('button', { name: 'Версия цепочки' })).toBeNull();
     expect(screen.queryByText(/загружает администратор/)).not.toBeInTheDocument();
   });
 
-  it('полная цепочка — с версией: по ней сборка и калибровка узнают текст', async () => {
+  it('полная цепочка: на виду — «цепочка полна», номер версии — в «i» у значка', async () => {
+    // Проверка прода 10.11.2026: «Версия chain-…» стояла строкой под значком. По версии сборка и
+    // калибровка узнают текст — человеку она нужна только при разборе с разработчиком.
     await openChain({}, { ...FILLED, chains: [state('ru', []), state('en', [])] });
+    const user = userEvent.setup();
 
     const english = within(cardOf('Английский'));
     expect(english.getByText('цепочка полна')).toBeInTheDocument();
-    expect(english.getByText('Версия chain-en0000000000.')).toBeInTheDocument();
+    // Значок всё сказал: строки под ним нет, номера на виду нет.
+    expect(cardOf('Английский').querySelector('.chainState')).toBeNull();
+    expect(screen.queryByText(/chain-en0000000000/)).toBeNull();
+
+    await user.click(english.getByRole('button', { name: 'Версия цепочки' }));
+
+    expect(await screen.findByText(/^Версия цепочки — /, {}, SCREEN_WAIT)).toHaveTextContent(
+      'Версия цепочки — chain-en0000000000. По ней сборка писем и калибровка узнают, каким текстом написано письмо.',
+    );
   });
 
   it('набор гипотезы — свой запрос; без своих шагов сказано, что действует общая цепочка', async () => {
@@ -230,9 +243,11 @@ describe('цепочка писем: языки и шаги', () => {
     const english = within(cardOf('Английский'));
     expect(
       await english.findByText(
-        'Своих включённых шагов на этом языке нет — действует общая цепочка. Версия chain-en0000000000.',
+        'Своих включённых шагов на этом языке нет — действует общая цепочка.',
       ),
     ).toBeInTheDocument();
+    // Общая цепочка полна — её номер версии там же, в «i» у значка.
+    expect(english.getByRole('button', { name: 'Версия цепочки' })).toBeInTheDocument();
     expect(english.getAllByText('не задан')).toHaveLength(3);
   });
 

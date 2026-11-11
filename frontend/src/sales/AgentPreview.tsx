@@ -3,7 +3,8 @@
  *
  * Ответ сервера считается той же выборкой, из которой пишет агент: свой
  * фильтр на экране («включённые из списка») показал бы не то, что агент
- * получит, если правила выборки разойдутся. Версия — та, что запишет черновик.
+ * получит, если правила выборки разойдутся. Версия — та, что запишет черновик: её
+ * номер — в «i» у строки с числом записей (`VersionHint`), на виду его нет.
  * Окно спрашивает сервер при открытии: после правки и переключения — заново.
  *
  * **Прокручивается середина, а не окно** (`oneScroll`, правило «В окне одна прокрутка»):
@@ -11,7 +12,7 @@
  * шапкой и ложился на заголовок «Что увидит агент» (снимок стенда 13.10.2026, 1440 × 900).
  */
 
-import { Alert, Loader, Modal, Stack, Text, Title } from '@mantine/core';
+import { Alert, Group, Loader, Modal, Stack, Text, Title } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
@@ -19,6 +20,7 @@ import { previewKb } from '../api/sales';
 import { kbKindTitle } from '../api/salesLabels';
 import type { AgentView, FactGroup } from '../api/salesTypes';
 import { formatNumber } from '../format';
+import { VersionHint } from './VersionHint';
 
 export const KB_PREVIEW_QUERY_KEY = ['sales', 'kb', 'preview'] as const;
 
@@ -58,10 +60,15 @@ function Seen({ view }: { view: AgentView }) {
   }
   return (
     <Stack gap="lg">
-      <Text size="sm" c="dimmed">
-        Версия базы <code>{view.version}</code> · записей {formatNumber(view.total)}. Выключенных
-        здесь нет — агент их не видит.
-      </Text>
+      {/* Номер версии — в «i» у строки: на виду — сколько записей и почему нет выключенных. */}
+      <Group gap={4} wrap="nowrap" align="flex-start">
+        <Text size="sm" c="dimmed">
+          Записей {formatNumber(view.total)}. Выключенных здесь нет — агент их не видит.
+        </Text>
+        <VersionHint name="Версия базы" version={view.version}>
+          Её запишет черновик агента.
+        </VersionHint>
+      </Group>
       {view.groups.map((group) => (
         <KindGroup key={`${group.kind}-${group.language}`} group={group} />
       ))}

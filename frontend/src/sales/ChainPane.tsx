@@ -41,6 +41,7 @@ import { useChain } from './chainData';
 import type { StepPlace } from './chainDraft';
 import { ChainStepModal } from './ChainStepModal';
 import { CorridorWarning } from './CorridorWarning';
+import { VersionHint } from './VersionHint';
 import { useMayWrite, WriteRight } from './WriteRight';
 
 const COMMON = 'common';
@@ -89,18 +90,21 @@ function ChainHead({ hypotheses, owner, onOwner }: OwnerProps) {
   );
 }
 
-/** Что с цепочкой языка: полна, неполна или не задана — и чья она. */
-function chainWords(state: ChainState, owner: number | null): { badge: string; line: string } {
+/** Что с цепочкой языка: полна, неполна или не задана — и чья она. Строки под значком нет
+ *  (`null`), когда значок уже всё сказал: цепочка полна и своя. Номер версии полной цепочки — в
+ *  «i» у значка (`VersionHint`), а не строкой. */
+function chainWords(
+  state: ChainState,
+  owner: number | null,
+): { badge: string; line: string | null } {
   const borrowed =
     owner !== null && state.source === 'common'
-      ? 'Своих включённых шагов на этом языке нет — действует общая цепочка. '
-      : '';
-  if (state.missing.length === 0) {
-    return { badge: 'цепочка полна', line: `${borrowed}Версия ${state.version}.` };
-  }
+      ? 'Своих включённых шагов на этом языке нет — действует общая цепочка.'
+      : null;
+  if (state.missing.length === 0) return { badge: 'цепочка полна', line: borrowed };
   const badge = state.missing.length === 3 ? 'цепочка не задана' : 'цепочка неполна';
-  const line = `${borrowed}Нет ${state.missing.join(', ')} — письма продаж на этом языке не соберутся.`;
-  return { badge, line };
+  const missing = `Нет ${state.missing.join(', ')} — письма продаж на этом языке не соберутся.`;
+  return { badge, line: borrowed === null ? missing : `${borrowed} ${missing}` };
 }
 
 function StepState({ row }: { row: ChainStepCard | undefined }) {
@@ -189,6 +193,7 @@ function LanguageCard({
   onEdit: (step: number) => void;
 }) {
   const words = chainWords(state, owner);
+  const full = state.missing.length === 0;
   const rowOf = (step: number) =>
     view.rows.find((row) => row.step === step && row.language === state.language);
   return (
@@ -199,15 +204,25 @@ function LanguageCard({
       aria-label={chainLanguageTitle(state.language)}
     >
       <Stack gap="sm">
-        <Group justify="space-between" gap="xs">
-          <Title order={5}>{chainLanguageTitle(state.language)}</Title>
-          <Badge variant="light" color={state.missing.length === 0 ? 'green' : 'yellow'}>
+        {/* Язык берёт остаток строки, значок и «i» — у правого края, как значок стоял и раньше. */}
+        <Group gap={6}>
+          <Title order={5} style={{ flex: 1, minWidth: 0 }}>
+            {chainLanguageTitle(state.language)}
+          </Title>
+          <Badge variant="light" color={full ? 'green' : 'yellow'}>
             {words.badge}
           </Badge>
+          {full && (
+            <VersionHint name="Версия цепочки" version={state.version}>
+              По ней сборка писем и калибровка узнают, каким текстом написано письмо.
+            </VersionHint>
+          )}
         </Group>
-        <Text size="xs" c="dimmed" className="chainState">
-          {words.line}
-        </Text>
+        {words.line !== null && (
+          <Text size="xs" c="dimmed" className="chainState">
+            {words.line}
+          </Text>
+        )}
         {view.steps.map((step) => (
           <StepRow
             key={step}

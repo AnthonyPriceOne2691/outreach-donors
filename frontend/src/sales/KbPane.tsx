@@ -3,8 +3,9 @@
  *
  * **Записи не удаляются — выключаются**: переключатель в строке говорит, видит ли
  * запись агент. Выключенная остаётся в списке — её включают обратно отсюда, — а
- * в «Что увидит агент» её нет. Версия базы над таблицей — та, что запишет
- * черновик агента: правка любой включённой записи её меняет.
+ * в «Что увидит агент» её нет. Версия базы — та, что запишет черновик агента: правка
+ * любой включённой записи её меняет; её номер — в «i» у строки «Агент видит N из M»
+ * (`VersionHint`), на виду его нет.
  *
  * **Тексты живут только здесь**, в базе: репозиторий публичный. Первичное
  * наполнение — файлом через консоль (`outreach sales-kb-load`), правка — здесь.
@@ -27,6 +28,7 @@ import { FixedTable } from './FixedTable';
 import type { Column } from './FixedTable';
 import { useKb, useSavedEntry, useToggle } from './kbData';
 import { KbEntryModal } from './KbEntryModal';
+import { VersionHint } from './VersionHint';
 import { useMayWrite, WriteRight } from './WriteRight';
 
 const COLUMNS: Column[] = [
@@ -66,10 +68,16 @@ function KbHead({
             Выключенная остаётся в списке, но агент её не видит. Тексты живут только здесь, в базе.
           </InfoHint>
         </Group>
-        <Text size="sm" c="dimmed" className="kbVersion">
-          Версия базы <code>{view.version}</code> · агент видит {formatNumber(view.active)} из{' '}
-          {formatNumber(view.total)}
-        </Text>
+        {/* На виду — сколько записей видит агент; номер версии — в «i» у этой строки (проверка
+            прода 10.11.2026: «Версия базы kb-…» стояла здесь кодом). */}
+        <Group gap={4} wrap="nowrap" align="center">
+          <Text size="sm" c="dimmed" className="kbVersion">
+            Агент видит {formatNumber(view.active)} из {formatNumber(view.total)}
+          </Text>
+          <VersionHint name="Версия базы" version={view.version}>
+            Её запишет черновик агента; правка включённой записи её меняет.
+          </VersionHint>
+        </Group>
         {!mayWrite && <WriteRight what="Правит базу знаний" />}
       </Stack>
       <Group gap="xs">
