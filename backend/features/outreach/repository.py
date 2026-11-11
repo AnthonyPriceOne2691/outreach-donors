@@ -23,11 +23,11 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, Text, and_, case, func, or_, select
+from sqlalchemy import ColumnElement, Select, Text, and_, case, func, select
 from sqlalchemy import true as sa_true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -44,21 +44,12 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.core.stages import sales_addresses
 from backend.features.letters.chain import CHAINABLE, FIRST_STEP, MAX_STEPS, RECHECK_STEP
+from backend.features.outreach.followup_caps import day_start, sent_since
 from backend.features.outreach.threads import ThreadState, ThreadSummary, state_of, summarize
 from backend.features.replies.inbound import MAX_TEXT_CHARS
 
 #: Шаги, которые считает дневной лимит ящика: первое письмо и перезапрос цены.
 DAILY_STEPS = (FIRST_STEP, RECHECK_STEP)
-
-
-def in_hourly_lane() -> ColumnElement[bool]:
-    """Письмо в часовом лейне ящика (`OUTREACH_FOLLOWUP_PER_SENDER_PER_HOUR`): добивка
-    цепочки или перезапрос цены. Одно правило у прохода добивок (`followups.sent_this_hour`)
-    и у перезапроса (`letters/recheck_facts.py`)."""
-    return or_(
-        and_(MessageModel.step > FIRST_STEP, MessageModel.step < MAX_STEPS),
-        MessageModel.step == RECHECK_STEP,
-    )
 
 
 def followup_pending() -> tuple[ColumnElement[bool], ...]:
@@ -252,18 +243,13 @@ class OutreachRepository:
         «ушло» пишется задним числом (`letters/unknown_outcome.py`), и без этого лимиты пускали
         лишнее письмо — «13 из 12» на стенде 26.10.2026.
         """
-        moment = now or datetime.now(UTC)
-        since = datetime.combine(moment.date(), time.min, tzinfo=UTC)
-        flying = and_(
-            MessageModel.status == MessageStatus.SENDING, MessageModel.updated_at >= since
-        )
         rows = await self._session.execute(
             select(MessageModel.sender_id, func.count())
             .where(MessageModel.sender_id.is_not(None))
-            .where(or_(MessageModel.sent_at >= since, flying))
+            .where(sent_since(day_start(now or datetime.now(UTC))))
             # `first_only` — счёт для дневного капа. Добивки в кап
-            # не входят (решение 21.09.2026): у них свой часовой потолок,
-            # иначе цепочки съедают квоту новых доноров. Перезапрос цены
+            # не входят (решение 21.09.2026): у них свои потолки, часовой и суточный
+            # (`followup_caps`), иначе цепочки съедают квоту новых доноров. Перезапрос цены
             # входит (`letters/price_recheck.py`, проверка 12.10.2026): он уходит
             # по нажатию, пачкой до двадцати, и без счёта давал бы всплеск с ящика.
             .where(MessageModel.step.in_(DAILY_STEPS) if first_only else sa_true())

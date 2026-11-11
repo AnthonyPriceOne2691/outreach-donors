@@ -21,6 +21,7 @@ from backend.features.letters.chain import MAX_STEPS, cadence, due_after, planne
 from backend.features.letters.followups import Chain, send_due
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport import NullTransport, Outgoing
+from backend.features.outreach import followup_caps
 from backend.features.outreach.repository import OutreachRepository
 from backend.features.replies.repository import ReplyRepository
 from sqlalchemy import select, update
@@ -422,6 +423,71 @@ class TestThePass:
         assert report.postponed == 1
         await session.refresh(second)
         assert second.next_action_at == later + timedelta(hours=1)
+
+    async def test_daily_cap_postpones_the_rest_until_tomorrow(
+        self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Завал добивок не уходит с ящика за день: сверх суточного потолка добивка ждёт следующих
+        суток (UTC), а не следующего часа — и наутро уходит. 09.11.2026 без этого потолка ящик
+        отдал за день втрое больше своего дневного лимита первых писем."""
+        monkeypatch.setattr(outreach_cfg, "FOLLOWUP_PER_SENDER_PER_DAY", 1)
+        first, _ = await _chain_start(session, followup_days=[1, 1])
+        later = NOW + timedelta(days=2)
+        await send_due(session, transport=NullTransport(), limit=5, now=later)
+        second, _ = await _chain_start(session, host="other.example.test", followup_days=[1, 1])
+        second.sender_id = first.sender_id
+        await session.flush()
+
+        # Через два часа часовой запас снова есть, а суточный выбран: ждать — до завтра.
+        evening = later + timedelta(hours=2)
+        report = await send_due(session, transport=NullTransport(), limit=5, now=evening)
+
+        assert (report.sent, report.postponed, dict(report.capped)) == (0, 1, {first.sender_id: 1})
+        assert (
+            f"до завтра по суточному потолку — 1: ящик №{first.sender_id} — 1" in report.as_report
+        )
+        await session.refresh(second)
+        tomorrow = datetime(2026, 9, 24, tzinfo=UTC)
+        assert second.next_action_at == tomorrow
+
+        morning = await send_due(session, transport=NullTransport(), limit=5, now=tomorrow)
+
+        assert (morning.sent, morning.capped.total()) == (1, 0)
+        assert "суточному потолку" not in morning.as_report
+
+    async def test_daily_cap_counts_chain_followups_only(
+        self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Первое письмо того же дня места в суточном потолке добивок не занимает: у него свой
+        дневной лимит. Иначе новый донор отнимал бы добивку у начатой цепочки."""
+        monkeypatch.setattr(outreach_cfg, "FOLLOWUP_PER_SENDER_PER_DAY", 1)
+        first, _ = await _chain_start(session, followup_days=[1, 1])
+        later = NOW + timedelta(days=2)
+        fresh, _ = await _chain_start(session, host="fresh.example.test", followup_days=[5, 5])
+        await session.execute(
+            update(MessageModel)
+            .where(MessageModel.id == fresh.id)
+            .values(sender_id=first.sender_id, sent_at=later)
+        )
+
+        report = await send_due(session, transport=NullTransport(), limit=5, now=later)
+
+        assert (report.sent, report.capped.total()) == (1, 0)
+        assert await followup_caps.today_of(session, first.sender_id, later) == 1
+
+    async def test_a_zero_daily_cap_holds_every_followup(
+        self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Потолок ноль — добивки стоят, сроки целы: так их останавливают настройкой, не теряя."""
+        monkeypatch.setattr(outreach_cfg, "FOLLOWUP_PER_SENDER_PER_DAY", 0)
+        first, _ = await _chain_start(session, followup_days=[1, 1])
+        later = NOW + timedelta(days=2)
+
+        report = await send_due(session, transport=NullTransport(), limit=5, now=later)
+
+        assert (report.sent, report.capped.total()) == (0, 1)
+        await session.refresh(first)
+        assert first.next_action_at == datetime(2026, 9, 24, tzinfo=UTC)
 
     async def test_sent_followups_do_not_eat_the_daily_cap(
         self, session: AsyncSession, filled_legal: None

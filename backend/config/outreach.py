@@ -56,10 +56,20 @@ class _Outreach(DomainSettings):
     # Сколько добивок в час уходит с одного ящика. Свой потолок, потому
     # что дневной кап добивки не считает (решение 21.09.2026): иначе
     # backlog первых писем голодит цепочки, а цепочки съедают квоту
-    # новых доноров. Час, а не сутки, — чтобы сотня подошедших добивок
-    # не ушла пачкой за минуту: почтовая платформа смотрит на скорость.
+    # новых доноров. Час — чтобы сотня подошедших добивок не ушла пачкой
+    # за минуту: почтовая платформа смотрит на скорость.
     followup_per_sender_per_hour: int = Field(
         default=10, validation_alias="OUTREACH_FOLLOWUP_PER_SENDER_PER_HOUR"
+    )
+    # Сколько добивок в сутки уходит с одного ящика. Часового потолка мало:
+    # добивки, чей срок выпал на выходные, все уходят в понедельник, и ящик
+    # отдаёт за день втрое больше своего дневного лимита первых писем, а
+    # направление — в два с половиной раза больше обычного дня (случай
+    # 09.11.2026). После такого дня почта получателей отвергает письма как
+    # спам. Сверх потолка добивка ждёт следующих суток: срок переносится на
+    # их начало. Потолок один для ящиков всех направлений.
+    followup_per_sender_per_day: int = Field(
+        default=20, ge=0, validation_alias="OUTREACH_FOLLOWUP_PER_SENDER_PER_DAY"
     )
     # Добивки: дни от ПРЕДЫДУЩЕГО письма, по шагу (`letters/chain.py`). «7,7» — на 7-й
     # и 14-й день от первого письма, как в ТЗ. Прежнее «7,14» стояло с подписью
@@ -135,6 +145,7 @@ WARMUP_DAILY_CAPS: tuple[int, ...] = tuple(int(x) for x in _s.warmup_daily_caps.
 WARMUP_STEP_DAYS: int = _s.warmup_step_days
 FOLLOWUP_DAYS: tuple[int, ...] = tuple(int(x) for x in _s.followup_days.split(","))
 FOLLOWUP_PER_SENDER_PER_HOUR: int = _s.followup_per_sender_per_hour
+FOLLOWUP_PER_SENDER_PER_DAY: int = _s.followup_per_sender_per_day
 UNIQUENESS_TARGET_MIN: float = _s.uniqueness_target_min
 UNIQUENESS_TARGET_MAX: float = _s.uniqueness_target_max
 PRICE_CONFIDENCE_THRESHOLD: float = _s.price_confidence_threshold
