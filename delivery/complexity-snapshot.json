@@ -2042,9 +2042,9 @@
       "worst": "—"
     },
     "backend/features/letters/address_gate.py": {
-      "lines": 311,
+      "lines": 314,
       "complexity": 10,
-      "worst": "_next_round:195"
+      "worst": "_next_round:198"
     },
     "backend/features/letters/answers.py": {
       "lines": 247,

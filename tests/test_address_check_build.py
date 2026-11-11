@@ -530,6 +530,25 @@ class TestQueuedLetters:
         assert letter.status is MessageStatus.QUEUED
         assert report.left == 1
 
+    async def test_after_a_failed_check_the_rest_of_the_batch_is_not_asked(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Проход автоотправки идёт каждую минуту: сбой сервиса не должен получать запрос на
+        каждое письмо очереди — после первого отказа остальные ждут следующей пачки."""
+        await make_donor(session, "a.example.test", email="a@a.example.test", dr=70)
+        await make_donor(session, "b.example.test", email="b@b.example.test", dr=60)
+        await self._queued_unchecked(session, monkeypatch)
+        down = ProviderError("провайдер не ответил (HTTP 503)")
+        verifier = self._hunter(
+            monkeypatch, FakeVerifier({"a@a.example.test": down, "b@b.example.test": down})
+        )
+
+        report = await batch.send_queue(session, NullTransport(), stage=Stage.DONORS)
+
+        assert len(verifier.asked) == 1
+        assert dict(report.refused) == {"адрес не проверен — провайдер не ответил (HTTP 503)": 2}
+        assert (report.sent, report.left) == (0, 2)
+
     async def test_a_letter_built_with_the_check_goes_without_a_second_call(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
