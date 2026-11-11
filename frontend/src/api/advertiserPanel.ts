@@ -12,13 +12,14 @@ import type { CrawlRow } from './crawls';
 /** Какую выборку смотрят: по умолчанию — сегодня. */
 export type PanelRange = 'today' | 'week' | 'all' | 'load';
 
-/** Откуда доноры строки: файлом, вручную или обходы без записи о загрузке. */
-export type LoadKind = 'bulk' | 'manual' | 'crawl';
+/** Откуда доноры строки: файлом, вручную, обходы кнопкой без записи о загрузке (`crawl`) или
+ *  ночной обход (`night`). */
+export type LoadKind = 'bulk' | 'manual' | 'crawl' | 'night';
 
 export interface PanelLoad {
   id: number;
   at: string;
-  kind: Exclude<LoadKind, 'crawl'>;
+  kind: Exclude<LoadKind, 'crawl' | 'night'>;
   file_name: string | null;
   hosts: number;
 }
@@ -53,11 +54,21 @@ export interface PanelView {
   advertisers: PanelAdvertisers;
 }
 
+/** Что есть только у ночной строки: сколько ночей за ней, идёт ли обход и что нового. */
+export interface QualityNight {
+  /** Ночей с обходами — вместе с последней: прошлых на одну меньше. */
+  nights: number;
+  /** Обход этой ночи ещё идёт: итог строки не окончательный. */
+  running: boolean;
+  /** Новых рекламодателей за ночь; пусто — посчитать не по чему. */
+  fresh: number | null;
+}
+
 export interface QualityRow {
   at: string;
   kind: LoadKind;
   load_id: number | null;
-  /** День обходов без загрузки; у партии пусто. */
+  /** День обходов без загрузки или ночь ночного обхода; у партии пусто. */
   day: string | null;
   file_name: string | null;
   donors: number;
@@ -70,6 +81,9 @@ export interface QualityRow {
   selling_pages: number;
   /** Доля страниц с продающей ссылкой; пусто — по той же причине. */
   share: number | null;
+  /** Только у ночной строки страницы качества; у прошлых ночей пусто. У сервера старше экрана поля
+   *  нет вовсе: его строки — загрузки и дни, как раньше. */
+  night?: QualityNight | null;
 }
 
 export interface QualityView {
@@ -108,11 +122,21 @@ export function fetchQuality(page: number): Promise<QualityView> {
   return request<QualityView>(`/advertisers/panel/quality?page=${page}`);
 }
 
-/** Домены строки качества: партии — по номеру, обходов без загрузки — по дню. */
+/** Ночи ночного обхода до последней — свежие первыми: последняя стоит строкой качества. */
+export function fetchQualityNights(page: number): Promise<QualityView> {
+  return request<QualityView>(`/advertisers/panel/quality/nights?page=${page}`);
+}
+
+/** Чем сервер узнаёт строку качества: партию — по номеру, ночной обход — по ночи, обходы кнопкой
+ *  без загрузки — по дню. */
+function rowName(row: QualityRow): Record<string, string> {
+  if (row.load_id !== null) return { load: String(row.load_id) };
+  return row.kind === 'night' ? { night: row.day ?? '' } : { day: row.day ?? '' };
+}
+
+/** Домены строки качества страницей. */
 export function fetchQualityHosts(row: QualityRow, page: number): Promise<QualityHostsView> {
-  const params = new URLSearchParams(
-    row.load_id === null ? { day: row.day ?? '' } : { load: String(row.load_id) },
-  );
+  const params = new URLSearchParams(rowName(row));
   params.set('page', String(page));
   return request<QualityHostsView>(`/advertisers/panel/quality/hosts?${params.toString()}`);
 }

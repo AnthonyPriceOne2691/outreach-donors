@@ -287,6 +287,11 @@ class AuditAction(StrEnum):
     # Очередь загрузки обхода снята: доноры, загруженные списком, в обход больше не пойдут
     # (`crawl/backlog.py`). По журналу видно, кто снял и сколько обходов вперёд.
     CRAWL_BACKLOG_DROPPED = "crawl_backlog_dropped"
+    # Советы судьи рекламодателей применены решениями — порция партии (`crawl/judge_apply.py`):
+    # полоса и сколько пар. Решение ставит не человек — по журналу видно, кто запустил партию.
+    ADVERTISER_JUDGE_APPLIED = "advertiser_judge_applied"
+    # Партия советов судьи откатана: её решения вернулись в очередь (`crawl/judge_revert.py`).
+    ADVERTISER_JUDGE_REVERTED = "advertiser_judge_reverted"
 
 
 class UsageProvider(StrEnum):

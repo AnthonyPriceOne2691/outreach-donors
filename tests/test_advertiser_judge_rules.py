@@ -13,9 +13,12 @@ from backend.features.crawl.judge_rules import (
     CATALOG_MIN_PAIRS,
     CATALOG_RULE,
     CATALOG_SHARE,
+    CATALOG_WORDS,
+    EXPLICIT_AD,
     FIRM,
     RULES,
     Advice,
+    Ruled,
     advise,
     is_catalog,
 )
@@ -129,7 +132,6 @@ def test_the_models_answer_is_checked_against_the_table(
     assert ruled.words
 
 
-@pytest.mark.parametrize("catalog_donor", [False, True])
 @pytest.mark.parametrize("verdict", ["write", "skip", "unclear", ""])
 @pytest.mark.parametrize(
     ("facts", "advice", "rule"),
@@ -141,11 +143,11 @@ def test_the_models_answer_is_checked_against_the_table(
     ],
 )
 def test_the_models_answer_does_not_override_a_firm_rule(
-    facts: LinkFacts, advice: Advice, rule: str, verdict: str, catalog_donor: bool
+    facts: LinkFacts, advice: Advice, rule: str, verdict: str
 ) -> None:
     """Карточка каталога — бесплатная и в подборке «лучшие …» — и недоказанное: совет таблицы, что бы
-    модель ни ответила и у какого бы донора пара ни была."""
-    ruled = advise(dataclasses.replace(facts, verdict=verdict), catalog_donor=catalog_donor)
+    модель ни ответила."""
+    ruled = advise(dataclasses.replace(facts, verdict=verdict))
 
     assert rule in FIRM
     assert (ruled.advice, ruled.rule) == (advice, rule)
@@ -187,53 +189,167 @@ def test_a_disagreement_names_both_sides_in_words() -> None:
 CARD_PAGE = ("article_about_target", "visit_button", "target_sells")
 
 
-@pytest.mark.parametrize(
-    "on", [CARD_PAGE, ("keyword_anchor", "target_sells"), ("money_anchor", "directory_entry")]
-)
-def test_a_catalog_donors_dispute_is_skipped_by_its_own_rule(on: tuple[str, ...]) -> None:
-    """У донора-каталога спор «таблица — пишем, модель — не пишем» — «не пишем» своим правилом и
-    своими словами, а не «не понять» (решение владельца 11.11.2026): его карточки — не рекламодатели."""
-    facts = dataclasses.replace(_facts(*on), verdict="skip")
-    assert advise(facts).advice is Advice.UNCLEAR  # без признака донора — спор, решает человек
+#: По образцу фактов на каждое правило таблицы — и все ответы модели, с которыми их сверяют.
+SAMPLES: dict[str, LinkFacts] = {
+    "same_owner": _facts("money_anchor", "target_sells", "same_owner"),
+    "unproven": _facts("money_anchor", link=False, target=False),
+    "redirect": _facts("money_anchor", "target_redirect"),
+    "noncommercial": _facts("money_anchor", "calls_to_buy", "target_noncommercial"),
+    "press_release": _facts("press_release", "brand_anchor", "target_sells"),
+    "navigation": _facts("site_navigation", "target_sells"),
+    "ranked_directory": _facts("directory_entry", "recommends", "target_sells"),
+    "free_directory": _facts("directory_entry", "visit_button", "target_sells"),
+    "citation": _facts("source_of_fact", "brand_anchor", "target_media"),
+    "paid_or_ad": _facts("brand_anchor", "target_sells", disclosure="Реклама"),
+    "promoted": _facts("keyword_anchor", "target_sells"),
+    "selling_anchor": _facts("money_anchor", target=False),
+    "about_business": _facts(*CARD_PAGE),
+    "media": _facts("brand_anchor", "target_media"),
+    "brand_mention": _facts("brand_anchor", "target_sells"),
+    "no_signs": _facts("target_sells"),
+    "rest": _facts("target_sells", "sponsored"),
+}
+VERDICTS = ("write", "skip", "unclear", "")
+BY_TABLE = {rule.key: rule for rule in RULES}
+GRID = [(key, verdict) for key in SAMPLES for verdict in VERDICTS]
+
+
+def test_every_rule_of_the_table_has_a_sample() -> None:
+    assert set(SAMPLES) == set(BY_TABLE)
+    assert {key: advise(facts).rule for key, facts in SAMPLES.items()} == {
+        key: key for key in SAMPLES
+    }
+
+
+def _plain(key: str, verdict: str) -> tuple[Advice, str]:
+    """Сверка у обычного издания — как её ввели таблицы v4–v6, записанная ожиданием, а не кодом
+    судьи: модель не решила или правило твёрдое — таблица; совпали — таблица; таблица не решила —
+    «пишем» модели совет, её «не пишем» человеку; разошлись — спор."""
+    table = BY_TABLE[key].advice
+    if verdict not in ("write", "skip") or key in {
+        "free_directory",
+        "ranked_directory",
+        "unproven",
+    }:
+        return table, key
+    if table.value == verdict:
+        return table, key
+    if table is Advice.UNCLEAR:
+        return (Advice.WRITE, "verdict") if verdict == "write" else (Advice.UNCLEAR, key)
+    return Advice.UNCLEAR, "disagree"
+
+
+@pytest.mark.parametrize(("key", "verdict"), GRID)
+def test_without_the_sign_the_advice_is_what_it_was(key: str, verdict: str) -> None:
+    """Правило каталога не трогает обычное издание: без признака донора каждая ветка сверки даёт
+    тот же совет тем же правилом, что до него."""
+    facts = dataclasses.replace(SAMPLES[key], verdict=verdict)
+
+    ruled = advise(facts)
+
+    assert (ruled.advice, ruled.rule) == _plain(key, verdict)
+    assert ruled == advise(facts, catalog_donor=False)
+    assert CATALOG_WORDS not in ruled.words
+
+
+@pytest.mark.parametrize(("key", "verdict"), GRID)
+def test_a_catalog_donor_is_written_to_only_for_an_explicit_ad(key: str, verdict: str) -> None:
+    """У донора-каталога «не понять» не бывает: «не пишем» таблицы — её правилом и её словами,
+    «пишем» — только правилом явной рекламы и если модель не сказала «не пишем», остальное — «не
+    пишем» правилом каталога (решение владельца 11.11.2026)."""
+    facts = dataclasses.replace(SAMPLES[key], verdict=verdict)
+    table = BY_TABLE[key]
 
     ruled = advise(facts, catalog_donor=True)
 
-    assert (ruled.advice, ruled.rule) == (Advice.SKIP, CATALOG_RULE)
-    assert ruled.words == (
-        "донор-каталог, его карточки не рекламодатели; правила: пишем, модель: не пишем"
-    )
+    if table.advice is Advice.SKIP:
+        assert ruled == Ruled(Advice.SKIP, key, table.words)
+    elif key in EXPLICIT_AD and verdict != "skip":
+        assert ruled == Ruled(Advice.WRITE, key, table.words)
+    else:
+        assert (ruled.advice, ruled.rule) == (Advice.SKIP, CATALOG_RULE)
+        assert ruled.words.startswith(f"{CATALOG_WORDS}; правила: ")
 
 
 @pytest.mark.parametrize(
-    ("on", "verdict", "advice", "rule"),
+    ("facts", "verdict", "advice", "rule"),
     [
-        # Согласное «пишем» остаётся: рекламные статьи бывают и у каталога.
-        (CARD_PAGE, "write", Advice.WRITE, "about_business"),
-        (("keyword_anchor", "target_sells"), "write", Advice.WRITE, "promoted"),
-        # Модель сама не решила или ответа нет — совет таблицы.
-        (CARD_PAGE, "unclear", Advice.WRITE, "about_business"),
-        (CARD_PAGE, "", Advice.WRITE, "about_business"),
-        # Спор в другую сторону — человеку, как у обычного издания.
-        (("target_sells",), "write", Advice.UNCLEAR, "disagree"),
-        # Таблица не решила: «не пишем» модели — человеку, её «пишем» — совет.
-        (("brand_anchor", "target_sells"), "skip", Advice.UNCLEAR, "brand_mention"),
-        (("target_sells", "sponsored"), "skip", Advice.UNCLEAR, "rest"),
-        (("target_sells", "sponsored"), "write", Advice.WRITE, "verdict"),
-        # Согласное «не пишем» — правилом таблицы.
-        (("target_sells",), "skip", Advice.SKIP, "no_signs"),
+        # Страница карточки, прочитанная статьёй о домене: и согласное «пишем» — «не пишем».
+        (SAMPLES["about_business"], "write", Advice.SKIP, CATALOG_RULE),
+        (SAMPLES["about_business"], "skip", Advice.SKIP, CATALOG_RULE),
+        (SAMPLES["promoted"], "write", Advice.SKIP, CATALOG_RULE),
+        (SAMPLES["selling_anchor"], "", Advice.SKIP, CATALOG_RULE),
+        # Явная реклама на странице: раскрытие, рекламное место, пометка «пресс-релиз».
+        (SAMPLES["paid_or_ad"], "write", Advice.WRITE, "paid_or_ad"),
+        (SAMPLES["paid_or_ad"], "", Advice.WRITE, "paid_or_ad"),
+        (SAMPLES["paid_or_ad"], "unclear", Advice.WRITE, "paid_or_ad"),
+        (_facts("ad_slot", "target_sells"), "write", Advice.WRITE, "paid_or_ad"),
+        (SAMPLES["press_release"], "write", Advice.WRITE, "press_release"),
+        # …но не против ответа модели.
+        (SAMPLES["paid_or_ad"], "skip", Advice.SKIP, CATALOG_RULE),
+        (SAMPLES["press_release"], "skip", Advice.SKIP, CATALOG_RULE),
+        # Таблица не решила: и «пишем» модели — «не пишем».
+        (SAMPLES["rest"], "write", Advice.SKIP, CATALOG_RULE),
+        (SAMPLES["brand_mention"], "write", Advice.SKIP, CATALOG_RULE),
+        (SAMPLES["unproven"], "write", Advice.SKIP, CATALOG_RULE),
+        (SAMPLES["unproven"], "", Advice.SKIP, CATALOG_RULE),
+        # Пометка `sponsored` без раскрытия — не явная реклама: каталог ставит её всем ссылкам.
+        (
+            _facts("directory_entry", "visit_button", "target_sells", "sponsored"),
+            "write",
+            Advice.SKIP,
+            CATALOG_RULE,
+        ),
+        (
+            _facts("money_anchor", "calls_to_buy", "target_sells", "sponsored"),
+            "write",
+            Advice.SKIP,
+            CATALOG_RULE,
+        ),
+        # «Не пишем» таблицы — её правилом: «пишем» модели его у каталога не оспаривает.
+        (SAMPLES["no_signs"], "write", Advice.SKIP, "no_signs"),
+        (SAMPLES["citation"], "write", Advice.SKIP, "citation"),
+        (SAMPLES["free_directory"], "write", Advice.SKIP, "free_directory"),
+        (SAMPLES["ranked_directory"], "write", Advice.SKIP, "ranked_directory"),
     ],
 )
-def test_a_catalog_donor_changes_nothing_but_its_dispute(
-    on: tuple[str, ...], verdict: str, advice: Advice, rule: str
+def test_the_named_cases_of_a_catalog_donor(
+    facts: LinkFacts, verdict: str, advice: Advice, rule: str
 ) -> None:
-    """Признак донора меняет одну ветку сверки; остальные советы у каталога и у обычного издания
-    одни и те же — и правилом, и словами."""
-    facts = dataclasses.replace(_facts(*on), verdict=verdict)
+    ruled = advise(dataclasses.replace(facts, verdict=verdict), catalog_donor=True)
+
+    assert (ruled.advice, ruled.rule) == (advice, rule)
+
+
+@pytest.mark.parametrize(
+    ("key", "verdict", "words"),
+    [
+        ("about_business", "skip", "правила: пишем, модель: не пишем"),
+        ("about_business", "write", "правила: пишем, модель: пишем"),
+        ("rest", "write", "правила: не понять, модель: пишем"),
+        ("paid_or_ad", "skip", "правила: пишем, модель: не пишем"),
+        ("brand_mention", "unclear", "правила: не понять, модель: не понять"),
+        ("unproven", "", "правила: не понять"),  # суд до общего ответа: модель не названа
+    ],
+)
+def test_the_catalog_rule_says_why_and_what_both_sides_said(
+    key: str, verdict: str, words: str
+) -> None:
+    """Слова правила каталога — короткие: их читают под решением строки."""
+    ruled = advise(dataclasses.replace(SAMPLES[key], verdict=verdict), catalog_donor=True)
+
+    assert ruled.words == f"донор-каталог, его карточки не рекламодатели; {words}"
+    assert len(ruled.words) <= 85
+
+
+def test_a_table_skip_at_a_catalog_keeps_its_own_words() -> None:
+    """Слова таблицы точнее слов правила каталога: «пишем» модели в них не появляется."""
+    facts = dataclasses.replace(SAMPLES["no_signs"], verdict="write")
+    assert advise(facts).rule == "disagree"  # у обычного издания такой спор — человеку
 
     ruled = advise(facts, catalog_donor=True)
 
-    assert (ruled.advice, ruled.rule) == (advice, rule)
-    assert ruled == advise(facts)
+    assert ruled == Ruled(Advice.SKIP, "no_signs", "ни одного признака рекламы")
 
 
 def test_a_dispute_without_the_sign_stays_with_the_human() -> None:

@@ -21,7 +21,14 @@ from backend.cli import advertiser_judge as cli
 from backend.config import llm as llm_cfg
 from backend.features.core.models.advertiser import AdvertiserJudgementModel, CandidateModel
 from backend.features.core.usage import LlmCapExceededError
-from backend.features.crawl import judge_advice, judge_estimate, judge_pass, judge_second
+from backend.features.crawl import (
+    judge_advice,
+    judge_estimate,
+    judge_pass,
+    judge_rules,
+    judge_second,
+)
+from backend.features.crawl.judge import Case, judge_seen
 from backend.features.crawl.judge_facts import SECOND_KEYS, LinkFacts
 from backend.features.crawl.judge_pass import (
     NO_CREDITS,
@@ -34,17 +41,28 @@ from backend.features.crawl.judge_rules import (
     CATALOG_RULE,
     RULES_VERSION,
     SECOND_RULE,
+    SECOND_SKIP_DECLINED,
+    SECOND_SPONSORED_DECLINED,
     Advice,
     advise,
 )
-from backend.features.crawl.judge_second import SECOND_EFFORT, SECOND_ROOM, SecondPlan
+from backend.features.crawl.judge_second import SECOND_EFFORT, SECOND_ROOM, SecondPlan, Tally
 from backend.features.crawl.judge_store import relabel
 from backend.shared.numbers import NBSP
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_advertiser_judge_catalog as catalog_tests
 from tests import test_advertiser_judge_pass as pass_tests
-from tests.test_advertiser_judge import MODEL_KEY, Model, answer, facts_answer
+from tests.test_advertiser_judge import (
+    DONOR,
+    LINK,
+    MODEL_KEY,
+    PAGE,
+    SEEN,
+    Model,
+    answer,
+    facts_answer,
+)
 from tests.test_advertiser_judge_pass import (
     CARD_PAGE,
     OUTSIDE,
@@ -72,6 +90,13 @@ def unsure(tokens: int = 100) -> httpx.Response:
 def sure(tokens: int = 300) -> httpx.Response:
     """Согласное «пишем»: таблица и ответ модели совпали."""
     return facts_answer(tokens)
+
+
+def refuses(tokens: int = 300) -> httpx.Response:
+    """Согласное «не пишем»: ссылка — источник факта, и модель говорит «не пишем»."""
+    return facts_answer(
+        tokens, money_anchor=False, calls_to_buy=False, source_of_fact=True, verdict="skip"
+    )
 
 
 class Two:
@@ -179,6 +204,46 @@ def test_the_second_round_is_the_last_step_of_the_advice() -> None:
     )
     assert (still.advice, still.rule) == (Advice.UNCLEAR, "disagree")
     assert still.words == f"{DISPUTE}; второй круг (модель gpt-5): не понять — {DISPUTE}"
+
+
+def test_the_cautious_mode_takes_only_a_write_without_the_sponsored_mark(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Исход второго круга хранится как сказан, а принят ли он — решает совет: «не пишем» и «пишем»
+    по ссылке с пометкой `sponsored` остаются «не понять», и человек видит, что сказано и почему
+    не принято. Смена режима — тот же пересчёт по тем же фактам, без модели."""
+    disputed = LinkFacts(
+        money_anchor=True,
+        calls_to_buy=True,
+        target_sells=True,
+        link_quote="a b c",
+        target_quote="d e f",
+        verdict="skip",
+    )
+    said_skip = dataclasses.replace(
+        disputed, second_advice="skip", second_words="источник факта", second_model=SECOND
+    )
+    said_write = dataclasses.replace(
+        disputed, second_advice="write", second_words=PROMOTED, second_model=SECOND, sponsored=True
+    )
+
+    skip, write = advise(said_skip), advise(said_write)
+
+    assert (skip.advice, skip.rule) == (Advice.UNCLEAR, "disagree")
+    assert skip.words == (
+        f"{DISPUTE}; второй круг (модель gpt-5): не пишем — не принято: {SECOND_SKIP_DECLINED}"
+    )
+    assert (write.advice, write.rule) == (Advice.UNCLEAR, "disagree")
+    assert write.words == (
+        f"{DISPUTE}; второй круг (модель gpt-5): пишем — не принято: {SECOND_SPONSORED_DECLINED}"
+    )
+    # Та же ссылка без пометки — «пишем» принято.
+    plain = advise(dataclasses.replace(said_write, sponsored=False))
+    assert (plain.advice, plain.rule) == (Advice.WRITE, SECOND_RULE)
+    # Режим выключен — принят любой решённый исход: факты те же, вызова модели нет.
+    monkeypatch.setattr(judge_rules, "SECOND_CAUTIOUS", False)
+    assert (advise(said_skip).advice, advise(said_skip).rule) == (Advice.SKIP, SECOND_RULE)
+    assert (advise(said_write).advice, advise(said_write).rule) == (Advice.WRITE, SECOND_RULE)
 
 
 def test_the_first_round_that_decided_needs_no_second() -> None:
@@ -358,16 +423,18 @@ async def test_relabel_gives_the_same_advice_and_rule_as_the_second_round_wrote(
 ) -> None:
     """Колонки строки первой когорты после второго круга — то же, что пересчёт даёт её фактам:
     и когда вторая модель решила, и когда тоже сказала «не понять»."""
-    await _candidates(session, *_pending(*SAMPLE[:2]))
-    await _run(session, Two(Model(unsure()), Model(sure(), unsure(300))))
+    await _candidates(session, *_pending(*SAMPLE[:3]))
+    await _run(session, Two(Model(unsure()), Model(sure(), unsure(300), refuses())))
     written = {
         target: (row.advice, row.rule, row.rules_version, row.updated_at)
         for (target, model), row in (await _rows(session)).items()
         if model == FIRST
     }
+    # Принятое «пишем»; «не понять» обеих; «не пишем» второй модели — не принято, осталось «не понять».
     assert {target: said[:3] for target, said in written.items()} == {
         SAMPLE[0]: ("write", SECOND_RULE, RULES_VERSION),
         SAMPLE[1]: ("unclear", "disagree", RULES_VERSION),
+        SAMPLE[2]: ("unclear", "disagree", RULES_VERSION),
     }
     # Срок строк — явно прежний: без него правка версии сдвинула бы его сама.
     await session.execute(
@@ -380,7 +447,7 @@ async def test_relabel_gives_the_same_advice_and_rule_as_the_second_round_wrote(
     changed = await relabel(session)
     await session.commit()
 
-    assert changed == 4
+    assert changed == 6
     after = {
         target: (row.advice, row.rule, row.rules_version, row.updated_at)
         for (target, model), row in (await _rows(session)).items()
@@ -412,6 +479,75 @@ async def test_no_second_model_or_the_same_one_means_no_second_round(
         0,
         "советы: не понять 1",
     )
+
+
+async def test_a_skip_of_the_second_model_is_kept_as_said_but_not_taken(
+    session: AsyncSession,
+) -> None:
+    [candidate_id] = await _candidates(session, *_pending(SAMPLE[0]))
+    models = Two(Model(unsure()), Model(refuses()))
+
+    report = await _run(session, models)
+
+    assert (report.advice, dict(report.second.advice), report.second.accepted) == (
+        {"unclear": 1},
+        {"skip": 1},
+        0,
+    )
+    rows = await _rows(session)
+    first, second = rows[(SAMPLE[0], FIRST)], rows[(SAMPLE[0], SECOND)]
+    # Что сказала вторая модель — в фактах как есть и в её строке; совет пары — «не понять».
+    assert (second.advice, second.rule) == ("skip", "citation")
+    assert (first.advice, first.rule, first.facts["second_advice"]) == (
+        "unclear",
+        "disagree",
+        "skip",
+    )
+    # Вторая модель пару судила: снова её не спрашивают.
+    plan = await plan_pass(session)
+    assert (plan.ids, plan.second and plan.second.waiting) == ([], 0)
+    candidate = await session.get(CandidateModel, candidate_id)
+    assert candidate is not None
+    candidate.confirmed = True
+    await session.flush()
+    said = (await judge_advice.after_decision(session, [candidate]))[candidate_id]
+    assert (said.advice, said.rule) == (Advice.UNCLEAR, "disagree")
+    assert said.words == (
+        f"{DISPUTE}; второй круг (модель gpt-5): не пишем — не принято: {SECOND_SKIP_DECLINED}"
+    )
+
+
+async def test_a_write_on_a_link_with_the_sponsored_mark_is_not_taken(
+    session: AsyncSession,
+) -> None:
+    """Пометка `sponsored` — поле кода в фактах строки первой модели: по ней «пишем» второго круга
+    не принимается, а сказанное им остаётся в фактах."""
+    models = Two(Model(unsure()), Model(sure()))
+
+    async def within(_session: AsyncSession) -> None:
+        return None
+
+    async def spend(session_: AsyncSession, _tokens: int) -> None:
+        await session_.flush()
+
+    case_ = Case(DONOR, PAGE, dataclasses.replace(LINK, sponsored=True), "food")
+    tally = Tally()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(models)) as model_http:
+        client = judge_pass.JudgeClient(model_http, model=FIRST, api_key=MODEL_KEY)
+        again = judge_second.of_pass(client, caps=within, spend=spend)
+        assert again is not None
+        first = await judge_seen(session, case_, SEEN, client=client)
+        judged = await again.settle(session, case_, SEEN, first, tally)
+
+    assert models.calls == (1, 1)
+    assert (judged.advice, judged.rule) == (Advice.UNCLEAR, "disagree")
+    assert judged.words == (
+        f"{DISPUTE}; второй круг (модель gpt-5): пишем — не принято: {SECOND_SPONSORED_DECLINED}"
+    )
+    assert (dict(tally.advice), tally.accepted) == ({"write": 1}, 0)
+    row = next(row for row in await _judgements(session) if row.model == FIRST)
+    assert (row.advice, row.rule) == ("unclear", "disagree")
+    assert (row.facts["sponsored"], row.facts["second_advice"]) == (True, "write")
 
 
 # --- план, смета и итог --------------------------------------------------------------------------
@@ -467,10 +603,11 @@ async def test_the_report_counts_the_second_round(session: AsyncSession) -> None
     assert (report.second.sent, report.second.tokens, report.tokens) == (2, 500, 800)
     assert dict(report.second.advice) == {"write": 1, "unclear": 1}
     assert (
-        "второй круг (модель gpt-5): пар 2, решил — пишем 1, не пишем 0; "
-        "оставил «не понять» 1; токенов 500"
+        "второй круг (модель gpt-5): пар 2, сказал — пишем 1, не пишем 0, не понять 1; "
+        "принято советом 1; токенов 500"
     ) in _plain(report_lines(report))
     assert report.second.fields()["advice"] == {"write": 1, "unclear": 1}
+    assert report.second.accepted == 1
 
 
 # --- деньги --------------------------------------------------------------------------------------
@@ -548,27 +685,6 @@ async def test_at_a_catalog_donor_the_first_round_settles_the_dispute_itself(
     assert (report.advice, report.second.sent) == ({"skip": 1}, 0)
     first = (await _rows(session))[(SAMPLE[0], FIRST)]
     assert (first.advice, first.rule) == ("skip", CATALOG_RULE)
-
-
-async def test_the_second_round_judges_by_the_same_sign_of_the_donor(session: AsyncSession) -> None:
-    """Признак донора-каталога — о доноре, а не о модели: второй круг судит с тем же признаком, что
-    первый, хотя в когорте второй модели у донора пар ещё нет."""
-    session.add_all([_judged_card(f"card{number}.example") for number in range(24)])
-    await _candidates(session, *_pending(SAMPLE[0]))
-    # Первый круг: таблица не решила, модель — «не пишем». Второй: страница карточки, прочитанная
-    # статьёй о домене, — у каталога это «не пишем».
-    undecided = {"money_anchor": False, "calls_to_buy": False, "target_sells": False}
-    first_said = facts_answer(100, **undecided, recommends=True, verdict="skip")
-    models = Two(Model(first_said), Model(facts_answer(300, **CARD_PAGE)))
-
-    report = await _run(session, models)
-
-    assert models.calls == (1, 1)
-    assert (report.advice, dict(report.second.advice)) == ({"skip": 1}, {"skip": 1})
-    rows = await _rows(session)
-    first, second = rows[(SAMPLE[0], FIRST)], rows[(SAMPLE[0], SECOND)]
-    assert (second.advice, second.rule) == ("skip", CATALOG_RULE)
-    assert (first.advice, first.rule, first.facts["second_advice"]) == ("skip", SECOND_RULE, "skip")
 
 
 async def test_a_second_round_row_follows_the_donor_that_became_a_catalog(

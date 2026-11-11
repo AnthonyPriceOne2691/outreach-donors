@@ -18,7 +18,7 @@
 обойдённые не до потолка. Внутри — от самого давнего обхода: так за следующие ночи очередь
 доходит до всех, а не крутится на первых в списке.
 
-**Кто** — те же условия, что у кнопки (`targets.choose`), кроме идущих и уже ждущих. Глубоко
+**Кто** — как у кнопки (`targets.choose`), кроме идущих, уже ждущих и доноров-каталогов. Глубоко
 обойдённый недавно не ставится (`DEEP_REST_DAYS`): кандидаты донора — по последнему обходу
 (`gate.py`), и обычный ночной обход заменил бы найденное глубоким найденным на тысяче страниц.
 
@@ -51,11 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import crawl as cfg
 from backend.features.core.domain import StopReason
-from backend.features.core.models.crawl import (
-    CrawlBacklogModel,
-    CrawlNightModel,
-    CrawlRunModel,
-)
+from backend.features.core.models.crawl import CrawlBacklogModel, CrawlNightModel, CrawlRunModel
 from backend.features.crawl import deep, targets
 from backend.features.crawl.donor_page import ACTIVE, TYPICAL_FALLBACK_SEC, crawl_seconds
 from backend.features.crawl.launch import crawl_host
@@ -279,9 +275,9 @@ async def plan(session: AsyncSession, *, workers: int, per_minute: int, now: dat
     """Расчёт круга до запуска (шапка)."""
     power = await _power(session, workers=workers, per_minute=per_minute)
     last = await _last_runs(session)
-    chosen = {crawl_host(host) for host in (await targets.choose(session, limit=None)).hosts}
+    picked = await targets.choose(session, limit=None, skip_catalogs=True)
     going = {host for host, run in last.items() if run.status in {s.value for s in ACTIVE}}
-    free = chosen - going - await _waiting_hosts(session)
+    free = {crawl_host(host) for host in picked.hosts} - going - await _waiting_hosts(session)
     queue, rested = order(sorted(free), last, now=now)
     taken = queue[: power.capacity]
     return Plan(
@@ -300,6 +296,7 @@ async def plan(session: AsyncSession, *, workers: int, per_minute: int, now: dat
             "donors": len(queue),
             "left_out": len(queue) - len(taken),
             "rested": rested,
+            "catalogs": len(picked.catalog),
             "estimate_sec": round(power.estimate_sec(len(taken))),
             "ranks": _tally(taken, last),
         },

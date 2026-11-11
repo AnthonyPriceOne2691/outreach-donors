@@ -88,14 +88,27 @@ export const ADVICE: Record<JudgeAdvice['advice'], string> = {
   unclear: 'не понять',
 };
 
-/** Совет судьи под решением человека — для сверки глазами: что сказал, каким правилом и по какой
- *  цитате. Сервер даёт его только решённой строке. */
-function JudgeLine({ said }: { said: JudgeAdvice }) {
+/** Совет судьи под решением — для сверки глазами: что сказал, каким правилом и по какой цитате.
+ *  Сервер даёт его только решённой строке. Решил сам судья и совет с тех пор тот же — правило без
+ *  повтора решения: оно уже стоит строкой выше. */
+function JudgeLine({ said, decided }: { said: JudgeAdvice; decided: ReviewRow }) {
   const quote = said.link_quote || said.target_quote;
+  const own = decided.by_judge === true && said.advice === (decided.confirmed ? 'write' : 'skip');
   return (
     <Text size="xs" c="dimmed" className="cellName">
-      судья: {ADVICE[said.advice]} — {said.words}
+      {own ? 'правило:' : `судья: ${ADVICE[said.advice]} —`} {said.words}
       {quote ? ` · «${quote}»` : ''}
+    </Text>
+  );
+}
+
+/** Решение строки и кто его принял. Решение по совету судьи (`crawl/judge_apply.py`) — «решил
+ *  судья», а не метка партии из базы: человек переигрывает его теми же кнопками. */
+function DecidedLine({ row }: { row: ReviewRow }) {
+  return (
+    <Text size="xs" c="dimmed" className="cellName">
+      {row.confirmed ? 'пишем' : 'не пишем'} —{' '}
+      {row.by_judge === true ? 'решил судья' : row.decided_by}
     </Text>
   );
 }
@@ -118,12 +131,8 @@ function Cells({ row }: { row: ReviewRow }) {
         >
           <Seams text={row.target_root} />
         </Anchor>
-        {row.confirmed !== null ? (
-          <Text size="xs" c="dimmed" className="cellName">
-            {row.confirmed ? 'пишем' : 'не пишем'} — {row.decided_by}
-          </Text>
-        ) : null}
-        {row.confirmed !== null && row.judge ? <JudgeLine said={row.judge} /> : null}
+        {row.confirmed !== null ? <DecidedLine row={row} /> : null}
+        {row.confirmed !== null && row.judge ? <JudgeLine said={row.judge} decided={row} /> : null}
       </Table.Td>
       <Table.Td className="wrapCell cellName" data-label="Донор">
         <Seams text={row.donor_host} />

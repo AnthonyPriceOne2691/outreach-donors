@@ -37,7 +37,9 @@ export type AuditAction =
   | 'ahrefs_cap_changed'
   | 'llm_cap_changed'
   | 'hunter_cap_changed'
-  | 'crawl_backlog_dropped';
+  | 'crawl_backlog_dropped'
+  | 'advertiser_judge_applied'
+  | 'advertiser_judge_reverted';
 
 export interface JournalEntry {
   id: number;
