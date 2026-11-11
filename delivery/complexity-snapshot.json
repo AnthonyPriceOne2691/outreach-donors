@@ -1522,9 +1522,9 @@
       "worst": "after_decision:65"
     },
     "backend/features/crawl/judge_apply.py": {
-      "lines": 392,
+      "lines": 411,
       "complexity": 8,
-      "worst": "_by_table_in_force:223"
+      "worst": "_by_table_in_force:240"
     },
     "backend/features/crawl/judge_batches.py": {
       "lines": 189,
