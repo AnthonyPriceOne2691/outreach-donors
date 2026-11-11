@@ -79,6 +79,7 @@ ADVERTISER_ACTIONS = frozenset(
         AuditAction.CRAWL_BACKLOG_DROPPED,
         AuditAction.ADVERTISER_JUDGE_APPLIED,
         AuditAction.ADVERTISER_JUDGE_REVERTED,
+        AuditAction.ADVERTISER_JUDGE_BANDS_CHANGED,
     }
 )
 

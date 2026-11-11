@@ -292,6 +292,9 @@ class AuditAction(StrEnum):
     ADVERTISER_JUDGE_APPLIED = "advertiser_judge_applied"
     # Партия советов судьи откатана: её решения вернулись в очередь (`crawl/judge_revert.py`).
     ADVERTISER_JUDGE_REVERTED = "advertiser_judge_reverted"
+    # Автоприменение советов судьи по полосе включено или выключено (`crawl/judge_bands.py`):
+    # с этой минуты судья решает полосу сам каждую ночь — по журналу видно, кто это разрешил.
+    ADVERTISER_JUDGE_BANDS_CHANGED = "advertiser_judge_bands_changed"
 
 
 class UsageProvider(StrEnum):

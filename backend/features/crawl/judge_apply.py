@@ -48,7 +48,7 @@ from __future__ import annotations
 import logging
 import secrets
 from collections import Counter
-from collections.abc import Iterator, Sequence
+from collections.abc import Collection, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -164,6 +164,8 @@ class Applied:
     stopped: int = 0
     #: Домены, которые уже ответили: «не пишем» переписку не останавливает (`review.Decided`).
     answered: list[str] = field(default_factory=list)
+    #: Пары полосы, которые порцию просили не решать (`apply(spare=…)`): оставлены человеку.
+    spared: int = 0
 
 
 class _Last(NamedTuple):
@@ -341,14 +343,28 @@ async def _locked(session: AsyncSession, ids: Sequence[int]) -> list[CandidateMo
     return list(rows.all())
 
 
-async def apply(session: AsyncSession, band: Band, *, batch: str, limit: int = PORTION) -> Applied:
+async def apply(
+    session: AsyncSession,
+    band: Band,
+    *,
+    batch: str,
+    limit: int = PORTION,
+    spare: Collection[str] = (),
+) -> Applied:
     """Применить порцию полосы решениями партии `batch` — каждое путём человека (`review.decide`).
-    Без фиксации: её делает вызывающий вместе с записью журнала. Повтор продолжает с места."""
+    Без фиксации: её делает вызывающий вместе с записью журнала. Повтор продолжает с места.
+
+    `spare` — домены, чьи пары порция не решает и оставляет человеку (ночной шаг: «не пишем»,
+    которое сняло бы рекламодателя, `judge_night.py`); в «осталось» они не входят, а названы
+    своим числом."""
     if band_of(batch) is not band:
         raise BatchBandError(f"партия «{batch}» начата другой полосой — начните новую")
-    members = [one for one in await said(session) if one.fits(band)]
+    fitting = [one for one in await said(session) if one.fits(band)]
+    members = [one for one in fitting if one.target_root not in spare]
     taken = [one.candidate_id for one in members[:limit]]
-    result = Applied(batch, band, left=len(members) - len(taken))
+    result = Applied(
+        batch, band, left=len(members) - len(taken), spared=len(fitting) - len(members)
+    )
     # Список держит строки в сессии до конца порции: `review.decide` берёт их отсюда, под замком.
     held = await _locked(session, taken)
     for candidate_id in taken:

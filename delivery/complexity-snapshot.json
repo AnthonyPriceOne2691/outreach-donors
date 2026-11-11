@@ -1002,9 +1002,9 @@
       "worst": "check:51"
     },
     "backend/features/access/journal.py": {
-      "lines": 306,
+      "lines": 307,
       "complexity": 10,
-      "worst": "_filters:253"
+      "worst": "_filters:254"
     },
     "backend/features/access/login.py": {
       "lines": 104,
@@ -1277,7 +1277,7 @@
       "worst": "zone_name:80"
     },
     "backend/features/core/domain.py": {
-      "lines": 354,
+      "lines": 357,
       "complexity": 0,
       "worst": "—"
     },
@@ -1297,7 +1297,7 @@
       "worst": "refusal:214"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 124,
+      "lines": 128,
       "complexity": 0,
       "worst": "—"
     },
@@ -1312,7 +1312,7 @@
       "worst": "—"
     },
     "backend/features/core/models/advertiser.py": {
-      "lines": 179,
+      "lines": 236,
       "complexity": 0,
       "worst": "—"
     },
@@ -1442,7 +1442,7 @@
       "worst": "strip_structural_noise:176"
     },
     "backend/features/crawl/backlog.py": {
-      "lines": 329,
+      "lines": 334,
       "complexity": 8,
       "worst": "eta_sec:169"
     },
@@ -1522,9 +1522,14 @@
       "worst": "after_decision:65"
     },
     "backend/features/crawl/judge_apply.py": {
-      "lines": 392,
-      "complexity": 8,
-      "worst": "_by_table_in_force:223"
+      "lines": 408,
+      "complexity": 9,
+      "worst": "apply:346"
+    },
+    "backend/features/crawl/judge_bands.py": {
+      "lines": 68,
+      "complexity": 4,
+      "worst": "states:38"
     },
     "backend/features/crawl/judge_batches.py": {
       "lines": 189,
@@ -1551,15 +1556,25 @@
       "complexity": 3,
       "worst": "batch_of:42"
     },
+    "backend/features/crawl/judge_night.py": {
+      "lines": 391,
+      "complexity": 9,
+      "worst": "_step:338"
+    },
+    "backend/features/crawl/judge_night_queue.py": {
+      "lines": 155,
+      "complexity": 6,
+      "worst": "seen:88"
+    },
     "backend/features/crawl/judge_pass.py": {
       "lines": 456,
       "complexity": 11,
       "worst": "plan_pass:202"
     },
     "backend/features/crawl/judge_plan.py": {
-      "lines": 244,
+      "lines": 245,
       "complexity": 8,
-      "worst": "plan:228"
+      "worst": "plan:229"
     },
     "backend/features/crawl/judge_revert.py": {
       "lines": 217,

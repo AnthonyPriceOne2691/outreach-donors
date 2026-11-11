@@ -206,13 +206,14 @@ async def _launch(session: AsyncSession, roots: set[str]) -> Launch:
     return Launch(len(roots), len(fresh), with_address)
 
 
-async def _takes_off(session: AsyncSession, roots: set[str]) -> int:
-    """У скольких доменов полосы «не пишем» снимется рекламодатель по найденной ссылке: он заведён,
-    а подходящих ссылок у домена нет — условием снятия (`promote._rebuild`: без площадок
-    поставщиков). Бизнес ниши не снимается (`promote._take_off`)."""
+async def taken_off(session: AsyncSession, roots: set[str]) -> set[str]:
+    """Домены полосы «не пишем», у которых решение снимет рекламодателя по найденной ссылке: он
+    заведён, а подходящих ссылок у домена нет — условием снятия (`promote._rebuild`: без площадок
+    поставщиков). Бизнес ниши не снимается (`promote._take_off`). Кнопке это число для плана, а
+    ночному шагу — пары, которые он оставляет человеку (`judge_night.py`)."""
     hosts = await _advertised(session, roots, links_only=True)
     if not hosts:
-        return 0
+        return set()
     suppliers = await supplier_hosts(session)
     stays: set[str] = set()
     for chunk in chunked(sorted(hosts)):
@@ -222,7 +223,7 @@ async def _takes_off(session: AsyncSession, roots: set[str]) -> int:
             )
         )
         stays.update(root for root, donor in chosen.tuples() if donor.lower() not in suppliers)
-    return len(hosts - stays)
+    return hosts - stays
 
 
 async def plan(session: AsyncSession, band: Band) -> Plan:
@@ -238,6 +239,6 @@ async def plan(session: AsyncSession, band: Band) -> Plan:
         rules=[RuleCount(rule, rule_words(rule), pairs) for rule, pairs in by_rule.most_common()],
         examples=await _examples(session, members),
         standing=standing_of(rows),
-        takes_off=await _takes_off(session, roots) if band is Band.SKIP else 0,
+        takes_off=len(await taken_off(session, roots)) if band is Band.SKIP else 0,
         launch=await _launch(session, roots) if band is Band.WRITE else None,
     )

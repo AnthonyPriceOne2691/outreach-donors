@@ -22,15 +22,25 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.features.core.domain import Verdict
-from backend.features.core.models._mixins import TimestampedMixin
+from backend.features.core.models._mixins import SetByMixin, TimestampedMixin
 from backend.features.core.models._mixins import sql_enum as _enum
 from backend.shared.database.base import Base
 
@@ -176,3 +186,50 @@ class AdvertiserJudgementModel(TimestampedMixin, Base):
             name="uq_advertiser_judgements_key",
         ),
     )
+
+
+class JudgeBandModel(SetByMixin, Base):
+    """Автоприменение советов судьи по полосе — включено или нет: строка на каждую смену.
+
+    Действует последняя строка полосы; строк нет — полоса выключена (`crawl/judge_bands.py`).
+    Строка не правится и не удаляется: по строкам видно, кто и когда включил ночное применение и
+    кто его выключил, — как у капа Ahrefs и потолков модели. Полосы включаются по одной: «не пишем»
+    и «пишем» — разные решения владельца.
+    """
+
+    __tablename__ = "advertiser_judge_bands"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Полоса — совет судьи, который применяется: `skip` или `write` (`judge_apply.Band`).
+    band: Mapped[str] = mapped_column(String(16), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+
+class JudgeNightModel(TimestampedMixin, Base):
+    """Ночной шаг судьи (`crawl/judge_night.py`): одна строка на дату.
+
+    Строка — и замок, и след, как у ночного круга обходов (`CrawlNightModel`): уникальная дата
+    держит «один раз за ночь» при рестарте и двух процессах, а итог разбора и применения остаётся,
+    чтобы утром было видно, что судья сделал сам. По ней же шаг продолжает с места после выкатки.
+    """
+
+    __tablename__ = "advertiser_judge_nights"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Дата шага по Москве — та же, что у ночного круга обходов.
+    night: Mapped[date] = mapped_column(Date, nullable=False, unique=True)
+    #: Значение `judge_night.Phase`.
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Когда шаг поставил разбор спорных (или стал ждать уже идущего): итог раньше этой минуты —
+    #: чужой, прошлой ночи.
+    pass_asked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Сколько раз разбор ставился этой ночью: выкатка и сбой — повтор, но не без конца.
+    tries: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    #: Итог разбора как его отдала задача: строки, советы числами, токены, почему встал.
+    report: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    #: Применение по полосам: партия и числа (`judge_night.BandNight`); и сделан ли пересчёт советов.
+    applied: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    #: Почему шаг встал или не дошёл до конца — словами.
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
