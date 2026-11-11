@@ -167,18 +167,28 @@ def again_message(user: str, missing: tuple[str, ...]) -> str:
     return f"{user}\n{load_again().replace('{quote}', words)}"
 
 
-def _room(model: str) -> dict[str, Any]:
+def _room(model: str, effort: str, room: int) -> dict[str, Any]:
     """Потолок вывода по семейству модели: у модели с рассуждением оно входит в потолок."""
     if is_reasoning(model):
-        return {"reasoning_effort": REASONING_EFFORT, "max_completion_tokens": TOKENS_REASONING}
+        return {"reasoning_effort": effort, "max_completion_tokens": room}
     return {"temperature": 0, "max_tokens": TOKENS_PLAIN}
 
 
-def build_payload(model: str, *, user: str, system: str) -> dict[str, Any]:
-    """Тело запроса: строгая форма фактов у провайдера и потолок вывода по модели."""
+def build_payload(
+    model: str,
+    *,
+    user: str,
+    system: str,
+    effort: str = REASONING_EFFORT,
+    room: int = TOKENS_REASONING,
+) -> dict[str, Any]:
+    """Тело запроса: строгая форма фактов у провайдера и потолок вывода по модели. `effort` и
+    `room` — усилие рассуждения и потолок вывода модели с рассуждением: у второго круга они свои
+    (`judge_second.py`)."""
     form = {"type": "json_schema", "json_schema": {**judge_facts.SCHEMA, "strict": True}}
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    return {"model": model, "messages": messages, "response_format": form, **_room(model)}
+    limits = _room(model, effort, room)
+    return {"model": model, "messages": messages, "response_format": form, **limits}
 
 
 def cut_by_room(body: dict[str, Any]) -> bool:
@@ -251,12 +261,21 @@ class JudgeClient(ModelClient):
         *,
         model: str | None = None,
         api_key: str | None = None,
+        effort: str = REASONING_EFFORT,
+        room: int = TOKENS_REASONING,
     ) -> None:
         super().__init__(client, model=model, api_key=api_key)
         self._given_key = api_key
+        self._effort, self._room = effort, room
 
     def _default_model(self) -> str:
         return llm_cfg.ADVERTISER_JUDGE_MODEL
+
+    def with_model(self, model: str, *, effort: str, room: int) -> JudgeClient:
+        """Клиент другой модели на том же HTTP-клиенте и с тем же ключом — второму кругу
+        (`judge_second.py`). HTTP-клиент не его: закрывает тот, кто дал."""
+        key = self._given_key
+        return JudgeClient(self._http, model=model, api_key=key, effort=effort, room=room)
 
     def _key(self) -> str:
         """Ключ данный — или общий в момент вызова (шапка модуля)."""
@@ -264,7 +283,9 @@ class JudgeClient(ModelClient):
 
     async def _ask(self, *, user: str, system: str, host: str) -> Answer | Said:
         """Один вызов строгой формы: текст ответа — или почему его нет, признаками `Said`."""
-        payload = build_payload(self._model, user=user, system=system)
+        payload = build_payload(
+            self._model, user=user, system=system, effort=self._effort, room=self._room
+        )
         body = await post_chat(self._http, api_key=self._key(), payload=payload, topic=TOPIC)
         if isinstance(body, Refusal):
             logger.warning("%s: %s", TOPIC, body, extra={"host": host})

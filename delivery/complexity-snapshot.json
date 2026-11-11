@@ -732,9 +732,9 @@
       "worst": "cmd_user_add:31"
     },
     "backend/cli/advertiser_judge.py": {
-      "lines": 207,
-      "complexity": 6,
-      "worst": "run_advertisers_judge:99"
+      "lines": 211,
+      "complexity": 8,
+      "worst": "print_plan:135"
     },
     "backend/cli/advertisers.py": {
       "lines": 410,
@@ -947,9 +947,9 @@
       "worst": "—"
     },
     "backend/config/llm.py": {
-      "lines": 158,
+      "lines": 167,
       "complexity": 2,
-      "worst": "_unset_if_empty:100"
+      "worst": "_unset_if_empty:108"
     },
     "backend/config/observability.py": {
       "lines": 21,
@@ -1542,19 +1542,19 @@
       "worst": "_fold:122"
     },
     "backend/features/crawl/judge_client.py": {
-      "lines": 314,
+      "lines": 335,
       "complexity": 6,
       "worst": "marks_of:121"
     },
     "backend/features/crawl/judge_estimate.py": {
-      "lines": 98,
-      "complexity": 6,
-      "worst": "_lines:76"
+      "lines": 112,
+      "complexity": 5,
+      "worst": "_token_lines:81"
     },
     "backend/features/crawl/judge_facts.py": {
-      "lines": 329,
+      "lines": 347,
       "complexity": 8,
-      "worst": "read:305"
+      "worst": "read:323"
     },
     "backend/features/crawl/judge_mark.py": {
       "lines": 64,
@@ -1577,9 +1577,9 @@
       "worst": "summary_of:109"
     },
     "backend/features/crawl/judge_pass.py": {
-      "lines": 456,
-      "complexity": 11,
-      "worst": "plan_pass:202"
+      "lines": 489,
+      "complexity": 12,
+      "worst": "plan_pass:212"
     },
     "backend/features/crawl/judge_plan.py": {
       "lines": 245,
@@ -1592,9 +1592,14 @@
       "worst": "revert:159"
     },
     "backend/features/crawl/judge_rules.py": {
-      "lines": 360,
+      "lines": 415,
       "complexity": 6,
-      "worst": "_media:182"
+      "worst": "_media:189"
+    },
+    "backend/features/crawl/judge_second.py": {
+      "lines": 404,
+      "complexity": 7,
+      "worst": "settle:330"
     },
     "backend/features/crawl/judge_store.py": {
       "lines": 319,

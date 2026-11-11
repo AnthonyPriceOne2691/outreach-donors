@@ -608,6 +608,14 @@ def filled_legal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", FILLED["OUTREACH_INBOUND_SECRET"])
 
 
+@pytest.fixture(autouse=True)
+def _no_second_judge_round(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Судья рекламодателей в тестах — без второго круга, что бы ни стояло в `.env` рабочей копии
+    (`LLM_ADVERTISER_JUDGE_SECOND_MODEL`): иначе каждый подставной «не понять» спрашивал бы вторую
+    модель. Тесты второго круга включают его сами (`tests/test_advertiser_judge_second.py`)."""
+    monkeypatch.setattr("backend.config.llm.ADVERTISER_JUDGE_SECOND_MODEL", "")
+
+
 async def make_donor(
     session: AsyncSession,
     host: str,

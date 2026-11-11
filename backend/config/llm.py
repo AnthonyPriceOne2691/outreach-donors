@@ -61,6 +61,14 @@ class _Llm(DomainSettings):
     advertiser_judge_model: str = Field(
         default="gpt-5-mini", validation_alias="LLM_ADVERTISER_JUDGE_MODEL"
     )
+    # Второй круг судьи рекламодателей (`features/crawl/judge_second.py`): «не понять» первой модели
+    # перепроверяет более сильная — тот же текст, та же подсказка и таблица правил; её исход
+    # принимается в осторожном режиме (`judge_rules.SECOND_CAUTIOUS`). Пусто — второго круга нет;
+    # включают словом владельца: модель замера на стенде 11.11.2026 — gpt-5, она и встаёт в
+    # умолчание строкой ниже.
+    advertiser_judge_second_model: str = Field(
+        default="", validation_alias="LLM_ADVERTISER_JUDGE_SECOND_MODEL"
+    )
     # Тематика сайта (`features/topics/`): дешёвая, как у судьи площадки — выбрать тему
     # из списка по тексту сайта. Точность меряет eval на наборе (`scripts/eval_topic.py`).
     topic_model: str = Field(default="gpt-5-mini", validation_alias="LLM_TOPIC_MODEL")
@@ -132,6 +140,7 @@ SALES_SITUATION_MODEL: str = _s.sales_situation_model.strip()
 SALES_JUDGE_MODEL: str = _s.sales_judge_model.strip()
 SALES_SEGMENT_MODEL: str = _s.sales_segment_model.strip()
 ADVERTISER_JUDGE_MODEL: str = _s.advertiser_judge_model.strip()
+ADVERTISER_JUDGE_SECOND_MODEL: str = _s.advertiser_judge_second_model.strip()
 TOPIC_MODEL: str = _s.topic_model.strip()
 TIMEOUT_S: float = _s.timeout_s
 MAX_PHRASES_PER_CALL: int = _s.max_phrases_per_call
