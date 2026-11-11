@@ -129,7 +129,9 @@ def summary_of(row: JudgeNightModel) -> NightSummary:
 
 async def view(session: AsyncSession, *, now: datetime) -> NightView:
     """Полосы, последняя ночь и что ждёт человека — одним ответом для экрана."""
-    last = await session.scalar(select(JudgeNightModel).order_by(JudgeNightModel.night.desc()))
+    last = await session.scalar(
+        select(JudgeNightModel).order_by(JudgeNightModel.night.desc()).limit(1)
+    )
     today = now.astimezone(MOSCOW).date()
     return NightView(
         bands=await judge_bands.states(session),

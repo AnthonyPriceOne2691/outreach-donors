@@ -20,6 +20,8 @@
    посреди — разбор встал словами; в обоих случаях шаг идёт дальше с тем, что рассужено, а остаток
    разберёт следующая ночь. Выкатка обрывает разбор на границе пачки — шаг ставит его снова, и план
    берёт только нерассуженных. Больше `MAX_TRIES` постановок за ночь — шаг встаёт с тревогой.
+   Полосы выключили, когда шаг уже шёл, — новый разбор не ставится: без включённой полосы токены
+   не тратятся.
 2. Полный пересчёт советов нынешней таблицей (`judge_store.relabel` без номеров): с таблицы v6
    совет зависит от признака донора-каталога, и только полный пересчёт находит такие строки.
 3. Применение включённых полос — тем же `judge_apply.apply`, порциями: каждая фиксируется со своей
@@ -55,13 +57,13 @@ from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction
-from backend.features.core.models.advertiser import JudgeBandModel, JudgeNightModel
+from backend.features.core.models.advertiser import JudgeNightModel
 from backend.features.core.models.crawl import CrawlNightModel
 from backend.features.crawl import judge_apply, judge_bands, judge_estimate, judge_plan
 from backend.features.crawl.judge_apply import PORTION, Applied, Band
@@ -86,6 +88,8 @@ NIGHT_CAP = 300
 MAX_TRIES = 3
 #: Ключи строки ночи: сделан ли пересчёт советов и сколько строк он переписал.
 RELABELLED = "relabelled"
+#: Почему разбор не ставился: полосы выключили, когда шаг уже шёл.
+BANDS_OFF = "полосы выключены посреди шага — новый разбор не ставился"
 
 #: Пометка тревоги о шаге, который не дошёл до конца: сам он сегодня уже не повторится.
 NOT_DONE = cause(
@@ -177,9 +181,14 @@ async def _to_applying(session: AsyncSession, row: JudgeNightModel, report: dict
 
 
 async def _ask(
-    session: AsyncSession, row: JudgeNightModel, moment: datetime, queue: PassQueue
+    session: AsyncSession, row: JudgeNightModel, moment: datetime, queue: PassQueue, *, on: bool
 ) -> None:
     """Поставить разбор по свежей смете — или пойти дальше, если разбирать нечего или не на что."""
+    if not on:
+        # Полосы выключили посреди шага: нового разбора шаг не ставит — без включённой полосы
+        # токены не тратятся. Идущий разбор доходит сам, шаг кончается пересчётом советов.
+        await _to_applying(session, row, {"lines": [], "stopped": BANDS_OFF})
+        return
     found = await judge_estimate.estimate(session, now=moment)
     if found.refusal is not None:
         # Потолок модели выбран до начала: разбора нет, остаток — следующей ночью.
@@ -211,11 +220,12 @@ def _ours(seen: PassSeen, row: JudgeNightModel) -> bool:
 
 
 async def _judge(
-    session: AsyncSession, row: JudgeNightModel, moment: datetime, queue: PassQueue
+    session: AsyncSession, row: JudgeNightModel, moment: datetime, queue: PassQueue, *, on: bool
 ) -> None:
-    """Разбор спорных: поставить, дождаться, взять итог; оборвался — поставить снова."""
+    """Разбор спорных: поставить, дождаться, взять итог; оборвался — поставить снова. `on` — включена
+    ли сейчас хоть одна полоса: без неё новый разбор не ставится."""
     if row.pass_asked_at is None:
-        await _ask(session, row, moment, queue)
+        await _ask(session, row, moment, queue, on=on)
         return
     seen = await asyncio.to_thread(queue.seen)
     if seen.state in ("going", "unknown"):
@@ -230,7 +240,7 @@ async def _judge(
         "судья ночью: разбор спорных не дошёл до конца — ставим снова",
         extra={"night": str(row.night), "state": seen.state, "error": seen.error},
     )
-    await _ask(session, row, moment, queue)
+    await _ask(session, row, moment, queue, on=on)
 
 
 async def _spare(session: AsyncSession, band: Band) -> set[str]:
@@ -315,12 +325,15 @@ async def _note_missed(session: AsyncSession, day: date, moment: datetime) -> No
     )
     if known is not None:
         return
-    day_start = datetime.combine(day, time.min, tzinfo=MOSCOW)
-    since = await session.scalar(
-        select(func.min(JudgeBandModel.set_at)).where(JudgeBandModel.enabled.is_(True))
-    )
-    # Полосы включили только сегодня (или строки вчера уже есть) — вчера шагу и не полагалось идти.
-    if since is None or since >= day_start - timedelta(days=1) + timedelta(hours=LATEST_START.hour):
+    # Шаг был должен, если хоть одна полоса стоит включённой без перерыва со вчерашнего часа начала:
+    # смотрим на действующую строку полосы, а не на историю — полоса, которую вчера держали
+    # выключенной и включили сегодня, за вчера ничего не должна.
+    owed_since = datetime.combine(yesterday, LATEST_START, tzinfo=MOSCOW)
+    states = await judge_bands.states(session)
+    if not any(
+        state.enabled and state.set_at is not None and state.set_at < owed_since
+        for state in states.values()
+    ):
         return
     why = "шаг не начался за день: круг обходов не кончился или процесс разбора не работал"
     found = await session.execute(
@@ -354,7 +367,7 @@ async def _step(
         if row is None:
             return None, day
     if row.status == Phase.JUDGING.value:
-        await _judge(session, row, moment, queue)
+        await _judge(session, row, moment, queue, on=bool(bands))
     if row.status == Phase.APPLYING.value:
         await _apply(session, row, bands, moment)
     return row, day

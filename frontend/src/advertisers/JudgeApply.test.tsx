@@ -17,7 +17,7 @@ import type {
   JudgeStanding,
 } from '../api/advertisersJudgeApply';
 import { actionTitle, detailLines, targetParts } from '../api/auditLabels';
-import { CRAWL_ROUTES, OPERATOR, reviewQueue, TOKEN_KEY } from '../test/fixtures';
+import { CRAWL_ROUTES, OPERATOR, PROMOTE_ROUTES, reviewQueue, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import type { Call } from '../test/server';
 import { serve } from '../test/server';
@@ -97,6 +97,9 @@ const APPLIED_BATCH: JudgeBatch = {
 function open(routes: Record<string, unknown> = {}, who: unknown = OPERATOR) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
+    // Окно спрашивает и ночное автоприменение своей полосы (`JudgeNight`): в общих ответах
+    // «Проверки» оно выключено.
+    ...PROMOTE_ROUTES,
     'GET /api/auth/me': { body: who },
     [`GET ${URL}`]: { body: STANDING },
     [`GET ${URL}/plan?band=skip`]: { body: SKIP_PLAN },

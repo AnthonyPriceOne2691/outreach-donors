@@ -48,6 +48,7 @@
  * Рядом — «Переобойти спорные» (`JudgePass`, 06.11.2026): совет судьи новым спорным кнопкой.
  * И «Применить советы…» (`JudgeApply`, 11.11.2026): советы судьи — решениями, полосами «не пишем» и
  * «пишем», с планом и откатом партии; под кнопками — сколько пар с каким советом, одной строкой.
+ * Ниже — «Судья сам, каждую ночь» (`JudgeNight`): как стоят полосы автоприменения и итог ночи.
  *
  * **Очередь — страницами по десять, с фильтрами «Балл» и «За что» под колонками** (слово Anthony
  * 05.11.2026): сервер отдавал первые полсотни, и остальных не было видно вовсе. Список, фильтры и
@@ -94,6 +95,7 @@ import { CrawlTab } from './CrawlTab';
 import { DisputedStrata } from './DisputedStrata';
 import { FalseShare } from './FalseShare';
 import { JudgeApplyButton, JudgeApplyLine } from './JudgeApply';
+import { JudgeNightLines, TO_LETTER_ID } from './JudgeNight';
 import { JudgePassButton, JudgePassStatus } from './JudgePass';
 import { NicheQueue } from './NicheQueue';
 import { PendingExport } from './PendingExport';
@@ -265,6 +267,7 @@ function ReviewView({ onOpenCrawl }: { onOpenCrawl: () => void }) {
               </Group>
               <JudgePassStatus />
               <JudgeApplyLine />
+              <JudgeNightLines />
               <DisputedStrata />
             </>
           ) : null}
@@ -353,7 +356,10 @@ function ReviewView({ onOpenCrawl }: { onOpenCrawl: () => void }) {
         )}
       </Card>
       <NicheQueue />
-      <PromotePanel />
+      {/* К блоку ведёт «К письму ждут перевода» у строк судьи (`JudgeNight`). */}
+      <Box id={TO_LETTER_ID}>
+        <PromotePanel />
+      </Box>
     </Stack>
   );
 }

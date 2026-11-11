@@ -27,6 +27,7 @@ from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import judge_bands, judge_night_view
 from backend.features.crawl.judge_apply import Band
+from backend.features.crawl.judge_night import NIGHT_CAP
 from backend.features.crawl.judge_night_view import NightSummary, NightView
 
 router = APIRouter(prefix="/judge-night")
@@ -70,12 +71,14 @@ class NightSummaryView(BaseModel):
 class NightAutoView(BaseModel):
     """Автоприменение на экране. `ran_today` — шаг этой даты уже начинался: полоса, включённая
     сейчас, пойдёт следующей ночью. `awaiting_promotion` — доменов ждут «Перевести»: ночь этого
-    не делает."""
+    не делает. `cap` — не больше стольких пар на полосу за ночь: экран называет число до
+    включения, а не держит свою копию."""
 
     bands: list[BandStateView]
     last: NightSummaryView | None
     ran_today: bool
     awaiting_promotion: int
+    cap: int
 
     @classmethod
     def of(cls, found: NightView) -> NightAutoView:
@@ -84,6 +87,7 @@ class NightAutoView(BaseModel):
             last=None if found.last is None else NightSummaryView.of(found.last),
             ran_today=found.ran_today,
             awaiting_promotion=found.awaiting_promotion,
+            cap=NIGHT_CAP,
         )
 
 

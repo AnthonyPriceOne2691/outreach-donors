@@ -322,6 +322,28 @@ async def test_a_judging_cut_by_a_deploy_is_asked_again_but_not_forever(
     assert len(queue.started) == judge_night.MAX_TRIES
 
 
+async def test_bands_turned_off_in_the_middle_ask_no_new_judging(session: AsyncSession) -> None:
+    """Разбор оборвала выкатка, а полосы за это время выключили: второй раз шаг его не ставит —
+    без включённой полосы токены не тратятся — и кончается, ничего не применив."""
+    await disputed(session, ("new.example.test", None), ("skip.example.test", "skip"))
+    await _on(session, Band.SKIP)
+    queue = FakePass()
+    await _tick(session, queue)
+    assert len(queue.started) == 1
+
+    queue.finish(MORNING + timedelta(minutes=1), stopped=RESTARTING)
+    await judge_bands.set_band(session, Band.SKIP, on=False, by=None)
+    await _tick(session, queue, MORNING + timedelta(minutes=2))
+
+    night = await _night(session)
+    assert night is not None
+    assert len(queue.started) == 1
+    assert night.status == Phase.DONE.value
+    assert night.report["stopped"] == judge_night.BANDS_OFF
+    assert (await _decisions(session))["skip.example.test"] == (None, None)
+    assert await _portions(session) == []
+
+
 async def test_a_silent_queue_is_not_an_outcome(session: AsyncSession, alerts: list[str]) -> None:
     """Очередь не ответила — шаг ждёт следующего прохода: ни попытки, ни тревоги."""
     await disputed(session, ("new.example.test", None))
@@ -574,6 +596,25 @@ async def test_a_band_turned_on_today_owes_nothing_for_yesterday(
     session: AsyncSession, alerts: list[str]
 ) -> None:
     session.add(JudgeBandModel(band="skip", enabled=True, set_at=MORNING - timedelta(hours=1)))
+
+    await _tick(session, FakePass())
+
+    assert await _night(session, DAY - timedelta(days=1)) is None
+    assert alerts == []
+
+
+async def test_a_band_kept_off_yesterday_owes_nothing_for_it(
+    session: AsyncSession, alerts: list[str]
+) -> None:
+    """Полосу включали давно, потом выключили и включили снова сегодня: вчера она стояла
+    выключенной — шагу вчера и не полагалось идти, тревоги нет."""
+    for enabled, ago in (
+        (True, timedelta(days=3)),
+        (False, timedelta(days=2)),
+        (True, timedelta(hours=1)),
+    ):
+        session.add(JudgeBandModel(band="skip", enabled=enabled, set_at=MORNING - ago))
+        await session.flush()
 
     await _tick(session, FakePass())
 

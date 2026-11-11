@@ -32,9 +32,9 @@
       "worst": "of:78"
     },
     "backend/api/advertisers/judge_night.py": {
-      "lines": 133,
+      "lines": 137,
       "complexity": 3,
-      "worst": "of:81"
+      "worst": "of:84"
     },
     "backend/api/advertisers/judge_pass.py": {
       "lines": 223,
@@ -1562,9 +1562,9 @@
       "worst": "batch_of:42"
     },
     "backend/features/crawl/judge_night.py": {
-      "lines": 391,
+      "lines": 404,
       "complexity": 9,
-      "worst": "_step:338"
+      "worst": "_step:351"
     },
     "backend/features/crawl/judge_night_queue.py": {
       "lines": 155,
@@ -1572,7 +1572,7 @@
       "worst": "seen:88"
     },
     "backend/features/crawl/judge_night_view.py": {
-      "lines": 140,
+      "lines": 142,
       "complexity": 7,
       "worst": "summary_of:109"
     },

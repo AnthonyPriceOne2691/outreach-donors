@@ -20,6 +20,7 @@ from backend.features.core.domain import AuditAction, Permission, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.crawl import judge_night_queue
 from backend.features.crawl.judge_apply import Band
+from backend.features.crawl.judge_night import NIGHT_CAP
 from backend.features.crawl.judge_night_queue import WORKER_DIED, RqPass
 from backend.features.crawl.night import NIGHT_BY
 from backend.features.ops.job_outcome import JobOutcome
@@ -78,6 +79,7 @@ async def test_bands_are_off_and_nothing_has_run_yet(
         "last": None,
         "ran_today": False,
         "awaiting_promotion": 0,
+        "cap": NIGHT_CAP,
     }
 
 

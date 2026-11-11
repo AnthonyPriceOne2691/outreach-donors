@@ -154,6 +154,19 @@ export const PROMOTE_ROUTES: Record<string, Answer> = {
   'GET /api/advertisers/judge-apply': {
     body: { waiting: 0, skip: 0, write: 0, waiting_dr: 0, unclear: 0, stale: 0, without: 0 },
   },
+  // «Судья сам, каждую ночь» (`JudgeNight`): полосы выключены, шага ещё не было.
+  'GET /api/advertisers/judge-night': {
+    body: {
+      bands: [
+        { band: 'skip', enabled: false, set_by: null, set_at: null },
+        { band: 'write', enabled: false, set_by: null, set_at: null },
+      ],
+      last: null,
+      ran_today: false,
+      awaiting_promotion: 0,
+      cap: 300,
+    },
+  },
   'GET /api/advertisers/promotion': {
     body: { ready: 0, fresh: 0, advertisers: 0, with_address: 0 },
   },
