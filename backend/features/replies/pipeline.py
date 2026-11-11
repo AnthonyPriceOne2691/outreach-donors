@@ -61,7 +61,7 @@ from backend.features.replies.extract import ExtractClient, Extracted
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.parse_input import parse_input
 from backend.features.replies.repository import Addressee, ReplyRepository
-from backend.features.replies.unbound import explain
+from backend.features.replies.unbound import intake_words
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +187,7 @@ class Inbox:
                 unbound=bound.unbound,
                 rule=verdict.rule,
                 needs_review=True,
-                review_reason=f"ответ не привязан к письму: {explain(bound.unbound, incoming.to)}",
+                review_reason=await intake_words(self._session, bound.unbound, incoming.to),
             )
 
         return await self._settle(reply, verdict, bound, incoming, addressee)

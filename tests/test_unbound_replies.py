@@ -16,8 +16,8 @@ import httpx
 import pytest
 from backend.cli.mail_test import EXIT_OK, run_mail_test
 from backend.config import outreach as outreach_cfg
-from backend.features.core.domain import ReplyKind, Stage, UserRole
-from backend.features.core.models.outreach import MessageModel, ReplyModel
+from backend.features.core.domain import ReplyKind, SenderStatus, Stage, UserRole
+from backend.features.core.models.outreach import MessageModel, ReplyModel, SenderModel
 from backend.features.letters import reply_to
 from backend.features.letters.probe import compose_probe
 from backend.features.letters.sendgrid import PROVIDER_ID_HEADER, SendGridTransport
@@ -162,6 +162,43 @@ class TestWhyNotBound:
         assert row["preview"] == "Placement is 250 EUR."
         # Вебхук говорит ту же причину тому, кто разбирает его ответ.
         assert taken["reason"] == f"ответ не привязан к письму: {row['reason_text']}"
+
+    @pytest.mark.parametrize(
+        ("stage", "whom"),
+        [
+            (Stage.SALES, "Лида"),
+            (Stage.ADVERTISERS, "Рекламодателя"),
+            (Stage.DONORS, "Донора"),
+        ],
+    )
+    async def test_the_webhook_names_whom_to_look_for_by_the_box_of_the_reply(
+        self,
+        client: AsyncClient,
+        sent: MessageModel,
+        session: AsyncSession,
+        stage: Stage,
+        whom: str,
+    ) -> None:
+        """Приём говорит то же слово, что экран: кого искать по ответу — по ящику, на который
+        он пришёл. До 11.11.2026 приём говорил «Донора…» и об ответе на ящик продаж."""
+        box = f"hello@mail-{stage.value}.example.test"
+        session.add(
+            SenderModel(
+                domain=box.split("@", 1)[1],
+                email=box,
+                stage=stage,
+                daily_cap=20,
+                status=SenderStatus.FREE,
+                enabled=True,
+            )
+        )
+        await session.commit()
+
+        taken = await _to(client, sent, box)
+
+        words = unbound.explain("foreign_thread", [box], stage)
+        assert taken["reason"] == f"ответ не привязан к письму: {words}"
+        assert taken["reason"].endswith(f"{whom} ищут по отправителю и тексту.")
 
     async def test_no_label_and_no_thread_at_all(
         self, client: AsyncClient, sent: MessageModel, viewer: dict[str, str]
