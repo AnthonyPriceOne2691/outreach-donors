@@ -3757,9 +3757,9 @@
       "worst": "storable:17"
     },
     "backend/shared/database/text_search.py": {
-      "lines": 37,
+      "lines": 43,
       "complexity": 2,
-      "worst": "literal:24"
+      "worst": "literal:30"
     },
     "backend/shared/demo.py": {
       "lines": 27,
