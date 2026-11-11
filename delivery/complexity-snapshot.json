@@ -1587,9 +1587,9 @@
       "worst": "collect:68"
     },
     "backend/features/crawl/night.py": {
-      "lines": 500,
+      "lines": 497,
       "complexity": 7,
-      "worst": "order:193"
+      "worst": "order:189"
     },
     "backend/features/crawl/offer_state.py": {
       "lines": 187,
@@ -1722,9 +1722,9 @@
       "worst": "supplier_hosts:39"
     },
     "backend/features/crawl/targets.py": {
-      "lines": 144,
-      "complexity": 9,
-      "worst": "choose:66"
+      "lines": 168,
+      "complexity": 11,
+      "worst": "choose:78"
     },
     "backend/features/crawl/topic.py": {
       "lines": 193,
