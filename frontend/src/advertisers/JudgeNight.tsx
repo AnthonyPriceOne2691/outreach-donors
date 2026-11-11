@@ -10,7 +10,8 @@
  * пишем — выкл». Вторая — что судья сделал последней ночью: «Ночью 05.11: разобрано 34 · не пишем
  * 20 · пишем 9 · не понять 5»; строки итога разбора, токены и почему встал — в «i», как их отдал
  * сервер. Полосы, выключенной той ночью, в строке нет: «пишем 0» читалось бы как «судья ничего
- * не посоветовал». Шаг идёт — строка говорит, что он делает, и обновляется сама.
+ * не посоветовал». Шаг идёт — строка говорит, что он делает, и обновляется сама; полоса включена,
+ * а сегодняшнего шага ещё не было — строка тоже перечитывается: начало шага видно без перезагрузки.
  *
  * **Что остаётся человеку после «пишем» — рядом числом**: «К письму ждут перевода: N» ведёт к блоку
  * «К письму». Ночь никого не переводит: «Перевести» ставит поиск адресов, а это отдельное решение.
@@ -39,11 +40,19 @@ const POLL_MS = 30_000;
 export const TO_LETTER_ID = 'advertisers-to-letter';
 const BANDS: readonly JudgeBand[] = ['skip', 'write'];
 
+/** Строку стоит перечитывать: шаг идёт — или вот-вот начнётся (полоса включена, а сегодняшнего
+ *  шага ещё не было). Иначе человек, включивший полосу днём, не увидит начала шага без перезагрузки. */
+export function watched(night: JudgeNight | undefined): boolean {
+  if (night === undefined) return false;
+  if (night.last !== null && night.last.going !== null) return true;
+  return !night.ran_today && night.bands.some((state) => state.enabled);
+}
+
 export function useJudgeNight() {
   return useQuery({
     queryKey: JUDGE_NIGHT_KEY,
     queryFn: fetchJudgeNight,
-    refetchInterval: (query) => (query.state.data?.last?.going ? POLL_MS : false),
+    refetchInterval: (query) => (watched(query.state.data) ? POLL_MS : false),
   });
 }
 

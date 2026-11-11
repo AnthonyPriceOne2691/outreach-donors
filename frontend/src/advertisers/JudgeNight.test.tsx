@@ -15,7 +15,7 @@ import { renderWith } from '../test/render';
 import type { Call } from '../test/server';
 import { serve } from '../test/server';
 import { JudgeApplyButton } from './JudgeApply';
-import { bandsWords, enableWarning, JudgeNightLines, nightWords } from './JudgeNight';
+import { bandsWords, enableWarning, JudgeNightLines, nightWords, watched } from './JudgeNight';
 
 const URL = '/api/advertisers/judge-night';
 const APPLY = '/api/advertisers/judge-apply';
@@ -152,6 +152,18 @@ describe('строки судьи над очередью', () => {
       'Ночью 05.11: шаг не дошёл до конца',
     );
     expect(bandsWords(SKIP_ON.bands)).toBe('не пишем — вкл · пишем — выкл');
+  });
+
+  it('строка перечитывается, пока шаг идёт или вот-вот начнётся, и молчит, когда ждать нечего', () => {
+    // Полосы выключены — шага не будет; полосу включили, а шаг сегодня не шёл — он начнётся сам.
+    expect(watched(OFF)).toBe(false);
+    expect(watched(SKIP_ON)).toBe(true);
+    // Шаг сегодня уже кончился — до завтра ждать нечего; шаг идёт — строка следит за ним.
+    expect(watched({ ...SKIP_ON, ran_today: true, last: LAST })).toBe(false);
+    expect(
+      watched({ ...OFF, ran_today: true, last: { ...LAST, status: 'applying', going: 'идёт' } }),
+    ).toBe(true);
+    expect(watched(undefined)).toBe(false);
   });
 });
 
