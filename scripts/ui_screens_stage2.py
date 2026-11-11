@@ -26,6 +26,19 @@ DONOR_ROW = "table tbody tr:not(:first-child)"
 #: Ячейки приёмки по подписям колонок, а не по месту: вердикт с 10.11.2026 — второй колонкой.
 FOUND = f"{DONOR_ROW} td[data-label='Что нашёл обход']"
 VERDICT = f"{DONOR_ROW} td[data-label='Приёмка']"
+#: Раскрытие прошлых ночей у ночной строки качества загрузок.
+MORE_NIGHTS = "button.qualityMore"
+
+
+def open_nights(page: Any) -> None:
+    """Шаг перед точкой: «ещё N ночей» нажато — прошлые ночи стоят строками под ночной. Ночной
+    строки на стенде нет — шага нет, и точка честно скажет «не найден»."""
+    more = page.locator(f"{MORE_NIGHTS}[aria-expanded='false']")
+    if more.count() == 0:
+        return
+    more.first.click()
+    page.locator("tr.qualityPast td[data-label='Страниц']").first.wait_for()
+    page.wait_for_timeout(300)
 
 
 def stage2_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
@@ -36,6 +49,9 @@ def stage2_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             # рассылки. Мерится то, по чему судят: числа шагов, способ загрузки, доля, режим очереди.
             # С 10.11.2026 способ, одинаковый у всех строк, — строкой над таблицей, а пустая
             # очередь — одной строкой вместо режима и срока: точки берут то, что есть на экране.
+            # С 11.11.2026 ночной обход — одной строкой качества: под датой — «последняя ночь», под
+            # способом — что нового за ночь и раскрытие прошлых ночей; прошлая ночь меряется после
+            # раскрытия. Эти точки есть, когда на стенде шёл ночной обход.
             "path": "/advertisers",
             "ready": ("heading", "Панель рекламодателей"),
             "probes": [
@@ -44,8 +60,12 @@ def stage2_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("подпись плитки", ".metricTile .metricTitle", norm),
                 ("пояснение плитки", ".metricTile .metricHint", norm),
                 ("способ загрузки", ".qualityMethod", norm),
+                ("подпись «последняя ночь»", ".qualityLast", norm),
+                ("что нового за ночь", ".qualityNews", norm),
+                ("раскрытие прошлых ночей", f"{MORE_NIGHTS} .mantine-Button-label", norm),
                 ("список доменов", "table tbody td[data-label='Доменов'] button", norm),
                 ("доля страниц", "table tbody td[data-label='% страниц']", norm),
+                ("прошлая ночь", "tr.qualityPast td[data-label='Страниц']", norm, open_nights),
                 ("режим очереди", ".mailingMode p, .mailingEmpty p", norm),
                 # Срок плитками дня и часов — слова сервера в «i» заголовка, а не строкой (10.11.2026).
                 hint_probe("слова срока", "Как считается «Когда уйдёт очередь»", norm),

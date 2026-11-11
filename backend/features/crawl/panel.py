@@ -221,8 +221,9 @@ async def donor_steps(session: AsyncSession, window: Window) -> DonorSteps:
     )
 
 
-def _seen_before(rows: Subquery, since: datetime | None) -> ColumnElement[bool]:
-    """Домен строки встречался раньше выборки: в ссылках обхода или уже рекламодателем."""
+def seen_before(rows: Subquery, since: datetime | None) -> ColumnElement[bool]:
+    """Домен строки встречался раньше выборки: в ссылках обхода или уже рекламодателем. Тем же
+    правилом ночная строка качества считает новых рекламодателей ночи (`night_fresh.py`)."""
     if since is None:
         return false()
     linked = (
@@ -247,7 +248,7 @@ def _numbers(window: Window, suppliers: set[str]) -> Select[Any]:
     domains = distinct_domains(rows)
     statement = select(
         *tally_columns(rows, flags),
-        domains.filter(_seen_before(rows, window.since)),
+        domains.filter(seen_before(rows, window.since)),
         domains.filter(and_(addressed_row(rows), flags.reached())),
     ).select_from(rows)
     return flags.joined(statement, rows.c.domain_id).where(not_supplier(rows, suppliers))

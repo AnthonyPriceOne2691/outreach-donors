@@ -27,14 +27,14 @@
       "worst": "_job_state:142"
     },
     "backend/api/advertisers/panel.py": {
-      "lines": 124,
+      "lines": 130,
       "complexity": 6,
-      "worst": "read_panel:46"
+      "worst": "read_panel:45"
     },
     "backend/api/advertisers/panel_schemas.py": {
-      "lines": 174,
+      "lines": 201,
       "complexity": 2,
-      "worst": "of:149"
+      "worst": "of:134"
     },
     "backend/api/advertisers/report_schemas.py": {
       "lines": 254,
@@ -1567,9 +1567,9 @@
       "worst": "collect_links:236"
     },
     "backend/features/crawl/load_quality.py": {
-      "lines": 260,
-      "complexity": 14,
-      "worst": "_row:156"
+      "lines": 380,
+      "complexity": 13,
+      "worst": "_row:240"
     },
     "backend/features/crawl/loads.py": {
       "lines": 72,
@@ -1590,6 +1590,11 @@
       "lines": 500,
       "complexity": 7,
       "worst": "order:193"
+    },
+    "backend/features/crawl/night_fresh.py": {
+      "lines": 121,
+      "complexity": 3,
+      "worst": "fresh:104"
     },
     "backend/features/crawl/offer_state.py": {
       "lines": 187,
@@ -1617,7 +1622,7 @@
       "worst": "_subject:69"
     },
     "backend/features/crawl/panel.py": {
-      "lines": 268,
+      "lines": 269,
       "complexity": 7,
       "worst": "window_of:132"
     },
@@ -4077,9 +4082,9 @@
       "worst": "open_text:29"
     },
     "scripts/ui_screens_stage2.py": {
-      "lines": 169,
-      "complexity": 1,
-      "worst": "stage2_screens:31"
+      "lines": 189,
+      "complexity": 2,
+      "worst": "open_nights:33"
     }
   }
 }

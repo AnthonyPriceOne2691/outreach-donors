@@ -21,7 +21,6 @@ from backend.api.advertisers.panel_schemas import (
     PanelView,
     QualityHostRow,
     QualityHostsView,
-    QualityRowView,
     QualityView,
 )
 from backend.api.deps import db_session, needs
@@ -79,30 +78,37 @@ async def read_quality(
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> QualityView:
-    """Загрузки и дни обходов без загрузки — свежие первыми: что дала каждая."""
+    """Загрузки, дни обходов без загрузки и ночной обход одной строкой — свежие первыми."""
     found = await load_quality.page(session, number=page)
-    return QualityView(
-        rows=[QualityRowView.of(row) for row in found.rows],
-        total=found.total,
-        page=page,
-        limit=load_quality.PAGE_SIZE,
-    )
+    return QualityView.of(found, page=page, limit=load_quality.PAGE_SIZE)
+
+
+@router.get("/quality/nights", response_model=QualityView, summary="Прошлые ночи ночного обхода")
+async def read_quality_nights(
+    page: int = Query(default=1, ge=1, le=INT4_MAX, description="страница"),
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> QualityView:
+    """Ночи до последней, свежие первыми: последняя стоит строкой качества, эти — её раскрытием."""
+    found = await load_quality.past_nights(session, number=page)
+    return QualityView.of(found, page=page, limit=load_quality.NIGHTS_PAGE_SIZE)
 
 
 @router.get("/quality/hosts", response_model=QualityHostsView, summary="Домены строки качества")
 async def read_quality_hosts(
     load: int | None = Query(default=None, ge=1, le=INT4_MAX, description="номер партии"),
     day: date | None = Query(default=None, description="день обходов без загрузки"),
+    night: date | None = Query(default=None, description="ночь ночного обхода"),
     page: int = Query(default=1, ge=1, le=INT4_MAX, description="страница"),
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> QualityHostsView:
-    """Все домены партии или дня страницами: у строки качества их бывает десять тысяч."""
-    if (load is None) == (day is None):
+    """Все домены партии, дня или ночи страницами: у строки качества их бывает десять тысяч."""
+    if sum(named is not None for named in (load, day, night)) != 1:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, "Назовите партию или день — что-то одно"
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Назовите партию, день или ночь — что-то одно"
         )
-    found = await load_quality.hosts_of(session, load_id=load, day=day, number=page)
+    found = await load_quality.hosts_of(session, load_id=load, day=day, night=night, number=page)
     return QualityHostsView(
         rows=[QualityHostRow.of(row) for row in found.rows],
         total=found.total,

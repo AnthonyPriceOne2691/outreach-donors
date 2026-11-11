@@ -64,6 +64,7 @@ const FILE_ROW: QualityRow = {
   selling_links: 800,
   selling_pages: 450,
   share: 0.01,
+  night: null,
 };
 
 const HAND_ROW: QualityRow = {
@@ -306,7 +307,8 @@ describe('качество загрузок', () => {
     expect(within(hand).getAllByText('—')).toHaveLength(2);
     expect(within(hand).queryByRole('button')).toBeNull();
 
-    const day = screen.getByText('обход без загрузки').closest('tr') as HTMLElement;
+    // Обход без записи о загрузке поставил человек: «кнопкой», ночной стоит своей строкой.
+    const day = screen.getByText('обход кнопкой').closest('tr') as HTMLElement;
     expect(within(day).getByText('31.10.2026')).toBeVisible();
     // Способы разные — колонка способа на месте, строки над таблицей нет.
     expect(screen.getByRole('columnheader', { name: 'Способ загрузки' })).toBeVisible();
@@ -327,19 +329,17 @@ describe('качество загрузок', () => {
       },
     });
 
-    // Разведка 10.11.2026: самая широкая колонка во всех строках говорила «обход без загрузки».
-    expect(
-      await screen.findByText('Способ загрузки во всех строках: обход без загрузки'),
-    ).toBeVisible();
+    // Разведка 10.11.2026: самая широкая колонка во всех строках говорила одно и то же.
+    expect(await screen.findByText('Способ загрузки во всех строках: обход кнопкой')).toBeVisible();
     const table = screen.getByRole('table', { name: 'Качество загрузок' });
     expect(within(table).queryByRole('columnheader', { name: 'Способ загрузки' })).toBeNull();
-    expect(within(table).queryByText(/обход без загрузки/)).toBeNull();
+    expect(within(table).queryByText(/обход кнопкой/)).toBeNull();
     // Домен строки виден на месте «1», а не пропал вместе с колонкой способа.
     const row = within(table).getByText('30.10.2026').closest('tr') as HTMLElement;
     expect(row).toHaveTextContent('lone.example.test');
     // Список доменов строки дня — по-прежнему окном.
     expect(
-      within(table).getByRole('button', { name: 'Домены строки: обход без загрузки' }),
+      within(table).getByRole('button', { name: 'Домены строки: обход кнопкой' }),
     ).toBeVisible();
   });
 
@@ -352,7 +352,7 @@ describe('качество загрузок', () => {
     });
 
     expect(
-      await screen.findByText('Способ загрузки во всех строках страницы: обход без загрузки'),
+      await screen.findByText('Способ загрузки во всех строках страницы: обход кнопкой'),
     ).toBeVisible();
   });
 
@@ -374,15 +374,13 @@ describe('качество загрузок', () => {
     );
   });
 
-  it('домены обходов без загрузки — по дню', async () => {
+  it('домены обходов кнопкой без загрузки — по дню', async () => {
     const recorded = open({
       'GET /api/advertisers/panel/quality/hosts?day=2026-10-31&page=1': { body: HOSTS },
     });
     const user = userEvent.setup();
 
-    await user.click(
-      await screen.findByRole('button', { name: 'Домены строки: обход без загрузки' }),
-    );
+    await user.click(await screen.findByRole('button', { name: 'Домены строки: обход кнопкой' }));
 
     expect(await screen.findByRole('dialog')).toBeVisible();
     await waitFor(() =>
