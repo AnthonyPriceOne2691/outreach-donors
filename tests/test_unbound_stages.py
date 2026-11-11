@@ -19,8 +19,9 @@ import pytest
 from backend.features.core.domain import ReplyKind, SenderStatus, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import ReplyModel, SenderModel, SendingDomainModel
-from backend.features.replies import recipient_stage
+from backend.features.replies import recipient_stage, unbound
 from httpx import AsyncClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
 
@@ -54,12 +55,13 @@ async def _box(session: AsyncSession, email: str, stage: Stage) -> None:
     await session.flush()
 
 
-async def _reply(session: AsyncSession, *addresses: str) -> int:
+async def _reply(session: AsyncSession, *addresses: str, reason: str | None = None) -> int:
     reply = ReplyModel(
         kind=ReplyKind.HUMAN,
         raw_body="Hello, what is this about?",
         from_email="someone@site.example.test",
         to_addresses=list(addresses) or None,
+        unbound_reason=reason,
     )
     session.add(reply)
     await session.flush()
@@ -157,6 +159,74 @@ async def test_other_replies_by_number_stay_open_without_the_right(
     response = await client.get(f"/api/replies/{number}/attachments/999999", headers=outsider)
 
     assert response.status_code == 404, response.text
+
+
+# --- кого искать: слово причины — по направлению ответа (11.11.2026) -------------------------
+
+BY_HAND = "ищут по отправителю и тексту."
+
+
+async def test_the_reason_names_whom_to_look_for_by_the_box_of_the_reply(
+    client: AsyncClient, session: AsyncSession, seller: dict[str, str]
+) -> None:
+    """«Донора ищут…» стояло и у ответа на ящик продаж, где доноров нет. Направление — по
+    нашему адресу ответа, тем же правилом, каким список прячет чужой этап; нашего адреса
+    нет — прежнее слово. Метка строки от направления не зависит."""
+    await _box(session, "anna@mail-donors.example.test", Stage.DONORS)
+    await _box(session, "offers@mail-offers.example.test", Stage.ADVERTISERS)
+    await _box(session, "hello@mail-sales.example.test", Stage.SALES)
+    whom = {
+        await _reply(session, "anna@mail-donors.example.test", reason="no_label"): "Донора",
+        await _reply(session, "offers@mail-offers.example.test", reason="no_label"): (
+            "Рекламодателя"
+        ),
+        await _reply(
+            session, "cc@site.example.test", "hello@mail-sales.example.test", reason="no_label"
+        ): "Лида",
+        await _reply(session, "team@site.example.test", reason="no_label"): "Донора",
+        await _reply(session, reason="no_label"): "Донора",
+    }
+    await session.commit()
+
+    rows = (await _listed(client, seller))["rows"]
+
+    assert {row["id"]: row["reason_text"].rsplit(". ", 1)[1] for row in rows} == {
+        number: f"{word} {BY_HAND}" for number, word in whom.items()
+    }
+    assert {row["reason_short"] for row in rows} == {"написано заново, не ответом на наше письмо"}
+
+
+async def test_directions_take_one_look_at_the_domains_per_page(session: AsyncSession) -> None:
+    """Направление ответов страницы — одним вопросом о доменах (ящики и строки доменов), а
+    не вопросом на строку; пустой странице он не нужен вовсе."""
+    await _box(session, "anna@mail-donors.example.test", Stage.DONORS)
+    await _box(session, "hello@mail-sales.example.test", Stage.SALES)
+    sales = [await _reply(session, "hello@mail-sales.example.test") for _ in range(3)]
+    donors = [await _reply(session, "anna@mail-donors.example.test") for _ in range(3)]
+    nowhere = await _reply(session)
+    rows = await unbound.page(session, stages=frozenset(Stage))
+    sent: list[str] = []
+
+    def spy(_conn: object, _cursor: object, statement: str, *_rest: object) -> None:
+        sent.append(statement)
+
+    target = session.bind.sync_connection  # type: ignore[union-attr]
+    event.listen(target, "before_cursor_execute", spy)
+    try:
+        found = await unbound.stages_of(session, rows)
+        nothing = await unbound.stages_of(session, [])
+    finally:
+        event.remove(target, "before_cursor_execute", spy)
+
+    assert found == {
+        **dict.fromkeys(sales, Stage.SALES),
+        **dict.fromkeys(donors, Stage.DONORS),
+        nowhere: None,
+    }
+    assert nothing == {}
+    assert len(sent) == 2, sent
+    assert sum("FROM senders" in statement for statement in sent) == 1
+    assert sum("FROM sending_domains" in statement for statement in sent) == 1
 
 
 # --- правило этапа по адресу ---------------------------------------------------------------

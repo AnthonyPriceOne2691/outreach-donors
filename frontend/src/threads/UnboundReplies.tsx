@@ -9,9 +9,15 @@
  *
  * **Причина видна без раскрытия.** По ней решают, что делать: «ответ на
  * пробное письмо» — всё работает, «подпись не сошлась» у всех подряд —
- * сменили секрет, «метки нет» — донора ищут по отправителю и тексту. Слова —
+ * сменили секрет, «метки нет» — отправителя ищут по адресу и тексту. Слова —
  * сервера (`replies/unbound.py`): второй экземпляр на фронте разошёлся бы
  * с ними на первой правке.
+ *
+ * **В строке — метка в несколько слов, целиком причина — в «i»** (11.11.2026). До этого
+ * строка несла слова целиком: около двадцати пяти слов, на телефоне четыре-пять строк, и почти
+ * у всех ответов слово в слово одни и те же (разведка экранов 10.11.2026). Метку тоже называет
+ * сервер (`reason_short`); сервер старше метки — в строке слова целиком, как было. Что вообще
+ * попадает на вкладку — в «i» у заголовка экрана (`UnboundAbout`), а не абзацем над списком.
  *
  * **Строка раскрывается в письмо целиком** — тем же видом, что ответ
  * в карточке диалога, с вложениями и «Скачать» (`ReplyFiles`). Раскрытие —
@@ -23,18 +29,58 @@
  * сервер; страница за концом уводит на последнюю.
  */
 
-import { Alert, Badge, Button, Group, Loader, Stack, Text } from '@mantine/core';
+import { Alert, Badge, Box, Button, Group, Loader, Stack, Text } from '@mantine/core';
 import { IconChevronDown } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { REPLY_KINDS } from '../api/labels';
-import type { UnboundReply } from '../api/types';
+import type { UnboundReply } from '../api/unbound';
+import { InfoHint } from '../components/InfoHint';
 import { PageSwitch } from '../components/PageSwitch';
 import { formatDateTime, formatNumber } from '../format';
 import { Unfold } from '../runs/Unfold';
 import { ReplyFiles } from './ReplyFiles';
 import { useUnboundPage } from './threadTabs';
+
+/**
+ * Причина в строке ответа: метка сервера, а слова целиком — в «i» сразу за ней.
+ *
+ * Значок стоит в самой строке, за последним словом, а не колонкой справа: колонка отнимала у
+ * текста 26 px, а значок висел посреди высоты причины, вставшей на телефоне в две-три строки.
+ * Неразрывный пробел держит значок при последнем слове — один на своей строке он не остаётся.
+ */
+function Reason({ reply }: { reply: UnboundReply }) {
+  const short = reply.reason_short;
+  return (
+    <Text size="sm" className="unboundReason">
+      <Text span fw={500} inherit>
+        Почему не привязан:
+      </Text>{' '}
+      {short ?? reply.reason_text}
+      {short !== undefined && (
+        <>
+          {'\u00a0'}
+          {/* Нажатие на «i» и внутри его окошка строку не раскрывает: окошко — потомок
+              строки, и нажатие в нём всплывает к ней, хотя нарисовано поверх страницы. */}
+          <Box
+            component="span"
+            className="unboundReasonHint"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <InfoHint
+              name={`Причина целиком — ответ от ${reply.from_email ?? 'неназванного отправителя'}`}
+              width={340}
+              interactive
+            >
+              <Text size="sm">{reply.reason_text}</Text>
+            </InfoHint>
+          </Box>
+        </>
+      )}
+    </Text>
+  );
+}
 
 function UnboundRow({ reply }: { reply: UnboundReply }) {
   const [open, setOpen] = useState(false);
@@ -113,12 +159,7 @@ function UnboundRow({ reply }: { reply: UnboundReply }) {
           <Text size="sm" c="dimmed" lineClamp={2} className="cellName unboundPreview">
             {reply.preview || 'Текста в письме нет.'}
           </Text>
-          <Text size="sm" className="unboundReason">
-            <Text span fw={500} inherit>
-              Почему не привязан:
-            </Text>{' '}
-            {reply.reason_text}
-          </Text>
+          <Reason reply={reply} />
         </Stack>
       </Group>
 
@@ -161,27 +202,16 @@ export function UnboundReplies({ page, onPage }: Props) {
     );
   }
   if (data === undefined || data.total === 0) {
+    // Что сюда попадает — в «i» у заголовка экрана (`UnboundAbout`); здесь — чего нет.
     return (
-      <Stack gap={6} className="unboundNote" py="sm">
-        <Text size="sm" fw={500}>
-          Непривязанных ответов нет.
-        </Text>
-        <Text size="sm" c="dimmed" maw={720}>
-          Сюда попадает ответ, который приём не смог соотнести ни с одним нашим письмом: метки в
-          адресе нет или она не сошлась, а заголовки цепочки чужие. Такой ответ не выбрасывается —
-          донора по нему ищет человек. Ответ на пробное письмо тоже встаёт сюда: так проверяют, что
-          ответы доходят.
-        </Text>
-      </Stack>
+      <Text size="sm" fw={500} className="unboundNote" py="sm">
+        Непривязанных ответов нет.
+      </Text>
     );
   }
 
   return (
     <Stack gap="sm">
-      <Text size="sm" c="dimmed" maw={720} className="unboundNote">
-        Приём сохранил эти ответы, но не нашёл, к какому нашему письму они относятся. Почему —
-        сказано у каждого; донора по ним ищут по отправителю и тексту.
-      </Text>
       {/* Строки прежней страницы, пока едет новая, приглушены: они не той
           страницы. */}
       <Stack

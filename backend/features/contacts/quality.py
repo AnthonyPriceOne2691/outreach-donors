@@ -53,7 +53,7 @@ PUBLISHING_PLATFORM_DOMAINS = frozenset({"substack.com"})
 # Юридические адреса платформы: представитель в ЕС и UK и контактная точка по
 # DSA. В подвале каждой публикации Substack они лежат у юрфирм
 # (`eurepresentative.substack@twobirds.com`, `substack-dsa@lionheartsquared.eu`),
-# и проверка ящика ставила им `valid` (25 доноров в CRM) — ящик есть, но читает юрист.
+# и проверка ящика ставила им `valid` — ящик есть, но читает юрист.
 # Правило по форме, а не по доменам: юрфирм много, форма одна.
 LEGAL_CONTACT_LOCAL = re.compile(r"^(?:eu|uk)representative(?:$|[._-])|(?:^|[._-])dsa(?:$|[._-])")
 

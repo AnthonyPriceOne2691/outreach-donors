@@ -22,6 +22,19 @@
  * этого письмо рекламодателю в списке не отличалось от письма донору. В части списка —
  * «Диалогах с донорами», «с рекламодателями», «продаж» — переключателя и пометки нет: там
  * одна сторона, и её называет заголовок.
+ *
+ * **Адрес во втором ярусе читается при любой метке состояния** (11.11.2026). Метка не
+ * сжимается, и длинная — «ответ продаж — ждёт человека», «цену перезапросили — ждём ответа» —
+ * оставляла от адреса семь знаков, а то и два (разведка экранов 10.11.2026). Адресу теперь
+ * положено место (`threadRowWho`): метка, которой рядом с ним тесно, встаёт строкой ниже, у
+ * правого края. В части списка метка ещё и не повторяет слово части (`stateTitle`).
+ *
+ * **Рисуются первые сто строк**, дальше — «Показать ещё» (`listWindow.ts`): список приходит
+ * целиком, а тысяча строк разом — лента в полтора десятка экранов на телефоне.
+ *
+ * **Колонка — с той же шапкой на обеих вкладках** (`ThreadList`): заголовок части и
+ * переключатель вкладок стоят в одной карточке и на одном месте, под ними — строки диалогов
+ * или ответы без письма. Смена вкладки двигает только то, что под переключателем.
  */
 
 import {
@@ -43,13 +56,18 @@ import { Link, useLocation, useMatch, useNavigate } from 'react-router-dom';
 import { rowIdOf } from '../api/ids';
 import { threadState } from '../api/labels';
 import { THREAD_STAGE_NOTES } from '../api/stages';
+import type { Part } from '../api/stages';
 import type { ThreadCard } from '../api/types';
+import { usePageParam } from '../components/PageSwitch';
 import { Seams } from '../components/Seams';
 import { formatMoney, formatNumber } from '../format';
 import { LeadsExport } from './LeadsExport';
+import { LIST_STEP, listScope, useListWindow } from './listWindow';
+import { ThreadsTabs } from './ThreadsTabs';
 import { ThreadsTitle } from './ThreadsTitle';
-import { hasLeads, isThreadFiltered, THREAD_ROLES } from './threadFilters';
-import { THREAD_TAB_KEYS, THREAD_TABS, useUnboundPage, writeThreadTab } from './threadTabs';
+import { hasLeads, isThreadFiltered, stateTitle, THREAD_ROLES } from './threadFilters';
+import type { ThreadTab } from './threadTabs';
+import { UnboundReplies } from './UnboundReplies';
 import { useThreadList } from './useThreadList';
 import type { ThreadListState } from './useThreadList';
 
@@ -91,15 +109,15 @@ interface RowProps {
   thread: ThreadCard;
   to: string;
   active: boolean;
-  /** Пометить рекламодателя: список без части, доноры и рекламодатели вперемешку. */
-  noted: boolean;
+  /** Часть списка. Без части доноры и рекламодатели идут вперемешку, и рекламодатель помечен;
+   *  в части метка состояния не повторяет её слово (`stateTitle`). */
+  part: Part | null;
 }
 
-function Row({ thread, to, active, noted }: RowProps) {
-  const state = threadState(thread.state);
+function Row({ thread, to, active, part }: RowProps) {
   const price = priceLine(thread);
   // Пометка — у рекламодателя: доноры — основной поток, а у продаж своя часть списка.
-  const note = noted && thread.stage !== 'sales' ? THREAD_STAGE_NOTES[thread.stage] : '';
+  const note = part === null && thread.stage !== 'sales' ? THREAD_STAGE_NOTES[thread.stage] : '';
   return (
     <Card
       component={Link}
@@ -118,9 +136,11 @@ function Row({ thread, to, active, noted }: RowProps) {
             {shortWhen(thread.last_event_at)}
           </Text>
         </Group>
-        <Group justify="space-between" wrap="nowrap" gap="sm">
+        {/* Ярус переносится: метка состояния, которой рядом с адресом тесно, встаёт строкой
+            ниже (`threadRowWho` держит адресу место), а не сжимает адрес до семи знаков. */}
+        <Group justify="space-between" gap="sm" className="threadRowSecond" style={{ rowGap: 4 }}>
           {/* Адрес обрезается, пометка — нет: длинный адрес не прячет, кому писали. */}
-          <Group gap={4} wrap="nowrap" miw={0}>
+          <Group gap={4} wrap="nowrap" className="threadRowWho">
             <Text size="xs" c="dimmed" truncate>
               {thread.contact_email ?? 'адрес не определён'}
             </Text>
@@ -130,8 +150,8 @@ function Row({ thread, to, active, noted }: RowProps) {
               </Text>
             )}
           </Group>
-          <Badge variant="light" color={state.color} className="threadRowState">
-            {state.title}
+          <Badge variant="light" color={threadState(thread.state).color} className="threadRowState">
+            {stateTitle(thread.state, part)}
           </Badge>
         </Group>
         {price !== null && (
@@ -165,16 +185,99 @@ function RoleSwitch({ list }: { list: ThreadListState }) {
   );
 }
 
+/** Поиск и фильтр состояния над строками. */
+function ListFilters({ list }: { list: ThreadListState }) {
+  return (
+    <Group gap="xs" wrap="nowrap" className="threadFilters">
+      {/* Подсказка — одним словом, что ищется — в имени поля: рядом с перепиской на
+          1280 колонка списка — 20rem, и поиску за фильтром состояния остаётся ~80 px
+          текста. «Донор или адрес» обрезалось до «Донор или ад» (проверка QA 10.10.2026). */}
+      <TextInput
+        size="xs"
+        placeholder="Поиск"
+        aria-label="Поиск по донору или адресу"
+        value={list.search}
+        onChange={(event) => list.setSearch(event.currentTarget.value)}
+        className="threadSearch"
+      />
+      <Select
+        size="xs"
+        aria-label="Состояние"
+        allowDeselect={false}
+        value={list.filters.state ?? 'all'}
+        onChange={list.pickState}
+        data={list.stateOptions}
+        comboboxProps={{ width: 'max-content', position: 'bottom-end' }}
+        className="threadStateFilter"
+      />
+    </Group>
+  );
+}
+
+/** Вместо строк: список грузится, не загрузился или под фильтр ничего не попало. */
+function ListNotes({ list }: { list: ThreadListState }) {
+  const { data, isLoading, error } = list.query;
+  return (
+    <>
+      {isLoading && (
+        <Text size="sm" c="dimmed">
+          Загружаем диалоги…
+        </Text>
+      )}
+      {error !== null && (
+        <Text size="sm" c="red">
+          Диалоги не загрузились
+        </Text>
+      )}
+      {list.empty !== null && data !== undefined && (
+        <Stack gap={6} align="flex-start" py="xs">
+          <Text size="sm" fw={500}>
+            {list.empty.title}
+          </Text>
+          <Text size="sm" c="dimmed">
+            {list.empty.detail}
+          </Text>
+          {isThreadFiltered(list.typed) && (
+            <Button variant="subtle" size="compact-sm" className="press" onClick={list.reset}>
+              Сбросить фильтры
+            </Button>
+          )}
+        </Stack>
+      )}
+    </>
+  );
+}
+
+/** «Показать ещё 100» под показанными строками и сколько осталось за ними; осталось меньше
+ *  сотни — кнопка называет остаток, и вторая цифра рядом была бы той же. */
+function MoreRows({ rest, onMore }: { rest: number; onMore: () => void }) {
+  if (rest <= 0) return null;
+  return (
+    <Group gap="sm" justify="center" wrap="nowrap" className="threadListMore">
+      <Button variant="subtle" size="compact-sm" className="press" onClick={onMore}>
+        {`Показать ещё\u00a0${formatNumber(Math.min(LIST_STEP, rest))}`}
+      </Button>
+      {rest > LIST_STEP && (
+        <Text size="xs" c="dimmed">
+          {`осталось\u00a0${formatNumber(rest)}`}
+        </Text>
+      )}
+    </Group>
+  );
+}
+
 /** Поиск, фильтр состояния и строки — общее у обеих раскладок. */
 export function ThreadRows({ list, split }: RowsProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { data, isLoading, error } = list.query;
   const selected = rowIdOf(useMatch('/threads/:id')?.params.id);
   const box = useRef<HTMLDivElement>(null);
 
   const href = (thread: ThreadCard) => `/threads/${thread.id}${location.search}`;
   const at = list.shown.findIndex((thread) => thread.id === selected);
+  // Нарисованы первые сто и — до открытого диалога; соседний диалог (J, K, стрелки) и
+  // счётчики берутся из всего списка, а не из нарисованного.
+  const drawn = useListWindow(listScope(list.typed), at, list.shown.length);
   const step = (by: 1 | -1) => {
     const next = at === -1 ? list.shown[0] : list.shown[at + by];
     if (next !== undefined) void navigate(href(next));
@@ -215,54 +318,8 @@ export function ThreadRows({ list, split }: RowsProps) {
   return (
     <>
       <RoleSwitch list={list} />
-      <Group gap="xs" wrap="nowrap" className="threadFilters">
-        {/* Подсказка — одним словом, что ищется — в имени поля: рядом с перепиской на
-            1280 колонка списка — 20rem, и поиску за фильтром состояния остаётся ~80 px
-            текста. «Донор или адрес» обрезалось до «Донор или ад» (проверка QA 10.10.2026). */}
-        <TextInput
-          size="xs"
-          placeholder="Поиск"
-          aria-label="Поиск по донору или адресу"
-          value={list.search}
-          onChange={(event) => list.setSearch(event.currentTarget.value)}
-          className="threadSearch"
-        />
-        <Select
-          size="xs"
-          aria-label="Состояние"
-          allowDeselect={false}
-          value={list.filters.state ?? 'all'}
-          onChange={list.pickState}
-          data={list.stateOptions}
-          comboboxProps={{ width: 'max-content', position: 'bottom-end' }}
-          className="threadStateFilter"
-        />
-      </Group>
-      {isLoading && (
-        <Text size="sm" c="dimmed">
-          Загружаем диалоги…
-        </Text>
-      )}
-      {error !== null && (
-        <Text size="sm" c="red">
-          Диалоги не загрузились
-        </Text>
-      )}
-      {list.empty !== null && data !== undefined && (
-        <Stack gap={6} align="flex-start" py="xs">
-          <Text size="sm" fw={500}>
-            {list.empty.title}
-          </Text>
-          <Text size="sm" c="dimmed">
-            {list.empty.detail}
-          </Text>
-          {isThreadFiltered(list.typed) && (
-            <Button variant="subtle" size="compact-sm" className="press" onClick={list.reset}>
-              Сбросить фильтры
-            </Button>
-          )}
-        </Stack>
-      )}
+      <ListFilters list={list} />
+      <ListNotes list={list} />
       <div
         ref={box}
         className={split ? 'threadListRows scrollSlim' : 'threadListRows threadListFlow'}
@@ -270,64 +327,54 @@ export function ThreadRows({ list, split }: RowsProps) {
         aria-label="Список диалогов"
         onKeyDown={onArrow}
       >
-        {list.shown.map((thread) => (
+        {list.shown.slice(0, drawn.count).map((thread) => (
           <Row
             key={thread.id}
             thread={thread}
             to={href(thread)}
             active={split && thread.id === selected}
-            noted={list.filters.part === null}
+            part={list.filters.part}
           />
         ))}
+        <MoreRows rest={drawn.rest} onMore={drawn.more} />
       </div>
     </>
   );
 }
 
-/** Колонка списка рядом с перепиской: шапка, вкладки и строки. */
-export function ThreadList() {
-  const navigate = useNavigate();
+/**
+ * Колонка списка на широком окне: шапка — заголовок части и вкладки — и под ней строки диалогов
+ * или ответы без письма. Шапка одна на обе вкладки и стоит в той же карточке на том же месте
+ * (`threadsHead`): до 11.11.2026 «Не привязаны» рисовала страница списка со своей шапкой, и
+ * переключатель под указателем уезжал на 21–55 px (разведка экранов 10.11.2026).
+ */
+export function ThreadList({ tab }: { tab: ThreadTab }) {
   const list = useThreadList();
-  const unbound = useUnboundPage(1);
-  const total = list.total;
-  const switchTab = (next: string) => {
-    if (next === 'threads') return;
-    // У ответа без письма своей переписки нет: вкладка — на всю ширину, без диалога справа.
-    // Часть списка (`?stage=…`) остаётся: человек — всё ещё в «Диалогах» своей части.
-    void navigate({
-      pathname: '/threads',
-      search: writeThreadTab('unbound', list.filters.part).toString(),
-    });
-  };
+  const [page, goToPage] = usePageParam();
+  const part = list.filters.part;
 
   return (
     <Stack gap="sm" className="threadListColumn">
-      {/* Лиды файлом — ответы на оффер рекламодателю: у доноров и продаж их нет. */}
-      <ThreadsTitle
-        total={total}
-        found={isThreadFiltered(list.typed) ? list.shown.length : null}
-        part={list.filters.part}
-        compact
-        aside={hasLeads(list.filters.part) ? <LeadsExport compact /> : undefined}
-      />
-      <SegmentedControl
-        aria-label="Вкладки диалогов"
-        fullWidth
-        size="xs"
-        value="threads"
-        onChange={switchTab}
-        data={THREAD_TAB_KEYS.map((key) => {
-          const count = key === 'threads' ? total : unbound.data?.total;
-          return {
-            value: key,
-            label:
-              count === undefined
-                ? THREAD_TABS[key]
-                : `${THREAD_TABS[key]} — ${formatNumber(count)}`,
-          };
-        })}
-      />
-      <ThreadRows list={list} split />
+      <Stack gap="sm" className="threadsHead">
+        {/* Лиды файлом — ответы на оффер рекламодателю: у доноров и продаж их нет. */}
+        <ThreadsTitle
+          total={list.total}
+          found={isThreadFiltered(list.typed) ? list.shown.length : null}
+          part={part}
+          compact
+          aside={hasLeads(part) ? <LeadsExport compact /> : undefined}
+          tab={tab}
+        />
+        <ThreadsTabs tab={tab} list={list} column />
+      </Stack>
+      {tab === 'unbound' ? (
+        // У ответа без письма своей переписки нет: вкладка — на всю ширину карточки.
+        <div className="threadsWholeBody">
+          <UnboundReplies page={page} onPage={goToPage} />
+        </div>
+      ) : (
+        <ThreadRows list={list} split />
+      )}
     </Stack>
   );
 }

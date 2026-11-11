@@ -8,7 +8,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import { threadState } from '../api/labels';
 import { listThreads } from '../api/outreach';
 import type { ThreadCard, ThreadState } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
@@ -19,6 +18,7 @@ import {
   NO_THREAD_FILTERS,
   readThreadFilters,
   roleOf,
+  stateTitle,
   threadEmptiness,
   threadMatches,
   THREAD_STATE_KEYS,
@@ -126,7 +126,7 @@ export function useThreadList() {
     { value: 'all', label: counted('все', threads.length) },
     ...states.map((state) => ({
       value: state,
-      label: counted(threadState(state).title, counts.get(state) ?? 0),
+      label: counted(stateTitle(state, filters.part), counts.get(state) ?? 0),
     })),
   ];
   const pickState = (value: string | null) =>
