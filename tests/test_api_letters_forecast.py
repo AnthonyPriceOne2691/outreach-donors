@@ -15,6 +15,7 @@ from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from typing import Any
 
 import pytest
+from backend.config import outreach as outreach_cfg
 from backend.features.core import stage_forecast, stages
 from backend.features.core.domain import MessageStatus, SenderStatus, Stage, UserRole
 from backend.features.core.models.access import UserModel
@@ -280,6 +281,36 @@ async def test_donors_write_every_day_and_their_queue_date_has_no_hours(
     eta = body["queue_eta"]
     assert (eta["day"], eta["sending_days"], eta["hours"]) == ("2026-10-22", 2, None)
     assert "вручную: пачка выбирает дневной лимит за секунды" in eta["words"]
+
+
+async def test_followups_over_a_box_daily_cap_are_planned_for_the_next_days(
+    session: AsyncSession,
+    client: AsyncClient,
+    viewer: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Суточный потолок добивок ящика (`OUTREACH_FOLLOWUP_PER_SENDER_PER_DAY`) — и в плане: ящик,
+    у которого подошло пять добивок, а одна сегодня уже ушла, отдаст сегодня ещё одну и по две в
+    следующие дни; сосед со своей одной добивкой от него не зависит. Без этого план обещал бы
+    сегодня все шесть."""
+    monkeypatch.setattr(outreach_cfg, "FOLLOWUP_PER_SENDER_PER_DAY", 2)
+    busy = await _box(session, "outreach1@mail-d.example.test", Stage.DONORS)
+    calm = await _box(session, "outreach2@mail-e.example.test", Stage.DONORS)
+    letters = await _letters(session, Stage.DONORS)
+    sent, long_ago = MessageStatus.SENT, NOW - timedelta(days=9)
+    for _ in range(5):
+        await letters.add(status=sent, sent_at=long_ago, next_action_at=NOW, sender_id=busy.id)
+    await letters.add(status=sent, sent_at=long_ago, next_action_at=NOW, sender_id=calm.id)
+    # Добивка, ушедшая с занятого ящика час назад: место в сегодняшнем потолке занято.
+    await letters.add(step=1, status=sent, sent_at=NOW - timedelta(hours=1), sender_id=busy.id)
+    await session.commit()
+
+    response = await client.get(URL, params={"days": 4, "back": 0}, headers=viewer)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["today"]["sent_followups"] == 1
+    assert [day["followups_due"] for day in body["days"]] == [1 + 1, 2, 2, 0]
 
 
 async def test_donor_mailboxes_show_their_warmup_and_the_next_step(

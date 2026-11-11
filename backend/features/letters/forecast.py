@@ -20,7 +20,7 @@
 from __future__ import annotations
 
 import logging
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
@@ -41,10 +41,18 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.letters import autosend, autosend_window
 from backend.features.letters.chain import FIRST_STEP, MAX_STEPS
-from backend.features.letters.forecast_plan import Clock, Eta, Mailboxes, PlanDay, Supply, plan
+from backend.features.letters.forecast_plan import (
+    Chains,
+    Clock,
+    Eta,
+    Mailboxes,
+    PlanDay,
+    Supply,
+    plan,
+)
 from backend.features.letters.mailbox import SILENT
 from backend.features.letters.repository import LetterRepository
-from backend.features.outreach import capacity, health, limits
+from backend.features.outreach import capacity, followup_caps, health, limits
 from backend.features.outreach.capacity import BoxToday, Rooms, Today
 from backend.features.outreach.repository import DAILY_STEPS, OutreachRepository, followup_pending
 from backend.features.outreach.senders import Warmup, warmup_state
@@ -139,9 +147,13 @@ async def forecast(
         refused="; ".join(dict.fromkeys(b.refused for b in found.boxes if b.refused)) or None,
         blocked=await _blocked(session, stage),
     )
-    due = await _due(session, stage, first_day, _midnight(first_day + timedelta(days=days)))
+    chains = Chains(
+        due=await _due(session, stage, first_day, _midnight(first_day + timedelta(days=days))),
+        cap=cfg.FOLLOWUP_PER_SENDER_PER_DAY,
+        sent=await followup_caps.today_by_box(session, moment),
+    )
     supply = Supply(queued, answers.extra, sum((answers.stuck or {}).values()))
-    planned, eta = plan(moment, days, clock, boxes, supply, due)
+    planned, eta = plan(moment, days, clock, boxes, supply, chains)
     by_day = await _sent_by_day(session, stage, _midnight(first_day - timedelta(days=back)))
     past = [first_day - timedelta(days=ago) for ago in range(back, 0, -1)]
     return Forecast(
@@ -270,21 +282,22 @@ async def _answers(
 
 async def _due(
     session: AsyncSession, stage: Stage, first_day: date, until: datetime
-) -> dict[date, int]:
-    """Добивки этапа по UTC-дню срока — условием прохода добивок (`followup_pending`); просроченные —
-    сегодня: проход возьмёт их первым же заходом."""
+) -> dict[date, Counter[int | None]]:
+    """Добивки этапа по UTC-дню срока и ящику переписки — условием прохода добивок
+    (`followup_pending`); просроченные — сегодня: проход возьмёт их первым же заходом. По ящикам —
+    потому что суточный потолок добивок у каждого ящика свой (`forecast_plan.Chains`)."""
     day = cast(func.timezone(_UTC, MessageModel.next_action_at), Date)
     rows = await session.execute(
-        select(day, func.count())
+        select(day, MessageModel.sender_id, func.count())
         .select_from(MessageModel)
         .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
         .where(*followup_pending(), CampaignModel.stage == stage)
         .where(MessageModel.next_action_at < until)
-        .group_by(day)
+        .group_by(day, MessageModel.sender_id)
     )
-    due: Counter[date] = Counter()
-    for found, count in rows.tuples().all():
-        due[max(found, first_day)] += count
+    due: defaultdict[date, Counter[int | None]] = defaultdict(Counter)
+    for found, box, count in rows.tuples().all():
+        due[max(found, first_day)][box] += count
     return dict(due)
 
 

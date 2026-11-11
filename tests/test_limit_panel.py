@@ -369,11 +369,15 @@ class TestRows:
             1,
         )
         assert one["used_day"] == 1
+        # У добивок свои потолки ящика — часовой и суточный (11.11.2026); ушедших сегодня нет.
         assert (chain["per_session"], chain["session_hours"], chain["per_day"]) == (
             outreach_cfg.FOLLOWUP_PER_SENDER_PER_HOUR,
             1,
-            None,
+            outreach_cfg.FOLLOWUP_PER_SENDER_PER_DAY,
         )
+        assert chain["used_day"] == 0
+        assert "OUTREACH_FOLLOWUP_PER_SENDER_PER_DAY" in chain["source"]
+        assert "ждёт завтра" in chain["now"]
         assert first["editable"] == one["editable"] == chain["editable"] == []
 
     async def test_mail_without_a_direction_limit_is_empty_not_zero(

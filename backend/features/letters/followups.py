@@ -27,11 +27,10 @@
 добивка только этим проходом: в общей очереди писем её нет, и пачка
 её не берёт (`mailbox.py`).
 
-**Свой лейн, а не дневной кап.** Дневной кап ящика считает первые
-письма; добивки идут своим часовым потолком (решение 21.09.2026).
-Иначе backlog первых писем голодит цепочки, а цепочки съедают квоту
-новых доноров. Часовой, а не дневной, — чтобы сотня подошедших добивок
-не ушла пачкой за минуту: почтовая платформа смотрит на скорость.
+**Свои потолки, а не дневной кап.** Дневной кап ящика считает первые письма; добивки идут
+часовым потолком (21.09.2026) — чтобы сотня подошедших не ушла пачкой за минуту — и суточным
+(11.11.2026, `outreach/followup_caps.py`) — чтобы завал выходных не ушёл с ящика за понедельник.
+В общем капе backlog первых писем голодал бы цепочки, а цепочки съедали бы квоту новых доноров.
 
 **Этап без цепочки не захватывается.** Шаблон добивки выбирается по этапу
 уже после захвата, и этап без шаблонов терял бы добивку: срок погашен,
@@ -49,7 +48,8 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, replace
+from collections import Counter
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import ColumnElement, func, select, update
@@ -71,7 +71,8 @@ from backend.features.letters.sending import (
     SuppressedError,
 )
 from backend.features.letters.transport import ByStage, MaybeSentError, Transport
-from backend.features.outreach.repository import followup_pending, in_hourly_lane
+from backend.features.outreach import followup_caps
+from backend.features.outreach.repository import followup_pending
 
 logger = logging.getLogger(__name__)
 
@@ -315,22 +316,12 @@ class Chain:
         return message
 
     async def sent_this_hour(self, sender_id: int) -> int:
-        """Сколько добивок ушло с этого ящика за последний час.
+        """Сколько добивок и перезапросов цены ушло с этого ящика за последний час."""
+        return await followup_caps.this_hour_of(self._session, sender_id, self._moment())
 
-        Только шаги цепочки: ответ в переписке (`chain.ANSWER_STEP`) — тоже
-        письмо с этого ящика, но не добивка, и считать его здесь значило бы
-        отнимать часовой запас добивок у ящика, где человек ведёт разговор
-        (ревью «Продаж» #162). И перезапрос цены (`chain.RECHECK_STEP`): он уходит
-        пачкой по нажатию и без счёта давал бы всплеск с ящика (проверка 12.10.2026).
-        """
-        since = self._moment() - timedelta(hours=1)
-        total = await self._session.scalar(
-            select(func.count())
-            .select_from(MessageModel)
-            .where(MessageModel.sender_id == sender_id, in_hourly_lane())
-            .where(MessageModel.sent_at >= since)
-        )
-        return int(total or 0)
+    async def day_wait(self, sender_id: int) -> timedelta | None:
+        """Ящик выбрал суточный потолок добивок — сколько ждать до завтра; `None` — не выбрал."""
+        return await followup_caps.wait(self._session, sender_id, self._moment())
 
     async def _host(self, domain_id: int) -> str:
         host = await self._session.scalar(
@@ -354,6 +345,8 @@ class PassReport:
     sent: int = 0
     postponed: int = 0
     """Отложено: ящик стоит или почта отказала временно. Цепочка жива."""
+    capped: Counter[int] = field(default_factory=Counter)
+    """Из отложенных — до завтра, по ящикам: ящик выбрал суточный потолок (`followup_caps`)."""
     stopped: int = 0
     """Остановлено: донор в стоп-листе или в тексте добивки запрещённое. Больше ему не пишем."""
     unknown: int = 0
@@ -364,9 +357,13 @@ class PassReport:
 
     @property
     def as_report(self) -> str:
+        capped = ""
+        if self.capped:  # по ящикам: потолок у каждого свой, и видно, чей завал переезжает
+            boxes = ", ".join(f"ящик №{box} — {n}" for box, n in sorted(self.capped.items()))
+            capped = f" (из них до завтра по суточному потолку — {self.capped.total()}: {boxes})"
         said = (
-            f"отправлено {self.sent}, отложено {self.postponed}, остановлено {self.stopped}, "
-            f"исход неизвестен {self.unknown}"
+            f"отправлено {self.sent}, отложено {self.postponed}{capped}, "
+            f"остановлено {self.stopped}, исход неизвестен {self.unknown}"
         )
         return f"{said}, ждут этапа {self.waiting}" if self.waiting else said
 
@@ -474,8 +471,9 @@ async def _deliver(
 
 
 async def _waits(session: AsyncSession, chain: Chain, claimed: Claimed, report: PassReport) -> bool:
-    """Добивке сейчас не уйти — ящик переписки удалён или выбрал часовой запас: срок
-    возвращается, и `True`. Ящик удалён — проход ещё и говорит почему."""
+    """Добивке сейчас не уйти — ящик переписки удалён или выбрал запас, суточный (ждать до завтра)
+    или часовой: срок возвращается, и `True`. Ящик удалён — проход ещё и говорит почему."""
+    delay = POSTPONE
     if claimed.sender_id is None:
         # Письма теряют номер ящика, когда ящик удаляют. С другого ящика
         # добивка не уходит (`mailbox.py`): она ждёт, и проход говорит почему.
@@ -484,9 +482,12 @@ async def _waits(session: AsyncSession, chain: Chain, claimed: Claimed, report: 
             "с другого ящика она не уйдёт",
             claimed.host,
         )
+    elif (till_tomorrow := await chain.day_wait(claimed.sender_id)) is not None:
+        delay = till_tomorrow
+        report.capped[claimed.sender_id] += 1
     elif await chain.sent_this_hour(claimed.sender_id) < cfg.FOLLOWUP_PER_SENDER_PER_HOUR:
         return False
-    await chain.restore(claimed, delay=POSTPONE)
+    await chain.restore(claimed, delay=delay)
     await session.commit()
     report.postponed += 1
     return True
