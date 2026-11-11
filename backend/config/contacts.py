@@ -75,6 +75,15 @@ class _Contacts(DomainSettings):
     # чем писать по выдуманному адресу и ловить отказ доставки.
     hunter_min_confidence: int = Field(default=70, validation_alias="CONTACTS_HUNTER_MIN_CONF")
 
+    # --- Проверка адреса перед первым письмом (11.11.2026, `contacts/address_check.py`) ---
+    # Рубильник по этапам, включён у обоих: найденный адрес шёл в письмо без проверки, и отказ
+    # «ящика нет» бил по ящику и домену рассылки. Выключить этап — false: письма ему собираются,
+    # как до проверки. Ключ и месячный потолок — те же, что у проверки адресов продаж.
+    verify_donors: bool = Field(default=True, validation_alias="CONTACTS_VERIFY_DONORS")
+    verify_advertisers: bool = Field(default=True, validation_alias="CONTACTS_VERIFY_ADVERTISERS")
+    # Срок давности отметки проверки: в его пределах адрес повторно не проверяется.
+    verify_ttl_days: int = Field(default=90, validation_alias="CONTACTS_VERIFY_TTL_DAYS")
+
     # --- Ступень 4: ручная очередь ---
     # Ориентир темпа «Форм»: сколько адресов готовы вписать руками за последние
     # 30 дней (`forms.monthly_left`). Ничего не держит: форма сверх него — та же
@@ -127,6 +136,12 @@ PAID_SEARCH_ENABLED: bool = _s.paid_search_enabled
 HUNTER_API_KEY: str = _s.hunter_api_key.strip()  # хвостовой пробел из .env
 HUNTER_TIMEOUT_SEC: float = _s.hunter_timeout_sec
 HUNTER_MIN_CONFIDENCE: int = _s.hunter_min_confidence
+#: Этап (значение `Stage`) → проверяется ли адрес перед первым письмом. Этапа нет — нет и проверки.
+VERIFY_BEFORE_LETTER: dict[str, bool] = {
+    "donors": _s.verify_donors,
+    "advertisers": _s.verify_advertisers,
+}
+VERIFY_TTL_DAYS: int = _s.verify_ttl_days
 MANUAL_QUEUE_MONTHLY_CAP: int = _s.manual_queue_monthly_cap
 CONTACT_TTL_DAYS: int = _s.contact_ttl_days
 DEEP_MAX_PAGES: int = _s.deep_max_pages

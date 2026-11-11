@@ -61,12 +61,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import outreach as outreach_cfg
 from backend.features.contacts.quality import rejection_reason
+from backend.features.contacts.verifier import EmailVerifier
 from backend.features.core import usage
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.crawl.niche import LINKS
 from backend.features.crawl.promote import apply_rejections, apply_suppliers
 from backend.features.letters import compose, guards, selection
+from backend.features.letters.address_gate import Picker
 from backend.features.letters.recipients import Candidate
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.rewrite import Personalization, RewriteClient, RewriteResult
@@ -189,6 +191,11 @@ class BuildReport:
     #: Сборка остановлена потолком расхода на модель: причина словами.
     #: Подготовленные до остановки письма в очереди, остальные — следующей сборкой.
     stopped: str | None = None
+    #: Проверка адресов перед письмом (`address_gate.py`): исход словами → сколько адресов.
+    #: Пусто — проверка этапа выключена или проверять было некого.
+    address_check: dict[str, int] = field(default_factory=dict)
+    #: Почему части адресов письмо не собрано: проверка адреса не состоялась — словами.
+    unchecked: str | None = None
 
 
 def _accepted(
@@ -241,11 +248,14 @@ class QueueBuilder:
         rewriter: RewriteClient,
         *,
         template: Template | None = None,
+        verifier: EmailVerifier | None = None,
     ) -> None:
         self._session = session
         self._rewriter = rewriter
         #: Пусто — умолчание этапа рассылки (`template.for_stage`).
         self._template = template
+        #: Проверяльщик адресов перед письмом; пусто — Hunter по настройкам (`address_gate`).
+        self._verifier = verifier
         self._repo = LetterRepository(session)
 
     async def build(self, request: BuildRequest) -> BuildReport:
@@ -291,28 +301,34 @@ class QueueBuilder:
                 ", ".join(report.blocked_by),
             )
 
-        candidates = await self._repo.candidates(
-            request.stage, limit=request.limit, run_ids=request.run_ids, audience=request.audience
+        # Адресаты — пачками, и только те, чей адрес прошёл проверку перед письмом: потолок
+        # модели — до пачки, проверка адресов — до вызова модели (`address_gate.Picker`).
+        picker = Picker(
+            self._session,
+            self._repo,
+            request,
+            report,
+            size=max(1, outreach_cfg.BUILD_CONCURRENCY),
+            bad=self._bad_address,
+            go=lambda: self._within_cap(request, report),
+            verifier=self._verifier,
         )
-        writable = [c for c in candidates if not self._bad_address(c, report)]
-        size = max(1, outreach_cfg.BUILD_CONCURRENCY)
-        for start in range(0, len(writable), size):
-            if not await self._within_cap(request, report):
-                break
-            await self._prepare(
-                writable[start : start + size],
-                letter_template,
-                campaign_id=campaign.id,
-                request=request,
-                report=report,
-                found_by=scope.found_by,
-            )
+        async with picker:
+            while pack := await picker.next_pack():
+                await self._prepare(
+                    pack,
+                    letter_template,
+                    campaign_id=campaign.id,
+                    request=request,
+                    report=report,
+                    found_by=scope.found_by,
+                )
 
         logger.info(
             "письма: подготовлено %s из %s, токенов %s, вне коридора %s, "
             "подбором зон %s (оставлено шаблоном зон %s)",
             report.prepared,
-            len(candidates),
+            picker.seen,
             report.tokens_spent,
             report.off_corridor,
             report.selected_letters,

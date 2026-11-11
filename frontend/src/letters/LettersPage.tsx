@@ -42,7 +42,7 @@
  *
  * **Как устроены письма адресата — в «i»** (слово владельца 10.11.2026): у переключателя
  * адресата, а где его нет («Письма донорам») — у заголовка. Под заголовком — только факты:
- * почта, «Ещё не писали», ждущие адреса.
+ * почта, «Ещё не писали», ждущие адреса и ждущие проверки адреса (`CheckLine`, 11.11.2026).
  *
  * **Без обоих этапов — один отказ раздела, а не три отказа сервера** (проверка прода 10.11.2026):
  * учётка только продаж по прямой ссылке видела «Очередь не загрузилась» и два красных блока над
@@ -70,6 +70,8 @@ import { BuildForm, LIMIT_DEFAULT, followupDays } from './BuildForm';
 import { DeferredLetters } from './DeferredLetters';
 import type { BuildProps } from './BuildForm';
 import { AddressLine } from './AddressLine';
+import { buildCheckLine, checkedHint } from './addressCheck';
+import { CheckLine } from './CheckLine';
 import { EmptyQueue } from './EmptyQueue';
 import { draftOf, sameDraft } from './LetterDraftEditor';
 import { LetterPreview, toneOf } from './LetterPreview';
@@ -471,9 +473,11 @@ function QueueControls({ stale, canSend, buildJob, onBuildFinished, ...build }: 
           Ещё не писали <b>{formatNumber(view.funnel['ещё не писали'] ?? 0)}</b> ·{' '}
           {poolHint(view.funnel, target)}
           {addressHint(view.funnel, target)}
+          {checkedHint(view.funnel)}
         </Text>
       </Group>
       {target !== 'donors' ? <AddressLine audience={audienceOf(target)} /> : null}
+      <CheckLine funnel={view.funnel} />
 
       {view.blocked_by.length > 0 ? (
         <Alert color="yellow" title="Отправка пока не подключена">
@@ -495,7 +499,9 @@ function QueueControls({ stale, canSend, buildJob, onBuildFinished, ...build }: 
           смены адресатов — у каждых она своя. */}
       {canSend ? <BuildForm key={target} {...build} /> : null}
 
-      {buildJob !== null ? <JobLine jobId={buildJob} onFinished={onBuildFinished} /> : null}
+      {buildJob !== null ? (
+        <JobLine jobId={buildJob} onFinished={onBuildFinished} describe={buildCheckLine} />
+      ) : null}
     </Stack>
   );
 }

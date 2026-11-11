@@ -41,7 +41,7 @@ from backend.config import contacts as contacts_cfg
 from backend.features.contacts.hunter_account import AccountSnapshot, remember, snapshot
 from backend.features.contacts.provider import HunterAccount, HunterProvider, ProviderError
 from backend.features.core.domain import Stage
-from backend.features.core.hunter_cap import VERIFY_OPERATION, verify_month_cap
+from backend.features.core.hunter_cap import VERIFY_OPERATIONS, verify_month_cap
 from backend.features.ops.alarms import Alarm, Concern, cause, no_cause
 from backend.features.runs.ahrefs_key import day_words
 from backend.features.runs.spending import units_this_month
@@ -161,10 +161,12 @@ class Standing:
 
 async def standing(session: AsyncSession, moment: datetime) -> Standing:
     """Hunter на эту минуту — одно чтение у экрана и у тревоги: числа не разойдутся."""
+    # Проверки продаж и проверки перед письмом донору и рекламодателю — потолок у них один.
+    spent = [await units_this_month(session, name, now=moment) for name in VERIFY_OPERATIONS]
     return Standing(
         snapshot=await snapshot(session),
         cap=await verify_month_cap(session),
-        spent=await units_this_month(session, VERIFY_OPERATION, now=moment),
+        spent=sum(spent),
     )
 
 

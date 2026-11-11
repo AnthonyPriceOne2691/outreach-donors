@@ -309,6 +309,22 @@ def parse_account(data: dict[str, Any]) -> HunterAccount:
     )
 
 
+def _verification(block: Any) -> tuple[str, date] | None:
+    """Проверка адреса, которую Hunter сделал сам и отдал вместе с адресом поиска: слово и
+    день. Блока нет, он пуст или дата не разобрана — проверки нет: адрес спросят перед письмом."""
+    if not isinstance(block, dict):
+        return None
+    status, on = block.get("status"), block.get("date")
+    if not isinstance(status, str) or not isinstance(on, str):
+        return None
+    try:
+        return status.strip().lower(), date.fromisoformat(on[:10])
+    except ValueError:
+        # Не отказ поиска: адрес берём, а проверку спросим перед письмом сами.
+        logger.info("платный сервис: день проверки адреса не разобран (%r)", on)
+        return None
+
+
 class HunterProvider:
     """Hunter.io. Разбор ответа защитный: чужой формат однажды поменяется,
     и молчать об этом нельзя."""
@@ -408,6 +424,7 @@ class HunterProvider:
                     email=row["value"].strip().lower(),
                     source=ContactSource.PROVIDER,
                     confidence=confidence,
+                    verified=_verification(row.get("verification")),
                 )
             )
 

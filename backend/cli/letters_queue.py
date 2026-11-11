@@ -128,6 +128,11 @@ def _print_build(report: BuildReport) -> None:
         )
     for reason, times in report.bad_addresses.items():
         print(f"Пропущено, адрес не прошёл фильтр — {reason}: {times}")
+    if report.address_check:
+        said = ", ".join(f"{name} {count}" for name, count in report.address_check.items())
+        print(f"Проверка адресов перед письмом: {said}.")
+    if report.unchecked:
+        print(f"Письма непроверенным адресам не собраны — {report.unchecked}.")
     for note, times in sorted(report.notes.items(), key=lambda pair: -pair[1]):
         print(f"  {note}: {times}")
 

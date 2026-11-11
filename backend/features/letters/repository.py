@@ -28,12 +28,14 @@ from backend.features.core.models.outreach import (
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.core.stages import SALES_ELSEWHERE, SalesNotConnectedError, sales_addresses
 from backend.features.crawl.niche import LINKS, NICHE
+from backend.features.letters.address_gate import funnel_counts
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.compose import FoundLink
 from backend.features.letters.draft import assert_same_audience, split_audience
 from backend.features.letters.funnel import AdvertiserFunnel, Funnel
 from backend.features.letters.niche_recipients import NicheRecipients
-from backend.features.letters.recipients import Candidate, Recipients, donor_geo_of
+from backend.features.letters.offer_addresses import donor_geo_of
+from backend.features.letters.recipients import Candidate, Recipients
 from backend.features.runs.exclusions import domain_not_writing, not_writing
 
 
@@ -150,7 +152,10 @@ class LetterRepository:
         """Воронка для отчёта сборки. У бизнесов ниши своя: решение человека и адрес."""
         if stage is Stage.ADVERTISERS and audience == NICHE:
             return await NicheRecipients(self._session).niche_report()
-        return (await self.funnel(stage, run_ids=run_ids)).as_report()
+        report = (await self.funnel(stage, run_ids=run_ids)).as_report()
+        # Проверка адресов перед письмом — числами рядом с воронкой (`address_gate.py`).
+        picks = await Recipients(self._session).picks(stage, run_ids)
+        return report | await funnel_counts(self._session, stage, picks)
 
     # --- очередь ---
 

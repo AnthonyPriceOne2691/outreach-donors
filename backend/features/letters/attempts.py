@@ -125,12 +125,18 @@ def elsewhere_reason(stage: Stage) -> str:
     return f"{IN_WORK_ELSEWHERE}: {DIRECTIONS[stage]}"
 
 
+#: Письмо очереди, чей адрес проверка перед отправкой назвала несуществующим
+#: (`address_gate.queued_refusal`, 11.11.2026): письмо не уходило, адрес похоронен, и следующая
+#: сборка напишет сайту на следующий адрес. Текст не менять.
+ADDRESS_GONE = "адрес не существует: проверка перед первым письмом — пишем на следующий адрес"
+
 #: Причины снятого письма, которое не уходило (`withdrawn`). Этап без направления в
 #: `DIRECTIONS` роняет загрузку модуля, а не теряет письмо из «не уходило».
 WITHDRAWN_REASONS = (
     LINK_WITHDRAWN,
     EXAMPLE_WITHDRAWN,
     SUPPLIER_WITHDRAWN,
+    ADDRESS_GONE,
     *(elsewhere_reason(stage) for stage in Stage),
 )
 

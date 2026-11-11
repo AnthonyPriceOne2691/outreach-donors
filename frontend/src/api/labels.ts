@@ -270,6 +270,7 @@ const OPERATION_TITLES: Record<string, string> = {
   reply_parse: 'разбор ответов',
   agent_draft: 'черновики агента',
   contacts_search: 'поиск адресов',
+  contacts_verify: 'проверка адресов перед письмом',
   sales_verify: 'проверка адресов продаж',
   sales_reply_kind: 'разбор ответов продаж',
   sales_letter_rewrite: 'переписывание писем продаж',

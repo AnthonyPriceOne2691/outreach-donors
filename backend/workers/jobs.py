@@ -125,6 +125,9 @@ async def _build_letters(request: BuildRequest) -> dict[str, Any]:
                 "blocked_by": report.blocked_by,
                 "notes": report.notes,
                 "bad_addresses": report.bad_addresses,
+                # Проверка адресов перед письмом: исход → сколько; почему не проверены.
+                "address_check": report.address_check,
+                "unchecked": report.unchecked,
             }
     finally:
         await rewriter.aclose()
