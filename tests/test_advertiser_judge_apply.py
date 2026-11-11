@@ -22,13 +22,20 @@ from backend.features.crawl.accuracy import scoring_check
 from backend.features.crawl.judge_apply import Band, BatchBandError, Standing
 from backend.features.crawl.judge_facts import LinkFacts
 from backend.features.crawl.judge_mark import BATCH, batch_of, marker_of, started_at
-from backend.features.crawl.judge_rules import RULES_VERSION, Advice, advise
+from backend.features.crawl.judge_rules import (
+    CATALOG_RULE,
+    DISAGREE,
+    RULES_VERSION,
+    Advice,
+    advise,
+)
 from backend.features.crawl.judge_store import cohort_of
 from backend.features.crawl.promote import promote
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.stage2_rows import addressed, answered, crawled, lettered, promoted, scored
 from tests.test_advertiser_judge import facts_body
+from tests.test_advertiser_judge_catalog import CARD, DISPUTE
 from tests.test_scoring_accuracy import hosts, turn_order
 
 DONOR = "donor.example.test"
@@ -312,6 +319,89 @@ async def test_the_plan_of_skipping_names_the_advertisers_it_takes_off(
 
     assert plan.takes_off == 1
     assert (applied.applied, applied.removed) == (2, 1)
+
+
+def test_a_rule_outside_the_table_has_short_words_and_an_unknown_one_stays_as_it_came() -> None:
+    """В колонке правила стоят и ключи, которых нет в таблице: сверка, донор-каталог, второй круг."""
+    assert judge_plan.rule_words(CATALOG_RULE) == "донор-каталог, его карточки не рекламодатели"
+    assert judge_plan.rule_words("second_round") == "решил второй круг: вторая модель"
+    assert "модель" in judge_plan.rule_words("verdict")
+    assert judge_plan.rule_words("redirect") != "redirect", "правило таблицы — её словами"
+    assert judge_plan.rule_words("rule_from_tomorrow") == "rule_from_tomorrow"
+
+
+async def test_a_dispute_at_a_catalog_donor_goes_into_skipping_with_the_donors_words(
+    session: AsyncSession,
+) -> None:
+    """Донор набрал суды и стал каталогом: спор его пары («правила — пишем, модель — не пишем») до
+    отбора переходит из «не понять» в «не пишем», в разбивке — короткими словами правила, а у
+    примера — словами совета с признаком донора, а не словами спора."""
+    catalog = "schools-catalog.example.test"
+    run = await crawled(session, catalog)
+    await scored(session, run, "dispute.example.test", verdict=Verdict.PENDING)
+    session.add_all(
+        [
+            judged(f"card{number}.example.test", "skip", donor=catalog, facts=facts_body(**CARD))
+            for number in range(20)
+        ]
+    )
+    # Суд пары поставлен нынешней таблицей, когда донор каталогом ещё не был: спор — человеку.
+    dispute = judged(
+        "dispute.example.test",
+        "unclear",
+        donor=catalog,
+        facts=facts_body(**DISPUTE),
+        rule=DISAGREE,
+    )
+    session.add(dispute)
+    await session.flush()
+    by_sign = advise(LinkFacts.from_json(dispute.facts), catalog_donor=True)  # type: ignore[arg-type]
+    assert (by_sign.advice, by_sign.rule) == (Advice.SKIP, CATALOG_RULE)
+
+    plan = await judge_plan.plan(session, Band.SKIP)
+
+    await session.refresh(dispute)
+    assert (dispute.advice, dispute.rule) == ("skip", CATALOG_RULE)
+    assert [(one.rule, one.words, one.pairs) for one in plan.rules] == [
+        (CATALOG_RULE, "донор-каталог, его карточки не рекламодатели", 1)
+    ]
+    [example] = plan.examples
+    assert (example.target_root, example.rule) == ("dispute.example.test", CATALOG_RULE)
+    assert example.words == by_sign.words
+    assert example.words.startswith("донор-каталог")
+    assert plan.standing.unclear == 0
+
+
+async def test_a_rule_the_plan_does_not_know_does_not_break_it(session: AsyncSession) -> None:
+    """Правило, которого нет ни в таблице, ни в словаре сверки (его добавили позже плана), и совет,
+    который поставила не таблица (второй круг): план считает и показывает — ключом и словами
+    правила, а не словами таблицы про другой совет."""
+    await disputed(session, ("unknown.example.test", None), ("second.example.test", None))
+    session.add_all(
+        [
+            judged("unknown.example.test", "skip", rule="rule_from_tomorrow"),
+            # Таблица по этим фактам сказала бы «не пишем», а вторая модель решила «пишем».
+            judged(
+                "second.example.test",
+                "write",
+                facts=facts_body(**FACTS["skip"]),
+                rule="second_round",
+            ),
+        ]
+    )
+    await session.flush()
+
+    skipping = await judge_plan.plan(session, Band.SKIP)
+    writing = await judge_plan.plan(session, Band.WRITE)
+
+    assert [(one.rule, one.words) for one in skipping.rules] == [
+        ("rule_from_tomorrow", "rule_from_tomorrow")
+    ]
+    assert [one.words for one in skipping.examples] == ["rule_from_tomorrow"]
+    assert [(one.rule, one.words) for one in writing.rules] == [
+        ("second_round", "решил второй круг: вторая модель")
+    ]
+    assert [one.words for one in writing.examples] == ["решил второй круг: вторая модель"]
 
 
 # --- применение ------------------------------------------------------------------------------------

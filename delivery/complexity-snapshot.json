@@ -1522,9 +1522,9 @@
       "worst": "after_decision:65"
     },
     "backend/features/crawl/judge_apply.py": {
-      "lines": 385,
+      "lines": 392,
       "complexity": 8,
-      "worst": "apply:337"
+      "worst": "_by_table_in_force:223"
     },
     "backend/features/crawl/judge_batches.py": {
       "lines": 189,
@@ -1557,9 +1557,9 @@
       "worst": "plan_pass:202"
     },
     "backend/features/crawl/judge_plan.py": {
-      "lines": 208,
+      "lines": 244,
       "complexity": 8,
-      "worst": "plan:192"
+      "worst": "plan:228"
     },
     "backend/features/crawl/judge_revert.py": {
       "lines": 217,

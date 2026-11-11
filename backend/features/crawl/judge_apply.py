@@ -25,7 +25,8 @@
 и применение идут по тому, что таблица говорит сейчас. Пересчитываются только суды ждущих пар, а не
 вся таблица судов: чтение очереди не должно переписывать тысячи чужих строк. Строка, чьи факты не
 той формы, пересчёту не даётся и остаётся «совет устарел». Пересчёт — запись: фиксирует её
-вызывающий, и план тоже.
+вызывающий, и план тоже. С таблицы v6 совет зависит ещё и от признака донора-каталога
+(`judge_store.Catalogs`): советы ждущих пар, которые от него зависят, пересчёт сверяет каждый раз.
 
 **Только спорные** (`APPLIED`), как у кнопки «Переобойти спорные». «Куплено» идёт к письму без
 человека, и «не пишем» судьи по такой паре снимало бы рекламодателя, которому уже пишут: это другое
@@ -61,7 +62,7 @@ from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import AdvertiserJudgementModel, CandidateModel
 from backend.features.crawl import review
 from backend.features.crawl.judge_mark import marker_of, started_at
-from backend.features.crawl.judge_rules import RULES_VERSION, Advice
+from backend.features.crawl.judge_rules import BY_DONOR, RULES_VERSION, Advice
 from backend.features.crawl.judge_store import JUDGEMENT_TTL_DAYS, Cohort, cohort_of, relabel
 from backend.features.crawl.units_stop import dr_settled
 
@@ -221,8 +222,14 @@ async def _latest(
 
 async def _by_table_in_force(session: AsyncSession, latest: dict[Pair, _Last]) -> None:
     """Советы последних судов, поставленные прежней таблицей, — заново нынешней (шапка модуля), и
-    перечитать их: дальше отбор идёт по пересчитанному."""
-    outdated = sorted(last.number for last in latest.values() if last.table != RULES_VERSION)
+    перечитать их: дальше отбор идёт по пересчитанному. Туда же — советы нынешней таблицы, которые
+    зависят от признака донора-каталога (`judge_rules.BY_DONOR`): донор набирает суды и становится
+    каталогом, и спор его пары из «не понять» переходит в «не пишем» без смены таблицы."""
+    outdated = sorted(
+        last.number
+        for last in latest.values()
+        if last.table != RULES_VERSION or last.rule in BY_DONOR
+    )
     changed = 0
     for chunk in chunked(outdated):
         changed += await relabel(session, ids=list(chunk))

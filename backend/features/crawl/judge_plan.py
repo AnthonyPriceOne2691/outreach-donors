@@ -3,8 +3,16 @@
 
 **Примеры — жребием, а не верхом очереди.** Двадцать пять пар в порядке md5 домена, тем же, что у
 случайной выборки (`sample.py`): по верху очереди по баллу любая полоса выглядит правдоподобно.
-Слова судьи у примера — по фактам строки суда, как их видит человек под своим решением
-(`judge_advice.py`).
+Слова судьи у примера — по фактам строки суда и признаку её донора (`judge_store.Catalogs`), как их
+видит человек под своим решением (`judge_advice.py`).
+
+**Правило не из таблицы — тоже словами** (`CHECK_WORDS`, 11.11.2026). В колонке правила строки суда
+стоят и ключи, которых в таблице `RULES` нет: совет поставила сверка с ответом модели, признак
+донора-каталога или второй круг. В разбивке полосы у них короткие слова отсюда, а не ключ и не
+составная фраза сверки — она у каждой пары своя. Незнакомый ключ план не роняет: показан как пришёл.
+У примера слова даёт `advise` — но только когда он ставит тот же совет тем же правилом, что стоит в
+строке: совет, поставленный не таблицей (второй круг), её словами не объяснить, и пример тогда
+говорит словами своего правила.
 
 **«Не пишем»: кого снимет.** Спорная пара без решения рекламодателя не заводит, и её «не пишем»
 обычно никого не снимает. Но у домена бывает рекламодатель, заведённый по ссылке, которую обход
@@ -36,7 +44,8 @@ from backend.features.core.models.donor import ContactModel
 from backend.features.crawl.advertiser_rules import writes_to
 from backend.features.crawl.judge_apply import Band, Said, Standing, chunked, said, standing_of
 from backend.features.crawl.judge_facts import LinkFacts
-from backend.features.crawl.judge_rules import RULES, advise
+from backend.features.crawl.judge_rules import CATALOG_RULE, RULES, advise
+from backend.features.crawl.judge_store import Catalogs, Cohort
 from backend.features.crawl.niche import NICHE
 from backend.features.crawl.suppliers import supplier_hosts
 
@@ -44,8 +53,14 @@ Judgement = AdvertiserJudgementModel
 
 #: Сколько пар показывает план: их читают глазами, чтобы поверить числу.
 EXAMPLES = 25
-#: Слова правила «общий ответ модели»: таблица не решила, совет — по ответу (`judge_rules.advise`).
-VERDICT_WORDS = "правила не решили, модель говорит «пишем»"
+#: Правила, которых нет в таблице `RULES`, — короткими словами для разбивки полосы (шапка модуля):
+#: общий ответ модели там, где таблица не решила (`judge_rules.advise`), спор у донора-каталога
+#: (`judge_rules.CATALOG_RULE`) и исход второго круга — вторая модель (`second_round`).
+CHECK_WORDS: dict[str, str] = {
+    "verdict": "правила не решили, модель говорит «пишем»",
+    CATALOG_RULE: "донор-каталог, его карточки не рекламодатели",
+    "second_round": "решил второй круг: вторая модель",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,9 +113,10 @@ class Plan:
 
 
 def rule_words(rule: str) -> str:
-    """Правило словами таблицы; общий ответ модели — своими; незнакомый ключ — как записан."""
-    if rule == "verdict":
-        return VERDICT_WORDS
+    """Правило коротко: не из таблицы — своими словами (`CHECK_WORDS`), из таблицы — её словами;
+    незнакомый ключ — как пришёл, а не падение: правила добавляют чаще, чем правят план."""
+    if rule in CHECK_WORDS:
+        return CHECK_WORDS[rule]
     return next((one.words for one in RULES if one.key == rule), rule)
 
 
@@ -114,19 +130,39 @@ def _by_lot(rows: Sequence[Said]) -> list[Said]:
     return sorted(rows, key=lot)
 
 
-async def _examples(session: AsyncSession, rows: Sequence[Said]) -> list[Example]:
-    """Примеры полосы со словами судьи; факты не той формы — слова правила из таблицы."""
-    shown = _by_lot(rows)[:EXAMPLES]
-    facts = await session.execute(
-        select(Judgement.id, Judgement.facts).where(
-            Judgement.id.in_([one.judgement_id for one in shown if one.judgement_id is not None])
-        )
+async def _said_words(session: AsyncSession, shown: Sequence[Said]) -> dict[int, str]:
+    """Слова судьи парам примеров — по фактам строки суда и признаку её донора: номер строки суда →
+    слова. Только там, где таблица ставит тот же совет тем же правилом, что стоит в строке (шапка
+    модуля); факты не той формы — без слов."""
+    by_number = {one.judgement_id: one for one in shown if one.judgement_id is not None}
+    read = await session.execute(
+        select(
+            Judgement.id,
+            Judgement.donor_host,
+            Judgement.prompt_version,
+            Judgement.prompt_print,
+            Judgement.examples_print,
+            Judgement.model,
+            Judgement.facts,
+        ).where(Judgement.id.in_(sorted(by_number)))
     )
+    catalogs = Catalogs(session)
     words: dict[int, str] = {}
-    for number, body in facts.tuples():
-        read = LinkFacts.from_json(body)
-        if read is not None:
-            words[number] = advise(read).words
+    for number, donor, *print_, body in read.tuples():
+        facts = LinkFacts.from_json(body)
+        if facts is None:
+            continue
+        ruled = advise(facts, catalog_donor=await catalogs.at(Cohort(*print_), donor))
+        pair = by_number[number]
+        if (ruled.advice, ruled.rule) == (pair.advice, pair.rule):
+            words[number] = ruled.words
+    return words
+
+
+async def _examples(session: AsyncSession, rows: Sequence[Said]) -> list[Example]:
+    """Примеры полосы со словами судьи; слов по фактам нет — слова правила (`rule_words`)."""
+    shown = _by_lot(rows)[:EXAMPLES]
+    words = await _said_words(session, shown)
     return [
         Example(
             one.donor_host,
