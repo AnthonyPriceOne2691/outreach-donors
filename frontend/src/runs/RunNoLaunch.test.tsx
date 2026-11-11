@@ -39,6 +39,9 @@ describe('«Прогон» без права запуска', () => {
     await waitFor(() => expect(country).toHaveValue(countryTitle('us')));
     expect(screen.getByText('Запускать прогоны не разрешено')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Запустить' })).toBeDisabled();
+    // Смету сервер закрывает тем же правом: кнопка закрыта, плашка не обещает обратного.
+    expect(screen.getByRole('button', { name: 'Посчитать смету' })).toBeDisabled();
+    expect(screen.getByText(/Смета и запуск выданы отдельным правом/)).toBeInTheDocument();
     // Ключи, дававшие доноров, читаются правом запуска: их экран этой учётки не спрашивает —
     // запрос на незаписанный адрес уронил бы тест сам (`test/server.ts`).
     expect(recorded.calls.map((call) => call.path).sort()).toEqual([
