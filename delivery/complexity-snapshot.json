@@ -322,9 +322,9 @@
       "worst": "summary:34"
     },
     "backend/api/overview/schemas.py": {
-      "lines": 153,
-      "complexity": 3,
-      "worst": "of:115"
+      "lines": 167,
+      "complexity": 4,
+      "worst": "of:122"
     },
     "backend/api/rechecks/__init__.py": {
       "lines": 1,
@@ -2332,9 +2332,9 @@
       "worst": "_of_stage:139"
     },
     "backend/features/ops/overview.py": {
-      "lines": 427,
-      "complexity": 5,
-      "worst": "overview:225"
+      "lines": 459,
+      "complexity": 6,
+      "worst": "overview:256"
     },
     "backend/features/ops/silence.py": {
       "lines": 385,

@@ -46,8 +46,9 @@ from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.crawl import niche
 from backend.features.letters.chain import ANSWER_STEP
 from backend.features.letters.recipients import Recipients
-from backend.features.ops.overview import overview, work
+from backend.features.ops.overview import Wall, overview, work
 from backend.features.outreach.repository import EVERY_STAGE
+from backend.features.runs.ahrefs_cap import set_ahrefs_cap
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
 from fastapi import FastAPI
@@ -55,6 +56,7 @@ from httpx import AsyncClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer, make_donor
+from tests.test_ahrefs_cap import known_key
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -510,6 +512,111 @@ class TestLettersAndSpending:
         assert view.donors.total == 0
         assert view.last_run is None
         assert view.waiting.review_runs == []
+
+
+class TestAhrefsWall:
+    """Сколько осталось — там, где кончится раньше, и числами этого счётчика (проверка прода
+    10.11.2026). «Потрачено нами N из капа» на главной читалось остатком «кап минус N», а на
+    «Расходе» осталось меньше: ключ общий с соседней системой, её траты видны только в счётчике
+    ключа. Числа выдуманные: лимиты настоящего ключа в публичный репозиторий не идут."""
+
+    #: Потрачено нами в цикле — по своему журналу.
+    OURS = 12_000
+
+    async def _spend(self, session: AsyncSession, units: int = OURS) -> None:
+        usage.record(session, operation="batch_metrics", units=units, stage=Stage.DONORS)
+        await session.flush()
+
+    async def test_shared_key_is_the_wall_and_its_own_counter_says_how_much_is_left(
+        self, session: AsyncSession
+    ) -> None:
+        """На ключе выбрано больше нашего — соседняя система: осталось по счётчику ключа, а не
+        «кап минус наше» (38 000), и из лимита ключа."""
+        await known_key(session, 50_000, key_used=30_000)
+        await self._spend(session)
+
+        view = await overview(session, stages=EVERY_STAGE)
+
+        assert (view.ahrefs_units, view.ahrefs_cap) == (self.OURS, 50_000)
+        assert view.ahrefs_wall == Wall(binding="key", left=20_000, limit=50_000)
+
+    async def test_our_cap_is_the_wall_when_it_ends_first(
+        self, session: AsyncSession, make_user: MakeUser
+    ) -> None:
+        await known_key(session, 50_000, key_used=13_000)
+        await self._spend(session)
+        await set_ahrefs_cap(session, 15_000, author=await make_user("админ@site.com"))
+
+        view = await overview(session, stages=EVERY_STAGE)
+
+        assert view.ahrefs_wall == Wall(binding="cap", left=3_000, limit=15_000)
+
+    async def test_key_ends_before_a_lower_cap_and_is_named_with_its_own_limit(
+        self, session: AsyncSession, make_user: MakeUser
+    ) -> None:
+        """Кап задан ниже ключа, а ключ выбрала соседняя система: упор — ключ, и «из скольких» —
+        его лимит, а не наш кап: «на ключе осталось 4 000 из 20 000» было бы неправдой о ключе."""
+        await known_key(session, 50_000, key_used=46_000)
+        await self._spend(session, 5_000)
+        await set_ahrefs_cap(session, 20_000, author=await make_user("админ@site.com"))
+
+        view = await overview(session, stages=EVERY_STAGE)
+
+        assert view.ahrefs_cap == 20_000
+        assert view.ahrefs_wall == Wall(binding="key", left=4_000, limit=50_000)
+
+    async def test_workspace_is_the_wall_of_a_key_without_its_own_limit(
+        self, session: AsyncSession
+    ) -> None:
+        await known_key(session, None, workspace_limit=500_000, workspace_used=480_000)
+        await self._spend(session)
+
+        view = await overview(session, stages=EVERY_STAGE)
+
+        assert view.ahrefs_wall == Wall(binding="workspace", left=20_000, limit=500_000)
+
+    async def test_unknown_key_has_no_wall(self, session: AsyncSession) -> None:
+        """Ahrefs ещё не ответил — кап неизвестен, и упираться не во что: не ноль, а пусто."""
+        await self._spend(session)
+
+        view = await overview(session, stages=EVERY_STAGE)
+
+        assert (view.ahrefs_cap, view.ahrefs_wall) == (None, None)
+
+    async def test_without_stage_one_there_is_no_wall(self, session: AsyncSession) -> None:
+        await known_key(session, 50_000, key_used=30_000)
+
+        view = await overview(session, stages=frozenset({Stage.ADVERTISERS}))
+
+        assert (view.ahrefs_cap, view.ahrefs_wall) == (None, None)
+
+    async def test_the_answer_names_the_wall_with_its_numbers(
+        self, client: AsyncClient, session: AsyncSession, operator_token: str
+    ) -> None:
+        await known_key(session, 50_000, key_used=30_000)
+        await self._spend(session)
+        await session.commit()
+
+        body = (await client.get("/api/overview", headers=bearer(operator_token))).json()
+
+        assert body["ahrefs_units"] == self.OURS
+        assert (body["ahrefs_binding"], body["ahrefs_left"], body["ahrefs_left_of"]) == (
+            "key",
+            20_000,
+            50_000,
+        )
+
+    async def test_the_answer_without_a_key_has_empty_wall_fields(
+        self, client: AsyncClient, operator_token: str
+    ) -> None:
+        """Поля приходят всегда: пусто — «кап неизвестен», а не ключ, которого экран не ждал."""
+        body = (await client.get("/api/overview", headers=bearer(operator_token))).json()
+
+        assert (body["ahrefs_binding"], body["ahrefs_left"], body["ahrefs_left_of"]) == (
+            None,
+            None,
+            None,
+        )
 
 
 @pytest.fixture
