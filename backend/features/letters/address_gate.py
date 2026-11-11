@@ -121,6 +121,12 @@ async def queued_refusal(session: AsyncSession, checker: Checker, letter_id: int
     if done.kind is Kind.GONE:
         await stop_for_good(session, letter, attempts.ADDRESS_GONE)
         return GONE_NOTE
+    # Сервис отказал (сеть, 5xx, непонятный ответ) — остальные письма этой пачки уже не
+    # спрашиваем: проход автоотправки идёт каждую минуту, и сбой сервиса иначе получал бы запрос
+    # на каждое письмо очереди. «Ещё проверяет» — про один адрес (`Checked.lone`): его письмо
+    # ждёт, следующее спрашивается — иначе вечно проверяемый адрес держал бы за собой очередь.
+    if not done.lone:
+        checker.stopped = checker.stopped or done.said
     return f"{UNCHECKED} — {done.said}"
 
 
