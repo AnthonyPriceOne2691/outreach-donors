@@ -18,6 +18,9 @@
  * **В окне одна прокрутка** (`oneScroll` в glass.css): пояснение, переключатель полосы и кнопки
  * стоят, прокручиваются план, итог и партии. Длинные списки — правила, примеры, партии — свёрнуты с
  * числом.
+ *
+ * **«Каждую ночь» — под планом той же полосы** (`JudgeNightSwitch`, слово владельца 11.11.2026):
+ * включить автоприменение можно, только увидев план, — кнопка заперта, пока он не посчитан.
  */
 
 import {
@@ -41,6 +44,7 @@ import { refusalOf } from '../api/client';
 import { ACTIONS_GAP } from '../components/formRhythm';
 import { formatNumber, plural } from '../format';
 import { JudgeBatches } from './JudgeBatches';
+import { JudgeNightSwitch } from './JudgeNight';
 import { BAND_WORDS, counted } from './judgeApplyWords';
 import { useJudgeApplyRun } from './useJudgeApplyRun';
 import type { ApplyRun } from './useJudgeApplyRun';
@@ -391,6 +395,7 @@ export function JudgeApplyModal({
           <Stack gap="md" p={3}>
             <PlanState plan={plan} error={found.error} />
             <Outcome run={run} band={band} />
+            <JudgeNightSwitch band={band} ready={plan !== undefined && !running} />
             <JudgeBatches busy={running} />
           </Stack>
         </div>

@@ -53,6 +53,13 @@
 каталог, если в когорте фактов у него рассужено достаточно пар и большая их доля — карточки каталога
 (`is_catalog`). Знает это только база: признак считают по сохранённым судам донора
 (`judge_store.catalog_donors`) и передают в `advise`; без него совет — как у обычного издания.
+
+**Второй круг — последним шагом** (11.11.2026, `judge_second.py`). «Не понять» первого круга
+перепроверяет вторая, более сильная модель: тот же текст, та же подсказка, эта же таблица. Её исход
+лежит в фактах строки первой модели (`judge_facts.SECOND_KEYS`) как сказан, а принят ли он, решает
+этот шаг при каждом пересчёте (`SECOND_CAUTIOUS`): принят — совет её (`SECOND_RULE`); не принят или
+она тоже не решила — «не понять» остаётся человеку, и в словах видно, что второй круг был и что
+сказал. Первый круг решил сам — исход второго не нужен.
 """
 
 from __future__ import annotations
@@ -270,6 +277,22 @@ CATALOG_WORDS = "донор-каталог, его карточки не рек�
 #: Только с ними у донора-каталога остаётся «пишем»: реклама названа самой страницей, а не прочитана
 #: из карточки. Пометки `sponsored` ссылки здесь нет: каталог ставит её всем исходящим (шапка).
 EXPLICIT_AD = frozenset({"paid_or_ad", "press_release"})
+#: Правило совета, который поставил второй круг: ключ строки суда, в таблице его нет.
+SECOND_RULE = "second_round"
+#: Осторожный режим второго круга (замер на стенде 11.11.2026, шапка `judge_second.py`): его исход
+#: становится советом пары, только когда это «пишем» и у ссылки нет пометки `sponsored`. Его «не
+#: пишем» на спорных парах теряло рекламодателей от прогона к прогону то в каждом седьмом случае, то
+#: в каждом втором; его «пишем» по ссылке с пометкой оказалось лишним во всех четырёх случаях:
+#: пометку донор ставит и всем внешним ссылкам разом. На размеченных парах стенда в этом режиме
+#: решено 26 из 63, верных 24 — на тех же парах, на новых не проверено. Выключить режим — значит
+#: принимать любой решённый исход второго круга; исход в фактах строки хранится как есть, и смена
+#: режима — пересчёт без модели (`judge_store.relabel`).
+SECOND_CAUTIOUS = True
+#: Почему исход второго круга не принят — словами человеку.
+SECOND_SKIP_DECLINED = "«не пишем» второго круга на спорных парах теряет рекламодателей"
+SECOND_SPONSORED_DECLINED = (
+    "у ссылки пометка sponsored, а донор мог поставить её всем внешним ссылкам"
+)
 
 #: Факт «ссылка — карточка каталога» (`LinkFacts.directory_entry`): по его доле в судах донора видно,
 #: что донор — каталог.
@@ -341,11 +364,43 @@ def _at_catalog(ruled: Ruled, verdict: str) -> Ruled:
     return Ruled(Advice.SKIP, CATALOG_RULE, _catalog_words(ruled, verdict))
 
 
+def _declined(again: Advice, facts: LinkFacts) -> str:
+    """Почему решённый исход второго круга не становится советом — словами; пусто — принят
+    (`SECOND_CAUTIOUS`)."""
+    if not SECOND_CAUTIOUS:
+        return ""
+    if again is Advice.SKIP:
+        return SECOND_SKIP_DECLINED
+    return SECOND_SPONSORED_DECLINED if facts.sponsored else ""
+
+
+def _second(ruled: Ruled, facts: LinkFacts) -> Ruled:
+    """Последний шаг совета — исход второго круга (шапка модуля): первый круг не решил, а вторая
+    модель эту пару судила. Её исход принят — совет её, словами обоих кругов. Она тоже не решила
+    или исход не принят (`_declined`) — «не понять», и видно, что второй круг был и что сказал."""
+    if ruled.advice is not Advice.UNCLEAR or facts.second_advice not in tuple(Advice):
+        return ruled
+    again = Advice(facts.second_advice)
+    said = f"второй круг (модель {facts.second_model}): {ADVICE_WORDS[again]}"
+    if again is Advice.UNCLEAR:
+        return Ruled(Advice.UNCLEAR, ruled.rule, f"{ruled.words}; {said} — {facts.second_words}")
+    declined = _declined(again, facts)
+    if declined:
+        return Ruled(Advice.UNCLEAR, ruled.rule, f"{ruled.words}; {said} — не принято: {declined}")
+    return Ruled(again, SECOND_RULE, f"{said} — {facts.second_words}; первый круг: {ruled.words}")
+
+
 def advise(
     facts: LinkFacts, rules: tuple[Rule, ...] = RULES, *, catalog_donor: bool = False
 ) -> Ruled:
-    """Совет таблицы, сверенный с общим ответом модели (шапка модуля). `catalog_donor` — донор пары —
-    каталог по своим же судам (`is_catalog`); без признака совет — как у обычного издания."""
+    """Совет по фактам строки суда: первый круг (`_first`) и последним шагом — исход второго круга,
+    если он у строки есть (`_second`). `catalog_donor` — донор пары — каталог по своим же судам
+    (`is_catalog`); без признака совет — как у обычного издания."""
+    return _second(_first(facts, rules, catalog_donor=catalog_donor), facts)
+
+
+def _first(facts: LinkFacts, rules: tuple[Rule, ...], *, catalog_donor: bool) -> Ruled:
+    """Совет первого круга: таблица, сверенная с общим ответом модели (шапка модуля)."""
     ruled = _by_table(facts, rules)
     if catalog_donor:
         return _at_catalog(ruled, facts.verdict)

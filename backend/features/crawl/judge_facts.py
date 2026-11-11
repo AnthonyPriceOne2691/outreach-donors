@@ -24,7 +24,10 @@
 внутри «Address»: короткое раскрытие ищется целыми словами.
 
 **Признаки кода** (`sponsored` — пометка ссылки, `same_owner` — имя донора на главной домена) модель
-не спрашивают: их ставит проход (`with_code_facts`).
+не спрашивают: их ставит проход (`with_code_facts`). **Исход второго круга** (`SECOND_KEYS`,
+11.11.2026) — тоже поля кода, текстом: что решила вторая модель по той же паре, слова её правила и
+кто она (`judge_second.py`). Модель их не видит и не возвращает; в строке суда они есть, только
+когда второй круг был: строка без него — прежней формы и читается как раньше.
 
 **Общий ответ модели — последним вопросом того же вызова** (`verdict`, стенд 05.11.2026): стоит ли
 писать этому домену — «write», «skip» или «unclear». Сам совета он не ставит: код сверяет его с
@@ -91,6 +94,9 @@ KEYS = (
 )
 #: Признаки кода — в строке суда рядом с фактами модели, у модели их не спрашивают.
 CODE_FLAGS = ("sponsored", "same_owner")
+#: Исход второго круга — поля кода текстом (шапка модуля): совет второй модели, слова его правила и
+#: сама модель. Пусты — второго круга у строки не было.
+SECOND_KEYS = ("second_advice", "second_words", "second_model")
 #: Короче — раскрытие ищется целыми словами: вхождение строкой нашло бы его внутри другого слова.
 WORDS_FOR_SUBSTRING = 3
 #: Слова «почему» модели — для человека, не для кода: столько знаков, дальше срез.
@@ -150,6 +156,9 @@ class LinkFacts:
     why: str = ""
     sponsored: bool = False
     same_owner: bool = False
+    second_advice: str = ""
+    second_words: str = ""
+    second_model: str = ""
 
     @property
     def link_proven(self) -> bool:
@@ -160,8 +169,12 @@ class LinkFacts:
         return bool(self.target_quote)
 
     def as_json(self) -> dict[str, Any]:
-        """Для строки суда: читается обратно `from_json`."""
-        return dataclasses.asdict(self)
+        """Для строки суда: читается обратно `from_json`. Исход второго круга пишется, только когда
+        он был: строка без него — прежней формы."""
+        body = dataclasses.asdict(self)
+        if any(body[key] for key in SECOND_KEYS):
+            return body
+        return {key: value for key, value in body.items() if key not in SECOND_KEYS}
 
     @classmethod
     def from_json(cls, data: object) -> LinkFacts | None:
@@ -171,12 +184,17 @@ class LinkFacts:
             logger.warning("судья рекламодателей: факты строки суда не той формы")
             return None
         # Строка суда до общего ответа модели — без него: совет по ней ставит одна таблица.
-        said = {"verdict": ""} | {k: v for k, v in data.items() if k not in CODE_FLAGS}
+        ours = (*CODE_FLAGS, *SECOND_KEYS)
+        said = {"verdict": ""} | {k: v for k, v in data.items() if k not in ours}
         if _broken(said) is not None:
             logger.warning("судья рекламодателей: факты строки суда не той формы")
             return None
         code: dict[str, Any] = {key: bool(data.get(key)) for key in CODE_FLAGS}
-        return cls(**{key: said[key] for key in KEYS}, **code)
+        # Строка без второго круга — без его полей; не строка (правили руками) — как без него.
+        again: dict[str, Any] = {
+            key: found for key in SECOND_KEYS if isinstance(found := data.get(key), str)
+        }
+        return cls(**{key: said[key] for key in KEYS}, **code, **again)
 
 
 def with_code_facts(

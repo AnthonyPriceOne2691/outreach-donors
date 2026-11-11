@@ -5,6 +5,8 @@ from backend.features.core.models.advertiser import (
     AdvertiserJudgementModel,
     CandidateMemoryModel,
     CandidateModel,
+    JudgeBandModel,
+    JudgeNightModel,
 )
 from backend.features.core.models.advertisers import AdvertiserModel, SupplierDonorModel
 from backend.features.core.models.agent import AgentDraftModel, AgentSettingsModel
@@ -87,6 +89,8 @@ __all__ = [
     "FormLetterModel",
     "HunterAccountSnapshotModel",
     "HunterCapModel",
+    "JudgeBandModel",
+    "JudgeNightModel",
     "LlmCapModel",
     "MessageModel",
     "OutLinkModel",

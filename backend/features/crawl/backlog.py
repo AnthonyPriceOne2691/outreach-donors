@@ -219,6 +219,11 @@ async def feed(
     stop = await units_stop(session)
     why = None if stop is None else stop.why
     await night.tick(session, workers=workers, per_minute=PER_PASS, add=add, now=now, stop=why)
+    # Ночной шаг судьи живёт в том же проходе (`judge_night.py`): после круга обходов. Лениво: он
+    # тянет конфиг модели, и опечатка в нём не должна ронять загрузку выдачи обходов.
+    from backend.features.crawl import judge_night  # noqa: PLC0415 — лениво, см. выше
+
+    await judge_night.tick(session, now=now)
     fed = Fed()
     running, queued = await _counts(session)
     free = min(workers - running, PER_PASS)

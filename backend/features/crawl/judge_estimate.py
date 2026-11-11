@@ -5,6 +5,10 @@
 повтор продолжает с места, а новый запуск спрашивает только новых. Слова считает сервер, экран их
 только называет, как у сметы пересуда продаж.
 
+**Второй круг — своей строкой** (`judge_second.py`): задана вторая модель — смета называет, сколько
+пар «не понять» уйдёт ей и во что это обойдётся; цена случая у кругов разная, поэтому токены тогда —
+по кругам и итогом.
+
 **Что не даст разбору дойти до конца — до нажатия.** Потолок уже выбран — отказ словами, вместо
 кнопки. Хватит только на часть — сказано, на сколько: разбор встанет на потолке, и его продолжит
 следующий запуск.
@@ -69,8 +73,21 @@ def _room_line(plan: JudgePlan, left: int, cap: int) -> str:
     line = f"Потолок судьи на сегодня: осталось {spaced(left)} из {spaced(cap)} токенов"
     if plan.tokens <= left:
         return line
-    enough = spaced(left // plan.per_case)
+    # По средней цене случая плана: со вторым кругом она не `per_case` первой модели.
+    enough = spaced(left * len(plan.ids) // plan.tokens)
     return f"{line}: хватит примерно на {enough}, остальных разберёт следующий запуск"
+
+
+def _token_lines(plan: JudgePlan) -> list[str]:
+    """Токены сметы; со вторым кругом — по кругам и итогом."""
+    source = "" if plan.from_history else " (запасное число, истории ещё нет)"
+    per_case = f"по {spaced(plan.per_case)} на случай{source}"
+    again = plan.second
+    if again is None or not again.pairs:
+        return [f"Токенов: до {spaced(plan.tokens)}, {per_case}"]
+    first = plan.tokens - again.tokens
+    lines = [f"Первый круг: до {spaced(first)} токенов, {per_case}"] if first else []
+    return [*lines, again.line(), f"Всего токенов: до {spaced(plan.tokens)}"]
 
 
 def _lines(plan: JudgePlan, room: tuple[int, int] | None) -> list[str]:
@@ -80,10 +97,7 @@ def _lines(plan: JudgePlan, room: tuple[int, int] | None) -> list[str]:
     if plan.without_page:
         lines.append(f"Без страницы со ссылкой, разбирать нечего: {spaced(plan.without_page)}")
     if plan.ids:
-        source = "" if plan.from_history else " (запасное число, истории ещё нет)"
-        lines.append(
-            f"Токенов: до {spaced(plan.tokens)}, по {spaced(plan.per_case)} на случай{source}"
-        )
+        lines += _token_lines(plan)
     if room is not None:
         lines.append(_room_line(plan, *room))
     return lines

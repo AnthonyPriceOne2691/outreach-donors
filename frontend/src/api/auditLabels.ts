@@ -62,6 +62,8 @@ export const AUDIT_ACTIONS: Record<AuditAction, string> = {
   advertiser_judge_applied: 'Советы судьи применены',
   // Партия советов судьи откатана: сколько пар вернулось в очередь проверки — в подробностях.
   advertiser_judge_reverted: 'Партия советов судьи откатана',
+  // Полоса автоприменения включена или выключена: судья решает её сам каждую ночь — или перестал.
+  advertiser_judge_bands_changed: 'Автоприменение советов судьи изменено',
 };
 
 /** Действия этапа продаж: без права «Продажи» их нет ни в журнале, ни в фильтре (П2). */
@@ -77,6 +79,7 @@ export const ADVERTISER_ACTIONS: ReadonlySet<string> = new Set<AuditAction>([
   'crawl_backlog_dropped',
   'advertiser_judge_applied',
   'advertiser_judge_reverted',
+  'advertiser_judge_bands_changed',
 ]);
 
 /** Подпись действия в фильтре: у общих «Правки» и «Запуска» — что под ними бывает. */
@@ -154,6 +157,8 @@ const WHOLE_TARGETS: Record<string, string> = {
   sales_stoplist: 'стоп-лист продаж',
   'advertisers:promote': 'перевод в рекламодатели',
   'advertisers:judge-pass': 'спорные рекламодатели',
+  // Полосы, которые судья решает сам каждую ночь (`crawl/judge_bands.py`).
+  'advertisers:judge-night': 'ночное автоприменение советов судьи',
   crawl_backlog: 'очередь загрузки обхода',
 };
 

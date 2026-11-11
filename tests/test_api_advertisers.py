@@ -45,6 +45,8 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("POST", "/api/advertisers/contacts", {"limit": 10}, "run"),
     ("GET", "/api/advertisers/judge-pass", None, "view"),
     ("POST", "/api/advertisers/judge-pass", {"cases": 1}, "run"),
+    ("GET", "/api/advertisers/judge-night", None, "view"),
+    ("POST", "/api/advertisers/judge-night/bands", {"band": "skip", "enabled": False}, "run"),
     ("GET", "/api/advertisers/list", None, "view"),
     ("GET", "/api/advertisers/list/export", None, "view"),
     ("GET", "/api/advertisers/list/facets", None, "view"),
