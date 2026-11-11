@@ -97,10 +97,25 @@ class PanelView(BaseModel):
     advertisers: PanelAdvertisers
 
 
+class QualityNightView(BaseModel):
+    """Что есть только у ночной строки: сколько ночей за ней, идёт ли круг и что нового."""
+
+    #: Ночей с обходами круга — вместе с последней: прошлых на одну меньше.
+    nights: int
+    running: bool
+    #: Новых рекламодателей у обходов ночи; пусто — посчитать не по чему.
+    fresh: int | None
+
+    @classmethod
+    def of(cls, facts: load_quality.NightFacts) -> QualityNightView:
+        return cls(nights=facts.nights, running=facts.running, fresh=facts.fresh)
+
+
 class QualityRowView(BaseModel):
     """Строка качества загрузок; пустые `selling_links` и `share` — у обходов этих чисел ещё нет."""
 
     at: datetime
+    #: `bulk`, `manual`, `crawl` — обходы человека без загрузки за день, `night` — ночной обход.
     kind: str
     load_id: int | None
     day: date | None
@@ -112,6 +127,8 @@ class QualityRowView(BaseModel):
     selling_links: int | None
     selling_pages: int
     share: float | None
+    #: Только у ночной строки страницы качества; у прошлых ночей пусто.
+    night: QualityNightView | None = None
 
     @classmethod
     def of(cls, row: load_quality.QualityRow) -> QualityRowView:
@@ -128,6 +145,7 @@ class QualityRowView(BaseModel):
             selling_links=row.selling_links,
             selling_pages=row.selling_pages,
             share=row.share,
+            night=None if row.night is None else QualityNightView.of(row.night),
         )
 
 
@@ -136,6 +154,15 @@ class QualityView(BaseModel):
     total: int
     page: int
     limit: int
+
+    @classmethod
+    def of(cls, found: load_quality.QualityPage, *, page: int, limit: int) -> QualityView:
+        return cls(
+            rows=[QualityRowView.of(row) for row in found.rows],
+            total=found.total,
+            page=page,
+            limit=limit,
+        )
 
 
 class QualityHostRow(BaseModel):

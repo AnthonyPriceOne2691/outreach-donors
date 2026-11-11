@@ -42,14 +42,14 @@
       "worst": "_job_state:142"
     },
     "backend/api/advertisers/panel.py": {
-      "lines": 124,
+      "lines": 130,
       "complexity": 6,
-      "worst": "read_panel:46"
+      "worst": "read_panel:45"
     },
     "backend/api/advertisers/panel_schemas.py": {
-      "lines": 174,
+      "lines": 201,
       "complexity": 2,
-      "worst": "of:149"
+      "worst": "of:134"
     },
     "backend/api/advertisers/report_schemas.py": {
       "lines": 254,
@@ -957,9 +957,9 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 366,
+      "lines": 377,
       "complexity": 9,
-      "worst": "_weekdays:152"
+      "worst": "_weekdays:163"
     },
     "backend/config/sales.py": {
       "lines": 500,
@@ -1627,9 +1627,9 @@
       "worst": "collect_links:236"
     },
     "backend/features/crawl/load_quality.py": {
-      "lines": 260,
-      "complexity": 14,
-      "worst": "_row:156"
+      "lines": 380,
+      "complexity": 13,
+      "worst": "_row:240"
     },
     "backend/features/crawl/loads.py": {
       "lines": 72,
@@ -1650,6 +1650,11 @@
       "lines": 497,
       "complexity": 7,
       "worst": "order:189"
+    },
+    "backend/features/crawl/night_fresh.py": {
+      "lines": 121,
+      "complexity": 3,
+      "worst": "fresh:104"
     },
     "backend/features/crawl/offer_state.py": {
       "lines": 187,
@@ -1677,7 +1682,7 @@
       "worst": "_subject:69"
     },
     "backend/features/crawl/panel.py": {
-      "lines": 268,
+      "lines": 269,
       "complexity": 7,
       "worst": "window_of:132"
     },
@@ -2097,19 +2102,19 @@
       "worst": "_addressed:251"
     },
     "backend/features/letters/followups.py": {
-      "lines": 493,
+      "lines": 494,
       "complexity": 7,
-      "worst": "_deliver:418"
+      "worst": "_deliver:415"
     },
     "backend/features/letters/forecast.py": {
-      "lines": 308,
+      "lines": 321,
       "complexity": 8,
-      "worst": "forecast:111"
+      "worst": "forecast:119"
     },
     "backend/features/letters/forecast_plan.py": {
-      "lines": 328,
+      "lines": 371,
       "complexity": 7,
-      "worst": "_why:231"
+      "worst": "_why:274"
     },
     "backend/features/letters/form_letter.py": {
       "lines": 209,
@@ -2192,9 +2197,9 @@
       "worst": "same_price:76"
     },
     "backend/features/letters/recheck_facts.py": {
-      "lines": 393,
+      "lines": 394,
       "complexity": 10,
-      "worst": "_talks:218"
+      "worst": "_talks:219"
     },
     "backend/features/letters/recheck_rules.py": {
       "lines": 157,
@@ -2372,9 +2377,9 @@
       "worst": "_now:42"
     },
     "backend/features/ops/limit_mail.py": {
-      "lines": 270,
+      "lines": 285,
       "complexity": 10,
-      "worst": "_domains_words:151"
+      "worst": "_domains_words:154"
     },
     "backend/features/ops/limit_model.py": {
       "lines": 314,
@@ -2421,6 +2426,11 @@
       "complexity": 7,
       "worst": "span_of:266"
     },
+    "backend/features/outreach/followup_caps.py": {
+      "lines": 112,
+      "complexity": 2,
+      "worst": "this_hour_of:53"
+    },
     "backend/features/outreach/health.py": {
       "lines": 296,
       "complexity": 9,
@@ -2437,9 +2447,9 @@
       "worst": "inbox_trace:244"
     },
     "backend/features/outreach/repository.py": {
-      "lines": 496,
+      "lines": 482,
       "complexity": 4,
-      "worst": "sent_today:237"
+      "worst": "sent_today:228"
     },
     "backend/features/outreach/senders.py": {
       "lines": 224,
@@ -4137,9 +4147,9 @@
       "worst": "open_text:29"
     },
     "scripts/ui_screens_stage2.py": {
-      "lines": 169,
-      "complexity": 1,
-      "worst": "stage2_screens:31"
+      "lines": 189,
+      "complexity": 2,
+      "worst": "open_nights:33"
     }
   }
 }

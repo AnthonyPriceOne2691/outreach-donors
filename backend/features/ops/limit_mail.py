@@ -32,7 +32,7 @@ from backend.features.core.models.outreach import MessageModel, SenderModel, Sen
 from backend.features.core.window import SendWindow
 from backend.features.letters import autosend_window
 from backend.features.ops.limit_fields import BLANK, OUTREACH, SALES
-from backend.features.outreach import capacity, limits
+from backend.features.outreach import capacity, followup_caps, limits
 from backend.features.outreach import senders as rules
 from backend.features.outreach.repository import DAILY_STEPS, OutreachRepository
 from backend.features.runs.spending import month_start
@@ -119,6 +119,8 @@ class _Facts:
     sent: Mapping[int, int]
     #: Первых писем с первого числа по этапам ящика.
     month: Mapping[Stage, int]
+    #: Добивок цепочки ушло сегодня с ящика (`followup_caps.today_by_box`).
+    chained: Mapping[int, int]
 
 
 async def _month_letters(session: AsyncSession, since: datetime) -> dict[Stage, int]:
@@ -140,6 +142,7 @@ async def _facts(session: AsyncSession, moment: datetime) -> _Facts:
         await limits.sending_domains(session),
         await OutreachRepository(session).sent_today(now=moment, first_only=True),
         await _month_letters(session, month_start(moment)),
+        await followup_caps.today_by_box(session, moment),
     )
 
 
@@ -239,8 +242,9 @@ def _box_row(lane: _Lane, own: Sequence[SenderModel], facts: _Facts) -> LimitRow
     )
 
 
-def _followup_row(lane: _Lane) -> LimitRow:
-    """Добивки с одного ящика: свой часовой потолок, дневной кап их не считает."""
+def _followup_row(lane: _Lane, own: Sequence[SenderModel], facts: _Facts) -> LimitRow:
+    """Добивки с одного ящика: свои потолки, часовой и суточный, — дневной лимит первых писем их
+    не считает. Выбрано — у самого занятого ящика, как в строке ящика: потолок у каждого свой."""
     return replace(
         BLANK,
         key=f"{lane.prefix}.followup",
@@ -251,16 +255,27 @@ def _followup_row(lane: _Lane) -> LimitRow:
         unit=UNIT,
         per_session=cfg.FOLLOWUP_PER_SENDER_PER_HOUR,
         session_hours=1,
+        per_day=cfg.FOLLOWUP_PER_SENDER_PER_DAY,
+        used_day=max((facts.chained.get(box.id, 0) for box in own), default=0),
         cost_note=COST_NOTE,
-        now=_joined("Дневной лимит их не считает: у добивок свой час", NEVER),
-        source=".env OUTREACH_FOLLOWUP_PER_SENDER_PER_HOUR",
+        now=_joined(
+            "В лимит первых писем не входят: свой час и свои сутки",
+            "Сверх суточного потолка добивка ждёт завтра",
+            "Выбрано — самый занятый ящик",
+            NEVER,
+        ),
+        source=".env OUTREACH_FOLLOWUP_PER_SENDER_PER_HOUR, OUTREACH_FOLLOWUP_PER_SENDER_PER_DAY",
     )
 
 
 async def _lane_rows(session: AsyncSession, lane: _Lane, facts: _Facts) -> list[LimitRow]:
     own = [box for box in facts.boxes if box.stage is lane.stage]
     found = await capacity.capacity(session, lane.stage, [facts.moment.date()])
-    return [_first_row(lane, own, found, facts), _box_row(lane, own, facts), _followup_row(lane)]
+    return [
+        _first_row(lane, own, found, facts),
+        _box_row(lane, own, facts),
+        _followup_row(lane, own, facts),
+    ]
 
 
 async def rows(session: AsyncSession) -> list[LimitRow]:

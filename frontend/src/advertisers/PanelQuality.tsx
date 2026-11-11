@@ -2,10 +2,12 @@
  * «Качество загрузок»: что дала каждая загрузка — дата, способ, итог скана, продающие ссылки и их
  * доля (тест-группа 31.10.2026).
  *
- * Строка — партия файлом или донор вручную; обходы без записи о загрузке — строкой на день: их
- * ставят кнопкой, и прежние загрузки партиями не записаны. Страница считается на сервере и живёт
- * в адресе (`?quality_page=2`), не задевая выборку окна сверху. Все домены строки — окном по кнопке:
- * у партии их бывает десять тысяч, и раскрывать их в таблице значило бы терять саму таблицу.
+ * Строка — партия файлом или донор вручную; обходы кнопкой у доноров без записи о загрузке —
+ * строкой на день: прежние загрузки партиями не записаны. Ночной обход — одной строкой, прошлые
+ * ночи — её раскрытием (`QualityNight`, 11.11.2026): те же доноры каждую ночь читались строкой на
+ * день как отдельные загрузки. Страница считается на сервере и живёт в адресе (`?quality_page=2`),
+ * не задевая выборку окна сверху. Все домены строки — окном по кнопке: у партии их бывает десять
+ * тысяч, и раскрывать их в таблице значило бы терять саму таблицу.
  *
  * **Способ один у всех строк — строкой над таблицей, колонки нет** (разведка 10.11.2026: самая широкая
  * колонка во всех строках говорила «обход без загрузки»). Один домен строки, который виден в способе
@@ -13,7 +15,18 @@
  * экран не знает, и над таблицей тогда сказано «строк страницы».
  */
 
-import { Alert, Button, Card, Modal, Skeleton, Stack, Table, Text } from '@mantine/core';
+import {
+  Alert,
+  Card,
+  Group,
+  Modal,
+  ScrollArea,
+  Skeleton,
+  Stack,
+  Table,
+  Text,
+  Title,
+} from '@mantine/core';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -22,23 +35,28 @@ import type { QualityRow, QualityView } from '../api/advertiserPanel';
 import { refusalOf } from '../api/client';
 import type { Column } from '../components/ColumnsHead';
 import { DataTable } from '../components/DataTable';
-import { HintLines } from '../components/HintLines';
 import { InfoHint } from '../components/InfoHint';
-import { PageHead } from '../components/PageHead';
 import { PageSwitch, usePageParam } from '../components/PageSwitch';
 import { Seams } from '../components/Seams';
-import { formatDate, formatNumber, formatPercent } from '../format';
+import { formatNumber } from '../format';
 import { CrawlState } from './CrawlTable';
-
-export const QUALITY_KEY = ['advertisers', 'panel', 'quality'] as const;
+import { NightRows } from './QualityNight';
+import {
+  NumberCells,
+  QUALITY_KEY,
+  WHOLE_LINE,
+  dateWords,
+  kindWords,
+  methodWords,
+} from './qualityRows';
 
 const ABOUT_LINES = [
-  'Строка — загрузка: партия файлом или донор, заведённый вручную. Обходы без записи о загрузке — обход кнопкой и загрузки раньше этого экрана — строкой на день, по Москве.',
-  'Страниц — просканировано последним пригодным обходом каждого донора с минуты загрузки: повтор заменяет итог, а не прибавляется.',
-  'Продающая ссылка — ссылка на домен с вердиктом скоринга «куплено». Решение человека этих чисел не меняет: это мера обхода, а не очереди. Прочерк — обходы строки посчитаны раньше этих чисел.',
+  'Строка — загрузка: партия файлом или донор, заведённый вручную. Обход кнопкой у донора без записи о загрузке — строкой на день, по Москве.',
+  'Ночной обход — одна строка: в ней итог последней ночи, прошлые ночи раскрывает «ещё N ночей». Ночь проходит всех доноров, и доноров партий тоже.',
+  'Повторный обход — ночной или кнопкой — проходит тех же доноров заново, это не новые загрузки: итог обновляется, кандидаты донора заменяются, решения людей сохраняются. Дублей нет.',
+  'Новый рекламодатель — домен «куплено», которого до этой ночи обходы не находили и среди рекламодателей не было. У прошлых ночей этого числа нет: кандидатов донора заменяет следующая ночь.',
+  'Страниц — по последнему пригодному обходу каждого донора: повтор заменяет итог, а не прибавляется. Продающая ссылка — ссылка на домен с вердиктом скоринга «куплено»; решение человека этих чисел не меняет. Прочерк — обходы строки посчитаны раньше этих чисел.',
 ];
-
-const ABOUT = <HintLines lines={ABOUT_LINES} />;
 
 const SHARE_HINT = (
   <InfoHint name="Что значит «% страниц»" width={320}>
@@ -50,7 +68,8 @@ const SHARE_HINT = (
 
 const METHOD = 'Способ загрузки';
 
-/** Способ — по самому длинному: «обход без загрузки: имя-файла…» режется многоточием. */
+/** Способ — по самому длинному: «файлом: имя-файла…» режется многоточием, у ночной строки под
+ *  способом — что нового и раскрытие ночей, они переносятся. */
 const COLUMNS: Column[] = [
   { title: 'Дата', width: '7rem' },
   { title: METHOD },
@@ -73,28 +92,40 @@ const HOST_COLUMNS: Column[] = [
 ];
 const HOSTS_MIN_WIDTH = 620;
 
-/** Способ загрузки на телефоне — во всю ширину карточки: имя файла длиннее колонки чисел. В таблице
- *  сетки нет, и правило ни на что не влияет. */
-const WHOLE_LINE = { gridColumn: '1 / -1' } as const;
-
 /** Сколько строк-заготовок держит высоту таблицы до первого ответа. */
 const SKELETON_ROWS = 5;
 
-/** Способ без домена строки: домен — её подробность, а не способ. */
-function methodWords(row: QualityRow): string {
-  if (row.kind === 'bulk') return `файлом: ${row.file_name ?? 'без имени'}`;
-  return row.kind === 'manual' ? 'вручную' : 'обход без загрузки';
-}
-
-/** Способ загрузки словами: файл называется по имени, ручной домен виден сразу. */
-function kindWords(row: QualityRow): string {
-  if (row.kind === 'bulk') return methodWords(row);
-  if (row.kind === 'manual') return `вручную: ${row.host ?? 'домен'}`;
-  return row.host === null ? methodWords(row) : `${methodWords(row)}: ${row.host}`;
+/** Заголовок блока с пояснением. Пояснение — окошком по нажатию, а не всплывающей подсказкой
+ *  (правило 10.11.2026: длиннее ~75 знаков — окошком): пять абзацев выше окна телефона, а
+ *  подсказку не прокрутить и не удержать. В окошке — прокрутка не выше полэкрана, ширина — в
+ *  телефон 390 px с полями, как у доли ложных (`FalseShare`). */
+function Head() {
+  return (
+    <Group gap="sm" align="center" wrap="nowrap">
+      <Title order={3}>Качество загрузок</Title>
+      <InfoHint name="Как устроен экран «Качество загрузок»" width={340} interactive>
+        <ScrollArea.Autosize
+          mah="50vh"
+          type="auto"
+          offsetScrollbars
+          viewportProps={{ tabIndex: 0 }}
+        >
+          <Stack gap={6}>
+            {ABOUT_LINES.map((line) => (
+              <Text key={line} size="sm">
+                {line}
+              </Text>
+            ))}
+          </Stack>
+        </ScrollArea.Autosize>
+      </InfoHint>
+    </Group>
+  );
 }
 
 /** Способ, одинаковый у всех строк, — или `null`, когда строки загружены по-разному. У одной
- *  строки «одинаковое у всех» — любая колонка: такой таблице колонка остаётся. */
+ *  строки «одинаковое у всех» — любая колонка: такой таблице колонка остаётся. Ночная строка на
+ *  странице одна, и с ней способы разные: её колонка способа есть всегда. */
 function sharedMethod(rows: QualityRow[]): string | null {
   const [first, ...rest] = rows;
   if (first === undefined || rest.length === 0) return null;
@@ -102,19 +133,9 @@ function sharedMethod(rows: QualityRow[]): string | null {
   return rest.every((row) => methodWords(row) === method) ? method : null;
 }
 
-function shareWords(share: number | null): string {
-  return share === null ? '—' : formatPercent(share);
-}
-
-/** Дата строки: у партии — день загрузки, у обходов без загрузки — их день: он посчитан по Москве,
- *  и браузер в другом поясе не должен его сдвигать. */
-function dateWords(row: QualityRow): string {
-  return row.day === null ? formatDate(row.at) : row.day.split('-').reverse().join('.');
-}
-
 function HostsWindow({ row, onClose }: { row: QualityRow; onClose: () => void }) {
   const [page, setPage] = useState(1);
-  const key = [...QUALITY_KEY, 'hosts', row.load_id, row.day, page];
+  const key = [...QUALITY_KEY, 'hosts', row.kind, row.load_id, row.day, page];
   const { data, error } = useQuery({
     queryKey: key,
     queryFn: () => fetchQualityHosts(row, page),
@@ -180,55 +201,49 @@ interface RowsProps {
   onHosts: (row: QualityRow) => void;
 }
 
-/** «Доменов»: все — окном по кнопке; один — им самим, когда колонки способа нет (иначе он виден в
- *  способе загрузки) и переносится по швам, а не режется; иначе — число. */
-function Domains({ row, shared, onHosts }: { row: QualityRow } & Omit<RowsProps, 'rows'>) {
-  if (row.donors > 1) {
-    return (
-      <Button
-        variant="subtle"
-        size="compact-sm"
-        className="press"
-        aria-label={`Домены строки: ${kindWords(row)}`}
-        onClick={() => onHosts(row)}
-      >
-        {formatNumber(row.donors)} · список
-      </Button>
-    );
-  }
-  if (shared && row.host !== null) {
-    return (
-      <Text size="sm" className="cellName">
-        <Seams text={row.host} />
-      </Text>
-    );
-  }
-  return formatNumber(row.donors);
+/** Способ без имени файла и домена — «обход кнопкой»: на телефоне он встаёт в строку даты, а не
+ *  своей строкой с подписью. С ночной строкой на странице способы разные, колонка способа есть
+ *  у каждой карточки, и без этого карточка дня была бы на треть выше, чем до ночной строки. */
+function shortMethod(row: QualityRow): boolean {
+  return row.kind === 'crawl' && row.host === null;
+}
+
+/** Ячейка способа: длинный — многоточием в одну строку, целиком — в `title`; на телефоне — во всю
+ *  ширину карточки, короткий — рядом с датой. */
+function MethodCell({ row }: { row: QualityRow }) {
+  const words = (
+    <Text size="sm" truncate="end" title={kindWords(row)} className="qualityMethod">
+      {kindWords(row)}
+    </Text>
+  );
+  return shortMethod(row) ? (
+    <Table.Td className="wrapCell">{words}</Table.Td>
+  ) : (
+    <Table.Td data-label="Способ" className="wrapCell" style={WHOLE_LINE}>
+      {words}
+    </Table.Td>
+  );
 }
 
 function Rows({ rows, shared, onHosts }: RowsProps) {
   return (
     <>
-      {rows.map((row) => (
-        <Table.Tr key={row.load_id === null ? `day-${row.day}` : `load-${row.load_id}`}>
-          <Table.Td className="cellName">{dateWords(row)}</Table.Td>
-          {shared ? null : (
-            <Table.Td data-label="Способ" className="wrapCell" style={WHOLE_LINE}>
-              <Text size="sm" truncate="end" title={kindWords(row)} className="qualityMethod">
-                {kindWords(row)}
-              </Text>
-            </Table.Td>
-          )}
-          <Table.Td data-label="Доменов" className="wrapCell">
-            <Domains row={row} shared={shared} onHosts={onHosts} />
-          </Table.Td>
-          <Table.Td data-label="Страниц">{formatNumber(row.pages)}</Table.Td>
-          <Table.Td data-label="Продающих ссылок">
-            {row.selling_links === null ? '—' : formatNumber(row.selling_links)}
-          </Table.Td>
-          <Table.Td data-label="% страниц">{shareWords(row.share)}</Table.Td>
-        </Table.Tr>
-      ))}
+      {rows.map((row) => {
+        // У сервера старше экрана поля `night` нет: его строки — загрузки и дни, как раньше.
+        const night = row.night ?? null;
+        return night === null ? (
+          <Table.Tr
+            key={row.load_id === null ? `day-${row.day}` : `load-${row.load_id}`}
+            data-short={(!shared && shortMethod(row)) || undefined}
+          >
+            <Table.Td className="cellName">{dateWords(row)}</Table.Td>
+            {shared ? null : <MethodCell row={row} />}
+            <NumberCells row={row} lone={shared} onHosts={onHosts} />
+          </Table.Tr>
+        ) : (
+          <NightRows key="night" row={row} night={night} span={COLUMNS.length} onHosts={onHosts} />
+        );
+      })}
     </>
   );
 }
@@ -266,7 +281,9 @@ interface TableProps {
   onHosts: (row: QualityRow) => void;
 }
 
-/** Таблица: до первого ответа — заготовка строк; способ один у всех строк — без его колонки. */
+/** Таблица: до первого ответа — заготовка строк; способ один у всех строк — без его колонки. На
+ *  телефоне числа карточки — двумя равными колонками (`qualityTable`): у трёх колонка не уже своего
+ *  содержимого, и «Страниц» прыгала от карточки к карточке. */
 function QualityTable({ data, stale, onHosts }: TableProps) {
   const method = data === undefined ? null : sharedMethod(data.rows);
   const shared = method !== null;
@@ -276,7 +293,7 @@ function QualityTable({ data, stale, onHosts }: TableProps) {
       <DataTable
         columns={shared ? NUMBER_COLUMNS : COLUMNS}
         minWidth={shared ? NUMBERS_MIN_WIDTH : TABLE_MIN_WIDTH}
-        className="allCentered headsWrap"
+        className="allCentered headsWrap qualityTable"
         cardRow
         stale={stale}
         label="Качество загрузок"
@@ -303,7 +320,7 @@ export function PanelQuality() {
   return (
     <Card className="glassPanel" p="lg">
       <Stack gap="sm">
-        <PageHead title="Качество загрузок" hint={ABOUT} />
+        <Head />
         {error ? (
           <Alert color="red" title="Качество загрузок не загрузилось">
             {refusalOf(error)}
