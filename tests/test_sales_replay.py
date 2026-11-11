@@ -353,10 +353,10 @@ def test_a2_no_set_directory_is_refused_in_words_without_the_model(
     found = model()
     monkeypatch.setattr(sales_cfg, "REPLAY_DIR", "")
 
-    assert sales_replay.main(["run", "--set", "crm"]) == 1
+    assert sales_replay.main(["run", "--set", "archive"]) == 1
 
     assert capsys.readouterr().out.startswith(
-        "НАБОР НЕ НАЙДЕН: набор «crm» не найден: каталог не задан — SALES_REPLAY_DIR или --dir"
+        "НАБОР НЕ НАЙДЕН: набор «archive» не найден: каталог не задан — SALES_REPLAY_DIR или --dir"
     )
     assert found.calls == 0
 
@@ -368,10 +368,11 @@ def test_a2_no_set_by_the_path_is_refused_not_zero_discrepancies(
     found = model()
     monkeypatch.setattr(sales_cfg, "REPLAY_DIR", str(tmp_path / "nowhere"))
 
-    assert sales_replay.main(["run", "--set", "crm"]) == 1
+    assert sales_replay.main(["run", "--set", "archive"]) == 1
 
     out = capsys.readouterr().out
-    assert f"набор «crm» не найден: нет {tmp_path / 'nowhere' / 'crm' / 'cases.jsonl'}" in out
+    missing = tmp_path / "nowhere" / "archive" / "cases.jsonl"
+    assert f"набор «archive» не найден: нет {missing}" in out
     assert "расхожден" not in out
     assert found.calls == 0
 
@@ -381,12 +382,12 @@ def test_a2_empty_set_is_refused_too(
     model: Plug, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:  # A2
     found = model()
-    (tmp_path / "crm").mkdir()
-    (tmp_path / "crm" / "cases.jsonl").write_text("\n", "utf-8")
+    (tmp_path / "archive").mkdir()
+    (tmp_path / "archive" / "cases.jsonl").write_text("\n", "utf-8")
 
-    assert sales_replay.main(["run", "--set", "crm", "--dir", str(tmp_path)]) == 1
+    assert sales_replay.main(["run", "--set", "archive", "--dir", str(tmp_path)]) == 1
 
-    assert "набор «crm» пуст, а нужно не меньше 100" in capsys.readouterr().out
+    assert "набор «archive» пуст, а нужно не меньше 100" in capsys.readouterr().out
     assert found.calls == 0
 
 

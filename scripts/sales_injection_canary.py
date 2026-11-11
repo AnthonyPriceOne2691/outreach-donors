@@ -6,7 +6,7 @@
     python scripts/sales_injection_canary.py --class T3    # один вид атак
     python scripts/sales_injection_canary.py --verbose     # каждый случай строкой
 
-Корпус — `scripts/data/sales_injection_corpus.jsonl` в формате корпуса CRM: виды атак
+Корпус — `scripts/data/sales_injection_corpus.jsonl` в формате корпуса соседней системы: виды атак
 T1–T6 (подмена инструкций, выведать промпт, подмена реквизитов, вынос чужих
 данных, разметка с умыслом, контрабанда знаками) и легитимные письма. Корпус
 синтетический: настоящих писем в репозитории нет — он публичный.
