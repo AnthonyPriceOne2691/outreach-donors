@@ -2,10 +2,10 @@
 
 Запуск:
 
-    python scripts/sales_replay.py run --set crm [--dir КАТАЛОГ] [--out прогон.json]
+    python scripts/sales_replay.py run --set archive [--dir КАТАЛОГ] [--out прогон.json]
     python scripts/sales_replay.py run --drafts [--settle-days 3] [--out прогон.json]
-    python scripts/sales_replay.py run --set crm --prompts НОВАЯ --against ПРЕЖНЯЯ
-    python scripts/sales_replay.py run --set crm --limit 15 --out пилот.json   # пилот
+    python scripts/sales_replay.py run --set archive --prompts НОВАЯ --against ПРЕЖНЯЯ
+    python scripts/sales_replay.py run --set archive --limit 15 --out пилот.json   # пилот
     python scripts/sales_replay.py compare прежний.json новый.json [--strict]
     python scripts/sales_replay.py cycle --version НОВАЯ [--out КАТАЛОГ] [--strict]
     python scripts/sales_replay.py kb-export НОВАЯ/kb.json
@@ -65,8 +65,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 MANIFEST = Path(__file__).parent / "data" / "sales_replay" / "manifest.toml"
 #: Корень копии репозитория: файл прогона в него не пишется — в нём тексты черновиков.
 REPOSITORY = Path(__file__).resolve().parent.parent
-#: Набор по умолчанию — из резервной копии CRM, вне репозитория.
-DEFAULT_SET = "crm"
+#: Набор по умолчанию — из архива соседней системы, вне репозитория.
+DEFAULT_SET = "archive"
 #: Файлы двух прогонов цикла в каталоге `--out`: прежняя версия и новая.
 CYCLE_OLD, CYCLE_NEW = "old.json", "new.json"
 EMPTY = "НАБОР ПУСТ: у черновиков продаж ещё нет решений людей — сравнивать не с чем"

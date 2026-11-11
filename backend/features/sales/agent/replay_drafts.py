@@ -33,8 +33,8 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.sales.agent.replay import LABELS, Case, Decision, Human
 
-#: Пропуск без ответа моложе этого — молчание человека ещё не исход: в CRM на «ответ не
-#: нужен» отвечали в течение трёх дней.
+#: Пропуск без ответа моложе этого — молчание человека ещё не исход: в соседней
+#: системе на «ответ не нужен» отвечали в течение трёх дней.
 SETTLE = timedelta(days=3)
 
 _EPOCH = datetime.min.replace(tzinfo=UTC)

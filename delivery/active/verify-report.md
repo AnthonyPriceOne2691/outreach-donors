@@ -640,15 +640,15 @@ A1	assert "ВОРОТА ЗАКРЫТЫ: ложного молчания боль
 -	assert await replayed(session, Writer(), "--out", str(before)) == 0
 -	assert code == 1
 -	assert "ВОРОТА ЗАКРЫТЫ: черновиков с нарушениями больше: было 0, стало 5" in out
-A2	assert sales_replay.main(["run", "--set", "crm"]) == 1
+A2	assert sales_replay.main(["run", "--set", "archive"]) == 1
 A2	assert capsys.readouterr().out.startswith(
 A2	assert found.calls == 0
-A2	assert sales_replay.main(["run", "--set", "crm"]) == 1
-A2	assert f"набор «crm» не найден: нет {tmp_path / 'nowhere' / 'crm' / 'cases.jsonl'}" in out
+A2	assert sales_replay.main(["run", "--set", "archive"]) == 1
+A2	assert f"набор «archive» не найден: нет {missing}" in out
 A2	assert "расхожден" not in out
 A2	assert found.calls == 0
-A2	assert sales_replay.main(["run", "--set", "crm", "--dir", str(tmp_path)]) == 1
-A2	assert "набор «crm» пуст, а нужно не меньше 100" in capsys.readouterr().out
+A2	assert sales_replay.main(["run", "--set", "archive", "--dir", str(tmp_path)]) == 1
+A2	assert "набор «archive» пуст, а нужно не меньше 100" in capsys.readouterr().out
 A2	assert found.calls == 0
 -	assert sales_replay.main(["run", "--set", "synthetic", "--out", str(inside)]) == 1
 -	assert "файл прогона — вне репозитория" in capsys.readouterr().out
