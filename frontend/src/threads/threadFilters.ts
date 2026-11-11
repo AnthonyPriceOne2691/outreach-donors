@@ -31,7 +31,7 @@
  * `/threads`, которого в меню больше нет.
  */
 
-import { THREAD_STATES } from '../api/labels';
+import { THREAD_STATES, threadState } from '../api/labels';
 import { stageShown, stateShown } from '../api/stageRights';
 import type { Can } from '../api/stageRights';
 import { PART_PARAM, partOf } from '../api/stages';
@@ -78,6 +78,21 @@ export interface ThreadFilters {
 export const NO_THREAD_FILTERS: ThreadFilters = { part: null, role: null, state: null, search: '' };
 
 export const THREAD_STATE_KEYS = Object.keys(THREAD_STATES) as ThreadState[];
+
+/** Состояния, которые в списке части названы короче: слово части уже сказал заголовок списка
+ *  («Диалоги продаж»), а метка «ответ продаж — ждёт человека» во втором ярусе строки оставляла
+ *  от адреса семь знаков (разведка экранов 10.11.2026). Тот же приём, что у пометки
+ *  «рекламодатель»: в части строка не повторяет сказанное заголовком. Полное имя — у списка без
+ *  части и в шапке открытой переписки (`api/labels.ts`). */
+const PART_STATE_TITLES: Partial<Record<Part, Partial<Record<string, string>>>> = {
+  sales: { sales_pending: 'ждёт человека' },
+};
+
+/** Состояние словами — для строки списка, его фильтра и слов о пустом списке. */
+export function stateTitle(state: string, part: Part | null): string {
+  const inPartWords = part === null ? undefined : PART_STATE_TITLES[part]?.[state];
+  return inPartWords ?? threadState(state).title;
+}
 
 /** Часть, когда адрес её не назвал: видны доноры и рекламодатели — оба вместе, без части; виден
  *  один из них — экран сразу в нём; ни одного — в продажах. Учётка с одними продажами иначе
@@ -167,13 +182,15 @@ export function threadEmptiness(
   }
   if (filters.state !== null && (counts.get(filters.state) ?? 0) === 0) {
     return {
-      title: `В состоянии «${THREAD_STATES[filters.state].title}» диалогов нет.`,
+      title: `В состоянии «${stateTitle(filters.state, filters.part)}» диалогов нет.`,
       detail: `Нет во всём списке, а не только под поиском. Всего диалогов — ${total}.`,
     };
   }
   const said: string[] = [];
   if (filters.role !== null) said.push(`только ${THREAD_ROLES[filters.role].toLowerCase()}`);
-  if (filters.state !== null) said.push(`состояние «${THREAD_STATES[filters.state].title}»`);
+  if (filters.state !== null) {
+    said.push(`состояние «${stateTitle(filters.state, filters.part)}»`);
+  }
   if (filters.search !== '') said.push(`«${filters.search}» в доноре или адресе`);
   return {
     title: 'Под фильтр ничего не попало.',

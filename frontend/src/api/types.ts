@@ -195,39 +195,6 @@ export interface IncomingCard {
   same_price?: SamePrice | null;
 }
 
-/** Ответ, который не привязался ни к одному нашему письму: ни метка в адресе,
- *  ни заголовки цепочки не привели к письму. Донора по нему ищет человек. */
-export interface UnboundReply {
-  id: number;
-  received_at: string;
-  /** Адрес отправителя целиком: это внутренний экран, по нему донора и ищут. */
-  from_email: string | null;
-  /** На какие адреса пришло: конверт, «кому», копия — наш первым. Пусто у
-   *  ответов, принятых до того, как адреса стали хранить. */
-  to: string[];
-  subject: string | null;
-  kind: ReplyKind;
-  /** Начало того, что написал человек, — одной строкой и без цитаты. */
-  preview: string;
-  /** Текст целиком — в раскрытой строке. */
-  text: string;
-  attachments: ReplyAttachment[];
-  /** Причина кодом сервера (`no_label`, `foreign_thread`, `bad_signature`,
-   *  `no_such_letter`); пусто — не записана. На экран идут слова, а не код. */
-  reason: string | null;
-  /** Причина словами сервера — и что с таким ответом делать. */
-  reason_text: string;
-}
-
-/** Страница ответов без письма: размер страницы называет сервер. */
-export interface UnboundView {
-  rows: UnboundReply[];
-  /** Сколько их всего, а не на этой странице. */
-  total: number;
-  page: number;
-  limit: number;
-}
-
 /** Лид взят в работу: кто и когда. */
 export interface LeadTaken {
   id: number;

@@ -10,6 +10,10 @@
  * Слова причин в записанных ответах — те, что пишет сервер
  * (`backend/features/replies/unbound.py`): в демо кладут то, что сервер
  * отдаёт, а не придуманное рядом.
+ *
+ * С 11.11.2026 в строке — метка причины в несколько слов (`reason_short`), слова целиком — в
+ * «i» у неё, а что вообще попадает на вкладку — в «i» у заголовка: до этого и то и другое
+ * стояло на экране абзацами (правило 10.11.2026: на виду коротко, подробности — в «i»).
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -18,7 +22,8 @@ import { useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
-import type { ReplyAttachment, ThreadCard, UnboundReply, UnboundView } from '../api/types';
+import type { ReplyAttachment, ThreadCard } from '../api/types';
+import type { UnboundReply, UnboundView } from '../api/unbound';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import type { Answer } from '../test/server';
@@ -56,6 +61,10 @@ const FOREIGN_REASON =
   'Метки в адресе нет, а заголовки цепочки не совпали ни с одним нашим письмом: ответили ' +
   'на пересланное или чужое письмо. Донора ищут по отправителю и тексту.';
 
+/** Метки строки — слово в слово с сервера (`unbound._SHORT`). */
+const PROBE_SHORT = 'ответ на пробное письмо';
+const FOREIGN_SHORT = 'ответ на чужое или пересланное письмо';
+
 const PROBE_REPLY: UnboundReply = {
   id: 7,
   received_at: '2026-09-28T16:05:00+00:00',
@@ -68,6 +77,7 @@ const PROBE_REPLY: UnboundReply = {
   attachments: [],
   reason: 'no_such_letter',
   reason_text: PROBE_REASON,
+  reason_short: PROBE_SHORT,
 };
 
 const STRAY_REPLY: UnboundReply = {
@@ -82,6 +92,7 @@ const STRAY_REPLY: UnboundReply = {
   attachments: [PRICE],
   reason: 'foreign_thread',
   reason_text: FOREIGN_REASON,
+  reason_short: FOREIGN_SHORT,
 };
 
 function view(rows: UnboundReply[], total = rows.length, page = 1): UnboundView {
@@ -94,7 +105,7 @@ function Where() {
   return <output data-testid="where">{`${location.pathname}${location.search}`}</output>;
 }
 
-async function openAt(path: string, routes: Record<string, Answer> = {}) {
+async function openAt(path: string, routes: Record<string, Answer> = {}, title = 'Диалоги') {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     'GET /api/auth/me': { body: ADMIN },
@@ -110,7 +121,7 @@ async function openAt(path: string, routes: Record<string, Answer> = {}) {
     </>,
     path,
   );
-  await screen.findByRole('heading', { name: 'Диалоги' });
+  await screen.findByRole('heading', { name: title });
   return recorded;
 }
 
@@ -120,6 +131,16 @@ function rowOf(sender: string): HTMLElement {
   if (row === null) throw new Error(`строки ответа от ${sender} нет`);
   return row;
 }
+
+/** Причина в строке — как её читают: «Почему не привязан: …» (значок «i» — без текста). */
+function reasonOf(sender: string): string {
+  return (rowOf(sender).querySelector('.unboundReason')?.textContent ?? '').trim();
+}
+
+/** Окошко «i» со словами причины целиком — у строки этого отправителя. */
+const reasonHint = (sender: string) => `Причина целиком — ответ от ${sender}`;
+/** «i» у заголовка экрана на этой вкладке. */
+const ABOUT = 'Что попадает в «Не привязаны»';
 
 describe('вкладка «Не привязаны»', () => {
   it('число видно ещё с вкладки диалогов', async () => {
@@ -144,9 +165,12 @@ describe('вкладка «Не привязаны»', () => {
     expect(within(row).getByText('Rates')).toBeInTheDocument();
     expect(within(row).getByText('Our rate card is attached.')).toBeInTheDocument();
     expect(within(row).getByText('вложения · 1')).toBeInTheDocument();
-    // Причина — без раскрытия: по ней и решают, что делать с ответом.
-    expect(within(row).getByText(FOREIGN_REASON)).toBeInTheDocument();
-    expect(within(rowOf('me@ours.example.test')).getByText(PROBE_REASON)).toBeInTheDocument();
+    // Причина — без раскрытия: по ней и решают, что делать с ответом. В строке — метка в
+    // несколько слов; слов целиком на экране нет, пока их не спросили.
+    expect(reasonOf('elena@donor.example.test')).toBe(`Почему не привязан: ${FOREIGN_SHORT}`);
+    expect(reasonOf('me@ours.example.test')).toBe(`Почему не привязан: ${PROBE_SHORT}`);
+    expect(screen.queryByText(FOREIGN_REASON)).toBeNull();
+    expect(screen.queryByText(PROBE_REASON)).toBeNull();
     // Таблицы диалогов на этой вкладке нет — её не прячут, её не рисуют.
     expect(screen.queryByRole('link', { name: /digest-weekly\.example\.test/ })).toBeNull();
   });
@@ -154,8 +178,95 @@ describe('вкладка «Не привязаны»', () => {
   it('ссылка с вкладкой в адресе открывает её сразу', async () => {
     await openAt('/threads?tab=unbound');
 
-    expect(await screen.findByText(PROBE_REASON)).toBeInTheDocument();
+    expect(await screen.findByText('me@ours.example.test')).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Не привязаны — 2' })).toBeChecked();
+  });
+
+  it('причина целиком — в «i» у метки, и нажатие на «i» строку не раскрывает', async () => {
+    await openAt('/threads?tab=unbound');
+    const user = userEvent.setup();
+    await screen.findByText('elena@donor.example.test');
+    const row = rowOf('elena@donor.example.test');
+    /** Свёрнута ли строка: раскрытая назвала бы кнопку «Свернуть ответ». */
+    const folded = () =>
+      within(row)
+        .getByRole('button', { name: 'Показать ответ целиком' })
+        .getAttribute('aria-expanded') === 'false';
+
+    await user.click(
+      within(row).getByRole('button', { name: reasonHint('elena@donor.example.test') }),
+    );
+
+    const whole = await screen.findByRole('dialog', {
+      name: reasonHint('elena@donor.example.test'),
+    });
+    expect(within(whole).getByText(FOREIGN_REASON)).toBeInTheDocument();
+    // Нажатие на «i» — не щелчок по строке: письмо не раскрылось.
+    expect(folded()).toBe(true);
+    // Окошко — потомок строки: нажатие в нём до неё тоже не доходит.
+    await user.click(within(whole).getByText(FOREIGN_REASON));
+    expect(folded()).toBe(true);
+    expect(within(row).queryByText(/Elena from the ads desk/)).toBeNull();
+    // У каждой строки — своя причина: «i» соседней открывает её слова, а не эти.
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: reasonHint('me@ours.example.test') }));
+    expect(await screen.findByText(PROBE_REASON)).toBeInTheDocument();
+  });
+
+  it('сервер старше метки — в строке слова целиком, как было, и «i» у них нет', async () => {
+    // Ответ старого сервера — карточка без поля метки.
+    const old = [PROBE_REPLY, STRAY_REPLY].map((reply) => {
+      const card: Partial<UnboundReply> = { ...reply };
+      delete card.reason_short;
+      return card as UnboundReply;
+    });
+    await openAt('/threads?tab=unbound', {
+      'GET /api/replies/unbound?page=1': { body: view(old) },
+    });
+
+    expect(await screen.findByText(FOREIGN_REASON)).toBeInTheDocument();
+    expect(reasonOf('me@ours.example.test')).toBe(`Почему не привязан: ${PROBE_REASON}`);
+    expect(screen.queryByRole('button', { name: /^Причина целиком/ })).toBeNull();
+  });
+
+  it('что попадает на вкладку — в «i» у заголовка, а не абзацем над списком', async () => {
+    await openAt('/threads?tab=unbound');
+    const user = userEvent.setup();
+    await screen.findByText('elena@donor.example.test');
+
+    // На экране — список: ни вступления, ни пояснения про пробное письмо.
+    expect(screen.queryByText(/Приём сохранил эти ответы/)).toBeNull();
+    expect(screen.queryByText(/Ответ на пробное письмо тоже встаёт сюда/)).toBeNull();
+    // «i» у заголовка поясняет открытую вкладку: про состояние диалога здесь не спрашивают.
+    expect(screen.queryByRole('button', { name: 'Как считается состояние диалога' })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: ABOUT }));
+
+    const about = within(await screen.findByRole('dialog', { name: ABOUT }));
+    expect(about.getByText(/приём не смог соотнести ни с одним нашим письмом/)).toBeInTheDocument();
+    expect(about.getByText(/Почему ответ не привязан — сказано у каждого/)).toBeInTheDocument();
+    expect(about.getByText(/Ответ на пробное письмо тоже встаёт сюда/)).toBeInTheDocument();
+    // Ответы без письма — общие на всю почту: ищут «отправителя», без слова направления.
+    expect(about.getByText(/— отправителя по нему ищет человек/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ['donors', 'Диалоги с донорами'],
+    ['advertisers', 'Диалоги с рекламодателями'],
+    ['sales', 'Диалоги продаж'],
+  ])('под частью списка слово то же — «отправителя»: %s', async (part, title) => {
+    // Вкладка и под частью показывает ответы всех направлений, которые видит учётка: слово
+    // направления в пояснении расходилось бы со строками под ним.
+    await openAt(`/threads?stage=${part}&tab=unbound`, {}, title);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: ABOUT }));
+
+    const about = within(await screen.findByRole('dialog', { name: ABOUT }));
+    expect(
+      about.getByText(/не выбрасывается — отправителя по нему ищет человек/),
+    ).toBeInTheDocument();
+    expect(about.queryByText(/(донора|рекламодателя|лида) по нему/)).toBeNull();
   });
 
   it('строка раскрывается в письмо целиком, с вложениями', async () => {
@@ -193,14 +304,18 @@ describe('вкладка «Не привязаны»', () => {
     await waitFor(() => expect(within(row).queryByText(/Elena from the ads desk/)).toBeNull());
   });
 
-  it('пусто — словами: чего здесь нет и что сюда попадает', async () => {
+  it('пусто — коротко: чего здесь нет; что сюда попадает — в «i» у заголовка', async () => {
     await openAt('/threads?tab=unbound', {
       'GET /api/replies/unbound?page=1': { body: view([]) },
     });
+    const user = userEvent.setup();
 
     expect(await screen.findByText('Непривязанных ответов нет.')).toBeInTheDocument();
-    expect(screen.getByText(/Ответ на пробное письмо тоже встаёт сюда/)).toBeInTheDocument();
     expect(screen.getByText('Не привязаны — 0')).toBeInTheDocument();
+    // Длинное объяснение на экране не стоит — оно по запросу.
+    expect(screen.queryByText(/Ответ на пробное письмо тоже встаёт сюда/)).toBeNull();
+    await user.click(screen.getByRole('button', { name: ABOUT }));
+    expect(await screen.findByText(/Ответ на пробное письмо тоже встаёт сюда/)).toBeInTheDocument();
   });
 
   it('страницы — в адресе и в запросе, размер называет сервер', async () => {

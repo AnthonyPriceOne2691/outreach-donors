@@ -11,10 +11,10 @@ import type {
   StopListView,
   SuppressionReason,
   ThreadCard,
-  UnboundView,
 } from './types';
 import type { AttachmentText, OutgoingFile } from './files';
 import type { ThreadView } from './thread';
+import type { UnboundView } from './unbound';
 import { download, request, upload } from './client';
 import type { Downloaded } from './client';
 

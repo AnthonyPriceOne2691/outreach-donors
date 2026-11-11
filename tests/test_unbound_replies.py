@@ -151,6 +151,8 @@ class TestWhyNotBound:
         assert row["id"] == taken["reply_id"]
         assert row["reason"] == "foreign_thread"
         assert row["reason_text"].startswith("Метки в адресе нет, а заголовки цепочки не совпали")
+        # В строке списка — метка в несколько слов, слова целиком — по запросу.
+        assert row["reason_short"] == "ответ на чужое или пересланное письмо"
         # Всё, по чему донора ищут руками: от кого целиком, куда, о чём.
         assert row["from_email"] == "editor@donor.example.test"
         assert row["to"] == ["team@donor.example.test"]
@@ -171,6 +173,7 @@ class TestWhyNotBound:
         row = (await _listed(client, viewer))["rows"][0]
         assert row["reason"] == "no_label"
         assert row["reason_text"].startswith("Метки в адресе нет, и заголовков цепочки тоже")
+        assert row["reason_short"] == "написано заново, не ответом на наше письмо"
         assert row["to"] == [address]
 
     async def test_reply_to_the_probe_letter(
@@ -191,6 +194,8 @@ class TestWhyNotBound:
         row = (await _listed(client, viewer))["rows"][0]
         assert row["reason"] == "no_such_letter"
         assert row["reason_text"].startswith(f"{PROMISED_REASON}: его метка — письмо №0")
+        # Метка строки говорит то же, что обещает команда пробного письма, — со строчной.
+        assert row["reason_short"] == PROMISED_REASON[0].lower() + PROMISED_REASON[1:]
         assert row["to"] == [address]
 
     async def test_label_of_a_letter_that_is_gone(
@@ -202,6 +207,7 @@ class TestWhyNotBound:
         row = (await _listed(client, viewer))["rows"][0]
         assert row["reason"] == "no_such_letter"
         assert row["reason_text"].startswith("Метка указывает на письмо №987654, а такого")
+        assert row["reason_short"] == "письма из метки нет в базе"
 
     async def test_forged_or_foreign_signature_is_named(
         self, client: AsyncClient, sent: MessageModel, viewer: dict[str, str]
@@ -213,6 +219,7 @@ class TestWhyNotBound:
         row = (await _listed(client, viewer))["rows"][0]
         assert row["reason"] == "bad_signature"
         assert row["reason_text"].startswith(f"В адресе метка письма №{sent.id}, но подпись")
+        assert row["reason_short"] == "подпись метки не сошлась"
 
     async def test_secret_changed_after_sending(
         self,
@@ -273,6 +280,7 @@ class TestWhatIsListed:
         assert row["reason_text"] == (
             "Причина не записана: ответ принят до того, как её стали сохранять."
         )
+        assert row["reason_short"] == "причина не записана"
         assert row["to"] == []
         assert row["kind"] == "auto_reply"
 
