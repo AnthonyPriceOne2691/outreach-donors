@@ -63,11 +63,11 @@ class _Llm(DomainSettings):
     )
     # Второй круг судьи рекламодателей (`features/crawl/judge_second.py`): «не понять» первой модели
     # перепроверяет более сильная — тот же текст, та же подсказка и таблица правил; её исход
-    # принимается в осторожном режиме (`judge_rules.SECOND_CAUTIOUS`). Пусто — второго круга нет;
-    # включают словом владельца: модель замера на стенде 11.11.2026 — gpt-5, она и встаёт в
-    # умолчание строкой ниже.
+    # принимается в осторожном режиме (`judge_rules.SECOND_CAUTIOUS`). Пусто — второго круга нет.
+    # Включён словом владельца 11.11.2026 («второй круг в осторожном — да»): модель замера на
+    # стенде того же дня — gpt-5.
     advertiser_judge_second_model: str = Field(
-        default="", validation_alias="LLM_ADVERTISER_JUDGE_SECOND_MODEL"
+        default="gpt-5", validation_alias="LLM_ADVERTISER_JUDGE_SECOND_MODEL"
     )
     # Тематика сайта (`features/topics/`): дешёвая, как у судьи площадки — выбрать тему
     # из списка по тексту сайта. Точность меряет eval на наборе (`scripts/eval_topic.py`).
