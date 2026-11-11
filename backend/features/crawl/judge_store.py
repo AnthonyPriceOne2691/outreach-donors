@@ -1,4 +1,5 @@
-"""Строки суда судьи рекламодателей: когорта, кэш фактов и пересчёт совета без модели.
+"""Строки суда судьи рекламодателей: когорта, кэш фактов, признак донора-каталога и пересчёт совета
+без модели.
 
 **Кэш отдаёт факты, а не совет.** Ключ строки — пара «донор + домен», отпечаток того, что видел
 судья, и когорта фактов: версия и отпечаток подсказки, отпечаток примеров и модель
@@ -10,6 +11,14 @@
 **Когорты не смешиваются** (`agent/calibration.py`): каждое число точности — по своей когорте, и
 новая подсказка, новые примеры или другая модель — новые факты, а не поправка старых. Примеров у
 первой версии нет: отпечаток пустой.
+
+**Донор-каталог — по его же судам** (решение владельца 11.11.2026, `judge_rules.is_catalog`). Совету
+пары нужен признак её донора, а знает его только база: сколько пар донора рассужено в когорте и в
+скольких из них последний суд назвал ссылку карточкой каталога. Считается одним запросом на всех
+доноров когорты (`catalog_donors`), а не запросом на пару, и по когорте самой строки: факты другой
+подсказки или модели — другие факты. Признак живой — донор набирает пары и становится каталогом,
+— поэтому пересчёт ставит совет заново и строкам нынешней таблицы, у которых он от признака
+зависит (`judge_rules.BY_DONOR`).
 """
 
 from __future__ import annotations
@@ -18,14 +27,23 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.models.advertiser import AdvertiserJudgementModel
 from backend.features.crawl.judge_client import PROMPT_VERSION, prompt_print
 from backend.features.crawl.judge_facts import LinkFacts
-from backend.features.crawl.judge_rules import RULES, RULES_VERSION, Rule, advise
+from backend.features.crawl.judge_rules import (
+    BY_DONOR,
+    CARD_FACT,
+    RULES,
+    RULES_VERSION,
+    Rule,
+    Ruled,
+    advise,
+    is_catalog,
+)
 
 Judgement = AdvertiserJudgementModel
 
@@ -66,13 +84,74 @@ def cohort_of(model: str) -> Cohort:
     return Cohort(PROMPT_VERSION, prompt_print(), EXAMPLES_PRINT, model)
 
 
+def _in_cohort(cohort: Cohort) -> tuple[ColumnElement[bool], ...]:
+    """Строки суда этой когорты."""
+    return (
+        Judgement.prompt_version == cohort.prompt_version,
+        Judgement.prompt_print == cohort.prompt_print,
+        Judgement.examples_print == cohort.examples_print,
+        Judgement.model == cohort.model,
+    )
+
+
+async def catalog_donors(session: AsyncSession, cohort: Cohort) -> frozenset[str]:
+    """Доноры-каталоги когорты (`judge_rules.is_catalog`) — одним запросом на всех доноров: по
+    последнему суду каждой пары — сколько у донора пар и в скольких ссылка названа карточкой каталога."""
+    latest = (
+        select(Judgement.donor_host, Judgement.facts[CARD_FACT].astext.label("card"))
+        .where(*_in_cohort(cohort))
+        .distinct(Judgement.donor_host, Judgement.target_root)
+        .order_by(
+            Judgement.donor_host,
+            Judgement.target_root,
+            Judgement.updated_at.desc(),
+            Judgement.id.desc(),
+        )
+        .subquery()
+    )
+    # Факт — булево значение JSON: текстом это «true»; строки не той формы карточкой не считаются.
+    cards = func.count().filter(latest.c.card == "true")
+    counted = await session.execute(
+        select(latest.c.donor_host, func.count(), cards).group_by(latest.c.donor_host)
+    )
+    return frozenset(
+        donor for donor, pairs, with_card in counted.tuples() if is_catalog(pairs, with_card)
+    )
+
+
+class Catalogs:
+    """Чей донор — каталог, для строк суда разных когорт: признак — по когорте самой строки, запрос —
+    один на когорту, а не на строку."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+        self._found: dict[Cohort, frozenset[str]] = {}
+
+    async def at(self, cohort: Cohort, donor_host: str) -> bool:
+        if cohort not in self._found:
+            self._found[cohort] = await catalog_donors(self._session, cohort)
+        return donor_host in self._found[cohort]
+
+    async def has(self, row: AdvertiserJudgementModel) -> bool:
+        cohort = Cohort(row.prompt_version, row.prompt_print, row.examples_print, row.model)
+        return await self.at(cohort, row.donor_host)
+
+
 @dataclass(frozen=True, slots=True)
 class Known:
-    """Что строка суда знает: факты и какой таблицей поставлен её совет."""
+    """Что строка суда знает: факты и чем поставлен её совет — какой таблицей, какой и каким
+    правилом."""
 
     facts: LinkFacts
     rules_version: str
     id: int
+    advice: str = ""
+    rule: str = ""
+
+    def stale(self, ruled: Ruled) -> bool:
+        """Совет строки — не тот, что нынешняя таблица и признак донора дают её фактам сейчас."""
+        stored = (self.rules_version, self.advice, self.rule)
+        return stored != (RULES_VERSION, ruled.advice.value, ruled.rule)
 
 
 async def known(
@@ -84,21 +163,26 @@ async def known(
     cohort: Cohort,
     now: datetime,
 ) -> Known | None:
-    """Свежие факты той же пары, того же контекста и той же когорты; строка не той формы — нет."""
-    row = await session.scalar(
-        select(Judgement).where(
+    """Свежие факты той же пары, того же контекста и той же когорты; строка не той формы — нет.
+    Колонками, а не строкой модели: совет строки переписывается мимо сессии (`restamp`), и объект,
+    прочитанный раньше, помнил бы прежний."""
+    found = await session.execute(
+        select(
+            Judgement.facts, Judgement.rules_version, Judgement.id, Judgement.advice, Judgement.rule
+        ).where(
             Judgement.donor_host == donor_host,
             Judgement.target_root == target_root,
             Judgement.context_print == context_print,
-            Judgement.prompt_version == cohort.prompt_version,
-            Judgement.prompt_print == cohort.prompt_print,
-            Judgement.examples_print == cohort.examples_print,
-            Judgement.model == cohort.model,
+            *_in_cohort(cohort),
             Judgement.updated_at >= now - timedelta(days=JUDGEMENT_TTL_DAYS),
         )
     )
-    facts = LinkFacts.from_json(row.facts) if row is not None else None
-    return Known(facts, row.rules_version, row.id) if row is not None and facts else None
+    row = found.tuples().first()
+    if row is None:
+        return None
+    body, table, number, advice, rule = row
+    facts = LinkFacts.from_json(body)
+    return Known(facts, table, number, advice, rule) if facts is not None else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,9 +206,11 @@ async def remember(
     cohort: Cohort,
     row: Row,
     moment: datetime,
+    catalog_donor: bool = False,
 ) -> None:
-    """Суд — в строку: новый ключ — строка, тот же — поверх (два прохода разом сходятся на одной)."""
-    ruled = advise(row.facts)
+    """Суд — в строку: новый ключ — строка, тот же — поверх (два прохода разом сходятся на одной).
+    `catalog_donor` — донор пары — каталог (`catalog_donors`): совет строки ставится с ним."""
+    ruled = advise(row.facts, catalog_donor=catalog_donor)
     values: dict[str, object] = {
         "donor_host": donor_host,
         "target_root": target_root,
@@ -154,24 +240,63 @@ async def remember(
     )
 
 
-async def _by_other_table(
-    session: AsyncSession, version: str, ids: list[int] | None = None
-) -> list[tuple[AdvertiserJudgementModel, LinkFacts]]:
-    """Строки, чей совет поставлен другой таблицей, с их фактами; факты не той формы — мимо."""
-    query = select(Judgement).where(Judgement.rules_version != version)
+async def _outdated(
+    session: AsyncSession, rules: tuple[Rule, ...], version: str, ids: list[int] | None = None
+) -> list[tuple[int, str, Ruled]]:
+    """Строки, чей совет надо поставить заново, — номер, прежний совет и новый: поставленный другой
+    таблицей — и нынешней, если у донора с тех пор сменился признак каталога
+    (`judge_rules.BY_DONOR`). Факты не той формы — мимо. Колонками и без текста, который видел
+    судья: строк тысячи, а объект сессии помнил бы совет, уже переписанный мимо неё (`restamp`)."""
+    query = select(
+        Judgement.id,
+        Judgement.donor_host,
+        Judgement.prompt_version,
+        Judgement.prompt_print,
+        Judgement.examples_print,
+        Judgement.model,
+        Judgement.rules_version,
+        Judgement.advice,
+        Judgement.rule,
+        Judgement.facts,
+    ).where((Judgement.rules_version != version) | Judgement.rule.in_(BY_DONOR))
     if ids is not None:
         query = query.where(Judgement.id.in_(ids))
-    read = [(row, LinkFacts.from_json(row.facts)) for row in await session.scalars(query)]
-    return [(row, facts) for row, facts in read if facts is not None]
+    rows = (await session.execute(query.order_by(Judgement.id))).tuples().all()
+    catalogs = Catalogs(session)
+    found: list[tuple[int, str, Ruled]] = []
+    for number, donor, *print_, table, advice, rule, body in rows:
+        facts = LinkFacts.from_json(body)
+        if facts is None:
+            continue
+        ruled = advise(facts, rules, catalog_donor=await catalogs.at(Cohort(*print_), donor))
+        if table != version or (advice, rule) != (ruled.advice.value, ruled.rule):
+            found.append((number, advice, ruled))
+    return found
 
 
 async def relabel_moves(
     session: AsyncSession, *, rules: tuple[Rule, ...] = RULES, version: str = RULES_VERSION
 ) -> Counter[tuple[str, str]]:
     """Что сделает пересчёт, без записи: сколько строк с каким советом получат какой."""
-    return Counter(
-        (row.advice, advise(facts, rules).advice.value)
-        for row, facts in await _by_other_table(session, version)
+    outdated = await _outdated(session, rules, version)
+    return Counter((advice, ruled.advice.value) for _, advice, ruled in outdated)
+
+
+async def restamp(
+    session: AsyncSession, row_id: int, ruled: Ruled, version: str = RULES_VERSION
+) -> None:
+    """Новый совет — в строку суда, без модели: факты и их срок остаются как были."""
+    await session.execute(
+        update(Judgement)
+        .where(Judgement.id == row_id)
+        # Срок фактов — их, а не пересчёта: без явного значения `updated_at` сдвинулся бы.
+        .values(
+            advice=ruled.advice.value,
+            rule=ruled.rule,
+            rules_version=version,
+            updated_at=Judgement.updated_at,
+        )
+        .execution_options(synchronize_session=False)
     )
 
 
@@ -182,22 +307,10 @@ async def relabel(
     version: str = RULES_VERSION,
     ids: list[int] | None = None,
 ) -> int:
-    """Совет строк, поставленный другой таблицей, — заново по их фактам, без модели. Факты, их цена
-    и срок — те, что заплачены: вызова модели у такого совета нет. Сколько строк переписано."""
-    changed = 0
-    for row, facts in await _by_other_table(session, version, ids):
-        ruled = advise(facts, rules)
-        await session.execute(
-            update(Judgement)
-            .where(Judgement.id == row.id)
-            # Срок фактов — их, а не пересчёта: без явного значения `updated_at` сдвинулся бы.
-            .values(
-                advice=ruled.advice.value,
-                rule=ruled.rule,
-                rules_version=version,
-                updated_at=Judgement.updated_at,
-            )
-            .execution_options(synchronize_session=False)
-        )
-        changed += 1
-    return changed
+    """Совет строк, поставленный другой таблицей или до смены признака донора (`_outdated`), — заново
+    по их фактам, без модели. Факты, их цена и срок — те, что заплачены: вызова модели у такого
+    совета нет. Сколько строк переписано."""
+    outdated = await _outdated(session, rules, version, ids)
+    for number, _, ruled in outdated:
+        await restamp(session, number, ruled, version)
+    return len(outdated)
