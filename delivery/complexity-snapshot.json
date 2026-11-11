@@ -2362,9 +2362,9 @@
       "worst": "span_of:266"
     },
     "backend/features/outreach/followup_caps.py": {
-      "lines": 109,
+      "lines": 112,
       "complexity": 2,
-      "worst": "this_hour_of:50"
+      "worst": "this_hour_of:53"
     },
     "backend/features/outreach/health.py": {
       "lines": 296,

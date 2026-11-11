@@ -259,7 +259,7 @@ def _followup_row(lane: _Lane, own: Sequence[SenderModel], facts: _Facts) -> Lim
         used_day=max((facts.chained.get(box.id, 0) for box in own), default=0),
         cost_note=COST_NOTE,
         now=_joined(
-            "Дневной лимит первых писем их не считает: у добивок свой час и свои сутки",
+            "В лимит первых писем не входят: свой час и свои сутки",
             "Сверх суточного потолка добивка ждёт завтра",
             "Выбрано — самый занятый ящик",
             NEVER,
