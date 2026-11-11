@@ -52,6 +52,10 @@ EXPECTED_TABLES = {
     "candidate_memory",
     # Суд модели о спорных кандидатах (`crawl/judge.py`): факты с цитатами и совет таблицы правил.
     "advertiser_judgements",
+    # Судья сам, каждую ночь (`crawl/judge_night.py`, 11.11.2026): история полос автоприменения —
+    # кто и когда включил — и строка шага на дату: и замок, и след, как у ночного круга.
+    "advertiser_judge_bands",
+    "advertiser_judge_nights",
     "advertisers",
     "supplier_donors",
     # Прогон кончается очередью на рассмотрение: кандидаты прогона.
