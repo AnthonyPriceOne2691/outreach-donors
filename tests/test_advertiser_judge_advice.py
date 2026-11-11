@@ -16,7 +16,7 @@ from backend.features.core.models.advertiser import AdvertiserJudgementModel
 from backend.features.crawl import disputed_export
 from backend.features.crawl.judge_advice import after_decision
 from backend.features.crawl.judge_client import PROMPT_VERSION
-from backend.features.crawl.judge_rules import RULES_VERSION, Advice
+from backend.features.crawl.judge_rules import CATALOG_RULE, CATALOG_WORDS, RULES_VERSION, Advice
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
@@ -114,3 +114,33 @@ async def test_the_latest_judgement_gives_the_advice_by_the_rules_in_force(
 
     assert (said.advice, said.rule) == (Advice.SKIP, "citation")
     assert said.judged_at == NOW
+
+
+async def test_the_advice_follows_the_donors_catalog_sign(session: AsyncSession) -> None:
+    """Под решением человека — тот же совет, что поставит пересчёт: у донора-каталога спор «таблица —
+    пишем, модель — не пишем» — «не пишем» словами правила каталога, у обычного издания — «не понять»."""
+    card = {"money_anchor": False, "calls_to_buy": False, "directory_entry": True}
+    page = {"money_anchor": False, "calls_to_buy": False, "article_about_target": True}
+    paper = "paper.example.test"
+    decided = {}
+    for donor in (DONOR, paper):
+        run = await crawled(session, donor)
+        decided[donor] = await scored(session, run, "school.example.test", verdict=Verdict.PENDING)
+        decided[donor].confirmed = False
+        disputed = _judgement("school.example.test", verdict="skip", **page)
+        disputed.donor_host = donor
+        session.add(disputed)
+    session.add_all(
+        [_judgement(f"card{number}.example.test", verdict="skip", **card) for number in range(19)]
+    )
+    await session.flush()
+
+    said = await after_decision(session, list(decided.values()))
+
+    catalog, plain = said[decided[DONOR].id], said[decided[paper].id]
+    assert (catalog.advice, catalog.rule, catalog.words) == (
+        Advice.SKIP,
+        CATALOG_RULE,
+        CATALOG_WORDS,
+    )
+    assert (plain.advice, plain.rule) == (Advice.UNCLEAR, "disagree")

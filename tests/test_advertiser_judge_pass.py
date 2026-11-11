@@ -31,7 +31,8 @@ from backend.features.crawl.judge_pass import (
     run_pass,
     within_caps,
 )
-from backend.features.crawl.judge_rules import RULES_VERSION
+from backend.features.crawl.judge_rules import CATALOG_RULE, RULES_VERSION
+from backend.features.crawl.judge_store import Cohort, cohort_of
 from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.repository import save_crawl
 from backend.features.crawl.sample import sampled
@@ -359,6 +360,69 @@ async def test_one_donor_gets_one_page_at_a_time(session: AsyncSession) -> None:
     assert report.outcomes["judged"] == len(SAMPLE)
     assert site.peak[DONOR] == 1
     assert sum(1 for hit in site.hits if DONOR in hit) >= len(SAMPLE)
+
+
+#: Ответы модели: карточка каталога — и страница карточки, прочитанная статьёй о домене (таблица —
+#: «пишем», модель — «не пишем»).
+CARD = {"money_anchor": False, "calls_to_buy": False, "directory_entry": True, "verdict": "skip"}
+CARD_PAGE = {
+    "money_anchor": False,
+    "calls_to_buy": False,
+    "article_about_target": True,
+    "verdict": "skip",
+}
+
+
+def _judged_card(target: str) -> AdvertiserJudgementModel:
+    """Уже сохранённый суд пары донора в нынешней когорте: карточка каталога."""
+    cohort = cohort_of("gpt-5-mini")
+    return AdvertiserJudgementModel(
+        donor_host=DONOR,
+        target_root=target,
+        context_print="c" * 64,
+        prompt_version=cohort.prompt_version,
+        prompt_print=cohort.prompt_print,
+        examples_print=cohort.examples_print,
+        model=cohort.model,
+        rules_version=RULES_VERSION,
+        facts=facts_body(**CARD),
+        advice="skip",
+        rule="free_directory",
+        seen="Абзац со ссылкой: …",
+        tokens=100,
+        retried=False,
+    )
+
+
+async def test_a_pass_judges_a_catalog_donor_by_its_sign_counted_before_each_chunk(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Донор-каталог — по его же сохранённым судам, одним запросом на пачку: донор, набравший
+    двадцатую пару в этом проходе, получает признак со следующей пачки, а не со следующего прохода."""
+    monkeypatch.setattr(judge_pass, "CHUNK", 2)
+    asked: list[int] = []
+    real = judge_pass.catalog_donors
+
+    async def counted(session_: AsyncSession, cohort: Cohort) -> frozenset[str]:
+        asked.append(1)
+        return await real(session_, cohort)
+
+    monkeypatch.setattr(judge_pass, "catalog_donors", counted)
+    session.add_all([_judged_card(f"card{number}.example") for number in range(19)])
+    await _candidates(session, *_pending(*SAMPLE))
+    # Первая пачка: двадцатая карточка донора и спор — признака на начало пачки ещё нет.
+    # Вторая пачка: донор уже каталог — оба спора «не пишем».
+    model = Model(facts_answer(**CARD), facts_answer(**CARD_PAGE))
+
+    async with Site().client() as http:
+        report = await run_pass(
+            session, await plan_pass(session), client=client_of(model), http=http, delay=0
+        )
+
+    assert report.advice == {"skip": 3, "unclear": 1}
+    rules = Counter(row.rule for row in await _judgements(session))
+    assert rules == {"free_directory": 20, "disagree": 1, CATALOG_RULE: 2}
+    assert len(asked) == 2  # по запросу на пачку, а не на пару
 
 
 async def test_the_judge_has_its_own_daily_cap(
