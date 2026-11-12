@@ -139,7 +139,7 @@ describe('проверка адреса перед письмом у бизне�
     expect(screen.getByText(/адрес проверен у/).textContent).toContain(`адрес проверен у${NBSP}12`);
   });
 
-  it('проверяли не всех и ноль проверенных — звено воронки говорит «ещё не проверялись»', async () => {
+  it('проверенных ноль — звено воронки говорит «ещё не проверялись», а не «Кончились»', async () => {
     await openNiche({
       [`GET ${NICHE_PATH}`]: {
         body: checkedView(40, { 'адрес проверен': 0, 'ждут проверки адреса': 40 }),
@@ -153,6 +153,7 @@ describe('проверка адреса перед письмом у бизне�
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('адрес проверен 0')).toBeInTheDocument();
+    expect(screen.queryByText(/Кончились/)).not.toBeInTheDocument();
   });
 
   it('сервер чисел не прислал — проверка этапа выключена, вкладка о ней молчит', async () => {

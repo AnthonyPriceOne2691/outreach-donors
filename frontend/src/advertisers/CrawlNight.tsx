@@ -166,7 +166,7 @@ export function CrawlNight() {
       {catalogs > 0 ? (
         <Group gap={6} align="center" wrap="nowrap">
           <Text size="sm" c="dimmed">
-            · каталогов отложено:{' '}
+            · каталогов отложено:{'\u00a0'}
             {formatNumber(catalogs)}
           </Text>
           <InfoHint name="Почему каталоги отложены" width={260}>
