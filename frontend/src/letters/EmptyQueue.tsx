@@ -6,13 +6,15 @@
  * второе — …», и его приходилось решать, как задачу. Цепочка «подходящих → с адресом →
  * ещё не писали» с отмеченной ступенью отвечает взглядом, совет — строкой под ней.
  * Ступени после отмеченной — бледнее: воронка накопительная, и их нули — следствие.
+ * Ноль на последнем звене «адрес проверен» — не отсев, и строка под воронкой говорит это
+ * своими словами (`targets.stopWords`).
  */
 
 import { Badge, Card, Group, Stack, Text } from '@mantine/core';
 
 import { formatNumber } from '../format';
 import type { LetterTarget } from './targets';
-import { funnelNotes, funnelSteps, stopOf } from './targets';
+import { funnelNotes, funnelSteps, stopOf, stopWords } from './targets';
 
 interface Props {
   funnel: Record<string, number>;
@@ -49,11 +51,7 @@ export function EmptyQueue({ funnel, target, stale }: Props) {
             </Group>
           ))}
         </Group>
-        <Text size="sm">
-          {stop === null
-            ? 'Адресаты есть — очередь ещё не собрана.'
-            : `Кончились на ступени «${stop.step}»: ${stop.advice}.`}
-        </Text>
+        <Text size="sm">{stopWords(stop)}</Text>
         {funnelNotes(funnel, target).map((note) => (
           <Text key={note} size="sm" c="dimmed">
             {note}
