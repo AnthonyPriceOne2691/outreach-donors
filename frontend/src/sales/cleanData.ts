@@ -129,7 +129,7 @@ function waitingWords(found: Partial<SalesCleanReport>): string[] {
   }
   if ((found.unconfirmed ?? 0) > 0 && typeof found.recheck_on === 'string') {
     said.push(
-      'Адрес не подтверждён (unknown) — к письмам такие лиды не идут: очистка проверит их ' +
+      'Адрес не подтверждён — к письмам такие лиды не идут: очистка проверит их ' +
         `снова не раньше ${dayWords(found.recheck_on)}, второй такой ответ отклонит лида.`,
     );
   }

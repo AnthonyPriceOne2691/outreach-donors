@@ -188,7 +188,7 @@ def _waiting(report: CleaningReport) -> list[str]:
         )
     if report.unconfirmed and report.recheck_on is not None:
         said.append(
-            "\nАдрес не подтверждён (unknown) — к письмам такие лиды не идут: очистка проверит "
+            "\nАдрес не подтверждён — к письмам такие лиды не идут: очистка проверит "
             f"их снова не раньше {report.recheck_on:%d.%m.%Y}, второй такой ответ отклонит лида."
         )
     if report.stopped:

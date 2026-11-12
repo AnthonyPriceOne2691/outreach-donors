@@ -744,7 +744,7 @@ async def test_a_returned_lead_starts_without_its_old_verdict(world: World) -> N
     await Hunter({MARIA: [NOT_KNOWN]}).clean(world)
 
     note = (
-        "адрес не подтверждён: почтовый сервер не дал проверке ответа (unknown) — к письмам не "
+        "адрес не подтверждён: почтовый сервер не дал проверке ответа — к письмам не "
         f"идёт; очистка проверит снова не раньше {recheck_on(NOW):%d.%m.%Y}"
     )
     assert (await world.rows())[1] == Row(LeadStatus.NEW, None, note, "hunter:unknown", 40, NOW)

@@ -62,7 +62,7 @@ WEEK = timedelta(days=verifier.RECHECK_DAYS)
 JANE = "jane@acme.example.test"
 OLGA = "olga@beta.example.test"
 FIRST = (
-    "адрес не подтверждён: почтовый сервер не дал проверке ответа (unknown) — к письмам не идёт; "
+    "адрес не подтверждён: почтовый сервер не дал проверке ответа — к письмам не идёт; "
     "очистка проверит снова не раньше 11.10.2026"
 )
 
@@ -342,7 +342,7 @@ async def test_an_unknown_recheck_does_not_break_the_chain_of_a_written_lead(
 
     assert (lead.status, lead.verification_status) == (LeadStatus.READY, "hunter:unknown")
     assert lead.cleaning_note == (
-        "адрес не подтверждён: почтовый сервер не дал проверке ответа (unknown) — первое письмо "
+        "адрес не подтверждён: почтовый сервер не дал проверке ответа — первое письмо "
         "не уходит, очистка проверит снова не раньше 11.10.2026; если оно уже ушло, цепочка идёт "
         "без перепроверки"
     )
