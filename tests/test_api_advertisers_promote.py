@@ -29,6 +29,7 @@ from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
+from backend.features.crawl.judge_mark import marker_of
 from backend.shared.queue import ADVERTISER_CONTACTS_JOB_KEY, CONTACTS_JOB
 from backend.workers import jobs
 from httpx import AsyncClient
@@ -327,6 +328,50 @@ class TestPromote:
         assert entry.action is AuditAction.ADVERTISER_REVIEWED
         assert entry.details["действие"] == "перевод в рекламодатели"
         assert entry.details["заведено"] == 2
+
+    async def test_the_judges_yes_is_not_counted_as_a_persons(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        crawl: CrawlRunModel,
+        queue: FakeQueue,
+        session: AsyncSession,
+    ) -> None:
+        """«Пишем» с 11.11.2026 ставит и судья (автор решения — `судья:<партия>`). Итог перевода
+        считал его в «подтверждено человеком»: журнал говорил о руках человека там, где решал
+        судья. Теперь — своей строкой, а отметка «прошёл через руки человека» у рекламодателя —
+        только решением человека; «куплено» без решения — ни то ни другое."""
+        person = await _candidate(session, crawl, "person.example", Verdict.PENDING, confirmed=True)
+        person.decided_by = "оператор@site.com"
+        judged = await _candidate(session, crawl, "judged.example", Verdict.PENDING, confirmed=True)
+        judged.decided_by = marker_of("write-20261111-093015-a3f9")
+        await _candidate(session, crawl, "bought.example", Verdict.BOUGHT)
+        await session.commit()
+
+        answer = await client.post("/api/advertisers/promote", headers=bearer(operator_token))
+
+        report = answer.json()["report"]
+        assert report["заведено"] == 3
+        assert (report["подтверждено человеком"], report["подтверждено судьёй"]) == (1, 1)
+        marks = await session.execute(
+            select(DomainModel.host, AdvertiserModel.confirmed_by_human).join(
+                AdvertiserModel, AdvertiserModel.domain_id == DomainModel.id
+            )
+        )
+        assert dict(marks.tuples().all()) == {
+            "person.example": True,
+            "judged.example": False,
+            "bought.example": False,
+        }
+        entry = (
+            await session.execute(
+                select(AuditLogModel).where(AuditLogModel.target == "advertisers:promote")
+            )
+        ).scalar_one()
+        assert (entry.details["подтверждено человеком"], entry.details["подтверждено судьёй"]) == (
+            1,
+            1,
+        )
 
     async def test_without_run_permission_refused(
         self, client: AsyncClient, viewer_token: str, mixed: None, queue: FakeQueue

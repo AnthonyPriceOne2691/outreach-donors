@@ -1332,9 +1332,9 @@
       "worst": "—"
     },
     "backend/features/core/models/advertisers.py": {
-      "lines": 132,
+      "lines": 134,
       "complexity": 1,
-      "worst": "in_force:129"
+      "worst": "in_force:131"
     },
     "backend/features/core/models/agent.py": {
       "lines": 131,
@@ -1712,9 +1712,14 @@
       "worst": "of:80"
     },
     "backend/features/crawl/promote.py": {
-      "lines": 499,
+      "lines": 470,
       "complexity": 10,
-      "worst": "promote:195"
+      "worst": "promote:165"
+    },
+    "backend/features/crawl/promotion_report.py": {
+      "lines": 66,
+      "complexity": 2,
+      "worst": "count_decision:57"
     },
     "backend/features/crawl/proxies.py": {
       "lines": 248,
