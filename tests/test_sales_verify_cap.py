@@ -1,10 +1,12 @@
 """Месячный потолок проверки адресов продаж (`SALES_VERIFIER_MONTH_CAP`, `sales/verify_cap.py`).
 
-Счётчик проверок у Hunter свой, отдельный от поисков доноров: потолок держит проверки продаж
-в пределах тарифа и называет остаток. Счёт — единицы `sales_verify` журнала расхода с первого
-числа месяца (та же граница, что у капа Ahrefs); у живого проверяльщика потолок обязателен,
-у выдуманного не нужен. Потолок выбран или не задан — платная часть прохода встаёт словами,
-лиды остаются `new` с причиной, бесплатные правила им применены. Сеть — подделки; база настоящая.
+Счётчик проверок у Hunter свой, отдельный от поисков доноров: потолок держит проверки адреса
+в пределах тарифа и называет остаток. Счёт — единицы журнала расхода с первого числа месяца
+(та же граница, что у капа Ahrefs) по всем операциям проверки адреса: очистка продаж и
+проверка перед первым письмом донору и рекламодателю тратят один потолок. У живого
+проверяльщика потолок обязателен, у выдуманного не нужен. Потолок выбран или не задан —
+платная часть прохода встаёт словами, лиды остаются `new` с причиной, бесплатные правила им
+применены. Сеть — подделки; база настоящая.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import pytest
 from backend.config import sales as sales_cfg
 from backend.features.contacts.provider import ProviderError
 from backend.features.core import usage
+from backend.features.core.hunter_cap import OUTREACH_VERIFY_OPERATION, VERIFY_OPERATION
 from backend.features.core.models.ops import HunterCapModel
 from backend.features.sales import cleaning, verify_cap
 from backend.features.sales.models import LeadStatus, RejectionReason, SalesHypothesisModel
@@ -60,9 +63,12 @@ def _cap(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
     monkeypatch.setattr(sales_cfg, "VERIFIER_MONTH_CAP", value)
 
 
-async def _spent(world: World, units: int, *, at: datetime | None = None) -> None:
-    """Проверки, уже записанные в журнал расхода: в этом месяце или в названный день."""
-    row = usage.record(world.session, operation="sales_verify", units=units)
+async def _spent(
+    world: World, units: int, *, at: datetime | None = None, operation: str = VERIFY_OPERATION
+) -> None:
+    """Проверки, уже записанные в журнал расхода: в этом месяце или в названный день —
+    очистки продаж или, названной операцией, проверки перед первым письмом."""
+    row = usage.record(world.session, operation=operation, units=units)
     if at is not None:
         row.created_at = at
     await world.session.flush()
@@ -97,6 +103,30 @@ async def test_paid_checks_go_up_to_the_month_cap_and_the_rest_wait_new_in_words
         words,
     )
     assert await verify_cap.month_spent(world.session, now=NOW) == 3
+
+
+async def test_checks_before_the_first_letter_take_the_same_cap(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Потолок — пять, две проверки ушли на адреса доноров и рекламодателей перед первым письмом,
+    одна — на очистку: проход проверяет двоих, третий ждёт словами «выбран: 5 из 5». Считай
+    очистка только свои, она проверила бы всех троих — и вместе вышло бы шесть при потолке пять."""
+    monkeypatch.setattr(cleaning, "VERIFY_CONCURRENCY", 1)
+    _cap(monkeypatch, "5")
+    await _spent(world, 1)
+    await _spent(world, 2, operation=OUTREACH_VERIFY_OPERATION)
+    await _spent(world, 40, at=LAST_MONTH, operation=OUTREACH_VERIFY_OPERATION)
+    hunter = Scripted()
+    for email in (IVAN, MARIA, OLGA):
+        await world.lead(email)
+
+    report = await cleaning.clean(world.session, hunter, now=NOW)
+
+    words = "потолок проверки адресов на месяц выбран: 5 из 5 — следующий месяц продолжит"
+    assert hunter.asked == [IVAN, MARIA]
+    assert await world.rows() == [PAID_READY, PAID_READY, _waiting(words)]
+    assert (report.ready, report.unverified, report.stopped) == (2, 1, words)
+    assert await verify_cap.month_spent(world.session, now=NOW) == 5
 
 
 async def test_spent_cap_asks_nothing_and_the_free_rules_still_run(
@@ -258,7 +288,8 @@ async def test_zero_on_the_screen_stops_the_paid_part_whatever_the_environment_s
 
 async def test_month_words_for_the_screens(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
     _cap(monkeypatch, "1500")
-    await _spent(world, 120)
+    await _spent(world, 100)
+    await _spent(world, 20, operation=OUTREACH_VERIFY_OPERATION)
     await _spent(world, 9, at=LAST_MONTH)
 
     found = await verify_cap.month(world.session, now=NOW)

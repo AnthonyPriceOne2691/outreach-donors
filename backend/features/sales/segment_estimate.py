@@ -209,7 +209,7 @@ class Estimate:
     tokens_left: int | None = None
     hunter_searches: int = 0
     hunter_checks: int = 0
-    #: Проверки адреса этого месяца под своим потолком — у живой проверки (`verify_cap`).
+    #: Проверки адреса этого месяца под общим потолком — у живой проверки (`verify_cap`).
     month: verify_cap.Month | None = None
     lines: list[str] = field(default_factory=list)
     refusal: str | None = None

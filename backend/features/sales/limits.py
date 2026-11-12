@@ -5,9 +5,11 @@
 `ops/limit_mail`): у них один код с аутричем, здесь только то, что есть лишь у продаж.
 
 **Числа — те же, что держат работу.** Потолок проверок — `core/hunter_cap.verify_month_cap`, выбрано —
-`verify_cap.month_spent`: этими же числами отказывает очистка. Панель не считает второй раз. Проверка
-адреса — операция продаж целиком, поиск адреса общий с донорами, поэтому его строка берёт только
-записи с этапом продаж.
+`verify_cap.month_spent`: этими же числами отказывает очистка. Панель не считает второй раз. Потолок
+проверок общий: его тратят очистка продаж и проверка адреса перед первым письмом донору и
+рекламодателю (`contacts/address_check.py`), своей строки у той нет — поэтому строка считает все
+операции проверки (`hunter_cap.VERIFY_OPERATIONS`) и за месяц, и за сегодня. Поиск адреса общий с
+донорами, поэтому его строка берёт только записи с этапом продаж.
 
 **Меняется только потолок проверок.** Он и есть денежный рычаг, и у него уже есть поле на вкладке
 «Лимиты»: панель идёт тем же сеттером и тем же журналом (`ops/cap_journal`). Поиск и выдачу держит смета
@@ -56,7 +58,6 @@ from backend.features.ops.limit_services import READ_ONLY
 from backend.features.runs.spending import month_start
 from backend.features.sales import agent_turns, segment_estimate, verify_cap
 from backend.features.sales.segment_serp import SERP_OPERATION
-from backend.features.sales.verifier import OPERATION as VERIFY_OPERATION
 from backend.features.serp.funds import MIN_BALANCE_USD, dollars
 from backend.shared.numbers import spaced
 
@@ -72,6 +73,9 @@ HUNTER, ONE_RUN = "Hunter", "один прогон сбора"
 #: Откуда потолок проверок: поле на экране или запасная настройка сервера.
 FROM_SCREEN = "поле: вкладка «Лимиты»"
 FROM_ENV = f".env {hunter_cap.SETTING}"
+
+#: Охват строки проверки: потолок общий — его тратит и проверка перед первым письмом.
+VERIFY_SCOPE = "все проверки адреса: продажи и аутрич"
 
 #: Платят тарифом: кредиты общего счёта учётки, а не деньги за штуку (`okf/unit-economy.md`).
 VERIFY_COST = "Платят тарифом Hunter: проверка — половина кредита общего счёта"
@@ -109,16 +113,15 @@ def _verify_now(month: verify_cap.Month, found: AccountSnapshot | None) -> str:
 async def _verify_row(session: AsyncSession, moment: datetime) -> LimitRow:
     month = await verify_cap.month(session, now=moment)
     stored = await hunter_cap.stored_verify_cap(session)
-    today = (
-        await spent(session, day_start(moment), UsageRecordModel.operation == VERIFY_OPERATION)
-    )[0]
+    checks = UsageRecordModel.operation.in_(hunter_cap.VERIFY_OPERATIONS)
+    today = (await spent(session, day_start(moment), checks))[0]
     return replace(
         BLANK,
         key="sales.hunter.verify",
         task=SALES,
         service=HUNTER,
-        action="Проверка адреса лида",
-        scope="все проверки продаж",
+        action="Проверка адреса",
+        scope=VERIFY_SCOPE,
         unit="проверок",
         per_month=month.cap if isinstance(month.cap, int) else None,
         used_day=today,

@@ -166,6 +166,28 @@ class TestVerifyRow:
         assert row["used_month"] == (await verify_cap.month(session, now=NOW)).spent
         assert f"на этот месяц осталось {spaced(1493)}" in row["now"]
 
+    async def test_the_checks_before_the_first_letter_are_in_the_same_numbers(
+        self,
+        client: AsyncClient,
+        session: AsyncSession,
+        token: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Потолок общий, своей строки у проверки перед письмом нет: её проверки — в «выбрано»
+        этой строки за сегодня и за месяц, и остаток считается от суммы."""
+        monkeypatch.setattr(limits, "datetime", _Frozen)
+        _spent(session, VERIFY_OPERATION, 3, NOW - timedelta(hours=1))
+        _spent(session, hunter_cap.OUTREACH_VERIFY_OPERATION, 2, NOW - timedelta(hours=2))
+        _spent(session, hunter_cap.OUTREACH_VERIFY_OPERATION, 10, NOW - timedelta(days=3))
+        _spent(session, hunter_cap.OUTREACH_VERIFY_OPERATION, 60, NOW - timedelta(days=20))
+        await session.commit()
+
+        row = (await _panel(client, token))["sales.hunter.verify"]
+
+        assert (row["used_day"], row["used_month"]) == (5, 15)
+        assert f"на этот месяц осталось {spaced(1485)}" in row["now"]
+        assert (row["action"], row["scope"]) == ("Проверка адреса", limits.VERIFY_SCOPE)
+
     async def test_a_chosen_cap_says_the_cleaning_stands(
         self,
         client: AsyncClient,
@@ -198,7 +220,8 @@ class TestQuote:
         self, client: AsyncClient, session: AsyncSession, token: str
     ) -> None:
         await _account_known(session)
-        _spent(session, VERIFY_OPERATION, 100, datetime.now(UTC))
+        _spent(session, VERIFY_OPERATION, 70, datetime.now(UTC))
+        _spent(session, hunter_cap.OUTREACH_VERIFY_OPERATION, 30, datetime.now(UTC))
         await session.commit()
         before = await _written(session)
 
