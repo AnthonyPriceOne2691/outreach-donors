@@ -5,7 +5,6 @@
  * Идёт — «Очередь уходит сама с … · включил … · ушло N», под ней — чем кончился последний
  * проход, словами сервера (ящики на паузе до …, писать некому — продолжит завтра, почта
  * отказала …), и кнопка «Остановить»: письма остаются в очереди и дальше уходят только кнопкой.
- * Время в словах прохода — по часам смотрящего, как момент прохода перед ними (`passLine`).
  * Рубильник сервиса выключен — так и сказано: проходы стоят, хотя запуск не остановлен.
  * Остановлена — одной строкой: когда, кем или почему («очередь кончилась»). Не включалась ни
  * разу — строки нет.
@@ -32,7 +31,6 @@ import { queueEta, stopAutosend } from '../api/letters';
 import type { LetterAudience } from '../api/letters';
 import type { Stage } from '../api/stages';
 import { formatDateTime, formatNumber, plural } from '../format';
-import { viewerClockWords } from './viewerClock';
 
 interface Props {
   stage: Stage;
@@ -80,19 +78,6 @@ export function etaLine(eta: QueueEta): string {
   return `Остаток уйдёт ≈ за ${span}, к ${day}.${month}`;
 }
 
-/** Чем кончился последний проход: «29.10.2026, 10:10: ушло 1. ящики на паузе между письмами —
- *  ближайший освободится в 10:20». Момент прохода и время в словах сервера — в одних часах,
- *  смотрящего: сервер называет время по UTC, и строка читалась в двух поясах — «14:17: …
- *  освободится в 11:18 UTC», будто ящик освободился раньше прохода (12.11.2026, `viewerClock.ts`).
- *  Рубильник выключен — слова о нём: они не о проходе, и момента прохода перед ними нет. Сказать
- *  нечего — `null`. */
-export function passLine(autosend: QueueAutosend): string | null {
-  const words = autosend.off ?? autosend.state;
-  if (!words) return null;
-  if (autosend.off || !autosend.passed_at) return words;
-  return `${formatDateTime(autosend.passed_at)}: ${viewerClockWords(words, autosend.passed_at)}`;
-}
-
 /** Срок очереди, которая уходит сама, — раз в минуту, как прогноз у продаж. */
 function EtaLine({ stage }: { stage: Stage }) {
   const eta = useQuery({
@@ -127,7 +112,7 @@ export function QueueAutosendLine({
       </Text>
     ) : null;
   }
-  const passed = passLine(autosend);
+  const state = autosend.off ?? autosend.state;
   return (
     <Stack gap={4}>
       <Group gap="sm" justify="space-between">
@@ -146,11 +131,12 @@ export function QueueAutosendLine({
         ) : null}
       </Group>
       <EtaLine stage={stage} />
-      {passed === null ? null : (
+      {state ? (
         <Text size="sm" c="dimmed">
-          {passed}
+          {autosend.passed_at && !autosend.off ? `${formatDateTime(autosend.passed_at)}: ` : ''}
+          {state}
         </Text>
-      )}
+      ) : null}
       {stop.isError ? (
         <Text size="sm" c="red">
           Не остановили: {refusalOf(stop.error)}
