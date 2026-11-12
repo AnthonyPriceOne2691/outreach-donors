@@ -3247,9 +3247,9 @@
       "worst": "problem:91"
     },
     "backend/features/sales/limits.py": {
-      "lines": 274,
+      "lines": 277,
       "complexity": 4,
-      "worst": "_month_words:88"
+      "worst": "_month_words:92"
     },
     "backend/features/sales/loops.py": {
       "lines": 151,
@@ -3612,9 +3612,9 @@
       "worst": "_sum:175"
     },
     "backend/features/sales/verify_cap.py": {
-      "lines": 117,
+      "lines": 129,
       "complexity": 4,
-      "worst": "verify:89"
+      "worst": "verify:101"
     },
     "backend/features/sales/verify_columns.py": {
       "lines": 35,
