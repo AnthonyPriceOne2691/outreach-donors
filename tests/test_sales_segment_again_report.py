@@ -216,7 +216,7 @@ async def test_waits_name_why_when_and_what_the_button_takes(session: AsyncSessi
         Wait("cleaning", "Hunter ещё проверяет адрес", 1, future, again=False),
         Wait(
             "cleaning",
-            f"адрес не подтверждён (unknown) — перепроверка не раньше {day}",
+            f"адрес не подтверждён — перепроверка не раньше {day}",
             1,
             again=False,
         ),
