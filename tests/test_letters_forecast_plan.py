@@ -123,6 +123,38 @@ def test_today_after_the_window_closed_is_zero_with_the_hour() -> None:
     assert days[1].planned == 5
 
 
+def test_today_after_the_window_closed_keeps_the_capacity_of_the_whole_day() -> None:
+    """Окно на сегодня уже закрылось, а день отправки был — с ящика ушло три письма: мощность у
+    сегодня — дня целиком, уйдёт ноль, причина — слова закрытого окна. До 12.11.2026 мощность была
+    ноль, как у дня без окна, и рядом с планом дня на экране стояло «мощность 0, план 3» — каждый
+    вечер. Остальное в дне не задето: писем сегодня нет, очередь уходит со следующего дня."""
+    late = NOW.replace(hour=16)  # окно в Берлине закрылось в 15:00 UTC
+    boxes = _boxes(_box(1, wrote=40), sent=3)
+    days, eta = plan(late, 2, Clock(WEEKDAYS_9_17, BERLIN), boxes, Supply(queued=30), Chains())
+
+    assert (days[0].sending, days[0].capacity, days[0].planned) == (False, 20, 0)
+    assert (
+        days[0].why_not == "окно получателя на сегодня закрылось в 15:00 UTC (пояс Europe/Berlin)"
+    )
+    assert (days[1].sending, days[1].capacity, days[1].planned) == (True, 20, 20)
+    assert (eta.day, eta.sending_days) == (late.date() + timedelta(days=2), 2)
+
+
+def test_today_that_is_not_a_sending_day_has_no_capacity() -> None:
+    """Сегодня — суббота окна пн–пт: день окну не принадлежит, и мощность — ноль, как у любого дня
+    без окна, что бы ни ушло с ящика; к закрывшемуся окну такой день не относится."""
+    saturday = datetime(2026, 10, 24, 10, 0, tzinfo=UTC)
+    boxes = _boxes(_box(1, wrote=40), sent=3)
+    days, _ = plan(saturday, 3, Clock(WEEKDAYS_9_17, BERLIN), boxes, Supply(queued=30), Chains())
+
+    assert [(day.sending, day.capacity, day.planned) for day in days] == [
+        (False, 0, 0),
+        (False, 0, 0),
+        (True, 20, 20),
+    ]
+    assert days[0].why_not == "не день отправки: окно получателя — пн–пт 09:00–17:00 по его часам"
+
+
 # --- что есть отправить ---------------------------------------------------------------------
 
 

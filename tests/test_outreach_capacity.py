@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from backend.config import outreach as outreach_cfg
@@ -146,6 +147,36 @@ def test_the_first_sending_day_follows_the_window_days() -> None:
     assert capacity.first_sending(saturday, weekdays) == date(2026, 10, 26)
     assert capacity.first_sending(saturday, None) == saturday
     assert capacity.first_sending(TODAY, weekdays) == TODAY
+
+
+def test_a_window_that_closed_today_is_told_apart_from_a_day_without_one() -> None:
+    """Слова `closed` есть у обоих дней, а признак `over` — только у окна, которое в этот день было
+    и уже закрылось: день отправки был. По нему прогноз оставляет сегодняшнему дню мощность дня
+    целиком; дню, который окну не принадлежит, — ноль."""
+    weekdays = SendWindow(days=frozenset(range(5)), start=time(9), end=time(17))
+    berlin = ZoneInfo("Europe/Berlin")  # летнее время: окно среды — 07:00–15:00 UTC
+    evening, saturday = NOW.replace(hour=16), datetime(2026, 10, 24, 16, 0, tzinfo=UTC)
+
+    closed = capacity.span_of(weekdays, berlin, TODAY, evening)
+    weekend = capacity.span_of(weekdays, berlin, saturday.date(), saturday)
+
+    assert (closed.closed, closed.over) == (
+        "окно получателя на сегодня закрылось в 15:00 UTC (пояс Europe/Berlin)",
+        True,
+    )
+    assert (weekend.closed, weekend.over) == (
+        "не день отправки: окно получателя — пн–пт 09:00–17:00 по его часам",
+        False,
+    )
+    # Окно ещё открыто, завтрашний день вечером, этап без окна, пояс неизвестен — признака нет.
+    for frame, zone, day, now in (
+        (weekdays, berlin, TODAY, NOW),
+        (weekdays, berlin, TODAY + timedelta(days=1), evening),
+        (None, None, TODAY, evening),
+        (weekdays, None, TODAY, evening),
+    ):
+        found = capacity.span_of(frame, zone, day, now)
+        assert (found.closed, found.over) == (None, False)
 
 
 # --- сегодня глазами выбора ящика -----------------------------------------------------------

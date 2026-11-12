@@ -253,32 +253,62 @@ describe('рассылка: план и факт — колонками рядо
     ]);
   });
 
-  it('окно получателя на сегодня закрылось: мощность — дня целиком, план равен факту', () => {
-    // У дня без окна сервер отдаёт в строке плана ноль — и у сегодня, когда окно уже закрылось:
-    // рядом с планом и фактом дня стояло бы «мощность 0, план 6», и так каждый вечер. Мощность
-    // сегодня — дня целиком (`today.allowance`); у будущего дня без окна — ноль, как отдал сервер.
+  it('окно получателя на сегодня закрылось: мощность — дня целиком, как отдал сервер; план равен факту', () => {
+    // Вечером сервер отдаёт у сегодня остаток дня нулём, а мощность — дня целиком: день отправки
+    // был (до 12.11.2026 приходил ноль, и рядом с планом дня стояло бы «мощность 0, план 6»).
+    // Мощность экран берёт из строки плана, а не из «сегодня»: у ответа они здесь разные.
     const closed = 'окно получателя на сегодня закрылось в 12:00 UTC (пояс America/Toronto)';
-    const over = {
-      sending_day: false,
-      why_not: closed,
-      capacity_first: 0,
-      planned_first: 0,
-      followups_due: 0,
-    };
-    const days = FORECAST.days.map((day, index) => (index === 0 ? { ...day, ...over } : day));
+    const over = { sending_day: false, why_not: closed, planned_first: 0, followups_due: 0 };
+    const days = FORECAST.days.map((day, index) =>
+      index === 0 ? { ...day, ...over, capacity_first: 28 } : day,
+    );
     renderWith(<MailingDaysTabs view={{ ...FORECAST, days }} />);
     const plan = screen.getByRole('region', { name: PLAN });
 
     expect(cells(rowOf(plan, 'пн 02.11'))).toEqual([
       'пн 02.11сегодня',
-      '30',
+      '28',
       '6',
       '6',
       '2',
       '2',
       'окно получателя на сегодня закрылось в 12:00 UTC (пояс UTC−5)',
     ]);
-    expect(cells(rowOf(plan, 'сб 07.11')).slice(1, 3)).toEqual(['0', '0']);
+  });
+
+  it('сегодня не день отправки: мощность — ноль, как у других дней без окна; план — ушедшее', () => {
+    // Что сегодня за день — закрывшееся окно или день без окна, — решает сервер: экран мощность
+    // дня из «сегодня» (`allowance`, в ответе 30) не подставляет. Ушедшее руками в такой день —
+    // в плане дня и в факте, как пришло.
+    const weekend = 'не день отправки: окно получателя — пн–пт 09:00–17:00 по его часам';
+    const off = {
+      sending_day: false,
+      why_not: weekend,
+      capacity_first: 0,
+      planned_first: 0,
+      followups_due: 0,
+    };
+    const days = FORECAST.days.map((day, index) => (index === 0 ? { ...day, ...off } : day));
+    const { unmount } = renderWith(<MailingDaysTabs view={{ ...FORECAST, days }} />);
+
+    expect(cells(rowOf(screen.getByRole('region', { name: PLAN }), 'пн 02.11'))).toEqual([
+      'пн 02.11сегодня',
+      '0',
+      '6',
+      '6',
+      '2',
+      '2',
+      'не день отправки',
+    ]);
+    unmount();
+
+    // Обычный такой день: ничего не уходило — нули, а не прочерки: день наступил.
+    const quiet = { ...FORECAST.today, sent_first: 0, sent_followups: 0 };
+    renderWith(<MailingDaysTabs view={{ ...FORECAST, days, today: quiet }} />);
+
+    expect(
+      cells(rowOf(screen.getByRole('region', { name: PLAN }), 'пн 02.11')).slice(1, 6),
+    ).toEqual(['0', '0', '0', '0', '0']);
   });
 
   it('будущие дни: план — как отдал сервер, факт — прочерк, а не ноль', () => {

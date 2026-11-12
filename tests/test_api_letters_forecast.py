@@ -61,6 +61,17 @@ def _frozen(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(forecast_module, "datetime", _Frozen)
 
 
+def _clock_at(moment: datetime) -> type[datetime]:
+    """Часы прогноза на другой минуте — вечер после закрытия окна, суббота."""
+
+    class _Clock(datetime):
+        @classmethod
+        def now(cls, tz: tzinfo | None = None) -> datetime:  # type: ignore[override]
+            return moment if tz is not None else moment.replace(tzinfo=None)
+
+    return _Clock
+
+
 @dataclass
 class ForecastSales(FakeSalesMail):
     """Подставной модуль продаж, который отвечает и прогнозу (`stage_forecast.SalesForecast`)."""
@@ -503,6 +514,65 @@ async def test_sales_follow_the_recipient_window_and_the_autosend_pace(
     assert (eta["day"], eta["sending_days"], eta["hours"]) == ("2026-10-21", 1, 0.8)
     assert body["paused"] is None
     assert {"supply", "queue_zones", "queue_stuck", "autosend_stop"} <= set(sales_module.asked)
+
+
+@pytest.mark.parametrize(
+    ("moment", "whole", "why"),
+    [
+        # Среда, 16:00 UTC: окно в Берлине закрылось в 15:00 — день отправки был.
+        (
+            NOW.replace(hour=16),
+            20,
+            "окно получателя на сегодня закрылось в 15:00 UTC (пояс Europe/Berlin)",
+        ),
+        # Суббота: день окну пн–пт не принадлежит.
+        (
+            datetime(2026, 10, 24, 10, 0, tzinfo=UTC),
+            0,
+            "не день отправки: окно получателя — пн–пт 09:00–17:00 по его часам",
+        ),
+    ],
+)
+async def test_today_keeps_its_capacity_after_the_window_closed_but_not_without_a_window(
+    client: AsyncClient,
+    session: AsyncSession,
+    viewer: dict[str, str],
+    sales_module: ForecastSales,
+    monkeypatch: pytest.MonkeyPatch,
+    moment: datetime,
+    whole: int,
+    why: str,
+) -> None:
+    """Сегодня с ящика ушло три первых письма. Окно получателя на сегодня уже закрылось — мощность
+    первой строки плана остаётся мощностью дня целиком: день отправки был, и план дня на экране —
+    ушедшее за него (до 12.11.2026 был ноль: «мощность 0, план 3»). Сегодня не день отправки —
+    ноль, как у любого дня без окна. В обоих случаях сегодня больше ничего не уйдёт, а
+    `today.allowance` — по-прежнему то, что пускают лимиты ящиков."""
+    monkeypatch.setattr(forecast_module, "datetime", _clock_at(moment))
+    box = await _box(session, "sales1@mail-s.example.test", Stage.SALES)
+    letters = await _letters(session, Stage.SALES)
+    for _ in range(4):
+        await letters.add()
+    for _ in range(3):
+        await letters.add(
+            status=MessageStatus.SENT, sent_at=moment - timedelta(hours=3), sender_id=box.id
+        )
+    await session.commit()
+
+    response = await client.get(
+        URL, params={"stage": "sales", "days": 2, "back": 0}, headers=viewer
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    today = body["days"][0]
+    assert (body["today"]["sent_first"], body["today"]["allowance"]) == (3, 20)
+    assert (today["sending_day"], today["capacity_first"], today["planned_first"]) == (
+        False,
+        whole,
+        0,
+    )
+    assert today["why_not"] == why
 
 
 async def test_a_stopped_autosend_is_named_and_the_plan_stays(

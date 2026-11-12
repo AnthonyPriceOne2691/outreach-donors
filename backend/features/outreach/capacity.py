@@ -265,11 +265,16 @@ class Span:
     start: datetime | None = None
     end: datetime | None = None
     closed: str | None = None
+    #: Окно в этот день было и к минуте вопроса уже закрылось: день отправки был, письма в него
+    #: уходили. У дня, который окну не принадлежит вовсе, `closed` тоже есть, а этого признака нет:
+    #: по нему прогноз оставляет сегодняшнему дню мощность дня целиком (`forecast_plan._day`).
+    over: bool = False
 
 
 def span_of(frame: SendWindow | None, zone: ZoneInfo | None, day: date, now: datetime) -> Span:
     """Часы отправки дня `day` от минуты `now`: без окна — весь UTC-день; с окном — его часы в поясе
-    `zone`; день не окна или окно на сегодня закрылось — `closed` словами."""
+    `zone`; день не окна или окно на сегодня закрылось — `closed` словами, а закрывшееся окно — ещё
+    и признаком `over`."""
     if frame is None:
         start = datetime.combine(day, time.min, tzinfo=UTC)
         return Span(max(start, now), start + timedelta(days=1))
@@ -281,7 +286,8 @@ def span_of(frame: SendWindow | None, zone: ZoneInfo | None, day: date, now: dat
     opens, closes = hours
     if now >= closes:
         return Span(
-            closed=f"окно получателя на сегодня закрылось в {closes:%H:%M} UTC (пояс {zone.key})"
+            closed=f"окно получателя на сегодня закрылось в {closes:%H:%M} UTC (пояс {zone.key})",
+            over=True,
         )
     return Span(max(opens, now), closes)
 
