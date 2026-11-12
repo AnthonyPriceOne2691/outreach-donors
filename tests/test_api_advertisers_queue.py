@@ -18,6 +18,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.crawl import review
+from backend.features.crawl.judge_mark import marker_of
 from backend.features.crawl.strata import FEATURES
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -414,6 +415,36 @@ async def test_the_numbers_of_the_head_do_not_follow_the_filter_or_the_page(
     assert plain["scoring"]["pending_sample"]["decided"] == 1
     for body in (narrowed, nothing):
         assert {key: body[key] for key in head} == {key: plain[key] for key in head}
+
+
+async def test_the_head_says_how_many_of_the_decided_the_judge_decided(
+    client: AsyncClient, token: str, session: AsyncSession
+) -> None:
+    """«Решено» шапки — и людьми, и судьёй (с 11.11.2026): сколько из них судьёй, говорит `judged`.
+    Решение судьи, переигранное человеком, — уже человека; «куплено» в число не идёт, как и в
+    «решено»; фильтр числа не меняет."""
+    run = await crawled(session, DONOR)
+    judge = marker_of("skip-20261111-093015-a3f9")
+    [card, replayed] = await _rows(
+        session, run, ["card.example.test", "replayed.example.test"], confirmed=False
+    )
+    [paid] = await _rows(
+        session, run, ["paid.example.test"], points=9, verdict=Verdict.BOUGHT, confirmed=False
+    )
+    card.decided_by = replayed.decided_by = paid.decided_by = judge
+    await _rows(session, run, ["person.example.test"], confirmed=True)
+    await _rows(session, run, ["open.example.test"])
+    await session.commit()
+
+    before = await _queue(client, token)
+    narrowed = await _queue(client, token, points=77)
+    await review.decide(session, replayed.id, confirmed=True, by="оператор@site.com", force=True)
+    await session.commit()
+    after = await _queue(client, token)
+
+    assert (before["waiting"], before["counts"]["pending"], before["judged"]) == (1, 4, 2)
+    assert narrowed["judged"] == 2
+    assert (after["waiting"], after["judged"]) == (1, 1)
 
 
 class TestCrookedQueries:

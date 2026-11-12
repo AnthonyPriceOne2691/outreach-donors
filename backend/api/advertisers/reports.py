@@ -107,8 +107,9 @@ async def export_pending(
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> Response:
-    """Все спорные, решённые — с пометкой: файл специалисту. Сколько легло и сколько всего —
-    заголовками ответа, как у выгрузки списка: файл не обещает больше, чем в нём есть."""
+    """Все спорные, решённые — с пометкой и с тем, кто решил: файл специалисту. Сколько легло и
+    сколько всего — заголовками ответа, как у выгрузки списка: файл не обещает больше, чем в нём
+    есть."""
     rows, total = await disputed_export.disputed(session)
     stamp = datetime.now(UTC).strftime("%Y-%m-%d")
     return Response(

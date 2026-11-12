@@ -220,9 +220,12 @@ function ReviewView({ onOpenCrawl }: { onOpenCrawl: () => void }) {
   const rows = data?.rows ?? [];
   const counts = data?.counts ?? {};
   const waiting = data?.waiting ?? 0;
-  // Спорные, по которым человек уже решил: счётчик «спорно» считает всех,
+  // Спорные, по которым решение уже есть: счётчик «спорно» считает всех,
   // «ждут человека» — только нерешённых.
   const decided = Math.max(0, (counts['pending'] ?? 0) - waiting);
+  // Сколько из них решил судья (12.11.2026): с 11.11 часть решений ставит он, и «решено» без
+  // деления читалось работой людей. Ноль не называется.
+  const judged = data?.judged ?? 0;
   const mayDecide = can('prices');
   const filtered = isReviewFiltered(filters);
   // В списке никого — объяснение вместо таблицы; по числу всего списка, а не строк: пустая страница
@@ -277,6 +280,7 @@ function ReviewView({ onOpenCrawl }: { onOpenCrawl: () => void }) {
               {decided > 0 ? (
                 <>
                   , решено: <b>{formatNumber(decided)}</b>
+                  {judged > 0 ? ` (судья:\u00a0${formatNumber(judged)})` : null}
                 </>
               ) : null}
             </Text>

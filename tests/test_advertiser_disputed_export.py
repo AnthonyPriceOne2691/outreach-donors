@@ -1,4 +1,5 @@
-"""Спорные файлом: все спорные, решённые — с пометкой, текст с чужих страниц не исполняется.
+"""Спорные файлом: все спорные, решённые — с пометкой и с тем, кто решил, текст с чужих страниц
+не исполняется.
 
 Проверяется содержимое файла, а не факт скачивания: заголовки, строки, колонки под ответ
 специалиста, потолок строк и число «сколько всего» в заголовке ответа.
@@ -14,6 +15,7 @@ import pytest
 from backend.features.core.domain import UserRole, Verdict
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import disputed_export
+from backend.features.crawl.judge_mark import marker_of
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
@@ -67,8 +69,33 @@ async def test_the_file_holds_every_disputed_with_its_decision(
         "https://donor.example.test/post/strong.example.test",
         "best strong.example.test",
     ]
-    # Колонки ответа специалиста — пустые: их заполнит человек.
-    assert line[7:] == ["", ""]
+    # Решения нет — решившего тоже; колонки ответа специалиста пустые: их заполнит человек.
+    assert line[7:] == ["", "", ""]
+
+
+async def test_the_file_says_who_decided_a_person_or_the_judge(
+    session: AsyncSession, disputed: None
+) -> None:
+    """«Решение сейчас» говорило только «пишем» или «не пишем» (12.11.2026): решение судьи от
+    решения человека в файле было не отличить. Кто решил — соседней колонкой, словом, без метки
+    партии; у нерешённой строки пусто — совета судьи в файле по-прежнему нет."""
+    run = await crawled(session, "judged.example.test")
+    by_judge = await scored(
+        session, run, "catalog-card.example.test", verdict=Verdict.PENDING, confirmed=False
+    )
+    by_judge.decided_by = marker_of("skip-20261111-093015-a3f9")
+    await session.flush()
+    rows, _ = await disputed_export.disputed(session)
+
+    table = _table(disputed_export.to_csv(rows))
+
+    who = table[0].index("кто решил")
+    assert table[0][who - 1 : who + 2] == ["решение сейчас", "кто решил", "решение специалиста"]
+    said = {line[1]: (line[who - 1], line[who]) for line in table[1:]}
+    assert said["catalog-card.example.test"] == ("не пишем", "судья")
+    assert said["no.example.test"] == ("не пишем", "человек")
+    assert said["yes.example.test"] == ("пишем", "человек")
+    assert said["strong.example.test"] == ("ждёт решения", "")
 
 
 async def test_the_strongest_come_first_and_the_cap_is_honest(
