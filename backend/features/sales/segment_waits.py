@@ -170,7 +170,7 @@ async def _cleaning(session: AsyncSession, run_id: int, *, real: bool, now: date
         found.append(Wait(CLEANING, CHECKING, len(future), min(future), again=False))
     if unknown:
         day = f"{recheck_on(min(unknown)):%d.%m.%Y}"
-        words = f"адрес не подтверждён (unknown) — перепроверка не раньше {day}"
+        words = f"адрес не подтверждён — перепроверка не раньше {day}"
         found.append(Wait(CLEANING, words, len(unknown), again=False))
     found += [Wait(CLEANING, NOT_CLEANED, fresh)] if fresh else []
     return found + ([Wait(CLEANING, OTHER, other)] if other else [])

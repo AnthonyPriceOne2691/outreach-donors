@@ -75,7 +75,7 @@ const CHECKING: SegmentWait = {
 };
 const UNKNOWN: SegmentWait = {
   kind: 'cleaning',
-  words: 'адрес не подтверждён (unknown) — перепроверка не раньше 27.10.2026',
+  words: 'адрес не подтверждён — перепроверка не раньше 27.10.2026',
   count: 1,
   at: null,
   again: false,
@@ -145,7 +145,7 @@ describe('срок и предложение словами', () => {
       `Hunter ещё проверяет адрес\u00a0—\u00a02, срок повтора ${formatTime(at)} наступил`,
     );
     expect(waitLine(UNKNOWN, NOW)).toBe(
-      'адрес не подтверждён (unknown) — перепроверка не раньше 27.10.2026\u00a0—\u00a01',
+      'адрес не подтверждён — перепроверка не раньше 27.10.2026\u00a0—\u00a01',
     );
   });
 

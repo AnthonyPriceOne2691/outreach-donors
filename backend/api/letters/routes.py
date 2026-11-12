@@ -381,6 +381,21 @@ async def send_queue(
         raise HTTPException(
             status.HTTP_409_CONFLICT, "В очереди этого этапа писем нет — отправлять нечего"
         )
+    # С отметкой «дальше — сама» кнопка только включает режим — пачки нет (слово владельца
+    # 12.11.2026). Пачка отдавала почте сразу весь дневной лимит ящиков: первая порция шла
+    # всплеском, а размеренно уходил только остаток. Теперь всю очередь шлют проходы — по письму
+    # с ящика с паузой, в рабочее время получателя (`letters/autosend.py`). Очередь уже уходит
+    # сама — нажатие, как прежде, шлёт пачку сейчас: так решил человек.
+    if await _only_starts(body, session):
+        await _keep_sending(body, author, session)
+        logger.info(
+            "письма: %s включил «уходит сама» у очереди этапа %s (%s) — в очереди %s, пачки нет",
+            author.email,
+            body.stage.value,
+            body.audience,
+            waiting,
+        )
+        return SendQueueQueued(job_id=None, queued=0, autosend=True)
     # Итог пачки — неделю, как у остальных задач (`RESULT_TTL`): с умолчанием rq в восемь
     # минут строка пачки через десять минут отвечала «задачи нет», и причина остановки
     # пачки пропадала с экрана (аудит 10.10.2026).
@@ -409,8 +424,17 @@ async def send_queue(
     return SendQueueQueued(job_id=str(job.id), queued=taken, autosend=itself)
 
 
+async def _only_starts(body: SendQueueBody, session: AsyncSession) -> bool:
+    """Нажатие только включает режим, без пачки: отметка «дальше — сама» стоит, режим у этапа
+    есть и очередь сама ещё не уходит."""
+    if not (body.keep_sending and autosend.available(body.stage)):
+        return False
+    return await autosend.running(session, body.stage, body.audience) is None
+
+
 async def _keep_sending(body: SendQueueBody, author: UserModel, session: AsyncSession) -> bool:
-    """Отметка «дальше — сама»: очередь уходит сама и после пачки (`letters/autosend.py`).
+    """Отметка «дальше — сама»: очередь уходит сама (`letters/autosend.py`) — вместо пачки, а у
+    очереди, которая уже уходит сама, — и после неё.
     Включает режим только человек — этим нажатием; новый запуск — строкой журнала, с тем,
     кто нажал. Рубильник выключен или этап продаж — режима нет. Уходит ли очередь сама теперь."""
     if not (body.keep_sending and autosend.available(body.stage)):

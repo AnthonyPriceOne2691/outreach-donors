@@ -13,6 +13,7 @@ from backend.features.core.domain import AuditAction, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.outreach import QueueAutosendModel
 from backend.features.letters import autosend
+from backend.shared.queue import SEND_QUEUE_JOB
 from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,6 +55,9 @@ class TestKeepSending:
 
         assert sent.status_code == 200, sent.text
         assert sent.json()["autosend"] is True
+        # Пачки нет: нажатие только включило режим, письма шлют проходы (12.11.2026).
+        assert (sent.json()["job_id"], sent.json()["queued"]) == (None, 0)
+        assert queue.calls == []
         shown = view.json()["autosend"]
         assert (shown["available"], shown["running"], shown["started_by"]) == (
             True,
@@ -80,9 +84,12 @@ class TestKeepSending:
         body = {"stage": "donors", "keep_sending": True}
 
         await client.post("/api/letters/send-queue", json=body, headers=bearer(token))
-        await client.post("/api/letters/send-queue", json=body, headers=bearer(token))
+        again = await client.post("/api/letters/send-queue", json=body, headers=bearer(token))
 
         assert await _launches(session) == 1
+        # Очередь уже уходит сама — второе нажатие шлёт пачку сейчас: так решил человек.
+        assert again.json()["job_id"] == "job-пачка"
+        assert [job for job, _ in queue.calls] == [SEND_QUEUE_JOB]
 
     async def test_without_the_mark_there_is_no_mode(
         self,
@@ -102,6 +109,9 @@ class TestKeepSending:
 
         assert sent.json()["autosend"] is False
         assert await _launches(session) == 0
+        # Без отметки — пачка сейчас, как решено 06.10.2026.
+        assert sent.json()["job_id"] == "job-пачка"
+        assert [job for job, _ in queue.calls] == [SEND_QUEUE_JOB]
 
     async def test_the_switched_off_service_ignores_the_mark(
         self,
@@ -127,6 +137,8 @@ class TestKeepSending:
         assert sent.json()["autosend"] is False
         assert view.json()["autosend"]["available"] is False
         assert await _launches(session) == 0
+        # Режима нет — отметка ничего не значит: уходит пачка, иначе нажатие не дало бы ничего.
+        assert sent.json()["job_id"] == "job-пачка"
 
 
 class TestStop:

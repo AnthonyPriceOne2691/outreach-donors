@@ -681,7 +681,7 @@ async def test_a5_fixture_verdicts_reach_the_lead_and_cost_nothing(world: World)
 
     dead = LeadStatus.REJECTED, "undeliverable"
     unknown = (
-        "адрес не подтверждён: почтовый сервер не дал проверке ответа (unknown) — к письмам не "
+        "адрес не подтверждён: почтовый сервер не дал проверке ответа — к письмам не "
         "идёт; очистка проверит снова не раньше 11.10.2026"
     )
     assert await world.rows() == [
