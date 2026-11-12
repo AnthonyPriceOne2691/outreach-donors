@@ -732,9 +732,9 @@
       "worst": "cmd_user_add:31"
     },
     "backend/cli/advertiser_judge.py": {
-      "lines": 211,
+      "lines": 217,
       "complexity": 8,
-      "worst": "print_plan:135"
+      "worst": "print_plan:141"
     },
     "backend/cli/advertisers.py": {
       "lines": 410,
