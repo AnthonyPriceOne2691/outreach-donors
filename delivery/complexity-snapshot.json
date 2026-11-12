@@ -3577,9 +3577,9 @@
       "worst": "trial_trace:100"
     },
     "backend/features/sales/unconfirmed.py": {
-      "lines": 75,
+      "lines": 74,
       "complexity": 4,
-      "worst": "first_letter:67"
+      "worst": "first_letter:66"
     },
     "backend/features/sales/unsubscribe.py": {
       "lines": 98,
