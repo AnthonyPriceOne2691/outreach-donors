@@ -4,6 +4,10 @@
  * Круг идёт сам, ночью, и видеть его можно только здесь: когда был, сколько доноров, что считали,
  * что осталось. Выключен — так и сказано, а не пусто: иначе тишина читалась бы «ночью ничего не
  * понадобилось». Расчёт — в «i»: строка говорит о деле, а из чего вышло число, нужно не каждый день.
+ *
+ * **«Каталогов отложено: N» — рядом, со своим «i»** (12.11.2026). Доноров-каталогов круг не обходит
+ * с 11.11.2026 (`crawl/targets.py`, `skip_catalogs`), и на экране этого не было видно: донор,
+ * которого ночь не тронула, читался забытым. Ноль не показывается.
  */
 
 import { Group, Stack, Text } from '@mantine/core';
@@ -118,6 +122,18 @@ export function nightFacts(row: CrawlNightRow | null): string[] | null {
   ];
 }
 
+/** Сколько доноров-каталогов отложил круг, о котором говорит строка. Ноль — сказать нечего: круга
+ *  не было, он выключен и не идёт или считался до 11.11.2026, когда каталоги ещё обходил. */
+export function nightCatalogs(view: CrawlNightView): number {
+  const row = view.last;
+  if (row === null || (!view.enabled && row.status !== 'running')) return 0;
+  return row.catalogs ?? 0;
+}
+
+/** Почему каталоги отложены — в «i» у числа: подсказкой, до 75 знаков. */
+export const CATALOGS_WHY =
+  'Карточки каталога — не рекламодатели. Обойти такого донора можно кнопкой.';
+
 export function CrawlNight() {
   const night = useQuery({
     queryKey: NIGHT_KEY,
@@ -127,21 +143,36 @@ export function CrawlNight() {
   const view = night.data;
   if (view === undefined) return null;
   const facts = nightFacts(view.last);
+  const catalogs = nightCatalogs(view);
   return (
-    <Group gap={6} align="center" wrap="nowrap">
-      <Text size="sm" c="dimmed">
-        {nightWords(view)}
-      </Text>
-      {facts !== null ? (
-        <InfoHint name="Из чего вышел расчёт ночного обхода" width={340}>
-          <Stack gap={2}>
-            {facts.map((line) => (
-              <Text key={line} size="sm">
-                {line}
-              </Text>
-            ))}
-          </Stack>
-        </InfoHint>
+    // Строка и число каталогов переносятся целыми: на телефоне число встаёт под строкой.
+    <Group gap={6} align="center">
+      <Group gap={6} align="center" wrap="nowrap">
+        <Text size="sm" c="dimmed">
+          {nightWords(view)}
+        </Text>
+        {facts !== null ? (
+          <InfoHint name="Из чего вышел расчёт ночного обхода" width={340}>
+            <Stack gap={2}>
+              {facts.map((line) => (
+                <Text key={line} size="sm">
+                  {line}
+                </Text>
+              ))}
+            </Stack>
+          </InfoHint>
+        ) : null}
+      </Group>
+      {catalogs > 0 ? (
+        <Group gap={6} align="center" wrap="nowrap">
+          <Text size="sm" c="dimmed">
+            · каталогов отложено:{' '}
+            {formatNumber(catalogs)}
+          </Text>
+          <InfoHint name="Почему каталоги отложены" width={260}>
+            {CATALOGS_WHY}
+          </InfoHint>
+        </Group>
       ) : null}
     </Group>
   );

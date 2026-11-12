@@ -280,6 +280,8 @@ export interface CrawlNightRow {
   donors: number | null;
   left_out: number | null;
   rested: number | null;
+  /** Доноров-каталогов, которых круг отложил; у круга, посчитанного до 11.11.2026, числа нет. */
+  catalogs: number | null;
   ranks: Record<string, number>;
 }
 

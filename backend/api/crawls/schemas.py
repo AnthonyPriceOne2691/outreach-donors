@@ -321,6 +321,9 @@ class NightRow(BaseModel):
     donors: int | None = None
     left_out: int | None = None
     rested: int | None = None
+    #: Доноров-каталогов, которых круг отложил (`targets.choose`, `skip_catalogs`); у круга,
+    #: посчитанного до 11.11.2026, числа нет.
+    catalogs: int | None = None
     ranks: dict[str, int] = Field(default_factory=dict)
 
     @classmethod
@@ -346,6 +349,7 @@ class NightRow(BaseModel):
             donors=facts.get("donors"),
             left_out=facts.get("left_out"),
             rested=facts.get("rested"),
+            catalogs=facts.get("catalogs"),
             ranks=facts.get("ranks", {}),
         )
 
