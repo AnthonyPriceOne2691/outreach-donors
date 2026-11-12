@@ -12,7 +12,11 @@ import { renderWith } from '../test/render';
 import { buildCheckLine, checkCounts, checkedHint } from './addressCheck';
 import { CheckLine } from './CheckLine';
 import { EmptyQueue } from './EmptyQueue';
-import { funnelSteps, stopOf } from './targets';
+import { funnelSteps, stopOf, stopWords } from './targets';
+
+/** Слова под воронкой, когда ноль — на звене «адрес проверен» (12.11.2026). */
+const NOT_CHECKED =
+  'Адреса ещё не проверялись: проверка идёт при сборке очереди — нажмите «Собрать очередь».';
 
 const NBSP = ' ';
 
@@ -90,12 +94,15 @@ describe('числа проверки адреса', () => {
 });
 
 describe('ступень воронки «адрес проверен»', () => {
-  it('стоит последней у доноров и рекламодателей, когда сервер её прислал', () => {
+  it('стоит последней у доноров, рекламодателей и бизнесов ниши, когда сервер её прислал', () => {
     const steps = funnelSteps({ ...ADVERTISERS, ...CHECK }, 'advertisers');
     expect(steps.at(-1)).toMatchObject({ step: 'адрес проверен', count: 250 });
     expect(funnelSteps({ подходящих: 3, 'адрес проверен': 1 }, 'donors').at(-1)?.step).toBe(
       'адрес проверен',
     );
+    // Бизнесам ниши сервер шлёт её с 12.11.2026: адрес у них проверяется тем же правилом.
+    const niche = { 'бизнесов ниши': 9, 'ещё не писали': 4, 'адрес проверен': 1 };
+    expect(funnelSteps(niche, 'niche').at(-1)).toMatchObject({ step: 'адрес проверен', count: 1 });
   });
 
   it('без неё воронка та же, что до проверки', () => {
@@ -104,11 +111,10 @@ describe('ступень воронки «адрес проверен»', () => 
     );
   });
 
-  it('ноль на ней — «ещё не проверяли»: совет зовёт собрать очередь', () => {
+  it('ноль на ней — «ещё не проверяли», а не отсев: слова свои, без «Кончились»', () => {
     const steps = funnelSteps({ ...ADVERTISERS, 'адрес проверен': 0 }, 'advertisers');
-    expect(stopOf(steps)?.advice).toBe(
-      'адреса проверяются при сборке очереди — нажмите «Собрать очередь»',
-    );
+    expect(stopOf(steps)?.step).toBe('адрес проверен');
+    expect(stopWords(stopOf(steps))).toBe(NOT_CHECKED);
 
     renderWith(
       <EmptyQueue
@@ -117,11 +123,29 @@ describe('ступень воронки «адрес проверен»', () => 
         stale={false}
       />,
     );
+    expect(screen.getByText(NOT_CHECKED)).toBeInTheDocument();
+    expect(screen.queryByText(/Кончились/)).toBeNull();
+  });
+
+  it('у доноров слова те же', () => {
+    renderWith(
+      <EmptyQueue
+        funnel={{ подходящих: 9, принятых: 7, 'с адресом': 5, 'адрес проверен': 0 }}
+        target="donors"
+        stale={false}
+      />,
+    );
+    expect(screen.getByText(NOT_CHECKED)).toBeInTheDocument();
+  });
+
+  it('ноль ступенью раньше — прежнее «Кончились на ступени…»: адресатов и правда нет', () => {
+    const none = { ...ADVERTISERS, 'ещё не писали': 0, 'адрес проверен': 0 };
+    renderWith(<EmptyQueue funnel={none} target="advertisers" stale={false} />);
+
     expect(
-      screen.getByText(
-        'Кончились на ступени «адрес проверен»: адреса проверяются при сборке очереди — нажмите «Собрать очередь».',
-      ),
+      screen.getByText('Кончились на ступени «ещё не писали»: написаны все.'),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/Адреса ещё не проверялись/)).toBeNull();
   });
 });
 

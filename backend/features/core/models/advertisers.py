@@ -62,6 +62,8 @@ class AdvertiserModel(TimestampedMixin, ContactAttemptMixin, Base):
 
     #: Прошёл ли через руки человека. Не то же самое, что высокий балл:
     #: по расхождению этих двух и считается, как часто ошибается скоринг.
+    #: «Пишем» судьи (`crawl/judge_mark.py`) — не руки человека: перевод ставит здесь «нет»
+    #: (12.11.2026). У рекламодателя по ссылке поле ничего не решает (`advertiser_rules.in_work`).
     confirmed_by_human: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     #: Откуда рекламодатель: `links` — его ссылка на нашем доноре (обход),

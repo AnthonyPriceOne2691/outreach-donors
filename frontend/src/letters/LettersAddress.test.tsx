@@ -4,6 +4,9 @@
  *
  * Очередь пуста — сборка раскрыта, и строка у «Собрать очередь» видна без нажатия; что с
  * остальными и что делать — в её «i».
+ *
+ * Проверка адреса перед письмом — той же строкой, что на вкладке «По найденной ссылке»
+ * (12.11.2026): адрес бизнеса ниши сборка проверяла и раньше, а вкладка об этом молчала.
  */
 
 import { screen } from '@testing-library/react';
@@ -18,6 +21,8 @@ import { serve } from '../test/server';
 
 const NICHE_PATH = '/api/letters?stage=advertisers&audience=niche';
 const CONTACTS_PATH = '/api/advertisers/contacts?audience=niche';
+
+const NBSP = '\u00a0';
 
 /** «Пишем» решено всем 180; адрес — у `found`, остальные ждут поиска или его не нашлось. */
 function nicheView(found: number, waiting: number, missing: number) {
@@ -102,5 +107,63 @@ describe('адрес есть не у всех решённых «пишем»',
 
     expect(await screen.findByText(/адрес есть у 120 из 180 решённых/)).toBeInTheDocument();
     expect(screen.queryByText(/ждут адреса:/)).not.toBeInTheDocument();
+  });
+});
+
+describe('проверка адреса перед письмом у бизнесов ниши', () => {
+  /** Адрес есть у всех 180 решённых; `check` — что сервер сказал о проверке их адресов. */
+  function checkedView(left: number, check: Record<string, number>) {
+    const view = nicheView(180, 0, 0);
+    return { ...view, funnel: { ...view.funnel, 'ещё не писали': left, ...check } };
+  }
+
+  it('строка та же, что по найденной ссылке: ждут проверки, не проверить, адрес не существует', async () => {
+    await openNiche({
+      [`GET ${NICHE_PATH}`]: {
+        body: checkedView(40, {
+          'адрес проверен': 12,
+          'не проверить': 2,
+          'адрес не существует': 3,
+          'ждут проверки адреса': 28,
+        }),
+      },
+      [`GET ${CONTACTS_PATH}`]: contacts(0, false),
+    });
+
+    const line = await screen.findByText(/ждут проверки адреса:/);
+    expect(line.textContent).toBe(`ждут проверки адреса:${NBSP}28`);
+    expect(screen.getByText(/не проверить:/).textContent).toBe(
+      `· не проверить:${NBSP}2 · адрес не существует:${NBSP}3`,
+    );
+    // Число не отрывается от подписи; `toHaveTextContent` схлопнул бы неразрывный пробел.
+    expect(screen.getByText(/адрес проверен у/).textContent).toContain(`адрес проверен у${NBSP}12`);
+  });
+
+  it('проверенных ноль — звено воронки говорит «ещё не проверялись», а не «Кончились»', async () => {
+    await openNiche({
+      [`GET ${NICHE_PATH}`]: {
+        body: checkedView(40, { 'адрес проверен': 0, 'ждут проверки адреса': 40 }),
+      },
+      [`GET ${CONTACTS_PATH}`]: contacts(0, false),
+    });
+
+    expect(
+      await screen.findByText(
+        'Адреса ещё не проверялись: проверка идёт при сборке очереди — нажмите «Собрать очередь».',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('адрес проверен 0')).toBeInTheDocument();
+    expect(screen.queryByText(/Кончились/)).not.toBeInTheDocument();
+  });
+
+  it('сервер чисел не прислал — проверка этапа выключена, вкладка о ней молчит', async () => {
+    await openNiche({
+      [`GET ${NICHE_PATH}`]: { body: checkedView(40, {}) },
+      [`GET ${CONTACTS_PATH}`]: contacts(0, false),
+    });
+
+    expect(await screen.findByText('Адресаты есть — очередь ещё не собрана.')).toBeInTheDocument();
+    expect(screen.queryByText(/проверки адреса/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/адрес проверен/)).not.toBeInTheDocument();
   });
 });

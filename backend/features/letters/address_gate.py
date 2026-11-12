@@ -58,6 +58,7 @@ from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.crawl.advertiser_rules import in_work
+from backend.features.crawl.niche import LINKS, NICHE
 from backend.features.letters import attempts
 from backend.features.letters.donor_standing import stop_for_good
 
@@ -249,9 +250,13 @@ class Picker:
             self._report.unchecked = done.said
 
 
-def _gone_domains(stage: Stage) -> ScalarSelect[int]:
+def _gone_domains(stage: Stage, audience: str) -> ScalarSelect[int]:
     """Сколько адресатов этапа выпало до первого письма, потому что проверка похоронила адрес,
-    а другого у домена нет: отметка мёртвого с часом проверки, писем на адрес не уходило."""
+    а другого у домена нет: отметка мёртвого с часом проверки, писем на адрес не уходило.
+
+    У Этапа 2 выпавшие — своей аудитории (12.11.2026): бизнес ниши считает вкладка бизнесов ниши,
+    рекламодателя по ссылке — вкладка «По найденной ссылке». До чисел у ниши её выпавшие стояли в
+    числе по ссылке; в двух вкладках разом один домен читался бы двумя."""
     contact, letter = aliased(ContactModel), aliased(MessageModel)
     untried = ~(
         select(letter.id)
@@ -264,8 +269,11 @@ def _gone_domains(stage: Stage) -> ScalarSelect[int]:
             DonorModel.domain_id == contact.domain_id, DonorModel.review == "accepted"
         )
     else:
+        from_niche = AdvertiserModel.source == NICHE
         role = select(AdvertiserModel.id).where(
-            AdvertiserModel.domain_id == contact.domain_id, in_work()
+            AdvertiserModel.domain_id == contact.domain_id,
+            in_work(),
+            from_niche if audience == NICHE else ~from_niche,
         )
     return (
         select(func.count(func.distinct(contact.domain_id)))
@@ -282,12 +290,18 @@ def _gone_domains(stage: Stage) -> ScalarSelect[int]:
 
 
 async def funnel_counts(
-    session: AsyncSession, stage: Stage, picks: Select[Any], *, now: datetime | None = None
+    session: AsyncSession,
+    stage: Stage,
+    picks: Select[Any],
+    *,
+    audience: str = LINKS,
+    now: datetime | None = None,
 ) -> dict[str, int]:
     """Числа проверки адресов для воронки экрана писем. `picks` — адрес первого письма на
-    каждого, кому сборка может писать (`Recipients.picks`): у скольких он проверен, у скольких
-    из них проверить нельзя и сколько ждут проверки — она идёт при сборке. Проверка этапа
-    выключена — пусто: воронка та же, что до неё."""
+    каждого, кому сборка может писать (`Recipients.picks`, у бизнесов ниши —
+    `niche_recipients.picked`): у скольких он проверен, у скольких из них проверить нельзя и
+    сколько ждут проверки — она идёт при сборке. `audience` — чьи выпавшие у Этапа 2
+    (`_gone_domains`). Проверка этапа выключена — пусто: воронка та же, что до неё."""
     if not address_check.enabled(stage):
         return {}
     moment = now or datetime.now(UTC)
@@ -301,7 +315,7 @@ async def funnel_counts(
                 func.count()
                 .filter(address_check.unverifiable(contact, moment))
                 .label("unverifiable"),
-                _gone_domains(stage).label("gone"),
+                _gone_domains(stage, audience).label("gone"),
             )
             .select_from(picked)
             .join(contact, contact.id == picked.c.contact_id)

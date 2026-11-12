@@ -149,7 +149,8 @@ class LetterRepository:
     async def funnel_report(
         self, stage: Stage, *, run_ids: Sequence[int] = (), audience: str = LINKS
     ) -> dict[str, int]:
-        """Воронка для отчёта сборки. У бизнесов ниши своя: решение человека и адрес."""
+        """Воронка для отчёта сборки. У бизнесов ниши своя: решение человека и адрес; числа
+        проверки адресов она кладёт сама, по своему отбору (`NicheRecipients.niche_report`)."""
         if stage is Stage.ADVERTISERS and audience == NICHE:
             return await NicheRecipients(self._session).niche_report()
         report = (await self.funnel(stage, run_ids=run_ids)).as_report()

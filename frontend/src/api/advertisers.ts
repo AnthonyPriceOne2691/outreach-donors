@@ -151,6 +151,8 @@ export interface ReviewQueue extends CandidatesView {
   page: number;
   limit: number;
   facets: QueueFacets;
+  /** Из решённых спорных — решил судья, а не человек; нет поля — сервер старше. */
+  judged?: number;
   scoring?: ScoringCheck;
 }
 

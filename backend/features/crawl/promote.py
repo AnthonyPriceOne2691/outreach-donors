@@ -8,7 +8,9 @@
 
 **Кто попадает.** Кандидат с вердиктом «куплена» либо подтверждённый
 человеком. Отклонённый человеком не попадает, даже если баллов у него
-много: решение человека сильнее вердикта скоринга. Крупные сайты
+много: решение человека сильнее вердикта скоринга. С 11.11.2026 «пишем» и
+«не пишем» ставит и судья — тем же путём, что человек (`judge_apply.py`);
+чьё «пишем», итог перевода считает порознь (`promotion_report.py`). Крупные сайты
 (DR > 80) сюда не доходят — их отсевает пересчёт (`big_sites.py`),
 если только человек не сказал «пишем» сам. **Кандидат без DR ждёт** (`dr_settled`, 06.11.2026):
 крупный ли это сайт, неизвестно, и письмо ему могло бы уйти в пустоту. DR спросит следующий
@@ -44,7 +46,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import func, or_, select
@@ -60,44 +62,12 @@ from backend.features.core.models.ops import SuppressionModel
 from backend.features.crawl.advertiser_rules import in_work, writes_to
 from backend.features.crawl.niche import NICHE
 from backend.features.crawl.offer_stop import stop_offers
+from backend.features.crawl.promotion_report import PromotionReport
 from backend.features.crawl.suppliers import supplier_hosts
 from backend.features.crawl.units_stop import dr_settled
 from backend.features.letters import attempts
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(slots=True)
-class PromotionReport:
-    """Что случилось при переводе. Числа, а не «готово».
-
-    Отказы считаются по причинам: «ни одного рекламодателя» и «все
-    отсеяны стоп-листом поставщиков» — разные новости, и вторая
-    означает, что список стоит перечитать.
-    """
-
-    considered: int = 0
-    promoted: int = 0
-    updated: int = 0
-    skipped_supplier: int = 0
-    skipped_suppressed: int = 0
-    removed: int = 0
-    by_human: int = 0
-    #: Домены, ждущие DR: к переводу готовы, но крупный ли сайт, неизвестно.
-    waiting_dr: int = 0
-    hosts: list[str] = field(default_factory=list)
-
-    def as_dict(self) -> dict[str, int]:
-        return {
-            "рассмотрено": self.considered,
-            "заведено": self.promoted,
-            "обновлено": self.updated,
-            "донор в стоп-листе поставщиков": self.skipped_supplier,
-            "адресат в общем стоп-листе": self.skipped_suppressed,
-            "снято с уже заведённых": self.removed,
-            "подтверждено человеком": self.by_human,
-            "ждут проверки DR": self.waiting_dr,
-        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -487,12 +457,13 @@ async def _write(
         row.best_donor_host = candidate.donor_host
         row.best_page_url = candidate.best_page_url
         row.best_anchor = candidate.best_anchor
-        human = candidate.confirmed is True
+        # «Пишем» судьи — не руки человека (12.11.2026): итог считает его своей строкой, а
+        # отметка строки — только решение человека (`promotion_report.py`).
+        human = report.count_decision(candidate)
         # У бизнеса ниши это поле — решение человека о нём самом (`niche.decide`):
         # перевод по ссылке его не переписывает. Иначе «пишем» бизнесу ниши молча
         # становилось «не пишем», стоило его ссылке набрать «куплено», и наоборот.
         if row.source != NICHE:
             row.confirmed_by_human = human
-        report.by_human += int(human)
 
     await session.flush()

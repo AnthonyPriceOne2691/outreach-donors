@@ -79,6 +79,29 @@ describe('ручная проверка рекламодателей', () => {
     ]);
   });
 
+  it('шапка говорит, сколько из решённых решил судья (12.11.2026)', async () => {
+    await openScreen({
+      'GET /api/advertisers': {
+        body: { ...QUEUE, waiting: 40, judged: 1300, counts: { ...QUEUE.counts, pending: 1520 } },
+      },
+    });
+
+    // «Решено» — спорные без ждущих: 1 480; судья — их часть. Числа не отрываются от подписей.
+    expect(screen.getByText(/Ждут человека/).textContent).toBe(
+      'Ждут человека: 40, решено: 1\u00a0480 (судья:\u00a01\u00a0300)',
+    );
+  });
+
+  it('судья не решал или сервер числа не прислал — «решено» без скобок', async () => {
+    await openScreen({
+      'GET /api/advertisers': {
+        body: { ...QUEUE, waiting: 1, judged: 0, counts: { ...QUEUE.counts, pending: 5 } },
+      },
+    });
+
+    expect(screen.getByText(/Ждут человека/).textContent).toBe('Ждут человека: 1, решено: 4');
+  });
+
   it('показывает, из чего сложился балл', async () => {
     await openScreen();
 

@@ -32,8 +32,8 @@ export interface CheckCounts {
   gone: number;
 }
 
-/** Числа проверки; `null` — сервер их не прислал: проверка этапа выключена (и у бизнесов ниши
- *  воронка своя). */
+/** Числа проверки; `null` — сервер их не прислал: проверка этапа выключена. У бизнесов ниши
+ *  числа те же (12.11.2026): воронка у них своя, а адрес сборка проверяет тем же правилом. */
 export function checkCounts(funnel: Funnel): CheckCounts | null {
   const checked = funnel[CHECKED_STEP];
   if (checked === undefined) return null;

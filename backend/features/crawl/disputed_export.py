@@ -8,6 +8,12 @@ UTF-8 с меткой, потолок строк один, текст с чуж�
 **В файле все спорные, и решённые тоже — с пометкой**: специалисту важно видеть, что уже сказано,
 а не проверять решённое второй раз вслепую. Две пустые колонки — под ответ: загрузка файла обратно
 появится отдельной кнопкой, а пока файл читает человек.
+
+**Кто решил — соседней колонкой** (12.11.2026). С 11.11 часть решений ставит судья
+(`judge_apply.py`), а «решение сейчас» говорило только «пишем» или «не пишем»: решение судьи
+специалист перепроверяет иначе, чем решение коллеги, и без экрана их было не отличить. Колонкой, а
+не словами в самом решении: по «не пишем» файл по-прежнему фильтруется одним значением. Совета судьи
+по нерешённой строке в файле нет, как и раньше (`judge_advice.py`): названо только применённое.
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.crawl.advertiser_export import EXPORT_LIMIT, table_csv
+from backend.features.crawl.judge_mark import batch_of
 
 #: Заголовки: сначала то, что знает сервис, потом — что впишет специалист.
 COLUMNS = (
@@ -30,12 +37,24 @@ COLUMNS = (
     "лучшая страница",
     "анкор",
     "решение сейчас",
+    "кто решил",
     "решение специалиста",
     "комментарий",
 )
 
-#: Решение человека словами экрана проверки.
+#: Решение словами экрана проверки.
 DECISIONS: dict[bool | None, str] = {True: "пишем", False: "не пишем", None: "ждёт решения"}
+
+#: Кто решил — словами: по автору решения (`judge_mark.py`).
+BY_JUDGE = "судья"
+BY_HUMAN = "человек"
+
+
+def decided_by(row: CandidateModel) -> str | None:
+    """Кто поставил решение строки; решения нет — пусто."""
+    if row.confirmed is None:
+        return None
+    return BY_HUMAN if batch_of(row.decided_by) is None else BY_JUDGE
 
 
 async def disputed(
@@ -68,6 +87,7 @@ def _values(row: CandidateModel) -> tuple[object, ...]:
         row.best_page_url,
         row.best_anchor,
         DECISIONS[row.confirmed],
+        decided_by(row),
         None,
         None,
     )

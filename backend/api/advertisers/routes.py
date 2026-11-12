@@ -129,6 +129,7 @@ async def queue(
         limit=query.limit,
         facets=QueueFacetsView.of(found.facets),
         waiting=await review.waiting(session),
+        judged=await review.judged(session),
         counts=await review.counts(session),
         scoring=ScoringCheckView.of(await accuracy.scoring_check(session)),
     )

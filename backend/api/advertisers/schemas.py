@@ -265,6 +265,8 @@ class CandidatesView(BaseModel):
     limit: int
     facets: QueueFacetsView
     waiting: int
+    #: Из решённых спорных — решил судья (`review.judged`): «решено: M (судья: K)».
+    judged: int = 0
     counts: dict[str, int] = Field(default_factory=dict)
     scoring: ScoringCheckView | None = None
 

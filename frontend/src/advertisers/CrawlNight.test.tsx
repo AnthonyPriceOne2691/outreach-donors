@@ -12,7 +12,15 @@ import { describe, expect, it } from 'vitest';
 import type { CrawlNightRow, CrawlNightView } from '../api/crawls';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
-import { CrawlNight, nightClock, nightDay, nightFacts, nightWords } from './CrawlNight';
+import {
+  CATALOGS_WHY,
+  CrawlNight,
+  nightCatalogs,
+  nightClock,
+  nightDay,
+  nightFacts,
+  nightWords,
+} from './CrawlNight';
 
 const ROW: CrawlNightRow = {
   night: '2026-11-03',
@@ -34,6 +42,7 @@ const ROW: CrawlNightRow = {
   donors: 340,
   left_out: 220,
   rested: 0,
+  catalogs: 0,
   ranks: { limit: 80, no_start: 30, partial: 10 },
 };
 
@@ -127,6 +136,25 @@ describe('расчёт в «i»', () => {
   });
 });
 
+describe('доноры-каталоги, которых круг отложил (12.11.2026)', () => {
+  it('число — у круга, о котором говорит строка; ноля и числа до 11.11 нет', () => {
+    expect(nightCatalogs(view({ catalogs: 3 }))).toBe(3);
+    expect(nightCatalogs(view({ status: 'running', catalogs: 3 }))).toBe(3);
+    expect(nightCatalogs(view({}))).toBe(0);
+    expect(nightCatalogs(view({ catalogs: null }))).toBe(0);
+    expect(nightCatalogs(view(null))).toBe(0);
+  });
+
+  it('круг выключен — строка не о нём, и число молчит; идущий круг — ещё о нём', () => {
+    expect(nightCatalogs(view({ catalogs: 3 }, false))).toBe(0);
+    expect(nightCatalogs(view({ status: 'running', catalogs: 3 }, false))).toBe(3);
+  });
+
+  it('почему — подсказкой: до 75 знаков', () => {
+    expect(CATALOGS_WHY.length).toBeLessThanOrEqual(75);
+  });
+});
+
 describe('строка на экране', () => {
   it('рисует слова сервера и открывает расчёт', async () => {
     serve({ 'GET /api/crawls/night': { body: view({}) } });
@@ -137,6 +165,26 @@ describe('строка на экране', () => {
       .setup()
       .click(screen.getByRole('button', { name: 'Из чего вышел расчёт ночного обхода' }));
     expect(await screen.findByText(/свободно под круг 12/)).toBeInTheDocument();
+  });
+
+  it('каталоги отложены — число рядом со строкой, почему — в его «i»', async () => {
+    serve({ 'GET /api/crawls/night': { body: view({ catalogs: 1234 }) } });
+    renderWith(<CrawlNight />, '/');
+
+    // Число не отрывается от подписи: строкой текста искать нельзя — поиск схлопнул бы пробел.
+    const said = await screen.findByText(/каталогов отложено:/);
+    expect(said.textContent).toBe('· каталогов отложено:\u00a01\u00a0234');
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Почему каталоги отложены' }));
+    expect(await screen.findByText(CATALOGS_WHY)).toBeInTheDocument();
+  });
+
+  it('каталогов не откладывали — о них ни слова, «i» один', async () => {
+    serve({ 'GET /api/crawls/night': { body: view({}) } });
+    renderWith(<CrawlNight />, '/');
+
+    expect(await screen.findByText(/пошло 118 из 120/)).toBeInTheDocument();
+    expect(screen.queryByText(/каталогов отложено/)).toBeNull();
+    expect(screen.getAllByRole('button')).toHaveLength(1);
   });
 
   it('выключен — без «i»', async () => {

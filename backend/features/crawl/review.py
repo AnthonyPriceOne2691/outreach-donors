@@ -44,6 +44,7 @@ from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.crawl import OutLinkModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import CampaignModel, ReplyModel, ThreadModel
+from backend.features.crawl.judge_mark import by_judge
 from backend.features.crawl.promote import Withdrawn, withdraw
 from backend.features.crawl.sample import in_sample, mixed
 from backend.features.crawl.strata import FEATURES, OTHER, features_of
@@ -266,6 +267,22 @@ async def waiting(session: AsyncSession) -> int:
         select(func.count())
         .select_from(CandidateModel)
         .where(CandidateModel.verdict == Verdict.PENDING, CandidateModel.confirmed.is_(None))
+    )
+    return int((await session.execute(query)).scalar_one())
+
+
+async def judged(session: AsyncSession) -> int:
+    """Сколько спорных решил судья, а не человек (`judge_mark.by_judge`), — рядом с «решено» в
+    шапке очереди (12.11.2026): с 11.11 часть решений ставит судья, и «решено: 480» читалось
+    работой людей. Решение судьи, переигранное человеком, — уже человека; откатанное — не решение."""
+    query = (
+        select(func.count())
+        .select_from(CandidateModel)
+        .where(
+            CandidateModel.verdict == Verdict.PENDING,
+            CandidateModel.confirmed.is_not(None),
+            by_judge(),
+        )
     )
     return int((await session.execute(query)).scalar_one())
 

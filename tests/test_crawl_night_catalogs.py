@@ -13,14 +13,17 @@ from datetime import timedelta
 import pytest
 from backend.config import llm as llm_cfg
 from backend.features.core.models.advertiser import AdvertiserJudgementModel
+from backend.features.core.models.crawl import CrawlNightModel
 from backend.features.crawl import backlog, night, targets
 from backend.features.crawl.judge_rules import CATALOG_MIN_PAIRS, RULES_VERSION
 from backend.features.crawl.judge_store import cohort_of
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from tests.conftest import make_donor
+from tests.conftest import bearer, make_donor
 from tests.test_advertiser_judge import facts_body
-from tests.test_crawl_night import (  # noqa: F401 — `alerts` — фикстура круга
+from tests.test_crawl_night import (  # noqa: F401 — `alerts` и `operator` — фикстуры круга
     MIDNIGHT,
+    NIGHT,
     WHO,
     _feed,
     _priced,
@@ -28,6 +31,7 @@ from tests.test_crawl_night import (  # noqa: F401 — `alerts` — фиксту
     _tick,
     _waiting,
     alerts,
+    operator,
 )
 from tests.test_send_race import committed_sessions
 
@@ -142,3 +146,31 @@ async def test_the_button_and_a_load_still_take_a_catalog_donor() -> None:
     assert found.plan is not None
     assert (found.taken, found.plan["catalogs"]) == (0, 1)
     assert list(fed.queued) == [CATALOG]
+
+
+@pytest.mark.parametrize(("planned", "shown"), [({"workers": 16, "catalogs": 3}, 3), ({}, None)])
+async def test_the_tab_gets_how_many_catalogs_the_round_left_out(
+    client: AsyncClient,
+    session: AsyncSession,
+    operator: str,  # noqa: F811 — фикстура круга
+    planned: dict[str, int],
+    shown: int | None,
+) -> None:
+    """Число отложенных каталогов едет на вкладку вместе с расчётом (12.11.2026): до этого оно
+    лежало в строке круга, а экран его не получал. У круга, посчитанного до 11.11, числа нет —
+    пусто, а не ноль."""
+    session.add(
+        CrawlNightModel(
+            night=NIGHT,
+            status=night.NightStatus.DONE.value,
+            started_at=MIDNIGHT,
+            taken=2,
+            given=2,
+            plan=planned,
+        )
+    )
+    await session.commit()
+
+    answer = await client.get("/api/crawls/night", headers=bearer(operator))
+
+    assert answer.json()["last"]["catalogs"] == shown
