@@ -273,7 +273,9 @@ async def test_donors_write_every_day_and_their_queue_date_has_no_hours(
         ("2026-10-22", True, 30, 7, 1),
         ("2026-10-23", True, 30, 0, 0),
     ]
-    assert body["days"][0]["why_not"] == "сегодня уже ушло 2 первых писем — остаток дня 23"
+    # Два ушедших и остаток 23 — мощность дня целиком: причины нет (замечание проверки 12.11.2026 —
+    # «сегодня уже ушло 2 первых писем — остаток дня 23» читалось причиной у дня без помех).
+    assert body["days"][0]["why_not"] is None
     assert body["past"] == [
         {"day": "2026-10-19", "sent_first": 3, "sent_followups": 0},
         {"day": "2026-10-20", "sent_first": 0, "sent_followups": 1},
@@ -281,6 +283,65 @@ async def test_donors_write_every_day_and_their_queue_date_has_no_hours(
     eta = body["queue_eta"]
     assert (eta["day"], eta["sending_days"], eta["hours"]) == ("2026-10-22", 2, None)
     assert "вручную: пачка выбирает дневной лимит за секунды" in eta["words"]
+
+
+async def test_today_names_what_the_filter_refused_without_what_has_gone(
+    client: AsyncClient, session: AsyncSession, viewer: dict[str, str], donors: SenderModel
+) -> None:
+    """Сегодня у доноров ушло два первых письма, а лимит их домена — четыре письма — выбрал ящик
+    рекламодателей на нём же: ящик доноров на этом домене сегодня больше не пишет, и день не
+    выберет мощность. Причина — слова фильтра; слов «сегодня уже ушло…» перед ними нет."""
+    session.add(SendingDomainModel(domain="mail-d.example.test", stage=Stage.DONORS, daily_limit=4))
+    neighbour = await _box(session, "offers@mail-d.example.test", Stage.ADVERTISERS)
+    letters = await _letters(session, Stage.ADVERTISERS)
+    for _ in range(4):
+        await letters.add(
+            status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=2), sender_id=neighbour.id
+        )
+    await session.commit()
+
+    body = (await client.get(URL, params={"days": 1, "back": 0}, headers=viewer)).json()
+
+    today = body["days"][0]
+    assert (body["today"]["sent_first"], today["capacity_first"], today["planned_first"]) == (
+        2,
+        9,
+        5,
+    )
+    assert today["why_not"] == "домен исчерпан на сегодня: mail-d.example.test — 6 из 4"
+
+
+async def test_a_mailbox_stopped_after_its_letters_stays_in_the_capacity_of_the_day(
+    client: AsyncClient, session: AsyncSession, viewer: dict[str, str]
+) -> None:
+    """Ящик выключили днём, уже после трёх писем: мощность сегодняшнего дня считает их — «ушло и
+    ещё уйдёт» равно мощности, и причины у дня нет. `today.allowance` и мощность первой строки
+    плана — одно число. До 12.11.2026 мощность была двадцать при двадцати трёх «ушло и ещё уйдёт».
+    Завтра выключенный ящик не пишет: мощность — только включённого."""
+    await _box(session, "outreach1@mail-d.example.test", Stage.DONORS)
+    stopped = await _box(session, "outreach2@mail-e.example.test", Stage.DONORS, enabled=False)
+    letters = await _letters(session, Stage.DONORS)
+    for _ in range(30):
+        await letters.add()
+    for _ in range(3):
+        await letters.add(
+            status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=2), sender_id=stopped.id
+        )
+    await session.commit()
+
+    body = (await client.get(URL, params={"days": 2, "back": 0}, headers=viewer)).json()
+
+    assert body["today"] == {
+        "sent_first": 3,
+        "sent_followups": 0,
+        "allowance": 23,
+        "remaining_first": 20,
+        "cut": None,
+    }
+    today, tomorrow = body["days"]
+    assert (today["capacity_first"], today["planned_first"], today["why_not"]) == (23, 20, None)
+    assert today["capacity_first"] == body["today"]["allowance"]
+    assert (tomorrow["capacity_first"], tomorrow["planned_first"]) == (20, 10)
 
 
 async def test_followups_over_a_box_daily_cap_are_planned_for_the_next_days(

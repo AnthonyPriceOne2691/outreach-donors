@@ -406,34 +406,51 @@ describe('рассылка: одна гипотеза — без итога', ()
 });
 
 describe('рассылка: план и факт', () => {
-  it('план на 7 дней: мощность, уйдёт первых, добивки и почему меньше мощности — по датам', async () => {
+  it('план на 7 дней: мощность, план и факт первых и добивок, почему меньше мощности — по датам', async () => {
     await openMailing();
     const plan = region('План на 7 дней');
 
     expect(within(plan).getAllByRole('row')).toHaveLength(8);
-    // Причина — головой (слова сервера до первого «: », « — » или «; »), целиком — в «i» ячейки.
+    // Сегодня план — день целиком: ушло 6 и ещё уйдёт 24 — 30; добивок ушло 2 и ждёт 5 — 7; факт
+    // — ушедшее. Причина — головой (слова сервера до первого «: », « — » или «; »), целиком — в
+    // «i» ячейки.
     expect(cells(rowOf(plan, 'пн 02.11'))).toEqual([
       'пн 02.11сегодня',
       '30',
-      '24',
-      '5',
+      '30',
+      '6',
+      '7',
+      '2',
       'сегодня уже ушло 6 первых писем',
     ]);
+    // У будущих дней факта нет — прочерк, а не ноль.
     expect(cells(rowOf(plan, 'вт 03.11'))).toEqual([
       'вт 03.11',
       '35',
       '35',
+      '—',
       '3',
+      '—',
       'во всю мощность',
     ]);
     expect(cells(rowOf(plan, 'пт 06.11'))).toEqual([
       'пт 06.11',
       '40',
       '0',
+      '—',
       '2',
+      '—',
       'отправлять больше нечего',
     ]);
-    expect(cells(rowOf(plan, 'сб 07.11'))).toEqual(['сб 07.11', '0', '0', '0', 'не день отправки']);
+    expect(cells(rowOf(plan, 'сб 07.11'))).toEqual([
+      'сб 07.11',
+      '0',
+      '0',
+      '—',
+      '0',
+      '—',
+      'не день отправки',
+    ]);
 
     await userEvent.setup().hover(
       within(rowOf(plan, 'пт 06.11')).getByRole('button', {
@@ -443,13 +460,12 @@ describe('рассылка: план и факт', () => {
     expect(await screen.findByText(NOTHING_LEFT)).toBeInTheDocument();
   });
 
-  it('сегодня — строкой над планом: ушло, сколько ещё пустят лимиты, сниженные лимиты словами', async () => {
+  it('над планом — сколько ещё пустят лимиты сегодня и сниженные лимиты словами; ушедшее — в колонках факта', async () => {
     await openMailing();
     const plan = within(region('План на 7 дней'));
 
-    expect(
-      plan.getByText('Сегодня ушло первых — 6, добивок — 2; лимиты ящиков пустят ещё 24 первых.'),
-    ).toBeInTheDocument();
+    expect(plan.getByText('Сегодня лимиты ящиков пустят ещё 24 первых.')).toBeInTheDocument();
+    expect(plan.queryByText(/ушло первых/)).toBeNull();
     expect(plan.getByText(CUT_WORDS)).toBeInTheDocument();
     // Окно получателя и пояс — «как считается»: в «i» плана, а не строкой над таблицей. Пояс —
     // смещением от UTC на закреплённый день теста и именем из базы поясов в скобках.
@@ -462,7 +478,7 @@ describe('рассылка: план и факт', () => {
     expect(await screen.findByText(window)).toBeInTheDocument();
   });
 
-  it('факт прошлых 7 дней — по нажатию вкладки, по датам: старые первыми, без сегодня', async () => {
+  it('факт за 7 дней — по нажатию вкладки, по датам: шесть прошлых, старые первыми, и сегодня последней', async () => {
     await openMailing();
     await userEvent.setup().click(screen.getByRole('radio', { name: 'Факт за 7 дней' }));
     const past = region('Факт за 7 дней');
@@ -472,13 +488,13 @@ describe('рассылка: план и факт', () => {
       .slice(1)
       .map((row) => cells(row));
     expect(days).toEqual([
-      ['пн 26.10', '20', '4'],
       ['вт 27.10', '22', '6'],
       ['ср 28.10', '25', '3'],
       ['чт 29.10', '28', '8'],
       ['пт 30.10', '30', '5'],
       ['сб 31.10', '0', '0'],
       ['вс 01.11', '0', '0'],
+      ['пн 02.11сегодня', '6', '2'],
     ]);
   });
 
@@ -561,13 +577,15 @@ describe('рассылка: отказ ручки и обновление', () =
   it('обновление раз в минуту не сбрасывает вкладку: факт остаётся, числа новые', async () => {
     const intervals = vi.spyOn(globalThis, 'setInterval');
     let asked = 0;
-    const [first, ...rest] = FORECAST.past;
-    if (first === undefined) throw new Error('в записанном прогнозе нет прошлых дней');
+    // Второй ответ: у прошлого дня другое число, и сегодня ушло ещё три первых письма.
+    const past = FORECAST.past.map((day) =>
+      day.day === '2026-10-27' ? { ...day, sent_first: 77 } : day,
+    );
+    const today = { ...FORECAST.today, sent_first: 9 };
     await openMailing({
       [FORECAST_ROUTE]: () => {
         asked += 1;
-        const past = [{ ...first, sent_first: 77 }, ...rest];
-        return { body: asked === 1 ? FORECAST : { ...FORECAST, past } };
+        return { body: asked === 1 ? FORECAST : { ...FORECAST, past, today } };
       },
     });
     await userEvent.setup().click(screen.getByRole('radio', { name: 'Факт за 7 дней' }));
@@ -579,9 +597,15 @@ describe('рассылка: отказ ручки и обновление', () =
 
     await waitFor(() => expect(asked).toBe(2), SCREEN_WAIT);
     await waitFor(
-      () => expect(cells(rowOf(region('Факт за 7 дней'), 'пн 26.10'))[1]).toBe('77'),
+      () => expect(cells(rowOf(region('Факт за 7 дней'), 'вт 27.10'))[1]).toBe('77'),
       SCREEN_WAIT,
     );
+    // Сегодняшняя строка факта растёт вместе с прогнозом — без перезагрузки страницы.
+    expect(cells(rowOf(region('Факт за 7 дней'), 'пн 02.11'))).toEqual([
+      'пн 02.11сегодня',
+      '9',
+      '2',
+    ]);
     expect(screen.getByRole('radio', { name: 'Факт за 7 дней' })).toBeChecked();
   });
 

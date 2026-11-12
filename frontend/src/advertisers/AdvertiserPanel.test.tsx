@@ -6,7 +6,7 @@
  * нуля у доли, партия без выбора с числами «всего времени», файл — по содержимому ответа.
  */
 
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -564,6 +564,42 @@ describe('рассылка на панели', () => {
 
     expect(await screen.findByText('Прогноз рассылки не загрузился')).toBeVisible();
     expect(await screen.findByRole('region', { name: 'Рекламодатели по письмам' })).toBeVisible();
+  });
+
+  it('части — раз в минуту, как прогноз и режим: плитки не стоят, пока письма уходят', async () => {
+    // 12.11.2026: на открытой панели «Ушло» и «Собрано» стояли до перезагрузки страницы, а срок и
+    // план рядом менялись. Минута — вызовом интервала, который поставил запрос (как в
+    // `sales/MailingPane.test`), числом задания, а не константой экрана.
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    let asked = 0;
+    const recorded = open({
+      'GET /api/advertisers/list/facets': () => {
+        asked += 1;
+        return { body: asked === 1 ? FACETS : { ...FACETS, letters: { sent: 4, queued: 1 } } };
+      },
+    });
+    const parts = await screen.findByRole('region', { name: 'Рекламодатели по письмам' });
+    const tile = (title: string) =>
+      within(parts).getByText(title).closest('.metricTile') as HTMLElement;
+    expect(within(tile('Ушло')).getByText('3')).toBeVisible();
+    expect(within(tile('Собрано')).getByText('2')).toBeVisible();
+    // Все три ручки блока ответили — у каждой уже стоит свой интервал.
+    await screen.findByRole('region', { name: 'План на 7 дней' });
+
+    const minute = intervals.mock.calls
+      .filter(([, delay]) => delay === 60_000)
+      .map(([callback]) => callback as () => void);
+    act(() => {
+      for (const tick of minute) tick();
+    });
+
+    await waitFor(() => expect(within(tile('Ушло')).getByText('4')).toBeVisible());
+    expect(within(tile('Собрано')).getByText('1')).toBeVisible();
+    const paths = recorded.calls.map((call: Call) => call.path);
+    expect(paths.filter((path) => path === '/api/advertisers/list/facets')).toHaveLength(2);
+    // Прогноз и режим перечитались тем же заходом: блок обновляется целиком.
+    expect(paths.filter((path) => path === '/api/advertisers/panel/mailing')).toHaveLength(2);
+    expect(paths.filter((path) => path === FORECAST_ROUTE.replace(/^GET /, ''))).toHaveLength(2);
   });
 });
 
