@@ -348,12 +348,11 @@ const RUNNING = {
 const ETA = 'GET /api/letters/forecast?stage=donors&days=31&back=0';
 
 describe('очередь уходит сама', () => {
-  it('с отметкой — остаток уйдёт сам, и сервер это слышит', async () => {
+  it('с отметкой — пачки нет: нажатие только включает режим, и сервер это слышит', async () => {
     const recorded = open(
       { autosend: AUTOSEND },
       {
-        'POST /api/letters/send-queue': { body: { job_id: 'job-q', queued: 2, autosend: true } },
-        'GET /api/jobs/job-q': { body: DONE },
+        'POST /api/letters/send-queue': { body: { job_id: null, queued: 0, autosend: true } },
       },
     );
     const user = userEvent.setup();
@@ -362,9 +361,11 @@ describe('очередь уходит сама', () => {
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByRole('checkbox', { name: /Дальше — сама/ })).toBeChecked();
     expect(
-      within(dialog).getByText(/дальше очередь будет уходить сама каждый день/),
+      within(dialog).getByText(/Пачкой сразу ничего не уйдёт: очередь будет уходить сама/),
     ).toBeInTheDocument();
-    await user.click(within(dialog).getByRole('button', { name: 'Отправить 2' }));
+    // Кнопка называет то, что сделает нажатие: писем сейчас не уйдёт.
+    expect(within(dialog).queryByRole('button', { name: 'Отправить 2' })).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Включить отправку' }));
 
     await waitFor(() =>
       expect(recorded.calls.find((call) => call.path === '/api/letters/send-queue')?.body).toEqual({
@@ -372,6 +373,33 @@ describe('очередь уходит сама', () => {
         keep_sending: true,
       }),
     );
+    // Пачки нет — нет и строки задачи; экран перечитан: строку режима отдаст сервер.
+    expect(
+      await screen.findByText(/Очередь уходит сама: по письму с ящика с паузой/),
+    ).toBeInTheDocument();
+    expect(recorded.calls.some((call) => call.path.startsWith('/api/jobs/'))).toBe(false);
+    await waitFor(() =>
+      expect(
+        recorded.calls.filter((call) => call.method === 'GET' && call.path === '/api/letters')
+          .length,
+      ).toBeGreaterThan(1),
+    );
+  });
+
+  it('с отметкой очередь длиннее пачки — потолок пачки окно не называет', async () => {
+    open({ autosend: AUTOSEND, queued_total: 350 });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Отправить очередь · 350' }));
+    const dialog = await screen.findByRole('dialog');
+
+    expect(
+      within(dialog).getByText(/В очереди 350 писем: каждое уйдёт тем же путём/),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText(/одна пачка берёт до/)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('checkbox', { name: /Дальше — сама/ }));
+    expect(within(dialog).getByText(/одна пачка берёт до 200/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Отправить 200' })).toBeInTheDocument();
   });
 
   it('без отметки — прежнее «само не уйдёт»', async () => {
