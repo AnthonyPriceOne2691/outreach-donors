@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
 from backend.features.core.domain import SenderStatus, Stage
 from backend.features.core.models.outreach import SenderModel, SendingDomainModel
 from backend.features.core.window import Pace, SendWindow
@@ -122,6 +123,38 @@ def test_today_after_the_window_closed_is_zero_with_the_hour() -> None:
     assert days[1].planned == 5
 
 
+def test_today_after_the_window_closed_keeps_the_capacity_of_the_whole_day() -> None:
+    """Окно на сегодня уже закрылось, а день отправки был — с ящика ушло три письма: мощность у
+    сегодня — дня целиком, уйдёт ноль, причина — слова закрытого окна. До 12.11.2026 мощность была
+    ноль, как у дня без окна, и рядом с планом дня на экране стояло «мощность 0, план 3» — каждый
+    вечер. Остальное в дне не задето: писем сегодня нет, очередь уходит со следующего дня."""
+    late = NOW.replace(hour=16)  # окно в Берлине закрылось в 15:00 UTC
+    boxes = _boxes(_box(1, wrote=40), sent=3)
+    days, eta = plan(late, 2, Clock(WEEKDAYS_9_17, BERLIN), boxes, Supply(queued=30), Chains())
+
+    assert (days[0].sending, days[0].capacity, days[0].planned) == (False, 20, 0)
+    assert (
+        days[0].why_not == "окно получателя на сегодня закрылось в 15:00 UTC (пояс Europe/Berlin)"
+    )
+    assert (days[1].sending, days[1].capacity, days[1].planned) == (True, 20, 20)
+    assert (eta.day, eta.sending_days) == (late.date() + timedelta(days=2), 2)
+
+
+def test_today_that_is_not_a_sending_day_has_no_capacity() -> None:
+    """Сегодня — суббота окна пн–пт: день окну не принадлежит, и мощность — ноль, как у любого дня
+    без окна, что бы ни ушло с ящика; к закрывшемуся окну такой день не относится."""
+    saturday = datetime(2026, 10, 24, 10, 0, tzinfo=UTC)
+    boxes = _boxes(_box(1, wrote=40), sent=3)
+    days, _ = plan(saturday, 3, Clock(WEEKDAYS_9_17, BERLIN), boxes, Supply(queued=30), Chains())
+
+    assert [(day.sending, day.capacity, day.planned) for day in days] == [
+        (False, 0, 0),
+        (False, 0, 0),
+        (True, 20, 20),
+    ]
+    assert days[0].why_not == "не день отправки: окно получателя — пн–пт 09:00–17:00 по его часам"
+
+
 # --- что есть отправить ---------------------------------------------------------------------
 
 
@@ -147,38 +180,132 @@ def test_without_a_known_supply_only_the_queue_goes() -> None:
 
 
 def test_today_uses_what_is_left_of_the_day() -> None:
-    """Сегодня уже ушло по три с ящика: уйдёт остаток, а мощность дня — целиком."""
+    """Сегодня уже ушло по три с ящика: уйдёт остаток, а мощность дня — целиком. Причины нет: шесть
+    ушедших и остаток — это и есть мощность дня, день идёт во всю (замечание проверки 12.11.2026:
+    «сегодня уже ушло 6 первых писем — остаток дня 34» стояло причиной у дня, которому ничего не
+    мешает)."""
     boxes = _boxes(_box(1, wrote=40), _box(2, wrote=40), sent=3)
     days, _ = plan(NOW, 2, Clock(), boxes, Supply(queued=500), Chains())
 
     assert (days[0].capacity, days[0].planned) == (40, 34)
-    assert days[0].why_not == "сегодня уже ушло 6 первых писем — остаток дня 34"
+    assert days[0].why_not is None
     assert (days[1].capacity, days[1].planned) == (40, 40)
 
 
-def test_a_domain_shared_with_another_direction_is_named_as_the_reason() -> None:
+def test_a_queue_shorter_than_what_is_left_today_is_the_reason_as_before() -> None:
+    """Сегодня ушло шесть, остаток дня — 34, а в очереди десять: уйдёт десять, и причина прежняя —
+    отправлять больше нечего. Ушедшего в ней нет и здесь."""
+    boxes = _boxes(_box(1, wrote=40), _box(2, wrote=40), sent=3)
+    days, _ = plan(NOW, 1, Clock(), boxes, Supply(queued=10), Chains())
+
+    assert (days[0].capacity, days[0].planned) == (40, 10)
+    assert days[0].why_not == (
+        "отправлять больше нечего: очередь кончилась — новые письма ставит сборка очереди"
+    )
+
+
+def _limited(domain: str, limit: int) -> dict[str, SendingDomainModel]:
+    """Строка домена продаж с дневным лимитом — как её читает фильтр лимитов."""
+    return {domain: SendingDomainModel(domain=domain, stage=Stage.SALES, daily_limit=limit)}
+
+
+def _today_of(found: capacity.Today) -> Mailboxes:
+    """Ящики для плана из «сегодня» выбора ящика — теми же полями, что их собирает прогноз
+    (`forecast.forecast`): остаток, мощность, ушедшее и слова фильтра без повторов."""
+    refused = "; ".join(dict.fromkeys(box.refused for box in found.boxes if box.refused)) or None
+    return Mailboxes(
+        left=found.left,
+        capacity=found.capacity,
+        later=lambda _day: found.left,
+        sent=found.sent,
+        refused=refused,
+    )
+
+
+@pytest.mark.parametrize(("own", "planned"), [(0, 2), (1, 2)])
+def test_a_domain_shared_with_another_direction_is_named_as_the_reason(
+    own: int, planned: int
+) -> None:
     """Лимит домена делят направления (`capacity.today` считает письма всех ящиков домена): ящик
-    доноров выбрал восемь из десяти — продажам сегодня два, и это сказано, а не «ящиков нет»."""
+    доноров выбрал часть десяти — продажам сегодня меньше мощности, и это сказано, а не «ящиков
+    нет». Сколько ушло у самих продаж, причина не говорит: ни при нуле, ни при одном письме."""
     sales, donors = _box(1, wrote=40), _box(2, wrote=40)
     donors.stage = Stage.DONORS
-    domains = {
-        "mail-a.example.test": SendingDomainModel(
-            domain="mail-a.example.test", stage=Stage.SALES, daily_limit=10
-        )
-    }
     found = capacity.today(
-        [sales, donors], stage=Stage.SALES, sent={2: 8}, domains=domains, cuts={}, now=NOW
-    )
-    boxes = Mailboxes(
-        left=found.left, capacity=found.capacity, later=lambda _day: found.left, sent=found.sent
+        [sales, donors],
+        stage=Stage.SALES,
+        sent={1: own, 2: 8 - own},
+        domains=_limited("mail-a.example.test", 10),
+        cuts={},
+        now=NOW,
     )
 
-    days, _ = plan(NOW, 1, Clock(), boxes, Supply(queued=50), Chains())
+    days, _ = plan(NOW, 1, Clock(), _today_of(found), Supply(queued=50), Chains())
 
-    assert (days[0].capacity, days[0].planned) == (10, 2)
-    assert days[0].why_not == (
-        "остаток дня 2: часть лимита домена выбрали ящики другого направления на нём"
+    assert (days[0].capacity, days[0].planned) == (10, planned)
+    assert days[0].why_not == "часть лимита домена выбрали ящики другого направления на нём"
+
+
+def test_a_refusal_of_the_filter_is_the_reason_without_what_has_gone() -> None:
+    """Сегодня ушло три первых письма, а второй домен исчерпан — его лимит выбрал ящик другого
+    направления: день не выберет мощность, и причина — слова фильтра. Слов «сегодня уже ушло…»
+    перед ними нет: ушедшее — число, а не причина."""
+    first, second = _box(1, wrote=40), _box(2, domain="mail-b.example.test", wrote=40)
+    other = _box(3, domain="mail-b.example.test", wrote=40)
+    other.stage = Stage.DONORS
+    found = capacity.today(
+        [first, second, other],
+        stage=Stage.SALES,
+        sent={1: 3, 3: 10},
+        domains=_limited("mail-b.example.test", 10),
+        cuts={},
+        now=NOW,
     )
+
+    days, _ = plan(NOW, 1, Clock(), _today_of(found), Supply(queued=500), Chains())
+
+    assert (found.sent, days[0].capacity, days[0].planned) == (3, 30, 17)
+    assert days[0].why_not == "домен исчерпан на сегодня: mail-b.example.test — 10 из 10"
+
+
+def test_a_refusal_that_takes_nothing_from_the_day_is_not_a_reason() -> None:
+    """Домен выбрал свой лимит сам, письмами своего же направления: ящик на нём сегодня больше не
+    пишет, и фильтр это говорит, — но день идёт во всю мощность, и причины нет. До 12.11.2026 здесь
+    стояло «сегодня уже ушло 10 первых писем — остаток дня 20; домен исчерпан на сегодня: …»."""
+    first, second = _box(1, wrote=40), _box(2, domain="mail-b.example.test", wrote=40)
+    found = capacity.today(
+        [first, second],
+        stage=Stage.SALES,
+        sent={2: 10},
+        domains=_limited("mail-b.example.test", 10),
+        cuts={},
+        now=NOW,
+    )
+    boxes = _today_of(found)
+
+    days, _ = plan(NOW, 1, Clock(), boxes, Supply(queued=500), Chains())
+
+    assert boxes.refused == "домен исчерпан на сегодня: mail-b.example.test — 10 из 10"
+    assert (found.sent, days[0].capacity, days[0].planned) == (10, 30, 20)
+    assert days[0].why_not is None
+
+
+def test_a_mailbox_stopped_after_its_letters_leaves_today_without_a_reason() -> None:
+    """Ящик выключили — или он встал на паузу — уже после семи писем: мощность дня считает их
+    (`capacity.today`), «ушло и ещё уйдёт» равно мощности, и причины у сегодня нет. До 12.11.2026
+    мощность была двадцать при двадцати семи «ушло и ещё уйдёт» — план дня больше мощности; считай
+    мощность потолком остановленного ящика — причиной встали бы слова про чужое направление."""
+    working, stopped = _box(1, wrote=40), _box(2, wrote=40)
+    stopped.enabled = False
+    found = capacity.today(
+        [working, stopped], stage=Stage.SALES, sent={1: 4, 2: 7}, domains={}, cuts={}, now=NOW
+    )
+
+    days, _ = plan(NOW, 1, Clock(), _today_of(found), Supply(queued=500), Chains())
+
+    assert (found.sent, days[0].capacity, days[0].planned) == (11, 27, 16)
+    assert found.sent + days[0].planned == days[0].capacity
+    assert days[0].why_not is None
 
 
 def test_today_without_capacity_says_what_the_filter_said() -> None:

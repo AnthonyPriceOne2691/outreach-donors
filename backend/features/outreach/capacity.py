@@ -28,7 +28,11 @@
 ящика, сниженный на сутки мягкими отказами (`health.cuts`, ×0,5), действует только в пути отправки —
 здесь он потолок ящика на сегодня, и прогноз говорит об этом словами (`Today.cut`). Остаток дня — по
 ящику, домену и направлению за вычетом первых писем, ушедших сегодня (`sent_today(first_only=True)`):
-в обычный день это мощность дня минус ушедшее. Добивки в счёт не входят: у них свой часовой лейн
+в обычный день это мощность дня минус ушедшее. В необычный — ящик днём выключили или он встал на
+паузу уже после своих писем, лимит снизили ниже ушедшего — равенство держит мощность дня: ящик входит
+в неё не меньше чем ушедшим с него сегодня, а выключенный — только ушедшим (`_whole_day`,
+12.11.2026). Иначе потолок такого ящика из мощности уходил, а его письма оставались в ушедших, и
+«ушло + остаток» было больше мощности дня. Добивки в счёт не входят: у них свой часовой лейн
 (решение 21.09.2026).
 """
 
@@ -36,7 +40,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from typing import assert_never
@@ -261,11 +265,16 @@ class Span:
     start: datetime | None = None
     end: datetime | None = None
     closed: str | None = None
+    #: Окно в этот день было и к минуте вопроса уже закрылось: день отправки был, письма в него
+    #: уходили. У дня, который окну не принадлежит вовсе, `closed` тоже есть, а этого признака нет:
+    #: по нему прогноз оставляет сегодняшнему дню мощность дня целиком (`forecast_plan._day`).
+    over: bool = False
 
 
 def span_of(frame: SendWindow | None, zone: ZoneInfo | None, day: date, now: datetime) -> Span:
     """Часы отправки дня `day` от минуты `now`: без окна — весь UTC-день; с окном — его часы в поясе
-    `zone`; день не окна или окно на сегодня закрылось — `closed` словами."""
+    `zone`; день не окна или окно на сегодня закрылось — `closed` словами, а закрывшееся окно — ещё
+    и признаком `over`."""
     if frame is None:
         start = datetime.combine(day, time.min, tzinfo=UTC)
         return Span(max(start, now), start + timedelta(days=1))
@@ -277,7 +286,8 @@ def span_of(frame: SendWindow | None, zone: ZoneInfo | None, day: date, now: dat
     opens, closes = hours
     if now >= closes:
         return Span(
-            closed=f"окно получателя на сегодня закрылось в {closes:%H:%M} UTC (пояс {zone.key})"
+            closed=f"окно получателя на сегодня закрылось в {closes:%H:%M} UTC (пояс {zone.key})",
+            over=True,
         )
     return Span(max(opens, now), closes)
 
@@ -327,7 +337,9 @@ class Today:
     """Сегодня у ящиков этапа: каждый ящик, мощность дня целиком и остаток дня."""
 
     boxes: tuple[BoxToday, ...]
-    #: Мощность дня целиком — правилом экрана, с лимитами, сниженными мягкими отказами.
+    #: Мощность дня целиком — правилом экрана, с лимитами, сниженными мягкими отказами. Ящик входит
+    #: в неё не меньше чем ушедшим с него сегодня, а выключенный или вставший на паузу — только
+    #: ушедшим (`_whole_day`): «ушло + остаток дня» не больше мощности дня.
     capacity: int
     #: Остаток дня: сколько первых писем ещё пустит выбор ящика — по ящику, домену и направлению.
     left: Rooms
@@ -374,7 +386,8 @@ def today(
 ) -> Today:
     """Сегодня — фильтром и остатком выбора ящика первого письма (`letters/mailbox._free_box`).
     `senders` — все ящики, как их видит фильтр: домен считает письма всех своих ящиков; `cuts` —
-    сниженные на сутки лимиты (`health.cuts`)."""
+    сниженные на сутки лимиты (`health.cuts`). Мощность дня целиком — потолки ящиков, но не меньше
+    ушедшего с каждого (`_whole_day`); остаток дня — только у ящиков, которые ещё пишут."""
     limit = cfg.direction_limit(stage.value)
     screened = limits.screen(
         senders,
@@ -395,12 +408,29 @@ def today(
     for box in senders:
         used[box.domain] += sent.get(box.id, 0)
     rooms = ((b.sender, max(0, b.allowance - b.sent)) for b in own if b.sender.id in writing)
-    full = ((b.sender, b.allowance) for b in own if b.sender.enabled)
+    # Мощность дня целиком считает и то, что с ящика уже ушло (12.11.2026). До этого в неё шли
+    # только потолки включённых ящиков: ящик, который днём выключили или который встал на паузу уже
+    # после своих писем, уходил из мощности целиком, а его письма оставались в ушедших
+    # (`Today.sent`) — «ушло + остаток» выходило больше мощности дня, и план дня на экране был
+    # больше мощности. То же — у ящика, чей лимит мягкие отказы снизили ниже уже ушедшего.
+    # Выключенный без писем сегодня не считается, как и раньше; лимиты домена и направления
+    # (`gather`) — те же: ушедшее складывается с потолками ящиков домена под его лимитом, не сверх.
+    full = _whole_day(own)
     return Today(
         own,
         gather(full, domains, stage, now, limit).total(),
         gather(rooms, domains, stage, now, limit, used=used, spent=sum(b.sent for b in own)),
     )
+
+
+def _whole_day(boxes: Iterable[BoxToday]) -> Iterator[tuple[SenderModel, int]]:
+    """Вклад ящиков в мощность дня целиком: потолок дня включённого ящика, но не меньше ушедшего с
+    него сегодня; выключенный или вставший на паузу — тем, что успел отправить. Ящик без вклада —
+    выключенный, без писем сегодня — не называется вовсе."""
+    for box in boxes:
+        ceiling = box.allowance if box.sender.enabled else 0
+        if letters := max(ceiling, box.sent):
+            yield box.sender, letters
 
 
 def _box(

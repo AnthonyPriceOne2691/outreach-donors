@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from backend.config import outreach as outreach_cfg
@@ -148,6 +149,36 @@ def test_the_first_sending_day_follows_the_window_days() -> None:
     assert capacity.first_sending(TODAY, weekdays) == TODAY
 
 
+def test_a_window_that_closed_today_is_told_apart_from_a_day_without_one() -> None:
+    """Слова `closed` есть у обоих дней, а признак `over` — только у окна, которое в этот день было
+    и уже закрылось: день отправки был. По нему прогноз оставляет сегодняшнему дню мощность дня
+    целиком; дню, который окну не принадлежит, — ноль."""
+    weekdays = SendWindow(days=frozenset(range(5)), start=time(9), end=time(17))
+    berlin = ZoneInfo("Europe/Berlin")  # летнее время: окно среды — 07:00–15:00 UTC
+    evening, saturday = NOW.replace(hour=16), datetime(2026, 10, 24, 16, 0, tzinfo=UTC)
+
+    closed = capacity.span_of(weekdays, berlin, TODAY, evening)
+    weekend = capacity.span_of(weekdays, berlin, saturday.date(), saturday)
+
+    assert (closed.closed, closed.over) == (
+        "окно получателя на сегодня закрылось в 15:00 UTC (пояс Europe/Berlin)",
+        True,
+    )
+    assert (weekend.closed, weekend.over) == (
+        "не день отправки: окно получателя — пн–пт 09:00–17:00 по его часам",
+        False,
+    )
+    # Окно ещё открыто, завтрашний день вечером, этап без окна, пояс неизвестен — признака нет.
+    for frame, zone, day, now in (
+        (weekdays, berlin, TODAY, NOW),
+        (weekdays, berlin, TODAY + timedelta(days=1), evening),
+        (None, None, TODAY, evening),
+        (weekdays, None, TODAY, evening),
+    ):
+        found = capacity.span_of(frame, zone, day, now)
+        assert (found.closed, found.over) == (None, False)
+
+
 # --- сегодня глазами выбора ящика -----------------------------------------------------------
 
 
@@ -192,6 +223,61 @@ def test_a_cut_mailbox_that_used_its_halved_limit_is_refused_in_words() -> None:
 
     assert found.left.total() == 0
     assert found.boxes[0].refused == f"{limits.BOX_CUT}: box1@mail-a.example.test — 10 из 10"
+
+
+def test_a_mailbox_stopped_after_its_letters_counts_by_what_it_sent() -> None:
+    """Ящик выключили — или он встал на паузу — уже после семи писем: потолка у него больше нет, а
+    семь писем ушли. Мощность дня считает их, и «ушло + остаток» сходится с ней: до 12.11.2026
+    мощность была двадцать при двадцати семи «ушло и ещё уйдёт». Выключенный ящик без писем сегодня
+    не считается, как и раньше."""
+    boxes = [_box(1), _box(2, enabled=False), _box(3, enabled=False)]
+    found = capacity.today(
+        boxes, stage=Stage.SALES, sent={1: 4, 2: 7}, domains={}, cuts={}, now=NOW
+    )
+
+    assert (found.capacity, found.sent, found.left.total()) == (27, 11, 16)
+    assert found.sent + found.left.total() == found.capacity
+
+
+def test_a_limit_cut_below_what_went_counts_what_went() -> None:
+    """Мягкие отказы снизили лимит ящика до десяти, когда с него уже ушло двенадцать: в мощности
+    дня он — двенадцатью, а не десятью; сам сегодня больше не пишет."""
+    found = capacity.today(
+        [_box(1), _box(2)], stage=Stage.SALES, sent={1: 12, 2: 5}, domains={}, cuts={1: 10}, now=NOW
+    )
+
+    assert [(box.allowance, box.sent) for box in found.boxes] == [(10, 12), (20, 5)]
+    assert (found.capacity, found.sent, found.left.total()) == (32, 17, 15)
+    assert found.boxes[0].refused == f"{limits.BOX_CUT}: box1@mail-a.example.test — 12 из 10"
+
+
+def test_what_a_stopped_mailbox_sent_stays_under_the_limit_of_its_domain() -> None:
+    """Лимит домена — как был: ушедшее с выключенного ящика складывается с потолком соседа под
+    лимитом домена, а не сверх него. Двадцать и семь на домене с лимитом 22 — двадцать два, и
+    остаток дня — по тому же лимиту: одиннадцать ушло, одиннадцать осталось."""
+    boxes = [_box(1), _box(2, enabled=False)]
+    domains = {"mail-a.example.test": _domain("mail-a.example.test", limit=22)}
+    found = capacity.today(
+        boxes, stage=Stage.SALES, sent={1: 4, 2: 7}, domains=domains, cuts={}, now=NOW
+    )
+
+    assert (found.capacity, found.sent, found.left.total()) == (22, 11, 11)
+
+
+def test_a_closed_domain_gives_nothing_today_whatever_went_from_it() -> None:
+    """Закрытый домен — ноль, как у правила дня: правило «не меньше ушедшего» — про ящик, лимиты
+    домена оно не трогает. Ящик на домене с паузой в мощность дня не входит ни потолком, ни пятью
+    письмами, ушедшими до паузы; пишет сегодня только сосед на открытом домене."""
+    boxes = [_box(1), _box(2, domain="mail-b.example.test")]
+    domains = {
+        "mail-b.example.test": _domain("mail-b.example.test", paused_at=NOW, pause_reason="жалоба")
+    }
+    found = capacity.today(
+        boxes, stage=Stage.SALES, sent={1: 4, 2: 5}, domains=domains, cuts={}, now=NOW
+    )
+
+    assert (found.capacity, found.left.total()) == (20, 16)
+    assert found.boxes[1].refused == f"{limits.DOMAIN_PAUSED}: mail-b.example.test — жалоба"
 
 
 def test_today_counts_the_domain_letters_of_every_mailbox_on_it() -> None:

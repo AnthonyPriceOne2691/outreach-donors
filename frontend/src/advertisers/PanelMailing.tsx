@@ -16,6 +16,10 @@
  *
  * **Отказ одной ручки — в её блоке**, остальные живут: как на вкладке продаж.
  *
+ * **Все три ручки — раз в минуту** (`MAILING_REFRESH_MS`): прогноз, режим и части. Части до
+ * 12.11.2026 читались один раз: плитки «Ушло» и «Собрано» стояли, пока письма уходили, а срок и
+ * план рядом менялись.
+ *
  * **Строка режима — с подписью своей очереди** (`AUDIENCE_NAMES`, словами переключателя «Писем»):
  * две «Сама больше не уходит с …» без подписи читались дублем (разведка 10.11.2026).
  *
@@ -157,7 +161,14 @@ export function PanelMailing() {
     queryFn: fetchPanelMailing,
     refetchInterval: MAILING_REFRESH_MS,
   });
-  const facets = useQuery({ queryKey: ADVERTISER_FACETS_KEY, queryFn: fetchAdvertiserFacets });
+  // Части — тоже раз в минуту, как прогноз и режим рядом (12.11.2026): пока письма уходили, срок и
+  // план блока менялись, а плитки «Ушло» и «Собрано» стояли до перезагрузки страницы — и расходились
+  // с числами под ними. Ключ кэша — тот же, что у счётчиков списка рекламодателей: числа одни.
+  const facets = useQuery({
+    queryKey: ADVERTISER_FACETS_KEY,
+    queryFn: fetchAdvertiserFacets,
+    refetchInterval: MAILING_REFRESH_MS,
+  });
   const view = forecast.data;
   // Очередь этапа — обеих вкладок: прогноз считает её целиком.
   const empty = view !== undefined && view.queued_first === 0;

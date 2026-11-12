@@ -302,9 +302,9 @@
       "worst": "mailing_forecast:34"
     },
     "backend/api/letters/forecast_schemas.py": {
-      "lines": 267,
+      "lines": 274,
       "complexity": 8,
-      "worst": "of:238"
+      "worst": "of:245"
     },
     "backend/api/letters/once.py": {
       "lines": 114,
@@ -2137,9 +2137,9 @@
       "worst": "forecast:119"
     },
     "backend/features/letters/forecast_plan.py": {
-      "lines": 371,
+      "lines": 395,
       "complexity": 7,
-      "worst": "_why:274"
+      "worst": "_why:295"
     },
     "backend/features/letters/form_letter.py": {
       "lines": 209,
@@ -2447,9 +2447,9 @@
       "worst": "pause_once:80"
     },
     "backend/features/outreach/capacity.py": {
-      "lines": 436,
+      "lines": 466,
       "complexity": 7,
-      "worst": "span_of:266"
+      "worst": "span_of:274"
     },
     "backend/features/outreach/followup_caps.py": {
       "lines": 112,

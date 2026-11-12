@@ -61,6 +61,17 @@ def _frozen(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(forecast_module, "datetime", _Frozen)
 
 
+def _clock_at(moment: datetime) -> type[datetime]:
+    """Часы прогноза на другой минуте — вечер после закрытия окна, суббота."""
+
+    class _Clock(datetime):
+        @classmethod
+        def now(cls, tz: tzinfo | None = None) -> datetime:  # type: ignore[override]
+            return moment if tz is not None else moment.replace(tzinfo=None)
+
+    return _Clock
+
+
 @dataclass
 class ForecastSales(FakeSalesMail):
     """Подставной модуль продаж, который отвечает и прогнозу (`stage_forecast.SalesForecast`)."""
@@ -273,7 +284,9 @@ async def test_donors_write_every_day_and_their_queue_date_has_no_hours(
         ("2026-10-22", True, 30, 7, 1),
         ("2026-10-23", True, 30, 0, 0),
     ]
-    assert body["days"][0]["why_not"] == "сегодня уже ушло 2 первых писем — остаток дня 23"
+    # Два ушедших и остаток 23 — мощность дня целиком: причины нет (замечание проверки 12.11.2026 —
+    # «сегодня уже ушло 2 первых писем — остаток дня 23» читалось причиной у дня без помех).
+    assert body["days"][0]["why_not"] is None
     assert body["past"] == [
         {"day": "2026-10-19", "sent_first": 3, "sent_followups": 0},
         {"day": "2026-10-20", "sent_first": 0, "sent_followups": 1},
@@ -281,6 +294,65 @@ async def test_donors_write_every_day_and_their_queue_date_has_no_hours(
     eta = body["queue_eta"]
     assert (eta["day"], eta["sending_days"], eta["hours"]) == ("2026-10-22", 2, None)
     assert "вручную: пачка выбирает дневной лимит за секунды" in eta["words"]
+
+
+async def test_today_names_what_the_filter_refused_without_what_has_gone(
+    client: AsyncClient, session: AsyncSession, viewer: dict[str, str], donors: SenderModel
+) -> None:
+    """Сегодня у доноров ушло два первых письма, а лимит их домена — четыре письма — выбрал ящик
+    рекламодателей на нём же: ящик доноров на этом домене сегодня больше не пишет, и день не
+    выберет мощность. Причина — слова фильтра; слов «сегодня уже ушло…» перед ними нет."""
+    session.add(SendingDomainModel(domain="mail-d.example.test", stage=Stage.DONORS, daily_limit=4))
+    neighbour = await _box(session, "offers@mail-d.example.test", Stage.ADVERTISERS)
+    letters = await _letters(session, Stage.ADVERTISERS)
+    for _ in range(4):
+        await letters.add(
+            status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=2), sender_id=neighbour.id
+        )
+    await session.commit()
+
+    body = (await client.get(URL, params={"days": 1, "back": 0}, headers=viewer)).json()
+
+    today = body["days"][0]
+    assert (body["today"]["sent_first"], today["capacity_first"], today["planned_first"]) == (
+        2,
+        9,
+        5,
+    )
+    assert today["why_not"] == "домен исчерпан на сегодня: mail-d.example.test — 6 из 4"
+
+
+async def test_a_mailbox_stopped_after_its_letters_stays_in_the_capacity_of_the_day(
+    client: AsyncClient, session: AsyncSession, viewer: dict[str, str]
+) -> None:
+    """Ящик выключили днём, уже после трёх писем: мощность сегодняшнего дня считает их — «ушло и
+    ещё уйдёт» равно мощности, и причины у дня нет. `today.allowance` и мощность первой строки
+    плана — одно число. До 12.11.2026 мощность была двадцать при двадцати трёх «ушло и ещё уйдёт».
+    Завтра выключенный ящик не пишет: мощность — только включённого."""
+    await _box(session, "outreach1@mail-d.example.test", Stage.DONORS)
+    stopped = await _box(session, "outreach2@mail-e.example.test", Stage.DONORS, enabled=False)
+    letters = await _letters(session, Stage.DONORS)
+    for _ in range(30):
+        await letters.add()
+    for _ in range(3):
+        await letters.add(
+            status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=2), sender_id=stopped.id
+        )
+    await session.commit()
+
+    body = (await client.get(URL, params={"days": 2, "back": 0}, headers=viewer)).json()
+
+    assert body["today"] == {
+        "sent_first": 3,
+        "sent_followups": 0,
+        "allowance": 23,
+        "remaining_first": 20,
+        "cut": None,
+    }
+    today, tomorrow = body["days"]
+    assert (today["capacity_first"], today["planned_first"], today["why_not"]) == (23, 20, None)
+    assert today["capacity_first"] == body["today"]["allowance"]
+    assert (tomorrow["capacity_first"], tomorrow["planned_first"]) == (20, 10)
 
 
 async def test_followups_over_a_box_daily_cap_are_planned_for_the_next_days(
@@ -442,6 +514,65 @@ async def test_sales_follow_the_recipient_window_and_the_autosend_pace(
     assert (eta["day"], eta["sending_days"], eta["hours"]) == ("2026-10-21", 1, 0.8)
     assert body["paused"] is None
     assert {"supply", "queue_zones", "queue_stuck", "autosend_stop"} <= set(sales_module.asked)
+
+
+@pytest.mark.parametrize(
+    ("moment", "whole", "why"),
+    [
+        # Среда, 16:00 UTC: окно в Берлине закрылось в 15:00 — день отправки был.
+        (
+            NOW.replace(hour=16),
+            20,
+            "окно получателя на сегодня закрылось в 15:00 UTC (пояс Europe/Berlin)",
+        ),
+        # Суббота: день окну пн–пт не принадлежит.
+        (
+            datetime(2026, 10, 24, 10, 0, tzinfo=UTC),
+            0,
+            "не день отправки: окно получателя — пн–пт 09:00–17:00 по его часам",
+        ),
+    ],
+)
+async def test_today_keeps_its_capacity_after_the_window_closed_but_not_without_a_window(
+    client: AsyncClient,
+    session: AsyncSession,
+    viewer: dict[str, str],
+    sales_module: ForecastSales,
+    monkeypatch: pytest.MonkeyPatch,
+    moment: datetime,
+    whole: int,
+    why: str,
+) -> None:
+    """Сегодня с ящика ушло три первых письма. Окно получателя на сегодня уже закрылось — мощность
+    первой строки плана остаётся мощностью дня целиком: день отправки был, и план дня на экране —
+    ушедшее за него (до 12.11.2026 был ноль: «мощность 0, план 3»). Сегодня не день отправки —
+    ноль, как у любого дня без окна. В обоих случаях сегодня больше ничего не уйдёт, а
+    `today.allowance` — по-прежнему то, что пускают лимиты ящиков."""
+    monkeypatch.setattr(forecast_module, "datetime", _clock_at(moment))
+    box = await _box(session, "sales1@mail-s.example.test", Stage.SALES)
+    letters = await _letters(session, Stage.SALES)
+    for _ in range(4):
+        await letters.add()
+    for _ in range(3):
+        await letters.add(
+            status=MessageStatus.SENT, sent_at=moment - timedelta(hours=3), sender_id=box.id
+        )
+    await session.commit()
+
+    response = await client.get(
+        URL, params={"stage": "sales", "days": 2, "back": 0}, headers=viewer
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    today = body["days"][0]
+    assert (body["today"]["sent_first"], body["today"]["allowance"]) == (3, 20)
+    assert (today["sending_day"], today["capacity_first"], today["planned_first"]) == (
+        False,
+        whole,
+        0,
+    )
+    assert today["why_not"] == why
 
 
 async def test_a_stopped_autosend_is_named_and_the_plan_stays(

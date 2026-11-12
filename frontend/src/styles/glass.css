@@ -2355,6 +2355,14 @@ html:root .mantine-Pill-root {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  /* План «Рассылки» (`sales/MailingDays`, 12.11.2026): у дня пять чисел — мощность, план и факт
+     первых, план и факт добивок. Двумя равными половинами: день и мощность, под ними пары — план
+     под планом, факт под фактом. В три колонки пары рвались: «Добивок: план» вставал под
+     «Мощность», а его факт — под планом первых. `minmax(0, 1fr)` держит половины равными. */
+  .phoneCardsRow .mailingPlan tbody > tr {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .phoneCardsRow tbody > tr > td.phoneWide {
     grid-column: 1 / -1;
   }

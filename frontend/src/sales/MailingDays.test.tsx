@@ -7,6 +7,11 @@
  * сетки, скрытая держит место. Высоты в jsdom нет — проверяется устройство: обе вкладки в ячейке,
  * скрытая — `visibility: hidden`, `inert` и `aria-hidden`; сам прыжок мерит снимок стенда.
  *
+ * План и факт — колонками рядом (замечание проверки 12.11.2026): у сегодня план — день целиком, а
+ * не остаток дня, факт — ушедшее; у будущих дней факт — прочерк; в факте за семь дней последней
+ * строкой — сегодня. Причина дня в записанном прогнозе — прежними словами сервера («сегодня уже
+ * ушло…»): экран слов сервера не разбирает, и что они сменились, ему всё равно.
+ *
  * Часы закреплены на «сейчас» записанного прогноза (`vi.useFakeTimers({ toFake: ['Date'] })`): пояс
  * на виду — смещением от UTC на сегодня, а оно у пояса с летним временем зависит от дня.
  */
@@ -42,8 +47,9 @@ afterEach(() => {
 function hint(boxes: string, supply: string): string[] {
   return [
     `Мощность ящиков — сколько первых писем могут отправить ${boxes} в этот день: ступень разгона, лимиты домена и направления; ящик, ещё не писавший, начинает разгон в первый день отправки. В день без окна получателя — ноль. Сегодня — мощность дня целиком.`,
-    `Уйдёт первых — мощность, но не больше, чем есть: ${supply}. Сегодня — сколько ещё уйдёт.`,
-    'Добивок — со сроком в этот день; просроченные — сегодня, срок в день без окна — в следующем дне отправки. С ящика в сутки уходит не больше потолка добивок: что сверх него — тоже в следующем дне отправки. В лимит первых писем добивки не входят.',
+    `Первых: план — мощность, но не больше, чем есть: ${supply}.`,
+    'Добивок: план — со сроком в этот день; просроченные — сегодня, срок в день без окна — в следующем дне отправки. С ящика в сутки уходит не больше потолка добивок: что сверх него — тоже в следующем дне отправки. В лимит первых писем добивки не входят.',
+    'Сегодня план — день целиком: что уже ушло и что ещё уйдёт. Факт — сколько ушло на самом деле: у сегодня он растёт, пока письма уходят (экран обновляется раз в минуту), у будущих дней — прочерк.',
     'Дни — по UTC, как дневной лимит ящиков.',
     WINDOW,
   ];
@@ -70,6 +76,27 @@ function expectShown(element: HTMLElement): void {
   expect(element).not.toHaveAttribute('aria-hidden');
 }
 
+/** Строка таблицы по первой ячейке — дню. */
+function rowOf(where: HTMLElement, day: string): HTMLElement {
+  const row = within(where)
+    .getAllByRole('row')
+    .find((found) => found.querySelector('td')?.textContent?.startsWith(day));
+  if (row === undefined) throw new Error(`строки «${day}» нет`);
+  return row;
+}
+
+function cells(row: HTMLElement): string[] {
+  return [...row.querySelectorAll('td')].map((cell) => cell.textContent ?? '');
+}
+
+/** Строки таблицы без шапки — ячейками. */
+function body(where: HTMLElement): string[][] {
+  return within(where)
+    .getAllByRole('row')
+    .slice(1)
+    .map((row) => cells(row));
+}
+
 /** Что читает человек: наводит на «i» у вкладок плана — абзацы подсказки по порядку. */
 async function shownHint(): Promise<string[]> {
   await userEvent.setup().hover(screen.getByRole('button', { name: PLAN_HINT }));
@@ -80,12 +107,12 @@ async function shownHint(): Promise<string[]> {
 }
 
 describe('рассылка: план и факт — вкладками', () => {
-  it('сначала план: сегодня и семь дней; факта на экране нет', () => {
+  it('сначала план: строка лимитов сегодня и семь дней; факта на экране нет', () => {
     renderWith(<MailingDaysTabs view={FORECAST} />);
 
     expect(screen.getByRole('radio', { name: PLAN })).toBeChecked();
     const plan = within(screen.getByRole('region', { name: PLAN }));
-    expect(plan.getByText(/^Сегодня ушло первых/)).toBeInTheDocument();
+    expect(plan.getByText(/^Сегодня лимиты ящиков пустят ещё/)).toBeInTheDocument();
     // Окно получателя — «как считается»: абзацем в «i», а не строкой над таблицей.
     expect(screen.queryByText(/^Окно получателя/)).toBeNull();
     expect(plan.getAllByRole('row')).toHaveLength(8);
@@ -103,12 +130,13 @@ describe('рассылка: план и факт — вкладками', () => 
     expect(screen.getByRole('radio', { name: PAST })).toBeChecked();
     const past = within(screen.getByRole('region', { name: PAST }));
     expect(past.getAllByRole('row')).toHaveLength(8);
-    expect(past.queryByText(/^Сегодня ушло первых/)).toBeNull();
+    // Строка над таблицей — про лимиты плана: у факта её нет.
+    expect(past.queryByText(/^Сегодня лимиты ящиков/)).toBeNull();
     expect(screen.queryByRole('region', { name: PLAN })).toBeNull();
     expect(screen.queryByRole('button', { name: PLAN_HINT })).toBeNull();
     await user.hover(screen.getByRole('button', { name: `Как считается «${PAST}»` }));
-    expect(await screen.findByText(/^Сколько писем ушло на самом деле/)).toHaveTextContent(
-      'Сегодня здесь нет: оно на вкладке плана.',
+    expect((await screen.findByText(/^Сколько писем ушло на самом деле/)).textContent).toBe(
+      'Сколько писем ушло на самом деле — первых и добивок, старые дни первыми. Последняя строка — сегодня: она растёт, пока письма уходят. Дни — по UTC, как дневной лимит ящиков.',
     );
 
     await user.click(screen.getByRole('radio', { name: PLAN }));
@@ -172,6 +200,233 @@ describe('рассылка: план и факт — вкладками', () => 
   });
 });
 
+describe('рассылка: план и факт — колонками рядом', () => {
+  // Замечание проверки 12.11.2026: «уйдёт первых — план, ушло первых — факт, добивок — план,
+  // добивок — факт. А не просто „ушло N писем“… каких ушло? непонятно».
+  it('колонки — план и факт у первых писем и у добивок, словами вкладок', () => {
+    renderWith(<MailingDaysTabs view={FORECAST} />);
+    const plan = within(screen.getByRole('region', { name: PLAN }));
+
+    expect(plan.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      'День',
+      'Мощность ящиков',
+      'Первых: план',
+      'Первых: факт',
+      'Добивок: план',
+      'Добивок: факт',
+      'Почему меньше мощности',
+    ]);
+  });
+
+  it('сегодня: план — день целиком, ушедшее и то, что ещё уйдёт; факт — ушедшее', () => {
+    renderWith(<MailingDaysTabs view={FORECAST} />);
+    const plan = screen.getByRole('region', { name: PLAN });
+
+    // Сервер у сегодня отдаёт остаток дня: первых 24, добивок 5; ушло 6 и 2. План дня — 30 и 7:
+    // мощность 30 рядом с планом 24 читалась бы днём, который её не выбирает.
+    expect(cells(rowOf(plan, 'пн 02.11'))).toEqual([
+      'пн 02.11сегодня',
+      '30',
+      '30',
+      '6',
+      '7',
+      '2',
+      'сегодня уже ушло 6 первых писем',
+    ]);
+  });
+
+  it('сегодня без помех: причины нет — «во всю мощность», и план дня равен мощности', () => {
+    // Так сервер отвечает с 12.11.2026: ушедшее — не причина. В записанном прогнозе причина
+    // сегодняшнего дня — прежними словами, поэтому здесь она снята.
+    const days = FORECAST.days.map((day, index) => (index === 0 ? { ...day, why_not: null } : day));
+    renderWith(<MailingDaysTabs view={{ ...FORECAST, days }} />);
+    const plan = screen.getByRole('region', { name: PLAN });
+
+    expect(cells(rowOf(plan, 'пн 02.11'))).toEqual([
+      'пн 02.11сегодня',
+      '30',
+      '30',
+      '6',
+      '7',
+      '2',
+      'во всю мощность',
+    ]);
+  });
+
+  it('окно получателя на сегодня закрылось: мощность — дня целиком, как отдал сервер; план равен факту', () => {
+    // Вечером сервер отдаёт у сегодня остаток дня нулём, а мощность — дня целиком: день отправки
+    // был (до 12.11.2026 приходил ноль, и рядом с планом дня стояло бы «мощность 0, план 6»).
+    // Мощность экран берёт из строки плана, а не из «сегодня»: у ответа они здесь разные.
+    const closed = 'окно получателя на сегодня закрылось в 12:00 UTC (пояс America/Toronto)';
+    const over = { sending_day: false, why_not: closed, planned_first: 0, followups_due: 0 };
+    const days = FORECAST.days.map((day, index) =>
+      index === 0 ? { ...day, ...over, capacity_first: 28 } : day,
+    );
+    renderWith(<MailingDaysTabs view={{ ...FORECAST, days }} />);
+    const plan = screen.getByRole('region', { name: PLAN });
+
+    expect(cells(rowOf(plan, 'пн 02.11'))).toEqual([
+      'пн 02.11сегодня',
+      '28',
+      '6',
+      '6',
+      '2',
+      '2',
+      'окно получателя на сегодня закрылось в 12:00 UTC (пояс UTC−5)',
+    ]);
+  });
+
+  it('сегодня не день отправки: мощность — ноль, как у других дней без окна; план — ушедшее', () => {
+    // Что сегодня за день — закрывшееся окно или день без окна, — решает сервер: экран мощность
+    // дня из «сегодня» (`allowance`, в ответе 30) не подставляет. Ушедшее руками в такой день —
+    // в плане дня и в факте, как пришло.
+    const weekend = 'не день отправки: окно получателя — пн–пт 09:00–17:00 по его часам';
+    const off = {
+      sending_day: false,
+      why_not: weekend,
+      capacity_first: 0,
+      planned_first: 0,
+      followups_due: 0,
+    };
+    const days = FORECAST.days.map((day, index) => (index === 0 ? { ...day, ...off } : day));
+    const { unmount } = renderWith(<MailingDaysTabs view={{ ...FORECAST, days }} />);
+
+    expect(cells(rowOf(screen.getByRole('region', { name: PLAN }), 'пн 02.11'))).toEqual([
+      'пн 02.11сегодня',
+      '0',
+      '6',
+      '6',
+      '2',
+      '2',
+      'не день отправки',
+    ]);
+    unmount();
+
+    // Обычный такой день: ничего не уходило — нули, а не прочерки: день наступил.
+    const quiet = { ...FORECAST.today, sent_first: 0, sent_followups: 0 };
+    renderWith(<MailingDaysTabs view={{ ...FORECAST, days, today: quiet }} />);
+
+    expect(
+      cells(rowOf(screen.getByRole('region', { name: PLAN }), 'пн 02.11')).slice(1, 6),
+    ).toEqual(['0', '0', '0', '0', '0']);
+  });
+
+  it('будущие дни: план — как отдал сервер, факт — прочерк, а не ноль', () => {
+    renderWith(<MailingDaysTabs view={FORECAST} />);
+    const plan = screen.getByRole('region', { name: PLAN });
+
+    expect(cells(rowOf(plan, 'вт 03.11'))).toEqual([
+      'вт 03.11',
+      '35',
+      '35',
+      '—',
+      '3',
+      '—',
+      'во всю мощность',
+    ]);
+    // День, в который ничего не уйдёт: план — ноль, а факта всё равно нет — прочерк.
+    expect(cells(rowOf(plan, 'сб 07.11'))).toEqual([
+      'сб 07.11',
+      '0',
+      '0',
+      '—',
+      '0',
+      '—',
+      'не день отправки',
+    ]);
+    // Пометка «сегодня» — только у первой строки.
+    expect(within(plan).getAllByText('сегодня')).toHaveLength(1);
+  });
+
+  it('сегодня ещё ничего не ушло — факт ноль, а не прочерк: день наступил', () => {
+    const fresh = { ...FORECAST, today: { ...FORECAST.today, sent_first: 0, sent_followups: 0 } };
+    renderWith(<MailingDaysTabs view={fresh} />);
+    const plan = screen.getByRole('region', { name: PLAN });
+
+    expect(cells(rowOf(plan, 'пн 02.11')).slice(1, 6)).toEqual(['30', '24', '0', '5', '0']);
+  });
+
+  it('на телефоне шапки нет — у каждого числа своя короткая подпись', () => {
+    renderWith(<MailingDaysTabs view={FORECAST} />);
+    const plan = screen.getByRole('region', { name: PLAN });
+
+    for (const day of ['пн 02.11', 'вт 03.11']) {
+      const labels = [...rowOf(plan, day).querySelectorAll('td[data-label]')].map((cell) =>
+        cell.getAttribute('data-label'),
+      );
+      expect(labels).toEqual([
+        'Мощность',
+        'Первых: план',
+        'Первых: факт',
+        'Добивок: план',
+        'Добивок: факт',
+      ]);
+    }
+  });
+
+  it('над таблицей — только сколько ещё пустят лимиты: ушедшее — в колонках факта', () => {
+    renderWith(<MailingDaysTabs view={FORECAST} />);
+    const plan = within(screen.getByRole('region', { name: PLAN }));
+
+    const line = plan.getByText(/^Сегодня лимиты ящиков/);
+    // Число не отрывается от «первых» — неразрывным пробелом.
+    expect(line.textContent).toBe('Сегодня лимиты ящиков пустят ещё 24\u00a0первых.');
+    expect(line).toHaveClass('mailingToday');
+    expect(plan.queryByText(/ушло первых/)).toBeNull();
+  });
+});
+
+describe('рассылка: факт за семь дней — с сегодняшним днём', () => {
+  // То же замечание: «Факт за 7 дней — это реальная статистика или устаревшая, за прошлую
+  // неделю?» — сегодня в факте не было.
+  async function openPast(view: MailingForecastView): Promise<HTMLElement> {
+    renderWith(<MailingDaysTabs view={view} />);
+    await userEvent.setup().click(screen.getByRole('radio', { name: PAST }));
+    return screen.getByRole('region', { name: PAST });
+  }
+
+  it('шесть прошлых дней, старые первыми, и сегодня — последней строкой с пометкой', async () => {
+    const past = await openPast(FORECAST);
+
+    expect(body(past)).toEqual([
+      ['вт 27.10', '22', '6'],
+      ['ср 28.10', '25', '3'],
+      ['чт 29.10', '28', '8'],
+      ['пт 30.10', '30', '5'],
+      ['сб 31.10', '0', '0'],
+      ['вс 01.11', '0', '0'],
+      ['пн 02.11сегодня', '6', '2'],
+    ]);
+    // Строк — семь, как в заголовке вкладки: старший из прошлых дней уступил место сегодня.
+    expect(within(past).queryByText('пн 26.10')).toBeNull();
+  });
+
+  it('сегодняшняя строка — числа «сегодня» прогноза: растёт с ними', async () => {
+    const later = { ...FORECAST, today: { ...FORECAST.today, sent_first: 19, sent_followups: 4 } };
+    const past = await openPast(later);
+
+    expect(body(past).at(-1)).toEqual(['пн 02.11сегодня', '19', '4']);
+  });
+
+  it('прошлых дней сервер отдал меньше — они все и сегодня', async () => {
+    const past = await openPast({ ...FORECAST, past: FORECAST.past.slice(-2) });
+
+    expect(body(past)).toEqual([
+      ['сб 31.10', '0', '0'],
+      ['вс 01.11', '0', '0'],
+      ['пн 02.11сегодня', '6', '2'],
+    ]);
+  });
+
+  it('плана нет — сегодняшний день не назван: прошлые дни как есть, без строки сегодня', async () => {
+    const past = await openPast({ ...FORECAST, days: [] });
+
+    expect(body(past)).toHaveLength(7);
+    expect(body(past)[0]).toEqual(['пн 26.10', '20', '4']);
+    expect(within(past).queryByText('сегодня')).toBeNull();
+  });
+});
+
 describe('рассылка: подсказка плана — слова этапа', () => {
   it('без слов — продаж: подсказка та же, что была до параметра', async () => {
     renderWith(<MailingDaysTabs view={FORECAST} />);
@@ -200,13 +455,20 @@ describe('рассылка: почему меньше мощности — го�
     expect(reasonHead('не день отправки: окно получателя — пн–пт 09:00–17:00 по его часам')).toBe(
       'не день отправки',
     );
+    // Причины сегодняшнего дня с 12.11.2026 — без «сегодня уже ушло…»: слова фильтра лимитов.
     expect(
       reasonHead(
-        'сегодня уже ушло 255 первых писем — остаток дня 6; домен исчерпан на сегодня: a.test',
+        'домен исчерпан на сегодня: a.example.test — 10 из 10; домен на паузе: b.example.test — жалоба',
       ),
-    ).toBe('сегодня уже ушло 255 первых писем');
-    expect(reasonHead('остаток дня 6; часть лимита домена выбрали ящики другого направления')).toBe(
-      'остаток дня 6',
+    ).toBe('домен исчерпан на сегодня');
+    expect(
+      reasonHead(
+        'темп автоотправки: письмо с ящика раз в 15 мин — до 15:00 UTC успеет не больше 4 с ящика',
+      ),
+    ).toBe('темп автоотправки');
+    // Раздела в словах нет — причина целиком, и «i» рядом не нужен.
+    expect(reasonHead('часть лимита домена выбрали ящики другого направления на нём')).toBe(
+      'часть лимита домена выбрали ящики другого направления на нём',
     );
     // Двоеточие во времени — не раздел: после него нет пробела.
     expect(reasonHead('окно получателя на сегодня закрылось в 12:00 UTC (пояс Asia/Almaty)')).toBe(
@@ -303,8 +565,10 @@ describe('рассылка: одна причина у всех дней — о�
     expect(plan.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
       'День',
       'Мощность ящиков',
-      'Уйдёт первых',
-      'Добивок',
+      'Первых: план',
+      'Первых: факт',
+      'Добивок: план',
+      'Добивок: факт',
     ]);
     await userEvent
       .setup()
