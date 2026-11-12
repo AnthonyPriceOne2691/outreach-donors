@@ -65,7 +65,7 @@ export const FORECAST: MailingForecastView = {
     {
       day: '2026-11-02',
       sending_day: true,
-      why_not: 'сегодня уже ушло 6 первых писем — остаток дня 24',
+      why_not: null,
       capacity_first: 30,
       planned_first: 24,
       followups_due: 5,
