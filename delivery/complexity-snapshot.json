@@ -2042,9 +2042,9 @@
       "worst": "—"
     },
     "backend/features/letters/address_gate.py": {
-      "lines": 317,
+      "lines": 331,
       "complexity": 10,
-      "worst": "queued_refusal:104"
+      "worst": "queued_refusal:105"
     },
     "backend/features/letters/answers.py": {
       "lines": 247,
@@ -2167,9 +2167,9 @@
       "worst": "_name_forms:153"
     },
     "backend/features/letters/niche_recipients.py": {
-      "lines": 209,
+      "lines": 227,
       "complexity": 8,
-      "worst": "_offers_of:189"
+      "worst": "_offers_of:207"
     },
     "backend/features/letters/offer_addresses.py": {
       "lines": 69,
@@ -2247,7 +2247,7 @@
       "worst": "message_id_from:121"
     },
     "backend/features/letters/repository.py": {
-      "lines": 392,
+      "lines": 393,
       "complexity": 6,
       "worst": "letter_leads:72"
     },

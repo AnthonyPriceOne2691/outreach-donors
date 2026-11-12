@@ -33,12 +33,13 @@ from backend.features.contacts.preference import preferred_first
 from backend.features.core.domain import Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
-from backend.features.core.models.donor import DonorModel
+from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.run import RunModel
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.crawl.niche import NICHE, niche_funnel
 from backend.features.donors.price_freshness import PriceState, price_is
 from backend.features.keywords.footprints import niche_topic
+from backend.features.letters.address_gate import funnel_counts
 from backend.features.letters.compose import NicheOffer
 from backend.features.letters.offer_addresses import advertiser_addresses
 from backend.features.letters.recipients import Candidate, Recipients
@@ -107,7 +108,8 @@ class NicheRecipients(Recipients):
         «пишем», вне «кому не пишем», со свежим адресом, вне стоп-листа и с примером
         площадки. Ноль при ненулевом «с адресом» — либо написаны все, либо у их
         прогонов нет принятого донора со свежей ценой, либо сами они — из «кому
-        не пишем».
+        не пишем». Рядом — числа проверки их адресов (`address_gate.funnel_counts`),
+        пока проверка этапа включена.
         """
         ready = await self.niche_candidates(limit=_EVERYONE)
         funnel = await niche_funnel(self._session)
@@ -115,11 +117,17 @@ class NicheRecipients(Recipients):
         # «из 180 — 3 письма» без этих чисел читалось сбоем сборки, а не адресами).
         waiting = await AdvertiserContactRepository(self._session).pending_count(niche=True)
         lacking = max(0, funnel["решено «пишем»"] - funnel["из них с адресом"])
+        # Проверка адресов перед письмом — числами, как у отбора по ссылке (12.11.2026): адрес
+        # бизнеса ниши сборка проверяет тем же правилом, а вкладка об этом молчала.
+        checks = await funnel_counts(
+            self._session, Stage.ADVERTISERS, picked(ready), audience=NICHE
+        )
         return {
             **funnel,
             "ждут поиска адреса": waiting,
             "адреса не нашлось": max(0, lacking - waiting),
             "ещё не писали": len(ready),
+            **checks,
         }
 
     async def _offers(
@@ -160,6 +168,16 @@ class NicheRecipients(Recipients):
         """Пример площадки для нового письма — сильнейший по DR."""
         host = await self._session.scalar(_examples(run, moment).limit(1))
         return None if host is None else str(host)
+
+
+def picked(ready: Sequence[Candidate]) -> Select[Any]:
+    """Адреса, на которые сборка бизнесам ниши написала бы сейчас, — запросом: по нему воронка
+    считает проверку адресов (`address_gate.funnel_counts`). Отбор ниши одним запросом не
+    выражается — пример площадки и тему на каждого собирает код (`_offers`), — поэтому адреса
+    берутся у уже отобранных: те же, что у сборки, и столько же, сколько «ещё не писали»."""
+    return select(ContactModel.id.label("contact_id")).where(
+        ContactModel.id.in_([one.contact_id for one in ready])
+    )
 
 
 def run_hosts(run: RunModel) -> list[str]:
