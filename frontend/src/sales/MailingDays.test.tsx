@@ -34,6 +34,17 @@ const PLAN_HINT = `Как считается «${PLAN}»`;
 const WINDOW =
   'Окно получателя — пн–пт 09:00–17:00 по его часам; часы дня — по поясу UTC−5 (America/Toronto), самому частому в очереди.';
 
+/** Причина сегодняшнего дня — словами фильтра лимитов, как сервер называет её с 12.11.2026: что
+ *  мешает дню выбрать мощность, а не сколько уже ушло. */
+const HINDERED_WORDS = 'домен исчерпан на сегодня: a.example.test — 10 из 10';
+/** Записанный прогноз, в котором сегодня что-то мешает: ушло 6, ещё уйдёт 14 — при мощности 30. */
+const HINDERED: MailingForecastView = {
+  ...FORECAST,
+  days: FORECAST.days.map((day, index) =>
+    index === 0 ? { ...day, planned_first: 14, why_not: HINDERED_WORDS } : day,
+  ),
+};
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(MAILING_NOW);
@@ -223,25 +234,8 @@ describe('рассылка: план и факт — колонками рядо
     const plan = screen.getByRole('region', { name: PLAN });
 
     // Сервер у сегодня отдаёт остаток дня: первых 24, добивок 5; ушло 6 и 2. План дня — 30 и 7:
-    // мощность 30 рядом с планом 24 читалась бы днём, который её не выбирает.
-    expect(cells(rowOf(plan, 'пн 02.11'))).toEqual([
-      'пн 02.11сегодня',
-      '30',
-      '30',
-      '6',
-      '7',
-      '2',
-      'сегодня уже ушло 6 первых писем',
-    ]);
-  });
-
-  it('сегодня без помех: причины нет — «во всю мощность», и план дня равен мощности', () => {
-    // Так сервер отвечает с 12.11.2026: ушедшее — не причина. В записанном прогнозе причина
-    // сегодняшнего дня — прежними словами, поэтому здесь она снята.
-    const days = FORECAST.days.map((day, index) => (index === 0 ? { ...day, why_not: null } : day));
-    renderWith(<MailingDaysTabs view={{ ...FORECAST, days }} />);
-    const plan = screen.getByRole('region', { name: PLAN });
-
+    // мощность 30 рядом с планом 24 читалась бы днём, который её не выбирает. Причины у такого дня
+    // нет (так сервер отвечает с 12.11.2026: ушедшее — не причина) — «во всю мощность».
     expect(cells(rowOf(plan, 'пн 02.11'))).toEqual([
       'пн 02.11сегодня',
       '30',
@@ -250,6 +244,22 @@ describe('рассылка: план и факт — колонками рядо
       '7',
       '2',
       'во всю мощность',
+    ]);
+  });
+
+  it('сегодня что-то мешает: план дня меньше мощности, причина — что мешает, а не сколько ушло', () => {
+    renderWith(<MailingDaysTabs view={HINDERED} />);
+    const plan = screen.getByRole('region', { name: PLAN });
+
+    // Ушло 6 и ещё уйдёт 14 — план дня 20 при мощности 30; причина — головой, слова фильтра лимитов.
+    expect(cells(rowOf(plan, 'пн 02.11'))).toEqual([
+      'пн 02.11сегодня',
+      '30',
+      '20',
+      '6',
+      '7',
+      '2',
+      'домен исчерпан на сегодня',
     ]);
   });
 
@@ -477,20 +487,18 @@ describe('рассылка: почему меньше мощности — го�
   });
 
   it('в строке дня — голова и «i» с причиной целиком; короткая причина — без «i»', async () => {
-    renderWith(<MailingDaysTabs view={FORECAST} />);
+    renderWith(<MailingDaysTabs view={HINDERED} />);
     const plan = within(screen.getByRole('region', { name: PLAN }));
 
-    expect(plan.getByText('сегодня уже ушло 6 первых писем')).toBeInTheDocument();
-    expect(plan.queryByText(/остаток дня 24/)).toBeNull();
+    expect(plan.getByText('домен исчерпан на сегодня')).toBeInTheDocument();
+    expect(plan.queryByText(/10 из 10/)).toBeNull();
     // У дней «во всю мощность» причины нет — и «i» нет.
     expect(plan.getAllByRole('button', { name: /^Почему меньше мощности — / })).toHaveLength(5);
 
     await userEvent
       .setup()
       .hover(plan.getByRole('button', { name: /^Почему меньше мощности — пн 02\.11/ }));
-    expect(
-      await screen.findByText('сегодня уже ушло 6 первых писем — остаток дня 24'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(HINDERED_WORDS)).toBeInTheDocument();
   });
 });
 
