@@ -312,12 +312,12 @@
       "worst": "enqueue_once:62"
     },
     "backend/api/letters/routes.py": {
-      "lines": 471,
+      "lines": 495,
       "complexity": 5,
       "worst": "build:167"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 450,
+      "lines": 452,
       "complexity": 4,
       "worst": "followups_for:103"
     },
@@ -2057,9 +2057,9 @@
       "worst": "next_address_note:165"
     },
     "backend/features/letters/autosend.py": {
-      "lines": 387,
+      "lines": 393,
       "complexity": 6,
-      "worst": "run:233"
+      "worst": "run:239"
     },
     "backend/features/letters/autosend_alarm.py": {
       "lines": 101,
