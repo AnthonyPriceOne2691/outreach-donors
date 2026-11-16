@@ -63,6 +63,7 @@ import { Seams } from '../components/Seams';
 import { formatMoney, formatNumber } from '../format';
 import { LeadsExport } from './LeadsExport';
 import { LIST_STEP, listScope, useListWindow } from './listWindow';
+import { RedirectBadge } from './RedirectLine';
 import { ThreadsTabs } from './ThreadsTabs';
 import { ThreadsTitle } from './ThreadsTitle';
 import { hasLeads, isThreadFiltered, stateTitle, THREAD_ROLES } from './threadFilters';
@@ -153,6 +154,8 @@ function Row({ thread, to, active, part }: RowProps) {
           <Badge variant="light" color={threadState(thread.state).color} className="threadRowState">
             {stateTitle(thread.state, part)}
           </Badge>
+          {/* После метки состояния: она соседка адреса и держит правый край яруса. */}
+          <RedirectBadge redirect={thread.redirect} />
         </Group>
         {price !== null && (
           <Text size="xs" className="threadRowPrice">

@@ -35,6 +35,8 @@ import { MESSAGE_STATUSES, REPLY_KINDS, SELLER_ANSWERS } from '../api/labels';
 import type { LetterDelivery } from '../api/delivery';
 import type { LetterWithFiles } from '../api/files';
 import { PRICE_RECHECK_STEP } from '../api/priceRecheck';
+import { REDIRECT_STEP } from '../api/redirectTypes';
+import type { RedirectCard } from '../api/redirectTypes';
 import type { Corridor, IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { capitalized, formatDateTime, formatMoney } from '../format';
 import { deliveryLine } from '../letters/deliveryLine';
@@ -72,8 +74,11 @@ function DeliveryMark({ status }: { status: MessageStatus }) {
   );
 }
 
-/** Чьё и какое письмо: первое, добивка, перезапрос цены или наш ответ на ответ собеседника. */
+/** Чьё и какое письмо: первое, добивка, перезапрос цены, наш ответ на ответ собеседника или письмо
+ *  на адрес, который назвал ответ. У письма переадресации тоже есть ответ, на который оно идёт, —
+ *  поэтому шаг проверяется раньше. */
 export function letterTitle(letter: LetterCard): string {
+  if (letter.step === REDIRECT_STEP) return 'письмо на адрес из ответа';
   if (letter.answers_reply_id !== null) return 'наш ответ';
   if (letter.step === PRICE_RECHECK_STEP) return 'перезапрос цены';
   return letter.step === 0 ? 'первое письмо' : `добивка ${letter.step}`;
@@ -90,15 +95,27 @@ function DeliveryNote({ letter }: { letter: FeedLetter }) {
   );
 }
 
-function OurBubble({ letter, corridor }: { letter: FeedLetter; corridor: Corridor }) {
+interface OurProps {
+  letter: FeedLetter;
+  corridor: Corridor;
+  /** Кому ушло письмо переадресации — адрес из ответа. */
+  to: string | null;
+}
+
+function OurBubble({ letter, corridor, to }: OurProps) {
   return (
     <div className="bubbleRow bubbleRowOurs">
       <article className="bubble bubbleOurs" aria-label={`Наше письмо: ${letterTitle(letter)}`}>
         <Text size="xs" fw={600} className="bubbleWho">
           {letterTitle(letter)}
         </Text>
-        {/* Тема — у первого письма: у добивок и ответов она та же, с «Re:». */}
-        {letter.step === 0 && letter.subject !== null ? (
+        {to !== null ? (
+          <Text size="xs" style={{ overflowWrap: 'anywhere' }}>
+            → {to}
+          </Text>
+        ) : null}
+        {/* Тема — у первого письма и у письма на новый адрес: у добивок и ответов она та же, с «Re:». */}
+        {(letter.step === 0 || letter.step === REDIRECT_STEP) && letter.subject !== null ? (
           <Text size="sm" fw={600} mt={2}>
             {readable(letter.subject).text}
           </Text>
@@ -365,6 +382,8 @@ interface FeedProps {
   /** Ответ, который разбирают под лентой. */
   activeId: number | null;
   reviewable: (reply: IncomingCard) => boolean;
+  /** Переадресация диалога: у её письма в ленте — адрес, куда оно ушло. */
+  redirect?: RedirectCard | null;
   sales: boolean;
   onPick: (replyId: number) => void;
   /** Лента забирает остаток колонки высотой окна (переписка рядом со списком,
@@ -380,6 +399,7 @@ export function ThreadFeed({
   corridor,
   activeId,
   reviewable,
+  redirect = null,
   sales,
   onPick,
   fill = false,
@@ -399,7 +419,12 @@ export function ThreadFeed({
     <Stack gap="sm" p="md" className="threadFeed" aria-label="Переписка">
       {items.map((item) =>
         item.kind === 'letter' ? (
-          <OurBubble key={`letter-${item.letter.id}`} letter={item.letter} corridor={corridor} />
+          <OurBubble
+            key={`letter-${item.letter.id}`}
+            letter={item.letter}
+            corridor={corridor}
+            to={redirect?.letter_id === item.letter.id ? redirect.address : null}
+          />
         ) : (
           <Fragment key={`reply-${item.reply.id}`}>
             <TheirBubble
