@@ -37,8 +37,9 @@ logger = logging.getLogger(__name__)
 POLL_INTERVAL_SEC = 60.0
 
 #: Сколько добивок за проход. Потолки ящика — часа и суток — стоят отдельно
-#: (`OUTREACH_FOLLOWUP_PER_SENDER_PER_HOUR`, `OUTREACH_FOLLOWUP_PER_SENDER_PER_DAY`);
-#: это ограничение прохода, чтобы одна минута не держала процесс полчаса.
+#: (`OUTREACH_FOLLOWUP_PER_SENDER_PER_HOUR`, `OUTREACH_FOLLOWUP_PER_SENDER_PER_DAY`), как и
+#: пауза ящика между письмами (`OUTREACH_FOLLOWUP_GAP_MIN`: с ящика доноров и рекламодателей —
+#: добивка за проход); это ограничение прохода, чтобы одна минута не держала процесс полчаса.
 BATCH = 20
 
 #: Как часто убирать брошенные файлы ответа. Сроку у них неделя

@@ -957,9 +957,9 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 377,
+      "lines": 390,
       "complexity": 9,
-      "worst": "_weekdays:163"
+      "worst": "_weekdays:176"
     },
     "backend/config/sales.py": {
       "lines": 500,
@@ -2126,10 +2126,20 @@
       "complexity": 9,
       "worst": "_addressed:251"
     },
+    "backend/features/letters/followup_pace.py": {
+      "lines": 173,
+      "complexity": 4,
+      "worst": "waits:152"
+    },
+    "backend/features/letters/followup_report.py": {
+      "lines": 53,
+      "complexity": 6,
+      "worst": "as_report:37"
+    },
     "backend/features/letters/followups.py": {
-      "lines": 494,
-      "complexity": 7,
-      "worst": "_deliver:415"
+      "lines": 478,
+      "complexity": 8,
+      "worst": "send_due:375"
     },
     "backend/features/letters/forecast.py": {
       "lines": 321,
@@ -3887,9 +3897,9 @@
       "worst": "dequeue_job_and_maintain_ttl:67"
     },
     "backend/workers/followups.py": {
-      "lines": 109,
+      "lines": 110,
       "complexity": 4,
-      "worst": "sweep:51"
+      "worst": "sweep:52"
     },
     "backend/workers/health.py": {
       "lines": 135,

@@ -71,6 +71,18 @@ class _Outreach(DomainSettings):
     followup_per_sender_per_day: int = Field(
         default=20, ge=0, validation_alias="OUTREACH_FOLLOWUP_PER_SENDER_PER_DAY"
     )
+    # Пауза между письмами ящика у прохода добивок доноров и рекламодателей, минут, с разбросом
+    # ±50% (`letters/followup_pace.py`). Потолки выше — верхняя граница, но не темп: часовой ящик
+    # выбирал за несколько минут в начале каждого часа (16.11.2026). Пауза меряется от последнего
+    # письма ящика любого вида — первого, добивки, перезапроса цены, — поэтому 15, а не «окно на
+    # норму» (540 мин / 20 = 27): суточная норма добивок (20) с паузой 15 минут сходит за ~5 часов,
+    # а если ящик в тот же день отдаёт и дневной кап первых писем проходом автоотправки (20 писем
+    # через 10 минут, ~3,3 часа), вместе выходит ~8,3 часа — окно получателя 09:00–18:00 вмещает
+    # оба. При 27 минутах та же пара не влезала бы в день, и часть добивок каждый день уезжала бы
+    # на завтра. Ноль — паузы нет, как до 16.11.2026: только потолки.
+    followup_gap_min: int = Field(
+        default=15, ge=0, le=240, validation_alias="OUTREACH_FOLLOWUP_GAP_MIN"
+    )
     # Добивки: дни от ПРЕДЫДУЩЕГО письма, по шагу (`letters/chain.py`). «7,7» — на 7-й
     # и 14-й день от первого письма, как в ТЗ. Прежнее «7,14» стояло с подписью
     # «дни от первого письма», а счёт шёл от предыдущего: вторая добивка уходила на 21-й
@@ -146,6 +158,7 @@ WARMUP_STEP_DAYS: int = _s.warmup_step_days
 FOLLOWUP_DAYS: tuple[int, ...] = tuple(int(x) for x in _s.followup_days.split(","))
 FOLLOWUP_PER_SENDER_PER_HOUR: int = _s.followup_per_sender_per_hour
 FOLLOWUP_PER_SENDER_PER_DAY: int = _s.followup_per_sender_per_day
+FOLLOWUP_GAP_MIN: int = _s.followup_gap_min
 UNIQUENESS_TARGET_MIN: float = _s.uniqueness_target_min
 UNIQUENESS_TARGET_MAX: float = _s.uniqueness_target_max
 PRICE_CONFIDENCE_THRESHOLD: float = _s.price_confidence_threshold
