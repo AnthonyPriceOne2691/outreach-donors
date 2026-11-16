@@ -26,7 +26,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
@@ -52,6 +51,7 @@ from backend.features.sales.plan_models import (
     SalesPlanKeywordModel,
     SalesPlanModel,
 )
+from backend.features.sales.segment_estimate_keys import fingerprint
 from backend.features.sales.segment_tier import JudgeTier, tier_entry
 from backend.features.serp.modes import SerpMode
 from backend.features.serp.protocol import keyword_key
@@ -144,8 +144,7 @@ def plan_digest(draft: PlanDraft, ask: PlanAsk) -> str:
         "caps": [str(ask.cap_usd), str(ask.hypothesis_cap_usd)],
         **tier_entry(PLAN_MODES[ask.mode].judge_tier),
     }
-    text = json.dumps(seen, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:DIGEST_LENGTH]
+    return fingerprint(seen, DIGEST_LENGTH)
 
 
 def _quoted(names: Sequence[str]) -> str:
