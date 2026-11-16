@@ -35,6 +35,10 @@
  * **Колонка — с той же шапкой на обеих вкладках** (`ThreadList`): заголовок части и
  * переключатель вкладок стоят в одной карточке и на одном месте, под ними — строки диалогов
  * или ответы без письма. Смена вкладки двигает только то, что под переключателем.
+ *
+ * **У доноров и рекламодателей — только переписки с ответом** (16.11.2026, `threadAnswered.ts`).
+ * Под строками сказано, сколько переписок без ответа и на каких «Письмах» они ждут
+ * (`UnansweredLine`).
  */
 
 import {
@@ -68,6 +72,7 @@ import { ThreadsTabs } from './ThreadsTabs';
 import { ThreadsTitle } from './ThreadsTitle';
 import { hasLeads, isThreadFiltered, stateTitle, THREAD_ROLES } from './threadFilters';
 import type { ThreadTab } from './threadTabs';
+import { UnansweredLine } from './UnansweredLine';
 import { UnboundReplies } from './UnboundReplies';
 import { useThreadList } from './useThreadList';
 import type { ThreadListState } from './useThreadList';
@@ -240,6 +245,8 @@ function ListNotes({ list }: { list: ThreadListState }) {
           <Text size="sm" c="dimmed">
             {list.empty.detail}
           </Text>
+          {/* Строк нет — и «Без ответа» сразу под словами о пустоте, а не внизу колонки. */}
+          <UnansweredLine silent={list.silent} part={list.filters.part} />
           {isThreadFiltered(list.typed) && (
             <Button variant="subtle" size="compact-sm" className="press" onClick={list.reset}>
               Сбросить фильтры
@@ -249,6 +256,14 @@ function ListNotes({ list }: { list: ThreadListState }) {
       )}
     </>
   );
+}
+
+/** «Без ответа — M» под строками, а не в их прокрутке: рядом с перепиской строка стоит внизу
+ *  колонки на виду, сколько бы диалогов ни было выше. Строк нет — она под словами о пустоте
+ *  (`ListNotes`): внизу пустой колонки её отделяли бы от них полэкрана (стенд 16.11.2026). */
+function UnansweredFoot({ list }: { list: ThreadListState }) {
+  if (list.empty !== null) return null;
+  return <UnansweredLine silent={list.silent} part={list.filters.part} />;
 }
 
 /** «Показать ещё 100» под показанными строками и сколько осталось за ними; осталось меньше
@@ -341,6 +356,7 @@ export function ThreadRows({ list, split }: RowsProps) {
         ))}
         <MoreRows rest={drawn.rest} onMore={drawn.more} />
       </div>
+      <UnansweredFoot list={list} />
     </>
   );
 }

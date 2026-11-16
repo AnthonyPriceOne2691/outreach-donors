@@ -13,7 +13,7 @@ import type { ThreadCard, ThreadState } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
-import { inDialogs } from './threadAnswered';
+import { inDialogs, unansweredByStage } from './threadAnswered';
 import {
   inPart,
   NO_THREAD_FILTERS,
@@ -107,8 +107,10 @@ export function useThreadList() {
     [all, filters.part],
   );
   // У доноров и рекламодателей — только переписки с ответом (`inDialogs`): без ответа они ждут
-  // на «Письмах» своего этапа. Числа, фильтр и «всего» считаются по показанным.
+  // на «Письмах» своего этапа. Числа, фильтр и «всего» считаются по показанным; сколько не
+  // показано и где они — строкой под списком (`UnansweredLine`).
   const threads = useMemo(() => side.filter(inDialogs), [side]);
+  const silent = useMemo(() => unansweredByStage(side), [side]);
   const counts = useMemo(() => {
     const totals = new Map<ThreadState, number>();
     for (const thread of threads) {
@@ -154,6 +156,8 @@ export function useThreadList() {
     /** Сколько диалогов в части — строк списка, переписки без ответа не в счёт; `undefined` —
      *  список ещё не пришёл. */
     total: query.data === undefined ? undefined : threads.length,
+    /** Переписки части без ответа по этапам: их нет в списке, они ждут на «Письмах». */
+    silent,
     filters,
     typed,
     search,

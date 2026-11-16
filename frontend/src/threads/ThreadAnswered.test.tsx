@@ -4,10 +4,12 @@
  * пересчитывает: здесь у отвеченной и у неотвеченной бывает одно и то же состояние.
  *
  * Проверяется: в частях доноров и рекламодателей неотвеченные (`answered === false`) скрыты, а
- * числа считают показанные; поля нет — строка видна, как раньше; у продаж видны все; в общем списке
- * скрыты только неотвеченные доноров и рекламодателей; список, где ответов ещё нет, так и говорит;
- * прямая ссылка открывает и неотвеченную переписку — и на узком окне, и рядом со списком, где её
- * строки нет. Данные — выдуманные, на `*.example.test`.
+ * числа считают показанные; поля нет — строка видна, как раньше, и в «Без ответа» не считается; у
+ * продаж видны все; в общем списке скрыты только неотвеченные доноров и рекламодателей; под
+ * списком — «Без ответа — M» со ссылкой на «Письма» этапа, в общем списке — строкой на этап, а
+ * без таких переписок строки нет; список, где ответов ещё нет, так и говорит; прямая ссылка
+ * открывает и неотвеченную переписку — и на узком окне, и рядом со списком, где её строки нет.
+ * Данные — выдуманные, на `*.example.test`.
  */
 
 import { screen, waitFor } from '@testing-library/react';
@@ -19,7 +21,7 @@ import { SPLIT_QUERY } from '../layout/split';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
-import { inDialogs } from './threadAnswered';
+import { inDialogs, unansweredByStage } from './threadAnswered';
 
 /** Короткая дата строки зависит от «сегодня» (`shortWhen`): часы закреплены. */
 const NOW = new Date('2026-11-16T12:00:00+03:00');
@@ -115,6 +117,15 @@ async function rows(): Promise<number[]> {
     .sort((a, b) => a - b);
 }
 
+/** Строки «Без ответа» под списком: этап, слова (неразрывные пробелы — обычными) и ссылка. */
+function unanswered(): { stage: string; words: string; to: string | null }[] {
+  return [...document.querySelectorAll<HTMLElement>('[data-unanswered]')].map((line) => ({
+    stage: line.dataset.unanswered ?? '',
+    words: (line.textContent ?? '').replace(/\u00a0/g, ' '),
+    to: line.querySelector('a')?.getAttribute('href') ?? null,
+  }));
+}
+
 /** Широкое окно: список — колонкой рядом с перепиской. */
 function wide() {
   vi.spyOn(window, 'matchMedia').mockImplementation(
@@ -147,6 +158,14 @@ describe('строка «Диалогов» — по полю сервера', (
     ]);
     expect('answered' in DONOR_UNMARKED).toBe(false);
   });
+
+  it('«Без ответа» считает только `answered === false` своего этапа, в порядке меню', () => {
+    expect(unansweredByStage([...THREADS, DONOR_UNMARKED])).toEqual([
+      { stage: 'donors', count: 2 },
+      { stage: 'advertisers', count: 1 },
+    ]);
+    expect(unansweredByStage([DONOR, DONOR_UNMARKED, LEAD_SILENT])).toEqual([]);
+  });
 });
 
 describe('«Диалоги» — только переписки с ответом', () => {
@@ -159,13 +178,19 @@ describe('«Диалоги» — только переписки с ответо
     vi.useRealTimers();
   });
 
-  it('доноры: неотвеченные скрыты, «всего» и вкладка считают показанные', async () => {
+  it('доноры: неотвеченные скрыты, числа — по показанным, под списком — где остальные', async () => {
     open('/threads?stage=donors');
 
     expect(await rows()).toEqual([1, 3]);
     expect(screen.getByText('всего 2')).toBeInTheDocument();
     expect(screen.getByText('Диалоги — 2')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Состояние' })).toHaveValue('все · 2');
+    expect(unanswered()).toEqual([
+      { stage: 'donors', words: 'Без ответа — 2: в «Письмах»', to: '/letters?stage=donors' },
+    ]);
+    // Ссылка — ссылкой и с теми же словами для диктора; имя роли сверяется как есть, с
+    // неразрывным пробелом.
+    expect(screen.getByRole('link', { name: 'в\u00a0«Письмах»' })).toHaveClass('inkLink');
   });
 
   it('рекламодатели: неотвеченная скрыта, числа — по показанным', async () => {
@@ -174,6 +199,13 @@ describe('«Диалоги» — только переписки с ответо
     expect(await rows()).toEqual([5]);
     expect(screen.getByText('всего 1')).toBeInTheDocument();
     expect(screen.getByText('Диалоги — 1')).toBeInTheDocument();
+    expect(unanswered()).toEqual([
+      {
+        stage: 'advertisers',
+        words: 'Без ответа — 1: в «Письмах»',
+        to: '/letters?stage=advertisers',
+      },
+    ]);
   });
 
   it('продажи: видны все переписки, и без ответа тоже', async () => {
@@ -181,6 +213,7 @@ describe('«Диалоги» — только переписки с ответо
 
     expect(await rows()).toEqual([7, 8]);
     expect(screen.getByText('всего 2')).toBeInTheDocument();
+    expect(unanswered()).toEqual([]);
   });
 
   it('общий список: доноры и рекламодатели вместе — скрыты только их неотвеченные', async () => {
@@ -188,13 +221,43 @@ describe('«Диалоги» — только переписки с ответо
 
     expect(await rows()).toEqual([1, 3, 5]);
     expect(screen.getByText('всего 3')).toBeInTheDocument();
+    // Строкой на каждый этап, где такие есть, и «Письма» — полным именем.
+    expect(unanswered()).toEqual([
+      {
+        stage: 'donors',
+        words: 'Без ответа — 2: в «Письмах донорам»',
+        to: '/letters?stage=donors',
+      },
+      {
+        stage: 'advertisers',
+        words: 'Без ответа — 1: в «Письмах рекламодателям»',
+        to: '/letters?stage=advertisers',
+      },
+    ]);
   });
 
-  it('поля нет — сервер не судил: строка видна, как раньше', async () => {
+  it('общий список: без ответа только у одного этапа — строка одна', async () => {
+    open('/threads', [DONOR, BRAND, BRAND_SILENT]);
+
+    expect(await rows()).toEqual([1, 5]);
+    expect(unanswered().map((line) => line.words)).toEqual([
+      'Без ответа — 1: в «Письмах рекламодателям»',
+    ]);
+  });
+
+  it('без ответа нет ни одной — строки нет; неотвеченная другого этапа не в счёт', async () => {
+    open('/threads?stage=donors', [DONOR, DONOR_REPLIED, BRAND_SILENT, LEAD_SILENT]);
+
+    expect(await rows()).toEqual([1, 3]);
+    expect(unanswered()).toEqual([]);
+  });
+
+  it('поля нет — сервер не судил: строка видна, как раньше, и в «Без ответа» не считается', async () => {
     open('/threads?stage=donors', [DONOR, DONOR_SILENT, DONOR_UNMARKED]);
 
     expect(await rows()).toEqual([1, 9]);
     expect(screen.getByText('всего 2')).toBeInTheDocument();
+    expect(unanswered().map((line) => line.words)).toEqual(['Без ответа — 1: в «Письмах»']);
   });
 
   it('ответов ещё нет — так и сказано, а не «диалогов ещё нет»', async () => {
@@ -204,6 +267,12 @@ describe('«Диалоги» — только переписки с ответо
     expect(screen.getByText('Диалог появится здесь с первым ответом.')).toBeInTheDocument();
     expect(screen.queryByText('Диалогов ещё нет.')).toBeNull();
     expect(screen.getByText('всего 0')).toBeInTheDocument();
+    expect(unanswered().map((line) => line.words)).toEqual(['Без ответа — 2: в «Письмах»']);
+    // Строк нет — «Без ответа» сразу под словами о пустоте, а не внизу колонки.
+    const said = screen.getByText('Диалог появится здесь с первым ответом.');
+    expect(said.nextElementSibling).toContainElement(
+      document.querySelector<HTMLElement>('[data-unanswered="donors"]'),
+    );
   });
 });
 
@@ -230,5 +299,9 @@ describe('прямая ссылка на переписку без ответа'
     expect(await screen.findByRole('heading', { name: DONOR_SILENT.host })).toBeInTheDocument();
     expect(await rows()).toEqual([1, 3]);
     expect(document.querySelector('[aria-current="page"][data-thread]')).toBeNull();
+    // Строка «Без ответа» — под строками, а не в их прокрутке: внизу колонки, на виду.
+    const line = document.querySelector<HTMLElement>('[data-unanswered="donors"]')!;
+    expect(line.closest('[aria-label="Список диалогов"]')).toBeNull();
+    expect(line.closest('.threadListColumn')).not.toBeNull();
   });
 });

@@ -13,13 +13,32 @@
  * **У продаж видны все переписки, как и раньше**: их «Диалоги» — рабочий список модуля продаж.
  *
  * **Скрывается только строка списка.** Прямая ссылка `/threads/{id}` открывает любую переписку,
- * в том числе без ответа: на неё ведёт строка из «Писем».
+ * в том числе без ответа: на неё ведёт строка из «Писем». Под списком сказано, сколько переписок
+ * без ответа и на каких «Письмах» они ждут (`UnansweredLine`).
  */
 
-import type { ThreadCard } from '../api/types';
+import type { LetterStage, ThreadCard } from '../api/types';
 
 /** Строка «Диалогов»: у продаж — любая переписка, у доноров и рекламодателей — кроме тех, что
  *  сервер назвал неотвеченными (`answered === false`). */
 export function inDialogs(thread: ThreadCard): boolean {
   return thread.stage === 'sales' || thread.answered !== false;
+}
+
+/** Переписки этапа, которых нет в списке: ответа на них нет. */
+export interface Unanswered {
+  stage: LetterStage;
+  count: number;
+}
+
+/** Этапы писем — в порядке меню. */
+const LETTER_STAGES: readonly LetterStage[] = ['donors', 'advertisers'];
+
+/** Переписки без ответа (`answered === false`) по этапам — тот же счёт, что у блока «Ждём ответа
+ *  · N» на «Письмах» этапа. Этап, у которого их нет, не назван. */
+export function unansweredByStage(threads: readonly ThreadCard[]): Unanswered[] {
+  return LETTER_STAGES.map((stage) => ({
+    stage,
+    count: threads.filter((thread) => thread.stage === stage && !inDialogs(thread)).length,
+  })).filter((item) => item.count > 0);
 }
