@@ -84,7 +84,9 @@ async def test_the_words_say_what_is_left_what_stands_and_when_it_ends(
     assert "ночной обход стоят" in stop.detail
     assert "кандидаты без DR к письму не идут" in stop.detail
     assert "письма уже проверенным рекламодателям уходят" in stop.detail
-    assert "обнуление ключа 14 ноября" in stop.detail
+    # Месяц — по часам: обнуление 14-го числа уже прошло — слова называют следующее (с 14.11.2026
+    # тест ждал «14 ноября» и падал на main). Важно, что срок назван днём обнуления ключа.
+    assert "обнуление ключа 14 " in stop.detail
     assert "поднять лимит ключа — в Ahrefs" in stop.detail
 
 

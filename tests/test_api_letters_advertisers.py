@@ -104,7 +104,10 @@ class TestQueuePerStage:
             await client.get("/api/letters?stage=advertisers", headers=bearer(admin_token))
         ).json()
 
-        assert shown["letter_default"]["subject"] == "Your placement on {{donor_host}}"
+        assert (
+            shown["letter_default"]["subject"]
+            == "Paying less for placements like yours on {{donor_host}}"
+        )
         assert "цена донора свежая" in shown["funnel"]
         offer = next(z for z in shown["letter_default"]["zones"] if z["name"] == "offer")
         assert offer["kind"] == "fixed"
@@ -123,7 +126,9 @@ class TestQueuePerStage:
 
         assert f'"{ANCHOR}"' in card["body"]
         assert PAGE in card["body"]
-        assert [f["subject"] for f in card["followups"]] == [f"Your placement on {DONOR}"] * 2
+        assert [f["subject"] for f in card["followups"]] == [
+            f"Paying less for placements like yours on {DONOR}"
+        ] * 2
         assert "sponsored placement of yours" in card["followups"][0]["body"]
 
 
