@@ -17,6 +17,9 @@ from tests.test_sales_segment_run import hypothesis
 from tests.test_sales_send_world import lead
 
 REVISION = "ed31d48a1ec2_sales_segment_collection.py"
+#: Поздняя ревизия плана работ ссылается на прогоны сбора (`sales_plan_keywords.run_id`,
+#: `sales_segment_runs.plan_hypothesis_id`): откат идёт с неё, как у `alembic downgrade`.
+LATER = "69c8a46a8093_sales_plans.py"
 TABLES = {"sales_segment_runs", "sales_segment_candidates", "sales_segment_verdicts"}
 
 
@@ -40,8 +43,9 @@ async def test_the_rollback_turns_collected_leads_into_imported_ones(
     connection = await session.connection()
 
     def down_and_up(sync: Connection) -> tuple[dict[int, str], set[str], set[str]]:
-        migration = load_migration(REVISION)
+        migration, later = load_migration(REVISION), load_migration(LATER)
         with Operations.context(MigrationContext.configure(sync)):
+            later.downgrade()
             migration.downgrade()
             rows = sync.execute(
                 text("SELECT id, source::text FROM sales_leads WHERE id = ANY(:ids)"), {"ids": ids}
@@ -49,6 +53,7 @@ async def test_the_rollback_turns_collected_leads_into_imported_ones(
             sources = {row.id: row.source for row in rows}
             down = _tables(sync)
             migration.upgrade()
+            later.upgrade()
         return sources, down, _tables(sync)
 
     sources, down, up = await connection.run_sync(down_and_up)
