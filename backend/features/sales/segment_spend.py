@@ -26,6 +26,11 @@
 вывода: отчёт копит токены раздельно (`segment_window.SPLIT_TOKENS`), и доллары — ввод по цене
 ввода, вывод — по цене вывода. Токены без разбивки (провайдер не назвал, прогон судился до неё:
 `tokens` без ввода и вывода) — смешанной ценой с запасной долей вывода (`OUTPUT_SHARE`).
+
+**Тариф судьи** (`segment_tier`): экономный прогон судит на Flex и платит за токены судьи долю
+прайса — деньги судьи по ценам сметы на эту долю (`at_tier`), иначе расход такого прогона в отчёте и
+в деньгах вместе вышел бы вдвое выше счёта. В смете — цены прайса: пересуд того же прогона идёт
+обычным тарифом и считается ими. Токены — те же при любом тарифе.
 """
 
 from __future__ import annotations
@@ -38,6 +43,7 @@ from backend.config.judge import JudgeMode
 from backend.features.sales.segment_models import SalesSegmentRunModel
 from backend.features.sales.segment_rejudge_report import totals_of
 from backend.features.sales.segment_serp import buying
+from backend.features.sales.segment_tier import JudgeTier, known_tier, price_share
 from backend.features.sales.verifier import FIXTURE
 
 #: Запасная доля вывода в токенах судьи сегмента — для смешанной цены, когда разбивки нет: в
@@ -61,6 +67,10 @@ NOT_YET = {
 }
 #: Выдачу покупают или покупка прервана: цены в отчёте ещё нет, её назовёт итог покупки.
 BUYING = "покупка не закончена — цену назовёт её итог"
+#: Судья экономного прогона — в словах факта: почему деньги ниже прайса.
+FLEX_FACT = " — экономный тариф"
+#: Слова тарифа после факта судьи; обычному — никаких, факт прежний.
+TIER_FACT = {JudgeTier.FLEX: FLEX_FACT}
 #: Деньги вместе, пока выдача не куплена: задачи отложенного режима уже оплачены у провайдера.
 AFTER_SERP = "сумма — после покупки выдачи"
 
@@ -114,6 +124,15 @@ def prices_of(estimate: dict[str, Any]) -> Prices:
         sales_cfg.SEGMENT_OUTPUT_USD_PER_1M_TOKENS,
         unsplit,
     )
+
+
+def at_tier(prices: Prices, tier: JudgeTier) -> Prices:
+    """Цены токенов судьи на тарифе прогона: экономный платит долю прайса
+    (`segment_tier.price_share`), обычный — цены сметы как есть."""
+    if tier is JudgeTier.STANDARD:
+        return prices
+    share = price_share(tier)
+    return Prices(prices.input * share, prices.output * share, prices.unsplit * share)
 
 
 def split_of(numbers: dict[str, Any]) -> tuple[int, int, int]:
@@ -188,7 +207,14 @@ def _serp(report: dict[str, Any], estimate: dict[str, Any]) -> SpendRow:
     )
 
 
-def _judge(report: dict[str, Any], estimate: dict[str, Any], prices: Prices, mode: str) -> SpendRow:
+def _judge(
+    report: dict[str, Any],
+    estimate: dict[str, Any],
+    prices: Prices,
+    mode: str,
+    tier: JudgeTier = JudgeTier.STANDARD,
+) -> SpendRow:
+    """Судья — токены за все проходы и деньги ценами тарифа прогона (`at_tier`)."""
     title = "Судья сегмента"
     if mode == JudgeMode.OFF:
         return SpendRow("judge", title, "модель не звалась", "судья выключен", 0, None, 0, None)
@@ -205,8 +231,8 @@ def _judge(report: dict[str, Any], estimate: dict[str, Any], prices: Prices, mod
     if tokens is None:
         fact = NOT_YET["judge"] if judge is None else "токены не записаны"
         return SpendRow("judge", title, fact, promised, None, None, promised_tokens, promised_usd)
-    usd = model_usd(judge or {}, prices)
-    fact = _tokens_words(judge or {}, tokens, usd)
+    usd = model_usd(judge or {}, at_tier(prices, tier))
+    fact = _tokens_words(judge or {}, tokens, usd) + TIER_FACT.get(tier, "")
     return SpendRow("judge", title, fact, promised, tokens, usd, promised_tokens, promised_usd)
 
 
@@ -324,13 +350,14 @@ def _total(rows: list[SpendRow]) -> SpendRow:
 
 
 def spend_rows(run: SalesSegmentRunModel) -> list[SpendRow]:
-    """Статьи расхода прогона с его сметой — и деньги вместе последней строкой."""
+    """Статьи расхода прогона с его сметой — и деньги вместе последней строкой. Судья — ценами
+    тарифа прогона, пересуд — ценами сметы: он идёт обычным тарифом (шапка модуля)."""
     report, estimate = run.report or {}, run.estimate or {}
     prices = prices_of(estimate)
     rejudge = _rejudge(report, prices)
     rows = [
         _serp(report, estimate),
-        _judge(report, estimate, prices, run.mode),
+        _judge(report, estimate, prices, run.mode, known_tier(estimate)),
         *([] if rejudge is None else [rejudge]),
         _search(report, estimate),
         _check(report, estimate),

@@ -23,6 +23,11 @@ SERP_PROVIDER=…» на экране продаж).
 режим человек видел в смете на запуске, такой и покупается, а не тот, что стоит в настройке
 сервиса сейчас. Нет его в смете (прогон старше режимов) — умолчание сервиса (`SERP_MODE`).
 
+**Тариф судьи — тоже из сметы** (`segment_tier.TIER_KEY`, экономный режим сбора): Flex — клиент
+модели со сроком Flex и судья с `service_tier` (`segment_tier.judge_http`, `SegmentClient`); нет
+ключа — обычный тариф, клиент и судья прежние. Незнакомый тариф — постоянный отказ словами до
+первой траты: тариф читается раньше, чем собирается выдача.
+
 **Повтор — та же задача прогона с доводом** (`run_segment(run, what)`, `segment_run.again`):
 без выдачи и судьи, под номером прогона — один проход прогона за раз, а строка задачи на экране
 называет его «сбор базы продаж», как остальные. Стадию прогона повтор не трогает — и его сбой
@@ -56,7 +61,6 @@ from rq import Queue, get_current_job
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import judge as judge_cfg
-from backend.config import llm as llm_cfg
 from backend.config import sales as sales_cfg
 from backend.config import serp as serp_cfg
 from backend.config import storage
@@ -76,6 +80,7 @@ from backend.features.sales.segment_progress import pulse, without_again
 from backend.features.sales.segment_queue import Retry, SegmentContactQueue, least
 from backend.features.sales.segment_rejudge import rejudge_job_id
 from backend.features.sales.segment_run import Again, RunDeps, again, execute
+from backend.features.sales.segment_tier import JudgeTier, judge_http, tier_of
 from backend.features.sales.verifier import build_verifier
 from backend.features.serp.factory import AHREFS, UnknownProviderError, build_provider
 from backend.features.serp.modes import SerpMode, UnknownModeError, mode_of
@@ -197,6 +202,12 @@ async def _mode(factory: async_sessionmaker[Any], run_id: int) -> SerpMode:
         raise SerpNotSetError(f"{exc} — прогон не покупает выдачу вслепую") from exc
 
 
+async def _tier(factory: async_sessionmaker[Any], run_id: int) -> JudgeTier:
+    """Тариф судьи прогона — из его сметы, как режим выдачи: какой человек видел на запуске.
+    Незнакомый — постоянный отказ словами (`segment_tier.UnknownTierError`)."""
+    return tier_of(await _estimate_of(factory, run_id))
+
+
 def _serp(ahrefs: AhrefsClient, mode: SerpMode) -> SerpProvider:
     """Источник выдачи прогона в режиме из сметы. Не собирается по настройке, это Ahrefs или
     песочница (настройку сменили после сметы: юниты Ahrefs ушли бы мимо журнала,
@@ -219,13 +230,15 @@ async def _with_clients(factory: async_sessionmaker[Any], run_id: int) -> dict[s
     """Клиенты прохода — и сам проход; клиенты закрываются при любом исходе."""
     ahrefs = AhrefsClient()
     try:
+        tier = await _tier(factory, run_id)
         serp = _serp(ahrefs, await _mode(factory, run_id))
         async with AsyncExitStack() as stack:
-            # Модель судьи — со своим сроком (`LLM_TIMEOUT_S`), как у прогона доноров: с умолчанием
-            # httpx (5 с) модель с рассуждением не успевала ни в одну из трёх попыток, а оборванный
-            # запрос провайдер может довести и выставить счёт мимо журнала. Проверка адресов — на
-            # своём клиенте с умолчанием, как у очистки (`clean_jobs.py`).
-            model = await stack.enter_async_context(httpx.AsyncClient(timeout=llm_cfg.TIMEOUT_S))
+            # Модель судьи — со сроком тарифа (`segment_tier.judge_http`): обычный — `LLM_TIMEOUT_S`,
+            # как у прогона доноров: с умолчанием httpx (5 с) модель с рассуждением не успевала ни в
+            # одну из трёх попыток, а оборванный запрос провайдер может довести и выставить счёт мимо
+            # журнала; Flex — свои 15 минут. Проверка адресов — на своём клиенте с умолчанием, как у
+            # очистки (`clean_jobs.py`).
+            model = await stack.enter_async_context(judge_http(tier))
             http = await stack.enter_async_context(httpx.AsyncClient())
             home = await stack.enter_async_context(
                 guarded_client(timeout=judge_cfg.HOME_TIMEOUT_SEC)
@@ -233,7 +246,7 @@ async def _with_clients(factory: async_sessionmaker[Any], run_id: int) -> dict[s
             session = await stack.enter_async_context(factory())
             deps = RunDeps(
                 serp=serp,
-                judge=SegmentClient(model),
+                judge=SegmentClient(model, tier=tier),
                 home=home if judge_cfg.HOME_CHECK else None,
                 verifier=build_verifier(http),
             )

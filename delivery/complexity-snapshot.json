@@ -3442,9 +3442,9 @@
       "worst": "_known:43"
     },
     "backend/features/sales/segment_client.py": {
-      "lines": 302,
+      "lines": 344,
       "complexity": 7,
-      "worst": "spent_of:97"
+      "worst": "spent_of:104"
     },
     "backend/features/sales/segment_counts.py": {
       "lines": 41,
@@ -3482,9 +3482,9 @@
       "worst": "sites_per_result:39"
     },
     "backend/features/sales/segment_jobs.py": {
-      "lines": 408,
+      "lines": 421,
       "complexity": 7,
-      "worst": "put_due:339"
+      "worst": "put_due:352"
     },
     "backend/features/sales/segment_judge.py": {
       "lines": 309,
@@ -3577,14 +3577,19 @@
       "worst": "sites_page:267"
     },
     "backend/features/sales/segment_spend.py": {
-      "lines": 339,
+      "lines": 366,
       "complexity": 9,
-      "worst": "_judge:191"
+      "worst": "_judge:210"
     },
     "backend/features/sales/segment_text.py": {
       "lines": 198,
       "complexity": 8,
       "worst": "page_home:127"
+    },
+    "backend/features/sales/segment_tier.py": {
+      "lines": 244,
+      "complexity": 6,
+      "worst": "_read:107"
     },
     "backend/features/sales/segment_undo.py": {
       "lines": 484,
