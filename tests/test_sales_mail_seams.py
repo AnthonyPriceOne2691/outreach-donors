@@ -46,6 +46,9 @@ from tests.test_sales_stage_mail import NOW, sales_world
 
 #: Лид на русском — его письмо собирается русской цепочкой того же общего набора.
 IVAN = "ivan@acme.example.test"
+#: Второй ящик продаж: первое письмо уходит с ящика, у которого больше остаток на сегодня
+#: (`outreach/senders.pick`), — письма двух лидов расходятся по двум ящикам.
+SECOND_SALES_BOX = "nora@mail-sales.example.test"
 
 
 @pytest.fixture
@@ -105,8 +108,13 @@ async def test_the_pass_asks_whether_sales_are_connected_once(
     session: AsyncSession, world: w.World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Две добивки продаж в одном проходе — вопрос «подключены ли» один: каждый вопрос —
-    точка сохранения и чтение настроек, и ответ прохода один на весь проход."""
+    точка сохранения и чтение настроек, и ответ прохода один на весь проход. Письма двух лидов
+    уходят с разных ящиков: проход может пускать с ящика одну добивку, а тест — о вопросе, не
+    о темпе ящика."""
+    second = await w.mailbox(session, SECOND_SALES_BOX)
     source, _ = await _first_sent(session, world, JANE, OLGA)
+    boxes = set(await session.scalars(select(MessageModel.sender_id)))
+    assert boxes == {world.sales_box.id, second.id}
     asked: list[str] = []
     real = sales_mail.connected
 
