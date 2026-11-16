@@ -27,9 +27,15 @@
 
 **Добивки дня** — по UTC-дню срока, а срок в день без окна получателя ждёт его открытия: окно судит
 и добивки (`sending._check_window`), и проход откладывает такую до окна (`followups._deliver`). Здесь
-она — в следующем дне отправки (`_followups`). **С ящика — не больше суточного потолка добивок**
+она — в следующем дне отправки (`_followups`). **У доноров и рекламодателей окно добивок своё**
+(`Chains.clock`, 16.11.2026): окно автоотправки и в те дни, когда первые письма шлют руками в любой
+день (`followup_window.py`), — срок субботы и воскресенья план не обещает, а переносит на ближайший
+день окна; часы окна — в поясе очереди, а он неизвестен — в запасном. С ящика за день — не больше,
+чем пускает пауза ящика за часы окна (`followup_pace.py`; сегодня — от сейчас); пауза меряется от
+любого письма ящика, а план считает её по одним добивкам — приближение, как и пояс. **С ящика — не
+больше суточного потолка добивок**
 (`Chains.cap`, `OUTREACH_FOLLOWUP_PER_SENDER_PER_DAY`): проход откладывает лишнее до завтра
-(`followups._waits`), и здесь оно — в следующем дне отправки, у каждого ящика свой перенос: добивка
+(`followup_pace.waits`), и здесь оно — в следующем дне отправки, у каждого ящика свой перенос: добивка
 уходит только с ящика своей переписки. Без этого план обещал бы понедельнику весь завал выходных,
 а ушла бы из него треть.
 
@@ -74,7 +80,7 @@ class Clock:
 @dataclass(frozen=True, slots=True)
 class Chains:
     """Добивки к сроку по дням и ящикам — и суточный потолок добивок ящика, которым их судит проход
-    (`followups._waits`)."""
+    (`followup_pace.waits`)."""
 
     #: День срока (UTC) → ящик переписки → добивок; просроченные — сегодня. Ящик `None` — без
     #: разбивки по ящикам (`flat`) или ящик переписки удалён.
@@ -83,6 +89,9 @@ class Chains:
     cap: int | None = None
     #: Сколько добивок ящик уже отдал сегодня: место в сегодняшнем потолке занято.
     sent: Mapping[int, int] = field(default_factory=dict)
+    #: Свои часы добивок — окно, его пояс и пауза ящика (у доноров и рекламодателей); пусто —
+    #: добивки уходят в дни отправки первых писем и без паузы.
+    clock: Clock | None = None
 
     @classmethod
     def flat(cls, due: Mapping[date, int]) -> Chains:
@@ -200,27 +209,42 @@ def plan(
         if run.eta is not None:
             break
         run.day(offset)
-    return _followups(days, followups), run.eta or _never(boxes, run.went)
+    return _followups(days, followups, now), run.eta or _never(boxes, run.went)
 
 
-def _followups(days: list[PlanDay], chains: Chains) -> list[PlanDay]:
+def _followups(days: list[PlanDay], chains: Chains, now: datetime) -> list[PlanDay]:
     """Добивки по дням: в день без окна они ждут его открытия — переходят в следующий день отправки;
-    сверх суточного потолка ящика — тоже, у каждого ящика свой остаток."""
+    сверх суточного потолка ящика или того, что пускает пауза ящика, — тоже, у каждого свой остаток."""
     found: list[PlanDay] = []
     waiting: Counter[int | None] = Counter()
     for index, day in enumerate(days):
         waiting.update(chains.due.get(day.day, {}))
-        going = _going(waiting, chains, today=index == 0) if day.sending else Counter()
+        sending, per_box = _chain_day(day, chains.clock, now)
+        going = _going(waiting, chains, today=index == 0, per_box=per_box) if sending else Counter()
         found.append(replace(day, followups=going.total()))
         waiting -= going
     return found
 
 
-def _going(waiting: Counter[int | None], chains: Chains, *, today: bool) -> Counter[int | None]:
-    """Сколько ждущих добивок каждый ящик отдаст за день отправки — не больше своего потолка."""
+def _chain_day(day: PlanDay, clock: Clock | None, now: datetime) -> tuple[bool, int | None]:
+    """Уходят ли добивки в день `day` и сколько с ящика пустит пауза за часы окна (`None` — сколько
+    есть). Своих часов у добивок нет — в дни отправки первых писем и без паузы."""
+    if clock is None:
+        return day.sending, None
+    span = span_of(clock.window, clock.zone, day.day, now)
+    return span.closed is None, _per_box(clock.pace, span)
+
+
+def _going(
+    waiting: Counter[int | None], chains: Chains, *, today: bool, per_box: int | None = None
+) -> Counter[int | None]:
+    """Сколько ждущих добивок каждый ящик отдаст за день отправки — не больше своего потолка и того,
+    что пускает пауза ящика (`per_box`)."""
     going: Counter[int | None] = Counter()
     for box, count in waiting.items():
         room = chains.room(box, today=today)
+        if per_box is not None:
+            room = per_box if room is None else min(room, per_box)
         going[box] = count if room is None else min(count, room)
     return going
 

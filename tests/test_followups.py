@@ -408,8 +408,11 @@ class TestThePass:
         self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Сотня подошедших добивок не уходит пачкой за минуту:
-        почтовая платформа смотрит на скорость, а не на объём."""
+        почтовая платформа смотрит на скорость, а не на объём. Часовой потолок — верхняя
+        граница и при паузе ящика (16.11.2026): пауза после добивки (15 мин ±50%) прошла,
+        а часовой запас — нет, и следующая добивка ждёт час."""
         monkeypatch.setattr(outreach_cfg, "FOLLOWUP_PER_SENDER_PER_HOUR", 1)
+        monkeypatch.setattr(outreach_cfg, "FOLLOWUP_GAP_MIN", 15)
         first, _ = await _chain_start(session, followup_days=[1, 1])
         later = NOW + timedelta(days=2)
         await send_due(session, transport=NullTransport(), limit=5, now=later)
@@ -417,19 +420,19 @@ class TestThePass:
         second, _ = await _chain_start(session, host="other.example.test", followup_days=[1, 1])
         second.sender_id = first.sender_id
         await session.flush()
-        report = await send_due(session, transport=NullTransport(), limit=5, now=later)
+        rested = later + timedelta(minutes=30)
+        report = await send_due(session, transport=NullTransport(), limit=5, now=rested)
 
-        assert report.sent == 0
-        assert report.postponed == 1
+        assert (report.sent, report.postponed, report.resting) == (0, 1, 0)
         await session.refresh(second)
-        assert second.next_action_at == later + timedelta(hours=1)
+        assert second.next_action_at == rested + timedelta(hours=1)
 
     async def test_daily_cap_postpones_the_rest_until_tomorrow(
         self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Завал добивок не уходит с ящика за день: сверх суточного потолка добивка ждёт следующих
-        суток (UTC), а не следующего часа — и наутро уходит. 09.11.2026 без этого потолка ящик
-        отдал за день втрое больше своего дневного лимита первых писем."""
+        суток (UTC), а не следующего часа — и наутро, в рабочие часы донора, уходит. 09.11.2026
+        без этого потолка ящик отдал за день втрое больше своего дневного лимита первых писем."""
         monkeypatch.setattr(outreach_cfg, "FOLLOWUP_PER_SENDER_PER_DAY", 1)
         first, _ = await _chain_start(session, followup_days=[1, 1])
         later = NOW + timedelta(days=2)
@@ -450,7 +453,10 @@ class TestThePass:
         tomorrow = datetime(2026, 9, 24, tzinfo=UTC)
         assert second.next_action_at == tomorrow
 
-        morning = await send_due(session, transport=NullTransport(), limit=5, now=tomorrow)
+        # Полночь UTC — ночь у донора: окно его рабочих часов (`followup_window.py`) — с 09:00.
+        morning = await send_due(
+            session, transport=NullTransport(), limit=5, now=tomorrow + timedelta(hours=8)
+        )
 
         assert (morning.sent, morning.capped.total()) == (1, 0)
         assert "суточному потолку" not in morning.as_report
@@ -459,7 +465,8 @@ class TestThePass:
         self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Первое письмо того же дня места в суточном потолке добивок не занимает: у него свой
-        дневной лимит. Иначе новый донор отнимал бы добивку у начатой цепочки."""
+        дневной лимит. Иначе новый донор отнимал бы добивку у начатой цепочки. Ушло оно час
+        назад: пауза ящика после него (`followup_pace.py`) уже прошла."""
         monkeypatch.setattr(outreach_cfg, "FOLLOWUP_PER_SENDER_PER_DAY", 1)
         first, _ = await _chain_start(session, followup_days=[1, 1])
         later = NOW + timedelta(days=2)
@@ -467,7 +474,7 @@ class TestThePass:
         await session.execute(
             update(MessageModel)
             .where(MessageModel.id == fresh.id)
-            .values(sender_id=first.sender_id, sent_at=later)
+            .values(sender_id=first.sender_id, sent_at=later - timedelta(hours=1))
         )
 
         report = await send_due(session, transport=NullTransport(), limit=5, now=later)

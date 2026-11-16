@@ -31,6 +31,12 @@
 часовым потолком (21.09.2026) — чтобы сотня подошедших не ушла пачкой за минуту — и суточным
 (11.11.2026, `outreach/followup_caps.py`) — чтобы завал выходных не ушёл с ящика за понедельник.
 В общем капе backlog первых писем голодал бы цепочки, а цепочки съедали бы квоту новых доноров.
+Потолки держат объём, а темп — пауза ящика (16.11.2026, `followup_pace.py`): ящик доноров и
+рекламодателей отдаёт добивки по одной, с паузой от своего последнего письма любого вида.
+
+**Добивка донору и рекламодателю — в рабочие часы получателя** (16.11.2026, `followup_window.py`):
+окно и пояс — те же, что у первых писем автоотправки; вне окна срок возвращается на открытие окна
+плюс сдвиг. Окно судится до потолков ящика. У продаж окно судит отправка, как и прежде.
 
 **Этап без цепочки не захватывается.** Шаблон добивки выбирается по этапу
 уже после захвата, и этап без шаблонов терял бы добивку: срок погашен,
@@ -48,21 +54,28 @@
 from __future__ import annotations
 
 import logging
-from collections import Counter
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import outreach as cfg
 from backend.features.core import stages, window
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.stages import SALES_NOT_CONNECTED, SalesNotConnectedError
-from backend.features.letters import compose, guards, template, thread_first
+from backend.features.letters import (
+    compose,
+    followup_pace,
+    followup_window,
+    guards,
+    template,
+    thread_first,
+)
 from backend.features.letters.building import attempt_of, followup_key, idempotency_key
+from backend.features.letters.followup_pace import POSTPONE
+from backend.features.letters.followup_report import PassReport
 from backend.features.letters.sending import (
     NoSenderError,
     NotQueuedError,
@@ -124,14 +137,22 @@ class Chain:
     """Правила цепочки на настоящей базе."""
 
     def __init__(
-        self, session: AsyncSession, *, now: datetime | None = None, extra: tuple[Stage, ...] = ()
+        self,
+        session: AsyncSession,
+        *,
+        now: datetime | None = None,
+        extra: tuple[Stage, ...] = (),
+        rest: followup_pace.Rest | None = None,
     ) -> None:
         self._session = session
         self._now = now
         #: Чьи добивки проход берёт: этапы с цепочкой файлами и `extra` (продажи, когда подключены).
         self._take = _chained((*template.CHAINED, *extra))
+        #: Паузы ящиков между письмами (`followup_pace.Rest`): добивки отдыхающих не захватываются.
+        self._rest = rest
 
-    def _moment(self) -> datetime:
+    def moment(self) -> datetime:
+        """Минута прохода: заданная (тест) или нынешняя."""
         return self._now or datetime.now(UTC)
 
     async def claim(self) -> Claimed | None:
@@ -140,10 +161,11 @@ class Chain:
         Срок гасится тем же запросом, которым строка выбирается: между
         «нашли» и «погасили» не должно быть места второму проходу.
         """
-        moment = self._moment()
+        moment = self.moment()
+        awake = () if self._rest is None else self._rest.free(moment)
         pick = (
             select(MessageModel.id)
-            .where(*_due(moment), self._take)
+            .where(*_due(moment), self._take, *awake)
             .order_by(MessageModel.next_action_at, MessageModel.id)  # равный срок — по номеру
             .limit(1)
             .with_for_update(skip_locked=True)
@@ -197,9 +219,33 @@ class Chain:
     async def unchained(self) -> int:
         """Сколько подошедших добивок ждут этапа без цепочки. Срок у них цел."""
         total = await self._session.scalar(
-            select(func.count()).select_from(MessageModel).where(*_due(self._moment()), ~self._take)
+            select(func.count()).select_from(MessageModel).where(*_due(self.moment()), ~self._take)
         )
         return int(total or 0)
+
+    def rested(self, claimed: Claimed, letter_id: int) -> None:
+        """Добивка `letter_id` отдана почте — ящик переписки отдыхает паузой после неё."""
+        if self._rest is not None:
+            self._rest.took(claimed.sender_id, letter_id, self.moment())
+
+    async def hold(self) -> tuple[int, datetime | None]:
+        """Подошедшим добивкам отдыхающих ящиков — срок на конец паузы своего ящика: срок в прошлом
+        сторож «Добивки стоят» принял бы за вставший проход (`followup_pace.py`). Сколько их и когда
+        освободится первый из этих ящиков."""
+        if self._rest is None:
+            return 0, None
+        moment = self.moment()
+        held, first = 0, None
+        for box, until in self._rest.busy(moment).items():
+            moved = await self._session.execute(
+                update(MessageModel)
+                .where(*_due(moment), self._take, MessageModel.sender_id == box)
+                .values(next_action_at=until)
+                .returning(MessageModel.id)
+            )
+            if found := len(moved.all()):
+                held, first = held + found, until if first is None else min(first, until)
+        return held, first
 
     async def restore(self, claimed: Claimed, *, delay: timedelta) -> None:
         """Вернуть срок: отправить сейчас не вышло, но цепочка жива.
@@ -211,7 +257,7 @@ class Chain:
         await self._session.execute(
             update(MessageModel)
             .where(MessageModel.id == claimed.previous_id)
-            .values(next_action_at=self._moment() + delay)
+            .values(next_action_at=self.moment() + delay)
         )
         await self._session.flush()
 
@@ -250,7 +296,7 @@ class Chain:
         с площадкой, которую пересчёт обхода успел сменить, давали добивку
         отдельной веткой — о другом, чем письмо, на которое она ссылается.
         """
-        stage, audience = await self._stage_and_audience(claimed.campaign_id)
+        stage, audience = await self.stage_and_audience(claimed.campaign_id)
         if stage is Stage.SALES:  # шаг цепочки из базы — ответ модуля продаж (`stages.SalesMail`)
             body = (
                 await stages.sales_followup(self._session, claimed.thread_id, claimed.step)
@@ -278,7 +324,7 @@ class Chain:
         первой и не вставилась бы в базу. У продаж в ключе ещё и контакт —
         два лида одной компании, — и он берётся из ключа предыдущего письма.
         """
-        stage, _ = await self._stage_and_audience(claimed.campaign_id)
+        stage, _ = await self.stage_and_audience(claimed.campaign_id)
         existing = await self._session.scalar(
             select(MessageModel).where(
                 MessageModel.thread_id == claimed.thread_id,
@@ -317,11 +363,11 @@ class Chain:
 
     async def sent_this_hour(self, sender_id: int) -> int:
         """Сколько добивок и перезапросов цены ушло с этого ящика за последний час."""
-        return await followup_caps.this_hour_of(self._session, sender_id, self._moment())
+        return await followup_caps.this_hour_of(self._session, sender_id, self.moment())
 
     async def day_wait(self, sender_id: int) -> timedelta | None:
         """Ящик выбрал суточный потолок добивок — сколько ждать до завтра; `None` — не выбрал."""
-        return await followup_caps.wait(self._session, sender_id, self._moment())
+        return await followup_caps.wait(self._session, sender_id, self.moment())
 
     async def _host(self, domain_id: int) -> str:
         host = await self._session.scalar(
@@ -331,47 +377,11 @@ class Chain:
             raise FollowupError(f"У домена №{domain_id} нет имени — добивку некому адресовать")
         return str(host)
 
-    async def _stage_and_audience(self, campaign_id: int) -> tuple[Stage, str]:
+    async def stage_and_audience(self, campaign_id: int) -> tuple[Stage, str]:
         campaign = await self._session.get(CampaignModel, campaign_id)
         if campaign is None:
             raise FollowupError(f"Рассылки №{campaign_id} нет — добивка осиротела")
         return campaign.stage, campaign.audience
-
-
-@dataclass
-class PassReport:
-    """Что сделал один проход по цепочкам."""
-
-    sent: int = 0
-    postponed: int = 0
-    """Отложено: ящик стоит или почта отказала временно. Цепочка жива."""
-    capped: Counter[int] = field(default_factory=Counter)
-    """Из отложенных — до завтра, по ящикам: ящик выбрал суточный потолок (`followup_caps`)."""
-    stopped: int = 0
-    """Остановлено: донор в стоп-листе или в тексте добивки запрещённое. Больше ему не пишем."""
-    unknown: int = 0
-    """Почта не ответила после отправки: ушла ли добивка — неизвестно. Не
-    повторяется: срок погашен, письмо «отправляется» до события платформы."""
-    waiting: int = 0
-    """Подошли, но у этапа нет цепочки: срок цел, добивка ждёт подключения этапа."""
-
-    @property
-    def as_report(self) -> str:
-        capped = ""
-        if self.capped:  # по ящикам: потолок у каждого свой, и видно, чей завал переезжает
-            boxes = ", ".join(f"ящик №{box} — {n}" for box, n in sorted(self.capped.items()))
-            capped = f" (из них до завтра по суточному потолку — {self.capped.total()}: {boxes})"
-        said = (
-            f"отправлено {self.sent}, отложено {self.postponed}{capped}, "
-            f"остановлено {self.stopped}, исход неизвестен {self.unknown}"
-        )
-        return f"{said}, ждут этапа {self.waiting}" if self.waiting else said
-
-
-#: На сколько откладывается добивка, если отправить её сейчас нельзя:
-#: ящик на паузе, почта отказала временно, лейн выбран. Час — потому что
-#: все три причины проходят сами, и спрашивать чаще значит долбить базу.
-POSTPONE = timedelta(hours=1)
 
 
 async def send_due(
@@ -380,16 +390,21 @@ async def send_due(
     transport: Transport | ByStage,
     limit: int,
     now: datetime | None = None,
+    gaps: followup_pace.Gaps | None = None,
 ) -> PassReport:
     """Один проход: разослать подошедшие добивки.
 
     `limit` — потолок прохода. Проход короткий намеренно: подошедших
     может оказаться сотня, и отправить их подряд значит выдать всплеск,
     по которому почтовая платформа судит о рассылке хуже, чем по объёму.
+    С ящика доноров и рекламодателей — не больше добивки за проход и пауза
+    `gaps` после его последнего письма (по умолчанию — из настроек, `followup_pace.py`).
     """
     # Продажи — только подключённые: иначе срок их добивки цел и назван вслух.
     sales = (Stage.SALES,) if await stages.sales_connected(session) else ()
-    chain = Chain(session, now=now, extra=sales)
+    found = gaps or followup_pace.gaps()
+    rest = await followup_pace.Rest.load(session, now or datetime.now(UTC), found)
+    chain = Chain(session, now=now, extra=sales, rest=rest)
     postman = Sending(session, transport, now=now)
     report = PassReport()
 
@@ -402,6 +417,8 @@ async def send_due(
         await session.commit()
         await _deliver(session, chain, postman, claimed, report)
 
+    report.resting, report.free_at = await chain.hold()
+    await session.commit()
     report.waiting = await chain.unchained()
     if report.waiting and not stages.sales_registered():
         # Вслух, пока модуль продаж к мосту не подключён: молчащая цепочка выглядит как «никто не
@@ -419,8 +436,10 @@ async def _deliver(
     claimed: Claimed,
     report: PassReport,
 ) -> None:
-    """Одна добивка: проверить ящик и лейн, собрать текст, отдать почте."""
-    if await _waits(session, chain, claimed, report):
+    """Одна добивка: проверить окно получателя, ящик и лейн, собрать текст, отдать почте."""
+    if await followup_window.holds(session, chain, claimed, report) or await followup_pace.waits(
+        session, chain, claimed, report
+    ):
         return
     try:
         # Текст продаж собирается внутри: не подключены или цепочка неполна — срок вернётся.
@@ -446,6 +465,7 @@ async def _deliver(
     except MaybeSentError as exc:
         # Могла уйти — повтор через час был бы вторым письмом тому же человеку.
         await session.commit()
+        chain.rested(claimed, message.id)  # отдана почте — ящик отдыхает, как после ушедшей
         report.unknown += 1
         logger.warning("добивки: %s — исход неизвестен, повтора не будет (%s)", claimed.host, exc)
         return
@@ -466,28 +486,6 @@ async def _deliver(
         return
 
     await session.commit()
+    chain.rested(claimed, message.id)
     report.sent += 1
     logger.info("добивки: %s — ушёл шаг %s", claimed.host, claimed.step)
-
-
-async def _waits(session: AsyncSession, chain: Chain, claimed: Claimed, report: PassReport) -> bool:
-    """Добивке сейчас не уйти — ящик переписки удалён или выбрал запас, суточный (ждать до завтра)
-    или часовой: срок возвращается, и `True`. Ящик удалён — проход ещё и говорит почему."""
-    delay = POSTPONE
-    if claimed.sender_id is None:
-        # Письма теряют номер ящика, когда ящик удаляют. С другого ящика
-        # добивка не уходит (`mailbox.py`): она ждёт, и проход говорит почему.
-        logger.warning(
-            "добивки: %s — ящик переписки неизвестен (удалён): добивка ждёт, "
-            "с другого ящика она не уйдёт",
-            claimed.host,
-        )
-    elif (till_tomorrow := await chain.day_wait(claimed.sender_id)) is not None:
-        delay = till_tomorrow
-        report.capped[claimed.sender_id] += 1
-    elif await chain.sent_this_hour(claimed.sender_id) < cfg.FOLLOWUP_PER_SENDER_PER_HOUR:
-        return False
-    await chain.restore(claimed, delay=delay)
-    await session.commit()
-    report.postponed += 1
-    return True

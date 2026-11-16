@@ -4,9 +4,11 @@
 Только чтение: несколько сгруппированных запросов, дальше — чистый счёт (`forecast_plan.py`).
 Правила — не свои: мощность — правило экрана «Домены рассылки», а сегодня — фильтр выбора ящика с
 мягкими отказами (`outreach/capacity.py`); очередь — счёт пачки (`LetterRepository.queued_count`);
-добивки — условие прохода добивок (`outreach.repository.followup_pending`); окно получателя и темп
-автоотправки — политика этапа (`stages.mail_policy`); запас сборки и пояса получателей очереди
-продаж — мост (`core/stage_forecast.py`): почта модуль продаж не импортирует.
+добивки — условие прохода добивок (`outreach.repository.followup_pending`), а их часы у доноров и
+рекламодателей — окно автоотправки и пауза ящика, как у прохода (`followup_window.py`,
+`followup_pace.py`); окно получателя и темп автоотправки — политика этапа (`stages.mail_policy`);
+запас сборки и пояса получателей очереди продаж — мост (`core/stage_forecast.py`): почта модуль
+продаж не импортирует.
 
 **Первые письма — счётом дневного лимита** (`DAILY_STEPS`: первое письмо и перезапрос цены): так
 считает кап ящика, и «ушло сегодня + остаток дня» сходится с мощностью дня. Добивки — шаги цепочки:
@@ -39,7 +41,7 @@ from backend.features.core.models.outreach import (
     SenderModel,
     SendingDomainModel,
 )
-from backend.features.letters import autosend, autosend_window
+from backend.features.letters import autosend, autosend_window, followup_pace, followup_window
 from backend.features.letters.chain import FIRST_STEP, MAX_STEPS
 from backend.features.letters.forecast_plan import (
     Chains,
@@ -151,6 +153,7 @@ async def forecast(
         due=await _due(session, stage, first_day, _midnight(first_day + timedelta(days=days))),
         cap=cfg.FOLLOWUP_PER_SENDER_PER_DAY,
         sent=await followup_caps.today_by_box(session, moment),
+        clock=_chain_clock(stage, clock),
     )
     supply = Supply(queued, answers.extra, sum((answers.stuck or {}).values()))
     planned, eta = plan(moment, days, clock, boxes, supply, chains)
@@ -177,6 +180,16 @@ async def forecast(
 
 def _midnight(day: date) -> datetime:
     return datetime.combine(day, time.min, tzinfo=UTC)
+
+
+def _chain_clock(stage: Stage, clock: Clock) -> Clock | None:
+    """Свои часы добивок: у доноров и рекламодателей — окно автоотправки, даже когда очередь шлют
+    руками (`followup_window.py`), в поясе очереди, а он неизвестен — в запасном, и пауза ящика. У
+    продаж своих нет (`None`): окно их добивок — окно этапа, как у первых писем."""
+    if stage not in followup_window.STAGES:
+        return None
+    zone = clock.zone or autosend_window.fallback()
+    return Clock(autosend_window.frame(), zone, followup_pace.pace())
 
 
 def _later(

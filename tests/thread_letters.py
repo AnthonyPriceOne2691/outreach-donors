@@ -12,7 +12,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Awaitable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from backend.features.core.domain import MessageStatus, ReplyKind, Stage
@@ -143,6 +143,14 @@ async def hang(sending: Awaitable[object]) -> None:
     """Отправка, на которой почта не ответила: письмо остаётся «отправляется»."""
     with pytest.raises(MaybeSentError):
         await sending
+
+
+def weekday(moment: datetime) -> datetime:
+    """Минута `moment`, а выпала на субботу или воскресенье — понедельник в тот же час: добивка
+    донору ждёт рабочих дней получателя (16.11.2026, `letters/followup_window.py`)."""
+    while moment.weekday() >= 5:
+        moment += timedelta(days=1)
+    return moment
 
 
 async def age(session: AsyncSession, message: MessageModel, *, since: datetime) -> None:

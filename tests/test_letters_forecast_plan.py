@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -32,6 +33,8 @@ NOW = datetime(2026, 10, 21, 10, 0, tzinfo=UTC)
 BERLIN = ZoneInfo("Europe/Berlin")
 WEEKDAYS_9_17 = SendWindow(days=frozenset(range(5)), start=time(9), end=time(17))
 PACE = Pace(gap=timedelta(minutes=15), spread=0.5)
+#: Пауза ящика в час — счёт добивок дня виден на пальцах.
+HOUR_GAP = timedelta(hours=1)
 
 
 def _box(
@@ -360,6 +363,31 @@ def test_a_closed_window_today_sends_todays_followups_to_the_next_sending_day() 
     )
 
     assert [day.followups for day in days] == [0, 3]
+
+
+def test_donor_followups_keep_their_own_window_while_first_letters_go_every_day() -> None:
+    """Добивки доноров и рекламодателей ждут рабочих дней получателя и тогда, когда первые письма
+    шлют руками в любой день (16.11.2026, `Chains.clock`): срок субботы и воскресенья — в
+    понедельнике, а суббота для первых писем остаётся днём отправки."""
+    saturday, sunday, monday = (NOW.date() + timedelta(days=n) for n in (3, 4, 5))
+    due = replace(
+        Chains.flat({saturday: 4, sunday: 2, monday: 1}), clock=Clock(WEEKDAYS_9_17, BERLIN)
+    )
+
+    days, _ = plan(NOW, 7, Clock(), _boxes(_box(1, wrote=40)), Supply(queued=5), due)
+
+    assert [day.followups for day in days] == [0, 0, 0, 0, 0, 7, 0]
+    assert all(day.sending for day in days)
+
+
+def test_followups_of_a_box_today_are_bounded_by_its_pause_in_the_hours_left() -> None:
+    """Пауза ящика — и в плане: сегодня до закрытия окна (15:00 UTC) пять часов, при паузе в час
+    ящик отдаст пять добивок, остальные три — завтра, где часов на все хватит."""
+    chains = Chains({NOW.date(): {1: 8}}, clock=Clock(WEEKDAYS_9_17, BERLIN, Pace(HOUR_GAP)))
+
+    days, _ = plan(NOW, 3, Clock(), _boxes(_box(1, wrote=40)), Supply(0), chains)
+
+    assert [day.followups for day in days] == [5, 3, 0]
 
 
 def test_followups_over_a_box_daily_cap_spill_into_the_next_sending_days() -> None:

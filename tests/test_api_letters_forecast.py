@@ -385,6 +385,32 @@ async def test_followups_over_a_box_daily_cap_are_planned_for_the_next_days(
     assert [day["followups_due"] for day in body["days"]] == [1 + 1, 2, 2, 0]
 
 
+async def test_donor_followups_due_on_the_weekend_are_planned_for_monday(
+    session: AsyncSession, client: AsyncClient, viewer: dict[str, str]
+) -> None:
+    """Добивка донору ждёт его рабочих дней (16.11.2026): «Добивок: план» в субботу и воскресенье —
+    ноль, их сроки — в понедельнике. Первые письма руками уходят и в выходные: день отправки у
+    субботы остаётся."""
+    box = await _box(session, "outreach1@mail-d.example.test", Stage.DONORS)
+    letters = await _letters(session, Stage.DONORS)
+    saturday = datetime(2026, 10, 24, 12, 0, tzinfo=UTC)
+    for due in (saturday, saturday, saturday + timedelta(days=1)):
+        await letters.add(
+            status=MessageStatus.SENT,
+            sent_at=NOW - timedelta(days=9),
+            next_action_at=due,
+            sender_id=box.id,
+        )
+    await session.commit()
+
+    response = await client.get(URL, params={"days": 7, "back": 0}, headers=viewer)
+
+    assert response.status_code == 200, response.text
+    days = [(d["day"], d["sending_day"], d["followups_due"]) for d in response.json()["days"]]
+    assert days[3:6] == [("2026-10-24", True, 0), ("2026-10-25", True, 0), ("2026-10-26", True, 3)]
+    assert sum(day for _, _, day in days) == 3
+
+
 async def test_donor_mailboxes_show_their_warmup_and_the_next_step(
     client: AsyncClient, viewer: dict[str, str], donors: SenderModel
 ) -> None:
