@@ -65,6 +65,7 @@ from backend.features.letters.chain import (
     FIRST_STEP,
     MAX_STEPS,
     RECHECK_STEP,
+    REDIRECT_STEP,
     kind_of,
 )
 from backend.features.letters.draft import split_audience
@@ -404,6 +405,19 @@ async def alive_link(session: AsyncSession, message: MessageModel) -> MessageMod
     return found
 
 
+#: Письма вне цепочки со своим путём: шаг → что с письмом, вернувшимся в очередь.
+_OWN_PATH = {
+    RECHECK_STEP: (
+        "перезапрос цены не ушёл и ждёт: отправить его снова можно кнопкой «Перезапросить "
+        "цену» на карточке донора — с ящика переписки и веткой к письму донора"
+    ),
+    # Письмо на адрес из ответа рекламодателя (16.11.2026) уходит само — своим проходом.
+    REDIRECT_STEP: (
+        "письмо на адрес из ответа не ушло и ждёт: его снова отправит проход переадресации"
+    ),
+}
+
+
 def _said(letter: StuckLetter, status: MessageStatus) -> str:
     """Что стало с письмом — словами для экрана."""
     if status is MessageStatus.SENT:
@@ -415,11 +429,8 @@ def _said(letter: StuckLetter, status: MessageStatus) -> str:
         )
     if is_followup(letter.message):
         return "добивка вернулась в цепочку и уйдёт с ближайшим проходом добивок, с того же ящика"
-    if letter.message.step == RECHECK_STEP:
-        return (
-            "перезапрос цены не ушёл и ждёт: отправить его снова можно кнопкой «Перезапросить "
-            "цену» на карточке донора — с ящика переписки и веткой к письму донора"
-        )
+    if letter.message.step in _OWN_PATH:
+        return _OWN_PATH[letter.message.step]
     if letter.message.step >= ANSWER_STEP:
         return (
             "ответ не ушёл и ждёт: отправить его снова можно из карточки переписки — "
