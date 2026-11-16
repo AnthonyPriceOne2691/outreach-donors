@@ -45,6 +45,9 @@ SIGNED = f"\n\n{w.SIGNATURE}\n\n{w.ADDRESS}"
 #: Первое письмо ушло — через три дня добивка, ещё через пять — вторая (рассылка [3, 5]).
 FIRST_DUE = w.NOW + timedelta(days=3, minutes=1)
 SECOND_DUE = FIRST_DUE + timedelta(days=5, minutes=1)
+#: Второй проход добивок — через полчаса после первого. Общая отправка может пускать с ящика одну
+#: добивку за проход и держать паузу между письмами ящика (до 22,5 минуты); к этому сроку пауза прошла.
+AFTER_THE_PAUSE = timedelta(minutes=30)
 
 
 @pytest.fixture
@@ -332,12 +335,17 @@ async def test_last_followup_ends_the_chain(session: AsyncSession, world: w.Worl
 async def test_two_leads_of_one_company_get_their_own_followups(
     session: AsyncSession, world: w.World
 ) -> None:
-    """Мутант «ключ без контакта»: вторая добивка компании упёрлась бы в ключ первой."""
+    """Мутант «ключ без контакта»: вторая добивка компании упёрлась бы в ключ первой. Обе
+    добивки — с одного ящика, поэтому проходов два: темп ящика этот тест не проверяет."""
     source, _ = await _first_sent(session, world, JANE, OLGA)
 
-    report = await followups.send_due(session, transport=source, limit=5, now=FIRST_DUE)
+    first = await followups.send_due(session, transport=source, limit=5, now=FIRST_DUE)
+    later = await followups.send_due(
+        session, transport=source, limit=5, now=FIRST_DUE + AFTER_THE_PAUSE
+    )
 
-    assert report.sent == 2
+    assert first.sent >= 1
+    assert first.sent + later.sent == 2
     # Без порядка: у двух писем компании срок добивки один, и какое из них очередь возьмёт
     # первым, база не обещает (`letters/followups` берёт по сроку) — в полном прогоне тест
     # раз упал на «Ольга, потом Джейн». Проверяется другое: у каждого лида свой ключ.
