@@ -8,6 +8,7 @@ import type { ForecastLimits } from './forecastLimits';
 import type { PriceOrigin, PriceRefusal } from './manualPrice';
 import type { Offer } from './offers';
 import type { SamePrice } from './priceRecheck';
+import type { RedirectCard } from './redirectTypes';
 import type { Stage } from './stages';
 export type Role = 'admin' | 'operator' | 'donors' | 'advertisers';
 
@@ -121,6 +122,7 @@ export interface ThreadCard {
   price_white: string | null;
   price_grey: string | null;
   currency: string | null;
+  redirect?: RedirectCard | null;
 }
 
 export type MessageStatus = 'queued' | 'sending' | 'sent' | 'delivered' | 'bounced' | 'stopped';

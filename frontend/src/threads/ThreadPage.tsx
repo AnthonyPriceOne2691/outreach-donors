@@ -45,6 +45,7 @@ import { Seams } from '../components/Seams';
 import { useFollowThreadPart } from './threadPart';
 import { Composer } from './Composer';
 import { NextWaiting } from './NextWaiting';
+import { answersReply, RedirectLine } from './RedirectLine';
 import { ReplyDecision } from './ReplyDecision';
 import { ThreadFeed } from './ThreadFeed';
 import { mailboxGone, ThreadMailLine, ThreadMailWaiting } from './ThreadMailLine';
@@ -265,6 +266,7 @@ export function ThreadPage({ salesPart: SalesPart }: Props = {}) {
             </Text>
             <NextWaiting current={data.card.id} split={split} />
           </Group>
+          <RedirectLine redirect={data.card.redirect} />
           <ThreadMailWaiting mail={data.mail} />
         </Stack>
       </Card>
@@ -275,6 +277,7 @@ export function ThreadPage({ salesPart: SalesPart }: Props = {}) {
         corridor={data.corridor}
         activeId={decided?.id ?? null}
         reviewable={reviewable}
+        redirect={data.card.redirect ?? null}
         sales={sales}
         onPick={setPicked}
         fill={split}
@@ -284,7 +287,9 @@ export function ThreadPage({ salesPart: SalesPart }: Props = {}) {
           can('send') && target !== null ? (
             <Composer
               key={data.card.id}
-              answered={data.letters.some((letter) => letter.answers_reply_id === target.id)}
+              answered={data.letters.some((letter) =>
+                answersReply(letter, target.id, data.card.redirect),
+              )}
               busy={busy(target.id)}
               onSend={(text, fileIds) => answer.mutate({ replyId: target.id, text, fileIds })}
               signed={sales}
