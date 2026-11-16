@@ -170,16 +170,25 @@ const STARTS: Record<Part | 'all', string> = {
   all: 'Диалог заводится вместе с письмом, когда собирают очередь на экранах «Письма донорам» и «Письма рекламодателям».',
 };
 
+/** Пусто вовсе. Письма ушли, но никто не ответил — переписки есть, только не в списке
+ *  (`threadAnswered.ts`): «диалогов ещё нет» и «заводится с письмом» тут были бы неправдой. */
+function noneYet(part: Part | null, silent: number): { title: string; detail: string } {
+  if (silent > 0) {
+    return { title: 'Ответов ещё нет.', detail: 'Диалог появится здесь с первым ответом.' };
+  }
+  return { title: 'Диалогов ещё нет.', detail: STARTS[part ?? 'all'] };
+}
+
 /** Почему под фильтром пусто — словами. Пустой экран объясняет, чего на нём
- *  нет: «ничего не нашлось» без условий читается как «диалогов нет вовсе». */
+ *  нет: «ничего не нашлось» без условий читается как «диалогов нет вовсе».
+ *  `silent` — сколько переписок части не в списке: ответа на них нет. */
 export function threadEmptiness(
   filters: ThreadFilters,
   counts: Map<ThreadState, number>,
   total: number,
+  silent = 0,
 ): { title: string; detail: string } {
-  if (total === 0) {
-    return { title: 'Диалогов ещё нет.', detail: STARTS[filters.part ?? 'all'] };
-  }
+  if (total === 0) return noneYet(filters.part, silent);
   if (filters.state !== null && (counts.get(filters.state) ?? 0) === 0) {
     return {
       title: `В состоянии «${stateTitle(filters.state, filters.part)}» диалогов нет.`,
