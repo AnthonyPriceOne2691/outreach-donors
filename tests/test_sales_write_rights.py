@@ -95,6 +95,10 @@ ELSEWHERE = {
     # «Закрыть без ответа» — `sales` и `send`, как передача: решение по переписке продаж, наружу
     # ничего не уходит; права держит `test_sales_close_without_answer.py`.
     ("POST", "/api/sales/threads/{}/close"),
+    # План работ: превью — `sales` (ничего не пишет), сохранение — `sales` и `run` (план — трата
+    # выдачи и модели, как запуск прогона); права держит `test_api_sales_plans.py`.
+    ("POST", "/api/sales/plans/preview"),
+    ("POST", "/api/sales/plans"),
 }
 
 PRICE = {
