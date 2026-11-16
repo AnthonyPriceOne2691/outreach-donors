@@ -20,7 +20,8 @@
   деньгами по ценам ввода и вывода модели, смешанным долей вывода из истории прогонов с
   раздельным счётом (`segment_history.output_share`; без истории — запасная, словами); выше
   остатка дневного потолка модели (общего и своего у продаж — как у остальных вызовов модели
-  продаж) — **прогон не запускается**, отказ словами;
+  продаж) — **прогон не запускается**, отказ словами; экономный тариф судьи (Flex, `segment_tier`)
+  — деньги токенов долей прайса, а цены в смете — прайса: долю применяет тот, кто считает деньги;
 - **Hunter** — не больше поиска адреса на новый сайт (платная ступень — только тем, кому
   бесплатные ступени адреса не нашли) и не больше проверки адреса на лида, если она живая.
 
@@ -74,6 +75,7 @@ from backend.features.sales.segment_history import (
 from backend.features.sales.segment_judging import unready
 from backend.features.sales.segment_keywords import clean_keywords
 from backend.features.sales.segment_spend import number, tokens_usd, usd_per_million
+from backend.features.sales.segment_tier import JudgeTier, asked_tier, price_share, tier_entry
 from backend.features.serp import funds, markets
 from backend.features.serp.factory import AHREFS, UnknownProviderError, build_provider
 from backend.features.serp.modes import (
@@ -140,8 +142,8 @@ SALES_OFF = (
 @dataclass(frozen=True, slots=True)
 class Ask:
     """Что просит человек: гипотеза, ключи строками, рынок, язык писем, глубина, режим
-    покупки выдачи (пусто — умолчание сервиса, `SERP_MODE`) и снятые ключи — номерами строк,
-    как вписаны."""
+    покупки выдачи (пусто — умолчание сервиса, `SERP_MODE`), снятые ключи — номерами строк, как
+    вписаны, и тариф судьи (`segment_tier.JudgeTier`; пусто — обычный)."""
 
     hypothesis_id: int
     keywords: str
@@ -150,6 +152,7 @@ class Ask:
     depth_pages: int
     serp_mode: str | None = None
     excluded: tuple[int, ...] = ()
+    judge_tier: str | None = None
 
 
 @dataclass(slots=True)
@@ -177,6 +180,8 @@ class Estimate:
     digest: str = ""
     #: Режим покупки выдачи (`SerpMode`): цена страницы и ожидание — по нему.
     serp_mode: str = SerpMode.LIVE.value
+    #: Тариф судьи (`segment_tier.JudgeTier`): деньги токенов — долей прайса тарифа.
+    judge_tier: str = JudgeTier.STANDARD.value
     serp_page_usd: float = 0.0
     serp_wait_s: int = 0
     results: int = 0
@@ -224,6 +229,7 @@ class Estimate:
             EXCLUDED_KEY: dict(self.excluded),
             "digest": self.digest,
             "serp_mode": self.serp_mode,
+            **tier_entry(self.judge_tier),
             "serp_page_usd": self.serp_page_usd,
             "serp_wait_s": self.serp_wait_s,
             "results": self.results,
@@ -321,8 +327,8 @@ def _serp_mode(asked: str | None) -> tuple[str, str | None]:
 def _first_refusal(
     found: Estimate, *, market: str, limits: tuple[int, int], mode_refusal: str | None
 ) -> str | None:
-    """Отказ по самому запросу — до денег: описание, ключи, глубина, рынок, язык, режим
-    выдачи. Первый по порядку: правило, добавленное в таблицу, само попадает в отказ."""
+    """Отказ по самому запросу — до денег: описание, ключи, глубина, рынок, язык, режим выдачи и
+    тариф судьи. Первый по порядку: правило, добавленное в таблицу, само попадает в отказ."""
     max_keywords, max_depth = limits
     count = len(found.keywords)
     languages = ", ".join(chain_text.LANGUAGES)
@@ -375,6 +381,7 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
     # Снятые — после отсева: номера «повтор строки N» и сам отсев от снятия не меняются.
     picked = chosen(ask.keywords, words.taken, ask.excluded)
     serp_mode, mode_refusal = _serp_mode(ask.serp_mode)
+    tier, tier_refusal = asked_tier(ask.judge_tier)
     country = ask.country.strip().lower()
     # Язык выдачи рынка — из той же карты, что у выдачи (`serp/markets.py`); нет рынка —
     # отказ словами ниже, а не тихий английский.
@@ -392,13 +399,14 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
         depth_pages=ask.depth_pages,
         mode=sales_cfg.SEGMENT_JUDGE_MODE.value,
         serp_mode=serp_mode,
+        judge_tier=tier.value,
     )
     found.digest = seen_digest(found, hypothesis.id)
     found.refusal = _first_refusal(
         found,
         market=market,
         limits=(serp_cfg.MAX_KEYWORDS_PER_RUN, serp_cfg.MAX_DEPTH_PAGES),
-        mode_refusal=mode_refusal,
+        mode_refusal=mode_refusal or tier_refusal,
     )
     if found.refusal is not None:
         return found
@@ -430,7 +438,8 @@ async def priced(session: AsyncSession, found: Estimate, hypothesis_id: int | No
     found.usd_per_1m_input = sales_cfg.SEGMENT_INPUT_USD_PER_1M_TOKENS
     found.usd_per_1m_output = sales_cfg.SEGMENT_OUTPUT_USD_PER_1M_TOKENS
     found.usd_per_1m_tokens = usd_per_million(found.output_share)
-    found.tokens_usd = tokens_usd(found.tokens, found.usd_per_1m_tokens)
+    share = price_share(JudgeTier(found.judge_tier))  # цены выше — прайса, доля — только деньгам
+    found.tokens_usd = tokens_usd(found.tokens, found.usd_per_1m_tokens * share)
     found.hunter_searches = found.sites if paid_search_on() else 0
     try:
         found.hunter_checks = found.sites if _verifier_paid() else 0

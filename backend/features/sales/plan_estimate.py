@@ -20,10 +20,10 @@
 второй раз, а ступенями до топ-50 вышло бы 1 + 2 + 3 + 5 = 11 страниц на ключ вместо пяти. Покупка
 одних новых страниц — правка общего кода выдачи вместе с конвейером.
 
-**Режим** — режим покупки выдачи (`serp/modes.py`): экономный — `standard`. Судья пакетом (вдвое
-дешевле) в смету не входит: пакетного пути у модели ещё нет, и смета назвала бы цену, которую прогон
-не заплатит. Появится — цена токена по режиму встанет в `segment_spend.usd_per_million`, и её возьмут
-обе сметы сразу.
+**Режим** — режим покупки выдачи (`serp/modes.py`): экономный — `standard`. **Тариф судьи** —
+необязательный `judge_tier` (`segment_tier.JudgeTier`): экономный — Flex, токены те же, деньги —
+долей прайса. Долю считает смета прогона (`segment_estimate.priced`), план берёт её числа; не
+назван — обычный тариф, числа прежние.
 
 **Листы с ошибками** в смету не входят: к запуску они не идут. **Ключей мало для цели** —
 предупреждение гипотезы: даже до предельной глубины выдача даст меньше сайтов, чем цель, а судья
@@ -42,6 +42,7 @@ from backend.features.sales.plan_card import DEPTH_CHOICES
 from backend.features.sales.plan_file import PlanDraft, PlanHypothesis
 from backend.features.sales.segment_estimate import TOKENS_PER_SITE, Estimate, priced
 from backend.features.sales.segment_spend import number
+from backend.features.sales.segment_tier import JudgeTier
 from backend.features.serp.modes import SerpMode
 
 #: Глубина страницами — словами книги: «топ-50».
@@ -118,23 +119,31 @@ class PlanEstimate:
     tokens_per_site_runs: int = 0
     #: Отказы настроек сметы прогона словами (проверка адресов не настроена) — по разу.
     notes: tuple[str, ...] = ()
+    #: Тариф судьи (`segment_tier.JudgeTier`), по которому посчитаны деньги токенов.
+    judge_tier: str = JudgeTier.STANDARD.value
 
 
 async def plan_estimate(
-    session: AsyncSession, draft: PlanDraft, serp_mode: SerpMode, *, goal: int | None = None
+    session: AsyncSession,
+    draft: PlanDraft,
+    serp_mode: SerpMode,
+    *,
+    goal: int | None = None,
+    judge_tier: JudgeTier | None = None,
 ) -> PlanEstimate:
     """Смета плана в режиме выдачи: гипотезы без ошибок — от топ-10 до своей предельной глубины.
-    `goal` — общая цель из окна загрузки: для листов, где своей нет. Ничего не пишет; кроме базы
-    (история прогонов), никуда не ходит."""
+    `goal` — общая цель из окна загрузки: для листов, где своей нет; `judge_tier` — тариф судьи (не
+    назван — обычный). Ничего не пишет; кроме базы (история прогонов), никуда не ходит."""
+    tier = judge_tier or JudgeTier.STANDARD
     rows: list[HypothesisSpend] = []
     seen: list[Estimate] = []
     for hypothesis in draft.ready:
-        low = await _pass(session, hypothesis, FIRST_PAGES, serp_mode, seen)
+        low = await _pass(session, hypothesis, FIRST_PAGES, serp_mode, tier, seen)
         depth = hypothesis.card.depth_pages
         high = (
             low
             if depth == FIRST_PAGES
-            else await _pass(session, hypothesis, depth, serp_mode, seen)
+            else await _pass(session, hypothesis, depth, serp_mode, tier, seen)
         )
         target = hypothesis.card.target or goal
         rows.append(
@@ -154,6 +163,7 @@ async def plan_estimate(
         sum((row.low for row in rows), Spend()),
         sum((row.high for row in rows), Spend()),
         notes=tuple(dict.fromkeys(basis.refusal for basis in seen if basis.refusal)),
+        judge_tier=tier.value,
     )
     if not seen:
         return found
@@ -173,10 +183,11 @@ async def _pass(
     hypothesis: PlanHypothesis,
     depth_pages: int,
     serp_mode: SerpMode,
+    tier: JudgeTier,
     seen: list[Estimate],
 ) -> Spend:
-    """Проход гипотезы на глубину: смета прогона на каждый рынок — суммой. Сметы — в `seen`: по
-    ним план называет, откуда доли, и отказы настроек."""
+    """Проход гипотезы на глубину: смета прогона на каждый рынок — суммой, в режиме выдачи и тарифе
+    судьи. Сметы — в `seen`: по ним план называет, откуда доли, и отказы настроек."""
     total = Spend()
     for market in hypothesis.card.markets:
         found = Estimate(
@@ -189,6 +200,7 @@ async def _pass(
             depth_pages=depth_pages,
             mode=sales_cfg.SEGMENT_JUDGE_MODE.value,
             serp_mode=serp_mode.value,
+            judge_tier=tier.value,
         )
         found.refusal = await priced(session, found, None)
         seen.append(found)

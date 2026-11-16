@@ -14,10 +14,11 @@
 
 **Отпечаток сметы** (`seen_digest`) — то, что человек видел и по чему запускает: гипотеза,
 покупаемые ключи, снятые, описание сегмента (отпечатком судьи — `segment_judge.segment_digest`),
-режим судьи, режим выдачи, рынок, язык писем и глубина. Запуск считает смету заново и сверяет
-отпечаток (`api/sales/segment.py`): правка описания, режима или ключей после сметы — «смета
-устарела». Числа сметы (сайты, остаток потолка модели) в отпечаток не входят: их меняют чужие
-прогоны, а отказ по ним запуск проверяет сам.
+режим судьи, режим выдачи, рынок, язык писем, глубина и тариф судьи — только экономный
+(`segment_tier.tier_entry`): отпечаток обычной сметы прежний до байта. Запуск считает смету
+заново и сверяет отпечаток (`api/sales/segment.py`): правка описания, режима, тарифа или ключей
+после сметы — «смета устарела». Числа сметы (сайты, остаток потолка модели) в отпечаток не входят:
+их меняют чужие прогоны, а отказ по ним запуск проверяет сам.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from backend.features.keywords import hygiene
 from backend.features.sales.segment_judge import segment_digest
 from backend.features.sales.segment_keywords import _written
 from backend.features.sales.segment_models import SalesSegmentRunModel
+from backend.features.sales.segment_tier import tier_entry
 
 if TYPE_CHECKING:
     from backend.features.sales.segment_estimate import Estimate
@@ -95,6 +97,7 @@ def seen_digest(found: Estimate, hypothesis_id: int) -> str:
         "country": found.country,
         "language": found.language,
         "depth_pages": found.depth_pages,
+        **tier_entry(found.judge_tier),
     }
     text = json.dumps(seen, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:DIGEST_LENGTH]
