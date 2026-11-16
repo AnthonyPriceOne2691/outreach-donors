@@ -74,11 +74,13 @@ class _Serp:
 
     def __init__(self) -> None:
         self.watch: SerpWatch | None = None
+        self.named: dict[str, Any] = {}
 
     async def search(
         self, keywords: Any, country: str, **kwargs: Any
     ) -> dict[str, list[SerpResult]]:
         self.watch = kwargs.get("watch")
+        self.named = kwargs
         return {k: [SerpResult(position=1, url=f"https://{k}.com/")] for k in keywords}
 
 
@@ -101,3 +103,20 @@ class TestGatherPassesTheWatch:
 
         found = await gather_candidates(Old(), ["a"], "us")  # type: ignore[arg-type]
         assert found.empty_keywords == ["a"]
+
+
+class TestGatherPassesTheFirstPage:
+    """Первая покупаемая страница (`serp.protocol.SerpPages`) уходит источнику, только когда
+    названа не умолчанием: доноры смещения не просят, и их вызов источника — прежний."""
+
+    @pytest.mark.asyncio
+    async def test_start_page_reaches_the_source(self) -> None:
+        serp = _Serp()
+        await gather_candidates(serp, ["a"], "us", depth_pages=3, start_page=2)  # type: ignore[arg-type]
+        assert serp.named == {"depth_pages": 3, "start_page": 2}
+
+    @pytest.mark.asyncio
+    async def test_first_page_is_not_named(self) -> None:
+        serp = _Serp()
+        await gather_candidates(serp, ["a"], "us", depth_pages=2, start_page=1)  # type: ignore[arg-type]
+        assert serp.named == {"depth_pages": 2}
