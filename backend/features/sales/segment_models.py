@@ -115,6 +115,15 @@ class SalesSegmentRunModel(TimestampedMixin, Base):
     #: Язык писем лидам сбора (`ru`, `en` — языки цепочки): у рынка выдачи он бывает другим.
     language: Mapped[str] = mapped_column(String(16), nullable=False)
     depth_pages: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    #: С какой страницы выдачи прогон покупает: 1 — с начала; глубже — углубление плана работ,
+    #: купленное раньше второй раз не оплачивается (`plan_models.SalesPlanKeywordModel.pages`).
+    from_page: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=1, server_default="1"
+    )
+    #: Гипотеза плана работ, чей это прогон; пусто — прогон с экрана «Сбор базы».
+    plan_hypothesis_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sales_plan_hypotheses.id", ondelete="SET NULL"), nullable=True
+    )
     #: Режим судьи на запуске (`JudgeMode` строкой): отчёт называет, резал ли он.
     mode: Mapped[str] = mapped_column(String(CODE_LENGTH), nullable=False)
     #: Смета на запуске — числа и слова, как их видел человек.
@@ -132,7 +141,10 @@ class SalesSegmentRunModel(TimestampedMixin, Base):
     #: поставлен продолжением (`api/sales/segment.resume_run`).
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    __table_args__ = (Index("idx_sales_segment_runs_hypothesis", "hypothesis_id"),)
+    __table_args__ = (
+        Index("idx_sales_segment_runs_hypothesis", "hypothesis_id"),
+        Index("idx_sales_segment_runs_plan_hypothesis", "plan_hypothesis_id"),
+    )
     # `updated_at` — пульс прогона, его читает экран (`RunRow.alive_at`): значение базы
     # приходит в той же записи (RETURNING), а не просроченным полем, которое асинхронная
     # сессия догрузить на чтении не может.

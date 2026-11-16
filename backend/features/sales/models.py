@@ -38,7 +38,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.features.core.models._mixins import TimestampedMixin
-from backend.features.sales.hypothesis_countries import HypothesisCountriesMixin
+from backend.features.sales.hypothesis_kinds import HypothesisFieldsMixin
 from backend.features.sales.sender_columns import SenderLanguagesMixin
 from backend.features.sales.verify_columns import VERIFY_AGAIN_INDEX, VerifyAgainMixin
 from backend.shared.database.base import Base
@@ -84,7 +84,7 @@ def _enum(e: type[StrEnum], name: str) -> SQLEnum:
     return SQLEnum(e, name=name, values_callable=lambda x: [i.value for i in x])
 
 
-class SalesHypothesisModel(TimestampedMixin, HypothesisCountriesMixin, Base):
+class SalesHypothesisModel(TimestampedMixin, HypothesisFieldsMixin, Base):
     """Кому и зачем пишем. Текст — данными в базе: репозиторий публичный."""
 
     __tablename__ = "sales_hypotheses"
