@@ -13,6 +13,7 @@ import type { ThreadCard, ThreadState } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
+import { inDialogs } from './threadAnswered';
 import {
   inPart,
   NO_THREAD_FILTERS,
@@ -101,10 +102,13 @@ export function useThreadList() {
   // список — один раз на ответ сервера (`useSortedThreads`). Список — части из адреса:
   // «Диалоги» без продаж, «Диалоги продаж» — только они (`inPart`).
   const { query, threads: all } = useSortedThreads();
-  const threads = useMemo(
+  const side = useMemo(
     () => all.filter((thread) => inPart(thread, filters.part)),
     [all, filters.part],
   );
+  // У доноров и рекламодателей — только переписки с ответом (`inDialogs`): без ответа они ждут
+  // на «Письмах» своего этапа. Числа, фильтр и «всего» считаются по показанным.
+  const threads = useMemo(() => side.filter(inDialogs), [side]);
   const counts = useMemo(() => {
     const totals = new Map<ThreadState, number>();
     for (const thread of threads) {
@@ -120,7 +124,10 @@ export function useThreadList() {
   const states = THREAD_STATE_KEYS.filter(
     (state) => (counts.get(state) ?? 0) > 0 || state === filters.state,
   );
-  const empty = shown.length === 0 ? threadEmptiness(typed, counts, threads.length) : null;
+  const empty =
+    shown.length === 0
+      ? threadEmptiness(typed, counts, threads.length, side.length - threads.length)
+      : null;
   // Пункты фильтра состояния — с числами, «все» первым.
   const stateOptions = [
     { value: 'all', label: counted('все', threads.length) },
@@ -144,7 +151,8 @@ export function useThreadList() {
   return {
     query,
     threads,
-    /** Сколько диалогов в части; `undefined` — список ещё не пришёл. */
+    /** Сколько диалогов в части — строк списка, переписки без ответа не в счёт; `undefined` —
+     *  список ещё не пришёл. */
     total: query.data === undefined ? undefined : threads.length,
     filters,
     typed,
