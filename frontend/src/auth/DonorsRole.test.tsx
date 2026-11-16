@@ -150,6 +150,7 @@ describe('рабочие экраны роли: адрес Этапа 2 ведё
         'GET /api/letters': { body: { ...LETTERS, stage: 'donors', audience: 'links' } },
         'GET /api/letters/unknown': { body: QUEUE_LINE },
         'GET /api/letters/deferred': { body: QUEUE_LINE },
+        'GET /api/threads?stage=donors&answered=false': { body: [] },
         'GET /api/runs/with-accepted': { body: [] },
       });
 

@@ -84,6 +84,10 @@ class ThreadCard(BaseModel):
     #: Этап рассылки: донору писали о цене, рекламодателю — оффер.
     stage: Stage
     state: ThreadState
+    #: Переписка с ответом — диалог (`outreach/threads.is_answered`, 16.11.2026): ответил
+    #: человек, или ответ ждёт разбора, или цена из него принята. «Диалоги» доноров
+    #: и рекламодателей показывают такие, «Ждём ответа» на экране «Письма» — остальные.
+    answered: bool
     messages_sent: int
     last_event_at: datetime | None
     last_reply_at: datetime | None
@@ -102,6 +106,7 @@ class ThreadCard(BaseModel):
             campaign=row.campaign_name,
             stage=row.stage,
             state=row.summary.state,
+            answered=row.summary.answered,
             messages_sent=row.summary.messages_sent,
             last_event_at=row.summary.last_event_at,
             last_reply_at=row.summary.last_reply_at,

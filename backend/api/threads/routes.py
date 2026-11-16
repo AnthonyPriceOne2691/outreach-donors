@@ -10,6 +10,11 @@
 **Переписка продаж — ещё и с правом «Продажи»** (решение Anthony 10.10.2026, П2):
 без него её нет в списке, а карточка, ответ и черновик — 403 словами
 (`api/stage_access.py`).
+
+**Список сужается этапом и ответом** (`?stage=`, `?answered=`, 16.11.2026): «Ждём ответа»
+на экране «Письма» берёт переписки своего этапа без ответа, и спрашивать ради них переписки
+всех этапов — тысячи строк продаж — незачем. Этап без права на него — 403 словами, как
+у очереди писем этого этапа.
 """
 
 from __future__ import annotations
@@ -24,9 +29,9 @@ from backend.api.deps import actor, db_session, needs
 from backend.api.letters.schemas import SendResult
 from backend.api.sales.close import release_answered
 from backend.api.sales.handoff import thread_handoff
-from backend.api.stage_access import on_thread
+from backend.api.stage_access import THREADS, on_thread
 from backend.api.threads.schemas import AnswerBody, RedirectCard, ThreadCard, ThreadView
-from backend.features.access.permissions import visible_stages
+from backend.features.access.permissions import require_stage, visible_stages
 from backend.features.agent.drafting import (
     DraftRefusedError,
     UnknownDraftReplyError,
@@ -41,7 +46,7 @@ from backend.features.agent.drafts import (
     settle_sent,
 )
 from backend.features.agent.writer import AgentWriter
-from backend.features.core.domain import Permission
+from backend.features.core.domain import Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.letters.answers import answer_reply
@@ -65,16 +70,33 @@ _thread_viewer = Depends(on_thread(Permission.VIEW))
 _thread_sender = Depends(on_thread(Permission.SEND))
 
 
+def _stages(user: UserModel, stage: Stage | None) -> frozenset[Stage]:
+    """Этапы списка: названный — только он, и только с правом на него; без этапа — все видимые."""
+    if stage is None:
+        return visible_stages(actor(user))
+    require_stage(actor(user), stage, THREADS)
+    return frozenset({stage})
+
+
 @router.get("", response_model=list[ThreadCard], summary="Список диалогов")
 async def all_threads(
+    stage: Stage | None = None,
+    answered: bool | None = None,
     user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> list[ThreadCard]:
-    """Диалоги этапов, которые видит учётка: без права «Продажи» — без переписок продаж."""
-    rows = await OutreachRepository(session).threads(stages=visible_stages(actor(user)))
+    """Диалоги этапов, которые видит учётка: без права «Продажи» — без переписок продаж.
+
+    `stage` — только этого этапа; `answered` — только с ответом (`true`) или без него
+    (`false`, «Ждём ответа» на экране «Письма»). Без них — весь список, как прежде."""
+    rows = await OutreachRepository(session).threads(stages=_stages(user, stage))
     # Переадресация в диалогах рекламодателей — одним заходом на весь список (16.11.2026).
     redirects = await shown(session)
-    return [ThreadCard.of(row, redirects.get(row.thread.id)) for row in rows]
+    return [
+        ThreadCard.of(row, redirects.get(row.thread.id))
+        for row in rows
+        if answered is None or row.summary.answered is answered
+    ]
 
 
 @router.get("/{thread_id}", response_model=ThreadView, summary="Переписка целиком")

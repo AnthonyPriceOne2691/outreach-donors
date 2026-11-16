@@ -46,6 +46,12 @@
 12.10.2026): цена донора протухла, и мы спросили её заново — пока он не ответил после
 перезапроса, переписка «цену перезапросили — ждём ответа», а не «цена получена»
 с ценой, по которой Этап 2 уже не идёт. Ответ после перезапроса — снова ответ.
+
+**Переписка с ответом — диалог** (`is_answered`, 16.11.2026): её показывают «Диалоги», без
+ответа — «Ждём ответа» на «Письмах». Диалог — ответил человек (черновик агента, лид, переадресация
+бывают только у его ответа) или состояние поставили правила ответа: автоответ с суммой ждёт
+разбора, цена из него принята. Очередь, «ждём ответа», «я в отпуске», отказ доставки, отписка
+и остановка руками без ответа человека — не диалог.
 """
 
 from __future__ import annotations
@@ -93,6 +99,8 @@ class ThreadSummary:
     """Строка списка диалогов."""
 
     state: ThreadState
+    #: Переписка с ответом — диалог (`is_answered`): «Диалоги» её показывают, «Письма» — нет.
+    answered: bool
     messages_sent: int
     last_event_at: datetime | None
     last_reply_at: datetime | None
@@ -173,6 +181,28 @@ def _last_at(messages: Sequence[LetterFacts], replies: Sequence[ReplyFacts]) -> 
 
 #: Правило состояния: условие и что оно значит.
 _Rules = tuple[tuple[bool, ThreadState], ...]
+
+#: Состояния, которые ставят только правила ответа этапа (`_answered`): по ним переписка —
+#: диалог и без ответа человека. Очередь, ожидание, отказ доставки, отписка, остановка — нет.
+ANSWER_STATES = frozenset(
+    {
+        ThreadState.REPLIED,
+        ThreadState.NEEDS_REVIEW,
+        ThreadState.PRICED,
+        ThreadState.DECLINED,
+        ThreadState.FREE,
+        ThreadState.LEAD,
+        ThreadState.LEAD_TAKEN,
+        ThreadState.SALES_PENDING,
+        ThreadState.RECHECK,
+    }
+)
+
+
+def is_answered(state: ThreadState, replies: Sequence[ReplyFacts]) -> bool:
+    """Переписка — диалог: ответил человек или состояние — ответ (`ANSWER_STATES`). Ответ
+    человека — диалог и при отписке после него: переписку с живым ответом ищут в «Диалогах»."""
+    return state in ANSWER_STATES or any(r.kind is ReplyKind.HUMAN for r in replies)
 
 
 def state_of(
@@ -445,10 +475,12 @@ def summarize(
     """Свести письма и входящие в одну строку списка."""
     priced = settled_price(replies)
     human = [r for r in replies if r.kind is ReplyKind.HUMAN]
+    state = state_of(
+        {m.status for m in messages}, replies, stage, asked_at=asked_again_at(messages)
+    )
     return ThreadSummary(
-        state=state_of(
-            {m.status for m in messages}, replies, stage, asked_at=asked_again_at(messages)
-        ),
+        state=state,
+        answered=is_answered(state, replies),
         messages_sent=sum(1 for m in messages if m.status in GONE_STATUSES),
         last_event_at=_last_at(messages, replies),
         last_reply_at=max((r.created_at for r in human), default=None),

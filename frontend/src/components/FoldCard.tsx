@@ -9,6 +9,9 @@
  *
  * У кнопки `aria-expanded` и `aria-controls` (`docs/UI_RULES.md`): без них программа
  * чтения с экрана видит кнопку без состояния, а тест не отличит раскрытое от свёрнутого.
+ *
+ * Рядом с кнопкой — `aside`, например «i» с пояснением («Ждём ответа» на «Письмах»): внутри
+ * кнопки значок был бы кнопкой в кнопке.
  */
 
 import { Button, Card, Collapse, Group } from '@mantine/core';
@@ -21,14 +24,16 @@ interface FoldCardProps {
   label: ReactNode;
   open: boolean;
   onToggle: () => void;
+  /** Рядом с кнопкой, не внутри неё: «i» с пояснением. */
+  aside?: ReactNode;
   children: ReactNode;
 }
 
-export function FoldCard({ label, open, onToggle, children }: FoldCardProps) {
+export function FoldCard({ label, open, onToggle, aside, children }: FoldCardProps) {
   const bodyId = useId();
   return (
     <Card className="glass" px="xl" py="md">
-      <Group>
+      <Group gap={aside === undefined ? 'md' : 4} wrap="nowrap">
         <Button
           variant="subtle"
           size="compact-md"
@@ -48,6 +53,7 @@ export function FoldCard({ label, open, onToggle, children }: FoldCardProps) {
         >
           {label}
         </Button>
+        {aside}
       </Group>
       <Collapse id={bodyId} in={open} transitionDuration={220} transitionTimingFunction="ease">
         {children}

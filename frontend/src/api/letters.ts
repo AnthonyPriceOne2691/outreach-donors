@@ -5,6 +5,7 @@ import type {
   LettersView,
   QueuedLetter,
   SendResult,
+  ThreadCard,
 } from './types';
 import type { QueueAutosend, QueueEta } from './autosend';
 import { request } from './client';
@@ -115,6 +116,12 @@ export function listDeferredLetters(
   audience: LetterAudience = 'links',
 ): Promise<DeferredLettersView> {
   return request<DeferredLettersView>(`/letters/deferred${scopeOf(stage, audience)}`);
+}
+
+/** Переписки этапа без ответа — «Ждём ответа» на экране «Письма» (16.11.2026): тот же список
+ *  «Диалогов», суженный сервером этапом и ответом (`?stage=`, `?answered=false`). */
+export function listAwaitingThreads(stage: LetterStage): Promise<ThreadCard[]> {
+  return request<ThreadCard[]>(`/threads?stage=${stage}&answered=false`);
 }
 
 /** Решение человека по журналу платформы: «ушло» или «вернуть в очередь». */
