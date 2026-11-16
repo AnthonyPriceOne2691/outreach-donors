@@ -255,10 +255,10 @@ export function reviewQueue(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** Блоки «Исход неизвестен» и «Доставка откладывается» на экране писем: зависших
- *  и откладываемых писем нет ни на одной вкладке. Экран спрашивает их на каждой вкладке
- *  сам, и тест, которому блоки не нужны, записывает пустые списки — промах мимо
- *  записанных роняет тест. */
+/** Блоки «Исход неизвестен», «Доставка откладывается» и «Ждём ответа» на экране писем:
+ *  зависших и откладываемых писем и переписок без ответа нет ни на одной вкладке. Экран
+ *  спрашивает их на каждой вкладке сам, и тест, которому блоки не нужны, записывает пустые
+ *  списки — промах мимо записанных роняет тест. */
 export const NO_STUCK_LETTERS: Record<string, Answer> = {
   // Вкладки рекламодателей спрашивают и поиск адресов — строка «ждут адреса» своей вкладки
   // (`AddressLine`).
@@ -268,6 +268,9 @@ export const NO_STUCK_LETTERS: Record<string, Answer> = {
   'GET /api/advertisers/contacts?audience=niche': {
     body: { pending: 0, running: false, job_id: null, last: null, workers: 1 },
   },
+  // «Ждём ответа» под очередью — переписки этапа без ответа (`AwaitingReplies`).
+  'GET /api/threads?stage=donors&answered=false': { body: [] },
+  'GET /api/threads?stage=advertisers&answered=false': { body: [] },
   'GET /api/letters/unknown': { body: { stage: 'donors', letters: [], after_minutes: 5 } },
   'GET /api/letters/unknown?stage=advertisers': {
     body: { stage: 'advertisers', letters: [], after_minutes: 5 },

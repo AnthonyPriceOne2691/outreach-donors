@@ -141,6 +141,7 @@ describe('общие экраны открывают этап роли', () => {
         },
         'GET /api/letters/unknown?stage=advertisers': { body: QUEUE_LINE },
         'GET /api/letters/deferred?stage=advertisers': { body: QUEUE_LINE },
+        'GET /api/threads?stage=advertisers&answered=false': { body: [] },
       });
 
       expect(

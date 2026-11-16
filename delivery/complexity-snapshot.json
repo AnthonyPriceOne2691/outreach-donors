@@ -657,14 +657,14 @@
       "worst": "upload:46"
     },
     "backend/api/threads/routes.py": {
-      "lines": 198,
+      "lines": 220,
       "complexity": 5,
-      "worst": "redraft:167"
+      "worst": "redraft:189"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 487,
+      "lines": 492,
       "complexity": 10,
-      "worst": "of:355"
+      "worst": "of:360"
     },
     "backend/api/topics/__init__.py": {
       "lines": 1,
@@ -2527,9 +2527,9 @@
       "worst": "of_reply:52"
     },
     "backend/features/outreach/threads.py": {
-      "lines": 459,
+      "lines": 491,
       "complexity": 13,
-      "worst": "_answer_rules:287"
+      "worst": "_answer_rules:317"
     },
     "backend/features/replies/__init__.py": {
       "lines": 1,

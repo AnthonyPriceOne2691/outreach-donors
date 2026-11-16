@@ -44,6 +44,9 @@
  * адресата, а где его нет («Письма донорам») — у заголовка. Под заголовком — только факты:
  * почта, «Ещё не писали», ждущие адреса и ждущие проверки адреса (`CheckLine`, 11.11.2026).
  *
+ * **Письма без ответа — «Ждём ответа» под очередью** (`AwaitingReplies`, 16.11.2026): «Диалоги»
+ * показывают только переписки с ответом, остальные переписки этапа — здесь, свёрнутой строкой.
+ *
  * **Без обоих этапов — один отказ раздела, а не три отказа сервера** (проверка прода 10.11.2026):
  * учётка только продаж по прямой ссылке видела «Очередь не загрузилась» и два красных блока над
  * ней — каждый запрос экрана получал свой 403. Писем этих этапов у неё нет: экран говорит это
@@ -70,6 +73,7 @@ import { BuildForm, LIMIT_DEFAULT, followupDays } from './BuildForm';
 import { DeferredLetters } from './DeferredLetters';
 import type { BuildProps } from './BuildForm';
 import { AddressLine } from './AddressLine';
+import { AwaitingReplies } from './AwaitingReplies';
 import { buildCheckLine, checkedHint } from './addressCheck';
 import { CheckLine } from './CheckLine';
 import { EmptyQueue } from './EmptyQueue';
@@ -433,6 +437,11 @@ function LettersScreen({ part }: { part: LetterStage | null }) {
           onSave={(id, subject, body) => save.mutate({ id, subject, body })}
         />
       ) : null}
+
+      {/* Переписки этапа без ответа (16.11.2026): ответившие — в «Диалогах». Под очередью
+          и свёрнуты в строку с числом: работа экрана — очередь. Список — этапа целиком,
+          на обеих вкладках рекламодателей один. */}
+      <AwaitingReplies key={stage} stage={stage} />
     </Stack>
   );
 }
