@@ -373,7 +373,7 @@ class TestOffers:
         assert chosen is not None
         letter = (await _letters(session))[brand.id]
         _assert_selected(letter, rewriter, brand.host, chosen)
-        assert letter.subject == f"Your placement on {DONOR}"
+        assert letter.subject == f"Paying less for placements like yours on {DONOR}"
         assert all(
             part in (letter.body or "") for part in (f"link on {DONOR}", PAGE, f'"{ANCHOR}"')
         )

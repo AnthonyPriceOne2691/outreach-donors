@@ -212,7 +212,7 @@ class TestWhoGetsAnOffer:
 
         assert report.prepared == 1  # type: ignore[attr-defined]
         (letter,) = await offers(session)
-        assert letter.subject == f"Your placement on {DONOR}"
+        assert letter.subject == f"Paying less for placements like yours on {DONOR}"
         assert f'"{ANCHOR}"' in (letter.body or "")
         assert PAGE in (letter.body or "")
         assert letter.idempotency_key == "advertisers:brand.example.test:0"
@@ -435,7 +435,9 @@ class TestTheOfferChain:
         assert report.sent == 1
         reminder = await session.scalar(select(MessageModel).where(MessageModel.step == 1))
         assert reminder is not None
-        assert reminder.subject == first.subject == f"Your placement on {DONOR}"
+        assert (
+            reminder.subject == first.subject == f"Paying less for placements like yours on {DONOR}"
+        )
         assert "sponsored placement of yours" in (reminder.body or "")
         assert "guest article" not in (reminder.body or "").lower()
         assert reminder.idempotency_key == "advertisers:brand.example.test:1"
