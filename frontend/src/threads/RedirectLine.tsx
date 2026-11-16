@@ -10,7 +10,9 @@
 
 import { Badge, Group, Text, Tooltip } from '@mantine/core';
 
+import { REDIRECT_STEP } from '../api/redirectTypes';
 import type { RedirectCard, RedirectState } from '../api/redirectTypes';
+import type { LetterCard } from '../api/types';
 import { InfoHint } from '../components/InfoHint';
 
 const LABELS: Record<RedirectState, { title: string; color: string }> = {
@@ -24,6 +26,22 @@ const LABELS: Record<RedirectState, { title: string; color: string }> = {
 
 /** Ещё в пути: решение не окончательное, слова — приглушённые. */
 const PENDING: ReadonlySet<string> = new Set<RedirectState>(['checking', 'waiting']);
+
+/** Переадресация жива: письмо на новый адрес — наш ответ на ответ, который этот адрес назвал. */
+const ALIVE: ReadonlySet<string> = new Set<RedirectState>(['checking', 'waiting', 'sent']);
+
+/** Отвечает ли письмо на ответ `replyId` (поле ответа под ним тогда закрыто). Письмо переадресации
+ *  диалога — только пока она жива: не дошло или снято — переадресация не состоялась, и отвечать
+ *  дальше человеку. `answers_reply_id` у снятого письма сервер оставляет, поэтому судит состояние. */
+export function answersReply(
+  letter: LetterCard,
+  replyId: number,
+  redirect: RedirectCard | null | undefined,
+): boolean {
+  if (letter.answers_reply_id !== replyId) return false;
+  if (!redirect || letter.step !== REDIRECT_STEP || letter.id !== redirect.letter_id) return true;
+  return ALIVE.has(redirect.state);
+}
 
 /** Метка состояния; незнакомое слово сервера — им самим, серой меткой. */
 export function redirectLabel(state: string): { title: string; color: string } {

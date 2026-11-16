@@ -19,7 +19,10 @@ import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import { letter, reply, threadWith } from '../test/threadFixtures';
 import { letterTitle } from './ThreadFeed';
-import { redirectLabel } from './RedirectLine';
+import { answersReply, redirectLabel } from './RedirectLine';
+
+/** Поле ответа закрыто: письмо в ленте отвечает на тот ответ (`Composer`). */
+const SHUT = 'Ответили — наше письмо в ленте выше.';
 
 const PARTNERS = 'partners@ads-partner.example.test';
 
@@ -103,6 +106,24 @@ describe('переадресация — метка и слова сервера
     expect(letterTitle(FORWARDED)).toBe('письмо на адрес из ответа');
     expect(letterTitle(letter({ step: 1, answers_reply_id: 61 }))).toBe('наш ответ');
   });
+
+  it('письмо переадресации — ответ, пока она жива; не дошло или снято — уже нет', () => {
+    const states = ['checking', 'waiting', 'sent', 'bounced', 'stopped', 'refused'] as const;
+    expect(states.map((state) => answersReply(FORWARDED, 61, { ...SENT, state }))).toEqual([
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+    ]);
+    // Обычный наш ответ и прежнее письмо переадресации (не то, что в карточке) — как раньше.
+    const ours = letter({ id: 78, step: 1, answers_reply_id: 61 });
+    expect(answersReply(ours, 61, { ...SENT, state: 'stopped' })).toBe(true);
+    expect(answersReply(FORWARDED, 61, { ...SENT, state: 'stopped', letter_id: 90 })).toBe(true);
+    expect(answersReply(FORWARDED, 61, null)).toBe(true);
+    expect(answersReply(FORWARDED, 62, SENT)).toBe(false);
+  });
 });
 
 describe('переадресация в переписке', () => {
@@ -138,6 +159,23 @@ describe('переадресация в переписке', () => {
     // Письма на новый адрес ещё нет — стрелки с адресом нет ни у одного письма ленты.
     expect(screen.queryByText(`→ ${PARTNERS}`)).toBeNull();
   });
+
+  it('переслали — поле ответа под ответом с адресом закрыто: адресат просил писать не ему', async () => {
+    await openThread(SENT);
+
+    expect(screen.getByText(SHUT)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Текст ответа' })).toBeNull();
+  });
+
+  it.each(['bounced', 'stopped'] as const)(
+    '%s — переадресация не состоялась, поле ответа снова открыто',
+    async (state) => {
+      await openThread({ ...SENT, state, words: `Не переслали: ${state}` });
+
+      expect(screen.queryByText(SHUT)).toBeNull();
+      expect(screen.getByRole('textbox', { name: 'Текст ответа' })).toBeInTheDocument();
+    },
+  );
 
   it('без переадресации шапка и лента прежние', async () => {
     await openThread(null);
