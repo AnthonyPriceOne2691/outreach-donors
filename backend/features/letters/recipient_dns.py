@@ -162,3 +162,16 @@ async def holds(email: str, *, now: datetime) -> bool:
     if known is None:
         logger.info("письма: DNS домена %s молчит — письма на него ждут", host)
     return now - since < LONGEST
+
+
+#: Ответы DNS «почту здесь не примут»: домена нет или он объявил нулевой MX.
+NO_MAIL = frozenset({MailRoute.NONE, MailRoute.NULL_MX})
+
+
+async def no_mail(email: str) -> bool:
+    """Принимает ли домен адреса почту вовсе — ответом DNS, а не молчанием: домена нет или
+    нулевой MX. Молчание здесь не отказ (его держит `holds`). Спрашивает переадресация в диалоге
+    рекламодателя (`letters/redirect_letter.py`, 16.11.2026): адрес из ответа пишет человек, и
+    опечатка в домене — отказ доставки, который бьёт по ящику."""
+    host = domain_of(email)
+    return bool(host) and await mail_route(host, dns_timeout_sec=ASK_SEC) in NO_MAIL

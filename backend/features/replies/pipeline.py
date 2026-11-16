@@ -53,7 +53,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core import usage
 from backend.features.core.domain import ReplyKind, Stage
 from backend.features.core.models.outreach import ReplyModel
-from backend.features.replies import binding, classify, outcome, redirect
+from backend.features.replies import binding, classify, lead_redirect, outcome, redirect
 from backend.features.replies import extract as extract_mod
 from backend.features.replies.attachments import ReplyFiles
 from backend.features.replies.donor_card import reply_details
@@ -229,9 +229,8 @@ class Inbox:
         incoming: Incoming,
         addressee: Addressee,
     ) -> Accepted:
-        """Решения, не зависящие от цены: остановка цепочки, стоп-лист,
-        отметка мёртвого адреса, запоминание отвечающего — и адреса,
-        которые назвал мёртвый ящик."""
+        """Решения, не зависящие от цены: остановка цепочки, стоп-лист, отметка мёртвого адреса,
+        запоминание отвечающего — и адреса, которые назвал мёртвый ящик или рекламодатель."""
         auto = verdict.kind is ReplyKind.AUTO_REPLY
         consequences = outcome.decide(
             verdict.kind,
@@ -244,6 +243,7 @@ class Inbox:
             # По виду ответа, а не по последствиям: остановку цепочки дают
             # и отказ, и отписка, а отвеченным диалог делает только человек.
             await self._repo.mark_replied(addressee.message.thread_id)
+            await lead_redirect.note(self._session, reply, addressee)
         found = await self._redirect(verdict, incoming, addressee)
         if auto and consequences.needs_review:
             logger.info("приём: ответ №%s — %s", reply.id, consequences.review_reason)

@@ -33,6 +33,40 @@ from backend.features.outreach.threads import (
     superseded_by,
 )
 from backend.features.replies.quoting import written_by_hand
+from backend.features.replies.redirect_shown import Kind as RedirectKind
+from backend.features.replies.redirect_shown import Shown
+
+
+class RedirectCard(BaseModel):
+    """Переадресация в диалоге рекламодателя (`replies/redirect_shown.py`, 16.11.2026): ответ
+    назвал другой адрес — что решено и что с письмом на него. Слова — сервера, экран показывает
+    их как есть: «Переслали на partners@… по ответу 16.11.2026 — ждём ответа нового адресата»."""
+
+    #: `checking` — проверяем ответ; `waiting` — письмо ждёт отправки; `sent` — переслали;
+    #: `bounced` — письмо не дошло; `stopped` — снято; `refused` — не пересылаем (почему — в словах).
+    state: RedirectKind
+    words: str
+    #: Адрес из ответа, дословно. Пусто — ещё не выбран.
+    address: str | None = None
+    #: Ответ, который назвал адрес.
+    reply_id: int
+    #: Письмо на этот адрес — оно же в ленте переписки. Пусто — письма нет.
+    letter_id: int | None = None
+    #: Пометка: адрес не на домене рекламодателя (партнёрская программа на своём).
+    note: str | None = None
+
+    @classmethod
+    def of(cls, shown: Shown | None) -> RedirectCard | None:
+        if shown is None:
+            return None
+        return cls(
+            state=shown.state,
+            words=shown.words,
+            address=shown.address,
+            reply_id=shown.reply_id,
+            letter_id=shown.letter_id,
+            note=shown.note,
+        )
 
 
 class ThreadCard(BaseModel):
@@ -56,9 +90,11 @@ class ThreadCard(BaseModel):
     price_white: Decimal | None
     price_grey: Decimal | None
     currency: str | None
+    #: Переадресация в диалоге рекламодателя. Пусто — ответ другого адреса не называл.
+    redirect: RedirectCard | None = None
 
     @classmethod
-    def of(cls, row: ThreadRow) -> ThreadCard:
+    def of(cls, row: ThreadRow, redirect: Shown | None = None) -> ThreadCard:
         return cls(
             id=row.thread.id,
             host=row.host,
@@ -72,6 +108,7 @@ class ThreadCard(BaseModel):
             price_white=row.summary.price_white,
             price_grey=row.summary.price_grey,
             currency=row.summary.currency,
+            redirect=RedirectCard.of(redirect),
         )
 
 

@@ -43,13 +43,21 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.core.stages import sales_addresses
-from backend.features.letters.chain import CHAINABLE, FIRST_STEP, MAX_STEPS, RECHECK_STEP
+from backend.features.letters.chain import (
+    CHAINABLE,
+    FIRST_STEP,
+    MAX_STEPS,
+    RECHECK_STEP,
+    REDIRECT_STEP,
+)
 from backend.features.outreach.followup_caps import day_start, sent_since
 from backend.features.outreach.threads import ThreadState, ThreadSummary, state_of, summarize
 from backend.features.replies.inbound import MAX_TEXT_CHARS
 
-#: Шаги, которые считает дневной лимит ящика: первое письмо и перезапрос цены.
-DAILY_STEPS = (FIRST_STEP, RECHECK_STEP)
+#: Шаги, которые считает дневной лимит ящика: первое письмо, перезапрос цены и письмо на адрес
+#: из ответа рекламодателя (16.11.2026, `letters/redirect_letter.py`): новому адресату оно то же
+#: холодное первое письмо, и мимо лимита давало бы ящику лишнее письмо в сутки.
+DAILY_STEPS = (FIRST_STEP, RECHECK_STEP, REDIRECT_STEP)
 
 
 def followup_pending() -> tuple[ColumnElement[bool], ...]:

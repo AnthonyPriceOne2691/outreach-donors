@@ -57,6 +57,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.config import outreach as outreach_cfg
+from backend.config import redirect as redirect_cfg
 from backend.config import sales as sales_cfg
 from backend.config import storage
 from backend.config.startup_checks import check_storage
@@ -347,12 +348,22 @@ async def autobuild() -> None:
 
 async def queue_autosend() -> None:
     """Проход очередей доноров и рекламодателей, которые отправляются сами. Рубильник — до
-    импорта: выключенный проход не грузит ни отправку, ни почту."""
-    if not outreach_cfg.AUTOSEND:
-        return
-    from backend.workers.send_jobs import autosend_pass  # noqa: PLC0415 — лениво
+    импорта: выключенный проход не грузит ни отправку, ни почту.
 
-    await autosend_pass()
+    Тем же циклом — письма на адрес из ответа рекламодателя (`workers/redirect_jobs.py`, 16.11.2026):
+    тоже первые письма без человека, в рабочие часы получателя. Рубильник свой
+    (`OUTREACH_LEAD_REDIRECT`), загрузка — так же лениво; упал проход очереди — переадресация
+    всё равно идёт."""
+    try:
+        if outreach_cfg.AUTOSEND:
+            from backend.workers.send_jobs import autosend_pass  # noqa: PLC0415 — лениво
+
+            await autosend_pass()
+    finally:
+        if redirect_cfg.ENABLED:
+            from backend.workers.redirect_jobs import redirect_pass  # noqa: PLC0415 — лениво
+
+            await redirect_pass()
 
 
 async def _sales_loop(interval: float, work: Pass, name: str) -> None:

@@ -88,6 +88,8 @@ CREATE = {
     "backend/features/letters/answers.py": "наш ответ в переписке",
     "backend/features/letters/price_recheck.py": "перезапрос цены донору — шагом переписки или "
     "первым письмом",
+    "backend/features/letters/redirect_letter.py": "письмо на адрес из ответа рекламодателя — "
+    "шагом переписки (`chain.REDIRECT_STEP`), уходит через `Sending`",
     "backend/features/sales/queue.py": "первые письма продаж — сборка очереди продаж",
     "backend/cli/demo_data.py": "`demo-seed` — выдуманная переписка для экранов",
 }

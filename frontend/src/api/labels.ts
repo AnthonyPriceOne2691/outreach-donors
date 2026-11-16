@@ -268,6 +268,7 @@ const OPERATION_TITLES: Record<string, string> = {
   letter_rewrite: 'переписывание писем',
   letter_send: 'отправка писем',
   reply_parse: 'разбор ответов',
+  lead_redirect: 'переадресация лидов',
   agent_draft: 'черновики агента',
   contacts_search: 'поиск адресов',
   contacts_verify: 'проверка адресов перед письмом',
