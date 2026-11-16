@@ -54,7 +54,7 @@ from backend.features.serp.dataforseo_answers import (
     task_items,
 )
 from backend.features.serp.modes import SerpMode, mode_of
-from backend.features.serp.protocol import SerpPages, SerpResult, SerpWatch, distinct_keywords
+from backend.features.serp.protocol import SerpAnswer, SerpPages, SerpWatch, distinct_keywords
 from backend.shared.net.retry import RateLimiter, reason_of, unsent, with_retries
 
 #: Что адаптер отдаёт наружу. `SerpError` живёт в разборе ответов
@@ -208,7 +208,7 @@ class DataForSeoProvider:
         depth_pages: int = 1,
         start_page: int = 1,
         watch: SerpWatch | None = None,
-    ) -> dict[str, list[SerpResult]]:
+    ) -> SerpAnswer:
         """Выдача по пачке ключей. Ключ без результатов — с пустым списком.
 
         Повтор — одна задача: регистр и лишние пробелы выдаче не важны, а задача
@@ -217,7 +217,7 @@ class DataForSeoProvider:
         pages = SerpPages(first=start_page, last=depth_pages)
 
         unique = distinct_keywords(keywords)
-        out: dict[str, list[SerpResult]] = {k: [] for k in unique}
+        out: SerpAnswer = {k: [] for k in unique}
         if not unique:
             return out
 
@@ -285,7 +285,7 @@ class DataForSeoProvider:
         keywords: Sequence[str],
         country: str,
         pages: SerpPages,
-        out: dict[str, list[SerpResult]],
+        out: SerpAnswer,
         ticker: Ticker,
     ) -> None:
         """Синхронный режим: запрос на ключ, параллельно, ответ — в том же запросе.
@@ -337,7 +337,7 @@ class DataForSeoProvider:
     async def _collect(
         self,
         tasks: dict[str, str],
-        out: dict[str, list[SerpResult]],
+        out: SerpAnswer,
         pages: SerpPages,
         ticker: Ticker,
         costs: dict[str, float],

@@ -24,6 +24,7 @@ from typing import Any
 
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.serp.protocol import (
+    SerpAnswer,
     SerpPages,
     SerpProgress,
     SerpResult,
@@ -53,7 +54,7 @@ class AhrefsSerpProvider:
         depth_pages: int = 1,
         start_page: int = 1,
         watch: SerpWatch | None = None,
-    ) -> dict[str, list[SerpResult]]:
+    ) -> SerpAnswer:
         """Выдача по пачке ключей, по вызову на ключ.
 
         **Смещения у Ahrefs нет, и отказа из-за этого нет.** Вызов один и тот же при любой

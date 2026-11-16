@@ -3717,9 +3717,9 @@
       "worst": "—"
     },
     "backend/features/serp/ahrefs_serp.py": {
-      "lines": 102,
+      "lines": 103,
       "complexity": 5,
-      "worst": "_take_organic:86"
+      "worst": "_take_organic:87"
     },
     "backend/features/serp/dataforseo.py": {
       "lines": 494,
@@ -3757,9 +3757,9 @@
       "worst": "mode_of:46"
     },
     "backend/features/serp/protocol.py": {
-      "lines": 232,
+      "lines": 237,
       "complexity": 4,
-      "worst": "posted:174"
+      "worst": "posted:179"
     },
     "backend/features/topics/__init__.py": {
       "lines": 1,

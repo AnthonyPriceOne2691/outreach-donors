@@ -125,6 +125,11 @@ class SerpResult:
     description: str | None = None
 
 
+#: Ответ источника: ключ → его позиции. Одним именем, а не повтором подписи в каждом
+#: источнике: с новым доводом подпись `search` стала копипастом трёх файлов (jscpd).
+SerpAnswer = dict[str, list[SerpResult]]
+
+
 @dataclass(frozen=True, slots=True)
 class SerpProgress:
     """Ход покупки выдачи — для экрана «идёт или зависло».
@@ -216,7 +221,7 @@ class SerpProvider(Protocol):
         depth_pages: int = 1,
         start_page: int = 1,
         watch: SerpWatch | None = None,
-    ) -> dict[str, list[SerpResult]]:
+    ) -> SerpAnswer:
         """Выдача по пачке ключей. Ключ без результатов присутствует в ответе
         с пустым списком — так вызывающий видит разницу между «ничего не нашлось»
         и «ключ потерялся по дороге».
