@@ -146,13 +146,17 @@ async def test_an_answer_in_the_thread_does_not_wait_for_the_window(
     assert [outgoing.body for outgoing in _seen(source)] == ["Thanks, here is more."]
 
 
-async def test_a3_donor_followup_at_night_goes_as_before(
+async def test_a3_donor_followup_after_the_sales_window_goes_as_before(
     session: AsyncSession, filled_legal: None, sales: FakeSalesMail
 ) -> None:
-    night = datetime(2026, 10, 10, 1, 0, tzinfo=UTC)  # суббота, 03:00 в Берлине
-    donor = await _donor_chain(session, due=night - timedelta(minutes=5))
+    """Окно продаж донора не держит: в понедельник в 17:30 по Берлину окно продаж (пн–пт 9–17)
+    уже закрыто, а добивка донору уходит сразу. Час выбран рабочим и для донора: свои часы
+    получателя у доноров — отдельное правило общей отправки, этот тест — о шве с окном продаж."""
+    evening = datetime(2026, 10, 12, 17, 30, tzinfo=BERLIN).astimezone(UTC)  # понедельник
+    assert not window.is_open(WEEKDAYS_9_17, BERLIN, evening)
+    donor = await _donor_chain(session, due=evening - timedelta(minutes=5))
 
-    report = await followups.send_due(session, transport=NullTransport(), limit=5, now=night)
+    report = await followups.send_due(session, transport=NullTransport(), limit=5, now=evening)
 
     assert (report.sent, report.postponed) == (1, 0)
     await session.refresh(donor)
