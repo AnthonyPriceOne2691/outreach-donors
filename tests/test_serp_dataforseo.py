@@ -652,16 +652,17 @@ class TestOnlyNewPages:
         ("start_page", "depth_pages", "depth", "offset"),
         [
             pytest.param(1, 1, 10, None, id="top-10"),
-            pytest.param(2, 2, 10, "start=11", id="top-20"),
-            pytest.param(3, 3, 10, "start=21", id="top-30"),
-            pytest.param(4, 5, 20, "start=31", id="top-50"),
+            pytest.param(2, 2, 10, "start=10", id="top-20"),
+            pytest.param(3, 3, 10, "start=20", id="top-30"),
+            pytest.param(4, 5, 20, "start=30", id="top-50"),
         ],
     )
     async def test_each_step_asks_only_its_new_pages(
         self, mode: SerpMode, start_page: int, depth_pages: int, depth: int, offset: str | None
     ) -> None:
-        """Смещение — `start` в `search_param` (поля смещения у задачи нет), глубина — только
-        новые страницы: так по FAQ провайдера «SERP API pricing & depth update»."""
+        """Смещение — `start` в `search_param` (поля смещения у задачи нет), с нуля, как у
+        Google: живая сверка 16.11.2026 — адрес обхода провайдера несёт `start` как есть.
+        Глубина — только новые страницы."""
         site = _source(mode)
         await _provider(site, mode=mode).search(
             ["к"], "us", depth_pages=depth_pages, start_page=start_page
@@ -717,13 +718,14 @@ class TestOnlyNewPages:
 
         found = await gather_candidates(_provider(site), ["к"], "us", depth_pages=2, start_page=2)
 
-        assert site.payloads[0]["search_param"] == "start=11"
+        assert site.payloads[0]["search_param"] == "start=10"
         assert (found.keywords, found.results) == (1, 1)
 
 
 class TestThroughPositions:
     """Позиции ответа — от начала выдачи: страница 2 даёт 11–20, как без смещения.
-    Провайдер по своему FAQ считает от первой обойдённой страницы — так и в заглушке."""
+    Провайдер считает от первой обойдённой страницы (FAQ провайдера, живая сверка
+    16.11.2026) — так и в заглушке."""
 
     @pytest.mark.parametrize("mode", [SerpMode.STANDARD, SerpMode.LIVE])
     @pytest.mark.parametrize(
@@ -755,7 +757,7 @@ class TestThroughPositions:
 
     async def test_one_switch_decides_in_one_place(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Счёт позиций решает один переключатель в разборе ответа — общем для очереди и
-        синхронного режима. Покажет живой вызов, что позиции уже сквозные, — сдвига нет."""
+        синхронного режима. Начнёт провайдер считать сквозь — сдвига нет, правка одна."""
 
         def positions(rows: list[SerpResult]) -> list[int]:
             return [row.position for row in rows]

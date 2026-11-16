@@ -3722,9 +3722,9 @@
       "worst": "_take_organic:87"
     },
     "backend/features/serp/dataforseo.py": {
-      "lines": 494,
+      "lines": 495,
       "complexity": 9,
-      "worst": "_post:257"
+      "worst": "_post:258"
     },
     "backend/features/serp/dataforseo_answers.py": {
       "lines": 209,
