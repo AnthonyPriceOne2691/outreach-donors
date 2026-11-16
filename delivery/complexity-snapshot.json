@@ -497,12 +497,12 @@
       "worst": "of:59"
     },
     "backend/api/sales/plan_schemas.py": {
-      "lines": 256,
+      "lines": 259,
       "complexity": 9,
       "worst": "of:91"
     },
     "backend/api/sales/plans.py": {
-      "lines": 175,
+      "lines": 179,
       "complexity": 5,
       "worst": "_upload:85"
     },
@@ -3392,9 +3392,9 @@
       "worst": "—"
     },
     "backend/features/sales/plan_store.py": {
-      "lines": 354,
+      "lines": 372,
       "complexity": 7,
-      "worst": "_views:302"
+      "worst": "_views:320"
     },
     "backend/features/sales/policy.py": {
       "lines": 67,

@@ -52,6 +52,7 @@ from backend.features.sales.plan_models import (
     SalesPlanKeywordModel,
     SalesPlanModel,
 )
+from backend.features.sales.segment_tier import JudgeTier, tier_entry
 from backend.features.serp.modes import SerpMode
 from backend.features.serp.protocol import keyword_key
 
@@ -63,12 +64,27 @@ logger = logging.getLogger(__name__)
 CHUNK = 1_000
 #: Планов в списке вкладки — последние: план — работа на неделю или месяц.
 PLANS_SHOWN = 50
-#: Режим плана → режим покупки выдачи (`serp/modes.py`): экономный — отложенная очередь, быстрый —
-#: синхронный запрос. Судья пакетом — когда появится его путь.
-SERP_MODES: dict[PlanMode, SerpMode] = {
-    PlanMode.ECONOMY: SerpMode.STANDARD,
-    PlanMode.FAST: SerpMode.LIVE,
+
+
+@dataclass(frozen=True, slots=True)
+class Pace:
+    """Чем режим плана платит за сбор: режим покупки выдачи (`serp/modes.py`) и тариф судьи
+    (`segment_tier`)."""
+
+    serp_mode: SerpMode
+    judge_tier: JudgeTier
+
+
+#: Режим плана → выдача и тариф судьи — одно место соответствия: смета превью и сохранения
+#: (`api/sales/plans.py`), отпечаток превью (`plan_digest`) и конвейер берут его отсюда. Экономный —
+#: отложенная очередь выдачи и судья на Flex (вдвое дешевле, медленнее); быстрый — синхронная
+#: выдача и обычный тариф.
+PLAN_MODES: dict[PlanMode, Pace] = {
+    PlanMode.ECONOMY: Pace(SerpMode.STANDARD, JudgeTier.FLEX),
+    PlanMode.FAST: Pace(SerpMode.LIVE, JudgeTier.STANDARD),
 }
+#: Режим плана → режим покупки выдачи — из того же соответствия (`PLAN_MODES`).
+SERP_MODES: dict[PlanMode, SerpMode] = {mode: pace.serp_mode for mode, pace in PLAN_MODES.items()}
 #: «Действие» записи журнала плана: под общей «Правкой», как у гипотезы.
 MADE = "план работ заведён"
 
@@ -111,7 +127,8 @@ class PlanView:
 
 def plan_digest(draft: PlanDraft, ask: PlanAsk) -> str:
     """Отпечаток того, что человек видел в превью и по чему запускает: листы (поля карточки и
-    ключи), режим, общая цель и потолки. Имя плана в него не входит — его правят и после превью.
+    ключи), режим, общая цель и потолки, тариф судьи — только экономный (`segment_tier.tier_entry`:
+    у быстрого отпечаток прежний до байта). Имя плана в него не входит — его правят и после превью.
     Ключи — своим отпечатком: их до 300 тысяч."""
     seen = {
         "sheets": [
@@ -125,6 +142,7 @@ def plan_digest(draft: PlanDraft, ask: PlanAsk) -> str:
         "mode": ask.mode.value,
         "goal": ask.goal,
         "caps": [str(ask.cap_usd), str(ask.hypothesis_cap_usd)],
+        **tier_entry(PLAN_MODES[ask.mode].judge_tier),
     }
     text = json.dumps(seen, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:DIGEST_LENGTH]
