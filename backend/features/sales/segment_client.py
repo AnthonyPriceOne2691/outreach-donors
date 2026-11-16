@@ -12,6 +12,10 @@
 без подписи» (`prompts/segment_again.md`). Один раз на сайт; цитата нового ответа нашлась — в счёт
 идут его факты, нет — «на проверку» словами. Токены обоих вызовов — в ответе (`Said.tokens`): в счёт
 прохода и в расход; повтор и его исход — признаками ответа (`Said.retried`, `Said.retry_held`).
+
+**Тариф — у клиента** (`segment_tier`): экономный прогон судит на Flex всё — и сайты, и разбор
+описания, — у токенов судьи прогона одна цена. Тело запроса Flex — с `service_tier`, вызов — с
+повторами 429 и своим сроком (`segment_tier.FlexPass`); у обычного тарифа тело и вызов прежние.
 """
 
 from __future__ import annotations
@@ -23,11 +27,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from backend.config import llm as llm_cfg
 from backend.features.sales import segment_facts, segment_scope
 from backend.features.sales.segment_facts import SiteFacts
 from backend.features.sales.segment_scope import Scope
 from backend.features.sales.segment_text import SiteText
+from backend.features.sales.segment_tier import FlexPass, JudgeTier, judge_http, tier_fields
 from backend.shared.llm import ModelClient, Refusal, content_of, is_reasoning, post_chat, tokens_of
 
 logger = logging.getLogger(__name__)
@@ -141,9 +148,11 @@ def build_payload(
     user: str,
     system: str | None = None,
     schema: dict[str, Any] | None = None,
+    tier: JudgeTier = JudgeTier.STANDARD,
 ) -> dict[str, Any]:
     """Тело запроса: строгая форма ответа у провайдера (`json_schema`, `strict`; по умолчанию —
-    факты сайта), потолок вывода — по семейству модели."""
+    факты сайта), потолок вывода — по семейству модели; тариф — полем только у экономного
+    (`segment_tier.tier_fields`): тело обычного прежнее до байта."""
     limits: dict[str, Any] = (
         {"max_completion_tokens": TOKENS_REASONING, "reasoning_effort": REASONING_EFFORT}
         if is_reasoning(model)
@@ -158,6 +167,7 @@ def build_payload(
         ],
         "response_format": {"type": "json_schema", "json_schema": {**form, "strict": True}},
         **limits,
+        **tier_fields(tier),
     }
 
 
@@ -227,15 +237,47 @@ def second_chance(first: Said, again: Said, missing_again: str) -> Said:
 
 
 class SegmentClient(ModelClient):
-    """Вызовы модели судьи сегмента. Не бросает: любой сбой — словами в ответе."""
+    """Вызовы модели судьи сегмента на тарифе прогона (`segment_tier.JudgeTier`). Не бросает:
+    любой сбой — словами в ответе."""
+
+    def __init__(
+        self,
+        client: httpx.AsyncClient | None = None,
+        *,
+        model: str | None = None,
+        api_key: str | None = None,
+        tier: JudgeTier = JudgeTier.STANDARD,
+    ) -> None:
+        # Свой HTTP-клиент — со сроком тарифа (`judge_http`): срок каркаса (`LLM_TIMEOUT_S`) короче
+        # ответа Flex. Закрывает его по-прежнему сам клиент.
+        http = client if client is not None else judge_http(tier)
+        super().__init__(http, model=model, api_key=api_key)
+        self._own_client = client is None
+        self._tier = tier
+        #: Экономный тариф у прохода: перестал отвечать — остальные сайты не ждут (`FlexPass`).
+        self._flex = FlexPass()
+
+    @property
+    def tier(self) -> JudgeTier:
+        return self._tier
 
     def _default_model(self) -> str:
         return llm_cfg.SALES_SEGMENT_MODEL
 
+    async def _post(self, payload: dict[str, Any], host: str) -> dict[str, Any] | Refusal:
+        """Обычный тариф — общий `post_chat`, как был; Flex — с повторами 429 и сроком вызова."""
+        if self._tier is JudgeTier.FLEX:
+            return await self._flex.post(
+                self._http, api_key=self._api_key, payload=payload, topic=TOPIC, host=host
+            )
+        return await post_chat(self._http, api_key=self._api_key, payload=payload, topic=TOPIC)
+
     async def ask(self, *, user: str, system: str, schema: dict[str, Any], host: str = "") -> Asked:
         """Один вызов строгой формы; отказ, обрезанный и пустой ответ — словами, с токенами."""
-        payload = build_payload(self._model, user=user, system=system, schema=schema)
-        body = await post_chat(self._http, api_key=self._api_key, payload=payload, topic=TOPIC)
+        payload = build_payload(
+            self._model, user=user, system=system, schema=schema, tier=self._tier
+        )
+        body = await self._post(payload, host)
         if isinstance(body, Refusal):
             logger.warning("%s: %s", TOPIC, body, extra={"host": host})
             return Asked(failure=f"модель не ответила: {body}", no_credits=body.no_credits)
