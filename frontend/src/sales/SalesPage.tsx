@@ -57,6 +57,7 @@ import { LeadsPane, pageBack, useLeads } from './LeadsPane';
 import { MailingPane } from './MailingPane';
 import { ModuleOff } from './ModuleOff';
 import { Pending } from './Pending';
+import { PlanUploadButton } from './PlanUpload';
 import { QueuePane } from './QueuePane';
 import { SegmentPane } from './SegmentPane';
 import { SenderPane } from './SenderPane';
@@ -340,6 +341,7 @@ export function SalesPage() {
             </Button>
           )}
           {filters.tab === 'hypotheses' && <NewHypothesisButton />}
+          {filters.tab === 'hypotheses' && <PlanUploadButton />}
         </Group>
         {lost.shown !== null && <Lost lost={lost.shown} rows={known} />}
         {bodies[filters.tab]()}
