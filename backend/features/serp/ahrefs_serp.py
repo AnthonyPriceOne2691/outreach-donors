@@ -23,9 +23,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from backend.features.ahrefs.client import AhrefsClient
-from backend.features.serp.protocol import SerpProgress, SerpResult, SerpWatch, distinct_keywords
-
-RESULTS_PER_PAGE = 10
+from backend.features.serp.protocol import (
+    SerpPages,
+    SerpProgress,
+    SerpResult,
+    SerpWatch,
+    distinct_keywords,
+)
 
 
 class AhrefsSerpProvider:
@@ -47,13 +51,22 @@ class AhrefsSerpProvider:
         country: str,
         *,
         depth_pages: int = 1,
+        start_page: int = 1,
         watch: SerpWatch | None = None,
     ) -> dict[str, list[SerpResult]]:
-        if depth_pages < 1:
-            raise ValueError("Глубина выдачи считается страницами по десять; минимум одна")
+        """Выдача по пачке ключей, по вызову на ключ.
+
+        **Смещения у Ahrefs нет, и отказа из-за этого нет.** Вызов один и тот же при любой
+        глубине: глубину режем мы, а не запрос, и платим за ключ, а не за страницу.
+        Страницы `start_page..depth_pages` — тот же ответ без первых позиций: смысл
+        протокола тот же, позиции Ahrefs и так сквозные. Экономии смещения здесь нет,
+        но нет и переплаты против покупки без смещения. Отказ оставил бы прогон без
+        запасного источника ровно тогда, когда упал основной.
+        """
+        pages = SerpPages(first=start_page, last=depth_pages)
 
         date = datetime.now(UTC).date().isoformat()
-        wanted = depth_pages * RESULTS_PER_PAGE
+        wanted = pages.skipped + pages.results
 
         # У этого провайдера запрос синхронный и быстрый, поэтому пачка
         # раскладывается в последовательные вызовы. Ограничитель частоты
@@ -65,7 +78,7 @@ class AhrefsSerpProvider:
         await watch.progress(SerpProgress(done=0, total=len(unique)))
         for done, keyword in enumerate(unique, start=1):
             response = await self._client.serp_overview(keyword, country, date)
-            out[keyword] = _take_organic(response.rows, wanted)
+            out[keyword] = _take_organic(response.rows, wanted)[pages.skipped :]
             await watch.progress(SerpProgress(done=done, total=len(unique), keyword=keyword))
         return out
 

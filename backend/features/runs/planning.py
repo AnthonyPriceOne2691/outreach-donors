@@ -261,20 +261,20 @@ async def gather_candidates(
     country: str,
     *,
     depth_pages: int = 1,
+    start_page: int = 1,
     watch: SerpWatch | None = None,
 ) -> Candidates:
     """Выдача по ключам → уникальные корневые домены.
 
     Порядок сохраняется: первым идёт домен, встреченный выше в выдаче.
     На отладке это удобнее случайного порядка множества. `watch` — ход покупки
-    и номера задач (`serp.protocol.SerpWatch`); источник получает его, только
-    когда он назван: заглушки выдачи в тестах знают прежнюю подпись.
+    и номера задач (`serp.protocol.SerpWatch`), `start_page` — первая покупаемая
+    страница (`serp.protocol.SerpPages`).
     """
     before = getattr(provider, "spent", 0.0)
-    if watch is None:
-        answer = await provider.search(keywords, country, depth_pages=depth_pages)
-    else:
-        answer = await provider.search(keywords, country, depth_pages=depth_pages, watch=watch)
+    answer = await provider.search(
+        keywords, country, depth_pages=depth_pages, **_named(watch, start_page)
+    )
     # Цена берётся разницей, а не полем: один адаптер живёт дольше одного
     # прогона, и его накопленный расход — это расход всех прогонов сразу.
     cost = max(0.0, getattr(provider, "spent", 0.0) - before)
@@ -317,6 +317,19 @@ async def gather_candidates(
         texts=texts,
         found_by=found_by,
     )
+
+
+def _named(watch: SerpWatch | None, start_page: int) -> dict[str, Any]:
+    """Доводы источника, которые уходят, только когда названы не умолчанием.
+
+    Заглушки выдачи в тестах знают прежнюю подпись — без `watch` и `start_page`, —
+    и прежний вызов остаётся прежним: доноры смещения не просят."""
+    named: dict[str, Any] = {}
+    if watch is not None:
+        named["watch"] = watch
+    if start_page != 1:
+        named["start_page"] = start_page
+    return named
 
 
 def _lost(keywords: Sequence[str], answer: dict[str, Any]) -> list[str]:

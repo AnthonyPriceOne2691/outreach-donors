@@ -9,7 +9,12 @@ import httpx
 import pytest
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.serp.ahrefs_serp import AhrefsSerpProvider
-from backend.features.serp.protocol import SerpProvider, distinct_keywords, keyword_key
+from backend.features.serp.protocol import (
+    SerpPages,
+    SerpProvider,
+    distinct_keywords,
+    keyword_key,
+)
 
 COST = {"x-api-units-cost-total-actual": "74", "x-api-units-cost-row": "2"}
 
@@ -121,3 +126,50 @@ class TestOneQueryOneKeyword:
 
         assert asked == ["budget tips", "saving"]
         assert list(answer) == ["budget tips", "saving"]
+
+
+class TestPagesWithoutOffset:
+    """У Ahrefs смещения нет, и отказом оно не стало: вызов тот же, что без смещения, а
+    страницы `start_page..depth_pages` — срез ответа. Платит Ahrefs за ключ, не за страницу."""
+
+    ROWS: ClassVar[list[dict]] = [
+        {"position": rank, "url": f"https://site{rank}.example.test/"} for rank in range(1, 61)
+    ]
+
+    async def test_later_pages_are_the_answer_without_the_first(self) -> None:
+        answer = await _provider(self.ROWS).search(["k"], "us", depth_pages=5, start_page=4)
+        assert [r.position for r in answer["k"]] == list(range(31, 51))
+
+    async def test_the_call_is_the_one_without_offset(self) -> None:
+        plain: dict[str, list[str]] = {}
+        offset: dict[str, list[str]] = {}
+        await _provider(self.ROWS, plain).search(["k"], "us", depth_pages=2)
+        await _provider(self.ROWS, offset).search(["k"], "us", depth_pages=2, start_page=2)
+        # Дата — сегодняшняя: у двух вызовов она может разойтись ровно в полночь.
+        plain.pop("date")
+        offset.pop("date")
+        assert offset == plain
+
+    async def test_first_page_is_the_old_answer(self) -> None:
+        old = await _provider(self.ROWS).search(["k"], "us", depth_pages=2)
+        assert await _provider(self.ROWS).search(["k"], "us", depth_pages=2, start_page=1) == old
+
+    async def test_page_outside_the_depth_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="Первая страница выдачи"):
+            await _provider(self.ROWS).search(["k"], "us", depth_pages=1, start_page=2)
+
+
+class TestSerpPages:
+    """Какие страницы покупаются — одно правило у обоих источников (`protocol.SerpPages`)."""
+
+    def test_counts_only_the_bought_pages(self) -> None:
+        assert (SerpPages(first=4, last=5).results, SerpPages(first=4, last=5).skipped) == (20, 30)
+        assert (SerpPages(first=1, last=3).results, SerpPages(first=1, last=3).skipped) == (30, 0)
+
+    @pytest.mark.parametrize(
+        ("first", "last", "said"),
+        [(1, 0, "минимум одна"), (0, 1, "Первая страница"), (2, 1, "Первая страница")],
+    )
+    def test_impossible_pair_is_a_mistake(self, first: int, last: int, said: str) -> None:
+        with pytest.raises(ValueError, match=said):
+            SerpPages(first=first, last=last)

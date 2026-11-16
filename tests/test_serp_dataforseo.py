@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 import pytest
+from backend.features.runs.planning import gather_candidates
 from backend.features.serp import markets
 from backend.features.serp.dataforseo import (
     DataForSeoProvider,
@@ -20,8 +21,9 @@ from backend.features.serp.dataforseo import (
     language_code,
     location_code,
 )
+from backend.features.serp.dataforseo_answers import organic_results
 from backend.features.serp.modes import SerpMode
-from backend.features.serp.protocol import SerpProgress, SerpWatch
+from backend.features.serp.protocol import SerpPages, SerpProgress, SerpResult, SerpWatch
 
 pytestmark = pytest.mark.asyncio
 
@@ -77,6 +79,8 @@ class Provider:
         self.pages = pages or {}
         #: Строки задач, как их поставил адаптер, — по ним видно поля задачи.
         self.payloads: list[dict[str, Any]] = []
+        #: Тела постановки байтами — для сверки с прежним телом байт в байт.
+        self.bodies: list[bytes] = []
         self.refuse = refuse or set()
         self.queue_rounds = queue_rounds
         #: Ключи, задачи по которым готовы сразу, сколько бы ни ждали остальные.
@@ -88,6 +92,7 @@ class Provider:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("task_post"):
             self.posts += 1
+            self.bodies.append(request.content)
             rows = json.loads(request.content)
             self.payloads.extend(rows)
             keywords = [row["keyword"] for row in rows]
@@ -412,10 +417,14 @@ class Live:
         self.refuse = refuse or set()
         self.asked: list[str] = []
         self.paths: list[str] = []
+        self.payloads: list[dict[str, Any]] = []
+        self.bodies: list[bytes] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.paths.append(request.url.path)
+        self.bodies.append(request.content)
         rows = json.loads(request.content)
+        self.payloads.extend(rows)
         assert len(rows) == 1, "синхронный путь берёт одну задачу на запрос"
         keyword = rows[0]["keyword"]
         self.asked.append(keyword)
@@ -594,3 +603,172 @@ class TestTaskNumbers:
 
         assert [row["keyword"] for row in site.payloads] == ["новый"]
         assert set(watch.tasks) == {"старый", "новый"}
+
+
+#: Тела задачи, снятые с адаптера до страниц со смещением (ключ «к», рынок «us»).
+#: Умолчание обязано отправлять их байт в байт: доноры смещения не просят.
+BEFORE_OFFSET: dict[tuple[SerpMode, int], str] = {
+    (SerpMode.STANDARD, 1): (
+        '[{"keyword":"к","location_code":2840,"language_code":"en","depth":10,"tag":"к"}]'
+    ),
+    (SerpMode.STANDARD, 3): (
+        '[{"keyword":"к","location_code":2840,"language_code":"en","depth":30,"tag":"к"}]'
+    ),
+    (SerpMode.PRIORITY, 1): (
+        '[{"keyword":"к","location_code":2840,"language_code":"en","depth":10,'
+        '"tag":"к","priority":2}]'
+    ),
+    (SerpMode.LIVE, 3): (
+        '[{"keyword":"к","location_code":2840,"language_code":"en","depth":30,"tag":"к"}]'
+    ),
+}
+
+
+def _site(rank: int) -> dict[str, Any]:
+    """Органическая позиция, как её отдаёт провайдер: `rank` — его счёт."""
+    return _organic(rank, f"https://site{rank}.example.test/")
+
+
+def _source(mode: SerpMode, results: dict[str, list[dict[str, Any]]] | None = None) -> Any:
+    """Заглушка сети под режим: очередь — постановка и забор, синхронный — запрос на ключ."""
+    return Live(results=results) if mode is SerpMode.LIVE else Provider(results=results)
+
+
+class TestOnlyNewPages:
+    """Нарастающая глубина докупает только новые страницы (`protocol.SerpPages`): с полной
+    глубиной лестница 10 → 20 → 30 → 50 по ключу стоила 11 страниц вместо 5."""
+
+    @pytest.mark.parametrize("named", [{}, {"start_page": 1}], ids=["unnamed", "page-1"])
+    @pytest.mark.parametrize(("mode", "depth_pages"), list(BEFORE_OFFSET))
+    async def test_default_body_is_the_old_one_byte_for_byte(
+        self, mode: SerpMode, depth_pages: int, named: dict[str, int]
+    ) -> None:
+        site = _source(mode)
+        await _provider(site, mode=mode).search(["к"], "us", depth_pages=depth_pages, **named)
+        assert site.bodies == [BEFORE_OFFSET[mode, depth_pages].encode()]
+
+    @pytest.mark.parametrize("mode", list(SerpMode))
+    @pytest.mark.parametrize(
+        ("start_page", "depth_pages", "depth", "offset"),
+        [
+            pytest.param(1, 1, 10, None, id="top-10"),
+            pytest.param(2, 2, 10, "start=11", id="top-20"),
+            pytest.param(3, 3, 10, "start=21", id="top-30"),
+            pytest.param(4, 5, 20, "start=31", id="top-50"),
+        ],
+    )
+    async def test_each_step_asks_only_its_new_pages(
+        self, mode: SerpMode, start_page: int, depth_pages: int, depth: int, offset: str | None
+    ) -> None:
+        """Смещение — `start` в `search_param` (поля смещения у задачи нет), глубина — только
+        новые страницы: так по FAQ провайдера «SERP API pricing & depth update»."""
+        site = _source(mode)
+        await _provider(site, mode=mode).search(
+            ["к"], "us", depth_pages=depth_pages, start_page=start_page
+        )
+        task: dict[str, Any] = {
+            "keyword": "к",
+            "location_code": 2840,
+            "language_code": "en",
+            "depth": depth,
+            "tag": "к",
+        }
+        if offset is not None:
+            task["search_param"] = offset
+        if mode is SerpMode.PRIORITY:
+            task["priority"] = 2
+        assert site.payloads == [task]
+
+    async def test_the_whole_ladder_is_five_pages_not_eleven(self) -> None:
+        site = Provider()
+        provider = _provider(site)
+        for first, last in [(1, 1), (2, 2), (3, 3), (4, 5)]:
+            await provider.search(["к"], "us", depth_pages=last, start_page=first)
+        assert sum(task["depth"] for task in site.payloads) == 5 * 10
+
+    @pytest.mark.parametrize("mode", [SerpMode.STANDARD, SerpMode.LIVE])
+    @pytest.mark.parametrize(("start_page", "depth_pages"), [(0, 1), (3, 2)])
+    async def test_page_outside_the_depth_is_refused_before_spending(
+        self, mode: SerpMode, start_page: int, depth_pages: int
+    ) -> None:
+        """Ошибка вызова, а не пустая выдача: тихо вернуть пусто — отдать прогон без доноров."""
+        site = _source(mode)
+        with pytest.raises(ValueError, match="Первая страница выдачи"):
+            await _provider(site, mode=mode).search(
+                ["к"], "us", depth_pages=depth_pages, start_page=start_page
+            )
+        assert site.bodies == []
+
+    async def test_offset_does_not_shorten_the_wait(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Окно ожидания — по последней странице: страница 3, готовая на пятом опросе, дождана,
+        как у топ-30 без смещения (`TestWaiting.test_deeper_serp_is_waited_for_longer`)."""
+        monkeypatch.setattr("backend.features.serp.dataforseo.cfg.POLL_INTERVAL_S", 0)
+        monkeypatch.setattr("backend.features.serp.dataforseo.cfg.POLL_ATTEMPTS", 2)
+        site = Provider(results={"к": [_site(1)]}, queue_rounds=4)
+
+        out = await _provider(site).search(["к"], "us", depth_pages=3, start_page=3)
+
+        assert [row.position for row in out["к"]] == [21]
+        assert len(site.gets) == 5
+
+    async def test_gather_hands_the_page_to_the_task(self) -> None:
+        """Проброс: прогон, который просит страницу 2, ставит задачу со смещением."""
+        site = Provider(results={"к": [_site(1)]})
+
+        found = await gather_candidates(_provider(site), ["к"], "us", depth_pages=2, start_page=2)
+
+        assert site.payloads[0]["search_param"] == "start=11"
+        assert (found.keywords, found.results) == (1, 1)
+
+
+class TestThroughPositions:
+    """Позиции ответа — от начала выдачи: страница 2 даёт 11–20, как без смещения.
+    Провайдер по своему FAQ считает от первой обойдённой страницы — так и в заглушке."""
+
+    @pytest.mark.parametrize("mode", [SerpMode.STANDARD, SerpMode.LIVE])
+    @pytest.mark.parametrize(
+        ("start_page", "depth_pages", "through"),
+        [
+            pytest.param(1, 1, range(1, 11), id="page-1"),
+            pytest.param(2, 2, range(11, 21), id="page-2"),
+            pytest.param(3, 3, range(21, 31), id="page-3"),
+            pytest.param(4, 5, range(31, 51), id="pages-4-5"),
+        ],
+    )
+    async def test_positions_run_from_the_start_of_the_serp(
+        self, mode: SerpMode, start_page: int, depth_pages: int, through: range
+    ) -> None:
+        crawled = [_site(rank) for rank in range(1, len(through) + 1)]
+        site = _source(mode, {"к": crawled})
+
+        out = await _provider(site, mode=mode).search(
+            ["к"], "us", depth_pages=depth_pages, start_page=start_page
+        )
+
+        assert [row.position for row in out["к"]] == list(through)
+
+    async def test_only_the_bought_pages_are_taken(self) -> None:
+        """Потолок ответа — покупаемые страницы, а не вся глубина: страница 2 — десять позиций."""
+        site = Provider(results={"к": [_site(rank) for rank in range(1, 16)]})
+        out = await _provider(site).search(["к"], "us", depth_pages=2, start_page=2)
+        assert [row.position for row in out["к"]] == list(range(11, 21))
+
+    async def test_one_switch_decides_in_one_place(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Счёт позиций решает один переключатель в разборе ответа — общем для очереди и
+        синхронного режима. Покажет живой вызов, что позиции уже сквозные, — сдвига нет."""
+
+        def positions(rows: list[SerpResult]) -> list[int]:
+            return [row.position for row in rows]
+
+        assert positions(organic_results([_site(1), _site(4)], 10, skipped=30)) == [31, 34]
+        assert positions(organic_results([_site(1), _site(4)], 10)) == [1, 4]
+
+        monkeypatch.setattr("backend.features.serp.dataforseo_answers.RANK_FROM_CRAWL_START", False)
+        assert positions(organic_results([_site(31), _site(34)], 10, skipped=30)) == [31, 34]
+        site = Provider(results={"к": [_site(rank) for rank in range(11, 21)]})
+        out = await _provider(site).search(["к"], "us", depth_pages=2, start_page=2)
+        assert positions(out["к"]) == list(range(11, 21))
+
+    async def test_the_pages_object_names_the_offset(self) -> None:
+        pages = SerpPages(first=4, last=5)
+        assert (pages.first, pages.results, pages.skipped) == (4, 20, 30)

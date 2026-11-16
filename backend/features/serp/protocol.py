@@ -30,6 +30,11 @@
 с заглавными — «3 ключа» в смете, две покупки в выдаче, и за вариант с заглавными
 платили второй раз (проверка прода 10.10.2026). Теперь правило одно у сметы,
 запуска, обоих провайдеров и сверки «такой же прогон уже идёт».
+
+**Нарастающая глубина докупает только новые страницы** (`SerpPages`). Прогон топ-20
+после топ-10 берёт страницу 2, а не 1–2 заново: с полной глубиной лестница
+10 → 20 → 30 → 50 по одному ключу стоила 1 + 2 + 3 + 5 = 11 страниц вместо 5.
+Умолчание — первая страница, то есть прежняя покупка.
 """
 
 from __future__ import annotations
@@ -40,6 +45,9 @@ from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
+
+#: Результатов на странице выдачи. Единица тарификации у провайдеров — страница.
+RESULTS_PER_PAGE = 10
 
 
 def keyword_key(keyword: str) -> str:
@@ -57,6 +65,39 @@ def distinct_keywords(keywords: Iterable[str]) -> list[str]:
         if clean:
             found.setdefault(clean.casefold(), clean)
     return list(found.values())
+
+
+@dataclass(frozen=True, slots=True)
+class SerpPages:
+    """Какие страницы выдачи покупаются: с `first` по `last` включительно.
+
+    Позиции в ответе — сквозные, от начала выдачи: страница 2 даёт позиции 11–20,
+    как и в покупке без смещения. Вызывающий не знает, умеет ли источник смещение.
+
+    Неверная пара — ошибка вызова, а не пустая выдача. Тихо вернуть пусто значит
+    отдать прогон без доноров и не сказать почему.
+    """
+
+    first: int
+    last: int
+
+    def __post_init__(self) -> None:
+        if self.last < 1:
+            raise ValueError("Глубина выдачи считается страницами по десять; минимум одна")
+        if not 1 <= self.first <= self.last:
+            raise ValueError(
+                f"Первая страница выдачи — от 1 до глубины ({self.last}), передано {self.first}"
+            )
+
+    @property
+    def results(self) -> int:
+        """Сколько результатов покупается: глубина задачи и потолок ответа."""
+        return (self.last - self.first + 1) * RESULTS_PER_PAGE
+
+    @property
+    def skipped(self) -> int:
+        """Сколько результатов выдачи стоит до первой покупаемой страницы."""
+        return (self.first - 1) * RESULTS_PER_PAGE
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +214,7 @@ class SerpProvider(Protocol):
         country: str,
         *,
         depth_pages: int = 1,
+        start_page: int = 1,
         watch: SerpWatch | None = None,
     ) -> dict[str, list[SerpResult]]:
         """Выдача по пачке ключей. Ключ без результатов присутствует в ответе
@@ -181,6 +223,9 @@ class SerpProvider(Protocol):
 
         `depth_pages` — страницы по десять результатов: единица тарификации
         у провайдеров и есть страница, а не позиция. По  нужен топ-10.
-        `watch` — ход покупки и номера уже поставленных задач (`SerpWatch`).
+        `start_page` — первая покупаемая страница (`SerpPages`): ответ — страницы
+        `start_page..depth_pages`, позиции сквозные.
+        `watch` — ход покупки и номера уже поставленных задач (`SerpWatch`). Номер
+        задачи годен только для тех же страниц: задача со смещением — другая покупка.
         """
         ...

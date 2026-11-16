@@ -24,6 +24,9 @@
 **Ключ без результатов присутствует в ответе с пустым списком.** Так
 вызывающий отличает «по ключу ничего не нашлось» от «ключ потерялся
 по дороге» — второе поломка, и оно должно быть видно.
+
+**Страницы со смещением** (`protocol.SerpPages`): задача обходит только новые страницы,
+смещение — `start` в `search_param`; позиции — сквозные (`dataforseo_answers.rank_shift`).
 """
 
 from __future__ import annotations
@@ -51,7 +54,7 @@ from backend.features.serp.dataforseo_answers import (
     task_items,
 )
 from backend.features.serp.modes import SerpMode, mode_of
-from backend.features.serp.protocol import SerpResult, SerpWatch, distinct_keywords
+from backend.features.serp.protocol import SerpPages, SerpResult, SerpWatch, distinct_keywords
 from backend.shared.net.retry import RateLimiter, reason_of, unsent, with_retries
 
 #: Что адаптер отдаёт наружу. `SerpError` живёт в разборе ответов
@@ -102,6 +105,11 @@ PRIORITY_HIGH = 2
 #: Больше задач за один запрос провайдер не принимает.
 MAX_TASKS_PER_POST = 100
 
+#: Номер первого результата страницы в `start`: страница 2 — `start=11`, страница 3 —
+#: `start=21` (FAQ провайдера, счёт с единицы). У самого Google `start` считает с нуля:
+#: если живой вызов покажет, что `start=11` начинает с 12-й позиции, — здесь 0.
+START_COUNTS_FROM = 1
+
 #: Код страны у провайдера — это числовой ISO плюс две тысячи. Карта
 #: задана явно, а не вычисляется: правило верно для проверенных стран,
 #: но провайдер вправе от него отступить, и молча промахнуться страной
@@ -124,8 +132,6 @@ COUNTRY_CODES: dict[str, int] = {
 # Карта «страна → язык» переехала в `features/serp/markets.py`: у неё
 # появился второй потребитель (генерация ключей просит несколько языков),
 # а две копии разошлись бы молча.
-
-RESULTS_PER_PAGE = 10
 
 
 class UnknownCountryError(SerpError):
@@ -200,14 +206,15 @@ class DataForSeoProvider:
         country: str,
         *,
         depth_pages: int = 1,
+        start_page: int = 1,
         watch: SerpWatch | None = None,
     ) -> dict[str, list[SerpResult]]:
         """Выдача по пачке ключей. Ключ без результатов — с пустым списком.
 
         Повтор — одна задача: регистр и лишние пробелы выдаче не важны, а задача
-        стоит денег (`protocol.distinct_keywords`, то же правило у сметы)."""
-        if depth_pages < 1:
-            raise ValueError("Глубина выдачи считается страницами по десять; минимум одна")
+        стоит денег (`protocol.distinct_keywords`, то же правило у сметы).
+        `start_page` — первая покупаемая страница (`protocol.SerpPages`)."""
+        pages = SerpPages(first=start_page, last=depth_pages)
 
         unique = distinct_keywords(keywords)
         out: dict[str, list[SerpResult]] = {k: [] for k in unique}
@@ -217,33 +224,38 @@ class DataForSeoProvider:
         # Страна — до траты и до первого события: промахнуться рынком хуже, чем не начать.
         location_code(country)
         ticker = Ticker(watch or SerpWatch(), total=len(unique))
-        wanted = depth_pages * RESULTS_PER_PAGE
         if self.mode is SerpMode.LIVE:
-            await self._live(unique, country, wanted, out, ticker)
+            await self._live(unique, country, pages, out, ticker)
             return out
         for start in range(0, len(unique), MAX_TASKS_PER_POST):
             batch = unique[start : start + MAX_TASKS_PER_POST]
-            tasks, costs = await self._post(batch, country, wanted, ticker)
-            await self._collect(tasks, out, wanted, ticker, costs)
+            tasks, costs = await self._post(batch, country, pages, ticker)
+            await self._collect(tasks, out, pages, ticker, costs)
         return out
 
-    def _payload(self, keyword: str, country: str, depth: int) -> dict[str, Any]:
-        """Задача на ключ — одна и та же в отложенном и синхронном режиме."""
+    def _payload(self, keyword: str, country: str, pages: SerpPages) -> dict[str, Any]:
+        """Задача на ключ — одна и та же в отложенном и синхронном режиме.
+
+        Глубина — только покупаемые страницы: провайдер берёт деньги за каждую
+        обойдённую. Без смещения тело задачи прежнее, поле за полем."""
         task: dict[str, Any] = {
             "keyword": keyword,
             "location_code": location_code(country),
             "language_code": language_code(country),
-            "depth": depth,
+            "depth": pages.results,
             # Метка возвращается провайдером как есть — по ней задача
             # сопоставляется с ключом надёжнее, чем по порядку в ответе.
             "tag": keyword,
         }
+        if pages.first > 1:
+            # Поля смещения у задачи нет — только параметр поиска (`START_COUNTS_FROM`).
+            task["search_param"] = f"start={pages.skipped + START_COUNTS_FROM}"
         if self.mode is SerpMode.PRIORITY:
             task["priority"] = PRIORITY_HIGH
         return task
 
     async def _post(
-        self, keywords: Sequence[str], country: str, depth: int, ticker: Ticker
+        self, keywords: Sequence[str], country: str, pages: SerpPages, ticker: Ticker
     ) -> tuple[dict[str, str], dict[str, float]]:
         """Поставить задачи. Возвращает «ключ → номер задачи» и цены задач.
 
@@ -255,7 +267,7 @@ class DataForSeoProvider:
             await ticker.start()
             return known, {}
 
-        payload = [self._payload(keyword, country, depth) for keyword in fresh]
+        payload = [self._payload(keyword, country, pages) for keyword in fresh]
         body = await self._call("POST", POST_PATH, json=payload)
         self.spent += float(body.get("cost") or 0)
 
@@ -272,7 +284,7 @@ class DataForSeoProvider:
         self,
         keywords: Sequence[str],
         country: str,
-        wanted: int,
+        pages: SerpPages,
         out: dict[str, list[SerpResult]],
         ticker: Ticker,
     ) -> None:
@@ -296,11 +308,11 @@ class DataForSeoProvider:
                     return
                 try:
                     body = await self._call(
-                        "POST", LIVE_PATH, json=[self._payload(keyword, country, wanted)]
+                        "POST", LIVE_PATH, json=[self._payload(keyword, country, pages)]
                     )
                     cost = float(body.get("cost") or 0)
                     self.spent += cost
-                    items, pages = live_items(body, keyword)
+                    items, crawled = live_items(body, keyword)
                 except SerpError as error:
                     out.pop(keyword, None)
                     if error.permanent:
@@ -314,9 +326,9 @@ class DataForSeoProvider:
                         error,
                     )
                     return
-            out[keyword] = organic_results(items, wanted)
-            log_task(keyword, cost, pages)
-            await ticker.answered(keyword, cost=cost, pages=pages)
+            out[keyword] = organic_results(items, pages.results, skipped=pages.skipped)
+            log_task(keyword, cost, crawled)
+            await ticker.answered(keyword, cost=cost, pages=crawled)
 
         await asyncio.gather(*(one(keyword) for keyword in keywords))
         if stop:
@@ -326,7 +338,7 @@ class DataForSeoProvider:
         self,
         tasks: dict[str, str],
         out: dict[str, list[SerpResult]],
-        wanted: int,
+        pages: SerpPages,
         ticker: Ticker,
         costs: dict[str, float],
     ) -> None:
@@ -335,6 +347,8 @@ class DataForSeoProvider:
         **Окно ожидания растёт с глубиной.** Сто результатов провайдер
         собирает десятью страницами, и задача глубины 10 идёт дольше задачи
         топ-10; окно, рассчитанное на топ-10, отрезало бы оплаченную выдачу.
+        Окно — по последней странице, и со смещением тоже: оно не короче
+        прежнего для той же глубины, а опрос бесплатен.
 
         **Не дождались — ключа нет в ответе.** Раньше он оставался пустым
         списком и в отчёте прогона выглядел как «ничего не нашлось», хотя
@@ -343,7 +357,7 @@ class DataForSeoProvider:
         прогон считает такие ключи отдельно (`Candidates.lost_keywords`).
         """
         pending = dict(tasks)
-        deadline = cfg.POLL_ATTEMPTS * max(1, wanted // RESULTS_PER_PAGE)
+        deadline = cfg.POLL_ATTEMPTS * pages.last
 
         for attempt in range(deadline):
             if not pending:
@@ -352,11 +366,11 @@ class DataForSeoProvider:
                 answer = await self._fetch(task_id)
                 if answer is None:
                     continue
-                items, pages = answer
-                out[keyword] = organic_results(items, wanted)
+                items, crawled = answer
+                out[keyword] = organic_results(items, pages.results, skipped=pages.skipped)
                 pending.pop(keyword, None)
-                log_task(keyword, costs.get(keyword), pages)
-                await ticker.answered(keyword, cost=costs.get(keyword), pages=pages)
+                log_task(keyword, costs.get(keyword), crawled)
+                await ticker.answered(keyword, cost=costs.get(keyword), pages=crawled)
 
             if pending and attempt < deadline - 1:
                 await asyncio.sleep(cfg.POLL_INTERVAL_S)

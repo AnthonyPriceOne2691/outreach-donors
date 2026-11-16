@@ -25,6 +25,13 @@ TASK_OK = 20000
 #: Задача ещё в работе — законное состояние, ждём дальше.
 TASK_IN_QUEUE = (40601, 40602)
 
+#: ⚠ Переключатель счёта позиций в выдаче со смещением (`SerpPages.first > 1`).
+#: FAQ провайдера «SERP API pricing & depth update»: `rank_absolute` считается от первой
+#: ОБОЙДЁННОЙ страницы — при `start=11` позиция 1 есть настоящая 11-я. Песочница отдаёт
+#: выдуманные ответы, и живьём это не сверено. Окажутся позиции уже сквозными — здесь
+#: `False`: сдвиг не прибавляется, и правка на этом кончается (`rank_shift`).
+RANK_FROM_CRAWL_START = True
+
 
 class SerpError(RuntimeError):
     """Провайдер выдачи отказал или ответил непонятным. `permanent` — повтор
@@ -37,13 +44,26 @@ class SerpError(RuntimeError):
         self.permanent = permanent or type(self).permanent
 
 
-def organic_results(items: Sequence[Any], wanted: int) -> list[SerpResult]:
+def rank_shift(skipped: int) -> int:
+    """Сколько прибавить к позиции провайдера, чтобы она стала сквозной.
+
+    `skipped` — результатов выдачи до первой обойдённой страницы (`SerpPages.skipped`).
+    Единственное место, где решается, как провайдер считает позицию при смещении."""
+    return skipped if RANK_FROM_CRAWL_START else 0
+
+
+def organic_results(items: Sequence[Any], wanted: int, *, skipped: int = 0) -> list[SerpResult]:
     """Органические позиции из ответа.
 
     Выдача содержит и карты, и «люди также спрашивают», и рекламу.
     Доноры — только органика; всё остальное пропускается, но пропуск
     не считается ошибкой, это устройство выдачи.
+
+    Позиция — `rank_absolute`, счёт всех элементов страницы, а не одной органики.
+    У выдачи со смещением к ней прибавляется пропущенное (`rank_shift`): позиции
+    ответа — от начала выдачи, как у покупки без смещения.
     """
+    shift = rank_shift(skipped)
     out: list[SerpResult] = []
     hidden = 0
     for item in items:
@@ -63,7 +83,7 @@ def organic_results(items: Sequence[Any], wanted: int) -> list[SerpResult]:
         description = item.get("description")
         out.append(
             SerpResult(
-                position=position,
+                position=position + shift,
                 url=url,
                 title=title if isinstance(title, str) and title.strip() else None,
                 description=(
