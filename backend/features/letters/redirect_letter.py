@@ -273,6 +273,7 @@ async def _ask(
         await usage.ensure_llm_within_cap(session, now=now)
     except LlmCapExceededError as exc:
         row.reason = f"ждёт разбора: {exc}"
+        logger.info("переадресация: ответ №%s ждёт — %s", row.reply_id, exc)
         return False
     names = (outreach_cfg.SENDER_NAME, talk.reply.from_name or "")
     asked = await asker.ask(
@@ -383,5 +384,6 @@ async def _box_refusal(session: AsyncSession, talk: Talk) -> str | None:
     try:
         await thread_sender(session, talk.thread.id)
     except AnswerRefusedError as exc:
+        logger.info("переадресация: в переписке №%s писать нечем — %s", talk.thread.id, exc)
         return str(exc)
     return None

@@ -2262,12 +2262,12 @@
       "worst": "_why_not:308"
     },
     "backend/features/letters/redirect_letter.py": {
-      "lines": 388,
+      "lines": 390,
       "complexity": 14,
-      "worst": "_decided:340"
+      "worst": "_decided:341"
     },
     "backend/features/letters/redirect_send.py": {
-      "lines": 240,
+      "lines": 242,
       "complexity": 10,
       "worst": "box_refusal:61"
     },
@@ -2652,9 +2652,9 @@
       "worst": "sort_out:160"
     },
     "backend/features/replies/redirect_ask.py": {
-      "lines": 177,
+      "lines": 179,
       "complexity": 11,
-      "worst": "judged:126"
+      "worst": "judged:128"
     },
     "backend/features/replies/redirect_shown.py": {
       "lines": 166,

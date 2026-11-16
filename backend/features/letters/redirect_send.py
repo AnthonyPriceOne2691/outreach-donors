@@ -140,9 +140,11 @@ async def deliver(
     except (SuppressedError, AnswerRefusedError) as exc:
         # Стоп-лист после решения или ящик переписки удалили — ждать письму нечего.
         waiting = str(exc)
+        logger.info("переадресация: письмо №%s снято — %s", message.id, waiting)
         await _stop(session, message, waiting)
     except SendError as exc:
         waiting = str(exc)
+        logger.info("переадресация: письмо №%s ждёт — %s", message.id, waiting)
     row.reason = waiting
     await session.commit()
     return SENT if waiting is None else waiting

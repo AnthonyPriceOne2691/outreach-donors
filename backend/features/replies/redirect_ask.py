@@ -111,6 +111,8 @@ def _confidence(raw: Any) -> float:
     try:
         return min(1.0, max(0.0, float(raw)))
     except (TypeError, ValueError):
+        # Оценка не числом — не «уверена», а «неизвестно»: такое «да» письма не даёт.
+        logger.warning("%s: модель не поставила себе оценку уверенности (%r)", TOPIC, raw)
         return 0.0
 
 
