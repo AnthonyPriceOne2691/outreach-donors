@@ -77,7 +77,7 @@ from backend.features.core.models.outreach import (
 from backend.features.core.window import Pace
 from backend.features.crawl.niche import LINKS
 from backend.features.letters import autosend_window, batch, mailbox, unknown_outcome
-from backend.features.letters.chain import FIRST_STEP
+from backend.features.letters.chain import FIRST_STEP, REDIRECT_STEP
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.transport import Mail
 
@@ -149,10 +149,13 @@ async def rests(session: AsyncSession, stage: Stage, now: datetime) -> dict[int,
     любого письма уже кончилась — их запрос не берёт."""
     handed = func.coalesce(MessageModel.sent_at, MessageModel.updated_at)
     went = or_(MessageModel.sent_at.is_not(None), MessageModel.status == MessageStatus.SENDING)
+    # Письмо на адрес из ответа (16.11.2026) — тоже первое письмо новому адресату: ящик после него
+    # отдыхает так же, и проход переадресации ждёт ту же паузу (`letters/redirect_send.py`).
+    cold = MessageModel.step.in_((FIRST_STEP, REDIRECT_STEP))
     rows = await session.execute(
         select(MessageModel.sender_id, MessageModel.id, handed)
         .join(SenderModel, SenderModel.id == MessageModel.sender_id)
-        .where(SenderModel.stage == stage, MessageModel.step == FIRST_STEP, went)
+        .where(SenderModel.stage == stage, cold, went)
         .where(handed > now - gap() * (1 + SPREAD))
     )
     until: dict[int, datetime] = {}

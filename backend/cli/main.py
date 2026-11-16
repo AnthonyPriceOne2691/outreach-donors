@@ -38,6 +38,8 @@ from backend.cli.judge_backfill import add_parser as add_backfill_parser
 from backend.cli.judge_backfill import cmd_judge_backfill
 from backend.cli.keywords_pool import add_parser as add_keywords_parser
 from backend.cli.keywords_pool import cmd_keywords
+from backend.cli.lead_redirect import add_parser as add_lead_redirect_parser
+from backend.cli.lead_redirect import cmd_lead_redirect
 from backend.cli.letters_queue import add_parser as add_letters_parser
 from backend.cli.letters_queue import cmd_letters, cmd_letters_build, cmd_letters_send
 from backend.cli.mail_test import add_parser as add_mail_test_parser
@@ -384,6 +386,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_crawl_parser(sub)
     add_advertisers_parser(sub)
     add_letters_parser(sub)
+    add_lead_redirect_parser(sub)
     add_senders_parser(sub)
     add_domains_parser(sub)
     add_mail_test_parser(sub)
@@ -452,6 +455,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "letters-build": cmd_letters_build,
     "letters": cmd_letters,
     "letters-send": cmd_letters_send,
+    "lead-redirect": cmd_lead_redirect,
     "sender-add": cmd_sender_add,
     "sender-resume": cmd_sender_resume,
     "senders": cmd_senders,

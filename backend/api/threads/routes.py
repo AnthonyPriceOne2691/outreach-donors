@@ -25,7 +25,7 @@ from backend.api.letters.schemas import SendResult
 from backend.api.sales.close import release_answered
 from backend.api.sales.handoff import thread_handoff
 from backend.api.stage_access import on_thread
-from backend.api.threads.schemas import AnswerBody, ThreadCard, ThreadView
+from backend.api.threads.schemas import AnswerBody, RedirectCard, ThreadCard, ThreadView
 from backend.features.access.permissions import visible_stages
 from backend.features.agent.drafting import (
     DraftRefusedError,
@@ -52,6 +52,7 @@ from backend.features.letters.sending import Sending
 from backend.features.letters.transport_factory import Transports, in_use
 from backend.features.outreach.repository import OutreachRepository
 from backend.features.replies.attachments import ReplyFiles
+from backend.features.replies.redirect_shown import shown
 from backend.shared.database.ids import storable
 
 logger = logging.getLogger(__name__)
@@ -71,7 +72,9 @@ async def all_threads(
 ) -> list[ThreadCard]:
     """Диалоги этапов, которые видит учётка: без права «Продажи» — без переписок продаж."""
     rows = await OutreachRepository(session).threads(stages=visible_stages(actor(user)))
-    return [ThreadCard.of(row) for row in rows]
+    # Переадресация в диалогах рекламодателей — одним заходом на весь список (16.11.2026).
+    redirects = await shown(session)
+    return [ThreadCard.of(row, redirects.get(row.thread.id)) for row in rows]
 
 
 @router.get("/{thread_id}", response_model=ThreadView, summary="Переписка целиком")
@@ -97,6 +100,8 @@ async def one_thread(
         # Прежняя цена донора — только если в переписке был перезапрос цены: «Цена та же».
         prior=await prior_price(session, thread_id),
     )
+    # Переадресация в диалоге рекламодателя: что решено по ответу «пишите на …» (16.11.2026).
+    view.card.redirect = RedirectCard.of((await shown(session, [thread_id])).get(thread_id))
     # Передача лида телемаркетологу и её состояние — только у переписки продаж.
     view.handoff = await thread_handoff(session, detail.row.stage, thread_id)
     return view

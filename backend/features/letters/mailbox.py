@@ -62,6 +62,7 @@ from backend.features.letters.chain import (
     FIRST_STEP,
     MAX_STEPS,
     RECHECK_STEP,
+    REDIRECT_STEP,
     kind_of,
 )
 from backend.features.outreach import health, limits
@@ -327,6 +328,8 @@ def _own_path_only(message: MessageModel) -> str:
     what = kind_of(message.step)
     if message.step == RECHECK_STEP:
         path = "кнопкой «Перезапросить цену» — с ящика переписки и веткой к письму донора"
+    elif message.step == REDIRECT_STEP:
+        path = "проходом переадресации — с ящика переписки, в рабочие часы получателя"
     elif message.step >= ANSWER_STEP:
         path = "из карточки переписки — с её ящика и веткой к письму собеседника"
     else:
