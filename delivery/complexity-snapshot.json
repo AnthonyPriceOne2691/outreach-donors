@@ -3361,6 +3361,11 @@
       "complexity": 5,
       "worst": "_markets:159"
     },
+    "backend/features/sales/plan_estimate.py": {
+      "lines": 216,
+      "complexity": 8,
+      "worst": "plan_estimate:123"
+    },
     "backend/features/sales/plan_file.py": {
       "lines": 423,
       "complexity": 8,
@@ -3447,9 +3452,9 @@
       "worst": "counts:21"
     },
     "backend/features/sales/segment_estimate.py": {
-      "lines": 471,
+      "lines": 483,
       "complexity": 12,
-      "worst": "_money_refusal:440"
+      "worst": "_money_refusal:452"
     },
     "backend/features/sales/segment_estimate_keys.py": {
       "lines": 111,

@@ -348,10 +348,13 @@ def _first_refusal(
     return next((words for failed, words in checks if failed), None)
 
 
-async def _sites(session: AsyncSession, found: Estimate, hypothesis_id: int) -> None:
+async def _sites(session: AsyncSession, found: Estimate, hypothesis_id: int | None) -> None:
     """Сайтов в выдаче — по истории сбора; новых — за вычетом уже собранных гипотезой."""
     found.share, found.share_runs = await sites_per_result(session)
     found.hosts = round(found.results * found.share)
+    if hypothesis_id is None:
+        found.sites = found.hosts
+        return
     known = await known_sites(
         session,
         hypothesis_id=hypothesis_id,
@@ -399,33 +402,42 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
     )
     if found.refusal is not None:
         return found
-    found.results = len(found.keywords) * found.depth_pages * RESULTS_PER_PAGE
-    await _sites(session, found, hypothesis.id)
-    found.serp_page_usd = page_price_usd(SerpMode(found.serp_mode))
-    found.serp_wait_s = EXPECTED_WAIT_S[SerpMode(found.serp_mode)]
-    # Цена выдачи — общей формулой сметы доноров и сбора: ключи × страницы × цена страницы режима.
-    found.serp_usd = serp_cost_usd(
-        len(found.keywords), found.depth_pages, SerpMode(found.serp_mode)
-    )
-    await _tokens(session, found)
-    found.output_share, found.output_share_runs = await output_share(session)
-    found.usd_per_1m_input = sales_cfg.SEGMENT_INPUT_USD_PER_1M_TOKENS
-    found.usd_per_1m_output = sales_cfg.SEGMENT_OUTPUT_USD_PER_1M_TOKENS
-    found.usd_per_1m_tokens = usd_per_million(found.output_share)
-    found.tokens_usd = tokens_usd(found.tokens, found.usd_per_1m_tokens)
+    found.refusal = await priced(session, found, hypothesis.id)
     found.tokens_left = await tokens_left(session, now)
-    found.hunter_searches = found.sites if paid_search_on() else 0
-    try:
-        found.hunter_checks = found.sites if _verifier_paid() else 0
-    except ConfigError as exc:
-        logger.warning("сбор продаж: проверка адресов не настроена", extra={"error": str(exc)})
-        found.refusal = VERIFIER_NOT_SET
+    if found.refusal is not None:
         return found
     if found.hunter_checks:
         found.month = await verify_cap.month(session, now=now)
     found.lines = lines_of(found, cap_unread=_cap_unread())
     found.refusal = await _money_refusal(found, now or datetime.now(UTC))
     return found
+
+
+async def priced(session: AsyncSession, found: Estimate, hypothesis_id: int | None) -> str | None:
+    """Числа сметы по взятым ключам, рынку, глубине и режиму выдачи: выдача, сайты, токены судьи
+    деньгами, Hunter — одно правило у сметы прогона и сметы плана работ (`plan_estimate`). Гипотезы
+    ещё нет (`None`) — собранных ею сайтов не вычитает. Отказ словами — проверка адресов не
+    настроена; `None` — числа полные."""
+    mode = SerpMode(found.serp_mode)
+    found.results = len(found.keywords) * found.depth_pages * RESULTS_PER_PAGE
+    await _sites(session, found, hypothesis_id)
+    found.serp_page_usd = page_price_usd(mode)
+    found.serp_wait_s = EXPECTED_WAIT_S[mode]
+    # Цена выдачи — общей формулой сметы доноров и сбора: ключи × страницы × цена страницы режима.
+    found.serp_usd = serp_cost_usd(len(found.keywords), found.depth_pages, mode)
+    await _tokens(session, found)
+    found.output_share, found.output_share_runs = await output_share(session)
+    found.usd_per_1m_input = sales_cfg.SEGMENT_INPUT_USD_PER_1M_TOKENS
+    found.usd_per_1m_output = sales_cfg.SEGMENT_OUTPUT_USD_PER_1M_TOKENS
+    found.usd_per_1m_tokens = usd_per_million(found.output_share)
+    found.tokens_usd = tokens_usd(found.tokens, found.usd_per_1m_tokens)
+    found.hunter_searches = found.sites if paid_search_on() else 0
+    try:
+        found.hunter_checks = found.sites if _verifier_paid() else 0
+    except ConfigError as exc:
+        logger.warning("сбор продаж: проверка адресов не настроена", extra={"error": str(exc)})
+        return VERIFIER_NOT_SET
+    return None
 
 
 async def _tokens(session: AsyncSession, found: Estimate) -> None:
