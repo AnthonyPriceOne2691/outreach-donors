@@ -210,6 +210,6 @@ def _short(high: Spend, depth_pages: int, target: int | None) -> str | None:
     if target is None or high.sites >= target:
         return None
     return (
-        f"ключей мало для цели: даже до {TOP_WORDS[depth_pages]} выдача даст ≈ "
-        f"{number(high.sites)} сайтов, а цель — {number(target)} прошедших судью; добавьте ключей"
+        f"ключей мало для цели: сайтов в выдаче даже до {TOP_WORDS[depth_pages]} — ≈ "
+        f"{number(high.sites)}, а цель — {number(target)} прошедших судью; добавьте ключей"
     )

@@ -156,8 +156,8 @@ describe('книга до отправки', () => {
   });
 
   it('смета — диапазоном, одна глубина — одним числом', () => {
-    expect(rangeWords(spend(1.5, 1), spend(7.25, 5))).toBe('1,50 $ — 7,25 $');
-    expect(rangeWords(spend(1.5, 1), spend(1.5, 1))).toBe('1,50 $');
+    expect(rangeWords(spend(1.5, 1), spend(7.25, 5))).toBe('1,50\u00a0$\u00a0— 7,25\u00a0$');
+    expect(rangeWords(spend(1.5, 1), spend(1.5, 1))).toBe('1,50\u00a0$');
     expect(rangeWords(null, null)).toBe('—');
   });
 });
@@ -266,6 +266,6 @@ describe('кнопки на вкладке', () => {
     const table = await screen.findByRole('table', { name: 'Гипотезы плана «План»' });
     expect(table).toHaveTextContent('Логистика — пример');
     expect(table).toHaveTextContent('12 000');
-    expect(screen.getByText(/План · экономный · идёт · потолок 50,00 \$/)).toBeInTheDocument();
+    expect(screen.getByText(/План · экономный · идёт · потолок 50,00\s\$/)).toBeInTheDocument();
   });
 });

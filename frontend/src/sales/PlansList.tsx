@@ -12,9 +12,9 @@ import { useQuery } from '@tanstack/react-query';
 
 import type { PlanCard } from '../api/salesPlans';
 import { listPlans } from '../api/salesPlans';
-import { formatDateTime, formatNumber, formatUsd } from '../format';
+import { formatDateTime, formatNumber } from '../format';
 import { Pending } from './Pending';
-import { topWords } from './PlanPreviewView';
+import { dollars, topWords } from './PlanPreviewView';
 
 export const PLANS_QUERY_KEY = ['sales', 'plans'] as const;
 
@@ -30,7 +30,7 @@ function PlanBlock({ plan }: { plan: PlanCard }) {
     <Stack gap={4}>
       <Text size="sm" fw={500}>
         {plan.name} · {MODES[plan.mode] ?? plan.mode} · {STATUSES[plan.status] ?? plan.status} ·
-        потолок {formatUsd(plan.cap_usd)}
+        потолок {dollars(plan.cap_usd)}
       </Text>
       <Text size="xs" c="dimmed">
         Сохранён {formatDateTime(plan.created_at)}
@@ -65,7 +65,7 @@ function PlanBlock({ plan }: { plan: PlanCard }) {
                 <Table.Td>{formatNumber(row.target)}</Table.Td>
                 <Table.Td>{topWords(row.max_pages)}</Table.Td>
                 <Table.Td>{formatNumber(row.keywords)}</Table.Td>
-                <Table.Td>{formatUsd(row.cap_usd)}</Table.Td>
+                <Table.Td>{dollars(row.cap_usd)}</Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>

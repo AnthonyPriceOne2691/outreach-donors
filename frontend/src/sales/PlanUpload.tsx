@@ -33,6 +33,7 @@ import { refusalWords } from '../advertisers/bulkFile';
 import { InfoHint } from '../components/InfoHint';
 import { formatNumber, plural } from '../format';
 import { notify } from '../notices';
+import { OneScrollForm } from './OneScrollForm';
 import { PlanPreviewView } from './PlanPreviewView';
 import { PLANS_QUERY_KEY, PlansList } from './PlansList';
 
@@ -198,8 +199,36 @@ export function PlanUpload({ onDone, onCancel }: { onDone: () => void; onCancel:
   const send = () => {
     if (file !== null && found !== undefined) save.mutate({ book: file, found });
   };
+  const refused = save.error ?? preview.error;
+  const title = save.error ? 'План не сохранён' : 'Книга не прочитана';
   return (
-    <Stack gap="sm">
+    <OneScrollForm
+      onSubmit={(event) => {
+        event.preventDefault();
+        check(file, choice);
+      }}
+      top={refused ? <ServerRefusal error={refused} title={title} file={name} /> : null}
+      footer={
+        <Group justify="flex-end" gap="sm">
+          <Button variant="default" onClick={onCancel}>
+            Отмена
+          </Button>
+          <Button
+            variant="default"
+            disabled={file === null || preview.isPending}
+            onClick={() => {
+              save.reset();
+              check(file, choice);
+            }}
+          >
+            {found === undefined ? 'Проверить' : 'Проверить заново'}
+          </Button>
+          <Button disabled={!open} loading={save.isPending} onClick={send}>
+            Сохранить план
+          </Button>
+        </Group>
+      }
+    >
       <FileInput
         labelProps={{ labelElement: 'div' }}
         label={
@@ -218,27 +247,7 @@ export function PlanUpload({ onDone, onCancel }: { onDone: () => void; onCancel:
       />
       <ChoiceFields choice={choice} onChoice={setChoice} />
       <PreviewPart preview={preview} stale={stale} />
-      <ServerRefusal error={preview.error} title="Книга не прочитана" file={name} />
-      <ServerRefusal error={save.error} title="План не сохранён" file={name} />
-      <Group justify="flex-end" gap="sm" mt="xs">
-        <Button variant="default" onClick={onCancel}>
-          Отмена
-        </Button>
-        <Button
-          variant="default"
-          disabled={file === null || preview.isPending}
-          onClick={() => {
-            save.reset();
-            check(file, choice);
-          }}
-        >
-          {found === undefined ? 'Проверить' : 'Проверить заново'}
-        </Button>
-        <Button disabled={!open} loading={save.isPending} onClick={send}>
-          Сохранить план
-        </Button>
-      </Group>
-    </Stack>
+    </OneScrollForm>
   );
 }
 
@@ -285,11 +294,23 @@ export function PlanUploadButton() {
       <Button variant="subtle" aria-haspopup="dialog" onClick={() => setOpen('plans')}>
         Планы работ
       </Button>
-      <Modal opened={open === 'upload'} onClose={close} title="Загрузить план работ" size="xl">
+      <Modal
+        opened={open === 'upload'}
+        onClose={close}
+        title="Загрузить план работ"
+        size="xl"
+        classNames={{ content: 'oneScroll' }}
+      >
         <PlanUpload onDone={() => setOpen('plans')} onCancel={close} />
       </Modal>
-      <Modal opened={open === 'plans'} onClose={close} title="Планы работ" size="xl">
-        {open === 'plans' ? <PlansList /> : null}
+      <Modal
+        opened={open === 'plans'}
+        onClose={close}
+        title="Планы работ"
+        size="xl"
+        classNames={{ content: 'oneScroll' }}
+      >
+        <div className="oneScrollArea scrollSlim">{open === 'plans' ? <PlansList /> : null}</div>
       </Modal>
     </>
   );

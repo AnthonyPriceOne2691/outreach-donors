@@ -21,15 +21,20 @@ export function topWords(pages: number): string {
   return `топ-${pages * 10}`;
 }
 
+/** Доллары с неразрывным пробелом перед знаком: число и знак не отрываются (`docs/UI_RULES.md`). */
+export function dollars(value: number): string {
+  return formatUsd(value).replace(/ (?=\$)/, '\u00a0');
+}
+
 /** Деньги прохода: «0,72 $». */
 function usd(spend: PlanSpend | null): string {
-  return spend === null ? '—' : formatUsd(spend.usd);
+  return spend === null ? '—' : dollars(spend.usd);
 }
 
 /** Смета «от — до»; одна глубина — одно число. */
 export function rangeWords(low: PlanSpend | null, high: PlanSpend | null): string {
   if (low === null || high === null) return '—';
-  return low.usd === high.usd ? usd(low) : `${usd(low)} — ${usd(high)}`;
+  return low.usd === high.usd ? usd(low) : `${usd(low)}\u00a0— ${usd(high)}`;
 }
 
 function SheetRow({ sheet }: { sheet: PlanSheet }) {
@@ -52,7 +57,7 @@ function SheetRow({ sheet }: { sheet: PlanSheet }) {
         {formatNumber(sheet.keys.taken)}
         {sheet.keys.rejected > 0 ? ` · отсеяно ${formatNumber(sheet.keys.rejected)}` : ''}
       </Table.Td>
-      <Table.Td>{rangeWords(sheet.low, sheet.high)}</Table.Td>
+      <Table.Td style={{ whiteSpace: 'nowrap' }}>{rangeWords(sheet.low, sheet.high)}</Table.Td>
     </Table.Tr>
   );
 }
