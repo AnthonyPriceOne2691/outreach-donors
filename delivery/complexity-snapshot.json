@@ -496,15 +496,25 @@
       "complexity": 3,
       "worst": "of:59"
     },
+    "backend/api/sales/plan_schemas.py": {
+      "lines": 256,
+      "complexity": 9,
+      "worst": "of:91"
+    },
+    "backend/api/sales/plans.py": {
+      "lines": 175,
+      "complexity": 5,
+      "worst": "_upload:85"
+    },
     "backend/api/sales/queue.py": {
       "lines": 254,
       "complexity": 3,
       "worst": "build_queue:168"
     },
     "backend/api/sales/routes.py": {
-      "lines": 365,
+      "lines": 367,
       "complexity": 6,
-      "worst": "_found:132"
+      "worst": "_found:133"
     },
     "backend/api/sales/schemas.py": {
       "lines": 234,
@@ -3382,9 +3392,9 @@
       "worst": "—"
     },
     "backend/features/sales/plan_store.py": {
-      "lines": 345,
+      "lines": 354,
       "complexity": 7,
-      "worst": "_views:293"
+      "worst": "_views:302"
     },
     "backend/features/sales/policy.py": {
       "lines": 67,

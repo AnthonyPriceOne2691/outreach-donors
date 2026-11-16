@@ -87,6 +87,7 @@ from backend.api.sales import handoff as handoff_routes
 from backend.api.sales import kb as kb_routes
 from backend.api.sales import leads as lead_routes
 from backend.api.sales import mailing as mailing_routes
+from backend.api.sales import plans as plan_routes
 from backend.api.sales import queue as queue_routes
 from backend.api.sales import segment as segment_routes
 from backend.api.sales import segment_again as segment_again_routes
@@ -362,3 +363,4 @@ router.include_router(segment_sites_routes.router)
 router.include_router(weekly_routes.router)
 router.include_router(handoff_routes.router)
 router.include_router(close_routes.router)
+router.include_router(plan_routes.router)

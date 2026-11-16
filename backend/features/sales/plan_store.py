@@ -168,6 +168,12 @@ async def taken_names(session: AsyncSession, draft: PlanDraft) -> list[str]:
     return found
 
 
+async def problems(session: AsyncSession, draft: PlanDraft, ask: PlanAsk) -> list[str]:
+    """Почему план не завести — словами, все сразу; пусто — заводится. Превью показывает их до
+    кнопки, запуск ими отказывает (`save_plan`)."""
+    return [*_rules(draft, ask), *await taken_names(session, draft)]
+
+
 async def chain_gaps(session: AsyncSession, draft: PlanDraft) -> dict[str, str]:
     """Листы, чьи письма не соберутся: у новой гипотезы своей цепочки нет, и общая на языке писем
     неполна, — лист → слова для превью. Это предупреждение, а не отказ: цепочку задают на экране
@@ -255,9 +261,9 @@ async def save_plan(
 ) -> SalesPlanModel:
     """Завести план из черновика книги. Нарушения правил — `PlanRefusedError` словами, все сразу,
     до первой записи. Записи и журнал — в транзакции вызывающего, коммит — за ним."""
-    problems = [*_rules(draft, ask), *await taken_names(session, draft)]
-    if problems:
-        raise PlanRefusedError("план не заведён: " + "; ".join(problems))
+    refused = await problems(session, draft, ask)
+    if refused:
+        raise PlanRefusedError("план не заведён: " + "; ".join(refused))
     plan = SalesPlanModel(
         name=" ".join(ask.name.split()),
         mode=ask.mode.value,
@@ -270,6 +276,9 @@ async def save_plan(
     )
     session.add(plan)
     await session.flush()
+    # Время заведения ставит база: без чтения назад поле не загружено, и экран в async читал бы
+    # его ленивым запросом и падал (как у гипотезы, `hypotheses.add`).
+    await session.refresh(plan)
     for position, found in enumerate(draft.hypotheses, 1):
         await _sheet(session, plan, position, found, ask, author_id)
     await AccessRepository(session).record(
