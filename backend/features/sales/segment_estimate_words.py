@@ -4,6 +4,9 @@
 говорит. Что нужно из сметы, кроме самих чисел, — параметрами `lines_of` (непрочитанный потолок
 модели), и цикла импорта нет. Токены на сайт и откуда они — истории прогонов с судьёй или запасное
 число — смета несёт сама (`Estimate.tokens_per_site`, `tokens_per_site_runs`).
+
+**Тариф судьи** — рядом с его именем, как режим у выдачи: «Судья сегмента — экономный тариф,
+медленнее: …» (`segment_tier`); деньги в строке — уже долей прайса. Обычный тариф — строка прежняя.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from backend.config.judge import JudgeMode
 from backend.features.sales.segment_spend import money, number
+from backend.features.sales.segment_tier import JudgeTier
 from backend.features.serp.modes import SerpMode
 
 if TYPE_CHECKING:
@@ -23,6 +27,9 @@ SHADOW_LINE = (
     "Судья в наблюдении: его «отказ» не отсекает сайт — сайт ляжет в «Судья отказал бы»; решать по "
     "нему не обязательно, лид — только после «Принять» человека."
 )
+
+#: Тариф судьи словами — после его имени в строке сметы; обычному — никаких.
+TIER_WORDS = {JudgeTier.FLEX: " — экономный тариф, медленнее"}
 
 #: Режим покупки выдачи словами — как в форме: быстрый — секунды, стандарт — дешевле и дольше.
 SERP_MODE_WORDS = {
@@ -95,9 +102,11 @@ def _judge_line(found: Estimate, *, cap_unread: bool) -> str:
         if found.output_share_runs
         else f"доля вывода — запасная, замеров ещё нет: {share}"
     )
+    tier = TIER_WORDS.get(JudgeTier(found.judge_tier), "")
     return (
-        f"Судья сегмента: сайтов ≈ {number(found.sites)}, токенов модели ≈ {number(found.tokens)} "
-        f"({_per_site(found)}) — ≈ {money(found.tokens_usd)}{left}; {shared}."
+        f"Судья сегмента{tier}: сайтов ≈ {number(found.sites)}, токенов модели ≈ "
+        f"{number(found.tokens)} ({_per_site(found)}) — ≈ {money(found.tokens_usd)}{left}; "
+        f"{shared}."
     )
 
 
