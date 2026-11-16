@@ -154,11 +154,11 @@ class TestTheSpread:
 
 
 class TestWhoWaits:
-    async def test_sales_boxes_are_not_held(
+    async def test_sales_boxes_are_held_too(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
-        """Ящику продаж паузы нет: его добивки уходят, как раньше, — сколько пускают потолки. Письмо
-        минуту назад держит ящик доноров, а ящик продаж — нет."""
+        """Ящик продаж ждёт паузы так же, как ящик доноров (16.11.2026: самый крупный утренний
+        всплеск был у добивок продаж). Письмо минуту назад держит оба ящика."""
         (one,) = await _on_one_box(session, "one.example.test")
         sales = await make_sender(session, "mira@mail-sales.example.test")
         sales.stage = Stage.SALES
@@ -168,11 +168,10 @@ class TestWhoWaits:
         await _letter_of(session, sales.id, host="sales.example.test", sent_at=just_now)
 
         rest = await Rest.load(session, DUE, _gaps())
-        rest.took(sales.id, 1, DUE)
 
         assert one.sender_id is not None
-        assert rest.until == {one.sender_id: just_now + GAP}
-        assert sales.id not in rest.paced
+        assert rest.until == {one.sender_id: just_now + GAP, sales.id: just_now + GAP}
+        assert sales.id in rest.paced
 
     async def test_zero_in_the_setting_takes_the_pause_off(
         self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
