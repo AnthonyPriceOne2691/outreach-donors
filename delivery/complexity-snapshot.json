@@ -3382,9 +3382,9 @@
       "worst": "—"
     },
     "backend/features/sales/plan_store.py": {
-      "lines": 326,
+      "lines": 345,
       "complexity": 7,
-      "worst": "_views:274"
+      "worst": "_views:293"
     },
     "backend/features/sales/policy.py": {
       "lines": 67,

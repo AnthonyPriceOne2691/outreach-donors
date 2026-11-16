@@ -38,7 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Stage
-from backend.features.sales import hypotheses
+from backend.features.sales import chain, chain_text, hypotheses
 from backend.features.sales.hypothesis_countries import OtherCountries
 from backend.features.sales.intake import IntakeError
 from backend.features.sales.models import SalesHypothesisModel
@@ -166,6 +166,25 @@ async def taken_names(session: AsyncSession, draft: PlanDraft) -> list[str]:
             logger.info("план работ: имя листа занято", extra={"sheet": sheet.sheet})
             found.append(f"лист «{sheet.sheet}»: {exc} — переименуйте лист")
     return found
+
+
+async def chain_gaps(session: AsyncSession, draft: PlanDraft) -> dict[str, str]:
+    """Листы, чьи письма не соберутся: у новой гипотезы своей цепочки нет, и общая на языке писем
+    неполна, — лист → слова для превью. Это предупреждение, а не отказ: цепочку задают на экране
+    «Цепочка», пока гипотеза собирает базу."""
+    gaps: dict[str, str] = {}
+    missing: dict[str, list[str]] = {}
+    for found in draft.ready:
+        code = found.card.language
+        if code not in missing:
+            general = await chain.resolve(session, hypothesis_id=None, language=code)
+            missing[code] = general.missing
+        if missing[code]:
+            gaps[found.sheet] = (
+                f"письма не соберутся: в общей цепочке {chain_text.in_language(code)} нет "
+                f"{', '.join(missing[code])} — задайте цепочку до первых писем гипотезы"
+            )
+    return gaps
 
 
 def _keyword_rows(row_id: int, found: PlanHypothesis) -> list[dict[str, Any]]:

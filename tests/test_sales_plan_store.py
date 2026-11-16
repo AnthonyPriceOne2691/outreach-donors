@@ -18,7 +18,7 @@ from backend.features.core.domain import Stage
 from backend.features.core.models.access import AuditLogModel
 from backend.features.core.models.outreach import CampaignModel
 from backend.features.sales import hypotheses, hypothesis_holds, plan_store
-from backend.features.sales.models import SalesHypothesisModel
+from backend.features.sales.models import SalesChainTemplateModel, SalesHypothesisModel
 from backend.features.sales.plan_estimate import PlanEstimate, Spend
 from backend.features.sales.plan_file import PlanDraft, read_plan
 from backend.features.sales.plan_models import (
@@ -271,4 +271,30 @@ def test_plan_modes_buy_the_serp_in_their_mode() -> None:
     assert plan_store.SERP_MODES == {
         PlanMode.ECONOMY: SerpMode.STANDARD,
         PlanMode.FAST: SerpMode.LIVE,
+    }
+
+
+async def test_a_sheet_whose_letters_have_no_chain_is_named_for_the_preview(
+    session: AsyncSession,
+) -> None:
+    english = changed(Название="Английский лист", Язык_писем="английский")
+    plan = draft(("Пилот", changed(), KEYS), ("English", english, KEYS[:1]))
+    for step in (1, 2, 3):
+        session.add(
+            SalesChainTemplateModel(
+                hypothesis_id=None,
+                step=step,
+                language="ru",
+                subject="Тема" if step == 1 else None,
+                body="[offer] fixed\nВыдуманный текст шага: ничего настоящего.",
+                active=True,
+            )
+        )
+    await session.flush()
+
+    gaps = await plan_store.chain_gaps(session, plan)
+
+    assert gaps == {
+        "English": "письма не соберутся: в общей цепочке на английском нет первого письма, первой "
+        "добивки, второй добивки — задайте цепочку до первых писем гипотезы"
     }
