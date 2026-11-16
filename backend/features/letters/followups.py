@@ -34,6 +34,10 @@
 Потолки держат объём, а темп — пауза ящика (16.11.2026, `followup_pace.py`): ящик доноров и
 рекламодателей отдаёт добивки по одной, с паузой от своего последнего письма любого вида.
 
+**Добивка донору и рекламодателю — в рабочие часы получателя** (16.11.2026, `followup_window.py`):
+окно и пояс — те же, что у первых писем автоотправки; вне окна срок возвращается на открытие окна
+плюс сдвиг. Окно судится до потолков ящика. У продаж окно судит отправка, как и прежде.
+
 **Этап без цепочки не захватывается.** Шаблон добивки выбирается по этапу
 уже после захвата, и этап без шаблонов терял бы добивку: срок погашен,
 письма нет. Поэтому захват берёт этапы с цепочкой файлами (`template.CHAINED`)
@@ -61,7 +65,14 @@ from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.stages import SALES_NOT_CONNECTED, SalesNotConnectedError
-from backend.features.letters import compose, followup_pace, guards, template, thread_first
+from backend.features.letters import (
+    compose,
+    followup_pace,
+    followup_window,
+    guards,
+    template,
+    thread_first,
+)
 from backend.features.letters.building import attempt_of, followup_key, idempotency_key
 from backend.features.letters.followup_pace import POSTPONE
 from backend.features.letters.followup_report import PassReport
@@ -140,7 +151,8 @@ class Chain:
         #: Паузы ящиков между письмами (`followup_pace.Rest`): добивки отдыхающих не захватываются.
         self._rest = rest
 
-    def _moment(self) -> datetime:
+    def moment(self) -> datetime:
+        """Минута прохода: заданная (тест) или нынешняя."""
         return self._now or datetime.now(UTC)
 
     async def claim(self) -> Claimed | None:
@@ -149,7 +161,7 @@ class Chain:
         Срок гасится тем же запросом, которым строка выбирается: между
         «нашли» и «погасили» не должно быть места второму проходу.
         """
-        moment = self._moment()
+        moment = self.moment()
         awake = () if self._rest is None else self._rest.free(moment)
         pick = (
             select(MessageModel.id)
@@ -207,14 +219,14 @@ class Chain:
     async def unchained(self) -> int:
         """Сколько подошедших добивок ждут этапа без цепочки. Срок у них цел."""
         total = await self._session.scalar(
-            select(func.count()).select_from(MessageModel).where(*_due(self._moment()), ~self._take)
+            select(func.count()).select_from(MessageModel).where(*_due(self.moment()), ~self._take)
         )
         return int(total or 0)
 
     def rested(self, claimed: Claimed, letter_id: int) -> None:
         """Добивка `letter_id` отдана почте — ящик переписки отдыхает паузой после неё."""
         if self._rest is not None:
-            self._rest.took(claimed.sender_id, letter_id, self._moment())
+            self._rest.took(claimed.sender_id, letter_id, self.moment())
 
     async def hold(self) -> tuple[int, datetime | None]:
         """Подошедшим добивкам отдыхающих ящиков — срок на конец паузы своего ящика: срок в прошлом
@@ -222,7 +234,7 @@ class Chain:
         освободится первый из этих ящиков."""
         if self._rest is None:
             return 0, None
-        moment = self._moment()
+        moment = self.moment()
         held, first = 0, None
         for box, until in self._rest.busy(moment).items():
             moved = await self._session.execute(
@@ -245,7 +257,7 @@ class Chain:
         await self._session.execute(
             update(MessageModel)
             .where(MessageModel.id == claimed.previous_id)
-            .values(next_action_at=self._moment() + delay)
+            .values(next_action_at=self.moment() + delay)
         )
         await self._session.flush()
 
@@ -284,7 +296,7 @@ class Chain:
         с площадкой, которую пересчёт обхода успел сменить, давали добивку
         отдельной веткой — о другом, чем письмо, на которое она ссылается.
         """
-        stage, audience = await self._stage_and_audience(claimed.campaign_id)
+        stage, audience = await self.stage_and_audience(claimed.campaign_id)
         if stage is Stage.SALES:  # шаг цепочки из базы — ответ модуля продаж (`stages.SalesMail`)
             body = (
                 await stages.sales_followup(self._session, claimed.thread_id, claimed.step)
@@ -312,7 +324,7 @@ class Chain:
         первой и не вставилась бы в базу. У продаж в ключе ещё и контакт —
         два лида одной компании, — и он берётся из ключа предыдущего письма.
         """
-        stage, _ = await self._stage_and_audience(claimed.campaign_id)
+        stage, _ = await self.stage_and_audience(claimed.campaign_id)
         existing = await self._session.scalar(
             select(MessageModel).where(
                 MessageModel.thread_id == claimed.thread_id,
@@ -351,11 +363,11 @@ class Chain:
 
     async def sent_this_hour(self, sender_id: int) -> int:
         """Сколько добивок и перезапросов цены ушло с этого ящика за последний час."""
-        return await followup_caps.this_hour_of(self._session, sender_id, self._moment())
+        return await followup_caps.this_hour_of(self._session, sender_id, self.moment())
 
     async def day_wait(self, sender_id: int) -> timedelta | None:
         """Ящик выбрал суточный потолок добивок — сколько ждать до завтра; `None` — не выбрал."""
-        return await followup_caps.wait(self._session, sender_id, self._moment())
+        return await followup_caps.wait(self._session, sender_id, self.moment())
 
     async def _host(self, domain_id: int) -> str:
         host = await self._session.scalar(
@@ -365,7 +377,7 @@ class Chain:
             raise FollowupError(f"У домена №{domain_id} нет имени — добивку некому адресовать")
         return str(host)
 
-    async def _stage_and_audience(self, campaign_id: int) -> tuple[Stage, str]:
+    async def stage_and_audience(self, campaign_id: int) -> tuple[Stage, str]:
         campaign = await self._session.get(CampaignModel, campaign_id)
         if campaign is None:
             raise FollowupError(f"Рассылки №{campaign_id} нет — добивка осиротела")
@@ -424,8 +436,10 @@ async def _deliver(
     claimed: Claimed,
     report: PassReport,
 ) -> None:
-    """Одна добивка: проверить ящик и лейн, собрать текст, отдать почте."""
-    if await followup_pace.waits(session, chain, claimed, report):
+    """Одна добивка: проверить окно получателя, ящик и лейн, собрать текст, отдать почте."""
+    if await followup_window.holds(session, chain, claimed, report) or await followup_pace.waits(
+        session, chain, claimed, report
+    ):
         return
     try:
         # Текст продаж собирается внутри: не подключены или цепочка неполна — срок вернётся.

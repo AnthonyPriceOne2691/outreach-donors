@@ -431,8 +431,8 @@ class TestThePass:
         self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Завал добивок не уходит с ящика за день: сверх суточного потолка добивка ждёт следующих
-        суток (UTC), а не следующего часа — и наутро уходит. 09.11.2026 без этого потолка ящик
-        отдал за день втрое больше своего дневного лимита первых писем."""
+        суток (UTC), а не следующего часа — и наутро, в рабочие часы донора, уходит. 09.11.2026
+        без этого потолка ящик отдал за день втрое больше своего дневного лимита первых писем."""
         monkeypatch.setattr(outreach_cfg, "FOLLOWUP_PER_SENDER_PER_DAY", 1)
         first, _ = await _chain_start(session, followup_days=[1, 1])
         later = NOW + timedelta(days=2)
@@ -453,7 +453,10 @@ class TestThePass:
         tomorrow = datetime(2026, 9, 24, tzinfo=UTC)
         assert second.next_action_at == tomorrow
 
-        morning = await send_due(session, transport=NullTransport(), limit=5, now=tomorrow)
+        # Полночь UTC — ночь у донора: окно его рабочих часов (`followup_window.py`) — с 09:00.
+        morning = await send_due(
+            session, transport=NullTransport(), limit=5, now=tomorrow + timedelta(hours=8)
+        )
 
         assert (morning.sent, morning.capped.total()) == (1, 0)
         assert "суточному потолку" not in morning.as_report

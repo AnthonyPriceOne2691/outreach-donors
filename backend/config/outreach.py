@@ -129,7 +129,8 @@ class _Outreach(DomainSettings):
         default=10, ge=1, le=240, validation_alias="OUTREACH_AUTOSEND_GAP_MIN"
     )
     # Окно получателя у прохода: дни «1-5» или «1,3,5» (1 — понедельник) и часы «09:00-18:00»
-    # по часам получателя. Кнопка «Отправить очередь» окна не ждёт — решает человек.
+    # по часам получателя. Кнопка «Отправить очередь» окна не ждёт — решает человек. То же окно и
+    # тот же пояс держат добивки доноров и рекламодателей (16.11.2026, `letters/followup_window.py`).
     autosend_days: str = Field(default="1-5", validation_alias="OUTREACH_AUTOSEND_DAYS")
     autosend_hours: str = Field(default="09:00-18:00", validation_alias="OUTREACH_AUTOSEND_HOURS")
     # Пояс получателя, когда страна неизвестна: доноры и рекламодатели — в основном в Европе.

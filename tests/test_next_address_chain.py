@@ -36,6 +36,7 @@ from backend.features.replies.pipeline import Inbox
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor, make_sender
+from tests.thread_letters import weekday
 
 NOW = datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
 HOST = "donor.example.test"
@@ -308,7 +309,10 @@ class TestTheSecondChain:
         assert second is not None
         await Sending(session, transport, now=NOW + timedelta(days=3)).send(second.id)
 
-        report = await send_due(session, transport=transport, limit=5, now=NOW + timedelta(days=5))
+        # Срок добивки второй цепочки подошёл в пятницу; проход — в понедельник: в субботу добивка
+        # донору ждёт его рабочих дней (16.11.2026, `letters/followup_window.py`).
+        monday = weekday(NOW + timedelta(days=5))
+        report = await send_due(session, transport=transport, limit=5, now=monday)
 
         assert report.sent == 1
         keys = sorted(await session.scalars(select(MessageModel.idempotency_key)))

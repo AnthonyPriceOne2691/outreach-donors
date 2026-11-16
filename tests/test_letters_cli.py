@@ -21,7 +21,7 @@ from backend.features.letters.transport import MaybeSentError, NullTransport, Ou
 from sqlalchemy import select
 from tests.conftest import TEST_DSN, make_donor, make_sender
 from tests.test_send_race import _one_letter, committed_sessions
-from tests.thread_letters import Refusing, conversation, first_letter
+from tests.thread_letters import Refusing, conversation, first_letter, weekday
 
 #: Первое письмо переписки ушло давно — срок добивки прошёл.
 SENT = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
@@ -93,7 +93,9 @@ async def test_queue_shows_first_letters_only(
         async with factory() as session:
             talk = await conversation(session, sent_at=SENT)
             assert talk.first.next_action_at is not None
-            await send_due(session, transport=Refusing(), limit=1, now=talk.first.next_action_at)
+            # Срок — в воскресенье, а добивка донору ждёт его рабочих дней: проход — в понедельник.
+            due = weekday(talk.first.next_action_at)
+            await send_due(session, transport=Refusing(), limit=1, now=due)
             newcomer = await first_letter(session, host="newcomer.example.test")
             await session.commit()
             followup = await session.scalar(select(MessageModel.id).where(MessageModel.step == 1))

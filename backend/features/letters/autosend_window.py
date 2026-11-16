@@ -7,6 +7,10 @@
 нет. Окно — только у прохода, который шлёт без человека: письмо вне рабочих часов получателя ждёт
 в очереди, а проход берёт тех, у кого окно открыто сейчас. Окно — `OUTREACH_AUTOSEND_DAYS` и
 `OUTREACH_AUTOSEND_HOURS` (по умолчанию пн–пт 09:00–18:00) по часам получателя (`core/window`).
+То же окно и то же правило страны — у добивок доноров и рекламодателей (16.11.2026,
+`followup_window.py`): их тоже шлёт проход без человека, и письма одной переписки уходят в одни
+часы. Правилу страны всё равно, первое письмо или добивка: ему нужно только, кому письмо
+(`Addressee`).
 
 **Пояс — по стране получателя**, первой известной в таком порядке (`core/country_zones`):
 - донору — страна, откуда у донора больше всего трафика (`donors.geo`, верх топ-5): там его
@@ -60,6 +64,32 @@ def fallback() -> ZoneInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class Addressee:
+    """Кому письмо — всё, что о нём нужно правилу страны: номер письма, этап и аудитория рассылки,
+    домен адресата, рассылка и — у рекламодателя по ссылке — страна аудитории донора, где нашли
+    ссылку. Одно у письма очереди (`of`) и у добивки (`followup_window.py`)."""
+
+    letter_id: int
+    stage: Stage
+    audience: str
+    domain_id: int
+    campaign_id: int
+    link_geo: str | None = None
+
+    @classmethod
+    def of(cls, letter: QueuedLetter) -> Addressee:
+        """Кому письмо строки очереди."""
+        return cls(
+            letter.message.id,
+            letter.stage,
+            letter.audience,
+            letter.message.domain_id or 0,
+            letter.message.campaign_id or 0,
+            None if letter.link is None else letter.link.donor_geo,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class _Places:
     """Что известно о странах получателей писем прохода: трафик доноров, прогоны рассылок и бизнесов
     ниши, рынки прогонов."""
@@ -74,27 +104,27 @@ class _Places:
     markets: dict[int, str] = field(default_factory=dict)
 
     def countries(self, letter: QueuedLetter) -> list[str | None]:
-        """Страны получателя письма по порядку шапки — первая известная таблице и решит."""
-        domain, campaign = letter.message.domain_id or 0, letter.message.campaign_id or 0
-        if letter.stage is Stage.DONORS:
+        """Страны получателя письма очереди по порядку шапки — первая известная таблице и решит."""
+        return self.countries_of(Addressee.of(letter))
+
+    def countries_of(self, whom: Addressee) -> list[str | None]:
+        """Страны адресата по порядку шапки — первая известная таблице и решит."""
+        domain, campaign = whom.domain_id, whom.campaign_id
+        if whom.stage is Stage.DONORS:
             return [self.traffic.get(domain), self.markets.get(self.campaigns.get(campaign) or 0)]
-        if letter.audience == NICHE:
+        if whom.audience == NICHE:
             return [self.markets.get(self.found.get(domain) or 0)]
-        return [None if letter.link is None else letter.link.donor_geo]
+        return [whom.link_geo]
 
 
-async def _places(session: AsyncSession, letters: Sequence[QueuedLetter]) -> _Places:
-    """Страны получателей одним заходом на все письма прохода: у рекламодателя по ссылке страна —
-    уже в строке очереди, запроса не нужно."""
-    donors = [letter for letter in letters if letter.stage is Stage.DONORS]
-    niche = [
-        letter
-        for letter in letters
-        if letter.stage is Stage.ADVERTISERS and letter.audience == NICHE
-    ]
-    domains = {letter.message.domain_id for letter in donors}
-    campaign_ids = {letter.message.campaign_id for letter in donors}
-    found_domains = {letter.message.domain_id for letter in niche}
+async def _places(session: AsyncSession, whom: Sequence[Addressee]) -> _Places:
+    """Страны адресатов одним заходом на все письма: у рекламодателя по ссылке страна — уже у
+    адресата (строка очереди или ссылка добивки), запроса не нужно."""
+    donors = [one for one in whom if one.stage is Stage.DONORS]
+    niche = [one for one in whom if one.stage is Stage.ADVERTISERS and one.audience == NICHE]
+    domains = {one.domain_id for one in donors}
+    campaign_ids = {one.campaign_id for one in donors}
+    found_domains = {one.domain_id for one in niche}
     traffic = dict(
         (
             await session.execute(
@@ -143,11 +173,16 @@ def _zone(countries: Sequence[str | None]) -> ZoneInfo:
 
 
 async def zones(session: AsyncSession, letters: Sequence[QueuedLetter]) -> dict[int, ZoneInfo]:
-    """Пояс получателя каждого письма (номер письма → пояс) — первой известной страной."""
-    if not letters:
+    """Пояс получателя каждого письма очереди (номер письма → пояс) — первой известной страной."""
+    return await zones_of(session, [Addressee.of(letter) for letter in letters])
+
+
+async def zones_of(session: AsyncSession, whom: Sequence[Addressee]) -> dict[int, ZoneInfo]:
+    """Пояс каждого адресата (номер письма → пояс) — первой известной страной, иначе запасной."""
+    if not whom:
         return {}
-    places = await _places(session, letters)
-    return {letter.message.id: _zone(places.countries(letter)) for letter in letters}
+    places = await _places(session, whom)
+    return {one.letter_id: _zone(places.countries_of(one)) for one in whom}
 
 
 @dataclass(frozen=True, slots=True)

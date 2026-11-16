@@ -38,7 +38,7 @@ from tests.test_recipient_dns_hold import Dns, Postman
 from tests.test_sales_soft_signals import NOW, _box
 from tests.test_sales_stage_bridge import FakeSalesMail
 from tests.test_send_race import MEETING, committed_sessions
-from tests.thread_letters import Conversation, conversation, first_letter
+from tests.thread_letters import Conversation, conversation, first_letter, weekday
 
 OUTAGE = (
     "unable to get mx info: failed to get IPs from PTR record: lookup <nil>: unrecognized address"
@@ -87,9 +87,10 @@ async def _back(session: AsyncSession, *, now: datetime) -> int:
 
 
 async def _followup(session: AsyncSession, talk: Conversation) -> MessageModel:
-    """Добивка ушла проходом добивок; срок первого письма погашен её захватом."""
+    """Добивка ушла проходом добивок; срок первого письма погашен её захватом. Срок — в субботу,
+    а добивка донору ждёт его рабочих дней: проход — в понедельник в тот же час."""
     assert talk.first.next_action_at is not None
-    due = talk.first.next_action_at
+    due = weekday(talk.first.next_action_at)
     report = await send_due(session, transport=NullTransport(), limit=5, now=due)
     assert report.sent == 1
     found = await session.scalar(

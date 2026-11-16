@@ -302,9 +302,9 @@
       "worst": "mailing_forecast:34"
     },
     "backend/api/letters/forecast_schemas.py": {
-      "lines": 274,
+      "lines": 276,
       "complexity": 8,
-      "worst": "of:245"
+      "worst": "of:247"
     },
     "backend/api/letters/once.py": {
       "lines": 114,
@@ -957,9 +957,9 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 390,
+      "lines": 391,
       "complexity": 9,
-      "worst": "_weekdays:176"
+      "worst": "_weekdays:177"
     },
     "backend/config/sales.py": {
       "lines": 500,
@@ -2072,9 +2072,9 @@
       "worst": "see:73"
     },
     "backend/features/letters/autosend_window.py": {
-      "lines": 200,
+      "lines": 235,
       "complexity": 8,
-      "worst": "_places:86"
+      "worst": "_places:120"
     },
     "backend/features/letters/batch.py": {
       "lines": 303,
@@ -2127,29 +2127,34 @@
       "worst": "_addressed:251"
     },
     "backend/features/letters/followup_pace.py": {
-      "lines": 173,
+      "lines": 179,
       "complexity": 4,
       "worst": "waits:152"
     },
     "backend/features/letters/followup_report.py": {
-      "lines": 53,
-      "complexity": 6,
-      "worst": "as_report:37"
+      "lines": 57,
+      "complexity": 8,
+      "worst": "as_report:40"
+    },
+    "backend/features/letters/followup_window.py": {
+      "lines": 91,
+      "complexity": 3,
+      "worst": "holds:53"
     },
     "backend/features/letters/followups.py": {
-      "lines": 478,
+      "lines": 492,
       "complexity": 8,
-      "worst": "send_due:375"
+      "worst": "send_due:387"
     },
     "backend/features/letters/forecast.py": {
-      "lines": 321,
+      "lines": 334,
       "complexity": 8,
-      "worst": "forecast:119"
+      "worst": "forecast:121"
     },
     "backend/features/letters/forecast_plan.py": {
-      "lines": 395,
+      "lines": 419,
       "complexity": 7,
-      "worst": "_why:295"
+      "worst": "_why:319"
     },
     "backend/features/letters/form_letter.py": {
       "lines": 209,

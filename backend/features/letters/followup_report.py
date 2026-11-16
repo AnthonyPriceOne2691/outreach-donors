@@ -17,7 +17,10 @@ class PassReport:
 
     sent: int = 0
     postponed: int = 0
-    """Отложено: ящик стоит или почта отказала временно. Цепочка жива."""
+    """Отложено: окно получателя закрыто, ящик стоит или почта отказала временно. Цепочка жива."""
+    outside: int = 0
+    """Из отложенных — до окна получателя: добивка донору или рекламодателю вне его рабочих часов
+    (`followup_window.py`); когда уйдёт каждая, говорит её строка журнала."""
     capped: Counter[int] = field(default_factory=Counter)
     """Из отложенных — до завтра, по ящикам: ящик выбрал суточный потолок (`followup_caps`)."""
     stopped: int = 0
@@ -35,12 +38,13 @@ class PassReport:
 
     @property
     def as_report(self) -> str:
-        capped = ""
+        notes = [f"до окна получателя — {self.outside}"] if self.outside else []
         if self.capped:  # по ящикам: потолок у каждого свой, и видно, чей завал переезжает
             boxes = ", ".join(f"ящик №{box} — {n}" for box, n in sorted(self.capped.items()))
-            capped = f" (из них до завтра по суточному потолку — {self.capped.total()}: {boxes})"
+            notes.append(f"до завтра по суточному потолку — {self.capped.total()}: {boxes}")
+        why = f" (из них {'; '.join(notes)})" if notes else ""
         said = (
-            f"отправлено {self.sent}, отложено {self.postponed}{capped}, "
+            f"отправлено {self.sent}, отложено {self.postponed}{why}, "
             f"остановлено {self.stopped}, исход неизвестен {self.unknown}"
         )
         if self.resting:

@@ -170,3 +170,9 @@ async def waits(session: AsyncSession, chain: Chain, claimed: Claimed, report: P
     await session.commit()
     report.postponed += 1
     return True
+
+
+def pace() -> Pace | None:
+    """Пауза ящика для плана рассылки (`forecast_plan.Chains.clock`); ноль в настройке — `None`."""
+    found = gaps().pace
+    return found if found.gap > timedelta(0) else None

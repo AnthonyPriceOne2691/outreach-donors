@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_next_address import TemplateOnly, _donor
 from tests.test_sales_soft_signals import NOW
 from tests.test_sales_stage_bridge import FakeSalesMail
-from tests.thread_letters import conversation
+from tests.thread_letters import conversation, weekday
 
 OUTAGE = (
     "unable to get mx info: failed to get IPs from PTR record: lookup <nil>: unrecognized address"
@@ -302,10 +302,11 @@ class TestSales:
 
 class TestFollowups:
     async def _chain(self, session: AsyncSession) -> tuple[MessageModel, MessageModel]:
-        """Первое письмо ушло, добивка ушла и получила отказ молчанием DNS."""
+        """Первое письмо ушло, добивка ушла (срок — в субботу, проход — в понедельник: добивка донору
+        ждёт его рабочих дней) и получила отказ молчанием DNS."""
         talk = await conversation(session, sent_at=SENT, host=HOST)
         assert talk.first.next_action_at is not None
-        due = talk.first.next_action_at
+        due = weekday(talk.first.next_action_at)
         assert (await send_due(session, transport=NullTransport(), limit=5, now=due)).sent == 1
         followup = await session.scalar(
             select(MessageModel).where(
@@ -393,7 +394,7 @@ async def test_a_thread_that_ended_is_not_counted_as_taken(
     """Цепочка кончилась — письмо не вернулось, но и «занято» о нём не сказано: числа не врут."""
     talk = await conversation(session, sent_at=SENT, host=HOST)
     assert talk.first.next_action_at is not None
-    due = talk.first.next_action_at
+    due = weekday(talk.first.next_action_at)  # срок — в субботу, добивка донору ждёт понедельника
     await send_due(session, transport=NullTransport(), limit=5, now=due)
     followup = await session.scalar(
         select(MessageModel).where(MessageModel.thread_id == talk.thread.id, MessageModel.step == 1)
