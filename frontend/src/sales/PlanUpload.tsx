@@ -20,6 +20,7 @@ import {
   Modal,
   NumberInput,
   SegmentedControl,
+  SimpleGrid,
   Stack,
   Text,
 } from '@mantine/core';
@@ -99,10 +100,10 @@ function ChoiceFields({
         />
         <InfoHint name="Режим" width={300}>
           Экономный — выдача в отложенной очереди: дешевле, минуты на пачку ключей. Быстрый — сразу,
-          втрое дороже.
+          но дороже.
         </InfoHint>
       </Group>
-      <Group gap="sm" grow>
+      <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
         <NumberInput
           label="Общая цель, сайтов"
           description="для листов без своей"
@@ -126,7 +127,7 @@ function ChoiceFields({
           value={choice.hypothesisCapUsd ?? ''}
           onChange={(value) => onChoice({ ...choice, hypothesisCapUsd: numberOf(value) })}
         />
-      </Group>
+      </SimpleGrid>
     </Stack>
   );
 }
