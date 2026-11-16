@@ -61,6 +61,9 @@ OPERATION_PROVIDERS = {
     "letter_send": UsageProvider.EMAIL,
     # Разбор ответа в цену: единица — токен.
     "reply_parse": UsageProvider.LLM,
+    # Переадресация в диалоге рекламодателя (`replies/redirect_ask.py`, 16.11.2026): просят ли
+    # писать на другой адрес и на какой — единица токен, часть «Аутрич» потолка модели.
+    "lead_redirect": UsageProvider.LLM,
     # Черновик ответа агентом переписки: единица — токен.
     "agent_draft": UsageProvider.LLM,
     # Вид ответа лида продаж: единица — токен.
@@ -127,6 +130,7 @@ CRAWL_OPERATIONS = frozenset({"crawl_proxy", "crawl_render"})
 #: догадка разошлась бы со счётом молча. Отправка письма — общая на все этапы нарочно (П2б).
 OPERATION_STAGES: dict[str, Stage] = {
     "advertiser_judge": Stage.ADVERTISERS,
+    "lead_redirect": Stage.ADVERTISERS,
     "by_country": Stage.DONORS,
     "refdomains": Stage.DONORS,
     "serp": Stage.DONORS,

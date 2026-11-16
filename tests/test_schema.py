@@ -21,6 +21,8 @@ EXPECTED_TABLES = {
     "threads",
     "messages",
     "replies",
+    # Переадресация в диалоге рекламодателя: решение по ответу «пишите на …» (16.11.2026).
+    "lead_redirects",
     "runs",
     "run_settings",
     "usage_records",

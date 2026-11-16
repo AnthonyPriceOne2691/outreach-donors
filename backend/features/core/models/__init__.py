@@ -42,6 +42,7 @@ from backend.features.core.models.outreach import (
     SendingDomainModel,
     ThreadModel,
 )
+from backend.features.core.models.redirect import LeadRedirectModel
 from backend.features.core.models.run import (
     RunCandidateModel,
     RunModel,
@@ -91,6 +92,7 @@ __all__ = [
     "HunterCapModel",
     "JudgeBandModel",
     "JudgeNightModel",
+    "LeadRedirectModel",
     "LlmCapModel",
     "MessageModel",
     "OutLinkModel",

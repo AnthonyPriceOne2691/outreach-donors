@@ -76,6 +76,12 @@ _OUR_LABEL = re.compile(r"\+m\d+\.", re.I)
 MAX_NAMED = 3
 
 
+def our_label(local: str) -> bool:
+    """Имя ящика с нашей меткой ответа (`+m<номер>.`): адрес — наш, а не собеседника. Одно правило
+    у автоответа мёртвого ящика и у переадресации в диалоге рекламодателя (`lead_redirect.py`)."""
+    return bool(_OUR_LABEL.search(local))
+
+
 @dataclass(frozen=True, slots=True)
 class Redirect:
     """Что нашлось в автоответе и что с этим сделано."""
@@ -130,7 +136,7 @@ class _Sieve:
 
     def _our_own(self, address: str) -> bool:
         local, _, domain = address.partition("@")
-        return bool(_OUR_LABEL.search(local)) or any(
+        return our_label(local) or any(
             domain == own or domain.endswith(f".{own}") for own in self.ours
         )
 
