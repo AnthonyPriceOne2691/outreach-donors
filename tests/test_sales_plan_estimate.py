@@ -131,7 +131,7 @@ async def test_sheets_with_errors_stay_out_and_a_target_out_of_reach_is_named(
     # 8 ключей × 5 страниц × 10 результатов × 0,85 — 340 сайтов при цели 5 000.
     assert (own.target, own.high.sites) == (5000, 340)
     assert own.warning == (
-        "ключей мало для цели: даже до топ-50 выдача даст ≈ 340 сайтов, а цель — 5 000 "
+        "ключей мало для цели: сайтов в выдаче даже до топ-50 — ≈ 340, а цель — 5 000 "
         "прошедших судью; добавьте ключей"
     )
     assert (common.target, common.warning) == (10, None)

@@ -60,6 +60,11 @@ from backend.features.sales.models import (
     SalesStoplistModel,
     SalesThreadModel,
 )
+from backend.features.sales.plan_models import (
+    SalesPlanHypothesisModel,
+    SalesPlanKeywordModel,
+    SalesPlanModel,
+)
 from backend.features.sales.segment_models import (
     SalesSegmentCandidateModel,
     SalesSegmentHelpModel,
@@ -110,6 +115,9 @@ __all__ = [
     "SalesHypothesisModel",
     "SalesKbEntryModel",
     "SalesLeadModel",
+    "SalesPlanHypothesisModel",
+    "SalesPlanKeywordModel",
+    "SalesPlanModel",
     "SalesSegmentCandidateModel",
     "SalesSegmentHelpModel",
     "SalesSegmentRunModel",

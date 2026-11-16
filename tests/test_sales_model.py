@@ -33,12 +33,13 @@ JOURNAL = ROOT / "backend/migrations/versions/1f7b0ee634c2_sales_leads_imported_
 #: Поздние миграции, чьи таблицы ссылаются на таблицы этой, — в порядке миграций: откат
 #: идёт с последней, как у `alembic downgrade`, — иначе `DROP TABLE` гипотез и лидов
 #: упирается в чужой ключ (цепочка писем 4.6a → гипотеза, передача лида 5.3 → лид, сбор
-#: базы 6.1 → гипотеза и лид).
+#: базы 6.1 → гипотеза и лид, план работ → гипотеза и прогон сбора).
 DEPENDENTS = (
     ROOT / "backend/migrations/versions/723e3ddab31f_sales_chain_templates.py",
     ROOT / "backend/migrations/versions/a9e76c0eb5b0_sales_handoffs.py",
     ROOT / "backend/migrations/versions/fa927869a835_sales_threads.py",
     ROOT / "backend/migrations/versions/ed31d48a1ec2_sales_segment_collection.py",
+    ROOT / "backend/migrations/versions/69c8a46a8093_sales_plans.py",
 )
 TABLES = ("sales_hypotheses", "sales_leads")
 TYPES = ("sales_lead_source", "sales_lead_status")

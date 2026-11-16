@@ -147,6 +147,8 @@ const TARGETS: Record<string, { noun: string; path?: (id: string) => string; bar
   sales_stoplist: { noun: 'запись стоп-листа продаж' },
   sales_segment_candidate: { noun: 'сайт сбора продаж' },
   sales_segment_run: { noun: 'прогон сбора продаж' },
+  // План работ — книга Excel, лист за гипотезой (`sales/plan_store.py`).
+  sales_plan: { noun: 'план работ продаж' },
 };
 
 /** Цели без номера — целиком. */

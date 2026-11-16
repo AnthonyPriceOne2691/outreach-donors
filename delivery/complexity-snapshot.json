@@ -496,15 +496,25 @@
       "complexity": 3,
       "worst": "of:59"
     },
+    "backend/api/sales/plan_schemas.py": {
+      "lines": 256,
+      "complexity": 9,
+      "worst": "of:91"
+    },
+    "backend/api/sales/plans.py": {
+      "lines": 175,
+      "complexity": 5,
+      "worst": "_upload:85"
+    },
     "backend/api/sales/queue.py": {
       "lines": 254,
       "complexity": 3,
       "worst": "build_queue:168"
     },
     "backend/api/sales/routes.py": {
-      "lines": 365,
+      "lines": 367,
       "complexity": 6,
-      "worst": "_found:132"
+      "worst": "_found:133"
     },
     "backend/api/sales/schemas.py": {
       "lines": 234,
@@ -1322,7 +1332,7 @@
       "worst": "refusal:214"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 130,
+      "lines": 138,
       "complexity": 0,
       "worst": "—"
     },
@@ -3227,9 +3237,14 @@
       "worst": "checked_codes:81"
     },
     "backend/features/sales/hypothesis_holds.py": {
-      "lines": 117,
+      "lines": 119,
       "complexity": 4,
-      "worst": "count:95"
+      "worst": "count:97"
+    },
+    "backend/features/sales/hypothesis_kinds.py": {
+      "lines": 35,
+      "complexity": 0,
+      "worst": "—"
     },
     "backend/features/sales/intake.py": {
       "lines": 460,
@@ -3370,6 +3385,16 @@
       "lines": 423,
       "complexity": 8,
       "worst": "_draft:228"
+    },
+    "backend/features/sales/plan_models.py": {
+      "lines": 196,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/sales/plan_store.py": {
+      "lines": 354,
+      "complexity": 7,
+      "worst": "_views:302"
     },
     "backend/features/sales/policy.py": {
       "lines": 67,
@@ -3512,7 +3537,7 @@
       "worst": "make_leads:214"
     },
     "backend/features/sales/segment_models.py": {
-      "lines": 284,
+      "lines": 296,
       "complexity": 0,
       "worst": "—"
     },

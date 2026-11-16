@@ -37,6 +37,7 @@ from backend.features.sales.models import (
     SalesLeadModel,
     SalesThreadModel,
 )
+from backend.features.sales.plan_models import SalesPlanHypothesisModel
 from backend.features.sales.segment_models import (
     SalesSegmentCandidateModel,
     SalesSegmentRunModel,
@@ -67,6 +68,7 @@ HOLDERS: tuple[Holder, ...] = (
     Holder("sites", "сайты сбора", SalesSegmentCandidateModel.hypothesis_id),
     Holder("verdicts", "вердикты судьи сегмента", SalesSegmentVerdictModel.hypothesis_id),
     Holder("chain", "шаблоны своей цепочки", SalesChainTemplateModel.hypothesis_id),
+    Holder("plans", "план работ", SalesPlanHypothesisModel.hypothesis_id),
 )
 
 #: Вид → слова; письма — после диалогов.
