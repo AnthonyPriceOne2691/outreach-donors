@@ -6,6 +6,15 @@
 # ссылку. Тон и длина — как у письма донору (price_request.txt, боевой
 # текст 23.09.2026): от первого лица, коротко, один вопрос в конце.
 #
+# **Начало письма — с оговорки «я не покупаю ссылки у вас» (16.11.2026,
+# просьба стороны задачи, вариант утвердил Anthony).** Большая часть
+# ответивших прочла прежнее письмо наоборот: будто мы хотим купить место
+# на их сайте, — и отвечала ценами своих размещений или «платных статей
+# у нас нет». Поэтому первая фраза вступления говорит, что это не покупка,
+# тема — про экономию на размещениях, а в оффере «I buy placements» стало
+# «I book placements … for brands»: слово «buy» и путало. Вступление
+# переписывает модель, но смысл она обязана сохранить (`prompts/rewrite.md`).
+#
 # Это умолчание: при создании рассылки текст правится на экране, и
 # рассылка хранит свой вариант. Правка там проходит тот же разбор, что
 # и этот файл, — набор зон, подпись, ссылка дословно, достижимость коридора.
@@ -56,16 +65,16 @@
 # Абзац — одна строка, без переносов по ширине: жёсткий перенос рвёт
 # фразу посередине и переживает пересылку хуже, чем его отсутствие.
 
-subject: Your placement on {{donor_host}}
+subject: Paying less for placements like yours on {{donor_host}}
 
 [greeting] rewrite
 Hi,
 
 [opening] rewrite
-I arrange sponsored articles on publisher sites for a living, so a good part of my week goes into seeing which brands advertise where. Your company came up while I was going through recent articles on sites in your field, and one of your placements caught my eye.
+To be clear from the start: I'm not asking to buy a link or a post on your site. It's the opposite: I place sponsored articles for brands on publisher sites and can usually get those placements for less than brands pay when they book directly. Your company came up while I was going through recent articles on sites in your field, and one of your placements caught my eye.
 
 [offer] fixed
-It was your link on {{donor_host}}, anchored "{{anchor}}", on this page: {{page_url}}. {{donor_audience}}I buy placements on sites like this one at agency rates, below what publishers usually quote brands directly, so your next placement there or on a similar site would most likely cost you less through us.
+It was your link on {{donor_host}}, anchored "{{anchor}}", on this page: {{page_url}}. {{donor_audience}}I book placements on sites like this one for brands at agency rates, below what publishers usually quote brands directly, so your next placement there or on a similar site would most likely cost you less through us.
 
 [ask] rewrite
 Would a quick comparison be useful? If you tell me roughly how often you place articles like this one and on which sites, I'll come back with what the same placements would cost through us, and you can judge for yourself whether switching is worth it.

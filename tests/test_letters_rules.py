@@ -213,7 +213,7 @@ class TestCompose:
             assert "  " not in offer
             # Фраза кончается пробелом и встаёт перед следующим предложением, а
             # без страны пропадает: ни склейки «States.I», ни метки (письмо №26, 07.10).
-            joint = "the United States. I buy" if geo == "us" else "https://donor.test/p. I buy"
+            joint = "the United States. I book" if geo == "us" else "https://donor.test/p. I book"
             assert joint in offer
             assert compose.unset_in(offer) == []
 
