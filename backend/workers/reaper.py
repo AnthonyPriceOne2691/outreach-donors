@@ -123,8 +123,8 @@ JOURNAL_INTERVAL_SEC = 600.0
 
 #: Что сторож уже сказал человеку в Telegram — по смене состояния (`ops/alarm_feed.py`). Своё
 #: имя — своё сказанное: в этом же процессе говорит лента бота продаж (`notify.BOT_FEED`, без
-#: имени).
-FEED = Feed("watchdog", quiet_sec=QUIET_SEC)
+#: имени). Где смотреть тревогу без своего экрана — «Обзор»: он показывает все тревоги сторожа.
+FEED = Feed("watchdog", quiet_sec=QUIET_SEC, screen="Обзор")
 
 #: Строки журнала фонового сторожа — не чаще `JOURNAL_INTERVAL_SEC` о каждой тревоге.
 JOURNAL = silence.Journal(every=JOURNAL_INTERVAL_SEC)

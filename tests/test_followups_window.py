@@ -4,8 +4,9 @@
 окна в понедельник, 09:00 по часам получателя, плюс сдвиг (генератор с зерном). Пояс — правилом
 страны первых писем автоотправки: донору — страна его трафика, рекламодателю по ссылке — страна
 аудитории донора его ссылки, неизвестна — запасной пояс. Завал выходных уходит в понедельник по
-одной добивке с ящика, а не одной минутой. Добивок продаж окно здесь не судит — у них своё, в
-отправке (`tests/test_sales_send_window.py`). Ящики и адреса — выдуманные, почта — нулевая.
+одной добивке с ящика, а не одной минутой. У продаж окно — политика этапа: его судят здесь, до
+сборки текста, ответом моста (17.11.2026, `tests/test_mail_watch_quiet.py`), а нет у этапа окна —
+только отправка (`tests/test_sales_send_window.py`). Ящики и адреса — выдуманные, почта — нулевая.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from backend.config import outreach as outreach_cfg
-from backend.features.core import window
+from backend.features.core import stages, window
 from backend.features.core.domain import Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
@@ -160,15 +161,24 @@ class TestWeekdays:
         assert list(sent) == [start, start + GAP, start + 2 * GAP]
 
 
-async def test_sales_followups_are_not_judged_here(session: AsyncSession) -> None:
-    """У продаж окно — политика этапа, его судит отправка: здесь добивка продаж не задерживается
-    и в отчёт не попадает, что бы ни показывали часы."""
+async def test_sales_followups_without_a_window_in_the_policy_are_not_judged_here(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """У продаж окно — политика этапа (`stages.mail_policy`): модуль продаж к мосту не подключён —
+    окна у этапа нет, и здесь добивка продаж не задерживается и в отчёт не попадает, что бы ни
+    показывали часы. Отказ — словами отправки."""
+    monkeypatch.setattr(stages._SALES, "load", None)
     domain = DomainModel(host="lead.example.test")
     campaign = CampaignModel(name="Продажи", stage=Stage.SALES, status="draft")
     session.add_all([domain, campaign])
     await session.flush()
+    previous = MessageModel(
+        campaign_id=campaign.id, domain_id=domain.id, step=0, idempotency_key="sales:lead:0"
+    )
+    session.add(previous)
+    await session.flush()
     claimed = Claimed(
-        previous_id=1,
+        previous_id=previous.id,
         thread_id=None,
         campaign_id=campaign.id,
         domain_id=domain.id,

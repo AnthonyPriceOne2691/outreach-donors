@@ -44,6 +44,10 @@ from tests.test_sales_stage_mail import sender
 from tests.test_send_race import committed_sessions
 
 QUIET = Alarm(code="quiet-box:x", title="Ящик x молчит", detail="ждут его")
+#: Что лента говорит о `QUIET` под часами теста (`tests/conftest.WATCH_MINUTE`, 03:11 по Москве):
+#: «тревога» — с минутой начала, «прошло» — когда шла; часы стоят — меньше минуты.
+TOLD = "тревога: Ящик x молчит. С 03:11 МСК.\nждут его."
+GONE = "прошло: Ящик x молчит. 03:11 МСК, меньше минуты."
 BOX = "hello@mail-sales.example.test"
 
 
@@ -334,7 +338,7 @@ async def test_the_end_of_an_alarm_told_before_a_restart_is_still_told(
     for _ in range(alarm_feed.QUIET_PASSES):
         await restarted.tell([])
 
-    assert telegram == ["тревога: Ящик x молчит. ждут его", "прошло: Ящик x молчит"]
+    assert telegram == [TOLD, GONE]
     assert told_redis.hashes == {}
 
 
@@ -345,8 +349,8 @@ async def test_an_alarm_told_before_a_restart_is_not_told_again(
 
     await alarm_feed.Feed().tell([QUIET])  # процесс перезапущен, тревога держится
 
-    assert telegram == ["тревога: Ящик x молчит. ждут его"]
-    assert told_redis.hashes == {alarm_feed.told_key(): {QUIET.code: QUIET.title}}
+    assert telegram == [TOLD]
+    assert told_redis.hashes[alarm_feed.told_key()] == {QUIET.code: QUIET.title}
 
 
 async def test_without_redis_the_feed_remembers_its_own_process(
@@ -359,7 +363,7 @@ async def test_without_redis_the_feed_remembers_its_own_process(
         for state in ([QUIET], [QUIET], [], [], []):
             await feed.tell(state)
 
-    assert telegram == ["тревога: Ящик x молчит. ждут его", "прошло: Ящик x молчит"]
+    assert telegram == [TOLD, GONE]
     assert "сказанное из Redis не прочитано" in caplog.text
 
 
@@ -380,7 +384,7 @@ async def test_what_was_said_while_redis_blinked_reaches_it_next_pass(
     for _ in range(2):
         await restarted.tell([])  # тревоги больше нет
 
-    assert telegram == ["тревога: Ящик x молчит. ждут его", "прошло: Ящик x молчит"]
+    assert telegram == [TOLD, GONE]
     assert "сказанное в Redis не записано" in caplog.text
 
 
@@ -397,8 +401,8 @@ async def test_what_the_previous_process_said_is_read_once_redis_answers(
     for _ in range(3):
         await feed.tell([QUIET])
 
-    assert telegram == ["тревога: Ящик x молчит. ждут его", "прошло: Ящик y молчит"]
-    assert told_redis.hashes == {alarm_feed.told_key(): {QUIET.code: QUIET.title}}
+    assert telegram == [TOLD, "прошло: Ящик y молчит"]  # y сказан до заметок: без времени
+    assert told_redis.hashes[alarm_feed.told_key()] == {QUIET.code: QUIET.title}
 
 
 async def test_a_flapping_alarm_is_told_once_and_its_end_once_it_holds(
@@ -414,8 +418,8 @@ async def test_a_flapping_alarm_is_told_once_and_its_end_once_it_holds(
     for _ in range(3):
         await feed.tell([])
 
-    assert flapping == ["тревога: Ящик x молчит. ждут его"]
-    assert telegram == ["тревога: Ящик x молчит. ждут его", "прошло: Ящик x молчит"]
+    assert flapping == [TOLD]
+    assert telegram == [TOLD, GONE]
 
 
 # --- проход сторожа в процессе разбора: сеть — вне транзакции ---------------------------------
