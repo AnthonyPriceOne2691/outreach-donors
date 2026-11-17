@@ -27,6 +27,7 @@ from backend.features.letters.rewrite import (
     site_about,
 )
 from backend.features.letters.template import Zone, ZoneKind
+from backend.shared.llm import tiered
 
 ABOUT = Personalization(host="site.example.test", country="us")
 #: Что уходит клиенту ключом: модель подставная, значение ей неважно.
@@ -228,8 +229,11 @@ async def test_client_sends_the_hint_only_when_asked() -> None:
 
     zones = {"greeting": "Hi there,", "ask": ASK}
     change = change_share(_letter())
-    assert plain == [build_payload("gpt-5", zones=zones, about=ABOUT, change=change)]
-    assert hinted == [build_payload("gpt-5", zones=zones, about=ABOUT, change=change, hint=HINT)]
+    # Запрос — тот же `build_payload` с общим тарифом вызова (`llm.tiered`).
+    assert plain == [tiered(build_payload("gpt-5", zones=zones, about=ABOUT, change=change))]
+    assert hinted == [
+        tiered(build_payload("gpt-5", zones=zones, about=ABOUT, change=change, hint=HINT))
+    ]
     assert HINT not in plain[0]["messages"][1]["content"]
     assert HINT in hinted[0]["messages"][1]["content"]
 

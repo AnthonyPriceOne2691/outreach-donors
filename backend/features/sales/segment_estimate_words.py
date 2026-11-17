@@ -7,6 +7,9 @@
 
 **Тариф судьи** — рядом с его именем, как режим у выдачи: «Судья сегмента — экономный тариф,
 медленнее: …» (`segment_tier`); деньги в строке — уже долей прайса. Обычный тариф — строка прежняя.
+
+**Страницы выдачи** — покупаемые: углубление плана работ покупает не с первой (`from_page`), и
+строка называет какие — «ключей 3 × страниц 2 (страницы 4–5)». С первой — строка прежняя.
 """
 
 from __future__ import annotations
@@ -44,12 +47,24 @@ def _wait(seconds: int) -> str:
     return f"{seconds} с" if seconds < 60 else f"{round(seconds / 60)} мин"
 
 
+def _which_pages(found: Estimate) -> str:
+    """Какие страницы покупаются, когда не с первой: « (страница 3)», « (страницы 2–3)»; с первой —
+    пусто."""
+    if found.from_page == 1:
+        return ""
+    if found.from_page == found.depth_pages:
+        return f" (страница {found.from_page})"
+    return f" (страницы {found.from_page}–{found.depth_pages})"
+
+
 def _serp_line(found: Estimate) -> str:
     mode = SERP_MODE_WORDS[SerpMode(found.serp_mode)]
+    pages = found.depth_pages - found.from_page + 1  # покупаемые: с `from_page` по глубину
     return (
-        f"Выдача — {mode}: ключей {number(len(found.keywords))} × страниц {found.depth_pages} — "
-        f"результатов до {number(found.results)}, по {money(found.serp_page_usd)} за страницу "
-        f"≈ {money(found.serp_usd)}; ждать ≈ {_wait(found.serp_wait_s)}."
+        f"Выдача — {mode}: ключей {number(len(found.keywords))} × страниц {pages}"
+        f"{_which_pages(found)} — результатов до {number(found.results)}, по "
+        f"{money(found.serp_page_usd)} за страницу ≈ {money(found.serp_usd)}; ждать ≈ "
+        f"{_wait(found.serp_wait_s)}."
     )
 
 

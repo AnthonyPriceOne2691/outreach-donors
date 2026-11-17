@@ -18,7 +18,8 @@
 словами. Вернуть решение — отменой (`segment_undo.py`), пока из сайта не заведён лид.
 
 **Сайты по ключу** — сколько новых для гипотезы сайтов принёс каждый ключ и сколько из них
-принято (`KeySites`): по ним видно, что почти повторы общего ключа почти ничего не добавили.
+принято (`KeySites`): по ним видно, что почти повторы общего ключа почти ничего не добавили. Тем же
+счётом конвейер плана работ ставит первыми ключи, чья страница 1 дала принятые (`plan_waves`).
 
 **Ход прогона** — запись прохода и живое «сделано» судьи и адресов из кандидатов
 (`segment_progress.live`); плитки сходятся и во время судьи: «ещё не судили» — своим числом.
@@ -43,7 +44,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.sales import company_hold, segment_progress
@@ -125,12 +126,13 @@ class RunView:
     keyword_sites: dict[str, KeySites] = field(default_factory=dict)
 
 
-async def _keyword_sites(session: AsyncSession, run_id: int) -> dict[str, KeySites]:
+async def keyword_sites(session: AsyncSession, where: ColumnElement[bool]) -> dict[str, KeySites]:
+    """Сайты по ключу у кандидатов под условием `where` (`KeySites`): отчёт прогона берёт свой
+    прогон, конвейер плана — прогоны страницы 1 гипотезы плана на рынке. Ключ — как его назвала
+    выдача (`Candidate.keyword`)."""
     accepted = func.count().filter(Candidate.lane == Lane.ACCEPT)
     rows = await session.execute(
-        select(Candidate.keyword, func.count(), accepted)
-        .where(Candidate.run_id == run_id)
-        .group_by(Candidate.keyword)
+        select(Candidate.keyword, func.count(), accepted).where(where).group_by(Candidate.keyword)
     )
     return {
         keyword: KeySites(sites, taken)
@@ -230,7 +232,7 @@ async def run_view(session: AsyncSession, run_id: int) -> RunView | None:
     )
     view.progress = await segment_progress.live(session, run)
     view.again = await segment_progress.live(session, run, key=segment_progress.AGAIN_KEY)
-    view.keyword_sites = await _keyword_sites(session, run_id)
+    view.keyword_sites = await keyword_sites(session, Candidate.run_id == run_id)
     return view
 
 

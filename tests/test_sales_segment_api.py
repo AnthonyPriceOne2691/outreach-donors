@@ -19,6 +19,7 @@ from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.ops import job_outcome
+from backend.features.sales import deferred
 from backend.features.sales.segment_jobs import SEGMENT_JOB, segment_job_id
 from backend.features.sales.segment_models import (
     Lane,
@@ -220,17 +221,21 @@ async def test_a_queue_that_does_not_answer_leaves_no_run_behind(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Очередь задач не ответила — 503 словами, и прогона без задачи в списке нет: он «стоял бы
-    в очереди», которой у него нет."""
+    в очереди», которой у него нет. Отказ даёт сама постановка запуска (`segment_launch` →
+    `deferred.once`), а не закрытый порт очереди тестов: подмена обязана сработать."""
+    asked: list[tuple[object, ...]] = []
 
-    def down(*_args: object, **_kwargs: object) -> None:
+    def down(*args: object, **_kwargs: object) -> None:
+        asked.append(args)
         raise RedisError("очередь недоступна")
 
-    monkeypatch.setattr(segment_api, "enqueue_once", down)
+    monkeypatch.setattr(deferred, "once", down)
     owner = await hypothesis(session)
 
     response = await start(client, headers, owner.id)
 
     assert response.status_code == 503
+    assert len(asked) == 1
     assert await session.scalar(select(func.count()).select_from(SalesSegmentRunModel)) == 0
 
 
