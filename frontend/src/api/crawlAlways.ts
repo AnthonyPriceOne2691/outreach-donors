@@ -84,6 +84,9 @@ export interface DonorDepth {
   weak_by: WeakBy | null;
   exhausted: boolean;
   running: boolean;
+  /** Оговорка сервера о сайте — словами, например что судья смотрит не всю цепочку и находки
+   *  старых частей заморожены. Нет — сказать нечего. */
+  note?: string | null;
 }
 
 /** Пометка руками: `true` — пометить, `false` — снять, `null` — вернуть оценку сервису. */

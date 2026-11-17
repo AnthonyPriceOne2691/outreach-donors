@@ -511,6 +511,20 @@ describe('обход 24/7 у донора: слова', () => {
     );
   });
 
+  it('оговорка сервера — последней строкой «i», предложением; нет её — строки нет', () => {
+    const note =
+      'судья смотрит последние 600 000 ссылок цепочки — находки старых частей (2) заморожены';
+    expect(
+      depthLines({ ...HUMAN, note })
+        .map(plain)
+        .at(-1),
+    ).toBe(
+      'Судья смотрит последние 600 000 ссылок цепочки — находки старых частей (2) заморожены.',
+    );
+    expect(depthLines({ ...HUMAN, note: null })).toEqual(depthLines(HUMAN));
+    expect(depthLines({ ...HUMAN, note: '  ' })).toEqual(depthLines(HUMAN));
+  });
+
   it('кнопки — по тому, кто решил', () => {
     const labels = (said: DonorDepth) => markActions(said).map((action) => action.label);
     expect(labels(AUTO)).toEqual(['Снять пометку']);

@@ -162,9 +162,16 @@ function whoLine({ weak, weak_by: by }: DonorDepth): string | null {
   return weak ? AUTO_MARKED : null;
 }
 
+/** Оговорка сервера — предложением: с заглавной и с точкой. */
+function noteLine({ note }: DonorDepth): string | null {
+  const said = note?.trim().replace(/\.$/, '');
+  if (!said) return null;
+  return `${said.charAt(0).toUpperCase()}${said.slice(1)}.`;
+}
+
 /** Строки «i» у донора. Порог — чтобы доля у его края не перескочила его в словах. */
 export function depthLines(depth: DonorDepth, threshold?: number): string[] {
-  return [partsLine(depth), shareLine(depth, threshold), whoLine(depth)].filter(
+  return [partsLine(depth), shareLine(depth, threshold), whoLine(depth), noteLine(depth)].filter(
     (line) => line !== null,
   );
 }
