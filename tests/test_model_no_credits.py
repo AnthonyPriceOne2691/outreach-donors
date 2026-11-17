@@ -269,9 +269,11 @@ async def test_a_401_stays_a_permanent_refusal_of_the_key() -> None:
             # `minimal` пятого семейства закрыл бы запуск исправной модели другого (отказ 400).
             {"max_completion_tokens": 1024, "reasoning_effort": "low"},
         ),
+        # Шестое семейство — замена пятого (11.12.2026): та же рассуждающая ветка, `low` у него есть.
+        ("gpt-6.1-terra", {"max_completion_tokens": 1024, "reasoning_effort": "low"}),
         ("gpt-4o-mini", {"max_tokens": 8}),
     ],
-    ids=["reasoning", "plain"],
+    ids=["reasoning", "reasoning-gpt6", "plain"],
 )
 async def test_the_probe_is_a_tiny_call_of_the_same_model_with_the_same_key(
     model: str, limits: dict[str, Any]

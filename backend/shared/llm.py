@@ -43,13 +43,44 @@ ATTEMPTS = 3
 
 API_URL = "https://api.openai.com/v1/chat/completions"
 
+#: Шестое семейство — замена пятого: 11.12.2026 провайдер снимает `gpt-5` и `gpt-5-mini`.
+GPT6_PREFIX = "gpt-6"
 #: Семейства, которые считают токены рассуждений отдельно и не принимают
 #: температуру. Перепутать нельзя: провайдер отвечает отказом, а не догадкой.
-REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+#: Шестое — тоже: потолок только `max_completion_tokens`, температуру sol не принимает
+#: вовсе, terra и luna — при любом усилии, кроме `none` (документация провайдера,
+#: сверено 17.11.2026). Без префикса `gpt-6.1-…` ушла бы в обычную ветку — `max_tokens`
+#: и `temperature` на каждом вызове.
+REASONING_PREFIXES = ("gpt-5", GPT6_PREFIX, "o1", "o3", "o4")
 
 
 def is_reasoning(model: str) -> bool:
     return model.startswith(REASONING_PREFIXES)
+
+
+#: Ступени усилия рассуждения снизу вверх — шкала общая, семейство принимает её часть.
+EFFORT_SCALE = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+#: Ступени шестого семейства (документация провайдера, сверено 17.11.2026): `minimal` нет ни у
+#: одной модели, `none` нет у sol. Ступень, которой у модели нет, — отказ 400 на каждом вызове.
+#: Живой прогон того же дня: `low` и `medium` приняли все три модели.
+GPT6_EFFORTS = frozenset({"none", "low", "medium", "high", "xhigh", "max"})
+GPT6_SOL_EFFORTS = GPT6_EFFORTS - {"none"}
+
+
+def reasoning_effort(model: str, wanted: str) -> str:
+    """Усилие, которое модель примет: ступени, которой у семейства нет, — ближайшая выше.
+
+    Что просить, решает вызывающий (ключам и письму — `minimal`: нужен ответ, а не размышление);
+    здесь — только чем просьба становится у семейства без такой ступени. Пятое семейство и прочие —
+    как просили: тело их запроса не меняется ни на байт. Шестое: `minimal` → `low` (совет
+    провайдера: «If your existing request uses `minimal`, start with `low`»), у sol и `none` →
+    `low`. Вверх, а не вниз: ниже `minimal` только «без рассуждения», а у sol ниже нет ничего.
+    Ступень не со шкалы — как есть: опечатку в `.env` назовёт отказ провайдера, а не догадка здесь.
+    """
+    if not model.startswith(GPT6_PREFIX) or wanted not in EFFORT_SCALE:
+        return wanted
+    steps = GPT6_SOL_EFFORTS if "sol" in model.split("-") else GPT6_EFFORTS
+    return next(step for step in EFFORT_SCALE[EFFORT_SCALE.index(wanted) :] if step in steps)
 
 
 #: Статусы, на которых повтор бессмысленен: ключ, права или сама форма
@@ -355,7 +386,10 @@ class ModelUnreadyError(RuntimeError):
 def probe_payload(model: str) -> dict[str, Any]:
     """Тело проверки: слово в ответ, потолок вывода — по семейству модели."""
     limits: dict[str, Any] = (
-        {"max_completion_tokens": PROBE_TOKENS_REASONING, "reasoning_effort": PROBE_EFFORT}
+        {
+            "max_completion_tokens": PROBE_TOKENS_REASONING,
+            "reasoning_effort": reasoning_effort(model, PROBE_EFFORT),
+        }
         if is_reasoning(model)
         else {"max_tokens": PROBE_TOKENS_PLAIN}
     )

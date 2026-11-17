@@ -51,6 +51,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests.migration_helpers import columns_down_and_up
 
 MODEL_KEY = "k-test"  # pragma: allowlist secret
+#: Модель подставного клиента (`client_of`). Своим именем, а не умолчанием `config/llm.py`: смена
+#: умолчания при переходе на новую модель не должна трогать тесты.
+JUDGE_MODEL = "gpt-5-mini"
 #: Отпечаток файлов подсказки по версии. Правка файла без смены `PROMPT_VERSION` краснит тест:
 #: факты прежней версии смешались бы с новыми, и точность по когорте врала бы.
 PRINTS = {
@@ -134,9 +137,7 @@ class Model:
         return [json.loads(r.content)["messages"][1]["content"] for r in self.requests]
 
 
-def client_of(
-    model: Model, *, name: str = "gpt-5-mini", key: str | None = MODEL_KEY
-) -> JudgeClient:
+def client_of(model: Model, *, name: str = JUDGE_MODEL, key: str | None = MODEL_KEY) -> JudgeClient:
     http = httpx.AsyncClient(transport=httpx.MockTransport(model))
     return JudgeClient(http, model=name, api_key=key)
 
@@ -171,8 +172,9 @@ def test_the_model_gives_facts_and_one_overall_answer_of_three_words() -> None:
     assert "our code checks it against the other answers" in load_prompt()
 
 
-def test_the_payload_is_strict_with_room_for_reasoning() -> None:
-    payload = build_payload("gpt-5-mini", user="u", system="s")
+@pytest.mark.parametrize("model", ["gpt-5-mini", "gpt-6.1-terra"])
+def test_the_payload_is_strict_with_room_for_reasoning(model: str) -> None:
+    payload = build_payload(model, user="u", system="s")
 
     assert payload["response_format"]["json_schema"]["strict"] is True
     assert payload["response_format"]["json_schema"]["name"] == "advertiser_facts"

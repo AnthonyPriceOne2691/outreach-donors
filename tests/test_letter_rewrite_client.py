@@ -176,6 +176,8 @@ OLD_USER = (
     ("model", "limits"),
     [
         ("gpt-5", {"max_completion_tokens": 1500, "reasoning_effort": "minimal"}),
+        # У шестого семейства `minimal` нет — ближайшая ступень выше (`llm.reasoning_effort`).
+        ("gpt-6.1-sol", {"max_completion_tokens": 1500, "reasoning_effort": "low"}),
         ("gpt-4.1", {"max_tokens": 600, "temperature": 1}),
     ],
 )

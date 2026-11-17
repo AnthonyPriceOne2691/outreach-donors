@@ -38,7 +38,14 @@ from backend.features.donors.home_signals import HomeSignals, looks_denied
 from backend.features.runs.planning import SerpText
 from backend.features.topics.answer import parse
 from backend.features.topics.taxonomy import prompt_list
-from backend.shared.llm import Refusal, content_of, is_reasoning, post_chat, tokens_of
+from backend.shared.llm import (
+    Refusal,
+    content_of,
+    is_reasoning,
+    post_chat,
+    reasoning_effort,
+    tokens_of,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +194,7 @@ def build_payload(model: str, host: str, text: str) -> dict[str, Any]:
     }
     if is_reasoning(model):
         payload["max_completion_tokens"] = REASONING_CEILING
-        payload["reasoning_effort"] = cfg.REASONING_EFFORT
+        payload["reasoning_effort"] = reasoning_effort(model, cfg.REASONING_EFFORT)
     else:
         payload["max_tokens"] = PLAIN_CEILING
         payload["temperature"] = 0

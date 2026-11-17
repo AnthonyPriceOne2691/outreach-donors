@@ -69,9 +69,14 @@ class Model:
         return httpx.Response(200, json=_chat(self.answer))
 
 
+#: Модель писателя в тестах — своим именем, а не умолчанием `config/llm.py`: смена умолчания при
+#: переходе на новую модель не должна трогать тесты.
+WRITER_MODEL = "gpt-5"
+
+
 async def _write(model: Model, request: Request | None = None) -> Written:
     async with httpx.AsyncClient(transport=httpx.MockTransport(model)) as http:
-        return await AgentWriter(http, model="gpt-5", api_key="test-key").write(
+        return await AgentWriter(http, model=WRITER_MODEL, api_key="test-key").write(
             request or _request()
         )
 
@@ -110,7 +115,11 @@ class TestWhatGoesOut:
 
     @pytest.mark.parametrize(
         ("model_name", "limit_key"),
-        [("gpt-5", "max_completion_tokens"), ("gpt-4.1", "max_tokens")],
+        [
+            ("gpt-5", "max_completion_tokens"),
+            ("gpt-6.1-sol", "max_completion_tokens"),
+            ("gpt-4.1", "max_tokens"),
+        ],
     )
     def test_payload_fits_the_model_family(self, model_name: str, limit_key: str) -> None:
         payload = writer.build_payload(model_name, user="текст")

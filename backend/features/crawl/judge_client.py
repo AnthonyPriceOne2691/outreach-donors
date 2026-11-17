@@ -45,6 +45,7 @@ from backend.shared.llm import (
     content_of,
     is_reasoning,
     post_chat,
+    reasoning_effort,
     tokens_of,
 )
 
@@ -170,7 +171,7 @@ def again_message(user: str, missing: tuple[str, ...]) -> str:
 def _room(model: str, effort: str, room: int) -> dict[str, Any]:
     """Потолок вывода по семейству модели: у модели с рассуждением оно входит в потолок."""
     if is_reasoning(model):
-        return {"reasoning_effort": effort, "max_completion_tokens": room}
+        return {"reasoning_effort": reasoning_effort(model, effort), "max_completion_tokens": room}
     return {"temperature": 0, "max_tokens": TOKENS_PLAIN}
 
 

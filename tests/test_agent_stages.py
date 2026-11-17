@@ -27,7 +27,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.migration_helpers import load_migration
-from tests.test_agent_writer import Model, _request, _write
+from tests.test_agent_writer import WRITER_MODEL, Model, _request, _write
 
 _DRAFT = {"body": "Thanks!", "needs_human": False, "reason": ""}
 
@@ -55,7 +55,7 @@ class TestFirstStagesUnchanged:
         await _write(model)
 
         [sent] = model.sent
-        assert sent["model"] == "gpt-5"
+        assert sent["model"] == WRITER_MODEL
         assert sent["messages"][0]["content"] == agent_writer.load_prompt()
         facts = json.loads(sent["messages"][1]["content"].split("\n")[1])
         assert set(facts) == {"stage", "settings", "sign_as", "parsed_from_last_message"}
