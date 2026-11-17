@@ -3,8 +3,12 @@
 Четыре тишины, которых общий сторож (`silence.py`) не видит, — каждая «при X не может
 быть Y», как у него:
 
-- **ящик молчит:** письма переписки ждут его дольше `QUIET_MINUTES` (срок уже
-  открыл окно получателя), а с ящика за это время не ушло ничего;
+- **ящик молчит:** письма переписки ждут его дольше `QUIET_MINUTES`, а с ящика за это время
+  не ушло ничего. Ждут — подошедшие, которых проход добивок не забрал, и те, кому после
+  последнего письма ящика отказала почта. Ждать по замыслу — окна получателя, паузы ящика между
+  письмами, его потолков — не тишина: такие добивки проход переносит в будущее за один проход
+  (17.11.2026: 250 добивок вне окна он откладывал по 20 в минуту больше десяти минут, и сторож
+  назвал молчащими все 15 ящиков продаж);
 - **ящик выбыл:** выключен, на паузе, удалён или его домен на паузе — правило отправки
   (`letters/mailbox.silence_of`), — а письма переписок (добивки по сроку, ответы в очереди)
   ждут именно его: с другого ящика они не уйдут. Тревога по смене состояния — от первого
@@ -40,7 +44,7 @@ import logging
 from collections.abc import Collection
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,17 +57,27 @@ from backend.features.core.models.outreach import (
     SenderModel,
     SendingDomainModel,
 )
-from backend.features.letters import mailbox
+from backend.features.letters import followup_refusal, mailbox
 from backend.features.letters.chain import ANSWER_STEP, CHAINABLE, FIRST_STEP, MAX_STEPS
-from backend.features.ops.alarms import Alarm, Concern, cause, direction, no_cause
+from backend.features.ops.alarms import (
+    Alarm,
+    Concern,
+    Kind,
+    cause,
+    direction,
+    no_cause,
+    senders_screen,
+)
 from backend.features.outreach import limits
+from backend.features.outreach.repository import followup_pending
 
 logger = logging.getLogger(__name__)
 
 #: Сколько письмо переписки может ждать своего ящика, прежде чем ящик «молчит». Проход добивок
-#: идёт раз в минуту по 20 писем: утренняя волна в сотню подошедших сходит за 5–6 минут, и
-#: десять минут с поломкой её не путают. Срок тревоги по ТЗ — 15 минут: порог, проход сторожа
-#: и опрос провайдеров до их таймаутов — меньше 14 минут (`workers/reaper.WATCHDOG_INTERVAL_SEC`).
+#: идёт раз в минуту: подошедшую он отдаёт почте или переносит её срок в будущее (окно, пауза,
+#: потолки ящика) — с ящика письмо за проход, отложенные все разом, — и десять минут с поломкой
+#: не путаются. Срок тревоги по ТЗ — 15 минут: порог, проход сторожа и опрос провайдеров до их
+#: таймаутов — меньше 14 минут (`workers/reaper.WATCHDOG_INTERVAL_SEC`).
 QUIET_MINUTES = 10
 
 #: Пометки, общие у нескольких мест правила. Модуль продаж о политике не ответил — сторож этапа
@@ -156,6 +170,10 @@ async def _of_stage(session: AsyncSession, stage: Stage, now: datetime) -> list[
                     "письма направления стоят",
                     "разобрать причину пауз и включить ящик на экране «Домены рассылки»",
                 ),
+                kind=Kind("Все ящики направления на паузе", "Пишущих ящиков нет: письма стоят"),
+                item=direction(stage),
+                brief=f"ящиков {len(boxes)}",
+                screen=senders_screen(stage),
             )
         )
     queued = await session.scalar(
@@ -179,6 +197,14 @@ async def _of_stage(session: AsyncSession, stage: Stage, now: datetime) -> list[
                 ),
                 stage=stage,
                 concern=_nobody(shut, stage, now),
+                kind=Kind(
+                    "Очередь есть — отправить некому",
+                    "Первые письма в очереди, а пишущего ящика на открытом домене нет: ящики "
+                    "выключены или домен на паузе, на выдержке, записан за другим направлением",
+                ),
+                item=direction(stage),
+                brief=f"первых писем в очереди: {queued}",
+                screen=senders_screen(stage),
             )
         )
     return found
@@ -257,6 +283,14 @@ async def _retired(
         ),
         stage=stage,
         concern=DELETED if box is None else RETIRED,
+        kind=Kind(
+            f"Выбыли ящики {STAGE_GENITIVE[stage]}",
+            "Ящики выключены, на паузе или удалены, или их домен на паузе, а письма их переписок "
+            "ждут именно их: с другого ящика они не уйдут",
+        ),
+        item="удалённый ящик" if box is None else box.email,
+        brief=f"писем ждут: {scheduled + answers}",
+        screen=senders_screen(stage),
     )
 
 
@@ -306,16 +340,11 @@ async def _answers(session: AsyncSession, box: SenderModel) -> int:
 
 
 async def _quiet(session: AsyncSession, box: SenderModel, now: datetime) -> Alarm | None:
-    """Письма переписки ждут ящик дольше `QUIET_MINUTES`, а с него не ушло ничего."""
+    """Письма переписки ждут ящик дольше `QUIET_MINUTES`, а с него не ушло ничего: подошедшие, которых
+    проход не забрал (`_overdue`), и те, кому почта отказала после последнего письма ящика
+    (`_refused`)."""
     edge = now - timedelta(minutes=QUIET_MINUTES)
-    waiting = await session.scalar(
-        select(func.count(MessageModel.id)).where(
-            MessageModel.sender_id == box.id,
-            MessageModel.status.in_(CHAINABLE),
-            MessageModel.step < MAX_STEPS - 1,
-            MessageModel.next_action_at <= edge,
-        )
-    )
+    waiting = await _overdue(session, box, edge) + await _refused(session, box, edge)
     if not waiting:
         return None
     if await session.scalar(
@@ -334,4 +363,51 @@ async def _quiet(session: AsyncSession, box: SenderModel, now: datetime) -> Alar
             "переписки ящика стоят",
             "проверить, идёт ли проход добивок и не отказывает ли почта ящику",
         ),
+        kind=Kind(
+            f"Молчат ящики {STAGE_GENITIVE[box.stage]}",
+            f"Письма переписки ждут эти ящики дольше {QUIET_MINUTES} минут, а с них не ушло "
+            "ничего: проход добивок не идёт или ящики упёрлись в отказы почты",
+        ),
+        item=box.email,
+        brief=f"писем ждут: {waiting}",
+        screen=senders_screen(box.stage),
     )
+
+
+async def _overdue(session: AsyncSession, box: SenderModel, edge: datetime) -> int:
+    """Добивки ящика, чей срок прошёл раньше `edge`, а проход их не забрал, — условием захвата
+    (`followup_pending`). Отложенные по замыслу — окно получателя, пауза и потолки ящика — проход
+    переносит в будущее за один проход (`letters/followups.send_due`), так что срок в прошлом дольше
+    `QUIET_MINUTES` — это проход, который не идёт или не доходит до ящика."""
+    found = await session.scalar(
+        select(func.count(MessageModel.id)).where(
+            MessageModel.sender_id == box.id,
+            *followup_pending(),
+            MessageModel.next_action_at <= edge,
+        )
+    )
+    return int(found or 0)
+
+
+async def _refused(session: AsyncSession, box: SenderModel, edge: datetime) -> int:
+    """Добивки переписок ящика, чью последнюю попытку почта отклонила раньше `edge`
+    (`letters/followup_refusal.py`), и с тех пор с ящика не ушло ни одно письмо: срок такой добивки —
+    через час, но ждёт она ящик. Отказ до последнего ушедшего письма — не тишина: ящик с тех пор
+    писал, и добивка ждёт своего часа, а не ящика."""
+    threads = select(MessageModel.thread_id).where(
+        MessageModel.step == FIRST_STEP, MessageModel.sender_id == box.id
+    )
+    last = (
+        select(func.max(MessageModel.sent_at))
+        .where(MessageModel.sender_id == box.id)
+        .scalar_subquery()
+    )
+    found = await session.scalar(
+        select(func.count(MessageModel.id)).where(
+            followup_refusal.marked(),
+            MessageModel.thread_id.in_(threads),
+            MessageModel.updated_at <= edge,
+            or_(last.is_(None), MessageModel.updated_at > last),
+        )
+    )
+    return int(found or 0)

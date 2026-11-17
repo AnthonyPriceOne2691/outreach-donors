@@ -70,7 +70,8 @@ from tests.test_silence_watchdog import NOW, T, _letter
 #: Код сервиса — в нём ищутся тревоги.
 SERVICE = Path(__file__).resolve().parent.parent / "backend"
 
-#: Где текст тревоги собирается сам: лента (`alarms.told`, «прошло» — без пометки) и отправка.
+#: Где текст тревоги собирается сам: лента (`alarm_words.alarmed`, «прошло» — без пометки) и
+#: отправка.
 OWN = ("features/ops/alarm_feed.py", "shared/alerts.py")
 
 #: Пометка — одна строка в конце сообщения: длиннее — уже не пометка, а второе описание.
@@ -258,7 +259,7 @@ def telegram(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 def _alarm_text(alarm: Alarm) -> str:
     assert alarm.concern is not None
-    return f"тревога: {alarm.title}. {alarm.detail}\n{alarm.concern.words}"
+    return f"тревога: {alarm.title}. С 03:11 МСК.\n{alarm.detail}.\n{alarm.concern.words}"
 
 
 async def test_the_alarm_ends_with_its_mark_and_the_all_clear_has_none(
@@ -270,7 +271,7 @@ async def test_the_alarm_ends_with_its_mark_and_the_all_clear_has_none(
     for _ in range(alarm_feed.QUIET_PASSES):
         await feed.tell([])
 
-    assert telegram == [_alarm_text(PENDING), f"прошло: {PENDING.title}"]
+    assert telegram == [_alarm_text(PENDING), f"прошло: {PENDING.title}. 03:11 МСК, меньше минуты."]
 
 
 async def test_an_alarm_without_a_mark_goes_as_before(telegram: list[str]) -> None:
@@ -281,7 +282,7 @@ async def test_an_alarm_without_a_mark_goes_as_before(telegram: list[str]) -> No
     for _ in range(2):
         await feed.tell([bot])
 
-    assert telegram == ["тревога: Бот продаж без токена. ждут 2"]
+    assert telegram == ["тревога: Бот продаж без токена. С 03:11 МСК.\nждут 2."]
 
 
 async def test_a_cause_that_appears_is_told_again_and_one_that_goes_is_not(

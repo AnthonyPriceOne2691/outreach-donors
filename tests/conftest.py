@@ -31,6 +31,7 @@ import socket
 import subprocess
 import sys
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -678,3 +679,15 @@ def _no_watch_memory_in_a_real_redis(monkeypatch: pytest.MonkeyPatch) -> None:
         raise RedisError("тесты не пишут сказанное сторожем в настоящий Redis")
 
     monkeypatch.setattr("backend.features.ops.alarm_feed.connection", refused)
+
+
+#: Минута, которую называет лента тревог в тестах, — 03:11 по Москве (`alarm_feed.wall_clock`).
+WATCH_MINUTE = datetime(2026, 11, 17, 0, 11, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _watch_words_at_a_fixed_minute(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Лента тревог называет время — «С 03:11 МСК.», «03:11–03:21 МСК, 10 минут»: в тестах её
+    часы стоят на одной минуте, и текст не зависит от минуты прогона. Тесты, которым нужен ход
+    времени, ставят свои часы."""
+    monkeypatch.setattr("backend.features.ops.alarm_feed.wall_clock", lambda: WATCH_MINUTE)

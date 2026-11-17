@@ -99,6 +99,8 @@ UPDATE = {
     "backend/features/letters/settle.py": "выход письма из состояния (`settle.leave`): ушло, "
     "исход, остановка",
     "backend/features/letters/followups.py": "срок добивки: захват, возврат, конец цепочки",
+    "backend/features/letters/followup_refusal.py": "след отказа почты у добивки в очереди — "
+    "новая попытка шага его снимает",
     "backend/features/letters/unknown_outcome.py": "ушедшая добивка гасит срок повтора предыдущего "
     "письма",
     "backend/features/crawl/niche.py": "письма бизнесу ниши — из очереди в «остановлено»",
