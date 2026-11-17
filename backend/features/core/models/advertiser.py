@@ -233,3 +233,49 @@ class JudgeNightModel(TimestampedMixin, Base):
     applied: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     #: Почему шаг встал или не дошёл до конца — словами.
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class AutoRoundSwitchModel(SetByMixin, Base):
+    """Автокруг рекламодателей (`crawl/auto_round.py`) — включён ли и сколько писем в сутки: строка
+    на каждую смену.
+
+    Действует последняя строка; строк нет — автокруг выключен, потолок — умолчание
+    (`crawl/auto_round_switch.py`). Строка не правится и не удаляется: по строкам видно, кто и когда
+    разрешил сервису переводить, искать адреса, собирать и отправлять самому и кто это остановил, —
+    как у полос судьи. От имени включившего уходят письма автокруга.
+    """
+
+    __tablename__ = "advertiser_auto_round_switches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    #: Суточный потолок писем — сколько писем круг собирает за сутки, не больше (`limit` сборки).
+    letters: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class AutoRoundModel(TimestampedMixin, Base):
+    """Автокруг рекламодателей (`crawl/auto_round.py`): одна строка на дату.
+
+    Строка — и замок, и след, как у ночного шага судьи (`JudgeNightModel`): уникальная дата держит
+    «один раз в сутки» при рестарте и двух процессах, итог остаётся, чтобы было видно, что круг
+    сделал сам, а шаг, на котором он стоит, переживает выкатку.
+    """
+
+    __tablename__ = "advertiser_auto_rounds"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Дата круга по Москве — та же, что у ночного круга обходов и шага судьи.
+    day: Mapped[date] = mapped_column(Date, nullable=False, unique=True)
+    #: Значение `auto_round.Phase`.
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Когда круг поставил задачу своего шага — поиск адресов или сборку (или стал ждать идущей):
+    #: итог раньше этой минуты — чужой. Пусто — задача шага ещё не ставилась.
+    asked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Сколько раз круг ставил сборку: выкатка и сбой — повтор, но не без конца.
+    tries: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    #: Итог по шагам: перевод, адреса, сборка, режим очереди — числами и словами.
+    report: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    #: Почему круг встал, не начался или кончился раньше — словами.
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)

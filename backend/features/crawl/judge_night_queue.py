@@ -82,21 +82,28 @@ def _aware(moment: datetime | None) -> datetime | None:
     return moment.replace(tzinfo=UTC)
 
 
+def seen_of(job_id: str | None, *, died: str = WORKER_DIED) -> PassSeen:
+    """Что очередь знает о задаче `job_id` — глазами шага, который её ждёт; номера нет — `idle`.
+    `died` — слова о задаче, чей воркер умер. Тем же чтением ждёт свои задачи автокруг рекламодателей
+    (`auto_round_queue.py`)."""
+    outcome = None if job_id is None else job_outcome(job_id)
+    if outcome is None:
+        return PassSeen("idle")
+    ended = _aware(outcome.ended_at)
+    if outcome.state == "done" and outcome.report is not None:
+        return PassSeen("done", outcome.report, ended)
+    # «Идёт» у задачи умершего воркера держится до её срока: живость говорит его ключ.
+    if outcome.state == "running" and job_alive(job_id) is False:
+        return PassSeen("failed", error=died)
+    # Остальное — упала, отказана, кончилась без отчёта — «не дошла»: шаг поставит снова.
+    return PassSeen(_STATES.get(outcome.state, "failed"), ended_at=ended, error=outcome.error)
+
+
 class RqPass:
     """Разбор спорных в настоящей очереди обходов."""
 
     def seen(self) -> PassSeen:
-        outcome = job_outcome(JUDGE_DISPUTED_JOB_ID)
-        if outcome is None:
-            return PassSeen("idle")
-        ended = _aware(outcome.ended_at)
-        if outcome.state == "done" and outcome.report is not None:
-            return PassSeen("done", outcome.report, ended)
-        # «Идёт» у задачи умершего воркера держится до её срока: живость говорит его ключ.
-        if outcome.state == "running" and job_alive(JUDGE_DISPUTED_JOB_ID) is False:
-            return PassSeen("failed", error=WORKER_DIED)
-        # Остальное — упала, отказана, кончилась без отчёта — «не дошла»: шаг поставит снова.
-        return PassSeen(_STATES.get(outcome.state, "failed"), ended_at=ended, error=outcome.error)
+        return seen_of(JUDGE_DISPUTED_JOB_ID)
 
     def start(self, cases: int, *, by: str) -> bool | None:
         try:

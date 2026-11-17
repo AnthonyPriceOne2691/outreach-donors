@@ -295,6 +295,10 @@ class AuditAction(StrEnum):
     # Автоприменение советов судьи по полосе включено или выключено (`crawl/judge_bands.py`):
     # с этой минуты судья решает полосу сам каждую ночь — по журналу видно, кто это разрешил.
     ADVERTISER_JUDGE_BANDS_CHANGED = "advertiser_judge_bands_changed"
+    # Автокруг рекламодателей включён, выключен или сменён его суточный потолок писем
+    # (`crawl/auto_round_switch.py`): с этой минуты сервис сам переводит, ищет адреса, собирает и
+    # отправляет — по журналу видно, кто это разрешил и кто остановил.
+    ADVERTISER_AUTO_ROUND_CHANGED = "advertiser_auto_round_changed"
 
 
 class UsageProvider(StrEnum):

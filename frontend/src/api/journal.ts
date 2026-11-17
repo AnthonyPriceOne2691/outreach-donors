@@ -40,7 +40,8 @@ export type AuditAction =
   | 'crawl_backlog_dropped'
   | 'advertiser_judge_applied'
   | 'advertiser_judge_reverted'
-  | 'advertiser_judge_bands_changed';
+  | 'advertiser_judge_bands_changed'
+  | 'advertiser_auto_round_changed';
 
 export interface JournalEntry {
   id: number;

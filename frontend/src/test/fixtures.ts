@@ -136,6 +136,17 @@ export const HOME_ROUTES: Record<string, Answer> = {
 };
 
 /** Панель «К письму» под рекламодателями: переводить некого, адресов не ждут. */
+/** Автокруг рекламодателей (`AutoRound`): рубильник включён, выключатель — нет, кругов не было. */
+export const AUTO_ROUND_OFF = {
+  available: true,
+  switch: { enabled: false, letters: 100, set_by: null, set_at: null },
+  last: null,
+  ran_today: false,
+  first: 'Сегодняшнего круга ещё не было: он начнётся в ближайшие минуты.',
+  letters_min: 1,
+  letters_max: 500,
+};
+
 export const PROMOTE_ROUTES: Record<string, Answer> = {
   'GET /api/crawls/units-stop': { body: null },
   'GET /api/advertisers/judge-pass': {
@@ -173,6 +184,8 @@ export const PROMOTE_ROUTES: Record<string, Answer> = {
   'GET /api/advertisers/contacts': {
     body: { pending: 0, running: false, job_id: null, last: null, workers: 1 },
   },
+  // Автокруг в «К письму» (`AutoRound`): выключен, кругов ещё не было.
+  'GET /api/advertisers/auto-round': { body: AUTO_ROUND_OFF },
 };
 
 /** Сводка обхода в «Проверке» (`CrawlSummary`): доноров нет, ничего не идёт. */

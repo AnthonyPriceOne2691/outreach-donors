@@ -63,8 +63,9 @@ export function bandsWords(bands: JudgeBandState[]): string {
     .join(' · ');
 }
 
-/** «2026-11-05» → «05.11»: год в строке итога ночи лишний. */
-function dayMonth(night: string): string {
+/** «2026-11-05» → «05.11»: год в строке итога ночи лишний. Та же дата — у строки автокруга
+ *  (`AutoRound`). */
+export function dayMonth(night: string): string {
   const [, month, day] = night.split('-');
   return `${day}.${month}`;
 }
