@@ -173,6 +173,17 @@ info». Такой отказ читался как «нет почтового 
 (пока провайдер молчит без тревоги — раз в 4), и медленный опрос попадает в
 окно тревоги не больше одного раза.
 
+**«Ящик молчит» — о поломке, а не об ожидании по замыслу** (17.11.2026). Ждут
+ящик подошедшие добивки, которых проход не забрал дольше 10 минут, и добивки,
+которым почта отказала после последнего письма ящика (след у строки добивки —
+`letters/followup_refusal.py`: срок после отказа уходит на час, и без следа
+сторож отказов не видел). Окно получателя, пауза ящика между письмами и его
+потолки — не тишина: такие добивки проход переносит в будущее за один проход,
+не тратя на них потолок прохода. 17.11 в 03:11 по Москве 250 добивок продаж
+вне окна проход откладывал по 20 в минуту, и сторож назвал молчащими все 15
+ящиков. Отказ почты этому письму (адресат, содержимое) — не о ящике и следа не
+оставляет.
+
 **«Провайдер не отвечает» — о поломке, а не о неответе, прошедшем сам**
 (15.10.2026: тревога и «прошло» рано утром, прогонов не было). Временный сбой —
 таймаут, обрыв, 429, 5xx, страница вместо данных — тревога, когда провайдер
@@ -207,6 +218,7 @@ info». Такой отказ читался как «нет почтового 
   в «отправляется»: событие, решение человека, одна запись «ушло» на все пути;
 - `backend/features/ops/silence.py`, `backend/features/ops/stage_silence.py`,
   `backend/features/ops/mail_watch.py` — правила сторожа;
+  `backend/features/letters/followup_refusal.py` — след отказа почты у добивки для «ящик молчит»;
   `backend/features/replies/recipient_stage.py` — этап ответа без письма;
   `backend/workers/reaper.py` — проход сторожа;
 - `backend/features/outreach/autopause.py` — пауза ящика одна и тревога о ней;
@@ -216,7 +228,8 @@ info». Такой отказ читался как «нет почтового 
 - `tests/test_delivery_events.py`, `tests/test_silence_watchdog.py`, `tests/test_silence_stages.py`,
   `tests/test_letters_unknown_outcome.py`, `tests/test_letters_unknown_race.py`,
   `tests/test_autopause_alarm.py`, `tests/test_mail_watch_retired.py`,
-  `tests/test_watch_quiet.py`, `tests/test_warmup_first_letter.py`, `tests/test_recipient_side.py`,
+  `tests/test_watch_quiet.py`, `tests/test_mail_watch_quiet.py`, `tests/test_warmup_first_letter.py`,
+  `tests/test_recipient_side.py`,
   `tests/test_recipient_dns_hold.py`, `tests/test_recipient_dns_sight.py`, `tests/test_dns_return.py`,
   `tests/test_dns_return_taken.py`.
 

@@ -128,8 +128,9 @@ async def test_a_paused_box_with_waiting_followups_is_told_once_and_its_return_o
         Stage.SALES,
     )
     assert telegram == [
-        f"тревога: Ящик {BOX} выбыл. {detail}\n{mail_watch.RETIRED.words}",
-        f"прошло: Ящик {BOX} выбыл",
+        f"тревога: Ящик {BOX} выбыл. С 03:11 МСК.\n{detail}.\n"
+        f"Где смотреть: экран «Домены рассылки продаж».\n{mail_watch.RETIRED.words}",
+        f"прошло: Ящик {BOX} выбыл. 03:11 МСК, меньше минуты.",
     ]
 
 

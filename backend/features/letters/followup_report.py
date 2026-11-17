@@ -19,10 +19,12 @@ class PassReport:
     postponed: int = 0
     """Отложено: окно получателя закрыто, ящик стоит или почта отказала временно. Цепочка жива."""
     outside: int = 0
-    """Из отложенных — до окна получателя: добивка донору или рекламодателю вне его рабочих часов
-    (`followup_window.py`); когда уйдёт каждая, говорит её строка журнала."""
+    """Из отложенных — до окна получателя: добивка вне его рабочих часов, отложенная до сборки
+    текста (`followup_window.py`); когда уйдёт каждая, говорит её строка журнала."""
     capped: Counter[int] = field(default_factory=Counter)
     """Из отложенных — до завтра, по ящикам: ящик выбрал суточный потолок (`followup_caps`)."""
+    refused: int = 0
+    """Из отложенных — отказ почты: добивку отдали почте, и она не приняла (`followup_refusal.py`)."""
     stopped: int = 0
     """Остановлено: донор в стоп-листе или в тексте добивки запрещённое. Больше ему не пишем."""
     unknown: int = 0
@@ -37,11 +39,20 @@ class PassReport:
     """Когда освободится первый из ящиков, чьи добивки ждут паузы (`resting`)."""
 
     @property
+    def handed(self) -> int:
+        """Сколько добивок проход отдал почте: ушли, исход неизвестен или почта отказала. Только
+        они идут в потолок прохода (`followups.send_due`): отложить добивку — запрос к базе, а не
+        к почте."""
+        return self.sent + self.unknown + self.refused
+
+    @property
     def as_report(self) -> str:
         notes = [f"до окна получателя — {self.outside}"] if self.outside else []
         if self.capped:  # по ящикам: потолок у каждого свой, и видно, чей завал переезжает
             boxes = ", ".join(f"ящик №{box} — {n}" for box, n in sorted(self.capped.items()))
             notes.append(f"до завтра по суточному потолку — {self.capped.total()}: {boxes}")
+        if self.refused:
+            notes.append(f"отказала почта — {self.refused}")
         why = f" (из них {'; '.join(notes)})" if notes else ""
         said = (
             f"отправлено {self.sent}, отложено {self.postponed}{why}, "
