@@ -12,17 +12,25 @@ import type { AlwaysChange, AlwaysView, DonorDepth, WeakMark } from '../api/craw
 import { formatDateTime, formatNumber, formatPercent, plural } from '../format';
 import { pagesOf } from './crawlWords';
 
-/** Часть 24/7 — 10 000 страниц сайта: после неё сайт получает или не получает пометку. Числа в
- *  ответе нет — слова и поле экрана держат его здесь, одним местом. */
+/** Часть 24/7 — страниц сайта за проход: после первой сайт получает или не получает пометку.
+ *  Число — сервера (`part_pages`); это — только на случай сервера старше экрана. */
 export const PART_PAGES = 10_000;
 
-/** Что делает включение — до нажатия, у кнопки (`ConfirmPopover`). */
-export const START_WARNING =
-  'Обход пойдёт сам вне ночного окна: сначала сайты, которых ещё не обходили,\u00a0— до ' +
-  `${formatNumber(1000)} страниц, потом по ${formatNumber(PART_PAGES)} страниц каждого сайта, ` +
-  `дальше\u00a0— следующие ${formatNumber(PART_PAGES)}, первыми сайты с большей долей платных ` +
-  'ссылок. Ночной обход 00:00–07:00 по Москве остаётся как есть. Юниты Ahrefs и месячный ' +
-  'потолок платного обхода действуют как сейчас. Пауза\u00a0— одним нажатием.';
+/** Часть 24/7 — числом сервера, а без него — своим. */
+export function partPages(view: AlwaysView): number {
+  return view.part_pages ?? PART_PAGES;
+}
+
+/** Что делает включение — до нажатия, у кнопки (`ConfirmPopover`). `part` — часть 24/7. */
+export function startWarning(part: number): string {
+  return (
+    'Обход пойдёт сам вне ночного окна: сначала сайты, которых ещё не обходили,\u00a0— до ' +
+    `${formatNumber(1000)} страниц, потом по ${formatNumber(part)} страниц каждого сайта, ` +
+    `дальше\u00a0— следующие ${formatNumber(part)}, первыми сайты с большей долей платных ` +
+    'ссылок. Ночной обход 00:00–07:00 по Москве остаётся как есть. Юниты Ahrefs и месячный ' +
+    'потолок платного обхода действуют как сейчас. Пауза\u00a0— одним нажатием.'
+  );
+}
 
 /** Рубильник окружения выключен — одной строкой, без кнопок. */
 export const UNAVAILABLE =
@@ -54,11 +62,11 @@ export function markedCount(yields: readonly number[], threshold: number): numbe
 }
 
 /** Строка под полем порога: «при этом пороге пометку получат 102 из 155 сайтов». Считает экран
- *  по долям сервера — сайты, прошедшие первые 10 000 страниц. */
-export function markWords(yields: readonly number[], threshold: number): string {
+ *  по долям сервера — сайты, прошедшие первую часть (`part` страниц). */
+export function markWords(yields: readonly number[], threshold: number, part: number): string {
   const total = yields.length;
   if (total === 0) {
-    return `пометку получат сайты, прошедшие первые ${pagesOf(PART_PAGES)}, — таких пока нет`;
+    return `пометку получат сайты, прошедшие первые ${pagesOf(part)}, — таких пока нет`;
   }
   const marked = markedCount(yields, threshold);
   const verb = plural(marked, 'получит', 'получат', 'получат');
@@ -131,11 +139,12 @@ function partsLine(depth: DonorDepth): string {
   return `Обход 24/7 прошёл ${passed} за ${count}${partsTail(depth)}.`;
 }
 
-/** «Платная ссылка на 4 из 10 000 страниц — 0,04%». Число страниц с платной ссылкой — от доли
- *  сервера: отдельным числом его в ответе нет. */
-function shareLine({ pages, yield_pct: share }: DonorDepth, threshold?: number): string | null {
+/** «Платная ссылка на 4 из 10 000 страниц — 0,04%». Страниц с платной ссылкой — числом сервера
+ *  (`selling_pages`); сервер старше или числа нет — от доли. */
+function shareLine(depth: DonorDepth, threshold?: number): string | null {
+  const { pages, yield_pct: share } = depth;
   if (share === null) return null;
-  const paid = Math.round((share * pages) / 100);
+  const paid = depth.selling_pages ?? Math.round((share * pages) / 100);
   const shown = percentText(share, threshold);
   return `Платная ссылка на ${formatNumber(paid)} из ${pagesOf(pages)} — ${shown}.`;
 }

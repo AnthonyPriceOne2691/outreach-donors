@@ -230,6 +230,7 @@ export const ALWAYS_OFF: AlwaysView = {
   details: [],
   yields: [],
   done_at: null,
+  part_pages: 10_000,
 };
 
 /** Очередь загрузки обхода на вкладке «Обход доноров» (`CrawlBacklog`): пусто — строки нет.

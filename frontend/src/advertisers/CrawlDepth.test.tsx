@@ -261,6 +261,22 @@ describe('обход 24/7 в строке донора', () => {
     await waitFor(() => expect(count(recorded, 'GET', '/api/crawls/always')).toBe(2));
   });
 
+  it('«i»: страниц с платной ссылкой — числом сервера, когда он его прислал', async () => {
+    const exact = depth({
+      pages: 25_431,
+      yield_pct: 0.04,
+      selling_pages: 9,
+      weak: true,
+      weak_by: 'auto',
+    });
+    open(OPERATOR, {
+      'GET /api/crawls/donors': { body: { ...PAGE, rows: [donor('exact.example', exact)] } },
+    });
+
+    const shown = await hint('exact.example');
+    expect(plain(shown.textContent)).toContain('Платная ссылка на 9 из 25 431 страницы — 0,04%.');
+  });
+
   it('пометил человек — снять или вернуть оценку сервису (`null`)', async () => {
     const recorded = open();
     const user = userEvent.setup();
@@ -477,6 +493,22 @@ describe('обход 24/7 у донора: слова', () => {
       'Платная ссылка на 10 из 10 000 страниц — 0,0999%.',
     );
     expect(plain(depthLines(HUMAN)[0])).toBe('Обход 24/7 прошёл 20 000 страниц за 2 части.');
+  });
+
+  it('страниц с платной ссылкой — числом сервера; пусто или сервер старше — от доли', () => {
+    // Доля в ответе округлена: 9 из 25 431 — 0,035…%, пришло 0,04 — от доли вышло бы 10.
+    const rounded = depth({ pages: 25_431, yield_pct: 0.04 });
+    const line = (said: DonorDepth) => plain(depthLines(said)[1]);
+    expect(line({ ...rounded, selling_pages: 9 })).toBe(
+      'Платная ссылка на 9 из 25 431 страницы — 0,04%.',
+    );
+    expect(line({ ...rounded, selling_pages: null })).toBe(
+      'Платная ссылка на 10 из 25 431 страницы — 0,04%.',
+    );
+    expect(line(rounded)).toBe('Платная ссылка на 10 из 25 431 страницы — 0,04%.');
+    expect(line({ ...rounded, selling_pages: 0, yield_pct: 0 })).toBe(
+      'Платная ссылка на 0 из 25 431 страницы — 0%.',
+    );
   });
 
   it('кнопки — по тому, кто решил', () => {

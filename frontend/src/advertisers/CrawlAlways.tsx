@@ -37,7 +37,8 @@ import {
   alwaysHint,
   changeTitle,
   doneWords,
-  START_WARNING,
+  partPages,
+  startWarning,
   UNAVAILABLE,
   waitingWords,
   watched,
@@ -120,7 +121,7 @@ function Toggle({ view, change }: { view: AlwaysView; change: AlwaysChanger }) {
   }
   return (
     <ConfirmPopover
-      message={START_WARNING}
+      message={startWarning(partPages(view))}
       confirm="Запустить"
       onConfirm={() => change.mutate({ enabled: true })}
     >

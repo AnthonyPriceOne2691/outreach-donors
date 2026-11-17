@@ -25,7 +25,7 @@ import { NumberField } from '../components/NumberField';
 import { numberOf, numberRefusal, numberText, sameNumber } from '../components/numberText';
 import type { NumberRule } from '../components/numberText';
 import { formatNumber } from '../format';
-import { markWords, PART_PAGES, percentText } from './crawlAlwaysWords';
+import { markWords, partPages, percentText } from './crawlAlwaysWords';
 
 /** Смена настроек 24/7 — одна на блок: кнопки, поле и переключатель ждут друг друга. */
 export type AlwaysChanger = UseMutationResult<AlwaysView, Error, AlwaysChange>;
@@ -45,13 +45,14 @@ function typedThreshold(text: string) {
   return { refusal, value: refusal === null ? numberOf(text) : null };
 }
 
-/** Фраза вокруг поля порога и «Сохранить» — одним рядом, переносом на телефоне. */
-function Sentence({ field, save }: { field: ReactNode; save: ReactNode }) {
+/** Фраза вокруг поля порога и «Сохранить» — одним рядом, переносом на телефоне. `part` — часть
+ *  24/7, числом сервера. */
+function Sentence({ field, save, part }: { field: ReactNode; save: ReactNode; part: number }) {
   return (
     <Group gap={6} align="center">
       <Text size="sm">Мало рекламодателей: меньше</Text>
       <Box w="5rem">{field}</Box>
-      <Text size="sm">% страниц с платной ссылкой на {formatNumber(PART_PAGES)}</Text>
+      <Text size="sm">% страниц с платной ссылкой на {formatNumber(part)}</Text>
       {save}
     </Group>
   );
@@ -64,6 +65,7 @@ function Threshold({ view, change }: { view: AlwaysView; change: AlwaysChanger }
   const [typed, setTyped] = useState<string | null>(null);
   const text = typed ?? saved;
   const { refusal, value } = typedThreshold(text);
+  const part = partPages(view);
   const busy = change.isPending;
   const save = () => {
     if (value === null) return;
@@ -88,9 +90,9 @@ function Threshold({ view, change }: { view: AlwaysView; change: AlwaysChanger }
       aria-label={THRESHOLD_NAME}
       value={text}
       error={refusal}
-      description={markWords(view.yields, value ?? view.threshold_pct)}
+      description={markWords(view.yields, value ?? view.threshold_pct, part)}
       inputWrapperOrder={['input', 'description']}
-      inputContainer={(field) => <Sentence field={field} save={button} />}
+      inputContainer={(field) => <Sentence field={field} save={button} part={part} />}
       onChange={setTyped}
     />
   );
@@ -113,12 +115,13 @@ function Recrawl({ view, change }: { view: AlwaysView; change: AlwaysChanger }) 
 /** Без права запуска — те же настройки строками. */
 function SettingsWords({ view }: { view: AlwaysView }) {
   const threshold = percentText(view.threshold_pct);
-  const marked = markWords(view.yields, view.threshold_pct);
+  const part = partPages(view);
+  const marked = markWords(view.yields, view.threshold_pct, part);
   return (
     <>
       <Text size="sm" c="dimmed">
-        Мало рекламодателей: меньше {threshold} страниц с платной ссылкой на{' '}
-        {formatNumber(PART_PAGES)} — {marked}.
+        Мало рекламодателей: меньше {threshold} страниц с платной ссылкой на {formatNumber(part)} —{' '}
+        {marked}.
       </Text>
       <Text size="sm" c="dimmed">
         {RECRAWL_LABEL}: {view.recrawl_weak ? 'включён' : 'выключен'}.

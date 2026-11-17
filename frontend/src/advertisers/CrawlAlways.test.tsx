@@ -26,8 +26,10 @@ import {
   doneWords,
   markedCount,
   markWords,
+  PART_PAGES,
+  partPages,
   percentText,
-  START_WARNING,
+  startWarning,
   UNAVAILABLE,
   waitingWords,
   watched,
@@ -316,6 +318,30 @@ describe('обход 24/7: порог «мало рекламодателей»'
   });
 });
 
+describe('обход 24/7: часть — числом сервера', () => {
+  it('во фразе у поля и в вопросе у кнопки — часть из ответа', async () => {
+    open({ ...OFF, part_pages: 20_000 });
+    const user = userEvent.setup();
+
+    const shown = await block();
+    expect(plain(shown.textContent)).toContain('% страниц с платной ссылкой на 20 000');
+    await user.click(within(shown).getByRole('button', { name: 'Запустить 24/7…' }));
+    expect(plain((await screen.findByRole('dialog')).textContent)).toContain(
+      'потом по 20 000 страниц каждого сайта, дальше — следующие 20 000',
+    );
+  });
+
+  it('сервер старше и части не прислал — своим числом, 10 000; без права запуска — так же', async () => {
+    const older: AlwaysView = { ...RUNNING };
+    delete older.part_pages;
+    open(older, WATCHER);
+
+    expect(plain((await block()).textContent)).toContain(
+      'меньше 0,1% страниц с платной ссылкой на 10 000',
+    );
+  });
+});
+
 describe('обход 24/7: переобход слабых', () => {
   it('переключатель — одним нажатием; уходит только он', async () => {
     const recorded = open(OFF, ADMIN, {
@@ -373,11 +399,17 @@ describe('обход 24/7: слова', () => {
   });
 
   it('«получит» и «получат», «из 1 сайта» и «из 6 сайтов»; сайтов ещё нет — так и сказано', () => {
-    expect(plain(markWords(YIELDS, 0.1))).toBe('при этом пороге пометку получат 3 из 6 сайтов');
-    expect(plain(markWords([0.01], 0.1))).toBe('при этом пороге пометку получит 1 из 1 сайта');
-    expect(plain(markWords([0.01, 5], 0.1))).toBe('при этом пороге пометку получит 1 из 2 сайтов');
-    expect(plain(markWords([], 0.1))).toBe(
-      'пометку получат сайты, прошедшие первые 10 000 страниц, — таких пока нет',
+    expect(plain(markWords(YIELDS, 0.1, 10_000))).toBe(
+      'при этом пороге пометку получат 3 из 6 сайтов',
+    );
+    expect(plain(markWords([0.01], 0.1, 10_000))).toBe(
+      'при этом пороге пометку получит 1 из 1 сайта',
+    );
+    expect(plain(markWords([0.01, 5], 0.1, 10_000))).toBe(
+      'при этом пороге пометку получит 1 из 2 сайтов',
+    );
+    expect(plain(markWords([], 0.1, 20_000))).toBe(
+      'пометку получат сайты, прошедшие первые 20 000 страниц, — таких пока нет',
     );
   });
 
@@ -413,8 +445,17 @@ describe('обход 24/7: слова', () => {
     expect(changeTitle({ recrawl_weak: true })).toBe('Переобход слабых не переключён');
   });
 
-  it('вопрос у кнопки называет ночь, юниты, потолок и паузу', () => {
-    const said = plain(START_WARNING);
+  it('часть 24/7 — числом сервера; сервер старше — своим числом', () => {
+    expect(partPages({ ...OFF, part_pages: 20_000 })).toBe(20_000);
+    const older: AlwaysView = { ...OFF };
+    delete older.part_pages;
+    expect(partPages(older)).toBe(PART_PAGES);
+    expect(PART_PAGES).toBe(10_000);
+  });
+
+  it('вопрос у кнопки называет части, ночь, юниты, потолок и паузу', () => {
+    const said = plain(startWarning(20_000));
+    expect(said).toContain('потом по 20 000 страниц каждого сайта, дальше — следующие 20 000');
     expect(said).toContain('сначала сайты, которых ещё не обходили, — до 1 000 страниц');
     expect(said).toContain('первыми сайты с большей долей платных ссылок');
     expect(said).toContain('Юниты Ahrefs и месячный потолок платного обхода действуют как сейчас');
