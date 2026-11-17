@@ -24,6 +24,11 @@ from backend.config._base import DomainSettings, Fallback, spared
 
 class _Llm(DomainSettings):
     api_key: str = Field(default="", validation_alias="LLM_API_KEY")
+    # Тариф вызова у провайдера, когда вызов не назвал свой (`service_tier`; Flex продаж — свой).
+    # Без него провайдер берёт тариф проекта по умолчанию, а у проекта ключа это Fast — вдвое
+    # дороже обычного (замер 17.11.2026: ответы gpt-5* — `priority`, GPT-6 — `fast`). Наши
+    # вызовы фоновые, скорость Fast им не нужна. Пусто — не слать, как было до 17.11.
+    service_tier: str = Field(default="default", validation_alias="LLM_SERVICE_TIER")
     # Модель генерации. Не ниже пятой: проверено замером.
     keygen_model: str = Field(default="gpt-5", validation_alias="LLM_KEYGEN_MODEL")
     # Модель проверки набора. Здесь дешёвая уместна.
@@ -135,6 +140,7 @@ _s, _unread = spared(
 )
 
 API_KEY: str = _s.api_key.strip()  # хвостовой пробел из .env ломает заголовок
+SERVICE_TIER: str = _s.service_tier.strip()
 # Имя модели — без хвостовых пробелов, как у остальных: «gpt-6.1-terra » провайдер не знает, и
 # правка одной строки `.env` при смене модели отказывала бы на каждом вызове.
 KEYGEN_MODEL: str = _s.keygen_model.strip()

@@ -286,7 +286,9 @@ async def test_the_probe_is_a_tiny_call_of_the_same_model_with_the_same_key(
     [body] = provider.bodies
     assert body["model"] == model
     assert {key: body[key] for key in limits} == limits
-    assert len(body) == 2 + len(limits)  # модель, сообщение и потолок — ничего лишнего
+    # Модель, сообщение, потолок и общий тариф вызова (`llm.tiered`) — ничего лишнего.
+    assert body.get("service_tier") == llm.llm_cfg.SERVICE_TIER
+    assert len(body) == 2 + len(limits) + 1
     assert provider.keys == [f"Bearer {KEY}"]
 
 
