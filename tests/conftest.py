@@ -379,12 +379,14 @@ def _no_real_sales_bot(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _no_real_autosend(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Тесты не включают автоотправку и автосборку продаж, даже если они включены в `.env`
-    разработчика: циклы процесса разбора (`workers/reaper.py`) тесты гоняют целиком, и проход
-    слал бы письма и ставил сборки по базе из настроек. Тесты проходов включают их сами
-    (`tests/test_sales_autosend.py`, `tests/test_sales_autobuild.py`)."""
+    """Тесты не включают автоотправку, автосборку и конвейер плана работ продаж, даже если они
+    включены в `.env` разработчика: циклы процесса разбора (`workers/reaper.py`) тесты гоняют
+    целиком, и проход слал бы письма, ставил сборки и прогоны сбора по базе из настроек. Тесты
+    проходов включают их сами (`tests/test_sales_autosend.py`, `tests/test_sales_autobuild.py`,
+    `tests/test_sales_plan_tick.py`)."""
     monkeypatch.setattr("backend.config.sales.AUTOSEND", False)
     monkeypatch.setattr("backend.config.sales.AUTOBUILD", False)
+    monkeypatch.setattr("backend.config.sales_plan.ENABLED", False)
 
 
 @pytest.fixture(autouse=True)

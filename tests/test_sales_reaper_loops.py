@@ -1,10 +1,10 @@
 """Циклы продаж в процессе разбора: их неудачи — тревога продаж, а не здоровье процесса.
 
-Три прохода продаж в процессе разбора (повтор передачи лидов, автоотправка, автосборка) падали в
-общий цикл (`workers/ticker.every`), и три неудачи подряд любого из них делали «нездоровым» весь
-процесс — тот, где живёт сторож тишины. Теперь проход продаж — под своей памятью
-(`features/sales/loops.own`): неудача — строкой журнала, третья подряд — тревога продаж словами,
-отметка цикла без неудач. Цикл доноров судит здоровье процесса, как раньше.
+Проходы продаж в процессе разбора (повтор передачи лидов, автоотправка, автосборка, с 17.11 —
+конвейер плана работ) падали в общий цикл (`workers/ticker.every`), и три неудачи подряд любого
+из них делали «нездоровым» весь процесс — тот, где живёт сторож тишины. Теперь проход продаж — под
+своей памятью (`features/sales/loops.own`): неудача — строкой журнала, третья подряд — тревога
+продаж словами, отметка цикла без неудач. Цикл доноров судит здоровье процесса, как раньше.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 from backend.config import alerts as alerts_cfg
 from backend.config import sales as sales_cfg
+from backend.config import sales_plan as plan_cfg
 from backend.features.ops.alarms import marked
 from backend.features.sales import autosend_jobs, loops
 from backend.workers import health, reaper, ticker
@@ -31,6 +32,7 @@ SALES_LOOPS = {
     "retry_handoffs": "Повтор передачи лидов продаж",
     "autosend": "Автоотправка писем продаж",
     "autobuild": "Автосборка очереди продаж",
+    "plan_conveyor": "Конвейер плана работ",
 }
 SWEEP = "Разбор мёртвых прогонов"
 ROOT = Path(__file__).resolve().parents[1]
@@ -307,10 +309,10 @@ async def test_a_settings_alarm_without_the_bot_is_one_loud_line(
     assert loops.SETTINGS_SAID in lines[0]
 
 
-async def test_three_loops_starting_together_send_the_settings_alarm_once(
+async def test_loops_starting_together_send_the_settings_alarm_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Три цикла продаж стартуют разом, проверка «сказано ли» отделена от итога ожиданием
+    """Циклы продаж стартуют разом, проверка «сказано ли» отделена от итога ожиданием
     Telegram. Пока тревога уходит, остальные её не шлют: одна прошла, а параллельная с 429 не
     откатила бы «сказано», и следующий проход не послал бы её ещё раз."""
     answers = [True, False, False]
@@ -408,10 +410,10 @@ def _beats(directory: Path) -> dict[str, dict[str, Any]]:
     }
 
 
-async def test_three_sales_failures_leave_the_reaper_healthy_and_donors_still_count(
+async def test_sales_failures_leave_the_reaper_healthy_and_donors_still_count(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, told: list[str]
 ) -> None:
-    """Все три прохода продаж и разбор прогонов падают каждым кругом: отметки циклов продаж —
+    """Все проходы продаж и разбор прогонов падают каждым кругом: отметки циклов продаж —
     без неудач, по тревоге продаж на каждый цикл; здоровье процесса красное только от разбора
     прогонов — как раньше. Сторож тишины идёт."""
     calls: Counter[str] = Counter()
@@ -428,6 +430,7 @@ async def test_three_sales_failures_leave_the_reaper_healthy_and_donors_still_co
     monkeypatch.setattr(reaper, "WATCHDOG_INTERVAL_SEC", 0.01)
     for setting in ("HANDOFF_PASS_SEC", "AUTOSEND_PASS_SEC", "AUTOBUILD_PASS_SEC"):
         monkeypatch.setattr(sales_cfg, setting, 0.01)
+    monkeypatch.setattr(plan_cfg, "PASS_SEC", 0.01)
 
     running = asyncio.create_task(reaper._loops())
     counted = ("sweep", "watch", *SALES_LOOPS)
@@ -447,10 +450,10 @@ async def test_three_sales_failures_leave_the_reaper_healthy_and_donors_still_co
     assert sorted(text.split("«")[1].split("»")[0] for text in told) == sorted(SALES_LOOPS.values())
 
 
-async def test_the_reaper_tells_a_broken_setting_once_for_its_three_sales_loops(
+async def test_the_reaper_tells_a_broken_setting_once_for_its_sales_loops(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, told: list[str]
 ) -> None:
-    """Процесс разбора с негодной настройкой продаж: три цикла продаж крутятся — тревога о
+    """Процесс разбора с негодной настройкой продаж: циклы продаж крутятся — тревога о
     настройке одна, в первом же проходе; ни одна из них не повторяется кругом."""
     calls: Counter[str] = Counter()
 
@@ -470,6 +473,7 @@ async def test_the_reaper_tells_a_broken_setting_once_for_its_three_sales_loops(
     monkeypatch.setattr(reaper, "WATCHDOG_INTERVAL_SEC", 0.01)
     for setting in ("HANDOFF_PASS_SEC", "AUTOSEND_PASS_SEC", "AUTOBUILD_PASS_SEC"):
         monkeypatch.setattr(sales_cfg, setting, 0.01)
+    monkeypatch.setattr(plan_cfg, "PASS_SEC", 0.01)
 
     running = asyncio.create_task(reaper._loops())
     await _until(lambda: min(calls[name] for name in SALES_LOOPS) >= 4 or running.done())
@@ -481,10 +485,10 @@ async def test_the_reaper_tells_a_broken_setting_once_for_its_three_sales_loops(
     assert told == [_settings()]
 
 
-async def test_reaper_wraps_exactly_the_three_sales_loops_with_one_memory_each(
+async def test_reaper_wraps_exactly_the_sales_loops_with_one_memory_each(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Под своей памятью — три прохода продаж; память — одна на цикл, первым проходом (иначе счёт
+    """Под своей памятью — проходы продаж; память — одна на цикл, первым проходом (иначе счёт
     неудач начинался бы заново на каждом); разбор прогонов и сторож тишины — как были."""
     started: dict[str, Callable[[], Awaitable[None]]] = {}
     made: list[tuple[object, str]] = []
@@ -573,6 +577,7 @@ async def test_a_broken_sales_loop_memory_fails_the_sales_loops_and_the_reaper_l
     monkeypatch.setattr(reaper, "WATCHDOG_INTERVAL_SEC", 0.01)
     for setting in ("HANDOFF_PASS_SEC", "AUTOSEND_PASS_SEC", "AUTOBUILD_PASS_SEC"):
         monkeypatch.setattr(sales_cfg, setting, 0.01)
+    monkeypatch.setattr(plan_cfg, "PASS_SEC", 0.01)
 
     running = asyncio.create_task(reaper._loops())
     await _until(
@@ -594,4 +599,4 @@ async def test_a_broken_sales_loop_memory_fails_the_sales_loops_and_the_reaper_l
     assert all(beats[name]["failures"] >= 3 for name in SALES_LOOPS.values())
     assert (beats[SWEEP]["failures"], beats["Сторож тишины"]["failures"]) == (0, 0)
     # Без памяти цикла проход продаж не идёт: его неудача — сбой импорта, а не работы.
-    assert [calls[attr] for attr in SALES_LOOPS] == [0, 0, 0]
+    assert [calls[attr] for attr in SALES_LOOPS] == [0] * len(SALES_LOOPS)
