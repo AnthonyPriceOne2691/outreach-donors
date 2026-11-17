@@ -103,6 +103,10 @@ _CLEANING_SUMMED = (
     "verified",
     "paid_units",
 )
+#: Начало слов прогона, вставшего на судье: потолок модели продаж или у модели нет кредитов —
+#: временное, «Продолжить» после сброса или пополнения. По нему конвейер плана работ узнаёт
+#: остановку, которую повторит сам (`plan_failures`).
+JUDGE_STOPPED = "судья остановлен: "
 
 
 class UnknownRunError(LookupError):
@@ -305,7 +309,7 @@ async def execute(
         return await _stop(session, run, f"прогон остановлен: {NO_SEGMENT}", now)
     tally = await _judge(session, run, deps, segment=segment, started=started, now=now)
     if tally.stopped is not None:
-        return await _stop(session, run, f"судья остановлен: {tally.stopped}", now)
+        return await _stop(session, run, f"{JUDGE_STOPPED}{tally.stopped}", now)
     await _addresses(session, run, started)
     await _leads(session, run, deps.verifier, started)
     run.stage, run.finished_at = Stage.DONE, now or datetime.now(UTC)

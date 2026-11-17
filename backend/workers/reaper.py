@@ -22,7 +22,9 @@
 продаж — при первом проходе, а тумблеры (`SALES_ENABLED` и `SALES_AUTOSEND`, `SALES_AUTOBUILD`)
 цикл смотрит до импорта. Выключенный проход не грузит в разбор ни отправку и почту, ни сборку
 с моделью: процесс живёт в тесном пределе памяти, и сломанный импорт выключенного прохода ронял
-бы каждый его цикл.
+бы каждый его цикл. Тем же порядком — конвейер «Плана работ» (`features/sales/plan_tick.tick`,
+тумблеры `SALES_ENABLED` и `SALES_PLAN`, раз в `SALES_PLAN_PASS_SEC`): прогоны сбора гипотез
+плана по очереди, когда письмам не нужен воркер.
 
 Шестой — очереди доноров и рекламодателей, которые отправляются сами
 (`workers/send_jobs.autosend_pass`, `features/letters/autosend.py`): рубильник `OUTREACH_AUTOSEND`
@@ -38,7 +40,7 @@
 разбора мёртвых, а не своим циклом: разбор — это он и есть, нужна сессия раз в несколько минут. Реже
 прохода, раз в десять минут (`Sparse`); упал возврат — разбор прогонов это не задевает.
 
-Неудачи трёх проходов продаж — тревога продаж, а не здоровье процесса (`features/sales/loops.own`):
+Неудачи проходов продаж — тревога продаж, а не здоровье процесса (`features/sales/loops.own`):
 иначе сломанная автосборка делала бы «нездоровым» процесс, где живёт сторож тишины. Зависший
 проход продаж по-прежнему виден по отметке своего цикла. Память циклов продаж — тоже модуль
 продаж и тоже лениво, первым проходом: сломан её импорт — падают циклы продаж, а не процесс.
@@ -59,6 +61,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import outreach as outreach_cfg
 from backend.config import redirect as redirect_cfg
 from backend.config import sales as sales_cfg
+from backend.config import sales_plan as plan_cfg
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.crawl.lifecycle import recover as recover_crawls
@@ -346,6 +349,15 @@ async def autobuild() -> None:
     await tick()
 
 
+async def plan_conveyor() -> None:
+    """Проход конвейера «Плана работ» — тем же порядком, что автосборка: тумблеры до импорта."""
+    if not (sales_cfg.ENABLED and plan_cfg.ENABLED):
+        return
+    from backend.features.sales.plan_tick import tick  # noqa: PLC0415 — лениво
+
+    await tick()
+
+
 async def queue_autosend() -> None:
     """Проход очередей доноров и рекламодателей, которые отправляются сами. Рубильник — до
     импорта: выключенный проход не грузит ни отправку, ни почту.
@@ -393,6 +405,7 @@ async def _loops() -> None:
         _sales_loop(sales_cfg.HANDOFF_PASS_SEC, retry_handoffs, "Повтор передачи лидов продаж"),
         _sales_loop(sales_cfg.AUTOSEND_PASS_SEC, autosend, "Автоотправка писем продаж"),
         _sales_loop(sales_cfg.AUTOBUILD_PASS_SEC, autobuild, "Автосборка очереди продаж"),
+        _sales_loop(plan_cfg.PASS_SEC, plan_conveyor, "Конвейер плана работ"),
         every(outreach_cfg.AUTOSEND_PASS_SEC, queue_autosend, name="Очередь писем уходит сама"),
     )
 

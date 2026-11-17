@@ -1006,6 +1006,11 @@
       "complexity": 9,
       "worst": "_expected:342"
     },
+    "backend/config/sales_plan.py": {
+      "lines": 77,
+      "complexity": 0,
+      "worst": "—"
+    },
     "backend/config/serp.py": {
       "lines": 68,
       "complexity": 0,
@@ -3417,9 +3422,9 @@
       "worst": "_month_words:92"
     },
     "backend/features/sales/loops.py": {
-      "lines": 151,
+      "lines": 152,
       "complexity": 6,
-      "worst": "__call__:120"
+      "worst": "__call__:121"
     },
     "backend/features/sales/mail.py": {
       "lines": 498,
@@ -3476,20 +3481,50 @@
       "complexity": 9,
       "worst": "plan_estimate:126"
     },
+    "backend/features/sales/plan_failures.py": {
+      "lines": 101,
+      "complexity": 5,
+      "worst": "_sheet:74"
+    },
     "backend/features/sales/plan_file.py": {
       "lines": 423,
       "complexity": 8,
       "worst": "_draft:228"
+    },
+    "backend/features/sales/plan_gates.py": {
+      "lines": 176,
+      "complexity": 6,
+      "worst": "letters_first:117"
     },
     "backend/features/sales/plan_models.py": {
       "lines": 196,
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/sales/plan_moves.py": {
+      "lines": 91,
+      "complexity": 4,
+      "worst": "move:54"
+    },
+    "backend/features/sales/plan_runs.py": {
+      "lines": 251,
+      "complexity": 6,
+      "worst": "_judged:125"
+    },
+    "backend/features/sales/plan_settle.py": {
+      "lines": 134,
+      "complexity": 5,
+      "worst": "give_up:61"
+    },
     "backend/features/sales/plan_store.py": {
       "lines": 371,
       "complexity": 7,
       "worst": "_views:319"
+    },
+    "backend/features/sales/plan_tick.py": {
+      "lines": 325,
+      "complexity": 8,
+      "worst": "_plan:207"
     },
     "backend/features/sales/plan_waves.py": {
       "lines": 217,
@@ -3687,9 +3722,9 @@
       "worst": "_foreign_words:141"
     },
     "backend/features/sales/segment_run.py": {
-      "lines": 434,
+      "lines": 438,
       "complexity": 10,
-      "worst": "execute:285"
+      "worst": "execute:289"
     },
     "backend/features/sales/segment_scope.py": {
       "lines": 186,
@@ -4122,9 +4157,9 @@
       "worst": "main:52"
     },
     "backend/workers/reaper.py": {
-      "lines": 408,
+      "lines": 421,
       "complexity": 4,
-      "worst": "_told:258"
+      "worst": "_told:261"
     },
     "backend/workers/redirect_jobs.py": {
       "lines": 58,
