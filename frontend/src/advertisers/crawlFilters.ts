@@ -27,6 +27,8 @@ export interface CrawlFilters {
   source: PriceSource | null;
   /** Подстрока домена. Пусто — не сужать. */
   search: string;
+  /** Только с пометкой «мало рекламодателей» (обход 24/7). */
+  weak: boolean;
   sort: DonorCrawlSort;
   size: number;
   page: number;
@@ -41,10 +43,14 @@ export const NO_CRAWL_FILTERS: CrawlFilters = {
   price: null,
   source: null,
   search: '',
+  weak: false,
   sort: 'priced',
   size: DEFAULT_SIZE,
   page: 1,
 };
+
+/** Разрез «мало рекламодателей» — словом кнопки и условия. */
+export const WEAK_TITLE = 'мало рекламодателей';
 
 /** Статус последнего обхода — словом и цветом, теми же, что у значка обхода (`crawlState`). */
 export const CRAWL_STATUSES: Record<DonorCrawlStatus, { title: string; color: string }> = {
@@ -103,6 +109,7 @@ export function readCrawlFilters(params: URLSearchParams): CrawlFilters {
     price: knownParam(params.get('price'), PRICE_KEYS),
     source: knownParam(params.get('source'), SOURCE_KEYS),
     search: (params.get('search') ?? '').trim(),
+    weak: params.get('weak') === 'true',
     sort: knownParam(params.get('sort'), SORT_KEYS) ?? 'priced',
     size: sizeOf(params.get('size')),
     page: pageParam(params.get('page')),
@@ -117,6 +124,7 @@ export function crawlQueryOf(filters: CrawlFilters): CrawlDonorQuery {
     ...(filters.source !== null ? { source: filters.source } : {}),
     ...(filters.search !== '' ? { search: filters.search } : {}),
     ...(filters.sort !== 'priced' ? { sort: filters.sort } : {}),
+    ...(filters.weak ? { weak: true } : {}),
   };
 }
 
@@ -137,7 +145,8 @@ export function isCrawlFiltered(filters: CrawlFilters): boolean {
     filters.status !== null ||
     filters.price !== null ||
     filters.source !== null ||
-    filters.search !== ''
+    filters.search !== '' ||
+    filters.weak
   );
 }
 
@@ -148,6 +157,7 @@ export function crawlConditions(filters: CrawlFilters): string[] {
   if (filters.price !== null) said.push(PRICE_STATES[filters.price]);
   if (filters.source !== null) said.push(`цена ${PRICE_SOURCES[filters.source]}`);
   if (filters.search !== '') said.push(`«${filters.search}» в домене`);
+  if (filters.weak) said.push(WEAK_TITLE);
   return said;
 }
 

@@ -8,7 +8,7 @@ import type { CrawlRow, CrawlSource, CrawlStopReason, CrawlRules } from '../api/
 import { formatNumber, formatSeconds, plural } from '../format';
 
 /** «1 000 страниц» — родительный: после «из» и «не больше». */
-function pagesOf(count: number): string {
+export function pagesOf(count: number): string {
   return `${formatNumber(count)} ${plural(count, 'страницы', 'страниц', 'страниц')}`;
 }
 

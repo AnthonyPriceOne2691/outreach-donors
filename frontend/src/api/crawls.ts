@@ -6,6 +6,7 @@
  */
 
 import { request } from './client';
+import type { DonorDepth } from './crawlAlways';
 import type { PriceSource } from './manualPrice';
 
 export type CrawlStatus = 'queued' | 'running' | 'done' | 'stopped';
@@ -118,6 +119,8 @@ export interface CrawlTarget {
   crawl: CrawlRow | null;
   /** Цена в сроке, протухла или нет — у вкладки «Обход доноров»; у панели — нет. */
   price_state?: DonorPriceState | null;
+  /** Обход 24/7 у донора; 24/7 его не трогал — пусто, сервер старше — поля нет. */
+  depth?: DonorDepth | null;
 }
 
 export interface CrawlTargets extends CrawlCeilings {
@@ -185,11 +188,16 @@ export interface CrawlDonorQuery {
   source?: PriceSource;
   search?: string;
   sort?: DonorCrawlSort;
+  /** Только с пометкой «мало рекламодателей» (обход 24/7). */
+  weak?: boolean;
 }
 
 export interface CrawlCounts {
   status: Record<DonorCrawlStatus, number>;
   price: Record<DonorPriceState, number>;
+  /** С пометкой «мало рекламодателей» — со всеми условиями, кроме своего. Нет — сервер фильтра
+   *  не знает, и кнопки фильтра нет: незнакомое условие он пропустил бы молча. */
+  weak?: number;
 }
 
 export interface CrawlDonorsView extends CrawlCeilings {
@@ -306,6 +314,7 @@ function donorParams(query: CrawlDonorQuery, page = 1, size?: number): string {
     const value = query[key];
     if (value !== undefined && value !== '') params.set(key, value);
   }
+  if (query.weak) params.set('weak', 'true');
   if (page > 1) params.set('page', String(page));
   if (size !== undefined) params.set('size', String(size));
   const tail = params.toString();
