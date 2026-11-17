@@ -50,12 +50,24 @@ function PlanLine({ plan }: { plan: PlanLive }) {
   );
 }
 
-/** Строки планов, которые идут или стоят, — новые сверху, как в списке планов. */
-export function PlanLines({ plans }: { plans: PlanLive[] | undefined }) {
+/** Строки планов, которые идут или стоят, — новые сверху, как в списке планов. Планы не пришли —
+ *  строкой словами сервера: таблица гипотез остаётся, без колонки плана. */
+export function PlanLines({
+  plans,
+  error,
+}: {
+  plans: PlanLive[] | undefined;
+  error: Error | null;
+}) {
   const shown = (plans ?? []).filter((plan) => plan.status !== 'done');
-  if (shown.length === 0) return null;
+  if (shown.length === 0 && error === null) return null;
   return (
     <Stack gap="xs" px="md">
+      {error !== null && (
+        <Text size="sm" c="red" role="alert">
+          Планы работ не загрузились: {refusalOf(error)}
+        </Text>
+      )}
       {shown.map((plan) => (
         <PlanLine key={plan.id} plan={plan} />
       ))}

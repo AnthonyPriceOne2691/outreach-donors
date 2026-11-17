@@ -194,6 +194,16 @@ describe('колонка «План работ»', () => {
     expect(screen.queryByText(/План «/)).toBeNull();
   });
 
+  it('планы не пришли — строкой словами, таблица гипотез на месте', async () => {
+    setUp([], { [PLANS_ROUTE]: { status: 503, body: { detail: 'база не ответила' } } });
+    renderWith(<HypothesesTable rows={[OUTSIDE]} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Планы работ не загрузились: база не ответила',
+    );
+    expect(screen.getByRole('row', { name: /Своя гипотеза/ })).toBeInTheDocument();
+  });
+
   it('«Остановить» уходит на сервер, отказ — словами под кнопками', async () => {
     const refusal = 'гипотеза «Логистика — пример» уже остановлена';
     const recorded = setUp([plan()], {

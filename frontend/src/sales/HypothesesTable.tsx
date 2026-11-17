@@ -172,7 +172,7 @@ export function HypothesesTable({ rows, onRemoved }: Props) {
   }
   return (
     <>
-      <PlanLines plans={plans.data?.plans} />
+      <PlanLines plans={plans.data?.plans} error={plans.error} />
       <div className={scrolled ? 'stickyScrolled' : undefined} onScrollCapture={onScroll}>
         <FixedTable
           columns={planned ? WITH_PLAN : COLUMNS}
