@@ -26,7 +26,9 @@
 
 **«Переобойти спорные»** (06.11.2026) — кнопкой, раньше только консоль: `judge_pass.py`.
 **«Применить советы судьи»** (11.11.2026) — полосами, с планом и откатом партии: `judge_apply.py`;
-то же само каждую ночь по включённым полосам — `judge_night.py`.
+то же само каждую ночь по включённым полосам — `judge_night.py`. «Перевести», «Собрать очередь» и
+«Отправить очередь» с «дальше — сама» раз в сутки сам делает автокруг, если его включили
+(17.11.2026, `auto_round.py`): эти кнопки остаются ручным запуском.
 
 **Весь раздел — под правом «Рекламодатели»** (решение 02.11.2026): условие стоит на
 роутере (`stage_access.STAGE_TWO`) и держит и подключённые к нему отчёты, панель и формы.
@@ -42,7 +44,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.advertisers import forms, judge_apply, judge_night, judge_pass, panel, reports
+from backend.api.advertisers import (
+    auto_round,
+    forms,
+    judge_apply,
+    judge_night,
+    judge_pass,
+    panel,
+    reports,
+)
 from backend.api.advertisers.schemas import (
     CandidateCard,
     CandidatesView,
@@ -385,12 +395,14 @@ async def niche_collect(
 
 
 # --- список рекламодателей, отчёты (`reports.py`), ручная очередь форм (`forms.py`), переобход
-# спорных (`judge_pass.py`) и применение советов судьи кнопкой и ночью (`judge_apply.py`,
-# `judge_night.py`) — тем же префиксом ---
+# спорных (`judge_pass.py`), применение советов судьи кнопкой и ночью (`judge_apply.py`,
+# `judge_night.py`) и автокруг — перевод, адреса, сборка и отправка без кнопок (`auto_round.py`) —
+# тем же префиксом ---
 
 router.include_router(reports.router)
 router.include_router(judge_pass.router)
 router.include_router(judge_apply.router)
 router.include_router(judge_night.router)
+router.include_router(auto_round.router)
 router.include_router(panel.router)
 router.include_router(forms.router)

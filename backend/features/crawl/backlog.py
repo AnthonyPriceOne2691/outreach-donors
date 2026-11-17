@@ -30,7 +30,8 @@
 
 **Ночной круг живёт здесь же** (`night.py`): проход начинает его и закрывает, а строки круга
 идут последними — загруженные и поставленные человеком важнее. Его строку забирает любая
-постановка: иначе донора, которого человек велел обойти, снял бы срок круга.
+постановка: иначе донора, которого человек велел обойти, снял бы срок круга. Здесь же — ночной шаг
+судьи (`judge_night.py`) и автокруг рекламодателей после него (`auto_round.py`).
 
 **Кончились юниты Ahrefs — выдачи нет** (`units_stop.py`): DR новых кандидатов спросить не на что.
 Строки ждут здесь и не теряются: снимется стоп — пойдут сами, а ночные снимет срок их круга.
@@ -219,11 +220,13 @@ async def feed(
     stop = await units_stop(session)
     why = None if stop is None else stop.why
     await night.tick(session, workers=workers, per_minute=PER_PASS, add=add, now=now, stop=why)
-    # Ночной шаг судьи живёт в том же проходе (`judge_night.py`): после круга обходов. Лениво: он
-    # тянет конфиг модели, и опечатка в нём не должна ронять загрузку выдачи обходов.
-    from backend.features.crawl import judge_night  # noqa: PLC0415 — лениво, см. выше
+    # Ночной шаг судьи живёт в том же проходе (`judge_night.py`): после круга обходов, а автокруг
+    # рекламодателей (`auto_round.py`) — после шага судьи. Лениво: шаг тянет конфиг модели, круг —
+    # почту и очередь задач, и опечатка в них не должна ронять загрузку выдачи обходов.
+    from backend.features.crawl import auto_round, judge_night  # noqa: PLC0415 — лениво, см. выше
 
     await judge_night.tick(session, now=now)
+    await auto_round.tick(session, now=now)
     fed = Fed()
     running, queued = await _counts(session)
     free = min(workers - running, PER_PASS)

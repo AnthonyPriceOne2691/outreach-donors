@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.core.domain import RunStatus, Stage
 from backend.features.core.models.run import RunModel
+from backend.features.crawl import auto_round_alarm
 from backend.features.ops import (
     crawl_watch,
     funds_watch,
@@ -105,6 +106,8 @@ async def alarms(
             await crawl_watch.cap_reached(session),
             await crawl_watch.blocked(session),
             await crawl_watch.units_stopped(session),
+            # Автокруг рекламодателей встал или не начался (17.11.2026).
+            await auto_round_alarm.alarm(session, moment),
         ]
     # Почта этапов со сторожем в политике — видимых этапов (П2б).
     found += await mail_watch.alarms(session, moment, stages=stages)

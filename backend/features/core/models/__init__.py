@@ -3,6 +3,8 @@
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.advertiser import (
     AdvertiserJudgementModel,
+    AutoRoundModel,
+    AutoRoundSwitchModel,
     CandidateMemoryModel,
     CandidateModel,
     JudgeBandModel,
@@ -81,6 +83,8 @@ __all__ = [
     "AhrefsCapModel",
     "AhrefsKeySnapshotModel",
     "AuditLogModel",
+    "AutoRoundModel",
+    "AutoRoundSwitchModel",
     "CampaignModel",
     "CandidateMemoryModel",
     "CandidateModel",

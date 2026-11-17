@@ -12,6 +12,9 @@
  * **Адреса ищутся сами**, как у принятых доноров Этапа 1: человек, сказавший
  * «переводим», собирается им писать. Строка «ждут адреса · найти» — та же,
  * что у доноров (`usePendingContacts`), с запросами рекламодателей.
+ *
+ * **Последним — автокруг** (`AutoRound`, 17.11.2026): те же шаги — перевод, адреса, сборка и
+ * «уходит сама» — раз в сутки без кнопок, если его включили.
  */
 
 import { Alert, Anchor, Badge, Button, Card, Group, Stack, Text, Title } from '@mantine/core';
@@ -27,6 +30,7 @@ import { usePendingContacts } from '../donors/PendingContacts';
 import { formatNumber } from '../format';
 import { notify } from '../notices';
 import { InfoHint } from '../components/InfoHint';
+import { AutoRound } from './AutoRound';
 import { ADVERTISER_CONTACTS, PROMOTION_QUERY_KEY } from './contactsSource';
 
 /** Итог перевода одной строкой: что завели, что отсеяли, ищем ли адреса. */
@@ -138,6 +142,7 @@ export function PromotePanel() {
         ) : null}
         {outcome !== null ? <Text size="sm">{promotedLine(outcome)}</Text> : null}
         {contacts.outcome}
+        <AutoRound />
       </Stack>
     </Card>
   );

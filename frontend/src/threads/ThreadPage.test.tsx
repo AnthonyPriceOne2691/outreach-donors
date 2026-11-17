@@ -345,6 +345,15 @@ describe('карточка переписки', () => {
     const header = screen.getByRole('heading', { name: 'donor.example.test' }).parentElement;
     expect(within(header as HTMLElement).getByText('ждёт разбора')).toBeInTheDocument();
   });
+
+  it('метка состояния уходит под домен, а не сжимает его: ряд шапки переносится', async () => {
+    await openThread();
+
+    // Раскладки в jsdom нет — проверяем само правило ряда: без переноса метка сжимала домен,
+    // и на телефоне рвался даже короткий: имя и «.ru» на разных строках (17.11.2026).
+    const row = screen.getByRole('heading', { name: 'donor.example.test' }).parentElement;
+    expect(row?.getAttribute('style') ?? '').toContain('--group-wrap: wrap');
+  });
 });
 
 /** Следующий ответ донора: уточнил цену, разбор уверен — цена легла в карточку сама. */
