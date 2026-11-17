@@ -128,6 +128,9 @@ async def _build_letters(request: BuildRequest) -> dict[str, Any]:
                 # Проверка адресов перед письмом: исход → сколько; почему не проверены.
                 "address_check": report.address_check,
                 "unchecked": report.unchecked,
+                # Сборка встала на потолке модели — словами: итог автокруга называет потолок
+                # (`crawl/auto_round_report.built`).
+                "stopped": report.stopped,
             }
     finally:
         await rewriter.aclose()

@@ -16,6 +16,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/api/advertisers/auto_round.py": {
+      "lines": 185,
+      "complexity": 3,
+      "worst": "_changes:143"
+    },
     "backend/api/advertisers/forms.py": {
       "lines": 105,
       "complexity": 3,
@@ -62,9 +67,9 @@
       "worst": "accepted:138"
     },
     "backend/api/advertisers/routes.py": {
-      "lines": 397,
+      "lines": 409,
       "complexity": 5,
-      "worst": "decide:139"
+      "worst": "decide:149"
     },
     "backend/api/advertisers/schemas.py": {
       "lines": 371,
@@ -941,6 +946,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/config/auto_round.py": {
+      "lines": 39,
+      "complexity": 0,
+      "worst": "—"
+    },
     "backend/config/contacts.py": {
       "lines": 154,
       "complexity": 0,
@@ -1027,9 +1037,9 @@
       "worst": "check:51"
     },
     "backend/features/access/journal.py": {
-      "lines": 307,
+      "lines": 308,
       "complexity": 10,
-      "worst": "_filters:254"
+      "worst": "_filters:255"
     },
     "backend/features/access/login.py": {
       "lines": 104,
@@ -1312,7 +1322,7 @@
       "worst": "zone_name:80"
     },
     "backend/features/core/domain.py": {
-      "lines": 357,
+      "lines": 361,
       "complexity": 0,
       "worst": "—"
     },
@@ -1332,7 +1342,7 @@
       "worst": "refusal:214"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 138,
+      "lines": 142,
       "complexity": 0,
       "worst": "—"
     },
@@ -1347,7 +1357,7 @@
       "worst": "—"
     },
     "backend/features/core/models/advertiser.py": {
-      "lines": 236,
+      "lines": 282,
       "complexity": 0,
       "worst": "—"
     },
@@ -1481,10 +1491,40 @@
       "complexity": 9,
       "worst": "strip_structural_noise:176"
     },
-    "backend/features/crawl/backlog.py": {
-      "lines": 334,
+    "backend/features/crawl/auto_round.py": {
+      "lines": 471,
+      "complexity": 7,
+      "worst": "_search:203"
+    },
+    "backend/features/crawl/auto_round_alarm.py": {
+      "lines": 95,
       "complexity": 8,
-      "worst": "eta_sec:169"
+      "worst": "alarm:66"
+    },
+    "backend/features/crawl/auto_round_queue.py": {
+      "lines": 148,
+      "complexity": 7,
+      "worst": "_ask_build:100"
+    },
+    "backend/features/crawl/auto_round_report.py": {
+      "lines": 233,
+      "complexity": 7,
+      "worst": "built:181"
+    },
+    "backend/features/crawl/auto_round_switch.py": {
+      "lines": 109,
+      "complexity": 3,
+      "worst": "state:66"
+    },
+    "backend/features/crawl/auto_round_view.py": {
+      "lines": 171,
+      "complexity": 5,
+      "worst": "_parts:76"
+    },
+    "backend/features/crawl/backlog.py": {
+      "lines": 337,
+      "complexity": 8,
+      "worst": "eta_sec:170"
     },
     "backend/features/crawl/big_sites.py": {
       "lines": 185,
@@ -1602,9 +1642,9 @@
       "worst": "_step:374"
     },
     "backend/features/crawl/judge_night_queue.py": {
-      "lines": 155,
-      "complexity": 6,
-      "worst": "seen:88"
+      "lines": 162,
+      "complexity": 7,
+      "worst": "seen_of:85"
     },
     "backend/features/crawl/judge_night_view.py": {
       "lines": 142,
@@ -2487,9 +2527,9 @@
       "worst": "overview:256"
     },
     "backend/features/ops/silence.py": {
-      "lines": 385,
+      "lines": 388,
       "complexity": 7,
-      "worst": "judge:159"
+      "worst": "judge:162"
     },
     "backend/features/ops/stage_silence.py": {
       "lines": 333,
@@ -4007,9 +4047,9 @@
       "worst": "worker_problems:83"
     },
     "backend/workers/jobs.py": {
-      "lines": 368,
+      "lines": 371,
       "complexity": 6,
-      "worst": "_contacts_what:266"
+      "worst": "_contacts_what:269"
     },
     "backend/workers/judge_jobs.py": {
       "lines": 98,
