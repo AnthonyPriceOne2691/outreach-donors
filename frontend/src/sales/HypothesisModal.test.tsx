@@ -17,6 +17,7 @@ import type { HypothesisCard } from '../api/salesTypes';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
+import { NO_PLANS } from './planFixtures';
 import type { Answer, Call, Recorded } from '../test/server';
 
 const SCREEN_WAIT = { timeout: 5000 };
@@ -51,6 +52,7 @@ type Route = Answer | ((call: Call) => Answer);
 function remembering(start: HypothesisCard[], made: HypothesisCard): Record<string, Route> {
   const known = [...start];
   return {
+    ...NO_PLANS,
     'GET /api/sales/hypotheses': () => ({ body: { rows: [...known], total: known.length } }),
     [`POST ${ADD}`]: () => {
       known.push(made);
@@ -147,6 +149,7 @@ describe('новая гипотеза: вкладка «Гипотезы»', () 
     const { user } = await open(
       '/sales?tab=hypotheses',
       {
+        ...NO_PLANS,
         'GET /api/sales/hypotheses': { body: { rows: [EN], total: 1 } },
         [`POST ${ADD}`]: { status: 409, body: { detail: taken } },
       },
@@ -240,6 +243,7 @@ describe('новая гипотеза: мастер загрузки', () => {
       '/sales/import',
       {
         // Первый список — с одной гипотезой; после заведения список не отвечает.
+        ...NO_PLANS,
         'GET /api/sales/hypotheses': () =>
           made
             ? { status: 503, body: { detail: 'База не ответила — повторите' } }

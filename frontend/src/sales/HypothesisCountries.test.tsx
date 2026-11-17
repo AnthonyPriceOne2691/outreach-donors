@@ -17,6 +17,7 @@ import type { HypothesisCard } from '../api/salesTypes';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
+import { NO_PLANS } from './planFixtures';
 import type { Answer, Call, Recorded } from '../test/server';
 import { countryLabel } from './HypothesisCountries';
 
@@ -51,6 +52,7 @@ const CLINICS = card(2, 'клиники', { other_countries: 'accept', excluded_
 
 function routes(rows: HypothesisCard[]): Record<string, Route> {
   const found: Record<string, Route> = {
+    ...NO_PLANS,
     'GET /api/sales/hypotheses': { body: { rows, total: rows.length } },
     [COUNTRIES]: { body: { codes: ['CL', 'JP', 'PT', 'KE'] } },
     'POST /api/sales/hypotheses': (call) => ({

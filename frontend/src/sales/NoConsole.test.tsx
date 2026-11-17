@@ -17,6 +17,7 @@ import type { SalesFunnelView } from '../api/salesFunnelTypes';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
+import { NO_PLANS } from './planFixtures';
 
 const SCREEN_WAIT = { timeout: 5000 };
 const ALL_MISSING = ['первого письма', 'первой добивки', 'второй добивки'];
@@ -120,6 +121,7 @@ describe('экраны продаж без команд консоли', () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({
       'GET /api/auth/me': { body: ADMIN },
+      ...NO_PLANS,
       'GET /api/sales/hypotheses': { body: hypotheses },
       'GET /api/sales/leads': { body: LEADS },
       'GET /api/sales/leads?hypothesis=1': { body: { ...LEADS, total: 3 } },

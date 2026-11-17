@@ -1,0 +1,114 @@
+/**
+ * «Изменить качество сайтов» гипотезы плана: глубина поиска, цель «Найти сайтов» и страны компаний.
+ *
+ * Глубина и цель — строки плана, страны компаний — поле самой гипотезы, тем же выбором, что в окне
+ * гипотезы (`HypothesisCountries`), и той же правкой на сервере, с её журналом. Действует на новые
+ * прогоны и суды: собранное не пересуживается. Уходит только поправленное; ничего не поправили —
+ * окно просто закрывается. Глубже при «нужны ключи» — гипотеза снова собирает.
+ */
+
+import { NumberInput, SegmentedControl, Stack, Text } from '@mantine/core';
+import { useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+
+import type { HypothesisCard } from '../api/salesTypes';
+import { formatNumber } from '../format';
+import { notify } from '../notices';
+import { HypothesisCountries } from './HypothesisCountries';
+import { countriesOf, HYPOTHESES_QUERY_KEY } from './hypothesisData';
+import type { CountriesField } from './hypothesisData';
+import { changeQuality, usePlanAction } from './planApi';
+import type { PlanQualityBody, PlanRow } from './planApi';
+import { PlanDialog } from './PlanDialog';
+import { MAX_TARGET } from './PlanMore';
+import { topWords } from './PlanPreviewView';
+
+/** Ступени «Глубины поиска до» книги — страниц выдачи по 10. */
+const DEPTHS = [1, 2, 3, 5].map((pages) => ({ value: String(pages), label: topWords(pages) }));
+
+/** Что поправили — только это и уходит. */
+export function qualityChanges(
+  row: PlanRow,
+  was: CountriesField,
+  pages: number,
+  target: number | '',
+  field: CountriesField,
+): PlanQualityBody {
+  const body: PlanQualityBody = {};
+  if (pages !== row.max_pages) body.max_pages = pages;
+  if (typeof target === 'number' && target !== row.target) body.target = target;
+  if (field.other_countries !== was.other_countries) body.other_countries = field.other_countries;
+  if (field.excluded_countries.join() !== was.excluded_countries.join()) {
+    body.excluded_countries = field.excluded_countries;
+  }
+  return body;
+}
+
+interface Props {
+  row: PlanRow;
+  /** Гипотеза продаж строки — её поле «страны компаний». */
+  card: HypothesisCard;
+  onClose: () => void;
+}
+
+export function PlanQuality({ row, card, onClose }: Props) {
+  const was = countriesOf(card);
+  const [pages, setPages] = useState(row.max_pages);
+  const [target, setTarget] = useState<number | ''>(row.target);
+  const [field, setField] = useState<CountriesField>(was);
+  const client = useQueryClient();
+  const send = usePlanAction(
+    (body: PlanQualityBody) => changeQuality(row.id, body),
+    () => {
+      // Страны компаний — поле гипотезы: карточка гипотезы перечитывается вместе с планами.
+      void client.invalidateQueries({ queryKey: HYPOTHESES_QUERY_KEY });
+      notify({ message: `«${row.name}»: качество сайтов сохранено`, color: 'green' });
+      onClose();
+    },
+  );
+  const submit = () => {
+    const body = qualityChanges(row, was, pages, target, field);
+    if (Object.keys(body).length === 0) onClose();
+    else send.mutate(body);
+  };
+  return (
+    <PlanDialog
+      title={`Качество сайтов: «${row.name}»`}
+      refused="Качество не сохранено"
+      error={send.error}
+      busy={send.isPending}
+      ready={target !== ''}
+      action="Сохранить"
+      onSubmit={submit}
+      onClose={onClose}
+    >
+      <Text size="sm" c="dimmed">
+        Действует на новые прогоны и суды: уже собранные сайты не пересуживаются.
+      </Text>
+      <Stack gap={4}>
+        <Text size="sm" fw={500} id={`plan-depth-${row.id}`}>
+          Глубина поиска до
+        </Text>
+        <SegmentedControl
+          aria-labelledby={`plan-depth-${row.id}`}
+          value={String(pages)}
+          data={DEPTHS}
+          onChange={(picked) => setPages(Number(picked))}
+          style={{ alignSelf: 'flex-start' }}
+        />
+      </Stack>
+      <NumberInput
+        label="Найти сайтов"
+        description={`Прошедших судью. Найдено: ${formatNumber(row.found)}`}
+        min={1}
+        max={MAX_TARGET}
+        allowDecimal={false}
+        allowNegative={false}
+        thousandSeparator=" "
+        value={target}
+        onChange={(value) => setTarget(typeof value === 'number' ? value : '')}
+      />
+      <HypothesisCountries field={field} onChange={setField} />
+    </PlanDialog>
+  );
+}

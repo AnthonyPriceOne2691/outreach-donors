@@ -18,6 +18,7 @@ import type { HypothesisCard } from '../api/salesTypes';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
+import { NO_PLANS } from './planFixtures';
 import type { Answer, Call, Recorded } from '../test/server';
 
 const SCREEN_WAIT = { timeout: 5000 };
@@ -60,6 +61,7 @@ type Route = Answer | ((call: Call) => Answer);
 function remembering(start: HypothesisCard[], held: string | null): Record<string, Route> {
   const known = [...start];
   const routes: Record<string, Route> = {
+    ...NO_PLANS,
     'GET /api/sales/hypotheses': () => ({ body: { rows: [...known], total: known.length } }),
   };
   for (const row of start) {

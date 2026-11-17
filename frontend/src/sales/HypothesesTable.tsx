@@ -13,10 +13,17 @@
  * Описание — коммерческий текст: живёт данными в базе, а не в репозитории, и в письма не идёт;
  * его читает судья сегмента сбора базы (`SegmentPane`). **В строке — три строки и «показать
  * целиком»** (решение 15.10): описание до 4000 знаков растягивало строку на экран.
+ *
+ * **План работ** — своим запросом (`planApi.useLivePlans`, опрос, пока план идёт), сведённым по
+ * гипотезе: над таблицей — строки планов с «Остановить план» / «Продолжить», в таблице — колонка
+ * «План работ» (`PlanCell`), только когда в ней есть гипотезы плана: без плана таблица прежняя.
+ * С колонкой таблица шире (1 200 px) и на узком окне уезжает вбок, а имя гипотезы стоит на месте
+ * (`stickyName`, как в отчёте приёмки) — кнопки «Править» и строки плана не теряют, чья строка.
  */
 
 import { Anchor, Button, Group, Stack, Table, Text } from '@mantine/core';
 import { useState } from 'react';
+import type { UIEvent } from 'react';
 import { Link } from 'react-router-dom';
 
 import type { HypothesisCard } from '../api/salesTypes';
@@ -26,6 +33,10 @@ import { FixedTable } from './FixedTable';
 import type { Column } from './FixedTable';
 import { HypothesisModal } from './HypothesisModal';
 import { LEAD_STATE_KEYS, leadsLink } from './leadFilters';
+import { placesOf, useLivePlans } from './planApi';
+import type { PlanPlace } from './planApi';
+import { PLAN_COLUMN_PX, PLAN_COLUMN_WIDTH, PlanCell } from './PlanCell';
+import { PlanLines } from './PlanLine';
 
 const COLUMNS: Column[] = [
   { title: 'Гипотеза', width: '20rem' },
@@ -37,6 +48,8 @@ const COLUMNS: Column[] = [
 ];
 
 export const HYPOTHESES_MIN_WIDTH = 912;
+/** Колонка «План работ» — только когда в таблице есть гипотезы плана. */
+const WITH_PLAN: Column[] = [...COLUMNS, { title: 'План работ', width: PLAN_COLUMN_WIDTH }];
 /** Строк описания в свёрнутом виде. */
 export const DESCRIPTION_LINES = 3;
 
@@ -69,9 +82,12 @@ function Count({ value, to }: { value: number; to: string }) {
 function HypothesisRow({
   row,
   onEdit,
+  plan,
 }: {
   row: HypothesisCard;
   onEdit: (row: HypothesisCard) => void;
+  /** Колонка «План работ» есть: у гипотезы плана — её место, у остальных — `undefined`. */
+  plan: { place: PlanPlace | undefined } | null;
 }) {
   return (
     <Table.Tr>
@@ -112,8 +128,19 @@ function HypothesisRow({
       <Table.Td>
         <Text size="sm">{formatDate(row.created_at)}</Text>
       </Table.Td>
+      {plan !== null && <PlanCell place={plan.place} card={row} />}
     </Table.Tr>
   );
+}
+
+/** Таблица уехала вбок — имя закреплённой колонки залито (`stickyScrolled`): прокрутка вбок —
+ *  событие самой области таблицы, оно не всплывает и ловится на погружении. */
+function useScrolled() {
+  const [scrolled, setScrolled] = useState(false);
+  const onScroll = (event: UIEvent<HTMLDivElement>) => {
+    setScrolled((event.target as HTMLElement).scrollLeft > 0);
+  };
+  return { scrolled, onScroll };
 }
 
 interface Props {
@@ -124,6 +151,10 @@ interface Props {
 
 export function HypothesesTable({ rows, onRemoved }: Props) {
   const [editing, setEditing] = useState<HypothesisCard | null>(null);
+  const plans = useLivePlans();
+  const { scrolled, onScroll } = useScrolled();
+  const places = placesOf(plans.data);
+  const planned = rows.some((row) => places.has(row.id));
   if (rows.length === 0) {
     return (
       <Stack gap={6} py="sm">
@@ -141,16 +172,24 @@ export function HypothesesTable({ rows, onRemoved }: Props) {
   }
   return (
     <>
-      <FixedTable
-        columns={COLUMNS}
-        minWidth={HYPOTHESES_MIN_WIDTH}
-        className="hypothesesTable"
-        horizontalSpacing="md"
-        tabularNums
-        rows={rows.map((row) => (
-          <HypothesisRow key={row.id} row={row} onEdit={setEditing} />
-        ))}
-      />
+      <PlanLines plans={plans.data?.plans} />
+      <div className={scrolled ? 'stickyScrolled' : undefined} onScrollCapture={onScroll}>
+        <FixedTable
+          columns={planned ? WITH_PLAN : COLUMNS}
+          minWidth={HYPOTHESES_MIN_WIDTH + (planned ? PLAN_COLUMN_PX : 0)}
+          className={planned ? 'hypothesesTable stickyName' : 'hypothesesTable'}
+          horizontalSpacing="md"
+          tabularNums
+          rows={rows.map((row) => (
+            <HypothesisRow
+              key={row.id}
+              row={row}
+              onEdit={setEditing}
+              plan={planned ? { place: places.get(row.id) } : null}
+            />
+          ))}
+        />
+      </div>
       {editing !== null && (
         <HypothesisModal
           key={editing.id}

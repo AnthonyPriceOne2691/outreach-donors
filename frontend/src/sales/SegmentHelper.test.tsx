@@ -17,6 +17,7 @@ import type { HypothesesView, HypothesisCard } from '../api/salesTypes';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
+import { NO_PLANS } from './planFixtures';
 import type { Answer, Call, Recorded } from '../test/server';
 import type { SegmentEstimate, SegmentHome } from './segmentApi';
 import { HELP_CONCRETE, HELP_LOOSE, HELP_ROUTE } from './segmentHelpFixtures';
@@ -109,6 +110,7 @@ async function openTab(
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     'GET /api/auth/me': { body: ADMIN },
+    ...NO_PLANS,
     'GET /api/sales/hypotheses': { body: HYPOTHESES },
     'GET /api/sales/kb': { body: KB },
     'GET /api/sales/segment?hypothesis=7': { body: HOME },

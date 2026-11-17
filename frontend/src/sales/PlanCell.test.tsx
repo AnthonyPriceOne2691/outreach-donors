@@ -1,0 +1,281 @@
+/**
+ * Колонка «План работ» и строка плана на вкладке «Гипотезы». Ответы сервера — записанные
+ * (`serve()`); имена, числа и ключи выдуманы.
+ *
+ * Проверяется то, ради чего колонка: у гипотезы плана — этап словами, «найдено N из цели» с
+ * полосой, расход из потолка, проблемы строками, кнопки по этапу и ссылки на «Сбор базы» и
+ * «Воронку» с гипотезой; без плана колонки нет; строка плана — сколько готово и расход, кнопка
+ * «Остановить план» или «Продолжить» с причиной паузы; кнопка уходит на сервер, отказ — словами
+ * сервера; список планов опрашивается, только пока план идёт.
+ */
+
+import { act, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import type { HypothesisCard } from '../api/salesTypes';
+import { ADMIN, TOKEN_KEY } from '../test/fixtures';
+import { renderWith } from '../test/render';
+import { serve } from '../test/server';
+import type { Answer, Call, Recorded } from '../test/server';
+import { HypothesesTable } from './HypothesesTable';
+import { PLAN_POLL_MS } from './planApi';
+import type { PlanLive, PlanRow } from './planApi';
+import { stageWords, waveDepth } from './planWords';
+
+type Route = Answer | ((call: Call) => Answer);
+
+const PLANS_ROUTE = 'GET /api/sales/plans';
+
+function card(id: number, name: string): HypothesisCard {
+  return {
+    id,
+    name,
+    description: null,
+    created_at: '2026-11-16T09:00:00+00:00',
+    leads: { new: 0, ready: 0, rejected: 0 },
+    total: 0,
+  };
+}
+
+const LOGISTICS = card(11, 'Логистика — пример');
+const DENTAL = card(12, 'Стоматологии — пример');
+const OUTSIDE = card(13, 'Своя гипотеза');
+
+function row(overrides: Partial<PlanRow> = {}): PlanRow {
+  return {
+    id: 1,
+    hypothesis_id: LOGISTICS.id,
+    name: LOGISTICS.name,
+    position: 1,
+    sheet: 'Пилот 1',
+    markets: ['kz'],
+    language: 'ru',
+    target: 5000,
+    max_pages: 5,
+    cap_usd: 50,
+    stage: 'collecting',
+    found: 1240,
+    spent_usd: 12.4,
+    keywords: 30_000,
+    bought: 30_000,
+    wave_page: 2,
+    wave_bought: 1200,
+    reserved_usd: 0.9,
+    problems: [],
+    ...overrides,
+  };
+}
+
+function plan(overrides: Partial<PlanLive> = {}): PlanLive {
+  return {
+    id: 7,
+    name: 'План недели',
+    mode: 'economy',
+    target_default: null,
+    cap_usd: 100,
+    status: 'running',
+    problem: null,
+    created_by: 'admin@ours.example.test',
+    created_at: '2026-11-16T12:00:00+00:00',
+    hypotheses: [
+      row(),
+      row({
+        id: 2,
+        hypothesis_id: DENTAL.id,
+        name: DENTAL.name,
+        position: 2,
+        stage: 'done',
+        found: 300,
+        target: 300,
+        spent_usd: 7.6,
+      }),
+    ],
+    ...overrides,
+  };
+}
+
+function setUp(plans: PlanLive[], routes: Record<string, Route> = {}): Recorded {
+  localStorage.setItem(TOKEN_KEY, 'пропуск');
+  return serve({
+    'GET /api/auth/me': { body: ADMIN },
+    [PLANS_ROUTE]: { body: { plans } },
+    ...routes,
+  });
+}
+
+function cellOf(name: string): HTMLElement {
+  const line = screen.getByRole('row', { name: new RegExp(name) });
+  const last = within(line).getAllByRole('cell').at(-1);
+  if (last === undefined) throw new Error(`у строки «${name}» нет ячеек`);
+  return last;
+}
+
+function asked(recorded: Recorded, path: string, method = 'GET'): Call[] {
+  return recorded.calls.filter((call) => call.path === path && call.method === method);
+}
+
+/** Пробелы разрядов и перед знаком денег — неразрывные; сверка — обычными. */
+function plain(text: string): string {
+  return text.replace(/\s/g, ' ');
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe('слова колонки', () => {
+  it('сбор — глубина волны и купленные ключи; волна 4 — до предела гипотезы', () => {
+    expect(plain(stageWords(row()))).toBe('сбор: топ-20, ключи 1 200 из 30 000');
+    expect(waveDepth({ wave_page: 4, max_pages: 5 })).toBe(5);
+    expect(waveDepth({ wave_page: 3, max_pages: 2 })).toBe(2);
+    expect(
+      ['waiting', 'sending', 'done', 'stopped'].map((stage) => stageWords(row({ stage }))),
+    ).toEqual(['ждёт очереди', 'письма', 'готово', 'остановлена']);
+  });
+});
+
+describe('колонка «План работ»', () => {
+  it('у гипотезы плана — этап, найдено с полосой, расход, проблемы и ссылки; у своей — пусто', async () => {
+    const keys = 'ключи и глубина до топ-50 кончились: найдено 300 из 300 — добавьте ключи';
+    setUp([
+      plan({
+        hypotheses: [
+          row({
+            problems: [
+              { code: 'run_failed', words: 'прогон не поставлен: потолок модели', at: null },
+            ],
+          }),
+          row({
+            id: 2,
+            hypothesis_id: DENTAL.id,
+            name: DENTAL.name,
+            stage: 'stopped',
+            problems: [{ code: 'keys', words: keys, at: null }],
+          }),
+        ],
+      }),
+    ]);
+    renderWith(<HypothesesTable rows={[LOGISTICS, DENTAL, OUTSIDE]} />);
+
+    expect(await screen.findByRole('columnheader', { name: 'План работ' })).toBeInTheDocument();
+    const cell = cellOf(LOGISTICS.name);
+    expect(cell).toHaveTextContent('Сбор: топ-20, ключи 1 200 из 30 000');
+    expect(cell).toHaveTextContent('найдено 1 240 из 5 000');
+    expect(within(cell).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
+    expect(cell).toHaveTextContent('расход 12,40 $ из 50,00 $');
+    expect(cell).toHaveTextContent('Прогон не поставлен: потолок модели');
+    expect(within(cell).getByRole('link', { name: 'Прогоны' })).toHaveAttribute(
+      'href',
+      '/sales?tab=collect&hypothesis=11',
+    );
+    expect(within(cell).getByRole('link', { name: 'Отчёт' })).toHaveAttribute(
+      'href',
+      '/sales?tab=funnel&hypothesis=11',
+    );
+    expect(
+      within(cell).getByRole('button', { name: `Остановить гипотезу «${LOGISTICS.name}»` }),
+    ).toBeInTheDocument();
+    expect(within(cell).queryByRole('button', { name: 'Добавить ключи' })).toBeNull();
+    const stopped = cellOf(DENTAL.name);
+    expect(
+      within(stopped).getByRole('button', { name: `Продолжить гипотезу «${DENTAL.name}»` }),
+    ).toBeInTheDocument();
+    expect(within(stopped).getByRole('button', { name: 'Добавить ключи' })).toBeInTheDocument();
+    expect(cellOf(OUTSIDE.name)).toBeEmptyDOMElement();
+  });
+
+  it('без плана колонки нет — таблица прежняя', async () => {
+    const recorded = setUp([]);
+    renderWith(<HypothesesTable rows={[OUTSIDE]} />);
+
+    await waitFor(() => expect(asked(recorded, '/api/sales/plans')).toHaveLength(1));
+    expect(screen.queryByRole('columnheader', { name: 'План работ' })).toBeNull();
+    expect(screen.queryByText(/План «/)).toBeNull();
+  });
+
+  it('«Остановить» уходит на сервер, отказ — словами под кнопками', async () => {
+    const refusal = 'гипотеза «Логистика — пример» уже остановлена';
+    const recorded = setUp([plan()], {
+      'POST /api/sales/plan-hypotheses/1/stop': { status: 409, body: { detail: refusal } },
+    });
+    renderWith(<HypothesesTable rows={[LOGISTICS, DENTAL]} />);
+
+    await userEvent
+      .setup()
+      .click(
+        await screen.findByRole('button', { name: `Остановить гипотезу «${LOGISTICS.name}»` }),
+      );
+
+    expect(await within(cellOf(LOGISTICS.name)).findByRole('alert')).toHaveTextContent(refusal);
+    expect(asked(recorded, '/api/sales/plan-hypotheses/1/stop', 'POST')).toHaveLength(1);
+  });
+});
+
+describe('строка плана', () => {
+  it('сколько пилотов готово и расход; «Остановить план» уходит и список перечитывается', async () => {
+    const recorded = setUp([plan()], {
+      'POST /api/sales/plans/7/stop': {
+        body: plan({ status: 'paused', problem: 'план остановлен кнопкой' }),
+      },
+    });
+    renderWith(<HypothesesTable rows={[LOGISTICS, DENTAL]} />);
+
+    expect(
+      await screen.findByText(
+        'План «План недели»: готово 1 пилот из 2 · расход 20,00 $ из 100,00 $',
+      ),
+    ).toBeInTheDocument();
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Остановить план «План недели»' }));
+
+    await waitFor(() => expect(asked(recorded, '/api/sales/plans')).toHaveLength(2));
+    expect(asked(recorded, '/api/sales/plans/7/stop', 'POST')).toHaveLength(1);
+  });
+
+  it('на паузе — причина словами и «Продолжить»; окончённый план строки не держит', async () => {
+    const words = 'счёт выдачи мал: на счету 0,10 $ — пополните счёт';
+    setUp([
+      plan({ status: 'paused', problem: words }),
+      plan({ id: 8, name: 'Старый план', status: 'done', hypotheses: [] }),
+    ]);
+    renderWith(<HypothesesTable rows={[LOGISTICS, DENTAL]} />);
+
+    expect(
+      await screen.findByText('Счёт выдачи мал: на счету 0,10 $ — пополните счёт'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Продолжить план «План недели»' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Старый план/)).toBeNull();
+  });
+});
+
+describe('опрос', () => {
+  it('идёт план — список перечитывается раз в 20 с; стоит — не опрашивается', async () => {
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    let answer = plan();
+    const recorded = setUp([], { [PLANS_ROUTE]: () => ({ body: { plans: [answer] } }) });
+    renderWith(<HypothesesTable rows={[LOGISTICS, DENTAL]} />);
+    await screen.findByText(/План «План недели»/);
+
+    const ticks = () =>
+      intervals.mock.calls
+        .filter(([, delay]) => delay === PLAN_POLL_MS)
+        .map(([tick]) => tick as () => void);
+    expect(ticks().length).toBeGreaterThanOrEqual(1);
+    answer = plan({ status: 'paused', problem: 'план остановлен кнопкой' });
+    act(() => {
+      for (const tick of ticks()) tick();
+    });
+    await screen.findByText('План остановлен кнопкой');
+
+    expect(asked(recorded, '/api/sales/plans')).toHaveLength(2);
+    intervals.mockClear();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(ticks()).toHaveLength(0);
+  });
+});

@@ -18,6 +18,7 @@ import type { HypothesesView, KbView, LeadCard, LeadsView } from '../api/salesTy
 import { ADMIN, HOME_ROUTES, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
+import { NO_PLANS } from './planFixtures';
 import type { Answer, Call, Recorded } from '../test/server';
 import { readLeadFilters, writeLeadFilters } from './leadFilters';
 import { FORECAST_ROUTE, MAILING_ROUTE } from './mailingFixtures';
@@ -137,6 +138,7 @@ async function openScreen(
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     'GET /api/auth/me': { body: who },
+    ...NO_PLANS,
     'GET /api/sales/hypotheses': { body: HYPOTHESES },
     [LEADS]: { body: view([IVAN, TWIN]) },
     'GET /api/sales/kb': { body: KB },
@@ -512,6 +514,7 @@ describe('продажи: лиды', () => {
     const none = { ...HYPOTHESES, rows: HYPOTHESES.rows.map((row) => ({ ...row, total: 0 })) };
     await openScreen(
       {
+        ...NO_PLANS,
         'GET /api/sales/hypotheses': { body: none },
         [LEADS]: { body: view([], { states: { new: 0, ready: 0, rejected: 0 } }) },
       },
@@ -550,6 +553,7 @@ describe('продажи: сводка — только на «Лидах» (а�
     };
     await openScreen(
       {
+        ...NO_PLANS,
         'GET /api/sales/hypotheses': { body: both },
         [at('hypothesis=1')]: { body: view([IVAN, TWIN]) },
       },
@@ -621,6 +625,7 @@ describe('продажи: «Загрузить базу» — в строке в
     const none = { ...HYPOTHESES, rows: HYPOTHESES.rows.map((row) => ({ ...row, total: 0 })) };
     await openScreen(
       {
+        ...NO_PLANS,
         'GET /api/sales/hypotheses': { body: none },
         [LEADS]: { body: view([], { states: { new: 0, ready: 0, rejected: 0 } }) },
       },
@@ -697,6 +702,7 @@ describe('продажи: пустая таблица на телефоне (а�
     const none = { ...HYPOTHESES, rows: HYPOTHESES.rows.map((row) => ({ ...row, total: 0 })) };
     await openScreen(
       {
+        ...NO_PLANS,
         'GET /api/sales/hypotheses': { body: none },
         [LEADS]: { body: view([], { states: { new: 0, ready: 0, rejected: 0 } }) },
       },
@@ -974,7 +980,7 @@ describe('продажи: гипотезы', () => {
 
   it('гипотез нет — сказано, как завести: кнопкой рядом, а не командой', async () => {
     await openScreen(
-      { 'GET /api/sales/hypotheses': { body: { rows: [], total: 0 } } },
+      { ...NO_PLANS, 'GET /api/sales/hypotheses': { body: { rows: [], total: 0 } } },
       { path: '/sales?tab=hypotheses', ready: 'Гипотез пока нет.' },
     );
 
