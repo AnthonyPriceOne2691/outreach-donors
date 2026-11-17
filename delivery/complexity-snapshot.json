@@ -2156,20 +2156,25 @@
       "complexity": 4,
       "worst": "waits:152"
     },
+    "backend/features/letters/followup_refusal.py": {
+      "lines": 87,
+      "complexity": 2,
+      "worst": "of_box:48"
+    },
     "backend/features/letters/followup_report.py": {
-      "lines": 57,
-      "complexity": 8,
-      "worst": "as_report:40"
+      "lines": 68,
+      "complexity": 9,
+      "worst": "as_report:49"
     },
     "backend/features/letters/followup_window.py": {
-      "lines": 91,
-      "complexity": 3,
-      "worst": "holds:53"
+      "lines": 130,
+      "complexity": 5,
+      "worst": "_policy_hours:94"
     },
     "backend/features/letters/followups.py": {
-      "lines": 492,
-      "complexity": 8,
-      "worst": "send_due:387"
+      "lines": 500,
+      "complexity": 9,
+      "worst": "send_due:393"
     },
     "backend/features/letters/forecast.py": {
       "lines": 334,
@@ -2467,9 +2472,9 @@
       "worst": "_paid_crawl_row:148"
     },
     "backend/features/ops/mail_watch.py": {
-      "lines": 338,
+      "lines": 378,
       "complexity": 8,
-      "worst": "_of_stage:139"
+      "worst": "_of_stage:145"
     },
     "backend/features/ops/overview.py": {
       "lines": 459,
@@ -3987,9 +3992,9 @@
       "worst": "dequeue_job_and_maintain_ttl:67"
     },
     "backend/workers/followups.py": {
-      "lines": 110,
+      "lines": 112,
       "complexity": 4,
-      "worst": "sweep:52"
+      "worst": "sweep:54"
     },
     "backend/workers/health.py": {
       "lines": 135,
