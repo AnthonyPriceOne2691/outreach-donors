@@ -247,6 +247,17 @@ def _unreached(exc: httpx.HTTPError) -> Refusal:
     return Refusal(RefusalKind.NETWORK, reason_of(exc), permanent=False)
 
 
+def tiered(payload: dict[str, Any]) -> dict[str, Any]:
+    """Тело запроса с тарифом вызова (`LLM_SERVICE_TIER`), если вызов не назвал свой.
+
+    Без `service_tier` провайдер берёт тариф проекта по умолчанию — у проекта ключа это Fast,
+    вдвое дороже обычного (17.11.2026). Тариф, названный вызовом (Flex судьи продаж), — его;
+    пустая настройка — тело как есть."""
+    if not llm_cfg.SERVICE_TIER or "service_tier" in payload:
+        return payload
+    return {**payload, "service_tier": llm_cfg.SERVICE_TIER}
+
+
 async def post_chat(
     http: httpx.AsyncClient,
     *,
@@ -267,7 +278,7 @@ async def post_chat(
             lambda: http.post(
                 API_URL,
                 headers={"Authorization": f"Bearer {api_key}"},
-                json=payload,
+                json=tiered(payload),
             ),
             attempts=ATTEMPTS,
             topic=topic,

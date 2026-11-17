@@ -972,9 +972,9 @@
       "worst": "—"
     },
     "backend/config/llm.py": {
-      "lines": 178,
+      "lines": 184,
       "complexity": 2,
-      "worst": "_unset_if_empty:113"
+      "worst": "_unset_if_empty:118"
     },
     "backend/config/observability.py": {
       "lines": 21,
@@ -3937,9 +3937,9 @@
       "worst": "is_demo:19"
     },
     "backend/shared/llm.py": {
-      "lines": 454,
+      "lines": 465,
       "complexity": 9,
-      "worst": "post_chat:250"
+      "worst": "post_chat:261"
     },
     "backend/shared/logs/__init__.py": {
       "lines": 6,
