@@ -108,9 +108,10 @@ def test_text_is_joined_and_capped() -> None:
     assert source_text("Заголовок", "Описание") == "Заголовок\nОписание"
 
 
-def test_reasoning_model_request_has_no_temperature() -> None:
+@pytest.mark.parametrize("model", ["gpt-5-mini", "gpt-6.1-terra"])
+def test_reasoning_model_request_has_no_temperature(model: str) -> None:
     """Перепутать нельзя: провайдер отвечает отказом, а не догадкой."""
-    reasoning = build_payload("gpt-5-mini", "example.com", TEXT)
+    reasoning = build_payload(model, "example.com", TEXT)
     assert "temperature" not in reasoning
     assert reasoning["max_completion_tokens"] > 0
 

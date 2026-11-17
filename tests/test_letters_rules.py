@@ -526,9 +526,10 @@ class TestSenderChoice:
 
 
 class TestRewriteRequest:
-    def test_reasoning_model_gets_its_own_limits(self) -> None:
+    @pytest.mark.parametrize("model", ["gpt-5", "gpt-6.1-sol"])
+    def test_reasoning_model_gets_its_own_limits(self, model: str) -> None:
         payload = build_payload(
-            "gpt-5",
+            model,
             zones={"greeting": "Hi"},
             about=Personalization(host="site.test", country="us"),
         )

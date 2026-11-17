@@ -1,6 +1,6 @@
 """Оценка разбора ответов на эталонном наборе: точность по каждому полю.
 
-Запуск: `python scripts/eval_reply_parse.py [файл.jsonl] [--gate 0.05]`.
+Запуск: `python scripts/eval_reply_parse.py [файл.jsonl] [--gate 0.05] [--out итог.json]`.
 По умолчанию — `scripts/data/reply_parse_golden.jsonl`: синтетические
 ответы по видам случаев, найденных в переписке (две цены, надбавка за
 нишу, диапазон, «от», оплата после публикации, отказ, «бесплатно» и т. д.).
@@ -15,6 +15,11 @@
 сама, без человека, и при этом неверна. Требование ограничивает ошибки
 разбора пятью процентами, и считать их надо именно так: ошибка, ушедшая
 человеку, стоит минуты, а ушедшая в базу — неверной цены у донора.
+
+**Модель** — та же, что у разбора в работе: `LLM_REPLY_PARSE_MODEL`, пусто — модель писем
+`LLM_LETTERS_MODEL`. **Итог по случаю** (`--out`) — поля, решение и уверенность каждого случая
+файлом JSON: смену модели меряют парно, на одних случаях, и сдвиг уверенности у порога виден
+только так.
 """
 
 from __future__ import annotations
@@ -145,13 +150,38 @@ def report(results: list[dict[str, Any]], tokens: int) -> float:
     return len(dangerous) / total if total else 0.0
 
 
+def _row(result: dict[str, Any]) -> dict[str, Any]:
+    found: Extracted = result["found"]
+    return {
+        "id": result["id"],
+        "wrong": result["wrong"],
+        "decision": result["decision"],
+        "want_decision": result["want_decision"],
+        "dangerous": result["dangerous"],
+        "placement": found.placement,
+        "price_white": None if found.price_white is None else str(found.price_white),
+        "price_grey": None if found.price_grey is None else str(found.price_grey),
+        "currency": found.currency,
+        "confidence": found.confidence,
+        "tokens": found.tokens_spent,
+    }
+
+
+def rows(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Итог по случаю (`--out`): что прочла модель, куда легло и с какой уверенностью."""
+    return [_row(result) for result in results]
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("path", nargs="?", default=str(DEFAULT))
     parser.add_argument("--gate", type=float, default=0.05, help="допустимая доля опасных ошибок")
+    parser.add_argument("--out", type=Path, help="итог по случаю ещё и файлом JSON")
     args = parser.parse_args(argv)
     results, tokens = asyncio.run(run(load(Path(args.path))))
     share = report(results, tokens)
+    if args.out is not None:
+        args.out.write_text(json.dumps(rows(results), ensure_ascii=False, indent=1), "utf-8")
     if share > args.gate:
         print(f"\nВОРОТА ЗАКРЫТЫ: опасных {share:.0%} при допуске {args.gate:.0%}")
         return 1

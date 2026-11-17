@@ -55,6 +55,7 @@ from tests import test_advertiser_judge_catalog as catalog_tests
 from tests import test_advertiser_judge_pass as pass_tests
 from tests.test_advertiser_judge import (
     DONOR,
+    JUDGE_MODEL,
     LINK,
     MODEL_KEY,
     PAGE,
@@ -75,7 +76,7 @@ from tests.test_advertiser_judge_pass import (
     _spend,
 )
 
-FIRST, SECOND = "gpt-5-mini", "gpt-5"
+FIRST, SECOND = JUDGE_MODEL, "gpt-5"
 Judgement = AdvertiserJudgementModel
 #: Слова правила «домен — бизнес, ссылка его продвигает» и спора с ответом модели — как на экране.
 PROMOTED = "домен — бизнес, ссылка его продвигает"
@@ -116,7 +117,9 @@ class Two:
 
 @pytest.fixture(autouse=True)
 def second_on(monkeypatch: pytest.MonkeyPatch, _no_second_judge_round: None) -> None:
-    """Вторая модель задана: общая фикстура тестов её гасит."""
+    """Вторая модель задана: общая фикстура тестов её гасит. Первая — та же, что у клиента теста:
+    проход планирует по настройке, а судит клиентом (`client_of`), — при любом умолчании."""
+    monkeypatch.setattr(llm_cfg, "ADVERTISER_JUDGE_MODEL", FIRST)
     monkeypatch.setattr(llm_cfg, "ADVERTISER_JUDGE_SECOND_MODEL", SECOND)
 
 

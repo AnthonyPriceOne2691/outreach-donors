@@ -24,7 +24,14 @@ import httpx
 
 from backend.config import llm as cfg
 from backend.features.keywords.hygiene import parse_phrases
-from backend.shared.llm import Refusal, content_of, is_reasoning, post_chat, tokens_of
+from backend.shared.llm import (
+    Refusal,
+    content_of,
+    is_reasoning,
+    post_chat,
+    reasoning_effort,
+    tokens_of,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +69,7 @@ def build_payload(model: str, ask: Ask) -> dict[str, Any]:
     if is_reasoning(model):
         payload["max_completion_tokens"] = max(1200, ask.max_phrases * TOKENS_PER_PHRASE_REASONING)
         # Минимальный режим: нам нужен список фраз, а не размышление о нём.
-        payload["reasoning_effort"] = "minimal"
+        payload["reasoning_effort"] = reasoning_effort(model, "minimal")
     else:
         payload["max_tokens"] = max(400, ask.max_phrases * TOKENS_PER_PHRASE_PLAIN)
         payload["temperature"] = 0

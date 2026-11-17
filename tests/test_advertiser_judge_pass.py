@@ -39,7 +39,14 @@ from backend.features.crawl.sample import sampled
 from backend.shared.llm import ModelUnreadyError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from tests.test_advertiser_judge import HOME_HTML, Model, client_of, facts_answer, facts_body
+from tests.test_advertiser_judge import (
+    HOME_HTML,
+    JUDGE_MODEL,
+    Model,
+    client_of,
+    facts_answer,
+    facts_body,
+)
 
 DONOR = "kitchen-notes.example"
 #: Домены случайной выборки (md5 домена < «33») — в её порядке; и вне выборки.
@@ -82,6 +89,13 @@ class Site:
 
     def client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(transport=httpx.MockTransport(self))
+
+
+@pytest.fixture(autouse=True)
+def pass_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Проход планирует когорту по настройке модели, а судит клиентом теста (`client_of`): на проде
+    клиент берёт ту же настройку — здесь она та же, что у клиента, при любом умолчании."""
+    monkeypatch.setattr(llm_cfg, "ADVERTISER_JUDGE_MODEL", JUDGE_MODEL)
 
 
 @pytest.fixture(autouse=True)
@@ -233,7 +247,7 @@ async def test_a_pass_writes_judgements_and_spend_and_leaves_decisions(
 
     assert (report.done, report.outcomes["judged"], report.advice["write"]) == (2, 2, 2)
     assert report.tokens == 240
-    assert model_ready == ["gpt-5-mini"]
+    assert model_ready == [JUDGE_MODEL]
     assert len(await _judgements(session)) == 2
     spend = await _spend(session)
     assert [(row.units, row.provider, row.stage) for row in spend] == [
@@ -375,7 +389,7 @@ CARD_PAGE = {
 
 def _judged_card(target: str) -> AdvertiserJudgementModel:
     """Уже сохранённый суд пары донора в нынешней когорте: карточка каталога."""
-    cohort = cohort_of("gpt-5-mini")
+    cohort = cohort_of(JUDGE_MODEL)
     return AdvertiserJudgementModel(
         donor_host=DONOR,
         target_root=target,

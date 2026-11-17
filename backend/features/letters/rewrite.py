@@ -53,6 +53,7 @@ from backend.shared.llm import (
     content_of,
     is_reasoning,
     post_chat,
+    reasoning_effort,
     tokens_of,
 )
 
@@ -188,7 +189,7 @@ def build_payload(
     }
     if is_reasoning(model):
         payload["max_completion_tokens"] = max(1500, len(zones) * TOKENS_PER_ZONE_REASONING)
-        payload["reasoning_effort"] = "minimal"
+        payload["reasoning_effort"] = reasoning_effort(model, "minimal")
     else:
         payload["max_tokens"] = max(600, len(zones) * TOKENS_PER_ZONE_PLAIN)
         payload["temperature"] = 1

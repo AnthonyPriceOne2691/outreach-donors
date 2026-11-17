@@ -46,6 +46,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from backend.config import llm as llm_cfg
 from backend.config import outreach as outreach_cfg
 from backend.features.letters import masking
 from backend.features.replies.inbound import AttachedText, Incoming
@@ -64,6 +65,7 @@ from backend.shared.llm import (
     content_of,
     is_reasoning,
     post_chat,
+    reasoning_effort,
     tokens_of,
 )
 
@@ -329,7 +331,7 @@ def build_payload(model: str, *, text: str, subject: str, attached: str = "") ->
     }
     if is_reasoning(model):
         payload["max_completion_tokens"] = TOKENS_REASONING
-        payload["reasoning_effort"] = "minimal"
+        payload["reasoning_effort"] = reasoning_effort(model, "minimal")
     else:
         payload["max_tokens"] = TOKENS_PLAIN
         payload["temperature"] = 0
@@ -413,6 +415,10 @@ def _as_confidence(raw: Any) -> float:
 
 class ExtractClient(ModelClient):
     """Клиент разбора. Считает токены — это расход на ответ."""
+
+    def _default_model(self) -> str:
+        """Своя модель разбора (`LLM_REPLY_PARSE_MODEL`); не задана — модель писем, как до развязки."""
+        return llm_cfg.REPLY_PARSE_MODEL or llm_cfg.LETTERS_MODEL
 
     async def extract(self, incoming: Incoming) -> Extracted:
         """Разобрать ответ. Нулевая уверенность — законный исход."""

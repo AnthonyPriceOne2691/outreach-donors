@@ -202,12 +202,17 @@ class TestPresets:
 
 
 class TestPayload:
-    async def test_reasoning_model_gets_its_own_parameters(self) -> None:
+    @pytest.mark.parametrize(
+        ("model", "effort"),
+        # У шестого семейства `minimal` нет — ближайшая ступень выше (`llm.reasoning_effort`).
+        [("gpt-5", "minimal"), ("gpt-6.1-sol", "low"), ("gpt-6.1-terra", "low")],
+    )
+    async def test_reasoning_model_gets_its_own_parameters(self, model: str, effort: str) -> None:
         """Перепутать нельзя: провайдер отвечает отказом, а не догадкой."""
-        payload = build_payload("gpt-5", Ask(system="s", user="u", max_phrases=30))
+        payload = build_payload(model, Ask(system="s", user="u", max_phrases=30))
 
         assert "max_completion_tokens" in payload
-        assert payload["reasoning_effort"] == "minimal"
+        assert payload["reasoning_effort"] == effort
         assert "temperature" not in payload
 
     async def test_plain_model_gets_temperature(self) -> None:

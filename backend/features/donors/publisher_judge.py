@@ -53,7 +53,14 @@ import httpx
 from backend.config import judge as cfg
 from backend.config import llm as llm_cfg
 from backend.features.donors.home_signals import HomeSignals, looks_denied
-from backend.shared.llm import Refusal, content_of, is_reasoning, post_chat, tokens_of
+from backend.shared.llm import (
+    Refusal,
+    content_of,
+    is_reasoning,
+    post_chat,
+    reasoning_effort,
+    tokens_of,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +253,7 @@ def build_payload(
         # Потолок включает рассуждение, а на `low` его больше, чем на
         # `minimal`: обрезанный ответ пришёл бы пустым и ушёл в «посмотри».
         payload["max_completion_tokens"] = 2000
-        payload["reasoning_effort"] = cfg.REASONING_EFFORT
+        payload["reasoning_effort"] = reasoning_effort(model, cfg.REASONING_EFFORT)
     else:
         payload["max_tokens"] = 300
         payload["temperature"] = 0

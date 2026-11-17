@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from backend.config import llm as llm_cfg
 from backend.features.letters import masking
 from backend.shared.llm import (
     ModelClient,
@@ -34,6 +35,7 @@ from backend.shared.llm import (
     content_of,
     is_reasoning,
     post_chat,
+    reasoning_effort,
     tokens_of,
 )
 
@@ -92,7 +94,10 @@ def build_payload(model: str, *, text: str, subject: str) -> dict[str, Any]:
     и температура — по семейству модели, тем же правилом (`llm.is_reasoning`)."""
     framed = f"Subject: {subject}\n<<<EMAIL\n{text}\nEMAIL>>>"
     limits: dict[str, Any] = (
-        {"max_completion_tokens": TOKENS_REASONING, "reasoning_effort": "minimal"}
+        {
+            "max_completion_tokens": TOKENS_REASONING,
+            "reasoning_effort": reasoning_effort(model, "minimal"),
+        }
         if is_reasoning(model)
         else {"max_tokens": TOKENS_PLAIN, "temperature": 0}
     )
@@ -159,7 +164,12 @@ def judged(content: str, labels: dict[str, str], hidden: str, *, tokens: int = 0
 
 
 class RedirectClient(ModelClient):
-    """Клиент переадресации: модель и ключ — те же, что у разбора ответов (`ModelClient`)."""
+    """Клиент переадресации: ключ — общий (`ModelClient`), модель — своя (`LLM_REDIRECT_MODEL`)."""
+
+    def _default_model(self) -> str:
+        """Своя модель переадресации; не задана — модель писем, как до развязки: письмо уходит
+        без человека, и менять её можно только по своему замеру, а не вместе с письмами."""
+        return llm_cfg.REDIRECT_MODEL or llm_cfg.LETTERS_MODEL
 
     async def ask(self, text: str, *, subject: str, names: Sequence[str]) -> Asked:
         """Просят ли в ответе писать на другой адрес. `text` — написанное человеком, `names` —

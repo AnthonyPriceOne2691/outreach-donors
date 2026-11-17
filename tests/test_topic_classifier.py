@@ -254,8 +254,9 @@ def test_the_source_is_what_survived_the_cap(monkeypatch: pytest.MonkeyPatch) ->
 # --- запрос и ответ ---------------------------------------------------------------
 
 
-def test_reasoning_model_request_has_no_temperature() -> None:
-    reasoning = build_payload("gpt-5-mini", "a.test", "текст")
+@pytest.mark.parametrize("model", ["gpt-5-mini", "gpt-6.1-terra"])
+def test_reasoning_model_request_has_no_temperature(model: str) -> None:
+    reasoning = build_payload(model, "a.test", "текст")
     assert "temperature" not in reasoning
     assert reasoning["max_completion_tokens"] == REASONING_CEILING
     assert reasoning["reasoning_effort"] == topics_cfg.REASONING_EFFORT

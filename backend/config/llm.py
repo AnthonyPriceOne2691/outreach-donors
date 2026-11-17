@@ -33,6 +33,11 @@ class _Llm(DomainSettings):
     # похожее на тысячу других, — это и есть то, от чего уникализация
     # защищает.
     letters_model: str = Field(default="gpt-5", validation_alias="LLM_LETTERS_MODEL")
+    # Модели разбора цены из ответа донора (`features/replies/extract.py`) и переадресации лида
+    # (`features/replies/redirect_ask.py`). Пусто — модель писем, как было: до этих строк одна
+    # `LLM_LETTERS_MODEL` переключала и откатывала три функции разом, а замер у каждой свой.
+    reply_parse_model: str = Field(default="", validation_alias="LLM_REPLY_PARSE_MODEL")
+    redirect_model: str = Field(default="", validation_alias="LLM_REDIRECT_MODEL")
     # Модель агента переписки: письмо живому собеседнику, и слабая модель
     # пишет его шаблонно и путает языки — та же причина, что у уникализации.
     agent_model: str = Field(default="gpt-5", validation_alias="LLM_AGENT_MODEL")
@@ -130,11 +135,17 @@ _s, _unread = spared(
 )
 
 API_KEY: str = _s.api_key.strip()  # хвостовой пробел из .env ломает заголовок
-KEYGEN_MODEL: str = _s.keygen_model
-JUDGE_MODEL: str = _s.judge_model
-LETTERS_MODEL: str = _s.letters_model
-AGENT_MODEL: str = _s.agent_model
-SALES_CLASSIFY_MODEL: str = _s.sales_classify_model
+# Имя модели — без хвостовых пробелов, как у остальных: «gpt-6.1-terra » провайдер не знает, и
+# правка одной строки `.env` при смене модели отказывала бы на каждом вызове.
+KEYGEN_MODEL: str = _s.keygen_model.strip()
+JUDGE_MODEL: str = _s.judge_model.strip()
+LETTERS_MODEL: str = _s.letters_model.strip()
+#: Пусто — модель писем: её подставляет клиент в момент вызова (`ExtractClient`, `RedirectClient`),
+#: а не импорт, — подмена модели писем в тесте или разовом запуске доезжает и до них.
+REPLY_PARSE_MODEL: str = _s.reply_parse_model.strip()
+REDIRECT_MODEL: str = _s.redirect_model.strip()
+AGENT_MODEL: str = _s.agent_model.strip()
+SALES_CLASSIFY_MODEL: str = _s.sales_classify_model.strip()
 SALES_DRAFT_MODEL: str = _s.sales_draft_model.strip()
 SALES_SITUATION_MODEL: str = _s.sales_situation_model.strip()
 SALES_JUDGE_MODEL: str = _s.sales_judge_model.strip()

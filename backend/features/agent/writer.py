@@ -42,6 +42,7 @@ from backend.shared.llm import (
     content_of,
     is_reasoning,
     post_chat,
+    reasoning_effort,
     tokens_of,
 )
 
@@ -172,7 +173,7 @@ def build_payload(model: str, *, user: str, prompt: Path = PROMPT_PATH) -> dict[
     }
     if is_reasoning(model):
         payload["max_completion_tokens"] = TOKENS_REASONING
-        payload["reasoning_effort"] = "low"
+        payload["reasoning_effort"] = reasoning_effort(model, "low")
     else:
         payload["max_tokens"] = TOKENS_PLAIN
         payload["temperature"] = 0.4

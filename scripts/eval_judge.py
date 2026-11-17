@@ -1,6 +1,6 @@
 """Оценка судьи площадки на эталонном наборе: кого отрезал, кого пропустил.
 
-Запуск: `python scripts/eval_judge.py [файл.jsonl] [--gate 0.05]`.
+Запуск: `python scripts/eval_judge.py [файл.jsonl] [--gate 0.05] [--out итог.json]`.
 По умолчанию — `scripts/data/judge_golden.jsonl`: синтетические сайты из
 разных ниш и стран пяти классов — продаёт размещение у себя, издание или
 обзорщик, бренд, бренд со страницей для авторов, посредник. Настоящих
@@ -18,6 +18,10 @@
 
 Отдельные ворота — **ни одного отрезанного продавца размещения**: ради
 этого класса судья v2 и заведён.
+
+**Итог по случаю** (`--out`) — совет, вид, кто решил и токены каждого случая файлом JSON: смену
+модели меряют парно, на одних случаях (`LLM_JUDGE_MODEL=… python scripts/eval_judge.py --out …`),
+а общий итог не говорит, какие случаи перевернулись.
 """
 
 from __future__ import annotations
@@ -150,12 +154,36 @@ def report(results: list[dict[str, Any]]) -> tuple[float, int]:
     return (len(dangerous) / total if total else 0.0), placement_cut
 
 
+def rows(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Итог по случаю (`--out`): что сказал судья и чего это стоило — для парного сравнения."""
+    return [
+        {
+            "id": r["id"],
+            "expect": r["expect"],
+            "recommendation": r["verdict"].recommendation.value,
+            "intent": r["verdict"].intent.value,
+            "decided_by": r["verdict"].decided_by.value,
+            "right": r["right"],
+            "dangerous": r["dangerous"],
+            "unanswered": r["verdict"].unanswered,
+            "model": r["verdict"].model,
+            "tokens": r["verdict"].tokens,
+            "reason": r["verdict"].reason,
+        }
+        for r in results
+    ]
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("path", nargs="?", default=str(DEFAULT))
     parser.add_argument("--gate", type=float, default=0.05, help="допустимая доля опасных ошибок")
+    parser.add_argument("--out", type=Path, help="итог по случаю ещё и файлом JSON")
     args = parser.parse_args(argv)
-    share, placement_cut = report(asyncio.run(run(load(Path(args.path)))))
+    results = asyncio.run(run(load(Path(args.path))))
+    share, placement_cut = report(results)
+    if args.out is not None:
+        args.out.write_text(json.dumps(rows(results), ensure_ascii=False, indent=1), "utf-8")
     if placement_cut:
         print(f"\nВОРОТА ЗАКРЫТЫ: отрезано продавцов размещения {placement_cut}, допуск 0")
         return 1
