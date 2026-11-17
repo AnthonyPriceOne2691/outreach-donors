@@ -50,6 +50,20 @@
 сборок разом или счёта долей между проходами, «по доле ready» отдавало бы всё большой базе, и
 малая гипотеза не получала бы писем вовсе.
 
+**План работ — пилот за пилотом** (решение владельца 16.11). Гипотеза плана
+(`plan_models.SalesPlanHypothesisModel`) — не кандидат, пока у гипотезы того же плана левее
+(`position` меньше) есть лиды, которым сборка напишет первое письмо, — то же «Напишет», что делает
+кандидатом её саму. Иначе очередь отдала бы недостачу следующему пилоту, едва у него появились
+готовые лиды (ни разу не собранная — первой), и письма пилотов шли бы вперемешку; номер письма —
+порядок отправки (`autosend_window.py`), так что сборка пилот за пилотом — это и отправка. Этап
+гипотезы не в счёт: у остановленной (`stopped` — бюджет, ключи, «Остановить») новых прогонов нет,
+а собранные лиды остались, и сборка им пишет — их письма первыми. Лид, которому сборка не напишет
+(нет цепочки его языка, стоп-лист), никого не держит — иначе план встал бы. Письма к пересборке —
+не лиды без письма: в очереди они на своём месте (пересборка — на том же), следующего не держат,
+а ждущему кандидатства не дают — его сборка писала бы и новым лидам. Первый пилот, которому есть
+кому писать, — всегда кандидат: правило не оставляет проход без кандидата, и своих слов на экране
+ему не нужно. Гипотеза не из плана и другие планы — как прежде.
+
 **«Кому не пишем» — и здесь** (`not_writing.py`, решение владельца 13.10): письмо лида из списка
 не в счёт очереди — отправка его не пустит, — а гипотеза, у которой без письма остались только
 такие лиды, не кандидат: сборка их не возьмёт, и проход ставил бы её каждые десять минут впустую.
@@ -69,8 +83,9 @@ from datetime import UTC, date, datetime
 from redis.exceptions import RedisError
 from rq import Queue
 from rq.exceptions import DuplicateJobError
-from sqlalchemy import func, select
+from sqlalchemy import Exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import aliased
 
 from backend.config import sales as sales_cfg
 from backend.config import storage
@@ -101,6 +116,7 @@ from backend.features.sales.models import (
     SalesThreadModel,
 )
 from backend.features.sales.not_writing import excluded
+from backend.features.sales.plan_models import SalesPlanHypothesisModel
 from backend.features.sales.queue_start import LIMIT_MAX, RUNNING, build_job_id, start
 from backend.features.sales.unconfirmed import first_letter
 from backend.features.sales.usage_cap import sales_cap
@@ -227,12 +243,32 @@ async def candidates(
 ) -> list[tuple[int, str]]:
     """Гипотезы, чьим лидам без письма сборка напишет первое письмо хоть одному, — решением самой
     сборки, тем же числом, что «Напишет» вкладки «Рассылка» (`queue_plan.writable_counts`), — или с
-    письмами в очереди, которые сборка соберёт заново (`stale`), — по номеру."""
+    письмами в очереди, которые сборка соберёт заново (`stale`), — по номеру; кроме гипотез плана
+    работ, чей черёд не пришёл (`_behind`, пилот за пилотом). Одним запросом."""
     writes = await queue_plan.writable_counts(session, now=now)
+    writing = [hypothesis_id for hypothesis_id, count in writes.items() if count > 0]
     rows = await session.execute(
-        select(SalesHypothesisModel.id, SalesHypothesisModel.name).order_by(SalesHypothesisModel.id)
+        select(SalesHypothesisModel.id, SalesHypothesisModel.name)
+        .where(SalesHypothesisModel.id.in_([*writing, *stale]), ~_behind(writing))
+        .order_by(SalesHypothesisModel.id)
     )
-    return [item for item in rows.tuples().all() if writes.get(item[0], 0) > 0 or item[0] in stale]
+    return list(rows.tuples().all())
+
+
+def _behind(writing: list[int]) -> Exists:
+    """Гипотеза плана работ ждёт черёда: левее в том же плане (`position` меньше) стоит гипотеза
+    из `writing` — та, чьим лидам сборка ещё напишет первое письмо (см. модуль)."""
+    earlier = aliased(SalesPlanHypothesisModel)
+    return (
+        select(SalesPlanHypothesisModel.id)
+        .join(earlier, earlier.plan_id == SalesPlanHypothesisModel.plan_id)
+        .where(
+            SalesPlanHypothesisModel.hypothesis_id == SalesHypothesisModel.id,
+            earlier.position < SalesPlanHypothesisModel.position,
+            earlier.hypothesis_id.in_(writing),
+        )
+        .exists()
+    )
 
 
 async def in_turn(session: AsyncSession, found: list[tuple[int, str]]) -> list[tuple[int, str]]:

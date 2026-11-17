@@ -3082,9 +3082,9 @@
       "worst": "autobuild_line:202"
     },
     "backend/features/sales/autobuild.py": {
-      "lines": 427,
+      "lines": 463,
       "complexity": 8,
-      "worst": "_choose:284"
+      "worst": "_choose:320"
     },
     "backend/features/sales/autobuild_alarm.py": {
       "lines": 119,
