@@ -247,9 +247,12 @@ export function ThreadPage({ salesPart: SalesPart }: Props = {}) {
         <Stack gap={4}>
           {back !== null && <BackLink to={back}>К списку</BackLink>}
           <Group gap="xs" justify="space-between" style={{ rowGap: 2 }}>
-            <Group gap="sm" wrap="nowrap" miw={0}>
+            <Group gap="sm" wrap="wrap" miw={0}>
               {/* Длинный домен переносится по швам: без переноса на телефоне
-                  он уходил за край карточки и обрезался (06.10.2026). */}
+                  он уходил за край карточки и обрезался (06.10.2026). Метка
+                  состояния, когда рядом не помещается, — следующей строкой: в
+                  ряду без переноса она сжимала и короткий домен, и на телефоне
+                  он рвался по шву: имя и «.ru» на разных строках, 17.11.2026). */}
               <Title order={3} size="h4" className="cellName">
                 <Seams text={data.card.host} />
               </Title>
