@@ -135,6 +135,8 @@ class PlanPreview(BaseModel):
     #: Лист → почему пропущен: инструкция, скрытый, пустой.
     skipped: dict[str, str]
     serp_mode: str
+    #: Тариф судьи (`segment_tier.JudgeTier`): деньги модели в смете — по нему.
+    judge_tier: str
     low: SpendView
     high: SpendView
     #: Сайтов на результат выдачи и токенов судьи на сайт — из истории; 0 прогонов — запасные.
@@ -164,6 +166,7 @@ class PlanPreview(BaseModel):
             sheets=sheets,
             skipped=skipped,
             serp_mode=estimate.serp_mode,
+            judge_tier=estimate.judge_tier,
             low=SpendView.of(estimate.low),
             high=SpendView.of(estimate.high),
             share=estimate.share,

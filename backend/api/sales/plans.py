@@ -100,7 +100,11 @@ _form = Depends(_upload)
 
 
 async def _estimate(session: AsyncSession, draft: PlanDraft, ask: PlanAsk) -> PlanEstimate:
-    return await plan_estimate(session, draft, plan_store.SERP_MODES[ask.mode], goal=ask.goal)
+    """Смета плана — выдачей и тарифом судьи его режима (`plan_store.PLAN_MODES`)."""
+    pace = plan_store.PLAN_MODES[ask.mode]
+    return await plan_estimate(
+        session, draft, pace.serp_mode, goal=ask.goal, judge_tier=pace.judge_tier
+    )
 
 
 @router.post("/plans/preview", response_model=PlanPreview, summary="План работ: превью книги")
