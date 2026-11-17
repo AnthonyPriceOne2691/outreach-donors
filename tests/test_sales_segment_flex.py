@@ -190,17 +190,22 @@ def test_the_flex_body_differs_by_the_service_tier_only() -> None:
 async def test_every_call_of_an_economy_judge_asks_flex_and_a_standard_one_never(
     pauses: list[float],
 ) -> None:
-    """Факты сайта и разбор описания — оба вызова экономного судьи на Flex; у обычного поля нет."""
-    for tier, field in ((JudgeTier.FLEX, {"flex"}), (JudgeTier.STANDARD, {None})):
+    """Факты сайта и разбор описания — оба вызова экономного судьи на Flex; обычный Flex не просит
+    никогда: поля нет или «default» — явный обычный тариф, который общий `post_chat` вправе дописать
+    вызову без своего тарифа. Годны оба: судье важно только, что «flex» просит экономный и он один."""
+    allowed = {JudgeTier.FLEX: {"flex"}, JudgeTier.STANDARD: {None, "default"}}
+    for tier, fits in allowed.items():
         model = Model()
         client = model.client(tier)
         await client.scope(SEGMENT)
         said = await client.judge(host=SHOP, segment=SEGMENT, text=text())
         await client.aclose()
 
+        asked = {body.get("service_tier") for body in model.bodies}
         assert said.facts is not None
         assert len(model.bodies) == 2
-        assert {body.get("service_tier") for body in model.bodies} == field
+        assert asked
+        assert asked <= fits
     assert pauses == []
 
 
