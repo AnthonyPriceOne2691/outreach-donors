@@ -253,29 +253,33 @@ describe('строка плана', () => {
 });
 
 describe('опрос', () => {
-  it('идёт план — список перечитывается раз в 20 с; стоит — не опрашивается', async () => {
-    const intervals = vi.spyOn(globalThis, 'setInterval');
+  it('идёт план — список перечитывается раз в 20 с; встал — опрос снят', async () => {
+    const sets = vi.spyOn(globalThis, 'setInterval');
+    const clears = vi.spyOn(globalThis, 'clearInterval');
+    /** Интервалы опроса, которые стоят сейчас: поставлены и не сняты. */
+    const polling = () => {
+      const cleared = new Set<unknown>(clears.mock.calls.map(([id]) => id));
+      return sets.mock.calls
+        .map(([tick, delay], index) => {
+          const id: unknown = sets.mock.results[index]?.value;
+          return { tick, delay, id };
+        })
+        .filter(({ delay, id }) => delay === PLAN_POLL_MS && !cleared.has(id));
+    };
     let answer = plan();
     const recorded = setUp([], { [PLANS_ROUTE]: () => ({ body: { plans: [answer] } }) });
     renderWith(<HypothesesTable rows={[LOGISTICS, DENTAL]} />);
     await screen.findByText(/План «План недели»/);
 
-    const ticks = () =>
-      intervals.mock.calls
-        .filter(([, delay]) => delay === PLAN_POLL_MS)
-        .map(([tick]) => tick as () => void);
-    expect(ticks().length).toBeGreaterThanOrEqual(1);
+    const ticking = polling();
+    expect(ticking).toHaveLength(1);
     answer = plan({ status: 'paused', problem: 'план остановлен кнопкой' });
     act(() => {
-      for (const tick of ticks()) tick();
+      for (const { tick } of ticking) (tick as () => void)();
     });
     await screen.findByText('План остановлен кнопкой');
 
     expect(asked(recorded, '/api/sales/plans')).toHaveLength(2);
-    intervals.mockClear();
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(ticks()).toHaveLength(0);
+    expect(polling()).toHaveLength(0);
   });
 });
