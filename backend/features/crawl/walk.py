@@ -390,7 +390,8 @@ class DonorCrawler:
             frontier.add(same_site_links(result.html, result.url, host))
 
     def _limit_hit(self, host: str, pages: list[str], started: float) -> StopReason | None:
-        """Какой потолок кончился первым. `None` — можно продолжать."""
+        """Какой потолок кончился первым — или часть обхода 24/7 кончают ночь и пауза. `None` —
+        можно продолжать."""
         if len(pages) >= self._max_pages:
             return StopReason.MAX_PAGES
         if self._attempts >= self._max_attempts:
@@ -412,6 +413,8 @@ class DonorCrawler:
             self._budget = longer
         if self._health.verdict is HealthVerdict.STOP:
             return StopReason.UNHEALTHY
+        if self._progress is not None and self._progress.pause():
+            return StopReason.PAUSED  # часть обхода 24/7: ночь или пауза (`Progress.pause`)
         return None
 
     def _react(self, host: str) -> None:

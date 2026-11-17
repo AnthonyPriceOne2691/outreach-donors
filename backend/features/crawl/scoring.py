@@ -279,6 +279,16 @@ def advertiser_pages(links: Sequence[OutLink]) -> dict[str, frozenset[str]]:
     }
 
 
+def advertiser_links(links: Sequence[OutLink]) -> dict[str, int]:
+    """Ссылок донора у каждого получателя — то же число, что `links` кандидата: ссылка через сеть —
+    у рекламодателя, документы не в счёт. Кандидаты считаются по объединению обходов донора
+    (`gate_union.py`), а продающие ссылки обхода — по его ссылкам (`gate.bought_here`)."""
+    return {
+        root: len(_documents_only(group)[0])
+        for root, group in _by_advertiser([_advertiser_of(link) for link in links]).items()
+    }
+
+
 def _by_advertiser(resolved: list[OutLink]) -> dict[str, list[OutLink]]:
     """Ссылки по получателю — уже после `_advertiser_of`: ссылка через сеть — у рекламодателя."""
     by_root: defaultdict[str, list[OutLink]] = defaultdict(list)

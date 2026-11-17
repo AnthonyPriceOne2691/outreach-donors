@@ -82,11 +82,13 @@ def ceilings_of(max_pages: int | None) -> Ceilings:
 
 
 async def going(session: AsyncSession) -> int:
-    """Сколько глубоких обходов идёт и ждёт обходчика."""
+    """Сколько глубоких обходов идёт и ждёт обходчика. Части обхода 24/7 с потолком 10 000 — не
+    глубокие: у них свой предел (`config/crawl_always.SLOTS`)."""
     found = await session.scalar(
         select(func.count())
         .select_from(CrawlRunModel)
         .where(CrawlRunModel.status.in_(ACTIVE), CrawlRunModel.max_pages.is_not(None))
+        .where(CrawlRunModel.depth_part.is_(None))
     )
     return int(found or 0)
 
@@ -123,6 +125,7 @@ async def typical_deep_seconds(session: AsyncSession) -> float:
         .where(
             CrawlRunModel.status == CrawlStatus.DONE,
             CrawlRunModel.max_pages.is_not(None),
+            CrawlRunModel.depth_part.is_(None),
             CrawlRunModel.pages_opened >= TYPICAL_MIN_PAGES,
             elapsed.is_not(None),
         )

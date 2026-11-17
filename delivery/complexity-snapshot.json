@@ -156,20 +156,25 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/api/crawls/always.py": {
+      "lines": 220,
+      "complexity": 3,
+      "worst": "set_always:170"
+    },
     "backend/api/crawls/donor_schemas.py": {
-      "lines": 184,
+      "lines": 193,
       "complexity": 4,
-      "worst": "of:110"
+      "worst": "of:119"
     },
     "backend/api/crawls/routes.py": {
-      "lines": 384,
+      "lines": 409,
       "complexity": 9,
-      "worst": "_why_not:231"
+      "worst": "_why_not:251"
     },
     "backend/api/crawls/schemas.py": {
-      "lines": 363,
+      "lines": 398,
       "complexity": 5,
-      "worst": "of:61"
+      "worst": "of:62"
     },
     "backend/api/deps.py": {
       "lines": 125,
@@ -961,6 +966,11 @@
       "complexity": 7,
       "worst": "render_template_problem:254"
     },
+    "backend/config/crawl_always.py": {
+      "lines": 52,
+      "complexity": 0,
+      "worst": "—"
+    },
     "backend/config/filters.py": {
       "lines": 44,
       "complexity": 0,
@@ -1037,9 +1047,9 @@
       "worst": "check:51"
     },
     "backend/features/access/journal.py": {
-      "lines": 308,
+      "lines": 309,
       "complexity": 10,
-      "worst": "_filters:255"
+      "worst": "_filters:256"
     },
     "backend/features/access/login.py": {
       "lines": 104,
@@ -1322,7 +1332,7 @@
       "worst": "zone_name:80"
     },
     "backend/features/core/domain.py": {
-      "lines": 361,
+      "lines": 368,
       "complexity": 0,
       "worst": "—"
     },
@@ -1342,7 +1352,7 @@
       "worst": "refusal:214"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 142,
+      "lines": 148,
       "complexity": 0,
       "worst": "—"
     },
@@ -1377,7 +1387,7 @@
       "worst": "—"
     },
     "backend/features/core/models/crawl.py": {
-      "lines": 253,
+      "lines": 338,
       "complexity": 0,
       "worst": "—"
     },
@@ -1481,6 +1491,31 @@
       "complexity": 10,
       "worst": "affiliation:102"
     },
+    "backend/features/crawl/always.py": {
+      "lines": 479,
+      "complexity": 8,
+      "worst": "_stage:242"
+    },
+    "backend/features/crawl/always_depth.py": {
+      "lines": 293,
+      "complexity": 8,
+      "worst": "finish_part:227"
+    },
+    "backend/features/crawl/always_part.py": {
+      "lines": 152,
+      "complexity": 6,
+      "worst": "prepare:103"
+    },
+    "backend/features/crawl/always_switch.py": {
+      "lines": 121,
+      "complexity": 6,
+      "worst": "set_switch:85"
+    },
+    "backend/features/crawl/always_view.py": {
+      "lines": 264,
+      "complexity": 5,
+      "worst": "_words:147"
+    },
     "backend/features/crawl/anchors.py": {
       "lines": 128,
       "complexity": 9,
@@ -1522,9 +1557,9 @@
       "worst": "_parts:76"
     },
     "backend/features/crawl/backlog.py": {
-      "lines": 337,
+      "lines": 331,
       "complexity": 8,
-      "worst": "eta_sec:170"
+      "worst": "eta_sec:171"
     },
     "backend/features/crawl/big_sites.py": {
       "lines": 185,
@@ -1542,9 +1577,9 @@
       "worst": "pending_count:84"
     },
     "backend/features/crawl/deep.py": {
-      "lines": 137,
+      "lines": 140,
       "complexity": 4,
-      "worst": "typical_deep_seconds:117"
+      "worst": "typical_deep_seconds:119"
     },
     "backend/features/crawl/denylist.py": {
       "lines": 171,
@@ -1557,9 +1592,9 @@
       "worst": "decided_by:53"
     },
     "backend/features/crawl/donor_page.py": {
-      "lines": 391,
-      "complexity": 11,
-      "worst": "_tally:284"
+      "lines": 447,
+      "complexity": 7,
+      "worst": "_fits:319"
     },
     "backend/features/crawl/feeds.py": {
       "lines": 145,
@@ -1582,9 +1617,14 @@
       "worst": "crawlable:47"
     },
     "backend/features/crawl/gate.py": {
-      "lines": 369,
-      "complexity": 9,
-      "worst": "judge_run:246"
+      "lines": 395,
+      "complexity": 7,
+      "worst": "_rate:206"
+    },
+    "backend/features/crawl/gate_union.py": {
+      "lines": 103,
+      "complexity": 5,
+      "worst": "_take:94"
     },
     "backend/features/crawl/health.py": {
       "lines": 106,
@@ -1687,9 +1727,9 @@
       "worst": "gather:286"
     },
     "backend/features/crawl/launch.py": {
-      "lines": 96,
+      "lines": 112,
       "complexity": 5,
-      "worst": "launch:57"
+      "worst": "launch:71"
     },
     "backend/features/crawl/lifecycle.py": {
       "lines": 199,
@@ -1707,9 +1747,9 @@
       "worst": "collect_links:236"
     },
     "backend/features/crawl/load_quality.py": {
-      "lines": 380,
+      "lines": 385,
       "complexity": 13,
-      "worst": "_row:240"
+      "worst": "_row:245"
     },
     "backend/features/crawl/loads.py": {
       "lines": 72,
@@ -1727,7 +1767,7 @@
       "worst": "collect:68"
     },
     "backend/features/crawl/night.py": {
-      "lines": 497,
+      "lines": 499,
       "complexity": 7,
       "worst": "order:189"
     },
@@ -1772,7 +1812,7 @@
       "worst": "_priced_donor:143"
     },
     "backend/features/crawl/progress.py": {
-      "lines": 146,
+      "lines": 150,
       "complexity": 5,
       "worst": "of:80"
     },
@@ -1807,7 +1847,7 @@
       "worst": "as_dict:58"
     },
     "backend/features/crawl/repository.py": {
-      "lines": 182,
+      "lines": 194,
       "complexity": 3,
       "worst": "save_crawl:59"
     },
@@ -1827,7 +1867,7 @@
       "worst": "mixed:65"
     },
     "backend/features/crawl/scoring.py": {
-      "lines": 489,
+      "lines": 499,
       "complexity": 17,
       "worst": "score_link:177"
     },
@@ -1887,9 +1927,9 @@
       "worst": "units_stop:87"
     },
     "backend/features/crawl/walk.py": {
-      "lines": 496,
-      "complexity": 7,
-      "worst": "__init__:66"
+      "lines": 499,
+      "complexity": 9,
+      "worst": "_limit_hit:392"
     },
     "backend/features/donors/__init__.py": {
       "lines": 1,
@@ -4027,9 +4067,9 @@
       "worst": "_deeper:37"
     },
     "backend/workers/crawl_jobs.py": {
-      "lines": 305,
-      "complexity": 5,
-      "worst": "_take:146"
+      "lines": 332,
+      "complexity": 6,
+      "worst": "_take:153"
     },
     "backend/workers/crawler.py": {
       "lines": 110,

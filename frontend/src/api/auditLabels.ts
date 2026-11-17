@@ -66,6 +66,9 @@ export const AUDIT_ACTIONS: Record<AuditAction, string> = {
   advertiser_judge_bands_changed: 'Автоприменение советов судьи изменено',
   // Автокруг рекламодателей включён, выключен или сменён его суточный потолок писем.
   advertiser_auto_round_changed: 'Автокруг рекламодателей изменён',
+  // Обход 24/7 пущен или на паузе, сменён порог «мало рекламодателей» или переобход слабых, донор
+  // помечен руками.
+  crawl_always_changed: 'Обход 24/7 изменён',
 };
 
 /** Действия этапа продаж: без права «Продажи» их нет ни в журнале, ни в фильтре (П2). */
@@ -83,6 +86,7 @@ export const ADVERTISER_ACTIONS: ReadonlySet<string> = new Set<AuditAction>([
   'advertiser_judge_reverted',
   'advertiser_judge_bands_changed',
   'advertiser_auto_round_changed',
+  'crawl_always_changed',
 ]);
 
 /** Подпись действия в фильтре: у общих «Правки» и «Запуска» — что под ними бывает. */
@@ -167,6 +171,8 @@ const WHOLE_TARGETS: Record<string, string> = {
   // Выключатель и потолок автокруга (`crawl/auto_round_switch.py`).
   'advertisers:auto-round': 'автокруг рекламодателей',
   crawl_backlog: 'очередь загрузки обхода',
+  // Выключатель, порог и переобход слабых обхода 24/7 (`crawl/always_switch.py`).
+  'crawls:always': 'обход 24/7',
 };
 
 export interface TargetPart {
