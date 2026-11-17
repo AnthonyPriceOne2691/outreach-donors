@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import timedelta
 
 import pytest
 from backend.api.watchdog import routes
@@ -26,12 +27,13 @@ from backend.config import storage
 from backend.features.ahrefs.client import AhrefsError
 from backend.features.ops import alarm_feed, silence
 from backend.features.ops.alarm_feed import Feed
+from backend.features.ops.alarm_words import MOSCOW
 from backend.features.ops.alarms import Alarm
 from backend.features.ops.silence import Miss, ProviderWatch
 from backend.features.serp.dataforseo import SerpError
 from backend.workers import reaper
 from httpx import AsyncClient
-from tests.conftest import TEST_DSN, bearer
+from tests.conftest import TEST_DSN, WATCH_MINUTE, bearer
 from tests.test_silence_stages import MakeUser, SignIn
 
 #: Проход сторожа и срок молчания до тревоги, секунд.
@@ -263,6 +265,11 @@ def test_the_reason_is_one_short_line() -> None:
 # --- проходы сторожа ---------------------------------------------------------------------------
 
 
+def _msk(moment: float) -> str:
+    """Минута прохода по часам ленты, по Москве: часы идут от `tests/conftest.WATCH_MINUTE`."""
+    return f"{(WATCH_MINUTE + timedelta(seconds=moment)).astimezone(MOSCOW):%H:%M}"
+
+
 @dataclass
 class World:
     """Мир прохода: часы, ответы провайдеров; когда их спросили и что ушло в Telegram."""
@@ -304,6 +311,8 @@ def world(monkeypatch: pytest.MonkeyPatch) -> World:
     monkeypatch.setattr(silence, "ask_providers", ask)
     monkeypatch.setattr(silence, "WATCH", ProviderWatch(clock=tick))
     monkeypatch.setattr(alarm_feed, "send_alert", telegram)
+    # Часы слов ленты идут с часами теста: «прошло» называет, когда тревога шла.
+    monkeypatch.setattr(alarm_feed, "wall_clock", lambda: WATCH_MINUTE + timedelta(seconds=tick()))
     feed = Feed(reaper.FEED.name, quiet_sec=reaper.FEED.quiet_sec, clock=tick)
     monkeypatch.setattr(reaper, "FEED", feed)
     monkeypatch.setattr(reaper, "PROVIDERS", reaper.Providers(clock=tick))
@@ -329,14 +338,20 @@ async def test_silence_held_for_fifteen_minutes_is_said_once_and_then_over(world
     confirmed = next(moment for moment in world.asked if moment >= DOWN)
     minutes = int(confirmed // 60)
     await world.until(confirmed + 3 * reaper.QUIET_SEC)
+    # Конец — первый свежий удачный опрос: через `PROVIDERS_INTERVAL_SEC` после подтверждения.
+    end = confirmed + reaper.PROVIDERS_INTERVAL_SEC
 
     assert world.said == [
         (
             confirmed,
-            f"тревога: Провайдер не отвечает. Не отвечает: Ahrefs — {minutes} мин подряд "
-            f"({BLIP.reason}). {TAIL}\n{silence.OUTAGE.words}",
+            f"тревога: Провайдер не отвечает. С {_msk(confirmed)} МСК.\n"
+            f"Не отвечает: Ahrefs — {minutes} мин подряд ({BLIP.reason}). {TAIL}.\n"
+            f"{silence.OUTAGE.words}",
         ),
-        (confirmed + reaper.QUIET_SEC, "прошло: Провайдер не отвечает"),
+        (
+            confirmed + reaper.QUIET_SEC,
+            f"прошло: Провайдер не отвечает. {_msk(confirmed)}–{_msk(end)} МСК, 10 минут.",
+        ),
     ]
 
 

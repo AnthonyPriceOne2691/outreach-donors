@@ -59,7 +59,15 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.letters import followup_refusal, mailbox
 from backend.features.letters.chain import ANSWER_STEP, CHAINABLE, FIRST_STEP, MAX_STEPS
-from backend.features.ops.alarms import Alarm, Concern, cause, direction, no_cause
+from backend.features.ops.alarms import (
+    Alarm,
+    Concern,
+    Kind,
+    cause,
+    direction,
+    no_cause,
+    senders_screen,
+)
 from backend.features.outreach import limits
 from backend.features.outreach.repository import followup_pending
 
@@ -162,6 +170,10 @@ async def _of_stage(session: AsyncSession, stage: Stage, now: datetime) -> list[
                     "письма направления стоят",
                     "разобрать причину пауз и включить ящик на экране «Домены рассылки»",
                 ),
+                kind=Kind("Все ящики направления на паузе", "Пишущих ящиков нет: письма стоят"),
+                item=direction(stage),
+                brief=f"ящиков {len(boxes)}",
+                screen=senders_screen(stage),
             )
         )
     queued = await session.scalar(
@@ -185,6 +197,14 @@ async def _of_stage(session: AsyncSession, stage: Stage, now: datetime) -> list[
                 ),
                 stage=stage,
                 concern=_nobody(shut, stage, now),
+                kind=Kind(
+                    "Очередь есть — отправить некому",
+                    "Первые письма в очереди, а пишущего ящика на открытом домене нет: ящики "
+                    "выключены или домен на паузе, на выдержке, записан за другим направлением",
+                ),
+                item=direction(stage),
+                brief=f"первых писем в очереди: {queued}",
+                screen=senders_screen(stage),
             )
         )
     return found
@@ -263,6 +283,14 @@ async def _retired(
         ),
         stage=stage,
         concern=DELETED if box is None else RETIRED,
+        kind=Kind(
+            f"Выбыли ящики {STAGE_GENITIVE[stage]}",
+            "Ящики выключены, на паузе или удалены, или их домен на паузе, а письма их переписок "
+            "ждут именно их: с другого ящика они не уйдут",
+        ),
+        item="удалённый ящик" if box is None else box.email,
+        brief=f"писем ждут: {scheduled + answers}",
+        screen=senders_screen(stage),
     )
 
 
@@ -335,6 +363,14 @@ async def _quiet(session: AsyncSession, box: SenderModel, now: datetime) -> Alar
             "переписки ящика стоят",
             "проверить, идёт ли проход добивок и не отказывает ли почта ящику",
         ),
+        kind=Kind(
+            f"Молчат ящики {STAGE_GENITIVE[box.stage]}",
+            f"Письма переписки ждут эти ящики дольше {QUIET_MINUTES} минут, а с них не ушло "
+            "ничего: проход добивок не идёт или ящики упёрлись в отказы почты",
+        ),
+        item=box.email,
+        brief=f"писем ждут: {waiting}",
+        screen=senders_screen(box.stage),
     )
 
 

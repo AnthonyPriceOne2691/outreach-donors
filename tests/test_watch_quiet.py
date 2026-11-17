@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import timedelta
 
 import pytest
 from backend.config import storage
@@ -27,7 +28,7 @@ from backend.features.ops import alarm_feed, silence
 from backend.features.ops.alarm_feed import Feed
 from backend.features.ops.alarms import Alarm
 from backend.workers import reaper
-from tests.conftest import TEST_DSN
+from tests.conftest import TEST_DSN, WATCH_MINUTE
 
 #: Проход сторожа, секунд.
 PASS = reaper.WATCHDOG_INTERVAL_SEC
@@ -77,6 +78,8 @@ def world(monkeypatch: pytest.MonkeyPatch) -> Watch:
     monkeypatch.setattr(silence, "alarms", alarms)
     monkeypatch.setattr(reaper, "probe_providers", probe)
     monkeypatch.setattr(alarm_feed, "send_alert", telegram)
+    # Часы слов ленты идут с часами теста: «прошло» называет, когда тревога шла.
+    monkeypatch.setattr(alarm_feed, "wall_clock", lambda: WATCH_MINUTE + timedelta(seconds=tick()))
     feed = Feed(reaper.FEED.name, quiet_sec=reaper.FEED.quiet_sec, clock=tick)
     monkeypatch.setattr(reaper, "FEED", feed)
     monkeypatch.setattr(reaper, "PROVIDERS", reaper.Providers(clock=tick))
@@ -100,8 +103,9 @@ async def test_an_alarm_gone_for_less_than_twenty_minutes_is_not_over(world: Wat
     await world.until(seen_last + 2 * reaper.QUIET_SEC)
 
     assert world.said == [
-        (0.0, "тревога: Ящик x молчит. ждут его"),
-        (seen_last + reaper.QUIET_SEC, "прошло: Ящик x молчит"),
+        (0.0, "тревога: Ящик x молчит. С 03:11 МСК.\nждут его."),
+        # Конец — первый проход без неё (22-я минута), а не минута «прошло».
+        (seen_last + reaper.QUIET_SEC, "прошло: Ящик x молчит. 03:11–03:33 МСК, 22 минуты."),
     ]
 
 
@@ -113,8 +117,12 @@ async def test_the_providers_alarm_ends_after_two_fresh_good_answers(world: Watc
 
     assert world.asked == [0.0, 600.0, 1200.0, 1800.0]
     assert world.said == [
-        (0.0, "тревога: Провайдер не отвечает. Не отвечает: X"),
-        (2 * reaper.PROVIDERS_INTERVAL_SEC, "прошло: Провайдер не отвечает"),
+        (0.0, "тревога: Провайдер не отвечает. С 03:11 МСК.\nНе отвечает: X."),
+        # Конец — первый свежий удачный опрос: 10-я минута.
+        (
+            2 * reaper.PROVIDERS_INTERVAL_SEC,
+            "прошло: Провайдер не отвечает. 03:11–03:21 МСК, 10 минут.",
+        ),
     ]
 
 
@@ -130,8 +138,8 @@ async def test_a_stale_good_answer_does_not_end_the_providers_alarm(
 
     assert world.asked == [0.0, interval, 2 * interval]
     assert world.said == [
-        (0.0, "тревога: Провайдер не отвечает. Не отвечает: X"),
-        (2 * interval, "прошло: Провайдер не отвечает"),
+        (0.0, "тревога: Провайдер не отвечает. С 03:11 МСК.\nНе отвечает: X."),
+        (2 * interval, "прошло: Провайдер не отвечает. 03:11–03:51 МСК, 40 минут."),
     ]
 
 
