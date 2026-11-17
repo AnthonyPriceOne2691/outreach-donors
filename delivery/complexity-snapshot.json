@@ -502,14 +502,14 @@
       "worst": "of:59"
     },
     "backend/api/sales/plan_schemas.py": {
-      "lines": 259,
+      "lines": 319,
       "complexity": 9,
-      "worst": "of:91"
+      "worst": "of:94"
     },
     "backend/api/sales/plans.py": {
-      "lines": 179,
+      "lines": 371,
       "complexity": 5,
-      "worst": "_upload:85"
+      "worst": "_upload:107"
     },
     "backend/api/sales/queue.py": {
       "lines": 254,
@@ -3426,8 +3426,13 @@
       "complexity": 7,
       "worst": "read_json:35"
     },
+    "backend/features/sales/plan_actions.py": {
+      "lines": 388,
+      "complexity": 7,
+      "worst": "refusal:307"
+    },
     "backend/features/sales/plan_budget.py": {
-      "lines": 199,
+      "lines": 200,
       "complexity": 3,
       "worst": "cap_words:136"
     },
@@ -3456,6 +3461,11 @@
       "complexity": 6,
       "worst": "letters_first:117"
     },
+    "backend/features/sales/plan_keys.py": {
+      "lines": 176,
+      "complexity": 7,
+      "worst": "add_keys:122"
+    },
     "backend/features/sales/plan_models.py": {
       "lines": 196,
       "complexity": 0,
@@ -3477,9 +3487,9 @@
       "worst": "give_up:61"
     },
     "backend/features/sales/plan_store.py": {
-      "lines": 371,
+      "lines": 382,
       "complexity": 7,
-      "worst": "_views:319"
+      "worst": "_views:321"
     },
     "backend/features/sales/plan_tick.py": {
       "lines": 325,

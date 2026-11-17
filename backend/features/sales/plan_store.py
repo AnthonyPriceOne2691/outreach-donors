@@ -108,13 +108,15 @@ class PlanAsk:
 
 @dataclass(frozen=True, slots=True)
 class PlanRow:
-    """Гипотеза плана для экрана: строка, имя гипотезы, ключей в реестре (ключ × рынок) и из них
-    купленных хотя бы до первой страницы."""
+    """Гипотеза плана для экрана: строка, имя гипотезы, ключей в реестре (ключ × рынок), из них
+    купленных хотя бы до первой страницы и купленных до страницы её волны (`wave_page`: у волны
+    4–5 — четвёртой и глубже) — «ключи 1 200 из 30 000» этапа сбора."""
 
     row: SalesPlanHypothesisModel
     name: str
     keywords: int
     bought: int
+    wave_bought: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,18 +335,27 @@ async def _views(session: AsyncSession, plans: Sequence[SalesPlanModel]) -> list
         )
     ).tuples()
     pairs = list(rows)
-    keys = SalesPlanKeywordModel
+    keys, rows_of = SalesPlanKeywordModel, SalesPlanHypothesisModel
     counted = await session.execute(
-        select(keys.plan_hypothesis_id, func.count(), func.count().filter(keys.pages > 0))
+        select(
+            keys.plan_hypothesis_id,
+            func.count(),
+            func.count().filter(keys.pages > 0),
+            func.count().filter(keys.pages >= rows_of.wave_page),
+        )
+        .join(rows_of, rows_of.id == keys.plan_hypothesis_id)
         .where(keys.plan_hypothesis_id.in_([row.id for row, _ in pairs]))
         .group_by(keys.plan_hypothesis_id)
     )
-    counts = {row_id: (int(total), int(bought)) for row_id, total, bought in counted.tuples()}
+    counts = {
+        row_id: (int(total), int(bought), int(wave))
+        for row_id, total, bought, wave in counted.tuples()
+    }
     return [
         PlanView(
             plan,
             tuple(
-                PlanRow(row, name, *counts.get(row.id, (0, 0)))
+                PlanRow(row, name, *counts.get(row.id, (0, 0, 0)))
                 for row, name in pairs
                 if row.plan_id == plan.id
             ),
