@@ -148,6 +148,9 @@ async def test_a_module_without_a_policy_is_an_alarm_and_the_watch_goes_on(
 
 
 QUIET = Alarm(code="quiet-box:x", title="Ящик x молчит", detail="ждут его")
+#: Слова ленты о `QUIET` под часами теста (03:11 по Москве, `tests/conftest.WATCH_MINUTE`).
+TOLD = "тревога: Ящик x молчит. С 03:11 МСК.\nждут его."
+GONE = "прошло: Ящик x молчит. 03:11 МСК, меньше минуты."
 
 
 async def test_an_alarm_is_told_once_and_its_end_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -163,7 +166,7 @@ async def test_an_alarm_is_told_once_and_its_end_once(monkeypatch: pytest.Monkey
     for state in ([QUIET], [QUIET], [], []):
         await feed.tell(state)
 
-    assert said == ["тревога: Ящик x молчит. ждут его", "прошло: Ящик x молчит"]
+    assert said == [TOLD, GONE]
 
 
 async def test_without_a_bot_the_journal_line_is_said_once(
@@ -214,9 +217,5 @@ async def test_a_refused_end_is_said_again_next_pass(monkeypatch: pytest.MonkeyP
     for state in ([QUIET], [], [], []):
         await feed.tell(state)
 
-    assert said == [
-        "тревога: Ящик x молчит. ждут его",
-        "прошло: Ящик x молчит",
-        "прошло: Ящик x молчит",
-    ]
+    assert said == [TOLD, GONE, GONE]
     assert (feed.told, feed.quiet) == ({}, {})  # о прошедшей тревоге лента не помнит ничего

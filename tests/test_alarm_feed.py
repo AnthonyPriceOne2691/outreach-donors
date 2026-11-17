@@ -24,9 +24,8 @@ from backend.features.ops.alarm_feed import Feed
 from backend.features.ops.alarms import Alarm
 from backend.features.sales.agent import notify
 from backend.workers import reaper
-from tests.test_mail_watch_seams import QUIET, FakeRedis
+from tests.test_mail_watch_seams import QUIET, TOLD, FakeRedis
 
-TOLD = "тревога: Ящик x молчит. ждут его"
 CHAT = "made-up-chat-1"
 
 #: Код сервиса: в нём ищутся ленты (`Feed(...)`) — тесты заводят свои сколько угодно.
@@ -123,9 +122,11 @@ async def test_after_a_failed_write_the_pass_does_not_wait_for_redis_again(
     await feed.tell([QUIET, other])
 
     assert tries == 1
-    assert told_redis.hashes == {
-        alarm_feed.told_key(): {QUIET.code: QUIET.title, other.code: other.title}
+    assert told_redis.hashes[alarm_feed.told_key()] == {
+        QUIET.code: QUIET.title,
+        other.code: other.title,
     }
+    assert set(told_redis.hashes[alarm_feed.notes_key()]) == {QUIET.code, other.code}
 
 
 # --- две ленты в одном процессе ------------------------------------------------------------
@@ -147,7 +148,11 @@ async def test_the_two_feeds_of_the_reaper_do_not_share_what_they_said(
         await bot.tell([])  # у бота тревог нет
 
     assert channels == [(CHAT, TOLD)]
-    assert told_redis.hashes == {alarm_feed.told_key(watchdog.name): {QUIET.code: QUIET.title}}
+    assert set(told_redis.hashes) == {
+        alarm_feed.told_key(watchdog.name),
+        alarm_feed.notes_key(watchdog.name),
+    }, "бот продаж не пишет ни сказанного, ни заметок"
+    assert told_redis.hashes[alarm_feed.told_key(watchdog.name)] == {QUIET.code: QUIET.title}
 
 
 def test_no_two_feeds_of_the_service_share_a_name() -> None:
