@@ -30,8 +30,9 @@
 
 **Ночной круг живёт здесь же** (`night.py`): проход начинает его и закрывает, а строки круга
 идут последними — загруженные и поставленные человеком важнее. Его строку забирает любая
-постановка: иначе донора, которого человек велел обойти, снял бы срок круга. Здесь же — ночной шаг
-судьи (`judge_night.py`) и автокруг рекламодателей после него (`auto_round.py`).
+постановка: иначе донора, которого человек велел обойти, снял бы срок круга. Сразу за ним — обход
+24/7 (`always.py`): он ставит части мимо этой очереди, но только когда в ней не ждут люди. Здесь же —
+ночной шаг судьи (`judge_night.py`) и автокруг рекламодателей после него (`auto_round.py`).
 
 **Кончились юниты Ahrefs — выдачи нет** (`units_stop.py`): DR новых кандидатов спросить не на что.
 Строки ждут здесь и не теряются: снимется стоп — пойдут сами, а ночные снимет срок их круга.
@@ -58,8 +59,8 @@ from backend.config import filters
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, CrawlOutcome, CrawlStatus
 from backend.features.core.models.crawl import CrawlBacklogModel, CrawlRunModel
-from backend.features.crawl import deep, night, targets
-from backend.features.crawl.launch import Enqueue, JobId, launch
+from backend.features.crawl import always, deep, night, targets
+from backend.features.crawl.launch import Enqueue, JobId, launch, queue_counts
 from backend.features.crawl.units_stop import units_stop
 
 logger = logging.getLogger(__name__)
@@ -191,6 +192,8 @@ async def eta_sec(
     rows = await session.scalars(
         select(elapsed)
         .where(CrawlRunModel.status == CrawlStatus.DONE, CrawlRunModel.max_pages.is_(None))
+        # Части обхода 24/7 — не в счёт: их кончают ночь и пауза, а не сайт (`always_part.py`).
+        .where(CrawlRunModel.depth_part.is_(None))
         .where(CrawlRunModel.outcome.in_((CrawlOutcome.OK, CrawlOutcome.PARTIAL)))
         .where(elapsed.is_not(None))
         .order_by(CrawlRunModel.finished_at.desc().nullslast())
@@ -210,7 +213,8 @@ async def feed(
     now: datetime | None = None,
 ) -> Fed:
     """Отдать свободным обходчикам доноров очереди загрузки — один проход. Сначала — шаг
-    ночного круга (`night.py`): он сам кладёт сюда строки и сам снимает их по сроку.
+    ночного круга (`night.py`): он сам кладёт сюда строки и сам снимает их по сроку. За ним — шаг
+    обхода 24/7 (`always.py`): части он ставит сам, и только когда здесь не ждут люди.
 
     В очереди обходов кто-то ждёт — человек или отданные раньше — не отдаём никого: ждущий
     уйдёт первым. Юнитов Ahrefs нет — тоже никого (`units_stop.py`). Иначе — `workers` минус
@@ -220,6 +224,7 @@ async def feed(
     stop = await units_stop(session)
     why = None if stop is None else stop.why
     await night.tick(session, workers=workers, per_minute=PER_PASS, add=add, now=now, stop=why)
+    await always.tick(session, workers=workers, enqueue=enqueue, job_id=job_id, now=now, stop=why)
     # Ночной шаг судьи живёт в том же проходе (`judge_night.py`): после круга обходов, а автокруг
     # рекламодателей (`auto_round.py`) — после шага судьи. Лениво: шаг тянет конфиг модели, круг —
     # почту и очередь задач, и опечатка в них не должна ронять загрузку выдачи обходов.
@@ -228,7 +233,7 @@ async def feed(
     await judge_night.tick(session, now=now)
     await auto_round.tick(session, now=now)
     fed = Fed()
-    running, queued = await _counts(session)
+    running, queued = await queue_counts(session)
     free = min(workers - running, PER_PASS)
     if queued or free <= 0 or stop is not None:
         return fed
@@ -294,17 +299,6 @@ async def _journal_queued(
             target=f"crawl:{run_id}",
             details={"этап": "2 — обход донора", "донор": host, "как": "очередь загрузки"},
         )
-
-
-async def _counts(session: AsyncSession) -> tuple[int, int]:
-    """Обходов идёт и ждёт в очереди обходов."""
-    rows = await session.execute(
-        select(CrawlRunModel.status, func.count())
-        .where(CrawlRunModel.status.in_((CrawlStatus.RUNNING, CrawlStatus.QUEUED)))
-        .group_by(CrawlRunModel.status)
-    )
-    counts = dict(rows.tuples().all())
-    return int(counts.get(CrawlStatus.RUNNING, 0)), int(counts.get(CrawlStatus.QUEUED, 0))
 
 
 def _by_requester(

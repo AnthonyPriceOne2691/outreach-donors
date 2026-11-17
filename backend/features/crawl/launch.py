@@ -22,9 +22,11 @@ import logging
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import CrawlStatus
+from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.crawl.lifecycle import REASON_KEY, noted
 from backend.features.crawl.repository import CrawlBusyError, queue_crawl
 
@@ -49,6 +51,18 @@ class Launch:
     """Очередь не ответила — обход закрыт с причиной."""
 
 
+async def queue_counts(session: AsyncSession) -> tuple[int, int]:
+    """Обходов идёт и ждёт в очереди обходов — любых. По ним выдают очередь загрузки
+    (`backlog.feed`) и обход 24/7 (`always.tick`): ждущий уходит первым."""
+    rows = await session.execute(
+        select(CrawlRunModel.status, func.count())
+        .where(CrawlRunModel.status.in_((CrawlStatus.RUNNING, CrawlStatus.QUEUED)))
+        .group_by(CrawlRunModel.status)
+    )
+    counts = dict(rows.tuples().all())
+    return int(counts.get(CrawlStatus.RUNNING, 0)), int(counts.get(CrawlStatus.QUEUED, 0))
+
+
 def crawl_host(host: str) -> str:
     """Хост так, как его пишет обход: без пробелов по краям, строчными и без «www.»."""
     return host.strip().lower().removeprefix("www.")
@@ -62,14 +76,16 @@ async def launch(
     job_id: JobId,
     enqueue: Enqueue,
     max_pages: int | None = None,
+    part: int | None = None,
 ) -> Launch:
     """Поставить обходы доноров. Каждый донор фиксируется отдельно: отказ
     очереди на третьем не должен откатывать первые два. `max_pages` — потолок
-    глубокого обхода (`deep.py`); пусто — обычный."""
+    глубокого обхода (`deep.py`); пусто — обычный. `part` — номер части обхода 24/7
+    (`always.py`): её ставят по одному донору."""
     done = Launch()
     for host in dict.fromkeys(crawl_host(h) for h in hosts if h.strip()):
         try:
-            run = await queue_crawl(session, host, by=by, max_pages=max_pages)
+            run = await queue_crawl(session, host, by=by, max_pages=max_pages, part=part)
         except CrawlBusyError:
             logger.info("обход %s уже идёт или ждёт — второй не ставлю", host)
             done.busy.append(host)

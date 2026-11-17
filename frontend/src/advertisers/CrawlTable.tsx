@@ -26,6 +26,7 @@
 
 import { Badge, Button, Group, Stack, Text } from '@mantine/core';
 import type { UseMutationResult } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 
 import type { CrawlLaunch, CrawlRow, CrawlTarget } from '../api/crawls';
 import { InfoHint } from '../components/InfoHint';
@@ -334,12 +335,15 @@ export function LastCrawl({
   again,
   compact = false,
   deep = null,
+  children = null,
 }: {
   donor: CrawlTarget;
   again: StartCrawls | null;
   compact?: boolean;
   /** «Заново, 10 000» — на вкладке доноров; `null` — кнопки нет. */
   deep?: DeepAsk | null;
+  /** Своя строка блока под значком — у вкладки: обход 24/7 донора (`CrawlDepth`). */
+  children?: ReactNode;
 }) {
   const crawl = donor.crawl;
   // Повтор — только у законченного: второй незаконченный обход донора сервер не заводит.
@@ -352,6 +356,7 @@ export function LastCrawl({
       <div className="crawlSlot">
         <CrawlState crawl={crawl} compact />
         {start === null ? null : <RowRepeats donor={donor} again={start} deep={deep} />}
+        {children}
       </div>
     );
   }

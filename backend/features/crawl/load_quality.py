@@ -64,7 +64,9 @@ from backend.features.core.models.crawl import (
     DonorLoadModel,
 )
 from backend.features.crawl import board, night_fresh
-from backend.features.crawl.gate import SELLING_LINKS, SELLING_PAGES, usable
+from backend.features.crawl.always import ALWAYS_BY
+from backend.features.crawl.gate import SELLING_LINKS, SELLING_PAGES
+from backend.features.crawl.gate_union import usable
 from backend.features.crawl.night import NIGHT_BY, NightStatus
 from backend.features.crawl.panel import ZONE, load_hosts
 
@@ -161,8 +163,11 @@ def _nightly() -> ColumnElement[bool]:
 def _by_hand() -> ColumnElement[bool]:
     """Обход, поставленный человеком. Имя бывает пустым — консольный замер пишет обход без него
     (`repository.save_crawl`), — поэтому не простое «не равно»: с пустым оно не истинно, и такой
-    обход пропал бы из обеих строк."""
-    return CrawlRunModel.requested_by.is_distinct_from(NIGHT_BY)
+    обход пропал бы из обеих строк. Части обхода 24/7 (`always.py`) — тоже не человек: в строке
+    дня они числились бы обходами, поставленными руками."""
+    return CrawlRunModel.requested_by.is_distinct_from(
+        NIGHT_BY
+    ) & CrawlRunModel.requested_by.is_distinct_from(ALWAYS_BY)
 
 
 def _run_day() -> ColumnElement[date]:

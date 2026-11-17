@@ -18,6 +18,10 @@ DR у Ahrefs, ключ общий с соседней системой, а ог�
 обход дописывает пачку на границе страницы и выходит с чекпоинтом, а задача
 ставит себе продолжение. Флаг — на процесс: rq выполняет каждую задачу
 в свежем дочернем процессе, и флаг рождается чистым.
+
+**Часть обхода 24/7** (`crawl/always_part.py`) — тот же обход, но начинается с чекпоинта цепочки
+донора, кончается ещё и ночью или паузой — штатно, без продолжения, — и в конце отдаёт цепочке
+открытое и очередь ссылок.
 """
 
 from __future__ import annotations
@@ -42,6 +46,8 @@ from backend.features.ahrefs.units import UsageCollector
 from backend.features.contacts.browser import PlaywrightRenderer
 from backend.features.core.domain import CrawlStatus
 from backend.features.core.models.crawl import CrawlRunModel
+from backend.features.crawl import always_part
+from backend.features.crawl.always_part import Part
 from backend.features.crawl.big_sites import capped_ratings, journal
 from backend.features.crawl.deep import Ceilings, ceilings_of
 from backend.features.crawl.fetch import PageCascade
@@ -69,7 +75,8 @@ from backend.shared.queue import (
 logger = logging.getLogger(__name__)
 
 #: Сколько соединений с базой держит один обход: основная запись и удар
-#: о жизни. Обходчиков N, и пул по умолчанию (5 + 10) на каждого съел бы
+#: о жизни; опрос выключателя части 24/7 (`always_part.watch`) — короткий, ему
+#: хватает запасного. Обходчиков N, и пул по умолчанию (5 + 10) на каждого съел бы
 #: потолок соединений базы (150 на проде) уже на десяти.
 POOL_SIZE = 2
 
@@ -104,9 +111,9 @@ async def _crawl(run_id: int) -> dict[str, Any]:
         taken = await _take(factory, run_id)
         if isinstance(taken, dict):
             return taken
-        host, point, ceilings = taken
+        host, point, ceilings, part = taken
         try:
-            report = await _walk(factory, run_id, host, point, ceilings)
+            report = await _walk(factory, run_id, host, point, ceilings, part)
         except CrawlInterruptedError as exc:
             logger.info("обход №%s (%s): %s", run_id, host, exc)
             return await _requeue(factory, run_id, exc.checkpoint)
@@ -115,7 +122,7 @@ async def _crawl(run_id: int) -> dict[str, Any]:
             # с чекпоинта. Причина — в строке обхода уже сейчас.
             await _note(factory, run_id, f"сбой, будет продолжен: {explained(exc)}", exc)
             raise
-        stats = await _finish(factory, run_id, report)
+        stats = await _finish(factory, run_id, report, part)
         return {
             "crawl": run_id,
             "host": host,
@@ -145,9 +152,10 @@ def _judge_later(run_id: int) -> str | None:
 
 async def _take(
     factory: async_sessionmaker[AsyncSession], run_id: int
-) -> tuple[str, Checkpoint | None, Ceilings] | dict[str, Any]:
+) -> tuple[str, Checkpoint | None, Ceilings, Part | None] | dict[str, Any]:
     """Взять обход: «идёт», номер этой задачи. Законченный — не трогать. Потолки — из строки
-    обхода: продолжение глубокого обхода (`deep.py`) держит те же, что его начало."""
+    обхода: продолжение глубокого обхода (`deep.py`) держит те же, что его начало. Часть обхода
+    24/7 начинается с чекпоинта цепочки донора (`always_part.prepare`)."""
     async with factory() as session:
         run = await session.get(CrawlRunModel, run_id)
         if run is None:
@@ -160,9 +168,12 @@ async def _take(
         run.status = CrawlStatus.RUNNING
         run.job_id = job.id if job is not None else run.job_id
         host, point, ceilings = run.host, Checkpoint.of(run.checkpoint), ceilings_of(run.max_pages)
+        part = None
+        if run.depth_part is not None:
+            point, ceilings, part = await always_part.prepare(session, run)
         await session.commit()
     logger.info("обход №%s (%s): %s", run_id, host, "продолжение" if point else "начало")
-    return host, point, ceilings
+    return host, point, ceilings, part
 
 
 async def _walk(
@@ -171,10 +182,12 @@ async def _walk(
     host: str,
     point: Checkpoint | None,
     ceilings: Ceilings,
+    part: Part | None = None,
 ) -> CrawlReport:
     async def flush(batch: Batch) -> None:
+        stored = None if part is None else part.stored(batch.checkpoint)
         async with factory() as session:
-            await save_batch(session, run_id, batch)
+            await save_batch(session, run_id, batch, stored=stored)
             await session.commit()
 
     progress = Progress(
@@ -185,6 +198,10 @@ async def _walk(
         every_sec=ceilings.batch_sec,
     )
     beat = asyncio.create_task(heartbeat(factory, run_id))
+    # Часть обхода 24/7 кончается ещё и ночью или паузой: выключатель спрашивается своей задачей.
+    switch = None if part is None else asyncio.create_task(always_part.watch(factory, part))
+    if part is not None:
+        progress.pause = part.paused
     try:
         async with contextlib.AsyncExitStack() as stack:
             # Браузер — только когда включён: без этого условия каждая задача
@@ -224,6 +241,8 @@ async def _walk(
                 await crawler.aclose()
     finally:
         beat.cancel()
+        if switch is not None:
+            switch.cancel()
 
 
 async def _requeue(
@@ -262,13 +281,21 @@ async def _note(
 
 
 async def _finish(
-    factory: async_sessionmaker[AsyncSession], run_id: int, report: CrawlReport
+    factory: async_sessionmaker[AsyncSession],
+    run_id: int,
+    report: CrawlReport,
+    part: Part | None = None,
 ) -> dict[str, Any]:
+    """Закрыть обход исходом; часть обхода 24/7 — ещё и отдать цепочке донора открытое и очередь
+    (`always_part.finish`): её чекпоинт берётся до того, как конец обхода его сотрёт."""
     async with factory() as session:
         run = await session.get(CrawlRunModel, run_id)
         if run is None:
             raise ValueError(f"обход №{run_id} исчез из базы до конца обхода")
+        own = run.checkpoint
         stats = await finish_crawl(session, run, report)
+        if part is not None:
+            await always_part.finish(session, run, part, report, own)
         await session.commit()
     return stats
 

@@ -22,6 +22,7 @@ import asyncio
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.api.crawls import always
 from backend.api.crawls.donor_schemas import (
     BulkBody,
     BulkResult,
@@ -37,6 +38,7 @@ from backend.api.crawls.schemas import (
     CrawlsView,
     DeepResult,
     DeepRules,
+    DonorDepthView,
     DonorRow,
     LaunchBody,
     LaunchResult,
@@ -51,7 +53,16 @@ from backend.config import filters
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
-from backend.features.crawl import backlog, board, deep, donor_page, night, targets
+from backend.features.crawl import (
+    always_switch,
+    always_view,
+    backlog,
+    board,
+    deep,
+    donor_page,
+    night,
+    targets,
+)
 from backend.features.crawl.board import CrawlLine
 from backend.features.crawl.donor_page import DonorQuery
 from backend.features.crawl.launch import crawl_host, launch
@@ -173,10 +184,11 @@ async def donors(
     session: AsyncSession = Depends(db_session),
 ) -> DonorsView:
     """Доноры страницей — с условиями, порядком и счётчиками по статусу и цене на сервере
-    (`crawl/donor_page.py`): их тысячи, и вкладка не грузит их целиком."""
+    (`crawl/donor_page.py`): их тысячи, и вкладка не грузит их целиком. У каждого — где он в
+    обходе 24/7 (`crawl/always_view.depths`)."""
     found = await donor_page.page(session, query)
     workers, held = await _workers(), await _held()
-    return DonorsView.of(
+    shown = DonorsView.of(
         found,
         query,
         queue=await _queue(session, [row.crawl for row in found.rows]),
@@ -186,6 +198,14 @@ async def donors(
         max_pages=crawl_cfg.MAX_PAGES_PER_DONOR,
         deep=await _deep_rules(session),
     )
+    threshold = (await always_switch.state(session)).threshold_pct
+    depths = await always_view.depths(
+        session, [row.host for row in shown.rows], threshold=threshold
+    )
+    for row in shown.rows:
+        depth = depths.get(crawl_host(row.host))
+        row.depth = None if depth is None else DonorDepthView.of(depth)
+    return shown
 
 
 @router.get("/summary", response_model=SummaryView, summary="Обход доноров одной строкой")
@@ -381,3 +401,8 @@ async def crawl_filtered(
         failed=len(done.failed),
         workers=await _workers(),
     )
+
+
+# Обход 24/7 (`crawl/always.py`, 17.11.2026): выключатель, порог «мало рекламодателей» и пометка
+# донора руками — своим модулем, под тем же правом этапа.
+router.include_router(always.router)

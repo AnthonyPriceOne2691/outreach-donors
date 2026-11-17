@@ -212,7 +212,8 @@ def _tally(hosts: Sequence[str], last: dict[str, LastRun]) -> dict[str, int]:
 
 
 async def _last_runs(session: AsyncSession) -> dict[str, LastRun]:
-    """Последний обход каждого донора — хост как его пишет обход."""
+    """Последний обход каждого донора — хост как его пишет обход. Части обхода 24/7 — не в счёт
+    (`always.py`): ночь видит доноров, как без него, а идущие части к полуночи останавливаются сами."""
     rows = await session.execute(
         select(
             CrawlRunModel.host,
@@ -222,6 +223,7 @@ async def _last_runs(session: AsyncSession) -> dict[str, LastRun]:
             CrawlRunModel.max_pages,
             CrawlRunModel.created_at,
         )
+        .where(CrawlRunModel.depth_part.is_(None))
         .distinct(CrawlRunModel.host)
         .order_by(CrawlRunModel.host, CrawlRunModel.id.desc())
     )

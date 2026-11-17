@@ -122,12 +122,16 @@ class Progress:
     """Пульт обхода, который ведёт задача очереди.
 
     `flush` — куда уходит пачка; `resume` — с чего продолжить; `stop` —
-    пора ли остановиться (спрашивается перед каждой страницей).
+    пора ли остановиться (спрашивается перед каждой страницей). `pause` —
+    пора ли кончить часть обхода 24/7 (ночь или пауза, `crawl/always_part.py`):
+    в отличие от `stop` обход кончается штатно, с исходом и отчётом, а не
+    ставит себе продолжение — следующую часть начнёт обход 24/7.
     """
 
     flush: Flush
     resume: Checkpoint | None = None
     stop: Callable[[], bool] = _never
+    pause: Callable[[], bool] = _never
     every_pages: int = BATCH_PAGES
     every_sec: float = BATCH_SECONDS
     _pages_sent: int = field(default=0, init=False)

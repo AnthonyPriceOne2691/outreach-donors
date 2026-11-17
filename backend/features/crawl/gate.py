@@ -21,6 +21,12 @@
 обход стал кнопкой, и у донора их бывает несколько. Новый обход заменяет
 кандидатов прежнего. Обход без открытых страниц (закрылся, не начался)
 и незаконченный не заменяет ничего: он не знает о сайте ничего нового.
+**Кроме цепочки обхода 24/7** (`always.py`, 17.11.2026): её части копятся — кандидаты считаются по
+последнему обходу не из цепочки и частям цепочки, страница — у самого нового обхода, где она
+есть (`gate_union.py`). Иначе часть стирала бы находки ночи, а ночь — находки десятков тысяч
+страниц цепочки. Кандидат помнит обход своей лучшей ссылки, а не пересчитанный. Части, которые не
+влезли под потолок ссылок в памяти, заморожены: их кандидаты остаются, пока тот же домен не найдут
+обходы новее.
 
 **Решения человека и спрошенный DR — ещё и в памяти донора по паре «донор +
 домен»** (`CandidateMemoryModel`, решение владельца 28.10.2026). «Переобойти»
@@ -38,28 +44,31 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, func, select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.ahrefs.client import AhrefsError
-from backend.features.core.domain import CrawlOutcome, CrawlStatus, Verdict
+from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CARRIED, CandidateMemoryModel, CandidateModel
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
+from backend.features.crawl import always_depth
 from backend.features.crawl.big_sites import (
     Ratings,
     RatingsRefusedError,
     apply_ratings,
     needs_rating,
 )
+from backend.features.crawl.gate_union import Union, chain_selling, gather, usable
 from backend.features.crawl.links import OutLink
 from backend.features.crawl.scoring import (
     Candidate,
+    advertiser_links,
     advertiser_pages,
     boost_across_donors,
     score_candidates,
@@ -69,9 +78,6 @@ from backend.features.crawl.topic import donor_topic
 
 logger = logging.getLogger(__name__)
 
-#: Обход, по которому считаются кандидаты: законченный и с открытыми страницами.
-USABLE_OUTCOMES = (CrawlOutcome.OK, CrawlOutcome.PARTIAL)
-
 #: Строк памяти за один запрос: у запроса не больше 32 767 параметров, у строки их семь.
 MEMORY_CHUNK = 1000
 
@@ -80,10 +86,6 @@ MEMORY_CHUNK = 1000
 #: `outreach advertisers --pages-only` (`crawl/selling_backfill.py`) или следующий пересчёт.
 SELLING_PAGES = "selling_pages"
 SELLING_LINKS = "selling_links"
-
-
-def usable() -> ColumnElement[bool]:
-    return (CrawlRunModel.status == CrawlStatus.DONE) & CrawlRunModel.outcome.in_(USABLE_OUTCOMES)
 
 
 async def latest_crawls(session: AsyncSession) -> list[CrawlRunModel]:
@@ -230,6 +232,13 @@ async def _rate(candidates: list[Candidate], previous: _Previous, ratings: Ratin
         logger.info("кандидаты: крупных сайтов (DR > 80) отсеяно %s", blocked)
 
 
+def bought_here(links: Sequence[OutLink], roots: set[str]) -> dict[str, int]:
+    """Домены «куплено» и сколько их ссылок именно в `links` — тем же счётом, что `links`
+    кандидата (`scoring.advertiser_links`): кандидаты считаются по объединению обходов, а мера
+    обхода — по его ссылкам."""
+    return {root: count for root, count in advertiser_links(links).items() if root in roots}
+
+
 def selling_stats(links: Sequence[OutLink], bought: Mapping[str, int]) -> dict[str, int]:
     """Продающие ссылки обхода числами для `stats`: `bought` — домен с вердиктом «куплено» и
     сколько у него ссылок. Страницы — разные: витрина с пятью рекламодателями — одна; правилом
@@ -263,14 +272,9 @@ async def judge_run(
         logger.info("обход %s (%s): кандидаты не считаются — %s", run.host, run_id, skip)
         return []
 
-    rows = (
-        (await session.execute(select(OutLinkModel).where(OutLinkModel.crawl_run_id == run_id)))
-        .scalars()
-        .all()
-    )
-    links = [_to_link(row) for row in rows]
+    found = await gather(session, run)
     candidates = score_candidates(
-        links,
+        found.links,
         donor_root=run.host,
         topic=await donor_topic(session, run.host),
     )
@@ -279,16 +283,10 @@ async def judge_run(
 
     previous = await _previous(session, run.host)
     await _rate(candidates, previous, ratings)
-    await _replace_candidates(session, run, candidates, previous)
-    # Каким порогом судили: веса меняются окружением, а пересчёт переписывает вердикт. Продающие
-    # ссылки — здесь, после «DR > 80», который снимает «куплено», и там, где ссылки уже в памяти:
-    # панели читать их из `outlinks` на каждое открытие значило бы проходить сотни тысяч строк.
-    bought = {c.target_root: c.links for c in candidates if c.verdict is Verdict.BOUGHT}
-    run.stats = {
-        **(run.stats or {}),
-        "scored_with": snapshot(),
-        **selling_stats(links, bought),
-    }
+    await _replace_candidates(
+        session, run, candidates, previous, owner=found.owner, frozen=found.frozen
+    )
+    await _measure(session, run, candidates, found)
     await session.flush()
     logger.info(
         "обход %s (%s): кандидатов %s, из них куплено %s, спорных %s",
@@ -301,8 +299,51 @@ async def judge_run(
     return candidates
 
 
+async def _measure(
+    session: AsyncSession, run: CrawlRunModel, candidates: list[Candidate], found: Union
+) -> None:
+    """Каким порогом судили и продающие ссылки — на строку обхода; доля продающих страниц — цепочке.
+
+    Порог — потому что веса меняются окружением, а пересчёт переписывает вердикт. Продающие ссылки —
+    здесь, после «DR > 80», который снимает «куплено», и там, где ссылки уже в памяти: панели читать
+    их из `outlinks` на каждое открытие значило бы проходить сотни тысяч строк. Мера обычного обхода —
+    по его ссылкам, вердикт — по объединению: «куплено» одно на донора. Цепочка меряется запросом по
+    всем своим частям (`gate_union.chain_selling`), без ссылок в памяти; у строки части страницы — всей
+    цепочки (`always_part.py`), и продающие у неё — те же числа цепочки, иначе доля «Качества загрузок»
+    делила бы страницы части на страницы цепочки."""
+    roots = {c.target_root for c in candidates if c.verdict is Verdict.BOUGHT}
+    stats = selling_stats(found.own, bought_here(found.own, roots))
+    if found.chained:
+        pages, links = await chain_selling(session, run.host)
+        await always_depth.refresh_yield(session, run.host, pages, frozen=len(found.frozen))
+        if run.depth_part is not None:
+            stats = {SELLING_PAGES: pages, SELLING_LINKS: links}
+    run.stats = {**(run.stats or {}), "scored_with": snapshot(), **stats}
+
+
+def _replaced(
+    rows: Sequence[CandidateModel], candidates: list[Candidate], frozen: Collection[int]
+) -> list[CandidateModel]:
+    """Строки, которые пересчёт заменяет: все, кроме кандидатов замороженных частей, чей домен не
+    найден заново (`_replace_candidates`)."""
+    fresh = {candidate.target_root for candidate in candidates}
+    return [row for row in rows if row.crawl_run_id not in frozen or row.target_root in fresh]
+
+
+def _found_in(candidate: Candidate, owner: Mapping[str, int], judged: int) -> int:
+    """Обход лучшей ссылки кандидата — по странице (`gate_union.Union.owner`); иначе судимый."""
+    best = candidate.best_link
+    return judged if best is None else owner.get(best.page_url, judged)
+
+
 async def _replace_candidates(
-    session: AsyncSession, run: CrawlRunModel, candidates: list[Candidate], previous: _Previous
+    session: AsyncSession,
+    run: CrawlRunModel,
+    candidates: list[Candidate],
+    previous: _Previous,
+    *,
+    owner: Mapping[str, int] | None = None,
+    frozen: Collection[int] = (),
 ) -> None:
     """Переписать кандидатов донора целиком — прежних обходов тоже.
 
@@ -314,6 +355,13 @@ async def _replace_candidates(
     любого веса и теряться при пересчёте не должно. Спрошенный DR —
     тоже: за него заплачено. Домену, которого новый обход не нашёл, их
     хранит память донора (`_remember`) — он вернётся с ними.
+
+    Строка кандидата помнит обход своей лучшей ссылки (`owner`: страница → обход, `gate_union`):
+    по нему судья и приёмка находят её в `outlinks`. Без объединения — это судимый обход.
+
+    Кандидат замороженной части (`frozen`: её ссылки не читались под потолком памяти) остаётся как
+    был — решение, DR и вердикт на нём, — пока тот же домен не найден заново: тогда его заменяет
+    новая строка.
     """
     await _remember(session, run.host, previous)
     existing = (
@@ -321,14 +369,14 @@ async def _replace_candidates(
         .scalars()
         .all()
     )
-    for row in existing:
+    for row in _replaced(existing, candidates, frozen):
         await session.delete(row)
     await session.flush()
 
     for candidate in candidates:
         session.add(
             CandidateModel(
-                crawl_run_id=run.id,
+                crawl_run_id=_found_in(candidate, owner or {}, run.id),
                 donor_host=run.host,
                 target_root=candidate.target_root,
                 points=candidate.points,
