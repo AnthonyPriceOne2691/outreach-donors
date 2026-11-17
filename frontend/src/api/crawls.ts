@@ -11,7 +11,9 @@ import type { PriceSource } from './manualPrice';
 
 export type CrawlStatus = 'queued' | 'running' | 'done' | 'stopped';
 export type CrawlOutcome = 'ok' | 'partial' | 'forbidden' | 'blocked' | 'failed';
-/** Почему обход кончился — `StopReason` сервера. */
+/** Почему обход кончился — `StopReason` сервера. `paused` — часть обхода 24/7 остановлена на
+ *  границе страницы ночным окном или «Паузой» (исход «частично»); следующая часть продолжит с того
+ *  же места. */
 export type CrawlStopReason =
   | 'exhausted'
   | 'max_pages'
@@ -19,7 +21,8 @@ export type CrawlStopReason =
   | 'timeout'
   | 'unhealthy'
   | 'robots'
-  | 'no_start';
+  | 'no_start'
+  | 'paused';
 /** Откуда обход брал адреса: карта сайта, ссылки со страниц или карта, а после неё ссылки. */
 export type CrawlSource = 'sitemap' | 'links' | 'sitemap+links';
 
