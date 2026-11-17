@@ -12,6 +12,10 @@
  *
  * **До первого ответа — заготовка строк** (`LoadingRows`), а не крутилка над пустой шапкой:
  * таблица встаёт сразу в свою высоту, и ответ не сдвигает экран.
+ *
+ * **Обход 24/7 донора — строкой под значком обхода** (`CrawlDepth`, 17.11.2026), в том же блоке и с
+ * той же кромки, а не своей колонкой: колонка отняла бы у «Последнего обхода» место, и его кнопки
+ * на 1440 ушли бы под значок у каждой строки. Строка — только у доноров, которых 24/7 трогал.
  */
 
 import { Checkbox, Group, Skeleton, Table } from '@mantine/core';
@@ -24,6 +28,7 @@ import { Seams } from '../components/Seams';
 import { NoRows } from '../components/WholeRow';
 import type { Emptiness } from '../components/WholeRow';
 import { formatDate, formatNumber } from '../format';
+import { CrawlDepth } from './CrawlDepth';
 import type { StartCrawls } from './CrawlTable';
 import { LastCrawl, PriceCell, isActive } from './CrawlTable';
 import type { DeepAsk } from './CrawlTable';
@@ -124,7 +129,9 @@ function DonorRowCells({
           «Переобойти» — то, ради чего строка; цена, дата и ссылки — строкой ниже. На широком —
           блоком одной ширины в каждой строке (`crawlSlot`): значки, «i» и кнопки — столбиками. */}
       <Table.Td className="cellDecide" data-label="Последний обход">
-        <LastCrawl donor={donor} again={again} deep={deep} compact />
+        <LastCrawl donor={donor} again={again} deep={deep} compact>
+          {donor.depth ? <CrawlDepth host={donor.host} depth={donor.depth} /> : null}
+        </LastCrawl>
       </Table.Td>
       <Table.Td data-label="Ссылок">
         {donor.crawl?.links === null || donor.crawl === null

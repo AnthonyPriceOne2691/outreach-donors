@@ -1,6 +1,7 @@
 /** Ответы сервера, снятые с живого прогона 19.09.2026. Право `sales` — с 1.5:
  *  у админа всё, у оператора — в роли (решение владельца 01.10); `advertisers` — так же. */
 
+import type { AlwaysView } from '../api/crawlAlways';
 import type { Me, OverviewLetters, OverviewView, SignedIn, UserCard } from '../api/types';
 import type { Answer } from './server';
 
@@ -213,11 +214,31 @@ export const EMPTY_CRAWL_PAGE = {
   max_pages: 1000,
 };
 
+/** Обход 24/7 на вкладке «Обход доноров» (`CrawlAlways`): рубильник включён, сам 24/7 — нет,
+ *  ничего не пройдено. */
+export const ALWAYS_OFF: AlwaysView = {
+  available: true,
+  enabled: false,
+  set_at: null,
+  set_by: null,
+  threshold_pct: 0.1,
+  recrawl_weak: false,
+  waiting_for: null,
+  counts: { new: 0, first: 0, deeper: 0, weak: 0, exhausted: 0, running: 0, total: 0 },
+  pages: 0,
+  words: 'на паузе',
+  details: [],
+  yields: [],
+  done_at: null,
+  part_pages: 10_000,
+};
+
 /** Очередь загрузки обхода на вкладке «Обход доноров» (`CrawlBacklog`): пусто — строки нет.
- *  Вкладка спрашивает её сама, как и обходы. */
+ *  Вкладка спрашивает её сама, как и обходы, ночной обход и 24/7. */
 export const BACKLOG_ROUTES: Record<string, Answer> = {
   'GET /api/donors/import/backlog': { body: { waiting: 0, eta_sec: null, workers: 4 } },
   'GET /api/crawls/night': { body: { enabled: false, window_sec: 25_200, last: null } },
+  'GET /api/crawls/always': { body: ALWAYS_OFF },
 };
 
 /** Панели над очередью рекламодателей и под ней: доноров для обхода нет, обходов не было,

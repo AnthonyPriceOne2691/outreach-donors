@@ -8,6 +8,11 @@
  * выбранный статус не обнуляет соседние кнопки, и видно, сколько станет, если нажать другую.
  * Нулевой статус кнопкой не стоит — кроме выбранного: снять его должно быть чем.
  *
+ * **«мало рекламодателей» — своей кнопкой рядом со статусами** (обход 24/7, 17.11.2026): пометка —
+ * не статус обхода, а признак сайта, и сочетается с любым статусом. Кнопка стоит, только когда
+ * сервер прислал её число: сервер, который фильтра не знает, пропустил бы условие молча, и под
+ * нажатой кнопкой стояли бы все доноры.
+ *
  * **Поиск — после паузы** (`donors/useTyped`): каждая буква — не запрос и не запись в адрес.
  */
 
@@ -32,6 +37,7 @@ import {
   priceCount,
   STATUS_KEYS,
   statusTotal,
+  WEAK_TITLE,
 } from './crawlFilters';
 
 type Apply = (patch: Partial<CrawlFilters>) => void;
@@ -79,6 +85,49 @@ export function StatusFacets({
           </Button>
         );
       })}
+    </Group>
+  );
+}
+
+/** «мало рекламодателей · N» — нажать, ещё раз — снять. Числа нет (сервер фильтра не знает) или
+ *  ноль — кнопки нет, кроме нажатой: снять её должно быть чем. */
+export function WeakFacet({
+  counts,
+  filters,
+  onFilter,
+}: {
+  counts: CrawlCounts | undefined;
+  filters: CrawlFilters;
+  onFilter: Apply;
+}) {
+  const count = counts?.weak;
+  const on = filters.weak;
+  if (!on && (count === undefined || count === 0)) return null;
+  return (
+    <Button
+      size="compact-sm"
+      radius="xl"
+      variant={on ? 'filled' : 'light'}
+      color="yellow"
+      aria-pressed={on}
+      onClick={() => onFilter({ weak: !on })}
+    >
+      {WEAK_TITLE}
+      {count === undefined ? '' : ` · ${formatNumber(count)}`}
+    </Button>
+  );
+}
+
+/** Разрезы над таблицей: статус последнего обхода и пометка 24/7. */
+export function CrawlFacets(props: {
+  counts: CrawlCounts | undefined;
+  filters: CrawlFilters;
+  onFilter: Apply;
+}) {
+  return (
+    <Group gap={6} align="center">
+      <StatusFacets {...props} />
+      <WeakFacet {...props} />
     </Group>
   );
 }

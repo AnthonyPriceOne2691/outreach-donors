@@ -17,7 +17,8 @@
  *   начала с большим потолком, идёт часами, разом их не больше нескольких;
  * - **журнал обходов свёрнут** и листается страницами (`RecentCrawls journal`).
  *
- * Ночной обход — строкой над таблицей (`CrawlNight`): когда был, что считали, что осталось.
+ * Ночной обход — строкой над таблицей (`CrawlNight`): когда был, что считали, что осталось. Рядом —
+ * обход 24/7 (`CrawlAlways`): строка, запуск и пауза, порог «мало рекламодателей».
  *
  * Доноров заводят здесь же: одного — «Завести донора вручную», списком из файла — «Загрузить
  * списком» (`BulkDonors`); загруженные с галочкой обхода ждут в очереди загрузки (`CrawlBacklog`).
@@ -48,7 +49,8 @@ import { CrawlBacklog } from './CrawlBacklog';
 import { CrawlDonorsTable } from './CrawlDonorsTable';
 import type { Picks } from './CrawlDonorsTable';
 import type { DeepAsk } from './CrawlTable';
-import { CrawlFilterRow, CrawlScope, StatusFacets } from './CrawlFilterBar';
+import { CrawlAlways } from './CrawlAlways';
+import { CrawlFacets, CrawlFilterRow, CrawlScope } from './CrawlFilterBar';
 import { CrawlNight } from './CrawlNight';
 import { CrawlFacts } from './CrawlSummary';
 import type { CrawlFilters } from './crawlFilters';
@@ -318,24 +320,25 @@ function emptinessOf(
   return crawlEmptiness(filters, summary ? statusTotal(summary.counts) : data.total);
 }
 
-/** Над таблицей — чего не хватает (обходчиков нет) и протухшие цены с «Перезапросить цену». */
+/** Над таблицей — чего не хватает (обходчиков нет), ночной обход и 24/7, протухшие цены. */
 function Notices({
   data,
   summary,
-  mayDrop,
+  mayRun,
 }: {
   data: CrawlDonorsView | undefined;
   summary: CrawlSummary | undefined;
-  /** Можно ли снять очередь загрузки — право запуска. */
-  mayDrop: boolean;
+  /** Право запуска: снять очередь загрузки, запустить и остановить 24/7. */
+  mayRun: boolean;
 }) {
   const { can } = useSession();
   const queryClient = useQueryClient();
   return (
     <>
       <Troubles data={data} summary={summary} />
-      <CrawlBacklog mayDrop={mayDrop} />
+      <CrawlBacklog mayDrop={mayRun} />
       <CrawlNight />
+      <CrawlAlways mayRun={mayRun} />
       {summary && can('donors') ? (
         <StalePrices
           count={summary.counts.price.stale}
@@ -460,9 +463,9 @@ export function CrawlTab() {
           summary={summary.data}
           onEnter={mayRun ? () => setEntering(true) : null}
         />
-        <Notices data={data} summary={summary.data} mayDrop={mayRun} />
+        <Notices data={data} summary={summary.data} mayRun={mayRun} />
         <Group justify="space-between" align="center" gap="sm">
-          <StatusFacets counts={data?.counts} filters={url.filters} onFilter={url.apply} />
+          <CrawlFacets counts={data?.counts} filters={url.filters} onFilter={url.apply} />
           <CrawlScope filters={url.filters} onFilter={url.apply} />
         </Group>
         {runner !== null ? (
