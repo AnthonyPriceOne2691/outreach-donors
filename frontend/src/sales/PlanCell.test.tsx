@@ -104,11 +104,12 @@ function setUp(plans: PlanLive[], routes: Record<string, Route> = {}): Recorded 
   });
 }
 
+/** Ячейка плана — вторая, сразу за именем (стенд 17.11: последней её не было видно на 1280). */
 function cellOf(name: string): HTMLElement {
   const line = screen.getByRole('row', { name: new RegExp(name) });
-  const last = within(line).getAllByRole('cell').at(-1);
-  if (last === undefined) throw new Error(`у строки «${name}» нет ячеек`);
-  return last;
+  const plan = within(line).getAllByRole('cell').at(1);
+  if (plan === undefined) throw new Error(`у строки «${name}» нет ячейки плана`);
+  return plan;
 }
 
 function asked(recorded: Recorded, path: string, method = 'GET'): Call[] {
@@ -159,6 +160,15 @@ describe('колонка «План работ»', () => {
     renderWith(<HypothesesTable rows={[LOGISTICS, DENTAL, OUTSIDE]} />);
 
     expect(await screen.findByRole('columnheader', { name: 'План работ' })).toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader').map((head) => head.textContent)).toEqual([
+      'Гипотеза',
+      'План работ',
+      'Новые',
+      'Готовы',
+      'Отклонены',
+      'Всего',
+      'Заведена',
+    ]);
     const cell = cellOf(LOGISTICS.name);
     expect(cell).toHaveTextContent('Сбор: топ-20, ключи 1 200 из 30 000');
     expect(cell).toHaveTextContent('найдено 1 240 из 5 000');
@@ -169,7 +179,7 @@ describe('колонка «План работ»', () => {
       'href',
       '/sales?tab=collect&hypothesis=11',
     );
-    expect(within(cell).getByRole('link', { name: 'Отчёт' })).toHaveAttribute(
+    expect(within(cell).getByRole('link', { name: 'Воронка' })).toHaveAttribute(
       'href',
       '/sales?tab=funnel&hypothesis=11',
     );
@@ -217,8 +227,29 @@ describe('колонка «План работ»', () => {
         await screen.findByRole('button', { name: `Остановить гипотезу «${LOGISTICS.name}»` }),
       );
 
-    expect(await within(cellOf(LOGISTICS.name)).findByRole('alert')).toHaveTextContent(refusal);
+    const cell = cellOf(LOGISTICS.name);
+    const alert = await within(cell).findByRole('alert');
+    expect(alert).toHaveTextContent(refusal);
     expect(asked(recorded, '/api/sales/plan-hypotheses/1/stop', 'POST')).toHaveLength(1);
+    // Под рядом кнопок, а не в нём (стенд 17.11: отказ вставал между кнопками).
+    const more = within(cell).getByRole('button', { name: 'Собрать ещё' });
+    expect(alert.parentElement).not.toBe(more.parentElement);
+    expect(more.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('окно кнопки закрыли — фокус снова на кнопке, место в таблице не теряется', async () => {
+    setUp([plan()]);
+    renderWith(<HypothesesTable rows={[LOGISTICS, DENTAL]} />);
+    const user = userEvent.setup();
+    await screen.findByRole('columnheader', { name: 'План работ' });
+    const more = within(cellOf(LOGISTICS.name)).getByRole('button', { name: 'Собрать ещё' });
+
+    await user.click(more);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(more).toHaveFocus());
   });
 });
 

@@ -94,7 +94,6 @@ export function PlanKeys({ row, onClose }: Props) {
         <FileInput
           label="Книга"
           description="Один лист, ключи в колонке A — под строкой «Ключи», если она есть"
-          placeholder="выберите книгу .xlsx"
           accept=".xlsx"
           value={file}
           onChange={setFile}

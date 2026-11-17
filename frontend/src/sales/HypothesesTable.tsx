@@ -17,8 +17,12 @@
  * **План работ** — своим запросом (`planApi.useLivePlans`, опрос, пока план идёт), сведённым по
  * гипотезе: над таблицей — строки планов с «Остановить план» / «Продолжить», в таблице — колонка
  * «План работ» (`PlanCell`), только когда в ней есть гипотезы плана: без плана таблица прежняя.
- * С колонкой таблица шире (1 200 px) и на узком окне уезжает вбок, а имя гипотезы стоит на месте
- * (`stickyName`, как в отчёте приёмки) — кнопки «Править» и строки плана не теряют, чья строка.
+ * **Колонка плана — вторая, сразу за именем** (стенд 17.11): последней она уезжала за край карточки
+ * — на 1440 с открытым меню видно 178 px из 288, на 1280 — 18, ни шапки, ни кнопок. Второй — имя и
+ * план (608 px) видно без прокрутки от 1280; вбок уезжают числа лидов. С колонкой таблица шире
+ * (1 200 px), и от 768 px имя гипотезы стоит на месте (`stickyName`, как в отчёте приёмки) —
+ * кнопки «Править» и строки плана не теряют, чья строка. На телефоне имя не закреплено (общее
+ * правило `stickyName`): колонка плана — сразу за ним, первой после прокрутки.
  */
 
 import { Anchor, Button, Group, Stack, Table, Text } from '@mantine/core';
@@ -38,18 +42,23 @@ import type { PlanPlace } from './planApi';
 import { PLAN_COLUMN_PX, PLAN_COLUMN_WIDTH, PlanCell } from './PlanCell';
 import { PlanLines } from './PlanLine';
 
-const COLUMNS: Column[] = [
-  { title: 'Гипотеза', width: '20rem' },
+const NAME_COLUMN: Column = { title: 'Гипотеза', width: '20rem' };
+const COUNT_COLUMNS: Column[] = [
   { title: 'Новые', width: '7rem' },
   { title: 'Готовы', width: '7rem' },
   { title: 'Отклонены', width: '8rem' },
   { title: 'Всего', width: '7rem' },
   { title: 'Заведена', width: '8rem' },
 ];
+const COLUMNS: Column[] = [NAME_COLUMN, ...COUNT_COLUMNS];
 
 export const HYPOTHESES_MIN_WIDTH = 912;
-/** Колонка «План работ» — только когда в таблице есть гипотезы плана. */
-const WITH_PLAN: Column[] = [...COLUMNS, { title: 'План работ', width: PLAN_COLUMN_WIDTH }];
+/** Колонка «План работ» — только когда в таблице есть гипотезы плана, второй — за именем. */
+const WITH_PLAN: Column[] = [
+  NAME_COLUMN,
+  { title: 'План работ', width: PLAN_COLUMN_WIDTH, start: true },
+  ...COUNT_COLUMNS,
+];
 /** Строк описания в свёрнутом виде. */
 export const DESCRIPTION_LINES = 3;
 
@@ -117,6 +126,7 @@ function HypothesisRow({
           />
         )}
       </Table.Td>
+      {plan !== null && <PlanCell place={plan.place} card={row} />}
       {LEAD_STATE_KEYS.map((state) => (
         <Table.Td key={state}>
           <Count value={row.leads[state]} to={leadsLink(row.id, state)} />
@@ -128,7 +138,6 @@ function HypothesisRow({
       <Table.Td>
         <Text size="sm">{formatDate(row.created_at)}</Text>
       </Table.Td>
-      {plan !== null && <PlanCell place={plan.place} card={row} />}
     </Table.Tr>
   );
 }
