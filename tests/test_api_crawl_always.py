@@ -82,6 +82,7 @@ DEPTH_KEYS = {
     "weak_by",
     "exhausted",
     "running",
+    "note",
 }
 
 
@@ -282,6 +283,7 @@ async def test_a_donor_is_marked_by_hand_unmarked_and_handed_back_to_the_thresho
         "weak_by": "human",
         "exhausted": False,
         "running": False,
+        "note": None,
     }
     assert (unmarked.json()["weak"], unmarked.json()["weak_by"]) == (False, "human")
     assert (back.json()["weak"], back.json()["weak_by"]) == (True, "auto"), "0,02 % < 0,1 %"
@@ -308,11 +310,14 @@ async def test_donor_rows_carry_their_depth(
 ) -> None:
     await _donor(session, "deep.test")
     await _donor(session, "plain.test")
+    await _donor(session, "long.test")
     await _depth(
         session, "deep.test", 20_000, parts=3, first_done_at=NOW, yield_pct=1.5, selling_pages=300
     )
+    await _depth(session, "long.test", 150_000, parts=15, frozen_parts=4)
 
     answer = await client.get("/api/crawls/donors", headers=runner)
+    shown = await client.get(URL, headers=runner)
 
     rows = {row["host"]: row for row in answer.json()["rows"]}
     assert rows["deep.test"]["depth"] == {
@@ -324,8 +329,16 @@ async def test_donor_rows_carry_their_depth(
         "weak_by": None,
         "exhausted": False,
         "running": False,
+        "note": None,
     }
     assert rows["plain.test"]["depth"] is None
+    note = rows["long.test"]["depth"]["note"]
+    assert note.startswith(f"судья смотрит последние {spaced(cfg.UNION_LINKS)} ссылок цепочки")
+    assert "(4)" in note
+    assert (
+        f"У 1 сайта судья смотрит последние {spaced(cfg.UNION_LINKS)} ссылок цепочки, старые "
+        "находки заморожены." in shown.json()["details"]
+    )
 
 
 async def test_the_tab_filters_and_counts_weak_donors_under_its_other_conditions(
@@ -504,20 +517,30 @@ async def test_the_revision_goes_down_and_up_and_the_round_works_on_it(
 PROBE = (
     "import backend.workers.reaper\n"
     "from backend.features.crawl import backlog\n"
-    "from backend.config import crawl_always\n"
-    "print(crawl_always.ENABLED, crawl_always.SLOTS, sorted(crawl_always._unread))"
+    "from backend.config import crawl_always as c\n"
+    "print(c.ENABLED, c.SLOTS, c.UNION_LINKS, sorted(c._unread))"
 )
 
 
 @pytest.mark.parametrize(
     ("values", "said"),
     [
-        ({}, "True 12 []"),
-        ({"CRAWL_ALWAYS": "false", "CRAWL_ALWAYS_SLOTS": "6"}, "False 6 []"),
-        ({"CRAWL_ALWAYS": "да"}, "False 12 ['CRAWL_ALWAYS']"),
-        ({"CRAWL_ALWAYS_SLOTS": "много"}, "True 12 ['CRAWL_ALWAYS_SLOTS']"),
+        ({}, "True 12 600000 []"),
+        (
+            {"CRAWL_ALWAYS": "false", "CRAWL_ALWAYS_SLOTS": "6", "CRAWL_ALWAYS_UNION_LINKS": "9"},
+            "False 6 9 []",
+        ),
+        ({"CRAWL_ALWAYS": "да"}, "False 12 600000 ['CRAWL_ALWAYS']"),
+        ({"CRAWL_ALWAYS_SLOTS": "много"}, "True 12 600000 ['CRAWL_ALWAYS_SLOTS']"),
+        ({"CRAWL_ALWAYS_UNION_LINKS": "0"}, "True 12 600000 ['CRAWL_ALWAYS_UNION_LINKS']"),
     ],
-    ids=["умолчание", "задано", "опечатка в рубильнике", "опечатка в числе частей"],
+    ids=[
+        "умолчание",
+        "задано",
+        "опечатка в рубильнике",
+        "опечатка в числе частей",
+        "потолок ссылок не больше нуля",
+    ],
 )
 def test_the_service_switch_is_on_by_default_and_a_typo_turns_it_off(
     values: dict[str, str], said: str

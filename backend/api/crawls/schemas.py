@@ -166,7 +166,8 @@ class DonorDepthView(BaseModel):
     несут платную ссылку («на `selling_pages` из `pages`»; не считали — пусто) и их доля, % (после
     первых 10 000, иначе пусто), пометка «мало рекламодателей» и кто её решил — `auto` по порогу,
     `human` руками (и пометил, и снял: тогда `weak` ложь), пусто — порог не пометил; пройден ли сайт
-    до конца и идёт ли его часть сейчас."""
+    до конца и идёт ли его часть сейчас. `note` — строка для «i» донора, если судья читает не всю
+    цепочку (потолок ссылок в памяти: находки старых частей заморожены); иначе пусто."""
 
     pages: int
     parts: int
@@ -176,6 +177,7 @@ class DonorDepthView(BaseModel):
     weak_by: Literal["auto", "human"] | None = None
     exhausted: bool
     running: bool
+    note: str | None = None
 
     @classmethod
     def of(cls, depth: DonorDepth) -> DonorDepthView:
@@ -188,6 +190,7 @@ class DonorDepthView(BaseModel):
             weak_by="auto" if depth.weak_by == "auto" else "human" if depth.weak_by else None,
             exhausted=depth.exhausted,
             running=depth.running,
+            note=depth.note,
         )
 
 

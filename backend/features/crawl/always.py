@@ -142,6 +142,8 @@ class Donor:
     rank: int
     #: Пометку решает порог: первые 10 000 пройдены, доля известна, руками не ставили.
     scored: bool = False
+    #: Последний пересчёт кандидатов не читал старые части цепочки — потолок ссылок в памяти.
+    frozen: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,6 +272,7 @@ def _donor(host: str, rank: int, known: _Known, switch: Switch) -> Donor:
         part=(last.number if last is not None else 0) + 1,
         rank=rank,
         scored=always_depth.by_threshold(depth),
+        frozen=depth is not None and depth.frozen_parts > 0,
     )
 
 

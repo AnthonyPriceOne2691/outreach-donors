@@ -172,7 +172,7 @@
       "worst": "_why_not:251"
     },
     "backend/api/crawls/schemas.py": {
-      "lines": 398,
+      "lines": 401,
       "complexity": 5,
       "worst": "of:62"
     },
@@ -967,7 +967,7 @@
       "worst": "render_template_problem:254"
     },
     "backend/config/crawl_always.py": {
-      "lines": 52,
+      "lines": 68,
       "complexity": 0,
       "worst": "—"
     },
@@ -1387,7 +1387,7 @@
       "worst": "—"
     },
     "backend/features/core/models/crawl.py": {
-      "lines": 338,
+      "lines": 343,
       "complexity": 0,
       "worst": "—"
     },
@@ -1492,14 +1492,14 @@
       "worst": "affiliation:102"
     },
     "backend/features/crawl/always.py": {
-      "lines": 479,
+      "lines": 482,
       "complexity": 8,
-      "worst": "_stage:242"
+      "worst": "_stage:244"
     },
     "backend/features/crawl/always_depth.py": {
-      "lines": 293,
+      "lines": 296,
       "complexity": 8,
-      "worst": "finish_part:227"
+      "worst": "finish_part:229"
     },
     "backend/features/crawl/always_part.py": {
       "lines": 152,
@@ -1512,9 +1512,9 @@
       "worst": "set_switch:85"
     },
     "backend/features/crawl/always_view.py": {
-      "lines": 264,
-      "complexity": 5,
-      "worst": "_words:147"
+      "lines": 289,
+      "complexity": 6,
+      "worst": "_facts:209"
     },
     "backend/features/crawl/anchors.py": {
       "lines": 128,
@@ -1617,14 +1617,14 @@
       "worst": "crawlable:47"
     },
     "backend/features/crawl/gate.py": {
-      "lines": 395,
+      "lines": 417,
       "complexity": 7,
-      "worst": "_rate:206"
+      "worst": "_rate:208"
     },
     "backend/features/crawl/gate_union.py": {
-      "lines": 103,
-      "complexity": 5,
-      "worst": "_take:94"
+      "lines": 184,
+      "complexity": 8,
+      "worst": "runs_of:101"
     },
     "backend/features/crawl/health.py": {
       "lines": 106,

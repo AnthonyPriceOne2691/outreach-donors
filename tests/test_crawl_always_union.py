@@ -1,10 +1,12 @@
-"""Найденное копится: кандидаты донора — по последнему обходу и всей цепочке обхода 24/7.
+"""Найденное копится: кандидаты донора — по последнему обходу и цепочке обхода 24/7.
 
 Проверяется то, ради чего объединение (`crawl/gate_union.py`): свежий ночной обход не стирает
 кандидатов, найденных частями цепочки, а часть — найденных ночью; страница берётся у самого нового
 обхода, где она есть; кандидат помнит обход своей лучшей ссылки; решения человека и память донора
 работают, как работали; продающие страницы меряются по ссылкам обхода, а у части — всей цепочки, и
-доля продающих страниц цепочки после первых 10 000 решает пометку «мало рекламодателей».
+доля продающих страниц цепочки после первых 10 000 решает пометку «мало рекламодателей». И потолок
+памяти: судья читает части от новой к старой, пока ссылок не больше потолка, старые — заморожены,
+а не потеряны; доля цепочки считается запросом и сходится с правилом в памяти.
 """
 
 from __future__ import annotations
@@ -12,12 +14,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from backend.config import crawl_always as always_cfg
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, StopReason, Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.crawl import CrawlDepthModel, CrawlRunModel
-from backend.features.crawl import always_depth
-from backend.features.crawl.gate import SELLING_LINKS, SELLING_PAGES, judge_run
-from backend.features.crawl.gate_union import gather
+from backend.features.crawl import always_depth, gate_union
+from backend.features.crawl.gate import SELLING_LINKS, SELLING_PAGES, bought_here, judge_run
+from backend.features.crawl.gate import selling_stats as in_memory
+from backend.features.crawl.gate_union import gather, runs_of
 from backend.features.crawl.links import OutLink
 from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.repository import save_crawl
@@ -113,9 +117,7 @@ async def test_a_page_is_read_from_the_newest_crawl_that_opened_it(session: Asyn
     assert sorted(await _candidates(session)) == ["kept-adv.test", "new-adv.test"]
     assert found.owner[f"https://{DONOR}/post/7"] == night.id
     assert found.owner[f"https://{DONOR}/post/8"] == part.id
-    assert [link.target_root for link in found.chain] == ["gone-adv.test", "kept-adv.test"], (
-        "цепочка меряется своими ссылками целиком"
-    )
+    assert (found.chained, found.frozen, found.loaded) == (True, set(), 3)
 
 
 async def test_only_the_latest_crawl_outside_the_chain_joins_it(session: AsyncSession) -> None:
@@ -205,3 +207,134 @@ async def test_a_mark_by_hand_beats_the_threshold() -> None:
     row.weak_override, row.first_done_at = None, None
     assert always_depth.weak_of(row, 99.0) == (False, None), "до первых 10 000 порог молчит"
     assert always_depth.weak_of(None, 0.1) == (False, None)
+
+
+# --- потолок памяти судьи ---------------------------------------------------------------------------
+
+
+def _pages(first: int, count: int, target: str) -> list[OutLink]:
+    return [_link(target, page) for page in range(first, first + count)]
+
+
+async def test_the_judge_reads_the_newest_parts_up_to_the_cap(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Судимый и последний обычный — всегда; части — от новой к старой, пока ссылок не больше
+    потолка; старше первой не влезшей — заморожены, даже если влезли бы сами."""
+    small = await _run(session, _pages(1, 1, "s.test"), part=1)
+    second = await _run(session, _pages(10, 3, "b.test"), part=2)
+    third = await _run(session, _pages(30, 3, "c.test"), part=3)
+    night = await _run(session, _pages(50, 2, "n.test"))
+    judged = await _run(session, _pages(60, 2, "d.test"), part=4)
+    monkeypatch.setattr(always_cfg, "UNION_LINKS", 8)
+
+    plan = await runs_of(session, judged)
+    found = await gather(session, judged)
+
+    assert [number for number, _ in plan.runs] == [judged.id, night.id, third.id]
+    assert plan.frozen == {second.id, small.id}, "старше первой не влезшей — все, и малая тоже"
+    assert (plan.links, found.loaded) == (7, 7)
+    assert "заморожено 2" in caplog.text
+    monkeypatch.setattr(always_cfg, "UNION_LINKS", 3)
+    tight = await runs_of(session, judged)
+    assert [number for number, _ in tight.runs] == [judged.id, night.id], (
+        "судимый и последний обычный — сверх потолка, но всегда"
+    )
+
+
+async def test_frozen_candidates_survive_a_recompute_with_their_decision(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = await _run(session, _pages(1, 3, "frozen-adv.test"), part=1)
+    await judge_run(session, first.id)
+    kept = (await _candidates(session))["frozen-adv.test"]
+    kept.confirmed, kept.decided_by, kept.decided_at = False, "человек@site.test", NOW
+    await session.flush()
+    await _run(session, _pages(10, 3, "middle-adv.test"), part=2)
+    last = await _run(session, _pages(20, 2, "new-adv.test"), part=3)
+    monkeypatch.setattr(always_cfg, "UNION_LINKS", 5)
+
+    await judge_run(session, last.id)
+
+    found = await _candidates(session)
+    assert sorted(found) == ["frozen-adv.test", "middle-adv.test", "new-adv.test"]
+    frozen = found["frozen-adv.test"]
+    assert (frozen.crawl_run_id, frozen.verdict, frozen.links) == (first.id, Verdict.BOUGHT, 3)
+    assert (frozen.confirmed, frozen.decided_by) == (False, "человек@site.test")
+    depth = await session.scalar(select(CrawlDepthModel).where(CrawlDepthModel.host == DONOR))
+    assert depth is None, "строки цепочки нет — писать заморожено некуда"
+
+
+async def test_a_frozen_target_found_again_is_replaced(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = await _run(session, _pages(1, 3, "back-adv.test"), part=1)
+    await judge_run(session, first.id)
+    old = (await _candidates(session))["back-adv.test"]
+    old.confirmed, old.decided_by, old.decided_at = True, "человек@site.test", NOW
+    await session.flush()
+    session.add(CrawlDepthModel(host=DONOR, pages=6, parts=2))
+    last = await _run(session, _pages(10, 2, "back-adv.test"), part=2)
+    monkeypatch.setattr(always_cfg, "UNION_LINKS", 2)
+
+    await judge_run(session, last.id)
+
+    rows = await session.scalars(
+        select(CandidateModel).where(CandidateModel.target_root == "back-adv.test")
+    )
+    [row] = rows.all()
+    assert (row.crawl_run_id, row.links) == (last.id, 2), "новая строка — по прочитанным ссылкам"
+    assert (row.confirmed, row.decided_by) == (True, "человек@site.test"), "решение перенесено"
+    depth = await session.scalar(select(CrawlDepthModel).where(CrawlDepthModel.host == DONOR))
+    assert depth is not None
+    await session.refresh(depth)
+    assert depth.frozen_parts == 1
+
+
+async def test_the_chain_yield_by_query_equals_the_rule_in_memory(session: AsyncSession) -> None:
+    """Доля цепочки считается запросом по всем частям, без ссылок в памяти, — и на простых ссылках
+    сходится с правилом скоринга (`gate.selling_stats`) по тем же ссылкам."""
+    chain = [
+        [_link("a.test", 1), _link("a.test", 2), _link("src.test", 2, paid=False)],
+        [_link("b.test", 3), _link("src.test", 4, paid=False), _link("src.test", 5, paid=False)],
+        [_link("a.test", 6), _link("b.test", 6), _link("src.test", 7, paid=False)],
+    ]
+    session.add(CrawlDepthModel(host=DONOR, pages=20, parts=3, first_done_at=NOW))
+    runs = [await _run(session, links, part=number) for number, links in enumerate(chain, 1)]
+    await judge_run(session, runs[-1].id)
+
+    links = [link for part in chain for link in part]
+    roots = {"a.test", "b.test"}
+    expected = in_memory(links, bought_here(links, roots))
+    depth = await session.scalar(select(CrawlDepthModel).where(CrawlDepthModel.host == DONOR))
+    assert depth is not None
+    await session.refresh(depth)
+    await session.refresh(runs[-1])
+
+    assert depth.selling_pages == expected[SELLING_PAGES] == 4
+    assert depth.yield_pct == pytest.approx(100 * 4 / 20)
+    assert runs[-1].stats is not None
+    assert runs[-1].stats[SELLING_LINKS] == expected[SELLING_LINKS] == 5
+
+
+async def test_gather_never_builds_more_links_than_the_cap(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сколько ссылок судья держит в памяти — по ссылкам, которые он построил, а не по его счёту."""
+    for number in range(1, 6):
+        await _run(session, _pages(number * 100, 40, f"adv{number}.test"), part=number)
+    judged = await _run(session, _pages(900, 10, "last.test"), part=6)
+    built: list[int] = []
+
+    class Counted(OutLink):
+        def __init__(self, *values: object) -> None:
+            built.append(1)
+            super().__init__(*values)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(gate_union, "OutLink", Counted)
+    monkeypatch.setattr(always_cfg, "UNION_LINKS", 95)
+
+    found = await gather(session, judged)
+
+    assert len(built) == found.loaded == 90 <= always_cfg.UNION_LINKS
+    assert len(found.frozen) == 3

@@ -141,6 +141,7 @@ class Facts:
     first_done_at: datetime | None
     exhausted_at: datetime | None
     weak_override: bool | None
+    frozen_parts: int
 
 
 #: Колонки `Facts` — по порядку полей.
@@ -153,6 +154,7 @@ FACT_COLUMNS = (
     CrawlDepthModel.first_done_at,
     CrawlDepthModel.exhausted_at,
     CrawlDepthModel.weak_override,
+    CrawlDepthModel.frozen_parts,
 )
 
 
@@ -260,10 +262,11 @@ async def finish_part(
     return row
 
 
-async def refresh_yield(session: AsyncSession, host: str, selling: int) -> None:
+async def refresh_yield(session: AsyncSession, host: str, selling: int, *, frozen: int = 0) -> None:
     """Продающие страницы цепочки после пересчёта кандидатов (`gate.judge_run`) — и их доля от
-    открытых, когда первые 10 000 пройдены. Одним запросом: строку в это время может писать конец
-    следующей части. Строки донора нет — цепочки нет, писать некуда."""
+    открытых, когда первые 10 000 пройдены, — и сколько старых частей пересчёт не читал (`frozen`,
+    потолок ссылок в памяти). Одним запросом: строку в это время может писать конец следующей части.
+    Строки донора нет — цепочки нет, писать некуда."""
     share = case(
         (
             (CrawlDepthModel.first_done_at.is_not(None)) & (CrawlDepthModel.pages > 0),
@@ -274,7 +277,7 @@ async def refresh_yield(session: AsyncSession, host: str, selling: int) -> None:
     await session.execute(
         update(CrawlDepthModel)
         .where(CrawlDepthModel.host == host)
-        .values(selling_pages=selling, yield_pct=share)
+        .values(selling_pages=selling, yield_pct=share, frozen_parts=frozen)
     )
 
 

@@ -12,8 +12,14 @@
 загрузки и глубоким обходам. Части идут только в свободные обходчики и только когда очередь
 обходов пуста (`always.tick`): обход, поставленный человеком, не ждёт за ними.
 
+**Сколько ссылок цепочки судья держит в памяти** (`CRAWL_ALWAYS_UNION_LINKS`, `gate_union.py`):
+кандидаты донора считаются по последнему обходу и частям цепочки, новые первыми, пока ссылок не больше
+потолка; находки старых частей заморожены. 600 000 ссылок — около полугигабайта у задачи пересчёта
+с потолком памяти в полтора: на проде страница несёт около пяти ссылок (p90 — 10–13), а глубокий
+обход нёс 307 тысяч на 10 000 страниц.
+
 Опечатка в значении (`CRAWL_ALWAYS=да`) не роняет процессы, которые грузят настройку: берётся
-«выключен» (или 12 частей), и при старте — громкая строка журнала с именем переменной.
+«выключен» (или умолчание числа), и при старте — громкая строка журнала с именем переменной.
 """
 
 from __future__ import annotations
@@ -22,13 +28,17 @@ from pydantic import Field
 
 from backend.config._base import DomainSettings, Fallback, spared
 
-#: Частей 24/7 разом, пока не задано иначе.
+#: Частей 24/7 разом и ссылок цепочки в памяти судьи, пока не задано иначе.
 DEFAULT_SLOTS = 12
+DEFAULT_UNION_LINKS = 600_000
 
 
 class _Always(DomainSettings):
     enabled: bool = Field(default=True, validation_alias="CRAWL_ALWAYS")
     slots: int = Field(default=DEFAULT_SLOTS, gt=0, validation_alias="CRAWL_ALWAYS_SLOTS")
+    union_links: int = Field(
+        default=DEFAULT_UNION_LINKS, gt=0, validation_alias="CRAWL_ALWAYS_UNION_LINKS"
+    )
 
 
 _s, _unread = spared(
@@ -44,8 +54,14 @@ _s, _unread = spared(
             wants="целое число больше нуля",
             means=f"не больше {DEFAULT_SLOTS} частей обхода 24/7 разом",
         ),
+        "CRAWL_ALWAYS_UNION_LINKS": Fallback(
+            DEFAULT_UNION_LINKS,
+            wants="целое число больше нуля",
+            means=f"судья держит не больше {DEFAULT_UNION_LINKS} ссылок цепочки донора",
+        ),
     },
 )
 
 ENABLED: bool = _s.enabled
 SLOTS: int = _s.slots
+UNION_LINKS: int = _s.union_links

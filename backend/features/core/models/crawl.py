@@ -302,6 +302,11 @@ class CrawlDepthModel(TimestampedMixin, Base):
     #: или когда сайт кончился раньше; до того доли нет (`gate.judge_run`).
     selling_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
     yield_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Сколько старых частей последний пересчёт кандидатов не читал — потолок ссылок в памяти судьи
+    #: (`gate_union.py`): их находки заморожены, а не потеряны. Ноль — читал всю цепочку.
+    frozen_parts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     #: Когда цепочка прошла первые 10 000 страниц (или сайт кончился раньше) и когда кончился сайт.
     first_done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     exhausted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

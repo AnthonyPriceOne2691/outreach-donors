@@ -64,6 +64,8 @@ class DonorDepth:
     exhausted: bool
     #: Часть 24/7 этого донора идёт или ждёт обходчика.
     running: bool
+    #: Строка для «i» донора, если есть что сказать: судья читает не всю цепочку.
+    note: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +99,7 @@ def depth_of(row: always_depth.Facts, threshold: float, *, running: bool) -> Don
         weak_by=by,
         exhausted=row.exhausted_at is not None,
         running=running,
+        note=frozen_words(row.frozen_parts),
     )
 
 
@@ -129,6 +132,22 @@ async def known_donor(session: AsyncSession, host: str) -> bool:
         .limit(1)
     )
     return found is not None
+
+
+def frozen_words(parts: int) -> str | None:
+    """Судья читает не всю цепочку донора (`gate_union.py`) — словами «i»; читает всю — пусто."""
+    if parts <= 0:
+        return None
+    return (
+        f"судья смотрит последние {spaced(cfg.UNION_LINKS)} ссылок цепочки — находки старых "
+        f"частей ({spaced(parts)}) заморожены и остаются, пока их не найдут заново"
+    )
+
+
+def _sites(count: int) -> str:
+    """«у 1 сайта», «у 5 сайтов» — родительный падеж числом."""
+    one = count % 10 == 1 and count % 100 != 11
+    return f"{spaced(count)} {'сайта' if one else 'сайтов'}"
 
 
 def percent(value: float) -> str:
@@ -195,6 +214,12 @@ def _facts(found: Survey, done_at: datetime | None) -> list[str]:
         lines.append(
             f"Не пустили — {spaced(found.resting())}: ждут, пока сайт снова откроется ночному "
             "обходу или обходу человека."
+        )
+    frozen = sum(1 for donor in found.donors if donor.frozen)
+    if frozen:
+        lines.append(
+            f"У {_sites(frozen)} судья смотрит последние {spaced(cfg.UNION_LINKS)} ссылок "
+            "цепочки, старые находки заморожены."
         )
     if found.catalogs:
         lines.append(
