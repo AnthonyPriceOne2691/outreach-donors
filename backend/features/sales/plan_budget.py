@@ -18,8 +18,8 @@
   потолком, а двоичная дробь сказала бы «через край» там, где впритык.
 
 **Проблемы гипотезы** (`SalesPlanHypothesisModel.problems`) — список словарей `{code, words, at}`:
-вид (`Problem`), слова экрана и когда. Деньги и числа в словах — помощниками слов сметы прогона
-(`segment_spend.money`, `number`).
+вид (`Problem`), слова экрана и когда. Деньги в словах — по правилу денег сервиса («48,10 $», доли
+цента — «меньше 0,01 $», `said_usd`), числа — помощником слов сметы прогона (`segment_spend.number`).
 """
 
 from __future__ import annotations
@@ -38,13 +38,16 @@ from backend.features.sales.plan_card import DEPTH_CHOICES
 from backend.features.sales.plan_estimate import TOP_WORDS
 from backend.features.sales.plan_models import SalesPlanHypothesisModel
 from backend.features.sales.segment_models import SalesSegmentRunModel
-from backend.features.sales.segment_spend import money, number, spend_rows
+from backend.features.sales.segment_spend import number, spend_rows
 from backend.features.sales.segment_watch import unfinished
+from backend.features.serp.funds import dollars
 from backend.features.serp.protocol import RESULTS_PER_PAGE
 
 #: Доллары до сотой доли цента — точность колонок расхода гипотезы плана (`plan_models.SPEND`).
 PRECISION = Decimal("0.0001")
 NOTHING = Decimal(0)
+#: Меньше полуцента в копейках — ноль: такая сумма пишется «меньше 0,01 $».
+HALF_CENT = Decimal("0.005")
 #: Предельная ступень книги: глубже не поднять, и слова «нужны ключи» глубину не предлагают.
 DEEPEST = max(DEPTH_CHOICES.values())
 
@@ -52,6 +55,15 @@ DEEPEST = max(DEPTH_CHOICES.values())
 def usd(value: float | Decimal | None) -> Decimal:
     """Доллары числом расхода — до сотой доли цента; числа нет — ноль."""
     return NOTHING if value is None else Decimal(str(value)).quantize(PRECISION)
+
+
+def said_usd(value: Decimal) -> str:
+    """Деньги словами экрана — по одному правилу сервиса (`frontend/src/format.ts`, `formatMoney`):
+    «48,10 $», разряды и знак — через неразрывный пробел (`serp/funds.dollars`). Сумма больше нуля,
+    которая в копейках вышла бы нулём, — «меньше 0,01 $»: «≈ 0,00 $» читалось бы как «даром»."""
+    if NOTHING < value < HALF_CENT:
+        return f"меньше {dollars(0.01)}"
+    return dollars(float(value))
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,16 +134,16 @@ class Room:
 
 
 def cap_words(outcome: Outcome, cap: Decimal, held: Spent, next_usd: Decimal) -> str:
-    """«потолок гипотезы $50,0000: израсходовано $49,3000, следующий прогон ≈ $0,9000 — поднимите
+    """«потолок гипотезы 50,00 $: израсходовано 49,30 $, следующий прогон ≈ 0,90 $ — поднимите
     потолок или остановите». Резерв идущих прогонов назван, когда он есть: без него числа слов не
     сходились бы с отказом."""
-    spent = f"израсходовано {money(float(held.spent))}"
+    spent = f"израсходовано {said_usd(held.spent)}"
     if held.reserved:
         runs = "идущего прогона" if held.going == 1 else "идущих прогонов"
-        spent += f" и {money(float(held.reserved))} в резерве {runs}"
+        spent += f" и {said_usd(held.reserved)} в резерве {runs}"
     return (
-        f"потолок {CAP_OF[outcome]} {money(float(cap))}: {spent}, следующий прогон ≈ "
-        f"{money(float(next_usd))} — поднимите потолок или остановите"
+        f"потолок {CAP_OF[outcome]} {said_usd(cap)}: {spent}, следующий прогон ≈ "
+        f"{said_usd(next_usd)} — поднимите потолок или остановите"
     )
 
 

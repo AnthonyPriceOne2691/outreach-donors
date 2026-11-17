@@ -167,7 +167,7 @@ def test_over_the_hypothesis_cap_the_hypothesis_stops_in_words() -> None:
 
     assert decided == Room(
         Outcome.HYPOTHESIS_CAP,
-        "потолок гипотезы $50,0000: израсходовано $49,3000, следующий прогон ≈ $0,9000 — "
+        "потолок гипотезы 50,00\u00a0$: израсходовано 49,30\u00a0$, следующий прогон ≈ 0,90\u00a0$ — "
         "поднимите потолок или остановите",
     )
 
@@ -183,7 +183,7 @@ def test_over_the_plan_cap_the_plan_pauses_in_words() -> None:
 
     assert decided == Room(
         Outcome.PLAN_CAP,
-        "потолок плана $100,0000: израсходовано $99,5000, следующий прогон ≈ $0,9000 — "
+        "потолок плана 100,00\u00a0$: израсходовано 99,50\u00a0$, следующий прогон ≈ 0,90\u00a0$ — "
         "поднимите потолок или остановите",
     )
 
@@ -210,8 +210,8 @@ def test_the_reserve_of_going_runs_counts_and_is_named() -> None:
     )
     assert one.outcome is Outcome.HYPOTHESIS_CAP
     assert one.words == (
-        "потолок гипотезы $50,0000: израсходовано $48,1000 и $1,2000 в резерве идущего прогона, "
-        "следующий прогон ≈ $0,9000 — поднимите потолок или остановите"
+        "потолок гипотезы 50,00\u00a0$: израсходовано 48,10\u00a0$ и 1,20\u00a0$ в резерве идущего прогона, "
+        "следующий прогон ≈ 0,90\u00a0$ — поднимите потолок или остановите"
     )
     two = room(
         hypothesis=Spent(),
@@ -221,10 +221,20 @@ def test_the_reserve_of_going_runs_counts_and_is_named() -> None:
         next_usd=0.90,
     )
     assert two.words is not None
-    assert "$1,5000 в резерве идущих прогонов" in two.words
+    assert "1,50\u00a0$ в резерве идущих прогонов" in two.words
 
 
 # --- слова и проблемы -----------------------------------------------------------------------
+
+
+def test_money_in_words_follows_the_service_rule() -> None:
+    """Деньги слов — как на экранах сервиса («48,10 $», разряды и знак — неразрывным пробелом); доли
+    цента — «меньше 0,01 $», а не «0,00 $», будто даром; ноль — нулём."""
+    assert plan_budget.said_usd(Decimal("48.1")) == "48,10\u00a0$"
+    assert plan_budget.said_usd(Decimal("1234.5")) == "1\u00a0234,50\u00a0$"
+    assert plan_budget.said_usd(Decimal("0.004")) == "меньше 0,01\u00a0$"
+    assert plan_budget.said_usd(Decimal("0.005")) == "0,01\u00a0$"
+    assert plan_budget.said_usd(Decimal(0)) == "0,00\u00a0$"
 
 
 def test_need_keys_words_name_the_depth_found_and_target() -> None:
@@ -280,8 +290,8 @@ async def test_a_hypothesis_over_its_cap_gets_the_budget_problem_in_its_row(
     assert row.problems == [
         {
             "code": "budget",
-            "words": "потолок гипотезы $2,0000: израсходовано $1,2000, следующий прогон ≈ "
-            "$0,9000 — поднимите потолок или остановите",
+            "words": "потолок гипотезы 2,00\u00a0$: израсходовано 1,20\u00a0$, следующий прогон ≈ "
+            "0,90\u00a0$ — поднимите потолок или остановите",
             "at": "2026-11-17T09:00:00+00:00",
         }
     ]
