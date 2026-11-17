@@ -29,11 +29,16 @@
 **Домен, уже собранный гипотезой, второй раз не заводится**: его не судят и не ищут ему
 адрес снова — отчёт называет его «уже в сборе гипотезы».
 
+**Страницы — с `from_page` прогона по глубину** (`start_page` выдачи): углубление плана работ
+не платит второй раз за купленные страницы; у прогона с первой страницы вызов выдачи прежний.
+`from_page` задан при заведении и не меняется (`segment_launch`): номера задач в следе покупки —
+по ключу, без страниц, и сменённая первая страница забрала бы по ним прежнюю выдачу.
+
 **Перед покупкой — счёт** (`serp/funds.ensure_funds`, слово владельца 16.10.2026): денег на
 счету выдачи меньше порога или меньше цены покупки — постоянный отказ словами, ничего не
 куплено; счёт мог уйти между сметой и задачей. Цена — ключей, которые проход купит: ключ с
 номером задачи прошлой попытки уже оплачен и забирается по номеру, и повтор после сбоя опроса
-не встаёт на счету, опустевшем от той же покупки.
+не встаёт на счету, опустевшем от той же покупки; страниц — тоже покупаемых, а не всей глубины.
 """
 
 from __future__ import annotations
@@ -204,12 +209,13 @@ def provider_mode(provider: SerpProvider) -> str | None:
 
 async def _ensure_funds(run: SalesSegmentRunModel, provider: SerpProvider) -> None:
     """Хватит ли счёта на покупку (`funds.ensure_funds`) — по ключам без номера задачи: с номером
-    оплачен прошлой попыткой. Покупать нечего — счёт не спрашивается."""
+    оплачен прошлой попыткой — и по покупаемым страницам. Покупать нечего — счёт не спрашивается."""
     tasks = _partial(run).get("tasks")
     paid = tasks if isinstance(tasks, dict) else {}
     to_buy = [keyword for keyword in run.keywords if keyword not in paid]
     if to_buy:
-        await funds.ensure_funds(provider, len(to_buy), run.depth_pages, provider_mode(provider))
+        pages = run.depth_pages - run.from_page + 1  # покупаемые: с `from_page` по глубину
+        await funds.ensure_funds(provider, len(to_buy), pages, provider_mode(provider))
 
 
 async def collect(
@@ -217,7 +223,8 @@ async def collect(
 ) -> dict[str, Any]:
     """Купить выдачу по ключам прогона и завести кандидатов. Коммит — за вызывающим,
     сразу: строка расхода, кандидаты и итог — одна транзакция. Номера задач и ход покупки
-    коммитит `SerpTrail` по ходу. Денег на счету мало — отказ до покупки (`_ensure_funds`)."""
+    коммитит `SerpTrail` по ходу. Денег на счету мало — отказ до покупки (`_ensure_funds`).
+    Страницы — с `from_page` прогона по глубину (`start_page`)."""
     await _ensure_funds(run, provider)
     trail = SerpTrail(session, run)
     before = getattr(provider, "spent", 0.0)
@@ -227,6 +234,7 @@ async def collect(
             run.keywords,
             run.country,
             depth_pages=run.depth_pages,
+            start_page=run.from_page,
             watch=trail.watch(),
         )
     except Exception:

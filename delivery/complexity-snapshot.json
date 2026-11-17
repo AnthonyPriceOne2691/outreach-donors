@@ -527,7 +527,7 @@
       "worst": "of:27"
     },
     "backend/api/sales/segment.py": {
-      "lines": 497,
+      "lines": 446,
       "complexity": 4,
       "worst": "_seen:134"
     },
@@ -3527,9 +3527,9 @@
       "worst": "counts:21"
     },
     "backend/features/sales/segment_estimate.py": {
-      "lines": 492,
+      "lines": 500,
       "complexity": 12,
-      "worst": "_money_refusal:461"
+      "worst": "_money_refusal:469"
     },
     "backend/features/sales/segment_estimate_keys.py": {
       "lines": 121,
@@ -3537,9 +3537,9 @@
       "worst": "run_excluded:113"
     },
     "backend/features/sales/segment_estimate_words.py": {
-      "lines": 151,
+      "lines": 166,
       "complexity": 5,
-      "worst": "_judge_line:85"
+      "worst": "_judge_line:100"
     },
     "backend/features/sales/segment_facts.py": {
       "lines": 296,
@@ -3552,7 +3552,7 @@
       "worst": "help_draft:294"
     },
     "backend/features/sales/segment_history.py": {
-      "lines": 163,
+      "lines": 168,
       "complexity": 7,
       "worst": "sites_per_result:39"
     },
@@ -3581,13 +3581,18 @@
       "complexity": 10,
       "worst": "switches_to:388"
     },
+    "backend/features/sales/segment_launch.py": {
+      "lines": 137,
+      "complexity": 6,
+      "worst": "launch:68"
+    },
     "backend/features/sales/segment_leads.py": {
       "lines": 262,
       "complexity": 6,
       "worst": "make_leads:214"
     },
     "backend/features/sales/segment_models.py": {
-      "lines": 296,
+      "lines": 297,
       "complexity": 0,
       "worst": "—"
     },
@@ -3642,9 +3647,9 @@
       "worst": "remembered:148"
     },
     "backend/features/sales/segment_serp.py": {
-      "lines": 306,
+      "lines": 314,
       "complexity": 8,
-      "worst": "_rows:161"
+      "worst": "_rows:166"
     },
     "backend/features/sales/segment_sites.py": {
       "lines": 328,

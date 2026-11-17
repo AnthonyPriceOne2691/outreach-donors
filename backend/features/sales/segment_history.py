@@ -41,20 +41,25 @@ async def sites_per_result(session: AsyncSession) -> tuple[float, int]:
     скольким прогонам. Без своей истории — запасная доля и ноль прогонов.
 
     Считается суммой по последним прогонам с выдачей: сайтов (`report.serp.hosts`) на
-    запрошенные результаты отвеченных ключей (ключи × глубина × 10). На ту же величину смета её
-    и умножает — сверяются сопоставимые числа: выдача отдаёт не каждый запрошенный результат и
-    повторяет сайты, и доля «сайтов на пришедшую строку» завышала бы смету на недобор выдачи."""
+    запрошенные результаты отвеченных ключей (ключи × купленные страницы × 10: углубление плана
+    работ покупает не с первой, `from_page`). На ту же величину смета её и умножает — сверяются
+    сопоставимые числа: выдача отдаёт не каждый запрошенный результат и повторяет сайты, и доля
+    «сайтов на пришедшую строку» завышала бы смету на недобор выдачи."""
     rows = await session.execute(
-        select(SalesSegmentRunModel.report["serp"], SalesSegmentRunModel.depth_pages)
+        select(
+            SalesSegmentRunModel.report["serp"],
+            SalesSegmentRunModel.depth_pages,
+            SalesSegmentRunModel.from_page,
+        )
         .where(SalesSegmentRunModel.report.has_key("serp"))
         .order_by(SalesSegmentRunModel.id.desc())
         .limit(HISTORY_RUNS)
     )
     hosts = asked = runs = 0
-    for serp, depth in rows.tuples():
+    for serp, depth, first in rows.tuples():
         if not isinstance(serp, dict):
             continue
-        slots = int(serp.get("keywords") or 0) * int(depth) * RESULTS_PER_PAGE
+        slots = int(serp.get("keywords") or 0) * (int(depth) - int(first) + 1) * RESULTS_PER_PAGE
         if slots > 0:
             hosts, asked, runs = hosts + int(serp.get("hosts") or 0), asked + slots, runs + 1
     if asked < MIN_HISTORY_RESULTS:
