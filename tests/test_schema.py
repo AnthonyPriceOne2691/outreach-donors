@@ -58,6 +58,10 @@ EXPECTED_TABLES = {
     # кто и когда включил — и строка шага на дату: и замок, и след, как у ночного круга.
     "advertiser_judge_bands",
     "advertiser_judge_nights",
+    # Автокруг рекламодателей (`crawl/auto_round.py`, 17.11.2026): выключатель и суточный потолок
+    # писем строками истории и строка круга на дату — замок и след, как у шага судьи.
+    "advertiser_auto_round_switches",
+    "advertiser_auto_rounds",
     "advertisers",
     "supplier_donors",
     # Прогон кончается очередью на рассмотрение: кандидаты прогона.

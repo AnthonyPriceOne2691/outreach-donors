@@ -146,6 +146,20 @@ async def test_switching_needs_both_rights_and_seeing_needs_neither(
     assert await _changes(session) == []
 
 
+@pytest.mark.parametrize(
+    ("method", "body"), [("GET", None), ("POST", {"enabled": True, "letters": 50})]
+)
+async def test_without_a_pass_nobody_sees_or_switches(
+    client: AsyncClient, session: AsyncSession, method: str, body: dict[str, Any] | None
+) -> None:
+    """Общая таблица маршрутов рекламодателей (`tests/test_api_advertisers.py`) этот маршрут не
+    ведёт: у оператора по умолчанию нет права отправки. Без пропуска — отказ, как у всех."""
+    answer = await client.request(method, URL, json=body)
+
+    assert answer.status_code == 403
+    assert await _changes(session) == []
+
+
 @pytest.mark.parametrize("letters", [0, MOST + 1])
 async def test_a_cap_outside_the_bounds_is_refused_in_words(
     client: AsyncClient, sender: dict[str, str], letters: int

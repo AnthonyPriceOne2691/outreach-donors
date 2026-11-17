@@ -173,12 +173,15 @@ class TestWhoIsLetIn:
             # маршрутов в tests/test_niche_advertisers.py; формам — рекламодатель
             # с формой, их таблица в tests/test_advertiser_forms.py. Применению советов
             # судьи нужны строки суда и два права разом — tests/test_api_advertiser_judge_apply.py.
+            # Выключателю автокруга — право отправки рядом с запуском, которого у оператора
+            # по умолчанию нет, — tests/test_api_advertiser_auto_round.py.
             if path.startswith("/api/advertisers")
             and not path.startswith(
                 (
                     "/api/advertisers/niche",
                     "/api/advertisers/forms",
                     "/api/advertisers/judge-apply",
+                    "/api/advertisers/auto-round",
                 )
             )
             for method in methods
