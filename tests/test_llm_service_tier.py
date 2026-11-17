@@ -15,7 +15,6 @@ import pytest
 from backend.config import llm as llm_cfg
 from backend.shared import llm
 
-
 KEY = "test-key"  # pragma: allowlist secret
 
 
