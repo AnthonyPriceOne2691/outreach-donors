@@ -117,6 +117,7 @@ class SalesSegmentRunModel(TimestampedMixin, Base):
     depth_pages: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     #: С какой страницы выдачи прогон покупает: 1 — с начала; глубже — углубление плана работ,
     #: купленное раньше второй раз не оплачивается (`plan_models.SalesPlanKeywordModel.pages`).
+    #: Задаётся при заведении и не меняется (`segment_launch`): номера задач выдачи — по ключу.
     from_page: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, default=1, server_default="1"
     )

@@ -7,14 +7,15 @@
 - **ключи** — отсеиваются только мусор гигиены и точные повторы; почти повтор остаётся с
   пометкой — решает человек (`segment_keywords.py`); взятый ключ человек может снять галочкой
   (номер строки, как вписана) — снятый не покупается и в смету не входит (`segment_estimate_keys`);
-- **выдача** — арифметика: ключи на глубину по цене страницы в режиме покупки, который выбрал
-  человек (`serp/modes.page_price_usd`), и сколько её ждать (`EXPECTED_WAIT_S`); режим ложится
-  в смету прогона (`serp_mode`) — по нему задача прогона и покупает выдачу;
+- **выдача** — арифметика: ключи на покупаемые страницы — с `from_page` (1 — с начала, глубже —
+  углубление плана работ) по глубину — по цене страницы в режиме покупки, который выбрал человек
+  (`serp/modes.page_price_usd`), и сколько её ждать (`EXPECTED_WAIT_S`); режим ложится в смету
+  прогона (`serp_mode`) — по нему задача прогона и покупает выдачу;
 - **сайтов** — результаты выдачи на долю сайтов из истории прогонов сбора
   (`sites_per_result`): выдача отдаёт не каждый запрошенный результат и повторяет сайты. Своей
   истории нет — запасная доля (`runs/estimate.UNIQUE_SHARE`), и смета так и говорит. Сайты,
   которые гипотеза уже собрала теми же ключами на том же рынке, вычитаются (`known_sites`):
-  их не судят и адрес им не ищут;
+  их не судят и адрес им не ищут; у углубления — нет: новые страницы их почти не дадут;
 - **модель** — новые сайты на токены судьи за сайт из истории прогонов с судьёй
   (`segment_history.tokens_per_site`; без истории — запасное `TOKENS_PER_SITE`, словами) и
   деньгами по ценам ввода и вывода модели, смешанным долей вывода из истории прогонов с
@@ -113,6 +114,7 @@ TOKENS_PER_SITE = math.ceil(TOKENS_PER_CALL * (1 + QUOTE_RETRY_SHARE) / 100) * 1
 NO_SEGMENT = "у гипотезы нет описания сегмента — судье не с чем сравнивать сайты: опишите сегмент"
 NO_KEYWORDS = "ключей нет: впишите по ключу на строку"
 ALL_EXCLUDED = "все взятые ключи сняты — выдаче покупать нечего: верните галочку хотя бы одному"
+FIRST_PAGE = "первая покупаемая страница выдачи — от 1 до глубины прогона ({depth})"
 SANDBOX = (
     "песочница выдачи прогон не запускает: сайты в ней выдуманы, а судья и поиск адресов "
     "по ним — настоящие траты"
@@ -143,7 +145,8 @@ SALES_OFF = (
 class Ask:
     """Что просит человек: гипотеза, ключи строками, рынок, язык писем, глубина, режим
     покупки выдачи (пусто — умолчание сервиса, `SERP_MODE`), снятые ключи — номерами строк, как
-    вписаны, и тариф судьи (`segment_tier.JudgeTier`; пусто — обычный)."""
+    вписаны, тариф судьи (`segment_tier.JudgeTier`; пусто — обычный) и первая покупаемая страница
+    выдачи (1 — с начала; глубже — углубление плана работ, заведение — `segment_launch`)."""
 
     hypothesis_id: int
     keywords: str
@@ -153,6 +156,7 @@ class Ask:
     serp_mode: str | None = None
     excluded: tuple[int, ...] = ()
     judge_tier: str | None = None
+    from_page: int = 1
 
 
 @dataclass(slots=True)
@@ -169,6 +173,8 @@ class Estimate:
     language: str
     depth_pages: int
     mode: str
+    #: Первая покупаемая страница: выдача — страницы `from_page..depth_pages`, за них и цена.
+    from_page: int = 1
     #: Пометки взятых ключей словами: почти повтор — ключ взят, решает человек.
     notes: dict[str, str] = field(default_factory=dict)
     #: Снятые человеком ключи → номер строки, как вписаны: не покупаются, стоят отдельно от
@@ -327,7 +333,7 @@ def _serp_mode(asked: str | None) -> tuple[str, str | None]:
 def _first_refusal(
     found: Estimate, *, market: str, limits: tuple[int, int], mode_refusal: str | None
 ) -> str | None:
-    """Отказ по самому запросу — до денег: описание, ключи, глубина, рынок, язык, режим выдачи и
+    """Отказ по самому запросу — до денег: описание, ключи, страницы, рынок, язык, режим выдачи и
     тариф судьи. Первый по порядку: правило, добавленное в таблицу, само попадает в отказ."""
     max_keywords, max_depth = limits
     count = len(found.keywords)
@@ -344,6 +350,7 @@ def _first_refusal(
             not 1 <= found.depth_pages <= max_depth,
             f"глубина выдачи — от 1 до {max_depth} страниц по 10 результатов",
         ),
+        (not 1 <= found.from_page <= found.depth_pages, FIRST_PAGE.format(depth=found.depth_pages)),
         (not market, f"рынка «{found.country}» нет в карте выдачи — выберите страну из списка"),
         (
             found.language not in chain_text.LANGUAGES,
@@ -355,10 +362,10 @@ def _first_refusal(
 
 
 async def _sites(session: AsyncSession, found: Estimate, hypothesis_id: int | None) -> None:
-    """Сайтов в выдаче — по истории сбора; новых — за вычетом уже собранных гипотезой."""
+    """Сайтов в выдаче — по истории; новых — за вычетом собранных гипотезой, кроме углубления."""
     found.share, found.share_runs = await sites_per_result(session)
     found.hosts = round(found.results * found.share)
-    if hypothesis_id is None:
+    if hypothesis_id is None or found.from_page > 1:
         found.sites = found.hosts
         return
     known = await known_sites(
@@ -398,6 +405,7 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
         language=(ask.language or market).strip().lower(),
         depth_pages=ask.depth_pages,
         mode=sales_cfg.SEGMENT_JUDGE_MODE.value,
+        from_page=ask.from_page,
         serp_mode=serp_mode,
         judge_tier=tier.value,
     )
@@ -422,17 +430,17 @@ async def estimate(session: AsyncSession, ask: Ask, *, now: datetime | None = No
 
 
 async def priced(session: AsyncSession, found: Estimate, hypothesis_id: int | None) -> str | None:
-    """Числа сметы по взятым ключам, рынку, глубине и режиму выдачи: выдача, сайты, токены судьи
-    деньгами, Hunter — одно правило у сметы прогона и сметы плана работ (`plan_estimate`). Гипотезы
-    ещё нет (`None`) — собранных ею сайтов не вычитает. Отказ словами — проверка адресов не
-    настроена; `None` — числа полные."""
-    mode = SerpMode(found.serp_mode)
-    found.results = len(found.keywords) * found.depth_pages * RESULTS_PER_PAGE
+    """Числа сметы по взятым ключам, рынку, покупаемым страницам (с `from_page` по глубину) и режиму
+    выдачи: выдача, сайты, токены судьи деньгами, Hunter — одно правило у сметы прогона и сметы
+    плана работ (`plan_estimate`). Гипотезы ещё нет (`None`) — собранных ею сайтов не вычитает.
+    Отказ словами — проверка адресов не настроена; `None` — числа полные."""
+    mode, pages = SerpMode(found.serp_mode), found.depth_pages - found.from_page + 1
+    found.results = len(found.keywords) * pages * RESULTS_PER_PAGE
     await _sites(session, found, hypothesis_id)
     found.serp_page_usd = page_price_usd(mode)
     found.serp_wait_s = EXPECTED_WAIT_S[mode]
     # Цена выдачи — общей формулой сметы доноров и сбора: ключи × страницы × цена страницы режима.
-    found.serp_usd = serp_cost_usd(len(found.keywords), found.depth_pages, mode)
+    found.serp_usd = serp_cost_usd(len(found.keywords), pages, mode)
     await _tokens(session, found)
     found.output_share, found.output_share_runs = await output_share(session)
     found.usd_per_1m_input = sales_cfg.SEGMENT_INPUT_USD_PER_1M_TOKENS

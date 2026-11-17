@@ -53,7 +53,6 @@ import logging
 from collections.abc import Mapping, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from redis.exceptions import RedisError
 from rq import Queue
 from rq.job import Job
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,7 +90,8 @@ from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.segment_estimate import Ask, Estimate, estimate
 from backend.features.sales.segment_jobs import SEGMENT_JOB, segment_job_id
-from backend.features.sales.segment_models import Lane, SalesSegmentRunModel, Stage
+from backend.features.sales.segment_launch import launch
+from backend.features.sales.segment_models import Lane, SalesSegmentRunModel
 from backend.features.sales.segment_run import unready_pass
 from backend.features.sales.segment_sites import SiteRow, site_row
 from backend.features.serp import markets
@@ -251,67 +251,16 @@ async def start_run(
     session: AsyncSession = Depends(db_session),
 ) -> RunQueued:
     """Смета — заново, на сервере: выше потолка или негодный запрос — 409 словами, смета не та,
-    что видел человек, — 409 «смета устарела», до очереди задач. Прогон и запись журнала — одна
-    транзакция с постановкой."""
+    что видел человек, — 409 «смета устарела», до очереди задач. Строка прогона, постановка и
+    запись журнала — заведением продаж (`segment_launch.launch`), как у конвейера плана работ."""
     found = await estimate(session, _ask(body))
     _seen(body, found)
-    run = SalesSegmentRunModel(
-        hypothesis_id=body.hypothesis_id,
-        keywords=found.keywords,
-        country=found.country,
-        language=found.language,
-        depth_pages=found.depth_pages,
-        mode=found.mode,
-        estimate=found.as_dict(),
-        report={},
-        stage=Stage.QUEUED,
-        created_by=author.email,
+    launched = await launch(
+        session, body.hypothesis_id, found, jobs=sales_bulk_queue(), author=author
     )
-    session.add(run)
-    # Строка прогона — в базе до постановки: задача читает её своей сессией, и взятая воркером
-    # раньше коммита не нашла бы прогона. Очередь не ответила — строка уходит: прогона без
-    # задачи, который «стоит в очереди», нет.
-    await session.commit()
-    try:
-        job = await asyncio.to_thread(
-            enqueue_once,
-            sales_bulk_queue(),
-            segment_job_id(run.id),
-            SEGMENT_JOB,
-            run.id,
-            **with_retries(),
-        )
-    except RedisError:
-        await session.delete(run)
-        await session.commit()
-        raise
-    if job is None:  # номер свежего прогона занят быть не может — но молча не теряем
+    if launched is None:  # номер свежего прогона занят быть не может — но молча не теряем
         raise HTTPException(status.HTTP_409_CONFLICT, RUN_GOING)
-    run.job_id = str(job.id)
-    await AccessRepository(session).record(
-        AuditAction.RUN_STARTED,
-        author_id=author.id,
-        target=f"job:{job.id}",
-        details=_started(found),
-        stage=domain.Stage.SALES,  # этап воронки, а не стадия прогона (`Stage` ниже)
-    )
-    await session.commit()
-    return RunQueued(run_id=run.id, job_id=str(job.id))
-
-
-def _started(found: Estimate) -> dict[str, object]:
-    """Запуск в журнале действий: гипотеза, ключи, рынок и смета словами; снятые человеком
-    ключи — как вписаны в смету, когда они есть."""
-    details: dict[str, object] = {
-        "действие": "сбор базы продаж",
-        "гипотеза": found.hypothesis,
-        "ключей": len(found.keywords),
-        "рынок": found.country,
-        "смета": " ".join(found.lines),
-    }
-    if found.excluded:
-        details["снято ключей"] = ", ".join(f"«{phrase}»" for phrase in found.excluded)
-    return details
+    return RunQueued(run_id=launched.run.id, job_id=launched.job_id)
 
 
 async def _enqueue(jobs: Queue, run_id: int, *more: object) -> Job | None:
@@ -370,7 +319,7 @@ async def resume_run(
         author_id=author.id,
         target=f"job:{job.id}",
         details={"действие": "продолжение сбора базы продаж", "прогон": run.id},
-        stage=domain.Stage.SALES,  # этап воронки, а не стадия прогона (`Stage` ниже)
+        stage=domain.Stage.SALES,  # этап воронки, а не стадия прогона (`segment_models.Stage`)
     )
     await session.commit()
     return RunQueued(run_id=run.id, job_id=str(job.id))
@@ -492,5 +441,5 @@ async def _journal(
             "судья сегмента": segment_report.LANE_WORDS.get(verdict, verdict),
             "прогон": row.candidate.run_id,
         },
-        stage=domain.Stage.SALES,  # этап воронки, а не стадия прогона (`Stage` выше)
+        stage=domain.Stage.SALES,  # этап воронки, а не стадия прогона (`segment_models.Stage`)
     )
