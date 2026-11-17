@@ -26,7 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -85,6 +85,14 @@ def chosen(text: str, taken: Sequence[str], excluded: Iterable[int]) -> Chosen:
     return Chosen([phrase for phrase in taken if phrase not in off], off, lines)
 
 
+def fingerprint(seen: Mapping[str, object], length: int = DIGEST_LENGTH) -> str:
+    """Отпечаток увиденного: JSON с упорядоченными ключами без пробелов → sha256, первые `length`
+    знаков. Одно место для сметы прогона (`seen_digest`) и плана работ (`plan_store.plan_digest`):
+    поменять формат — значит разойтись со всеми сохранёнными отпечатками."""
+    text = json.dumps(seen, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:length]
+
+
 def seen_digest(found: Estimate, hypothesis_id: int) -> str:
     """Отпечаток того, что человек видел в смете и по чему запускает (см. докстроку модуля)."""
     seen = {
@@ -99,8 +107,7 @@ def seen_digest(found: Estimate, hypothesis_id: int) -> str:
         "depth_pages": found.depth_pages,
         **tier_entry(found.judge_tier),
     }
-    text = json.dumps(seen, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:DIGEST_LENGTH]
+    return fingerprint(seen)
 
 
 def run_excluded(run: SalesSegmentRunModel) -> list[str]:
