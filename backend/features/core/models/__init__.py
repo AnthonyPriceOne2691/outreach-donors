@@ -14,7 +14,10 @@ from backend.features.core.models.advertisers import AdvertiserModel, SupplierDo
 from backend.features.core.models.agent import AgentDraftModel, AgentSettingsModel
 from backend.features.core.models.attachment import ReplyAttachmentModel
 from backend.features.core.models.crawl import (
+    CrawlAlwaysSignalModel,
+    CrawlAlwaysSwitchModel,
     CrawlBacklogModel,
+    CrawlDepthModel,
     CrawlNightModel,
     CrawlRunModel,
     DonorLoadHostModel,
@@ -89,7 +92,10 @@ __all__ = [
     "CandidateMemoryModel",
     "CandidateModel",
     "ContactModel",
+    "CrawlAlwaysSignalModel",
+    "CrawlAlwaysSwitchModel",
     "CrawlBacklogModel",
+    "CrawlDepthModel",
     "CrawlNightModel",
     "CrawlRunModel",
     "DomainModel",

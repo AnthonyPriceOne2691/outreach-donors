@@ -11,6 +11,7 @@ from pydantic_core import PydanticCustomError
 from backend.config import crawl as crawl_cfg
 from backend.features.ahrefs.units import MIN_REQUEST_UNITS, UNITS_DR_SCREEN
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, PriceSource, StopReason
+from backend.features.crawl.always_view import DonorDepth
 from backend.features.crawl.board import CrawlLine, DonorLine, QueueState
 from backend.features.crawl.night import NightLine
 from backend.shared.crawl_marks import Held
@@ -160,9 +161,43 @@ class CrawlRow(CrawlCeilings):
         )
 
 
+class DonorDepthView(BaseModel):
+    """Донор в обходе 24/7 (`crawl/always_view.py`): страниц и частей цепочки, сколько её страниц
+    несут платную ссылку («на `selling_pages` из `pages`»; не считали — пусто) и их доля, % (после
+    первых 10 000, иначе пусто), пометка «мало рекламодателей» и кто её решил — `auto` по порогу,
+    `human` руками (и пометил, и снял: тогда `weak` ложь), пусто — порог не пометил; пройден ли сайт
+    до конца и идёт ли его часть сейчас. `note` — строка для «i» донора, если судья читает не всю
+    цепочку (потолок ссылок в памяти: находки старых частей заморожены); иначе пусто."""
+
+    pages: int
+    parts: int
+    selling_pages: int | None = None
+    yield_pct: float | None = None
+    weak: bool
+    weak_by: Literal["auto", "human"] | None = None
+    exhausted: bool
+    running: bool
+    note: str | None = None
+
+    @classmethod
+    def of(cls, depth: DonorDepth) -> DonorDepthView:
+        return cls(
+            pages=depth.pages,
+            parts=depth.parts,
+            selling_pages=depth.selling_pages,
+            yield_pct=depth.yield_pct,
+            weak=depth.weak,
+            weak_by="auto" if depth.weak_by == "auto" else "human" if depth.weak_by else None,
+            exhausted=depth.exhausted,
+            running=depth.running,
+            note=depth.note,
+        )
+
+
 class DonorRow(BaseModel):
     """Донор, которого можно обойти: цена — основание, обход — что о нём знаем.
-    Валюта — рядом с ценой, источник — из ответа или вручную."""
+    Валюта — рядом с ценой, источник — из ответа или вручную. `depth` — донор в обходе 24/7:
+    у вкладки «Обход доноров»; у панели и у донора, которого обход 24/7 не трогал, — пусто."""
 
     host: str
     price: float | None = None
@@ -173,6 +208,7 @@ class DonorRow(BaseModel):
     #: Цена в сроке (`fresh`), старше срока (`stale`) или нет (`none`) — у вкладки «Обход
     #: доноров»; у панели — пусто: там только доноры со свежей ценой.
     price_state: Literal["fresh", "stale", "none"] | None = None
+    depth: DonorDepthView | None = None
 
     @classmethod
     def of(
@@ -183,6 +219,7 @@ class DonorRow(BaseModel):
         queue: QueueState | None = None,
         workers: int | None = None,
         held: Held | None = None,
+        depth: DonorDepth | None = None,
     ) -> DonorRow:
         crawl = line.crawl
         return cls(
@@ -197,6 +234,7 @@ class DonorRow(BaseModel):
             currency=line.currency,
             source=line.source,
             price_state=line.price_state,
+            depth=None if depth is None else DonorDepthView.of(depth),
         )
 
 

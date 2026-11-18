@@ -30,6 +30,8 @@ class DonorFilter(BaseModel):
     source: Source | None = None
     search: str = Field(default="", max_length=253)
     sort: Sort = Sort.PRICED
+    #: «Мало рекламодателей» (обход 24/7): `true` — только помеченные, `false` — без пометки.
+    weak: bool | None = None
 
     def query(self, *, page: int = 1, size: int = donor_page.PAGE_SIZE) -> DonorQuery:
         return DonorQuery(
@@ -40,6 +42,7 @@ class DonorFilter(BaseModel):
             sort=self.sort,
             page=page,
             size=size,
+            weak=self.weak,
         )
 
 
@@ -56,23 +59,29 @@ def donor_params(
         le=max(donor_page.SIZES),
         description="доноров на странице",
     ),
+    weak: bool | None = Query(
+        default=None, description="мало рекламодателей: true — помеченные, false — без пометки"
+    ),
 ) -> DonorQuery:
     """Параметры адреса → вопрос вкладки. Незнакомое значение — отказ схемы: адрес собирает
     экран из своих же значений (`crawlFilters.ts`)."""
-    return DonorFilter(status=status, price=price, source=source, search=search, sort=sort).query(
-        page=page, size=size
+    chosen = DonorFilter(
+        status=status, price=price, source=source, search=search, sort=sort, weak=weak
     )
+    return chosen.query(page=page, size=size)
 
 
 class CountsView(BaseModel):
-    """Счётчики: по статусу последнего обхода и по цене."""
+    """Счётчики: по статусу последнего обхода, по цене и помеченных «мало рекламодателей» — каждый
+    под остальными условиями вкладки."""
 
     status: dict[Status, int]
     price: dict[Price, int]
+    weak: int = 0
 
     @classmethod
     def of(cls, facets: Facets) -> CountsView:
-        return cls(status=dict(facets.status), price=dict(facets.price))
+        return cls(status=dict(facets.status), price=dict(facets.price), weak=facets.weak)
 
 
 class DonorsView(CrawlCeilings):

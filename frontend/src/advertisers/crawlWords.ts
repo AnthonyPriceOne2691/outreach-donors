@@ -8,7 +8,7 @@ import type { CrawlRow, CrawlSource, CrawlStopReason, CrawlRules } from '../api/
 import { formatNumber, formatSeconds, plural } from '../format';
 
 /** «1 000 страниц» — родительный: после «из» и «не больше». */
-function pagesOf(count: number): string {
+export function pagesOf(count: number): string {
   return `${formatNumber(count)} ${plural(count, 'страницы', 'страниц', 'страниц')}`;
 }
 
@@ -103,6 +103,11 @@ function attemptsWords(crawl: CrawlRow): string {
     : `кончились попытки — ${requestsOf(crawl.max_attempts)}`;
 }
 
+/** Часть 24/7 встала на границе страницы — ночь или «Пауза» (17.11.2026): не беда сайта и не
+ *  потолок, а очередь на продолжение. */
+export const PAUSED_WORDS =
+  'часть 24/7 остановлена ночным окном или паузой — следующая продолжит с того же места';
+
 /** Причина конца → слова. Причины нет в таблице — слов нет. */
 const STOP_WORDS: Partial<Record<CrawlStopReason, (crawl: CrawlRow) => string | null>> = {
   exhausted: runOutWords,
@@ -112,6 +117,7 @@ const STOP_WORDS: Partial<Record<CrawlStopReason, (crawl: CrawlRow) => string | 
   unhealthy: () => 'сайт стал отказывать — остановились',
   robots: refusedWords,
   no_start: refusedWords,
+  paused: () => PAUSED_WORDS,
 };
 
 /** Почему законченный обход кончился — коротко. `null` — у идущего и остановленного разбором

@@ -5,12 +5,13 @@
  */
 
 import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import type { CrawlPlace, CrawlRow, CrawlTargets } from '../api/crawls';
 import { renderWith } from '../test/render';
 import { CrawlState, crawlState } from './CrawlTable';
-import { crawlRule, queueRule, queueWords, spanWords, stopWords } from './crawlWords';
+import { crawlRule, PAUSED_WORDS, queueRule, queueWords, spanWords, stopWords } from './crawlWords';
 
 /** Текст без неразрывных пробелов разрядов: «1 000». */
 function plain(text: string | null): string | null {
@@ -106,6 +107,11 @@ describe('почему обход кончился — словами', () => {
     ],
     [{ stop_reason: 'max_attempts', outcome: 'partial' }, 'кончились попытки — 2 000 запросов'],
     [{ stop_reason: 'unhealthy', outcome: 'partial' }, 'сайт стал отказывать — остановились'],
+    // Часть 24/7 встала на границе страницы — ночь или «Пауза» (17.11.2026).
+    [
+      { stop_reason: 'paused', outcome: 'partial' },
+      'часть 24/7 остановлена ночным окном или паузой — следующая продолжит с того же места',
+    ],
   ] as [Partial<CrawlRow>, string][])('%o → %s', (overrides, said) => {
     expect(plain(stopWords(done(overrides)))).toBe(said);
   });
@@ -252,6 +258,37 @@ describe('причина — под значком, до чисел здоров
       'кончился час на донора; сайт просит паузу 6 с между страницами',
       'закрыто 0% из 412 запросов',
     ]);
+  });
+});
+
+describe('часть 24/7, остановленная ночью или паузой (17.11.2026)', () => {
+  const paused = done({
+    stop_reason: 'paused',
+    outcome: 'partial',
+    pages: 3200,
+    max_pages: 10_000,
+    deep: true,
+  });
+
+  it('значок — «частично», страницы против потолка части; не красный «остановлен»', () => {
+    expect(plain(crawlState(paused).label)).toBe('частично: 3 200 из 10 000 страниц');
+    expect(crawlState(paused).color).toBe('yellow');
+  });
+
+  it('в журнале и «Приёмке» — строкой под значком', () => {
+    renderWith(<CrawlState crawl={paused} />);
+
+    expect(screen.getByText(PAUSED_WORDS)).toBeInTheDocument();
+  });
+
+  it('на вкладке — в «i» у значка', async () => {
+    renderWith(<CrawlState crawl={paused} compact />);
+    expect(screen.queryByText(PAUSED_WORDS)).toBeNull();
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: /^Подробнее: частично: 3.200 из 10.000$/ }));
+    expect(await screen.findByText(PAUSED_WORDS)).toBeInTheDocument();
   });
 });
 

@@ -299,6 +299,10 @@ class AuditAction(StrEnum):
     # (`crawl/auto_round_switch.py`): с этой минуты сервис сам переводит, ищет адреса, собирает и
     # отправляет — по журналу видно, кто это разрешил и кто остановил.
     ADVERTISER_AUTO_ROUND_CHANGED = "advertiser_auto_round_changed"
+    # Обход 24/7 запущен или поставлен на паузу, сменён порог «мало рекламодателей» или
+    # «переобход слабых» (`crawl/always_switch.py`), пометка донора поставлена или снята руками
+    # (`crawl/always_depth.py`): с этой минуты обходчики идут иначе — по журналу видно, кто так велел.
+    CRAWL_ALWAYS_CHANGED = "crawl_always_changed"
 
 
 class UsageProvider(StrEnum):
@@ -342,6 +346,9 @@ class StopReason(StrEnum):
     UNHEALTHY = "unhealthy"  # доля отказов выше потолка
     ROBOTS = "robots"
     NO_START = "no_start"  # главная не открылась ни в одном виде
+    # Часть обхода 24/7 остановлена ночью или паузой (`crawl/always_part.py`): откуда продолжить —
+    # у донора, следующая часть откроет только новое.
+    PAUSED = "paused"
 
 
 class Verdict(StrEnum):

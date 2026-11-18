@@ -21,18 +21,22 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
+    Numeric,
     String,
     Text,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, StopReason
-from backend.features.core.models._mixins import TimestampedMixin
+from backend.features.core.models._mixins import SetByMixin, TimestampedMixin
 from backend.features.core.models._mixins import sql_enum as _enum
 from backend.shared.database.base import Base
 
@@ -61,6 +65,9 @@ class CrawlRunModel(TimestampedMixin, Base):
     # Свой потолок страниц глубокого обхода (`crawl/deep.py`); пусто — обычный, из настроек.
     # В строке, а не в задаче: продолжение после выкатки и разбор мёртвых читают его отсюда.
     max_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Номер части обхода 24/7 (`crawl/always.py`); пусто — обход не из цепочки 24/7. У части
+    # потолок страниц и страницы — всей цепочки донора: она продолжает открытое прежними частями.
+    depth_part: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Сколько раз обход продолжали после смерти воркера. Остановка выкаткой
     # сюда не считается — она штатная и сама ставит продолжение.
     resumes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
@@ -250,3 +257,86 @@ class DonorLoadHostModel(Base):
     host: Mapped[str] = mapped_column(String(255), primary_key=True)
 
     __table_args__ = (Index("idx_donor_load_hosts_host", "host"),)
+
+
+class CrawlAlwaysSwitchModel(SetByMixin, Base):
+    """Обход 24/7 (`features/crawl/always.py`) — идёт ли, порог «мало рекламодателей» и
+    «переобход слабых»: строка на каждую смену.
+
+    Действует последняя строка; строк нет — обход 24/7 на паузе, порог и переобход — умолчания
+    (`crawl/always_switch.py`). Строка не правится и не удаляется: по строкам видно, кто и когда
+    пустил обходчики по сайтам без остановки, кто остановил и кто двигал порог, — как у автокруга.
+    """
+
+    __tablename__ = "crawl_always_switches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    #: Порог «мало рекламодателей», % страниц с платной ссылкой на первых 10 000; шаг — сотая.
+    threshold_pct: Mapped[float] = mapped_column(Numeric(5, 2, asdecimal=False), nullable=False)
+    #: Переобход даже слабых: помеченные «мало рекламодателей» идут дальше — после сильных.
+    recrawl_weak: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+
+class CrawlDepthModel(TimestampedMixin, Base):
+    """Сколько прошла по донору цепочка обхода 24/7 и откуда её продолжить — строка на донора.
+
+    Часть цепочки — обычная строка обхода (`CrawlRunModel.depth_part`), а здесь — то, что живёт
+    дольше частей: открытые цепочкой страницы и очередь ссылок (`checkpoint`, сжато), доля
+    продающих страниц после первых 10 000 и пометка «мало рекламодателей», поставленная руками.
+    Хост — как его пишет обход (`launch.crawl_host`).
+    """
+
+    __tablename__ = "crawl_depths"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    host: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    #: Страниц, открытых цепочкой, и законченных частей.
+    pages: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    parts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    #: С чего продолжить: чекпоинт обхода (`progress.Checkpoint`) в JSON, сжатый zlib
+    #: (`always_depth.pack`); пусто — цепочка ещё ничего не открыла. Отложенная колонка: это
+    #: мегабайты, а читает её только начало части (`always_depth.row_of`), не выдача и не экран.
+    checkpoint: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    #: Страниц цепочки со ссылкой на «куплено» и их доля от открытых, % — после первых 10 000
+    #: или когда сайт кончился раньше; до того доли нет (`gate.judge_run`).
+    selling_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    yield_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Сколько старых частей последний пересчёт кандидатов не читал — потолок ссылок в памяти судьи
+    #: (`gate_union.py`): их находки заморожены, а не потеряны. Ноль — читал всю цепочку.
+    frozen_parts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    #: Когда цепочка прошла первые 10 000 страниц (или сайт кончился раньше) и когда кончился сайт.
+    first_done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    exhausted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: «Мало рекламодателей» руками: `True` — пометил, `False` — снял (идёт при любом пороге);
+    #: пусто — решает порог. Кто и когда — рядом: учётку удалили — пометка остаётся без неё.
+    weak_override: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    weak_set_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    weak_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Последняя законченная часть цепочки.
+    last_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("crawl_runs.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class CrawlAlwaysSignalModel(Base):
+    """«Пройдено всё» обхода 24/7 — сказано в Telegram (`crawl/always.py`): строка на эпоху.
+
+    Эпоха — от сигнала до новой работы: уникальный номер держит «один раз» при двух процессах, а
+    `reopened_at` — что после сигнала появилась новая работа и следующий сигнал будет уже о ней.
+    """
+
+    __tablename__ = "crawl_always_signals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    epoch: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
+    sent_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    reopened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Что было сказано: сколько сайтов и почему каждый больше не идёт.
+    facts: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)

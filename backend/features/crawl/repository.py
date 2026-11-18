@@ -89,7 +89,12 @@ async def save_crawl(session: AsyncSession, report: CrawlReport) -> CrawlRunMode
 
 
 async def queue_crawl(
-    session: AsyncSession, host: str, *, by: str | None, max_pages: int | None = None
+    session: AsyncSession,
+    host: str,
+    *,
+    by: str | None,
+    max_pages: int | None = None,
+    part: int | None = None,
 ) -> CrawlRunModel:
     """Завести обход в очереди — строкой до задачи, как прогон Этапа 1.
 
@@ -97,12 +102,14 @@ async def queue_crawl(
     среди незаконченных): две кнопки, нажатые разом, иначе завели бы два
     обхода одного сайта — двойная нагрузка на чужую машину и двойные ссылки.
     `max_pages` — потолок глубокого обхода (`deep.py`); пусто — обычный.
+    `part` — номер части обхода 24/7 (`always.py`); пусто — обход не из цепочки.
     """
     run = CrawlRunModel(
         host=host.lower().removeprefix("www."),
         status=CrawlStatus.QUEUED,
         requested_by=by,
         max_pages=max_pages,
+        depth_part=part,
     )
     try:
         async with session.begin_nested():
@@ -113,12 +120,17 @@ async def queue_crawl(
     return run
 
 
-async def save_batch(session: AsyncSession, run_id: int, batch: Batch) -> None:
+async def save_batch(
+    session: AsyncSession, run_id: int, batch: Batch, *, stored: dict[str, Any] | None = None
+) -> None:
     """Пачка ссылок и чекпоинт — вместе: записанное и «с чего продолжить»
     не расходятся (`crawl/progress.py`). Фиксирует вызывающий.
 
     Пачка заодно говорит «идёт»: разбор мёртвых ставит продолжению «в очереди»
-    и может зафиксировать это уже после того, как новая задача взяла обход."""
+    и может зафиксировать это уже после того, как новая задача взяла обход.
+
+    `stored` — что писать чекпоинтом вместо всего чекпоинта пачки: часть обхода 24/7 не пишет
+    страницы прежних частей (`always_depth.stored`). Страниц открыто — всё равно по пачке."""
     for link in batch.links:
         row = _row(link)
         row.crawl_run_id = run_id
@@ -129,7 +141,7 @@ async def save_batch(session: AsyncSession, run_id: int, batch: Batch) -> None:
         .where(CrawlRunModel.id == run_id)
         .values(
             status=CrawlStatus.RUNNING,
-            checkpoint=point.as_dict(),
+            checkpoint=point.as_dict() if stored is None else stored,
             pages_opened=len(point.pages),
             articles=point.articles,
             updated_at=func.now(),

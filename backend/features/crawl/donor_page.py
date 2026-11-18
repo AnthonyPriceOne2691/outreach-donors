@@ -17,11 +17,16 @@
 `forbidden`, `blocked`, `failed`), остановлен разбором зависших. Последний обход — самый новый
 номер обхода у хоста; хост обхода — без «www.» и строчными (`launch.launch`), и донор с ним
 сводится тем же правилом.
+
+**«Мало рекламодателей»** (обход 24/7, 17.11.2026) — фильтр и счётчик рядом со статусом и ценой:
+пометка руками или доля продающих страниц после первых 10 000 ниже нынешнего порога
+(`always_depth.weak_clause`) — тем же правилом, что строка донора и выдача частей.
 """
 
 from __future__ import annotations
 
 import statistics
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -34,9 +39,10 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from backend.config import filters as cfg
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, DonorStatus
-from backend.features.core.models.crawl import CrawlBacklogModel, CrawlRunModel
+from backend.features.core.models.crawl import CrawlBacklogModel, CrawlDepthModel, CrawlRunModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
+from backend.features.crawl import always_depth, always_switch
 from backend.features.crawl.board import CrawlLine, DonorLine
 from backend.features.crawl.suppliers import supplier_hosts
 from backend.features.donors.standing import is_donor
@@ -106,14 +112,27 @@ class DonorQuery:
     sort: Sort = Sort.PRICED
     page: int = 1
     size: int = PAGE_SIZE
+    #: «Мало рекламодателей»: `True` — только помеченные, `False` — только без пометки; пусто —
+    #: не сужать.
+    weak: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class Facets:
-    """Счётчики вкладки: по статусу — без условия на статус, по цене — без условия на цену."""
+    """Счётчики вкладки: по статусу — без условия на статус, по цене — без условия на цену,
+    помеченных «мало рекламодателей» — без условия на пометку."""
 
     status: dict[Status, int] = field(default_factory=dict)
     price: dict[Price, int] = field(default_factory=dict)
+    weak: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class _Terms:
+    """Чем меряются условия запроса: граница свежей цены и «мало рекламодателей» по порогу."""
+
+    border: datetime
+    weak: ColumnElement[bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +182,12 @@ def _border(now: datetime) -> datetime:
     return now - timedelta(days=cfg.PRICE_TTL_DAYS)
 
 
+async def _terms(session: AsyncSession, now: datetime | None) -> _Terms:
+    """Граница цены на эту минуту и пометка по нынешнему порогу обхода 24/7 (`always_switch`)."""
+    threshold = (await always_switch.state(session)).threshold_pct
+    return _Terms(_border(now or datetime.now(UTC)), always_depth.weak_clause(threshold))
+
+
 def _latest() -> Any:
     """Номер последнего обхода донора — подзапросом на строку донора (`LATERAL`), по индексу
     хоста обходов. Соединение со сводкой «хост → последний номер» база вела вложенным циклом:
@@ -187,6 +212,8 @@ def _base(columns: list[Any], suppliers: set[str]) -> Select[Any]:
         .join(DonorModel, DonorModel.domain_id == DomainModel.id)
         .outerjoin(latest, true())
         .outerjoin(_RUN, _RUN.id == latest.c.run_id)
+        # Цепочка обхода 24/7 — по хосту обхода, уникальным индексом (`always_depth.weak_clause`).
+        .outerjoin(CrawlDepthModel, CrawlDepthModel.host == _crawl_key())
         .where(is_donor(), DonorModel.status == DonorStatus.SUITABLE, ~not_writing())
     )
     if suppliers:
@@ -200,19 +227,29 @@ def _search(text: str) -> ColumnElement[bool]:
     return func.lower(DomainModel.host).like(f"%{escaped}%", escape="\\")
 
 
+def _chips(query: DonorQuery, terms: _Terms) -> list[ColumnElement[bool]]:
+    """Условия, у которых есть свой счётчик: статус, срок цены и «мало рекламодателей»."""
+    chips: list[ColumnElement[bool]] = []
+    if query.status is not None:
+        chips.append(status_of() == query.status.value)
+    if query.price is not None:
+        chips.append(price_of(terms.border) == query.price.value)
+    if query.weak is not None:
+        chips.append(terms.weak == query.weak)
+    return chips
+
+
 def _where(
-    statement: Select[Any], query: DonorQuery, border: datetime, *, counted: bool = False
+    statement: Select[Any], query: DonorQuery, terms: _Terms, *, counted: bool = False
 ) -> Select[Any]:
-    """Условия вкладки; `counted` — без статуса и срока цены: их сводит таблица счётчиков."""
-    if query.status is not None and not counted:
-        statement = statement.where(status_of() == query.status.value)
-    if query.price is not None and not counted:
-        statement = statement.where(price_of(border) == query.price.value)
+    """Условия вкладки; `counted` — без статуса, срока цены и пометки: их сводит таблица
+    счётчиков."""
+    conditions = [] if counted else _chips(query, terms)
     if query.source is not None:
-        statement = statement.where(DonorModel.last_price_source == query.source)
+        conditions.append(DonorModel.last_price_source == query.source)
     if query.search.strip():
-        statement = statement.where(_search(query.search.strip()))
-    return statement
+        conditions.append(_search(query.search.strip()))
+    return statement.where(*conditions) if conditions else statement
 
 
 def _can_start(border: datetime) -> ColumnElement[bool]:
@@ -241,59 +278,74 @@ def _order(sort: Sort) -> list[Any]:
 
 @dataclass(frozen=True, slots=True)
 class _Cell:
-    """Сколько доноров в клетке «статус × срок цены × можно ли обойти»."""
+    """Сколько доноров в клетке «статус × срок цены × можно ли обойти × мало рекламодателей»."""
 
     status: str
     price: str
     startable: bool
+    weak: bool
     count: int
+
+    def chip(self, name: str) -> object:
+        """Значение условия со своим счётчиком: `status`, `price` или `weak`."""
+        return {"status": self.status, "price": self.price, "weak": self.weak}[name]
 
 
 async def _cells(
-    session: AsyncSession, query: DonorQuery, *, suppliers: set[str], border: datetime
+    session: AsyncSession, query: DonorQuery, *, suppliers: set[str], terms: _Terms
 ) -> list[_Cell]:
-    """Все числа вкладки одним запросом: доноры под условиями, кроме статуса и срока цены, —
-    по клеткам «статус × срок × можно обойти» (их не больше 42). Счётчики, «всего» и «можно
-    обойти» складываются из клеток (`_tally`): пять проходов по выборке стоили бы впятеро."""
+    """Все числа вкладки одним запросом: доноры под условиями, кроме статуса, срока цены и
+    пометки, — по клеткам «статус × срок × можно обойти × пометка» (их не больше 84). Счётчики,
+    «всего» и «можно обойти» складываются из клеток (`_tally`): пять проходов по выборке стоили бы
+    впятеро."""
     inner = (
-        _where(_base([DomainModel.id], suppliers), query, border, counted=True)
+        _where(_base([DomainModel.id], suppliers), query, terms, counted=True)
         .add_columns(
             status_of().label("status"),
-            price_of(border).label("price"),
-            _can_start(border).label("startable"),
+            price_of(terms.border).label("price"),
+            _can_start(terms.border).label("startable"),
+            terms.weak.label("weak"),
         )
         .subquery()
     )
-    grouped = select(inner.c.status, inner.c.price, inner.c.startable, func.count()).group_by(
-        inner.c.status, inner.c.price, inner.c.startable
-    )
+    keys = (inner.c.status, inner.c.price, inner.c.startable, inner.c.weak)
+    grouped = select(*keys, func.count()).group_by(*keys)
     return [
-        _Cell(str(status), str(price), bool(startable), int(count))
-        for status, price, startable, count in (await session.execute(grouped)).all()
+        _Cell(str(status), str(price), bool(startable), bool(weak), int(count))
+        for status, price, startable, weak, count in (await session.execute(grouped)).all()
     ]
 
 
-def _status_ok(cell: _Cell, query: DonorQuery) -> bool:
-    return query.status is None or cell.status == query.status.value
+def _fits(cell: _Cell, query: DonorQuery, *, but: str = "") -> bool:
+    """Клетка под условиями вкладки, кроме названного в `but`: счётчик — без своего условия."""
+    return all(
+        (
+            but == "status" or query.status is None or cell.status == query.status.value,
+            but == "price" or query.price is None or cell.price == query.price.value,
+            but == "weak" or query.weak is None or cell.weak is query.weak,
+        )
+    )
 
 
-def _price_ok(cell: _Cell, query: DonorQuery) -> bool:
-    return query.price is None or cell.price == query.price.value
+def _sums(cells: list[_Cell], query: DonorQuery, *, but: str) -> Counter[object]:
+    """Счётчик условия `but`: клетки под остальными условиями — суммой по значению этого условия
+    (статус, срок цены или пометка)."""
+    sums: Counter[object] = Counter()
+    for cell in cells:
+        if _fits(cell, query, but=but):
+            sums[cell.chip(but)] += cell.count
+    return sums
 
 
 def _tally(cells: list[_Cell], query: DonorQuery) -> tuple[Facets, int, int]:
     """Счётчики (каждый — без своего условия), «всего» и «можно обойти» — из клеток."""
+    status, price = _sums(cells, query, but="status"), _sums(cells, query, but="price")
     facets = Facets(
-        status={
-            status: sum(c.count for c in cells if c.status == status.value and _price_ok(c, query))
-            for status in Status
-        },
-        price={
-            price: sum(c.count for c in cells if c.price == price.value and _status_ok(c, query))
-            for price in Price
-        },
+        status={one: status[one.value] for one in Status},
+        price={one: price[one.value] for one in Price},
+        weak=_sums(cells, query, but="weak")[True],
     )
-    chosen = [cell for cell in cells if _status_ok(cell, query) and _price_ok(cell, query)]
+    chosen = [cell for cell in cells if _fits(cell, query)]
     total = sum(cell.count for cell in chosen)
     return facets, total, sum(cell.count for cell in chosen if cell.startable)
 
@@ -315,7 +367,7 @@ async def page(
     session: AsyncSession, query: DonorQuery, *, now: datetime | None = None
 ) -> DonorPage:
     """Страница доноров вкладки со счётчиками и числом тех, кого можно обойти."""
-    border = _border(now or datetime.now(UTC))
+    terms = await _terms(session, now)
     suppliers = await supplier_hosts(session, now=now)
     columns = [
         DomainModel.host,
@@ -323,10 +375,10 @@ async def page(
         DonorModel.last_price_at,
         DonorModel.last_price_currency,
         DonorModel.last_price_source,
-        price_of(border).label("price_state"),
+        price_of(terms.border).label("price_state"),
         _RUN,
     ]
-    listed = _where(_base(columns, suppliers), query, border)
+    listed = _where(_base(columns, suppliers), query, terms)
     rows = (
         await session.execute(
             listed.order_by(*_order(query.sort))
@@ -335,7 +387,7 @@ async def page(
         )
     ).all()
     facets, total, startable = _tally(
-        await _cells(session, query, suppliers=suppliers, border=border), query
+        await _cells(session, query, suppliers=suppliers, terms=terms), query
     )
     return DonorPage(
         rows=[_line(row) for row in rows], total=total, facets=facets, startable=startable
@@ -344,11 +396,11 @@ async def page(
 
 async def summary(session: AsyncSession, *, now: datetime | None = None) -> tuple[Facets, int]:
     """Счётчики всей выборки без условий и сколько можно обойти — для «Проверки»."""
-    border = _border(now or datetime.now(UTC))
+    terms = await _terms(session, now)
     suppliers = await supplier_hosts(session, now=now)
     every = DonorQuery()
     facets, _, startable = _tally(
-        await _cells(session, every, suppliers=suppliers, border=border), every
+        await _cells(session, every, suppliers=suppliers, terms=terms), every
     )
     return facets, startable
 
@@ -358,22 +410,26 @@ async def startable_hosts(
 ) -> list[str]:
     """Доноры под условиями, которых можно поставить в обход сейчас, — по порядку вкладки, не
     больше `limit`: «Обойти всех по фильтру» ставит ровно их."""
-    border = _border(now or datetime.now(UTC))
+    terms = await _terms(session, now)
     suppliers = await supplier_hosts(session, now=now)
-    chosen = _where(_base([DomainModel.host], suppliers), query, border).where(_can_start(border))
+    chosen = _where(_base([DomainModel.host], suppliers), query, terms).where(
+        _can_start(terms.border)
+    )
     rows = await session.execute(chosen.order_by(*_order(query.sort)).limit(limit))
     return [str(host) for (host,) in rows.all()]
 
 
 async def crawl_seconds(session: AsyncSession) -> list[float]:
     """Сколько шли последние законченные обычные обходы, у которых было что обходить, с.
-    Глубокие не в счёт: у них свой срок (`deep.typical_deep_seconds`)."""
+    Глубокие не в счёт: у них свой срок (`deep.typical_deep_seconds`); части обхода 24/7 — тоже:
+    их кончают ночь и пауза (`always_part.py`)."""
     elapsed = CrawlRunModel.stats["elapsed_sec"].as_float()
     rows = await session.execute(
         select(elapsed)
         .where(
             CrawlRunModel.status == CrawlStatus.DONE,
             CrawlRunModel.max_pages.is_(None),
+            CrawlRunModel.depth_part.is_(None),
             CrawlRunModel.pages_opened >= TYPICAL_MIN_PAGES,
             elapsed.is_not(None),
         )
