@@ -27,6 +27,7 @@ import { changeLead } from '../api/salesLeads';
 import { CHAIN_LANGUAGES } from '../api/salesLabels';
 import type { LeadChanged, LeadPatchBody } from '../api/salesLeads';
 import type { ChainLanguage, LeadCard } from '../api/salesTypes';
+import { shownAddress } from '../hostName';
 import { dropdownBelow } from '../theme';
 import { OneScrollForm } from './OneScrollForm';
 import { SaveActions } from './SaveActions';
@@ -114,7 +115,7 @@ export function LeadEditModal({ lead, mayWrite, onClose, onSaved }: Props) {
       opened
       onClose={onClose}
       size="lg"
-      title={`Лид ${lead.email}`}
+      title={`Лид ${shownAddress(lead.email)}`}
       classNames={{ content: 'oneScroll' }}
     >
       <OneScrollForm

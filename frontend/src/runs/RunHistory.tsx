@@ -34,6 +34,7 @@ import type { Column } from '../components/ColumnsHead';
 import { InfoHint } from '../components/InfoHint';
 import { PageSwitch } from '../components/PageSwitch';
 import { formatDateTime, formatNumber, plural } from '../format';
+import { shownHost } from '../hostName';
 import { TopicSilence } from '../topics/TopicNotes';
 import { ReviewLink } from './ReviewLink';
 import { RunReason } from './RunReason';
@@ -239,7 +240,11 @@ function EntryCell({ run }: { run: RunCard }) {
       ? [rivals.length, plural(rivals.length, 'конкурент', 'конкурента', 'конкурентов')]
       : [run.keywords, plural(run.keywords, 'ключ', 'ключа', 'ключей')];
   return (
-    <Stack gap={0} align="center" title={rivals.length > 0 ? rivals.join(', ') : undefined}>
+    <Stack
+      gap={0}
+      align="center"
+      title={rivals.length > 0 ? rivals.map((rival) => shownHost(rival)).join(', ') : undefined}
+    >
       <Text size="sm">{formatNumber(count)}</Text>
       <Text size="xs" c="dimmed">
         {word}

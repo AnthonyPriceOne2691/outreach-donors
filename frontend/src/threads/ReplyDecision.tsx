@@ -12,6 +12,7 @@ import { Button, Card, Group, Stack, Text } from '@mantine/core';
 
 import type { IncomingCard } from '../api/types';
 import { formatDateTime } from '../format';
+import { shownAddress } from '../hostName';
 import { PriceReview, type PriceReviewProps } from './PriceReview';
 
 const when = formatDateTime;
@@ -81,7 +82,7 @@ export function ReplyDecision({
   onSendLead,
   onClose,
 }: DecisionProps) {
-  const who = reply.from_email ?? 'собеседника';
+  const who = shownAddress(reply.from_email) ?? 'собеседника';
   const heading = `${reply.lead ? 'Лид' : 'Разбор цены'} · ответ ${who}, ${when(reply.received_at)}`;
   return (
     <Card className="glass" px="md" py="sm" aria-label={reply.lead ? 'Лид' : 'Разбор цены'}>

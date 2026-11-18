@@ -146,3 +146,19 @@ describe('кому писали: доноры или рекламодатели'
     });
   });
 });
+
+describe('поиск диалога', () => {
+  it('домен IDN находится и по-русски, и по ASCII-записи (18.11.2026)', () => {
+    const thread = {
+      ...card('donors'),
+      host: 'xn--e1afmkfd.xn--p1ai',
+      contact_email: 'info@xn--e1afmkfd.xn--p1ai',
+    };
+    const found = (search: string) => threadMatches(thread, { ...NO_THREAD_FILTERS, search });
+
+    expect(found('Пример')).toBe(true);
+    expect(found('xn--e1a')).toBe(true);
+    expect(found('info@пример')).toBe(true);
+    expect(found('сад')).toBe(false);
+  });
+});

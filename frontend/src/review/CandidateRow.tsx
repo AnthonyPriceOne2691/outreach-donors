@@ -26,6 +26,7 @@ import type { ReviewCandidate, ReviewDecision } from '../api/types';
 import { JudgeVerdict, SellerAnswer } from '../components/JudgeVerdict';
 import { SiteLink } from '../components/SiteLink';
 import { formatCompact } from '../format';
+import { shownHost } from '../hostName';
 import { TopicLine } from '../topics/TopicLine';
 
 interface Props {
@@ -191,7 +192,7 @@ export function CandidateRow(props: Props) {
       {mayDecide && (
         <Table.Td>
           <Checkbox
-            aria-label={`Выбрать ${row.host}`}
+            aria-label={`Выбрать ${shownHost(row.host)}`}
             checked={checked}
             disabled={busy}
             onChange={(event) => onCheck(event.currentTarget.checked)}

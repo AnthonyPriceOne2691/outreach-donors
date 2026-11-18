@@ -11,6 +11,7 @@ import { refusalOf } from '../api/client';
 import { removeFromSalesStoplist } from '../api/salesStoplist';
 import type { SalesStopRow } from '../api/salesStoplist';
 import { formatNumber } from '../format';
+import { shownAddress } from '../hostName';
 import { notify } from '../notices';
 
 /** Подтверждение снятия: что станет с лидами — до нажатия. */
@@ -31,7 +32,7 @@ export function ConfirmRemove({
     <Modal
       opened
       onClose={onKeep}
-      title={`Снять ${row.host ?? row.email ?? ''} со стоп-листа продаж`}
+      title={`Снять ${shownAddress(row.host ?? row.email ?? '')} со стоп-листа продаж`}
     >
       <Stack gap="sm">
         <Text size="sm">
@@ -66,7 +67,10 @@ export function useRemove(close: () => void) {
         removed.released > 0
           ? ` Лидов вернулось на очистку: ${formatNumber(removed.released)}.`
           : '';
-      notify({ message: `${removed.target} снят со стоп-листа продаж.${back}`, color: 'yellow' });
+      notify({
+        message: `${shownAddress(removed.target)} снят со стоп-листа продаж.${back}`,
+        color: 'yellow',
+      });
       await client.invalidateQueries({ queryKey: ['sales'] });
     },
   });

@@ -107,6 +107,7 @@ import {
   reviewQueryOf,
   writeReviewFilters,
 } from './reviewFilters';
+import { shownHost } from '../hostName';
 import { notify } from '../notices';
 
 const QUERY_KEY = ['advertisers'] as const;
@@ -197,7 +198,7 @@ function ReviewView({ onOpenCrawl }: { onOpenCrawl: () => void }) {
     onSuccess: async (row) => {
       await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       notify({
-        message: row.confirmed ? `${row.target_root}: пишем ему` : `${row.target_root}: не пишем`,
+        message: `${shownHost(row.target_root)}: ${row.confirmed ? 'пишем ему' : 'не пишем'}`,
         color: 'green',
       });
       // Рекламодатель уже ответил: «не пишем» сняло оффер и добивки, а переписку — нет.

@@ -8,6 +8,7 @@ import { Button, Table, Text } from '@mantine/core';
 import type { QualityRow } from '../api/advertiserPanel';
 import { Seams } from '../components/Seams';
 import { formatDate, formatNumber, formatPercent } from '../format';
+import { shownHost } from '../hostName';
 
 export const QUALITY_KEY = ['advertisers', 'panel', 'quality'] as const;
 
@@ -26,8 +27,8 @@ export function methodWords(row: QualityRow): string {
 /** Способ загрузки словами: файл называется по имени, ручной домен виден сразу. */
 export function kindWords(row: QualityRow): string {
   if (row.kind === 'bulk' || row.kind === 'night') return methodWords(row);
-  if (row.kind === 'manual') return `вручную: ${row.host ?? 'домен'}`;
-  return row.host === null ? methodWords(row) : `${methodWords(row)}: ${row.host}`;
+  if (row.kind === 'manual') return `вручную: ${shownHost(row.host) ?? 'домен'}`;
+  return row.host === null ? methodWords(row) : `${methodWords(row)}: ${shownHost(row.host)}`;
 }
 
 /** Дата строки: у партии — день загрузки, у обходов без загрузки и ночи — их день: он посчитан по

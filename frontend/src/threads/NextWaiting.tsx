@@ -25,6 +25,7 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
 import type { ThreadCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { shownHost } from '../hostName';
 import { readThreadFilters, threadMatches } from './threadFilters';
 import { useSortedThreads, waitsForPerson } from './useThreadList';
 
@@ -50,7 +51,7 @@ function NextWaitingLink({ current }: { current: number }) {
     <Button
       component={Link}
       to={`/threads/${next.id}${location.search}`}
-      title={next.host}
+      title={shownHost(next.host)}
       variant="light"
       // 26 px: шапка растёт на 5 px, а не на 9, и цель нажатия не меньше 24 px (WCAG 2.2).
       size="compact-sm"

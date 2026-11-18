@@ -6,6 +6,7 @@
 
 import { countryTitle } from '../api/labels';
 import { formatNumber, formatShare, plural } from '../format';
+import { shownHost } from '../hostName';
 import type { CountryFit, ReserveGroup, TakeResult } from './reserveApi';
 
 /** Группа причины — подписью фильтра. */
@@ -51,7 +52,9 @@ export function takeOutcome(result: TakeResult): string {
   }
   const refused = Object.entries(result.refused);
   if (refused.length > 0) {
-    parts.push(`Не взяты: ${refused.map(([host, why]) => `${host} — ${why}`).join('; ')}`);
+    parts.push(
+      `Не взяты: ${refused.map(([host, why]) => `${shownHost(host)} — ${why}`).join('; ')}`,
+    );
   }
   return parts.length === 0 ? 'Брать было нечего' : parts.join('. ');
 }

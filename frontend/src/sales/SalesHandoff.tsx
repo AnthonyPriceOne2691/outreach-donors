@@ -42,6 +42,7 @@ import type { ThreadView } from '../api/thread';
 import type { IncomingCard } from '../api/types';
 import { ConfirmPopover } from '../components/ConfirmPopover';
 import { formatDateTime } from '../format';
+import { shownAddress } from '../hostName';
 import { notify, refuse, settle } from '../notices';
 import { activeReply } from '../threads/threadTimeline';
 import { handOver } from './handoffApi';
@@ -128,7 +129,7 @@ function HandoffAsk({ reply, busy, closing, onConfirm, onClose }: AskProps) {
   return (
     <>
       <Text size="sm" fw={600}>
-        Ждёт человека · ответ {reply.from_email ?? 'собеседника'},{' '}
+        Ждёт человека · ответ {shownAddress(reply.from_email) ?? 'собеседника'},{' '}
         {formatDateTime(reply.received_at)}
       </Text>
       <Group>

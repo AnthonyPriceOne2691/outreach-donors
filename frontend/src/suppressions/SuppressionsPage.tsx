@@ -73,6 +73,7 @@ import type { Column } from '../components/ColumnsHead';
 import { PageHead } from '../components/PageHead';
 import { Seams } from '../components/Seams';
 import { formatDate } from '../format';
+import { nameIncludes, shownAddress } from '../hostName';
 import { notify } from '../notices';
 import { AddStopModal, addedNotice } from './AddStopModal';
 import type { StopRequest } from './AddStopModal';
@@ -216,7 +217,7 @@ export function SuppressionsPage() {
       setRemoving(null);
       setWhy('');
       notify({
-        message: `${row.host ?? row.email} снят со стоп-листа — новые письма ему снова уходят`,
+        message: `${shownAddress(row.host ?? row.email)} снят со стоп-листа — новые письма ему снова уходят`,
         color: 'yellow',
       });
     },
@@ -235,12 +236,13 @@ export function SuppressionsPage() {
   const all = data?.rows ?? [];
   const mayChange = can('send');
   const needsWhy = removing?.donor_decision === true;
-  // Поиск и причина — по уже пришедшим строкам: список приходит целиком.
+  // Поиск и причина — по уже пришедшим строкам: список приходит целиком. Домен IDN ищется
+  // и в ASCII, и так, как он на экране (18.11.2026).
   const needle = search.trim().toLowerCase();
   const rows = all.filter(
     (row) =>
       (shownReason === 'all' || row.reason === shownReason) &&
-      (needle === '' || (row.host ?? row.email ?? '').toLowerCase().includes(needle)),
+      (needle === '' || nameIncludes(row.host ?? row.email ?? '', needle)),
   );
   const reasons = [...new Set(all.map((row) => row.reason))];
   // Причина, записей с которой не осталось, фильтром не остаётся: состояние меняется
@@ -334,7 +336,7 @@ export function SuppressionsPage() {
       <Modal
         opened={removing !== null}
         onClose={() => setRemoving(null)}
-        title={`Снять со стоп-листа ${removing?.host ?? removing?.email ?? ''}`}
+        title={`Снять со стоп-листа ${shownAddress(removing?.host ?? removing?.email ?? '')}`}
       >
         <Stack gap="sm">
           {needsWhy ? (

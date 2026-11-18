@@ -42,6 +42,7 @@ import type { Column } from '../components/ColumnsHead';
 import { DataTable } from '../components/DataTable';
 import { Seams } from '../components/Seams';
 import { formatDateTime, formatNumber } from '../format';
+import { shownHost } from '../hostName';
 import { dropdownBelow } from '../theme';
 import { VERDICT_WORDS } from './segmentData';
 import type { SegmentSite, SegmentSitesPage, SiteDecider, SiteTab } from './SegmentSitesApi';
@@ -142,12 +143,12 @@ function SiteCell({ site, clamp }: { site: SegmentSite; clamp: Clamp }) {
             underline="always"
             className="inkLink"
             {...clamped(clamp)}
-            title={site.host}
+            title={shownHost(site.host)}
           >
             <Seams text={site.host} />
           </Anchor>
         ) : (
-          <Text size="sm" {...clamped(clamp)} title={site.host}>
+          <Text size="sm" {...clamped(clamp)} title={shownHost(site.host)}>
             <Seams text={site.host} />
           </Text>
         )}

@@ -40,6 +40,7 @@ import type { HypothesisCard, LeadCard, LeadState, LeadsView } from '../api/sale
 import { Metric } from '../components/Metric';
 import { PageSwitch } from '../components/PageSwitch';
 import { formatNumber } from '../format';
+import { shownAddress } from '../hostName';
 import { notify } from '../notices';
 import { backwardsOf, emptinessOf, LEAD_STATE_KEYS, leadsLink, queryOf } from './leadFilters';
 import type { LeadFilters } from './leadFilters';
@@ -195,7 +196,8 @@ function useLeadSaved(close: () => void) {
   return async (saved: LeadChanged) => {
     close();
     const again = saved.rebuild ? ' Письмо в очереди соберёт заново следующая сборка.' : '';
-    const said = saved.changed.length > 0 ? `Лид ${saved.email} сохранён.` : 'Без изменений.';
+    const said =
+      saved.changed.length > 0 ? `Лид ${shownAddress(saved.email)} сохранён.` : 'Без изменений.';
     notify({ message: `${said}${again}`, color: 'green' });
     await client.invalidateQueries({ queryKey: ['sales'] });
   };

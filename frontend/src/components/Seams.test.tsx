@@ -73,4 +73,25 @@ describe('швы имени', () => {
     expect(container.textContent).toBe('news.example.com.au');
     expect(container.querySelectorAll('wbr')).toHaveLength(2);
   });
+
+  it('домен IDN — раскодированным и по швам видимого имени (18.11.2026)', () => {
+    const { container } = render(
+      <p>
+        <Seams text="news.xn--e1afmkfd.xn--p1ai" />
+      </p>,
+    );
+
+    expect(container.textContent).toBe('news.пример.рф');
+    expect(container.querySelectorAll('wbr')).toHaveLength(2);
+  });
+
+  it('у адреса раскодирован только домен после «@»: имя ящика — не хост', () => {
+    const { container } = render(
+      <p>
+        <Seams text="xn--80ai1b@xn--e1afmkfd.xn--p1ai" address />
+      </p>,
+    );
+
+    expect(container.textContent).toBe('xn--80ai1b@пример.рф');
+  });
 });

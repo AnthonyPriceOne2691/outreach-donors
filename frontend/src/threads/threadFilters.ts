@@ -37,6 +37,7 @@ import type { Can } from '../api/stageRights';
 import { PART_PARAM, partOf } from '../api/stages';
 import type { Part, Stage } from '../api/stages';
 import type { ThreadCard, ThreadState } from '../api/types';
+import { nameIncludes } from '../hostName';
 
 /** Кому писали: донору о цене или рекламодателю оффер. */
 export type ThreadRole = Exclude<Stage, 'sales'>;
@@ -148,16 +149,14 @@ export function onSide(thread: ThreadCard, side: Pick<ThreadFilters, 'part' | 'r
   return inPart(thread, side.part) && (side.role === null || thread.stage === side.role);
 }
 
-/** Подходит ли диалог. Поиск — по донору и по адресу, без учёта регистра. */
+/** Подходит ли диалог. Поиск — по донору и по адресу, без учёта регистра; домен IDN — и в
+ *  ASCII, и так, как он на экране (18.11.2026): набирают «пример», а в данных `xn--…`. */
 export function threadMatches(thread: ThreadCard, filters: ThreadFilters): boolean {
   if (!onSide(thread, filters)) return false;
   if (filters.state !== null && thread.state !== filters.state) return false;
   const needle = filters.search.trim().toLowerCase();
   if (needle === '') return true;
-  return (
-    thread.host.toLowerCase().includes(needle) ||
-    (thread.contact_email ?? '').toLowerCase().includes(needle)
-  );
+  return nameIncludes(thread.host, needle) || nameIncludes(thread.contact_email ?? '', needle);
 }
 
 /** Где заводится переписка части: пустой список называет экран, где её начинают. */

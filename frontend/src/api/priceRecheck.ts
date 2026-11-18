@@ -8,6 +8,7 @@
  * `types.ts` у своего потолка длины.
  */
 
+import { shownHost } from '../hostName';
 import { request } from './client';
 import type { PriceSource } from './manualPrice';
 
@@ -126,14 +127,17 @@ function sentence(text: string): string {
 /** Почему не ушло — словами сервера; домен впереди, если сами слова его не называют. */
 function refusedLine(one: RecheckRefused): string {
   const said = sentence(one.reason);
-  return one.host !== null && !said.includes(one.host) ? `${one.host}: ${said}` : said;
+  if (one.host === null) return said;
+  // Слова сервера могут назвать домен и в ASCII, и раскодированным — второй раз впереди не нужен.
+  const host = shownHost(one.host);
+  return said.includes(one.host) || said.includes(host) ? said : `${host}: ${said}`;
 }
 
 /** Что вышло из нажатия — одной строкой: что ушло и почему не ушли остальные. */
 export function recheckSummary(done: RecheckResult): string {
   const parts: string[] = [];
   if (done.sent.length > 0) {
-    const hosts = done.sent.map((one) => one.host).join(', ');
+    const hosts = done.sent.map((one) => shownHost(one.host)).join(', ');
     parts.push(
       done.sent.every((one) => one.real)
         ? `Перезапрос цены ушёл: ${hosts}.`

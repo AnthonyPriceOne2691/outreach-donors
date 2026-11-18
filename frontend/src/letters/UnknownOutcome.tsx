@@ -33,6 +33,7 @@ import type { LetterStage } from '../api/types';
 import type { ResolveOutcome, UnknownLetter } from '../api/unknownOutcome';
 import { Seams } from '../components/Seams';
 import { formatDateTime, formatNumber } from '../format';
+import { shownAddress, shownHost } from '../hostName';
 import { notify } from '../notices';
 import { ThreadLink } from './ThreadLink';
 
@@ -65,7 +66,7 @@ export function UnknownOutcome({ stage, audience = 'links', canSend }: Props) {
     mutationFn: ({ letter, outcome }: Choice) => resolveLetter(letter.id, outcome),
     onSuccess: (done, { letter }) =>
       notify({
-        message: `${letter.host}: ${done.said}`,
+        message: `${shownHost(letter.host)}: ${done.said}`,
         color: done.status === 'sent' ? 'green' : 'yellow',
       }),
     onError: (failure) => notify({ title: 'Не решили', message: refusalOf(failure), color: 'red' }),
@@ -145,8 +146,9 @@ function StuckLetter({ letter, canSend, busy, onChoose }: LetterProps) {
             </Badge>
           </Group>
           <Text size="sm" c="dimmed">
-            Кому {letter.email ?? 'адрес не определён'}, с ящика {letter.sender_email ?? '—'},
-            отдано почте {formatDateTime(letter.since)} · {letter.campaign}
+            Кому {shownAddress(letter.email) ?? 'адрес не определён'}, с ящика{' '}
+            {shownAddress(letter.sender_email) ?? '—'}, отдано почте {formatDateTime(letter.since)}{' '}
+            · {letter.campaign}
           </Text>
           <ThreadLink threadId={letter.thread_id} />
         </Stack>
@@ -187,7 +189,7 @@ interface DecisionProps {
 /** Окно решения: чем оно кончится — до нажатия, а не после. */
 function Decision({ choice, busy, onClose, onConfirm }: DecisionProps) {
   const sent = choice?.outcome === 'sent';
-  const host = choice?.letter.host ?? '';
+  const host = shownHost(choice?.letter.host ?? '');
   return (
     <Modal
       opened={choice !== null}

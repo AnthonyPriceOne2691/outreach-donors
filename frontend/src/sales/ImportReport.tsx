@@ -27,6 +27,7 @@ import { countryTitle } from '../api/labels';
 import type { ImportedLead, ImportProblem, IntakeView } from '../api/salesTypes';
 import { Metric } from '../components/Metric';
 import { formatNumber, plural } from '../format';
+import { shownAddress, shownHost } from '../hostName';
 import { CleanLeads } from './CleanLeads';
 import { DefaultsReport } from './ImportDefaults';
 import { groupProblems, linesOf } from './importMapping';
@@ -163,7 +164,7 @@ function LeadsPreview({ leads, total }: { leads: ImportedLead[]; total: number }
             {shown.map((lead) => (
               <Table.Tr key={lead.line}>
                 <Table.Td className="cellName">
-                  <Text size="sm">{lead.email}</Text>
+                  <Text size="sm">{shownAddress(lead.email)}</Text>
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm">{lead.name ?? '—'}</Text>
@@ -172,7 +173,7 @@ function LeadsPreview({ leads, total }: { leads: ImportedLead[]; total: number }
                   <Text size="sm">{lead.company ?? '—'}</Text>
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm">{lead.domain}</Text>
+                  <Text size="sm">{shownHost(lead.domain)}</Text>
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm">{countryTitle(lead.country)}</Text>

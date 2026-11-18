@@ -43,6 +43,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { Corridor, LetterTransport, QueuedLetter } from '../api/types';
 import { ConfirmPopover } from '../components/ConfirmPopover';
+import { shownAddress, shownHost } from '../hostName';
 import { readable, restored, uniquenessText } from './letterText';
 import { mailSendNote } from './mailTile';
 
@@ -124,10 +125,10 @@ export function LetterPreview({
         <Group justify="space-between" align="flex-start" wrap="nowrap">
           <Stack gap={4} style={{ minWidth: 0 }}>
             <Text fw={600} style={{ overflowWrap: 'anywhere' }}>
-              {letter.host}
+              {shownHost(letter.host)}
             </Text>
             <Text size="xs" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
-              {letter.email ?? 'адрес не определён'} · кампания «{letter.campaign}»
+              {shownAddress(letter.email) ?? 'адрес не определён'} · кампания «{letter.campaign}»
             </Text>
           </Stack>
           {/* Не ужимается: на узком окне значок сжимался до «отли…»,
@@ -270,7 +271,7 @@ export function LetterPreview({
                   Поправить
                 </Button>
                 <ConfirmPopover
-                  message={`Не писать ${letter.host}? Письмо уберём из очереди, и в следующих сборках этого адресата не будет.`}
+                  message={`Не писать ${shownHost(letter.host)}? Письмо уберём из очереди, и в следующих сборках этого адресата не будет.`}
                   confirm="Не писать"
                   danger
                   onConfirm={onSkip}

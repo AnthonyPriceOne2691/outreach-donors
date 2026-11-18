@@ -37,6 +37,7 @@ import { PERMISSION_TITLES } from '../api/labels';
 import { useSession } from '../auth/AuthProvider';
 import { FIELD_GAP } from '../components/formRhythm';
 import { formatDateTime } from '../format';
+import { shownHost } from '../hostName';
 import { JobLine } from '../jobs/JobLine';
 import { useJob, useStartedJob } from '../jobs/startedJob';
 
@@ -230,7 +231,7 @@ export function FormLetterModal({
     <Modal
       opened={target !== null}
       onClose={onClose}
-      title={`Форма и письмо: ${target?.host ?? ''}`}
+      title={`Форма и письмо: ${shownHost(target?.host ?? '')}`}
       size={780}
     >
       {target !== null && <LetterWindow key={target.donorId} donorId={target.donorId} />}

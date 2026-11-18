@@ -28,4 +28,11 @@ describe('ссылка на сайт', () => {
     expect(link).toHaveClass('cellName');
     expect(link).not.toHaveClass('placed');
   });
+
+  it('домен IDN: текст — раскодированный, ссылка — по имени из базы, в ASCII (18.11.2026)', () => {
+    renderWith(<SiteLink host="xn--e1afmkfd.xn--p1ai" />);
+
+    const link = screen.getByRole('link', { name: 'пример.рф' });
+    expect(link).toHaveAttribute('href', 'https://xn--e1afmkfd.xn--p1ai');
+  });
 });

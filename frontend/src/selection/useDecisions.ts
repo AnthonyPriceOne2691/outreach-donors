@@ -23,6 +23,7 @@ import { refusalOf } from '../api/client';
 import { HUMAN_INTENTS } from '../api/labels';
 import { decideSite } from '../api/selection';
 import type { HumanIntent, SelectionCard } from '../api/types';
+import { shownHost } from '../hostName';
 import { notify } from '../notices';
 
 export const SELECTION_KEY = ['selection'] as const;
@@ -122,7 +123,7 @@ export function useDecisions(view: string, fresh: SelectionCard[]) {
       await queryClient.invalidateQueries({ queryKey: SELECTION_KEY });
       const said =
         after.human.intent === null ? 'решение снято' : HUMAN_INTENTS[after.human.intent];
-      notify({ message: `${after.host}: ${said}`, color: 'green' });
+      notify({ message: `${shownHost(after.host)}: ${said}`, color: 'green' });
     },
     onError: (failure) =>
       notify({ title: 'Не записали', message: refusalOf(failure), color: 'red' }),

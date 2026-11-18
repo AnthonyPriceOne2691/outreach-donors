@@ -69,6 +69,7 @@ import { RequireAccess } from '../auth/RequireAccess';
 import { PageHead } from '../components/PageHead';
 import { StageSwitch } from '../components/StageSwitch';
 import { formatNumber, formatPercent } from '../format';
+import { shownAddress, shownHost } from '../hostName';
 import { BuildForm, LIMIT_DEFAULT, followupDays } from './BuildForm';
 import { DeferredLetters } from './DeferredLetters';
 import type { BuildProps } from './BuildForm';
@@ -271,7 +272,7 @@ function LettersScreen({ part }: { part: LetterStage | null }) {
       await refresh();
       notify({
         message: result.real
-          ? `Письмо ушло с ящика ${result.sender_email}`
+          ? `Письмо ушло с ящика ${shownAddress(result.sender_email)}`
           : `Письмо помечено отправленным, но наружу НЕ ушло: транспорт не настроен`,
         color: result.real ? 'green' : 'yellow',
       });
@@ -645,10 +646,10 @@ function LetterRow({ letter, corridor, active, onChoose }: RowProps) {
       <Group justify="space-between" wrap="nowrap" gap="sm">
         <Stack gap={2} style={{ minWidth: 0 }}>
           <Text fw={active ? 600 : 500} truncate>
-            {letter.host}
+            {shownHost(letter.host)}
           </Text>
           <Text size="xs" c="dimmed" truncate>
-            {letter.email ?? 'адрес не определён'}
+            {shownAddress(letter.email) ?? 'адрес не определён'}
           </Text>
         </Stack>
         <Badge variant="light" color={toneOf(letter)}>

@@ -39,6 +39,7 @@ import { REDIRECT_STEP } from '../api/redirectTypes';
 import type { RedirectCard } from '../api/redirectTypes';
 import type { Corridor, IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { capitalized, formatDateTime, formatMoney } from '../format';
+import { shownAddress } from '../hostName';
 import { deliveryLine } from '../letters/deliveryLine';
 import { corridorText, readable, uniquenessText } from '../letters/letterText';
 import { useBottomKept } from './feedBottom';
@@ -111,7 +112,7 @@ function OurBubble({ letter, corridor, to }: OurProps) {
         </Text>
         {to !== null ? (
           <Text size="xs" style={{ overflowWrap: 'anywhere' }}>
-            → {to}
+            → {shownAddress(to)}
           </Text>
         ) : null}
         {/* Тема — у первого письма и у письма на новый адрес: у добивок и ответов она та же, с «Re:». */}
@@ -218,7 +219,7 @@ function ReplyHead({ reply }: { reply: IncomingCard }) {
   return (
     <Group gap={6} mb={4} wrap="wrap">
       <Text size="xs" fw={600} className="bubbleWho">
-        {reply.from_email ?? 'собеседник'}
+        {shownAddress(reply.from_email) ?? 'собеседник'}
       </Text>
       {reply.kind !== 'human' && (
         <Badge variant="light" color={kind.color} size="sm">
@@ -348,7 +349,7 @@ function TheirBubble({ reply, active, reviewable, sales, superseded, onPick }: T
     <div className="bubbleRow bubbleRowTheirs">
       <article
         className={active ? 'bubble bubbleTheirs bubbleActive' : 'bubble bubbleTheirs'}
-        aria-label={`Ответ ${reply.from_email ?? 'собеседника'}`}
+        aria-label={`Ответ ${shownAddress(reply.from_email) ?? 'собеседника'}`}
       >
         <ReplyHead reply={reply} />
         <ReplyText reply={reply} />

@@ -23,6 +23,7 @@ import { fetchRecheck } from '../api/priceRecheck';
 import type { DonorFullCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatDate } from '../format';
+import { shownAddress, shownHost } from '../hostName';
 import type { RecheckAsking } from './recheckAsk';
 import { useRecheckAsk } from './recheckAsk';
 import { RecheckOutcome, Refused, ThreadLink } from './recheckParts';
@@ -33,12 +34,13 @@ function Letter({ card }: { card: RecheckCard }) {
     <Stack gap={6}>
       {card.way === 'thread' && card.thread_id !== null ? (
         <Text size="sm">
-          Уйдёт ответом в <ThreadLink threadId={card.thread_id} /> — на {card.email}, с ящика{' '}
-          {card.mailbox}: тем, что ведёт разговор.
+          Уйдёт ответом в <ThreadLink threadId={card.thread_id} /> — на {shownAddress(card.email)},
+          с ящика {shownAddress(card.mailbox)}: тем, что ведёт разговор.
         </Text>
       ) : (
         <Text size="sm">
-          Переписки нет — уйдёт новым первым письмом на {card.email}, с ящика, свободного сегодня.
+          Переписки нет — уйдёт новым первым письмом на {shownAddress(card.email)}, с ящика,
+          свободного сегодня.
         </Text>
       )}
       <Card className="glassQuiet" p="md">
@@ -132,7 +134,7 @@ export function PriceRecheck({ donor }: { donor: DonorFullCard }) {
       <Modal
         opened={opened}
         onClose={() => setOpened(false)}
-        title={`Перезапрос цены · ${donor.host}`}
+        title={`Перезапрос цены · ${shownHost(donor.host)}`}
         size="lg"
       >
         {opened ? <RecheckDialog donorId={donor.id} maySend={maySend} ask={ask} /> : null}

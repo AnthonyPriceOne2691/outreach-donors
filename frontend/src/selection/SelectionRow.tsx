@@ -28,6 +28,7 @@ import {
 import type { HumanIntent, SelectionCard } from '../api/types';
 import { JudgeVerdict, SellerAnswer } from '../components/JudgeVerdict';
 import { reasonText } from '../donors/reasonText';
+import { shownHost } from '../hostName';
 import type { GoneRow } from './useDecisions';
 
 interface Props {
@@ -152,6 +153,8 @@ function Human({ row, mayDecide, busy, gone, onDecide, onUndo }: Props) {
  *  а домену с DR под ним нужно ~44 px. Ширина домена — не больше колонки (`maw`): в столбике
  *  без неё строка без переносов шире колонки, и многоточия бы не было. */
 function Domain({ row, withThresholds }: Pick<Props, 'row' | 'withThresholds'>) {
+  // Имя — для глаз (`hostName`), ссылка — по ASCII из базы.
+  const shown = shownHost(row.host);
   const name = (
     <Anchor
       href={`https://${row.host}`}
@@ -160,10 +163,10 @@ function Domain({ row, withThresholds }: Pick<Props, 'row' | 'withThresholds'>) 
       fw={500}
       truncate="end"
       maw="100%"
-      title={row.host}
+      title={shown}
       className="cellName"
     >
-      {row.host}
+      {shown}
     </Anchor>
   );
   const dr =

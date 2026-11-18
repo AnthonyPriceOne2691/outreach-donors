@@ -22,6 +22,7 @@ import type { LetterAudience } from '../api/letters';
 import type { LetterStage } from '../api/types';
 import { Seams } from '../components/Seams';
 import { capitalized, formatNumber } from '../format';
+import { shownAddress } from '../hostName';
 import { attemptsLine } from './deliveryLine';
 import { ThreadLink } from './ThreadLink';
 
@@ -86,7 +87,7 @@ function DeferredRow({ letter }: { letter: DeferredLetter }) {
           {capitalized(letter.deferral.words)} · {attemptsLine(letter.deferral)}
         </Text>
         <Text size="sm" c="dimmed">
-          Кому {letter.email ?? 'адрес не определён'} · {letter.campaign}
+          Кому {shownAddress(letter.email) ?? 'адрес не определён'} · {letter.campaign}
         </Text>
         <ThreadLink threadId={letter.thread_id} />
       </Stack>

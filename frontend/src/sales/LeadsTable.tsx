@@ -52,6 +52,7 @@ import { countryTitle } from '../api/labels';
 import { LEAD_STATES, leadReasonTitle } from '../api/salesLabels';
 import type { HypothesisCard, LeadCard, LeadState } from '../api/salesTypes';
 import { Seams } from '../components/Seams';
+import { shownAddress } from '../hostName';
 import { dropdownBelow } from '../theme';
 import { FixedTable } from './FixedTable';
 import type { Column } from './FixedTable';
@@ -285,7 +286,7 @@ function EditLead({ row, mayWrite, onEdit }: RowProps) {
       color="gray"
       size="sm"
       radius="xl"
-      aria-label={`${verb} лида ${row.email}`}
+      aria-label={`${verb} лида ${shownAddress(row.email)}`}
       title={`${verb} лида`}
       style={{ flexShrink: 0 }}
       onClick={() => onEdit(row)}

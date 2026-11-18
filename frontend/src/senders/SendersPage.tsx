@@ -42,6 +42,7 @@ import type { Column } from '../components/ColumnsHead';
 import { DataTable } from '../components/DataTable';
 import { Cards } from '../components/MailingBlock';
 import { formatNumber, plural } from '../format';
+import { shownHost } from '../hostName';
 import { DomainRow, domainShut, plainState } from './DomainRow';
 import type { DomainGroup } from './DomainRow';
 import { StageBoxes } from './StageBoxes';
@@ -277,8 +278,8 @@ export function SendersPage() {
       await queryClient.invalidateQueries({ queryKey: SENDERS_QUERY_KEY });
       notify({
         message: on
-          ? `${group.domain} включён — разгон начался заново`
-          : `${group.domain} выключен, начатые цепочки не рвутся`,
+          ? `${shownHost(group.domain)} включён — разгон начался заново`
+          : `${shownHost(group.domain)} выключен, начатые цепочки не рвутся`,
         color: on ? 'green' : 'yellow',
       });
     },

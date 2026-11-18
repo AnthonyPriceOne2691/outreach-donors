@@ -65,6 +65,7 @@ import type { ThreadCard } from '../api/types';
 import { usePageParam } from '../components/PageSwitch';
 import { Seams } from '../components/Seams';
 import { formatMoney, formatNumber } from '../format';
+import { shownAddress } from '../hostName';
 import { LeadsExport } from './LeadsExport';
 import { LIST_STEP, listScope, useListWindow } from './listWindow';
 import { RedirectBadge } from './RedirectLine';
@@ -148,7 +149,7 @@ function Row({ thread, to, active, part }: RowProps) {
           {/* Адрес обрезается, пометка — нет: длинный адрес не прячет, кому писали. */}
           <Group gap={4} wrap="nowrap" className="threadRowWho">
             <Text size="xs" c="dimmed" truncate>
-              {thread.contact_email ?? 'адрес не определён'}
+              {shownAddress(thread.contact_email) ?? 'адрес не определён'}
             </Text>
             {note !== '' && (
               <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>

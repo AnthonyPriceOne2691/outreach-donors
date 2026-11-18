@@ -13,6 +13,7 @@ import { Stack, Text } from '@mantine/core';
 
 import type { RunCard } from '../api/types';
 import { formatNumber, plural } from '../format';
+import { shownHost } from '../hostName';
 
 /** Причина — кодом сервера, слова — на экране, как у порогов отчёта. */
 const DROPPED: Record<string, string> = {
@@ -87,7 +88,7 @@ export function sourceOf(run: RunCard): Source | null {
 function listLine(list: SourceList): string {
   const rows = `${formatNumber(list.rows)} ${plural(list.rows, 'строка', 'строки', 'строк')}`;
   const kept = typeof list.kept === 'number' ? `, нового ${formatNumber(list.kept)}` : '';
-  return `${list.target} — ${rows} за ${formatNumber(list.units)} юн.${kept}`;
+  return `${shownHost(list.target)} — ${rows} за ${formatNumber(list.units)} юн.${kept}`;
 }
 
 /** Точка в конце — одна: строка без счёта нового кончается сокращением «юн.». */
@@ -105,7 +106,7 @@ export function CompetitorJournal({ run }: { run: RunCard }) {
       <Text size="sm">Списки Ahrefs: {sentence(source.targets.map(listLine).join('; '))}</Text>
       {source.skipped.map((one) => (
         <Text size="sm" key={one.target}>
-          Пропущен {one.target}: {one.reason}
+          Пропущен {shownHost(one.target)}: {one.reason}
         </Text>
       ))}
       {dropped.length > 0 && (

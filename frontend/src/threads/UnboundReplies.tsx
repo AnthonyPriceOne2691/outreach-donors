@@ -39,6 +39,7 @@ import type { UnboundReply } from '../api/unbound';
 import { InfoHint } from '../components/InfoHint';
 import { PageSwitch } from '../components/PageSwitch';
 import { formatDateTime, formatNumber } from '../format';
+import { shownAddress } from '../hostName';
 import { Unfold } from '../runs/Unfold';
 import { ReplyFiles } from './ReplyFiles';
 import { useUnboundPage } from './threadTabs';
@@ -132,7 +133,7 @@ function UnboundRow({ reply }: { reply: UnboundReply }) {
             style={{ columnGap: 'var(--mantine-spacing-md)' }}
           >
             <Text fw={500} c="var(--ink)" className="cellName unboundFrom">
-              {reply.from_email ?? 'отправитель не назван'}
+              {shownAddress(reply.from_email) ?? 'отправитель не назван'}
             </Text>
             <Text size="xs" c="dimmed" className="unboundWhen">
               {formatDateTime(reply.received_at)}
@@ -140,7 +141,7 @@ function UnboundRow({ reply }: { reply: UnboundReply }) {
           </Group>
           <Text size="xs" c="dimmed" className="cellName unboundTo">
             {reply.to.length > 0
-              ? `на ${reply.to.join(', ')}`
+              ? `на ${reply.to.map((address) => shownAddress(address)).join(', ')}`
               : 'адрес, на который пришло, не записан'}
           </Text>
           <Group gap="xs" align="center" mt={2}>
