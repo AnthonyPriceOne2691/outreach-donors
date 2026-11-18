@@ -12,6 +12,9 @@
  * плана — строка с именем.
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -250,9 +253,15 @@ describe('колонка «План работ»', () => {
       const track = bar.closest('.meter');
       expect(track, name).not.toBeNull();
       expect(track).not.toHaveAttribute('data-tone');
-      // Акцент на свету к своей дорожке — 2,42 : 1 при норме 3 (стенд 18.11).
-      expect(bar.getAttribute('style'), name).toContain('var(--accent-deep)');
+      // Заливка — ступень `.meter` по теме (`--meter-fill`): на свету глубокая — акцент к своей
+      // дорожке давал 2,42 : 1 при норме 3 (стенд 18.11).
+      expect(bar.getAttribute('style'), name).toContain('var(--meter-fill)');
     }
+    // Глубокая ступень на свету — правилом `.meter` в `glass.css` (#645), а не выбором в ячейке.
+    const glass = readFileSync(resolve(process.cwd(), 'src/styles/glass.css'), 'utf8');
+    expect(glass).toMatch(
+      /html:root\[data-mantine-color-scheme='light'\] \.meter \{\s*--meter-fill: var\(--accent-deep\);/,
+    );
     // Набравшая цель — 300 из 300: полоса полная.
     expect(within(cellOf(DENTAL.name)).getByRole('progressbar')).toHaveAttribute(
       'aria-valuenow',

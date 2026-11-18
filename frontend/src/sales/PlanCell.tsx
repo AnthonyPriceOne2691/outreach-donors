@@ -19,9 +19,9 @@
  * акцента, видна и при 0 %; серая дорожка Mantine в тёмной теме давала заливке 1,70 : 1 при норме 3,
  * а при 0 % полосы не было видно — стенд 17.11), **но не самим `Meter`**: его янтарь с 80 % и роза у
  * предела — про расход из лимита, а дойти до цели — хорошо, и роза у готовой гипотезы читалась бы
- * отказом. Заливка — по теме: на свету акцент к своей дорожке — 2,42 : 1, глубокая ступень
- * (`--accent-deep`) — выше 3; в темноте акцент — 4,25 (стенд 18.11). Значение и имя для читалки —
- * у полосы: «имя»: найдено N из M.
+ * отказом. Заливка — ступень `.meter` по теме (`--meter-fill`, #645): на свету — глубокая
+ * (`--accent-deep`; акцент к своей дорожке давал 2,42 : 1 при норме 3), в темноте — акцент (к дорожке
+ * 3,55–3,69). Значение и имя для читалки — у полосы: «имя»: найдено N из M.
  *
  * **Имена кнопок и ссылок для читалки — с именем гипотезы** («Качество сайтов гипотезы «…»»): в
  * таблице их по набору на строку, и пять одинаковых «Собрать ещё» подряд не различить без глаз.
@@ -35,16 +35,7 @@
  * «Воронка» — «Воронка» (не «Отчёт»: рядом вкладка «Отчёт», а ведёт ссылка не туда).
  */
 
-import {
-  Anchor,
-  Button,
-  Group,
-  Progress,
-  Stack,
-  Table,
-  Text,
-  useComputedColorScheme,
-} from '@mantine/core';
+import { Anchor, Button, Group, Progress, Stack, Table, Text } from '@mantine/core';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -172,14 +163,14 @@ function Links({ row }: { row: PlanRow }) {
   );
 }
 
-/** «Найдено N из цели» полосой — дорожкой `Meter`, без его тяжести; заливка по теме (шапка файла). */
+/** «Найдено N из цели» полосой — дорожкой `Meter`, без его тяжести; заливка — ступень `.meter` по
+ *  теме (`--meter-fill`, шапка файла). */
 function FoundBar({ row }: { row: PlanRow }) {
-  const dark = useComputedColorScheme('light') === 'dark';
   return (
     <Progress
       className="meter"
       value={foundShare(row)}
-      color={dark ? 'var(--accent)' : 'var(--accent-deep)'}
+      color="var(--meter-fill)"
       radius="xl"
       size="sm"
       aria-label={`«${row.name}»: ${foundWords(row)}`}
