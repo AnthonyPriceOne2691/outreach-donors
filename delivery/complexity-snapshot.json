@@ -2137,9 +2137,9 @@
       "worst": "_off_theme:157"
     },
     "backend/features/keywords/examples.py": {
-      "lines": 185,
+      "lines": 176,
       "complexity": 8,
-      "worst": "site_host:130"
+      "worst": "site_host:121"
     },
     "backend/features/keywords/footprints.py": {
       "lines": 167,
@@ -2207,9 +2207,9 @@
       "worst": "kind_of:63"
     },
     "backend/features/letters/compose.py": {
-      "lines": 312,
-      "complexity": 4,
-      "worst": "unset_reason:268"
+      "lines": 336,
+      "complexity": 7,
+      "worst": "replace:261"
     },
     "backend/features/letters/deferrals.py": {
       "lines": 218,
@@ -2782,9 +2782,9 @@
       "worst": "judged:133"
     },
     "backend/features/replies/redirect_shown.py": {
-      "lines": 166,
+      "lines": 171,
       "complexity": 11,
-      "worst": "shown:116"
+      "worst": "_letter_words:71"
     },
     "backend/features/replies/repository.py": {
       "lines": 484,
@@ -3312,9 +3312,9 @@
       "worst": "step:90"
     },
     "backend/features/sales/handoff_text.py": {
-      "lines": 186,
+      "lines": 188,
       "complexity": 8,
-      "worst": "note:150"
+      "worst": "note:151"
     },
     "backend/features/sales/hold_words.py": {
       "lines": 92,
@@ -3902,9 +3902,9 @@
       "worst": "—"
     },
     "backend/features/sales/weekly_text.py": {
-      "lines": 379,
+      "lines": 381,
       "complexity": 8,
-      "worst": "_problems:211"
+      "worst": "_problems:213"
     },
     "backend/features/sales/zone_country.py": {
       "lines": 70,
@@ -4060,6 +4060,11 @@
       "lines": 2,
       "complexity": 0,
       "worst": "—"
+    },
+    "backend/shared/net/idn.py": {
+      "lines": 49,
+      "complexity": 3,
+      "worst": "shown_host:31"
     },
     "backend/shared/net/retry.py": {
       "lines": 176,

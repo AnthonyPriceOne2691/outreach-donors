@@ -35,6 +35,7 @@ from backend.features.letters.template import (
     Zone,
     ZoneKind,
 )
+from backend.shared.net.idn import shown_host
 
 
 class ComposeError(ValueError):
@@ -78,6 +79,27 @@ _ANY_UNSET_RE = re.compile(r"«([A-Z0-9_]+ НЕ ЗАДАНО)»")
 
 #: Подстановки найденной ссылки. Есть только у письма рекламодателю.
 LINK_VALUES = ("donor_host", "page_url", "anchor")
+
+#: Подстановки с именем сайта (у доноров и рекламодателей — `host`, `donor_host`, `example_host`,
+#: у продаж — `site`). В базе имя в ASCII, а домен IDN там — `xn--…`: 18.11.2026 все 72 письма
+#: продаж 25 лидам с кириллическим доменом ушли с ним в теме или тексте. В тексте письма имя —
+#: письменностью сайта (`shown_host`); в ссылке и в адресе почты — ASCII, как в базе: по ним
+#: переходят и пишут, человеку там читать нечего (`_in_link`). Значения не трогаются — ASCII
+#: остаётся у всех, кто их берёт (`values_for`, `sales/letter.values_of`).
+HOST_VALUES = frozenset({"host", "donor_host", "example_host", "site"})
+
+#: «Слово» перед подстановкой — до пробела, скобки, кавычки или угловой скобки: так видно, стоит
+#: ли она в ссылке (`https://{{host}}/…`, `href="//{{host}}"`) или в адресе (`info@{{host}}`).
+_WORD_BEFORE = re.compile(r"""[^\s<>()\[\]"'«»]*\Z""")
+
+
+def _in_link(text: str, at: int) -> bool:
+    """Подстановка на месте `at` — часть ссылки или адреса почты: в её «слове» до неё есть «//»
+    (`https://`, `//`) или «@»."""
+    word = _WORD_BEFORE.search(text, 0, at)
+    before = word.group(0) if word else ""
+    return "//" in before or "@" in before
+
 
 #: Как выглядит пустая ссылка в тексте. Отдельно от настроек: пустую
 #: ссылку не лечит подключение почты — её лечит пересборка очереди.
@@ -246,6 +268,8 @@ def _substitute(text: str, values: dict[str, str]) -> str:
         if name in OPTIONAL_VALUES:
             return values[name]
         value = values[name].strip()
+        if value and name in HOST_VALUES and not _in_link(text, match.start()):
+            return shown_host(value)
         if value:
             return value
         return _UNSET.format(title=_UNSET_TITLES.get(name, f"{name.upper()} НЕ ЗАДАНО"))

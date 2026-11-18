@@ -38,6 +38,7 @@ from datetime import datetime
 from backend.config import sales as cfg
 from backend.features.sales.kommo import NewLead
 from backend.features.sales.models import HandoffKommo
+from backend.shared.net.idn import shown_address, shown_host
 
 #: Первые две строки сообщения — дословно, третья — ссылка.
 HEAD = ("Новый лид", "Эмейл Рассылка")
@@ -160,7 +161,7 @@ def note(card: Card) -> str:
         card.reply_text[:TEXT_LIMIT] or "(текста ответа нет)",
         "",
         f"Переписка: писем от нас — {card.sent}, ответов — {card.replies}; первое письмо — {first}",
-        f"Компания: {card.company or '—'} · {card.site}",
+        f"Компания: {card.company or '—'} · {shown_host(card.site)}",
         *_told(card),
         f"Гипотеза: {card.hypothesis}",
         f"ГЕО: {card.country or '—'}; язык: {card.language or '—'}",
@@ -172,9 +173,10 @@ def note(card: Card) -> str:
 def _sender(card: Card) -> str:
     """Кто написал: адрес, с которого письмо пришло; не адрес лида — так и сказано."""
     sender = card.reply_from.strip()
+    lead = shown_address(card.email)
     if not sender or sender.lower() == card.email.strip().lower():
-        return f"От: {card.email}"
-    return f"От: {sender} (не адрес лида {card.email})"
+        return f"От: {lead}"
+    return f"От: {shown_address(sender)} (не адрес лида {lead})"
 
 
 def _told(card: Card) -> tuple[str, str]:

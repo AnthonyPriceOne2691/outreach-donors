@@ -36,6 +36,7 @@ from backend.features.ops.alarms import Concern
 from backend.features.sales.telegram import MAX_CHARS
 from backend.features.sales.weekly import Numbers, Plan, Problem, Week, WeeklyReport
 from backend.features.sales.weekly_counts import AUTO, KINDS, Handed, Mail
+from backend.shared.net.idn import shown_address, shown_host
 from backend.shared.spreadsheet import inert
 
 #: Вид ответа — словами строки отчёта.
@@ -143,8 +144,9 @@ def _dialogs(n: Numbers) -> str:
 
 def lead_line(lead: Handed) -> str:
     """Лид поимённо: компания и сайт, человек, адрес — и ссылка, которую получил телемаркетолог."""
-    company = f"{lead.company} ({lead.site})" if lead.company else lead.site
-    person = " · ".join(part for part in (lead.name, lead.email) if part)
+    site = shown_host(lead.site)
+    company = f"{lead.company} ({site})" if lead.company else site
+    person = " · ".join(part for part in (lead.name, shown_address(lead.email)) if part)
     return f"{company} · {person} — {lead.link}"
 
 
