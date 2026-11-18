@@ -35,6 +35,11 @@
 шага нынешней цепочки, как раньше (`text_of`). Пересборка письма в очереди собирает и добивки
 заново; после ухода первого письма сборка лида не трогает — тексты добивок не меняются.
 
+**Имя сайта в сохранённом тексте — правилом подстановки** (`compose.shown_sites`): текст,
+собранный до 18.11.2026, хранит домен IDN в ASCII (`xn--…`) и в тексте письма. Хранится он как
+есть, а на выходе — отправке и экрану очереди — имя в тексте письменностью сайта, в ссылке и в
+адресе почты — ASCII.
+
 **Нынешней цепочкой не собрать — сохранённым прежним текстом** (`choose`, решение владельца
 13.10): цепочку поправили после сборки, в шаге голый `{{name}}`, а у лида имени нет. Добивка
 уходит текстом, сохранённым при сборке письма прежней версией цепочки; нет и его — проверка
@@ -247,9 +252,12 @@ def text_of(
     stored: Mapping[str, Any] | None, found: chain.Chain, step: int, values: Mapping[str, str]
 ) -> str:
     """Текст добивки шага `step` (шаг шаблона) на отправку, без подписи и адреса: собранный при
-    сборке этой же версией цепочки — или шаблон шага нынешней цепочки, как раньше."""
+    сборке этой же версией цепочки (имя сайта — `compose.shown_sites`) — или шаблон шага
+    нынешней цепочки, как раньше."""
     item = kept(stored, found.version).get(step)
-    return item.body if item is not None else _template_text(found.steps[step], values)
+    if item is None:
+        return _template_text(found.steps[step], values)
+    return compose.shown_sites(item.body, values)
 
 
 #: Почему текст добивки с подписью и адресом «Отправителя» не уйдёт — словами; `None` — уйдёт.
@@ -291,17 +299,18 @@ def choose(
     problem = check(body)
     if problem is None:
         return Chosen(body)
-    earlier = _earlier(stored, step)
+    earlier = _earlier(stored, step, values)
     if earlier is not None and earlier != body and check(earlier) is None:
         return Chosen(earlier, problem, earlier=True)
     return Chosen(body, problem)
 
 
-def _earlier(stored: Mapping[str, Any] | None, step: int) -> str | None:
-    """Сохранённый текст шага, какой версией цепочки ни собран; `None` — не хранится: шаг без
-    зон `rewrite` или письмо собрано до переписки добивок."""
+def _earlier(stored: Mapping[str, Any] | None, step: int, values: Mapping[str, str]) -> str | None:
+    """Сохранённый текст шага, какой версией цепочки ни собран (имя сайта —
+    `compose.shown_sites`); `None` — не хранится: шаг без зон `rewrite` или письмо собрано до
+    переписки добивок."""
     item = dict((stored or {}).get("steps", {})).get(str(step))
-    return None if not item else str(item["body"])
+    return None if not item else compose.shown_sites(str(item["body"]), values)
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,12 +344,14 @@ def planned(
     if chosen.problem is not None:
         words = f"не уйдёт — {NOT_BUILT}: {chosen.problem}; проход добивок остановит цепочку"
         return Planned(step, None, words)
+    # Текст — тот, что уйдёт (`choose` → `text_of`), а не сохранённый как есть: имя сайта в нём
+    # приведено, как у отправки (`compose.shown_sites`).
     item = kept(stored, found.version).get(step)
     if item is not None and item.difference is not None:
         words = f"переписана при сборке — отличие {percent_text(item.difference)}"
-        return Planned(step, item.body, words, item.difference, item.zones)
+        return Planned(step, chosen.body, words, item.difference, item.zones)
     if item is not None:
-        return Planned(step, item.body, corridor.template_reason(item.differences))
+        return Planned(step, chosen.body, corridor.template_reason(item.differences))
     rewrites = bool(template.letter.of_kind(ZoneKind.REWRITE))
     words = _template_words(stored, found.version, rewrites=rewrites)
     return Planned(step, _template_text(template, values), words)

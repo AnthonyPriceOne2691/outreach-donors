@@ -2207,9 +2207,9 @@
       "worst": "kind_of:63"
     },
     "backend/features/letters/compose.py": {
-      "lines": 336,
-      "complexity": 7,
-      "worst": "replace:261"
+      "lines": 366,
+      "complexity": 4,
+      "worst": "shown_sites:289"
     },
     "backend/features/letters/deferrals.py": {
       "lines": 218,
@@ -3257,9 +3257,9 @@
       "worst": "roles:40"
     },
     "backend/features/sales/followup_texts.py": {
-      "lines": 377,
+      "lines": 388,
       "complexity": 8,
-      "worst": "build:137"
+      "worst": "build:142"
     },
     "backend/features/sales/forecast_answers.py": {
       "lines": 44,
