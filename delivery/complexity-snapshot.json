@@ -1822,7 +1822,7 @@
       "worst": "_priced_donor:143"
     },
     "backend/features/crawl/progress.py": {
-      "lines": 150,
+      "lines": 157,
       "complexity": 5,
       "worst": "of:80"
     },
@@ -1892,14 +1892,14 @@
       "worst": "fill:61"
     },
     "backend/features/crawl/sitemap.py": {
-      "lines": 374,
-      "complexity": 17,
-      "worst": "scan:253"
+      "lines": 403,
+      "complexity": 16,
+      "worst": "scan:279"
     },
     "backend/features/crawl/sources.py": {
-      "lines": 105,
-      "complexity": 8,
-      "worst": "start_frontier:77"
+      "lines": 119,
+      "complexity": 7,
+      "worst": "start_frontier:81"
     },
     "backend/features/crawl/spend.py": {
       "lines": 193,
@@ -1937,9 +1937,9 @@
       "worst": "units_stop:87"
     },
     "backend/features/crawl/walk.py": {
-      "lines": 499,
+      "lines": 500,
       "complexity": 9,
-      "worst": "_limit_hit:392"
+      "worst": "_walk:272"
     },
     "backend/features/donors/__init__.py": {
       "lines": 1,
@@ -4142,9 +4142,9 @@
       "worst": "_take:153"
     },
     "backend/workers/crawler.py": {
-      "lines": 110,
+      "lines": 113,
       "complexity": 7,
-      "worst": "dequeue_job_and_maintain_ttl:67"
+      "worst": "dequeue_job_and_maintain_ttl:70"
     },
     "backend/workers/followups.py": {
       "lines": 112,

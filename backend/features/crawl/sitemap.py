@@ -39,6 +39,14 @@
 (формат, который понимают поисковики: адрес на строку). Объявленные в robots.txt читаются,
 как прежде, все и как есть: сайт сам сказал, что это карта. Нет карты вовсе — свежие статьи
 даёт лента сайта (`feeds.py`).
+
+**Кончить просят и на карте** (`cut_short`, 18.11.2026). Обход спрашивает «не пора ли
+остановиться» перед каждой страницей, но до страниц идут карты — до `max_files` файлов, по
+одному на паузу сайта. На проде часть обхода 24/7 читала индекс в сотни карт с паузой
+сайта 10 с и не видела ни «Пауза», ни остановки выкатки: при выкатке её убили бы через 90 с,
+у сайта с паузой в минуту чтение длилось бы часы. Теперь перед каждым файлом — тот же вопрос,
+что у срока на донора: прерванное чтение — неполная карта, обход встаёт на первой своей
+проверке, продолжение карту читает заново (`sources.start_frontier`).
 """
 
 from __future__ import annotations
@@ -47,7 +55,7 @@ import gzip
 import logging
 import re
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from urllib.parse import urljoin
 
@@ -118,6 +126,21 @@ _DAY = re.compile(
 #: но потолок адресов всё равно кончится раньше.
 MAX_SITEMAP_BYTES = 20 * 1024 * 1024
 
+#: Просят ли кончить обход — остановка выкатки, ночь или пауза 24/7 (`Progress.halted`).
+Halt = Callable[[], bool]
+
+#: Почему чтение карт кончилось раньше их самих (`cut_short`).
+TIME_IS_UP, ASKED_TO_END = "срок на донора вышел", "обход просят кончить"
+
+
+def cut_short(deadline: float | None, halt: Halt | None) -> str | None:
+    """Почему дальше не читать: вышел срок на донора или обход просят кончить. `None` — читать."""
+    if deadline is not None and time.monotonic() >= deadline:
+        return TIME_IS_UP
+    if halt is not None and halt():
+        return ASKED_TO_END
+    return None
+
 
 @dataclass(slots=True)
 class SitemapScan:
@@ -134,6 +157,9 @@ class SitemapScan:
     #: День записи карты по адресу (`YYYY-MM-DD`): по нему адреса идут
     #: от свежих к старым.
     days: dict[str, str] = field(default_factory=dict)
+    #: Чтение прервала просьба кончить обход (`ASKED_TO_END`), а не потолок и не срок: карта у
+    #: сайта может быть, и продолжение должно её прочесть (`sources.start_frontier`).
+    halted: bool = False
 
     @property
     def complete(self) -> bool:
@@ -258,6 +284,7 @@ class SitemapReader:
         *,
         deadline: float | None = None,
         hinted: Sequence[str] = (),
+        halt: Halt | None = None,
     ) -> SitemapScan:
         """Карты из robots.txt, а если их нет — объявленные главной (`hinted`,
         `declared_in_html`) и типичные адреса.
@@ -266,7 +293,8 @@ class SitemapReader:
         не покрывал бы чтение карт вовсе: сайт с паузой в десять секунд
         и девятнадцатью объявленными картами съедал бы три минуты
         до первой открытой страницы, и срок не срабатывал ни разу.
-        Найдено живым прогоном.
+        Найдено живым прогоном. `halt` — просят ли кончить обход: спрашивается
+        перед каждым файлом, как срок (`cut_short`).
         """
         scan = SitemapScan()
         guesses = [urljoin(base, path) for path in COMMON_PATHS]
@@ -285,8 +313,9 @@ class SitemapReader:
         tried = 0
 
         while queue and tried < self._max_files and len(scan.urls) < self._max_urls:
-            if deadline is not None and time.monotonic() >= deadline:
-                logger.info("sitemap: срок на донора вышел, карты дочитаны не все")
+            if (reason := cut_short(deadline, halt)) is not None:
+                logger.info("sitemap: %s — карты дочитаны не все", reason)
+                scan.halted = reason == ASKED_TO_END
                 break
             url = queue.pop(0)
             if url in seen or not same_site(url, host):

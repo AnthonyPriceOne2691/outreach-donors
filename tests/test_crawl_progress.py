@@ -100,7 +100,8 @@ class TestStop:
         sink = _Sink()
         site = _site()
         opened = len(site.opened)
-        asked = iter([False, False, True])
+        # Первый ответ — перед файлом карты (`sitemap.cut_short`), дальше — перед страницами.
+        asked = iter([False, False, False, True])
 
         with pytest.raises(CrawlInterruptedError) as stopped:
             await _crawl(site, Progress(flush=sink, every_pages=100, stop=lambda: next(asked)))
@@ -122,7 +123,7 @@ class TestStop:
 class TestResume:
     async def test_resume_skips_what_was_opened_and_keeps_counting(self) -> None:
         first = _Sink()
-        asked = iter([False, False, True])
+        asked = iter([False, False, False, True])  # первый — перед файлом карты
         with pytest.raises(CrawlInterruptedError) as stopped:
             await _crawl(_site(), Progress(flush=first, every_pages=100, stop=lambda: next(asked)))
         point = stopped.value.checkpoint
