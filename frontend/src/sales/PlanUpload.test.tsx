@@ -9,6 +9,9 @@
  * список планов; отказ сервера — плашкой словами.
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -159,6 +162,21 @@ describe('книга до отправки', () => {
     expect(rangeWords(spend(1.5, 1), spend(7.25, 5))).toBe('1,50\u00a0$\u00a0— 7,25\u00a0$');
     expect(rangeWords(spend(1.5, 1), spend(1.5, 1))).toBe('1,50\u00a0$');
     expect(rangeWords(null, null)).toBe('—');
+  });
+
+  it('подсказка поля — `span` Mantine, и `glass.css` красит его чернилами подсказок', () => {
+    // У `FileInput` подсказка — не `::placeholder` поля, а `span` (`Input.Placeholder`): общее правило
+    // до неё не доходило, и серая умолчания давала 1,91 : 1 на свету (стенд 18.11.2026). Сменит
+    // Mantine класс — правило снова промахнётся молча, поэтому договор проверяется здесь.
+    setUp({});
+    renderWith(<PlanUpload onDone={vi.fn()} onCancel={vi.fn()} />);
+
+    const hint = screen.getByText('выберите книгу .xlsx');
+    expect(hint).toHaveClass('mantine-InputPlaceholder-placeholder');
+    const glass = readFileSync(resolve(process.cwd(), 'src/styles/glass.css'), 'utf8');
+    expect(glass).toMatch(
+      /::placeholder,\s*\.mantine-InputPlaceholder-placeholder \{\s*color: var\(--ink-faint\);/,
+    );
   });
 });
 
