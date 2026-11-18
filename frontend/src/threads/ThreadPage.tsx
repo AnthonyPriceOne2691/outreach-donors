@@ -42,6 +42,7 @@ import type { IncomingCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { BackLink, backTo } from '../components/BackLink';
 import { Seams } from '../components/Seams';
+import { shownAddress } from '../hostName';
 import { useFollowThreadPart } from './threadPart';
 import { Composer } from './Composer';
 import { NextWaiting } from './NextWaiting';
@@ -183,7 +184,7 @@ export function ThreadPage({ salesPart: SalesPart }: Props = {}) {
       await queryClient.invalidateQueries({ queryKey: ['overview'] });
       notify({
         message: sent.real
-          ? `Ответ отправлен с ${sent.sender_email}`
+          ? `Ответ отправлен с ${shownAddress(sent.sender_email)}`
           : 'Ответ записан, но не ушёл: почта выключена (транспорт null)',
         color: sent.real ? 'green' : 'yellow',
       });
@@ -218,6 +219,7 @@ export function ThreadPage({ salesPart: SalesPart }: Props = {}) {
   }
   if (data === undefined) return null;
   const stageNote = THREAD_STAGE_NOTES[data.card.stage];
+  const contact = shownAddress(data.card.contact_email) ?? 'адрес не определён';
   const sales = data.card.stage === 'sales';
   // Разбирают ответы людей: у автоответчика и отказа доставки разбирать нечего.
   // Кроме автоответа с суммой в валюте — у него сервер называет причину, и без
@@ -264,8 +266,7 @@ export function ThreadPage({ salesPart: SalesPart }: Props = {}) {
           </Group>
           <Group gap="xs" justify="space-between" style={{ rowGap: 4 }}>
             <Text size="sm" c="dimmed">
-              {data.card.contact_email ?? 'адрес не определён'} · кампания «{data.card.campaign}»
-              {stageNote ? ` · ${stageNote}` : ''}
+              {contact} · кампания «{data.card.campaign}»{stageNote ? ` · ${stageNote}` : ''}
             </Text>
             <NextWaiting current={data.card.id} split={split} />
           </Group>

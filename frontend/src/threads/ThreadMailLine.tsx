@@ -22,6 +22,7 @@ import { Alert, Text } from '@mantine/core';
 
 import type { ThreadMail } from '../api/thread';
 import { formatDateTime } from '../format';
+import { shownAddress } from '../hostName';
 
 /** Ящика переписки больше нет: им начата переписка, а его удалили. То же условие, что
  *  у «Ящик переписки удалён» в строке шапки: по нему поле ответа показывает причину
@@ -32,7 +33,8 @@ export function mailboxGone(mail: ThreadMail | null | undefined): boolean {
 
 export function ThreadMailLine({ mail }: { mail: ThreadMail | null | undefined }) {
   if (!mail) return null;
-  const who = mail.mailbox === null ? 'Ящик переписки удалён' : `Пишет ${mail.mailbox}`;
+  const who =
+    mail.mailbox === null ? 'Ящик переписки удалён' : `Пишет ${shownAddress(mail.mailbox)}`;
   const next =
     mail.next_step !== null && mail.next_at !== null
       ? ` · добивка ${mail.next_step} — ${formatDateTime(mail.next_at)}`

@@ -34,6 +34,7 @@ import { fetchThread } from '../api/outreach';
 import type { ThreadView } from '../api/thread';
 import type { SendResult } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { shownAddress } from '../hostName';
 import { notify } from '../notices';
 
 /** По этим черновикам ещё есть что решать. */
@@ -91,7 +92,7 @@ interface DraftProps {
 
 function sentWords(sent: SendResult): string {
   return sent.real
-    ? `Ответ отправлен с ${sent.sender_email}`
+    ? `Ответ отправлен с ${shownAddress(sent.sender_email)}`
     : 'Ответ записан, но не ушёл: почта выключена (транспорт null)';
 }
 
