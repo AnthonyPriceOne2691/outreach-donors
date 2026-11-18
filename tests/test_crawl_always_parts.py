@@ -24,9 +24,9 @@ from backend.config import storage
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, StopReason
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.crawl import CrawlDepthModel, CrawlRunModel
-from backend.features.crawl import always_depth, always_part, always_switch
+from backend.features.crawl import always, always_depth, always_part, always_switch
 from backend.features.crawl.always import ALWAYS_BY
-from backend.features.crawl.always_part import CHAIN_FROM, Part
+from backend.features.crawl.always_part import CHAIN_FROM, CHAIN_TO, Part
 from backend.features.crawl.progress import Checkpoint
 from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.repository import queue_crawl
@@ -65,6 +65,30 @@ def site(monkeypatch: pytest.MonkeyPatch) -> FakeSite:
     pages["/"] = _page("https://home-adv.example/")
     found = FakeSite(
         pages, robots=MAP_ROBOTS, sitemap=_urlset(*[f"https://{HOST}/p{n}" for n in range(SIZE)])
+    )
+
+    def client(**_: Any) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(found.handler))
+
+    monkeypatch.setattr(crawl_jobs, "guarded_client", client)
+    return found
+
+
+#: Адреса карты, уводящие навсегда на уже открытую страницу (как у донора 17–18.11.2026).
+REDIRECTS = {"/r0": "/p0", "/r1": "/p0"}
+
+
+@pytest.fixture
+def redirecting(monkeypatch: pytest.MonkeyPatch) -> FakeSite:
+    """Сайт на три статьи, в карте которого между ними — два адреса, уводящие на первую."""
+    pages = {f"/p{n}": _article(f"https://adv{n}.example/offer") for n in range(3)}
+    pages["/"] = _page("https://home-adv.example/")
+    order = ("/p0", "/p1", "/r0", "/r1", "/p2")
+    found = FakeSite(
+        pages,
+        robots=MAP_ROBOTS,
+        sitemap=_urlset(*[f"https://{HOST}{path}" for path in order]),
+        redirects=REDIRECTS,
     )
 
     def client(**_: Any) -> httpx.AsyncClient:
@@ -149,6 +173,7 @@ async def test_parts_continue_the_chain_without_reopening_pages(site: FakeSite) 
     assert _chain(after_first) == ["/", "/p0"], "первая часть — обычный потолок"
     assert [run.pages_opened for run in runs] == [2, 4, 8, 11], "страницы — всей цепочки"
     assert [(run.stats or {})[CHAIN_FROM] for run in runs] == [0, 2, 4, 8]
+    assert [(run.stats or {})[CHAIN_TO] for run in runs] == [2, 4, 8, 11], "разных — после части"
     assert [(run.stats or {})["links_found"] for run in runs] == [2, 2, 4, 3], "ссылки — свои"
     assert [run.stop_reason for run in runs] == [StopReason.MAX_PAGES] * 3 + [StopReason.EXHAUSTED]
     assert all(run.checkpoint is None for run in runs)
@@ -158,6 +183,44 @@ async def test_parts_continue_the_chain_without_reopening_pages(site: FakeSite) 
     assert depth.exhausted_at is not None, "карта дочитана, адреса кончились — сайт пройден"
     assert judged["crawl"] == last["crawl"]
     assert {f"adv{n}.example" for n in range(SIZE)} <= roots, "кандидаты — всей цепочки"
+
+
+async def test_a_part_stuck_on_redirects_passes_the_first_step_and_the_next_goes_deeper(
+    redirecting: FakeSite,
+) -> None:
+    """17–18.11.2026: адрес карты, уводящий на открытую страницу, открывается и считается, а цепочку
+    не растит. Часть «до 10 000» (здесь — до четырёх) упиралась в потолок, цепочка стояла ниже, и
+    следующая часть получала тот же потолок — по кругу, часть в минуту. Упёрлась — первые пройдены,
+    и следующая часть идёт с потолком «ещё 10 000» до конца сайта."""
+    async with committed_sessions() as factory:
+        await _switch(factory, on=True)
+        first = await _part(factory, 1, None)
+        after_first = await _depth(factory)
+        second = await _part(factory, 2, always_depth.first_step())
+        async with factory() as session:
+            stuck = (await always_depth.facts(session, {HOST}))[HOST]
+            switch = await always_switch.state(session)
+        stage = always._stage(HOST, stuck, False, always._Known(crawled={HOST}), switch)
+        ceiling = always._ceiling(stage, stuck.pages)
+        third = await _part(factory, 3, ceiling)
+        runs = [await _run(factory, done["crawl"]) for done in (first, second, third)]
+        depth = await _depth(factory)
+
+    assert after_first.first_done_at is None, "первая часть — обычный потолок, не первые 10 000"
+    assert runs[1].stop_reason is StopReason.MAX_PAGES
+    assert runs[1].pages_opened == 4, "открытое — с уводом на уже открытую страницу"
+    assert stuck.pages == 3, "увод на открытую страницу посчитан, а в цепочку не лёг"
+    assert stuck.first_done_at is not None, "упёрлась в потолок первых — первые пройдены"
+    assert stage is always.Stage.DEEPER
+    assert ceiling == 3 + always_depth.first_step(), "дальше — ещё «10 000» к пройденному"
+    assert [((run.stats or {})[CHAIN_FROM], (run.stats or {})[CHAIN_TO]) for run in runs] == [
+        (0, 2),
+        (2, 3),
+        (3, 4),
+    ]
+    assert runs[2].stop_reason is StopReason.EXHAUSTED
+    assert depth.pages == 4
+    assert depth.exhausted_at is not None, "дошла до конца сайта"
 
 
 async def test_the_night_ends_a_part_and_the_next_one_goes_on_from_there(

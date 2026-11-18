@@ -7,8 +7,10 @@
 кончатся все. Тогда — сообщение в Telegram.
 
 **Порядок** (`plan`): (1) ни разу не обходившиеся — часть с обычным потолком в тысячу страниц;
-(2) цепочка меньше 10 000 страниц — часть до 10 000 всего, с её чекпоинта; (3) дальше — часть «ещё
+(2) первые 10 000 не пройдены — часть до 10 000 всего, с чекпоинта цепочки; (3) дальше — часть «ещё
 10 000», сначала доходным: по доле продающих страниц, по убыванию (решение владельца 17.11.2026).
+Пройдены ли первые 10 000 — `always_depth.first_done_at`: часть, упёршаяся в их потолок, проходит
+их, даже если разных страниц в цепочке легло меньше.
 Слабые пропускаются, а с «переобходом слабых» идут после сильных; пройденные до конца — нет. Внутри
 очереди — порядок отбора (`targets.choose`: свежая цена первой).
 
@@ -23,9 +25,9 @@
 Части ставятся той же постановкой, что у кнопок и очереди загрузки (`launch`), от имени `ALWAYS_BY`;
 номер части — в строке обхода. Как часть идёт и кончается — `always_part.py`.
 
-**Не пустил** (`LastPart.refused`): часть не открыла ни одной новой страницы, сайт закрылся или стал
-отказывать — донор ждёт, пока его снова обойдут иначе (ночью или человек) и откроют страницы. Иначе
-закрытый сайт ставился бы каждую минуту. Часть, остановленную разбором мёртвых, — так же.
+**Не пустил и впустую** (`always_last.py`): последняя часть не открыла нового, сайт закрылся или
+цепочка не выросла, а потолок следующей тот же — донор ждёт, пока его снова обойдут иначе (ночью
+или человек). Иначе закрытый сайт или адреса, уводящие на открытое, ставились бы каждую минуту.
 
 **Пройдено всё** (`_say_done`): включён, частей не идёт, а у каждого донора — сайт кончился, он
 слабый или ждёт после отказа. Сообщение одно на эпоху (`CrawlAlwaysSignalModel`): следующее — только
@@ -51,7 +53,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import crawl as crawl_cfg
 from backend.config import crawl_always as cfg
 from backend.features.access.repository import AccessRepository
-from backend.features.core.domain import AuditAction, CrawlOutcome, CrawlStatus, StopReason
+from backend.features.core.domain import AuditAction
 from backend.features.core.models.crawl import (
     CrawlAlwaysSignalModel,
     CrawlBacklogModel,
@@ -59,7 +61,8 @@ from backend.features.core.models.crawl import (
     CrawlRunModel,
 )
 from backend.features.crawl import always_depth, always_switch, deep, targets
-from backend.features.crawl.always_part import CHAIN_FROM, night_hours
+from backend.features.crawl.always_last import LastPart, last_parts, rests
+from backend.features.crawl.always_part import night_hours
 from backend.features.crawl.always_switch import Switch
 from backend.features.crawl.donor_page import ACTIVE
 from backend.features.crawl.gate_union import usable
@@ -94,32 +97,6 @@ class Stage(StrEnum):
 
 #: Очереди, в которых донору есть что обходить, — по порядку выдачи.
 GOING = (Stage.NEW, Stage.FIRST, Stage.DEEPER)
-
-
-@dataclass(frozen=True, slots=True)
-class LastPart:
-    """Последняя часть цепочки донора — то, что о ней нужно выдаче."""
-
-    id: int
-    number: int
-    status: CrawlStatus
-    outcome: CrawlOutcome | None
-    stop: StopReason | None
-    pages: int
-    chain_from: int
-    resumes: int
-
-    @property
-    def refused(self) -> bool:
-        """Часть не дала нового (шапка, «Не пустил»). Ночь и пауза — не отказ, а очередь на
-        продолжение; отказ очереди задач (остановлен без единой задачи) — тоже не отказ сайта."""
-        if self.status is CrawlStatus.STOPPED:
-            return self.resumes > 0
-        if self.status is not CrawlStatus.DONE or self.stop is StopReason.PAUSED:
-            return False
-        if self.outcome not in (CrawlOutcome.OK, CrawlOutcome.PARTIAL):
-            return True
-        return self.stop is StopReason.UNHEALTHY or self.pages <= self.chain_from
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,7 +183,7 @@ async def _known(session: AsyncSession) -> _Known:
     for host, part in active.tuples().all():
         known.busy.add(host)
         known.running += part is not None
-    known.last = await _last_parts(session)
+    known.last = await last_parts(session)
     regular = await session.execute(
         select(CrawlRunModel.host, func.max(CrawlRunModel.id))
         .where(usable(), CrawlRunModel.depth_part.is_(None), CrawlRunModel.pages_opened > 0)
@@ -214,31 +191,6 @@ async def _known(session: AsyncSession) -> _Known:
     )
     known.regular = {host: int(newest) for host, newest in regular.tuples().all()}
     return known
-
-
-async def _last_parts(session: AsyncSession) -> dict[str, LastPart]:
-    """Последняя часть цепочки каждого донора — любая: идущая, законченная, остановленная."""
-    started = CrawlRunModel.stats[CHAIN_FROM].as_integer()
-    rows = await session.execute(
-        select(
-            CrawlRunModel.host,
-            CrawlRunModel.id,
-            CrawlRunModel.depth_part,
-            CrawlRunModel.status,
-            CrawlRunModel.outcome,
-            CrawlRunModel.stop_reason,
-            CrawlRunModel.pages_opened,
-            started,
-            CrawlRunModel.resumes,
-        )
-        .where(CrawlRunModel.depth_part.is_not(None))
-        .distinct(CrawlRunModel.host)
-        .order_by(CrawlRunModel.host, CrawlRunModel.id.desc())
-    )
-    return {
-        host: LastPart(run_id, part or 0, status, outcome, stop, pages, begun or 0, resumes)
-        for host, run_id, part, status, outcome, stop, pages, begun, resumes in rows.tuples().all()
-    }
 
 
 def _stage(
@@ -250,24 +202,35 @@ def _stage(
         return Stage.WEAK
     if host not in known.crawled:
         return Stage.NEW
-    pages = depth.pages if depth is not None else 0
-    return Stage.FIRST if pages < always_depth.first_step() else Stage.DEEPER
+    return Stage.DEEPER if always_depth.past_first(depth) else Stage.FIRST
+
+
+def _ceiling(stage: Stage, pages: int) -> int | None:
+    """Потолок следующей части — страниц всей цепочки: новый — обычный обход, первые — до 10 000,
+    дальше — ещё 10 000 к пройденному."""
+    step = always_depth.first_step()
+    if stage is Stage.NEW:
+        return None
+    if stage is Stage.FIRST:
+        return step
+    return pages + step
 
 
 def _donor(host: str, rank: int, known: _Known, switch: Switch) -> Donor:
     depth = known.depths.get(host)
     weak, _ = always_depth.weak_of(depth, switch.threshold_pct)
+    stage = _stage(host, depth, weak, known, switch)
+    pages = depth.pages if depth is not None else 0
     last = known.last.get(host)
-    retry = last is not None and last.refused
-    woken = last is not None and known.regular.get(host, 0) > last.id
+    retry, resting = rests(last, _ceiling(stage, pages), known.regular.get(host, 0))
     return Donor(
         host=host,
-        stage=_stage(host, depth, weak, known, switch),
-        pages=depth.pages if depth is not None else 0,
+        stage=stage,
+        pages=pages,
         yield_pct=depth.yield_pct if depth is not None else None,
         weak=weak,
         busy=host in known.busy,
-        resting=retry and not woken,
+        resting=resting,
         retry=retry,
         part=(last.number if last is not None else 0) + 1,
         rank=rank,
@@ -293,15 +256,8 @@ def _order(donor: Donor) -> tuple[int, bool, bool, float, int]:
 
 
 def _spec(donor: Donor) -> Spec:
-    """Потолок части — страниц всей цепочки: новый — обычный обход, первые — до 10 000, дальше —
-    ещё 10 000 к пройденному."""
-    step = always_depth.first_step()
-    if donor.stage is Stage.NEW:
-        pages: int | None = None
-    elif donor.stage is Stage.FIRST:
-        pages = step
-    else:
-        pages = donor.pages + step
+    """Часть к выдаче — с потолком своей очереди (`_ceiling`)."""
+    pages = _ceiling(donor.stage, donor.pages)
     return Spec(host=donor.host, part=donor.part, max_pages=pages, retry=donor.retry)
 
 

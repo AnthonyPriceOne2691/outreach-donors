@@ -56,11 +56,14 @@ class FakeSite:
         robots: str | None = "User-agent: *\nDisallow:\n",
         sitemap: str | None = None,
         status: int = 200,
+        redirects: dict[str, str] | None = None,
     ) -> None:
         self.pages = pages
         self.robots = robots
         self.sitemap = sitemap
         self.status = status
+        #: Путь → путь, куда он уводит навсегда (301): адрес карты, ведущий на другую страницу.
+        self.redirects = redirects or {}
         self.asked: list[str] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -71,6 +74,9 @@ class FakeSite:
             return self._robots_response()
         if path.endswith(".xml"):
             return self._sitemap_response()
+        if path in self.redirects:
+            target = f"{request.url.scheme}://{request.url.host}{self.redirects[path]}"
+            return httpx.Response(301, headers={"location": target})
         if path in self.pages:
             return httpx.Response(self.status, text=self.pages[path], headers=HTML)
         return httpx.Response(404, text="нет такой страницы", headers=HTML)
