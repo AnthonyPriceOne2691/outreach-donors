@@ -46,7 +46,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.crawl.advertiser_rules import in_work, writes_to
 from backend.features.crawl.niche import NICHE
 from backend.features.crawl.offer_state import OfferFlags, OfferState
-from backend.shared.database.text_search import contains
+from backend.shared.database.text_search import contains_host
 
 #: Рекламодателей на странице: размер называет сервер, экран берёт его из ответа.
 PAGE_SIZE = 20
@@ -161,7 +161,7 @@ def _links_from(donor: str) -> ColumnElement[bool]:
 def _narrow(statement: Select[Any], filters: AdvertiserFilters, flags: OfferFlags) -> Select[Any]:
     if filters.search:
         # Набранное — текст, а не шаблон: «_» и «%» находили бы всех (`text_search`).
-        statement = statement.where(contains(DomainModel.host, filters.search))
+        statement = statement.where(contains_host(DomainModel.host, filters.search))
     if filters.donor:
         statement = statement.where(_links_from(filters.donor))
     if filters.source:

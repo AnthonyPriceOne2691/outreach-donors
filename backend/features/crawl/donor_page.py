@@ -47,6 +47,7 @@ from backend.features.crawl.board import CrawlLine, DonorLine
 from backend.features.crawl.suppliers import supplier_hosts
 from backend.features.donors.standing import is_donor
 from backend.features.runs.exclusions import not_writing
+from backend.shared.database.text_search import contains_host
 
 
 class Status(StrEnum):
@@ -221,12 +222,6 @@ def _base(columns: list[Any], suppliers: set[str]) -> Select[Any]:
     return statement
 
 
-def _search(text: str) -> ColumnElement[bool]:
-    """Подстрока домена; знаки шаблона LIKE — буквально."""
-    escaped = text.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return func.lower(DomainModel.host).like(f"%{escaped}%", escape="\\")
-
-
 def _chips(query: DonorQuery, terms: _Terms) -> list[ColumnElement[bool]]:
     """Условия, у которых есть свой счётчик: статус, срок цены и «мало рекламодателей»."""
     chips: list[ColumnElement[bool]] = []
@@ -248,7 +243,8 @@ def _where(
     if query.source is not None:
         conditions.append(DonorModel.last_price_source == query.source)
     if query.search.strip():
-        conditions.append(_search(query.search.strip()))
+        # Подстрока домена — и письменностью сайта (`text_search.contains_host`).
+        conditions.append(contains_host(DomainModel.host, query.search))
     return statement.where(*conditions) if conditions else statement
 
 

@@ -51,7 +51,7 @@ from backend.features.donors.price_freshness import PriceState, price_is
 from backend.features.donors.standing import is_donor
 from backend.features.review.candidates import Decision
 from backend.features.topics.store import topic_is
-from backend.shared.database.text_search import contains
+from backend.shared.database.text_search import contains, contains_host
 
 
 class Freshness(StrEnum):
@@ -254,7 +254,7 @@ def narrowed(
         # Набранное — текст, а не шаблон: «_» и «%» находили всех (`text_search`).
         statement = statement.where(
             or_(
-                contains(DomainModel.host, filters.search),
+                contains_host(DomainModel.host, filters.search),
                 contains(DonorModel.reject_reason, filters.search),
             )
         )
