@@ -9,8 +9,10 @@
 
 from __future__ import annotations
 
-from sqlalchemy import ColumnElement
+from sqlalchemy import ColumnElement, or_
 from sqlalchemy.orm import InstrumentedAttribute
+
+from backend.shared.net.idn import stored_name
 
 #: Знак экранирования в образце — назван в запросе явно (`ESCAPE`), а не умолчанием
 #: базы: умолчание у баз разное, а правило должно быть одно.
@@ -34,9 +36,24 @@ def literal(typed: str) -> str:
     return typed
 
 
-def contains(
-    column: InstrumentedAttribute[str] | InstrumentedAttribute[str | None] | ColumnElement[str],
-    typed: str,
-) -> ColumnElement[bool]:
+#: Где ищут: колонка модели или выражение над ней.
+type Column = InstrumentedAttribute[str] | InstrumentedAttribute[str | None] | ColumnElement[str]
+
+
+def contains(column: Column, typed: str) -> ColumnElement[bool]:
     """Колонка содержит набранное — без пробелов по краям и без учёта регистра."""
     return column.collate(ANY_SCRIPT).ilike(f"%{literal(typed.strip())}%", escape=ESCAPE)
+
+
+def contains_host(column: Column, typed: str) -> ColumnElement[bool]:
+    """Колонка имени сайта или адреса почты содержит набранное — как есть или в ASCII.
+
+    База хранит домены IDN в ASCII (`xn--e1afmkfd.xn--p1ai`), а экраны с 18.11.2026 показывают их
+    письменностью сайта: человек видит «пример.рф» и набирает его. Набранное не в ASCII ищется ещё
+    и в форме базы (`idn.stored_name`) — так находятся целые метки: «пример», «пример.рф», «рф».
+    Обрывок метки («прим») в ASCII-форме не найдётся: punycode кодирует метку целиком, и у обрывка
+    своя запись, а не кусок чужой. Имя, записанное письменностью, находит первая половина условия.
+    """
+    found = contains(column, typed)
+    stored = stored_name(typed)
+    return or_(found, contains(column, stored)) if stored else found

@@ -48,7 +48,7 @@ from backend.features.sales.models import (
     SalesHypothesisModel,
     SalesLeadModel,
 )
-from backend.shared.database.text_search import contains
+from backend.shared.database.text_search import contains, contains_host
 
 #: Лидов на странице — как у отбора (замечание 26.09.2026: «максимум 20»).
 PAGE_SIZE = 20
@@ -112,10 +112,10 @@ class HypothesisRow:
 def _by_search(text: str) -> ColumnElement[bool]:
     """Набранное — текст, а не шаблон (`text_search`): «_» и «%» находили всех лидов."""
     return or_(
-        contains(SalesLeadModel.email, text),
+        contains_host(SalesLeadModel.email, text),
         contains(SalesLeadModel.name, text),
         contains(SalesLeadModel.company, text),
-        contains(DomainModel.host, text),
+        contains_host(DomainModel.host, text),
     )
 
 
