@@ -18,7 +18,7 @@ from backend.features.core.models.donor import DonorModel
 from backend.features.crawl.targets import choose, explain
 from backend.features.donors.browse import DonorBrowser, DonorFilters
 from backend.features.donors.manual_price import enter_host, manual_price
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor
 
@@ -92,6 +92,21 @@ class TestWhoWeCrawl:
         chosen = await choose(session, limit=1)
 
         assert chosen.hosts == ["new.example.test"]
+
+    async def test_equal_freshness_keeps_the_order_donors_came_in(
+        self, session: AsyncSession
+    ) -> None:
+        """Одна дата цены у нескольких — порядок заведения, а не как ляжет план запроса."""
+        for host in ("a.example.test", "b.example.test", "c.example.test"):
+            await _donor(session, host)
+        await session.execute(
+            update(DonorModel).values(last_price_at=datetime.now(UTC) - timedelta(days=1))
+        )
+        await session.flush()
+
+        chosen = await choose(session)
+
+        assert chosen.hosts == ["a.example.test", "b.example.test", "c.example.test"]
 
 
 class TestOnlyDonorsAcceptedByAPerson:

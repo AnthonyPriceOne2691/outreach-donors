@@ -1922,7 +1922,7 @@
       "worst": "supplier_hosts:39"
     },
     "backend/features/crawl/targets.py": {
-      "lines": 168,
+      "lines": 170,
       "complexity": 11,
       "worst": "choose:78"
     },
