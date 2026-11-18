@@ -229,7 +229,7 @@ class TestCount:
 
     async def test_the_count_survives_a_resume(self) -> None:
         """Обход идёт несколькими попытками: счёт — в чекпоинте, как у кнопок «поделиться»."""
-        asked = iter([False, False, True])
+        asked = iter([False, False, False, True])  # первый — перед файлом карты
         with pytest.raises(CrawlInterruptedError) as stopped:
             await _walk(
                 _junk_site(), Progress(flush=_Sink(), every_pages=100, stop=lambda: next(asked))

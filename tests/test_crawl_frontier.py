@@ -111,8 +111,9 @@ async def test_a_mixed_crawl_resumes_from_its_saved_links() -> None:
     async def keep(batch: Batch) -> None:
         first.append(batch)
 
-    # Три страницы — /a и /b с карты, /home-1 по ссылке, — на четвёртой просят остановиться.
-    asked = iter([False] * 3 + [True])
+    # Файл карты и три страницы — /a и /b с карты, /home-1 по ссылке, — на четвёртой просят
+    # остановиться: первый вопрос — перед файлом карты (`sitemap.cut_short`).
+    asked = iter([False] * 4 + [True])
     with pytest.raises(CrawlInterruptedError) as stopped:
         await _crawl(_site(), Progress(flush=keep, every_pages=100, stop=lambda: next(asked)))
     point = stopped.value.checkpoint
