@@ -39,7 +39,7 @@ from backend.features.crawl import (
 )
 from backend.features.crawl import targets as targets_module
 from backend.features.crawl.always import ALWAYS_BY, DONE, Spec
-from backend.features.crawl.always_part import CHAIN_FROM
+from backend.features.crawl.always_part import CHAIN_FROM, CHAIN_TO
 from backend.features.crawl.night import NightStatus
 from backend.features.crawl.progress import Checkpoint
 from sqlalchemy import event, select
@@ -106,14 +106,23 @@ RUN: dict[str, Any] = {
 
 
 async def _run(
-    session: AsyncSession, host: str, *, part: int | None = None, chain_from: int = 0, **given: Any
+    session: AsyncSession,
+    host: str,
+    *,
+    part: int | None = None,
+    chain_from: int = 0,
+    chain_to: int | None = None,
+    **given: Any,
 ) -> CrawlRunModel:
-    """Обход донора — обычный или часть цепочки (`part`) с её началом в цепочке; поля строки —
-    как в `RUN`, кроме названных."""
+    """Обход донора — обычный или часть цепочки (`part`) с её началом в цепочке и, если дан,
+    концом; поля строки — как в `RUN`, кроме названных."""
+    chain: dict[str, int] = {CHAIN_FROM: chain_from}
+    if chain_to is not None:
+        chain[CHAIN_TO] = chain_to
     run = CrawlRunModel(
         host=host,
         depth_part=part,
-        stats={CHAIN_FROM: chain_from} if part is not None else None,
+        stats=chain if part is not None else None,
         **{**RUN, **given},
     )
     session.add(run)
@@ -410,6 +419,82 @@ async def test_a_refused_part_rests_until_the_site_opens_again(
     assert [(spec.host, spec.part) for spec in planned] == [("shut.test", 3)], (
         "сайт снова открылся обходу не из цепочки — повтор"
     )
+    assert planned[0].retry is rests
+
+
+# --- впустую ---------------------------------------------------------------------------------------
+
+
+async def test_a_chain_that_hit_the_first_ceiling_goes_deeper_below_ten_thousand(
+    session: AsyncSession,
+) -> None:
+    """17–18.11.2026: цепочка стояла на 9 973 разных страницах, а часть «до 10 000» упиралась в
+    потолок за минуту — адреса карты уводили на открытое. Упёрлась — первые 10 000 пройдены
+    (`always_depth.reached_first`), и следующая часть идёт дальше, а не по кругу."""
+    await _donor(session, "stuck.test")
+    await _run(session, "stuck.test", part=1, pages_opened=1_000)
+    await _depth(session, "stuck.test", 9_973, first_done_at=NOON)
+    await _run(
+        session,
+        "stuck.test",
+        part=2,
+        max_pages=10_000,
+        pages_opened=10_000,
+        chain_from=9_973,
+        chain_to=9_973,
+    )
+    await _on(session)
+
+    planned = await _plan(session)
+
+    assert [(spec.host, spec.part, spec.max_pages, spec.retry) for spec in planned] == [
+        ("stuck.test", 3, 19_973, False)
+    ], "потолок вырос — следующей части есть куда идти"
+
+
+@pytest.mark.parametrize(
+    ("stop", "chain_to", "rests"),
+    [
+        (StopReason.EXHAUSTED, 12_000, True),
+        (StopReason.MAX_PAGES, 12_000, True),
+        (StopReason.EXHAUSTED, 12_001, False),
+        (StopReason.PAUSED, 12_000, False),
+        (StopReason.EXHAUSTED, None, False),
+    ],
+    ids=[
+        "адреса кончились, цепочка не выросла",
+        "упёрлась, цепочка не выросла",
+        "одна новая страница",
+        "ночь или пауза",
+        "часть до правки — по открытому",
+    ],
+)
+async def test_a_part_that_adds_no_page_rests_until_the_site_opens_again(
+    session: AsyncSession, stop: StopReason, chain_to: int | None, rests: bool
+) -> None:
+    await _donor(session, "idle.test")
+    await _run(session, "idle.test", part=1, pages_opened=1_000)
+    await _depth(session, "idle.test", 12_000, first_done_at=NOON, yield_pct=4.0)
+    await _run(
+        session,
+        "idle.test",
+        part=2,
+        max_pages=22_000,
+        outcome=CrawlOutcome.PARTIAL if stop is StopReason.PAUSED else CrawlOutcome.OK,
+        stop_reason=stop,
+        pages_opened=12_027,
+        chain_from=12_000,
+        chain_to=chain_to,
+    )
+    await _on(session)
+
+    assert (await _plan(session) == []) is rests, "тот же потолок — те же адреса"
+    await _run(session, "idle.test", pages_opened=800)
+    planned = await _plan(session)
+
+    assert [(spec.host, spec.part, spec.max_pages) for spec in planned] == [
+        ("idle.test", 3, 22_000)
+    ], "сайт снова открылся обходу не из цепочки — повтор"
     assert planned[0].retry is rests
 
 

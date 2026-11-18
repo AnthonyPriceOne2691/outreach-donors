@@ -21,6 +21,12 @@
 **Сайт кончился** (`exhausted_at`) — только когда обход исчерпал адреса и карта сайта дочитана или
 её нет: оборванная карта говорит «адресов больше нет» о сайте, который мы не дочитали.
 
+**Первые 10 000 пройдены** (`first_done_at`) — когда в цепочке 10 000 разных страниц, сайт кончился
+или часть упёрлась в потолок первых 10 000 (`reached_first`). Последнее — потому что потолок части
+считает открытое, а цепочка — разные адреса: адрес карты сайта, который уводит на уже открытую
+страницу, открывается и считается, а цепочку не растит. 17–18.11.2026 у четырёх доноров цепочка
+встала на 9 973–9 998 страниц, и каждая часть «до 10 000» кончалась за минуту, открыв те же адреса.
+
 **Слабый** (`weak_of`, в запросе — `weak_clause`) — считается при чтении: пометка руками, если она
 есть, иначе доля продающих страниц после первых 10 000 ниже порога (`always_switch`). Порог сменили —
 пометки меняются сразу.
@@ -114,6 +120,26 @@ def exhausted(report: CrawlReport) -> bool:
     """Сайт кончился: адреса исчерпаны, а карта дочитана или её нет (шапка)."""
     complete_map = report.sitemap_found is False or report.sitemap_complete
     return report.stop_reason is StopReason.EXHAUSTED and complete_map
+
+
+def reached_first(run: CrawlRunModel, report: CrawlReport) -> bool:
+    """Часть упёрлась в потолок первых 10 000 или выше — первые 10 000 пройдены, сколько бы разных
+    страниц ни легло в цепочку (шапка). Первая часть идёт с обычным потолком и сюда не попадает."""
+    ceiling = run.max_pages or 0
+    return report.stop_reason is StopReason.MAX_PAGES and ceiling >= first_step()
+
+
+def _passed_first(row: CrawlDepthModel, run: CrawlRunModel, report: CrawlReport) -> bool:
+    """Первые 10 000 пройдены этой частью (шапка): разных страниц хватило, сайт кончился или часть
+    упёрлась в их потолок."""
+    return row.pages >= first_step() or row.exhausted_at is not None or reached_first(run, report)
+
+
+def past_first(depth: Facts | None) -> bool:
+    """Цепочка прошла первые 10 000 — следующая часть идёт «ещё 10 000» к пройденному."""
+    if depth is None:
+        return False
+    return depth.first_done_at is not None or depth.pages >= first_step()
 
 
 class Marked(Protocol):
@@ -247,7 +273,7 @@ async def finish_part(
     row.last_run_id = run.id
     if exhausted(report) and row.exhausted_at is None:
         row.exhausted_at = now
-    if row.first_done_at is None and (row.pages >= first_step() or row.exhausted_at is not None):
+    if row.first_done_at is None and _passed_first(row, run, report):
         row.first_done_at = now
     await session.flush()
     logger.info(

@@ -1497,19 +1497,24 @@
       "worst": "affiliation:102"
     },
     "backend/features/crawl/always.py": {
-      "lines": 482,
+      "lines": 438,
       "complexity": 8,
-      "worst": "_stage:244"
+      "worst": "tick:323"
     },
     "backend/features/crawl/always_depth.py": {
-      "lines": 296,
-      "complexity": 8,
-      "worst": "finish_part:229"
+      "lines": 322,
+      "complexity": 7,
+      "worst": "weak_of:207"
+    },
+    "backend/features/crawl/always_last.py": {
+      "lines": 95,
+      "complexity": 7,
+      "worst": "idle:55"
     },
     "backend/features/crawl/always_part.py": {
-      "lines": 152,
+      "lines": 157,
       "complexity": 6,
-      "worst": "prepare:103"
+      "worst": "prepare:107"
     },
     "backend/features/crawl/always_switch.py": {
       "lines": 121,
