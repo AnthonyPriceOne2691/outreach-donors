@@ -1977,6 +1977,14 @@ html:root .mantine-Pill-root {
     --sticky-edge: 8px 0 10px -8px rgb(0 0 0 / 35%);
   }
 
+  /* В темноте — плотным тоном, как закреплённая шапка ниже, двумя слоями (18.11.2026): сквозь три слоя
+     `--glass-fill-content` уехавшая колонка проступала, разница пикселей до 4 из 255, — на тёмном это
+     видно глазом; один слой `--glass-fill-solid`, как у шапки, — до 14, два — до 1, как на свету
+     (стенд «Приёмки», вбок 150 px и до конца). На свету три слоя и так дают до 1 — не тронуто. */
+  html:root[data-mantine-color-scheme='dark'] .stickyName {
+    --sticky-fill: linear-gradient(var(--glass-fill-solid) 0 0), var(--glass-fill-solid);
+  }
+
   .stickyName.dataTable :is(th, td):first-child {
     position: sticky;
     left: 0;
