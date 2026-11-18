@@ -4,7 +4,8 @@
 письма 25 лидам с кириллическим доменом ушли с `xn--` в теме или тексте: `{{site}}` подставлял имя
 из базы. Здесь — раскодировщик (`shared/net/idn.py`) и подстановка писем (`compose._substitute`,
 общая у доноров, рекламодателей и продаж): в тексте имя раскодировано, в ссылке и в адресе почты —
-ASCII; слова переадресации на экране — тоже по-человечески. Домены выдуманы.
+ASCII; то же правило — у текста, собранного до правки и сохранённого (`compose.shown_sites`); слова
+переадресации на экране — тоже по-человечески. Домены выдуманы.
 """
 
 from __future__ import annotations
@@ -97,6 +98,94 @@ class TestSubstitute:
     def test_values_stay_ascii_for_everyone_who_takes_them(self) -> None:
         values = compose.values_for(host=ACE, domain_id=None)
         assert values["host"] == ACE
+
+
+#: Другой выдуманный домен IDN — «сад.example.test».
+GARDEN = "xn--80ai1b.example.test"
+
+
+class TestShownSites:
+    """Текст, собранный до 18.11.2026, хранит имя сайта в ASCII и в тексте: `shown_sites` приводит
+    его тем же правилом, что подстановка, — и только точное значение подстановки имени сайта."""
+
+    @pytest.mark.parametrize("name", sorted(compose.HOST_VALUES))
+    def test_name_in_the_text_is_shown_as_written(self, name: str) -> None:
+        text = f"Здравствуйте, команда {ACE}!"
+        assert compose.shown_sites(text, {name: ACE}) == f"Здравствуйте, команда {SHOWN}!"
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            f"Страница https://{ACE}/page — там цены.",
+            f'Ссылка <a href="//{ACE}">сайт</a>.',
+            f"Почта info@{ACE}, пишите.",
+        ],
+        ids=["url", "href", "address"],
+    )
+    def test_link_and_address_keep_ascii(self, text: str) -> None:
+        assert compose.shown_sites(text, {"site": ACE}) == text
+
+    def test_text_built_before_comes_out_as_the_substitution_builds_it_now(self) -> None:
+        """Несколько мест в одном тексте — как у подстановки: тот же шаблон, собранный до правки
+        (имя в ASCII везде), после `shown_sites` — то, что подстановка собирает теперь."""
+        template = (
+            "Здравствуйте, команда {{host}}! Страница https://{{host}}/page, "
+            '<a href="//{{host}}">сайт</a>, почта info@{{host}}, ({{host}}) и снова {{host}}.'
+        )
+        before = template.replace("{{host}}", ACE)
+        now = compose.render(_template(template), _values(host=ACE)).zones[0].text
+
+        assert compose.shown_sites(before, {"host": ACE}) == now
+        assert now == (
+            f"Здравствуйте, команда {SHOWN}! Страница https://{ACE}/page, "
+            f'<a href="//{ACE}">сайт</a>, почта info@{ACE}, ({SHOWN}) и снова {SHOWN}.'
+        )
+
+    def test_second_pass_changes_nothing(self) -> None:
+        text = f"Сайт {ACE}: https://{ACE}/page, info@{ACE}, www.{ACE}."
+        values = {"site": ACE}
+
+        once = compose.shown_sites(text, values)
+
+        assert once == f"Сайт {SHOWN}: https://{ACE}/page, info@{ACE}, www.{SHOWN}."
+        assert compose.shown_sites(once, values) == once
+
+    def test_only_the_exact_name_of_the_site_is_shown(self) -> None:
+        """Чужой домен `xn--…` и имя, частью которого стоит имя сайта, — как есть: что это имя
+        сайта, знает только подстановка."""
+        text = f"Сайт {ACE}, сосед {GARDEN}, магазин {ACE}-shop.example.test и shop-{ACE}."
+
+        assert compose.shown_sites(text, {"site": ACE}) == (
+            f"Сайт {SHOWN}, сосед {GARDEN}, магазин {ACE}-shop.example.test и shop-{ACE}."
+        )
+
+    def test_several_names_of_sites_are_each_shown(self) -> None:
+        text = f"Площадка {GARDEN} для {ACE}, ещё www.{GARDEN} и https://{GARDEN}/."
+        values = {"host": ACE, "donor_host": GARDEN}
+
+        assert compose.shown_sites(text, values) == (
+            f"Площадка сад.example.test для {SHOWN}, ещё www.сад.example.test и https://{GARDEN}/."
+        )
+
+    @pytest.mark.parametrize(
+        "values",
+        [
+            {"anchor": ACE, "company": ACE},  # не имя сайта: как есть, даже если похоже на домен
+            {"site": "Shop.Example.test", "host": "shop.example.test"},  # без `xn--`
+            {"site": "", "host": "  "},  # пустое значение
+        ],
+        ids=["not-a-site", "no-ace", "empty"],
+    )
+    def test_text_stays_as_it_is_without_a_name_of_a_site_to_show(
+        self, values: dict[str, str]
+    ) -> None:
+        text = f"Сайт {ACE}, магазин Shop.Example.test и shop.example.test."
+        assert compose.shown_sites(text, values) == text
+
+    def test_empty_value_is_ignored_and_the_others_are_shown(self) -> None:
+        text = f"Сайт {ACE} и площадка."
+        values = {"donor_host": "", "site": ACE}
+        assert compose.shown_sites(text, values) == f"Сайт {SHOWN} и площадка."
 
 
 class TestRedirectWords:

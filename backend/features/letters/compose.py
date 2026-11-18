@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from backend.config import outreach as cfg
@@ -35,7 +36,7 @@ from backend.features.letters.template import (
     Zone,
     ZoneKind,
 )
-from backend.shared.net.idn import shown_host
+from backend.shared.net.idn import has_ace, shown_host
 
 
 class ComposeError(ValueError):
@@ -99,6 +100,16 @@ def _in_link(text: str, at: int) -> bool:
     word = _WORD_BEFORE.search(text, 0, at)
     before = word.group(0) if word else ""
     return "//" in before or "@" in before
+
+
+def _shown(text: str, at: int, name: str, value: str) -> str:
+    """Значение подстановки `name`, каким оно встаёт на место `at` текста: имя сайта
+    (`HOST_VALUES`) в тексте — письменностью сайта (`shown_host`), в ссылке и в адресе почты —
+    ASCII, как в базе (`_in_link`); прочие — как есть. Одно правило у подстановки
+    (`_substitute`) и у готового текста (`shown_sites`)."""
+    if name in HOST_VALUES and not _in_link(text, at):
+        return shown_host(value)
+    return value
 
 
 #: Как выглядит пустая ссылка в тексте. Отдельно от настроек: пустую
@@ -268,13 +279,32 @@ def _substitute(text: str, values: dict[str, str]) -> str:
         if name in OPTIONAL_VALUES:
             return values[name]
         value = values[name].strip()
-        if value and name in HOST_VALUES and not _in_link(text, match.start()):
-            return shown_host(value)
         if value:
-            return value
+            return _shown(text, match.start(), name, value)
         return _UNSET.format(title=_UNSET_TITLES.get(name, f"{name.upper()} НЕ ЗАДАНО"))
 
     return PLACEHOLDER_RE.sub(replace, text)
+
+
+def shown_sites(text: str, values: Mapping[str, str]) -> str:
+    """Имена сайтов в уже собранном тексте — тем же правилом, что у подстановки (`_shown`): в
+    тексте — письменностью сайта, в ссылке и в адресе почты — ASCII.
+
+    Нужно тексту, который собран до 18.11.2026 и хранится: тогда `{{site}}` вставал в ASCII и в
+    тексте, а добивки продаж уходят текстом, сохранённым при сборке первого письма
+    (`sales/followup_texts.py`). Раскодируется только точное значение подстановки с именем сайта
+    (`HOST_VALUES`), у которого есть метка `xn--`, и только целым именем, а не куском чужой метки;
+    прочий `xn--…` в тексте — как есть: что это имя сайта, знает только подстановка. Повтор
+    ничего не меняет: в тексте имя уже раскодировано, в ссылке и в адресе — снова ASCII."""
+    names = {value.strip(): name for name, value in values.items() if name in HOST_VALUES}
+    sites = sorted((site for site in names if has_ace(site)), key=len, reverse=True)
+    if not sites:
+        return text
+    # Целым именем: буква, цифра, «_» или «-» рядом — это кусок чужой метки (`…-shop.example`);
+    # точка рядом — можно: `www.` перед именем и точка в конце фразы.
+    choices = "|".join(map(re.escape, sites))
+    found = re.compile(rf"(?<![\w-])(?:{choices})(?![\w-])")
+    return found.sub(lambda match: _shown(text, match.start(), names[match[0]], match[0]), text)
 
 
 def unset_in(text: str) -> list[str]:
