@@ -1700,11 +1700,16 @@ html:root .mantine-Pill-root {
    Mantine пишет через класс и по весу выигрывает — первая попытка
    не дала ничего, и замер это показал. Поле тегов («Про что» на прогоне)
    и поле пароля печатают внутренним полем со своим классом — без них
-   подсказка там оставалась серой Mantine. */
+   подсказка там оставалась серой Mantine. Поле файла (`FileInput`) — кнопка,
+   его подсказка — `span` (`Input.Placeholder`), а не `::placeholder`: серым
+   умолчанием она давала 1,91 : 1 на свету и 3,10 в темноте, цвет к фону;
+   теперь 6,49 и 6,73, как подсказка поля рядом («Загрузить план работ»,
+   мастер загрузки, 18.11.2026). */
 .mantine-Input-input::placeholder,
 .mantine-Textarea-input::placeholder,
 .mantine-PillsInputField-field::placeholder,
-.mantine-PasswordInput-innerInput::placeholder {
+.mantine-PasswordInput-innerInput::placeholder,
+.mantine-InputPlaceholder-placeholder {
   color: var(--ink-faint);
   opacity: 1;
 }
