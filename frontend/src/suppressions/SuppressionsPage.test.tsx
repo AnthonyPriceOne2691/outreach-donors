@@ -213,6 +213,30 @@ describe('стоп-лист', () => {
     expect(recorded.calls).toHaveLength(before);
   });
 
+  it('домен IDN — раскодированным, и поиск по-русски его находит (18.11.2026)', async () => {
+    const idn = {
+      id: 4,
+      host: null,
+      email: 'info@xn--e1afmkfd.xn--p1ai',
+      reason: 'manual',
+      stage: null,
+      created_by: 'анна@site.example.test',
+      created_at: '2026-09-22T10:00:00+00:00',
+      expires_at: null,
+      expired: false,
+      donor_decision: false,
+    };
+    await openStopList({
+      'GET /api/suppressions': { body: { ...STOP_LIST, rows: [...STOP_LIST.rows, idn], total: 4 } },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Поиск по домену или адресу'), 'пример');
+
+    expect(screen.getByText('info@пример.рф')).toBeInTheDocument();
+    expect(screen.queryByText('donor.example.test')).not.toBeInTheDocument();
+  });
+
   it('истёкшая запись остаётся на экране и названа истёкшей', async () => {
     await openStopList();
 

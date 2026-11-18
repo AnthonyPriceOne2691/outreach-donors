@@ -375,6 +375,31 @@ describe('подробности: итог одной строкой, остал
     expect(to.innerHTML).toContain('editor@<wbr>ads<wbr>.example<wbr>.test');
   });
 
+  it('домен IDN — по швам и раскодированным, и адрес, и голый домен (18.11.2026)', async () => {
+    const idn: JournalView = {
+      ...PAGE,
+      entries: [
+        {
+          id: 42,
+          created_at: '2026-10-11T10:30:00Z',
+          action: 'letter_sent',
+          author_id: 2,
+          author_email: 'оператор@site.example.test',
+          target: 'message:42',
+          details: { кому: 'info@xn--e1afmkfd.xn--p1ai', донор: 'xn--e1afmkfd.xn--p1ai' },
+        },
+      ],
+      total: 1,
+    };
+    openJournal('/journal', ADMIN, idn);
+
+    const sent = await rowOf('письмо №42');
+    expect(sent.innerHTML).toContain('info@<wbr>пример<wbr>.рф');
+    // Голый домен с зоной `xn--…` шёл текстом, мимо швов, и не раскодировался.
+    expect(sent.innerHTML).toMatch(/донор:<\/span> пример<wbr>\.рф/);
+    expect(sent).not.toHaveTextContent('xn--');
+  });
+
   it('одну строку сверх итога не прячут: кнопка заняла бы её место', async () => {
     openJournal();
 
