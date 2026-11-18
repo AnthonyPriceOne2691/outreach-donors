@@ -26,6 +26,7 @@ from urllib.parse import SplitResult
 
 import idna
 
+from backend.shared.net.idn import shown_host
 from backend.shared.net.url_guard import BLOCKED_HOSTS
 from backend.shared.net.url_parts import split_url
 
@@ -72,16 +73,6 @@ class Examples:
 
 class ExamplesError(ValueError):
     """Строки поля не годятся. Текст называет каждую и что с ней не так."""
-
-
-def shown_host(host: str) -> str:
-    """ASCII-имя письменностью сайта. Не раскодировалось — как есть: показать
-    `xn--…` лучше, чем не показать ничего."""
-    try:
-        return str(idna.decode(host))
-    except idna.IDNAError as exc:
-        logger.debug("примеры: имя %s не раскодировано из IDNA (%s)", host, exc)
-        return host
 
 
 def _ascii(name: str) -> str:

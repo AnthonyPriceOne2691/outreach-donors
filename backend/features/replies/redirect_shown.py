@@ -25,6 +25,7 @@ from backend.features.core.domain import MessageStatus, ReplyKind
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.core.models.redirect import LeadRedirectModel
 from backend.features.replies.lead_redirect import State, rows_of
+from backend.shared.net.idn import shown_address
 
 #: Состояние словом: проверяем ответ, письмо ждёт, переслали, не дошло, снято, не пересылаем.
 Kind = Literal["checking", "waiting", "sent", "bounced", "stopped", "refused"]
@@ -60,9 +61,9 @@ def _day(moment: datetime | None) -> str:
 
 def _undecided(row: LeadRedirectModel) -> tuple[Kind, str]:
     if row.state == State.REFUSED:
-        target = f" на {row.address}" if row.address else ""
+        target = f" на {shown_address(row.address)}" if row.address else ""
         return "refused", f"Не переслали{target}: {row.reason or 'причина не записана'}"
-    target = f"на {row.address}" if row.address else "туда"
+    target = f"на {shown_address(row.address)}" if row.address else "туда"
     words = f"Ответ называет другой адрес — проверяем, просят ли писать {target}"
     return "checking", f"{words} ({row.reason})" if row.reason else words
 
@@ -73,7 +74,8 @@ def _letter_words(
     asked_at: datetime | None,
     answered_at: datetime | None,
 ) -> tuple[Kind, str]:
-    address, on = row.address, _day(asked_at)
+    # Слова — для людей: домен адреса письменностью сайта; поле `address` — как в базе.
+    address, on = shown_address(row.address or ""), _day(asked_at)
     if letter.status is MessageStatus.QUEUED:
         return "waiting", f"Перешлём на {address}{on}: {row.reason or 'уйдёт ближайшим проходом'}"
     if letter.status is MessageStatus.SENDING:
@@ -100,7 +102,10 @@ def words_of(
     if row.state != State.LETTER:
         state, words = _undecided(row)
     elif letter is None:
-        state, words = "stopped", f"Письмо на {row.address} удалено — переадресации нет"
+        state, words = (
+            "stopped",
+            f"Письмо на {shown_address(row.address or '')} удалено — переадресации нет",
+        )
     else:
         state, words = _letter_words(row, letter, asked_at, answered_at)
     return Shown(
