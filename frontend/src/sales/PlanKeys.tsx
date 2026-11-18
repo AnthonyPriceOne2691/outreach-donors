@@ -61,7 +61,8 @@ export function PlanKeys({ row, onClose }: Props) {
   const keys = keysOf(way, text, file);
   return (
     <PlanDialog
-      title={`Добавить ключи: «${row.name}»`}
+      title="Добавить ключи"
+      name={row.name}
       refused="Ключи не добавлены"
       error={send.error}
       busy={send.isPending}

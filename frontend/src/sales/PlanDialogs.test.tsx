@@ -4,11 +4,14 @@
  *
  * Проверяется: на сервер уходит только поправленное (качество) или то, что вписано (цель, ключи
  * текстом и книгой); ничего не поправили — окно закрывается без запроса; удалось — уведомление
- * словами и закрытое окно; отказ сервера — плашкой словами сервера, набранное на месте.
+ * словами и закрытое окно; отказ сервера — плашкой словами сервера, набранное на месте. Каркас трёх
+ * окон: заголовок короткий, имя гипотезы — строкой под ним; отказ — плашкой без заголовка над
+ * прокруткой, кнопки — под ней (окно одной прокрутки); фокус при открытии — на первом поле.
  */
 
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { HypothesisCard } from '../api/salesTypes';
@@ -74,6 +77,77 @@ function lastForm(): FormData {
   if (!(body instanceof FormData)) throw new Error('последний запрос — не форма');
   return body;
 }
+
+/** Окна по главной кнопке: что открывает каркас и куда уходит отказ. */
+const DIALOGS: { title: string; render: () => ReactElement; route: string; fill?: string }[] = [
+  {
+    title: 'Собрать ещё',
+    render: () => <PlanMore row={ROW} onClose={vi.fn()} />,
+    route: 'POST /api/sales/plan-hypotheses/1/more',
+    fill: 'Сколько сайтов ещё найти',
+  },
+  {
+    title: 'Качество сайтов',
+    render: () => <PlanQuality row={ROW} card={CARD} onClose={vi.fn()} />,
+    route: 'PATCH /api/sales/plan-hypotheses/1/quality',
+  },
+  {
+    title: 'Добавить ключи',
+    render: () => <PlanKeys row={ROW} onClose={vi.fn()} />,
+    route: 'POST /api/sales/plan-hypotheses/1/keywords',
+    fill: 'Ключи',
+  },
+];
+
+describe('каркас окна', () => {
+  it.each(DIALOGS)(
+    '«$title»: заголовок короткий, имя гипотезы — строкой под ним',
+    ({ title, render }) => {
+      setUp({});
+      renderWith(render());
+
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toHaveAccessibleName(`${title} «${ROW.name}»`);
+      const heading = within(dialog).getByRole('heading', { level: 2 });
+      const name = within(heading).getByText(`«${ROW.name}»`);
+      expect(heading.firstChild?.textContent).toBe(title);
+      expect(name).not.toBe(heading);
+    },
+  );
+
+  it.each(DIALOGS)(
+    '«$title»: отказ — плашкой без заголовка над прокруткой, кнопки — под ней',
+    async ({ render, route, fill }) => {
+      setUp({ [route]: { status: 409, body: { detail: 'повторите через минуту' } } });
+      renderWith(render());
+      const user = userEvent.setup();
+
+      if (fill !== undefined) await user.type(screen.getByLabelText(fill), '7');
+      else await user.click(screen.getByRole('radio', { name: 'топ-50' }));
+      const submit = screen
+        .getAllByRole('button')
+        .find((button) => button.getAttribute('type') === 'submit');
+      if (submit === undefined) throw new Error('главной кнопки нет');
+      await user.click(submit);
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(/: повторите через минуту$/);
+      expect(alert.querySelector('.mantine-Alert-title')).toBeNull();
+      const middle = screen.getByRole('dialog').querySelector('.oneScrollArea');
+      expect(middle).not.toBeNull();
+      expect(middle).not.toContainElement(alert);
+      expect(middle).not.toContainElement(submit);
+      expect(middle).not.toContainElement(screen.getByRole('button', { name: 'Отмена' }));
+    },
+  );
+
+  it('фокус при открытии — на первом поле: у «Качества сайтов» — выбранная глубина', async () => {
+    setUp({});
+    renderWith(<PlanQuality row={ROW} card={CARD} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'топ-20' })).toHaveFocus());
+  });
+});
 
 describe('«Собрать ещё»', () => {
   it('цель уходит числом, окно закрывается; сказано, какой станет цель', async () => {
