@@ -31,6 +31,7 @@ import type { RecheckAsking } from '../donors/recheckAsk';
 import { useRecheckAsk } from '../donors/recheckAsk';
 import { RecheckOutcome, Refused, ThreadLink } from '../donors/recheckParts';
 import { formatDate, formatMoney, formatNumber, plural } from '../format';
+import { shownAddress, shownHost } from '../hostName';
 
 export const STALE_PRICES_KEY = ['price-rechecks'] as const;
 
@@ -69,11 +70,11 @@ function Where({ row }: { row: RecheckRow }) {
     return (
       <Text size="sm">
         в <ThreadLink threadId={row.thread_id} />
-        {row.email ? ` — на ${row.email}` : ''}
+        {row.email ? ` — на ${shownAddress(row.email)}` : ''}
       </Text>
     );
   }
-  return <Text size="sm">новым письмом{row.email ? ` на ${row.email}` : ''}</Text>;
+  return <Text size="sm">новым письмом{row.email ? ` на ${shownAddress(row.email)}` : ''}</Text>;
 }
 
 function StaleTable({
@@ -111,7 +112,7 @@ function StaleTable({
                 <Table.Td>
                   <Group justify="center">
                     <Checkbox
-                      aria-label={`Перезапросить цену ${row.host}`}
+                      aria-label={`Перезапросить цену ${shownHost(row.host)}`}
                       checked={picked.has(row.donor_id)}
                       disabled={row.refusal !== null}
                       onChange={(event) => onPick(row.donor_id, event.currentTarget.checked)}
@@ -144,7 +145,7 @@ function StaleTable({
                     variant="light"
                     className="press"
                     disabled={row.refusal !== null || pending}
-                    aria-label={`Перезапросить цену ${row.host}`}
+                    aria-label={`Перезапросить цену ${shownHost(row.host)}`}
                     onClick={() => onAsk(row.donor_id)}
                   >
                     Перезапросить

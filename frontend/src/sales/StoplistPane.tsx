@@ -26,6 +26,7 @@ import { useSession } from '../auth/AuthProvider';
 import { InfoHint } from '../components/InfoHint';
 import { Seams } from '../components/Seams';
 import { formatDate, formatNumber } from '../format';
+import { shownAddress } from '../hostName';
 import { notify } from '../notices';
 import { FixedTable } from './FixedTable';
 import type { Column } from './FixedTable';
@@ -75,7 +76,7 @@ function OwnRow({
           size="compact-sm"
           className="press"
           disabled={!mayWrite}
-          aria-label={`Снять ${target} со стоп-листа продаж`}
+          aria-label={`Снять ${shownAddress(target)} со стоп-листа продаж`}
           onClick={() => onRemove(row)}
         >
           Снять

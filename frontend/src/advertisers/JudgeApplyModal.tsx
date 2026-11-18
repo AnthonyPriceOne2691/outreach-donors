@@ -43,6 +43,7 @@ import type { JudgeBand, JudgePlan, JudgeStanding } from '../api/advertisersJudg
 import { refusalOf } from '../api/client';
 import { ACTIONS_GAP } from '../components/formRhythm';
 import { formatNumber, plural } from '../format';
+import { shownHost } from '../hostName';
 import { JudgeBatches } from './JudgeBatches';
 import { JudgeNightSwitch } from './JudgeNight';
 import { BAND_WORDS, counted } from './judgeApplyWords';
@@ -185,7 +186,8 @@ function PlanBody({ plan }: { plan: JudgePlan }) {
               key={`${pair.donor_host} ${pair.target_root}`}
               style={{ overflowWrap: 'anywhere' }}
             >
-              {pair.donor_host} → {pair.target_root} · {counted('балл', pair.points)} — {pair.words}
+              {shownHost(pair.donor_host)} → {shownHost(pair.target_root)} ·{' '}
+              {counted('балл', pair.points)} — {pair.words}
             </List.Item>
           ))}
         />

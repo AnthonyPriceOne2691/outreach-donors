@@ -23,14 +23,15 @@ import { enterDonor } from '../api/runs';
 import { NEW_PRICE, PriceForm, priceBody, priceTyped } from '../donors/PriceForm';
 import type { PriceDraft } from '../donors/PriceForm';
 import { formatMoney } from '../format';
+import { shownHost } from '../hostName';
 import { notify } from '../notices';
 
 /** Что вышло — одной фразой, теми же словами, что у консоли. */
 export function enteredSummary(entered: EnteredDonor): string {
   const money = formatMoney(entered.price, entered.currency);
   const what = entered.created
-    ? `Донор ${entered.host} заведён вручную: ${money}.`
-    : `${entered.host} уже был донором — записана цена ${money}.`;
+    ? `Донор ${shownHost(entered.host)} заведён вручную: ${money}.`
+    : `${shownHost(entered.host)} уже был донором — записана цена ${money}.`;
   return entered.suitable
     ? `${what} Обход Этапа 2 его берёт.`
     : `${what} По порогам отбора он не годен — обход Этапа 2 его не возьмёт.`;

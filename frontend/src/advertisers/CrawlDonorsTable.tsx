@@ -28,6 +28,7 @@ import { Seams } from '../components/Seams';
 import { NoRows } from '../components/WholeRow';
 import type { Emptiness } from '../components/WholeRow';
 import { formatDate, formatNumber } from '../format';
+import { shownHost } from '../hostName';
 import { CrawlDepth } from './CrawlDepth';
 import type { StartCrawls } from './CrawlTable';
 import { LastCrawl, PriceCell, isActive } from './CrawlTable';
@@ -87,10 +88,11 @@ function PickAll({ rows, picks }: { rows: CrawlTarget[]; picks: Picks }) {
 
 /** Почему отметка закрыта — подписью флажка, а не догадкой. */
 function pickLabel(donor: CrawlTarget): string {
-  if (isActive(donor.crawl)) return `${donor.host}: обход уже идёт или ждёт`;
-  if (donor.price === null || donor.price_state === 'none') return `${donor.host}: цены нет`;
-  if (donor.price_state === 'stale') return `${donor.host}: цена протухла — сначала перезапрос`;
-  return `Обойти ${donor.host}`;
+  const host = shownHost(donor.host);
+  if (isActive(donor.crawl)) return `${host}: обход уже идёт или ждёт`;
+  if (donor.price === null || donor.price_state === 'none') return `${host}: цены нет`;
+  if (donor.price_state === 'stale') return `${host}: цена протухла — сначала перезапрос`;
+  return `Обойти ${host}`;
 }
 
 function DonorRowCells({

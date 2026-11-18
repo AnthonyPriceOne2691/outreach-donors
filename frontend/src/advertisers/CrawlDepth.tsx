@@ -22,6 +22,7 @@ import type { CrawlDonorsView } from '../api/crawls';
 import { useSession } from '../auth/AuthProvider';
 import { HintLines } from '../components/HintLines';
 import { InfoHint } from '../components/InfoHint';
+import { shownHost } from '../hostName';
 import { depthLines, depthShown, depthWords, markActions } from './crawlAlwaysWords';
 import { WEAK_TITLE } from './crawlFilters';
 import { CRAWL_DONORS_KEY } from './crawlQueries';
@@ -129,7 +130,7 @@ export function CrawlDepth({ host, depth }: { host: string; depth: DonorDepth })
       {marked ? words : null}
       <span className="crawlDepthTail">
         {marked ? <WeakLabel depth={depth} /> : words}
-        <InfoHint name={`Обход 24/7: ${host}`} width={320} interactive>
+        <InfoHint name={`Обход 24/7: ${shownHost(host)}`} width={320} interactive>
           <DepthHint host={host} depth={depth} />
         </InfoHint>
       </span>

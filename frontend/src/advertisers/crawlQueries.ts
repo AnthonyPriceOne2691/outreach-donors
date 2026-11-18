@@ -21,6 +21,7 @@ import {
   startDeepCrawls,
 } from '../api/crawls';
 import { formatNumber, plural } from '../format';
+import { shownHost } from '../hostName';
 import { notify } from '../notices';
 import { BACKLOG_KEY } from './CrawlBacklog';
 
@@ -36,13 +37,18 @@ export const POLL_MS = 10_000;
 /** Стоп снимается сам — обнулением ключа или поднятым лимитом, — и плашка уходит сама. */
 const UNITS_STOP_POLL_MS = 60_000;
 
+/** Домены через запятую — так, как их видят (`hostName`): «пример.рф», а не `xn--…`. */
+function hostsWords(hosts: readonly string[]): string {
+  return hosts.map((host) => shownHost(host)).join(', ');
+}
+
 /** Что вышло из нажатия — одной строкой, с причинами по каждому непоставленному. */
 export function launchSummary(done: CrawlLaunch): string {
   const parts = [`Поставлено: ${formatNumber(Object.keys(done.queued).length)}.`];
-  if (done.busy.length > 0) parts.push(`Уже идут: ${done.busy.join(', ')}.`);
-  for (const [host, why] of Object.entries(done.refused)) parts.push(`${host}: ${why}.`);
+  if (done.busy.length > 0) parts.push(`Уже идут: ${hostsWords(done.busy)}.`);
+  for (const [host, why] of Object.entries(done.refused)) parts.push(`${shownHost(host)}: ${why}.`);
   if (done.failed.length > 0) {
-    parts.push(`Очередь не ответила: ${done.failed.join(', ')} — попробуйте ещё раз.`);
+    parts.push(`Очередь не ответила: ${hostsWords(done.failed)} — попробуйте ещё раз.`);
   }
   return parts.join(' ');
 }
@@ -75,8 +81,8 @@ export function deepSummary(done: CrawlDeepResult): string {
             `${formatNumber(rules.max_running)}, начнётся само.`,
         ]
       : [];
-  if (busy.length > 0) parts.push(`Уже идут: ${busy.join(', ')}.`);
-  for (const [host, why] of Object.entries(refused)) parts.push(`${host}: ${why}.`);
+  if (busy.length > 0) parts.push(`Уже идут: ${hostsWords(busy)}.`);
+  for (const [host, why] of Object.entries(refused)) parts.push(`${shownHost(host)}: ${why}.`);
   return parts.length > 0 ? parts.join(' ') : 'Уже ждут в очереди загрузки.';
 }
 

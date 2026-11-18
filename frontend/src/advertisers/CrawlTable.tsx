@@ -31,6 +31,7 @@ import type { ReactNode } from 'react';
 import type { CrawlLaunch, CrawlRow, CrawlTarget } from '../api/crawls';
 import { InfoHint } from '../components/InfoHint';
 import { formatMoney, formatNumber, formatPercent } from '../format';
+import { shownHost } from '../hostName';
 import { RunReason } from '../runs/RunReason';
 import { pagesOutOf, queueWords, requestsOf, stopWords } from './crawlWords';
 
@@ -61,7 +62,7 @@ export function Again({
       size={compact ? 'compact-xs' : 'xs'}
       variant="light"
       className="press"
-      aria-label={`Переобойти ${host}`}
+      aria-label={`Переобойти ${shownHost(host)}`}
       loading={start.isPending && mine}
       disabled={start.isPending && !mine}
       onClick={() => start.mutate([host])}
@@ -95,7 +96,7 @@ function AgainDeep({ donor, ask }: { donor: CrawlTarget; ask: DeepAsk }) {
       size="compact-xs"
       variant="subtle"
       className="press"
-      aria-label={`${ask.title}: ${donor.host}`}
+      aria-label={`${ask.title}: ${shownHost(donor.host)}`}
       title={refusal ?? ask.title}
       disabled={refusal !== null}
       aria-haspopup="dialog"

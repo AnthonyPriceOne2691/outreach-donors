@@ -21,6 +21,7 @@ import { useState } from 'react';
 import { refusalOf } from '../api/client';
 import type { NicheCard } from '../api/niche';
 import { useSession } from '../auth/AuthProvider';
+import { shownHost } from '../hostName';
 import { DecideButtons } from './DecideButtons';
 import { useNicheCollect, useNicheQueue } from './useNiche';
 import { InfoHint } from '../components/InfoHint';
@@ -56,7 +57,7 @@ function NicheRow({
   return (
     <Stack gap={4} className="nicheRow">
       <Group justify="space-between" gap="xs">
-        <Text fw={500}>{card.host}</Text>
+        <Text fw={500}>{shownHost(card.host)}</Text>
         {canDecide && <DecideButtons busy={busy} onDecide={onDecide} />}
       </Group>
       <Text size="sm" c="dimmed">
