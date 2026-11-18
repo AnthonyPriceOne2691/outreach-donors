@@ -185,6 +185,7 @@ class Problem(StrEnum):
     KEYS = "keys"  # нужны ключи — `keys_words`
     RUN_FAILED = "run_failed"  # прогон остановлен — слова `run.error`
     CHAIN = "chain"  # нет цепочки на языке писем — письма не соберутся
+    STOPPED = "stopped"  # остановлена кнопкой — `plan_actions.py`
 
 
 def problem(code: Problem, words: str, at: datetime) -> dict[str, Any]:

@@ -14,6 +14,7 @@ import type { SalesFunnelView } from '../api/salesFunnelTypes';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
+import { NO_PLANS } from './planFixtures';
 
 const SCREEN_WAIT = { timeout: 5000 };
 const LINE = 'Модуль продаж выключен — письма не уходят, разбор и передача не идут';
@@ -101,6 +102,7 @@ async function open(path: string, ready: string | RegExp, hypotheses: unknown): 
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   serve({
     'GET /api/auth/me': { body: ADMIN },
+    ...NO_PLANS,
     'GET /api/sales/hypotheses': { body: hypotheses },
     'GET /api/sales/leads': { body: LEADS },
     'GET /api/sales/kb': { body: KB },

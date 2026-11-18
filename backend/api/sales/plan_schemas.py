@@ -8,11 +8,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from backend.features.sales.plan_card import MAX_TARGET
 from backend.features.sales.plan_estimate import HypothesisSpend, PlanEstimate, Spend
 from backend.features.sales.plan_file import PlanHypothesis
+from backend.features.sales.plan_keys import Added
 from backend.features.sales.plan_store import PlanRow, PlanView
 
 #: Примеров ключей листа в превью — взятых и отсеянных.
@@ -179,8 +182,23 @@ class PlanPreview(BaseModel):
         )
 
 
+class PlanProblemView(BaseModel):
+    """Проблема гипотезы плана: вид (`plan_budget.Problem`), слова экрана и когда."""
+
+    code: str
+    words: str
+    at: str | None = None
+
+    @classmethod
+    def of(cls, found: dict[str, Any]) -> PlanProblemView:
+        return cls(
+            code=str(found.get("code", "")), words=str(found.get("words", "")), at=found.get("at")
+        )
+
+
 class PlanHypothesisView(BaseModel):
-    """Гипотеза плана на вкладке: лист, цель, глубина, потолок, этап и числа конвейера."""
+    """Гипотеза плана на вкладке: лист, цель, глубина, потолок, этап, волна, проблемы и числа
+    конвейера."""
 
     id: int
     hypothesis_id: int
@@ -198,6 +216,12 @@ class PlanHypothesisView(BaseModel):
     #: Ключей в реестре (ключ × рынок) и из них купленных хотя бы до первой страницы.
     keywords: int
     bought: int
+    #: Страница волны сбора (1, 2, 3; 4 — страницы 4–5) и ключей, купленных до неё.
+    wave_page: int = 1
+    wave_bought: int = 0
+    #: Резерв идущего прогона — смета сверх факта.
+    reserved_usd: float = 0.0
+    problems: list[PlanProblemView] = []
 
     @classmethod
     def of(cls, found: PlanRow) -> PlanHypothesisView:
@@ -218,6 +242,10 @@ class PlanHypothesisView(BaseModel):
             spent_usd=float(row.spent_usd),
             keywords=found.keywords,
             bought=found.bought,
+            wave_page=row.wave_page,
+            wave_bought=found.wave_bought,
+            reserved_usd=float(row.reserved_usd),
+            problems=[PlanProblemView.of(item) for item in row.problems],
         )
 
 
@@ -256,3 +284,35 @@ class PlansView(BaseModel):
     """Планы — новые сверху."""
 
     plans: list[PlanCard]
+
+
+class PlanQualityBody(BaseModel):
+    """«Изменить качество сайтов»: что дано; пусто — поле не трогать."""
+
+    #: Глубина поиска до — страниц выдачи: 1, 2, 3, 5 = топ-10 … топ-50.
+    max_pages: Literal[1, 2, 3, 5] | None = None
+    target: int | None = Field(default=None, ge=1, le=MAX_TARGET)
+    other_countries: str | None = None
+    excluded_countries: list[str] | None = None
+
+
+class PlanMoreBody(BaseModel):
+    """«Собрать ещё N»: сколько сайтов прибавить к цели."""
+
+    n: int = Field(ge=1, le=MAX_TARGET)
+
+
+class PlanKeysAdded(BaseModel):
+    """«Добавить ключи»: гипотеза плана после кнопки и сколько ключей новых, уже известных
+    гипотезе и отсеянных чисткой."""
+
+    hypothesis: PlanHypothesisView
+    added: int
+    known: int
+    rejected: int
+
+    @classmethod
+    def of(cls, hypothesis: PlanHypothesisView, found: Added) -> PlanKeysAdded:
+        return cls(
+            hypothesis=hypothesis, added=found.added, known=found.known, rejected=found.rejected
+        )

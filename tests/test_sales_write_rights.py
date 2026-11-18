@@ -99,6 +99,15 @@ ELSEWHERE = {
     # выдачи и модели, как запуск прогона); права держит `test_api_sales_plans.py`.
     ("POST", "/api/sales/plans/preview"),
     ("POST", "/api/sales/plans"),
+    # Кнопки плана работ на вкладке «Гипотезы» — `sales` и `run`: каждая пускает или держит траты
+    # выдачи и модели, как запуск и продолжение прогона; права держит `test_api_sales_plans_actions.py`.
+    ("POST", "/api/sales/plans/{}/stop"),
+    ("POST", "/api/sales/plans/{}/resume"),
+    ("POST", "/api/sales/plan-hypotheses/{}/stop"),
+    ("POST", "/api/sales/plan-hypotheses/{}/resume"),
+    ("PATCH", "/api/sales/plan-hypotheses/{}/quality"),
+    ("POST", "/api/sales/plan-hypotheses/{}/more"),
+    ("POST", "/api/sales/plan-hypotheses/{}/keywords"),
 }
 
 PRICE = {

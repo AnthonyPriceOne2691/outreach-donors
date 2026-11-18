@@ -1,0 +1,207 @@
+/**
+ * Окна кнопок гипотезы плана: «Собрать ещё», «Качество сайтов», «Добавить ключи». Ответы сервера —
+ * записанные (`serve()`); имена, числа и ключи выдуманы.
+ *
+ * Проверяется: на сервер уходит только поправленное (качество) или то, что вписано (цель, ключи
+ * текстом и книгой); ничего не поправили — окно закрывается без запроса; удалось — уведомление
+ * словами и закрытое окно; отказ сервера — плашкой словами сервера, набранное на месте.
+ */
+
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+
+import type { HypothesisCard } from '../api/salesTypes';
+import { ADMIN, TOKEN_KEY } from '../test/fixtures';
+import { renderWith } from '../test/render';
+import { serve } from '../test/server';
+import type { Answer, Call, Recorded } from '../test/server';
+import type { PlanRow } from './planApi';
+import { addedWords, PlanKeys } from './PlanKeys';
+import { PlanMore } from './PlanMore';
+import { PlanQuality } from './PlanQuality';
+
+type Route = Answer | ((call: Call) => Answer);
+
+const ROW: PlanRow = {
+  id: 1,
+  hypothesis_id: 11,
+  name: 'Логистика — пример',
+  position: 1,
+  sheet: 'Пилот 1',
+  markets: ['kz'],
+  language: 'ru',
+  target: 5000,
+  max_pages: 2,
+  cap_usd: 50,
+  stage: 'collecting',
+  found: 1240,
+  spent_usd: 12.4,
+  keywords: 3,
+  bought: 3,
+  wave_page: 2,
+  wave_bought: 1,
+  reserved_usd: 0,
+  problems: [],
+};
+
+const CARD: HypothesisCard = {
+  id: 11,
+  name: 'Логистика — пример',
+  description: 'Транспортные компании со своим сайтом.',
+  created_at: '2026-11-16T09:00:00+00:00',
+  leads: { new: 0, ready: 0, rejected: 0 },
+  total: 0,
+};
+
+function setUp(routes: Record<string, Route>): Recorded {
+  localStorage.setItem(TOKEN_KEY, 'пропуск');
+  return serve({
+    'GET /api/auth/me': { body: ADMIN },
+    'GET /api/sales/plans': { body: { plans: [] } },
+    'GET /api/sales/countries': { body: { codes: ['KZ', 'RU', 'UZ'] } },
+    ...routes,
+  });
+}
+
+function sent(recorded: Recorded, path: string): Call[] {
+  return recorded.calls.filter((call) => call.path === path && call.method !== 'GET');
+}
+
+/** Форма, ушедшая на сервер последней, — из вызова `fetch`. */
+function lastForm(): FormData {
+  const body = vi.mocked(globalThis.fetch).mock.calls.at(-1)?.[1]?.body;
+  if (!(body instanceof FormData)) throw new Error('последний запрос — не форма');
+  return body;
+}
+
+describe('«Собрать ещё»', () => {
+  it('цель уходит числом, окно закрывается; сказано, какой станет цель', async () => {
+    const onClose = vi.fn();
+    const recorded = setUp({
+      'POST /api/sales/plan-hypotheses/1/more': { body: { ...ROW, target: 5500 } },
+    });
+    renderWith(<PlanMore row={ROW} onClose={onClose} />);
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Сколько сайтов ещё найти'), '500');
+    expect(screen.getByText(/Цель станет 5 500/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Собрать ещё' }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(sent(recorded, '/api/sales/plan-hypotheses/1/more').map((call) => call.body)).toEqual([
+      { n: 500 },
+    ]);
+  });
+
+  it('отказ сервера — плашкой словами, число на месте', async () => {
+    const words = 'цель гипотезы «Логистика — пример» — от 1 до 1 000 000';
+    setUp({
+      'POST /api/sales/plan-hypotheses/1/more': { status: 400, body: { detail: words } },
+    });
+    renderWith(<PlanMore row={ROW} onClose={vi.fn()} />);
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Сколько сайтов ещё найти'), '7');
+    await user.click(screen.getByRole('button', { name: 'Собрать ещё' }));
+
+    expect(await screen.findByText('Цель не поправлена')).toBeInTheDocument();
+    expect(screen.getByText(/от 1 до 1 000 000/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Сколько сайтов ещё найти')).toHaveValue('7');
+  });
+});
+
+describe('«Качество сайтов»', () => {
+  it('уходит только поправленное: глубина и цель', async () => {
+    const onClose = vi.fn();
+    const recorded = setUp({
+      'PATCH /api/sales/plan-hypotheses/1/quality': { body: { ...ROW, max_pages: 3 } },
+    });
+    renderWith(<PlanQuality row={ROW} card={CARD} onClose={onClose} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'топ-30' }));
+    const target = screen.getByLabelText('Найти сайтов');
+    await user.clear(target);
+    await user.type(target, '6000');
+    await user.click(screen.getByRole('button', { name: 'Сохранить' }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(sent(recorded, '/api/sales/plan-hypotheses/1/quality').map((call) => call.body)).toEqual(
+      [{ max_pages: 3, target: 6000 }],
+    );
+  });
+
+  it('ничего не поправили — окно закрыто, запроса нет', async () => {
+    const onClose = vi.fn();
+    const recorded = setUp({});
+    renderWith(<PlanQuality row={ROW} card={CARD} onClose={onClose} />);
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Сохранить' }));
+
+    expect(onClose).toHaveBeenCalled();
+    expect(sent(recorded, '/api/sales/plan-hypotheses/1/quality')).toHaveLength(0);
+  });
+
+  it('отказ сервера — плашкой словами', async () => {
+    const words = 'план сейчас меняет проход конвейера или другая кнопка — повторите через минуту';
+    setUp({
+      'PATCH /api/sales/plan-hypotheses/1/quality': { status: 409, body: { detail: words } },
+    });
+    renderWith(<PlanQuality row={ROW} card={CARD} onClose={vi.fn()} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'топ-50' }));
+    await user.click(screen.getByRole('button', { name: 'Сохранить' }));
+
+    expect(await screen.findByText('Качество не сохранено')).toBeInTheDocument();
+    expect(screen.getByText(/повторите через минуту/)).toBeInTheDocument();
+  });
+});
+
+describe('«Добавить ключи»', () => {
+  it('итог словами: новые, уже были, отсеяно', () => {
+    expect(addedWords({ hypothesis: ROW, added: 1, known: 2, rejected: 0 })).toBe(
+      'Добавлено 1 ключ · уже были 2',
+    );
+    expect(addedWords({ hypothesis: ROW, added: 5, known: 0, rejected: 3 })).toBe(
+      'Добавлено 5 ключей · отсеяно 3',
+    );
+  });
+
+  it('текстом — ключи уходят полем формы, окно закрывается', async () => {
+    const onClose = vi.fn();
+    setUp({
+      'POST /api/sales/plan-hypotheses/1/keywords': {
+        body: { hypothesis: ROW, added: 2, known: 0, rejected: 0 },
+      },
+    });
+    renderWith(<PlanKeys row={ROW} onClose={onClose} />);
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключи'), 'Fußpflege Praxis{enter}家具 批发');
+    await user.click(screen.getByRole('button', { name: 'Добавить' }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(lastForm().get('text')).toBe('Fußpflege Praxis\n家具 批发');
+  });
+
+  it('книгой — файл уходит полем формы; отказ сервера — плашкой словами', async () => {
+    const words = 'в книге ключи.xlsx листов: 2 — ключи берутся из книги одним листом';
+    setUp({
+      'POST /api/sales/plan-hypotheses/1/keywords': { status: 400, body: { detail: words } },
+    });
+    renderWith(<PlanKeys row={ROW} onClose={vi.fn()} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Книгой .xlsx' }));
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+    if (input === null) throw new Error('поля книги нет');
+    await user.upload(input, new File(['PK'], 'ключи.xlsx'));
+    await user.click(screen.getByRole('button', { name: 'Добавить' }));
+
+    expect(await screen.findByText('Ключи не добавлены')).toBeInTheDocument();
+    expect(screen.getByText(/одним листом/)).toBeInTheDocument();
+    expect((lastForm().get('file') as File).name).toBe('ключи.xlsx');
+  });
+});

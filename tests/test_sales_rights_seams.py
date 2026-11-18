@@ -78,6 +78,14 @@ TELEMARKETER_WRITES: dict[tuple[str, str], Permission | None] = {
     # модели, как запуск прогона: «запускать прогоны», которого у телемаркетолога нет.
     ("POST", "/api/sales/plans/preview"): None,
     ("POST", "/api/sales/plans"): Permission.RUN,
+    # Кнопки плана работ — пускают или держат траты выдачи и модели, как продолжение прогона.
+    ("POST", "/api/sales/plans/{}/stop"): Permission.RUN,
+    ("POST", "/api/sales/plans/{}/resume"): Permission.RUN,
+    ("POST", "/api/sales/plan-hypotheses/{}/stop"): Permission.RUN,
+    ("POST", "/api/sales/plan-hypotheses/{}/resume"): Permission.RUN,
+    ("PATCH", "/api/sales/plan-hypotheses/{}/quality"): Permission.RUN,
+    ("POST", "/api/sales/plan-hypotheses/{}/more"): Permission.RUN,
+    ("POST", "/api/sales/plan-hypotheses/{}/keywords"): Permission.RUN,
     ("POST", "/api/sales/chain"): Permission.SEND,
     ("POST", "/api/sales/kb"): Permission.SEND,
     ("PATCH", "/api/sales/kb/{}"): Permission.SEND,
