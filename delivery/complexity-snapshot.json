@@ -1602,9 +1602,9 @@
       "worst": "decided_by:53"
     },
     "backend/features/crawl/donor_page.py": {
-      "lines": 447,
+      "lines": 443,
       "complexity": 7,
-      "worst": "_fits:319"
+      "worst": "_fits:315"
     },
     "backend/features/crawl/feeds.py": {
       "lines": 145,
@@ -4032,9 +4032,9 @@
       "worst": "storable:17"
     },
     "backend/shared/database/text_search.py": {
-      "lines": 43,
+      "lines": 60,
       "complexity": 2,
-      "worst": "literal:30"
+      "worst": "literal:32"
     },
     "backend/shared/demo.py": {
       "lines": 27,
@@ -4062,9 +4062,9 @@
       "worst": "—"
     },
     "backend/shared/net/idn.py": {
-      "lines": 49,
-      "complexity": 3,
-      "worst": "shown_host:31"
+      "lines": 95,
+      "complexity": 4,
+      "worst": "ascii_host:51"
     },
     "backend/shared/net/retry.py": {
       "lines": 176,

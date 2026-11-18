@@ -44,7 +44,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.publisher_judge import Decider
 from backend.shared.database.ids import storable
-from backend.shared.database.text_search import contains
+from backend.shared.database.text_search import contains, contains_host
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +247,7 @@ def _base() -> Select[Any]:
 def _by_search(text: str) -> ColumnElement[bool]:
     """Набранное — текст, а не шаблон: «_» и «%» находили всю вкладку (`text_search`)."""
     return or_(
-        contains(DomainModel.host, text),
+        contains_host(DomainModel.host, text),
         contains(DonorModel.reject_reason, text),
         contains(DomainModel.judge_reason, text),
     )
