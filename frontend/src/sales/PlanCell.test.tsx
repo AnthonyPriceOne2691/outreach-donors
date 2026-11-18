@@ -6,8 +6,14 @@
  * полосой, расход из потолка, проблемы строками, кнопки по этапу и ссылки на «Сбор базы» и
  * «Воронку» с гипотезой; без плана колонки нет; строка плана — сколько готово и расход, кнопка
  * «Остановить план» или «Продолжить» с причиной паузы; кнопка уходит на сервер, отказ — словами
- * сервера; список планов опрашивается, только пока план идёт.
+ * сервера; список планов опрашивается, только пока план идёт. Ширины колонок с планом — по самому
+ * длинному в них, и таблица встаёт рядом с открытым меню на 1440; полоса — дорожкой своего цвета и
+ * без розы у набравшей цель; имена кнопок для читалки — с именем гипотезы; на телефоне в ячейке
+ * плана — строка с именем.
  */
+
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -18,7 +24,7 @@ import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
-import { HypothesesTable } from './HypothesesTable';
+import { COLUMNS, HypothesesTable, tableWidth, WITH_PLAN } from './HypothesesTable';
 import { PLAN_POLL_MS } from './planApi';
 import type { PlanLive, PlanRow } from './planApi';
 import { stageWords, waveDepth } from './planWords';
@@ -136,6 +142,33 @@ describe('слова колонки', () => {
   });
 });
 
+/** Обёртка таблицы на 1440 × 900 с открытым меню (стенд 17.11): шире — таблица уезжает вбок. */
+const AREA_1440 = 1090;
+/** Самое длинное в колонке по живому тексту (стенд 18.11: «1 000 000» ссылкой — 69,4 px, дата
+ *  табличными цифрами — 77,4, шапка «Отклонены» — 79,4) и поля ячейки (2 × 16 px). */
+const NEEDED: Record<string, number> = {
+  Новые: 69.4 + 32,
+  Готовы: 69.4 + 32,
+  Отклонены: 79.4 + 32,
+  Всего: 69.4 + 32,
+  Заведена: 77.4 + 32,
+};
+
+describe('ширины колонок', () => {
+  it('с планом — встаёт в карточку на 1440 с открытым меню, «1 000 000» и дата не режутся', () => {
+    expect(tableWidth(WITH_PLAN)).toBeLessThanOrEqual(AREA_1440);
+    const counts = WITH_PLAN.filter(({ title }) => title in NEEDED);
+    expect(counts.map(({ title }) => title)).toEqual(Object.keys(NEEDED));
+    for (const { title, width } of counts) {
+      expect(parseFloat(width ?? '0') * 16, title).toBeGreaterThanOrEqual(NEEDED[title] ?? 0);
+    }
+  });
+
+  it('без плана таблица прежняя — 912 px', () => {
+    expect(tableWidth(COLUMNS)).toBe(912);
+  });
+});
+
 describe('колонка «План работ»', () => {
   it('у гипотезы плана — этап, найдено с полосой, расход, проблемы и ссылки; у своей — пусто', async () => {
     const keys = 'ключи и глубина до топ-50 кончились: найдено 300 из 300 — добавьте ключи';
@@ -172,27 +205,104 @@ describe('колонка «План работ»', () => {
     const cell = cellOf(LOGISTICS.name);
     expect(cell).toHaveTextContent('Сбор: топ-20, ключи 1 200 из 30 000');
     expect(cell).toHaveTextContent('найдено 1 240 из 5 000');
-    expect(within(cell).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
+    expect(
+      within(cell).getByRole('progressbar', {
+        name: (name) => plain(name) === `«${LOGISTICS.name}»: найдено 1 240 из 5 000`,
+      }),
+    ).toHaveAttribute('aria-valuenow', '25');
     expect(cell).toHaveTextContent('расход 12,40 $ из 50,00 $');
     expect(cell).toHaveTextContent('Прогон не поставлен: потолок модели');
-    expect(within(cell).getByRole('link', { name: 'Прогоны' })).toHaveAttribute(
-      'href',
-      '/sales?tab=collect&hypothesis=11',
-    );
-    expect(within(cell).getByRole('link', { name: 'Воронка' })).toHaveAttribute(
-      'href',
-      '/sales?tab=funnel&hypothesis=11',
-    );
+    expect(
+      within(cell).getByRole('link', { name: `Прогоны гипотезы «${LOGISTICS.name}»` }),
+    ).toHaveAttribute('href', '/sales?tab=collect&hypothesis=11');
+    expect(
+      within(cell).getByRole('link', { name: `Воронка гипотезы «${LOGISTICS.name}»` }),
+    ).toHaveAttribute('href', '/sales?tab=funnel&hypothesis=11');
     expect(
       within(cell).getByRole('button', { name: `Остановить гипотезу «${LOGISTICS.name}»` }),
     ).toBeInTheDocument();
-    expect(within(cell).queryByRole('button', { name: 'Добавить ключи' })).toBeNull();
+    expect(within(cell).queryByRole('button', { name: /^Добавить ключи/ })).toBeNull();
     const stopped = cellOf(DENTAL.name);
     expect(
       within(stopped).getByRole('button', { name: `Продолжить гипотезу «${DENTAL.name}»` }),
     ).toBeInTheDocument();
-    expect(within(stopped).getByRole('button', { name: 'Добавить ключи' })).toBeInTheDocument();
+    expect(
+      within(stopped).getByRole('button', { name: `Добавить ключи гипотезе «${DENTAL.name}»` }),
+    ).toBeInTheDocument();
     expect(cellOf(OUTSIDE.name)).toBeEmptyDOMElement();
+  });
+
+  it('таблица не уже суммы своих колонок: с планом — колонок с планом', async () => {
+    setUp([plan()]);
+    renderWith(<HypothesesTable rows={[LOGISTICS, DENTAL]} />);
+    const table = await screen.findByRole('table');
+    await screen.findByRole('columnheader', { name: 'План работ' });
+
+    const wrap = table.closest('.mantine-TableScrollContainer-scrollContainer');
+    // Mantine пишет ширину в `rem`: 1 088 px — 68rem.
+    expect(wrap?.getAttribute('style')).toContain(`${tableWidth(WITH_PLAN) / 16}rem`);
+  });
+
+  it('полоса «найдено» — дорожкой своего цвета, на свету — глубокой заливкой; набравшая цель — не розой', async () => {
+    setUp([plan()]);
+    renderWith(<HypothesesTable rows={[LOGISTICS, DENTAL]} />);
+    await screen.findByRole('columnheader', { name: 'План работ' });
+
+    for (const name of [LOGISTICS.name, DENTAL.name]) {
+      const bar = within(cellOf(name)).getByRole('progressbar');
+      const track = bar.closest('.meter');
+      expect(track, name).not.toBeNull();
+      expect(track).not.toHaveAttribute('data-tone');
+      // Заливка — ступень `.meter` по теме (`--meter-fill`): на свету глубокая — акцент к своей
+      // дорожке давал 2,42 : 1 при норме 3 (стенд 18.11).
+      expect(bar.getAttribute('style'), name).toContain('var(--meter-fill)');
+    }
+    // Глубокая ступень на свету — правилом `.meter` в `glass.css` (#645), а не выбором в ячейке.
+    const glass = readFileSync(resolve(process.cwd(), 'src/styles/glass.css'), 'utf8');
+    expect(glass).toMatch(
+      /html:root\[data-mantine-color-scheme='light'\] \.meter \{\s*--meter-fill: var\(--accent-deep\);/,
+    );
+    // Набравшая цель — 300 из 300: полоса полная.
+    expect(within(cellOf(DENTAL.name)).getByRole('progressbar')).toHaveAttribute(
+      'aria-valuenow',
+      '100',
+    );
+  });
+
+  it('имена кнопок и ссылок для читалки — с именем гипотезы, видимое слово — их начало', async () => {
+    setUp([
+      plan({ hypotheses: [row({ problems: [{ code: 'keys', words: 'нужны ключи', at: null }] })] }),
+    ]);
+    renderWith(<HypothesesTable rows={[LOGISTICS]} />);
+    await screen.findByRole('columnheader', { name: 'План работ' });
+    const cell = cellOf(LOGISTICS.name);
+
+    const controls = [...within(cell).getAllByRole('button'), ...within(cell).getAllByRole('link')];
+    expect(controls.map((control) => control.textContent)).toEqual([
+      'Остановить',
+      'Качество сайтов',
+      'Собрать ещё',
+      'Добавить ключи',
+      'Прогоны',
+      'Воронка',
+    ]);
+    for (const control of controls) {
+      const name = control.getAttribute('aria-label') ?? '';
+      expect(name.startsWith(control.textContent ?? '—'), name).toBe(true);
+      expect(name).toContain(`«${LOGISTICS.name}»`);
+    }
+  });
+
+  it('на телефоне в ячейке плана — строка с именем гипотезы; читалке — нет, имя в первой ячейке', async () => {
+    setUp([plan()]);
+    renderWith(<HypothesesTable rows={[LOGISTICS, DENTAL]} />);
+    await screen.findByRole('columnheader', { name: 'План работ' });
+
+    const line = within(cellOf(LOGISTICS.name)).getByText(LOGISTICS.name);
+    // `hiddenFrom="sm"`: от 48em строки нет — там имя закреплено и видно рядом.
+    expect(line).toHaveClass('mantine-hidden-from-sm');
+    expect(line).toHaveAttribute('aria-hidden', 'true');
+    expect(line.parentElement?.firstElementChild).toBe(line);
   });
 
   it('без плана колонки нет — таблица прежняя', async () => {
@@ -232,7 +342,7 @@ describe('колонка «План работ»', () => {
     expect(alert).toHaveTextContent(refusal);
     expect(asked(recorded, '/api/sales/plan-hypotheses/1/stop', 'POST')).toHaveLength(1);
     // Под рядом кнопок, а не в нём (стенд 17.11: отказ вставал между кнопками).
-    const more = within(cell).getByRole('button', { name: 'Собрать ещё' });
+    const more = within(cell).getByRole('button', { name: /^Собрать ещё/ });
     expect(alert.parentElement).not.toBe(more.parentElement);
     expect(more.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -242,7 +352,9 @@ describe('колонка «План работ»', () => {
     renderWith(<HypothesesTable rows={[LOGISTICS, DENTAL]} />);
     const user = userEvent.setup();
     await screen.findByRole('columnheader', { name: 'План работ' });
-    const more = within(cellOf(LOGISTICS.name)).getByRole('button', { name: 'Собрать ещё' });
+    const more = within(cellOf(LOGISTICS.name)).getByRole('button', {
+      name: `Собрать ещё гипотезе «${LOGISTICS.name}»`,
+    });
 
     await user.click(more);
     expect(await screen.findByRole('dialog')).toBeInTheDocument();

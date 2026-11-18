@@ -5,6 +5,11 @@
  * гипотезы (`HypothesisCountries`), и той же правкой на сервере, с её журналом. Действует на новые
  * прогоны и суды: собранное не пересуживается. Уходит только поправленное; ничего не поправили —
  * окно просто закрывается. Глубже при «нужны ключи» — гипотеза снова собирает.
+ *
+ * **Фокус при открытии — на первое поле**, выбранную ступень глубины, как у двух других окон
+ * (стенд 17.11: вставал на крестик закрытия). Mantine ищет в окне `data-autofocus`, а пунктам
+ * переключателя своих свойств не передать — метку выбранному пункту ставит ссылка на блок поля при
+ * монтировании, раньше, чем окно ставит фокус (оно ставит его кадром позже).
  */
 
 import { NumberInput, SegmentedControl, Stack, Text } from '@mantine/core';
@@ -25,6 +30,11 @@ import { topWords } from './PlanPreviewView';
 
 /** Ступени «Глубины поиска до» книги — страниц выдачи по 10. */
 const DEPTHS = [1, 2, 3, 5].map((pages) => ({ value: String(pages), label: topWords(pages) }));
+
+/** Метка `data-autofocus` выбранному пункту переключателя глубины — первому полю окна. */
+function focusFirst(node: HTMLElement | null) {
+  node?.querySelector('input:checked')?.setAttribute('data-autofocus', '');
+}
 
 /** Что поправили — только это и уходит. */
 export function qualityChanges(
@@ -73,7 +83,8 @@ export function PlanQuality({ row, card, onClose }: Props) {
   };
   return (
     <PlanDialog
-      title={`Качество сайтов: «${row.name}»`}
+      title="Качество сайтов"
+      name={row.name}
       refused="Качество не сохранено"
       error={send.error}
       busy={send.isPending}
@@ -85,7 +96,7 @@ export function PlanQuality({ row, card, onClose }: Props) {
       <Text size="sm" c="dimmed">
         Действует на новые прогоны и суды: уже собранные сайты не пересуживаются.
       </Text>
-      <Stack gap={4}>
+      <Stack gap={4} ref={focusFirst}>
         <Text size="sm" fw={500} id={`plan-depth-${row.id}`}>
           Глубина поиска до
         </Text>

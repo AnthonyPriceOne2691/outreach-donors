@@ -15,6 +15,22 @@
  * **Слова — от левого края и рвутся где угодно:** проблемы и отказы — слова сервера, длинное слово
  * без пробела вылезало за край таблицы (стенд 17.11, 176 px).
  *
+ * **Полоса «найдено N из цели» — дорожкой `Meter`** (`.meter` в `glass.css`: светлая ступень
+ * акцента, видна и при 0 %; серая дорожка Mantine в тёмной теме давала заливке 1,70 : 1 при норме 3,
+ * а при 0 % полосы не было видно — стенд 17.11), **но не самим `Meter`**: его янтарь с 80 % и роза у
+ * предела — про расход из лимита, а дойти до цели — хорошо, и роза у готовой гипотезы читалась бы
+ * отказом. Заливка — ступень `.meter` по теме (`--meter-fill`, #645): на свету — глубокая
+ * (`--accent-deep`; акцент к своей дорожке давал 2,42 : 1 при норме 3), в темноте — акцент (к дорожке
+ * 3,55–3,69). Значение и имя для читалки — у полосы: «имя»: найдено N из M.
+ *
+ * **Имена кнопок и ссылок для читалки — с именем гипотезы** («Качество сайтов гипотезы «…»»): в
+ * таблице их по набору на строку, и пять одинаковых «Собрать ещё» подряд не различить без глаз.
+ * Видимое слово — начало имени (правило «label in name»: голосом зовут то, что видно).
+ *
+ * **На телефоне** (уже 48em) первая строка ячейки — имя гипотезы: таблица там уезжает вбок без
+ * закреплённого имени, и после прокрутки не понять, чья строка. Читалке она не нужна — имя уже в
+ * первой ячейке строки (`aria-hidden`).
+ *
  * **Ссылки** — вкладки раздела с этой гипотезой (`salesTabLink`): «Прогоны» — «Сбор базы»,
  * «Воронка» — «Воронка» (не «Отчёт»: рядом вкладка «Отчёт», а ведёт ссылка не туда).
  */
@@ -37,7 +53,6 @@ import { foundShare, foundWords, needsKeys, spendWords, stageWords } from './pla
 /** Ширина колонки: строка этапа «Сбор: топ-20, ключи 12 000 из 30 000» — в две строки (табличные
  *  цифры шире, в 256 px одной строкой не встаёт — стенд 17.11), кнопки — в два ряда. */
 export const PLAN_COLUMN_WIDTH = '18rem';
-export const PLAN_COLUMN_PX = 288;
 
 type Dialog = 'quality' | 'more' | 'keys';
 type Open = (dialog: Dialog, from: HTMLElement) => void;
@@ -48,13 +63,21 @@ const STOPPABLE = new Set(['waiting', 'collecting']);
 /** Слова сервера рвутся где угодно — как имя в первой колонке (`cellName`). */
 const BREAK_ANYWHERE = { overflowWrap: 'anywhere' } as const;
 
+/** «гипотезы «Логистика»» — к имени кнопки или ссылки для читалки. */
+function whose(row: PlanRow): string {
+  return `гипотезы «${row.name}»`;
+}
+
 function DialogButton({
   dialog,
   onOpen,
+  label,
   children,
 }: {
   dialog: Dialog;
   onOpen: Open;
+  /** Имя для читалки: видимое слово и чья строка. */
+  label: string;
   children: string;
 }) {
   return (
@@ -63,6 +86,7 @@ function DialogButton({
       variant="default"
       className="press"
       aria-haspopup="dialog"
+      aria-label={label}
       onClick={(event) => onOpen(dialog, event.currentTarget)}
     >
       {children}
@@ -89,14 +113,18 @@ function Actions({ row, onOpen }: { row: PlanRow; onOpen: Open }) {
             {stoppable ? 'Остановить' : 'Продолжить'}
           </Button>
         )}
-        <DialogButton dialog="quality" onOpen={onOpen}>
+        <DialogButton dialog="quality" onOpen={onOpen} label={`Качество сайтов ${whose(row)}`}>
           Качество сайтов
         </DialogButton>
-        <DialogButton dialog="more" onOpen={onOpen}>
+        <DialogButton dialog="more" onOpen={onOpen} label={`Собрать ещё гипотезе «${row.name}»`}>
           Собрать ещё
         </DialogButton>
         {needsKeys(row) && (
-          <DialogButton dialog="keys" onOpen={onOpen}>
+          <DialogButton
+            dialog="keys"
+            onOpen={onOpen}
+            label={`Добавить ключи гипотезе «${row.name}»`}
+          >
             Добавить ключи
           </DialogButton>
         )}
@@ -110,26 +138,43 @@ function Actions({ row, onOpen }: { row: PlanRow; onOpen: Open }) {
   );
 }
 
-function Links({ hypothesis }: { hypothesis: number }) {
+function Links({ row }: { row: PlanRow }) {
   return (
     <Group gap="md">
       <Anchor
         component={Link}
-        to={salesTabLink('collect', hypothesis)}
+        to={salesTabLink('collect', row.hypothesis_id)}
         size="xs"
         className="inkLink"
+        aria-label={`Прогоны ${whose(row)}`}
       >
         Прогоны
       </Anchor>
       <Anchor
         component={Link}
-        to={salesTabLink('funnel', hypothesis)}
+        to={salesTabLink('funnel', row.hypothesis_id)}
         size="xs"
         className="inkLink"
+        aria-label={`Воронка ${whose(row)}`}
       >
         Воронка
       </Anchor>
     </Group>
+  );
+}
+
+/** «Найдено N из цели» полосой — дорожкой `Meter`, без его тяжести; заливка — ступень `.meter` по
+ *  теме (`--meter-fill`, шапка файла). */
+function FoundBar({ row }: { row: PlanRow }) {
+  return (
+    <Progress
+      className="meter"
+      value={foundShare(row)}
+      color="var(--meter-fill)"
+      radius="xl"
+      size="sm"
+      aria-label={`«${row.name}»: ${foundWords(row)}`}
+    />
   );
 }
 
@@ -146,15 +191,14 @@ function PlanBody({ row, card }: { row: PlanRow; card: HypothesisCard }) {
   }, [open]);
   return (
     <Stack gap={4} style={BREAK_ANYWHERE}>
+      <Text size="xs" c="dimmed" hiddenFrom="sm" aria-hidden>
+        {row.name}
+      </Text>
       <Text size="sm" fw={500}>
         {capitalized(stageWords(row))}
       </Text>
       <Text size="xs">{foundWords(row)}</Text>
-      <Progress
-        value={foundShare(row)}
-        size="sm"
-        aria-label={`«${row.name}»: ${foundWords(row)}`}
-      />
+      <FoundBar row={row} />
       <Text size="xs">{spendWords(row.spent_usd, row.cap_usd)}</Text>
       {row.problems.map((item) => (
         <Text key={item.code} size="xs" c="red">
@@ -162,7 +206,7 @@ function PlanBody({ row, card }: { row: PlanRow; card: HypothesisCard }) {
         </Text>
       ))}
       <Actions row={row} onOpen={show} />
-      <Links hypothesis={row.hypothesis_id} />
+      <Links row={row} />
       {open === 'quality' && <PlanQuality row={row} card={card} onClose={close} />}
       {open === 'more' && <PlanMore row={row} onClose={close} />}
       {open === 'keys' && <PlanKeys row={row} onClose={close} />}

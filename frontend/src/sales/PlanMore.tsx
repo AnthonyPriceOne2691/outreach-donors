@@ -38,7 +38,8 @@ export function PlanMore({ row, onClose }: Props) {
   const n = typeof more === 'number' ? more : 0;
   return (
     <PlanDialog
-      title={`Собрать ещё: «${row.name}»`}
+      title="Собрать ещё"
+      name={row.name}
       refused="Цель не поправлена"
       error={send.error}
       busy={send.isPending}
