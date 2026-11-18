@@ -6,6 +6,7 @@
  */
 
 import { formatNumber } from '../format';
+import { shownHost } from '../hostName';
 import { request } from './client';
 import type { BudgetFigures } from './forecastLimits';
 import type { RunCard, RunQueued } from './types';
@@ -79,6 +80,6 @@ export function runInput(run: {
 }): string {
   const rivals = run.competitors ?? [];
   return rivals.length > 0
-    ? `конкуренты ${rivals.join(', ')}`
+    ? `конкуренты ${rivals.map((rival) => shownHost(rival)).join(', ')}`
     : `ключей ${formatNumber(run.keywords)}`;
 }

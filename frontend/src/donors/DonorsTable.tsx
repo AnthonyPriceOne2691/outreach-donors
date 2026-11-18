@@ -54,6 +54,7 @@ import { InfoHint } from '../components/InfoHint';
 import { Seams } from '../components/Seams';
 import { NoRows } from '../components/WholeRow';
 import { formatCompact, formatDate, formatMoney, formatNumber, formatShare } from '../format';
+import { shownHost } from '../hostName';
 import type { Emptiness } from './donorFilters';
 import { FilterRow } from './DonorsFilterRow';
 import type { FilterRowProps } from './DonorsFilterRow';
@@ -243,7 +244,7 @@ function DonorRow({ donor, place, picked, onPick, onOpen }: RowProps) {
       <Table.Td onClick={(event) => event.stopPropagation()}>
         <Checkbox
           size="sm"
-          aria-label={`Отметить ${donor.host}`}
+          aria-label={`Отметить ${shownHost(donor.host)}`}
           checked={picked}
           onChange={() => onPick(donor.id)}
         />

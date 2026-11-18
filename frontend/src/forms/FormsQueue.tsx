@@ -30,6 +30,7 @@ import { PageHead } from '../components/PageHead';
 import { PageSwitch, usePageParam } from '../components/PageSwitch';
 import { Seams } from '../components/Seams';
 import { formatNumber, plural } from '../format';
+import { shownHost } from '../hostName';
 import { notify } from '../notices';
 import { FormLetterModal } from './FormLetterModal';
 import type { LetterTarget } from './FormLetterModal';
@@ -137,7 +138,7 @@ function useActions<Row, Page extends QueuePage<Row>>(
   };
   const fill = useMutation({
     mutationFn: ({ row, email }: { row: Row; email: string }) => queue.fill(row, email),
-    onSuccess: (row) => finish(queue.filled(queue.hostOf(row))),
+    onSuccess: (row) => finish(queue.filled(shownHost(queue.hostOf(row)))),
     onError: (failure) =>
       notify({ title: 'Не записали', message: refusalOf(failure), color: 'red' }),
   });
@@ -224,7 +225,7 @@ function Actions<Row, Page extends QueuePage<Row>>({
         {/* Закрывает строку насовсем — с подтверждением у кнопки: стоит вплотную
             к «Вписать адрес», и промах стоил сайта (аудит экранов 09.10.2026). */}
         <ConfirmPopover
-          message={queue.closeAsk(queue.hostOf(row), page)}
+          message={queue.closeAsk(shownHost(queue.hostOf(row)), page)}
           confirm="Закрыть"
           onConfirm={() => actions.onGiveUp(row)}
         >
@@ -319,7 +320,11 @@ function AddressModal({
   onSave: (email: string) => void;
 }) {
   return (
-    <Modal opened={host !== null} onClose={onClose} title={`Адрес ${whose} ${host ?? ''}`}>
+    <Modal
+      opened={host !== null}
+      onClose={onClose}
+      title={`Адрес ${whose} ${shownHost(host) ?? ''}`}
+    >
       <Stack gap="sm">
         <Text size="sm">{about}</Text>
         <TextInput

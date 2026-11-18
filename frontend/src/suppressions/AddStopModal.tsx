@@ -19,6 +19,7 @@ import { useState } from 'react';
 import type { StopAdded } from '../api/outreach';
 import type { SuppressionReason } from '../api/types';
 import { plural } from '../format';
+import { shownAddress, shownHost } from '../hostName';
 
 const HAND_REASONS: { value: SuppressionReason; label: string }[] = [
   { value: 'manual', label: 'вручную' },
@@ -67,7 +68,7 @@ export function addedNotice(row: StopAdded): NotificationData {
   if (row.new_domain) {
     return {
       title: 'Записан новый домен',
-      message: `${row.host} в базе не было — донора с таким доменом нет. Закрывали донора — сверьте домен с его карточкой`,
+      message: `${shownHost(row.host)} в базе не было — донора с таким доменом нет. Закрывали донора — сверьте домен с его карточкой`,
       color: 'yellow',
       autoClose: false,
     };
@@ -75,13 +76,13 @@ export function addedNotice(row: StopAdded): NotificationData {
   if (row.new_address) {
     return {
       title: 'Записан незнакомый адрес',
-      message: `${row.email} нет ни у одного донора или рекламодателя, и писем на него не было. Закрывали адрес донора — сверьте его с карточкой донора`,
+      message: `${shownAddress(row.email)} нет ни у одного донора или рекламодателя, и писем на него не было. Закрывали адрес донора — сверьте его с карточкой донора`,
       color: 'yellow',
       autoClose: false,
     };
   }
   return {
-    message: `${row.host ?? row.email} в стоп-листе — ${takenOff(row.stopped)}`,
+    message: `${shownAddress(row.host ?? row.email)} в стоп-листе — ${takenOff(row.stopped)}`,
     color: 'green',
   };
 }

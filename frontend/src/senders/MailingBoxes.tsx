@@ -30,6 +30,7 @@ import { DataTable } from '../components/DataTable';
 import { InfoHint } from '../components/InfoHint';
 import { Seams } from '../components/Seams';
 import { dayLabel, formatNumber } from '../format';
+import { shownAddress } from '../hostName';
 
 /** Неразрывный пробел: число не отрывается от своего слова. */
 const NB = '\u00a0';
@@ -91,7 +92,7 @@ function BoxState({ box }: { box: StageBox }) {
       <Badge variant="light" color="yellow">
         {stateKey(box)}
       </Badge>
-      <InfoHint name={`Почему не пишет ${box.email}`} interactive width={320}>
+      <InfoHint name={`Почему не пишет ${shownAddress(box.email)}`} interactive width={320}>
         <Text size="sm">{box.refused}</Text>
       </InfoHint>
     </Group>

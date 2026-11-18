@@ -23,6 +23,7 @@ import { searchDonorDeeper } from '../api/deeper';
 import type { DeeperCard, DonorCardWithReach, DonorRowWithReach } from '../api/deeper';
 import { useSession } from '../auth/AuthProvider';
 import { formatDate } from '../format';
+import { shownHost } from '../hostName';
 import { JobLine } from '../jobs/JobLine';
 import { useJobEnd, useStartedJob } from '../jobs/startedJob';
 import { forget } from '../storage';
@@ -118,7 +119,8 @@ export function DeeperRowIcon({ donor }: { donor: DonorRowWithReach }) {
   const { can } = useSession();
   const { running, start } = useDeeper(donor.id);
   if (!can('run') || (!donor.deeper && !running)) return null;
-  if (running) return <Loader size={14} aria-label={`Ищем адрес глубже: ${donor.host}`} />;
+  const host = shownHost(donor.host);
+  if (running) return <Loader size={14} aria-label={`Ищем адрес глубже: ${host}`} />;
   return (
     <Tooltip label="Искать адрес глубже" withArrow openDelay={300}>
       <ActionIcon
@@ -127,7 +129,7 @@ export function DeeperRowIcon({ donor }: { donor: DonorRowWithReach }) {
         size="sm"
         radius="xl"
         className="press"
-        aria-label={`Искать адрес глубже: ${donor.host}`}
+        aria-label={`Искать адрес глубже: ${host}`}
         loading={start.isPending}
         onClick={(event) => {
           event.stopPropagation();

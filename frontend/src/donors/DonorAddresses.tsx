@@ -58,6 +58,7 @@ import { CONTACT_SOURCES, CONTACT_STATUSES, NOT_SEARCHED, PERMISSION_TITLES } fr
 import type { ContactCard, DonorFullCard, JobCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatDate } from '../format';
+import { shownAddress } from '../hostName';
 import { JobLine } from '../jobs/JobLine';
 import { useStartedJob } from '../jobs/startedJob';
 import { forget } from '../storage';
@@ -119,7 +120,10 @@ function RowPopover({ label, icon, onIconClick, children, ...control }: RowPopov
  *  а наведения на телефоне нет. */
 function KeptReason({ contact }: { contact: ContactCard }) {
   return (
-    <RowPopover label={`Почему не удалить ${contact.email}`} icon={<IconLock size={16} />}>
+    <RowPopover
+      label={`Почему не удалить ${shownAddress(contact.email)}`}
+      icon={<IconLock size={16} />}
+    >
       <Text size="sm">{contact.removal_refusal}</Text>
     </RowPopover>
   );
@@ -139,13 +143,13 @@ function RemoveAddress({ contact, pending, onRemove }: RemoveProps) {
     <RowPopover
       opened={opened}
       onChange={setOpened}
-      label={`Удалить ${contact.email}`}
+      label={`Удалить ${shownAddress(contact.email)}`}
       icon={<IconTrash size={16} />}
       onIconClick={() => setOpened((was) => !was)}
     >
       <Stack gap="sm">
         <Text size="sm">
-          Удалить {contact.email}? Вернуть адрес можно, только вписав его заново
+          Удалить {shownAddress(contact.email)}? Вернуть адрес можно, только вписав его заново
           {contact.source === 'manual' ? '' : ' или новым поиском'}.
         </Text>
         <Group gap="xs" justify="flex-end">
@@ -201,7 +205,7 @@ function AddressTable({ donor, mayChange, removing, onRemove }: TableProps) {
                   по ней делил бы фон с его же переливом, а не буквы и фон. */}
               <Table.Td>
                 <Group gap="xs" wrap="wrap">
-                  <span className="donorEmail">{contact.email}</span>
+                  <span className="donorEmail">{shownAddress(contact.email)}</span>
                   {contact.id === marked && (
                     <Badge variant="light" size="sm" className="letterMark">
                       письмо уйдёт сюда
@@ -336,7 +340,7 @@ export function DonorAddresses({ donor }: { donor: DonorCardWithReach }) {
     mutationFn: (contact: ContactCard) => removeDonorAddress(donor.id, contact.id),
     onSuccess: (card, contact) => {
       changed(card);
-      notify({ message: `Адрес ${contact.email} удалён`, color: 'green' });
+      notify({ message: `Адрес ${shownAddress(contact.email)} удалён`, color: 'green' });
     },
     onError: (failure) =>
       notify({ title: 'Не удалили', message: refusalOf(failure), color: 'red' }),

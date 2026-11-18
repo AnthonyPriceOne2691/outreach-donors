@@ -31,6 +31,7 @@ import { Meter } from '../components/Meter';
 import { Seams } from '../components/Seams';
 import { WholeRow } from '../components/WholeRow';
 import { formatDate, formatNumber, plural } from '../format';
+import { shownHost } from '../hostName';
 
 export interface DomainGroup {
   domain: string;
@@ -134,7 +135,7 @@ function DomainState({ group, stageInTitle }: { group: DomainGroup; stageInTitle
           {state.label}
         </Badge>
         {group.shut !== null && group.limit !== undefined ? (
-          <InfoHint name={`Чем закрыт ${group.domain}`} interactive width={300}>
+          <InfoHint name={`Чем закрыт ${shownHost(group.domain)}`} interactive width={300}>
             <Text size="sm">{limitLine(group.limit, group.stage)}</Text>
           </InfoHint>
         ) : null}
@@ -278,7 +279,9 @@ export function DomainRow({
               size="compact-sm"
               px={6}
               aria-label={
-                open ? `Свернуть ящики ${group.domain}` : `Ящики ${group.domain} · ${boxes}`
+                open
+                  ? `Свернуть ящики ${shownHost(group.domain)}`
+                  : `Ящики ${shownHost(group.domain)} · ${boxes}`
               }
               aria-expanded={open}
               aria-controls={boxesId}

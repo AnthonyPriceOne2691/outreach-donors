@@ -23,6 +23,7 @@ import { buildFromExamples } from '../api/examples';
 import type { ExamplesPool, ExamplesRequest, ExampleSite } from '../api/examples';
 import { languageTitle } from '../api/languageLabels';
 import { formatNumber, plural } from '../format';
+import { shownHost } from '../hostName';
 import { notify, refuse, settle } from '../notices';
 import { countExamples, examplesCaption } from './examples';
 import { keywordsTitle } from './depth';
@@ -149,7 +150,7 @@ export function ExamplesOutcome({ built, pending, sites }: OutcomeProps) {
         {built.sites.map((site) => (
           <Text key={site.host} size="sm" component="li">
             <Text span fw={500}>
-              {site.host}
+              {shownHost(site.host)}
             </Text>{' '}
             — {siteOutcome(site)}
           </Text>
