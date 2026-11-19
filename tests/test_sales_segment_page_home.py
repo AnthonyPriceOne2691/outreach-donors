@@ -63,7 +63,10 @@ async def test_a_page_on_a_country_subdomain_takes_the_home_of_that_subdomain() 
 async def test_a_subdomain_link_in_script_takes_the_home_of_that_subdomain() -> None:
     """19.11.2026: ключ домена — ASCII; ссылка выдачи письменностью — тот же поддомен корня `xn--`."""
     homes = Homes(
-        {"xn--90as4c.xn--e1afmkfd.xn--p1ai": "Магазин в Ташкенте", "xn--e1afmkfd.xn--p1ai": "Корень"}
+        {
+            "xn--90as4c.xn--e1afmkfd.xn--p1ai": "Магазин в Ташкенте",
+            "xn--e1afmkfd.xn--p1ai": "Корень",
+        }
     )
 
     async with client(homes) as http:
