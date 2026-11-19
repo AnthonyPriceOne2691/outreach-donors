@@ -10,9 +10,12 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from backend.config import access, ahrefs, outreach, serp, storage
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigError(RuntimeError):
@@ -121,6 +124,10 @@ def check_access() -> None:
     Проверяется на старте сервера, а не при первом входе: сервис без
     секрета подписи не пускает никого, и узнать об этом лучше в момент
     развёртывания, чем от сотрудника, который не может войти.
+
+    Короткий секрет — тот же отказ здесь (аудит 19.11.2026): до этого длину сверял только
+    вход (`access/tokens.py`), и сервис стартовал, чтобы отказать первому сотруднику.
+    Длина — в байтах, как её считает подпись.
     """
     _raise_if_missing(
         "вход в сервис",
@@ -132,6 +139,31 @@ def check_access() -> None:
             )
         ],
     )
+    if len(access.JWT_SECRET.encode("utf-8")) < access.MIN_SECRET_BYTES:
+        raise ConfigError(
+            f"ACCESS_JWT_SECRET короче {access.MIN_SECRET_BYTES} байт — такую подпись "
+            "подбирают, и пропуск администратора выписал бы себе кто угодно.\n"
+            "  Сгенерировать: openssl rand -hex 32"
+        )
+
+
+def say_inbound_secret() -> None:
+    """Секрет приёма почты короче `MIN_SECRET_BYTES` — громкая строка при старте, не отказ.
+
+    Им подписаны метки отписки и адресов ответа, им же вебхук приёма узнаёт платформу
+    (`letters/unsubscribe.py`, `letters/reply_to.py`, `api/inbound/routes.py`): короткий
+    подбирают — и подделывают метки. Отказом он не стал (аудит 19.11.2026): длину секрета
+    на бою никто не сверял, а смена секрета гасит ссылки отписки и адреса ответа во всех
+    ушедших письмах — её планируют, а не делают по падению сервиса. Значения в строке нет.
+    """
+    if 0 < len(outreach.INBOUND_SECRET.encode("utf-8")) < access.MIN_SECRET_BYTES:
+        logger.error(
+            "OUTREACH_INBOUND_SECRET короче %s байт: метки отписки и адресов ответа подписаны "
+            "ключом, который подбирают. Сменить на openssl rand -hex 32 — с планом: ссылки "
+            "отписки и адреса ответа в ушедших письмах со сменой перестанут сходиться",
+            access.MIN_SECRET_BYTES,
+            extra={"setting": "OUTREACH_INBOUND_SECRET", "min_bytes": access.MIN_SECRET_BYTES},
+        )
 
 
 def check_crawl() -> None:

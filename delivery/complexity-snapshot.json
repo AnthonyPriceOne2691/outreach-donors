@@ -92,9 +92,9 @@
       "worst": "to_settings:58"
     },
     "backend/api/app.py": {
-      "lines": 125,
-      "complexity": 1,
-      "worst": "_lifespan:59"
+      "lines": 138,
+      "complexity": 2,
+      "worst": "_docs_urls:67"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -177,9 +177,9 @@
       "worst": "of:62"
     },
     "backend/api/deps.py": {
-      "lines": 125,
+      "lines": 126,
       "complexity": 4,
-      "worst": "signed_in:56"
+      "worst": "signed_in:57"
     },
     "backend/api/donors/__init__.py": {
       "lines": 1,
@@ -932,7 +932,7 @@
       "worst": "spared:50"
     },
     "backend/config/access.py": {
-      "lines": 34,
+      "lines": 39,
       "complexity": 0,
       "worst": "—"
     },
@@ -987,7 +987,7 @@
       "worst": "_unset_if_empty:118"
     },
     "backend/config/observability.py": {
-      "lines": 21,
+      "lines": 26,
       "complexity": 0,
       "worst": "—"
     },
@@ -1017,9 +1017,9 @@
       "worst": "—"
     },
     "backend/config/startup_checks.py": {
-      "lines": 161,
+      "lines": 193,
       "complexity": 5,
-      "worst": "check_crawl:137"
+      "worst": "check_crawl:169"
     },
     "backend/config/storage.py": {
       "lines": 24,
@@ -1077,9 +1077,9 @@
       "worst": "update_access:174"
     },
     "backend/features/access/tokens.py": {
-      "lines": 179,
+      "lines": 180,
       "complexity": 5,
-      "worst": "read_token:143"
+      "worst": "read_token:144"
     },
     "backend/features/agent/__init__.py": {
       "lines": 7,

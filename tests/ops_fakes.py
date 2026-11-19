@@ -1,6 +1,6 @@
 """Подставные `docker` и `curl` для тестов скриптов хоста.
 
-Скрипты хоста (`scripts/backup.sh`, `offsite.sh`, `alert.sh`,
+Скрипты хоста (`scripts/backup.sh`, `restore.sh`, `offsite.sh`, `alert.sh`,
 `healthwatch.sh`) зовут `docker` и `curl` по имени из PATH. Тест кладёт
 в начало PATH свои: они записывают, чем их позвали, и отвечают по сценарию.
 Так проверяется логика скриптов — что сочтено отказом, что ушло в тревогу,
@@ -46,7 +46,8 @@ def key_of(argv):
         if rest[:1] == ["config"]:
             return "compose config"
         if rest[:1] == ["exec"]:
-            return "compose exec " + ("pg_dump" if "pg_dump" in rest else "psql")
+            tool = next((name for name in ("pg_dump", "pg_restore") if name in rest), "psql")
+            return "compose exec " + tool
         return "compose " + " ".join(rest[:1])
     if argv[:1] == ["run"]:
         image = next(i for i, a in enumerate(argv) if a.startswith("rclone/"))

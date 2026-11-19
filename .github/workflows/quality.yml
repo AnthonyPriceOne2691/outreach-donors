@@ -13,6 +13,11 @@ concurrency:
   group: quality-${{ github.ref }}
   cancel-in-progress: true
 
+# Токен джоб — только на чтение кода (аудит 19.11.2026): гейтам больше не нужно, а без
+# этой строки токен получал права репозитория по умолчанию.
+permissions:
+  contents: read
+
 env:
   STRICT: "1"                 # soft-режим в CI запрещён (Delivery §10.4)
   # ⚠ Область — ВЕСЬ backend, а не канонный backend/features: домены лежат в

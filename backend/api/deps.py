@@ -38,8 +38,9 @@ from backend.shared.database.base import SessionFactory
 #: `auto_error=False` — отказ пишем свой: стандартный отвечает по-английски и не говорит,
 #: что делать.
 _pass = APIKeyHeader(name=TOKEN_HEADER, auto_error=False)
-#: Прежний путь — `Authorization: Bearer`: им ходят консоль /api/docs и тесты. Снаружи прокси
-#: его не пропустит — там `Authorization` занят паролем прокси и до сервера не доходит.
+#: Прежний путь — `Authorization: Bearer`: им ходят тесты и консоль /api/docs там, где она
+#: включена (`API_DOCS_ENABLED`; в бою её нет). Снаружи прокси его не пропустит — там
+#: `Authorization` занят паролем прокси и до сервера не доходит.
 _bearer = HTTPBearer(auto_error=False)
 
 #: Счётчик попыток входа — один на процесс, живёт сколько процесс.

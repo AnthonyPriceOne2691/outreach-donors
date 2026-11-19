@@ -28,6 +28,11 @@ class _Access(DomainSettings):
 
 _s = _Access()
 
+#: Секрет подписи — не короче стольких байт: HS256 и HMAC-SHA256 с ключом короче выхода хеша
+#: ослаблены до подбора. Одно число на старт сервера (`startup_checks.check_access`), на выдачу
+#: пропуска (`access/tokens.py`) и на секрет меток почты (`startup_checks.say_inbound_secret`).
+MIN_SECRET_BYTES: int = 32
+
 JWT_SECRET: str = _s.jwt_secret
 TOKEN_TTL_HOURS: int = _s.token_ttl_hours
 LOGIN_ATTEMPTS_PER_MINUTE: int = _s.login_attempts_per_minute

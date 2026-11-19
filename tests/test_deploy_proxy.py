@@ -93,3 +93,42 @@ def test_no_location_drops_the_server_proxy_headers() -> None:
     и счётчик попыток входа обходится сменой заголовка (проверено 24.09.2026)."""
     for place, body in _locations(_outreach_server()).items():
         assert "proxy_set_header" not in body, f"location {place} задаёт свои заголовки прокси"
+
+
+def test_login_is_rate_limited_by_a_declared_zone() -> None:
+    """Потолок частоты входа — до сервера, на адрес клиента (аудит 19.11.2026: теста не было).
+    Зона без `limit_req` у входа не режет ничего, `limit_req` без зоны не пропустит `nginx -t`."""
+    conf = _code(PROXY.read_text(encoding="utf-8"))
+    login = _locations(_outreach_server())["= /api/auth/login"]
+
+    used = re.search(r"^\s*limit_req\s+zone=(\w+)\b", login, re.M)
+    assert used is not None, "у входа нет limit_req"
+    assert used.group(1) == "outreach_login"
+    assert re.search(
+        r"^\s*limit_req_zone\s+\$binary_remote_addr\s+zone=outreach_login:", conf, re.M
+    )
+    assert re.search(r"^\s*limit_req_status\s+429;", login, re.M), "отказ частоты — 429, не 503"
+
+
+def _log_format(conf: str) -> str:
+    found = re.search(r"log_format\s+outreach_safe\s+((?:'[^']*'\s*)+);", conf)
+    assert found is not None, "нет log_format outreach_safe"
+    return "".join(re.findall(r"'([^']*)'", found.group(1)))
+
+
+def test_the_log_keeps_no_query_and_no_unsubscribe_label() -> None:
+    """Журнал прокси — единственный журнал запросов (аудит 19.11.2026). Без параметров: в них
+    поиск лидов по почте и имени. Без метки отписки: она в самом пути, а `$uri` её не режет."""
+    conf = _code(PROXY.read_text(encoding="utf-8"))
+    form = _log_format(conf)
+
+    for leaky in ("$request ", '$request"', "$request_uri", "$args", "$query_string", "$uri"):
+        assert leaky not in form, f"формат журнала пишет {leaky.strip()}"
+    assert "$outreach_log_uri" in form
+    mapped = re.search(r"map\s+\$uri\s+\$outreach_log_uri\s*\{([^}]*)\}", conf)
+    assert mapped is not None, "нет map $uri $outreach_log_uri"
+    rules = dict(line.split() for line in mapped.group(1).split(";") if line.strip())
+    assert rules == {"~*^/api/unsubscribe/": "/api/unsubscribe/-", "default": "$uri"}
+    assert re.search(
+        r"^\s*access_log\s+\S+\s+outreach_safe;", _server_level(_outreach_server()), re.M
+    )
