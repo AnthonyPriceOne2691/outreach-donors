@@ -77,11 +77,7 @@ from backend.features.sales.clean_known import Known, load_known
 from backend.features.sales.clean_report import NOT_VERIFIED, CleaningReport, Outcome, tally
 from backend.features.sales.hunter_codes import StillCheckingError, refused
 from backend.features.sales.intake import host_key
-from backend.features.sales.models import (
-    LeadStatus,
-    RejectionReason,
-    SalesLeadModel,
-)
+from backend.features.sales.models import LeadStatus, RejectionReason, SalesLeadModel
 from backend.features.sales.verifier import (
     FIXTURE,
     OPERATION,
@@ -92,6 +88,7 @@ from backend.features.sales.verifier import (
     due,
 )
 from backend.features.sales.verify_cap import capped
+from backend.shared.net.idn import shown_host
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +144,7 @@ def _stoplisted(lead: SalesLeadModel, known: Known) -> str | None:
         return f"стоп-лист продаж: адрес {lead.email}"
     for host in sorted(_hosts_of(lead, known)):
         if host in known.stop_hosts:
-            return f"стоп-лист продаж: домен {host}"
+            return f"стоп-лист продаж: домен {shown_host(host)}"
     return None
 
 
