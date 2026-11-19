@@ -79,8 +79,9 @@ class TestCellForms:
         assert file_sweep.read_hosts(source) == ["site.com"]
 
     def test_international_name_is_a_domain(self, tmp_path: Path) -> None:
+        """Имя письменностью — домен, и в базу он идёт в ASCII, как его пишет выдача (19.11.2026)."""
         source = write(tmp_path / "list.csv", "host\nпример.рф\nhttps://WWW.Shop.DE/path\n")
-        assert file_sweep.read_hosts(source) == ["пример.рф", "shop.de"]
+        assert file_sweep.read_hosts(source) == ["xn--e1afmkfd.xn--p1ai", "shop.de"]
 
 
 class TestHeader:
