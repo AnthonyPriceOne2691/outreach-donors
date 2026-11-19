@@ -146,6 +146,18 @@ async function fill(label: string, value: string) {
   await user.type(field, value);
 }
 
+/** Форма, ушедшая на сервер маршрутом «МЕТОД путь»: `serve` записывает только тела JSON. */
+function sentForm(route: string): FormData | null {
+  const [method, path] = route.split(' ');
+  const found = vi
+    .mocked(globalThis.fetch)
+    .mock.calls.find(
+      ([input, init]) => input === path && (init?.method ?? 'GET').toUpperCase() === method,
+    );
+  const body = found?.[1]?.body;
+  return body instanceof FormData ? body : null;
+}
+
 describe('книга до отправки', () => {
   it('не .xlsx, пустая и больше предела — причина у поля без запроса', () => {
     expect(planFileRefusal(book('план.csv', 'text/csv'))).toBe(
@@ -235,6 +247,29 @@ describe('превью и сохранение', () => {
     expect(recorded.calls.filter((call) => call.path === '/api/sales/plans/preview')).toHaveLength(
       2,
     );
+  });
+
+  it('потолок с точкой, запятой или нулём в хвосте — число в запросе, в поле — как набрано', async () => {
+    // 19.11.2026, проверка плана на проде: «1.0» в «Потолке плана» давало «потолок плана обязателен».
+    // Mantine отдаёт строкой значение с точкой или нулём в конце («1.», «1.0», «0.50») — окно
+    // считало его пустым полем и стирало точку на ходу: «0.5» и «0,5» по знаку становились «5». Набор
+    // здесь — по знаку, через «0.»; запятую поле пишет точкой; уйдя из поля, Mantine сам пишет «1.0»
+    // как «1» — число то же.
+    setUp({ [PREVIEW_URL]: { body: preview() }, [SAVE_URL]: { status: 201, body: PLAN } });
+    renderWith(<PlanUpload onDone={vi.fn()} onCancel={vi.fn()} />);
+
+    await fill('Потолок плана, $', '1.0');
+    expect(screen.getByLabelText('Потолок плана, $')).toHaveValue('1.0');
+    await fill('Потолок гипотезы, $', '0,50');
+    expect(screen.getByLabelText('Потолок гипотезы, $')).toHaveValue('0.50');
+    await userEvent.setup().upload(fileInput(), book());
+    await screen.findByRole('table', { name: 'Листы книги' });
+    await userEvent.setup().click(saveButton());
+
+    await waitFor(() => expect(sentForm(SAVE_URL)).not.toBeNull());
+    expect(sentForm(PREVIEW_URL)?.get('cap_usd')).toBe('1');
+    expect(sentForm(SAVE_URL)?.get('cap_usd')).toBe('1');
+    expect(sentForm(SAVE_URL)?.get('hypothesis_cap_usd')).toBe('0.5');
   });
 
   it('сохранил — план уходит на сервер, окно сообщает и закрывается', async () => {
