@@ -18,6 +18,12 @@
 с потолком памяти в полтора: на проде страница несёт около пяти ссылок (p90 — 10–13), а глубокий
 обход нёс 307 тысяч на 10 000 страниц.
 
+**Передышка сайту после его обычного обхода** (`CRAWL_ALWAYS_REST_MIN`, `always.plan`, 19.11.2026):
+часть 24/7 не начинается на сайте, пока с конца его обычного обхода — ночного или поставленного
+человеком — не прошло столько минут. Утром 19.11 все шесть частей, вставших по доле отказов,
+начались в 07:03–07:36 на сайтах, которые ночной обход только что прошёл: сайт отсекает вторую
+нагрузку подряд. 0 — без передышки.
+
 Опечатка в значении (`CRAWL_ALWAYS=да`) не роняет процессы, которые грузят настройку: берётся
 «выключен» (или умолчание числа), и при старте — громкая строка журнала с именем переменной.
 """
@@ -31,6 +37,8 @@ from backend.config._base import DomainSettings, Fallback, spared
 #: Частей 24/7 разом и ссылок цепочки в памяти судьи, пока не задано иначе.
 DEFAULT_SLOTS = 12
 DEFAULT_UNION_LINKS = 600_000
+#: Минут передышки сайту после его обычного обхода, пока не задано иначе.
+DEFAULT_REST_MIN = 120
 
 
 class _Always(DomainSettings):
@@ -39,6 +47,7 @@ class _Always(DomainSettings):
     union_links: int = Field(
         default=DEFAULT_UNION_LINKS, gt=0, validation_alias="CRAWL_ALWAYS_UNION_LINKS"
     )
+    rest_min: int = Field(default=DEFAULT_REST_MIN, ge=0, validation_alias="CRAWL_ALWAYS_REST_MIN")
 
 
 _s, _unread = spared(
@@ -59,9 +68,15 @@ _s, _unread = spared(
             wants="целое число больше нуля",
             means=f"судья держит не больше {DEFAULT_UNION_LINKS} ссылок цепочки донора",
         ),
+        "CRAWL_ALWAYS_REST_MIN": Fallback(
+            DEFAULT_REST_MIN,
+            wants="целое число от нуля",
+            means=f"часть 24/7 ждёт {DEFAULT_REST_MIN} минут после обычного обхода сайта",
+        ),
     },
 )
 
 ENABLED: bool = _s.enabled
 SLOTS: int = _s.slots
 UNION_LINKS: int = _s.union_links
+REST_MIN: int = _s.rest_min

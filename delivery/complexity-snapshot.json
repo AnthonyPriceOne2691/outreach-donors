@@ -967,7 +967,7 @@
       "worst": "render_template_problem:254"
     },
     "backend/config/crawl_always.py": {
-      "lines": 68,
+      "lines": 83,
       "complexity": 0,
       "worst": "—"
     },
@@ -1497,9 +1497,9 @@
       "worst": "affiliation:102"
     },
     "backend/features/crawl/always.py": {
-      "lines": 438,
+      "lines": 458,
       "complexity": 8,
-      "worst": "tick:323"
+      "worst": "tick:343"
     },
     "backend/features/crawl/always_depth.py": {
       "lines": 322,

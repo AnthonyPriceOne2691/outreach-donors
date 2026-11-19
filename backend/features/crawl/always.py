@@ -29,6 +29,12 @@
 цепочка не выросла, а потолок следующей тот же — донор ждёт, пока его снова обойдут иначе (ночью
 или человек). Иначе закрытый сайт или адреса, уводящие на открытое, ставились бы каждую минуту.
 
+**Передышка после обычного обхода** (`CRAWL_ALWAYS_REST_MIN`, 19.11.2026): часть не начинается на
+сайте, пока с конца его обычного обхода — ночного или поставленного человеком — не прошло два часа.
+Утром 19.11 все шесть частей, вставших по доле отказов, начались в 07:03–07:36 на сайтах, которые
+ночной обход только что прошёл: сайт отсекает вторую нагрузку подряд. Такой донор не пройден и не
+ждёт после отказа — он в очереди (`Survey.remaining`), просто часть ему выдаётся позже (`plan`).
+
 **Пройдено всё** (`_say_done`): включён, частей не идёт, а у каждого донора — сайт кончился, он
 слабый или ждёт после отказа. Сообщение одно на эпоху (`CrawlAlwaysSignalModel`): следующее — только
 после того, как появилась новая работа и она тоже кончилась. Повтор после отказа новой работой не
@@ -42,7 +48,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -121,6 +127,8 @@ class Donor:
     scored: bool = False
     #: Последний пересчёт кандидатов не читал старые части цепочки — потолок ссылок в памяти.
     frozen: bool = False
+    #: Обычный обход сайта кончился меньше `CRAWL_ALWAYS_REST_MIN` минут назад — сайт отдыхает.
+    cooling: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,9 +178,11 @@ class _Known:
     last: dict[str, LastPart] = field(default_factory=dict)
     #: Последний пригодный обход не из цепочки, открывший страницы, — номер.
     regular: dict[str, int] = field(default_factory=dict)
+    #: Сайты, чей обычный обход кончился меньше `CRAWL_ALWAYS_REST_MIN` минут назад (шапка).
+    cooling: set[str] = field(default_factory=set)
 
 
-async def _known(session: AsyncSession) -> _Known:
+async def _known(session: AsyncSession, now: datetime) -> _Known:
     known = _Known()
     # Колонками, без чекпоинта: выдача живёт в процессе разбора с потолком памяти (`always_depth`).
     known.depths = await always_depth.facts(session)
@@ -190,6 +200,13 @@ async def _known(session: AsyncSession) -> _Known:
         .group_by(CrawlRunModel.host)
     )
     known.regular = {host: int(newest) for host, newest in regular.tuples().all()}
+    since = now - timedelta(minutes=cfg.REST_MIN)
+    cooling = await session.scalars(
+        select(CrawlRunModel.host)
+        .distinct()
+        .where(CrawlRunModel.depth_part.is_(None), CrawlRunModel.finished_at >= since)
+    )
+    known.cooling = set(cooling.all())
     return known
 
 
@@ -236,14 +253,16 @@ def _donor(host: str, rank: int, known: _Known, switch: Switch) -> Donor:
         rank=rank,
         scored=always_depth.by_threshold(depth),
         frozen=depth is not None and depth.frozen_parts > 0,
+        cooling=host in known.cooling,
     )
 
 
-async def survey(session: AsyncSession, switch: Switch) -> Survey:
-    """Доноры обхода 24/7 — отбором ночного круга — и где каждый."""
+async def survey(session: AsyncSession, switch: Switch, now: datetime | None = None) -> Survey:
+    """Доноры обхода 24/7 — отбором ночного круга — и где каждый; `now` — от него считается
+    передышка после обычного обхода (шапка)."""
     picked = await targets.choose(session, limit=None, skip_catalogs=True)
     hosts = list(dict.fromkeys(crawl_host(host) for host in picked.hosts))
-    known = await _known(session)
+    known = await _known(session, now or datetime.now(UTC))
     donors = [_donor(host, rank, known, switch) for rank, host in enumerate(hosts)]
     return Survey(donors=donors, running=known.running, catalogs=len(picked.catalog))
 
@@ -262,8 +281,9 @@ def _spec(donor: Donor) -> Spec:
 
 
 def plan(found: Survey) -> list[Spec]:
-    """Части к выдаче по порядку (шапка): кому есть что обходить и чей обход сейчас не идёт."""
-    ready = [donor for donor in found.remaining() if not donor.busy]
+    """Части к выдаче по порядку (шапка): кому есть что обходить, чей обход сейчас не идёт и чей
+    сайт не отдыхает после обычного обхода."""
+    ready = [donor for donor in found.remaining() if not (donor.busy or donor.cooling)]
     return [_spec(donor) for donor in sorted(ready, key=_order)]
 
 
@@ -339,7 +359,7 @@ async def tick(
     room, parts = await _room(session, workers)
     if room <= 0 and parts > 0:
         return []
-    found = await survey(session, switch)
+    found = await survey(session, switch, moment)
     if found.donors and not found.remaining() and found.running == 0:
         await _say_done(session, found, moment)
         return []
