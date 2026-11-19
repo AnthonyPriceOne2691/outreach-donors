@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -224,6 +224,79 @@ async def test_a_hypothesis_whose_last_build_stopped_off_the_corridor_waits_for_
     assert skipped.hypothesis_id == other
     assert (both.hypothesis_id, both.why) == (None, autobuild.STREAK)
     assert resumed.hypothesis_id == world.hypothesis_id
+
+
+def _empty_build(jobs: _AutoJobs, hypothesis_id: int, ended: datetime) -> None:
+    """Сборка кончилась пустой: ни письма, ни пересборки, лид ждёт с причиной."""
+    job = jobs.known[build_job_id(hypothesis_id)]
+    job.finish(
+        {
+            "prepared": 0,
+            "refreshed": 0,
+            "waiting": {"подпись из настроек отправителя стоит и в тексте письма": 1},
+            "stopped": None,
+        }
+    )
+    job.ended_at = ended
+
+
+async def test_a_hypothesis_whose_build_wrote_nothing_rests_an_hour(
+    session: AsyncSession, world: w.World, jobs: _AutoJobs
+) -> None:
+    """19.11.2026: пустая сборка гипотезы ставилась каждые десять минут, сутки за сутками."""
+    await _ready(session, world.hypothesis_id, "jane@acme.example.test")
+    queue_start.start(jobs, world.hypothesis_id, 5)
+    _empty_build(jobs, world.hypothesis_id, NOW - timedelta(minutes=10))
+    before = len(jobs.enqueued)
+
+    resting = await autobuild.run(session, jobs, now=NOW)
+    rested = await autobuild.run(session, jobs, now=NOW + timedelta(minutes=51))
+
+    assert (resting.hypothesis_id, resting.why, resting.stuck) == (None, autobuild.EMPTY, False)
+    assert rested.hypothesis_id == world.hypothesis_id
+    assert len(jobs.enqueued) == before + 1
+
+
+async def test_an_empty_build_of_one_hypothesis_lets_the_next_one_build(
+    session: AsyncSession, world: w.World, jobs: _AutoJobs
+) -> None:
+    """Черёд — давней сборке (`in_turn`), но пустая отдыхает: собирается следующая."""
+    other = await _second(session)
+    await _ready(session, world.hypothesis_id, "jane@acme.example.test")
+    await _ready(session, other, "olga@beta.example.test")
+    first = await autobuild.run(session, jobs, now=NOW)
+    _empty_build(jobs, world.hypothesis_id, NOW - timedelta(minutes=5))
+    second = await autobuild.run(session, jobs, now=NOW)
+    jobs.known[build_job_id(other)].finish(
+        {"prepared": 1, "refreshed": 0, "waiting": {}, "stopped": None}
+    )
+
+    third = await autobuild.run(session, jobs, now=NOW)
+
+    assert (first.hypothesis_id, second.hypothesis_id) == (world.hypothesis_id, other)
+    assert third.hypothesis_id == other
+
+
+@pytest.mark.parametrize(
+    "report",
+    [
+        {"prepared": 1, "refreshed": 0, "waiting": {"нет имени": 1}, "stopped": None},
+        {"prepared": 0, "refreshed": 2, "waiting": {"нет имени": 1}, "stopped": None},
+        {"prepared": 0, "refreshed": 0, "waiting": {}, "stopped": None},
+        {"error": "сбой сборки", "permanent": True},
+    ],
+)
+async def test_a_build_that_did_something_or_failed_is_not_empty(
+    session: AsyncSession, world: w.World, jobs: _AutoJobs, report: dict[str, Any]
+) -> None:
+    await _ready(session, world.hypothesis_id, "jane@acme.example.test")
+    job = queue_start.start(jobs, world.hypothesis_id, 5)
+    jobs.known[job.id].finish(report)
+    jobs.known[job.id].ended_at = NOW - timedelta(minutes=5)
+
+    found = await autobuild.run(session, jobs, now=NOW)
+
+    assert found.hypothesis_id == world.hypothesis_id
 
 
 # --- какие гипотезы и по очереди ---------------------------------------------------------------

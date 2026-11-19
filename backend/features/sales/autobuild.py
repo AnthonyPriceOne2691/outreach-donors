@@ -30,7 +30,9 @@
   в очереди, и вторая сборка разом собрала бы ту же недостачу ещё раз;
 - не ставит, пока потолок модели продаж набран: сборка встала бы на первом письме;
 - не собирает гипотезу, чья прошлая сборка встала на серии писем вне коридора, пока человек не
-  соберёт её кнопкой, поправив цепочку: иначе каждый проход тратил бы модель на те же лиды впустую.
+  соберёт её кнопкой, поправив цепочку: иначе каждый проход тратил бы модель на те же лиды впустую;
+- не собирает гипотезу час после пустой сборки: ни письма, ни пересборки, а лиды ждут
+  (`autobuild_rest.py`, 19.11.2026).
 
 **Какие гипотезы — тем же решением, что сама сборка.** Признака «активна» у гипотезы нет —
 собираются те, чьим лидам `ready` без письма сборка напишет первое письмо хоть одному, и те, у кого
@@ -101,12 +103,12 @@ from backend.features.sales import (
     autobuild_alarm,
     autosend,
     connection,
-    corridor,
     letter,
     queue_plan,
     sender,
 )
 from backend.features.sales.autobuild_alarm import Outcome, Watch
+from backend.features.sales.autobuild_rest import EMPTY, rested_empty, streak_stopped
 from backend.features.sales.job_holder import holder
 from backend.features.sales.lead_edit import edited
 from backend.features.sales.models import (
@@ -296,14 +298,6 @@ def _busy(jobs: Queue, hypotheses: list[tuple[int, str]]) -> str | None:
     return None
 
 
-def _streak_stopped(jobs: Queue, hypothesis_id: int) -> bool:
-    """Прошлая сборка гипотезы встала на серии писем вне коридора — и человек её ещё не пересобрал."""
-    job = holder(jobs, build_job_id(hypothesis_id))
-    result = job.latest_result() if job is not None else None
-    report = result.return_value if result is not None else None
-    return isinstance(report, dict) and report.get("stopped") == corridor.streak_stop()
-
-
 async def plan(session: AsyncSession, jobs: Queue, *, now: datetime) -> Plan:
     """Хватает ли очереди и кого собрать — без записи и без постановки."""
     queue = await queued(session)
@@ -330,14 +324,22 @@ async def _choose(
     every = await session.execute(select(SalesHypothesisModel.id, SalesHypothesisModel.name))
     try:
         busy = await asyncio.to_thread(_busy, jobs, list(every.tuples().all()))
-        stuck = {h for h, _ in found if await asyncio.to_thread(_streak_stopped, jobs, h)}
+        resting, idle = await asyncio.to_thread(_resting, jobs, found, now)
     except RedisError as exc:
         logger.warning("продажи: автосборка — очередь задач не ответила", extra={"error": str(exc)})
         return QUEUE_SILENT
     if busy is not None:
         return f"идёт сборка гипотезы «{busy}» — недостача посчитается после неё"
-    ready = [item for item in await in_turn(session, found) if item[0] not in stuck]
-    return ready[0] if ready else STREAK
+    ready = [item for item in await in_turn(session, found) if item[0] not in resting]
+    return ready[0] if ready else idle
+
+
+def _resting(jobs: Queue, found: list[tuple[int, str]], now: datetime) -> tuple[set[int], str]:
+    """Кого автосборка обходит (`autobuild_rest`) и почему никого не собирает, если обходит всех:
+    серия вне коридора ждёт человека (`STREAK`), пустая сборка — часа (`EMPTY`)."""
+    stuck = {h for h, _ in found if streak_stopped(jobs, h)}
+    empty = {h for h, _ in found if rested_empty(jobs, h, now)}
+    return stuck | empty, STREAK if stuck else EMPTY
 
 
 async def _blocked(session: AsyncSession, now: datetime) -> str | None:
