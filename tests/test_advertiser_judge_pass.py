@@ -147,8 +147,11 @@ def _pending(*targets: str, points: int = 3) -> list[tuple[str, Verdict, int]]:
 
 
 async def _spend(session: AsyncSession) -> list[UsageRecordModel]:
+    """Строки расхода судьи в порядке записи: без `order_by` база отдаёт их как придётся."""
     found = await session.scalars(
-        select(UsageRecordModel).where(UsageRecordModel.operation == JUDGE_OPERATION)
+        select(UsageRecordModel)
+        .where(UsageRecordModel.operation == JUDGE_OPERATION)
+        .order_by(UsageRecordModel.id)
     )
     return list(found.all())
 
