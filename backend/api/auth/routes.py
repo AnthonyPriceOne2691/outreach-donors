@@ -21,7 +21,7 @@ from backend.api.deps import db_session, signed_in
 from backend.config import access as cfg
 from backend.features.access.administration import WrongPasswordError, change_own_password
 from backend.features.access.attempts import TooManyAttemptsError
-from backend.features.access.login import LoginFailedError, login
+from backend.features.access.login import LoginFailedError, attempted_email, login
 from backend.features.access.repository import actor_of, normalize_email
 from backend.features.core.models.access import UserModel
 
@@ -59,10 +59,11 @@ async def sign_in(
         # Но и молчать нельзя: в журнале подбор выглядел бы как десять
         # попыток и тишина, то есть как прекратившийся. Живой прогон
         # 19.09.2026 это и показал — десять записей, а попыток было
-        # двенадцать.
+        # двенадцать. Почта — только похожая на почту, как в журнале действий
+        # (`attempted_email`): пароль, набранный не в то поле, в журнал не ложится.
         logger.warning(
             "вход: попытки исчерпаны, пароль даже не проверялся",
-            extra={"email": normalize_email(body.email), "attempt_key": keys[1]},
+            extra={"email": attempted_email(body.email), "attempt_key": keys[1]},
         )
         raise
 

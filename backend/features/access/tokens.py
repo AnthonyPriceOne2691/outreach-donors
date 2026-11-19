@@ -21,6 +21,12 @@
 и снова, едва человек сменит разовый пароль. Списка выданных пропусков и
 миграции для этого не нужно: хеш пароля меняется при каждой смене — соль
 bcrypt новая даже для того же пароля.
+
+**Пропуск без любого из своих полей не принимается** (аудит 19.11.2026,
+`REQUIRED_CLAIMS`): ни без срока, ни без отпечатка пароля. Без срока библиотека
+сочла бы пропуск бессрочным, без отпечатка — годным при любом пароле; пропуска
+до отпечатков истекли через сутки после 10.10.2026, и такой теперь собирает
+только тот, у кого секрет подписи, — а отпечаток требует ещё и хеша из базы.
 """
 
 from __future__ import annotations
@@ -45,6 +51,17 @@ MIN_SECRET_LENGTH = 32
 #: случайно совпасть после смены пароля нечему.
 STAMP_CLAIM = "stamp"
 STAMP_LENGTH = 16
+
+#: Без чего пропуск не принимается — и что сказать о нехватке: кто (`sub`), когда выдан
+#: (`iat`), до какого срока (`exp`) и отпечаток пароля. Требует сама библиотека (`require`):
+#: без этого пропуск без `iat` или `exp` доходил до чтения полей и падал там KeyError —
+#: пятисоткой вместо «входа нет».
+REQUIRED_CLAIMS = {
+    "sub": "В пропуске нет сотрудника",
+    "iat": "В пропуске нет времени выдачи",
+    "exp": "В пропуске нет срока",
+    STAMP_CLAIM: "В пропуске нет отпечатка пароля",
+}
 
 #: Заголовок, которым экран шлёт пропуск. Не `Authorization`: на /api/ его занимает пароль
 #: прокси — тот же общий пароль сервера, что и у экрана (`deploy/proxy/outreach.conf`). До
@@ -73,9 +90,9 @@ class TokenPayload:
     user_id: int
     issued_at: datetime
     expires_at: datetime
-    #: Отпечаток пароля на момент выдачи (`password_stamp`). `None` — пропуск выдан
-    #: до отпечатков: такой доживает свой срок (`password_changed_since`).
-    password_stamp: str | None = None
+    #: Отпечаток пароля на момент выдачи (`password_stamp`). Без него пропуск не читается
+    #: (`REQUIRED_CLAIMS`).
+    password_stamp: str
 
 
 def _secret() -> str:
@@ -126,9 +143,14 @@ def create_token(user_id: int, *, password_hash: str | None, now: datetime | Non
 def read_token(token: str) -> TokenPayload:
     """Проверить пропуск и достать из него сотрудника."""
     try:
-        claims = jwt.decode(token, _secret(), algorithms=[ALGORITHM])
+        claims = jwt.decode(
+            token, _secret(), algorithms=[ALGORITHM], options={"require": list(REQUIRED_CLAIMS)}
+        )
     except jwt.ExpiredSignatureError as exc:
         raise TokenError("Пропуск просрочен — войдите заново") from exc
+    except jwt.MissingRequiredClaimError as exc:
+        missing = REQUIRED_CLAIMS.get(exc.claim, f"В пропуске нет поля {exc.claim}")
+        raise TokenError(f"{missing} — войдите заново") from exc
     except jwt.InvalidTokenError as exc:
         raise TokenError(f"Пропуск не принят: {exc}") from exc
 
@@ -142,18 +164,15 @@ def read_token(token: str) -> TokenPayload:
         issued_at=datetime.fromtimestamp(int(claims["iat"]), tz=UTC),
         expires_at=datetime.fromtimestamp(int(claims["exp"]), tz=UTC),
         # Как лежит: подпись проверена, а отпечаток кладёт только `create_token` — строкой.
-        password_stamp=claims.get(STAMP_CLAIM),
+        password_stamp=claims[STAMP_CLAIM],
     )
 
 
 def password_changed_since(payload: TokenPayload, password_hash: str | None) -> bool:
     """Сменили ли пароль учётки после выдачи пропуска — тогда пропуск не действует.
 
-    Пропуск без отпечатка выдан до этой правки, когда отпечатков не было: он доживает свой
-    срок (сутки), а не обрывается выкаткой — иначе в день выкатки из сервиса выбросило бы
-    всех разом. Через сутки после выкатки таких не остаётся. Сброс админом для них и так
-    закрывает работу до смены разового пароля (`api/deps.py`, `working_user`).
+    До 19.11.2026 пропуск без отпечатка здесь считался годным: так пропуска, выданные до
+    отпечатков, доживали свои сутки, а не обрывались выкаткой 10.10.2026. Их давно нет, и
+    без отпечатка пропуск теперь не читается вовсе (`read_token`, `REQUIRED_CLAIMS`).
     """
-    if payload.password_stamp is None:
-        return False
     return not hmac.compare_digest(payload.password_stamp, password_stamp(password_hash))
