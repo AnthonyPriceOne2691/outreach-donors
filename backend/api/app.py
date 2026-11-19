@@ -47,7 +47,8 @@ from backend.api.threads import routes as threads_routes
 from backend.api.unsubscribe import routes as unsubscribe_routes
 from backend.api.users import routes as users_routes
 from backend.api.watchdog import routes as watchdog_routes
-from backend.config.startup_checks import check_access, check_storage
+from backend.config import observability
+from backend.config.startup_checks import check_access, check_storage, say_inbound_secret
 from backend.features.agent.guarding import said_at_start
 from backend.features.core import llm_caps
 from backend.shared.logs import setup_logging
@@ -63,6 +64,18 @@ async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
+def _docs_urls() -> tuple[str | None, str | None]:
+    """Адреса песочницы и схемы — под тем же префиксом, что маршруты, — или их нет.
+
+    Есть только там, где их включили (`API_DOCS_ENABLED`, по умолчанию выключены): в бою
+    их нет — аудит 19.11.2026. Схему для тестов и обходов маршрутов (`app.openapi()`)
+    приложение собирает и без адреса.
+    """
+    if not observability.API_DOCS:
+        return None, None
+    return f"{API_PREFIX}/docs", f"{API_PREFIX}/openapi.json"
+
+
 def create_app() -> FastAPI:
     """Собрать приложение. Настроек не хватает — отказ здесь и сразу."""
     # Логи собираются тем же способом, что и в командах: иначе поля из
@@ -71,19 +84,19 @@ def create_app() -> FastAPI:
     setup_logging()
     check_storage()
     check_access()
+    say_inbound_secret()
     # «Написать заново» пишет черновик агента в запросе: что включено и чем ограничен
     # расход — словами в журнал при старте.
     said_at_start()
 
+    docs_url, openapi_url = _docs_urls()
     app = FastAPI(
         title="outreach-donors",
         summary="Поиск доноров по выдаче и сбор цен размещения",
         version="0.1.0",
-        # Схема и песочница живут под тем же префиксом, что и маршруты:
-        # на сервере наружу открыт один путь, и всё остальное за ним.
-        docs_url=f"{API_PREFIX}/docs",
+        docs_url=docs_url,
         redoc_url=None,
-        openapi_url=f"{API_PREFIX}/openapi.json",
+        openapi_url=openapi_url,
         lifespan=_lifespan,
     )
 

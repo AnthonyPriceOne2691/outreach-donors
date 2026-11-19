@@ -495,7 +495,7 @@ Library.
 Срезы 1 и 2. Маршруты: `POST /api/auth/login`, `GET /api/auth/me`,
 `POST /api/auth/password`, `GET|POST /api/users`,
 `PATCH /api/users/{id}`, `POST /api/users/{id}/password`. Схема и
-песочница — `/api/docs`.
+песочница — `/api/docs`, только где включены (`API_DOCS_ENABLED`; в бою их нет).
 
 Пять правил, которые здесь стоит назвать отдельно: каждое закрывает
 случай, когда сервис работает на вид.

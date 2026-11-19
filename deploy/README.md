@@ -83,7 +83,7 @@ sudo cp deploy/healthwatch.cron /etc/cron.d/outreach-donors-healthwatch
 curl -so /dev/null -w '%{http_code}\n' https://outreach.ДОМЕН/api/health # 401 — пароль прокси и на API
 curl -so /dev/null -w '%{http_code}\n' -X POST https://outreach.ДОМЕН/api/events/delivery  # 403 — без пароля прокси, отказ подписи
 curl -so /dev/null -w '%{http_code}\n' https://outreach.ДОМЕН/            # 401 — пароль прокси
-curl -so /dev/null -w '%{http_code}\n' https://outreach.ДОМЕН/api/docs    # 401
+curl -so /dev/null -w '%{http_code}\n' https://outreach.ДОМЕН/api/docs    # 401; с паролем прокси — 404: схемы в бою нет
 docker compose -f docker-compose.yml -f docker-compose.prod.yml ps        # все (healthy), кроме migrate
 ```
 
@@ -189,6 +189,24 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 файлов компоуза и скриптов. Метка `main` двигается с каждым слиянием;
 чтобы прибить версию, задайте `BACKEND_IMAGE` и `WEB_IMAGE` с меткой
 по SHA коммита.
+
+### Прокси хоста: правка после установки
+
+`git pull` приносит `deploy/proxy/outreach.conf`, но прокси хоста читает не его, а копию
+`/etc/nginx/sites-available/outreach`, которую при выпуске сертификата дописал certbot: блок
+443, пути к сертификату, перенаправление с http. Скопировать файл из репозитория поверх —
+снять TLS. Поэтому правка этого файла переносится в копию **руками**, теми же строками:
+
+```bash
+sudo cp -a /etc/nginx/sites-available/outreach /root/nginx-outreach-$(date +%F).conf  # было
+sudoedit /etc/nginx/sites-available/outreach    # перенести правку из deploy/proxy/outreach.conf
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Правка 19.11.2026 — журнал без метки отписки: над `log_format outreach_safe` встаёт блок
+`map $uri $outreach_log_uri { … }`, а в самом формате `$uri` меняется на `$outreach_log_uri`.
+Проверка: `curl -so /dev/null https://outreach.ДОМЕН/api/unsubscribe/check-label`, затем
+`sudo tail -n 1 /var/log/nginx/outreach.access.log` — в строке `/api/unsubscribe/-`.
 
 ## Бэкапы и восстановление
 
@@ -299,23 +317,32 @@ scripts/restore.sh backups/2026-09-21-2030 --yes    # выполнит
 
 ### Восстановление из хранилища
 
-Восстановление затирает базу: сначала — копия того, что есть сейчас.
+Восстановление затирает базу: сначала — копия того, что есть сейчас. Её снимает сам
+`restore.sh` (с 19.11.2026), в свой каталог `BEFORE_RESTORE_DIR`; копия в хранилище —
+по желанию, первой строкой ниже.
 
 ```bash
 cd /srv/outreach-donors
-BACKUP_DIR=/srv/backups/outreach-donors KEEP=10 scripts/backup.sh   # на случай «вернуть как было»
+BACKUP_DIR=/srv/backups/outreach-donors KEEP=10 scripts/backup.sh   # по желанию: копия ещё и в хранилище
 scripts/offsite.sh list                    # размер дампа, время выгрузки, имя копии
 scripts/offsite.sh fetch 2026-09-27-030000 /srv/backups/outreach-donors-restore
 #   скачает и сверит с хранилищем; не сошлось — копию не предлагает
+export BEFORE_RESTORE_DIR=/srv/backups/outreach-donors-before-restore
 scripts/restore.sh /srv/backups/outreach-donors-restore/2026-09-27-030000         # покажет, что сделает
 scripts/restore.sh /srv/backups/outreach-donors-restore/2026-09-27-030000 --yes   # выполнит
 docker compose -f docker-compose.yml -f docker-compose.prod.yml ps                # все healthy
 ```
 
 - Скачивать — **в отдельный каталог**, не в `/srv/backups/outreach-donors`:
-  там ротация бэкапа считает каждую папку копией.
-- `restore.sh` останавливает всех, кто пишет, разворачивает дамп, догоняет
-  схему миграциями и печатает, сколько доменов в базе. Схема копии новее
+  там ротация бэкапа считает каждую папку копией. По той же причине копия
+  нынешней базы ложится в свой каталог: ротация снесла бы самые старые копии,
+  а среди них бывает та, из которой восстанавливают.
+- `restore.sh` снимает копию нынешней базы (не снялась — не делает ничего),
+  останавливает всех, кто пишет, разворачивает дамп **одной транзакцией**,
+  догоняет схему миграциями и печатает, сколько доменов в базе. Упал pg_restore —
+  база осталась прежней; на любом отказе скрипт называет шаг и команду, которой
+  поднять остановленных. Нынешняя база битая и дамп с неё не снимается —
+  `--yes --without-current-copy`. Схема копии новее
   кода (код откатили) — поднимать образом того же коммита
   (`BACKEND_IMAGE` с меткой по SHA): вниз миграции не идут.
 - Пока идёт восстановление, сервисы остановлены — сторож может прислать
