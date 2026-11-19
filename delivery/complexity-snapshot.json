@@ -3207,9 +3207,9 @@
       "worst": "_seen:54"
     },
     "backend/features/sales/cleaning.py": {
-      "lines": 500,
+      "lines": 497,
       "complexity": 8,
-      "worst": "_clean_batch:329"
+      "worst": "_clean_batch:326"
     },
     "backend/features/sales/close_manual.py": {
       "lines": 158,
@@ -3222,9 +3222,9 @@
       "worst": "guess:72"
     },
     "backend/features/sales/company_hold.py": {
-      "lines": 428,
+      "lines": 429,
       "complexity": 5,
-      "worst": "split:242"
+      "worst": "split:243"
     },
     "backend/features/sales/connection.py": {
       "lines": 148,

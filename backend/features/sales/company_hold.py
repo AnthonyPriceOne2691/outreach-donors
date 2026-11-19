@@ -93,6 +93,7 @@ from backend.features.sales.models import (
     SalesLeadModel,
 )
 from backend.features.sales.segment_models import Lane, SalesSegmentCandidateModel
+from backend.shared.net.idn import shown_host
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,7 @@ class Holder:
     @property
     def words(self) -> str:
         """Почему отклонён лид другой гипотезы — словами очистки."""
-        return HELD.say(lead=self.lead_id, hypothesis=self.hypothesis, host=self.host)
+        return HELD.say(lead=self.lead_id, hypothesis=self.hypothesis, host=shown_host(self.host))
 
     @property
     def site(self) -> str:
