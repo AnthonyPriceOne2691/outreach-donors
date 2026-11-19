@@ -363,6 +363,40 @@ async def test_busy_donors_and_catalogs_are_left_alone(
     assert {donor.host for donor in found.donors} == {"busy.test", "free.test"}
 
 
+@pytest.mark.parametrize(
+    ("rest_min", "planned"),
+    [(120, ["rested.test", "part.test"]), (0, ["just.test", "rested.test", "part.test"])],
+    ids=["передышка", "без передышки"],
+)
+async def test_a_site_rests_after_its_regular_crawl(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, rest_min: int, planned: list[str]
+) -> None:
+    """Обычный обход сайта кончился меньше двух часов назад — часть 24/7 подождёт (шапка: утром
+    19.11 части, начатые сразу после ночного обхода, вставали по доле отказов). Своя часть 24/7
+    передышки не требует, а донор на передышке не пройден: он в очереди, «пройдено всё» не звучит."""
+    monkeypatch.setattr(cfg, "REST_MIN", rest_min)
+    for host in ("just.test", "rested.test", "part.test"):
+        await _donor(session, host)
+    await _run(session, "just.test", finished_at=NOON - timedelta(minutes=30))
+    await _run(session, "rested.test", finished_at=NOON - timedelta(hours=3))
+    await _run(session, "part.test")
+    await _depth(session, "part.test", 1_000)
+    await _run(
+        session,
+        "part.test",
+        part=1,
+        outcome=CrawlOutcome.PARTIAL,
+        stop_reason=StopReason.PAUSED,
+        finished_at=NOON - timedelta(minutes=10),
+    )
+    await _on(session)
+
+    found = await always.survey(session, await always_switch.state(session), NOON)
+
+    assert [spec.host for spec in always.plan(found)] == planned
+    assert {donor.host for donor in found.remaining()} == {"just.test", "rested.test", "part.test"}
+
+
 # --- отказ и повтор --------------------------------------------------------------------------------
 
 
