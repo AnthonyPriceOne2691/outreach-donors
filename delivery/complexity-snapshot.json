@@ -1307,9 +1307,9 @@
       "worst": "records:56"
     },
     "backend/features/contacts/sweep_input.py": {
-      "lines": 233,
+      "lines": 236,
       "complexity": 9,
-      "worst": "_is_domain:93"
+      "worst": "_is_domain:96"
     },
     "backend/features/contacts/sweep_trace.py": {
       "lines": 279,
@@ -1752,9 +1752,9 @@
       "worst": "__init__:55"
     },
     "backend/features/crawl/links.py": {
-      "lines": 348,
+      "lines": 355,
       "complexity": 13,
-      "worst": "collect_links:236"
+      "worst": "collect_links:243"
     },
     "backend/features/crawl/load_quality.py": {
       "lines": 385,
@@ -2012,9 +2012,9 @@
       "worst": "_shop_marks:302"
     },
     "backend/features/donors/host.py": {
-      "lines": 105,
+      "lines": 112,
       "complexity": 9,
-      "worst": "normalize_host:46"
+      "worst": "normalize_host:52"
     },
     "backend/features/donors/judging.py": {
       "lines": 493,

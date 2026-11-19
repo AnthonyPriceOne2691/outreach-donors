@@ -162,7 +162,8 @@ class TestHarvest:
         ("href", "root", "guessed"),
         [
             ("https://brand.newzonetest/", "brand.newzonetest", True),
-            ("https://пример.рф/", "пример.рф", False),
+            # Письменность — тот же сайт, что и `xn--`: ключ в ASCII (19.11.2026).
+            ("https://пример.рф/", "xn--e1afmkfd.xn--p1ai", False),
             ("https://xn--e1afmkfd.xn--p1ai/", "xn--e1afmkfd.xn--p1ai", False),
             ("https://my_site.example.co.uk/", "example.co.uk", False),
         ],

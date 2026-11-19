@@ -281,14 +281,14 @@ class TestDomainKey:
     async def test_cyrillic_domain_lands_on_the_donor_as_the_base_writes_it(
         self, session: AsyncSession
     ) -> None:
-        """База хранит домен в написании источника: кириллица остаётся кириллицей."""
-        await make_donor(session, "пример.рф")
+        """База хранит домен в ASCII (19.11.2026): кириллица из поля ложится на донора `xn--…`."""
+        await make_donor(session, "xn--e1afmkfd.xn--p1ai")
 
         row = await stoplist.add(
             session, "https://WWW.Пример.РФ/о-нас", reason=SuppressionReason.MANUAL, author="а@б.в"
         )
 
-        assert row.host == "пример.рф"
+        assert row.host == "xn--e1afmkfd.xn--p1ai"
         assert row.new_domain is False
 
     async def test_address_stays_an_address(self, session: AsyncSession) -> None:
