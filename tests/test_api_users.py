@@ -167,6 +167,28 @@ class TestCreate:
         record = rows.scalars().all()[-1]
         assert record.user_id is not None  # автор известен — это не команда из консоли
 
+    async def test_a_password_in_the_body_is_refused_not_dropped(
+        self, client: AsyncClient, admin_token: str
+    ) -> None:
+        """Пароль учётки выдаёт система разовым (`NewUser`), а присланный админом молча
+        отбрасывался — и выглядел принятым (аудит 19.11.2026). Теперь отказ словами, без эха
+        присланного, и учётка не заводится."""
+        response = await client.post(
+            "/api/users",
+            json={
+                "email": "новичок@team.example.test",
+                "role": "operator",
+                "password": "придуманный-админом",
+            },
+            headers=bearer(admin_token),
+        )
+
+        assert response.status_code == 422, response.text
+        assert response.json()["detail"][0]["msg"] == "Поле «password»: такого поля нет"
+        assert "придуманный-админом" not in response.text
+        listed = await client.get("/api/users", headers=bearer(admin_token))
+        assert "новичок@team.example.test" not in listed.text
+
 
 class TestChangeAccess:
     async def test_pointed_right_is_given_and_taken_back(
@@ -219,6 +241,23 @@ class TestChangeAccess:
             f"/api/users/{target.id}", json={}, headers=bearer(admin_token)
         )
         assert response.status_code == 422
+
+    async def test_a_misspelt_field_next_to_a_role_is_refused_not_dropped(
+        self, client: AsyncClient, admin_token: str, target: UserModel
+    ) -> None:
+        """`is_activ` рядом с ролью молча отбрасывался: роль менялась, а учётка оставалась
+        включённой, хотя запрос её выключал (аудит 19.11.2026). Теперь отказ словами, и не
+        меняется ничего."""
+        response = await client.patch(
+            f"/api/users/{target.id}",
+            json={"role": "admin", "is_activ": False},
+            headers=bearer(admin_token),
+        )
+
+        assert response.status_code == 422, response.text
+        assert response.json()["detail"][0]["msg"] == "Поле «is_activ»: такого поля нет"
+        cards = (await client.get("/api/users", headers=bearer(admin_token))).json()
+        assert next(card for card in cards if card["id"] == target.id)["role"] == "operator"
 
     async def test_unknown_user_is_not_found(self, client: AsyncClient, admin_token: str) -> None:
         response = await client.patch(

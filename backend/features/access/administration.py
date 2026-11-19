@@ -29,6 +29,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -186,14 +187,18 @@ async def change_own_password(
     и не совпадает со старым.
 
     Возвращает новый пропуск: выданные до смены больше не действуют (`tokens.py`), и тот,
-    кто сменил пароль, без нового вышел бы вместе с ними."""
+    кто сменил пароль, без нового вышел бы вместе с ними.
+
+    Обе сверки — в пуле потоков, как у входа (`login.py`), хеш нового — там же
+    (`set_password`): три счёта bcrypt по четверти секунды в цикле событий держали бы все
+    запросы сервиса, а удачная смена обнуляет счётчик попыток (аудит 19.11.2026)."""
     repository = AccessRepository(session)
     user = await _known(repository, user_id)
 
-    if not verify_password(current, user.password_hash):
+    if not await asyncio.to_thread(verify_password, current, user.password_hash):
         raise WrongPasswordError("Старый пароль не подошёл")
     assert_strong_enough(new)
-    if verify_password(new, user.password_hash):
+    if await asyncio.to_thread(verify_password, new, user.password_hash):
         raise WeakPasswordError("Новый пароль совпадает со старым")
 
     stored = await repository.set_password(user.id, new, one_time=False)

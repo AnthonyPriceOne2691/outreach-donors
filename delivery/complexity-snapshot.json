@@ -102,14 +102,14 @@
       "worst": "—"
     },
     "backend/api/auth/routes.py": {
-      "lines": 131,
+      "lines": 132,
       "complexity": 4,
       "worst": "sign_in:45"
     },
     "backend/api/auth/schemas.py": {
-      "lines": 70,
+      "lines": 79,
       "complexity": 2,
-      "worst": "of:39"
+      "worst": "of:46"
     },
     "backend/api/body.py": {
       "lines": 28,
@@ -727,9 +727,9 @@
       "worst": "all_users:31"
     },
     "backend/api/users/schemas.py": {
-      "lines": 156,
+      "lines": 164,
       "complexity": 5,
-      "worst": "mail_problem:23"
+      "worst": "mail_problem:27"
     },
     "backend/api/watchdog/__init__.py": {
       "lines": 1,
@@ -1042,9 +1042,9 @@
       "worst": "—"
     },
     "backend/features/access/administration.py": {
-      "lines": 208,
+      "lines": 213,
       "complexity": 5,
-      "worst": "_guard_admin_supply:82"
+      "worst": "_guard_admin_supply:83"
     },
     "backend/features/access/attempts.py": {
       "lines": 75,
@@ -1057,14 +1057,14 @@
       "worst": "_filters:256"
     },
     "backend/features/access/login.py": {
-      "lines": 104,
-      "complexity": 6,
-      "worst": "login:71"
+      "lines": 132,
+      "complexity": 7,
+      "worst": "_looks_like_mail:63"
     },
     "backend/features/access/passwords.py": {
-      "lines": 74,
-      "complexity": 4,
-      "worst": "verify_password:43"
+      "lines": 96,
+      "complexity": 5,
+      "worst": "verify_password:52"
     },
     "backend/features/access/permissions.py": {
       "lines": 250,
@@ -1072,14 +1072,14 @@
       "worst": "has_permission:203"
     },
     "backend/features/access/repository.py": {
-      "lines": 260,
+      "lines": 266,
       "complexity": 7,
-      "worst": "update_access:168"
+      "worst": "update_access:174"
     },
     "backend/features/access/tokens.py": {
-      "lines": 160,
-      "complexity": 4,
-      "worst": "read_token:126"
+      "lines": 179,
+      "complexity": 5,
+      "worst": "read_token:143"
     },
     "backend/features/agent/__init__.py": {
       "lines": 7,

@@ -127,6 +127,20 @@ async def test_not_json_says_so(client: AsyncClient, admin: str) -> None:
     assert _first(response)["msg"] == "Тело запроса — не JSON"
 
 
+async def test_the_refusal_does_not_echo_what_was_sent(client: AsyncClient) -> None:
+    """Аудит 19.11.2026: каждый элемент 422 нёс `input` — присланное как есть, и вход без
+    почты отвечал всем телом запроса, с паролем. Экран читает только `msg`
+    (`frontend/src/api/client.ts`): эхо присланного не нужно никому, а пароль в ответе
+    оседает там, где ответы видны, — консоль браузера, снимок экрана."""
+    secret = "пароль-который-не-вернётся"
+
+    response = await client.post("/api/auth/login", json={"password": secret})
+
+    assert _first(response)["msg"] == "Поле «email»: обязательно, а в запросе его нет"
+    assert [error for error in response.json()["detail"] if "input" in error] == []
+    assert secret not in response.text
+
+
 async def test_own_text_comes_without_the_english_prefix(
     client: AsyncClient, admin: str, make_user: MakeUser
 ) -> None:

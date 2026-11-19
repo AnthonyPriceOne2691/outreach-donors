@@ -4,17 +4,24 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.features.access.permissions import Actor, has_permission
 from backend.features.core.domain import Permission, UserRole
 from backend.features.core.models.access import UserModel
+
+#: Лишнее поле в запросе входа и смены пароля — отказ «такого поля нет», а не молчание
+#: (аудит 19.11.2026): присланное мимо схемы выглядело принятым. Экран шлёт ровно эти поля
+#: (`frontend/src/api/auth.ts`).
+_ONLY_THESE = ConfigDict(extra="forbid")
 
 
 class Credentials(BaseModel):
     """Пара для входа. Проверки формата почты здесь нет намеренно:
     единственный ответ на любой неверный вход — «неверная почта или
     пароль», и подсказка «это не похоже на почту» его бы нарушила."""
+
+    model_config = _ONLY_THESE
 
     email: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=1, max_length=1024)
@@ -64,6 +71,8 @@ class SignedIn(BaseModel):
 class PasswordChange(BaseModel):
     """Смена своего пароля. Старый обязателен: без него украденный
     пропуск превращается в постоянный доступ."""
+
+    model_config = _ONLY_THESE
 
     current: str = Field(min_length=1, max_length=1024)
     new: str = Field(min_length=1, max_length=1024)

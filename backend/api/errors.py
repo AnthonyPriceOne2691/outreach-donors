@@ -477,13 +477,13 @@ def _field(loc: Sequence[object]) -> str:
 
 
 async def _unreadable(_: Request, exc: Exception) -> JSONResponse:
-    """422 разбора запроса: тот же список, что у FastAPI (`msg`, `loc`, `type`…), но `msg`
-    по-русски. Экран и тесты читают форму ответа — она не меняется, меняются слова."""
+    """422 разбора: список FastAPI (`msg`, `loc`, `type`…), `msg` по-русски, без `input` — эха
+    присланного: в теле входа это пароль (аудит 19.11.2026). Экран читает только `msg`."""
     errors = exc.errors() if isinstance(exc, RequestValidationError) else []
-    detail = [{**error, "msg": said_in_russian(error)} for error in errors]
+    unechoed = ({key: value for key, value in error.items() if key != "input"} for error in errors)
+    detail = [{**error, "msg": said_in_russian(error)} for error in unechoed]
     return JSONResponse(
-        {"detail": jsonable_encoder(detail)},
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        {"detail": jsonable_encoder(detail)}, status_code=status.HTTP_422_UNPROCESSABLE_CONTENT
     )
 
 

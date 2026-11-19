@@ -6,7 +6,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 from backend.features.access.permissions import has_permission
@@ -18,6 +18,10 @@ from backend.features.core.models.access import UserModel
 MAIL_MAX = 255
 #: Домен почты: метки через точку, без пустых, зона — от двух знаков.
 _MAIL_DOMAIN = re.compile(r"^[^@\s.]+(?:\.[^@\s.]+)*\.[^@\s.]{2,}$")
+#: Лишнее поле в заведении и правке доступа — отказ «такого поля нет», а не молчание
+#: (аудит 19.11.2026): `password` при заведении или `is_activ` рядом с ролью выглядели бы
+#: принятыми. Экран шлёт ровно эти поля (`frontend/src/api/users.ts`).
+_ONLY_THESE = ConfigDict(extra="forbid")
 
 
 def mail_problem(email: str) -> str | None:
@@ -107,6 +111,8 @@ class NewUser(BaseModel):
     и показывает один раз — придуманный админом пароль он бы диктовал
     голосом, а сотрудник оставлял бы навсегда."""
 
+    model_config = _ONLY_THESE
+
     #: Пределов у поля нет: длину и форму судит `mail_problem` — словами, а не
     #: умолчанием разбора («String should have at least 3 characters»).
     email: str
@@ -138,6 +144,8 @@ class AccessPatch(BaseModel):
     Удаления учётки нет нигде намеренно: вместе с ней ушла бы история
     её действий — кто менял пороги, кто отправил письмо.
     """
+
+    model_config = _ONLY_THESE
 
     role: UserRole | None = None
     is_active: bool | None = None
