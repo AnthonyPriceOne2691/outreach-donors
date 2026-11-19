@@ -28,6 +28,10 @@
    обходе, а одно такое имя в пакете DR получало отказ Ahrefs на весь пакет —
    без DR оставались настоящие домены. Поэтому дальше идёт только доменное
    имя (`donors/host.domain_name`), остальное — числом в отчёт обхода.
+7. **Имя сайта бывает письменностью.** `href="https://пример.рф/"` и
+   `href="https://xn--e1afmkfd.xn--p1ai/"` — один сайт, а давали два кандидата и две
+   строки памяти. Хост ссылки и корень донора — в ASCII (`shared/net/idn.ascii_host`,
+   19.11.2026), а адрес статьи в кнопке «поделиться» ищется в обеих формах.
 
 **Считаем внешними ссылки на чужой корневой домен.** Поддомен донора —
 это он сам; ссылка с `blog.donor.test` на `donor.test` рекламодателя
@@ -54,6 +58,7 @@ from selectolax.parser import HTMLParser, Node
 
 from backend.features.crawl.article import extract_article, strip_structural_noise
 from backend.features.donors.host import domain_name, normalize_host
+from backend.shared.net.idn import ascii_host, shown_host
 from backend.shared.net.url_parts import join_url, parse_url, split_url
 
 logger = logging.getLogger(__name__)
@@ -193,7 +198,7 @@ def _resolve(page_url: str, href: str, junk: set[str] | None = None) -> tuple[st
         if junk is not None:
             junk.add(absolute)
         return None
-    return absolute, host
+    return absolute, ascii_host(host)
 
 
 def _is_ip_literal(host: str) -> bool:
@@ -210,7 +215,9 @@ def _carries_site_address(href: str, site_root: str) -> bool:
     рекламодателя — метка источника, а не «поделиться».
     """
     text = unquote(unquote(href))
-    own = re.compile(rf"https?://(?:[a-z0-9-]+\.)*{re.escape(site_root)}(?![a-z0-9.-])", re.I)
+    # Корень — в ASCII, а в параметре адрес бывает письменностью: ищутся обе формы.
+    names = "|".join(re.escape(name) for name in dict.fromkeys((site_root, shown_host(site_root))))
+    own = re.compile(rf"https?://(?:[\w-]+\.)*(?:{names})(?![\w.-])", re.I)
     return own.search(text) is not None
 
 
@@ -252,7 +259,7 @@ def collect_links(
     адреса без доменного имени — в `junk`, если их передали: выброшенное
     должно быть видно в отчёте числом.
     """
-    site_root = normalize_host(site_host) or site_host.lower().removeprefix("www.")
+    site_root = normalize_host(site_host) or ascii_host(site_host.lower().removeprefix("www."))
     seen: set[str] = set()
     out: list[OutLink] = []
 

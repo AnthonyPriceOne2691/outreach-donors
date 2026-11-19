@@ -21,7 +21,15 @@ from backend.features.core import stages
 from backend.features.core.domain import MessageStatus, Stage, SuppressionReason, ThreadStatus
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, ThreadModel
-from backend.features.sales import cleaning, connection, hypotheses, letter, mail, sender
+from backend.features.sales import (
+    cleaning,
+    connection,
+    hypotheses,
+    letter,
+    mail,
+    sender,
+    settings_text,
+)
 from backend.features.sales.chain_text import step_template
 from backend.features.sales.models import LeadStatus, SalesStoplistModel
 from backend.features.sales.verifier import FixtureVerifier
@@ -203,6 +211,50 @@ def test_ready_letter_is_checked_again(body: str, words: str) -> None:
 
     assert problem is not None
     assert words in problem
+
+
+@pytest.mark.parametrize(
+    ("text", "value", "found"),
+    [
+        ("Кто отвечает за сайт mirastroy.example.test?", "Mira", False),
+        ("Пишите на mira@acme.example.test", "Mira", False),
+        ("Сайт www.mira.example.test и ссылка https://acme.example.test/mira", "Mira", False),
+        ("Домен pre-mira.example.test", "Mira", False),
+        ("Miranda, добрый день", "Mira", False),
+        ("Здравствуйте, Мира", "Mira", False),
+        ("С уважением, Mira.", "Mira", True),
+        ("Mira", "Mira", True),
+        ("MIRA  from Testville", "mira", True),
+        ("Mira Testova\n\nMade-up   Test Agency", w.SIGNATURE, True),
+        ("", "Mira", False),
+        ("Mira", "", False),
+    ],
+)
+def test_settings_text_counts_only_as_a_word_of_its_own(text: str, value: str, found: bool) -> None:
+    """19.11.2026: подпись «Mira» стояла «в тексте» письма лида с «mira» в домене сайта и адресе —
+    сборка отклоняла письмо каждые десять минут. Внутри слова, домена, адреса и ссылки — не подпись."""
+    assert settings_text.mentions(text, value) is found
+
+
+def test_short_signature_inside_the_site_and_address_of_the_lead_is_no_repeat() -> None:
+    found = _sender(signature="Mira")
+    body = letter.signed(
+        "Здравствуйте!\n\nКто отвечает за SEO сайта mirastroy.example.test? Можно ответить на "
+        "mira@mirastroy.example.test или через https://www.mira.example.test/contacts.",
+        found,
+    )
+
+    assert letter.problem(body, found) is None
+
+
+def test_short_signature_as_a_word_of_its_own_is_still_a_repeat() -> None:
+    found = _sender(signature="Mira")
+    body = letter.signed("Здравствуйте!\n\nМы готовы помочь.\n\nС уважением, Mira.", found)
+
+    problem = letter.problem(body, found)
+
+    assert problem is not None
+    assert "подпись из настроек отправителя стоит и в тексте письма" in problem
 
 
 def test_ready_letter_without_settings_is_not_whole() -> None:

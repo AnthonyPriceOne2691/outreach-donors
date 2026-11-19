@@ -9,6 +9,11 @@
 Обратная ошибка не менее дорогая: если `blog.example.com` и `example.com`
 останутся разными записями, мы дважды заплатим Ahrefs за один сайт и дважды
 напишем одному владельцу.
+
+**Ключ — в ASCII** (19.11.2026): «пример.рф» из ссылки или файла и `xn--e1afmkfd.xn--p1ai`
+из выдачи — один сайт, а давали две записи донора и два кандидата. Корень переводится
+`shared/net/idn.ascii_host`; людям имя показывает `shown_host`, искать письменностью
+помогает `stored_name`. Накопленное письменностью перевела миграция `b7e4c2a9d1f3`.
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ import unicodedata
 
 import tldextract
 
+from backend.shared.net.idn import ascii_host
 from backend.shared.net.url_parts import split_url
 
 # Список суффиксов берётся из снимка, вшитого в пакет: ходить за ним в сеть
@@ -44,7 +50,8 @@ _LABEL_MARKS = "-_"
 
 
 def normalize_host(raw: str | None) -> str:
-    """`HTTPS://WWW.Blog.Example.co.uk/path?x=1` → `example.co.uk`.
+    """`HTTPS://WWW.Blog.Example.co.uk/path?x=1` → `example.co.uk`; «www.блог.пример.рф» →
+    `xn--e1afmkfd.xn--p1ai`: ключ — в ASCII, в какой бы письменности имя ни дали.
 
     Возвращает пустую строку, если на входе мусор: вызывающий трактует её как
     «обрабатывать нечего» и выходит до платного вызова, а не падает.
@@ -68,7 +75,7 @@ def normalize_host(raw: str | None) -> str:
     parts = _extract(host)
     if not parts.domain or not parts.suffix:
         return ""
-    return f"{parts.domain}.{parts.suffix}"
+    return ascii_host(f"{parts.domain}.{parts.suffix}")
 
 
 def domain_name(host: str) -> str | None:

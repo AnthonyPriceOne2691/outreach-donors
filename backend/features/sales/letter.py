@@ -33,9 +33,10 @@ from collections.abc import Iterable, Mapping
 from backend.features.core.domain import Stage
 from backend.features.letters import compose
 from backend.features.letters.chain import FIRST_STEP
-from backend.features.sales.chain_text import UNFILLED, StepTemplate, filled, squashed
+from backend.features.sales.chain_text import UNFILLED, StepTemplate, filled
 from backend.features.sales.models import SalesLeadModel
 from backend.features.sales.sender import WHERE, Sender
+from backend.features.sales.settings_text import mentions
 
 #: Ширина ключа письма в базе (`messages.idempotency_key`): длиннее — вставка упала бы
 #: посреди сборки. Сверку с колонкой держит тест.
@@ -98,9 +99,11 @@ def problem(body: str, found: Sender) -> str | None:
             "подписи и физического адреса из настроек отправителя в конце письма нет — "
             "письмо собрано с прежними: соберите очередь заново"
         )
-    head = squashed(body[: -len(tail)])
+    head = body[: -len(tail)]
     for name, words in (("signature", "подпись"), ("physical_address", "физический адрес")):
-        if squashed(found.values.get(name) or "") in head:
+        # Отдельным словом, а не вхождением строки: короткая подпись в домене сайта лида
+        # (`{{site}}`) — не повтор подписи (`settings_text.mentions`, 19.11.2026).
+        if mentions(head, found.values.get(name) or ""):
             return (
                 f"{words} из настроек отправителя стоит и в тексте письма — шаблон её "
                 "повторяет: уберите из шаблона цепочки"

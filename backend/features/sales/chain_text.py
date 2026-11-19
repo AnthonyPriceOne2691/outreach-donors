@@ -48,6 +48,7 @@ from backend.features.letters.template import (
 )
 from backend.features.sales import segment_alphabets
 from backend.features.sales.models import SUBJECT_LENGTH
+from backend.features.sales.settings_text import mentions
 
 if TYPE_CHECKING:  # отправитель знает языки цепочек отсюда: импорт в ответ замкнул бы круг
     from backend.features.sales.sender import Sender
@@ -448,19 +449,14 @@ def step_template(
     return StepTemplate(number, code, title, _canonical(zones), zones, bool(active))
 
 
-def squashed(text: str) -> str:
-    """Текст без различий в пробелах и регистре — для сверки с настройками отправителя."""
-    return " ".join(text.split()).casefold()
-
-
 def unsigned(new: StepTemplate, found: Sender) -> None:
     """Подпись и адрес из настроек отправителя в тексте не повторяются: их допишет сборка,
     и в письме они встали бы дважды. Сверка — с набором языка шаблона (`Sender.in_language`):
-    его сборка и допишет письму на этом языке."""
-    body, signer = squashed(new.body), found.in_language(new.language)
+    его сборка и допишет письму на этом языке; отдельным словом (`settings_text.mentions`)."""
+    signer = found.in_language(new.language)
     for name, words in (("signature", "подпись"), ("physical_address", "физический адрес")):
         value = signer.values.get(name)
-        if value and squashed(value) in body:
+        if value and mentions(new.body, value):
             raise ChainError(
                 f"в тексте — {words} из настроек отправителя: сборка допишет это сама, "
                 "и в письме оно встало бы дважды; уберите из шаблона"

@@ -289,7 +289,8 @@ class TestDomainKey:
         assert response.json()["detail"].startswith("Домен длиннее 253 знаков")
 
     async def test_cyrillic_domain_is_taken(self, client: AsyncClient, admin_token: str) -> None:
-        """Раньше: «кириллица.рф не похоже ни на домен» — проверка знала одну латиницу."""
+        """Раньше: «кириллица.рф не похоже ни на домен» — проверка знала одну латиницу. С 19.11.2026
+        домен хранится в ASCII, как его пишет выдача; экран показывает письменностью (`shownHost`)."""
         response = await client.post(
             "/api/suppressions",
             json={"target": "пример.рф", "reason": "manual"},
@@ -297,4 +298,4 @@ class TestDomainKey:
         )
 
         assert response.status_code == 200, response.text
-        assert response.json()["host"] == "пример.рф"
+        assert response.json()["host"] == "xn--e1afmkfd.xn--p1ai"
