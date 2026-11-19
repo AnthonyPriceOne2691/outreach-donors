@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from backend.shared.net.idn import ascii_host
+
 logger = logging.getLogger(__name__)
 
 #: Имена колонок, в которых может лежать домен. Порядок — порядок доверия.
@@ -64,6 +66,7 @@ class DomainList:
 
 def host_from_cell(raw: str) -> str:
     """`https://WWW.News.example.com/path` → `news.example.com`. Не домен — пустая строка.
+    Имя письменностью — в ASCII, как его хранит база: «новости.пример.рф» → `xn--…` (19.11.2026).
 
     Поддомен НЕ срезается, в отличие от `donors.host.normalize_host`:
     тот сводит домен к ключу дедупликации, а нам нужен адрес, по которому
@@ -87,7 +90,7 @@ def host_from_cell(raw: str) -> str:
         logger.debug("ячейка %r не разбирается как адрес: %s", raw, exc)
         return ""
     host = host.removeprefix("www.").rstrip(".")
-    return host if _is_domain(host) else ""
+    return ascii_host(host) if _is_domain(host) else ""
 
 
 def _is_domain(host: str) -> bool:
