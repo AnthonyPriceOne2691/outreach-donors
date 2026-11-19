@@ -152,7 +152,7 @@ def _unsubscribed(lead: SalesLeadModel, known: Known) -> str | None:
     if lead.email in known.unsub_emails:
         return f"отписка: {lead.email} просил не писать"
     if lead.domain_id in known.unsub_domains:
-        return f"отписка: домен {known.hosts[lead.domain_id]} в общем стоп-листе"
+        return f"отписка: домен {shown_host(known.hosts[lead.domain_id])} в общем стоп-листе"
     return None
 
 
@@ -160,7 +160,7 @@ def _busy(lead: SalesLeadModel, known: Known) -> str | None:
     stage = known.busy_domains.get(lead.domain_id)
     if stage is None:
         return None
-    return f"{attempts.elsewhere_reason(stage)} ({known.hosts[lead.domain_id]})"
+    return f"{attempts.elsewhere_reason(stage)} ({shown_host(known.hosts[lead.domain_id])})"
 
 
 def _unusable(lead: SalesLeadModel, _known: Known) -> str | None:

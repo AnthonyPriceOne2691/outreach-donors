@@ -11,11 +11,18 @@
 from __future__ import annotations
 
 import pytest
+from backend.features.core.domain import Stage
+from backend.features.letters.attempts import elsewhere_reason
 from backend.features.sales import cleaning, intake, mail, stoplist_leads
-from backend.features.sales.clean_known import load_known
+from backend.features.sales.clean_known import Known, load_known
 from backend.features.sales.company_hold import Holder
 from backend.features.sales.hold_words import HELD
-from backend.features.sales.models import LeadStatus, RejectionReason, SalesStoplistModel
+from backend.features.sales.models import (
+    LeadStatus,
+    RejectionReason,
+    SalesLeadModel,
+    SalesStoplistModel,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
 
@@ -42,6 +49,18 @@ async def test_an_ascii_stoplist_entry_holds_a_lead_on_a_twin_row_in_script(
     # Сверка — ключом ASCII, слова человеку — письменностью сайта (`shown_host`), как в Telegram.
     assert cleaning._stoplisted(lead, known) == f"стоп-лист продаж: домен {SCRIPT}"
     assert await mail.stopped_by(session, lead, SCRIPT, now=w.NOW) == "в ручном стоп-листе продаж"
+
+
+def test_unsubscribe_and_other_direction_words_name_the_domain_in_script() -> None:
+    """Отписка доменом из общего стоп-листа и сайт в работе у другого направления — тоже
+    письменностью сайта; ключ `Known.hosts` — ASCII (`clean_known.load_known`)."""
+    lead = SalesLeadModel(email="ivan@mail.example.test", domain_id=5)
+    nothing: frozenset[str] = frozenset()
+    unsub = Known({}, {5: ACE}, nothing, nothing, nothing, frozenset({5}), {})
+    busy = Known({}, {5: ACE}, nothing, nothing, nothing, frozenset(), {5: Stage.DONORS})
+
+    assert cleaning._unsubscribed(lead, unsub) == f"отписка: домен {SCRIPT} в общем стоп-листе"
+    assert cleaning._busy(lead, busy) == f"{elsewhere_reason(Stage.DONORS)} ({SCRIPT})"
 
 
 def test_held_words_name_the_domain_in_script_and_still_give_the_holder() -> None:
