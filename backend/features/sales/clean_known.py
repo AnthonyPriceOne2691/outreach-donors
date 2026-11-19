@@ -25,6 +25,7 @@ from backend.features.core.models.ops import SuppressionModel
 from backend.features.sales import elsewhere
 from backend.features.sales.models import SalesLeadModel, SalesStoplistModel
 from backend.features.sales.suppressions import holds_sales
+from backend.shared.net.idn import ascii_host
 
 #: Значений в одном `IN`: параметров у Postgres не больше 32 767 на запрос.
 CHUNK = 1000
@@ -76,7 +77,9 @@ async def load_known(
         )
     for chunk in _chunks(domain_ids):
         named = select(DomainModel.id, DomainModel.host).where(DomainModel.id.in_(chunk))
-        hosts.update(dict((await session.execute(named)).all()))  # type: ignore[arg-type]
+        # Ключ домена — ASCII (19.11.2026): строка письменностью, оставшаяся двойником, сверяется
+        # со стоп-листом (`cleaning._hosts_of`, `stoplist_leads.release`) тем же ключом, что и он.
+        hosts.update({key: ascii_host(host) for key, host in (await session.execute(named)).all()})
         unsub_domains.update(
             (await session.scalars(_unsub(SuppressionModel.domain_id, chunk, moment))).all()
         )
@@ -85,7 +88,7 @@ async def load_known(
     return Known(
         first_lead=first,
         hosts=hosts,
-        stop_hosts=frozenset(host for host, _ in stop if host),
+        stop_hosts=frozenset(ascii_host(host) for host, _ in stop if host),
         stop_emails=frozenset(email for _, email in stop if email),
         unsub_emails=frozenset(unsub_emails),
         unsub_domains=frozenset(unsub_domains),

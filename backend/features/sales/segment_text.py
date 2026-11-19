@@ -25,6 +25,7 @@ import httpx
 from backend.config import sales as sales_cfg
 from backend.features.donors.home_signals import HomeSignals, check_home, looks_denied
 from backend.features.sales import segment_language
+from backend.shared.net.idn import ascii_host
 from backend.shared.quote import quote_holds
 
 logger = logging.getLogger(__name__)
@@ -138,7 +139,8 @@ async def page_home(
     версиями по языку браузера отдавал английскую главную и при прогоне на другом языке (проверка
     22.10.2026): модель читала не тот текст, что видят человек и письмо. Без языка — как раньше
     (общий английский заголовок). Пересуд по сохранённому тексту главную не качает вовсе."""
-    page_host = urlsplit(page_url).hostname or "" if page_url else ""
+    # Хост ссылки выдачи — в ASCII, как `host` базы: ссылка письменностью иначе не была бы поддоменом.
+    page_host = ascii_host(urlsplit(page_url).hostname or "") if page_url else ""
     if page_host.endswith(f".{host}") and page_host != f"www.{host}":
         found = await check_home(client, page_host, language=language)
         if found.reached:

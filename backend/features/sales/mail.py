@@ -112,6 +112,7 @@ from backend.features.sales.not_writing import excluded
 from backend.features.sales.policy import sales_policy, zones_of
 from backend.features.sales.suppressions import holds_sales
 from backend.features.sales.unconfirmed import first_letter
+from backend.shared.net.idn import ascii_host, shown_host
 
 logger = logging.getLogger(__name__)
 
@@ -262,7 +263,7 @@ async def stopped_by(
     сам просил не писать (`suppressions.holds_sales` — одно условие на очистку и отправку)."""
     email = address or lead.email
     mailbox = email.rpartition("@")[2]
-    hosts = sorted({host, mailbox, host_key(mailbox)} - {""})
+    hosts = sorted({host, ascii_host(host), shown_host(host), mailbox, host_key(mailbox)} - {""})
     manual = await session.scalar(
         select(func.count())
         .select_from(SalesStoplistModel)
