@@ -1,5 +1,5 @@
 """Кнопки «Плана работ» на вкладке «Гипотезы»: остановить и продолжить гипотезу плана и план,
-изменить качество сайтов, «Собрать ещё N», «Добавить ключи».
+изменить качество сайтов и потолки, «Собрать ещё N», «Добавить ключи».
 
 Этапы и проблемы — те же, что пишет конвейер (`plan_tick.py`, переходы — `plan_moves.py`): кнопка
 только ставит строку туда, откуда конвейер продолжит сам. Договор с конвейером:
@@ -20,6 +20,12 @@
 - **качество** — глубина и цель — в строке гипотезы плана, страны компаний и вид сайта — правкой
   гипотезы (`hypotheses.edit`, её журнал и правила); действует на новые прогоны и суды. То же
   самое — не правка;
+- **потолки** — гипотезы плана (полем «Качества сайтов») и плана (`change_plan_cap`), и после
+  сохранения: потолок — по смете с запасом, его можно поменять. Ниже израсходованного — отказ
+  (`plan_budget.below_spent`). Поднятый снимает «кончился бюджет»: вставшая именно на потолке
+  гипотеза снова в работе, план на паузе по своему потолку снова идёт (`plan_budget.stopped_on_cap`,
+  `paused_on_cap`); вставшие кнопкой, ключами, прогоном или сервисом так и стоят. Хватит ли
+  поднятого, решит конвейер новой сметой;
 - **«Добавить ключи»** — новые строки реестра на каждом рынке листа, той же чисткой, что ключи книги
   (`plan_keys.py`), вслед за ключами листа; уже известные пропускаются.
 
@@ -37,6 +43,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
@@ -48,7 +55,16 @@ from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Stage
 from backend.features.sales import hypotheses
 from backend.features.sales.models import SalesHypothesisModel
-from backend.features.sales.plan_budget import Problem, keys_words
+from backend.features.sales.plan_budget import (
+    Problem,
+    Spent,
+    below_spent,
+    keys_words,
+    paused_on_cap,
+    said_usd,
+    spending,
+    stopped_on_cap,
+)
 from backend.features.sales.plan_card import MAX_TARGET
 from backend.features.sales.plan_estimate import TOP_WORDS
 from backend.features.sales.plan_models import (
@@ -78,13 +94,17 @@ STOPPED_BY_HAND = "остановлена кнопкой «Остановить�
 PLAN_STOPPED = "план остановлен кнопкой «Остановить план»: новых прогонов нет, идущий доходит"
 #: Почему этап сменился — полем журнала процесса (`plan_moves.move`).
 BY_HAND = "кнопка вкладки «Гипотезы»"
-NOTHING_TO_EDIT = "нечего менять: дайте глубину, цель, страны компаний или вид сайта"
+NOTHING_TO_EDIT = "нечего менять: дайте глубину, цель, страны компаний, вид сайта или потолок"
+#: Потолок — доллары больше нуля, как в окне загрузки.
+CAP_ABOVE_ZERO = "потолок — в долларах, больше нуля"
 #: «Действие» записей журнала — под общей «Правкой», как у заведения плана.
 ROW_STOPPED = "гипотеза плана остановлена"
 ROW_RESUMED = "гипотеза плана продолжена"
 PLAN_PAUSED = "план работ остановлен"
 PLAN_RESUMED = "план работ продолжен"
 QUALITY = "глубина и цель гипотезы плана поправлены"
+ROW_CAPPED = "потолок гипотезы плана поправлен"
+PLAN_CAPPED = "потолок плана работ поправлен"
 MORE = "гипотеза плана собирает ещё"
 #: Проблемы, которые снимает гипотеза, снова пущенная в работу: «попробовать снова».
 RETRIED = frozenset({Problem.STOPPED, Problem.RUN_FAILED})
@@ -305,6 +325,8 @@ class Quality:
     excluded_countries: list[str] | None = None
     #: Вид сайта — поле гипотезы (`hypothesis_kinds`); пустой список — снять выбор.
     site_kinds: list[str] | None = None
+    #: Потолок гипотезы плана, $.
+    cap_usd: Decimal | None = None
 
     def refusal(self) -> str | None:
         """Почему просьба не годится — словами; годится — `None`."""
@@ -314,6 +336,8 @@ class Quality:
             return f"глубина — одна из: {', '.join(TOP_WORDS[pages] for pages in STEPS)}"
         if self.target is not None and not 1 <= self.target <= MAX_TARGET:
             return f"цель — от 1 до {number(MAX_TARGET)} сайтов"
+        if self.cap_usd is not None and self.cap_usd <= 0:
+            return CAP_ABOVE_ZERO
         return None
 
     @property
@@ -326,13 +350,16 @@ class Quality:
 async def change_quality(
     session: AsyncSession, row_id: int, ask: Quality, *, author_id: int | None, now: datetime
 ) -> SalesPlanHypothesisModel:
-    """Глубина и цель — строка гипотезы плана, страны компаний и вид сайта — правкой гипотезы (шапка
-    модуля). Глубже при «нужны ключи» — снова в работе."""
+    """Глубина, цель и потолок — строка гипотезы плана, страны компаний и вид сайта — правкой
+    гипотезы (шапка модуля). Глубже при «нужны ключи» — снова в работе. Потолок — первым: ниже
+    израсходованного — отказ до других правок."""
     refusal = ask.refusal()
     if refusal is not None:
         raise PlanAskError(refusal)
     held = await hold(session, row_id)
     row = held.row
+    if ask.cap_usd is not None:
+        await _row_cap(session, held, ask.cap_usd, author_id=author_id, now=now)
     if ask.of_hypothesis:
         await hypotheses.edit(
             session,
@@ -389,3 +416,72 @@ async def collect_more(
         {"действие": MORE, "гипотеза": held.name, "было": was, "стало": row.target},
     )
     return row
+
+
+def _not_below(cap: Decimal, spent: Decimal, whose: str) -> None:
+    """Потолок ниже израсходованного — отказ по состоянию словами: потраченное не вернуть."""
+    words = below_spent(cap, spent)
+    if words is not None:
+        raise PlanStateError(f"потолок {whose} {words}")
+
+
+async def _row_cap(
+    session: AsyncSession, held: Held, cap: Decimal, *, author_id: int | None, now: datetime
+) -> None:
+    """Потолок гипотезы плана (шапка модуля): поднятый снимает «кончился бюджет», вставшая именно на
+    потолке — снова в работе. Тот же потолок — не правка."""
+    row = held.row
+    if cap == row.cap_usd:
+        return
+    spent = (await spending(session, row.plan_id)).get(row.id, Spent()).spent
+    _not_below(cap, spent, f"гипотезы «{held.name}»")
+    was, row.cap_usd = row.cap_usd, cap
+    if cap > was:
+        woken = stopped_on_cap(row)
+        solved(row, frozenset({Problem.BUDGET}))
+        if woken:
+            await _to_work(session, held, now)
+    await journal(
+        session,
+        held.plan,
+        author_id,
+        {
+            "действие": ROW_CAPPED,
+            "гипотеза": held.name,
+            "было": said_usd(was),
+            "стало": said_usd(cap),
+        },
+    )
+
+
+async def change_plan_cap(
+    session: AsyncSession, plan_id: int, cap: Decimal, *, author_id: int | None
+) -> SalesPlanModel:
+    """Потолок плана (шапка модуля): поднятый снимает паузу плана, вставшего на своём потолке; на
+    паузе по другой причине план так и стоит. Тот же потолок — не правка."""
+    if cap <= 0:
+        raise PlanAskError(CAP_ABOVE_ZERO)
+    plan = await _plan(session, plan_id)
+    if cap == plan.cap_usd:
+        return plan
+    spent = sum((await spending(session, plan.id)).values(), Spent()).spent
+    _not_below(cap, spent, f"плана «{plan.name}»")
+    stood = plan.problem if cap > plan.cap_usd and paused_on_cap(plan) else None
+    was, plan.cap_usd = plan.cap_usd, cap
+    if stood is not None:
+        plan.status, plan.problem = PlanStatus.RUNNING.value, None
+        logger.info(
+            "план работ: потолок плана поднят — план снова идёт", extra={"plan_id": plan.id}
+        )
+    await journal(
+        session,
+        plan,
+        author_id,
+        {
+            "действие": PLAN_CAPPED,
+            "было": said_usd(was),
+            "стало": said_usd(cap),
+            **({"стоял": stood} if stood else {}),
+        },
+    )
+    return plan

@@ -8,7 +8,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from decimal import Decimal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +21,9 @@ from backend.features.sales.plan_store import PlanRow, PlanView
 
 #: Примеров ключей листа в превью — взятых и отсеянных.
 EXAMPLES = 5
+#: Потолок после сохранения — доллары и центы больше нуля (`plan_models.CAP`); ниже израсходованного —
+#: отказ 409 словами (`plan_actions`).
+CapUsd = Annotated[Decimal, Field(gt=0, max_digits=10, decimal_places=2)]
 
 
 class SpendView(BaseModel):
@@ -296,6 +300,14 @@ class PlanQualityBody(BaseModel):
     excluded_countries: list[str] | None = None
     #: Вид сайта гипотезы (`hypothesis_kinds.SITE_KINDS`); пустой список — снять выбор.
     site_kinds: list[str] | None = None
+    #: Потолок гипотезы, $.
+    cap_usd: CapUsd | None = None
+
+
+class PlanCapBody(BaseModel):
+    """«Потолок плана, $»."""
+
+    cap_usd: CapUsd
 
 
 class PlanMoreBody(BaseModel):

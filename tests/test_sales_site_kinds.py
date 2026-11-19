@@ -273,7 +273,7 @@ async def test_the_route_takes_the_kinds_and_the_card_of_the_hypothesis_shows_th
     ("body", "words"),
     [
         ({"site_kinds": ["shop"]}, "вида сайта «shop» нет: нужен один из own, intermediary"),
-        ({}, "нечего менять: дайте глубину, цель, страны компаний или вид сайта"),
+        ({}, "нечего менять: дайте глубину, цель, страны компаний, вид сайта или потолок"),
     ],
 )
 async def test_the_route_refuses_in_words(

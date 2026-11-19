@@ -507,14 +507,14 @@
       "worst": "of:59"
     },
     "backend/api/sales/plan_schemas.py": {
-      "lines": 321,
+      "lines": 333,
       "complexity": 9,
-      "worst": "of:94"
+      "worst": "of:98"
     },
     "backend/api/sales/plans.py": {
-      "lines": 378,
+      "lines": 395,
       "complexity": 5,
-      "worst": "_upload:107"
+      "worst": "_upload:109"
     },
     "backend/api/sales/queue.py": {
       "lines": 254,
@@ -3477,14 +3477,14 @@
       "worst": "read_json:35"
     },
     "backend/features/sales/plan_actions.py": {
-      "lines": 392,
-      "complexity": 7,
-      "worst": "refusal:309"
+      "lines": 488,
+      "complexity": 9,
+      "worst": "refusal:331"
     },
     "backend/features/sales/plan_budget.py": {
-      "lines": 200,
-      "complexity": 3,
-      "worst": "cap_words:136"
+      "lines": 254,
+      "complexity": 4,
+      "worst": "stopped_on_cap:238"
     },
     "backend/features/sales/plan_card.py": {
       "lines": 268,
