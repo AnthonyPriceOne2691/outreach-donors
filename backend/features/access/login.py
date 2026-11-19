@@ -16,6 +16,11 @@
 когда почты нет, — с подставным хешем той же цены: иначе отказ по
 незнакомой почте приходил на проверку bcrypt быстрее, и одинаковый текст
 выдавало время ответа.
+
+**В журнал ложится только то, что похоже на почту** (аудит 19.11.2026,
+`attempted_email`). Набранное в поле почты пишется в базу при каждой неудаче,
+и экран «Журнал» показывает его админам: пароль, набранный не в то поле,
+лёг бы туда открытым текстом.
 """
 
 from __future__ import annotations
@@ -39,6 +44,29 @@ class LoginFailedError(RuntimeError):
 
 
 REFUSAL = "Неверная почта или пароль"
+
+#: Что ложится в журналы вместо набранного в поле почты, когда оно на почту не похоже.
+NOT_AN_EMAIL = "‹не почта›"
+
+
+def attempted_email(email: str) -> str:
+    """Набранная при входе почта — для журнала действий и журнала приложения: как есть, если
+    похожа на почту (имя ящика, одна «@», домен с точкой, без пробелов), иначе `NOT_AN_EMAIL`.
+
+    Почта подбора нужна в журнале — ради неё запись и делается. Пароль, набранный не в то
+    поле, — нет: разовый пароль (буквы и цифры, `passwords.py`) и пароль из слов через пробел
+    почтой не выглядят и остаются заглушкой."""
+    typed = normalize_email(email)
+    return typed if _looks_like_mail(typed) else NOT_AN_EMAIL
+
+
+def _looks_like_mail(typed: str) -> bool:
+    """Одна «@», имя ящика и домен из двух меток и больше, без пробелов: пароль вида
+    `P@ssw0rd` почтой не считается."""
+    local, at, domain = typed.rpartition("@")
+    labels = domain.split(".")
+    shaped = bool(at and local) and "@" not in local and len(labels) > 1 and all(labels)
+    return shaped and not any(char.isspace() for char in typed)
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +109,7 @@ async def login(session: AsyncSession, email: str, password: str) -> Session:
         await repository.record(
             AuditAction.LOGIN_FAILED,
             author_id=user.id if user else None,
-            details={"email": normalize_email(email), "reason": "пара не подошла"},
+            details={"email": attempted_email(email), "reason": "пара не подошла"},
         )
         raise LoginFailedError(REFUSAL)
 

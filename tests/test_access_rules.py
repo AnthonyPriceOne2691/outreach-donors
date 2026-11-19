@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -23,7 +24,7 @@ from backend.features.access.administration import (
     update_access,
 )
 from backend.features.access.attempts import LoginAttempts, TooManyAttemptsError
-from backend.features.access.passwords import verify_password
+from backend.features.access.passwords import hash_password, verify_password
 from backend.features.access.permissions import has_permission
 from backend.features.access.repository import AccessRepository, actor_of
 from backend.features.access.tokens import password_changed_since, read_token
@@ -269,6 +270,72 @@ class TestAdministration:
         assert issued.user_id == user.id
         assert not password_changed_since(issued, user.password_hash)
         assert password_changed_since(issued, before)
+
+
+class TestBcryptOffTheLoop:
+    """bcrypt считается в пуле потоков, а не в цикле событий (аудит 19.11.2026): четверть
+    секунды счёта в цикле держала бы все запросы сервиса, процесс у него один. У входа так
+    давно (`login.py`); заведение, сброс и смена своего пароля считали в цикле — смена трижды
+    за запрос, и удачная смена обнуляет счётчик попыток."""
+
+    @pytest.fixture
+    def threads(self, monkeypatch: pytest.MonkeyPatch) -> list[int]:
+        """Потоки, в которых считался bcrypt: хеш учётки и сверка при смене своего пароля."""
+        seen: list[int] = []
+
+        def hashed(plain: str) -> str:
+            seen.append(threading.get_ident())
+            return hash_password(plain)
+
+        def checked(plain: str, password_hash: str | None) -> bool:
+            seen.append(threading.get_ident())
+            return verify_password(plain, password_hash)
+
+        monkeypatch.setattr("backend.features.access.repository.hash_password", hashed)
+        monkeypatch.setattr("backend.features.access.administration.verify_password", checked)
+        return seen
+
+    async def test_a_new_account_is_hashed_off_the_loop(
+        self, session: AsyncSession, threads: list[int]
+    ) -> None:
+        admin = await _admin(session)
+        threads.clear()
+
+        await create_user(
+            session,
+            email="новичок@team.example.test",
+            role=UserRole.OPERATOR,
+            author=actor_of(admin),
+        )
+
+        assert len(threads) == 1, "хеш разового пароля не считали"
+        assert threading.get_ident() not in threads, "bcrypt — в потоке цикла событий"
+
+    async def test_a_reset_is_hashed_off_the_loop(
+        self, session: AsyncSession, make_user: MakeUser, threads: list[int]
+    ) -> None:
+        admin = await _admin(session)
+        target = await make_user("сотрудник@team.example.test")
+        threads.clear()
+
+        await reset_password(session, user_id=target.id, author=actor_of(admin))
+
+        assert len(threads) == 1, "хеш разового пароля не считали"
+        assert threading.get_ident() not in threads, "bcrypt — в потоке цикла событий"
+
+    async def test_own_change_checks_and_hashes_off_the_loop(
+        self, session: AsyncSession, make_user: MakeUser, threads: list[int], jwt_secret: None
+    ) -> None:
+        """Обе сверки — старого и «не тот же ли» — и хеш нового: три счёта на запрос."""
+        user = await make_user("сотрудник@team.example.test")
+        threads.clear()
+
+        await change_own_password(
+            session, user_id=user.id, current="пароль-для-теста", new="три слова подряд длиннее"
+        )
+
+        assert len(threads) == 3, "сверка старого, сверка нового со старым, хеш нового"
+        assert threading.get_ident() not in threads, "bcrypt — в потоке цикла событий"
 
 
 async def _admin(session: AsyncSession) -> UserModel:

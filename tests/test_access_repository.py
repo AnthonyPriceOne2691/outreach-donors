@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import pytest
-from backend.features.access.login import LoginFailedError, login
+from backend.features.access.login import NOT_AN_EMAIL, LoginFailedError, login
 from backend.features.access.permissions import has_permission
 from backend.features.access.repository import (
     AccessRepository,
@@ -130,6 +130,35 @@ class TestJournal:
         assert entries[0].user_id is None
         assert entries[0].details is not None
         assert entries[0].details["email"] == "чужой@site.com"
+
+    @pytest.mark.parametrize(
+        "typed",
+        ["мой пароль не в том поле", "ParolBezSobaki2026", "пароль @ дома", "P@ssw0rd", "a@b@c.d"],
+        ids=["слова через пробел", "без «@»", "«@» и пробелы", "домен без точки", "две «@»"],
+    )
+    async def test_typed_text_that_is_not_an_email_stays_out(
+        self, session: AsyncSession, typed: str
+    ) -> None:
+        """Аудит 19.11.2026: набранное в поле почты ложилось в журнал при каждой неудаче, а
+        экран «Журнал» показывает его админам — пароль, набранный не в то поле, лёг бы в базу
+        открытым текстом. Не похожее на почту («@» нет или есть пробел) — заглушкой."""
+        with pytest.raises(LoginFailedError):
+            await login(session, typed, PASSWORD)
+        await session.flush()
+
+        entries = await AccessRepository(session).journal()
+        assert entries[0].details == {"email": NOT_AN_EMAIL, "reason": "пара не подошла"}
+
+    async def test_an_email_is_kept_as_the_login_looks_it_up(self, session: AsyncSession) -> None:
+        """Похожее на почту остаётся — ради него запись и делается: как вход ищет учётку,
+        без краевых пробелов и строчными."""
+        with pytest.raises(LoginFailedError):
+            await login(session, "  Чужой@Team.example.test ", "любой")
+        await session.flush()
+
+        entries = await AccessRepository(session).journal()
+        assert entries[0].details is not None
+        assert entries[0].details["email"] == "чужой@team.example.test"
 
     async def test_rights_change_is_recorded_with_its_author(self, session: AsyncSession) -> None:
         admin_id = await _admin(session)

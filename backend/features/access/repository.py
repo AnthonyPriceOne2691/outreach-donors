@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -106,10 +107,13 @@ class AccessRepository:
         author_id: int | None = None,
     ) -> UserModel:
         """Завести учётку. Пароль приходит уже сгенерированным: показать
-        его один раз — забота вызывающего, хранить его негде."""
+        его один раз — забота вызывающего, хранить его негде.
+
+        bcrypt — в пуле потоков, как у входа (`login.py`): четверть секунды счёта в цикле
+        событий держала бы все запросы сервиса, а не только этот (аудит 19.11.2026)."""
         user = UserModel(
             email=normalize_email(email),
-            password_hash=hash_password(password),
+            password_hash=await asyncio.to_thread(hash_password, password),
             role=role,
             is_active=True,
             must_change_password=True,
@@ -151,8 +155,10 @@ class AccessRepository:
 
         Возвращает хеш, который лёг в базу: новый хеш закрывает пропуска, выданные
         до смены, и пропуск после смены выдаётся по нему (`tokens.password_stamp`).
+
+        Хеш — в пуле потоков, как при заведении (`create`).
         """
-        password_hash = hash_password(password)
+        password_hash = await asyncio.to_thread(hash_password, password)
         await self._session.execute(
             update(UserModel)
             .where(UserModel.id == user_id)

@@ -21,11 +21,11 @@ import pytest
 from backend.api import errors
 from backend.api.app import create_app
 from backend.config.startup_checks import ConfigError
-from backend.features.access.login import LoginFailedError
+from backend.features.access.login import NOT_AN_EMAIL, LoginFailedError
 from backend.features.access.passwords import verify_password
 from backend.features.access.permissions import SignedOutError
 from backend.features.access.repository import AccessRepository
-from backend.features.access.tokens import TOKEN_HEADER, TokenError
+from backend.features.access.tokens import STAMP_CLAIM, TOKEN_HEADER, TokenError, password_stamp
 from backend.features.core.domain import AuditAction, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
 from fastapi import FastAPI, status
@@ -35,6 +35,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
 
 MakeUser = Callable[..., Awaitable[UserModel]]
+
+#: Учётка тестов аудита 19.11.2026: адрес из зоны для примеров, а не настоящий домен.
+OPERATOR = "operator@team.example.test"
 
 
 async def _actions(session: AsyncSession) -> list[AuditAction]:
@@ -128,6 +131,26 @@ class TestLogin:
             "/api/auth/login", json={"email": "ivan@site.com", "password": "пароль-для-теста"}
         )
         assert AuditAction.LOGIN in await _actions(session)
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"email": OPERATOR, "password": "пароль-для-теста", "remember": True},
+            {"email": OPERATOR, "password": "пароль-для-теста", "role": "admin"},
+        ],
+        ids=["лишнее поле", "роль в теле входа"],
+    )
+    async def test_an_extra_field_is_refused_not_dropped(
+        self, client: AsyncClient, make_user: MakeUser, body: dict[str, object]
+    ) -> None:
+        """Аудит 19.11.2026: лишнее поле в теле входа молча отбрасывалось — присланное мимо
+        схемы выглядело принятым. Теперь отказ разбора словами, и пропуска нет."""
+        await make_user(OPERATOR)
+
+        response = await client.post("/api/auth/login", json=body)
+
+        assert response.status_code == 422, response.text
+        assert response.json()["detail"][0]["msg"].endswith("такого поля нет")
 
 
 class TestBruteForce:
@@ -298,6 +321,31 @@ class TestWhoAmI:
         assert response.status_code == 403
         assert response.headers["X-Access-Refusal"] == "signed-out"
 
+    @pytest.mark.parametrize("claim", ["iat", "exp"], ids=["без времени выдачи", "без срока"])
+    async def test_pass_without_its_time_is_signed_out_not_a_500(
+        self, client: AsyncClient, make_user: MakeUser, claim: str
+    ) -> None:
+        """Аудит 19.11.2026: пропуск своей подписью без `iat` или `exp` ронял «кто я»
+        пятисоткой (KeyError при чтении полей). Теперь — «входа нет», как у любого негодного:
+        экран уводит на вход, а не показывает «сервер не справился»."""
+        user = await make_user(OPERATOR)
+        moment = int(datetime.now(UTC).timestamp())
+        claims = {
+            "sub": str(user.id),
+            "iat": moment,
+            "exp": moment + 3600,
+            STAMP_CLAIM: password_stamp(user.password_hash),
+        }
+        del claims[claim]
+
+        response = await client.get(
+            "/api/auth/me", headers=bearer(jwt.encode(claims, "x" * 64, algorithm="HS256"))
+        )
+
+        assert response.status_code == 403, response.text
+        assert response.headers["X-Access-Refusal"] == "signed-out"
+        assert "войдите заново" in response.json()["detail"]
+
     async def test_pass_comes_in_its_own_header_next_to_the_proxy_password(
         self, client: AsyncClient, make_user: MakeUser, sign_in: Callable[..., Awaitable[str]]
     ) -> None:
@@ -404,8 +452,19 @@ class TestOwnPassword:
             ({"current": "мимо", "new": "три слова подряд длиннее"}, "Старый пароль не подошёл"),
             ({"current": "пароль-для-теста", "new": "коротко"}, "Длина надёжнее сложности"),
             ({"current": "пароль-для-теста", "new": "пароль-для-теста"}, "совпадает со старым"),
+            # Аудит 19.11.2026: 37 русских букв — больше 72 байт, и bcrypt 5 ронял смену
+            # пятисоткой; экран показывает отказ сервера целиком (`ChangePasswordPage.tsx`).
+            ({"current": "пароль-для-теста", "new": "я" * 37}, "Пароль слишком длинный"),
+            # Старый длиннее 72 байт подойти не может — просто «не подошёл», а не пятисотка.
+            ({"current": "я" * 37, "new": "три слова подряд длиннее"}, "Старый пароль не подошёл"),
         ],
-        ids=["старый не тот", "новый короткий", "новый тот же"],
+        ids=[
+            "старый не тот",
+            "новый короткий",
+            "новый тот же",
+            "новый длиннее 72 байт",
+            "старый длиннее 72 байт",
+        ],
     )
     async def test_refusals_say_what_to_do(
         self,
@@ -422,6 +481,25 @@ class TestOwnPassword:
 
         assert response.status_code == 400
         assert expected in response.json()["detail"]
+
+    async def test_an_extra_field_is_refused_not_dropped(
+        self,
+        client: AsyncClient,
+        make_user: MakeUser,
+        sign_in: Callable[..., Awaitable[str]],
+    ) -> None:
+        """Аудит 19.11.2026: лишнее поле в смене пароля молча отбрасывалось — чужой номер
+        учётки в теле выглядел принятым. Теперь отказ разбора словами, и пароль прежний."""
+        await make_user(OPERATOR)
+        token = await sign_in(OPERATOR)
+
+        response = await client.post(
+            "/api/auth/password", headers=bearer(token), json={**RIGHT_OLD, "user_id": 1}
+        )
+
+        assert response.status_code == 422, response.text
+        assert response.json()["detail"][0]["msg"] == "Поле «user_id»: такого поля нет"
+        await sign_in(OPERATOR)
 
 
 class TestOneTimePasswordGate:
@@ -532,12 +610,14 @@ class TestPassAfterPasswordChange:
         assert renewed.status_code == 200
         assert renewed.json()["email"] == "ivan@site.com"
 
-    async def test_pass_from_before_stamps_lives_its_term(
+    async def test_pass_without_a_stamp_is_signed_out(
         self, client: AsyncClient, make_user: MakeUser
     ) -> None:
-        """Пропуск, выданный до выкатки отпечатков, — без отпечатка: он доживает свой срок
-        (сутки), а не выбрасывает всех из сервиса в день выкатки."""
-        user = await make_user("ivan@site.com")
+        """Пропуск без отпечатка — «входа нет» (аудит 19.11.2026). До этого он доживал свои
+        сутки, чтобы выкатка отпечатков 10.10.2026 не выбросила всех разом; такие давно
+        истекли, а новый собирает только тот, у кого секрет подписи, — и годился бы он при
+        любом пароле учётки."""
+        user = await make_user(OPERATOR)
         moment = int(datetime.now(UTC).timestamp())
         legacy = jwt.encode(
             {"sub": str(user.id), "iat": moment, "exp": moment + 3600}, "x" * 64, algorithm="HS256"
@@ -545,7 +625,9 @@ class TestPassAfterPasswordChange:
 
         response = await client.get("/api/auth/me", headers=bearer(legacy))
 
-        assert response.status_code == 200, response.text
+        assert response.status_code == 403, response.text
+        assert response.headers["X-Access-Refusal"] == "signed-out"
+        assert "нет отпечатка пароля" in response.json()["detail"]
 
 
 class TestStartup:
@@ -578,3 +660,59 @@ class TestBlockedAttemptsAreVisible:
 
         assert blocked.status_code == 429
         assert any("попытки исчерпаны" in record.message for record in caplog.records)
+
+
+class TestTypedTextStaysOutOfTheJournals:
+    """Пароль, набранный в поле почты, не ложится ни в журнал действий, ни в журнал
+    приложения (аудит 19.11.2026): неудачный вход писал набранное туда и туда, а экран
+    «Журнал» показывает журнал действий админам. Похожее на почту пишется как было."""
+
+    async def test_the_journal_screen_shows_a_stub(
+        self,
+        client: AsyncClient,
+        make_user: MakeUser,
+        sign_in: Callable[..., Awaitable[str]],
+    ) -> None:
+        await make_user("админ@team.example.test", role=UserRole.ADMIN)
+        token = await sign_in("админ@team.example.test")
+        typed = "мой пароль не в том поле"
+
+        await client.post("/api/auth/login", json={"email": typed, "password": "что-то"})
+        journal = await client.get("/api/journal?action=login_failed", headers=bearer(token))
+
+        assert journal.status_code == 200, journal.text
+        assert [entry["details"]["email"] for entry in journal.json()["entries"]] == [NOT_AN_EMAIL]
+        assert typed not in journal.text
+
+    async def test_a_stopped_attempt_logs_a_stub_instead_of_the_typed_text(
+        self, client: AsyncClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        typed = "ParolBezSobaki2026"
+
+        stopped = await _stopped_attempt(client, caplog, typed)
+
+        assert [getattr(record, "email", None) for record in stopped] == [NOT_AN_EMAIL]
+        assert all(typed.lower() not in str(vars(record)) for record in caplog.records)
+
+    async def test_a_stopped_attempt_logs_an_email_as_the_login_looks_it_up(
+        self, client: AsyncClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        stopped = await _stopped_attempt(client, caplog, " Operator@Team.example.test")
+
+        assert [getattr(record, "email", None) for record in stopped] == [OPERATOR]
+
+
+async def _stopped_attempt(
+    client: AsyncClient, caplog: pytest.LogCaptureFixture, typed: str
+) -> list[logging.LogRecord]:
+    """Довести вход с этим набранным в поле почты до предела попыток — и записи журнала
+    приложения о попытке, которую остановил счётчик."""
+    payload = {"email": typed, "password": "мимо"}
+    for _ in range(5):
+        await client.post("/api/auth/login", json=payload)
+
+    with caplog.at_level(logging.WARNING):
+        blocked = await client.post("/api/auth/login", json=payload)
+
+    assert blocked.status_code == 429
+    return [record for record in caplog.records if "попытки исчерпаны" in record.message]

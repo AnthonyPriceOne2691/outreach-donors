@@ -8,11 +8,13 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
 from backend.features.access.passwords import (
+    MAX_PASSWORD_BYTES,
     MIN_PASSWORD_LENGTH,
     ONE_TIME_LENGTH,
     WeakPasswordError,
@@ -74,6 +76,42 @@ class TestPasswords:
     def test_long_password_passes(self) -> None:
         assert_strong_enough("три слова подряд")
 
+    def test_password_past_the_bcrypt_limit_is_refused_in_words(self) -> None:
+        """Аудит 19.11.2026: bcrypt 5 на пароле длиннее 72 байт бросает исключение, и «Сменить
+        пароль» отвечал пятисоткой — с 37 русских букв, к которым ведёт совет «три-четыре
+        слова». Теперь отказ словами и предел буквами: русская весит два байта."""
+        with pytest.raises(WeakPasswordError) as refused:
+            assert_strong_enough("я" * (MAX_PASSWORD_BYTES // 2 + 1))
+
+        said = str(refused.value)
+        assert f"{MAX_PASSWORD_BYTES} латинских" in said
+        assert f"{MAX_PASSWORD_BYTES // 2} русских" in said
+        assert "Сократите" in said
+
+    @pytest.mark.parametrize(
+        "plain",
+        ["x" * MAX_PASSWORD_BYTES, "я" * (MAX_PASSWORD_BYTES // 2)],
+        ids=["72 латинских", "36 русских"],
+    )
+    def test_password_right_at_the_limit_is_kept_and_checked(self, plain: str) -> None:
+        """Предел меряется так же, как его меряет bcrypt, — байтами: ровно 72 он ещё считает."""
+        assert_strong_enough(plain)
+        assert verify_password(plain, hash_password(plain))
+
+    def test_password_past_the_limit_does_not_match_and_blames_no_hash(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Вход с паролем длиннее 72 байт — «не совпадает» ещё до bcrypt (аудит 19.11.2026): его
+        отказ писал в журнал «хеш испорчен» про целый хеш. И 73-й байт не отбрасывается молча,
+        как у прежних bcrypt: первые 72 совпадают, а пароль — другой."""
+        stored = hash_password("x" * MAX_PASSWORD_BYTES)
+
+        with caplog.at_level(logging.DEBUG):
+            assert not verify_password("x" * (MAX_PASSWORD_BYTES + 1), stored)
+            assert not verify_password("я" * (MAX_PASSWORD_BYTES // 2 + 1), stored)
+
+        assert [record.getMessage() for record in caplog.records] == []
+
     def test_one_time_password_is_readable_aloud(self) -> None:
         """Пароль диктуют голосом и переписывают руками: похожих знаков
         в нём быть не должно."""
@@ -124,6 +162,24 @@ class TestTokens:
         with pytest.raises(TokenError, match="нет сотрудника"):
             read_token(empty)
 
+    @pytest.mark.parametrize(
+        ("claim", "said"),
+        [("iat", "нет времени выдачи"), ("exp", "нет срока")],
+        ids=["без времени выдачи", "без срока"],
+    )
+    def test_token_without_its_time_is_refused_in_words(self, claim: str, said: str) -> None:
+        """Аудит 19.11.2026: пропуск своей подписью без `iat` или `exp` падал при чтении полей
+        KeyError — «кто я» отвечал пятисоткой, а не «входа нет»; а без проверки `exp`
+        библиотекой пропуск без срока был бы бессрочным. Теперь их требует сама проверка."""
+        claims = jwt.decode(
+            create_token(7, password_hash=HASH), options={"verify_signature": False}
+        )
+        del claims[claim]
+        forged = jwt.encode(claims, "x" * 64, algorithm="HS256")
+
+        with pytest.raises(TokenError, match=said):
+            read_token(forged)
+
     def test_missing_secret_refuses_loudly(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Пустой секрет — это отказ с инструкцией, а не проверка без подписи."""
         monkeypatch.setattr("backend.features.access.tokens.cfg.JWT_SECRET", "")
@@ -157,17 +213,18 @@ class TestPasswordStamp:
         assert password_changed_since(payload, hash_password("другой пароль подряд"))
         assert password_changed_since(payload, hash_password("три слова подряд"))
 
-    def test_pass_from_before_stamps_lives_its_term(self) -> None:
-        """Пропуск, выданный до выкатки, отпечатка не несёт — он доживает свой срок, а не
-        выбрасывает всех из сервиса в день выкатки."""
+    def test_pass_without_a_stamp_is_refused(self) -> None:
+        """Пропуск без отпечатка — отказ (аудит 19.11.2026). До этого он считался годным при
+        любом пароле: так пропуска, выданные до отпечатков, доживали свои сутки, а не
+        обрывались выкаткой 10.10.2026. Они давно истекли, а собрать такой теперь может только
+        тот, у кого секрет подписи, — отпечаток требует от него ещё и хеша пароля из базы."""
         moment = int(datetime.now(UTC).timestamp())
         legacy = jwt.encode(
             {"sub": "7", "iat": moment, "exp": moment + 3600}, "x" * 64, algorithm="HS256"
         )
-        payload = read_token(legacy)
 
-        assert payload.password_stamp is None
-        assert not password_changed_since(payload, hash_password("другой пароль подряд"))
+        with pytest.raises(TokenError, match="нет отпечатка пароля"):
+            read_token(legacy)
 
     def test_stamp_tells_nothing_about_the_hash(self) -> None:
         """Пропуск читает любой, у кого он есть: в нём короткий отпечаток на секрете
