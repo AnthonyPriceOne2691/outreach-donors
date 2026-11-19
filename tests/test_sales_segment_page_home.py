@@ -60,6 +60,22 @@ async def test_a_page_on_a_country_subdomain_takes_the_home_of_that_subdomain() 
     assert "stroy-sample.com" not in homes.hits  # корень не нужен — главная поддомена открылась
 
 
+async def test_a_subdomain_link_in_script_takes_the_home_of_that_subdomain() -> None:
+    """19.11.2026: ключ домена — ASCII; ссылка выдачи письменностью — тот же поддомен корня `xn--`."""
+    homes = Homes(
+        {
+            "xn--90as4c.xn--e1afmkfd.xn--p1ai": "Магазин в Ташкенте",
+            "xn--e1afmkfd.xn--p1ai": "Корень",
+        }
+    )
+
+    async with client(homes) as http:
+        found = await page_home(http, "xn--e1afmkfd.xn--p1ai", "https://бык.пример.рф/каталог")
+
+    assert (found.reached, found.title) == (True, "Магазин в Ташкенте")
+    assert "xn--e1afmkfd.xn--p1ai" not in homes.hits
+
+
 async def test_a_subdomain_home_that_does_not_open_falls_back_to_the_root() -> None:
     homes = Homes({"kliniki-sample.pl": "Klinika stomatologiczna w Krakowie"})
 
