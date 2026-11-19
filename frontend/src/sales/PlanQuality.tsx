@@ -1,10 +1,12 @@
 /**
- * «Изменить качество сайтов» гипотезы плана: глубина поиска, цель «Найти сайтов» и страны компаний.
+ * «Изменить качество сайтов» гипотезы плана: глубина поиска, цель «Найти сайтов», страны компаний и
+ * вид сайта.
  *
  * Глубина и цель — строки плана, страны компаний — поле самой гипотезы, тем же выбором, что в окне
- * гипотезы (`HypothesisCountries`), и той же правкой на сервере, с её журналом. Действует на новые
- * прогоны и суды: собранное не пересуживается. Уходит только поправленное; ничего не поправили —
- * окно просто закрывается. Глубже при «нужны ключи» — гипотеза снова собирает.
+ * гипотезы (`HypothesisCountries`), и той же правкой на сервере, с её журналом; вид сайта — тоже поле
+ * гипотезы (`SiteKinds`, решение владельца 16.11). Действует на новые прогоны и суды: собранное не
+ * пересуживается. Уходит только поправленное; ничего не поправили — окно просто закрывается. Глубже
+ * при «нужны ключи» — гипотеза снова собирает.
  *
  * **Фокус при открытии — на первое поле**, выбранную ступень глубины, как у двух других окон
  * (стенд 17.11: вставал на крестик закрытия). Mantine ищет в окне `data-autofocus`, а пунктам
@@ -23,10 +25,11 @@ import { HypothesisCountries } from './HypothesisCountries';
 import { countriesOf, HYPOTHESES_QUERY_KEY } from './hypothesisData';
 import type { CountriesField } from './hypothesisData';
 import { changeQuality, usePlanAction } from './planApi';
-import type { PlanQualityBody, PlanRow } from './planApi';
+import type { PlanQualityBody, PlanRow, SiteKind } from './planApi';
 import { PlanDialog } from './PlanDialog';
 import { MAX_TARGET } from './PlanMore';
 import { topWords } from './PlanPreviewView';
+import { kindsChange, SiteKinds, siteKindsOf } from './SiteKinds';
 
 /** Ступени «Глубины поиска до» книги — страниц выдачи по 10. */
 const DEPTHS = [1, 2, 3, 5].map((pages) => ({ value: String(pages), label: topWords(pages) }));
@@ -66,6 +69,8 @@ export function PlanQuality({ row, card, onClose }: Props) {
   const [pages, setPages] = useState(row.max_pages);
   const [target, setTarget] = useState<number | ''>(row.target);
   const [field, setField] = useState<CountriesField>(was);
+  const wasKinds = siteKindsOf(card);
+  const [kinds, setKinds] = useState<SiteKind[]>(wasKinds);
   const client = useQueryClient();
   const send = usePlanAction(
     (body: PlanQualityBody) => changeQuality(row.id, body),
@@ -77,7 +82,10 @@ export function PlanQuality({ row, card, onClose }: Props) {
     },
   );
   const submit = () => {
-    const body = qualityChanges(row, was, pages, target, field);
+    const body = {
+      ...qualityChanges(row, was, pages, target, field),
+      ...kindsChange(wasKinds, kinds),
+    };
     if (Object.keys(body).length === 0) onClose();
     else send.mutate(body);
   };
@@ -120,6 +128,7 @@ export function PlanQuality({ row, card, onClose }: Props) {
         onChange={(value) => setTarget(typeof value === 'number' ? value : '')}
       />
       <HypothesisCountries field={field} onChange={setField} />
+      <SiteKinds value={kinds} onChange={setKinds} />
     </PlanDialog>
   );
 }

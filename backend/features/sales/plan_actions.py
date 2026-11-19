@@ -17,9 +17,9 @@
   целиком, снова идёт: в нём опять есть работа. План на паузе так и стоит — его снимает своя кнопка;
 - **ключей и глубины нет** (`plan_waves.next_batch`) — «Продолжить» отказывает словами «нужны
   ключи», «Собрать ещё N» ставит цель и сразу — `stopped` с «нужны ключи», без прохода конвейера;
-- **качество** — глубина и цель — в строке гипотезы плана, страны компаний — правкой гипотезы
-  (`hypotheses.edit`, её журнал и правила); действует на новые прогоны и суды. То же самое — не
-  правка;
+- **качество** — глубина и цель — в строке гипотезы плана, страны компаний и вид сайта — правкой
+  гипотезы (`hypotheses.edit`, её журнал и правила); действует на новые прогоны и суды. То же
+  самое — не правка;
 - **«Добавить ключи»** — новые строки реестра на каждом рынке листа, той же чисткой, что ключи книги
   (`plan_keys.py`), вслед за ключами листа; уже известные пропускаются.
 
@@ -78,7 +78,7 @@ STOPPED_BY_HAND = "остановлена кнопкой «Остановить�
 PLAN_STOPPED = "план остановлен кнопкой «Остановить план»: новых прогонов нет, идущий доходит"
 #: Почему этап сменился — полем журнала процесса (`plan_moves.move`).
 BY_HAND = "кнопка вкладки «Гипотезы»"
-NOTHING_TO_EDIT = "нечего менять: дайте глубину, цель или страны компаний"
+NOTHING_TO_EDIT = "нечего менять: дайте глубину, цель, страны компаний или вид сайта"
 #: «Действие» записей журнала — под общей «Правкой», как у заведения плана.
 ROW_STOPPED = "гипотеза плана остановлена"
 ROW_RESUMED = "гипотеза плана продолжена"
@@ -303,6 +303,8 @@ class Quality:
     target: int | None = None
     other_countries: str | None = None
     excluded_countries: list[str] | None = None
+    #: Вид сайта — поле гипотезы (`hypothesis_kinds`); пустой список — снять выбор.
+    site_kinds: list[str] | None = None
 
     def refusal(self) -> str | None:
         """Почему просьба не годится — словами; годится — `None`."""
@@ -315,27 +317,29 @@ class Quality:
         return None
 
     @property
-    def countries(self) -> bool:
-        """Дано ли поле «страны компаний» — хоть одна часть."""
-        return self.other_countries is not None or self.excluded_countries is not None
+    def of_hypothesis(self) -> bool:
+        """Дано ли поле самой гипотезы — страны компаний или вид сайта: его правит `hypotheses.edit`."""
+        parts = (self.other_countries, self.excluded_countries, self.site_kinds)
+        return any(part is not None for part in parts)
 
 
 async def change_quality(
     session: AsyncSession, row_id: int, ask: Quality, *, author_id: int | None, now: datetime
 ) -> SalesPlanHypothesisModel:
-    """Глубина и цель — строка гипотезы плана, страны компаний — правкой гипотезы (шапка модуля).
-    Глубже при «нужны ключи» — снова в работе."""
+    """Глубина и цель — строка гипотезы плана, страны компаний и вид сайта — правкой гипотезы (шапка
+    модуля). Глубже при «нужны ключи» — снова в работе."""
     refusal = ask.refusal()
     if refusal is not None:
         raise PlanAskError(refusal)
     held = await hold(session, row_id)
     row = held.row
-    if ask.countries:
+    if ask.of_hypothesis:
         await hypotheses.edit(
             session,
             row.hypothesis_id,
             other_countries=ask.other_countries,
             excluded_countries=ask.excluded_countries,
+            site_kinds=ask.site_kinds,
             author_id=author_id,
         )
     was = (row.max_pages, row.target)

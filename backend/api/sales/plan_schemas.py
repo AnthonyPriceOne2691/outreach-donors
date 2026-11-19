@@ -294,6 +294,8 @@ class PlanQualityBody(BaseModel):
     target: int | None = Field(default=None, ge=1, le=MAX_TARGET)
     other_countries: str | None = None
     excluded_countries: list[str] | None = None
+    #: Вид сайта гипотезы (`hypothesis_kinds.SITE_KINDS`); пустой список — снять выбор.
+    site_kinds: list[str] | None = None
 
 
 class PlanMoreBody(BaseModel):

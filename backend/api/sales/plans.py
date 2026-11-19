@@ -301,8 +301,15 @@ async def change_quality(
     __: UserModel = _runner,
     session: AsyncSession = Depends(db_session),
 ) -> PlanHypothesisView:
-    """Глубина и цель — гипотезы плана, страны компаний — правкой гипотезы с её журналом."""
-    ask = Quality(body.max_pages, body.target, body.other_countries, body.excluded_countries)
+    """Глубина и цель — гипотезы плана, страны компаний и вид сайта — правкой гипотезы с её
+    журналом."""
+    ask = Quality(
+        body.max_pages,
+        body.target,
+        body.other_countries,
+        body.excluded_countries,
+        site_kinds=body.site_kinds,
+    )
     with _refusals():
         await plan_actions.change_quality(
             session, row_id, ask, author_id=author.id, now=datetime.now(UTC)

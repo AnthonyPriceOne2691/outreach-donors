@@ -48,12 +48,17 @@ export interface PlansLive {
   plans: PlanLive[];
 }
 
+/** Вид сайта гипотезы — коды видов судьи (`hypothesis_kinds.SITE_KINDS` на сервере). */
+export type SiteKind = 'own' | 'intermediary' | 'media' | 'other';
+
 /** Изменить качество сайтов — только поправленное. */
 export interface PlanQualityBody {
   max_pages?: number;
   target?: number;
   other_countries?: 'review' | 'accept';
   excluded_countries?: string[];
+  /** Весь выбор; пустой — снять выбор (виды решает описание сегмента). */
+  site_kinds?: SiteKind[];
 }
 
 export interface PlanKeysAdded {

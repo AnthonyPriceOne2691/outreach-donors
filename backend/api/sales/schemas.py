@@ -112,6 +112,8 @@ class HypothesisCard(BaseModel):
     #: Поле «страны компаний» (`hypothesis_countries`): переключатель и коды «не пишем».
     other_countries: str
     excluded_countries: list[str]
+    #: Поле «вид сайта» (`hypothesis_kinds`): коды видов; пусто — как просит описание сегмента.
+    site_kinds: list[str] = []
     created_at: datetime
     #: Состояние → сколько. Все состояния названы, хоть и нулём.
     leads: dict[str, int]
@@ -132,6 +134,7 @@ class HypothesisCard(BaseModel):
             description=found.description,
             other_countries=found.other_countries,
             excluded_countries=list(found.excluded_countries),
+            site_kinds=list(found.site_kinds),
             created_at=found.created_at,
             leads=row.states,
             total=row.total,
