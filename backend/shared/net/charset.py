@@ -28,25 +28,25 @@ _META_CHARSET = re.compile(rb"""<meta\b[^>]*?\bcharset\s*=\s*["']?\s*([a-z0-9._:
 def page_encoding(content: bytes) -> str:
     """Кодировка из `<meta>` в начале страницы; нет её или имя незнакомое — utf-8."""
     found = _META_CHARSET.search(content[:SNIFF_BYTES])
-    if found is None:
+    codec = None if found is None else text_codec(found.group(1).decode("ascii"))
+    # `<meta>` прочитан как ASCII — значит, страница не в utf-16/32, что бы она ни писала.
+    if codec is None or codec.startswith(("utf-16", "utf-32")):
         return "utf-8"
-    return _text_codec(found.group(1).decode("ascii")) or "utf-8"
+    return codec
 
 
-def _text_codec(name: str) -> str | None:
+def text_codec(name: str) -> str | None:
     """Имя кодека, которым читается текст, — или `None`.
 
     `codecs.lookup` знает и нетекстовые кодеки — `base64`, `zlib`, `rot13`: на них `.text`
-    у httpx падает, а `zlib` к тому же распаковывает. Поэтому имя проверяется пробным
-    чтением, а не только поиском.
+    у httpx падает (`AssertionError`, `TypeError`), а `zlib` к тому же распаковывает. Поэтому
+    имя проверяется пробным чтением, а не только поиском. Тем же судится charset из заголовка
+    ответа (`url_guard.GuardedTransport`).
     """
     try:
         codec = codecs.lookup(name).name
         b"<".decode(codec, "replace")
     except (LookupError, ValueError) as exc:  # ValueError — кодеки `undefined`, `idna`
-        logger.debug(
-            "charset: %r из <meta> — не кодировка текста (%r), читаем как utf-8", name, exc
-        )
+        logger.debug("charset: %r — не кодировка текста (%r), читаем по умолчанию", name, exc)
         return None
-    # `<meta>` прочитан как ASCII — значит, страница не в utf-16/32, что бы она ни писала.
-    return "utf-8" if codec.startswith(("utf-16", "utf-32")) else codec
+    return codec

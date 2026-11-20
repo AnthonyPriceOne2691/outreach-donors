@@ -39,11 +39,16 @@ def site(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Response]:
     return answers
 
 
-async def _read(site: list[httpx.Response], body: bytes, content_type: str = "text/html") -> str:
+async def _get(
+    site: list[httpx.Response], body: bytes, content_type: str = "text/html"
+) -> httpx.Response:
     site.append(httpx.Response(200, headers={"content-type": content_type}, content=body))
     async with guarded_client(timeout=5.0) as client:
-        response = await client.get("https://example.com/")
-    return response.text
+        return await client.get("https://example.com/")
+
+
+async def _read(site: list[httpx.Response], body: bytes, content_type: str = "text/html") -> str:
+    return (await _get(site, body, content_type)).text
 
 
 class TestMetaCharset:
@@ -87,6 +92,43 @@ class TestMetaCharset:
 
         assert page is not None
         assert TEXT in page.html
+
+
+class TestHeaderCharset:
+    """charset из заголовка, которым текст не читается: httpx его всё равно берёт, и
+    `response.text` падал `AssertionError`/`TypeError` мимо обработчиков `httpx.HTTPError`."""
+
+    @pytest.mark.parametrize("name", ["zlib", "base64", "rot13", "undefined", "idna"])
+    async def test_non_text_charset_falls_back_to_meta(
+        self, site: list[httpx.Response], name: str
+    ) -> None:
+        body = _page('<meta charset="windows-1251">')
+        response = await _get(site, body, f"text/html; charset={name}")
+
+        assert TEXT in response.text
+        assert response.headers["content-type"] == "text/html"
+
+    @pytest.mark.parametrize(
+        "content_type",
+        [
+            "text/html; charset=zlib",
+            'text/html; charset="base64"; q=1',
+            "text/html; charset*=''zlib",
+        ],
+    )
+    async def test_non_text_charset_without_meta_is_utf8(
+        self, site: list[httpx.Response], content_type: str
+    ) -> None:
+        assert TEXT in await _read(site, _page("", encoding="utf-8"), content_type)
+
+    async def test_text_charset_in_header_stays_and_wins_over_meta(
+        self, site: list[httpx.Response]
+    ) -> None:
+        body = _page('<meta charset="utf-8">')  # тело в cp1251, `<meta>` врёт
+        response = await _get(site, body, "text/html; charset=windows-1251")
+
+        assert TEXT in response.text
+        assert response.headers["content-type"] == "text/html; charset=windows-1251"
 
 
 class TestPageEncoding:

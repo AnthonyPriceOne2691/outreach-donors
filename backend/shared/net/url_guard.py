@@ -54,7 +54,7 @@ from urllib.parse import urlparse
 import httpcore
 import httpx
 
-from backend.shared.net.charset import page_encoding
+from backend.shared.net.charset import page_encoding, text_codec
 
 logger = logging.getLogger(__name__)
 
@@ -284,16 +284,28 @@ def _bounded_accept(asked: str | None) -> str:
     return ", ".join(kept) or ACCEPT_ENCODING
 
 
-def _without_encoding(headers: httpx.Headers) -> httpx.Headers:
-    """Заголовки распакованного ответа: без сжатия и без длины сжатого тела — иначе httpx
-    распакует второй раз."""
-    return httpx.Headers(
+def _answer_headers(response: httpx.Response, *, decoded: bool) -> httpx.Headers:
+    """Заголовки ответа для httpx.
+
+    Распакованный ответ — без сжатия и без длины сжатого тела, иначе httpx распакует второй раз.
+    charset, которым текст не читается (`zlib`, `base64`, `rot13`, `undefined`), httpx всё равно
+    берёт — и `response.text` падает мимо обработчиков `httpx.HTTPError`. Такой `Content-Type`
+    сводится к одному типу: тогда кодировку решает `default_encoding` (`<meta>` или utf-8).
+    Параметры уходят все: вырезать один charset значило бы повторять разбор httpx со всеми
+    его формами (`charset*=''zlib` по RFC 2231 он тоже читает).
+    """
+    headers = httpx.Headers(
         [
             (name, value)
-            for name, value in headers.raw
-            if name.lower() not in (b"content-encoding", b"content-length")
+            for name, value in response.headers.raw
+            if not decoded or name.lower() not in (b"content-encoding", b"content-length")
         ]
     )
+    charset = response.charset_encoding
+    if charset is not None and text_codec(charset) is None:
+        logger.info("url-guard: charset %r из заголовка — не кодировка текста, убран", charset)
+        headers["Content-Type"] = response.headers["Content-Type"].split(";", 1)[0].strip()
+    return headers
 
 
 class _CappedStream(httpx.AsyncByteStream):
@@ -402,7 +414,7 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         decoder = _decoder_for(response, request.url, max(1, min(INFLATE_STEP, self._limit)))
         return httpx.Response(
             status_code=response.status_code,
-            headers=response.headers if decoder is None else _without_encoding(response.headers),
+            headers=_answer_headers(response, decoded=decoder is not None),
             stream=_CappedStream(response.stream, self._limit, decoder),  # type: ignore[arg-type]
             extensions=response.extensions,
             request=request,
