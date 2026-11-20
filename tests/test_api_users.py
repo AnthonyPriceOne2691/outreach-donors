@@ -143,6 +143,30 @@ class TestCreate:
         token = await sign_in("новичок@site.com", body["password"])
         assert (await client.get("/api/auth/me", headers=bearer(token))).status_code == 200
 
+    @pytest.mark.parametrize("path", ["/api/users", "/api/users/{id}/password"])
+    async def test_one_time_password_comes_with_its_term(
+        self,
+        client: AsyncClient,
+        admin_token: str,
+        target: UserModel,
+        monkeypatch: pytest.MonkeyPatch,
+        path: str,
+    ) -> None:
+        """Аудит 20.11.2026: разовый пароль живёт срок — админ узнаёт о нём, когда выдаёт
+        пароль, а не от сотрудника, которого не пустило."""
+        monkeypatch.setattr("backend.config.access.ONE_TIME_TTL_HOURS", 72)
+        body = {"email": "новичок@team.example.test", "role": "operator"}
+
+        # Сброс чужого пароля — с паролем админа (`CONFIRMED`), заведение — без него.
+        response = await client.post(
+            path.format(id=target.id),
+            json=body if path == "/api/users" else CONFIRMED,
+            headers=bearer(admin_token),
+        )
+
+        assert response.status_code in (200, 201), response.text
+        assert "действует 72 ч" in response.json()["note"]
+
     async def test_second_user_with_the_same_email_refused(
         self, client: AsyncClient, admin_token: str, target: UserModel
     ) -> None:

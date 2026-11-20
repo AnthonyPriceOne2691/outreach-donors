@@ -21,11 +21,19 @@
 `attempted_email`). Набранное в поле почты пишется в базу при каждой неудаче,
 и экран «Журнал» показывает его админам: пароль, набранный не в то поле,
 лёг бы туда открытым текстом.
+
+Два отказа говорят своими словами (аудит 20.11.2026), и оба — не подсказка
+подбирающему. **Пауза после неудач подряд** (`lockout.py`) называет минуты
+до сверки пароля — это выдаёт, что учётка есть, и принято сознательно: за
+общим паролем прокси до входа доходят только свои. **Истёкший разовый
+пароль** называется только после того, как пара подошла: его видит тот, кто
+пароль знает.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -33,17 +41,28 @@ from functools import cache
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.access.passwords import hash_password, verify_password
+from backend.features.access.lockout import AccountPausedError, pause_after, refuse_while_paused
+from backend.features.access.passwords import hash_password, one_time_expired, verify_password
 from backend.features.access.repository import AccessRepository, normalize_email
 from backend.features.access.tokens import create_token
 from backend.features.core.domain import AuditAction, UserRole
+from backend.features.core.models.access import UserModel
+
+logger = logging.getLogger(__name__)
 
 
 class LoginFailedError(RuntimeError):
-    """Вход не выполнен. Текст один на все причины — намеренно."""
+    """Вход не выполнен. Текст один на все причины — намеренно: нет почты, пароль не тот,
+    учётка отключена."""
+
+
+class OneTimeExpiredError(LoginFailedError):
+    """Пара подошла, но пароль разовый и его срок вышел (`passwords.one_time_expired`). Отказ
+    входа, как и прочие (400, запись журнала), только словами: что делать — просить новый."""
 
 
 REFUSAL = "Неверная почта или пароль"
+EXPIRED = "Разовый пароль истёк — попросите администратора выдать новый"
 
 #: Что ложится в журналы вместо набранного в поле почты, когда оно на почту не похоже.
 NOT_AN_EMAIL = "‹не почта›"
@@ -96,23 +115,52 @@ def _password_matches(password: str, stored: str | None) -> bool:
     return verify_password(password, stored)
 
 
-async def login(session: AsyncSession, email: str, password: str) -> Session:
-    """Проверить пару и выдать пропуск. Любая неудача — один и тот же отказ."""
-    repository = AccessRepository(session)
-    user = await repository.by_email(email)
-
-    # bcrypt — в пуле потоков: четверть секунды счёта в цикле событий держала бы
-    # остальные запросы, а с подставным хешем считается и каждая незнакомая почта.
-    stored = user.password_hash if user is not None else None
-    matched = await asyncio.to_thread(_password_matches, password, stored)
-    if user is None or not matched:
-        await repository.record(
-            AuditAction.LOGIN_FAILED,
-            author_id=user.id if user else None,
-            details={"email": attempted_email(email), "reason": "пара не подошла"},
+def _refuse_while_paused(user: UserModel, email: str, moment: datetime) -> None:
+    """Учётка на паузе — отказ до сверки пароля. В журнал действий он не ложится (там — только
+    начало паузы), но молчать нельзя: подбор выглядел бы прекратившимся, а он продолжается.
+    Строка журнала приложения — как у счётчика в памяти (`api/auth/routes.py`)."""
+    try:
+        refuse_while_paused(user.locked_until, moment)
+    except AccountPausedError:
+        logger.warning(
+            "вход: учётка на паузе после неудач подряд, пароль даже не проверялся",
+            extra={"email": attempted_email(email), "user_id": user.id},
         )
-        raise LoginFailedError(REFUSAL)
+        raise
 
+
+async def _failed(
+    repository: AccessRepository, user: UserModel | None, email: str, moment: datetime
+) -> None:
+    """Пара не подошла: запись журнала, а у знакомой учётки — ещё одна неудача подряд и, с
+    порога, пауза входа с записью о её начале (`lockout.py`). Незнакомая почта строк не заводит."""
+    await repository.record(
+        AuditAction.LOGIN_FAILED,
+        author_id=user.id if user else None,
+        details={"email": attempted_email(email), "reason": "пара не подошла"},
+    )
+    if user is None:
+        return
+    failures = await repository.count_failure(user.id)
+    pause = pause_after(failures)
+    if pause is None:
+        return
+    await repository.pause_login(user.id, until=moment + pause)
+    await repository.record(
+        AuditAction.LOGIN_PAUSED,
+        author_id=user.id,
+        target=f"user:{user.id}",
+        details={
+            "email": user.email,
+            "неудач подряд": failures,
+            "пауза": f"{int(pause.total_seconds()) // 60} мин",
+        },
+    )
+
+
+async def _refuse_matched(repository: AccessRepository, user: UserModel, moment: datetime) -> None:
+    """Пара подошла, а войти нельзя: учётка отключена — общий отказ; пароль разовый и его
+    срок вышел — свой, словами (`OneTimeExpiredError`). Оба — с записью журнала."""
     if not user.is_active:
         await repository.record(
             AuditAction.LOGIN_FAILED,
@@ -121,7 +169,37 @@ async def login(session: AsyncSession, email: str, password: str) -> Session:
         )
         raise LoginFailedError(REFUSAL)
 
-    await repository.note_login(user.id, now=datetime.now(UTC))
+    if user.must_change_password and one_time_expired(user.password_set_at, moment):
+        await repository.record(
+            AuditAction.LOGIN_FAILED,
+            author_id=user.id,
+            details={"email": user.email, "reason": "разовый пароль истёк"},
+        )
+        raise OneTimeExpiredError(EXPIRED)
+
+
+async def login(
+    session: AsyncSession, email: str, password: str, *, now: datetime | None = None
+) -> Session:
+    """Проверить пару и выдать пропуск. Неудача пары — один и тот же отказ; учётка на паузе
+    после неудач подряд — отказ со сроком (`lockout.AccountPausedError`), разовый пароль
+    истёк — свой отказ (`OneTimeExpiredError`)."""
+    moment = now or datetime.now(UTC)
+    repository = AccessRepository(session)
+    user = await repository.by_email(email)
+    if user is not None:
+        _refuse_while_paused(user, email, moment)
+
+    # bcrypt — в пуле потоков: четверть секунды счёта в цикле событий держала бы
+    # остальные запросы, а с подставным хешем считается и каждая незнакомая почта.
+    stored = user.password_hash if user is not None else None
+    matched = await asyncio.to_thread(_password_matches, password, stored)
+    if user is None or not matched:
+        await _failed(repository, user, email, moment)
+        raise LoginFailedError(REFUSAL)
+
+    await _refuse_matched(repository, user, moment)
+    await repository.note_login(user.id, now=moment)
     return Session(
         token=create_token(user.id, password_hash=user.password_hash),
         user_id=user.id,

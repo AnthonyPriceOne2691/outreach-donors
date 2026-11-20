@@ -34,10 +34,15 @@ WINDOW = timedelta(minutes=1)
 
 
 class TooManyAttemptsError(RuntimeError):
-    """Попыток входа слишком много. Сообщение говорит, сколько ждать."""
+    """Попыток входа слишком много. Сообщение говорит, сколько ждать.
 
-    def __init__(self, retry_after_seconds: int) -> None:
-        super().__init__(f"Слишком много попыток входа. Повторите через {retry_after_seconds} с.")
+    `said` — свои слова отказа при том же ответе (429 и `Retry-After`): так отказывает пауза
+    учётки после неудач подряд (`lockout.AccountPausedError`)."""
+
+    def __init__(self, retry_after_seconds: int, said: str | None = None) -> None:
+        super().__init__(
+            said or f"Слишком много попыток входа. Повторите через {retry_after_seconds} с."
+        )
         self.retry_after_seconds = retry_after_seconds
 
 

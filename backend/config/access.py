@@ -28,6 +28,20 @@ class _Access(DomainSettings):
     login_attempts_per_minute: int = Field(
         default=10, validation_alias="ACCESS_LOGIN_ATTEMPTS_PER_MINUTE"
     )
+    # Сколько часов действует разовый пароль, выданный админом (аудит 20.11.2026): трое суток
+    # хватает дойти до входа, а пароль из переписки не остаётся ключом навсегда.
+    one_time_ttl_hours: int = Field(default=72, ge=1, validation_alias="ACCESS_ONE_TIME_TTL_HOURS")
+    # Пауза входа учётки после неудач подряд (`access/lockout.py`, аудит 20.11.2026): с какой
+    # неудачи, первая пауза и потолок, в минутах; каждая следующая неудача — пауза вдвое.
+    lockout_after_failures: int = Field(
+        default=5, ge=1, validation_alias="ACCESS_LOCKOUT_AFTER_FAILURES"
+    )
+    lockout_first_minutes: int = Field(
+        default=1, ge=1, validation_alias="ACCESS_LOCKOUT_FIRST_MINUTES"
+    )
+    lockout_max_minutes: int = Field(
+        default=30, ge=1, validation_alias="ACCESS_LOCKOUT_MAX_MINUTES"
+    )
 
 
 _s = _Access()
@@ -41,3 +55,7 @@ JWT_SECRET: str = _s.jwt_secret
 TOKEN_TTL_HOURS: int = _s.token_ttl_hours
 IDLE_MINUTES: int = _s.idle_minutes
 LOGIN_ATTEMPTS_PER_MINUTE: int = _s.login_attempts_per_minute
+ONE_TIME_TTL_HOURS: int = _s.one_time_ttl_hours
+LOCKOUT_AFTER_FAILURES: int = _s.lockout_after_failures
+LOCKOUT_FIRST_MINUTES: int = _s.lockout_first_minutes
+LOCKOUT_MAX_MINUTES: int = _s.lockout_max_minutes

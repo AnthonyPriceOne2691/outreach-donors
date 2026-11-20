@@ -168,7 +168,7 @@ def test_over_the_hypothesis_cap_the_hypothesis_stops_in_words() -> None:
     assert decided == Room(
         Outcome.HYPOTHESIS_CAP,
         "потолок гипотезы 50,00\u00a0$: израсходовано 49,30\u00a0$, следующий прогон ≈ 0,90\u00a0$ — "
-        "поднимите потолок или остановите",
+        "поднимите потолок в «Качестве сайтов» или остановите",
     )
 
 
@@ -184,7 +184,7 @@ def test_over_the_plan_cap_the_plan_pauses_in_words() -> None:
     assert decided == Room(
         Outcome.PLAN_CAP,
         "потолок плана 100,00\u00a0$: израсходовано 99,50\u00a0$, следующий прогон ≈ 0,90\u00a0$ — "
-        "поднимите потолок или остановите",
+        "поднимите потолок кнопкой «Потолок» или остановите",
     )
 
 
@@ -211,7 +211,7 @@ def test_the_reserve_of_going_runs_counts_and_is_named() -> None:
     assert one.outcome is Outcome.HYPOTHESIS_CAP
     assert one.words == (
         "потолок гипотезы 50,00\u00a0$: израсходовано 48,10\u00a0$ и 1,20\u00a0$ в резерве идущего прогона, "
-        "следующий прогон ≈ 0,90\u00a0$ — поднимите потолок или остановите"
+        "следующий прогон ≈ 0,90\u00a0$ — поднимите потолок в «Качестве сайтов» или остановите"
     )
     two = room(
         hypothesis=Spent(),
@@ -291,7 +291,7 @@ async def test_a_hypothesis_over_its_cap_gets_the_budget_problem_in_its_row(
         {
             "code": "budget",
             "words": "потолок гипотезы 2,00\u00a0$: израсходовано 1,20\u00a0$, следующий прогон ≈ "
-            "0,90\u00a0$ — поднимите потолок или остановите",
+            "0,90\u00a0$ — поднимите потолок в «Качестве сайтов» или остановите",
             "at": "2026-11-17T09:00:00+00:00",
         }
     ]

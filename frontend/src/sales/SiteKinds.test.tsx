@@ -4,7 +4,7 @@
  * ничего, когда не трогали; порядок — как у сервера. Имена и числа выдуманы.
  */
 
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -116,6 +116,23 @@ describe('«Вид сайта» в «Качестве сайтов»', () => {
 
     expect(onClose).toHaveBeenCalled();
     expect(sentBodies(recorded)).toEqual([]);
+  });
+});
+
+describe('«Вид сайта» — имя группы и подсказка', () => {
+  it('группа названа словами подписи, без кнопки «i»; подсказка говорит про пересуд и наблюдение', async () => {
+    setUp();
+    renderWith(<PlanQuality row={ROW} card={cardWith()} onClose={vi.fn()} />);
+
+    const group = screen.getByRole('group', { name: 'Вид сайта' });
+    expect(group).toHaveAccessibleName('Вид сайта');
+    expect(within(group).getAllByRole('checkbox')).toHaveLength(4);
+    await userEvent.setup().hover(screen.getByRole('button', { name: 'Что значит «Вид сайта»' }));
+
+    const hint = await screen.findByText(/Поправили — пересудите прогон/);
+    expect(hint).toHaveTextContent(
+      'судья в наблюдении такой сайт не отсекает — он в «Судья отказал бы»',
+    );
   });
 });
 

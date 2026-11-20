@@ -727,9 +727,9 @@
       "worst": "_confirmed:51"
     },
     "backend/api/users/schemas.py": {
-      "lines": 181,
+      "lines": 191,
       "complexity": 5,
-      "worst": "mail_problem:34"
+      "worst": "mail_problem:35"
     },
     "backend/api/watchdog/__init__.py": {
       "lines": 1,
@@ -747,9 +747,9 @@
       "worst": "—"
     },
     "backend/cli/access_admin.py": {
-      "lines": 87,
+      "lines": 94,
       "complexity": 3,
-      "worst": "cmd_user_add:31"
+      "worst": "cmd_user_add:38"
     },
     "backend/cli/advertiser_judge.py": {
       "lines": 217,
@@ -932,7 +932,12 @@
       "worst": "spared:50"
     },
     "backend/config/access.py": {
-      "lines": 44,
+      "lines": 62,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/config/access_alarms.py": {
+      "lines": 67,
       "complexity": 0,
       "worst": "—"
     },
@@ -1047,24 +1052,29 @@
       "worst": "_guard_admin_supply:111"
     },
     "backend/features/access/attempts.py": {
-      "lines": 75,
+      "lines": 80,
       "complexity": 4,
-      "worst": "check:51"
+      "worst": "check:56"
     },
     "backend/features/access/journal.py": {
       "lines": 309,
       "complexity": 10,
       "worst": "_filters:256"
     },
+    "backend/features/access/lockout.py": {
+      "lines": 70,
+      "complexity": 3,
+      "worst": "refuse_while_paused:66"
+    },
     "backend/features/access/login.py": {
-      "lines": 132,
+      "lines": 210,
       "complexity": 7,
-      "worst": "_looks_like_mail:63"
+      "worst": "_looks_like_mail:82"
     },
     "backend/features/access/passwords.py": {
-      "lines": 96,
+      "lines": 143,
       "complexity": 5,
-      "worst": "verify_password:52"
+      "worst": "verify_password:89"
     },
     "backend/features/access/permissions.py": {
       "lines": 250,
@@ -1072,9 +1082,9 @@
       "worst": "has_permission:203"
     },
     "backend/features/access/repository.py": {
-      "lines": 266,
+      "lines": 296,
       "complexity": 7,
-      "worst": "update_access:174"
+      "worst": "update_access:186"
     },
     "backend/features/access/sessions.py": {
       "lines": 210,
@@ -1342,7 +1352,7 @@
       "worst": "zone_name:80"
     },
     "backend/features/core/domain.py": {
-      "lines": 368,
+      "lines": 371,
       "complexity": 0,
       "worst": "—"
     },
@@ -1372,7 +1382,7 @@
       "worst": "sql_enum:16"
     },
     "backend/features/core/models/access.py": {
-      "lines": 80,
+      "lines": 91,
       "complexity": 0,
       "worst": "—"
     },
@@ -2496,6 +2506,26 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/ops/access_event_words.py": {
+      "lines": 215,
+      "complexity": 7,
+      "worst": "_listed:135"
+    },
+    "backend/features/ops/access_events.py": {
+      "lines": 244,
+      "complexity": 7,
+      "worst": "applied:189"
+    },
+    "backend/features/ops/access_mark.py": {
+      "lines": 210,
+      "complexity": 8,
+      "worst": "tell:72"
+    },
+    "backend/features/ops/access_watch.py": {
+      "lines": 154,
+      "complexity": 6,
+      "worst": "burst:103"
+    },
     "backend/features/ops/alarm_feed.py": {
       "lines": 454,
       "complexity": 7,
@@ -3482,14 +3512,14 @@
       "worst": "read_json:35"
     },
     "backend/features/sales/plan_actions.py": {
-      "lines": 488,
+      "lines": 491,
       "complexity": 9,
       "worst": "refusal:331"
     },
     "backend/features/sales/plan_budget.py": {
-      "lines": 254,
+      "lines": 261,
       "complexity": 4,
-      "worst": "stopped_on_cap:238"
+      "worst": "below_spent:171"
     },
     "backend/features/sales/plan_card.py": {
       "lines": 268,
@@ -4225,6 +4255,11 @@
       "lines": 159,
       "complexity": 10,
       "worst": "_unpack:34"
+    },
+    "scripts/common_passwords.py": {
+      "lines": 222,
+      "complexity": 7,
+      "worst": "_piece:131"
     },
     "scripts/complexity.py": {
       "lines": 258,

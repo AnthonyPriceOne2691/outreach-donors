@@ -15,7 +15,7 @@ import argparse
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from backend.config import storage
+from backend.config import access, storage
 from backend.config.startup_checks import check_storage
 from backend.features.access.passwords import generate_one_time
 from backend.features.access.repository import AccessRepository, EmailTakenError
@@ -26,6 +26,13 @@ EXIT_TAKEN = 3
 
 #: Роли для `user-add --role`: новая роль встаёт в команду сама.
 ROLE_NAMES = [role.value for role in UserRole]
+
+#: Срок разового пароля (аудит 20.11.2026) — тем, кто его выдаёт: сброс выдаёт новый и снимает
+#: паузу входа после неудач подряд.
+_DEADLINE = (
+    f"Действует {access.ONE_TIME_TTL_HOURS} ч; не успеет войти — новый выдаст "
+    "outreach user-reset --email …"
+)
 
 
 async def cmd_user_add(args: argparse.Namespace) -> int:
@@ -55,7 +62,7 @@ async def cmd_user_add(args: argparse.Namespace) -> int:
     print(f"Учётка заведена: {user.email}, роль {role.value}")
     print(f"Разовый пароль:  {password}")
     print("\nПароль показан один раз и больше не восстановим — в базе только хеш.")
-    print("При первом входе система потребует его сменить.")
+    print(f"При первом входе система потребует его сменить. {_DEADLINE}")
     if existing == 0:
         print("\nЭто первая учётка в базе. Остальных заводите из интерфейса.")
     return EXIT_OK
@@ -82,5 +89,5 @@ async def cmd_user_reset(args: argparse.Namespace) -> int:
         await engine.dispose()
 
     print(f"Новый разовый пароль для {user.email}: {password}")
-    print("Показан один раз. При входе система потребует его сменить.")
+    print(f"Показан один раз. При входе система потребует его сменить. {_DEADLINE}")
     return EXIT_OK
