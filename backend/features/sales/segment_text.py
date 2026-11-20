@@ -7,11 +7,21 @@
 писем (`site_language`): тем же решением, по тем же строкам, в вердикте судьи, при пересуде, при
 отмене решения и у лида — по сохранённому тексту строки те же, подписи при них.
 
-Язык сайта меряется только по словам сайта — строкам выдачи и главной (`SITE_LABELS`): служебная
-строка со своими словами его не решает. Версия на языке писем у сайта есть — несовпадения нет: в
-меню или тексте главной переключатель на этот язык (`SWITCH_LABELS`) или страница выдачи на нём
-(`SERP_LABELS`, `segment_language.written_in`) — главная приходит на языке загрузчика, а поисковик
-показал страницу на языке писем.
+Язык сайта меряется только по словам сайта — строкам выдачи, главной и страницы из выдачи
+(`SITE_LABELS`): служебная строка со своими словами его не решает. Версия на языке писем у сайта есть
+— несовпадения нет: в меню или тексте главной (или в тексте страницы из выдачи) переключатель на этот
+язык (`SWITCH_LABELS`) или страница выдачи на нём (`SERP_LABELS`, `segment_language.written_in`) —
+главная приходит на языке загрузчика, а поисковик показал страницу на языке писем.
+
+**Главная не открылась — страница из выдачи** (`serp_page`): ни главная поддомена, ни главная корня
+не открылись — судья скачивает саму страницу, которую показал поисковик, тем же загрузчиком (защита
+адреса и размер — у клиента, `shared/net/url_guard.guarded_client`; язык, проверка «вы не робот» и
+потолок разбора — общий загрузчик страниц `contacts/pages`; разбор и заглушка — общие `read_home` и
+`looks_denied`) и видит её текст строкой `PAGE_TEXT` — на месте текста главной, тем же потолком. Замер
+19.11 на прогонах сбора: 2 сайта из 102 ушли человеку словами «главная не открылась — судья видел
+только сниппет выдачи». Строки главной и строка страницы вместе не бывают: страницу спрашивают, только
+когда главная не открылась. Общего разбора страницы по адресу рядом с `check_home` пока нет — загрузчик
+зовётся здесь, одной попыткой и только для текста судьи, а не как ступень поиска адреса.
 """
 
 from __future__ import annotations
@@ -23,7 +33,9 @@ from urllib.parse import urlsplit
 import httpx
 
 from backend.config import sales as sales_cfg
-from backend.features.donors.home_signals import HomeSignals, check_home, looks_denied
+from backend.features.contacts.pages import PageFetcher
+from backend.features.core.domain import PageKind
+from backend.features.donors.home_signals import HomeSignals, check_home, looks_denied, read_home
 from backend.features.sales import segment_language
 from backend.shared.net.idn import ascii_host
 from backend.shared.quote import quote_holds
@@ -42,18 +54,24 @@ HOME_TITLE = "Заголовок главной"
 HOME_DESCRIPTION = "Описание главной"
 HOME_MENU = "Меню главной"
 HOME_TEXT = "Текст главной"
+#: Текст страницы, которую показал поисковик, — когда главная не открылась (`serp_page`).
+PAGE_TEXT = "Текст страницы из выдачи"
 SERP_LABELS = (PAGE_TITLE, PAGE_DESCRIPTION)
 HOME_LABELS = (HOME_TITLE, HOME_DESCRIPTION, HOME_MENU, HOME_TEXT)
-LABELS = (*SERP_LABELS, *HOME_LABELS)
-#: Строки, по которым узнаётся заглушка защиты. Текст главной — нет: в нём законно «captcha»
-#: (подпись reCAPTCHA в подвале) или «forbidden», а закрытую главную узнаёт её заголовок (общий
-#: `check_home`: заглушка вместо главной — главная не открылась).
+PAGE_LABELS = (PAGE_TEXT,)
+LABELS = (*SERP_LABELS, *HOME_LABELS, *PAGE_LABELS)
+#: Строки, по которым узнаётся заглушка защиты. Текст главной и страницы — нет: в нём законно
+#: «captcha» (подпись reCAPTCHA в подвале) или «forbidden», а закрытую страницу узнаёт её заголовок
+#: (общий `check_home`, `serp_page`: заглушка вместо страницы — страница не открылась).
 STUB_LABELS = (*SERP_LABELS, HOME_TITLE, HOME_DESCRIPTION, HOME_MENU)
 #: Строки, где сайт показывает переключатель версий на других языках (`segment_language.switches_to`).
-SWITCH_LABELS = (HOME_MENU, HOME_TEXT)
-#: Строки, по которым меряется язык сайта (`site_language`): только слова сайта — выдача и главная.
-#: Не `LABELS`: строка со своими словами, если ляжет в текст, язык сайта не решает.
-SITE_LABELS = (*SERP_LABELS, *HOME_LABELS)
+SWITCH_LABELS = (HOME_MENU, HOME_TEXT, PAGE_TEXT)
+#: Строки, по которым меряется язык сайта (`site_language`): только слова сайта — выдача, главная и
+#: страница из выдачи. Не `LABELS`: строка со своими словами, если ляжет в текст, язык сайта не решает.
+SITE_LABELS = (*SERP_LABELS, *HOME_LABELS, *PAGE_LABELS)
+#: Строки, которые судья скачал с самого сайта: главная или страница из выдачи. Нет ни одной — судья
+#: видел только сниппет выдачи (`segment_facts.SiteFacts.snippet_only`).
+FETCHED_LABELS = (*HOME_LABELS, *PAGE_LABELS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,8 +150,9 @@ async def page_home(
     своя главная (замер 20.10 на наборе трёх гипотез: 14 из 191 страницы выдачи — на поддомене, у 9
     из них главная поддомена другая или главная корня не открылась). Главная поддомена не открылась
     — главная корня (`host`, домен базы). Разбор главной — общий `check_home`. Не открылась и она —
-    почему (`HomeSignals.error`) — в журнал прохода с доменом: судья видит только выдачу, и «не
-    понять» скажет это человеку словами (`segment_rules.SNIPPET_ONLY`).
+    почему (`HomeSignals.error`) — в журнал прохода с доменом: судья спросит саму страницу из выдачи
+    (`serp_page`), а не откроется и та — видит только выдачу, и «не понять» скажет это человеку
+    словами (`segment_rules.SNIPPET_ONLY`).
 
     `language` — язык писем прогона: главная просится на нём, у поддомена и корня одинаково. Сайт с
     версиями по языку браузера отдавал английскую главную и при прогоне на другом языке (проверка
@@ -148,19 +167,79 @@ async def page_home(
     root = await check_home(client, host, language=language)
     if not root.reached:
         logger.info(
-            "судья сегмента: главная не открылась — судья видит только выдачу",
+            "судья сегмента: главная не открылась",
             extra={"host": host, "page_host": page_host or None, "error": root.error},
         )
     return root
 
 
+def _page_to_read(host: str, page_url: str | None) -> str | None:
+    """Адрес страницы из выдачи, которую стоит скачать вместо главной: `http(s)`, на домене базы или
+    его поддомене и не сама главная — её уже спросил `page_home`; иначе `None`."""
+    parts = urlsplit(page_url or "")
+    page_host = ascii_host(parts.hostname or "")
+    if parts.scheme not in ("http", "https") or not page_host:
+        return None
+    if page_host != host and not page_host.endswith(f".{host}"):
+        return None
+    return page_url if parts.path not in ("", "/") or parts.query else None
+
+
+async def serp_page(
+    client: httpx.AsyncClient, host: str, page_url: str | None, *, language: str | None = None
+) -> HomeSignals | None:
+    """Страница, которую показал поисковик, — судье, когда главная не открылась (шапка модуля). Одна
+    попытка, на языке писем, как главная; разбор и заглушка — общие (`read_home`, `looks_denied`), а
+    проверку «вы не робот» узнаёт загрузчик. `None` — качать нечего: адреса нет, он чужой, это главная
+    или текст страниц выключен (`SALES_SEGMENT_HOME_TEXT_CHARS` = 0); не открылась — почему, в
+    `HomeSignals.error` и в журнал прохода с доменом."""
+    url = _page_to_read(host, page_url)
+    if url is None or sales_cfg.SEGMENT_HOME_TEXT_CHARS <= 0:
+        return None
+    fetcher = PageFetcher(client, max_pages=1, max_attempts=1, language=language)
+    try:
+        fetched = await fetcher.get(url, PageKind.HOME)
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError) as exc:
+        logger.info(
+            "судья сегмента: страница из выдачи упала", extra={"host": host, "error": repr(exc)}
+        )
+        fetched = None
+    found = read_home(fetched.html) if fetched is not None else None
+    if found is not None and not looks_denied(f"{found.title} {found.description}"):
+        logger.info(
+            "судья сегмента: главная не открылась — судья читает страницу из выдачи",
+            extra={"host": host},
+        )
+        return found
+    error = fetcher.refusal or ("заглушка защиты" if found is not None else "не ответила")
+    logger.info(
+        "судья сегмента: страница из выдачи не открылась — судья видит только выдачу",
+        extra={"host": host, "error": error},
+    )
+    return HomeSignals(reached=False, error=error)
+
+
+def _tail(label: str, found: HomeSignals | None) -> list[tuple[str, str]]:
+    """Отрывок видимого текста открывшейся страницы (`HomeSignals.text` общего разбора) — строкой со
+    своей подписью, своим потолком (`SALES_SEGMENT_HOME_TEXT_CHARS`; 0 — без строки)."""
+    words = (
+        excerpt(found.text, sales_cfg.SEGMENT_HOME_TEXT_CHARS) if found and found.reached else ""
+    )
+    return [(label, words)] if words else []
+
+
 def site_text(
-    *, title: str | None, description: str | None, home: HomeSignals | None = None
+    *,
+    title: str | None,
+    description: str | None,
+    home: HomeSignals | None = None,
+    page: HomeSignals | None = None,
 ) -> SiteText:
     """Выдача и главная → текст судьи. Пустые куски не попадают; не больше
     `MAX_TEXT_CHARS` знаков: хвост последней строки срезается. Отрывок видимого текста главной
     (`HomeSignals.text` общего разбора) — последней строкой, своим потолком
-    (`SALES_SEGMENT_HOME_TEXT_CHARS`; 0 — без него)."""
+    (`SALES_SEGMENT_HOME_TEXT_CHARS`; 0 — без него); главная не открылась, а страница из выдачи
+    открылась (`serp_page`) — на его месте отрывок её текста (`PAGE_TEXT`), тем же потолком."""
     pieces = [(PAGE_TITLE, title), (PAGE_DESCRIPTION, description), *_home_lines(home)]
     lines: list[tuple[str, str]] = []
     left = MAX_TEXT_CHARS
@@ -170,10 +249,7 @@ def site_text(
             continue
         lines.append((label, clean[:left]))
         left -= len(clean)
-    tail = excerpt(home.text, sales_cfg.SEGMENT_HOME_TEXT_CHARS) if home and home.reached else ""
-    if tail:
-        lines.append((HOME_TEXT, tail))
-    return SiteText(tuple(lines))
+    return SiteText((*lines, *_tail(HOME_TEXT, home), *_tail(PAGE_TEXT, page)))
 
 
 def _words_of(text: SiteText, labels: tuple[str, ...]) -> str:

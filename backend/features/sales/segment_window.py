@@ -67,7 +67,7 @@ from backend.features.sales.segment_judge import (
 )
 from backend.features.sales.segment_models import Decider, Lane, SalesSegmentCandidateModel
 from backend.features.sales.segment_scope import Scope
-from backend.features.sales.segment_text import page_home
+from backend.features.sales.segment_text import page_home, serp_page
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +159,8 @@ class Site:
     description: str | None
     #: Текст, который видел прошлый суд (`site_text`): по нему судит пересуд.
     stored: str | None = None
-    #: Страница выдачи: главная судье — её хоста, при сбое — корня (`segment_text.page_home`).
+    #: Страница выдачи: главная судье — её хоста, при сбое — корня (`segment_text.page_home`); не
+    #: открылась и та — текст самой страницы (`segment_text.serp_page`).
     page_url: str | None = None
 
     @classmethod
@@ -316,25 +317,29 @@ class Sink(Protocol):
 async def _text(site: Site, ask: Ask) -> SiteText:
     """Текст сайта судье: у пересуда — тот, что видел прошлый суд; иначе выдача и главная хоста
     страницы выдачи, при сбое — корня (`segment_text.page_home`, разбор — общий `check_home`): шапка
-    и отрывок видимого текста (`segment_text.site_text`). Главная — на языке писем прогона
-    (`Ask.letters`): у сайта с версиями по языку браузера модель видит ту же, что человек."""
+    и отрывок видимого текста (`segment_text.site_text`); не открылась и главная корня — отрывок
+    текста самой страницы из выдачи (`segment_text.serp_page`). Главная и страница — на языке писем
+    прогона (`Ask.letters`): у сайта с версиями по языку браузера модель видит ту же, что человек."""
     if ask.stored_text and site.stored:
         return SiteText.parse(site.stored)
-    home = (
-        await page_home(ask.home, site.host, site.page_url, language=ask.letters)
-        if ask.home is not None
-        else None
+    if ask.home is None:
+        return site_text(title=site.title, description=site.description)
+    home = await page_home(ask.home, site.host, site.page_url, language=ask.letters)
+    page = (
+        None
+        if home.reached
+        else await serp_page(ask.home, site.host, site.page_url, language=ask.letters)
     )
-    return site_text(title=site.title, description=site.description, home=home)
+    return site_text(title=site.title, description=site.description, home=home, page=page)
 
 
 def _recalled(site: Site, ask: Ask, known: Known) -> Judged:
     """Вердикт по знанию кэша, без модели: правило — как есть; факты — таблицей правил по нынешнему
     полю гипотезы, разбору описания и языку писем прогона. Язык сверяется по тексту, который видел
-    прошлый суд, а нет его — по выдаче."""
+    прошлый суд, а нет его — по выдаче; не названный буквами — фактом модели из кэша (v6)."""
     stored = SiteText.parse(site.stored) if site.stored else None
     text = stored or site_text(title=site.title, description=site.description)
-    language = by_language(text.without_stub(), ask.letters)
+    language = by_language(text.without_stub(), ask.letters, known.facts)
     if known.ruled is not None:
         return Judged(language or known.ruled, text, cached=True)
     verdict = settle(

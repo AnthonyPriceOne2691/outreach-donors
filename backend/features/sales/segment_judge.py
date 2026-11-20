@@ -35,6 +35,7 @@ from backend.features.sales.segment_facts import (
     SiteFacts,
     made_up,
 )
+from backend.features.sales.segment_language import named_by_model
 from backend.features.sales.segment_models import Decider, Lane
 from backend.features.sales.segment_rules import BY_LANGUAGE, BY_RULE, RULES, Case, Rule, first
 from backend.features.sales.segment_scope import Scope
@@ -180,11 +181,17 @@ def by_text(text: SiteText) -> SegmentVerdict | None:
     return None
 
 
-def by_language(text: SiteText, letters: str | None) -> SegmentVerdict | None:
-    """Язык сайта не тот, что у писем, — вердикт без модели: назван буквами — «отказал бы» словами
-    («язык сайта — украинский, письма — русский»); не назван — «не понять». Не жёсткое правило
-    (`Decider.LANGUAGE`): режим решает с ним, как с вердиктом модели (`effective`)."""
+def by_language(
+    text: SiteText, letters: str | None, facts: SiteFacts | None = None
+) -> SegmentVerdict | None:
+    """Язык сайта не тот, что у писем, — вердикт сверки языка: назван буквами — «отказал бы» словами
+    («язык сайта — украинский, письма — русский»); не назван — язык из фактов модели (`facts`, v6),
+    если сходится с буквами (`segment_language.named_by_model`), — тоже «отказал бы»; иначе «не
+    понять». Не жёсткое правило (`Decider.LANGUAGE`): режим решает с ним, как с вердиктом модели
+    (`effective`)."""
     found = site_language(text, letters)
+    if found is not None and letters and facts is not None and facts.language:
+        found = named_by_model(found, facts.language, facts.language_quote, letters)
     if found is None:
         return None
     lane = Lane.REJECT if found.code else Lane.REVIEW
@@ -276,8 +283,8 @@ async def decide(
 ) -> SegmentVerdict:
     """Правила до модели, язык сайта против языка писем `letters` (`by_language`), затем факты
     модели — по тексту без главной-заглушки (`SiteText.without_stub`) — и таблица правил. Язык назван
-    буквами и не тот — модель не зовётся. Не бросает. `system` — промпт вместо файла: так eval гоняет
-    испорченный промпт, не трогая файл."""
+    буквами и не тот — модель не зовётся; не назван — его может назвать факт модели (v6). Не бросает.
+    `system` — промпт вместо файла: так eval гоняет испорченный промпт, не трогая файл."""
     ruled = before_model(host, text)
     if ruled is not None:
         return settle(host=host, policy=policy, scope=scope, ruled=ruled)
@@ -286,6 +293,8 @@ async def decide(
     if language is not None and language.lane is Lane.REJECT:
         return settle(host=host, policy=policy, scope=scope, language=language)
     said = await client.judge(host=host, segment=segment, text=judged, system=system)
+    if language is not None:
+        language = by_language(judged, letters, said.facts)
     return settle(host=host, policy=policy, scope=scope, said=said, language=language)
 
 
