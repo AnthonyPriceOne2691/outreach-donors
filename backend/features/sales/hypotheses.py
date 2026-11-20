@@ -61,6 +61,7 @@ from backend.features.sales.hypothesis_countries import (
     checked_other,
     field_words,
 )
+from backend.features.sales.hypothesis_kinds import SiteKindError, checked_kinds, kinds_words
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import NAME_LENGTH, SalesHypothesisModel
 from backend.features.sales.segment_spend import number
@@ -75,6 +76,8 @@ REMOVED = "гипотеза продаж удалена"
 SEGMENT = "описание сегмента"
 #: «Действие» правки поля «страны компаний» (`hypothesis_countries`).
 COUNTRIES = "страны компаний гипотезы поправлены"
+#: «Действие» правки поля «вид сайта» (`hypothesis_kinds`).
+KINDS = "вид сайта гипотезы поправлен"
 
 #: Сколько ждать блокировку строки гипотезы: тот же предел, что у миграций продаж. Строкой
 #: целиком — значение не из ввода; тест предела подменяет её короткой.
@@ -104,6 +107,10 @@ class NothingToEditError(HypothesisError):
 
 class BadCountriesError(HypothesisError):
     """Поле «страны компаний» не годится: положение не из списка или код страны не ISO."""
+
+
+class BadKindsError(HypothesisError):
+    """Поле «вид сайта» не годится: вид не из выбора."""
 
 
 class HypothesisRefusedError(HypothesisError):
@@ -368,6 +375,27 @@ async def _countries(
     )
 
 
+def _kinds_field(kinds: Sequence[str] | None) -> list[str] | None:
+    """Поле «вид сайта» по правилу — или отказ словами; `None` — не трогать, пусто — снять выбор."""
+    try:
+        return checked_kinds(kinds) if kinds is not None else None
+    except SiteKindError as exc:
+        raise BadKindsError(str(exc)) from exc
+
+
+async def _site_kinds(
+    session: AsyncSession, found: SalesHypothesisModel, kinds: list[str], author_id: int | None
+) -> None:
+    """Поле «вид сайта»: то же самое — не правка, записи нет. В журнале — было и стало словами
+    (`hypothesis_kinds.kinds_words`). Собранное правка не пересуживает: вид — для новых судов."""
+    was = list(found.site_kinds)
+    if kinds == was:
+        return
+    found.site_kinds = kinds
+    said = {"действие": KINDS, "гипотеза": found.name, "было": kinds_words(was)}
+    await _journal(session, author_id, found.id, said | {"стало": kinds_words(kinds)})
+
+
 async def edit(
     session: AsyncSession,
     hypothesis_id: int,
@@ -376,12 +404,14 @@ async def edit(
     description: str | None = None,
     other_countries: str | None = None,
     excluded_countries: Sequence[str] | None = None,
+    site_kinds: Sequence[str] | None = None,
     author_id: int | None = None,
 ) -> SalesHypothesisModel:
-    """Поправить имя, описание сегмента, поле «страны компаний» — что дано. `None` — поле не
-    трогать. Записи и журнал — в транзакции вызывающего, коммит — за ним."""
+    """Поправить имя, описание сегмента, поле «страны компаний», вид сайта — что дано. `None` —
+    поле не трогать. Записи и журнал — в транзакции вызывающего, коммит — за ним."""
     field = _field(other_countries, excluded_countries)
-    if name is None and description is None and field == (None, None):
+    kinds = _kinds_field(site_kinds)
+    if all(part is None for part in (name, description, *field, kinds)):
         raise NothingToEditError("нечего править: дайте имя, описание сегмента или страны компаний")
     # Имя — под уникальным индексом: его правка в Postgres — правка ключа (`FOR UPDATE`).
     found = await _locked(session, hypothesis_id, key=name is not None)
@@ -391,6 +421,8 @@ async def edit(
         await _describe(session, found, description, author_id)
     if field != (None, None):
         await _countries(session, found, field, author_id)
+    if kinds is not None:
+        await _site_kinds(session, found, kinds, author_id)
     logger.info("продажи: гипотеза поправлена", extra={"hypothesis_id": hypothesis_id})
     return found
 

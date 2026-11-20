@@ -1,10 +1,12 @@
 """Кнопки плана работ — маршруты `/api/sales/plans/{N}/…` и `/api/sales/plan-hypotheses/{N}/…`.
 
-Остановить и продолжить план и гипотезу плана, изменить качество сайтов, «Собрать ещё N», «Добавить
-ключи» текстом и книгой. Ответ — план или гипотеза плана, как в списке планов (с этапом, волной и
-проблемами словами); отказ по состоянию — 409 словами, негодная просьба — 400 словами, нет строки —
-404; право — `sales` и `run`, без них — 403 словами, и журнал пуст. Действие — в журнале с автором.
-Поведение кнопок — `test_sales_plan_actions.py`; здесь — стык маршрута.
+Остановить и продолжить план и гипотезу плана, изменить качество сайтов и потолки, «Собрать ещё N»,
+«Добавить ключи» текстом и книгой. Ответ — план или гипотеза плана, как в списке планов (с этапом,
+волной и проблемами словами); отказ по состоянию — 409 словами (потолок ниже израсходованного —
+тоже), негодная просьба — 400 словами, потолок не больше нуля или дробнее центов — 422 до кнопки, нет
+строки — 404; право — `sales` и `run`, без них — 403 словами, и журнал пуст. Действие — в журнале с
+автором. Поведение кнопок — `test_sales_plan_actions.py` и `test_sales_plan_caps.py`; здесь — стык
+маршрута.
 """
 
 from __future__ import annotations
@@ -17,13 +19,20 @@ from backend.api.sales.plans import ONE_SOURCE
 from backend.features.access.permissions import no_right
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import AuditLogModel, UserModel
-from backend.features.sales.plan_actions import NOTHING_TO_EDIT, PLAN_STOPPED, STOPPED_BY_HAND
+from backend.features.sales.plan_actions import (
+    NOTHING_TO_EDIT,
+    PLAN_CAPPED,
+    PLAN_STOPPED,
+    ROW_CAPPED,
+    STOPPED_BY_HAND,
+)
 from backend.features.sales.plan_models import PlanStage, SalesPlanHypothesisModel
 from httpx import AsyncClient, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
 from tests.test_sales_plan_actions import book_of
+from tests.test_sales_plan_budget import spent_run
 from tests.test_sales_plan_waves import sheet
 
 MakeUser = Callable[..., Awaitable[UserModel]]
@@ -38,6 +47,7 @@ WORDS = ("ремонт кофемашин", "dental implants price", "家具 批
 BUTTONS: list[tuple[str, str, dict[str, Any] | None, dict[str, str] | None]] = [
     ("POST", PLANS + "/{plan}/stop", None, None),
     ("POST", PLANS + "/{plan}/resume", None, None),
+    ("PATCH", PLANS + "/{plan}/cap", {"cap_usd": 80}, None),
     ("POST", ROWS + "/{row}/stop", None, None),
     ("POST", ROWS + "/{row}/resume", None, None),
     ("PATCH", ROWS + "/{row}/quality", {"target": 200}, None),
@@ -184,6 +194,51 @@ async def test_quality_refusals_are_in_words(
 
     assert response.status_code == status
     assert words in response.json()["detail"]
+
+
+async def test_the_caps_answer_in_dollars_and_below_the_spent_is_a_409_in_words(
+    session: AsyncSession,
+    client: AsyncClient,
+    headers: dict[str, str],
+    seller: UserModel,
+    row: SalesPlanHypothesisModel,
+) -> None:
+    plan_cap = await client.patch(
+        f"{PLANS}/{row.plan_id}/cap", json={"cap_usd": 80.5}, headers=headers
+    )
+    row_cap = await client.patch(
+        f"{ROWS}/{row.id}/quality", json={"cap_usd": 75.5}, headers=headers
+    )
+    session.add(spent_run(row, serp=2.00))
+    await session.commit()
+    paths = (f"{PLANS}/{row.plan_id}/cap", f"{ROWS}/{row.id}/quality")
+    # Ровно израсходованное — можно: «ниже» — строго меньше.
+    equal = [await client.patch(path, json={"cap_usd": 2.0}, headers=headers) for path in paths]
+    low = [await client.patch(path, json={"cap_usd": 1.5}, headers=headers) for path in paths]
+
+    assert plan_cap.status_code == 200, plan_cap.text
+    assert row_cap.status_code == 200, row_cap.text
+    assert (plan_cap.json()["cap_usd"], plan_cap.json()["status"]) == (80.5, "running")
+    assert (row_cap.json()["cap_usd"], row_cap.json()["stage"]) == (75.5, "collecting")
+    assert [(r.status_code, r.json()["cap_usd"]) for r in equal] == [(200, 2.0), (200, 2.0)]
+    assert [response.status_code for response in low] == [409, 409]
+    assert all("не может быть ниже израсходованного" in r.json()["detail"] for r in low)
+    capped = [PLAN_CAPPED, ROW_CAPPED, PLAN_CAPPED, ROW_CAPPED]
+    assert await journal(session) == [(seller.id, action) for action in capped]
+
+
+@pytest.mark.parametrize("cap", [0, -5, 1.005, "сто"])
+async def test_a_cap_not_above_zero_or_finer_than_cents_is_refused_before_the_button(
+    session: AsyncSession,
+    client: AsyncClient,
+    headers: dict[str, str],
+    row: SalesPlanHypothesisModel,
+    cap: object,
+) -> None:
+    for path in (f"{PLANS}/{row.plan_id}/cap", f"{ROWS}/{row.id}/quality"):
+        response = await client.patch(path, json={"cap_usd": cap}, headers=headers)
+        assert response.status_code == 422, (path, response.text)
+    assert await journal(session) == []
 
 
 async def test_a_depth_off_the_book_steps_is_refused_before_the_button(

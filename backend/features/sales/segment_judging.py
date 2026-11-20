@@ -68,6 +68,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.sales import segment_scope, usage_cap
 from backend.features.sales.hypothesis_countries import CountryPolicy, policy_of
+from backend.features.sales.hypothesis_kinds import kinds_of
 from backend.features.sales.models import SalesHypothesisModel, SalesStoplistModel
 from backend.features.sales.segment_judge import (
     OPERATION,
@@ -227,11 +228,13 @@ async def _without_stoplisted(
 
 
 async def policy_of_run(session: AsyncSession, run: SalesSegmentRunModel) -> CountryPolicy:
-    """Поле гипотезы прогона «страны компаний» — нынешнее: по нему проход и пересуд ставят полосы."""
+    """Поле гипотезы прогона — страны компаний и вид сайта — нынешнее: по нему проход и пересуд
+    ставят полосы."""
     hypothesis = await session.get(SalesHypothesisModel, run.hypothesis_id)
     if hypothesis is None:
         return CountryPolicy()
-    return policy_of(hypothesis.other_countries, hypothesis.excluded_countries)
+    kinds = kinds_of(hypothesis.site_kinds)
+    return policy_of(hypothesis.other_countries, hypothesis.excluded_countries, kinds)
 
 
 async def read_scope(
