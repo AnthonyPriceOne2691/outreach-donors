@@ -11,8 +11,9 @@
   прогона (`plan_budget.spending` — расход плана одним чтением) и когда посчитано. Экран не
   пересчитывает сотни отчётов на опросе, а проход по `counted_at` узнаёт прогон, кончившийся после
   его последнего взгляда: время прохода берётся до чтения, и прогон, кончившийся посреди него, —
-  позже. Решение человека по сайту прогона плана пересчитывает «найдено» сразу и `counted_at` не
-  трогает (`plan_found.recount`).
+  позже. У гипотезы в конце проход пишет те же числа без времени счёта (`numbers`); решение
+  человека по сайту прогона плана пересчитывает «найдено» сразу и `counted_at` не трогает
+  (`plan_found.recount`).
 - **Первые письма** (`letters_left`) — гипотеза в `sending` ждёт, пока у её лидов есть первое письмо
   в очереди, которое уйдёт (ещё не ушло, лид «готов»), или лид «готов» без письма, которому сборка
   его напишет (`queue_plan.decisions` — то же решение, что у сборки и «Напишет» вкладки «Рассылка»).
@@ -111,8 +112,15 @@ async def count(
     session: AsyncSession, row: SalesPlanHypothesisModel, spent: Spent, now: datetime
 ) -> None:
     """Числа гипотезы плана на `now`: найдено, израсходовано и резерв (шапка модуля)."""
+    await numbers(session, row, spent)
+    row.counted_at = now
+
+
+async def numbers(session: AsyncSession, row: SalesPlanHypothesisModel, spent: Spent) -> None:
+    """Найдено, израсходовано и резерв — без времени счёта: у гипотезы в конце проход итог её
+    прогона в реестр ключей не отдаёт, и `counted_at` остаётся последним взглядом на него."""
     row.found = await found_sites(session, row.id)
-    row.spent_usd, row.reserved_usd, row.counted_at = spent.spent, spent.reserved, now
+    row.spent_usd, row.reserved_usd = spent.spent, spent.reserved
 
 
 async def letters_left(session: AsyncSession, hypothesis_id: int, *, now: datetime) -> bool:

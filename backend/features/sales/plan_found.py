@@ -17,8 +17,15 @@
 **Строка гипотезы плана — под замком до конца транзакции (`FOR UPDATE`), счёт — после замка.** Два
 решения по сайтам одной гипотезы плана считают по очереди, и второе видит первое: счёт внутри
 одного `UPDATE` смотрел бы на базу до ожидания замка и затёр бы чужое решение своим старым числом.
-Проход конвейера берёт строку `SKIP LOCKED` — занятую пропускает до следующего раза; держит её
-проход — решение ждёт его коммита и считает после.
+Проход конвейера берёт строку `SKIP LOCKED` — занятую пропускает до следующего раза.
+
+**Решение человека важнее свежего числа: пересчёт его не держит и не роняет.** Строку ждём не дольше
+`LOCK_WAIT` (полторы секунды) в точке сохранения: дольше её держит проход, который ставит прогон и
+спрашивает смету, или кнопка плана. Не дождались — пересчёт пропущен строкой журнала, решение и
+транзакция вызывающего живы, а число досчитает проход (`SALES_PLAN_PASS_SEC`). Предел — `SET
+LOCAL`, он дожил бы до конца транзакции вызывающего: после замка возвращается прежний (у отмены —
+свой `segment_undo.LOCK_WAIT`, у решения и пересуда — без предела), а отказ по пределу откатывает
+его вместе с точкой сохранения.
 
 **Пересчёт трогает только «найдено»**: время счёта (`counted_at`) — взгляд прохода, по нему проход
 узнаёт прогон, кончившийся после его последнего взгляда (`plan_tick._fresh`), и отдаёт его итог в
@@ -29,7 +36,8 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.sales.plan_models import SalesPlanHypothesisModel
@@ -44,6 +52,12 @@ logger = logging.getLogger(__name__)
 Row = SalesPlanHypothesisModel
 Run = SalesSegmentRunModel
 Candidate = SalesSegmentCandidateModel
+
+#: Сколько пересчёт ждёт строку гипотезы плана (шапка модуля). Строкой целиком — значение не из
+#: ввода; тест подменяет её короткой.
+LOCK_WAIT = "SET LOCAL lock_timeout = '1500ms'"
+#: SQLSTATE «замок не дождались» (`lock_not_available`).
+LOCK_NOT_AVAILABLE = "55P03"
 
 
 async def found_sites(session: AsyncSession, plan_hypothesis_id: int) -> int:
@@ -60,16 +74,18 @@ async def found_sites(session: AsyncSession, plan_hypothesis_id: int) -> int:
 
 async def recount(session: AsyncSession, run_id: int) -> int | None:
     """«Найдено» гипотезы плана, чей прогон `run_id`, — заново, после решения человека по его сайту:
-    строка под замком, потом счёт (шапка модуля). Прогон не плана — ничего (`None`). Запись — в
-    сессии вызывающего, коммит — за ним."""
-    row = await session.scalar(
-        select(Row)
-        .join(Run, Run.plan_hypothesis_id == Row.id)
-        .where(Run.id == run_id)
-        .with_for_update(of=Row)
-        .execution_options(populate_existing=True)
-    )
+    строка под замком, потом счёт (шапка модуля). Прогон не плана или строку не дождались —
+    ничего (`None`). Запись — в сессии вызывающего, коммит — за ним."""
+    row_id = await session.scalar(select(Run.plan_hypothesis_id).where(Run.id == run_id))
+    if row_id is None:
+        return None
+    row = await _held(session, row_id)
     if row is None:
+        logger.info(
+            "план работ: «найдено» не пересчитано — строку гипотезы плана держит проход или "
+            "кнопка; досчитает проход",
+            extra={"plan_hypothesis_id": row_id, "run": run_id},
+        )
         return None
     was, row.found = row.found, await found_sites(session, row.id)
     await session.flush()
@@ -79,3 +95,33 @@ async def recount(session: AsyncSession, run_id: int) -> int | None:
             extra={"plan_hypothesis_id": row.id, "run": run_id, "was": was, "found": row.found},
         )
     return row.found
+
+
+def _sqlstate(exc: DBAPIError) -> str:
+    """SQLSTATE отказа базы — как его читает общий обработчик (`api/errors._database_code`)."""
+    orig = exc.orig
+    return str(getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None) or "")
+
+
+async def _held(session: AsyncSession, row_id: int) -> Row | None:
+    """Строка гипотезы плана под `FOR UPDATE` — не дольше `LOCK_WAIT`, в точке сохранения, с
+    прежним пределом вызывающего после замка (шапка модуля); не дождались — `None`."""
+    was = await session.scalar(text("SELECT current_setting('lock_timeout')"))
+    query = (
+        select(Row)
+        .where(Row.id == row_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    try:
+        async with session.begin_nested():
+            await session.execute(text(LOCK_WAIT))
+            row = await session.scalar(query)
+            await session.execute(
+                text("SELECT set_config('lock_timeout', :was, true)"), {"was": was}
+            )
+    except DBAPIError as exc:
+        if _sqlstate(exc) != LOCK_NOT_AVAILABLE:
+            raise
+        return None
+    return row

@@ -5,14 +5,16 @@
 считал. Проверяется: «Принять» и «Отменить решение» маршрутами — число в API плана той же
 транзакцией, а время взгляда прохода (`counted_at`) не тронуто; решение по прогону экрана «Сбор
 базы» той же гипотезы число плана не трогает; пересуд прогона плана — на своём чекпоинте; проход
-считает гипотезы в конце и остановленную, набравшую цель, в письма не переводит; два решения по
-одной гипотезе плана сразу — второе считает после первого; строку гипотезы плана держат дольше
-предела — отмена отказывает словами, и её транзакция жива. Сайты выдуманы (`*.example.test`).
+считает у гипотез в конце найдено и расход, а остановленную, набравшую цель, в письма не
+переводит; два решения по одной гипотезе плана сразу — второе считает после первого; строку
+гипотезы плана держат дольше короткого предела — пересчёт пропущен строкой журнала, а отмена
+проходит, и её собственный предел ожидания замков — прежний. Сайты выдуманы (`*.example.test`).
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -20,7 +22,7 @@ from decimal import Decimal
 import pytest
 from backend.config.judge import JudgeMode
 from backend.features.core.models.access import UserModel
-from backend.features.sales import plan_tick, segment_report
+from backend.features.sales import plan_found, plan_tick, segment_report
 from backend.features.sales import segment_rejudge as sr
 from backend.features.sales import segment_undo as su
 from backend.features.sales.plan_models import (
@@ -173,23 +175,27 @@ async def test_the_pass_counts_sheets_at_the_end_and_a_stopped_one_at_target_sta
     session: AsyncSession,
 ) -> None:
     """Прогон дошёл после «Остановить»: проход последний раз считал гипотезу, пока судья ещё не
-    кончил. Теперь проход считает и остановленную, и готовую — только «найдено»; остановленная,
-    набравшая цель, остаётся остановленной: «цель набрана → письма» — у гипотезы, чей ход."""
+    кончил и выдача шла в резерве. Теперь проход считает и остановленную, и готовую — найдено и
+    расход, без времени счёта; остановленная, набравшая цель, остаётся остановленной: «цель
+    набрана → письма» — у гипотезы, чей ход."""
     plan = await make_plan(session)
     stopped = await sheet(session, plan, target=2)
     done = await sheet(session, plan)
     late = await bought(session, stopped, await take(session, stopped))
+    late.report = {**late.report, "serp": {**late.report["serp"], "cost_usd": 0.25}}
     await judged(session, late, Lane.ACCEPT)
     await judged(session, late, Lane.ACCEPT)
     sent = await bought(session, done, await take(session, done))
     await judged(session, sent, Lane.ACCEPT)
     stopped.stage, stopped.found, stopped.counted_at = PlanStage.STOPPED.value, 1, LOOKED
+    stopped.spent_usd, stopped.reserved_usd = Decimal("0.1000"), Decimal("0.4000")
     done.stage, done.found = PlanStage.DONE.value, 0
     await session.commit()
 
     turn = await plan_tick.step(session, _Jobs(), now=LATER)
 
     assert (stopped.found, stopped.stage, stopped.counted_at) == (2, "stopped", LOOKED)
+    assert (stopped.spent_usd, stopped.reserved_usd) == (Decimal("0.2500"), Decimal(0))
     assert (done.found, done.stage) == (1, "done")
     assert (turn, plan.status) == (Turn(Did.MOVED, plan_tick.PLAN_DONE), PlanStatus.DONE)
 
@@ -221,12 +227,13 @@ async def test_the_pass_counts_a_stopped_sheet_also_when_the_collecting_one_move
 
 
 async def _committed_reviews(factory: async_sessionmaker[AsyncSession]) -> tuple[int, int, int]:
-    """Гипотеза плана, её прогон и два сайта «на проверке» — зафиксированы."""
+    """Остановленная гипотеза плана, её прогон и два сайта «на проверке» — зафиксированы."""
     async with factory() as session:
         row = await sheet(session)
         run = await bought(session, row, await take(session, row))
         one = await judged(session, run, Lane.REVIEW)
         two = await judged(session, run, Lane.REVIEW)
+        row.stage = PlanStage.STOPPED.value
         await session.commit()
         return row.id, one.id, two.id
 
@@ -246,10 +253,15 @@ async def _state(
         return found, lane
 
 
-async def test_two_decisions_on_one_sheet_at_once_count_one_after_the_other() -> None:
-    """Два «Принять» по сайтам одной гипотезы плана сразу: второе ждёт замка строки гипотезы и
-    считает после первого — в числе оба. Счёт внутри одного `UPDATE` смотрел бы на базу до
-    ожидания и затёр бы первое решение."""
+async def test_two_decisions_on_one_sheet_at_once_count_one_after_the_other(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Два «Принять» по сайтам одной гипотезы плана сразу: короткий предел их выстраивает —
+    второе ждёт замка строки гипотезы и считает после первого, в числе оба. Счёт внутри одного
+    `UPDATE` смотрел бы на базу до ожидания и затёр бы первое решение."""
+    # Проверяется порядок, а не предел: раннер CI медленнее машины в разы, и коммит первого
+    # решения не должен опоздать за полторы секунды. Пропуск по пределу — тест ниже.
+    monkeypatch.setattr(plan_found, "LOCK_WAIT", "SET LOCAL lock_timeout = '5s'")
     async with committed_sessions() as factory:
         row_id, one, two = await _committed_reviews(factory)
         async with factory() as first:
@@ -262,22 +274,58 @@ async def test_two_decisions_on_one_sheet_at_once_count_one_after_the_other() ->
         assert (await _state(factory, row_id, two)) == (2, Lane.ACCEPT)
 
 
-async def test_an_undo_waits_for_the_sheet_no_longer_than_the_limit_and_says_why(
-    monkeypatch: pytest.MonkeyPatch,
+async def test_a_held_sheet_does_not_hold_the_undo_and_the_pass_counts_it_later(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Строку гипотезы плана держит проход конвейера дольше предела: отмена не висит, а отказывает
-    словами; транзакция вызывающего жива — отказ в точке сохранения; решение и число — прежние."""
-    monkeypatch.setattr(su, "LOCK_WAIT", "SET LOCAL lock_timeout = '200ms'")
+    """Строку гипотезы плана держит проход конвейера дольше короткого предела: отмена не ждёт её и
+    не отказывает — решение снято, «найдено» прежнее, пропуск — строкой журнала с номером строки;
+    предел замков отмены после пересчёта — её собственный. Следующий проход досчитывает число."""
+    monkeypatch.setattr(plan_found, "LOCK_WAIT", "SET LOCAL lock_timeout = '200ms'")
+    caplog.set_level(logging.INFO, logger=plan_found.__name__)
     async with committed_sessions() as factory:
         row_id, one, _ = await _committed_reviews(factory)
         await _accept(factory, one)
         async with factory() as holding:
             await holding.execute(select(Row.id).where(Row.id == row_id).with_for_update())
             async with factory() as session:
-                with pytest.raises(su.UndoBusyError) as refused:
-                    await asyncio.wait_for(su.undo(session, one), MEETING)
-                assert await session.scalar(text("SELECT 1")) == 1
+                undone = await asyncio.wait_for(su.undo(session, one), MEETING)
+                limit = await session.scalar(text("SELECT current_setting('lock_timeout')"))
+                await session.commit()
             await holding.rollback()
 
-        assert str(refused.value) == su.PLAN_BUSY
-        assert (await _state(factory, row_id, one)) == (1, Lane.ACCEPT)
+        assert undone is not None
+        assert (undone.was, limit) == (Lane.ACCEPT, "5s")
+        assert (await _state(factory, row_id, one)) == (1, Lane.REVIEW)
+        [skipped] = [
+            record
+            for record in caplog.records
+            if record.name == plan_found.__name__ and "не пересчитано" in record.getMessage()
+        ]
+        assert skipped.__dict__["plan_hypothesis_id"] == row_id
+
+        async with factory() as session:
+            await plan_tick.step(session, _Jobs(), now=LATER)
+            await session.commit()
+        assert (await _state(factory, row_id, one)) == (0, Lane.REVIEW)
+
+
+async def test_a_recount_hands_the_caller_back_its_own_lock_limit(session: AsyncSession) -> None:
+    """Короткий предел пересчёта — `SET LOCAL`: он дожил бы до конца транзакции вызывающего. После
+    пересчёта у отмены — снова её предел, у решения — прежний, какой был до него."""
+    plan = await make_plan(session)
+    row = await sheet(session, plan)
+    run = await bought(session, row, await take(session, row))
+    review = await judged(session, run, Lane.REVIEW)
+    await session.commit()
+    limit = text("SELECT current_setting('lock_timeout')")
+    before = await session.scalar(limit)
+
+    await segment_report.decide(session, review.id, accept=True, author=SELLER)
+    after_decision = await session.scalar(limit)
+    await session.commit()
+    await su.undo(session, review.id)
+    after_undo = await session.scalar(limit)
+
+    assert (after_decision, after_undo) == (before, "5s")
+    await session.refresh(row)
+    assert row.found == 0
