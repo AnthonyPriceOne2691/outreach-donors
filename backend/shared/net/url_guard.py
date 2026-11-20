@@ -54,6 +54,8 @@ from urllib.parse import urlparse
 import httpcore
 import httpx
 
+from backend.shared.net.charset import page_encoding
+
 logger = logging.getLogger(__name__)
 
 #: Сколько байт ответа читаем максимум — распакованных, а не пришедших по сети.
@@ -416,5 +418,9 @@ def guarded_client(*, timeout: httpx.Timeout | float, **kwargs: object) -> httpx
     Проверка сертификата выключена намеренно: у доноров она протухает
     постоянно, а читаем мы публичные страницы и ничего им не передаём.
     Защита здесь от другого — от похода во внутреннюю сеть.
+
+    Страницу без charset в заголовке клиент читает в кодировке из её `<meta>`
+    (`charset.page_encoding`), а не всегда в utf-8; свой `default_encoding` — у вызывающего.
     """
+    kwargs.setdefault("default_encoding", page_encoding)
     return httpx.AsyncClient(transport=GuardedTransport(), timeout=timeout, **kwargs)  # type: ignore[arg-type]
