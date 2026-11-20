@@ -103,6 +103,7 @@ ELSEWHERE = {
     # выдачи и модели, как запуск и продолжение прогона; права держит `test_api_sales_plans_actions.py`.
     ("POST", "/api/sales/plans/{}/stop"),
     ("POST", "/api/sales/plans/{}/resume"),
+    ("PATCH", "/api/sales/plans/{}/cap"),
     ("POST", "/api/sales/plan-hypotheses/{}/stop"),
     ("POST", "/api/sales/plan-hypotheses/{}/resume"),
     ("PATCH", "/api/sales/plan-hypotheses/{}/quality"),
