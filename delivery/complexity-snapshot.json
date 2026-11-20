@@ -3507,12 +3507,12 @@
       "worst": "read_json:35"
     },
     "backend/features/sales/plan_actions.py": {
-      "lines": 491,
+      "lines": 497,
       "complexity": 9,
-      "worst": "refusal:331"
+      "worst": "refusal:337"
     },
     "backend/features/sales/plan_budget.py": {
-      "lines": 261,
+      "lines": 267,
       "complexity": 4,
       "worst": "below_spent:171"
     },
@@ -3537,9 +3537,9 @@
       "worst": "_draft:228"
     },
     "backend/features/sales/plan_found.py": {
-      "lines": 128,
+      "lines": 149,
       "complexity": 4,
-      "worst": "recount:75"
+      "worst": "recount:96"
     },
     "backend/features/sales/plan_gates.py": {
       "lines": 176,
@@ -3557,9 +3557,9 @@
       "worst": "—"
     },
     "backend/features/sales/plan_moves.py": {
-      "lines": 91,
+      "lines": 131,
       "complexity": 4,
-      "worst": "move:54"
+      "worst": "move:57"
     },
     "backend/features/sales/plan_runs.py": {
       "lines": 251,
@@ -3567,9 +3567,9 @@
       "worst": "_judged:125"
     },
     "backend/features/sales/plan_settle.py": {
-      "lines": 144,
+      "lines": 145,
       "complexity": 5,
-      "worst": "give_up:64"
+      "worst": "give_up:65"
     },
     "backend/features/sales/plan_store.py": {
       "lines": 382,

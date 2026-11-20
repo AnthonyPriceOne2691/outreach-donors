@@ -3,9 +3,10 @@
 Проверяется договор с конвейером: «Остановить» — `stopped` словами, новых прогонов нет, конвейер
 идёт к следующей гипотезе; «Продолжить» — тот же прогон продолжается, выдача второй раз не
 покупается, а очередь — «одна вперёд»; план с паузы снимает только кнопка; «Собрать ещё N» и
-глубина — снова в работе или сразу «нужны ключи»; ключи текстом и книгой одним листом — той же
-чисткой, что книга плана; отказы — словами, каждое действие — в журнале с автором. Две кнопки сразу —
-на настоящих фиксациях: вторая ждёт замка и видит сделанное первой. Ключи — разных ниш и
+глубина — снова в работе или сразу «нужны ключи»; кнопка строки судит по живому «найдено» и пишет
+на него слова «нужны ключи» — число строки могло отстать; ключи текстом и книгой одним листом — той
+же чисткой, что книга плана; отказы — словами, каждое действие — в журнале с автором. Две кнопки
+сразу — на настоящих фиксациях: вторая ждёт замка и видит сделанное первой. Ключи — разных ниш и
 письменностей, сайты выдуманы (`*.example.test`).
 """
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import io
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 import openpyxl
@@ -41,6 +43,7 @@ from backend.features.sales.plan_models import (
 )
 from backend.features.sales.plan_moves import Did, Turn
 from backend.features.sales.segment_estimate import NO_SEGMENT
+from backend.features.sales.segment_models import Lane
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.test_sales_clean_api import _Jobs
@@ -56,7 +59,7 @@ from tests.test_sales_plan_tick import (
     step,
     stopped_run,
 )
-from tests.test_sales_plan_waves import NOW, make_plan, sheet
+from tests.test_sales_plan_waves import NOW, bought, judged, make_plan, sheet, take
 from tests.test_sales_segment_estimate import _settings
 from tests.test_send_race import MEETING, committed_sessions
 
@@ -100,6 +103,14 @@ async def bought_out(session: AsyncSession, row: Row) -> None:
     await session.execute(
         update(Key).where(Key.plan_hypothesis_id == row.id).values(pages=row.max_pages)
     )
+
+
+async def accepted(session: AsyncSession, row: Row, count: int) -> None:
+    """Прогон гипотезы плана и `count` сайтов, принятых судьёй, — «найдено» в базе. Число в строке
+    не трогается: кнопка строки считает его заново (`plan_actions.hold`)."""
+    run = await bought(session, row, await take(session, row))
+    for _ in range(count):
+        await judged(session, run, Lane.ACCEPT)
 
 
 def book_of(*sheets: list[list[object]]) -> bytes:
@@ -207,15 +218,43 @@ async def test_resume_waits_its_turn_while_another_sheet_collects(session: Async
 async def test_resume_without_keys_and_depth_is_refused_in_need_keys_words(
     session: AsyncSession,
 ) -> None:
+    """Отказ называет живое «найдено», а не число строки: оно отстало (пересчёт по решению человека
+    пропущен под чужим замком) — кнопка считает заново под своим."""
     row = await sheet(session, keys=WORDS, max_pages=2, target=300)
-    row.stage, row.found = PlanStage.STOPPED.value, 120
+    await accepted(session, row, 2)
+    row.stage, row.found = PlanStage.STOPPED.value, 1
     await bought_out(session, row)
 
     with pytest.raises(PlanStateError) as refused:
         await plan_actions.resume_hypothesis(session, row.id, author_id=None, now=NOW)
 
-    assert str(refused.value).endswith(keys_words(2, 120, 300))
+    assert str(refused.value).endswith(keys_words(2, 2, 300))
     assert row.stage == "stopped"
+
+
+@pytest.mark.parametrize(
+    ("status", "then"),
+    [(PlanStatus.DONE, PlanStatus.RUNNING), (PlanStatus.PAUSED, PlanStatus.PAUSED)],
+)
+async def test_resume_counts_a_lagging_found_afresh_and_does_not_ask_for_keys(
+    session: AsyncSession, status: PlanStatus, then: PlanStatus
+) -> None:
+    """Стенд 20.11: план окончен или на паузе — прохода нет, а пересчёт по «Принять» пропущен под
+    чужим замком: в строке «найдено 1 из 2» и «нужны ключи». Сайтов уже два — «Продолжить» считает
+    заново под своим замком: отказа «нужны ключи» нет, число в строке живое, проблема снята.
+    Окончённый план снова идёт, план на паузе так и стоит — его снимает своя кнопка."""
+    plan = await make_plan(session)
+    row = await sheet(session, plan, keys=WORDS, max_pages=2, target=2)
+    await accepted(session, row, 2)
+    await bought_out(session, row)
+    row.stage, row.found = PlanStage.STOPPED.value, 1
+    row.problems = [problem(Problem.KEYS, keys_words(2, 1, 2), NOW)]
+    plan.status = status.value
+    await session.flush()
+
+    await plan_actions.resume_hypothesis(session, row.id, author_id=None, now=LATER)
+
+    assert (row.found, row.problems, row.stage, plan.status) == (2, [], "collecting", then)
 
 
 async def test_resuming_a_sheet_of_a_finished_plan_runs_the_plan_again(
@@ -297,14 +336,15 @@ async def test_more_raises_the_target_and_a_sending_sheet_collects_again(
 
 
 async def test_more_without_keys_and_depth_says_need_keys_at_once(session: AsyncSession) -> None:
-    row = await sheet(session, keys=WORDS, max_pages=5, target=100)
-    row.stage, row.found = PlanStage.DONE.value, 100
+    row = await sheet(session, keys=WORDS, max_pages=5, target=2)
+    await accepted(session, row, 2)
+    row.stage, row.found = PlanStage.DONE.value, 2
     await bought_out(session, row)
 
-    await plan_actions.collect_more(session, row.id, 400, author_id=None, now=NOW)
+    await plan_actions.collect_more(session, row.id, 8, author_id=None, now=NOW)
 
-    assert (row.target, row.stage, codes(row)) == (500, "stopped", ["keys"])
-    assert row.problems[0]["words"] == keys_words(5, 100, 500)
+    assert (row.target, row.stage, codes(row)) == (10, "stopped", ["keys"])
+    assert row.problems[0]["words"] == keys_words(5, 2, 10)
 
 
 async def test_more_beyond_the_largest_target_is_refused_in_words(session: AsyncSession) -> None:
@@ -357,6 +397,25 @@ async def test_deeper_search_puts_a_sheet_that_needed_keys_back_to_work(
     )
 
     assert (row.stage, row.problems) == ("collecting", [])
+
+
+async def test_a_row_button_restates_need_keys_on_the_live_found(session: AsyncSession) -> None:
+    """Кнопка строки, которая «нужны ключи» сама не трогает, — потолок в «Качестве сайтов», — всё
+    равно пишет слова на живое число: «найдено 1 из 3» в словах и «найдено 2» рядом не расходятся.
+    Слова — на месте, время проблемы — прежнее."""
+    row = await sheet(session, keys=WORDS, max_pages=2, target=3)
+    await accepted(session, row, 2)
+    await bought_out(session, row)
+    keys = problem(Problem.KEYS, keys_words(2, 1, 3), NOW)
+    row.stage, row.found, row.problems = PlanStage.STOPPED.value, 1, [keys]
+    await session.flush()
+
+    await plan_actions.change_quality(
+        session, row.id, Quality(cap_usd=Decimal("60.00")), author_id=None, now=LATER
+    )
+
+    assert (row.found, row.stage, row.cap_usd) == (2, "stopped", Decimal("60.00"))
+    assert row.problems == [{**keys, "words": keys_words(2, 2, 3)}]
 
 
 async def test_quality_with_nothing_or_the_same_changes_nothing(session: AsyncSession) -> None:

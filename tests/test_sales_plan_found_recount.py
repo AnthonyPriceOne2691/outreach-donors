@@ -8,7 +8,10 @@
 считает у гипотез в конце найдено и расход, а остановленную, набравшую цель, в письма не
 переводит; два решения по одной гипотезе плана сразу — второе считает после первого; строку
 гипотезы плана держат дольше короткого предела — пересчёт пропущен строкой журнала, а отмена
-проходит, и её собственный предел ожидания замков — прежний. Сайты выдуманы (`*.example.test`).
+проходит, и её собственный предел ожидания замков — прежний; у плана на паузе пропущенное прохода
+не дожидается — его считает первая кнопка строки. Слова «нужны ключи» следуют за числом (стенд
+20.11): решение и проход пишут их на месте, с прежним порядком проблем и временем; цель набрана —
+сняты, этап прежний. Сайты выдуманы (`*.example.test`).
 """
 
 from __future__ import annotations
@@ -18,13 +21,24 @@ import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from backend.config.judge import JudgeMode
 from backend.features.core.models.access import UserModel
-from backend.features.sales import plan_found, plan_tick, segment_report
+from backend.features.sales import plan_actions, plan_found, plan_tick, segment_report
 from backend.features.sales import segment_rejudge as sr
 from backend.features.sales import segment_undo as su
+from backend.features.sales.plan_actions import PLAN_STOPPED
+from backend.features.sales.plan_budget import (
+    Outcome,
+    Problem,
+    Spent,
+    cap_words,
+    keys_words,
+    problem,
+    stopped_on_cap,
+)
 from backend.features.sales.plan_models import (
     PlanStage,
     PlanStatus,
@@ -32,6 +46,7 @@ from backend.features.sales.plan_models import (
     SalesPlanModel,
 )
 from backend.features.sales.plan_moves import Did, Turn
+from backend.features.sales.plan_runs import NOT_PUT
 from backend.features.sales.plan_waves import Batch, Wave
 from backend.features.sales.segment_models import Lane, SalesSegmentCandidateModel
 from httpx import AsyncClient
@@ -40,6 +55,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.conftest import bearer
 from tests.test_sales_clean_api import _Jobs
 from tests.test_sales_hypothesis_edit import _waits_on_a_lock
+from tests.test_sales_plan_actions import bought_out
 from tests.test_sales_plan_waves import KEYS, bought, judged, make_plan, make_run, sheet, take
 from tests.test_sales_segment_rejudge import NARROWER, NO_PARTS, PARTS, asked, deps, describe
 from tests.test_sales_segment_rejudge import site as judged_before
@@ -223,6 +239,77 @@ async def test_the_pass_counts_a_stopped_sheet_also_when_the_collecting_one_move
     assert (stopped.stage, stopped.found, stopped.counted_at) == ("stopped", 1, LOOKED)
 
 
+# --- слова «нужны ключи» за числом ------------------------------------------------------------
+
+
+async def _stopped_for_keys(
+    session: AsyncSession, target: int, before: list[dict[str, Any]]
+) -> tuple[Row, Candidate, dict[str, Any]]:
+    """Гипотеза плана встала «нужны ключи» на «найдено 1 из `target`»: судья принял один сайт её
+    прогона, второй ждёт человека. Проблемы — `before`, потом «нужны ключи»."""
+    row = await sheet(session, await make_plan(session), target=target)
+    run = await bought(session, row, await take(session, row))
+    await judged(session, run, Lane.ACCEPT)
+    review = await judged(session, run, Lane.REVIEW)
+    keys = problem(Problem.KEYS, keys_words(row.max_pages, 1, target), LOOKED)
+    row.stage, row.found, row.problems = PlanStage.STOPPED.value, 1, [*before, keys]
+    await session.commit()
+    return row, review, keys
+
+
+async def test_a_decision_restates_need_keys_in_place_and_the_cap_sign_stays(
+    session: AsyncSession,
+) -> None:
+    """Стенд 20.11: «…найдено 1 из 3 — добавьте ключи» — снимок на момент остановки, а после
+    «Принять» рядом уже 2. Слова — на новое число, на месте: гипотеза встала на потолке, потом
+    «Собрать ещё» без ключей поставило «нужны ключи» — порядок проблем говорит, на чём она стоит
+    (`stopped_on_cap`), время — когда кончились ключи; пересчёт не меняет ни того ни другого."""
+    budget = problem(
+        Problem.BUDGET,
+        cap_words(Outcome.HYPOTHESIS_CAP, Decimal("5.00"), Spent(Decimal("4.90")), Decimal("0.30")),
+        LOOKED - timedelta(hours=1),
+    )
+    row, review, keys = await _stopped_for_keys(session, 3, [budget])
+
+    await segment_report.decide(session, review.id, accept=True, author=SELLER)
+
+    assert row.found == 2
+    assert row.problems == [budget, {**keys, "words": keys_words(row.max_pages, 2, 3)}]
+    assert not stopped_on_cap(row)
+
+
+async def test_a_decision_that_meets_the_target_takes_need_keys_off_and_keeps_the_stage(
+    session: AsyncSession,
+) -> None:
+    """Цель набрана — ключи этой цели не нужны: «нужны ключи» сняты, другие проблемы и этап —
+    прежние (проход остановленную в письма не переводит). «Продолжить» не отказывает «нужны
+    ключи» — гипотеза снова в работе, и её ход переведёт её в письма."""
+    failed = problem(Problem.RUN_FAILED, NOT_PUT + "доля потолка модели выбрана", LOOKED)
+    row, review, _ = await _stopped_for_keys(session, 2, [failed])
+
+    await segment_report.decide(session, review.id, accept=True, author=SELLER)
+
+    assert (row.found, row.stage, row.problems) == (2, "stopped", [failed])
+    await plan_actions.resume_hypothesis(session, row.id, author_id=None, now=LATER)
+    assert (row.stage, row.problems) == ("collecting", [])
+
+
+async def test_the_pass_restates_need_keys_of_a_stopped_sheet_it_counts(
+    session: AsyncSession,
+) -> None:
+    """Проход считает остановленную гипотезу в конце идущего плана — и слова «нужны ключи» идут за
+    числом: прогон дошёл после остановки, принятых стало больше."""
+    row, review, keys = await _stopped_for_keys(session, 5, [])
+    review.lane = Lane.ACCEPT.value
+    row.counted_at = LOOKED
+    await session.commit()
+
+    await plan_tick.step(session, _Jobs(), now=LATER)
+
+    assert (row.found, row.stage, row.counted_at) == (2, "stopped", LOOKED)
+    assert row.problems == [{**keys, "words": keys_words(row.max_pages, 2, 5)}]
+
+
 # --- гонки: на настоящих фиксациях ---------------------------------------------------------------
 
 
@@ -307,6 +394,53 @@ async def test_a_held_sheet_does_not_hold_the_undo_and_the_pass_counts_it_later(
             await plan_tick.step(session, _Jobs(), now=LATER)
             await session.commit()
         assert (await _state(factory, row_id, one)) == (0, Lane.REVIEW)
+
+
+async def _committed_paused_sheet(factory: async_sessionmaker[AsyncSession]) -> tuple[int, int]:
+    """План на паузе; его гипотеза встала «нужны ключи» на «найдено 1 из 2»: ключи куплены до
+    предела, судья принял один сайт, второй ждёт человека, — зафиксированы."""
+    async with factory() as session:
+        plan = await make_plan(session)
+        row = await sheet(session, plan, max_pages=1, target=2)
+        run = await bought(session, row, await take(session, row))
+        await judged(session, run, Lane.ACCEPT)
+        review = await judged(session, run, Lane.REVIEW)
+        await bought_out(session, row)
+        row.stage, row.found = PlanStage.STOPPED.value, 1
+        row.problems = [problem(Problem.KEYS, keys_words(1, 1, 2), LOOKED)]
+        plan.status, plan.problem = PlanStatus.PAUSED.value, PLAN_STOPPED
+        await session.commit()
+        return row.id, review.id
+
+
+async def test_a_recount_skipped_on_a_paused_plan_is_counted_by_the_first_row_button(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Стенд 20.11: план на паузе — прохода нет. «Принять» пришло, пока строку держали дольше
+    короткого предела: пересчёт пропущен, в строке «найдено 1 из 2» и «нужны ключи», и проход его
+    не досчитает. Первая кнопка строки — «Продолжить» — считает под своим замком: отказа «нужны
+    ключи» нет, хотя ключей и глубины нет, число в строке живое, проблема снята."""
+    monkeypatch.setattr(plan_found, "LOCK_WAIT", "SET LOCAL lock_timeout = '200ms'")
+    async with committed_sessions() as factory:
+        row_id, review = await _committed_paused_sheet(factory)
+        async with factory() as holding:
+            await holding.execute(select(Row.id).where(Row.id == row_id).with_for_update())
+            await asyncio.wait_for(_accept(factory, review), MEETING)
+            await holding.rollback()
+        assert (await _state(factory, row_id, review)) == (1, Lane.ACCEPT)
+
+        async with factory() as session:
+            assert await plan_tick.step(session, _Jobs(), now=LATER) == Turn(Did.NOTHING)
+            await session.commit()
+        assert (await _state(factory, row_id, review)) == (1, Lane.ACCEPT)
+
+        async with factory() as session:
+            row = await plan_actions.resume_hypothesis(session, row_id, author_id=None, now=LATER)
+            seen = (row.found, row.problems, row.stage)
+            await session.commit()
+
+        assert seen == (2, [], "collecting")
+        assert (await _state(factory, row_id, review)) == (2, Lane.ACCEPT)
 
 
 async def test_a_recount_hands_the_caller_back_its_own_lock_limit(session: AsyncSession) -> None:

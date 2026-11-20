@@ -263,6 +263,20 @@ def test_a_new_problem_replaces_the_old_one_of_its_kind() -> None:
     }
 
 
+def test_reworded_keeps_the_place_and_time_of_the_problem() -> None:
+    """Пересказ числа — та же проблема: место в списке (признак потолка, `stopped_on_cap`) и время
+    прежние, другие виды не тронуты; новый список, а не правка на месте."""
+    keys = plan_budget.problem(Problem.KEYS, plan_budget.keys_words(5, 24, 100), NOW)
+    budget = plan_budget.problem(Problem.BUDGET, "потолок гипотезы — слова", NOW)
+    problems = [keys, budget]
+
+    found = plan_budget.reworded(problems, Problem.KEYS, plan_budget.keys_words(5, 25, 100))
+
+    assert found == [{**keys, "words": plan_budget.keys_words(5, 25, 100)}, budget]
+    assert problems == [keys, budget]
+    assert keys["words"] == plan_budget.keys_words(5, 24, 100)
+
+
 async def test_a_hypothesis_over_its_cap_gets_the_budget_problem_in_its_row(
     session: AsyncSession,
 ) -> None:

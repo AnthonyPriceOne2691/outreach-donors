@@ -4,8 +4,9 @@
  *
  * Поднятый потолок снимает паузу плана, вставшего на своём потолке, — план снова идёт; на паузе по
  * другой причине («Остановить план», счёт выдачи, модель) план так и стоит: его снимает «Продолжить».
- * Ниже израсходованного сервер отказывает словами — плашкой над полем, набранное на месте. Тот же
- * потолок — окно просто закрывается. Потолок гипотезы — в окне «Качество сайтов».
+ * Под полем — израсходованное словами отказа сервера и сумма, от которой потолок можно задать
+ * (`capFloorWords`); ниже израсходованного сервер отказывает словами — плашкой над полем, набранное
+ * на месте. Тот же потолок — окно просто закрывается. Потолок гипотезы — в окне «Качество сайтов».
  *
  * Каркас — окна кнопок гипотезы плана (`PlanDialog`): заголовок короткий, имя плана — строкой под
  * ним. Поле — `PlanNumberField`: точка и запятая не стираются на ходу.
@@ -17,7 +18,7 @@ import { notify } from '../notices';
 import { changePlanCap, usePlanAction } from './planApi';
 import type { PlanLive } from './planApi';
 import { PlanDialog } from './PlanDialog';
-import { capError, PlanNumberField } from './PlanNumberField';
+import { capError, capFloorWords, PlanNumberField } from './PlanNumberField';
 import { dollars } from './PlanPreviewView';
 
 interface Props {
@@ -56,7 +57,7 @@ export function PlanCap({ plan, onClose }: Props) {
     >
       <PlanNumberField
         label="Потолок плана, $"
-        description={`Израсходовано: ${dollars(spent)}. Поднятый потолок снимает паузу на потолке`}
+        description={`${capFloorWords(spent)}. Поднятый потолок снимает паузу на потолке`}
         min={0}
         decimalScale={2}
         allowNegative={false}
