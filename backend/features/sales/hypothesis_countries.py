@@ -66,10 +66,13 @@ class HypothesisCountriesMixin:
 
 @dataclass(frozen=True, slots=True)
 class CountryPolicy:
-    """Поле гипотезы глазами судьи: что делать с чужой географией и каким странам не пишем."""
+    """Поле гипотезы глазами судьи: что делать с чужой географией, каким странам не пишем и какой вид
+    сайта берём."""
 
     other: OtherCountries = OtherCountries.REVIEW
     excluded: frozenset[str] = frozenset()
+    #: Вид сайта (`hypothesis_kinds`): пусто — виды решает описание сегмента, как до поля.
+    kinds: frozenset[str] = frozenset()
 
 
 @lru_cache(maxsize=1)
@@ -125,10 +128,13 @@ def field_words(other: str, excluded: Iterable[str]) -> str:
 
 
 def policy_of(
-    other_countries: str | None, excluded_countries: Iterable[str] | None
+    other_countries: str | None,
+    excluded_countries: Iterable[str] | None,
+    kinds: frozenset[str] = frozenset(),
 ) -> CountryPolicy:
-    """Поле гипотезы из колонок. Положение, которого код не знает (строку правили руками), —
-    «решает человек», громко в лог: молча принять чужую географию было бы хуже."""
+    """Поле гипотезы из колонок; вид сайта — уже прочитанный (`hypothesis_kinds.kinds_of`).
+    Положение, которого код не знает (строку правили руками), — «решает человек», громко в лог:
+    молча принять чужую географию было бы хуже."""
     try:
         other = OtherCountries(other_countries or OtherCountries.REVIEW)
     except ValueError:
@@ -138,4 +144,4 @@ def policy_of(
         )
         other = OtherCountries.REVIEW
     excluded = frozenset(code.strip().upper() for code in excluded_countries or () if code.strip())
-    return CountryPolicy(other, excluded)
+    return CountryPolicy(other, excluded, kinds)

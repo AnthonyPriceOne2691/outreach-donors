@@ -349,6 +349,13 @@ class TestReset:
         assert llm_caps.reset_at(EVENING) == datetime(2026, 10, 30, tzinfo=UTC)
         assert llm_caps.reset_words(EVENING) == "через 5 ч 12 мин (в 03:00 по Москве)"
 
+    def test_a_server_cap_names_the_settings_and_the_reset_by_the_clock(self) -> None:
+        # Отказ потолка судьи хранится в итоге прохода: «через 5 ч» застыло бы на минуте остановки.
+        assert llm_caps.after_server_cap(EVENING) == (
+            "поднять его может администратор в настройках сервера, или дождитесь сброса — "
+            "30.10 в 03:00 по Москве"
+        )
+
     @pytest.mark.parametrize(
         ("left", "said"),
         [
