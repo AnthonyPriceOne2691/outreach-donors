@@ -1,7 +1,7 @@
 """журнал действий только дописывается: UPDATE, DELETE и TRUNCATE — отказ самой базы
 
 Revision ID: d4f8a2c61e93
-Revises: b7e4c2a9d1f3
+Revises: c0cf586c2995
 Create Date: 2026-11-20 12:00:00.000000
 
 Аудит 20.11.2026, п. 36. Запись журнала не правится и не удаляется — так задумано с первого дня
@@ -34,7 +34,7 @@ from typing import Sequence, Union
 from alembic import op
 
 revision: str = "d4f8a2c61e93"  # pragma: allowlist secret
-down_revision: Union[str, Sequence[str], None] = "b7e4c2a9d1f3"  # pragma: allowlist secret
+down_revision: Union[str, Sequence[str], None] = "c0cf586c2995"  # pragma: allowlist secret
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
