@@ -237,6 +237,12 @@ def put(problems: Sequence[dict[str, Any]], found: dict[str, Any]) -> list[dict[
     return [*(old for old in problems if old.get("code") != found["code"]), found]
 
 
+def reworded(problems: Sequence[dict[str, Any]], code: Problem, words: str) -> list[dict[str, Any]]:
+    """Список проблем, где у вида `code` новые слова — на том же месте и с тем же временем: та же
+    проблема, пересказанная заново, а не новая, как у `put` (`plan_moves.restate_keys`)."""
+    return [{**old, "words": words} if old.get("code") == code else old for old in problems]
+
+
 #: Проблемы, с которыми гипотеза встаёт в `stopped`: «кончился бюджет», «нужны ключи», «прогон
 #: встал» и «остановлена кнопкой».
 STOPS = frozenset({Problem.BUDGET, Problem.KEYS, Problem.RUN_FAILED, Problem.STOPPED})
