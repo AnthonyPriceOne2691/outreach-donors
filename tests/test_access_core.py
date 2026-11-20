@@ -9,18 +9,24 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import jwt
 import pytest
 from backend.features.access.passwords import (
+    COMMON_REFUSAL,
     MAX_PASSWORD_BYTES,
     MIN_PASSWORD_LENGTH,
     ONE_TIME_LENGTH,
     WeakPasswordError,
+    _load_common,
     assert_strong_enough,
+    folded,
     generate_one_time,
     hash_password,
+    one_time_expired,
     verify_password,
 )
 from backend.features.access.permissions import (
@@ -41,6 +47,8 @@ from backend.features.access.tokens import (
     read_token,
 )
 from backend.features.core.domain import Permission, UserRole
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 class TestPasswords:
@@ -75,6 +83,61 @@ class TestPasswords:
 
     def test_long_password_passes(self) -> None:
         assert_strong_enough("три слова подряд")
+
+    def test_fifteen_is_the_minimum(self) -> None:
+        """Аудит 20.11.2026: пятнадцать знаков, а не десять. Прежние пароли входят, как
+        входили, — длину судят только при смене."""
+        with pytest.raises(WeakPasswordError, match="короче 15 знаков"):
+            assert_strong_enough("кот спит у окн")
+
+        assert_strong_enough("кот спит у окна")
+
+    def test_the_screen_asks_for_the_same_minimum(self) -> None:
+        """Экран проверяет длину до сервера и называет её в подсказке — своей копией числа.
+        Две копии расходятся молча: экран пропускал бы короткий или отказывал длинному."""
+        page = ROOT / "frontend" / "src" / "auth" / "ChangePasswordPage.tsx"
+        found = re.search(r"^const MIN_LENGTH = (\d+);", page.read_text(encoding="utf-8"), re.M)
+
+        assert found is not None, "в ChangePasswordPage.tsx нет MIN_LENGTH"
+        assert int(found.group(1)) == MIN_PASSWORD_LENGTH
+
+    @pytest.mark.parametrize(
+        "plain",
+        [
+            "qwertyuiopasdfgh",
+            "QWERTYuiopASDFGH",
+            "1q2w3e4r5t6y7u8i",
+            "passwordpassword",
+            "ILoveYouForever",
+        ],
+    )
+    def test_common_password_is_refused_in_words(self, plain: str) -> None:
+        """Длинный пароль, с которого начинается любой подбор, — не пароль (аудит 20.11.2026):
+        отказ по списку утёкших и частых, без регистра, и словами — что делать."""
+        with pytest.raises(WeakPasswordError) as refused:
+            assert_strong_enough(plain)
+
+        assert str(refused.value) == COMMON_REFUSAL
+        assert "три-четыре своих слова" in COMMON_REFUSAL
+
+    def test_case_and_composition_do_not_hide_a_listed_password(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Сверка без регистра и в NFC: «й», набранная готовой буквой и составной (и + кратка), —
+        одна буква. Список сейчас латиница, а правило — на любой."""
+        monkeypatch.setattr(
+            "backend.features.access.passwords.COMMON_PASSWORDS",
+            frozenset({folded("мой длинный пароль")}),
+        )
+
+        with pytest.raises(WeakPasswordError, match="списках утёкших"):
+            assert_strong_enough("МОЙ ДЛИННЫЙ ПАРОЛЬ".replace("Й", "Й"))
+
+    def test_list_file_skips_its_header_and_folds_entries(self, tmp_path: Path) -> None:
+        listed = tmp_path / "list.txt"
+        listed.write_text("# шапка\n#\nQwertyUiop12345\n\nмой пароль\n", encoding="utf-8")
+
+        assert _load_common(listed) == {"qwertyuiop12345", "мой пароль"}
 
     def test_password_past_the_bcrypt_limit_is_refused_in_words(self) -> None:
         """Аудит 19.11.2026: bcrypt 5 на пароле длиннее 72 байт бросает исключение, и «Сменить
@@ -122,6 +185,16 @@ class TestPasswords:
 
     def test_one_time_passwords_differ(self) -> None:
         assert len({generate_one_time() for _ in range(50)}) == 50
+
+    def test_one_time_password_lives_its_term_in_hours(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Аудит 20.11.2026: разовый пароль из переписки не остаётся ключом навсегда."""
+        monkeypatch.setattr("backend.config.access.ONE_TIME_TTL_HOURS", 72)
+        issued = datetime(2026, 11, 20, 9, 41, tzinfo=UTC)
+
+        assert not one_time_expired(issued, issued + timedelta(hours=72))
+        assert one_time_expired(issued, issued + timedelta(hours=72, seconds=1))
 
 
 #: Хеш пароля учётки — какой лежит в базе; смена пароля даёт новый.

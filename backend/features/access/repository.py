@@ -110,13 +110,15 @@ class AccessRepository:
         его один раз — забота вызывающего, хранить его негде.
 
         bcrypt — в пуле потоков, как у входа (`login.py`): четверть секунды счёта в цикле
-        событий держала бы все запросы сервиса, а не только этот (аудит 19.11.2026)."""
+        событий держала бы все запросы сервиса, а не только этот (аудит 19.11.2026).
+        С минуты заведения идёт срок разового пароля (`passwords.one_time_expired`)."""
         user = UserModel(
             email=normalize_email(email),
             password_hash=await asyncio.to_thread(hash_password, password),
             role=role,
             is_active=True,
             must_change_password=True,
+            password_set_at=datetime.now(UTC),
         )
         # Вставка идёт во вложенной транзакции: отказ уникальности иначе
         # отравляет всю сессию, и вызывающий не может ни продолжить работу,
@@ -157,12 +159,22 @@ class AccessRepository:
         до смены, и пропуск после смены выдаётся по нему (`tokens.password_stamp`).
 
         Хеш — в пуле потоков, как при заведении (`create`).
+
+        С минуты смены идёт срок разового пароля, а счёт неудач и пауза входа снимаются
+        (аудит 20.11.2026): неудачи подбирали прежний пароль, и человек с новым разовым от
+        админа входит сразу, а не после паузы.
         """
         password_hash = await asyncio.to_thread(hash_password, password)
         await self._session.execute(
             update(UserModel)
             .where(UserModel.id == user_id)
-            .values(password_hash=password_hash, must_change_password=one_time)
+            .values(
+                password_hash=password_hash,
+                must_change_password=one_time,
+                password_set_at=datetime.now(UTC),
+                failed_logins=0,
+                locked_until=None,
+            )
         )
         await self.record(
             AuditAction.PASSWORD_CHANGED,
@@ -203,12 +215,30 @@ class AccessRepository:
         )
 
     async def note_login(self, user_id: int, *, now: datetime | None = None) -> None:
+        """Удачный вход: минута входа, запись журнала — и счёт неудач подряд с нуля."""
         await self._session.execute(
             update(UserModel)
             .where(UserModel.id == user_id)
-            .values(last_login_at=now or datetime.now(UTC))
+            .values(last_login_at=now or datetime.now(UTC), failed_logins=0, locked_until=None)
         )
         await self.record(AuditAction.LOGIN, author_id=user_id, target=f"user:{user_id}")
+
+    async def count_failure(self, user_id: int) -> int:
+        """Ещё одна неудача входа подряд — сколько их теперь. Прибавка одной командой в базе, а
+        не чтением и записью: две неудачи разом иначе считались бы за одну (`access/lockout.py`)."""
+        rows = await self._session.execute(
+            update(UserModel)
+            .where(UserModel.id == user_id)
+            .values(failed_logins=UserModel.failed_logins + 1)
+            .returning(UserModel.failed_logins)
+        )
+        return int(rows.scalar_one())
+
+    async def pause_login(self, user_id: int, *, until: datetime) -> None:
+        """Вход учётки на паузе до `until` (`access/lockout.py`)."""
+        await self._session.execute(
+            update(UserModel).where(UserModel.id == user_id).values(locked_until=until)
+        )
 
     # --- журнал ---
 

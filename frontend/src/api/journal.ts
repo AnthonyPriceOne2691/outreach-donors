@@ -13,6 +13,7 @@ import { request } from './client';
 export type AuditAction =
   | 'login'
   | 'login_failed'
+  | 'login_paused'
   | 'password_changed'
   | 'user_created'
   | 'user_updated'

@@ -3,8 +3,11 @@
  *
  * Проверки длины и совпадения повторов сделаны и здесь — но не вместо
  * сервера, а до него: они экономят человеку круг, а решает всё равно
- * сервер. Требование одно — длина: правила про заглавные и цифры
- * заставляют писать `Password1!` и записывать его на бумажке.
+ * сервер. Требования два — длина и «не из списка утёкших»: правила про
+ * заглавные и цифры заставляют писать `Password1!` и записывать его на
+ * бумажке. Список живёт на сервере, его отказ приходит словами в окно
+ * «Не сменили»; длину — пятнадцать знаков с аудита 20.11.2026 — экран
+ * называет сразу, в подсказке поля, а не после первого отказа.
  */
 
 import {
@@ -27,7 +30,8 @@ import { ACTIONS_GAP, FIELD_GAP } from '../components/formRhythm';
 import { useSession } from './AuthProvider';
 import { notify } from '../notices';
 
-const MIN_LENGTH = 10;
+/** Тот же минимум, что у сервера (`access/passwords.MIN_PASSWORD_LENGTH`). */
+const MIN_LENGTH = 15;
 
 export function ChangePasswordPage() {
   const { user, changePassword, signOut } = useSession();
@@ -106,7 +110,7 @@ export function ChangePasswordPage() {
             />
             <PasswordInput
               label="Новый пароль"
-              description="Три-четыре слова подряд надёжнее, чем знаки разного регистра"
+              description={`Не короче ${MIN_LENGTH} знаков: три-четыре своих слова подряд надёжнее, чем знаки разного регистра`}
               autoComplete="new-password"
               {...form.getInputProps('next')}
             />

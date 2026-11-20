@@ -13,14 +13,15 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import jwt
 import pytest
-from backend.api import errors
+from backend.api import deps, errors
 from backend.api.app import create_app
 from backend.config.startup_checks import ConfigError
+from backend.features.access.attempts import LoginAttempts
 from backend.features.access.login import NOT_AN_EMAIL, LoginFailedError
 from backend.features.access.passwords import verify_password
 from backend.features.access.permissions import SignedOutError
@@ -30,7 +31,7 @@ from backend.features.core.domain import AuditAction, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
 from fastapi import FastAPI, status
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
 
@@ -195,6 +196,93 @@ class TestBruteForce:
         )
 
         assert again.status_code == 400
+
+
+class TestAccountPause:
+    """Пауза входа учётки после неудач подряд (аудит 20.11.2026) — так, как её видит экран:
+    429 с минутами словами и `Retry-After`, а в «Журнале действий» — начало паузы."""
+
+    @pytest.fixture(autouse=True)
+    def _roomy_counter(self, api_app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Счётчик в памяти — просторный: иначе шестую попытку остановит он, а не пауза. После
+        `api_app`: тот ставит свой, на пять попыток."""
+        monkeypatch.setattr(deps, "attempts", LoginAttempts(limit=100))
+        monkeypatch.setattr("backend.config.access.LOCKOUT_AFTER_FAILURES", 5)
+        monkeypatch.setattr("backend.config.access.LOCKOUT_FIRST_MINUTES", 1)
+
+    async def test_fifth_failure_pauses_and_even_the_right_password_waits(
+        self, client: AsyncClient, make_user: MakeUser
+    ) -> None:
+        await make_user(OPERATOR)
+        wrong = {"email": OPERATOR, "password": "мимо"}
+
+        codes = [(await client.post("/api/auth/login", json=wrong)).status_code for _ in range(5)]
+        right = await client.post(
+            "/api/auth/login", json={"email": OPERATOR, "password": "пароль-для-теста"}
+        )
+
+        assert codes == [400] * 5
+        assert right.status_code == 429, right.text
+        assert right.json()["detail"] == "Слишком много неудачных попыток — попробуйте через 1 мин"
+        assert 0 < int(right.headers["Retry-After"]) <= 60
+
+    async def test_pause_outlives_the_counter_in_memory(
+        self, client: AsyncClient, make_user: MakeUser, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Выкатка начинает счётчик в памяти с нуля — пауза в базе остаётся."""
+        await make_user(OPERATOR)
+        for _ in range(5):
+            await client.post("/api/auth/login", json={"email": OPERATOR, "password": "мимо"})
+
+        monkeypatch.setattr(deps, "attempts", LoginAttempts(limit=100))
+        again = await client.post(
+            "/api/auth/login", json={"email": OPERATOR, "password": "пароль-для-теста"}
+        )
+
+        assert again.status_code == 429
+        assert "Слишком много неудачных попыток" in again.json()["detail"]
+
+    async def test_journal_screen_shows_the_pause(
+        self,
+        client: AsyncClient,
+        make_user: MakeUser,
+        sign_in: Callable[..., Awaitable[str]],
+    ) -> None:
+        await make_user("админ@team.example.test", role=UserRole.ADMIN)
+        token = await sign_in("админ@team.example.test")
+        await make_user(OPERATOR)
+        for _ in range(5):
+            await client.post("/api/auth/login", json={"email": OPERATOR, "password": "мимо"})
+
+        journal = await client.get("/api/journal?action=login_paused", headers=bearer(token))
+
+        assert journal.status_code == 200, journal.text
+        [entry] = journal.json()["entries"]
+        assert entry["details"] == {"email": OPERATOR, "неудач подряд": 5, "пауза": "1 мин"}
+
+
+class TestOneTimePasswordTerm:
+    async def test_expired_one_time_password_is_refused_in_words(
+        self, client: AsyncClient, session: AsyncSession, make_user: MakeUser
+    ) -> None:
+        """Аудит 20.11.2026: разовый пароль живёт `ACCESS_ONE_TIME_TTL_HOURS`. Отказ —
+        словами, что делать, и только тому, у кого пара подошла."""
+        user = await make_user(OPERATOR, must_change_password=True)
+        await session.execute(
+            update(UserModel)
+            .where(UserModel.id == user.id)
+            .values(password_set_at=datetime.now(UTC) - timedelta(hours=73))
+        )
+        await session.commit()
+
+        response = await client.post(
+            "/api/auth/login", json={"email": OPERATOR, "password": "пароль-для-теста"}
+        )
+
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"] == (
+            "Разовый пароль истёк — попросите администратора выдать новый"
+        )
 
 
 class TestTimingDoesNotTell:
@@ -457,6 +545,9 @@ class TestOwnPassword:
             ({"current": "пароль-для-теста", "new": "я" * 37}, "Пароль слишком длинный"),
             # Старый длиннее 72 байт подойти не может — просто «не подошёл», а не пятисотка.
             ({"current": "я" * 37, "new": "три слова подряд длиннее"}, "Старый пароль не подошёл"),
+            # Аудит 20.11.2026: пятнадцать знаков — минимум, а длинный частый — не пароль.
+            ({"current": "пароль-для-теста", "new": "кот спит у окн"}, "короче 15 знаков"),
+            ({"current": "пароль-для-теста", "new": "QwertyUiopAsdfgh"}, "списках утёкших"),
         ],
         ids=[
             "старый не тот",
@@ -464,6 +555,8 @@ class TestOwnPassword:
             "новый тот же",
             "новый длиннее 72 байт",
             "старый длиннее 72 байт",
+            "новый в 14 знаков",
+            "новый из списка утёкших",
         ],
     )
     async def test_refusals_say_what_to_do(
