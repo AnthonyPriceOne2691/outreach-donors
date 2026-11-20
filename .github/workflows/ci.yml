@@ -465,13 +465,19 @@ jobs:
         # tests/test_db_app_role.py): схема, затем роль приложения и её права.
         # Второй запуск — образ, каким его запускают сервисы: с паролем роли
         # он ходит ею, без суперправ и DDL (аудит 20.11.2026).
+        #
+        # Оба — с правами сервисов компоуза: без прав ядра и без новых привилегий
+        # (`cap_drop`, `no-new-privileges`; сверяет tests/test_deploy_hardening.py).
+        # Образ, которому они вдруг понадобятся, падает здесь, а не на сервере.
         env:
           POSTGRES_APP_PASSWORD: ci-only-app-role  # pragma: allowlist secret
         run: |
           dsn="postgresql+asyncpg://outreach:outreach@127.0.0.1:5432/outreach_fresh"
-          docker run --rm --network host -e STORAGE_DSN="$dsn" -e POSTGRES_APP_PASSWORD \
+          docker run --rm --network host --cap-drop ALL --security-opt no-new-privileges:true \
+            -e STORAGE_DSN="$dsn" -e POSTGRES_APP_PASSWORD \
             outreach-backend:ci sh -c "alembic upgrade head && python -m backend.shared.database.app_role"
-          docker run --rm --network host -e STORAGE_DSN="$dsn" -e POSTGRES_APP_PASSWORD \
+          docker run --rm --network host --cap-drop ALL --security-opt no-new-privileges:true \
+            -e STORAGE_DSN="$dsn" -e POSTGRES_APP_PASSWORD \
             outreach-backend:ci python -m backend.shared.database.app_role --check
 
       # --- Скан образов и SBOM (аудит 20.11.2026, п. 36) ------------------------

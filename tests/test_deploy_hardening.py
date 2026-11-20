@@ -9,7 +9,9 @@
 - базовый компоуз публиковал экран на всех адресах машины: `up` без боевого файла открывал
   сервис по http мимо TLS и пароля прокси, а порт докера фаервол машины не закрывает;
 - ответы API ложились в кэш браузера, и сервис не просил поисковики его не индексировать;
-- токен CI получал права репозитория по умолчанию.
+- токен CI получал права репозитория по умолчанию;
+- контейнеры держали права ядра по умолчанию, база и очередь жили в сети с выходом наружу,
+  а образы шли по тегу, который издатель передвигает (аудит 20.11.2026).
 """
 
 from __future__ import annotations
@@ -114,3 +116,119 @@ def test_the_ci_token_only_reads() -> None:
             assert own == {"docker": {"contents": "read", "packages": "write"}}
         else:
             assert own == {}, own
+
+
+#: Внешний образ: тег для человека и дайджест индекса для докера.
+PINNED = re.compile(r"[\w.\-/]+:[\w.\-]+@sha256:[0-9a-f]{64}")
+
+
+def _backend() -> dict[str, dict[str, Any]]:
+    """Сервисы из образа сервера: на сервере образ — из реестра, локально — из сборки."""
+    return {
+        name: service
+        for name, service in _compose()["services"].items()
+        if str(service.get("image", "")).startswith("${BACKEND_IMAGE")
+    }
+
+
+def test_no_container_gains_privileges() -> None:
+    """Ни setuid-файл, ни capabilities файла не дают процессу прав больше, чем на старте."""
+    services = _compose()["services"]
+
+    lacking = [
+        name
+        for name, service in services.items()
+        if "no-new-privileges:true" not in (service.get("security_opt") or [])
+    ]
+    assert lacking == [], f"у {lacking} нет no-new-privileges"
+    assert [name for name, service in services.items() if service.get("privileged")] == []
+
+
+def test_backend_containers_hold_no_kernel_capabilities() -> None:
+    """Сервер и воркеры работают от `app`: прав ядра им не нужно, и докер их не даёт."""
+    backend = _backend()
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    stage = text.split("AS backend\n", 1)[1].split("\nFROM ", 1)[0]
+
+    assert re.search(r"^USER app$", stage, re.M), "без USER app снятые права достаются root"
+    assert {"migrate", "api", "worker", "crawler", "reaper", "followups"} <= set(backend)
+    for name, service in backend.items():
+        assert service.get("cap_drop") == ["ALL"], name
+        assert "cap_add" not in service, name
+
+
+#: Права образов, которые стартуют от root и сбрасывают их сами, — ровно те, без которых они
+#: не встают: проверено живым запуском на новом и на прежнем томе (аудит 20.11.2026).
+ROOT_STARTED = {
+    "postgres": ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"],
+    "redis": ["CHOWN", "SETGID", "SETUID"],
+    "web": ["CHOWN", "NET_BIND_SERVICE", "SETGID", "SETUID"],
+}
+
+
+def test_root_started_containers_keep_only_what_they_need() -> None:
+    """Новое право — решение с проверкой, а не строка, дописанная, «чтобы завелось»."""
+    services = _compose()["services"]
+
+    assert set(services) == set(_backend()) | set(ROOT_STARTED)
+    for name, capabilities in ROOT_STARTED.items():
+        assert services[name]["cap_drop"] == ["ALL"], name
+        assert services[name]["cap_add"] == capabilities, name
+
+
+def test_the_database_and_the_queue_live_in_the_internal_network_only() -> None:
+    """Базе и очереди нет пути наружу, а к ним — из сети фронта; серверу нужны обе сети."""
+    compose = _compose()
+    services = compose["services"]
+
+    assert compose["networks"]["data"] == {"internal": True}
+    for name in ("postgres", "redis"):
+        assert services[name]["networks"] == ["data"], name
+        assert "ports" not in services[name], name
+    for name, service in _backend().items():
+        assert sorted(service["networks"]) == ["data", "default"], name
+    assert "networks" not in services["web"], "фронту хватает сети по умолчанию — он ходит к api"
+
+
+def test_the_prod_overlay_does_not_loosen_the_containers() -> None:
+    """Боевой файл накладывается сверху: сети и права в нём перекрыли бы основной."""
+    prod = PROD.read_text(encoding="utf-8")
+
+    keys = r"networks|network_mode|security_opt|cap_add|cap_drop|privileged|image"
+    assert re.findall(rf"^\s*({keys})\s*:", prod, re.M) == []
+
+
+def test_external_images_are_pinned_by_digest() -> None:
+    """Тег издатель передвигает, дайджест — нет: проверенная сегодня база не меняется завтра.
+    Свои образы (`BACKEND_IMAGE`, `WEB_IMAGE`) выкатываются меткой по коммиту — их не трогаем."""
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    stages = set(re.findall(r"^FROM\s+\S+\s+AS\s+(\S+)", text, re.M))
+    bases = [image for image in re.findall(r"^FROM\s+(\S+)", text, re.M) if image not in stages]
+    images = [
+        str(service["image"])
+        for service in _compose()["services"].values()
+        if not str(service["image"]).startswith("${")
+    ]
+
+    assert len(bases) >= 2, bases
+    assert sorted(image.split(":", 1)[0] for image in images) == ["postgres", "redis"]
+    assert [image for image in bases + images if not PINNED.fullmatch(image)] == []
+
+
+def test_ci_runs_the_backend_image_with_the_services_restrictions() -> None:
+    """Миграции и проверка роли в CI — с правами сервисов компоуза: CI доказывает, что образ
+    живёт без прав ядра и без новых привилегий, а не только компоуз их называет."""
+    migrate = _compose()["services"]["migrate"]
+    flags = [f"--cap-drop {cap}" for cap in migrate["cap_drop"]]
+    flags += [f"--security-opt {option}" for option in migrate["security_opt"]]
+    ci = yaml.safe_load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
+    step = next(
+        step
+        for step in ci["jobs"]["docker"]["steps"]
+        if str(step.get("name", "")).startswith("Миграции на чистой базе")
+    )
+    runs = re.sub(r"\\\n\s*", " ", step["run"]).split("docker run ")[1:]
+
+    assert len(runs) == 2
+    for command in runs:
+        assert all(flag in command for flag in flags), command

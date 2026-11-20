@@ -63,10 +63,36 @@ x-backend-env: &backend-env
   OUTREACH_PRICE_CONFIDENCE: ${OUTREACH_PRICE_CONFIDENCE:-0.80}
   LOG_FORMAT: ${LOG_FORMAT:-json}
 
+# **Права контейнеров (аудит 20.11.2026).** `no-new-privileges` — у всех: процесс
+# не получает прав больше, чем у него было на старте, ни через setuid-файл, ни через
+# capabilities файла. Сервисы из образа сервера работают от `app` (Dockerfile,
+# `USER app`), и прав ядра им не нужно вовсе: `cap_drop: [ALL]` снимает и те, что докер
+# даёт по умолчанию, — в том числе root'у, зашедшему через `exec -u root`. postgres,
+# redis и web стартуют от root и сами сбрасывают права (su-exec, рабочие процессы
+# nginx): им — тоже `cap_drop: [ALL]` и ровно то, без чего они не встают (у каждого
+# своё; проверено живым запуском на новом и на прежнем томе 20.11.2026).
+# Права, сети и образы сервисов сверяет `tests/test_deploy_hardening.py`.
+x-no-new-privileges: &no-new-privileges
+  - no-new-privileges:true
+
+x-backend-hardening: &backend-hardening
+  security_opt: *no-new-privileges
+  cap_drop: [ALL]
+  networks: [default, data]
+
 services:
+  # Образы базы и очереди — тегом и дайджестом индекса: тег для человека, дайджест для
+  # докера (как базы в Dockerfile). Новый дайджест — новый образ, и `up -d` пересоздаёт
+  # контейнер базы: поднимать, когда обходы и очереди не идут.
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:1d5b02d3a9941fbd52437db4107f8c52d6297dac553ca1e5c299ebb3756b4857
     restart: unless-stopped
+    security_opt: *no-new-privileges
+    # Скрипт входа от root поправляет владельца и права каталога данных и сокета
+    # (CHOWN, DAC_OVERRIDE, FOWNER) и переходит на пользователя postgres (SETUID, SETGID).
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    networks: [data]
     environment:
       POSTGRES_USER: outreach
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}
@@ -80,8 +106,14 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
     restart: unless-stopped
+    security_opt: *no-new-privileges
+    # Скрипт входа от root отдаёт /data пользователю redis (CHOWN) и переходит на него
+    # (SETUID, SETGID).
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
+    networks: [data]
     volumes:
       - redisdata:/data
     healthcheck:
@@ -100,6 +132,7 @@ services:
   # сервис). Пароль роли пуст — шаг говорит это и ничего не трогает.
   migrate:
     image: ${BACKEND_IMAGE:-outreach-backend:local}
+    <<: *backend-hardening
     build:
       context: .
       target: backend
@@ -113,6 +146,7 @@ services:
 
   api:
     image: ${BACKEND_IMAGE:-outreach-backend:local}
+    <<: *backend-hardening
     build:
       context: .
       target: backend
@@ -146,6 +180,7 @@ services:
 
   worker:
     image: ${BACKEND_IMAGE:-outreach-backend:local}
+    <<: *backend-hardening
     build:
       context: .
       target: backend
@@ -174,6 +209,7 @@ services:
   # свою очередь (повторы задачи ответа с паузой).
   worker-sales:
     image: ${BACKEND_IMAGE:-outreach-backend:local}
+    <<: *backend-hardening
     build:
       context: .
       target: backend
@@ -202,6 +238,7 @@ services:
   # бы: две долгие задачи заняли бы обе, а частота к Kommo удвоилась бы.
   worker-sales-bulk:
     image: ${BACKEND_IMAGE:-outreach-backend:local}
+    <<: *backend-hardening
     build:
       context: .
       target: backend
@@ -229,6 +266,7 @@ services:
   # (разбор скорости 14.10.2026). Планировщик — на свою очередь: отложенный разбор.
   worker-quick:
     image: ${BACKEND_IMAGE:-outreach-backend:local}
+    <<: *backend-hardening
     build:
       context: .
       target: backend
@@ -255,6 +293,7 @@ services:
   # одни и те же домены дважды — строки очереди адресов ничем не заняты.
   worker-contacts:
     image: ${BACKEND_IMAGE:-outreach-backend:local}
+    <<: *backend-hardening
     build:
       context: .
       target: backend
@@ -289,6 +328,7 @@ services:
   # сайта и браузером идёт до полуминуты.
   crawler:
     image: ${BACKEND_IMAGE:-outreach-backend:local}
+    <<: *backend-hardening
     build:
       context: .
       target: backend
@@ -318,6 +358,7 @@ services:
   # и умирает, собственную смерть разобрать не может.
   reaper:
     image: ${BACKEND_IMAGE:-outreach-backend:local}
+    <<: *backend-hardening
     build:
       context: .
       target: backend
@@ -348,6 +389,7 @@ services:
   # падение одного не должно останавливать другое.
   followups:
     image: ${BACKEND_IMAGE:-outreach-backend:local}
+    <<: *backend-hardening
     build:
       context: .
       target: backend
@@ -377,6 +419,12 @@ services:
       context: .
       target: web
     restart: unless-stopped
+    # Мастер nginx — root: слушает 80 (NET_BIND_SERVICE), отдаёт каталоги кэша рабочим
+    # процессам (CHOWN) и запускает их от nginx (SETUID, SETGID); прочее снято. Сети
+    # данных нет: фронт ходит только к api, база и очередь ему не видны.
+    security_opt: *no-new-privileges
+    cap_drop: [ALL]
+    cap_add: [CHOWN, NET_BIND_SERVICE, SETGID, SETUID]
     # Здоров — значит отдаёт и страницу, и API через себя. Проверка одной
     # страницы не видела бы главного отказа этого контейнера: 502 на API
     # при устаревшем адресе сервера (см. resolver в deploy/nginx.conf).
@@ -396,6 +444,15 @@ services:
     depends_on:
       api:
         condition: service_healthy
+
+# Сеть данных — без выхода наружу (`internal: true`, аудит 20.11.2026). У базы и очереди
+# другой сети нет: ни им в интернет, ни к ним из сети по умолчанию, где живёт фронт.
+# Сервисы из образа сервера — в обеих: к базе и очереди ходят по сети данных, к выдаче,
+# метрикам, почте и модели — через сеть по умолчанию (шлюз наружу докер берёт у сети
+# с выходом, внутренняя его не даёт). Сеть по умолчанию — прежняя, `<проект>_default`.
+networks:
+  data:
+    internal: true
 
 volumes:
   pgdata:
