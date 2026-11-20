@@ -3517,9 +3517,9 @@
       "worst": "refusal:337"
     },
     "backend/features/sales/plan_budget.py": {
-      "lines": 267,
+      "lines": 272,
       "complexity": 4,
-      "worst": "below_spent:171"
+      "worst": "below_spent:176"
     },
     "backend/features/sales/plan_card.py": {
       "lines": 268,
