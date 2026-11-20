@@ -1852,9 +1852,9 @@
       "worst": "count_decision:57"
     },
     "backend/features/crawl/proxies.py": {
-      "lines": 248,
+      "lines": 254,
       "complexity": 5,
-      "worst": "__init__:160"
+      "worst": "__init__:168"
     },
     "backend/features/crawl/reason_words.py": {
       "lines": 73,
@@ -4132,7 +4132,7 @@
       "worst": "with_retries:124"
     },
     "backend/shared/net/url_guard.py": {
-      "lines": 427,
+      "lines": 434,
       "complexity": 10,
       "worst": "assert_safe_url:144"
     },
