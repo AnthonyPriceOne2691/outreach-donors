@@ -20,6 +20,7 @@ from typing import Any
 import httpx
 import pytest
 from backend.config import sales as cfg
+from backend.features.ops import access_watch
 from backend.features.sales import handoff, handoff_jobs, telegram
 from backend.features.sales.handoff import HandoffBusyError
 from backend.features.sales.kommo import KommoLive, KommoRefusedError, NewLead
@@ -44,14 +45,16 @@ class _Closable:
 
 
 @pytest.fixture(autouse=True)
-def mail_queue_pass_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Проход «Очередь писем уходит сама» здесь не судится, а идёт в базу своим движком: отмена
-    циклов обрывала его на запросе, и незакрытое соединение красило случайный следующий тест."""
+def own_engine_passes_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Проходы «Очередь писем уходит сама» и «Сторож входов и прав» здесь не судятся, а идут в базу
+    своим движком: отмена циклов обрывала их на запросе, и незакрытое соединение красило случайный
+    следующий тест. Сторожа входов судят свои тесты (`test_access_watch*.py`)."""
 
     async def nothing() -> None:
         return None
 
     monkeypatch.setattr(reaper, "queue_autosend", nothing)
+    monkeypatch.setattr(access_watch, "watch", nothing)
 
 
 @pytest.fixture
