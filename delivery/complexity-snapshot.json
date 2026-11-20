@@ -3652,9 +3652,9 @@
       "worst": "_known:43"
     },
     "backend/features/sales/segment_client.py": {
-      "lines": 344,
+      "lines": 377,
       "complexity": 7,
-      "worst": "spent_of:104"
+      "worst": "spent_of:117"
     },
     "backend/features/sales/segment_counts.py": {
       "lines": 41,
@@ -3677,9 +3677,9 @@
       "worst": "_judge_line:100"
     },
     "backend/features/sales/segment_facts.py": {
-      "lines": 296,
+      "lines": 302,
       "complexity": 13,
-      "worst": "from_json:146"
+      "worst": "from_json:149"
     },
     "backend/features/sales/segment_helper.py": {
       "lines": 345,

@@ -9,9 +9,13 @@
 
 **Второй шанс цитате** (v5): цитата вида сайта не нашлась в тексте — модель спрашивают ещё раз по
 тому же тексту с короткой подсказкой: какие слова не нашлись и правило «дословно слова одной строки,
-без подписи» (`prompts/segment_again.md`). Один раз на сайт; цитата нового ответа нашлась — в счёт
-идут его факты, нет — «на проверку» словами. Токены обоих вызовов — в ответе (`Said.tokens`): в счёт
-прохода и в расход; повтор и его исход — признаками ответа (`Said.retried`, `Said.retry_held`).
+без подписи» (`prompts/segment_again.md`). Цитаты нет или она короче трёх слов — второй вопрос тоже,
+своей подсказкой: цитата пуста или коротка, нужны 3–30 слов одной строки о том, что за сайт, а не
+видно — «не понять» с цитатой строки, которая говорит о сайте больше других
+(`prompts/segment_again_short.md`). Ответ не разобран, модель не ответила — второго вопроса нет:
+следующий проход спросит снова. Один раз на сайт; цитата нового ответа нашлась — в счёт идут его
+факты, нет — «на проверку» словами. Токены обоих вызовов — в ответе (`Said.tokens`): в счёт прохода и
+в расход; повтор и его исход — признаками ответа (`Said.retried`, `Said.retry_held`).
 
 **Тариф — у клиента** (`segment_tier`): экономный прогон судит на Flex всё — и сайты, и разбор
 описания, — у токенов судьи прогона одна цена. Тело запроса Flex — с `service_tier`, вызов — с
@@ -54,6 +58,9 @@ PROMPT_PATH = Path(__file__).with_name("prompts") / "segment.md"
 #: Подсказка второго вопроса, когда цитата вида сайта не нашлась (`SegmentClient.judge`): файлом
 #: рядом с промптом — её правка тоже правка поведения модели и той же версии.
 AGAIN_PATH = Path(__file__).with_name("prompts") / "segment_again.md"
+#: Подсказка второго вопроса, когда цитаты вида сайта нет или она короче трёх слов: слов для неё нет,
+#: правило — то же; файлом рядом с промптом, как `AGAIN_PATH`.
+AGAIN_SHORT_PATH = Path(__file__).with_name("prompts") / "segment_again_short.md"
 #: Сколько знаков ненайденной цитаты уходит в подсказку: цитата — до 30 слов.
 AGAIN_QUOTE_CHARS = 300
 #: Усилие рассуждения — как у судьи площадки: на `minimal` модель читает только буквы.
@@ -84,6 +91,12 @@ def load_prompt() -> str:
 def load_again() -> str:
     """Подсказка второго вопроса файлом рядом с промптом; `{quote}` — место ненайденной цитаты."""
     return AGAIN_PATH.read_text(encoding="utf-8").strip()
+
+
+@lru_cache(maxsize=1)
+def load_again_short() -> str:
+    """Подсказка второго вопроса без цитаты (`AGAIN_SHORT_PATH`) — файлом, один раз на процесс."""
+    return AGAIN_SHORT_PATH.read_text(encoding="utf-8").strip()
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +148,18 @@ def again_message(user: str, missing: str) -> str:
     модели о чужом тексте, и закрыть данные раньше времени или сойти за наше правило не могут."""
     words = json.dumps(_quiet(missing[:AGAIN_QUOTE_CHARS]), ensure_ascii=False)
     return f"{user}\n{load_again().replace('{quote}', words)}"
+
+
+def asked_again(user: str, found: segment_facts.Read | None) -> str | None:
+    """Второй вопрос по первому ответу — или `None`, если его нет. Цитата вида сайта не нашлась в
+    тексте — подсказка с её словами (`again_message`); цитаты нет или она короче трёх слов — своя
+    подсказка, без слов (`load_again_short`). Модель не ответила, ответ не разобран, факты есть —
+    второго вопроса нет."""
+    if found is None or found.facts is not None:
+        return None
+    if found.missing:
+        return again_message(user, found.missing)
+    return f"{user}\n{load_again_short()}" if found.short else None
 
 
 def scope_message(segment: str) -> str:
@@ -207,7 +232,8 @@ class Said:
     cut_off: bool = False
     #: У ключа модели нет кредитов: сайт не судили — проход встаёт, сайт ждёт «Продолжить».
     no_credits: bool = False
-    #: Цитата первого ответа не нашлась — модель спросили второй раз (токены обоих — в `tokens`).
+    #: Цитата первого ответа не нашлась в тексте, её нет или она короче трёх слов — модель спросили
+    #: второй раз (токены обоих — в `tokens`).
     retried: bool = False
     #: И цитата второго ответа нашлась: факты — его.
     retry_held: bool = False
@@ -299,21 +325,30 @@ class SegmentClient(ModelClient):
     async def judge(
         self, *, host: str, segment: str, text: SiteText, system: str | None = None
     ) -> Said:
-        """Факты одного сайта; цитата вида сайта не нашлась — второй вопрос с подсказкой, один на
-        сайт (шапка модуля). Правила до модели — у судьи (`segment_judge.decide`)."""
+        """Факты одного сайта; цитата вида сайта не нашлась, её нет или она короче трёх слов — второй
+        вопрос с подсказкой, один на сайт (шапка модуля). Правила до модели — у судьи
+        (`segment_judge.decide`)."""
         user, prompt = user_message(host=host, segment=segment, text=text), system or load_prompt()
-        said, missing = await self._facts(user, prompt, text, host)
-        if not missing:
+        said, found = await self._facts(user, prompt, text, host)
+        again_user = asked_again(user, found)
+        if again_user is None:
             return said
-        again, missing_again = await self._facts(again_message(user, missing), prompt, text, host)
+        again, found_again = await self._facts(again_user, prompt, text, host)
         logger.info(
-            "судья сегмента: цитата не нашлась — второй вопрос",
-            extra={"host": host, "held": again.facts is not None},
+            "судья сегмента: цитата не доказала ответ — второй вопрос",
+            extra={
+                "host": host,
+                "short": found is not None and found.short,
+                "held": again.facts is not None,
+            },
         )
-        return second_chance(said, again, missing_again)
+        return second_chance(said, again, found_again.missing if found_again is not None else "")
 
-    async def _facts(self, user: str, system: str, text: SiteText, host: str) -> tuple[Said, str]:
-        """Один вызов фактов: ответ — и цитата вида сайта, которой нет в тексте (пусто — нет такой)."""
+    async def _facts(
+        self, user: str, system: str, text: SiteText, host: str
+    ) -> tuple[Said, segment_facts.Read | None]:
+        """Один вызов фактов: ответ — и как он прочитан по тексту (`segment_facts.read`: цитата, которой
+        нет в тексте, или её нет вовсе); модель не ответила — прочитанного нет."""
         asked = await self.ask(user=user, system=system, schema=segment_facts.SCHEMA, host=host)
         if asked.failure is not None:
             return Said(
@@ -325,11 +360,9 @@ class SegmentClient(ModelClient):
                 True,
                 asked.cut_off,
                 asked.no_credits,
-            ), ""
+            ), None
         found = segment_facts.read(asked.content, text)
-        return Said(
-            found.facts, found.failure, asked.model, asked.tokens, asked.spent
-        ), found.missing
+        return Said(found.facts, found.failure, asked.model, asked.tokens, asked.spent), found
 
     async def scope(self, segment: str) -> tuple[Scope | str, Asked]:
         """Разбор описания сегмента (`segment_scope`): итог или почему его нет — и сам вызов."""

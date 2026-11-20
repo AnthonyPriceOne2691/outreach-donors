@@ -12,7 +12,10 @@
 
 **Цитаты проверяет код** (`SiteText.holds`, как у v3): цитата вида сайта не нашлась — ответ не
 доказан целиком: слова причины называют саму цитату коротко (`made_up`) — решает человек, а модель
-спрашивают второй раз (`Read.missing`, `segment_client.SegmentClient.judge`). Цитата места, страны
+спрашивают второй раз (`Read.missing`, `segment_client.SegmentClient.judge`). Цитаты вида сайта нет
+или она короче трёх слов — ответ не доказан так же, и второй вопрос — тоже, своей подсказкой
+(`Read.short`): замер 19.11 на прогонах сбора — модель не дала цитаты 3 сайтам из 102, и все три ушли
+человеку только из-за неё. Цитата места, страны
 бизнеса или «только там» не нашлась — в счёт не идёт этот факт, а не весь ответ; сколько таких —
 `dropped`: пропуск считается, а не исчезает молча. Код страны, которого нет в ISO 3166-1, — тоже
 пропуск.
@@ -252,11 +255,13 @@ class _Checked:
 @dataclass(frozen=True, slots=True)
 class Read:
     """Ответ модели, прочитанный по тексту сайта: факты — или почему их нет, словами. Цитата вида
-    сайта, которой нет в тексте, — отдельно (`missing`): по ней модель спрашивают второй раз."""
+    сайта, которой нет в тексте, — отдельно (`missing`); цитаты нет или она короче трёх слов —
+    признаком (`short`): по тому и другому модель спрашивают второй раз, каждый — своей подсказкой."""
 
     facts: SiteFacts | None
     failure: str = ""
     missing: str = ""
+    short: bool = False
 
 
 def read(content: str, text: SiteText) -> Read:
@@ -267,7 +272,8 @@ def read(content: str, text: SiteText) -> Read:
         return Read(None, form)
     quote = _words(form["quote"])
     if (why_not := unproven(quote, text)) is not None:
-        return Read(None, why_not, "" if why_not in (NO_QUOTE, SHORT_QUOTE) else quote)
+        short = why_not in (NO_QUOTE, SHORT_QUOTE)
+        return Read(None, why_not, "" if short else quote, short)
     check = _Checked(text)
     home_quote = check.quote(form["home_quote"])
     home = check.code(form["home"]) if home_quote else ""

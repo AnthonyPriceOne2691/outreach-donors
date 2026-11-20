@@ -180,14 +180,10 @@ async def test_the_second_question_is_the_same_question_with_the_words_not_found
     assert _user(second).count(sj.SITE_CLOSE) == 1  # закрыть данные раньше времени нельзя
 
 
-@pytest.mark.parametrize(
-    "body",
-    [facts("yes", "", "без цитаты"), facts("yes", "pan artesanal", "x"), "не JSON"],
-    ids=["no-quote", "two-words", "not-json"],
-)
-async def test_only_a_quote_not_found_in_the_text_gets_a_second_question(body: Any) -> None:
-    """Нет цитаты, цитата короче трёх слов, ответ не разобран — прежние «на проверку» без повтора."""
-    verdict, seen = await judged(body, facts("yes", FOUND, "пекарня"))
+async def test_an_answer_not_parsed_gets_no_second_question() -> None:
+    """Ответ не разобран — прежние «на проверку» без повтора: следующий проход спросит снова. Нет
+    цитаты или она короче трёх слов — второй вопрос своей подсказкой (`test_sales_segment_no_quote`)."""
+    verdict, seen = await judged("не JSON", facts("yes", FOUND, "пекарня"))
 
     assert verdict.lane is Lane.REVIEW
     assert (len(seen), verdict.retried) == (1, False)
@@ -311,9 +307,13 @@ async def test_a_rejudge_counts_second_questions_and_adds_them_to_earlier_attemp
 
 
 def test_the_spare_tokens_per_site_keep_a_share_for_the_second_question() -> None:
-    """Смета до первых прогонов v5 — запасным числом: доля на второй вопрос — не меньше верхней
-    границы доли повторов по замеру 22.10 (5 сайтов из 286 к модели), с округлением вверх."""
-    assert cp_upper(5, 286) <= se.QUOTE_RETRY_SHARE
+    """Смета до первых прогонов версии — запасным числом: доля на второй вопрос — не меньше суммы
+    верхних границ: цитата не нашлась (замер 22.10, 5 сайтов из 286 к модели) и цитаты нет или она
+    короче трёх слов (замер 19.11, 3 из 102), с округлением вверх."""
+    missing, short = cp_upper(5, 286), cp_upper(3, 102)
+    assert missing is not None
+    assert short is not None
+    assert missing + short <= se.QUOTE_RETRY_SHARE
     assert se.TOKENS_PER_SITE >= se.TOKENS_PER_CALL * (1 + se.QUOTE_RETRY_SHARE)
     assert se.TOKENS_PER_SITE % 100 == 0
 
