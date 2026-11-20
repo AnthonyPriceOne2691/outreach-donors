@@ -49,6 +49,47 @@ describe('рама приложения', () => {
     expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
   });
 
+  it('выход сначала закрывает пропуск на сервере — тем пропуском, что был', async () => {
+    // Аудит 20.11.2026: «Выйти» стирал пропуск только в браузере, а его копия пускала до
+    // конца суток. Теперь выход закрывает его и на сервере.
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    const recorded = serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'POST /api/auth/logout': { status: 204 },
+      ...HOME_ROUTES,
+    });
+    renderWith(<AppRoutes />, '/');
+    await screen.findByText('Учётки');
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Выйти' }));
+
+    expect(await screen.findByText('Вход для сотрудников')).toBeInTheDocument();
+    const out = recorded.calls.filter((call) => call.path === '/api/auth/logout');
+    expect(out).toEqual([
+      { method: 'POST', path: '/api/auth/logout', body: undefined, token: 'пропуск' },
+    ]);
+    expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+  });
+
+  it('обрыв связи не держит выход: пропуск стёрт, человек на входе', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'POST /api/auth/logout': () => {
+        throw new TypeError('Failed to fetch');
+      },
+      ...HOME_ROUTES,
+    });
+    renderWith(<AppRoutes />, '/');
+    await screen.findByText('Учётки');
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Выйти' }));
+
+    expect(await screen.findByText('Вход для сотрудников')).toBeInTheDocument();
+    expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+    expect(screen.queryByText('Сеанс закончился')).not.toBeInTheDocument();
+  });
+
   it('неизвестный адрес — внутри рамы, с объяснением и дорогой на главную', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({ 'GET /api/auth/me': { body: ADMIN } });

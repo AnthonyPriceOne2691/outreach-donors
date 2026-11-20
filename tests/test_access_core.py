@@ -31,8 +31,11 @@ from backend.features.access.permissions import (
     require,
 )
 from backend.features.access.tokens import (
+    REFUSED,
+    REQUIRED_CLAIMS,
     STAMP_CLAIM,
     STAMP_LENGTH,
+    TOKEN_ID_CLAIM,
     SecretMissingError,
     TokenError,
     create_token,
@@ -179,6 +182,51 @@ class TestTokens:
 
         with pytest.raises(TokenError, match=said):
             read_token(forged)
+
+    def test_every_pass_has_its_own_number(self) -> None:
+        """Номер пропуска (аудит 20.11.2026) — свой у каждого: по нему выход закрывает этот
+        пропуск, а не все пропуска учётки, и простой считается по сеансу, а не по человеку."""
+        first, second = (read_token(create_token(7, password_hash=HASH)) for _ in range(2))
+
+        assert first.token_id
+        assert second.token_id
+        assert first.token_id != second.token_id
+
+    def test_a_pass_issued_before_the_numbers_still_reads(self) -> None:
+        """Выданный до выкатки номеров доживает свои сутки: номера пока нет в обязательных
+        полях, иначе выкатка выбросила бы всех разом."""
+        claims = jwt.decode(
+            create_token(7, password_hash=HASH), options={"verify_signature": False}
+        )
+        del claims[TOKEN_ID_CLAIM]
+
+        assert read_token(jwt.encode(claims, "x" * 64, algorithm="HS256")).token_id is None
+        assert TOKEN_ID_CLAIM not in REQUIRED_CLAIMS
+
+    @pytest.mark.parametrize("number", [7, "", ["список"]], ids=["число", "пусто", "список"])
+    def test_a_number_we_never_issue_is_refused(self, number: object) -> None:
+        """Номер кладёт только выдача — непустой строкой; другое под нашей подписью — пропуск,
+        собранный не нами."""
+        claims = jwt.decode(
+            create_token(7, password_hash=HASH), options={"verify_signature": False}
+        )
+        claims[TOKEN_ID_CLAIM] = number
+
+        with pytest.raises(TokenError, match=REFUSED):
+            read_token(jwt.encode(claims, "x" * 64, algorithm="HS256"))
+
+    def test_a_broken_pass_is_refused_without_the_library_words(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Проверка прода 20.11.2026: отказ нёс текст библиотеки — «Пропуск не принят: Not
+        enough segments». Человеку — одна фраза словами, причина — в журнал приложения."""
+        with caplog.at_level(logging.INFO), pytest.raises(TokenError) as refused:
+            read_token("abc")
+
+        assert str(refused.value) == REFUSED
+        assert [
+            getattr(r, "reason", "") for r in caplog.records if r.message == "пропуск не принят"
+        ]
 
     def test_missing_secret_refuses_loudly(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Пустой секрет — это отказ с инструкцией, а не проверка без подписи."""

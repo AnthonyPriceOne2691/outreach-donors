@@ -102,9 +102,9 @@
       "worst": "—"
     },
     "backend/api/auth/routes.py": {
-      "lines": 132,
+      "lines": 154,
       "complexity": 4,
-      "worst": "sign_in:45"
+      "worst": "sign_in:47"
     },
     "backend/api/auth/schemas.py": {
       "lines": 79,
@@ -177,9 +177,9 @@
       "worst": "of:62"
     },
     "backend/api/deps.py": {
-      "lines": 126,
+      "lines": 149,
       "complexity": 4,
-      "worst": "signed_in:57"
+      "worst": "signed_pass:69"
     },
     "backend/api/donors/__init__.py": {
       "lines": 1,
@@ -722,14 +722,14 @@
       "worst": "—"
     },
     "backend/api/users/routes.py": {
-      "lines": 89,
-      "complexity": 2,
-      "worst": "all_users:31"
+      "lines": 140,
+      "complexity": 3,
+      "worst": "_confirmed:51"
     },
     "backend/api/users/schemas.py": {
-      "lines": 164,
+      "lines": 181,
       "complexity": 5,
-      "worst": "mail_problem:27"
+      "worst": "mail_problem:34"
     },
     "backend/api/watchdog/__init__.py": {
       "lines": 1,
@@ -932,7 +932,7 @@
       "worst": "spared:50"
     },
     "backend/config/access.py": {
-      "lines": 39,
+      "lines": 44,
       "complexity": 0,
       "worst": "—"
     },
@@ -1042,9 +1042,9 @@
       "worst": "—"
     },
     "backend/features/access/administration.py": {
-      "lines": 213,
+      "lines": 241,
       "complexity": 5,
-      "worst": "_guard_admin_supply:83"
+      "worst": "_guard_admin_supply:111"
     },
     "backend/features/access/attempts.py": {
       "lines": 75,
@@ -1076,10 +1076,15 @@
       "complexity": 7,
       "worst": "update_access:174"
     },
+    "backend/features/access/sessions.py": {
+      "lines": 210,
+      "complexity": 7,
+      "worst": "_verdict:150"
+    },
     "backend/features/access/tokens.py": {
-      "lines": 180,
+      "lines": 218,
       "complexity": 5,
-      "worst": "read_token:144"
+      "worst": "read_token:172"
     },
     "backend/features/agent/__init__.py": {
       "lines": 7,
@@ -4097,9 +4102,9 @@
       "worst": "spaced:15"
     },
     "backend/shared/queue.py": {
-      "lines": 448,
+      "lines": 450,
       "complexity": 7,
-      "worst": "job_alive:367"
+      "worst": "job_alive:369"
     },
     "backend/shared/quote.py": {
       "lines": 271,

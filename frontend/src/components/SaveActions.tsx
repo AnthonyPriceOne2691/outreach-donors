@@ -3,7 +3,8 @@
  *
  * Строкой под кнопками, а не в одном ряду с ними (правило 10.10.2026): в ряд окна 440 px они не
  * вставали, и «Сохранить» уезжала на вторую строку (снимок стенда). Общий кусок окон капа Ahrefs
- * и потолков модели на «Расходе»: две копии разошлись бы на первой правке.
+ * и потолков модели на «Расходе» и окна подтверждения паролем админа (`users/ConfirmPasswordModal`):
+ * копии разошлись бы на первой правке.
  */
 
 import { Button, Group, Stack, Text } from '@mantine/core';
@@ -19,6 +20,8 @@ interface Props {
   disabled?: boolean;
   /** Слово на кнопке: «Подтвердить» у смены с просчётом. */
   saveLabel?: string;
+  /** Последствие не отменить одним нажатием — кнопка красная: «Отключить», «Сбросить». */
+  danger?: boolean;
 }
 
 export function SaveActions({
@@ -27,6 +30,7 @@ export function SaveActions({
   locked,
   disabled = false,
   saveLabel = 'Сохранить',
+  danger = false,
 }: Props) {
   return (
     <Stack gap={6} mt={ACTIONS_GAP}>
@@ -37,6 +41,7 @@ export function SaveActions({
         <Button
           type="submit"
           className="press"
+          {...(danger ? { color: 'red' } : {})}
           loading={saving}
           disabled={disabled || locked !== null}
         >

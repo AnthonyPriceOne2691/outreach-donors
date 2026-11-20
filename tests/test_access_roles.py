@@ -223,7 +223,9 @@ class TestAccountOfTheRole:
             "/api/users", json={"email": "one@team.example.test", "role": "donors"}, headers=admin
         )
         changed = await client.patch(
-            f"/api/users/{made.json()['user']['id']}", json={"role": "operator"}, headers=admin
+            f"/api/users/{made.json()['user']['id']}",
+            json={"role": "operator", "current_password": "пароль-для-теста"},
+            headers=admin,
         )
 
         assert made.status_code == 201, made.text

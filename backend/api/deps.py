@@ -5,17 +5,20 @@
 отключённый сотрудник ходит с действующим пропуском до конца суток,
 а отобранное право продолжает действовать столько же. Так же и пароль:
 пропуск несёт только его отпечаток, и смена пароля закрывает выданные до неё
-пропуска (`access/tokens.py`).
+пропуска (`access/tokens.py`). Так же выход и простой (аудит 20.11.2026): закрытый
+выходом или простоем пропуск не пускает до конца своего срока (`access/sessions.py`).
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.access import sessions
 from backend.features.access.attempts import LoginAttempts
 from backend.features.access.permissions import (
     Actor,
@@ -54,12 +57,24 @@ async def db_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
-async def signed_in(
+@dataclass(frozen=True, slots=True)
+class SignedPass:
+    """Вошедший и его пропуск. Учётка нужна каждому маршруту, пропуск — выходу: закрывается
+    номер именно этого пропуска, а не всех пропусков учётки (`access/sessions.close`)."""
+
+    user: UserModel
+    payload: TokenPayload
+
+
+async def signed_pass(
+    request: Request,
     token: str | None = Depends(_pass),
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     session: AsyncSession = Depends(db_session),
-) -> UserModel:
-    """Кто пришёл. Отключённая учётка не проходит даже с целым пропуском.
+) -> SignedPass:
+    """Кто пришёл и с каким пропуском. Отключённая учётка не проходит даже с целым пропуском,
+    закрытый выходом или простоем пропуск — тоже (`access/sessions.admit`). Запрос, который
+    экран сделал сам (`sessions.BACKGROUND_HEADER`), проверяется так же, но простой не прерывает.
 
     Отказ «входа нет» — `SignedOutError` (403 с признаком `signed-out`), а не 401: на 401
     браузер стирает пароль прокси, который сам прикладывает к запросу (`access/permissions.py`).
@@ -69,7 +84,15 @@ async def signed_in(
         raise SignedOutError(f"Нужен вход: пришлите пропуск заголовком {TOKEN_HEADER}")
 
     payload = read_token(given)
-    return _admitted(await AccessRepository(session).by_id(payload.user_id), payload)
+    background = request.headers.get(sessions.BACKGROUND_HEADER) == "1"
+    await sessions.admit(payload, background=background)
+    user = _admitted(await AccessRepository(session).by_id(payload.user_id), payload)
+    return SignedPass(user=user, payload=payload)
+
+
+async def signed_in(signed: SignedPass = Depends(signed_pass)) -> UserModel:
+    """Кто пришёл — учётка вошедшего (`signed_pass`): её ждёт каждый закрытый маршрут."""
+    return signed.user
 
 
 def _admitted(user: UserModel | None, payload: TokenPayload) -> UserModel:
