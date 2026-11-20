@@ -143,7 +143,10 @@ def _verdict(
     language = sj.by_language(text.without_stub(), letters)
     if language is not None and language.lane is Lane.REJECT:
         return sj.settle(host=host, policy=policy, scope=scope, language=language)
-    return sj.settle(host=host, policy=policy, scope=scope, said=_said(row), language=language)
+    said = _said(row)
+    if language is not None:  # буквы язык не назвали — его может назвать факт модели (v6)
+        language = sj.by_language(text.without_stub(), letters, said.facts)
+    return sj.settle(host=host, policy=policy, scope=scope, said=said, language=language)
 
 
 def redecided(

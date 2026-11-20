@@ -3652,9 +3652,9 @@
       "worst": "_known:43"
     },
     "backend/features/sales/segment_client.py": {
-      "lines": 377,
+      "lines": 381,
       "complexity": 7,
-      "worst": "spent_of:117"
+      "worst": "spent_of:121"
     },
     "backend/features/sales/segment_counts.py": {
       "lines": 41,
@@ -3677,9 +3677,9 @@
       "worst": "_judge_line:100"
     },
     "backend/features/sales/segment_facts.py": {
-      "lines": 302,
-      "complexity": 13,
-      "worst": "from_json:149"
+      "lines": 351,
+      "complexity": 10,
+      "worst": "_form:232"
     },
     "backend/features/sales/segment_helper.py": {
       "lines": 345,
@@ -3697,9 +3697,9 @@
       "worst": "put_due:352"
     },
     "backend/features/sales/segment_judge.py": {
-      "lines": 309,
+      "lines": 318,
       "complexity": 10,
-      "worst": "_verdict:208"
+      "worst": "_verdict:215"
     },
     "backend/features/sales/segment_judging.py": {
       "lines": 306,
@@ -3712,9 +3712,9 @@
       "worst": "clean_keywords:72"
     },
     "backend/features/sales/segment_language.py": {
-      "lines": 430,
+      "lines": 475,
       "complexity": 10,
-      "worst": "switches_to:388"
+      "worst": "switches_to:433"
     },
     "backend/features/sales/segment_launch.py": {
       "lines": 137,
@@ -3767,9 +3767,9 @@
       "worst": "decide:278"
     },
     "backend/features/sales/segment_rules.py": {
-      "lines": 339,
+      "lines": 341,
       "complexity": 4,
-      "worst": "_foreign_words:167"
+      "worst": "_foreign_words:169"
     },
     "backend/features/sales/segment_run.py": {
       "lines": 438,
@@ -4292,7 +4292,7 @@
       "worst": "main:419"
     },
     "scripts/eval_sales_segment_field.py": {
-      "lines": 169,
+      "lines": 172,
       "complexity": 6,
       "worst": "scope_of:76"
     },

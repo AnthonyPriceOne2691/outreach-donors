@@ -68,6 +68,18 @@
 Несовпадение — не жёсткое правило: судья выносит по нему вердикт «отказал бы» словами (язык назван)
 или «не понять» (не назван) — `segment_judge.by_language`, — а режим решает, что с ним делать, как с
 вердиктом модели.
+
+**Язык, который буквы не назвали, называет модель** (`named_by_model`, судья v6): фактом ответа — код
+ISO 639-1 и дословная цитата строки сайта на нём (`segment_facts.SiteFacts.language`). Буквы знают
+письменность, модель читает слова: английский, немецкий или испанский с редкими особыми буквами буквы
+не различают, а модель — да. Факт берётся, только если сходится с буквами (`_fits`): язык — из таблицы
+и пишется письменностью сайта, слова цитаты — этой письменности, буквы — из его алфавита. Тогда это
+то же несовпадение, что названное буквами, — «отказал бы» словами с названием языка и пометкой, что
+его назвала модель; нет факта или он не сходится — «не понять», как раньше. Отменить несовпадение
+модель не может: без названного языка оно бывает только на чужой письменности, а язык писем таблица
+ею не пишет — ложное «да» дало бы письмо не на том языке. Версия на языке писем (переключатель,
+страница выдачи) снимает несовпадение раньше, буквами. Язык писем лиду — по-прежнему из письменности
+(`then`): повтор по сохранённому тексту модели не видит, и слова вердикта называют его, когда он другой.
 """
 
 from __future__ import annotations
@@ -207,13 +219,18 @@ class Mismatch:
     #: (`letters_by_script`); пусто — язык назван или строки нет. Его называют слова вердикта и его
     #: же получает лид (`segment_leads.lead_language`).
     then: str = ""
+    #: Язык назвала модель фактом, а не буквы (`named_by_model`); `then` — язык писем лиду, если он
+    #: другой.
+    by_model: bool = False
 
     @property
     def words(self) -> str:
         """Вердикт словами: «язык сайта — украинский, письма — русский»; язык не назван —
         «язык сайта — не понять по буквам (латиница), письма — русский», и с языком писем лиду из
-        таблицы — «…; примете — английский»."""
+        таблицы — «…; примете — английский»; назвала модель — «язык сайта — немецкий (назвала
+        модель), письма — русский; примете — английский»."""
         said = self.said if self.code else f"не понять по буквам ({self.said})"
+        said = f"{self.said} (назвала модель)" if self.by_model else said
         found = f"язык сайта — {said}, письма — {self.letters}"
         return f"{found}; примете — {BY_CODE[self.then].name}" if self.then else found
 
@@ -359,6 +376,34 @@ def _then(found: Mismatch, letters: str) -> str:
     """Язык писем лиду из таблицы письменностей (`Mismatch.then`) — только у неназванного языка
     сайта: названный буквами язык лид получает и так."""
     return "" if found.code else (letters_by_script(found.script, letters) or "")
+
+
+def _fits(quote: str, language: Language, script: str) -> bool:
+    """Цитата модели держит названный ею язык (`named_by_model`): язык пишется письменностью сайта
+    `script`, слова цитаты — этой письменности (не меньше `NAMED_SHARE_MIN`), а у языка с алфавитом
+    этой письменности в таблице слов с буквами не из него — меньше `FOREIGN_SHARE_MIN`, тот же порог,
+    что у сверки: «Über uns und unsere Kuchen» английским не назовётся."""
+    words = _words(quote)
+    own = [word for word in words if _script(word) == script]
+    written = script in (language.script, *language.also)
+    if not written or not own or len(own) < NAMED_SHARE_MIN * len(words):
+        return False
+    if not language.letters or language.script != script:
+        return True
+    return sum(_foreign(word, language) for word in own) < FOREIGN_SHARE_MIN * len(own)
+
+
+def named_by_model(found: Mismatch, code: str, quote: str, letters: str) -> Mismatch:
+    """Несовпадение, где буквы язык сайта не назвали (`found.code` пуст), — с языком, который назвала
+    модель фактом с цитатой строки сайта (шапка модуля; цитату в тексте нашёл код). Факт не сходится с
+    буквами (`_fits`), языка нет в таблице или язык уже назван буквами — `found` как был. Язык писем
+    лиду — прежний (`then` из письменности или язык писем прогона): в словах — когда он другой."""
+    language = BY_CODE.get(code)
+    if found.code or language is None or not _fits(quote, language, found.script):
+        return found
+    lead = found.then or language_code(letters) or ""
+    then = "" if lead == language.code else lead
+    return replace(found, code=language.code, said=language.name, then=then, by_model=True)
 
 
 def identify(text: str) -> str:

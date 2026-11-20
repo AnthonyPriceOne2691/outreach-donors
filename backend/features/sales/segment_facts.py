@@ -2,9 +2,9 @@
 
 Модель v4 полосу не ставит, а отдаёт факты (промпт `prompts/segment.md`): что за сайт (`kind`),
 делает ли его бизнес то, что ищет сегмент (`core`), где сам бизнес (`home`), где он работает
-(`served`), работает ли «только там» (`only`) и местный ли он (`local`). Полосу ставит код по таблице
-правил и полю гипотезы (`segment_rules.py`): правка поля пересчитывает полосу без модели, а факты
-лежат в кэше вердиктов (`sales_segment_verdicts.facts`).
+(`served`), работает ли «только там» (`only`), местный ли он (`local`) и на каком языке его текст
+(`language`, v6). Полосу ставит код по таблице правил и полю гипотезы (`segment_rules.py`): правка
+поля пересчитывает полосу без модели, а факты лежат в кэше вердиктов (`sales_segment_verdicts.facts`).
 
 **Форма — у провайдера** (`json_schema`, `strict`): другой формы модель не вернёт; код всё равно
 сверяет её (ответ подставной модели и провайдер без строгой формы) — нет поля, не тот тип, значение
@@ -23,6 +23,11 @@
 обе не открылись или пришли заглушкой, и модель судила по одному сниппету выдачи. Это часть фактов:
 с ними оно лежит в кэше, и «не понять» говорит человеку, почему (`segment_rules`), и у вердикта из
 кэша.
+
+**Язык сайта** (v6, `SiteFacts.language`): код ISO 639-1 из таблицы языков и цитата строки на нём —
+проверена кодом, как остальные (нет в тексте, короче трёх слов, языка нет в таблице — пропуск). Решает
+им не модель, а сверка языка — и только где буквы язык не назвали (`segment_language.named_by_model`).
+Факты кэша без языка (до v6) читаются: язык не назван.
 """
 
 from __future__ import annotations
@@ -33,6 +38,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.features.sales.hypothesis_countries import known_codes
+from backend.features.sales.segment_alphabets import LANGUAGES
 from backend.features.sales.segment_text import FETCHED_LABELS, LABELS, SiteText, excerpt
 from backend.shared.quote import MIN_QUOTE_WORDS, quote_words, unlabeled
 
@@ -47,6 +53,14 @@ CORES = ("yes", "adjacent", "no", "unsure")
 WORLD = "*"
 #: Ключи ответа — все обязательны.
 KEYS = ("kind", "home", "home_quote", "served", "only", "network", "local", "core", "quote", "why")
+#: Язык сайта (v6): код ISO 639-1 и цитата строки на нём. У провайдера обязательны, как все ключи
+#: строгой формы; у подставной модели, провайдера без строгой формы и фактов кэша до v6 их нет —
+#: язык не назван, ответ разобран.
+LANGUAGE_KEYS = ("language", "language_quote")
+#: Порядок ключей строгой формы — как в промпте: язык — после цитаты вида, до пояснения по-русски.
+ORDER = (*KEYS[:-1], *LANGUAGE_KEYS, KEYS[-1])
+#: Языки, которые модель может назвать: таблица алфавитов (`segment_alphabets`) — у них есть имя.
+LANGUAGE_CODES = frozenset(language.code for language in LANGUAGES)
 #: Слова — вместе с числом (`shared/quote.MIN_QUOTE_WORDS`).
 SHORT_QUOTE = "цитата короче трёх слов — не доказательство"
 NO_QUOTE = "модель не дала цитаты"
@@ -79,9 +93,11 @@ SCHEMA: dict[str, Any] = {
             "local": {"type": "boolean"},
             "core": {"type": "string", "enum": list(CORES)},
             "quote": _TEXT,
+            "language": _TEXT,
+            "language_quote": _TEXT,
             "why": _TEXT,
         },
-        "required": list(KEYS),
+        "required": list(ORDER),
         "additionalProperties": False,
     },
 }
@@ -113,10 +129,15 @@ class SiteFacts:
     local: bool = False
     #: Региональный сайт крупной международной компании или сети (офисы во многих странах).
     network: bool = False
-    #: Сколько фактов не в счёт: цитаты нет в тексте или кода страны нет в ISO 3166-1.
+    #: Сколько фактов не в счёт: цитаты нет в тексте, кода страны нет в ISO 3166-1, языка — в таблице.
     dropped: int = 0
     #: В тексте, по которому судила модель, нет строк главной и страницы из выдачи — только сниппет.
     snippet_only: bool = False
+    #: Язык сайта по словам модели (`LANGUAGE_CODES`) и строка сайта на нём — найдена в тексте
+    #: дословно; пусто — не назван. Решает, только где буквы язык не назвали
+    #: (`segment_language.named_by_model`).
+    language: str = ""
+    language_quote: str = ""
 
     @property
     def places(self) -> frozenset[str]:
@@ -143,6 +164,8 @@ class SiteFacts:
             "network": self.network,
             "dropped": self.dropped,
             "snippet_only": self.snippet_only,
+            "language": self.language,
+            "language_quote": self.language_quote,
         }
 
     @classmethod
@@ -159,20 +182,27 @@ class SiteFacts:
                 str(data["kind"]),
                 str(data["core"]),
                 str(data["quote"]),
-                str(data.get("why") or ""),
-                str(data.get("home") or ""),
-                str(data.get("home_quote") or ""),
+                _optional(data, "why"),
+                _optional(data, "home"),
+                _optional(data, "home_quote"),
                 served,
-                str(data.get("only") or ""),
+                _optional(data, "only"),
                 bool(data.get("local")),
                 bool(data.get("network")),
                 int(data.get("dropped") or 0),
                 bool(data.get("snippet_only")),
+                _optional(data, "language"),
+                _optional(data, "language_quote"),
             )
         except (AssertionError, KeyError, TypeError, ValueError) as exc:
             logger.warning("судья сегмента: факты кэша не той формы", extra={"error": repr(exc)})
             return None
         return found if found.kind in KINDS and found.core in CORES else None
+
+
+def _optional(data: dict[str, Any], key: str) -> str:
+    """Необязательное слово фактов кэша: нет поля (факты прежней версии) или пусто — пустая строка."""
+    return str(data.get(key) or "")
 
 
 def _words(raw: object) -> str:
@@ -243,6 +273,22 @@ class _Checked:
         self.dropped += int(bool(code))
         return ""
 
+    def language(self, raw: object, quote: object) -> tuple[str, str]:
+        """Язык сайта: код из таблицы языков и цитата строки на нём — в тексте и не короче трёх
+        слов; иначе пусто — и пропуск, если язык был назван."""
+        code = raw.strip().lower() if isinstance(raw, str) else ""
+        words = _words(quote)
+        if not code:
+            return "", ""
+        if (
+            code in LANGUAGE_CODES
+            and quote_words(words) >= MIN_QUOTE_WORDS
+            and self.text.holds(words)
+        ):
+            return code, words
+        self.dropped += 1
+        return "", ""
+
     def place(self, raw: object) -> Place | None:
         if not isinstance(raw, dict) or not isinstance(raw.get("countries"), list):
             self.dropped += 1
@@ -278,6 +324,7 @@ def read(content: str, text: SiteText) -> Read:
     home_quote = check.quote(form["home_quote"])
     home = check.code(form["home"]) if home_quote else ""
     served = tuple(found for raw in form["served"] if (found := check.place(raw)) is not None)
+    language, language_quote = check.language(form.get("language"), form.get("language_quote"))
     facts = SiteFacts(
         form["kind"],
         form["core"],
@@ -291,6 +338,8 @@ def read(content: str, text: SiteText) -> Read:
         form["network"],
         check.dropped,
         not any(label in FETCHED_LABELS for label, _ in text.lines),
+        language,
+        language_quote,
     )
     return Read(facts)
 

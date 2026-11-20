@@ -278,7 +278,7 @@ def test_prompt_is_a_versioned_file_with_the_quote_and_injection_rules() -> None
     prompt = sj.load_prompt()
 
     assert sj.PROMPT_PATH.name == "segment.md"
-    assert sj.PROMPT_VERSION == "sales-segment-v5"
+    assert sj.PROMPT_VERSION == "sales-segment-v6"
     # Модель отдаёт факты, а не полосу: слова полосы v3 в промпте нет.
     assert '"fit"' not in prompt
     for key in ("kind", "home", "served", "only", "local", "core", "quote", "why"):
@@ -370,7 +370,7 @@ def test_the_prompt_leaves_places_to_the_code_and_keeps_the_intermediary_signs()
     assert "Places are compared by our code, never here" in prompt
     assert "an online assistant that picks among the offers of other companies" in prompt
     assert "A business's own order form, own price calculator" in prompt
-    assert sj.PROMPT_VERSION == "sales-segment-v5"
+    assert sj.PROMPT_VERSION == "sales-segment-v6"
 
 
 # --- заглушка защиты: по строкам, главная отдельно от выдачи -----------------------------------

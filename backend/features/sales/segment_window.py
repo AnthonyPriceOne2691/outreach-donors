@@ -336,10 +336,10 @@ async def _text(site: Site, ask: Ask) -> SiteText:
 def _recalled(site: Site, ask: Ask, known: Known) -> Judged:
     """Вердикт по знанию кэша, без модели: правило — как есть; факты — таблицей правил по нынешнему
     полю гипотезы, разбору описания и языку писем прогона. Язык сверяется по тексту, который видел
-    прошлый суд, а нет его — по выдаче."""
+    прошлый суд, а нет его — по выдаче; не названный буквами — фактом модели из кэша (v6)."""
     stored = SiteText.parse(site.stored) if site.stored else None
     text = stored or site_text(title=site.title, description=site.description)
-    language = by_language(text.without_stub(), ask.letters)
+    language = by_language(text.without_stub(), ask.letters, known.facts)
     if known.ruled is not None:
         return Judged(language or known.ruled, text, cached=True)
     verdict = settle(

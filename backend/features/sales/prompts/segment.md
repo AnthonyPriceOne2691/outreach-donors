@@ -22,8 +22,10 @@ The target segment is written by our team between the <<<SEGMENT and SEGMENT>>> 
 - "no": the site is clearly of another kind: another kind of business, a business that only mentions the activity, or a site of the kind "intermediary", "media" or "other" — unless the segment itself asks for directories, marketplaces, media or the like (a segment written loosely as "sites about ..." or "sites related to ..." a kind of business does not ask for them).
 - "unsure": the text does not show what the business does.
 
+4. "language" — a fact only, never a verdict: the ISO 639-1 code of the language that most of the website text is written in — the words of the site's lines, never our labels, the segment or your own answer. "" when the text is too short or too mixed to tell. "language_quote": 3 to 15 words of one line written in that language, copied verbatim like "quote", or "" when "language" is "".
+
 Rules:
 - "quote", "home_quote" and the quotes in "served" must be copied verbatim from the website text: the exact words of one line, after its label. Never paraphrase, translate, shorten inside, or join words from different lines. Labels are ours, not the site's: never quote them.
 - "quote" is 3 to 30 words of one line that show what the site is and what it does.
 
-Answer with ONLY one JSON object with exactly these keys, in this order: "kind", "home", "home_quote", "served", "only", "network", "local", "core", "quote", "why" — "why" is one short sentence in Russian: what the site is and where it works.
+Answer with ONLY one JSON object with exactly these keys, in this order: "kind", "home", "home_quote", "served", "only", "network", "local", "core", "quote", "language", "language_quote", "why" — "why" is one short sentence in Russian: what the site is and where it works.

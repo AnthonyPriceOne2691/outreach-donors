@@ -396,7 +396,7 @@ def test_the_prompt_keeps_unclear_for_a_text_that_does_not_show_what_the_site_is
     assert '- "unclear": the text does not show what the site is.' in prompt
     assert '- "unsure": the text does not show what the business does.' in prompt
     assert "A business's own order form, own price calculator" in prompt
-    assert sj.PROMPT_VERSION == "sales-segment-v5"
+    assert sj.PROMPT_VERSION == "sales-segment-v6"
 
 
 @pytest.mark.parametrize(
@@ -435,8 +435,8 @@ def test_the_hint_is_a_prompt_file_next_to_the_judge_prompt() -> None:
 
 @pytest.mark.parametrize(
     ("version", "asked"),
-    [("sales-segment-v4", True), (sj.PROMPT_VERSION, False)],
-    ids=["v4-asked-again", "own-version-served"],
+    [("sales-segment-v4", True), ("sales-segment-v5", True), (sj.PROMPT_VERSION, False)],
+    ids=["v4-asked-again", "v5-asked-again", "own-version-served"],
 )
 async def test_the_bumped_prompt_version_resets_the_verdict_cache(
     session: AsyncSession, version: str, asked: bool
