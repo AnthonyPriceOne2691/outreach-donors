@@ -150,6 +150,14 @@ def proxy_transport(url: str) -> httpx.AsyncBaseTransport:
     return GuardedTransport(httpx.AsyncHTTPTransport(proxy=url, verify=False))
 
 
+def _metered(transport: httpx.AsyncBaseTransport, meter: TrafficMeter) -> httpx.AsyncBaseTransport:
+    """Счётчик — у провода. Защита распаковывает тело сама (`GuardedTransport`), и счётчик
+    поверх неё насчитал бы распакованное — в разы больше оплаченного; поэтому он под ней."""
+    if isinstance(transport, GuardedTransport):
+        return transport.around_wire(lambda wire: MeteredTransport(wire, meter))
+    return MeteredTransport(transport, meter)
+
+
 class ProxyPool:
     """Список прокси, текущий из них, смена на следующий по кругу и счёт трафика.
 
@@ -235,9 +243,7 @@ class ProxyPool:
                 f"адрес прокси {self.name} не принят ({type(exc).__name__}): "
                 "схема http, https или socks5 — последняя с пакетом httpx[socks]"
             ) from None
-        client = httpx.AsyncClient(
-            transport=MeteredTransport(transport, self.meter), timeout=self._timeout
-        )
+        client = httpx.AsyncClient(transport=_metered(transport, self.meter), timeout=self._timeout)
         self._open = (url, client)
         return client
 

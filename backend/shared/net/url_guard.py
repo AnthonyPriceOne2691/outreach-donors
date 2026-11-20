@@ -11,8 +11,15 @@
 туда — уже без всякой проверки. Поэтому проверка живёт в транспорте и
 срабатывает на каждом шаге цепочки, а не один раз перед запросом.
 
-**Размер ответа тоже ограничен.** Чужой сайт может отдавать гигабайты;
-без потолка это память сервера, а не наша страница с контактами.
+**Размер ответа тоже ограничен — по распакованным байтам.** Чужой сайт может отдавать
+гигабайты; без потолка это память сервера, а не наша страница с контактами. Сжатый ответ
+опаснее: 29 КБ gzip разворачиваются в 30 МБ, а распаковку httpx делает выше транспорта,
+и до 20.11.2026 её ничто не ограничивало (потолок в 1 МБ — прочитано 30 000 033 байт).
+Поэтому gzip и deflate распаковывает сам транспорт, шагами не длиннее `INFLATE_STEP`,
+и потолок считает уже распакованное; httpx получает ответ без `Content-Encoding` и второй
+раз не распаковывает. Просим у сайта только эти два сжатия: br и zstd распаковать
+с пределом нечем, и непрошеное сжатие с непустым телом — отказ словами
+(`UnboundedEncodingError`).
 
 **Имя распознаётся в потоке, а не в цикле событий.** `getaddrinfo` блокирует:
 до 14.10.2026 он шёл прямо в транспорте, и пока система искала имя одного сайта,
@@ -39,17 +46,31 @@ import asyncio
 import ipaddress
 import logging
 import socket
-from collections.abc import AsyncIterator, Iterable
+import zlib
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterable, Iterator
+from contextlib import aclosing
 from urllib.parse import urlparse
 
 import httpcore
 import httpx
 
+from backend.shared.net.charset import page_encoding, text_codec
+
 logger = logging.getLogger(__name__)
 
-#: Сколько байт ответа читаем максимум. Страница контактов в этот размер
-#: укладывается с большим запасом.
+#: Сколько байт ответа читаем максимум — распакованных, а не пришедших по сети.
+#: Страница контактов в этот размер укладывается с большим запасом.
 MAX_RESPONSE_BYTES = 10 * 1024 * 1024
+
+#: Больше этого распаковка за один шаг не выдаёт (и не больше потолка ответа): 64 КБ deflate
+#: разворачиваются до ~64 МБ за один вызов, если вызов не ограничен.
+INFLATE_STEP = 64 * 1024
+
+#: Сжатия, которые транспорт распаковывает сам, с пределом на шаг, — окно zlib для каждого.
+_WBITS = {"gzip": zlib.MAX_WBITS | 16, "x-gzip": zlib.MAX_WBITS | 16, "deflate": zlib.MAX_WBITS}
+
+#: Что просим у сайта, если вызывающий не оставил своего из того, что мы умеем.
+ACCEPT_ENCODING = "gzip, deflate"
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
 
@@ -71,6 +92,14 @@ BLOCKED_HOSTS = frozenset(
 
 class UnsafeUrlError(ValueError):
     """Адрес не прошёл проверку: чужая схема или внутренний адрес."""
+
+
+class UnboundedEncodingError(httpx.DecodingError):
+    """Сайт сжал ответ тем, что мы не просили и не умеем распаковать с пределом (br, zstd, …).
+
+    Наследник `httpx.DecodingError`: для вызывающих это обычная неоткрывшаяся страница —
+    обход, поиск адресов и судьи ловят `httpx.HTTPError` и пишут причину словами.
+    """
 
 
 def _is_private(address: str) -> bool:
@@ -158,22 +187,163 @@ def checked_addresses(host: str) -> list[str]:
     return addresses
 
 
-class _CappedStream(httpx.AsyncByteStream):
-    """Поток ответа с потолком: лишнее не читается, а не отбрасывается после."""
+class _Inflater:
+    """Распаковка gzip/deflate выдачами не длиннее шага: бомба не разворачивается за один вызов.
 
-    def __init__(self, stream: httpx.AsyncByteStream, limit: int) -> None:
+    `decompress(data, step)` останавливается на `step` байтах выхода, непрочитанный вход
+    кладёт в `unconsumed_tail`; следующая выдача — только когда её попросят. Перестали
+    просить (потолок ответа) — остаток не распаковывается вовсе.
+    """
+
+    def __init__(self, coding: str, step: int) -> None:
+        self._coding = coding
+        self._step = step
+        self._zlib = zlib.decompressobj(_WBITS[coding])
+        self._fresh = True  # ещё ни одного шага: deflate без обёртки zlib пробуется заново
+
+    def feed(self, data: bytes) -> Iterator[bytes]:
+        """Кусок тела с сети → распакованные выдачи по одной за шаг."""
+        while not self._zlib.eof:
+            piece = self._inflate(data)
+            data = self._zlib.unconsumed_tail
+            if piece:
+                yield piece
+            # Выдача короче шага и вход съеден — у zlib больше ничего нет до следующего куска.
+            if not data and len(piece) < self._step:
+                return
+
+    def finish(self) -> Iterator[bytes]:
+        """Хвост после последнего куска. Вход уже съеден `feed`, так что хвост — крохи."""
+        try:
+            tail = self._zlib.flush()
+        except zlib.error as exc:
+            raise httpx.DecodingError(f"сжатый ответ ({self._coding}) оборван: {exc}") from exc
+        if tail:
+            yield tail
+
+    def _inflate(self, data: bytes) -> bytes:
+        try:
+            piece = self._zlib.decompress(data, self._step)
+        except zlib.error as exc:
+            if self._fresh and self._coding == "deflate":
+                # «deflate» без обёртки zlib: так шлют многие серверы, httpx пробует так же.
+                self._fresh = False
+                self._zlib = zlib.decompressobj(-zlib.MAX_WBITS)
+                return self._inflate(data)
+            raise httpx.DecodingError(
+                f"сжатый ответ ({self._coding}) не распаковывается: {exc}"
+            ) from exc
+        self._fresh = False
+        return piece
+
+
+class _Refused:
+    """Сжатие, которое не распаковать с пределом: пустое тело (редирект, HEAD) пропускаем,
+    непустое — отказ словами."""
+
+    def __init__(self, message: str) -> None:
+        self._message = message
+
+    def feed(self, data: bytes) -> Iterator[bytes]:
+        if data:
+            raise UnboundedEncodingError(self._message)
+        return iter(())
+
+    def finish(self) -> Iterator[bytes]:
+        return iter(())
+
+
+def _decoder_for(
+    response: httpx.Response, url: httpx.URL, step: int
+) -> _Inflater | _Refused | None:
+    """Чем распаковывать тело ответа. `None` — тело не сжато."""
+    codings = [
+        coding.strip().lower()
+        for coding in response.headers.get_list("content-encoding", split_commas=True)
+    ]
+    codings = [coding for coding in codings if coding not in ("", "identity")]
+    if len(codings) == 1 and codings[0] in _WBITS:
+        return _Inflater(codings[0], step)
+    if not codings:
+        return None
+    return _Refused(
+        f"сайт сжал ответ {url} в «{', '.join(codings)}»: такое сжатие мы не просили "
+        "и распаковать с пределом не можем"
+    )
+
+
+def _bounded_accept(asked: str | None) -> str:
+    """`Accept-Encoding` для сайта: из списка вызывающего — только то, что распаковываем с
+    пределом. Не осталось ничего (httpx по умолчанию добавляет br и zstd, если они стоят) —
+    `ACCEPT_ENCODING`."""
+    kept = [
+        part.strip()
+        for part in (asked or "").split(",")
+        if part.split(";")[0].strip().lower() in {*_WBITS, "identity"}
+    ]
+    return ", ".join(kept) or ACCEPT_ENCODING
+
+
+def _answer_headers(response: httpx.Response, *, decoded: bool) -> httpx.Headers:
+    """Заголовки ответа для httpx.
+
+    Распакованный ответ — без сжатия и без длины сжатого тела, иначе httpx распакует второй раз.
+    charset, которым текст не читается (`zlib`, `base64`, `rot13`, `undefined`), httpx всё равно
+    берёт — и `response.text` падает мимо обработчиков `httpx.HTTPError`. Такой `Content-Type`
+    сводится к одному типу: тогда кодировку решает `default_encoding` (`<meta>` или utf-8).
+    Параметры уходят все: вырезать один charset значило бы повторять разбор httpx со всеми
+    его формами (`charset*=''zlib` по RFC 2231 он тоже читает).
+    """
+    headers = httpx.Headers(
+        [
+            (name, value)
+            for name, value in response.headers.raw
+            if not decoded or name.lower() not in (b"content-encoding", b"content-length")
+        ]
+    )
+    charset = response.charset_encoding
+    if charset is not None and text_codec(charset) is None:
+        logger.info("url-guard: charset %r из заголовка — не кодировка текста, убран", charset)
+        headers["Content-Type"] = response.headers["Content-Type"].split(";", 1)[0].strip()
+    return headers
+
+
+class _CappedStream(httpx.AsyncByteStream):
+    """Поток ответа с потолком по распакованным байтам: лишнее не читается и не распаковывается,
+    а не отбрасывается после."""
+
+    def __init__(
+        self,
+        stream: httpx.AsyncByteStream,
+        limit: int,
+        decoder: _Inflater | _Refused | None = None,
+    ) -> None:
         self._stream = stream
         self._limit = limit
+        self._decoder = decoder
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
         read = 0
+        async with aclosing(self._pieces()) as pieces:
+            async for piece in pieces:
+                read += len(piece)
+                if read > self._limit:
+                    logger.info("url-guard: ответ обрезан на %d байт", self._limit)
+                    yield piece[: self._limit - read]
+                    return
+                yield piece
+
+    async def _pieces(self) -> AsyncGenerator[bytes]:
+        """Тело кусками — распакованными, если ответ сжат."""
         async for chunk in self._stream:
-            read += len(chunk)
-            if read > self._limit:
-                logger.info("url-guard: ответ обрезан на %d байт", self._limit)
-                yield chunk[: self._limit - read]
-                return
-            yield chunk
+            if self._decoder is None:
+                yield chunk
+                continue
+            for piece in self._decoder.feed(chunk):
+                yield piece
+        if self._decoder is not None:
+            for piece in self._decoder.finish():
+                yield piece
 
     async def aclose(self) -> None:
         await self._stream.aclose()
@@ -238,14 +408,24 @@ class GuardedTransport(httpx.AsyncBaseTransport):
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         await asyncio.to_thread(assert_safe_url, request.url)
+        request.headers["Accept-Encoding"] = _bounded_accept(request.headers.get("Accept-Encoding"))
         response = await self._inner.handle_async_request(request)
+        # Шаг не больше потолка и не ноль: для zlib `max_length=0` значит «без предела».
+        decoder = _decoder_for(response, request.url, max(1, min(INFLATE_STEP, self._limit)))
         return httpx.Response(
             status_code=response.status_code,
-            headers=response.headers,
-            stream=_CappedStream(response.stream, self._limit),  # type: ignore[arg-type]
+            headers=_answer_headers(response, decoded=decoder is not None),
+            stream=_CappedStream(response.stream, self._limit, decoder),  # type: ignore[arg-type]
             extensions=response.extensions,
             request=request,
         )
+
+    def around_wire(
+        self, layer: Callable[[httpx.AsyncBaseTransport], httpx.AsyncBaseTransport]
+    ) -> GuardedTransport:
+        """Та же защита с ещё одним слоем у самого провода — под распаковкой и потолком.
+        Счётчику трафика прокси (`crawl/proxies.py`) нужны оплаченные байты, а не распакованные."""
+        return GuardedTransport(layer(self._inner), max_response_bytes=self._limit)
 
     async def aclose(self) -> None:
         await self._inner.aclose()
@@ -257,5 +437,9 @@ def guarded_client(*, timeout: httpx.Timeout | float, **kwargs: object) -> httpx
     Проверка сертификата выключена намеренно: у доноров она протухает
     постоянно, а читаем мы публичные страницы и ничего им не передаём.
     Защита здесь от другого — от похода во внутреннюю сеть.
+
+    Страницу без charset в заголовке клиент читает в кодировке из её `<meta>`
+    (`charset.page_encoding`), а не всегда в utf-8; свой `default_encoding` — у вызывающего.
     """
+    kwargs.setdefault("default_encoding", page_encoding)
     return httpx.AsyncClient(transport=GuardedTransport(), timeout=timeout, **kwargs)  # type: ignore[arg-type]

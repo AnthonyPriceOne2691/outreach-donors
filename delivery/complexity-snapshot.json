@@ -1852,9 +1852,9 @@
       "worst": "count_decision:57"
     },
     "backend/features/crawl/proxies.py": {
-      "lines": 248,
+      "lines": 254,
       "complexity": 5,
-      "worst": "__init__:160"
+      "worst": "__init__:168"
     },
     "backend/features/crawl/reason_words.py": {
       "lines": 73,
@@ -4116,6 +4116,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/shared/net/charset.py": {
+      "lines": 53,
+      "complexity": 4,
+      "worst": "page_encoding:28"
+    },
     "backend/shared/net/idn.py": {
       "lines": 95,
       "complexity": 4,
@@ -4127,9 +4132,9 @@
       "worst": "with_retries:124"
     },
     "backend/shared/net/url_guard.py": {
-      "lines": 262,
+      "lines": 446,
       "complexity": 10,
-      "worst": "assert_safe_url:115"
+      "worst": "assert_safe_url:144"
     },
     "backend/shared/net/url_parts.py": {
       "lines": 50,
