@@ -92,7 +92,8 @@ class JudgeTally:
     by_rule: int = 0
     #: Модель не ответила: вердикта нет, домен — человеку и следующему проходу.
     unanswered: int = 0
-    #: Из них ответ обрезан потолком вывода (`segment_judge.CUT_OFF`): доля за прогон — по ним.
+    #: Ответ обрезан потолком вывода (`segment_judge.CUT_OFF`) — у не ответившей или у второго
+    #: вопроса цитате (сайт тогда «на проверку» и не в `unanswered`): доля за прогон — по ним.
     cut_off: int = 0
     unanswered_reason: str | None = None
     #: Судья сказал «нет» — модель или язык сайта: в `enforce` отсечены, в наблюдении — в полосе
@@ -137,14 +138,14 @@ class JudgeTally:
         self.paid(verdict.tokens, verdict.spent)
 
     def paid(self, tokens: int, spent: Spent | None) -> None:
-        """Токены одного вызова модели — всего и раздельно (`segment_judge.Spent`)."""
+        """Токены вызова модели (у второго шанса цитате — двух) — всего и раздельно
+        (`segment_judge.Spent`); не названные раздельно — «раздельно неизвестно»."""
+        split = spent if spent is not None else Spent(0, 0, unsplit=tokens)
         self.tokens += tokens
-        if spent is None:
-            self.unsplit_tokens += tokens
-            return
-        self.prompt_tokens += spent.prompt
-        self.completion_tokens += spent.completion
-        self.reasoning_tokens += spent.reasoning
+        self.prompt_tokens += split.prompt
+        self.completion_tokens += split.completion
+        self.unsplit_tokens += split.unsplit
+        self.reasoning_tokens += split.reasoning
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,9 +274,9 @@ def count(judged: Judged, tally: JudgeTally) -> None:
     if verdict is None:
         return
     tally.spend(verdict)
+    tally.cut_off += int(verdict.cut_off)
     if verdict.unanswered:
         tally.unanswered += 1
-        tally.cut_off += int(verdict.cut_off)
         tally.unanswered_reason = tally.unanswered_reason or verdict.reason[:300]
         return
     tally.from_cache += int(judged.cached)
