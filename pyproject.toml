@@ -117,6 +117,7 @@ include = ["backend*"]
 # сюда: иначе упадёт `tests/test_package_data.py`, а образ проверит шаг CI
 # «Шаблоны писем и промпты — внутри образа».
 [tool.setuptools.package-data]
+"backend.features.access" = ["common_passwords.txt"]
 "backend.features.letters" = ["templates/*.txt", "prompts/*.md"]
 "backend.features.keywords" = ["prompts/*.md"]
 "backend.features.agent" = ["prompts/*.md"]

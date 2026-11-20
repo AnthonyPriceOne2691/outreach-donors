@@ -225,6 +225,9 @@ class AuditAction(StrEnum):
 
     LOGIN = "login"
     LOGIN_FAILED = "login_failed"
+    # Вход учётки поставлен на паузу после неудач подряд (`access/lockout.py`, аудит 20.11.2026):
+    # сколько неудач и на сколько минут. Отказы во время паузы в журнал не пишутся — только начало.
+    LOGIN_PAUSED = "login_paused"
     PASSWORD_CHANGED = "password_changed"  # noqa: S105 — это название события, не пароль
     USER_CREATED = "user_created"
     USER_UPDATED = "user_updated"

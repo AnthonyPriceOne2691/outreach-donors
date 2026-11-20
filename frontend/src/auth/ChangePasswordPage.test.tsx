@@ -29,10 +29,19 @@ describe('смена своего пароля', () => {
     renderWith(<AppRoutes />, '/password');
     await screen.findByText('Смена пароля');
 
-    await fill('разовый', 'коротко', 'коротко');
+    // Четырнадцать знаков — на один короче минимума (аудит 20.11.2026: пятнадцать, а не десять).
+    await fill('разовый', 'четыре слова и', 'четыре слова и');
 
-    expect(screen.getByText(/Не короче 10 знаков/)).toBeInTheDocument();
+    expect(screen.getByText('Не короче 15 знаков: длина надёжнее сложности')).toBeInTheDocument();
     expect(recorded.calls.filter((call) => call.method === 'POST')).toHaveLength(0);
+  });
+
+  it('минимум назван сразу, в подсказке поля, а не после первого отказа', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({ 'GET /api/auth/me': { body: NEWCOMER } });
+    renderWith(<AppRoutes />, '/password');
+
+    expect(await screen.findByText(/^Не короче 15 знаков: три-четыре своих слова/)).toBeVisible();
   });
 
   it('несовпадение повторов ловится на месте', async () => {

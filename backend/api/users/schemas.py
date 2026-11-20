@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
+from backend.config import access as cfg
 from backend.features.access.permissions import has_permission
 from backend.features.access.repository import actor_of
 from backend.features.core.domain import Permission, UserRole
@@ -129,13 +130,22 @@ class NewUser(BaseModel):
         return email
 
 
+def _one_time_note() -> str:
+    """Подпись к разовому паролю: показан один раз и живёт срок (аудит 20.11.2026) — админ
+    узнаёт о сроке, когда выдаёт пароль, а не от сотрудника, которого не пустило."""
+    return (
+        f"Пароль показан один раз и действует {cfg.ONE_TIME_TTL_HOURS} ч. При входе система "
+        "потребует его сменить; не успеет за это время — сбросьте пароль ещё раз."
+    )
+
+
 class OneTimePassword(BaseModel):
     """Разовый пароль. Показывается один раз: в базе только хеш,
     и второй раз показать его будет нечем."""
 
     user: UserCard
     password: str
-    note: str = "Пароль показан один раз. При входе система потребует его сменить."
+    note: str = Field(default_factory=_one_time_note)
 
 
 class AccessPatch(BaseModel):
