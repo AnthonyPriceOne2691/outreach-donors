@@ -101,7 +101,7 @@ docker compose exec api outreach user-add --email ivan@site.com --role admin
 | `reaper` | разбор мёртвых прогонов: продолжает осиротевших, закрывает безнадёжных |
 | `followups` | добивки: второе и третье письмо цепочки уходят по сроку |
 | `postgres`, `redis` | база и очередь, тома переживают пересоздание |
-| `migrate` | одноразовый: `alembic upgrade head` до старта остальных |
+| `migrate` | одноразовый, до старта остальных: `alembic upgrade head`, затем роль приложения в базе и её права (`shared/database/app_role.py`; сервисы ходят ею, если задан `POSTGRES_APP_PASSWORD`) |
 
 Песочница выдачи включена по умолчанию (`SERP_SANDBOX=true`): живой ключ
 тратит деньги, и переключение в бой — решение человека, а не следствие

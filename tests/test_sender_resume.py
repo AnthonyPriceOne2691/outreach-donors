@@ -19,8 +19,8 @@ from backend.features.core.models.outreach import SenderModel
 from backend.features.outreach import senders
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.committed_db import committed_sessions
 from tests.conftest import TEST_DSN, make_sender
-from tests.test_send_race import committed_sessions
 
 #: Разгон ящика — некруглые минуты, не дата-обязательство.
 STARTED = datetime(2026, 10, 1, 9, 17, 43, tzinfo=UTC)

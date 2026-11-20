@@ -27,7 +27,6 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, ReplyModel
 from httpx import AsyncClient
-from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
 
@@ -158,14 +157,16 @@ class TestFilters:
         self, client: AsyncClient, session: AsyncSession, admin: UserModel, token: str
     ) -> None:
         moment = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
-        journal = AccessRepository(session)
+        # Время — сразу при вставке: запись журнала не правится и в тесте (замок ревизии
+        # `d4f8a2c61e93`, аудит 20.11.2026), а `record` время не принимает — его ставит база.
         for days, target in ((-1, "вчера"), (0, "в полдень"), (1, "завтра")):
-            await journal.record(AuditAction.PRICE_REVIEWED, author_id=admin.id, target=target)
-            await session.flush()
-            await session.execute(
-                update(AuditLogModel)
-                .where(AuditLogModel.target == target)
-                .values(created_at=moment + timedelta(days=days))
+            session.add(
+                AuditLogModel(
+                    user_id=admin.id,
+                    action=AuditAction.PRICE_REVIEWED,
+                    target=target,
+                    created_at=moment + timedelta(days=days),
+                )
             )
         await session.commit()
 

@@ -31,13 +31,14 @@ from backend.workers import reaper
 from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.committed_db import committed_sessions
 from tests.conftest import TEST_DSN, make_sender
 from tests.test_delivery_events import _keypair
 from tests.test_delivery_events_repeat import _deliver, _event
 from tests.test_recipient_dns_hold import Dns, Postman
 from tests.test_sales_soft_signals import NOW, _box
 from tests.test_sales_stage_bridge import FakeSalesMail
-from tests.test_send_race import MEETING, committed_sessions
+from tests.test_send_race import MEETING
 from tests.thread_letters import Conversation, conversation, first_letter, weekday
 
 OUTAGE = (

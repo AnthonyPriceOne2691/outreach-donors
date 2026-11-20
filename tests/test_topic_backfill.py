@@ -31,9 +31,9 @@ from backend.features.topics.backfill import backfill_topics, plan_topics
 from backend.features.topics.classifier import TOPIC_VERSION, SiteText, TopicVerdict
 from backend.features.topics.cost import ESTIMATE
 from backend.features.topics.store import TopicRecord, TopicStore
-from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from tests.conftest import TEST_DSN
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.committed_db import committed_sessions
 
 T = Thresholds(min_dr=20, min_org_traffic=500, min_refdomains=100, min_keywords=300)
 KNOWN = TopicRecord("travel", None, "путеводитель", "gpt-5-mini", TOPIC_VERSION, "serp")
@@ -318,22 +318,8 @@ class TestBackfill:
 async def committed() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     """Сессии с настоящими фиксациями: обрыв проверяется тем, что осталось в базе.
     После теста база вычищается целиком — остальные тесты ждут пустые таблицы."""
-    engine = create_async_engine(TEST_DSN)
-    try:
-        yield async_sessionmaker(engine, expire_on_commit=False)
-    finally:
-        async with engine.begin() as conn:
-            tables = (
-                await conn.execute(
-                    text(
-                        "SELECT tablename FROM pg_tables "
-                        "WHERE schemaname = 'public' AND tablename <> 'alembic_version'"
-                    )
-                )
-            ).scalars()
-            listed = ", ".join(f'"{table}"' for table in tables)
-            await conn.execute(text(f"TRUNCATE {listed} RESTART IDENTITY CASCADE"))
-        await engine.dispose()
+    async with committed_sessions() as factory:
+        yield factory
 
 
 async def test_a_stop_keeps_the_answers_done_and_a_repeat_takes_the_rest(
