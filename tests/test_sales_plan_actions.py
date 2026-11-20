@@ -347,6 +347,28 @@ async def test_more_without_keys_and_depth_says_need_keys_at_once(session: Async
     assert row.problems[0]["words"] == keys_words(5, 2, 10)
 
 
+async def test_more_after_the_keys_ran_out_at_the_target_asks_for_keys_again(
+    session: AsyncSession,
+) -> None:
+    """Ключи кончились на набранной цели: «нужны ключи» говорят, что «Продолжить» отправит в письма.
+    «Собрать ещё» поднимает цель, а ключей и глубины нет — гипотеза стоит, и слова снова просят
+    ключи."""
+    row = await sheet(session, keys=WORDS, max_pages=2, target=2)
+    await accepted(session, row, 2)
+    await bought_out(session, row)
+    row.stage, row.found = PlanStage.STOPPED.value, 2
+    row.problems = [problem(Problem.KEYS, keys_words(2, 2, 2), NOW)]
+    await session.flush()
+
+    await plan_actions.collect_more(session, row.id, 3, author_id=None, now=LATER)
+
+    assert (row.target, row.stage, codes(row)) == (5, "stopped", ["keys"])
+    assert row.problems[0]["words"] == keys_words(2, 2, 5)
+    assert row.problems[0]["words"].endswith(
+        "найдено 2 из 5 — добавьте ключи или поднимите глубину"
+    )
+
+
 async def test_more_beyond_the_largest_target_is_refused_in_words(session: AsyncSession) -> None:
     row = await sheet(session, target=999_990)
 
@@ -487,6 +509,28 @@ async def test_added_keys_go_after_the_sheet_on_every_market_and_the_sheet_works
     assert (row.stage, row.problems) == ("collecting", [])
     [said] = await journal(session)
     assert (said["действие"], said["ключей"], said["уже были"]) == (plan_keys.KEYS_ADDED, 1, 1)
+
+
+async def test_keys_added_at_the_met_target_send_the_sheet_on_like_resume(
+    session: AsyncSession, jobs: _Jobs
+) -> None:
+    """Ключи кончились на набранной цели: «нужны ключи» остаются, и кнопка «Добавить ключи» экрана
+    видна — она безвредна. Ключи прибавились — проблема снята, гипотеза снова в работе, и её ход
+    переводит её в письма, как «Продолжить»."""
+    row = await sheet(session, keys=WORDS, max_pages=1, target=2)
+    await accepted(session, row, 2)
+    await bought_out(session, row)
+    row.stage, row.found = PlanStage.STOPPED.value, 2
+    row.problems = [problem(Problem.KEYS, keys_words(1, 2, 2), NOW)]
+    await session.flush()
+
+    await plan_keys.add_keys(
+        session, row.id, plan_keys.keys_of_text("Fußpflege Praxis"), author_id=None, now=LATER
+    )
+
+    assert (row.stage, row.problems) == ("collecting", [])
+    assert (await step(session, jobs)).did is Did.MOVED
+    assert row.stage == "sending"
 
 
 async def test_keys_the_sheet_already_has_are_refused_in_words(session: AsyncSession) -> None:

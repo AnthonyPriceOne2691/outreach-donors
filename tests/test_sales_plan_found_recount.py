@@ -11,7 +11,8 @@
 проходит, и её собственный предел ожидания замков — прежний; у плана на паузе пропущенное прохода
 не дожидается — его считает первая кнопка строки. Слова «нужны ключи» следуют за числом (стенд
 20.11): решение и проход пишут их на месте, с прежним порядком проблем и временем; цель набрана —
-сняты, этап прежний. Сайты выдуманы (`*.example.test`).
+проблема остаётся словами «Продолжить» и этап прежний, подъём потолка такую не будит, а поднятая
+цель снова просит ключи (ревью 20.11). Сайты выдуманы (`*.example.test`).
 """
 
 from __future__ import annotations
@@ -278,20 +279,77 @@ async def test_a_decision_restates_need_keys_in_place_and_the_cap_sign_stays(
     assert not stopped_on_cap(row)
 
 
-async def test_a_decision_that_meets_the_target_takes_need_keys_off_and_keeps_the_stage(
+async def test_a_decision_that_meets_the_target_keeps_need_keys_in_words_of_resume(
     session: AsyncSession,
 ) -> None:
-    """Цель набрана — ключи этой цели не нужны: «нужны ключи» сняты, другие проблемы и этап —
-    прежние (проход остановленную в письма не переводит). «Продолжить» не отказывает «нужны
-    ключи» — гипотеза снова в работе, и её ход переведёт её в письма."""
+    """Цель набрана — ключей этой цели не просят, но «нужны ключи» остаются: слова — «цель набрана:
+    «Продолжить» отправит гипотезу в письма», на месте и с прежним временем; другие проблемы и
+    этап — прежние (проход остановленную в письма не переводит). «Продолжить» не отказывает —
+    гипотеза снова в работе, и её ход переводит её в письма."""
     failed = problem(Problem.RUN_FAILED, NOT_PUT + "доля потолка модели выбрана", LOOKED)
-    row, review, _ = await _stopped_for_keys(session, 2, [failed])
+    row, review, keys = await _stopped_for_keys(session, 2, [failed])
 
     await segment_report.decide(session, review.id, accept=True, author=SELLER)
 
-    assert (row.found, row.stage, row.problems) == (2, "stopped", [failed])
+    met = keys_words(row.max_pages, 2, 2)
+    assert met.endswith("найдено 2 из 2 — цель набрана: «Продолжить» отправит гипотезу в письма")
+    assert (row.found, row.stage, row.problems) == (2, "stopped", [failed, {**keys, "words": met}])
     await plan_actions.resume_hypothesis(session, row.id, author_id=None, now=LATER)
     assert (row.stage, row.problems) == ("collecting", [])
+    await session.commit()
+    turn = await plan_tick.step(session, _Jobs(), now=LATER)
+    assert (turn, row.stage) == (Turn(Did.MOVED, plan_tick.TARGET_MET), "sending")
+
+
+async def test_a_cap_raised_after_the_target_was_met_does_not_wake_a_sheet_that_stood_on_keys(
+    session: AsyncSession,
+) -> None:
+    """Ревью 20.11: гипотеза встала на потолке, потом — «нужны ключи». «Принять» набрало цель, а
+    «нужны ключи» остались последними из проблем остановки: она стоит на ключах, а не на потолке.
+    Подъём потолка в «Качестве сайтов» снимает «кончился бюджет», но её не будит — и проход не
+    уводит её в письма мимо «Продолжить»."""
+    budget = problem(
+        Problem.BUDGET,
+        cap_words(Outcome.HYPOTHESIS_CAP, Decimal("5.00"), Spent(Decimal("4.90")), Decimal("0.30")),
+        LOOKED - timedelta(hours=1),
+    )
+    row, review, keys = await _stopped_for_keys(session, 2, [budget])
+
+    await segment_report.decide(session, review.id, accept=True, author=SELLER)
+    assert (row.found, [item["code"] for item in row.problems]) == (2, ["budget", "keys"])
+    assert not stopped_on_cap(row)
+    raised = plan_actions.Quality(cap_usd=row.cap_usd + Decimal("10"))
+    await plan_actions.change_quality(session, row.id, raised, author_id=None, now=LATER)
+    await session.commit()
+    await plan_tick.step(session, _Jobs(), now=LATER + timedelta(minutes=1))
+
+    assert row.stage == "stopped"
+    assert row.problems == [{**keys, "words": keys_words(row.max_pages, 2, 2)}]
+
+
+async def test_a_target_raised_after_it_was_met_asks_for_keys_again_with_the_keys_button(
+    session: AsyncSession,
+) -> None:
+    """Ревью 20.11: цель набрана, ключей и глубины нет. Цель подняли в «Качестве сайтов» — «нужны
+    ключи» снова просят ключи (кнопка «Добавить ключи» экрана — по виду проблемы), и «Продолжить»
+    отказывает теми же словами: гипотеза не стоит «Остановленной» без проблемы и без кнопки."""
+    row, review, _ = await _stopped_for_keys(session, 2, [])
+    await bought_out(session, row)
+    await session.commit()
+    await segment_report.decide(session, review.id, accept=True, author=SELLER)
+    assert [item["code"] for item in row.problems] == ["keys"]
+
+    raised = plan_actions.Quality(target=5)
+    await plan_actions.change_quality(session, row.id, raised, author_id=None, now=LATER)
+
+    asked = keys_words(row.max_pages, 2, 5)
+    assert asked.endswith("найдено 2 из 5 — добавьте ключи")
+    assert (row.stage, [(one["code"], one["words"]) for one in row.problems]) == (
+        "stopped",
+        [("keys", asked)],
+    )
+    with pytest.raises(plan_actions.PlanStateError, match="добавьте ключи"):
+        await plan_actions.resume_hypothesis(session, row.id, author_id=None, now=LATER)
 
 
 async def test_the_pass_restates_need_keys_of_a_stopped_sheet_it_counts(
