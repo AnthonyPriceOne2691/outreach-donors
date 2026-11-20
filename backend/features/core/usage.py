@@ -382,6 +382,7 @@ async def _within_env(
                 cap=own.tokens,
                 setting=own.setting,
                 moment=moment,
+                on_screen=part_of(own) is not None,
             )
 
 
@@ -399,7 +400,13 @@ def _readable(own: OwnCap | None) -> None:
 
 
 def _refused(
-    words: str, *, spent: int, cap: int, setting: str, moment: datetime | None = None
+    words: str,
+    *,
+    spent: int,
+    cap: int,
+    setting: str,
+    moment: datetime | None = None,
+    on_screen: bool = True,
 ) -> LlmCapExceededError:
     """Отказ потолка: человеку — слова, журналу — имя настройки, которой его поднять.
 
@@ -409,16 +416,19 @@ def _refused(
 
     Дневной потолок (`moment` — минута проверки) говорит, где его поднимают и когда сброс
     (`llm_caps.after_cap`, 29.10.2026): «продолжение завтра» в полночь по Москве значило ещё
-    три часа. Потолок прогона — настройка сервера, и сброса у него нет.
+    три часа. Потолок прогона — настройка сервера, и сброса у него нет. Свой потолок без поля
+    на «Расходе» (`on_screen` ложно — судья рекламодателей) — тоже настройка сервера, и сброс у
+    него — датой и временем (`llm_caps.after_server_cap`).
     """
     logger.warning(
         "потолок модели выбран: %s",
         setting,
         extra={"setting": setting, "spent": spent, "cap": cap},
     )
-    then = (
-        "поднять потолок прогона может администратор"
-        if moment is None
-        else llm_caps.after_cap(moment)
-    )
+    if moment is None:
+        then = "поднять потолок прогона может администратор"
+    elif on_screen:
+        then = llm_caps.after_cap(moment)
+    else:
+        then = llm_caps.after_server_cap(moment)
     return LlmCapExceededError(f"{words}: {spaced(spent)} из {spaced(cap)} токенов — {then}")
