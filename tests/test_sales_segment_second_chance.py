@@ -48,6 +48,7 @@ from backend.features.sales.segment_text import (
     SiteText,
     page_home,
 )
+from backend.features.sales.segment_window import Judged, JudgeTally, count
 from backend.shared import quote as sq
 from scripts.eval_sales_segment_stats import cp_upper
 from sqlalchemy import select
@@ -90,13 +91,16 @@ def reply(request: httpx.Request, body: Any, prompt: int, completion: int) -> ht
 
 def in_turn(*bodies: Any) -> Callable[[httpx.Request], httpx.Response]:
     """Модель-подделка: ответы по очереди — каждый за 600 токенов ввода и 100 вывода; число —
-    отказ провайдера с этим кодом."""
+    отказ провайдера с этим кодом; функция — ответ целиком (свои токены, обрезанный ответ)."""
     left = list(bodies)
 
     def handle(request: httpx.Request) -> httpx.Response:
         body = left.pop(0)
         if isinstance(body, int):
             return httpx.Response(body, json={"error": {"message": "сбой"}}, request=request)
+        if callable(body):
+            answered: httpx.Response = body(request)
+            return answered
         return reply(request, body, 600, 100)
 
     return handle
@@ -197,6 +201,70 @@ async def test_a_second_call_the_provider_refused_leaves_the_first_answer_words(
     assert (verdict.unanswered, verdict.retried, verdict.retry_held) == (False, True, False)
     assert verdict.tokens == 700
     assert len(seen) == 2
+
+
+def cut_by_the_cap(request: httpx.Request) -> httpx.Response:
+    """Ответ, обрезанный потолком вывода: рассуждение съело вывод, токены оплачены."""
+    usage = {"prompt_tokens": 650, "completion_tokens": 4000, "total_tokens": 4650}
+    choice = {"message": {"content": ""}, "finish_reason": "length"}
+    return httpx.Response(200, json={"choices": [choice], "usage": usage}, request=request)
+
+
+def total_only(body: Any, tokens: int) -> Callable[[httpx.Request], httpx.Response]:
+    """Ответ провайдера без разбивки токенов: в `usage` только итог."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        content = json.dumps(body, ensure_ascii=False)
+        answer = {"choices": [{"message": {"content": content}}], "usage": {"total_tokens": tokens}}
+        return httpx.Response(200, json=answer, request=request)
+
+    return handle
+
+
+async def test_a_second_call_cut_by_the_output_cap_stays_counted_as_cut_off() -> None:
+    """Ревью 20.11: второй вызов обрезан потолком вывода — сайт «на проверку» словами первого
+    ответа и не «без ответа», а обрезка не теряется: она в вердикте и в счёте прохода
+    (`JudgeTally.cut_off`) — доля обрезанных за прогон её видит."""
+    verdict, seen = await judged(facts("yes", JOINED, "пекарня"), cut_by_the_cap)
+
+    assert (verdict.lane, verdict.reason) == (Lane.REVIEW, made_up(JOINED))
+    assert (verdict.unanswered, verdict.cut_off, verdict.retried) == (False, True, True)
+    assert (verdict.tokens, verdict.spent) == (700 + 4650, sj.Spent(600 + 650, 100 + 4000))
+    tally = JudgeTally()
+    count(Judged(verdict, BAKERY_TEXT), tally)
+    assert (tally.unanswered, tally.cut_off, tally.tokens) == (0, 1, 5350)
+    assert len(seen) == 2
+
+
+@pytest.mark.parametrize(
+    ("second", "unsplit"),
+    [(400, 0), (402, 0), (total_only(facts("yes", FOUND, "пекарня в Валенсии"), 900), 900)],
+    ids=["refused", "no-credits", "total-only"],
+)
+async def test_a_second_call_without_the_split_keeps_the_split_of_the_first(
+    second: Any, unsplit: int
+) -> None:
+    """Ревью 20.11: второй вызов пришёл без разбивки токенов — отказ провайдера без `usage` или
+    только итог. Разбивка первого остаётся вводом и выводом, «раздельно неизвестно» — только токены
+    второго, и сумма в счёте прохода — все токены обоих вызовов."""
+    verdict, _ = await judged(facts("yes", JOINED, "пекарня"), second)
+
+    assert (verdict.tokens, verdict.spent) == (700 + unsplit, sj.Spent(600, 100, unsplit=unsplit))
+    tally = JudgeTally()
+    count(Judged(verdict, BAKERY_TEXT), tally)
+    split = (tally.prompt_tokens, tally.completion_tokens, tally.unsplit_tokens)
+    assert (tally.tokens, split) == (700 + unsplit, (600, 100, unsplit))
+
+
+def test_two_calls_without_the_split_stay_unsplit_as_one_call() -> None:
+    """Ни один из двух вызовов не назвал разбивку — итог «раздельно неизвестно» целиком, как у
+    одного такого вызова: ни ввод, ни вывод не выдуманы нулём."""
+    first = sc.Said(None, made_up(JOINED), "gpt-5-mini", 700)
+    again = sc.Said(None, made_up(JOINED), "gpt-5-mini", 900)
+
+    found = sc.second_chance(first, again, JOINED)
+
+    assert (found.tokens, found.spent, found.cut_off) == (1600, None, False)
 
 
 def test_the_words_name_a_long_quote_shortly() -> None:

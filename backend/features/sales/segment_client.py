@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -112,6 +112,17 @@ class Spent:
     prompt: int
     completion: int
     reasoning: int = 0
+    #: Токены вызова, который провайдер раздельно не назвал, — у суммы двух вызовов (`_both`): так
+    #: разбивка другого вызова не пропадает.
+    unsplit: int = 0
+
+    def __add__(self, other: Spent) -> Spent:
+        return Spent(
+            self.prompt + other.prompt,
+            self.completion + other.completion,
+            self.reasoning + other.reasoning,
+            self.unsplit + other.unsplit,
+        )
 
 
 def _count(value: object) -> int | None:
@@ -233,6 +244,8 @@ class Said:
     spent: Spent | None = None
     #: Ответа нет вовсе (отказ, пустой или обрезанный ответ): следующий проход спросит снова.
     unanswered: bool = False
+    #: Ответ обрезан потолком вывода (`CUT_OFF`) — у вызова или хоть у одного из двух
+    #: (`second_chance`).
     cut_off: bool = False
     #: У ключа модели нет кредитов: сайт не судили — проход встаёт, сайт ждёт «Продолжить».
     no_credits: bool = False
@@ -243,27 +256,35 @@ class Said:
     retry_held: bool = False
 
 
-def _both(first: Spent | None, second: Spent | None) -> Spent | None:
-    """Токены двух вызовов раздельно; хоть один не назван раздельно — оба «раздельно неизвестно»."""
-    if first is None or second is None:
+def _split(said: Said) -> Spent:
+    """Токены вызова раздельно; провайдер их не назвал — все «раздельно неизвестно»
+    (`Spent.unsplit`)."""
+    return said.spent if said.spent is not None else Spent(0, 0, unsplit=said.tokens)
+
+
+def _both(first: Said, again: Said) -> Spent | None:
+    """Токены двух вызовов раздельно. Один не назван раздельно (только итог, отказ без `usage`) —
+    его токены «раздельно неизвестно», а разбивка другого остаётся (ревью 20.11: пропадала, и всё
+    уходило в `unsplit_tokens` прохода); не назван ни один — `None`, как у одного вызова."""
+    if first.spent is None and again.spent is None:
         return None
-    return Spent(
-        first.prompt + second.prompt,
-        first.completion + second.completion,
-        first.reasoning + second.reasoning,
-    )
+    return _split(first) + _split(again)
 
 
 def second_chance(first: Said, again: Said, missing_again: str) -> Said:
     """Итог второго вопроса: факты нового ответа — или «на проверку» словами. Цитата нового ответа
     тоже не нашлась — его слова (с его цитатой); новый ответ не дал ничего лучше (сбой провайдера, нет
-    цитаты) — слова первого. Токены — обоих вызовов. Нет кредитов на втором — первый ответ остаётся:
-    проход встанет на следующем сайте."""
-    tokens, spent = first.tokens + again.tokens, _both(first.spent, again.spent)
+    цитаты) — слова первого. Токены — обоих вызовов, разбивка — какая названа (`_both`). Обрезан
+    потолком вывода хоть один из двух — итог это помнит (`Said.cut_off`): иначе обрезанный второй
+    вызов пропадал из доли обрезанных за прогон (`JudgeTally.cut_off`). Нет кредитов на втором —
+    первый ответ остаётся: проход встанет на следующем сайте."""
+    tokens, spent = first.tokens + again.tokens, _both(first, again)
     if again.facts is not None:
-        return Said(again.facts, "", again.model, tokens, spent, retried=True, retry_held=True)
-    failure = again.failure if missing_again else first.failure
-    return Said(None, failure, first.model, tokens, spent, retried=True)
+        said = Said(again.facts, "", again.model, tokens, spent, retried=True, retry_held=True)
+    else:
+        failure = again.failure if missing_again else first.failure
+        said = Said(None, failure, first.model, tokens, spent, retried=True)
+    return replace(said, cut_off=first.cut_off or again.cut_off)
 
 
 class SegmentClient(ModelClient):
