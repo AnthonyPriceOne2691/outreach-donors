@@ -4118,7 +4118,7 @@
     },
     "backend/shared/net/charset.py": {
       "lines": 53,
-      "complexity": 3,
+      "complexity": 4,
       "worst": "page_encoding:28"
     },
     "backend/shared/net/idn.py": {
@@ -4132,7 +4132,7 @@
       "worst": "with_retries:124"
     },
     "backend/shared/net/url_guard.py": {
-      "lines": 434,
+      "lines": 446,
       "complexity": 10,
       "worst": "assert_safe_url:144"
     },
