@@ -19,6 +19,10 @@ class _Access(DomainSettings):
     # с обновлением не окупается, а долгий украденный пропуск — это доступ
     # к базе контактов и к отправке писем.
     token_ttl_hours: int = Field(default=24, validation_alias="ACCESS_TOKEN_TTL_HOURS")
+    # Простой сеанса (аудит 20.11.2026, №6): столько минут без действий человека — и пропуск
+    # больше не пускает, хотя суточный срок не вышел (`access/sessions.py`). Ноль — простой не
+    # считать, останется только суточный срок: рычаг на случай, если счёт простоя мешает работать.
+    idle_minutes: int = Field(default=60, ge=0, validation_alias="ACCESS_IDLE_MINUTES")
     # Попыток входа с одного адреса в минуту. Подбор пароля не должен
     # быть бесплатным.
     login_attempts_per_minute: int = Field(
@@ -49,6 +53,7 @@ MIN_SECRET_BYTES: int = 32
 
 JWT_SECRET: str = _s.jwt_secret
 TOKEN_TTL_HOURS: int = _s.token_ttl_hours
+IDLE_MINUTES: int = _s.idle_minutes
 LOGIN_ATTEMPTS_PER_MINUTE: int = _s.login_attempts_per_minute
 ONE_TIME_TTL_HOURS: int = _s.one_time_ttl_hours
 LOCKOUT_AFTER_FAILURES: int = _s.lockout_after_failures

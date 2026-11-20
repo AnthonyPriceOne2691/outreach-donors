@@ -1,9 +1,9 @@
-"""Вход, «кто я» и смена своего пароля.
+"""Вход, «кто я», смена своего пароля и выход.
 
-Три маршрута, и все три доступны без прав: правами меряется работа,
+Четыре маршрута, и все четыре доступны без прав: правами меряется работа,
 а это — сам доступ к ней.
 
-**«Кто я» и смена пароля работают с разовым паролем за спиной.**
+**«Кто я», смена пароля и выход работают с разовым паролем за спиной.**
 Остальные маршруты — нет: иначе требование сменить выданный пароль
 держится на вежливости интерфейса.
 """
@@ -12,13 +12,15 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api import deps
 from backend.api.auth.schemas import Credentials, Me, PasswordChange, SignedIn
-from backend.api.deps import db_session, signed_in
+from backend.api.deps import SignedPass, db_session, signed_in, signed_pass
 from backend.config import access as cfg
+from backend.features.access import sessions
 from backend.features.access.administration import WrongPasswordError, change_own_password
 from backend.features.access.attempts import TooManyAttemptsError
 from backend.features.access.login import LoginFailedError, attempted_email, login
@@ -128,4 +130,24 @@ async def change_password(
     await session.refresh(user)
     return SignedIn(
         token=token, expires_in_hours=cfg.TOKEN_TTL_HOURS, user=Me.of(user, actor_of(user))
+    )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Выйти: пропуск закрывается и на сервере",
+)
+async def sign_out(signed: SignedPass = Depends(signed_pass)) -> Response:
+    """Выход (аудит 20.11.2026, №7): этот пропуск закрыт до конца своего срока, и его копия —
+    из журнала, со снимка экрана, с чужого компьютера — больше не пускает. Другие сеансы учётки
+    не задеты. С разовым паролем за спиной выйти тоже можно.
+
+    Redis не ответил — 503 словами: выход не записан, и пропуск закроется только сроком. Экран
+    стирает пропуск и тогда: человек просил выйти, держать его в сеансе нечем."""
+    if await sessions.close(signed.payload):
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return JSONResponse(
+        {"detail": sessions.NOT_CLOSED}, status_code=status.HTTP_503_SERVICE_UNAVAILABLE
     )

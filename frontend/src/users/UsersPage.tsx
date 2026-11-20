@@ -8,6 +8,11 @@
  * Отказы сервера показываются целиком. Три из них человек увидит чаще
  * прочих — «почта занята», «нельзя снять права с себя», «последний
  * действующий админ», — и все три объясняют, что делать.
+ *
+ * **Роль, права, включение, отключение и сброс чужого пароля — с паролем админа**
+ * (аудит 20.11.2026, №10): сервер без него этих действий не делает, и каждое идёт через
+ * окно «Ваш пароль» (`ConfirmPasswordModal`). Окно же и подтверждает действие: текст называет
+ * последствие, отказ сервера показывается в нём.
  */
 
 import {
@@ -34,9 +39,10 @@ import { ROLE_TITLES, ROLES } from '../api/labels';
 import type { AccessPatch, OneTimePassword, Role, UserCard } from '../api/types';
 import { listUsers, patchUser, resetPassword } from '../api/users';
 import { useSession } from '../auth/AuthProvider';
-import { ConfirmPopover } from '../components/ConfirmPopover';
 import { PageHead } from '../components/PageHead';
 import { formatDateTime } from '../format';
+import { ConfirmPasswordModal } from './ConfirmPasswordModal';
+import type { Confirming } from './ConfirmPasswordModal';
 import { CreateUserModal } from './CreateUserModal';
 import { OneTimePasswordModal } from './OneTimePasswordModal';
 import { PermissionsPopover } from './PermissionsPopover';
@@ -48,8 +54,10 @@ const USERS_QUERY_KEY = ['users'] as const;
  *  страница, когда до правки дошла очередь, — точечные права (`PermissionsPopover`). */
 type Patch = AccessPatch | ((latest: UserCard) => AccessPatch);
 
+/** Окно подтверждения без самого действия: вопрос, последствие и глагол. */
+type Asked = Omit<Confirming, 'run'>;
+
 interface PasswordActionProps {
-  user: UserCard;
   /** Своя строка: себе пароль не сбрасывают, а меняют со старым. */
   own: boolean;
   resetting: boolean;
@@ -61,9 +69,10 @@ interface PasswordActionProps {
  *
  * Сброс закрывает открытые сеансы учётки (проверка прода 10.10.2026: окно обещало «старый
  * перестанет действовать», а пропуск жил до конца суток). Сброс себе закрыл бы и этот
- * сеанс раньше, чем окно покажет разовый, — сервер его не принимает, и кнопки нет.
+ * сеанс раньше, чем окно покажет разовый, — сервер его не принимает, и кнопки нет. Чужой
+ * сброс спрашивает пароль админа (`ConfirmPasswordModal`), и это окно его подтверждает.
  */
-function PasswordAction({ user, own, resetting, onReset }: PasswordActionProps) {
+function PasswordAction({ own, resetting, onReset }: PasswordActionProps) {
   if (own) {
     return (
       <Button component={Link} to="/password" size="compact-sm" variant="default" className="press">
@@ -72,24 +81,15 @@ function PasswordAction({ user, own, resetting, onReset }: PasswordActionProps) 
     );
   }
   return (
-    <ConfirmPopover
-      message={`Сбросить пароль ${user.email}? Старый пароль и открытые сеансы перестанут действовать, новый разовый покажется один раз.`}
-      confirm="Сбросить"
-      danger
-      onConfirm={onReset}
+    <Button
+      size="compact-sm"
+      variant="default"
+      className="press"
+      loading={resetting}
+      onClick={onReset}
     >
-      {(ask) => (
-        <Button
-          size="compact-sm"
-          variant="default"
-          className="press"
-          loading={resetting}
-          onClick={ask}
-        >
-          Сбросить пароль
-        </Button>
-      )}
-    </ConfirmPopover>
+      Сбросить пароль
+    </Button>
   );
 }
 
@@ -98,6 +98,7 @@ export function UsersPage() {
   const { user: me, refresh } = useSession();
   const [creating, setCreating] = useState(false);
   const [issued, setIssued] = useState<OneTimePassword | null>(null);
+  const [confirming, setConfirming] = useState<Confirming | null>(null);
 
   const {
     data: users,
@@ -116,10 +117,11 @@ export function UsersPage() {
   const change = useMutation({
     // Правки — по одной, в порядке щелчков, и точечные права собираются, когда до правки
     // дошла очередь: две разом уходили наборами из одного списка, и вторая затирала первую
-    // (QA 10.10.2026). Отказ сервера списка не трогает — переключатель стоит, как стоял.
+    // (QA 10.10.2026). Отказ сервера списка не трогает — переключатель стоит, как стоял, а
+    // текст отказа показывает окно подтверждения.
     scope: { id: 'users-access' },
-    mutationFn: ({ user, patch }: { user: UserCard; patch: Patch }) =>
-      patchUser(user.id, typeof patch === 'function' ? patch(latest(user)) : patch),
+    mutationFn: ({ user, patch, password }: { user: UserCard; patch: Patch; password: string }) =>
+      patchUser(user.id, typeof patch === 'function' ? patch(latest(user)) : patch, password),
     onSuccess: async (updated) => {
       // Ответ сервера — последнее известное состояние учётки: следующая правка в очереди
       // собирается из него, даже если перечитать список не выйдет.
@@ -132,19 +134,19 @@ export function UsersPage() {
       if (updated.id === me?.id) await refresh();
       notify({ message: `Учётка ${updated.email} обновлена`, color: 'green' });
     },
-    onError: (failure) =>
-      notify({ title: 'Не изменили', message: refusalOf(failure), color: 'red' }),
   });
 
   const reset = useMutation({
-    mutationFn: (id: number) => resetPassword(id),
+    mutationFn: ({ id, password }: { id: number; password: string }) => resetPassword(id, password),
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
       setIssued(result);
     },
-    onError: (failure) =>
-      notify({ title: 'Не сбросили', message: refusalOf(failure), color: 'red' }),
   });
+
+  /** Правка доступа — после пароля админа в окне подтверждения. */
+  const askChange = (user: UserCard, patch: Patch, asked: Asked) =>
+    setConfirming({ ...asked, run: (password) => change.mutateAsync({ user, patch, password }) });
 
   if (isLoading) return <Loader aria-label="Загружаем учётки" m="md" />;
 
@@ -186,7 +188,17 @@ export function UsersPage() {
             value={user.role}
             data={ROLES.map((role) => ({ value: role, label: ROLE_TITLES[role] }))}
             onChange={(value) =>
-              value !== null && change.mutate({ user, patch: { role: value as Role } })
+              value !== null &&
+              value !== user.role &&
+              askChange(
+                user,
+                { role: value as Role },
+                {
+                  question: `Сменить роль ${user.email}?`,
+                  consequence: `${ROLE_TITLES[user.role]} → ${ROLE_TITLES[value as Role]}: права учётки сменятся сразу.`,
+                  confirm: 'Сменить роль',
+                },
+              )
             }
           />
         </Group>
@@ -196,34 +208,48 @@ export function UsersPage() {
           <PermissionsPopover
             user={user}
             disabled={change.isPending}
-            onChange={(next) =>
-              change.mutate({ user, patch: (now) => ({ permissions: next(now.overrides) }) })
+            onChange={(next, words) =>
+              askChange(user, (now) => ({ permissions: next(now.overrides) }), {
+                question: `Изменить права ${user.email}?`,
+                consequence: words,
+                confirm: 'Изменить',
+              })
             }
           />
         </Group>
       </Table.Td>
       <Table.Td>
         <Group justify="center">
-          {/* Отключение — с подтверждением: учётка перестаёт пускать сразу. Включение —
-              без: вернуть доступ промахом нельзя навредить. */}
-          <ConfirmPopover
-            message={`Отключить ${user.email}? Учётка перестанет пускать сразу, даже с непросроченным пропуском.`}
-            confirm="Отключить"
-            danger
-            onConfirm={() => change.mutate({ user, patch: { is_active: false } })}
-          >
-            {(ask) => (
-              <Switch
-                aria-label={`Учётка ${user.email} включена`}
-                checked={user.is_active}
-                onChange={(event) =>
-                  event.currentTarget.checked
-                    ? change.mutate({ user, patch: { is_active: true } })
-                    : ask()
-                }
-              />
-            )}
-          </ConfirmPopover>
+          {/* И отключение, и включение — с паролем админа: сервер без него не примет ни то,
+              ни другое (аудит 20.11.2026). Отключение — красной кнопкой: учётка перестаёт
+              пускать сразу. */}
+          <Switch
+            aria-label={`Учётка ${user.email} включена`}
+            checked={user.is_active}
+            onChange={(event) =>
+              event.currentTarget.checked
+                ? askChange(
+                    user,
+                    { is_active: true },
+                    {
+                      question: `Включить ${user.email}?`,
+                      consequence: 'Учётка снова пустит по своему паролю, с правами своей роли.',
+                      confirm: 'Включить',
+                    },
+                  )
+                : askChange(
+                    user,
+                    { is_active: false },
+                    {
+                      question: `Отключить ${user.email}?`,
+                      consequence:
+                        'Учётка перестанет пускать сразу, даже с непросроченным пропуском.',
+                      confirm: 'Отключить',
+                      danger: true,
+                    },
+                  )
+            }
+          />
         </Group>
       </Table.Td>
       <Table.Td>
@@ -233,10 +259,18 @@ export function UsersPage() {
       </Table.Td>
       <Table.Td>
         <PasswordAction
-          user={user}
           own={user.id === me?.id}
-          resetting={reset.isPending && reset.variables === user.id}
-          onReset={() => reset.mutate(user.id)}
+          resetting={reset.isPending && reset.variables.id === user.id}
+          onReset={() =>
+            setConfirming({
+              question: `Сбросить пароль ${user.email}?`,
+              consequence:
+                'Старый пароль и открытые сеансы перестанут действовать, новый разовый покажется один раз.',
+              confirm: 'Сбросить',
+              danger: true,
+              run: (password) => reset.mutateAsync({ id: user.id, password }),
+            })
+          }
         />
       </Table.Td>
     </Table.Tr>
@@ -249,7 +283,7 @@ export function UsersPage() {
         <Group gap="md" align="center">
           <PageHead
             title="Учётки"
-            hint="Учётки не удаляются: вместе с ней ушла бы история действий. Отключённая учётка перестаёт пускать сразу, даже с непросроченным пропуском; сброс пароля так же закрывает её открытые сеансы."
+            hint="Учётки не удаляются: вместе с ней ушла бы история действий. Отключённая учётка перестаёт пускать сразу, даже с непросроченным пропуском; сброс пароля так же закрывает её открытые сеансы. Роль, права, включение и сброс пароля подтверждаются вашим паролем."
           />
           <Button
             className="press"
@@ -291,6 +325,7 @@ export function UsersPage() {
           void queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
         }}
       />
+      <ConfirmPasswordModal confirming={confirming} onClose={() => setConfirming(null)} />
       <OneTimePasswordModal issued={issued} onClose={() => setIssued(null)} />
     </Stack>
   );

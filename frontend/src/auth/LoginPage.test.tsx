@@ -109,6 +109,26 @@ describe('вход после оборванного сеанса', () => {
     expect(screen.getByText('Вход для сотрудников')).toBeInTheDocument();
   });
 
+  it('простой — вход называет причину словами сервера', async () => {
+    // Аудит 20.11.2026: час без действий закрывает сеанс на сервере. Без причины вход звал бы
+    // к админу («пароль могли сбросить»), хотя человек просто долго не работал.
+    const idle = 'Сеанс закончился: долго не было действий — войдите снова';
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'GET /api/suppressions': {
+        status: 403,
+        body: { detail: idle },
+        headers: { 'X-Access-Refusal': 'signed-out' },
+      },
+    });
+    renderWith(<AppRoutes />, '/suppressions');
+
+    expect(await screen.findByText(idle)).toBeInTheDocument();
+    expect(screen.getByText('Сеанс закончился')).toBeInTheDocument();
+    expect(screen.getByText('Вход для сотрудников')).toBeInTheDocument();
+  });
+
   it('выход кнопкой — без объяснений: человек вышел сам', async () => {
     serve({ 'POST /api/auth/login': { body: signedIn(ADMIN) }, ...HOME_ROUTES });
     renderWith(<AppRoutes />, '/login');

@@ -15,6 +15,7 @@
  * ответа нет, и текст браузера («Failed to fetch») человеку ничего не говорит.
  */
 
+import { personAway } from '../auth/presence';
 import { accessDenied, clearToken, readToken } from '../auth/session';
 
 /** Ответ сервера с внятным отказом. */
@@ -144,9 +145,10 @@ export class ProxyPasswordError extends ApiError {
 }
 
 /** Стереть пропуск, которому отказали, — и только его: пока ответ шёл, другая вкладка могла
- *  войти заново или сменить пароль, и её новый пропуск отказ старого не касается. */
-function forgetRefused(sent: string | null): void {
-  if (sent !== null && readToken() === sent) clearToken();
+ *  войти заново или сменить пароль, и её новый пропуск отказ старого не касается. Причина —
+ *  словами сервера: вход скажет, почему сеанс закончился («долго не было действий»). */
+function forgetRefused(sent: string | null, reason: string): void {
+  if (sent !== null && readToken() === sent) clearToken(reason);
 }
 
 function retryAfterOf(response: Response): number | null {
@@ -169,7 +171,7 @@ async function raise(response: Response, sent: string | null): Promise<never> {
     // Входа нет — пропуск больше не действует, хранить его незачем: иначе следующий
     // запрос уйдёт с ним же и получит тот же отказ. 401 без вызова Basic — от сервера
     // до 11.10.2026 (теперь он отвечает 403 с признаком `signed-out`).
-    forgetRefused(sent);
+    forgetRefused(sent, detail);
     throw new AuthError(detail);
   }
   if (response.status === 403) {
@@ -211,12 +213,21 @@ async function arrived<T>(read: () => Promise<T>): Promise<T> {
  *  паролем, что и экран). Имя — как у сервера (`access/tokens.TOKEN_HEADER`). */
 export const PASS_HEADER = 'X-Access-Token';
 
+/** Признак запроса, который экран сделал сам: человек последнюю минуту ничего не делал
+ *  (`auth/presence.ts`). Сервер такой запрос проверяет, но простой сеанса им не прерывает
+ *  (аудит 20.11.2026). Имя — как у сервера (`access/sessions.BACKGROUND_HEADER`). */
+export const BACKGROUND_HEADER = 'X-Background';
+
 /** Пропуск заголовком. Одно место на все запросы: выгрузка файлом когда-то
  *  шла простой ссылкой, без него, и сервер ей отказывал. Возвращает сам пропуск:
- *  отказ «входа нет» сотрёт только его (`forgetRefused`). */
+ *  отказ «входа нет» сотрёт только его (`forgetRefused`). С пропуском — и признак
+ *  фонового запроса, если человека за экраном нет. */
 function withPass(headers: Record<string, string>): string | null {
   const token = readToken();
-  if (token) headers[PASS_HEADER] = token;
+  if (token) {
+    headers[PASS_HEADER] = token;
+    if (personAway()) headers[BACKGROUND_HEADER] = '1';
+  }
   return token;
 }
 

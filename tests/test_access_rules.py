@@ -16,9 +16,11 @@ from typing import Any
 import pytest
 from backend.features.access.administration import (
     LastAdminError,
+    NotConfirmedError,
     SelfLockoutError,
     UnknownUserError,
     change_own_password,
+    confirm_own_password,
     create_user,
     reset_password,
     update_access,
@@ -336,6 +338,34 @@ class TestBcryptOffTheLoop:
 
         assert len(threads) == 3, "сверка старого, сверка нового со старым, хеш нового"
         assert threading.get_ident() not in threads, "bcrypt — в потоке цикла событий"
+
+    async def test_an_admin_confirmation_is_checked_off_the_loop(self, threads: list[int]) -> None:
+        """Подтверждение правки доступа паролем админа (аудит 20.11.2026, №10) — тоже сверка
+        bcrypt, и тоже в потоке."""
+        await confirm_own_password("пароль-для-теста", hash_password("пароль-для-теста"))
+
+        assert len(threads) == 1, "пароль админа не сверяли"
+        assert threading.get_ident() not in threads, "bcrypt — в потоке цикла событий"
+
+
+class TestAdminConfirmation:
+    """Правка доступа и сброс чужого пароля подтверждаются паролем админа (аудит 20.11.2026,
+    №10): пропуск без пароля этих действий не открывает."""
+
+    @pytest.mark.parametrize("given", [None, "", "чужой пароль"], ids=["нет", "пусто", "чужой"])
+    async def test_without_the_own_password_the_action_is_not_confirmed(
+        self, given: str | None
+    ) -> None:
+        with pytest.raises(NotConfirmedError, match="подтвердите действие своим паролем"):
+            await confirm_own_password(given, hash_password("пароль-для-теста"))
+
+    async def test_an_account_without_a_hash_confirms_nothing(self) -> None:
+        with pytest.raises(NotConfirmedError):
+            await confirm_own_password("пароль-для-теста", None)
+
+    def test_the_refusal_is_not_a_sign_out(self) -> None:
+        """Неверный пароль подтверждения сеанса не обрывает: признак свой, а не «входа нет»."""
+        assert NotConfirmedError.refusal == "confirm-password"
 
 
 async def _admin(session: AsyncSession) -> UserModel:

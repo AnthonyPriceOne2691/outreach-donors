@@ -229,13 +229,15 @@ def with_retries() -> dict[str, Any]:
 REDIS_TIMEOUT_SEC = 5.0
 
 
-def connection() -> Redis:
+def connection(timeout: float | None = None) -> Redis:
     """Соединение с очередью. Адрес — из конфига, как и всё остальное; пределы ожидания —
-    `REDIS_TIMEOUT_SEC`."""
+    `REDIS_TIMEOUT_SEC`, а у того, кто ждёт Redis на каждом запросе, — свои, короче (`timeout`:
+    сеансы входа, `access/sessions.py`)."""
+    limit = REDIS_TIMEOUT_SEC if timeout is None else timeout
     return Redis.from_url(
         storage.REDIS_URL,
-        socket_connect_timeout=REDIS_TIMEOUT_SEC,
-        socket_timeout=REDIS_TIMEOUT_SEC,
+        socket_connect_timeout=limit,
+        socket_timeout=limit,
     )
 
 

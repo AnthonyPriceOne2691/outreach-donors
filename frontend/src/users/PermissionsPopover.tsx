@@ -36,8 +36,9 @@ interface Props {
   /** Правка — функцией от последних известных исключений учётки, а не готовым набором.
    *  Набор, собранный при щелчке, брался из списка, загруженного до прошлой правки: второй
    *  быстрый переключатель затирал первый, хотя оба «обновлены» (QA 10.10.2026). Из чего
-   *  собирать, решает страница — когда до правки дойдёт очередь (`UsersPage`). */
-  onChange: (next: (overrides: Overrides) => Overrides) => void;
+   *  собирать, решает страница — когда до правки дойдёт очередь (`UsersPage`). `words` —
+   *  правка словами для окна подтверждения паролем (аудит 20.11.2026). */
+  onChange: (next: (overrides: Overrides) => Overrides, words: string) => void;
 }
 
 export function PermissionsPopover({ user, disabled, onChange }: Props) {
@@ -45,15 +46,21 @@ export function PermissionsPopover({ user, disabled, onChange }: Props) {
   const overrides = user.overrides;
 
   const set = (key: Permission, allowed: boolean) => {
-    onChange((latest) => ({ ...latest, [key]: allowed }));
+    onChange(
+      (latest) => ({ ...latest, [key]: allowed }),
+      `«${title(key)}» — ${allowed ? 'выдать отдельно от роли' : 'отобрать'}.`,
+    );
   };
 
   const back = (key: Permission) => {
-    onChange((latest) => {
-      const next = { ...latest };
-      delete next[key];
-      return next;
-    });
+    onChange(
+      (latest) => {
+        const next = { ...latest };
+        delete next[key];
+        return next;
+      },
+      `«${title(key)}» — как у роли.`,
+    );
   };
 
   return (
