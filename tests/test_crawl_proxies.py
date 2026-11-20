@@ -28,6 +28,7 @@ from backend.features.crawl.proxies import (
 )
 from backend.features.crawl.spend import PROXY_OPERATION
 from backend.features.crawl.walk import DonorCrawler
+from backend.shared.net.url_guard import GuardedTransport
 
 HTML = {"content-type": "text/html; charset=utf-8"}
 PAGE = "<html><body><article>" + "Статья о ставках. " * 40 + "</article></body></html>"
@@ -192,6 +193,28 @@ async def test_traffic_counts_the_wire_body_headers_and_redirect_steps() -> None
     assert len(wire) < traffic < len(wire) + 1_000, "по проводу — сжатое тело и заголовки"
     assert len(response.history) == 1
     assert meter.take() == 0, "насчитанное отдано — счёт заново"
+
+
+async def test_pool_counts_packed_bytes_under_the_guard() -> None:
+    """Защита (`url_guard.GuardedTransport`) распаковывает тело сама — с 20.11.2026, ради потолка
+    по распакованным байтам. Счётчик поверх неё насчитал бы распакованное, в разы больше
+    оплаченного: пул ставит его под защиту, к проводу."""
+    page = b"<html>" + b"x" * 50_000 + b"</html>"
+    wire = gzip.compress(page)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        headers = {**HTML, "content-encoding": "gzip"}
+        return httpx.Response(200, stream=httpx.ByteStream(wire), headers=headers)
+
+    pool = ProxyPool([FIRST], transport=lambda _url: GuardedTransport(httpx.MockTransport(handler)))
+    try:
+        client = await pool.client()
+        response = await client.get("https://donor.example.test/")
+    finally:
+        await pool.aclose()
+
+    assert response.content == page
+    assert len(wire) < pool.meter.take() < len(wire) + 1_000, "по проводу — сжатое тело"
 
 
 class _WireProxy:

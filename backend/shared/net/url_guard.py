@@ -47,7 +47,7 @@ import ipaddress
 import logging
 import socket
 import zlib
-from collections.abc import AsyncGenerator, AsyncIterator, Iterable, Iterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterable, Iterator
 from contextlib import aclosing
 from urllib.parse import urlparse
 
@@ -407,6 +407,13 @@ class GuardedTransport(httpx.AsyncBaseTransport):
             extensions=response.extensions,
             request=request,
         )
+
+    def around_wire(
+        self, layer: Callable[[httpx.AsyncBaseTransport], httpx.AsyncBaseTransport]
+    ) -> GuardedTransport:
+        """Та же защита с ещё одним слоем у самого провода — под распаковкой и потолком.
+        Счётчику трафика прокси (`crawl/proxies.py`) нужны оплаченные байты, а не распакованные."""
+        return GuardedTransport(layer(self._inner), max_response_bytes=self._limit)
 
     async def aclose(self) -> None:
         await self._inner.aclose()
