@@ -175,7 +175,7 @@ async def test_a_cap_below_the_spent_is_refused_in_words_and_nothing_moves(
         )
 
     assert str(refused.value).endswith(
-        f"израсходовано {funds.dollars(2.0012)} — задайте от {funds.dollars(2.01)}"
+        f"израсходовано больше {funds.dollars(2.00)} — задайте от {funds.dollars(2.01)}"
     )
     assert (row.cap_usd, row.target, await journal(session)) == (CAP, 100, [])
     # Ровно израсходованное, поднятое до цента, — можно.
@@ -183,6 +183,8 @@ async def test_a_cap_below_the_spent_is_refused_in_words_and_nothing_moves(
         session, row.id, raise_to("2.01"), author_id=author.id, now=LATER
     )
     assert row.cap_usd == Decimal("2.01")
+    # Расход строки — тот, по которому решён потолок, а не число прошлого прохода.
+    assert row.spent_usd == Decimal("2.0012")
 
 
 async def test_the_reserve_of_a_going_run_is_not_the_spent(
@@ -297,9 +299,20 @@ async def test_a_plan_cap_of_zero_is_a_bad_ask_and_the_same_is_no_change(
 
 
 def test_below_the_spent_words_round_the_least_cap_up_to_a_cent() -> None:
+    """Расход с долей цента — «больше 2,00 $»: округлённое «израсходовано 2,00 $» рядом с отказом
+    потолку 2,00 читалось противоречием (стенд 20.11). Целые центы — как есть, меньше цента —
+    «меньше 0,01 $» правила денег."""
     assert below_spent(Decimal("2.00"), Decimal("2.0001")) == (
-        f"не может быть ниже израсходованного: израсходовано {funds.dollars(2.0001)} — задайте "
-        f"от {funds.dollars(2.01)}"
+        f"не может быть ниже израсходованного: израсходовано больше {funds.dollars(2.00)} — "
+        f"задайте от {funds.dollars(2.01)}"
+    )
+    assert below_spent(Decimal("12.39"), Decimal("12.40")) == (
+        f"не может быть ниже израсходованного: израсходовано {funds.dollars(12.40)} — "
+        f"задайте от {funds.dollars(12.40)}"
+    )
+    assert below_spent(Decimal("0.00"), Decimal("0.004")) == (
+        f"не может быть ниже израсходованного: израсходовано меньше {funds.dollars(0.01)} — "
+        f"задайте от {funds.dollars(0.01)}"
     )
     assert below_spent(Decimal("2.00"), Decimal("2.00")) is None
 

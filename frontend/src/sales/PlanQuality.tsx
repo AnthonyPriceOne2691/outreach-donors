@@ -32,7 +32,7 @@ import { changeQuality, usePlanAction } from './planApi';
 import type { PlanQualityBody, PlanRow, SiteKind } from './planApi';
 import { PlanDialog } from './PlanDialog';
 import { MAX_TARGET } from './PlanMore';
-import { PlanNumberField } from './PlanNumberField';
+import { capError, PlanNumberField } from './PlanNumberField';
 import { dollars, topWords } from './PlanPreviewView';
 import { kindsChange, SiteKinds, siteKindsOf } from './SiteKinds';
 
@@ -143,6 +143,7 @@ export function PlanQuality({ row, card, onClose }: Props) {
         allowNegative={false}
         value={cap}
         onValue={setCap}
+        error={capError(cap)}
       />
       <HypothesisCountries field={field} onChange={setField} />
       <SiteKinds value={kinds} onChange={setKinds} />

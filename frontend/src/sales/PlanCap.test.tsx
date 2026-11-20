@@ -4,7 +4,7 @@
  *
  * Проверяется: потолок уходит числом, а в поле — как набрано: точка и запятая не стираются на ходу
  * (урок 19.11.2026); удалось — уведомление и закрытое окно; тот же потолок — окно закрыто без
- * запроса; пустое поле — «Сохранить» закрыт; отказ сервера (ниже израсходованного) — плашкой словами
+ * запроса; пустое поле — «Сохранить» закрыт и слова у поля после ухода из него; отказ сервера (ниже израсходованного) — плашкой словами
  * сервера, набранное на месте; каркас — заголовок короткий, имя плана строкой под ним, фокус — на
  * поле. Кнопка «Потолок» у строки плана открывает окно — `PlanCell.test.tsx`.
  */
@@ -83,6 +83,26 @@ describe('«Потолок плана»', () => {
     expect(heading.firstChild?.textContent).toBe('Потолок плана');
     expect(screen.getByText(/Израсходовано: 20,00\s\$/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText('Потолок плана, $')).toHaveFocus());
+  });
+
+  it('пустой или нулевой потолок — словами у поля после ухода из него, «Сохранить» закрыт', async () => {
+    setUp();
+    renderWith(<PlanCap plan={PLAN} onClose={vi.fn()} />);
+    const user = userEvent.setup();
+    const cap = screen.getByLabelText('Потолок плана, $');
+
+    await user.clear(cap);
+    // На ходу слов нет: «0» перед «0,5» не мигает отказом.
+    expect(screen.queryByText('Потолок — в долларах, больше нуля')).not.toBeInTheDocument();
+    await user.tab();
+    expect(screen.getByText('Потолок — в долларах, больше нуля')).toBeVisible();
+    expect(cap).toBeInvalid();
+    expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
+    await user.type(cap, '0');
+    expect(screen.getByText('Потолок — в долларах, больше нуля')).toBeVisible();
+    await user.type(cap, ',5');
+    expect(screen.queryByText('Потолок — в долларах, больше нуля')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Сохранить' })).toBeEnabled();
   });
 
   it('поднятый потолок уходит числом, в поле — как набрано; окно закрывается', async () => {
