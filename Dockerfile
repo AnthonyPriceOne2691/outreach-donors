@@ -113,6 +113,11 @@ RUN npm run build
 # --- фронт под nginx -------------------------------------------------------
 FROM mirror.gcr.io/library/nginx:1.27-alpine AS web
 
+# Пакеты Alpine — до свежих исправлений: гейт образов в CI (Trivy, исправимые CRITICAL) нашёл в
+# базе nginx:1.27-alpine (Alpine 3.21.3) brotli-libs 1.1.0 и OpenSSL 3.3.3 при исправленных 1.1.1
+# и 3.3.7 (аудит 20.11.2026). Тег nginx не двигаем: обновляются только пакеты системы.
+RUN apk upgrade --no-cache
+
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY deploy/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY --from=web-build /web/dist /usr/share/nginx/html
