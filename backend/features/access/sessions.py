@@ -189,14 +189,12 @@ def _text(raw: object) -> str:
 
 
 def _moment(raw: object, *, fallback: float) -> float:
-    """Метка действия из Redis — секунды эпохи; нет её или она испорчена — `fallback`."""
-    if not isinstance(raw, bytes | str):
-        return fallback
-    try:
+    """Метка действия из Redis — секунды эпохи целым числом (так её пишет `_verdict`); нет её или
+    она испорчена — `fallback`: простой считается с выдачи пропуска. Проверкой цифр, а не
+    перехватом ошибки разбора: испорченная метка — не сбой, а «метки нет»."""
+    if isinstance(raw, bytes | str) and raw.isdigit():
         return float(raw)
-    except ValueError:
-        # silent-ok: испорченная метка — как её нет: простой считается с выдачи пропуска (`fallback`).
-        return fallback
+    return fallback
 
 
 def _put(key: str, value: str, payload: TokenPayload, now: float) -> bool:
