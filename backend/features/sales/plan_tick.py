@@ -22,6 +22,15 @@
 осталось первого письма (`plan_settle.letters_left`); план — `done`, когда все гипотезы в `done` или
 `stopped`. «Нужны ключи» и потолки — у постановки прогона (`plan_runs.py`).
 
+**Гипотезы в конце** (`done`, `stopped`) — только «найдено» (`plan_found.found_sites`), без
+переходов, расхода и `counted_at`: прогонов им проход не ставит, а счёт меняют прогон, который
+доходит после «Остановить», и решения человека (их пересчёт — сразу, `plan_found.recount`).
+Найдено ≥ цели у остановленной — не переход: правило «цель набрана → письма» проход применяет к
+гипотезе, чей ход, а остановленная хода не получает; «Остановить» человека проход не перебивает, и
+в письмах она держала бы очередь «одна вперёд». Снова в работу её ставит «Продолжить» — тогда её ход
+и переведёт её в письма. `counted_at` не трогается: по нему продолженная гипотеза отдаст итог своего
+прогона в реестр ключей (`_fresh`).
+
 **После прогона** — один раз: прогон кончился позже последнего взгляда прохода (`counted_at`) —
 купленное и отработанные потерянные ключи (`plan_settle.settle`), числа, переходы. Прогон встал — вид
 по словам (`plan_failures.of_stop`): у гипотезы — `stopped` и проблема `run_failed` словами
@@ -50,6 +59,7 @@ from backend.config import sales_plan as plan_cfg
 from backend.config import storage
 from backend.features.sales.plan_budget import Problem, Spent, spending
 from backend.features.sales.plan_failures import Kind, of_stop
+from backend.features.sales.plan_found import found_sites
 from backend.features.sales.plan_gates import Gates
 from backend.features.sales.plan_models import (
     PlanStage,
@@ -205,7 +215,9 @@ async def _going(
 
 
 async def _plan(session: AsyncSession, gates: Gates, plan_id: int, now: datetime) -> Turn:
-    """План: гипотезы в письмах — к концу, следующая по очереди — её ход; все в конце — план тоже."""
+    """План: переходы гипотез (`_moves`), потом «найдено» гипотез, что были в конце до
+    прохода: их строки под замком только до коммита прохода, а не пока ход ставит прогон и
+    спрашивает смету."""
     plan = await _locked(session, Plan, plan_id)
     if plan is None or plan.status != PlanStatus.RUNNING:
         return NOTHING
@@ -216,6 +228,21 @@ async def _plan(session: AsyncSession, gates: Gates, plan_id: int, now: datetime
         .execution_options(populate_existing=True)
     )
     rows = list(found.all())
+    ended = [row for row in rows if row.stage in FINAL]
+    turn = await _moves(session, gates, plan, rows, now)
+    for row in ended:
+        await _ended(session, row)
+    return turn
+
+
+async def _moves(
+    session: AsyncSession,
+    gates: Gates,
+    plan: SalesPlanModel,
+    rows: list[SalesPlanHypothesisModel],
+    now: datetime,
+) -> Turn:
+    """Гипотезы в письмах — к концу, следующая по очереди — её ход; все в конце — план тоже."""
     spent = await spending(session, plan.id)
     for row in rows:
         if row.stage == PlanStage.SENDING:
@@ -238,6 +265,14 @@ async def _sending(
     await count(session, row, spent.get(row.id, Spent()), now)
     if not await letters_left(session, row.hypothesis_id, now=now):
         move(row, PlanStage.DONE, now, why=LETTERS_GONE)
+
+
+async def _ended(session: AsyncSession, row: SalesPlanHypothesisModel) -> None:
+    """Гипотеза в конце: только «найдено» — без переходов, расхода и `counted_at` (шапка модуля)."""
+    locked = await _locked(session, Row, row.id)
+    if locked is None or locked.stage not in FINAL:
+        return
+    row.found = await found_sites(session, row.id)
 
 
 def _next_row(rows: list[SalesPlanHypothesisModel]) -> SalesPlanHypothesisModel | None:

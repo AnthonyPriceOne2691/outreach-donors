@@ -7,11 +7,12 @@
   `SALES_PLAN_LOST_TRIES` прогонах той же волны гипотезы плана на том же рынке — отработан: в реестре
   он куплен этим прогоном, и следующая пачка его не берёт. Иначе волна покупала бы его по кругу, а
   когда в ней останутся только такие ключи — одними ими. Повторная отметка ничего не портит.
-- **Числа гипотезы** (`count`) — найдено (`plan_waves.found_sites`), израсходовано и резерв идущего
+- **Числа гипотезы** (`count`) — найдено (`plan_found.found_sites`), израсходовано и резерв идущего
   прогона (`plan_budget.spending` — расход плана одним чтением) и когда посчитано. Экран не
   пересчитывает сотни отчётов на опросе, а проход по `counted_at` узнаёт прогон, кончившийся после
   его последнего взгляда: время прохода берётся до чтения, и прогон, кончившийся посреди него, —
-  позже.
+  позже. Решение человека по сайту прогона плана пересчитывает «найдено» сразу и `counted_at` не
+  трогает (`plan_found.recount`).
 - **Первые письма** (`letters_left`) — гипотеза в `sending` ждёт, пока у её лидов есть первое письмо
   в очереди, которое уйдёт (ещё не ушло, лид «готов»), или лид «готов» без письма, которому сборка
   его напишет (`queue_plan.decisions` — то же решение, что у сборки и «Напишет» вкладки «Рассылка»).
@@ -38,8 +39,9 @@ from backend.features.letters.chain import FIRST_STEP
 from backend.features.sales import queue_plan
 from backend.features.sales.models import LeadStatus, SalesLeadModel, SalesThreadModel
 from backend.features.sales.plan_budget import Spent
+from backend.features.sales.plan_found import found_sites
 from backend.features.sales.plan_models import SalesPlanHypothesisModel, SalesPlanKeywordModel
-from backend.features.sales.plan_waves import LOST, found_sites, listed_keys, mark_bought
+from backend.features.sales.plan_waves import LOST, listed_keys, mark_bought
 from backend.features.sales.segment_models import SalesSegmentRunModel
 from backend.features.sales.segment_serp import KEY as SERP
 from backend.features.sales.segment_serp import bought
