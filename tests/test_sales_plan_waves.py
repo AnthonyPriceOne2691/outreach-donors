@@ -5,8 +5,9 @@
 следующая, а ключ, добавленный позже, сперва догоняет страницу 1; со второй волны первыми идут ключи,
 чья страница 1 дала принятые сайты, а ключи с пустой выдачей глубже не идут; волны кончились — «нужны
 ключи» значением; купленное отмечается по итогу выдачи, без потерянных ключей и только вперёд;
-«найдено» — уникальные принятые сайты прогонов гипотезы плана — в обычном режиме судьи и в «тени»,
-где полосы кладут те же правила, что у прогона (`segment_judge.effective`, `segment_report.decide`).
+«найдено» (`plan_found.found_sites`) — уникальные принятые сайты прогонов гипотезы плана — в обычном
+режиме судьи и в «тени», где полосы кладут те же правила, что у прогона (`segment_judge.effective`,
+`segment_report.decide`).
 
 Итог выдачи одного прогона пишет настоящий сбор (`segment_serp.collect`) с выдачей-подделкой. Ключи
 — разных ниш и письменностей, сайты выдуманы (`*.example.test`).
@@ -24,7 +25,7 @@ from typing import Any
 import pytest
 from backend.config.judge import JudgeMode
 from backend.features.core.models.domain import DomainModel
-from backend.features.sales import plan_waves, segment_report, segment_serp
+from backend.features.sales import plan_found, plan_waves, segment_report, segment_serp
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.plan_models import (
     PlanMode,
@@ -485,10 +486,10 @@ async def test_found_counts_unique_accepted_sites_of_this_plan_hypothesis_runs(
     manual = await make_run(session, row, Batch(Wave(1, 1), "de", KEYS[:1]), own=False)
     await judged(session, manual, Lane.ACCEPT)
 
-    assert await plan_waves.found_sites(session, row.id) == 2
+    assert await plan_found.found_sites(session, row.id) == 2
 
     await segment_report.decide(session, review.id, accept=True, author=OWNER)
-    assert await plan_waves.found_sites(session, row.id) == 3
+    assert await plan_found.found_sites(session, row.id) == 3
 
 
 async def test_in_shadow_found_counts_judge_and_human_accepts_only(session: AsyncSession) -> None:
@@ -501,13 +502,13 @@ async def test_in_shadow_found_counts_judge_and_human_accepts_only(session: Asyn
     left = await judged(session, run, Lane.REJECT)
     assert (would.lane, review.lane, cut.lane) == (Lane.WOULD_REJECT, Lane.REVIEW, Lane.REJECT)
 
-    assert await plan_waves.found_sites(session, row.id) == 1
+    assert await plan_found.found_sites(session, row.id) == 1
 
     await segment_report.decide(session, would.id, accept=True, author=OWNER)
     await segment_report.decide(session, review.id, accept=True, author=OWNER)
     await segment_report.decide(session, left.id, accept=False, author=OWNER)
-    assert await plan_waves.found_sites(session, row.id) == 3
+    assert await plan_found.found_sites(session, row.id) == 3
 
 
 async def test_a_plan_hypothesis_without_runs_found_nothing(session: AsyncSession) -> None:
-    assert await plan_waves.found_sites(session, (await sheet(session)).id) == 0
+    assert await plan_found.found_sites(session, (await sheet(session)).id) == 0

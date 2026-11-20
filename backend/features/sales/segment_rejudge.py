@@ -22,6 +22,9 @@
   второй раз и сколько удалось — в итоге пересуда (`segment_judging.PassTally`).
 - **Ход** («пересуд: X из Y») и итог — в `run.report["rejudge"]`, без миграции
   (`segment_rejudge_report.py`).
+- **Прогон плана работ** — «найдено» его гипотезы плана заново на каждом чекпоинте, где пересуд
+  клал полосы, той же транзакцией (`plan_found.recount`): пересуд запускает человек, и экран плана
+  не ждёт прохода конвейера, а остановленную гипотезу проход и не считал бы.
 
 Повтор задачи (сбой базы, перезапуск воркера) продолжает тот же пересуд: снимок полос сделан до
 первого вердикта, и пересуженный сайт второй раз к модели не идёт.
@@ -52,6 +55,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.runs.failures import described, is_permanent
 from backend.features.runs.reasons import explained
 from backend.features.sales.models import SalesHypothesisModel
+from backend.features.sales.plan_found import recount
 from backend.features.sales.segment_estimate import NO_SEGMENT, SALES_OFF
 from backend.features.sales.segment_judge import PROMPT_VERSION, SegmentClient, segment_digest
 from backend.features.sales.segment_judging import (
@@ -179,7 +183,8 @@ async def _todo(session: AsyncSession, block: dict[str, Any]) -> list[Site]:
 @dataclass(slots=True)
 class Rejudged:
     """Куда пересуд кладёт вердикты (`segment_window.Sink`): полоса — под условием `_open`, у
-    сайта с лидом — «стало бы» в отчёт; ход — в отчёт на каждом чекпоинте."""
+    сайта с лидом — «стало бы» в отчёт; ход — в отчёт на каждом чекпоинте, у прогона плана — и
+    «найдено» его гипотезы плана (`plan_found.recount`)."""
 
     run_id: int
     block: dict[str, Any]
@@ -196,6 +201,8 @@ class Rejudged:
             self.block["sites"][str(site.candidate_id)][1] = await self._settle(
                 session, site, found, moment
             )
+        if self.taken:  # полосы могли смениться — «найдено» гипотезы плана заново
+            await recount(session, self.run_id)
         self.taken.clear()
         earlier = {key: int(self.block.get(key, 0)) for key in SPENT}
         for key in _SUMMED:

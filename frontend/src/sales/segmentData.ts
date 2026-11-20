@@ -120,6 +120,19 @@ export function depthTitle(pages: number): string {
   return `${formatNumber(pages * 10)} результатов на ключ`;
 }
 
+/**
+ * Купленная глубина выдачи прогона. С первой страницы — как у формы: «50 результатов на ключ».
+ * Волна плана работ покупает глубже, и выдача у неё — только новые страницы: «стр. 4–5, результаты
+ * 31–50 на ключ» (стенд 19.11: прогон волны 4–5 назывался «50 результатов на ключ», а куплено 20).
+ */
+export function runDepthTitle(run: Pick<SegmentRunRow, 'depth_pages' | 'from_page'>): string {
+  const first = run.from_page ?? 1;
+  if (first <= 1) return depthTitle(run.depth_pages);
+  const pages = first === run.depth_pages ? `${first}` : `${first}–${run.depth_pages}`;
+  const results = `${formatNumber((first - 1) * 10 + 1)}–${formatNumber(run.depth_pages * 10)}`;
+  return `стр.\u00a0${pages}, результаты ${results} на ключ`;
+}
+
 /** Язык писем: пусто — язык рынка выдачи. */
 export const LANGUAGE_TITLES: Record<string, string> = { ru: 'русский', en: 'английский' };
 
@@ -140,11 +153,12 @@ export function runTitle(run: SegmentRunRow): string {
   return `${runShortTitle(run)} · ${runRestTitle(run)}`;
 }
 
-/** Шапка отчёта: язык писем, глубина выдачи, кто и когда запустил, когда кончился проход. */
+/** Шапка отчёта: язык писем, купленная глубина выдачи, кто и когда запустил, когда кончился
+ *  проход. */
 export function runFacts(run: SegmentRunRow): string {
   const facts = [
     `язык писем — ${LANGUAGE_TITLES[run.language] ?? run.language}`,
-    `выдача — ${depthTitle(run.depth_pages)}`,
+    `выдача — ${runDepthTitle(run)}`,
   ];
   const who = run.created_by === null ? '' : ` ${run.created_by.split('@', 1)[0]}`;
   facts.push(`запустил${who} ${formatDateTime(run.created_at)}`);
