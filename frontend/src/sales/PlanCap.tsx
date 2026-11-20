@@ -17,7 +17,7 @@ import { notify } from '../notices';
 import { changePlanCap, usePlanAction } from './planApi';
 import type { PlanLive } from './planApi';
 import { PlanDialog } from './PlanDialog';
-import { PlanNumberField } from './PlanNumberField';
+import { capError, PlanNumberField } from './PlanNumberField';
 import { dollars } from './PlanPreviewView';
 
 interface Props {
@@ -62,6 +62,7 @@ export function PlanCap({ plan, onClose }: Props) {
         allowNegative={false}
         value={cap}
         onValue={setCap}
+        error={capError(cap)}
         data-autofocus
       />
     </PlanDialog>

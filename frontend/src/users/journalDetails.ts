@@ -13,6 +13,10 @@
  *
  * **Длинное значение — только в раскрытии**: перечень прав или доменов чистки в итоге растил бы
  * строку так же, как прежняя простыня.
+ *
+ * **Правка — «было → стало» одной парой, первой** (стенд продаж 20.11.2026): у правки потолка
+ * гипотезы плана подробности — план, гипотеза, было, стало; итог показывал план и гипотезу, а что
+ * изменилось, пряталось под «+2 ещё». План и гипотеза видны и в цели записи, изменение — нигде.
  */
 
 import { detailLines } from '../api/auditLabels';
@@ -24,8 +28,13 @@ const REAL = 'ушло на самом деле';
 /** В норме не показываются: у настоящей отправки транспорт один. */
 const QUIET_WHEN_REAL = [REAL, 'транспорт'];
 
-/** Читаются первыми: у письма — кому и от кого. Остальные — в порядке записи. */
-const LEAD = ['кому', 'от кого'];
+/** Пара правки: «было» и «стало» на верхнем уровне записи — одной строкой. */
+const WAS = 'было';
+const NOW = 'стало';
+export const CHANGE = 'было → стало';
+
+/** Читаются первыми: изменение правки, у письма — кому и от кого. Остальные — в порядке записи. */
+const LEAD = [CHANGE, 'кому', 'от кого'];
 
 /** Пар в итоге. */
 export const FACE_PAIRS = 2;
@@ -52,13 +61,22 @@ function rank(line: DetailLine): number {
   return lead < 0 ? LEAD.length : lead;
 }
 
+/** «было» и «стало» обе есть — одна строка «было → стало» вместо двух; одной из них — как есть. */
+function joinChange(lines: DetailLine[]): DetailLine[] {
+  const was = lines.find((line) => line.label === WAS);
+  const now = lines.find((line) => line.label === NOW);
+  if (was === undefined || now === undefined) return lines;
+  const change = { label: CHANGE, value: `${was.value} → ${now.value}` };
+  return [change, ...lines.filter((line) => line !== was && line !== now)];
+}
+
 /** Подробности записи: что на виду, а что — по запросу. `skip` — показанное в другом месте. */
 export function detailView(
   details: Record<string, unknown> | null,
   skip: ReadonlySet<string> = new Set(),
 ): DetailView {
   const quiet = details?.[REAL] === true ? QUIET_WHEN_REAL : [];
-  const lines = detailLines(details, new Set([...skip, ...quiet]));
+  const lines = joinChange(detailLines(details, new Set([...skip, ...quiet])));
   const rest = lines.filter((line) => line.label !== REAL).sort((a, b) => rank(a) - rank(b));
   const face = rest.filter(short).slice(0, FACE_PAIRS);
   const left = rest.filter((line) => !face.includes(line));

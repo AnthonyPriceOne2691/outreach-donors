@@ -936,6 +936,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/config/access_alarms.py": {
+      "lines": 67,
+      "complexity": 0,
+      "worst": "—"
+    },
     "backend/config/advertisers.py": {
       "lines": 190,
       "complexity": 5,
@@ -1357,7 +1362,7 @@
       "worst": "rows:87"
     },
     "backend/features/core/llm_caps.py": {
-      "lines": 352,
+      "lines": 365,
       "complexity": 8,
       "worst": "refusal:214"
     },
@@ -1452,7 +1457,7 @@
       "worst": "check_connected:131"
     },
     "backend/features/core/usage.py": {
-      "lines": 425,
+      "lines": 435,
       "complexity": 8,
       "worst": "ensure_llm_within_cap:291"
     },
@@ -2496,6 +2501,26 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/ops/access_event_words.py": {
+      "lines": 215,
+      "complexity": 7,
+      "worst": "_listed:135"
+    },
+    "backend/features/ops/access_events.py": {
+      "lines": 244,
+      "complexity": 7,
+      "worst": "applied:189"
+    },
+    "backend/features/ops/access_mark.py": {
+      "lines": 210,
+      "complexity": 8,
+      "worst": "tell:72"
+    },
+    "backend/features/ops/access_watch.py": {
+      "lines": 154,
+      "complexity": 6,
+      "worst": "burst:103"
+    },
     "backend/features/ops/alarm_feed.py": {
       "lines": 454,
       "complexity": 7,
@@ -3482,14 +3507,14 @@
       "worst": "read_json:35"
     },
     "backend/features/sales/plan_actions.py": {
-      "lines": 488,
+      "lines": 491,
       "complexity": 9,
       "worst": "refusal:331"
     },
     "backend/features/sales/plan_budget.py": {
-      "lines": 254,
+      "lines": 261,
       "complexity": 4,
-      "worst": "stopped_on_cap:238"
+      "worst": "below_spent:171"
     },
     "backend/features/sales/plan_card.py": {
       "lines": 268,

@@ -198,7 +198,9 @@ describe('обход 24/7: запуск и пауза', () => {
     const question = await screen.findByRole('dialog');
     expect(plain(question.textContent)).toContain('до 1 000 страниц');
     expect(plain(question.textContent)).toContain('по 10 000 страниц каждого сайта');
-    expect(question).toHaveTextContent('Ночной обход 00:00–07:00 по Москве остаётся как есть.');
+    // Часы ночи — настройка сервера (`CRAWL_NIGHT_WINDOW_SEC`, с 20.11 — четыре часа): не зашиты.
+    expect(question).toHaveTextContent('Ночной обход с полуночи по Москве остаётся как есть.');
+    expect(question.textContent).not.toMatch(/0[47]:00/);
     expect(question).toHaveTextContent('Пауза — одним нажатием.');
     expect(posted(recorded)).toEqual([]);
 

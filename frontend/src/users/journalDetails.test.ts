@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { FACE_CHARS, detailView } from './journalDetails';
+import { CHANGE, FACE_CHARS, detailView } from './journalDetails';
 
 const labels = (lines: { label: string }[]) => lines.map((line) => line.label);
 
@@ -55,6 +55,34 @@ describe('подробности записи журнала', () => {
     expect(labels(view.face)).toEqual(['прогон']);
     expect(view.more).toEqual([]);
     expect(labels(view.folded)).toEqual(['домены']);
+  });
+
+  it('правка — «было → стало» одной парой первой, где бы их ни поставила запись', () => {
+    // Стенд продаж 20.11.2026: у правки потолка гипотезы итог показывал план и гипотезу, а «было»
+    // и «стало» прятались под «+2 ещё».
+    const view = detailView(
+      {
+        план: 'Стоматологии',
+        действие: 'потолок гипотезы плана поправлен',
+        гипотеза: 'Импланты',
+        было: '80 $',
+        стало: '75,5 $',
+      },
+      new Set(['действие']),
+    );
+
+    expect(view.face).toEqual([
+      { label: CHANGE, value: '80 $ → 75,5 $' },
+      { label: 'план', value: 'Стоматологии' },
+    ]);
+    expect(labels(view.more)).toEqual(['гипотеза']);
+    expect(view.folded).toEqual([]);
+  });
+
+  it('одно «стало» без «было» — своей строкой, как записано', () => {
+    const view = detailView({ отменено: 'accepted', стало: 'на проверку' });
+
+    expect(labels(view.face)).toEqual(['отменено', 'стало']);
   });
 
   it('показанное в другом месте и пустое — ни в итоге, ни в раскрытии', () => {
