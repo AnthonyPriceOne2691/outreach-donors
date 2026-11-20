@@ -735,7 +735,11 @@ async def test_the_paid_step_runs_only_when_switched_on_and_estimated(
 
 def test_the_collection_keeps_no_copy_of_the_ladder() -> None:
     """Ступени лестницы (страницы, браузер, RDAP, платный сервис) модуль сбора не знает: копия
-    разошлась бы с общей на первой правке соседей."""
+    разошлась бы с общей на первой правке соседей. Исключение одно и узкое — страница из выдачи
+    судье (`segment_text.serp_page`): общий загрузчик берёт одну страницу для текста судьи, как общий
+    разбор главной (`donors/home_signals.check_home`), а не ступень поиска адреса — в модуле только
+    импорт и одна попытка. Появится общий разбор страницы по адресу рядом с `check_home` — исключение
+    уйдёт."""
     from pathlib import Path  # noqa: PLC0415
 
     sales = Path(__file__).resolve().parent.parent / "backend/features/sales"
@@ -746,6 +750,9 @@ def test_the_collection_keeps_no_copy_of_the_ladder() -> None:
             for name in ("ContactLadder", "PageFetcher", "HunterProvider", "rdap")
             if name in source
         ]
+        if module.name == "segment_text.py" and source.count("PageFetcher(") == 1:
+            assert source.count("PageFetcher") == 2  # импорт и одна попытка — `serp_page`
+            copies.remove("PageFetcher")
         assert copies == [], module.name
 
 

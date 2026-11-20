@@ -3767,9 +3767,9 @@
       "worst": "decide:278"
     },
     "backend/features/sales/segment_rules.py": {
-      "lines": 338,
+      "lines": 339,
       "complexity": 4,
-      "worst": "_foreign_words:166"
+      "worst": "_foreign_words:167"
     },
     "backend/features/sales/segment_run.py": {
       "lines": 438,
@@ -3797,9 +3797,9 @@
       "worst": "_judge:210"
     },
     "backend/features/sales/segment_text.py": {
-      "lines": 200,
-      "complexity": 8,
-      "worst": "page_home:128"
+      "lines": 276,
+      "complexity": 9,
+      "worst": "_page_to_read:176"
     },
     "backend/features/sales/segment_tier.py": {
       "lines": 261,
@@ -3822,9 +3822,9 @@
       "worst": "watch:98"
     },
     "backend/features/sales/segment_window.py": {
-      "lines": 492,
+      "lines": 497,
       "complexity": 7,
-      "worst": "_land:446"
+      "worst": "_land:451"
     },
     "backend/features/sales/sender.py": {
       "lines": 335,

@@ -15,14 +15,14 @@
 спрашивают второй раз (`Read.missing`, `segment_client.SegmentClient.judge`). Цитаты вида сайта нет
 или она короче трёх слов — ответ не доказан так же, и второй вопрос — тоже, своей подсказкой
 (`Read.short`): замер 19.11 на прогонах сбора — модель не дала цитаты 3 сайтам из 102, и все три ушли
-человеку только из-за неё. Цитата места, страны
-бизнеса или «только там» не нашлась — в счёт не идёт этот факт, а не весь ответ; сколько таких —
-`dropped`: пропуск считается, а не исчезает молча. Код страны, которого нет в ISO 3166-1, — тоже
-пропуск.
+человеку только из-за неё. Цитата места, страны бизнеса или «только там» не нашлась — в счёт не идёт
+этот факт, а не весь ответ; сколько таких — `dropped`: пропуск считается, а не исчезает молча. Код
+страны, которого нет в ISO 3166-1, — тоже пропуск.
 
-**Что видел судья** (`SiteFacts.snippet_only`): в тексте нет строк главной — главная не открылась
-или пришла заглушкой, и модель судила по одному сниппету выдачи. Это часть фактов: с ними оно лежит в
-кэше, и «не понять» говорит человеку, почему (`segment_rules`), и у вердикта из кэша.
+**Что видел судья** (`SiteFacts.snippet_only`): в тексте нет строк главной и страницы из выдачи —
+обе не открылись или пришли заглушкой, и модель судила по одному сниппету выдачи. Это часть фактов:
+с ними оно лежит в кэше, и «не понять» говорит человеку, почему (`segment_rules`), и у вердикта из
+кэша.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.features.sales.hypothesis_countries import known_codes
-from backend.features.sales.segment_text import HOME_LABELS, LABELS, SiteText, excerpt
+from backend.features.sales.segment_text import FETCHED_LABELS, LABELS, SiteText, excerpt
 from backend.shared.quote import MIN_QUOTE_WORDS, quote_words, unlabeled
 
 logger = logging.getLogger(__name__)
@@ -115,7 +115,7 @@ class SiteFacts:
     network: bool = False
     #: Сколько фактов не в счёт: цитаты нет в тексте или кода страны нет в ISO 3166-1.
     dropped: int = 0
-    #: В тексте, по которому судила модель, нет строк главной — только сниппет выдачи.
+    #: В тексте, по которому судила модель, нет строк главной и страницы из выдачи — только сниппет.
     snippet_only: bool = False
 
     @property
@@ -290,7 +290,7 @@ def read(content: str, text: SiteText) -> Read:
         form["local"],
         form["network"],
         check.dropped,
-        not any(label in HOME_LABELS for label, _ in text.lines),
+        not any(label in FETCHED_LABELS for label, _ in text.lines),
     )
     return Read(facts)
 
