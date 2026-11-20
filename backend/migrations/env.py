@@ -2,6 +2,10 @@
 
 Строка подключения и метаданные берутся из приложения, а не из alembic.ini:
 иначе конфиг миграций и конфиг сервиса живут отдельно и однажды разойдутся.
+
+Миграции идут **владельцем схемы** (`storage.OWNER_DSN`), а не адресом сервисов
+(`storage.DSN`): у роли приложения нет DDL (аудит 20.11.2026, п. 31), и с её
+паролем в окружении `alembic upgrade` иначе упал бы на первом же CREATE.
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ from backend.features.core import models  # noqa: F401  — регистриру
 from backend.shared.database.base import Base
 
 config = context.config
-config.set_main_option("sqlalchemy.url", storage.DSN)
+config.set_main_option("sqlalchemy.url", storage.OWNER_DSN)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -29,7 +33,7 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=storage.DSN,
+        url=storage.OWNER_DSN,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},

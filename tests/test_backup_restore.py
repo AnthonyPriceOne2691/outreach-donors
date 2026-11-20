@@ -96,6 +96,20 @@ class TestRestore:
         assert {"--clean", "--if-exists", "--single-transaction"} <= set(restore["argv"])
         assert restore["stdin"] == DUMP
 
+    def test_grants_of_the_copy_stay_out_and_migrate_gives_them_again(
+        self, host: Host, source: Path
+    ) -> None:
+        """Аудит 20.11.2026: выдачи роли приложения из копии уронили бы восстановление одной
+        транзакцией там, где роли ещё нет; права заново выдаёт `migrate` сразу после
+        (`tests/test_dump_round_trip.py` — то же на настоящей базе)."""
+        done = host.run("restore.sh", str(source), "--yes")
+
+        assert done.returncode == 0, done.stderr
+        [restore] = [c for c in host.calls("docker") if c["key"] == "compose exec pg_restore"]
+        assert "--no-privileges" in restore["argv"]
+        steps = _steps(host)
+        assert steps.index("compose run") == steps.index("compose exec pg_restore") + 1
+
     def test_a_relative_path_is_read_from_where_it_was_named(
         self, host: Host, source: Path
     ) -> None:

@@ -1027,9 +1027,9 @@
       "worst": "check_crawl:169"
     },
     "backend/config/storage.py": {
-      "lines": 24,
-      "complexity": 0,
-      "worst": "—"
+      "lines": 63,
+      "complexity": 2,
+      "worst": "app_dsn:37"
     },
     "backend/config/topics.py": {
       "lines": 67,
@@ -4070,6 +4070,11 @@
       "lines": 1,
       "complexity": 0,
       "worst": "—"
+    },
+    "backend/shared/database/app_role.py": {
+      "lines": 263,
+      "complexity": 5,
+      "worst": "scram_verifier:84"
     },
     "backend/shared/database/base.py": {
       "lines": 17,

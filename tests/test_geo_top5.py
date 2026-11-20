@@ -36,8 +36,9 @@ from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Metrics
 from backend.features.runs.ahrefs_key import cycle_of, day_words
 from backend.features.runs.repository import RunRepository
-from sqlalchemy import select, text, update
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.committed_db import committed_sessions
 from tests.conftest import TEST_DSN
 
 #: Трафик домена: доли полной разбивки — от него (`geo.share_base`).
@@ -439,22 +440,8 @@ class TestFailures:
 async def committed() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     """Сессии с настоящими фиксациями: обрыв проверяется тем, что осталось в базе.
     После теста база вычищается целиком — остальные тесты ждут пустые таблицы."""
-    engine = create_async_engine(TEST_DSN)
-    try:
-        yield async_sessionmaker(engine, expire_on_commit=False)
-    finally:
-        async with engine.begin() as conn:
-            tables = (
-                await conn.execute(
-                    text(
-                        "SELECT tablename FROM pg_tables "
-                        "WHERE schemaname = 'public' AND tablename <> 'alembic_version'"
-                    )
-                )
-            ).scalars()
-            listed = ", ".join(f'"{table}"' for table in tables)
-            await conn.execute(text(f"TRUNCATE {listed} RESTART IDENTITY CASCADE"))
-        await engine.dispose()
+    async with committed_sessions() as factory:
+        yield factory
 
 
 async def test_interruption_keeps_what_was_bought(

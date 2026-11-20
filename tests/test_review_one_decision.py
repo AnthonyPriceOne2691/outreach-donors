@@ -30,10 +30,10 @@ from backend.features.runs.exclusions import Exclusions
 from sqlalchemy import select
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.committed_db import committed_sessions
 from tests.conftest import make_donor
 from tests.migration_helpers import load_migration
 from tests.test_review import NOW, _candidate_ids, _donor, _judged, _run
-from tests.test_send_race import committed_sessions
 
 HOST = "blog.example.test"
 LATER = NOW + timedelta(days=1)

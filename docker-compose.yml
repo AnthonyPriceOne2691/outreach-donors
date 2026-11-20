@@ -36,7 +36,11 @@ x-backend-env-file: &backend-env-file
     required: false
 
 x-backend-env: &backend-env
+  # Адрес владельца схемы. Им идут миграции и выдача прав (`migrate`); сервисы с паролем
+  # роли приложения ходят ею — те же хост и база, свои имя и пароль (`config/storage.py`,
+  # аудит 20.11.2026). Пароль пуст — сервисы ходят владельцем, как раньше.
   STORAGE_DSN: "postgresql+asyncpg://outreach:${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}@postgres:5432/outreach"
+  POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-}
   STORAGE_REDIS_URL: "redis://redis:6379/0"
   ACCESS_JWT_SECRET: "${ACCESS_JWT_SECRET:?нужен ACCESS_JWT_SECRET — без него вход не работает; сгенерировать командой openssl rand -hex 32}"
   ACCESS_TOKEN_TTL_HOURS: ${ACCESS_TOKEN_TTL_HOURS:-24}
@@ -89,12 +93,17 @@ services:
   # Миграции отдельным одноразовым сервисом, а не командой на старте
   # сервера: при двух серверах они бы поехали одновременно, и цепочка
   # применялась бы дважды. Остальные ждут, пока этот завершится успехом.
+  #
+  # Вторым шагом — роль приложения и её права (аудит 20.11.2026): роль живёт
+  # в кластере, а не в цепочке ревизий, и права держатся заново при каждой
+  # выкатке и после восстановления копии (`scripts/restore.sh` зовёт этот же
+  # сервис). Пароль роли пуст — шаг говорит это и ничего не трогает.
   migrate:
     image: ${BACKEND_IMAGE:-outreach-backend:local}
     build:
       context: .
       target: backend
-    command: alembic upgrade head
+    command: ["sh", "-c", "alembic upgrade head && python -m backend.shared.database.app_role"]
     env_file: *backend-env-file
     environment: *backend-env
     restart: "no"

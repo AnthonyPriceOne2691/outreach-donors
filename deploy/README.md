@@ -37,6 +37,8 @@ cp .env.example .env && $EDITOR .env
 #    ACCESS_JWT_SECRET (openssl rand -hex 32), BACKEND_IMAGE и WEB_IMAGE
 #    (раскомментировать — иначе компоуз соберёт образ на машине),
 #    ключи Ahrefs, выдачи и модели. Почту — не сейчас, см. ниже.
+#    Желательно сразу: POSTGRES_APP_PASSWORD (openssl rand -hex 24) — сервисы
+#    пойдут в базу ролью без суперправ (раздел «Роль приложения в базе»).
 #    Ключ Hunter (CONTACTS_HUNTER_API_KEY) платный поиск адресов доноров и
 #    рекламодателей не включает: его включает только CONTACTS_PAID_SEARCH_ENABLED=true,
 #    по умолчанию выключен (решение 12.10.2026) — ключ и учётка Hunter общие с продажами;
@@ -208,6 +210,72 @@ sudo nginx -t && sudo systemctl reload nginx
 Проверка: `curl -so /dev/null https://outreach.ДОМЕН/api/unsubscribe/check-label`, затем
 `sudo tail -n 1 /var/log/nginx/outreach.access.log` — в строке `/api/unsubscribe/-`.
 
+## Роль приложения в базе: переключение (аудит 20.11.2026)
+
+До переключения все сервисы ходят в базу суперпользователем образа Postgres — тем же, что
+миграции и бэкапы. Внедрённый в запрос SQL под ним — это вся машина базы: снести таблицы,
+переписать журнал действий, прочитать файлы и запустить программу (`COPY … TO PROGRAM`).
+Код умеет ходить ролью `outreach_app`: строки всех таблиц — чтение и запись, без DDL и функций
+администратора, журнал действий — только дописывать (`docs/SECURITY.md`).
+
+Кто чем ходит:
+
+- **владелец `outreach`** (`POSTGRES_PASSWORD`) — `migrate` (миграции, затем выдача прав роли),
+  `scripts/backup.sh` и `scripts/restore.sh`, `psql` в контейнере `postgres` — как и раньше;
+- **`outreach_app`** (`POSTGRES_APP_PASSWORD`) — api, worker, worker-quick, worker-contacts,
+  worker-sales, worker-sales-bulk, crawler, reaper, followups и консольные команды в их
+  контейнерах (`docker compose exec api outreach …`). Пароль роли пуст — они ходят владельцем,
+  как до 20.11.2026.
+
+**Выкатка кода переключения не делает.** Без пароля роли `migrate` пишет «пароль роли
+приложения не задан — роль не трогается», и всё работает как раньше. Журнал действий под
+замком сразу (ревизия `d4f8a2c61e93`): правка и удаление его строк — отказ базы.
+
+**Переключение — отдельным окном**, когда прогоны, обходы и очереди не идут (как любая выкатка):
+
+```bash
+cd /srv/outreach-donors
+BACKUP_DIR=/srv/backups/outreach-donors KEEP=10 scripts/backup.sh   # копия перед переключением
+# 1. Пароль роли — печатными знаками ASCII, проще всего так. Строкой в .env: в .env, снятом
+#    с образца до 20.11.2026, её нет — дописать. Копию — в менеджер паролей вместе с .env.
+openssl rand -hex 24
+$EDITOR .env                       # POSTGRES_APP_PASSWORD=<пароль из строки выше>
+# 2. Подъём: migrate заводит роль и выдаёт права, сервисы пересоздаются с новым .env
+#    (`restart` нового .env не видит).
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# 3. Проверка — с трёх сторон
+docker compose -f docker-compose.yml -f docker-compose.prod.yml logs migrate | tail -n 3
+#    → «роль приложения заведена, права выданы»
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api \
+  python -m backend.shared.database.app_role --check
+#    → «Сервис ходит ролью «outreach_app»: без суперправ и DDL, строки пишет, журнал действий
+#      только дописывает.» Иначе — список, что не так, и код 1.
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec postgres \
+  psql -U outreach -d outreach -tAc \
+  "select usename, count(*) from pg_stat_activity where datname = 'outreach' group by 1"
+#    → соединения сервисов — у outreach_app; у outreach — только этот psql
+docker compose -f docker-compose.yml -f docker-compose.prod.yml ps   # все healthy, кроме migrate
+```
+
+- **Вернуть как было:** очистить значение `POSTGRES_APP_PASSWORD` в `.env` (строку оставить
+  пустой) и снова `up -d` — сервисы ходят владельцем. Роль остаётся в базе и ничего не делает;
+  убрать и её, когда сервисы уже ходят владельцем: `docker compose … exec postgres psql -U outreach
+  -d outreach -c 'DROP OWNED BY outreach_app' -c 'DROP ROLE outreach_app'`.
+- **Сменить пароль:** новое значение в `.env` и `up -d` — `migrate` задаёт роли новый пароль,
+  сервисы пересоздаются с ним. Старые контейнеры между этими шагами держат уже открытые
+  соединения, а новые им не откроются — поэтому тоже в окно без прогонов.
+- **Права держатся сами.** `migrate` при каждой выкатке приводит роль к задуманному виду:
+  права на таблицы и последовательности, отобранные UPDATE и DELETE журнала, атрибуты роли.
+  Таблицы новых миграций получают права и без этого (`ALTER DEFAULT PRIVILEGES`). Выданное
+  роли руками (TRUNCATE, суперправа) следующая выкатка снимет.
+- **Восстановление копии** разворачивает дамп без выдач (`--no-privileges`): копия, снятая после
+  переключения, несёт `GRANT … TO outreach_app`, а роль — объект кластера и в дамп базы не входит.
+  На новой машине роли может не быть, и первая же выдача уронила бы восстановление целиком.
+  Права заново выдаёт `migrate`, который `restore.sh` зовёт сразу после дампа.
+- **Владелец обходит замок журнала только осознанно:** `SET LOCAL session_replication_role =
+  replica` в транзакции `psql` под `outreach` — так чистят таблицы оснастки тестов. Роли
+  приложения это недоступно.
+
 ## Бэкапы и восстановление
 
 ```bash
@@ -338,8 +406,9 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml ps              
   нынешней базы ложится в свой каталог: ротация снесла бы самые старые копии,
   а среди них бывает та, из которой восстанавливают.
 - `restore.sh` снимает копию нынешней базы (не снялась — не делает ничего),
-  останавливает всех, кто пишет, разворачивает дамп **одной транзакцией**,
-  догоняет схему миграциями и печатает, сколько доменов в базе. Упал pg_restore —
+  останавливает всех, кто пишет, разворачивает дамп **одной транзакцией** и без выдач
+  (`--no-privileges`), догоняет схему миграциями — тот же `migrate` заново выдаёт права роли
+  приложения — и печатает, сколько доменов в базе. Упал pg_restore —
   база осталась прежней; на любом отказе скрипт называет шаг и команду, которой
   поднять остановленных. Нынешняя база битая и дамп с неё не снимается —
   `--yes --without-current-copy`. Схема копии новее
@@ -363,7 +432,9 @@ docker run -d --name restore-check -e POSTGRES_USER=outreach \
 # По TCP: временный сервер начальной настройки слушает только сокет,
 # и готовность по сокету наступает раньше настоящей.
 until docker exec restore-check pg_isready -h 127.0.0.1 -U outreach -q; do sleep 1; done
-docker exec -i restore-check pg_restore -U outreach -d outreach \
+# `--no-privileges`: роли outreach_app в одноразовом сервере нет, и выдачи ей из копии
+# только засыпали бы вывод отказами (аудит 20.11.2026).
+docker exec -i restore-check pg_restore -U outreach -d outreach --no-privileges \
   < /srv/backups/outreach-donors-restore/2026-09-27-030000/outreach.dump
 docker exec restore-check psql -U outreach -d outreach -tAc 'select count(*) from domains'
 docker rm -f restore-check

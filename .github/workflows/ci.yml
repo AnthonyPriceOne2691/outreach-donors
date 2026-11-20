@@ -162,7 +162,13 @@ jobs:
       # База у каждого процесса своя (`worker_dsn`, tests/conftest.py): с общей
       # первый же процесс снёс бы схему под остальными. `--dist loadfile` — файл
       # целиком в одном процессе, порядок тестов внутри файла прежний.
+      #
+      # `TEST_PG_CONTAINER` — служебный контейнер базы этой джобы: копию базы
+      # тест снимает и разворачивает его pg_dump и pg_restore, как бэкап и
+      # восстановление на сервере (tests/test_dump_round_trip.py, аудит 20.11.2026).
       - name: Тесты
+        env:
+          TEST_PG_CONTAINER: ${{ job.services.postgres.id }}
         run: pytest -n 4 --dist loadfile
 
   # Покрытие изменённого кода — отдельной необязательной джобой, ПАРАЛЛЕЛЬНО
@@ -232,6 +238,7 @@ jobs:
       - name: Тесты с покрытием изменённых каталогов
         env:
           BEFORE: ${{ github.event.before }}
+          TEST_PG_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           set -euo pipefail
           base=""
@@ -453,10 +460,19 @@ jobs:
         # гоняет контейнер `migrate` из образа. Разница между ними —
         # это ровно то, что ломает первое развёртывание: не уехавший
         # в образ файл миграции или недостающая зависимость.
+        #
+        # Команда — та же, что у сервиса `migrate` в компоузе (сверяет
+        # tests/test_db_app_role.py): схема, затем роль приложения и её права.
+        # Второй запуск — образ, каким его запускают сервисы: с паролем роли
+        # он ходит ею, без суперправ и DDL (аудит 20.11.2026).
+        env:
+          POSTGRES_APP_PASSWORD: ci-only-app-role  # pragma: allowlist secret
         run: |
-          docker run --rm --network host \
-            -e STORAGE_DSN="postgresql+asyncpg://outreach:outreach@127.0.0.1:5432/outreach_fresh" \
-            outreach-backend:ci alembic upgrade head
+          dsn="postgresql+asyncpg://outreach:outreach@127.0.0.1:5432/outreach_fresh"
+          docker run --rm --network host -e STORAGE_DSN="$dsn" -e POSTGRES_APP_PASSWORD \
+            outreach-backend:ci sh -c "alembic upgrade head && python -m backend.shared.database.app_role"
+          docker run --rm --network host -e STORAGE_DSN="$dsn" -e POSTGRES_APP_PASSWORD \
+            outreach-backend:ci python -m backend.shared.database.app_role --check
 
       # --- Скан образов и SBOM (аудит 20.11.2026, п. 36) ------------------------
       # Trivy через aquasecurity/trivy-action — коммитом неизменяемого релиза

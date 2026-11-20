@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -40,9 +39,10 @@ from backend.features.letters.rewrite import RewriteResult
 from backend.features.letters.sending import NotQueuedError, Sending
 from backend.features.letters.transport import Outgoing
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from tests.conftest import TEST_DSN, bearer, make_donor, make_sender
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.committed_db import committed_sessions
+from tests.conftest import bearer, make_donor, make_sender
 
 NOW = datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
 PASSWORD = "пароль-для-гонки"
@@ -77,31 +77,6 @@ class TemplateOnly:
 async def committed() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     async with committed_sessions() as factory:
         yield factory
-
-
-@asynccontextmanager
-async def committed_sessions() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    """Сессии на настоящих соединениях с настоящими фиксациями.
-
-    После теста база вычищается целиком: остальные тесты ждут пустые
-    таблицы, а зафиксированное здесь внешняя транзакция не откатит.
-    """
-    engine = create_async_engine(TEST_DSN)
-    try:
-        yield async_sessionmaker(engine, expire_on_commit=False)
-    finally:
-        async with engine.begin() as conn:
-            tables = (
-                await conn.execute(
-                    text(
-                        "SELECT tablename FROM pg_tables "
-                        "WHERE schemaname = 'public' AND tablename <> 'alembic_version'"
-                    )
-                )
-            ).scalars()
-            listed = ", ".join(f'"{table}"' for table in tables)
-            await conn.execute(text(f"TRUNCATE {listed} RESTART IDENTITY CASCADE"))
-        await engine.dispose()
 
 
 async def _one_letter(factory: async_sessionmaker[AsyncSession]) -> int:

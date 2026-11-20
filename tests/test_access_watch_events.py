@@ -36,7 +36,7 @@ from backend.features.ops.access_events import Access, Batch, Event
 from backend.features.ops.access_mark import Mark
 from backend.features.ops.alarms import Concern, marked
 from backend.shared.alerts import MAX_CHARS, SOURCE
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import WATCH_MINUTE
 from tests.test_alarm_concern import _plain
@@ -60,13 +60,19 @@ WHERE = "Где смотреть: экран «Журнал действий»."
 
 async def stamp(session: AsyncSession, at: datetime) -> None:
     """Записи журнала этой транзакции — на минуту `at`. Время записи ставит база (начало
-    транзакции, одно на все её записи), а слова называют минуту — тесту нужна своя."""
+    транзакции, одно на все её записи), а слова называют минуту — тесту нужна своя.
+
+    Запись журнала не правится (замок ревизии `d4f8a2c61e93`), а события здесь пишет код
+    раздела «Учётки», время он не принимает. Поэтому время ставится в обход замка — как чистка
+    `tests/committed_db.py`: суперпользователем тестовой базы и только на эту команду."""
+    await session.execute(text("SET LOCAL session_replication_role = replica"))
     await session.execute(
         update(AuditLogModel)
         .where(AuditLogModel.created_at == func.now())
         .values(created_at=at)
         .execution_options(synchronize_session="fetch")
     )
+    await session.execute(text("SET LOCAL session_replication_role = origin"))
 
 
 async def account(
