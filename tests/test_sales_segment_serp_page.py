@@ -4,9 +4,10 @@
 видел только сниппет выдачи». Теперь, когда не открылись главная поддомена и главная корня, судья
 скачивает страницу, которую показал поисковик, — одной попыткой, на языке писем прогона, тем же
 загрузчиком, — и видит её текст строкой «Текст страницы из выдачи». Здесь: какие адреса качаются и
-какие нет, заглушка и отказ, сохранённый текст читается обратно (пересуд, лид), язык считает слова
-страницы словами сайта, подпись reCAPTCHA в подвале — не заглушка, проход судьи кладёт строку в
-текст кандидата.
+какие нет, заглушка и отказ, переход на чужой сайт — не текст сайта, а внутри сайта — текст, попытка
+— коротким сроком соединения, а главные — прежним, сохранённый текст читается обратно (пересуд,
+лид), язык считает слова страницы словами сайта, подпись reCAPTCHA в подвале — не заглушка, проход
+судьи кладёт строку в текст кандидата.
 
 Сайты — `httpx.MockTransport`, сеть не ходит. Домены выдуманы, ниши, рынки и письменности разные.
 """
@@ -21,9 +22,10 @@ from datetime import UTC, datetime
 
 import httpx
 import pytest
+from backend.config import judge as judge_cfg
 from backend.config import sales as sales_cfg
 from backend.config.judge import JudgeMode
-from backend.features.donors.home_signals import HomeSignals
+from backend.features.donors.home_signals import HomeSignals, home_timeout
 from backend.features.sales import segment_judge as sj
 from backend.features.sales import segment_window as sw
 from backend.features.sales.segment_facts import read
@@ -31,6 +33,7 @@ from backend.features.sales.segment_judging import judge_run
 from backend.features.sales.segment_models import Lane
 from backend.features.sales.segment_rules import SNIPPET_ONLY, UNCLEAR
 from backend.features.sales.segment_text import (
+    ELSEWHERE,
     HOME_LABELS,
     PAGE_TEXT,
     PAGE_TITLE,
@@ -54,15 +57,22 @@ PAGE = (
 
 @dataclass
 class Web:
-    """Страницы по хосту без `www.` и пути: (код, HTML); не названная — 503. Помнит хост, путь и
-    язык каждого запроса."""
+    """Страницы по хосту без `www.` и пути: (код, HTML); не названная — 503; из `moves` — переход
+    302 по адресу. Помнит хост, путь и язык каждого запроса, а в `timeouts` — путь и срок."""
 
     pages: dict[tuple[str, str], tuple[int, str]]
     asked: list[tuple[str, str, str]] = field(default_factory=list)
+    moves: dict[tuple[str, str], str] = field(default_factory=dict)
+    timeouts: list[tuple[str, dict[str, float | None]]] = field(default_factory=list)
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         host, path = request.url.host.removeprefix("www."), request.url.path or "/"
         self.asked.append((host, path, request.headers.get("Accept-Language", "")))
+        self.timeouts.append((path, request.extensions["timeout"]))
+        if (host, path) in self.moves:
+            # Заголовок — в ASCII, как его шлёт сайт: хост `xn--`, путь — процентами.
+            to = str(httpx.URL(self.moves[(host, path)]))
+            return httpx.Response(302, headers={"location": to}, request=request)
         status, html = self.pages.get((host, path), (503, ""))
         if not html:
             return httpx.Response(status, text="нет", request=request)
@@ -186,6 +196,101 @@ async def test_a_stub_or_a_refusal_is_not_the_text_of_the_site(
     assert [(r.__dict__["host"], bool(r.__dict__["error"])) for r in logged] == [
         ("werkstatt-sample.at", True)
     ]
+
+
+#: Парковка домена: чужой сайт, куда увёл переход, — не текст сайта базы.
+PARKED = "Этот домен продаётся. Купите его сегодня и начните свой проект"
+#: Своя страница сайта базы после перехода.
+BISTRO = "Bistro à Paris : cuisine française, menu du jour et banquets sur commande"
+
+
+@pytest.mark.parametrize(
+    "to",
+    [
+        "https://parked-sample.com/lander",
+        "https://bistro-sample.fr.parked-sample.com/menu",
+        "https://parked-bistro-sample.fr/menu",
+    ],
+    ids=["another-domain", "lookalike-subdomain", "lookalike-suffix"],
+)
+async def test_a_redirect_off_the_site_is_not_the_text_of_the_site(
+    to: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Ревью 20.11: страница выдачи ответила переходом на чужой домен — загрузчик идёт и туда, а
+    текст парковки («домен продаётся») — не текст сайта: строки страницы нет, как у не открывшейся,
+    и журнал называет, куда увела."""
+    caplog.set_level(logging.INFO, logger="backend.features.sales.segment_text")
+    landed = httpx.URL(to)
+    web = Web(
+        {(landed.host, landed.path): (200, PAGE.format(title="Domain for sale", body=PARKED))},
+        moves={("bistro-sample.fr", "/menu"): to},
+    )
+
+    text = await text_of(web, "bistro-sample.fr", "https://bistro-sample.fr/menu", letters="fr")
+
+    assert [label for label, _ in text.lines] == [PAGE_TITLE]
+    assert (landed.host, landed.path) in {(host, path) for host, path, _ in web.asked}
+    [elsewhere] = [r for r in caplog.records if "увела на чужой сайт" in r.getMessage()]
+    assert (elsewhere.__dict__["host"], elsewhere.__dict__["landed"]) == (
+        "bistro-sample.fr",
+        landed.host,
+    )
+    [closed] = [r for r in caplog.records if "страница из выдачи не открылась" in r.getMessage()]
+    assert closed.__dict__["error"] == ELSEWHERE
+
+
+@pytest.mark.parametrize(
+    ("host", "url", "to", "landed"),
+    [
+        ("bistro-sample.fr", "https://bistro-sample.fr/menu", "https://www.bistro-sample.fr/carte",
+         ("bistro-sample.fr", "/carte")),
+        ("bistro-sample.fr", "https://bistro-sample.fr/menu", "http://paris.bistro-sample.fr/carte",
+         ("paris.bistro-sample.fr", "/carte")),
+        ("xn--e1afmkfd.xn--p1ai", "https://пример.рф/меню", "https://бистро.пример.рф/карта",
+         ("бистро.пример.рф", "/карта")),
+    ],
+    ids=["www", "subdomain-http", "idn-subdomain"],
+)  # fmt: skip
+async def test_a_redirect_within_the_site_keeps_the_text_of_its_page(
+    host: str, url: str, to: str, landed: tuple[str, str]
+) -> None:
+    """Переход на `www.`, поддомен сайта или его же поддомен письменностью — это сайт базы: текст
+    страницы, куда пришли, — строкой страницы."""
+    start = httpx.URL(url)
+    web = Web(
+        {landed: (200, PAGE.format(title="Bistro", body=BISTRO))},
+        moves={(start.host, start.path): to},
+    )
+
+    text = await text_of(web, host, url)
+
+    assert (PAGE_TEXT, BISTRO) in text.lines
+
+
+async def test_the_one_try_of_the_page_takes_the_short_timeout_and_homes_keep_theirs() -> None:
+    """Ревью 20.11: мёртвый сайт молчит на соединении. Попытка страницы из выдачи — коротким сроком
+    соединения, как главная у доноров, дверей и ключей (`home_timeout`), и с переходом тоже; главные
+    судьи — прежним сроком клиента продаж (`JUDGE_HOME_TIMEOUT_SEC`): общий клиент не трогается."""
+    web = Web(
+        {("dent-sample.pt", "/clinica"): (200, PAGE.format(title="T", body="Clínica dentária"))},
+        moves={("dent-sample.pt", "/implantes"): "https://dent-sample.pt/clinica"},
+    )
+    site = sw.Site(
+        1, 1, 1, "dent-sample.pt", "Заголовок выдачи", None,
+        page_url="https://dent-sample.pt/implantes",
+    )  # fmt: skip
+    homes = httpx.Timeout(judge_cfg.HOME_TIMEOUT_SEC)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(web), timeout=homes) as http:
+        ask = sw.Ask("сегмент", JudgeMode.SHADOW, None, http, datetime.now(UTC), letters="pt")
+        text = await sw._text(site, ask)
+
+    assert (PAGE_TEXT, "Clínica dentária") in text.lines
+    page = [timeout for path, timeout in web.timeouts if path in ("/implantes", "/clinica")]
+    main = [timeout for path, timeout in web.timeouts if path == "/"]
+    assert page == [home_timeout().as_dict()] * 2  # исходный адрес и переход
+    assert main  # главную корня спросили — своим сроком
+    assert all(timeout == homes.as_dict() for timeout in main)
+    assert home_timeout().connect < judge_cfg.HOME_TIMEOUT_SEC
 
 
 async def test_the_page_is_not_fetched_when_page_text_is_switched_off(

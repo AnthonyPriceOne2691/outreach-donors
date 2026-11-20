@@ -22,6 +22,12 @@
 только сниппет выдачи». Строки главной и строка страницы вместе не бывают: страницу спрашивают, только
 когда главная не открылась. Общего разбора страницы по адресу рядом с `check_home` пока нет — загрузчик
 зовётся здесь, одной попыткой и только для текста судьи, а не как ступень поиска адреса.
+
+Попытка страницы — **коротким сроком соединения**, как главная у доноров, дверей и ключей
+(`home_timeout`: мёртвый сайт молчит на соединении), а главные судьи — прежним сроком клиента продаж
+(`_Through`). **Конечный адрес — того же сайта**, что и исходный (`_on_site`: домен базы или его
+поддомен): загрузчик идёт по переходам на любой домен, и текст парковки «домен продаётся» лёг бы
+строкой страницы. Увела на чужой сайт — как не открылась: строки нет.
 """
 
 from __future__ import annotations
@@ -33,9 +39,15 @@ from urllib.parse import urlsplit
 import httpx
 
 from backend.config import sales as sales_cfg
-from backend.features.contacts.pages import PageFetcher
+from backend.features.contacts.pages import FetchedPage, PageFetcher
 from backend.features.core.domain import PageKind
-from backend.features.donors.home_signals import HomeSignals, check_home, looks_denied, read_home
+from backend.features.donors.home_signals import (
+    HomeSignals,
+    check_home,
+    home_timeout,
+    looks_denied,
+    read_home,
+)
 from backend.features.sales import segment_language
 from backend.shared.net.idn import ascii_host
 from backend.shared.quote import quote_holds
@@ -56,6 +68,8 @@ HOME_MENU = "Меню главной"
 HOME_TEXT = "Текст главной"
 #: Текст страницы, которую показал поисковик, — когда главная не открылась (`serp_page`).
 PAGE_TEXT = "Текст страницы из выдачи"
+#: Почему страницы из выдачи нет, хоть она и ответила: переход увёл с сайта базы (`serp_page`).
+ELSEWHERE = "увела на чужой сайт"
 SERP_LABELS = (PAGE_TITLE, PAGE_DESCRIPTION)
 HOME_LABELS = (HOME_TITLE, HOME_DESCRIPTION, HOME_MENU, HOME_TEXT)
 PAGE_LABELS = (PAGE_TEXT,)
@@ -173,37 +187,75 @@ async def page_home(
     return root
 
 
-def _page_to_read(host: str, page_url: str | None) -> str | None:
-    """Адрес страницы из выдачи, которую стоит скачать вместо главной: `http(s)`, на домене базы или
-    его поддомене и не сама главная — её уже спросил `page_home`; иначе `None`."""
-    parts = urlsplit(page_url or "")
+def _on_site(host: str, url: str) -> bool:
+    """Адрес — `http(s)` на домене базы `host` или его поддомене (`www.` — тоже поддомен). Хост — в
+    ASCII, как `host` базы: адрес письменностью иначе не был бы своим сайтом."""
+    parts = urlsplit(url)
     page_host = ascii_host(parts.hostname or "")
     if parts.scheme not in ("http", "https") or not page_host:
+        return False
+    return page_host == host or page_host.endswith(f".{host}")
+
+
+def _page_to_read(host: str, page_url: str | None) -> str | None:
+    """Адрес страницы из выдачи, которую стоит скачать вместо главной: своего сайта (`_on_site`) и
+    не сама главная — её уже спросил `page_home`; иначе `None`."""
+    if not page_url or not _on_site(host, page_url):
         return None
-    if page_host != host and not page_host.endswith(f".{host}"):
-        return None
+    parts = urlsplit(page_url)
     return page_url if parts.path not in ("", "/") or parts.query else None
+
+
+class _Through(httpx.AsyncBaseTransport):
+    """Запросы — через клиент продаж: его пул, защита адреса и потолок ответа (`url_guard`), а
+    срок — у запроса, того клиента, что его построил. Так одна попытка страницы из выдачи берёт свой
+    короткий срок (`serp_page`), а срок общего клиента не трогается: соседние сайты окна судьи в то
+    же время ходят им за главными. Переходы ведёт внешний клиент — конечный адрес в его ответе."""
+
+    def __init__(self, client: httpx.AsyncClient) -> None:
+        self._client = client
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        return await self._client.send(request, stream=True, follow_redirects=False)
+
+
+async def _one_try(
+    client: httpx.AsyncClient, host: str, url: str, language: str | None
+) -> tuple[FetchedPage | None, str]:
+    """Одна попытка страницы из выдачи общим загрузчиком — коротким сроком соединения (шапка
+    модуля). Конечный адрес не своего сайта (`_on_site`) — страницы нет, как у не открывшейся.
+    Возвращает страницу и почему её нет — слова отказа загрузчика или `ELSEWHERE`."""
+    async with httpx.AsyncClient(transport=_Through(client), timeout=home_timeout()) as short:
+        fetcher = PageFetcher(short, max_pages=1, max_attempts=1, language=language)
+        try:
+            fetched = await fetcher.get(url, PageKind.HOME)
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError) as exc:
+            logger.info(
+                "судья сегмента: страница из выдачи упала", extra={"host": host, "error": repr(exc)}
+            )
+            fetched = None
+    if fetched is not None and not _on_site(host, fetched.url):
+        logger.info(
+            "судья сегмента: страница из выдачи увела на чужой сайт",
+            extra={"host": host, "landed": urlsplit(fetched.url).hostname},
+        )
+        return None, ELSEWHERE
+    return fetched, fetcher.refusal
 
 
 async def serp_page(
     client: httpx.AsyncClient, host: str, page_url: str | None, *, language: str | None = None
 ) -> HomeSignals | None:
     """Страница, которую показал поисковик, — судье, когда главная не открылась (шапка модуля). Одна
-    попытка, на языке писем, как главная; разбор и заглушка — общие (`read_home`, `looks_denied`), а
-    проверку «вы не робот» узнаёт загрузчик. `None` — качать нечего: адреса нет, он чужой, это главная
-    или текст страниц выключен (`SALES_SEGMENT_HOME_TEXT_CHARS` = 0); не открылась — почему, в
+    попытка коротким сроком соединения, на языке писем, как главная; разбор и заглушка — общие
+    (`read_home`, `looks_denied`), а проверку «вы не робот» узнаёт загрузчик. `None` — качать
+    нечего: адреса нет, он чужой, это главная или текст страниц выключен
+    (`SALES_SEGMENT_HOME_TEXT_CHARS` = 0); не открылась или увела на чужой сайт — почему, в
     `HomeSignals.error` и в журнал прохода с доменом."""
     url = _page_to_read(host, page_url)
     if url is None or sales_cfg.SEGMENT_HOME_TEXT_CHARS <= 0:
         return None
-    fetcher = PageFetcher(client, max_pages=1, max_attempts=1, language=language)
-    try:
-        fetched = await fetcher.get(url, PageKind.HOME)
-    except (httpx.HTTPError, httpx.InvalidURL, ValueError) as exc:
-        logger.info(
-            "судья сегмента: страница из выдачи упала", extra={"host": host, "error": repr(exc)}
-        )
-        fetched = None
+    fetched, refusal = await _one_try(client, host, url, language)
     found = read_home(fetched.html) if fetched is not None else None
     if found is not None and not looks_denied(f"{found.title} {found.description}"):
         logger.info(
@@ -211,7 +263,7 @@ async def serp_page(
             extra={"host": host},
         )
         return found
-    error = fetcher.refusal or ("заглушка защиты" if found is not None else "не ответила")
+    error = refusal or ("заглушка защиты" if found is not None else "не ответила")
     logger.info(
         "судья сегмента: страница из выдачи не открылась — судья видит только выдачу",
         extra={"host": host, "error": error},

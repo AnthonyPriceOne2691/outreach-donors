@@ -3807,9 +3807,9 @@
       "worst": "_judge:210"
     },
     "backend/features/sales/segment_text.py": {
-      "lines": 276,
-      "complexity": 9,
-      "worst": "_page_to_read:176"
+      "lines": 328,
+      "complexity": 8,
+      "worst": "page_home:160"
     },
     "backend/features/sales/segment_tier.py": {
       "lines": 261,
