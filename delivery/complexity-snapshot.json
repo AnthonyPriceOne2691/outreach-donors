@@ -1077,9 +1077,9 @@
       "worst": "update_access:174"
     },
     "backend/features/access/sessions.py": {
-      "lines": 210,
+      "lines": 212,
       "complexity": 7,
-      "worst": "_verdict:150"
+      "worst": "_verdict:157"
     },
     "backend/features/access/tokens.py": {
       "lines": 218,

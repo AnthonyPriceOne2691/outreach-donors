@@ -113,6 +113,13 @@ class Complaints:
         self.last = now
         return True
 
+    def error(self, what: str, exc: RedisError) -> None:
+        """Строка журнала о молчании Redis — уровнем ошибки, но не чаще раза в минуту. Методом, а
+        не функцией модуля: обработчик ошибки зовёт `complaints.error(…)`, и гейт глухих
+        обработчиков (`scripts/lint/ast_rules.py`) видит в нём запись в журнал."""
+        if self.due(time.monotonic()):
+            logger.error("сеансы: Redis не ответил — %s", what, extra={"error": str(exc)})
+
 
 complaints = Complaints()
 
@@ -155,7 +162,7 @@ def _verdict(token_id: str, payload: TokenPayload, background: bool, now: float)
     try:
         closed, seen = connection().mget(closed_key, seen_key)
     except RedisError as exc:
-        _complain("выход и простой не проверены, пропуск пущен", exc)
+        complaints.error("выход и простой не проверены, пропуск пущен", exc)
         return None
     if closed is not None:
         return _text(closed)
@@ -188,6 +195,7 @@ def _moment(raw: object, *, fallback: float) -> float:
     try:
         return float(raw)
     except ValueError:
+        # silent-ok: испорченная метка — как её нет: простой считается с выдачи пропуска (`fallback`).
         return fallback
 
 
@@ -198,12 +206,6 @@ def _put(key: str, value: str, payload: TokenPayload, now: float) -> bool:
     try:
         connection().set(key, value, ex=ttl)
     except RedisError as exc:
-        _complain("запись сеанса не легла", exc)
+        complaints.error("запись сеанса не легла", exc)
         return False
     return True
-
-
-def _complain(what: str, exc: RedisError) -> None:
-    """Строка журнала о молчании Redis — уровнем ошибки, но не чаще раза в минуту."""
-    if complaints.due(time.monotonic()):
-        logger.error("сеансы: Redis не ответил — %s", what, extra={"error": str(exc)})
