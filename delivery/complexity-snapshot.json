@@ -1352,7 +1352,7 @@
       "worst": "rows:87"
     },
     "backend/features/core/llm_caps.py": {
-      "lines": 352,
+      "lines": 365,
       "complexity": 8,
       "worst": "refusal:214"
     },
@@ -1447,7 +1447,7 @@
       "worst": "check_connected:131"
     },
     "backend/features/core/usage.py": {
-      "lines": 425,
+      "lines": 435,
       "complexity": 8,
       "worst": "ensure_llm_within_cap:291"
     },
