@@ -507,14 +507,14 @@
       "worst": "of:59"
     },
     "backend/api/sales/plan_schemas.py": {
-      "lines": 319,
+      "lines": 333,
       "complexity": 9,
-      "worst": "of:94"
+      "worst": "of:98"
     },
     "backend/api/sales/plans.py": {
-      "lines": 371,
+      "lines": 395,
       "complexity": 5,
-      "worst": "_upload:107"
+      "worst": "_upload:109"
     },
     "backend/api/sales/queue.py": {
       "lines": 254,
@@ -527,7 +527,7 @@
       "worst": "_found:133"
     },
     "backend/api/sales/schemas.py": {
-      "lines": 234,
+      "lines": 237,
       "complexity": 2,
       "worst": "of:27"
     },
@@ -3357,14 +3357,14 @@
       "worst": "still_checking:48"
     },
     "backend/features/sales/hypotheses.py": {
-      "lines": 460,
+      "lines": 492,
       "complexity": 7,
-      "worst": "edit:371"
+      "worst": "edit:399"
     },
     "backend/features/sales/hypothesis_countries.py": {
-      "lines": 142,
+      "lines": 148,
       "complexity": 6,
-      "worst": "checked_codes:81"
+      "worst": "checked_codes:84"
     },
     "backend/features/sales/hypothesis_holds.py": {
       "lines": 119,
@@ -3372,9 +3372,9 @@
       "worst": "count:97"
     },
     "backend/features/sales/hypothesis_kinds.py": {
-      "lines": 35,
-      "complexity": 0,
-      "worst": "—"
+      "lines": 91,
+      "complexity": 4,
+      "worst": "checked_kinds:64"
     },
     "backend/features/sales/intake.py": {
       "lines": 460,
@@ -3502,14 +3502,14 @@
       "worst": "read_json:35"
     },
     "backend/features/sales/plan_actions.py": {
-      "lines": 388,
-      "complexity": 7,
-      "worst": "refusal:307"
+      "lines": 488,
+      "complexity": 9,
+      "worst": "refusal:331"
     },
     "backend/features/sales/plan_budget.py": {
-      "lines": 200,
-      "complexity": 3,
-      "worst": "cap_words:136"
+      "lines": 254,
+      "complexity": 4,
+      "worst": "stopped_on_cap:238"
     },
     "backend/features/sales/plan_card.py": {
       "lines": 268,
@@ -3697,9 +3697,9 @@
       "worst": "_verdict:208"
     },
     "backend/features/sales/segment_judging.py": {
-      "lines": 303,
+      "lines": 306,
       "complexity": 6,
-      "worst": "judge_run:273"
+      "worst": "judge_run:276"
     },
     "backend/features/sales/segment_keywords.py": {
       "lines": 172,
@@ -3762,9 +3762,9 @@
       "worst": "decide:275"
     },
     "backend/features/sales/segment_rules.py": {
-      "lines": 312,
+      "lines": 338,
       "complexity": 4,
-      "worst": "_foreign_words:141"
+      "worst": "_foreign_words:166"
     },
     "backend/features/sales/segment_run.py": {
       "lines": 438,

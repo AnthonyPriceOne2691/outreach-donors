@@ -18,13 +18,11 @@ import {
   FileInput,
   Group,
   Modal,
-  NumberInput,
   SegmentedControl,
   SimpleGrid,
   Stack,
   Text,
 } from '@mantine/core';
-import type { NumberInputProps } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -35,6 +33,7 @@ import { InfoHint } from '../components/InfoHint';
 import { formatNumber, plural } from '../format';
 import { notify } from '../notices';
 import { OneScrollForm } from './OneScrollForm';
+import { PlanNumberField } from './PlanNumberField';
 import { PlanPreviewView } from './PlanPreviewView';
 import { PLANS_QUERY_KEY, PlansList } from './PlansList';
 
@@ -78,40 +77,6 @@ function BookHint() {
   );
 }
 
-/** Число поля; пусто или не число — `null`. Mantine отдаёт строкой значение с точкой или нулём в
- * конце («0.», «1.0», «0.50») — это тоже число. */
-function numberOf(value: string | number): number | null {
-  if (typeof value === 'number') return value;
-  const parsed = value.trim() === '' ? Number.NaN : Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-type NumberFieldProps = Omit<NumberInputProps, 'value' | 'onChange'> & {
-  value: number | null;
-  onValue: (value: number | null) => void;
-};
-
-/**
- * Числовое поле окна: в поле — как набрано, наверх — число или `null`. Набранное хранит само поле,
- * а не `choice`: поле, перерисованное из числа, стирало точку на ходу — «0.5» по знаку становилось
- * «5», а «1.0» — пустым полем и отказом «потолок плана обязателен» (проверка плана на проде
- * 19.11.2026). То же правило у целых полей сборки писем — `letters/CountInput.tsx`; здесь числа
- * дробные, а пустое поле — «не задано», без умолчания.
- */
-function NumberField({ value, onValue, ...props }: NumberFieldProps) {
-  const [typed, setTyped] = useState<string | number>(value ?? '');
-  return (
-    <NumberInput
-      {...props}
-      value={typed}
-      onChange={(next) => {
-        setTyped(next);
-        onValue(numberOf(next));
-      }}
-    />
-  );
-}
-
 /** Поля окна: режим, общая цель, потолки. */
 function ChoiceFields({
   choice,
@@ -135,7 +100,7 @@ function ChoiceFields({
         </InfoHint>
       </Group>
       <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
-        <NumberField
+        <PlanNumberField
           label="Общая цель, сайтов"
           description="для листов без своей"
           min={1}
@@ -144,14 +109,14 @@ function ChoiceFields({
           value={choice.goal}
           onValue={(goal) => onChoice({ ...choice, goal })}
         />
-        <NumberField
+        <PlanNumberField
           label="Потолок плана, $"
           min={0}
           decimalScale={2}
           value={choice.capUsd}
           onValue={(capUsd) => onChoice({ ...choice, capUsd })}
         />
-        <NumberField
+        <PlanNumberField
           label="Потолок гипотезы, $"
           min={0}
           decimalScale={2}
