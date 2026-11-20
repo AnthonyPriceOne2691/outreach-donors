@@ -11,6 +11,13 @@ on:
 permissions:
   contents: read
 
+# Действия — по полному коммиту, версия — комментарием (аудит 20.11.2026, п. 34):
+# метку вроде `v4` владелец действия может передвинуть на любой коммит, и следующий
+# прогон исполнит его с токеном джобы — так 19.03.2026 подменили метки trivy-action.
+# Коммиты сняты с меток официальных репозиториев и совпадают с тем, куда метки
+# указывали в день закрепления, — поведение прежнее. Поднимает их Dependabot
+# (.github/dependabot.yml), держит форму tests/test_ci_supply_chain.py.
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -43,11 +50,11 @@ jobs:
     steps:
       # Полная история: проверке волн нужна база PR и общий предок с ней —
       # на глубине 1 `base...HEAD` не считается.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
@@ -203,11 +210,11 @@ jobs:
       TEST_STORAGE_DSN: postgresql+asyncpg://outreach:outreach@localhost:5432/outreach_test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
@@ -251,7 +258,7 @@ jobs:
           git rev-parse HEAD > coverage.json.head
 
       - name: Отчёт покрытия для гейта
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage
           path: |
@@ -275,11 +282,11 @@ jobs:
       LINT_COV_PKG: backend
       LINT_COV_FILE: coverage.json
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: coverage
 
@@ -313,9 +320,9 @@ jobs:
         working-directory: frontend
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
@@ -374,7 +381,12 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
+      # Токен джобы — с правом публиковать образы — не остаётся в .git/config: за
+      # checkout здесь идут сторонние действия (сканер), читать его им незачем, а
+      # git после checkout этой джобе не нужен (аудит 20.11.2026).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Образ сервера и воркера
         run: docker build --target backend -t outreach-backend:ci .
@@ -445,6 +457,127 @@ jobs:
           docker run --rm --network host \
             -e STORAGE_DSN="postgresql+asyncpg://outreach:outreach@127.0.0.1:5432/outreach_fresh" \
             outreach-backend:ci alembic upgrade head
+
+      # --- Скан образов и SBOM (аудит 20.11.2026, п. 36) ------------------------
+      # Trivy через aquasecurity/trivy-action — коммитом неизменяемого релиза
+      # v0.36.0 (22.04.2026). Метки этого действия уже подменяли: 19.03.2026 76 из
+      # 77 меток trivy-action и все метки setup-trivy передвинули на коммиты,
+      # воровавшие секреты джоб (GHSA-69fq-xp46-6x23). v0.36.0 вышел после разбора,
+      # сам держит setup-trivy (v0.2.6) и actions/cache коммитами и ставит Trivy
+      # v0.70.0 — тоже неизменяемый релиз после разбора (подложными были
+      # 0.69.4–0.69.6). Версию Trivy держит коммит действия: Dependabot поднимет их
+      # вместе.
+      #
+      # Порядок несущий: отчёт и SBOM — до гейта, чтобы артефакт был и тогда, когда
+      # гейт красный; гейт — до входа в реестр: образ с исправимой critical не
+      # публикуется. Бинарь и базу уязвимостей ставит первый вызов, следующие берут
+      # их оттуда (`skip-setup-trivy`, `cache: false`): повторное восстановление
+      # кэша затирало бы свежую базу вчерашней, и каждый вызов качал бы её заново.
+      # Сканируются только уязвимости (`scanners: vuln`): секреты в файлах — забота
+      # detect-secrets по репозиторию, а ложная «critical» в чужом тестовом файле
+      # внутри site-packages останавливала бы выкатку.
+      - name: Скан образа сервера — отчёт HIGH и CRITICAL
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: outreach-backend:ci
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          format: table
+          output: trivy-backend.txt
+          exit-code: "0"
+
+      - name: Скан образа фронта — отчёт HIGH и CRITICAL
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: outreach-web:ci
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          format: table
+          output: trivy-web.txt
+          exit-code: "0"
+          skip-setup-trivy: true
+          cache: false
+
+      # SBOM — опись состава образа (CycloneDX): по ней отвечают на «был ли пакет X
+      # в образе, выкаченном такого-то числа», не скачивая образ. Уязвимостей в
+      # описи нет — только пакеты и версии.
+      - name: SBOM образа сервера
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: outreach-backend:ci
+          format: cyclonedx
+          output: sbom-backend.cdx.json
+          skip-setup-trivy: true
+          cache: false
+
+      - name: SBOM образа фронта
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: outreach-web:ci
+          format: cyclonedx
+          output: sbom-web.cdx.json
+          skip-setup-trivy: true
+          cache: false
+
+      - name: Отчёт сканера — в лог и в сводку прогона
+        run: |
+          for f in trivy-backend.txt trivy-web.txt; do
+            echo "== $f"
+            cat "$f"
+          done
+          {
+            echo "### Скан образов: HIGH и CRITICAL, с исправлением и без"
+            for f in trivy-backend.txt trivy-web.txt; do
+              printf '\n#### %s\n\n~~~\n' "$f"
+              cat "$f"
+              printf '~~~\n'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # 90 дней: опись нужна, пока выкаченный образ может стоять на сервере.
+      - name: SBOM и отчёт сканера — в артефакт
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: image-sbom
+          path: |
+            sbom-backend.cdx.json
+            sbom-web.cdx.json
+            trivy-backend.txt
+            trivy-web.txt
+          if-no-files-found: error
+          retention-days: 90
+
+      # Гейт: исправимая critical роняет джобу, и образ не публикуется. HIGH — в
+      # отчёте выше, но не роняет: база уязвимостей обновляется каждые несколько
+      # часов, и порог по HIGH краснил бы main чужими публикациями, а не правкой, —
+      # с остановкой выкатки: публикацию держит эта же джоба. Без исправления
+      # (`ignore-unfixed`) тоже не роняет: чинить нечем, кроме смены базового
+      # образа. Исключение — строкой в .trivyignore: id, срок `exp:` и причина.
+      - name: Гейт образа сервера — исправимые CRITICAL
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: outreach-backend:ci
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: "1"
+          trivyignores: .trivyignore
+          skip-setup-trivy: true
+          cache: false
+
+      - name: Гейт образа фронта — исправимые CRITICAL
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: outreach-web:ci
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: "1"
+          trivyignores: .trivyignore
+          skip-setup-trivy: true
+          cache: false
 
       - name: Войти в реестр
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

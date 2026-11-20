@@ -1,0 +1,33 @@
+# Dependabot — только действия GitHub (аудит 20.11.2026, п. 34).
+#
+# Действия в .github/workflows закреплены полным коммитом с версией в комментарии;
+# Dependabot умеет поднимать такую форму — коммит и комментарий меняет вместе. Раз в
+# неделю и одним PR на все действия: каждый PR гоняет полный CI, а россыпь мелких PR
+# стояла бы в очереди раннеров перед выкатками. Неделя выдержки (`cooldown`) — от
+# подложного релиза: 19.03.2026 метки trivy-action передвинули на коммиты, воровавшие
+# секреты джоб, и вычистили их за сутки; свежий релиз ждёт, пока его проверят другие.
+#
+# pip (uv) и npm сюда сознательно не входят. Зависимость здесь поднимают решением с
+# причиной в заголовке PR («vite 7.3.7 — GHSA-…»), по сигналу гейта уязвимостей
+# (scripts/lint/check_deps_audit.sh), а lock сверяется той же версией uv, что ставит
+# образ (`uv lock --check`, tests/test_python_lock.py). Dependabot переписывал бы
+# uv.lock своей версией uv и открывал бы PR на каждый релиз — каждый с полным CI в
+# общей очереди с выкатками. Сигнал об уязвимой версии даёт гейт; включить ещё и
+# Dependabot alerts или security updates — настройка репозитория, решение владельца.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Moscow
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "CI"

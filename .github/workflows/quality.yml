@@ -18,6 +18,10 @@ concurrency:
 permissions:
   contents: read
 
+# Действия — по полному коммиту, версия — комментарием (аудит 20.11.2026, п. 34):
+# метку владелец действия может передвинуть на любой коммит. Коммиты — те, куда
+# метки указывали в день закрепления; поднимает их Dependabot (.github/dependabot.yml).
+
 env:
   STRICT: "1"                 # soft-режим в CI запрещён (Delivery §10.4)
   # ⚠ Область — ВЕСЬ backend, а не канонный backend/features: домены лежат в
@@ -43,7 +47,7 @@ jobs:
     # Прежде шаг «Diff coverage» гонял весь набор второй раз (7–8 минут на каждом
     # PR, замер 07.10.2026) и ради него джоба держала сервис postgres.
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0      # нужен для BASE-диффа: diff-coverage и baseline-ratchet
       # §8.3a: база диффа определяется ОДИН раз на джобу и называет отказ вслух.
@@ -99,7 +103,7 @@ jobs:
       # ронял ВСЮ джобу гейтов до первого гейта. Замерено на восьмом развёртывании;
       # тот же класс, что маска гейта, не знающая про `.astro` (cqg@1.69).
       # Пустая строка = кэш выключен, и это штатное значение действия.
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"   # ← выровнять с локальной версией проекта
           cache: ${{ hashFiles('**/requirements*.txt', '**/pyproject.toml') != '' && 'pip' || '' }}
@@ -107,7 +111,7 @@ jobs:
       # либо в подкаталоге, либо в корне репозитория. Жёсткий
       # `frontend/package-lock.json` роняет действие на «Some specified paths were
       # not resolved» ровно там, где фронт и есть весь проект.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: ${{ hashFiles('**/package-lock.json') != '' && 'npm' || '' }}
@@ -291,6 +295,9 @@ jobs:
       # Покрытие изменённого кода — в ci.yml (джоба diff-coverage читает отчёт
       # джобы check, привязанный к коммиту): сьют идёт один раз (cqg@2.47).
 
+      # Аудит 20.11.2026: исключение — только поимённое, с потолком (`ghsa=…
+      # max_critical= max_high=` в STATUS), а неответивший pip-audit или npm audit
+      # при STRICT=1 — красное «не проверено», а не «0 0 0 → OK».
       - name: Vulnerable dependencies
         if: always()
         run: bash scripts/lint/check_deps_audit.sh
@@ -310,7 +317,7 @@ jobs:
     # §8.7: предохранитель, а не оптимизация — фазовый гейт читает файлы; 10 с запасом.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0      # breakers и метрики считаются по merge-base..HEAD
       # §8.3a: база диффа определяется ОДИН раз на джобу и называет отказ вслух.
@@ -355,7 +362,7 @@ jobs:
           echo "BASE=$base" >> "$GITHUB_ENV"
           echo "база диффа: $base"
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 

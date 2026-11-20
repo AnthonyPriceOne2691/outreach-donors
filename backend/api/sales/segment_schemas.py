@@ -318,6 +318,9 @@ class RunRow(BaseModel):
     country: str
     language: str
     depth_pages: int
+    #: Первая купленная страница выдачи: 1 — с начала; волна плана работ покупает глубже — страницы
+    #: `from_page..depth_pages` (2, 3, 4–5), и экран называет купленные, а не всю глубину.
+    from_page: int
     keywords: int
     mode: str
     stage: str
@@ -352,6 +355,7 @@ class RunRow(BaseModel):
             country=run.country,
             language=run.language,
             depth_pages=run.depth_pages,
+            from_page=run.from_page,
             keywords=len(run.keywords),
             mode=run.mode,
             stage=run.stage,
