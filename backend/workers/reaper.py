@@ -36,6 +36,10 @@
 к базе и постановка раз в минуту. Модуль очереди — при проходе: он тянет конфиг обхода, а опечатка
 в нём роняет только обходчик.
 
+Восьмой — сторож входов и прав (`features/ops/access_watch.watch`): всплеск неудачных входов,
+новый админ и смена доступа — в общий канал тревог, раз в `access_watch.INTERVAL_SEC`. Как у
+сторожа тишины: своя сессия на проход, неудача прохода — неудача этого цикла, остальные идут.
+
 Письма, отбитые молчащим DNS получателя (`features/letters/dns_return.py`), возвращаются проходом
 разбора мёртвых, а не своим циклом: разбор — это он и есть, нужна сессия раз в несколько минут. Реже
 прохода, раз в десять минут (`Sparse`); упал возврат — разбор прогонов это не задевает.
@@ -65,7 +69,7 @@ from backend.config import sales_plan as plan_cfg
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.crawl.lifecycle import recover as recover_crawls
-from backend.features.ops import silence
+from backend.features.ops import access_watch, silence
 from backend.features.ops.alarm_feed import Feed
 from backend.features.ops.alarms import Alarm
 from backend.features.ops.silence import probe_providers
@@ -401,6 +405,7 @@ async def _loops() -> None:
     await asyncio.gather(
         every(POLL_INTERVAL_SEC, sweep, name="Разбор мёртвых прогонов"),
         every(WATCHDOG_INTERVAL_SEC, watch, name="Сторож тишины"),
+        every(access_watch.INTERVAL_SEC, access_watch.watch, name="Сторож входов и прав"),
         every(BACKLOG_INTERVAL_SEC, feed_backlog, name="Очередь загрузки обхода"),
         _sales_loop(sales_cfg.HANDOFF_PASS_SEC, retry_handoffs, "Повтор передачи лидов продаж"),
         _sales_loop(sales_cfg.AUTOSEND_PASS_SEC, autosend, "Автоотправка писем продаж"),
