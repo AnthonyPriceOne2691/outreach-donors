@@ -3502,14 +3502,14 @@
       "worst": "read_json:35"
     },
     "backend/features/sales/plan_actions.py": {
-      "lines": 488,
+      "lines": 491,
       "complexity": 9,
       "worst": "refusal:331"
     },
     "backend/features/sales/plan_budget.py": {
-      "lines": 254,
+      "lines": 261,
       "complexity": 4,
-      "worst": "stopped_on_cap:238"
+      "worst": "below_spent:171"
     },
     "backend/features/sales/plan_card.py": {
       "lines": 268,

@@ -32,7 +32,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from enum import StrEnum
 from typing import Any
 
@@ -135,6 +135,9 @@ class Outcome(StrEnum):
 
 #: Чей потолок — словами экрана.
 CAP_OF = {Outcome.HYPOTHESIS_CAP: "гипотезы", Outcome.PLAN_CAP: "плана"}
+#: Где поднять потолок — словами экрана: потолок гипотезы — поле окна «Качество сайтов», плана — кнопка
+#: «Потолок» у строки плана (стенд 20.11: слова «поднимите потолок» не говорили, где).
+RAISE_AT = {Outcome.HYPOTHESIS_CAP: "в «Качестве сайтов»", Outcome.PLAN_CAP: "кнопкой «Потолок»"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,28 +156,32 @@ def cap_lead(outcome: Outcome) -> str:
 
 def cap_words(outcome: Outcome, cap: Decimal, held: Spent, next_usd: Decimal) -> str:
     """«потолок гипотезы 50,00 $: израсходовано 49,30 $, следующий прогон ≈ 0,90 $ — поднимите
-    потолок или остановите». Резерв идущих прогонов назван, когда он есть: без него числа слов не
-    сходились бы с отказом."""
+    потолок в «Качестве сайтов» или остановите». Резерв идущих прогонов назван, когда он есть: без
+    него числа слов не сходились бы с отказом. Где поднять — `RAISE_AT`."""
     spent = f"израсходовано {said_usd(held.spent)}"
     if held.reserved:
         runs = "идущего прогона" if held.going == 1 else "идущих прогонов"
         spent += f" и {said_usd(held.reserved)} в резерве {runs}"
     return (
         f"{cap_lead(outcome)}{said_usd(cap)}: {spent}, следующий прогон ≈ "
-        f"{said_usd(next_usd)} — поднимите потолок или остановите"
+        f"{said_usd(next_usd)} — поднимите потолок {RAISE_AT[outcome]} или остановите"
     )
 
 
 def below_spent(cap: Decimal, spent: Decimal) -> str | None:
     """Потолок ниже израсходованного — слова отказа без начала «потолок гипотезы …»: «не может быть
-    ниже израсходованного: израсходовано 12,40 $ — задайте от 12,41 $». «От» — израсходованное,
-    поднятое до цента: потолок — в центах, а расход — до сотой доли цента. Не ниже — `None`."""
+    ниже израсходованного: израсходовано 12,40 $ — задайте от 12,40 $». «От» — израсходованное,
+    поднятое до цента: потолок — в центах, а расход — до сотой доли цента. Расход с долей цента —
+    «израсходовано больше 1,73 $ — задайте от 1,74 $»: округлённое «израсходовано 1,73 $» рядом с
+    отказом потолку 1,73 читалось противоречием (стенд 20.11). Не ниже — `None`."""
     if cap >= spent:
         return None
     least = spent.quantize(CENT, rounding=ROUND_CEILING)
+    whole = spent.quantize(CENT, rounding=ROUND_FLOOR)
+    # Меньше цента — «меньше 0,01 $» правила денег, а не «больше 0,00 $».
+    said = said_usd(spent) if least == whole or not whole else f"больше {said_usd(whole)}"
     return (
-        f"не может быть ниже израсходованного: израсходовано {said_usd(spent)} — задайте от "
-        f"{said_usd(least)}"
+        f"не может быть ниже израсходованного: израсходовано {said} — задайте от {said_usd(least)}"
     )
 
 

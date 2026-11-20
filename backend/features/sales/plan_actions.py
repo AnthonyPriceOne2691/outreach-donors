@@ -433,8 +433,11 @@ async def _row_cap(
     row = held.row
     if cap == row.cap_usd:
         return
-    spent = (await spending(session, row.plan_id)).get(row.id, Spent()).spent
-    _not_below(cap, spent, f"гипотезы «{held.name}»")
+    fresh = (await spending(session, row.plan_id)).get(row.id, Spent())
+    _not_below(cap, fresh.spent, f"гипотезы «{held.name}»")
+    # Расход строки — тот, по которому решён потолок: окно и ответ видят его, а не число прошлого
+    # прохода (стенд 20.11). `counted_at` — только у прохода: по нему он узнаёт кончившиеся прогоны.
+    row.spent_usd, row.reserved_usd = fresh.spent, fresh.reserved
     was, row.cap_usd = row.cap_usd, cap
     if cap > was:
         woken = stopped_on_cap(row)
