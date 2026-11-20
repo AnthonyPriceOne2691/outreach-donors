@@ -4212,9 +4212,9 @@
       "worst": "main:52"
     },
     "backend/workers/reaper.py": {
-      "lines": 421,
+      "lines": 426,
       "complexity": 4,
-      "worst": "_told:261"
+      "worst": "_told:265"
     },
     "backend/workers/redirect_jobs.py": {
       "lines": 58,
