@@ -102,9 +102,9 @@
       "worst": "—"
     },
     "backend/api/auth/routes.py": {
-      "lines": 132,
+      "lines": 154,
       "complexity": 4,
-      "worst": "sign_in:45"
+      "worst": "sign_in:47"
     },
     "backend/api/auth/schemas.py": {
       "lines": 79,
@@ -177,9 +177,9 @@
       "worst": "of:62"
     },
     "backend/api/deps.py": {
-      "lines": 126,
+      "lines": 149,
       "complexity": 4,
-      "worst": "signed_in:57"
+      "worst": "signed_pass:69"
     },
     "backend/api/donors/__init__.py": {
       "lines": 1,
@@ -722,14 +722,14 @@
       "worst": "—"
     },
     "backend/api/users/routes.py": {
-      "lines": 89,
-      "complexity": 2,
-      "worst": "all_users:31"
+      "lines": 140,
+      "complexity": 3,
+      "worst": "_confirmed:51"
     },
     "backend/api/users/schemas.py": {
-      "lines": 174,
+      "lines": 191,
       "complexity": 5,
-      "worst": "mail_problem:28"
+      "worst": "mail_problem:35"
     },
     "backend/api/watchdog/__init__.py": {
       "lines": 1,
@@ -932,7 +932,7 @@
       "worst": "spared:50"
     },
     "backend/config/access.py": {
-      "lines": 57,
+      "lines": 62,
       "complexity": 0,
       "worst": "—"
     },
@@ -1047,9 +1047,9 @@
       "worst": "—"
     },
     "backend/features/access/administration.py": {
-      "lines": 213,
+      "lines": 241,
       "complexity": 5,
-      "worst": "_guard_admin_supply:83"
+      "worst": "_guard_admin_supply:111"
     },
     "backend/features/access/attempts.py": {
       "lines": 80,
@@ -1086,10 +1086,15 @@
       "complexity": 7,
       "worst": "update_access:186"
     },
+    "backend/features/access/sessions.py": {
+      "lines": 210,
+      "complexity": 7,
+      "worst": "_verdict:157"
+    },
     "backend/features/access/tokens.py": {
-      "lines": 180,
+      "lines": 218,
       "complexity": 5,
-      "worst": "read_token:144"
+      "worst": "read_token:172"
     },
     "backend/features/agent/__init__.py": {
       "lines": 7,
@@ -3507,12 +3512,12 @@
       "worst": "read_json:35"
     },
     "backend/features/sales/plan_actions.py": {
-      "lines": 491,
+      "lines": 497,
       "complexity": 9,
-      "worst": "refusal:331"
+      "worst": "refusal:337"
     },
     "backend/features/sales/plan_budget.py": {
-      "lines": 261,
+      "lines": 267,
       "complexity": 4,
       "worst": "below_spent:171"
     },
@@ -3537,9 +3542,9 @@
       "worst": "_draft:228"
     },
     "backend/features/sales/plan_found.py": {
-      "lines": 128,
+      "lines": 149,
       "complexity": 4,
-      "worst": "recount:75"
+      "worst": "recount:96"
     },
     "backend/features/sales/plan_gates.py": {
       "lines": 176,
@@ -3557,9 +3562,9 @@
       "worst": "—"
     },
     "backend/features/sales/plan_moves.py": {
-      "lines": 91,
+      "lines": 131,
       "complexity": 4,
-      "worst": "move:54"
+      "worst": "move:57"
     },
     "backend/features/sales/plan_runs.py": {
       "lines": 251,
@@ -3567,9 +3572,9 @@
       "worst": "_judged:125"
     },
     "backend/features/sales/plan_settle.py": {
-      "lines": 144,
+      "lines": 145,
       "complexity": 5,
-      "worst": "give_up:64"
+      "worst": "give_up:65"
     },
     "backend/features/sales/plan_store.py": {
       "lines": 382,
@@ -3657,9 +3662,9 @@
       "worst": "_known:43"
     },
     "backend/features/sales/segment_client.py": {
-      "lines": 344,
+      "lines": 381,
       "complexity": 7,
-      "worst": "spent_of:104"
+      "worst": "spent_of:121"
     },
     "backend/features/sales/segment_counts.py": {
       "lines": 41,
@@ -3682,9 +3687,9 @@
       "worst": "_judge_line:100"
     },
     "backend/features/sales/segment_facts.py": {
-      "lines": 296,
-      "complexity": 13,
-      "worst": "from_json:146"
+      "lines": 351,
+      "complexity": 10,
+      "worst": "_form:232"
     },
     "backend/features/sales/segment_helper.py": {
       "lines": 345,
@@ -3702,9 +3707,9 @@
       "worst": "put_due:352"
     },
     "backend/features/sales/segment_judge.py": {
-      "lines": 309,
+      "lines": 318,
       "complexity": 10,
-      "worst": "_verdict:208"
+      "worst": "_verdict:215"
     },
     "backend/features/sales/segment_judging.py": {
       "lines": 306,
@@ -3717,9 +3722,9 @@
       "worst": "clean_keywords:72"
     },
     "backend/features/sales/segment_language.py": {
-      "lines": 430,
+      "lines": 475,
       "complexity": 10,
-      "worst": "switches_to:388"
+      "worst": "switches_to:433"
     },
     "backend/features/sales/segment_launch.py": {
       "lines": 137,
@@ -3772,9 +3777,9 @@
       "worst": "decide:278"
     },
     "backend/features/sales/segment_rules.py": {
-      "lines": 338,
+      "lines": 341,
       "complexity": 4,
-      "worst": "_foreign_words:166"
+      "worst": "_foreign_words:169"
     },
     "backend/features/sales/segment_run.py": {
       "lines": 438,
@@ -3802,9 +3807,9 @@
       "worst": "_judge:210"
     },
     "backend/features/sales/segment_text.py": {
-      "lines": 200,
-      "complexity": 8,
-      "worst": "page_home:128"
+      "lines": 276,
+      "complexity": 9,
+      "worst": "_page_to_read:176"
     },
     "backend/features/sales/segment_tier.py": {
       "lines": 261,
@@ -3827,9 +3832,9 @@
       "worst": "watch:98"
     },
     "backend/features/sales/segment_window.py": {
-      "lines": 492,
+      "lines": 497,
       "complexity": 7,
-      "worst": "_land:446"
+      "worst": "_land:451"
     },
     "backend/features/sales/sender.py": {
       "lines": 335,
@@ -4137,9 +4142,9 @@
       "worst": "spaced:15"
     },
     "backend/shared/queue.py": {
-      "lines": 448,
+      "lines": 450,
       "complexity": 7,
-      "worst": "job_alive:367"
+      "worst": "job_alive:369"
     },
     "backend/shared/quote.py": {
       "lines": 271,
@@ -4307,7 +4312,7 @@
       "worst": "main:419"
     },
     "scripts/eval_sales_segment_field.py": {
-      "lines": 169,
+      "lines": 172,
       "complexity": 6,
       "worst": "scope_of:76"
     },

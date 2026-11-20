@@ -19,10 +19,11 @@ const KEY = 'outreach_donors_token';
  *  их может быть несколько, а их не бывает.
  *
  *  `hadPass` — был ли пропуск, который отказали: вход с неверным паролем
- *  сеанса не обрывает — его и не было. */
-let onLost: ((hadPass: boolean) => void) | null = null;
+ *  сеанса не обрывает — его и не было. `reason` — почему, словами сервера
+ *  («Сеанс закончился: долго не было действий…»); пусто — сервер не сказал. */
+let onLost: ((hadPass: boolean, reason: string) => void) | null = null;
 
-export function watchTokenLoss(listener: (hadPass: boolean) => void): () => void {
+export function watchTokenLoss(listener: (hadPass: boolean, reason: string) => void): () => void {
   onLost = listener;
   return () => {
     onLost = null;
@@ -56,14 +57,15 @@ export function dropToken(): void {
   }
 }
 
-/** Сервер отказал пропуску («входа нет» на любом запросе): выбросить и сказать сессии. */
-export function clearToken(): void {
+/** Сервер отказал пропуску («входа нет» на любом запросе): выбросить и сказать сессии —
+ *  с причиной словами сервера, если он её назвал. */
+export function clearToken(reason = ''): void {
   const hadPass = readToken() !== null;
   dropToken();
   // Пропуск выброшен не выходом, а отказом сервера. Сессия обязана узнать
   // об этом сама, иначе экран остаётся нарисованным для человека, которого
   // уже не пускают, — и сказать на входе, почему пришлось войти снова.
-  onLost?.(hadPass);
+  onLost?.(hadPass, reason);
 }
 
 /** Кому сказать, что сервер отказал в доступе посреди сеанса: право сняли или пароль

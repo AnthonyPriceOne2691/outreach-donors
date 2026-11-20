@@ -24,12 +24,19 @@ from tests.conftest import bearer
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
 
+#: Пароль админа, которым он подтверждает правку доступа и сброс чужого пароля (аудит
+#: 20.11.2026, №10): учётки тестов заводятся с ним (`make_user`).
+CONFIRMED = {"current_password": "пароль-для-теста"}
+
+#: Отказ без пароля админа или с чужим.
+NOT_CONFIRMED = "Неверный пароль — подтвердите действие своим паролем"
+
 #: Маршруты раздела учёток: метод, путь с местом под номер, тело.
 USER_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("GET", "/api/users", None),
     ("POST", "/api/users", {"email": "ещё-один@site.com", "role": "operator"}),
-    ("PATCH", "/api/users/{id}", {"is_active": False}),
-    ("POST", "/api/users/{id}/password", None),
+    ("PATCH", "/api/users/{id}", {"is_active": False, **CONFIRMED}),
+    ("POST", "/api/users/{id}/password", CONFIRMED),
 ]
 
 
@@ -150,9 +157,10 @@ class TestCreate:
         monkeypatch.setattr("backend.config.access.ONE_TIME_TTL_HOURS", 72)
         body = {"email": "новичок@team.example.test", "role": "operator"}
 
+        # Сброс чужого пароля — с паролем админа (`CONFIRMED`), заведение — без него.
         response = await client.post(
             path.format(id=target.id),
-            json=body if path == "/api/users" else None,
+            json=body if path == "/api/users" else CONFIRMED,
             headers=bearer(admin_token),
         )
 
@@ -219,7 +227,7 @@ class TestChangeAccess:
     ) -> None:
         given = await client.patch(
             f"/api/users/{target.id}",
-            json={"permissions": {"send": True}},
+            json={"permissions": {"send": True}, **CONFIRMED},
             headers=bearer(admin_token),
         )
         assert given.status_code == 200, given.text
@@ -228,7 +236,7 @@ class TestChangeAccess:
 
         taken = await client.patch(
             f"/api/users/{target.id}",
-            json={"permissions": {}},
+            json={"permissions": {}, **CONFIRMED},
             headers=bearer(admin_token),
         )
         assert "send" not in taken.json()["permissions"]
@@ -240,7 +248,7 @@ class TestChangeAccess:
         то, что даёт роль, не заводя третью роль."""
         response = await client.patch(
             f"/api/users/{target.id}",
-            json={"permissions": {"run": False}},
+            json={"permissions": {"run": False}, **CONFIRMED},
             headers=bearer(admin_token),
         )
         assert response.status_code == 200, response.text
@@ -284,7 +292,7 @@ class TestChangeAccess:
 
     async def test_unknown_user_is_not_found(self, client: AsyncClient, admin_token: str) -> None:
         response = await client.patch(
-            "/api/users/9999", json={"is_active": False}, headers=bearer(admin_token)
+            "/api/users/9999", json={"is_active": False, **CONFIRMED}, headers=bearer(admin_token)
         )
         assert response.status_code == 404
 
@@ -292,7 +300,9 @@ class TestChangeAccess:
         self, client: AsyncClient, admin_token: str, target: UserModel
     ) -> None:
         await client.patch(
-            f"/api/users/{target.id}", json={"is_active": False}, headers=bearer(admin_token)
+            f"/api/users/{target.id}",
+            json={"is_active": False, **CONFIRMED},
+            headers=bearer(admin_token),
         )
         response = await client.post(
             "/api/auth/login", json={"email": target.email, "password": "пароль-для-теста"}
@@ -310,7 +320,9 @@ class TestSelfLockout:
         await make_user("второй-админ@site.com", role=UserRole.ADMIN)
 
         response = await client.patch(
-            f"/api/users/{me['id']}", json={"is_active": False}, headers=bearer(admin_token)
+            f"/api/users/{me['id']}",
+            json={"is_active": False, **CONFIRMED},
+            headers=bearer(admin_token),
         )
 
         assert response.status_code == 409
@@ -323,7 +335,9 @@ class TestSelfLockout:
         а теперь закрыл бы и свой сеанс раньше, чем окно покажет разовый."""
         me = (await client.get("/api/auth/me", headers=bearer(admin_token))).json()
 
-        response = await client.post(f"/api/users/{me['id']}/password", headers=bearer(admin_token))
+        response = await client.post(
+            f"/api/users/{me['id']}/password", json=CONFIRMED, headers=bearer(admin_token)
+        )
 
         assert response.status_code == 409
         assert "меняют со старым" in response.json()["detail"]
@@ -339,7 +353,7 @@ class TestSelfLockout:
 
         response = await client.patch(
             f"/api/users/{me['id']}",
-            json={"permissions": {"users": False}},
+            json={"permissions": {"users": False}, **CONFIRMED},
             headers=bearer(admin_token),
         )
 
@@ -357,14 +371,16 @@ class TestSelfLockout:
         second_token = await sign_in("второй-админ@site.com")
 
         demoted = await client.patch(
-            f"/api/users/{first['id']}", json={"role": "operator"}, headers=bearer(second_token)
+            f"/api/users/{first['id']}",
+            json={"role": "operator", **CONFIRMED},
+            headers=bearer(second_token),
         )
         assert demoted.status_code == 200, demoted.text
 
         last = await client.get("/api/auth/me", headers=bearer(second_token))
         response = await client.patch(
             f"/api/users/{last.json()['id']}",
-            json={"role": "operator"},
+            json={"role": "operator", **CONFIRMED},
             headers=bearer(second_token),
         )
         assert response.status_code == 409
@@ -375,7 +391,7 @@ class TestReset:
         self, client: AsyncClient, admin_token: str, target: UserModel, sign_in: SignIn
     ) -> None:
         response = await client.post(
-            f"/api/users/{target.id}/password", headers=bearer(admin_token)
+            f"/api/users/{target.id}/password", json=CONFIRMED, headers=bearer(admin_token)
         )
 
         assert response.status_code == 200, response.text
@@ -395,7 +411,9 @@ class TestReset:
         человек сменит разовый пароль. Теперь пропуск выдан до сброса — не действует."""
         open_session = await sign_in(target.email)
 
-        reset = await client.post(f"/api/users/{target.id}/password", headers=bearer(admin_token))
+        reset = await client.post(
+            f"/api/users/{target.id}/password", json=CONFIRMED, headers=bearer(admin_token)
+        )
         assert reset.status_code == 200, reset.text
 
         refused = await client.get("/api/auth/me", headers=bearer(open_session))
@@ -417,7 +435,9 @@ class TestReset:
     async def test_admin_session_is_not_touched_by_resetting_another(
         self, client: AsyncClient, admin_token: str, target: UserModel
     ) -> None:
-        await client.post(f"/api/users/{target.id}/password", headers=bearer(admin_token))
+        await client.post(
+            f"/api/users/{target.id}/password", json=CONFIRMED, headers=bearer(admin_token)
+        )
 
         assert (await client.get("/api/users", headers=bearer(admin_token))).status_code == 200
 
@@ -432,7 +452,9 @@ class TestReset:
         события, и второе интересно ровно при разборе доступа."""
         me = (await client.get("/api/auth/me", headers=bearer(admin_token))).json()
 
-        await client.post(f"/api/users/{target.id}/password", headers=bearer(admin_token))
+        await client.post(
+            f"/api/users/{target.id}/password", json=CONFIRMED, headers=bearer(admin_token)
+        )
 
         rows = await session.execute(
             select(AuditLogModel).where(AuditLogModel.action == AuditAction.PASSWORD_CHANGED)
@@ -440,3 +462,91 @@ class TestReset:
         record = rows.scalars().all()[-1]
         assert record.user_id == me["id"]
         assert record.target == f"user:{target.id}"
+
+
+class TestConfirmation:
+    """Правка доступа и сброс чужого пароля — только с паролем админа (аудит 20.11.2026, №10):
+    украденный пропуск админа без пароля не выдаёт себе прав, не отключает хозяина и не
+    сбрасывает чужой пароль, чтобы войти по разовому. Отказ — 403 словами, и не меняется ничего:
+    ни учётка, ни журнал действий."""
+
+    @pytest.mark.parametrize(
+        "body",
+        [{"role": "admin"}, {"role": "admin", "current_password": "мимо"}],
+        ids=["без пароля", "чужой пароль"],
+    )
+    async def test_a_patch_without_the_own_password_changes_nothing(
+        self,
+        client: AsyncClient,
+        session: AsyncSession,
+        admin_token: str,
+        target: UserModel,
+        body: dict[str, Any],
+    ) -> None:
+        response = await client.patch(
+            f"/api/users/{target.id}", json=body, headers=bearer(admin_token)
+        )
+
+        assert response.status_code == 403, response.text
+        assert response.json()["detail"] == NOT_CONFIRMED
+        # Признак свой: это не «входа нет» — сеанс админа цел, и экран не ведёт на вход.
+        assert response.headers["X-Access-Refusal"] == "confirm-password"
+        cards = (await client.get("/api/users", headers=bearer(admin_token))).json()
+        assert next(card for card in cards if card["id"] == target.id)["role"] == "operator"
+        assert AuditAction.USER_UPDATED not in await _actions(session)
+
+    @pytest.mark.parametrize(
+        "body",
+        [None, {}, {"current_password": "мимо"}],
+        ids=["без тела", "без пароля", "чужой пароль"],
+    )
+    async def test_a_reset_without_the_own_password_changes_nothing(
+        self,
+        client: AsyncClient,
+        session: AsyncSession,
+        admin_token: str,
+        target: UserModel,
+        sign_in: SignIn,
+        body: dict[str, Any] | None,
+    ) -> None:
+        response = await client.post(
+            f"/api/users/{target.id}/password", json=body, headers=bearer(admin_token)
+        )
+
+        assert response.status_code == 403, response.text
+        assert response.json()["detail"] == NOT_CONFIRMED
+        assert "password" not in response.json()
+        # Пароль учётки прежний — вход по нему работает; сброса нет и в журнале.
+        await sign_in(target.email)
+        assert AuditAction.PASSWORD_CHANGED not in await _actions(session)
+
+    async def test_guessing_the_admin_password_runs_out(
+        self, client: AsyncClient, admin_token: str, target: UserModel
+    ) -> None:
+        """Подбор пароля админа его же пропуском — с пределом, как у смены своего пароля
+        (предел тестов — пять в минуту): иначе украденный пропуск подбирал бы пароль без счёта,
+        а с паролем — и вход."""
+        wrong = {"is_active": False, "current_password": "мимо"}
+        codes = [
+            (
+                await client.patch(
+                    f"/api/users/{target.id}", json=wrong, headers=bearer(admin_token)
+                )
+            ).status_code
+            for _ in range(6)
+        ]
+        right = await client.patch(
+            f"/api/users/{target.id}",
+            json={"is_active": False, **CONFIRMED},
+            headers=bearer(admin_token),
+        )
+
+        assert codes == [403] * 5 + [429]
+        assert right.status_code == 429, "исчерпано — не проверяется и верный"
+        cards = (await client.get("/api/users", headers=bearer(admin_token))).json()
+        assert next(card for card in cards if card["id"] == target.id)["is_active"] is True
+
+
+async def _actions(session: AsyncSession) -> list[AuditAction]:
+    rows = await session.execute(select(AuditLogModel.action))
+    return list(rows.scalars().all())

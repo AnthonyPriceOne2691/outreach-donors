@@ -25,6 +25,13 @@ _MAIL_DOMAIN = re.compile(r"^[^@\s.]+(?:\.[^@\s.]+)*\.[^@\s.]{2,}$")
 _ONLY_THESE = ConfigDict(extra="forbid")
 
 
+def _own_password() -> Any:
+    """Поле пароля админа, который подтверждает действие (аудит 20.11.2026, №10). Необязательно
+    для разбора: не прислан — тот же отказ, что неверный (403 словами,
+    `administration.confirm_own_password`), а не «поле обязательно» разбора схемы."""
+    return Field(default=None, max_length=1024)
+
+
 def mail_problem(email: str) -> str | None:
     """Что не так с почтой учётки — словами; `None` — годится.
 
@@ -130,6 +137,15 @@ class NewUser(BaseModel):
         return email
 
 
+class Confirmation(BaseModel):
+    """Тело сброса чужого пароля: пароль админа, который сбрасывает. Тела нет или пароля в нём
+    нет — тот же отказ, что неверный пароль."""
+
+    model_config = _ONLY_THESE
+
+    current_password: str | None = _own_password()
+
+
 def _one_time_note() -> str:
     """Подпись к разовому паролю: показан один раз и живёт срок (аудит 20.11.2026) — админ
     узнаёт о сроке, когда выдаёт пароль, а не от сотрудника, которого не пустило."""
@@ -149,7 +165,7 @@ class OneTimePassword(BaseModel):
 
 
 class AccessPatch(BaseModel):
-    """Правка доступа: роль, точечные права, включение и выключение.
+    """Правка доступа: роль, точечные права, включение и выключение — с паролем админа.
 
     Удаления учётки нет нигде намеренно: вместе с ней ушла бы история
     её действий — кто менял пороги, кто отправил письмо.
@@ -160,6 +176,7 @@ class AccessPatch(BaseModel):
     role: UserRole | None = None
     is_active: bool | None = None
     permissions: dict[str, Any] | None = None
+    current_password: str | None = _own_password()
 
     @field_validator("permissions")
     @classmethod

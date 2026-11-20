@@ -180,14 +180,10 @@ async def test_the_second_question_is_the_same_question_with_the_words_not_found
     assert _user(second).count(sj.SITE_CLOSE) == 1  # закрыть данные раньше времени нельзя
 
 
-@pytest.mark.parametrize(
-    "body",
-    [facts("yes", "", "без цитаты"), facts("yes", "pan artesanal", "x"), "не JSON"],
-    ids=["no-quote", "two-words", "not-json"],
-)
-async def test_only_a_quote_not_found_in_the_text_gets_a_second_question(body: Any) -> None:
-    """Нет цитаты, цитата короче трёх слов, ответ не разобран — прежние «на проверку» без повтора."""
-    verdict, seen = await judged(body, facts("yes", FOUND, "пекарня"))
+async def test_an_answer_not_parsed_gets_no_second_question() -> None:
+    """Ответ не разобран — прежние «на проверку» без повтора: следующий проход спросит снова. Нет
+    цитаты или она короче трёх слов — второй вопрос своей подсказкой (`test_sales_segment_no_quote`)."""
+    verdict, seen = await judged("не JSON", facts("yes", FOUND, "пекарня"))
 
     assert verdict.lane is Lane.REVIEW
     assert (len(seen), verdict.retried) == (1, False)
@@ -311,9 +307,13 @@ async def test_a_rejudge_counts_second_questions_and_adds_them_to_earlier_attemp
 
 
 def test_the_spare_tokens_per_site_keep_a_share_for_the_second_question() -> None:
-    """Смета до первых прогонов v5 — запасным числом: доля на второй вопрос — не меньше верхней
-    границы доли повторов по замеру 22.10 (5 сайтов из 286 к модели), с округлением вверх."""
-    assert cp_upper(5, 286) <= se.QUOTE_RETRY_SHARE
+    """Смета до первых прогонов версии — запасным числом: доля на второй вопрос — не меньше суммы
+    верхних границ: цитата не нашлась (замер 22.10, 5 сайтов из 286 к модели) и цитаты нет или она
+    короче трёх слов (замер 19.11, 3 из 102), с округлением вверх."""
+    missing, short = cp_upper(5, 286), cp_upper(3, 102)
+    assert missing is not None
+    assert short is not None
+    assert missing + short <= se.QUOTE_RETRY_SHARE
     assert se.TOKENS_PER_SITE >= se.TOKENS_PER_CALL * (1 + se.QUOTE_RETRY_SHARE)
     assert se.TOKENS_PER_SITE % 100 == 0
 
@@ -396,7 +396,7 @@ def test_the_prompt_keeps_unclear_for_a_text_that_does_not_show_what_the_site_is
     assert '- "unclear": the text does not show what the site is.' in prompt
     assert '- "unsure": the text does not show what the business does.' in prompt
     assert "A business's own order form, own price calculator" in prompt
-    assert sj.PROMPT_VERSION == "sales-segment-v5"
+    assert sj.PROMPT_VERSION == "sales-segment-v6"
 
 
 @pytest.mark.parametrize(
@@ -435,8 +435,8 @@ def test_the_hint_is_a_prompt_file_next_to_the_judge_prompt() -> None:
 
 @pytest.mark.parametrize(
     ("version", "asked"),
-    [("sales-segment-v4", True), (sj.PROMPT_VERSION, False)],
-    ids=["v4-asked-again", "own-version-served"],
+    [("sales-segment-v4", True), ("sales-segment-v5", True), (sj.PROMPT_VERSION, False)],
+    ids=["v4-asked-again", "v5-asked-again", "own-version-served"],
 )
 async def test_the_bumped_prompt_version_resets_the_verdict_cache(
     session: AsyncSession, version: str, asked: bool

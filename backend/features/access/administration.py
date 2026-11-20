@@ -25,6 +25,11 @@
 сменит пароль на свой. Поэтому и сброса себе нет: он выдавал разовый пароль
 без старого, а с проверки прода 10.10.2026 ещё и закрывает свой же сеанс
 раньше, чем окно покажет разовый (сброс закрывает выданные пропуска).
+
+**Правка доступа и сброс чужого пароля — только с паролем админа** (аудит 20.11.2026, №10,
+`confirm_own_password`). Это то, ради чего крадут пропуск админа: с ним вор выдаёт себе права,
+отбирает их у хозяина или сбрасывает чужой пароль и входит по разовому. Пароля в пропуске нет —
+без него этих действий пропуск больше не открывает.
 """
 
 from __future__ import annotations
@@ -40,11 +45,15 @@ from backend.features.access.passwords import (
     generate_one_time,
     verify_password,
 )
-from backend.features.access.permissions import Actor, has_permission
+from backend.features.access.permissions import AccessDeniedError, Actor, has_permission
 from backend.features.access.repository import AccessRepository, actor_of
 from backend.features.access.tokens import create_token
 from backend.features.core.domain import Permission, UserRole
 from backend.features.core.models.access import UserModel
+
+#: Отказ подтверждения — один на «пароль не прислан» и «не подошёл»: админ сам знает, прислал
+#: ли он пароль, а экран шлёт его всегда.
+NOT_CONFIRMED = "Неверный пароль — подтвердите действие своим паролем"
 
 
 class LastAdminError(ValueError):
@@ -61,6 +70,25 @@ class UnknownUserError(ValueError):
 
 class WrongPasswordError(ValueError):
     """Старый пароль не подошёл."""
+
+
+class NotConfirmedError(AccessDeniedError):
+    """Действие админа не подтверждено его паролем: пароль не прислан или не подошёл.
+
+    403 со своим признаком (`X-Access-Refusal: confirm-password`): это не «входа нет» — сеанс
+    цел, и экран не ведёт на вход, — и не «права нет»: право есть, нужен пароль."""
+
+    refusal = "confirm-password"
+
+
+async def confirm_own_password(password: str | None, password_hash: str | None) -> None:
+    """Подтвердить действие админа его нынешним паролем — или отказать `NOT_CONFIRMED`.
+
+    Сверка — bcrypt в пуле потоков, как у входа (`login.py`): четверть секунды счёта в цикле
+    событий держала бы все запросы сервиса. Счёт неверных попыток ведёт маршрут
+    (`api/users/routes.py`) — тем же счётчиком и ключом, что смена своего пароля."""
+    if not password or not await asyncio.to_thread(verify_password, password, password_hash):
+        raise NotConfirmedError(NOT_CONFIRMED)
 
 
 def _after(

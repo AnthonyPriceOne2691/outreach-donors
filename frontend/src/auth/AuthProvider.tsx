@@ -23,17 +23,28 @@
  * **Сеанс, оборванный сервером, отличается от выхода кнопкой** (проверка QA
  * 10.10.2026). Учётку отключили посреди работы — следующий запрос получал отказ,
  * и человек молча оказывался на входе, не зная почему. Теперь отказ пропуску
- * (`session.clearToken`) помечает сеанс оборванным, и вход это объясняет; выход
- * кнопкой пропуск убирает молча (`dropToken`), и объяснять там нечего.
+ * (`session.clearToken`) помечает сеанс оборванным, и вход это объясняет — словами сервера,
+ * если он их назвал («Сеанс закончился: долго не было действий»); выход кнопкой пропуск
+ * убирает молча (`dropToken`), и объяснять там нечего.
+ *
+ * **Выход закрывает пропуск и на сервере** (аудит 20.11.2026): «Выйти» сначала шлёт выход
+ * (`POST /api/auth/logout`), потом стирает пропуск здесь. Ответа не ждём: человек просил выйти,
+ * и обрыв связи его не держит, — пропуск запрос берёт сразу, до того как его сотрут.
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, use, useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { changePassword as changeRequest, fetchMe, login as loginRequest } from '../api/auth';
+import {
+  changePassword as changeRequest,
+  fetchMe,
+  login as loginRequest,
+  logout as logoutRequest,
+} from '../api/auth';
 import { AuthError } from '../api/client';
 import type { Me, Permission, SignedIn } from '../api/types';
+import { watchPresence } from './presence';
 import { dropToken, readToken, saveToken, watchAccessDenied, watchTokenLoss } from './session';
 
 interface Session {
@@ -41,9 +52,10 @@ interface Session {
   /** Первая проверка пропуска ещё идёт — показывать интерфейс рано. */
   loading: boolean;
   can: (permission: Permission) => boolean;
-  /** Сеанс оборвал отказ сервера (пропуск просрочен, учётку отключили), а не
-   *  «Выйти». Держится до следующего входа: вход говорит, почему он снова нужен. */
-  cutOff: boolean;
+  /** Сеанс оборвал отказ сервера (пропуск просрочен, учётку отключили, долго не было
+   *  действий), а не «Выйти»: причина словами сервера, пустая — если он её не назвал;
+   *  `null` — не обрывал. Держится до следующего входа: вход говорит, почему он снова нужен. */
+  cutOff: string | null;
   signIn: (email: string, password: string) => Promise<Me>;
   /** Сменить свой пароль. Сервер закрывает пропуска, выданные до смены, и отвечает новым —
    *  сеанс берёт его, как при входе: иначе следующий же запрос выбросил бы на вход. */
@@ -63,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // отрисовке: смена пропуска обязана перерисовать всё дерево, иначе
   // новый человек видит экран старого.
   const [token, setToken] = useState<string | null>(() => readToken());
-  const [cutOff, setCutOff] = useState(false);
+  const [cutOff, setCutOff] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: meQueryKey(token),
@@ -80,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (opened: SignedIn) => {
       saveToken(opened.token);
       setToken(opened.token);
-      setCutOff(false);
+      setCutOff(null);
       // Карточка приходит вместе с пропуском — лишний запрос за ней дал бы
       // промежуток, в котором непонятно, что рисовать.
       queryClient.setQueryData(meQueryKey(opened.token), opened.user);
@@ -100,9 +112,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(() => {
+    // Сначала — сервер: без выхода там копия пропуска пускала бы до конца суток. Отказ и обрыв
+    // связи выход здесь не держат — пропуск стирается всё равно.
+    logoutRequest().catch(() => undefined);
     dropToken();
     setToken(null);
-    setCutOff(false);
+    setCutOff(null);
     // Чистится весь кэш, а не только «кто я»: в нём лежат данные,
     // которых следующему вошедшему видеть не положено.
     queryClient.clear();
@@ -114,12 +129,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(
     () =>
-      watchTokenLoss((hadPass) => {
-        if (hadPass) setCutOff(true);
+      watchTokenLoss((hadPass, reason) => {
+        if (hadPass) setCutOff(reason);
         setToken(null);
       }),
     [],
   );
+
+  // Человек за экраном или нет — для простоя сеанса на сервере: запрос без него уходит
+  // фоновым и сеанс не продлевает (`presence.ts`, аудит 20.11.2026).
+  useEffect(() => watchPresence(), []);
 
   // Отказ доступа посреди сеанса (403 с признаком сервера) — карточка перечитывается сразу,
   // а не через минуту `staleTime`: снятый раздел уходит из меню (проверка прода 10.10.2026).

@@ -4,10 +4,14 @@
  * Отдельно проверяется разовый пароль: он показывается один раз, и окно
  * не должно закрываться случайно — иначе сотрудник ждёт пароль, которого
  * уже нет, а восстановить его нечем.
+ *
+ * Роль, права, включение, отключение и сброс чужого пароля уходят с паролем админа
+ * (аудит 20.11.2026, №10): каждое действие идёт через окно «Ваш пароль».
  */
 
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { UserEvent } from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
@@ -18,8 +22,28 @@ import { serve, type Call } from '../test/server';
 
 const LIST = [card(ADMIN), card(OPERATOR), card(NEWCOMER)];
 
+/** Пароль админа, которым он подтверждает действие. */
+const MINE = 'пароль-админа';
+
 function patches(calls: Call[]): Call[] {
   return calls.filter((call) => call.method === 'PATCH');
+}
+
+/** Окно подтверждения паролем админа: найти по вопросу, вписать пароль, нажать глагол. */
+async function confirmWith(user: UserEvent, question: RegExp, verb: string): Promise<HTMLElement> {
+  const ask = await screen.findByRole('dialog', { name: question, hidden: true });
+  await user.type(within(ask).getByLabelText('Ваш пароль'), MINE);
+  await user.click(within(ask).getByRole('button', { name: verb, hidden: true }));
+  return ask;
+}
+
+/** Окно прав учётки — по строке её почты (своя почта есть и в шапке: строка — та, что в таблице). */
+async function openRights(user: UserEvent, email: string): Promise<void> {
+  const row = screen
+    .getAllByText(email)
+    .map((text) => text.closest('tr'))
+    .find((found) => found !== null);
+  await user.click(within(row as HTMLElement).getByRole('button', { name: /Права/ }));
 }
 
 async function openUsers(routes: Record<string, unknown> = {}) {
@@ -72,7 +96,7 @@ describe('учётки', () => {
     });
   });
 
-  it('отключение учётки уходит правкой, а не удалением', async () => {
+  it('отключение учётки уходит правкой с паролем админа, а не удалением', async () => {
     const recorded = await openUsers({
       'PATCH /api/users/2': { body: card(OPERATOR, { is_active: false }) },
     });
@@ -83,10 +107,13 @@ describe('учётки', () => {
     const ask = await screen.findByRole('dialog', { name: /^Отключить/, hidden: true });
     expect(within(ask).getByText(/перестанет пускать сразу/)).toBeInTheDocument();
     expect(patches(recorded.calls)).toHaveLength(0);
-    await user.click(within(ask).getByRole('button', { name: 'Отключить', hidden: true }));
+    await confirmWith(user, /^Отключить/, 'Отключить');
 
     await waitFor(() => expect(patches(recorded.calls)).toHaveLength(1));
-    expect(patches(recorded.calls)[0]?.body).toEqual({ is_active: false });
+    expect(patches(recorded.calls)[0]?.body).toEqual({ is_active: false, current_password: MINE });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /^Отключить/, hidden: true })).toBeNull();
+    });
   });
 
   it('отмена в подтверждении ничего не отправляет', async () => {
@@ -99,6 +126,55 @@ describe('учётки', () => {
 
     expect(patches(recorded.calls)).toHaveLength(0);
     expect(screen.getByLabelText('Учётка оператор@site.com включена')).toBeChecked();
+  });
+
+  it('неверный пароль админа — окно остаётся, отказ словами, правки нет', async () => {
+    const refused = 'Неверный пароль — подтвердите действие своим паролем';
+    const recorded = await openUsers({
+      'PATCH /api/users/2': {
+        status: 403,
+        body: { detail: refused },
+        headers: { 'X-Access-Refusal': 'confirm-password' },
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByLabelText('Учётка оператор@site.com включена'));
+    const ask = await confirmWith(user, /^Отключить/, 'Отключить');
+
+    expect(await within(ask).findByText(refused)).toBeInTheDocument();
+    // Сеанс цел: это не «входа нет», и окно ждёт пароль заново — набранный стёрт.
+    expect(within(ask).getByLabelText('Ваш пароль')).toHaveValue('');
+    expect(patches(recorded.calls)).toHaveLength(1);
+    expect(screen.getByLabelText('Учётка оператор@site.com включена')).toBeChecked();
+    expect(screen.queryByText('Вход для сотрудников')).not.toBeInTheDocument();
+  });
+
+  it('пустой пароль не уходит на сервер', async () => {
+    const recorded = await openUsers();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByLabelText('Учётка оператор@site.com включена'));
+    const ask = await screen.findByRole('dialog', { name: /^Отключить/, hidden: true });
+    await user.click(within(ask).getByRole('button', { name: 'Отключить', hidden: true }));
+
+    expect(await within(ask).findByText(/Впишите свой пароль/)).toBeInTheDocument();
+    expect(patches(recorded.calls)).toHaveLength(0);
+  });
+
+  it('включение — тоже с паролем админа', async () => {
+    const off = card(OPERATOR, { is_active: false, permissions: [] });
+    const recorded = await openUsers({
+      'GET /api/users': { body: [card(ADMIN), off, card(NEWCOMER)] },
+      'PATCH /api/users/2': { body: card(OPERATOR) },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByLabelText('Учётка оператор@site.com включена'));
+    await confirmWith(user, /^Включить/, 'Включить');
+
+    await waitFor(() => expect(patches(recorded.calls)).toHaveLength(1));
+    expect(patches(recorded.calls)[0]?.body).toEqual({ is_active: true, current_password: MINE });
   });
 
   it('в правах — все восемь, а не пять: продажи, домены и цены тоже выдаются', async () => {
@@ -127,8 +203,7 @@ describe('учётки', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByLabelText('Учётка админ@site.com включена'));
-    const ask = await screen.findByRole('dialog', { name: /^Отключить/, hidden: true });
-    await user.click(within(ask).getByRole('button', { name: 'Отключить', hidden: true }));
+    await confirmWith(user, /^Отключить/, 'Отключить');
 
     expect(await screen.findByText(/Попросите другого админа/)).toBeInTheDocument();
   });
@@ -139,16 +214,43 @@ describe('учётки', () => {
     });
     const user = userEvent.setup();
 
-    const row = screen.getByText('оператор@site.com').closest('tr');
-    await user.click(within(row as HTMLElement).getByRole('button', { name: /Права/ }));
+    await openRights(user, 'оператор@site.com');
     await user.click(await screen.findByLabelText('Отправлять письма'));
+    const ask = await screen.findByRole('dialog', { name: /^Изменить права/, hidden: true });
+    expect(within(ask).getByText('«Отправлять письма» — выдать отдельно от роли.')).toBeTruthy();
+    await confirmWith(user, /^Изменить права/, 'Изменить');
 
     await waitFor(() => expect(patches(recorded.calls)).toHaveLength(1));
-    expect(patches(recorded.calls)[0]?.body).toEqual({ permissions: { send: true } });
+    expect(patches(recorded.calls)[0]?.body).toEqual({
+      permissions: { send: true },
+      current_password: MINE,
+    });
   });
 
-  it('сброс пароля показывает новый разовый', async () => {
-    await openUsers({
+  it('смена роли — с паролем админа и словами, что на что меняется', async () => {
+    const recorded = await openUsers({
+      'PATCH /api/users/2': { body: card({ ...OPERATOR, role: 'admin' }) },
+    });
+    const user = userEvent.setup();
+
+    // Пункты есть у выбора роли каждой строки: берём список того, что открыли.
+    const field = screen.getByRole('textbox', { name: 'Роль оператор@site.com' });
+    await user.click(field);
+    const list = within(
+      document.getElementById(field.getAttribute('aria-controls') ?? '') as HTMLElement,
+    );
+    await user.click(await list.findByRole('option', { name: 'Админ', hidden: true }));
+    const ask = await screen.findByRole('dialog', { name: /^Сменить роль/, hidden: true });
+    expect(within(ask).getByText(/Оператор → Админ/)).toBeInTheDocument();
+    expect(patches(recorded.calls)).toHaveLength(0);
+    await confirmWith(user, /^Сменить роль/, 'Сменить роль');
+
+    await waitFor(() => expect(patches(recorded.calls)).toHaveLength(1));
+    expect(patches(recorded.calls)[0]?.body).toEqual({ role: 'admin', current_password: MINE });
+  });
+
+  it('сброс пароля — с паролем админа, показывает новый разовый', async () => {
+    const recorded = await openUsers({
       'POST /api/users/2/password': {
         body: {
           user: card(OPERATOR, { must_change_password: true }),
@@ -165,9 +267,11 @@ describe('учётки', () => {
     expect(within(ask).getByText(/новый разовый покажется один раз/)).toBeInTheDocument();
     // Окно говорит правду: сброс закрывает и открытые сеансы (проверка прода 10.10.2026).
     expect(within(ask).getByText(/открытые сеансы перестанут действовать/)).toBeInTheDocument();
-    await user.click(within(ask).getByRole('button', { name: 'Сбросить', hidden: true }));
+    await confirmWith(user, /^Сбросить пароль/, 'Сбросить');
 
     expect(await screen.findByText('QwErTy12QwErTy34')).toBeInTheDocument();
+    const posted = recorded.calls.find((call) => call.path === '/api/users/2/password');
+    expect(posted?.body).toEqual({ current_password: MINE });
   });
 
   it('у отключённой учётки — «права не действуют», а не «Права (0)» и роль, что ничего не даёт', async () => {
@@ -215,22 +319,20 @@ describe('учётки', () => {
     });
     const user = userEvent.setup();
 
-    // Своя почта есть и в шапке («Вошли как»): строка — та, что в таблице.
-    const row = screen
-      .getAllByText('админ@site.com')
-      .map((text) => text.closest('tr'))
-      .find((found) => found !== null);
-    await user.click(within(row as HTMLElement).getByRole('button', { name: /Права/ }));
+    await openRights(user, 'админ@site.com');
     await user.click(await screen.findByLabelText('Заводить учётки'));
+    await confirmWith(user, /^Изменить права/, 'Изменить');
 
     expect(await screen.findByText(/Попросите другого админа/)).toBeInTheDocument();
     expect(patches(recorded.calls).map((call) => call.body)).toEqual([
-      { permissions: { users: false } },
+      { permissions: { users: false }, current_password: MINE },
     ]);
-    expect(screen.getByLabelText('Заводить учётки')).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Отмена', hidden: true }));
+    await openRights(user, 'админ@site.com');
+    expect(await screen.findByLabelText('Заводить учётки')).toBeChecked();
   });
 
-  it('два быстрых переключателя — выданы оба права, второй не затирает первый', async () => {
+  it('два переключателя подряд — выданы оба права, второй не затирает первый', async () => {
     /** Оператор, каким его отдаёт сервер с исключениями: роль плюс выданное, минус отобранное. */
     const operatorWith = (overrides: Partial<Record<Permission, boolean>>): UserCard => {
       const kept = OPERATOR.permissions.filter((key) => overrides[key] !== false);
@@ -247,22 +349,22 @@ describe('учётки', () => {
       },
     });
 
-    const row = screen.getByText('оператор@site.com').closest('tr');
-    await userEvent
-      .setup()
-      .click(within(row as HTMLElement).getByRole('button', { name: /Права/ }));
-    const senders = await screen.findByLabelText('Домены рассылки');
-    // Второй щелчок — пока первая правка ещё в пути (QA 10.10.2026).
-    fireEvent.click(senders);
-    fireEvent.click(screen.getByLabelText('Заводить учётки'));
+    const user = userEvent.setup();
+
+    // Вторая правка собирается из ответа на первую, а не из списка до неё (QA 10.10.2026).
+    await openRights(user, 'оператор@site.com');
+    await user.click(await screen.findByLabelText('Домены рассылки'));
+    await confirmWith(user, /^Изменить права/, 'Изменить');
+    await waitFor(() => expect(patches(recorded.calls)).toHaveLength(1));
+    await openRights(user, 'оператор@site.com');
+    await user.click(await screen.findByLabelText('Заводить учётки'));
+    await confirmWith(user, /^Изменить права/, 'Изменить');
 
     await waitFor(() => expect(patches(recorded.calls)).toHaveLength(2));
     expect(patches(recorded.calls).map((call) => call.body)).toEqual([
-      { permissions: { senders: true } },
-      { permissions: { senders: true, users: true } },
+      { permissions: { senders: true }, current_password: MINE },
+      { permissions: { senders: true, users: true }, current_password: MINE },
     ]);
-    await waitFor(() => expect(screen.getByLabelText('Заводить учётки')).toBeChecked());
-    expect(screen.getByLabelText('Домены рассылки')).toBeChecked();
     expect(overrides).toEqual({ senders: true, users: true });
   });
 });

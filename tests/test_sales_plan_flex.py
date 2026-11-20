@@ -88,7 +88,9 @@ async def test_the_economy_preview_halves_the_judge_money_and_names_the_tier(
             fast[end]["sites"],
             fast[end]["tokens"],
         )
-        assert economy[end]["tokens_usd"] == pytest.approx(fast[end]["tokens_usd"] / 2, abs=1e-4)
+        # Деньги каждой из двух гипотез плана округлены до четырёх знаков, потом сложены: половина
+        # суммы и сумма половин расходятся до 0,75·10⁻⁴ на гипотезу.
+        assert economy[end]["tokens_usd"] == pytest.approx(fast[end]["tokens_usd"] / 2, abs=2e-4)
         assert 0 < economy[end]["tokens_usd"] < fast[end]["tokens_usd"]
 
 

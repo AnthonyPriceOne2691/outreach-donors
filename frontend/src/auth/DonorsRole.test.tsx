@@ -8,7 +8,7 @@
  * ответах ловит `closedCalls`.
  */
 
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -304,9 +304,15 @@ describe('роль на экране учёток', () => {
     expect(role(DONORS_ONLY.email)).toHaveValue(ROLE_TITLES.donors);
     await user.click(role(OPERATOR.email));
     await user.click(await screen.findByRole('option', { name: ROLE_TITLES.donors }));
+    // Смена роли — с паролем админа (аудит 20.11.2026): окно называет, что на что меняется.
+    const ask = await screen.findByRole('dialog', { name: /^Сменить роль/, hidden: true });
+    expect(within(ask).getByText(/Оператор → Аутрич/)).toBeInTheDocument();
+    await user.type(within(ask).getByLabelText('Ваш пароль'), 'пароль-админа');
+    await user.click(within(ask).getByRole('button', { name: 'Сменить роль', hidden: true }));
 
+    await waitFor(() => expect(recorded.calls.some((call) => call.method === 'PATCH')).toBe(true));
     const patched = recorded.calls.find((call) => call.method === 'PATCH');
-    expect(patched?.body).toEqual({ role: 'donors' });
+    expect(patched?.body).toEqual({ role: 'donors', current_password: 'пароль-админа' });
   });
 
   it('новую учётку заводят этой ролью', async () => {

@@ -145,7 +145,7 @@ class SalesPlanHypothesisModel(TimestampedMixin, Base):
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
     )
     #: Найдено сайтов, прошедших судью, — счёт конвейера; решение человека по сайту прогона плана
-    #: пересчитывает его сразу (`plan_found.recount`).
+    #: и кнопка строки плана пересчитывают его сразу (`plan_found.recount_row`).
     found: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     spent_usd: Mapped[Decimal] = mapped_column(
         SPEND, nullable=False, default=Decimal(0), server_default="0"

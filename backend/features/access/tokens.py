@@ -27,12 +27,24 @@ bcrypt новая даже для того же пароля.
 сочла бы пропуск бессрочным, без отпечатка — годным при любом пароле; пропуска
 до отпечатков истекли через сутки после 10.10.2026, и такой теперь собирает
 только тот, у кого секрет подписи, — а отпечаток требует ещё и хеша из базы.
+
+**Пропуск несёт свой номер** (`jti`, аудит 20.11.2026): по нему сервер помнит выход и
+простой сеанса (`access/sessions.py`). Пропуск, выданный до выкатки номеров, его не несёт и
+доживает свои сутки как раньше — без выхода на сервере и без счёта простоя: иначе выкатка
+выбросила бы всех разом. Поэтому номера пока нет в `REQUIRED_CLAIMS`; ему место там, когда
+такие пропуска истекут — через сутки после выкатки.
+
+**Отказ негодному пропуску — словами, без текста библиотеки** (проверка прода 20.11.2026: экран
+показал «Пропуск не принят: Not enough segments»). Почему не принят, пишется в журнал
+приложения: человеку английский текст разбора не поможет, а разбирающему — пригодится.
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -40,6 +52,8 @@ import jwt
 
 from backend.config import access as cfg
 from backend.features.access.permissions import SignedOutError
+
+logger = logging.getLogger(__name__)
 
 ALGORITHM = "HS256"
 #: Минимальная длина секрета. Требование стандарта для этой подписи:
@@ -52,6 +66,15 @@ MIN_SECRET_LENGTH = cfg.MIN_SECRET_BYTES
 #: случайно совпасть после смены пароля нечему.
 STAMP_CLAIM = "stamp"
 STAMP_LENGTH = 16
+
+#: Поле номера пропуска (стандартное имя JWT) и его длина: 16 случайных байт — 128 бит, номер
+#: не угадать и не повторить. По номеру Redis помнит выход и простой (`access/sessions.py`).
+TOKEN_ID_CLAIM = "jti"  # noqa: S105 — имя поля пропуска, не секрет
+TOKEN_ID_BYTES = 16
+
+#: Отказ пропуску, который не разобрался: подпись не сошлась, пропуск обрезан или собран
+#: не нами. Один на все причины разбора — причина уходит в журнал приложения.
+REFUSED = "Пропуск не принят — войдите заново"
 
 #: Без чего пропуск не принимается — и что сказать о нехватке: кто (`sub`), когда выдан
 #: (`iat`), до какого срока (`exp`) и отпечаток пароля. Требует сама библиотека (`require`):
@@ -94,6 +117,9 @@ class TokenPayload:
     #: Отпечаток пароля на момент выдачи (`password_stamp`). Без него пропуск не читается
     #: (`REQUIRED_CLAIMS`).
     password_stamp: str
+    #: Номер пропуска (`TOKEN_ID_CLAIM`). `None` — пропуск выдан до выкатки номеров
+    #: (20.11.2026): выхода на сервере и простоя у него нет, доживает свои сутки.
+    token_id: str | None = None
 
 
 def _secret() -> str:
@@ -126,7 +152,8 @@ def password_stamp(password_hash: str | None) -> str:
 
 def create_token(user_id: int, *, password_hash: str | None, now: datetime | None = None) -> str:
     """Выдать пропуск сотруднику. `password_hash` — нынешний хеш пароля учётки: его
-    отпечаток едет в пропуске, и смена пароля этот пропуск закрывает."""
+    отпечаток едет в пропуске, и смена пароля этот пропуск закрывает. Номер пропуска —
+    случайный, свой у каждого: по нему закрывается этот пропуск, а не все пропуска учётки."""
     moment = now or datetime.now(UTC)
     expires = moment + timedelta(hours=cfg.TOKEN_TTL_HOURS)
     return jwt.encode(
@@ -135,6 +162,7 @@ def create_token(user_id: int, *, password_hash: str | None, now: datetime | Non
             "iat": int(moment.timestamp()),
             "exp": int(expires.timestamp()),
             STAMP_CLAIM: password_stamp(password_hash),
+            TOKEN_ID_CLAIM: secrets.token_urlsafe(TOKEN_ID_BYTES),
         },
         _secret(),
         algorithm=ALGORITHM,
@@ -153,7 +181,8 @@ def read_token(token: str) -> TokenPayload:
         missing = REQUIRED_CLAIMS.get(exc.claim, f"В пропуске нет поля {exc.claim}")
         raise TokenError(f"{missing} — войдите заново") from exc
     except jwt.InvalidTokenError as exc:
-        raise TokenError(f"Пропуск не принят: {exc}") from exc
+        logger.info("пропуск не принят", extra={"reason": str(exc)})
+        raise TokenError(REFUSED) from exc
 
     try:
         user_id = int(claims["sub"])
@@ -166,7 +195,16 @@ def read_token(token: str) -> TokenPayload:
         expires_at=datetime.fromtimestamp(int(claims["exp"]), tz=UTC),
         # Как лежит: подпись проверена, а отпечаток кладёт только `create_token` — строкой.
         password_stamp=claims[STAMP_CLAIM],
+        token_id=_token_id(claims.get(TOKEN_ID_CLAIM)),
     )
+
+
+def _token_id(raw: object) -> str | None:
+    """Номер пропуска: `None` — пропуск выдан до номеров. Номер кладёт только `create_token` —
+    непустой строкой; другое значение под нашей подписью значит пропуск, собранный не нами."""
+    if raw is None or (isinstance(raw, str) and raw):
+        return raw
+    raise TokenError(REFUSED)
 
 
 def password_changed_since(payload: TokenPayload, password_hash: str | None) -> bool:

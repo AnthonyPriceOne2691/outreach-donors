@@ -41,6 +41,7 @@ from backend.api.app import create_app
 from backend.api.watchdog import routes as watchdog_routes
 from backend.config import outreach as outreach_cfg
 from backend.config.topics import TopicMode
+from backend.features.access import sessions
 from backend.features.access.attempts import LoginAttempts
 from backend.features.access.repository import AccessRepository
 from backend.features.contacts.mx import MailRoute
@@ -64,6 +65,7 @@ from backend.features.ops import funds_watch, hunter_watch, key_watch, silence
 from backend.features.serp import funds
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from sqlalchemy import make_url, text, update
 from sqlalchemy.exc import DBAPIError
@@ -693,3 +695,40 @@ def _watch_words_at_a_fixed_minute(monkeypatch: pytest.MonkeyPatch) -> None:
     часы стоят на одной минуте, и текст не зависит от минуты прогона. Тесты, которым нужен ход
     времени, ставят свои часы."""
     monkeypatch.setattr("backend.features.ops.alarm_feed.wall_clock", lambda: WATCH_MINUTE)
+
+
+class SessionStore:
+    """Redis сеансов входа (`access/sessions.py`) в памяти теста: строки и их сроки (`ttl`);
+    `down` — не отвечает ни на чтение, ни на запись; `writes` — сколько было записей."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, bytes] = {}
+        self.ttl: dict[str, int] = {}
+        self.down = False
+        self.writes = 0
+
+    def mget(self, *keys: str) -> list[bytes | None]:
+        self._answer()
+        return [self.values.get(key) for key in keys]
+
+    def set(self, key: str, value: str, *, ex: int) -> bool:
+        self._answer()
+        self.writes += 1
+        self.values[key] = value.encode()
+        self.ttl[key] = ex
+        return True
+
+    def _answer(self) -> None:
+        if self.down:
+            raise RedisConnectionError("выдуманный Redis сеансов не отвечает")
+
+
+@pytest.fixture(autouse=True)
+def session_store(monkeypatch: pytest.MonkeyPatch) -> SessionStore:
+    """Сеансы входа (`access/sessions.py`) — в памяти теста, свои у каждого: Redis из настроек —
+    общий Redis машины, а каждый запрос с пропуском читает и пишет метки сеанса. Тесты сеанса
+    берут хранилище фикстурой: смотрят ключи и сроки, гасят его (`down`)."""
+    store = SessionStore()
+    monkeypatch.setattr(sessions, "connection", lambda: store)
+    monkeypatch.setattr(sessions, "complaints", sessions.Complaints())
+    return store

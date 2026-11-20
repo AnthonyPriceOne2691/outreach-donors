@@ -5,10 +5,12 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { watchAccessDenied } from '../auth/session';
+import { AWAY_AFTER_MS, noteInput } from '../auth/presence';
+import { watchAccessDenied, watchTokenLoss } from '../auth/session';
 import {
   ApiError,
   AuthError,
+  BACKGROUND_HEADER,
   DeniedError,
   NO_CONNECTION,
   NoConnectionError,
@@ -48,6 +50,40 @@ describe('запрос к серверу', () => {
       expect(headers['X-Access-Token']).toBe('пропуск');
       expect(Object.keys(headers).map((name) => name.toLowerCase())).not.toContain('authorization');
     }
+  });
+
+  it('без человека за экраном запрос помечен фоновым: сеанс им не продлевается', async () => {
+    // Аудит 20.11.2026: экран спрашивает сервер и сам (числа у меню раз в минуту), и без
+    // пометки открытая вкладка не простаивала бы никогда.
+    serve({ 'GET /api/auth/me': { body: { id: 1 } }, 'POST /api/auth/login': { body: {} } });
+
+    noteInput(Date.now() - AWAY_AFTER_MS - 1000);
+    await request('/auth/me');
+    await request('/auth/login', { method: 'POST', body: {}, anonymous: true });
+    noteInput();
+    await request('/auth/me');
+
+    const sent = vi
+      .mocked(globalThis.fetch)
+      .mock.calls.map(([, init]) => (init?.headers ?? {}) as Record<string, string>);
+    expect(sent.map((headers) => headers[BACKGROUND_HEADER] ?? null)).toEqual(['1', null, null]);
+  });
+
+  it('отказ «входа нет» передаёт сессии причину словами сервера', async () => {
+    const idle = 'Сеанс закончился: долго не было действий — войдите снова';
+    const lost = vi.fn();
+    const stop = watchTokenLoss(lost);
+    serve({
+      'GET /api/auth/me': {
+        status: 403,
+        body: { detail: idle },
+        headers: { 'X-Access-Refusal': 'signed-out' },
+      },
+    });
+
+    await expect(request('/auth/me')).rejects.toThrow(AuthError);
+    expect(lost).toHaveBeenCalledWith(true, idle);
+    stop();
   });
 
   it('вход идёт без пропуска', async () => {

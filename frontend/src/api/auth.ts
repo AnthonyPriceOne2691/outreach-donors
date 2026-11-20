@@ -21,3 +21,9 @@ export function changePassword(current: string, next: string): Promise<SignedIn>
     body: { current, new: next },
   });
 }
+
+/** Выход: сервер закрывает этот пропуск до конца его срока (аудит 20.11.2026) — копия
+ *  пропуска после выхода больше не пускает. Ответ — 204 без тела. */
+export function logout(): Promise<void> {
+  return request<void>('/auth/logout', { method: 'POST' });
+}

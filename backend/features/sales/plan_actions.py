@@ -32,7 +32,10 @@
 **Две кнопки сразу** — строки плана и гипотезы плана под `FOR UPDATE`, сперва план, как у прохода;
 проход занятые пропускает (`SKIP LOCKED`). Ждать замка — не дольше `hypotheses.LOCK_WAIT`, дольше —
 отказ словами. Состояние читается после замка: вторая из двух одинаковых кнопок видит сделанное
-первой и отказывает словами, «Собрать ещё N» дважды — прибавляет дважды.
+первой и отказывает словами, «Собрать ещё N» дважды — прибавляет дважды. **«Найдено» кнопка строки
+считает заново под тем же замком** (`plan_found.recount_row`, со словами «нужны ключи»): сохранённое
+число могло отстать — решение человека пересчёт под чужим замком пропускает, а у окончённого плана
+и плана на паузе прохода нет.
 
 Каждое действие — строка журнала с автором (`sales_plan:N`, «действие» словами). Запись — в
 транзакции вызывающего, коммит — за ним (маршрут).
@@ -67,6 +70,7 @@ from backend.features.sales.plan_budget import (
 )
 from backend.features.sales.plan_card import MAX_TARGET
 from backend.features.sales.plan_estimate import TOP_WORDS
+from backend.features.sales.plan_found import recount_row
 from backend.features.sales.plan_models import (
     PlanStage,
     PlanStatus,
@@ -166,7 +170,8 @@ async def _plan(session: AsyncSession, plan_id: int) -> SalesPlanModel:
 
 
 async def hold(session: AsyncSession, row_id: int) -> Held:
-    """Гипотеза плана и её план под замком — сперва план, как у прохода конвейера."""
+    """Гипотеза плана и её план под замком — сперва план, как у прохода конвейера; «найдено» —
+    заново, под тем же замком (шапка модуля): кнопки строки решают по живому числу."""
     plan_id = await session.scalar(select(Row.plan_id).where(Row.id == row_id))
     if plan_id is None:
         raise UnknownPlanError(NO_ROW.format(row_id=row_id))
@@ -174,6 +179,7 @@ async def hold(session: AsyncSession, row_id: int) -> Held:
     row = await _locked(session, Row, row_id)
     if row is None:
         raise UnknownPlanError(NO_ROW.format(row_id=row_id))
+    await recount_row(session, row)
     name = await session.scalar(
         select(SalesHypothesisModel.name).where(SalesHypothesisModel.id == row.hypothesis_id)
     )
