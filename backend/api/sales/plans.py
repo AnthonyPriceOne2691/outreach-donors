@@ -16,8 +16,9 @@
 
 Кнопки вкладки «Гипотезы» (`plan_actions.py`, `plan_keys.py`) — право `sales` и `run`: каждая пускает
 или держит траты выдачи и модели, как запуск и продолжение прогона сбора. План — «Остановить» и
-«Продолжить» (`/plans/{N}/stop`, `/resume`), ответ — план; гипотеза плана — «Остановить» и
-«Продолжить» (`/plan-hypotheses/{N}/stop`, `/resume`), «Изменить качество сайтов» (`PATCH …/quality`),
+«Продолжить» (`/plans/{N}/stop`, `/resume`) и потолок (`PATCH /plans/{N}/cap`), ответ — план;
+гипотеза плана — «Остановить» и «Продолжить» (`/plan-hypotheses/{N}/stop`, `/resume`), «Изменить
+качество сайтов» и потолок гипотезы (`PATCH …/quality`),
 «Собрать ещё N» (`…/more`) и «Добавить ключи» (`…/keywords`: текст или книга одним листом), ответ —
 гипотеза плана, как в списке. Отказ по состоянию (уже остановлена, план окончен, строку держит другая
 кнопка) — 409 словами, негодная просьба — 400 словами, нет плана или гипотезы плана — 404.
@@ -43,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
 from backend.api.sales.plan_schemas import (
+    PlanCapBody,
     PlanCard,
     PlanHypothesisView,
     PlanKeysAdded,
@@ -251,6 +253,20 @@ async def resume_plan(
     return await _card(session, plan_id)
 
 
+@router.patch("/plans/{plan_id}/cap", response_model=PlanCard, summary="Изменить потолок плана")
+async def change_plan_cap(
+    plan_id: int,
+    body: PlanCapBody,
+    author: UserModel = _seller,
+    __: UserModel = _runner,
+    session: AsyncSession = Depends(db_session),
+) -> PlanCard:
+    with _refusals():
+        await plan_actions.change_plan_cap(session, plan_id, body.cap_usd, author_id=author.id)
+    await session.commit()
+    return await _card(session, plan_id)
+
+
 @router.post(
     "/plan-hypotheses/{row_id}/stop",
     response_model=PlanHypothesisView,
@@ -301,8 +317,16 @@ async def change_quality(
     __: UserModel = _runner,
     session: AsyncSession = Depends(db_session),
 ) -> PlanHypothesisView:
-    """Глубина и цель — гипотезы плана, страны компаний — правкой гипотезы с её журналом."""
-    ask = Quality(body.max_pages, body.target, body.other_countries, body.excluded_countries)
+    """Глубина, цель и потолок — гипотезы плана, страны компаний и вид сайта — правкой гипотезы с
+    её журналом."""
+    ask = Quality(
+        body.max_pages,
+        body.target,
+        body.other_countries,
+        body.excluded_countries,
+        site_kinds=body.site_kinds,
+        cap_usd=body.cap_usd,
+    )
     with _refusals():
         await plan_actions.change_quality(
             session, row_id, ask, author_id=author.id, now=datetime.now(UTC)

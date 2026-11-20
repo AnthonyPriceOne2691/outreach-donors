@@ -7,7 +7,8 @@
  * «Воронку» с гипотезой; без плана колонки нет; строка плана — сколько готово и расход, кнопка
  * «Остановить план» или «Продолжить» с причиной паузы; кнопка уходит на сервер, отказ — словами
  * сервера; список планов опрашивается, только пока план идёт. Ширины колонок с планом — по самому
- * длинному в них, и таблица встаёт рядом с открытым меню на 1440; полоса — дорожкой своего цвета и
+ * длинному в них, и таблица встаёт рядом с открытым меню на 1440; «Потолок» у строки плана открывает
+ * окно потолка плана; полоса — дорожкой своего цвета и
  * без розы у набравшей цель; имена кнопок для читалки — с именем гипотезы; на телефоне в ячейке
  * плана — строка с именем.
  */
@@ -385,6 +386,26 @@ describe('строка плана', () => {
 
     await waitFor(() => expect(asked(recorded, '/api/sales/plans')).toHaveLength(2));
     expect(asked(recorded, '/api/sales/plans/7/stop', 'POST')).toHaveLength(1);
+  });
+
+  it('«Потолок» открывает окно потолка плана; поднятый уходит и список перечитывается', async () => {
+    const recorded = setUp([plan()], {
+      'PATCH /api/sales/plans/7/cap': { body: plan({ cap_usd: 150 }) },
+    });
+    renderWith(<HypothesesTable rows={[LOGISTICS, DENTAL]} />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Потолок плана «План недели»' }));
+    const cap = within(await screen.findByRole('dialog')).getByLabelText('Потолок плана, $');
+    await user.clear(cap);
+    await user.type(cap, '150');
+    await user.click(screen.getByRole('button', { name: 'Сохранить' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(asked(recorded, '/api/sales/plans/7/cap', 'PATCH').map((call) => call.body)).toEqual([
+      { cap_usd: 150 },
+    ]);
+    await waitFor(() => expect(asked(recorded, '/api/sales/plans')).toHaveLength(2));
   });
 
   it('на паузе — причина словами и «Продолжить»; окончённый план строки не держит', async () => {
