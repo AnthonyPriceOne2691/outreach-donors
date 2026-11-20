@@ -69,7 +69,8 @@ x-backend-env: &backend-env
 # `USER app`), и прав ядра им не нужно вовсе: `cap_drop: [ALL]` снимает и те, что докер
 # даёт по умолчанию, — в том числе root'у, зашедшему через `exec -u root`. postgres,
 # redis и web стартуют от root и сами сбрасывают права (su-exec, рабочие процессы
-# nginx) — их набор прав не тронут, пока урезанный не проверен живым запуском.
+# nginx): им — тоже `cap_drop: [ALL]` и ровно то, без чего они не встают (у каждого
+# своё; проверено живым запуском на новом и на прежнем томе 20.11.2026).
 # Права, сети и образы сервисов сверяет `tests/test_deploy_hardening.py`.
 x-no-new-privileges: &no-new-privileges
   - no-new-privileges:true
@@ -87,6 +88,10 @@ services:
     image: postgres:16-alpine@sha256:1d5b02d3a9941fbd52437db4107f8c52d6297dac553ca1e5c299ebb3756b4857
     restart: unless-stopped
     security_opt: *no-new-privileges
+    # Скрипт входа от root поправляет владельца и права каталога данных и сокета
+    # (CHOWN, DAC_OVERRIDE, FOWNER) и переходит на пользователя postgres (SETUID, SETGID).
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     networks: [data]
     environment:
       POSTGRES_USER: outreach
@@ -104,6 +109,10 @@ services:
     image: redis:7-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
     restart: unless-stopped
     security_opt: *no-new-privileges
+    # Скрипт входа от root отдаёт /data пользователю redis (CHOWN) и переходит на него
+    # (SETUID, SETGID).
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
     networks: [data]
     volumes:
       - redisdata:/data
@@ -410,9 +419,12 @@ services:
       context: .
       target: web
     restart: unless-stopped
-    # Права — как есть, без новых: nginx стартует от root и сам сбрасывает их рабочим
-    # процессам. Сети данных нет: фронт ходит только к api, база и очередь ему не видны.
+    # Мастер nginx — root: слушает 80 (NET_BIND_SERVICE), отдаёт каталоги кэша рабочим
+    # процессам (CHOWN) и запускает их от nginx (SETUID, SETGID); прочее снято. Сети
+    # данных нет: фронт ходит только к api, база и очередь ему не видны.
     security_opt: *no-new-privileges
+    cap_drop: [ALL]
+    cap_add: [CHOWN, NET_BIND_SERVICE, SETGID, SETUID]
     # Здоров — значит отдаёт и страницу, и API через себя. Проверка одной
     # страницы не видела бы главного отказа этого контейнера: 502 на API
     # при устаревшем адресе сервера (см. resolver в deploy/nginx.conf).

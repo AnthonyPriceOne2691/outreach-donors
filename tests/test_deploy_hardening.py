@@ -157,6 +157,25 @@ def test_backend_containers_hold_no_kernel_capabilities() -> None:
         assert "cap_add" not in service, name
 
 
+#: Права образов, которые стартуют от root и сбрасывают их сами, — ровно те, без которых они
+#: не встают: проверено живым запуском на новом и на прежнем томе (аудит 20.11.2026).
+ROOT_STARTED = {
+    "postgres": ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"],
+    "redis": ["CHOWN", "SETGID", "SETUID"],
+    "web": ["CHOWN", "NET_BIND_SERVICE", "SETGID", "SETUID"],
+}
+
+
+def test_root_started_containers_keep_only_what_they_need() -> None:
+    """Новое право — решение с проверкой, а не строка, дописанная, «чтобы завелось»."""
+    services = _compose()["services"]
+
+    assert set(services) == set(_backend()) | set(ROOT_STARTED)
+    for name, capabilities in ROOT_STARTED.items():
+        assert services[name]["cap_drop"] == ["ALL"], name
+        assert services[name]["cap_add"] == capabilities, name
+
+
 def test_the_database_and_the_queue_live_in_the_internal_network_only() -> None:
     """Базе и очереди нет пути наружу, а к ним — из сети фронта; серверу нужны обе сети."""
     compose = _compose()
