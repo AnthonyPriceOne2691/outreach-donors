@@ -158,8 +158,8 @@ async def test_the_judge_and_the_run_above_the_share_wait_for_the_retry_pause(
     session: AsyncSession, jobs: _Jobs, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Потолок модели продаж 1 000 000 токенов в сутки, доля конвейера — половина. Судья сегодня
-    потратил 450 000, смета прогона — 93 600: остатка потолка хватает, но вместе больше доли — прогон
-    не ставится, гипотеза ждёт паузы повтора с проблемой словами доли."""
+    потратил 450 000, смета прогона — 117 000: остатка потолка хватает, но вместе больше доли —
+    прогон не ставится, гипотеза ждёт паузы повтора с проблемой словами доли."""
     monkeypatch.setattr(llm_cfg, "SALES_DAILY_TOKEN_CAP", 1_000_000)
     usage.record(session, operation=JUDGE, units=450_000)
     row = await collecting(session)
@@ -170,7 +170,7 @@ async def test_the_judge_and_the_run_above_the_share_wait_for_the_retry_pause(
     assert turn.did is Did.WAITED
     assert (turn.why or "").startswith(
         f"доля конвейера в дневном потолке модели продаж — {number(500_000)} токенов: судья "
-        f"сегодня потратил {number(450_000)}, смета прогона ≈ {number(93_600)} — сбор продолжится "
+        f"сегодня потратил {number(450_000)}, смета прогона ≈ {number(117_000)} — сбор продолжится "
         "после сброса потолка"
     )
     [found] = row.problems
