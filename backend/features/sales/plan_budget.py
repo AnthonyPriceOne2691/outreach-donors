@@ -20,6 +20,11 @@
 **Проблемы гипотезы** (`SalesPlanHypothesisModel.problems`) — список словарей `{code, words, at}`:
 вид (`Problem`), слова экрана и когда. Деньги в словах — по правилу денег сервиса («48,10 $», доли
 цента — «меньше 0,01 $», `said_usd`), числа — помощником слов сметы прогона (`segment_spend.number`).
+
+**Встала именно на потолке** — для поднятого потолка (`plan_actions.py`): гипотеза — `stopped`, и
+последняя из проблем остановки у неё «кончился бюджет» (`stopped_on_cap`: новая проблема ложится в
+конец списка, `put`); план — на паузе словами своего потолка (`paused_on_cap`, начало слов —
+`cap_lead`). Остановленные кнопкой, ключами, прогоном или сервисом встали не на потолке.
 """
 
 from __future__ import annotations
@@ -27,7 +32,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from enum import StrEnum
 from typing import Any
 
@@ -36,7 +41,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.sales.plan_card import DEPTH_CHOICES
 from backend.features.sales.plan_estimate import TOP_WORDS
-from backend.features.sales.plan_models import SalesPlanHypothesisModel
+from backend.features.sales.plan_models import (
+    PlanStage,
+    PlanStatus,
+    SalesPlanHypothesisModel,
+    SalesPlanModel,
+)
 from backend.features.sales.segment_models import SalesSegmentRunModel
 from backend.features.sales.segment_spend import number, spend_rows
 from backend.features.sales.segment_watch import unfinished
@@ -48,6 +58,8 @@ PRECISION = Decimal("0.0001")
 NOTHING = Decimal(0)
 #: Меньше полуцента в копейках — ноль: такая сумма пишется «меньше 0,01 $».
 HALF_CENT = Decimal("0.005")
+#: Цент — точность потолка (`plan_models.CAP`).
+CENT = Decimal("0.01")
 #: Предельная ступень книги: глубже не поднять, и слова «нужны ключи» глубину не предлагают.
 DEEPEST = max(DEPTH_CHOICES.values())
 
@@ -123,6 +135,9 @@ class Outcome(StrEnum):
 
 #: Чей потолок — словами экрана.
 CAP_OF = {Outcome.HYPOTHESIS_CAP: "гипотезы", Outcome.PLAN_CAP: "плана"}
+#: Где поднять потолок — словами экрана: потолок гипотезы — поле окна «Качество сайтов», плана — кнопка
+#: «Потолок» у строки плана (стенд 20.11: слова «поднимите потолок» не говорили, где).
+RAISE_AT = {Outcome.HYPOTHESIS_CAP: "в «Качестве сайтов»", Outcome.PLAN_CAP: "кнопкой «Потолок»"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,17 +148,40 @@ class Room:
     words: str | None = None
 
 
+def cap_lead(outcome: Outcome) -> str:
+    """Начало слов потолка (`cap_words`): «потолок плана ». По нему видно, что план стоит именно на
+    своём потолке (`paused_on_cap`)."""
+    return f"потолок {CAP_OF[outcome]} "
+
+
 def cap_words(outcome: Outcome, cap: Decimal, held: Spent, next_usd: Decimal) -> str:
     """«потолок гипотезы 50,00 $: израсходовано 49,30 $, следующий прогон ≈ 0,90 $ — поднимите
-    потолок или остановите». Резерв идущих прогонов назван, когда он есть: без него числа слов не
-    сходились бы с отказом."""
+    потолок в «Качестве сайтов» или остановите». Резерв идущих прогонов назван, когда он есть: без
+    него числа слов не сходились бы с отказом. Где поднять — `RAISE_AT`."""
     spent = f"израсходовано {said_usd(held.spent)}"
     if held.reserved:
         runs = "идущего прогона" if held.going == 1 else "идущих прогонов"
         spent += f" и {said_usd(held.reserved)} в резерве {runs}"
     return (
-        f"потолок {CAP_OF[outcome]} {said_usd(cap)}: {spent}, следующий прогон ≈ "
-        f"{said_usd(next_usd)} — поднимите потолок или остановите"
+        f"{cap_lead(outcome)}{said_usd(cap)}: {spent}, следующий прогон ≈ "
+        f"{said_usd(next_usd)} — поднимите потолок {RAISE_AT[outcome]} или остановите"
+    )
+
+
+def below_spent(cap: Decimal, spent: Decimal) -> str | None:
+    """Потолок ниже израсходованного — слова отказа без начала «потолок гипотезы …»: «не может быть
+    ниже израсходованного: израсходовано 12,40 $ — задайте от 12,40 $». «От» — израсходованное,
+    поднятое до цента: потолок — в центах, а расход — до сотой доли цента. Расход с долей цента —
+    «израсходовано больше 1,73 $ — задайте от 1,74 $»: округлённое «израсходовано 1,73 $» рядом с
+    отказом потолку 1,73 читалось противоречием (стенд 20.11). Не ниже — `None`."""
+    if cap >= spent:
+        return None
+    least = spent.quantize(CENT, rounding=ROUND_CEILING)
+    whole = spent.quantize(CENT, rounding=ROUND_FLOOR)
+    # Меньше цента — «меньше 0,01 $» правила денег, а не «больше 0,00 $».
+    said = said_usd(spent) if least == whole or not whole else f"больше {said_usd(whole)}"
+    return (
+        f"не может быть ниже израсходованного: израсходовано {said} — задайте от {said_usd(least)}"
     )
 
 
@@ -197,3 +235,26 @@ def put(problems: Sequence[dict[str, Any]], found: dict[str, Any]) -> list[dict[
     """Список проблем с новой: прежняя того же вида уходит — у вида одни слова, последние. Новый
     список, а не правка на месте: колонку JSONB база видит изменённой только по присваиванию."""
     return [*(old for old in problems if old.get("code") != found["code"]), found]
+
+
+#: Проблемы, с которыми гипотеза встаёт в `stopped`: «кончился бюджет», «нужны ключи», «прогон
+#: встал» и «остановлена кнопкой».
+STOPS = frozenset({Problem.BUDGET, Problem.KEYS, Problem.RUN_FAILED, Problem.STOPPED})
+
+
+def stopped_on_cap(row: SalesPlanHypothesisModel) -> bool:
+    """Гипотеза стоит именно на своём потолке: `stopped`, и последняя из проблем остановки —
+    «кончился бюджет». Новая проблема ложится в конец списка (`put`), поэтому последняя — та, с
+    которой гипотеза встала: остановленная кнопкой после «кончился бюджет» стоит кнопкой, а слова
+    «прогон не поставлен», сказанные до потолка, гипотезу не держат."""
+    if row.stage != PlanStage.STOPPED:
+        return False
+    codes = [item.get("code") for item in row.problems if item.get("code") in STOPS]
+    return bool(codes) and codes[-1] == Problem.BUDGET
+
+
+def paused_on_cap(plan: SalesPlanModel) -> bool:
+    """План стоит именно на своём потолке: на паузе словами потолка плана (`cap_words`). На паузе
+    кнопкой «Остановить план», счётом выдачи или моделью — слова другие."""
+    words = plan.problem or ""
+    return plan.status == PlanStatus.PAUSED and words.startswith(cap_lead(Outcome.PLAN_CAP))

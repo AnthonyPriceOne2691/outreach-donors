@@ -8,7 +8,8 @@
  * конвейера меняются раз в пару минут, а стоящий или окончённый план не меняется сам.
  *
  * Кнопка — запрос; ответ — план или гипотеза плана, а список перечитывается целиком: «Продолжить»
- * гипотезы может снова пустить окончённый план. Отказ — словами сервера, у кнопки.
+ * гипотезы или поднятый потолок может снова пустить окончённый или вставший план. Отказ — словами
+ * сервера, у кнопки.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -48,12 +49,19 @@ export interface PlansLive {
   plans: PlanLive[];
 }
 
+/** Вид сайта гипотезы — коды видов судьи (`hypothesis_kinds.SITE_KINDS` на сервере). */
+export type SiteKind = 'own' | 'intermediary' | 'media' | 'other';
+
 /** Изменить качество сайтов — только поправленное. */
 export interface PlanQualityBody {
   max_pages?: number;
   target?: number;
   other_countries?: 'review' | 'accept';
   excluded_countries?: string[];
+  /** Потолок гипотезы, $: больше нуля; ниже израсходованного — отказ сервера словами. */
+  cap_usd?: number;
+  /** Весь выбор; пустой — снять выбор (виды решает описание сегмента). */
+  site_kinds?: SiteKind[];
 }
 
 export interface PlanKeysAdded {
@@ -100,6 +108,11 @@ export function stopPlan(id: number): Promise<PlanLive> {
 
 export function resumePlan(id: number): Promise<PlanLive> {
   return request<PlanLive>(`${PLANS}/${id}/resume`, { method: 'POST' });
+}
+
+/** Потолок плана, $: больше нуля; ниже израсходованного — отказ сервера словами. */
+export function changePlanCap(id: number, capUsd: number): Promise<PlanLive> {
+  return request<PlanLive>(`${PLANS}/${id}/cap`, { method: 'PATCH', body: { cap_usd: capUsd } });
 }
 
 export function stopRow(id: number): Promise<PlanRow> {

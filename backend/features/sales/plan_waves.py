@@ -1,5 +1,5 @@
-"""Волны глубины «Плана работ»: какие ключи гипотезы плана покупать следующим прогоном, что уже
-куплено и сколько сайтов найдено.
+"""Волны глубины «Плана работ»: какие ключи гипотезы плана покупать следующим прогоном и что уже
+куплено.
 
 Конвейер (проход плана, следующий срез) собирает гипотезу плана с нарастающей глубиной выдачи и
 берёт отсюда пачку прогона; прогон ставит, этапы и проблемы пишет он сам. Здесь — правила волн и
@@ -20,10 +20,10 @@
 - **После прогона** — купленное у его ключей (`mark_bought`): последняя страница и сам прогон.
   Ключи, которых источник не отдал (`report.serp.lost_keywords`: заплачено, а не пришло), не
   отмечаются — их возьмёт следующая пачка той же волны.
-- **«Найдено»** — уникальные сайты в полосе «принят» у прогонов гипотезы плана (`found_sites`).
-  Полосу здесь не решают, а читают: её кладут судья по режиму (`segment_judge.effective`) и человек
-  (`segment_report.decide`). В «тени» (`SALES_SEGMENT_JUDGE_MODE=shadow`) отказ модели — «судья
-  отказал бы»: ни он, ни «на проверке» в счёт не идут, пока их не примет человек.
+- **«Найдено»** — уникальные сайты в полосе «принят» у прогонов гипотезы плана — своим модулем
+  (`plan_found.found_sites`): его пересчитывают и решения человека, а им сюда не дотянуться без
+  цикла импорта. В «тени» (`SALES_SEGMENT_JUDGE_MODE=shadow`) отказ модели — «судья отказал бы»: ни
+  он, ни «на проверке» в счёт не идут, пока их не примет человек.
 
 Ключи сверяются правилом выдачи (`serp.protocol.keyword_key`), а не строкой: источник называет ключ
 в ответе по-своему. Списки ключей уходят в базу одним параметром-массивом: их тысячи, а параметров у
@@ -37,14 +37,13 @@ from dataclasses import dataclass
 from itertools import pairwise
 from typing import Any
 
-from sqlalchemy import BindParameter, Text, all_, any_, case, func, literal, select, update
+from sqlalchemy import BindParameter, Text, all_, any_, case, literal, select, update
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.sales.plan_card import DEPTH_CHOICES
 from backend.features.sales.plan_models import SalesPlanHypothesisModel, SalesPlanKeywordModel
 from backend.features.sales.segment_models import (
-    Lane,
     SalesSegmentCandidateModel,
     SalesSegmentRunModel,
 )
@@ -203,14 +202,3 @@ async def mark_bought(session: AsyncSession, run: SalesSegmentRunModel) -> int:
         .execution_options(synchronize_session="fetch")
     )
     return len(marked.all())
-
-
-async def found_sites(session: AsyncSession, plan_hypothesis_id: int) -> int:
-    """«Найдено» гипотезы плана — уникальные сайты в полосе «принят» у её прогонов (шапка модуля)."""
-    found = await session.scalar(
-        select(func.count(func.distinct(Candidate.domain_id)))
-        .select_from(Candidate)
-        .join(Run, Run.id == Candidate.run_id)
-        .where(Run.plan_hypothesis_id == plan_hypothesis_id, Candidate.lane == Lane.ACCEPT)
-    )
-    return int(found or 0)

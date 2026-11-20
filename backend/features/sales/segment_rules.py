@@ -13,6 +13,10 @@
 Страна бизнеса — из текста сайта (адрес, телефон, валюта — с цитатой); текст её не показал — по
 доменной зоне (`zone_country`). Зона — только подсказка о стране бизнеса: «мест в тексте не видно»
 решает текст, а не зона.
+
+Вид сайта — тоже поле гипотезы (`hypothesis_kinds`, кнопка «Качество сайтов» плана). Выбран — решает
+он вместо видов из описания: вид, которого в выборе нет, — отказ, и свой сайт компании тоже.
+Пусто — виды просит описание, как до поля. Вид «не видно» поле не отклоняет: решает человек.
 """
 
 from __future__ import annotations
@@ -23,6 +27,8 @@ from functools import cached_property
 from typing import Protocol
 
 from backend.features.sales.hypothesis_countries import CountryPolicy, OtherCountries
+from backend.features.sales.hypothesis_kinds import KIND_WORDS as CHOSEN_WORDS
+from backend.features.sales.hypothesis_kinds import kinds_words
 from backend.features.sales.segment_facts import SiteFacts
 from backend.features.sales.segment_models import Decider, Lane
 from backend.features.sales.segment_scope import Scope, country_words
@@ -128,9 +134,28 @@ def _seen(case: Case) -> bool:
     return case.known.kind != "unclear"
 
 
+def _wanted(case: Case) -> frozenset[str]:
+    """Какие виды сайта подходят: выбранные в гипотезе, а не выбраны — те, что просит описание."""
+    if case.policy.kinds:
+        return case.policy.kinds
+    return case.scope.kinds if case.scope is not None else frozenset()
+
+
 def _unwanted(case: Case) -> bool:
     kind = case.known.kind
-    return kind in KIND_WORDS and (case.scope is None or kind not in case.scope.kinds)
+    return kind in KIND_WORDS and kind not in _wanted(case)
+
+
+def _not_chosen(case: Case) -> bool:
+    """Вид сайта виден, а в выборе гипотезы его нет. Пустой выбор не решает ничего (шапка модуля)."""
+    kinds = case.policy.kinds
+    return bool(kinds) and _seen(case) and case.known.kind not in kinds
+
+
+def _not_chosen_words(case: Case) -> str:
+    said = CHOSEN_WORDS.get(case.known.kind, case.known.kind)
+    chosen = kinds_words(case.policy.kinds)
+    return f"{said} — такой вид сайта в гипотезе не выбран (выбран: {chosen})"
 
 
 def _home_words(case: Case) -> str:
@@ -206,6 +231,7 @@ RULES: tuple[Rule, ...] = (
     ),
     Rule("model_failed", lambda c: c.facts is None, Lane.REVIEW, lambda c: c.failure),
     Rule("scope_failed", lambda c: c.scope is None, Lane.REVIEW, lambda _c: SCOPE_FAILED),
+    Rule("kind_not_chosen", _not_chosen, Lane.REJECT, _not_chosen_words),
     Rule(
         "kind_unwanted",
         _unwanted,

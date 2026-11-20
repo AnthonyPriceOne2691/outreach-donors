@@ -341,9 +341,13 @@ repos:
       # `quality.yml` он обязателен, а на pre-push включается строкой ниже — только
       # если проект замерил и уложился (кэш индекса, офлайн-база).
       #   stages: [pre-push]
+      # Руками — `STRICT=0 pre-commit run deps-audit --hook-stage manual`: без STRICT=0
+      # гейт строг, как в CI, и неответивший или не поставленный инструмент (pip-audit
+      # в extra `dev` нет) — красное, а не мягкий пропуск (аудит 20.11.2026). Область —
+      # та же, что у соседних хуков и в quality.yml: без неё venv искался в backend/.
       - id: deps-audit
         name: no new vulnerable dependencies (CI-only по бюджету §8.6)
-        entry: bash scripts/lint/check_deps_audit.sh
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_deps_audit.sh'
         language: system
         stages: [manual]
         pass_filenames: false

@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -45,6 +45,17 @@ class UserModel(TimestampedMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Пароль выдан разовый: до смены человек может только сменить пароль.
     must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Когда пароль выдан или сменён: разовый старше срока не пускает (`passwords.one_time_expired`,
+    # аудит 20.11.2026). Умолчание базы — для строк, заведённых до срока: срок им пошёл с выкатки.
+    password_set_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    # Неудач входа подряд и до какой минуты вход учётки на паузе (`access/lockout.py`): в базе,
+    # а не в памяти процесса — выкатка не обнуляет счёт подбора.
+    failed_logins: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (Index("idx_users_email", "email"),)

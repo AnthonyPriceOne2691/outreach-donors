@@ -15,7 +15,9 @@
 сначала переносит туда причину, время и «кто решил» судьи (`_keep_judge`), потом пишет своё. То же
 решение второй раз (двойной клик, повтор запроса) — не отказ и не вторая запись журнала: сайт уже
 там, куда его просят (`Decision.repeated`); противоположное по решённому — по-прежнему отказ
-словами. Вернуть решение — отменой (`segment_undo.py`), пока из сайта не заведён лид.
+словами. Вернуть решение — отменой (`segment_undo.py`), пока из сайта не заведён лид. Сайт прогона
+плана работ — и «найдено» его гипотезы плана заново, в той же транзакции (`plan_found.recount`):
+экран плана не ждёт прохода конвейера.
 
 **Сайты по ключу** — сколько новых для гипотезы сайтов принёс каждый ключ и сколько из них
 принято (`KeySites`): по ним видно, что почти повторы общего ключа почти ничего не добавили. Тем же
@@ -49,6 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.sales import company_hold, segment_progress
 from backend.features.sales.models import LeadStatus, SalesHypothesisModel, SalesLeadModel
+from backend.features.sales.plan_found import recount
 from backend.features.sales.segment_leads import lead_ready
 from backend.features.sales.segment_models import (
     AWAITS_HUMAN,
@@ -280,8 +283,8 @@ async def decide(
     author: str,
     now: datetime | None = None,
 ) -> Decision:
-    """Решение человека по «на проверку» или «судья отказал бы» (`AWAITS_HUMAN`). Коммит — за
-    вызывающим.
+    """Решение человека по «на проверку» или «судья отказал бы» (`AWAITS_HUMAN`); сайт прогона
+    плана — и «найдено» его гипотезы плана заново (`plan_found.recount`). Коммит — за вызывающим.
 
     Тот же ответ по сайту, уже решённому человеком так же, — повтор (`repeated`): двойной
     клик по «Принять» отвечал 409, хотя сайт и так принят. Противоположный — отказ словами:
@@ -299,6 +302,7 @@ async def decide(
     candidate.decided_by = Decider.HUMAN
     candidate.decided_at = now or datetime.now(UTC)
     candidate.decided_by_user = author
+    await recount(session, candidate.run_id)
     return Decision(candidate, was=was)
 
 

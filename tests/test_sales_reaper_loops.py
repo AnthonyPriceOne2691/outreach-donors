@@ -23,6 +23,7 @@ import pytest
 from backend.config import alerts as alerts_cfg
 from backend.config import sales as sales_cfg
 from backend.config import sales_plan as plan_cfg
+from backend.features.ops import access_watch
 from backend.features.ops.alarms import marked
 from backend.features.sales import autosend_jobs, loops
 from backend.workers import health, reaper, ticker
@@ -43,14 +44,16 @@ BROKEN = {"SALES_AUTOSEND_GAP_MIN": "SALES_AUTOSEND_GAP_MIN=«0» — нужно
 
 
 @pytest.fixture(autouse=True)
-def mail_queue_pass_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Проход «Очередь писем уходит сама» здесь не судится, а идёт в базу своим движком: отмена
-    циклов обрывала его на запросе, и незакрытое соединение красило случайный следующий тест."""
+def own_engine_passes_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Проходы «Очередь писем уходит сама» и «Сторож входов и прав» здесь не судятся, а идут в базу
+    своим движком: отмена циклов обрывала их на запросе, и незакрытое соединение красило случайный
+    следующий тест. Сторожа входов судят свои тесты (`test_access_watch*.py`)."""
 
     async def nothing() -> None:
         return None
 
     monkeypatch.setattr(reaper, "queue_autosend", nothing)
+    monkeypatch.setattr(access_watch, "watch", nothing)
 
 
 def _settings() -> str:

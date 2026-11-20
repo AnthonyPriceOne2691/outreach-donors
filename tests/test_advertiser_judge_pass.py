@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import re
 from collections import Counter
 
 import httpx
@@ -449,8 +450,17 @@ async def test_the_judge_has_its_own_daily_cap(
     record(session, operation=JUDGE_OPERATION, units=150)
     await session.flush()
 
-    with pytest.raises(LlmCapExceededError, match="судьи рекламодателей"):
+    with pytest.raises(LlmCapExceededError) as refused:
         await within_caps(session)
+
+    # Поля на «Расходе» у потолка судьи нет — это настройка сервера. Отказ читают часами позже, в
+    # итоге прохода: сброс — датой и временем, без «через N ч» (находка QA на проде 19.11.2026).
+    said = str(refused.value)
+    assert re.fullmatch(
+        r"дневной потолок судьи рекламодателей выбран: 150 из 100 токенов — поднять его может "
+        r"администратор в настройках сервера, или дождитесь сброса — \d\d\.\d\d в 03:00 по Москве",
+        said,
+    ), said
 
 
 # --- команда ---------------------------------------------------------------------------------------

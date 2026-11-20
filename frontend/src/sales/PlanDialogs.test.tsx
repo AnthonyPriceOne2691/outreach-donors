@@ -2,8 +2,9 @@
  * Окна кнопок гипотезы плана: «Собрать ещё», «Качество сайтов», «Добавить ключи». Ответы сервера —
  * записанные (`serve()`); имена, числа и ключи выдуманы.
  *
- * Проверяется: на сервер уходит только поправленное (качество) или то, что вписано (цель, ключи
- * текстом и книгой); ничего не поправили — окно закрывается без запроса; удалось — уведомление
+ * Проверяется: на сервер уходит только поправленное (качество, потолок гипотезы — числом, а в поле
+ * точка и запятая не стираются на ходу) или то, что вписано (цель, ключи текстом и книгой); ничего
+ * не поправили — окно закрывается без запроса; удалось — уведомление
  * словами и закрытое окно; отказ сервера — плашкой словами сервера, набранное на месте. Каркас трёх
  * окон: заголовок короткий, имя гипотезы — строкой под ним; отказ — плашкой без заголовка над
  * прокруткой, кнопки — под ней (окно одной прокрутки); фокус при открытии — на первом поле.
@@ -204,6 +205,53 @@ describe('«Качество сайтов»', () => {
     expect(sent(recorded, '/api/sales/plan-hypotheses/1/quality').map((call) => call.body)).toEqual(
       [{ max_pages: 3, target: 6000 }],
     );
+  });
+
+  it('потолок гипотезы — в поле как набрано, с точкой и запятой; уходит числом', async () => {
+    // Урок 19.11.2026: поле, перерисованное из числа, стирало точку на ходу — «1.0» становилось
+    // пустым полем, «0,5» — «5». Запятую поле пишет точкой.
+    const onClose = vi.fn();
+    const recorded = setUp({
+      'PATCH /api/sales/plan-hypotheses/1/quality': { body: { ...ROW, cap_usd: 75.5 } },
+    });
+    renderWith(<PlanQuality row={ROW} card={CARD} onClose={onClose} />);
+    const user = userEvent.setup();
+    const cap = screen.getByLabelText('Потолок гипотезы, $');
+    expect(cap).toHaveValue('50');
+
+    await user.clear(cap);
+    await user.type(cap, '1.0');
+    expect(cap).toHaveValue('1.0');
+    await user.clear(cap);
+    expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
+    await user.type(cap, '75,50');
+    expect(cap).toHaveValue('75.50');
+    await user.click(screen.getByRole('button', { name: 'Сохранить' }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(sent(recorded, '/api/sales/plan-hypotheses/1/quality').map((call) => call.body)).toEqual(
+      [{ cap_usd: 75.5 }],
+    );
+  });
+
+  it('потолок ниже израсходованного — отказ сервера плашкой, набранное на месте', async () => {
+    const words =
+      'потолок гипотезы «Логистика — пример» не может быть ниже израсходованного: израсходовано ' +
+      '12,40 $ — задайте от 12,40 $';
+    setUp({
+      'PATCH /api/sales/plan-hypotheses/1/quality': { status: 409, body: { detail: words } },
+    });
+    renderWith(<PlanQuality row={ROW} card={CARD} onClose={vi.fn()} />);
+    const user = userEvent.setup();
+    const cap = screen.getByLabelText('Потолок гипотезы, $');
+
+    await user.clear(cap);
+    await user.type(cap, '10.5');
+    await user.click(screen.getByRole('button', { name: 'Сохранить' }));
+
+    expect(await screen.findByText('Качество не сохранено')).toBeInTheDocument();
+    expect(screen.getByText(/не может быть ниже израсходованного/)).toBeInTheDocument();
+    expect(cap).toHaveValue('10.5');
   });
 
   it('ничего не поправили — окно закрыто, запроса нет', async () => {
