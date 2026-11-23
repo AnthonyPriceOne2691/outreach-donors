@@ -53,6 +53,7 @@ from backend.shared.queue import (
     JUDGE_DISPUTED_JOB,
     LEAD_JOB,
     PARSE_JOB,
+    REWRITE_JOB,
     RUN_JOB,
     SALES_BULK_QUEUE_NAME,
     SALES_QUEUE_NAME,
@@ -72,6 +73,7 @@ DRAFT_JOB = "backend.workers.agent_jobs.draft_answer"
 KINDS = {
     RUN_JOB: "прогон",
     BUILD_JOB: "сборка писем",
+    REWRITE_JOB: "переписывание шаблонных писем",
     SEND_QUEUE_JOB: "отправка очереди",
     # Задачи продаж живут в своём модуле (`sales/queue_jobs.py`, `sales/clean_jobs.py`,
     # `sales/segment_jobs.py`, `sales/verify_again_jobs.py`): общий код о продажах знает только
@@ -117,7 +119,11 @@ def sales_job(job_id: str, path: str | None, queue: str | None) -> bool:
 #: (`workers/crawl_jobs.py`), передача лида рекламодателя в CRM.
 ADVERTISER_PATHS = ("backend.workers.crawl_jobs.", LEAD_JOB)
 #: …по номеру: как у продаж, этап общей задачи писем — в номере (`api/letters/once.py`).
-ADVERTISER_IDS = ("letters-build-advertisers-", "letters-send-advertisers-")
+ADVERTISER_IDS = (
+    "letters-build-advertisers-",
+    "letters-send-advertisers-",
+    "letters-rewrite-advertisers-",
+)
 #: Над ответом: первый довод задачи — номер ответа, а этап — у него (`JobOutcome.reply_id`).
 REPLY_PATHS = (PARSE_JOB, DRAFT_JOB)
 

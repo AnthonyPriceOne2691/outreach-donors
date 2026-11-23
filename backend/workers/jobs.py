@@ -30,8 +30,10 @@ from backend.features.contacts.search import SearchReport, search_contacts
 from backend.features.core.domain import Stage
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.crawl.address_search import search_with_followup
+from backend.features.crawl.niche import LINKS
 from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
+from backend.features.letters.rewrite_queue import QueueRewriter, RewriteRequest
 from backend.features.replies import lead_handoff
 from backend.features.replies.extract import ExtractClient
 from backend.features.replies.pipeline import Parser
@@ -175,6 +177,35 @@ def build_letter_queue(campaign: str, country: str = "us", **options: Any) -> di
             )
         ),
         what="сборка писем",
+    )
+
+
+async def _rewrite_letters(request: RewriteRequest) -> dict[str, Any]:
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    rewriter = RewriteClient()
+    try:
+        async with factory() as session:
+            report = await QueueRewriter(session, rewriter).rewrite(request)
+            await session.commit()
+            return report.as_dict()
+    finally:
+        await rewriter.aclose()
+        await engine.dispose()
+
+
+def rewrite_letter_queue(stage: str, audience: str = LINKS) -> dict[str, Any]:
+    """Переписать шаблонные письма очереди этапа и аудитории (`letters/rewrite_queue.py`).
+
+    Задачей, как сборка: каждое письмо стоит вызова модели. Этап и аудитория — строками, как
+    у сборки: задача живёт в очереди дольше версии кода."""
+    setup_logging()
+    check_storage()
+    return _settled(
+        lambda: asyncio.run(
+            _rewrite_letters(RewriteRequest(stage=Stage(stage), audience=audience))
+        ),
+        what="переписывание шаблонных писем",
     )
 
 

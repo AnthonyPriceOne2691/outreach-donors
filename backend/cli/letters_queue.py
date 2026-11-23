@@ -14,8 +14,9 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -25,9 +26,17 @@ from backend.config.startup_checks import check_storage
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import MessageModel
+from backend.features.crawl.niche import LINKS, NICHE
+from backend.features.letters import autosend
 from backend.features.letters.building import BuildReport, BuildRequest, QueueBuilder
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.rewrite import RewriteClient
+from backend.features.letters.rewrite_queue import (
+    SENDING_ITSELF,
+    QueueRewriter,
+    RewriteReport,
+    RewriteRequest,
+)
 from backend.features.letters.sending import SendError, Sending
 from backend.features.letters.transport import MaybeSentError
 from backend.features.letters.transport_factory import Transports, in_use
@@ -66,6 +75,25 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
 
     send = sub.add_parser("letters-send", help="отправить одно письмо из очереди")
     send.add_argument("--id", type=int, required=True, help="номер письма")
+
+    rewrite = sub.add_parser(
+        "letters-rewrite", help="переписать моделью письма очереди, оставшиеся шаблоном"
+    )
+    rewrite.add_argument(
+        "--stage",
+        choices=[Stage.DONORS.value, Stage.ADVERTISERS.value],
+        default=Stage.DONORS.value,
+        help="чья очередь: donors — доноров, advertisers — рекламодателей",
+    )
+    rewrite.add_argument(
+        "--audience",
+        choices=[LINKS, NICHE],
+        default=LINKS,
+        help="аудитория рекламодателей: links — по найденной ссылке, niche — бизнесы ниши",
+    )
+    rewrite.add_argument(
+        "--country", default="us", help="страна письма рекламодателю: прогонов у Этапа 2 нет"
+    )
 
 
 @asynccontextmanager
@@ -183,3 +211,49 @@ async def cmd_letters_send(args: argparse.Namespace) -> int:
     fate = "ушло" if outcome.real else "НЕ ушло (нулевой транспорт)"
     print(f"Письмо №{outcome.message_id} {fate}, ящик {outcome.sender_email}.")
     return EXIT_OK
+
+
+async def cmd_letters_rewrite(args: argparse.Namespace) -> int:
+    """Переписать письма очереди, оставшиеся шаблоном из-за отказа модели, — тем же путём, что
+    сборка (`letters/rewrite_queue.py`). Ничего не отправляет. Очередь уходит сама — отказ, как
+    у кнопки: шаблонные письма уходили бы раньше, чем их перепишет модель."""
+    stage = Stage(args.stage)
+    rewriter = RewriteClient()
+    try:
+        async with _sessions() as factory, factory() as session:
+            if await autosend.running(session, stage, args.audience) is not None:
+                print(f"Не переписано: {SENDING_ITSELF}.")
+                return EXIT_NOT_SENT
+            report = await QueueRewriter(session, rewriter).rewrite(
+                RewriteRequest(stage=stage, audience=args.audience, country=args.country)
+            )
+            await session.commit()
+    finally:
+        await rewriter.aclose()
+
+    _print_rewrite(report)
+    return EXIT_OK
+
+
+def _print_rewrite(report: RewriteReport) -> None:
+    """Итог переписывания — словами, как отчёт сборки."""
+    print(
+        f"Шаблонных писем взято {report.found}, переписано {report.rewritten}, "
+        f"токенов {report.tokens_spent}."
+    )
+    if report.off_corridor:
+        print(f"Вне коридора отличия: {report.off_corridor} — посмотреть перед отправкой.")
+    for reason, letters in report.left.items():
+        print(f"Не переписано, {reason}: {letters}")
+    if report.stopped:
+        print(f"Остановлено: {report.stopped}. Остальные письма — как были.")
+    print(f"Шаблонных в очереди осталось: {report.remaining}.")
+
+
+#: Команды писем → что выполнить (`cli/main._COMMANDS`).
+COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] = {
+    "letters-build": cmd_letters_build,
+    "letters": cmd_letters,
+    "letters-send": cmd_letters_send,
+    "letters-rewrite": cmd_letters_rewrite,
+}

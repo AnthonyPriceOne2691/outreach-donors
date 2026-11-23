@@ -67,14 +67,15 @@ from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.crawl.niche import LINKS
 from backend.features.crawl.promote import apply_rejections, apply_suppliers
-from backend.features.letters import compose, guards, selection
+from backend.features.letters import compose, guards
 from backend.features.letters.address_gate import Picker
+from backend.features.letters.finishing import cap_reached, finish, personalization
 from backend.features.letters.recipients import Candidate
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.rewrite import Personalization, RewriteClient, RewriteResult
 from backend.features.letters.scope import LetterScopeError, RunScope, run_scope
 from backend.features.letters.template import Template, for_stage, of_campaign
-from backend.features.letters.uniqueness import corridor_verdict, difference
+from backend.features.letters.uniqueness import corridor_verdict
 
 #: Проверка прогонов рассылки живёт в `scope.py`; её имена — и отсюда, как до переезда.
 __all__ = [
@@ -198,44 +199,15 @@ class BuildReport:
     unchecked: str | None = None
 
 
-def _accepted(
-    rendered: compose.Rendered, zones: dict[str, str], *, seed: int, report: BuildReport
-) -> dict[str, str]:
-    """Принятые зоны, с которыми письмо ложится в коридор отличия (`selection.py`).
-
-    Набор подбирается из того же ответа модели: вызов на письмо один, как и был. Берётся
-    наибольший набор в коридоре; среди равных решает зерно — номер домена адресата: выбор
-    повторим (тот же ответ — тот же набор), а у разных адресатов наборы расходятся, и
-    шаблонные абзацы писем не совпадают.
-
-    Ни один набор не в коридоре — все принятые зоны, как до подбора: письмо встаёт в
-    очередь с честным числом и пометкой «вне коридора» на экране, решает человек.
-    Повтора модели, как у продаж, нет: токенов на письмо столько же, сколько до подбора.
-
-    Снятая подбором зона — не отказ модели: ноты «осталась шаблонной» о ней нет, она
-    в отчёте отдельным числом.
-    """
-    chosen = selection.select(rendered, zones, seed=seed)
-    if chosen is None:
-        return zones
-    if chosen.dropped:
-        report.selected_letters += 1
-        report.dropped_zones += len(chosen.dropped)
-    return chosen.zones
-
-
 def _about(
     candidate: Candidate, request: BuildRequest, found_by: dict[str, list[str]]
 ) -> Personalization:
     """Что модель знает об адресате: ниша — ключи, по которым нашёлся он сам."""
-    return Personalization(
-        host=candidate.host,
+    return personalization(
+        candidate.host,
         country=request.country,
         niche=tuple(found_by.get(candidate.host, ())) or request.niche,
         about=candidate.about,
-        # Наше имя отправителя модель не видит (имена — метками): его ставят в зону,
-        # когда правят шаблон.
-        names=(outreach_cfg.SENDER_NAME,),
     )
 
 
@@ -348,16 +320,10 @@ class QueueBuilder:
         return self._template or for_stage(campaign.stage, campaign.audience)
 
     async def _within_cap(self, request: BuildRequest, report: BuildReport) -> bool:
-        """Потолок расхода на модель — до каждой пачки: вызовы пачки уходят разом,
-        и проверка между ними ничего бы не остановила. Достигнут — сборка
-        останавливается с причиной в отчёте; подготовленное остаётся в очереди."""
-        try:
-            await usage.ensure_llm_within_cap(self._session, run_id=request.run_id)
-        except usage.LlmCapExceededError as exc:
-            report.stopped = str(exc)
-            logger.warning("письма: сборка остановлена — %s", exc)
-            return False
-        return True
+        """Потолок расхода на модель (`cap_reached`) достигнут — сборка останавливается с
+        причиной в отчёте; подготовленное остаётся в очереди."""
+        report.stopped = await cap_reached(self._session, run_id=request.run_id, what="сборка")
+        return report.stopped is None
 
     @staticmethod
     def _bad_address(candidate: Candidate, report: BuildReport) -> bool:
@@ -440,12 +406,11 @@ class QueueBuilder:
         for note in rewritten.notes:
             report.notes[note] = report.notes.get(note, 0) + 1
 
-        # Проверки — по собранному письму выбранного набора: метрики в теме и тексте, отличие.
-        accepted = _accepted(rendered, rewritten.zones, seed=candidate.domain_id, report=report)
-        letter = compose.assemble(rendered, accepted)
-        guards.assert_letter_clean(letter.subject, letter.body)
-
-        uniqueness = difference(letter.plain_body, letter.body)
+        finished = finish(rendered, rewritten, seed=candidate.domain_id)
+        letter, uniqueness = finished.letter, finished.uniqueness
+        if finished.dropped:
+            report.selected_letters += 1
+            report.dropped_zones += finished.dropped
         if corridor_verdict(uniqueness) is not None:
             report.off_corridor += 1
 

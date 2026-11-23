@@ -12,11 +12,12 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, assert_never
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import ColumnElement, Select, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.contacts.repository import manual_address
-from backend.features.core.domain import MessageStatus, Stage
+from backend.features.core.domain import AuditAction, MessageStatus, Stage
+from backend.features.core.models.access import AuditLogModel
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
@@ -36,6 +37,7 @@ from backend.features.letters.funnel import AdvertiserFunnel, Funnel
 from backend.features.letters.niche_recipients import NicheRecipients
 from backend.features.letters.offer_addresses import donor_geo_of
 from backend.features.letters.recipients import Candidate, Recipients
+from backend.features.letters.review import EDITED
 from backend.features.runs.exclusions import domain_not_writing, not_writing
 
 
@@ -67,6 +69,31 @@ class QueuedLetter:
 
 class UnknownLetterError(ValueError):
     """Письма с таким номером нет."""
+
+
+def left_as_template() -> ColumnElement[bool]:
+    """Письмо, оставшееся шаблоном: его зоны — текст шаблона, и человек его не правил.
+
+    Отличие от шаблона — ровно ноль: слова письма — слова шаблона с теми же подстановками
+    (`uniqueness.difference`). Так выходит, когда модель отказала на всех зонах — «отказ модели —
+    не отказ письма» (`rewrite.py`) — или вернула текст шаблона. Подбор под коридор нуля не даёт:
+    зоны он снимает, только пока письмо остаётся в коридоре (`selection.py`). Перезапрос цены
+    отличия не меряет вовсе (пусто) — и сюда не попадает.
+
+    Поправленное человеком не берётся — по строке журнала о правке (`review.EDITED`): правка могла
+    оставить слова шаблона (поправлена тема, письмо сохранено как есть), и переписать его значило
+    бы выбросить решение человека.
+    """
+    edited = (
+        select(AuditLogModel.id)
+        .where(
+            AuditLogModel.action == AuditAction.USER_UPDATED,
+            AuditLogModel.target == func.concat("message:", MessageModel.id),
+            AuditLogModel.details["действие"].astext == EDITED,
+        )
+        .exists()
+    )
+    return and_(MessageModel.uniqueness_pct == 0, ~edited)
 
 
 async def letter_leads(
@@ -263,6 +290,33 @@ class LetterRepository:
         )
         waiting = self._waiting(counted, stage, audience)
         return int(await self._session.scalar(waiting) or 0)
+
+    async def templated(
+        self, *, stage: Stage, audience: str | None = None, limit: int = 200
+    ) -> list[QueuedLetter]:
+        """Письма очереди этапа (и аудитории), оставшиеся шаблоном (`left_as_template`), — в
+        порядке очереди. Их переписывает модель заново (`rewrite_queue.py`)."""
+        statement = self._templated(self._letters(), stage, audience)
+        rows = await self._session.execute(statement.order_by(MessageModel.id).limit(limit))
+        return [self._queued_letter(row) for row in rows.all()]
+
+    async def templated_count(self, *, stage: Stage, audience: str | None = None) -> int:
+        """Сколько писем очереди оставлено шаблоном — число на кнопке «Переписать шаблонные»."""
+        counted = (
+            select(func.count())
+            .select_from(MessageModel)
+            .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
+        )
+        return int(await self._session.scalar(self._templated(counted, stage, audience)) or 0)
+
+    @classmethod
+    def _templated(cls, statement: Select[Any], stage: Stage, audience: str | None) -> Select[Any]:
+        """Отбор очереди (`_waiting`), оставленный шаблоном. Письма донорам из «кому не пишем» —
+        мимо, как в счёте очереди (`queued_count`): их не отправят, и вызов модели на них впустую."""
+        return cls._waiting(statement, stage, audience).where(
+            left_as_template(),
+            or_(CampaignModel.stage != Stage.DONORS, ~domain_not_writing(MessageModel.domain_id)),
+        )
 
     @staticmethod
     def _waiting(

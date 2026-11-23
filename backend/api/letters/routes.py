@@ -77,6 +77,7 @@ from backend.features.letters.chain import RECHECK_CAMPAIGN
 from backend.features.letters.compose import NicheOffer
 from backend.features.letters.niche_recipients import NicheRecipients
 from backend.features.letters.repository import LetterRepository, QueuedLetter
+from backend.features.letters.rewrite_queue import templated_count
 from backend.features.letters.scope import run_scope
 from backend.features.letters.sending import Sending
 from backend.features.letters.settle import host_key
@@ -124,6 +125,7 @@ async def queue(
         audience=audience,
         letters=[QueuedLetterCard.of(row) for row in queued],
         queued_total=await repository.queued_count(stage=stage, audience=audience),
+        templated=await templated_count(session, stage, audience),
         batch_max=batch.BATCH_MAX,
         autosend=QueueAutosendView.of(await autosend.state(session, stage, audience)),
         letter_default=LetterDraftView.of(draft.default_draft(stage, audience)),
@@ -274,7 +276,7 @@ async def edit(
         AuditAction.USER_UPDATED,
         author_id=author.id,
         target=f"message:{letter_id}",
-        details={"действие": "письмо поправлено руками", host_key(row.stage): row.host},
+        details={"действие": review.EDITED, host_key(row.stage): row.host},
         stage=row.stage,
     )
     await session.commit()

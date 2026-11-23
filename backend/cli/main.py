@@ -40,8 +40,8 @@ from backend.cli.keywords_pool import add_parser as add_keywords_parser
 from backend.cli.keywords_pool import cmd_keywords
 from backend.cli.lead_redirect import add_parser as add_lead_redirect_parser
 from backend.cli.lead_redirect import cmd_lead_redirect
+from backend.cli.letters_queue import COMMANDS as LETTERS_COMMANDS
 from backend.cli.letters_queue import add_parser as add_letters_parser
-from backend.cli.letters_queue import cmd_letters, cmd_letters_build, cmd_letters_send
 from backend.cli.mail_test import add_parser as add_mail_test_parser
 from backend.cli.mail_test import cmd_mail_test
 from backend.cli.probe_advertiser import add_parser as add_probe_advertiser_parser
@@ -452,9 +452,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "review-queue": cmd_review_queue,
     "doors": cmd_doors,
     "demo-seed": cmd_demo_seed,
-    "letters-build": cmd_letters_build,
-    "letters": cmd_letters,
-    "letters-send": cmd_letters_send,
+    **LETTERS_COMMANDS,
     "lead-redirect": cmd_lead_redirect,
     "sender-add": cmd_sender_add,
     "sender-resume": cmd_sender_resume,
