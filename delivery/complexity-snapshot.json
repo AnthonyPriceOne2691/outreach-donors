@@ -3847,9 +3847,9 @@
       "worst": "decide:278"
     },
     "backend/features/sales/segment_rules.py": {
-      "lines": 341,
-      "complexity": 4,
-      "worst": "_foreign_words:169"
+      "lines": 363,
+      "complexity": 5,
+      "worst": "market:108"
     },
     "backend/features/sales/segment_run.py": {
       "lines": 438,

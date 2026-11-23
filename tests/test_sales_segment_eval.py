@@ -104,8 +104,9 @@ class Oracle:
         if fit == "no" and ev.RULES["no"] not in system:
             fit = "unsure"  # «другого дела» промпт не определяет — оракул его не говорит
         quote = case["evidence"]
-        if ev.RULES["quote"] not in system:
-            quote = " ".join(reversed(quote.split()))  # без правила — пересказ, а не цитата
+        if ev.RULES["quote"] not in system:  # без правила — пересказ, а не цитата
+            words = quote.split()  # письменность без пробелов — одно «слово»: наоборот по знакам
+            quote = " ".join(reversed(words)) if len(words) > 1 else quote[::-1]
         body = facts(fit, quote, "по тексту сайта")
         return body | {"kind": "unclear" if fit == "unsure" else kind}
 
