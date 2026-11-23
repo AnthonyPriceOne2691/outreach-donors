@@ -249,6 +249,24 @@ def sender_name(value: str) -> str:
     return ""
 
 
+def sender_address(value: str) -> str:
+    """Адрес из «От кого» — адрес ящика, строчными; пусто — адреса нет.
+
+    Не первое похожее на адрес слово строки: в имени бывает адрес, и
+    `"editor@donor.example" <someone@other.example>` пишет ящик someone@, а поиск
+    по всей строке (`addresses_in`) брал editor@ из имени — его запоминал ответ,
+    по нему узнавался робот и искался адресат по отправителю (ревью 23.11.2026).
+    Строка делится по адресам, как у `sender_name`. Разбор её не взял (битая
+    шапка) — прежний путь, первое похожее на адрес: ответ без отправителя не
+    принимается вовсе, и терять его хуже.
+    """
+    for _, mailbox in getaddresses([value]):
+        found = addresses_in(mailbox)
+        if found:
+            return found[0]
+    return next(iter(addresses_in(value)), "")
+
+
 def _envelope(raw: str | None) -> tuple[tuple[str, ...], str]:
     """Конверт письма: на какие адреса его доставили и обратный адрес.
 
@@ -350,7 +368,7 @@ def from_form(
     headers = parse_headers(_first(form, "headers"))
     envelope_to, envelope_from = _envelope(_first(form, "envelope"))
     returned = addresses_in(envelope_from)
-    senders = addresses_in(_first(form, "from")) or returned
+    sender = sender_address(_first(form, "from")) or next(iter(returned), "")
 
     references = message_ids_in(headers.get("references", ""))
     in_reply_to = message_ids_in(headers.get("in-reply-to", ""))
@@ -373,7 +391,7 @@ def from_form(
         # Без «от кого» в заголовке остаётся обратный адрес конверта:
         # письмо без отправителя не принимается вовсе, и терять его из-за
         # испорченного заголовка — хуже, чем взять адрес из конверта.
-        from_email=storable(senders[0] if senders else ""),
+        from_email=storable(sender),
         from_name=sender_name(_first(form, "from")),
         subject=storable(decoded(_first(form, "subject")))[:512],
         text=storable(_body_text(form))[:MAX_BODY_CHARS],
