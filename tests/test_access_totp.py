@@ -78,7 +78,9 @@ class TestStandard:
         assert secret != totp.new_secret()
 
     def test_uri_opens_the_app_with_issuer_and_account(self) -> None:
-        uri = totp.otpauth_uri("ABCD", account="ivan@team.example.test", issuer="Parsing and Prices")
+        uri = totp.otpauth_uri(
+            "ABCD", account="ivan@team.example.test", issuer="Parsing and Prices"
+        )
 
         assert uri == (
             "otpauth://totp/Parsing%20and%20Prices:ivan@team.example.test?secret=ABCD"
@@ -225,7 +227,8 @@ class TestAccountCode:
 
         secret = await _enabled(session, user)
 
-        assert user.totp_secret is not None and secret not in user.totp_secret
+        assert user.totp_secret is not None
+        assert secret not in user.totp_secret
         assert user.totp_enabled_at == NOW
         assert user.token_generation == 1
         assert await recovery_codes.left(session, user.id) == recovery_codes.COUNT
@@ -282,9 +285,7 @@ class TestAccountCode:
         user = await make_user("ivan@team.example.test")
         await _enabled(session, user)
 
-        await second_step.switch_off(
-            session, user, action=AuditAction.TOTP_RESET, author_id=None
-        )
+        await second_step.switch_off(session, user, action=AuditAction.TOTP_RESET, author_id=None)
 
         assert (user.totp_secret, user.totp_enabled_at, user.totp_last_step) == (None, None, None)
         assert user.token_generation == 2

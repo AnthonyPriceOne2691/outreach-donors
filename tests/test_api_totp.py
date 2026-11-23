@@ -18,8 +18,8 @@ from datetime import UTC, datetime
 import pytest
 from backend.api import deps
 from backend.config import access as cfg
-from backend.features.access.attempts import LoginAttempts
 from backend.features.access import recovery_codes, second_step, totp
+from backend.features.access.attempts import LoginAttempts
 from backend.features.access.challenge import STALE
 from backend.features.core.domain import AuditAction, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
