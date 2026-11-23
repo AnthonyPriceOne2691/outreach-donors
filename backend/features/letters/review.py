@@ -41,6 +41,11 @@ from backend.features.letters import compose, guards, settle
 from backend.features.letters.template import Template, default
 from backend.features.letters.uniqueness import corridor_verdict, difference
 
+#: Правка руками — словами журнала действий (`api/letters/routes.edit`). По этой строке
+#: переписывание шаблонных писем узнаёт письмо, которое поправил человек, и его не трогает
+#: (`repository.left_as_template`): слова одни на оба места.
+EDITED = "письмо поправлено руками"
+
 
 class NotEditableError(ValueError):
     """Править можно только то, что ещё не ушло."""

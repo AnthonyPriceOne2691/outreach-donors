@@ -47,6 +47,10 @@ SEND_RUNNING = (
     "Пачка этой очереди уже отправляется — дождитесь её итога у кнопки: вторая взяла бы "
     "письма сверх тех, что вы подтвердили"
 )
+REWRITE_RUNNING = (
+    "Шаблонные письма этой очереди уже переписываются — дождитесь итога у кнопки: вторая "
+    "задача второй раз позвала бы модель на те же письма"
+)
 
 
 def build_job_id(stage: Stage, audience: str) -> str:
@@ -57,6 +61,11 @@ def build_job_id(stage: Stage, audience: str) -> str:
 def send_job_id(stage: Stage, audience: str) -> str:
     """Номер пачки — от этапа и аудитории: пачка вкладки берёт только её письма."""
     return f"letters-send-{stage.value}-{audience}"
+
+
+def rewrite_job_id(stage: Stage, audience: str) -> str:
+    """Номер переписывания шаблонных писем — от этапа и аудитории, как у сборки."""
+    return f"letters-rewrite-{stage.value}-{audience}"
 
 
 def enqueue_once(
