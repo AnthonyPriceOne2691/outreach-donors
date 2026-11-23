@@ -94,6 +94,13 @@ class UnsafeUrlError(ValueError):
     """Адрес не прошёл проверку: чужая схема или внутренний адрес."""
 
 
+#: «Адрес не открылся» у клиента с этой защитой: сеть и ответ (`httpx.HTTPError`), адрес, который
+#: клиент не разбирает (`httpx.InvalidURL`), и отказ защиты (`UnsafeUrlError`). Два последних —
+#: не `httpx.HTTPError`, и ловивший только его ронял задачу целиком: 21–22.11.2026 так закрывались
+#: мёртвыми обходы — из-за невидимого знака в одной ссылке и чужого имени во внутреннюю сеть.
+NOT_OPENED = (httpx.HTTPError, httpx.InvalidURL, UnsafeUrlError)
+
+
 class UnboundedEncodingError(httpx.DecodingError):
     """Сайт сжал ответ тем, что мы не просили и не умеем распаковать с пределом (br, zstd, …).
 

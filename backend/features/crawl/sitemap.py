@@ -64,6 +64,7 @@ from selectolax.parser import HTMLParser
 
 from backend.config import crawl as cfg
 from backend.features.crawl.limiter import DomainLimiter
+from backend.shared.net.url_guard import NOT_OPENED
 from backend.shared.net.url_parts import join_url, parse_url
 
 logger = logging.getLogger(__name__)
@@ -350,11 +351,12 @@ class SitemapReader:
         return scan
 
     async def _read(self, host: str, url: str, scan: SitemapScan) -> str | None:
-        """Один файл карты. Отказ сети — это «не дочитали», а не «нет»."""
+        """Один файл карты. Отказ сети — это «не дочитали», а не «нет»; адрес, который не
+        открыть (невидимый знак, редирект во внутреннюю сеть), — тоже (`NOT_OPENED`)."""
         async with self._limiter.slot(host):
             try:
                 response = await self._client.get(url, headers=self._headers, follow_redirects=True)
-            except httpx.HTTPError as exc:
+            except NOT_OPENED as exc:
                 logger.info("sitemap: %s не открылся (%r)", url, exc)
                 scan.found = None
                 return None

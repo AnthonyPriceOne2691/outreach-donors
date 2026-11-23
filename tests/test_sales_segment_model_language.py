@@ -28,7 +28,7 @@ from backend.features.sales import segment_window as sw
 from backend.features.sales.segment_cache import Known
 from backend.features.sales.segment_facts import SiteFacts, read
 from backend.features.sales.segment_language import Mismatch, mismatch, named_by_model
-from backend.features.sales.segment_models import Decider, Lane
+from backend.features.sales.segment_models import AWAITS_HUMAN, Decider, Lane
 from backend.features.sales.segment_text import HOME_TEXT, PAGE_DESCRIPTION, PAGE_TITLE, SiteText
 from scripts.eval_sales_segment import RULES
 from tests.segment_facts_fakes import ANYWHERE, decide_any, facts
@@ -257,6 +257,31 @@ async def test_the_model_language_turns_an_unnamed_mismatch_into_a_named_one() -
     assert verdict.proven  # факты с языком — в кэш: повтор по ним даст тот же вердикт
     assert verdict.tokens == 700
     assert sj.effective(verdict, JudgeMode.SHADOW)[0] is Lane.WOULD_REJECT
+
+
+@pytest.mark.parametrize(("letters", "named"), [("ru", "русский"), ("el", "греческий")])
+async def test_a_site_cut_in_enforce_by_the_model_language_is_not_promised_an_accept(
+    letters: str, named: str
+) -> None:
+    """Ревью стыков 20.11 (9): язык назвала модель, а письма лиду после «Принять» — другие (латинице
+    по таблице — английский): слова «…; примете — английский». В наблюдении сайт ждёт человека, и
+    слова при нём; в `enforce` он отсечён, «Принять» у него нет (`AWAITS_HUMAN`) — слова его не
+    обещают. На кандидата ложится то же (`segment_window.landing`)."""
+    model, _ = client(in_turn(facts("yes", DE_QUOTE, "столярная мастерская", language="de",
+                                    language_quote=DE_QUOTE)))  # fmt: skip
+    verdict = await decide_any(
+        model, host="joinery-sample.com", segment="Столярные мастерские", text=GERMAN,
+        letters=letters,
+    )  # fmt: skip
+    cut = f"язык сайта — немецкий (назвала модель), письма — {named}"
+
+    assert (verdict.lane, verdict.decided_by) == (Lane.REJECT, Decider.LANGUAGE)
+    assert verdict.reason == f"{cut}; примете — английский"
+    assert sj.effective(verdict, JudgeMode.SHADOW) == (Lane.WOULD_REJECT, verdict.reason)
+    assert sj.effective(verdict, JudgeMode.ENFORCE) == (Lane.REJECT, cut)
+    landed = sw.landing(sw.Judged(verdict, GERMAN), JudgeMode.ENFORCE)
+    assert (landed.lane, landed.reason, landed.verdict) == (Lane.REJECT, cut, Lane.REJECT)
+    assert Lane.REJECT not in AWAITS_HUMAN
 
 
 @pytest.mark.parametrize(
