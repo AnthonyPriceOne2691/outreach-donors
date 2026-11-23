@@ -2197,9 +2197,9 @@
       "worst": "next_address_note:165"
     },
     "backend/features/letters/autosend.py": {
-      "lines": 396,
+      "lines": 397,
       "complexity": 6,
-      "worst": "run:242"
+      "worst": "run:243"
     },
     "backend/features/letters/autosend_alarm.py": {
       "lines": 101,
@@ -2212,9 +2212,9 @@
       "worst": "_places:120"
     },
     "backend/features/letters/batch.py": {
-      "lines": 303,
+      "lines": 348,
       "complexity": 13,
-      "worst": "send_queue:186"
+      "worst": "send_queue:204"
     },
     "backend/features/letters/building.py": {
       "lines": 452,
