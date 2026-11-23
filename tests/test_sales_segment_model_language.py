@@ -353,7 +353,7 @@ def test_cached_facts_name_the_language_again_without_the_model() -> None:
 def test_the_prompt_asks_the_language_as_a_fact_of_the_site_words() -> None:
     prompt = sj.load_prompt()
 
-    assert sj.PROMPT_VERSION == "sales-segment-v6"
+    assert sj.PROMPT_VERSION == "sales-segment-v7"
     assert '4. "language" — a fact only, never a verdict' in prompt
     assert "never our labels, the segment or your own answer" in prompt
     assert '"quote", "language", "language_quote", "why"' in prompt

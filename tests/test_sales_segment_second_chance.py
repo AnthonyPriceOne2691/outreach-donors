@@ -464,7 +464,7 @@ def test_the_prompt_keeps_unclear_for_a_text_that_does_not_show_what_the_site_is
     assert '- "unclear": the text does not show what the site is.' in prompt
     assert '- "unsure": the text does not show what the business does.' in prompt
     assert "A business's own order form, own price calculator" in prompt
-    assert sj.PROMPT_VERSION == "sales-segment-v6"
+    assert sj.PROMPT_VERSION == "sales-segment-v7"
 
 
 @pytest.mark.parametrize(
