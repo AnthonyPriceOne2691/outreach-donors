@@ -322,9 +322,9 @@
       "worst": "enqueue_once:71"
     },
     "backend/api/letters/rewrite_routes.py": {
-      "lines": 102,
-      "complexity": 4,
-      "worst": "rewrite:67"
+      "lines": 99,
+      "complexity": 3,
+      "worst": "rewrite:66"
     },
     "backend/api/letters/routes.py": {
       "lines": 497,
@@ -837,9 +837,9 @@
       "worst": "look:125"
     },
     "backend/cli/letters_queue.py": {
-      "lines": 260,
+      "lines": 252,
       "complexity": 10,
-      "worst": "_print_build:135"
+      "worst": "_print_build:129"
     },
     "backend/cli/mail_test.py": {
       "lines": 273,
@@ -2292,9 +2292,9 @@
       "worst": "send_due:393"
     },
     "backend/features/letters/forecast.py": {
-      "lines": 334,
+      "lines": 350,
       "complexity": 8,
-      "worst": "forecast:121"
+      "worst": "forecast:127"
     },
     "backend/features/letters/forecast_plan.py": {
       "lines": 419,
@@ -2437,9 +2437,9 @@
       "worst": "parse_zones:222"
     },
     "backend/features/letters/rewrite_queue.py": {
-      "lines": 364,
+      "lines": 359,
       "complexity": 8,
-      "worst": "_pack:229"
+      "worst": "_pack:224"
     },
     "backend/features/letters/scope.py": {
       "lines": 93,
