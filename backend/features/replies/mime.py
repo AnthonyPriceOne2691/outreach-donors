@@ -2,12 +2,20 @@
 
 Платформа приёма — SendGrid Inbound Parse: она отправляет
 `multipart/form-data` с полями `from`, `to`, `cc`, `subject`, `text`, `html`,
-`headers`, `envelope`, `charsets`, списком вложений `attachment-info` и самими
-файлами `attachment1…N`, а в сыром режиме — поле `email` с письмом целиком.
+`headers`, `envelope`, `charsets`, итогами проверок подлинности `dkim` и `SPF`,
+списком вложений `attachment-info` и самими файлами `attachment1…N`, а в сыром
+режиме — поле `email` с письмом целиком (конверт и итоги проверок — полями рядом).
 
 **Перевод отделён от конвейера нарочно.** Смена платформы — это правка
 одного этого файла, а не всего приёма: поля называются по-разному
 у каждого, а «кто ответил и что написал» одинаково у всех.
+
+**Подлинность отправителя — тоже перевод.** Итоги DKIM и SPF платформа пишет
+своим видом (`{@a.example : pass, @b.example : fail}`, `softfail`), а привязке
+по отправителю (`by_sender.py`) нужен смысл: домены подписей с итогом pass,
+прошёл ли SPF и обратный адрес конверта. Непонятный вид не засчитывает ничего:
+ответ уйдёт человеку, а не в чужой диалог. Заголовкам `Authentication-Results`
+из самого письма не верим — их может написать и отправитель.
 
 **Заголовки приходят одной строкой.** Их разбирают здесь, а не выше:
 по ним узнаются автоответчик, отказ доставки и цепочка, и оставить их
@@ -70,6 +78,9 @@ _MESSAGE_ID = re.compile(r"<[^>]+>")
 #: Разделитель пути в имени файла: старые почтовые программы присылают
 #: имя вместе с папкой отправителя.
 _PATH = re.compile(r"[\\/]")
+#: Подпись в поле `dkim`: «@домен : итог». Домен — метки через точку (точка в конце — то же
+#: имя), итог — одно слово: pass, fail, neutral…
+_DKIM_SIGNATURE = re.compile(r"@([\w-]+(?:\.[\w-]+)+)\.?\s*:\s*([a-z]+)", re.IGNORECASE)
 
 
 def parse_headers(blob: str | None) -> dict[str, str]:
@@ -261,6 +272,35 @@ def _envelope(raw: str | None) -> tuple[tuple[str, ...], str]:
     )
 
 
+def dkim_passed(said: str) -> tuple[str, ...]:
+    """Домены подписей DKIM с итогом pass — строчными, без «@» и без повторов.
+
+    Платформа пишет итоги одной строкой: `{@a.example : pass, @b.example : fail}`. Подпись —
+    пара «@домен : итог»; регистр, пробелы и скобки не важны. Подписей нет — `none` или пусто.
+    Хоть одна часть строки не такая пара — вид непонятен, и не засчитан ни один домен:
+    домен, засчитанный по догадке, привязал бы ответ к диалогу (`by_sender`), а незасчитанный
+    только отдаёт ответ человеку.
+    """
+    body = said.strip().removeprefix("{").removesuffix("}").strip()
+    if body.lower() == "none":
+        return ()
+    passed: list[str] = []
+    for part in filter(None, (piece.strip() for piece in body.split(","))):
+        signature = _DKIM_SIGNATURE.fullmatch(part)
+        if signature is None:
+            logger.warning("приём: поле dkim не разобрано — подписи не засчитаны: %r", said[:120])
+            return ()
+        if signature.group(2).lower() == "pass":
+            passed.append(signature.group(1).lower())
+    return tuple(dict.fromkeys(passed))
+
+
+def spf_passed(said: str) -> bool:
+    """Прошёл ли SPF: засчитывается только `pass` — без оглядки на регистр и краевые пробелы.
+    `softfail`, `neutral`, `none`, ошибки проверки и пустое поле — не прошёл."""
+    return said.strip().lower() == "pass"
+
+
 def _body_text(fields: Mapping[str, str]) -> str:
     """Текст письма: текстовая часть, а нет её — из HTML.
 
@@ -278,7 +318,8 @@ def _merged(fields: Mapping[str, str], letter: RawLetter | None) -> dict[str, st
     """Поля платформы поверх прочитанного из сырого письма.
 
     Разобранные поля сильнее: их платформа уже прочитала. Сырое письмо
-    дополняет то, чего в полях нет, — в сыром режиме это почти всё.
+    дополняет то, чего в полях нет, — в сыром режиме это почти всё. Конверт
+    и итоги проверок подлинности (`dkim`, `SPF`) — только поля: в письме их нет.
     """
     if letter is None:
         return dict(fields)
@@ -308,7 +349,8 @@ def from_form(
     form = _merged(fields, letter)
     headers = parse_headers(_first(form, "headers"))
     envelope_to, envelope_from = _envelope(_first(form, "envelope"))
-    senders = addresses_in(_first(form, "from")) or addresses_in(envelope_from)
+    returned = addresses_in(envelope_from)
+    senders = addresses_in(_first(form, "from")) or returned
 
     references = message_ids_in(headers.get("references", ""))
     in_reply_to = message_ids_in(headers.get("in-reply-to", ""))
@@ -339,6 +381,11 @@ def from_form(
         references=tuple(storable(ref) for ref in references),
         headers={name: storable(value) for name, value in headers.items()},
         attachments=tuple(_cleaned(attachment) for attachment in attachments),
+        # Итоги проверок подлинности — смыслом, а не видом платформы: правило привязки
+        # по отправителю (`by_sender`) формата платформы не знает.
+        dkim_passed=dkim_passed(_first(form, "dkim", "DKIM")),
+        spf_passed=spf_passed(_first(form, "SPF", "spf")),
+        envelope_from=next(iter(returned), ""),
     )
 
 

@@ -2757,14 +2757,14 @@
       "worst": "keep:131"
     },
     "backend/features/replies/binding.py": {
-      "lines": 179,
+      "lines": 183,
       "complexity": 5,
-      "worst": "thread_ids:120"
+      "worst": "thread_ids:124"
     },
     "backend/features/replies/by_sender.py": {
-      "lines": 152,
-      "complexity": 7,
-      "worst": "bind:86"
+      "lines": 195,
+      "complexity": 8,
+      "worst": "bind:94"
     },
     "backend/features/replies/calibration.py": {
       "lines": 164,
@@ -2807,9 +2807,9 @@
       "worst": "text_from_html:175"
     },
     "backend/features/replies/inbound.py": {
-      "lines": 187,
+      "lines": 194,
       "complexity": 3,
-      "worst": "addresses_in:167"
+      "worst": "addresses_in:174"
     },
     "backend/features/replies/lead_handoff.py": {
       "lines": 316,
@@ -2822,9 +2822,9 @@
       "worst": "held:141"
     },
     "backend/features/replies/mime.py": {
-      "lines": 365,
+      "lines": 412,
       "complexity": 11,
-      "worst": "from_form:298"
+      "worst": "from_form:339"
     },
     "backend/features/replies/money.py": {
       "lines": 342,
@@ -2907,9 +2907,9 @@
       "worst": "—"
     },
     "backend/features/replies/unbound.py": {
-      "lines": 250,
+      "lines": 257,
       "complexity": 6,
-      "worst": "explain:212"
+      "worst": "explain:219"
     },
     "backend/features/review/__init__.py": {
       "lines": 2,

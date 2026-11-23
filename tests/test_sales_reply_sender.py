@@ -5,12 +5,15 @@
 лидам лежит в продажах и приходит в приём параметром — с поиском по контактам его соединяет
 маршрут приёма. Здесь — сам поиск (лидов с адресом 0, 1 и 2), приём с обоими поисками и маршрут
 целиком: лид, написавший заново на ящик продаж — без метки и цепочки, — попадает в свою
-переписку. База настоящая, адреса выдуманы.
+переписку, если платформа подтвердила отправителя (DKIM домена из «От кого» или SPF с тем же
+доменом конверта); без подтверждения ответ ждёт человека во вкладке «Не привязаны». База
+настоящая, адреса выдуманы.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -25,6 +28,7 @@ from backend.features.core.models.outreach import (
     SenderModel,
     ThreadModel,
 )
+from backend.features.replies import unbound
 from backend.features.replies.binding import BindingWay, Unbound
 from backend.features.replies.by_sender import mail_letters
 from backend.features.replies.inbound import Incoming
@@ -143,14 +147,32 @@ async def dialog(session: AsyncSession, email: str = JANE, *, sent: bool = True)
 
 
 def fresh(sender: str = JANE) -> Incoming:
-    """Письмо, написанное лидом заново: на ящик продаж, без метки и без заголовков цепочки."""
+    """Письмо, написанное лидом заново: на ящик продаж, без метки и без заголовков цепочки.
+    Отправитель подтверждён подписью DKIM домена лида."""
     return Incoming(
         message_id="<fresh-1@lead.example.test>",
         to=(SALES_BOX,),
         from_email=sender,
         subject="Still interested",
         text="Hi! Is your offer still on? We could talk next week.",
+        dkim_passed=(LEAD_HOST,),
     )
+
+
+def webhook_form(
+    proof: Sequence[tuple[str, bytes]], envelope_from: str = JANE
+) -> list[tuple[str, bytes]]:
+    """Форма платформы с письмом лида заново; итоги проверок подлинности — `proof`."""
+    return [
+        ("headers", b"Message-ID: <fresh-1@lead.example.test>\nSubject: Still interested\n"),
+        ("to", SALES_BOX.encode()),
+        ("from", f"Jane <{JANE}>".encode()),
+        ("envelope", json.dumps({"to": [SALES_BOX], "from": envelope_from}).encode()),
+        ("subject", b"Still interested"),
+        ("charsets", json.dumps({"to": "UTF-8", "from": "UTF-8", "text": "UTF-8"}).encode()),
+        ("text", b"Hi! Is your offer still on? We could talk next week."),
+        *proof,
+    ]
 
 
 async def _stored(session: AsyncSession, got: Accepted) -> ReplyModel:
@@ -245,22 +267,26 @@ class TestInboxWithBothLookups:
 
 
 class TestWebhook:
-    async def test_the_route_binds_a_fresh_letter_of_the_lead_and_queues_it_for_sales(
-        self, session: AsyncSession, client: AsyncClient, queue: NoQueue
+    @pytest.mark.parametrize(
+        ("proof", "envelope_from"),
+        [
+            ([("dkim", b"{@lead.example.test : pass}"), ("SPF", b"softfail")], JANE),
+            ([("dkim", b"none"), ("SPF", b"pass")], "bounce@lead.example.test"),
+        ],
+        ids=["dkim домена From", "SPF и тот же домен конверта"],
+    )
+    async def test_the_route_binds_a_confirmed_fresh_letter_of_the_lead_and_queues_it_for_sales(
+        self,
+        session: AsyncSession,
+        client: AsyncClient,
+        queue: NoQueue,
+        proof: list[tuple[str, bytes]],
+        envelope_from: str,
     ) -> None:
         """Маршрут приёма соединяет оба поиска: письмо лида заново — в его переписку."""
         jane = await dialog(session)
         await session.commit()
-        fields = [
-            ("headers", b"Message-ID: <fresh-1@lead.example.test>\nSubject: Still interested\n"),
-            ("to", SALES_BOX.encode()),
-            ("from", f"Jane <{JANE}>".encode()),
-            ("envelope", json.dumps({"to": [SALES_BOX], "from": JANE}).encode()),
-            ("subject", b"Still interested"),
-            ("charsets", json.dumps({"to": "UTF-8", "from": "UTF-8", "text": "UTF-8"}).encode()),
-            ("text", b"Hi! Is your offer still on? We could talk next week."),
-        ]
-        body, headers = multipart(fields)
+        body, headers = multipart(webhook_form(proof, envelope_from))
 
         response = await client.post(URL, content=body, headers={**headers, **AUTH})
 
@@ -271,3 +297,64 @@ class TestWebhook:
         assert reply is not None
         assert (reply.message_id, reply.thread_id) == (jane.followup.id, jane.followup.thread_id)
         assert (SALES_REPLY_JOB, (reply.id,)) in queue.jobs
+
+    @pytest.mark.parametrize(
+        ("proof", "envelope_from"),
+        [
+            ([], JANE),
+            (
+                [("dkim", b"{@lead.example.test : fail}"), ("SPF", b"pass")],
+                "bounce@relay.example.test",
+            ),
+            ([("dkim", b"{@relay.example.test : pass}"), ("SPF", b"fail")], JANE),
+            ([("dkim", b"none"), ("SPF", b"softfail")], JANE),
+            ([("dkim", b"none"), ("SPF", b"neutral")], JANE),
+            ([("dkim", b"none"), ("SPF", b"none")], JANE),
+            ([("dkim", b"none"), ("SPF", b"")], JANE),
+            ([("dkim", b"{@lead.example.test pass}"), ("SPF", b"temperror")], JANE),
+        ],
+        ids=[
+            "итогов нет",
+            "dkim fail, SPF чужого конверта",
+            "подпись пересылки",
+            "SPF softfail",
+            "SPF neutral",
+            "SPF none",
+            "SPF пусто",
+            "битая строка dkim",
+        ],
+    )
+    async def test_an_unconfirmed_fresh_letter_of_the_lead_waits_in_unbound(
+        self,
+        session: AsyncSession,
+        client: AsyncClient,
+        queue: NoQueue,
+        proof: list[tuple[str, bytes]],
+        envelope_from: str,
+    ) -> None:
+        """«От кого» без подтверждения — просто поле письма: ответ ждёт человека во вкладке
+        «Не привязаны» со своей причиной — лид по адресу один, но адрес могли подделать, — и
+        словами, а не кодом (`api/replies/schemas` берёт `unbound.explain`); очереди продаж
+        не достаётся."""
+        await dialog(session)
+        await session.commit()
+        body, headers = multipart(webhook_form(proof, envelope_from))
+
+        response = await client.post(URL, content=body, headers={**headers, **AUTH})
+
+        assert response.status_code == 200, response.text
+        taken = response.json()
+        assert (taken["bound"], taken["needs_review"]) == (False, True)
+        reply = await session.get(ReplyModel, taken["reply_id"])
+        assert reply is not None
+        assert (reply.message_id, reply.thread_id) == (None, None)
+        assert reply.unbound_reason == Unbound.UNCONFIRMED_SENDER
+        assert [found.id for found in await unbound.page(session, stages=(Stage.SALES,))] == [
+            reply.id
+        ]
+        short = unbound.explain_short(reply.unbound_reason, reply.to_addresses)
+        words = unbound.explain(reply.unbound_reason, reply.to_addresses, Stage.SALES)
+        assert short == "отправитель не подтверждён (DKIM/SPF)"
+        assert "адрес могли подделать" in words
+        assert Unbound.UNCONFIRMED_SENDER.value not in f"{short} {words}"
+        assert all(job != SALES_REPLY_JOB for job, _ in queue.jobs)

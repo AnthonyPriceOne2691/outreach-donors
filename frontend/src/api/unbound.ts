@@ -24,8 +24,8 @@ export interface UnboundReply {
   /** Текст целиком — в раскрытой строке. */
   text: string;
   attachments: ReplyAttachment[];
-  /** Причина кодом сервера (`no_label`, `foreign_thread`, `bad_signature`,
-   *  `no_such_letter`); пусто — не записана. На экран идут слова, а не код. */
+  /** Причина кодом сервера (`no_label`, `unconfirmed_sender`, `foreign_thread`,
+   *  `bad_signature`, `no_such_letter`); пусто — не записана. На экран идут слова, а не код. */
   reason: string | null;
   /** Причина словами сервера целиком — и что с таким ответом делать: кого по нему искать,
    *  сервер называет по направлению ответа (донора, рекламодателя, лида). */
