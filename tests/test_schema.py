@@ -40,6 +40,8 @@ EXPECTED_TABLES = {
     # Срез доступа: учётки и журнал действий.
     "users",
     "audit_log",
+    # Коды восстановления входа с кодом — только хешами (23.11.2026, `access/recovery_codes.py`).
+    "user_recovery_codes",
     # Второй этап: обход донора, его исходящие ссылки и кандидаты.
     "crawl_runs",
     "crawl_backlog",
