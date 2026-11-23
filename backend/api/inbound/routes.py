@@ -41,6 +41,10 @@
 **Ответ лида продаж — в свою очередь** (`sales`, воркер `worker-sales`): его
 вид разбирает модуль продаж, и часовой прогон доноров в общей очереди его
 не держит. Правила постановки те же: одна задача на ответ, не встала — 503.
+
+**Ответ без метки и цепочки ищет адресата по отправителю** (`replies/by_sender.py`),
+и поиски соединяет здесь маршрут: контакты почты и лиды продаж. Почта модуль
+продаж не импортирует (`.importlinter`), а веб-слой — может.
 """
 
 from __future__ import annotations
@@ -62,10 +66,12 @@ from backend.api.body import body_within
 from backend.api.deps import db_session
 from backend.api.inbound.schemas import Taken
 from backend.config import outreach as cfg
+from backend.features.replies.by_sender import SenderLookup, mail_letters
 from backend.features.replies.form_data import FormError, read_form
 from backend.features.replies.inbound import MAX_BODY_CHARS, Incoming, masked_for_log
 from backend.features.replies.mime import incoming_from
 from backend.features.replies.pipeline import Inbox
+from backend.features.sales.reply_sender import lead_letters
 from backend.shared.queue import (
     PARSE_JOB,
     SALES_REPLY_JOB,
@@ -90,6 +96,10 @@ RATE_PER_MINUTE = 120
 #: Тело запроса целиком — предел письма у платформы приёма. Письмо режется
 #: отдельно и позже; это потолок на всё вместе, включая вложения в форме.
 MAX_REQUEST_BYTES = 30 * 1024 * 1024
+
+#: Поиски адресата ответа без метки и цепочки (`replies/by_sender.py`): контакты писем
+#: доноров и рекламодателей и лиды писем продаж.
+SENDER_LOOKUPS: tuple[SenderLookup, ...] = (mail_letters, lead_letters)
 
 _throttle = SlidingWindow()
 
@@ -274,7 +284,7 @@ async def take_reply(
         logger.warning("приём: письмо без отправителя, тема «%s»", incoming.subject[:80])
         return Taken(accepted=False, reason="В письме нет отправителя")
 
-    outcome = await Inbox(session).accept(incoming)
+    outcome = await Inbox(session, lookups=SENDER_LOOKUPS).accept(incoming)
     await session.commit()
 
     refused = await _queue_parse(outcome.to_parse, incoming.message_id, response)
