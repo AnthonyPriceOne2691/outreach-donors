@@ -13,6 +13,10 @@
  * (аудит 20.11.2026, №10): сервер без него этих действий не делает, и каждое идёт через
  * окно «Ваш пароль» (`ConfirmPasswordModal`). Окно же и подтверждает действие: текст называет
  * последствие, отказ сервера показывается в нём.
+ *
+ * **Вход с кодом** (23.11.2026) — отметкой у почты: включён, а если роль его требует и он не
+ * включён — «код не включён» (учётка включит его при следующем входе). Чужой код админ
+ * сбрасывает своим паролем, когда телефон потерян: сеансы учётки закрываются.
  */
 
 import {
@@ -37,7 +41,7 @@ import { Link } from 'react-router-dom';
 import { refusalOf } from '../api/client';
 import { ROLE_TITLES, ROLES } from '../api/labels';
 import type { AccessPatch, OneTimePassword, Role, UserCard } from '../api/types';
-import { listUsers, patchUser, resetPassword } from '../api/users';
+import { listUsers, patchUser, resetCode, resetPassword } from '../api/users';
 import { useSession } from '../auth/AuthProvider';
 import { PageHead } from '../components/PageHead';
 import { formatDateTime } from '../format';
@@ -72,6 +76,60 @@ interface PasswordActionProps {
  * сеанс раньше, чем окно покажет разовый, — сервер его не принимает, и кнопки нет. Чужой
  * сброс спрашивает пароль админа (`ConfirmPasswordModal`), и это окно его подтверждает.
  */
+interface CodeActionProps {
+  user: UserCard;
+  own: boolean;
+  resetting: boolean;
+  onReset: () => void;
+}
+
+/** Вход с кодом у почты: включён — зелёным; роль требует, а не включён — жёлтым: учётка
+ *  включит его при следующем входе. */
+function CodeBadges({ user }: { user: UserCard }) {
+  if (user.totp_enabled) {
+    return (
+      <Badge size="xs" color="green" variant="light">
+        вход с кодом
+      </Badge>
+    );
+  }
+  if (!user.totp_required) return null;
+  return (
+    <Badge size="xs" color="yellow">
+      код не включён
+    </Badge>
+  );
+}
+
+/** Окно сброса входа с кодом: что случится — зависит от того, требует ли код роль. */
+function codeResetAsked(user: UserCard): Asked {
+  return {
+    question: `Сбросить вход с кодом ${user.email}?`,
+    consequence: user.totp_required
+      ? 'Ключ и коды восстановления удалятся, открытые сеансы закроются. Роль требует код — при следующем входе учётка включит его заново.'
+      : 'Ключ и коды восстановления удалятся, открытые сеансы закроются. Дальше учётка входит одним паролем, пока снова не включит код.',
+    confirm: 'Сбросить',
+    danger: true,
+  };
+}
+
+/** Сброс чужого входа с кодом — только у включённого и не у себя: свой выключают паролем и
+ *  кодом в меню у почты (сервер сброс себе не примет). */
+function CodeAction({ user, own, resetting, onReset }: CodeActionProps) {
+  if (own || !user.totp_enabled) return null;
+  return (
+    <Button
+      size="compact-sm"
+      variant="default"
+      className="press"
+      loading={resetting}
+      onClick={onReset}
+    >
+      Сбросить вход с кодом
+    </Button>
+  );
+}
+
 function PasswordAction({ own, resetting, onReset }: PasswordActionProps) {
   if (own) {
     return (
@@ -144,6 +202,14 @@ export function UsersPage() {
     },
   });
 
+  const resetTotp = useMutation({
+    mutationFn: ({ id, password }: { id: number; password: string }) => resetCode(id, password),
+    onSuccess: async (updated) => {
+      await queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
+      notify({ message: `Вход с кодом у ${updated.email} сброшен`, color: 'green' });
+    },
+  });
+
   /** Правка доступа — после пароля админа в окне подтверждения. */
   const askChange = (user: UserCard, patch: Patch, asked: Asked) =>
     setConfirming({ ...asked, run: (password) => change.mutateAsync({ user, patch, password }) });
@@ -158,6 +224,8 @@ export function UsersPage() {
     );
   }
 
+  const myId = me?.id;
+  const codeResetting = resetTotp.isPending ? resetTotp.variables.id : null;
   const rows = (users ?? []).map((user: UserCard) => (
     // Отключённая — значком, а не прозрачностью строки: на 0,55 текст падал ниже нормы
     // контраста (аудит экранов 09.10.2026).
@@ -175,6 +243,7 @@ export function UsersPage() {
               не сменил разовый пароль
             </Badge>
           )}
+          <CodeBadges user={user} />
         </Group>
       </Table.Td>
       <Table.Td>
@@ -258,20 +327,33 @@ export function UsersPage() {
         </Text>
       </Table.Td>
       <Table.Td>
-        <PasswordAction
-          own={user.id === me?.id}
-          resetting={reset.isPending && reset.variables.id === user.id}
-          onReset={() =>
-            setConfirming({
-              question: `Сбросить пароль ${user.email}?`,
-              consequence:
-                'Старый пароль и открытые сеансы перестанут действовать, новый разовый покажется один раз.',
-              confirm: 'Сбросить',
-              danger: true,
-              run: (password) => reset.mutateAsync({ id: user.id, password }),
-            })
-          }
-        />
+        <Group gap="xs" justify="center">
+          <PasswordAction
+            own={user.id === me?.id}
+            resetting={reset.isPending && reset.variables.id === user.id}
+            onReset={() =>
+              setConfirming({
+                question: `Сбросить пароль ${user.email}?`,
+                consequence:
+                  'Старый пароль и открытые сеансы перестанут действовать, новый разовый покажется один раз.',
+                confirm: 'Сбросить',
+                danger: true,
+                run: (password) => reset.mutateAsync({ id: user.id, password }),
+              })
+            }
+          />
+          <CodeAction
+            user={user}
+            own={user.id === myId}
+            resetting={codeResetting === user.id}
+            onReset={() =>
+              setConfirming({
+                ...codeResetAsked(user),
+                run: (password) => resetTotp.mutateAsync({ id: user.id, password }),
+              })
+            }
+          />
+        </Group>
       </Table.Td>
     </Table.Tr>
   ));
@@ -283,7 +365,7 @@ export function UsersPage() {
         <Group gap="md" align="center">
           <PageHead
             title="Учётки"
-            hint="Учётки не удаляются: вместе с ней ушла бы история действий. Отключённая учётка перестаёт пускать сразу, даже с непросроченным пропуском; сброс пароля так же закрывает её открытые сеансы. Роль, права, включение и сброс пароля подтверждаются вашим паролем."
+            hint="Учётки не удаляются: вместе с ней ушла бы история действий. Отключённая учётка перестаёт пускать сразу, даже с непросроченным пропуском; сброс пароля и сброс входа с кодом так же закрывают её открытые сеансы. Роль, права, включение и оба сброса подтверждаются вашим паролем."
           />
           <Button
             className="press"

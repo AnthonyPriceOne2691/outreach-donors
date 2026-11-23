@@ -45,6 +45,26 @@ export class DeniedError extends ApiError {
   }
 }
 
+/** Какой шаг ждёт вход после верного пароля: код из приложения или включение кода. Здесь, а не
+ *  в `types.ts`: тот через свои модули снова ведёт сюда, и тип замкнул бы круг зависимостей. */
+export type LoginStep = 'code' | 'enroll';
+
+/** Пароль подошёл, но пропуска ещё нет: нужен второй шаг входа (23.11.2026). Сервер отвечает
+ *  403 с признаком `second-step` и вызовом к шагу — без него шаг не пройти. */
+export class SecondStepError extends ApiError {
+  readonly step: LoginStep;
+  readonly challenge: string;
+  readonly expiresInMinutes: number;
+
+  constructor(detail: string, step: LoginStep, challenge: string, expiresInMinutes: number) {
+    super(403, detail);
+    this.name = 'SecondStepError';
+    this.step = step;
+    this.challenge = challenge;
+    this.expiresInMinutes = expiresInMinutes;
+  }
+}
+
 /** Попытки входа кончились. Сервер говорит, через сколько повторить. */
 export class TooManyAttemptsError extends ApiError {
   readonly retryAfterSeconds: number | null;
@@ -83,25 +103,30 @@ interface RequestOptions {
   anonymous?: boolean;
 }
 
-async function detailOf(response: Response): Promise<string> {
+/** Тело отказа — один раз: его читают и текст, и второй шаг входа. Не JSON — `null`. */
+async function bodyOf(response: Response): Promise<unknown> {
   try {
-    const body: unknown = await response.json();
-    if (body && typeof body === 'object' && 'detail' in body) {
-      const { detail } = body;
-      if (typeof detail === 'string') return detail;
-      // Отказ разбора тела запроса приходит списком — показываем первый:
-      // человеку нужна причина, а не полный разбор схемы.
-      if (Array.isArray(detail) && detail.length > 0) {
-        const first: unknown = detail[0];
-        if (first && typeof first === 'object' && 'msg' in first) {
-          return String(first.msg);
-        }
-      }
-    }
+    return (await response.json()) as unknown;
   } catch {
     // Тело не разобралось — значит, отвечал не наш обработчик ошибок.
+    return null;
   }
-  return silentRefusal(response.status);
+}
+
+function detailOf(body: unknown, status: number): string {
+  if (body && typeof body === 'object' && 'detail' in body) {
+    const { detail } = body;
+    if (typeof detail === 'string') return detail;
+    // Отказ разбора тела запроса приходит списком — показываем первый:
+    // человеку нужна причина, а не полный разбор схемы.
+    if (Array.isArray(detail) && detail.length > 0) {
+      const first: unknown = detail[0];
+      if (first && typeof first === 'object' && 'msg' in first) {
+        return String(first.msg);
+      }
+    }
+  }
+  return silentRefusal(status);
 }
 
 /**
@@ -130,6 +155,18 @@ const ACCESS_REFUSAL = 'X-Access-Refusal';
  *  паролем прокси, браузер прикладывает его к запросу сам, и ответ 401 Chrome счёл бы отказом
  *  самому паролю — стёр бы его, и посреди работы всплыло бы окно пароля сервера (11.10.2026). */
 const SIGNED_OUT = 'signed-out';
+
+/** Признак «пароль подошёл, нужен второй шаг входа» (`api/auth/routes.SECOND_STEP`). */
+const SECOND_STEP = 'second-step';
+
+/** Второй шаг из тела отказа: шаг, вызов и его срок. Тело не того вида — `null`, и отказ
+ *  уйдёт обычным «права нет»: вызова без тела не пройти. */
+function secondStepOf(body: unknown, detail: string): SecondStepError | null {
+  if (!body || typeof body !== 'object') return null;
+  const { step, challenge, expires_in_minutes: minutes } = body as Record<string, unknown>;
+  if ((step !== 'code' && step !== 'enroll') || typeof challenge !== 'string') return null;
+  return new SecondStepError(detail, step, challenge, typeof minutes === 'number' ? minutes : 5);
+}
 
 /** 401 с вызовом Basic отвечает только прокси: браузер не приложил пароль сервера. */
 const PROXY_CHALLENGE = /^\s*basic\b/i;
@@ -165,8 +202,11 @@ async function raise(response: Response, sent: string | null): Promise<never> {
   ) {
     throw new ProxyPasswordError();
   }
-  const detail = await detailOf(response);
+  const body = await bodyOf(response);
+  const detail = detailOf(body, response.status);
   const refusal = response.headers.get(ACCESS_REFUSAL);
+  const secondStep = refusal === SECOND_STEP ? secondStepOf(body, detail) : null;
+  if (secondStep !== null) throw secondStep;
   if (response.status === 401 || refusal === SIGNED_OUT) {
     // Входа нет — пропуск больше не действует, хранить его незачем: иначе следующий
     // запрос уйдёт с ним же и получит тот же отказ. 401 без вызова Basic — от сервера

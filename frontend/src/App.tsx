@@ -15,6 +15,7 @@ import { AuthProvider } from './auth/AuthProvider';
 import { ChangePasswordPage } from './auth/ChangePasswordPage';
 import { LoginPage } from './auth/LoginPage';
 import { RequireAccess } from './auth/RequireAccess';
+import { TotpPage } from './auth/TotpPage';
 import { ScrollMemory } from './components/ScrollMemory';
 import { Backdrop } from './layout/Backdrop';
 import { NotFoundPage } from './layout/NotFoundPage';
@@ -65,6 +66,14 @@ export function AppRoutes() {
         element={
           <RequireAccess allowOneTimePassword>
             <ChangePasswordPage />
+          </RequireAccess>
+        }
+      />
+      <Route
+        path="/account/code"
+        element={
+          <RequireAccess>
+            <TotpPage />
           </RequireAccess>
         }
       />

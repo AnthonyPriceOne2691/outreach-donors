@@ -56,7 +56,10 @@ interface Session {
    *  действий), а не «Выйти»: причина словами сервера, пустая — если он её не назвал;
    *  `null` — не обрывал. Держится до следующего входа: вход говорит, почему он снова нужен. */
   cutOff: string | null;
+  /** Вход парой. У учётки с кодом бросает `SecondStepError`: дальше — второй шаг. */
   signIn: (email: string, password: string) => Promise<Me>;
+  /** Пропуск от сервера после второго шага или включения кода — пропуск сеанса, как у входа. */
+  accept: (opened: SignedIn) => Me;
   /** Сменить свой пароль. Сервер закрывает пропуска, выданные до смены, и отвечает новым —
    *  сеанс берёт его, как при входе: иначе следующий же запрос выбросил бы на вход. */
   changePassword: (current: string, next: string) => Promise<Me>;
@@ -87,7 +90,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     staleTime: 60_000,
   });
 
-  /** Пропуск от сервера — вход или смена пароля — становится пропуском сеанса. */
+  /** Пропуск от сервера — вход, второй шаг, включение кода или смена пароля — становится
+   *  пропуском сеанса. */
   const adopt = useCallback(
     (opened: SignedIn) => {
       saveToken(opened.token);
@@ -159,11 +163,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       can: (permission) => data?.permissions.includes(permission) ?? false,
       cutOff,
       signIn,
+      accept: adopt,
       changePassword,
       signOut,
       refresh,
     }),
-    [data, isLoading, cutOff, signIn, changePassword, signOut, refresh],
+    [data, isLoading, cutOff, signIn, adopt, changePassword, signOut, refresh],
   );
 
   return <SessionContext value={value}>{children}</SessionContext>;

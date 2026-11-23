@@ -25,6 +25,8 @@ export const ADMIN: Me = {
   ],
   must_change_password: false,
   last_login_at: '2026-09-19T10:24:00+00:00',
+  totp_enabled: false,
+  totp_required: false,
 };
 
 export const OPERATOR: Me = {
@@ -34,6 +36,8 @@ export const OPERATOR: Me = {
   permissions: ['advertisers', 'donors', 'prices', 'run', 'sales', 'settings', 'usage', 'view'],
   must_change_password: false,
   last_login_at: null,
+  totp_enabled: false,
+  totp_required: false,
 };
 
 /** Роль «Аутрич»: Этап 1, без рекламодателей, продаж и расхода. */
