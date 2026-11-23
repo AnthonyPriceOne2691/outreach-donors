@@ -16,7 +16,9 @@
   подписана. Засчитывается одно из двух: подпись DKIM с доменом из «От кого» и итогом pass —
   или SPF pass, когда домен обратного адреса конверта тот же. Домены сравниваются точно, без
   регистра: подпись поддомена или домена организации — не подпись домена «От кого», и такой
-  ответ — человеку. Проверка — до поисков: неподтверждённому отправителю адресата не ищем.
+  ответ — человеку. Адресат по адресу нашёлся ровно один, а отправитель не подтверждён — у
+  ответа своя причина (`Unbound.UNCONFIRMED_SENDER`): адрес могли подделать, и человек сверяет
+  с перепиской, прежде чем отвечать или привязывать; «однозначного адресата нет» было бы неправдой.
 - **Адрес — целиком**, без регистра и краевых пробелов, как сверяет получателя сверка событий
   доставки (`letters/events.py`). Тот же домен — не тот же человек: `info@` и `editor@`
   одного сайта — разные ящики.
@@ -94,16 +96,27 @@ async def bind(
 ) -> Binding:
     """Ответ без метки и цепочки — к последнему письму единственного адресата направления
     с адресом отправителя (`BindingWay.SENDER`), если отправитель подтверждён (`_confirmed`).
-    Иначе — `bound` как был: ответ — человеку."""
+    Адресат один, а отправитель не подтверждён — своя причина (`Unbound.UNCONFIRMED_SENDER`):
+    адрес могли подделать. Адресата нет или их несколько — `bound` как был: ответ — человеку."""
     if bound.unbound is not Unbound.NO_LABEL:
         return bound
     address = incoming.from_email.strip().lower()
     stage = await _direction(session, incoming.to, address) if address else None
-    if stage is None or not _confirmed(incoming, address, stage):
+    if stage is None:
         return bound
     found = [pair for lookup in lookups for pair in await lookup(session, address, stage)]
     letter = _the_one(found, stage)
-    return bound if letter is None else Binding(message_id=letter, way=BindingWay.SENDER)
+    if letter is None:
+        return bound
+    if not _confirmed(incoming, address, stage):
+        return Binding(message_id=None, way=BindingWay.NONE, unbound=Unbound.UNCONFIRMED_SENDER)
+    logger.info(
+        "приём: ответ привязан по отправителю — письмо №%s, направление %s",
+        letter,
+        stage.value,
+        extra={"letter": letter, "stage": stage.value},
+    )
+    return Binding(message_id=letter, way=BindingWay.SENDER)
 
 
 async def _direction(session: AsyncSession, to: Sequence[str], sender: str) -> Stage | None:
@@ -166,16 +179,7 @@ def _the_one(found: Sequence[tuple[int, str]], stage: Stage) -> int | None:
             addressees,
             extra={"stage": stage.value, "addressees": addressees},
         )
-    if addressees != 1:
-        return None
-    letter = found[0][0]
-    logger.info(
-        "приём: ответ привязан по отправителю — письмо №%s, направление %s",
-        letter,
-        stage.value,
-        extra={"letter": letter, "stage": stage.value},
-    )
-    return letter
+    return found[0][0] if addressees == 1 else None
 
 
 def _to_contact(stage: Stage) -> bool:

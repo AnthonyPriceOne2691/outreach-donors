@@ -2717,14 +2717,14 @@
       "worst": "keep:131"
     },
     "backend/features/replies/binding.py": {
-      "lines": 179,
+      "lines": 183,
       "complexity": 5,
-      "worst": "thread_ids:120"
+      "worst": "thread_ids:124"
     },
     "backend/features/replies/by_sender.py": {
-      "lines": 191,
+      "lines": 195,
       "complexity": 8,
-      "worst": "bind:92"
+      "worst": "bind:94"
     },
     "backend/features/replies/calibration.py": {
       "lines": 164,
@@ -2867,9 +2867,9 @@
       "worst": "—"
     },
     "backend/features/replies/unbound.py": {
-      "lines": 250,
+      "lines": 257,
       "complexity": 6,
-      "worst": "explain:212"
+      "worst": "explain:219"
     },
     "backend/features/review/__init__.py": {
       "lines": 2,

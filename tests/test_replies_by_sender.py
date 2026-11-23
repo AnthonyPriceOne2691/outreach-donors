@@ -379,7 +379,8 @@ class TestOnlyAConfirmedSender:
 
         got, reply = await accepted(session, fresh(**{"dkim_passed": (), **proof}))
 
-        assert_left_to_a_human(got, reply)
+        # Адресат один — и причина своя: «однозначного адресата нет» было бы неправдой.
+        assert_left_to_a_human(got, reply, Unbound.UNCONFIRMED_SENDER)
         [said] = [r for r in caplog.records if r.name == LOGGER]
         assert said.getMessage() == (
             "приём: по отправителю не привязан — отправитель не подтверждён (dkim/SPF), "
@@ -389,20 +390,24 @@ class TestOnlyAConfirmedSender:
         # Ни адреса, ни его домена: строку журнала читают люди, которым чужой ящик не нужен.
         assert "donor.example.test" not in repr(vars(said))
 
-    async def test_an_unconfirmed_sender_is_not_even_looked_up(self, session: AsyncSession) -> None:
-        """Проверка — до поисков: неподтверждённому отправителю адресата не ищут."""
-        asked: list[str] = []
+    async def test_without_an_addressee_an_unconfirmed_sender_keeps_the_old_reason(
+        self, session: AsyncSession
+    ) -> None:
+        """Подлинность решает, только когда адресат по адресу один: адресата нет — причина
+        прежняя («однозначного адресата нет»), а не «отправитель не подтверждён»."""
+        got, reply = await accepted(session, fresh(dkim_passed=(RELAY,)))
 
-        async def lookup(_: AsyncSession, address: str, stage: Stage) -> list[tuple[int, str]]:
-            asked.append(address)
-            return []
+        assert_left_to_a_human(got, reply)
 
-        inbox = Inbox(session, now=NOW, lookups=(lookup,))
-        await inbox.accept(fresh(dkim_passed=(RELAY,)))
-        assert asked == []
+    async def test_two_addressees_and_an_unconfirmed_sender_keep_the_old_reason(
+        self, session: AsyncSession
+    ) -> None:
+        for host in ("one.example.test", "two.example.test"):
+            await letter(session, await contact(session, host=host), await campaign(session))
 
-        await inbox.accept(fresh(message_id="<fresh-2@donor.example.test>"))
-        assert asked == [EDITOR]
+        got, reply = await accepted(session, fresh(dkim_passed=(RELAY,)))
+
+        assert_left_to_a_human(got, reply)
 
 
 class TestOtherWaysAsBefore:

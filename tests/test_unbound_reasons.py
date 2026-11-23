@@ -26,6 +26,7 @@ SHORT = {
     Unbound.FOREIGN_THREAD: "ответ на чужое или пересланное письмо",
     Unbound.BAD_SIGNATURE: "подпись метки не сошлась",
     Unbound.NO_SUCH_LETTER: "письма из метки нет в базе",
+    Unbound.UNCONFIRMED_SENDER: "отправитель не подтверждён (DKIM/SPF)",
 }
 #: Причины, по которым отправителя ищут руками, — у них слова называют, кого именно.
 BY_HAND = (Unbound.NO_LABEL, Unbound.FOREIGN_THREAD, Unbound.NO_SUCH_LETTER)
@@ -203,6 +204,23 @@ class TestWhomToLookFor:
             "а не ответом на наше; по отправителю однозначного адресата нет. Донора ищут по "
             "отправителю и тексту."
         )
+
+    @pytest.mark.parametrize("stage", [None, *Stage])
+    def test_an_unconfirmed_sender_is_named_with_the_risk_and_what_to_do(
+        self, stage: Stage | None
+    ) -> None:
+        """Адресат по адресу один, но «От кого» не подтверждён (`by_sender`): слова говорят, что
+        адрес могли подделать, и что делать, — без «ищут по отправителю»: тот, кого нашли бы
+        по адресу, и есть под вопросом."""
+        words = unbound.explain(Unbound.UNCONFIRMED_SENDER, None, stage)
+
+        assert words == (
+            "Метки в адресе нет, и заголовков цепочки тоже. По адресу отправителя нашёлся ровно "
+            "один адресат наших писем, но «От кого» не подтверждён: нет ни подписи DKIM его "
+            "домена, ни SPF с тем же доменом конверта — адрес могли подделать. Сверьте с "
+            "перепиской, прежде чем отвечать или привязывать."
+        )
+        assert "ищут по отправителю" not in words
 
     @pytest.mark.parametrize("stage", list(Stage))
     def test_where_nobody_is_looked_for_the_direction_changes_nothing(self, stage: Stage) -> None:

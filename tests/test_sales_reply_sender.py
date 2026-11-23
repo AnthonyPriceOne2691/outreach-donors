@@ -333,7 +333,9 @@ class TestWebhook:
         envelope_from: str,
     ) -> None:
         """«От кого» без подтверждения — просто поле письма: ответ ждёт человека во вкладке
-        «Не привязаны» с прежней причиной, очереди продаж не достаётся."""
+        «Не привязаны» со своей причиной — лид по адресу один, но адрес могли подделать, — и
+        словами, а не кодом (`api/replies/schemas` берёт `unbound.explain`); очереди продаж
+        не достаётся."""
         await dialog(session)
         await session.commit()
         body, headers = multipart(webhook_form(proof, envelope_from))
@@ -346,8 +348,13 @@ class TestWebhook:
         reply = await session.get(ReplyModel, taken["reply_id"])
         assert reply is not None
         assert (reply.message_id, reply.thread_id) == (None, None)
-        assert reply.unbound_reason == Unbound.NO_LABEL
+        assert reply.unbound_reason == Unbound.UNCONFIRMED_SENDER
         assert [found.id for found in await unbound.page(session, stages=(Stage.SALES,))] == [
             reply.id
         ]
+        short = unbound.explain_short(reply.unbound_reason, reply.to_addresses)
+        words = unbound.explain(reply.unbound_reason, reply.to_addresses, Stage.SALES)
+        assert short == "отправитель не подтверждён (DKIM/SPF)"
+        assert "адрес могли подделать" in words
+        assert Unbound.UNCONFIRMED_SENDER.value not in f"{short} {words}"
         assert all(job != SALES_REPLY_JOB for job, _ in queue.jobs)
