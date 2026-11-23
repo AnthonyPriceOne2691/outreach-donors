@@ -33,6 +33,7 @@ from selectolax.parser import HTMLParser
 
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.sitemap import NS_PREFIX, same_site
+from backend.shared.net.url_guard import NOT_OPENED
 from backend.shared.net.url_parts import join_url
 
 logger = logging.getLogger(__name__)
@@ -132,11 +133,12 @@ class FeedReader:
         return []
 
     async def _get(self, host: str, url: str) -> str | None:
-        """Одна лента. Отказ, обрыв и не найдено — «ленты здесь нет», обход идёт дальше."""
+        """Одна лента. Отказ, обрыв, не найдено и адрес, который не открыть (`NOT_OPENED`), —
+        «ленты здесь нет», обход идёт дальше."""
         async with self._limiter.slot(host):
             try:
                 response = await self._client.get(url, headers=self._headers, follow_redirects=True)
-            except httpx.HTTPError as exc:
+            except NOT_OPENED as exc:
                 logger.info("лента: %s не открылась (%r)", url, exc)
                 return None
         if response.status_code >= 400:
