@@ -313,6 +313,75 @@ docker compose logs --tail=50 api   # отказ старта — здесь, с
 `docker compose exec api outreach user-totp-reset --email …` — секрет и коды удалены, сеансы
 учётки закрыты; роль требует код — при следующем входе учётка включит его заново.
 
+## Корень контейнеров только для чтения (аудит 23.11.2026)
+
+Все контейнеры стартуют с `read_only: true`: код, библиотеки, конфиг nginx и статику фронта
+не перепишет никто, в том числе root внутри контейнера. Писать можно только:
+
+- в тома данных — `pgdata` (база) и `redisdata` (очередь);
+- в `tmpfs` с потолком и без права исполнять (`noexec,nosuid,nodev`): `/tmp` 64 МБ у сервисов
+  из образа сервера (отметки о жизни циклов, загрузки с экрана больше 1 МБ, копия CSV продаж),
+  `/var/run/postgresql` 1 МБ у базы (сокет), `/var/cache/nginx` 128 МБ и `/run` 1 МБ у web
+  (тела запросов и ответы api, pid).
+
+Почему места и размеры такие — комментарии в `docker-compose.yml`; сверяет их
+`tests/test_deploy_hardening.py`. tmpfs — память контейнера, и живёт он до пересоздания:
+сохранять туда нечего.
+
+**Выкатка** — обычная (раздел «Обновление»), с двумя отличиями:
+
+- пересоздаются **все** контейнеры, база и очередь тоже: настройка новая у каждого. Простой —
+  1–2 минуты, как при выкатке прав 20.11.2026; выкатывать, когда прогоны, обходы и очереди не
+  идут. Миграций в правке нет;
+- образ web новый: в `deploy/nginx.conf` потолок буфера ответа (`proxy_max_temp_file_size`).
+
+```bash
+C="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+$C ps                                       # все healthy, migrate — Exited (0)
+docker inspect -f '{{.Name}} {{.HostConfig.ReadonlyRootfs}}' $($C ps -q)   # у всех true
+$C exec -T api touch /app/x                 # → «Read-only file system»: так и должно быть
+$C logs web | grep 'can not modify'         # строка скрипта образа nginx — не ошибка
+```
+
+**Откат** — прежний хэш: образы и компоуз одного коммита. `read_only` и tmpfs живут в
+компоузе, и прежний образ при новом компоузе их не снимет, а `git merge --ff-only` назад не
+ходит — компоуз возвращается явно. Миграций нет — вниз ничего не нужно.
+
+```bash
+git checkout <прежний sha> -- docker-compose.yml   # компоуз до правки
+#   образы прежнего sha — как при выкатке (pull :<sha> и tag :main)
+$C up -d                                         # снова пересоздаёт все контейнеры
+git checkout HEAD -- docker-compose.yml          # после починки — компоуз ветки обратно
+```
+
+**Сервис не встал или стал `unhealthy`:**
+
+```bash
+$C ps                                                    # кто: Restarting или unhealthy
+$C logs --tail=100 <сервис>                              # причина словами
+docker inspect --format '{{json .State.Health}}' <контейнер>   # вывод проверки здоровья
+$C exec <сервис> df -h /tmp                              # у web — /var/cache/nginx
+```
+
+- `Read-only file system` — сервис пишет в новое место, путь — в той же строке. Чинить правкой
+  в коде: tmpfs с потолком в `docker-compose.yml` и строка в тесте или отказ от записи. До
+  правки — откат на прежний хэш.
+- `No usable temporary directory` — у сервиса нет `/tmp`: новый сервис без якоря
+  `x-backend-hardening`.
+- `No space left on device` (у nginx — `[crit] … (28: …)`) — tmpfs заполнен: потолок мал для
+  этой нагрузки или кто-то не убирает за собой; `df -h` покажет.
+- Включат браузерную ступень (playwright в образе) — Chromium пишет профиль и кэш: ему нужен
+  свой tmpfs, проверенный запуском, иначе он упадёт на `Read-only file system`.
+
+**Файлы в контейнер и из него — через stdin и stdout.** `docker cp` в контейнер с корнем
+только для чтения отказывает, а tmpfs не видит вовсе. Скрипты через stdin с `-w /tmp`
+работают как раньше.
+
+```bash
+$C exec -T api sh -c 'cat > /tmp/list.csv' < list.csv
+$C exec -T api cat /tmp/out.csv > out.csv
+```
+
 ## Бэкапы и восстановление
 
 ```bash
