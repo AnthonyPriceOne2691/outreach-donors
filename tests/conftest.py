@@ -61,8 +61,9 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import SenderModel
 from backend.features.letters import recipient_dns
-from backend.features.ops import funds_watch, hunter_watch, key_watch, silence
+from backend.features.ops import funds_watch, hunter_watch, key_watch, model_watch, silence
 from backend.features.serp import funds
+from backend.shared import llm_marks
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -731,4 +732,81 @@ def session_store(monkeypatch: pytest.MonkeyPatch) -> SessionStore:
     store = SessionStore()
     monkeypatch.setattr(sessions, "connection", lambda: store)
     monkeypatch.setattr(sessions, "complaints", sessions.Complaints())
+    return store
+
+
+class MarkStore:
+    """Redis следа модели (`shared/llm_marks.py`) в памяти теста: хэши и списки; `down` — не
+    отвечает ни на чтение, ни на запись. Команды очереди (`pipeline`) применяются сразу."""
+
+    def __init__(self) -> None:
+        self.hashes: dict[str, dict[str, str]] = {}
+        self.lists: dict[str, list[str]] = {}
+        self.down = False
+
+    def __enter__(self) -> MarkStore:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def pipeline(self) -> MarkStore:
+        self._answer()
+        return self
+
+    def execute(self) -> list[object]:
+        return []
+
+    def hset(
+        self,
+        key: str,
+        field: str | None = None,
+        value: object = None,
+        *,
+        mapping: dict[str, object] | None = None,
+    ) -> int:
+        self._answer()
+        found = self.hashes.setdefault(key, {})
+        if field is not None:
+            found[field] = str(value)
+        found.update({name: str(one) for name, one in (mapping or {}).items()})
+        return 1
+
+    def hgetall(self, key: str) -> dict[bytes, bytes]:
+        self._answer()
+        return {name.encode(): one.encode() for name, one in self.hashes.get(key, {}).items()}
+
+    def lpush(self, key: str, *values: str) -> int:
+        self._answer()
+        found = self.lists.setdefault(key, [])
+        found[:0] = list(reversed(values))
+        return len(found)
+
+    def ltrim(self, key: str, start: int, end: int) -> bool:
+        self.lists[key] = self.lists.get(key, [])[start : end + 1]
+        return True
+
+    def expire(self, _key: str, _seconds: int) -> bool:
+        return True
+
+    def lrange(self, key: str, start: int, end: int) -> list[bytes]:
+        self._answer()
+        found = self.lists.get(key, [])
+        return [one.encode() for one in found[start : None if end == -1 else end + 1]]
+
+    def _answer(self) -> None:
+        if self.down:
+            raise RedisConnectionError("выдуманный Redis следа модели не отвечает")
+
+
+@pytest.fixture(autouse=True)
+def model_marks(monkeypatch: pytest.MonkeyPatch) -> MarkStore:
+    """След вызовов модели (`shared/llm_marks.py`) — в памяти теста, свой у каждого: его пишет
+    каждый вызов модели, а Redis из настроек — общий Redis машины. Тесты сторожа модели берут
+    хранилище фикстурой: смотрят след и гасят его (`down`). Строки о молчании Redis и прежний ответ
+    сторожа (`model_watch.LAST`) — тоже свои: чужие спрятали бы строку и молчание этого теста."""
+    store = MarkStore()
+    monkeypatch.setattr(llm_marks, "connection", lambda: store)
+    monkeypatch.setattr(llm_marks, "complaints", llm_marks.Complaints())
+    monkeypatch.setattr(model_watch, "LAST", model_watch.Last())
     return store

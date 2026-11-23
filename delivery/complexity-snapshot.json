@@ -737,9 +737,9 @@
       "worst": "—"
     },
     "backend/api/watchdog/routes.py": {
-      "lines": 152,
+      "lines": 156,
       "complexity": 8,
-      "worst": "silence:115"
+      "worst": "silence:117"
     },
     "backend/cli/__init__.py": {
       "lines": 1,
@@ -2606,15 +2606,20 @@
       "complexity": 8,
       "worst": "_of_stage:153"
     },
+    "backend/features/ops/model_watch.py": {
+      "lines": 158,
+      "complexity": 4,
+      "worst": "alarms:78"
+    },
     "backend/features/ops/overview.py": {
       "lines": 459,
       "complexity": 6,
       "worst": "overview:256"
     },
     "backend/features/ops/silence.py": {
-      "lines": 388,
+      "lines": 391,
       "complexity": 7,
-      "worst": "judge:162"
+      "worst": "judge:163"
     },
     "backend/features/ops/stage_silence.py": {
       "lines": 333,
@@ -4097,9 +4102,14 @@
       "worst": "is_demo:19"
     },
     "backend/shared/llm.py": {
-      "lines": 465,
+      "lines": 495,
       "complexity": 9,
-      "worst": "post_chat:261"
+      "worst": "_chat:294"
+    },
+    "backend/shared/llm_marks.py": {
+      "lines": 228,
+      "complexity": 7,
+      "worst": "_read:178"
     },
     "backend/shared/logs/__init__.py": {
       "lines": 6,
