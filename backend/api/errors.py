@@ -26,20 +26,11 @@ from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
 
+from backend.api.access_refusals import ACCESS_STATUSES
 from backend.config.startup_checks import ConfigError
-from backend.features.access.administration import (
-    LastAdminError,
-    SelfLockoutError,
-    UnknownUserError,
-    WrongPasswordError,
-)
 from backend.features.access.attempts import TooManyAttemptsError
 from backend.features.access.journal import JournalRangeError
-from backend.features.access.login import LoginFailedError
-from backend.features.access.passwords import WeakPasswordError
 from backend.features.access.permissions import AccessDeniedError
-from backend.features.access.repository import EmailTakenError
-from backend.features.access.tokens import SecretMissingError
 from backend.features.agent.drafting import DraftRefusedError, UnknownDraftReplyError
 from backend.features.agent.drafts import DraftDecisionError, DraftReasonError, UnknownDraftError
 from backend.features.agent.settings import (
@@ -106,12 +97,9 @@ STATUSES: dict[type[Exception], int] = {
     # предел, который человек поднимает настройкой или ждёт следующего дня.
     LlmCapExceededError: status.HTTP_429_TOO_MANY_REQUESTS,
     UnknownAnswerTargetError: status.HTTP_404_NOT_FOUND,
-    # Неверная почта или пароль — 400, как неверный старый пароль при смене (`WrongPasswordError`),
-    # а не 401: 401 за прокси стирает у браузера пароль прокси (`access/permissions.SignedOutError`).
-    # Пропуск не принят (`TokenError`) — отказ «входа нет»: 403 обработчиком `AccessDeniedError`.
-    LoginFailedError: status.HTTP_400_BAD_REQUEST,
+    # Вход, пароли и учётки — своим файлом (`access_refusals.py`): таблица упёрлась в предел длины.
+    **ACCESS_STATUSES,
     AccessDeniedError: status.HTTP_403_FORBIDDEN,
-    UnknownUserError: status.HTTP_404_NOT_FOUND,
     # Отрезок журнала, у которого начало не раньше конца, — это запрос: текст говорит, что делать.
     JournalRangeError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     UnknownSenderError: status.HTTP_404_NOT_FOUND,
@@ -240,20 +228,11 @@ STATUSES: dict[type[Exception], int] = {
     KbKeyTakenError: status.HTTP_409_CONFLICT,
     UnknownKbEntryError: status.HTTP_404_NOT_FOUND,
     SenderSettingsError: status.HTTP_400_BAD_REQUEST,
-    EmailTakenError: status.HTTP_409_CONFLICT,
-    LastAdminError: status.HTTP_409_CONFLICT,
-    SelfLockoutError: status.HTTP_409_CONFLICT,
-    WeakPasswordError: status.HTTP_400_BAD_REQUEST,
-    WrongPasswordError: status.HTTP_400_BAD_REQUEST,
     TooManyAttemptsError: status.HTTP_429_TOO_MANY_REQUESTS,
     # Настройка не даёт работать: песочница выдачи, нет ключа. Состояние развёртывания,
     # и текст называет, что поправить; до аудита 10.10.2026 «Запустить» отвечал на это
     # пятисоткой, и написанный человеку отказ до экрана не доходил.
     ConfigError: status.HTTP_409_CONFLICT,
-    # Секрета подписи нет — это поломка развёртывания, а не запроса.
-    # Ответ честно говорит об этом пятисоткой и называет переменную:
-    # в логах иначе останется «internal error» без единой подсказки.
-    SecretMissingError: status.HTTP_500_INTERNAL_SERVER_ERROR,
 }
 
 

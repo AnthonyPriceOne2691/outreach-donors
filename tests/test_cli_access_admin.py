@@ -10,14 +10,18 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import os
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from backend.cli import access_admin
 from backend.config import access, storage
+from backend.features.access import second_step, totp
 from backend.features.access.passwords import verify_password
-from backend.features.core.domain import UserRole
-from backend.features.core.models.access import UserModel
+from backend.features.core.domain import AuditAction, UserRole
+from backend.features.core.models.access import AuditLogModel, UserModel
 from sqlalchemy import select, update
 from tests.conftest import TEST_DSN
 from tests.test_send_race import committed_sessions
@@ -115,3 +119,49 @@ async def test_user_reset_of_an_unknown_email_is_refused_in_words(
     assert code == access_admin.EXIT_TAKEN
     assert f"Учётки {EMAIL} нет" in out
     assert "outreach user-add --email" in out
+
+
+async def test_user_totp_reset_drops_the_code_and_says_what_next(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Единственный админ потерял телефон: команда на сервере снимает код, и при обязательном
+    коде учётка включит его заново при следующем входе (23.11.2026)."""
+    monkeypatch.setattr(access, "TOTP_KEY", base64.b64encode(os.urandom(32)).decode())
+    monkeypatch.setattr(access, "TOTP_REQUIRED_ROLES", frozenset({"admin"}))
+    async with committed_sessions() as factory:
+        await access_admin.cmd_user_add(argparse.Namespace(email=EMAIL, role="admin"))
+        async with factory() as session:
+            user = (await session.scalars(select(UserModel))).one()
+            secret = await second_step.begin(session, user)
+            await session.refresh(user)
+            moment = datetime.now(UTC)
+            await second_step.enable(session, user, totp.code_at(secret, time.time()), moment)
+            await session.commit()
+        capsys.readouterr()
+
+        code = await access_admin.cmd_user_totp_reset(argparse.Namespace(email=EMAIL))
+        out = capsys.readouterr().out
+        again = await access_admin.cmd_user_totp_reset(argparse.Namespace(email=EMAIL))
+        nobody = await access_admin.cmd_user_totp_reset(
+            argparse.Namespace(email="nobody@team.example.test")
+        )
+        said = capsys.readouterr().out
+        async with factory() as session:
+            user = (await session.scalars(select(UserModel))).one()
+            reset = (
+                await session.scalars(
+                    select(AuditLogModel).where(AuditLogModel.action == AuditAction.TOTP_RESET)
+                )
+            ).one()
+
+        assert code == access_admin.EXIT_OK
+        assert f"Вход с кодом у {EMAIL} сброшен" in out
+        assert "при следующем входе учётка включит его заново" in out
+        assert (user.totp_secret, user.totp_enabled_at, user.token_generation) == (None, None, 2)
+        assert (reset.user_id, reset.details) == (
+            None,
+            {"email": EMAIL, "откуда": "команда на сервере"},
+        )
+        assert (again, nobody) == (access_admin.EXIT_TAKEN, access_admin.EXIT_TAKEN)
+        assert "сбрасывать нечего" in said
+        assert "outreach user-add" in said

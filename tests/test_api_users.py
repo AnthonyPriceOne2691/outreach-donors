@@ -37,6 +37,7 @@ USER_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("POST", "/api/users", {"email": "ещё-один@site.com", "role": "operator"}),
     ("PATCH", "/api/users/{id}", {"is_active": False, **CONFIRMED}),
     ("POST", "/api/users/{id}/password", CONFIRMED),
+    ("POST", "/api/users/{id}/totp/reset", CONFIRMED),
 ]
 
 

@@ -15,6 +15,7 @@ from fastapi import FastAPI
 
 from backend.api.advertisers import routes as advertisers_routes
 from backend.api.agent import routes as agent_routes
+from backend.api.auth import code_routes as auth_code_routes
 from backend.api.auth import routes as auth_routes
 from backend.api.contacts import routes as contacts_routes
 from backend.api.crawls import routes as crawls_routes
@@ -49,6 +50,7 @@ from backend.api.users import routes as users_routes
 from backend.api.watchdog import routes as watchdog_routes
 from backend.config import observability
 from backend.config.startup_checks import check_access, check_storage, say_inbound_secret
+from backend.features.access.second_step import check_required_roles
 from backend.features.agent.guarding import said_at_start
 from backend.features.core import llm_caps
 from backend.shared.logs import setup_logging
@@ -84,6 +86,7 @@ def create_app() -> FastAPI:
     setup_logging()
     check_storage()
     check_access()
+    check_required_roles()
     say_inbound_secret()
     # «Написать заново» пишет черновик агента в запросе: что включено и чем ограничен
     # расход — словами в журнал при старте.
@@ -103,6 +106,7 @@ def create_app() -> FastAPI:
     install(app)
     app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(auth_routes.router, prefix=API_PREFIX)
+    app.include_router(auth_code_routes.router, prefix=API_PREFIX)
     app.include_router(users_routes.router, prefix=API_PREFIX)
     app.include_router(journal_routes.router, prefix=API_PREFIX)
     app.include_router(runs_routes.router, prefix=API_PREFIX)

@@ -10,12 +10,11 @@
 
 **Правка доступа и сброс чужого пароля — с паролем админа** (аудит 20.11.2026, №10): пропуск
 админа без пароля этих действий не открывает (`administration.confirm_own_password`). Неверный
-пароль считает тот же счётчик, что неверный старый при смене своего (`_confirmed`).
+пароль считает тот же счётчик, что неверный старый при смене своего (`_confirmed`). Сброс чужого
+входа с кодом (23.11.2026) — так же.
 """
 
 from __future__ import annotations
-
-import logging
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,18 +29,15 @@ from backend.api.users.schemas import (
     UserCard,
 )
 from backend.features.access.administration import (
-    NotConfirmedError,
-    confirm_own_password,
     create_user,
     reset_password,
+    reset_totp,
     update_access,
 )
-from backend.features.access.attempts import TooManyAttemptsError
 from backend.features.access.repository import AccessRepository, actor_of
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 
-logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/users", tags=["учётки"])
 
 #: Один и тот же пропуск на весь раздел.
@@ -50,29 +46,8 @@ _admin = Depends(needs(Permission.USERS))
 
 async def _confirmed(author: UserModel, password: str | None) -> None:
     """Подтверждение паролем админа — со счётом неверных, как у смены своего пароля
-    (`api/auth/routes.change_password`, аудит 10.10.2026): украденный пропуск иначе подбирал бы
-    пароль хозяина без предела, а с паролем — и вход. Ключ тот же: подбор своего пароля — один
-    счёт, через какую ручку он ни шёл бы. В журнал действий отказ не пишется, как и неверный
-    старый пароль при смене своего, — строка журнала приложения."""
-    key = f"password:{author.id}"
-    try:
-        deps.attempts.check(key)
-    except TooManyAttemptsError:
-        logger.warning(
-            "учётки: попытки подтверждения исчерпаны, пароль даже не проверялся",
-            extra={"user_id": author.id},
-        )
-        raise
-    try:
-        await confirm_own_password(password, author.password_hash)
-    except NotConfirmedError:
-        deps.attempts.failed(key)
-        logger.warning(
-            "учётки: действие не подтверждено — пароль админа не подошёл",
-            extra={"user_id": author.id},
-        )
-        raise
-    deps.attempts.succeeded(key)
+    (`deps.confirm_password`, аудит 10.10.2026)."""
+    await deps.confirm_password(author, password, place="учётки")
 
 
 @router.get("", response_model=list[UserCard], summary="Список учёток")
@@ -137,3 +112,22 @@ async def reset(
     user, password = await reset_password(session, user_id=user_id, author=actor_of(author))
     await session.commit()
     return OneTimePassword(user=UserCard.of(user), password=password)
+
+
+@router.post(
+    "/{user_id}/totp/reset",
+    response_model=UserCard,
+    summary="Сбросить вход с кодом",
+)
+async def reset_code(
+    user_id: int,
+    body: Confirmation | None = None,
+    author: UserModel = _admin,
+    session: AsyncSession = Depends(db_session),
+) -> UserCard:
+    """Телефон потерян или сменился: секрет и коды восстановления учётки удалены, её пропуска
+    погасли. Роль требует код — учётка включит его заново при следующем входе."""
+    await _confirmed(author, body.current_password if body is not None else None)
+    user = await reset_totp(session, user_id=user_id, author=actor_of(author))
+    await session.commit()
+    return UserCard.of(user)

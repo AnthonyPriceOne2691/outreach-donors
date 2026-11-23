@@ -20,7 +20,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.cli import donor_add, geo_shares, geo_top5, topic_backfill
-from backend.cli.access_admin import ROLE_NAMES, cmd_user_add, cmd_user_reset
+from backend.cli.access_admin import COMMANDS as ACCESS_COMMANDS
+from backend.cli.access_admin import add_parser as add_access_parser
 from backend.cli.advertisers import COMMANDS as ADVERTISERS_COMMANDS
 from backend.cli.advertisers import KEPT_ON_INTERRUPT as ADVERTISERS_KEPT
 from backend.cli.advertisers import add_parser as add_advertisers_parser
@@ -334,18 +335,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--cap", type=int, help="потолок расхода на прогон, юнитов")
     run.add_argument("--yes", action="store_true", help="не спрашивать подтверждения")
 
-    user_add = sub.add_parser("user-add", help="завести учётку и показать разовый пароль")
-    user_add.add_argument("--email", required=True, help="почта сотрудника, она же логин")
-    user_add.add_argument(
-        "--role",
-        default="operator",
-        choices=ROLE_NAMES,
-        help="роль: admin — всё, operator — все этапы, donors — Этап 1, advertisers — Этап 2",
-    )
-
-    user_reset = sub.add_parser("user-reset", help="выдать новый разовый пароль")
-    user_reset.add_argument("--email", required=True, help="почта сотрудника")
-
+    add_access_parser(sub)
     add_keywords_parser(sub)
     add_backfill_parser(sub)
     add_review_queue_parser(sub)
@@ -445,8 +435,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "contacts-refind": cmd_contacts_refind,
     "crawl": cmd_crawl,
     **ADVERTISERS_COMMANDS,
-    "user-add": cmd_user_add,
-    "user-reset": cmd_user_reset,
+    **ACCESS_COMMANDS,
     "keywords": cmd_keywords,
     "judge-backfill": cmd_judge_backfill,
     "review-queue": cmd_review_queue,
