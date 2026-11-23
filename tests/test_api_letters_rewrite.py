@@ -2,8 +2,9 @@
 
 Проверяется то, что видит человек у кнопки: число шаблонных писем в ответе экрана, правка руками
 выводит письмо из этого числа, нажатие ставит задачу с доводами, которые она принимает, и пишет
-строку журнала с тем, кто нажал; пустая очередь, очередь, которая уходит сама, и второе нажатие —
-отказ словами. Задача и консоль переписывают тем же ядром (`letters/rewrite_queue.py`).
+строку журнала с тем, кто нажал; пустая очередь и второе нажатие — отказ словами, а очередь,
+которая уходит сама, нажатию не мешает: её проход шаблонные не шлёт. Задача и консоль
+переписывают тем же ядром (`letters/rewrite_queue.py`).
 """
 
 from __future__ import annotations
@@ -118,20 +119,19 @@ class TestTheButton:
         assert (pressed.status_code, pressed.json()["detail"]) == (409, rewrite_queue.NOTHING)
         assert jobs_queue.enqueued == []
 
-    async def test_queue_sending_itself_is_refused_in_words(
+    async def test_queue_sending_itself_does_not_hold_the_press(
         self, client: AsyncClient, session: AsyncSession, token: str, jobs_queue: _Jobs
     ) -> None:
+        """Проход автоотправки шаблонное письмо не шлёт (`batch._sendable`): переписывать можно,
+        не останавливая очередь, — тревога о шаблонных это и советует."""
         await _templated(session)
         await autosend.start(session, Stage.DONORS, "links", by=None, now=datetime.now(UTC))
         await session.commit()
 
         pressed = await _press(client, token)
 
-        assert (pressed.status_code, pressed.json()["detail"]) == (
-            409,
-            rewrite_queue.SENDING_ITSELF,
-        )
-        assert jobs_queue.enqueued == []
+        assert pressed.status_code == 200, pressed.text
+        assert len(jobs_queue.enqueued) == 1
 
     async def test_second_press_while_the_first_runs_is_refused(
         self, client: AsyncClient, session: AsyncSession, token: str, jobs_queue: _Jobs
@@ -282,7 +282,7 @@ class TestTheConsoleOnItsOwnBase:
         assert "Шаблонных писем взято 1, переписано 0, токенов 0." in said
         assert f"Не переписано, {NO_KEY}: 1" in said
 
-    async def test_queue_sending_itself_is_refused_in_words(
+    async def test_queue_sending_itself_does_not_hold_the_command(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         args = argparse.Namespace(stage="donors", audience="links", country="us")
@@ -294,5 +294,5 @@ class TestTheConsoleOnItsOwnBase:
 
             code = await letters_queue.cmd_letters_rewrite(args)
 
-        assert code == letters_queue.EXIT_NOT_SENT
-        assert rewrite_queue.SENDING_ITSELF in capsys.readouterr().out
+        assert code == letters_queue.EXIT_OK
+        assert "Шаблонных писем взято 1" in capsys.readouterr().out

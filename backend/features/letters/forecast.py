@@ -41,7 +41,13 @@ from backend.features.core.models.outreach import (
     SenderModel,
     SendingDomainModel,
 )
-from backend.features.letters import autosend, autosend_window, followup_pace, followup_window
+from backend.features.letters import (
+    autosend,
+    autosend_window,
+    batch,
+    followup_pace,
+    followup_window,
+)
 from backend.features.letters.chain import FIRST_STEP, MAX_STEPS
 from backend.features.letters.forecast_plan import (
     Chains,
@@ -276,11 +282,13 @@ async def _answers(
     писем ещё напишет сборка, пояс получателей очереди (только при окне, `capacity.queue_zone`) и
     письма, которые не уйдут, пока их не поправят. У доноров и рекламодателей очередь собирает
     человек; пояс получателей — только когда очередь уходит сама и у её прохода есть окно
-    (`autosend_window.queue_zone`)."""
+    (`autosend_window.queue_zone`); не уйдут, пока их не поправят, письма, оставшиеся шаблоном
+    (`_templated`)."""
     match stage:
         case Stage.DONORS | Stage.ADVERTISERS:
             return _Answers(
-                zone=await autosend_window.queue_zone(session, stage) if policy.window else None
+                zone=await autosend_window.queue_zone(session, stage) if policy.window else None,
+                stuck=await _templated(session, stage),
             )
         case Stage.SALES:
             return _Answers(
@@ -291,6 +299,14 @@ async def _answers(
             )
         case _:
             assert_never(stage)
+
+
+async def _templated(session: AsyncSession, stage: Stage) -> dict[str, int] | None:
+    """Письма очереди этапа, оставшиеся шаблоном (`repository.left_as_template`): проход
+    автоотправки их не шлёт (`batch._sendable`), и срок очереди их не считает — до правки они не
+    уйдут. Пусто — таких нет."""
+    found = await LetterRepository(session).templated_count(stage=stage)
+    return {batch.TEMPLATED: found} if found else None
 
 
 async def _due(

@@ -35,6 +35,13 @@ Anthony выбрал пачку — «вся очередь» (06.10.2026): пи
 **Две пачки разом не отправят письмо дважды**: захват письма в `Sending`
 отдаёт второй отказ «уже не в очереди», и он попадает в итог словами.
 
+**Шаблонное письмо сам проход не шлёт** (23.11.2026: у модели кончились деньги посреди сборки,
+и письма встали в очередь шаблоном). Проход автоотправки (`Paced`) разослал бы их сам одним
+текстом; он пропускает письмо, оставшееся шаблоном (`repository.left_as_template`: отличие 0
+и человек его не правил), с причиной словами — что сделать (`TEMPLATED`), — и идёт дальше по
+очереди. Кнопка шлёт как прежде: когда слать, решает человек. Продажи проход не судит: у их писем
+свой коридор и своя автоотправка (`_MEASURED`).
+
 **Пачка — одной аудитории этапа** (`campaigns.audience`). У Этапа 2 их две:
 рекламодатели по найденной ссылке и бизнесы ниши из выдачи — у каждой своя
 вкладка, своя очередь и своя кнопка. Нажатие на одной вкладке письма другой
@@ -50,6 +57,7 @@ from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import Stage
@@ -57,7 +65,7 @@ from backend.features.core.models.outreach import MessageModel
 from backend.features.core.stages import SalesNotConnectedError
 from backend.features.crawl.niche import LINKS
 from backend.features.letters import address_gate, mailbox
-from backend.features.letters.repository import LetterRepository
+from backend.features.letters.repository import LetterRepository, left_as_template
 from backend.features.letters.sending import (
     NoSenderError,
     NotQueuedError,
@@ -88,6 +96,16 @@ BATCH_MAX = 200
 #: DNS получателя молчит: письмо ждёт в очереди и уйдёт само (`recipient_dns.py`) — ожидание, а не
 #: отказ: проход автоотправки из-за него не «стоит не по делу» (`autosend._stalled`).
 DNS_WAITS = "DNS получателя не отвечает"
+
+#: Письмо осталось шаблоном — модель отказала при сборке: проход автоотправки его не шлёт
+#: (`_sendable`). Словами — что сделать. Без человека оно не уйдёт, и проход только из таких писем
+#: стоит не по делу (`autosend._stalled`): тревога одна на случай (`autosend_alarm.Watch`).
+TEMPLATED = (
+    "осталось шаблоном — модель отказала: перепишите («Переписать шаблонные») или поправьте руками"
+)
+#: Этапы, у чьих писем отличие от шаблона меряет сборка этой почты (`building.py`): у продаж свой
+#: коридор и своя автоотправка (`sales/autosend.py`), их письма проход не судит.
+_MEASURED = frozenset({Stage.DONORS, Stage.ADVERTISERS})
 
 #: Отказ — словами, одинаковыми для похожих: текст отказа называет адрес
 #: или донора, и по нему итог развалился бы на строку на каждое письмо.
@@ -198,13 +216,16 @@ async def send_queue(
 
     `automatic` — очередь отправляется сама (`autosend.py`): остановка на лимите говорит, что
     остальное уйдёт само. `paced` — проход автоотправки: только письма в окне получателя, по
-    порядку очереди, и с ящика — письмо за проход (`Paced`). Адрес письма, собранного до
-    проверки адресов, спрашивается перед ним (`address_gate.queued_refusal`)."""
+    порядку очереди, и с ящика — письмо за проход (`Paced`); письмо, оставшееся шаблоном, проход
+    не шлёт (`_sendable`). Адрес письма, собранного до проверки адресов, спрашивается перед ним
+    (`address_gate.queued_refusal`)."""
     repository = LetterRepository(session)
     queued = await repository.queued(stage=stage, audience=audience, limit=limit)
-    ids = [row.message.id for row in queued if paced is None or row.message.id in paced.only]
-    sending = Sending(session, transports)
     report = BatchReport()
+    ids = [row.message.id for row in queued if paced is None or row.message.id in paced.only]
+    # Шаблонное письмо проход автоотправки не шлёт; кнопка — шлёт: решает человек (`_sendable`).
+    ids = await _sendable(session, stage, ids, report, paced)
+    sending = Sending(session, transports)
     async with address_gate.checker_of(session, stage) as checker:
         for letter_id in ids:
             sent = report.sent
@@ -236,6 +257,30 @@ async def send_queue(
         report.left,
     )
     return report
+
+
+async def _sendable(
+    session: AsyncSession,
+    stage: Stage,
+    ids: list[int],
+    report: BatchReport,
+    paced: Paced | None,
+) -> list[int]:
+    """Письма, которые пачка возьмёт. У прохода автоотправки — без оставшихся шаблоном
+    (`repository.left_as_template`): они — в отказы словами (`TEMPLATED`). Кнопка берёт все,
+    продажи проход не судит (`_MEASURED`)."""
+    if paced is None or stage not in _MEASURED or not ids:
+        return ids
+    templated = set(
+        await session.scalars(
+            select(MessageModel.id).where(MessageModel.id.in_(ids), left_as_template())
+        )
+    )
+    if templated:
+        # Счёт — в итоге прохода и в строке журнала пачки («не ушло»): проход идёт раз в минуту,
+        # и своя строка на каждый повторяла бы одно и то же.
+        report.refused[TEMPLATED] += len(templated)
+    return [letter_id for letter_id in ids if letter_id not in templated]
 
 
 async def _send_one(

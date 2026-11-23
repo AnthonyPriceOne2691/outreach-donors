@@ -27,16 +27,10 @@ from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.crawl.niche import LINKS, NICHE
-from backend.features.letters import autosend
 from backend.features.letters.building import BuildReport, BuildRequest, QueueBuilder
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.rewrite import RewriteClient
-from backend.features.letters.rewrite_queue import (
-    SENDING_ITSELF,
-    QueueRewriter,
-    RewriteReport,
-    RewriteRequest,
-)
+from backend.features.letters.rewrite_queue import QueueRewriter, RewriteReport, RewriteRequest
 from backend.features.letters.sending import SendError, Sending
 from backend.features.letters.transport import MaybeSentError
 from backend.features.letters.transport_factory import Transports, in_use
@@ -215,17 +209,15 @@ async def cmd_letters_send(args: argparse.Namespace) -> int:
 
 async def cmd_letters_rewrite(args: argparse.Namespace) -> int:
     """Переписать письма очереди, оставшиеся шаблоном из-за отказа модели, — тем же путём, что
-    сборка (`letters/rewrite_queue.py`). Ничего не отправляет. Очередь уходит сама — отказ, как
-    у кнопки: шаблонные письма уходили бы раньше, чем их перепишет модель."""
-    stage = Stage(args.stage)
+    сборка (`letters/rewrite_queue.py`). Ничего не отправляет. Очередь, которая уходит сама, не
+    мешает: шаблонное письмо её проход не шлёт (`batch._sendable`)."""
     rewriter = RewriteClient()
     try:
         async with _sessions() as factory, factory() as session:
-            if await autosend.running(session, stage, args.audience) is not None:
-                print(f"Не переписано: {SENDING_ITSELF}.")
-                return EXIT_NOT_SENT
             report = await QueueRewriter(session, rewriter).rewrite(
-                RewriteRequest(stage=stage, audience=args.audience, country=args.country)
+                RewriteRequest(
+                    stage=Stage(args.stage), audience=args.audience, country=args.country
+                )
             )
             await session.commit()
     finally:
