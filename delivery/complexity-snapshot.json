@@ -2072,9 +2072,9 @@
       "worst": "_shop_marks:302"
     },
     "backend/features/donors/host.py": {
-      "lines": 112,
+      "lines": 120,
       "complexity": 9,
-      "worst": "normalize_host:52"
+      "worst": "normalize_host:60"
     },
     "backend/features/donors/judging.py": {
       "lines": 493,
