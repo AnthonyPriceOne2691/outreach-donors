@@ -84,6 +84,7 @@ import { mailTile } from './mailTile';
 import { uniquenessText } from './letterText';
 import { QueueHead } from './QueueHead';
 import { QueueAutosendLine } from './QueueAutosend';
+import { RewriteTemplated } from './RewriteTemplated';
 import { SendQueue } from './SendQueue';
 import type { LetterTarget } from './targets';
 import {
@@ -395,6 +396,17 @@ function LettersScreen({ part }: { part: LetterStage | null }) {
           corridor={data.corridor}
           send={
             <Stack gap={6}>
+              {/* Письма, оставшиеся шаблоном из-за отказа модели, — переписать до отправки. */}
+              {can('send') && !stale ? (
+                <RewriteTemplated
+                  key={target}
+                  stage={stage}
+                  audience={audienceOf(target)}
+                  count={data.templated ?? 0}
+                  sending={data.autosend?.running === true}
+                  onFinished={() => void refresh()}
+                />
+              ) : null}
               {can('send') && !stale ? (
                 <SendQueue
                   stage={stage}
