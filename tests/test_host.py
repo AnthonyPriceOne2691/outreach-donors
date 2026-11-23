@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 from backend.features.donors.host import normalize_host
 
@@ -69,3 +74,27 @@ def test_subdomain_and_root_collapse_to_one_key() -> None:
     """Главное свойство: один сайт — один ключ, значит одна оплата Ahrefs."""
     variants = ["example.com", "www.example.com", "blog.example.com", "https://m.example.com/x"]
     assert len({normalize_host(v) for v in variants}) == 1
+
+
+def test_the_suffix_list_writes_nothing_to_disk(tmp_path: Path) -> None:
+    """Корень контейнера только для чтения (23.11.2026): разбор хоста ничего не пишет в домашний
+    каталог. С кэшем tldextract клал бы снимок в `~/.cache`, а на корне только для чтения каждый
+    процесс писал бы в журнал ложное «список будет скачиваться по HTTP». Отдельным процессом:
+    каталог кэша tldextract вычисляет из `HOME` при импорте."""
+    env = {k: v for k, v in os.environ.items() if k not in {"XDG_CACHE_HOME", "TLDEXTRACT_CACHE"}}
+    env["HOME"] = str(tmp_path)
+    code = "from backend.features.donors.host import normalize_host as n; print(n('www.a.example.co.uk'))"
+
+    done = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parent.parent,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == "example.co.uk"
+    assert sorted(tmp_path.rglob("*")) == []

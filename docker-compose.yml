@@ -75,9 +75,35 @@ x-backend-env: &backend-env
 x-no-new-privileges: &no-new-privileges
   - no-new-privileges:true
 
+# **Корень контейнера — только для чтения (аудит 23.11.2026).** Код, библиотеки и настройки
+# лежат в образе, и сервису незачем их менять. Чужой код, исполненный в контейнере, не
+# допишет бинарь, не подменит модуль питона или конфиг nginx: записать на корень нельзя
+# даже root'у (снять запрет — перемонтировать, а этого права ядра у контейнера нет).
+# Пишут сервисы только туда, без чего не встают или не работают, — места найдены запуском
+# образов с `--read-only` и `docker diff` под работой (23.11.2026), у каждого свои ниже:
+#   • тома данных — база (`pgdata`) и очередь (`redisdata`);
+#   • `tmpfs` — временное, в памяти, с потолком `size`. Потолок — не резерв: память берётся
+#     по мере записи и считается в `mem_limit` контейнера (`docker-compose.prod.yml`).
+#     Забитый tmpfs — отказ записи «нет места» в журнале, а не убийство процесса по
+#     памяти. `noexec,nosuid,nodev` — запуск из него не работает: брошенный туда бинарь
+#     не исполнится, setuid-файл прав не даст.
+# Содержимое tmpfs живёт до пересоздания контейнера. Места, пути и потолки сверяет
+# `tests/test_deploy_hardening.py`: новый сервис без `read_only` CI не пропустит.
+x-read-only: &read-only true
+
 x-backend-hardening: &backend-hardening
   security_opt: *no-new-privileges
   cap_drop: [ALL]
+  read_only: *read-only
+  # /tmp образа сервера. Без него reaper и followups падают на старте, а проверка здоровья
+  # любого воркера и обходчика — на импорте: `tempfile.gettempdir()` (`workers/ticker.py`)
+  # не находит каталога, куда можно писать. Пишут сюда: отметки о жизни циклов (байты),
+  # загрузки с экрана больше 1 МБ (Starlette держит их во временном файле) и копия
+  # загруженного CSV продаж (`features/sales/upload.py`). Тело запроса nginx пускает до
+  # 8 МБ — с копией до 16 МБ на загрузку; 64 МБ — четыре такие разом. У reaper и followups
+  # лимит памяти 256 МБ, у остальных больше: потолок помещается в каждый с запасом.
+  tmpfs:
+    - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
   networks: [default, data]
 
 services:
@@ -92,6 +118,14 @@ services:
     # (CHOWN, DAC_OVERRIDE, FOWNER) и переходит на пользователя postgres (SETUID, SETGID).
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    read_only: *read-only
+    # Каталог сокета: сокет и его замок — десятки байт, без них сервер не стартует («could not
+    # create lock file … Read-only file system»). Владельца и права ставит скрипт входа
+    # (chown postgres, 3775). Остальное база пишет в свой том — и первую настройку, и
+    # временные файлы сортировок; дамп и восстановление идут через stdin и stdout
+    # (`scripts/backup.sh`, `scripts/restore.sh`). Проверено 23.11.2026.
+    tmpfs:
+      - /var/run/postgresql:size=1m,noexec,nosuid,nodev
     networks: [data]
     environment:
       POSTGRES_USER: outreach
@@ -113,6 +147,8 @@ services:
     # (SETUID, SETGID).
     cap_drop: [ALL]
     cap_add: [CHOWN, SETGID, SETUID]
+    # Пишет только снимок `dump.rdb` в свой том — tmpfs не нужен (проверено 23.11.2026).
+    read_only: *read-only
     networks: [data]
     volumes:
       - redisdata:/data
@@ -425,6 +461,19 @@ services:
     security_opt: *no-new-privileges
     cap_drop: [ALL]
     cap_add: [CHOWN, NET_BIND_SERVICE, SETGID, SETUID]
+    read_only: *read-only
+    # Временные файлы nginx (`/var/cache/nginx`): тела запросов больше буфера в памяти —
+    # у ответа донора с вложениями до 30 МБ, у остального до 8 МБ (`client_max_body_size`
+    # в deploy/nginx.conf), и ответы api, не влезшие в буферы, — до 16 МБ на ответ
+    # (`proxy_max_temp_file_size` там же; дальше nginx ждёт, пока клиент заберёт, а не
+    # пишет). 128 МБ — два предельных тела и четыре ответа у потолка разом; сам nginx
+    # занимает около 10 МБ из лимита 256 МБ (`docker stats`, 23.11.2026). `/run` — pid
+    # мастера (`/run/nginx.pid`), байты. Скрипт образа `10-listen-on-ipv6-by-default.sh`
+    # трогал наш `conf.d/default.conf` (содержимое не менял: файл не пакетный) — теперь
+    # пишет «can not modify» и выходит, итог тот же.
+    tmpfs:
+      - /var/cache/nginx:size=128m,noexec,nosuid,nodev
+      - /run:size=1m,noexec,nosuid,nodev
     # Здоров — значит отдаёт и страницу, и API через себя. Проверка одной
     # страницы не видела бы главного отказа этого контейнера: 502 на API
     # при устаревшем адресе сервера (см. resolver в deploy/nginx.conf).

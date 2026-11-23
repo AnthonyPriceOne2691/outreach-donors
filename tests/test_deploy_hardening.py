@@ -11,7 +11,9 @@
 - ответы API ложились в кэш браузера, и сервис не просил поисковики его не индексировать;
 - токен CI получал права репозитория по умолчанию;
 - контейнеры держали права ядра по умолчанию, база и очередь жили в сети с выходом наружу,
-  а образы шли по тегу, который издатель передвигает (аудит 20.11.2026).
+  а образы шли по тегу, который издатель передвигает (аудит 20.11.2026);
+- корень контейнеров был открыт на запись: исполненный в контейнере чужой код дописывал бы
+  бинарь и подменял код до пересоздания (аудит 23.11.2026).
 """
 
 from __future__ import annotations
@@ -191,11 +193,114 @@ def test_the_database_and_the_queue_live_in_the_internal_network_only() -> None:
 
 
 def test_the_prod_overlay_does_not_loosen_the_containers() -> None:
-    """Боевой файл накладывается сверху: сети и права в нём перекрыли бы основной."""
+    """Боевой файл накладывается сверху: сети, права и места записи в нём перекрыли бы основной."""
     prod = PROD.read_text(encoding="utf-8")
 
-    keys = r"networks|network_mode|security_opt|cap_add|cap_drop|privileged|image"
+    keys = (
+        r"networks|network_mode|security_opt|cap_add|cap_drop|privileged|image"
+        r"|read_only|tmpfs|volumes"
+    )
     assert re.findall(rf"^\s*({keys})\s*:", prod, re.M) == []
+
+
+#: Куда пишут сервисы при корне только для чтения (аудит 23.11.2026): места найдены запуском
+#: образов с `--read-only` и `docker diff` под работой. Новое место — решение с проверкой,
+#: как право ядра выше, а не строка, дописанная, «чтобы завелось». У сервисов из образа
+#: сервера — свой /tmp (якорь `x-backend-hardening`).
+TMPFS = {"postgres": {"/var/run/postgresql"}, "redis": set(), "web": {"/var/cache/nginx", "/run"}}
+BACKEND_TMPFS = {"/tmp"}
+#: Тома — только данные базы и очереди: каталог, примонтированный с хоста, открыл бы запись
+#: в обход `read_only` — в том числе в код.
+VOLUMES = {"postgres": ["pgdata:/var/lib/postgresql/data"], "redis": ["redisdata:/data"]}
+#: Без них tmpfs — место, откуда брошенный бинарь исполняется, а setuid-файл даёт права.
+TMPFS_FLAGS = {"noexec", "nosuid", "nodev"}
+_UNITS = {"k": 1 << 10, "m": 1 << 20, "g": 1 << 30}
+
+
+def _tmpfs(service: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """`путь:опция,опция=значение` из компоуза → {путь: {опция: значение}}."""
+    entries = service.get("tmpfs") or []
+    places = {}
+    for entry in [entries] if isinstance(entries, str) else entries:
+        path, _, options = str(entry).partition(":")
+        pairs = (option.partition("=") for option in options.split(","))
+        places[path] = {key: value for key, _, value in pairs}
+    return places
+
+
+def _bytes(size: str) -> int:
+    found = re.fullmatch(r"(\d+)([kmg])", size.lower())
+    assert found is not None, f"размер «{size}» — не число с k, m или g"
+    return int(found.group(1)) * _UNITS[found.group(2)]
+
+
+def _prod_memory() -> dict[str, int]:
+    """`mem_limit` сервисов из боевого файла; тег `!override` читается как обычное значение.
+    Свой загрузчик — наследник безопасного: общий `SafeLoader` остаётся без тега."""
+    loader: Any = type("ComposeLoader", (yaml.SafeLoader,), {})
+
+    def _plain(own: Any, node: Any) -> Any:
+        if isinstance(node, yaml.SequenceNode):
+            return own.construct_sequence(node)
+        if isinstance(node, yaml.MappingNode):
+            return own.construct_mapping(node)
+        return own.construct_scalar(node)
+
+    loader.add_constructor("!override", _plain)
+    prod = yaml.load(PROD.read_text(encoding="utf-8"), Loader=loader)
+    return {name: _bytes(str(spec["mem_limit"])) for name, spec in prod["services"].items()}
+
+
+def test_every_container_root_is_read_only() -> None:
+    """Код и настройки — в образе; записать на корень нельзя никому, писать — только в тома
+    данных и tmpfs. Новый сервис без `read_only` здесь падает, а не уезжает открытым."""
+    services = _compose()["services"]
+    writable = [name for name, spec in services.items() if spec.get("read_only") is not True]
+    mounted = {name: spec["volumes"] for name, spec in services.items() if "volumes" in spec}
+
+    assert writable == [], f"корень открыт на запись: {writable}"
+    assert mounted == VOLUMES
+
+
+def test_writable_places_are_bounded_tmpfs() -> None:
+    """У каждого tmpfs — потолок (без него tmpfs растёт до половины памяти машины) и запрет
+    исполнять; набор мест — ровно найденный запуском."""
+    services = _compose()["services"]
+    expected = dict.fromkeys(_backend(), BACKEND_TMPFS) | TMPFS
+
+    assert {name: set(_tmpfs(service)) for name, service in services.items()} == expected
+    for name, service in services.items():
+        for path, options in _tmpfs(service).items():
+            missing = sorted(TMPFS_FLAGS - set(options))
+            assert _bytes(options.get("size", "")) > 0, f"{name} {path}: нет потолка"
+            assert missing == [], f"{name} {path}: нет {missing}"
+
+
+def test_tmpfs_fits_into_the_memory_limit() -> None:
+    """tmpfs берёт память контейнера: потолки вместе меньше его `mem_limit` в бою, иначе забитый
+    tmpfs кончался бы убийством процесса по памяти, а не отказом записи «нет места»."""
+    memory = _prod_memory()
+
+    for name, service in _compose()["services"].items():
+        assert name in memory, f"{name}: нет mem_limit в боевом файле — tmpfs не с чем сверить"
+        total = sum(_bytes(options.get("size", "")) for options in _tmpfs(service).values())
+        assert total < memory[name], f"{name}: tmpfs {total} при лимите {memory[name]}"
+
+
+def test_nginx_temp_files_fit_into_its_tmpfs() -> None:
+    """Временные файлы nginx — в tmpfs с потолком (`/var/cache/nginx`): тело запроса ложится
+    туда не больше `client_max_body_size`, ответ api — не больше `proxy_max_temp_file_size`
+    (дальше nginx ждёт клиента, а не пишет). Счёт потолка из компоуза — два предельных тела
+    и четыре ответа у потолка разом; поднятый потолок тела или ответа без него здесь падает."""
+    conf = _code(NGINX.read_text(encoding="utf-8"))
+    server, places = conf.split("location", 1)
+    response = re.findall(r"^\s*proxy_max_temp_file_size\s+(\w+);", server, re.M)
+    body = max(_bytes(size) for size in re.findall(r"client_max_body_size\s+(\w+);", conf))
+    cache = _bytes(_tmpfs(_compose()["services"]["web"])["/var/cache/nginx"]["size"])
+
+    assert len(response) == 1, "потолок буфера ответа — один, на весь сервер"
+    assert "proxy_max_temp_file_size" not in places, "место перекрыло бы общий потолок"
+    assert 2 * body + 4 * _bytes(response[0]) <= cache
 
 
 def test_external_images_are_pinned_by_digest() -> None:
@@ -217,10 +322,13 @@ def test_external_images_are_pinned_by_digest() -> None:
 
 def test_ci_runs_the_backend_image_with_the_services_restrictions() -> None:
     """Миграции и проверка роли в CI — с правами сервисов компоуза: CI доказывает, что образ
-    живёт без прав ядра и без новых привилегий, а не только компоуз их называет."""
+    живёт без прав ядра, без новых привилегий и на корне только для чтения, а не только
+    компоуз их называет."""
     migrate = _compose()["services"]["migrate"]
     flags = [f"--cap-drop {cap}" for cap in migrate["cap_drop"]]
     flags += [f"--security-opt {option}" for option in migrate["security_opt"]]
+    flags += ["--read-only"] if migrate["read_only"] else []
+    flags += [f"--tmpfs {entry}" for entry in migrate["tmpfs"]]
     ci = yaml.safe_load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
     step = next(
         step
