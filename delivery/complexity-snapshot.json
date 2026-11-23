@@ -3707,7 +3707,7 @@
       "worst": "put_due:352"
     },
     "backend/features/sales/segment_judge.py": {
-      "lines": 319,
+      "lines": 323,
       "complexity": 10,
       "worst": "_verdict:216"
     },
@@ -3722,9 +3722,9 @@
       "worst": "clean_keywords:72"
     },
     "backend/features/sales/segment_language.py": {
-      "lines": 475,
+      "lines": 488,
       "complexity": 10,
-      "worst": "switches_to:433"
+      "worst": "switches_to:446"
     },
     "backend/features/sales/segment_launch.py": {
       "lines": 137,

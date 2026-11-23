@@ -80,6 +80,8 @@ ISO 639-1 и дословная цитата строки сайта на нём
 ею не пишет — ложное «да» дало бы письмо не на том языке. Версия на языке писем (переключатель,
 страница выдачи) снимает несовпадение раньше, буквами. Язык писем лиду — по-прежнему из письменности
 (`then`): повтор по сохранённому тексту модели не видит, и слова вердикта называют его, когда он другой.
+Названный язык в `enforce` сайт отсекает, а у отсечённого «Принять» нет — его слова «…; примете — …»
+не обещают (`without_accept`, `segment_judge.effective`); в наблюдении «судья отказал бы» их держит.
 """
 
 from __future__ import annotations
@@ -201,6 +203,11 @@ def _script(word: str) -> str | None:
     return found.most_common(1)[0][0] if found else None
 
 
+#: Слова о языке писем лиду после «Принять» (`Mismatch.then`) — хвостом слов вердикта. Они для
+#: сайта, который ждёт человека: у отсечённого в `enforce` «Принять» нет (`without_accept`).
+ACCEPT_WORDS = "; примете — "
+
+
 @dataclass(frozen=True, slots=True)
 class Mismatch:
     """Сайт уверенно не на языке писем: на каком он (код, если язык назван буквами) — словами, и
@@ -232,7 +239,13 @@ class Mismatch:
         said = self.said if self.code else f"не понять по буквам ({self.said})"
         said = f"{self.said} (назвала модель)" if self.by_model else said
         found = f"язык сайта — {said}, письма — {self.letters}"
-        return f"{found}; примете — {BY_CODE[self.then].name}" if self.then else found
+        return f"{found}{ACCEPT_WORDS}{BY_CODE[self.then].name}" if self.then else found
+
+
+def without_accept(words: str) -> str:
+    """Слова вердикта языка без хвоста «; примете — …» (`ACCEPT_WORDS`): сайт, отсечённый в
+    `enforce`, не принять — язык писем после «Принять» ему не обещают."""
+    return words.split(ACCEPT_WORDS, 1)[0]
 
 
 def _foreign(word: str, language: Language) -> bool:
