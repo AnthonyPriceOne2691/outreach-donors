@@ -22,6 +22,7 @@ from backend.features.crawl.frontier import same_site_links
 from backend.features.crawl.health import CrawlHealth
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.progress import Checkpoint
+from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.sitemap import SitemapScan
 from backend.features.crawl.sources import Sources, start_frontier
 from backend.features.crawl.walk import DonorCrawler
@@ -95,7 +96,7 @@ class Site:
         return [asked for asked in self.asked if asked.startswith(INSIDE)]
 
 
-async def crawl(site: Site) -> object:
+async def crawl(site: Site) -> CrawlReport:
     async with site.client() as client:
         crawler = DonorCrawler(client, limiter=DomainLimiter(delay_sec=0.0, max_delay_sec=0.0))
         try:
