@@ -1,6 +1,6 @@
 """Модели. Импортируются здесь все — иначе Alembic не увидит часть таблиц."""
 
-from backend.features.core.models.access import AuditLogModel, UserModel
+from backend.features.core.models.access import AuditLogModel, RecoveryCodeModel, UserModel
 from backend.features.core.models.advertiser import (
     AdvertiserJudgementModel,
     AutoRoundModel,
@@ -113,6 +113,7 @@ __all__ = [
     "OutLinkModel",
     "OutgoingAttachmentModel",
     "QueueAutosendModel",
+    "RecoveryCodeModel",
     "ReplyAttachmentModel",
     "ReplyModel",
     "RunCandidateModel",

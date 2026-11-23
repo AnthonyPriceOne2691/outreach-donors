@@ -42,6 +42,15 @@ class _Access(DomainSettings):
     lockout_max_minutes: int = Field(
         default=30, ge=1, validation_alias="ACCESS_LOCKOUT_MAX_MINUTES"
     )
+    # Вход с кодом из приложения (`access/second_step.py`, 23.11.2026). Ключ шифрования секретов
+    # кода в базе — Fernet, 32 байта в base64 (`openssl rand -base64 32`). Умолчания нет, как у
+    # секрета подписи: без ключа код включить нельзя, а с обязательными ролями сервис не стартует.
+    totp_key: str = Field(default="", validation_alias="AUTH_TOTP_KEY")
+    # Роли, которым вход с кодом обязателен, через запятую: «admin» или «admin,operator». Пусто —
+    # не обязателен никому, а включить себе может любая учётка.
+    totp_required_roles: str = Field(default="", validation_alias="AUTH_TOTP_REQUIRED_ROLES")
+    # Издатель в приложении-аутентификаторе — подпись над кодом. Имя сервиса, не домен.
+    totp_issuer: str = Field(default="Parsing and Prices", validation_alias="AUTH_TOTP_ISSUER")
 
 
 _s = _Access()
@@ -59,3 +68,16 @@ ONE_TIME_TTL_HOURS: int = _s.one_time_ttl_hours
 LOCKOUT_AFTER_FAILURES: int = _s.lockout_after_failures
 LOCKOUT_FIRST_MINUTES: int = _s.lockout_first_minutes
 LOCKOUT_MAX_MINUTES: int = _s.lockout_max_minutes
+
+
+def role_names(raw: str) -> frozenset[str]:
+    """Роли через запятую → имена строчными и без пробелов; пустые части — мимо. Какие роли
+    есть, конфиг не знает (он лист): незнакомое имя называет проверка на старте API
+    (`access/second_step.check_required_roles`)."""
+    return frozenset(part.strip().lower() for part in raw.split(",") if part.strip())
+
+
+TOTP_KEY: str = _s.totp_key
+#: Роли с обязательным входом по коду — значения ролей строками (`role_names`).
+TOTP_REQUIRED_ROLES: frozenset[str] = role_names(_s.totp_required_roles)
+TOTP_ISSUER: str = _s.totp_issuer
