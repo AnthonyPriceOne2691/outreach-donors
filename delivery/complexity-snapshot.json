@@ -2702,9 +2702,9 @@
       "worst": "thread_ids:120"
     },
     "backend/features/replies/by_sender.py": {
-      "lines": 151,
+      "lines": 152,
       "complexity": 7,
-      "worst": "bind:85"
+      "worst": "bind:86"
     },
     "backend/features/replies/calibration.py": {
       "lines": 164,
