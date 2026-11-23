@@ -3597,9 +3597,9 @@
       "worst": "_views:321"
     },
     "backend/features/sales/plan_tick.py": {
-      "lines": 361,
+      "lines": 368,
       "complexity": 7,
-      "worst": "_turn:292"
+      "worst": "_turn:298"
     },
     "backend/features/sales/plan_waves.py": {
       "lines": 205,
