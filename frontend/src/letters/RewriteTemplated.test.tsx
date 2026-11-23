@@ -3,8 +3,8 @@
  *
  * Проверяется то, ради чего кнопка: её нет, пока таких писем нет; число на ней — число сервера;
  * переписывание уходит только после подтверждения, где сказано, сколько писем и что это вызовы
- * модели; на сервер уходят этап и аудитория; итог задачи — словами; пока очередь уходит сама,
- * кнопка не нажимается и говорит почему; без права на отправку её нет.
+ * модели; на сервер уходят этап и аудитория; итог задачи — словами; очередь, которая уходит
+ * сама, кнопке не мешает (её проход шаблонные не шлёт); без права на отправку её нет.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -15,7 +15,7 @@ import { AppRoutes } from '../App';
 import { ADMIN, NO_STUCK_LETTERS, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
-import { SENDING_WHY, confirmText, rewriteLine } from './RewriteTemplated';
+import { confirmText, rewriteLine } from './RewriteTemplated';
 
 const TEMPLATED = {
   id: 1,
@@ -147,19 +147,29 @@ describe('переписать шаблонные письма', () => {
     expect(screen.queryByRole('button', { name: /Переписать шаблонные/ })).toBeNull();
   });
 
-  it('очередь уходит сама — кнопка не нажимается и говорит почему', async () => {
-    open(
+  it('очередь уходит сама — кнопка нажимается: шаблонные проход не шлёт', async () => {
+    const recorded = open(
       { autosend: RUNNING },
       {
         'GET /api/letters/forecast?stage=donors&days=31&back=0': {
           body: { queue_eta: { day: null, sending_days: null, hours: null, words: '' } },
         },
+        'POST /api/letters/rewrite': { body: { job_id: JOB, letters: 2 } },
+        [`GET /api/jobs/${JOB}`]: { body: DONE },
       },
     );
+    const user = userEvent.setup();
 
     const button = await screen.findByRole('button', { name: 'Переписать шаблонные · 2' });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAccessibleDescription(SENDING_WHY);
+    expect(button).toBeEnabled();
+    await user.click(button);
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Переписать' }),
+    );
+
+    await waitFor(() =>
+      expect(recorded.calls.some((call) => call.path === '/api/letters/rewrite')).toBe(true),
+    );
   });
 
   it('без права на отправку кнопки нет', async () => {

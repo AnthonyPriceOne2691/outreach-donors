@@ -9,12 +9,11 @@
  * **Видна, только когда такие письма есть** — число называет сервер (`templated`). Нажатие
  * спрашивает подтверждения маленьким окном у кнопки (`ConfirmPopover`): что сделает, сколько
  * писем и что это вызовы модели. Ход и итог — строкой задачи под кнопкой, как у сборки; номер
- * задачи переживает перезагрузку. Пока очередь уходит сама, кнопка не нажимается и говорит
- * почему — строкой под собой: шаблонные письма ушли бы раньше, чем их перепишет модель.
+ * задачи переживает перезагрузку. Очередь, которая уходит сама, кнопке не мешает: шаблонное
+ * письмо её проход не шлёт (сервер: `batch._sendable`), а переписанное уходит дальше само.
  */
 
-import { Button, Group, Stack, Text } from '@mantine/core';
-import { useId } from 'react';
+import { Button, Group, Stack } from '@mantine/core';
 
 import { rewriteTemplated } from '../api/letters';
 import type { LetterAudience } from '../api/letters';
@@ -23,11 +22,6 @@ import { ConfirmPopover } from '../components/ConfirmPopover';
 import { formatNumber, plural } from '../format';
 import { JobLine } from '../jobs/JobLine';
 import { useStartedJob } from '../jobs/startedJob';
-
-/** Почему кнопка не нажимается, пока очередь уходит сама. */
-export const SENDING_WHY =
-  'Не нажимается, пока очередь уходит сама: шаблонные письма ушли бы раньше, чем их перепишет ' +
-  'модель. Остановите отправку очереди — и переписывайте.';
 
 /** «N писем» — числом и словом. */
 function lettersOf(count: number): string {
@@ -64,15 +58,12 @@ interface Props {
   audience?: LetterAudience;
   /** Сколько писем очереди оставлено шаблоном — число сервера (`templated`). */
   count: number;
-  /** Очередь уходит сама: кнопка не нажимается (`SENDING_WHY`). */
-  sending: boolean;
   onFinished: () => void;
 }
 
 /** Кнопка одной вкладки: номер задачи помнится под этапом и аудиторией — на смене вкладки
  *  экран ставит кнопку заново (`key`), и она читает номер своей вкладки. */
-export function RewriteTemplated({ stage, audience = 'links', count, sending, onFinished }: Props) {
-  const reasonId = useId();
+export function RewriteTemplated({ stage, audience = 'links', count, onFinished }: Props) {
   const { jobId, start } = useStartedJob(() => rewriteTemplated(stage, audience), {
     remember: `letters:last-rewrite:${stage}:${audience}`,
     queued: 'Переписывание ушло в очередь задач: каждое письмо — вызов модели, это минуты',
@@ -92,24 +83,12 @@ export function RewriteTemplated({ stage, audience = 'links', count, sending, on
         >
           {(ask) => (
             <Group>
-              <Button
-                variant="light"
-                className="press"
-                disabled={sending}
-                loading={start.isPending}
-                aria-describedby={sending ? reasonId : undefined}
-                onClick={ask}
-              >
+              <Button variant="light" className="press" loading={start.isPending} onClick={ask}>
                 Переписать шаблонные · {formatNumber(count)}
               </Button>
             </Group>
           )}
         </ConfirmPopover>
-      ) : null}
-      {count > 0 && sending ? (
-        <Text id={reasonId} size="sm" c="dimmed">
-          {SENDING_WHY}
-        </Text>
       ) : null}
       {jobId !== null ? (
         <JobLine

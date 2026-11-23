@@ -403,7 +403,6 @@ function LettersScreen({ part }: { part: LetterStage | null }) {
                   stage={stage}
                   audience={audienceOf(target)}
                   count={data.templated ?? 0}
-                  sending={data.autosend?.running === true}
                   onFinished={() => void refresh()}
                 />
               ) : null}

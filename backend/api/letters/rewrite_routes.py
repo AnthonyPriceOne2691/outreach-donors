@@ -5,8 +5,9 @@
 адресату. Задача одна на этап и аудиторию за раз (`once.py`); нажатие — строкой журнала с тем,
 кто нажал, как у сборки.
 
-**Пока очередь уходит сама — отказ словами** (`letters/autosend.py`): шаблонные письма уходили
-бы раньше, чем до них дойдёт модель, — а ради них очередь и останавливают.
+**Очередь, которая уходит сама, переписыванию не мешает**: проход автоотправки шаблонное письмо
+не шлёт (`batch._sendable`), а переписанное уходит дальше само. Тревога «очередь стоит» по
+шаблонным письмам советует именно переписать — останавливать очередь ради этого не нужно.
 """
 
 from __future__ import annotations
@@ -26,10 +27,8 @@ from backend.features.access.permissions import require_stage
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
-from backend.features.letters import autosend
 from backend.features.letters.rewrite_queue import (
     NOTHING,
-    SENDING_ITSELF,
     TAKE_MAX,
     rewritable_stage,
     templated_count,
@@ -75,8 +74,6 @@ async def rewrite(
     found = await templated_count(session, stage, body.audience)
     if found == 0:
         raise HTTPException(status.HTTP_409_CONFLICT, NOTHING)
-    if await autosend.running(session, stage, body.audience) is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, SENDING_ITSELF)
     # Клиент Redis синхронный — постановка в потоке, как у сборки (`routes._enqueue_once`).
     job = await asyncio.to_thread(
         once.enqueue_once,
