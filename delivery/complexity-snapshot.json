@@ -1107,9 +1107,9 @@
       "worst": "has_permission:203"
     },
     "backend/features/access/recovery_codes.py": {
-      "lines": 105,
+      "lines": 109,
       "complexity": 3,
-      "worst": "_fresh:39"
+      "worst": "_fresh:43"
     },
     "backend/features/access/repository.py": {
       "lines": 296,
@@ -2562,24 +2562,24 @@
       "worst": "—"
     },
     "backend/features/ops/access_event_words.py": {
-      "lines": 215,
+      "lines": 278,
       "complexity": 7,
-      "worst": "_listed:135"
+      "worst": "_listed:197"
     },
     "backend/features/ops/access_events.py": {
-      "lines": 244,
+      "lines": 329,
       "complexity": 7,
-      "worst": "applied:189"
+      "worst": "_events:205"
     },
     "backend/features/ops/access_mark.py": {
-      "lines": 210,
+      "lines": 212,
       "complexity": 8,
-      "worst": "tell:72"
+      "worst": "tell:74"
     },
     "backend/features/ops/access_watch.py": {
-      "lines": 154,
+      "lines": 158,
       "complexity": 6,
-      "worst": "burst:103"
+      "worst": "burst:107"
     },
     "backend/features/ops/alarm_feed.py": {
       "lines": 454,
@@ -2600,6 +2600,11 @@
       "lines": 72,
       "complexity": 2,
       "worst": "ahrefs_cap:26"
+    },
+    "backend/features/ops/code_event_words.py": {
+      "lines": 150,
+      "complexity": 4,
+      "worst": "advice:124"
     },
     "backend/features/ops/crawl_watch.py": {
       "lines": 184,

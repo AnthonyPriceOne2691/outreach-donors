@@ -30,6 +30,10 @@ from backend.features.core.models.access import RecoveryCodeModel
 
 COUNT = 10
 LENGTH = 16
+#: Ключ подробностей записи журнала «вход кодом восстановления» — сколько кодов осталось. Пишет
+#: вход (`code_login.finish_with_code`), читает сторож входов и прав (`ops/access_events.py`,
+#: 23.11.2026): одно имя на обе стороны, иначе сторож молча потерял бы счёт.
+LEFT = "осталось кодов"
 GROUP = 4
 ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"  # pragma: allowlist secret — алфавит, не секрет
 #: Похожие знаки — к своим: так их читают с бумаги.

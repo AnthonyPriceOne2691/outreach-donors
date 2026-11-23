@@ -18,6 +18,11 @@
 админов меняют только в разделе «Учётки», и сторож не знает, вы ли это были. Пометка говорит,
 что сделать, если не вы.
 
+**Вход с кодом** (23.11.2026, слова — `code_event_words.py`): выключение, сброс и вход кодом
+восстановления — своим сообщением на пометку, между новыми админами и общим; включение — строкой
+общего сообщения, без повода, пока в нём нет правок доступа. Правкой доступа его там не зовут:
+заголовок общего сообщения с включением — «…; включён вход с кодом — N».
+
 Пароли и набранное при входе сюда не попадают: событие доступа их не несёт.
 """
 
@@ -29,8 +34,9 @@ from datetime import datetime
 from typing import Any
 
 from backend.features.access.permissions import PERMISSION_TITLES
-from backend.features.core.domain import Permission, UserRole
-from backend.features.ops.access_events import Access, Event
+from backend.features.core.domain import AuditAction, Permission, UserRole
+from backend.features.ops import code_event_words as code_words
+from backend.features.ops.access_events import Access, CodeEvent, Event, Happened
 from backend.features.ops.alarm_words import clock
 from backend.features.ops.alarms import ROOM, Concern, cause
 
@@ -75,23 +81,47 @@ class Notice:
 
     text: str
     concern: Concern
-    events: tuple[Event, ...]
+    events: tuple[Happened, ...]
 
 
-def notices(events: Sequence[Event], at: datetime) -> list[Notice]:
-    """Сообщения прохода: новые админы — первым и своим, остальные события — вторым."""
-    admins = tuple(event for event in events if event.raised)
-    others = tuple(event for event in events if not event.raised)
+def notices(events: Sequence[Happened], at: datetime) -> list[Notice]:
+    """Сообщения прохода: новые админы — первым и своим; выключение, сброс и вход кодом
+    восстановления — по сообщению на пометку; остальное (правки доступа, включение кода) — одним
+    общим, последним."""
+    admins, worried, others = _split(events)
     found = []
     if admins:
-        found.append(Notice(_admins(admins, at), ADMIN, admins))
+        found.append(Notice(_admins(admins, at), ADMIN, tuple(admins)))
+    for concern, group in worried.items():
+        found.append(Notice(_codes(group, at, concern), concern, tuple(group)))
     if others:
-        found.append(Notice(_others(others, at), CHANGED, others))
+        found.append(Notice(_others(others, at), _common(others), tuple(others)))
     return found
 
 
-def what(event: Event) -> str:
-    """Что случилось с доступом учётки — без автора и времени, со строчной буквы."""
+def _split(
+    events: Sequence[Happened],
+) -> tuple[list[Event], dict[Concern, list[CodeEvent]], list[Happened]]:
+    """События прохода по сообщениям: новые админы; выключение, сброс и вход кодом
+    восстановления — по пометке; остальное — в общее."""
+    admins: list[Event] = []
+    worried: dict[Concern, list[CodeEvent]] = {}
+    others: list[Happened] = []
+    for event in events:
+        if isinstance(event, CodeEvent) and code_words.alarming(event):
+            worried.setdefault(code_words.concern(event), []).append(event)
+        elif isinstance(event, Event) and event.raised:
+            admins.append(event)
+        else:
+            others.append(event)
+    return admins, worried, others
+
+
+def what(event: Happened) -> str:
+    """Что случилось с доступом учётки или её входом с кодом — без автора и времени, со строчной
+    буквы."""
+    if isinstance(event, CodeEvent):
+        return code_words.what(event)
     if event.created:
         return f"заведена с ролью «{_role(event.details.get('role'))}»"
     if event.before is None or event.after is None:
@@ -99,7 +129,7 @@ def what(event: Event) -> str:
     return _changed(event.before, event.after)
 
 
-def who(event: Event) -> str:
+def who(event: Happened) -> str:
     """Кто сделал: почта автора или команда на сервере."""
     return event.author or CONSOLE
 
@@ -112,36 +142,69 @@ def _admins(events: Sequence[Event], at: datetime) -> str:
     return _alone(f"{title} — {one.whose}", one, at)
 
 
-def _others(events: Sequence[Event], at: datetime) -> str:
+def _others(events: Sequence[Happened], at: datetime) -> str:
+    """Общее сообщение: правки доступа и включения кода. Одно событие — своими словами."""
     if len(events) > 1:
-        return _listed(f"Изменён доступ учёток — {len(events)}", events, at, CHANGED)
+        return _listed(_common_title(events), events, at, _common(events))
     one = events[0]
+    if isinstance(one, CodeEvent):
+        return _alone(f"{code_words.TITLES[one.action]} — {one.whose}", one, at)
     title = "Заведена учётка" if one.created else "Изменён доступ учётки"
     return _alone(f"{title} {one.whose}", one, at)
 
 
-def _alone(title: str, event: Event, at: datetime) -> str:
-    """Одно событие своими словами: заголовок с минутой, что и кто, где смотреть."""
+def _common_title(events: Sequence[Happened]) -> str:
+    """Заголовок общего списка: правки доступа числом и, если есть, включения кода — своим
+    числом: включение — не правка доступа."""
+    access = sum(isinstance(event, Event) for event in events)
+    if access == len(events):
+        return f"Изменён доступ учёток — {access}"
+    enabled = f"{code_words.TITLES[AuditAction.TOTP_ENABLED]} — {len(events) - access}"
+    if not access:
+        return enabled
+    return f"Изменён доступ учёток — {access}; {enabled[:1].lower()}{enabled[1:]}"
+
+
+def _common(events: Sequence[Happened]) -> Concern:
+    """Пометка общего сообщения: есть правка доступа — её повод; одни включения кода — без
+    повода (`code_event_words.ENABLED`)."""
+    if any(isinstance(event, Event) for event in events):
+        return CHANGED
+    return code_words.ENABLED
+
+
+def _codes(events: Sequence[CodeEvent], at: datetime, concern: Concern) -> str:
+    """Сообщение событий входа с кодом одной пометки: одно — своими словами, несколько — списком."""
+    title = code_words.TITLES[events[0].action]
+    if len(events) > 1:
+        return _listed(f"{title} — {len(events)}", events, at, concern)
+    return _alone(f"{title} — {events[0].whose}", events[0], at)
+
+
+def _alone(title: str, event: Happened, at: datetime) -> str:
+    """Одно событие своими словами: заголовок с минутой, что и кто, что сделать, где смотреть."""
     said = what(event)
     return "\n".join(
         [
             f"тревога: {title}. В {clock(event.at, at)} МСК.",
             f"{said[:1].upper()}{said[1:]}; кто — {who(event)}.",
+            *code_words.advice([event]),
             WHERE,
         ]
     )
 
 
-def _listed(title: str, events: Sequence[Event], at: datetime, concern: Concern) -> str:
+def _listed(title: str, events: Sequence[Happened], at: datetime, concern: Concern) -> str:
     """События списком в потолке Telegram: не больше `LISTED` строк и сколько влезает рядом с
     пометкой; не названные — «и ещё M». Строка — минута, чья учётка, что и кто."""
     top = f"тревога: {title}. С {clock(min(event.at for event in events), at)} МСК."
     lines = [f"• {clock(e.at, at)} {e.whose} — {what(e)}; кто — {who(e)}" for e in events]
+    tail = [*code_words.advice(events), WHERE]
     room = ROOM - len(concern.words) - 1
     shown = len(lines[:LISTED])
     while True:
         rest = len(lines) - shown
-        text = "\n".join([top, *lines[:shown], *([f"• и ещё {rest}"] if rest else []), WHERE])
+        text = "\n".join([top, *lines[:shown], *([f"• и ещё {rest}"] if rest else []), *tail])
         if len(text) <= room or shown == 0:
             return text
         shown -= 1

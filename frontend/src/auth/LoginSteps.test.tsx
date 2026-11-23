@@ -3,19 +3,31 @@
  * его требует. Сервер заменён записанными ответами: проверяется, что показано и что ушло.
  */
 
-import { screen, waitFor } from '@testing-library/react';
+import { MantineProvider } from '@mantine/core';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
-import type { Me, TotpEnabled } from '../api/types';
+import type { Me, TotpEnabled, TotpSetup } from '../api/types';
 import { ADMIN, HOME_ROUTES, TOKEN_KEY, card, signedIn } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
+import { theme } from '../theme';
+import { EnrollStep } from './EnrollStep';
 import { codesText } from './RecoveryCodes';
 import { keyGroups } from './TotpEnrollment';
 
 const WITH_CODE: Me = { ...ADMIN, totp_enabled: true };
+/** Учётка, чья роль требует код, — сразу после включения. */
+const ENROLLED: Me = { ...ADMIN, totp_enabled: true, totp_required: true };
+
+const SETUP: TotpSetup = {
+  secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', // pragma: allowlist secret — пример ключа, не секрет
+  uri: 'otpauth://totp/Parsing%20and%20Prices:admin?secret=JBSW',
+  issuer: 'Parsing and Prices',
+  account: 'админ@site.com',
+};
 
 function secondStep(step: 'code' | 'enroll') {
   return {
@@ -136,17 +148,8 @@ describe('вход: роль требует код — включение', () =
   it('ключ группами, ссылка в приложение, первый код, коды восстановления один раз', async () => {
     const recorded = serve({
       'POST /api/auth/login': secondStep('enroll'),
-      'POST /api/auth/login/enroll': {
-        body: {
-          secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', // pragma: allowlist secret — пример ключа, не секрет
-          uri: 'otpauth://totp/Parsing%20and%20Prices:admin?secret=JBSW',
-          issuer: 'Parsing and Prices',
-          account: 'админ@site.com',
-        },
-      },
-      'POST /api/auth/login/enroll/confirm': {
-        body: enabled({ ...ADMIN, totp_enabled: true, totp_required: true }),
-      },
+      'POST /api/auth/login/enroll': { body: SETUP },
+      'POST /api/auth/login/enroll/confirm': { body: enabled(ENROLLED) },
       ...HOME_ROUTES,
     });
     renderWith(<AppRoutes />, '/login');
@@ -165,8 +168,9 @@ describe('вход: роль требует код — включение', () =
     expect(await screen.findByText('k3m9-x2qa-77ab-cd00')).toBeVisible();
     expect(screen.getAllByText(/^k3m9-/)).toHaveLength(10);
     expect(screen.getByRole('button', { name: 'Скачать .txt' })).toBeVisible();
-    // Пропуск взят сразу: прежние сервер погасил, а коды человек ещё читает.
+    // Пропуск взят сразу: прежние сервер погасил, а коды человек ещё читает. Входа — ещё нет.
     expect(localStorage.getItem(TOKEN_KEY)).toBe(signedIn(ADMIN).token);
+    expect(screen.queryByText(/Вошли как/)).not.toBeInTheDocument();
     expect(recorded.calls[2]).toMatchObject({
       path: '/api/auth/login/enroll/confirm',
       body: { challenge: 'вызов-enroll', code: '654321' },
@@ -174,6 +178,41 @@ describe('вход: роль требует код — включение', () =
 
     await user.click(screen.getByRole('button', { name: 'Я сохранил' }));
     expect(await screen.findByText(/Вошли как/)).toBeInTheDocument();
+  });
+
+  it('шаг отдаёт пропуск наверх: принят сразу после включения, вход — после «Я сохранил»', async () => {
+    serve({
+      'POST /api/auth/login/enroll': { body: SETUP },
+      'POST /api/auth/login/enroll/confirm': { body: enabled(ENROLLED) },
+    });
+    const happened: string[] = [];
+    // Без `AuthProvider`: шаг, который берёт пропуск сам (`useSession`), здесь бы упал.
+    render(
+      <MantineProvider theme={theme}>
+        <EnrollStep
+          challenge="вызов-enroll"
+          onSignedIn={(opened) => {
+            happened.push(`принят ${opened.token}`);
+          }}
+          onDone={(user) => {
+            happened.push(`вошёл ${user.email}`);
+          }}
+          onRestart={() => {
+            happened.push('заново');
+          }}
+        />
+      </MantineProvider>,
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Включить вход с кодом' }));
+    await user.type(await screen.findByLabelText('Код из приложения'), '654321');
+    await user.click(screen.getByRole('button', { name: 'Включить' }));
+
+    expect(await screen.findByText('k3m9-x2qa-77ab-cd00')).toBeVisible();
+    expect(happened).toEqual([`принят ${signedIn(ENROLLED).token}`]);
+    await user.click(screen.getByRole('button', { name: 'Я сохранил' }));
+    expect(happened).toEqual([`принят ${signedIn(ENROLLED).token}`, `вошёл ${ENROLLED.email}`]);
   });
 
   it('отказ начать — словами сервера', async () => {

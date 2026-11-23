@@ -1,4 +1,5 @@
-"""События доступа из журнала действий: учётка заведена, роль, права или активность сменились.
+"""События доступа из журнала действий: учётка заведена, роль, права или активность сменились;
+вход с кодом включён, выключен, сброшен или пройден кодом восстановления.
 
 Аудит 20.11.2026: новый админ и выданные права были видны только на экране «Журнал действий» —
 тому, кто туда зашёл. Здесь — чтение этих записей для сторожа входов и прав (`access_watch.py`):
@@ -24,6 +25,18 @@
 уже ушедший дальше, и пропала бы. Поэтому читается и всё выше курсора, и всё моложе окна сверки
 (`LOOKBACK`), а сказанное в окне сторож помнит по номерам и второй раз не говорит
 (`access_mark.py`). Пароли и набранное при входе событие не несёт: этих записей здесь нет.
+
+**Вход с кодом — тем же чтением** (23.11.2026). Код включили, выключили, сбросили или вошли кодом
+восстановления (`CODE_ACTIONS`, цель та же — «user:N») — сторож говорит и об этом, а читает эти
+записи тем же запросом, курсором и окном сверки, что записи о доступе: общее чтение расширено, а не
+заведено второе. Второе чтение тем же курсором дало бы два «последних номера» (запись,
+зафиксированная между запросами, видна одному и не видна другому), две пачки и два «докуда
+прочитано», которые пришлось бы сводить, чтобы событие не пропало и не пришло дважды. Одно чтение
+— одна пачка и один `reach`: всё, что держит «ровно один раз» (`access_mark.py`, окно сверки,
+перезапуск, отказ Telegram), работает для них без правок. Доступа эти записи не меняют: в проигрыш
+прежнего доступа (`_history`, `_replayed`) не идут — его запрос знает только записи о доступе
+(`_about_access`), — и становятся своим событием (`CodeEvent`), а не правкой без «было». Кода в
+записи нет: только почта учётки и, у входа кодом восстановления, сколько кодов осталось.
 """
 
 from __future__ import annotations
@@ -36,12 +49,22 @@ from typing import Any
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.access import recovery_codes
 from backend.features.access.permissions import Actor, has_permission
 from backend.features.core.domain import AuditAction, Permission, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
 
 #: Записи о доступе учётки: заведение и правка.
 ACCESS_ACTIONS = (AuditAction.USER_CREATED, AuditAction.USER_UPDATED)
+
+#: Записи о входе с кодом учётки (`access/second_step.py`, `code_login.py`, 23.11.2026): включён,
+#: выключен владельцем, сброшен админом или командой на сервере, вход кодом восстановления.
+CODE_ACTIONS = (
+    AuditAction.TOTP_ENABLED,
+    AuditAction.TOTP_DISABLED,
+    AuditAction.TOTP_RESET,
+    AuditAction.RECOVERY_CODE_USED,
+)
 
 #: Цель записи о доступе — «user:N» (`AccessRepository.create`, `update_access`).
 USER = "user:"
@@ -110,17 +133,39 @@ class Event:
 
 
 @dataclass(frozen=True, slots=True)
+class CodeEvent:
+    """Запись журнала о входе с кодом учётки — для слов сторожа. Доступа она не меняет: прежнего
+    и нового доступа у неё нет, и в проигрыш записей о доступе она не идёт."""
+
+    id: int
+    at: datetime
+    #: Что с кодом: включён, выключен, сброшен или вход кодом восстановления (`CODE_ACTIONS`).
+    action: AuditAction
+    #: Чья учётка — почта.
+    whose: str
+    #: Кто сделал — почта; `None` — запись без автора: код сбросили командой на сервере.
+    author: str | None
+    #: Сколько кодов восстановления осталось — у входа ими; у прочих и у записи без счёта — `None`.
+    left: int | None = None
+
+
+#: Что случилось с учёткой: доступ или вход с кодом — по порядку номеров в одной пачке.
+Happened = Event | CodeEvent
+
+
+@dataclass(frozen=True, slots=True)
 class Batch:
     """Что прочитал проход: события и номер, до которого прочитано всё (`None` — журнал пуст)."""
 
-    events: list[Event]
+    events: list[Happened]
     reach: int | None
 
 
 async def read(
     session: AsyncSession, *, cursor: int | None, told: Collection[int], now: datetime
 ) -> Batch:
-    """События доступа выше курсора и моложе окна сверки, кроме сказанных (`told`), по номерам.
+    """События доступа и входа с кодом выше курсора и моложе окна сверки, кроме сказанных
+    (`told`), по номерам.
 
     Курсора нет (первый запуск, новый канал) или он дальше последней записи (база восстановлена
     из копии) — читается с последней записи: историю целиком сторож не пересказывает, а о
@@ -132,7 +177,7 @@ async def read(
     found = await session.scalars(
         select(AuditLogModel)
         .where(
-            *_about_access(),
+            *_watched(),
             AuditLogModel.id <= top,
             or_(AuditLogModel.id > floor, AuditLogModel.created_at >= now - LOOKBACK),
         )
@@ -151,15 +196,35 @@ def _about_access() -> list[ColumnElement[bool]]:
     return [AuditLogModel.action.in_(ACCESS_ACTIONS), AuditLogModel.target.startswith(USER)]
 
 
-async def _events(session: AsyncSession, rows: Sequence[AuditLogModel]) -> list[Event]:
-    """События по записям: почты учёток и авторов, доступ до записи и после."""
+def _watched() -> list[ColumnElement[bool]]:
+    """Запись, о которой говорит сторож: о доступе учётки или о её входе с кодом, цель «user:N»."""
+    actions = (*ACCESS_ACTIONS, *CODE_ACTIONS)
+    return [AuditLogModel.action.in_(actions), AuditLogModel.target.startswith(USER)]
+
+
+async def _events(session: AsyncSession, rows: Sequence[AuditLogModel]) -> list[Happened]:
+    """События по записям: почты учёток и авторов; у записей о доступе — доступ до и после."""
     if not rows:
         return []
-    targets = sorted({row.target for row in rows if row.target is not None})
-    before = _replayed(await _history(session, targets, rows[-1].id))
+    access = [row for row in rows if row.action in ACCESS_ACTIONS]
+    before = await _before(session, access)
+    targets = {row.target for row in rows if row.target is not None}
     people = {*_numbers(targets), *(row.user_id for row in rows if row.user_id is not None)}
     emails = await _emails(session, people)
-    return [_event(row, before.get(row.id), emails) for row in rows]
+    return [
+        _event(row, before.get(row.id), emails)
+        if row.action in ACCESS_ACTIONS
+        else _code_event(row, emails)
+        for row in rows
+    ]
+
+
+async def _before(session: AsyncSession, rows: Sequence[AuditLogModel]) -> dict[int, Access | None]:
+    """Доступ учётки до каждой записи о доступе — проигрышем её записей о доступе от заведения."""
+    if not rows:
+        return {}
+    targets = sorted({row.target for row in rows if row.target is not None})
+    return _replayed(await _history(session, targets, rows[-1].id))
 
 
 async def _history(
@@ -229,11 +294,31 @@ def _event(row: AuditLogModel, before: Access | None, emails: Mapping[int, str])
         at=row.created_at,
         created=row.action is AuditAction.USER_CREATED,
         whose=_whose(row.target or "", details, emails),
-        author=None if row.user_id is None else emails.get(row.user_id, f"учётка №{row.user_id}"),
+        author=_author(row.user_id, emails),
         details=details,
         before=before,
         after=applied(before, row.action, details),
     )
+
+
+def _code_event(row: AuditLogModel, emails: Mapping[int, str]) -> CodeEvent:
+    """Событие входа с кодом: чья учётка, кто сделал и — у входа кодом восстановления — сколько
+    кодов осталось."""
+    details = row.details or {}
+    left = details.get(recovery_codes.LEFT)
+    return CodeEvent(
+        id=row.id,
+        at=row.created_at,
+        action=row.action,
+        whose=_whose(row.target or "", details, emails),
+        author=_author(row.user_id, emails),
+        left=left if isinstance(left, int) and not isinstance(left, bool) else None,
+    )
+
+
+def _author(user_id: int | None, emails: Mapping[int, str]) -> str | None:
+    """Кто сделал: почта автора, его номер — или `None`, запись без автора (команда на сервере)."""
+    return None if user_id is None else emails.get(user_id, f"учётка №{user_id}")
 
 
 def _whose(target: str, details: Mapping[str, Any], emails: Mapping[int, str]) -> str:
