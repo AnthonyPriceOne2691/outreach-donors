@@ -1622,14 +1622,14 @@
       "worst": "_fits:315"
     },
     "backend/features/crawl/feeds.py": {
-      "lines": 145,
+      "lines": 147,
       "complexity": 10,
-      "worst": "declared_feeds:62"
+      "worst": "declared_feeds:63"
     },
     "backend/features/crawl/fetch.py": {
-      "lines": 445,
+      "lines": 473,
       "complexity": 8,
-      "worst": "_proxy:321"
+      "worst": "_proxy:349"
     },
     "backend/features/crawl/findings.py": {
       "lines": 159,
@@ -1637,9 +1637,9 @@
       "worst": "_pages:108"
     },
     "backend/features/crawl/frontier.py": {
-      "lines": 163,
+      "lines": 181,
       "complexity": 5,
-      "worst": "crawlable:47"
+      "worst": "crawlable:52"
     },
     "backend/features/crawl/gate.py": {
       "lines": 417,
@@ -1652,9 +1652,9 @@
       "worst": "runs_of:101"
     },
     "backend/features/crawl/health.py": {
-      "lines": 106,
+      "lines": 112,
       "complexity": 4,
-      "worst": "verdict:85"
+      "worst": "verdict:90"
     },
     "backend/features/crawl/judge.py": {
       "lines": 267,
@@ -1907,14 +1907,14 @@
       "worst": "fill:61"
     },
     "backend/features/crawl/sitemap.py": {
-      "lines": 403,
+      "lines": 405,
       "complexity": 16,
-      "worst": "scan:279"
+      "worst": "scan:280"
     },
     "backend/features/crawl/sources.py": {
-      "lines": 119,
-      "complexity": 7,
-      "worst": "start_frontier:81"
+      "lines": 120,
+      "complexity": 6,
+      "worst": "read_sources:54"
     },
     "backend/features/crawl/spend.py": {
       "lines": 193,
@@ -4132,14 +4132,14 @@
       "worst": "with_retries:124"
     },
     "backend/shared/net/url_guard.py": {
-      "lines": 446,
+      "lines": 453,
       "complexity": 10,
-      "worst": "assert_safe_url:144"
+      "worst": "assert_safe_url:151"
     },
     "backend/shared/net/url_parts.py": {
-      "lines": 50,
-      "complexity": 2,
-      "worst": "split_url:25"
+      "lines": 91,
+      "complexity": 4,
+      "worst": "clean_url:68"
     },
     "backend/shared/numbers.py": {
       "lines": 18,
