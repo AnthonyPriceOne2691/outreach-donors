@@ -18,9 +18,10 @@
 первая `waiting`, если до неё не больше одной гипотезы в `sending`. Следующая начинает, когда текущая
 набрала цель и шлёт письма; k+2 ждёт, пока k не `done` (`stopped` — тоже конец: конвейер идёт дальше).
 
-**Переходы** (п. 3.1): найдено ≥ цели → `sending`; `sending` → `done`, когда у лидов гипотезы не
-осталось первого письма (`plan_settle.letters_left`); план — `done`, когда все гипотезы в `done` или
-`stopped`. «Нужны ключи» и потолки — у постановки прогона (`plan_runs.py`).
+**Переходы** (п. 3.1): найдено ≥ цели → `sending`, и проблемы сбора уходят (`MOOT_AT_TARGET`);
+`sending` → `done`, когда у лидов гипотезы не осталось первого письма (`plan_settle.letters_left`);
+план — `done`, когда все гипотезы в `done` или `stopped`. «Нужны ключи» и потолки — у постановки
+прогона (`plan_runs.py`).
 
 **Гипотезы в конце** (`done`, `stopped`) — числа без переходов и `counted_at`: найдено,
 израсходовано и резерв (`plan_settle.numbers`). Прогонов им проход не ставит, а числа меняют прогон,
@@ -75,6 +76,7 @@ from backend.features.sales.plan_moves import (
     finish,
     move,
     pause,
+    solved,
     trouble,
 )
 from backend.features.sales.plan_runs import new_run, resume
@@ -90,6 +92,10 @@ Row = SalesPlanHypothesisModel
 Plan = SalesPlanModel
 
 TARGET_MET = "цель набрана — лиды уходят в письма"
+#: Проблемы сбора, которые с набранной целью уже не про гипотезу: в письмах она не собирает.
+#: «Продолжить» при [«кончился бюджет», «нужны ключи»] снимал только «нужны ключи», и «Письма»
+#: показывали старые слова потолка (ревью 20.11) — переход в письма снимает обе.
+MOOT_AT_TARGET = frozenset({Problem.BUDGET, Problem.KEYS})
 TURN_CAME = "очередь гипотезы: собирает она"
 LETTERS_GONE = "первые письма лидов гипотезы ушли"
 PLAN_DONE = "все гипотезы плана в «готово» или «остановлена»"
@@ -313,6 +319,7 @@ async def _turn(
     fresh = await _settled(session, row, latest)
     await count(session, row, spent.get(row.id, Spent()), now)
     if row.found >= row.target:
+        solved(row, MOOT_AT_TARGET)
         return move(row, PlanStage.SENDING, now, why=TARGET_MET)
     if latest is not None and latest.stage == Stage.STOPPED:
         return await _stopped(session, gates, plan, row, latest, fresh=fresh, now=now)
