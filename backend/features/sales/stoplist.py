@@ -47,6 +47,10 @@ NOT_AN_ENTRY = "не домен и не адрес"
 FREE_MAIL = "домен бесплатной почты закрыл бы всех лидов на нём — впишите адрес целиком"
 #: Ширина колонки `note`: откуда строка или почему не пишем — словами человека.
 NOTE_LENGTH = 255
+#: Строк в одной вставке (`_insert`): у базы предел — 32 767 параметров на запрос, а строка
+#: стоп-листа несёт три (значение, автор, заметка). Список больше 10 922 строк одной вставкой
+#: отвечал 500 (находка 23.11.2026); файл до `MAX_BYTES` — это сотни тысяч строк.
+INSERT_BATCH = 5_000
 
 
 class StoplistError(ValueError):
@@ -245,13 +249,19 @@ async def remove(session: AsyncSession, entry_id: int, *, author_id: int | None)
 async def _insert(
     session: AsyncSession, column: str, values: list[str], *, author: str, note: str | None
 ) -> int:
-    rows: list[dict[str, Any]] = [
-        {column: value, "created_by": author, "note": note} for value in values
-    ]
-    statement = (
-        insert(SalesStoplistModel)
-        .values(rows)
-        .on_conflict_do_nothing(index_elements=[column])
-        .returning(SalesStoplistModel.id)
-    )
-    return len((await session.execute(statement)).all())
+    """Записать значения пачками по `INSERT_BATCH`; уже записанные пропускаются. Возвращает,
+    сколько строк добавлено."""
+    added = 0
+    for start in range(0, len(values), INSERT_BATCH):
+        rows: list[dict[str, Any]] = [
+            {column: value, "created_by": author, "note": note}
+            for value in values[start : start + INSERT_BATCH]
+        ]
+        statement = (
+            insert(SalesStoplistModel)
+            .values(rows)
+            .on_conflict_do_nothing(index_elements=[column])
+            .returning(SalesStoplistModel.id)
+        )
+        added += len((await session.execute(statement)).all())
+    return added

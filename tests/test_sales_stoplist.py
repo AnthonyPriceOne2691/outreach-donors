@@ -23,7 +23,7 @@ from backend.features.core.models.access import AuditLogModel
 from backend.features.sales import stoplist
 from backend.features.sales.models import SalesStoplistModel
 from backend.features.sales.stoplist import Entries, Loaded
-from sqlalchemy import Connection, select, text
+from sqlalchemy import Connection, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -179,6 +179,28 @@ async def test_repeat_is_counted_as_known_and_writes_nothing_not_even_the_journa
     assert [host for host, *_ in await _stored(session)] == [*HOSTS, None, "new.example.test"]
     sources = [details["источник"] for _, _, details in await _journal(session) if details]
     assert sources == ["тест", "тест"]  # без заметки источник — автор; повтор строки не даёт
+
+
+async def test_a_list_above_the_query_parameter_limit_is_written_in_batches(
+    session: AsyncSession,
+) -> None:
+    """Находка 23.11: 11 000 строк одной вставкой — 33 000 параметров при пределе базы 32 767,
+    и загрузка отвечала 500. Пачками (`INSERT_BATCH`) — всё записано, а повтор с одной новой
+    строкой считает «уже есть» и через границу пачек."""
+    hosts = [f"site-{number}.example.test" for number in range(11_000)]
+    assert len(hosts) * 3 > 32_767  # одной вставкой — сверх предела параметров базы
+
+    first = await stoplist.add(
+        session, Entries(hosts, [], []), author="тест", note="большой список"
+    )
+    again = await stoplist.add(
+        session, Entries([*hosts, "new.example.test"], [], []), author="тест", note=None
+    )
+
+    assert (first, again) == (Loaded(11_000, 0, []), Loaded(1, 11_000, []))
+    count = await session.scalar(select(func.count()).select_from(SalesStoplistModel))
+    assert count == 11_001
+    assert stoplist.INSERT_BATCH * 3 < 32_767
 
 
 @pytest.mark.parametrize(

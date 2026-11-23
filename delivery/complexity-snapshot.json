@@ -3927,9 +3927,9 @@
       "worst": "export_url:44"
     },
     "backend/features/sales/stoplist.py": {
-      "lines": 258,
+      "lines": 268,
       "complexity": 7,
-      "worst": "_sorted:141"
+      "worst": "_sorted:145"
     },
     "backend/features/sales/stoplist_leads.py": {
       "lines": 148,
