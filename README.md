@@ -278,6 +278,7 @@ OUTREACH_INBOUND_SECRET=$(openssl rand -hex 32)   # им подписана ме
 .venv/bin/outreach letters-build --campaign «Сентябрь» --stage advertisers  # офферы рекламодателям
 .venv/bin/outreach letters                 # что стоит в очереди и с каким отличием
 .venv/bin/outreach letters-send --id 42    # отправить одно письмо
+.venv/bin/outreach letters-rewrite --stage advertisers  # переписать письма очереди, оставшиеся шаблоном из-за отказа модели
 .venv/bin/outreach demo-seed              # выдуманные домены и переписка — посмотреть экраны; при настоящей почте — отказ
 .venv/bin/outreach demo-seed --clear      # убрать выдуманное — всегда, и на боевой базе
 .venv/bin/outreach prune --runs 18,19 --replies 1        # что уйдёт с прогонами и пробными ответами

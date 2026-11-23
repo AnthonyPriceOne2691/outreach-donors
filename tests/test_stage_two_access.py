@@ -322,6 +322,8 @@ ROW_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("POST", "/api/letters/send-queue", OFFER_BATCH, LETTERS),
     ("POST", "/api/letters/send-queue", NICHE_BATCH, LETTERS),
     ("POST", "/api/letters/send-queue/stop", OFFER_BATCH, LETTERS),
+    ("POST", "/api/letters/rewrite", OFFER_BATCH, LETTERS),
+    ("POST", "/api/letters/rewrite", NICHE_BATCH, LETTERS),
     ("PATCH", "/api/letters/{queued}", {"subject": "S", "body": "B"}, LETTERS),
     ("POST", "/api/letters/{queued}/skip", None, LETTERS),
     ("POST", "/api/letters/{queued}/send", None, LETTERS),

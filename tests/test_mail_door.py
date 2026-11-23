@@ -105,6 +105,8 @@ UPDATE = {
     "письма",
     "backend/features/crawl/niche.py": "письма бизнесу ниши — из очереди в «остановлено»",
     "backend/features/sales/queue.py": "письмо продаж, собранное заново на том же месте",
+    "backend/features/letters/rewrite_queue.py": "переписанное шаблонное письмо — пока оно в очереди "
+    "и текст тот, что прочитан",
 }
 #: Кто удаляет строки `messages` (`delete`): с письмом уходит его ключ.
 DELETE = {

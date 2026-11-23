@@ -80,6 +80,23 @@ export function sendQueue(
   return request<SendQueueQueued>('/letters/send-queue', { method: 'POST', body });
 }
 
+/** Переписывание шаблонных писем ушло в очередь задач: сколько писем возьмёт задача. */
+export interface RewriteQueued {
+  job_id: string;
+  letters: number;
+}
+
+/** Переписать моделью письма очереди, оставшиеся шаблоном из-за отказа модели (сервер:
+ *  `letters/rewrite_queue.py`) — одной аудитории. «По ссылке» — без поля, как у пачки. */
+export function rewriteTemplated(
+  stage: LetterStage,
+  audience: LetterAudience = 'links',
+): Promise<RewriteQueued> {
+  const body: Record<string, string> = { stage };
+  if (audience !== 'links') body.audience = audience;
+  return request<RewriteQueued>('/letters/rewrite', { method: 'POST', body });
+}
+
 /** Дней плана прогноза для срока очереди: потолок прогноза рассылки на сервере. */
 const ETA_DAYS = 31;
 

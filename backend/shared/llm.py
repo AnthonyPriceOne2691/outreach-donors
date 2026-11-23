@@ -17,8 +17,8 @@
 исчерпанной фантазией. Лог при этом был полон, но читают отчёт.
 
 **Нет кредитов — свой вид отказа, без повторов** (слово владельца 20.10.2026). У OpenAI 429 —
-и частота, и пустой счёт; различает их только тело (`no_credits`). Пустой счёт повторялся как
-частота, а прогон с ним стартовал, покупал выдачу и уводил каждый сайт «на проверку: сбой».
+и частота, и пустой счёт; различает их только тело: признак или слова (`no_credits`). Пустой счёт
+повторялся как частота, а прогон с ним стартовал, покупал выдачу и уводил сайты «на проверку: сбой».
 Теперь прогон до первой траты спрашивает модель (`probe`, `unready`): любой отказ — прогон не
 начинается, причина — словами оператору (`words_of`). Остаток счёта обычным ключом не узнать.
 """
@@ -33,6 +33,7 @@ from typing import Any
 import httpx
 
 from backend.config import llm as llm_cfg
+from backend.shared import llm_marks
 from backend.shared.net.retry import reason_of, temporary, unsent, with_retries
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,11 @@ KEY_STATUSES = frozenset({401, 403})
 #: `type: insufficient_quota`, `code: credit_balance_exhausted`; прежде — `insufficient_quota`
 #: в обоих.
 NO_CREDITS_MARKS = frozenset({"insufficient_quota", "credit_balance_exhausted"})
+#: «Нет кредитов» и словами отказа — если признака в теле нет (разбор 23.11.2026: какими признаками
+#: пришёл 429 «You have no credits remaining…», журнал не сохранил). Без «billing»: им кончается и
+#: 429 частоты бесплатной учётки; слова частоты (`RATE_WORDS`) перевешивают.
+NO_CREDITS_PHRASES = ("no credits", "credit balance", "exceeded your current quota")
+RATE_WORDS = "rate limit"
 #: 403 «страна запроса не обслуживается» (`error.code` или `error.type`): ключ годен, а модель отсюда
 #: недоступна — это не «ключ не принят», а «модель не ответила» с причиной (`words_of`).
 REGION_MARK = "unsupported_country_region_territory"
@@ -201,11 +207,17 @@ def _marks_of(response: httpx.Response) -> frozenset[str]:
 
 
 def no_credits(response: httpx.Response) -> bool:
-    """На счету ключа нет денег: 402 — у любого провайдера; 429 — только с признаком в теле
-    (`NO_CREDITS_MARKS`): частота проходит сама, пустой счёт — нет."""
+    """На счету ключа нет денег: 402 — у любого провайдера; 429 — с признаком в теле
+    (`NO_CREDITS_MARKS`) или словами (`NO_CREDITS_PHRASES`) без слов частоты: частота проходит
+    сама, пустой счёт — нет."""
     if response.status_code == 402:
         return True
-    return response.status_code == 429 and bool(_marks_of(response) & NO_CREDITS_MARKS)
+    if response.status_code != 429:
+        return False
+    if _marks_of(response) & NO_CREDITS_MARKS:
+        return True
+    words = _message_of(response).lower()
+    return RATE_WORDS not in words and any(phrase in words for phrase in NO_CREDITS_PHRASES)
 
 
 def _passes(response: httpx.Response) -> bool:
@@ -265,7 +277,24 @@ async def post_chat(
     payload: dict[str, Any],
     topic: str,
 ) -> dict[str, Any] | Refusal:
-    """Запрос к модели. `Refusal` — не получилось, и он говорит почему."""
+    """Запрос к модели. `Refusal` — не получилось, и он говорит почему. Исход — в общий след
+    (`llm_marks`): сторож модели живёт в другом процессе (23.11.2026). Частота — не в след: 429 без
+    «нет кредитов» проходит сам."""
+    answer = await _chat(http, api_key=api_key, payload=payload, topic=topic)
+    model = str(payload.get("model") or "")
+    if not isinstance(answer, Refusal):
+        await llm_marks.answered(model)
+    elif answer.no_credits:
+        await llm_marks.broke(model, answer.detail)
+    elif answer.status != 429:
+        await llm_marks.refused(model, answer.detail)
+    return answer
+
+
+async def _chat(
+    http: httpx.AsyncClient, *, api_key: str, payload: dict[str, Any], topic: str
+) -> dict[str, Any] | Refusal:
+    """Запрос и разбор отказа — без следа: его пишет `post_chat`."""
     # Повторы общие на все внешние сервисы: до них один обрыв связи
     # означал письмо, оставшееся шаблонным, или ответ, оставшийся
     # неразобранным, — и оба случая выглядели как «модель отказала».
@@ -298,14 +327,15 @@ async def post_chat(
         # оно обрывается на первой скобке; провайдер кладёт внятную фразу
         # в `error.message`, и она прямо говорит, что чинить.
         detail = f"HTTP {response.status_code}: {_message_of(response)}"
-        logger.error("%s: модель отказала (%s)", topic, detail)
+        marks = _marks_of(response)  # в журнал: по ним видно, чем провайдер назвал отказ
+        logger.error("%s: модель отказала (%s)", topic, detail, extra={"marks": sorted(marks)})
         broke = no_credits(response)
         return Refusal(
             RefusalKind.NO_CREDITS if broke else RefusalKind.REFUSED,
             detail,
             permanent=broke or response.status_code in PERMANENT_STATUSES,
             status=response.status_code,
-            marks=_marks_of(response),
+            marks=marks,
         )
 
     try:

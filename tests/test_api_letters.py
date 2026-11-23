@@ -56,6 +56,8 @@ LETTER_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/letters/forecast", None, "view"),
     ("GET", "/api/letters/deferred", None, "view"),
     ("POST", "/api/letters/{letter}/resolve", {"outcome": "queued"}, "send"),
+    # Переписать шаблонные: вызовы модели и текст, который уйдёт, — право сборки.
+    ("POST", "/api/letters/rewrite", {"stage": "donors"}, "send"),
 ]
 
 

@@ -14,7 +14,8 @@ transaction» на время чужих ответов, как и у фонов
 общая, её место на «Обзоре». Ответ провайдеров экрану годен минуту (`PROBES`). Тревога — по
 правилу `silence.ProviderWatch` процесса сервера, как у фонового сторожа: неответ, прошедший
 сам, «Обзор» не красит. Ответы Ahrefs и Hunter из опроса ложатся в снимки короткой транзакцией
-после сети (`ops/silence.keep_heard`, 16.10.2026).
+после сети (`ops/silence.keep_heard`, 16.10.2026). Так же, после транзакции, — тревоги модели по её
+следу в Redis (`ops/model_watch`, 23.11.2026): нет денег на счёте OpenAI, модель отказывает подряд.
 
 **Повод для беспокойства — у каждой тревоги** (слово Anthony 29.10.2026): есть ли он и строка
 пометки — те же слова, что последней строкой в Telegram (`ops/alarms.Concern`). Экран ставит по
@@ -35,6 +36,7 @@ from backend.api.deps import actor, db_session, needs
 from backend.features.access.permissions import has_permission, visible_stages
 from backend.features.core.domain import Permission, Stage
 from backend.features.core.models.access import UserModel
+from backend.features.ops import model_watch
 from backend.features.ops.alarms import Alarm, Concern
 from backend.features.ops.silence import alarms, keep_heard, probe_providers
 
@@ -131,6 +133,8 @@ async def silence(
         return WatchdogView(alarms=[AlarmCard.of(one) for one in found])
     # Два бесплатных запроса к провайдерам: «API недоступен» — то, ради чего «Обзор» и открывают.
     unreachable = await PROBES.probe()
+    # След модели — тот же, что читает фоновый сторож: тревога в Telegram зовёт сюда.
+    found[:0] = await model_watch.alarms()
     if unreachable is not None:
         found.insert(0, unreachable)
     # Ответы опроса — в снимки ключа и учётки, своей короткой транзакцией: сеть уже позади.

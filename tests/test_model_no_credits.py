@@ -242,6 +242,93 @@ async def test_insufficient_quota_in_the_type_or_the_code_is_no_credits(
     assert (provider.calls, refusal.kind) == (1, RefusalKind.NO_CREDITS)
 
 
+#: Слова пустого счёта без признака в теле — тоже «нет кредитов» (разбор 23.11.2026: 429 «You have
+#: no credits remaining…», признаки тела журнал не сохранил). Прежние слова пустого счёта — «You
+#: exceeded your current quota».
+WORDS_ONLY = {
+    "23.11-без-признака": {
+        "message": "You have no credits remaining. Add credits to continue using the API at "
+        "https://platform.openai.com/settings/organization/billing"
+    },
+    "23.11-чужой-признак": {
+        "message": "You have no credits remaining. Add credits to continue using the API.",
+        "type": "billing_error",
+        "code": None,
+    },
+    "прежние-слова": {
+        "message": "You exceeded your current quota, please check your plan and billing details.",
+        "type": "invalid_request_error",
+    },
+    "баланс-кредитов": {"message": "Your credit balance is too low to access the API."},
+}
+
+
+@pytest.mark.parametrize("error", list(WORDS_ONLY.values()), ids=list(WORDS_ONLY))
+async def test_no_credits_said_only_in_words_is_no_credits(error: dict[str, Any]) -> None:
+    provider = Provider(lambda: httpx.Response(429, json={"error": error}))
+
+    refusal = await _chat(provider)
+
+    assert (provider.calls, refusal.kind, refusal.permanent) == (1, RefusalKind.NO_CREDITS, True)
+    assert str(refusal) == NO_CREDITS_WORDS
+
+
+#: 429 частоты бесплатной учётки: кончается ссылкой на billing — и это всё равно частота.
+FREE_TIER_RATE = {
+    "message": "Rate limit reached for gpt-5-mini in organization org-made-up on requests per day "
+    "(RPD): Limit 200, Used 200, Requested 1. Please try again in 7m12s. Visit "
+    "https://platform.openai.com/account/rate-limits to learn more. You can increase your rate "
+    "limit by adding a payment method to your account at "
+    "https://platform.openai.com/account/billing.",
+    "type": "requests",
+    "code": "rate_limit_exceeded",
+}
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        FREE_TIER_RATE,
+        RATE_BODY["error"],
+        # Слова частоты перевешивают слова кредитов: частота проходит сама.
+        {"message": "Rate limit reached: credit balance tier allows 3 requests per minute."},
+    ],
+    ids=["free-tier-billing", "plain", "rate-words-win"],
+)
+async def test_a_rate_limit_stays_a_rate_limit_whatever_else_it_says(
+    error: dict[str, Any],
+) -> None:
+    provider = Provider(lambda: httpx.Response(429, json={"error": error}))
+
+    refusal = await _chat(provider)
+
+    assert (provider.calls, refusal.kind, refusal.permanent) == (
+        ATTEMPTS,
+        RefusalKind.REFUSED,
+        False,
+    )
+
+
+async def test_the_words_of_no_credits_on_another_status_are_not_no_credits() -> None:
+    """Слова — только у 429: 400 со словами пустого счёта — обычный отказ, как и был."""
+    body = {"error": {"message": "You have no credits remaining."}}
+
+    refusal = await _chat(Provider(lambda: httpx.Response(400, json=body)))
+
+    assert (refusal.kind, refusal.status) == (RefusalKind.REFUSED, 400)
+
+
+async def test_the_marks_of_a_refusal_go_to_the_journal(caplog: pytest.LogCaptureFixture) -> None:
+    """Признаки тела — в журнал полем: по ним видно, чем провайдер назвал отказ (23.11.2026 их не
+    было видно)."""
+    with caplog.at_level(logging.ERROR, logger=llm.__name__):
+        await _chat(Provider(no_credits))
+
+    [record] = [one for one in caplog.records if "модель отказала" in one.getMessage()]
+    marks = record.__dict__["marks"]  # поле `extra` журнала
+    assert marks == ["credit_balance_exhausted", "insufficient_quota"]
+
+
 async def test_402_is_no_credits_whatever_the_body() -> None:
     provider = Provider(lambda: httpx.Response(402, text="Payment Required"))
 
