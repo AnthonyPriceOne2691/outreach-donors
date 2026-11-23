@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 
@@ -19,7 +20,8 @@ from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBea
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access import sessions
-from backend.features.access.attempts import LoginAttempts
+from backend.features.access.administration import NotConfirmedError, confirm_own_password
+from backend.features.access.attempts import LoginAttempts, TooManyAttemptsError
 from backend.features.access.permissions import (
     Actor,
     OneTimePasswordError,
@@ -45,6 +47,8 @@ _pass = APIKeyHeader(name=TOKEN_HEADER, auto_error=False)
 #: включена (`API_DOCS_ENABLED`; в бою её нет). Снаружи прокси его не пропустит — там
 #: `Authorization` занят паролем прокси и до сервера не доходит.
 _bearer = HTTPBearer(auto_error=False)
+
+logger = logging.getLogger(__name__)
 
 #: Счётчик попыток входа — один на процесс, живёт сколько процесс.
 attempts = LoginAttempts()
@@ -97,7 +101,7 @@ async def signed_in(signed: SignedPass = Depends(signed_pass)) -> UserModel:
 
 def _admitted(user: UserModel | None, payload: TokenPayload) -> UserModel:
     """Учётка пропуска — или отказ «входа нет» словами: учётки нет или она отключена; пароль
-    сменили после выдачи пропуска.
+    сменили после выдачи пропуска, включили или сбросили вход с кодом (поколение пропусков).
 
     Второе — с проверки прода 10.10.2026: сброс админом и смена своего пароля закрывают
     выданные пропуска, а окно сброса до того обещало «старый перестанет действовать»,
@@ -105,9 +109,10 @@ def _admitted(user: UserModel | None, payload: TokenPayload) -> UserModel:
     """
     if user is None or not user.is_active:
         raise SignedOutError("Учётка отключена или удалена — войти по этому пропуску нельзя")
-    if password_changed_since(payload, user.password_hash):
+    if password_changed_since(payload, user.password_hash, user.token_generation):
         raise SignedOutError(
-            "Пароль учётки сменили — этот пропуск больше не действует, войдите заново"
+            "Пароль учётки сменили или вход с кодом включили либо сбросили — этот пропуск "
+            "больше не действует, войдите заново"
         )
     return user
 
@@ -146,3 +151,31 @@ def needs(permission: Permission) -> Callable[[UserModel], Awaitable[UserModel]]
 def actor(user: UserModel) -> Actor:
     """Модель базы → то, с чем работает ядро."""
     return actor_of(user)
+
+
+async def confirm_password(user: UserModel, password: str | None, *, place: str) -> None:
+    """Подтвердить действие нынешним паролем учётки — со счётом неверных (аудит 10.10.2026):
+    украденный пропуск иначе подбирал бы пароль хозяина без предела, а с паролем — и вход. Ключ
+    один на все ручки (`password:<учётка>`), как у смены своего пароля: подбор своего пароля —
+    один счёт, через какую ручку он ни шёл бы. Неверный — 403 «подтвердите своим паролем»
+    (`administration.NotConfirmedError`); в журнал действий отказ не пишется — строка журнала
+    приложения. `place` — чья ручка, для этой строки: «учётки», «вход с кодом»."""
+    key = f"password:{user.id}"
+    try:
+        attempts.check(key)
+    except TooManyAttemptsError:
+        logger.warning(
+            "%s: попытки подтверждения исчерпаны, пароль даже не проверялся",
+            place,
+            extra={"user_id": user.id},
+        )
+        raise
+    try:
+        await confirm_own_password(password, user.password_hash)
+    except NotConfirmedError:
+        attempts.failed(key)
+        logger.warning(
+            "%s: действие не подтверждено — пароль не подошёл", place, extra={"user_id": user.id}
+        )
+        raise
+    attempts.succeeded(key)

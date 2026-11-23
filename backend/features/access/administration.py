@@ -29,7 +29,8 @@
 **Правка доступа и сброс чужого пароля — только с паролем админа** (аудит 20.11.2026, №10,
 `confirm_own_password`). Это то, ради чего крадут пропуск админа: с ним вор выдаёт себе права,
 отбирает их у хозяина или сбрасывает чужой пароль и входит по разовому. Пароля в пропуске нет —
-без него этих действий пропуск больше не открывает.
+без него этих действий пропуск больше не открывает. Сброс чужого входа с кодом (23.11.2026,
+`reset_totp`) — так же: с ним вор снял бы второй шаг с учётки, пароль которой знает.
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.access import second_step
 from backend.features.access.passwords import (
     WeakPasswordError,
     assert_strong_enough,
@@ -47,8 +49,9 @@ from backend.features.access.passwords import (
 )
 from backend.features.access.permissions import AccessDeniedError, Actor, has_permission
 from backend.features.access.repository import AccessRepository, actor_of
+from backend.features.access.second_step import TotpStateError
 from backend.features.access.tokens import create_token
-from backend.features.core.domain import Permission, UserRole
+from backend.features.core.domain import AuditAction, Permission, UserRole
 from backend.features.core.models.access import UserModel
 
 #: Отказ подтверждения — один на «пароль не прислан» и «не подошёл»: админ сам знает, прислал
@@ -179,6 +182,38 @@ async def reset_password(
     return user, password
 
 
+async def reset_totp(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    author: Actor | None,
+) -> UserModel:
+    """Сбросить вход с кодом учётки: телефон потерян или сменился. Секрет и коды восстановления
+    удалены, выданные учётке пропуска погасли (сеанс на потерянном телефоне не живёт). Роль
+    требует код — учётка включит его заново при следующем входе.
+
+    `author` — админ, который сбрасывает; `None` — команда на сервере (`outreach user-totp-reset`):
+    единственный админ, потерявший телефон, иначе не вошёл бы вовсе. Себе админ код не
+    сбрасывает — выключает паролем и кодом: сброс закрыл бы и этот сеанс."""
+    if author is not None and author.user_id == user_id:
+        raise SelfLockoutError(
+            "Свой вход с кодом не сбрасывают, а выключают паролем и кодом — «Вход с кодом» в "
+            "меню у почты. Телефон потерян — сбросит другой админ или команда на сервере"
+        )
+    repository = AccessRepository(session)
+    user = await _known(repository, user_id)
+    if not second_step.enabled(user):
+        raise TotpStateError(f"У {user.email} вход с кодом не включён — сбрасывать нечего")
+    await second_step.switch_off(
+        session,
+        user,
+        action=AuditAction.TOTP_RESET,
+        author_id=author.user_id if author is not None else None,
+        details=None if author is not None else {"откуда": "команда на сервере"},
+    )
+    return user
+
+
 async def update_access(
     session: AsyncSession,
     *,
@@ -230,7 +265,7 @@ async def change_own_password(
         raise WeakPasswordError("Новый пароль совпадает со старым")
 
     stored = await repository.set_password(user.id, new, one_time=False)
-    return create_token(user.id, password_hash=stored)
+    return create_token(user.id, password_hash=stored, generation=user.token_generation)
 
 
 async def _known(repository: AccessRepository, user_id: int) -> UserModel:

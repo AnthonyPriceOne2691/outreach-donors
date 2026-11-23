@@ -6,6 +6,11 @@
 **«Кто я», смена пароля и выход работают с разовым паролем за спиной.**
 Остальные маршруты — нет: иначе требование сменить выданный пароль
 держится на вежливости интерфейса.
+
+**У учётки с кодом верная пара — ещё не вход** (23.11.2026): ответ 403 с признаком
+`X-Access-Refusal: second-step` и телом `SecondStep` — шаг и вызов к нему; пропуск выдаёт второй
+шаг (`code_routes.py`). Отказом, а не 200: экран и скрипт, которые шагов не знают, покажут его
+слова как отказ входа и не примут ответ без пропуска за вход.
 """
 
 from __future__ import annotations
@@ -17,13 +22,16 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api import deps
-from backend.api.auth.schemas import Credentials, Me, PasswordChange, SignedIn
+from backend.api.auth.schemas import Credentials, Me, PasswordChange, SecondStep, SignedIn
 from backend.api.deps import SignedPass, db_session, signed_in, signed_pass
+from backend.api.errors import ACCESS_REFUSAL
 from backend.config import access as cfg
-from backend.features.access import sessions
+from backend.features.access import challenge, sessions
 from backend.features.access.administration import WrongPasswordError, change_own_password
 from backend.features.access.attempts import TooManyAttemptsError
+from backend.features.access.challenge import Step
 from backend.features.access.login import LoginFailedError, attempted_email, login
+from backend.features.access.login import SecondStep as Pending
 from backend.features.access.repository import actor_of, normalize_email
 from backend.features.core.models.access import UserModel
 
@@ -43,13 +51,55 @@ def _keys(request: Request, email: str) -> tuple[str, str]:
     return f"email:{normalize_email(email)}", f"addr:{address}"
 
 
-@router.post("/login", response_model=SignedIn, summary="Вход")
+#: Признак ответа «пара подошла, нужен второй шаг» (`X-Access-Refusal`).
+SECOND_STEP = "second-step"
+
+#: Что сказать о шаге тому, кто шагов не знает: старый экран и скрипт покажут это отказом входа.
+STEP_WORDS: dict[Step, str] = {
+    Step.CODE: (
+        "Пароль подошёл — нужен код из приложения-аутентификатора (второй шаг входа). "
+        "Нет поля для кода — обновите страницу"
+    ),
+    Step.ENROLL: (
+        "Пароль подошёл — для вашей роли вход с кодом обязателен: включите его (второй шаг "
+        "входа). Нет экрана включения — обновите страницу"
+    ),
+}
+
+
+def _second_step(pending: Pending) -> JSONResponse:
+    """Ответ «нужен второй шаг»: 403 с признаком и вызовом — без пропуска."""
+    minutes = int(challenge.TTL.total_seconds()) // 60
+    body = SecondStep(
+        detail=STEP_WORDS[pending.step],
+        step=pending.step,
+        challenge=pending.challenge,
+        expires_in_minutes=minutes,
+    )
+    return JSONResponse(
+        body.model_dump(mode="json"),
+        status_code=status.HTTP_403_FORBIDDEN,
+        headers={ACCESS_REFUSAL: SECOND_STEP},
+    )
+
+
+@router.post(
+    "/login",
+    response_model=SignedIn,
+    summary="Вход",
+    responses={
+        status.HTTP_403_FORBIDDEN: {
+            "model": SecondStep,
+            "description": "Пара подошла, нужен второй шаг: код или включение кода",
+        }
+    },
+)
 async def sign_in(
     body: Credentials,
     request: Request,
     session: AsyncSession = Depends(db_session),
-) -> SignedIn:
-    """Проверить пару и выдать пропуск."""
+) -> SignedIn | JSONResponse:
+    """Проверить пару и выдать пропуск — или, если у учётки код, вызов второго шага."""
     keys = _keys(request, body.email)
     # Счётчик берётся через модуль, а не по имени: так его можно
     # подменить целиком — в тестах и при переезде в общее хранилище.
@@ -81,6 +131,8 @@ async def sign_in(
 
     deps.attempts.succeeded(keys[0])
     await session.commit()
+    if isinstance(opened, Pending):
+        return _second_step(opened)
 
     user = await session.get(UserModel, opened.user_id)
     assert user is not None  # только что вошли этой учёткой
