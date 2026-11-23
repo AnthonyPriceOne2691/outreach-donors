@@ -19,7 +19,7 @@ import httpx
 
 from backend.features.crawl.feeds import FeedReader, declared_feeds
 from backend.features.crawl.fetch import FetchResult
-from backend.features.crawl.frontier import BOTH, LINKS, Frontier, crawlable, same_site_links
+from backend.features.crawl.frontier import BOTH, LINKS, Frontier, own_pages, same_site_links
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.progress import Checkpoint
 from backend.features.crawl.robots import RobotsRules
@@ -83,9 +83,10 @@ def start_frontier(
 ) -> tuple[Frontier, list[str]]:
     """Очередь — сначала карта, потом ссылки (`frontier.py`) — и уже открытые страницы.
 
-    Адреса карты проходят те же правила, что ссылки: свой сайт, страница, а не файл.
-    Ссылки копятся с главной и с каждой открытой страницы; продолжение берёт их из
-    чекпоинта — собрать заново значило бы обойти сайт второй раз, — а карту читает снова.
+    Адреса карты, ленты и чекпоинта проходят те же правила, что ссылки (`frontier.own_page`):
+    свой сайт, страница, а не файл, адрес, который откроет клиент. Ссылки копятся с главной
+    и с каждой открытой страницы; продолжение берёт их из чекпоинта — собрать заново значило
+    бы обойти сайт второй раз, — а карту читает снова.
     Адреса ленты — первыми среди ссылок. Карту прервала просьба кончить (`SitemapScan.halted`)
     раньше первого адреса — очередь всё равно «с картой»: иначе чекпоинт назвал бы источник
     «только ссылки», и продолжение карту не читало бы вовсе.
@@ -94,9 +95,9 @@ def start_frontier(
     # открывается». Она же и первая страница отчёта, откуда бы
     # ни взялась очередь: иначе статей окажется больше, чем страниц.
     opened = list(point.pages) or [home.url]
-    mapped = [] if point.source == LINKS else [u for u in found.scan.urls if crawlable(u, host)]
-    linked = point.queue if point.pages else [
-        *(url for url in found.fresh if crawlable(url, host)),
+    mapped = [] if point.source == LINKS else own_pages(found.scan.urls, host)
+    linked = own_pages(point.queue, host) if point.pages else [
+        *own_pages(found.fresh, host),
         *same_site_links(home.html or "", home.url, host),
     ]  # fmt: skip
     frontier = Frontier.start(

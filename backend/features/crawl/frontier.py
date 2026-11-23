@@ -14,6 +14,11 @@
 (`SKIP_SUFFIXES`), без `mailto:`, `tel:` и якорей; запрет robots.txt обход проверяет перед
 запросом. До 23.10.2026 адреса карты фильтр файлов не проходили, и PDF из карты тратил
 попытку и паузу.
+
+**Адрес — в том виде, в каком его прочтёт браузер** (`own_page`, 23.11.2026): управляющий знак
+внутри ссылки клиент не открывает вовсе, и до этой правки одна такая ссылка на странице донора
+роняла весь обход. Теперь края чистятся, знаки внутри кодируются, а чего не прочтёт и браузер
+(знак в имени хоста), в очередь не встаёт.
 """
 
 from __future__ import annotations
@@ -25,7 +30,7 @@ from urllib.parse import urldefrag
 
 from selectolax.parser import HTMLParser, Node
 
-from backend.shared.net.url_parts import join_url, parse_url
+from backend.shared.net.url_parts import clean_url, join_url, parse_url
 
 #: Расширения, за которыми страницы нет: качать их — это трафик без пользы.
 SKIP_SUFFIXES: tuple[str, ...] = (
@@ -55,6 +60,18 @@ def crawlable(url: str, host: str) -> bool:
     return not parts.path.lower().endswith(SKIP_SUFFIXES)
 
 
+def own_page(url: str, host: str) -> str | None:
+    """Адрес страницы своего сайта в том виде, в каком его откроет обход (`clean_url`), — или
+    `None`: не наш, не страница или не открыть и после чистки."""
+    address = clean_url(url)
+    return address if address is not None and crawlable(address, host) else None
+
+
+def own_pages(urls: Iterable[str], host: str) -> list[str]:
+    """`own_page` для списка — адресов карты, ленты и чекпоинта: правила те же, что у ссылок."""
+    return [page for url in urls if (page := own_page(url, host)) is not None]
+
+
 def page_hrefs(html: str) -> Iterator[tuple[Node, str]]:
     """Ссылки страницы, за которыми может быть страница: узел и адрес как вписан, без
     пробелов по краям. Пустой адрес, почта, телефон, скрипт и якорь пропускаются — одним
@@ -66,7 +83,8 @@ def page_hrefs(html: str) -> Iterator[tuple[Node, str]]:
 
 
 def same_site_links(html: str, page_url: str, host: str) -> list[str]:
-    """Ссылки со страницы на свой же сайт, без якорей и дублей.
+    """Ссылки со страницы на свой же сайт, без якорей и дублей, — в том виде, в каком их
+    откроет обход (`own_page`).
 
     Якорь отбрасывается до сравнения: `/post` и `/post#comments` — одна
     страница, и без этого обход платит за неё столько раз, сколько
@@ -78,8 +96,8 @@ def same_site_links(html: str, page_url: str, host: str) -> list[str]:
         joined = join_url(page_url, href)
         if joined is None:
             continue
-        absolute, _ = urldefrag(joined)
-        if absolute in seen or not crawlable(absolute, host):
+        absolute = own_page(urldefrag(joined)[0], host)
+        if absolute is None or absolute in seen:
             continue
         seen.add(absolute)
         out.append(absolute)
