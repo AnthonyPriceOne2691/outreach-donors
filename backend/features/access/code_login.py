@@ -29,7 +29,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import access as cfg
-from backend.features.access import second_step, totp
+from backend.features.access import recovery_codes, second_step, totp
 from backend.features.access.challenge import Challenge, still_fits
 from backend.features.access.lockout import AccountPausedError, refuse_while_paused
 from backend.features.access.login import Session, count_toward_pause, open_session
@@ -118,7 +118,7 @@ async def finish_with_code(
             AuditAction.RECOVERY_CODE_USED,
             author_id=user.id,
             target=f"user:{user.id}",
-            details={"email": user.email, "осталось кодов": checked.codes_left},
+            details={"email": user.email, recovery_codes.LEFT: checked.codes_left},
         )
     return await open_session(repository, user, moment)
 
