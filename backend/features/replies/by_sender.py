@@ -12,6 +12,11 @@
   не ищет. Нашего адреса нет — искать не в чем.
 - **Отправитель — не наш ящик.** Письмо с нашего домена рассылки — пробное, пересылка коллеги
   или петля, а не ответ адресата.
+- **Отправитель — подтверждённый.** «От кого» подделать легко: это просто поле письма, а метка
+  подписана. Засчитывается одно из двух: подпись DKIM с доменом из «От кого» и итогом pass —
+  или SPF pass, когда домен обратного адреса конверта тот же. Домены сравниваются точно, без
+  регистра: подпись поддомена или домена организации — не подпись домена «От кого», и такой
+  ответ — человеку. Проверка — до поисков: неподтверждённому отправителю адресата не ищем.
 - **Адрес — целиком**, без регистра и краевых пробелов, как сверяет получателя сверка событий
   доставки (`letters/events.py`). Тот же домен — не тот же человек: `info@` и `editor@`
   одного сайта — разные ящики.
@@ -22,8 +27,9 @@
 
 Метка и цепочка по-прежнему первые: пересланное письмо с нового адреса здесь не находит никого
 и остаётся человеку, а донор определяется по получателю (`binding`). Отправитель решает, только
-когда больше решать нечему, и только однозначно: «От кого» подделать легко, а метка подписана
-(`docs/OUTREACH_THREADS.md`).
+когда больше решать нечему, и только однозначно и подтверждённо (`docs/OUTREACH_THREADS.md`).
+Итоги проверок подлинности приходят в нейтральном виде (`Incoming.dkim_passed` и соседи): вид
+платформы знает только `mime.py`.
 
 **Адресат письма продаж — лид переписки, и знает его модуль продаж**, а почта модуль продаж
 не импортирует (контракт `mail-does-not-know-sales` в `.importlinter`). Поэтому поиски
@@ -87,12 +93,13 @@ async def bind(
     session: AsyncSession, incoming: Incoming, bound: Binding, lookups: SenderLookups
 ) -> Binding:
     """Ответ без метки и цепочки — к последнему письму единственного адресата направления
-    с адресом отправителя (`BindingWay.SENDER`). Иначе — `bound` как был: ответ — человеку."""
+    с адресом отправителя (`BindingWay.SENDER`), если отправитель подтверждён (`_confirmed`).
+    Иначе — `bound` как был: ответ — человеку."""
     if bound.unbound is not Unbound.NO_LABEL:
         return bound
     address = incoming.from_email.strip().lower()
     stage = await _direction(session, incoming.to, address) if address else None
-    if stage is None:
+    if stage is None or not _confirmed(incoming, address, stage):
         return bound
     found = [pair for lookup in lookups for pair in await lookup(session, address, stage)]
     letter = _the_one(found, stage)
@@ -114,6 +121,38 @@ async def _direction(session: AsyncSession, to: Sequence[str], sender: str) -> S
         extra={"stage": stage.value},
     )
     return None
+
+
+def _confirmed(incoming: Incoming, address: str, stage: Stage) -> bool:
+    """Подтверждён ли отправитель: подпись DKIM домена его адреса прошла — или прошёл SPF,
+    и обратный адрес конверта того же домена. Домены — точно, без регистра: поддомен и домен
+    организации — другие домены (ослабленного выравнивания DMARC нет)."""
+    domain = _domain(address)
+    signed = {_bare(name) for name in incoming.dkim_passed}
+    spf = incoming.spf_passed and _domain(incoming.envelope_from) == domain
+    if domain and (domain in signed or spf):
+        return True
+    logger.info(
+        "приём: по отправителю не привязан — отправитель не подтверждён (dkim/SPF), направление %s",
+        stage.value,
+        extra={
+            "stage": stage.value,
+            "dkim_passed": len(signed),
+            "spf_passed": incoming.spf_passed,
+        },
+    )
+    return False
+
+
+def _domain(address: str) -> str:
+    """Домен адреса для сравнения (`_bare`). Нет «@» — пусто: домен не назван."""
+    _, at, domain = address.rpartition("@")
+    return _bare(domain) if at else ""
+
+
+def _bare(domain: str) -> str:
+    """Домен для сравнения — строчными, без краевых пробелов и точки в конце: то же имя."""
+    return domain.strip().rstrip(".").lower()
 
 
 def _the_one(found: Sequence[tuple[int, str]], stage: Stage) -> int | None:

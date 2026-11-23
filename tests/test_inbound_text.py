@@ -3,7 +3,8 @@
 Каждая проверка здесь — случай, на котором приём уже терял цену: русский
 в windows-1251 кракозябрами, евро из windows-1252 управляющим символом,
 ответ из одного HTML пустым, сырое письмо в quoted-printable — «=E2=82=AC»
-вместо «€».
+вместо «€». И итоги проверок подлинности отправителя — в нейтральные поля
+входящего: по ним решает привязка по отправителю (`TestSenderProof`).
 """
 
 from __future__ import annotations
@@ -19,7 +20,13 @@ from backend.features.replies.classify import classify
 from backend.features.replies.form_data import FormError, read_form
 from backend.features.replies.html_text import text_from_html
 from backend.features.replies.inbound import Attachment, storable
-from backend.features.replies.mime import KEPT_HEADERS, file_name, from_form, parse_headers
+from backend.features.replies.mime import (
+    KEPT_HEADERS,
+    file_name,
+    from_form,
+    incoming_from,
+    parse_headers,
+)
 from backend.features.replies.quoting import written_by_hand
 from backend.features.replies.raw_mime import read_raw
 from tests.inbound_forms import BOUNDARY, multipart
@@ -298,6 +305,166 @@ class TestForm:
     def test_not_a_form_is_refused_with_a_reason(self, kind: str) -> None:
         with pytest.raises(FormError):
             read_form(b"{}", kind)
+
+
+#: Отправитель письма и обратный адрес его конверта — выдуманы.
+EDITOR = "editor@donor.example.test"
+ENVELOPE = json.dumps({"to": ["anna@mail-donors.example.test"], "from": EDITOR})
+#: Поле «От кого» формы платформы.
+SENT_BY = {"from": f"Elena <{EDITOR}>"}
+
+
+class TestSenderProof:
+    """Итоги проверок подлинности платформы — в нейтральные поля входящего: домены подписей
+    DKIM с итогом pass, прошёл ли SPF и обратный адрес конверта (`mime.from_form`). Вид полей
+    платформы знает только перевод; непонятное не засчитывает ничего и не роняет приём."""
+
+    @pytest.mark.parametrize(
+        ("dkim", "passed"),
+        [
+            ("{@donor.example.test : pass}", ("donor.example.test",)),
+            ("{@relay.example.test : pass, @donor.example.test : fail}", ("relay.example.test",)),
+            (
+                "{@Donor.Example.TEST : PASS,@relay.example.test:Pass}",
+                ("donor.example.test", "relay.example.test"),
+            ),
+            ("  @donor.example.test. : pass  ", ("donor.example.test",)),
+            ("{@donor.example.test : fail, @donor.example.test : pass}", ("donor.example.test",)),
+            ("{@donor.example.test : fail}", ()),
+            ("{@donor.example.test : neutral}", ()),
+            ("none", ()),
+            ("{}", ()),
+        ],
+        ids=[
+            "одна подпись",
+            "две подписи, прошла чужая",
+            "регистр и пробелы",
+            "без скобок, точка в конце",
+            "две подписи домена, одна прошла",
+            "fail",
+            "neutral",
+            "подписей нет",
+            "пусто",
+        ],
+    )
+    def test_dkim_domains_that_passed(self, dkim: str, passed: tuple[str, ...]) -> None:
+        assert from_form({**SENT_BY, "dkim": dkim}).dkim_passed == passed
+
+    @pytest.mark.parametrize(
+        "dkim",
+        [
+            "{donor.example.test : pass}",
+            "{@donor.example.test pass}",
+            "{@donor.example.test : pass, signed}",
+            "{@donor.example.test : pass (good signature)}",
+            "{@ : pass}",
+            "pass",
+            "{\x00\ud800}",
+        ],
+        ids=[
+            "без @",
+            "без двоеточия",
+            "хвост не пара",
+            "итог не словом",
+            "без домена",
+            "слово",
+            "мусор",
+        ],
+    )
+    def test_a_broken_dkim_field_confirms_nothing_and_raises_nothing(
+        self, dkim: str, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Хоть одна часть — не пара «@домен : итог»: не засчитан ни один домен, и прошедший тоже."""
+        assert from_form({**SENT_BY, "dkim": dkim}).dkim_passed == ()
+        assert "поле dkim не разобрано" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("spf", "passed"),
+        [
+            ("pass", True),
+            (" PASS\r\n", True),
+            ("fail", False),
+            ("softfail", False),
+            ("neutral", False),
+            ("none", False),
+            ("temperror", False),
+            ("permerror", False),
+            ("", False),
+            ("pass (sender authorized)", False),
+        ],
+    )
+    def test_spf_counts_only_an_exact_pass(self, spf: str, passed: bool) -> None:
+        assert from_form({**SENT_BY, "SPF": spf}).spf_passed is passed
+
+    def test_the_return_address_of_the_envelope_is_kept_apart_from_the_sender(self) -> None:
+        envelope = json.dumps(
+            {"to": ["anna@mail-donors.example.test"], "from": "Bounce@Relay.Example.Test"}
+        )
+
+        got = from_form({**SENT_BY, "envelope": envelope})
+
+        assert (got.from_email, got.envelope_from) == (EDITOR, "bounce@relay.example.test")
+
+    def test_nothing_said_confirms_nothing(self) -> None:
+        got = from_form(SENT_BY)
+
+        assert (got.dkim_passed, got.spf_passed, got.envelope_from) == ((), False, "")
+
+    @pytest.mark.parametrize("raw", [False, True], ids=["разобранный режим", "сырой режим"])
+    def test_the_fields_reach_the_letter_in_both_modes(self, raw: bool) -> None:
+        """В сыром режиме письмо целиком едет полем `email`, а конверт и итоги проверок — полями
+        рядом: слияние с прочитанным из письма (`mime._merged`) их не теряет."""
+        letter = [("from", f"Elena <{EDITOR}>".encode()), ("text", b"Hello")]
+        if raw:
+            letter = [("email", _raw(f"From: Elena <{EDITOR}>", "Subject: Hi", body=b"Hello"))]
+        body, headers = multipart(
+            [
+                *letter,
+                ("dkim", b"{@donor.example.test : pass}"),
+                ("SPF", b"pass"),
+                ("envelope", ENVELOPE.encode()),
+            ]
+        )
+
+        got = incoming_from(read_form(body, headers["Content-Type"]))
+
+        assert (got.from_email, got.text.strip()) == (EDITOR, "Hello")
+        assert (got.dkim_passed, got.spf_passed, got.envelope_from) == (
+            ("donor.example.test",),
+            True,
+            EDITOR,
+        )
+
+    def test_a_raw_letter_in_a_string_keeps_them_too(self) -> None:
+        """Сырое письмо строкой — проверка руками, старый путь, — тот же итог."""
+        got = from_form(
+            {
+                "email": f"From: {EDITOR}\r\n\r\nHello\r\n",
+                "dkim": "{@donor.example.test : pass}",
+                "SPF": "pass",
+                "envelope": ENVELOPE,
+            }
+        )
+
+        assert (got.dkim_passed, got.spf_passed, got.envelope_from) == (
+            ("donor.example.test",),
+            True,
+            EDITOR,
+        )
+
+    def test_the_letter_does_not_confirm_itself(self) -> None:
+        """`Authentication-Results` в самом письме может написать и отправитель: без полей
+        платформы не засчитано ничего."""
+        email = _raw(
+            f"From: {EDITOR}",
+            "Authentication-Results: mx.example.test; dkim=pass header.d=donor.example.test;"
+            " spf=pass smtp.mailfrom=donor.example.test",
+            body=b"Hello",
+        )
+
+        got = from_form({}, letter=read_raw(email))
+
+        assert (got.from_email, got.dkim_passed, got.spf_passed) == (EDITOR, (), False)
 
 
 class TestNamesAndPolicy:

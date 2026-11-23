@@ -4,9 +4,11 @@
 по адресу отправителя среди наших ушедших писем направления, на ящик которого он пришёл.
 Привязка — только к единственному адресату и к его последнему письму; ноль адресатов, двое,
 наш собственный ящик, чужое направление или неотправленное письмо — ответ остаётся человеку,
-как раньше. Метка, цепочка и остальные причины не привязки — как прежде. Адресаты здесь —
-контакты доноров и рекламодателей; лиды продаж — `test_sales_reply_sender.py`. Домены и
-адреса выдуманы.
+как раньше. И только подтверждённому отправителю: подпись DKIM домена из «От кого» или SPF
+с тем же доменом конверта; иначе — человеку, а адресата не ищут вовсе. Метка, цепочка
+и остальные причины не привязки — как прежде. Адресаты здесь — контакты доноров
+и рекламодателей; лиды продаж — `test_sales_reply_sender.py`, вид полей платформы —
+`test_inbound_text.py`. Домены и адреса выдуманы.
 """
 
 from __future__ import annotations
@@ -117,13 +119,15 @@ async def letter(
 
 
 def fresh(sender: str = EDITOR, *, to: str = DONORS_BOX, **extra: object) -> Incoming:
-    """Письмо, написанное заново: на адрес ящика, без метки и без заголовков цепочки."""
+    """Письмо, написанное заново: на адрес ящика, без метки и без заголовков цепочки.
+    Отправитель подтверждён подписью DKIM домена своего адреса, если `extra` не скажет иначе."""
     values: dict[str, object] = {
         "message_id": "<fresh-1@donor.example.test>",
         "to": (to,),
         "from_email": sender,
         "subject": "Guest post",
         "text": "Hello! Do you still need a guest post on our site?",
+        "dkim_passed": (sender.rpartition("@")[2].strip().lower(),),
     }
     values.update(extra)
     return Incoming(**values)  # type: ignore[arg-type]
@@ -301,6 +305,104 @@ class TestLeftToAHuman:
         [said] = [r for r in caplog.records if r.name == LOGGER]
         assert said.getMessage().startswith("приём: ответ от нашего ящика")
         assert sender not in repr(vars(said))
+
+
+#: Подпись пересылки или платформы рассылки: прошла, но домен — не домен «От кого».
+RELAY = "relay.example.test"
+
+
+class TestOnlyAConfirmedSender:
+    """«От кого» — просто поле письма: по отправителю привязывается только подтверждённый —
+    подписью DKIM домена из «От кого» или SPF pass с тем же доменом обратного адреса конверта.
+    Домены — точно, без регистра: поддомен и домен организации — не тот же домен."""
+
+    @pytest.mark.parametrize(
+        ("sender", "proof"),
+        [
+            (EDITOR, {"dkim_passed": ("donor.example.test",)}),
+            (EDITOR, {"dkim_passed": (RELAY, "donor.example.test")}),
+            (EDITOR, {"spf_passed": True, "envelope_from": "bounce@donor.example.test"}),
+            ("Editor@DONOR.Example.Test", {"dkim_passed": ("donor.example.test",)}),
+            (EDITOR, {"dkim_passed": ("DONOR.Example.Test",)}),
+            (EDITOR, {"spf_passed": True, "envelope_from": "Bounce@Donor.EXAMPLE.test"}),
+        ],
+        ids=[
+            "dkim домена From",
+            "dkim — одна из подписей",
+            "SPF и тот же домен конверта",
+            "регистр From",
+            "регистр подписи",
+            "регистр конверта",
+        ],
+    )
+    async def test_a_confirmed_sender_is_bound(
+        self, session: AsyncSession, sender: str, proof: dict[str, Any]
+    ) -> None:
+        ours = await letter(session, await contact(session), await campaign(session))
+
+        got, reply = await accepted(session, fresh(sender, **{"dkim_passed": (), **proof}))
+
+        assert_bound(got, reply, ours)
+
+    @pytest.mark.parametrize(
+        "proof",
+        [
+            {},
+            {"dkim_passed": (RELAY,), "envelope_from": EDITOR},
+            {"spf_passed": True, "envelope_from": f"bounce@{RELAY}"},
+            {"envelope_from": EDITOR},
+            {
+                "dkim_passed": ("mail.donor.example.test",),
+                "spf_passed": True,
+                "envelope_from": "bounce@mail.donor.example.test",
+            },
+            {
+                "dkim_passed": ("example.test",),
+                "spf_passed": True,
+                "envelope_from": "bounce@example.test",
+            },
+        ],
+        ids=[
+            "ни подписи, ни SPF",
+            "подпись пересылки, SPF не pass",
+            "SPF pass, конверт чужого домена",
+            "конверт свой, SPF не pass",
+            "поддомен",
+            "домен организации",
+        ],
+    )
+    async def test_an_unconfirmed_sender_is_left_to_a_human(
+        self, session: AsyncSession, caplog: pytest.LogCaptureFixture, proof: dict[str, Any]
+    ) -> None:
+        caplog.set_level(logging.INFO, logger=LOGGER)
+        await letter(session, await contact(session), await campaign(session))
+
+        got, reply = await accepted(session, fresh(**{"dkim_passed": (), **proof}))
+
+        assert_left_to_a_human(got, reply)
+        [said] = [r for r in caplog.records if r.name == LOGGER]
+        assert said.getMessage() == (
+            "приём: по отправителю не привязан — отправитель не подтверждён (dkim/SPF), "
+            f"направление {Stage.DONORS.value}"
+        )
+        assert said.__dict__["stage"] == Stage.DONORS.value
+        # Ни адреса, ни его домена: строку журнала читают люди, которым чужой ящик не нужен.
+        assert "donor.example.test" not in repr(vars(said))
+
+    async def test_an_unconfirmed_sender_is_not_even_looked_up(self, session: AsyncSession) -> None:
+        """Проверка — до поисков: неподтверждённому отправителю адресата не ищут."""
+        asked: list[str] = []
+
+        async def lookup(_: AsyncSession, address: str, stage: Stage) -> list[tuple[int, str]]:
+            asked.append(address)
+            return []
+
+        inbox = Inbox(session, now=NOW, lookups=(lookup,))
+        await inbox.accept(fresh(dkim_passed=(RELAY,)))
+        assert asked == []
+
+        await inbox.accept(fresh(message_id="<fresh-2@donor.example.test>"))
+        assert asked == [EDITOR]
 
 
 class TestOtherWaysAsBefore:

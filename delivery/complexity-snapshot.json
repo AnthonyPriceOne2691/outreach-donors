@@ -2722,9 +2722,9 @@
       "worst": "thread_ids:120"
     },
     "backend/features/replies/by_sender.py": {
-      "lines": 152,
-      "complexity": 7,
-      "worst": "bind:86"
+      "lines": 191,
+      "complexity": 8,
+      "worst": "bind:92"
     },
     "backend/features/replies/calibration.py": {
       "lines": 164,
@@ -2767,9 +2767,9 @@
       "worst": "text_from_html:175"
     },
     "backend/features/replies/inbound.py": {
-      "lines": 187,
+      "lines": 194,
       "complexity": 3,
-      "worst": "addresses_in:167"
+      "worst": "addresses_in:174"
     },
     "backend/features/replies/lead_handoff.py": {
       "lines": 316,
@@ -2782,9 +2782,9 @@
       "worst": "held:141"
     },
     "backend/features/replies/mime.py": {
-      "lines": 365,
+      "lines": 412,
       "complexity": 11,
-      "worst": "from_form:298"
+      "worst": "from_form:339"
     },
     "backend/features/replies/money.py": {
       "lines": 342,
