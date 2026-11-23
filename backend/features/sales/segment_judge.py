@@ -35,7 +35,7 @@ from backend.features.sales.segment_facts import (
     SiteFacts,
     made_up,
 )
-from backend.features.sales.segment_language import named_by_model
+from backend.features.sales.segment_language import named_by_model, without_accept
 from backend.features.sales.segment_models import Decider, Lane
 from backend.features.sales.segment_rules import BY_LANGUAGE, BY_RULE, RULES, Case, Rule, first
 from backend.features.sales.segment_scope import Scope
@@ -310,9 +310,13 @@ def effective(verdict: SegmentVerdict, mode: JudgeMode) -> tuple[Lane, str]:
     сайт, а кладёт его в свою полосу «судья отказал бы» (`Lane.WOULD_REJECT`; вариант (b), решение
     владельца 20.10): «на проверке» — только сомнительные, решать по отказам человеку не обязательно,
     лида без его «Принять» нет. Причина — слова судьи как есть: что это отказ, говорит полоса. Отмена
-    решения человека возвращает сайт сюда же (`segment_undo`)."""
-    if verdict.decided_by is Decider.RULE or mode is JudgeMode.ENFORCE:
+    решения человека возвращает сайт сюда же (`segment_undo`). Отсечённому в `enforce` по языку — без
+    хвоста «…; примете — …» (`segment_language.without_accept`): «Принять» у него нет."""
+    if verdict.decided_by is Decider.RULE:
         return verdict.lane, verdict.reason
+    if mode is JudgeMode.ENFORCE:
+        cut = verdict.lane is Lane.REJECT and verdict.decided_by is Decider.LANGUAGE
+        return verdict.lane, without_accept(verdict.reason) if cut else verdict.reason
     if verdict.lane is Lane.REJECT:
         return Lane.WOULD_REJECT, verdict.reason
     return verdict.lane, verdict.reason
