@@ -198,19 +198,19 @@ def test_spoiled_no_definition_closes_the_gates(oracle: Oracle, capsys: Capture)
 def test_a_misfit_accepted_without_a_human_closes_the_gates(
     monkeypatch: pytest.MonkeyPatch, capsys: Capture
 ) -> None:
-    """Новости, обзор, доска объявлений, сервис сравнения и площадка заявок, уверенно принятые с
-    настоящей цитатой, — стали бы лидами без человека. Пяти хватает, чтобы перейти 5 % на нынешнем
-    наборе."""
-    hosts = ("pedal-weekly-sample.org", "softcompare-sample.com", "pisoportal-sample.es")
-    hosts += ("denticompara-sample.com", "yurist-zayavka-sample.com")
+    """Новости, доска вакансий, обзор, доска объявлений, сервис сравнения и площадка заявок, уверенно
+    принятые с настоящей цитатой, — стали бы лидами без человека. Шести хватает, чтобы перейти 5 % на
+    нынешнем наборе (с v7 в нём больше случаев без «да» — пяти уже мало)."""
+    hosts = ("pedal-weekly-sample.org", "rabota-uchitel-sample.kz", "softcompare-sample.com")
+    hosts += ("pisoportal-sample.es", "denticompara-sample.com", "yurist-zayavka-sample.com")
     use(monkeypatch, Oracle(SYNTHETIC, wrong=dict.fromkeys(hosts, "yes")))
 
     assert ev.main([]) == 1
 
     out = capsys.readouterr().out
     assert (
-        "ЛОЖНЫХ «ПРИНЯТЬ»: 5 ['en-news-1', 'saas-no-review', 're-no-portal', 'law-requests', "
-        "'mx-dental-booking']" in out
+        "ЛОЖНЫХ «ПРИНЯТЬ»: 6 ['en-news-1', 'cis-jobs-1', 'saas-no-review', 're-no-portal', "
+        "'law-requests', 'mx-dental-booking']" in out
     )
     others = sum("yes" not in case["expect"].split("|") for case in SYNTHETIC)
     assert len(hosts) / others > ev.Gates().false_accept_max

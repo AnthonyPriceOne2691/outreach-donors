@@ -434,6 +434,22 @@ def test_shadow_keeps_a_refusal_of_the_table_in_its_own_lane() -> None:
     assert sj.effective(verdict, JudgeMode.ENFORCE)[0] is Lane.REJECT
 
 
+# --- промпт v7: много стран без перечня и сеть по признакам ------------------------------------------
+
+
+def test_the_prompt_marks_a_count_of_unnamed_countries_as_the_world() -> None:
+    """v7: «клиенты в 40 странах» без перечня — тоже «по всему миру», иначе правило «одна из многих»
+    такого бизнеса не видит. Нужно число стран: просто «на экспорт» — не «весь мир». Сеть — прежняя
+    строка v6 (замер 23.11: признаки сети назвали сетью обычные компании)."""
+    prompt = sj.load_prompt()
+
+    assert (
+        "gives a number of countries it serves that is larger than the countries it names" in prompt
+    )
+    assert "true when the site is the regional or country site of a large international" in prompt
+    assert sj.PROMPT_VERSION == "sales-segment-v7"
+
+
 # --- синтетика под v4: поле гипотезы в разных нишах и письменностях --------------------------------
 
 SAMPLE_HOST = r"[a-z0-9-]+-sample(\.[a-z]{2,})+"
@@ -480,6 +496,27 @@ def test_the_synthetic_set_holds_one_of_many_in_many_niches_and_scripts() -> Non
     assert {case["expect"] for case in asked} == {"unsure"}
     assert "corridor" in tags
     assert len({"cyrillic", "latin", "rtl", "unspaced"} & tags) >= 3
+    unnamed = {case["hypothesis"] for case in many if "many-unnamed" in case["tags"]}
+    assert len(unnamed) >= 3  # v7: «в 40 странах» без перечня — тоже «по всему миру»
     for case in many:
         assert re.fullmatch(SAMPLE_HOST, case["host"]), case["id"]
         assert case["evidence"] in case["text"], case["id"]
+
+
+def test_the_synthetic_set_holds_networks_in_many_niches_and_scripts() -> None:
+    """Факт сети держат разные ниши и письменности: описание говорит, что крупные международные сети
+    не подходят, — сайт сети «нет», и главный сайт группы, и сайт компании «из одной страны» со своими
+    офисами в нескольких; похожий бизнес с одним офисом и клиентами во многих странах — «да»."""
+    cases = _synthetic()
+    networks = [case for case in cases if "network" in case["tags"]]
+    alike = [case for case in cases if "network-lookalike" in case["tags"]]
+    tags = {tag for case in networks for tag in case["tags"]}
+
+    assert {case["expect"] for case in networks} == {"no"}
+    assert {case["expect"] for case in alike} == {"yes"}
+    assert len({case["hypothesis"] for case in networks}) >= 3
+    assert len(alike) >= 2
+    assert len({"cyrillic", "latin", "rtl", "unspaced"} & tags) >= 3
+    for case in networks + alike:
+        assert re.search(r"(?i)сети|chains", case["segment"]), case["id"]
+        assert re.fullmatch(SAMPLE_HOST, case["host"]), case["id"]

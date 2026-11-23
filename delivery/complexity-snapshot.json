@@ -3737,9 +3737,9 @@
       "worst": "_known:43"
     },
     "backend/features/sales/segment_client.py": {
-      "lines": 402,
+      "lines": 408,
       "complexity": 7,
-      "worst": "spent_of:132"
+      "worst": "spent_of:138"
     },
     "backend/features/sales/segment_counts.py": {
       "lines": 41,
