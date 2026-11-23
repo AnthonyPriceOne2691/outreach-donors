@@ -4,7 +4,7 @@
 автоотправке они ушли бы сами одним текстом. Проверяется то, ради чего фильтр: проход пропускает
 шаблонное письмо со словами, что сделать, и шлёт остальные; поправленное руками шаблонное уходит;
 кнопка шлёт как прежде — решает человек; проход из одних шаблонных стоит не по делу, и тревога
-о нём одна, со словами; письма продаж фильтр не судит.
+о нём одна, со словами; срок очереди их не считает; письма продаж фильтр не судит.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, QueueAutosendModel
-from backend.features.letters import autosend, autosend_alarm, batch, review
+from backend.features.letters import autosend, autosend_alarm, batch, forecast, review
 from backend.features.letters.transport import NullTransport
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -128,6 +128,19 @@ class TestTheButton:
         )
 
         assert (report.sent, dict(report.refused)) == (2, {})
+
+
+@pytest.mark.usefixtures("filled_legal")
+async def test_the_queue_forecast_does_not_count_template_letters(session: AsyncSession) -> None:
+    """Срок очереди — без шаблонных: проход их не шлёт, и до правки они не уйдут."""
+    await _queue(session)
+    await _started(session)
+
+    found = await forecast.forecast(session, Stage.DONORS, days=7, back=0)
+
+    assert found.queued == 3
+    assert found.stuck == {batch.TEMPLATED: 2}
+    assert "без 2 писем, которые не уйдут, пока их не поправят" in found.eta.words
 
 
 async def test_one_alarm_with_words_for_a_queue_of_template_letters(
