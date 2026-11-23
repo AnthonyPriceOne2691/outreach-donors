@@ -314,6 +314,46 @@ ENVELOPE = json.dumps({"to": ["anna@mail-donors.example.test"], "from": EDITOR})
 SENT_BY = {"from": f"Elena <{EDITOR}>"}
 
 
+class TestSenderAddress:
+    """Адрес отправителя — адрес ящика из «От кого», а не первое похожее на адрес слово строки
+    (ревью 23.11.2026): адрес в имени запоминался ответом, по нему узнавался робот и искался
+    адресат по отправителю (`by_sender`)."""
+
+    @pytest.mark.parametrize(
+        ("said", "address"),
+        [
+            (f'"{EDITOR}" <someone@other.example.test>', "someone@other.example.test"),
+            (f"Elena <{EDITOR.upper()}>", EDITOR),
+            (f"  {EDITOR}  ", EDITOR),
+            (f"Elena <{EDITOR}>, Boss <boss@other.example.test>", EDITOR),
+            ("=?utf-8?b?0JDQvdC90LA=?= <anna@donor.example.test>", "anna@donor.example.test"),
+            (f"Broken Name {EDITOR}", EDITOR),
+        ],
+        ids=["адрес-в-имени", "регистр", "голый-адрес", "два-отправителя", "имя-закодировано",
+             "без-скобок"],
+    )  # fmt: skip
+    def test_the_address_is_the_mailbox_not_a_word_of_the_name(
+        self, said: str, address: str
+    ) -> None:
+        got = from_form({"from": said, "envelope": ENVELOPE, "text": "Hello"})
+
+        assert got.from_email == address
+
+    def test_a_broken_header_falls_back_to_the_first_address_like_word(self) -> None:
+        """Разбор строку не взял — прежний путь: ответ без отправителя не принимается вовсе."""
+        got = from_form({"from": f"{EDITOR} <someone@other", "text": "Hello"})
+
+        assert got.from_email == EDITOR
+
+    def test_without_a_sender_the_envelope_return_address_stays(self) -> None:
+        envelope = json.dumps(
+            {"to": ["anna@mail-donors.example.test"], "from": "Bounce@Relay.example.test"}
+        )
+        got = from_form({"from": "", "envelope": envelope, "text": "Hello"})
+
+        assert got.from_email == "bounce@relay.example.test"
+
+
 class TestSenderProof:
     """Итоги проверок подлинности платформы — в нейтральные поля входящего: домены подписей
     DKIM с итогом pass, прошёл ли SPF и обратный адрес конверта (`mime.from_form`). Вид полей
