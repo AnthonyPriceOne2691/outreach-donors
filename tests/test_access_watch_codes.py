@@ -449,9 +449,7 @@ async def test_journal_records_other_than_the_code_stay_quiet(
     ticket = Challenge(user_id=op.id, step=Step.CODE, stamp=account_stamp(op))
     with pytest.raises(second_step.CodeRefusedError):
         await code_login.finish_with_code(session, ticket, "не код", now=AT)
-    await code_login.finish_with_code(
-        session, ticket, totp.code_at(secret, AT.timestamp()), now=AT
-    )
+    await code_login.finish_with_code(session, ticket, totp.code_at(secret, AT.timestamp()), now=AT)
     await stamp(session, AT)
 
     batch = await read(session)
